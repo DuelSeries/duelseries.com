@@ -199,7 +199,7 @@ class GameRoom {
         const bhx = snake.head.x - other.head.x;
         const bhy = snake.head.y - other.head.y;
         if (bhx * bhx + bhy * bhy > BODY_BROAD_R2) continue;
-        for (let i = 0; i < other.segments.length; i += 2) {
+        for (let i = 0; i < other.segments.length; i++) {
           const seg = other.segments[i];
           const d = Math.hypot(snake.head.x - seg.x, snake.head.y - seg.y);
           if (d < C.SNAKE_HEAD_RADIUS + 6) {
