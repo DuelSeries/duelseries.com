@@ -157,6 +157,30 @@ async function recordWithdrawal(googleId, txSig, amount, toAddress) {
   return parseFloat(res.rows[0].balance);
 }
 
+async function recordPendingWithdrawal(googleId, amount, toAddress) {
+  const wdRes = await pool.query(
+    `INSERT INTO withdrawals (google_id, tx_sig, amount, to_address) VALUES ($1, NULL, $2, $3) RETURNING id`,
+    [googleId, amount, toAddress]
+  );
+  const res = await pool.query(
+    `UPDATE accounts SET balance = balance - $2 WHERE google_id = $1 RETURNING balance`,
+    [googleId, amount]
+  );
+  return { balance: parseFloat(res.rows[0].balance), id: wdRes.rows[0].id };
+}
+
+async function updateWithdrawalSig(id, sig) {
+  await pool.query(`UPDATE withdrawals SET tx_sig = $2 WHERE id = $1`, [id, sig]);
+}
+
+async function refundWithdrawal(googleId, amount) {
+  const res = await pool.query(
+    `UPDATE accounts SET balance = balance + $2 WHERE google_id = $1 RETURNING balance`,
+    [googleId, amount]
+  );
+  return parseFloat(res.rows[0].balance);
+}
+
 async function addEarnings(googleId, sol, cadAmount = 0) {
   await Promise.all([
     pool.query(`UPDATE accounts SET total_earnings = total_earnings + $2 WHERE google_id = $1`, [googleId, sol]),
@@ -364,6 +388,7 @@ module.exports = {
   getOrCreateAccount, getAccountByGoogleId, getAccountByWallet,
   saveAccount, recordGameResult,
   isTxUsed, recordDeposit, recordWithdrawal,
+  recordPendingWithdrawal, updateWithdrawalSig, refundWithdrawal,
   addEarnings, getTopEarners,
   getGoogleIdByDeviceToken,
   isNameTaken,

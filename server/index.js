@@ -303,10 +303,20 @@ app.post('/wallet/withdraw', async (req, res) => {
   if (!acc) return res.status(404).json({ error: 'Account not found' });
   if (acc.balance < amount) return res.status(400).json({ error: 'Insufficient balance' });
   try {
-    const sig = await Wallet.withdraw(walletAddress, amount);
-    const newBalance = await db.recordWithdrawal(req.user.googleId, sig, amount, walletAddress);
-    req.user.balance = newBalance;
-    res.json({ ok: true, signature: sig, balance: newBalance });
+    // Deduct balance first to prevent double-spend from concurrent requests
+    const { balance: pendingBalance, id: withdrawalId } = await db.recordPendingWithdrawal(req.user.googleId, amount, walletAddress);
+    let sig;
+    try {
+      sig = await Wallet.withdraw(walletAddress, amount);
+    } catch (txErr) {
+      // TX failed — refund the deducted balance
+      await db.refundWithdrawal(req.user.googleId, amount);
+      console.error('[WALLET] TX failed, balance refunded:', txErr.message);
+      return res.status(400).json({ error: txErr.message });
+    }
+    await db.updateWithdrawalSig(withdrawalId, sig);
+    req.user.balance = pendingBalance;
+    res.json({ ok: true, signature: sig, balance: pendingBalance });
   } catch (e) {
     console.error('[WALLET] Withdraw error:', e.message);
     res.status(400).json({ error: e.message });
