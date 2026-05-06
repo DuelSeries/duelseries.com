@@ -37,7 +37,7 @@ let snapBuffer   = [];
 let clockOffset  = null;
 let interpBeforeMap = null; // reused across frames to avoid Map allocation
 let interpSnakeBuf  = null; // reused across frames to avoid array allocation
-const INTERP_DELAY_MS = 50; // 50ms gives ~3 buffered snaps at 60Hz
+const INTERP_DELAY_MS = 20; // 20ms gives ~2.4 buffered snaps at 120Hz
 let spawnTime        = null;  // performance.now() when last joined — used to ramp up interp delay
 let cashoutSpeedMult = 1;    // smoothed speedMult sent to server during Q hold/release
 

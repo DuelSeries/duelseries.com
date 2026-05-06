@@ -1,6 +1,6 @@
 const CONSTANTS = {
   // Server tick rate
-  TICK_RATE: 60,
+  TICK_RATE: 120,
 
   // World
   BASE_WORLD_RADIUS: 2000,
@@ -9,13 +9,13 @@ const CONSTANTS = {
   MAX_WORLD_RADIUS: 6000,
 
   // Snake
-  SNAKE_BASE_SPEED: 3,
-  SNAKE_BOOST_SPEED: 9,
-  SNAKE_SEGMENT_SPACING: 3,
+  SNAKE_BASE_SPEED: 1.5,
+  SNAKE_BOOST_SPEED: 4.5,
+  SNAKE_SEGMENT_SPACING: 1.5,
   SNAKE_HEAD_RADIUS: 10,
   SNAKE_MIN_SEGMENTS: 3,
   SNAKE_SPAWN_SEGMENTS: 5,
-  MAX_TURN_RATE: 0.08, // radians per tick
+  MAX_TURN_RATE: 0.04, // radians per tick
 
   // Food
   FOOD_RADIUS: 3,

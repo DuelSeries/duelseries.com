@@ -78,16 +78,16 @@ class Snake {
       this._boostAge  = (this._boostAge  || 0) + 1; // total ticks held
       this._boostTick = (this._boostTick || 0) + 1; // resets for food drop
 
-      if      (this._boostAge <=  6) steps = 1;
-      else if (this._boostAge <= 12) steps = 2;
+      if      (this._boostAge <= 12) steps = 1;
+      else if (this._boostAge <= 24) steps = 2;
       else                           steps = 3;
 
       // boostRamp drives client-side rendering (0 → 0.5 → 1)
-      this.boostRamp = this._boostAge <=  6 ? this._boostAge /  6 * 0.5
-                     : this._boostAge <= 12 ? 0.5 + (this._boostAge -  6) / 6 * 0.5
+      this.boostRamp = this._boostAge <= 12 ? this._boostAge / 12 * 0.5
+                     : this._boostAge <= 24 ? 0.5 + (this._boostAge - 12) / 12 * 0.5
                      : 1;
 
-      if (this._boostTick >= 24) {
+      if (this._boostTick >= 48) {
         this._boostTick = 0;
         const dropped = this.segments.pop();
         if (dropped) this.boostDrops.push({ x: dropped.x, y: dropped.y, value: 0.15, color: this.color, dropped: true });
