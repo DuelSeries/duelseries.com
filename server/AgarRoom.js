@@ -399,12 +399,6 @@ class AgarRoom {
                 if (target.isBot) {
                   target.alive = false;
                   this._updateWorldSize();
-                  setTimeout(() => {
-                    if (this.bots.has(target.id)) {
-                      this.respawnBot(target.id);
-                      this._updateWorldSize();
-                    }
-                  }, 3000);
                 } else {
                   target.alive = false;
                   const sock = this.io.sockets.sockets.get(target.id);
