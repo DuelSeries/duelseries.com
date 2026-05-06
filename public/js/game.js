@@ -37,7 +37,7 @@ let snapBuffer   = [];
 let clockOffset  = null;
 let interpBeforeMap = null; // reused across frames to avoid Map allocation
 let interpSnakeBuf  = null; // reused across frames to avoid array allocation
-const INTERP_DELAY_MS = 20; // 20ms gives ~2.4 buffered snaps at 120Hz
+const INTERP_DELAY_MS = 33; // 33ms = 4 snapshot periods at 120Hz — robust against network jitter
 let spawnTime        = null;  // performance.now() when last joined — used to ramp up interp delay
 let cashoutSpeedMult = 1;    // smoothed speedMult sent to server during Q hold/release
 
@@ -728,35 +728,6 @@ sendPing();
 let fpsFrames = 0, fpsLast = performance.now(), fpsDisplay = 0;
 const fpsEl = document.getElementById('fps-counter');
 
-// For the local player's snake only: extrapolate from the latest snapshot to "now"
-// instead of using the 50ms-delayed interpolation buffer. Other snakes stay buffered.
-function injectLocalSnakeNow(now) {
-  if (!myId || isDead || cashedOut) return;
-  if (snapBuffer.length === 0 || clockOffset === null) return;
-  const latest = snapBuffer[snapBuffer.length - 1];
-  const s = latest.state.snakes.find(sn => sn.id === myId);
-  if (!s || !s.segs || s.segs.length < 2) return;
-
-  // ms elapsed since the latest server snapshot (accounts for clock offset)
-  const extraMs = Math.max(0, Math.min((now + clockOffset) - latest.t, 100));
-  const speed = CONSTANTS.SNAKE_BASE_SPEED * (1 + (s.boostRamp || 0) * 2) * (s.speedMult || 1);
-  const dist  = speed * extraMs / (1000 / CONSTANTS.TICK_RATE);
-  const dx = Math.cos(s.angle) * dist;
-  const dy = Math.sin(s.angle) * dist;
-
-  const segs = new Float32Array(s.segs.length);
-  for (let i = 0; i < segs.length; i += 2) {
-    segs[i]   = s.segs[i]   + dx;
-    segs[i+1] = s.segs[i+1] + dy;
-  }
-  const localSnake = { ...s, segs };
-
-  let found = false;
-  for (let i = 0; i < displayState.snakes.length; i++) {
-    if (displayState.snakes[i].id === myId) { displayState.snakes[i] = localSnake; found = true; break; }
-  }
-  if (!found) displayState.snakes.push(localSnake);
-}
 
 let _lastFrameTime = 0;
 // Main render loop — runs at monitor refresh rate (60/144/240Hz)
@@ -764,7 +735,6 @@ function gameLoop(now) {
   const dt = _lastFrameTime ? now - _lastFrameTime : 16.67;
   _lastFrameTime = now;
   interpolateState(now);
-  injectLocalSnakeNow(now); // override own snake with lag-free extrapolated position
 
   let spectateSnake = null;
   if (spectating) {
