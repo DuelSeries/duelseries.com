@@ -491,7 +491,9 @@ io.on('connection', (socket) => {
         await db.addEarnings(socket._googleId, playerShare, playerShareCad);
         console.log(`[CASHOUT] ${snake.name} cashed out ${playerShare.toFixed(6)} SOL (owner cut: ${ownerShare.toFixed(6)} SOL)`);
       } catch (e) {
-        console.error('[CASHOUT] Error crediting player:', e.message);
+        console.error(`[CASHOUT] CRITICAL: DB credit failed for ${snake.name} — lost ${playerShare.toFixed(6)} SOL. Error: ${e.message}`);
+        socket.emit('cashout:error', { message: 'Balance credit failed. Please contact support immediately.' });
+        return;
       }
       // Credit 10% to owner's in-game balance (free, no transaction fee)
       const ownerGoogleId = process.env.OWNER_GOOGLE_ID;
