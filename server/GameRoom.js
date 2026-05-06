@@ -138,10 +138,10 @@ class GameRoom {
 
   tick() {
     // Border drifts outward on deaths, inward on joins, gradually fading back to base
-    this.borderDrift *= 0.99875; // half-life ≈ 2.3 seconds at 120Hz
+    this.borderDrift *= 0.9975; // half-life ≈ 2.3 seconds at 60Hz
     const targetRadius = Math.max(C.MIN_WORLD_RADIUS,
       Math.min(C.MAX_WORLD_RADIUS, C.BASE_WORLD_RADIUS + this.borderDrift));
-    this.worldRadius += (targetRadius - this.worldRadius) * 0.0075; // ~2.5s to fully settle at 120Hz
+    this.worldRadius += (targetRadius - this.worldRadius) * 0.015; // ~2.5s to fully settle at 60Hz
 
     const foodList  = this.foodManager.getAll();
     const allSnakes = Array.from(this.snakes.values());
@@ -170,7 +170,7 @@ class GameRoom {
 
       // Food magnetism + collision
       const PULL_RADIUS = 90;
-      const PULL_SPEED  = 1.125;
+      const PULL_SPEED  = 2.25;
       for (const food of this.foodManager.getAll()) {
         const dx = snake.head.x - food.x;
         const dy = snake.head.y - food.y;

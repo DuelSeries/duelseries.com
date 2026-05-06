@@ -37,7 +37,7 @@ let snapBuffer   = [];
 let clockOffset  = null;
 let interpBeforeMap = null; // reused across frames to avoid Map allocation
 let interpSnakeBuf  = null; // reused across frames to avoid array allocation
-const INTERP_DELAY_MS = 33; // 33ms = 4 snapshot periods at 120Hz — robust against network jitter
+const INTERP_DELAY_MS = 50; // 50ms = 3 snapshot periods at 60Hz — absorbs Render CPU jitter
 let spawnTime        = null;  // performance.now() when last joined — used to ramp up interp delay
 
 // ─── Local snake simulation ──────────────────────────────────────────────────
@@ -273,14 +273,22 @@ function _lCorrect(s) {
   const hi = (_lpHead - 1 + LP_SIZE) % LP_SIZE;
   _lpX[hi] += (s.segs[0] - _lpX[hi]) * 0.15;
   _lpY[hi] += (s.segs[1] - _lpY[hi]) * 0.15;
-  _lAngle = s.angle; // server angle is authoritative
+  // Blend angle toward server — never snap, avoids visible direction changes
+  let da = s.angle - _lAngle;
+  while (da >  Math.PI) da -= Math.PI * 2;
+  while (da < -Math.PI) da += Math.PI * 2;
+  _lAngle += da * 0.3;
 }
 
 // Advance head by dt ms using targetAngle with server-matched turn rate
 function _lAdvance(dt, targetAngle) {
   if (!_lReady) return;
   const msPerTick = 1000 / CONSTANTS.TICK_RATE;
-  const tr = CONSTANTS.MAX_TURN_RATE * (dt / msPerTick);
+  // Match server turn rate including the size penalty so angles don't diverge
+  const snakeLen = _latestMySnap ? (_latestMySnap.length || 0) : 0;
+  const minSegs  = CONSTANTS.SNAKE_MIN_SEGMENTS * 2;
+  const sizePenalty = Math.min(0.55, (snakeLen - minSegs) / 500);
+  const tr = CONSTANTS.MAX_TURN_RATE * (1 - sizePenalty) * (dt / msPerTick);
   let delta = targetAngle - _lAngle;
   while (delta >  Math.PI) delta -= Math.PI * 2;
   while (delta < -Math.PI) delta += Math.PI * 2;
