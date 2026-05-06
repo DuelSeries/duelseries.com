@@ -39,6 +39,18 @@ let interpBeforeMap = null; // reused across frames to avoid Map allocation
 let interpSnakeBuf  = null; // reused across frames to avoid array allocation
 const INTERP_DELAY_MS = 33; // 33ms = 4 snapshot periods at 120Hz — robust against network jitter
 let spawnTime        = null;  // performance.now() when last joined — used to ramp up interp delay
+
+// ─── Local snake simulation ──────────────────────────────────────────────────
+// Ring buffer of head positions recorded every frame. Body segments are placed
+// along this path at fixed spacing — same technique slither.io uses.
+const LP_SIZE = 2048;
+const _lpX = new Float32Array(LP_SIZE); // head path x coords
+const _lpY = new Float32Array(LP_SIZE); // head path y coords
+let _lpHead = 0;   // next write index
+let _lpLen  = 0;   // valid entry count (≤ LP_SIZE)
+let _lAngle = 0;   // current head angle
+let _lReady = false;
+let _latestMySnap = null; // most recent server snapshot for local player
 let cashoutSpeedMult = 1;    // smoothed speedMult sent to server during Q hold/release
 
 // Displayed (interpolated) state used for rendering
@@ -110,6 +122,8 @@ socket.on(CONSTANTS.EVENTS.GAME_JOINED, ({ playerId, worldRadius, snakeColor, fo
   displayState = { snakes: snake ? [snake] : [], food: food || [], worldRadius, leaderboard: [] };
   document.getElementById('death-screen').classList.remove('active');
   document.getElementById('cashout-screen').classList.remove('active');
+  _lReset();
+  if (snake) _lInit(snake);
   playJoinSound();
 });
 
@@ -126,12 +140,19 @@ socket.on(CONSTANTS.EVENTS.SNAPSHOT, (snap) => {
   }
   snapBuffer.push({ t: snap.t, state: snap });
   if (snapBuffer.length > 20) snapBuffer.shift();
+  const mySnap = snap.snakes.find(s => s.id === myId);
+  if (mySnap) {
+    _latestMySnap = mySnap;
+    if (!_lReady) _lInit(mySnap);
+    else _lCorrect(mySnap);
+  }
   updateHUD(snap);
   updateLeaderboard(snap);
 });
 
 socket.on(CONSTANTS.EVENTS.PLAYER_DIED, ({ score, length }) => {
   isDead = true;
+  _lReset();
   const earnedEl = document.getElementById('cashout-earned-inline');
   if (earnedEl) earnedEl.textContent = '';
   const deathH2 = document.querySelector('#death-screen h2');
@@ -209,76 +230,15 @@ function interpolateState(now) {
   for (const snakeAfter of after.state.snakes) {
     const snakeBefore = interpBeforeMap.get(snakeAfter.id);
     if (!snakeBefore) { interpSnakeBuf.push(snakeAfter); continue; }
-    // Head-anchored: slide the "after" body toward the "before" head position.
-    // Per-index lerp stretches the body when boosting (2-3 new segs per tick shift
-    // the index mapping), so we translate the whole body as a rigid unit instead.
-    const shiftX = (snakeBefore.segs[0] - snakeAfter.segs[0]) * (1 - alpha);
-    const shiftY = (snakeBefore.segs[1] - snakeAfter.segs[1]) * (1 - alpha);
+    const len = Math.min(snakeBefore.segs.length, snakeAfter.segs.length);
     const segs = new Float32Array(snakeAfter.segs.length);
-    for (let i = 0; i < segs.length; i += 2) {
-      segs[i]   = snakeAfter.segs[i]   + shiftX;
-      segs[i+1] = snakeAfter.segs[i+1] + shiftY;
-    }
+    for (let i = 0; i < len; i++) segs[i] = lerp(snakeBefore.segs[i], snakeAfter.segs[i], alpha);
+    for (let i = len; i < segs.length; i++) segs[i] = snakeAfter.segs[i];
     interpSnakeBuf.push({ ...snakeAfter, segs, angle: lerpAngle(snakeBefore.angle, snakeAfter.angle, alpha) });
   }
   displayState.snakes = interpSnakeBuf;
 }
 
-// Per-snake smooth-position state — eliminates skip-tick vibration during cashout slowdown
-const snakeSmoothState = new Map(); // id -> { x, y, lastNow }
-
-function applySmoothPositions(snakes, now) {
-  const msPerTick = 1000 / CONSTANTS.TICK_RATE;
-  const maxDrift  = CONSTANTS.SNAKE_BASE_SPEED * 2; // 12 units — clamp runaway drift
-
-  const aliveIds = new Set();
-  for (const snake of snakes) {
-    if (!snake.segs || snake.segs.length < 2) continue;
-    aliveIds.add(snake.id);
-
-    const actualX   = snake.segs[0];
-    const actualY   = snake.segs[1];
-    const speedMult = snake.speedMult || 1;
-
-    let state = snakeSmoothState.get(snake.id);
-    if (!state) {
-      snakeSmoothState.set(snake.id, { x: actualX, y: actualY, lastNow: now });
-      continue;
-    }
-
-    // Advance smooth position at the snake's expected average speed
-    const dt   = now - state.lastNow;
-    state.lastNow = now;
-    const dist = CONSTANTS.SNAKE_BASE_SPEED * speedMult * (dt / msPerTick);
-    state.x += Math.cos(snake.angle) * dist;
-    state.y += Math.sin(snake.angle) * dist;
-
-    // Pull smooth back if it drifts too far from the actual interpolated position
-    const driftX = state.x - actualX;
-    const driftY = state.y - actualY;
-    const drift  = Math.hypot(driftX, driftY);
-    if (drift > maxDrift) {
-      const excess = (drift - maxDrift) / drift;
-      state.x -= driftX * excess;
-      state.y -= driftY * excess;
-    }
-
-    // Translate every seg by the smooth offset — same body shape, just repositioned
-    const offX = state.x - actualX;
-    const offY = state.y - actualY;
-    if (Math.abs(offX) > 0.001 || Math.abs(offY) > 0.001) {
-      for (let i = 0; i < snake.segs.length; i += 2) {
-        snake.segs[i]     += offX;
-        snake.segs[i + 1] += offY;
-      }
-    }
-  }
-
-  // Remove state for snakes that are no longer alive
-  for (const id of snakeSmoothState.keys()) {
-    if (!aliveIds.has(id)) snakeSmoothState.delete(id);
-  }
-}
 
 function lerp(a, b, t) { return a + (b - a) * t; }
 function lerpAngle(a, b, t) {
@@ -286,6 +246,87 @@ function lerpAngle(a, b, t) {
   while (diff > Math.PI)  diff -= Math.PI * 2;
   while (diff < -Math.PI) diff += Math.PI * 2;
   return a + diff * t;
+}
+
+// ─── Local snake simulation helpers ─────────────────────────────────────────
+
+function _lReset() { _lReady = false; _lpHead = 0; _lpLen = 0; _latestMySnap = null; }
+
+function _lInit(s) {
+  if (!s || !s.segs || s.segs.length < 2) return;
+  _lpHead = 0; _lpLen = 0;
+  // Fill ring buffer tail→head so most-recent entry = snake head
+  const n = s.segs.length >> 1;
+  for (let i = n - 1; i >= 0; i--) {
+    _lpX[_lpHead] = s.segs[i * 2];
+    _lpY[_lpHead] = s.segs[i * 2 + 1];
+    _lpHead = (_lpHead + 1) % LP_SIZE;
+    if (_lpLen < LP_SIZE) _lpLen++;
+  }
+  _lAngle = s.angle || 0;
+  _lReady = true;
+}
+
+// Gentle correction toward server head position — 15% per snapshot, no snapping
+function _lCorrect(s) {
+  if (!_lReady || !s || !s.segs || s.segs.length < 2) return;
+  const hi = (_lpHead - 1 + LP_SIZE) % LP_SIZE;
+  _lpX[hi] += (s.segs[0] - _lpX[hi]) * 0.15;
+  _lpY[hi] += (s.segs[1] - _lpY[hi]) * 0.15;
+  _lAngle = s.angle; // server angle is authoritative
+}
+
+// Advance head by dt ms using targetAngle with server-matched turn rate
+function _lAdvance(dt, targetAngle) {
+  if (!_lReady) return;
+  const msPerTick = 1000 / CONSTANTS.TICK_RATE;
+  const tr = CONSTANTS.MAX_TURN_RATE * (dt / msPerTick);
+  let delta = targetAngle - _lAngle;
+  while (delta >  Math.PI) delta -= Math.PI * 2;
+  while (delta < -Math.PI) delta += Math.PI * 2;
+  _lAngle += Math.abs(delta) > tr ? Math.sign(delta) * tr : delta;
+  const boost = _latestMySnap ? (1 + (_latestMySnap.boostRamp || 0) * 2) : 1;
+  const sm    = _latestMySnap ? (_latestMySnap.speedMult  || 1)         : 1;
+  const dist  = CONSTANTS.SNAKE_BASE_SPEED * boost * sm * (dt / msPerTick);
+  const hi    = (_lpHead - 1 + LP_SIZE) % LP_SIZE;
+  _lpX[_lpHead] = _lpX[hi] + Math.cos(_lAngle) * dist;
+  _lpY[_lpHead] = _lpY[hi] + Math.sin(_lAngle) * dist;
+  _lpHead = (_lpHead + 1) % LP_SIZE;
+  if (_lpLen < LP_SIZE) _lpLen++;
+}
+
+// Walk path backward from head, placing numSegs segments at fixed spacing
+function _lBuildSegs(numSegs) {
+  if (!_lReady || _lpLen < 2 || numSegs < 1) return null;
+  const SEG_SPACING = CONSTANTS.SNAKE_SEGMENT_SPACING * 2; // wire format skips every other seg
+  const out = new Float32Array(numSegs * 2);
+  let idx = (_lpHead - 1 + LP_SIZE) % LP_SIZE;
+  let cx = _lpX[idx], cy = _lpY[idx];
+  out[0] = cx; out[1] = cy;
+  let remaining = SEG_SPACING;
+  let used = 1;
+  for (let seg = 1; seg < numSegs; seg++) {
+    let placed = false;
+    while (true) {
+      if (used >= _lpLen) { out[seg*2] = cx; out[seg*2+1] = cy; placed = true; break; }
+      const pi = (idx - 1 + LP_SIZE) % LP_SIZE;
+      const dx = _lpX[pi] - cx, dy = _lpY[pi] - cy;
+      const d  = Math.hypot(dx, dy);
+      if (d >= remaining) {
+        const t = remaining / d;
+        cx += dx * t; cy += dy * t;
+        out[seg*2] = cx; out[seg*2+1] = cy;
+        remaining = SEG_SPACING;
+        placed = true;
+        break;
+      }
+      remaining -= d;
+      cx = _lpX[pi]; cy = _lpY[pi];
+      idx = pi; used++;
+    }
+    if (!placed) break;
+  }
+  return out;
 }
 
 // --- Input ---
@@ -732,9 +773,43 @@ const fpsEl = document.getElementById('fps-counter');
 let _lastFrameTime = 0;
 // Main render loop — runs at monitor refresh rate (60/144/240Hz)
 function gameLoop(now) {
-  const dt = _lastFrameTime ? now - _lastFrameTime : 16.67;
+  const dt = Math.min(_lastFrameTime ? now - _lastFrameTime : 16.67, 50);
   _lastFrameTime = now;
+
+  // Advance local snake simulation every frame (no server wait)
+  if (_lReady && !isDead && !cashedOut) {
+    const joy = window._joystick;
+    const localHeadX = _lpX[(_lpHead - 1 + LP_SIZE) % LP_SIZE];
+    const localHeadY = _lpY[(_lpHead - 1 + LP_SIZE) % LP_SIZE];
+    let targetAngle;
+    if (lockedAngle !== null) {
+      targetAngle = lockedAngle;
+    } else if (joy && joy.active && joy.angle !== null) {
+      targetAngle = joy.angle;
+    } else {
+      const wm = renderer.camera.screenToWorld(mousePos.x, mousePos.y, canvas.width, canvas.height);
+      targetAngle = Math.atan2(wm.y - localHeadY, wm.x - localHeadX);
+    }
+    _lAdvance(dt, targetAngle);
+  }
+
   interpolateState(now);
+
+  // Replace local snake in displayState with the locally-simulated version
+  if (_lReady && myId && !isDead && !cashedOut && _latestMySnap) {
+    const numSegs = _latestMySnap.segs.length >> 1;
+    const simSegs = _lBuildSegs(numSegs);
+    if (simSegs) {
+      let found = false;
+      for (let i = 0; i < displayState.snakes.length; i++) {
+        if (displayState.snakes[i].id === myId) {
+          displayState.snakes[i] = { ..._latestMySnap, segs: simSegs, angle: _lAngle };
+          found = true; break;
+        }
+      }
+      if (!found) displayState.snakes.push({ ..._latestMySnap, segs: simSegs, angle: _lAngle });
+    }
+  }
 
   let spectateSnake = null;
   if (spectating) {

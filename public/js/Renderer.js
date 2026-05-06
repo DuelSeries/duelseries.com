@@ -45,14 +45,20 @@ class Renderer {
   }
 
   resize() {
-    this.canvas.width = window.innerWidth;
-    this.canvas.height = window.innerHeight;
+    const dpr = window.devicePixelRatio || 1;
+    this.canvas.style.width  = window.innerWidth  + 'px';
+    this.canvas.style.height = window.innerHeight + 'px';
+    this.canvas.width  = Math.round(window.innerWidth  * dpr);
+    this.canvas.height = Math.round(window.innerHeight * dpr);
+    this._dpr = dpr;
   }
 
   render(state, myId, mousePos, spectateSnake, cashoutRings, dt) {
     this._cashoutRings = cashoutRings || null;
     const { ctx, canvas, camera } = this;
-    const W = canvas.width, H = canvas.height;
+    const dpr = this._dpr || 1;
+    const W = window.innerWidth;  // logical pixels — used for all camera / world calculations
+    const H = window.innerHeight;
     this._mousePos = mousePos;
     this._canvasW = W;
     this._canvasH = H;
@@ -68,9 +74,9 @@ class Renderer {
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = '#070707';
-    ctx.fillRect(0, 0, W, H);
+    ctx.fillRect(0, 0, canvas.width, canvas.height); // physical pixels — clear full canvas
 
-    camera.apply(ctx);
+    camera.apply(ctx, dpr);
 
     // Hex grid
     this.hexGrid.draw(ctx, camera, state.worldRadius);
@@ -107,7 +113,7 @@ class Renderer {
     // Border overlay drawn last so red tint still appears on top of snakes
     this._drawBorder(ctx, state.worldRadius, camera);
 
-    camera.reset(ctx);
+    camera.reset(ctx, dpr);
 
     this._drawMinimap(ctx, state, myId, W, H);
   }
@@ -162,7 +168,7 @@ class Renderer {
   _drawFood(ctx, food, camera) {
     const BASE_R = CONSTANTS.FOOD_RADIUS;
     const { x: camX, y: camY, scale } = camera;
-    const W = ctx.canvas.width, H = ctx.canvas.height;
+    const W = this._canvasW, H = this._canvasH; // logical pixels
     const worldCX = (W / 2 - camX) / scale;
     const worldCY = (H / 2 - camY) / scale;
     const margin = BASE_R * 20;

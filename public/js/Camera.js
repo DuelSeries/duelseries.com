@@ -30,12 +30,14 @@ class Camera {
     this.y += (this.targetY - this.y) * posAlpha;
   }
 
-  apply(ctx) {
-    ctx.setTransform(this.scale, 0, 0, this.scale, this.x, this.y);
+  apply(ctx, dpr) {
+    dpr = dpr || 1;
+    ctx.setTransform(this.scale * dpr, 0, 0, this.scale * dpr, this.x * dpr, this.y * dpr);
   }
 
-  reset(ctx) {
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
+  reset(ctx, dpr) {
+    dpr = dpr || 1;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
 
   // Convert screen coords to world coords
