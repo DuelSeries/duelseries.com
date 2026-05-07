@@ -8,13 +8,7 @@ function goToLobby() {
 const canvas = document.getElementById('game-canvas');
 const renderer = new Renderer(canvas);
 
-// Minimap
-const minimapCanvas = document.createElement('canvas');
-minimapCanvas.width = 140;
-minimapCanvas.height = 140;
-const minimapEl = document.getElementById('minimap');
-if (minimapEl) minimapEl.appendChild(minimapCanvas);
-const minimapCtx = minimapCanvas.getContext('2d');
+// Minimap is drawn directly onto the game canvas by renderer._drawMinimap
 
 // Player info from lobby
 const playerName    = sessionStorage.getItem('playerName')    || 'Player';
@@ -37,6 +31,7 @@ let snapBuffer   = [];
 let clockOffset  = null;
 let interpBeforeMap = null; // reused across frames to avoid Map allocation
 let interpSnakeBuf  = null; // reused across frames to avoid array allocation
+const _segPool      = new Map(); // snake id → Float32Array, reused to avoid GC
 const INTERP_DELAY_MS = 50; // 50ms = 3 snapshot periods at 60Hz — absorbs Render CPU jitter
 let spawnTime        = null;  // performance.now() when last joined — used to ramp up interp delay
 
@@ -233,7 +228,11 @@ function interpolateState(now) {
     const snakeBefore = interpBeforeMap.get(snakeAfter.id);
     if (!snakeBefore) { interpSnakeBuf.push(snakeAfter); continue; }
     const len = Math.min(snakeBefore.segs.length, snakeAfter.segs.length);
-    const segs = new Float32Array(snakeAfter.segs.length);
+    let segs = _segPool.get(snakeAfter.id);
+    if (!segs || segs.length !== snakeAfter.segs.length) {
+      segs = new Float32Array(snakeAfter.segs.length);
+      _segPool.set(snakeAfter.id, segs);
+    }
     for (let i = 0; i < len; i++) segs[i] = lerp(snakeBefore.segs[i], snakeAfter.segs[i], alpha);
     for (let i = len; i < segs.length; i++) segs[i] = snakeAfter.segs[i];
     interpSnakeBuf.push({ ...snakeAfter, segs, angle: lerpAngle(snakeBefore.angle, snakeAfter.angle, alpha) });
@@ -850,7 +849,6 @@ function gameLoop(now) {
     : displayState;
   renderer.render(renderState, cashedOut ? null : myId, mousePos, spectateSnake, cashoutRings, dt);
 
-  if (minimapCtx) renderer.drawMinimap(minimapCtx, displayState, myId);
 
   // FPS
   fpsFrames++;
