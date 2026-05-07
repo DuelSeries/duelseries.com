@@ -50,6 +50,7 @@ let _lpHead = 0;   // next write index
 let _lpLen  = 0;   // valid entry count (≤ LP_SIZE)
 let _lAngle    = 0;   // current head angle
 let _lBoostAge = 0;   // local boost tick accumulator — matches server boostRamp logic
+let _lNumSegs  = 0;   // smoothed segment count — prevents tail snap on boost drops
 let _lReady    = false;
 let _latestMySnap = null; // most recent server snapshot for local player
 let cashoutSpeedMult = 1;    // smoothed speedMult sent to server during Q hold/release
@@ -251,7 +252,7 @@ function lerpAngle(a, b, t) {
 
 // ─── Local snake simulation helpers ─────────────────────────────────────────
 
-function _lReset() { _lReady = false; _lpHead = 0; _lpLen = 0; _latestMySnap = null; }
+function _lReset() { _lReady = false; _lpHead = 0; _lpLen = 0; _latestMySnap = null; _lNumSegs = 0; _lBoostAge = 0; }
 
 function _lInit(s) {
   if (!s || !s.segs || s.segs.length < 2) return;
@@ -279,9 +280,8 @@ function _lCorrect(s) {
   while (da >  Math.PI) da -= Math.PI * 2;
   while (da < -Math.PI) da += Math.PI * 2;
   _lAngle += da * 0.15;
-  // Sync local boost age from server's boostRamp so speed prediction stays accurate
-  const br = s.boostRamp || 0;
-  _lBoostAge = br <= 0 ? 0 : br <= 0.5 ? br * 12 : 6 + (br - 0.5) * 12;
+  // Only reset boost age when boost stops — re-syncing every tick fights the local advance and causes micro-jitter
+  if ((s.boostRamp || 0) === 0) _lBoostAge = 0;
 }
 
 // Advance head by dt ms using targetAngle with server-matched turn rate
@@ -823,8 +823,11 @@ function gameLoop(now) {
 
   // Replace local snake in displayState with the locally-simulated version
   if (_lReady && myId && !isDead && !cashedOut && _latestMySnap) {
-    const numSegs = _latestMySnap.segs.length >> 1;
-    const simSegs = _lBuildSegs(numSegs);
+    const targetNumSegs = _latestMySnap.segs.length >> 1;
+    // Grow instantly (eating food), shrink gradually (boost drops) — prevents tail snap
+    if (targetNumSegs > _lNumSegs) _lNumSegs = targetNumSegs;
+    else _lNumSegs += (targetNumSegs - _lNumSegs) * 0.08;
+    const simSegs = _lBuildSegs(Math.round(_lNumSegs));
     if (simSegs) {
       let found = false;
       for (let i = 0; i < displayState.snakes.length; i++) {
