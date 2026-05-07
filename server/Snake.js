@@ -145,8 +145,12 @@ class Snake {
 
   serialize() {
     const segs = [];
-    for (let i = 0; i < this.segments.length; i += 2) {
-      segs.push(this.segments[i].x, this.segments[i].y);
+    const len  = this.segments.length;
+    // Adaptive thinning — spline renderer handles gaps smoothly
+    const step = len < 400 ? 2 : len < 800 ? 3 : 4;
+    for (let i = 0; i < len; i += step) {
+      segs.push(Math.round(this.segments[i].x * 10) / 10,
+                Math.round(this.segments[i].y * 10) / 10);
     }
     return {
       id: this.id,
