@@ -12,7 +12,6 @@ class HexGrid {
     this._cacheWorldX  = null;
     this._cacheWorldY  = null;
     this._cacheScale   = null;
-    this._MOVE_THRESH  = 200;
   }
 
   _hexPath(ctx, cx, cy, r) {
@@ -25,33 +24,12 @@ class HexGrid {
   }
 
   _drawOne(ctx, cx, cy) {
-    const s = this.SIZE, fr = this.FACE_R;
+    const fr = this.FACE_R;
 
-    // Main face — dark gradient
+    // Flat fill — gradient was imperceptible and created ~4000 allocations per rebuild
     this._hexPath(ctx, cx, cy, fr);
-    const face = ctx.createLinearGradient(
-      cx + s * 0.65, cy - s * 0.65,
-      cx - s * 0.65, cy + s * 0.65
-    );
-    face.addColorStop(0,    '#181818');
-    face.addColorStop(0.25, '#101010');
-    face.addColorStop(0.6,  '#0b0b0b');
-    face.addColorStop(1,    '#050505');
-    ctx.fillStyle = face;
+    ctx.fillStyle = '#0e0e0e';
     ctx.fill();
-
-    // Rim shading
-    this._hexPath(ctx, cx, cy, fr);
-    const rim = ctx.createLinearGradient(
-      cx + s * 0.55, cy - s * 0.55,
-      cx - s * 0.55, cy + s * 0.55
-    );
-    rim.addColorStop(0,    'rgba(45,45,45,0.15)');
-    rim.addColorStop(0.45, 'rgba(0,0,0,0)');
-    rim.addColorStop(1,    'rgba(0,0,0,0.55)');
-    ctx.strokeStyle = rim;
-    ctx.lineWidth = s * 0.055;
-    ctx.stroke();
 
     // Outline
     this._hexPath(ctx, cx, cy, fr);
@@ -63,8 +41,8 @@ class HexGrid {
   _rebuildCache(worldCX, worldCY, scale, screenW, screenH) {
     const cc  = this._cache;
     const ctx = this._cacheCtx;
-    cc.width  = screenW  * 2;
-    cc.height = screenH * 2;
+    const newW = screenW * 2, newH = screenH * 2;
+    if (cc.width !== newW || cc.height !== newH) { cc.width = newW; cc.height = newH; }
 
     ctx.fillStyle = '#070707';
     ctx.fillRect(0, 0, cc.width, cc.height);
@@ -95,6 +73,13 @@ class HexGrid {
     }
     ctx.setTransform(1, 0, 0, 1, 0, 0);
 
+    // Single global depth overlay — preserves the lighting feel without per-hex gradient cost
+    const overlay = ctx.createLinearGradient(cc.width, 0, 0, cc.height);
+    overlay.addColorStop(0, 'rgba(20,20,20,0.06)');
+    overlay.addColorStop(1, 'rgba(0,0,0,0.28)');
+    ctx.fillStyle = overlay;
+    ctx.fillRect(0, 0, cc.width, cc.height);
+
     this._cacheWorldX = worldCX;
     this._cacheWorldY = worldCY;
     this._cacheScale  = scale;
@@ -106,11 +91,14 @@ class HexGrid {
     const worldCX = (W / 2 - camX) / scale;
     const worldCY = (H / 2 - camY) / scale;
 
+    // Threshold: 35% of the visible half-span in world units — stays safely within the 2× cache
+    const threshX = 0.35 * W / scale;
+    const threshY = 0.35 * H / scale;
     const needsRebuild =
       this._cacheWorldX === null ||
-      Math.abs(worldCX - this._cacheWorldX) > this._MOVE_THRESH ||
-      Math.abs(worldCY - this._cacheWorldY) > this._MOVE_THRESH ||
-      Math.abs(scale   - this._cacheScale)  > 0.1;
+      Math.abs(worldCX - this._cacheWorldX) > threshX ||
+      Math.abs(worldCY - this._cacheWorldY) > threshY ||
+      Math.abs(scale   - this._cacheScale)  > 0.15;
 
     if (needsRebuild) this._rebuildCache(worldCX, worldCY, scale, W, H);
 
