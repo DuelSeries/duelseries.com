@@ -48,8 +48,9 @@ const _lpX = new Float32Array(LP_SIZE); // head path x coords
 const _lpY = new Float32Array(LP_SIZE); // head path y coords
 let _lpHead = 0;   // next write index
 let _lpLen  = 0;   // valid entry count (≤ LP_SIZE)
-let _lAngle = 0;   // current head angle
-let _lReady = false;
+let _lAngle    = 0;   // current head angle
+let _lBoostAge = 0;   // local boost tick accumulator — matches server boostRamp logic
+let _lReady    = false;
 let _latestMySnap = null; // most recent server snapshot for local player
 let cashoutSpeedMult = 1;    // smoothed speedMult sent to server during Q hold/release
 
@@ -278,6 +279,9 @@ function _lCorrect(s) {
   while (da >  Math.PI) da -= Math.PI * 2;
   while (da < -Math.PI) da += Math.PI * 2;
   _lAngle += da * 0.15;
+  // Sync local boost age from server's boostRamp so speed prediction stays accurate
+  const br = s.boostRamp || 0;
+  _lBoostAge = br <= 0 ? 0 : br <= 0.5 ? br * 12 : 6 + (br - 0.5) * 12;
 }
 
 // Advance head by dt ms using targetAngle with server-matched turn rate
@@ -293,8 +297,19 @@ function _lAdvance(dt, targetAngle) {
   while (delta >  Math.PI) delta -= Math.PI * 2;
   while (delta < -Math.PI) delta += Math.PI * 2;
   _lAngle += Math.abs(delta) > tr ? Math.sign(delta) * tr : delta;
-  const boost = _latestMySnap ? (1 + (_latestMySnap.boostRamp || 0) * 2) : 1;
-  const sm    = _latestMySnap ? (_latestMySnap.speedMult  || 1)         : 1;
+  // Advance boost age locally — don't wait for server snapshot (that's 1 tick stale)
+  const hasFuel = _latestMySnap && (_latestMySnap.boostRatio || 0) > 0;
+  if (boostActive && hasFuel) {
+    _lBoostAge += dt / msPerTick;
+  } else {
+    _lBoostAge = 0;
+  }
+  const localBoostRamp = _lBoostAge <= 0  ? 0
+    : _lBoostAge <= 6  ? _lBoostAge / 6 * 0.5
+    : _lBoostAge <= 12 ? 0.5 + (_lBoostAge - 6) / 6 * 0.5
+    : 1;
+  const boost = 1 + localBoostRamp * 2;
+  const sm    = cashoutSpeedMult || 1;
   const dist  = CONSTANTS.SNAKE_BASE_SPEED * boost * sm * (dt / msPerTick);
   const hi    = (_lpHead - 1 + LP_SIZE) % LP_SIZE;
   _lpX[_lpHead] = _lpX[hi] + Math.cos(_lAngle) * dist;
