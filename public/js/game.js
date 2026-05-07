@@ -271,13 +271,13 @@ function _lInit(s) {
 function _lCorrect(s) {
   if (!_lReady || !s || !s.segs || s.segs.length < 2) return;
   const hi = (_lpHead - 1 + LP_SIZE) % LP_SIZE;
-  _lpX[hi] += (s.segs[0] - _lpX[hi]) * 0.15;
-  _lpY[hi] += (s.segs[1] - _lpY[hi]) * 0.15;
+  _lpX[hi] += (s.segs[0] - _lpX[hi]) * 0.10;
+  _lpY[hi] += (s.segs[1] - _lpY[hi]) * 0.10;
   // Blend angle toward server — never snap, avoids visible direction changes
   let da = s.angle - _lAngle;
   while (da >  Math.PI) da -= Math.PI * 2;
   while (da < -Math.PI) da += Math.PI * 2;
-  _lAngle += da * 0.3;
+  _lAngle += da * 0.15;
 }
 
 // Advance head by dt ms using targetAngle with server-matched turn rate
@@ -306,7 +306,10 @@ function _lAdvance(dt, targetAngle) {
 // Walk path backward from head, placing numSegs segments at fixed spacing
 function _lBuildSegs(numSegs) {
   if (!_lReady || _lpLen < 2 || numSegs < 1) return null;
-  const SEG_SPACING = CONSTANTS.SNAKE_SEGMENT_SPACING * 2; // wire format skips every other seg
+  // Match the adaptive step used in Snake.js serialize()
+  const snakeLen = _latestMySnap ? (_latestMySnap.length || 0) : 0;
+  const step = snakeLen < 400 ? 2 : snakeLen < 800 ? 3 : 4;
+  const SEG_SPACING = CONSTANTS.SNAKE_SEGMENT_SPACING * step;
   const out = new Float32Array(numSegs * 2);
   let idx = (_lpHead - 1 + LP_SIZE) % LP_SIZE;
   let cx = _lpX[idx], cy = _lpY[idx];
