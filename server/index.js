@@ -230,7 +230,7 @@ app.use(express.json());
 
 app.post('/auth/update-name', async (req, res) => {
   if (!req.isAuthenticated()) return res.status(401).json({ error: 'Not logged in' });
-  const name = (req.body.name || '').replace(/\s/g, '').slice(0, 20);
+  const name = (req.body.name || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 20);
   if (!name) return res.status(400).json({ error: 'Invalid name' });
   const taken = await db.isNameTaken(name, req.user.googleId);
   if (taken) return res.status(400).json({ error: 'Name already taken' });

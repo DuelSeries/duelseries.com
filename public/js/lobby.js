@@ -548,7 +548,7 @@ async function saveName(inputId, errorId, btnId) {
   const input   = document.getElementById(inputId);
   const msgEl   = document.getElementById(errorId);
   const btn     = document.getElementById(btnId);
-  const name    = input.value.replace(/\s/g, '');
+  const name    = input.value.replace(/[^a-zA-Z0-9]/g, '');
   setNameMsg(msgEl, '', '');
   if (!name) { setNameMsg(msgEl, 'Name cannot be empty.', 'error'); return; }
   btn.disabled = true;
@@ -583,6 +583,18 @@ async function saveName(inputId, errorId, btnId) {
 
 document.getElementById('btn-save-name').addEventListener('click',   () => saveName('player-name',   'name-error',   'btn-save-name'));
 document.getElementById('btn-save-name-2').addEventListener('click', () => saveName('player-name-2', 'name-error-2', 'btn-save-name-2'));
+
+// Strip symbols as the player types — only letters and numbers allowed
+['player-name', 'player-name-2'].forEach(id => {
+  document.getElementById(id).addEventListener('input', function() {
+    const pos = this.selectionStart;
+    const cleaned = this.value.replace(/[^a-zA-Z0-9]/g, '');
+    if (this.value !== cleaned) {
+      this.value = cleaned;
+      this.setSelectionRange(pos - 1, pos - 1);
+    }
+  });
+});
 
 let _lobbyEarnings = []; // cached top earners for lobby leaderboard
 
@@ -896,7 +908,7 @@ document.querySelectorAll('.btn-lobby-type-2').forEach(btn => {
 });
 
 document.getElementById('btn-play-2').addEventListener('click', async () => {
-  const name = document.getElementById('player-name-2').value.replace(/\s/g, '') || 'Player';
+  const name = document.getElementById('player-name-2').value.replace(/[^a-zA-Z0-9]/g, '') || 'Player';
   if (account && name !== account.name) {
     const r = await fetch('/auth/update-name', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
     const d = await r.json();
@@ -957,7 +969,7 @@ document.querySelectorAll('.btn-lobby-type').forEach(btn => {
 document.getElementById('btn-play').addEventListener('click', async () => {
   const gameFrame = document.getElementById('game-frame');
   if (gameFrame && gameFrame.style.display !== 'none') return; // already in game
-  const name = document.getElementById('player-name').value.replace(/\s/g, '') || 'Player';
+  const name = document.getElementById('player-name').value.replace(/[^a-zA-Z0-9]/g, '') || 'Player';
   if (account && name !== account.name) {
     const r = await fetch('/auth/update-name', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
     const d = await r.json();
