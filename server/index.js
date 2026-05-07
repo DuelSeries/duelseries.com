@@ -46,7 +46,7 @@ app.set('trust proxy', 1); // Render runs behind a proxy
 
 // ─── Session & Passport ───────────────────────────────────────────────────────
 app.use(cookieParser());
-app.use(session({
+const sessionMiddleware = session({
   store: new pgSession({
     pool: db.pool,
     createTableIfMissing: true,
@@ -59,9 +59,16 @@ app.use(session({
     secure: true,   // HTTPS only (Render uses HTTPS)
     sameSite: 'lax',
   },
-}));
+});
+app.use(sessionMiddleware);
 app.use(passport.initialize());
 app.use(passport.session());
+
+// Share session + passport with Socket.io so admin checks use verified identity
+const wrap = middleware => (socket, next) => middleware(socket.request, {}, next);
+io.use(wrap(sessionMiddleware));
+io.use(wrap(passport.initialize()));
+io.use(wrap(passport.session()));
 
 passport.use(new GoogleStrategy({
   clientID:     process.env.GOOGLE_CLIENT_ID     || 'PLACEHOLDER',
@@ -531,7 +538,8 @@ io.on('connection', (socket) => {
 
   socket.on('admin:spawnbot', async ({ count } = {}) => {
     const ownerGoogleId = process.env.OWNER_GOOGLE_ID;
-    if (!ownerGoogleId || socket._googleId !== ownerGoogleId) return;
+    const verifiedGoogleId = socket.request.user?.googleId;
+    if (!ownerGoogleId || verifiedGoogleId !== ownerGoogleId) return;
     const n = Math.min(Math.max(1, parseInt(count) || 1), 10);
     const room = socket._room || gameRooms.free;
 
@@ -579,7 +587,8 @@ io.on('connection', (socket) => {
 
   socket.on('cell:spawnbot', () => {
     const ownerGoogleId = process.env.OWNER_GOOGLE_ID;
-    if (!ownerGoogleId || socket._googleId !== ownerGoogleId) return;
+    const verifiedGoogleId = socket.request.user?.googleId;
+    if (!ownerGoogleId || verifiedGoogleId !== ownerGoogleId) return;
     const room = socket._agarRoom || agarRooms.free;
     room.addBot();
   });
