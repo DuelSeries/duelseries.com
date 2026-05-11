@@ -169,8 +169,12 @@ class GameRoom {
       }
 
       // Food magnetism + collision
-      const PULL_RADIUS = 90;
-      const PULL_SPEED  = 2.25;
+      // Wider + stronger pull when not boosting; narrower + gentler when boosting
+      const PULL_RADIUS   = snake.boosting ? 60  : 120;
+      const PULL_SPEED    = snake.boosting ? 2.0 : 4.5;
+      // Committed food chases the snake at this speed — faster than base snake speed (3)
+      // so it always converges once attracted, even if the snake tries to move away
+      const COMMIT_SPEED  = 5.5;
       for (const food of this.foodManager.getAll()) {
         const dx = snake.head.x - food.x;
         const dy = snake.head.y - food.y;
@@ -180,10 +184,16 @@ class GameRoom {
           if (food.cashValue > 0) snake.worth += food.cashValue;
           this.foodManager.remove(food.id);
         } else if (d < PULL_RADIUS) {
-          // Pull food toward head proportionally — faster when closer
+          // Within pull range — claim food and pull proportionally
+          food.attractedBy = snake.id;
           const strength = (1 - d / PULL_RADIUS) * PULL_SPEED;
           food.x += (dx / d) * strength;
           food.y += (dy / d) * strength;
+        } else if (food.attractedBy === snake.id) {
+          // Already committed to this snake — chase at full commit speed so it
+          // always gets eaten even if the snake moved outside the pull radius
+          food.x += (dx / d) * COMMIT_SPEED;
+          food.y += (dy / d) * COMMIT_SPEED;
         }
       }
     }
