@@ -422,11 +422,17 @@ function totalInGame() {
   return Object.values(gameRooms).reduce((s, r) => s + r.playerCount + r.botCount, 0);
 }
 
+function totalAgarInGame() {
+  return Object.values(agarRooms).reduce((s, r) => s + r.playerCount, 0);
+}
+
 function broadcastLobbyState() {
   const state = {
-    playerCount: totalInGame(),
-    lobbyCount:  lobbyConnections.size,
-    leaderboard: allTimeLb.getTop(3),
+    playerCount:      totalInGame(),
+    lobbyCount:       lobbyConnections.size,
+    leaderboard:      allTimeLb.getTop(3),
+    agarPlayerCount:  totalAgarInGame(),
+    agarLobbyCount:   lobbyConnections.size,
   };
   for (const sock of lobbyConnections) sock.emit(C.EVENTS.LOBBY_STATE, state);
 }
@@ -435,9 +441,11 @@ io.on('connection', (socket) => {
   console.log(`[+] Connected: ${socket.id}`);
 
   socket.emit(C.EVENTS.LOBBY_STATE, {
-    playerCount: totalInGame(),
-    lobbyCount:  lobbyConnections.size,
-    leaderboard: allTimeLb.getTop(3),
+    playerCount:      totalInGame(),
+    lobbyCount:       lobbyConnections.size,
+    leaderboard:      allTimeLb.getTop(3),
+    agarPlayerCount:  totalAgarInGame(),
+    agarLobbyCount:   lobbyConnections.size,
   });
 
   socket.on('lobby:join', ({ googleId } = {}) => {

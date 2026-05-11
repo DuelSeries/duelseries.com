@@ -364,13 +364,17 @@ if (new URLSearchParams(location.search).get('error') === 'auth') {
 }
 
 // ─── Socket ───────────────────────────────────────────────────────────────────
-socket.on(CONSTANTS.EVENTS.LOBBY_STATE, ({ playerCount, lobbyCount, leaderboard }) => {
+socket.on(CONSTANTS.EVENTS.LOBBY_STATE, ({ playerCount, lobbyCount, leaderboard, agarPlayerCount, agarLobbyCount }) => {
   const ig = document.getElementById('stat-players-ingame');
   const il = document.getElementById('stat-players-inlobby');
   const b  = document.getElementById('stat-players-login');
   if (ig) ig.textContent = playerCount;
   if (il) il.textContent = lobbyCount ?? 0;
   if (b)  b.textContent  = (playerCount || 0) + (lobbyCount || 0);
+  const ig2 = document.getElementById('stat-players-ingame-2');
+  const il2 = document.getElementById('stat-players-inlobby-2');
+  if (ig2) ig2.textContent = agarPlayerCount ?? 0;
+  if (il2) il2.textContent = agarLobbyCount  ?? 0;
   updateLobbyLeaderboard(leaderboard);
 });
 
@@ -1468,11 +1472,15 @@ document.getElementById('btn-play').addEventListener('click', async () => {
     if (!canvas) return;
     if (apAnimRaf) cancelAnimationFrame(apAnimRaf);
     function loop() {
-      const skin    = SKINS[previewBycat.skins]  || SKINS[0];
-      const hatId   = apCat === 'hats'   ? (HATS[previewBycat.hats]     || HATS[0]).id   : equippedHat;
-      const boostId = apCat === 'boosts' ? (BOOSTS[previewBycat.boosts] || BOOSTS[0]).id : equippedBoost;
-      drawAnimSnake(canvas, skin.color, apAnimT, hatId, boostId);
-      apAnimT += 0.022;
+      const skin = SKINS[previewBycat.skins] || SKINS[0];
+      if (apSrcLobby === 2) {
+        drawMiniCell(canvas, skin.color);
+      } else {
+        const hatId   = apCat === 'hats'   ? (HATS[previewBycat.hats]     || HATS[0]).id   : equippedHat;
+        const boostId = apCat === 'boosts' ? (BOOSTS[previewBycat.boosts] || BOOSTS[0]).id : equippedBoost;
+        drawAnimSnake(canvas, skin.color, apAnimT, hatId, boostId);
+        apAnimT += 0.022;
+      }
       apAnimRaf = requestAnimationFrame(loop);
     }
     loop();
@@ -1536,7 +1544,12 @@ document.getElementById('btn-play').addEventListener('click', async () => {
     document.getElementById('lobby-screen-2').classList.add('hidden');
     document.querySelectorAll('.lobby-nav-arrow').forEach(el => el.classList.add('hidden'));
 
-    document.querySelectorAll('.ap-cat').forEach(b => b.classList.toggle('ap-cat-active', b.dataset.apcat === 'skins'));
+    document.querySelectorAll('.ap-cat').forEach(b => {
+      b.classList.toggle('ap-cat-active', b.dataset.apcat === 'skins');
+      // Hide hats/boosts for the cell game — only color matters
+      if (lobbyNum === 2) b.style.display = b.dataset.apcat === 'skins' ? '' : 'none';
+      else b.style.display = '';
+    });
     document.getElementById('ap-tab-inv').classList.add('ap-htab-active');
     document.getElementById('ap-tab-shop').classList.remove('ap-htab-active');
     document.getElementById('ap-preview-wrap').classList.remove('hidden');
