@@ -6,6 +6,10 @@ This is a multiplayer snake game (DuelSeries/HexSlither) using Socket.io with ro
 ## Workspace Verification
 Before reading or editing files, verify the active workspace matches this project (should contain `server/`, `public/js/`, `shared/constants.js`, `server.js`). If there's a mismatch, STOP and ask for the correct path.
 
+## Game Naming
+- The agar.io-style cell/blob game (AgarRoom.js, agar.js) is called **"the agar.io game"** by the user.
+- The snake game (GameRoom.js, game.js) is HexSlither / the snake game.
+
 ## Visual/Rendering Changes
 - When the user references a visual artifact (e.g., 'scales', 'lines', 'stripes', 'glow'), ASK for clarification by describing 2-3 possible interpretations BEFORE making code changes.
 - Never do full rewrites of rendering/simulation code without explicit approval; prefer minimal incremental edits.

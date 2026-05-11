@@ -580,7 +580,9 @@ io.on('connection', (socket) => {
     }
     const room = agarRooms[lobbyType] || agarRooms.free;
     socket._agarRoom = room;
-    room.addPlayer(socket, name, color);
+    const ENTRY_WORTH = { free: 0, dime: 0.10, dollar: 1.00 };
+    const entryWorth = ENTRY_WORTH[lobbyType] || 0;
+    room.addPlayer(socket, name, color, entryWorth);
     lobbyConnections.delete(socket);
     broadcastLobbyState();
   });

@@ -54,7 +54,7 @@ class AgarRoom {
 
   // ── Public API ────────────────────────────────────────────────────────────
 
-  addPlayer(socket, name, color) {
+  addPlayer(socket, name, color, worth) {
     const ws = this.worldSize;
     const x  = ws * 0.15 + Math.random() * ws * 0.7;
     const y  = ws * 0.15 + Math.random() * ws * 0.7;
@@ -69,6 +69,7 @@ class AgarRoom {
       alive:      true,
       score:      0,
       locked:     false,
+      worth:      worth || 0,
     };
     this.players.set(socket.id, player);
     socket.join(this.roomName);
@@ -162,7 +163,7 @@ class AgarRoom {
     p.cells = [this._makeCell(0, x, y, 20, 0, 0)];
     p.nextCellId = 1;
     p.mouseX = x; p.mouseY = y;
-    p.alive = true; p.score = 0;
+    p.alive = true; p.score = 0; p.worth = 0;
   }
 
   // ── Bot spawning ──────────────────────────────────────────────────────────
@@ -394,8 +395,15 @@ class AgarRoom {
             const tr = Math.sqrt(tc.mass) * 10;
             if (dx * dx + dy * dy < (er - tr * 0.4) ** 2) {
               ec.mass += tc.mass;
+              // Transfer this cell's proportional share of worth to the eater
+              if (target.worth > 0 && target.cells.length > 0) {
+                const share = target.worth / target.cells.length;
+                eater.worth = (eater.worth || 0) + share;
+                target.worth -= share;
+              }
               target.cells.splice(k, 1);
               if (target.cells.length === 0) {
+                target.worth = 0; // sanity reset
                 if (target.isBot) {
                   target.alive = false;
                   this._updateWorldSize();
@@ -454,7 +462,7 @@ class AgarRoom {
     const arr = [];
     for (const p of [...this.players.values(), ...this.bots.values()]) {
       arr.push({
-        id: p.id, name: p.name, color: p.color, alive: p.alive, score: p.score,
+        id: p.id, name: p.name, color: p.color, alive: p.alive, score: p.score, worth: p.worth || 0,
         cells: p.cells.map(c => ({ x: c.x, y: c.y, mass: c.mass })),
       });
     }
