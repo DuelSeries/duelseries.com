@@ -19,6 +19,13 @@ class HexGrid {
       this._bitmapH      = bitmap.height;
       this._pending      = false;
     };
+
+    // Pre-warm: kick off the first build immediately so the bitmap is ready by the time
+    // the player spawns rather than showing a blank background on the first frame.
+    const preW = Math.round(window.innerWidth  * (window.devicePixelRatio || 1));
+    const preH = Math.round(window.innerHeight * (window.devicePixelRatio || 1));
+    this._pending = true;
+    this._worker.postMessage({ worldCX: 0, worldCY: 0, scale: 1, screenW: preW, screenH: preH });
   }
 
   draw(ctx, camera) {
@@ -27,16 +34,16 @@ class HexGrid {
     const worldCX = (W / 2 - camX) / scale;
     const worldCY = (H / 2 - camY) / scale;
 
-    // Threshold: 35% of the visible half-span — safely within the 2× bitmap margin
-    const threshX = 0.35 * W / scale;
-    const threshY = 0.35 * H / scale;
+    // Trigger rebuild at 15% of bitmap half-span — gives the worker ~1s lead time
+    // even at full boost speed, well before the 50% edge is reached.
+    const threshX = 0.15 * W / scale;
+    const threshY = 0.15 * H / scale;
     const needsRebuild =
       this._bitmapWorldX === null ||
       Math.abs(worldCX - this._bitmapWorldX) > threshX ||
       Math.abs(worldCY - this._bitmapWorldY) > threshY ||
-      Math.abs(scale   - this._bitmapScale)  > 0.15;
+      Math.abs(scale   - this._bitmapScale)  > 0.08;
 
-    // Kick off an async rebuild — main thread never blocks
     if (needsRebuild && !this._pending) {
       this._pending = true;
       this._worker.postMessage({ worldCX, worldCY, scale, screenW: W, screenH: H });
@@ -48,9 +55,10 @@ class HexGrid {
     ctx.fillRect(0, 0, W, H);
 
     if (this._bitmap) {
-      const sc = this._bitmapScale;
-      const dx = (worldCX - this._bitmapWorldX) * sc;
-      const dy = (worldCY - this._bitmapWorldY) * sc;
+      // Use current scale (not _bitmapScale) for dx so the bitmap stays correctly
+      // positioned when the camera has zoomed since the last build.
+      const dx = (worldCX - this._bitmapWorldX) * scale;
+      const dy = (worldCY - this._bitmapWorldY) * scale;
       ctx.drawImage(this._bitmap, -this._bitmapW / 2 + W / 2 - dx, -this._bitmapH / 2 + H / 2 - dy);
     }
 

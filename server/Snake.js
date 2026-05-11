@@ -87,18 +87,15 @@ class Snake {
                      : this._boostAge <= 12 ? 0.5 + (this._boostAge -  6) / 6 * 0.5
                      : 1;
 
+      // Drop 1 food at current tail every 8 ticks — 3 evenly spaced drops over 24 ticks
+      if (this._boostTick % 8 === 0) {
+        const tail = this.segments[this.segments.length - 1];
+        if (tail) this.boostDrops.push({ x: tail.x, y: tail.y, value: 0.15, color: this.color, dropped: true });
+      }
+      // Shrink once per 24 ticks — same rate as before
       if (this._boostTick >= 24) {
         this._boostTick = 0;
-        const dropped = this.segments.pop();
-        if (dropped) {
-          for (let d = 0; d < 3; d++) {
-            this.boostDrops.push({
-              x: dropped.x + (Math.random() - 0.5) * 8,
-              y: dropped.y + (Math.random() - 0.5) * 8,
-              value: 0.15, color: this.color, dropped: true,
-            });
-          }
-        }
+        this.segments.pop();
       }
     } else {
       if (this.boosting) this.boosting = false;
