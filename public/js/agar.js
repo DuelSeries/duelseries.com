@@ -526,31 +526,16 @@ function drawBorder() {
 function drawCell(cell, color, name, worth) {
   const r = radius(cell.mass);
 
-  ctx.save();
-  ctx.shadowColor   = 'rgba(0,0,0,0.18)';
-  ctx.shadowBlur    = r * 0.3;
-  ctx.shadowOffsetY = r * 0.05;
   ctx.beginPath();
   ctx.arc(cell.rx, cell.ry, r, 0, Math.PI * 2);
   ctx.fillStyle = color;
   ctx.fill();
-  ctx.restore();
 
   ctx.beginPath();
   ctx.arc(cell.rx, cell.ry, r, 0, Math.PI * 2);
-  ctx.strokeStyle = darken(color, 0.22);
-  ctx.lineWidth   = Math.max(2, r * 0.06);
+  ctx.strokeStyle = darken(color, 0.28);
+  ctx.lineWidth   = Math.max(2, r * 0.07);
   ctx.stroke();
-
-  const gx = cell.rx - r * 0.28, gy = cell.ry - r * 0.28;
-  const gl = ctx.createRadialGradient(gx, gy, 0, gx, gy, r * 0.72);
-  gl.addColorStop(0,    'rgba(255,255,255,0.48)');
-  gl.addColorStop(0.55, 'rgba(255,255,255,0.1)');
-  gl.addColorStop(1,    'rgba(255,255,255,0)');
-  ctx.beginPath();
-  ctx.arc(cell.rx, cell.ry, r, 0, Math.PI * 2);
-  ctx.fillStyle = gl;
-  ctx.fill();
 
   if (r > 18) {
     const hasWorth = worth > 0;

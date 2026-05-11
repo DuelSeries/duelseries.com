@@ -12,7 +12,7 @@ const MIN_SPLIT_MASS = 36;
 const MAX_CELLS      = 16;
 const SPLIT_SPEED    = 650;
 const MERGE_DELAY    = 12000;
-const SPEED_BASE     = 1000; // divided by sqrt(maxCellMass)
+const SPEED_BASE     = 2000; // divided by mass^0.4 per cell
 const EAT_RATIO      = 1.25;
 
 const FOOD_COLORS = [
@@ -229,10 +229,10 @@ class AgarRoom {
   }
 
   _updatePlayer(p, dt) {
-    const maxMass = p.cells.reduce((m, c) => Math.max(m, c.mass), 0);
-    const speed   = SPEED_BASE / Math.sqrt(maxMass);
-
     for (const cell of p.cells) {
+      // Each cell's speed based on its own mass — smaller split cells move faster
+      const speed = SPEED_BASE / Math.pow(cell.mass, 0.4);
+
       cell.vx *= Math.pow(0.15, dt);
       cell.vy *= Math.pow(0.15, dt);
 
