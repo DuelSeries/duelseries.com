@@ -90,7 +90,15 @@ class Snake {
       if (this._boostTick >= 24) {
         this._boostTick = 0;
         const dropped = this.segments.pop();
-        if (dropped) this.boostDrops.push({ x: dropped.x, y: dropped.y, value: 0.15, color: this.color, dropped: true });
+        if (dropped) {
+          for (let d = 0; d < 3; d++) {
+            this.boostDrops.push({
+              x: dropped.x + (Math.random() - 0.5) * 8,
+              y: dropped.y + (Math.random() - 0.5) * 8,
+              value: 0.15, color: this.color, dropped: true,
+            });
+          }
+        }
       }
     } else {
       if (this.boosting) this.boosting = false;
