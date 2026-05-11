@@ -241,6 +241,22 @@ function connectSocket() {
   });
 
   socket.on('cell:worldSize', ({ size }) => { worldSize = size; });
+
+  socket.on('cell:cashout:result', ({ newBalance, earnedCad, score }) => {
+    document.getElementById('cashout-score-val').textContent = score || 0;
+    const worthRow = document.getElementById('cashout-worth-row');
+    const worthVal = document.getElementById('cashout-worth-val');
+    if (earnedCad > 0) {
+      worthVal.textContent = '$' + earnedCad.toFixed(2) + ' CAD';
+      worthRow.style.display = '';
+    } else {
+      worthRow.style.display = 'none';
+    }
+  });
+
+  socket.on('cell:cashout:error', ({ message }) => {
+    alert('Cashout error: ' + message);
+  });
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -412,15 +428,20 @@ function render() {
   // Other players under own cells
   for (const [id, rp] of renderPlayers) {
     if (id === myId || !rp.alive) continue;
+    const cellCount = rp.cells.length || 1;
+    const cellWorth = rp.worth / cellCount;
     const sorted = [...rp.cells].sort((a, b) => b.mass - a.mass);
-    for (const cell of sorted) drawCell(cell, rp.color, rp.name, rp.worth);
+    for (const cell of sorted) drawCell(cell, rp.color, rp.name, cellWorth);
   }
 
   const me = renderPlayers.get(myId);
   if (me && me.alive) {
-    const sorted = [...me.cells].sort((a, b) => b.mass - a.mass);
     const meSp = serverPlayers.get(myId);
-    for (const cell of sorted) drawCell(cell, myColor, myName, meSp ? meSp.worth : 0);
+    const meWorth = meSp ? meSp.worth : 0;
+    const cellCount = me.cells.length || 1;
+    const cellWorth = meWorth / cellCount;
+    const sorted = [...me.cells].sort((a, b) => b.mass - a.mass);
+    for (const cell of sorted) drawCell(cell, myColor, myName, cellWorth);
   }
 
   if (qHeld && me && me.alive && me.cells.length) {

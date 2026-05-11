@@ -615,8 +615,39 @@ io.on('connection', (socket) => {
     if (socket._agarRoom) socket._agarRoom.unlockPlayer(socket.id);
   });
 
-  socket.on('cell:cashout', () => {
-    if (socket._agarRoom) socket._agarRoom.cashoutPlayer(socket.id);
+  socket.on('cell:cashout', async () => {
+    const room = socket._agarRoom;
+    if (!room) return;
+    const player = room.players.get(socket.id);
+    if (!player || !player.alive) return;
+
+    const worthCad   = player.worth || 0;
+    room.cashoutPlayer(socket.id); // kills player, clears cells
+
+    const HOUSE_CUT    = 0.10;
+    const ownerShare   = worthCad * HOUSE_CUT;
+    const playerShare  = worthCad - ownerShare;
+
+    let newBalance = null;
+    if (worthCad > 0 && socket._googleId) {
+      try {
+        const playerShareSol = prices.cadToSol(playerShare);
+        const ownerShareSol  = prices.cadToSol(ownerShare);
+        newBalance = await db.recordDeposit(socket._googleId, 'agar_cashout_' + Date.now() + '_' + socket.id, playerShareSol, 'cashout');
+        await db.addEarnings(socket._googleId, playerShareSol, playerShare);
+        console.log(`[AGAR CASHOUT] ${player.name} cashed out $${playerShare.toFixed(2)} CAD`);
+        const ownerGoogleId = process.env.OWNER_GOOGLE_ID;
+        if (ownerGoogleId && ownerShareSol > 0) {
+          db.recordDeposit(ownerGoogleId, 'agar_owner_cut_' + Date.now() + '_' + socket.id, ownerShareSol, 'house_cut')
+            .catch(e => console.error('[AGAR CASHOUT] Owner cut failed:', e.message));
+        }
+      } catch (e) {
+        console.error(`[AGAR CASHOUT] DB credit failed for ${player.name}:`, e.message);
+        socket.emit('cell:cashout:error', { message: 'Balance credit failed. Contact support.' });
+        return;
+      }
+    }
+    socket.emit('cell:cashout:result', { newBalance, earnedCad: playerShare, score: player.score });
   });
 
   socket.on('disconnect', async () => {
