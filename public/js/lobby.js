@@ -188,18 +188,23 @@
   }
 
   function drawCell(cell) {
-    const { x, y, r, color, name } = cell;
+    const { x, y, r, color, name, isFood } = cell;
 
-    ctx.beginPath();
-    ctx.arc(x, y, r, 0, Math.PI * 2);
+    if (isFood) {
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+    } else {
+      wavyArc(ctx, x, y, r, cellGameTime);
+    }
     ctx.fillStyle = color;
     ctx.fill();
 
-    ctx.beginPath();
-    ctx.arc(x, y, r, 0, Math.PI * 2);
-    ctx.strokeStyle = darken(color);
-    ctx.lineWidth   = Math.max(2, r * 0.07);
-    ctx.stroke();
+    if (!isFood) {
+      wavyArc(ctx, x, y, r, cellGameTime);
+      ctx.strokeStyle = darken(color);
+      ctx.lineWidth   = Math.max(2, r * 0.07);
+      ctx.stroke();
+    }
 
     // Name
     if (name && r >= 40) {
@@ -277,8 +282,26 @@
   }
 
   let rafId = null;
+  let cellGameTime = 0, lastTickTime = null;
+
+  function wavyArc(ctx, cx, cy, r, t) {
+    const WAVES = 7;
+    const AMP   = Math.max(0.4, r * 0.010);
+    const steps = 72;
+    ctx.beginPath();
+    for (let i = 0; i <= steps; i++) {
+      const a  = (i / steps) * Math.PI * 2;
+      const wr = r + AMP * Math.sin(WAVES * a) * Math.sin(t * 60.0);
+      i === 0
+        ? ctx.moveTo(cx + wr * Math.cos(a), cy + wr * Math.sin(a))
+        : ctx.lineTo(cx + wr * Math.cos(a), cy + wr * Math.sin(a));
+    }
+    ctx.closePath();
+  }
 
   function tick(t) {
+    if (lastTickTime !== null) cellGameTime += (t - lastTickTime) / 1000;
+    lastTickTime = t;
     const W = canvas.width, H = canvas.height;
 
     ctx.fillStyle = '#eef2f7';
