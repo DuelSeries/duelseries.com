@@ -524,14 +524,13 @@ function drawBorder() {
 }
 
 function wavyArc(cx, cy, r, t) {
-  const WAVES = 6;
-  const AMP   = Math.max(1.5, r * 0.05);
-  const pulse = Math.abs(Math.sin(t * 60.0));
+  const WAVES = 7;
+  const AMP   = Math.max(0.4, r * 0.010);
   const steps = 72;
   ctx.beginPath();
   for (let i = 0; i <= steps; i++) {
     const a  = (i / steps) * Math.PI * 2;
-    const wr = r + AMP * (1 + Math.cos(WAVES * a)) * 0.5 * pulse;
+    const wr = r + AMP * Math.sin(WAVES * a) * Math.sin(t * 60.0);
     i === 0
       ? ctx.moveTo(cx + wr * Math.cos(a), cy + wr * Math.sin(a))
       : ctx.lineTo(cx + wr * Math.cos(a), cy + wr * Math.sin(a));
