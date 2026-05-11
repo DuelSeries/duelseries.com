@@ -531,7 +531,7 @@ function wavyArc(cx, cy, r, t) {
   ctx.beginPath();
   for (let i = 0; i <= steps; i++) {
     const a  = (i / steps) * Math.PI * 2;
-    const wr = r + AMP * Math.sin(WAVES * a + t * 8.0);
+    const wr = r + AMP * Math.sin(WAVES * a + t * 60.0);
     i === 0
       ? ctx.moveTo(cx + wr * Math.cos(a), cy + wr * Math.sin(a))
       : ctx.lineTo(cx + wr * Math.cos(a), cy + wr * Math.sin(a));
