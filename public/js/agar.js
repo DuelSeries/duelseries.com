@@ -449,7 +449,7 @@ function render() {
   drawBorder();
 
   for (const f of foods.values()) {
-    wavyArc(f.x, f.y, f.r || FOOD_RADIUS, gameTime, 0.35);
+    wavyArc(f.x, f.y, f.r || FOOD_RADIUS, gameTime, 0.2);
     ctx.fillStyle = f.color;
     ctx.fill();
   }
