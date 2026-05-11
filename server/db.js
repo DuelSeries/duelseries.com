@@ -67,6 +67,7 @@ async function init() {
 
     ALTER TABLE accounts ADD COLUMN IF NOT EXISTS name_history TEXT[] DEFAULT '{}';
     ALTER TABLE accounts ADD COLUMN IF NOT EXISTS agar_high_score INTEGER DEFAULT 0;
+    ALTER TABLE accounts ADD COLUMN IF NOT EXISTS agar_total_earnings NUMERIC(18,9) DEFAULT 0;
   `);
   console.log('[DB] Tables ready');
 }
@@ -193,6 +194,26 @@ async function getTopEarners(n) {
   const res = await pool.query(
     `SELECT google_id AS id, name, total_earnings AS earnings
      FROM accounts WHERE total_earnings != 0 ORDER BY total_earnings DESC LIMIT $1`,
+    [n]
+  );
+  return res.rows.map((r, i) => ({
+    rank: i + 1,
+    name: r.name,
+    earnings: parseFloat(r.earnings),
+  }));
+}
+
+async function addAgarEarnings(googleId, sol, cadAmount = 0) {
+  await pool.query(
+    `UPDATE accounts SET agar_total_earnings = agar_total_earnings + $2 WHERE google_id = $1`,
+    [googleId, sol]
+  );
+}
+
+async function getAgarTopEarners(n) {
+  const res = await pool.query(
+    `SELECT google_id AS id, name, agar_total_earnings AS earnings
+     FROM accounts WHERE agar_total_earnings > 0 ORDER BY agar_total_earnings DESC LIMIT $1`,
     [n]
   );
   return res.rows.map((r, i) => ({
@@ -391,6 +412,7 @@ module.exports = {
   isTxUsed, recordDeposit, recordWithdrawal,
   recordPendingWithdrawal, updateWithdrawalSig, refundWithdrawal,
   addEarnings, getTopEarners,
+  addAgarEarnings, getAgarTopEarners,
   getGoogleIdByDeviceToken,
   isNameTaken,
   saveVerificationCode, verifyCode, addTrustedDevice, isDeviceTrusted,

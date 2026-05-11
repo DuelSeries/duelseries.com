@@ -376,12 +376,7 @@ socket.on(CONSTANTS.EVENTS.LOBBY_STATE, ({ playerCount, lobbyCount, leaderboard,
   if (ig2) ig2.textContent = agarPlayerCount ?? 0;
   if (il2) il2.textContent = agarLobbyCount  ?? 0;
   updateLobbyLeaderboard(leaderboard);
-  updateAgarLeaderboard(agarLeaderboard);
 });
-
-function updateAgarLeaderboard() {
-  // Lobby 2 now uses the same earnings board as lobby 1 — rendered via renderLobbyLeaderboard()
-}
 
 socket.on(CONSTANTS.EVENTS.WALLET_BALANCE, ({ balance }) => {
   setBalance(balance);
@@ -625,16 +620,43 @@ function refreshEarningsBoard() {
 }
 
 function renderLobbyLeaderboard() {
-  const rows = !_lobbyEarnings.length ? '<li><span class="lb-name" style="color:#555">No earnings yet</span></li>'
-    : _lobbyEarnings.slice(0, 3).map(p => {
-        const cad = p.earnings * (_solCadRate || 200);
-        return `<li><span class="rank">#${p.rank}</span><span class="lb-name">${escHtml(p.name)}</span><span class="lb-score" style="color:#14F195">C$${cad.toFixed(2)}</span></li>`;
-      }).join('');
-  const el1 = document.getElementById('lobby-leaderboard');
-  if (el1) el1.innerHTML = rows;
-  const el2 = document.getElementById('lobby2-leaderboard');
-  if (el2) el2.innerHTML = rows;
+  const el = document.getElementById('lobby-leaderboard');
+  if (!el) return;
+  if (!_lobbyEarnings.length) {
+    el.innerHTML = '<li><span class="lb-name" style="color:#555">No earnings yet</span></li>';
+    return;
+  }
+  el.innerHTML = _lobbyEarnings.slice(0, 3).map(p => {
+    const cad = p.earnings * (_solCadRate || 200);
+    return `<li><span class="rank">#${p.rank}</span><span class="lb-name">${escHtml(p.name)}</span><span class="lb-score" style="color:#14F195">C$${cad.toFixed(2)}</span></li>`;
+  }).join('');
 }
+
+// ─── Agar earnings leaderboard (separate from snake) ─────────────────────────
+let _agarEarnings = [];
+
+function refreshAgarEarningsBoard() {
+  fetch('/api/agar-earningsboard')
+    .then(r => r.json())
+    .then(data => { _agarEarnings = data; renderAgarLeaderboard(); })
+    .catch(() => {});
+}
+
+function renderAgarLeaderboard() {
+  const el = document.getElementById('lobby2-leaderboard');
+  if (!el) return;
+  if (!_agarEarnings.length) {
+    el.innerHTML = '<li><span class="lb-name" style="color:#9ca3af">No earnings yet</span></li>';
+    return;
+  }
+  el.innerHTML = _agarEarnings.slice(0, 3).map(p => {
+    const cad = p.earnings * (_solCadRate || 200);
+    return `<li><span class="rank">#${p.rank}</span><span class="lb-name">${escHtml(p.name)}</span><span class="lb-score" style="color:#14F195">C$${cad.toFixed(2)}</span></li>`;
+  }).join('');
+}
+
+refreshAgarEarningsBoard();
+setInterval(refreshAgarEarningsBoard, 30000);
 
 // refresh earnings leaderboard every 30 seconds
 refreshEarningsBoard();

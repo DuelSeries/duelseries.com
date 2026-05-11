@@ -43,6 +43,7 @@ class AgarRoom {
   }
 
   get playerCount() { return this.players.size; }
+  get botCount()    { let n = 0; for (const b of this.bots.values()) if (b.alive) n++; return n; }
 
   start() {
     this._spawnFoods(FOOD_TARGET);

@@ -350,6 +350,15 @@ app.get('/api/earningsboard', async (req, res) => {
   }
 });
 
+app.get('/api/agar-earningsboard', async (req, res) => {
+  try {
+    const top = await db.getAgarTopEarners(10);
+    res.json(top);
+  } catch (e) {
+    res.json([]);
+  }
+});
+
 app.get('/api/profile/:name', async (req, res) => {
   try {
     const profile = await db.getProfile(req.params.name);
@@ -425,7 +434,7 @@ function totalInGame() {
 }
 
 function totalAgarInGame() {
-  return Object.values(agarRooms).reduce((s, r) => s + r.playerCount, 0);
+  return Object.values(agarRooms).reduce((s, r) => s + r.playerCount + r.botCount, 0);
 }
 
 function broadcastLobbyState() {
@@ -647,7 +656,7 @@ io.on('connection', (socket) => {
         const playerShareSol = prices.cadToSol(playerShare);
         const ownerShareSol  = prices.cadToSol(ownerShare);
         newBalance = await db.recordDeposit(socket._googleId, 'agar_cashout_' + Date.now() + '_' + socket.id, playerShareSol, 'cashout');
-        await db.addEarnings(socket._googleId, playerShareSol, playerShare);
+        await db.addAgarEarnings(socket._googleId, playerShareSol, playerShare);
         console.log(`[AGAR CASHOUT] ${player.name} cashed out $${playerShare.toFixed(2)} CAD`);
         const ownerGoogleId = process.env.OWNER_GOOGLE_ID;
         if (ownerGoogleId && ownerShareSol > 0) {
