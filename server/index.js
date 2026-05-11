@@ -657,6 +657,7 @@ io.on('connection', (socket) => {
         const ownerShareSol  = prices.cadToSol(ownerShare);
         newBalance = await db.recordDeposit(socket._googleId, 'agar_cashout_' + Date.now() + '_' + socket.id, playerShareSol, 'cashout');
         await db.addAgarEarnings(socket._googleId, playerShareSol, playerShare);
+        await db.addEarnings(socket._googleId, playerShareSol, playerShare);
         console.log(`[AGAR CASHOUT] ${player.name} cashed out $${playerShare.toFixed(2)} CAD`);
         const ownerGoogleId = process.env.OWNER_GOOGLE_ID;
         if (ownerGoogleId && ownerShareSol > 0) {
