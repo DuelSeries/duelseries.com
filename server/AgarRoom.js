@@ -454,7 +454,7 @@ class AgarRoom {
         x = Math.random() * ws;
         y = Math.random() * ws;
       }
-      const food = { id, x, y, color: FOOD_COLORS[Math.floor(Math.random() * FOOD_COLORS.length)], r: 10 + Math.floor(Math.random() * 11) };
+      const food = { id, x, y, color: FOOD_COLORS[Math.floor(Math.random() * FOOD_COLORS.length)], r: 10 + Math.floor(Math.random() * 6) };
       this.foods.set(id, food);
       this._addedFoods.push(food);
     }
