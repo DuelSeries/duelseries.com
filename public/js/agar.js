@@ -536,7 +536,7 @@ function drawCell(cell, color, name, worth) {
       const wfs = Math.max(8, Math.min(r * 0.26, 20));
       ctx.font      = `600 ${wfs}px Inter, sans-serif`;
       ctx.fillStyle = 'rgba(255,230,100,0.95)';
-      ctx.fillText('$' + worth.toFixed(2), cell.rx, cell.ry + fs * 0.55);
+      ctx.fillText('$' + worth.toFixed(3), cell.rx, cell.ry + fs * 0.55);
     }
   }
 }

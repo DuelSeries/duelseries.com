@@ -505,10 +505,18 @@ function showLobby() {
   socket.emit('lobby:join', { googleId: account.googleId });
   fetchGlobalWinnings();
 
-  // Jump straight to lobby 2 if returning from the agar game
+  // Jump straight to lobby 2 if returning from the agar game — no animation
   if (sessionStorage.getItem('returnToAgarLobby') === '1') {
     sessionStorage.removeItem('returnToAgarLobby');
-    setTimeout(() => switchLobby(1), 120);
+    lobbies[0].classList.add('hidden');
+    lobbies[1].classList.remove('hidden');
+    bgCanvas2.style.opacity = '1';
+    bgCanvas1.style.opacity = '0';
+    snakeCanvas.style.opacity = '0';
+    document.querySelectorAll('.lobby-nav-arrow').forEach(a => { a.dataset.theme = 'light'; });
+    showArrows();
+    window._agarBg.start();
+    currentLobby = 2;
   }
 }
 
