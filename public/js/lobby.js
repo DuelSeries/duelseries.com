@@ -1574,7 +1574,7 @@ document.getElementById('btn-play').addEventListener('click', async () => {
     document.getElementById('appearance-screen').classList.add('hidden');
     document.querySelectorAll('.lobby-nav-arrow').forEach(el => el.classList.remove('hidden'));
     const snakeCanvas = document.getElementById('snake-canvas');
-    if (snakeCanvas) snakeCanvas.style.opacity = '';
+    if (snakeCanvas) snakeCanvas.style.opacity = apSrcLobby === 2 ? '0' : '';
     if (apSrcLobby === 2) {
       document.getElementById('lobby-screen-2').classList.remove('hidden');
       bgCanvas2.style.opacity = '1';
