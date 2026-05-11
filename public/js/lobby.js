@@ -915,13 +915,28 @@ document.getElementById('btn-play-2').addEventListener('click', async () => {
     if (d.error) { alert(d.error); return; }
     account.name = d.account.name;
   }
+
+  // Deduct entry fee for paid lobbies
+  if (selectedLobbyType2 !== 'free') {
+    const feeRes = await fetch('/wallet/entry-fee', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lobbyType: selectedLobbyType2 }) });
+    const feeData = await feeRes.json();
+    if (feeData.error) {
+      const errEl = document.getElementById('play-error-2');
+      if (errEl) { errEl.textContent = feeData.error; setTimeout(() => { errEl.textContent = ''; }, 3000); }
+      else alert(feeData.error);
+      return;
+    }
+    if (account) account.balance = feeData.balance;
+    setBalance(feeData.balance);
+  }
+
   localStorage.setItem('duelseries_playername', name);
   sessionStorage.setItem('playerName',    name);
   sessionStorage.setItem('walletAddress', account?.walletAddress || '');
   sessionStorage.setItem('googleId',      account?.googleId || '');
   sessionStorage.setItem('lobbyType',     selectedLobbyType2);
   sessionStorage.setItem('gameMode',      'cell');
-  window.location.href = '/agar.html'; // future agar.io game page
+  window.location.href = '/agar.html';
 });
 
 document.getElementById('player-name-2').addEventListener('input', function() {

@@ -198,7 +198,7 @@ function connectSocket() {
         renderPlayers.set(p.id, snapRenderPlayer(p));
       } else {
         const rp = renderPlayers.get(p.id);
-        rp.alive = p.alive; rp.score = p.score;
+        rp.alive = p.alive; rp.score = p.score; rp.worth = p.worth || 0;
         // Snap if cell count changed (split / merge)
         if (rp.cells.length !== p.cells.length) {
           rp.cells = p.cells.map(c => ({ rx: c.x, ry: c.y, mass: c.mass }));
@@ -230,7 +230,7 @@ function connectSocket() {
   });
 
   socket.on('cell:playerJoined', ({ id, name, color, cells }) => {
-    const p = { id, name, color, cells, alive: true, score: 0 };
+    const p = { id, name, color, cells, alive: true, score: 0, worth: 0 };
     serverPlayers.set(id, p);
     renderPlayers.set(id, snapRenderPlayer(p));
   });
@@ -246,7 +246,7 @@ function connectSocket() {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function snapRenderPlayer(p) {
   return {
-    id: p.id, name: p.name, color: p.color, alive: p.alive, score: p.score,
+    id: p.id, name: p.name, color: p.color, alive: p.alive, score: p.score, worth: p.worth || 0,
     cells: p.cells.map(c => ({ rx: c.x, ry: c.y, mass: c.mass })),
   };
 }
@@ -413,13 +413,14 @@ function render() {
   for (const [id, rp] of renderPlayers) {
     if (id === myId || !rp.alive) continue;
     const sorted = [...rp.cells].sort((a, b) => b.mass - a.mass);
-    for (const cell of sorted) drawCell(cell, rp.color, rp.name);
+    for (const cell of sorted) drawCell(cell, rp.color, rp.name, rp.worth);
   }
 
   const me = renderPlayers.get(myId);
   if (me && me.alive) {
     const sorted = [...me.cells].sort((a, b) => b.mass - a.mass);
-    for (const cell of sorted) drawCell(cell, myColor, myName);
+    const meSp = serverPlayers.get(myId);
+    for (const cell of sorted) drawCell(cell, myColor, myName, meSp ? meSp.worth : 0);
   }
 
   if (qHeld && me && me.alive && me.cells.length) {
@@ -472,7 +473,7 @@ function drawBorder() {
   ctx.strokeRect(0, 0, worldSize, worldSize);
 }
 
-function drawCell(cell, color, name) {
+function drawCell(cell, color, name, worth) {
   const r = radius(cell.mass);
 
   ctx.save();
@@ -502,12 +503,20 @@ function drawCell(cell, color, name) {
   ctx.fill();
 
   if (r > 18) {
+    const hasWorth = worth > 0;
     const fs = Math.max(10, Math.min(r * 0.36, 28));
+    const nameY = hasWorth ? cell.ry - fs * 0.35 : cell.ry;
     ctx.font         = `700 ${fs}px Inter, sans-serif`;
     ctx.textAlign    = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillStyle    = 'rgba(255,255,255,0.92)';
-    ctx.fillText(name, cell.rx, cell.ry);
+    ctx.fillText(name, cell.rx, nameY);
+    if (hasWorth) {
+      const wfs = Math.max(8, Math.min(r * 0.26, 20));
+      ctx.font      = `600 ${wfs}px Inter, sans-serif`;
+      ctx.fillStyle = 'rgba(255,230,100,0.95)';
+      ctx.fillText('$' + worth.toFixed(2), cell.rx, cell.ry + fs * 0.55);
+    }
   }
 }
 
