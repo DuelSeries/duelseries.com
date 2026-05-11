@@ -608,12 +608,33 @@ io.on('connection', (socket) => {
     broadcastLobbyState();
   });
 
-  socket.on('cell:spawnbot', () => {
+  socket.on('cell:spawnbot', async () => {
     const ownerGoogleId = process.env.OWNER_GOOGLE_ID;
     const verifiedGoogleId = socket.request.user?.googleId;
     if (!ownerGoogleId || verifiedGoogleId !== ownerGoogleId) return;
     const room = socket._agarRoom || agarRooms.free;
-    room.addBot();
+
+    // Determine lobby type from room name (e.g. 'agar_dime' → 'dime')
+    const lobbyType = room.roomName.replace('agar_', '');
+    const LOBBY_FEES_CAD = { dime: 0.10, dollar: 1.00 };
+    const feeCad = LOBBY_FEES_CAD[lobbyType] || 0;
+
+    if (feeCad > 0) {
+      const feeSol = prices.cadToSol(feeCad);
+      try {
+        const acc = await db.getAccountByGoogleId(ownerGoogleId);
+        if (!acc || acc.balance < feeSol) {
+          socket.emit('admin:ack', { message: 'Insufficient balance for paid bot' });
+          return;
+        }
+        await db.recordWithdrawal(ownerGoogleId, null, feeSol, 'paid_agar_bot_entry');
+        room.addPaidBot(feeCad);
+      } catch (e) {
+        console.error('[AGAR BOT] Paid bot fee failed:', e.message);
+      }
+    } else {
+      room.addBot();
+    }
   });
 
   socket.on('cell:input', ({ mouseX, mouseY } = {}) => {

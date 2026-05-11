@@ -202,6 +202,13 @@ class AgarRoom {
     return bot;
   }
 
+  addPaidBot(worthCad) {
+    const bot = this.addBot();
+    bot.worth    = worthCad;
+    bot.entryFee = worthCad;
+    return bot;
+  }
+
   // ── Tick ──────────────────────────────────────────────────────────────────
 
   _tick() {
