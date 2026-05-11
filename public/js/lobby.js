@@ -364,7 +364,7 @@ if (new URLSearchParams(location.search).get('error') === 'auth') {
 }
 
 // ─── Socket ───────────────────────────────────────────────────────────────────
-socket.on(CONSTANTS.EVENTS.LOBBY_STATE, ({ playerCount, lobbyCount, leaderboard, agarPlayerCount, agarLobbyCount }) => {
+socket.on(CONSTANTS.EVENTS.LOBBY_STATE, ({ playerCount, lobbyCount, leaderboard, agarPlayerCount, agarLobbyCount, agarLeaderboard }) => {
   const ig = document.getElementById('stat-players-ingame');
   const il = document.getElementById('stat-players-inlobby');
   const b  = document.getElementById('stat-players-login');
@@ -376,7 +376,20 @@ socket.on(CONSTANTS.EVENTS.LOBBY_STATE, ({ playerCount, lobbyCount, leaderboard,
   if (ig2) ig2.textContent = agarPlayerCount ?? 0;
   if (il2) il2.textContent = agarLobbyCount  ?? 0;
   updateLobbyLeaderboard(leaderboard);
+  updateAgarLeaderboard(agarLeaderboard);
 });
+
+function updateAgarLeaderboard(lb) {
+  const el = document.getElementById('lobby2-leaderboard');
+  if (!el) return;
+  if (!lb || !lb.length) {
+    el.innerHTML = '<li><span class="lb-name" style="color:#9ca3af">No scores yet</span></li>';
+    return;
+  }
+  el.innerHTML = lb.map(p =>
+    `<li><span class="rank">#${p.rank}</span><span class="lb-name">${escHtml(p.name)}</span><span class="lb-score">${p.score}</span></li>`
+  ).join('');
+}
 
 socket.on(CONSTANTS.EVENTS.WALLET_BALANCE, ({ balance }) => {
   setBalance(balance);

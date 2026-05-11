@@ -10,6 +10,7 @@ const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const C        = require('../shared/constants');
 const GameRoom = require('./GameRoom');
 const AgarRoom = require('./AgarRoom');
+const { agarLb } = AgarRoom;
 const db     = require('./db');
 const Wallet = require('./Wallet');
 const allTimeLb = require('./leaderboard');
@@ -433,6 +434,7 @@ function broadcastLobbyState() {
     leaderboard:      allTimeLb.getTop(3),
     agarPlayerCount:  totalAgarInGame(),
     agarLobbyCount:   lobbyConnections.size,
+    agarLeaderboard:  agarLb.getTop(3),
   };
   for (const sock of lobbyConnections) sock.emit(C.EVENTS.LOBBY_STATE, state);
 }
@@ -446,6 +448,7 @@ io.on('connection', (socket) => {
     leaderboard:      allTimeLb.getTop(3),
     agarPlayerCount:  totalAgarInGame(),
     agarLobbyCount:   lobbyConnections.size,
+    agarLeaderboard:  agarLb.getTop(3),
   });
 
   socket.on('lobby:join', ({ googleId } = {}) => {
@@ -630,6 +633,7 @@ io.on('connection', (socket) => {
     if (!player || !player.alive) return;
 
     const worthCad   = player.worth || 0;
+    agarLb.record(player.name, player.score);
     room.cashoutPlayer(socket.id); // kills player, clears cells
 
     const HOUSE_CUT    = 0.10;

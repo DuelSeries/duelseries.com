@@ -26,6 +26,22 @@ const BOT_COLORS = ['#ef4444','#f97316','#eab308','#22c55e','#06b6d4','#8b5cf6',
 let _foodIdSeq = 1;
 let _botIdSeq  = 1;
 
+// Module-level in-memory leaderboard shared across all agar rooms
+const agarLb = {
+  _cache: [],
+  record(name, score) {
+    if (!name || typeof score !== 'number' || score <= 0) return;
+    const idx = this._cache.findIndex(e => e.name === name);
+    if (idx >= 0) { if (score > this._cache[idx].score) this._cache[idx].score = score; }
+    else this._cache.push({ name, score });
+    this._cache.sort((a, b) => b.score - a.score);
+    if (this._cache.length > 100) this._cache.length = 100;
+  },
+  getTop(n) {
+    return this._cache.slice(0, n).map((e, i) => ({ rank: i + 1, name: e.name, score: e.score }));
+  },
+};
+
 class AgarRoom {
   constructor(io, roomName) {
     this.io        = io;
@@ -89,7 +105,9 @@ class AgarRoom {
 
   removePlayer(socketId) {
     if (!this.players.has(socketId)) return;
-    const name = this.players.get(socketId).name;
+    const p = this.players.get(socketId);
+    agarLb.record(p.name, p.score);
+    const name = p.name;
     this.players.delete(socketId);
     this.io.to(this.roomName).emit('cell:playerLeft', { id: socketId });
     this._updateWorldSize();
@@ -405,6 +423,7 @@ class AgarRoom {
                   target.alive = false;
                   this._updateWorldSize();
                 } else {
+                  agarLb.record(target.name, target.score);
                   target.alive = false;
                   const sock = this.io.sockets.sockets.get(target.id);
                   if (sock) sock.emit('cell:died', { killedBy: eater.name, score: target.score });
@@ -481,3 +500,4 @@ class AgarRoom {
 }
 
 module.exports = AgarRoom;
+module.exports.agarLb = agarLb;
