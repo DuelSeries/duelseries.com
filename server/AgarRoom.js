@@ -73,6 +73,7 @@ class AgarRoom {
       score:      0,
       locked:     false,
       worth:      worth || 0,
+      entryFee:   worth || 0,
       googleId:   googleId || null,
     };
     this.players.set(socket.id, player);

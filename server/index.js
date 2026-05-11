@@ -656,9 +656,13 @@ io.on('connection', (socket) => {
         const playerShareSol = prices.cadToSol(playerShare);
         const ownerShareSol  = prices.cadToSol(ownerShare);
         newBalance = await db.recordDeposit(socket._googleId, 'agar_cashout_' + Date.now() + '_' + socket.id, playerShareSol, 'cashout');
-        await db.addAgarEarnings(socket._googleId, playerShareSol, playerShare);
-        await db.addEarnings(socket._googleId, playerShareSol, playerShare);
-        console.log(`[AGAR CASHOUT] ${player.name} cashed out $${playerShare.toFixed(2)} CAD`);
+        // Net profit = cashout received minus entry fee paid
+        const entryFee      = player.entryFee || 0;
+        const netCad        = playerShare - entryFee;
+        const netSol        = prices.cadToSol(netCad);
+        await db.addAgarEarnings(socket._googleId, netSol, netCad);
+        await db.addEarnings(socket._googleId, netSol, netCad);
+        console.log(`[AGAR CASHOUT] ${player.name} cashed out $${playerShare.toFixed(2)} CAD (net $${netCad.toFixed(3)})`);
         const ownerGoogleId = process.env.OWNER_GOOGLE_ID;
         if (ownerGoogleId && ownerShareSol > 0) {
           db.recordDeposit(ownerGoogleId, 'agar_owner_cut_' + Date.now() + '_' + socket.id, ownerShareSol, 'house_cut')
