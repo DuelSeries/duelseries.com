@@ -1148,6 +1148,12 @@ body {
   align-items: center;
 }
 #appearance-screen.hidden { display: none; }
+#appearance-screen.ap-cell-mode {
+  background: #f0f4ff;
+  background-image:
+    repeating-linear-gradient(rgba(99,102,241,0.13) 0px, rgba(99,102,241,0.13) 1px, transparent 1px, transparent 60px),
+    repeating-linear-gradient(90deg, rgba(99,102,241,0.13) 0px, rgba(99,102,241,0.13) 1px, transparent 1px, transparent 60px);
+}
 
 .ap-header {
   width: 100%;

@@ -1541,6 +1541,7 @@ document.getElementById('btn-play').addEventListener('click', async () => {
     if (lobbyNum === 2) {
       if (window._agarBg) window._agarBg.stop();
       bgCanvas2.style.opacity = '0';
+      document.getElementById('appearance-screen').classList.add('ap-cell-mode');
     }
 
     document.getElementById('appearance-screen').classList.remove('hidden');
@@ -1578,6 +1579,7 @@ document.getElementById('btn-play').addEventListener('click', async () => {
       document.getElementById('lobby-screen-2').classList.remove('hidden');
       bgCanvas2.style.opacity = '1';
       if (window._agarBg) window._agarBg.start();
+      document.getElementById('appearance-screen').classList.remove('ap-cell-mode');
     } else {
       document.getElementById('lobby-screen').classList.remove('hidden');
     }
