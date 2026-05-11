@@ -190,21 +190,14 @@
   function drawCell(cell) {
     const { x, y, r, color, name, isFood } = cell;
 
-    if (isFood) {
-      ctx.beginPath();
-      ctx.arc(x, y, r, 0, Math.PI * 2);
-    } else {
-      wavyArc(ctx, x, y, r, cellGameTime);
-    }
+    wavyArc(ctx, x, y, r, cellGameTime);
     ctx.fillStyle = color;
     ctx.fill();
 
-    if (!isFood) {
-      wavyArc(ctx, x, y, r, cellGameTime);
-      ctx.strokeStyle = darken(color);
-      ctx.lineWidth   = Math.max(2, r * 0.07);
-      ctx.stroke();
-    }
+    wavyArc(ctx, x, y, r, cellGameTime);
+    ctx.strokeStyle = darken(color);
+    ctx.lineWidth   = Math.max(2, r * 0.07);
+    ctx.stroke();
 
     // Name
     if (name && r >= 40) {
