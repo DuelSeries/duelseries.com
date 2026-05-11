@@ -225,16 +225,11 @@ class AgarRoom {
       const dx   = p.mouseX - cell.x;
       const dy   = p.mouseY - cell.y;
       const dist = Math.sqrt(dx * dx + dy * dy) || 0.001;
-      const r    = Math.sqrt(cell.mass) * 10;
-
-      // Always move toward mouse; scale speed down as mouse nears cell center
-      const slowZone = r * 0.5;
-      const speedMult = Math.min(1, dist / slowZone);
       const nx = dx / dist, ny = dy / dist;
-      {
-        cell.x += (nx * speed * speedMult + cell.vx) * dt;
-        cell.y += (ny * speed * speedMult + cell.vy) * dt;
-      }
+      cell.x += (nx * speed + cell.vx) * dt;
+      cell.y += (ny * speed + cell.vy) * dt;
+
+      const r = Math.sqrt(cell.mass) * 10;
 
       const ws = this.worldSize;
       cell.x = Math.max(r, Math.min(ws - r, cell.x));
