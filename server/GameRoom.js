@@ -176,9 +176,9 @@ class GameRoom {
       if (_aDelta < -Math.PI) _aDelta += Math.PI * 2;
       const turningSharp = Math.abs(_aDelta) > 0.25;
 
-      const PULL_RADIUS  = 30;
-      const PULL_SPEED   = snake.boosting ? 2.0 : 4.5;
-      const COMMIT_SPEED = 5.5;
+      const PULL_RADIUS  = 45;
+      const PULL_SPEED   = 12;
+      const COMMIT_SPEED = 18;
       for (const food of this.foodManager.getAll()) {
         const dx = snake.head.x - food.x;
         const dy = snake.head.y - food.y;
