@@ -170,7 +170,7 @@ class GameRoom {
 
       // Food magnetism + collision
       // Wider + stronger pull when not boosting; narrower + gentler when boosting
-      const PULL_RADIUS   = snake.boosting ? 60  : 120;
+      const PULL_RADIUS   = snake.boosting ? 40  : 90;
       const PULL_SPEED    = snake.boosting ? 2.0 : 4.5;
       // Committed food chases the snake at this speed — faster than base snake speed (3)
       // so it always converges once attracted, even if the snake tries to move away
