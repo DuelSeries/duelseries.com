@@ -190,34 +190,16 @@
   function drawCell(cell) {
     const { x, y, r, color, name } = cell;
 
-    // Drop shadow
-    ctx.save();
-    ctx.shadowColor = 'rgba(0,0,0,0.20)';
-    ctx.shadowBlur  = r * 0.5;
-    ctx.shadowOffsetY = r * 0.08;
     ctx.beginPath();
     ctx.arc(x, y, r, 0, Math.PI * 2);
     ctx.fillStyle = color;
     ctx.fill();
-    ctx.restore();
 
-    // Darker border ring
     ctx.beginPath();
     ctx.arc(x, y, r, 0, Math.PI * 2);
     ctx.strokeStyle = darken(color);
     ctx.lineWidth   = Math.max(2, r * 0.07);
     ctx.stroke();
-
-    // Radial highlight (upper-left glint → transparent)
-    const glintX = x - r * 0.30, glintY = y - r * 0.30;
-    const glint  = ctx.createRadialGradient(glintX, glintY, 0, glintX, glintY, r * 0.75);
-    glint.addColorStop(0,   'rgba(255,255,255,0.45)');
-    glint.addColorStop(0.5, 'rgba(255,255,255,0.10)');
-    glint.addColorStop(1,   'rgba(255,255,255,0)');
-    ctx.beginPath();
-    ctx.arc(x, y, r, 0, Math.PI * 2);
-    ctx.fillStyle = glint;
-    ctx.fill();
 
     // Name
     if (name && r >= 40) {
@@ -1237,26 +1219,12 @@ document.getElementById('btn-play').addEventListener('click', async () => {
     ctx.clearRect(0, 0, W, H);
     const r = Math.min(W, H) * 0.38;
     const cx = W / 2, cy = H / 2;
-    // Shadow
-    ctx.save();
-    ctx.shadowColor = 'rgba(0,0,0,0.22)';
-    ctx.shadowBlur  = r * 0.45;
-    ctx.shadowOffsetY = r * 0.08;
     ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2);
     ctx.fillStyle = color; ctx.fill();
-    ctx.restore();
     // Dark border
     ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2);
     ctx.strokeStyle = darkenHex(color);
     ctx.lineWidth = r * 0.08; ctx.stroke();
-    // Radial glint
-    const gx = cx - r * 0.28, gy = cy - r * 0.28;
-    const gl = ctx.createRadialGradient(gx, gy, 0, gx, gy, r * 0.72);
-    gl.addColorStop(0,   'rgba(255,255,255,0.52)');
-    gl.addColorStop(0.5, 'rgba(255,255,255,0.12)');
-    gl.addColorStop(1,   'rgba(255,255,255,0)');
-    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.fillStyle = gl; ctx.fill();
   }
 
   function refreshMiniCanvas() {
