@@ -359,6 +359,13 @@ function loop(now) {
     return;
   }
 
+  // Re-emit mouse world position every frame so the circle keeps moving
+  // even when the physical mouse is stationary (camera shift changes world coords)
+  if (socket && myId) {
+    const mw = mouseWorld();
+    socket.volatile.emit('cell:input', { mouseX: mw.x, mouseY: mw.y });
+  }
+
   lerpPositions();
   if (spectating) updateSpectateLabel();
 
