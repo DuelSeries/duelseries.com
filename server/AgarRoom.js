@@ -12,7 +12,7 @@ const MIN_SPLIT_MASS = 36;
 const MAX_CELLS      = 16;
 const SPLIT_SPEED    = 650;
 const MERGE_DELAY    = 12000;
-const SPEED_BASE     = 2000; // divided by mass^0.4 per cell
+const SPEED_BASE     = 1500; // divided by mass^0.4 per cell
 const EAT_RATIO      = 1.25;
 
 const FOOD_COLORS = [

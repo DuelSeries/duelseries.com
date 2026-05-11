@@ -629,11 +629,13 @@ io.on('connection', (socket) => {
         }
         await db.recordWithdrawal(ownerGoogleId, null, feeSol, 'paid_agar_bot_entry');
         room.addPaidBot(feeCad);
+        broadcastLobbyState();
       } catch (e) {
         console.error('[AGAR BOT] Paid bot fee failed:', e.message);
       }
     } else {
       room.addBot();
+      broadcastLobbyState();
     }
   });
 

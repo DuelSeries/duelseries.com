@@ -24,6 +24,7 @@ let tgtCamX     = 3000, tgtCamY = 3000, tgtScale = 1;
 let screenMX    = 0, screenMY = 0;
 let animId      = null;
 let lastTime    = 0;
+let gameTime    = 0;
 
 // Spectate
 let spectating    = false;
@@ -290,9 +291,8 @@ function snapRenderPlayer(p) {
 }
 
 function calcScale(totalMass) {
-  // Exponent 0.3 zooms out much more slowly than 0.5
-  const C = Math.pow(20, 0.3) * 1.2; // starts at 1.2 for mass 20
-  return Math.max(0.12, Math.min(1.5, C / Math.pow(totalMass, 0.3)));
+  const base = 2.2; // zoom at starting mass (20)
+  return Math.max(0.15, Math.min(2.2, base * Math.pow(20 / totalMass, 0.25)));
 }
 
 function massSum(cells) { return cells.reduce((s, c) => s + (c.mass || c.mass || 0), 0); }
@@ -374,6 +374,7 @@ function doCashout() {
 function loop(now) {
   const dt = Math.min((now - lastTime) / 1000, 0.05);
   lastTime = now;
+  gameTime += dt;
 
   if (qHeld && Date.now() - qStartTime >= Q_HOLD_MS) {
     qHeld = false;
@@ -523,16 +524,29 @@ function drawBorder() {
   ctx.strokeRect(0, 0, worldSize, worldSize);
 }
 
+function wavyArc(cx, cy, r, t) {
+  const WAVES = 7;
+  const AMP   = Math.max(1.2, r * 0.032);
+  const steps = 72;
+  ctx.beginPath();
+  for (let i = 0; i <= steps; i++) {
+    const a  = (i / steps) * Math.PI * 2;
+    const wr = r + AMP * Math.sin(WAVES * a + t * 1.8);
+    i === 0
+      ? ctx.moveTo(cx + wr * Math.cos(a), cy + wr * Math.sin(a))
+      : ctx.lineTo(cx + wr * Math.cos(a), cy + wr * Math.sin(a));
+  }
+  ctx.closePath();
+}
+
 function drawCell(cell, color, name, worth) {
   const r = radius(cell.mass);
 
-  ctx.beginPath();
-  ctx.arc(cell.rx, cell.ry, r, 0, Math.PI * 2);
+  wavyArc(cell.rx, cell.ry, r, gameTime);
   ctx.fillStyle = color;
   ctx.fill();
 
-  ctx.beginPath();
-  ctx.arc(cell.rx, cell.ry, r, 0, Math.PI * 2);
+  wavyArc(cell.rx, cell.ry, r, gameTime);
   ctx.strokeStyle = darken(color, 0.28);
   ctx.lineWidth   = Math.max(2, r * 0.07);
   ctx.stroke();
