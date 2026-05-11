@@ -1538,7 +1538,10 @@ document.getElementById('btn-play').addEventListener('click', async () => {
     apMode = 'inventory';
     const snakeCanvas = document.getElementById('snake-canvas');
     if (snakeCanvas) snakeCanvas.style.opacity = '0';
-    if (lobbyNum === 2 && window._agarBg) window._agarBg.stop();
+    if (lobbyNum === 2) {
+      if (window._agarBg) window._agarBg.stop();
+      bgCanvas2.style.opacity = '0';
+    }
 
     document.getElementById('appearance-screen').classList.remove('hidden');
     document.getElementById('lobby-screen').classList.add('hidden');
@@ -1573,6 +1576,7 @@ document.getElementById('btn-play').addEventListener('click', async () => {
     if (snakeCanvas) snakeCanvas.style.opacity = '';
     if (apSrcLobby === 2) {
       document.getElementById('lobby-screen-2').classList.remove('hidden');
+      bgCanvas2.style.opacity = '1';
       if (window._agarBg) window._agarBg.start();
     } else {
       document.getElementById('lobby-screen').classList.remove('hidden');
