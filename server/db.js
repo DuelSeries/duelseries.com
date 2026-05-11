@@ -66,6 +66,7 @@ async function init() {
     ALTER TABLE earnings_history ADD COLUMN IF NOT EXISTS cad_amount NUMERIC(18,4) DEFAULT 0;
 
     ALTER TABLE accounts ADD COLUMN IF NOT EXISTS name_history TEXT[] DEFAULT '{}';
+    ALTER TABLE accounts ADD COLUMN IF NOT EXISTS agar_high_score INTEGER DEFAULT 0;
   `);
   console.log('[DB] Tables ready');
 }

@@ -9,8 +9,8 @@ const pgSession = require('connect-pg-simple')(session);
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const C        = require('../shared/constants');
 const GameRoom = require('./GameRoom');
-const AgarRoom = require('./AgarRoom');
-const { agarLb } = AgarRoom;
+const AgarRoom      = require('./AgarRoom');
+const agarLb        = require('./agarLeaderboard');
 const db     = require('./db');
 const Wallet = require('./Wallet');
 const allTimeLb = require('./leaderboard');
@@ -19,6 +19,7 @@ const prices = require('./prices');
 
 Wallet.setDb(db);
 allTimeLb.setDb(db);
+agarLb.setDb(db);
 
 const app    = express();
 const server = http.createServer(app);
@@ -593,7 +594,7 @@ io.on('connection', (socket) => {
     socket._agarRoom = room;
     const ENTRY_WORTH = { free: 0, dime: 0.10, dollar: 1.00 };
     const entryWorth = ENTRY_WORTH[lobbyType] || 0;
-    room.addPlayer(socket, name, color, entryWorth);
+    room.addPlayer(socket, name, color, entryWorth, socket._googleId || null);
     lobbyConnections.delete(socket);
     broadcastLobbyState();
   });
@@ -633,7 +634,7 @@ io.on('connection', (socket) => {
     if (!player || !player.alive) return;
 
     const worthCad   = player.worth || 0;
-    agarLb.record(player.name, player.score);
+    agarLb.record(socket._googleId || player.name, player.name, player.score);
     room.cashoutPlayer(socket.id); // kills player, clears cells
 
     const HOUSE_CUT    = 0.10;
