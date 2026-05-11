@@ -168,17 +168,17 @@ class GameRoom {
         continue;
       }
 
-      // Food magnetism + collision
-      // Suppress magnet entirely when turning sharply — food should stay put,
-      // not follow the snake around a corner
+      // Food magnetism + collision — slither.io style:
+      // proportional pull within radius, no committed tracking, food stays
+      // put if the snake moves away. Disabled during sharp turns so food
+      // doesn't spray around corners.
       let _aDelta = snake.targetAngle - snake.angle;
       if (_aDelta >  Math.PI) _aDelta -= Math.PI * 2;
       if (_aDelta < -Math.PI) _aDelta += Math.PI * 2;
       const turningSharp = Math.abs(_aDelta) > 0.25;
 
-      const PULL_RADIUS  = 45;
-      const PULL_SPEED   = 12;
-      const COMMIT_SPEED = 18;
+      const PULL_RADIUS = 35;
+      const PULL_SPEED  = 6;
       for (const food of this.foodManager.getAll()) {
         const dx = snake.head.x - food.x;
         const dy = snake.head.y - food.y;
@@ -188,13 +188,10 @@ class GameRoom {
           if (food.cashValue > 0) snake.worth += food.cashValue;
           this.foodManager.remove(food.id);
         } else if (!turningSharp && d < PULL_RADIUS) {
-          food.attractedBy = snake.id;
+          // Smooth proportional pull — stronger closer to the head
           const strength = (1 - d / PULL_RADIUS) * PULL_SPEED;
           food.x += (dx / d) * strength;
           food.y += (dy / d) * strength;
-        } else if (!turningSharp && food.attractedBy === snake.id) {
-          food.x += (dx / d) * COMMIT_SPEED;
-          food.y += (dy / d) * COMMIT_SPEED;
         }
       }
     }
