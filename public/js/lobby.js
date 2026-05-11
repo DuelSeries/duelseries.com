@@ -190,7 +190,7 @@
   function drawCell(cell) {
     const { x, y, r, color, name, isFood } = cell;
 
-    wavyArc(ctx, x, y, r, cellGameTime);
+    wavyArc(ctx, x, y, r, cellGameTime, isFood ? 0.15 : undefined);
     ctx.fillStyle = color;
     ctx.fill();
 
@@ -279,9 +279,9 @@
   let rafId = null;
   let cellGameTime = 0, lastTickTime = null;
 
-  function wavyArc(ctx, cx, cy, r, t) {
+  function wavyArc(ctx, cx, cy, r, t, amp) {
     const WAVES = 7;
-    const AMP   = Math.max(0.4, r * 0.010);
+    const AMP   = amp !== undefined ? amp : Math.max(0.4, r * 0.010);
     const steps = 72;
     ctx.beginPath();
     for (let i = 0; i <= steps; i++) {

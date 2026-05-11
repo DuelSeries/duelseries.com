@@ -449,7 +449,7 @@ function render() {
   drawBorder();
 
   for (const f of foods.values()) {
-    wavyArc(f.x, f.y, FOOD_RADIUS, gameTime);
+    wavyArc(f.x, f.y, FOOD_RADIUS, gameTime, 0.15);
     ctx.fillStyle = f.color;
     ctx.fill();
   }
@@ -523,9 +523,9 @@ function drawBorder() {
   ctx.strokeRect(0, 0, worldSize, worldSize);
 }
 
-function wavyArc(cx, cy, r, t) {
+function wavyArc(cx, cy, r, t, amp) {
   const WAVES = 7;
-  const AMP   = Math.max(0.4, r * 0.010);
+  const AMP   = amp !== undefined ? amp : Math.max(0.4, r * 0.010);
   const steps = 72;
   ctx.beginPath();
   for (let i = 0; i <= steps; i++) {
