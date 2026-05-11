@@ -379,16 +379,8 @@ socket.on(CONSTANTS.EVENTS.LOBBY_STATE, ({ playerCount, lobbyCount, leaderboard,
   updateAgarLeaderboard(agarLeaderboard);
 });
 
-function updateAgarLeaderboard(lb) {
-  const el = document.getElementById('lobby2-leaderboard');
-  if (!el) return;
-  if (!lb || !lb.length) {
-    el.innerHTML = '<li><span class="lb-name" style="color:#9ca3af">No scores yet</span></li>';
-    return;
-  }
-  el.innerHTML = lb.map(p =>
-    `<li><span class="rank">#${p.rank}</span><span class="lb-name">${escHtml(p.name)}</span><span class="lb-score">${p.score}</span></li>`
-  ).join('');
+function updateAgarLeaderboard() {
+  // Lobby 2 now uses the same earnings board as lobby 1 — rendered via renderLobbyLeaderboard()
 }
 
 socket.on(CONSTANTS.EVENTS.WALLET_BALANCE, ({ balance }) => {
@@ -633,16 +625,15 @@ function refreshEarningsBoard() {
 }
 
 function renderLobbyLeaderboard() {
-  const el = document.getElementById('lobby-leaderboard');
-  if (!el) return;
-  if (!_lobbyEarnings.length) {
-    el.innerHTML = '<li><span class="lb-name" style="color:#555">No earnings yet</span></li>';
-    return;
-  }
-  el.innerHTML = _lobbyEarnings.slice(0, 3).map(p => {
-    const cad = p.earnings * (_solCadRate || 200);
-    return `<li><span class="rank">#${p.rank}</span><span class="lb-name">${escHtml(p.name)}</span><span class="lb-score" style="color:#14F195">C$${cad.toFixed(2)}</span></li>`;
-  }).join('');
+  const rows = !_lobbyEarnings.length ? '<li><span class="lb-name" style="color:#555">No earnings yet</span></li>'
+    : _lobbyEarnings.slice(0, 3).map(p => {
+        const cad = p.earnings * (_solCadRate || 200);
+        return `<li><span class="rank">#${p.rank}</span><span class="lb-name">${escHtml(p.name)}</span><span class="lb-score" style="color:#14F195">C$${cad.toFixed(2)}</span></li>`;
+      }).join('');
+  const el1 = document.getElementById('lobby-leaderboard');
+  if (el1) el1.innerHTML = rows;
+  const el2 = document.getElementById('lobby2-leaderboard');
+  if (el2) el2.innerHTML = rows;
 }
 
 // refresh earnings leaderboard every 30 seconds

@@ -12,6 +12,7 @@ let canvas, ctx, socket;
 let myId        = null;
 let myName      = 'Player';
 let myColor     = '#6366f1';
+let lobbyType   = 'free';
 
 let serverPlayers = new Map();
 let renderPlayers = new Map();
@@ -42,8 +43,9 @@ const Q_HOLD_MS = 3000;
 window.addEventListener('DOMContentLoaded', () => {
   canvas  = document.getElementById('game-canvas');
   ctx     = canvas.getContext('2d');
-  myName  = sessionStorage.getItem('playerName')  || 'Player';
-  myColor = localStorage.getItem('duelseries_skin_color') || '#6366f1';
+  myName    = sessionStorage.getItem('playerName')  || 'Player';
+  myColor   = localStorage.getItem('duelseries_skin_color') || '#6366f1';
+  lobbyType = sessionStorage.getItem('lobbyType') || 'free';
 
   resize();
   window.addEventListener('resize', resize);
@@ -211,14 +213,13 @@ function connectSocket() {
     const me = serverPlayers.get(myId);
     if (me) {
       if (me.alive) {
-        waitingToRespawn = false; // respawn confirmed — safe to show death screen again
+        waitingToRespawn = false;
         if (!renderPlayers.has(myId)) renderPlayers.set(myId, snapRenderPlayer(me));
       } else if (!cashedOut) {
-        renderPlayers.delete(myId); // hide own circle immediately when dead
+        renderPlayers.delete(myId);
       }
-      document.getElementById('score-val').textContent = me.score || 0;
-      document.getElementById('cells-val').textContent = me.cells.length;
     }
+    renderIngameLb();
   });
 
   socket.on('cell:died', ({ killedBy, score }) => {
@@ -257,6 +258,27 @@ function connectSocket() {
   socket.on('cell:cashout:error', ({ message }) => {
     alert('Cashout error: ' + message);
   });
+}
+
+// ─── In-game leaderboard ──────────────────────────────────────────────────────
+function renderIngameLb() {
+  const el = document.getElementById('hud-lb-rows');
+  if (!el) return;
+  const isPaid = lobbyType !== 'free';
+  const alive  = [...serverPlayers.values()].filter(p => p.alive && p.cells && p.cells.length);
+  alive.sort((a, b) => isPaid ? b.worth - a.worth : b.score - a.score);
+  const top = alive.slice(0, 10);
+  el.innerHTML = top.map((p, i) => {
+    const isMe  = p.id === myId;
+    const val   = isPaid ? '$' + (p.worth || 0).toFixed(3) : String(p.score || 0);
+    const cls   = isMe ? 'hud-lb-row hud-lb-me' : 'hud-lb-row';
+    const name  = escHtml((p.name || 'Player').slice(0, 16));
+    return `<div class="${cls}"><span class="hud-lb-rank">#${i+1}</span><span class="hud-lb-name">${name}</span><span class="hud-lb-val">${val}</span></div>`;
+  }).join('');
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
