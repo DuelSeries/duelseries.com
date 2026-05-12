@@ -43,6 +43,21 @@ let cashedOut         = false;
 let waitingToRespawn  = false;
 const Q_HOLD_MS = 3000;
 
+// ─── Joystick state ───────────────────────────────────────────────────────────
+let joystickActive = false;
+let joystickAngle  = null;
+let joystickTouchId = null;
+
+// ─── Lobby navigation ─────────────────────────────────────────────────────────
+function goToLobby() {
+  if (window.self !== window.top) {
+    window.parent.postMessage('game:done', '*');
+  } else {
+    sessionStorage.setItem('returnToAgarLobby', '1');
+    window.location.href = '/';
+  }
+}
+
 // ─── Init ─────────────────────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', () => {
   canvas  = document.getElementById('game-canvas');
@@ -97,8 +112,7 @@ window.addEventListener('DOMContentLoaded', () => {
   });
   document.getElementById('btn-death-lobby').addEventListener('click', () => {
     socket && socket.disconnect();
-    sessionStorage.setItem('returnToAgarLobby', '1');
-    window.location.href = '/';
+    goToLobby();
   });
 
   // Cashout screen buttons
@@ -115,8 +129,7 @@ window.addEventListener('DOMContentLoaded', () => {
   });
   document.getElementById('btn-cashout-lobby').addEventListener('click', () => {
     socket && socket.disconnect();
-    sessionStorage.setItem('returnToAgarLobby', '1');
-    window.location.href = '/';
+    goToLobby();
   });
 
   // Spectate buttons
@@ -146,9 +159,50 @@ window.addEventListener('DOMContentLoaded', () => {
   });
   document.getElementById('spectate-stop').addEventListener('click', () => {
     socket && socket.disconnect();
-    sessionStorage.setItem('returnToAgarLobby', '1');
-    window.location.href = '/';
+    goToLobby();
   });
+
+  // Joystick
+  const joyZone = document.getElementById('agar-joystick-zone');
+  const joyBase = document.getElementById('agar-joystick-base');
+  const joyKnob = document.getElementById('agar-joystick-knob');
+  if (joyZone) {
+    const onJoyStart = e => {
+      e.preventDefault();
+      if (joystickTouchId !== null) return;
+      const t = e.changedTouches[0];
+      joystickTouchId = t.identifier;
+      joystickActive = true;
+    };
+    const onJoyEnd = e => {
+      for (const t of e.changedTouches) {
+        if (t.identifier !== joystickTouchId) continue;
+        joystickTouchId = null;
+        joystickActive = false;
+        joystickAngle = null;
+        joyKnob.style.transform = 'translate(-50%, -50%)';
+      }
+    };
+    const onJoyMove = e => {
+      e.preventDefault();
+      for (const t of e.changedTouches) {
+        if (t.identifier !== joystickTouchId) continue;
+        const rect = joyBase.getBoundingClientRect();
+        const ox = t.clientX - (rect.left + rect.width  / 2);
+        const oy = t.clientY - (rect.top  + rect.height / 2);
+        const dist = Math.sqrt(ox * ox + oy * oy);
+        const maxR = rect.width / 2;
+        const nx = ox / dist * Math.min(dist, maxR);
+        const ny = oy / dist * Math.min(dist, maxR);
+        joyKnob.style.transform = `translate(calc(-50% + ${nx}px), calc(-50% + ${ny}px))`;
+        if (dist > 6) joystickAngle = Math.atan2(oy, ox);
+      }
+    };
+    joyZone.addEventListener('touchstart',  onJoyStart, { passive: false });
+    joyZone.addEventListener('touchmove',   onJoyMove,  { passive: false });
+    joyZone.addEventListener('touchend',    onJoyEnd,   { passive: false });
+    joyZone.addEventListener('touchcancel', onJoyEnd,   { passive: false });
+  }
 
   // Admin console input
   const adminInput = document.getElementById('admin-input');
@@ -433,11 +487,18 @@ function loop(now) {
     return;
   }
 
-  // Re-emit mouse world position every frame so the circle keeps moving
-  // even when the physical mouse is stationary (camera shift changes world coords)
+  // Re-emit input every frame so the circle keeps moving
   if (socket && myId && !cashedOut) {
-    const mw = mouseWorld();
-    socket.volatile.emit('cell:input', { mouseX: mw.x, mouseY: mw.y });
+    if (joystickActive && joystickAngle !== null) {
+      const me = renderPlayers.get(myId);
+      const cx = me && me.cells.length ? me.cells[0].rx : camX;
+      const cy = me && me.cells.length ? me.cells[0].ry : camY;
+      const DIST = 2000;
+      socket.volatile.emit('cell:input', { mouseX: cx + Math.cos(joystickAngle) * DIST, mouseY: cy + Math.sin(joystickAngle) * DIST });
+    } else {
+      const mw = mouseWorld();
+      socket.volatile.emit('cell:input', { mouseX: mw.x, mouseY: mw.y });
+    }
   }
 
   lerpPositions(dt);

@@ -951,7 +951,13 @@ document.getElementById('btn-play-2').addEventListener('click', async () => {
   sessionStorage.setItem('googleId',      account?.googleId || '');
   sessionStorage.setItem('lobbyType',     selectedLobbyType2);
   sessionStorage.setItem('gameMode',      'cell');
-  window.location.href = '/agar.html';
+  const agarFrame = document.getElementById('agar-frame');
+  if (window._pauseLobbyAnims) window._pauseLobbyAnims();
+  agarFrame.src = '/agar.html';
+  agarFrame.style.display = 'block';
+  agarFrame.addEventListener('load', () => {
+    try { agarFrame.contentWindow.focus(); } catch (e) {}
+  }, { once: true });
 });
 
 document.getElementById('player-name-2').addEventListener('input', function() {
@@ -2280,6 +2286,8 @@ window.addEventListener('message', (e) => {
   if (e.data === 'game:done') {
     const gameFrame = document.getElementById('game-frame');
     if (gameFrame) { gameFrame.style.display = 'none'; gameFrame.src = ''; }
+    const agarFrame = document.getElementById('agar-frame');
+    if (agarFrame) { agarFrame.style.display = 'none'; agarFrame.src = ''; }
     if (window._resumeLobbyAnims) window._resumeLobbyAnims();
   }
 });
