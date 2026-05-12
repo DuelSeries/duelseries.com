@@ -377,11 +377,10 @@ class AgarRoom {
       if (!p.alive) continue;
       for (const cell of p.cells) {
         const r = Math.sqrt(cell.mass) * 10;
-        const rMin = r - FOOD_RADIUS * 0.4;
-        const rMin2 = rMin * rMin;
         for (const [fid, food] of this.foods) {
+          const rMin = r - food.r * 0.4;
           const dx = cell.x - food.x, dy = cell.y - food.y;
-          if (dx * dx + dy * dy < rMin2) {
+          if (dx * dx + dy * dy < rMin * rMin) {
             cell.mass += FOOD_MASS;
             this.foods.delete(fid);
             this._removedFoods.push(fid);
