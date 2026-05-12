@@ -224,8 +224,8 @@
           const push = (minD - dist) / 2;
           a.x -= nx * push; a.y -= ny * push;
           b.x += nx * push; b.y += ny * push;
-          a.vx -= nx * 0.2; a.vy -= ny * 0.2;
-          b.vx += nx * 0.2; b.vy += ny * 0.2;
+          a.vx -= nx * 0.05; a.vy -= ny * 0.05;
+          b.vx += nx * 0.05; b.vy += ny * 0.05;
         }
 
         // Cap speed after repulsion
@@ -279,17 +279,16 @@
       cell.y += cell.vy;
 
       // Dampen
-      cell.vx *= 0.995;
-      cell.vy *= 0.995;
+      cell.vx *= 0.992;
+      cell.vy *= 0.992;
 
-      // Minimum speed — nudge player cells if nearly stopped
+      // Gentle random drift every frame — keeps cells moving without sudden jolts
       if (!cell.isFood) {
+        cell.vx += (Math.random() - 0.5) * cell.baseSpeed * 0.08;
+        cell.vy += (Math.random() - 0.5) * cell.baseSpeed * 0.08;
+        // Soft speed cap
         const spd = Math.hypot(cell.vx, cell.vy);
-        if (spd < cell.baseSpeed * 0.5) {
-          const angle = Math.random() * Math.PI * 2;
-          cell.vx += Math.cos(angle) * cell.baseSpeed * 0.7;
-          cell.vy += Math.sin(angle) * cell.baseSpeed * 0.7;
-        }
+        if (spd > cell.baseSpeed) { cell.vx *= cell.baseSpeed / spd; cell.vy *= cell.baseSpeed / spd; }
       }
 
       // Wrap around world edges
