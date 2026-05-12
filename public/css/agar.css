@@ -231,6 +231,50 @@ kbd {
 /* ── Mobile Joystick ────────────────────────────────────────────────────────── */
 .agar-joystick-zone { display: none; }
 
+/* ── Mobile Action Buttons ──────────────────────────────────────────────────── */
+#agar-mobile-btns { display: none; }
+
+@media (pointer: coarse) {
+  #agar-mobile-btns {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    position: fixed;
+    bottom: 30px;
+    right: 30px;
+    z-index: 9999;
+    touch-action: none;
+  }
+  .agar-mobile-btn {
+    padding: 14px 22px;
+    border-radius: 14px;
+    font-size: 0.88rem;
+    font-weight: 700;
+    letter-spacing: 1px;
+    cursor: pointer;
+    touch-action: none;
+    user-select: none;
+    opacity: 0.88;
+    font-family: 'Inter', sans-serif;
+  }
+  #agar-btn-split {
+    background: rgba(99,102,241,0.75);
+    color: #fff;
+    border: 1px solid rgba(99,102,241,0.5);
+    box-shadow: 0 0 14px rgba(99,102,241,0.4);
+  }
+  #agar-btn-cashout {
+    background: rgba(20,241,149,0.15);
+    color: #14F195;
+    border: 1px solid rgba(20,241,149,0.45);
+    box-shadow: 0 0 10px rgba(20,241,149,0.25);
+  }
+  #agar-btn-cashout.holding {
+    background: rgba(20,241,149,0.35);
+    box-shadow: 0 0 18px rgba(20,241,149,0.6);
+  }
+}
+
 @media (pointer: coarse) {
   .agar-joystick-zone {
     display: block;

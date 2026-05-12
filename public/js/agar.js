@@ -204,6 +204,40 @@ window.addEventListener('DOMContentLoaded', () => {
     joyZone.addEventListener('touchcancel', onJoyEnd,   { passive: false });
   }
 
+  // Mobile action buttons
+  const splitBtn    = document.getElementById('agar-btn-split');
+  const cashoutBtn  = document.getElementById('agar-btn-cashout');
+  if (splitBtn) {
+    splitBtn.addEventListener('touchstart', e => {
+      e.preventDefault();
+      socket && socket.emit('cell:split');
+    }, { passive: false });
+  }
+  if (cashoutBtn) {
+    cashoutBtn.addEventListener('touchstart', e => {
+      e.preventDefault();
+      if (cashedOut || qHeld) return;
+      qHeld = true;
+      qStartTime = Date.now();
+      cashoutBtn.classList.add('holding');
+      socket && socket.emit('cell:lock');
+    }, { passive: false });
+    const onCashoutRelease = e => {
+      e.preventDefault();
+      if (!qHeld) return;
+      const elapsed = Date.now() - qStartTime;
+      qHeld = false;
+      cashoutBtn.classList.remove('holding');
+      if (elapsed >= Q_HOLD_MS) {
+        doCashout();
+      } else {
+        socket && socket.emit('cell:unlock');
+      }
+    };
+    cashoutBtn.addEventListener('touchend',    onCashoutRelease, { passive: false });
+    cashoutBtn.addEventListener('touchcancel', onCashoutRelease, { passive: false });
+  }
+
   // Admin console input
   const adminInput = document.getElementById('admin-input');
   adminInput.addEventListener('keydown', e => {
