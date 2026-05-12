@@ -91,6 +91,7 @@
 (function() {
   const canvas = document.getElementById('bg-canvas-2');
   const ctx    = canvas.getContext('2d');
+  const ZOOM   = 2.0;
 
   const PLAYER_DATA = [
     { r: 260, color: '#FF2244', name: ''          },
@@ -141,7 +142,7 @@
 
   function makeCells() {
     cells.length = 0;
-    const W = canvas.width, H = canvas.height;
+    const W = canvas.width / ZOOM, H = canvas.height / ZOOM;
 
     // Player cells — defined sizes and colors
     for (const pd of PLAYER_DATA) {
@@ -179,12 +180,11 @@
     makeCells();
   }
 
-  function drawGrid() {
-    const W = canvas.width, H = canvas.height;
+  function drawGrid(W, H) {
     const STEP = 50;
     ctx.save();
     ctx.strokeStyle = 'rgba(100,140,210,0.16)';
-    ctx.lineWidth = 1;
+    ctx.lineWidth = 0.5;
     ctx.beginPath();
     for (let x = 0; x <= W; x += STEP) { ctx.moveTo(x, 0); ctx.lineTo(x, H); }
     for (let y = 0; y <= H; y += STEP) { ctx.moveTo(0, y); ctx.lineTo(W, y); }
@@ -309,11 +309,15 @@
     if (lastTickTime !== null) cellGameTime += (t - lastTickTime) / 1000;
     lastTickTime = t;
     const W = canvas.width, H = canvas.height;
+    const WW = W / ZOOM, WH = H / ZOOM;
 
     ctx.fillStyle = '#eef2f7';
     ctx.fillRect(0, 0, W, H);
-    drawGrid();
 
+    ctx.save();
+    ctx.scale(ZOOM, ZOOM);
+
+    drawGrid(WW, WH);
     applyAI();
 
     // Sort so large cells render on top of small ones
@@ -338,15 +342,16 @@
         }
       }
 
-      // Wrap around edges
-      if (cell.x + cell.r < 0)  cell.x = W + cell.r;
-      if (cell.x - cell.r > W)  cell.x = -cell.r;
-      if (cell.y + cell.r < 0)  cell.y = H + cell.r;
-      if (cell.y - cell.r > H)  cell.y = -cell.r;
+      // Wrap around world edges
+      if (cell.x + cell.r < 0)   cell.x = WW + cell.r;
+      if (cell.x - cell.r > WW)  cell.x = -cell.r;
+      if (cell.y + cell.r < 0)   cell.y = WH + cell.r;
+      if (cell.y - cell.r > WH)  cell.y = -cell.r;
 
       drawCell(cell);
     }
 
+    ctx.restore();
     rafId = requestAnimationFrame(tick);
   }
 
