@@ -399,8 +399,9 @@ function dbToAccount(row) {
     name:         row.name,
     avatar:       row.avatar,
     balance:      parseFloat(row.balance || 0),
-    highScore:    parseInt(row.high_score || 0),
-    gamesPlayed:  parseInt(row.games_played || 0),
+    highScore:     parseInt(row.high_score || 0),
+    agarHighScore: parseInt(row.agar_high_score || 0),
+    gamesPlayed:   parseInt(row.games_played || 0),
     walletAddress: row.wallet_address,
   };
 }

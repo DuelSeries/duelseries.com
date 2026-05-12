@@ -464,8 +464,10 @@ function showLobby() {
   document.getElementById('lobby-screen').classList.remove('hidden');
   showArrows();
 
-  document.getElementById('stat-highscore').textContent = account.highScore  || 0;
-  document.getElementById('stat-games').textContent     = account.gamesPlayed || 0;
+  document.getElementById('stat-highscore').textContent   = account.highScore     || 0;
+  document.getElementById('stat-games').textContent       = account.gamesPlayed   || 0;
+  document.getElementById('stat-highscore-2').textContent = account.agarHighScore || 0;
+  document.getElementById('stat-games-2').textContent     = account.gamesPlayed   || 0;
   const savedName = account.name || localStorage.getItem('duelseries_playername') || '';
   document.getElementById('player-name').value          = savedName;
   document.getElementById('topbar-name').textContent    = account.name || 'Player';
