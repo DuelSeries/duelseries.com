@@ -599,6 +599,7 @@ io.on('connection', (socket) => {
     if (room.lobbyType === 'free') {
       for (let i = 0; i < n; i++) room.addBot();
       socket.emit('admin:ack', { message: `Spawned ${n} free bot(s)` });
+      broadcastLobbyState();
       return;
     }
 
@@ -623,6 +624,7 @@ io.on('connection', (socket) => {
       }
     }
     socket.emit('admin:ack', { message: `Spawned ${spawned} paid bot(s) worth ${feeCad * spawned}¢` });
+    broadcastLobbyState();
   });
 
   // ── Agar events ──────────────────────────────────────────────────────────
