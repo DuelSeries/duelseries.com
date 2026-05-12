@@ -153,16 +153,16 @@
     }
 
     // Food pellets
-    for (let i = 0; i < 55; i++) {
+    for (let i = 0; i < 85; i++) {
       const r = 5 + Math.random() * 7;
       const pos = placeCell(r, W, H);
       if (!pos) continue;
       cells.push({
         x: pos.x, y: pos.y,
-        vx: (Math.random() - 0.5) * 0.08,
-        vy: (Math.random() - 0.5) * 0.08,
+        vx: (Math.random() - 0.5) * 0.5,
+        vy: (Math.random() - 0.5) * 0.5,
         r, color: FOOD_COLORS[i % FOOD_COLORS.length],
-        name: '', baseSpeed: 0.08, isFood: true,
+        name: '', baseSpeed: 0.5, isFood: true,
         fleeTimer: 0, chaseTarget: null,
       });
     }
@@ -206,22 +206,39 @@
   // ── AI: separation, flee, and chase ──────────────────────────────────────
   function applyAI() {
     const players = cells.filter(c => !c.isFood);
+    const foodCells = cells.filter(c => c.isFood);
 
-    // 1. Separation — push overlapping cells apart
-    for (let i = 0; i < cells.length; i++) {
-      for (let j = i + 1; j < cells.length; j++) {
-        const a = cells[i], b = cells[j];
+    // 1. Separation — push overlapping cells apart (player cells only)
+    for (let i = 0; i < players.length; i++) {
+      for (let j = i + 1; j < players.length; j++) {
+        const a = players[i], b = players[j];
         const dx = b.x - a.x, dy = b.y - a.y;
         const dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
-        const minD = a.r + b.r + 6;
+        const minD = a.r + b.r + 10;
         if (dist < minD) {
           const push = (minD - dist) / 2;
           const nx = dx / dist, ny = dy / dist;
           a.x -= nx * push; a.y -= ny * push;
           b.x += nx * push; b.y += ny * push;
-          // Deflect velocities slightly
-          a.vx -= nx * 0.04; a.vy -= ny * 0.04;
-          b.vx += nx * 0.04; b.vy += ny * 0.04;
+          // Strongly deflect velocities so they don't re-enter
+          a.vx -= nx * 0.3; a.vy -= ny * 0.3;
+          b.vx += nx * 0.3; b.vy += ny * 0.3;
+        }
+      }
+    }
+
+    // 2. Food flees all player cells within range
+    for (const food of foodCells) {
+      for (const player of players) {
+        const dx = food.x - player.x, dy = food.y - player.y;
+        const d = Math.hypot(dx, dy) || 0.01;
+        const fleeR = player.r * 4;
+        if (d < fleeR) {
+          const force = (1 - d / fleeR) * 0.12;
+          food.vx += (dx / d) * force;
+          food.vy += (dy / d) * force;
+          const spd = Math.hypot(food.vx, food.vy);
+          if (spd > 2.0) { food.vx *= 2.0 / spd; food.vy *= 2.0 / spd; }
         }
       }
     }
@@ -302,9 +319,17 @@
       cell.x += cell.vx;
       cell.y += cell.vy;
 
-      // Dampen (slow drift if no force applied)
-      cell.vx *= 0.992;
-      cell.vy *= 0.992;
+      // Dampen
+      cell.vx *= 0.995;
+      cell.vy *= 0.995;
+
+      // Minimum speed — nudge if nearly stopped
+      const spd = Math.hypot(cell.vx, cell.vy);
+      if (spd < cell.baseSpeed * 0.3) {
+        const angle = Math.random() * Math.PI * 2;
+        cell.vx += Math.cos(angle) * cell.baseSpeed * 0.4;
+        cell.vy += Math.sin(angle) * cell.baseSpeed * 0.4;
+      }
 
       // Wrap around edges
       if (cell.x + cell.r < 0)  cell.x = W + cell.r;
