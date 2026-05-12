@@ -28,6 +28,11 @@ function socketRL(socket, key, minMs) {
   return true;
 }
 
+if (process.env.NODE_ENV === 'production' && !process.env.SESSION_SECRET) {
+  console.error('FATAL: SESSION_SECRET env var is not set in production.');
+  process.exit(1);
+}
+
 Wallet.setDb(db);
 allTimeLb.setDb(db);
 agarLb.setDb(db);
