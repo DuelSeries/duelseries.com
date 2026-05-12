@@ -605,7 +605,6 @@ io.on('connection', (socket) => {
     }
 
     // Paid lobby — deduct entry fee from owner wallet per bot
-    const LOBBY_FEES_CAD = { dime: 0.10, dollar: 1.00 };
     const feeCad = LOBBY_FEES_CAD[room.lobbyType] || 0;
     const feeSol = prices.cadToSol(feeCad);
     let spawned = 0;
@@ -668,7 +667,6 @@ io.on('connection', (socket) => {
 
     // Determine lobby type from room name (e.g. 'agar_dime' → 'dime')
     const lobbyType = room.roomName.replace('agar_', '');
-    const LOBBY_FEES_CAD = { dime: 0.10, dollar: 1.00 };
     const feeCad = LOBBY_FEES_CAD[lobbyType] || 0;
 
     if (feeCad > 0) {
