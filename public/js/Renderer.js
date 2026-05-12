@@ -122,7 +122,7 @@ class Renderer {
     const PAD    = 12;
     const R      = Math.min(110, Math.floor(Math.min(W, H) * 0.15));
     const cx     = PAD + R;
-    const cy     = H - PAD - R;
+    const cy     = PAD + R;
     const scale  = R / state.worldRadius;
 
     ctx.save();
