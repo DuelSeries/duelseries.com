@@ -410,6 +410,12 @@ function loop(now) {
     return;
   }
 
+  if (cashedOut) {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    animId = requestAnimationFrame(loop);
+    return;
+  }
+
   // Re-emit mouse world position every frame so the circle keeps moving
   // even when the physical mouse is stationary (camera shift changes world coords)
   if (socket && myId) {
