@@ -26,9 +26,8 @@ class HexGrid {
     const preW = Math.round(window.innerWidth  * dpr);
     const preH = Math.round(window.innerHeight * dpr);
     // physScale = logical scale * dpr; pre-warm uses scale=1 so physScale = dpr
-    const preHexScale = Math.min(window.innerWidth, window.innerHeight) < 600 ? 2.5 : 1.0;
     this._pending = true;
-    this._worker.postMessage({ worldCX: 0, worldCY: 0, scale: dpr, screenW: preW, screenH: preH, hexScale: preHexScale });
+    this._worker.postMessage({ worldCX: 0, worldCY: 0, scale: dpr, screenW: preW, screenH: preH, hexScale: 1.0 });
   }
 
   draw(ctx, camera) {
@@ -53,9 +52,7 @@ class HexGrid {
 
     if (needsRebuild && !this._pending) {
       this._pending = true;
-      // Use logical width/height for mobile check (window.innerWidth is logical)
-      const hexScale = Math.min(window.innerWidth, window.innerHeight) < 600 ? 2.5 : 1.0;
-      this._worker.postMessage({ worldCX, worldCY, scale: physScale, screenW: W, screenH: H, hexScale });
+      this._worker.postMessage({ worldCX, worldCY, scale: physScale, screenW: W, screenH: H, hexScale: 1.0 });
     }
 
     ctx.save();
