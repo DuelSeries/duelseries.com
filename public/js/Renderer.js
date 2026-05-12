@@ -119,8 +119,8 @@ class Renderer {
   }
 
   _drawMinimap(ctx, state, myId, W, H) {
-    const PAD    = 16;
-    const R      = 110;
+    const PAD    = 12;
+    const R      = Math.min(110, Math.floor(Math.min(W, H) * 0.15));
     const cx     = PAD + R;
     const cy     = H - PAD - R;
     const scale  = R / state.worldRadius;
@@ -573,11 +573,12 @@ class Renderer {
   }
 
   _drawBorder(ctx, worldRadius, camera) {
+    const dpr = this._dpr || 1;
     const W = ctx.canvas.width, H = ctx.canvas.height;
-    // World origin (0,0) projects to (camera.x, camera.y) on screen
-    const cx = camera.x;
-    const cy = camera.y;
-    const screenR = worldRadius * camera.scale;
+    // camera.x/y are in logical pixels; multiply by dpr for physical pixel space
+    const cx = camera.x * dpr;
+    const cy = camera.y * dpr;
+    const screenR = worldRadius * camera.scale * dpr;
 
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0); // work in screen space — no outer arc edge possible
