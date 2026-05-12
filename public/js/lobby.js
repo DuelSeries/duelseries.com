@@ -159,10 +159,9 @@
       if (!pos) continue;
       cells.push({
         x: pos.x, y: pos.y,
-        vx: (Math.random() - 0.5) * 0.5,
-        vy: (Math.random() - 0.5) * 0.5,
+        vx: 0, vy: 0,
         r, color: FOOD_COLORS[i % FOOD_COLORS.length],
-        name: '', baseSpeed: 0.5, isFood: true,
+        name: '', baseSpeed: 0, isFood: true,
         fleeTimer: 0, chaseTarget: null,
       });
     }
@@ -227,18 +226,20 @@
       }
     }
 
-    // 2. Food flees all player cells within range
-    for (const food of foodCells) {
-      for (const player of players) {
-        const dx = food.x - player.x, dy = food.y - player.y;
+    // 2. Small player cells flee large ones within range
+    for (const small of players) {
+      for (const big of players) {
+        if (big === small || big.r <= small.r * 1.2) continue;
+        const dx = small.x - big.x, dy = small.y - big.y;
         const d = Math.hypot(dx, dy) || 0.01;
-        const fleeR = player.r * 4;
+        const fleeR = big.r * 5;
         if (d < fleeR) {
-          const force = (1 - d / fleeR) * 0.12;
-          food.vx += (dx / d) * force;
-          food.vy += (dy / d) * force;
-          const spd = Math.hypot(food.vx, food.vy);
-          if (spd > 2.0) { food.vx *= 2.0 / spd; food.vy *= 2.0 / spd; }
+          const force = (1 - d / fleeR) * 0.08;
+          small.vx += (dx / d) * force;
+          small.vy += (dy / d) * force;
+          const spd = Math.hypot(small.vx, small.vy);
+          const cap = small.baseSpeed * 2;
+          if (spd > cap) { small.vx *= cap / spd; small.vy *= cap / spd; }
         }
       }
     }
@@ -323,12 +324,14 @@
       cell.vx *= 0.995;
       cell.vy *= 0.995;
 
-      // Minimum speed — nudge if nearly stopped
-      const spd = Math.hypot(cell.vx, cell.vy);
-      if (spd < cell.baseSpeed * 0.3) {
-        const angle = Math.random() * Math.PI * 2;
-        cell.vx += Math.cos(angle) * cell.baseSpeed * 0.4;
-        cell.vy += Math.sin(angle) * cell.baseSpeed * 0.4;
+      // Minimum speed — nudge player cells if nearly stopped
+      if (!cell.isFood) {
+        const spd = Math.hypot(cell.vx, cell.vy);
+        if (spd < cell.baseSpeed * 0.3) {
+          const angle = Math.random() * Math.PI * 2;
+          cell.vx += Math.cos(angle) * cell.baseSpeed * 0.4;
+          cell.vy += Math.sin(angle) * cell.baseSpeed * 0.4;
+        }
       }
 
       // Wrap around edges
