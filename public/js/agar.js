@@ -240,11 +240,11 @@ function connectSocket() {
     for (const f  of addedFoods)    foods.set(f.id, f);
 
     const me = serverPlayers.get(myId);
-    if (me) {
+    if (me && !cashedOut) {
       if (me.alive) {
         waitingToRespawn = false;
         if (!renderPlayers.has(myId)) renderPlayers.set(myId, snapRenderPlayer(me));
-      } else if (!cashedOut) {
+      } else {
         renderPlayers.delete(myId);
       }
     }
@@ -407,12 +407,6 @@ function loop(now) {
   if (qHeld && Date.now() - qStartTime >= Q_HOLD_MS) {
     qHeld = false;
     doCashout();
-    return;
-  }
-
-  if (cashedOut) {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    animId = requestAnimationFrame(loop);
     return;
   }
 
