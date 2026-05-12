@@ -76,7 +76,6 @@ window.addEventListener('DOMContentLoaded', () => {
       const elapsed = Date.now() - qStartTime;
       qHeld = false;
       if (elapsed >= Q_HOLD_MS) {
-        console.log('[cashout] keyup path triggered, elapsed=' + elapsed);
         doCashout();
       } else {
         socket && socket.emit('cell:unlock');
@@ -407,7 +406,6 @@ function submitConsole() {
 
 // ─── Loop ─────────────────────────────────────────────────────────────────────
 function doCashout() {
-  console.log('[cashout] doCashout() called, myId=' + myId);
   cashedOut = true;
   const sp = serverPlayers.get(myId);
   const score = sp ? sp.score : 0;
@@ -420,7 +418,6 @@ function doCashout() {
   titleEl.style.textShadow = '0 0 24px rgba(20,241,149,0.6)';
   document.getElementById('death-score-val').textContent = score || 0;
   document.getElementById('death-earned-row').style.display = 'none';
-  console.log('[cashout] showing death screen');
   document.getElementById('death-screen').classList.add('active');
 }
 
@@ -431,7 +428,6 @@ function loop(now) {
 
   if (qHeld && Date.now() - qStartTime >= Q_HOLD_MS) {
     qHeld = false;
-    console.log('[cashout] loop path triggered');
     doCashout();
     animId = requestAnimationFrame(loop);
     return;
