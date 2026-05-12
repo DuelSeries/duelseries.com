@@ -171,6 +171,12 @@ function connectSocket() {
     socket.emit('cell:join', { name: myName, color: myColor, lobbyType, googleId });
   });
 
+  socket.on('cell:join:error', ({ message }) => {
+    alert(message);
+    sessionStorage.setItem('returnToAgarLobby', '1');
+    window.location.href = '/';
+  });
+
   socket.on('cell:joined', ({ playerId, worldSize: ws, foods: initFoods, players: initPlayers }) => {
     myId = playerId; worldSize = ws;
     foods.clear();

@@ -266,6 +266,9 @@ app.post('/wallet/entry-fee', express.json(), async (req, res) => {
   req.user.balance = newBalance;
   // Deduct entry fee from net earnings so leaderboard shows true profit/loss
   await db.addEarnings(req.user.googleId, -feeSol, -feeCad);
+  // Stamp session so cell:join can verify payment actually happened server-side
+  req.session.agarEntryPaid = { lobbyType, ts: Date.now() };
+  await new Promise((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
   res.json({ ok: true, feeSol, balance: newBalance });
 });
 
@@ -603,6 +606,21 @@ io.on('connection', (socket) => {
     socket._agarRoom = room;
     const ENTRY_WORTH = { free: 0, dime: 0.10, dollar: 1.00 };
     const entryWorth = ENTRY_WORTH[lobbyType] || 0;
+
+    // For paid lobbies, verify the entry fee was actually collected via the HTTP route
+    if (entryWorth > 0) {
+      const session = socket.request.session;
+      const paid = session?.agarEntryPaid;
+      const MAX_AGE_MS = 5 * 60 * 1000; // token expires after 5 minutes
+      if (!paid || paid.lobbyType !== lobbyType || Date.now() - paid.ts > MAX_AGE_MS) {
+        socket.emit('cell:join:error', { message: 'Entry fee not verified. Please return to lobby.' });
+        return;
+      }
+      // Consume the token — can't be reused
+      delete session.agarEntryPaid;
+      session.save(() => {});
+    }
+
     room.addPlayer(socket, name, color, entryWorth, socket._googleId || null);
     lobbyConnections.delete(socket);
     broadcastLobbyState();
