@@ -391,7 +391,8 @@ function snapRenderPlayer(p) {
 }
 
 function calcScale(totalMass) {
-  const base = 2.2; // zoom at starting mass (20)
+  const shortSide = Math.min(window.innerWidth, window.innerHeight);
+  const base = Math.min(2.2, shortSide / 500);
   return Math.max(0.15, Math.min(2.2, base * Math.pow(20 / totalMass, 0.25)));
 }
 

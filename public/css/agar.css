@@ -211,6 +211,23 @@ kbd {
 }
 #admin-input::placeholder { color: rgba(129,140,248,0.5); }
 
+/* ── Mobile scaling ─────────────────────────────────────────────────────────── */
+@media (pointer: coarse) {
+  #hud-leaderboard {
+    top: 8px;
+    right: 8px;
+    padding: 6px 10px 5px;
+    min-width: 130px;
+    max-width: 170px;
+    border-radius: 8px;
+  }
+  .hud-lb-title { font-size: 0.5rem; margin-bottom: 3px; }
+  .hud-lb-row   { font-size: 0.7rem; padding: 1px 0; }
+  .hud-lb-rank  { font-size: 0.6rem; }
+  #hud-bottomright { bottom: 12px; right: 12px; }
+  #agar-ping-display, #agar-fps-counter { font-size: 0.68rem; }
+}
+
 /* ── Mobile Joystick ────────────────────────────────────────────────────────── */
 .agar-joystick-zone { display: none; }
 
