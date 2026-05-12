@@ -134,6 +134,17 @@ window.addEventListener('DOMContentLoaded', () => {
     spectateIdx = (spectateIdx + 1) % n;
     updateSpectateLabel();
   });
+  document.getElementById('spectate-play-again').addEventListener('click', () => {
+    cashedOut = false;
+    waitingToRespawn = true;
+    const titleEl = document.getElementById('death-title');
+    titleEl.textContent = 'YOU WERE EATEN';
+    titleEl.style.color = '';
+    titleEl.style.textShadow = '';
+    document.getElementById('death-earned-row').style.display = 'none';
+    exitSpectate();
+    socket && socket.emit('cell:respawn');
+  });
   document.getElementById('spectate-stop').addEventListener('click', () => {
     socket && socket.disconnect();
     sessionStorage.setItem('returnToAgarLobby', '1');
