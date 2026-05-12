@@ -199,80 +199,39 @@
 
   }
 
-  // ── AI: separation, flee, and chase ──────────────────────────────────────
+  // ── AI: repulsion only — circles keep a wide personal space ─────────────
   function applyAI() {
     const players = cells.filter(c => !c.isFood);
-    const foodCells = cells.filter(c => c.isFood);
 
-    // 1. Separation — push overlapping cells apart (player cells only)
     for (let i = 0; i < players.length; i++) {
       for (let j = i + 1; j < players.length; j++) {
         const a = players[i], b = players[j];
         const dx = b.x - a.x, dy = b.y - a.y;
-        const dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
-        const minD = a.r + b.r + 10;
+        const dist = Math.hypot(dx, dy) || 0.01;
+        const nx = dx / dist, ny = dy / dist;
+
+        // Soft repulsion — push apart when within personal space
+        const repelD = (a.r + b.r) * 3.5;
+        if (dist < repelD) {
+          const force = ((repelD - dist) / repelD) * 0.06;
+          a.vx -= nx * force; a.vy -= ny * force;
+          b.vx += nx * force; b.vy += ny * force;
+        }
+
+        // Hard separation — never let them overlap
+        const minD = a.r + b.r + 15;
         if (dist < minD) {
           const push = (minD - dist) / 2;
-          const nx = dx / dist, ny = dy / dist;
           a.x -= nx * push; a.y -= ny * push;
           b.x += nx * push; b.y += ny * push;
-          // Strongly deflect velocities so they don't re-enter
-          a.vx -= nx * 0.3; a.vy -= ny * 0.3;
-          b.vx += nx * 0.3; b.vy += ny * 0.3;
+          a.vx -= nx * 0.2; a.vy -= ny * 0.2;
+          b.vx += nx * 0.2; b.vy += ny * 0.2;
         }
-      }
-    }
 
-    // 2. Small player cells flee large ones within range
-    for (const small of players) {
-      for (const big of players) {
-        if (big === small || big.r <= small.r * 1.2) continue;
-        const dx = small.x - big.x, dy = small.y - big.y;
-        const d = Math.hypot(dx, dy) || 0.01;
-        const fleeR = big.r * 7;
-        if (d < fleeR) {
-          const force = (1 - d / fleeR) * 0.2;
-          small.vx += (dx / d) * force;
-          small.vy += (dy / d) * force;
-          const spd = Math.hypot(small.vx, small.vy);
-          const cap = small.baseSpeed * 2.5;
-          if (spd > cap) { small.vx *= cap / spd; small.vy *= cap / spd; }
-        }
-      }
-    }
-
-    // 2. Chase/flee — large cells pursue a small neighbour; small cells flee
-    for (const big of players) {
-      if (big.r < 55) continue;
-      // Pick a new chase target every 1-2 seconds, always scan the whole screen
-      if (!big.chaseTarget || !big.chaseTarget.alive || big.chaseTimer <= 0) {
-        let best = null, bestD = Infinity;
-        for (const small of players) {
-          if (small === big || small.r > big.r * 0.65) continue;
-          const d = Math.hypot(big.x - small.x, big.y - small.y);
-          if (d < bestD) { bestD = d; best = small; }
-        }
-        big.chaseTarget = best;
-        big.chaseTimer  = 60 + Math.floor(Math.random() * 60);
-      }
-      if (big.chaseTimer > 0) big.chaseTimer--;
-
-      const prey = big.chaseTarget;
-      if (prey) {
-        const dx = prey.x - big.x, dy = prey.y - big.y;
-        const d  = Math.hypot(dx, dy) || 1;
-        big.vx += (dx / d) * 0.1;
-        big.vy += (dy / d) * 0.1;
-        const spd = Math.hypot(big.vx, big.vy);
-        if (spd > big.baseSpeed) { big.vx *= big.baseSpeed / spd; big.vy *= big.baseSpeed / spd; }
-
-        // Prey flees when predator is within range
-        if (d < big.r * 5) {
-          prey.vx -= (dx / d) * 0.18;
-          prey.vy -= (dy / d) * 0.18;
-          const ps = Math.hypot(prey.vx, prey.vy);
-          const preyMax = prey.baseSpeed * 2;
-          if (ps > preyMax) { prey.vx *= preyMax / ps; prey.vy *= preyMax / ps; }
+        // Cap speed after repulsion
+        for (const c of [a, b]) {
+          const spd = Math.hypot(c.vx, c.vy);
+          if (spd > c.baseSpeed * 1.5) { c.vx *= c.baseSpeed * 1.5 / spd; c.vy *= c.baseSpeed * 1.5 / spd; }
         }
       }
     }
