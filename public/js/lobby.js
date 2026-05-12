@@ -123,9 +123,12 @@
   const cells = [];
 
   function placeCell(r, W, H) {
+    const edge = r > 140 ? -r * 0.5 : r + 20;
+    const edgeR = r > 140 ? W + r * 0.5 : W - r - 20;
+    const edgeB = r > 140 ? H + r * 0.5 : H - r - 20;
     for (let attempt = 0; attempt < 150; attempt++) {
-      const x = r + 20 + Math.random() * (W - r * 2 - 40);
-      const y = r + 20 + Math.random() * (H - r * 2 - 40);
+      const x = edge + Math.random() * (edgeR - edge);
+      const y = edge + Math.random() * (edgeB - edge);
       let ok = true;
       for (const c of cells) {
         const dx = c.x - x, dy = c.y - y;
@@ -291,8 +294,8 @@
 
   function wavyArc(ctx, cx, cy, r, t, amp) {
     const WAVES = 7;
-    const AMP   = amp !== undefined ? amp : Math.max(0.4, r * 0.010);
-    const steps = 72;
+    const AMP   = amp !== undefined ? amp : Math.max(0.4, Math.min(1.5, r * 0.010));
+    const steps = Math.max(72, Math.round(r * 1.2));
     ctx.beginPath();
     for (let i = 0; i <= steps; i++) {
       const a  = (i / steps) * Math.PI * 2;
