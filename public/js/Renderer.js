@@ -119,10 +119,11 @@ class Renderer {
   }
 
   _drawMinimap(ctx, state, myId, W, H) {
-    const PAD    = 12;
-    const R      = Math.min(110, Math.floor(Math.min(W, H) * 0.15));
-    const cx     = PAD + R;
-    const cy     = PAD + R;
+    const PAD      = 12;
+    const R        = Math.min(110, Math.floor(Math.min(W, H) * 0.15));
+    const isMobile = Math.min(W, H) < 600;
+    const cx       = PAD + R;
+    const cy       = isMobile ? PAD + R : H - PAD - R;
     const scale  = R / state.worldRadius;
 
     ctx.save();
