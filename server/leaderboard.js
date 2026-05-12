@@ -28,9 +28,13 @@ async function _load() {
 
 async function _flush() {
   if (!_dirty || !_db) return;
-  // Scores are already written to accounts table on disconnect — nothing extra needed.
-  // Just reload cache from DB to stay fresh.
-  await _load().catch(() => {});
+  for (const entry of _cache) {
+    if (!entry.id || !entry.score) continue;
+    await _db.pool.query(
+      `UPDATE accounts SET high_score = GREATEST(high_score, $2) WHERE google_id = $1`,
+      [entry.id, entry.score]
+    ).catch(() => {});
+  }
   _dirty = false;
 }
 
