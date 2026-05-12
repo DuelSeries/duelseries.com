@@ -147,7 +147,7 @@
     for (const pd of PLAYER_DATA) {
       const pos = placeCell(pd.r, W, H);
       if (!pos) continue;
-      const spd = 1.4 / Math.pow(pd.r / 25, 0.55); // bigger = slower
+      const spd = 3.2 / Math.pow(pd.r / 25, 0.55); // bigger = slower
       cells.push({
         x: pos.x, y: pos.y,
         vx: (Math.random() - 0.5) * spd * 2,
@@ -238,13 +238,13 @@
         if (big === small || big.r <= small.r * 1.2) continue;
         const dx = small.x - big.x, dy = small.y - big.y;
         const d = Math.hypot(dx, dy) || 0.01;
-        const fleeR = big.r * 5;
+        const fleeR = big.r * 7;
         if (d < fleeR) {
-          const force = (1 - d / fleeR) * 0.08;
+          const force = (1 - d / fleeR) * 0.2;
           small.vx += (dx / d) * force;
           small.vy += (dy / d) * force;
           const spd = Math.hypot(small.vx, small.vy);
-          const cap = small.baseSpeed * 2;
+          const cap = small.baseSpeed * 2.5;
           if (spd > cap) { small.vx *= cap / spd; small.vy *= cap / spd; }
         }
       }
@@ -253,36 +253,34 @@
     // 2. Chase/flee — large cells pursue a small neighbour; small cells flee
     for (const big of players) {
       if (big.r < 55) continue;
-      // Pick a chase target occasionally
-      if (!big.chaseTarget || big.chaseTimer <= 0) {
-        // Find a small player cell within 350px
-        let best = null, bestD = 350;
+      // Pick a new chase target every 1-2 seconds, always scan the whole screen
+      if (!big.chaseTarget || !big.chaseTarget.alive || big.chaseTimer <= 0) {
+        let best = null, bestD = Infinity;
         for (const small of players) {
-          if (small === big || small.r > big.r * 0.6) continue;
+          if (small === big || small.r > big.r * 0.65) continue;
           const d = Math.hypot(big.x - small.x, big.y - small.y);
           if (d < bestD) { bestD = d; best = small; }
         }
         big.chaseTarget = best;
-        big.chaseTimer  = 180 + Math.floor(Math.random() * 240); // 3-7 sec at 60fps
+        big.chaseTimer  = 60 + Math.floor(Math.random() * 60);
       }
       if (big.chaseTimer > 0) big.chaseTimer--;
 
       const prey = big.chaseTarget;
       if (prey) {
-        // Big cell steers toward prey (gently)
         const dx = prey.x - big.x, dy = prey.y - big.y;
         const d  = Math.hypot(dx, dy) || 1;
-        big.vx += (dx / d) * 0.035;
-        big.vy += (dy / d) * 0.035;
+        big.vx += (dx / d) * 0.1;
+        big.vy += (dy / d) * 0.1;
         const spd = Math.hypot(big.vx, big.vy);
         if (spd > big.baseSpeed) { big.vx *= big.baseSpeed / spd; big.vy *= big.baseSpeed / spd; }
 
-        // Prey flees if predator is within 280px
-        if (d < 280) {
-          prey.vx -= (dx / d) * 0.06;
-          prey.vy -= (dy / d) * 0.06;
+        // Prey flees when predator is within range
+        if (d < big.r * 5) {
+          prey.vx -= (dx / d) * 0.18;
+          prey.vy -= (dy / d) * 0.18;
           const ps = Math.hypot(prey.vx, prey.vy);
-          const preyMax = prey.baseSpeed * 1.6;
+          const preyMax = prey.baseSpeed * 2;
           if (ps > preyMax) { prey.vx *= preyMax / ps; prey.vy *= preyMax / ps; }
         }
       }
@@ -333,10 +331,10 @@
       // Minimum speed — nudge player cells if nearly stopped
       if (!cell.isFood) {
         const spd = Math.hypot(cell.vx, cell.vy);
-        if (spd < cell.baseSpeed * 0.3) {
+        if (spd < cell.baseSpeed * 0.5) {
           const angle = Math.random() * Math.PI * 2;
-          cell.vx += Math.cos(angle) * cell.baseSpeed * 0.4;
-          cell.vy += Math.sin(angle) * cell.baseSpeed * 0.4;
+          cell.vx += Math.cos(angle) * cell.baseSpeed * 0.7;
+          cell.vy += Math.sin(angle) * cell.baseSpeed * 0.7;
         }
       }
 
