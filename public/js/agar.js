@@ -165,6 +165,25 @@ function onMouseMove(e) {
 function connectSocket() {
   socket = io();
 
+  // ── Ping tracker ────────────────────────────────────────────────────────
+  const pingDotEl   = document.getElementById('agar-ping-dot');
+  const pingValueEl = document.getElementById('agar-ping-value');
+  let pingSentAt = null;
+  function sendPing() { pingSentAt = performance.now(); socket.emit('ping_check'); }
+  socket.on('pong_check', () => {
+    if (pingSentAt === null) return;
+    const ms = Math.round(performance.now() - pingSentAt);
+    pingSentAt = null;
+    pingValueEl.textContent = ms + ' ms';
+    pingDotEl.className = 'ping-dot ' + (ms < 50 ? 'ping-green' : ms < 100 ? 'ping-orange' : 'ping-red');
+  });
+  setInterval(sendPing, 2000);
+  sendPing();
+
+  // ── FPS counter ─────────────────────────────────────────────────────────
+  const fpsEl = document.getElementById('agar-fps-counter');
+  let fpsFrames = 0, fpsLast = performance.now();
+
   socket.on('connect', () => {
     const lobbyType = sessionStorage.getItem('lobbyType') || 'free';
     const googleId  = sessionStorage.getItem('googleId') || '';
@@ -395,7 +414,7 @@ function loop(now) {
     socket.volatile.emit('cell:input', { mouseX: mw.x, mouseY: mw.y });
   }
 
-  lerpPositions();
+  lerpPositions(dt);
   if (spectating) updateSpectateLabel();
 
   if (spectating) {
@@ -420,18 +439,26 @@ function loop(now) {
   camScale += (tgtScale - camScale) * SCALE_LERP;
 
   render();
+
+  fpsFrames++;
+  if (now - fpsLast >= 500) {
+    fpsEl.textContent = 'FPS: ' + Math.round(fpsFrames * 1000 / (now - fpsLast));
+    fpsFrames = 0; fpsLast = now;
+  }
+
   animId = requestAnimationFrame(loop);
 }
 
-function lerpPositions() {
+function lerpPositions(dt) {
+  const alpha = 1 - Math.pow(1 - POS_LERP, dt * 60);
   for (const [id, rp] of renderPlayers) {
     const sp = serverPlayers.get(id);
     if (!sp || !sp.alive || rp.cells.length !== sp.cells.length) continue;
     for (let i = 0; i < rp.cells.length; i++) {
       const rc = rp.cells[i], sc = sp.cells[i];
-      rc.rx   += (sc.x    - rc.rx)   * POS_LERP;
-      rc.ry   += (sc.y    - rc.ry)   * POS_LERP;
-      rc.mass += (sc.mass - rc.mass) * POS_LERP;
+      rc.rx   += (sc.x    - rc.rx)   * alpha;
+      rc.ry   += (sc.y    - rc.ry)   * alpha;
+      rc.mass += (sc.mass - rc.mass) * alpha;
     }
   }
 }

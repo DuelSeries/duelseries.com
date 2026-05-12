@@ -59,6 +59,37 @@ body {
   gap: 6px;
 }
 
+#hud-bottomright {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+#agar-ping-display {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.78rem;
+  color: rgba(30,27,75,0.55);
+  font-weight: 500;
+}
+
+#agar-fps-counter {
+  font-size: 0.78rem;
+  color: rgba(30,27,75,0.55);
+  font-weight: 500;
+}
+
+.ping-dot        { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+.ping-green      { background: #22c55e; box-shadow: 0 0 4px #22c55e88; }
+.ping-orange     { background: #f97316; box-shadow: 0 0 4px #f9731688; }
+.ping-red        { background: #ef4444; box-shadow: 0 0 4px #ef444488; }
+
 .hud-tip {
   font-size: 0.78rem;
   color: rgba(30,27,75,0.55);
