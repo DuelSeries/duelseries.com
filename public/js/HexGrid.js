@@ -25,7 +25,8 @@ class HexGrid {
     const preW = Math.round(window.innerWidth  * (window.devicePixelRatio || 1));
     const preH = Math.round(window.innerHeight * (window.devicePixelRatio || 1));
     this._pending = true;
-    this._worker.postMessage({ worldCX: 0, worldCY: 0, scale: 1, screenW: preW, screenH: preH });
+    const preHexScale = Math.min(window.innerWidth, window.innerHeight) < 600 ? 2.5 : 1.0;
+    this._worker.postMessage({ worldCX: 0, worldCY: 0, scale: 1, screenW: preW, screenH: preH, hexScale: preHexScale });
   }
 
   draw(ctx, camera) {
@@ -46,7 +47,8 @@ class HexGrid {
 
     if (needsRebuild && !this._pending) {
       this._pending = true;
-      this._worker.postMessage({ worldCX, worldCY, scale, screenW: W, screenH: H });
+      const hexScale = Math.min(W, H) < 600 ? 2.5 : 1.0;
+      this._worker.postMessage({ worldCX, worldCY, scale, screenW: W, screenH: H, hexScale });
     }
 
     ctx.save();

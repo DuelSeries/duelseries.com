@@ -1,8 +1,5 @@
-const SIZE     = 48 * 0.62;
-const GAP      = 14.6 * 0.62;
-const FACE_R   = SIZE - GAP / 2;
-const COL_STEP = Math.sqrt(3) * SIZE + GAP;
-const ROW_STEP = 1.5 * SIZE + Math.sqrt(3) / 2 * GAP;
+const BASE_SIZE = 48 * 0.62;
+const BASE_GAP  = 14.6 * 0.62;
 const TILT     = -0.285;
 const cosT     = Math.cos(TILT);
 const sinT     = Math.sin(TILT);
@@ -16,18 +13,25 @@ function hexPath(ctx, cx, cy, r) {
   ctx.closePath();
 }
 
-function drawOne(ctx, cx, cy) {
-  hexPath(ctx, cx, cy, FACE_R);
+function drawOne(ctx, cx, cy, faceR) {
+  hexPath(ctx, cx, cy, faceR);
   ctx.fillStyle = '#0e0e0e';
   ctx.fill();
 
-  hexPath(ctx, cx, cy, FACE_R);
+  hexPath(ctx, cx, cy, faceR);
   ctx.strokeStyle = 'rgba(1,1,1,0.95)';
   ctx.lineWidth = 5;
   ctx.stroke();
 }
 
-self.onmessage = function ({ data: { worldCX, worldCY, scale, screenW, screenH } }) {
+self.onmessage = function ({ data: { worldCX, worldCY, scale, screenW, screenH, hexScale } }) {
+  const hs       = hexScale || 1.0;
+  const SIZE     = BASE_SIZE * hs;
+  const GAP      = BASE_GAP  * hs;
+  const FACE_R   = SIZE - GAP / 2;
+  const COL_STEP = Math.sqrt(3) * SIZE + GAP;
+  const ROW_STEP = 1.5 * SIZE + Math.sqrt(3) / 2 * GAP;
+
   const W = screenW * 2, H = screenH * 2;
   const oc  = new OffscreenCanvas(W, H);
   const ctx = oc.getContext('2d');
@@ -53,7 +57,7 @@ self.onmessage = function ({ data: { worldCX, worldCY, scale, screenW, screenH }
     for (let col = colStart; col <= colEnd; col++) {
       const cx = col * COL_STEP + (Math.abs(row % 2) === 1 ? COL_STEP / 2 : 0);
       const cy = row * ROW_STEP;
-      drawOne(ctx, cx, cy);
+      drawOne(ctx, cx, cy, FACE_R);
     }
   }
 
