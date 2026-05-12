@@ -84,7 +84,13 @@ window.addEventListener('DOMContentLoaded', () => {
   });
 
   document.getElementById('btn-respawn').addEventListener('click', () => {
+    cashedOut = false;
     waitingToRespawn = true;
+    const titleEl = document.getElementById('death-title');
+    titleEl.textContent = 'YOU WERE EATEN';
+    titleEl.style.color = '';
+    titleEl.style.textShadow = '';
+    document.getElementById('death-earned-row').style.display = 'none';
     document.getElementById('death-screen').classList.remove('active');
     exitSpectate();
     socket && socket.emit('cell:respawn');
@@ -160,6 +166,7 @@ function mouseWorld() {
 function onMouseMove(e) {
   screenMX = e.clientX;
   screenMY = e.clientY;
+  if (cashedOut) return;
   const mw = mouseWorld();
   socket && socket.volatile.emit('cell:input', { mouseX: mw.x, mouseY: mw.y });
 }
@@ -273,14 +280,14 @@ function connectSocket() {
   socket.on('cell:worldSize', ({ size }) => { worldSize = size; });
 
   socket.on('cell:cashout:result', ({ newBalance, earnedCad, score }) => {
-    document.getElementById('cashout-score-val').textContent = score || 0;
-    const worthRow = document.getElementById('cashout-worth-row');
-    const worthVal = document.getElementById('cashout-worth-val');
+    document.getElementById('death-score-val').textContent = score || 0;
+    const earnedRow = document.getElementById('death-earned-row');
+    const earnedVal = document.getElementById('death-earned-val');
     if (earnedCad > 0) {
-      worthVal.textContent = '$' + earnedCad.toFixed(2) + ' CAD';
-      worthRow.style.display = '';
+      earnedVal.textContent = '$' + earnedCad.toFixed(2) + ' CAD';
+      earnedRow.style.display = '';
     } else {
-      worthRow.style.display = 'none';
+      earnedRow.style.display = 'none';
     }
   });
 
@@ -389,14 +396,18 @@ function submitConsole() {
 // ─── Loop ─────────────────────────────────────────────────────────────────────
 function doCashout() {
   cashedOut = true;
-  // Remove from render map immediately so the circle cannot be drawn
   const sp = serverPlayers.get(myId);
   const score = sp ? sp.score : 0;
   renderPlayers.delete(myId);
   if (sp) { sp.alive = false; sp.cells = []; }
-  document.getElementById('cashout-score-val').textContent = score || 0;
-  socket && socket.emit('cell:cashout'); // also kills on server so others can't see the circle
-  document.getElementById('cashout-overlay').classList.add('active');
+  socket && socket.emit('cell:cashout');
+  const titleEl = document.getElementById('death-title');
+  titleEl.textContent = 'CASHED OUT';
+  titleEl.style.color = '#14F195';
+  titleEl.style.textShadow = '0 0 24px rgba(20,241,149,0.6)';
+  document.getElementById('death-score-val').textContent = score || 0;
+  document.getElementById('death-earned-row').style.display = 'none';
+  document.getElementById('death-screen').classList.add('active');
 }
 
 function loop(now) {
@@ -407,12 +418,13 @@ function loop(now) {
   if (qHeld && Date.now() - qStartTime >= Q_HOLD_MS) {
     qHeld = false;
     doCashout();
+    animId = requestAnimationFrame(loop);
     return;
   }
 
   // Re-emit mouse world position every frame so the circle keeps moving
   // even when the physical mouse is stationary (camera shift changes world coords)
-  if (socket && myId) {
+  if (socket && myId && !cashedOut) {
     const mw = mouseWorld();
     socket.volatile.emit('cell:input', { mouseX: mw.x, mouseY: mw.y });
   }
