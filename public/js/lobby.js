@@ -141,7 +141,7 @@
     for (const pd of PLAYER_DATA) {
       const pos = placeCell(pd.r, W, H);
       if (!pos) continue;
-      const spd = 0.55 / Math.pow(pd.r / 25, 0.55); // bigger = slower
+      const spd = 1.4 / Math.pow(pd.r / 25, 0.55); // bigger = slower
       cells.push({
         x: pos.x, y: pos.y,
         vx: (Math.random() - 0.5) * spd * 2,
@@ -201,17 +201,6 @@
       ctx.stroke();
     }
 
-    // Name
-    if (name && r >= 40) {
-      const fs = Math.round(Math.min(r * 0.36, 26));
-      ctx.font         = `bold ${fs}px Segoe UI, sans-serif`;
-      ctx.textAlign    = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillStyle    = 'rgba(0,0,0,0.30)';
-      ctx.fillText(name, x + 1, y + 1);
-      ctx.fillStyle    = '#ffffff';
-      ctx.fillText(name, x, y);
-    }
   }
 
   // ── AI: separation, flee, and chase ──────────────────────────────────────
@@ -259,15 +248,15 @@
         // Big cell steers toward prey (gently)
         const dx = prey.x - big.x, dy = prey.y - big.y;
         const d  = Math.hypot(dx, dy) || 1;
-        big.vx += (dx / d) * 0.012;
-        big.vy += (dy / d) * 0.012;
+        big.vx += (dx / d) * 0.035;
+        big.vy += (dy / d) * 0.035;
         const spd = Math.hypot(big.vx, big.vy);
         if (spd > big.baseSpeed) { big.vx *= big.baseSpeed / spd; big.vy *= big.baseSpeed / spd; }
 
         // Prey flees if predator is within 280px
         if (d < 280) {
-          prey.vx -= (dx / d) * 0.025;
-          prey.vy -= (dy / d) * 0.025;
+          prey.vx -= (dx / d) * 0.06;
+          prey.vy -= (dy / d) * 0.06;
           const ps = Math.hypot(prey.vx, prey.vy);
           const preyMax = prey.baseSpeed * 1.6;
           if (ps > preyMax) { prey.vx *= preyMax / ps; prey.vy *= preyMax / ps; }
@@ -317,11 +306,11 @@
       cell.vx *= 0.992;
       cell.vy *= 0.992;
 
-      // Bounce off edges
-      if (cell.x - cell.r < 0)  { cell.x = cell.r;     cell.vx = Math.abs(cell.vx); }
-      if (cell.x + cell.r > W)  { cell.x = W - cell.r; cell.vx = -Math.abs(cell.vx); }
-      if (cell.y - cell.r < 0)  { cell.y = cell.r;     cell.vy = Math.abs(cell.vy); }
-      if (cell.y + cell.r > H)  { cell.y = H - cell.r; cell.vy = -Math.abs(cell.vy); }
+      // Wrap around edges
+      if (cell.x + cell.r < 0)  cell.x = W + cell.r;
+      if (cell.x - cell.r > W)  cell.x = -cell.r;
+      if (cell.y + cell.r < 0)  cell.y = H + cell.r;
+      if (cell.y - cell.r > H)  cell.y = -cell.r;
 
       drawCell(cell);
     }
