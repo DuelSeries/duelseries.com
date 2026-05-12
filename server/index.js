@@ -480,9 +480,11 @@ io.on('connection', (socket) => {
       if (existingSnake && existingSnake.alive) return;
     }
     const playerName = (name || 'Player').slice(0, 20);
-    if (googleId) {
-      socket._googleId = googleId;
-      lobbySocketsByGoogleId.set(googleId, socket);
+    // Always prefer the server-verified session ID over the client-supplied one
+    const verifiedId = socket.request.user?.googleId || googleId || null;
+    if (verifiedId) {
+      socket._googleId = verifiedId;
+      lobbySocketsByGoogleId.set(verifiedId, socket);
     }
     const room = getRoomForType(lobbyType);
     socket._room = room;
@@ -598,9 +600,11 @@ io.on('connection', (socket) => {
 
   // ── Agar events ──────────────────────────────────────────────────────────
   socket.on('cell:join', ({ name, color, lobbyType, googleId } = {}) => {
-    if (googleId) {
-      socket._googleId = googleId;
-      lobbySocketsByGoogleId.set(googleId, socket);
+    // Always prefer the server-verified session ID over the client-supplied one
+    const verifiedId = socket.request.user?.googleId || googleId || null;
+    if (verifiedId) {
+      socket._googleId = verifiedId;
+      lobbySocketsByGoogleId.set(verifiedId, socket);
     }
     const room = agarRooms[lobbyType] || agarRooms.free;
     socket._agarRoom = room;
