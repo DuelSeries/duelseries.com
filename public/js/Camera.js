@@ -19,7 +19,7 @@ class Camera {
     const shortSide = Math.min(canvasW, canvasH);
     const base = shortSide / (worldRadius * 0.22);
     // Boost zoom on mobile so snakes don't appear tiny on small screens
-    const mobileBoost = shortSide < 600 ? 1.5 : 1.0;
+    const mobileBoost = shortSide < 600 ? 2.5 : 1.0;
     const lengthFactor = 1 - Math.min(0.75, (snakeLength || 0) / 600);
     this.targetScale = Math.max(0.15, Math.min(2.5, base * lengthFactor * mobileBoost));
   }
