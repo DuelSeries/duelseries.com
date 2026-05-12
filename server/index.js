@@ -7,6 +7,7 @@ const passport   = require('passport');
 const cookieParser = require('cookie-parser');
 const pgSession = require('connect-pg-simple')(session);
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
+const rateLimit  = require('express-rate-limit');
 const C        = require('../shared/constants');
 const GameRoom = require('./GameRoom');
 const AgarRoom      = require('./AgarRoom');
@@ -16,6 +17,16 @@ const Wallet = require('./Wallet');
 const allTimeLb = require('./leaderboard');
 const { sendVerificationCode } = require('./Email');
 const prices = require('./prices');
+
+// ─── Socket rate limiter ──────────────────────────────────────────────────────
+// Returns false (and drops the event) if the socket fires it too quickly.
+function socketRL(socket, key, minMs) {
+  const now = Date.now();
+  if (!socket._rl) socket._rl = {};
+  if (socket._rl[key] && now - socket._rl[key] < minMs) return false;
+  socket._rl[key] = now;
+  return true;
+}
 
 Wallet.setDb(db);
 allTimeLb.setDb(db);
@@ -253,10 +264,15 @@ app.get('/api/prices', (req, res) => {
   res.json({ solCadRate: prices.getSolCadRate() });
 });
 
+// ─── HTTP rate limiters ───────────────────────────────────────────────────────
+const walletDepositLimiter = rateLimit({ windowMs: 15 * 1000, max: 1, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many deposit checks. Wait 15 seconds.' } });
+const walletWithdrawLimiter = rateLimit({ windowMs: 60 * 1000, max: 1, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many withdrawals. Wait 60 seconds.' } });
+const entryFeeLimiter = rateLimit({ windowMs: 60 * 1000, max: 10, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Slow down.' } });
+
 // ─── Entry fee ────────────────────────────────────────────────────────────────
 const LOBBY_FEES_CAD = { free: 0, dime: 0.10, dollar: 1.00 };
 
-app.post('/wallet/entry-fee', express.json(), async (req, res) => {
+app.post('/wallet/entry-fee', entryFeeLimiter, express.json(), async (req, res) => {
   if (!req.isAuthenticated()) return res.status(401).json({ error: 'Not logged in' });
   const { lobbyType } = req.body;
   const feeCad = LOBBY_FEES_CAD[lobbyType] || 0;
@@ -294,7 +310,7 @@ app.get('/wallet/info', (req, res) => {
   }
 });
 
-app.post('/wallet/deposit', async (req, res) => {
+app.post('/wallet/deposit', walletDepositLimiter, async (req, res) => {
   if (!req.isAuthenticated()) return res.status(401).json({ error: 'Not logged in' });
   try {
     const result = await Wallet.findLatestDeposit();
@@ -311,7 +327,7 @@ app.post('/wallet/deposit', async (req, res) => {
   }
 });
 
-app.post('/wallet/withdraw', async (req, res) => {
+app.post('/wallet/withdraw', walletWithdrawLimiter, async (req, res) => {
   if (!req.isAuthenticated()) return res.status(401).json({ error: 'Not logged in' });
   const { amount, walletAddress } = req.body;
   if (!amount || amount <= 0) return res.status(400).json({ error: 'Invalid amount' });
@@ -515,6 +531,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('cashout', async () => {
+    if (!socketRL(socket, 'cashout', 5000)) return;
     const room = socket._room;
     if (!room) return;
     const snake = room.snakes && room.snakes.get(socket.id);
@@ -671,6 +688,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('cell:split', () => {
+    if (!socketRL(socket, 'split', 100)) return;
     if (socket._agarRoom) socket._agarRoom.handleSplit(socket.id);
   });
 
@@ -687,6 +705,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('cell:cashout', async () => {
+    if (!socketRL(socket, 'cell:cashout', 5000)) return;
     const room = socket._agarRoom;
     if (!room) return;
     const player = room.players.get(socket.id);
