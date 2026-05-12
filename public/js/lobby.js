@@ -93,6 +93,9 @@
   const ctx    = canvas.getContext('2d');
 
   const PLAYER_DATA = [
+    { r: 260, color: '#FF2244', name: ''          },
+    { r: 220, color: '#0055FF', name: ''          },
+    { r: 180, color: '#CC33FF', name: ''          },
     { r: 118, color: '#33CC33', name: '~haii~'    },
     { r:  98, color: '#00CCFF', name: 'JiriK'     },
     { r:  84, color: '#FF2244', name: 'chomper'   },
