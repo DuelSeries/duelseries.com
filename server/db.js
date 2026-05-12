@@ -68,6 +68,7 @@ async function init() {
     ALTER TABLE accounts ADD COLUMN IF NOT EXISTS name_history TEXT[] DEFAULT '{}';
     ALTER TABLE accounts ADD COLUMN IF NOT EXISTS agar_high_score INTEGER DEFAULT 0;
     ALTER TABLE accounts ADD COLUMN IF NOT EXISTS agar_total_earnings NUMERIC(18,9) DEFAULT 0;
+    ALTER TABLE accounts ADD COLUMN IF NOT EXISTS agar_games_played INTEGER DEFAULT 0;
   `);
   console.log('[DB] Tables ready');
 }
@@ -201,6 +202,16 @@ async function getTopEarners(n) {
     name: r.name,
     earnings: parseFloat(r.earnings),
   }));
+}
+
+async function recordAgarGameResult(googleId, score) {
+  await pool.query(
+    `UPDATE accounts SET
+       agar_games_played = agar_games_played + 1,
+       agar_high_score   = GREATEST(agar_high_score, $2)
+     WHERE google_id = $1`,
+    [googleId, score]
+  );
 }
 
 async function addAgarEarnings(googleId, sol, cadAmount = 0) {
@@ -400,8 +411,9 @@ function dbToAccount(row) {
     avatar:       row.avatar,
     balance:      parseFloat(row.balance || 0),
     highScore:     parseInt(row.high_score || 0),
-    agarHighScore: parseInt(row.agar_high_score || 0),
-    gamesPlayed:   parseInt(row.games_played || 0),
+    agarHighScore:   parseInt(row.agar_high_score   || 0),
+    agarGamesPlayed: parseInt(row.agar_games_played || 0),
+    gamesPlayed:     parseInt(row.games_played      || 0),
     walletAddress: row.wallet_address,
   };
 }
@@ -409,7 +421,7 @@ function dbToAccount(row) {
 module.exports = {
   init, pool,
   getOrCreateAccount, getAccountByGoogleId, getAccountByWallet,
-  saveAccount, recordGameResult,
+  saveAccount, recordGameResult, recordAgarGameResult,
   isTxUsed, recordDeposit, recordWithdrawal,
   recordPendingWithdrawal, updateWithdrawalSig, refundWithdrawal,
   addEarnings, getTopEarners,

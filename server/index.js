@@ -754,7 +754,13 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', async () => {
     console.log(`[-] Disconnected: ${socket.id}`);
-    if (socket._agarRoom) socket._agarRoom.removePlayer(socket.id);
+    if (socket._agarRoom) {
+      const agarPlayer = socket._agarRoom.players.get(socket.id);
+      if (agarPlayer && socket._googleId) {
+        db.recordAgarGameResult(socket._googleId, agarPlayer.score || 0).catch(() => {});
+      }
+      socket._agarRoom.removePlayer(socket.id);
+    }
     const room = socket._room;
     if (room) {
       const snake = room.snakes && room.snakes.get(socket.id);
