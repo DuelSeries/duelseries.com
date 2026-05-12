@@ -25,6 +25,9 @@ let screenMX    = 0, screenMY = 0;
 let animId      = null;
 let lastTime    = 0;
 let gameTime    = 0;
+let fpsEl       = null;
+let fpsFrames   = 0;
+let fpsLast     = 0;
 
 // Spectate
 let spectating    = false;
@@ -181,8 +184,8 @@ function connectSocket() {
   sendPing();
 
   // ── FPS counter ─────────────────────────────────────────────────────────
-  const fpsEl = document.getElementById('agar-fps-counter');
-  let fpsFrames = 0, fpsLast = performance.now();
+  fpsEl   = document.getElementById('agar-fps-counter');
+  fpsLast = performance.now();
 
   socket.on('connect', () => {
     const lobbyType = sessionStorage.getItem('lobbyType') || 'free';
