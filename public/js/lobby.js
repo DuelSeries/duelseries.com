@@ -94,21 +94,12 @@
   const ZOOM   = 2.0;
 
   const PLAYER_DATA = [
-    { r: 260, color: '#FF2244', name: ''          },
-    { r: 220, color: '#0055FF', name: ''          },
-    { r: 180, color: '#CC33FF', name: ''          },
-    { r: 118, color: '#33CC33', name: '~haii~'    },
-    { r:  98, color: '#00CCFF', name: 'JiriK'     },
-    { r:  84, color: '#FF2244', name: 'chomper'   },
-    { r:  70, color: '#FF6600', name: 'nomnom'    },
-    { r:  58, color: '#CC33FF', name: ''          },
-    { r:  48, color: '#FFCC00', name: 'destroyer' },
-    { r:  40, color: '#FF33CC', name: ''          },
-    { r:  34, color: '#00EE88', name: 'hungry'    },
-    { r:  28, color: '#0055FF', name: ''          },
-    { r:  22, color: '#FF4488', name: ''          },
-    { r:  18, color: '#AA44FF', name: ''          },
-    { r:  15, color: '#33CC33', name: ''          },
+    { r: 110, color: '#33CC33', name: ''          },
+    { r:  88, color: '#00CCFF', name: ''          },
+    { r:  70, color: '#FF2244', name: ''          },
+    { r:  54, color: '#FF6600', name: ''          },
+    { r:  38, color: '#CC33FF', name: ''          },
+    { r:  24, color: '#FFCC00', name: ''          },
   ];
   const FOOD_COLORS = [
     '#FF2244','#FF6600','#FFCC00','#33CC33','#00CCFF',
@@ -148,7 +139,7 @@
     for (const pd of PLAYER_DATA) {
       const pos = placeCell(pd.r, W, H);
       if (!pos) continue;
-      const spd = 3.2 / Math.pow(pd.r / 25, 0.55); // bigger = slower
+      const spd = 0.8 / Math.pow(pd.r / 25, 0.55); // bigger = slower
       cells.push({
         x: pos.x, y: pos.y,
         vx: (Math.random() - 0.5) * spd * 2,
