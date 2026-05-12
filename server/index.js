@@ -23,7 +23,12 @@ agarLb.setDb(db);
 
 const app    = express();
 const server = http.createServer(app);
-const io     = new Server(server, { cors: { origin: '*' } });
+const io     = new Server(server, {
+  cors: {
+    origin: ['https://duelseries.com', 'https://www.duelseries.com', 'http://localhost:3000'],
+    credentials: true,
+  },
+});
 
 // Prevent Render 502s — match their load balancer keep-alive timeout
 server.keepAliveTimeout = 120000;
