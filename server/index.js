@@ -335,7 +335,8 @@ app.post('/wallet/deposit', walletDepositLimiter, async (req, res) => {
 app.post('/wallet/withdraw', walletWithdrawLimiter, async (req, res) => {
   if (!req.isAuthenticated()) return res.status(401).json({ error: 'Not logged in' });
   const { amount, walletAddress } = req.body;
-  if (!amount || amount <= 0) return res.status(400).json({ error: 'Invalid amount' });
+  const MIN_WITHDRAWAL_SOL = 0.01;
+  if (!amount || amount < MIN_WITHDRAWAL_SOL) return res.status(400).json({ error: `Minimum withdrawal is ${MIN_WITHDRAWAL_SOL} SOL` });
   if (!walletAddress) return res.status(400).json({ error: 'Wallet address required' });
   const acc = await db.getAccountByGoogleId(req.user.googleId);
   if (!acc) return res.status(404).json({ error: 'Account not found' });
