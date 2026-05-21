@@ -19,6 +19,8 @@ const allTimeLb = require('./leaderboard');
 const { sendVerificationCode } = require('./Email');
 const prices = require('./prices');
 
+const REGION = process.env.REGION || 'na';
+
 // ─── Socket rate limiter ──────────────────────────────────────────────────────
 // Returns false (and drops the event) if the socket fires it too quickly.
 function socketRL(socket, key, minMs) {
@@ -397,6 +399,12 @@ app.post('/wallet/withdraw', walletWithdrawLimiter, async (req, res) => {
 // ─── Health check ─────────────────────────────────────────────────────────────
 app.get('/healthz', (req, res) => res.sendStatus(200));
 
+// ─── Region / ping ────────────────────────────────────────────────────────────
+app.get('/api/ping', (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.json({ ok: true, region: REGION, ts: Date.now() });
+});
+
 // ─── Static files ─────────────────────────────────────────────────────────────
 // All-time leaderboard API
 app.get('/api/leaderboard', (req, res) => {
@@ -507,6 +515,7 @@ function broadcastLobbyState() {
     agarPlayerCount:  totalAgarInGame(),
     agarLobbyCount:   lobbyConnections.size,
     agarLeaderboard:  agarLb.getTop(3),
+    region:           REGION,
   };
   for (const sock of lobbyConnections) sock.emit(C.EVENTS.LOBBY_STATE, state);
 }
@@ -521,6 +530,7 @@ io.on('connection', (socket) => {
     agarPlayerCount:  totalAgarInGame(),
     agarLobbyCount:   lobbyConnections.size,
     agarLeaderboard:  agarLb.getTop(3),
+    region:           REGION,
   });
 
   socket.on('lobby:join', ({ googleId } = {}) => {

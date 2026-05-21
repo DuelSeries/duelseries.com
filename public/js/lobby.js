@@ -339,7 +339,28 @@ if (new URLSearchParams(location.search).get('error') === 'auth') {
 }
 
 // ─── Socket ───────────────────────────────────────────────────────────────────
-socket.on(CONSTANTS.EVENTS.LOBBY_STATE, ({ playerCount, lobbyCount, leaderboard, agarPlayerCount, agarLobbyCount, agarLeaderboard }) => {
+const REGION_LABELS = { na: '🌎 NA Server', eu: '🌍 EU Server', asia: '🌏 ASIA Server' };
+const REGION_CLASSES = { na: 'region-na', eu: 'region-eu', asia: 'region-asia' };
+
+function setRegionBadge(region) {
+  const label = REGION_LABELS[region] || '🌐 Server';
+  const cls   = REGION_CLASSES[region] || 'region-na';
+  for (const id of ['region-badge', 'region-badge-2']) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    el.textContent = label;
+    el.className = 'region-badge ' + cls;
+  }
+  // Activate the link for the current region so players know they're already on it
+  document.querySelectorAll('.region-link').forEach(a => {
+    const href = a.getAttribute('href') || '';
+    const isCurrentRegion = href.includes(region + '.duelseries.com') ||
+      (region === 'na' && href.includes('duelseries.com') && !href.includes('eu.') && !href.includes('asia.'));
+    if (isCurrentRegion) { a.classList.add('region-dim'); a.style.pointerEvents = 'none'; }
+  });
+}
+
+socket.on(CONSTANTS.EVENTS.LOBBY_STATE, ({ playerCount, lobbyCount, leaderboard, agarPlayerCount, agarLobbyCount, agarLeaderboard, region }) => {
   const ig = document.getElementById('stat-players-ingame');
   const il = document.getElementById('stat-players-inlobby');
   const b  = document.getElementById('stat-players-login');
@@ -351,6 +372,7 @@ socket.on(CONSTANTS.EVENTS.LOBBY_STATE, ({ playerCount, lobbyCount, leaderboard,
   if (ig2) ig2.textContent = agarPlayerCount ?? 0;
   if (il2) il2.textContent = agarLobbyCount  ?? 0;
   updateLobbyLeaderboard(leaderboard);
+  if (region) setRegionBadge(region);
 });
 
 socket.on(CONSTANTS.EVENTS.WALLET_BALANCE, ({ balance }) => {

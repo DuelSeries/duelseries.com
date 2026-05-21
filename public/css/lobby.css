@@ -363,6 +363,30 @@ body {
 .server-stat-lbl { font-size: 0.68rem; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-top: 3px; }
 .server-stat-divider { width: 1px; background: var(--card-border); height: 40px; }
 
+/* ── Region row ───────────────────────────────────────────────────────── */
+.server-region-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 4px 2px;
+  width: 100%;
+}
+.region-badge {
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 20px;
+  letter-spacing: 0.5px;
+}
+.region-na   { background: rgba(99,102,241,0.15); color: #818cf8; border: 1px solid rgba(99,102,241,0.3); }
+.region-eu   { background: rgba(59,130,246,0.15); color: #60a5fa; border: 1px solid rgba(59,130,246,0.3); }
+.region-asia { background: rgba(239,68,68,0.15);  color: #f87171; border: 1px solid rgba(239,68,68,0.3);  }
+.region-switch { font-size: 0.72rem; color: var(--muted); display: flex; align-items: center; gap: 4px; }
+.region-link { color: #6b7280; text-decoration: none; font-weight: 600; transition: color 0.2s; }
+.region-link:hover:not(.region-dim) { color: #e5e7eb; }
+.region-dim { color: #374151; cursor: default; pointer-events: none; }
+.region-dot { color: #374151; }
+
 /* ── Wallet card ──────────────────────────────────────────────────────── */
 .wallet-balance-block { text-align: center; padding: 8px 0; }
 .wallet-balance-usd {
