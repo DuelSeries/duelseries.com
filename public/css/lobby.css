@@ -383,8 +383,10 @@ body {
 .region-asia { background: rgba(239,68,68,0.15);  color: #f87171; border: 1px solid rgba(239,68,68,0.3);  }
 .region-switch { font-size: 0.72rem; color: var(--muted); display: flex; align-items: center; gap: 4px; }
 .region-link { color: #6b7280; text-decoration: none; font-weight: 600; transition: color 0.2s; }
-.region-link:hover:not(.region-dim) { color: #e5e7eb; }
+.region-eu-link { color: #60a5fa; font-weight: 700; }
+.region-eu-link:hover { color: #93c5fd; }
 .region-dim { color: #374151; cursor: default; pointer-events: none; }
+.region-strike { color: #374151; text-decoration: line-through; cursor: default; }
 .region-dot { color: #374151; }
 
 /* ── Wallet card ──────────────────────────────────────────────────────── */
