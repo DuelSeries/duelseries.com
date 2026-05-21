@@ -88,6 +88,30 @@ app.use(sessionMiddleware);
 app.use(passport.initialize());
 app.use(passport.session());
 
+// Auto-login via trusted device cookie for all routes
+app.use(async (req, res, next) => {
+  if (req.isAuthenticated()) return next();
+  const deviceToken = req.cookies.ds_device;
+  if (!deviceToken) return next();
+  try {
+    const googleId = await db.getGoogleIdByDeviceToken(deviceToken);
+    if (googleId) {
+      const account = await db.getAccountByGoogleId(googleId);
+      if (account) {
+        await new Promise((resolve, reject) =>
+          req.login(account, err => err ? reject(err) : resolve())
+        );
+        await new Promise((resolve, reject) =>
+          req.session.save(err => err ? reject(err) : resolve())
+        );
+      }
+    }
+  } catch (e) {
+    console.error('[AUTO-LOGIN] Middleware error:', e.message);
+  }
+  next();
+});
+
 // Share session + passport with Socket.io so admin checks use verified identity
 const wrap = middleware => (socket, next) => middleware(socket.request, {}, next);
 io.use(wrap(sessionMiddleware));
@@ -235,6 +259,9 @@ app.post('/auth/verify', express.json(), async (req, res) => {
 
   await new Promise((resolve, reject) =>
     req.login(account, err => err ? reject(err) : resolve())
+  );
+  await new Promise((resolve, reject) =>
+    req.session.save(err => err ? reject(err) : resolve())
   );
 
   res.json({ ok: true });
