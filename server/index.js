@@ -187,6 +187,9 @@ app.get('/auth/me', async (req, res) => {
           await new Promise((resolve, reject) =>
             req.login(account, err => err ? reject(err) : resolve())
           );
+          await new Promise((resolve, reject) =>
+            req.session.save(err => err ? reject(err) : resolve())
+          );
           console.log(`[AUTO-LOGIN] Success for ${account.name}`);
           return res.json({ loggedIn: true, account });
         }
