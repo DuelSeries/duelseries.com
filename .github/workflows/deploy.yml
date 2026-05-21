@@ -6,10 +6,10 @@ on:
       - main
 
 jobs:
-  deploy:
+  deploy-na:
     runs-on: ubuntu-latest
     steps:
-      - name: Deploy to EC2
+      - name: Deploy to NA (Canada)
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.EC2_HOST }}
@@ -20,3 +20,18 @@ jobs:
             git pull origin main
             npm install --production
             pm2 restart duelseries
+
+  deploy-eu:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to EU (Ireland)
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_EU_HOST }}
+          username: ${{ secrets.EC2_EU_USER }}
+          key: ${{ secrets.EC2_EU_KEY }}
+          script: |
+            cd /home/ubuntu/hexslither
+            git pull origin main
+            npm install --production
+            pm2 restart duelseries-eu
