@@ -35,6 +35,7 @@ if (process.env.NODE_ENV === 'production' && !process.env.SESSION_SECRET) {
 }
 
 Wallet.setDb(db);
+Wallet.seedUsedSignatures();
 allTimeLb.setDb(db);
 agarLb.setDb(db);
 

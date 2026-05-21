@@ -27,6 +27,21 @@ const usedSignatures = new Set();
 let db = null;
 function setDb(dbModule) { db = dbModule; }
 
+// On startup, mark all existing escrow transactions as seen so old
+// deposits aren't re-credited after a database reset or server restart.
+async function seedUsedSignatures() {
+  try {
+    const escrow = new PublicKey(getEscrowPublicKey());
+    const sigs = await withRetry(() =>
+      connection.getSignaturesForAddress(escrow, { limit: 100 })
+    );
+    for (const s of sigs) usedSignatures.add(s.signature);
+    console.log(`[WALLET] Seeded ${sigs.length} existing signatures`);
+  } catch (e) {
+    console.error('[WALLET] Seed failed:', e.message);
+  }
+}
+
 // Retry wrapper for rate-limited RPC calls
 async function withRetry(fn, retries = 4, delay = 1500) {
   try {
@@ -170,4 +185,4 @@ async function getRecentSigs() {
   }));
 }
 
-module.exports = { getEscrowPublicKey, findLatestDeposit, getRecentSigs, withdraw, getEscrowBalance, NETWORK, setDb };
+module.exports = { getEscrowPublicKey, findLatestDeposit, getRecentSigs, withdraw, getEscrowBalance, NETWORK, setDb, seedUsedSignatures };
