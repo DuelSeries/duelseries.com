@@ -476,35 +476,46 @@ app.use((req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next()
 app.use(express.static(path.join(__dirname, '../public')));
 app.use('/shared', express.static(path.join(__dirname, '../shared')));
 
-// ─── Game rooms (one per lobby type) ─────────────────────────────────────────
-const gameRooms = {
-  free:   new GameRoom(io, 'free'),
-  dime:   new GameRoom(io, 'dime'),
-  dollar: new GameRoom(io, 'dollar'),
-};
-Object.values(gameRooms).forEach(r => r.start());
+// ─── Game rooms (one per region + lobby type) ────────────────────────────────
+const REGIONS = ['na', 'eu'];
+const gameRooms = {};
+const agarRooms = {};
+for (const rgn of REGIONS) {
+  gameRooms[rgn] = {
+    free:   new GameRoom(io, `${rgn}_free`),
+    dime:   new GameRoom(io, `${rgn}_dime`),
+    dollar: new GameRoom(io, `${rgn}_dollar`),
+  };
+  agarRooms[rgn] = {
+    free:   new AgarRoom(io, `agar_${rgn}_free`),
+    dime:   new AgarRoom(io, `agar_${rgn}_dime`),
+    dollar: new AgarRoom(io, `agar_${rgn}_dollar`),
+  };
+  Object.values(gameRooms[rgn]).forEach(r => r.start());
+  Object.values(agarRooms[rgn]).forEach(r => r.start());
+}
 
-// ─── Agar rooms ───────────────────────────────────────────────────────────────
-const agarRooms = {
-  free:   new AgarRoom(io, 'agar_free'),
-  dime:   new AgarRoom(io, 'agar_dime'),
-  dollar: new AgarRoom(io, 'agar_dollar'),
-};
-Object.values(agarRooms).forEach(r => r.start());
+function getRoomForType(lobbyType, region) {
+  const rgn = (region && gameRooms[region]) ? region : 'na';
+  return gameRooms[rgn][lobbyType] || gameRooms[rgn].free;
+}
 
-function getRoomForType(t) {
-  return gameRooms[t] || gameRooms.free;
+function getAgarRoomForType(lobbyType, region) {
+  const rgn = (region && agarRooms[region]) ? region : 'na';
+  return agarRooms[rgn][lobbyType] || agarRooms[rgn].free;
 }
 
 const lobbySocketsByGoogleId = new Map();
 const lobbyConnections = new Set();
 
 function totalInGame() {
-  return Object.values(gameRooms).reduce((s, r) => s + r.playerCount + r.botCount, 0);
+  return REGIONS.reduce((t, rgn) =>
+    t + Object.values(gameRooms[rgn]).reduce((s, r) => s + r.playerCount + r.botCount, 0), 0);
 }
 
 function totalAgarInGame() {
-  return Object.values(agarRooms).reduce((s, r) => s + r.playerCount + r.botCount, 0);
+  return REGIONS.reduce((t, rgn) =>
+    t + Object.values(agarRooms[rgn]).reduce((s, r) => s + r.playerCount + r.botCount, 0), 0);
 }
 
 function broadcastLobbyState() {
@@ -542,7 +553,7 @@ io.on('connection', (socket) => {
     broadcastLobbyState();
   });
 
-  socket.on(C.EVENTS.PLAY, ({ name, walletAddress, googleId, color, lobbyType, entrySol, hatId, boostId } = {}) => {
+  socket.on(C.EVENTS.PLAY, ({ name, walletAddress, googleId, color, lobbyType, entrySol, hatId, boostId, region } = {}) => {
     // Ignore duplicate PLAY events (e.g. from socket reconnect while alive)
     if (socket._room) {
       const existingSnake = socket._room.snakes.get(socket.id);
@@ -555,7 +566,7 @@ io.on('connection', (socket) => {
       socket._googleId = verifiedId;
       lobbySocketsByGoogleId.set(verifiedId, socket);
     }
-    const room = getRoomForType(lobbyType);
+    const room = getRoomForType(lobbyType, region || REGION);
     socket._room = room;
     socket._joinTime = Date.now();
     console.log(`[>] ${playerName} joins ${lobbyType || 'free'} lobby (worth: ${entrySol || 0} SOL)`);
@@ -670,14 +681,14 @@ io.on('connection', (socket) => {
   });
 
   // ── Agar events ──────────────────────────────────────────────────────────
-  socket.on('cell:join', ({ name, color, lobbyType, googleId } = {}) => {
+  socket.on('cell:join', ({ name, color, lobbyType, googleId, region } = {}) => {
     // Always prefer the server-verified session ID over the client-supplied one
     const verifiedId = socket.request.user?.googleId || googleId || null;
     if (verifiedId) {
       socket._googleId = verifiedId;
       lobbySocketsByGoogleId.set(verifiedId, socket);
     }
-    const room = agarRooms[lobbyType] || agarRooms.free;
+    const room = getAgarRoomForType(lobbyType, region || REGION);
     socket._agarRoom = room;
     const ENTRY_WORTH = { free: 0, dime: 0.10, dollar: 1.00 };
     const entryWorth = ENTRY_WORTH[lobbyType] || 0;

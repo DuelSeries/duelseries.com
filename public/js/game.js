@@ -16,6 +16,7 @@ const walletAddress = sessionStorage.getItem('walletAddress') || null;
 const googleId      = sessionStorage.getItem('googleId')      || null;
 const lobbyType     = sessionStorage.getItem('lobbyType')     || 'free';
 const entrySol      = parseFloat(sessionStorage.getItem('entrySol') || '0');
+const selectedRegion = sessionStorage.getItem('region') || 'na';
 
 // SOL/CAD rate — fetched once on load
 let solCadRate = 200;
@@ -61,7 +62,7 @@ const hatId      = sessionStorage.getItem('hatId')      || 'none';
 const boostId    = sessionStorage.getItem('boostId')    || 'default';
 
 socket.on('connect', () => {
-  socket.emit(CONSTANTS.EVENTS.PLAY, { name: playerName, walletAddress, googleId, color: snakeColor, lobbyType, entrySol, hatId, boostId });
+  socket.emit(CONSTANTS.EVENTS.PLAY, { name: playerName, walletAddress, googleId, color: snakeColor, lobbyType, entrySol, hatId, boostId, region: selectedRegion });
 });
 
 function playJoinSound() {

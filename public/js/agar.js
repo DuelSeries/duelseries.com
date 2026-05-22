@@ -296,7 +296,8 @@ function connectSocket() {
   socket.on('connect', () => {
     const lobbyType = sessionStorage.getItem('lobbyType') || 'free';
     const googleId  = sessionStorage.getItem('googleId') || '';
-    socket.emit('cell:join', { name: myName, color: myColor, lobbyType, googleId });
+    const region    = sessionStorage.getItem('region') || 'na';
+    socket.emit('cell:join', { name: myName, color: myColor, lobbyType, googleId, region });
   });
 
   socket.on('cell:join:error', ({ message }) => {
