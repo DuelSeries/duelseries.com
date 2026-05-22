@@ -54,8 +54,9 @@ let cashoutSpeedMult = 1;    // smoothed speedMult sent to server during Q hold/
 // Displayed (interpolated) state used for rendering
 let displayState = { snakes: [], food: [], worldRadius: CONSTANTS.BASE_WORLD_RADIUS, leaderboard: [] };
 
-// Socket
-const socket = io();
+// Socket — connect to EU EC2 for low ping when EU region is selected
+const SERVER_URLS = { na: '', eu: 'https://eu.duelseries.com' };
+const socket = io(SERVER_URLS[selectedRegion] || '');
 
 const snakeColor = sessionStorage.getItem('snakeColor') || localStorage.getItem('duelseries_skin_color') || '#E8756A';
 const hatId      = sessionStorage.getItem('hatId')      || 'none';

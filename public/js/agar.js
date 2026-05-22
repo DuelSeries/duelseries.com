@@ -272,7 +272,9 @@ function onMouseMove(e) {
 
 // ─── Socket ───────────────────────────────────────────────────────────────────
 function connectSocket() {
-  socket = io();
+  const _rgn = sessionStorage.getItem('region') || 'na';
+  const _SERVER_URLS = { na: '', eu: 'https://eu.duelseries.com' };
+  socket = io(_SERVER_URLS[_rgn] || '');
 
   // ── Ping tracker ────────────────────────────────────────────────────────
   const pingDotEl   = document.getElementById('agar-ping-dot');
