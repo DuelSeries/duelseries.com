@@ -501,6 +501,7 @@ function showLobby() {
   const savedName2 = account.name || localStorage.getItem('duelseries_playername') || '';
   document.getElementById('player-name-2').value = savedName2;
 
+  setBalance(account.balance || 0);
   socket.emit('lobby:join', { googleId: account.googleId });
   fetchGlobalWinnings();
 

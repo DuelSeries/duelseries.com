@@ -305,7 +305,7 @@ app.get('/api/prices', (req, res) => {
 });
 
 // ─── HTTP rate limiters ───────────────────────────────────────────────────────
-const walletDepositLimiter = rateLimit({ windowMs: 15 * 1000, max: 1, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many deposit checks. Wait 15 seconds.' } });
+const walletDepositLimiter = rateLimit({ windowMs: 5 * 1000, max: 1, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many deposit checks. Wait 5 seconds.' } });
 const walletWithdrawLimiter = rateLimit({ windowMs: 60 * 1000, max: 1, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many withdrawals. Wait 60 seconds.' } });
 const entryFeeLimiter = rateLimit({ windowMs: 60 * 1000, max: 10, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Slow down.' } });
 
