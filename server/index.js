@@ -45,7 +45,7 @@ const app    = express();
 const server = http.createServer(app);
 const io     = new Server(server, {
   cors: {
-    origin: ['https://duelseries.com', 'https://www.duelseries.com', 'http://localhost:3000'],
+    origin: ['https://duelseries.com', 'https://www.duelseries.com', 'https://eu.duelseries.com', 'http://localhost:3000'],
     credentials: true,
   },
 });
