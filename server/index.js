@@ -85,7 +85,6 @@ const sessionMiddleware = session({
     maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
     secure: true,
     sameSite: 'lax',
-    domain: process.env.NODE_ENV === 'production' ? '.duelseries.com' : undefined,
   },
 });
 app.use(sessionMiddleware);
