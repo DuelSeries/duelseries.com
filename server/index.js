@@ -644,7 +644,7 @@ io.on('connection', (socket) => {
 
   socket.on('admin:spawnbot', async ({ count } = {}) => {
     const ownerGoogleId = process.env.OWNER_GOOGLE_ID;
-    const verifiedGoogleId = socket.request.user?.googleId;
+    const verifiedGoogleId = socket.request.user?.googleId || socket._googleId;
     if (!ownerGoogleId || verifiedGoogleId !== ownerGoogleId) {
       socket.emit('admin:ack', { message: `Auth failed. Your ID: ${verifiedGoogleId || 'none'}` });
       return;
@@ -716,7 +716,7 @@ io.on('connection', (socket) => {
 
   socket.on('cell:spawnbot', async () => {
     const ownerGoogleId = process.env.OWNER_GOOGLE_ID;
-    const verifiedGoogleId = socket.request.user?.googleId;
+    const verifiedGoogleId = socket.request.user?.googleId || socket._googleId;
     if (!ownerGoogleId || verifiedGoogleId !== ownerGoogleId) {
       socket.emit('admin:ack', { message: `Auth failed. Your ID: ${verifiedGoogleId || 'none'}` });
       return;
