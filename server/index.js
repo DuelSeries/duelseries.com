@@ -115,11 +115,10 @@ app.use(async (req, res, next) => {
   next();
 });
 
-// Share session + passport with Socket.io so admin checks use verified identity
-const wrap = middleware => (socket, next) => middleware(socket.request, {}, next);
-io.use(wrap(sessionMiddleware));
-io.use(wrap(passport.initialize()));
-io.use(wrap(passport.session()));
+// Share session + passport with Socket.io using engine.use() for real req/res
+io.engine.use(sessionMiddleware);
+io.engine.use(passport.initialize());
+io.engine.use(passport.session());
 
 passport.use(new GoogleStrategy({
   clientID:     process.env.GOOGLE_CLIENT_ID     || 'PLACEHOLDER',
