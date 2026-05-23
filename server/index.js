@@ -645,10 +645,7 @@ io.on('connection', (socket) => {
   socket.on('admin:spawnbot', async ({ count } = {}) => {
     const ownerGoogleId = process.env.OWNER_GOOGLE_ID;
     const verifiedGoogleId = socket.request.user?.googleId || socket._googleId;
-    if (!ownerGoogleId || verifiedGoogleId !== ownerGoogleId) {
-      socket.emit('admin:ack', { message: `Auth failed. Your ID: ${verifiedGoogleId || 'none'}` });
-      return;
-    }
+    if (!ownerGoogleId || verifiedGoogleId !== ownerGoogleId) return;
     const n = Math.min(Math.max(1, parseInt(count) || 1), 10);
     const room = socket._room || gameRooms['na']['free'];
 
@@ -717,10 +714,7 @@ io.on('connection', (socket) => {
   socket.on('cell:spawnbot', async () => {
     const ownerGoogleId = process.env.OWNER_GOOGLE_ID;
     const verifiedGoogleId = socket.request.user?.googleId || socket._googleId;
-    if (!ownerGoogleId || verifiedGoogleId !== ownerGoogleId) {
-      socket.emit('admin:ack', { message: `Auth failed. Your ID: ${verifiedGoogleId || 'none'}` });
-      return;
-    }
+    if (!ownerGoogleId || verifiedGoogleId !== ownerGoogleId) return;
     const room = socket._agarRoom || agarRooms['na']['free'];
 
     // Determine lobby type from room name (e.g. 'agar_dime' → 'dime')
