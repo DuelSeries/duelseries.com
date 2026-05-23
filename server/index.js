@@ -649,7 +649,7 @@ io.on('connection', (socket) => {
     const verifiedGoogleId = socket.request.user?.googleId;
     if (!ownerGoogleId || verifiedGoogleId !== ownerGoogleId) return;
     const n = Math.min(Math.max(1, parseInt(count) || 1), 10);
-    const room = socket._room || gameRooms.free;
+    const room = socket._room || gameRooms['na']['free'];
 
     if (room.lobbyType === 'free') {
       for (let i = 0; i < n; i++) room.addBot();
@@ -717,7 +717,7 @@ io.on('connection', (socket) => {
     const ownerGoogleId = process.env.OWNER_GOOGLE_ID;
     const verifiedGoogleId = socket.request.user?.googleId;
     if (!ownerGoogleId || verifiedGoogleId !== ownerGoogleId) return;
-    const room = socket._agarRoom || agarRooms.free;
+    const room = socket._agarRoom || agarRooms['na']['free'];
 
     // Determine lobby type from room name (e.g. 'agar_dime' → 'dime')
     const lobbyType = room.roomName.replace('agar_', '');
