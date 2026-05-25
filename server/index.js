@@ -302,6 +302,25 @@ app.get('/api/prices', (req, res) => {
   res.json({ solCadRate: prices.getSolCadRate() });
 });
 
+// ─── Cross-region stats (NA polls EU every 5s to combine player counts) ──────
+let remoteStats = { playerCount: 0, agarPlayerCount: 0 };
+
+app.get('/api/stats', (req, res) => {
+  res.json({ playerCount: totalInGame(), agarPlayerCount: totalAgarInGame() });
+});
+
+if (REGION === 'na') {
+  const EU_STATS_URL = 'https://eu.duelseries.com/api/stats';
+  async function fetchEuStats() {
+    try {
+      const r = await fetch(EU_STATS_URL, { signal: AbortSignal.timeout(4000) });
+      if (r.ok) remoteStats = await r.json();
+    } catch {}
+  }
+  fetchEuStats();
+  setInterval(fetchEuStats, 5000);
+}
+
 // ─── HTTP rate limiters ───────────────────────────────────────────────────────
 const walletDepositLimiter = rateLimit({ windowMs: 5 * 1000, max: 1, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many deposit checks. Wait 5 seconds.' } });
 const walletWithdrawLimiter = rateLimit({ windowMs: 60 * 1000, max: 1, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many withdrawals. Wait 60 seconds.' } });
@@ -519,10 +538,10 @@ function totalAgarInGame() {
 
 function broadcastLobbyState() {
   const state = {
-    playerCount:      totalInGame(),
+    playerCount:      totalInGame()     + (remoteStats.playerCount     || 0),
     lobbyCount:       lobbyConnections.size,
     leaderboard:      allTimeLb.getTop(3),
-    agarPlayerCount:  totalAgarInGame(),
+    agarPlayerCount:  totalAgarInGame() + (remoteStats.agarPlayerCount || 0),
     agarLobbyCount:   lobbyConnections.size,
     agarLeaderboard:  agarLb.getTop(3),
     region:           REGION,
@@ -534,10 +553,10 @@ io.on('connection', (socket) => {
   console.log(`[+] Connected: ${socket.id}`);
 
   socket.emit(C.EVENTS.LOBBY_STATE, {
-    playerCount:      totalInGame(),
+    playerCount:      totalInGame()     + (remoteStats.playerCount     || 0),
     lobbyCount:       lobbyConnections.size,
     leaderboard:      allTimeLb.getTop(3),
-    agarPlayerCount:  totalAgarInGame(),
+    agarPlayerCount:  totalAgarInGame() + (remoteStats.agarPlayerCount || 0),
     agarLobbyCount:   lobbyConnections.size,
     agarLeaderboard:  agarLb.getTop(3),
     region:           REGION,
