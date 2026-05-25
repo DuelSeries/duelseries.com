@@ -708,10 +708,13 @@ fetch('/wallet/info').then(r => r.json()).then(info => {
   if (info && info.escrowAddress) walletInfo = info;
 }).catch(() => {});
 
-// Fetch SOL/CAD price once, cache it
+// Fetch SOL/CAD price once, then refresh balance display with correct CAD value
 fetch('https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=cad')
   .then(r => r.json())
-  .then(d => { solPriceUsd = d?.solana?.cad || null; })
+  .then(d => {
+    solPriceUsd = d?.solana?.cad || null;
+    if (account) setBalance(account.balance || 0);
+  })
   .catch(() => {});
 
 function setBalance(bal) {
