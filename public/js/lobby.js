@@ -973,6 +973,7 @@ document.getElementById('btn-play-2').addEventListener('click', async () => {
   sessionStorage.setItem('googleId',      account?.googleId || '');
   sessionStorage.setItem('lobbyType',     selectedLobbyType2);
   sessionStorage.setItem('gameMode',      'cell');
+  sessionStorage.setItem('region',        selectedRegion);
   const agarFrame = document.getElementById('agar-frame');
   if (window._pauseLobbyAnims) window._pauseLobbyAnims();
   agarFrame.src = '/agar.html';
