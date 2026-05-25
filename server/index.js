@@ -683,7 +683,8 @@ io.on('connection', (socket) => {
     const n = Math.min(Math.max(1, parseInt(count) || 1), 10);
     const room = socket._room || gameRooms['na']['free'];
 
-    if (room.lobbyType === 'free') {
+    const shortType = room.lobbyType.replace(/^(na|eu)_/, '');
+    if (shortType === 'free') {
       for (let i = 0; i < n; i++) room.addBot();
       socket.emit('admin:ack', { message: `Spawned ${n} free bot(s)` });
       broadcastLobbyState();
@@ -691,7 +692,7 @@ io.on('connection', (socket) => {
     }
 
     // Paid lobby — deduct entry fee from owner wallet per bot
-    const feeCad = LOBBY_FEES_CAD[room.lobbyType] || 0;
+    const feeCad = LOBBY_FEES_CAD[shortType] || 0;
     const feeSol = prices.cadToSol(feeCad);
     let spawned = 0;
     for (let i = 0; i < n; i++) {
