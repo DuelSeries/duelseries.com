@@ -302,24 +302,37 @@ app.get('/api/prices', (req, res) => {
   res.json({ solCadRate: prices.getSolCadRate() });
 });
 
-// ─── Cross-region stats (NA polls EU every 5s to combine player counts) ──────
+// ─── Cross-region stats: EU pushes to NA instantly on every change ────────────
 let remoteStats = { playerCount: 0, agarPlayerCount: 0 };
+const STATS_SECRET = process.env.SESSION_SECRET || 'duelseries-dev-secret';
 
+// Both servers expose their local counts (used by EU to self-report)
 app.get('/api/stats', (req, res) => {
   res.json({ playerCount: totalInGame(), agarPlayerCount: totalAgarInGame() });
 });
 
+// NA server receives pushed stats from EU
 if (REGION === 'na') {
-  const EU_STATS_URL = 'https://eu.duelseries.com/api/stats';
-  async function fetchEuStats() {
-    try {
-      const r = await fetch(EU_STATS_URL, { signal: AbortSignal.timeout(4000) });
-      if (r.ok) remoteStats = await r.json();
-    } catch {}
+  app.post('/api/stats/push', express.json(), (req, res) => {
+    if (req.headers['x-stats-secret'] !== STATS_SECRET) return res.sendStatus(403);
+    remoteStats = { playerCount: req.body.playerCount || 0, agarPlayerCount: req.body.agarPlayerCount || 0 };
     broadcastLobbyState();
-  }
-  fetchEuStats();
-  setInterval(fetchEuStats, 5000);
+    res.sendStatus(204);
+  });
+}
+
+// EU server pushes its counts to NA whenever broadcastLobbyState runs
+const NA_PUSH_URL = 'https://duelseries.com/api/stats/push';
+async function pushStatsToNA() {
+  if (REGION !== 'eu') return;
+  try {
+    await fetch(NA_PUSH_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-stats-secret': STATS_SECRET },
+      body: JSON.stringify({ playerCount: totalInGame(), agarPlayerCount: totalAgarInGame() }),
+      signal: AbortSignal.timeout(3000),
+    });
+  } catch {}
 }
 
 // ─── HTTP rate limiters ───────────────────────────────────────────────────────
@@ -548,6 +561,7 @@ function broadcastLobbyState() {
     region:           REGION,
   };
   for (const sock of lobbyConnections) sock.emit(C.EVENTS.LOBBY_STATE, state);
+  pushStatsToNA();
 }
 
 io.on('connection', (socket) => {
