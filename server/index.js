@@ -316,6 +316,7 @@ if (REGION === 'na') {
       const r = await fetch(EU_STATS_URL, { signal: AbortSignal.timeout(4000) });
       if (r.ok) remoteStats = await r.json();
     } catch {}
+    broadcastLobbyState();
   }
   fetchEuStats();
   setInterval(fetchEuStats, 5000);
