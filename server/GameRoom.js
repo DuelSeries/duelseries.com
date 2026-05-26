@@ -117,7 +117,7 @@ class GameRoom {
   }
 
   addBot() {
-    if (this.lobbyType !== 'free') return null; // no free bots in paid lobbies
+    if (!this.lobbyType.endsWith('free')) return null; // no free bots in paid lobbies
     const id = 'bot_' + uuidv4();
     const { x, y } = this.safeSpawnPoint();
     const bot = new Bot(id, x, y);
