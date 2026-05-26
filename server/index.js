@@ -337,7 +337,7 @@ async function pushStatsToNA() {
 
 // ─── HTTP rate limiters ───────────────────────────────────────────────────────
 const walletDepositLimiter = rateLimit({ windowMs: 5 * 1000, max: 1, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many deposit checks. Wait 5 seconds.' } });
-const walletWithdrawLimiter = rateLimit({ windowMs: 60 * 1000, max: 1, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many withdrawals. Wait 60 seconds.' } });
+const walletWithdrawLimiter = rateLimit({ windowMs: 10 * 1000, max: 3, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many withdrawals. Please wait.' } });
 const entryFeeLimiter = rateLimit({ windowMs: 60 * 1000, max: 10, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Slow down.' } });
 
 // ─── Entry fee ────────────────────────────────────────────────────────────────

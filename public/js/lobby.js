@@ -864,6 +864,23 @@ document.getElementById('btn-withdraw').addEventListener('click', () =>
   document.getElementById('modal-withdraw').classList.add('active'));
 document.getElementById('cancel-withdraw').addEventListener('click', () =>
   document.getElementById('modal-withdraw').classList.remove('active'));
+
+document.getElementById('withdraw-max').addEventListener('click', () => {
+  const bal = account?.balance || 0;
+  document.getElementById('withdraw-amount').value = bal > 0 ? bal.toFixed(4) : '';
+  document.getElementById('withdraw-amount').dispatchEvent(new Event('input'));
+});
+
+document.getElementById('withdraw-amount').addEventListener('input', () => {
+  const amt = parseFloat(document.getElementById('withdraw-amount').value);
+  const preview = document.getElementById('withdraw-cad-preview');
+  if (amt > 0 && solPriceUsd !== null) {
+    preview.textContent = '≈ CA$' + (amt * solPriceUsd).toFixed(2);
+  } else {
+    preview.textContent = '';
+  }
+});
+
 document.getElementById('confirm-withdraw').addEventListener('click', async () => {
   const walletAddress = document.getElementById('withdraw-wallet').value.trim();
   const amount = parseFloat(document.getElementById('withdraw-amount').value);
@@ -888,6 +905,7 @@ document.getElementById('confirm-withdraw').addEventListener('click', async () =
   }
   document.getElementById('withdraw-amount').value = '';
   document.getElementById('withdraw-wallet').value = '';
+  document.getElementById('withdraw-cad-preview').textContent = '';
 });
 
 // ─── Lobby 2 wallet buttons (share same modals/functions as lobby 1) ──────────
