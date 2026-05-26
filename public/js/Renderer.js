@@ -45,12 +45,14 @@ class Renderer {
   }
 
   resize() {
-    const dpr = window.devicePixelRatio || 1;
+    const isMobile = 'ontouchstart' in window && Math.min(window.innerWidth, window.innerHeight) < 768;
+    const dpr = Math.min(window.devicePixelRatio || 1, isMobile ? 2 : 3);
     this.canvas.style.width  = window.innerWidth  + 'px';
     this.canvas.style.height = window.innerHeight + 'px';
     this.canvas.width  = Math.round(window.innerWidth  * dpr);
     this.canvas.height = Math.round(window.innerHeight * dpr);
     this._dpr = dpr;
+    this._isMobile = isMobile;
   }
 
   render(state, myId, mousePos, spectateSnake, cashoutRings, dt) {
@@ -104,9 +106,11 @@ class Renderer {
       if (hx < visL || hx > visR || hy < visT || hy > visB) continue;
       visibleOthers.push(snake);
     }
-    for (const snake of visibleOthers) this._recordTrail(snake);
-    if (mySnake) this._recordTrail(mySnake);
-    this._drawLingeringTrails(ctx);
+    if (!this._isMobile) {
+      for (const snake of visibleOthers) this._recordTrail(snake);
+      if (mySnake) this._recordTrail(mySnake);
+      this._drawLingeringTrails(ctx);
+    }
     for (const snake of visibleOthers) this._drawSnake(ctx, snake, false);
     if (mySnake) this._drawSnake(ctx, mySnake, true);
 
@@ -241,7 +245,7 @@ class Renderer {
     ctx.lineCap  = 'round';
     ctx.lineJoin = 'round';
 
-    const STEPS = 3;
+    const STEPS = this._isMobile ? 2 : 3;
     const CHUNK = 8;
 
     // ── Draw body tail→head in chunks ─────────────────────────────────────────
