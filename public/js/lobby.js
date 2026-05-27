@@ -719,6 +719,7 @@ fetch('https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=ca
 
 function setBalance(bal) {
   const sol = parseFloat(bal) || 0;
+  if (account) account.balance = sol;
   const cadStr = solPriceUsd !== null ? 'CA$' + (sol * solPriceUsd).toFixed(2) : 'CA$—';
   const solStr = sol.toFixed(4) + ' SOL';
   // Update both lobbies
@@ -867,7 +868,8 @@ document.getElementById('cancel-withdraw').addEventListener('click', () =>
 
 document.getElementById('withdraw-max').addEventListener('click', () => {
   const bal = account?.balance || 0;
-  document.getElementById('withdraw-amount').value = bal > 0 ? bal.toFixed(4) : '';
+  const maxAmt = Math.floor(bal * 10000) / 10000; // floor to 4dp — avoids floating point "Insufficient balance"
+  document.getElementById('withdraw-amount').value = maxAmt > 0 ? maxAmt : '';
   document.getElementById('withdraw-amount').dispatchEvent(new Event('input'));
 });
 
