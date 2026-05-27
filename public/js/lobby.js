@@ -860,11 +860,8 @@ document.getElementById('btn-copy-address').addEventListener('click', () => {
 });
 
 // ─── Withdraw ─────────────────────────────────────────────────────────────────
-document.getElementById('btn-withdraw').addEventListener('click', () => {
-  const addr = account?.walletAddress || '';
-  document.getElementById('withdraw-wallet-display').textContent = addr || 'No wallet — log out and back in';
-  document.getElementById('modal-withdraw').classList.add('active');
-});
+document.getElementById('btn-withdraw').addEventListener('click', () =>
+  document.getElementById('modal-withdraw').classList.add('active'));
 document.getElementById('cancel-withdraw').addEventListener('click', () =>
   document.getElementById('modal-withdraw').classList.remove('active'));
 
@@ -885,9 +882,10 @@ document.getElementById('withdraw-amount').addEventListener('input', () => {
 });
 
 document.getElementById('confirm-withdraw').addEventListener('click', async () => {
+  const walletAddress = document.getElementById('withdraw-wallet').value.trim();
   const amount = parseFloat(document.getElementById('withdraw-amount').value);
+  if (!walletAddress) { alert('Enter your Phantom or Coinbase wallet address.'); return; }
   if (!amount || amount <= 0) return;
-  if (!account?.walletAddress) { alert('No wallet on file — please log out and back in.'); return; }
 
   document.getElementById('modal-withdraw').classList.remove('active');
   walletStatus('Processing withdrawal...');
@@ -896,7 +894,7 @@ document.getElementById('confirm-withdraw').addEventListener('click', async () =
     const res = await fetch('/wallet/withdraw', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ amount }),
+      body: JSON.stringify({ amount, walletAddress }),
     });
     const data = await res.json();
     if (data.error) throw new Error(data.error);
@@ -906,6 +904,7 @@ document.getElementById('confirm-withdraw').addEventListener('click', async () =
     walletStatus('Withdrawal failed: ' + (e.message || e), true);
   }
   document.getElementById('withdraw-amount').value = '';
+  document.getElementById('withdraw-wallet').value = '';
   document.getElementById('withdraw-cad-preview').textContent = '';
 });
 
