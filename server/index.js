@@ -21,6 +21,43 @@ const prices = require('./prices');
 
 const REGION = process.env.REGION || 'na';
 
+// ─── Privy server wallets ─────────────────────────────────────────────────────
+const PRIVY_APP_ID     = process.env.PRIVY_APP_ID;
+const PRIVY_APP_SECRET = process.env.PRIVY_APP_SECRET;
+
+async function createPrivyWallet() {
+  if (!PRIVY_APP_ID || !PRIVY_APP_SECRET) throw new Error('Privy credentials not set');
+  const creds = Buffer.from(`${PRIVY_APP_ID}:${PRIVY_APP_SECRET}`).toString('base64');
+  const res = await fetch('https://api.privy.io/v2/server-wallets', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'privy-app-id': PRIVY_APP_ID,
+      'Authorization': `Basic ${creds}`,
+    },
+    body: JSON.stringify({ chain_type: 'solana' }),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Privy ${res.status}: ${err}`);
+  }
+  const data = await res.json();
+  return { walletId: data.id, address: data.address };
+}
+
+async function ensurePrivyWallet(account) {
+  if (account.privyWalletId) return; // already set up
+  try {
+    const { walletId, address } = await createPrivyWallet();
+    await db.setPrivyWallet(account.googleId, address, walletId);
+    account.walletAddress = address;
+    account.privyWalletId = walletId;
+    console.log(`[PRIVY] Wallet created for ${account.name}: ${address.slice(0,8)}...`);
+  } catch (e) {
+    console.error('[PRIVY] Wallet creation failed:', e.message);
+  }
+}
+
 // ─── Socket rate limiter ──────────────────────────────────────────────────────
 // Returns false (and drops the event) if the socket fires it too quickly.
 function socketRL(socket, key, minMs) {
@@ -132,6 +169,7 @@ passport.use(new GoogleStrategy({
       name:     profile.displayName || 'Player',
       avatar:   profile.photos?.[0]?.value || '',
     });
+    await ensurePrivyWallet(account);
     done(null, account);
   } catch (e) { done(e); }
 }));
@@ -383,15 +421,20 @@ app.get('/wallet/info', (req, res) => {
 
 app.post('/wallet/deposit', walletDepositLimiter, async (req, res) => {
   if (!req.isAuthenticated()) return res.status(401).json({ error: 'Not logged in' });
+  const userWallet = req.user.walletAddress;
+  if (!userWallet) return res.status(202).json({ pending: true });
   try {
-    const result = await Wallet.findLatestDeposit();
-    if (!result) return res.status(202).json({ pending: true });
-    const newBalance = await db.recordDeposit(
-      req.user.googleId, result.sig, result.amount, result.fromAddress
-    );
-    req.user.balance = newBalance;
-    console.log(`[WALLET] Credited ${result.amount} SOL to ${req.user.name}`);
-    res.json({ ok: true, amount: result.amount, balance: newBalance });
+    const deposits = await Wallet.findDepositsForAddress(userWallet);
+    if (!deposits.length) return res.status(202).json({ pending: true });
+    let totalAmount = 0;
+    let finalBalance = req.user.balance;
+    for (const d of deposits) {
+      finalBalance = await db.recordDeposit(req.user.googleId, d.sig, d.amount, d.fromAddress);
+      totalAmount += d.amount;
+      console.log(`[WALLET] Credited ${d.amount} SOL to ${req.user.name}`);
+    }
+    req.user.balance = finalBalance;
+    res.json({ ok: true, amount: totalAmount, balance: finalBalance });
   } catch (e) {
     console.error('[WALLET] Deposit error:', e.message);
     res.status(400).json({ error: e.message });
@@ -400,10 +443,11 @@ app.post('/wallet/deposit', walletDepositLimiter, async (req, res) => {
 
 app.post('/wallet/withdraw', walletWithdrawLimiter, async (req, res) => {
   if (!req.isAuthenticated()) return res.status(401).json({ error: 'Not logged in' });
-  const { amount, walletAddress } = req.body;
+  const { amount } = req.body;
+  const walletAddress = req.user.walletAddress;
   const MIN_WITHDRAWAL_SOL = 0.01;
   if (!amount || amount < MIN_WITHDRAWAL_SOL) return res.status(400).json({ error: `Minimum withdrawal is ${MIN_WITHDRAWAL_SOL} SOL` });
-  if (!walletAddress) return res.status(400).json({ error: 'Wallet address required' });
+  if (!walletAddress) return res.status(400).json({ error: 'No wallet on file — please log out and back in.' });
   const acc = await db.getAccountByGoogleId(req.user.googleId);
   if (!acc) return res.status(404).json({ error: 'Account not found' });
   if (acc.balance < amount) return res.status(400).json({ error: 'Insufficient balance' });

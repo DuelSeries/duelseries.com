@@ -129,6 +129,56 @@ async function findLatestDeposit() {
   return null;
 }
 
+// Find all unprocessed deposits to a specific address (per-user Privy wallet)
+async function findDepositsForAddress(address) {
+  const pubkey = new PublicKey(address);
+  const sigs = await withRetry(() =>
+    connection.getSignaturesForAddress(pubkey, { limit: 25 })
+  );
+
+  const deposits = [];
+  for (const sigInfo of sigs) {
+    if (usedSignatures.has(sigInfo.signature)) continue;
+    if (db && await db.isTxUsed(sigInfo.signature)) {
+      usedSignatures.add(sigInfo.signature);
+      continue;
+    }
+    if (sigInfo.err) { usedSignatures.add(sigInfo.signature); continue; }
+
+    let tx;
+    try {
+      tx = await withRetry(() =>
+        connection.getTransaction(sigInfo.signature, {
+          commitment: 'confirmed',
+          maxSupportedTransactionVersion: 0,
+        })
+      );
+    } catch (e) {
+      console.error(`[WALLET] getTransaction failed for ${sigInfo.signature.slice(0,8)}: ${e.message}`);
+      continue;
+    }
+
+    if (!tx || tx.meta.err) { usedSignatures.add(sigInfo.signature); continue; }
+
+    const accountKeys = tx.transaction.message.staticAccountKeys ||
+      tx.transaction.message.accountKeys;
+    const idx = accountKeys.findIndex(k => k.toString() === address);
+    if (idx === -1) { usedSignatures.add(sigInfo.signature); continue; }
+
+    const lamports = tx.meta.postBalances[idx] - tx.meta.preBalances[idx];
+    if (lamports <= 0) { usedSignatures.add(sigInfo.signature); continue; }
+
+    usedSignatures.add(sigInfo.signature);
+    deposits.push({
+      amount: lamports / LAMPORTS_PER_SOL,
+      fromAddress: accountKeys[0].toString(),
+      sig: sigInfo.signature,
+    });
+  }
+
+  return deposits;
+}
+
 // Send SOL from escrow to a user wallet
 async function withdraw(toAddress, amountSol) {
   const escrow = getEscrowKeypair();
@@ -185,4 +235,4 @@ async function getRecentSigs() {
   }));
 }
 
-module.exports = { getEscrowPublicKey, findLatestDeposit, getRecentSigs, withdraw, getEscrowBalance, NETWORK, setDb, seedUsedSignatures };
+module.exports = { getEscrowPublicKey, findLatestDeposit, findDepositsForAddress, getRecentSigs, withdraw, getEscrowBalance, NETWORK, setDb, seedUsedSignatures };

@@ -69,6 +69,7 @@ async function init() {
     ALTER TABLE accounts ADD COLUMN IF NOT EXISTS agar_high_score INTEGER DEFAULT 0;
     ALTER TABLE accounts ADD COLUMN IF NOT EXISTS agar_total_earnings NUMERIC(18,9) DEFAULT 0;
     ALTER TABLE accounts ADD COLUMN IF NOT EXISTS agar_games_played INTEGER DEFAULT 0;
+    ALTER TABLE accounts ADD COLUMN IF NOT EXISTS privy_wallet_id TEXT;
   `);
   console.log('[DB] Tables ready');
 }
@@ -139,9 +140,8 @@ async function recordDeposit(googleId, txSig, amount, fromAddress) {
     [googleId, txSig, amount, fromAddress]
   );
   const res = await pool.query(
-    `UPDATE accounts SET balance = balance + $2, wallet_address = COALESCE(wallet_address, $3)
-     WHERE google_id = $1 RETURNING balance`,
-    [googleId, amount, fromAddress]
+    `UPDATE accounts SET balance = balance + $2 WHERE google_id = $1 RETURNING balance`,
+    [googleId, amount]
   );
   return parseFloat(res.rows[0].balance);
 }
@@ -414,15 +414,23 @@ function dbToAccount(row) {
     agarHighScore:   parseInt(row.agar_high_score   || 0),
     agarGamesPlayed: parseInt(row.agar_games_played || 0),
     gamesPlayed:     parseInt(row.games_played      || 0),
-    walletAddress: row.wallet_address,
+    walletAddress:  row.wallet_address,
+    privyWalletId:  row.privy_wallet_id,
   };
+}
+
+async function setPrivyWallet(googleId, walletAddress, privyWalletId) {
+  await pool.query(
+    `UPDATE accounts SET wallet_address = $2, privy_wallet_id = $3 WHERE google_id = $1`,
+    [googleId, walletAddress, privyWalletId]
+  );
 }
 
 module.exports = {
   init, pool,
   getOrCreateAccount, getAccountByGoogleId, getAccountByWallet,
   saveAccount, recordGameResult, recordAgarGameResult,
-  isTxUsed, recordDeposit, recordWithdrawal,
+  isTxUsed, recordDeposit, recordWithdrawal, setPrivyWallet,
   recordPendingWithdrawal, updateWithdrawalSig, refundWithdrawal,
   addEarnings, getTopEarners,
   addAgarEarnings, getAgarTopEarners,

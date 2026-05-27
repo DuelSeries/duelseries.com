@@ -812,8 +812,8 @@ async function pollForDeposit() {
 }
 
 document.getElementById('btn-add-funds').addEventListener('click', () => {
-  if (!walletInfo) { walletStatus('Wallet not configured on server.', true); return; }
-  const addr = walletInfo.escrowAddress;
+  const addr = account?.walletAddress;
+  if (!addr) { walletStatus('Wallet not ready — please log out and back in.', true); return; }
   document.getElementById('receive-address-short').textContent = addr.slice(0, 6) + '...' + addr.slice(-4);
   const statusEl = document.getElementById('deposit-status');
   statusEl.style.color = '#555';
@@ -851,8 +851,8 @@ document.getElementById('close-receive').addEventListener('click', () => {
 });
 
 document.getElementById('btn-copy-address').addEventListener('click', () => {
-  if (!walletInfo) return;
-  navigator.clipboard.writeText(walletInfo.escrowAddress).then(() => {
+  if (!account?.walletAddress) return;
+  navigator.clipboard.writeText(account.walletAddress).then(() => {
     const btn = document.getElementById('btn-copy-address');
     btn.textContent = 'Copied!';
     setTimeout(() => { btn.textContent = 'Copy'; }, 2000);
@@ -860,8 +860,11 @@ document.getElementById('btn-copy-address').addEventListener('click', () => {
 });
 
 // ─── Withdraw ─────────────────────────────────────────────────────────────────
-document.getElementById('btn-withdraw').addEventListener('click', () =>
-  document.getElementById('modal-withdraw').classList.add('active'));
+document.getElementById('btn-withdraw').addEventListener('click', () => {
+  const addr = account?.walletAddress || '';
+  document.getElementById('withdraw-wallet-display').textContent = addr || 'No wallet — log out and back in';
+  document.getElementById('modal-withdraw').classList.add('active');
+});
 document.getElementById('cancel-withdraw').addEventListener('click', () =>
   document.getElementById('modal-withdraw').classList.remove('active'));
 
@@ -882,10 +885,9 @@ document.getElementById('withdraw-amount').addEventListener('input', () => {
 });
 
 document.getElementById('confirm-withdraw').addEventListener('click', async () => {
-  const walletAddress = document.getElementById('withdraw-wallet').value.trim();
   const amount = parseFloat(document.getElementById('withdraw-amount').value);
-  if (!walletAddress) { alert('Enter your Phantom wallet address.'); return; }
   if (!amount || amount <= 0) return;
+  if (!account?.walletAddress) { alert('No wallet on file — please log out and back in.'); return; }
 
   document.getElementById('modal-withdraw').classList.remove('active');
   walletStatus('Processing withdrawal...');
@@ -894,7 +896,7 @@ document.getElementById('confirm-withdraw').addEventListener('click', async () =
     const res = await fetch('/wallet/withdraw', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ amount, walletAddress }),
+      body: JSON.stringify({ amount }),
     });
     const data = await res.json();
     if (data.error) throw new Error(data.error);
@@ -904,7 +906,6 @@ document.getElementById('confirm-withdraw').addEventListener('click', async () =
     walletStatus('Withdrawal failed: ' + (e.message || e), true);
   }
   document.getElementById('withdraw-amount').value = '';
-  document.getElementById('withdraw-wallet').value = '';
   document.getElementById('withdraw-cad-preview').textContent = '';
 });
 
@@ -1916,7 +1917,7 @@ document.getElementById('btn-play').addEventListener('click', async () => {
     document.getElementById('btn-settings').addEventListener('click', () => {
       // Populate account tab with live data
       document.getElementById('st-username').textContent = sessionStorage.getItem('playerName') || '—';
-      const addr = walletInfo?.escrowAddress || '—';
+      const addr = account?.walletAddress || '—';
       document.getElementById('st-sol-address').textContent = addr.length > 12 ? addr.slice(0,6) + '…' + addr.slice(-4) : addr;
       // Member since / login streak placeholders — real data from account if available
       const acct = window._accountData || {};

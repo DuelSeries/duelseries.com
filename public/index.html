@@ -427,7 +427,10 @@
   <div class="modal-overlay" id="modal-withdraw">
     <div class="modal">
       <h3>Cash Out SOL</h3>
-      <input type="text" id="withdraw-wallet" placeholder="Your Phantom wallet address">
+      <div style="font-size:0.75rem;color:#aaa;margin-bottom:10px">
+        Sending to your wallet:<br>
+        <span id="withdraw-wallet-display" style="color:#14F195;word-break:break-all;font-size:0.7rem"></span>
+      </div>
       <div style="display:flex;gap:8px;align-items:center">
         <input type="number" id="withdraw-amount" placeholder="Amount in SOL" min="0.01" step="0.01" style="flex:1">
         <button class="btn-small" id="withdraw-max" style="white-space:nowrap">Max</button>
