@@ -213,14 +213,17 @@ app.get('/auth/google/callback',
       await db.saveVerificationCode(req.user.googleId, code);
       const pendingId = req.user.googleId;
       const emailAddr = req.user.email;
-      req.logout(() => {
-        req.session.pendingVerification = pendingId;
-        req.session.save(() => {
-          res.redirect('/verify.html');
-          sendVerificationCode(emailAddr, code).catch(e =>
-            console.error('[2FA] Email send failed:', e.message)
-          );
-        });
+      // Clear auth without regenerating the session ID (req.logout regenerates
+      // the session, which causes the browser's existing cookie to not match
+      // the new session that holds pendingVerification).
+      delete req.session.passport;
+      req.user = null;
+      req.session.pendingVerification = pendingId;
+      req.session.save(() => {
+        res.redirect('/verify.html');
+        sendVerificationCode(emailAddr, code).catch(e =>
+          console.error('[2FA] Email send failed:', e.message)
+        );
       });
     } catch (e) {
       console.error('[2FA] Error in callback:', e.message);
