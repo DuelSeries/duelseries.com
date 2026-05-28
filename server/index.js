@@ -435,6 +435,12 @@ app.post('/wallet/deposit', walletDepositLimiter, async (req, res) => {
     }
     req.user.balance = finalBalance;
     res.json({ ok: true, amount: totalAmount, balance: finalBalance });
+
+    // Sweep Privy wallet → escrow after responding so it never delays the user
+    if (req.user.privyWalletId && req.user.walletAddress) {
+      Wallet.sweepFromPrivyWallet(req.user.walletAddress, req.user.privyWalletId)
+        .catch(e => console.error('[PRIVY] Sweep failed:', e.message));
+    }
   } catch (e) {
     console.error('[WALLET] Deposit error:', e.message);
     res.status(400).json({ error: e.message });

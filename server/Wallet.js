@@ -217,6 +217,57 @@ async function withdraw(toAddress, amountSol) {
   return signature;
 }
 
+// Sweep all SOL from a user's Privy server wallet into the escrow.
+// Called after a deposit is credited so the escrow stays funded for withdrawals.
+async function sweepFromPrivyWallet(privyWalletAddress, privyWalletId) {
+  const PRIVY_APP_ID     = process.env.PRIVY_APP_ID;
+  const PRIVY_APP_SECRET = process.env.PRIVY_APP_SECRET;
+  if (!PRIVY_APP_ID || !PRIVY_APP_SECRET) throw new Error('Privy not configured');
+
+  const pubkey = new PublicKey(privyWalletAddress);
+  const balance = await withRetry(() => connection.getBalance(pubkey));
+  const FEE_BUFFER = 10000; // lamports reserved for tx fee (~0.00001 SOL)
+  const sweepLamports = balance - FEE_BUFFER;
+  if (sweepLamports <= 0) return null;
+
+  const escrowAddress = getEscrowPublicKey();
+  const { blockhash } = await withRetry(() => connection.getLatestBlockhash());
+  const tx = new Transaction().add(
+    SystemProgram.transfer({
+      fromPubkey: pubkey,
+      toPubkey: new PublicKey(escrowAddress),
+      lamports: sweepLamports,
+    })
+  );
+  tx.recentBlockhash = blockhash;
+  tx.feePayer = pubkey;
+  const serialized = tx.serialize({ requireAllSignatures: false, verifySignatures: false }).toString('base64');
+
+  const creds = Buffer.from(`${PRIVY_APP_ID}:${PRIVY_APP_SECRET}`).toString('base64');
+  const res = await fetch(`https://api.privy.io/v2/server-wallets/${privyWalletId}/rpc`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'privy-app-id': PRIVY_APP_ID,
+      'Authorization': `Basic ${creds}`,
+    },
+    body: JSON.stringify({
+      method: 'signAndSendTransaction',
+      caip2: 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpK',
+      params: { transaction: serialized, encoding: 'base64' },
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Privy sweep ${res.status}: ${err}`);
+  }
+  const data = await res.json();
+  const sig = data?.data?.hash || data?.hash;
+  console.log(`[WALLET] Swept ${sweepLamports / LAMPORTS_PER_SOL} SOL from ${privyWalletAddress.slice(0,8)}... sig: ${sig?.slice(0,12) || 'unknown'}`);
+  return sig;
+}
+
 async function getEscrowBalance() {
   const bal = await connection.getBalance(new PublicKey(getEscrowPublicKey()));
   return bal / LAMPORTS_PER_SOL;
@@ -235,4 +286,4 @@ async function getRecentSigs() {
   }));
 }
 
-module.exports = { getEscrowPublicKey, findLatestDeposit, findDepositsForAddress, getRecentSigs, withdraw, getEscrowBalance, NETWORK, setDb, seedUsedSignatures };
+module.exports = { getEscrowPublicKey, findLatestDeposit, findDepositsForAddress, sweepFromPrivyWallet, getRecentSigs, withdraw, getEscrowBalance, NETWORK, setDb, seedUsedSignatures };
