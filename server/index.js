@@ -28,7 +28,7 @@ const PRIVY_APP_SECRET = process.env.PRIVY_APP_SECRET;
 async function createPrivyWallet() {
   if (!PRIVY_APP_ID || !PRIVY_APP_SECRET) throw new Error('Privy credentials not set');
   const creds = Buffer.from(`${PRIVY_APP_ID}:${PRIVY_APP_SECRET}`).toString('base64');
-  const res = await fetch('https://api.privy.io/v2/server-wallets', {
+  const res = await fetch('https://api.privy.io/v2/wallets', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
