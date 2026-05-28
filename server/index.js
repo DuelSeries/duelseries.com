@@ -109,7 +109,7 @@ app.set('trust proxy', 1); // Render runs behind a proxy
 })();
 
 // ─── Session & Passport ───────────────────────────────────────────────────────
-app.use(cookieParser());
+app.use(cookieParser(process.env.SESSION_SECRET || 'duelseries-dev-secret'));
 const sessionMiddleware = session({
   store: new pgSession({
     pool: db.pool,
@@ -213,18 +213,21 @@ app.get('/auth/google/callback',
       await db.saveVerificationCode(req.user.googleId, code);
       const pendingId = req.user.googleId;
       const emailAddr = req.user.email;
-      // Clear auth without regenerating the session ID (req.logout regenerates
-      // the session, which causes the browser's existing cookie to not match
-      // the new session that holds pendingVerification).
+      // Use a signed cookie for pending 2FA — more reliable than session
+      // since session state can be lost across OAuth redirects on new devices.
       delete req.session.passport;
       req.user = null;
-      req.session.pendingVerification = pendingId;
-      req.session.save(() => {
-        res.redirect('/verify.html');
-        sendVerificationCode(emailAddr, code).catch(e =>
-          console.error('[2FA] Email send failed:', e.message)
-        );
+      res.cookie('ds_2fa_pending', pendingId, {
+        signed: true,
+        httpOnly: true,
+        maxAge: 10 * 60 * 1000, // 10 minutes
+        sameSite: 'lax',
+        secure: process.env.NODE_ENV === 'production',
       });
+      res.redirect('/verify.html');
+      sendVerificationCode(emailAddr, code).catch(e =>
+        console.error('[2FA] Email send failed:', e.message)
+      );
     } catch (e) {
       console.error('[2FA] Error in callback:', e.message);
       res.redirect('/?error=auth');
@@ -239,7 +242,7 @@ app.get('/auth/logout', (req, res) => {
 });
 app.get('/auth/me', async (req, res) => {
   if (req.isAuthenticated()) return res.json({ loggedIn: true, account: req.user });
-  if (req.session.pendingVerification) return res.json({ loggedIn: false, needsVerification: true });
+  if (req.signedCookies.ds_2fa_pending || req.session.pendingVerification) return res.json({ loggedIn: false, needsVerification: true });
 
   // Auto-login via trusted device cookie — no button press needed
   const deviceToken = req.cookies.ds_device;
@@ -272,7 +275,7 @@ app.get('/auth/me', async (req, res) => {
 // ─── 2FA verify routes ────────────────────────────────────────────────────────
 
 app.post('/auth/verify', express.json(), async (req, res) => {
-  const googleId = req.session.pendingVerification;
+  const googleId = req.signedCookies.ds_2fa_pending || req.session.pendingVerification;
   if (!googleId) return res.status(400).json({ error: 'No pending verification' });
 
   const code = (req.body.code || '').trim();
@@ -283,6 +286,7 @@ app.post('/auth/verify', express.json(), async (req, res) => {
   const account = await db.getAccountByGoogleId(googleId);
   if (!account) return res.status(500).json({ error: 'Account not found' });
 
+  res.clearCookie('ds_2fa_pending');
   req.session.pendingVerification = null;
   const token = await db.addTrustedDevice(googleId);
 
@@ -311,7 +315,7 @@ app.post('/auth/verify', express.json(), async (req, res) => {
 });
 
 app.post('/auth/resend-code', express.json(), async (req, res) => {
-  const googleId = req.session.pendingVerification;
+  const googleId = req.signedCookies.ds_2fa_pending || req.session.pendingVerification;
   if (!googleId) return res.status(400).json({ error: 'No pending verification' });
 
   const account = await db.getAccountByGoogleId(googleId);
