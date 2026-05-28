@@ -426,6 +426,20 @@ app.get('/wallet/info', (req, res) => {
   }
 });
 
+app.post('/wallet/provision', async (req, res) => {
+  if (!req.isAuthenticated()) return res.status(401).json({ error: 'Not logged in' });
+  if (req.user.walletAddress) return res.json({ address: req.user.walletAddress });
+  try {
+    const { walletId, address } = await createPrivyWallet();
+    await db.setPrivyWallet(req.user.googleId, address, walletId);
+    req.user.walletAddress = address;
+    req.user.privyWalletId = walletId;
+    res.json({ address });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.post('/wallet/deposit', walletDepositLimiter, async (req, res) => {
   if (!req.isAuthenticated()) return res.status(401).json({ error: 'Not logged in' });
   const userWallet = req.user.walletAddress;

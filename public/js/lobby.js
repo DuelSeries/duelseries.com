@@ -812,9 +812,20 @@ async function pollForDeposit() {
   } catch (e) { /* network hiccup, keep waiting */ }
 }
 
-document.getElementById('btn-add-funds').addEventListener('click', () => {
-  const addr = account?.walletAddress;
-  if (!addr) { walletStatus('Wallet not ready — please log out and back in.', true); return; }
+document.getElementById('btn-add-funds').addEventListener('click', async () => {
+  let addr = account?.walletAddress;
+  if (!addr) {
+    walletStatus('Setting up your wallet...', false);
+    try {
+      const r = await fetch('/wallet/provision', { method: 'POST', credentials: 'include' });
+      const d = await r.json();
+      if (!d.address) { walletStatus(d.error || 'Wallet setup failed — try again.', true); return; }
+      if (account) account.walletAddress = d.address;
+      addr = d.address;
+    } catch (e) {
+      walletStatus('Wallet setup failed — try again.', true); return;
+    }
+  }
   document.getElementById('receive-address-short').textContent = addr.slice(0, 6) + '...' + addr.slice(-4);
   const statusEl = document.getElementById('deposit-status');
   statusEl.style.color = '#555';
