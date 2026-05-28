@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DuelSeries Admin</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0e1020; color: #e0e0e0; font-family: 'Segoe UI', sans-serif; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+  .container { width: 100%; max-width: 560px; padding: 24px; }
+  h1 { font-size: 1.4rem; color: #14F195; margin-bottom: 24px; letter-spacing: 0.05em; }
+  .card { background: #161928; border: 1px solid #222840; border-radius: 12px; padding: 20px 24px; margin-bottom: 14px; }
+  .card-label { font-size: 0.75rem; color: #888; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; }
+  .card-value { font-size: 1.6rem; font-weight: 700; color: #fff; }
+  .card-sub { font-size: 0.85rem; color: #aaa; margin-top: 4px; }
+  .profit { border-color: #14F195; }
+  .profit .card-value { color: #14F195; }
+  .warning { border-color: #e74c3c; }
+  .warning .card-value { color: #e74c3c; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .stat { background: #161928; border: 1px solid #222840; border-radius: 10px; padding: 16px 18px; }
+  .stat-label { font-size: 0.7rem; color: #888; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px; }
+  .stat-value { font-size: 1.1rem; font-weight: 600; color: #ddd; }
+  .refresh { margin-top: 20px; background: none; border: 1px solid #333; color: #aaa; padding: 8px 18px; border-radius: 8px; cursor: pointer; font-size: 0.85rem; }
+  .refresh:hover { border-color: #14F195; color: #14F195; }
+  .error { color: #e74c3c; text-align: center; padding: 40px; }
+  .loading { color: #888; text-align: center; padding: 40px; }
+  .updated { font-size: 0.72rem; color: #555; margin-top: 16px; text-align: right; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Finance Overview</h1>
+  <div id="content" class="loading">Loading...</div>
+</div>
+<script>
+async function load() {
+  const content = document.getElementById('content');
+  try {
+    const [finRes, priceRes] = await Promise.all([
+      fetch('/admin/finance'),
+      fetch('https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=cad').catch(() => null),
+    ]);
+
+    if (finRes.status === 403) {
+      content.innerHTML = '<div class="error">Not authorized. Log in with the owner account.</div>';
+      return;
+    }
+
+    const fin = await finRes.json();
+    if (fin.error) { content.innerHTML = `<div class="error">${fin.error}</div>`; return; }
+
+    let cadRate = null;
+    if (priceRes?.ok) {
+      const pd = await priceRes.json();
+      cadRate = pd?.solana?.cad || null;
+    }
+
+    const fmt = (sol) => sol.toFixed(4) + ' SOL' + (cadRate ? ' · CA$' + (sol * cadRate).toFixed(2) : '');
+    const profitClass = fin.profit < -0.001 ? 'warning' : 'profit';
+
+    content.innerHTML = `
+      <div class="card ${profitClass}">
+        <div class="card-label">Your Profit (Escrow − Owed)</div>
+        <div class="card-value">${fmt(Math.max(0, fin.profit))}</div>
+        <div class="card-sub">${fin.profit < -0.001 ? '⚠ Escrow underfunded by ' + fmt(Math.abs(fin.profit)) : 'Safe to move to cold wallet'}</div>
+      </div>
+      <div class="card">
+        <div class="card-label">Escrow Wallet Balance</div>
+        <div class="card-value">${fmt(fin.escrowBalance)}</div>
+        <div class="card-sub">Total SOL held on-chain</div>
+      </div>
+      <div class="card">
+        <div class="card-label">Owed to Players</div>
+        <div class="card-value">${fmt(fin.totalOwed)}</div>
+        <div class="card-sub">Sum of all in-game balances — do not touch this</div>
+      </div>
+      <div class="row">
+        <div class="stat">
+          <div class="stat-label">Players with balance</div>
+          <div class="stat-value">${fin.playersWithBalance}</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Total accounts</div>
+          <div class="stat-value">${fin.totalAccounts}</div>
+        </div>
+      </div>
+      <button class="refresh" onclick="load()">↻ Refresh</button>
+      <div class="updated">Updated ${new Date().toLocaleTimeString()}</div>
+    `;
+  } catch (e) {
+    content.innerHTML = `<div class="error">Error: ${e.message}</div>`;
+  }
+}
+load();
+</script>
+</body>
+</html>

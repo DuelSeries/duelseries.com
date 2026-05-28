@@ -126,6 +126,23 @@ async function recordGameResult(googleId, score, durationSeconds) {
   );
 }
 
+async function getFinancialSummary() {
+  const res = await pool.query(`
+    SELECT
+      COALESCE(SUM(balance), 0)                          AS total_owed,
+      COUNT(*) FILTER (WHERE balance > 0.000001)          AS players_with_balance,
+      COALESCE(SUM(total_earnings), 0)                   AS total_earnings_paid,
+      COUNT(*)                                            AS total_accounts
+    FROM accounts
+  `);
+  return {
+    totalOwed:          parseFloat(res.rows[0].total_owed),
+    playersWithBalance: parseInt(res.rows[0].players_with_balance),
+    totalEarningsPaid:  parseFloat(res.rows[0].total_earnings_paid),
+    totalAccounts:      parseInt(res.rows[0].total_accounts),
+  };
+}
+
 // ─── Deposits ─────────────────────────────────────────────────────────────────
 
 async function isTxUsed(txSig) {
@@ -430,7 +447,7 @@ module.exports = {
   init, pool,
   getOrCreateAccount, getAccountByGoogleId, getAccountByWallet,
   saveAccount, recordGameResult, recordAgarGameResult,
-  isTxUsed, recordDeposit, recordWithdrawal, setPrivyWallet,
+  isTxUsed, recordDeposit, recordWithdrawal, setPrivyWallet, getFinancialSummary,
   recordPendingWithdrawal, updateWithdrawalSig, refundWithdrawal,
   addEarnings, getTopEarners,
   addAgarEarnings, getAgarTopEarners,

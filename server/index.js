@@ -477,6 +477,29 @@ app.post('/wallet/withdraw', walletWithdrawLimiter, async (req, res) => {
   }
 });
 
+// ─── Admin finance dashboard ──────────────────────────────────────────────────
+app.get('/admin/finance', async (req, res) => {
+  if (!req.isAuthenticated() || req.user.googleId !== process.env.OWNER_GOOGLE_ID) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  try {
+    const [escrowBalance, summary] = await Promise.all([
+      Wallet.getEscrowBalance(),
+      db.getFinancialSummary(),
+    ]);
+    const profit = escrowBalance - summary.totalOwed;
+    res.json({
+      escrowBalance,
+      totalOwed: summary.totalOwed,
+      profit,
+      playersWithBalance: summary.playersWithBalance,
+      totalAccounts: summary.totalAccounts,
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ─── Health check ─────────────────────────────────────────────────────────────
 app.get('/healthz', (req, res) => res.sendStatus(200));
 
