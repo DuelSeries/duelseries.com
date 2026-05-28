@@ -244,7 +244,7 @@ async function sweepFromPrivyWallet(privyWalletAddress, privyWalletId) {
   const serialized = tx.serialize({ requireAllSignatures: false, verifySignatures: false }).toString('base64');
 
   const creds = Buffer.from(`${PRIVY_APP_ID}:${PRIVY_APP_SECRET}`).toString('base64');
-  const res = await fetch(`https://api.privy.io/v2/wallets/${privyWalletId}/rpc`, {
+  const res = await fetch(`https://api.privy.io/v1/wallets/${privyWalletId}/rpc`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
