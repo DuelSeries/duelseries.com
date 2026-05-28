@@ -26,12 +26,28 @@
   .error { color: #e74c3c; text-align: center; padding: 40px; }
   .loading { color: #888; text-align: center; padding: 40px; }
   .updated { font-size: 0.72rem; color: #555; margin-top: 16px; text-align: right; }
+  .section-title { font-size: 1.1rem; color: #14F195; margin: 28px 0 12px; letter-spacing: 0.04em; border-top: 1px solid #222840; padding-top: 20px; }
+  .input-row { display: flex; gap: 10px; margin-bottom: 10px; }
+  .input-row input { flex: 1; background: #0e1020; border: 1px solid #333; color: #eee; padding: 9px 14px; border-radius: 8px; font-size: 0.9rem; }
+  .input-row input:focus { outline: none; border-color: #14F195; }
+  .btn-action { background: none; border: 1px solid #14F195; color: #14F195; padding: 9px 18px; border-radius: 8px; cursor: pointer; font-size: 0.85rem; white-space: nowrap; }
+  .btn-action:hover { background: #14F19522; }
+  .wallet-result { font-size: 0.82rem; margin-top: 8px; padding: 10px 14px; border-radius: 8px; }
+  .wallet-result.ok { background: #0e2a1a; border: 1px solid #14F195; color: #14F195; }
+  .wallet-result.err { background: #2a0e0e; border: 1px solid #e74c3c; color: #e74c3c; }
 </style>
 </head>
 <body>
 <div class="container">
   <h1>Finance Overview</h1>
   <div id="content" class="loading">Loading...</div>
+
+  <div class="section-title">Fix Broken Wallet</div>
+  <div class="input-row">
+    <input type="email" id="reset-email" placeholder="player@gmail.com">
+    <button class="btn-action" onclick="resetWallet()">Reset Wallet</button>
+  </div>
+  <div id="wallet-result" class="wallet-result" style="display:none;"></div>
 </div>
 <script>
 async function load() {
@@ -93,6 +109,31 @@ async function load() {
   }
 }
 load();
+
+async function resetWallet() {
+  const email = document.getElementById('reset-email').value.trim();
+  const resultEl = document.getElementById('wallet-result');
+  if (!email) { resultEl.style.display = 'block'; resultEl.className = 'wallet-result err'; resultEl.textContent = 'Enter an email.'; return; }
+  resultEl.style.display = 'block'; resultEl.className = 'wallet-result'; resultEl.textContent = 'Working...';
+  try {
+    const res = await fetch('/admin/reset-wallet', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    const data = await res.json();
+    if (data.success) {
+      resultEl.className = 'wallet-result ok';
+      resultEl.textContent = `✓ New wallet for ${data.email}: ${data.address}`;
+    } else {
+      resultEl.className = 'wallet-result err';
+      resultEl.textContent = data.error + (data.clearedOldWallet ? ' (old wallet cleared — Privy API failed)' : '');
+    }
+  } catch (e) {
+    resultEl.className = 'wallet-result err';
+    resultEl.textContent = 'Request failed: ' + e.message;
+  }
+}
 </script>
 </body>
 </html>

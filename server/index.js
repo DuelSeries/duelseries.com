@@ -507,6 +507,27 @@ app.get('/admin/finance', async (req, res) => {
   }
 });
 
+// ─── Admin: reset a broken Privy wallet ──────────────────────────────────────
+app.post('/admin/reset-wallet', async (req, res) => {
+  if (!req.isAuthenticated() || req.user.googleId !== process.env.OWNER_GOOGLE_ID) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ error: 'email required' });
+  const acc = await db.getAccountByEmail(email);
+  if (!acc) return res.status(404).json({ error: `No account found for ${email}` });
+  await db.clearPrivyWallet(acc.googleId);
+  try {
+    const { walletId, address } = await createPrivyWallet();
+    await db.setPrivyWallet(acc.googleId, address, walletId);
+    console.log(`[ADMIN] Reset wallet for ${email}: ${address.slice(0, 8)}...`);
+    return res.json({ success: true, email, address, walletId });
+  } catch (e) {
+    console.error(`[ADMIN] Privy wallet creation failed for ${email}:`, e.message);
+    return res.status(500).json({ error: e.message, clearedOldWallet: true });
+  }
+});
+
 // ─── Health check ─────────────────────────────────────────────────────────────
 app.get('/healthz', (req, res) => res.sendStatus(200));
 

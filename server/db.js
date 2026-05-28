@@ -443,11 +443,23 @@ async function setPrivyWallet(googleId, walletAddress, privyWalletId) {
   );
 }
 
+async function clearPrivyWallet(googleId) {
+  await pool.query(
+    `UPDATE accounts SET wallet_address = NULL, privy_wallet_id = NULL WHERE google_id = $1`,
+    [googleId]
+  );
+}
+
+async function getAccountByEmail(email) {
+  const res = await pool.query('SELECT * FROM accounts WHERE LOWER(email) = LOWER($1)', [email]);
+  return res.rows[0] ? dbToAccount(res.rows[0]) : null;
+}
+
 module.exports = {
   init, pool,
   getOrCreateAccount, getAccountByGoogleId, getAccountByWallet,
   saveAccount, recordGameResult, recordAgarGameResult,
-  isTxUsed, recordDeposit, recordWithdrawal, setPrivyWallet, getFinancialSummary,
+  isTxUsed, recordDeposit, recordWithdrawal, setPrivyWallet, clearPrivyWallet, getAccountByEmail, getFinancialSummary,
   recordPendingWithdrawal, updateWithdrawalSig, refundWithdrawal,
   addEarnings, getTopEarners,
   addAgarEarnings, getAgarTopEarners,
