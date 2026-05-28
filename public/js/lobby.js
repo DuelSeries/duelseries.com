@@ -488,14 +488,14 @@ function showLobby() {
   document.getElementById('stat-games-2').textContent     = account.agarGamesPlayed || 0;
   const savedName = account.name || localStorage.getItem('duelseries_playername') || '';
   document.getElementById('player-name').value          = savedName;
-  document.getElementById('topbar-name').textContent    = account.name || 'Player';
+  document.getElementById('topbar-name').textContent    = account.name || '';
 
   // Topbar avatar
   const tav = document.getElementById('topbar-avatar');
   if (account.avatar) { tav.src = account.avatar; }
   document.getElementById('topbar-user').classList.remove('hidden');
   document.getElementById('topbar-login-btn').classList.add('hidden');
-  document.getElementById('topbar-username').textContent = account.name || 'Player';
+  document.getElementById('topbar-username').textContent = account.name || '';
 
   // Populate lobby 2 fields with same data
   const savedName2 = account.name || localStorage.getItem('duelseries_playername') || '';
@@ -976,11 +976,15 @@ document.querySelectorAll('.btn-lobby-type-2').forEach(btn => {
 });
 
 document.getElementById('btn-play-2').addEventListener('click', async () => {
-  const name = document.getElementById('player-name-2').value.replace(/[^a-zA-Z0-9]/g, '') || 'Player';
+  const name = document.getElementById('player-name-2').value.replace(/[^a-zA-Z0-9]/g, '');
+  if (!name || name.length < 3) {
+    setNameMsg(document.getElementById('name-error-2'), 'Choose a name (3+ characters) to play.', 'error');
+    return;
+  }
   if (account && name !== account.name) {
     const r = await fetch('/auth/update-name', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
     const d = await r.json();
-    if (d.error) { alert(d.error); return; }
+    if (d.error) { setNameMsg(document.getElementById('name-error-2'), d.error, 'error'); return; }
     account.name = d.account.name;
   }
 
@@ -1059,11 +1063,15 @@ document.querySelectorAll('.btn-lobby-type').forEach(btn => {
 document.getElementById('btn-play').addEventListener('click', async () => {
   const gameFrame = document.getElementById('game-frame');
   if (gameFrame && gameFrame.style.display !== 'none') return; // already in game
-  const name = document.getElementById('player-name').value.replace(/[^a-zA-Z0-9]/g, '') || 'Player';
+  const name = document.getElementById('player-name').value.replace(/[^a-zA-Z0-9]/g, '');
+  if (!name || name.length < 3) {
+    setNameMsg(document.getElementById('name-error'), 'Choose a name (3+ characters) to play.', 'error');
+    return;
+  }
   if (account && name !== account.name) {
     const r = await fetch('/auth/update-name', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
     const d = await r.json();
-    if (d.error) { alert(d.error); return; }
+    if (d.error) { setNameMsg(document.getElementById('name-error'), d.error, 'error'); return; }
     account.name = d.account.name;
   }
 
@@ -2273,7 +2281,7 @@ document.getElementById('btn-play').addEventListener('click', async () => {
 
     const pmAvImg = document.getElementById('pm-avatar-img');
     const pmAvFb  = document.getElementById('pm-avatar-fallback');
-    document.getElementById('pm-name').textContent = account.name || 'Player';
+    document.getElementById('pm-name').textContent = account.name || '(no name set)';
     if (account.avatar) {
       pmAvImg.src = account.avatar; pmAvImg.classList.remove('hidden'); pmAvFb.classList.add('hidden');
     } else {

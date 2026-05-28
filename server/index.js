@@ -166,7 +166,7 @@ passport.use(new GoogleStrategy({
     const account = await db.getOrCreateAccount({
       googleId: profile.id,
       email:    profile.emails?.[0]?.value || '',
-      name:     profile.displayName || 'Player',
+      name:     '',
       avatar:   profile.photos?.[0]?.value || '',
     });
     await ensurePrivyWallet(account);
@@ -332,7 +332,7 @@ app.use(express.json());
 app.post('/auth/update-name', async (req, res) => {
   if (!req.isAuthenticated()) return res.status(401).json({ error: 'Not logged in' });
   const name = (req.body.name || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 20);
-  if (!name) return res.status(400).json({ error: 'Invalid name' });
+  if (!name || name.length < 3) return res.status(400).json({ error: 'Name must be at least 3 characters' });
   const taken = await db.isNameTaken(name, req.user.googleId);
   if (taken) return res.status(400).json({ error: 'Name already taken' });
   const acc = await db.saveAccount(req.user.googleId, { name });
