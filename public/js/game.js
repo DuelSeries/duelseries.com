@@ -807,8 +807,14 @@ const fpsEl = document.getElementById('fps-counter');
 
 
 let _lastFrameTime = 0;
-// Main render loop — runs at monitor refresh rate (60/144/240Hz)
+const _mobileThrottle = window.matchMedia('(pointer: coarse)').matches;
+const _minFrameMs = _mobileThrottle ? 1000 / 30 : 0; // cap mobile to 30fps
+// Main render loop — runs at monitor refresh rate (60/144/240Hz), capped at 30fps on mobile
 function gameLoop(now) {
+  if (_mobileThrottle && now - _lastFrameTime < _minFrameMs) {
+    requestAnimationFrame(gameLoop);
+    return;
+  }
   const dt = Math.min(_lastFrameTime ? now - _lastFrameTime : 16.67, 50);
   _lastFrameTime = now;
 

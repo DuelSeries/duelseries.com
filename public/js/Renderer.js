@@ -2,7 +2,8 @@ class Renderer {
   constructor(canvas) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
-    this.hexGrid = new HexGrid();
+    this._isMobile = window.matchMedia('(pointer: coarse)').matches;
+    this.hexGrid = new HexGrid(this._isMobile);
     this.camera = new Camera();
     this.boostTrails = new Map();
     this._foodPhaseCache = new Map();
@@ -45,8 +46,7 @@ class Renderer {
   }
 
   resize() {
-    const rawDpr = window.devicePixelRatio || 1;
-    const dpr = Math.min(rawDpr, window.matchMedia('(pointer: coarse)').matches ? 2 : rawDpr);
+    const dpr = window.devicePixelRatio || 1;
     this.canvas.style.width  = window.innerWidth  + 'px';
     this.canvas.style.height = window.innerHeight + 'px';
     this.canvas.width  = Math.round(window.innerWidth  * dpr);
@@ -79,8 +79,8 @@ class Renderer {
 
     camera.apply(ctx, dpr);
 
-    // Hex grid
-    this.hexGrid.draw(ctx, camera, state.worldRadius);
+    // Hex grid (skip on mobile — too expensive)
+    if (!this._isMobile) this.hexGrid.draw(ctx, camera, state.worldRadius);
 
     // Clip food to world circle only
     ctx.save();

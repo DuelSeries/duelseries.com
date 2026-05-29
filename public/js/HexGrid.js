@@ -1,5 +1,5 @@
 class HexGrid {
-  constructor() {
+  constructor(isMobile = false) {
     this._bitmap       = null;
     this._bitmapWorldX = null;
     this._bitmapWorldY = null;
@@ -7,6 +7,9 @@ class HexGrid {
     this._bitmapW      = 0;
     this._bitmapH      = 0;
     this._pending      = false;
+    this._worker       = null;
+
+    if (isMobile) return; // skip worker entirely on mobile
 
     this._worker = new Worker('/js/hexgrid-worker.js');
     this._worker.onmessage = ({ data: { bitmap, worldCX, worldCY, scale } }) => {
