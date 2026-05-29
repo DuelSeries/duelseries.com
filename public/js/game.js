@@ -57,11 +57,7 @@ let displayState = { snakes: [], food: [], worldRadius: CONSTANTS.BASE_WORLD_RAD
 
 // Socket — connect to EU EC2 for low ping when EU region is selected
 const SERVER_URLS = { na: '', eu: 'https://eu.duelseries.com' };
-const socket = io(SERVER_URLS[selectedRegion] || '', {
-  transports: window.matchMedia('(pointer: coarse)').matches
-    ? ['polling']      // mobile: polling only — avoids carrier WebSocket throttling
-    : ['polling', 'websocket'],  // desktop: default upgrade path
-});
+const socket = io(SERVER_URLS[selectedRegion] || '');
 
 const snakeColor = sessionStorage.getItem('snakeColor') || localStorage.getItem('duelseries_skin_color') || '#E8756A';
 const hatId      = sessionStorage.getItem('hatId')      || 'none';
@@ -791,6 +787,7 @@ const pingValueEl = document.getElementById('ping-value');
 let pingMs = null;
 let pingSentAt = null;
 
+let _highPingStreak = 0;
 function sendPing() {
   pingSentAt = performance.now();
   socket.emit('ping_check');
@@ -801,6 +798,19 @@ socket.on('pong_check', () => {
   pingSentAt = null;
   pingValueEl.textContent = pingMs + ' ms';
   pingDotEl.className = 'ping-dot ' + (pingMs < 50 ? 'ping-green' : pingMs < 100 ? 'ping-orange' : 'ping-red');
+
+  // If carrier is throttling the WebSocket (ping > 400ms for 3 consecutive checks),
+  // force a reconnect to reset the carrier's connection timer
+  if (pingMs > 400) {
+    _highPingStreak++;
+    if (_highPingStreak >= 3) {
+      _highPingStreak = 0;
+      socket.disconnect();
+      setTimeout(() => socket.connect(), 300);
+    }
+  } else {
+    _highPingStreak = 0;
+  }
 });
 setInterval(sendPing, 2000);
 sendPing();
