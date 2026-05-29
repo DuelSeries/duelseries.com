@@ -261,7 +261,7 @@ class Renderer {
     const sprScale  = sprOK ? (R * 2) / SW : 1;
     const ringWorld = RING_PX * sprScale; // one ring height in world units
 
-    // ── Pass 1: smooth teal tube base (gives round caps + smooth bends) ────────
+    // ── Pass 1: smooth teal tube (round caps, smooth bends, flush tail+head) ──
     const bodyColor = sprOK ? '#4ecdb8' : color;
     for (let end = SN - 1; end > 0; end -= CHUNK) {
       const start = Math.max(0, end - CHUNK);
@@ -283,30 +283,43 @@ class Renderer {
       ctx.stroke();
     }
 
-    // ── Pass 2: sprite ring overlay — thin perpendicular stamps on top ────────
-    if (sprOK) {
-      let cumDist = 0, lastStamp = -ringWorld;
-      for (let i = SN - 1; i >= 0; i--) {
-        const x = segs[i*2], y = segs[i*2+1];
-        if (i < SN-1) cumDist += Math.hypot(x-segs[(i+1)*2], y-segs[(i+1)*2+1]);
+    // ── Pass 2: ring stripes — perpendicular lines the exact width of the tube ─
+    // Colors sampled from the sprite image
+    const ringSpacing = sprOK ? Math.max(R * 0.7, ringWorld) : R * 0.85;
+    const ringStep    = Math.max(1, Math.round(ringSpacing));
+    for (let i = SN - 1; i >= 1; i -= ringStep) {
+      const x = segs[i*2], y = segs[i*2+1];
+      const ni = Math.max(0, i-1);
+      const ang = Math.atan2(segs[ni*2+1]-y, segs[ni*2]-x);
+      const px = -Math.sin(ang), py = Math.cos(ang);
+      ctx.beginPath();
+      ctx.moveTo(x - px * R, y - py * R);
+      ctx.lineTo(x + px * R, y + py * R);
+      ctx.lineWidth   = R * 0.28;
+      ctx.strokeStyle = 'rgba(28,100,92,0.6)';
+      ctx.lineCap     = 'butt';
+      ctx.stroke();
+    }
 
-        if (cumDist - lastStamp >= ringWorld * 0.9 || i === SN-1) {
-          lastStamp = cumDist;
-          const ni  = Math.max(0, i-1);
-          const ang = Math.atan2(segs[ni*2+1]-y, segs[ni*2]-x);
-          // Scroll through sprite body so rings flow from tail to head
-          const srcY = Math.round(((cumDist / ringWorld) % 1) * RING_PX + BODY_H_PX * 0.1) % Math.max(1, BODY_H_PX - STAMP_PX);
-          const dw   = SW * sprScale;
-          const dh   = STAMP_PX * sprScale * 1.4;
-          ctx.save();
-          ctx.translate(x, y);
-          ctx.rotate(ang - Math.PI / 2);
-          ctx.globalAlpha = 0.85;
-          ctx.drawImage(spr, 0, srcY, SW, STAMP_PX, -dw/2, -dh/2, dw, dh);
-          ctx.globalAlpha = 1;
-          ctx.restore();
+    // ── Pass 3: center highlight — 3D tube look ───────────────────────────────
+    for (let end = SN - 1; end > 0; end -= CHUNK) {
+      const start = Math.max(0, end - CHUNK);
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      ctx.beginPath();
+      ctx.moveTo(segs[end*2], segs[end*2+1]);
+      for (let j = end-1; j >= start; j--) {
+        const pi=Math.min(SN-1,j+2)*2, ai=(j+1)*2, bi=j*2, ni=Math.max(0,j-1)*2;
+        for (let s=1; s<=STEPS; s++) {
+          const t=s/STEPS, t2=t*t, t3=t2*t;
+          ctx.lineTo(
+            0.5*((2*segs[ai])+(-segs[pi]+segs[bi])*t+(2*segs[pi]-5*segs[ai]+4*segs[bi]-segs[ni])*t2+(-segs[pi]+3*segs[ai]-3*segs[bi]+segs[ni])*t3),
+            0.5*((2*segs[ai+1])+(-segs[pi+1]+segs[bi+1])*t+(2*segs[pi+1]-5*segs[ai+1]+4*segs[bi+1]-segs[ni+1])*t2+(-segs[pi+1]+3*segs[ai+1]-3*segs[bi+1]+segs[ni+1])*t3)
+          );
         }
       }
+      ctx.lineWidth   = R * 0.55;
+      ctx.strokeStyle = 'rgba(160,240,228,0.22)';
+      ctx.stroke();
     }
 
     // ── Head ──────────────────────────────────────────────────────────────────
@@ -315,40 +328,31 @@ class Renderer {
     const fwdX  = Math.cos(angle), fwdY  = Math.sin(angle);
     const perpX = -Math.sin(angle), perpY = Math.cos(angle);
 
-    // Head base circle (smooth cap, same color as body)
+    // Head circle — flush cap matching the tube
     ctx.beginPath();
     ctx.arc(hx, hy, HR, 0, Math.PI * 2);
     ctx.fillStyle = bodyColor;
     ctx.fill();
 
-    if (sprOK) {
-      // Draw sprite head section — offset so eyes sit just in front of center
-      const dw = SW * sprScale;
-      const dh = HEAD_H_PX * sprScale;
-      ctx.save();
-      ctx.translate(hx, hy);
-      ctx.rotate(angle - Math.PI / 2);
-      // Shift so head section aligns: body connects at top, eyes at front
-      ctx.drawImage(spr, 0, SH - HEAD_H_PX, SW, HEAD_H_PX, -dw/2, -dh * 0.35, dw, dh);
-      ctx.restore();
-    } else {
-      // ── Eyes (fallback) ─────────────────────────────────────────────────────
-      const eyeR = HR*0.40, pupilR = eyeR*0.54, eyeSide = HR*0.46, eyeFwd = HR*0.38;
-      let pupilFwdX = fwdX, pupilFwdY = fwdY;
-      if (isMe && this._mousePos) {
-        const wm = this.camera.screenToWorld(this._mousePos.x, this._mousePos.y, this._canvasW, this._canvasH);
-        const pa = Math.atan2(wm.y-hy, wm.x-hx);
-        pupilFwdX = Math.cos(pa); pupilFwdY = Math.sin(pa);
-      }
-      for (const side of [-1, 1]) {
-        const ex = hx+fwdX*eyeFwd+perpX*eyeSide*side;
-        const ey = hy+fwdY*eyeFwd+perpY*eyeSide*side;
-        ctx.beginPath(); ctx.arc(ex, ey, eyeR, 0, Math.PI*2);
-        ctx.fillStyle = '#FFFFFF'; ctx.fill();
-        const ps = eyeR - pupilR;
-        ctx.beginPath(); ctx.arc(ex+pupilFwdX*ps, ey+pupilFwdY*ps, pupilR, 0, Math.PI*2);
-        ctx.fillStyle = '#060606'; ctx.fill();
-      }
+    // ── Eyes ─────────────────────────────────────────────────────────────────
+    const eyeR    = HR * 0.40;
+    const pupilR  = eyeR * 0.54;
+    const eyeSide = HR * 0.46;
+    const eyeFwd  = HR * 0.38;
+    let pupilFwdX = fwdX, pupilFwdY = fwdY;
+    if (isMe && this._mousePos) {
+      const wm = this.camera.screenToWorld(this._mousePos.x, this._mousePos.y, this._canvasW, this._canvasH);
+      const pa = Math.atan2(wm.y - hy, wm.x - hx);
+      pupilFwdX = Math.cos(pa); pupilFwdY = Math.sin(pa);
+    }
+    for (const side of [-1, 1]) {
+      const ex = hx + fwdX*eyeFwd + perpX*eyeSide*side;
+      const ey = hy + fwdY*eyeFwd + perpY*eyeSide*side;
+      ctx.beginPath(); ctx.arc(ex, ey, eyeR, 0, Math.PI*2);
+      ctx.fillStyle = '#fff'; ctx.fill();
+      const ps = eyeR - pupilR;
+      ctx.beginPath(); ctx.arc(ex+pupilFwdX*ps, ey+pupilFwdY*ps, pupilR, 0, Math.PI*2);
+      ctx.fillStyle = '#060606'; ctx.fill();
     }
 
     // ── Hat ───────────────────────────────────────────────────────────────────
