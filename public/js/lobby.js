@@ -902,16 +902,16 @@ document.getElementById('cancel-withdraw').addEventListener('click', () =>
 
 document.getElementById('withdraw-max').addEventListener('click', () => {
   const bal = account?.balance || 0;
-  const maxAmt = Math.floor(bal * 10000) / 10000; // floor to 4dp — avoids floating point "Insufficient balance"
-  document.getElementById('withdraw-amount').value = maxAmt > 0 ? maxAmt : '';
+  const maxCad = solPriceUsd ? Math.floor(bal * solPriceUsd * 100) / 100 : 0;
+  document.getElementById('withdraw-amount').value = maxCad > 0 ? maxCad : '';
   document.getElementById('withdraw-amount').dispatchEvent(new Event('input'));
 });
 
 document.getElementById('withdraw-amount').addEventListener('input', () => {
-  const amt = parseFloat(document.getElementById('withdraw-amount').value);
+  const cad = parseFloat(document.getElementById('withdraw-amount').value);
   const preview = document.getElementById('withdraw-cad-preview');
-  if (amt > 0 && solPriceUsd !== null) {
-    preview.textContent = '≈ CA$' + (amt * solPriceUsd).toFixed(2);
+  if (cad > 0 && solPriceUsd) {
+    preview.textContent = '≈ ' + (cad / solPriceUsd).toFixed(4) + ' SOL';
   } else {
     preview.textContent = '';
   }
@@ -919,9 +919,11 @@ document.getElementById('withdraw-amount').addEventListener('input', () => {
 
 document.getElementById('confirm-withdraw').addEventListener('click', async () => {
   const walletAddress = document.getElementById('withdraw-wallet').value.trim();
-  const amount = parseFloat(document.getElementById('withdraw-amount').value);
+  const cadAmount = parseFloat(document.getElementById('withdraw-amount').value);
   if (!walletAddress) { alert('Enter your Phantom or Coinbase wallet address.'); return; }
-  if (!amount || amount <= 0) return;
+  if (!cadAmount || cadAmount <= 0) return;
+  if (!solPriceUsd) { walletStatus('Price data not loaded — try again.', true); return; }
+  const amount = Math.floor((cadAmount / solPriceUsd) * 10000) / 10000;
 
   document.getElementById('modal-withdraw').classList.remove('active');
   walletStatus('Processing withdrawal...');
@@ -935,7 +937,7 @@ document.getElementById('confirm-withdraw').addEventListener('click', async () =
     const data = await res.json();
     if (data.error) throw new Error(data.error);
     setBalance(data.balance);
-    walletStatus(`Withdrew ${amount.toFixed(4)} SOL ✓`);
+    walletStatus(`Withdrew CA$${cadAmount.toFixed(2)} ✓`);
   } catch (e) {
     walletStatus('Withdrawal failed: ' + (e.message || e), true);
   }
