@@ -277,7 +277,7 @@ function onMouseMove(e) {
 function connectSocket() {
   const _rgn = sessionStorage.getItem('region') || 'na';
   const _SERVER_URLS = { na: '', eu: 'https://eu.duelseries.com' };
-  socket = io(_SERVER_URLS[_rgn] || '', { transports: ['websocket'] });
+  socket = io(_SERVER_URLS[_rgn] || '');
 
   // ── Ping tracker ────────────────────────────────────────────────────────
   const pingDotEl   = document.getElementById('agar-ping-dot');
