@@ -247,59 +247,66 @@ class Renderer {
     ctx.lineCap  = 'round';
     ctx.lineJoin = 'round';
 
-    // ── Sprite setup ──────────────────────────────────────────────────────────
-    const spr = this._snakeSprite;
-    const sprOK = spr && spr.complete && spr.naturalWidth > 0;
-    const SW = sprOK ? spr.naturalWidth  : 0;   // 145
-    const SH = sprOK ? spr.naturalHeight : 0;   // 407
-    // Bottom ~14.5% of sprite = head with eyes
-    const HEAD_H = sprOK ? Math.round(SH * 0.145) : 0;
-    const BODY_H = SH - HEAD_H;
-    // One ring slice from 40% down the body section
-    const RING_H = sprOK ? Math.max(1, Math.round(BODY_H / 20)) : 0;
-    const RING_Y = sprOK ? Math.round(BODY_H * 0.4) : 0;
-    const sprScale = sprOK ? (R * 2) / SW : 1;
-    const ringWorld = RING_H * sprScale; // ring height in world units
+    const STEPS = 3;
+    const CHUNK = 8;
 
-    // ── Draw body tail→head ───────────────────────────────────────────────────
-    if (sprOK) {
-      let dist = 0;
-      for (let i = SN - 1; i >= 0; i--) {
-        const x = segs[i * 2], y = segs[i * 2 + 1];
-        if (i < SN - 1) {
-          dist += Math.hypot(x - segs[(i+1)*2], y - segs[(i+1)*2+1]);
-        }
-        if (i === SN - 1 || dist >= ringWorld * 0.85) {
-          dist = 0;
-          const ni = Math.max(0, i - 1);
-          const ang = Math.atan2(segs[ni*2+1] - y, segs[ni*2] - x);
-          const dw = SW * sprScale, dh = RING_H * sprScale * 1.3;
-          ctx.save();
-          ctx.translate(x, y);
-          ctx.rotate(ang - Math.PI / 2);
-          ctx.drawImage(spr, 0, RING_Y, SW, RING_H, -dw/2, -dh/2, dw, dh);
-          ctx.restore();
+    // ── Draw body tail→head (teal with ring stripes + 3D highlight) ───────────
+    // Pass 1: solid teal base
+    for (let end = SN - 1; end > 0; end -= CHUNK) {
+      const start = Math.max(0, end - CHUNK);
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      ctx.beginPath();
+      ctx.moveTo(segs[end * 2], segs[end * 2 + 1]);
+      for (let j = end - 1; j >= start; j--) {
+        const pi = Math.min(SN - 1, j + 2) * 2, ai = (j + 1) * 2, bi = j * 2, ni = Math.max(0, j - 1) * 2;
+        for (let s = 1; s <= STEPS; s++) {
+          const t = s / STEPS, t2 = t * t, t3 = t2 * t;
+          ctx.lineTo(
+            0.5 * ((2*segs[ai])   + (-segs[pi]   + segs[bi])   * t + (2*segs[pi]   - 5*segs[ai]   + 4*segs[bi]   - segs[ni])   * t2 + (-segs[pi]   + 3*segs[ai]   - 3*segs[bi]   + segs[ni])   * t3),
+            0.5 * ((2*segs[ai+1]) + (-segs[pi+1] + segs[bi+1]) * t + (2*segs[pi+1] - 5*segs[ai+1] + 4*segs[bi+1] - segs[ni+1]) * t2 + (-segs[pi+1] + 3*segs[ai+1] - 3*segs[bi+1] + segs[ni+1]) * t3)
+          );
         }
       }
-    } else {
-      const STEPS = 3, CHUNK = 8;
-      for (let end = SN - 1; end > 0; end -= CHUNK) {
-        const start = Math.max(0, end - CHUNK);
-        ctx.lineCap = 'round';
-        ctx.beginPath();
-        ctx.moveTo(segs[end*2], segs[end*2+1]);
-        for (let j = end - 1; j >= start; j--) {
-          const pi = Math.min(SN-1,j+2)*2, ai=(j+1)*2, bi=j*2, ni=Math.max(0,j-1)*2;
-          for (let s = 1; s <= STEPS; s++) {
-            const t=s/STEPS, t2=t*t, t3=t2*t;
-            ctx.lineTo(
-              0.5*((2*segs[ai])+(-segs[pi]+segs[bi])*t+(2*segs[pi]-5*segs[ai]+4*segs[bi]-segs[ni])*t2+(-segs[pi]+3*segs[ai]-3*segs[bi]+segs[ni])*t3),
-              0.5*((2*segs[ai+1])+(-segs[pi+1]+segs[bi+1])*t+(2*segs[pi+1]-5*segs[ai+1]+4*segs[bi+1]-segs[ni+1])*t2+(-segs[pi+1]+3*segs[ai+1]-3*segs[bi+1]+segs[ni+1])*t3)
-            );
-          }
+      ctx.lineWidth = R * 2;
+      ctx.strokeStyle = '#3bbfb0';
+      ctx.stroke();
+    }
+
+    // Pass 2: ring stripes — perpendicular dark bands at each segment
+    const ringStep = Math.max(1, Math.round(R * 0.85));
+    for (let i = SN - 1; i >= 1; i -= ringStep) {
+      const x = segs[i * 2], y = segs[i * 2 + 1];
+      const ni = Math.max(0, i - 1);
+      const ang = Math.atan2(segs[ni*2+1] - y, segs[ni*2] - x);
+      const px = -Math.sin(ang), py = Math.cos(ang);
+      ctx.beginPath();
+      ctx.moveTo(x - px * R, y - py * R);
+      ctx.lineTo(x + px * R, y + py * R);
+      ctx.lineWidth = R * 0.22;
+      ctx.strokeStyle = 'rgba(20,120,110,0.55)';
+      ctx.lineCap = 'butt';
+      ctx.stroke();
+    }
+
+    // Pass 3: center highlight for 3D tube look
+    for (let end = SN - 1; end > 0; end -= CHUNK) {
+      const start = Math.max(0, end - CHUNK);
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      ctx.beginPath();
+      ctx.moveTo(segs[end * 2], segs[end * 2 + 1]);
+      for (let j = end - 1; j >= start; j--) {
+        const pi = Math.min(SN - 1, j + 2) * 2, ai = (j + 1) * 2, bi = j * 2, ni = Math.max(0, j - 1) * 2;
+        for (let s = 1; s <= STEPS; s++) {
+          const t = s / STEPS, t2 = t * t, t3 = t2 * t;
+          ctx.lineTo(
+            0.5 * ((2*segs[ai])   + (-segs[pi]   + segs[bi])   * t + (2*segs[pi]   - 5*segs[ai]   + 4*segs[bi]   - segs[ni])   * t2 + (-segs[pi]   + 3*segs[ai]   - 3*segs[bi]   + segs[ni])   * t3),
+            0.5 * ((2*segs[ai+1]) + (-segs[pi+1] + segs[bi+1]) * t + (2*segs[pi+1] - 5*segs[ai+1] + 4*segs[bi+1] - segs[ni+1]) * t2 + (-segs[pi+1] + 3*segs[ai+1] - 3*segs[bi+1] + segs[ni+1]) * t3)
+          );
         }
-        ctx.lineWidth = R*2; ctx.strokeStyle = color; ctx.stroke();
       }
+      ctx.lineWidth = R * 0.7;
+      ctx.strokeStyle = 'rgba(160,240,230,0.28)';
+      ctx.stroke();
     }
 
     // ── Head ──────────────────────────────────────────────────────────────────
@@ -308,35 +315,33 @@ class Renderer {
     const fwdX  = Math.cos(angle), fwdY  = Math.sin(angle);
     const perpX = -Math.sin(angle), perpY = Math.cos(angle);
 
-    if (sprOK) {
-      const dw = SW * sprScale, dh = HEAD_H * sprScale;
-      ctx.save();
-      ctx.translate(hx, hy);
-      ctx.rotate(angle - Math.PI / 2);
-      ctx.drawImage(spr, 0, SH - HEAD_H, SW, HEAD_H, -dw/2, -dh/2, dw, dh);
-      ctx.restore();
-    } else {
-      ctx.beginPath();
-      ctx.arc(hx, hy, HR, 0, Math.PI * 2);
-      ctx.fillStyle = color;
-      ctx.fill();
+    ctx.beginPath();
+    ctx.arc(hx, hy, HR, 0, Math.PI * 2);
+    ctx.fillStyle = '#3bbfb0';
+    ctx.fill();
 
-      const eyeR = HR*0.40, pupilR = eyeR*0.54, eyeSide = HR*0.46, eyeFwd = HR*0.38;
-      let pupilFwdX = fwdX, pupilFwdY = fwdY;
-      if (isMe && this._mousePos) {
-        const wm = this.camera.screenToWorld(this._mousePos.x, this._mousePos.y, this._canvasW, this._canvasH);
-        const pa = Math.atan2(wm.y - hy, wm.x - hx);
-        pupilFwdX = Math.cos(pa); pupilFwdY = Math.sin(pa);
-      }
-      for (const side of [-1, 1]) {
-        const ex = hx+fwdX*eyeFwd+perpX*eyeSide*side;
-        const ey = hy+fwdY*eyeFwd+perpY*eyeSide*side;
-        ctx.beginPath(); ctx.arc(ex, ey, eyeR, 0, Math.PI*2);
-        ctx.fillStyle = '#FFFFFF'; ctx.fill();
-        const ps = eyeR - pupilR;
-        ctx.beginPath(); ctx.arc(ex+pupilFwdX*ps, ey+pupilFwdY*ps, pupilR, 0, Math.PI*2);
-        ctx.fillStyle = '#060606'; ctx.fill();
-      }
+    // ── Eyes ──────────────────────────────────────────────────────────────────
+    const eyeR    = HR * 0.40;
+    const pupilR  = eyeR * 0.54;
+    const eyeSide = HR * 0.46;
+    const eyeFwd  = HR * 0.38;
+
+    let pupilFwdX = fwdX, pupilFwdY = fwdY;
+    if (isMe && this._mousePos) {
+      const wm = this.camera.screenToWorld(this._mousePos.x, this._mousePos.y, this._canvasW, this._canvasH);
+      const pa = Math.atan2(wm.y - hy, wm.x - hx);
+      pupilFwdX = Math.cos(pa);
+      pupilFwdY = Math.sin(pa);
+    }
+
+    for (const side of [-1, 1]) {
+      const ex = hx + fwdX * eyeFwd + perpX * eyeSide * side;
+      const ey = hy + fwdY * eyeFwd + perpY * eyeSide * side;
+      ctx.beginPath(); ctx.arc(ex, ey, eyeR, 0, Math.PI * 2);
+      ctx.fillStyle = '#FFFFFF'; ctx.fill();
+      const ps = eyeR - pupilR;
+      ctx.beginPath(); ctx.arc(ex + pupilFwdX * ps, ey + pupilFwdY * ps, pupilR, 0, Math.PI * 2);
+      ctx.fillStyle = '#060606'; ctx.fill();
     }
 
     // ── Hat ───────────────────────────────────────────────────────────────────
