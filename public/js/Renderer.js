@@ -6,6 +6,8 @@ class Renderer {
     this._hexFrame = 0;
     this.hexGrid = new HexGrid(this._isMobile);
     this.camera = new Camera();
+    this._snakeSprite = new Image();
+    this._snakeSprite.src = '/snake_sprite.png';
     this.boostTrails = new Map();
     this._foodPhaseCache = new Map();
     this._foodOverlaySprite  = this._makeFoodOverlaySprite();
@@ -245,31 +247,59 @@ class Renderer {
     ctx.lineCap  = 'round';
     ctx.lineJoin = 'round';
 
-    const STEPS = 3;
-    const CHUNK = 8;
+    // ── Sprite setup ──────────────────────────────────────────────────────────
+    const spr = this._snakeSprite;
+    const sprOK = spr && spr.complete && spr.naturalWidth > 0;
+    const SW = sprOK ? spr.naturalWidth  : 0;   // 145
+    const SH = sprOK ? spr.naturalHeight : 0;   // 407
+    // Bottom ~14.5% of sprite = head with eyes
+    const HEAD_H = sprOK ? Math.round(SH * 0.145) : 0;
+    const BODY_H = SH - HEAD_H;
+    // One ring slice from 40% down the body section
+    const RING_H = sprOK ? Math.max(1, Math.round(BODY_H / 20)) : 0;
+    const RING_Y = sprOK ? Math.round(BODY_H * 0.4) : 0;
+    const sprScale = sprOK ? (R * 2) / SW : 1;
+    const ringWorld = RING_H * sprScale; // ring height in world units
 
-    // ── Draw body tail→head in chunks ─────────────────────────────────────────
-    for (let end = SN - 1; end > 0; end -= CHUNK) {
-      const start = Math.max(0, end - CHUNK);
-      ctx.lineCap = 'round';
-      ctx.beginPath();
-      ctx.moveTo(segs[end * 2], segs[end * 2 + 1]);
-      for (let j = end - 1; j >= start; j--) {
-        const pi = Math.min(SN - 1, j + 2) * 2;
-        const ai = (j + 1) * 2;
-        const bi = j * 2;
-        const ni = Math.max(0, j - 1) * 2;
-        for (let s = 1; s <= STEPS; s++) {
-          const t = s / STEPS, t2 = t * t, t3 = t2 * t;
-          ctx.lineTo(
-            0.5 * ((2*segs[ai])   + (-segs[pi]   + segs[bi])   * t + (2*segs[pi]   - 5*segs[ai]   + 4*segs[bi]   - segs[ni])   * t2 + (-segs[pi]   + 3*segs[ai]   - 3*segs[bi]   + segs[ni])   * t3),
-            0.5 * ((2*segs[ai+1]) + (-segs[pi+1] + segs[bi+1]) * t + (2*segs[pi+1] - 5*segs[ai+1] + 4*segs[bi+1] - segs[ni+1]) * t2 + (-segs[pi+1] + 3*segs[ai+1] - 3*segs[bi+1] + segs[ni+1]) * t3)
-          );
+    // ── Draw body tail→head ───────────────────────────────────────────────────
+    if (sprOK) {
+      let dist = 0;
+      for (let i = SN - 1; i >= 0; i--) {
+        const x = segs[i * 2], y = segs[i * 2 + 1];
+        if (i < SN - 1) {
+          dist += Math.hypot(x - segs[(i+1)*2], y - segs[(i+1)*2+1]);
+        }
+        if (i === SN - 1 || dist >= ringWorld * 0.85) {
+          dist = 0;
+          const ni = Math.max(0, i - 1);
+          const ang = Math.atan2(segs[ni*2+1] - y, segs[ni*2] - x);
+          const dw = SW * sprScale, dh = RING_H * sprScale * 1.3;
+          ctx.save();
+          ctx.translate(x, y);
+          ctx.rotate(ang - Math.PI / 2);
+          ctx.drawImage(spr, 0, RING_Y, SW, RING_H, -dw/2, -dh/2, dw, dh);
+          ctx.restore();
         }
       }
-      ctx.lineWidth   = R * 2;
-      ctx.strokeStyle = color;
-      ctx.stroke();
+    } else {
+      const STEPS = 3, CHUNK = 8;
+      for (let end = SN - 1; end > 0; end -= CHUNK) {
+        const start = Math.max(0, end - CHUNK);
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(segs[end*2], segs[end*2+1]);
+        for (let j = end - 1; j >= start; j--) {
+          const pi = Math.min(SN-1,j+2)*2, ai=(j+1)*2, bi=j*2, ni=Math.max(0,j-1)*2;
+          for (let s = 1; s <= STEPS; s++) {
+            const t=s/STEPS, t2=t*t, t3=t2*t;
+            ctx.lineTo(
+              0.5*((2*segs[ai])+(-segs[pi]+segs[bi])*t+(2*segs[pi]-5*segs[ai]+4*segs[bi]-segs[ni])*t2+(-segs[pi]+3*segs[ai]-3*segs[bi]+segs[ni])*t3),
+              0.5*((2*segs[ai+1])+(-segs[pi+1]+segs[bi+1])*t+(2*segs[pi+1]-5*segs[ai+1]+4*segs[bi+1]-segs[ni+1])*t2+(-segs[pi+1]+3*segs[ai+1]-3*segs[bi+1]+segs[ni+1])*t3)
+            );
+          }
+        }
+        ctx.lineWidth = R*2; ctx.strokeStyle = color; ctx.stroke();
+      }
     }
 
     // ── Head ──────────────────────────────────────────────────────────────────
@@ -278,34 +308,35 @@ class Renderer {
     const fwdX  = Math.cos(angle), fwdY  = Math.sin(angle);
     const perpX = -Math.sin(angle), perpY = Math.cos(angle);
 
-    ctx.beginPath();
-    ctx.arc(hx, hy, HR, 0, Math.PI * 2);
-    ctx.fillStyle = color;
-    ctx.fill();
+    if (sprOK) {
+      const dw = SW * sprScale, dh = HEAD_H * sprScale;
+      ctx.save();
+      ctx.translate(hx, hy);
+      ctx.rotate(angle - Math.PI / 2);
+      ctx.drawImage(spr, 0, SH - HEAD_H, SW, HEAD_H, -dw/2, -dh/2, dw, dh);
+      ctx.restore();
+    } else {
+      ctx.beginPath();
+      ctx.arc(hx, hy, HR, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
 
-    // ── Eyes ──────────────────────────────────────────────────────────────────
-    const eyeR    = HR * 0.40;
-    const pupilR  = eyeR * 0.54;
-    const eyeSide = HR * 0.46;
-    const eyeFwd  = HR * 0.38;
-
-    // Pupils follow mouse for local player, movement direction for others
-    let pupilFwdX = fwdX, pupilFwdY = fwdY;
-    if (isMe && this._mousePos) {
-      const wm = this.camera.screenToWorld(this._mousePos.x, this._mousePos.y, this._canvasW, this._canvasH);
-      const pa = Math.atan2(wm.y - hy, wm.x - hx);
-      pupilFwdX = Math.cos(pa);
-      pupilFwdY = Math.sin(pa);
-    }
-
-    for (const side of [-1, 1]) {
-      const ex = hx + fwdX * eyeFwd + perpX * eyeSide * side;
-      const ey = hy + fwdY * eyeFwd + perpY * eyeSide * side;
-      ctx.beginPath(); ctx.arc(ex, ey, eyeR, 0, Math.PI * 2);
-      ctx.fillStyle = '#FFFFFF'; ctx.fill();
-      const ps = eyeR - pupilR;
-      ctx.beginPath(); ctx.arc(ex + pupilFwdX * ps, ey + pupilFwdY * ps, pupilR, 0, Math.PI * 2);
-      ctx.fillStyle = '#060606'; ctx.fill();
+      const eyeR = HR*0.40, pupilR = eyeR*0.54, eyeSide = HR*0.46, eyeFwd = HR*0.38;
+      let pupilFwdX = fwdX, pupilFwdY = fwdY;
+      if (isMe && this._mousePos) {
+        const wm = this.camera.screenToWorld(this._mousePos.x, this._mousePos.y, this._canvasW, this._canvasH);
+        const pa = Math.atan2(wm.y - hy, wm.x - hx);
+        pupilFwdX = Math.cos(pa); pupilFwdY = Math.sin(pa);
+      }
+      for (const side of [-1, 1]) {
+        const ex = hx+fwdX*eyeFwd+perpX*eyeSide*side;
+        const ey = hy+fwdY*eyeFwd+perpY*eyeSide*side;
+        ctx.beginPath(); ctx.arc(ex, ey, eyeR, 0, Math.PI*2);
+        ctx.fillStyle = '#FFFFFF'; ctx.fill();
+        const ps = eyeR - pupilR;
+        ctx.beginPath(); ctx.arc(ex+pupilFwdX*ps, ey+pupilFwdY*ps, pupilR, 0, Math.PI*2);
+        ctx.fillStyle = '#060606'; ctx.fill();
+      }
     }
 
     // ── Hat ───────────────────────────────────────────────────────────────────
