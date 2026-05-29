@@ -85,6 +85,8 @@ const io     = new Server(server, {
     origin: ['https://duelseries.com', 'https://www.duelseries.com', 'https://eu.duelseries.com', 'http://localhost:3000'],
     credentials: true,
   },
+  pingInterval: 5000,   // heartbeat every 5s (default 25s) — keeps mobile WiFi radio awake
+  pingTimeout:  10000,  // declare dead after 10s of no response (default 20s)
 });
 
 // Prevent Render 502s — match their load balancer keep-alive timeout
