@@ -17,6 +17,7 @@ const googleId      = sessionStorage.getItem('googleId')      || null;
 const lobbyType     = sessionStorage.getItem('lobbyType')     || 'free';
 const entrySol      = parseFloat(sessionStorage.getItem('entrySol') || '0');
 const selectedRegion = sessionStorage.getItem('region') || 'na';
+const spectateOnly  = sessionStorage.getItem('spectateOnly') === 'true';
 
 // SOL/CAD rate — fetched once on load
 let solCadRate = 200;
@@ -63,7 +64,11 @@ const hatId      = sessionStorage.getItem('hatId')      || 'none';
 const boostId    = sessionStorage.getItem('boostId')    || 'default';
 
 socket.on('connect', () => {
-  socket.emit(CONSTANTS.EVENTS.PLAY, { name: playerName, walletAddress, googleId, color: snakeColor, lobbyType, entrySol, hatId, boostId, region: selectedRegion });
+  if (spectateOnly) {
+    socket.emit('spectate:join', { lobbyType, region: selectedRegion });
+  } else {
+    socket.emit(CONSTANTS.EVENTS.PLAY, { name: playerName, walletAddress, googleId, color: snakeColor, lobbyType, entrySol, hatId, boostId, region: selectedRegion });
+  }
 });
 
 function playJoinSound() {
@@ -107,9 +112,9 @@ function playJoinSound() {
   } catch (e) { /* audio not supported */ }
 }
 
-socket.on(CONSTANTS.EVENTS.GAME_JOINED, ({ playerId, worldRadius, snakeColor, food, snake }) => {
+socket.on(CONSTANTS.EVENTS.GAME_JOINED, ({ playerId, worldRadius, food, snake }) => {
   myId = playerId;
-  isDead = false;
+  isDead = spectateOnly;
   cashedOut = false;
   cashoutSpeedMult = 1;
   lockedAngle = null;
@@ -123,7 +128,11 @@ socket.on(CONSTANTS.EVENTS.GAME_JOINED, ({ playerId, worldRadius, snakeColor, fo
   document.getElementById('cashout-screen').classList.remove('active');
   _lReset();
   if (snake) _lInit(snake);
-  playJoinSound();
+  if (spectateOnly) {
+    enterSpectate();
+  } else {
+    playJoinSound();
+  }
 });
 
 socket.on(CONSTANTS.EVENTS.SNAPSHOT, (snap) => {
@@ -650,7 +659,7 @@ async function doRespawn() {
 }
 
 document.getElementById('btn-respawn').addEventListener('click', doRespawn);
-document.getElementById('spectate-play-again').addEventListener('click', doRespawn);
+document.getElementById('spectate-play-again').addEventListener('click', spectateOnly ? goToLobby : doRespawn);
 document.getElementById('btn-lobby').addEventListener('click', () => {
   goToLobby();
 });

@@ -781,6 +781,20 @@ io.on('connection', (socket) => {
     if (socket._room) socket._room.handleInput(socket.id, angle, !!boost, speedMult);
   });
 
+  socket.on('spectate:join', ({ lobbyType, region } = {}) => {
+    const room = getRoomForType(lobbyType || 'free', region || REGION);
+    socket.join(room.socketRoomName);
+    socket._room = room;
+    socket._spectating = true;
+    socket.emit(C.EVENTS.GAME_JOINED, {
+      playerId: socket.id,
+      worldRadius: room.worldRadius,
+      food: room.foodManager.getAll(),
+      snake: null,
+      spectateOnly: true,
+    });
+  });
+
   socket.on(C.EVENTS.RESPAWN, ({ entrySol } = {}) => {
     if (!socket._room) return;
     const existing = socket._room.snakes.get(socket.id);

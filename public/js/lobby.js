@@ -1137,6 +1137,7 @@ document.getElementById('btn-play').addEventListener('click', async () => {
   sessionStorage.setItem('lobbyType',     selectedLobbyType);
   sessionStorage.setItem('entrySol',      entrySol);
   sessionStorage.setItem('region',        selectedRegion);
+  sessionStorage.removeItem('spectateOnly');
   // Load game in iframe so fullscreen stays active
   if (window._pauseLobbyAnims) window._pauseLobbyAnims();
   gameFrame.src = '/game.html';
@@ -1145,6 +1146,18 @@ document.getElementById('btn-play').addEventListener('click', async () => {
   gameFrame.addEventListener('load', () => {
     try { gameFrame.contentWindow.focus(); } catch (e) {}
   }, { once: true });
+});
+
+// ─── Spectate from lobby ──────────────────────────────────────────────────────
+document.getElementById('btn-spectate-lobby').addEventListener('click', () => {
+  const gameFrame = document.getElementById('game-frame');
+  if (gameFrame && gameFrame.style.display !== 'none') return;
+  sessionStorage.setItem('spectateOnly', 'true');
+  sessionStorage.setItem('lobbyType', selectedLobbyType);
+  sessionStorage.setItem('region', selectedRegion);
+  if (window._pauseLobbyAnims) window._pauseLobbyAnims();
+  gameFrame.src = '/game.html';
+  gameFrame.style.display = 'block';
 });
 
 // ─── Customize / Appearance Screen ───────────────────────────────────────────
