@@ -1581,6 +1581,62 @@ body {
   .btn-discord { bottom: 14px; }
 }
 
+/* ── Withdraw modal redesign ─────────────────────────────────────────────── */
+.modal-withdraw-card {
+  width: 380px; max-width: 95vw;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+}
+.modal-withdraw-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 20px 22px 16px;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+}
+.modal-withdraw-title { font-size: 1rem; font-weight: 700; color: #fff; letter-spacing: 0.02em; }
+.modal-withdraw-close {
+  background: none; border: none; color: #555; font-size: 0.95rem;
+  cursor: pointer; padding: 4px 6px; border-radius: 6px; line-height: 1;
+}
+.modal-withdraw-close:hover { color: #aaa; }
+.modal-withdraw-balance {
+  display: flex; align-items: center; justify-content: space-between;
+  background: rgba(20,241,149,0.06);
+  border-bottom: 1px solid rgba(20,241,149,0.12);
+  padding: 14px 22px;
+}
+.modal-withdraw-balance-lbl { font-size: 0.78rem; color: #888; text-transform: uppercase; letter-spacing: 0.06em; }
+.modal-withdraw-balance-val { font-size: 1.05rem; font-weight: 700; color: #14F195; }
+.modal-withdraw-field { padding: 16px 22px 0; display: flex; flex-direction: column; gap: 7px; }
+.modal-withdraw-label { font-size: 0.75rem; color: #888; text-transform: uppercase; letter-spacing: 0.06em; }
+.modal-withdraw-input {
+  width: 100%; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 10px; padding: 11px 14px; color: #fff; font-size: 0.95rem; outline: none;
+}
+.modal-withdraw-input:focus { border-color: #14F195; }
+.modal-withdraw-amount-row { display: flex; gap: 8px; align-items: center; }
+.modal-withdraw-amount-row .modal-withdraw-input { flex: 1; }
+.modal-withdraw-max {
+  background: rgba(20,241,149,0.12); border: 1px solid rgba(20,241,149,0.3);
+  color: #14F195; border-radius: 8px; padding: 10px 14px;
+  font-size: 0.82rem; font-weight: 700; cursor: pointer; white-space: nowrap;
+}
+.modal-withdraw-max:hover { background: rgba(20,241,149,0.22); }
+.modal-withdraw-preview { font-size: 0.8rem; color: #14F195; min-height: 1.1em; padding-top: 2px; }
+.modal-withdraw-no-fee {
+  margin: 14px 22px 0;
+  font-size: 0.75rem; color: #555;
+  display: flex; align-items: center; gap: 6px;
+}
+.modal-withdraw-btn {
+  margin: 16px 22px 22px;
+  width: calc(100% - 44px);
+  padding: 13px; background: var(--green); color: #000;
+  border: none; border-radius: 10px; font-size: 0.95rem; font-weight: 700;
+  cursor: pointer; transition: opacity 0.2s;
+}
+.modal-withdraw-btn:hover { opacity: 0.88; }
+
 /* ── Login modal ─────────────────────────────────────────────────────────── */
 .login-modal-overlay {
   position: fixed; inset: 0;

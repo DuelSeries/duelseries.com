@@ -423,18 +423,34 @@
 
   <!-- Withdraw -->
   <div class="modal-overlay" id="modal-withdraw">
-    <div class="modal">
-      <h3>Cash Out</h3>
-      <input type="text" id="withdraw-wallet" placeholder="Your Phantom or Coinbase wallet address">
-      <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
-        <input type="number" id="withdraw-amount" placeholder="Amount in CA$" min="0.01" step="0.01" style="flex:1">
-        <button class="btn-small" id="withdraw-max" style="white-space:nowrap">Max</button>
+    <div class="modal modal-withdraw-card">
+      <div class="modal-withdraw-header">
+        <span class="modal-withdraw-title">Cash Out</span>
+        <button class="modal-withdraw-close" id="cancel-withdraw">✕</button>
       </div>
-      <div id="withdraw-cad-preview" style="font-size:0.8rem;color:#14F195;margin-top:4px;min-height:1.2em"></div>
-      <div class="modal-btns">
-        <button class="btn-small btn-cancel" id="cancel-withdraw">Cancel</button>
-        <button class="btn-small btn-confirm" id="confirm-withdraw">Withdraw</button>
+
+      <div class="modal-withdraw-balance">
+        <span class="modal-withdraw-balance-lbl">Available Balance</span>
+        <span class="modal-withdraw-balance-val" id="withdraw-balance-display">CA$0.00</span>
       </div>
+
+      <div class="modal-withdraw-field">
+        <label class="modal-withdraw-label">Destination Wallet</label>
+        <input type="text" id="withdraw-wallet" class="modal-withdraw-input" placeholder="Your Phantom or Coinbase address">
+      </div>
+
+      <div class="modal-withdraw-field">
+        <label class="modal-withdraw-label">Amount</label>
+        <div class="modal-withdraw-amount-row">
+          <input type="number" id="withdraw-amount" class="modal-withdraw-input" placeholder="CA$0.00" min="0.01" step="0.01">
+          <button class="modal-withdraw-max" id="withdraw-max">Max</button>
+        </div>
+        <div id="withdraw-cad-preview" class="modal-withdraw-preview"></div>
+      </div>
+
+      <div class="modal-withdraw-no-fee">✦ No transaction fees</div>
+
+      <button class="modal-withdraw-btn" id="confirm-withdraw">Withdraw</button>
     </div>
   </div>
 

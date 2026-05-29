@@ -895,10 +895,19 @@ document.getElementById('btn-copy-address').addEventListener('click', () => {
 });
 
 // ─── Withdraw ─────────────────────────────────────────────────────────────────
-document.getElementById('btn-withdraw').addEventListener('click', () =>
-  document.getElementById('modal-withdraw').classList.add('active'));
+function openWithdrawModal() {
+  const balEl = document.getElementById('withdraw-balance-display');
+  if (balEl && solPriceUsd && account) {
+    balEl.textContent = 'CA$' + (account.balance * solPriceUsd).toFixed(2);
+  }
+  document.getElementById('modal-withdraw').classList.add('active');
+}
+document.getElementById('btn-withdraw').addEventListener('click', openWithdrawModal);
 document.getElementById('cancel-withdraw').addEventListener('click', () =>
   document.getElementById('modal-withdraw').classList.remove('active'));
+document.getElementById('modal-withdraw').addEventListener('click', (e) => {
+  if (e.target === e.currentTarget) document.getElementById('modal-withdraw').classList.remove('active');
+});
 
 document.getElementById('withdraw-max').addEventListener('click', () => {
   const bal = account?.balance || 0;
@@ -971,9 +980,7 @@ document.getElementById('btn-refresh-balance-2').addEventListener('click', async
 document.getElementById('btn-add-funds-2').addEventListener('click', () =>
   document.getElementById('btn-add-funds').click()
 );
-document.getElementById('btn-withdraw-2').addEventListener('click', () =>
-  document.getElementById('modal-withdraw').classList.add('active')
-);
+document.getElementById('btn-withdraw-2').addEventListener('click', openWithdrawModal);
 
 // ─── Lobby 2 lobby type selection ─────────────────────────────────────────────
 const LOBBY_LABELS_2 = { free: 'FREE PLAY', dime: '▶ 10¢ LOBBY', dollar: '▶ $1 LOBBY' };
