@@ -1045,6 +1045,7 @@ document.getElementById('btn-play-2').addEventListener('click', async () => {
   sessionStorage.setItem('lobbyType',     selectedLobbyType2);
   sessionStorage.setItem('gameMode',      'cell');
   sessionStorage.setItem('region',        selectedRegion);
+  sessionStorage.removeItem('spectateOnly');
   const agarFrame = document.getElementById('agar-frame');
   if (window._pauseLobbyAnims) window._pauseLobbyAnims();
   agarFrame.src = '/agar.html';
@@ -1158,6 +1159,17 @@ document.getElementById('btn-spectate-lobby').addEventListener('click', () => {
   if (window._pauseLobbyAnims) window._pauseLobbyAnims();
   gameFrame.src = '/game.html';
   gameFrame.style.display = 'block';
+});
+
+document.getElementById('btn-spectate-lobby-2').addEventListener('click', () => {
+  const agarFrame = document.getElementById('agar-frame');
+  if (agarFrame && agarFrame.style.display !== 'none') return;
+  sessionStorage.setItem('spectateOnly', 'true');
+  sessionStorage.setItem('lobbyType', selectedLobbyType2);
+  sessionStorage.setItem('region', selectedRegion);
+  if (window._pauseLobbyAnims) window._pauseLobbyAnims();
+  agarFrame.src = '/agar.html';
+  agarFrame.style.display = 'block';
 });
 
 // ─── Customize / Appearance Screen ───────────────────────────────────────────

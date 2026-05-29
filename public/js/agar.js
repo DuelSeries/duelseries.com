@@ -65,6 +65,7 @@ window.addEventListener('DOMContentLoaded', () => {
   myName    = sessionStorage.getItem('playerName')  || 'Player';
   myColor   = localStorage.getItem('duelseries_skin_color') || '#6366f1';
   lobbyType = sessionStorage.getItem('lobbyType') || 'free';
+  const spectateOnly = sessionStorage.getItem('spectateOnly') === 'true';
 
   resize();
   window.addEventListener('resize', resize);
@@ -147,6 +148,7 @@ window.addEventListener('DOMContentLoaded', () => {
     updateSpectateLabel();
   });
   document.getElementById('spectate-play-again').addEventListener('click', () => {
+    if (spectateOnly) { goToLobby(); return; }
     cashedOut = false;
     waitingToRespawn = true;
     const titleEl = document.getElementById('death-title');
@@ -299,7 +301,11 @@ function connectSocket() {
     const lobbyType = sessionStorage.getItem('lobbyType') || 'free';
     const googleId  = sessionStorage.getItem('googleId') || '';
     const region    = sessionStorage.getItem('region') || 'na';
-    socket.emit('cell:join', { name: myName, color: myColor, lobbyType, googleId, region });
+    if (spectateOnly) {
+      socket.emit('spectate:join:agar', { lobbyType, region });
+    } else {
+      socket.emit('cell:join', { name: myName, color: myColor, lobbyType, googleId, region });
+    }
   });
 
   socket.on('cell:join:error', ({ message }) => {
@@ -327,6 +333,7 @@ function connectSocket() {
     }
 
     if (!animId) { lastTime = performance.now(); animId = requestAnimationFrame(loop); }
+    if (spectateOnly) enterSpectate();
   });
 
   socket.on('cell:state', ({ players: updates, removedFoods, addedFoods }) => {

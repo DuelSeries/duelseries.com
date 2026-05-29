@@ -781,6 +781,19 @@ io.on('connection', (socket) => {
     if (socket._room) socket._room.handleInput(socket.id, angle, !!boost, speedMult);
   });
 
+  socket.on('spectate:join:agar', ({ lobbyType, region } = {}) => {
+    const room = getAgarRoomForType(lobbyType || 'free', region || REGION);
+    socket.join(room.roomName);
+    socket._agarRoom = room;
+    socket._spectating = true;
+    socket.emit('cell:joined', {
+      playerId:  socket.id,
+      worldSize: room.worldSize,
+      foods:     [...room.foods.values()],
+      players:   room._serializePlayers(),
+    });
+  });
+
   socket.on('spectate:join', ({ lobbyType, region } = {}) => {
     const room = getRoomForType(lobbyType || 'free', region || REGION);
     socket.join(room.socketRoomName);
