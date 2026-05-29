@@ -10,6 +10,8 @@ class Renderer {
     this._foodPhaseCache = new Map();
     this._foodOverlaySprite  = this._makeFoodOverlaySprite();
     this._goldenFoodSprite   = this._makeGoldenFoodSprite();
+    this._snakeSprite = new Image();
+    this._snakeSprite.src = '/snake_sprite.png';
   }
 
   _makeFoodOverlaySprite() {
@@ -44,6 +46,80 @@ class Renderer {
     ctx.beginPath(); ctx.arc(cx - sr*0.28, cx - sr*0.28, sr*0.22, 0, Math.PI * 2);
     ctx.fillStyle = 'rgba(255,255,255,0.75)'; ctx.fill();
     return c;
+  }
+
+  _drawSnakeSpriteBody(ctx, snake, R, SN) {
+    const sprite = this._snakeSprite;
+    if (!sprite || !sprite.complete || !sprite.naturalWidth) return;
+
+    const { segs } = snake;
+    const SW = sprite.naturalWidth;
+    const SH = sprite.naturalHeight;
+
+    const DOME_H  = Math.round(SH * 0.10);
+    const HEAD_H  = Math.round(SH * 0.15);
+    const BODY_Y0 = DOME_H;
+    const BODY_Y1 = SH - HEAD_H;
+    const BODY_H  = BODY_Y1 - BODY_Y0;
+
+    // sprite width maps to snake diameter
+    const spriteToWorld = (2 * R) / SW;
+
+    // Dense Catmull-Rom sample points from tail to head
+    const STEPS = 3;
+    const pts = [{ x: segs[(SN-1)*2], y: segs[(SN-1)*2+1] }];
+    for (let j = SN - 2; j >= 0; j--) {
+      const pi=Math.min(SN-1,j+2)*2, ai=(j+1)*2, bi=j*2, ni=Math.max(0,j-1)*2;
+      for (let s = 1; s <= STEPS; s++) {
+        const t=s/STEPS, t2=t*t, t3=t2*t;
+        pts.push({
+          x: 0.5*((2*segs[ai])+(-segs[pi]+segs[bi])*t+(2*segs[pi]-5*segs[ai]+4*segs[bi]-segs[ni])*t2+(-segs[pi]+3*segs[ai]-3*segs[bi]+segs[ni])*t3),
+          y: 0.5*((2*segs[ai+1])+(-segs[pi+1]+segs[bi+1])*t+(2*segs[pi+1]-5*segs[ai+1]+4*segs[bi+1]-segs[ni+1])*t2+(-segs[pi+1]+3*segs[ai+1]-3*segs[bi+1]+segs[ni+1])*t3)
+        });
+      }
+    }
+
+    // Cumulative arc length from tail
+    const arcAt = new Float32Array(pts.length);
+    for (let i = 1; i < pts.length; i++) {
+      const dx = pts[i].x - pts[i-1].x, dy = pts[i].y - pts[i-1].y;
+      arcAt[i] = arcAt[i-1] + Math.sqrt(dx*dx + dy*dy);
+    }
+
+    // Tail dome cap
+    {
+      const p = pts[0];
+      const nx = pts[Math.min(1, pts.length-1)].x - p.x;
+      const ny = pts[Math.min(1, pts.length-1)].y - p.y;
+      const ang = Math.atan2(ny, nx);
+      const domeH = DOME_H * spriteToWorld;
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(ang - Math.PI/2);
+      ctx.drawImage(sprite, 0, 0, SW, DOME_H, -R, -domeH, R*2, domeH);
+      ctx.restore();
+    }
+
+    // Body strips: one thin slice per sample point, perpendicular to path
+    for (let i = 0; i < pts.length - 1; i++) {
+      const p  = pts[i];
+      const nx = pts[Math.min(i+1, pts.length-1)].x - pts[Math.max(0, i-1)].x;
+      const ny = pts[Math.min(i+1, pts.length-1)].y - pts[Math.max(0, i-1)].y;
+      const ang = Math.atan2(ny, nx);
+
+      const bodyOff = (arcAt[i] / spriteToWorld) % BODY_H;
+      const srcY    = Math.floor(BODY_Y0 + bodyOff);
+      const stripWorld = (arcAt[i+1] - arcAt[i]) + 1; // +1 ensures overlap, no gaps
+      const srcH    = Math.max(1, Math.min(Math.ceil(stripWorld / spriteToWorld), BODY_Y1 - srcY));
+      if (srcH <= 0) continue;
+      const dstH    = srcH * spriteToWorld;
+
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(ang - Math.PI/2);
+      ctx.drawImage(sprite, 0, srcY, SW, srcH, -R, -dstH / 2, R*2, dstH);
+      ctx.restore();
+    }
   }
 
   resize() {
@@ -245,71 +321,8 @@ class Renderer {
     ctx.lineCap  = 'round';
     ctx.lineJoin = 'round';
 
-    const STEPS = 3;
-    const CHUNK = 8;
-
-    // Helper: draw the Catmull-Rom spline path for the body
-    const drawBodyPath = () => {
-      for (let end = SN - 1; end > 0; end -= CHUNK) {
-        const start = Math.max(0, end - CHUNK);
-        ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-        ctx.beginPath();
-        ctx.moveTo(segs[end * 2], segs[end * 2 + 1]);
-        for (let j = end - 1; j >= start; j--) {
-          const pi = Math.min(SN-1,j+2)*2, ai=(j+1)*2, bi=j*2, ni=Math.max(0,j-1)*2;
-          for (let s = 1; s <= STEPS; s++) {
-            const t=s/STEPS, t2=t*t, t3=t2*t;
-            ctx.lineTo(
-              0.5*((2*segs[ai])+(-segs[pi]+segs[bi])*t+(2*segs[pi]-5*segs[ai]+4*segs[bi]-segs[ni])*t2+(-segs[pi]+3*segs[ai]-3*segs[bi]+segs[ni])*t3),
-              0.5*((2*segs[ai+1])+(-segs[pi+1]+segs[bi+1])*t+(2*segs[pi+1]-5*segs[ai+1]+4*segs[bi+1]-segs[ni+1])*t2+(-segs[pi+1]+3*segs[ai+1]-3*segs[bi+1]+segs[ni+1])*t3)
-            );
-          }
-        }
-        ctx.lineWidth = R * 2;
-        ctx.stroke();
-      }
-    };
-
-    // ── Pass 1: solid base color ───────────────────────────────────────────────
-    ctx.strokeStyle = color;
-    drawBodyPath();
-
-    // ── Pass 2: ring stripes perpendicular to snake direction ──────────────────
-    const ringSpacing = Math.max(1, Math.round(R * 0.82));
-    for (let i = SN - 1; i >= 1; i -= ringSpacing) {
-      const x = segs[i*2], y = segs[i*2+1];
-      const ni = Math.max(0, i-1);
-      const ang = Math.atan2(segs[ni*2+1]-y, segs[ni*2]-x);
-      const px = -Math.sin(ang), py = Math.cos(ang);
-      ctx.beginPath();
-      ctx.moveTo(x - px * R, y - py * R);
-      ctx.lineTo(x + px * R, y + py * R);
-      ctx.lineWidth   = R * 0.25;
-      ctx.strokeStyle = 'rgba(0,0,0,0.28)';
-      ctx.lineCap     = 'butt';
-      ctx.stroke();
-    }
-
-    // ── Pass 3: center highlight for 3D tube look ──────────────────────────────
-    for (let end = SN - 1; end > 0; end -= CHUNK) {
-      const start = Math.max(0, end - CHUNK);
-      ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-      ctx.beginPath();
-      ctx.moveTo(segs[end*2], segs[end*2+1]);
-      for (let j = end-1; j >= start; j--) {
-        const pi=Math.min(SN-1,j+2)*2, ai=(j+1)*2, bi=j*2, ni=Math.max(0,j-1)*2;
-        for (let s=1; s<=STEPS; s++) {
-          const t=s/STEPS, t2=t*t, t3=t2*t;
-          ctx.lineTo(
-            0.5*((2*segs[ai])+(-segs[pi]+segs[bi])*t+(2*segs[pi]-5*segs[ai]+4*segs[bi]-segs[ni])*t2+(-segs[pi]+3*segs[ai]-3*segs[bi]+segs[ni])*t3),
-            0.5*((2*segs[ai+1])+(-segs[pi+1]+segs[bi+1])*t+(2*segs[pi+1]-5*segs[ai+1]+4*segs[bi+1]-segs[ni+1])*t2+(-segs[pi+1]+3*segs[ai+1]-3*segs[bi+1]+segs[ni+1])*t3)
-          );
-        }
-      }
-      ctx.lineWidth   = R * 0.55;
-      ctx.strokeStyle = 'rgba(255,255,255,0.20)';
-      ctx.stroke();
-    }
+    // ── Body: sprite strip rendering ───────────────────────────────────────────
+    this._drawSnakeSpriteBody(ctx, snake, R, SN);
 
     // ── Head ──────────────────────────────────────────────────────────────────
     const hx    = segs[0], hy = segs[1];
