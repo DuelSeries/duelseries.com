@@ -739,7 +739,7 @@ function sendInput() {
   }
   socket.emit(CONSTANTS.EVENTS.INPUT, { angle, boost: boostActive && !qHoldStart, speedMult: cashoutSpeedMult });
 }
-setInterval(sendInput, 1000 / 60);
+setInterval(sendInput, window.matchMedia('(pointer: coarse)').matches ? 1000 / 30 : 1000 / 60);
 
 // HUD (updated on each snapshot, not each frame)
 function updateHUD(snap) {

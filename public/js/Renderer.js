@@ -45,7 +45,8 @@ class Renderer {
   }
 
   resize() {
-    const dpr = window.devicePixelRatio || 1;
+    const rawDpr = window.devicePixelRatio || 1;
+    const dpr = Math.min(rawDpr, window.matchMedia('(pointer: coarse)').matches ? 2 : rawDpr);
     this.canvas.style.width  = window.innerWidth  + 'px';
     this.canvas.style.height = window.innerHeight + 'px';
     this.canvas.width  = Math.round(window.innerWidth  * dpr);
