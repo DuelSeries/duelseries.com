@@ -884,6 +884,9 @@ document.getElementById('close-receive').addEventListener('click', () => {
   stopDepositPoll();
   document.getElementById('modal-receive').classList.remove('active');
 });
+document.getElementById('modal-receive').addEventListener('click', (e) => {
+  if (e.target === e.currentTarget) { stopDepositPoll(); document.getElementById('modal-receive').classList.remove('active'); }
+});
 
 document.getElementById('btn-copy-address').addEventListener('click', () => {
   if (!account?.walletAddress) return;
