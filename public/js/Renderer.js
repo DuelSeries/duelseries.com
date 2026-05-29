@@ -270,46 +270,9 @@ class Renderer {
       }
     };
 
-    // ── Pass 1: solid base color ───────────────────────────────────────────────
+    // ── Body: solid colour only ────────────────────────────────────────────────
     ctx.strokeStyle = color;
     drawBodyPath();
-
-    // ── Pass 2: ring stripes perpendicular to snake direction ──────────────────
-    const ringSpacing = Math.max(1, Math.round(R * 0.82));
-    for (let i = SN - 1; i >= 1; i -= ringSpacing) {
-      const x = segs[i*2], y = segs[i*2+1];
-      const ni = Math.max(0, i-1);
-      const ang = Math.atan2(segs[ni*2+1]-y, segs[ni*2]-x);
-      const px = -Math.sin(ang), py = Math.cos(ang);
-      ctx.beginPath();
-      ctx.moveTo(x - px * R, y - py * R);
-      ctx.lineTo(x + px * R, y + py * R);
-      ctx.lineWidth   = R * 0.25;
-      ctx.strokeStyle = 'rgba(0,0,0,0.28)';
-      ctx.lineCap     = 'butt';
-      ctx.stroke();
-    }
-
-    // ── Pass 3: center highlight for 3D tube look ──────────────────────────────
-    for (let end = SN - 1; end > 0; end -= CHUNK) {
-      const start = Math.max(0, end - CHUNK);
-      ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-      ctx.beginPath();
-      ctx.moveTo(segs[end*2], segs[end*2+1]);
-      for (let j = end-1; j >= start; j--) {
-        const pi=Math.min(SN-1,j+2)*2, ai=(j+1)*2, bi=j*2, ni=Math.max(0,j-1)*2;
-        for (let s=1; s<=STEPS; s++) {
-          const t=s/STEPS, t2=t*t, t3=t2*t;
-          ctx.lineTo(
-            0.5*((2*segs[ai])+(-segs[pi]+segs[bi])*t+(2*segs[pi]-5*segs[ai]+4*segs[bi]-segs[ni])*t2+(-segs[pi]+3*segs[ai]-3*segs[bi]+segs[ni])*t3),
-            0.5*((2*segs[ai+1])+(-segs[pi+1]+segs[bi+1])*t+(2*segs[pi+1]-5*segs[ai+1]+4*segs[bi+1]-segs[ni+1])*t2+(-segs[pi+1]+3*segs[ai+1]-3*segs[bi+1]+segs[ni+1])*t3)
-          );
-        }
-      }
-      ctx.lineWidth   = R * 0.55;
-      ctx.strokeStyle = 'rgba(255,255,255,0.20)';
-      ctx.stroke();
-    }
 
     // ── Head ──────────────────────────────────────────────────────────────────
     const hx    = segs[0], hy = segs[1];
