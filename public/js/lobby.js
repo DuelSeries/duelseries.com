@@ -318,6 +318,32 @@ const socket = io();
 let account = null;
 let walletAddress = null;
 
+// ─── Login modal ──────────────────────────────────────────────────────────────
+function showLoginModal() {
+  document.getElementById('login-modal').classList.remove('hidden');
+}
+function hideLoginModal() {
+  document.getElementById('login-modal').classList.add('hidden');
+}
+document.getElementById('btn-close-login-modal').addEventListener('click', hideLoginModal);
+document.getElementById('login-modal').addEventListener('click', (e) => {
+  if (e.target === e.currentTarget) hideLoginModal();
+});
+document.getElementById('btn-login-modal').addEventListener('click', showLoginModal);
+
+// ─── Guest mode (not logged in) ───────────────────────────────────────────────
+function showGuestMode() {
+  const lockIds = ['btn-add-funds', 'btn-withdraw', 'btn-save-name', 'btn-save-name-2'];
+  lockIds.forEach(id => { const el = document.getElementById(id); if (el) el.classList.add('guest-locked'); });
+  const nameInput  = document.getElementById('player-name');
+  const nameInput2 = document.getElementById('player-name-2');
+  if (nameInput)  { nameInput.disabled  = true; nameInput.placeholder  = 'Sign in to set a name'; }
+  if (nameInput2) { nameInput2.disabled = true; nameInput2.placeholder = 'Sign in to set a name'; }
+  const signout = document.querySelector('.btn-signout');
+  if (signout) signout.style.display = 'none';
+  showArrows();
+}
+
 // Check if logged in via Google session
 fetch('/auth/me')
   .then(r => r.json())
@@ -326,12 +352,10 @@ fetch('/auth/me')
       account = acc;
       showLobby();
     } else {
-      document.getElementById('login-screen').classList.remove('hidden');
+      showGuestMode();
     }
   })
-  .catch(() => {
-    document.getElementById('login-screen').classList.remove('hidden');
-  });
+  .catch(() => { showGuestMode(); });
 
 // Check for auth error param
 if (new URLSearchParams(location.search).get('error') === 'auth') {
@@ -478,8 +502,7 @@ arrowLeft.addEventListener('click',  () => switchLobby(-1));
 
 // ─── Lobby UI ─────────────────────────────────────────────────────────────────
 function showLobby() {
-  document.getElementById('login-screen').classList.add('hidden');
-  document.getElementById('lobby-screen').classList.remove('hidden');
+  hideLoginModal();
   showArrows();
 
   document.getElementById('stat-highscore').textContent   = account.highScore     || 0;
@@ -976,6 +999,7 @@ document.querySelectorAll('.btn-lobby-type-2').forEach(btn => {
 });
 
 document.getElementById('btn-play-2').addEventListener('click', async () => {
+  if (!account) { showLoginModal(); return; }
   const name = document.getElementById('player-name-2').value.replace(/[^a-zA-Z0-9]/g, '');
   if (!name || name.length < 3) {
     setNameMsg(document.getElementById('name-error-2'), 'Choose a name (3+ characters) to play.', 'error');
@@ -1061,6 +1085,7 @@ document.querySelectorAll('.btn-lobby-type').forEach(btn => {
 
 // ─── Play ─────────────────────────────────────────────────────────────────────
 document.getElementById('btn-play').addEventListener('click', async () => {
+  if (!account) { showLoginModal(); return; }
   const gameFrame = document.getElementById('game-frame');
   if (gameFrame && gameFrame.style.display !== 'none') return; // already in game
   const name = document.getElementById('player-name').value.replace(/[^a-zA-Z0-9]/g, '');
