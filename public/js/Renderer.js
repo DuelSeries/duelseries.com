@@ -3,6 +3,7 @@ class Renderer {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
     this._isMobile = window.matchMedia('(pointer: coarse)').matches;
+    this._hexFrame = 0;
     this.hexGrid = new HexGrid(this._isMobile);
     this.camera = new Camera();
     this.boostTrails = new Map();
@@ -79,8 +80,9 @@ class Renderer {
 
     camera.apply(ctx, dpr);
 
-    // Hex grid (skip on mobile — too expensive)
-    if (!this._isMobile) this.hexGrid.draw(ctx, camera, state.worldRadius);
+    // Hex grid — every frame on desktop, every 3rd frame on mobile
+    this._hexFrame++;
+    if (!this._isMobile || this._hexFrame % 3 === 0) this.hexGrid.draw(ctx, camera, state.worldRadius);
 
     // Clip food to world circle only
     ctx.save();

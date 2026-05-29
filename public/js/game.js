@@ -801,20 +801,16 @@ socket.on('pong_check', () => {
 setInterval(sendPing, 2000);
 sendPing();
 
-// FPS counter
+// FPS / perf counters
 let fpsFrames = 0, fpsLast = performance.now(), fpsDisplay = 0;
-const fpsEl = document.getElementById('fps-counter');
-
+const fpsEl   = document.getElementById('fps-counter');
+const perfEl  = document.getElementById('perf-counter');
+let _cpuAccum = 0, _gpuAccum = 0, _perfFrames = 0;
 
 let _lastFrameTime = 0;
-const _mobileThrottle = window.matchMedia('(pointer: coarse)').matches;
-const _minFrameMs = _mobileThrottle ? 1000 / 30 : 0; // cap mobile to 30fps
-// Main render loop — runs at monitor refresh rate (60/144/240Hz), capped at 30fps on mobile
+// Main render loop — runs at monitor refresh rate (60/144/240Hz)
 function gameLoop(now) {
-  if (_mobileThrottle && now - _lastFrameTime < _minFrameMs) {
-    requestAnimationFrame(gameLoop);
-    return;
-  }
+  const _frameStart = performance.now();
   const dt = Math.min(_lastFrameTime ? now - _lastFrameTime : 16.67, 50);
   _lastFrameTime = now;
 
@@ -867,13 +863,20 @@ function gameLoop(now) {
   renderer.render(renderState, cashedOut ? null : myId, mousePos, spectateSnake, cashoutRings, dt);
 
 
-  // FPS
+  // FPS + perf
+  const _jsMs = performance.now() - _frameStart; // JS CPU time this frame
+  _cpuAccum  += _jsMs;
+  _gpuAccum  += dt; // total frame time (JS + GPU + idle) from rAF timestamps
+  _perfFrames++;
   fpsFrames++;
   if (now - fpsLast >= 500) {
     fpsDisplay = Math.round(fpsFrames * 1000 / (now - fpsLast));
-    fpsFrames = 0;
-    fpsLast = now;
-    if (fpsEl) fpsEl.textContent = `FPS: ${fpsDisplay}`;
+    const avgJs  = _cpuAccum  / _perfFrames;
+    const avgDt  = _gpuAccum  / _perfFrames;
+    const cpuPct = Math.min(Math.round(avgJs / (avgDt || 16.67) * 100), 100);
+    fpsFrames = 0; fpsLast = now; _cpuAccum = 0; _gpuAccum = 0; _perfFrames = 0;
+    if (fpsEl)  fpsEl.textContent  = `FPS: ${fpsDisplay}`;
+    if (perfEl) perfEl.textContent = `CPU: ${cpuPct}% · ${avgDt.toFixed(1)}ms`;
   }
 
   requestAnimationFrame(gameLoop);
