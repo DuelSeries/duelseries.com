@@ -97,29 +97,38 @@ class Renderer {
       const ny = pts[Math.min(i+1, pts.length-1)].y - pts[Math.max(0, i-1)].y;
       const ang = Math.atan2(ny, nx);
 
-      const bodyOff = (arcAt[i] / spriteToWorld) % BODY_H;
-      const srcY    = Math.floor(BODY_Y0 + bodyOff);
+      const bodyOff    = (arcAt[i] / spriteToWorld) % BODY_H;
+      const srcY       = Math.floor(BODY_Y0 + bodyOff);
       const stripWorld = (arcAt[i+1] - arcAt[i]) + 0.5;
-      const srcH    = Math.max(1, Math.min(Math.ceil(stripWorld / spriteToWorld), BODY_Y1 - srcY));
-      if (srcH <= 0) continue;
-      const dstH    = srcH * spriteToWorld;
+      const totalSrcH  = Math.max(1, Math.ceil(stripWorld / spriteToWorld));
+      const totalDstH  = totalSrcH * spriteToWorld;
+      const availH     = BODY_Y1 - srcY;
 
       ctx.save();
       ctx.translate(p.x, p.y);
       ctx.rotate(ang - Math.PI/2);
-      ctx.drawImage(sprite, 0, srcY, SW, srcH, -bodyR, -dstH / 2, bodyR*2, dstH);
+      if (totalSrcH <= availH) {
+        ctx.drawImage(sprite, 0, srcY, SW, totalSrcH, -bodyR, -totalDstH/2, bodyR*2, totalDstH);
+      } else {
+        // Strip crosses ring boundary — draw in two pieces to avoid gap
+        const p1H = Math.max(0, availH);
+        const p2H = totalSrcH - p1H;
+        if (p1H > 0) ctx.drawImage(sprite, 0, srcY,    SW, p1H, -bodyR, -totalDstH/2,                      bodyR*2, p1H * spriteToWorld);
+        if (p2H > 0) ctx.drawImage(sprite, 0, BODY_Y0, SW, p2H, -bodyR, -totalDstH/2 + p1H * spriteToWorld, bodyR*2, p2H * spriteToWorld);
+      }
       ctx.restore();
     }
 
-    // Head cap from sprite (bottom section)
+    // Head cap — offset forward so it starts where the body ends, not overlapping the rings
     {
       const hx = segs[0], hy = segs[1];
       const ang = snake.angle || 0;
       const headH = HEAD_H * spriteToWorld;
+      const offset = -(CONSTANTS.SNAKE_SEGMENT_SPACING / 2);
       ctx.save();
       ctx.translate(hx, hy);
       ctx.rotate(ang - Math.PI/2);
-      ctx.drawImage(sprite, 0, SH - HEAD_H, SW, HEAD_H, -bodyR, -headH / 2, bodyR*2, headH);
+      ctx.drawImage(sprite, 0, SH - HEAD_H, SW, HEAD_H, -bodyR, offset, bodyR*2, headH);
       ctx.restore();
     }
   }
