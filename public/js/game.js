@@ -57,7 +57,11 @@ let displayState = { snakes: [], food: [], worldRadius: CONSTANTS.BASE_WORLD_RAD
 
 // Socket — connect to EU EC2 for low ping when EU region is selected
 const SERVER_URLS = { na: '', eu: 'https://eu.duelseries.com' };
-const socket = io(SERVER_URLS[selectedRegion] || '');
+const socket = io(SERVER_URLS[selectedRegion] || '', {
+  transports: window.matchMedia('(pointer: coarse)').matches
+    ? ['polling']      // mobile: polling only — avoids carrier WebSocket throttling
+    : ['polling', 'websocket'],  // desktop: default upgrade path
+});
 
 const snakeColor = sessionStorage.getItem('snakeColor') || localStorage.getItem('duelseries_skin_color') || '#E8756A';
 const hatId      = sessionStorage.getItem('hatId')      || 'none';
