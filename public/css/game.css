@@ -86,7 +86,7 @@ body {
 
 #ping-display {
   position: absolute;
-  bottom: 38px;
+  bottom: 52px;
   right: 20px;
   font-size: 0.75rem;
   color: rgba(255,255,255,0.4);
@@ -110,6 +110,16 @@ body {
 #fps-counter {
   position: absolute;
   bottom: 20px;
+  right: 20px;
+  font-size: 0.75rem;
+  color: rgba(255,255,255,0.4);
+  font-family: monospace;
+  letter-spacing: 1px;
+}
+
+#perf-counter {
+  position: absolute;
+  bottom: 36px;
   right: 20px;
   font-size: 0.75rem;
   color: rgba(255,255,255,0.4);

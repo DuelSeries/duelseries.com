@@ -864,19 +864,19 @@ function gameLoop(now) {
 
 
   // FPS + perf
-  const _jsMs = performance.now() - _frameStart; // JS CPU time this frame
-  _cpuAccum  += _jsMs;
-  _gpuAccum  += dt; // total frame time (JS + GPU + idle) from rAF timestamps
+  const _jsMs  = performance.now() - _frameStart; // JS execution time this frame
+  const _gpuMs = Math.max(0, dt - _jsMs);         // estimated GPU/composite time
+  _cpuAccum   += _jsMs;
+  _gpuAccum   += _gpuMs;
   _perfFrames++;
   fpsFrames++;
   if (now - fpsLast >= 500) {
-    fpsDisplay = Math.round(fpsFrames * 1000 / (now - fpsLast));
-    const avgJs  = _cpuAccum  / _perfFrames;
-    const avgDt  = _gpuAccum  / _perfFrames;
-    const cpuPct = Math.min(Math.round(avgJs / (avgDt || 16.67) * 100), 100);
+    fpsDisplay   = Math.round(fpsFrames * 1000 / (now - fpsLast));
+    const avgCpu = _cpuAccum / _perfFrames;
+    const avgGpu = _gpuAccum / _perfFrames;
     fpsFrames = 0; fpsLast = now; _cpuAccum = 0; _gpuAccum = 0; _perfFrames = 0;
     if (fpsEl)  fpsEl.textContent  = `FPS: ${fpsDisplay}`;
-    if (perfEl) perfEl.textContent = `CPU: ${cpuPct}% · ${avgDt.toFixed(1)}ms`;
+    if (perfEl) perfEl.textContent = `CPU: ${avgCpu.toFixed(1)}ms  GPU: ${avgGpu.toFixed(1)}ms`;
   }
 
   requestAnimationFrame(gameLoop);
