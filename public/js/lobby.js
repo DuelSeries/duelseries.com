@@ -333,7 +333,7 @@ document.getElementById('btn-login-modal').addEventListener('click', showLoginMo
 
 // ─── Guest mode (not logged in) ───────────────────────────────────────────────
 function showGuestMode() {
-  const lockIds = ['btn-add-funds', 'btn-withdraw', 'btn-save-name', 'btn-save-name-2'];
+  const lockIds = ['btn-add-funds', 'btn-withdraw', 'btn-add-funds-2', 'btn-withdraw-2', 'btn-save-name', 'btn-save-name-2'];
   lockIds.forEach(id => { const el = document.getElementById(id); if (el) el.classList.add('guest-locked'); });
   const nameInput  = document.getElementById('player-name');
   const nameInput2 = document.getElementById('player-name-2');
