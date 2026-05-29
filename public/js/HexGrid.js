@@ -21,20 +21,19 @@ class HexGrid {
       this._pending      = false;
     };
 
-    // Pre-warm: kick off the first build immediately so the bitmap is ready by the time
-    // the player spawns rather than showing a blank background on the first frame.
-    const dpr  = window.devicePixelRatio || 1;
+    // Pre-warm: use capped DPR so bitmap matches the actual canvas size
+    const rawDpr = window.devicePixelRatio || 1;
+    const dpr  = isMobile ? Math.min(rawDpr, 2) : rawDpr;
     const preW = Math.round(window.innerWidth  * dpr);
     const preH = Math.round(window.innerHeight * dpr);
-    // physScale = logical scale * dpr; pre-warm uses scale=1 so physScale = dpr
     this._pending = true;
     this._worker.postMessage({ worldCX: 0, worldCY: 0, scale: dpr, screenW: preW, screenH: preH, hexScale: 1.0 });
   }
 
-  draw(ctx, camera) {
+  draw(ctx, camera, dpr) {
+    dpr = dpr || window.devicePixelRatio || 1;
     const { x: camX, y: camY, scale } = camera;
     const W   = ctx.canvas.width, H = ctx.canvas.height;  // physical pixels
-    const dpr = window.devicePixelRatio || 1;
     // physScale: physical pixels per world unit (matches camera.apply's scale*dpr)
     const physScale = scale * dpr;
 

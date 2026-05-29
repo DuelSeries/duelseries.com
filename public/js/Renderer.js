@@ -47,7 +47,8 @@ class Renderer {
   }
 
   resize() {
-    const dpr = window.devicePixelRatio || 1;
+    const rawDpr = window.devicePixelRatio || 1;
+    const dpr = this._isMobile ? Math.min(rawDpr, 2) : rawDpr;
     this.canvas.style.width  = window.innerWidth  + 'px';
     this.canvas.style.height = window.innerHeight + 'px';
     this.canvas.width  = Math.round(window.innerWidth  * dpr);
@@ -82,7 +83,7 @@ class Renderer {
 
     // Hex grid — every frame on desktop, every 3rd frame on mobile
     this._hexFrame++;
-    if (!this._isMobile || this._hexFrame % 3 === 0) this.hexGrid.draw(ctx, camera, state.worldRadius);
+    if (!this._isMobile || this._hexFrame % 3 === 0) this.hexGrid.draw(ctx, camera, dpr);
 
     // Clip food to world circle only
     ctx.save();
@@ -373,7 +374,8 @@ class Renderer {
         }
         ctx.fillStyle = '#ffff00'; ctx.beginPath(); ctx.arc(0, by - h, HR*0.16, 0, Math.PI*2); ctx.fill();
       } else if (hatId === 'halo') {
-        ctx.strokeStyle = '#FFD700'; ctx.lineWidth = HR*0.28; ctx.shadowColor = '#FFD700'; ctx.shadowBlur = HR*0.6;
+        ctx.strokeStyle = '#FFD700'; ctx.lineWidth = HR*0.28;
+        if (!this._isMobile) { ctx.shadowColor = '#FFD700'; ctx.shadowBlur = HR*0.6; }
         ctx.beginPath(); ctx.ellipse(0, by - HR*0.5, HR*0.75, HR*0.22, 0, 0, Math.PI*2); ctx.stroke();
         ctx.shadowBlur = 0;
       }
@@ -419,8 +421,7 @@ class Renderer {
       ctx.stroke();
       // Sweeping progress arc
       if (progress > 0) {
-        ctx.shadowColor = '#14F195';
-        ctx.shadowBlur  = HR * 1.2;
+        if (!this._isMobile) { ctx.shadowColor = '#14F195'; ctx.shadowBlur = HR * 1.2; }
         ctx.beginPath();
         ctx.arc(hx, hy, ringR, -Math.PI / 2, -Math.PI / 2 + progress * Math.PI * 2);
         ctx.strokeStyle = '#14F195';
