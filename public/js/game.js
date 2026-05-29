@@ -739,7 +739,7 @@ function sendInput() {
   }
   socket.emit(CONSTANTS.EVENTS.INPUT, { angle, boost: boostActive && !qHoldStart, speedMult: cashoutSpeedMult });
 }
-setInterval(sendInput, window.matchMedia('(pointer: coarse)').matches ? 1000 / 30 : 1000 / 60);
+setInterval(sendInput, 1000 / 60);
 
 // HUD (updated on each snapshot, not each frame)
 function updateHUD(snap) {
@@ -787,7 +787,6 @@ const pingValueEl = document.getElementById('ping-value');
 let pingMs = null;
 let pingSentAt = null;
 
-let _highPingStreak = 0;
 function sendPing() {
   pingSentAt = performance.now();
   socket.emit('ping_check');
@@ -798,19 +797,6 @@ socket.on('pong_check', () => {
   pingSentAt = null;
   pingValueEl.textContent = pingMs + ' ms';
   pingDotEl.className = 'ping-dot ' + (pingMs < 50 ? 'ping-green' : pingMs < 100 ? 'ping-orange' : 'ping-red');
-
-  // If carrier is throttling the WebSocket (ping > 400ms for 3 consecutive checks),
-  // force a reconnect to reset the carrier's connection timer
-  if (pingMs > 400) {
-    _highPingStreak++;
-    if (_highPingStreak >= 3) {
-      _highPingStreak = 0;
-      socket.disconnect();
-      setTimeout(() => socket.connect(), 300);
-    }
-  } else {
-    _highPingStreak = 0;
-  }
 });
 setInterval(sendPing, 2000);
 sendPing();
