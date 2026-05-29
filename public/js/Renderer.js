@@ -62,22 +62,12 @@ class Renderer {
     const BODY_Y1 = SH - HEAD_H;
     const BODY_H  = BODY_Y1 - BODY_Y0;
 
-    // sprite width maps to snake diameter
-    const spriteToWorld = (2 * R) / SW;
+    const bodyR = R * 2; // bigger body
+    const spriteToWorld = (2 * bodyR) / SW;
 
-    // Dense Catmull-Rom sample points from tail to head
-    const STEPS = 3;
-    const pts = [{ x: segs[(SN-1)*2], y: segs[(SN-1)*2+1] }];
-    for (let j = SN - 2; j >= 0; j--) {
-      const pi=Math.min(SN-1,j+2)*2, ai=(j+1)*2, bi=j*2, ni=Math.max(0,j-1)*2;
-      for (let s = 1; s <= STEPS; s++) {
-        const t=s/STEPS, t2=t*t, t3=t2*t;
-        pts.push({
-          x: 0.5*((2*segs[ai])+(-segs[pi]+segs[bi])*t+(2*segs[pi]-5*segs[ai]+4*segs[bi]-segs[ni])*t2+(-segs[pi]+3*segs[ai]-3*segs[bi]+segs[ni])*t3),
-          y: 0.5*((2*segs[ai+1])+(-segs[pi+1]+segs[bi+1])*t+(2*segs[pi+1]-5*segs[ai+1]+4*segs[bi+1]-segs[ni+1])*t2+(-segs[pi+1]+3*segs[ai+1]-3*segs[bi+1]+segs[ni+1])*t3)
-        });
-      }
-    }
+    // Raw waypoints tail→head (straight segments between each waypoint)
+    const pts = [];
+    for (let j = SN - 1; j >= 0; j--) pts.push({ x: segs[j*2], y: segs[j*2+1] });
 
     // Cumulative arc length from tail
     const arcAt = new Float32Array(pts.length);
@@ -96,11 +86,11 @@ class Renderer {
       ctx.save();
       ctx.translate(p.x, p.y);
       ctx.rotate(ang - Math.PI/2);
-      ctx.drawImage(sprite, 0, 0, SW, DOME_H, -R, -domeH, R*2, domeH);
+      ctx.drawImage(sprite, 0, 0, SW, DOME_H, -bodyR, -domeH, bodyR*2, domeH);
       ctx.restore();
     }
 
-    // Body strips: one thin slice per sample point, perpendicular to path
+    // Body strips perpendicular to path
     for (let i = 0; i < pts.length - 1; i++) {
       const p  = pts[i];
       const nx = pts[Math.min(i+1, pts.length-1)].x - pts[Math.max(0, i-1)].x;
@@ -109,7 +99,7 @@ class Renderer {
 
       const bodyOff = (arcAt[i] / spriteToWorld) % BODY_H;
       const srcY    = Math.floor(BODY_Y0 + bodyOff);
-      const stripWorld = (arcAt[i+1] - arcAt[i]) + 1; // +1 ensures overlap, no gaps
+      const stripWorld = (arcAt[i+1] - arcAt[i]) + 0.5;
       const srcH    = Math.max(1, Math.min(Math.ceil(stripWorld / spriteToWorld), BODY_Y1 - srcY));
       if (srcH <= 0) continue;
       const dstH    = srcH * spriteToWorld;
@@ -117,7 +107,19 @@ class Renderer {
       ctx.save();
       ctx.translate(p.x, p.y);
       ctx.rotate(ang - Math.PI/2);
-      ctx.drawImage(sprite, 0, srcY, SW, srcH, -R, -dstH / 2, R*2, dstH);
+      ctx.drawImage(sprite, 0, srcY, SW, srcH, -bodyR, -dstH / 2, bodyR*2, dstH);
+      ctx.restore();
+    }
+
+    // Head cap from sprite (bottom section)
+    {
+      const hx = segs[0], hy = segs[1];
+      const ang = snake.angle || 0;
+      const headH = HEAD_H * spriteToWorld;
+      ctx.save();
+      ctx.translate(hx, hy);
+      ctx.rotate(ang - Math.PI/2);
+      ctx.drawImage(sprite, 0, SH - HEAD_H, SW, HEAD_H, -bodyR, -headH / 2, bodyR*2, headH);
       ctx.restore();
     }
   }
@@ -327,38 +329,6 @@ class Renderer {
     // ── Head ──────────────────────────────────────────────────────────────────
     const hx    = segs[0], hy = segs[1];
     const angle = snake.angle || 0;
-    const fwdX  = Math.cos(angle), fwdY  = Math.sin(angle);
-    const perpX = -Math.sin(angle), perpY = Math.cos(angle);
-
-    ctx.beginPath();
-    ctx.arc(hx, hy, HR, 0, Math.PI * 2);
-    ctx.fillStyle = color;
-    ctx.fill();
-
-    // ── Eyes ──────────────────────────────────────────────────────────────────
-    const eyeR    = HR * 0.40;
-    const pupilR  = eyeR * 0.54;
-    const eyeSide = HR * 0.46;
-    const eyeFwd  = HR * 0.38;
-
-    // Pupils follow mouse for local player, movement direction for others
-    let pupilFwdX = fwdX, pupilFwdY = fwdY;
-    if (isMe && this._mousePos) {
-      const wm = this.camera.screenToWorld(this._mousePos.x, this._mousePos.y, this._canvasW, this._canvasH);
-      const pa = Math.atan2(wm.y - hy, wm.x - hx);
-      pupilFwdX = Math.cos(pa);
-      pupilFwdY = Math.sin(pa);
-    }
-
-    for (const side of [-1, 1]) {
-      const ex = hx + fwdX * eyeFwd + perpX * eyeSide * side;
-      const ey = hy + fwdY * eyeFwd + perpY * eyeSide * side;
-      ctx.beginPath(); ctx.arc(ex, ey, eyeR, 0, Math.PI * 2);
-      ctx.fillStyle = '#FFFFFF'; ctx.fill();
-      const ps = eyeR - pupilR;
-      ctx.beginPath(); ctx.arc(ex + pupilFwdX * ps, ey + pupilFwdY * ps, pupilR, 0, Math.PI * 2);
-      ctx.fillStyle = '#060606'; ctx.fill();
-    }
 
     // ── Hat ───────────────────────────────────────────────────────────────────
     if (hatId !== 'none') {
