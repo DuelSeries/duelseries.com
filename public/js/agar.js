@@ -13,6 +13,7 @@ let myId        = null;
 let myName      = 'Player';
 let myColor     = '#6366f1';
 let lobbyType   = 'free';
+let spectateOnly = false;
 
 let serverPlayers = new Map();
 let renderPlayers = new Map();
@@ -62,10 +63,10 @@ function goToLobby() {
 window.addEventListener('DOMContentLoaded', () => {
   canvas  = document.getElementById('game-canvas');
   ctx     = canvas.getContext('2d');
-  myName    = sessionStorage.getItem('playerName')  || 'Player';
-  myColor   = localStorage.getItem('duelseries_skin_color') || '#6366f1';
-  lobbyType = sessionStorage.getItem('lobbyType') || 'free';
-  const spectateOnly = sessionStorage.getItem('spectateOnly') === 'true';
+  myName      = sessionStorage.getItem('playerName')  || 'Player';
+  myColor     = localStorage.getItem('duelseries_skin_color') || '#6366f1';
+  lobbyType   = sessionStorage.getItem('lobbyType') || 'free';
+  spectateOnly = sessionStorage.getItem('spectateOnly') === 'true';
 
   resize();
   window.addEventListener('resize', resize);
