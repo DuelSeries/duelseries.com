@@ -299,7 +299,11 @@ class GameRoom {
   }
 
   broadcastSnapshot() {
-    if (this.players.size === 0) return;
+    // Broadcast whenever anyone is in the room — players OR spectators. (Spectators
+    // join the socket room but aren't tracked as players, and bots aren't players
+    // either, so gating on players.size froze the world for spectators.)
+    const roomSet = this.io.sockets.adapter.rooms.get(this.socketRoomName);
+    if (!roomSet || roomSet.size === 0) return;
 
     const snakeData = [];
     for (const snake of this.snakes.values()) {
