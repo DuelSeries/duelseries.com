@@ -230,6 +230,29 @@ class Renderer {
     if (this._foodPhaseCache.size > food.length * 2) this._foodPhaseCache.clear();
   }
 
+  // Parse a CSS hex colour to {r,g,b} (cached)
+  _parseColor(c) {
+    if (!this._colorCache) this._colorCache = new Map();
+    let v = this._colorCache.get(c);
+    if (v) return v;
+    let r = 255, g = 255, b = 255;
+    if (typeof c === 'string' && c[0] === '#') {
+      if (c.length === 7) { r = parseInt(c.slice(1,3),16); g = parseInt(c.slice(3,5),16); b = parseInt(c.slice(5,7),16); }
+      else if (c.length === 4) { r = parseInt(c[1]+c[1],16); g = parseInt(c[2]+c[2],16); b = parseInt(c[3]+c[3],16); }
+    }
+    v = { r, g, b };
+    this._colorCache.set(c, v);
+    return v;
+  }
+
+  // Tint a base colour by a brightness factor: f<1 darkens, f>1 lifts toward white
+  _tint(base, f) {
+    let r, g, b;
+    if (f <= 1) { r = base.r * f; g = base.g * f; b = base.b * f; }
+    else { const k = Math.min(1, (f - 1) / 0.5); r = base.r + (255-base.r)*k; g = base.g + (255-base.g)*k; b = base.b + (255-base.b)*k; }
+    return 'rgb(' + (r|0) + ',' + (g|0) + ',' + (b|0) + ')';
+  }
+
   _drawSnake(ctx, snake, isMe) {
     if (!snake.segs || snake.segs.length < 4) return;
     const { segs, color, boosting, name } = snake;
@@ -246,33 +269,76 @@ class Renderer {
     ctx.lineJoin = 'round';
 
     const STEPS = 3;
-    const CHUNK = 8;
+    const CHUNK = 6;
+    const spacing = CONSTANTS.SNAKE_SEGMENT_SPACING;
+    const base = this._parseColor(color);
+    const mobile = this._isMobile;
 
-    // Helper: draw the Catmull-Rom spline path for the body
-    const drawBodyPath = () => {
-      for (let end = SN - 1; end > 0; end -= CHUNK) {
-        const start = Math.max(0, end - CHUNK);
-        ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-        ctx.beginPath();
-        ctx.moveTo(segs[end * 2], segs[end * 2 + 1]);
-        for (let j = end - 1; j >= start; j--) {
-          const pi = Math.min(SN-1,j+2)*2, ai=(j+1)*2, bi=j*2, ni=Math.max(0,j-1)*2;
-          for (let s = 1; s <= STEPS; s++) {
-            const t=s/STEPS, t2=t*t, t3=t2*t;
-            ctx.lineTo(
-              0.5*((2*segs[ai])+(-segs[pi]+segs[bi])*t+(2*segs[pi]-5*segs[ai]+4*segs[bi]-segs[ni])*t2+(-segs[pi]+3*segs[ai]-3*segs[bi]+segs[ni])*t3),
-              0.5*((2*segs[ai+1])+(-segs[pi+1]+segs[bi+1])*t+(2*segs[pi+1]-5*segs[ai+1]+4*segs[bi+1]-segs[ni+1])*t2+(-segs[pi+1]+3*segs[ai+1]-3*segs[bi+1]+segs[ni+1])*t3)
-            );
-          }
+    // Build the Catmull-Rom spline path for one chunk of the body
+    const buildChunk = (start, end) => {
+      ctx.beginPath();
+      ctx.moveTo(segs[end * 2], segs[end * 2 + 1]);
+      for (let j = end - 1; j >= start; j--) {
+        const pi = Math.min(SN-1,j+2)*2, ai=(j+1)*2, bi=j*2, ni=Math.max(0,j-1)*2;
+        for (let s = 1; s <= STEPS; s++) {
+          const t=s/STEPS, t2=t*t, t3=t2*t;
+          ctx.lineTo(
+            0.5*((2*segs[ai])+(-segs[pi]+segs[bi])*t+(2*segs[pi]-5*segs[ai]+4*segs[bi]-segs[ni])*t2+(-segs[pi]+3*segs[ai]-3*segs[bi]+segs[ni])*t3),
+            0.5*((2*segs[ai+1])+(-segs[pi+1]+segs[bi+1])*t+(2*segs[pi+1]-5*segs[ai+1]+4*segs[bi+1]-segs[ni+1])*t2+(-segs[pi+1]+3*segs[ai+1]-3*segs[bi+1]+segs[ni+1])*t3)
+          );
         }
-        ctx.lineWidth = R * 2;
-        ctx.stroke();
       }
     };
 
-    // ── Body: solid colour only ────────────────────────────────────────────────
-    ctx.strokeStyle = color;
-    drawBodyPath();
+    // Cross-section concentric layers [half-width ×R, brightness], edge -> centre
+    // (sampled shape from snake_sprite.png: dark edges rising to a bright centre)
+    const LAYERS = mobile
+      ? [[1.0, 0.34], [0.6, 0.72], [0.28, 1.06]]
+      : [[1.0, 0.30], [0.84, 0.46], [0.62, 0.70], [0.40, 0.92], [0.20, 1.10]];
+    // Long brightness wave down the body: ~light / dark every 13 grooves
+    const WAVE_PERIOD = R * 6.1;
+    const waveAt = (distHead) => 0.78 + 0.45 * (0.5 + 0.5 * Math.cos(2 * Math.PI * (distHead % WAVE_PERIOD) / WAVE_PERIOD));
+
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    for (const layer of LAYERS) {
+      const lw = 2 * R * layer[0], bf = layer[1];
+      for (let end = SN - 1; end > 0; end -= CHUNK) {
+        const start = Math.max(0, end - CHUNK);
+        const wave = waveAt((start + end) * 0.5 * spacing);
+        ctx.strokeStyle = this._tint(base, bf * wave);
+        ctx.lineWidth = lw;
+        buildChunk(start, end);
+        ctx.stroke();
+      }
+    }
+
+    // ── Semicircle grooves bowing toward the tail, faded off near the head ──────
+    {
+      const GROOVE_W = R * (mobile ? 0.8 : 0.5);
+      const spanR = R * 0.92;
+      const bodyLen = (SN - 1) * spacing;
+      ctx.lineCap = 'butt';
+      for (let d = R * 1.3; d < bodyLen; d += GROOVE_W) {
+        const i = Math.min(SN - 2, Math.max(1, Math.round(d / spacing)));
+        const cx = segs[i*2], cy = segs[i*2+1];
+        let tlx = segs[(i+1)*2] - cx, tly = segs[(i+1)*2+1] - cy; // toward tail
+        const tl = Math.hypot(tlx, tly) || 1; tlx /= tl; tly /= tl;
+        const nx = -tly, ny = tlx;
+        const fade = Math.min(1, (d - R * 1.3) / (R * 0.8));
+        ctx.beginPath();
+        for (let s = 0; s <= 8; s++) {
+          const u = -1 + 2 * s / 8;
+          const bow = spanR * Math.sqrt(Math.max(0, 1 - u * u));
+          const px = cx + nx * (u * spanR) + tlx * bow;
+          const py = cy + ny * (u * spanR) + tly * bow;
+          s === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+        }
+        ctx.strokeStyle = 'rgba(0,0,0,' + (0.13 * fade).toFixed(3) + ')';
+        ctx.lineWidth = R * 0.16;
+        ctx.stroke();
+      }
+    }
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
 
     // ── Head ──────────────────────────────────────────────────────────────────
     const hx    = segs[0], hy = segs[1];
@@ -280,16 +346,20 @@ class Renderer {
     const fwdX  = Math.cos(angle), fwdY  = Math.sin(angle);
     const perpX = -Math.sin(angle), perpY = Math.cos(angle);
 
-    ctx.beginPath();
-    ctx.arc(hx, hy, HR, 0, Math.PI * 2);
-    ctx.fillStyle = color;
-    ctx.fill();
+    // Shaded head dome — concentric circles using the same cross-section tint
+    const headWave = waveAt(0);
+    for (const layer of LAYERS) {
+      ctx.beginPath();
+      ctx.arc(hx, hy, HR * layer[0], 0, Math.PI * 2);
+      ctx.fillStyle = this._tint(base, layer[1] * headWave);
+      ctx.fill();
+    }
 
     // ── Eyes ──────────────────────────────────────────────────────────────────
-    const eyeR    = HR * 0.40;
-    const pupilR  = eyeR * 0.54;
-    const eyeSide = HR * 0.46;
-    const eyeFwd  = HR * 0.38;
+    const eyeR    = HR * 0.38;
+    const pupilR  = eyeR * 0.60;
+    const eyeSide = HR * 0.43;
+    const eyeFwd  = HR * 0.40;
 
     // Pupils follow mouse for local player, movement direction for others
     let pupilFwdX = fwdX, pupilFwdY = fwdY;
