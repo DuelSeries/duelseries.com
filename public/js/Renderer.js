@@ -6,8 +6,16 @@ class Renderer {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
     this._isMobile = window.matchMedia('(pointer: coarse)').matches;
-    // Per-pixel "exact" snake preview — opt-in via ?pp=1 (heavy; local snake only)
-    this._ppMode = typeof location !== 'undefined' && /[?&]pp=1/.test(location.search);
+    // Per-pixel "exact" snake preview — opt-in via ?pp=1 (heavy; local snake only).
+    // Persisted in localStorage so it survives the lobby -> game navigation.
+    // Turn off with ?pp=0.
+    this._ppMode = false;
+    try {
+      const s = (typeof location !== 'undefined' && location.search) || '';
+      if (/[?&]pp=1/.test(s)) localStorage.setItem('pp', '1');
+      if (/[?&]pp=0/.test(s)) localStorage.removeItem('pp');
+      this._ppMode = /[?&]pp=1/.test(s) || localStorage.getItem('pp') === '1';
+    } catch (e) {}
     this._hexFrame = 0;
     this.hexGrid = new HexGrid(this._isMobile);
     this.camera = new Camera();
