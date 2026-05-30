@@ -1,4 +1,26 @@
 
+// ─── Shared WebGL snake-body renderer for lobby previews/demo snakes ──────────
+const _lobbyGL = (typeof SnakeGL !== 'undefined') ? (function(){ try { return new SnakeGL(); } catch(e){ return null; } })() : null;
+function _lobbyParseColor(c) {
+  let r=110,g=174,b=175;
+  if (typeof c==='string' && c[0]==='#') {
+    if (c.length===7){ r=parseInt(c.slice(1,3),16); g=parseInt(c.slice(3,5),16); b=parseInt(c.slice(5,7),16); }
+    else if (c.length===4){ r=parseInt(c[1]+c[1],16); g=parseInt(c[2]+c[2],16); b=parseInt(c[3]+c[3],16); }
+  }
+  return { r, g, b };
+}
+// Render a snake body via GL onto ctx. pts: array of {x,y}, head first. Returns true if drawn.
+function glSnakeBody(ctx, pts, R, colorHex) {
+  if (!_lobbyGL || !_lobbyGL.ok || pts.length < 2) return false;
+  _lobbyGL.ensureSize(ctx.canvas.width, ctx.canvas.height);
+  const N = pts.length, segs = new Float32Array(N*2);
+  for (let i=0;i<N;i++){ segs[i*2]=pts[i].x; segs[i*2+1]=pts[i].y; }
+  const r = _lobbyGL.renderBody(segs, N, R, _lobbyParseColor(colorHex), 1);
+  if (!r) return false;
+  ctx.drawImage(_lobbyGL.canvas, 0, _lobbyGL.canvas.height - r.offH, r.offW, r.offH, r.minX, r.minY, r.bw, r.bh);
+  return true;
+}
+
 // ─── Hex background ───────────────────────────────────────────────────────────
 (function() {
   const canvas = document.getElementById('bg-canvas');
@@ -1256,71 +1278,28 @@ document.getElementById('btn-spectate-lobby-2').addEventListener('click', () => 
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
 
-    // Body — bezier path from tail → head
-    ctx.beginPath();
-    ctx.moveTo(pts[N-1].x, pts[N-1].y);
-    for (let i = N-2; i >= 1; i--) {
-      const mx = (pts[i].x + pts[i-1].x) / 2, my = (pts[i].y + pts[i-1].y) / 2;
-      ctx.quadraticCurveTo(pts[i].x, pts[i].y, mx, my);
-    }
-    ctx.lineTo(pts[0].x, pts[0].y);
-    ctx.lineWidth = R * 2;
-    ctx.strokeStyle = color;
-    ctx.stroke();
-
-    // Tapered arc creases (same technique as in-game renderer)
-    const CREASE_SPACING = R * 1.76;
-    const PASSES = 15, SEGS = 8;
-    function taperedArc(cx, cy, fwdAngle, r, baseAlpha, lw) {
-      for (let s = 0; s < SEGS; s++) {
-        const t0 = s / SEGS, t1 = (s+1) / SEGS;
-        const taper = Math.sin((t0+t1) / 2 * Math.PI);
-        ctx.beginPath();
-        ctx.arc(cx, cy, r,
-          fwdAngle + Math.PI*0.5 + t0*Math.PI,
-          fwdAngle + Math.PI*0.5 + t1*Math.PI, false);
-        ctx.strokeStyle = `rgba(0,0,0,${baseAlpha * taper})`;
-        ctx.lineWidth = lw;
-        ctx.lineCap = 'butt';
-        ctx.stroke();
-      }
-    }
-
-    let dist = -R * 0.35;
-    for (let i = 1; i < N - 1; i++) {
-      const dx = pts[i].x - pts[i-1].x, dy = pts[i].y - pts[i-1].y;
-      dist += Math.sqrt(dx*dx + dy*dy);
-      if (dist < CREASE_SPACING) continue;
-      dist -= CREASE_SPACING;
-      const pi = Math.max(0, i-2), ni = Math.min(N-1, i+2);
-      const fwdAngle = Math.atan2(pts[pi].y - pts[ni].y, pts[pi].x - pts[ni].x);
-      for (let p = 0; p < PASSES; p++) {
-        const t = p / (PASSES-1);
-        taperedArc(pts[i].x, pts[i].y, fwdAngle,
-          R * (0.88 + t*0.12),
-          R * (0.50 * Math.pow(1-t, 1.5) + 0.035),
-          0.001 + Math.pow(t, 2.5) * 0.042);
-      }
-    }
-
-    // Head — flush circle + crease + eyes
     const hx = pts[0].x, hy = pts[0].y;
-    const ang  = Math.atan2(pts[0].y - pts[1].y, pts[0].x - pts[1].x);
-    ctx.beginPath(); ctx.arc(hx, hy, R, 0, Math.PI*2);
-    ctx.fillStyle = color; ctx.fill();
+    const ang = Math.atan2(pts[0].y - pts[1].y, pts[0].x - pts[1].x);
 
-    for (let p = 0; p < PASSES; p++) {
-      const t = p / (PASSES-1);
-      taperedArc(hx, hy, ang,
-        R * (0.88 + t*0.12),
-        R * (0.50 * Math.pow(1-t, 1.5) + 0.035),
-        0.001 + Math.pow(t, 2.5) * 0.042);
+    // Body via WebGL shader (same look as in-game); falls back to flat style
+    const glDrawn = glSnakeBody(ctx, pts, R, color);
+    if (!glDrawn) {
+      ctx.beginPath();
+      ctx.moveTo(pts[N-1].x, pts[N-1].y);
+      for (let i = N-2; i >= 1; i--) {
+        const mx = (pts[i].x + pts[i-1].x) / 2, my = (pts[i].y + pts[i-1].y) / 2;
+        ctx.quadraticCurveTo(pts[i].x, pts[i].y, mx, my);
+      }
+      ctx.lineTo(pts[0].x, pts[0].y);
+      ctx.lineWidth = R * 2; ctx.strokeStyle = color; ctx.stroke();
+      ctx.beginPath(); ctx.arc(hx, hy, R, 0, Math.PI*2); ctx.fillStyle = color; ctx.fill();
     }
 
+    // Eyes (drawn on top in 2D either way)
     const fwdX = Math.cos(ang), fwdY = Math.sin(ang);
     const perpX = -Math.sin(ang), perpY = Math.cos(ang);
-    const eyeR = R * 0.40, pupilR = eyeR * 0.54;
-    const eyeSide = R * 0.46, eyeFwd = R * 0.38;
+    const eyeR = R * 0.38, pupilR = eyeR * 0.60;
+    const eyeSide = R * 0.43, eyeFwd = R * 0.40;
     for (const s of [-1, 1]) {
       const ex = hx + fwdX*eyeFwd + perpX*eyeSide*s;
       const ey = hy + fwdY*eyeFwd + perpY*eyeSide*s;

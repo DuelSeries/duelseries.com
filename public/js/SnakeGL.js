@@ -2,8 +2,13 @@
 // so it stays fast at any size. Renders one snake's body into an offscreen GL
 // canvas region; the 2D Renderer composites it with drawImage and draws the
 // eyes/name/hat/trails on top. Falls back gracefully if WebGL is unavailable.
+// Cross-section brightness profile (centre -> edge) sampled from snake_sprite.png.
+// Built-in default so SnakeGL works standalone (e.g. in the lobby).
+const SNAKEGL_DEFAULT_LUT = [1,0.999,0.991,0.982,0.97,0.959,0.944,0.923,0.902,0.876,0.86,0.836,0.82,0.798,0.779,0.756,0.737,0.71,0.696,0.661,0.643,0.602,0.561,0.504];
+
 class SnakeGL {
   constructor(crossLut) {
+    crossLut = crossLut || SNAKEGL_DEFAULT_LUT;
     this.ok = false;
     this.MAXPTS = 120;
     try {
