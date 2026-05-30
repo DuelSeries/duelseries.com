@@ -186,7 +186,10 @@ class SnakeGL {
     gl.viewport(0, 0, offW, offH);
     gl.disable(gl.BLEND);
     gl.clearColor(0,0,0,0);
-    gl.enable(gl.SCISSOR_TEST); gl.scissor(0,0,offW,offH);
+    gl.enable(gl.SCISSOR_TEST);
+    // Clear a 2px gutter beyond the tile so drawImage's edge sampling can't pull
+    // in leftover pixels from other snakes sharing this canvas (the faint box).
+    gl.scissor(0, 0, Math.min(this.canvas.width, offW + 2), Math.min(this.canvas.height, offH + 2));
     gl.clear(gl.COLOR_BUFFER_BIT);
 
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quad);
