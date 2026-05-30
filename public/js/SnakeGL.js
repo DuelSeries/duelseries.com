@@ -161,7 +161,10 @@ class SnakeGL {
 
     let minX=1e9,minY=1e9,maxX=-1e9,maxY=-1e9;
     for (let i=0;i<SN;i++){ const x=segs[i*2],y=segs[i*2+1]; if(x<minX)minX=x; if(x>maxX)maxX=x; if(y<minY)minY=y; if(y>maxY)maxY=y; }
-    const marg = R + 4;   // small transparent border for the anti-aliased edge
+    // Transparent border around the tube. Sized in WORLD units but kept to at
+    // least a few SCREEN pixels even when zoomed out — otherwise the anti-aliased
+    // edge reaches the tile boundary and shows as a faint flickering box.
+    const marg = R + 4 + 3 / Math.max(screenScale, 0.0001);
     minX-=marg; minY-=marg; maxX+=marg; maxY+=marg;
     const bw = maxX-minX, bh = maxY-minY;
     let offW = Math.min(this.canvas.width,  Math.max(2, Math.ceil(bw*screenScale)));
