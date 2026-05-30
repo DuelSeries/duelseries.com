@@ -186,6 +186,10 @@ class GameRoom {
         if (d < C.FOOD_EAT_RADIUS) {
           snake.grow(food.value);
           if (food.cashValue > 0) snake.worth += food.cashValue;
+          if (food.dropped) {
+            const p = this.players.get(snake.id);
+            if (p) p.socket.emit('ate_dropped_food');
+          }
           this.foodManager.remove(food.id);
         } else if (!turningSharp && d < PULL_RADIUS) {
           // Smooth proportional pull — stronger closer to the head

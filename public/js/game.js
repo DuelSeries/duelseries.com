@@ -71,6 +71,29 @@ socket.on('connect', () => {
   }
 });
 
+function playMoneySound() {
+  if (window.gameMuted) return;
+  try {
+    const ac = new (window.AudioContext || window.webkitAudioContext)();
+    [[880, 0], [1100, 0.07], [1320, 0.13], [1760, 0.19]].forEach(([freq, delay]) => {
+      const osc  = ac.createOscillator();
+      const gain = ac.createGain();
+      osc.connect(gain);
+      gain.connect(ac.destination);
+      osc.type = 'triangle';
+      osc.frequency.value = freq;
+      const t = ac.currentTime + delay;
+      gain.gain.setValueAtTime(0, t);
+      gain.gain.linearRampToValueAtTime(0.25, t + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.28);
+      osc.start(t);
+      osc.stop(t + 0.28);
+    });
+  } catch(e) {}
+}
+
+socket.on('ate_dropped_food', playMoneySound);
+
 function playJoinSound() {
   if (window.gameMuted) return;
   try {
