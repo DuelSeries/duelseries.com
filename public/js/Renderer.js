@@ -356,6 +356,51 @@ class Renderer {
     return true;
   }
 
+  // Tint a base colour by a brightness factor: f<1 darkens, f>1 lifts toward white
+  _tint(base, f) {
+    let r, g, b;
+    if (f <= 1) { r = base.r * f; g = base.g * f; b = base.b * f; }
+    else { const k = Math.min(1, (f - 1) / 0.5); r = base.r + (255-base.r)*k; g = base.g + (255-base.g)*k; b = base.b + (255-base.b)*k; }
+    return 'rgb(' + (r|0) + ',' + (g|0) + ',' + (b|0) + ')';
+  }
+
+  // Lightweight shaded body (concentric cross-section strokes + shaded head dome),
+  // tinted per colour. Used for every snake on devices without WebGL so bots stay
+  // shaded instead of falling back to a flat blank colour.
+  _drawSnakeBodyStroke(ctx, segs, SN, R, base) {
+    const LAYERS = this._isMobile
+      ? [[1.0,0.34],[0.6,0.72],[0.28,1.06]]
+      : [[1.0,0.30],[0.84,0.50],[0.62,0.74],[0.40,0.95],[0.20,1.12]];
+    const STEPS = 3;
+    const drawFull = () => {
+      ctx.beginPath();
+      ctx.moveTo(segs[(SN-1)*2], segs[(SN-1)*2+1]);
+      for (let j = SN-2; j >= 0; j--) {
+        const pi=Math.min(SN-1,j+2)*2, ai=(j+1)*2, bi=j*2, ni=Math.max(0,j-1)*2;
+        for (let s=1;s<=STEPS;s++){ const t=s/STEPS,t2=t*t,t3=t2*t;
+          ctx.lineTo(
+            0.5*((2*segs[ai])+(-segs[pi]+segs[bi])*t+(2*segs[pi]-5*segs[ai]+4*segs[bi]-segs[ni])*t2+(-segs[pi]+3*segs[ai]-3*segs[bi]+segs[ni])*t3),
+            0.5*((2*segs[ai+1])+(-segs[pi+1]+segs[bi+1])*t+(2*segs[pi+1]-5*segs[ai+1]+4*segs[bi+1]-segs[ni+1])*t2+(-segs[pi+1]+3*segs[ai+1]-3*segs[bi+1]+segs[ni+1])*t3)
+          );
+        }
+      }
+    };
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    for (const [wf, bf] of LAYERS) {
+      ctx.strokeStyle = this._tint(base, bf);
+      ctx.lineWidth = 2 * R * wf;
+      drawFull();
+      ctx.stroke();
+    }
+    const hx = segs[0], hy = segs[1];
+    for (const [wf, bf] of LAYERS) {
+      ctx.beginPath();
+      ctx.arc(hx, hy, R * wf, 0, Math.PI * 2);
+      ctx.fillStyle = this._tint(base, bf);
+      ctx.fill();
+    }
+  }
+
   _drawSnake(ctx, snake, isMe) {
     if (!snake.segs || snake.segs.length < 4) return;
     const { segs, color, boosting, name } = snake;
@@ -407,12 +452,9 @@ class Renderer {
         bodyDrawn = true;
       }
     }
-    if (!bodyDrawn && this._ppMode && isMe) {
-      bodyDrawn = this._drawSnakeBodyPerPixel(ctx, snake, R, SN, base);
-    }
     if (!bodyDrawn) {
-      ctx.strokeStyle = color;
-      drawBodyPath();
+      // No WebGL on this device — shaded stroke body (+ head dome) for every snake
+      this._drawSnakeBodyStroke(ctx, segs, SN, R, base);
     }
 
     // ── Head ──────────────────────────────────────────────────────────────────
@@ -420,14 +462,6 @@ class Renderer {
     const angle = snake.angle || 0;
     const fwdX  = Math.cos(angle), fwdY  = Math.sin(angle);
     const perpX = -Math.sin(angle), perpY = Math.cos(angle);
-
-    if (!bodyDrawn) {
-      // per-pixel path already renders the shaded head dome
-      ctx.beginPath();
-      ctx.arc(hx, hy, HR, 0, Math.PI * 2);
-      ctx.fillStyle = color;
-      ctx.fill();
-    }
 
     // ── Eyes ──────────────────────────────────────────────────────────────────
     const eyeR    = HR * 0.40;
