@@ -13,132 +13,202 @@
 <canvas id="c"></canvas>
 <script>
 
-// ── Config ────────────────────────────────────────────────────────────────────
-const SNAKE_COLOR       = '#4af';       // change this to try different colours
-const SNAKE_SEG_COUNT   = 60;           // how many segments (length)
-const SNAKE_SEG_SPACING = 3;            // world units between segments (matches game)
-const SNAKE_HEAD_RADIUS = 10;           // matches game constant
-const SNAKE_LENGTH      = 100;          // affects how thick it grows (same scale as game)
-const SCALE             = 3;            // screen pixels per world unit
-// ─────────────────────────────────────────────────────────────────────────────
+const SNAKE_SEG_COUNT   = 60;
+const SNAKE_SEG_SPACING = 3;
+const SNAKE_HEAD_RADIUS = 10;
+const SNAKE_LENGTH      = 100;
+const SCALE             = 3;
 
 const canvas = document.getElementById('c');
 canvas.width  = window.innerWidth;
 canvas.height = window.innerHeight;
 const ctx = canvas.getContext('2d');
 
-const W = canvas.width  / SCALE;
-const H = canvas.height / SCALE;
+let W = canvas.width  / SCALE;
+let H = canvas.height / SCALE;
 
-// Build a curved snake path (head at index 0, tail at end)
-const segs = new Float32Array(SNAKE_SEG_COUNT * 2);
-const bodyLen = (SNAKE_SEG_COUNT - 1) * SNAKE_SEG_SPACING;
-for (let i = 0; i < SNAKE_SEG_COUNT; i++) {
-  const t = i / (SNAKE_SEG_COUNT - 1);
-  segs[i * 2]     = W / 2 + bodyLen / 2 - i * SNAKE_SEG_SPACING;
-  segs[i * 2 + 1] = H / 2 + Math.sin(t * Math.PI * 2) * 45;
+function buildSegs() {
+  const segs = new Float32Array(SNAKE_SEG_COUNT * 2);
+  const bodyLen = (SNAKE_SEG_COUNT - 1) * SNAKE_SEG_SPACING;
+  const tiltRad = 0.09; // ~5 degrees — nearly vertical
+  for (let i = 0; i < SNAKE_SEG_COUNT; i++) {
+    const t = i / (SNAKE_SEG_COUNT - 1);
+    const wave = Math.sin(t * Math.PI) * 1.5; // tiny organic bow
+    segs[i * 2]     = W / 2 + wave + i * SNAKE_SEG_SPACING * Math.sin(tiltRad);
+    segs[i * 2 + 1] = H / 2 + bodyLen / 2 - i * SNAKE_SEG_SPACING * Math.cos(tiltRad);
+  }
+  return segs;
 }
 
+const segs = buildSegs();
 const snake = {
   segs,
   length: SNAKE_LENGTH,
-  color:  SNAKE_COLOR,
-  angle:  Math.atan2(segs[1] - segs[3], segs[0] - segs[2]),
+  angle: Math.atan2(segs[1] - segs[3], segs[0] - segs[2]),
 };
 
 let mousePos = null;
 canvas.addEventListener('mousemove', e => {
   const r = canvas.getBoundingClientRect();
-  mousePos = {
-    x: (e.clientX - r.left) / SCALE,
-    y: (e.clientY - r.top)  / SCALE,
-  };
+  mousePos = { x: (e.clientX - r.left) / SCALE, y: (e.clientY - r.top) / SCALE };
 });
 
-function draw() {
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.fillStyle = '#070707';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+const STEPS = 6;
 
-  ctx.setTransform(SCALE, 0, 0, SCALE, 0, 0);
-  drawSnake(ctx, snake);
+function tracePath() {
+  const SN = segs.length >> 1;
+  ctx.beginPath();
+  ctx.moveTo(segs[(SN-1)*2], segs[(SN-1)*2+1]);
+  for (let i = SN - 2; i >= 0; i--) {
+    const p0x = segs[Math.min(SN-1,i+2)*2],   p0y = segs[Math.min(SN-1,i+2)*2+1];
+    const p1x = segs[(i+1)*2],                 p1y = segs[(i+1)*2+1];
+    const p2x = segs[i*2],                     p2y = segs[i*2+1];
+    const p3x = segs[Math.max(0,i-1)*2],       p3y = segs[Math.max(0,i-1)*2+1];
+    for (let s = 1; s <= STEPS; s++) {
+      const t=s/STEPS, t2=t*t, t3=t2*t;
+      ctx.lineTo(
+        0.5*((2*p1x)+(-p0x+p2x)*t+(2*p0x-5*p1x+4*p2x-p3x)*t2+(-p0x+3*p1x-3*p2x+p3x)*t3),
+        0.5*((2*p1y)+(-p0y+p2y)*t+(2*p0y-5*p1y+4*p2y-p3y)*t2+(-p0y+3*p1y-3*p2y+p3y)*t3)
+      );
+    }
+  }
 }
 
-function drawSnake(ctx, snake) {
-  const { segs, color, angle } = snake;
+function sampleSpine() {
+  const SN = segs.length >> 1;
+  const pts = [];
+  for (let i = SN - 2; i >= 0; i--) {
+    const p0x = segs[Math.min(SN-1,i+2)*2],   p0y = segs[Math.min(SN-1,i+2)*2+1];
+    const p1x = segs[(i+1)*2],                 p1y = segs[(i+1)*2+1];
+    const p2x = segs[i*2],                     p2y = segs[i*2+1];
+    const p3x = segs[Math.max(0,i-1)*2],       p3y = segs[Math.max(0,i-1)*2+1];
+    for (let s = 0; s < STEPS; s++) {
+      const t=s/STEPS, t2=t*t, t3=t2*t;
+      const x  = 0.5*((2*p1x)+(-p0x+p2x)*t+(2*p0x-5*p1x+4*p2x-p3x)*t2+(-p0x+3*p1x-3*p2x+p3x)*t3);
+      const y  = 0.5*((2*p1y)+(-p0y+p2y)*t+(2*p0y-5*p1y+4*p2y-p3y)*t2+(-p0y+3*p1y-3*p2y+p3y)*t3);
+      const dx = 0.5*((-p0x+p2x)+(2*(2*p0x-5*p1x+4*p2x-p3x))*t+(3*(-p0x+3*p1x-3*p2x+p3x))*t2);
+      const dy = 0.5*((-p0y+p2y)+(2*(2*p0y-5*p1y+4*p2y-p3y))*t+(3*(-p0y+3*p1y-3*p2y+p3y))*t2);
+      const len = Math.sqrt(dx*dx+dy*dy) || 1;
+      pts.push({ x, y, nx: -dy/len, ny: dx/len });
+    }
+  }
+  return pts;
+}
+
+function drawSnake(ctx) {
   const SN = segs.length >> 1;
   if (SN < 2) return;
 
-  const growthScale = 1 + Math.min(1.5, (snake.length || 20) / 200);
-  const R  = SNAKE_HEAD_RADIUS * growthScale;
-  const HR = R;
+  const R = SNAKE_HEAD_RADIUS * (1 + Math.min(1.5, SNAKE_LENGTH / 200));
 
   ctx.save();
   ctx.lineCap  = 'round';
   ctx.lineJoin = 'round';
 
-  const STEPS = 3;
-  const CHUNK = 8;
-
-  const drawBodyPath = () => {
-    for (let end = SN - 1; end > 0; end -= CHUNK) {
-      const start = Math.max(0, end - CHUNK);
-      ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-      ctx.beginPath();
-      ctx.moveTo(segs[end * 2], segs[end * 2 + 1]);
-      for (let j = end - 1; j >= start; j--) {
-        const pi = Math.min(SN-1,j+2)*2, ai=(j+1)*2, bi=j*2, ni=Math.max(0,j-1)*2;
-        for (let s = 1; s <= STEPS; s++) {
-          const t=s/STEPS, t2=t*t, t3=t2*t;
-          ctx.lineTo(
-            0.5*((2*segs[ai])+(-segs[pi]+segs[bi])*t+(2*segs[pi]-5*segs[ai]+4*segs[bi]-segs[ni])*t2+(-segs[pi]+3*segs[ai]-3*segs[bi]+segs[ni])*t3),
-            0.5*((2*segs[ai+1])+(-segs[pi+1]+segs[bi+1])*t+(2*segs[pi+1]-5*segs[ai+1]+4*segs[bi+1]-segs[ni+1])*t2+(-segs[pi+1]+3*segs[ai+1]-3*segs[bi+1]+segs[ni+1])*t3)
-          );
-        }
-      }
-      ctx.lineWidth = R * 2;
-      ctx.stroke();
-    }
+  const sp = (w, color, blur, blurColor) => {
+    tracePath();
+    ctx.lineWidth   = w;
+    ctx.strokeStyle = color;
+    if (blur) { ctx.shadowBlur = blur; ctx.shadowColor = blurColor || color; }
+    ctx.stroke();
+    ctx.shadowBlur = 0;
   };
 
-  // ── Body ──────────────────────────────────────────────────────────────────
-  ctx.strokeStyle = color;
-  drawBodyPath();
+  // Colours sampled directly from snake_sprite.png — muted grey-teal cylinder
+  // ── 1. Soft glow halo ──────────────────────────────────────────────────────
+  sp(R * 2.5, 'rgba(95,170,164,0.01)', 26, 'rgba(95,170,164,0.55)');
+
+  // ── 2. Dark outer edge of the tube ─────────────────────────────────────────
+  sp(R * 2.0, '#294040');
+
+  // ── 3. Shoulder ────────────────────────────────────────────────────────────
+  sp(R * 1.6, '#3e6967');
+
+  // ── 4. Main body colour ────────────────────────────────────────────────────
+  sp(R * 1.15, '#4f8786');
+
+  // ── 5. Lighter centre band ─────────────────────────────────────────────────
+  sp(R * 0.6, '#62a09e');
+
+  // ── 6. Soft highlight (muted, NOT white) ───────────────────────────────────
+  sp(R * 0.26, 'rgba(125,180,176,0.55)');
+
+  // ── Segment rings — subtle darker bands across the body ────────────────────
+  const pts = sampleSpine();
+  ctx.lineCap     = 'butt';
+  ctx.lineWidth   = 2;
+  ctx.strokeStyle = 'rgba(22,46,45,0.45)';
+  for (let i = 6; i < pts.length; i += 7) {
+    const p = pts[i];
+    ctx.beginPath();
+    ctx.moveTo(p.x - p.nx * R, p.y - p.ny * R);
+    ctx.lineTo(p.x + p.nx * R, p.y + p.ny * R);
+    ctx.stroke();
+  }
+  ctx.lineCap  = 'round';
+  ctx.lineJoin = 'round';
 
   // ── Head ──────────────────────────────────────────────────────────────────
+  const { angle } = snake;
   const hx = segs[0], hy = segs[1];
   const fwdX = Math.cos(angle), fwdY = Math.sin(angle);
   const perpX = -Math.sin(angle), perpY = Math.cos(angle);
 
-  ctx.beginPath();
-  ctx.arc(hx, hy, HR, 0, Math.PI * 2);
-  ctx.fillStyle = color;
-  ctx.fill();
+  const fc = (cx, cy, r, color, blur, blurC) => {
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    if (blur) { ctx.shadowBlur = blur; ctx.shadowColor = blurC || color; }
+    ctx.fill();
+    ctx.shadowBlur = 0;
+  };
 
-  // ── Eyes ──────────────────────────────────────────────────────────────────
-  const eyeR    = HR * 0.40;
-  const pupilR  = eyeR * 0.54;
-  const eyeSide = HR * 0.46;
-  const eyeFwd  = HR * 0.38;
+  fc(hx, hy, R * 1.25, 'rgba(95,170,164,0.01)', 26, 'rgba(95,170,164,0.55)');
+  fc(hx, hy, R,         '#294040');
+  fc(hx, hy, R * 0.8,   '#3e6967');
+  fc(hx, hy, R * 0.6,   '#4f8786');
+  fc(hx, hy, R * 0.32,  '#62a09e');
+
+  // soft muted highlight offset toward "light source"
+  const hlg = ctx.createRadialGradient(
+    hx - perpX * R * 0.28, hy - perpY * R * 0.28, 0,
+    hx, hy, R * 0.9
+  );
+  hlg.addColorStop(0,   'rgba(125,180,176,0.45)');
+  hlg.addColorStop(1,   'rgba(125,180,176,0)');
+  ctx.beginPath(); ctx.arc(hx, hy, R, 0, Math.PI * 2);
+  ctx.fillStyle = hlg; ctx.fill();
+
+  // ── Eyes — small, close together, near the front ──────────────────────────
+  const eyeR   = R * 0.34;
+  const pupilR = eyeR * 0.6;
+  const eyeSide = R * 0.34;
+  const eyeFwd  = R * 0.5;
 
   let pupilFwdX = fwdX, pupilFwdY = fwdY;
   if (mousePos) {
     const pa = Math.atan2(mousePos.y - hy, mousePos.x - hx);
-    pupilFwdX = Math.cos(pa);
-    pupilFwdY = Math.sin(pa);
+    pupilFwdX = Math.cos(pa); pupilFwdY = Math.sin(pa);
   }
 
   for (const side of [-1, 1]) {
     const ex = hx + fwdX * eyeFwd + perpX * eyeSide * side;
     const ey = hy + fwdY * eyeFwd + perpY * eyeSide * side;
     ctx.beginPath(); ctx.arc(ex, ey, eyeR, 0, Math.PI * 2);
-    ctx.fillStyle = '#fff'; ctx.fill();
+    ctx.fillStyle = '#ffffff'; ctx.fill();
     const ps = eyeR - pupilR;
     ctx.beginPath(); ctx.arc(ex + pupilFwdX * ps, ey + pupilFwdY * ps, pupilR, 0, Math.PI * 2);
-    ctx.fillStyle = '#060606'; ctx.fill();
+    ctx.fillStyle = '#0a0a0a'; ctx.fill();
   }
 
   ctx.restore();
+}
+
+function draw() {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = '#070707';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.setTransform(SCALE, 0, 0, SCALE, 0, 0);
+  drawSnake(ctx);
 }
 
 draw();
@@ -146,6 +216,8 @@ canvas.addEventListener('mousemove', draw);
 window.addEventListener('resize', () => {
   canvas.width  = window.innerWidth;
   canvas.height = window.innerHeight;
+  W = canvas.width  / SCALE;
+  H = canvas.height / SCALE;
   draw();
 });
 
