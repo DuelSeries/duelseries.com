@@ -11,6 +11,19 @@ class Renderer {
     // disable it if it's too slow on a given device.
     this._ppMode = true;
     try { if (/[?&]pp=0/.test((location && location.search) || '')) this._ppMode = false; } catch (e) {}
+
+    // WebGL snake body — opt-in via ?gl=1 (persisted) while we verify it; once
+    // proven we flip it on by default. Falls back to per-pixel/solid if GL fails.
+    this._glMode = false;
+    try {
+      const s = (location && location.search) || '';
+      if (/[?&]gl=1/.test(s)) localStorage.setItem('gl', '1');
+      if (/[?&]gl=0/.test(s)) localStorage.removeItem('gl');
+      this._glMode = /[?&]gl=1/.test(s) || localStorage.getItem('gl') === '1';
+    } catch (e) {}
+    if (this._glMode && typeof SnakeGL !== 'undefined') {
+      try { this.snakeGL = new SnakeGL(SNAKE_CROSS_LUT); } catch (e) { this.snakeGL = null; }
+    }
     this._hexFrame = 0;
     this.hexGrid = new HexGrid(this._isMobile);
     this.camera = new Camera();
@@ -86,6 +99,8 @@ class Renderer {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = '#070707';
     ctx.fillRect(0, 0, canvas.width, canvas.height); // physical pixels — clear full canvas
+
+    if (this.snakeGL && this.snakeGL.ok) this.snakeGL.ensureSize(canvas.width, canvas.height);
 
     camera.apply(ctx, dpr);
 
@@ -385,8 +400,17 @@ class Renderer {
 
     // ── Body ────────────────────────────────────────────────────────────────────
     let bodyDrawn = false;
-    if (this._ppMode && isMe) {
-      bodyDrawn = this._drawSnakeBodyPerPixel(ctx, snake, R, SN, this._parseColor(color));
+    const base = this._parseColor(color);
+    if (this._glMode && this.snakeGL && this.snakeGL.ok) {
+      const r = this.snakeGL.renderBody(segs, SN, R, base, (this.camera.scale||1)*(this._dpr||1));
+      if (r) {
+        const gh = this.snakeGL.canvas.height;
+        ctx.drawImage(this.snakeGL.canvas, 0, gh - r.offH, r.offW, r.offH, r.minX, r.minY, r.bw, r.bh);
+        bodyDrawn = true;
+      }
+    }
+    if (!bodyDrawn && this._ppMode && isMe) {
+      bodyDrawn = this._drawSnakeBodyPerPixel(ctx, snake, R, SN, base);
     }
     if (!bodyDrawn) {
       ctx.strokeStyle = color;
