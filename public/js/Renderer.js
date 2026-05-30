@@ -276,17 +276,22 @@ class Renderer {
     if (buf.width!==offW||buf.height!==offH){ buf.width=offW; buf.height=offH; }
     const img = bctx.createImageData(offW, offH), data = img.data;
 
-    // cumulative arc length
+    // Reversed spine: index 0 = tail ... last = head, matching the preview's
+    // orientation so groove direction and the clean-head fade come out correct.
+    if (!this._ptsScratch || this._ptsScratch.length < SN*2) this._ptsScratch = new Float32Array(SN*2+16);
+    const P = this._ptsScratch;
+    for (let k=0;k<SN;k++){ P[k*2]=segs[(SN-1-k)*2]; P[k*2+1]=segs[(SN-1-k)*2+1]; }
+    // cumulative arc length from the tail
     if (!this._arcScratch || this._arcScratch.length < SN) this._arcScratch = new Float32Array(SN+16);
     const arc = this._arcScratch; arc[0]=0;
-    for (let i=1;i<SN;i++){ const dx=segs[i*2]-segs[(i-1)*2], dy=segs[i*2+1]-segs[(i-1)*2+1]; arc[i]=arc[i-1]+Math.sqrt(dx*dx+dy*dy); }
+    for (let i=1;i<SN;i++){ const dx=P[i*2]-P[(i-1)*2], dy=P[i*2+1]-P[(i-1)*2+1]; arc[i]=arc[i-1]+Math.sqrt(dx*dx+dy*dy); }
     const totalArc = arc[SN-1];
 
     const STEP = SN>140?3:(SN>70?2:1);   // coarser spine for the distance search on long snakes
     const invX=bw/offW, invY=bh/offH, aaW=Math.max(invX,invY);
     const GROOVE=R*0.46875, WAVE_PERIOD=13*GROOVE;
-    const tipx=segs[0], tipy=segs[1];
-    const t0x=segs[STEP*2]-segs[0], t0y=segs[STEP*2+1]-segs[1], tl0=Math.sqrt(t0x*t0x+t0y*t0y)||1;
+    const tipx=P[0], tipy=P[1];          // tail tip
+    const t0x=P[STEP*2]-P[0], t0y=P[STEP*2+1]-P[1], tl0=Math.sqrt(t0x*t0x+t0y*t0y)||1;
 
     for (let oy=0;oy<offH;oy++){
       const wy=minY+(oy+0.5)*invY;
@@ -294,7 +299,7 @@ class Renderer {
         const wx=minX+(ox+0.5)*invX;
         let best=1e9,bestS=0,capAtTail=false;
         for (let i=0;i+STEP<SN;i+=STEP){
-          const ax=segs[i*2],ay=segs[i*2+1],bx=segs[(i+STEP)*2],by=segs[(i+STEP)*2+1];
+          const ax=P[i*2],ay=P[i*2+1],bx=P[(i+STEP)*2],by=P[(i+STEP)*2+1];
           const dx=bx-ax,dy=by-ay,L2=dx*dx+dy*dy||1;
           let u=((wx-ax)*dx+(wy-ay)*dy)/L2; if(u<0)u=0; else if(u>1)u=1;
           const cx=ax+u*dx,cy=ay+u*dy,ex=wx-cx,ey=wy-cy,dd=Math.sqrt(ex*ex+ey*ey);
