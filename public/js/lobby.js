@@ -1856,83 +1856,79 @@ document.getElementById('btn-spectate-lobby-2').addEventListener('click', () => 
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
 
-    // Body — bezier path from tail→head, restarting sub-path at screen wraps
-    ctx.strokeStyle = s.color;
-    ctx.lineWidth = R * 2;
-    let bi = len - 1;
-    while (bi >= 0) {
-      ctx.beginPath();
-      ctx.moveTo(t[bi].x, t[bi].y);
-      bi--;
-      while (bi >= 0) {
-        const wdx = Math.abs(t[bi+1].x - t[bi].x), wdy = Math.abs(t[bi+1].y - t[bi].y);
-        if (wdx > wrapThresh || wdy > wrapThresh) break;
-        if (bi > 0) {
-          const ndx = Math.abs(t[bi].x - t[bi-1].x), ndy = Math.abs(t[bi].y - t[bi-1].y);
-          if (ndx <= wrapThresh && ndy <= wrapThresh) {
-            const mx = (t[bi].x + t[bi-1].x) / 2, my = (t[bi].y + t[bi-1].y) / 2;
-            ctx.quadraticCurveTo(t[bi].x, t[bi].y, mx, my);
-          } else { ctx.lineTo(t[bi].x, t[bi].y); }
-        } else { ctx.lineTo(t[bi].x, t[bi].y); }
-        bi--;
-      }
-      ctx.stroke();
-    }
+    const hx = s.x, hy = s.y;
+    const glOK = (typeof glSnakeBody === 'function') && _lobbyGL && _lobbyGL.ok;
 
-    // Tapered arc creases — same params as in-game renderer
-    const CREASE_SPACING = R * 1.76;
-    const PASSES = 15, SEGS = 8;
-    function taperedArc(cx, cy, fwdAngle, r, baseAlpha, lw) {
-      for (let sg = 0; sg < SEGS; sg++) {
-        const t0 = sg / SEGS, t1 = (sg+1) / SEGS;
-        const taper = Math.sin((t0+t1) / 2 * Math.PI);
+    if (glOK) {
+      // Body via WebGL shader; split the trail at screen-wrap jumps into runs
+      let run = [{ x: t[0].x, y: t[0].y }];
+      const flush = () => { if (run.length >= 2) glSnakeBody(ctx, run, R, s.color); };
+      for (let i = 1; i < len; i++) {
+        const dx = Math.abs(t[i].x - t[i-1].x), dy = Math.abs(t[i].y - t[i-1].y);
+        if (dx > wrapThresh || dy > wrapThresh) { flush(); run = []; }
+        run.push({ x: t[i].x, y: t[i].y });
+      }
+      flush();
+    } else {
+      // Fallback: flat body + tapered arc creases + head
+      ctx.strokeStyle = s.color;
+      ctx.lineWidth = R * 2;
+      let bi = len - 1;
+      while (bi >= 0) {
         ctx.beginPath();
-        ctx.arc(cx, cy, r,
-          fwdAngle + Math.PI*0.5 + t0*Math.PI,
-          fwdAngle + Math.PI*0.5 + t1*Math.PI, false);
-        ctx.strokeStyle = `rgba(0,0,0,${baseAlpha * taper})`;
-        ctx.lineWidth = lw;
-        ctx.lineCap = 'butt';
+        ctx.moveTo(t[bi].x, t[bi].y);
+        bi--;
+        while (bi >= 0) {
+          const wdx = Math.abs(t[bi+1].x - t[bi].x), wdy = Math.abs(t[bi+1].y - t[bi].y);
+          if (wdx > wrapThresh || wdy > wrapThresh) break;
+          if (bi > 0) {
+            const ndx = Math.abs(t[bi].x - t[bi-1].x), ndy = Math.abs(t[bi].y - t[bi-1].y);
+            if (ndx <= wrapThresh && ndy <= wrapThresh) {
+              const mx = (t[bi].x + t[bi-1].x) / 2, my = (t[bi].y + t[bi-1].y) / 2;
+              ctx.quadraticCurveTo(t[bi].x, t[bi].y, mx, my);
+            } else { ctx.lineTo(t[bi].x, t[bi].y); }
+          } else { ctx.lineTo(t[bi].x, t[bi].y); }
+          bi--;
+        }
         ctx.stroke();
       }
-    }
-
-    let dist = -R * 0.35;
-    for (let i = 1; i < len - 1; i++) {
-      const dx = t[i].x - t[i-1].x, dy = t[i].y - t[i-1].y;
-      const d = Math.sqrt(dx*dx + dy*dy);
-      if (d > wrapThresh) { dist = -R * 0.35; continue; }
-      dist += d;
-      if (dist < CREASE_SPACING) continue;
-      dist -= CREASE_SPACING;
-      const pi = Math.max(0, i-2), ni = Math.min(len-1, i+2);
-      const fwdAngle = Math.atan2(t[pi].y - t[ni].y, t[pi].x - t[ni].x);
+      const CREASE_SPACING = R * 1.76, PASSES = 15, SEGS = 8;
+      const taperedArc = (cx, cy, fwdAngle, r, baseAlpha, lw) => {
+        for (let sg = 0; sg < SEGS; sg++) {
+          const t0 = sg / SEGS, t1 = (sg+1) / SEGS;
+          const taper = Math.sin((t0+t1) / 2 * Math.PI);
+          ctx.beginPath();
+          ctx.arc(cx, cy, r, fwdAngle + Math.PI*0.5 + t0*Math.PI, fwdAngle + Math.PI*0.5 + t1*Math.PI, false);
+          ctx.strokeStyle = `rgba(0,0,0,${baseAlpha * taper})`;
+          ctx.lineWidth = lw; ctx.lineCap = 'butt'; ctx.stroke();
+        }
+      };
+      let dist = -R * 0.35;
+      for (let i = 1; i < len - 1; i++) {
+        const dx = t[i].x - t[i-1].x, dy = t[i].y - t[i-1].y;
+        const d = Math.sqrt(dx*dx + dy*dy);
+        if (d > wrapThresh) { dist = -R * 0.35; continue; }
+        dist += d;
+        if (dist < CREASE_SPACING) continue;
+        dist -= CREASE_SPACING;
+        const pi = Math.max(0, i-2), ni = Math.min(len-1, i+2);
+        const fwdAngle = Math.atan2(t[pi].y - t[ni].y, t[pi].x - t[ni].x);
+        for (let p = 0; p < PASSES; p++) {
+          const tv = p / (PASSES-1);
+          taperedArc(t[i].x, t[i].y, fwdAngle, R*(0.88+tv*0.12), R*(0.50*Math.pow(1-tv,1.5)+0.035), 0.001+Math.pow(tv,2.5)*0.042);
+        }
+      }
+      ctx.beginPath(); ctx.arc(hx, hy, R, 0, Math.PI*2); ctx.fillStyle = s.color; ctx.fill();
       for (let p = 0; p < PASSES; p++) {
         const tv = p / (PASSES-1);
-        taperedArc(t[i].x, t[i].y, fwdAngle,
-          R * (0.88 + tv*0.12),
-          R * (0.50 * Math.pow(1-tv, 1.5) + 0.035),
-          0.001 + Math.pow(tv, 2.5) * 0.042);
+        taperedArc(hx, hy, s.angle, R*(0.88+tv*0.12), R*(0.50*Math.pow(1-tv,1.5)+0.035), 0.001+Math.pow(tv,2.5)*0.042);
       }
-    }
-
-    // Head — flush circle + crease + eyes
-    const hx = s.x, hy = s.y;
-    ctx.beginPath(); ctx.arc(hx, hy, R, 0, Math.PI*2);
-    ctx.fillStyle = s.color; ctx.fill();
-
-    for (let p = 0; p < PASSES; p++) {
-      const tv = p / (PASSES-1);
-      taperedArc(hx, hy, s.angle,
-        R * (0.88 + tv*0.12),
-        R * (0.50 * Math.pow(1-tv, 1.5) + 0.035),
-        0.001 + Math.pow(tv, 2.5) * 0.042);
     }
 
     const fwdX = Math.cos(s.angle), fwdY = Math.sin(s.angle);
     const perpX = -Math.sin(s.angle), perpY = Math.cos(s.angle);
-    const eyeR = R * 0.40, pupilR = eyeR * 0.54;
-    const eyeSide = R * 0.46, eyeFwd = R * 0.38;
+    const eyeR = R * 0.38, pupilR = eyeR * 0.60;
+    const eyeSide = R * 0.43, eyeFwd = R * 0.40;
     for (const side of [-1, 1]) {
       const ex = hx + fwdX*eyeFwd + perpX*eyeSide*side;
       const ey = hy + fwdY*eyeFwd + perpY*eyeSide*side;
