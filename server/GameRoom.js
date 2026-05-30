@@ -185,8 +185,8 @@ class GameRoom {
         const d  = Math.hypot(dx, dy);
         if (d < C.FOOD_EAT_RADIUS) {
           snake.grow(food.value);
-          if (food.cashValue > 0) snake.worth += food.cashValue;
-          if (food.dropped) {
+          if (food.cashValue > 0) {
+            snake.worth += food.cashValue;
             const p = this.players.get(snake.id);
             if (p) p.socket.emit('ate_dropped_food');
           }
