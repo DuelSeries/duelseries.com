@@ -1342,7 +1342,7 @@ document.getElementById('btn-spectate-lobby-2').addEventListener('click', () => 
     if (miniAnimRaf) cancelAnimationFrame(miniAnimRaf);
     function loop() {
       const skin = SKINS.find(s => s.id === equippedId) || SKINS[0];
-      drawAnimSnake(c1, skin.color, miniAnimT, equippedHat, equippedBoost, { spanFrac: 0.15, ampFrac: 0.13 });
+      drawAnimSnake(c1, skin.color, miniAnimT, equippedHat, equippedBoost, { spanFrac: 0.19, ampFrac: 0.13 });
       miniAnimT += 0.022;
       miniAnimRaf = requestAnimationFrame(loop);
     }
