@@ -1256,6 +1256,8 @@ document.getElementById('btn-spectate-lobby-2').addEventListener('click', () => 
   let apAnimT    = 0;
   let apAnimRaf  = null;
   let apSrcLobby = 1;
+  let miniAnimT  = 0;
+  let miniAnimRaf = null;
 
   // ── Shared drawing helpers ───────────────────────────────────────────────────
   function drawMiniSnake(canvas, color) {
@@ -1332,26 +1334,41 @@ document.getElementById('btn-spectate-lobby-2').addEventListener('click', () => 
     ctx.lineWidth = r * 0.08; ctx.stroke();
   }
 
+  // Short snake that slithers in place inside the lobby change-appearance box —
+  // same animated renderer as the customize screen, just shorter to fit fully.
+  function startMiniAnim() {
+    const c1 = document.getElementById('customize-preview');
+    if (!c1) return;
+    if (miniAnimRaf) cancelAnimationFrame(miniAnimRaf);
+    function loop() {
+      const skin = SKINS.find(s => s.id === equippedId) || SKINS[0];
+      drawAnimSnake(c1, skin.color, miniAnimT, equippedHat, equippedBoost, { spanFrac: 0.15, ampFrac: 0.13 });
+      miniAnimT += 0.022;
+      miniAnimRaf = requestAnimationFrame(loop);
+    }
+    loop();
+  }
+
   function refreshMiniCanvas() {
     const skin = SKINS.find(s => s.id === equippedId) || SKINS[0];
-    const c1 = document.getElementById('customize-preview');
-    if (c1) drawMiniSnake(c1, skin.color);
+    if (!miniAnimRaf) startMiniAnim();   // animated, reads the equipped skin each frame
     const c2 = document.getElementById('customize-preview-2');
     if (c2) drawMiniCell(c2, skin.color);
   }
 
   // ── Animated snake for the appearance screen ─────────────────────────────────
-  function drawAnimSnake(canvas, color, t, hatId, boostId) {
+  function drawAnimSnake(canvas, color, t, hatId, boostId, opts) {
+    opts = opts || {};
     const W = canvas.width  = canvas.offsetWidth  || 520;
     const H = canvas.height = canvas.offsetHeight || 260;
     const ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, W, H);
 
-    const N  = 80;
+    const N  = opts.N || 80;
     const R  = Math.min(W * 0.068, H * 0.13);
     const cx = W / 2, cy = H / 2;
-    const spanX = W * 0.28; // shorter so tail sits away from edge, leaving room for trail
-    const amp   = H * 0.16; // wave amplitude
+    const spanX = W * (opts.spanFrac != null ? opts.spanFrac : 0.28); // half-length of the body
+    const amp   = H * (opts.ampFrac  != null ? opts.ampFrac  : 0.16); // wave amplitude
 
     // Horizontal snake: head (pts[0]) on right, tail (pts[N-1]) on left
     const pts = [];
