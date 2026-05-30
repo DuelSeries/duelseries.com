@@ -71,10 +71,28 @@ socket.on('connect', () => {
   }
 });
 
+// Shared AudioContext — mobile browsers suspend audio until a real user
+// gesture resumes it, and limit how many contexts you can create. One shared
+// context, unlocked on first touch/click, fixes both.
+let _audioCtx = null;
+function getAudioCtx() {
+  if (!_audioCtx) {
+    try { _audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+    catch (e) { return null; }
+  }
+  if (_audioCtx.state === 'suspended') _audioCtx.resume().catch(() => {});
+  return _audioCtx;
+}
+// Unlock on the first user interaction (required by mobile autoplay policies)
+['pointerdown', 'touchstart', 'keydown'].forEach(evt => {
+  window.addEventListener(evt, () => getAudioCtx(), { once: true, passive: true });
+});
+
 function playMoneySound() {
   if (window.gameMuted) return;
+  const ac = getAudioCtx();
+  if (!ac) return;
   try {
-    const ac = new (window.AudioContext || window.webkitAudioContext)();
     [[880, 0], [1100, 0.07], [1320, 0.13], [1760, 0.19]].forEach(([freq, delay]) => {
       const osc  = ac.createOscillator();
       const gain = ac.createGain();
@@ -96,8 +114,9 @@ socket.on('ate_dropped_food', playMoneySound);
 
 function playJoinSound() {
   if (window.gameMuted) return;
+  const ctx = getAudioCtx();
+  if (!ctx) return;
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
     // Three ascending notes: C5 → E5 → G5, quick staggered chime
     const notes = [
       { freq: 523.25, t: 0.00 },
