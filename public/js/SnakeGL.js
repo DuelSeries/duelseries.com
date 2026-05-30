@@ -14,7 +14,7 @@ class SnakeGL {
     try {
       this.canvas = document.createElement('canvas');
       this.canvas.width = 64; this.canvas.height = 64;
-      const opts = { alpha: true, premultipliedAlpha: false, antialias: false, depth: false, stencil: false };
+      const opts = { alpha: true, premultipliedAlpha: true, antialias: false, depth: false, stencil: false };
       const gl = this.canvas.getContext('webgl', opts) || this.canvas.getContext('experimental-webgl', opts);
       if (!gl) return;
       this.gl = gl;
@@ -77,12 +77,8 @@ class SnakeGL {
           float d = distance(vWorld, c);
           if (d < best) { best = d; bestS = uArc[i] + u * (uArc[i + 1] - uArc[i]); capTail = (i == 0 && u == 0.0); }
         }
-        float R = uR, GLOWW = R * 0.34;
-        if (best > R + GLOWW) { gl_FragColor = vec4(0.0); return; }
-        if (best > R + uAaw) {
-          float a = 0.16 * exp(-(best - R) / (0.1 * R));
-          gl_FragColor = vec4(uColor, a); return;
-        }
+        float R = uR;
+        if (best > R + uAaw) { gl_FragColor = vec4(0.0); return; }
         float sBand = bestS, gFr = best / R;
         if (capTail) {
           vec2 t0 = uPts[1] - uPts[0];
@@ -104,7 +100,7 @@ class SnakeGL {
         float m = lum * shade * line * waveShade * scaleShade;
         vec3 rgb = min(uColor * m, vec3(1.0));
         float aa = clamp((R + 0.5 * uAaw - best) / uAaw, 0.0, 1.0);
-        gl_FragColor = vec4(rgb, aa);
+        gl_FragColor = vec4(rgb * aa, aa);   // premultiplied alpha
       }`;
     const p = gl.createProgram();
     gl.attachShader(p, this._compile(gl.VERTEX_SHADER, vs));
@@ -165,7 +161,7 @@ class SnakeGL {
 
     let minX=1e9,minY=1e9,maxX=-1e9,maxY=-1e9;
     for (let i=0;i<SN;i++){ const x=segs[i*2],y=segs[i*2+1]; if(x<minX)minX=x; if(x>maxX)maxX=x; if(y<minY)minY=y; if(y>maxY)maxY=y; }
-    const GLOWW = R*0.34, marg = R + GLOWW + 2;
+    const marg = R + 4;   // small transparent border for the anti-aliased edge
     minX-=marg; minY-=marg; maxX+=marg; maxY+=marg;
     const bw = maxX-minX, bh = maxY-minY;
     let offW = Math.min(this.canvas.width,  Math.max(2, Math.ceil(bw*screenScale)));

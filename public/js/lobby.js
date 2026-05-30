@@ -1419,57 +1419,53 @@ document.getElementById('btn-spectate-lobby-2').addEventListener('click', () => 
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
 
-    // Body
-    ctx.beginPath();
-    ctx.moveTo(pts[N-1].x, pts[N-1].y);
-    for (let i = N-2; i >= 1; i--) {
-      const mx = (pts[i].x + pts[i-1].x) / 2, my = (pts[i].y + pts[i-1].y) / 2;
-      ctx.quadraticCurveTo(pts[i].x, pts[i].y, mx, my);
-    }
-    ctx.lineTo(pts[0].x, pts[0].y);
-    ctx.lineWidth = R * 2;
-    ctx.strokeStyle = color;
-    ctx.stroke();
-
-    // Creases
-    const CREASE_SPACING = R * 1.76;
-    const PASSES = 15, SEGS = 8;
-    function taperedArc(ox, oy, fa, r, ba, lw) {
-      for (let s = 0; s < SEGS; s++) {
-        const t0 = s/SEGS, t1 = (s+1)/SEGS;
-        const taper = Math.sin((t0+t1)/2*Math.PI);
-        ctx.beginPath();
-        ctx.arc(ox, oy, r, fa+Math.PI*0.5+t0*Math.PI, fa+Math.PI*0.5+t1*Math.PI, false);
-        ctx.strokeStyle = `rgba(0,0,0,${ba*taper})`;
-        ctx.lineWidth = lw; ctx.lineCap = 'butt'; ctx.stroke();
-      }
-    }
-    let dist = -R * 0.35;
-    for (let i = 1; i < N-1; i++) {
-      const dx = pts[i].x-pts[i-1].x, dy = pts[i].y-pts[i-1].y;
-      dist += Math.sqrt(dx*dx+dy*dy);
-      if (dist < CREASE_SPACING) continue;
-      dist -= CREASE_SPACING;
-      const pi = Math.max(0,i-2), ni = Math.min(N-1,i+2);
-      const fa = Math.atan2(pts[pi].y-pts[ni].y, pts[pi].x-pts[ni].x);
-      for (let p = 0; p < PASSES; p++) {
-        const tt = p/(PASSES-1);
-        taperedArc(pts[i].x, pts[i].y, fa, R*(0.88+tt*0.12), R*(0.50*Math.pow(1-tt,1.5)+0.035), 0.001+Math.pow(tt,2.5)*0.042);
-      }
-    }
-
-    // Head
     const hx = pts[0].x, hy = pts[0].y;
     const ang = Math.atan2(pts[0].y-pts[1].y, pts[0].x-pts[1].x);
-    ctx.beginPath(); ctx.arc(hx, hy, R, 0, Math.PI*2);
-    ctx.fillStyle = color; ctx.fill();
-    for (let p = 0; p < PASSES; p++) {
-      const tt = p/(PASSES-1);
-      taperedArc(hx, hy, ang, R*(0.88+tt*0.12), R*(0.50*Math.pow(1-tt,1.5)+0.035), 0.001+Math.pow(tt,2.5)*0.042);
+
+    // Body via WebGL shader (same look as in-game); falls back to flat style
+    const glDrawn = glSnakeBody(ctx, pts, R, color);
+    if (!glDrawn) {
+      ctx.beginPath();
+      ctx.moveTo(pts[N-1].x, pts[N-1].y);
+      for (let i = N-2; i >= 1; i--) {
+        const mx = (pts[i].x + pts[i-1].x) / 2, my = (pts[i].y + pts[i-1].y) / 2;
+        ctx.quadraticCurveTo(pts[i].x, pts[i].y, mx, my);
+      }
+      ctx.lineTo(pts[0].x, pts[0].y);
+      ctx.lineWidth = R * 2; ctx.strokeStyle = color; ctx.stroke();
+      const CREASE_SPACING = R * 1.76, PASSES = 15, SEGS = 8;
+      const taperedArc = (ox, oy, fa, r, ba, lw) => {
+        for (let s = 0; s < SEGS; s++) {
+          const t0 = s/SEGS, t1 = (s+1)/SEGS;
+          const taper = Math.sin((t0+t1)/2*Math.PI);
+          ctx.beginPath();
+          ctx.arc(ox, oy, r, fa+Math.PI*0.5+t0*Math.PI, fa+Math.PI*0.5+t1*Math.PI, false);
+          ctx.strokeStyle = `rgba(0,0,0,${ba*taper})`;
+          ctx.lineWidth = lw; ctx.lineCap = 'butt'; ctx.stroke();
+        }
+      };
+      let dist = -R * 0.35;
+      for (let i = 1; i < N-1; i++) {
+        const dx = pts[i].x-pts[i-1].x, dy = pts[i].y-pts[i-1].y;
+        dist += Math.sqrt(dx*dx+dy*dy);
+        if (dist < CREASE_SPACING) continue;
+        dist -= CREASE_SPACING;
+        const pi = Math.max(0,i-2), ni = Math.min(N-1,i+2);
+        const fa = Math.atan2(pts[pi].y-pts[ni].y, pts[pi].x-pts[ni].x);
+        for (let p = 0; p < PASSES; p++) {
+          const tt = p/(PASSES-1);
+          taperedArc(pts[i].x, pts[i].y, fa, R*(0.88+tt*0.12), R*(0.50*Math.pow(1-tt,1.5)+0.035), 0.001+Math.pow(tt,2.5)*0.042);
+        }
+      }
+      ctx.beginPath(); ctx.arc(hx, hy, R, 0, Math.PI*2); ctx.fillStyle = color; ctx.fill();
+      for (let p = 0; p < PASSES; p++) {
+        const tt = p/(PASSES-1);
+        taperedArc(hx, hy, ang, R*(0.88+tt*0.12), R*(0.50*Math.pow(1-tt,1.5)+0.035), 0.001+Math.pow(tt,2.5)*0.042);
+      }
     }
     const fwdX = Math.cos(ang), fwdY = Math.sin(ang);
     const perpX = -Math.sin(ang), perpY = Math.cos(ang);
-    const eyeR = R*0.40, pupilR = eyeR*0.54, eyeSide = R*0.46, eyeFwd = R*0.38;
+    const eyeR = R*0.38, pupilR = eyeR*0.60, eyeSide = R*0.43, eyeFwd = R*0.40;
     for (const ss of [-1,1]) {
       const ex = hx + fwdX*eyeFwd + perpX*eyeSide*ss;
       const ey = hy + fwdY*eyeFwd + perpY*eyeSide*ss;
