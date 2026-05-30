@@ -10,7 +10,10 @@ class Renderer {
     // it only runs for your own snake (not every snake). Add ?pp=0 to the URL to
     // disable it if it's too slow on a given device.
     this._ppMode = true;
-    try { if (/[?&]pp=0/.test((location && location.search) || '')) this._ppMode = false; } catch (e) {}
+    try {
+      const s = (location && location.search) || '';
+      if (/[?&]pp=0/.test(s) || localStorage.getItem('pp') === '0') this._ppMode = false;
+    } catch (e) {}
 
     // WebGL snake body — opt-in via ?gl=1 (persisted) while we verify it; once
     // proven we flip it on by default. Falls back to per-pixel/solid if GL fails.
