@@ -1,8 +1,13 @@
+// Cross-section brightness profile (centre -> edge) sampled from snake_sprite.png
+const SNAKE_CROSS_LUT = [1,0.999,0.991,0.982,0.97,0.959,0.944,0.923,0.902,0.876,0.86,0.836,0.82,0.798,0.779,0.756,0.737,0.71,0.696,0.661,0.643,0.602,0.561,0.504];
+
 class Renderer {
   constructor(canvas) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
     this._isMobile = window.matchMedia('(pointer: coarse)').matches;
+    // Per-pixel "exact" snake preview — opt-in via ?pp=1 (heavy; local snake only)
+    this._ppMode = typeof location !== 'undefined' && /[?&]pp=1/.test(location.search);
     this._hexFrame = 0;
     this.hexGrid = new HexGrid(this._isMobile);
     this.camera = new Camera();
@@ -230,6 +235,103 @@ class Renderer {
     if (this._foodPhaseCache.size > food.length * 2) this._foodPhaseCache.clear();
   }
 
+  _parseColor(c) {
+    if (!this._colorCache) this._colorCache = new Map();
+    let v = this._colorCache.get(c);
+    if (v) return v;
+    let r = 110, g = 174, b = 175;
+    if (typeof c === 'string' && c[0] === '#') {
+      if (c.length === 7) { r = parseInt(c.slice(1,3),16); g = parseInt(c.slice(3,5),16); b = parseInt(c.slice(5,7),16); }
+      else if (c.length === 4) { r = parseInt(c[1]+c[1],16); g = parseInt(c[2]+c[2],16); b = parseInt(c[3]+c[3],16); }
+    }
+    v = { r, g, b };
+    this._colorCache.set(c, v);
+    return v;
+  }
+
+  // Exact per-pixel snake body, ported 1:1 from the preview renderer. Heavy —
+  // gated behind ?pp=1 and applied to the local snake only, purely to validate
+  // the look in-game before moving the shading to WebGL. Renders to an offscreen
+  // buffer at screen resolution, then composites under the active world transform.
+  _drawSnakeBodyPerPixel(ctx, snake, R, SN, base) {
+    const segs = snake.segs;
+    const LUT = SNAKE_CROSS_LUT, LN = LUT.length;
+
+    let minX=1e9,minY=1e9,maxX=-1e9,maxY=-1e9;
+    for (let i=0;i<SN;i++){ const x=segs[i*2],y=segs[i*2+1]; if(x<minX)minX=x; if(x>maxX)maxX=x; if(y<minY)minY=y; if(y>maxY)maxY=y; }
+    const GLOWW = R*0.34, marg = R + GLOWW + 2;
+    minX-=marg; minY-=marg; maxX+=marg; maxY+=marg;
+    const bw = maxX-minX, bh = maxY-minY;
+    const screenScale = (this.camera.scale||1) * (this._dpr||1);
+    let offW = Math.ceil(bw*screenScale), offH = Math.ceil(bh*screenScale);
+    const MAXD = 1400;
+    if (offW>MAXD||offH>MAXD){ const s=Math.min(MAXD/offW,MAXD/offH); offW=Math.max(2,Math.floor(offW*s)); offH=Math.max(2,Math.floor(offH*s)); }
+    if (offW<2||offH<2) return false;
+
+    if (!this._snakeBuf){ this._snakeBuf=document.createElement('canvas'); this._snakeBufCtx=this._snakeBuf.getContext('2d'); }
+    const buf=this._snakeBuf, bctx=this._snakeBufCtx;
+    if (buf.width!==offW||buf.height!==offH){ buf.width=offW; buf.height=offH; }
+    const img = bctx.createImageData(offW, offH), data = img.data;
+
+    // cumulative arc length
+    if (!this._arcScratch || this._arcScratch.length < SN) this._arcScratch = new Float32Array(SN+16);
+    const arc = this._arcScratch; arc[0]=0;
+    for (let i=1;i<SN;i++){ const dx=segs[i*2]-segs[(i-1)*2], dy=segs[i*2+1]-segs[(i-1)*2+1]; arc[i]=arc[i-1]+Math.sqrt(dx*dx+dy*dy); }
+    const totalArc = arc[SN-1];
+
+    const STEP = SN>140?3:(SN>70?2:1);   // coarser spine for the distance search on long snakes
+    const invX=bw/offW, invY=bh/offH, aaW=Math.max(invX,invY);
+    const GROOVE=R*0.46875, WAVE_PERIOD=13*GROOVE;
+    const tipx=segs[0], tipy=segs[1];
+    const t0x=segs[STEP*2]-segs[0], t0y=segs[STEP*2+1]-segs[1], tl0=Math.sqrt(t0x*t0x+t0y*t0y)||1;
+
+    for (let oy=0;oy<offH;oy++){
+      const wy=minY+(oy+0.5)*invY;
+      for (let ox=0;ox<offW;ox++){
+        const wx=minX+(ox+0.5)*invX;
+        let best=1e9,bestS=0,capAtTail=false;
+        for (let i=0;i+STEP<SN;i+=STEP){
+          const ax=segs[i*2],ay=segs[i*2+1],bx=segs[(i+STEP)*2],by=segs[(i+STEP)*2+1];
+          const dx=bx-ax,dy=by-ay,L2=dx*dx+dy*dy||1;
+          let u=((wx-ax)*dx+(wy-ay)*dy)/L2; if(u<0)u=0; else if(u>1)u=1;
+          const cx=ax+u*dx,cy=ay+u*dy,ex=wx-cx,ey=wy-cy,dd=Math.sqrt(ex*ex+ey*ey);
+          if(dd<best){ best=dd; bestS=arc[i]+u*(arc[Math.min(SN-1,i+STEP)]-arc[i]); capAtTail=(i===0&&u===0); }
+        }
+        const di=(oy*offW+ox)*4;
+        if (best<=R+aaW){
+          let sBand=bestS, gFr=best/R;
+          if (capAtTail){
+            const relx=wx-tipx, rely=wy-tipy;
+            sBand=(relx*t0x+rely*t0y)/tl0;
+            gFr=Math.min(1,Math.abs(relx*(-t0y/tl0)+rely*(t0x/tl0))/R);
+          }
+          const fr=best/R;
+          const idx=fr*(LN-1); let a=idx|0; if(a>LN-2)a=LN-2; const tt=idx-a;
+          const lum=LUT[a]*(1-tt)+LUT[a+1]*tt;
+          const shade=1-0.42*fr*fr;
+          const endFade=Math.max(0,Math.min(1,(totalArc-bestS)/(R*1.15)));
+          const sEff=sBand+R*Math.sqrt(Math.max(0,1-gFr*gFr));
+          let gp=(sEff%GROOVE)/GROOVE; if(gp<0)gp+=1; gp=gp<0.5?gp:gp-1;
+          const line=1-(0.06*endFade)*Math.exp(-(gp/0.18)*(gp/0.18));
+          const wp=(((totalArc-bestS)%WAVE_PERIOD)+WAVE_PERIOD)%WAVE_PERIOD/WAVE_PERIOD;
+          const waveShade=0.78+0.45*(0.5+0.5*Math.cos(2*Math.PI*wp));
+          const scaleShade=1-(0.05*endFade)*(0.5+0.5*Math.cos(2*Math.PI*gp));
+          const m=lum*shade*line*waveShade*scaleShade;
+          let rr=base.r*m, gg=base.g*m, bb=base.b*m;
+          if(rr>255)rr=255; if(gg>255)gg=255; if(bb>255)bb=255;
+          let aa=(R+0.5*aaW-best)/aaW; if(aa>1)aa=1; else if(aa<0)aa=0;
+          data[di]=rr; data[di+1]=gg; data[di+2]=bb; data[di+3]=aa*255;
+        } else if (best<=R+GLOWW){
+          data[di]=base.r; data[di+1]=base.g; data[di+2]=base.b;
+          data[di+3]=255*0.16*Math.exp(-(best-R)/(0.1*R));
+        }
+      }
+    }
+    bctx.putImageData(img,0,0);
+    ctx.drawImage(buf,0,0,offW,offH,minX,minY,bw,bh);
+    return true;
+  }
+
   _drawSnake(ctx, snake, isMe) {
     if (!snake.segs || snake.segs.length < 4) return;
     const { segs, color, boosting, name } = snake;
@@ -270,9 +372,15 @@ class Renderer {
       }
     };
 
-    // ── Body: solid colour only ────────────────────────────────────────────────
-    ctx.strokeStyle = color;
-    drawBodyPath();
+    // ── Body ────────────────────────────────────────────────────────────────────
+    let bodyDrawn = false;
+    if (this._ppMode && isMe) {
+      bodyDrawn = this._drawSnakeBodyPerPixel(ctx, snake, R, SN, this._parseColor(color));
+    }
+    if (!bodyDrawn) {
+      ctx.strokeStyle = color;
+      drawBodyPath();
+    }
 
     // ── Head ──────────────────────────────────────────────────────────────────
     const hx    = segs[0], hy = segs[1];
@@ -280,10 +388,13 @@ class Renderer {
     const fwdX  = Math.cos(angle), fwdY  = Math.sin(angle);
     const perpX = -Math.sin(angle), perpY = Math.cos(angle);
 
-    ctx.beginPath();
-    ctx.arc(hx, hy, HR, 0, Math.PI * 2);
-    ctx.fillStyle = color;
-    ctx.fill();
+    if (!bodyDrawn) {
+      // per-pixel path already renders the shaded head dome
+      ctx.beginPath();
+      ctx.arc(hx, hy, HR, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
+    }
 
     // ── Eyes ──────────────────────────────────────────────────────────────────
     const eyeR    = HR * 0.40;
