@@ -267,8 +267,10 @@ class Renderer {
     const bw = maxX-minX, bh = maxY-minY;
     const screenScale = (this.camera.scale||1) * (this._dpr||1);
     let offW = Math.ceil(bw*screenScale), offH = Math.ceil(bh*screenScale);
-    const MAXD = 1400;
-    if (offW>MAXD||offH>MAXD){ const s=Math.min(MAXD/offW,MAXD/offH); offW=Math.max(2,Math.floor(offW*s)); offH=Math.max(2,Math.floor(offH*s)); }
+    // Cap the per-frame pixel work so the framerate stays stable as the snake
+    // grows (resolution drops a bit when huge — slightly softer, but smooth).
+    const PIXBUDGET = 200000;
+    { const pxc = offW*offH; if (pxc > PIXBUDGET){ const s=Math.sqrt(PIXBUDGET/pxc); offW=Math.max(2,Math.floor(offW*s)); offH=Math.max(2,Math.floor(offH*s)); } }
     if (offW<2||offH<2) return false;
 
     if (!this._snakeBuf){ this._snakeBuf=document.createElement('canvas'); this._snakeBufCtx=this._snakeBuf.getContext('2d'); }
@@ -287,7 +289,8 @@ class Renderer {
     for (let i=1;i<SN;i++){ const dx=P[i*2]-P[(i-1)*2], dy=P[i*2+1]-P[(i-1)*2+1]; arc[i]=arc[i-1]+Math.sqrt(dx*dx+dy*dy); }
     const totalArc = arc[SN-1];
 
-    const STEP = SN>140?3:(SN>70?2:1);   // coarser spine for the distance search on long snakes
+    const SEGCAP = 48;                                  // cap segments checked per pixel
+    const STEP = Math.max(1, Math.ceil(SN / SEGCAP));   // coarser spine on long snakes
     const invX=bw/offW, invY=bh/offH, aaW=Math.max(invX,invY);
     const GROOVE=R*0.46875, WAVE_PERIOD=13*GROOVE;
     const tipx=P[0], tipy=P[1];          // tail tip
