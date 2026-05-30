@@ -15,15 +15,10 @@ class Renderer {
       if (/[?&]pp=0/.test(s) || localStorage.getItem('pp') === '0') this._ppMode = false;
     } catch (e) {}
 
-    // WebGL snake body — opt-in via ?gl=1 (persisted) while we verify it; once
-    // proven we flip it on by default. Falls back to per-pixel/solid if GL fails.
-    this._glMode = false;
-    try {
-      const s = (location && location.search) || '';
-      if (/[?&]gl=1/.test(s)) localStorage.setItem('gl', '1');
-      if (/[?&]gl=0/.test(s)) localStorage.removeItem('gl');
-      this._glMode = /[?&]gl=1/.test(s) || localStorage.getItem('gl') === '1';
-    } catch (e) {}
+    // WebGL snake body — ON by default for all snakes; ?gl=0 disables it.
+    // Falls back to per-pixel (local) / solid colour if the GL context fails.
+    this._glMode = true;
+    try { if (/[?&]gl=0/.test((location && location.search) || '') || localStorage.getItem('gl') === '0') this._glMode = false; } catch (e) {}
     if (this._glMode && typeof SnakeGL !== 'undefined') {
       try { this.snakeGL = new SnakeGL(SNAKE_CROSS_LUT); } catch (e) { this.snakeGL = null; }
     }

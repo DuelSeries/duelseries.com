@@ -13,8 +13,8 @@
     /* Persist render flags from the URL so they survive into the game page */
     try {
       var s = location.search;
-      if (/[?&]gl=1/.test(s)) localStorage.setItem('gl', '1');
-      if (/[?&]gl=0/.test(s)) localStorage.removeItem('gl');
+      if (/[?&]gl=0/.test(s)) localStorage.setItem('gl', '0');
+      if (/[?&]gl=1/.test(s)) localStorage.removeItem('gl');
       if (/[?&]pp=0/.test(s)) localStorage.setItem('pp', '0');
       if (/[?&]pp=1/.test(s)) localStorage.removeItem('pp');
     } catch (e) {}
