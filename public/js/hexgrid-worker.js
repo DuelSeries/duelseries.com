@@ -67,6 +67,9 @@ self.onmessage = function ({ data: { worldCX, worldCY, scale, screenW, screenH, 
   ctx.lineJoin = 'round';
   ctx.lineCap  = 'round';
 
+  // Iterate top->bottom so each hex's lower-left shadow falls on cells not yet
+  // drawn (which then cover it) -> shadow shows only in the gaps.
+  const lw = Math.max(2, r * 0.12);
   for (let row = rowStart; row <= rowEnd; row++) {
     const off = (Math.abs(row % 2) === 1) ? COL_STEP / 2 : 0;
     for (let col = colStart; col <= colEnd; col++) {
@@ -75,12 +78,11 @@ self.onmessage = function ({ data: { worldCX, worldCY, scale, screenW, screenH, 
       const sx = a * gx + c * gy + e;
       const sy = b * gx + d * gy + f;
 
-      // soft drop shadow cast into the gap (lower-left)
-      ctx.shadowColor   = 'rgba(0,0,0,0.55)';
-      ctx.shadowBlur    = r * 0.18;
-      ctx.shadowOffsetX = -r * 0.10;
-      ctx.shadowOffsetY =  r * 0.12;
+      // cheap fake soft shadow — a couple of offset dark hexes (no costly blur)
+      hexPath(ctx, sx - r*0.13, sy + r*0.15, r); ctx.fillStyle = 'rgba(0,0,0,0.16)'; ctx.fill();
+      hexPath(ctx, sx - r*0.07, sy + r*0.08, r); ctx.fillStyle = 'rgba(0,0,0,0.16)'; ctx.fill();
 
+      // navy face, screen-vertical gradient (light top -> dark bottom)
       const g = ctx.createLinearGradient(sx, sy - r, sx, sy + r);
       g.addColorStop(0, FACE_TOP);
       g.addColorStop(1, FACE_BOT);
@@ -88,12 +90,10 @@ self.onmessage = function ({ data: { worldCX, worldCY, scale, screenW, screenH, 
       ctx.fillStyle = g;
       ctx.fill();
 
-      // black outline (no shadow)
-      ctx.shadowColor = 'rgba(0,0,0,0)';
-      ctx.shadowBlur = 0; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
+      // black outline
       hexPath(ctx, sx, sy, r);
       ctx.strokeStyle = OUTLINE;
-      ctx.lineWidth   = Math.max(2, r * 0.12);
+      ctx.lineWidth   = lw;
       ctx.stroke();
     }
   }
