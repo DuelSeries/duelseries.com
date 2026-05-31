@@ -43,7 +43,7 @@ self.onmessage = function ({ data: { worldCX, worldCY, scale, screenW, screenH, 
   const COL_STEP = Math.sqrt(3) * SIZE + GAP;
   const ROW_STEP = 1.5 * SIZE + Math.sqrt(3) / 2 * GAP;
 
-  const W = screenW * 2, H = screenH * 2;
+  const W = Math.round(screenW * 1.4), H = Math.round(screenH * 1.4);
   const oc  = new OffscreenCanvas(W, H);
   const ctx = oc.getContext('2d');
 
@@ -78,9 +78,8 @@ self.onmessage = function ({ data: { worldCX, worldCY, scale, screenW, screenH, 
       const sx = a * gx + c * gy + e;
       const sy = b * gx + d * gy + f;
 
-      // cheap fake soft shadow — a couple of offset dark hexes (no costly blur)
-      hexPath(ctx, sx - r*0.13, sy + r*0.15, r); ctx.fillStyle = 'rgba(0,0,0,0.16)'; ctx.fill();
-      hexPath(ctx, sx - r*0.07, sy + r*0.08, r); ctx.fillStyle = 'rgba(0,0,0,0.16)'; ctx.fill();
+      // cheap fake soft shadow — one offset dark hex (no costly blur)
+      hexPath(ctx, sx - r*0.10, sy + r*0.12, r); ctx.fillStyle = 'rgba(0,0,0,0.28)'; ctx.fill();
 
       // navy face, screen-vertical gradient (light top -> dark bottom)
       const g = ctx.createLinearGradient(sx, sy - r, sx, sy + r);
@@ -105,10 +104,9 @@ self.onmessage = function ({ data: { worldCX, worldCY, scale, screenW, screenH, 
   ctx.fillStyle = overlay;
   ctx.fillRect(0, 0, W, H);
 
-  // subtle grain
+  // subtle grain (source-over tile — cheap; skipped the costly full-canvas blend)
   ctx.save();
-  ctx.globalAlpha = 0.05;
-  ctx.globalCompositeOperation = 'overlay';
+  ctx.globalAlpha = 0.035;
   const tile = noiseTile();
   for (let y = 0; y < H; y += NT) for (let x = 0; x < W; x += NT) ctx.drawImage(tile, x, y);
   ctx.restore();
