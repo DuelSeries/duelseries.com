@@ -1,70 +1,97 @@
+// Hex background drawn as a repeating PATTERN: one small seamless tile is
+// rendered once (rebuilt only when the zoom changes), then painted across the
+// whole screen each frame as a tiled, tilted, panned pattern fill. This is
+// O(1) per frame regardless of movement/zoom, so it never falls behind.
+const HEX_TILT = -0.285;
+
 class HexGrid {
   constructor(isMobile = false) {
-    this._bitmap       = null;
-    this._bitmapWorldX = null;
-    this._bitmapWorldY = null;
-    this._bitmapScale  = null;
-    this._bitmapW      = 0;
-    this._bitmapH      = 0;
-    this._pending      = false;
-    this._worker       = null;
+    this._isMobile   = isMobile;
+    this._tile       = null;
+    this._tileScale  = 0;
+    this._pattern    = null;
 
-    this._worker = new Worker('/js/hexgrid-worker.js');
-    this._worker.onmessage = ({ data: { bitmap, worldCX, worldCY, scale } }) => {
-      if (this._bitmap) this._bitmap.close();
-      this._bitmap       = bitmap;
-      this._bitmapWorldX = worldCX;
-      this._bitmapWorldY = worldCY;
-      this._bitmapScale  = scale;
-      this._bitmapW      = bitmap.width;
-      this._bitmapH      = bitmap.height;
-      this._pending      = false;
-    };
+    this.SIZE     = 48 * 0.62;
+    this.GAP      = 14.6 * 0.62;
+    this.FACE_R   = this.SIZE - this.GAP / 2;
+    this.COL_STEP = Math.sqrt(3) * this.SIZE + this.GAP;
+    this.ROW_STEP = 1.5 * this.SIZE + Math.sqrt(3) / 2 * this.GAP;
+  }
 
-    // Pre-warm: use capped DPR so bitmap matches the actual canvas size
-    const rawDpr = window.devicePixelRatio || 1;
-    const dpr  = isMobile ? Math.min(rawDpr, 2) : rawDpr;
-    const preW = Math.round(window.innerWidth  * dpr);
-    const preH = Math.round(window.innerHeight * dpr);
-    this._pending = true;
-    this._worker.postMessage({ worldCX: 0, worldCY: 0, scale: dpr, screenW: preW, screenH: preH, hexScale: 1.0 });
+  _buildTile(physScale) {
+    const { COL_STEP, ROW_STEP, FACE_R } = this;
+    const tileW = Math.max(2, Math.round(COL_STEP * physScale));
+    const tileH = Math.max(2, Math.round(2 * ROW_STEP * physScale));
+
+    const c = document.createElement('canvas');
+    c.width = tileW; c.height = tileH;
+    const ctx = c.getContext('2d');
+
+    // gap background
+    ctx.fillStyle = 'rgb(14,21,32)';
+    ctx.fillRect(0, 0, tileW, tileH);
+
+    ctx.lineJoin = 'round';
+    ctx.lineCap  = 'round';
+    const r  = FACE_R * physScale;
+    const lw = Math.max(1.5, r * 0.12);
+    const grad = ctx.createLinearGradient(0, -r, 0, r);
+    grad.addColorStop(0, 'rgb(44,60,84)');   // navy light top
+    grad.addColorStop(1, 'rgb(17,27,40)');   // navy dark bottom
+
+    const hex = (ox, oy) => { ctx.beginPath(); for (let i = 0; i < 6; i++) { const a = (Math.PI/3)*i + Math.PI/6; ctx.lineTo(ox + r*Math.cos(a), oy + r*Math.sin(a)); } ctx.closePath(); };
+
+    // draw the lattice neighbourhood so the tile repeats seamlessly
+    for (let row = -1; row <= 2; row++) {
+      const off = (((row % 2) + 2) % 2 === 1) ? COL_STEP / 2 : 0;
+      for (let col = -1; col <= 2; col++) {
+        const cx = (col * COL_STEP + off) * physScale;
+        const cy = (row * ROW_STEP) * physScale;
+        ctx.setTransform(1, 0, 0, 1, cx, cy);
+        hex(-r * 0.10, r * 0.12);  ctx.fillStyle = 'rgba(0,0,0,0.28)'; ctx.fill();  // soft shadow
+        hex(0, 0);                 ctx.fillStyle = grad;               ctx.fill();  // navy face
+        hex(0, 0);                 ctx.strokeStyle = 'rgb(2,4,7)'; ctx.lineWidth = lw; ctx.stroke(); // outline
+      }
+    }
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+
+    this._tile      = c;
+    this._tileScale = physScale;
+    this._pattern   = null;   // recreated against the target ctx in draw()
   }
 
   draw(ctx, camera, dpr) {
     dpr = dpr || window.devicePixelRatio || 1;
-    const { x: camX, y: camY, scale } = camera;
-    const W   = ctx.canvas.width, H = ctx.canvas.height;  // physical pixels
-    // physScale: physical pixels per world unit (matches camera.apply's scale*dpr)
-    const physScale = scale * dpr;
+    const physScale = camera.scale * dpr;
+    const W = ctx.canvas.width, H = ctx.canvas.height;
 
-    // World position at the centre of the physical screen
-    const worldCX = (W / 2 - camX * dpr) / physScale;
-    const worldCY = (H / 2 - camY * dpr) / physScale;
-
-    // Trigger rebuild at 15% of bitmap half-span
-    const threshX = 0.15 * W / physScale;
-    const threshY = 0.15 * H / physScale;
-    const needsRebuild =
-      this._bitmapWorldX === null ||
-      Math.abs(worldCX - this._bitmapWorldX) > threshX ||
-      Math.abs(worldCY - this._bitmapWorldY) > threshY ||
-      Math.abs(physScale - this._bitmapScale) > 0.08 * dpr;
-
-    if (needsRebuild && !this._pending) {
-      this._pending = true;
-      this._worker.postMessage({ worldCX, worldCY, scale: physScale, screenW: W, screenH: H, hexScale: 1.0 });
+    // (re)build the tiny tile only when the zoom changes meaningfully
+    if (!this._tile || Math.abs(physScale - this._tileScale) > this._tileScale * 0.04) {
+      this._buildTile(physScale);
     }
+    if (!this._pattern) this._pattern = ctx.createPattern(this._tile, 'repeat');
 
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = '#070707';
+
+    // gap background
+    ctx.fillStyle = 'rgb(14,21,32)';
     ctx.fillRect(0, 0, W, H);
 
-    if (this._bitmap) {
-      const dx = (worldCX - this._bitmapWorldX) * physScale;
-      const dy = (worldCY - this._bitmapWorldY) * physScale;
-      ctx.drawImage(this._bitmap, -this._bitmapW / 2 + W / 2 - dx, -this._bitmapH / 2 + H / 2 - dy);
-    }
+    // tiled hex pattern, panned with the camera and tilted
+    ctx.translate(camera.x * dpr, camera.y * dpr);
+    ctx.rotate(HEX_TILT);
+    ctx.fillStyle = this._pattern;
+    const M = (W + H) * 1.5;
+    ctx.fillRect(-M, -M, 2 * M, 2 * M);
+
+    // diagonal shade — top-right lighter, bottom-left darker
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    const ov = ctx.createLinearGradient(W, 0, 0, H);
+    ov.addColorStop(0, 'rgba(0,0,0,0.06)');
+    ov.addColorStop(1, 'rgba(0,0,0,0.28)');
+    ctx.fillStyle = ov;
+    ctx.fillRect(0, 0, W, H);
 
     ctx.restore();
   }
