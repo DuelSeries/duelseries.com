@@ -43,7 +43,7 @@ self.onmessage = function ({ data: { worldCX, worldCY, scale, screenW, screenH, 
   const COL_STEP = Math.sqrt(3) * SIZE + GAP;
   const ROW_STEP = 1.5 * SIZE + Math.sqrt(3) / 2 * GAP;
 
-  const W = Math.round(screenW * 1.4), H = Math.round(screenH * 1.4);
+  const W = Math.round(screenW * 1.9), H = Math.round(screenH * 1.9);  // bigger pre-rendered area
   const oc  = new OffscreenCanvas(W, H);
   const ctx = oc.getContext('2d');
 
@@ -67,9 +67,15 @@ self.onmessage = function ({ data: { worldCX, worldCY, scale, screenW, screenH, 
   ctx.lineJoin = 'round';
   ctx.lineCap  = 'round';
 
+  // One gradient reused for every hex (created per-hex was the main regen cost).
+  // We position each hex by translating the canvas so the gradient lines up.
+  const lw = Math.max(2, r * 0.12);
+  const grad = ctx.createLinearGradient(0, -r, 0, r);
+  grad.addColorStop(0, FACE_TOP);
+  grad.addColorStop(1, FACE_BOT);
+
   // Iterate top->bottom so each hex's lower-left shadow falls on cells not yet
   // drawn (which then cover it) -> shadow shows only in the gaps.
-  const lw = Math.max(2, r * 0.12);
   for (let row = rowStart; row <= rowEnd; row++) {
     const off = (Math.abs(row % 2) === 1) ? COL_STEP / 2 : 0;
     for (let col = colStart; col <= colEnd; col++) {
@@ -78,24 +84,17 @@ self.onmessage = function ({ data: { worldCX, worldCY, scale, screenW, screenH, 
       const sx = a * gx + c * gy + e;
       const sy = b * gx + d * gy + f;
 
+      ctx.setTransform(1, 0, 0, 1, sx, sy);   // place this hex at the origin
+
       // cheap fake soft shadow — one offset dark hex (no costly blur)
-      hexPath(ctx, sx - r*0.10, sy + r*0.12, r); ctx.fillStyle = 'rgba(0,0,0,0.28)'; ctx.fill();
-
-      // navy face, screen-vertical gradient (light top -> dark bottom)
-      const g = ctx.createLinearGradient(sx, sy - r, sx, sy + r);
-      g.addColorStop(0, FACE_TOP);
-      g.addColorStop(1, FACE_BOT);
-      hexPath(ctx, sx, sy, r);
-      ctx.fillStyle = g;
-      ctx.fill();
-
+      hexPath(ctx, -r*0.10, r*0.12, r); ctx.fillStyle = 'rgba(0,0,0,0.28)'; ctx.fill();
+      // navy face (reused screen-vertical gradient)
+      hexPath(ctx, 0, 0, r); ctx.fillStyle = grad; ctx.fill();
       // black outline
-      hexPath(ctx, sx, sy, r);
-      ctx.strokeStyle = OUTLINE;
-      ctx.lineWidth   = lw;
-      ctx.stroke();
+      hexPath(ctx, 0, 0, r); ctx.strokeStyle = OUTLINE; ctx.lineWidth = lw; ctx.stroke();
     }
   }
+  ctx.setTransform(1, 0, 0, 1, 0, 0);   // restore for the overlay + grain
 
   // diagonal shade — top-right lighter, bottom-left darker
   const overlay = ctx.createLinearGradient(W, 0, 0, H);
