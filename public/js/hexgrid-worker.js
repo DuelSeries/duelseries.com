@@ -103,13 +103,6 @@ self.onmessage = function ({ data: { worldCX, worldCY, scale, screenW, screenH, 
   ctx.fillStyle = overlay;
   ctx.fillRect(0, 0, W, H);
 
-  // subtle grain (source-over tile — cheap; skipped the costly full-canvas blend)
-  ctx.save();
-  ctx.globalAlpha = 0.035;
-  const tile = noiseTile();
-  for (let y = 0; y < H; y += NT) for (let x = 0; x < W; x += NT) ctx.drawImage(tile, x, y);
-  ctx.restore();
-
   const bitmap = oc.transferToImageBitmap();
   self.postMessage({ bitmap, worldCX, worldCY, scale }, [bitmap]);
 };
