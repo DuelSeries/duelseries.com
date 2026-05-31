@@ -36,8 +36,8 @@ class HexGrid {
     const r  = FACE_R * physScale;
     const lw = Math.max(1.5, r * 0.12);
     const grad = ctx.createLinearGradient(0, -r, 0, r);
-    grad.addColorStop(0, 'rgb(44,60,84)');   // navy light top
-    grad.addColorStop(1, 'rgb(17,27,40)');   // navy dark bottom
+    grad.addColorStop(0, 'rgb(39,53,75)');   // navy light top
+    grad.addColorStop(1, 'rgb(14,23,34)');   // navy dark bottom
 
     const hex = (ox, oy) => { ctx.beginPath(); for (let i = 0; i < 6; i++) { const a = (Math.PI/3)*i + Math.PI/6; ctx.lineTo(ox + r*Math.cos(a), oy + r*Math.sin(a)); } ctx.closePath(); };
 
