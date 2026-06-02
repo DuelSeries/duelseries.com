@@ -54,7 +54,7 @@ function glSnakeBody(ctx, pts, R, colorHex) {
     canvas.width  = W;
     canvas.height = H;
 
-    ctx.fillStyle = '#070707';
+    ctx.fillStyle = 'rgb(15,25,38)';   // dark navy gap
     ctx.fillRect(0, 0, W, H);
 
     ctx.save();
@@ -63,39 +63,31 @@ function glSnakeBody(ctx, pts, R, colorHex) {
     ctx.scale(1.45, 1.45);
     ctx.translate(-W / 2, -H / 2);
     ctx.translate(scrollX, 0);
+    ctx.lineJoin = 'round';
+    ctx.lineCap  = 'round';
 
     for (let row = -4; row < H / rowStep + 5; row++) {
       for (let col = -5; col < W / colStep + 6; col++) {
         const cx = col * colStep + (row % 2 === 1 ? colStep / 2 : 0);
         const cy = row * rowStep;
 
+        // soft shadow (lower-left)
+        hexPath(cx - faceR * 0.10, cy + faceR * 0.12, faceR);
+        ctx.fillStyle = 'rgba(0,0,0,0.28)';
+        ctx.fill();
+
+        // navy face — vertical gradient (light top -> dark bottom)
         hexPath(cx, cy, faceR);
-        const face = ctx.createLinearGradient(
-          cx + size * 0.65, cy - size * 0.65,
-          cx - size * 0.65, cy + size * 0.65
-        );
-        face.addColorStop(0,    '#181818');
-        face.addColorStop(0.25, '#101010');
-        face.addColorStop(0.6,  '#0b0b0b');
-        face.addColorStop(1,    '#050505');
+        const face = ctx.createLinearGradient(cx, cy - faceR, cx, cy + faceR);
+        face.addColorStop(0, 'rgb(35,49,70)');
+        face.addColorStop(1, 'rgb(17,27,39)');
         ctx.fillStyle = face;
         ctx.fill();
 
+        // black outline
         hexPath(cx, cy, faceR);
-        const rim = ctx.createLinearGradient(
-          cx + size * 0.55, cy - size * 0.55,
-          cx - size * 0.55, cy + size * 0.55
-        );
-        rim.addColorStop(0,    'rgba(45,45,45,0.15)');
-        rim.addColorStop(0.45, 'rgba(0,0,0,0)');
-        rim.addColorStop(1,    'rgba(0,0,0,0.55)');
-        ctx.strokeStyle = rim;
-        ctx.lineWidth = size * 0.055;
-        ctx.stroke();
-
-        hexPath(cx, cy, faceR);
-        ctx.strokeStyle = 'rgba(1,1,1,0.95)';
-        ctx.lineWidth = 5;
+        ctx.strokeStyle = 'rgb(8,13,19)';
+        ctx.lineWidth = faceR * 0.13;
         ctx.stroke();
       }
     }
