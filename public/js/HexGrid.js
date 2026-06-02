@@ -23,30 +23,31 @@ class HexGrid {
     const tileW = Math.max(2, Math.round(COL_STEP * physScale));
     const tileH = Math.max(2, Math.round(2 * ROW_STEP * physScale));
 
-    const c = document.createElement('canvas');
-    c.width = tileW; c.height = tileH;
-    const ctx = c.getContext('2d');
+    const r     = FACE_R * physScale;
+    const lw    = Math.max(1.5, r * 0.12);
+    const blurR = Math.max(1, r * 0.045);
+    const pad   = Math.ceil(blurR * 3 + 2);
 
-    // gap background
-    ctx.fillStyle = 'rgb(14,21,32)';
-    ctx.fillRect(0, 0, tileW, tileH);
-
+    // Render the tile content with a padded margin of wrapped neighbours, so the
+    // blur can bleed correctly and the centre crop still tiles seamlessly.
+    const big = document.createElement('canvas');
+    big.width = tileW + pad * 2; big.height = tileH + pad * 2;
+    const ctx = big.getContext('2d');
+    ctx.fillStyle = 'rgb(14,22,33)';
+    ctx.fillRect(0, 0, big.width, big.height);
     ctx.lineJoin = 'round';
     ctx.lineCap  = 'round';
-    const r  = FACE_R * physScale;
-    const lw = Math.max(1.5, r * 0.12);
     const grad = ctx.createLinearGradient(0, -r, 0, r);
     grad.addColorStop(0, 'rgb(39,53,75)');   // navy light top
     grad.addColorStop(1, 'rgb(14,23,34)');   // navy dark bottom
 
     const hex = (ox, oy) => { ctx.beginPath(); for (let i = 0; i < 6; i++) { const a = (Math.PI/3)*i + Math.PI/6; ctx.lineTo(ox + r*Math.cos(a), oy + r*Math.sin(a)); } ctx.closePath(); };
 
-    // draw the lattice neighbourhood so the tile repeats seamlessly
-    for (let row = -1; row <= 2; row++) {
+    for (let row = -2; row <= 3; row++) {
       const off = (((row % 2) + 2) % 2 === 1) ? COL_STEP / 2 : 0;
-      for (let col = -1; col <= 2; col++) {
-        const cx = (col * COL_STEP + off) * physScale;
-        const cy = (row * ROW_STEP) * physScale;
+      for (let col = -2; col <= 3; col++) {
+        const cx = (col * COL_STEP + off) * physScale + pad;
+        const cy = (row * ROW_STEP) * physScale + pad;
         ctx.setTransform(1, 0, 0, 1, cx, cy);
         hex(-r * 0.10, r * 0.12);  ctx.fillStyle = 'rgba(0,0,0,0.28)'; ctx.fill();  // soft shadow
         hex(0, 0);                 ctx.fillStyle = grad;               ctx.fill();  // navy face
@@ -54,6 +55,19 @@ class HexGrid {
       }
     }
     ctx.setTransform(1, 0, 0, 1, 0, 0);
+
+    // soft blur the padded content
+    const blurred = document.createElement('canvas');
+    blurred.width = big.width; blurred.height = big.height;
+    const bctx = blurred.getContext('2d');
+    bctx.filter = `blur(${blurR}px)`;
+    bctx.drawImage(big, 0, 0);
+    bctx.filter = 'none';
+
+    // crop the centre period -> seamless blurred tile
+    const c = document.createElement('canvas');
+    c.width = tileW; c.height = tileH;
+    c.getContext('2d').drawImage(blurred, pad, pad, tileW, tileH, 0, 0, tileW, tileH);
 
     this._tile      = c;
     this._tileScale = physScale;
@@ -75,7 +89,7 @@ class HexGrid {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
 
     // gap background
-    ctx.fillStyle = 'rgb(14,21,32)';
+    ctx.fillStyle = 'rgb(14,22,33)';
     ctx.fillRect(0, 0, W, H);
 
     // tiled hex pattern, panned with the camera and tilted
