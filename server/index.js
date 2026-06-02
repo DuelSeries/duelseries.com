@@ -656,6 +656,10 @@ function getAgarRoomForType(lobbyType, region) {
 const lobbySocketsByGoogleId = new Map();
 const lobbyConnections = new Set();
 
+// How long to keep a disconnected player's snake gliding before giving up on a
+// reconnect. Covers a typical mobile network blip without leaving dead snakes around.
+const RECONNECT_GRACE_MS = 8000;
+
 function totalInGame() {
   return REGIONS.reduce((t, rgn) =>
     t + Object.values(gameRooms[rgn]).reduce((s, r) => s + r.playerCount + r.botCount, 0), 0);
@@ -702,7 +706,7 @@ io.on('connection', (socket) => {
     broadcastLobbyState();
   });
 
-  socket.on(C.EVENTS.PLAY, ({ name, walletAddress, googleId, color, lobbyType, entrySol, hatId, boostId, region } = {}) => {
+  socket.on(C.EVENTS.PLAY, ({ name, walletAddress, googleId, color, lobbyType, entrySol, hatId, boostId, region, reconnectKey } = {}) => {
     // Ignore duplicate PLAY events (e.g. from socket reconnect while alive)
     if (socket._room) {
       const existingSnake = socket._room.snakes.get(socket.id);
@@ -716,6 +720,22 @@ io.on('connection', (socket) => {
       lobbySocketsByGoogleId.set(verifiedId, socket);
     }
     const room = getRoomForType(lobbyType, region || REGION);
+
+    // Reconnect: if we kept this player's snake alive after a recent drop, put them
+    // back on it (and their staked worth) instead of charging/spawning a fresh one.
+    if (reconnectKey) {
+      socket._reconnectKey = reconnectKey;
+      const reSnake = room.reattach(reconnectKey, socket);
+      if (reSnake) {
+        socket._room = room;
+        socket._joinTime = socket._joinTime || Date.now();
+        lobbyConnections.delete(socket);
+        broadcastLobbyState();
+        console.log(`[~] ${playerName} reconnected to held snake`);
+        return;
+      }
+    }
+
     socket._room = room;
     socket._joinTime = Date.now();
     console.log(`[>] ${playerName} joins ${lobbyType || 'free'} lobby (worth: ${entrySol || 0} SOL)`);
@@ -994,11 +1014,28 @@ io.on('connection', (socket) => {
     const room = socket._room;
     if (room) {
       const snake = room.snakes && room.snakes.get(socket.id);
-      if (snake && socket._googleId) {
-        const duration = socket._joinTime ? Math.round((Date.now() - socket._joinTime) / 1000) : 0;
-        await db.recordGameResult(socket._googleId, snake.score, duration).catch(() => {});
+      const gid = socket._googleId, joinTime = socket._joinTime;
+      const finalize = () => {
+        const s = room.snakes.get(socket.id);
+        if (s && gid) {
+          const duration = joinTime ? Math.round((Date.now() - joinTime) / 1000) : 0;
+          db.recordGameResult(gid, s.score, duration).catch(() => {});
+        }
+        room.removePlayer(socket.id);
+        broadcastLobbyState();
+      };
+      if (snake && snake.alive && socket._reconnectKey) {
+        // Likely a brief network drop (very common on mobile). Keep the snake
+        // gliding for a grace period so a reconnect lands the player back on it
+        // instead of wiping their progress / staked worth.
+        room.markOrphan(socket.id, socket._reconnectKey, RECONNECT_GRACE_MS, finalize);
+      } else {
+        if (snake && socket._googleId) {
+          const duration = socket._joinTime ? Math.round((Date.now() - socket._joinTime) / 1000) : 0;
+          await db.recordGameResult(socket._googleId, snake.score, duration).catch(() => {});
+        }
+        room.removePlayer(socket.id);
       }
-      room.removePlayer(socket.id);
     }
     if (socket._googleId) lobbySocketsByGoogleId.delete(socket._googleId);
     lobbyConnections.delete(socket);

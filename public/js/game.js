@@ -69,6 +69,14 @@ let displayState = { snakes: [], food: [], worldRadius: CONSTANTS.BASE_WORLD_RAD
 const SERVER_URLS = { na: '', eu: 'https://eu.duelseries.com' };
 const socket = io(SERVER_URLS[selectedRegion] || '');
 
+// Stable id for THIS play session, sent with every PLAY. Survives socket
+// reconnects (the page doesn't reload on reconnect), so after a brief network
+// drop the server can put us back on the snake it kept alive instead of spawning
+// a fresh one. New each page load = new session.
+const reconnectKey = (window.crypto && crypto.randomUUID)
+  ? crypto.randomUUID()
+  : 'rk_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+
 const snakeColor = sessionStorage.getItem('snakeColor') || localStorage.getItem('duelseries_skin_color') || '#E8756A';
 const hatId      = sessionStorage.getItem('hatId')      || 'none';
 const boostId    = sessionStorage.getItem('boostId')    || 'default';
@@ -77,7 +85,7 @@ socket.on('connect', () => {
   if (spectateOnly) {
     socket.emit('spectate:join', { lobbyType, region: selectedRegion });
   } else {
-    socket.emit(CONSTANTS.EVENTS.PLAY, { name: playerName, walletAddress, googleId, color: snakeColor, lobbyType, entrySol, hatId, boostId, region: selectedRegion });
+    socket.emit(CONSTANTS.EVENTS.PLAY, { name: playerName, walletAddress, googleId, color: snakeColor, lobbyType, entrySol, hatId, boostId, region: selectedRegion, reconnectKey });
   }
 });
 

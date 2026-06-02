@@ -13,6 +13,7 @@ class GameRoom {
     this.socketRoomName = 'game_' + this.roomId;
     this.snakes = new Map();      // socketId -> Snake
     this.players = new Map();     // socketId -> { socket, name, walletAddress }
+    this.orphans = new Map();     // reconnectKey -> { socketId, timer } — snakes kept alive across a brief drop
     this.foodManager = new FoodManager();
     this.worldRadius = C.BASE_WORLD_RADIUS;
     this.borderDrift = 0;  // positive = expanded, negative = contracted
@@ -79,6 +80,56 @@ class GameRoom {
     }
     this.snakes.delete(socketId);
     this.players.delete(socketId);
+  }
+
+  // A player's socket dropped but they may just be reconnecting (common on mobile).
+  // Keep their snake in the world, gliding straight, for a grace period instead of
+  // killing it. If they don't return in time, onExpire() is invoked so the caller
+  // can record the result and remove the player normally.
+  markOrphan(socketId, key, graceMs, onExpire) {
+    const snake = this.snakes.get(socketId);
+    if (!snake || !snake.alive || !key) { onExpire(); return; }
+    snake._orphan = true;
+    snake.setInput(snake.angle, false, 1);  // stop turning/boosting — glide straight
+    const prev = this.orphans.get(key);
+    if (prev) clearTimeout(prev.timer);
+    const timer = setTimeout(() => { this.orphans.delete(key); onExpire(); }, graceMs);
+    this.orphans.set(key, { socketId, timer });
+  }
+
+  // A player reconnected: if we're still holding their snake, move it onto the new
+  // socket (re-key the maps, the snake's id, and rejoin the room) and re-send the
+  // join payload so they snap back onto it. Returns the snake, or null if none held.
+  reattach(key, newSocket) {
+    const o = key && this.orphans.get(key);
+    if (!o) return null;
+    clearTimeout(o.timer);
+    this.orphans.delete(key);
+    const oldId  = o.socketId;
+    const snake  = this.snakes.get(oldId);
+    const player = this.players.get(oldId);
+    if (!snake || !snake.alive || !player) {
+      this.removePlayer(oldId);   // died during the grace window — clean up the stale entry
+      return null;
+    }
+
+    this.snakes.delete(oldId);
+    this.players.delete(oldId);
+    snake.id = newSocket.id;
+    snake._orphan = false;
+    player.socket = newSocket;
+    this.snakes.set(newSocket.id, snake);
+    this.players.set(newSocket.id, player);
+    newSocket.join(this.socketRoomName);
+
+    newSocket.emit(C.EVENTS.GAME_JOINED, {
+      playerId: newSocket.id,
+      worldRadius: this.worldRadius,
+      snakeColor: snake.color,
+      food: this.foodManager.getAll(),
+      snake: snake.serialize(),
+    });
+    return snake;
   }
 
   handleInput(socketId, targetAngle, boosting, speedMult) {
