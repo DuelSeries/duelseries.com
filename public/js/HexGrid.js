@@ -25,7 +25,7 @@ class HexGrid {
 
     const r     = FACE_R * physScale;
     const lw    = Math.max(1.5, r * 0.14);
-    const blurR = Math.max(0.7, r * 0.02);
+    const blurR = Math.max(0.6, r * 0.013);
     const pad   = Math.ceil(blurR * 3 + 2);
 
     // Render the tile content with a padded margin of wrapped neighbours, so the
