@@ -37,6 +37,16 @@ const _segPool      = new Map(); // snake id → Float32Array, reused to avoid G
 const INTERP_DELAY_MS = 50; // 50ms = 3 snapshot periods at 60Hz — absorbs Render CPU jitter
 let spawnTime        = null;  // performance.now() when last joined — used to ramp up interp delay
 
+// Adaptive jitter buffer — on mobile the network periodically stalls and several
+// snapshots arrive late, bunched together. A fixed 50ms buffer can't absorb that,
+// so other snakes dead-reckon then snap when the burst lands (the "ping spike"
+// glitch). We measure how late each snapshot arrives and temporarily widen the
+// buffer to cover the spike, then shrink it back when the network is calm.
+const SNAP_PERIOD_MS = 1000 / CONSTANTS.TICK_RATE; // expected gap between snapshots (~16.7ms)
+let _lastSnapAt = 0;   // client time the previous snapshot arrived
+let _jitterBuf  = 0;   // adaptive extra buffer (ms), 0..MAX_JITTER_BUF
+const MAX_JITTER_BUF = 180;
+
 // ─── Local snake simulation ──────────────────────────────────────────────────
 // Ring buffer of head positions recorded every frame. Body segments are placed
 // along this path at fixed spacing — same technique slither.io uses.
@@ -164,6 +174,8 @@ socket.on(CONSTANTS.EVENTS.GAME_JOINED, ({ playerId, worldRadius, food, snake })
   cashoutRings.clear();
   snapBuffer = [];
   clockOffset = null;
+  _lastSnapAt = 0;
+  _jitterBuf = 0;
   spawnTime = performance.now();
   displayState = { snakes: snake ? [snake] : [], food: food || [], worldRadius, leaderboard: [] };
   document.getElementById('death-screen').classList.remove('active');
@@ -181,15 +193,27 @@ socket.on(CONSTANTS.EVENTS.SNAPSHOT, (snap) => {
   // Track clock offset as an exponential moving average of (server_time - client_time).
   // A fixed first-snap offset is fragile — if that packet had unusually high latency,
   // serverNow underestimates actual server time and renderTime falls outside the buffer.
-  const sample = snap.t - performance.now();
+  const arrival = performance.now();
+  const sample = snap.t - arrival;
   if (clockOffset === null) {
     clockOffset = sample;
   } else {
     // Blend 10% toward each new sample — adapts within ~10 snaps (~165ms at 60Hz)
     clockOffset += (sample - clockOffset) * 0.1;
   }
+
+  // Adaptive jitter buffer: how much later than expected did this snapshot land?
+  // Grow fast on a spike (so we always have a real snapshot to lerp toward),
+  // shrink slowly when calm so latency returns to normal once the network settles.
+  if (_lastSnapAt) {
+    const late = Math.max(0, (arrival - _lastSnapAt) - SNAP_PERIOD_MS);
+    if (late > _jitterBuf) _jitterBuf = Math.min(late, MAX_JITTER_BUF);
+    else _jitterBuf += (late - _jitterBuf) * 0.03;
+  }
+  _lastSnapAt = arrival;
+
   snapBuffer.push({ t: snap.t, state: snap });
-  if (snapBuffer.length > 20) snapBuffer.shift();
+  if (snapBuffer.length > 30) snapBuffer.shift();
   const mySnap = snap.snakes.find(s => s.id === myId);
   if (mySnap) {
     _latestMySnap = mySnap;
@@ -221,7 +245,7 @@ function interpolateState(now) {
   const serverNow = now + clockOffset;
   // Ramp interp delay from 0→full over first 500ms after spawn to avoid initial lag
   const spawnAge = spawnTime ? now - spawnTime : Infinity;
-  const baseDelay = spawnAge < 500 ? INTERP_DELAY_MS * (spawnAge / 500) : INTERP_DELAY_MS;
+  const baseDelay = (spawnAge < 500 ? INTERP_DELAY_MS * (spawnAge / 500) : INTERP_DELAY_MS) + _jitterBuf;
   const renderTime = serverNow - baseDelay;
 
   // Find the two snapshots that bracket renderTime
@@ -847,12 +871,11 @@ sendPing();
 let fpsFrames = 0, fpsLast = performance.now(), fpsDisplay = 0;
 const fpsEl   = document.getElementById('fps-counter');
 const perfEl  = document.getElementById('perf-counter');
-let _cpuAccum = 0, _gpuAccum = 0, _perfFrames = 0;
+if (perfEl) perfEl.style.display = 'none';   // CPU/GPU counter removed
 
 let _lastFrameTime = 0;
 // Main render loop — runs at monitor refresh rate (60/144/240Hz)
 function gameLoop(now) {
-  const _frameStart = performance.now();
   const dt = Math.min(_lastFrameTime ? now - _lastFrameTime : 16.67, 50);
   _lastFrameTime = now;
 
@@ -905,20 +928,12 @@ function gameLoop(now) {
   renderer.render(renderState, cashedOut ? null : myId, mousePos, spectateSnake, cashoutRings, dt);
 
 
-  // FPS + perf
-  const _jsMs  = performance.now() - _frameStart; // JS execution time this frame
-  const _gpuMs = Math.max(0, dt - _jsMs);         // estimated GPU/composite time
-  _cpuAccum   += _jsMs;
-  _gpuAccum   += _gpuMs;
-  _perfFrames++;
+  // FPS
   fpsFrames++;
   if (now - fpsLast >= 500) {
-    fpsDisplay   = Math.round(fpsFrames * 1000 / (now - fpsLast));
-    const avgCpu = _cpuAccum / _perfFrames;
-    const avgGpu = _gpuAccum / _perfFrames;
-    fpsFrames = 0; fpsLast = now; _cpuAccum = 0; _gpuAccum = 0; _perfFrames = 0;
-    if (fpsEl)  fpsEl.textContent  = `FPS: ${fpsDisplay}`;
-    if (perfEl) perfEl.textContent = `CPU: ${avgCpu.toFixed(1)}ms  GPU: ${avgGpu.toFixed(1)}ms`;
+    fpsDisplay = Math.round(fpsFrames * 1000 / (now - fpsLast));
+    fpsFrames = 0; fpsLast = now;
+    if (fpsEl) fpsEl.textContent = `FPS: ${fpsDisplay}`;
   }
 
   requestAnimationFrame(gameLoop);
