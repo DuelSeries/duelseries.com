@@ -25,7 +25,7 @@ class HexGrid {
 
     const r     = FACE_R * physScale;
     const lw    = Math.max(1.5, r * 0.12);
-    const blurR = Math.max(1, r * 0.045);
+    const blurR = Math.max(0.6, r * 0.018);
     const pad   = Math.ceil(blurR * 3 + 2);
 
     // Render the tile content with a padded margin of wrapped neighbours, so the
@@ -33,7 +33,7 @@ class HexGrid {
     const big = document.createElement('canvas');
     big.width = tileW + pad * 2; big.height = tileH + pad * 2;
     const ctx = big.getContext('2d');
-    ctx.fillStyle = 'rgb(14,22,33)';
+    ctx.fillStyle = 'rgb(20,30,44)';
     ctx.fillRect(0, 0, big.width, big.height);
     ctx.lineJoin = 'round';
     ctx.lineCap  = 'round';
@@ -89,7 +89,7 @@ class HexGrid {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
 
     // gap background
-    ctx.fillStyle = 'rgb(14,22,33)';
+    ctx.fillStyle = 'rgb(20,30,44)';
     ctx.fillRect(0, 0, W, H);
 
     // tiled hex pattern, panned with the camera and tilted
