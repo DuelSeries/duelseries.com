@@ -69,9 +69,12 @@ class HexGrid {
     c.width = tileW; c.height = tileH;
     const cctx = c.getContext('2d');
     cctx.drawImage(blurred, pad, pad, tileW, tileH, 0, 0, tileW, tileH);
-    // subtle fuzzy grain (barely noticeable)
+    // subtle fuzzy grain (barely noticeable). Seeded PRNG so the grain is the
+    // SAME on every rebuild -> no shimmer/flicker when the tile rebuilds on zoom.
     const gd = cctx.getImageData(0, 0, tileW, tileH), dd = gd.data;
-    for (let k = 0; k < dd.length; k += 4) { const n = (Math.random() - 0.5) * 4; dd[k] += n; dd[k+1] += n; dd[k+2] += n; }
+    let s = 0x9e3779b9 >>> 0;
+    const rnd = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+    for (let k = 0; k < dd.length; k += 4) { const n = (rnd() - 0.5) * 4; dd[k] += n; dd[k+1] += n; dd[k+2] += n; }
     cctx.putImageData(gd, 0, 0);
 
     this._tile      = c;

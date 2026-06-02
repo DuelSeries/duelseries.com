@@ -102,9 +102,9 @@ class Renderer {
 
     camera.apply(ctx, dpr);
 
-    // Hex grid — every frame on desktop, every 3rd frame on mobile
-    this._hexFrame++;
-    if (!this._isMobile || this._hexFrame % 3 === 0) this.hexGrid.draw(ctx, camera, dpr);
+    // Hex grid — drawn every frame (cheap pattern fill). Skipping frames on
+    // mobile caused the background to flicker (canvas is cleared every frame).
+    this.hexGrid.draw(ctx, camera, dpr);
 
     // Clip food to world circle only
     ctx.save();
