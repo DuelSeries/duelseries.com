@@ -33,13 +33,13 @@ class HexGrid {
     const big = document.createElement('canvas');
     big.width = tileW + pad * 2; big.height = tileH + pad * 2;
     const ctx = big.getContext('2d');
-    ctx.fillStyle = 'rgb(18,27,38)';
+    ctx.fillStyle = 'rgb(15,25,38)';
     ctx.fillRect(0, 0, big.width, big.height);
     ctx.lineJoin = 'round';
     ctx.lineCap  = 'round';
     const grad = ctx.createLinearGradient(0, -r, 0, r);
-    grad.addColorStop(0, 'rgb(38,51,70)');   // navy light top (v11 baked)
-    grad.addColorStop(1, 'rgb(19,29,39)');   // navy dark bottom (v11 baked)
+    grad.addColorStop(0, 'rgb(35,49,70)');   // navy light top (less yellow)
+    grad.addColorStop(1, 'rgb(17,27,39)');   // navy dark bottom (less yellow)
 
     const hex = (ox, oy) => { ctx.beginPath(); for (let i = 0; i < 6; i++) { const a = (Math.PI/3)*i + Math.PI/6; ctx.lineTo(ox + r*Math.cos(a), oy + r*Math.sin(a)); } ctx.closePath(); };
 
@@ -51,7 +51,7 @@ class HexGrid {
         ctx.setTransform(1, 0, 0, 1, cx, cy);
         hex(-r * 0.10, r * 0.12);  ctx.fillStyle = 'rgba(0,0,0,0.28)'; ctx.fill();  // soft shadow
         hex(0, 0);                 ctx.fillStyle = grad;               ctx.fill();  // navy face
-        hex(0, 0);                 ctx.strokeStyle = 'rgb(10,15,19)'; ctx.lineWidth = lw; ctx.stroke(); // outline (v11 baked)
+        hex(0, 0);                 ctx.strokeStyle = 'rgb(8,13,19)'; ctx.lineWidth = lw; ctx.stroke(); // outline (less yellow)
       }
     }
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -94,7 +94,7 @@ class HexGrid {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
 
     // gap background
-    ctx.fillStyle = 'rgb(18,27,38)';
+    ctx.fillStyle = 'rgb(15,25,38)';
     ctx.fillRect(0, 0, W, H);
 
     // tiled hex pattern, panned with the camera and tilted
