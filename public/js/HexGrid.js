@@ -24,8 +24,8 @@ class HexGrid {
     const tileH = Math.max(2, Math.round(2 * ROW_STEP * physScale));
 
     const r     = FACE_R * physScale;
-    const lw    = Math.max(1.5, r * 0.12);
-    const blurR = Math.max(0.6, r * 0.018);
+    const lw    = Math.max(1.5, r * 0.14);
+    const blurR = Math.max(1, r * 0.036);
     const pad   = Math.ceil(blurR * 3 + 2);
 
     // Render the tile content with a padded margin of wrapped neighbours, so the
@@ -33,13 +33,13 @@ class HexGrid {
     const big = document.createElement('canvas');
     big.width = tileW + pad * 2; big.height = tileH + pad * 2;
     const ctx = big.getContext('2d');
-    ctx.fillStyle = 'rgb(20,30,44)';
+    ctx.fillStyle = 'rgb(18,27,38)';
     ctx.fillRect(0, 0, big.width, big.height);
     ctx.lineJoin = 'round';
     ctx.lineCap  = 'round';
     const grad = ctx.createLinearGradient(0, -r, 0, r);
-    grad.addColorStop(0, 'rgb(39,53,75)');   // navy light top
-    grad.addColorStop(1, 'rgb(14,23,34)');   // navy dark bottom
+    grad.addColorStop(0, 'rgb(38,51,70)');   // navy light top (v11 baked)
+    grad.addColorStop(1, 'rgb(19,29,39)');   // navy dark bottom (v11 baked)
 
     const hex = (ox, oy) => { ctx.beginPath(); for (let i = 0; i < 6; i++) { const a = (Math.PI/3)*i + Math.PI/6; ctx.lineTo(ox + r*Math.cos(a), oy + r*Math.sin(a)); } ctx.closePath(); };
 
@@ -51,7 +51,7 @@ class HexGrid {
         ctx.setTransform(1, 0, 0, 1, cx, cy);
         hex(-r * 0.10, r * 0.12);  ctx.fillStyle = 'rgba(0,0,0,0.28)'; ctx.fill();  // soft shadow
         hex(0, 0);                 ctx.fillStyle = grad;               ctx.fill();  // navy face
-        hex(0, 0);                 ctx.strokeStyle = 'rgb(2,4,7)'; ctx.lineWidth = lw; ctx.stroke(); // outline
+        hex(0, 0);                 ctx.strokeStyle = 'rgb(10,15,19)'; ctx.lineWidth = lw; ctx.stroke(); // outline (v11 baked)
       }
     }
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -67,7 +67,12 @@ class HexGrid {
     // crop the centre period -> seamless blurred tile
     const c = document.createElement('canvas');
     c.width = tileW; c.height = tileH;
-    c.getContext('2d').drawImage(blurred, pad, pad, tileW, tileH, 0, 0, tileW, tileH);
+    const cctx = c.getContext('2d');
+    cctx.drawImage(blurred, pad, pad, tileW, tileH, 0, 0, tileW, tileH);
+    // subtle fuzzy grain (barely noticeable)
+    const gd = cctx.getImageData(0, 0, tileW, tileH), dd = gd.data;
+    for (let k = 0; k < dd.length; k += 4) { const n = (Math.random() - 0.5) * 4; dd[k] += n; dd[k+1] += n; dd[k+2] += n; }
+    cctx.putImageData(gd, 0, 0);
 
     this._tile      = c;
     this._tileScale = physScale;
@@ -89,7 +94,7 @@ class HexGrid {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
 
     // gap background
-    ctx.fillStyle = 'rgb(20,30,44)';
+    ctx.fillStyle = 'rgb(18,27,38)';
     ctx.fillRect(0, 0, W, H);
 
     // tiled hex pattern, panned with the camera and tilted
