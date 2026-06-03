@@ -67,7 +67,12 @@ let displayState = { snakes: [], food: [], worldRadius: CONSTANTS.BASE_WORLD_RAD
 
 // Socket — connect to EU EC2 for low ping when EU region is selected
 const SERVER_URLS = { na: '', eu: 'https://eu.duelseries.com' };
-const socket = io(SERVER_URLS[selectedRegion] || '');
+// Connect via websocket directly instead of Socket.IO's default
+// start-on-long-polling-then-upgrade. On mobile that upgrade was stalling/failing,
+// leaving the connection on HTTP long-polling — which shows as 800ms–2s ping even
+// on good WiFi where desktop (which upgrades fine) is smooth. Polling stays only as
+// a last-resort fallback if websocket genuinely can't connect.
+const socket = io(SERVER_URLS[selectedRegion] || '', { transports: ['websocket', 'polling'] });
 
 // Stable id for THIS play session, sent with every PLAY. Survives socket
 // reconnects (the page doesn't reload on reconnect), so after a brief network
@@ -82,6 +87,7 @@ const hatId      = sessionStorage.getItem('hatId')      || 'none';
 const boostId    = sessionStorage.getItem('boostId')    || 'default';
 
 socket.on('connect', () => {
+  try { console.log('[net] transport:', socket.io.engine.transport.name); } catch (e) {}
   if (spectateOnly) {
     socket.emit('spectate:join', { lobbyType, region: selectedRegion });
   } else {
