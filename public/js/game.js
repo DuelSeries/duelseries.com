@@ -34,7 +34,7 @@ let clockOffset  = null;
 let interpBeforeMap = null; // reused across frames to avoid Map allocation
 let interpSnakeBuf  = null; // reused across frames to avoid array allocation
 const _segPool      = new Map(); // snake id → Float32Array, reused to avoid GC
-const INTERP_DELAY_MS = 50; // 50ms = 3 snapshot periods at 60Hz — absorbs Render CPU jitter
+const INTERP_DELAY_MS = 70; // ~2 snapshot periods at the 30Hz SNAPSHOT_RATE — absorbs jitter without over-delaying
 let spawnTime        = null;  // performance.now() when last joined — used to ramp up interp delay
 
 // Adaptive jitter buffer — on mobile the network periodically stalls and several
@@ -42,7 +42,7 @@ let spawnTime        = null;  // performance.now() when last joined — used to 
 // so other snakes dead-reckon then snap when the burst lands (the "ping spike"
 // glitch). We measure how late each snapshot arrives and temporarily widen the
 // buffer to cover the spike, then shrink it back when the network is calm.
-const SNAP_PERIOD_MS = 1000 / CONSTANTS.TICK_RATE; // expected gap between snapshots (~16.7ms)
+const SNAP_PERIOD_MS = 1000 / (CONSTANTS.SNAPSHOT_RATE || CONSTANTS.TICK_RATE); // expected gap between snapshots
 let _lastSnapAt = 0;   // client time the previous snapshot arrived
 let _jitterBuf  = 0;   // adaptive extra buffer (ms), 0..MAX_JITTER_BUF
 const MAX_JITTER_BUF = 180;

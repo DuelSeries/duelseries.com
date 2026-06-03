@@ -1,6 +1,10 @@
 const CONSTANTS = {
-  // Server tick rate
+  // Server tick rate (simulation). Snapshots are broadcast at SNAPSHOT_RATE, which
+  // is lower to halve the data each client must receive — weaker devices on marginal
+  // connections (e.g. a phone on a so-so WiFi) couldn't drain a 60Hz stream and
+  // backed up. The client interpolates between snapshots so the lower rate is invisible.
   TICK_RATE: 60,
+  SNAPSHOT_RATE: 30,
 
   // World
   BASE_WORLD_RADIUS: 2000,

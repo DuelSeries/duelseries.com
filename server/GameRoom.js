@@ -277,8 +277,11 @@ class GameRoom {
     // Refill food
     this.foodManager.refill(this.worldRadius);
 
-    // Build and broadcast snapshot
-    this.broadcastSnapshot();
+    // Broadcast a snapshot at SNAPSHOT_RATE (lower than the sim TICK_RATE) so weaker
+    // clients receive ~half the data. Simulation still runs every tick.
+    const everyN = Math.max(1, Math.round(C.TICK_RATE / (C.SNAPSHOT_RATE || C.TICK_RATE)));
+    this._tickN = (this._tickN || 0) + 1;
+    if (this._tickN % everyN === 0) this.broadcastSnapshot();
   }
 
   killSnake(snake, killerId) {
