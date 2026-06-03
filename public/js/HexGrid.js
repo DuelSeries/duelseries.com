@@ -104,8 +104,22 @@ class HexGrid {
     ctx.translate(camera.x * dpr, camera.y * dpr);
     ctx.rotate(HEX_TILT);
     ctx.fillStyle = this._pattern;
-    const M = (W + H) * 1.5;
-    ctx.fillRect(-M, -M, 2 * M, 2 * M);
+    // Fill ONLY the on-screen area, mapped back into this panned/rotated space.
+    // The old (W+H)*1.5 block was ~40x the screen, painted every frame — fine on
+    // desktop, but it tanked mobile GPU fill-rate (and could leave gaps far from
+    // the origin). Project the 4 screen corners into this space and fill their bbox.
+    const cos = Math.cos(HEX_TILT), sin = Math.sin(HEX_TILT);
+    const px = camera.x * dpr, py = camera.y * dpr;
+    let fMinX = Infinity, fMinY = Infinity, fMaxX = -Infinity, fMaxY = -Infinity;
+    for (let i = 0; i < 4; i++) {
+      const sx = (i & 1) ? W : 0, sy = (i & 2) ? H : 0;
+      const ddx = sx - px, ddy = sy - py;
+      const tx = ddx * cos + ddy * sin, ty = -ddx * sin + ddy * cos;
+      if (tx < fMinX) fMinX = tx; if (tx > fMaxX) fMaxX = tx;
+      if (ty < fMinY) fMinY = ty; if (ty > fMaxY) fMaxY = ty;
+    }
+    const fpad = 4;
+    ctx.fillRect(fMinX - fpad, fMinY - fpad, (fMaxX - fMinX) + 2 * fpad, (fMaxY - fMinY) + 2 * fpad);
 
     // diagonal shade — top-right lighter, bottom-left darker
     ctx.setTransform(1, 0, 0, 1, 0, 0);
