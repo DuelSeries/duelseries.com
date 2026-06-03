@@ -219,13 +219,14 @@ class SnakeGL {
   }
 
   // ── Batched in-game path ──────────────────────────────────────────────────
-  // Instead of rendering each snake then drawImage-ing it back one-by-one (a GPU
-  // stall per snake), the in-game renderer renders ALL bodies into this full-screen
-  // GL layer at their on-screen positions, then composites the whole layer with a
-  // SINGLE drawImage. Usage per frame: beginFrame() → drawBody() ×N → endFrame() →
-  // ctx.drawImage(this.canvas, 0, 0).
+  // All bodies are rendered into this shared GL layer FIRST (one pass, so there's
+  // only ONE GL->2D sync), then composited back with small per-snake copies — NOT a
+  // full-screen drawImage (that fixed the per-snake stall but a full-screen copy
+  // every frame tanked normal-play FPS on high-res displays). Usage per frame:
+  // beginFrame() → drawBody() ×N → endFrame() → compositeTo(ctx).
   beginFrame() {
     if (!this.ok) return;
+    this._rects = [];
     const gl = this.gl;
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
     gl.disable(gl.SCISSOR_TEST);
@@ -245,6 +246,18 @@ class SnakeGL {
 
   endFrame() {
     if (this.ok) this.gl.disable(this.gl.BLEND);
+  }
+
+  // Composite the rendered bodies onto the 2D ctx (which must be at identity /
+  // screen-space). Copies only each snake's small box, not the full screen. All GL
+  // draws already happened in beginFrame/drawBody, so the first copy triggers one
+  // GL flush and the rest read the finished canvas — no per-snake GPU stall.
+  compositeTo(ctx) {
+    if (!this.ok || !this._rects) return;
+    const c = this.canvas;
+    for (const r of this._rects) {
+      ctx.drawImage(c, r[0], r[1], r[2], r[3], r[0], r[1], r[2], r[3]);
+    }
   }
 
   // Render one snake body into the shared layer at its on-screen position. The
@@ -272,6 +285,12 @@ class SnakeGL {
     const vpY = Math.round(H - syMax);
     const vpW = Math.max(1, Math.round(sxMax - sxMin));
     const vpH = Math.max(1, Math.round(syMax - syMin));
+
+    // Record this snake's on-screen rect (image space, y-down) so compositeTo()
+    // copies just this box back — not the whole screen.
+    const ix = Math.max(0, vpX), iy = Math.max(0, H - (vpY + vpH));
+    const ir = Math.min(W, vpX + vpW), ib = Math.min(H, H - vpY);
+    if (ir > ix && ib > iy) this._rects.push([ix, iy, ir - ix, ib - iy]);
 
     // reversed (tail->head) downsampled spine, cumulative arc from tail (world coords)
     const count = Math.min(MAXPTS, SN);

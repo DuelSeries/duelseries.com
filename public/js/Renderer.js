@@ -142,7 +142,7 @@ class Renderer {
     if (glBatch) {
       this.snakeGL.endFrame();
       ctx.setTransform(1, 0, 0, 1, 0, 0);        // screen space for the composite
-      ctx.drawImage(this.snakeGL.canvas, 0, 0);   // all bodies at once
+      this.snakeGL.compositeTo(ctx);              // small per-snake copies (1 GL sync total)
       camera.apply(ctx, dpr);                      // back to world space
     }
     // Heads / eyes / hats / names / cashout rings, drawn on top of the bodies
