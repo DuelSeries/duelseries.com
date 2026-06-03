@@ -356,17 +356,25 @@ function _lInit(s) {
   _lReady = true;
 }
 
-// Gentle correction toward server head position — 15% per snapshot, no snapping
+// Gentle correction toward server head position — 15% per snapshot, no snapping.
+// On a high-ping link the server snapshot is stale AND arrives in bursts, so
+// correcting hard toward it fights the player's own turning (the snake "won't
+// turn / goes straight") and kinks the body. Below ~60ms ping (typical desktop)
+// we correct fully as before; above that we scale the correction down so local
+// input stays responsive on mobile. The server is still authoritative — this only
+// changes how quickly the *visual* local snake is pulled back into sync.
 function _lCorrect(s) {
   if (!_lReady || !s || !s.segs || s.segs.length < 2) return;
+  const ping = pingMs || 0;
+  const corr = ping < 60 ? 1 : Math.max(0.2, 1 - (ping - 60) / 250);
   const hi = (_lpHead - 1 + LP_SIZE) % LP_SIZE;
-  _lpX[hi] += (s.segs[0] - _lpX[hi]) * 0.10;
-  _lpY[hi] += (s.segs[1] - _lpY[hi]) * 0.10;
+  _lpX[hi] += (s.segs[0] - _lpX[hi]) * 0.10 * corr;
+  _lpY[hi] += (s.segs[1] - _lpY[hi]) * 0.10 * corr;
   // Blend angle toward server — never snap, avoids visible direction changes
   let da = s.angle - _lAngle;
   while (da >  Math.PI) da -= Math.PI * 2;
   while (da < -Math.PI) da += Math.PI * 2;
-  _lAngle += da * 0.15;
+  _lAngle += da * 0.15 * corr;
   // Only reset boost age when boost stops — re-syncing every tick fights the local advance and causes micro-jitter
   if ((s.boostRamp || 0) === 0) _lBoostAge = 0;
 }
