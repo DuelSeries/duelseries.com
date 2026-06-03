@@ -190,6 +190,9 @@ socket.on(CONSTANTS.EVENTS.GAME_JOINED, ({ playerId, worldRadius, food, snake })
   document.getElementById('cashout-screen').classList.remove('active');
   _lReset();
   if (snake) _lInit(snake);
+  // Snap the camera straight to the correct zoom/position so the spawn doesn't
+  // start zoomed-out and animate in.
+  if (renderer && renderer.camera) renderer.camera.snapNextUpdate = true;
   if (spectateOnly) {
     enterSpectate();
   } else {

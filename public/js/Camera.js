@@ -7,6 +7,7 @@ class Camera {
     this.targetY = 0;
     this.targetScale = 1;
     this.LERP = 0.5;
+    this.snapNextUpdate = false; // set on spawn/respawn to jump straight to the target (no zoom-in animation)
   }
 
   follow(worldX, worldY, canvasW, canvasH) {
@@ -26,6 +27,15 @@ class Camera {
   }
 
   update(dt) {
+    // On spawn/respawn, jump straight to the target so the view doesn't start
+    // zoomed-out and animate in for the first ~0.5s.
+    if (this.snapNextUpdate) {
+      this.scale = this.targetScale;
+      this.x = this.targetX;
+      this.y = this.targetY;
+      this.snapNextUpdate = false;
+      return;
+    }
     // dt-corrected: same feel at 60fps, 144fps, 240fps
     const posAlpha  = 1 - Math.exp(-(dt || 16.67) / 18);  // 18ms time constant
     const zoomAlpha = 1 - Math.exp(-(dt || 16.67) / 300);
