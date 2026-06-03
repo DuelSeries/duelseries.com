@@ -217,4 +217,88 @@ class SnakeGL {
 
     return { minX, minY, bw, bh, offW, offH };
   }
+
+  // ── Batched in-game path ──────────────────────────────────────────────────
+  // Instead of rendering each snake then drawImage-ing it back one-by-one (a GPU
+  // stall per snake), the in-game renderer renders ALL bodies into this full-screen
+  // GL layer at their on-screen positions, then composites the whole layer with a
+  // SINGLE drawImage. Usage per frame: beginFrame() → drawBody() ×N → endFrame() →
+  // ctx.drawImage(this.canvas, 0, 0).
+  beginFrame() {
+    if (!this.ok) return;
+    const gl = this.gl;
+    gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+    gl.disable(gl.SCISSOR_TEST);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.useProgram(this.prog);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.quad);
+    gl.enableVertexAttribArray(this.loc.aQuad);
+    gl.vertexAttribPointer(this.loc.aQuad, 2, gl.FLOAT, false, 0, 0);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, this.lutTex);
+    gl.uniform1i(this.loc.uLut, 0);
+    // premultiplied-alpha "over" blending so overlapping snakes composite correctly
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+  }
+
+  endFrame() {
+    if (this.ok) this.gl.disable(this.gl.BLEND);
+  }
+
+  // Render one snake body into the shared layer at its on-screen position. The
+  // shader still works in world coords; we just point the GL viewport at the
+  // snake's screen-space bbox. Camera is translate+scale only (no rotation), so
+  // world->screen is: screen = (world * scale + cam) * dpr. Returns true if drawn.
+  drawBody(segs, SN, R, base, scale, camX, camY, dpr) {
+    if (!this.ok || SN < 2) return false;
+    const gl = this.gl, MAXPTS = this.MAXPTS;
+    scale = scale || 1; dpr = dpr || 1;
+    const screenScale = scale * dpr;
+
+    let minX=1e9,minY=1e9,maxX=-1e9,maxY=-1e9;
+    for (let i=0;i<SN;i++){ const x=segs[i*2],y=segs[i*2+1]; if(x<minX)minX=x; if(x>maxX)maxX=x; if(y<minY)minY=y; if(y>maxY)maxY=y; }
+    const marg = R + 4 + 3 / Math.max(screenScale, 0.0001);
+    minX-=marg; minY-=marg; maxX+=marg; maxY+=marg;
+    const bw = maxX-minX, bh = maxY-minY;
+
+    // world bbox -> screen (physical px) -> GL viewport (y-up from bottom)
+    const sxMin = (minX*scale + camX)*dpr, sxMax = (maxX*scale + camX)*dpr;
+    const syMin = (minY*scale + camY)*dpr, syMax = (maxY*scale + camY)*dpr;
+    const H = this.canvas.height, W = this.canvas.width;
+    if (sxMax < 0 || syMax < 0 || sxMin > W || syMin > H) return true; // off-screen
+    const vpX = Math.round(sxMin);
+    const vpY = Math.round(H - syMax);
+    const vpW = Math.max(1, Math.round(sxMax - sxMin));
+    const vpH = Math.max(1, Math.round(syMax - syMin));
+
+    // reversed (tail->head) downsampled spine, cumulative arc from tail (world coords)
+    const count = Math.min(MAXPTS, SN);
+    const pts = this._pts, arc = this._arc;
+    for (let k=0;k<count;k++){
+      const src = Math.round((SN-1) * (1 - k/(count-1)));
+      pts[k*2] = segs[src*2]; pts[k*2+1] = segs[src*2+1];
+    }
+    arc[0]=0;
+    for (let k=1;k<count;k++){ const dx=pts[k*2]-pts[(k-1)*2], dy=pts[k*2+1]-pts[(k-1)*2+1]; arc[k]=arc[k-1]+Math.sqrt(dx*dx+dy*dy); }
+    const totalArc = arc[count-1];
+    const groove = R*0.46875;
+
+    gl.viewport(vpX, vpY, vpW, vpH);
+    const L = this.loc;
+    gl.uniform2f(L.uBboxMin, minX, minY);
+    gl.uniform2f(L.uBboxSize, bw, bh);
+    gl.uniform2fv(L.uPts, pts.subarray(0, count*2));
+    gl.uniform1fv(L.uArc, arc.subarray(0, count));
+    gl.uniform1i(L.uCount, count);
+    gl.uniform1f(L.uR, R);
+    gl.uniform1f(L.uTotalArc, totalArc);
+    gl.uniform3f(L.uColor, base.r/255, base.g/255, base.b/255);
+    gl.uniform1f(L.uAaw, Math.max(bw/vpW, bh/vpH));
+    gl.uniform1f(L.uGroove, groove);
+    gl.uniform1f(L.uWave, 13*groove);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    return true;
+  }
 }

@@ -132,8 +132,22 @@ class Renderer {
     for (const snake of visibleOthers) this._recordTrail(snake);
     if (mySnake) this._recordTrail(mySnake);
     this._drawLingeringTrails(ctx);
-    for (const snake of visibleOthers) this._drawSnake(ctx, snake, false);
-    if (mySnake) this._drawSnake(ctx, mySnake, true);
+
+    // Snake bodies: render all into one GL layer, then composite once (a single
+    // drawImage instead of one-per-snake — removes a GPU stall per snake).
+    const glBatch = this._glMode && this.snakeGL && this.snakeGL.ok;
+    if (glBatch) this.snakeGL.beginFrame();
+    for (const snake of visibleOthers) this._drawSnakeBody(ctx, snake, false);
+    if (mySnake) this._drawSnakeBody(ctx, mySnake, true);
+    if (glBatch) {
+      this.snakeGL.endFrame();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);        // screen space for the composite
+      ctx.drawImage(this.snakeGL.canvas, 0, 0);   // all bodies at once
+      camera.apply(ctx, dpr);                      // back to world space
+    }
+    // Heads / eyes / hats / names / cashout rings, drawn on top of the bodies
+    for (const snake of visibleOthers) this._drawSnakeOverlay(ctx, snake, false);
+    if (mySnake) this._drawSnakeOverlay(ctx, mySnake, true);
 
     // Border overlay drawn last so red tint still appears on top of snakes
     this._drawBorder(ctx, state.worldRadius, camera);
@@ -401,61 +415,38 @@ class Renderer {
     }
   }
 
-  _drawSnake(ctx, snake, isMe) {
+  // Body only — goes into the batched GL layer (composited once by the caller),
+  // or a 2D shaded stroke when WebGL is unavailable.
+  _drawSnakeBody(ctx, snake, isMe) {
     if (!snake.segs || snake.segs.length < 4) return;
-    const { segs, color, boosting, name } = snake;
-    const hatId   = snake.hatId   || 'none';
-    const boostId = snake.boostId || 'default';
+    const { segs, color } = snake;
+    const growthScale = 1 + Math.min(1.5, (snake.length || 20) / 200);
+    const R  = CONSTANTS.SNAKE_HEAD_RADIUS * growthScale;
+    const SN = segs.length >> 1;
+    const base = this._parseColor(color);
 
+    if (this._glMode && this.snakeGL && this.snakeGL.ok) {
+      if (this.snakeGL.drawBody(segs, SN, R, base, this.camera.scale || 1, this.camera.x, this.camera.y, this._dpr || 1)) return;
+    }
+    // No WebGL on this device — shaded stroke body (+ head dome) for every snake
+    ctx.save();
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    this._drawSnakeBodyStroke(ctx, segs, SN, R, base);
+    ctx.restore();
+  }
+
+  // Everything drawn on top of the bodies: eyes, hat, name/worth labels, cashout ring.
+  _drawSnakeOverlay(ctx, snake, isMe) {
+    if (!snake.segs || snake.segs.length < 4) return;
+    const { segs, name } = snake;
+    const hatId = snake.hatId || 'none';
     const growthScale = 1 + Math.min(1.5, (snake.length || 20) / 200);
     const R  = CONSTANTS.SNAKE_HEAD_RADIUS * growthScale;
     const HR = R; // same radius as body so head is flush
-    const SN = segs.length >> 1; // number of (x,y) pairs
 
     ctx.save();
     ctx.lineCap  = 'round';
     ctx.lineJoin = 'round';
-
-    const STEPS = 3;
-    const CHUNK = 8;
-
-    // Helper: draw the Catmull-Rom spline path for the body
-    const drawBodyPath = () => {
-      for (let end = SN - 1; end > 0; end -= CHUNK) {
-        const start = Math.max(0, end - CHUNK);
-        ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-        ctx.beginPath();
-        ctx.moveTo(segs[end * 2], segs[end * 2 + 1]);
-        for (let j = end - 1; j >= start; j--) {
-          const pi = Math.min(SN-1,j+2)*2, ai=(j+1)*2, bi=j*2, ni=Math.max(0,j-1)*2;
-          for (let s = 1; s <= STEPS; s++) {
-            const t=s/STEPS, t2=t*t, t3=t2*t;
-            ctx.lineTo(
-              0.5*((2*segs[ai])+(-segs[pi]+segs[bi])*t+(2*segs[pi]-5*segs[ai]+4*segs[bi]-segs[ni])*t2+(-segs[pi]+3*segs[ai]-3*segs[bi]+segs[ni])*t3),
-              0.5*((2*segs[ai+1])+(-segs[pi+1]+segs[bi+1])*t+(2*segs[pi+1]-5*segs[ai+1]+4*segs[bi+1]-segs[ni+1])*t2+(-segs[pi+1]+3*segs[ai+1]-3*segs[bi+1]+segs[ni+1])*t3)
-            );
-          }
-        }
-        ctx.lineWidth = R * 2;
-        ctx.stroke();
-      }
-    };
-
-    // ── Body ────────────────────────────────────────────────────────────────────
-    let bodyDrawn = false;
-    const base = this._parseColor(color);
-    if (this._glMode && this.snakeGL && this.snakeGL.ok) {
-      const r = this.snakeGL.renderBody(segs, SN, R, base, (this.camera.scale||1)*(this._dpr||1));
-      if (r) {
-        const gh = this.snakeGL.canvas.height;
-        ctx.drawImage(this.snakeGL.canvas, 0, gh - r.offH, r.offW, r.offH, r.minX, r.minY, r.bw, r.bh);
-        bodyDrawn = true;
-      }
-    }
-    if (!bodyDrawn) {
-      // No WebGL on this device — shaded stroke body (+ head dome) for every snake
-      this._drawSnakeBodyStroke(ctx, segs, SN, R, base);
-    }
 
     // ── Head ──────────────────────────────────────────────────────────────────
     const hx    = segs[0], hy = segs[1];
