@@ -1,7 +1,7 @@
 // Navigate back to lobby — uses postMessage if running inside iframe (keeps fullscreen)
 function goToLobby() {
   if (window.self !== window.top) window.parent.postMessage('game:done', '*');
-  else window.location.href = '/';
+  else goToLobby();
 }
 
 // Game client
@@ -833,7 +833,7 @@ function sendInput() {
   // congested mobile uplink and back up the buffer (delaying ping_check too).
   socket.volatile.emit(CONSTANTS.EVENTS.INPUT, { angle, boost: boostActive && !qHoldStart, speedMult: cashoutSpeedMult });
 }
-const _inputInterval = setInterval(sendInput, 1000 / 60);
+setInterval(sendInput, 1000 / 60);
 
 // HUD (updated on each snapshot, not each frame)
 function updateHUD(snap) {
@@ -892,7 +892,7 @@ socket.on('pong_check', () => {
   pingValueEl.textContent = pingMs + ' ms';
   pingDotEl.className = 'ping-dot ' + (pingMs < 50 ? 'ping-green' : pingMs < 100 ? 'ping-orange' : 'ping-red');
 });
-const _pingInterval = setInterval(sendPing, 2000);
+setInterval(sendPing, 2000);
 sendPing();
 
 // FPS / perf counters
@@ -902,7 +902,6 @@ const perfEl  = document.getElementById('perf-counter');
 if (perfEl) perfEl.style.display = 'none';   // CPU/GPU counter removed
 
 let _lastFrameTime = 0;
-let _rafId = null;
 // Main render loop — runs at monitor refresh rate (60/144/240Hz)
 function gameLoop(now) {
   const dt = Math.min(_lastFrameTime ? now - _lastFrameTime : 16.67, 50);
@@ -965,28 +964,9 @@ function gameLoop(now) {
     if (fpsEl) fpsEl.textContent = `FPS: ${fpsDisplay}`;
   }
 
-  _rafId = requestAnimationFrame(gameLoop);
+  requestAnimationFrame(gameLoop);
 }
-_rafId = requestAnimationFrame(gameLoop);
-
-// ─── Teardown ────────────────────────────────────────────────────────────────
-// This client runs inside an iframe the lobby reuses across games. Nothing here
-// used to be cleaned up, so an old session's render loop, socket and WebGL
-// context could outlive its document and stack behind the next one. Every
-// surviving loop still renders every frame, so a few rejoins quietly divided the
-// framerate (160 → ~30). Shut this instance down when the document is unloaded.
-let _torndown = false;
-function teardownGame() {
-  if (_torndown) return;
-  _torndown = true;
-  if (_rafId) cancelAnimationFrame(_rafId);
-  clearInterval(_inputInterval);
-  clearInterval(_pingInterval);
-  try { cancelQTimer(); } catch (e) {}
-  try { socket.disconnect(); } catch (e) {}
-  try { renderer.dispose(); } catch (e) {}
-}
-window.addEventListener('pagehide', teardownGame);
+requestAnimationFrame(gameLoop);
 
 // ─── Admin console (press ` to toggle) ───────────────────────────────────────
 (function() {

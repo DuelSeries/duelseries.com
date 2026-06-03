@@ -2390,9 +2390,9 @@ document.getElementById('btn-spectate-lobby-2').addEventListener('click', () => 
 window.addEventListener('message', (e) => {
   if (e.data === 'game:done') {
     const gameFrame = document.getElementById('game-frame');
-    if (gameFrame) { gameFrame.style.display = 'none'; gameFrame.src = 'about:blank'; }
+    if (gameFrame) { gameFrame.style.display = 'none'; gameFrame.src = ''; }
     const agarFrame = document.getElementById('agar-frame');
-    if (agarFrame) { agarFrame.style.display = 'none'; agarFrame.src = 'about:blank'; }
+    if (agarFrame) { agarFrame.style.display = 'none'; agarFrame.src = ''; }
     if (window._resumeLobbyAnims) window._resumeLobbyAnims();
   }
 });

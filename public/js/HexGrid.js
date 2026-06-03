@@ -30,10 +30,7 @@ class HexGrid {
 
     // Render the tile content with a padded margin of wrapped neighbours, so the
     // blur can bleed correctly and the centre crop still tiles seamlessly.
-    // Reuse canvases across rebuilds — the tile is rebuilt on every zoom step as
-    // the snake grows, and allocating three fresh canvases each time churned
-    // backing-store memory and GC. (Setting .width clears the canvas, as needed.)
-    const big = this._big || (this._big = document.createElement('canvas'));
+    const big = document.createElement('canvas');
     big.width = tileW + pad * 2; big.height = tileH + pad * 2;
     const ctx = big.getContext('2d');
     ctx.fillStyle = 'rgb(15,25,38)';
@@ -66,7 +63,7 @@ class HexGrid {
     // "fuck up" the game. Both are barely visible on a small screen anyway.
     let source = big;
     if (!this._isMobile) {
-      const blurred = this._blurred || (this._blurred = document.createElement('canvas'));
+      const blurred = document.createElement('canvas');
       blurred.width = big.width; blurred.height = big.height;
       const bctx = blurred.getContext('2d');
       bctx.filter = `blur(${blurR}px)`;
@@ -76,7 +73,7 @@ class HexGrid {
     }
 
     // crop the centre period -> seamless tile
-    const c = this._tileCanvas || (this._tileCanvas = document.createElement('canvas'));
+    const c = document.createElement('canvas');
     c.width = tileW; c.height = tileH;
     const cctx = c.getContext('2d');
     cctx.drawImage(source, pad, pad, tileW, tileH, 0, 0, tileW, tileH);

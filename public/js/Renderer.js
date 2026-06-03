@@ -31,16 +31,6 @@ class Renderer {
     this._goldenFoodSprite   = this._makeGoldenFoodSprite();
   }
 
-  // Release GPU/canvas resources when the game ends. The lobby reuses one iframe
-  // for every game, so without this the WebGL context lingered until GC and could
-  // pile up across rejoins.
-  dispose() {
-    if (this.snakeGL && this.snakeGL.dispose) this.snakeGL.dispose();
-    this.snakeGL = null;
-    if (this.boostTrails) this.boostTrails.clear();
-    if (this._foodPhaseCache) this._foodPhaseCache.clear();
-  }
-
   _makeFoodOverlaySprite() {
     const sz = 64, c = document.createElement('canvas');
     c.width = c.height = sz;

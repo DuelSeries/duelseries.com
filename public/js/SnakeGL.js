@@ -18,13 +18,6 @@ class SnakeGL {
       const gl = this.canvas.getContext('webgl', opts) || this.canvas.getContext('experimental-webgl', opts);
       if (!gl) return;
       this.gl = gl;
-      // If the browser drops the context (e.g. too many live contexts), fall back
-      // to the 2D path instead of silently drawing nothing; re-init if it returns.
-      this.canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); this.ok = false; }, false);
-      this.canvas.addEventListener('webglcontextrestored', () => {
-        try { this._initProgram(); this._initBuffers(); this._initLut(crossLut); this.ok = true; }
-        catch (err) { this.ok = false; }
-      }, false);
       this._initProgram();
       this._initBuffers();
       this._initLut(crossLut);
@@ -326,21 +319,5 @@ class SnakeGL {
     gl.uniform1f(L.uWave, 13*groove);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     return true;
-  }
-
-  // Free GL objects and force-release the context so the next game (the lobby
-  // reuses one iframe) can always acquire a fresh one instead of waiting for GC.
-  dispose() {
-    const gl = this.gl;
-    if (!gl) return;
-    try {
-      if (this.prog)   gl.deleteProgram(this.prog);
-      if (this.quad)   gl.deleteBuffer(this.quad);
-      if (this.lutTex) gl.deleteTexture(this.lutTex);
-      const ext = gl.getExtension('WEBGL_lose_context');
-      if (ext) ext.loseContext();
-    } catch (e) {}
-    this.ok = false;
-    this.gl = null;
   }
 }
