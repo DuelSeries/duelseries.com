@@ -15,8 +15,12 @@ class Camera {
   }
 
   setScale(worldRadius, canvasW, canvasH, snakeLength) {
-    // Start very zoomed in, zoom out as snake grows
-    const base = Math.min(canvasW, canvasH) / (worldRadius * 0.22);
+    // FOV depends ONLY on the player's own snake size — never on the arena size.
+    // The world radius breathes (1200..6000) as players/bots join and die; using it
+    // here made the camera zoom out whenever the arena grew (e.g. spawning bots).
+    // Use a fixed reference radius instead so the view only widens as the snake grows.
+    const REF_RADIUS = 2000; // = CONSTANTS.BASE_WORLD_RADIUS — keeps the spawn feel identical
+    const base = Math.min(canvasW, canvasH) / (REF_RADIUS * 0.22);
     const lengthFactor = 1 - Math.min(0.75, (snakeLength || 0) / 600);
     this.targetScale = Math.max(0.15, Math.min(2.5, base * lengthFactor));
   }
