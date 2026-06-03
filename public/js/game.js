@@ -67,12 +67,12 @@ let displayState = { snakes: [], food: [], worldRadius: CONSTANTS.BASE_WORLD_RAD
 
 // Socket — connect to EU EC2 for low ping when EU region is selected
 const SERVER_URLS = { na: '', eu: 'https://eu.duelseries.com' };
-// Connect via websocket directly instead of Socket.IO's default
-// start-on-long-polling-then-upgrade. On mobile that upgrade was stalling/failing,
-// leaving the connection on HTTP long-polling — which shows as 800ms–2s ping even
-// on good WiFi where desktop (which upgrades fine) is smooth. Polling stays only as
-// a last-resort fallback if websocket genuinely can't connect.
-const socket = io(SERVER_URLS[selectedRegion] || '', { transports: ['websocket', 'polling'] });
+// Default transport (polling, then upgrade to websocket) — identical to desktop.
+// NOTE: forcing websocket-only / polling-only on mobile was tried before and
+// reverted (commits 65775be / 363f0b2 / b510915) because mobile carriers throttle
+// raw websockets; the default is the known-good config. Don't re-litigate this
+// without testing on a real phone first.
+const socket = io(SERVER_URLS[selectedRegion] || '');
 
 // Stable id for THIS play session, sent with every PLAY. Survives socket
 // reconnects (the page doesn't reload on reconnect), so after a brief network
@@ -828,7 +828,10 @@ function sendInput() {
   } else {
     cashoutSpeedMult = 1;
   }
-  socket.emit(CONSTANTS.EVENTS.INPUT, { angle, boost: boostActive && !qHoldStart, speedMult: cashoutSpeedMult });
+  // VOLATILE: input is sent 60x/sec and each carries the absolute current angle, so a
+  // dropped one is harmlessly superseded 16ms later. Reliable emits would queue on a
+  // congested mobile uplink and back up the buffer (delaying ping_check too).
+  socket.volatile.emit(CONSTANTS.EVENTS.INPUT, { angle, boost: boostActive && !qHoldStart, speedMult: cashoutSpeedMult });
 }
 setInterval(sendInput, 1000 / 60);
 

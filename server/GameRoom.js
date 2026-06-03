@@ -371,7 +371,12 @@ class GameRoom {
 
     // Broadcast to the whole room at once — Socket.IO serializes the payload
     // only once regardless of player count, vs N serializations with per-socket emit.
-    this.io.to(this.socketRoomName).emit(C.EVENTS.SNAPSHOT, snapshot);
+    // VOLATILE: at 60Hz, a client that can't drain fast enough (e.g. a slower phone)
+    // must DROP frames, not queue them. A reliable emit backs up the send buffer on a
+    // slow client, which inflates latency for everything — including ping_check — and
+    // shows up as the "800ms-2s ping on mobile" while desktop (which keeps up) is fine.
+    // The client interpolates/extrapolates over any dropped snapshot.
+    this.io.to(this.socketRoomName).volatile.emit(C.EVENTS.SNAPSHOT, snapshot);
   }
 }
 
