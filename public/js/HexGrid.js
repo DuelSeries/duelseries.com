@@ -56,26 +56,36 @@ class HexGrid {
     }
     ctx.setTransform(1, 0, 0, 1, 0, 0);
 
-    // soft blur the padded content
-    const blurred = document.createElement('canvas');
-    blurred.width = big.width; blurred.height = big.height;
-    const bctx = blurred.getContext('2d');
-    bctx.filter = `blur(${blurR}px)`;
-    bctx.drawImage(big, 0, 0);
-    bctx.filter = 'none';
+    // Soft blur the padded content. SKIPPED on mobile: the blur and the grain
+    // getImageData pass below are synchronous CPU stalls, and this tile rebuilds
+    // every time the zoom changes (i.e. as the snake grows) — on a phone each
+    // rebuild hitched the frame long enough to back up a marginal connection and
+    // "fuck up" the game. Both are barely visible on a small screen anyway.
+    let source = big;
+    if (!this._isMobile) {
+      const blurred = document.createElement('canvas');
+      blurred.width = big.width; blurred.height = big.height;
+      const bctx = blurred.getContext('2d');
+      bctx.filter = `blur(${blurR}px)`;
+      bctx.drawImage(big, 0, 0);
+      bctx.filter = 'none';
+      source = blurred;
+    }
 
-    // crop the centre period -> seamless blurred tile
+    // crop the centre period -> seamless tile
     const c = document.createElement('canvas');
     c.width = tileW; c.height = tileH;
     const cctx = c.getContext('2d');
-    cctx.drawImage(blurred, pad, pad, tileW, tileH, 0, 0, tileW, tileH);
-    // subtle fuzzy grain (barely noticeable). Seeded PRNG so the grain is the
-    // SAME on every rebuild -> no shimmer/flicker when the tile rebuilds on zoom.
-    const gd = cctx.getImageData(0, 0, tileW, tileH), dd = gd.data;
-    let s = 0x9e3779b9 >>> 0;
-    const rnd = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
-    for (let k = 0; k < dd.length; k += 4) { const n = (rnd() - 0.5) * 4; dd[k] += n; dd[k+1] += n; dd[k+2] += n; }
-    cctx.putImageData(gd, 0, 0);
+    cctx.drawImage(source, pad, pad, tileW, tileH, 0, 0, tileW, tileH);
+    if (!this._isMobile) {
+      // subtle fuzzy grain (barely noticeable). Seeded PRNG so the grain is the
+      // SAME on every rebuild -> no shimmer/flicker when the tile rebuilds on zoom.
+      const gd = cctx.getImageData(0, 0, tileW, tileH), dd = gd.data;
+      let s = 0x9e3779b9 >>> 0;
+      const rnd = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+      for (let k = 0; k < dd.length; k += 4) { const n = (rnd() - 0.5) * 4; dd[k] += n; dd[k+1] += n; dd[k+2] += n; }
+      cctx.putImageData(gd, 0, 0);
+    }
 
     this._tile      = c;
     this._tileScale = physScale;
