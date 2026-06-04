@@ -87,7 +87,12 @@ const hatId      = sessionStorage.getItem('hatId')      || 'none';
 const boostId    = sessionStorage.getItem('boostId')    || 'default';
 
 socket.on('connect', () => {
-  try { console.log('[net] transport:', socket.io.engine.transport.name); } catch (e) {}
+  try {
+    const _eng = socket.io.engine;
+    window._netTransport = _eng.transport.name;
+    console.log('[net] transport:', _eng.transport.name);
+    _eng.on('upgrade', () => { window._netTransport = _eng.transport.name; console.log('[net] upgraded to', _eng.transport.name); });
+  } catch (e) {}
   if (spectateOnly) {
     socket.emit('spectate:join', { lobbyType, region: selectedRegion });
   } else {

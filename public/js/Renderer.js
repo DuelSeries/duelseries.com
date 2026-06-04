@@ -182,7 +182,8 @@ class Renderer {
       if (now - this._profLast >= 1000) {
         const f = this._profFrames || 1;
         const rb = this.hexGrid._rebuilds - this._profLastRebuilds;
-        console.log(`[prof] ${f}fps | total ${(this._profTotal/f).toFixed(2)} hex ${(this._profHex/f).toFixed(2)} food ${(this._profFood/f).toFixed(2)} bodies ${(this._profBodies/f).toFixed(2)} over ${(this._profOver/f).toFixed(2)} ms/f | hexRebuilds ${rb}/s`);
+        const _tx = (typeof window !== 'undefined' && window._netTransport) || '?';
+        console.log(`[prof] ${f}fps | total ${(this._profTotal/f).toFixed(2)} hex ${(this._profHex/f).toFixed(2)} food ${(this._profFood/f).toFixed(2)} bodies ${(this._profBodies/f).toFixed(2)} over ${(this._profOver/f).toFixed(2)} ms/f | hexRebuilds ${rb}/s | tx ${_tx}`);
         this._profFrames = 0; this._profTotal = 0; this._profHex = 0; this._profFood = 0; this._profBodies = 0; this._profOver = 0;
         this._profLast = now; this._profLastRebuilds = this.hexGrid._rebuilds;
       }
