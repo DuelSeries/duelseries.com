@@ -10,13 +10,14 @@
   <link rel="manifest" href="/manifest.json">
   <title>DuelSeries</title>
   <script>
-    /* Persist render flags from the URL so they survive into the game page */
+    /* Render flags. Default is ON (WebGL snakes etc.). A flag only turns off if the
+       URL EXPLICITLY says ?gl=0 / ?pp=0 — any plain visit to the site clears it. This
+       means a debug flag can never get permanently stuck on a device (a leftover
+       ?gl=0 once left snakes rendering on the dumbed-down fallback). */
     try {
       var s = location.search;
-      if (/[?&]gl=0/.test(s)) localStorage.setItem('gl', '0');
-      if (/[?&]gl=1/.test(s)) localStorage.removeItem('gl');
-      if (/[?&]pp=0/.test(s)) localStorage.setItem('pp', '0');
-      if (/[?&]pp=1/.test(s)) localStorage.removeItem('pp');
+      if (/[?&]gl=0/.test(s)) localStorage.setItem('gl', '0'); else localStorage.removeItem('gl');
+      if (/[?&]pp=0/.test(s)) localStorage.setItem('pp', '0'); else localStorage.removeItem('pp');
     } catch (e) {}
   </script>
   <link rel="stylesheet" href="/css/lobby.css">
