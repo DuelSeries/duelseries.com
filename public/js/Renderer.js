@@ -29,6 +29,13 @@ class Renderer {
     this._foodPhaseCache = new Map();
     this._foodOverlaySprite  = this._makeFoodOverlaySprite();
     this._goldenFoodSprite   = this._makeGoldenFoodSprite();
+
+    // Console-only frame profiler. OFF by default; enable with ?prof=1 or
+    // localStorage.setItem('prof','1'). Pure measurement — touches nothing.
+    this._prof = false;
+    try { if (/[?&]prof=1/.test((location && location.search) || '') || localStorage.getItem('prof') === '1') this._prof = true; } catch (e) {}
+    this._profFrames = 0; this._profTotal = 0; this._profHex = 0; this._profFood = 0;
+    this._profBodies = 0; this._profOver = 0; this._profLast = 0; this._profLastRebuilds = 0;
   }
 
   _makeFoodOverlaySprite() {
@@ -76,6 +83,8 @@ class Renderer {
   }
 
   render(state, myId, mousePos, spectateSnake, cashoutRings, dt) {
+    const _p = this._prof;
+    const _t0 = _p ? performance.now() : 0;
     this._cashoutRings = cashoutRings || null;
     const { ctx, canvas, camera } = this;
     const dpr = this._dpr || 1;
@@ -104,15 +113,19 @@ class Renderer {
 
     // Hex grid — drawn every frame (cheap pattern fill). Skipping frames on
     // mobile caused the background to flicker (canvas is cleared every frame).
+    const _th = _p ? performance.now() : 0;
     this.hexGrid.draw(ctx, camera, dpr);
+    if (_p) this._profHex += performance.now() - _th;
 
     // Clip food to world circle only
+    const _tf = _p ? performance.now() : 0;
     ctx.save();
     ctx.beginPath();
     ctx.arc(0, 0, state.worldRadius, 0, Math.PI * 2);
     ctx.clip();
     this._drawFood(ctx, state.food, camera);
     ctx.restore();
+    if (_p) this._profFood += performance.now() - _tf;
 
     // Snakes drawn outside the clip so bodies stay visible under the red border zone
     // Viewport bounds in world space (with margin for snake body radius)
@@ -129,6 +142,7 @@ class Renderer {
       if (hx < visL || hx > visR || hy < visT || hy > visB) continue;
       visibleOthers.push(snake);
     }
+    const _tb = _p ? performance.now() : 0;
     for (const snake of visibleOthers) this._recordTrail(snake);
     if (mySnake) this._recordTrail(mySnake);
     this._drawLingeringTrails(ctx);
@@ -145,7 +159,10 @@ class Renderer {
       this.snakeGL.compositeTo(ctx);              // small per-snake copies (1 GL sync total)
       camera.apply(ctx, dpr);                      // back to world space
     }
+    if (_p) this._profBodies += performance.now() - _tb;
+
     // Heads / eyes / hats / names / cashout rings, drawn on top of the bodies
+    const _to = _p ? performance.now() : 0;
     for (const snake of visibleOthers) this._drawSnakeOverlay(ctx, snake, false);
     if (mySnake) this._drawSnakeOverlay(ctx, mySnake, true);
 
@@ -155,6 +172,21 @@ class Renderer {
     camera.reset(ctx, dpr);
 
     this._drawMinimap(ctx, state, myId, W, H);
+
+    if (_p) {
+      this._profOver += performance.now() - _to;
+      this._profTotal += performance.now() - _t0;
+      this._profFrames++;
+      const now = performance.now();
+      if (!this._profLast) this._profLast = now;
+      if (now - this._profLast >= 1000) {
+        const f = this._profFrames || 1;
+        const rb = this.hexGrid._rebuilds - this._profLastRebuilds;
+        console.log(`[prof] ${f}fps | total ${(this._profTotal/f).toFixed(2)} hex ${(this._profHex/f).toFixed(2)} food ${(this._profFood/f).toFixed(2)} bodies ${(this._profBodies/f).toFixed(2)} over ${(this._profOver/f).toFixed(2)} ms/f | hexRebuilds ${rb}/s`);
+        this._profFrames = 0; this._profTotal = 0; this._profHex = 0; this._profFood = 0; this._profBodies = 0; this._profOver = 0;
+        this._profLast = now; this._profLastRebuilds = this.hexGrid._rebuilds;
+      }
+    }
   }
 
   _drawMinimap(ctx, state, myId, W, H) {

@@ -10,6 +10,7 @@ class HexGrid {
     this._tile       = null;
     this._tileScale  = 0;
     this._pattern    = null;
+    this._rebuilds   = 0;   // diagnostic: total tile rebuilds (read by the profiler)
 
     this.SIZE     = 48 * 0.62;
     this.GAP      = 14.6 * 0.62;
@@ -19,6 +20,7 @@ class HexGrid {
   }
 
   _buildTile(physScale) {
+    this._rebuilds++;
     const { COL_STEP, ROW_STEP, FACE_R } = this;
     const tileW = Math.max(2, Math.round(COL_STEP * physScale));
     const tileH = Math.max(2, Math.round(2 * ROW_STEP * physScale));
