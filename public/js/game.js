@@ -87,12 +87,7 @@ const hatId      = sessionStorage.getItem('hatId')      || 'none';
 const boostId    = sessionStorage.getItem('boostId')    || 'default';
 
 socket.on('connect', () => {
-  try {
-    const _eng = socket.io.engine;
-    window._netTransport = _eng.transport.name;
-    console.log('[net] transport:', _eng.transport.name);
-    _eng.on('upgrade', () => { window._netTransport = _eng.transport.name; console.log('[net] upgraded to', _eng.transport.name); });
-  } catch (e) {}
+  try { console.log('[net] transport:', socket.io.engine.transport.name); } catch (e) {}
   if (spectateOnly) {
     socket.emit('spectate:join', { lobbyType, region: selectedRegion });
   } else {
@@ -907,13 +902,8 @@ const perfEl  = document.getElementById('perf-counter');
 if (perfEl) perfEl.style.display = 'none';   // CPU/GPU counter removed
 
 let _lastFrameTime = 0;
-// Diagnostic: total CPU time spent per frame (sim + interp + render). Tells whether
-// a low-FPS dip is the frame being BUSY (fixable — game code is slow) or the browser
-// simply not calling us (idle/throttled — not fixable in-page). Gated by renderer._prof.
-let _frameWorkAcc = 0, _frameCount = 0, _frameWorkLast = 0;
 // Main render loop — runs at monitor refresh rate (60/144/240Hz)
 function gameLoop(now) {
-  const _w0 = (renderer && renderer._prof) ? performance.now() : 0;
   const dt = Math.min(_lastFrameTime ? now - _lastFrameTime : 16.67, 50);
   _lastFrameTime = now;
 
@@ -965,15 +955,6 @@ function gameLoop(now) {
     : displayState;
   renderer.render(renderState, cashedOut ? null : myId, mousePos, spectateSnake, cashoutRings, dt);
 
-
-  if (renderer && renderer._prof) {
-    _frameWorkAcc += performance.now() - _w0;
-    _frameCount++;
-    if (now - _frameWorkLast >= 1000) {
-      console.log(`[frame] ${_frameCount}fps | cpu/frame ${(_frameWorkAcc/_frameCount).toFixed(2)}ms (sim+interp+render) | avg gap ${(1000/_frameCount).toFixed(1)}ms`);
-      _frameWorkAcc = 0; _frameCount = 0; _frameWorkLast = now;
-    }
-  }
 
   // FPS
   fpsFrames++;
