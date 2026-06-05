@@ -359,27 +359,77 @@ class GameRoom {
     const roomSet = this.io.sockets.adapter.rooms.get(this.socketRoomName);
     if (!roomSet || roomSet.size === 0) return;
 
-    const snakeData = [];
+    const t           = Date.now();
+    const worldRadius = this.worldRadius;
+    const leaderboard = this.buildLeaderboard();
+    const allFood     = this.foodManager.getAll();
+
+    // Serialize every alive snake ONCE. Alongside each, keep a bounding circle
+    // (centre + radius) for cheap "is this snake in that player's view?" tests, plus
+    // a tiny minimap dot (head only) so the minimap still shows the whole map even
+    // though the heavy per-snake body data gets culled per player below.
+    const snakesSer = [];
+    const bounds    = [];
+    const mm        = [];
     for (const snake of this.snakes.values()) {
-      if (snake.alive) snakeData.push(snake.serialize());
+      if (!snake.alive) continue;
+      const s = snake.serialize();
+      const sg = s.segs;
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (let i = 0; i < sg.length; i += 2) {
+        const x = sg[i], y = sg[i + 1];
+        if (x < minX) minX = x; if (x > maxX) maxX = x;
+        if (y < minY) minY = y; if (y > maxY) maxY = y;
+      }
+      snakesSer.push(s);
+      bounds.push({ cx: (minX + maxX) / 2, cy: (minY + maxY) / 2, br: Math.hypot(maxX - minX, maxY - minY) / 2 });
+      const h = snake.head;
+      mm.push({ x: Math.round(h.x), y: Math.round(h.y), c: snake.color, id: snake.id });
     }
 
-    const snapshot = {
-      t: Date.now(),
-      worldRadius: this.worldRadius,
-      snakes: snakeData,
-      food: this.foodManager.getAll(),
-      leaderboard: this.buildLeaderboard(),
-    };
+    // ── Area-of-interest culling ──────────────────────────────────────────────
+    // Send each player only the snakes/food within their reported view radius (+a
+    // margin), instead of the whole map. A phone only ever sees a few snakes at once,
+    // so its snapshot stops scaling with bot/player count — that was the mobile
+    // "everything lags and jitters once there are lots of bots" bug. Bots aren't
+    // sockets, so this loop only runs for real connections (usually a handful).
+    // VOLATILE: a client that can't keep up DROPS snapshots rather than backing up
+    // its buffer (which would inflate latency for everything, incl. ping_check).
+    const DEFAULT_VIEW_R = 3000; // until the client reports its real view radius
+    const MARGIN         = 400;  // world-unit slack so nothing pops in at screen edges
 
-    // Broadcast to the whole room at once — Socket.IO serializes the payload
-    // only once regardless of player count, vs N serializations with per-socket emit.
-    // VOLATILE: at 60Hz, a client that can't drain fast enough (e.g. a slower phone)
-    // must DROP frames, not queue them. A reliable emit backs up the send buffer on a
-    // slow client, which inflates latency for everything — including ping_check — and
-    // shows up as the "800ms-2s ping on mobile" while desktop (which keeps up) is fine.
-    // The client interpolates/extrapolates over any dropped snapshot.
-    this.io.to(this.socketRoomName).volatile.emit(C.EVENTS.SNAPSHOT, snapshot);
+    for (const sid of roomSet) {
+      const sock = this.io.sockets.sockets.get(sid);
+      if (!sock) continue;
+      const mine = this.snakes.get(sid);
+
+      // No own live snake (spectator or on the death screen): we don't know where
+      // they're looking, so send the full set. Rare and transient.
+      if (!mine || !mine.alive) {
+        sock.volatile.emit(C.EVENTS.SNAPSHOT, { t, worldRadius, snakes: snakesSer, food: allFood, leaderboard, mm });
+        continue;
+      }
+
+      const hx = mine.head.x, hy = mine.head.y;
+      const viewR = (sock._viewR || DEFAULT_VIEW_R) + MARGIN;
+
+      const snakes = [];
+      for (let i = 0; i < snakesSer.length; i++) {
+        if (snakesSer[i].id === sid) { snakes.push(snakesSer[i]); continue; } // always include own snake
+        const b = bounds[i];
+        const dx = b.cx - hx, dy = b.cy - hy, reach = viewR + b.br;
+        if (dx * dx + dy * dy <= reach * reach) snakes.push(snakesSer[i]);
+      }
+
+      const food = [];
+      const fr2 = viewR * viewR;
+      for (const f of allFood) {
+        const dx = f.x - hx, dy = f.y - hy;
+        if (dx * dx + dy * dy <= fr2) food.push(f);
+      }
+
+      sock.volatile.emit(C.EVENTS.SNAPSHOT, { t, worldRadius, snakes, food, leaderboard, mm });
+    }
   }
 }
 

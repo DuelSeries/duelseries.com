@@ -174,13 +174,17 @@ class Renderer {
     ctx.fill();
     ctx.clip();
 
-    // Snake dots
-    for (const snake of state.snakes) {
-      if (!snake.segs || snake.segs.length < 2) continue;
-      const wx = snake.segs[0], wy = snake.segs[1];
-      const sx = cx + wx * scale;
-      const sy = cy + wy * scale;
-      const isMe = snake.id === myId;
+    // Snake dots — prefer the compact all-snakes minimap feed (state.mm). The main
+    // `snakes` list is culled to the player's view, so without `mm` the minimap would
+    // only show nearby snakes; `mm` carries every snake's head so the overview stays
+    // complete. Falls back to `snakes` for older snapshots / spectator full sends.
+    const dots = state.mm || state.snakes
+      .filter(s => s.segs && s.segs.length >= 2)
+      .map(s => ({ x: s.segs[0], y: s.segs[1], c: s.color, id: s.id }));
+    for (const d of dots) {
+      const sx = cx + d.x * scale;
+      const sy = cy + d.y * scale;
+      const isMe = d.id === myId;
       const dotR = isMe ? 4 : 2.5;
 
       if (isMe) {
@@ -191,7 +195,7 @@ class Renderer {
       }
       ctx.beginPath();
       ctx.arc(sx, sy, dotR, 0, Math.PI * 2);
-      ctx.fillStyle = snake.color || '#ffffff';
+      ctx.fillStyle = d.c || '#ffffff';
       ctx.fill();
     }
 

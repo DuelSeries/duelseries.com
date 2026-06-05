@@ -310,6 +310,7 @@ function interpolateState(now) {
   displayState.worldRadius = lerp(before.state.worldRadius, after.state.worldRadius, alpha);
   displayState.leaderboard = after.state.leaderboard;
   displayState.food = after.state.food; // food doesn't need interpolation
+  displayState.mm = after.state.mm;     // all-snakes minimap feed (not view-culled)
 
   // Interpolate each snake — reuse persistent map to avoid per-frame allocation
   if (!interpBeforeMap) interpBeforeMap = new Map();
@@ -835,6 +836,23 @@ function sendInput() {
 }
 setInterval(sendInput, 1000 / 60);
 
+// ─── View radius (area-of-interest) ───────────────────────────────────────────
+// Report how far we can currently see, in world units, so the server only sends
+// snakes/food within range. Without it every snapshot carries the WHOLE map — fine
+// on desktop, but it floods a phone's connection once the room fills with bots.
+let _lastViewR = 0, _lastViewSentAt = 0;
+function maybeSendView(now) {
+  const scale = (renderer.camera && renderer.camera.scale) || 1;
+  // radius of the circle that covers the whole screen rectangle, in world units
+  const viewR = Math.hypot(window.innerWidth / 2, window.innerHeight / 2) / scale;
+  // it's a control message, not per-frame state — only resend on a real change
+  if (Math.abs(viewR - _lastViewR) > _lastViewR * 0.15 || now - _lastViewSentAt > 1000) {
+    socket.emit('view', { r: Math.round(viewR) });
+    _lastViewR = viewR;
+    _lastViewSentAt = now;
+  }
+}
+
 // HUD (updated on each snapshot, not each frame)
 function updateHUD(snap) {
   const mySnake = snap.snakes.find(s => s.id === myId);
@@ -955,6 +973,10 @@ function gameLoop(now) {
     : displayState;
   renderer.render(renderState, cashedOut ? null : myId, mousePos, spectateSnake, cashoutRings, dt);
 
+
+  // Tell the server our current view radius (area-of-interest culling) so it only
+  // sends snakes/food we can actually see — keeps the snapshot small on mobile.
+  maybeSendView(now);
 
   // FPS
   fpsFrames++;

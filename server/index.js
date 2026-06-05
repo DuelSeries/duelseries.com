@@ -803,6 +803,12 @@ io.on('connection', (socket) => {
     if (socket._room) socket._room.handleInput(socket.id, angle, !!boost, speedMult);
   });
 
+  // Client reports how far it can see (world units) for area-of-interest culling —
+  // the snapshot broadcaster only sends each player snakes/food within this radius.
+  socket.on('view', ({ r } = {}) => {
+    if (typeof r === 'number' && isFinite(r) && r > 0) socket._viewR = Math.min(Math.max(r, 200), 20000);
+  });
+
   socket.on('spectate:join:agar', ({ lobbyType, region } = {}) => {
     const room = getAgarRoomForType(lobbyType || 'free', region || REGION);
     socket.join(room.roomName);
