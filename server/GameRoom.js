@@ -4,6 +4,11 @@ const Bot   = require('./Bot');
 const FoodManager = require('./Food');
 const { v4: uuidv4 } = require('uuid');
 const allTimeLb = require('./leaderboard');
+const SpatialGrid = require('./SpatialGrid');
+
+// Spatial-grid cell size (world units). Must be >= the largest interaction radius
+// (food pull = 35, body hit = ~16) so a hit always lands within the 3×3 query block.
+const GRID_CELL = 80;
 
 class GameRoom {
   constructor(io, lobbyType) {
@@ -188,6 +193,8 @@ class GameRoom {
   }
 
   tick() {
+    const _t0 = process.hrtime.bigint();
+
     // Border drifts outward on deaths, inward on joins, gradually fading back to base
     this.borderDrift *= 0.9975; // half-life ≈ 2.3 seconds at 60Hz
     const targetRadius = Math.max(C.MIN_WORLD_RADIUS,
@@ -196,6 +203,18 @@ class GameRoom {
 
     const foodList  = this.foodManager.getAll();
     const allSnakes = Array.from(this.snakes.values());
+
+    // Spatial grid of food, built once from pre-magnetism positions. Food only drifts
+    // a few units per tick, so its insert cell stays valid for the queries below.
+    const foodGrid = this._foodGrid || (this._foodGrid = new SpatialGrid(GRID_CELL));
+    foodGrid.clear();
+    for (const food of foodList) { food.eaten = false; foodGrid.insert(food.x, food.y, food); }
+
+    const EAT_R2      = C.FOOD_EAT_RADIUS * C.FOOD_EAT_RADIUS;
+    const PULL_RADIUS = 35;
+    const PULL_R2     = PULL_RADIUS * PULL_RADIUS;
+    const PULL_SPEED  = 6;
+
     // Update snakes
     for (const snake of allSnakes) {
       if (!snake.alive) continue;
@@ -219,59 +238,66 @@ class GameRoom {
         continue;
       }
 
-      // Food magnetism + collision — slither.io style:
-      // proportional pull within radius, no committed tracking, food stays
-      // put if the snake moves away. Disabled during sharp turns so food
-      // doesn't spray around corners.
+      // Food magnetism + collision — slither.io style: proportional pull within
+      // radius, eat within FOOD_EAT_RADIUS, disabled during sharp turns so food
+      // doesn't spray around corners. Only the food in the cells around the head is
+      // considered (the grid) instead of every food on the map.
       let _aDelta = snake.targetAngle - snake.angle;
       if (_aDelta >  Math.PI) _aDelta -= Math.PI * 2;
       if (_aDelta < -Math.PI) _aDelta += Math.PI * 2;
       const turningSharp = Math.abs(_aDelta) > 0.25;
 
-      const PULL_RADIUS = 35;
-      const PULL_SPEED  = 6;
-      for (const food of this.foodManager.getAll()) {
-        const dx = snake.head.x - food.x;
-        const dy = snake.head.y - food.y;
-        const d  = Math.hypot(dx, dy);
-        if (d < C.FOOD_EAT_RADIUS) {
+      const hx = snake.head.x, hy = snake.head.y;
+      foodGrid.forEachNear(hx, hy, (food) => {
+        if (food.eaten) return false;
+        const dx = hx - food.x, dy = hy - food.y;
+        const d2 = dx * dx + dy * dy;
+        if (d2 < EAT_R2) {
           snake.grow(food.value);
           if (food.cashValue > 0) {
             snake.worth += food.cashValue;
             const p = this.players.get(snake.id);
             if (p) p.socket.emit('ate_dropped_food');
           }
+          food.eaten = true;
           this.foodManager.remove(food.id);
-        } else if (!turningSharp && d < PULL_RADIUS) {
+        } else if (!turningSharp && d2 < PULL_R2) {
           // Smooth proportional pull — stronger closer to the head
+          const d = Math.sqrt(d2) || 1;
           const strength = (1 - d / PULL_RADIUS) * PULL_SPEED;
           food.x += (dx / d) * strength;
           food.y += (dy / d) * strength;
         }
+        return false; // keep scanning the rest of the nearby food
+      });
+    }
+
+    // Body collision via a spatial grid of every live snake's segments — replaces the
+    // old O(players²·segments) all-pairs scan. Each snake only tests its head against
+    // the segments in the cells around it. Behaviour matches the old code: a snake
+    // dies when its head touches ANOTHER live snake's body (never its own), and in a
+    // head-on the first-iterated snake wins (the other is already dead, so skipped).
+    const segGrid = this._segGrid || (this._segGrid = new SpatialGrid(GRID_CELL));
+    segGrid.clear();
+    for (const snake of allSnakes) {
+      if (!snake.alive) continue;
+      const segs = snake.segments;
+      for (let i = 0; i < segs.length; i++) {
+        segs[i]._o = snake;                 // tag owner (no allocation) so queries can skip self / dead
+        segGrid.insert(segs[i].x, segs[i].y, segs[i]);
       }
     }
 
-    // Body collision — only kill when hitting another player's body, never self
-    const BODY_BROAD_R2 = 600 * 600; // skip pairs whose heads are far apart
+    const KILL_R2 = (C.SNAKE_HEAD_RADIUS + 6) * (C.SNAKE_HEAD_RADIUS + 6);
     for (const snake of allSnakes) {
       if (!snake.alive) continue;
-      for (const other of allSnakes) {
-        if (!other.alive) continue;
-        if (other.id === snake.id) continue; // no self-collision
-        // Broad-phase: skip if heads are far apart (body can't possibly be near)
-        const bhx = snake.head.x - other.head.x;
-        const bhy = snake.head.y - other.head.y;
-        if (bhx * bhx + bhy * bhy > BODY_BROAD_R2) continue;
-        for (let i = 0; i < other.segments.length; i++) {
-          const seg = other.segments[i];
-          const d = Math.hypot(snake.head.x - seg.x, snake.head.y - seg.y);
-          if (d < C.SNAKE_HEAD_RADIUS + 6) {
-            this.killSnake(snake, other.id);
-            break;
-          }
-        }
-        if (!snake.alive) break;
-      }
+      const hx = snake.head.x, hy = snake.head.y;
+      segGrid.forEachNear(hx, hy, (seg) => {
+        if (seg._o === snake || !seg._o.alive) return false; // skip own body + already-dead snakes
+        const dx = hx - seg.x, dy = hy - seg.y;
+        if (dx * dx + dy * dy < KILL_R2) { this.killSnake(snake, seg._o.id); return true; }
+        return false;
+      });
     }
 
     // Refill food
@@ -282,6 +308,37 @@ class GameRoom {
     const everyN = Math.max(1, Math.round(C.TICK_RATE / (C.SNAPSHOT_RATE || C.TICK_RATE)));
     this._tickN = (this._tickN || 0) + 1;
     if (this._tickN % everyN === 0) this.broadcastSnapshot();
+
+    // ── Tick-time meter ───────────────────────────────────────────────────────
+    // Surface the per-tick simulation cost to the owner's browser console so we can
+    // watch it as players/bots are added and verify the grid keeps it cheap. Budget
+    // is 1000/TICK_RATE ms; if avg approaches that, this core is saturating.
+    const _ms = Number(process.hrtime.bigint() - _t0) / 1e6;
+    this._tmAcc = (this._tmAcc || 0) + _ms;
+    this._tmMax = Math.max(this._tmMax || 0, _ms);
+    this._tmN   = (this._tmN || 0) + 1;
+    const _nowMs = Date.now();
+    if (!this._tmLast) this._tmLast = _nowMs;
+    if (_nowMs - this._tmLast >= 1000) {
+      this._emitStatsToOwner({
+        room:     this.lobbyType,
+        snakes:   this.snakes.size,
+        food:     foodList.length,
+        avgMs:    +(this._tmAcc / this._tmN).toFixed(2),
+        maxMs:    +this._tmMax.toFixed(2),
+        budgetMs: +(1000 / C.TICK_RATE).toFixed(2),
+      });
+      this._tmAcc = 0; this._tmMax = 0; this._tmN = 0; this._tmLast = _nowMs;
+    }
+  }
+
+  // Send a debug stats object to the room owner's connected socket(s) only.
+  _emitStatsToOwner(stats) {
+    const owner = process.env.OWNER_GOOGLE_ID;
+    if (!owner) return;
+    for (const { socket } of this.players.values()) {
+      if (socket && socket._googleId === owner) socket.emit('server_stats', stats);
+    }
   }
 
   killSnake(snake, killerId) {

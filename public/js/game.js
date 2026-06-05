@@ -136,6 +136,11 @@ function playMoneySound() {
 
 socket.on('ate_dropped_food', playMoneySound);
 
+// Owner-only: server simulation cost per tick (from the GameRoom tick-time meter).
+socket.on('server_stats', (s) => {
+  console.log(`[server] ${s.room} | tick avg ${s.avgMs}ms / max ${s.maxMs}ms (budget ${s.budgetMs}ms) | snakes ${s.snakes} food ${s.food}`);
+});
+
 function playJoinSound() {
   if (window.gameMuted) return;
   const ctx = getAudioCtx();
