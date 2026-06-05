@@ -197,8 +197,12 @@ class GameRoom {
 
     // Border drifts outward on deaths, inward on joins, gradually fading back to base
     this.borderDrift *= 0.9975; // half-life ≈ 2.3 seconds at 60Hz
+    // World also grows with the crowd so a busy lobby spreads out (keeps view-culling
+    // effective and the arena playable) instead of everyone cramming into a tiny ring.
+    const crowdFloor = Math.min(C.MAX_WORLD_RADIUS,
+      C.BASE_WORLD_RADIUS + C.WORLD_RADIUS_PER_PLAYER * Math.max(0, this.snakes.size - 1));
     const targetRadius = Math.max(C.MIN_WORLD_RADIUS,
-      Math.min(C.MAX_WORLD_RADIUS, C.BASE_WORLD_RADIUS + this.borderDrift));
+      Math.min(C.MAX_WORLD_RADIUS, Math.max(C.BASE_WORLD_RADIUS + this.borderDrift, crowdFloor)));
     this.worldRadius += (targetRadius - this.worldRadius) * 0.015; // ~2.5s to fully settle at 60Hz
 
     const foodList  = this.foodManager.getAll();
@@ -320,14 +324,19 @@ class GameRoom {
     const _nowMs = Date.now();
     if (!this._tmLast) this._tmLast = _nowMs;
     if (_nowMs - this._tmLast >= 1000) {
-      this._emitStatsToOwner({
-        room:     this.lobbyType,
-        snakes:   this.snakes.size,
-        food:     foodList.length,
-        avgMs:    +(this._tmAcc / this._tmN).toFixed(2),
-        maxMs:    +this._tmMax.toFixed(2),
-        budgetMs: +(1000 / C.TICK_RATE).toFixed(2),
-      });
+      const dt = (_nowMs - this._tmLast) / 1000;
+      const stats = {
+        room:        this.lobbyType,
+        players:     this.players.size,
+        snakes:      this.snakes.size,
+        food:        foodList.length,
+        avgMs:       +(this._tmAcc / this._tmN).toFixed(2),
+        maxMs:       +this._tmMax.toFixed(2),
+        ticksPerSec: Math.round(this._tmN / dt), // <60 means the event loop is overloaded
+        budgetMs:    +(1000 / C.TICK_RATE).toFixed(2),
+      };
+      this._lastTickStats = stats;          // read by the /api/debug/tick endpoint
+      this._emitStatsToOwner(stats);
       this._tmAcc = 0; this._tmMax = 0; this._tmN = 0; this._tmLast = _nowMs;
     }
   }
@@ -444,48 +453,74 @@ class GameRoom {
       mm.push({ x: Math.round(h.x), y: Math.round(h.y), c: snake.color, id: snake.id });
     }
 
-    // ── Area-of-interest culling ──────────────────────────────────────────────
-    // Send each player only the snakes/food within their reported view radius (+a
-    // margin), instead of the whole map. A phone only ever sees a few snakes at once,
-    // so its snapshot stops scaling with bot/player count — that was the mobile
-    // "everything lags and jitters once there are lots of bots" bug. Bots aren't
-    // sockets, so this loop only runs for real connections (usually a handful).
-    // VOLATILE: a client that can't keep up DROPS snapshots rather than backing up
-    // its buffer (which would inflate latency for everything, incl. ping_check).
+    // ── Interest-group broadcast ──────────────────────────────────────────────
+    // Each player only needs the snakes/food near them, but emitting a separate
+    // payload per socket meant N JSON serializations per snapshot — O(players²) work
+    // that pegged one core around ~100 players. Instead we bucket players into coarse
+    // world cells and send ONE payload per occupied cell through a Socket.IO room, so
+    // the payload is encoded once and fanned out to everyone in that cell. Encodes now
+    // scale with occupied cells, not players — and a dense fight (the worst case for
+    // per-socket) collapses to a single encode.
+    // VOLATILE: a client that can't keep up DROPS snapshots rather than backing up its
+    // buffer (which would inflate latency for everything, incl. ping_check).
+    const CELL           = 2000; // interest-cell size (world units)
     const DEFAULT_VIEW_R = 3000; // until the client reports its real view radius
-    const MARGIN         = 400;  // world-unit slack so nothing pops in at screen edges
+    const MARGIN         = 400;  // slack so nothing pops in at screen edges
+
+    const cells     = new Map(); // cellKey -> { ci, cj, roomName, maxV }
+    const fullSends = [];        // dead / spectator sockets get the unculled set
 
     for (const sid of roomSet) {
       const sock = this.io.sockets.sockets.get(sid);
       if (!sock) continue;
       const mine = this.snakes.get(sid);
 
-      // No own live snake (spectator or on the death screen): we don't know where
-      // they're looking, so send the full set. Rare and transient.
       if (!mine || !mine.alive) {
-        sock.volatile.emit(C.EVENTS.SNAPSHOT, { t, worldRadius, snakes: snakesSer, food: allFood, leaderboard, mm });
+        if (sock._cellRoom) { sock.leave(sock._cellRoom); sock._cellRoom = null; }
+        fullSends.push(sock);
         continue;
       }
 
-      const hx = mine.head.x, hy = mine.head.y;
-      const viewR = (sock._viewR || DEFAULT_VIEW_R) + MARGIN;
+      const ci = Math.floor(mine.head.x / CELL), cj = Math.floor(mine.head.y / CELL);
+      const key = ci + ',' + cj;
+      const roomName = 'aoi_' + this.roomId + '_' + key;
+      // keep the socket in exactly its current cell room (cheap; only changes when it
+      // crosses a 2000-unit boundary, every few hundred ticks)
+      if (sock._cellRoom !== roomName) {
+        if (sock._cellRoom) sock.leave(sock._cellRoom);
+        sock.join(roomName);
+        sock._cellRoom = roomName;
+      }
+      let cell = cells.get(key);
+      if (!cell) { cell = { ci, cj, roomName, maxV: 0 }; cells.set(key, cell); }
+      const v = sock._viewR || DEFAULT_VIEW_R;
+      if (v > cell.maxV) cell.maxV = v;
+    }
+
+    // One encoded payload per occupied cell. Region = the cell expanded by the widest
+    // view among its players (+margin), so even a zoomed-out player in that cell sees
+    // everything it should; players with a tighter view just get a little extra.
+    for (const cell of cells.values()) {
+      const pad   = cell.maxV + MARGIN;
+      const cx    = cell.ci * CELL + CELL / 2;
+      const cy    = cell.cj * CELL + CELL / 2;
+      const halfW = CELL / 2 + pad, halfH = CELL / 2 + pad;
 
       const snakes = [];
       for (let i = 0; i < snakesSer.length; i++) {
-        if (snakesSer[i].id === sid) { snakes.push(snakesSer[i]); continue; } // always include own snake
         const b = bounds[i];
-        const dx = b.cx - hx, dy = b.cy - hy, reach = viewR + b.br;
-        if (dx * dx + dy * dy <= reach * reach) snakes.push(snakesSer[i]);
+        if (Math.abs(b.cx - cx) <= halfW + b.br && Math.abs(b.cy - cy) <= halfH + b.br) snakes.push(snakesSer[i]);
       }
-
       const food = [];
-      const fr2 = viewR * viewR;
       for (const f of allFood) {
-        const dx = f.x - hx, dy = f.y - hy;
-        if (dx * dx + dy * dy <= fr2) food.push(f);
+        if (Math.abs(f.x - cx) <= halfW && Math.abs(f.y - cy) <= halfH) food.push(f);
       }
+      this.io.to(cell.roomName).volatile.emit(C.EVENTS.SNAPSHOT, { t, worldRadius, snakes, food, leaderboard, mm });
+    }
 
-      sock.volatile.emit(C.EVENTS.SNAPSHOT, { t, worldRadius, snakes, food, leaderboard, mm });
+    // Dead / spectator sockets: full snapshot (rare and transient).
+    for (const sock of fullSends) {
+      sock.volatile.emit(C.EVENTS.SNAPSHOT, { t, worldRadius, snakes: snakesSer, food: allFood, leaderboard, mm });
     }
   }
 }
