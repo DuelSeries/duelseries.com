@@ -197,10 +197,11 @@ class GameRoom {
 
     // Border drifts outward on deaths, inward on joins, gradually fading back to base
     this.borderDrift *= 0.9975; // half-life ≈ 2.3 seconds at 60Hz
-    // World also grows with the crowd so a busy lobby spreads out (keeps view-culling
-    // effective and the arena playable) instead of everyone cramming into a tiny ring.
+    // World grows with the number of REAL players (not bots) so a genuinely busy
+    // lobby spreads out (keeps view-culling effective and the arena playable). Keying
+    // it to players means bot-only testing keeps the original arena size/feel.
     const crowdFloor = Math.min(C.MAX_WORLD_RADIUS,
-      C.BASE_WORLD_RADIUS + C.WORLD_RADIUS_PER_PLAYER * Math.max(0, this.snakes.size - 1));
+      C.BASE_WORLD_RADIUS + C.WORLD_RADIUS_PER_PLAYER * Math.max(0, this.players.size - 1));
     const targetRadius = Math.max(C.MIN_WORLD_RADIUS,
       Math.min(C.MAX_WORLD_RADIUS, Math.max(C.BASE_WORLD_RADIUS + this.borderDrift, crowdFloor)));
     this.worldRadius += (targetRadius - this.worldRadius) * 0.015; // ~2.5s to fully settle at 60Hz
