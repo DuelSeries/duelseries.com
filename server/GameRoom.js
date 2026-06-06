@@ -178,7 +178,7 @@ class GameRoom {
     const { x, y } = this.safeSpawnPoint();
     const bot = new Bot(id, x, y);
     this.snakes.set(id, bot);
-    this.borderDrift = Math.min(this.borderDrift + 120, 1200);
+    this.borderDrift = Math.min(this.borderDrift + 200, 1200); // a bot join expands the border the same as a real player
     return bot;
   }
 
@@ -188,7 +188,7 @@ class GameRoom {
     const bot = new Bot(id, x, y);
     bot.worth = entrySol || 0;
     this.snakes.set(id, bot);
-    this.borderDrift = Math.min(this.borderDrift + 120, 1200);
+    this.borderDrift = Math.min(this.borderDrift + 200, 1200); // a bot join expands the border the same as a real player
     return bot;
   }
 
