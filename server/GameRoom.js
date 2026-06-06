@@ -194,8 +194,6 @@ class GameRoom {
   }
 
   tick() {
-    const _t0 = process.hrtime.bigint();
-
     // Border drifts outward on deaths, inward on joins, gradually fading back to base
     this.borderDrift *= 0.9975; // half-life ≈ 2.3 seconds at 60Hz
     // World grows with the crowd — EVERY snake counts, bots included (intended: a
@@ -314,42 +312,6 @@ class GameRoom {
     const everyN = Math.max(1, Math.round(C.TICK_RATE / (C.SNAPSHOT_RATE || C.TICK_RATE)));
     this._tickN = (this._tickN || 0) + 1;
     if (this._tickN % everyN === 0) this.broadcastSnapshot();
-
-    // ── Tick-time meter ───────────────────────────────────────────────────────
-    // Surface the per-tick simulation cost to the owner's browser console so we can
-    // watch it as players/bots are added and verify the grid keeps it cheap. Budget
-    // is 1000/TICK_RATE ms; if avg approaches that, this core is saturating.
-    const _ms = Number(process.hrtime.bigint() - _t0) / 1e6;
-    this._tmAcc = (this._tmAcc || 0) + _ms;
-    this._tmMax = Math.max(this._tmMax || 0, _ms);
-    this._tmN   = (this._tmN || 0) + 1;
-    const _nowMs = Date.now();
-    if (!this._tmLast) this._tmLast = _nowMs;
-    if (_nowMs - this._tmLast >= 1000) {
-      const dt = (_nowMs - this._tmLast) / 1000;
-      const stats = {
-        room:        this.lobbyType,
-        players:     this.players.size,
-        snakes:      this.snakes.size,
-        food:        foodList.length,
-        avgMs:       +(this._tmAcc / this._tmN).toFixed(2),
-        maxMs:       +this._tmMax.toFixed(2),
-        ticksPerSec: Math.round(this._tmN / dt), // <60 means the event loop is overloaded
-        budgetMs:    +(1000 / C.TICK_RATE).toFixed(2),
-      };
-      this._lastTickStats = stats;          // read by the /api/debug/tick endpoint
-      this._emitStatsToOwner(stats);
-      this._tmAcc = 0; this._tmMax = 0; this._tmN = 0; this._tmLast = _nowMs;
-    }
-  }
-
-  // Send a debug stats object to the room owner's connected socket(s) only.
-  _emitStatsToOwner(stats) {
-    const owner = process.env.OWNER_GOOGLE_ID;
-    if (!owner) return;
-    for (const { socket } of this.players.values()) {
-      if (socket && socket._googleId === owner) socket.emit('server_stats', stats);
-    }
   }
 
   killSnake(snake, killerId) {

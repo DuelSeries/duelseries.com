@@ -547,19 +547,6 @@ app.post('/admin/reset-wallet', async (req, res) => {
 // ─── Health check ─────────────────────────────────────────────────────────────
 app.get('/healthz', (req, res) => res.sendStatus(200));
 
-// ─── Debug: per-room simulation tick cost (read-only timing; used by load tests) ─
-app.get('/api/debug/tick', (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  const out = [];
-  for (const rgn of REGIONS) {
-    for (const lt of Object.keys(gameRooms[rgn] || {})) {
-      const s = gameRooms[rgn][lt]._lastTickStats;
-      if (s) out.push({ region: rgn, ...s });
-    }
-  }
-  res.json(out);
-});
-
 // ─── Region / ping ────────────────────────────────────────────────────────────
 app.get('/api/ping', (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');

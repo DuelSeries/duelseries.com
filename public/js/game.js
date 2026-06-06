@@ -28,13 +28,6 @@ let isDead = false;
 let mousePos = { x: 0, y: 0 };
 let boostActive  = false;
 
-// Lightweight frame profiler (console only). Enable: localStorage.setItem('prof','1') then refresh.
-// Distinguishes a low-FPS moment that is the frame being BUSY (our code) from one that
-// is the frame being IDLE (browser throttling the loop). Also times the snapshot decode.
-let _prof = false;
-try { _prof = /[?&]prof=1/.test(location.search) || localStorage.getItem('prof') === '1'; } catch (e) {}
-let _pfFrames = 0, _pfCpu = 0, _pfLast = 0, _pfDecode = 0, _pfMaxGap = 0, _pfSnaps = 0, _pfSnapMs = 0;
-
 // --- Interpolation buffers ---
 let snapBuffer   = [];
 let clockOffset  = null;
@@ -143,12 +136,6 @@ function playMoneySound() {
 
 socket.on('ate_dropped_food', playMoneySound);
 
-// Owner-only: server simulation cost per tick (from the GameRoom tick-time meter).
-socket.on('server_stats', (s) => {
-  if (!_prof) return; // only show the server tick meter while profiling (localStorage prof=1)
-  console.log(`[server] ${s.room} | ${s.ticksPerSec ?? '?'}/s ticks | tick avg ${s.avgMs}ms / max ${s.maxMs}ms (budget ${s.budgetMs}ms) | players ${s.players ?? '?'} snakes ${s.snakes}`);
-});
-
 function playJoinSound() {
   if (window.gameMuted) return;
   const ctx = getAudioCtx();
@@ -220,12 +207,9 @@ socket.on(CONSTANTS.EVENTS.GAME_JOINED, ({ playerId, worldRadius, food, snake })
 });
 
 socket.on(CONSTANTS.EVENTS.SNAPSHOT, (meta, coords) => {
-  const _s0 = _prof ? performance.now() : 0;
   // Snapshots arrive packed: light metadata + an Int16 buffer of all coordinates.
   // Rebuild the full snapshot object the rest of this handler expects.
-  const _d0 = _prof ? performance.now() : 0;
   const snap = SnapshotCodec.decodeSnapshot(meta, coords);
-  if (_prof) _pfDecode += performance.now() - _d0;
   // Track clock offset as an exponential moving average of (server_time - client_time).
   // A fixed first-snap offset is fragile — if that packet had unusually high latency,
   // serverNow underestimates actual server time and renderTime falls outside the buffer.
@@ -258,7 +242,6 @@ socket.on(CONSTANTS.EVENTS.SNAPSHOT, (meta, coords) => {
   }
   updateHUD(snap);
   updateLeaderboard(snap);
-  if (_prof) { _pfSnapMs += performance.now() - _s0; _pfSnaps++; }
 });
 
 socket.on(CONSTANTS.EVENTS.PLAYER_DIED, ({ score, length }) => {
@@ -942,8 +925,6 @@ if (perfEl) perfEl.style.display = 'none';   // CPU/GPU counter removed
 let _lastFrameTime = 0;
 // Main render loop — runs at monitor refresh rate (60/144/240Hz)
 function gameLoop(now) {
-  const _c0 = _prof ? performance.now() : 0;
-  if (_prof && _lastFrameTime && (now - _lastFrameTime) > _pfMaxGap) _pfMaxGap = now - _lastFrameTime;
   const dt = Math.min(_lastFrameTime ? now - _lastFrameTime : 16.67, 50);
   _lastFrameTime = now;
 
@@ -999,15 +980,6 @@ function gameLoop(now) {
   // Tell the server our current view radius (area-of-interest culling) so it only
   // sends snakes/food we can actually see — keeps the snapshot small on mobile.
   maybeSendView(now);
-
-  if (_prof) {
-    _pfCpu += performance.now() - _c0;
-    _pfFrames++;
-    if (now - _pfLast >= 1000) {
-      console.log(`[frame] ${_pfFrames}fps | cpu/frame ${(_pfCpu/_pfFrames).toFixed(2)}ms | maxgap ${_pfMaxGap.toFixed(0)}ms | snaps ${_pfSnaps}/s ${_pfSnapMs.toFixed(0)}ms | decode ${(_pfDecode/_pfFrames).toFixed(3)}ms/f`);
-      _pfFrames = 0; _pfCpu = 0; _pfDecode = 0; _pfMaxGap = 0; _pfSnaps = 0; _pfSnapMs = 0; _pfLast = now;
-    }
-  }
 
   // FPS
   fpsFrames++;
