@@ -211,7 +211,10 @@ socket.on(CONSTANTS.EVENTS.GAME_JOINED, ({ playerId, worldRadius, food, snake })
   }
 });
 
-socket.on(CONSTANTS.EVENTS.SNAPSHOT, (snap) => {
+socket.on(CONSTANTS.EVENTS.SNAPSHOT, (meta, coords) => {
+  // Snapshots arrive packed: light metadata + an Int16 buffer of all coordinates.
+  // Rebuild the full snapshot object the rest of this handler expects.
+  const snap = SnapshotCodec.decodeSnapshot(meta, coords);
   // Track clock offset as an exponential moving average of (server_time - client_time).
   // A fixed first-snap offset is fragile — if that packet had unusually high latency,
   // serverNow underestimates actual server time and renderTime falls outside the buffer.

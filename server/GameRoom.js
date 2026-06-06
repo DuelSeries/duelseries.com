@@ -5,6 +5,7 @@ const FoodManager = require('./Food');
 const { v4: uuidv4 } = require('uuid');
 const allTimeLb = require('./leaderboard');
 const SpatialGrid = require('./SpatialGrid');
+const { encodeSnapshot } = require('../shared/snapshotCodec');
 
 // Spatial-grid cell size (world units). Must be >= the largest interaction radius
 // (food pull = 35, body hit = ~16) so a hit always lands within the 3×3 query block.
@@ -516,12 +517,14 @@ class GameRoom {
       for (const f of allFood) {
         if (Math.abs(f.x - cx) <= halfW && Math.abs(f.y - cy) <= halfH) food.push(f);
       }
-      this.io.to(cell.roomName).volatile.emit(C.EVENTS.SNAPSHOT, { t, worldRadius, snakes, food, leaderboard, mm });
+      const enc = encodeSnapshot({ t, worldRadius, snakes, food, leaderboard, mm });
+      this.io.to(cell.roomName).volatile.emit(C.EVENTS.SNAPSHOT, enc.meta, enc.coords);
     }
 
     // Dead / spectator sockets: full snapshot (rare and transient).
     for (const sock of fullSends) {
-      sock.volatile.emit(C.EVENTS.SNAPSHOT, { t, worldRadius, snakes: snakesSer, food: allFood, leaderboard, mm });
+      const enc = encodeSnapshot({ t, worldRadius, snakes: snakesSer, food: allFood, leaderboard, mm });
+      sock.volatile.emit(C.EVENTS.SNAPSHOT, enc.meta, enc.coords);
     }
   }
 }
