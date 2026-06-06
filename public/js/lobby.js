@@ -1251,6 +1251,25 @@ document.getElementById('btn-spectate-lobby-2').addEventListener('click', () => 
   let miniAnimT  = 0;
   let miniAnimRaf = null;
 
+  // The change-appearance preview snake animates at 60fps on a canvas (and resizes it
+  // every frame, forcing a reflow). It was left running while the game iframe is up —
+  // stealing the shared main thread and tanking the game's framerate. Extend the
+  // global lobby pause/resume (the background module defines the originals) so these
+  // preview animations also stop during gameplay and restart on return.
+  (function () {
+    const _origPause  = window._pauseLobbyAnims;
+    const _origResume = window._resumeLobbyAnims;
+    window._pauseLobbyAnims = () => {
+      if (_origPause) _origPause();
+      if (miniAnimRaf) { cancelAnimationFrame(miniAnimRaf); miniAnimRaf = null; }
+      if (apAnimRaf)   { cancelAnimationFrame(apAnimRaf);   apAnimRaf = null; }
+    };
+    window._resumeLobbyAnims = () => {
+      if (_origResume) _origResume();
+      if (!miniAnimRaf && document.getElementById('customize-preview')) startMiniAnim();
+    };
+  })();
+
   // ── Shared drawing helpers ───────────────────────────────────────────────────
   function drawMiniSnake(canvas, color) {
     const W = canvas.width  = canvas.offsetWidth  || 400;
