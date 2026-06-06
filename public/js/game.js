@@ -145,6 +145,7 @@ socket.on('ate_dropped_food', playMoneySound);
 
 // Owner-only: server simulation cost per tick (from the GameRoom tick-time meter).
 socket.on('server_stats', (s) => {
+  if (!_prof) return; // only show the server tick meter while profiling (localStorage prof=1)
   console.log(`[server] ${s.room} | ${s.ticksPerSec ?? '?'}/s ticks | tick avg ${s.avgMs}ms / max ${s.maxMs}ms (budget ${s.budgetMs}ms) | players ${s.players ?? '?'} snakes ${s.snakes}`);
 });
 
