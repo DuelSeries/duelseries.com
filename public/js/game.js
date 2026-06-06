@@ -33,7 +33,7 @@ let boostActive  = false;
 // is the frame being IDLE (browser throttling the loop). Also times the snapshot decode.
 let _prof = false;
 try { _prof = /[?&]prof=1/.test(location.search) || localStorage.getItem('prof') === '1'; } catch (e) {}
-let _pfFrames = 0, _pfCpu = 0, _pfLast = 0, _pfDecode = 0, _pfMaxGap = 0;
+let _pfFrames = 0, _pfCpu = 0, _pfLast = 0, _pfDecode = 0, _pfMaxGap = 0, _pfSnaps = 0, _pfSnapMs = 0;
 
 // --- Interpolation buffers ---
 let snapBuffer   = [];
@@ -220,6 +220,7 @@ socket.on(CONSTANTS.EVENTS.GAME_JOINED, ({ playerId, worldRadius, food, snake })
 });
 
 socket.on(CONSTANTS.EVENTS.SNAPSHOT, (meta, coords) => {
+  const _s0 = _prof ? performance.now() : 0;
   // Snapshots arrive packed: light metadata + an Int16 buffer of all coordinates.
   // Rebuild the full snapshot object the rest of this handler expects.
   const _d0 = _prof ? performance.now() : 0;
@@ -257,6 +258,7 @@ socket.on(CONSTANTS.EVENTS.SNAPSHOT, (meta, coords) => {
   }
   updateHUD(snap);
   updateLeaderboard(snap);
+  if (_prof) { _pfSnapMs += performance.now() - _s0; _pfSnaps++; }
 });
 
 socket.on(CONSTANTS.EVENTS.PLAYER_DIED, ({ score, length }) => {
@@ -1002,8 +1004,8 @@ function gameLoop(now) {
     _pfCpu += performance.now() - _c0;
     _pfFrames++;
     if (now - _pfLast >= 1000) {
-      console.log(`[frame] ${_pfFrames}fps | cpu/frame ${(_pfCpu/_pfFrames).toFixed(2)}ms | maxgap ${_pfMaxGap.toFixed(0)}ms | decode ${(_pfDecode/_pfFrames).toFixed(3)}ms/f`);
-      _pfFrames = 0; _pfCpu = 0; _pfDecode = 0; _pfMaxGap = 0; _pfLast = now;
+      console.log(`[frame] ${_pfFrames}fps | cpu/frame ${(_pfCpu/_pfFrames).toFixed(2)}ms | maxgap ${_pfMaxGap.toFixed(0)}ms | snaps ${_pfSnaps}/s ${_pfSnapMs.toFixed(0)}ms | decode ${(_pfDecode/_pfFrames).toFixed(3)}ms/f`);
+      _pfFrames = 0; _pfCpu = 0; _pfDecode = 0; _pfMaxGap = 0; _pfSnaps = 0; _pfSnapMs = 0; _pfLast = now;
     }
   }
 
