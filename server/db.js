@@ -201,6 +201,18 @@ async function refundWithdrawal(googleId, amount) {
   return parseFloat(res.rows[0].balance);
 }
 
+// Total REAL SOL withdrawn by an account since `sinceMs` (epoch ms). Entry fees are
+// stored in the same table with to_address='entry_fee' — those are excluded so the
+// withdrawal velocity cap only counts money actually leaving to a wallet.
+async function getWithdrawnSince(googleId, sinceMs) {
+  const res = await pool.query(
+    `SELECT COALESCE(SUM(amount), 0) AS total FROM withdrawals
+       WHERE google_id = $1 AND created_at >= $2 AND to_address <> 'entry_fee'`,
+    [googleId, new Date(sinceMs)]
+  );
+  return parseFloat(res.rows[0].total);
+}
+
 async function addEarnings(googleId, sol, cadAmount = 0) {
   await Promise.all([
     pool.query(`UPDATE accounts SET total_earnings = total_earnings + $2 WHERE google_id = $1`, [googleId, sol]),
@@ -460,7 +472,7 @@ module.exports = {
   getOrCreateAccount, getAccountByGoogleId, getAccountByWallet,
   saveAccount, recordGameResult, recordAgarGameResult,
   isTxUsed, recordDeposit, recordWithdrawal, setPrivyWallet, clearPrivyWallet, getAccountByEmail, getFinancialSummary,
-  recordPendingWithdrawal, updateWithdrawalSig, refundWithdrawal,
+  recordPendingWithdrawal, updateWithdrawalSig, refundWithdrawal, getWithdrawnSince,
   addEarnings, getTopEarners,
   addAgarEarnings, getAgarTopEarners,
   getGoogleIdByDeviceToken,

@@ -412,7 +412,7 @@ function consumePaidEntry(entryToken, shortType) {
   const t = entryToken && entryTokens.get(entryToken);
   if (!t || t.lobbyType !== shortType || Date.now() > t.exp) return { ok: false, worthSol: 0 };
   entryTokens.delete(entryToken); // one-time use
-  return { ok: true, worthSol: t.worthSol };
+  return { ok: true, worthSol: t.worthSol, googleId: t.googleId };
 }
 
 app.post('/wallet/entry-fee', entryFeeLimiter, express.json(), async (req, res) => {
@@ -434,7 +434,7 @@ app.post('/wallet/entry-fee', entryFeeLimiter, express.json(), async (req, res) 
   // PLAY / RESPAWN / cell:join; the server takes the worth from the token, never from the
   // client's claimed entrySol. Unguessable + one-time, so it can't be forged or replayed.
   const entryToken = crypto.randomUUID();
-  entryTokens.set(entryToken, { lobbyType, worthSol: feeSol, exp: Date.now() + ENTRY_TOKEN_MAX_AGE_MS });
+  entryTokens.set(entryToken, { lobbyType, worthSol: feeSol, googleId: req.user.googleId, exp: Date.now() + ENTRY_TOKEN_MAX_AGE_MS });
   res.json({ ok: true, feeSol, balance: newBalance, entryToken });
 });
 
@@ -506,6 +506,13 @@ app.post('/wallet/withdraw', walletWithdrawLimiter, async (req, res) => {
   const acc = await db.getAccountByGoogleId(req.user.googleId);
   if (!acc) return res.status(404).json({ error: 'Account not found' });
   if (acc.balance < amount) return res.status(400).json({ error: 'Insufficient balance' });
+  // Velocity cap: limit total real SOL withdrawn per rolling 24h per account — a brake
+  // on how fast funds can leave if any other hole is ever found. Tune via env.
+  const DAILY_WITHDRAWAL_CAP_SOL = Number(process.env.DAILY_WITHDRAWAL_CAP_SOL) || 10;
+  const withdrawn24h = await db.getWithdrawnSince(req.user.googleId, Date.now() - 24 * 60 * 60 * 1000);
+  if (withdrawn24h + amount > DAILY_WITHDRAWAL_CAP_SOL) {
+    return res.status(429).json({ error: `Daily withdrawal limit is ${DAILY_WITHDRAWAL_CAP_SOL} SOL. You've withdrawn ${withdrawn24h.toFixed(3)} SOL in the last 24h.` });
+  }
   try {
     // Deduct balance first to prevent double-spend from concurrent requests
     const { balance: pendingBalance, id: withdrawalId } = await db.recordPendingWithdrawal(req.user.googleId, amount, walletAddress);
@@ -771,6 +778,12 @@ io.on('connection', (socket) => {
       socket.emit(C.EVENTS.ERROR, { message: 'Entry fee not verified. Please return to the lobby and try again.' });
       return;
     }
+    // Server-verified identity from the paid token — overrides the client-claimed
+    // googleId so cash-out credits the account that actually paid.
+    if (entry.googleId) {
+      socket._googleId = entry.googleId;
+      lobbySocketsByGoogleId.set(entry.googleId, socket);
+    }
     socket._room = room;
     socket._joinTime = Date.now();
     console.log(`[>] ${playerName} joins ${lobbyType || 'free'} lobby (worth: ${entry.worthSol} SOL)`);
@@ -882,6 +895,7 @@ io.on('connection', (socket) => {
       socket.emit(C.EVENTS.ERROR, { message: 'Entry fee not verified. Please return to the lobby and try again.' });
       return;
     }
+    if (entry.googleId) socket._googleId = entry.googleId;
     socket._room.respawnPlayer(socket.id, entry.worthSol);
   });
 
@@ -943,6 +957,7 @@ io.on('connection', (socket) => {
       socket.emit('cell:join:error', { message: 'Entry fee not verified. Please return to lobby.' });
       return;
     }
+    if (entry.googleId) { socket._googleId = entry.googleId; lobbySocketsByGoogleId.set(entry.googleId, socket); }
     const entryWorth = LOBBY_FEES_CAD[shortType] || 0; // agar worth is the CAD fee
 
     room.addPlayer(socket, name, color, entryWorth, socket._googleId || null);
