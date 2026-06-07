@@ -1039,6 +1039,7 @@ document.getElementById('btn-play-2').addEventListener('click', async () => {
   }
 
   // Deduct entry fee for paid lobbies
+  let entryToken = '';
   if (selectedLobbyType2 !== 'free') {
     const feeRes = await fetch('/wallet/entry-fee', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lobbyType: selectedLobbyType2 }) });
     const feeData = await feeRes.json();
@@ -1048,6 +1049,7 @@ document.getElementById('btn-play-2').addEventListener('click', async () => {
       else alert(feeData.error);
       return;
     }
+    entryToken = feeData.entryToken || '';
     if (account) account.balance = feeData.balance;
     setBalance(feeData.balance);
   }
@@ -1058,6 +1060,7 @@ document.getElementById('btn-play-2').addEventListener('click', async () => {
   sessionStorage.setItem('googleId',      account?.googleId || '');
   sessionStorage.setItem('lobbyType',     selectedLobbyType2);
   sessionStorage.setItem('gameMode',      'cell');
+  sessionStorage.setItem('entryToken',    entryToken);
   sessionStorage.setItem('region',        selectedRegion);
   sessionStorage.removeItem('spectateOnly');
   const agarFrame = document.getElementById('agar-frame');
@@ -1128,7 +1131,7 @@ document.getElementById('btn-play').addEventListener('click', async () => {
   }
 
   // Deduct entry fee for paid lobbies
-  let entrySol = 0;
+  let entrySol = 0, entryToken = '';
   if (selectedLobbyType !== 'free') {
     const feeRes = await fetch('/wallet/entry-fee', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lobbyType: selectedLobbyType }) });
     const feeData = await feeRes.json();
@@ -1138,6 +1141,7 @@ document.getElementById('btn-play').addEventListener('click', async () => {
       return;
     }
     entrySol = feeData.feeSol;
+    entryToken = feeData.entryToken || '';
     if (account) account.balance = feeData.balance;
     setBalance(feeData.balance);
   }
@@ -1151,6 +1155,7 @@ document.getElementById('btn-play').addEventListener('click', async () => {
   sessionStorage.setItem('boostId',       localStorage.getItem('duelseries_boost_id') || 'default');
   sessionStorage.setItem('lobbyType',     selectedLobbyType);
   sessionStorage.setItem('entrySol',      entrySol);
+  sessionStorage.setItem('entryToken',    entryToken);
   sessionStorage.setItem('region',        selectedRegion);
   sessionStorage.removeItem('spectateOnly');
   // Load game in iframe so fullscreen stays active

@@ -16,6 +16,7 @@ const walletAddress = sessionStorage.getItem('walletAddress') || null;
 const googleId      = sessionStorage.getItem('googleId')      || null;
 const lobbyType     = sessionStorage.getItem('lobbyType')     || 'free';
 const entrySol      = parseFloat(sessionStorage.getItem('entrySol') || '0');
+const entryToken    = sessionStorage.getItem('entryToken') || null;
 const selectedRegion = sessionStorage.getItem('region') || 'na';
 const spectateOnly  = sessionStorage.getItem('spectateOnly') === 'true';
 
@@ -91,7 +92,7 @@ socket.on('connect', () => {
   if (spectateOnly) {
     socket.emit('spectate:join', { lobbyType, region: selectedRegion });
   } else {
-    socket.emit(CONSTANTS.EVENTS.PLAY, { name: playerName, walletAddress, googleId, color: snakeColor, lobbyType, entrySol, hatId, boostId, region: selectedRegion, reconnectKey });
+    socket.emit(CONSTANTS.EVENTS.PLAY, { name: playerName, walletAddress, googleId, color: snakeColor, lobbyType, entryToken, hatId, boostId, region: selectedRegion, reconnectKey });
   }
 });
 
@@ -135,9 +136,6 @@ function playMoneySound() {
 }
 
 socket.on('ate_dropped_food', playMoneySound);
-
-// TEMP diagnostic: why was a paid join rejected? (remove after debugging)
-socket.on('join_debug', (d) => console.warn('[join_debug] ' + JSON.stringify(d)));
 
 function playJoinSound() {
   if (window.gameMuted) return;
@@ -737,17 +735,17 @@ async function doRespawn() {
   if (!isDead || respawning) return;
   respawning = true;
   try {
-    let newEntrySol = 0;
+    let respawnToken = null;
     if (lobbyType !== 'free') {
       const feeRes = await fetch('/wallet/entry-fee', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lobbyType }) });
       const feeData = await feeRes.json();
       if (feeData.error) { alert(feeData.error); return; }
-      newEntrySol = feeData.feeSol;
+      respawnToken = feeData.entryToken || null;
     }
     isDead = false;
     cashedOut = false;
     exitSpectate();
-    socket.emit(CONSTANTS.EVENTS.RESPAWN, { entrySol: newEntrySol });
+    socket.emit(CONSTANTS.EVENTS.RESPAWN, { entryToken: respawnToken });
     document.getElementById('death-screen').classList.remove('active');
     const earnedEl = document.getElementById('cashout-earned-inline');
     if (earnedEl) earnedEl.textContent = '';

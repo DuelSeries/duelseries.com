@@ -395,35 +395,24 @@ const LOBBY_FEES_CAD = { free: 0, dime: 0.10, dollar: 1.00 };
 // cash worth from THIS server value — never from the client's claimed entrySol (a
 // modified client could otherwise inflate it and mint money on cash-out). Keyed by
 // the authenticated Google id so it survives the reconnect/respawn flow; one-time use.
-const pendingEntry = new Map(); // googleId -> { lobbyType, worthSol, ts }
+const crypto = require('crypto');
+const entryTokens = new Map(); // opaque token -> { lobbyType, worthSol, exp }
 const ENTRY_TOKEN_MAX_AGE_MS = 5 * 60 * 1000;
+// Sweep expired (paid-but-never-used) tokens so the map stays bounded.
+setInterval(() => { const now = Date.now(); for (const [k, v] of entryTokens) if (now > v.exp) entryTokens.delete(k); }, ENTRY_TOKEN_MAX_AGE_MS);
 
-// The authenticated google id for a socket. socket.request.user (passport-deserialised)
-// is NOT reliably populated on the engine.io handshake, but the raw session is — and a
-// logged-in session carries passport.user (= the google id, per serializeUser). Both
-// are server-side; the client-supplied googleId is never used here.
-function socketGoogleId(socket) {
-  const r = socket.request || {};
-  return (r.user && r.user.googleId) || (r.session && r.session.passport && r.session.passport.user) || null;
-}
-
-// Verify + consume a paid-entry token for this socket and lobby tier. Payment stores
-// the token two ways (a googleId-keyed map for the reconnect/respawn flow, and the
-// session for a fresh-socket join); we accept either and clear both, so a single
-// payment is one-time. Returns the SERVER-authorised worth, never the client's value.
-function consumePaidEntry(socket, shortType) {
+// Verify + consume an opaque paid-entry token the client echoes back from the
+// /wallet/entry-fee response. The token is server-generated, unguessable, one-time, and
+// carries the SERVER-recorded worth, so the client can neither forge it nor inflate the
+// worth — that's what closes the entrySol escrow-drain hole. Needs no socket auth (the
+// socket session is empty) and works for join + respawn identically.
+function consumePaidEntry(entryToken, shortType) {
   if (!(shortType in LOBBY_FEES_CAD)) shortType = 'free';
   if (shortType === 'free') return { ok: true, worthSol: 0 }; // free lobbies carry no worth
-  const gid   = socketGoogleId(socket);
-  const sess  = socket.request && socket.request.session;
-  const fresh = (t) => t && t.lobbyType === shortType && Date.now() - t.ts <= ENTRY_TOKEN_MAX_AGE_MS;
-  const mapTok  = gid && pendingEntry.get(gid);
-  const sessTok = sess && sess.entryPaid;
-  const worthSol = fresh(mapTok) ? mapTok.worthSol : (fresh(sessTok) ? sessTok.worthSol : null);
-  if (worthSol === null) return { ok: false, worthSol: 0 };
-  if (gid) pendingEntry.delete(gid);                                    // one-time use
-  if (sessTok) { delete sess.entryPaid; if (sess.save) sess.save(() => {}); }
-  return { ok: true, worthSol };
+  const t = entryToken && entryTokens.get(entryToken);
+  if (!t || t.lobbyType !== shortType || Date.now() > t.exp) return { ok: false, worthSol: 0 };
+  entryTokens.delete(entryToken); // one-time use
+  return { ok: true, worthSol: t.worthSol };
 }
 
 app.post('/wallet/entry-fee', entryFeeLimiter, express.json(), async (req, res) => {
@@ -441,14 +430,12 @@ app.post('/wallet/entry-fee', entryFeeLimiter, express.json(), async (req, res) 
   req.user.balance = newBalance;
   // Deduct entry fee from net earnings so leaderboard shows true profit/loss
   await db.addEarnings(req.user.googleId, -feeSol, -feeCad);
-  // Record the one-time, server-authorised entry token both ways: a googleId-keyed map
-  // (survives the reconnect/respawn flow) and the session (read by a fresh-join socket).
-  // PLAY / RESPAWN / cell:join verify + consume it and take the worth from THIS value.
-  const entryTok = { lobbyType, worthSol: feeSol, ts: Date.now() };
-  pendingEntry.set(req.user.googleId, entryTok);
-  req.session.entryPaid = entryTok;
-  await new Promise((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
-  res.json({ ok: true, feeSol, balance: newBalance });
+  // Hand the client a one-time, server-authorised entry token. It echoes this back in
+  // PLAY / RESPAWN / cell:join; the server takes the worth from the token, never from the
+  // client's claimed entrySol. Unguessable + one-time, so it can't be forged or replayed.
+  const entryToken = crypto.randomUUID();
+  entryTokens.set(entryToken, { lobbyType, worthSol: feeSol, exp: Date.now() + ENTRY_TOKEN_MAX_AGE_MS });
+  res.json({ ok: true, feeSol, balance: newBalance, entryToken });
 });
 
 // ─── Wallet API ───────────────────────────────────────────────────────────────
@@ -746,7 +733,7 @@ io.on('connection', (socket) => {
     broadcastLobbyState();
   });
 
-  socket.on(C.EVENTS.PLAY, ({ name, walletAddress, googleId, color, lobbyType, entrySol, hatId, boostId, region, reconnectKey } = {}) => {
+  socket.on(C.EVENTS.PLAY, ({ name, walletAddress, googleId, color, lobbyType, entryToken, hatId, boostId, region, reconnectKey } = {}) => {
     // Ignore duplicate PLAY events (e.g. from socket reconnect while alive)
     if (socket._room) {
       const existingSnake = socket._room.snakes.get(socket.id);
@@ -779,22 +766,8 @@ io.on('connection', (socket) => {
     // Never trust the client's entrySol — take the snake's cash worth from a
     // server-verified paid-entry token (0 for free lobbies).
     const shortType = (lobbyType in LOBBY_FEES_CAD) ? lobbyType : 'free';
-    const entry = consumePaidEntry(socket, shortType);
+    const entry = consumePaidEntry(entryToken, shortType);
     if (!entry.ok) {
-      const r = socket.request || {};
-      socket.emit('join_debug', {
-        shortType,
-        hasReqUser: !!r.user,
-        reqUserGid: (r.user && r.user.googleId) || null,
-        hasSession: !!r.session,
-        sessionKeys: r.session ? Object.keys(r.session) : null,
-        sessionPassportUser: (r.session && r.session.passport && r.session.passport.user) || null,
-        sessionEntryPaid: (r.session && r.session.entryPaid) || null,
-        clientGoogleId: googleId || null,
-        gid: socketGoogleId(socket),
-        mapSize: pendingEntry.size,
-        mapTokForGid: (socketGoogleId(socket) && pendingEntry.get(socketGoogleId(socket))) || null,
-      });
       socket.emit(C.EVENTS.ERROR, { message: 'Entry fee not verified. Please return to the lobby and try again.' });
       return;
     }
@@ -898,13 +871,13 @@ io.on('connection', (socket) => {
     });
   });
 
-  socket.on(C.EVENTS.RESPAWN, () => {
+  socket.on(C.EVENTS.RESPAWN, ({ entryToken } = {}) => {
     if (!socket._room) return;
     const existing = socket._room.snakes.get(socket.id);
     if (existing && existing.alive) return; // block respawn while alive
-    // Same server-verified worth as PLAY — the client's entrySol is ignored.
+    // Server-verified worth from the echoed entry token — the client's entrySol is ignored.
     const shortType = socket._room.lobbyType.replace(/^(na|eu)_/, '');
-    const entry = consumePaidEntry(socket, shortType);
+    const entry = consumePaidEntry(entryToken, shortType);
     if (!entry.ok) {
       socket.emit(C.EVENTS.ERROR, { message: 'Entry fee not verified. Please return to the lobby and try again.' });
       return;
@@ -953,7 +926,7 @@ io.on('connection', (socket) => {
   });
 
   // ── Agar events ──────────────────────────────────────────────────────────
-  socket.on('cell:join', ({ name, color, lobbyType, googleId, region } = {}) => {
+  socket.on('cell:join', ({ name, color, lobbyType, googleId, region, entryToken } = {}) => {
     // Always prefer the server-verified session ID over the client-supplied one
     const verifiedId = socket.request.user?.googleId || googleId || null;
     if (verifiedId) {
@@ -965,7 +938,7 @@ io.on('connection', (socket) => {
     // Verify the entry fee server-side (same one-time token the snake game uses) and
     // take the cell's worth from the server, never from the client.
     const shortType = (lobbyType in LOBBY_FEES_CAD) ? lobbyType : 'free';
-    const entry = consumePaidEntry(socket, shortType);
+    const entry = consumePaidEntry(entryToken, shortType);
     if (!entry.ok) {
       socket.emit('cell:join:error', { message: 'Entry fee not verified. Please return to lobby.' });
       return;

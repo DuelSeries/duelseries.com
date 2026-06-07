@@ -305,7 +305,7 @@ function connectSocket() {
     if (spectateOnly) {
       socket.emit('spectate:join:agar', { lobbyType, region });
     } else {
-      socket.emit('cell:join', { name: myName, color: myColor, lobbyType, googleId, region });
+      socket.emit('cell:join', { name: myName, color: myColor, lobbyType, googleId, region, entryToken: sessionStorage.getItem('entryToken') || null });
     }
   });
 
