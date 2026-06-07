@@ -136,6 +136,9 @@ function playMoneySound() {
 
 socket.on('ate_dropped_food', playMoneySound);
 
+// TEMP diagnostic: why was a paid join rejected? (remove after debugging)
+socket.on('join_debug', (d) => console.warn('[join_debug] ' + JSON.stringify(d)));
+
 function playJoinSound() {
   if (window.gameMuted) return;
   const ctx = getAudioCtx();

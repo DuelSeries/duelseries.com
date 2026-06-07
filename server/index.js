@@ -781,6 +781,20 @@ io.on('connection', (socket) => {
     const shortType = (lobbyType in LOBBY_FEES_CAD) ? lobbyType : 'free';
     const entry = consumePaidEntry(socket, shortType);
     if (!entry.ok) {
+      const r = socket.request || {};
+      socket.emit('join_debug', {
+        shortType,
+        hasReqUser: !!r.user,
+        reqUserGid: (r.user && r.user.googleId) || null,
+        hasSession: !!r.session,
+        sessionKeys: r.session ? Object.keys(r.session) : null,
+        sessionPassportUser: (r.session && r.session.passport && r.session.passport.user) || null,
+        sessionEntryPaid: (r.session && r.session.entryPaid) || null,
+        clientGoogleId: googleId || null,
+        gid: socketGoogleId(socket),
+        mapSize: pendingEntry.size,
+        mapTokForGid: (socketGoogleId(socket) && pendingEntry.get(socketGoogleId(socket))) || null,
+      });
       socket.emit(C.EVENTS.ERROR, { message: 'Entry fee not verified. Please return to the lobby and try again.' });
       return;
     }
