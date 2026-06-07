@@ -1,5 +1,6 @@
 'use strict';
 const agarLb = require('./agarLeaderboard');
+const collusion = require('./CollusionMonitor');
 
 const TICK_RATE      = 60;
 const WORLD_BASE     = 6000;
@@ -410,6 +411,8 @@ class AgarRoom {
                 const share = target.worth / target.cells.length;
                 eater.worth = (eater.worth || 0) + share;
                 target.worth -= share;
+                // Value moved from the eaten account to the eater — feed the collusion monitor.
+                if (target.googleId && eater.googleId) collusion.record(target.googleId, eater.googleId, share, { lobbyType: this.roomName });
               }
               target.cells.splice(k, 1);
               if (target.cells.length === 0) {

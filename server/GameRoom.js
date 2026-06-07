@@ -2,6 +2,7 @@ const C = require('../shared/constants');
 const Snake = require('./Snake');
 const Bot   = require('./Bot');
 const FoodManager = require('./Food');
+const collusion = require('./CollusionMonitor');
 const { v4: uuidv4 } = require('uuid');
 const allTimeLb = require('./leaderboard');
 const SpatialGrid = require('./SpatialGrid');
@@ -81,7 +82,8 @@ class GameRoom {
       drops.forEach(d => {
         const dist = Math.hypot(d.x, d.y);
         if (dist > safeR) { const sc = safeR / dist; d.x *= sc; d.y *= sc; }
-        this.foodManager.spawnOne(this.worldRadius, d.x, d.y, d.value, cashPerDrop, d.color, d.size, d.dropped);
+        const f = this.foodManager.spawnOne(this.worldRadius, d.x, d.y, d.value, cashPerDrop, d.color, d.size, d.dropped);
+        if (f && gid) f._srcGid = gid; // tag dropped cash with its source account (collusion tracking)
       });
     }
     this.snakes.delete(socketId);
@@ -262,6 +264,9 @@ class GameRoom {
             snake.worth += food.cashValue;
             const p = this.players.get(snake.id);
             if (p) p.socket.emit('ate_dropped_food');
+            // Value moved from the source account to the eater — feed the collusion monitor.
+            const eaterGid = p && p.socket && p.socket._googleId;
+            if (food._srcGid && eaterGid) collusion.record(food._srcGid, eaterGid, food.cashValue, { lobbyType: this.lobbyType });
           }
           food.eaten = true;
           this.foodManager.remove(food.id);
@@ -331,7 +336,8 @@ class GameRoom {
         d.x *= scale;
         d.y *= scale;
       }
-      this.foodManager.spawnOne(this.worldRadius, d.x, d.y, d.value, cashPerDrop, d.color, d.size);
+      const f = this.foodManager.spawnOne(this.worldRadius, d.x, d.y, d.value, cashPerDrop, d.color, d.size);
+      if (f && kGid) f._srcGid = kGid; // tag dropped cash with its source account (collusion tracking)
     });
 
     const player = this.players.get(snake.id);

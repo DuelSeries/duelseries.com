@@ -39,6 +39,19 @@ async function init() {
       created_at  TIMESTAMPTZ DEFAULT NOW()
     );
 
+    CREATE TABLE IF NOT EXISTS collusion_flags (
+      id             SERIAL PRIMARY KEY,
+      src_google_id  TEXT NOT NULL,
+      dst_google_id  TEXT NOT NULL,
+      net_sol        NUMERIC(18,9) NOT NULL,
+      total_sol      NUMERIC(18,9) NOT NULL,
+      transfer_count INTEGER NOT NULL,
+      one_way_ratio  NUMERIC(6,4),
+      concentration  NUMERIC(6,4),
+      lobby_type     TEXT,
+      flagged_at     TIMESTAMPTZ DEFAULT NOW()
+    );
+
     CREATE TABLE IF NOT EXISTS verification_codes (
       google_id   TEXT NOT NULL,
       code        TEXT NOT NULL,
@@ -211,6 +224,29 @@ async function getWithdrawnSince(googleId, sinceMs) {
     [googleId, new Date(sinceMs)]
   );
   return parseFloat(res.rows[0].total);
+}
+
+// Persist a collusion flag raised by CollusionMonitor for later owner review.
+async function recordCollusionFlag(f) {
+  await pool.query(
+    `INSERT INTO collusion_flags
+       (src_google_id, dst_google_id, net_sol, total_sol, transfer_count, one_way_ratio, concentration, lobby_type)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+    [f.src, f.dst, f.netSol, f.totalSol, f.count, f.oneWayRatio, f.concentration, f.lobbyType]
+  );
+}
+
+async function getRecentCollusionFlags(limit = 100) {
+  const res = await pool.query(
+    `SELECT c.*, a1.name AS src_name, a2.name AS dst_name
+       FROM collusion_flags c
+       LEFT JOIN accounts a1 ON a1.google_id = c.src_google_id
+       LEFT JOIN accounts a2 ON a2.google_id = c.dst_google_id
+      ORDER BY c.flagged_at DESC
+      LIMIT $1`,
+    [limit]
+  );
+  return res.rows;
 }
 
 async function addEarnings(googleId, sol, cadAmount = 0) {
@@ -473,6 +509,7 @@ module.exports = {
   saveAccount, recordGameResult, recordAgarGameResult,
   isTxUsed, recordDeposit, recordWithdrawal, setPrivyWallet, clearPrivyWallet, getAccountByEmail, getFinancialSummary,
   recordPendingWithdrawal, updateWithdrawalSig, refundWithdrawal, getWithdrawnSince,
+  recordCollusionFlag, getRecentCollusionFlags,
   addEarnings, getTopEarners,
   addAgarEarnings, getAgarTopEarners,
   getGoogleIdByDeviceToken,

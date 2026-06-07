@@ -14,6 +14,7 @@ const GameRoom = require('./GameRoom');
 const AgarRoom      = require('./AgarRoom');
 const agarLb        = require('./agarLeaderboard');
 const db     = require('./db');
+const collusion = require('./CollusionMonitor');
 const Wallet = require('./Wallet');
 const allTimeLb = require('./leaderboard');
 const { sendVerificationCode } = require('./Email');
@@ -581,6 +582,19 @@ app.post('/admin/reset-wallet', async (req, res) => {
 // ─── Health check ─────────────────────────────────────────────────────────────
 app.get('/healthz', (req, res) => res.sendStatus(200));
 
+// Owner-only: review collusion flags (persisted) + the current live suspicious pairs.
+app.get('/api/admin/collusion', async (req, res) => {
+  if (!req.isAuthenticated() || req.user.googleId !== process.env.OWNER_GOOGLE_ID) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  try {
+    const flags = await db.getRecentCollusionFlags(100);
+    res.json({ flags, live: collusion.topPairs(25), config: collusion._config });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ─── Region / ping ────────────────────────────────────────────────────────────
 app.get('/api/ping', (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -689,6 +703,17 @@ function getAgarRoomForType(lobbyType, region) {
 
 const lobbySocketsByGoogleId = new Map();
 const lobbyConnections = new Set();
+
+// Collusion monitor: persist flags to the DB and push a live alert to the owner's socket.
+collusion.init({
+  db,
+  onFlag: (flag) => {
+    const owner = process.env.OWNER_GOOGLE_ID;
+    if (!owner) return;
+    const s = lobbySocketsByGoogleId.get(owner);
+    if (s) s.emit('admin:collusion_flag', flag);
+  },
+});
 
 // How long to keep a disconnected player's snake gliding before giving up on a
 // reconnect. Covers a typical mobile network blip without leaving dead snakes around.
