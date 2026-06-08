@@ -273,6 +273,29 @@ async function getEscrowBalance() {
   return bal / LAMPORTS_PER_SOL;
 }
 
+async function getAddressBalance(address) {
+  return (await connection.getBalance(new PublicKey(address))) / LAMPORTS_PER_SOL;
+}
+
+// Diagnose WHERE deposited SOL actually is. Withdrawals pay FROM the address derived
+// from ESCROW_PRIVATE_KEY; sweeps send deposits TO getEscrowPublicKey() (= ESCROW_PUBLIC_KEY
+// if set, else the same keypair). If those differ, deposits accumulate at `sweepsGoTo`
+// while withdrawals fail from an empty `withdrawsPayFrom` — the classic env misconfig.
+async function getEscrowDiagnostics() {
+  const withdrawsPayFrom = getEscrowKeypair().publicKey.toString();
+  const sweepsGoTo       = getEscrowPublicKey();
+  const [payFromBal, sweepBal] = await Promise.all([
+    getAddressBalance(withdrawsPayFrom),
+    getAddressBalance(sweepsGoTo),
+  ]);
+  return {
+    network: NETWORK,
+    withdrawsPayFrom, withdrawWalletBalanceSol: payFromBal,
+    sweepsGoTo,       sweepWalletBalanceSol:    sweepBal,
+    addressesMatch:   withdrawsPayFrom === sweepsGoTo,
+  };
+}
+
 async function getRecentSigs() {
   const escrow = new PublicKey(getEscrowPublicKey());
   const sigs = await withRetry(() =>
@@ -286,4 +309,4 @@ async function getRecentSigs() {
   }));
 }
 
-module.exports = { getEscrowPublicKey, findLatestDeposit, findDepositsForAddress, sweepFromPrivyWallet, getRecentSigs, withdraw, getEscrowBalance, NETWORK, setDb, seedUsedSignatures };
+module.exports = { getEscrowPublicKey, findLatestDeposit, findDepositsForAddress, sweepFromPrivyWallet, getRecentSigs, withdraw, getEscrowBalance, getAddressBalance, getEscrowDiagnostics, NETWORK, setDb, seedUsedSignatures };

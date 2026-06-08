@@ -595,6 +595,24 @@ app.get('/api/admin/collusion', async (req, res) => {
   }
 });
 
+// Owner-only: where deposited SOL actually is (withdraw wallet vs sweep destination vs
+// your own Privy deposit wallet). Pinpoints "balance credited but escrow empty".
+app.get('/api/admin/escrow', async (req, res) => {
+  if (!req.isAuthenticated() || req.user.googleId !== process.env.OWNER_GOOGLE_ID) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  try {
+    const diag = await Wallet.getEscrowDiagnostics();
+    if (req.user.walletAddress) {
+      diag.yourPrivyWallet = req.user.walletAddress;
+      diag.yourPrivyWalletBalanceSol = await Wallet.getAddressBalance(req.user.walletAddress);
+    }
+    res.json(diag);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ─── Region / ping ────────────────────────────────────────────────────────────
 app.get('/api/ping', (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
