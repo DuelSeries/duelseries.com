@@ -225,9 +225,15 @@ async function sweepFromPrivyWallet(privyWalletAddress, privyWalletId) {
   if (!PRIVY_APP_ID || !PRIVY_APP_SECRET) throw new Error('Privy not configured');
 
   const pubkey = new PublicKey(privyWalletAddress);
-  const balance = await withRetry(() => connection.getBalance(pubkey));
   const FEE_BUFFER = 10000; // lamports reserved for tx fee (~0.00001 SOL)
-  const sweepLamports = balance - FEE_BUFFER;
+  const [balance, rentMin] = await Promise.all([
+    withRetry(() => connection.getBalance(pubkey)),
+    withRetry(() => connection.getMinimumBalanceForRentExemption(0)),
+  ]);
+  // Leave the rent-exempt minimum (+ fee) behind. Solana rejects a transfer that would
+  // leave the SOURCE account with a non-zero balance below rent-exemption
+  // (InsufficientFundsForRent) — an account must keep the minimum or drop to exactly 0.
+  const sweepLamports = balance - rentMin - FEE_BUFFER;
   if (sweepLamports <= 0) return null;
 
   const escrowAddress = getEscrowPublicKey();
