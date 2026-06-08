@@ -613,6 +613,29 @@ app.get('/api/admin/escrow', async (req, res) => {
   }
 });
 
+// Owner-only: manually run the Privy->escrow sweep for your own deposit wallet. Both
+// recovers stuck deposits (moves them into the escrow so withdrawals can pay out) and
+// surfaces the exact Privy error if the auto-sweep on deposit is failing.
+app.get('/api/admin/sweep', async (req, res) => {
+  if (!req.isAuthenticated() || req.user.googleId !== process.env.OWNER_GOOGLE_ID) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  const { walletAddress, privyWalletId } = req.user;
+  if (!walletAddress) return res.status(400).json({ error: 'No deposit wallet on this account' });
+  if (!privyWalletId) {
+    return res.status(400).json({
+      error: 'Account has a wallet address but no privyWalletId — the sweep in /wallet/deposit can never fire. This is the root cause.',
+      walletAddress,
+    });
+  }
+  try {
+    const sig = await Wallet.sweepFromPrivyWallet(walletAddress, privyWalletId);
+    res.json({ ok: true, sweptFrom: walletAddress, sig: sig || null });
+  } catch (e) {
+    res.status(500).json({ error: e.message, walletAddress });
+  }
+});
+
 // ─── Region / ping ────────────────────────────────────────────────────────────
 app.get('/api/ping', (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
