@@ -253,7 +253,7 @@ async function sweepFromPrivyWallet(privyWalletAddress, privyWalletId) {
     },
     body: JSON.stringify({
       method: 'signAndSendTransaction',
-      caip2: 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpK',
+      caip2: 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp', // CAIP-2 ref is the first 32 chars of the genesis hash (no trailing K)
       params: { transaction: serialized, encoding: 'base64' },
     }),
   });
