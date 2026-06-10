@@ -305,6 +305,17 @@ async function getLatestBlockhash() {
   return { blockhash, lastValidBlockHeight };
 }
 
+// Forward a JSON-RPC request to the server's Solana RPC so the BROWSER can make RPC calls
+// via our backend instead of hitting a public RPC that 403s browser origins.
+async function forwardRpc(body) {
+  const r = await fetch(RPC_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return await r.text();
+}
+
 async function getAddressBalance(address) {
   return (await connection.getBalance(new PublicKey(address))) / LAMPORTS_PER_SOL;
 }
@@ -341,4 +352,4 @@ async function getRecentSigs() {
   }));
 }
 
-module.exports = { getEscrowPublicKey, findLatestDeposit, findDepositsForAddress, sweepFromPrivyWallet, getRecentSigs, withdraw, getEscrowBalance, getAddressBalance, getEscrowDiagnostics, verifyStakeTransfer, getLatestBlockhash, NETWORK, setDb, seedUsedSignatures };
+module.exports = { getEscrowPublicKey, findLatestDeposit, findDepositsForAddress, sweepFromPrivyWallet, getRecentSigs, withdraw, getEscrowBalance, getAddressBalance, getEscrowDiagnostics, verifyStakeTransfer, getLatestBlockhash, forwardRpc, NETWORK, setDb, seedUsedSignatures };

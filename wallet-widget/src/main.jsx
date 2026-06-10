@@ -11,7 +11,9 @@ import bs58 from 'bs58';
 // the server verifies it on-chain and issues the entry token the game already consumes.
 // See docs/self-custody-migration.md.
 const APP_ID = 'cmpnepg0100f20cl10wdig1fr';
-const RPC_HTTP = 'https://api.mainnet-beta.solana.com';
+// RPC goes through our own backend proxy so the browser doesn't hit a public RPC that
+// 403s browser origins. (WSS is confirmation-only; the stake is verified server-side too.)
+const RPC_HTTP = (typeof window !== 'undefined' ? window.location.origin : '') + '/api/rpc';
 const RPC_WSS = 'wss://api.mainnet-beta.solana.com';
 
 async function fetchSolBalance(address) {

@@ -595,6 +595,17 @@ app.get('/api/sol-balance', async (req, res) => {
   }
 });
 
+// Browser → server Solana RPC proxy: the frontend's wallet SDK makes its RPC calls here
+// so they go through our server's RPC instead of a public endpoint that blocks browser
+// origins (403). Same-origin, so no CORS.
+app.post('/api/rpc', async (req, res) => {
+  try {
+    res.type('application/json').send(await Wallet.forwardRpc(req.body));
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
+});
+
 // ── Self-custody staking (Phase 1) ───────────────────────────────────────────
 // Quote how much SOL to stake for a paid lobby and where (the escrow), plus a fresh
 // blockhash for the client to build the transfer. No custodial balance is touched.
