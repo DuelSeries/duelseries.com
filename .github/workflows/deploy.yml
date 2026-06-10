@@ -17,7 +17,8 @@ jobs:
           key: ${{ secrets.EC2_KEY }}
           script: |
             cd /home/ubuntu/hexslither
-            git pull origin main
+            git fetch origin main
+            git reset --hard origin/main
             npm install --production
             pm2 restart duelseries
 
@@ -32,6 +33,7 @@ jobs:
           key: ${{ secrets.EC2_EU_KEY }}
           script: |
             cd /home/ubuntu/hexslither
-            git pull origin main
+            git fetch origin main
+            git reset --hard origin/main
             npm install --production
             pm2 restart duelseries-eu
