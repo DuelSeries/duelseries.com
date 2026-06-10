@@ -1,10 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { PrivyProvider, usePrivy, useLogin } from '@privy-io/react-auth';
-import { useWallets as useSolanaWallets, useSignAndSendTransaction } from '@privy-io/react-auth/solana';
+import { useWallets as useSolanaWallets, useSignTransaction } from '@privy-io/react-auth/solana';
 import { createSolanaRpc, createSolanaRpcSubscriptions } from '@solana/kit';
 import { PublicKey, SystemProgram, Transaction } from '@solana/web3.js';
-import bs58 from 'bs58';
 
 // Phase 1 — self-custody stake-on-join. Connect (Phase 0) + a "Stake & Play" button that
 // moves the entry fee from the player's embedded wallet into the escrow (one-tap Confirm),
@@ -38,7 +37,7 @@ function solanaAddress(user) {
 
 // Stake the entry fee from the embedded wallet into the escrow, verify it server-side,
 // then launch the game with the returned entry token. `onStatus` reports progress.
-async function stakeAndPlay(lobbyType, wallet, signAndSendTransaction, onStatus) {
+async function stakeAndPlay(lobbyType, wallet, signTransaction, onStatus) {
   onStatus('Getting quote…');
   const quote = await (await fetch('/api/stake-quote?lobbyType=' + encodeURIComponent(lobbyType))).json();
   if (quote.error) throw new Error(quote.error);
@@ -48,9 +47,7 @@ async function stakeAndPlay(lobbyType, wallet, signAndSendTransaction, onStatus)
   const from = new PublicKey(wallet.address);
   const tx = new Transaction();
   tx.feePayer = from;
-  // Dummy blockhash — Privy fills in a fresh one from its own RPC at send time. Avoids
-  // "error preparing transaction" from a stale/mismatched server-provided blockhash.
-  tx.recentBlockhash = '11111111111111111111111111111111';
+  tx.recentBlockhash = quote.blockhash; // real blockhash — our backend submits the signed tx
   tx.add(SystemProgram.transfer({
     fromPubkey: from,
     toPubkey: new PublicKey(quote.escrowAddress),
@@ -59,16 +56,18 @@ async function stakeAndPlay(lobbyType, wallet, signAndSendTransaction, onStatus)
   const serialized = tx.serialize({ requireAllSignatures: false, verifySignatures: false });
 
   onStatus('Confirm in your wallet…');
-  const result = await signAndSendTransaction({ transaction: serialized, wallet });
-  const signature = typeof result.signature === 'string' ? result.signature : bs58.encode(result.signature);
+  // Privy only SIGNS — no send/confirm, so no browser WebSocket.
+  const { signedTransaction } = await signTransaction({ transaction: serialized, wallet });
+  const signedTx = Buffer.from(signedTransaction).toString('base64');
 
-  onStatus('Verifying stake…');
-  const verify = await (await fetch('/api/verify-stake', {
+  onStatus('Submitting stake…');
+  // Our backend submits + confirms over HTTP, then issues the entry token.
+  const verify = await (await fetch('/api/submit-stake', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ lobbyType, signature, walletAddress: wallet.address }),
+    body: JSON.stringify({ lobbyType, signedTx, walletAddress: wallet.address }),
   })).json();
-  if (!verify.ok) throw new Error(verify.error || 'Stake verification failed');
+  if (!verify.ok) throw new Error(verify.error || 'Stake failed');
 
   onStatus('Joining…');
   // Hand the verified entry token to the game via sessionStorage (same channel the lobby uses).
@@ -90,7 +89,7 @@ function WalletPanel() {
   const { ready, authenticated, user, logout } = usePrivy();
   const { login } = useLogin();
   const { wallets: solWallets } = useSolanaWallets();
-  const { signAndSendTransaction } = useSignAndSendTransaction();
+  const { signTransaction } = useSignTransaction();
   const [balance, setBalance] = useState(null);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
@@ -117,7 +116,7 @@ function WalletPanel() {
     if (!wallet) { setErr('Wallet still loading — try again in a moment.'); return; }
     setBusy(true); setErr(''); setStatus('');
     try {
-      await stakeAndPlay('dime', wallet, signAndSendTransaction, setStatus);
+      await stakeAndPlay('dime', wallet, signTransaction, setStatus);
     } catch (e) {
       setErr((e && e.message) || 'Stake failed');
       setBusy(false); setStatus('');

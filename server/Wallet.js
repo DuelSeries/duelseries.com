@@ -316,6 +316,22 @@ async function forwardRpc(body) {
   return await r.text();
 }
 
+// Submit a client-signed stake transaction and wait for it to confirm via HTTP polling
+// (no WebSocket — browsers can't reach the public RPC's WSS). Returns the signature.
+async function submitStake(rawTx) {
+  const sig = await connection.sendRawTransaction(rawTx, { skipPreflight: false, maxRetries: 5 });
+  for (let i = 0; i < 40; i++) {
+    const st = await connection.getSignatureStatus(sig);
+    const v = st && st.value;
+    if (v) {
+      if (v.err) throw new Error('Stake transaction failed on-chain');
+      if (v.confirmationStatus === 'confirmed' || v.confirmationStatus === 'finalized') return sig;
+    }
+    await new Promise((r) => setTimeout(r, 800));
+  }
+  throw new Error('Stake not confirmed in time — please try again');
+}
+
 async function getAddressBalance(address) {
   return (await connection.getBalance(new PublicKey(address))) / LAMPORTS_PER_SOL;
 }
@@ -352,4 +368,4 @@ async function getRecentSigs() {
   }));
 }
 
-module.exports = { getEscrowPublicKey, findLatestDeposit, findDepositsForAddress, sweepFromPrivyWallet, getRecentSigs, withdraw, getEscrowBalance, getAddressBalance, getEscrowDiagnostics, verifyStakeTransfer, getLatestBlockhash, forwardRpc, NETWORK, setDb, seedUsedSignatures };
+module.exports = { getEscrowPublicKey, findLatestDeposit, findDepositsForAddress, sweepFromPrivyWallet, getRecentSigs, withdraw, getEscrowBalance, getAddressBalance, getEscrowDiagnostics, verifyStakeTransfer, getLatestBlockhash, forwardRpc, submitStake, NETWORK, setDb, seedUsedSignatures };

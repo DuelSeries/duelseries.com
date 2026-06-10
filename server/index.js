@@ -623,9 +623,30 @@ app.get('/api/stake-quote', async (req, res) => {
   }
 });
 
-// Verify the player's on-chain stake landed in the escrow, then issue the SAME entry
-// token PLAY already consumes — now backed by a real self-custody stake instead of a
-// custodial ledger debit. The snake's worth becomes the actual amount staked.
+// Submit a client-SIGNED stake (Privy signs only; we send + confirm over HTTP), then
+// issue the entry token. This avoids the browser WebSocket the public RPC blocks.
+app.post('/api/submit-stake', express.json({ limit: '256kb' }), async (req, res) => {
+  const { lobbyType, signedTx, walletAddress } = req.body || {};
+  const feeCad = LOBBY_FEES_CAD[lobbyType];
+  if (feeCad === undefined || feeCad === 0) return res.status(400).json({ error: 'Not a paid lobby' });
+  if (!signedTx) return res.status(400).json({ error: 'Missing signed transaction' });
+  try {
+    const sig = await Wallet.submitStake(Buffer.from(signedTx, 'base64'));
+    if (await db.isStakeSigUsed(sig)) return res.status(400).json({ error: 'Stake already used' });
+    const feeSol = prices.cadToSol(feeCad);
+    const minLamports = Math.round(feeSol * 1e9 * 0.95);
+    const { payer, lamports } = await Wallet.verifyStakeTransfer(sig, minLamports);
+    await db.markStakeSig(sig);
+    const worthSol = lamports / 1e9;
+    const entryToken = crypto.randomUUID();
+    entryTokens.set(entryToken, { lobbyType, worthSol, walletAddress: walletAddress || payer, exp: Date.now() + ENTRY_TOKEN_MAX_AGE_MS });
+    res.json({ ok: true, entryToken, worthSol });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// Verify a stake the CLIENT already sent (legacy path; kept for the signAndSend flow).
 app.post('/api/verify-stake', express.json(), async (req, res) => {
   const { lobbyType, signature, walletAddress } = req.body || {};
   const feeCad = LOBBY_FEES_CAD[lobbyType];
