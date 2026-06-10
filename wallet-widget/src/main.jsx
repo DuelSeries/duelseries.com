@@ -37,46 +37,50 @@ function solanaAddress(user) {
 
 // Stake the entry fee from the embedded wallet into the escrow, verify it server-side,
 // then launch the game with the returned entry token. `onStatus` reports progress.
+const TIER_LABEL = { free: 'Play Free', dime: 'Stake & Play 10¢', dollar: 'Stake & Play $1' };
+
+// Stake the entry fee (paid lobbies) from the embedded wallet into the escrow, verify it
+// server-side, then launch the game. Free lobbies skip the stake entirely.
 async function stakeAndPlay(lobbyType, wallet, signTransaction, onStatus, onLaunch) {
-  onStatus('Getting quote…');
-  const quote = await (await fetch('/api/stake-quote?lobbyType=' + encodeURIComponent(lobbyType))).json();
-  if (quote.error) throw new Error(quote.error);
-  if (!quote.escrowAddress) throw new Error('Free lobby — no stake needed');
+  let entryToken = '';
+  let worthSol = 0;
 
-  onStatus('Building stake…');
-  const from = new PublicKey(wallet.address);
-  const tx = new Transaction();
-  tx.feePayer = from;
-  tx.recentBlockhash = quote.blockhash; // real blockhash — our backend submits the signed tx
-  tx.add(SystemProgram.transfer({
-    fromPubkey: from,
-    toPubkey: new PublicKey(quote.escrowAddress),
-    lamports: quote.lamports,
-  }));
-  const serialized = tx.serialize({ requireAllSignatures: false, verifySignatures: false });
+  if (lobbyType !== 'free') {
+    onStatus('Getting quote…');
+    const quote = await (await fetch('/api/stake-quote?lobbyType=' + encodeURIComponent(lobbyType))).json();
+    if (quote.error) throw new Error(quote.error);
+    if (!quote.escrowAddress) throw new Error('No escrow configured for this lobby');
 
-  onStatus('Confirm in your wallet…');
-  // Privy only SIGNS — no send/confirm, so no browser WebSocket.
-  const { signedTransaction } = await signTransaction({ transaction: serialized, wallet });
-  const signedTx = Buffer.from(signedTransaction).toString('base64');
+    onStatus('Building stake…');
+    const from = new PublicKey(wallet.address);
+    const tx = new Transaction();
+    tx.feePayer = from;
+    tx.recentBlockhash = quote.blockhash; // real blockhash — our backend submits the signed tx
+    tx.add(SystemProgram.transfer({ fromPubkey: from, toPubkey: new PublicKey(quote.escrowAddress), lamports: quote.lamports }));
+    const serialized = tx.serialize({ requireAllSignatures: false, verifySignatures: false });
 
-  onStatus('Submitting stake…');
-  // Our backend submits + confirms over HTTP, then issues the entry token.
-  const verify = await (await fetch('/api/submit-stake', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ lobbyType, signedTx, walletAddress: wallet.address }),
-  })).json();
-  if (!verify.ok) throw new Error(verify.error || 'Stake failed');
+    onStatus('Confirm in your wallet…');
+    const { signedTransaction } = await signTransaction({ transaction: serialized, wallet }); // sign only — no browser WSS
+    const signedTx = Buffer.from(signedTransaction).toString('base64');
+
+    onStatus('Submitting stake…');
+    const verify = await (await fetch('/api/submit-stake', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lobbyType, signedTx, walletAddress: wallet.address }),
+    })).json();
+    if (!verify.ok) throw new Error(verify.error || 'Stake failed');
+    entryToken = verify.entryToken;
+    worthSol = verify.worthSol;
+  }
 
   onStatus('Joining…');
-  // Hand the verified entry token to the game via sessionStorage (same channel the lobby uses).
   sessionStorage.setItem('playerName', localStorage.getItem('duelseries_playername') || short(wallet.address));
   sessionStorage.setItem('googleId', wallet.address);       // self-custody identity = wallet
   sessionStorage.setItem('walletAddress', wallet.address);
   sessionStorage.setItem('lobbyType', lobbyType);
-  sessionStorage.setItem('entryToken', verify.entryToken);
-  sessionStorage.setItem('entrySol', String(verify.worthSol));
+  sessionStorage.setItem('entryToken', entryToken);
+  sessionStorage.setItem('entrySol', String(worthSol));
   sessionStorage.setItem('region', 'na');
   sessionStorage.setItem('snakeColor', localStorage.getItem('duelseries_skin_color') || '#14F195');
   sessionStorage.setItem('hatId', localStorage.getItem('duelseries_hat_id') || 'none');
@@ -105,6 +109,7 @@ function WalletPanel() {
   const [status, setStatus] = useState('');
   const [err, setErr] = useState('');
   const [playing, setPlaying] = useState(false);
+  const [tier, setTier] = useState(() => { try { return localStorage.getItem('duelseries_lobbytype') || 'free'; } catch { return 'free'; } });
 
   const wallet = solWallets && solWallets[0];
   const address = (wallet && wallet.address) || solanaAddress(user);
@@ -130,11 +135,18 @@ function WalletPanel() {
     return () => window.removeEventListener('message', onMsg);
   }, []);
 
+  // Follow the lobby's selected tier (Free / 10¢ / $1).
+  useEffect(() => {
+    const onChange = (e) => setTier((e && e.detail) || 'free');
+    window.addEventListener('duel:lobbychange', onChange);
+    return () => window.removeEventListener('duel:lobbychange', onChange);
+  }, []);
+
   const onStake = async () => {
     if (!wallet) { setErr('Wallet still loading — try again in a moment.'); return; }
     setBusy(true); setErr(''); setStatus('');
     try {
-      await stakeAndPlay('dime', wallet, signTransaction, setStatus, () => setPlaying(true));
+      await stakeAndPlay(tier, wallet, signTransaction, setStatus, () => setPlaying(true));
     } catch (e) {
       const m = (e && e.message) || 'Stake failed';
       const friendly = /insufficient funds|rent/i.test(m)
@@ -147,7 +159,7 @@ function WalletPanel() {
 
   if (playing) return null; // hidden while the game iframe covers the screen
 
-  const lowFunds = balance != null && balance < 0.0025;
+  const lowFunds = tier !== 'free' && balance != null && balance < 0.0025;
 
   return (
     <div style={st.box}>
@@ -161,7 +173,7 @@ function WalletPanel() {
           <div style={st.row}><span style={st.muted}>Wallet</span><span style={st.mono}>{address ? short(address) : 'creating…'}</span></div>
           <div style={st.row}><span style={st.muted}>Balance</span><span style={st.mono}>{balance == null ? '…' : balance.toFixed(4) + ' SOL'}</span></div>
           <button style={{ ...st.btn, marginTop: 8, opacity: busy ? 0.6 : 1 }} onClick={onStake} disabled={busy || !address}>
-            {busy ? (status || 'Working…') : 'Stake & Play 10¢ (beta)'}
+            {busy ? (status || 'Working…') : `${TIER_LABEL[tier] || 'Play'} (beta)`}
           </button>
           {lowFunds && !busy && (
             <div style={st.hint}>Fund this wallet with a little SOL (send to the address above) to play.</div>

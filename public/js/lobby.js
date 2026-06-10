@@ -1110,6 +1110,7 @@ document.querySelectorAll('.btn-lobby-type').forEach(btn => {
     localStorage.setItem('duelseries_lobbytype', selectedLobbyType);
     const playBtn = document.getElementById('btn-play');
     playBtn.textContent = (selectedLobbyType === 'free' ? '▶ ' : '') + LOBBY_LABELS[selectedLobbyType];
+    window.dispatchEvent(new CustomEvent('duel:lobbychange', { detail: selectedLobbyType }));
   });
 });
 
