@@ -52,6 +52,11 @@ async function init() {
       flagged_at     TIMESTAMPTZ DEFAULT NOW()
     );
 
+    CREATE TABLE IF NOT EXISTS used_stake_sigs (
+      sig        TEXT PRIMARY KEY,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
     CREATE TABLE IF NOT EXISTS verification_codes (
       google_id   TEXT NOT NULL,
       code        TEXT NOT NULL,
@@ -247,6 +252,16 @@ async function getRecentCollusionFlags(limit = 100) {
     [limit]
   );
   return res.rows;
+}
+
+// Phase 1 self-custody stakes: durable one-time-use guard so a stake signature can't be
+// replayed for a second free entry (survives restarts; the in-memory set does not).
+async function isStakeSigUsed(sig) {
+  const r = await pool.query(`SELECT 1 FROM used_stake_sigs WHERE sig = $1`, [sig]);
+  return r.rowCount > 0;
+}
+async function markStakeSig(sig) {
+  await pool.query(`INSERT INTO used_stake_sigs (sig) VALUES ($1) ON CONFLICT DO NOTHING`, [sig]);
 }
 
 async function addEarnings(googleId, sol, cadAmount = 0) {
@@ -510,6 +525,7 @@ module.exports = {
   isTxUsed, recordDeposit, recordWithdrawal, setPrivyWallet, clearPrivyWallet, getAccountByEmail, getFinancialSummary,
   recordPendingWithdrawal, updateWithdrawalSig, refundWithdrawal, getWithdrawnSince,
   recordCollusionFlag, getRecentCollusionFlags,
+  isStakeSigUsed, markStakeSig,
   addEarnings, getTopEarners,
   addAgarEarnings, getAgarTopEarners,
   getGoogleIdByDeviceToken,

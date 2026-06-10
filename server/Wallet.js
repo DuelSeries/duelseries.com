@@ -279,6 +279,32 @@ async function getEscrowBalance() {
   return bal / LAMPORTS_PER_SOL;
 }
 
+// Phase 1 (self-custody): verify a player's stake transfer actually landed in the escrow.
+// The tx must be confirmed, not previously used this session, and have credited the
+// escrow at least `minLamports`. Returns { payer, lamports }. Caller persists the sig.
+async function verifyStakeTransfer(signature, minLamports) {
+  if (typeof signature !== 'string' || !signature) throw new Error('Missing stake signature');
+  if (usedSignatures.has(signature)) throw new Error('Stake signature already used');
+  const escrowPubkey = getEscrowPublicKey();
+  const tx = await withRetry(() =>
+    connection.getTransaction(signature, { commitment: 'confirmed', maxSupportedTransactionVersion: 0 })
+  );
+  if (!tx) throw new Error('Stake transaction not found or not yet confirmed');
+  if (tx.meta && tx.meta.err) throw new Error('Stake transaction failed on-chain');
+  const accountKeys = tx.transaction.message.staticAccountKeys || tx.transaction.message.accountKeys;
+  const idx = accountKeys.findIndex(k => k.toString() === escrowPubkey);
+  if (idx === -1) throw new Error('Stake did not pay the escrow');
+  const lamports = tx.meta.postBalances[idx] - tx.meta.preBalances[idx];
+  if (lamports < minLamports) throw new Error(`Stake too small (${lamports} < ${minLamports} lamports)`);
+  usedSignatures.add(signature);
+  return { payer: accountKeys[0].toString(), lamports };
+}
+
+async function getLatestBlockhash() {
+  const { blockhash, lastValidBlockHeight } = await withRetry(() => connection.getLatestBlockhash());
+  return { blockhash, lastValidBlockHeight };
+}
+
 async function getAddressBalance(address) {
   return (await connection.getBalance(new PublicKey(address))) / LAMPORTS_PER_SOL;
 }
@@ -315,4 +341,4 @@ async function getRecentSigs() {
   }));
 }
 
-module.exports = { getEscrowPublicKey, findLatestDeposit, findDepositsForAddress, sweepFromPrivyWallet, getRecentSigs, withdraw, getEscrowBalance, getAddressBalance, getEscrowDiagnostics, NETWORK, setDb, seedUsedSignatures };
+module.exports = { getEscrowPublicKey, findLatestDeposit, findDepositsForAddress, sweepFromPrivyWallet, getRecentSigs, withdraw, getEscrowBalance, getAddressBalance, getEscrowDiagnostics, verifyStakeTransfer, getLatestBlockhash, NETWORK, setDb, seedUsedSignatures };

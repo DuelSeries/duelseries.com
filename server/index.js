@@ -413,7 +413,7 @@ function consumePaidEntry(entryToken, shortType) {
   const t = entryToken && entryTokens.get(entryToken);
   if (!t || t.lobbyType !== shortType || Date.now() > t.exp) return { ok: false, worthSol: 0 };
   entryTokens.delete(entryToken); // one-time use
-  return { ok: true, worthSol: t.worthSol, googleId: t.googleId };
+  return { ok: true, worthSol: t.worthSol, googleId: t.googleId, walletAddress: t.walletAddress };
 }
 
 app.post('/wallet/entry-fee', entryFeeLimiter, express.json(), async (req, res) => {
@@ -590,6 +590,45 @@ app.get('/api/sol-balance', async (req, res) => {
   try {
     const sol = await Wallet.getAddressBalance(address);
     res.json({ address, sol });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// ── Self-custody staking (Phase 1) ───────────────────────────────────────────
+// Quote how much SOL to stake for a paid lobby and where (the escrow), plus a fresh
+// blockhash for the client to build the transfer. No custodial balance is touched.
+app.get('/api/stake-quote', async (req, res) => {
+  const lobbyType = req.query.lobbyType;
+  const feeCad = LOBBY_FEES_CAD[lobbyType];
+  if (feeCad === undefined) return res.status(400).json({ error: 'Unknown lobby' });
+  if (feeCad === 0) return res.json({ lobbyType, escrowAddress: null, lamports: 0, feeSol: 0 });
+  try {
+    const feeSol = prices.cadToSol(feeCad);
+    const { blockhash } = await Wallet.getLatestBlockhash();
+    res.json({ lobbyType, escrowAddress: Wallet.getEscrowPublicKey(), lamports: Math.round(feeSol * 1e9), feeSol, blockhash });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Verify the player's on-chain stake landed in the escrow, then issue the SAME entry
+// token PLAY already consumes — now backed by a real self-custody stake instead of a
+// custodial ledger debit. The snake's worth becomes the actual amount staked.
+app.post('/api/verify-stake', express.json(), async (req, res) => {
+  const { lobbyType, signature, walletAddress } = req.body || {};
+  const feeCad = LOBBY_FEES_CAD[lobbyType];
+  if (feeCad === undefined || feeCad === 0) return res.status(400).json({ error: 'Not a paid lobby' });
+  try {
+    if (await db.isStakeSigUsed(signature)) return res.status(400).json({ error: 'Stake already used' });
+    const feeSol = prices.cadToSol(feeCad);
+    const minLamports = Math.round(feeSol * 1e9 * 0.95); // tolerate small price drift since the quote
+    const { payer, lamports } = await Wallet.verifyStakeTransfer(signature, minLamports);
+    await db.markStakeSig(signature);
+    const worthSol = lamports / 1e9; // actual staked amount becomes the snake's worth
+    const entryToken = crypto.randomUUID();
+    entryTokens.set(entryToken, { lobbyType, worthSol, walletAddress: walletAddress || payer, exp: Date.now() + ENTRY_TOKEN_MAX_AGE_MS });
+    res.json({ ok: true, entryToken, worthSol });
   } catch (e) {
     res.status(400).json({ error: e.message });
   }
