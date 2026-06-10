@@ -118,12 +118,16 @@ function WalletPanel() {
     try {
       await stakeAndPlay('dime', wallet, signTransaction, setStatus);
     } catch (e) {
-      setErr((e && e.message) || 'Stake failed');
+      const m = (e && e.message) || 'Stake failed';
+      const friendly = /insufficient funds|rent/i.test(m)
+        ? "Not enough SOL — add a bit more (a 10¢ entry needs ~0.002 SOL on hand; the extra covers Solana's per-wallet rent minimum)."
+        : m;
+      setErr(friendly);
       setBusy(false); setStatus('');
     }
   };
 
-  const lowFunds = balance != null && balance < 0.002;
+  const lowFunds = balance != null && balance < 0.0025;
 
   return (
     <div style={st.box}>
