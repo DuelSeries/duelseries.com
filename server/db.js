@@ -264,6 +264,13 @@ async function markStakeSig(sig) {
   await pool.query(`INSERT INTO used_stake_sigs (sig) VALUES ($1) ON CONFLICT DO NOTHING`, [sig]);
 }
 
+// Sum of all custodial ledger balances (SOL). The solvency monitor checks the escrow can
+// cover this (plus live self-custody stakes).
+async function sumBalances() {
+  const r = await pool.query(`SELECT COALESCE(SUM(balance), 0) AS total FROM accounts`);
+  return parseFloat(r.rows[0].total);
+}
+
 async function addEarnings(googleId, sol, cadAmount = 0) {
   await Promise.all([
     pool.query(`UPDATE accounts SET total_earnings = total_earnings + $2 WHERE google_id = $1`, [googleId, sol]),
@@ -525,7 +532,7 @@ module.exports = {
   isTxUsed, recordDeposit, recordWithdrawal, setPrivyWallet, clearPrivyWallet, getAccountByEmail, getFinancialSummary,
   recordPendingWithdrawal, updateWithdrawalSig, refundWithdrawal, getWithdrawnSince,
   recordCollusionFlag, getRecentCollusionFlags,
-  isStakeSigUsed, markStakeSig,
+  isStakeSigUsed, markStakeSig, sumBalances,
   addEarnings, getTopEarners,
   addAgarEarnings, getAgarTopEarners,
   getGoogleIdByDeviceToken,

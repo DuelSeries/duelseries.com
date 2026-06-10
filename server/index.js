@@ -697,6 +697,15 @@ app.get('/api/admin/escrow', async (req, res) => {
   }
 });
 
+// Owner-only: live solvency snapshot (escrow vs custodial ledger + live self-custody stakes).
+app.get('/api/admin/solvency', async (req, res) => {
+  if (!req.isAuthenticated() || req.user.googleId !== process.env.OWNER_GOOGLE_ID) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  await checkSolvency();
+  res.json(_lastSolvency || { error: 'no data yet' });
+});
+
 // Owner-only: manually run the Privy->escrow sweep for your own deposit wallet. Both
 // recovers stuck deposits (moves them into the escrow so withdrawals can pay out) and
 // surfaces the exact Privy error if the auto-sweep on deposit is failing.
@@ -839,6 +848,46 @@ collusion.init({
     if (s) s.emit('admin:collusion_flag', flag);
   },
 });
+
+// ── Solvency monitor ─────────────────────────────────────────────────────────
+// Continuously verify the escrow holds at least what it owes: the custodial ledger
+// balances PLUS the live self-custody stakes currently sitting in escrow. Alerts the
+// owner + logs the moment it drifts short (would have caught the ledger>escrow gap).
+let _lastSolvency = null;
+function sumLiveSelfCustodyStakes() {
+  let total = 0;
+  for (const rgn of REGIONS) {
+    for (const lt of Object.keys(gameRooms[rgn] || {})) {
+      const room = gameRooms[rgn][lt];
+      for (const [sid, snake] of room.snakes) {
+        if (!snake || !snake.alive) continue;
+        const p = room.players.get(sid);
+        if (p && p.socket && p.socket._walletAddress) total += snake.worth || 0;
+      }
+    }
+  }
+  return total;
+}
+async function checkSolvency() {
+  try {
+    const [escrow, custodial] = await Promise.all([Wallet.getEscrowBalance(), db.sumBalances()]);
+    const liveStakes = sumLiveSelfCustodyStakes();
+    const required = custodial + liveStakes;
+    const surplus = escrow - required;
+    const solvent = surplus >= -1e-6;
+    _lastSolvency = { escrowSol: escrow, custodialOwedSol: custodial, liveStakesSol: liveStakes, requiredSol: required, surplusSol: surplus, solvent, ts: Date.now() };
+    if (!solvent) {
+      console.warn(`[SOLVENCY] SHORTFALL ${(-surplus).toFixed(6)} SOL — escrow ${escrow.toFixed(6)} < required ${required.toFixed(6)} (custodial ${custodial.toFixed(6)} + live ${liveStakes.toFixed(6)})`);
+      const owner = process.env.OWNER_GOOGLE_ID;
+      const s = owner && lobbySocketsByGoogleId.get(owner);
+      if (s) s.emit('admin:solvency_alert', _lastSolvency);
+    }
+  } catch (e) {
+    console.error('[SOLVENCY] check failed:', e.message);
+  }
+}
+setInterval(checkSolvency, 60000).unref?.();
+checkSolvency();
 
 // How long to keep a disconnected player's snake gliding before giving up on a
 // reconnect. Covers a typical mobile network blip without leaving dead snakes around.
