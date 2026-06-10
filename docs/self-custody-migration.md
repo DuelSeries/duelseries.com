@@ -47,19 +47,20 @@ one tap to stake the entry into escrow. Cash out → escrow pays you back. Done.
 - **Keep:** all gameplay (GameRoom/AgarRoom), the entry-token verification, the collusion
   monitor (still tracks the same value flows), the escrow diagnostics endpoints.
 
-## Phased rollout (don't rip it all out at once)
-0. **Embedded wallets** live alongside the current system; create/link on login; show
-   on-chain balance.
-1. **Stake-on-join** for the dime lobby only: build + verify the stake tx → entry token.
-   Gameplay unchanged. Test end-to-end with one real wallet.
-2. **On-chain cashout payout** (escrow → wallet) with idempotency + retries.
-3. **Bot staking** from the owner wallet.
-4. **Settle existing ledger balances** (the reckoning — see below), then retire
-   deposit / withdraw / ledger.
-5. **Delete dead code** (sweep, withdraw, velocity cap, deposit credit).
+## Phased rollout — STATUS (updated 2026-06-10)
+- ✅ **Phase 0** — embedded Privy wallets alongside the current system; login; on-chain balance.
+- ✅ **Phase 1** — stake-on-join for ALL paid tiers (10¢ + $1; free skips the stake), launched
+  in the lobby iframe, real player name. Browser can't reach a public RPC, so RPC is routed
+  through our own `/api/rpc` proxy; Privy *signs only*, the backend submits + confirms over HTTP
+  (no browser WebSocket) and verifies the escrow credit before issuing the entry token.
+- ✅ **Phase 2** — cash-out escrow → wallet (90%; 10% house cut stays in escrow).
+- ✅ **Solvency monitor** — escrow vs (custodial ledger + live stakes); owner alert + `/api/admin/solvency`.
+- ⬜ **Phase 3** — bot staking from the owner wallet. **Deferred by owner** until there's an
+  expense-tracking design — do NOT build yet.
+- ⬜ **Phase 4** — retire custodial. **GRADUAL cutover chosen** (detailed plan at the bottom).
+- ⬜ **Phase 5** — delete dead custodial code (folded into Phase 4d below).
 
-Each phase ships and is tested before the next. **Nothing about the actual game
-(snakes, rendering, netcode) changes.**
+Each phase ships and is tested before the next. **Nothing about the actual game changes.**
 
 ## The one migration gotcha: existing balances
 The ledger says the owner is owed ~$4.54, but only ~$2.11 of real SOL backs it (the rest
@@ -79,3 +80,44 @@ so it belongs in Phase 4 — never by accident.
   they need a little SOL for fees + rent on top of the stake.
 - **Licensing / KYC** — unchanged; still required before real money/players. Self-custody
   helps the money-transmitter angle, not the gambling-license one.
+
+## Phase 4 — detailed execution plan (GRADUAL cutover, decided 2026-06-10)
+Owner chose a **gradual** cutover (don't break existing users; remove custodial only once
+self-custody is proven), to run as its own focused session. Order:
+
+### 4a — Self-custody as the DEFAULT paid-play path (keep custodial fallback)
+- The lobby's main **Play** button, for PAID lobbies, routes through the self-custody stake
+  when a self-custody wallet is connected; falls back to the custodial entry-fee if not.
+- Widget exposes `window.duelStake(lobbyType)` (stake → entry token → launch). `lobby.js`'s
+  `btn-play` calls it for paid lobbies when `window.duelWallet?.authenticated`; else the
+  existing custodial flow (transition safety). Free lobbies unchanged.
+- Risk: changes the main button → keep the custodial fallback until proven.
+
+### 4b — Settle existing custodial balances (the reckoning)
+- Owner tool: pay each custodial `accounts.balance` to the user's wallet (escrow → wallet via
+  `Wallet.withdraw`), then zero the ledger. Idempotent (no double-pay); confirm each on-chain.
+- Pay to the user's linked embedded wallet (by email/googleId). Keep `/wallet/withdraw` open
+  during transition.
+- **Un-backed gap:** if ledger > real escrow backing (the $4.54-vs-$2.11 phantom-bot-winnings
+  issue), owner must top up the escrow to honor balances OR write down the phantom portion.
+  Trivial for the test account; a real decision with real users.
+
+### 4c — Stop new custodial money in
+- Disable custodial deposits (`/wallet/deposit` → "moved to self-custody"; hide custodial
+  "Add Funds"). New funds only enter via the embedded wallet.
+
+### 4d — Delete custodial code (only after 4a–4c proven + balances settled)
+- Remove: `/wallet/deposit`, `/wallet/withdraw` + velocity cap, `sweepFromPrivyWallet` (+ the
+  CAIP-2/rent fixes), the custodial branch of `/wallet/entry-fee`, the custodial cashout branch
+  (recordDeposit/addEarnings). `accounts.balance` + `withdrawals` go vestigial.
+- KEEP: entry-token system (now only stake-backed), escrow, `/api/rpc` proxy, stake-quote /
+  submit-stake, collusion monitor, solvency monitor, escrow diagnostics, the widget + cashout.
+
+### Auth note
+- Gradual keeps **Google OAuth** for the account/name/leaderboard layer; the **Privy embedded
+  wallet** is the money layer. Migrating *login* to Privy is optional/separate — not required
+  to retire the custodial *money* system.
+
+### Throughout
+- The **solvency monitor** (`/api/admin/solvency`) watches the whole transition and alerts if
+  the escrow ever can't cover obligations.
