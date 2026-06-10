@@ -46,7 +46,9 @@ async function stakeAndPlay(lobbyType, wallet, signAndSendTransaction, onStatus)
   const from = new PublicKey(wallet.address);
   const tx = new Transaction();
   tx.feePayer = from;
-  tx.recentBlockhash = quote.blockhash;
+  // Dummy blockhash — Privy fills in a fresh one from its own RPC at send time. Avoids
+  // "error preparing transaction" from a stale/mismatched server-provided blockhash.
+  tx.recentBlockhash = '11111111111111111111111111111111';
   tx.add(SystemProgram.transfer({
     fromPubkey: from,
     toPubkey: new PublicKey(quote.escrowAddress),
