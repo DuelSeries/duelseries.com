@@ -628,7 +628,7 @@ socket.on('cashout:cancelled', ({ id }) => {
   cashoutRings.delete(id);
 });
 
-socket.on('cashout:result', ({ newBalance, earnedSol, score, length }) => {
+socket.on('cashout:result', ({ newBalance, earnedSol, score, length, toWallet }) => {
   const earnedCad = (earnedSol * solCadRate).toFixed(2);
   // Show death screen with cashout message
   document.getElementById('death-score').textContent = score || 0;
@@ -641,12 +641,24 @@ socket.on('cashout:result', ({ newBalance, earnedSol, score, length }) => {
     earnedEl.style.cssText = 'color:#14F195;font-size:1.05rem;font-weight:700;margin:8px 0 0;';
     document.querySelector('#death-screen .death-stats').insertAdjacentElement('afterend', earnedEl);
   }
-  earnedEl.textContent = earnedSol > 0 ? `+C$${earnedCad} deposited to your wallet` : '';
+  earnedEl.textContent = earnedSol > 0
+    ? (toWallet ? `Sending ${earnedSol.toFixed(4)} SOL to your wallet…` : `+C$${earnedCad} deposited to your wallet`)
+    : '';
   const h2 = document.querySelector('#death-screen h2');
   h2.textContent = 'SUCCESSFULLY CASHED OUT';
   h2.style.color = '#14F195';
   document.getElementById('death-screen').classList.add('active');
   if (newBalance !== null) sessionStorage.setItem('lastBalance', newBalance);
+});
+
+// Self-custody payout follow-ups (Phase 2): the escrow → wallet transfer confirms async.
+socket.on('cashout:paid', ({ sol, sig }) => {
+  const el = document.getElementById('cashout-earned-inline');
+  if (el) { el.textContent = `✓ ${Number(sol).toFixed(4)} SOL sent to your wallet`; el.style.color = '#14F195'; }
+});
+socket.on('cashout:error', ({ message }) => {
+  const el = document.getElementById('cashout-earned-inline');
+  if (el) { el.textContent = message || 'Payout failed — contact support'; el.style.color = '#ff7a7a'; }
 });
 
 window.addEventListener('keydown', (e) => {
