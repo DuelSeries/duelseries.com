@@ -693,6 +693,8 @@
 </div><!-- end #ui-root -->
 
   <!-- Self-custody wallet widget (Privy embedded). React island; the game stays vanilla. -->
+  <!-- Node-global shims for the bundled wallet SDK — must run before widget.js. -->
+  <script>window.global=window.global||window;window.process=window.process||{env:{NODE_ENV:'production'}};</script>
   <div id="wallet-root"></div>
   <script src="/wallet/widget.js"></script>
 </body>

@@ -11,6 +11,13 @@ export default defineConfig({
   // The widget has no static assets of its own; disabling publicDir stops Vite from
   // copying the served public/ folder into the build output.
   publicDir: false,
+  // Browser bundle: replace Node globals the bundled SDKs reference (React's
+  // process.env.NODE_ENV, and bare `global`). lib mode doesn't do this automatically.
+  // A runtime shim in index.html backs this up for any stray references.
+  define: {
+    'process.env.NODE_ENV': JSON.stringify('production'),
+    global: 'globalThis',
+  },
   build: {
     outDir: 'public/wallet',
     emptyOutDir: true,
