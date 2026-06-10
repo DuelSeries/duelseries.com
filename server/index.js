@@ -582,6 +582,19 @@ app.post('/admin/reset-wallet', async (req, res) => {
 // ─── Health check ─────────────────────────────────────────────────────────────
 app.get('/healthz', (req, res) => res.sendStatus(200));
 
+// On-chain SOL balance for any address (public; reads via the server's Solana RPC so the
+// browser never hits a rate-limited public RPC). Used by the self-custody wallet widget.
+app.get('/api/sol-balance', async (req, res) => {
+  const { address } = req.query;
+  if (!address) return res.status(400).json({ error: 'address required' });
+  try {
+    const sol = await Wallet.getAddressBalance(address);
+    res.json({ address, sol });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
 // Owner-only: review collusion flags (persisted) + the current live suspicious pairs.
 app.get('/api/admin/collusion', async (req, res) => {
   if (!req.isAuthenticated() || req.user.googleId !== process.env.OWNER_GOOGLE_ID) {
