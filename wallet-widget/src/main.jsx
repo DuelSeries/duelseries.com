@@ -37,7 +37,7 @@ function solanaAddress(user) {
 
 // Stake the entry fee from the embedded wallet into the escrow, verify it server-side,
 // then launch the game with the returned entry token. `onStatus` reports progress.
-async function stakeAndPlay(lobbyType, wallet, signTransaction, onStatus) {
+async function stakeAndPlay(lobbyType, wallet, signTransaction, onStatus, onLaunch) {
   onStatus('Getting quote…');
   const quote = await (await fetch('/api/stake-quote?lobbyType=' + encodeURIComponent(lobbyType))).json();
   if (quote.error) throw new Error(quote.error);
@@ -71,7 +71,7 @@ async function stakeAndPlay(lobbyType, wallet, signTransaction, onStatus) {
 
   onStatus('Joining…');
   // Hand the verified entry token to the game via sessionStorage (same channel the lobby uses).
-  sessionStorage.setItem('playerName', short(wallet.address));
+  sessionStorage.setItem('playerName', localStorage.getItem('duelseries_playername') || short(wallet.address));
   sessionStorage.setItem('googleId', wallet.address);       // self-custody identity = wallet
   sessionStorage.setItem('walletAddress', wallet.address);
   sessionStorage.setItem('lobbyType', lobbyType);
@@ -82,7 +82,17 @@ async function stakeAndPlay(lobbyType, wallet, signTransaction, onStatus) {
   sessionStorage.setItem('hatId', localStorage.getItem('duelseries_hat_id') || 'none');
   sessionStorage.setItem('boostId', localStorage.getItem('duelseries_boost_id') || 'default');
   sessionStorage.removeItem('spectateOnly');
-  window.location.href = '/game.html';
+  // Launch in the lobby's iframe (keeps the lobby loaded; the in-game Lobby button returns
+  // cleanly via the lobby's game:done handler). Fall back to a full-page nav if it's gone.
+  const frame = document.getElementById('game-frame');
+  if (frame) {
+    if (window._pauseLobbyAnims) window._pauseLobbyAnims();
+    onLaunch();
+    frame.src = '/game.html';
+    frame.style.display = 'block';
+  } else {
+    window.location.href = '/game.html';
+  }
 }
 
 function WalletPanel() {
@@ -94,6 +104,7 @@ function WalletPanel() {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
   const [err, setErr] = useState('');
+  const [playing, setPlaying] = useState(false);
 
   const wallet = solWallets && solWallets[0];
   const address = (wallet && wallet.address) || solanaAddress(user);
@@ -112,11 +123,18 @@ function WalletPanel() {
     window.dispatchEvent(new CustomEvent('duelwallet:change', { detail: window.duelWallet }));
   }, [ready, authenticated, address, balance]);
 
+  // Hide the widget while the game iframe covers the screen; re-show on return to lobby.
+  useEffect(() => {
+    const onMsg = (e) => { if (e && e.data === 'game:done') { setPlaying(false); setBusy(false); setStatus(''); } };
+    window.addEventListener('message', onMsg);
+    return () => window.removeEventListener('message', onMsg);
+  }, []);
+
   const onStake = async () => {
     if (!wallet) { setErr('Wallet still loading — try again in a moment.'); return; }
     setBusy(true); setErr(''); setStatus('');
     try {
-      await stakeAndPlay('dime', wallet, signTransaction, setStatus);
+      await stakeAndPlay('dime', wallet, signTransaction, setStatus, () => setPlaying(true));
     } catch (e) {
       const m = (e && e.message) || 'Stake failed';
       const friendly = /insufficient funds|rent/i.test(m)
@@ -126,6 +144,8 @@ function WalletPanel() {
       setBusy(false); setStatus('');
     }
   };
+
+  if (playing) return null; // hidden while the game iframe covers the screen
 
   const lowFunds = balance != null && balance < 0.0025;
 
