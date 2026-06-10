@@ -1,7 +1,8 @@
-// Navigate back to lobby — uses postMessage if running inside iframe (keeps fullscreen)
+// Navigate back to lobby — postMessage if inside the lobby iframe (keeps fullscreen);
+// otherwise (standalone / self-custody full-page launch) navigate there directly.
 function goToLobby() {
   if (window.self !== window.top) window.parent.postMessage('game:done', '*');
-  else goToLobby();
+  else window.location.href = '/';
 }
 
 // Game client
