@@ -85,6 +85,20 @@ so it belongs in Phase 4 — never by accident.
 Owner chose a **gradual** cutover (don't break existing users; remove custodial only once
 self-custody is proven), to run as its own focused session. Order:
 
+**STATUS (2026-06-12):**
+- ✅ **4a** — main Play button is self-custody-first for paid lobbies (custodial fallback). Verified.
+- ✅ **4b** — one-tap "Move old balance → wallet" (`/wallet/settle` + atomic `db.takeFullBalance`,
+  refund-on-fail). Mechanism verified (correctly refused to overdraw the escrow + refunded). Owner's
+  own balance left UNSETTLED by choice — phantom-inflated test data (ledger > escrow backing).
+- ✅ **4c** — custodial deposits stopped: `/wallet/deposit` → 410, "Add Funds" hidden (CSS). Cash-out kept.
+- 🟡 **4d** — PARTIAL: removed the dead inbound deposit body (now a 410 stub). OUTBOUND removal is
+  DEFERRED — `db.recordDeposit` is the ledger-credit STILL used by the custodial cash-out, and
+  `sweepFromPrivyWallet` has a second caller (admin debug endpoint ~L768). Deleting withdraw/ledger
+  now would break cash-out + strand un-settled balances.
+  **Gate to finish 4d:** (1) settle/write-off remaining custodial balances, (2) migrate or retire the
+  custodial cashout-to-ledger path; THEN delete `/wallet/withdraw` + velocity cap, the custodial
+  cashout branch, `recordDeposit`, `sweepFromPrivyWallet` + its admin caller, `findDepositsForAddress`.
+
 ### 4a — Self-custody as the DEFAULT paid-play path (keep custodial fallback)
 - The lobby's main **Play** button, for PAID lobbies, routes through the self-custody stake
   when a self-custody wallet is connected; falls back to the custodial entry-fee if not.
