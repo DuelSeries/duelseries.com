@@ -271,6 +271,30 @@ async function sumBalances() {
   return parseFloat(r.rows[0].total);
 }
 
+// Atomically zero a custodial balance and return what it was (row-locked, so only one
+// concurrent caller gets a non-zero amount → no double-settle). Used by /wallet/settle.
+async function takeFullBalance(googleId) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const sel = await client.query('SELECT balance FROM accounts WHERE google_id = $1 FOR UPDATE', [googleId]);
+    const bal = sel.rows[0] ? parseFloat(sel.rows[0].balance) : 0;
+    if (bal > 0) await client.query('UPDATE accounts SET balance = 0 WHERE google_id = $1', [googleId]);
+    await client.query('COMMIT');
+    return bal > 0 ? bal : 0;
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+// Record a withdrawal row WITHOUT touching the balance (the caller already deducted it).
+async function logWithdrawal(googleId, sig, amount, toAddress) {
+  await pool.query(`INSERT INTO withdrawals (google_id, tx_sig, amount, to_address) VALUES ($1, $2, $3, $4)`, [googleId, sig, amount, toAddress]);
+}
+
 async function addEarnings(googleId, sol, cadAmount = 0) {
   await Promise.all([
     pool.query(`UPDATE accounts SET total_earnings = total_earnings + $2 WHERE google_id = $1`, [googleId, sol]),
@@ -532,7 +556,7 @@ module.exports = {
   isTxUsed, recordDeposit, recordWithdrawal, setPrivyWallet, clearPrivyWallet, getAccountByEmail, getFinancialSummary,
   recordPendingWithdrawal, updateWithdrawalSig, refundWithdrawal, getWithdrawnSince,
   recordCollusionFlag, getRecentCollusionFlags,
-  isStakeSigUsed, markStakeSig, sumBalances,
+  isStakeSigUsed, markStakeSig, sumBalances, takeFullBalance, logWithdrawal,
   addEarnings, getTopEarners,
   addAgarEarnings, getAgarTopEarners,
   getGoogleIdByDeviceToken,

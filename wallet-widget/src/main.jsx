@@ -111,6 +111,7 @@ function WalletPanel() {
   const [playing, setPlaying] = useState(false);
   const [tier, setTier] = useState(() => { try { return localStorage.getItem('duelseries_lobbytype') || 'free'; } catch { return 'free'; } });
   const stakeRef = useRef(null);
+  const [custodialBal, setCustodialBal] = useState(0);
 
   const wallet = solWallets && solWallets[0];
   const address = (wallet && wallet.address) || solanaAddress(user);
@@ -150,6 +151,14 @@ function WalletPanel() {
     return () => window.removeEventListener('duel:play', onPlay);
   }, []);
 
+  // Phase 4b: old custodial balance (if any) so we can offer to move it into self-custody.
+  useEffect(() => {
+    if (!authenticated) { setCustodialBal(0); return; }
+    let live = true;
+    fetch('/wallet/custodial-balance').then((r) => r.json()).then((j) => { if (live) setCustodialBal(j.sol || 0); }).catch(() => {});
+    return () => { live = false; };
+  }, [authenticated]);
+
   const doStake = async (lobbyType) => {
     if (!wallet) { setErr('Wallet still loading — try again in a moment.'); return; }
     setBusy(true); setErr(''); setStatus('');
@@ -165,6 +174,22 @@ function WalletPanel() {
   };
   stakeRef.current = doStake; // keep the latest closure for the lobby's duel:play event
   const onStake = () => doStake(tier);
+
+  const onSettle = async () => {
+    if (!address) return;
+    setBusy(true); setErr(''); setStatus('Moving old balance…');
+    try {
+      const r = await (await fetch('/wallet/settle', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ walletAddress: address }),
+      })).json();
+      if (r.error) throw new Error(r.error);
+      setCustodialBal(0);
+    } catch (e) {
+      setErr(e.message || 'Move failed');
+    }
+    setBusy(false); setStatus('');
+  };
 
   if (playing) return null; // hidden while the game iframe covers the screen
 
@@ -186,6 +211,11 @@ function WalletPanel() {
           </button>
           {lowFunds && !busy && (
             <div style={st.hint}>Fund this wallet with a little SOL (send to the address above) to play.</div>
+          )}
+          {custodialBal > 0 && address && !busy && (
+            <button style={{ ...st.btn, marginTop: 8, background: '#9fb6d6' }} onClick={onSettle}>
+              Move old balance ({custodialBal.toFixed(4)} SOL) → wallet
+            </button>
           )}
           {err && <div style={st.err}>{err}</div>}
           <button style={st.link} onClick={logout} disabled={busy}>Log out</button>

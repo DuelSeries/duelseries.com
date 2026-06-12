@@ -535,6 +535,44 @@ app.post('/wallet/withdraw', walletWithdrawLimiter, async (req, res) => {
   }
 });
 
+// ── Phase 4b: settle a custodial balance into a self-custody wallet ────────────
+// Lets a user move their old custodial ledger balance into self-custody: pay the entire
+// balance out to `walletAddress` (escrow → wallet) and zero the ledger.
+app.get('/wallet/custodial-balance', async (req, res) => {
+  if (!req.isAuthenticated()) return res.json({ sol: 0 });
+  try {
+    const acc = await db.getAccountByGoogleId(req.user.googleId);
+    res.json({ sol: acc ? acc.balance : 0 });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/wallet/settle', walletWithdrawLimiter, express.json(), async (req, res) => {
+  if (!req.isAuthenticated()) return res.status(401).json({ error: 'Not logged in' });
+  const { walletAddress } = req.body || {};
+  if (!walletAddress) return res.status(400).json({ error: 'Wallet address required' });
+  // Atomically take the whole balance (row-locked → no double-settle), then pay it out.
+  let amount;
+  try {
+    amount = await db.takeFullBalance(req.user.googleId);
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
+  }
+  if (amount <= 0) return res.json({ ok: true, amount: 0 });
+  let sig;
+  try {
+    sig = await Wallet.withdraw(walletAddress, amount);
+  } catch (txErr) {
+    await db.refundWithdrawal(req.user.googleId, amount); // payout failed — give the balance back
+    console.error('[WALLET] Settle TX failed, balance refunded:', txErr.message);
+    return res.status(400).json({ error: txErr.message });
+  }
+  await db.logWithdrawal(req.user.googleId, sig, amount, walletAddress);
+  req.user.balance = 0;
+  res.json({ ok: true, amount, signature: sig });
+});
+
 // ─── Admin finance dashboard ──────────────────────────────────────────────────
 app.get('/admin/finance', async (req, res) => {
   if (!req.isAuthenticated() || req.user.googleId !== process.env.OWNER_GOOGLE_ID) {
