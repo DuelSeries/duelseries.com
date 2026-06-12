@@ -472,6 +472,10 @@ app.post('/wallet/provision', async (req, res) => {
 
 app.post('/wallet/deposit', walletDepositLimiter, async (req, res) => {
   if (!req.isAuthenticated()) return res.status(401).json({ error: 'Not logged in' });
+  // Phase 4c: custodial deposits are retired — funding now happens via the self-custody
+  // wallet (send SOL to the embedded wallet address). Phase 4d removes the dead flow below.
+  return res.status(410).json({ error: 'Custodial deposits have moved to the self-custody wallet.', disabled: true });
+  /* eslint-disable no-unreachable */
   const userWallet = req.user.walletAddress;
   if (!userWallet) return res.status(202).json({ pending: true });
   try {
@@ -496,6 +500,7 @@ app.post('/wallet/deposit', walletDepositLimiter, async (req, res) => {
     console.error('[WALLET] Deposit error:', e.message);
     res.status(400).json({ error: e.message });
   }
+  /* eslint-enable no-unreachable */
 });
 
 app.post('/wallet/withdraw', walletWithdrawLimiter, async (req, res) => {

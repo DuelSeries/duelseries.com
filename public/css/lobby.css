@@ -409,6 +409,8 @@ body {
   text-align: center;
 }
 .btn-add-funds:hover { background: rgba(20,241,149,0.1); }
+/* Phase 4c: custodial deposits retired — funding is via the self-custody wallet. */
+.btn-add-funds { display: none !important; }
 .btn-cash-out {
   flex: 1; padding: 11px;
   background: var(--purple);
