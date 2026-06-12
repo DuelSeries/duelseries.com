@@ -470,37 +470,12 @@ app.post('/wallet/provision', async (req, res) => {
   }
 });
 
+// Phase 4c/d: custodial deposits are retired — funding happens via the self-custody wallet.
+// (The old Privy-wallet scan + sweep + ledger-credit flow was removed here in 4d. Outbound
+// cash-out/withdraw + the ledger-credit helper it shares are kept until balances are settled.)
 app.post('/wallet/deposit', walletDepositLimiter, async (req, res) => {
   if (!req.isAuthenticated()) return res.status(401).json({ error: 'Not logged in' });
-  // Phase 4c: custodial deposits are retired — funding now happens via the self-custody
-  // wallet (send SOL to the embedded wallet address). Phase 4d removes the dead flow below.
   return res.status(410).json({ error: 'Custodial deposits have moved to the self-custody wallet.', disabled: true });
-  /* eslint-disable no-unreachable */
-  const userWallet = req.user.walletAddress;
-  if (!userWallet) return res.status(202).json({ pending: true });
-  try {
-    const deposits = await Wallet.findDepositsForAddress(userWallet);
-    if (!deposits.length) return res.status(202).json({ pending: true });
-    let totalAmount = 0;
-    let finalBalance = req.user.balance;
-    for (const d of deposits) {
-      finalBalance = await db.recordDeposit(req.user.googleId, d.sig, d.amount, d.fromAddress);
-      totalAmount += d.amount;
-      console.log(`[WALLET] Credited ${d.amount} SOL to ${req.user.name}`);
-    }
-    req.user.balance = finalBalance;
-    res.json({ ok: true, amount: totalAmount, balance: finalBalance });
-
-    // Sweep Privy wallet → escrow after responding so it never delays the user
-    if (req.user.privyWalletId && req.user.walletAddress) {
-      Wallet.sweepFromPrivyWallet(req.user.walletAddress, req.user.privyWalletId)
-        .catch(e => console.error('[PRIVY] Sweep failed:', e.message));
-    }
-  } catch (e) {
-    console.error('[WALLET] Deposit error:', e.message);
-    res.status(400).json({ error: e.message });
-  }
-  /* eslint-enable no-unreachable */
 });
 
 app.post('/wallet/withdraw', walletWithdrawLimiter, async (req, res) => {
