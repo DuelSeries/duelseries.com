@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { PrivyProvider, usePrivy, useLogin } from '@privy-io/react-auth';
 import { useWallets as useSolanaWallets, useSignTransaction } from '@privy-io/react-auth/solana';
@@ -110,6 +110,7 @@ function WalletPanel() {
   const [err, setErr] = useState('');
   const [playing, setPlaying] = useState(false);
   const [tier, setTier] = useState(() => { try { return localStorage.getItem('duelseries_lobbytype') || 'free'; } catch { return 'free'; } });
+  const stakeRef = useRef(null);
 
   const wallet = solWallets && solWallets[0];
   const address = (wallet && wallet.address) || solanaAddress(user);
@@ -142,20 +143,28 @@ function WalletPanel() {
     return () => window.removeEventListener('duel:lobbychange', onChange);
   }, []);
 
-  const onStake = async () => {
+  // Phase 4a: the lobby's main Play button routes paid self-custody play here.
+  useEffect(() => {
+    const onPlay = (e) => { if (stakeRef.current) stakeRef.current((e && e.detail) || 'dime'); };
+    window.addEventListener('duel:play', onPlay);
+    return () => window.removeEventListener('duel:play', onPlay);
+  }, []);
+
+  const doStake = async (lobbyType) => {
     if (!wallet) { setErr('Wallet still loading — try again in a moment.'); return; }
     setBusy(true); setErr(''); setStatus('');
     try {
-      await stakeAndPlay(tier, wallet, signTransaction, setStatus, () => setPlaying(true));
+      await stakeAndPlay(lobbyType, wallet, signTransaction, setStatus, () => setPlaying(true));
     } catch (e) {
       const m = (e && e.message) || 'Stake failed';
-      const friendly = /insufficient funds|rent/i.test(m)
+      setErr(/insufficient funds|rent/i.test(m)
         ? "Not enough SOL — add a bit more (a 10¢ entry needs ~0.002 SOL on hand; the extra covers Solana's per-wallet rent minimum)."
-        : m;
-      setErr(friendly);
+        : m);
       setBusy(false); setStatus('');
     }
   };
+  stakeRef.current = doStake; // keep the latest closure for the lobby's duel:play event
+  const onStake = () => doStake(tier);
 
   if (playing) return null; // hidden while the game iframe covers the screen
 

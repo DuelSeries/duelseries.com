@@ -1131,6 +1131,16 @@ document.getElementById('btn-play').addEventListener('click', async () => {
     account.name = d.account.name;
   }
 
+  // ── Phase 4a: self-custody — paid lobbies stake from the connected wallet ──────
+  // If a self-custody wallet is connected, route paid play through it (the widget stakes +
+  // launches). Free lobbies, and players without a connected wallet, fall through to the
+  // custodial flow below.
+  if (selectedLobbyType !== 'free' && window.duelWallet && window.duelWallet.authenticated && window.duelWallet.address) {
+    localStorage.setItem('duelseries_playername', name);
+    window.dispatchEvent(new CustomEvent('duel:play', { detail: selectedLobbyType }));
+    return;
+  }
+
   // Deduct entry fee for paid lobbies
   let entrySol = 0, entryToken = '';
   if (selectedLobbyType !== 'free') {
