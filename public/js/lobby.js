@@ -779,144 +779,77 @@ function walletStatus(msg, isError) {
   });
 }
 
-fetch('/auth/me').then(r => r.json()).then(({ account: acc }) => {
-  if (acc) setBalance(acc.balance || 0);
-});
+// ── Self-custody wallet card (Phase 4d) — the lobby card is driven by the embedded wallet ──
+function dw() { return window.duelWallet || {}; }
+function walletConnected() { const w = dw(); return !!(w.authenticated && w.address); }
 
-document.getElementById('btn-refresh-balance').addEventListener('click', async () => {
-  const btn = document.getElementById('btn-refresh-balance');
-  btn.textContent = '↻ Checking...';
-  btn.disabled = true;
-  try {
-    const res = await fetch('/wallet/deposit', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
-    });
-    if (res.status === 202) {
-      // No new deposit — just refresh balance from account
-      const meRes = await fetch('/auth/me');
-      const { account: acc } = await meRes.json();
-      if (acc) setBalance(acc.balance || 0);
-      walletStatus('Balance up to date');
-    } else {
-      const data = await res.json();
-      if (data.error) {
-        walletStatus(data.error, true);
-      } else {
-        setBalance(data.balance);
-        walletStatus(`Deposit received: ${data.amount.toFixed(4)} SOL ✓`);
-      }
-    }
-  } catch (e) {
-    walletStatus('Refresh failed', true);
-  }
-  btn.textContent = '↻ Refresh';
-  btn.disabled = false;
-});
+function renderWalletState() {
+  if (walletConnected()) { setBalance(dw().balance || 0); return; }
+  ['game-balance', 'game-balance-2'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = 'Connect wallet'; });
+  ['game-balance-usd', 'game-balance-usd-2'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = ''; });
+}
+window.addEventListener('duelwallet:change', renderWalletState);
+renderWalletState();
 
-// ─── Add Funds ────────────────────────────────────────────────────────────────
-let depositPollTimer = null;
-
-function stopDepositPoll() {
-  if (depositPollTimer) { clearInterval(depositPollTimer); depositPollTimer = null; }
+// Trigger the Privy login if no wallet is connected yet. Returns true if already connected.
+function ensureWallet() {
+  if (walletConnected()) return true;
+  if (window.duelWalletLogin) { window.duelWalletLogin(); walletStatus('Connect your wallet to continue…'); }
+  return false;
 }
 
-async function pollForDeposit() {
-  const statusEl = document.getElementById('deposit-status');
+async function refreshBalance(btnId) {
+  const btn = btnId && document.getElementById(btnId);
+  if (btn) { btn.textContent = '↻ Checking...'; btn.disabled = true; }
   try {
-    const res = await fetch('/wallet/deposit', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
-    });
-    if (res.status === 401) {
-      stopDepositPoll();
-      statusEl.style.color = '#ff6666';
-      statusEl.textContent = 'Session expired — please refresh the page.';
-      return;
-    }
-    if (res.status === 202) return; // no deposit yet, keep waiting
-    const data = await res.json();
-    if (data.error) { console.warn('[deposit poll]', data.error); return; }
-    // Deposit found!
-    stopDepositPoll();
-    setBalance(data.balance);
-    statusEl.style.color = '#14F195';
-    statusEl.textContent = `Received ${data.amount.toFixed(4)} SOL ✓`;
-    walletStatus(`Deposit received: ${data.amount.toFixed(4)} SOL ✓`);
-    setTimeout(() => document.getElementById('modal-receive').classList.remove('active'), 2500);
-  } catch (e) { /* network hiccup, keep waiting */ }
+    if (!ensureWallet()) { /* prompted to connect */ }
+    else { if (window.duelWalletRefresh) await window.duelWalletRefresh(); renderWalletState(); walletStatus('Balance up to date'); }
+  } catch (e) { walletStatus('Refresh failed', true); }
+  if (btn) { btn.textContent = '↻ Refresh'; btn.disabled = false; }
 }
+document.getElementById('btn-refresh-balance').addEventListener('click', () => refreshBalance('btn-refresh-balance'));
 
-document.getElementById('btn-add-funds').addEventListener('click', async () => {
-  let addr = account?.walletAddress;
-  if (!addr) {
-    walletStatus('Setting up your wallet...', false);
-    try {
-      const r = await fetch('/wallet/provision', { method: 'POST', credentials: 'include' });
-      const d = await r.json();
-      if (!d.address) { walletStatus(d.error || 'Wallet setup failed — try again.', true); return; }
-      if (account) account.walletAddress = d.address;
-      addr = d.address;
-    } catch (e) {
-      walletStatus('Wallet setup failed — try again.', true); return;
-    }
-  }
+// ─── Add Funds (receive SOL into the embedded wallet) ───────────────────────────
+function openReceiveModal() {
+  if (!ensureWallet()) return;
+  const addr = dw().address;
   document.getElementById('receive-address-short').textContent = addr.slice(0, 6) + '...' + addr.slice(-4);
   const statusEl = document.getElementById('deposit-status');
-  statusEl.style.color = '#555';
-  statusEl.textContent = 'Waiting for your deposit...';
-
+  if (statusEl) { statusEl.style.color = '#aaa'; statusEl.textContent = 'Send SOL to this address — your balance updates automatically.'; }
   const qrEl = document.getElementById('receive-qr');
-  qrEl.innerHTML = '';
-  // Solana Pay URL — Phantom scans this and opens with recipient pre-filled
-  const solanaPayUrl = `solana:${addr}?label=DuelSeries&message=Add%20Funds%20to%20DuelSeries`;
-  new QRCode(qrEl, {
-    text: solanaPayUrl,
-    width: 190,
-    height: 190,
-    colorDark: '#ffffff',
-    colorLight: '#141828',
-    correctLevel: QRCode.CorrectLevel.M,
-  });
+  if (qrEl) {
+    qrEl.innerHTML = '';
+    // Solana Pay URL — Phantom scans this and opens with recipient pre-filled
+    const solanaPayUrl = `solana:${addr}?label=DuelSeries&message=Add%20Funds%20to%20DuelSeries`;
+    new QRCode(qrEl, { text: solanaPayUrl, width: 190, height: 190, colorDark: '#ffffff', colorLight: '#141828', correctLevel: QRCode.CorrectLevel.M });
+  }
   document.getElementById('modal-receive').classList.add('active');
+}
+document.getElementById('btn-add-funds').addEventListener('click', openReceiveModal);
 
-  // Poll immediately, then every 12 seconds while modal is open
-  stopDepositPoll();
-  pollForDeposit();
-  depositPollTimer = setInterval(pollForDeposit, 12000);
-});
-
-document.getElementById('btn-check-now').addEventListener('click', () => {
-  document.getElementById('deposit-status').style.color = '#aaa';
-  document.getElementById('deposit-status').textContent = 'Checking...';
-  pollForDeposit();
-});
-
-document.getElementById('close-receive').addEventListener('click', () => {
-  stopDepositPoll();
-  document.getElementById('modal-receive').classList.remove('active');
-});
+document.getElementById('btn-check-now').addEventListener('click', () => refreshBalance(null));
+document.getElementById('close-receive').addEventListener('click', () =>
+  document.getElementById('modal-receive').classList.remove('active'));
 document.getElementById('modal-receive').addEventListener('click', (e) => {
-  if (e.target === e.currentTarget) { stopDepositPoll(); document.getElementById('modal-receive').classList.remove('active'); }
+  if (e.target === e.currentTarget) document.getElementById('modal-receive').classList.remove('active');
 });
 
 document.getElementById('btn-copy-address').addEventListener('click', () => {
-  if (!account?.walletAddress) return;
-  navigator.clipboard.writeText(account.walletAddress).then(() => {
+  const addr = dw().address; if (!addr) return;
+  navigator.clipboard.writeText(addr).then(() => {
     const btn = document.getElementById('btn-copy-address');
     btn.textContent = 'Copied!';
     setTimeout(() => { btn.textContent = 'Copy'; }, 2000);
   });
 });
 
-// ─── Withdraw ─────────────────────────────────────────────────────────────────
+// ─── Cash Out (send SOL from the embedded wallet to an external wallet) ──────────
+const SEND_BUFFER_SOL = 0.001; // leave a little behind for fee + rent so the send can't fail
 function openWithdrawModal() {
+  if (!ensureWallet()) return;
+  const bal = dw().balance || 0;
   const balEl = document.getElementById('withdraw-balance-display');
-  if (balEl && solPriceUsd && account) {
-    balEl.textContent = 'CA$' + (account.balance * solPriceUsd).toFixed(2);
-  }
+  if (balEl) balEl.textContent = solPriceUsd ? 'CA$' + (bal * solPriceUsd).toFixed(2) : bal.toFixed(4) + ' SOL';
   document.getElementById('modal-withdraw').classList.add('active');
 }
 document.getElementById('btn-withdraw').addEventListener('click', openWithdrawModal);
@@ -927,8 +860,8 @@ document.getElementById('modal-withdraw').addEventListener('click', (e) => {
 });
 
 document.getElementById('withdraw-max').addEventListener('click', () => {
-  const bal = account?.balance || 0;
-  const maxCad = solPriceUsd ? Math.floor(bal * solPriceUsd * 100) / 100 : 0;
+  const maxSol = Math.max(0, (dw().balance || 0) - SEND_BUFFER_SOL);
+  const maxCad = solPriceUsd ? Math.floor(maxSol * solPriceUsd * 100) / 100 : 0;
   document.getElementById('withdraw-amount').value = maxCad > 0 ? maxCad : '';
   document.getElementById('withdraw-amount').dispatchEvent(new Event('input'));
 });
@@ -936,36 +869,28 @@ document.getElementById('withdraw-max').addEventListener('click', () => {
 document.getElementById('withdraw-amount').addEventListener('input', () => {
   const cad = parseFloat(document.getElementById('withdraw-amount').value);
   const preview = document.getElementById('withdraw-cad-preview');
-  if (cad > 0 && solPriceUsd) {
-    preview.textContent = '≈ ' + (cad / solPriceUsd).toFixed(4) + ' SOL';
-  } else {
-    preview.textContent = '';
-  }
+  if (cad > 0 && solPriceUsd) preview.textContent = '≈ ' + (cad / solPriceUsd).toFixed(4) + ' SOL';
+  else preview.textContent = '';
 });
 
 document.getElementById('confirm-withdraw').addEventListener('click', async () => {
+  if (!ensureWallet()) return;
   const walletAddress = document.getElementById('withdraw-wallet').value.trim();
   const cadAmount = parseFloat(document.getElementById('withdraw-amount').value);
-  if (!walletAddress) { alert('Enter your Phantom or Coinbase wallet address.'); return; }
+  if (!walletAddress) { alert('Enter the wallet address to send to.'); return; }
   if (!cadAmount || cadAmount <= 0) return;
   if (!solPriceUsd) { walletStatus('Price data not loaded — try again.', true); return; }
-  const amount = Math.floor((cadAmount / solPriceUsd) * 10000) / 10000;
+  const amountSol = Math.floor((cadAmount / solPriceUsd) * 10000) / 10000;
 
   document.getElementById('modal-withdraw').classList.remove('active');
-  walletStatus('Processing withdrawal...');
-
+  walletStatus('Confirm in your wallet…');
   try {
-    const res = await fetch('/wallet/withdraw', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ amount, walletAddress }),
-    });
-    const data = await res.json();
-    if (data.error) throw new Error(data.error);
-    setBalance(data.balance);
-    walletStatus(`Withdrew CA$${cadAmount.toFixed(2)} ✓`);
+    await window.duelWalletSend(amountSol, walletAddress);
+    walletStatus(`Sent CA$${cadAmount.toFixed(2)} (${amountSol.toFixed(4)} SOL) ✓`);
+    if (window.duelWalletRefresh) await window.duelWalletRefresh();
+    renderWalletState();
   } catch (e) {
-    walletStatus('Withdrawal failed: ' + (e.message || e), true);
+    walletStatus('Cash out failed: ' + (e.message || e), true);
   }
   document.getElementById('withdraw-amount').value = '';
   document.getElementById('withdraw-wallet').value = '';
@@ -973,30 +898,8 @@ document.getElementById('confirm-withdraw').addEventListener('click', async () =
 });
 
 // ─── Lobby 2 wallet buttons (share same modals/functions as lobby 1) ──────────
-document.getElementById('btn-refresh-balance-2').addEventListener('click', async () => {
-  const btn = document.getElementById('btn-refresh-balance-2');
-  btn.textContent = '↻ Checking...';
-  btn.disabled = true;
-  try {
-    const res = await fetch('/wallet/deposit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
-    if (res.status === 202) {
-      const meRes = await fetch('/auth/me');
-      const { account: acc } = await meRes.json();
-      if (acc) setBalance(acc.balance || 0);
-      walletStatus('Balance up to date');
-    } else {
-      const data = await res.json();
-      if (data.error) walletStatus(data.error, true);
-      else { setBalance(data.balance); walletStatus(`Deposit received: ${data.amount.toFixed(4)} SOL ✓`); }
-    }
-  } catch (e) { walletStatus('Refresh failed', true); }
-  btn.textContent = '↻ Refresh';
-  btn.disabled = false;
-});
-
-document.getElementById('btn-add-funds-2').addEventListener('click', () =>
-  document.getElementById('btn-add-funds').click()
-);
+document.getElementById('btn-refresh-balance-2').addEventListener('click', () => refreshBalance('btn-refresh-balance-2'));
+document.getElementById('btn-add-funds-2').addEventListener('click', openReceiveModal);
 document.getElementById('btn-withdraw-2').addEventListener('click', openWithdrawModal);
 
 // ─── Lobby 2 lobby type selection ─────────────────────────────────────────────

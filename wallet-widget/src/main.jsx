@@ -135,10 +135,6 @@ function WalletPanel() {
   const [playing, setPlaying] = useState(false);
   const [tier, setTier] = useState(() => { try { return localStorage.getItem('duelseries_lobbytype') || 'free'; } catch { return 'free'; } });
   const stakeRef = useRef(null);
-  const [mode, setMode] = useState('main'); // main | receive | send
-  const [sendTo, setSendTo] = useState('');
-  const [sendAmount, setSendAmount] = useState('');
-  const [copied, setCopied] = useState(false);
 
   const wallet = solWallets && solWallets[0];
   const address = (wallet && wallet.address) || solanaAddress(user);
@@ -203,6 +199,22 @@ function WalletPanel() {
     return () => window.removeEventListener('message', onMsg);
   }, [wallet, signTransaction]);
 
+  // Expose wallet actions for the lobby's wallet card (Phase 4d: the card is the wallet UI).
+  useEffect(() => {
+    window.duelWalletLogin = () => login();
+    window.duelWalletLogout = () => logout();
+    window.duelWalletRefresh = async () => {
+      if (!address) return null;
+      const b = await fetchSolBalance(address);
+      setBalance(b);
+      return b;
+    };
+    window.duelWalletSend = (amountSol, toAddress) => {
+      if (!wallet) return Promise.reject(new Error('Wallet not ready — try again in a moment.'));
+      return sendSol(toAddress, amountSol, wallet, signTransaction);
+    };
+  }, [wallet, signTransaction, address, login, logout]);
+
   const doStake = async (game, lobbyType) => {
     if (!wallet) { setErr('Wallet still loading — try again in a moment.'); return; }
     setBusy(true); setErr(''); setStatus('');
@@ -218,62 +230,10 @@ function WalletPanel() {
   };
   stakeRef.current = doStake; // keep the latest closure for the lobby's duel:play event
 
-  const onSend = async () => {
-    const amt = parseFloat(sendAmount);
-    if (!sendTo.trim() || !(amt > 0)) { setErr('Enter a destination address and amount.'); return; }
-    setBusy(true); setErr(''); setStatus('Confirm in your wallet…');
-    try {
-      await sendSol(sendTo.trim(), amt, wallet, signTransaction);
-      setSendTo(''); setSendAmount(''); setMode('main');
-    } catch (e) {
-      setErr((e && e.message) || 'Send failed');
-    }
-    setBusy(false); setStatus('');
-  };
-
-  if (playing) return null; // hidden while the game iframe covers the screen
-
-  const solBal = balance == null ? '…' : balance.toFixed(4);
-
-  return (
-    <div style={st.box}>
-      <div style={st.title}>💳 Wallet <span style={st.beta}>self-custody</span></div>
-      {!ready ? (
-        <div style={st.muted}>Loading…</div>
-      ) : !authenticated ? (
-        <button style={st.btn} onClick={login}>Connect Wallet</button>
-      ) : mode === 'receive' ? (
-        <>
-          <div style={st.muted}>Send SOL to this address to add funds:</div>
-          <div style={st.addr}>{address || 'creating…'}</div>
-          <button style={st.btn} disabled={!address} onClick={() => { try { navigator.clipboard.writeText(address); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch (_) {} }}>
-            {copied ? 'Copied ✓' : 'Copy address'}
-          </button>
-          <button style={st.link} onClick={() => setMode('main')}>← Back</button>
-        </>
-      ) : mode === 'send' ? (
-        <>
-          <div style={st.muted}>Cash out — send SOL to any wallet:</div>
-          <input style={st.input} placeholder="Destination address" value={sendTo} onChange={(e) => setSendTo(e.target.value)} />
-          <input style={st.input} placeholder="Amount (SOL)" inputMode="decimal" value={sendAmount} onChange={(e) => setSendAmount(e.target.value)} />
-          <button style={{ ...st.btn, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={onSend}>{busy ? (status || 'Sending…') : 'Send'}</button>
-          {err && <div style={st.err}>{err}</div>}
-          <button style={st.link} onClick={() => { setMode('main'); setErr(''); }} disabled={busy}>← Back</button>
-        </>
-      ) : (
-        <>
-          <div style={st.bal}>{solBal} <span style={st.balUnit}>SOL</span></div>
-          <div style={st.row}><span style={st.muted}>Address</span><span style={st.mono}>{address ? short(address) : 'creating…'}</span></div>
-          <div style={st.actions}>
-            <button style={st.btnSm} onClick={() => { setCopied(false); setMode('receive'); }}>Add Funds</button>
-            <button style={st.btnSm} onClick={() => { setErr(''); setMode('send'); }} disabled={!address}>Cash Out</button>
-          </div>
-          {err && <div style={st.err}>{err}</div>}
-          <button style={st.link} onClick={logout}>Log out</button>
-        </>
-      )}
-    </div>
-  );
+  // Headless: the lobby's own wallet card is the UI now. This island just holds the Privy
+  // wallet and exposes state (window.duelWallet + 'duelwallet:change') + the functions below
+  // for the lobby card to drive. Nothing is rendered.
+  return null;
 }
 
 const st = {
