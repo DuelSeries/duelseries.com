@@ -409,8 +409,9 @@ body {
   text-align: center;
 }
 .btn-add-funds:hover { background: rgba(20,241,149,0.1); }
-/* Phase 4c: custodial deposits retired — funding is via the self-custody wallet. */
-.btn-add-funds { display: none !important; }
+/* Phase 4d: the custodial money system is retired — funding + cash-out are the self-custody
+   wallet (the bottom-right widget). Hide the whole old custodial wallet card (both lobbies). */
+.wallet-card { display: none !important; }
 .btn-cash-out {
   flex: 1; padding: 11px;
   background: var(--purple);

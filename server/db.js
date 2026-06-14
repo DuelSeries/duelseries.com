@@ -168,20 +168,9 @@ async function isTxUsed(txSig) {
   return res.rows.length > 0;
 }
 
-async function recordDeposit(googleId, txSig, amount, fromAddress) {
-  await pool.query(
-    `INSERT INTO deposits (google_id, tx_sig, amount, from_address)
-     VALUES ($1, $2, $3, $4) ON CONFLICT (tx_sig) DO NOTHING`,
-    [googleId, txSig, amount, fromAddress]
-  );
-  const res = await pool.query(
-    `UPDATE accounts SET balance = balance + $2 WHERE google_id = $1 RETURNING balance`,
-    [googleId, amount]
-  );
-  return parseFloat(res.rows[0].balance);
-}
-
 // ─── Withdrawals ──────────────────────────────────────────────────────────────
+// recordWithdrawal stays — used by the paid-bot entry debit (Phase 3, deferred). The
+// custodial deposit/withdraw/settle helpers were removed in Phase 4d.
 
 async function recordWithdrawal(googleId, txSig, amount, toAddress) {
   await pool.query(
@@ -193,42 +182,6 @@ async function recordWithdrawal(googleId, txSig, amount, toAddress) {
     [googleId, amount]
   );
   return parseFloat(res.rows[0].balance);
-}
-
-async function recordPendingWithdrawal(googleId, amount, toAddress) {
-  const wdRes = await pool.query(
-    `INSERT INTO withdrawals (google_id, tx_sig, amount, to_address) VALUES ($1, NULL, $2, $3) RETURNING id`,
-    [googleId, amount, toAddress]
-  );
-  const res = await pool.query(
-    `UPDATE accounts SET balance = balance - $2 WHERE google_id = $1 RETURNING balance`,
-    [googleId, amount]
-  );
-  return { balance: parseFloat(res.rows[0].balance), id: wdRes.rows[0].id };
-}
-
-async function updateWithdrawalSig(id, sig) {
-  await pool.query(`UPDATE withdrawals SET tx_sig = $2 WHERE id = $1`, [id, sig]);
-}
-
-async function refundWithdrawal(googleId, amount) {
-  const res = await pool.query(
-    `UPDATE accounts SET balance = balance + $2 WHERE google_id = $1 RETURNING balance`,
-    [googleId, amount]
-  );
-  return parseFloat(res.rows[0].balance);
-}
-
-// Total REAL SOL withdrawn by an account since `sinceMs` (epoch ms). Entry fees are
-// stored in the same table with to_address='entry_fee' — those are excluded so the
-// withdrawal velocity cap only counts money actually leaving to a wallet.
-async function getWithdrawnSince(googleId, sinceMs) {
-  const res = await pool.query(
-    `SELECT COALESCE(SUM(amount), 0) AS total FROM withdrawals
-       WHERE google_id = $1 AND created_at >= $2 AND to_address <> 'entry_fee'`,
-    [googleId, new Date(sinceMs)]
-  );
-  return parseFloat(res.rows[0].total);
 }
 
 // Persist a collusion flag raised by CollusionMonitor for later owner review.
@@ -262,37 +215,6 @@ async function isStakeSigUsed(sig) {
 }
 async function markStakeSig(sig) {
   await pool.query(`INSERT INTO used_stake_sigs (sig) VALUES ($1) ON CONFLICT DO NOTHING`, [sig]);
-}
-
-// Sum of all custodial ledger balances (SOL). The solvency monitor checks the escrow can
-// cover this (plus live self-custody stakes).
-async function sumBalances() {
-  const r = await pool.query(`SELECT COALESCE(SUM(balance), 0) AS total FROM accounts`);
-  return parseFloat(r.rows[0].total);
-}
-
-// Atomically zero a custodial balance and return what it was (row-locked, so only one
-// concurrent caller gets a non-zero amount → no double-settle). Used by /wallet/settle.
-async function takeFullBalance(googleId) {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    const sel = await client.query('SELECT balance FROM accounts WHERE google_id = $1 FOR UPDATE', [googleId]);
-    const bal = sel.rows[0] ? parseFloat(sel.rows[0].balance) : 0;
-    if (bal > 0) await client.query('UPDATE accounts SET balance = 0 WHERE google_id = $1', [googleId]);
-    await client.query('COMMIT');
-    return bal > 0 ? bal : 0;
-  } catch (e) {
-    await client.query('ROLLBACK');
-    throw e;
-  } finally {
-    client.release();
-  }
-}
-
-// Record a withdrawal row WITHOUT touching the balance (the caller already deducted it).
-async function logWithdrawal(googleId, sig, amount, toAddress) {
-  await pool.query(`INSERT INTO withdrawals (google_id, tx_sig, amount, to_address) VALUES ($1, $2, $3, $4)`, [googleId, sig, amount, toAddress]);
 }
 
 async function addEarnings(googleId, sol, cadAmount = 0) {
@@ -553,10 +475,9 @@ module.exports = {
   init, pool,
   getOrCreateAccount, getAccountByGoogleId, getAccountByWallet,
   saveAccount, recordGameResult, recordAgarGameResult,
-  isTxUsed, recordDeposit, recordWithdrawal, setPrivyWallet, clearPrivyWallet, getAccountByEmail, getFinancialSummary,
-  recordPendingWithdrawal, updateWithdrawalSig, refundWithdrawal, getWithdrawnSince,
+  isTxUsed, recordWithdrawal, setPrivyWallet, clearPrivyWallet, getAccountByEmail, getFinancialSummary,
   recordCollusionFlag, getRecentCollusionFlags,
-  isStakeSigUsed, markStakeSig, sumBalances, takeFullBalance, logWithdrawal,
+  isStakeSigUsed, markStakeSig,
   addEarnings, getTopEarners,
   addAgarEarnings, getAgarTopEarners,
   getGoogleIdByDeviceToken,

@@ -391,11 +391,11 @@ const entryFeeLimiter = rateLimit({ windowMs: 60 * 1000, max: 10, standardHeader
 // ─── Entry fee ────────────────────────────────────────────────────────────────
 const LOBBY_FEES_CAD = { free: 0, dime: 0.10, dollar: 1.00 };
 
-// Server-authorised paid-entry tokens. /wallet/entry-fee records one when a player
-// ACTUALLY pays; PLAY / RESPAWN / cell:join verify + consume it and take the snake's
-// cash worth from THIS server value — never from the client's claimed entrySol (a
-// modified client could otherwise inflate it and mint money on cash-out). Keyed by
-// the authenticated Google id so it survives the reconnect/respawn flow; one-time use.
+// Server-authorised paid-entry tokens. /api/submit-stake mints one after verifying the
+// player's on-chain stake landed in the escrow; PLAY / RESPAWN / cell:join verify + consume
+// it and take the snake's cash worth from THIS server value — never from the client's
+// claimed entrySol (a modified client could otherwise inflate it and mint money on
+// cash-out). One-time use; carries the staker's wallet for the on-chain cash-out.
 const crypto = require('crypto');
 const entryTokens = new Map(); // opaque token -> { lobbyType, worthSol, exp }
 const ENTRY_TOKEN_MAX_AGE_MS = 5 * 60 * 1000;
@@ -403,7 +403,7 @@ const ENTRY_TOKEN_MAX_AGE_MS = 5 * 60 * 1000;
 setInterval(() => { const now = Date.now(); for (const [k, v] of entryTokens) if (now > v.exp) entryTokens.delete(k); }, ENTRY_TOKEN_MAX_AGE_MS);
 
 // Verify + consume an opaque paid-entry token the client echoes back from the
-// /wallet/entry-fee response. The token is server-generated, unguessable, one-time, and
+// /api/submit-stake response. The token is server-generated, unguessable, one-time, and
 // carries the SERVER-recorded worth, so the client can neither forge it nor inflate the
 // worth — that's what closes the entrySol escrow-drain hole. Needs no socket auth (the
 // socket session is empty) and works for join + respawn identically.
@@ -416,28 +416,9 @@ function consumePaidEntry(entryToken, shortType) {
   return { ok: true, worthSol: t.worthSol, googleId: t.googleId, walletAddress: t.walletAddress };
 }
 
-app.post('/wallet/entry-fee', entryFeeLimiter, express.json(), async (req, res) => {
-  if (!req.isAuthenticated()) return res.status(401).json({ error: 'Not logged in' });
-  const { lobbyType } = req.body;
-  const feeCad = LOBBY_FEES_CAD[lobbyType] || 0;
-  if (feeCad === 0) return res.json({ ok: true, feeSol: 0, balance: req.user.balance });
-
-  const feeSol = prices.cadToSol(feeCad);
-  const acc = await db.getAccountByGoogleId(req.user.googleId);
-  if (!acc || acc.balance < feeSol) {
-    return res.status(400).json({ error: 'Insufficient balance' });
-  }
-  const newBalance = await db.recordWithdrawal(req.user.googleId, null, feeSol, 'entry_fee');
-  req.user.balance = newBalance;
-  // Deduct entry fee from net earnings so leaderboard shows true profit/loss
-  await db.addEarnings(req.user.googleId, -feeSol, -feeCad);
-  // Hand the client a one-time, server-authorised entry token. It echoes this back in
-  // PLAY / RESPAWN / cell:join; the server takes the worth from the token, never from the
-  // client's claimed entrySol. Unguessable + one-time, so it can't be forged or replayed.
-  const entryToken = crypto.randomUUID();
-  entryTokens.set(entryToken, { lobbyType, worthSol: feeSol, googleId: req.user.googleId, exp: Date.now() + ENTRY_TOKEN_MAX_AGE_MS });
-  res.json({ ok: true, feeSol, balance: newBalance, entryToken });
-});
+// Phase 4d: the custodial entry-fee is gone — paid play stakes from the self-custody wallet
+// (/api/stake-quote + /api/submit-stake issue the entry token). entryTokens/consumePaidEntry
+// stay; only what backs the token changed (a real on-chain stake, not a ledger debit).
 
 // ─── Wallet API ───────────────────────────────────────────────────────────────
 
@@ -470,88 +451,10 @@ app.post('/wallet/provision', async (req, res) => {
   }
 });
 
-// Phase 4c/d: custodial deposits are retired — funding happens via the self-custody wallet.
-// (The old Privy-wallet scan + sweep + ledger-credit flow was removed here in 4d. Outbound
-// cash-out/withdraw + the ledger-credit helper it shares are kept until balances are settled.)
-app.post('/wallet/deposit', walletDepositLimiter, async (req, res) => {
-  if (!req.isAuthenticated()) return res.status(401).json({ error: 'Not logged in' });
-  return res.status(410).json({ error: 'Custodial deposits have moved to the self-custody wallet.', disabled: true });
-});
-
-app.post('/wallet/withdraw', walletWithdrawLimiter, async (req, res) => {
-  if (!req.isAuthenticated()) return res.status(401).json({ error: 'Not logged in' });
-  const { amount, walletAddress } = req.body;
-  const MIN_WITHDRAWAL_SOL = 0.01;
-  if (!amount || amount < MIN_WITHDRAWAL_SOL) return res.status(400).json({ error: `Minimum withdrawal is ${MIN_WITHDRAWAL_SOL} SOL` });
-  if (!walletAddress) return res.status(400).json({ error: 'Wallet address required' });
-  const acc = await db.getAccountByGoogleId(req.user.googleId);
-  if (!acc) return res.status(404).json({ error: 'Account not found' });
-  if (acc.balance < amount) return res.status(400).json({ error: 'Insufficient balance' });
-  // Velocity cap: limit total real SOL withdrawn per rolling 24h per account — a brake
-  // on how fast funds can leave if any other hole is ever found. Tune via env.
-  const DAILY_WITHDRAWAL_CAP_SOL = Number(process.env.DAILY_WITHDRAWAL_CAP_SOL) || 10;
-  const withdrawn24h = await db.getWithdrawnSince(req.user.googleId, Date.now() - 24 * 60 * 60 * 1000);
-  if (withdrawn24h + amount > DAILY_WITHDRAWAL_CAP_SOL) {
-    return res.status(429).json({ error: `Daily withdrawal limit is ${DAILY_WITHDRAWAL_CAP_SOL} SOL. You've withdrawn ${withdrawn24h.toFixed(3)} SOL in the last 24h.` });
-  }
-  try {
-    // Deduct balance first to prevent double-spend from concurrent requests
-    const { balance: pendingBalance, id: withdrawalId } = await db.recordPendingWithdrawal(req.user.googleId, amount, walletAddress);
-    let sig;
-    try {
-      sig = await Wallet.withdraw(walletAddress, amount);
-    } catch (txErr) {
-      // TX failed — refund the deducted balance
-      await db.refundWithdrawal(req.user.googleId, amount);
-      console.error('[WALLET] TX failed, balance refunded:', txErr.message);
-      return res.status(400).json({ error: txErr.message });
-    }
-    await db.updateWithdrawalSig(withdrawalId, sig);
-    req.user.balance = pendingBalance;
-    res.json({ ok: true, signature: sig, balance: pendingBalance });
-  } catch (e) {
-    console.error('[WALLET] Withdraw error:', e.message);
-    res.status(400).json({ error: e.message });
-  }
-});
-
-// ── Phase 4b: settle a custodial balance into a self-custody wallet ────────────
-// Lets a user move their old custodial ledger balance into self-custody: pay the entire
-// balance out to `walletAddress` (escrow → wallet) and zero the ledger.
-app.get('/wallet/custodial-balance', async (req, res) => {
-  if (!req.isAuthenticated()) return res.json({ sol: 0 });
-  try {
-    const acc = await db.getAccountByGoogleId(req.user.googleId);
-    res.json({ sol: acc ? acc.balance : 0 });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-app.post('/wallet/settle', walletWithdrawLimiter, express.json(), async (req, res) => {
-  if (!req.isAuthenticated()) return res.status(401).json({ error: 'Not logged in' });
-  const { walletAddress } = req.body || {};
-  if (!walletAddress) return res.status(400).json({ error: 'Wallet address required' });
-  // Atomically take the whole balance (row-locked → no double-settle), then pay it out.
-  let amount;
-  try {
-    amount = await db.takeFullBalance(req.user.googleId);
-  } catch (e) {
-    return res.status(500).json({ error: e.message });
-  }
-  if (amount <= 0) return res.json({ ok: true, amount: 0 });
-  let sig;
-  try {
-    sig = await Wallet.withdraw(walletAddress, amount);
-  } catch (txErr) {
-    await db.refundWithdrawal(req.user.googleId, amount); // payout failed — give the balance back
-    console.error('[WALLET] Settle TX failed, balance refunded:', txErr.message);
-    return res.status(400).json({ error: txErr.message });
-  }
-  await db.logWithdrawal(req.user.googleId, sig, amount, walletAddress);
-  req.user.balance = 0;
-  res.json({ ok: true, amount, signature: sig });
-});
+// Phase 4d: the custodial money system is gone. Deposits, withdrawals, the migration
+// "settle" helper, and custodial-balance lookups are all removed — funding is the
+// self-custody wallet (send SOL to it) and cash-out pays out on-chain to that wallet.
+// `accounts.balance` + the `withdrawals` table are now vestigial.
 
 // ─── Admin finance dashboard ──────────────────────────────────────────────────
 app.get('/admin/finance', async (req, res) => {
@@ -724,29 +627,6 @@ app.get('/api/admin/solvency', async (req, res) => {
   res.json(_lastSolvency || { error: 'no data yet' });
 });
 
-// Owner-only: manually run the Privy->escrow sweep for your own deposit wallet. Both
-// recovers stuck deposits (moves them into the escrow so withdrawals can pay out) and
-// surfaces the exact Privy error if the auto-sweep on deposit is failing.
-app.get('/api/admin/sweep', async (req, res) => {
-  if (!req.isAuthenticated() || req.user.googleId !== process.env.OWNER_GOOGLE_ID) {
-    return res.status(403).json({ error: 'Forbidden' });
-  }
-  const { walletAddress, privyWalletId } = req.user;
-  if (!walletAddress) return res.status(400).json({ error: 'No deposit wallet on this account' });
-  if (!privyWalletId) {
-    return res.status(400).json({
-      error: 'Account has a wallet address but no privyWalletId — the sweep in /wallet/deposit can never fire. This is the root cause.',
-      walletAddress,
-    });
-  }
-  try {
-    const sig = await Wallet.sweepFromPrivyWallet(walletAddress, privyWalletId);
-    res.json({ ok: true, sweptFrom: walletAddress, sig: sig || null });
-  } catch (e) {
-    res.status(500).json({ error: e.message, walletAddress });
-  }
-});
-
 // ─── Region / ping ────────────────────────────────────────────────────────────
 app.get('/api/ping', (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -888,14 +768,13 @@ function sumLiveSelfCustodyStakes() {
 }
 async function checkSolvency() {
   try {
-    const [escrow, custodial] = await Promise.all([Wallet.getEscrowBalance(), db.sumBalances()]);
+    const escrow = await Wallet.getEscrowBalance();
     const liveStakes = sumLiveSelfCustodyStakes();
-    const required = custodial + liveStakes;
-    const surplus = escrow - required;
+    const surplus = escrow - liveStakes;
     const solvent = surplus >= -1e-6;
-    _lastSolvency = { escrowSol: escrow, custodialOwedSol: custodial, liveStakesSol: liveStakes, requiredSol: required, surplusSol: surplus, solvent, ts: Date.now() };
+    _lastSolvency = { escrowSol: escrow, liveStakesSol: liveStakes, requiredSol: liveStakes, surplusSol: surplus, solvent, ts: Date.now() };
     if (!solvent) {
-      console.warn(`[SOLVENCY] SHORTFALL ${(-surplus).toFixed(6)} SOL — escrow ${escrow.toFixed(6)} < required ${required.toFixed(6)} (custodial ${custodial.toFixed(6)} + live ${liveStakes.toFixed(6)})`);
+      console.warn(`[SOLVENCY] SHORTFALL ${(-surplus).toFixed(6)} SOL — escrow ${escrow.toFixed(6)} < live stakes ${liveStakes.toFixed(6)}`);
       const owner = process.env.OWNER_GOOGLE_ID;
       const s = owner && lobbySocketsByGoogleId.get(owner);
       if (s) s.emit('admin:solvency_alert', _lastSolvency);
@@ -1059,27 +938,9 @@ io.on('connection', (socket) => {
       return;
     }
 
-    let newBalance = null;
-    if (worth > 0 && socket._googleId) {
-      try {
-        // Credit player their 90%
-        newBalance = await db.recordDeposit(socket._googleId, 'cashout_' + Date.now() + '_' + socket.id, playerShare, 'cashout');
-        const playerShareCad = playerShare * prices.getSolCadRate();
-        await db.addEarnings(socket._googleId, playerShare, playerShareCad);
-        console.log(`[CASHOUT] ${snake.name} cashed out ${playerShare.toFixed(6)} SOL (owner cut: ${ownerShare.toFixed(6)} SOL)`);
-      } catch (e) {
-        console.error(`[CASHOUT] CRITICAL: DB credit failed for ${snake.name} — lost ${playerShare.toFixed(6)} SOL. Error: ${e.message}`);
-        socket.emit('cashout:error', { message: 'Balance credit failed. Please contact support immediately.' });
-        return;
-      }
-      // Credit 10% to owner's in-game balance (free, no transaction fee)
-      const ownerGoogleId = process.env.OWNER_GOOGLE_ID;
-      if (ownerGoogleId && ownerShare > 0) {
-        db.recordDeposit(ownerGoogleId, 'owner_cut_' + Date.now() + '_' + socket.id, ownerShare, 'house_cut')
-          .catch(e => console.error('[CASHOUT] Owner cut credit failed:', e.message));
-      }
-    }
-    socket.emit('cashout:result', { newBalance, earnedSol: playerShare, score: Math.floor(snake.score), length: snake.length });
+    // No wallet here means a free/worthless player (paid play requires a connected wallet),
+    // so there's nothing to pay out.
+    socket.emit('cashout:result', { newBalance: null, earnedSol: 0, score: Math.floor(snake.score), length: snake.length });
   });
 
   socket.on(C.EVENTS.INPUT, ({ angle, boost, speedMult }) => {
@@ -1288,31 +1149,9 @@ io.on('connection', (socket) => {
       return;
     }
 
-    let newBalance = null;
-    if (worthCad > 0 && socket._googleId) {
-      try {
-        const playerShareSol = prices.cadToSol(playerShare);
-        const ownerShareSol  = prices.cadToSol(ownerShare);
-        newBalance = await db.recordDeposit(socket._googleId, 'agar_cashout_' + Date.now() + '_' + socket.id, playerShareSol, 'cashout');
-        // Net profit = cashout received minus entry fee paid
-        const entryFee      = player.entryFee || 0;
-        const netCad        = playerShare - entryFee;
-        const netSol        = prices.cadToSol(netCad);
-        await db.addAgarEarnings(socket._googleId, netSol, netCad);
-        await db.addEarnings(socket._googleId, netSol, netCad);
-        console.log(`[AGAR CASHOUT] ${player.name} cashed out $${playerShare.toFixed(2)} CAD (net $${netCad.toFixed(3)})`);
-        const ownerGoogleId = process.env.OWNER_GOOGLE_ID;
-        if (ownerGoogleId && ownerShareSol > 0) {
-          db.recordDeposit(ownerGoogleId, 'agar_owner_cut_' + Date.now() + '_' + socket.id, ownerShareSol, 'house_cut')
-            .catch(e => console.error('[AGAR CASHOUT] Owner cut failed:', e.message));
-        }
-      } catch (e) {
-        console.error(`[AGAR CASHOUT] DB credit failed for ${player.name}:`, e.message);
-        socket.emit('cell:cashout:error', { message: 'Balance credit failed. Contact support.' });
-        return;
-      }
-    }
-    socket.emit('cell:cashout:result', { newBalance, earnedCad: playerShare, score: player.score });
+    // No wallet here means a free/worthless player (paid play requires a connected wallet),
+    // so there's nothing to pay out.
+    socket.emit('cell:cashout:result', { newBalance: null, earnedCad: 0, score: player.score });
   });
 
   socket.on('disconnect', async () => {

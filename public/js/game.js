@@ -750,10 +750,10 @@ async function doRespawn() {
   try {
     let respawnToken = null;
     if (lobbyType !== 'free') {
-      const feeRes = await fetch('/wallet/entry-fee', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lobbyType }) });
-      const feeData = await feeRes.json();
-      if (feeData.error) { alert(feeData.error); return; }
-      respawnToken = feeData.entryToken || null;
+      // Paid lobbies are self-custody — re-staking happens in the lobby via the wallet, so
+      // send the player back to re-stake with the Play button (the prior stake was lost on death).
+      goToLobby();
+      return;
     }
     isDead = false;
     cashedOut = false;

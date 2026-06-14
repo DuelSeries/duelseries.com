@@ -1045,20 +1045,15 @@ document.getElementById('btn-play-2').addEventListener('click', async () => {
     return;
   }
 
-  // Deduct entry fee for paid lobbies
+  // Paid lobbies require a connected self-custody wallet (the stake happens above). Reaching
+  // here on a paid lobby means none is connected.
   let entryToken = '';
   if (selectedLobbyType2 !== 'free') {
-    const feeRes = await fetch('/wallet/entry-fee', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lobbyType: selectedLobbyType2 }) });
-    const feeData = await feeRes.json();
-    if (feeData.error) {
-      const errEl = document.getElementById('play-error-2');
-      if (errEl) { errEl.textContent = feeData.error; setTimeout(() => { errEl.textContent = ''; }, 3000); }
-      else alert(feeData.error);
-      return;
-    }
-    entryToken = feeData.entryToken || '';
-    if (account) account.balance = feeData.balance;
-    setBalance(feeData.balance);
+    const errEl = document.getElementById('play-error-2');
+    const msg = 'Connect your wallet (bottom-right) to play paid lobbies.';
+    if (errEl) { errEl.textContent = msg; setTimeout(() => { errEl.textContent = ''; }, 4000); }
+    else alert(msg);
+    return;
   }
 
   localStorage.setItem('duelseries_playername', name);
@@ -1148,20 +1143,14 @@ document.getElementById('btn-play').addEventListener('click', async () => {
     return;
   }
 
-  // Deduct entry fee for paid lobbies
+  // Paid lobbies require a connected self-custody wallet (the stake happens above). Reaching
+  // here on a paid lobby means none is connected.
   let entrySol = 0, entryToken = '';
   if (selectedLobbyType !== 'free') {
-    const feeRes = await fetch('/wallet/entry-fee', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lobbyType: selectedLobbyType }) });
-    const feeData = await feeRes.json();
-    if (feeData.error) {
-      const errEl = document.getElementById('play-error');
-      if (errEl) { errEl.textContent = feeData.error; setTimeout(() => { errEl.textContent = ''; }, 3000); }
-      return;
-    }
-    entrySol = feeData.feeSol;
-    entryToken = feeData.entryToken || '';
-    if (account) account.balance = feeData.balance;
-    setBalance(feeData.balance);
+    const errEl = document.getElementById('play-error');
+    const msg = 'Connect your wallet (bottom-right) to play paid lobbies.';
+    if (errEl) { errEl.textContent = msg; setTimeout(() => { errEl.textContent = ''; }, 4000); }
+    return;
   }
 
   localStorage.setItem('duelseries_playername', name);
