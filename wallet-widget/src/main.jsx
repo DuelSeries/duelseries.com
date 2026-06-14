@@ -41,38 +41,39 @@ const TIER_LABEL = { free: 'Play Free', dime: 'Stake & Play 10¢', dollar: 'Stak
 
 // Stake the entry fee (paid lobbies) from the embedded wallet into the escrow, verify it
 // server-side, then launch the game. Free lobbies skip the stake entirely.
+// Stake the entry fee for a paid lobby and return the verified entry token (no launch). Used
+// by both stakeAndPlay and the in-game "Play Again" re-stake. Free lobbies stake nothing.
+async function stakeOnly(lobbyType, wallet, signTransaction, onStatus) {
+  if (lobbyType === 'free') return { entryToken: '', worthSol: 0 };
+  onStatus('Getting quote…');
+  const quote = await (await fetch('/api/stake-quote?lobbyType=' + encodeURIComponent(lobbyType))).json();
+  if (quote.error) throw new Error(quote.error);
+  if (!quote.escrowAddress) throw new Error('No escrow configured for this lobby');
+
+  onStatus('Building stake…');
+  const from = new PublicKey(wallet.address);
+  const tx = new Transaction();
+  tx.feePayer = from;
+  tx.recentBlockhash = quote.blockhash; // real blockhash — our backend submits the signed tx
+  tx.add(SystemProgram.transfer({ fromPubkey: from, toPubkey: new PublicKey(quote.escrowAddress), lamports: quote.lamports }));
+  const serialized = tx.serialize({ requireAllSignatures: false, verifySignatures: false });
+
+  onStatus('Confirm in your wallet…');
+  const { signedTransaction } = await signTransaction({ transaction: serialized, wallet }); // sign only — no browser WSS
+  const signedTx = Buffer.from(signedTransaction).toString('base64');
+
+  onStatus('Submitting stake…');
+  const verify = await (await fetch('/api/submit-stake', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ lobbyType, signedTx, walletAddress: wallet.address }),
+  })).json();
+  if (!verify.ok) throw new Error(verify.error || 'Stake failed');
+  return { entryToken: verify.entryToken, worthSol: verify.worthSol };
+}
+
 async function stakeAndPlay(game, lobbyType, wallet, signTransaction, onStatus, onLaunch) {
-  let entryToken = '';
-  let worthSol = 0;
-
-  if (lobbyType !== 'free') {
-    onStatus('Getting quote…');
-    const quote = await (await fetch('/api/stake-quote?lobbyType=' + encodeURIComponent(lobbyType))).json();
-    if (quote.error) throw new Error(quote.error);
-    if (!quote.escrowAddress) throw new Error('No escrow configured for this lobby');
-
-    onStatus('Building stake…');
-    const from = new PublicKey(wallet.address);
-    const tx = new Transaction();
-    tx.feePayer = from;
-    tx.recentBlockhash = quote.blockhash; // real blockhash — our backend submits the signed tx
-    tx.add(SystemProgram.transfer({ fromPubkey: from, toPubkey: new PublicKey(quote.escrowAddress), lamports: quote.lamports }));
-    const serialized = tx.serialize({ requireAllSignatures: false, verifySignatures: false });
-
-    onStatus('Confirm in your wallet…');
-    const { signedTransaction } = await signTransaction({ transaction: serialized, wallet }); // sign only — no browser WSS
-    const signedTx = Buffer.from(signedTransaction).toString('base64');
-
-    onStatus('Submitting stake…');
-    const verify = await (await fetch('/api/submit-stake', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ lobbyType, signedTx, walletAddress: wallet.address }),
-    })).json();
-    if (!verify.ok) throw new Error(verify.error || 'Stake failed');
-    entryToken = verify.entryToken;
-    worthSol = verify.worthSol;
-  }
+  const { entryToken, worthSol } = await stakeOnly(lobbyType, wallet, signTransaction, onStatus);
 
   onStatus('Joining…');
   sessionStorage.setItem('playerName', localStorage.getItem('duelseries_playername') || short(wallet.address));
@@ -157,6 +158,26 @@ function WalletPanel() {
     window.addEventListener('duel:play', onPlay);
     return () => window.removeEventListener('duel:play', onPlay);
   }, []);
+
+  // In-game "Play Again": the game iframe asks us to re-stake; we run the Privy approval and
+  // post the fresh entry token back so it can respawn without a trip to the lobby.
+  useEffect(() => {
+    const onMsg = async (e) => {
+      const d = e && e.data;
+      if (!d || d.type !== 'duel:restake') return;
+      const frame = document.getElementById(d.game === 'agar' ? 'agar-frame' : 'game-frame');
+      const post = (msg) => { try { frame && frame.contentWindow && frame.contentWindow.postMessage(msg, '*'); } catch (_) {} };
+      if (!wallet) { post({ type: 'duel:restake:error', message: 'Wallet not ready — return to lobby.' }); return; }
+      try {
+        const { entryToken } = await stakeOnly(d.lobbyType, wallet, signTransaction, () => {});
+        post({ type: 'duel:restake:done', entryToken });
+      } catch (err) {
+        post({ type: 'duel:restake:error', message: (err && err.message) || 'Stake failed' });
+      }
+    };
+    window.addEventListener('message', onMsg);
+    return () => window.removeEventListener('message', onMsg);
+  }, [wallet, signTransaction]);
 
   const doStake = async (game, lobbyType) => {
     if (!wallet) { setErr('Wallet still loading — try again in a moment.'); return; }

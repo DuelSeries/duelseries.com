@@ -742,6 +742,25 @@ document.getElementById('spectate-stop').addEventListener('click', () => {
   goToLobby();
 });
 
+// Ask the parent page's wallet widget to re-stake (Privy approval) for a paid respawn, and
+// resolve with the fresh entry token. Resolves null if cancelled/failed or not in an iframe.
+function requestRestake(game, lobbyType) {
+  return new Promise((resolve) => {
+    if (window.self === window.top) { resolve(null); return; }
+    let settled = false;
+    const finish = (val) => { if (settled) return; settled = true; window.removeEventListener('message', onMsg); resolve(val); };
+    const onMsg = (e) => {
+      const d = e.data;
+      if (!d || (d.type !== 'duel:restake:done' && d.type !== 'duel:restake:error')) return;
+      if (d.type === 'duel:restake:error') { if (d.message) alert(d.message); finish(null); }
+      else finish(d.entryToken || '');
+    };
+    window.addEventListener('message', onMsg);
+    window.parent.postMessage({ type: 'duel:restake', game, lobbyType }, '*');
+    setTimeout(() => finish(null), 120000); // safety: don't hang forever
+  });
+}
+
 // Shared respawn logic used by both the death screen and spectate bar
 let respawning = false;
 async function doRespawn() {
@@ -750,10 +769,10 @@ async function doRespawn() {
   try {
     let respawnToken = null;
     if (lobbyType !== 'free') {
-      // Paid lobbies are self-custody — re-staking happens in the lobby via the wallet, so
-      // send the player back to re-stake with the Play button (the prior stake was lost on death).
-      goToLobby();
-      return;
+      // Paid lobbies are self-custody — re-stake from the wallet (Privy approval) right here,
+      // then respawn in place. The prior stake was lost when the snake died.
+      respawnToken = await requestRestake('snake', lobbyType);
+      if (!respawnToken) return; // cancelled or failed — stay on the death screen
     }
     isDead = false;
     cashedOut = false;
