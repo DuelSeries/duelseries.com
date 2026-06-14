@@ -1038,6 +1038,13 @@ document.getElementById('btn-play-2').addEventListener('click', async () => {
     account.name = d.account.name;
   }
 
+  // Phase 4a (agar): self-custody — paid lobbies stake from the connected wallet.
+  if (selectedLobbyType2 !== 'free' && window.duelWallet && window.duelWallet.authenticated && window.duelWallet.address) {
+    localStorage.setItem('duelseries_playername', name);
+    window.dispatchEvent(new CustomEvent('duel:play', { detail: { game: 'agar', lobbyType: selectedLobbyType2 } }));
+    return;
+  }
+
   // Deduct entry fee for paid lobbies
   let entryToken = '';
   if (selectedLobbyType2 !== 'free') {
@@ -1137,7 +1144,7 @@ document.getElementById('btn-play').addEventListener('click', async () => {
   // custodial flow below.
   if (selectedLobbyType !== 'free' && window.duelWallet && window.duelWallet.authenticated && window.duelWallet.address) {
     localStorage.setItem('duelseries_playername', name);
-    window.dispatchEvent(new CustomEvent('duel:play', { detail: selectedLobbyType }));
+    window.dispatchEvent(new CustomEvent('duel:play', { detail: { game: 'snake', lobbyType: selectedLobbyType } }));
     return;
   }
 

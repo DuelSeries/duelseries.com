@@ -389,16 +389,24 @@ function connectSocket() {
 
   socket.on('cell:worldSize', ({ size }) => { worldSize = size; });
 
-  socket.on('cell:cashout:result', ({ newBalance, earnedCad, score }) => {
+  socket.on('cell:cashout:result', ({ newBalance, earnedCad, earnedSol, score, toWallet }) => {
     document.getElementById('death-score-val').textContent = score || 0;
     const earnedRow = document.getElementById('death-earned-row');
     const earnedVal = document.getElementById('death-earned-val');
-    if (earnedCad > 0) {
+    if (toWallet && earnedSol > 0) {
+      earnedVal.textContent = earnedSol.toFixed(4) + ' SOL → wallet…';
+      earnedRow.style.display = '';
+    } else if (earnedCad > 0) {
       earnedVal.textContent = '$' + earnedCad.toFixed(2) + ' CAD';
       earnedRow.style.display = '';
     } else {
       earnedRow.style.display = 'none';
     }
+  });
+
+  socket.on('cell:cashout:paid', ({ sol }) => {
+    const earnedVal = document.getElementById('death-earned-val');
+    if (earnedVal) earnedVal.textContent = '✓ ' + sol.toFixed(4) + ' SOL sent to your wallet';
   });
 
   socket.on('cell:cashout:error', ({ message }) => {

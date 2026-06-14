@@ -1195,6 +1195,7 @@ io.on('connection', (socket) => {
       return;
     }
     if (entry.googleId) { socket._googleId = entry.googleId; lobbySocketsByGoogleId.set(entry.googleId, socket); }
+    if (entry.walletAddress) socket._walletAddress = entry.walletAddress; // self-custody cash-out target
     const entryWorth = LOBBY_FEES_CAD[shortType] || 0; // agar worth is the CAD fee
 
     room.addPlayer(socket, name, color, entryWorth, socket._googleId || null);
@@ -1267,6 +1268,25 @@ io.on('connection', (socket) => {
     const HOUSE_CUT    = 0.10;
     const ownerShare   = worthCad * HOUSE_CUT;
     const playerShare  = worthCad - ownerShare;
+
+    // Self-custody: escrow sends the player's 90% (converted CAD→SOL) back to their own
+    // wallet on-chain; the 10% house cut stays in the escrow. No custodial ledger involved.
+    if (socket._walletAddress) {
+      const playerShareSol = prices.cadToSol(playerShare);
+      socket.emit('cell:cashout:result', { newBalance: null, earnedCad: playerShare, earnedSol: playerShareSol, score: player.score, toWallet: true });
+      if (worthCad > 0) {
+        Wallet.withdraw(socket._walletAddress, playerShareSol)
+          .then((sig) => {
+            console.log(`[AGAR CASHOUT] self-custody ${playerShareSol.toFixed(6)} SOL → ${socket._walletAddress.slice(0, 8)}… sig ${String(sig).slice(0, 12)}`);
+            socket.emit('cell:cashout:paid', { sol: playerShareSol, sig });
+          })
+          .catch((e) => {
+            console.error(`[AGAR CASHOUT] CRITICAL: self-custody payout failed for ${socket._walletAddress} — owed ${playerShareSol.toFixed(6)} SOL: ${e.message}`);
+            socket.emit('cell:cashout:error', { message: 'Payout to your wallet failed — contact support.' });
+          });
+      }
+      return;
+    }
 
     let newBalance = null;
     if (worthCad > 0 && socket._googleId) {

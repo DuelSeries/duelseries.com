@@ -41,7 +41,7 @@ const TIER_LABEL = { free: 'Play Free', dime: 'Stake & Play 10¢', dollar: 'Stak
 
 // Stake the entry fee (paid lobbies) from the embedded wallet into the escrow, verify it
 // server-side, then launch the game. Free lobbies skip the stake entirely.
-async function stakeAndPlay(lobbyType, wallet, signTransaction, onStatus, onLaunch) {
+async function stakeAndPlay(game, lobbyType, wallet, signTransaction, onStatus, onLaunch) {
   let entryToken = '';
   let worthSol = 0;
 
@@ -85,17 +85,20 @@ async function stakeAndPlay(lobbyType, wallet, signTransaction, onStatus, onLaun
   sessionStorage.setItem('snakeColor', localStorage.getItem('duelseries_skin_color') || '#14F195');
   sessionStorage.setItem('hatId', localStorage.getItem('duelseries_hat_id') || 'none');
   sessionStorage.setItem('boostId', localStorage.getItem('duelseries_boost_id') || 'default');
+  if (game === 'agar') sessionStorage.setItem('gameMode', 'cell'); else sessionStorage.removeItem('gameMode');
   sessionStorage.removeItem('spectateOnly');
-  // Launch in the lobby's iframe (keeps the lobby loaded; the in-game Lobby button returns
-  // cleanly via the lobby's game:done handler). Fall back to a full-page nav if it's gone.
-  const frame = document.getElementById('game-frame');
+  // Launch in the lobby's iframe (snake → game-frame/game.html, agar → agar-frame/agar.html);
+  // the in-game Lobby button returns cleanly via the lobby's game:done handler.
+  const isAgar = game === 'agar';
+  const frame = document.getElementById(isAgar ? 'agar-frame' : 'game-frame');
+  const html = isAgar ? '/agar.html' : '/game.html';
   if (frame) {
     if (window._pauseLobbyAnims) window._pauseLobbyAnims();
     onLaunch();
-    frame.src = '/game.html';
+    frame.src = html;
     frame.style.display = 'block';
   } else {
-    window.location.href = '/game.html';
+    window.location.href = html;
   }
 }
 
@@ -146,7 +149,12 @@ function WalletPanel() {
 
   // Phase 4a: the lobby's main Play button routes paid self-custody play here.
   useEffect(() => {
-    const onPlay = (e) => { if (stakeRef.current) stakeRef.current((e && e.detail) || 'dime'); };
+    const onPlay = (e) => {
+      const d = (e && e.detail) || {};
+      const game = (d && typeof d === 'object') ? (d.game || 'snake') : 'snake';
+      const lt = (d && typeof d === 'object') ? (d.lobbyType || 'dime') : d;
+      if (stakeRef.current) stakeRef.current(game, lt);
+    };
     window.addEventListener('duel:play', onPlay);
     return () => window.removeEventListener('duel:play', onPlay);
   }, []);
@@ -159,11 +167,11 @@ function WalletPanel() {
     return () => { live = false; };
   }, [authenticated]);
 
-  const doStake = async (lobbyType) => {
+  const doStake = async (game, lobbyType) => {
     if (!wallet) { setErr('Wallet still loading — try again in a moment.'); return; }
     setBusy(true); setErr(''); setStatus('');
     try {
-      await stakeAndPlay(lobbyType, wallet, signTransaction, setStatus, () => setPlaying(true));
+      await stakeAndPlay(game, lobbyType, wallet, signTransaction, setStatus, () => setPlaying(true));
     } catch (e) {
       const m = (e && e.message) || 'Stake failed';
       setErr(/insufficient funds|rent/i.test(m)
@@ -173,7 +181,7 @@ function WalletPanel() {
     }
   };
   stakeRef.current = doStake; // keep the latest closure for the lobby's duel:play event
-  const onStake = () => doStake(tier);
+  const onStake = () => doStake('snake', tier);
 
   const onSettle = async () => {
     if (!address) return;
