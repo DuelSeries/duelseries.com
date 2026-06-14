@@ -527,6 +527,29 @@ app.post('/api/rpc', async (req, res) => {
   }
 });
 
+// Latest blockhash for the wallet to build a transfer (self-custody Cash Out / generic send).
+app.get('/api/blockhash', async (req, res) => {
+  try {
+    const { blockhash } = await Wallet.getLatestBlockhash();
+    res.json({ blockhash });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Broadcast a user-signed transaction (e.g. a self-custody Cash Out: wallet → external wallet).
+// The tx is already signed by the player's own wallet; we just relay it + confirm over HTTP.
+app.post('/api/broadcast', express.json({ limit: '256kb' }), async (req, res) => {
+  const { signedTx } = req.body || {};
+  if (!signedTx) return res.status(400).json({ error: 'Missing signed transaction' });
+  try {
+    const sig = await Wallet.submitStake(Buffer.from(signedTx, 'base64'));
+    res.json({ ok: true, sig });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
 // ── Self-custody staking (Phase 1) ───────────────────────────────────────────
 // Quote how much SOL to stake for a paid lobby and where (the escrow), plus a fresh
 // blockhash for the client to build the transfer. No custodial balance is touched.

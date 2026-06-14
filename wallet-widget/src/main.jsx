@@ -103,6 +103,26 @@ async function stakeAndPlay(game, lobbyType, wallet, signTransaction, onStatus, 
   }
 }
 
+// Self-custody Cash Out: send SOL from the embedded wallet to any external address. Privy
+// signs; our backend relays + confirms (the browser can't reach a public RPC directly).
+async function sendSol(toAddress, amountSol, wallet, signTransaction) {
+  let toPub;
+  try { toPub = new PublicKey(toAddress); } catch (_) { throw new Error("That doesn't look like a valid Solana address."); }
+  const { blockhash } = await (await fetch('/api/blockhash')).json();
+  if (!blockhash) throw new Error('Network busy — try again.');
+  const from = new PublicKey(wallet.address);
+  const tx = new Transaction();
+  tx.feePayer = from;
+  tx.recentBlockhash = blockhash;
+  tx.add(SystemProgram.transfer({ fromPubkey: from, toPubkey: toPub, lamports: Math.round(amountSol * 1e9) }));
+  const serialized = tx.serialize({ requireAllSignatures: false, verifySignatures: false });
+  const { signedTransaction } = await signTransaction({ transaction: serialized, wallet });
+  const signedTx = Buffer.from(signedTransaction).toString('base64');
+  const r = await (await fetch('/api/broadcast', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ signedTx }) })).json();
+  if (!r.ok) throw new Error(r.error || 'Send failed');
+  return r.sig;
+}
+
 function WalletPanel() {
   const { ready, authenticated, user, logout } = usePrivy();
   const { login } = useLogin();
@@ -115,6 +135,10 @@ function WalletPanel() {
   const [playing, setPlaying] = useState(false);
   const [tier, setTier] = useState(() => { try { return localStorage.getItem('duelseries_lobbytype') || 'free'; } catch { return 'free'; } });
   const stakeRef = useRef(null);
+  const [mode, setMode] = useState('main'); // main | receive | send
+  const [sendTo, setSendTo] = useState('');
+  const [sendAmount, setSendAmount] = useState('');
+  const [copied, setCopied] = useState(false);
 
   const wallet = solWallets && solWallets[0];
   const address = (wallet && wallet.address) || solanaAddress(user);
@@ -193,31 +217,59 @@ function WalletPanel() {
     }
   };
   stakeRef.current = doStake; // keep the latest closure for the lobby's duel:play event
-  const onStake = () => doStake('snake', tier);
+
+  const onSend = async () => {
+    const amt = parseFloat(sendAmount);
+    if (!sendTo.trim() || !(amt > 0)) { setErr('Enter a destination address and amount.'); return; }
+    setBusy(true); setErr(''); setStatus('Confirm in your wallet…');
+    try {
+      await sendSol(sendTo.trim(), amt, wallet, signTransaction);
+      setSendTo(''); setSendAmount(''); setMode('main');
+    } catch (e) {
+      setErr((e && e.message) || 'Send failed');
+    }
+    setBusy(false); setStatus('');
+  };
 
   if (playing) return null; // hidden while the game iframe covers the screen
 
-  const lowFunds = tier !== 'free' && balance != null && balance < 0.0025;
+  const solBal = balance == null ? '…' : balance.toFixed(4);
 
   return (
     <div style={st.box}>
-      <div style={st.title}>Self-custody wallet <span style={st.beta}>beta</span></div>
+      <div style={st.title}>💳 Wallet <span style={st.beta}>self-custody</span></div>
       {!ready ? (
         <div style={st.muted}>Loading…</div>
       ) : !authenticated ? (
         <button style={st.btn} onClick={login}>Connect Wallet</button>
+      ) : mode === 'receive' ? (
+        <>
+          <div style={st.muted}>Send SOL to this address to add funds:</div>
+          <div style={st.addr}>{address || 'creating…'}</div>
+          <button style={st.btn} disabled={!address} onClick={() => { try { navigator.clipboard.writeText(address); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch (_) {} }}>
+            {copied ? 'Copied ✓' : 'Copy address'}
+          </button>
+          <button style={st.link} onClick={() => setMode('main')}>← Back</button>
+        </>
+      ) : mode === 'send' ? (
+        <>
+          <div style={st.muted}>Cash out — send SOL to any wallet:</div>
+          <input style={st.input} placeholder="Destination address" value={sendTo} onChange={(e) => setSendTo(e.target.value)} />
+          <input style={st.input} placeholder="Amount (SOL)" inputMode="decimal" value={sendAmount} onChange={(e) => setSendAmount(e.target.value)} />
+          <button style={{ ...st.btn, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={onSend}>{busy ? (status || 'Sending…') : 'Send'}</button>
+          {err && <div style={st.err}>{err}</div>}
+          <button style={st.link} onClick={() => { setMode('main'); setErr(''); }} disabled={busy}>← Back</button>
+        </>
       ) : (
         <>
-          <div style={st.row}><span style={st.muted}>Wallet</span><span style={st.mono}>{address ? short(address) : 'creating…'}</span></div>
-          <div style={st.row}><span style={st.muted}>Balance</span><span style={st.mono}>{balance == null ? '…' : balance.toFixed(4) + ' SOL'}</span></div>
-          <button style={{ ...st.btn, marginTop: 8, opacity: busy ? 0.6 : 1 }} onClick={onStake} disabled={busy || !address}>
-            {busy ? (status || 'Working…') : `${TIER_LABEL[tier] || 'Play'} (beta)`}
-          </button>
-          {lowFunds && !busy && (
-            <div style={st.hint}>Fund this wallet with a little SOL (send to the address above) to play.</div>
-          )}
+          <div style={st.bal}>{solBal} <span style={st.balUnit}>SOL</span></div>
+          <div style={st.row}><span style={st.muted}>Address</span><span style={st.mono}>{address ? short(address) : 'creating…'}</span></div>
+          <div style={st.actions}>
+            <button style={st.btnSm} onClick={() => { setCopied(false); setMode('receive'); }}>Add Funds</button>
+            <button style={st.btnSm} onClick={() => { setErr(''); setMode('send'); }} disabled={!address}>Cash Out</button>
+          </div>
           {err && <div style={st.err}>{err}</div>}
-          <button style={st.link} onClick={logout} disabled={busy}>Log out</button>
+          <button style={st.link} onClick={logout}>Log out</button>
         </>
       )}
     </div>
@@ -235,6 +287,12 @@ const st = {
   link: { marginTop: 8, background: 'none', border: 0, color: '#7e93b4', cursor: 'pointer', fontSize: 12, padding: 0, textDecoration: 'underline' },
   hint: { marginTop: 8, fontSize: 11, color: '#e0b65a' },
   err: { marginTop: 8, fontSize: 11, color: '#ff7a7a', wordBreak: 'break-word' },
+  bal: { fontSize: 26, fontWeight: 800, color: '#eaf2ff', margin: '2px 0 6px', letterSpacing: '0.5px' },
+  balUnit: { fontSize: 13, fontWeight: 700, color: '#7e93b4' },
+  actions: { display: 'flex', gap: 8, marginTop: 10 },
+  btnSm: { flex: 1, padding: '9px 6px', background: 'rgba(20,241,149,0.12)', color: '#14F195', border: '1px solid #14F195', borderRadius: 8, fontWeight: 700, cursor: 'pointer', fontSize: 12 },
+  addr: { fontFamily: 'ui-monospace, monospace', fontSize: 11, color: '#eaf2ff', background: '#0a0e1a', border: '1px solid #1c2a44', borderRadius: 8, padding: '8px', margin: '8px 0', wordBreak: 'break-all' },
+  input: { width: '100%', boxSizing: 'border-box', padding: '8px 10px', margin: '6px 0', background: '#0a0e1a', border: '1px solid #1c2a44', borderRadius: 8, color: '#eaf2ff', fontSize: 13 },
 };
 
 function App() {
