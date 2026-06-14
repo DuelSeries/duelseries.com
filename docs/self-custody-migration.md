@@ -91,13 +91,26 @@ self-custody is proven), to run as its own focused session. Order:
   refund-on-fail). Mechanism verified (correctly refused to overdraw the escrow + refunded). Owner's
   own balance left UNSETTLED by choice — phantom-inflated test data (ledger > escrow backing).
 - ✅ **4c** — custodial deposits stopped: `/wallet/deposit` → 410, "Add Funds" hidden (CSS). Cash-out kept.
-- 🟡 **4d** — PARTIAL: removed the dead inbound deposit body (now a 410 stub). OUTBOUND removal is
-  DEFERRED — `db.recordDeposit` is the ledger-credit STILL used by the custodial cash-out, and
-  `sweepFromPrivyWallet` has a second caller (admin debug endpoint ~L768). Deleting withdraw/ledger
-  now would break cash-out + strand un-settled balances.
-  **Gate to finish 4d:** (1) settle/write-off remaining custodial balances, (2) migrate or retire the
-  custodial cashout-to-ledger path; THEN delete `/wallet/withdraw` + velocity cap, the custodial
-  cashout branch, `recordDeposit`, `sweepFromPrivyWallet` + its admin caller, `findDepositsForAddress`.
+- ✅ **4d — DONE (2026-06-14).** Owner wrote off the remaining (tiny, phantom) test balance and
+  confirmed no other players hold balances, clearing the gate. First **extended self-custody to the
+  agar.io game** (cell:join stamps `_walletAddress`; cell:cashout pays out CAD→SOL to the wallet;
+  agar Play button + widget launch the agar iframe), so paid play in BOTH games runs on the wallet.
+  Then removed the whole custodial money system:
+  - Endpoints gone: `/wallet/entry-fee`, `/wallet/deposit`, `/wallet/withdraw` (+ velocity cap),
+    `/wallet/settle`, `/wallet/custodial-balance`, `/api/admin/sweep`.
+  - Both cash-out handlers are wallet-only (custodial ledger-credit branches removed); solvency
+    monitor now checks escrow ≥ live self-custody stakes only.
+  - db.js removed: recordDeposit, recordPendingWithdrawal, updateWithdrawalSig, refundWithdrawal,
+    getWithdrawnSince, sumBalances, takeFullBalance, logWithdrawal. Wallet.js removed:
+    findLatestDeposit, findDepositsForAddress, sweepFromPrivyWallet.
+  - Client: paid Play (both games) requires a connected wallet; paid respawn → lobby to re-stake;
+    4b settle button removed; the whole custodial wallet card hidden in both lobbies.
+  - **Kept:** `recordWithdrawal` (paid-bot debit, Phase 3 deferred), earnings stats, escrow,
+    entry-token flow, `/api/rpc`, stake-quote/submit-stake, collusion + solvency monitors.
+  - **Vestigial / left intentionally:** `accounts.balance` + the deposits/withdrawals tables (unused);
+    the old Privy server-wallet provisioning (`ensurePrivyWallet` at login — harmless, touches login);
+    inert dead lobby handlers behind the now-hidden wallet card. Earnings leaderboard freezes for
+    self-custody (wallet-keyed earnings would be a separate feature).
 
 ### 4a — Self-custody as the DEFAULT paid-play path (keep custodial fallback)
 - The lobby's main **Play** button, for PAID lobbies, routes through the self-custody stake
