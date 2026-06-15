@@ -330,6 +330,19 @@ function glSnakeBody(ctx, pts, R, colorHex) {
 // ─── App ──────────────────────────────────────────────────────────────────────
 const socket = io();
 let account = null;
+
+// Phase A (single-login): the wallet is the lobby identity. Announce lobby presence once a
+// wallet is connected (and on socket connect); falls back to a legacy Google id if present.
+let _lobbyJoined = false;
+function emitLobbyJoin() {
+  if (_lobbyJoined) return;
+  const id = (window.duelWallet && window.duelWallet.address) || (account && account.googleId);
+  if (id && socket && socket.connected) {
+    socket.emit('lobby:join', { googleId: id });
+    _lobbyJoined = true;
+  }
+}
+window.addEventListener('duelwallet:change', emitLobbyJoin);
 let walletAddress = null;
 
 // ─── Login modal ──────────────────────────────────────────────────────────────
@@ -416,7 +429,8 @@ socket.on(CONSTANTS.EVENTS.WALLET_BALANCE, ({ balance }) => {
 socket.on(CONSTANTS.EVENTS.ERROR, ({ message }) => alert('Error: ' + message));
 
 socket.on('connect', () => {
-  if (account) socket.emit('lobby:join', { googleId: account.googleId });
+  _lobbyJoined = false; // fresh connection — allow another lobby:join
+  emitLobbyJoin();
 });
 
 // ─── Lobby navigation ─────────────────────────────────────────────────────────
@@ -539,7 +553,7 @@ function showLobby() {
   document.getElementById('player-name-2').value = savedName2;
 
   setBalance(account.balance || 0);
-  socket.emit('lobby:join', { googleId: account.googleId });
+  emitLobbyJoin();
   fetchGlobalWinnings();
 
   // Jump straight to lobby 2 if returning from the agar game — no animation
@@ -927,54 +941,18 @@ document.querySelectorAll('.btn-lobby-type-2').forEach(btn => {
   });
 });
 
-document.getElementById('btn-play-2').addEventListener('click', async () => {
-  if (!account) { showLoginModal(); return; }
+document.getElementById('btn-play-2').addEventListener('click', () => {
+  // Phase A: Privy is the login — require a connected wallet (it's also the player identity).
+  if (!ensureWallet()) return;
   const name = document.getElementById('player-name-2').value.replace(/[^a-zA-Z0-9]/g, '');
   if (!name || name.length < 3) {
     setNameMsg(document.getElementById('name-error-2'), 'Choose a name (3+ characters) to play.', 'error');
     return;
   }
-  if (account && name !== account.name) {
-    const r = await fetch('/auth/update-name', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
-    const d = await r.json();
-    if (d.error) { setNameMsg(document.getElementById('name-error-2'), d.error, 'error'); return; }
-    account.name = d.account.name;
-  }
-
-  // Phase 4a (agar): self-custody — paid lobbies stake from the connected wallet.
-  if (selectedLobbyType2 !== 'free' && window.duelWallet && window.duelWallet.authenticated && window.duelWallet.address) {
-    localStorage.setItem('duelseries_playername', name);
-    window.dispatchEvent(new CustomEvent('duel:play', { detail: { game: 'agar', lobbyType: selectedLobbyType2 } }));
-    return;
-  }
-
-  // Paid lobbies require a connected self-custody wallet (the stake happens above). Reaching
-  // here on a paid lobby means none is connected.
-  let entryToken = '';
-  if (selectedLobbyType2 !== 'free') {
-    const errEl = document.getElementById('play-error-2');
-    const msg = 'Connect your wallet (bottom-right) to play paid lobbies.';
-    if (errEl) { errEl.textContent = msg; setTimeout(() => { errEl.textContent = ''; }, 4000); }
-    else alert(msg);
-    return;
-  }
-
+  // All tiers route through the self-custody flow; the widget stakes (paid) or just launches
+  // (free), using the wallet as the identity.
   localStorage.setItem('duelseries_playername', name);
-  sessionStorage.setItem('playerName',    name);
-  sessionStorage.setItem('walletAddress', account?.walletAddress || '');
-  sessionStorage.setItem('googleId',      account?.googleId || '');
-  sessionStorage.setItem('lobbyType',     selectedLobbyType2);
-  sessionStorage.setItem('gameMode',      'cell');
-  sessionStorage.setItem('entryToken',    entryToken);
-  sessionStorage.setItem('region',        selectedRegion);
-  sessionStorage.removeItem('spectateOnly');
-  const agarFrame = document.getElementById('agar-frame');
-  if (window._pauseLobbyAnims) window._pauseLobbyAnims();
-  agarFrame.src = '/agar.html';
-  agarFrame.style.display = 'block';
-  agarFrame.addEventListener('load', () => {
-    try { agarFrame.contentWindow.focus(); } catch (e) {}
-  }, { once: true });
+  window.dispatchEvent(new CustomEvent('duel:play', { detail: { game: 'agar', lobbyType: selectedLobbyType2 } }));
 });
 
 document.getElementById('player-name-2').addEventListener('input', function() {
@@ -1020,8 +998,9 @@ document.querySelectorAll('.btn-lobby-type').forEach(btn => {
 });
 
 // ─── Play ─────────────────────────────────────────────────────────────────────
-document.getElementById('btn-play').addEventListener('click', async () => {
-  if (!account) { showLoginModal(); return; }
+document.getElementById('btn-play').addEventListener('click', () => {
+  // Phase A: Privy is the login — require a connected wallet (it's also the player identity).
+  if (!ensureWallet()) return;
   const gameFrame = document.getElementById('game-frame');
   if (gameFrame && gameFrame.style.display !== 'none') return; // already in game
   const name = document.getElementById('player-name').value.replace(/[^a-zA-Z0-9]/g, '');
@@ -1029,53 +1008,10 @@ document.getElementById('btn-play').addEventListener('click', async () => {
     setNameMsg(document.getElementById('name-error'), 'Choose a name (3+ characters) to play.', 'error');
     return;
   }
-  if (account && name !== account.name) {
-    const r = await fetch('/auth/update-name', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
-    const d = await r.json();
-    if (d.error) { setNameMsg(document.getElementById('name-error'), d.error, 'error'); return; }
-    account.name = d.account.name;
-  }
-
-  // ── Phase 4a: self-custody — paid lobbies stake from the connected wallet ──────
-  // If a self-custody wallet is connected, route paid play through it (the widget stakes +
-  // launches). Free lobbies, and players without a connected wallet, fall through to the
-  // custodial flow below.
-  if (selectedLobbyType !== 'free' && window.duelWallet && window.duelWallet.authenticated && window.duelWallet.address) {
-    localStorage.setItem('duelseries_playername', name);
-    window.dispatchEvent(new CustomEvent('duel:play', { detail: { game: 'snake', lobbyType: selectedLobbyType } }));
-    return;
-  }
-
-  // Paid lobbies require a connected self-custody wallet (the stake happens above). Reaching
-  // here on a paid lobby means none is connected.
-  let entrySol = 0, entryToken = '';
-  if (selectedLobbyType !== 'free') {
-    const errEl = document.getElementById('play-error');
-    const msg = 'Connect your wallet (bottom-right) to play paid lobbies.';
-    if (errEl) { errEl.textContent = msg; setTimeout(() => { errEl.textContent = ''; }, 4000); }
-    return;
-  }
-
+  // All tiers route through the self-custody flow; the widget stakes (paid) or just launches
+  // (free), using the wallet as the identity.
   localStorage.setItem('duelseries_playername', name);
-  sessionStorage.setItem('playerName',    name);
-  sessionStorage.setItem('walletAddress', account?.walletAddress || '');
-  sessionStorage.setItem('googleId',      account?.googleId || '');
-  sessionStorage.setItem('snakeColor',    localStorage.getItem('duelseries_skin_color') || '#E8756A');
-  sessionStorage.setItem('hatId',         localStorage.getItem('duelseries_hat_id')   || 'none');
-  sessionStorage.setItem('boostId',       localStorage.getItem('duelseries_boost_id') || 'default');
-  sessionStorage.setItem('lobbyType',     selectedLobbyType);
-  sessionStorage.setItem('entrySol',      entrySol);
-  sessionStorage.setItem('entryToken',    entryToken);
-  sessionStorage.setItem('region',        selectedRegion);
-  sessionStorage.removeItem('spectateOnly');
-  // Load game in iframe so fullscreen stays active
-  if (window._pauseLobbyAnims) window._pauseLobbyAnims();
-  gameFrame.src = '/game.html';
-  gameFrame.style.display = 'block';
-  document.getElementById('btn-play').blur(); // prevent spacebar re-firing this button
-  gameFrame.addEventListener('load', () => {
-    try { gameFrame.contentWindow.focus(); } catch (e) {}
-  }, { once: true });
+  window.dispatchEvent(new CustomEvent('duel:play', { detail: { game: 'snake', lobbyType: selectedLobbyType } }));
 });
 
 // ─── Spectate from lobby ──────────────────────────────────────────────────────
