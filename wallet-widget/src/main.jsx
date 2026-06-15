@@ -141,6 +141,7 @@ function WalletPanel() {
   const [playing, setPlaying] = useState(false);
   const [tier, setTier] = useState(() => { try { return localStorage.getItem('duelseries_lobbytype') || 'free'; } catch { return 'free'; } });
   const stakeRef = useRef(null);
+  const busyRef = useRef(false); // synchronous guard: no double-staking on rapid Play clicks
 
   const wallet = solWallets && solWallets[0];
   const address = (wallet && wallet.address) || solanaAddress(user);
@@ -225,7 +226,9 @@ function WalletPanel() {
   }, [wallet, signTransaction, address, login, logout]);
 
   const doStake = async (game, lobbyType) => {
+    if (busyRef.current) return; // already staking — drop the rapid re-clicks (no double charge)
     if (!wallet) { setErr('Wallet still loading — try again in a moment.'); return; }
+    busyRef.current = true;
     setBusy(true); setErr(''); setStatus('');
     try {
       await stakeAndPlay(game, lobbyType, wallet, signTransaction, setStatus, () => setPlaying(true));
@@ -235,14 +238,45 @@ function WalletPanel() {
         ? "Not enough SOL — add a bit more (a 10¢ entry needs ~0.002 SOL on hand; the extra covers Solana's per-wallet rent minimum)."
         : m);
       setBusy(false); setStatus('');
+    } finally {
+      busyRef.current = false;
     }
   };
   stakeRef.current = doStake; // keep the latest closure for the lobby's duel:play event
 
-  // Headless: the lobby's own wallet card is the UI now. This island just holds the Privy
-  // wallet and exposes state (window.duelWallet + 'duelwallet:change') + the functions below
-  // for the lobby card to drive. Nothing is rendered.
+  // While a stake is in flight, show a full-screen blocking "Joining…" overlay — it gives
+  // feedback AND covers the Play button so extra clicks can't fire more stakes. On error,
+  // show a dismissible message. Otherwise headless (the lobby card is the wallet UI).
+  if (playing) return null;
+  if (busy) {
+    return (
+      <div style={st.overlay}>
+        <div style={st.card}>
+          <div style={st.spinner} />
+          <div style={st.ovText}>{status || 'Joining…'}</div>
+        </div>
+      </div>
+    );
+  }
+  if (err) {
+    return (
+      <div style={st.overlay}>
+        <div style={st.card}>
+          <div style={st.ovText}>{err}</div>
+          <button style={st.btn} onClick={() => setErr('')}>OK</button>
+        </div>
+      </div>
+    );
+  }
   return null;
+}
+
+// Inject the spinner keyframes once (inline styles can't define @keyframes).
+if (typeof document !== 'undefined' && !document.getElementById('duel-wallet-css')) {
+  const s = document.createElement('style');
+  s.id = 'duel-wallet-css';
+  s.textContent = '@keyframes duelspin{to{transform:rotate(360deg)}}';
+  document.head.appendChild(s);
 }
 
 const st = {
@@ -262,6 +296,10 @@ const st = {
   btnSm: { flex: 1, padding: '9px 6px', background: 'rgba(20,241,149,0.12)', color: '#14F195', border: '1px solid #14F195', borderRadius: 8, fontWeight: 700, cursor: 'pointer', fontSize: 12 },
   addr: { fontFamily: 'ui-monospace, monospace', fontSize: 11, color: '#eaf2ff', background: '#0a0e1a', border: '1px solid #1c2a44', borderRadius: 8, padding: '8px', margin: '8px 0', wordBreak: 'break-all' },
   input: { width: '100%', boxSizing: 'border-box', padding: '8px 10px', margin: '6px 0', background: '#0a0e1a', border: '1px solid #1c2a44', borderRadius: 8, color: '#eaf2ff', fontSize: 13 },
+  overlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 100000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(6,9,18,0.82)' },
+  card: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14, padding: '28px 34px', background: 'rgba(12,17,30,0.97)', border: '1px solid #1c2a44', borderRadius: 16, color: '#eaf2ff', font: '15px/1.45 system-ui, sans-serif', minWidth: 200, maxWidth: 340, textAlign: 'center', boxShadow: '0 12px 40px rgba(0,0,0,0.5)' },
+  spinner: { width: 34, height: 34, borderRadius: '50%', border: '3px solid #1c2a44', borderTopColor: '#14F195', animation: 'duelspin 0.8s linear infinite' },
+  ovText: { fontWeight: 600, color: '#cfe3ff', wordBreak: 'break-word' },
 };
 
 function App() {
