@@ -270,7 +270,9 @@ function App() {
       appId={APP_ID}
       config={{
         loginMethods: ['google', 'email'],
-        embeddedWallets: { createOnLogin: 'all-users' },
+        // showWalletUIs:false → sign the stake / cash-out silently (no Privy approve + "all set"
+        // screens). The Join Game / Cash Out Send click is the confirmation; one tap into the game.
+        embeddedWallets: { createOnLogin: 'all-users', showWalletUIs: false },
         appearance: { walletChainType: 'solana-only' },
         solana: {
           rpcs: {
