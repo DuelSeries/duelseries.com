@@ -96,6 +96,12 @@ async function stakeAndPlay(game, lobbyType, wallet, signTransaction, onStatus, 
   if (frame) {
     if (window._pauseLobbyAnims) window._pauseLobbyAnims();
     onLaunch();
+    // Focus the game iframe once it loads so keyboard (boost / cash-out) works immediately.
+    // The Privy approval modal had focus, so without this the player has to click in first.
+    frame.addEventListener('load', () => {
+      const focusGame = () => { try { frame.contentWindow.focus(); } catch (_) {} };
+      focusGame(); setTimeout(focusGame, 150); // again after the modal finishes returning focus
+    }, { once: true });
     frame.src = html;
     frame.style.display = 'block';
   } else {
@@ -191,6 +197,9 @@ function WalletPanel() {
       try {
         const { entryToken } = await stakeOnly(d.lobbyType, wallet, signTransaction, () => {});
         post({ type: 'duel:restake:done', entryToken });
+        // Return focus to the game after the Privy modal so keyboard works without a click.
+        const focusGame = () => { try { frame && frame.contentWindow && frame.contentWindow.focus(); } catch (_) {} };
+        focusGame(); setTimeout(focusGame, 150);
       } catch (err) {
         post({ type: 'duel:restake:error', message: (err && err.message) || 'Stake failed' });
       }
