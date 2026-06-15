@@ -970,6 +970,19 @@ document.getElementById('player-name').addEventListener('input', function() {
   document.getElementById('play-username').textContent = v || '';
 });
 
+// Pre-fill the name boxes from the saved name for everyone (not just Google accounts), so
+// returning Privy-only players don't have to retype it each visit.
+(function prefillSavedName() {
+  const saved = localStorage.getItem('duelseries_playername') || '';
+  if (!saved) return;
+  [['player-name', 'play-username'], ['player-name-2', 'play-username-2']].forEach(([inputId, labelId]) => {
+    const input = document.getElementById(inputId);
+    if (input && !input.value) input.value = saved;
+    const label = document.getElementById(labelId);
+    if (label) label.textContent = saved;
+  });
+})();
+
 // ─── Lobby type selection ──────────────────────────────────────────────────────
 const LOBBY_LABELS = { free: 'FREE PLAY', dime: '▶ 10¢ LOBBY', dollar: '▶ $1 LOBBY' };
 let selectedLobbyType = localStorage.getItem('duelseries_lobbytype') || 'free';
