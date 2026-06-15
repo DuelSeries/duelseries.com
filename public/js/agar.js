@@ -100,7 +100,41 @@ window.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  document.getElementById('btn-respawn').addEventListener('click', () => {
+  // Self-custody re-stake for paid "Play Again": ask the parent widget to stake (Privy signs
+  // silently). Returns the entry token ('' for free) or false if it failed/cancelled.
+  function requestRestake(game, lt) {
+    return new Promise((resolve) => {
+      if (window.self === window.top) { resolve(null); return; }
+      let settled = false;
+      const finish = (val) => { if (settled) return; settled = true; window.removeEventListener('message', onMsg); resolve(val); };
+      const onMsg = (e) => {
+        const d = e.data;
+        if (!d || (d.type !== 'duel:restake:done' && d.type !== 'duel:restake:error')) return;
+        if (d.type === 'duel:restake:error') { if (d.message) alert(d.message); finish(null); }
+        else finish(d.entryToken || '');
+      };
+      window.addEventListener('message', onMsg);
+      window.parent.postMessage({ type: 'duel:restake', game, lobbyType: lt }, '*');
+      setTimeout(() => finish(null), 120000);
+    });
+  }
+  let agarRespawning = false;
+  async function agarRestake() {
+    const lt = sessionStorage.getItem('lobbyType') || 'free';
+    if (lt === 'free') return '';
+    if (agarRespawning) return false;
+    agarRespawning = true;
+    try {
+      const token = await requestRestake('agar', lt);
+      return token == null ? false : token;
+    } finally {
+      agarRespawning = false;
+    }
+  }
+
+  document.getElementById('btn-respawn').addEventListener('click', async () => {
+    const token = await agarRestake();
+    if (token === false) return; // paid re-stake failed/cancelled — stay on the death screen
     cashedOut = false;
     waitingToRespawn = true;
     const titleEl = document.getElementById('death-title');
@@ -110,7 +144,7 @@ window.addEventListener('DOMContentLoaded', () => {
     document.getElementById('death-earned-row').style.display = 'none';
     document.getElementById('death-screen').classList.remove('active');
     exitSpectate();
-    socket && socket.emit('cell:respawn');
+    socket && socket.emit('cell:respawn', { entryToken: token });
   });
   document.getElementById('btn-death-lobby').addEventListener('click', () => {
     socket && socket.disconnect();
@@ -118,12 +152,14 @@ window.addEventListener('DOMContentLoaded', () => {
   });
 
   // Cashout screen buttons
-  document.getElementById('btn-cashout-respawn').addEventListener('click', () => {
+  document.getElementById('btn-cashout-respawn').addEventListener('click', async () => {
+    const token = await agarRestake();
+    if (token === false) return;
     cashedOut = false;
     waitingToRespawn = true;
     document.getElementById('cashout-overlay').classList.remove('active');
     exitSpectate();
-    socket && socket.emit('cell:respawn');
+    socket && socket.emit('cell:respawn', { entryToken: token });
   });
   document.getElementById('btn-cashout-spectate').addEventListener('click', () => {
     document.getElementById('cashout-overlay').classList.remove('active');
@@ -148,8 +184,10 @@ window.addEventListener('DOMContentLoaded', () => {
     spectateIdx = (spectateIdx + 1) % n;
     updateSpectateLabel();
   });
-  document.getElementById('spectate-play-again').addEventListener('click', () => {
+  document.getElementById('spectate-play-again').addEventListener('click', async () => {
     if (spectateOnly) { goToLobby(); return; }
+    const token = await agarRestake();
+    if (token === false) return;
     cashedOut = false;
     waitingToRespawn = true;
     const titleEl = document.getElementById('death-title');
@@ -158,7 +196,7 @@ window.addEventListener('DOMContentLoaded', () => {
     titleEl.style.textShadow = '';
     document.getElementById('death-earned-row').style.display = 'none';
     exitSpectate();
-    socket && socket.emit('cell:respawn');
+    socket && socket.emit('cell:respawn', { entryToken: token });
   });
   document.getElementById('spectate-stop').addEventListener('click', () => {
     socket && socket.disconnect();

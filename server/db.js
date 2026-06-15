@@ -237,6 +237,17 @@ async function getTopEarners(n) {
   }));
 }
 
+// Upsert earnings keyed by a stable id — a wallet address for self-custody players (who have
+// no google_id account row), so they appear on the top-earners board. Always refreshes the name.
+async function recordEarnings(id, name, sol, cadAmount = 0) {
+  await pool.query(
+    `INSERT INTO accounts (google_id, name, total_earnings) VALUES ($1, $2, $3)
+     ON CONFLICT (google_id) DO UPDATE SET total_earnings = COALESCE(accounts.total_earnings, 0) + $3, name = $2`,
+    [id, name || 'Player', sol]
+  );
+  await pool.query(`INSERT INTO earnings_history (google_id, amount, cad_amount) VALUES ($1, $2, $3)`, [id, sol, cadAmount]);
+}
+
 async function recordAgarGameResult(googleId, score) {
   await pool.query(
     `UPDATE accounts SET
@@ -478,7 +489,7 @@ module.exports = {
   isTxUsed, recordWithdrawal, setPrivyWallet, clearPrivyWallet, getAccountByEmail, getFinancialSummary,
   recordCollusionFlag, getRecentCollusionFlags,
   isStakeSigUsed, markStakeSig,
-  addEarnings, getTopEarners,
+  addEarnings, recordEarnings, getTopEarners,
   addAgarEarnings, getAgarTopEarners,
   getGoogleIdByDeviceToken,
   isNameTaken,

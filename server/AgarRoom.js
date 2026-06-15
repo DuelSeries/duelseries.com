@@ -162,7 +162,7 @@ class AgarRoom {
     b.wanderTimer = 0; b.wanderTarget = null;
   }
 
-  respawnPlayer(socketId) {
+  respawnPlayer(socketId, entryWorth) {
     const p = this.players.get(socketId);
     if (!p) return;
     const ws = this.worldSize;
@@ -171,7 +171,7 @@ class AgarRoom {
     p.cells = [this._makeCell(0, x, y, 20, 0, 0)];
     p.nextCellId = 1;
     p.mouseX = x; p.mouseY = y;
-    p.alive = true; p.score = 0; p.worth = 0;
+    p.alive = true; p.score = 0; p.worth = entryWorth || 0;
   }
 
   // ── Bot spawning ──────────────────────────────────────────────────────────

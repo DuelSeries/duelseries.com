@@ -22,42 +22,8 @@ const prices = require('./prices');
 
 const REGION = process.env.REGION || 'na';
 
-// ─── Privy server wallets ─────────────────────────────────────────────────────
-const PRIVY_APP_ID     = process.env.PRIVY_APP_ID;
-const PRIVY_APP_SECRET = process.env.PRIVY_APP_SECRET;
-
-async function createPrivyWallet() {
-  if (!PRIVY_APP_ID || !PRIVY_APP_SECRET) throw new Error('Privy credentials not set');
-  const creds = Buffer.from(`${PRIVY_APP_ID}:${PRIVY_APP_SECRET}`).toString('base64');
-  const res = await fetch('https://api.privy.io/v1/wallets', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'privy-app-id': PRIVY_APP_ID,
-      'Authorization': `Basic ${creds}`,
-    },
-    body: JSON.stringify({ chain_type: 'solana' }),
-  });
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Privy ${res.status}: ${err}`);
-  }
-  const data = await res.json();
-  return { walletId: data.id, address: data.address };
-}
-
-async function ensurePrivyWallet(account) {
-  if (account.privyWalletId) return; // already set up
-  try {
-    const { walletId, address } = await createPrivyWallet();
-    await db.setPrivyWallet(account.googleId, address, walletId);
-    account.walletAddress = address;
-    account.privyWalletId = walletId;
-    console.log(`[PRIVY] Wallet created for ${account.name}: ${address.slice(0,8)}...`);
-  } catch (e) {
-    console.error('[PRIVY] Wallet creation failed:', e.message);
-  }
-}
+// (Phase 4d: the old per-account Privy SERVER wallet provisioning was removed — players use
+// their own client-side Privy embedded wallet now, so no server wallet is created on login.)
 
 // ─── Socket rate limiter ──────────────────────────────────────────────────────
 // Returns false (and drops the event) if the socket fires it too quickly.
@@ -172,7 +138,6 @@ passport.use(new GoogleStrategy({
       name:     '',
       avatar:   profile.photos?.[0]?.value || '',
     });
-    await ensurePrivyWallet(account);
     done(null, account);
   } catch (e) { done(e); }
 }));
@@ -437,19 +402,7 @@ app.get('/wallet/info', (req, res) => {
   }
 });
 
-app.post('/wallet/provision', async (req, res) => {
-  if (!req.isAuthenticated()) return res.status(401).json({ error: 'Not logged in' });
-  if (req.user.walletAddress) return res.json({ address: req.user.walletAddress });
-  try {
-    const { walletId, address } = await createPrivyWallet();
-    await db.setPrivyWallet(req.user.googleId, address, walletId);
-    req.user.walletAddress = address;
-    req.user.privyWalletId = walletId;
-    res.json({ address });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
+// (Phase 4d: /wallet/provision removed — no server wallet to provision anymore.)
 
 // Phase 4d: the custodial money system is gone. Deposits, withdrawals, the migration
 // "settle" helper, and custodial-balance lookups are all removed — funding is the
@@ -479,26 +432,7 @@ app.get('/admin/finance', async (req, res) => {
   }
 });
 
-// ─── Admin: reset a broken Privy wallet ──────────────────────────────────────
-app.post('/admin/reset-wallet', async (req, res) => {
-  if (!req.isAuthenticated() || req.user.googleId !== process.env.OWNER_GOOGLE_ID) {
-    return res.status(403).json({ error: 'Forbidden' });
-  }
-  const { email } = req.body;
-  if (!email) return res.status(400).json({ error: 'email required' });
-  const acc = await db.getAccountByEmail(email);
-  if (!acc) return res.status(404).json({ error: `No account found for ${email}` });
-  await db.clearPrivyWallet(acc.googleId);
-  try {
-    const { walletId, address } = await createPrivyWallet();
-    await db.setPrivyWallet(acc.googleId, address, walletId);
-    console.log(`[ADMIN] Reset wallet for ${email}: ${address.slice(0, 8)}...`);
-    return res.json({ success: true, email, address, walletId });
-  } catch (e) {
-    console.error(`[ADMIN] Privy wallet creation failed for ${email}:`, e.message);
-    return res.status(500).json({ error: e.message, clearedOldWallet: true });
-  }
-});
+// (Phase 4d: /admin/reset-wallet removed along with the custodial server-wallet system.)
 
 // ─── Health check ─────────────────────────────────────────────────────────────
 app.get('/healthz', (req, res) => res.sendStatus(200));
@@ -948,6 +882,7 @@ io.on('connection', (socket) => {
     if (socket._walletAddress) {
       socket.emit('cashout:result', { newBalance: null, earnedSol: playerShare, score: Math.floor(snake.score), length: snake.length, toWallet: true });
       if (worth > 0) {
+        db.recordEarnings(socket._walletAddress, snake.name, playerShare, playerShare * prices.getSolCadRate()).catch(() => {});
         Wallet.withdraw(socket._walletAddress, playerShare)
           .then((sig) => {
             console.log(`[CASHOUT] self-custody ${playerShare.toFixed(6)} SOL → ${socket._walletAddress.slice(0, 8)}… sig ${String(sig).slice(0, 12)}`);
@@ -1073,6 +1008,7 @@ io.on('connection', (socket) => {
     // Verify the entry fee server-side (same one-time token the snake game uses) and
     // take the cell's worth from the server, never from the client.
     const shortType = (lobbyType in LOBBY_FEES_CAD) ? lobbyType : 'free';
+    socket._agarShortType = shortType; // remembered for the in-game re-stake on respawn
     const entry = consumePaidEntry(entryToken, shortType);
     if (!entry.ok) {
       socket.emit('cell:join:error', { message: 'Entry fee not verified. Please return to lobby.' });
@@ -1126,8 +1062,18 @@ io.on('connection', (socket) => {
     if (socket._agarRoom) socket._agarRoom.handleSplit(socket.id);
   });
 
-  socket.on('cell:respawn', () => {
-    if (socket._agarRoom) socket._agarRoom.respawnPlayer(socket.id);
+  socket.on('cell:respawn', ({ entryToken } = {}) => {
+    const room = socket._agarRoom;
+    if (!room) return;
+    // Paid respawns re-stake (same one-time token the snake game uses); free respawns carry none.
+    const shortType = socket._agarShortType || 'free';
+    const entry = consumePaidEntry(entryToken, shortType);
+    if (!entry.ok) {
+      socket.emit('cell:join:error', { message: 'Entry fee not verified. Please return to lobby.' });
+      return;
+    }
+    if (entry.walletAddress) socket._walletAddress = entry.walletAddress;
+    room.respawnPlayer(socket.id, LOBBY_FEES_CAD[shortType] || 0);
   });
 
   socket.on('cell:lock', () => {
@@ -1159,6 +1105,7 @@ io.on('connection', (socket) => {
       const playerShareSol = prices.cadToSol(playerShare);
       socket.emit('cell:cashout:result', { newBalance: null, earnedCad: playerShare, earnedSol: playerShareSol, score: player.score, toWallet: true });
       if (worthCad > 0) {
+        db.recordEarnings(socket._walletAddress, player.name, playerShareSol, playerShare).catch(() => {});
         Wallet.withdraw(socket._walletAddress, playerShareSol)
           .then((sig) => {
             console.log(`[AGAR CASHOUT] self-custody ${playerShareSol.toFixed(6)} SOL → ${socket._walletAddress.slice(0, 8)}… sig ${String(sig).slice(0, 12)}`);
