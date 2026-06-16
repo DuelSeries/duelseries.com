@@ -42,15 +42,18 @@ async function seedUsedSignatures() {
   }
 }
 
-// Retry wrapper for rate-limited RPC calls
-async function withRetry(fn, retries = 4, delay = 1500) {
+// Retry wrapper for transient RPC failures — public/free RPCs frequently return 429
+// (rate limit) AND 503/502/504 (overloaded), plus the odd network blip. All of these
+// resolve on a retry, so back off and try again rather than failing the user's stake/cashout.
+async function withRetry(fn, retries = 5, delay = 600) {
   try {
     return await fn();
   } catch (e) {
-    const is429 = e.message && (e.message.includes('429') || e.message.includes('Too many'));
-    if (retries > 0 && is429) {
+    const msg = (e && e.message) ? e.message : String(e);
+    const transient = /\b(429|502|503|504)\b|Too many|Service unavailable|ETIMEDOUT|ECONNRESET|ENOTFOUND|EAI_AGAIN|fetch failed|socket hang up|timeout/i.test(msg);
+    if (retries > 0 && transient) {
       await new Promise(r => setTimeout(r, delay));
-      return withRetry(fn, retries - 1, delay * 2);
+      return withRetry(fn, retries - 1, Math.min(delay * 2, 8000));
     }
     throw e;
   }
@@ -64,8 +67,8 @@ async function withdraw(toAddress, amountSol) {
 
   // Ensure escrow keeps enough for rent-exempt minimum + tx fee
   const [escrowBalance, rentMin] = await Promise.all([
-    connection.getBalance(escrow.publicKey),
-    connection.getMinimumBalanceForRentExemption(0),
+    withRetry(() => connection.getBalance(escrow.publicKey)),
+    withRetry(() => connection.getMinimumBalanceForRentExemption(0)),
   ]);
   const feeBuffer = 10000; // ~0.00001 SOL for tx fee
   const maxWithdrawable = escrowBalance - rentMin - feeBuffer;
@@ -77,7 +80,7 @@ async function withdraw(toAddress, amountSol) {
     );
   }
 
-  const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
+  const { blockhash, lastValidBlockHeight } = await withRetry(() => connection.getLatestBlockhash());
   const tx = new Transaction().add(
     SystemProgram.transfer({
       fromPubkey: escrow.publicKey,
@@ -95,7 +98,7 @@ async function withdraw(toAddress, amountSol) {
 }
 
 async function getEscrowBalance() {
-  const bal = await connection.getBalance(new PublicKey(getEscrowPublicKey()));
+  const bal = await withRetry(() => connection.getBalance(new PublicKey(getEscrowPublicKey())));
   return bal / LAMPORTS_PER_SOL;
 }
 
