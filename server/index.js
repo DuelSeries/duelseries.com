@@ -157,8 +157,10 @@ catch (e) { console.warn('[AUTH] @privy-io/server-auth unavailable — owner tok
 const privyServer = (PrivyClient && process.env.PRIVY_APP_ID && process.env.PRIVY_APP_SECRET)
   ? new PrivyClient(process.env.PRIVY_APP_ID, process.env.PRIVY_APP_SECRET)
   : null;
-// Owner's embedded wallet address (public, not a secret). Env var overrides if ever changed.
-const OWNER_WALLET = process.env.OWNER_WALLET || 'C5cnzckMwH459eEURA8NwuZcKVFMExpRcbRSAuULH3m9';
+// Owner's embedded game wallet — what your Privy login resolves to (public, not a secret).
+// Always recognized; the OWNER_WALLET env var can register an ADDITIONAL owner wallet.
+const OWNER_WALLET = 'C5cnzckMwH459eEURA8NwuZcKVFMExpRcbRSAuULH3m9';
+const OWNER_WALLETS = new Set([OWNER_WALLET, process.env.OWNER_WALLET].filter(Boolean));
 
 // Resolve the Solana wallet for a Privy identity token (local verification of the signed
 // token — no API rate limit, scales). Returns the wallet address or null.
@@ -175,8 +177,9 @@ async function walletFromIdToken(token) {
   } catch (e) { return null; }
 }
 async function isOwnerToken(idToken) {
-  if (!OWNER_WALLET || !idToken) return false;
-  return (await walletFromIdToken(idToken)) === OWNER_WALLET;
+  if (!idToken) return false;
+  const wallet = await walletFromIdToken(idToken);
+  return !!wallet && OWNER_WALLETS.has(wallet);
 }
 // Owner check for HTTP routes — a verified Privy id token (wallet === OWNER_WALLET) OR the
 // legacy Google session (kept during Phase B1; removed in B2).
@@ -191,7 +194,7 @@ async function isOwnerReq(req) {
 app.get('/api/whoami', async (req, res) => {
   const auth = req.headers.authorization || '';
   const token = auth.startsWith('Bearer ') ? auth.slice(7) : (req.headers['privy-id-token'] || null);
-  const out = { hasToken: !!token, serverAuthLoaded: !!privyServer, ownerWallet: OWNER_WALLET };
+  const out = { hasToken: !!token, serverAuthLoaded: !!privyServer, ownerWallets: [...OWNER_WALLETS] };
   if (token && privyServer) {
     try {
       const claims = await privyServer.verifyAuthToken(token);
@@ -201,7 +204,7 @@ app.get('/api/whoami', async (req, res) => {
         .filter(a => a && a.type === 'wallet')
         .map(a => ({ chainType: a.chainType, chain_type: a.chain_type, address: a.address, client: a.walletClientType }));
       out.resolvedWallet = await walletFromIdToken(token);
-      out.isOwner = out.resolvedWallet === OWNER_WALLET;
+      out.isOwner = OWNER_WALLETS.has(out.resolvedWallet);
     } catch (e) { out.error = String(e.message || e); }
   }
   res.json(out);
