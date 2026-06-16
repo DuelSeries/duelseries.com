@@ -60,7 +60,12 @@ async function load() {
     ]);
 
     if (finRes.status === 403) {
-      content.innerHTML = '<div class="error">Not authorized. Open the lobby and connect your owner wallet first, then reload this page.</div>';
+      let dbg = '';
+      try {
+        const w = await (await fetch('/api/whoami', _t ? { headers: { Authorization: 'Bearer ' + _t } } : undefined)).json();
+        dbg = '<pre style="text-align:left;font-size:11px;white-space:pre-wrap;word-break:break-all;background:#0a0e1a;color:#cfe3ff;padding:10px;border-radius:8px;margin-top:12px">' + JSON.stringify(w, null, 2).replace(/</g, '&lt;') + '</pre>';
+      } catch (_) {}
+      content.innerHTML = '<div class="error">Not authorized. Connect your owner wallet on the lobby, then reload this page.</div>' + dbg;
       return;
     }
 

@@ -187,6 +187,26 @@ async function isOwnerReq(req) {
   return isOwnerToken(idToken);
 }
 
+// Debug: what does the server resolve from your Privy token? Diagnoses owner auth. (Temporary.)
+app.get('/api/whoami', async (req, res) => {
+  const auth = req.headers.authorization || '';
+  const token = auth.startsWith('Bearer ') ? auth.slice(7) : (req.headers['privy-id-token'] || null);
+  const out = { hasToken: !!token, serverAuthLoaded: !!privyServer, ownerWallet: OWNER_WALLET };
+  if (token && privyServer) {
+    try {
+      const claims = await privyServer.verifyAuthToken(token);
+      out.userId = claims.userId;
+      const user = await privyServer.getUser(claims.userId);
+      out.wallets = (user.linkedAccounts || [])
+        .filter(a => a && a.type === 'wallet')
+        .map(a => ({ chainType: a.chainType, chain_type: a.chain_type, address: a.address, client: a.walletClientType }));
+      out.resolvedWallet = await walletFromIdToken(token);
+      out.isOwner = out.resolvedWallet === OWNER_WALLET;
+    } catch (e) { out.error = String(e.message || e); }
+  }
+  res.json(out);
+});
+
 // ─── Auth routes ──────────────────────────────────────────────────────────────
 app.get('/auth/google',
   passport.authenticate('google', { scope: ['profile', 'email'] })
