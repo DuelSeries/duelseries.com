@@ -157,7 +157,8 @@ catch (e) { console.warn('[AUTH] @privy-io/server-auth unavailable — owner tok
 const privyServer = (PrivyClient && process.env.PRIVY_APP_ID && process.env.PRIVY_APP_SECRET)
   ? new PrivyClient(process.env.PRIVY_APP_ID, process.env.PRIVY_APP_SECRET)
   : null;
-const OWNER_WALLET = process.env.OWNER_WALLET || '';
+// Owner's embedded wallet address (public, not a secret). Env var overrides if ever changed.
+const OWNER_WALLET = process.env.OWNER_WALLET || 'C5cnzckMwH459eEURA8NwuZcKVFMExpRcbRSAuULH3m9';
 
 // Resolve the Solana wallet for a Privy identity token (local verification of the signed
 // token — no API rate limit, scales). Returns the wallet address or null.
