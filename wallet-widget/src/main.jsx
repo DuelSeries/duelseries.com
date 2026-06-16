@@ -130,7 +130,7 @@ async function sendSol(toAddress, amountSol, wallet, signTransaction) {
 }
 
 function WalletPanel() {
-  const { ready, authenticated, user, logout } = usePrivy();
+  const { ready, authenticated, user, logout, getAccessToken } = usePrivy();
   const { login } = useLogin();
   const { wallets: solWallets } = useSolanaWallets();
   const { signTransaction } = useSignTransaction();
@@ -224,6 +224,19 @@ function WalletPanel() {
       return sendSol(toAddress, amountSol, wallet, signTransaction);
     };
   }, [wallet, signTransaction, address, login, logout]);
+
+  // Keep the Privy access token in localStorage so same-origin admin pages + game iframes can
+  // authenticate owner-only actions (the server verifies it → OWNER_WALLET). Refreshed on a timer.
+  useEffect(() => {
+    if (!authenticated) { try { localStorage.removeItem('duel_admin_token'); } catch (_) {} return; }
+    let live = true;
+    const refresh = async () => {
+      try { const t = await getAccessToken(); if (live && t) localStorage.setItem('duel_admin_token', t); } catch (_) {}
+    };
+    refresh();
+    const id = setInterval(refresh, 5 * 60 * 1000);
+    return () => { live = false; clearInterval(id); };
+  }, [authenticated]);
 
   const doStake = async (game, lobbyType) => {
     if (busyRef.current) return; // already staking — drop the rapid re-clicks (no double charge)

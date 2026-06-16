@@ -546,7 +546,8 @@ function submitConsole() {
   const cmd   = parts[0].toLowerCase();
   if (cmd === 'bot') {
     const count = Math.min(20, Math.max(1, parseInt(parts[1]) || 1));
-    for (let i = 0; i < count; i++) socket && socket.emit('cell:spawnbot');
+    const _t = localStorage.getItem('duel_admin_token') || undefined;
+    for (let i = 0; i < count; i++) socket && socket.emit('cell:spawnbot', { idToken: _t });
   }
 }
 

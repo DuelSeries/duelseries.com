@@ -53,13 +53,14 @@
 async function load() {
   const content = document.getElementById('content');
   try {
+    const _t = localStorage.getItem('duel_admin_token');
     const [finRes, priceRes] = await Promise.all([
-      fetch('/admin/finance'),
+      fetch('/admin/finance', _t ? { headers: { Authorization: 'Bearer ' + _t } } : undefined),
       fetch('https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=cad').catch(() => null),
     ]);
 
     if (finRes.status === 403) {
-      content.innerHTML = '<div class="error">Not authorized. Log in with the owner account.</div>';
+      content.innerHTML = '<div class="error">Not authorized. Open the lobby and connect your owner wallet first, then reload this page.</div>';
       return;
     }
 

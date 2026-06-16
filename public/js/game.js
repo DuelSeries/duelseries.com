@@ -1060,7 +1060,7 @@ requestAnimationFrame(gameLoop);
 
     if (cmd === 'bot' || cmd === 'bots') {
       const count = parseInt(parts[1]) || 1;
-      socket.emit('admin:spawnbot', { count });
+      socket.emit('admin:spawnbot', { count, idToken: localStorage.getItem('duel_admin_token') || undefined });
       feedbackEl.textContent = `Requesting ${count} bot(s)...`;
     } else {
       feedbackEl.textContent = 'Commands: bot [n]';

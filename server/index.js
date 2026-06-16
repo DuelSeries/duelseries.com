@@ -150,6 +150,40 @@ passport.deserializeUser(async (id, done) => {
   } catch (e) { done(e); }
 });
 
+// ─── Privy server-side auth (Phase B: Privy is the login) ──────────────────────
+const { PrivyClient } = require('@privy-io/server-auth');
+const privyServer = (process.env.PRIVY_APP_ID && process.env.PRIVY_APP_SECRET)
+  ? new PrivyClient(process.env.PRIVY_APP_ID, process.env.PRIVY_APP_SECRET)
+  : null;
+const OWNER_WALLET = process.env.OWNER_WALLET || '';
+
+// Resolve the Solana wallet for a Privy identity token (local verification of the signed
+// token — no API rate limit, scales). Returns the wallet address or null.
+async function walletFromIdToken(token) {
+  if (!privyServer || !token) return null;
+  try {
+    // Verify the owner's access token (local JWT check), then look up their Solana wallet.
+    const claims = await privyServer.verifyAuthToken(token);
+    const user = await privyServer.getUser(claims.userId);
+    for (const a of (user.linkedAccounts || [])) {
+      if (a && a.type === 'wallet' && (a.chainType === 'solana' || a.chain_type === 'solana') && a.address) return a.address;
+    }
+    return null;
+  } catch (e) { return null; }
+}
+async function isOwnerToken(idToken) {
+  if (!OWNER_WALLET || !idToken) return false;
+  return (await walletFromIdToken(idToken)) === OWNER_WALLET;
+}
+// Owner check for HTTP routes — a verified Privy id token (wallet === OWNER_WALLET) OR the
+// legacy Google session (kept during Phase B1; removed in B2).
+async function isOwnerReq(req) {
+  if (req.isAuthenticated && req.isAuthenticated() && req.user && req.user.googleId === process.env.OWNER_GOOGLE_ID) return true;
+  const auth = req.headers.authorization || '';
+  const idToken = auth.startsWith('Bearer ') ? auth.slice(7) : (req.headers['privy-id-token'] || null);
+  return isOwnerToken(idToken);
+}
+
 // ─── Auth routes ──────────────────────────────────────────────────────────────
 app.get('/auth/google',
   passport.authenticate('google', { scope: ['profile', 'email'] })
@@ -411,9 +445,7 @@ app.get('/wallet/info', (req, res) => {
 
 // ─── Admin finance dashboard ──────────────────────────────────────────────────
 app.get('/admin/finance', async (req, res) => {
-  if (!req.isAuthenticated() || req.user.googleId !== process.env.OWNER_GOOGLE_ID) {
-    return res.status(403).json({ error: 'Forbidden' });
-  }
+  if (!(await isOwnerReq(req))) return res.status(403).json({ error: 'Forbidden' });
   try {
     const [escrowBalance, summary] = await Promise.all([
       Wallet.getEscrowBalance(),
@@ -546,9 +578,7 @@ app.post('/api/verify-stake', express.json(), async (req, res) => {
 
 // Owner-only: review collusion flags (persisted) + the current live suspicious pairs.
 app.get('/api/admin/collusion', async (req, res) => {
-  if (!req.isAuthenticated() || req.user.googleId !== process.env.OWNER_GOOGLE_ID) {
-    return res.status(403).json({ error: 'Forbidden' });
-  }
+  if (!(await isOwnerReq(req))) return res.status(403).json({ error: 'Forbidden' });
   try {
     const flags = await db.getRecentCollusionFlags(100);
     res.json({ flags, live: collusion.topPairs(25), config: collusion._config });
@@ -560,9 +590,7 @@ app.get('/api/admin/collusion', async (req, res) => {
 // Owner-only: where deposited SOL actually is (withdraw wallet vs sweep destination vs
 // your own Privy deposit wallet). Pinpoints "balance credited but escrow empty".
 app.get('/api/admin/escrow', async (req, res) => {
-  if (!req.isAuthenticated() || req.user.googleId !== process.env.OWNER_GOOGLE_ID) {
-    return res.status(403).json({ error: 'Forbidden' });
-  }
+  if (!(await isOwnerReq(req))) return res.status(403).json({ error: 'Forbidden' });
   try {
     const diag = await Wallet.getEscrowDiagnostics();
     if (req.user.walletAddress) {
@@ -577,9 +605,7 @@ app.get('/api/admin/escrow', async (req, res) => {
 
 // Owner-only: live solvency snapshot (escrow vs custodial ledger + live self-custody stakes).
 app.get('/api/admin/solvency', async (req, res) => {
-  if (!req.isAuthenticated() || req.user.googleId !== process.env.OWNER_GOOGLE_ID) {
-    return res.status(403).json({ error: 'Forbidden' });
-  }
+  if (!(await isOwnerReq(req))) return res.status(403).json({ error: 'Forbidden' });
   await checkSolvency();
   res.json(_lastSolvency || { error: 'no data yet' });
 });
@@ -697,9 +723,7 @@ const lobbyConnections = new Set();
 collusion.init({
   db,
   onFlag: (flag) => {
-    const owner = process.env.OWNER_GOOGLE_ID;
-    if (!owner) return;
-    const s = lobbySocketsByGoogleId.get(owner);
+    const s = lobbySocketsByGoogleId.get(OWNER_WALLET) || lobbySocketsByGoogleId.get(process.env.OWNER_GOOGLE_ID);
     if (s) s.emit('admin:collusion_flag', flag);
   },
 });
@@ -732,8 +756,7 @@ async function checkSolvency() {
     _lastSolvency = { escrowSol: escrow, liveStakesSol: liveStakes, requiredSol: liveStakes, surplusSol: surplus, solvent, ts: Date.now() };
     if (!solvent) {
       console.warn(`[SOLVENCY] SHORTFALL ${(-surplus).toFixed(6)} SOL — escrow ${escrow.toFixed(6)} < live stakes ${liveStakes.toFixed(6)}`);
-      const owner = process.env.OWNER_GOOGLE_ID;
-      const s = owner && lobbySocketsByGoogleId.get(owner);
+      const s = lobbySocketsByGoogleId.get(OWNER_WALLET) || lobbySocketsByGoogleId.get(process.env.OWNER_GOOGLE_ID);
       if (s) s.emit('admin:solvency_alert', _lastSolvency);
     }
   } catch (e) {
@@ -957,10 +980,9 @@ io.on('connection', (socket) => {
 
   socket.on('ping_check', () => socket.emit('pong_check'));
 
-  socket.on('admin:spawnbot', async ({ count } = {}) => {
-    const ownerGoogleId = process.env.OWNER_GOOGLE_ID;
-    const verifiedGoogleId = socket.request.user?.googleId || socket._googleId;
-    if (!ownerGoogleId || verifiedGoogleId !== ownerGoogleId) return;
+  socket.on('admin:spawnbot', async ({ count, idToken } = {}) => {
+    const legacyOwner = !!process.env.OWNER_GOOGLE_ID && (socket.request.user?.googleId || socket._googleId) === process.env.OWNER_GOOGLE_ID;
+    if (!legacyOwner && !(await isOwnerToken(idToken))) return;
     const n = Math.min(Math.max(1, parseInt(count) || 1), 10);
     const room = socket._room || gameRooms['na']['free'];
 
@@ -1023,10 +1045,9 @@ io.on('connection', (socket) => {
     broadcastLobbyState();
   });
 
-  socket.on('cell:spawnbot', async () => {
-    const ownerGoogleId = process.env.OWNER_GOOGLE_ID;
-    const verifiedGoogleId = socket.request.user?.googleId || socket._googleId;
-    if (!ownerGoogleId || verifiedGoogleId !== ownerGoogleId) return;
+  socket.on('cell:spawnbot', async ({ idToken } = {}) => {
+    const legacyOwner = !!process.env.OWNER_GOOGLE_ID && (socket.request.user?.googleId || socket._googleId) === process.env.OWNER_GOOGLE_ID;
+    if (!legacyOwner && !(await isOwnerToken(idToken))) return;
     const room = socket._agarRoom || agarRooms['na']['free'];
 
     // Determine lobby type from room name (e.g. 'agar_dime' → 'dime')
