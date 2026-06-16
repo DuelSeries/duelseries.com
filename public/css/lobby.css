@@ -100,7 +100,6 @@ body {
 .topbar-welcome strong { color: var(--gold); }
 .topbar-right { display: flex; align-items: center; gap: 10px; }
 #topbar-user { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: #ccc; }
-#topbar-avatar { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; }
 .btn-google-top {
   display: flex; align-items: center; gap: 6px;
   background: #fff; color: #333;

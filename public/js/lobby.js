@@ -513,9 +513,6 @@ function showLobby() {
   document.getElementById('player-name').value          = savedName;
   document.getElementById('topbar-name').textContent    = savedName;
 
-  // Topbar avatar
-  const tav = document.getElementById('topbar-avatar');
-  if (account && account.avatar) { tav.src = account.avatar; }
   document.getElementById('topbar-username').textContent = savedName;
   // Show the Log In button or the user controls depending on wallet connection.
   renderTopbarAuth();
