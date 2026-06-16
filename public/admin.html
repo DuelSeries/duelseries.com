@@ -41,13 +41,6 @@
 <div class="container">
   <h1>Finance Overview</h1>
   <div id="content" class="loading">Loading...</div>
-
-  <div class="section-title">Fix Broken Wallet</div>
-  <div class="input-row">
-    <input type="email" id="reset-email" placeholder="player@gmail.com">
-    <button class="btn-action" onclick="resetWallet()">Reset Wallet</button>
-  </div>
-  <div id="wallet-result" class="wallet-result" style="display:none;"></div>
 </div>
 <script>
 async function load() {
@@ -60,12 +53,7 @@ async function load() {
     ]);
 
     if (finRes.status === 403) {
-      let dbg = '';
-      try {
-        const w = await (await fetch('/api/whoami', _t ? { headers: { Authorization: 'Bearer ' + _t } } : undefined)).json();
-        dbg = '<pre style="text-align:left;font-size:11px;white-space:pre-wrap;word-break:break-all;background:#0a0e1a;color:#cfe3ff;padding:10px;border-radius:8px;margin-top:12px">' + JSON.stringify(w, null, 2).replace(/</g, '&lt;') + '</pre>';
-      } catch (_) {}
-      content.innerHTML = '<div class="error">Not authorized. Connect your owner wallet on the lobby, then reload this page.</div>' + dbg;
+      content.innerHTML = '<div class="error">Not authorized. Connect your owner wallet on the lobby, then reload this page.</div>';
       return;
     }
 
@@ -115,31 +103,6 @@ async function load() {
   }
 }
 load();
-
-async function resetWallet() {
-  const email = document.getElementById('reset-email').value.trim();
-  const resultEl = document.getElementById('wallet-result');
-  if (!email) { resultEl.style.display = 'block'; resultEl.className = 'wallet-result err'; resultEl.textContent = 'Enter an email.'; return; }
-  resultEl.style.display = 'block'; resultEl.className = 'wallet-result'; resultEl.textContent = 'Working...';
-  try {
-    const res = await fetch('/admin/reset-wallet', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email }),
-    });
-    const data = await res.json();
-    if (data.success) {
-      resultEl.className = 'wallet-result ok';
-      resultEl.textContent = `✓ New wallet for ${data.email}: ${data.address}`;
-    } else {
-      resultEl.className = 'wallet-result err';
-      resultEl.textContent = data.error + (data.clearedOldWallet ? ' (old wallet cleared — Privy API failed)' : '');
-    }
-  } catch (e) {
-    resultEl.className = 'wallet-result err';
-    resultEl.textContent = 'Request failed: ' + e.message;
-  }
-}
 </script>
 </body>
 </html>

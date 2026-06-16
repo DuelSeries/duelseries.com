@@ -3,11 +3,6 @@ const express    = require('express');
 const http       = require('http');
 const { Server } = require('socket.io');
 const path       = require('path');
-const session    = require('express-session');
-const passport   = require('passport');
-const cookieParser = require('cookie-parser');
-const pgSession = require('connect-pg-simple')(session);
-const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const { rateLimit } = require('express-rate-limit');
 const C        = require('../shared/constants');
 const GameRoom = require('./GameRoom');
@@ -17,7 +12,6 @@ const db     = require('./db');
 const collusion = require('./CollusionMonitor');
 const Wallet = require('./Wallet');
 const allTimeLb = require('./leaderboard');
-const { sendVerificationCode } = require('./Email');
 const prices = require('./prices');
 
 const REGION = process.env.REGION || 'na';
@@ -77,80 +71,10 @@ app.set('trust proxy', 1); // Render runs behind a proxy
   console.warn('[DB] Could not connect — sessions may not persist');
 })();
 
-// ─── Session & Passport ───────────────────────────────────────────────────────
-app.use(cookieParser(process.env.SESSION_SECRET || 'duelseries-dev-secret'));
-const sessionMiddleware = session({
-  store: new pgSession({
-    pool: db.pool,
-    createTableIfMissing: true,
-  }),
-  secret: process.env.SESSION_SECRET || 'duelseries-dev-secret',
-  resave: false,
-  saveUninitialized: false,
-  cookie: {
-    maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
-    secure: true,
-    sameSite: 'lax',
-  },
-});
-app.use(sessionMiddleware);
-app.use(passport.initialize());
-app.use(passport.session());
-
-// Auto-login via trusted device cookie for all routes
-app.use(async (req, res, next) => {
-  if (req.isAuthenticated()) return next();
-  const deviceToken = req.cookies.ds_device;
-  if (!deviceToken) return next();
-  try {
-    const googleId = await db.getGoogleIdByDeviceToken(deviceToken);
-    if (googleId) {
-      const account = await db.getAccountByGoogleId(googleId);
-      if (account) {
-        await new Promise((resolve, reject) =>
-          req.login(account, err => err ? reject(err) : resolve())
-        );
-        await new Promise((resolve, reject) =>
-          req.session.save(err => err ? reject(err) : resolve())
-        );
-      }
-    }
-  } catch (e) {
-    console.error('[AUTO-LOGIN] Middleware error:', e.message);
-  }
-  next();
-});
-
-// Share session + passport with Socket.io using engine.use() for real req/res
-io.engine.use(sessionMiddleware);
-io.engine.use(passport.initialize());
-io.engine.use(passport.session());
-
-passport.use(new GoogleStrategy({
-  clientID:     process.env.GOOGLE_CLIENT_ID     || 'PLACEHOLDER',
-  clientSecret: process.env.GOOGLE_CLIENT_SECRET || 'PLACEHOLDER',
-  callbackURL:  process.env.GOOGLE_CALLBACK_URL  || 'http://localhost:3000/auth/google/callback',
-}, async (accessToken, refreshToken, profile, done) => {
-  try {
-    const account = await db.getOrCreateAccount({
-      googleId: profile.id,
-      email:    profile.emails?.[0]?.value || '',
-      name:     '',
-      avatar:   profile.photos?.[0]?.value || '',
-    });
-    done(null, account);
-  } catch (e) { done(e); }
-}));
-
-passport.serializeUser((user, done) => done(null, user.googleId));
-passport.deserializeUser(async (id, done) => {
-  try {
-    const acc = await db.getAccountByGoogleId(id);
-    done(null, acc || false);
-  } catch (e) { done(e); }
-});
-
-// ─── Privy server-side auth (Phase B: Privy is the login) ──────────────────────
+// ─── Privy server-side auth (Phase B: Privy is the ONLY login) ─────────────────
+// Passport/Google OAuth, express-session, the trusted-device auto-login, and the
+// Socket.io session sharing were all removed in Phase B2 — identity is the Privy
+// wallet now (verified below), so there is no server session to maintain.
 let PrivyClient = null;
 try { ({ PrivyClient } = require('@privy-io/server-auth')); }
 catch (e) { console.warn('[AUTH] @privy-io/server-auth unavailable — owner token auth disabled:', e.message); }
@@ -181,194 +105,17 @@ async function isOwnerToken(idToken) {
   const wallet = await walletFromIdToken(idToken);
   return !!wallet && OWNER_WALLETS.has(wallet);
 }
-// Owner check for HTTP routes — a verified Privy id token (wallet === OWNER_WALLET) OR the
-// legacy Google session (kept during Phase B1; removed in B2).
+// Owner check for HTTP routes — a verified Privy id token whose wallet is an owner wallet.
 async function isOwnerReq(req) {
-  if (req.isAuthenticated && req.isAuthenticated() && req.user && req.user.googleId === process.env.OWNER_GOOGLE_ID) return true;
   const auth = req.headers.authorization || '';
   const idToken = auth.startsWith('Bearer ') ? auth.slice(7) : (req.headers['privy-id-token'] || null);
   return isOwnerToken(idToken);
 }
 
-// Debug: what does the server resolve from your Privy token? Diagnoses owner auth. (Temporary.)
-app.get('/api/whoami', async (req, res) => {
-  const auth = req.headers.authorization || '';
-  const token = auth.startsWith('Bearer ') ? auth.slice(7) : (req.headers['privy-id-token'] || null);
-  const out = { hasToken: !!token, serverAuthLoaded: !!privyServer, ownerWallets: [...OWNER_WALLETS] };
-  if (token && privyServer) {
-    try {
-      const claims = await privyServer.verifyAuthToken(token);
-      out.userId = claims.userId;
-      const user = await privyServer.getUser(claims.userId);
-      out.wallets = (user.linkedAccounts || [])
-        .filter(a => a && a.type === 'wallet')
-        .map(a => ({ chainType: a.chainType, chain_type: a.chain_type, address: a.address, client: a.walletClientType }));
-      out.resolvedWallet = await walletFromIdToken(token);
-      out.isOwner = OWNER_WALLETS.has(out.resolvedWallet);
-    } catch (e) { out.error = String(e.message || e); }
-  }
-  res.json(out);
-});
-
-// ─── Auth routes ──────────────────────────────────────────────────────────────
-app.get('/auth/google',
-  passport.authenticate('google', { scope: ['profile', 'email'] })
-);
-app.get('/auth/google/callback',
-  passport.authenticate('google', { failureRedirect: '/?error=auth' }),
-  async (req, res) => {
-    try {
-      const deviceToken = req.cookies.ds_device;
-      console.log(`[2FA] Login attempt for ${req.user.googleId}, cookie: ${deviceToken ? deviceToken.slice(0,8)+'...' : 'NONE'}`);
-      const trusted = await db.isDeviceTrusted(req.user.googleId, deviceToken);
-      console.log(`[2FA] Device trusted: ${trusted}`);
-      if (trusted) return res.redirect('/');
-
-      // Device was previously verified for a different account — skip 2FA, trust this account too
-      if (req.cookies.ds_device_verified === 'true') {
-        const token = await db.addTrustedDevice(req.user.googleId);
-        res.cookie('ds_device', token, {
-          httpOnly: true,
-          maxAge: 30 * 24 * 60 * 60 * 1000,
-          sameSite: 'lax',
-          secure: true,
-        });
-        return res.redirect('/');
-      }
-
-      // New device — send 2FA code
-      const code = String(Math.floor(100000 + Math.random() * 900000));
-      await db.saveVerificationCode(req.user.googleId, code);
-      const pendingId = req.user.googleId;
-      const emailAddr = req.user.email;
-      // Use a signed cookie for pending 2FA — more reliable than session
-      // since session state can be lost across OAuth redirects on new devices.
-      delete req.session.passport;
-      req.user = null;
-      res.cookie('ds_2fa_pending', pendingId, {
-        signed: true,
-        httpOnly: true,
-        maxAge: 10 * 60 * 1000, // 10 minutes
-        sameSite: 'lax',
-        secure: process.env.NODE_ENV === 'production',
-      });
-      res.redirect('/verify.html');
-      sendVerificationCode(emailAddr, code).catch(e =>
-        console.error('[2FA] Email send failed:', e.message)
-      );
-    } catch (e) {
-      console.error('[2FA] Error in callback:', e.message);
-      res.redirect('/?error=auth');
-    }
-  }
-);
-app.get('/auth/logout', (req, res) => {
-  req.logout(() => {
-    res.clearCookie('ds_device');
-    res.redirect('/');
-  });
-});
-app.get('/auth/me', async (req, res) => {
-  if (req.isAuthenticated()) return res.json({ loggedIn: true, account: req.user });
-  if (req.signedCookies.ds_2fa_pending || req.session.pendingVerification) return res.json({ loggedIn: false, needsVerification: true });
-
-  // Auto-login via trusted device cookie — no button press needed
-  const deviceToken = req.cookies.ds_device;
-  console.log(`[AUTO-LOGIN] cookies: ${JSON.stringify(Object.keys(req.cookies))}, ds_device: ${deviceToken ? deviceToken.slice(0,8)+'...' : 'NONE'}`);
-  if (deviceToken) {
-    try {
-      const googleId = await db.getGoogleIdByDeviceToken(deviceToken);
-      console.log(`[AUTO-LOGIN] googleId found: ${googleId || 'NONE'}`);
-      if (googleId) {
-        const account = await db.getAccountByGoogleId(googleId);
-        if (account) {
-          await new Promise((resolve, reject) =>
-            req.login(account, err => err ? reject(err) : resolve())
-          );
-          await new Promise((resolve, reject) =>
-            req.session.save(err => err ? reject(err) : resolve())
-          );
-          console.log(`[AUTO-LOGIN] Success for ${account.name}`);
-          return res.json({ loggedIn: true, account });
-        }
-      }
-    } catch (e) {
-      console.error('[AUTO-LOGIN] Error:', e.message);
-    }
-  }
-
-  res.json({ loggedIn: false });
-});
-
-// ─── 2FA verify routes ────────────────────────────────────────────────────────
-
-app.post('/auth/verify', express.json(), async (req, res) => {
-  const googleId = req.signedCookies.ds_2fa_pending || req.session.pendingVerification;
-  if (!googleId) return res.status(400).json({ error: 'No pending verification' });
-
-  const code = (req.body.code || '').trim();
-  const valid = await db.verifyCode(googleId, code);
-  if (!valid) return res.status(400).json({ error: 'Invalid or expired code' });
-
-  // Code correct — log user in, issue trusted device cookie
-  const account = await db.getAccountByGoogleId(googleId);
-  if (!account) return res.status(500).json({ error: 'Account not found' });
-
-  res.clearCookie('ds_2fa_pending');
-  req.session.pendingVerification = null;
-  const token = await db.addTrustedDevice(googleId);
-
-  res.cookie('ds_device', token, {
-    httpOnly: true,
-    maxAge:   30 * 24 * 60 * 60 * 1000, // 30 days
-    sameSite: 'lax',
-    secure:   process.env.NODE_ENV === 'production',
-  });
-  // Long-lived device marker — never cleared on logout so switching accounts skips 2FA
-  res.cookie('ds_device_verified', 'true', {
-    httpOnly: true,
-    maxAge:   365 * 24 * 60 * 60 * 1000, // 1 year
-    sameSite: 'lax',
-    secure:   process.env.NODE_ENV === 'production',
-  });
-
-  await new Promise((resolve, reject) =>
-    req.login(account, err => err ? reject(err) : resolve())
-  );
-  await new Promise((resolve, reject) =>
-    req.session.save(err => err ? reject(err) : resolve())
-  );
-
-  res.json({ ok: true });
-});
-
-app.post('/auth/resend-code', express.json(), async (req, res) => {
-  const googleId = req.signedCookies.ds_2fa_pending || req.session.pendingVerification;
-  if (!googleId) return res.status(400).json({ error: 'No pending verification' });
-
-  const account = await db.getAccountByGoogleId(googleId);
-  if (!account) return res.status(500).json({ error: 'Account not found' });
-
-  const code = String(Math.floor(100000 + Math.random() * 900000));
-  await db.saveVerificationCode(googleId, code);
-  await sendVerificationCode(account.email, code);
-  res.json({ ok: true });
-});
-
 app.use(express.json());
-
-app.post('/auth/update-name', async (req, res) => {
-  if (!req.isAuthenticated()) return res.status(401).json({ error: 'Not logged in' });
-  const name = (req.body.name || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 20);
-  if (!name || name.length < 3) return res.status(400).json({ error: 'Name must be at least 3 characters' });
-  const taken = await db.isNameTaken(name, req.user.googleId);
-  if (taken) return res.status(400).json({ error: 'Name already taken' });
-  const acc = await db.saveAccount(req.user.googleId, { name });
-  req.user.name = acc.name;
-  allTimeLb.rename(req.user.googleId, acc.name);
-  db.pushNameHistory(req.user.googleId, name).catch(() => {});
-  res.json({ account: acc });
-});
+// (Phase B2: all /auth/* routes — Google OAuth, logout, /auth/me, the 2FA verify/resend
+// flow, and /auth/update-name — were removed. Login is Privy-only; the display name is a
+// client-side localStorage value, no longer a server-validated account field.)
 
 // ─── Prices API ───────────────────────────────────────────────────────────────
 app.get('/api/prices', (req, res) => {
@@ -619,10 +366,6 @@ app.get('/api/admin/escrow', async (req, res) => {
   if (!(await isOwnerReq(req))) return res.status(403).json({ error: 'Forbidden' });
   try {
     const diag = await Wallet.getEscrowDiagnostics();
-    if (req.user.walletAddress) {
-      diag.yourPrivyWallet = req.user.walletAddress;
-      diag.yourPrivyWalletBalanceSol = await Wallet.getAddressBalance(req.user.walletAddress);
-    }
     res.json(diag);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -698,10 +441,13 @@ app.get('/api/players/search', async (req, res) => {
 });
 
 app.get('/api/my-profile', async (req, res) => {
-  if (!req.isAuthenticated()) return res.status(401).json({ error: 'Not logged in' });
+  // Identity is the Privy wallet now — the client passes its address. Stats/earnings are
+  // recorded under the wallet (recordGameResult / recordEarnings), so this resolves them.
+  const wallet = (req.query.wallet || '').trim();
+  if (!wallet) return res.status(401).json({ error: 'No wallet' });
   try {
-    const profile = await db.getMyProfile(req.user.googleId);
-    if (!profile) return res.status(404).json({ error: 'Profile not found' });
+    const profile = await db.getMyProfile(wallet);
+    if (!profile) return res.json({ totalEarnings: 0, gamesPlayed: 0, playTimeSeconds: 0, nameHistory: [], games: [] });
     res.json(profile);
   } catch (e) {
     console.error('[MY-PROFILE]', e.message);
@@ -749,7 +495,7 @@ const lobbyConnections = new Set();
 collusion.init({
   db,
   onFlag: (flag) => {
-    const s = lobbySocketsByGoogleId.get(OWNER_WALLET) || lobbySocketsByGoogleId.get(process.env.OWNER_GOOGLE_ID);
+    const s = lobbySocketsByGoogleId.get(OWNER_WALLET);
     if (s) s.emit('admin:collusion_flag', flag);
   },
 });
@@ -782,7 +528,7 @@ async function checkSolvency() {
     _lastSolvency = { escrowSol: escrow, liveStakesSol: liveStakes, requiredSol: liveStakes, surplusSol: surplus, solvent, ts: Date.now() };
     if (!solvent) {
       console.warn(`[SOLVENCY] SHORTFALL ${(-surplus).toFixed(6)} SOL — escrow ${escrow.toFixed(6)} < live stakes ${liveStakes.toFixed(6)}`);
-      const s = lobbySocketsByGoogleId.get(OWNER_WALLET) || lobbySocketsByGoogleId.get(process.env.OWNER_GOOGLE_ID);
+      const s = lobbySocketsByGoogleId.get(OWNER_WALLET);
       if (s) s.emit('admin:solvency_alert', _lastSolvency);
     }
   } catch (e) {
@@ -849,8 +595,8 @@ io.on('connection', (socket) => {
       if (existingSnake && existingSnake.alive) return;
     }
     const playerName = (name || 'Player').slice(0, 20);
-    // Always prefer the server-verified session ID over the client-supplied one
-    const verifiedId = socket.request.user?.googleId || googleId || null;
+    // Identity = the wallet address the client sends as googleId (self-custody single login).
+    const verifiedId = googleId || null;
     if (verifiedId) {
       socket._googleId = verifiedId;
       lobbySocketsByGoogleId.set(verifiedId, socket);
@@ -1007,8 +753,7 @@ io.on('connection', (socket) => {
   socket.on('ping_check', () => socket.emit('pong_check'));
 
   socket.on('admin:spawnbot', async ({ count, idToken } = {}) => {
-    const legacyOwner = !!process.env.OWNER_GOOGLE_ID && (socket.request.user?.googleId || socket._googleId) === process.env.OWNER_GOOGLE_ID;
-    if (!legacyOwner && !(await isOwnerToken(idToken))) return;
+    if (!(await isOwnerToken(idToken))) return;
     const n = Math.min(Math.max(1, parseInt(count) || 1), 10);
     const room = socket._room || gameRooms['na']['free'];
 
@@ -1045,8 +790,8 @@ io.on('connection', (socket) => {
 
   // ── Agar events ──────────────────────────────────────────────────────────
   socket.on('cell:join', ({ name, color, lobbyType, googleId, region, entryToken } = {}) => {
-    // Always prefer the server-verified session ID over the client-supplied one
-    const verifiedId = socket.request.user?.googleId || googleId || null;
+    // Identity = the wallet address the client sends as googleId (self-custody single login).
+    const verifiedId = googleId || null;
     if (verifiedId) {
       socket._googleId = verifiedId;
       lobbySocketsByGoogleId.set(verifiedId, socket);
@@ -1072,8 +817,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('cell:spawnbot', async ({ idToken } = {}) => {
-    const legacyOwner = !!process.env.OWNER_GOOGLE_ID && (socket.request.user?.googleId || socket._googleId) === process.env.OWNER_GOOGLE_ID;
-    if (!legacyOwner && !(await isOwnerToken(idToken))) return;
+    if (!(await isOwnerToken(idToken))) return;
     const room = socket._agarRoom || agarRooms['na']['free'];
 
     // Determine lobby type from room name (e.g. 'agar_dime' → 'dime')

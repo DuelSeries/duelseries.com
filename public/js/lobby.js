@@ -345,55 +345,21 @@ function emitLobbyJoin() {
 window.addEventListener('duelwallet:change', emitLobbyJoin);
 let walletAddress = null;
 
-// ─── Login modal ──────────────────────────────────────────────────────────────
-function showLoginModal() {
-  document.getElementById('login-modal').classList.remove('hidden');
-}
-function hideLoginModal() {
-  document.getElementById('login-modal').classList.add('hidden');
-}
-document.getElementById('btn-close-login-modal').addEventListener('click', hideLoginModal);
-document.getElementById('login-modal').addEventListener('click', (e) => {
-  if (e.target === e.currentTarget) hideLoginModal();
-});
-document.getElementById('btn-login-modal').addEventListener('click', showLoginModal);
-
-// Sign Out → log out of Privy (the login now); also clear any legacy Google session + the
-// cached admin token, then reload to a clean signed-out state.
+// Sign Out → log out of Privy (the only login now) + clear the cached admin token,
+// then reload to a clean signed-out state.
 document.querySelectorAll('.btn-signout').forEach((btn) => {
   btn.addEventListener('click', async (e) => {
     e.preventDefault();
     try { if (window.duelWalletLogout) await window.duelWalletLogout(); } catch (_) {}
-    try { await fetch('/auth/logout'); } catch (_) {}
     try { localStorage.removeItem('duel_admin_token'); } catch (_) {}
     location.reload();
   });
 });
 
-// ─── Guest mode (not logged in) ───────────────────────────────────────────────
-function showGuestMode() {
-  // Phase B/C: Privy is the login — the name box and the (self-custody) wallet card work
-  // without a Google account, so we no longer lock them or disable the name input.
-  showArrows();
-}
-
-// Check if logged in via Google session
-fetch('/auth/me')
-  .then(r => r.json())
-  .then(({ loggedIn, account: acc }) => {
-    if (loggedIn && acc) {
-      account = acc;
-      showLobby();
-    } else {
-      showGuestMode();
-    }
-  })
-  .catch(() => { showGuestMode(); });
-
-// Check for auth error param
-if (new URLSearchParams(location.search).get('error') === 'auth') {
-  alert('Google sign-in failed. Please try again.');
-}
+// Privy is the only login now — there's no Google session to check. Render the lobby
+// immediately; the wallet card (Privy) drives connect/balance, and the name comes from
+// localStorage. Playing a money lobby still requires a connected wallet (gated at Play).
+showLobby();
 
 // ─── Region selection ─────────────────────────────────────────────────────────
 let selectedRegion = localStorage.getItem('duelseries_region') || 'na';
@@ -536,29 +502,28 @@ arrowLeft.addEventListener('click',  () => switchLobby(-1));
 
 // ─── Lobby UI ─────────────────────────────────────────────────────────────────
 function showLobby() {
-  hideLoginModal();
   showArrows();
 
-  document.getElementById('stat-highscore').textContent   = account.highScore     || 0;
-  document.getElementById('stat-games').textContent       = account.gamesPlayed   || 0;
-  document.getElementById('stat-highscore-2').textContent = account.agarHighScore   || 0;
-  document.getElementById('stat-games-2').textContent     = account.agarGamesPlayed || 0;
-  const savedName = account.name || localStorage.getItem('duelseries_playername') || '';
+  const savedName = (account && account.name) || localStorage.getItem('duelseries_playername') || '';
+  document.getElementById('stat-highscore').textContent   = (account && account.highScore)      || 0;
+  document.getElementById('stat-games').textContent       = (account && account.gamesPlayed)    || 0;
+  document.getElementById('stat-highscore-2').textContent = (account && account.agarHighScore)  || 0;
+  document.getElementById('stat-games-2').textContent     = (account && account.agarGamesPlayed) || 0;
   document.getElementById('player-name').value          = savedName;
-  document.getElementById('topbar-name').textContent    = account.name || '';
+  document.getElementById('topbar-name').textContent    = savedName;
 
   // Topbar avatar
   const tav = document.getElementById('topbar-avatar');
-  if (account.avatar) { tav.src = account.avatar; }
+  if (account && account.avatar) { tav.src = account.avatar; }
   document.getElementById('topbar-user').classList.remove('hidden');
-  document.getElementById('topbar-login-btn').classList.add('hidden');
-  document.getElementById('topbar-username').textContent = account.name || '';
+  const loginBtn = document.getElementById('topbar-login-btn');
+  if (loginBtn) loginBtn.classList.add('hidden');
+  document.getElementById('topbar-username').textContent = savedName;
 
   // Populate lobby 2 fields with same data
-  const savedName2 = account.name || localStorage.getItem('duelseries_playername') || '';
-  document.getElementById('player-name-2').value = savedName2;
+  document.getElementById('player-name-2').value = savedName;
 
-  setBalance(account.balance || 0);
+  setBalance((account && account.balance) || 0);
   emitLobbyJoin();
   fetchGlobalWinnings();
 
@@ -609,41 +574,26 @@ function setNameMsg(el, text, type) {
   el.classList.toggle('is-success', type === 'success');
 }
 
-async function saveName(inputId, errorId, btnId) {
-  const input   = document.getElementById(inputId);
-  const msgEl   = document.getElementById(errorId);
-  const btn     = document.getElementById(btnId);
-  const name    = input.value.replace(/[^a-zA-Z0-9]/g, '');
+function saveName(inputId, errorId, btnId) {
+  const input = document.getElementById(inputId);
+  const msgEl = document.getElementById(errorId);
+  const name  = input.value.replace(/[^a-zA-Z0-9]/g, '');
   setNameMsg(msgEl, '', '');
-  if (!name) { setNameMsg(msgEl, 'Name cannot be empty.', 'error'); return; }
-  btn.disabled = true;
-  try {
-    const res  = await fetch('/auth/update-name', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name }),
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      const msg = (data.error || '').toLowerCase().includes('taken')
-        ? 'This name is already taken.'
-        : (data.error || 'Could not save name.');
-      setNameMsg(msgEl, msg, 'error');
-      return;
-    }
-    account = data.account;
-    document.getElementById('player-name').value           = account.name;
-    document.getElementById('player-name-2').value         = account.name;
-    document.getElementById('topbar-name').textContent     = account.name;
-    document.getElementById('topbar-username').textContent = account.name;
-    setNameMsg(document.getElementById('name-error'),   'Successfully saved!', 'success');
-    setNameMsg(document.getElementById('name-error-2'), 'Successfully saved!', 'success');
-    setTimeout(() => {
-      setNameMsg(document.getElementById('name-error'),   '', '');
-      setNameMsg(document.getElementById('name-error-2'), '', '');
-    }, 3000);
-  } catch { setNameMsg(msgEl, 'Network error. Try again.', 'error'); }
-  finally  { btn.disabled = false; }
+  if (!name)           { setNameMsg(msgEl, 'Name cannot be empty.', 'error'); return; }
+  if (name.length < 3) { setNameMsg(msgEl, 'Name must be at least 3 characters.', 'error'); return; }
+  // Privy-only: the name is a local display value (the wallet is the identity). Save it to
+  // localStorage, where the wallet widget reads it when launching a game.
+  localStorage.setItem('duelseries_playername', name);
+  document.getElementById('player-name').value           = name;
+  document.getElementById('player-name-2').value         = name;
+  document.getElementById('topbar-name').textContent     = name;
+  document.getElementById('topbar-username').textContent = name;
+  setNameMsg(document.getElementById('name-error'),   'Successfully saved!', 'success');
+  setNameMsg(document.getElementById('name-error-2'), 'Successfully saved!', 'success');
+  setTimeout(() => {
+    setNameMsg(document.getElementById('name-error'),   '', '');
+    setNameMsg(document.getElementById('name-error-2'), '', '');
+  }, 3000);
 }
 
 document.getElementById('btn-save-name').addEventListener('click',   () => saveName('player-name',   'name-error',   'btn-save-name'));
@@ -2207,21 +2157,19 @@ document.getElementById('btn-spectate-lobby-2').addEventListener('click', () => 
   }
 
   function openModal() {
-    if (!account) return;
+    const wallet = (window.duelWallet && window.duelWallet.address) || null;
+    if (!wallet) { alert('Connect your wallet to view your profile.'); return; }
     modal.style.display = 'flex';
     showTab('profile');
 
     const pmAvImg = document.getElementById('pm-avatar-img');
     const pmAvFb  = document.getElementById('pm-avatar-fallback');
-    document.getElementById('pm-name').textContent = account.name || '(no name set)';
-    if (account.avatar) {
-      pmAvImg.src = account.avatar; pmAvImg.classList.remove('hidden'); pmAvFb.classList.add('hidden');
-    } else {
-      pmAvFb.textContent = (account.name || '?')[0].toUpperCase();
-      pmAvFb.classList.remove('hidden'); pmAvImg.classList.add('hidden');
-    }
+    const dispName = localStorage.getItem('duelseries_playername') || (wallet.slice(0, 4) + '…' + wallet.slice(-4));
+    document.getElementById('pm-name').textContent = dispName;
+    pmAvFb.textContent = (dispName || '?')[0].toUpperCase();
+    pmAvFb.classList.remove('hidden'); pmAvImg.classList.add('hidden');
 
-    fetch('/api/my-profile')
+    fetch('/api/my-profile?wallet=' + encodeURIComponent(wallet))
       .then(r => r.json())
       .then(data => {
         profileData = data;
