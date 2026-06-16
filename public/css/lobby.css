@@ -409,6 +409,9 @@ body {
   text-align: center;
 }
 .btn-add-funds:hover { background: rgba(20,241,149,0.1); }
+/* Phase B/C: Privy is the login — the wallet card's "Connect" is the only login, so hide
+   the old Google "Login" button. */
+#btn-login-modal { display: none !important; }
 .btn-cash-out {
   flex: 1; padding: 11px;
   background: var(--purple);

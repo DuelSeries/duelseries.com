@@ -360,14 +360,8 @@ document.getElementById('btn-login-modal').addEventListener('click', showLoginMo
 
 // ─── Guest mode (not logged in) ───────────────────────────────────────────────
 function showGuestMode() {
-  const lockIds = ['btn-add-funds', 'btn-withdraw', 'btn-add-funds-2', 'btn-withdraw-2', 'btn-save-name', 'btn-save-name-2'];
-  lockIds.forEach(id => { const el = document.getElementById(id); if (el) el.classList.add('guest-locked'); });
-  const nameInput  = document.getElementById('player-name');
-  const nameInput2 = document.getElementById('player-name-2');
-  if (nameInput)  { nameInput.disabled  = true; nameInput.placeholder  = 'Sign in to set a name'; }
-  if (nameInput2) { nameInput2.disabled = true; nameInput2.placeholder = 'Sign in to set a name'; }
-  const signout = document.querySelector('.btn-signout');
-  if (signout) signout.style.display = 'none';
+  // Phase B/C: Privy is the login — the name box and the (self-custody) wallet card work
+  // without a Google account, so we no longer lock them or disable the name input.
   showArrows();
 }
 
@@ -981,6 +975,7 @@ document.getElementById('player-name').addEventListener('input', function() {
     const label = document.getElementById(labelId);
     if (label) label.textContent = saved;
   });
+  ['topbar-name', 'topbar-username'].forEach(id => { const el = document.getElementById(id); if (el && !el.textContent) el.textContent = saved; });
 })();
 
 // ─── Lobby type selection ──────────────────────────────────────────────────────
