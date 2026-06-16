@@ -356,10 +356,11 @@ document.querySelectorAll('.btn-signout').forEach((btn) => {
   });
 });
 
-// Privy is the only login now — there's no Google session to check. Render the lobby
-// immediately; the wallet card (Privy) drives connect/balance, and the name comes from
-// localStorage. Playing a money lobby still requires a connected wallet (gated at Play).
-showLobby();
+// Privy is the only login now — there's no Google session to check. Render the lobby once
+// the rest of this script has initialised (deferred so showLobby/showArrows don't touch
+// consts declared further down the file before they exist). The wallet card (Privy) drives
+// connect/balance; playing a money lobby still requires a connected wallet (gated at Play).
+setTimeout(showLobby, 0);
 
 // ─── Region selection ─────────────────────────────────────────────────────────
 let selectedRegion = localStorage.getItem('duelseries_region') || 'na';
@@ -515,10 +516,9 @@ function showLobby() {
   // Topbar avatar
   const tav = document.getElementById('topbar-avatar');
   if (account && account.avatar) { tav.src = account.avatar; }
-  document.getElementById('topbar-user').classList.remove('hidden');
-  const loginBtn = document.getElementById('topbar-login-btn');
-  if (loginBtn) loginBtn.classList.add('hidden');
   document.getElementById('topbar-username').textContent = savedName;
+  // Show the Log In button or the user controls depending on wallet connection.
+  renderTopbarAuth();
 
   // Populate lobby 2 fields with same data
   document.getElementById('player-name-2').value = savedName;
@@ -760,6 +760,22 @@ function renderWalletState() {
 }
 window.addEventListener('duelwallet:change', renderWalletState);
 renderWalletState();
+
+// Top-right login control: show the "Log In" button when no wallet is connected, and the
+// user controls (settings/profile/mute) once Privy is connected. Updated on every wallet change.
+function renderTopbarAuth() {
+  const connected = walletConnected();
+  const loginBtn = document.getElementById('topbar-login-btn');
+  const userBox  = document.getElementById('topbar-user');
+  if (loginBtn) loginBtn.classList.toggle('hidden', connected);
+  if (userBox)  userBox.classList.toggle('hidden', !connected);
+}
+const _topbarLoginBtn = document.getElementById('topbar-login-btn');
+if (_topbarLoginBtn) {
+  _topbarLoginBtn.addEventListener('click', () => { if (window.duelWalletLogin) window.duelWalletLogin(); });
+}
+window.addEventListener('duelwallet:change', renderTopbarAuth);
+renderTopbarAuth();
 
 // Trigger the Privy login if no wallet is connected yet. Returns true if already connected.
 function ensureWallet() {
