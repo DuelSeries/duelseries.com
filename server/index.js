@@ -151,8 +151,10 @@ passport.deserializeUser(async (id, done) => {
 });
 
 // ─── Privy server-side auth (Phase B: Privy is the login) ──────────────────────
-const { PrivyClient } = require('@privy-io/server-auth');
-const privyServer = (process.env.PRIVY_APP_ID && process.env.PRIVY_APP_SECRET)
+let PrivyClient = null;
+try { ({ PrivyClient } = require('@privy-io/server-auth')); }
+catch (e) { console.warn('[AUTH] @privy-io/server-auth unavailable — owner token auth disabled:', e.message); }
+const privyServer = (PrivyClient && process.env.PRIVY_APP_ID && process.env.PRIVY_APP_SECRET)
   ? new PrivyClient(process.env.PRIVY_APP_ID, process.env.PRIVY_APP_SECRET)
   : null;
 const OWNER_WALLET = process.env.OWNER_WALLET || '';
