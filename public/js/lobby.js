@@ -358,6 +358,18 @@ document.getElementById('login-modal').addEventListener('click', (e) => {
 });
 document.getElementById('btn-login-modal').addEventListener('click', showLoginModal);
 
+// Sign Out → log out of Privy (the login now); also clear any legacy Google session + the
+// cached admin token, then reload to a clean signed-out state.
+document.querySelectorAll('.btn-signout').forEach((btn) => {
+  btn.addEventListener('click', async (e) => {
+    e.preventDefault();
+    try { if (window.duelWalletLogout) await window.duelWalletLogout(); } catch (_) {}
+    try { await fetch('/auth/logout'); } catch (_) {}
+    try { localStorage.removeItem('duel_admin_token'); } catch (_) {}
+    location.reload();
+  });
+});
+
 // ─── Guest mode (not logged in) ───────────────────────────────────────────────
 function showGuestMode() {
   // Phase B/C: Privy is the login — the name box and the (self-custody) wallet card work
