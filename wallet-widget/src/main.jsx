@@ -82,7 +82,7 @@ async function stakeAndPlay(game, lobbyType, wallet, signTransaction, onStatus, 
   sessionStorage.setItem('lobbyType', lobbyType);
   sessionStorage.setItem('entryToken', entryToken);
   sessionStorage.setItem('entrySol', String(worthSol));
-  sessionStorage.setItem('region', 'na');
+  sessionStorage.setItem('region', localStorage.getItem('duelseries_region') || 'na'); // honour the lobby's region pick (na/eu)
   sessionStorage.setItem('snakeColor', localStorage.getItem('duelseries_skin_color') || '#14F195');
   sessionStorage.setItem('hatId', localStorage.getItem('duelseries_hat_id') || 'none');
   sessionStorage.setItem('boostId', localStorage.getItem('duelseries_boost_id') || 'default');
