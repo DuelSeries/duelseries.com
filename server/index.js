@@ -142,7 +142,7 @@ app.get('/api/prices', (req, res) => {
 });
 
 // ─── Cross-region stats: EU pushes to NA instantly on every change ────────────
-let remoteStats = { playerCount: 0, agarPlayerCount: 0 };
+let remoteStats = { playerCount: 0, agarPlayerCount: 0, liveStakesSol: 0 };
 const STATS_SECRET = process.env.SESSION_SECRET || 'duelseries-dev-secret';
 
 // Both servers expose their local counts (used by EU to self-report)
@@ -154,7 +154,7 @@ app.get('/api/stats', (req, res) => {
 if (REGION === 'na') {
   app.post('/api/stats/push', express.json(), (req, res) => {
     if (req.headers['x-stats-secret'] !== STATS_SECRET) return res.sendStatus(403);
-    remoteStats = { playerCount: req.body.playerCount || 0, agarPlayerCount: req.body.agarPlayerCount || 0 };
+    remoteStats = { playerCount: req.body.playerCount || 0, agarPlayerCount: req.body.agarPlayerCount || 0, liveStakesSol: req.body.liveStakesSol || 0 };
     broadcastLobbyState();
     res.sendStatus(204);
   });
@@ -168,7 +168,7 @@ async function pushStatsToNA() {
     await fetch(NA_PUSH_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-stats-secret': STATS_SECRET },
-      body: JSON.stringify({ playerCount: totalInGame(), agarPlayerCount: totalAgarInGame() }),
+      body: JSON.stringify({ playerCount: totalInGame(), agarPlayerCount: totalAgarInGame(), liveStakesSol: sumLiveSelfCustodyStakes() }),
       signal: AbortSignal.timeout(3000),
     });
   } catch {}
@@ -241,9 +241,9 @@ app.get('/admin/finance', async (req, res) => {
   try {
     const escrowBalance = await Wallet.getEscrowBalance();
     // Self-custody: the escrow only owes the stakes currently live in-game (players hold
-    // their own funds otherwise). The old `accounts.balance` sum is vestigial custodial
-    // data and would show a phantom liability / false "underfunded" warning, so ignore it.
-    const totalOwed = sumLiveSelfCustodyStakes();
+    // their own funds otherwise). The old `accounts.balance` sum is vestigial custodial data
+    // and would show a phantom liability. Count BOTH regions since the escrow is shared.
+    const totalOwed = totalLiveStakesSol();
     const profit = escrowBalance - totalOwed;
     res.json({ escrowBalance, totalOwed, profit });
   } catch (e) {
@@ -534,10 +534,16 @@ function sumLiveSelfCustodyStakes() {
   }
   return total;
 }
+// The escrow is SHARED across the NA + EU servers, so its true liability is the live stakes
+// on BOTH. Each region's local sum is reported cross-region (remoteStats.liveStakesSol, via
+// the EU→NA push), and the NA dashboard/solvency add them. The owner reads the NA dashboard.
+function totalLiveStakesSol() {
+  return sumLiveSelfCustodyStakes() + (remoteStats.liveStakesSol || 0);
+}
 async function checkSolvency() {
   try {
     const escrow = await Wallet.getEscrowBalance();
-    const liveStakes = sumLiveSelfCustodyStakes();
+    const liveStakes = totalLiveStakesSol();
     const surplus = escrow - liveStakes;
     const solvent = surplus >= -1e-6;
     _lastSolvency = { escrowSol: escrow, liveStakesSol: liveStakes, requiredSol: liveStakes, surplusSol: surplus, solvent, ts: Date.now() };
