@@ -145,19 +145,15 @@ async function isTxUsed(txSig) {
 }
 
 // ─── Withdrawals ──────────────────────────────────────────────────────────────
-// recordWithdrawal stays — used by the paid-bot entry debit (Phase 3, deferred). The
-// custodial deposit/withdraw/settle helpers were removed in Phase 4d.
+// Now used purely as a paid-bot spend ledger (owner expense tracking). The custodial
+// deposit/withdraw/settle helpers + the accounts.balance debit were removed with the
+// custodial system; this just appends a row so bot costs can be totalled later.
 
 async function recordWithdrawal(googleId, txSig, amount, toAddress) {
   await pool.query(
     `INSERT INTO withdrawals (google_id, tx_sig, amount, to_address) VALUES ($1, $2, $3, $4)`,
     [googleId, txSig, amount, toAddress]
   );
-  const res = await pool.query(
-    `UPDATE accounts SET balance = balance - $2 WHERE google_id = $1 RETURNING balance`,
-    [googleId, amount]
-  );
-  return parseFloat(res.rows[0].balance);
 }
 
 // Persist a collusion flag raised by CollusionMonitor for later owner review.
@@ -232,26 +228,6 @@ async function recordAgarGameResult(googleId, score) {
      WHERE google_id = $1`,
     [googleId, score]
   );
-}
-
-async function addAgarEarnings(googleId, sol, cadAmount = 0) {
-  await pool.query(
-    `UPDATE accounts SET agar_total_earnings = agar_total_earnings + $2 WHERE google_id = $1`,
-    [googleId, sol]
-  );
-}
-
-async function getAgarTopEarners(n) {
-  const res = await pool.query(
-    `SELECT google_id AS id, name, agar_total_earnings AS earnings
-     FROM accounts WHERE agar_total_earnings > 0 ORDER BY agar_total_earnings DESC LIMIT $1`,
-    [n]
-  );
-  return res.rows.map((r, i) => ({
-    rank: i + 1,
-    name: r.name,
-    earnings: parseFloat(r.earnings),
-  }));
 }
 
 async function getGlobalWinnings() {
@@ -382,34 +358,14 @@ function dbToAccount(row) {
   };
 }
 
-async function setPrivyWallet(googleId, walletAddress, privyWalletId) {
-  await pool.query(
-    `UPDATE accounts SET wallet_address = $2, privy_wallet_id = $3 WHERE google_id = $1`,
-    [googleId, walletAddress, privyWalletId]
-  );
-}
-
-async function clearPrivyWallet(googleId) {
-  await pool.query(
-    `UPDATE accounts SET wallet_address = NULL, privy_wallet_id = NULL WHERE google_id = $1`,
-    [googleId]
-  );
-}
-
-async function getAccountByEmail(email) {
-  const res = await pool.query('SELECT * FROM accounts WHERE LOWER(email) = LOWER($1)', [email]);
-  return res.rows[0] ? dbToAccount(res.rows[0]) : null;
-}
-
 module.exports = {
   init, pool,
   getAccountByGoogleId, getAccountByWallet,
   saveAccount, recordGameResult, recordAgarGameResult,
-  isTxUsed, recordWithdrawal, setPrivyWallet, clearPrivyWallet, getAccountByEmail,
+  isTxUsed, recordWithdrawal,
   recordCollusionFlag, getRecentCollusionFlags,
   isStakeSigUsed, markStakeSig,
   addEarnings, recordEarnings, getTopEarners,
-  addAgarEarnings, getAgarTopEarners,
   isNameTaken,
   getProfile, getMyProfile, pushNameHistory, searchPlayerNames, getGlobalWinnings,
 };

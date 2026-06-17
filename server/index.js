@@ -395,15 +395,6 @@ app.get('/api/earningsboard', async (req, res) => {
   }
 });
 
-app.get('/api/agar-earningsboard', async (req, res) => {
-  try {
-    const top = await db.getAgarTopEarners(10);
-    res.json(top);
-  } catch (e) {
-    res.json([]);
-  }
-});
-
 app.get('/api/profile/:name', async (req, res) => {
   try {
     const profile = await db.getProfile(req.params.name);
@@ -770,22 +761,19 @@ io.on('connection', (socket) => {
       return;
     }
 
-    // Paid lobby — deduct entry fee from owner wallet per bot
+    // Paid lobby — the bot's stake is funded by the escrow (the owner's own SOL). There's no
+    // custodial balance to debit anymore; just log each bot's cost so it can be tracked as an
+    // owner expense, then spawn the bot carrying the entry worth.
     const feeCad = LOBBY_FEES_CAD[shortType] || 0;
     const feeSol = prices.cadToSol(feeCad);
     let spawned = 0;
     for (let i = 0; i < n; i++) {
       try {
-        const acc = await db.getAccountByGoogleId(ownerGoogleId);
-        if (!acc || acc.balance < feeSol) {
-          socket.emit('admin:ack', { message: `Spawned ${spawned}/${n} — insufficient balance` });
-          return;
-        }
-        await db.recordWithdrawal(ownerGoogleId, null, feeSol, 'paid_bot_entry');
+        await db.recordWithdrawal(OWNER_WALLET, null, feeSol, 'paid_bot_entry');
         room.addPaidBot(feeSol);
         spawned++;
       } catch (e) {
-        console.error('[BOT] Paid bot fee failed:', e.message);
+        console.error('[BOT] Paid bot spawn failed:', e.message);
         break;
       }
     }
@@ -832,16 +820,11 @@ io.on('connection', (socket) => {
     if (feeCad > 0) {
       const feeSol = prices.cadToSol(feeCad);
       try {
-        const acc = await db.getAccountByGoogleId(ownerGoogleId);
-        if (!acc || acc.balance < feeSol) {
-          socket.emit('admin:ack', { message: 'Insufficient balance for paid bot' });
-          return;
-        }
-        await db.recordWithdrawal(ownerGoogleId, null, feeSol, 'paid_agar_bot_entry');
+        await db.recordWithdrawal(OWNER_WALLET, null, feeSol, 'paid_agar_bot_entry');
         room.addPaidBot(feeCad);
         broadcastLobbyState();
       } catch (e) {
-        console.error('[AGAR BOT] Paid bot fee failed:', e.message);
+        console.error('[AGAR BOT] Paid bot spawn failed:', e.message);
       }
     } else {
       room.addBot();
