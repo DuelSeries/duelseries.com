@@ -175,7 +175,6 @@ async function pushStatsToNA() {
 }
 
 // ─── HTTP rate limiters ───────────────────────────────────────────────────────
-const walletDepositLimiter = rateLimit({ windowMs: 5 * 1000, max: 1, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many deposit checks. Wait 5 seconds.' } });
 const walletWithdrawLimiter = rateLimit({ windowMs: 10 * 1000, max: 3, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many withdrawals. Please wait.' } });
 const entryFeeLimiter = rateLimit({ windowMs: 60 * 1000, max: 10, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Slow down.' } });
 // RPC/relay endpoints proxy to our paid Helius node — cap per-IP abuse without breaking the
@@ -348,25 +347,9 @@ app.post('/api/submit-stake', entryFeeLimiter, express.json({ limit: '256kb' }),
   }
 });
 
-// Verify a stake the CLIENT already sent (legacy path; kept for the signAndSend flow).
-app.post('/api/verify-stake', entryFeeLimiter, express.json(), async (req, res) => {
-  const { lobbyType, signature, walletAddress } = req.body || {};
-  const feeCad = LOBBY_FEES_CAD[lobbyType];
-  if (feeCad === undefined || feeCad === 0) return res.status(400).json({ error: 'Not a paid lobby' });
-  try {
-    const feeSol = prices.cadToSol(feeCad);
-    const minLamports = Math.round(feeSol * 1e9 * 0.95); // tolerate small price drift since the quote
-    const { payer, lamports } = await Wallet.verifyStakeTransfer(signature, minLamports);
-    // Atomic one-time claim AFTER verify — closes the double-mint race.
-    if (!(await db.markStakeSig(signature))) return res.status(400).json({ error: 'Stake already used' });
-    const worthSol = lamports / 1e9; // actual staked amount becomes the snake's worth
-    const entryToken = crypto.randomUUID();
-    entryTokens.set(entryToken, { lobbyType, worthSol, walletAddress: walletAddress || payer, exp: Date.now() + ENTRY_TOKEN_MAX_AGE_MS });
-    res.json({ ok: true, entryToken, worthSol });
-  } catch (e) {
-    res.status(400).json({ error: e.message });
-  }
-});
+// (Phase B2 security: the legacy /api/verify-stake endpoint was removed — it duplicated
+// /api/submit-stake's token minting and was unused by the client, so it only widened the
+// attack surface. The silent-sign flow uses /api/submit-stake exclusively.)
 
 // Owner-only: review collusion flags (persisted) + the current live suspicious pairs.
 app.get('/api/admin/collusion', async (req, res) => {
