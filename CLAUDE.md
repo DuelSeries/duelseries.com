@@ -15,6 +15,9 @@ When in doubt, choose the option that makes the game more correct, more secure, 
 - **Commit + push after every change** (this is how the game deploys — see Deploying).
 - Prefer minimal, surgical edits over sweeping rewrites unless a rewrite is clearly the right call for quality/scale.
 
+## Current stage — basically no live players yet
+The game is **pre-launch / personal testing right now — there are almost never any live players on it.** So live-server operations (restarting pm2, redeploying, even renaming the prod directory) are **low-stakes**: don't treat brief downtime or "disconnecting players" as a blocker, and don't let "it's the live money server" paralyze a routine change. Still verify your work — just don't over-worry about player impact, because there essentially isn't any yet. (This will change as the game grows toward the 1,000+ user goal — raise the caution level then.)
+
 ## Workspace Verification
 Before reading or editing, confirm the active workspace is this project — it should contain `server/`, `public/js/`, `shared/constants.js`, and `package.json` (name `duelseries`). The game lives in the `slither-clone/` folder. If there's a mismatch, STOP and ask for the correct path.
 
