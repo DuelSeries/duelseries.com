@@ -224,12 +224,16 @@ app.get('/admin/finance', async (req, res) => {
       Wallet.getEscrowBalance(),
       db.getFinancialSummary(),
     ]);
-    const profit = escrowBalance - summary.totalOwed;
+    // Self-custody: the escrow only owes the stakes currently live in-game (players hold
+    // their own funds otherwise). The old `accounts.balance` sum is vestigial custodial
+    // data and would show a phantom liability / false "underfunded" warning, so ignore it.
+    const totalOwed = sumLiveSelfCustodyStakes();
+    const profit = escrowBalance - totalOwed;
     res.json({
       escrowBalance,
-      totalOwed: summary.totalOwed,
+      totalOwed,
       profit,
-      playersWithBalance: summary.playersWithBalance,
+      playersWithBalance: summary.playersWithBalance, // informational (lifetime accounts w/ a balance)
       totalAccounts: summary.totalAccounts,
     });
   } catch (e) {
@@ -505,8 +509,12 @@ collusion.init({
 // balances PLUS the live self-custody stakes currently sitting in escrow. Alerts the
 // owner + logs the moment it drifts short (would have caught the ledger>escrow gap).
 let _lastSolvency = null;
+// Total SOL the escrow currently owes: every live, paid stake still in play across both
+// games. Snake worth is already SOL; agar worth is CAD (converted). Paid play requires a
+// connected wallet, so any live entity carrying worth > 0 is a self-custody staker. This —
+// NOT the vestigial custodial `accounts.balance` — is the escrow's real liability.
 function sumLiveSelfCustodyStakes() {
-  let total = 0;
+  let total = 0; // SOL
   for (const rgn of REGIONS) {
     for (const lt of Object.keys(gameRooms[rgn] || {})) {
       const room = gameRooms[rgn][lt];
@@ -514,6 +522,12 @@ function sumLiveSelfCustodyStakes() {
         if (!snake || !snake.alive) continue;
         const p = room.players.get(sid);
         if (p && p.socket && p.socket._walletAddress) total += snake.worth || 0;
+      }
+    }
+    for (const lt of Object.keys(agarRooms[rgn] || {})) {
+      const room = agarRooms[rgn][lt];
+      for (const p of room.players.values()) {
+        if (p && p.alive && p.worth > 0) total += prices.cadToSol(p.worth);
       }
     }
   }

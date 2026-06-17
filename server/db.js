@@ -94,17 +94,6 @@ async function init() {
 
 // ─── Accounts ─────────────────────────────────────────────────────────────────
 
-async function getOrCreateAccount({ googleId, email, name, avatar }) {
-  const res = await pool.query(
-    `INSERT INTO accounts (google_id, email, name, avatar)
-     VALUES ($1, $2, $3, $4)
-     ON CONFLICT (google_id) DO UPDATE SET avatar = $4
-     RETURNING *`,
-    [googleId, email, '', avatar]
-  );
-  return dbToAccount(res.rows[0]);
-}
-
 async function getAccountByGoogleId(googleId) {
   const res = await pool.query('SELECT * FROM accounts WHERE google_id = $1', [googleId]);
   return res.rows[0] ? dbToAccount(res.rows[0]) : null;
@@ -343,66 +332,9 @@ async function isNameTaken(name, excludeGoogleId) {
   return res.rows.length > 0;
 }
 
-// ─── 2FA / Device Trust ───────────────────────────────────────────────────────
-
-const { randomUUID } = require('crypto');
-
-async function saveVerificationCode(googleId, code) {
-  // invalidate any old unused codes first
-  await pool.query(
-    `UPDATE verification_codes SET used = TRUE WHERE google_id = $1 AND used = FALSE`,
-    [googleId]
-  );
-  await pool.query(
-    `INSERT INTO verification_codes (google_id, code, expires_at)
-     VALUES ($1, $2, NOW() + INTERVAL '10 minutes')`,
-    [googleId, code]
-  );
-}
-
-async function verifyCode(googleId, code) {
-  const res = await pool.query(
-    `SELECT 1 FROM verification_codes
-     WHERE google_id = $1 AND code = $2 AND used = FALSE AND expires_at > NOW()
-     LIMIT 1`,
-    [googleId, code]
-  );
-  if (!res.rows.length) return false;
-  await pool.query(
-    `UPDATE verification_codes SET used = TRUE
-     WHERE google_id = $1 AND code = $2`,
-    [googleId, code]
-  );
-  return true;
-}
-
-async function addTrustedDevice(googleId) {
-  const token = randomUUID();
-  await pool.query(
-    `INSERT INTO trusted_devices (google_id, device_token) VALUES ($1, $2)
-     ON CONFLICT DO NOTHING`,
-    [googleId, token]
-  );
-  return token;
-}
-
-async function isDeviceTrusted(googleId, deviceToken) {
-  if (!googleId || !deviceToken) return false;
-  const res = await pool.query(
-    `SELECT 1 FROM trusted_devices WHERE google_id = $1 AND device_token = $2`,
-    [googleId, deviceToken]
-  );
-  return res.rows.length > 0;
-}
-
-async function getGoogleIdByDeviceToken(deviceToken) {
-  if (!deviceToken) return null;
-  const res = await pool.query(
-    `SELECT google_id FROM trusted_devices WHERE device_token = $1`,
-    [deviceToken]
-  );
-  return res.rows[0]?.google_id || null;
-}
+// (Phase B2: the 2FA / device-trust DB helpers — saveVerificationCode, verifyCode,
+// addTrustedDevice, isDeviceTrusted, getGoogleIdByDeviceToken — were removed along with
+// Google login. The verification_codes / trusted_devices tables are now vestigial.)
 
 async function getProfile(name) {
   const accRes = await pool.query(
@@ -484,15 +416,13 @@ async function getAccountByEmail(email) {
 
 module.exports = {
   init, pool,
-  getOrCreateAccount, getAccountByGoogleId, getAccountByWallet,
+  getAccountByGoogleId, getAccountByWallet,
   saveAccount, recordGameResult, recordAgarGameResult,
   isTxUsed, recordWithdrawal, setPrivyWallet, clearPrivyWallet, getAccountByEmail, getFinancialSummary,
   recordCollusionFlag, getRecentCollusionFlags,
   isStakeSigUsed, markStakeSig,
   addEarnings, recordEarnings, getTopEarners,
   addAgarEarnings, getAgarTopEarners,
-  getGoogleIdByDeviceToken,
   isNameTaken,
-  saveVerificationCode, verifyCode, addTrustedDevice, isDeviceTrusted,
   getProfile, getMyProfile, pushNameHistory, searchPlayerNames, getGlobalWinnings,
 };
