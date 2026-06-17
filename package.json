@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node server/index.js",
     "dev": "nodemon server/index.js",
-    "build": "vite build"
+    "build": "vite build",
+    "loadtest": "node scripts/loadtest.js"
   },
   "dependencies": {
     "@privy-io/server-auth": "^1.32.5",
@@ -28,6 +29,7 @@
     "nodemon": "^3.0.1",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
+    "socket.io-client": "^4.8.3",
     "vite": "^8.0.16",
     "vite-plugin-node-polyfills": "^0.28.0"
   }
