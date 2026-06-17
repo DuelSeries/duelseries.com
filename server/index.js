@@ -178,6 +178,9 @@ async function pushStatsToNA() {
 const walletDepositLimiter = rateLimit({ windowMs: 5 * 1000, max: 1, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many deposit checks. Wait 5 seconds.' } });
 const walletWithdrawLimiter = rateLimit({ windowMs: 10 * 1000, max: 3, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many withdrawals. Please wait.' } });
 const entryFeeLimiter = rateLimit({ windowMs: 60 * 1000, max: 10, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Slow down.' } });
+// RPC/relay endpoints proxy to our paid Helius node — cap per-IP abuse without breaking the
+// wallet's normal burst of calls. Generous to tolerate shared IPs / NAT.
+const rpcLimiter = rateLimit({ windowMs: 10 * 1000, max: 100, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Slow down.' } });
 
 // ─── Entry fee ────────────────────────────────────────────────────────────────
 const LOBBY_FEES_CAD = { free: 0, dime: 0.10, dollar: 1.00 };
@@ -258,7 +261,7 @@ app.get('/healthz', (req, res) => res.sendStatus(200));
 
 // On-chain SOL balance for any address (public; reads via the server's Solana RPC so the
 // browser never hits a rate-limited public RPC). Used by the self-custody wallet widget.
-app.get('/api/sol-balance', async (req, res) => {
+app.get('/api/sol-balance', rpcLimiter, async (req, res) => {
   const { address } = req.query;
   if (!address) return res.status(400).json({ error: 'address required' });
   try {
@@ -272,7 +275,7 @@ app.get('/api/sol-balance', async (req, res) => {
 // Browser → server Solana RPC proxy: the frontend's wallet SDK makes its RPC calls here
 // so they go through our server's RPC instead of a public endpoint that blocks browser
 // origins (403). Same-origin, so no CORS.
-app.post('/api/rpc', async (req, res) => {
+app.post('/api/rpc', rpcLimiter, async (req, res) => {
   try {
     res.type('application/json').send(await Wallet.forwardRpc(req.body));
   } catch (e) {
@@ -281,7 +284,7 @@ app.post('/api/rpc', async (req, res) => {
 });
 
 // Latest blockhash for the wallet to build a transfer (self-custody Cash Out / generic send).
-app.get('/api/blockhash', async (req, res) => {
+app.get('/api/blockhash', rpcLimiter, async (req, res) => {
   try {
     const { blockhash } = await Wallet.getLatestBlockhash();
     res.json({ blockhash });
@@ -292,7 +295,7 @@ app.get('/api/blockhash', async (req, res) => {
 
 // Broadcast a user-signed transaction (e.g. a self-custody Cash Out: wallet → external wallet).
 // The tx is already signed by the player's own wallet; we just relay it + confirm over HTTP.
-app.post('/api/broadcast', express.json({ limit: '256kb' }), async (req, res) => {
+app.post('/api/broadcast', walletWithdrawLimiter, express.json({ limit: '256kb' }), async (req, res) => {
   const { signedTx } = req.body || {};
   if (!signedTx) return res.status(400).json({ error: 'Missing signed transaction' });
   try {
@@ -306,7 +309,7 @@ app.post('/api/broadcast', express.json({ limit: '256kb' }), async (req, res) =>
 // ── Self-custody staking (Phase 1) ───────────────────────────────────────────
 // Quote how much SOL to stake for a paid lobby and where (the escrow), plus a fresh
 // blockhash for the client to build the transfer. No custodial balance is touched.
-app.get('/api/stake-quote', async (req, res) => {
+app.get('/api/stake-quote', entryFeeLimiter, async (req, res) => {
   const lobbyType = req.query.lobbyType;
   const feeCad = LOBBY_FEES_CAD[lobbyType];
   if (feeCad === undefined) return res.status(400).json({ error: 'Unknown lobby' });
@@ -322,18 +325,20 @@ app.get('/api/stake-quote', async (req, res) => {
 
 // Submit a client-SIGNED stake (Privy signs only; we send + confirm over HTTP), then
 // issue the entry token. This avoids the browser WebSocket the public RPC blocks.
-app.post('/api/submit-stake', express.json({ limit: '256kb' }), async (req, res) => {
+app.post('/api/submit-stake', entryFeeLimiter, express.json({ limit: '256kb' }), async (req, res) => {
   const { lobbyType, signedTx, walletAddress } = req.body || {};
   const feeCad = LOBBY_FEES_CAD[lobbyType];
   if (feeCad === undefined || feeCad === 0) return res.status(400).json({ error: 'Not a paid lobby' });
   if (!signedTx) return res.status(400).json({ error: 'Missing signed transaction' });
   try {
     const sig = await Wallet.submitStake(Buffer.from(signedTx, 'base64'));
-    if (await db.isStakeSigUsed(sig)) return res.status(400).json({ error: 'Stake already used' });
     const feeSol = prices.cadToSol(feeCad);
     const minLamports = Math.round(feeSol * 1e9 * 0.95);
     const { payer, lamports } = await Wallet.verifyStakeTransfer(sig, minLamports);
-    await db.markStakeSig(sig);
+    // Atomic one-time claim AFTER verify — closes the double-mint race (two concurrent
+    // requests with the same sig can't both pass) without burning a valid sig on a transient
+    // verify failure. If it returns false, another request already consumed this stake.
+    if (!(await db.markStakeSig(sig))) return res.status(400).json({ error: 'Stake already used' });
     const worthSol = lamports / 1e9;
     const entryToken = crypto.randomUUID();
     entryTokens.set(entryToken, { lobbyType, worthSol, walletAddress: walletAddress || payer, exp: Date.now() + ENTRY_TOKEN_MAX_AGE_MS });
@@ -344,16 +349,16 @@ app.post('/api/submit-stake', express.json({ limit: '256kb' }), async (req, res)
 });
 
 // Verify a stake the CLIENT already sent (legacy path; kept for the signAndSend flow).
-app.post('/api/verify-stake', express.json(), async (req, res) => {
+app.post('/api/verify-stake', entryFeeLimiter, express.json(), async (req, res) => {
   const { lobbyType, signature, walletAddress } = req.body || {};
   const feeCad = LOBBY_FEES_CAD[lobbyType];
   if (feeCad === undefined || feeCad === 0) return res.status(400).json({ error: 'Not a paid lobby' });
   try {
-    if (await db.isStakeSigUsed(signature)) return res.status(400).json({ error: 'Stake already used' });
     const feeSol = prices.cadToSol(feeCad);
     const minLamports = Math.round(feeSol * 1e9 * 0.95); // tolerate small price drift since the quote
     const { payer, lamports } = await Wallet.verifyStakeTransfer(signature, minLamports);
-    await db.markStakeSig(signature);
+    // Atomic one-time claim AFTER verify — closes the double-mint race.
+    if (!(await db.markStakeSig(signature))) return res.status(400).json({ error: 'Stake already used' });
     const worthSol = lamports / 1e9; // actual staked amount becomes the snake's worth
     const entryToken = crypto.randomUUID();
     entryTokens.set(entryToken, { lobbyType, worthSol, walletAddress: walletAddress || payer, exp: Date.now() + ENTRY_TOKEN_MAX_AGE_MS });

@@ -106,11 +106,12 @@ async function getEscrowBalance() {
 }
 
 // Phase 1 (self-custody): verify a player's stake transfer actually landed in the escrow.
-// The tx must be confirmed, not previously used this session, and have credited the
-// escrow at least `minLamports`. Returns { payer, lamports }. Caller persists the sig.
+// PURE read-only check: the tx must be confirmed and have credited the escrow at least
+// `minLamports`. Returns { payer, lamports }. One-time-use is enforced atomically by the
+// caller via db.markStakeSig (the DB is the source of truth) — NOT here — so a transient
+// verify failure can never strand a valid stake by marking its sig "used" in memory.
 async function verifyStakeTransfer(signature, minLamports) {
   if (typeof signature !== 'string' || !signature) throw new Error('Missing stake signature');
-  if (usedSignatures.has(signature)) throw new Error('Stake signature already used');
   const escrowPubkey = getEscrowPublicKey();
   const tx = await withRetry(() =>
     connection.getTransaction(signature, { commitment: 'confirmed', maxSupportedTransactionVersion: 0 })
@@ -122,7 +123,6 @@ async function verifyStakeTransfer(signature, minLamports) {
   if (idx === -1) throw new Error('Stake did not pay the escrow');
   const lamports = tx.meta.postBalances[idx] - tx.meta.preBalances[idx];
   if (lamports < minLamports) throw new Error(`Stake too small (${lamports} < ${minLamports} lamports)`);
-  usedSignatures.add(signature);
   return { payer: accountKeys[0].toString(), lamports };
 }
 

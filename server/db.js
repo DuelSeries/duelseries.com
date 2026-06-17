@@ -185,8 +185,15 @@ async function isStakeSigUsed(sig) {
   const r = await pool.query(`SELECT 1 FROM used_stake_sigs WHERE sig = $1`, [sig]);
   return r.rowCount > 0;
 }
+// Atomically claim a stake signature for one-time use. Returns true if THIS call claimed it
+// (row newly inserted), false if it was already used. The INSERT…ON CONFLICT is atomic, so
+// concurrent requests with the same sig can't both succeed — closes the double-mint race.
 async function markStakeSig(sig) {
-  await pool.query(`INSERT INTO used_stake_sigs (sig) VALUES ($1) ON CONFLICT DO NOTHING`, [sig]);
+  const r = await pool.query(
+    `INSERT INTO used_stake_sigs (sig) VALUES ($1) ON CONFLICT DO NOTHING RETURNING sig`,
+    [sig]
+  );
+  return r.rowCount > 0;
 }
 
 async function getTopEarners(n) {
