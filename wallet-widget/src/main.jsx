@@ -43,10 +43,17 @@ const TIER_LABEL = { free: 'Play Free', dime: 'Stake & Play 10¢', dollar: 'Stak
 // server-side, then launch the game. Free lobbies skip the stake entirely.
 // Stake the entry fee for a paid lobby and return the verified entry token (no launch). Used
 // by both stakeAndPlay and the in-game "Play Again" re-stake. Free lobbies stake nothing.
+// The lobby is served from the NA origin, but a paid stake must hit the SAME regional server
+// the game will connect to (game.js's SERVER_URLS) — the one-time entry token is minted in
+// that server's memory and consumed there on join. Mismatch = paid EU lobbies never load.
+const SERVER_URLS = { na: '', eu: 'https://eu.duelseries.com' };
+function regionBase() { return SERVER_URLS[localStorage.getItem('duelseries_region') || 'na'] || ''; }
+
 async function stakeOnly(lobbyType, wallet, signTransaction, onStatus) {
   if (lobbyType === 'free') return { entryToken: '', worthSol: 0 };
+  const base = regionBase();
   onStatus('Getting quote…');
-  const quote = await (await fetch('/api/stake-quote?lobbyType=' + encodeURIComponent(lobbyType))).json();
+  const quote = await (await fetch(base + '/api/stake-quote?lobbyType=' + encodeURIComponent(lobbyType))).json();
   if (quote.error) throw new Error(quote.error);
   if (!quote.escrowAddress) throw new Error('No escrow configured for this lobby');
 
@@ -63,7 +70,7 @@ async function stakeOnly(lobbyType, wallet, signTransaction, onStatus) {
   const signedTx = Buffer.from(signedTransaction).toString('base64');
 
   onStatus('Submitting stake…');
-  const verify = await (await fetch('/api/submit-stake', {
+  const verify = await (await fetch(base + '/api/submit-stake', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ lobbyType, signedTx, walletAddress: wallet.address }),

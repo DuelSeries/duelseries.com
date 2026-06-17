@@ -41,9 +41,12 @@ agarLb.setDb(db);
 
 const app    = express();
 const server = http.createServer(app);
+// Origins allowed to call this server cross-origin: the NA + EU domains (so the lobby on
+// duelseries.com can stake against the EU game server it's about to play on) plus local dev.
+const ALLOWED_ORIGINS = ['https://duelseries.com', 'https://www.duelseries.com', 'https://eu.duelseries.com', 'http://localhost:3000'];
 const io     = new Server(server, {
   cors: {
-    origin: ['https://duelseries.com', 'https://www.duelseries.com', 'https://eu.duelseries.com', 'http://localhost:3000'],
+    origin: ALLOWED_ORIGINS,
     credentials: true,
   },
   pingInterval: 5000,   // heartbeat every 5s (default 25s) — keeps mobile WiFi radio awake
@@ -55,6 +58,22 @@ server.keepAliveTimeout = 120000;
 server.headersTimeout   = 121000;
 
 app.set('trust proxy', 1); // Render runs behind a proxy
+
+// CORS for the HTTP API. Paid play must stake against the REGIONAL game server (e.g.
+// eu.duelseries.com) so the one-time entry token is minted on the same server that consumes
+// it on join — otherwise paid EU lobbies never load. Echo allowed origins + answer preflight.
+const _allowedOriginSet = new Set(ALLOWED_ORIGINS);
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin && _allowedOriginSet.has(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  }
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+});
 
 // Init DB in background with retries — server listens immediately so health checks pass
 (async () => {
