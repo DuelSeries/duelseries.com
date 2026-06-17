@@ -83,17 +83,7 @@ async function load() {
       <div class="card">
         <div class="card-label">Owed to Players</div>
         <div class="card-value">${fmt(fin.totalOwed)}</div>
-        <div class="card-sub">Sum of all in-game balances — do not touch this</div>
-      </div>
-      <div class="row">
-        <div class="stat">
-          <div class="stat-label">Players with balance</div>
-          <div class="stat-value">${fin.playersWithBalance}</div>
-        </div>
-        <div class="stat">
-          <div class="stat-label">Total accounts</div>
-          <div class="stat-value">${fin.totalAccounts}</div>
-        </div>
+        <div class="card-sub">Stakes currently live in-game — do not touch this</div>
       </div>
       <button class="refresh" onclick="load()">↻ Refresh</button>
       <div class="updated">Updated ${new Date().toLocaleTimeString()}</div>

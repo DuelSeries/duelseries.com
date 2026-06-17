@@ -133,22 +133,9 @@ async function recordGameResult(googleId, score, durationSeconds) {
   );
 }
 
-async function getFinancialSummary() {
-  const res = await pool.query(`
-    SELECT
-      COALESCE(SUM(balance), 0)                          AS total_owed,
-      COUNT(*) FILTER (WHERE balance > 0.000001)          AS players_with_balance,
-      COALESCE(SUM(total_earnings), 0)                   AS total_earnings_paid,
-      COUNT(*)                                            AS total_accounts
-    FROM accounts
-  `);
-  return {
-    totalOwed:          parseFloat(res.rows[0].total_owed),
-    playersWithBalance: parseInt(res.rows[0].players_with_balance),
-    totalEarningsPaid:  parseFloat(res.rows[0].total_earnings_paid),
-    totalAccounts:      parseInt(res.rows[0].total_accounts),
-  };
-}
+// (Phase B2: getFinancialSummary removed — it summed the vestigial custodial
+// accounts.balance for the admin dashboard, which now derives "owed" from live in-game
+// stakes instead. See sumLiveSelfCustodyStakes in server/index.js.)
 
 // ─── Deposits ─────────────────────────────────────────────────────────────────
 
@@ -418,7 +405,7 @@ module.exports = {
   init, pool,
   getAccountByGoogleId, getAccountByWallet,
   saveAccount, recordGameResult, recordAgarGameResult,
-  isTxUsed, recordWithdrawal, setPrivyWallet, clearPrivyWallet, getAccountByEmail, getFinancialSummary,
+  isTxUsed, recordWithdrawal, setPrivyWallet, clearPrivyWallet, getAccountByEmail,
   recordCollusionFlag, getRecentCollusionFlags,
   isStakeSigUsed, markStakeSig,
   addEarnings, recordEarnings, getTopEarners,

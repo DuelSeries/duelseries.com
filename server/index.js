@@ -220,22 +220,13 @@ app.get('/wallet/info', (req, res) => {
 app.get('/admin/finance', async (req, res) => {
   if (!(await isOwnerReq(req))) return res.status(403).json({ error: 'Forbidden' });
   try {
-    const [escrowBalance, summary] = await Promise.all([
-      Wallet.getEscrowBalance(),
-      db.getFinancialSummary(),
-    ]);
+    const escrowBalance = await Wallet.getEscrowBalance();
     // Self-custody: the escrow only owes the stakes currently live in-game (players hold
     // their own funds otherwise). The old `accounts.balance` sum is vestigial custodial
     // data and would show a phantom liability / false "underfunded" warning, so ignore it.
     const totalOwed = sumLiveSelfCustodyStakes();
     const profit = escrowBalance - totalOwed;
-    res.json({
-      escrowBalance,
-      totalOwed,
-      profit,
-      playersWithBalance: summary.playersWithBalance, // informational (lifetime accounts w/ a balance)
-      totalAccounts: summary.totalAccounts,
-    });
+    res.json({ escrowBalance, totalOwed, profit });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
