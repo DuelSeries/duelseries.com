@@ -632,11 +632,13 @@ function renderLobbyLeaderboard() {
   }).join('');
 }
 
-// ─── Agar earnings leaderboard (separate from snake) ─────────────────────────
+// ─── Agar lobby earnings board — same COMBINED top earners as the snake lobby ────
+// Both lobbies show one shared "top earners" board (snake + agar earnings all land in
+// total_earnings via recordEarnings), so this fetches the same /api/earningsboard.
 let _agarEarnings = [];
 
 function refreshAgarEarningsBoard() {
-  fetch('/api/agar-earningsboard')
+  fetch('/api/earningsboard')
     .then(r => r.json())
     .then(data => { _agarEarnings = data; renderAgarLeaderboard(); })
     .catch(() => {});

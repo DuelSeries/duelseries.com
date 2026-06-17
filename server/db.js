@@ -234,16 +234,11 @@ async function recordAgarGameResult(googleId, score) {
   );
 }
 
-// Upsert agar earnings keyed by a stable id (a wallet for self-custody players) — mirrors
-// recordEarnings but on the agar column, so agar cash-outs land on the agar top-earners
-// board. Also logs to earnings_history so My Profile + global winnings include agar.
-async function addAgarEarnings(id, name, sol, cadAmount = 0) {
+async function addAgarEarnings(googleId, sol, cadAmount = 0) {
   await pool.query(
-    `INSERT INTO accounts (google_id, name, agar_total_earnings) VALUES ($1, $2, $3)
-     ON CONFLICT (google_id) DO UPDATE SET agar_total_earnings = COALESCE(accounts.agar_total_earnings, 0) + $3, name = $2`,
-    [id, name || 'Player', sol]
+    `UPDATE accounts SET agar_total_earnings = agar_total_earnings + $2 WHERE google_id = $1`,
+    [googleId, sol]
   );
-  await pool.query(`INSERT INTO earnings_history (google_id, amount, cad_amount) VALUES ($1, $2, $3)`, [id, sol, cadAmount]);
 }
 
 async function getAgarTopEarners(n) {
@@ -289,7 +284,7 @@ async function pushNameHistory(googleId, name) {
 
 async function getMyProfile(googleId) {
   const accRes = await pool.query(
-    `SELECT name, total_earnings, agar_total_earnings, games_played, play_time_seconds, name_history
+    `SELECT name, total_earnings, games_played, play_time_seconds, name_history
      FROM accounts WHERE google_id = $1`,
     [googleId]
   );
@@ -308,7 +303,7 @@ async function getMyProfile(googleId) {
 
   return {
     name: row.name,
-    totalEarnings: parseFloat(row.total_earnings || 0) + parseFloat(row.agar_total_earnings || 0), // snake + agar
+    totalEarnings: parseFloat(row.total_earnings || 0),
     gamesPlayed: parseInt(row.games_played || 0),
     playTimeSeconds: parseInt(row.play_time_seconds || 0),
     nameHistory: row.name_history || [],
@@ -330,7 +325,7 @@ async function isNameTaken(name, excludeGoogleId) {
 
 async function getProfile(name) {
   const accRes = await pool.query(
-    `SELECT google_id, name, total_earnings, agar_total_earnings, games_played, play_time_seconds
+    `SELECT google_id, name, total_earnings, games_played, play_time_seconds
      FROM accounts WHERE LOWER(name) = LOWER($1)`,
     [name]
   );
@@ -357,7 +352,7 @@ async function getProfile(name) {
 
   return {
     name: row.name,
-    totalEarnings: parseFloat(row.total_earnings || 0) + parseFloat(row.agar_total_earnings || 0), // snake + agar
+    totalEarnings: parseFloat(row.total_earnings || 0),
     gamesPlayed: parseInt(row.games_played || 0),
     playTimeSeconds: parseInt(row.play_time_seconds || 0),
     history: {

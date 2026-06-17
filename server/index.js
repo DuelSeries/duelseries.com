@@ -901,8 +901,8 @@ io.on('connection', (socket) => {
       const playerShareSol = prices.cadToSol(playerShare);
       socket.emit('cell:cashout:result', { newBalance: null, earnedCad: playerShare, earnedSol: playerShareSol, score: player.score, toWallet: true });
       if (worthCad > 0) {
-        // Agar earnings go on the agar top-earners board (its own column), not the snake one.
-        db.addAgarEarnings(socket._walletAddress, player.name, playerShareSol, playerShare).catch(() => {});
+        // Both games feed ONE combined top-earners board (the shared total_earnings column).
+        db.recordEarnings(socket._walletAddress, player.name, playerShareSol, playerShare).catch(() => {});
         Wallet.withdraw(socket._walletAddress, playerShareSol)
           .then((sig) => {
             console.log(`[AGAR CASHOUT] self-custody ${playerShareSol.toFixed(6)} SOL → ${socket._walletAddress.slice(0, 8)}… sig ${String(sig).slice(0, 12)}`);
