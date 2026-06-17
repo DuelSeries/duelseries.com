@@ -1,4 +1,4 @@
-# Self-Custody Migration Map (DuelSeries / HexSlither)
+# Self-Custody Migration Map (DuelSeries)
 
 Migrating from **custodial** (platform holds everyone's money in one escrow + a Postgres
 balance ledger) to **self-custody + per-game stake** using **Privy embedded wallets**.

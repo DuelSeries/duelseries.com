@@ -1,4 +1,4 @@
-# DuelSeries / HexSlither — Project Context
+# DuelSeries — Project Context
 
 ## The Goal (read this first)
 This is a **real-money, multiplayer skill game** being built into a legitimate product. The end goal is a polished, trustworthy game with **1,000+ concurrent users**. Every decision should serve that bar:
@@ -20,7 +20,7 @@ Before reading or editing, confirm the active workspace is this project — it s
 
 ## The Two Games (naming)
 One server hosts two games that share infrastructure (login, wallet, leaderboards, money):
-- **The snake game** = HexSlither — `server/GameRoom.js` + `public/js/game.js`. slither.io-style.
+- **The slither.io game** = the snake-style mode; the user calls it **"the slither.io game"** — `server/GameRoom.js` + `public/js/game.js`. (The code still uses `Snake`/`snake` naming internally; that's fine — the conversational label is "the slither.io game.")
 - **The agar.io game** = the user calls it exactly that — `server/AgarRoom.js` + `public/js/agar.js`. agar.io-style cells.
 
 ## Architecture
@@ -28,7 +28,7 @@ One server hosts two games that share infrastructure (login, wallet, leaderboard
 - **Authoritative sim:** server runs at `TICK_RATE` 60Hz; broadcasts snapshots at `SNAPSHOT_RATE` 30Hz (lower rate so weak/mobile clients don't back up). Tunables live in `shared/constants.js`.
 - **Rooms:** one room per **region × lobby type**. Regions `['na','eu']`; lobby types `free`, `dime`, `dollar`. `gameRooms[region][type]` and `agarRooms[region][type]` in `server/index.js`.
 - **Identity = the player's Privy Solana wallet address.** Single login (Privy only — Google/passport/sessions were removed). The wallet address is passed around as `googleId` for legacy reasons; it is the stable player id used for stats/earnings.
-- **The snake game runs inside an iframe** in the lobby. It signals "back to lobby" via `postMessage('game:done')`; the lobby (`public/js/lobby.js`) hosts it.
+- **The slither.io game runs inside an iframe** in the lobby. It signals "back to lobby" via `postMessage('game:done')`; the lobby (`public/js/lobby.js`) hosts it.
 - **⚠️ The socket handshake session is EMPTY** — you cannot identify a player from socket auth. Identity comes from echoed/signed values the client sends (and, for paid play, the server-minted entry token). Never assume the socket "knows who you are."
 
 ## Money System (critical — real SOL)
