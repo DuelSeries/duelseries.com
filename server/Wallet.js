@@ -11,6 +11,9 @@ const RPC_URL = process.env.RPC_URL || (
 );
 
 const connection = new Connection(RPC_URL, 'confirmed');
+// Log which RPC is active (host only — never the API key) so a deploy can confirm it's
+// using a dedicated provider (e.g. helius) and not the rate-limited public endpoint.
+try { console.log(`[WALLET] RPC endpoint: ${new URL(RPC_URL).host}`); } catch (_) {}
 
 function getEscrowKeypair() {
   const b64 = process.env.ESCROW_PRIVATE_KEY;
