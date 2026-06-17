@@ -189,17 +189,13 @@ async function markStakeSig(sig) {
   await pool.query(`INSERT INTO used_stake_sigs (sig) VALUES ($1) ON CONFLICT DO NOTHING`, [sig]);
 }
 
-async function addEarnings(googleId, sol, cadAmount = 0) {
-  await Promise.all([
-    pool.query(`UPDATE accounts SET total_earnings = total_earnings + $2 WHERE google_id = $1`, [googleId, sol]),
-    pool.query(`INSERT INTO earnings_history (google_id, amount, cad_amount) VALUES ($1, $2, $3)`, [googleId, sol, cadAmount]),
-  ]);
-}
-
 async function getTopEarners(n) {
+  // Top earners = net-positive only. Some legacy custodial-era rows have negative
+  // total_earnings; the current cash-out path only ever adds positive winnings, so anyone
+  // truly "owed nothing" or net-negative shouldn't appear on a winners board.
   const res = await pool.query(
     `SELECT google_id AS id, name, total_earnings AS earnings
-     FROM accounts WHERE total_earnings != 0 ORDER BY total_earnings DESC LIMIT $1`,
+     FROM accounts WHERE total_earnings > 0 ORDER BY total_earnings DESC LIMIT $1`,
     [n]
   );
   return res.rows.map((r, i) => ({
@@ -365,7 +361,7 @@ module.exports = {
   isTxUsed, recordWithdrawal,
   recordCollusionFlag, getRecentCollusionFlags,
   isStakeSigUsed, markStakeSig,
-  addEarnings, recordEarnings, getTopEarners,
+  recordEarnings, getTopEarners,
   isNameTaken,
   getProfile, getMyProfile, pushNameHistory, searchPlayerNames, getGlobalWinnings,
 };
