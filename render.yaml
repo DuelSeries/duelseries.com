@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: hexslither
+    name: duelseries
     runtime: node
     buildCommand: npm install
     startCommand: node server/index.js
