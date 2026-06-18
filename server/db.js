@@ -66,6 +66,15 @@ async function init() {
       paid           BOOLEAN DEFAULT FALSE,
       created_at     TIMESTAMPTZ DEFAULT NOW()
     );
+    -- Retry-queue columns for the idempotent payout drainer. signature/signed_tx let a retry
+    -- re-broadcast the SAME transaction (so it can never double-pay) instead of building a new one.
+    ALTER TABLE failed_payouts ADD COLUMN IF NOT EXISTS attempts INT DEFAULT 0;
+    ALTER TABLE failed_payouts ADD COLUMN IF NOT EXISTS last_attempt_at TIMESTAMPTZ;
+    ALTER TABLE failed_payouts ADD COLUMN IF NOT EXISTS signature TEXT;
+    ALTER TABLE failed_payouts ADD COLUMN IF NOT EXISTS signed_tx TEXT;
+    ALTER TABLE failed_payouts ADD COLUMN IF NOT EXISTS blockhash TEXT;
+    ALTER TABLE failed_payouts ADD COLUMN IF NOT EXISTS last_valid_block_height BIGINT;
+    ALTER TABLE failed_payouts ADD COLUMN IF NOT EXISTS paid_sig TEXT;
 
     CREATE TABLE IF NOT EXISTS verification_codes (
       google_id   TEXT NOT NULL,
@@ -206,20 +215,57 @@ async function markStakeSig(sig) {
 // durably so the owed SOL is never silently lost — the owner reconciles + pays it out manually
 // via /api/admin/failed-payouts. No auto-retry, because blindly re-sending could double-pay if
 // the original tx actually landed but its confirmation was what failed.
-async function recordFailedPayout(walletAddress, amountSol, name, reason) {
+async function recordFailedPayout(walletAddress, amountSol, name, reason, broadcast) {
+  const b = broadcast || {};
   await pool.query(
-    `INSERT INTO failed_payouts (wallet_address, amount_sol, name, reason) VALUES ($1, $2, $3, $4)`,
-    [walletAddress, amountSol, name || null, (reason || '').slice(0, 500)]
+    `INSERT INTO failed_payouts (wallet_address, amount_sol, name, reason, signature, signed_tx, blockhash, last_valid_block_height)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+    [walletAddress, amountSol, name || null, (reason || '').slice(0, 500),
+     b.signature || null, b.signedTx || null, b.blockhash || null, b.lastValidBlockHeight || null]
   );
 }
 
 async function getFailedPayouts(limit = 200) {
   const res = await pool.query(
-    `SELECT id, wallet_address, amount_sol, name, reason, paid, created_at
+    `SELECT id, wallet_address, amount_sol, name, reason, paid, paid_sig, attempts, last_attempt_at, created_at
        FROM failed_payouts ORDER BY paid ASC, created_at DESC LIMIT $1`,
     [limit]
   );
   return res.rows.map(r => ({ ...r, amount_sol: parseFloat(r.amount_sol) }));
+}
+
+// Atomically claim the next owed-but-unpaid payout that's due for a retry, bumping its attempt
+// counter so two ticks/servers can't grab the same row (SKIP LOCKED). Returns the row or null.
+async function claimDuePayout(retrySeconds = 30, maxAttempts = 200) {
+  const res = await pool.query(
+    `UPDATE failed_payouts SET attempts = attempts + 1, last_attempt_at = NOW()
+       WHERE id = (
+         SELECT id FROM failed_payouts
+          WHERE paid = false AND attempts < $2
+            AND (last_attempt_at IS NULL OR last_attempt_at < NOW() - make_interval(secs => $1))
+          ORDER BY created_at ASC
+          LIMIT 1 FOR UPDATE SKIP LOCKED
+       )
+     RETURNING id, wallet_address, amount_sol, name, signature, signed_tx, blockhash, last_valid_block_height, attempts`,
+    [retrySeconds, maxAttempts]
+  );
+  if (!res.rows[0]) return null;
+  const r = res.rows[0];
+  r.amount_sol = parseFloat(r.amount_sol);
+  return r;
+}
+
+// Persist the signed tx + signature the drainer just built for a payout, BEFORE it is sent, so
+// a crash mid-send is still recoverable (the same bytes can only ever land once).
+async function savePayoutSignature(id, b) {
+  await pool.query(
+    `UPDATE failed_payouts SET signature = $2, signed_tx = $3, blockhash = $4, last_valid_block_height = $5 WHERE id = $1`,
+    [id, b.signature || null, b.signedTx || null, b.blockhash || null, b.lastValidBlockHeight || null]
+  );
+}
+
+async function markPayoutPaid(id, paidSig) {
+  await pool.query(`UPDATE failed_payouts SET paid = true, paid_sig = $2 WHERE id = $1`, [id, paidSig || null]);
 }
 
 async function getTopEarners(n) {
@@ -394,7 +440,7 @@ module.exports = {
   isTxUsed, recordWithdrawal,
   recordCollusionFlag, getRecentCollusionFlags,
   markStakeSig,
-  recordFailedPayout, getFailedPayouts,
+  recordFailedPayout, getFailedPayouts, claimDuePayout, savePayoutSignature, markPayoutPaid,
   recordEarnings, getTopEarners,
   isNameTaken,
   getProfile, getMyProfile, pushNameHistory, searchPlayerNames, getGlobalWinnings,

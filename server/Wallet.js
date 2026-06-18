@@ -2,6 +2,10 @@ const {
   Connection, PublicKey, Keypair,
   Transaction, SystemProgram, LAMPORTS_PER_SOL,
 } = require('@solana/web3.js');
+// bs58 to compute a tx's signature string BEFORE broadcasting it. v6 is ESM-first and exposes
+// its API under `.default` in CJS, so unwrap defensively (works whichever shape ships).
+const _bs58 = require('bs58');
+const bs58  = (_bs58 && _bs58.default) ? _bs58.default : _bs58;
 
 const NETWORK = process.env.SOLANA_NETWORK || 'mainnet-beta';
 const RPC_URL = process.env.RPC_URL || (
@@ -62,45 +66,101 @@ async function withRetry(fn, retries = 5, delay = 600) {
   }
 }
 
-// Send SOL from escrow to a user wallet
-async function withdraw(toAddress, amountSol) {
-  const escrow = getEscrowKeypair();
+// Build + sign an escrow→wallet transfer, returning everything needed to broadcast it AND to
+// recover it later. The signature is deterministic from the signed bytes, so re-broadcasting
+// the SAME bytes can only ever land ONCE — that property is what makes payout retries safe from
+// double-paying. (Payouts are money-critical, so the reads here retry harder than the default.)
+async function buildSignedPayout(toAddress, amountSol) {
+  const escrow   = getEscrowKeypair();
   const toPubkey = new PublicKey(toAddress);
   const lamports = Math.floor(amountSol * LAMPORTS_PER_SOL);
 
-  // Ensure escrow keeps enough for rent-exempt minimum + tx fee. Payouts are money-critical,
-  // so retry harder than reads do by default — absorb a longer RPC outage (the kind that has
-  // dropped a cash-out with a 503). Re-sending the SAME signed tx below is idempotent (the
-  // network dedupes by signature), so the extra retries can never double-pay.
   const [escrowBalance, rentMin] = await Promise.all([
     withRetry(() => connection.getBalance(escrow.publicKey), 8),
     withRetry(() => connection.getMinimumBalanceForRentExemption(0), 8),
   ]);
-  const feeBuffer = 10000; // ~0.00001 SOL for tx fee
-  const maxWithdrawable = escrowBalance - rentMin - feeBuffer;
-
+  const maxWithdrawable = escrowBalance - rentMin - 10000; // keep rent-exempt min + ~tx fee
   if (maxWithdrawable <= 0) throw new Error('Escrow has insufficient funds');
   if (lamports > maxWithdrawable) {
-    throw new Error(
-      `Amount too large. Max withdrawable: ${(maxWithdrawable / LAMPORTS_PER_SOL).toFixed(4)} SOL`
-    );
+    throw new Error(`Amount too large. Max withdrawable: ${(maxWithdrawable / LAMPORTS_PER_SOL).toFixed(4)} SOL`);
   }
 
   const { blockhash, lastValidBlockHeight } = await withRetry(() => connection.getLatestBlockhash(), 8);
-  const tx = new Transaction().add(
-    SystemProgram.transfer({
-      fromPubkey: escrow.publicKey,
-      toPubkey,
-      lamports,
-    })
-  );
+  const tx = new Transaction().add(SystemProgram.transfer({ fromPubkey: escrow.publicKey, toPubkey, lamports }));
   tx.recentBlockhash = blockhash;
   tx.feePayer = escrow.publicKey;
   tx.sign(escrow);
+  const raw = tx.serialize();
+  const signature = bs58.encode(tx.signature); // == what sendRawTransaction will return
+  return { raw, signedTx: raw.toString('base64'), signature, blockhash, lastValidBlockHeight };
+}
 
-  const signature = await withRetry(() => connection.sendRawTransaction(tx.serialize()), 6);
-  await withRetry(() => connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }), 6);
-  return signature;
+// true = confirmed on-chain, false = errored on-chain, null = not found / still pending.
+async function signatureLanded(signature) {
+  const st = await withRetry(() => connection.getSignatureStatus(signature, { searchTransactionHistory: true }));
+  const v = st && st.value;
+  if (!v) return null;
+  if (v.err) return false;
+  return (v.confirmationStatus === 'confirmed' || v.confirmationStatus === 'finalized') ? true : null;
+}
+
+// Poll a signature until it confirms or its blockhash expires. Returns true if it confirmed.
+async function confirmSig(signature, lastValidBlockHeight, tries = 30) {
+  for (let i = 0; i < tries; i++) {
+    const landed = await signatureLanded(signature);
+    if (landed === true)  return true;
+    if (landed === false) return false;
+    try {
+      const h = await withRetry(() => connection.getBlockHeight());
+      if (lastValidBlockHeight && h > Number(lastValidBlockHeight)) return false; // expired, never landed
+    } catch (_) {}
+    await new Promise(r => setTimeout(r, 1500));
+  }
+  return false;
+}
+
+// Inline cash-out payout (happy path). On any failure it attaches `e.broadcast` — the exact
+// signed bytes + signature — so the drainer can finish this same payout idempotently.
+async function withdraw(toAddress, amountSol) {
+  const built = await buildSignedPayout(toAddress, amountSol);
+  try {
+    await withRetry(() => connection.sendRawTransaction(built.raw, { skipPreflight: false }), 6);
+    await withRetry(() => connection.confirmTransaction({ signature: built.signature, blockhash: built.blockhash, lastValidBlockHeight: built.lastValidBlockHeight }), 6);
+    return built.signature;
+  } catch (e) {
+    e.broadcast = { signature: built.signature, signedTx: built.signedTx, blockhash: built.blockhash, lastValidBlockHeight: built.lastValidBlockHeight };
+    throw e;
+  }
+}
+
+// Idempotent payout attempt for the background drainer. NEVER double-pays:
+//   • if the recorded tx already landed → reports paid, sends nothing;
+//   • if it's still within its validity window → re-broadcasts the SAME bytes (same signature,
+//     so it can only land once) and tries to confirm;
+//   • only once that tx has provably expired without landing does it build a FRESH one.
+// onFreshTx(broadcast) is awaited the instant a new tx is built — BEFORE it's sent — so the
+// signature is saved first and a crash mid-send can never strand an un-tracked transfer.
+async function attemptPayout(row, onFreshTx) {
+  if (row.signature) {
+    const landed = await signatureLanded(row.signature);
+    if (landed === true) return { paid: true, sig: row.signature };
+    if (landed === null) {
+      const height = await withRetry(() => connection.getBlockHeight());
+      const lvbh   = Number(row.last_valid_block_height) || 0;
+      if (row.signed_tx && lvbh && height <= lvbh) {
+        try { await withRetry(() => connection.sendRawTransaction(Buffer.from(row.signed_tx, 'base64'), { skipPreflight: true }), 4); } catch (_) {}
+        const ok = await confirmSig(row.signature, lvbh, 20);
+        return ok ? { paid: true, sig: row.signature } : { paid: false };
+      }
+      // expired & never landed → fall through to a fresh build
+    }
+    // landed === false (errored on-chain) → build fresh
+  }
+  const built = await buildSignedPayout(row.wallet_address, row.amount_sol);
+  await onFreshTx({ signature: built.signature, signedTx: built.signedTx, blockhash: built.blockhash, lastValidBlockHeight: built.lastValidBlockHeight });
+  await withRetry(() => connection.sendRawTransaction(built.raw, { skipPreflight: false }), 6);
+  const ok = await confirmSig(built.signature, built.lastValidBlockHeight);
+  return ok ? { paid: true, sig: built.signature } : { paid: false };
 }
 
 async function getEscrowBalance() {
@@ -197,4 +257,4 @@ async function getRecentSigs() {
   }));
 }
 
-module.exports = { getEscrowPublicKey, getRecentSigs, withdraw, getEscrowBalance, getAddressBalance, getEscrowDiagnostics, verifyStakeTransfer, getLatestBlockhash, forwardRpc, submitStake, NETWORK, setDb, seedUsedSignatures };
+module.exports = { getEscrowPublicKey, getRecentSigs, withdraw, attemptPayout, getEscrowBalance, getAddressBalance, getEscrowDiagnostics, verifyStakeTransfer, getLatestBlockhash, forwardRpc, submitStake, NETWORK, setDb, seedUsedSignatures };

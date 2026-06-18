@@ -559,6 +559,34 @@ async function checkSolvency() {
 setInterval(checkSolvency, 60000).unref?.();
 checkSolvency();
 
+// ── Failed-payout drainer (NA only) ───────────────────────────────────────────
+// Retries cash-out payouts that failed (e.g. an RPC outage) so a player's winnings are never
+// stranded. Wallet.attemptPayout is idempotent — it only ever re-broadcasts the SAME signed tx
+// (so it can't double-pay) and saves a freshly-built tx BEFORE sending it. Runs only on NA so
+// the two servers never race the same payout; the DB row claim (SKIP LOCKED) is a 2nd safeguard.
+async function drainPayouts() {
+  try {
+    for (let i = 0; i < 5; i++) {              // drain a few per tick, then yield
+      const row = await db.claimDuePayout(30, 200);
+      if (!row) break;
+      try {
+        const r = await Wallet.attemptPayout(row, (b) => db.savePayoutSignature(row.id, b));
+        if (r && r.paid) {
+          await db.markPayoutPaid(row.id, r.sig);
+          console.log(`[PAYOUT] recovered ${row.amount_sol} SOL → ${String(row.wallet_address).slice(0, 8)}… sig ${String(r.sig).slice(0, 12)} (attempt ${row.attempts})`);
+        } else {
+          console.warn(`[PAYOUT] ${row.amount_sol} SOL to ${String(row.wallet_address).slice(0, 8)}… still pending (attempt ${row.attempts})`);
+        }
+      } catch (e) {
+        console.error(`[PAYOUT] retry errored for ${String(row.wallet_address).slice(0, 8)}…: ${e.message}`);
+      }
+    }
+  } catch (e) {
+    console.error('[PAYOUT] drainer tick failed:', e.message);
+  }
+}
+if (REGION === 'na') setInterval(drainPayouts, 30000).unref?.();
+
 // How long to keep a disconnected player's snake gliding before giving up on a
 // reconnect. Covers a typical mobile network blip without leaving dead snakes around.
 const RECONNECT_GRACE_MS = 8000;
@@ -708,7 +736,7 @@ io.on('connection', (socket) => {
             console.error(`[CASHOUT] CRITICAL: self-custody payout failed for ${socket._walletAddress} — owed ${playerShare.toFixed(6)} SOL: ${e.message}`);
             // Record the owed amount durably so it's never silently lost (owner reconciles via
             // /api/admin/failed-payouts). No auto-retry — a re-send could double-pay.
-            db.recordFailedPayout(socket._walletAddress, playerShare, snake.name, `snake ${room.lobbyType}: ${e.message}`).catch(() => {});
+            db.recordFailedPayout(socket._walletAddress, playerShare, snake.name, `snake ${room.lobbyType}: ${e.message}`, e.broadcast).catch(() => {});
             socket.emit('cashout:error', { message: 'Payout delayed — your winnings are recorded and will be sent. Contact support if they don\'t arrive.' });
           });
       }
@@ -921,7 +949,7 @@ io.on('connection', (socket) => {
           })
           .catch((e) => {
             console.error(`[AGAR CASHOUT] CRITICAL: self-custody payout failed for ${socket._walletAddress} — owed ${playerShareSol.toFixed(6)} SOL: ${e.message}`);
-            db.recordFailedPayout(socket._walletAddress, playerShareSol, player.name, `agar ${room.roomName}: ${e.message}`).catch(() => {});
+            db.recordFailedPayout(socket._walletAddress, playerShareSol, player.name, `agar ${room.roomName}: ${e.message}`, e.broadcast).catch(() => {});
             socket.emit('cell:cashout:error', { message: 'Payout delayed — your winnings are recorded and will be sent. Contact support if they don\'t arrive.' });
           });
       }
