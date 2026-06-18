@@ -68,10 +68,13 @@ async function withdraw(toAddress, amountSol) {
   const toPubkey = new PublicKey(toAddress);
   const lamports = Math.floor(amountSol * LAMPORTS_PER_SOL);
 
-  // Ensure escrow keeps enough for rent-exempt minimum + tx fee
+  // Ensure escrow keeps enough for rent-exempt minimum + tx fee. Payouts are money-critical,
+  // so retry harder than reads do by default — absorb a longer RPC outage (the kind that has
+  // dropped a cash-out with a 503). Re-sending the SAME signed tx below is idempotent (the
+  // network dedupes by signature), so the extra retries can never double-pay.
   const [escrowBalance, rentMin] = await Promise.all([
-    withRetry(() => connection.getBalance(escrow.publicKey)),
-    withRetry(() => connection.getMinimumBalanceForRentExemption(0)),
+    withRetry(() => connection.getBalance(escrow.publicKey), 8),
+    withRetry(() => connection.getMinimumBalanceForRentExemption(0), 8),
   ]);
   const feeBuffer = 10000; // ~0.00001 SOL for tx fee
   const maxWithdrawable = escrowBalance - rentMin - feeBuffer;
@@ -83,7 +86,7 @@ async function withdraw(toAddress, amountSol) {
     );
   }
 
-  const { blockhash, lastValidBlockHeight } = await withRetry(() => connection.getLatestBlockhash());
+  const { blockhash, lastValidBlockHeight } = await withRetry(() => connection.getLatestBlockhash(), 8);
   const tx = new Transaction().add(
     SystemProgram.transfer({
       fromPubkey: escrow.publicKey,
@@ -95,8 +98,8 @@ async function withdraw(toAddress, amountSol) {
   tx.feePayer = escrow.publicKey;
   tx.sign(escrow);
 
-  const signature = await withRetry(() => connection.sendRawTransaction(tx.serialize()));
-  await withRetry(() => connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }));
+  const signature = await withRetry(() => connection.sendRawTransaction(tx.serialize()), 6);
+  await withRetry(() => connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }), 6);
   return signature;
 }
 

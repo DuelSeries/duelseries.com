@@ -381,6 +381,18 @@ app.get('/api/admin/solvency', async (req, res) => {
   res.json(_lastSolvency || { error: 'no data yet' });
 });
 
+// Owner-only: cash-out payouts that failed on-chain (e.g. an RPC outage) and are owed but
+// unpaid. Lets the owner see who's owed what and pay it out manually until an automatic
+// drainer exists. `paid` rows are kept for the audit trail.
+app.get('/api/admin/failed-payouts', async (req, res) => {
+  if (!(await isOwnerReq(req))) return res.status(403).json({ error: 'Forbidden' });
+  try {
+    res.json(await db.getFailedPayouts(200));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ─── Region / ping ────────────────────────────────────────────────────────────
 app.get('/api/ping', (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -694,7 +706,10 @@ io.on('connection', (socket) => {
           })
           .catch((e) => {
             console.error(`[CASHOUT] CRITICAL: self-custody payout failed for ${socket._walletAddress} — owed ${playerShare.toFixed(6)} SOL: ${e.message}`);
-            socket.emit('cashout:error', { message: 'Payout to your wallet failed — contact support.' });
+            // Record the owed amount durably so it's never silently lost (owner reconciles via
+            // /api/admin/failed-payouts). No auto-retry — a re-send could double-pay.
+            db.recordFailedPayout(socket._walletAddress, playerShare, snake.name, `snake ${room.lobbyType}: ${e.message}`).catch(() => {});
+            socket.emit('cashout:error', { message: 'Payout delayed — your winnings are recorded and will be sent. Contact support if they don\'t arrive.' });
           });
       }
       return;
@@ -906,7 +921,8 @@ io.on('connection', (socket) => {
           })
           .catch((e) => {
             console.error(`[AGAR CASHOUT] CRITICAL: self-custody payout failed for ${socket._walletAddress} — owed ${playerShareSol.toFixed(6)} SOL: ${e.message}`);
-            socket.emit('cell:cashout:error', { message: 'Payout to your wallet failed — contact support.' });
+            db.recordFailedPayout(socket._walletAddress, playerShareSol, player.name, `agar ${room.roomName}: ${e.message}`).catch(() => {});
+            socket.emit('cell:cashout:error', { message: 'Payout delayed — your winnings are recorded and will be sent. Contact support if they don\'t arrive.' });
           });
       }
       return;

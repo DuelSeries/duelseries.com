@@ -57,6 +57,16 @@ async function init() {
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
 
+    CREATE TABLE IF NOT EXISTS failed_payouts (
+      id             SERIAL PRIMARY KEY,
+      wallet_address TEXT NOT NULL,
+      amount_sol     NUMERIC(18,9) NOT NULL,
+      name           TEXT,
+      reason         TEXT,
+      paid           BOOLEAN DEFAULT FALSE,
+      created_at     TIMESTAMPTZ DEFAULT NOW()
+    );
+
     CREATE TABLE IF NOT EXISTS verification_codes (
       google_id   TEXT NOT NULL,
       code        TEXT NOT NULL,
@@ -190,6 +200,26 @@ async function markStakeSig(sig) {
     [sig]
   );
   return r.rowCount > 0;
+}
+
+// A self-custody cash-out that ultimately failed on-chain (e.g. an RPC outage). Recorded
+// durably so the owed SOL is never silently lost — the owner reconciles + pays it out manually
+// via /api/admin/failed-payouts. No auto-retry, because blindly re-sending could double-pay if
+// the original tx actually landed but its confirmation was what failed.
+async function recordFailedPayout(walletAddress, amountSol, name, reason) {
+  await pool.query(
+    `INSERT INTO failed_payouts (wallet_address, amount_sol, name, reason) VALUES ($1, $2, $3, $4)`,
+    [walletAddress, amountSol, name || null, (reason || '').slice(0, 500)]
+  );
+}
+
+async function getFailedPayouts(limit = 200) {
+  const res = await pool.query(
+    `SELECT id, wallet_address, amount_sol, name, reason, paid, created_at
+       FROM failed_payouts ORDER BY paid ASC, created_at DESC LIMIT $1`,
+    [limit]
+  );
+  return res.rows.map(r => ({ ...r, amount_sol: parseFloat(r.amount_sol) }));
 }
 
 async function getTopEarners(n) {
@@ -364,6 +394,7 @@ module.exports = {
   isTxUsed, recordWithdrawal,
   recordCollusionFlag, getRecentCollusionFlags,
   markStakeSig,
+  recordFailedPayout, getFailedPayouts,
   recordEarnings, getTopEarners,
   isNameTaken,
   getProfile, getMyProfile, pushNameHistory, searchPlayerNames, getGlobalWinnings,
