@@ -54,6 +54,35 @@ test('a cell eats nearby food and the food is removed (grid food-eating)', () =>
   assert.ok(!room.foods.has(99999), 'food consumed');
 });
 
+test('AOI broadcast culls a distant player from a near player\'s payload', () => {
+  // Rich io stub that captures per-room emits and exposes the room membership the broadcaster reads.
+  const emitted = [];
+  const sockets = new Map();
+  const rooms = new Map();
+  const io = {
+    to: (room) => ({ volatile: { emit: (ev, payload) => emitted.push({ room, ev, payload }) } }),
+    sockets: { adapter: { rooms }, sockets },
+  };
+  const mkSock = (id) => ({ id, _agarViewR: 1000, _agarCellRoom: null, join() {}, leave() {}, volatile: { emit() {} } });
+
+  const room = new AgarRoom(io, 'agar_na_free');
+  // Two players far apart (well beyond view 1000 + margin).
+  room.players.set('A', { id: 'A', name: 'A', color: '#fff', alive: true, score: 0, worth: 0, cells: [cell(100, 100, 30)] });
+  room.players.set('B', { id: 'B', name: 'B', color: '#000', alive: true, score: 0, worth: 0, cells: [cell(10000, 10000, 30)] });
+  sockets.set('A', mkSock('A'));
+  sockets.set('B', mkSock('B'));
+  rooms.set('agar_na_free', new Set(['A', 'B']));
+
+  room._broadcast();
+
+  const idsByRoom = {};
+  for (const e of emitted) idsByRoom[e.room] = e.payload.players.map(p => p.id).sort();
+  const aRoom = 'aoi_agar_na_free_0,0';        // A is at (100,100) -> cell 0,0
+  const bRoom = 'aoi_agar_na_free_6,6';        // B is at (10000,10000) -> cell 6,6
+  assert.deepStrictEqual(idsByRoom[aRoom], ['A'], 'A only sees itself');
+  assert.deepStrictEqual(idsByRoom[bRoom], ['B'], 'B only sees itself');
+});
+
 test('food far outside every cell radius is not eaten', () => {
   const room = new AgarRoom(mockIo, 'agar_na_free');
   const bot = room.addBot();

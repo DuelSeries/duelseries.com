@@ -230,7 +230,10 @@ class AgarRoom {
     this._checkFoodEating();
     this._checkPlayerEating();
     this._refillFood();
-    this._broadcast();
+    // Broadcast at ~30Hz (every other 60Hz sim tick) — the client interpolates, so the skipped
+    // frames are invisible and bandwidth halves.
+    this._bcTick = (this._bcTick || 0) + 1;
+    if (this._bcTick % 2 === 0) this._broadcast();
   }
 
   _updatePlayer(p, dt) {
@@ -488,13 +491,84 @@ class AgarRoom {
   }
 
   _broadcast() {
-    this.io.to(this.roomName).emit('cell:state', {
-      players:      this._serializePlayers(),
-      removedFoods: this._removedFoods,
-      addedFoods:   this._addedFoods,
-    });
+    // Flush food deltas regardless of who's listening (they're global + small per tick).
+    const removedFoods = this._removedFoods, addedFoods = this._addedFoods;
     this._removedFoods = [];
     this._addedFoods   = [];
+
+    const roomSet = this.io.sockets.adapter.rooms.get(this.roomName);
+    if (!roomSet || roomSet.size === 0) return;
+
+    // Serialize every entity ONCE, with a bounding circle over its cells (incl. their radii) for
+    // a cheap "is it in this view?" test.
+    const all = [], bounds = [];
+    for (const p of [...this.players.values(), ...this.bots.values()]) {
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const c of p.cells) {
+        const r = Math.sqrt(c.mass) * 10;
+        if (c.x - r < minX) minX = c.x - r;
+        if (c.x + r > maxX) maxX = c.x + r;
+        if (c.y - r < minY) minY = c.y - r;
+        if (c.y + r > maxY) maxY = c.y + r;
+      }
+      if (minX === Infinity) { minX = maxX = minY = maxY = 0; }
+      all.push({ id: p.id, name: p.name, color: p.color, alive: p.alive, score: p.score, worth: p.worth || 0,
+                 cells: p.cells.map(c => ({ x: c.x, y: c.y, mass: c.mass })) });
+      bounds.push({ cx: (minX + maxX) / 2, cy: (minY + maxY) / 2, br: Math.hypot(maxX - minX, maxY - minY) / 2 });
+    }
+
+    // ── Interest-group AOI broadcast ──────────────────────────────────────────
+    // Bucket each live player into a coarse world cell and send ONE culled payload per occupied
+    // cell via a Socket.IO room — encodes scale with occupied cells, not players². The client
+    // time-evicts anyone it stops hearing about, so players that leave its view disappear.
+    // VOLATILE so a client that can't keep up drops frames instead of backing up its buffer.
+    const CELL = 1500, DEFAULT_VIEW = 1200, MARGIN = 200;
+    const cells = new Map();
+    const fullSends = [];
+
+    for (const sid of roomSet) {
+      const sock = this.io.sockets.sockets.get(sid);
+      if (!sock) continue;
+      const me = this.players.get(sid);
+      if (!me || !me.alive || !me.cells.length) {
+        if (sock._agarCellRoom) { sock.leave(sock._agarCellRoom); sock._agarCellRoom = null; }
+        fullSends.push(sock);
+        continue;
+      }
+      let sx = 0, sy = 0;
+      for (const c of me.cells) { sx += c.x; sy += c.y; }
+      sx /= me.cells.length; sy /= me.cells.length;
+      const ci = Math.floor(sx / CELL), cj = Math.floor(sy / CELL);
+      const key = ci + ',' + cj;
+      const roomName = 'aoi_' + this.roomName + '_' + key;
+      if (sock._agarCellRoom !== roomName) {
+        if (sock._agarCellRoom) sock.leave(sock._agarCellRoom);
+        sock.join(roomName);
+        sock._agarCellRoom = roomName;
+      }
+      let cell = cells.get(key);
+      if (!cell) { cell = { ci, cj, roomName, maxV: 0 }; cells.set(key, cell); }
+      const v = sock._agarViewR || DEFAULT_VIEW;
+      if (v > cell.maxV) cell.maxV = v;
+    }
+
+    // One culled payload per occupied cell, padded by the widest view among its players.
+    for (const cell of cells.values()) {
+      const pad = cell.maxV + MARGIN;
+      const cx = cell.ci * CELL + CELL / 2, cy = cell.cj * CELL + CELL / 2;
+      const halfW = CELL / 2 + pad, halfH = CELL / 2 + pad;
+      const players = [];
+      for (let i = 0; i < all.length; i++) {
+        const b = bounds[i];
+        if (Math.abs(b.cx - cx) <= halfW + b.br && Math.abs(b.cy - cy) <= halfH + b.br) players.push(all[i]);
+      }
+      this.io.to(cell.roomName).volatile.emit('cell:state', { players, removedFoods, addedFoods });
+    }
+
+    // Dead / spectator sockets get the full set (rare and transient).
+    for (const sock of fullSends) {
+      sock.volatile.emit('cell:state', { players: all, removedFoods, addedFoods });
+    }
   }
 
   _serializePlayers() {

@@ -909,6 +909,12 @@ io.on('connection', (socket) => {
     if (socket._agarRoom) socket._agarRoom.handleInput(socket.id, mouseX, mouseY);
   });
 
+  // Client reports how far it can see (world units) so the agar broadcaster only sends each
+  // player the entities within their view (area-of-interest culling).
+  socket.on('cell:view', ({ r } = {}) => {
+    if (typeof r === 'number' && isFinite(r) && r > 0) socket._agarViewR = Math.min(Math.max(r, 300), 12000);
+  });
+
   socket.on('cell:split', () => {
     if (!socketRL(socket, 'split', 100)) return;
     if (socket._agarRoom) socket._agarRoom.handleSplit(socket.id);

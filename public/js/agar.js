@@ -22,6 +22,7 @@ let foods       = new Map();
 let worldSize   = 6000;
 let camX        = 3000, camY = 3000, camScale = 1;
 let tgtCamX     = 3000, tgtCamY = 3000, tgtScale = 1;
+let _lastViewR  = 0, _lastViewSent = 0; // throttle for reporting our view radius (AOI culling)
 let screenMX    = 0, screenMY = 0;
 let animId      = null;
 let lastTime    = 0;
@@ -361,6 +362,7 @@ function connectSocket() {
     serverPlayers.clear(); renderPlayers.clear();
     for (const p of initPlayers) {
       serverPlayers.set(p.id, p);
+      p._lastSeen = performance.now();
       renderPlayers.set(p.id, snapRenderPlayer(p));
     }
 
@@ -380,6 +382,7 @@ function connectSocket() {
       // Once cashed out, ignore server state for own player so cells stay gone
       if (p.id === myId && cashedOut) continue;
       serverPlayers.set(p.id, p);
+      p._lastSeen = performance.now();
       if (!renderPlayers.has(p.id)) {
         renderPlayers.set(p.id, snapRenderPlayer(p));
       } else {
@@ -416,6 +419,7 @@ function connectSocket() {
 
   socket.on('cell:playerJoined', ({ id, name, color, cells }) => {
     const p = { id, name, color, cells, alive: true, score: 0, worth: 0 };
+    p._lastSeen = performance.now();
     serverPlayers.set(id, p);
     renderPlayers.set(id, snapRenderPlayer(p));
   });
@@ -617,6 +621,21 @@ function loop(now) {
   camX     += (tgtCamX  - camX)     * CAM_LERP;
   camY     += (tgtCamY  - camY)     * CAM_LERP;
   camScale += (tgtScale - camScale) * SCALE_LERP;
+
+  // Area-of-interest: report our view radius to the server (throttled) so it only sends nearby
+  // entities, and evict players we've stopped hearing about (they left our view) so culled
+  // entities don't freeze on screen as ghosts. Render-only — the sim stays fully server-side.
+  if (socket && myId) {
+    const vr = Math.hypot(canvas.width / 2, canvas.height / 2) / Math.max(camScale, 0.0001);
+    if (!_lastViewR || Math.abs(vr - _lastViewR) / _lastViewR > 0.15 || now - _lastViewSent > 2000) {
+      socket.volatile.emit('cell:view', { r: vr });
+      _lastViewR = vr; _lastViewSent = now;
+    }
+    for (const [id, sp] of serverPlayers) {
+      if (id === myId) continue;
+      if (sp._lastSeen && now - sp._lastSeen > 1500) { serverPlayers.delete(id); renderPlayers.delete(id); }
+    }
+  }
 
   render();
 
