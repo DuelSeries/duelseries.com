@@ -14,9 +14,11 @@ async function fetchRate() {
   }
 }
 
-// Fetch immediately and then every 5 minutes
+// Fetch immediately and then every 5 minutes. unref() so this timer alone never keeps the
+// process alive (the server stays up via its http/game-loop handles) — lets tests + dev
+// scripts that `require` this module exit cleanly.
 fetchRate();
-setInterval(fetchRate, 5 * 60 * 1000);
+setInterval(fetchRate, 5 * 60 * 1000).unref?.();
 
 function getSolCadRate() { return _rate; }
 function cadToSol(cad) { return cad / _rate; }
