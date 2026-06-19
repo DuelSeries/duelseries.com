@@ -36,6 +36,26 @@ test('a callback returning true stops the scan early', () => {
   assert.strictEqual(count, 1);
 });
 
+test('forEachInRange covers a radius larger than one cell', () => {
+  const g = new SpatialGrid(100);
+  g.insert(0, 0, 'a');
+  g.insert(250, 0, 'b');    // 2.5 cells away — outside 3x3, inside range 300
+  g.insert(900, 0, 'c');    // far outside
+  const found = [];
+  g.forEachInRange(0, 0, 300, (it) => { found.push(it); return false; });
+  assert.ok(found.includes('a'));
+  assert.ok(found.includes('b'));
+  assert.ok(!found.includes('c'));
+});
+
+test('forEachInRange with a tiny range still scans the home cell', () => {
+  const g = new SpatialGrid(100);
+  g.insert(10, 10, 'home');
+  const found = [];
+  g.forEachInRange(10, 10, 1, (it) => { found.push(it); return false; });
+  assert.deepStrictEqual(found, ['home']);
+});
+
 test('handles negative coordinates without key collisions', () => {
   const g = new SpatialGrid(80);
   g.insert(-1000, -1000, 'neg');

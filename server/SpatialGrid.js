@@ -34,6 +34,21 @@ class SpatialGrid {
       }
     }
   }
+
+  // Visit every item within `range` world-units of (x, y) by scanning the block of cells the
+  // range spans (not just 3×3). For callers whose interaction radius varies — e.g. an agar cell
+  // whose radius grows with mass — so a big cell still sees everything it can reach. fn may
+  // return true to stop early.
+  forEachInRange(x, y, range, fn) {
+    const cx = Math.floor(x / this.cell), cy = Math.floor(y / this.cell);
+    const span = Math.max(1, Math.ceil(range / this.cell));
+    for (let gx = cx - span; gx <= cx + span; gx++) {
+      for (let gy = cy - span; gy <= cy + span; gy++) {
+        const arr = this.map.get(this._cellKey(gx, gy));
+        if (arr) { for (let i = 0; i < arr.length; i++) { if (fn(arr[i])) return; } }
+      }
+    }
+  }
 }
 
 module.exports = SpatialGrid;

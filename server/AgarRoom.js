@@ -1,6 +1,7 @@
 'use strict';
 const agarLb = require('./agarLeaderboard');
 const collusion = require('./CollusionMonitor');
+const SpatialGrid = require('./SpatialGrid');
 
 const TICK_RATE      = 60;
 const WORLD_BASE     = 6000;
@@ -15,6 +16,9 @@ const SPLIT_SPEED    = 650;
 const MERGE_DELAY    = 12000;
 const SPEED_BASE     = 1500; // divided by mass^0.4 per cell
 const EAT_RATIO      = 1.25;
+// Spatial-grid bucket size (world units) for broad-phase food/cell eating. Range queries expand
+// it by each cell's radius, so it just needs to be a reasonable bucket vs the world (6k–18k).
+const AGAR_GRID      = 300;
 
 const FOOD_COLORS = [
   '#f87171','#fb923c','#fbbf24','#4ade80',
@@ -374,62 +378,83 @@ class AgarRoom {
   }
 
   _checkFoodEating() {
+    // Broad-phase: bucket food into a spatial grid once per tick (food barely moves), so each
+    // cell only tests the food within its own radius instead of all ~3000 foods. Same result.
+    const grid = this._foodGrid || (this._foodGrid = new SpatialGrid(AGAR_GRID));
+    grid.clear();
+    for (const food of this.foods.values()) grid.insert(food.x, food.y, food);
+
     for (const p of [...this.players.values(), ...this.bots.values()]) {
       if (!p.alive) continue;
       for (const cell of p.cells) {
         const r = Math.sqrt(cell.mass) * 10;
-        for (const [fid, food] of this.foods) {
+        grid.forEachInRange(cell.x, cell.y, r, (food) => {
+          if (food._eaten) return false;
           const rMin = r - food.r * 0.4;
           const dx = cell.x - food.x, dy = cell.y - food.y;
           if (dx * dx + dy * dy < rMin * rMin) {
             cell.mass += FOOD_MASS;
-            this.foods.delete(fid);
-            this._removedFoods.push(fid);
+            food._eaten = true;
+            this.foods.delete(food.id);
+            this._removedFoods.push(food.id);
           }
-        }
+          return false;
+        });
       }
     }
   }
 
   _checkPlayerEating() {
-    const list = [...this.players.values(), ...this.bots.values()];
-    for (const eater of list) {
+    const entities = [...this.players.values(), ...this.bots.values()];
+    // Broad-phase: bucket every live cell (tagged with its owner) into a grid, so each eater
+    // cell only tests the cells within its own radius instead of every other entity's cells.
+    // The eat condition, worth transfer, and death handling below are unchanged from the old
+    // all-pairs scan; _consumed guards a cell from being eaten twice in one tick.
+    const grid = this._cellGrid || (this._cellGrid = new SpatialGrid(AGAR_GRID));
+    grid.clear();
+    for (const ent of entities) {
+      if (!ent.alive) continue;
+      for (const c of ent.cells) { c._owner = ent; c._consumed = false; grid.insert(c.x, c.y, c); }
+    }
+
+    for (const eater of entities) {
       if (!eater.alive) continue;
-      for (const target of list) {
-        if (eater === target || !target.alive) continue;
-        for (const ec of eater.cells) {
-          const er = Math.sqrt(ec.mass) * 10;
-          for (let k = target.cells.length - 1; k >= 0; k--) {
-            const tc = target.cells[k];
-            if (ec.mass < tc.mass * EAT_RATIO) continue;
-            const dx = ec.x - tc.x, dy = ec.y - tc.y;
-            const tr = Math.sqrt(tc.mass) * 10;
-            if (dx * dx + dy * dy < (er - tr * 0.4) ** 2) {
-              ec.mass += tc.mass;
-              // Transfer this cell's proportional share of worth to the eater
-              if (target.worth > 0 && target.cells.length > 0) {
-                const share = target.worth / target.cells.length;
-                eater.worth = (eater.worth || 0) + share;
-                target.worth -= share;
-                // Value moved from the eaten account to the eater — feed the collusion monitor.
-                if (target.googleId && eater.googleId) collusion.record(target.googleId, eater.googleId, share, { lobbyType: this.roomName });
-              }
-              target.cells.splice(k, 1);
-              if (target.cells.length === 0) {
-                target.worth = 0; // sanity reset
-                if (target.isBot) {
-                  target.alive = false;
-                  this._updateWorldSize();
-                } else {
-                  agarLb.record(target.googleId || target.name, target.name, target.score);
-                  target.alive = false;
-                  const sock = this.io.sockets.sockets.get(target.id);
-                  if (sock) sock.emit('cell:died', { killedBy: eater.name, score: target.score });
-                }
-              }
+      for (const ec of eater.cells) {
+        const er = Math.sqrt(ec.mass) * 10;
+        grid.forEachInRange(ec.x, ec.y, er, (tc) => {
+          const target = tc._owner;
+          if (tc._consumed || target === eater || !target.alive) return false;
+          if (ec.mass < tc.mass * EAT_RATIO) return false;
+          const tr = Math.sqrt(tc.mass) * 10;
+          const dx = ec.x - tc.x, dy = ec.y - tc.y;
+          if (dx * dx + dy * dy >= (er - tr * 0.4) ** 2) return false;
+
+          ec.mass += tc.mass;
+          // Transfer this cell's proportional share of worth to the eater
+          if (target.worth > 0 && target.cells.length > 0) {
+            const share = target.worth / target.cells.length;
+            eater.worth = (eater.worth || 0) + share;
+            target.worth -= share;
+            // Value moved from the eaten account to the eater — feed the collusion monitor.
+            if (target.googleId && eater.googleId) collusion.record(target.googleId, eater.googleId, share, { lobbyType: this.roomName });
+          }
+          tc._consumed = true;
+          const idx = target.cells.indexOf(tc);
+          if (idx !== -1) target.cells.splice(idx, 1);
+          if (target.cells.length === 0) {
+            target.worth = 0; // sanity reset
+            if (target.isBot) {
+              target.alive = false;
+              this._updateWorldSize();
+            } else {
+              agarLb.record(target.googleId || target.name, target.name, target.score);
+              target.alive = false;
+              const sock = this.io.sockets.sockets.get(target.id);
+              if (sock) sock.emit('cell:died', { killedBy: eater.name, score: target.score });
             }
           }
-        }
+          return false;
+        });
       }
     }
   }
