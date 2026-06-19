@@ -29,6 +29,14 @@ function socketRL(socket, key, minMs) {
   return true;
 }
 
+// Sanitize a player-supplied display name: strip markup (< >) and control characters, trim, and
+// cap length. Defense in depth — the client escapes names on render today, but names are stored,
+// used as leaderboard keys, and broadcast to every other player, so they must never carry markup
+// or control chars in the first place. Falls back to 'Player' if nothing usable remains.
+function sanitizeName(name) {
+  return (String(name == null ? '' : name).replace(/[<>]/g, '').trim().slice(0, 20)) || 'Player';
+}
+
 if (process.env.NODE_ENV === 'production' && !process.env.SESSION_SECRET) {
   console.error('FATAL: SESSION_SECRET env var is not set in production.');
   process.exit(1);
@@ -650,7 +658,7 @@ io.on('connection', (socket) => {
       const existingSnake = socket._room.snakes.get(socket.id);
       if (existingSnake && existingSnake.alive) return;
     }
-    const playerName = (name || 'Player').slice(0, 20);
+    const playerName = sanitizeName(name);
     // Identity = the wallet address the client sends as googleId (self-custody single login).
     const verifiedId = googleId || null;
     if (verifiedId) {
@@ -869,7 +877,7 @@ io.on('connection', (socket) => {
     if (entry.walletAddress) socket._walletAddress = entry.walletAddress; // self-custody cash-out target
     const entryWorth = LOBBY_FEES_CAD[shortType] || 0; // agar worth is the CAD fee
 
-    room.addPlayer(socket, name, color, entryWorth, socket._googleId || null);
+    room.addPlayer(socket, sanitizeName(name), color, entryWorth, socket._googleId || null);
     lobbyConnections.delete(socket);
     broadcastLobbyState();
   });
