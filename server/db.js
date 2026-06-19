@@ -112,34 +112,8 @@ async function init() {
 }
 
 // ─── Accounts ─────────────────────────────────────────────────────────────────
-
-async function getAccountByGoogleId(googleId) {
-  const res = await pool.query('SELECT * FROM accounts WHERE google_id = $1', [googleId]);
-  return res.rows[0] ? dbToAccount(res.rows[0]) : null;
-}
-
-async function getAccountByWallet(walletAddress) {
-  const res = await pool.query('SELECT * FROM accounts WHERE wallet_address = $1', [walletAddress]);
-  return res.rows[0] ? dbToAccount(res.rows[0]) : null;
-}
-
-async function saveAccount(googleId, updates) {
-  const fields = [];
-  const values = [];
-  let i = 1;
-  if (updates.name          !== undefined) { fields.push(`name = $${i++}`);           values.push(updates.name); }
-  if (updates.balance       !== undefined) { fields.push(`balance = $${i++}`);        values.push(updates.balance); }
-  if (updates.highScore     !== undefined) { fields.push(`high_score = $${i++}`);     values.push(updates.highScore); }
-  if (updates.gamesPlayed   !== undefined) { fields.push(`games_played = $${i++}`);   values.push(updates.gamesPlayed); }
-  if (updates.walletAddress !== undefined) { fields.push(`wallet_address = $${i++}`); values.push(updates.walletAddress); }
-  if (!fields.length) return getAccountByGoogleId(googleId);
-  values.push(googleId);
-  const res = await pool.query(
-    `UPDATE accounts SET ${fields.join(', ')} WHERE google_id = $${i} RETURNING *`,
-    values
-  );
-  return res.rows[0] ? dbToAccount(res.rows[0]) : null;
-}
+// (Custodial/2FA-era account getters — getAccountByGoogleId/getAccountByWallet/saveAccount and
+// their dbToAccount mapper — were removed: nothing reads the vestigial accounts.balance any more.)
 
 async function recordGameResult(googleId, score, durationSeconds) {
   await pool.query(
@@ -155,13 +129,6 @@ async function recordGameResult(googleId, score, durationSeconds) {
 // (Phase B2: getFinancialSummary removed — it summed the vestigial custodial
 // accounts.balance for the admin dashboard, which now derives "owed" from live in-game
 // stakes instead. See sumLiveSelfCustodyStakes in server/index.js.)
-
-// ─── Deposits ─────────────────────────────────────────────────────────────────
-
-async function isTxUsed(txSig) {
-  const res = await pool.query('SELECT 1 FROM deposits WHERE tx_sig = $1', [txSig]);
-  return res.rows.length > 0;
-}
 
 // ─── Withdrawals ──────────────────────────────────────────────────────────────
 // Now used purely as a paid-bot spend ledger (owner expense tracking). The custodial
@@ -320,19 +287,6 @@ async function searchPlayerNames(query, limit = 8) {
   return res.rows.map(r => r.name);
 }
 
-async function pushNameHistory(googleId, name) {
-  // Prepend name, deduplicate, keep last 3
-  await pool.query(
-    `UPDATE accounts
-     SET name_history = ARRAY(
-       SELECT DISTINCT ON (n) n FROM UNNEST(ARRAY[$2::text] || name_history) AS n
-       LIMIT 3
-     )
-     WHERE google_id = $1`,
-    [googleId, name]
-  );
-}
-
 async function getMyProfile(googleId) {
   const accRes = await pool.query(
     `SELECT name, total_earnings, games_played, play_time_seconds, name_history
@@ -360,14 +314,6 @@ async function getMyProfile(googleId) {
     nameHistory: row.name_history || [],
     games,
   };
-}
-
-async function isNameTaken(name, excludeGoogleId) {
-  const res = await pool.query(
-    `SELECT 1 FROM accounts WHERE LOWER(name) = LOWER($1) AND google_id != $2`,
-    [name, excludeGoogleId]
-  );
-  return res.rows.length > 0;
 }
 
 // (Phase B2: the 2FA / device-trust DB helpers — saveVerificationCode, verifyCode,
@@ -415,33 +361,13 @@ async function getProfile(name) {
   };
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function dbToAccount(row) {
-  return {
-    googleId:     row.google_id,
-    email:        row.email,
-    name:         row.name,
-    avatar:       row.avatar,
-    balance:      parseFloat(row.balance || 0),
-    highScore:     parseInt(row.high_score || 0),
-    agarHighScore:   parseInt(row.agar_high_score   || 0),
-    agarGamesPlayed: parseInt(row.agar_games_played || 0),
-    gamesPlayed:     parseInt(row.games_played      || 0),
-    walletAddress:  row.wallet_address,
-    privyWalletId:  row.privy_wallet_id,
-  };
-}
-
 module.exports = {
   init, pool,
-  getAccountByGoogleId, getAccountByWallet,
-  saveAccount, recordGameResult, recordAgarGameResult,
-  isTxUsed, recordWithdrawal,
+  recordGameResult, recordAgarGameResult,
+  recordWithdrawal,
   recordCollusionFlag, getRecentCollusionFlags,
   markStakeSig,
   recordFailedPayout, getFailedPayouts, claimDuePayout, savePayoutSignature, markPayoutPaid,
   recordEarnings, getTopEarners,
-  isNameTaken,
-  getProfile, getMyProfile, pushNameHistory, searchPlayerNames, getGlobalWinnings,
+  getProfile, getMyProfile, searchPlayerNames, getGlobalWinnings,
 };

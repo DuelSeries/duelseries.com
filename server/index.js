@@ -425,10 +425,14 @@ app.get('/api/profile/:name', async (req, res) => {
   }
 });
 
+// CAD genuinely paid out BEFORE the self-custody era's earnings_history (cad_amount) tracking
+// existed. Added to the live tracked total so the public "winnings paid" figure reflects ALL
+// real payouts — not a marketing inflation. Bump only when more historical payouts are reconciled.
+const PRE_TRACKING_WINNINGS_CAD = 294;
 app.get('/api/stats/winnings', async (req, res) => {
   try {
     const totalCad = await db.getGlobalWinnings();
-    res.json({ totalCad: totalCad + 294 });
+    res.json({ totalCad: totalCad + PRE_TRACKING_WINNINGS_CAD });
   } catch (e) {
     res.json({ totalCad: 0 });
   }
@@ -573,6 +577,9 @@ async function drainPayouts() {
         const r = await Wallet.attemptPayout(row, (b) => db.savePayoutSignature(row.id, b));
         if (r && r.paid) {
           await db.markPayoutPaid(row.id, r.sig);
+          // Earnings count on actual payout — record now that the recovery landed (it was not
+          // recorded at failure time), so the board reflects this real payout exactly once.
+          db.recordEarnings(row.wallet_address, row.name, row.amount_sol, prices.solToCad(row.amount_sol)).catch(() => {});
           console.log(`[PAYOUT] recovered ${row.amount_sol} SOL → ${String(row.wallet_address).slice(0, 8)}… sig ${String(r.sig).slice(0, 12)} (attempt ${row.attempts})`);
         } else {
           console.warn(`[PAYOUT] ${row.amount_sol} SOL to ${String(row.wallet_address).slice(0, 8)}… still pending (attempt ${row.attempts})`);
@@ -726,10 +733,12 @@ io.on('connection', (socket) => {
     if (socket._walletAddress) {
       socket.emit('cashout:result', { newBalance: null, earnedSol: playerShare, score: Math.floor(snake.score), length: snake.length, toWallet: true });
       if (worth > 0) {
-        db.recordEarnings(socket._walletAddress, snake.name, playerShare, playerShare * prices.getSolCadRate()).catch(() => {});
         Wallet.withdraw(socket._walletAddress, playerShare)
           .then((sig) => {
             console.log(`[CASHOUT] self-custody ${playerShare.toFixed(6)} SOL → ${socket._walletAddress.slice(0, 8)}… sig ${String(sig).slice(0, 12)}`);
+            // Earnings count only once the SOL is actually paid (so the leaderboard + global
+            // winnings reflect real payouts, not amounts a failed tx may never have delivered).
+            db.recordEarnings(socket._walletAddress, snake.name, playerShare, playerShare * prices.getSolCadRate()).catch(() => {});
             socket.emit('cashout:paid', { sol: playerShare, sig });
           })
           .catch((e) => {
@@ -940,11 +949,12 @@ io.on('connection', (socket) => {
       const playerShareSol = prices.cadToSol(playerShare);
       socket.emit('cell:cashout:result', { newBalance: null, earnedCad: playerShare, earnedSol: playerShareSol, score: player.score, toWallet: true });
       if (worthCad > 0) {
-        // Both games feed ONE combined top-earners board (the shared total_earnings column).
-        db.recordEarnings(socket._walletAddress, player.name, playerShareSol, playerShare).catch(() => {});
         Wallet.withdraw(socket._walletAddress, playerShareSol)
           .then((sig) => {
             console.log(`[AGAR CASHOUT] self-custody ${playerShareSol.toFixed(6)} SOL → ${socket._walletAddress.slice(0, 8)}… sig ${String(sig).slice(0, 12)}`);
+            // Earnings count only on actual payout. Both games feed ONE combined top-earners
+            // board (the shared total_earnings column).
+            db.recordEarnings(socket._walletAddress, player.name, playerShareSol, playerShare).catch(() => {});
             socket.emit('cell:cashout:paid', { sol: playerShareSol, sig });
           })
           .catch((e) => {
