@@ -67,6 +67,9 @@ Self-custody only (the old custodial escrow + `accounts.balance` ledger were ful
 - **Vestigial leftovers** from removed systems (don't mistake them for live): `accounts.balance`, the `withdrawals`/`deposits`/`verification_codes`/`trusted_devices` tables (custodial + 2FA), and the custodial finance code. The owner dashboard derives "owed" from live in-game stakes, not `accounts.balance`.
 - **Solana RPC must be a dedicated provider** (Helius via `RPC_URL`) — the public endpoint 503s/rate-limits and 403s browser origins. `Wallet.withRetry` backs off on 429/502/503/504. The browser's RPC calls are proxied through `/api/rpc` so they never hit the public node directly.
 
+## Roadmap / Future Direction
+- **Fiat on-ramps (PayPal, Cash App, credit/debit cards, Apple/Google Pay).** Goal: let players fund (and ideally cash out) with everyday payment methods instead of needing SOL. Intended approach is to KEEP the crypto rails under the hood and bolt on a fiat→crypto on-ramp so card/PayPal buys SOL (or USDC) that lands in the player's Privy wallet — NOT to become a custodial fiat money-transmitter (that path means licensing + banking partners + chargeback risk and is a regulated-company build). Candidate integrations: Privy's built-in funding (already on our stack), MoonPay, Transak, Stripe crypto on-ramp, Coinbase Onramp. Open considerations: on-ramp fees (~3–5%), KYC friction, **chargeback risk** (cards/PayPal/Cash App are reversible — dangerous for a cash-out game), possibly moving the in-game unit to **USDC** for price stability, and the **legal/gambling-regulation** reality of real-money wagering by jurisdiction. Treat as a real project, not a quick add.
+
 ## Reference Docs
 - `docs/self-custody-migration.md` — how the custodial system became self-custody (the money model).
 - `docs/single-login-migration.md` — how Privy became the only login.
