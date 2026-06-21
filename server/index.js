@@ -13,6 +13,7 @@ const collusion = require('./CollusionMonitor');
 const Wallet = require('./Wallet');
 const allTimeLb = require('./leaderboard');
 const prices = require('./prices');
+const money = require('./money'); // SOL- or USDC-denominated money backend (picked by MONEY_MODE)
 
 const REGION = process.env.REGION || 'na';
 
@@ -190,7 +191,7 @@ const entryFeeLimiter = rateLimit({ windowMs: 60 * 1000, max: 10, standardHeader
 const rpcLimiter = rateLimit({ windowMs: 10 * 1000, max: 100, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Slow down.' } });
 
 // ─── Entry fee ────────────────────────────────────────────────────────────────
-const LOBBY_FEES_CAD = { free: 0, dime: 0.10, dollar: 1.00 };
+const LOBBY_FEES = money.lobbyFees; // { free, dime, dollar } — the active money mode's fee table (keys validate lobby type)
 
 // Server-authorised paid-entry tokens. /api/submit-stake mints one after verifying the
 // player's on-chain stake landed in the escrow; PLAY / RESPAWN / cell:join verify + consume
@@ -198,7 +199,7 @@ const LOBBY_FEES_CAD = { free: 0, dime: 0.10, dollar: 1.00 };
 // claimed entrySol (a modified client could otherwise inflate it and mint money on
 // cash-out). One-time use; carries the staker's wallet for the on-chain cash-out.
 const crypto = require('crypto');
-const entryTokens = new Map(); // opaque token -> { lobbyType, worthSol, exp }
+const entryTokens = new Map(); // opaque token -> { lobbyType, worth, walletAddress, exp }
 const ENTRY_TOKEN_MAX_AGE_MS = 5 * 60 * 1000;
 // Sweep expired (paid-but-never-used) tokens so the map stays bounded.
 setInterval(() => { const now = Date.now(); for (const [k, v] of entryTokens) if (now > v.exp) entryTokens.delete(k); }, ENTRY_TOKEN_MAX_AGE_MS);
@@ -209,12 +210,12 @@ setInterval(() => { const now = Date.now(); for (const [k, v] of entryTokens) if
 // worth — that's what closes the entrySol escrow-drain hole. Needs no socket auth (the
 // socket session is empty) and works for join + respawn identically.
 function consumePaidEntry(entryToken, shortType) {
-  if (!(shortType in LOBBY_FEES_CAD)) shortType = 'free';
-  if (shortType === 'free') return { ok: true, worthSol: 0 }; // free lobbies carry no worth
+  if (!(shortType in LOBBY_FEES)) shortType = 'free';
+  if (shortType === 'free') return { ok: true, worth: 0 }; // free lobbies carry no worth
   const t = entryToken && entryTokens.get(entryToken);
-  if (!t || t.lobbyType !== shortType || Date.now() > t.exp) return { ok: false, worthSol: 0 };
+  if (!t || t.lobbyType !== shortType || Date.now() > t.exp) return { ok: false, worth: 0 };
   entryTokens.delete(entryToken); // one-time use
-  return { ok: true, worthSol: t.worthSol, googleId: t.googleId, walletAddress: t.walletAddress };
+  return { ok: true, worth: t.worth, googleId: t.googleId, walletAddress: t.walletAddress };
 }
 
 // Phase 4d: the custodial entry-fee is gone — paid play stakes from the self-custody wallet
@@ -249,13 +250,13 @@ app.get('/wallet/info', (req, res) => {
 app.get('/admin/finance', async (req, res) => {
   if (!(await isOwnerReq(req))) return res.status(403).json({ error: 'Forbidden' });
   try {
-    const escrowBalance = await Wallet.getEscrowBalance();
+    const escrowBalance = await money.escrowBalance();
     // Self-custody: the escrow only owes the stakes currently live in-game (players hold
     // their own funds otherwise). The old `accounts.balance` sum is vestigial custodial data
     // and would show a phantom liability. Count BOTH regions since the escrow is shared.
     const totalOwed = totalLiveStakesSol();
     const profit = escrowBalance - totalOwed;
-    res.json({ escrowBalance, totalOwed, profit });
+    res.json({ escrowBalance, totalOwed, profit, unit: money.unit });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -272,8 +273,8 @@ app.get('/api/sol-balance', rpcLimiter, async (req, res) => {
   const { address } = req.query;
   if (!address) return res.status(400).json({ error: 'address required' });
   try {
-    const sol = await Wallet.getAddressBalance(address);
-    res.json({ address, sol });
+    const sol = await money.balanceOf(address); // native unit (SOL or USDC); `sol` field kept for client back-compat
+    res.json({ address, sol, balance: sol, unit: money.unit });
   } catch (e) {
     res.status(400).json({ error: e.message });
   }
@@ -318,13 +319,13 @@ app.post('/api/broadcast', walletWithdrawLimiter, express.json({ limit: '256kb' 
 // blockhash for the client to build the transfer. No custodial balance is touched.
 app.get('/api/stake-quote', entryFeeLimiter, async (req, res) => {
   const lobbyType = req.query.lobbyType;
-  const feeCad = LOBBY_FEES_CAD[lobbyType];
-  if (feeCad === undefined) return res.status(400).json({ error: 'Unknown lobby' });
-  if (feeCad === 0) return res.json({ lobbyType, escrowAddress: null, lamports: 0, feeSol: 0 });
+  const fee = LOBBY_FEES[lobbyType];
+  if (fee === undefined) return res.status(400).json({ error: 'Unknown lobby' });
+  if (fee === 0) return res.json({ lobbyType, escrowAddress: null, lamports: 0, feeSol: 0 });
   try {
-    const feeSol = prices.cadToSol(feeCad);
-    const { blockhash } = await Wallet.getLatestBlockhash();
-    res.json({ lobbyType, escrowAddress: Wallet.getEscrowPublicKey(), lamports: Math.round(feeSol * 1e9), feeSol, blockhash });
+    // The quote shape is money-mode specific (SOL: escrowAddress/lamports/feeSol; USDC:
+    // escrowAta/usdcMint/units/amountUsdc). The client builds the matching transfer.
+    res.json({ lobbyType, ...(await money.stakeQuote(lobbyType)) });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -334,22 +335,20 @@ app.get('/api/stake-quote', entryFeeLimiter, async (req, res) => {
 // issue the entry token. This avoids the browser WebSocket the public RPC blocks.
 app.post('/api/submit-stake', entryFeeLimiter, express.json({ limit: '256kb' }), async (req, res) => {
   const { lobbyType, signedTx, walletAddress } = req.body || {};
-  const feeCad = LOBBY_FEES_CAD[lobbyType];
-  if (feeCad === undefined || feeCad === 0) return res.status(400).json({ error: 'Not a paid lobby' });
+  const fee = LOBBY_FEES[lobbyType];
+  if (fee === undefined || fee === 0) return res.status(400).json({ error: 'Not a paid lobby' });
   if (!signedTx) return res.status(400).json({ error: 'Missing signed transaction' });
   try {
-    const sig = await Wallet.submitStake(Buffer.from(signedTx, 'base64'));
-    const feeSol = prices.cadToSol(feeCad);
-    const minLamports = Math.round(feeSol * 1e9 * 0.95);
-    const { payer, lamports } = await Wallet.verifyStakeTransfer(sig, minLamports);
+    const sig = await Wallet.submitStake(Buffer.from(signedTx, 'base64')); // broadcast (works for any signed tx)
+    // Verify the stake landed in escrow and read the SERVER-recorded worth (SOL or USDC, per mode).
+    const { payer, worth } = await money.verifyStake(sig, money.feeFor(lobbyType));
     // Atomic one-time claim AFTER verify — closes the double-mint race (two concurrent
     // requests with the same sig can't both pass) without burning a valid sig on a transient
     // verify failure. If it returns false, another request already consumed this stake.
     if (!(await db.markStakeSig(sig))) return res.status(400).json({ error: 'Stake already used' });
-    const worthSol = lamports / 1e9;
     const entryToken = crypto.randomUUID();
-    entryTokens.set(entryToken, { lobbyType, worthSol, walletAddress: walletAddress || payer, exp: Date.now() + ENTRY_TOKEN_MAX_AGE_MS });
-    res.json({ ok: true, entryToken, worthSol });
+    entryTokens.set(entryToken, { lobbyType, worth, walletAddress: walletAddress || payer, exp: Date.now() + ENTRY_TOKEN_MAX_AGE_MS });
+    res.json({ ok: true, entryToken, worth, worthSol: worth }); // worthSol kept for current client back-compat
   } catch (e) {
     res.status(400).json({ error: e.message });
   }
@@ -540,7 +539,7 @@ function sumLiveSelfCustodyStakes() {
     for (const lt of Object.keys(agarRooms[rgn] || {})) {
       const room = agarRooms[rgn][lt];
       for (const p of room.players.values()) {
-        if (p && p.alive && p.worth > 0) total += prices.cadToSol(p.worth);
+        if (p && p.alive && p.worth > 0) total += p.worth; // worth is in the active unit (SOL or USDC)
       }
     }
   }
@@ -554,7 +553,7 @@ function totalLiveStakesSol() {
 }
 async function checkSolvency() {
   try {
-    const escrow = await Wallet.getEscrowBalance();
+    const escrow = await money.escrowBalance();
     const liveStakes = totalLiveStakesSol();
     const surplus = escrow - liveStakes;
     const solvent = surplus >= -1e-6;
@@ -573,7 +572,7 @@ checkSolvency();
 
 // ── Failed-payout drainer (NA only) ───────────────────────────────────────────
 // Retries cash-out payouts that failed (e.g. an RPC outage) so a player's winnings are never
-// stranded. Wallet.attemptPayout is idempotent — it only ever re-broadcasts the SAME signed tx
+// stranded. money.attemptPayout is idempotent — it only ever re-broadcasts the SAME signed tx
 // (so it can't double-pay) and saves a freshly-built tx BEFORE sending it. Runs only on NA so
 // the two servers never race the same payout; the DB row claim (SKIP LOCKED) is a 2nd safeguard.
 async function drainPayouts() {
@@ -582,12 +581,12 @@ async function drainPayouts() {
       const row = await db.claimDuePayout(30, 200);
       if (!row) break;
       try {
-        const r = await Wallet.attemptPayout(row, (b) => db.savePayoutSignature(row.id, b));
+        const r = await money.attemptPayout(row, (b) => db.savePayoutSignature(row.id, b));
         if (r && r.paid) {
           await db.markPayoutPaid(row.id, r.sig);
           // Earnings count on actual payout — record now that the recovery landed (it was not
           // recorded at failure time), so the board reflects this real payout exactly once.
-          db.recordEarnings(row.wallet_address, row.name, row.amount_sol, prices.solToCad(row.amount_sol)).catch(() => {});
+          db.recordEarnings(row.wallet_address, row.name, row.amount_sol, money.fiatValue(row.amount_sol)).catch(() => {});
           console.log(`[PAYOUT] recovered ${row.amount_sol} SOL → ${String(row.wallet_address).slice(0, 8)}… sig ${String(r.sig).slice(0, 12)} (attempt ${row.attempts})`);
         } else {
           console.warn(`[PAYOUT] ${row.amount_sol} SOL to ${String(row.wallet_address).slice(0, 8)}… still pending (attempt ${row.attempts})`);
@@ -684,7 +683,7 @@ io.on('connection', (socket) => {
 
     // Never trust the client's entrySol — take the snake's cash worth from a
     // server-verified paid-entry token (0 for free lobbies).
-    const shortType = (lobbyType in LOBBY_FEES_CAD) ? lobbyType : 'free';
+    const shortType = (lobbyType in LOBBY_FEES) ? lobbyType : 'free';
     const entry = consumePaidEntry(entryToken, shortType);
     if (!entry.ok) {
       socket.emit(C.EVENTS.ERROR, { message: 'Entry fee not verified. Please return to the lobby and try again.' });
@@ -699,8 +698,8 @@ io.on('connection', (socket) => {
     if (entry.walletAddress) socket._walletAddress = entry.walletAddress; // self-custody cash-out target
     socket._room = room;
     socket._joinTime = Date.now();
-    console.log(`[>] ${playerName} joins ${lobbyType || 'free'} lobby (worth: ${entry.worthSol} SOL)`);
-    room.addPlayer(socket, playerName, walletAddress || null, color || null, entry.worthSol, hatId || 'none', boostId || 'default');
+    console.log(`[>] ${playerName} joins ${lobbyType || 'free'} lobby (worth: ${entry.worth} ${money.unit})`);
+    room.addPlayer(socket, playerName, walletAddress || null, color || null, entry.worth, hatId || 'none', boostId || 'default');
     lobbyConnections.delete(socket);
     broadcastLobbyState();
   });
@@ -741,12 +740,12 @@ io.on('connection', (socket) => {
     if (socket._walletAddress) {
       socket.emit('cashout:result', { newBalance: null, earnedSol: playerShare, score: Math.floor(snake.score), length: snake.length, toWallet: true });
       if (worth > 0) {
-        Wallet.withdraw(socket._walletAddress, playerShare)
+        money.withdraw(socket._walletAddress, playerShare)
           .then((sig) => {
-            console.log(`[CASHOUT] self-custody ${playerShare.toFixed(6)} SOL → ${socket._walletAddress.slice(0, 8)}… sig ${String(sig).slice(0, 12)}`);
-            // Earnings count only once the SOL is actually paid (so the leaderboard + global
+            console.log(`[CASHOUT] self-custody ${playerShare.toFixed(6)} ${money.unit} → ${socket._walletAddress.slice(0, 8)}… sig ${String(sig).slice(0, 12)}`);
+            // Earnings count only once the payout actually lands (so the leaderboard + global
             // winnings reflect real payouts, not amounts a failed tx may never have delivered).
-            db.recordEarnings(socket._walletAddress, snake.name, playerShare, playerShare * prices.getSolCadRate()).catch(() => {});
+            db.recordEarnings(socket._walletAddress, snake.name, playerShare, money.fiatValue(playerShare)).catch(() => {});
             socket.emit('cashout:paid', { sol: playerShare, sig });
           })
           .catch((e) => {
@@ -816,7 +815,7 @@ io.on('connection', (socket) => {
     }
     if (entry.googleId) socket._googleId = entry.googleId;
     if (entry.walletAddress) socket._walletAddress = entry.walletAddress;
-    socket._room.respawnPlayer(socket.id, entry.worthSol);
+    socket._room.respawnPlayer(socket.id, entry.worth);
   });
 
   socket.on('ping_check', () => socket.emit('pong_check'));
@@ -837,20 +836,19 @@ io.on('connection', (socket) => {
     // Paid lobby — the bot's stake is funded by the escrow (the owner's own SOL). There's no
     // custodial balance to debit anymore; just log each bot's cost so it can be tracked as an
     // owner expense, then spawn the bot carrying the entry worth.
-    const feeCad = LOBBY_FEES_CAD[shortType] || 0;
-    const feeSol = prices.cadToSol(feeCad);
+    const feeAmt = money.feeFor(shortType); // stake the bot carries, in the active unit
     let spawned = 0;
     for (let i = 0; i < n; i++) {
       try {
-        await db.recordWithdrawal(OWNER_WALLET, null, feeSol, 'paid_bot_entry');
-        room.addPaidBot(feeSol);
+        await db.recordWithdrawal(OWNER_WALLET, null, feeAmt, 'paid_bot_entry');
+        room.addPaidBot(feeAmt);
         spawned++;
       } catch (e) {
         console.error('[BOT] Paid bot spawn failed:', e.message);
         break;
       }
     }
-    socket.emit('admin:ack', { message: `Spawned ${spawned} paid bot(s) worth ${feeCad * spawned}¢` });
+    socket.emit('admin:ack', { message: `Spawned ${spawned} paid bot(s) worth ${(feeAmt * spawned).toFixed(4)} ${money.unit}` });
     broadcastLobbyState();
   });
 
@@ -866,7 +864,7 @@ io.on('connection', (socket) => {
     socket._agarRoom = room;
     // Verify the entry fee server-side (same one-time token the snake game uses) and
     // take the cell's worth from the server, never from the client.
-    const shortType = (lobbyType in LOBBY_FEES_CAD) ? lobbyType : 'free';
+    const shortType = (lobbyType in LOBBY_FEES) ? lobbyType : 'free';
     socket._agarShortType = shortType; // remembered for the in-game re-stake on respawn
     const entry = consumePaidEntry(entryToken, shortType);
     if (!entry.ok) {
@@ -875,7 +873,7 @@ io.on('connection', (socket) => {
     }
     if (entry.googleId) { socket._googleId = entry.googleId; lobbySocketsByGoogleId.set(entry.googleId, socket); }
     if (entry.walletAddress) socket._walletAddress = entry.walletAddress; // self-custody cash-out target
-    const entryWorth = LOBBY_FEES_CAD[shortType] || 0; // agar worth is the CAD fee
+    const entryWorth = entry.worth; // worth from the verified stake token (native unit), same as the snake game
 
     room.addPlayer(socket, sanitizeName(name), color, entryWorth, socket._googleId || null);
     lobbyConnections.delete(socket);
@@ -888,13 +886,12 @@ io.on('connection', (socket) => {
 
     // Determine lobby type from room name (e.g. 'agar_dime' → 'dime')
     const lobbyType = room.roomName.replace('agar_', '');
-    const feeCad = LOBBY_FEES_CAD[lobbyType] || 0;
+    const feeAmt = money.feeFor(lobbyType);
 
-    if (feeCad > 0) {
-      const feeSol = prices.cadToSol(feeCad);
+    if (feeAmt > 0) {
       try {
-        await db.recordWithdrawal(OWNER_WALLET, null, feeSol, 'paid_agar_bot_entry');
-        room.addPaidBot(feeCad);
+        await db.recordWithdrawal(OWNER_WALLET, null, feeAmt, 'paid_agar_bot_entry');
+        room.addPaidBot(feeAmt);
         broadcastLobbyState();
       } catch (e) {
         console.error('[AGAR BOT] Paid bot spawn failed:', e.message);
@@ -931,7 +928,7 @@ io.on('connection', (socket) => {
       return;
     }
     if (entry.walletAddress) socket._walletAddress = entry.walletAddress;
-    room.respawnPlayer(socket.id, LOBBY_FEES_CAD[shortType] || 0);
+    room.respawnPlayer(socket.id, entry.worth);
   });
 
   socket.on('cell:lock', () => {
@@ -949,31 +946,27 @@ io.on('connection', (socket) => {
     const player = room.players.get(socket.id);
     if (!player || !player.alive) return;
 
-    const worthCad   = player.worth || 0;
+    const worth = player.worth || 0; // in the active unit (SOL or USDC), same as the snake game
     agarLb.record(socket._googleId || player.name, player.name, player.score);
     room.cashoutPlayer(socket.id); // kills player, clears cells
 
     const HOUSE_CUT    = 0.10;
-    const ownerShare   = worthCad * HOUSE_CUT;
-    const playerShare  = worthCad - ownerShare;
+    const playerShare  = worth - worth * HOUSE_CUT; // 90% to the player, 10% house cut stays in escrow
 
-    // Self-custody: escrow sends the player's 90% (converted CAD→SOL) back to their own
-    // wallet on-chain; the 10% house cut stays in the escrow. No custodial ledger involved.
     if (socket._walletAddress) {
-      const playerShareSol = prices.cadToSol(playerShare);
-      socket.emit('cell:cashout:result', { newBalance: null, earnedCad: playerShare, earnedSol: playerShareSol, score: player.score, toWallet: true });
-      if (worthCad > 0) {
-        Wallet.withdraw(socket._walletAddress, playerShareSol)
+      socket.emit('cell:cashout:result', { newBalance: null, earnedCad: money.fiatValue(playerShare), earnedSol: playerShare, score: player.score, toWallet: true });
+      if (worth > 0) {
+        money.withdraw(socket._walletAddress, playerShare)
           .then((sig) => {
-            console.log(`[AGAR CASHOUT] self-custody ${playerShareSol.toFixed(6)} SOL → ${socket._walletAddress.slice(0, 8)}… sig ${String(sig).slice(0, 12)}`);
+            console.log(`[AGAR CASHOUT] self-custody ${playerShare.toFixed(6)} ${money.unit} → ${socket._walletAddress.slice(0, 8)}… sig ${String(sig).slice(0, 12)}`);
             // Earnings count only on actual payout. Both games feed ONE combined top-earners
             // board (the shared total_earnings column).
-            db.recordEarnings(socket._walletAddress, player.name, playerShareSol, playerShare).catch(() => {});
-            socket.emit('cell:cashout:paid', { sol: playerShareSol, sig });
+            db.recordEarnings(socket._walletAddress, player.name, playerShare, money.fiatValue(playerShare)).catch(() => {});
+            socket.emit('cell:cashout:paid', { sol: playerShare, sig });
           })
           .catch((e) => {
-            console.error(`[AGAR CASHOUT] CRITICAL: self-custody payout failed for ${socket._walletAddress} — owed ${playerShareSol.toFixed(6)} SOL: ${e.message}`);
-            db.recordFailedPayout(socket._walletAddress, playerShareSol, player.name, `agar ${room.roomName}: ${e.message}`, e.broadcast).catch(() => {});
+            console.error(`[AGAR CASHOUT] CRITICAL: self-custody payout failed for ${socket._walletAddress} — owed ${playerShare.toFixed(6)} ${money.unit}: ${e.message}`);
+            db.recordFailedPayout(socket._walletAddress, playerShare, player.name, `agar ${room.roomName}: ${e.message}`, e.broadcast).catch(() => {});
             socket.emit('cell:cashout:error', { message: 'Payout delayed — your winnings are recorded and will be sent. Contact support if they don\'t arrive.' });
           });
       }
