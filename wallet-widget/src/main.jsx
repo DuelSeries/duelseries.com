@@ -4,6 +4,17 @@ import { PrivyProvider, usePrivy, useLogin } from '@privy-io/react-auth';
 import { useWallets as useSolanaWallets, useSignTransaction } from '@privy-io/react-auth/solana';
 import { createSolanaRpc, createSolanaRpcSubscriptions } from '@solana/kit';
 import { PublicKey, SystemProgram, Transaction } from '@solana/web3.js';
+import { getAssociatedTokenAddressSync, createTransferCheckedInstruction, createAssociatedTokenAccountIdempotentInstruction } from '@solana/spl-token';
+
+// Active money mode (sol|usdc) reported by the server — decides whether the widget builds native
+// SOL transfers or USDC SPL-token transfers, and how it labels balances. Cached after first fetch.
+let _moneyCfg = null;
+async function moneyConfig() {
+  if (_moneyCfg) return _moneyCfg;
+  try { _moneyCfg = await (await fetch('/api/money-config')).json(); }
+  catch { _moneyCfg = { mode: 'sol', unit: 'SOL', usdcMint: null, decimals: 9 }; }
+  return _moneyCfg;
+}
 
 // Phase 1 — self-custody stake-on-join. Connect (Phase 0) + a "Stake & Play" button that
 // moves the entry fee from the player's embedded wallet into the escrow (one-tap Confirm),
@@ -50,19 +61,26 @@ const SERVER_URLS = { na: '', eu: 'https://eu.duelseries.com' };
 function regionBase() { return SERVER_URLS[localStorage.getItem('duelseries_region') || 'na'] || ''; }
 
 async function stakeOnly(lobbyType, wallet, signTransaction, onStatus) {
-  if (lobbyType === 'free') return { entryToken: '', worthSol: 0 };
+  if (lobbyType === 'free') return { entryToken: '', worth: 0 };
   const base = regionBase();
   onStatus('Getting quote…');
   const quote = await (await fetch(base + '/api/stake-quote?lobbyType=' + encodeURIComponent(lobbyType))).json();
   if (quote.error) throw new Error(quote.error);
-  if (!quote.escrowAddress) throw new Error('No escrow configured for this lobby');
 
   onStatus('Building stake…');
   const from = new PublicKey(wallet.address);
   const tx = new Transaction();
   tx.feePayer = from;
   tx.recentBlockhash = quote.blockhash; // real blockhash — our backend submits the signed tx
-  tx.add(SystemProgram.transfer({ fromPubkey: from, toPubkey: new PublicKey(quote.escrowAddress), lamports: quote.lamports }));
+  if (quote.mode === 'usdc') {
+    // USDC stake: SPL transfer from the player's USDC token account into the escrow's.
+    const mint = new PublicKey(quote.usdcMint);
+    const fromAta = getAssociatedTokenAddressSync(mint, from);
+    tx.add(createTransferCheckedInstruction(fromAta, mint, new PublicKey(quote.escrowAta), from, BigInt(quote.units), quote.decimals));
+  } else {
+    if (!quote.escrowAddress) throw new Error('No escrow configured for this lobby');
+    tx.add(SystemProgram.transfer({ fromPubkey: from, toPubkey: new PublicKey(quote.escrowAddress), lamports: quote.lamports }));
+  }
   const serialized = tx.serialize({ requireAllSignatures: false, verifySignatures: false });
 
   onStatus('Confirm in your wallet…');
@@ -76,11 +94,11 @@ async function stakeOnly(lobbyType, wallet, signTransaction, onStatus) {
     body: JSON.stringify({ lobbyType, signedTx, walletAddress: wallet.address }),
   })).json();
   if (!verify.ok) throw new Error(verify.error || 'Stake failed');
-  return { entryToken: verify.entryToken, worthSol: verify.worthSol };
+  return { entryToken: verify.entryToken, worth: (verify.worth != null ? verify.worth : verify.worthSol) };
 }
 
 async function stakeAndPlay(game, lobbyType, wallet, signTransaction, onStatus, onLaunch) {
-  const { entryToken, worthSol } = await stakeOnly(lobbyType, wallet, signTransaction, onStatus);
+  const { entryToken, worth } = await stakeOnly(lobbyType, wallet, signTransaction, onStatus);
 
   onStatus('Joining…');
   sessionStorage.setItem('playerName', localStorage.getItem('duelseries_playername') || short(wallet.address));
@@ -88,7 +106,7 @@ async function stakeAndPlay(game, lobbyType, wallet, signTransaction, onStatus, 
   sessionStorage.setItem('walletAddress', wallet.address);
   sessionStorage.setItem('lobbyType', lobbyType);
   sessionStorage.setItem('entryToken', entryToken);
-  sessionStorage.setItem('entrySol', String(worthSol));
+  sessionStorage.setItem('entrySol', String(worth));
   sessionStorage.setItem('region', localStorage.getItem('duelseries_region') || 'na'); // honour the lobby's region pick (na/eu)
   sessionStorage.setItem('snakeColor', localStorage.getItem('duelseries_skin_color') || '#14F195');
   sessionStorage.setItem('hatId', localStorage.getItem('duelseries_hat_id') || 'none');
@@ -136,12 +154,37 @@ async function sendSol(toAddress, amountSol, wallet, signTransaction) {
   return r.sig;
 }
 
+// USDC cash-out: send USDC from the embedded wallet to any external address. Creates the
+// recipient's USDC token account if they don't have one (idempotent — no-op if it exists).
+async function sendUsdc(toAddress, amountUsdc, mint, decimals, wallet, signTransaction) {
+  let toPub;
+  try { toPub = new PublicKey(toAddress); } catch (_) { throw new Error("That doesn't look like a valid Solana address."); }
+  const mintPub = new PublicKey(mint);
+  const from = new PublicKey(wallet.address);
+  const fromAta = getAssociatedTokenAddressSync(mintPub, from);
+  const toAta = getAssociatedTokenAddressSync(mintPub, toPub);
+  const { blockhash } = await (await fetch('/api/blockhash')).json();
+  if (!blockhash) throw new Error('Network busy — try again.');
+  const tx = new Transaction();
+  tx.feePayer = from;
+  tx.recentBlockhash = blockhash;
+  tx.add(createAssociatedTokenAccountIdempotentInstruction(from, toAta, toPub, mintPub));
+  tx.add(createTransferCheckedInstruction(fromAta, mintPub, toAta, from, BigInt(Math.round(amountUsdc * Math.pow(10, decimals))), decimals));
+  const serialized = tx.serialize({ requireAllSignatures: false, verifySignatures: false });
+  const { signedTransaction } = await signTransaction({ transaction: serialized, wallet });
+  const signedTx = Buffer.from(signedTransaction).toString('base64');
+  const r = await (await fetch('/api/broadcast', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ signedTx }) })).json();
+  if (!r.ok) throw new Error(r.error || 'Send failed');
+  return r.sig;
+}
+
 function WalletPanel() {
   const { ready, authenticated, user, logout, getAccessToken } = usePrivy();
   const { login } = useLogin();
   const { wallets: solWallets } = useSolanaWallets();
   const { signTransaction } = useSignTransaction();
   const [balance, setBalance] = useState(null);
+  const [unit, setUnit] = useState('SOL'); // balance unit label (SOL or USDC), from /api/money-config
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
   const [err, setErr] = useState('');
@@ -162,10 +205,12 @@ function WalletPanel() {
     return () => { live = false; clearInterval(id); };
   }, [address]);
 
+  useEffect(() => { moneyConfig().then((c) => setUnit(c.unit || 'SOL')).catch(() => {}); }, []);
+
   useEffect(() => {
-    window.duelWallet = { ready, authenticated, address, balance };
+    window.duelWallet = { ready, authenticated, address, balance, unit };
     window.dispatchEvent(new CustomEvent('duelwallet:change', { detail: window.duelWallet }));
-  }, [ready, authenticated, address, balance]);
+  }, [ready, authenticated, address, balance, unit]);
 
   // Hide the widget while the game iframe covers the screen; re-show on return to lobby.
   useEffect(() => {
@@ -226,9 +271,12 @@ function WalletPanel() {
       setBalance(b);
       return b;
     };
-    window.duelWalletSend = (amountSol, toAddress) => {
+    window.duelWalletSend = async (amount, toAddress) => {
       if (!wallet) return Promise.reject(new Error('Wallet not ready — try again in a moment.'));
-      return sendSol(toAddress, amountSol, wallet, signTransaction);
+      const cfg = await moneyConfig();
+      return cfg.mode === 'usdc'
+        ? sendUsdc(toAddress, amount, cfg.usdcMint, cfg.decimals, wallet, signTransaction)
+        : sendSol(toAddress, amount, wallet, signTransaction);
     };
   }, [wallet, signTransaction, address, login, logout]);
 
@@ -254,8 +302,8 @@ function WalletPanel() {
       await stakeAndPlay(game, lobbyType, wallet, signTransaction, setStatus, () => setPlaying(true));
     } catch (e) {
       const m = (e && e.message) || 'Stake failed';
-      setErr(/insufficient funds|rent/i.test(m)
-        ? "Not enough SOL — add a bit more (a 10¢ entry needs ~0.002 SOL on hand; the extra covers Solana's per-wallet rent minimum)."
+      setErr(/insufficient funds|rent|TokenAccountNotFound|could not find account/i.test(m)
+        ? `Not enough funds — your wallet needs ${unit} for the entry plus a little SOL for network fees.`
         : m);
       setBusy(false); setStatus('');
     } finally {

@@ -33,6 +33,7 @@ const solBackend = {
   escrowBalance: ()          => Wallet.getEscrowBalance(),
   balanceOf:     (addr)      => Wallet.getAddressBalance(addr),
   fiatValue:     (amt)       => amt * prices.getSolCadRate(),         // SOL -> CAD (for earnings)
+  usdcMint:      null, decimals: 9,
 };
 
 const usdcBackend = {
@@ -52,6 +53,7 @@ const usdcBackend = {
   escrowBalance: ()          => Usdc.escrowUsdcBalance(),
   balanceOf:     (addr)      => Usdc.usdcBalanceOf(addr),
   fiatValue:     (amt)       => amt,                                  // USDC = USD already
+  usdcMint:      Usdc.USDC_MINT.toString(), decimals: Usdc.USDC_DECIMALS,
 };
 
 const money = (MODE === 'usdc') ? usdcBackend : solBackend;

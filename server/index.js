@@ -150,6 +150,12 @@ app.get('/api/prices', (req, res) => {
   res.json({ solCadRate: prices.getSolCadRate() });
 });
 
+// Active money mode — tells the wallet widget whether to build SOL or USDC transfers and how to
+// label balances. usdcMint is null in SOL mode.
+app.get('/api/money-config', (req, res) => {
+  res.json({ mode: money.mode, unit: money.unit, usdcMint: money.usdcMint || null, decimals: money.decimals || 6 });
+});
+
 // ─── Cross-region stats: EU pushes to NA instantly on every change ────────────
 let remoteStats = { playerCount: 0, agarPlayerCount: 0, liveStakesSol: 0 };
 const STATS_SECRET = process.env.SESSION_SECRET || 'duelseries-dev-secret';
