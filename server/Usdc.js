@@ -41,7 +41,12 @@ function escrowKeypair() {
 }
 function escrowPubkey() { return escrowKeypair().publicKey; }
 function escrowAta()    { return getAssociatedTokenAddressSync(USDC_MINT, escrowPubkey()); }
-function ataNotFound(e) { return /could not find account|TokenAccountNotFound|account does not exist/i.test(e && e.message || ''); }
+// @solana/spl-token's getAccount throws TokenAccountNotFoundError when the ATA doesn't exist yet —
+// and that error has an EMPTY .message, so we must match on .name (not just the message text).
+function ataNotFound(e) {
+  return !!e && (e.name === 'TokenAccountNotFoundError'
+    || /could not find account|TokenAccountNotFound|account does not exist/i.test(e.message || ''));
+}
 
 // Retry transient RPC failures (429/5xx/timeouts) — mirrors Wallet.withRetry.
 async function withRetry(fn, retries = 5, delay = 600) {
@@ -199,7 +204,7 @@ async function attemptPayout(row, onFreshTx) {
 }
 
 module.exports = {
-  connection, NETWORK, USDC_MINT, USDC_DECIMALS, toUnits, toUsdc, withRetry,
+  connection, NETWORK, USDC_MINT, USDC_DECIMALS, toUnits, toUsdc, withRetry, ataNotFound,
   escrowKeypair, escrowPubkey, escrowAta, stakeTargets,
   usdcBalanceOf, escrowUsdcBalance, verifyUsdcStake, stakeDeltaUnits,
   buildSignedUsdcPayout, withdrawUsdc, attemptPayout, getLatestBlockhash,

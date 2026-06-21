@@ -51,6 +51,15 @@ test('stakeDeltaUnits is negative when the escrow balance went DOWN (not a credi
   assert.ok(Usdc.stakeDeltaUnits(meta, ESCROW, MINT) < 0n);
 });
 
+test('ataNotFound recognizes the empty-message TokenAccountNotFoundError by NAME', () => {
+  // Regression: @solana/spl-token throws this with an empty .message, so a message-only check
+  // misses it and the payout wrongly skips creating the recipient's token account.
+  assert.strictEqual(Usdc.ataNotFound({ name: 'TokenAccountNotFoundError', message: '' }), true);
+  assert.strictEqual(Usdc.ataNotFound(new Error('could not find account')), true);
+  assert.strictEqual(Usdc.ataNotFound(new Error('something else entirely')), false);
+  assert.strictEqual(Usdc.ataNotFound(null), false);
+});
+
 test('stakeTargets reports a usable escrow ATA, mint, and 6 decimals', () => {
   process.env.ESCROW_PRIVATE_KEY = process.env.ESCROW_PRIVATE_KEY ||
     Buffer.from(require('@solana/web3.js').Keypair.generate().secretKey).toString('base64');
