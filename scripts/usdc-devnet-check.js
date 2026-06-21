@@ -7,7 +7,7 @@ process.env.SOLANA_NETWORK = 'devnet';
 const web3 = require('@solana/web3.js');
 const spl  = require('@solana/spl-token');
 
-const conn = new web3.Connection('https://api.devnet.solana.com', 'confirmed');
+const conn = new web3.Connection(process.env.RPC_URL || 'https://api.devnet.solana.com', 'confirmed');
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 async function airdrop(kp, sol) {

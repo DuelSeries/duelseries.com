@@ -151,9 +151,56 @@ async function getLatestBlockhash() {
   return { blockhash, lastValidBlockHeight };
 }
 
+// true = confirmed, false = errored on-chain, null = not found / still pending.
+async function signatureLanded(signature) {
+  const st = await withRetry(() => connection.getSignatureStatus(signature, { searchTransactionHistory: true }));
+  const v = st && st.value;
+  if (!v) return null;
+  if (v.err) return false;
+  return (v.confirmationStatus === 'confirmed' || v.confirmationStatus === 'finalized') ? true : null;
+}
+
+async function confirmSig(signature, lastValidBlockHeight, tries = 30) {
+  for (let i = 0; i < tries; i++) {
+    const landed = await signatureLanded(signature);
+    if (landed === true)  return true;
+    if (landed === false) return false;
+    try {
+      const h = await withRetry(() => connection.getBlockHeight());
+      if (lastValidBlockHeight && h > Number(lastValidBlockHeight)) return false; // expired, never landed
+    } catch (_) {}
+    await new Promise(r => setTimeout(r, 1500));
+  }
+  return false;
+}
+
+// Idempotent USDC payout for the drainer — identical guarantees to Wallet.attemptPayout: only
+// ever re-broadcasts the SAME signed bytes (can't double-pay), builds a fresh tx only once the
+// old one provably expired, and persists a fresh tx BEFORE sending via onFreshTx.
+async function attemptPayout(row, onFreshTx) {
+  if (row.signature) {
+    const landed = await signatureLanded(row.signature);
+    if (landed === true) return { paid: true, sig: row.signature };
+    if (landed === null) {
+      const height = await withRetry(() => connection.getBlockHeight());
+      const lvbh   = Number(row.last_valid_block_height) || 0;
+      if (row.signed_tx && lvbh && height <= lvbh) {
+        try { await withRetry(() => connection.sendRawTransaction(Buffer.from(row.signed_tx, 'base64'), { skipPreflight: true }), 4); } catch (_) {}
+        const ok = await confirmSig(row.signature, lvbh, 20);
+        return ok ? { paid: true, sig: row.signature } : { paid: false };
+      }
+    }
+  }
+  const built = await buildSignedUsdcPayout(row.wallet_address, row.amount_sol);
+  await onFreshTx({ signature: built.signature, signedTx: built.signedTx, blockhash: built.blockhash, lastValidBlockHeight: built.lastValidBlockHeight });
+  await withRetry(() => connection.sendRawTransaction(built.raw, { skipPreflight: false }), 6);
+  const ok = await confirmSig(built.signature, built.lastValidBlockHeight);
+  return ok ? { paid: true, sig: built.signature } : { paid: false };
+}
+
 module.exports = {
   connection, NETWORK, USDC_MINT, USDC_DECIMALS, toUnits, toUsdc, withRetry,
   escrowKeypair, escrowPubkey, escrowAta, stakeTargets,
   usdcBalanceOf, escrowUsdcBalance, verifyUsdcStake, stakeDeltaUnits,
-  buildSignedUsdcPayout, withdrawUsdc, getLatestBlockhash,
+  buildSignedUsdcPayout, withdrawUsdc, attemptPayout, getLatestBlockhash,
 };
