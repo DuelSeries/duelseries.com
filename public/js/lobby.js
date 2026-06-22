@@ -811,6 +811,18 @@ function openReceiveModal() {
   document.getElementById('modal-receive').classList.add('active');
 }
 document.getElementById('btn-add-funds').addEventListener('click', openReceiveModal);
+const _btnAddFunds2 = document.getElementById('btn-add-funds-2');
+if (_btnAddFunds2) _btnAddFunds2.addEventListener('click', openReceiveModal);
+
+// "Buy with Card / Apple Pay" — opens Privy's on-ramp (MoonPay) to buy USDC into the wallet.
+const _btnBuyCard = document.getElementById('btn-buy-card');
+if (_btnBuyCard) _btnBuyCard.addEventListener('click', async () => {
+  const st = document.getElementById('buy-card-status');
+  if (!window.duelWalletFund) { if (st) { st.style.color = '#7e93b4'; st.textContent = 'Wallet still loading — try again.'; } return; }
+  if (st) { st.style.color = '#7e93b4'; st.textContent = 'Opening checkout…'; }
+  try { await window.duelWalletFund(20); if (st) st.textContent = ''; refreshBalance(null); }
+  catch (e) { if (st) { st.style.color = '#ff7a7a'; st.textContent = (e && e.message) || 'Could not open checkout — try again.'; } }
+});
 
 document.getElementById('btn-check-now').addEventListener('click', () => refreshBalance(null));
 document.getElementById('close-receive').addEventListener('click', () =>

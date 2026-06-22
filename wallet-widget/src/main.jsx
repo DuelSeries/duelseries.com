@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { PrivyProvider, usePrivy, useLogin } from '@privy-io/react-auth';
+import { PrivyProvider, usePrivy, useLogin, useFundWallet } from '@privy-io/react-auth';
 import { useWallets as useSolanaWallets, useSignTransaction } from '@privy-io/react-auth/solana';
 import { createSolanaRpc, createSolanaRpcSubscriptions } from '@solana/kit';
 import { PublicKey, SystemProgram, Transaction } from '@solana/web3.js';
@@ -183,6 +183,7 @@ function WalletPanel() {
   const { login } = useLogin();
   const { wallets: solWallets } = useSolanaWallets();
   const { signTransaction } = useSignTransaction();
+  const { fundWallet } = useFundWallet();
   const [balance, setBalance] = useState(null);
   const [unit, setUnit] = useState('SOL'); // balance unit label (SOL or USDC), from /api/money-config
   const [busy, setBusy] = useState(false);
@@ -278,7 +279,13 @@ function WalletPanel() {
         ? sendUsdc(toAddress, amount, cfg.usdcMint, cfg.decimals, wallet, signTransaction)
         : sendSol(toAddress, amount, wallet, signTransaction);
     };
-  }, [wallet, signTransaction, address, login, logout]);
+    // "Buy with Card / Apple Pay" — Privy's fiat on-ramp (MoonPay) buys USDC on Solana straight
+    // into the embedded wallet. Opens Privy's own funding modal; resolves when done/cancelled.
+    window.duelWalletFund = (amountUsd) => {
+      if (!address) return Promise.reject(new Error('Connect your wallet first.'));
+      return fundWallet(address, { asset: 'USDC', amount: String(amountUsd || 20) });
+    };
+  }, [wallet, signTransaction, address, login, logout, fundWallet]);
 
   // Keep the Privy access token in localStorage so same-origin admin pages + game iframes can
   // authenticate owner-only actions (the server verifies it → OWNER_WALLET). Refreshed on a timer.
