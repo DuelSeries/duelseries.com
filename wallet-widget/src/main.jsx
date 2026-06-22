@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { PrivyProvider, usePrivy, useLogin, useFundWallet } from '@privy-io/react-auth';
-import { useWallets as useSolanaWallets, useSignTransaction } from '@privy-io/react-auth/solana';
+import { PrivyProvider, usePrivy, useLogin } from '@privy-io/react-auth';
+import { useWallets as useSolanaWallets, useSignTransaction, useFundWallet } from '@privy-io/react-auth/solana';
 import { createSolanaRpc, createSolanaRpcSubscriptions } from '@solana/kit';
 import { PublicKey, SystemProgram, Transaction } from '@solana/web3.js';
 import { getAssociatedTokenAddressSync, createTransferCheckedInstruction, createAssociatedTokenAccountIdempotentInstruction } from '@solana/spl-token';
@@ -283,7 +283,7 @@ function WalletPanel() {
     // into the embedded wallet. Opens Privy's own funding modal; resolves when done/cancelled.
     window.duelWalletFund = (amountUsd) => {
       if (!address) return Promise.reject(new Error('Connect your wallet first.'));
-      return fundWallet(address, { asset: 'USDC', amount: String(amountUsd || 20) });
+      return fundWallet({ address, options: { chain: 'solana:mainnet', asset: 'USDC', amount: String(amountUsd || 20) } });
     };
   }, [wallet, signTransaction, address, login, logout, fundWallet]);
 
