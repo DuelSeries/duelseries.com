@@ -76,7 +76,12 @@ async function stakeOnly(lobbyType, wallet, signTransaction, onStatus) {
     // USDC stake: SPL transfer from the player's USDC token account into the escrow's.
     const mint = new PublicKey(quote.usdcMint);
     const fromAta = getAssociatedTokenAddressSync(mint, from);
-    tx.add(createTransferCheckedInstruction(fromAta, mint, new PublicKey(quote.escrowAta), from, BigInt(quote.units), quote.decimals));
+    const escrowAta = new PublicKey(quote.escrowAta);
+    // Make sure the escrow's USDC account exists before transferring into it. Idempotent: only the
+    // very first staker ever pays the ~0.002 SOL rent (a no-op once it exists). Without this, the
+    // first USDC stake fails — you can't transferChecked into a token account that isn't created.
+    if (quote.escrowOwner) tx.add(createAssociatedTokenAccountIdempotentInstruction(from, escrowAta, new PublicKey(quote.escrowOwner), mint));
+    tx.add(createTransferCheckedInstruction(fromAta, mint, escrowAta, from, BigInt(quote.units), quote.decimals));
   } else {
     if (!quote.escrowAddress) throw new Error('No escrow configured for this lobby');
     tx.add(SystemProgram.transfer({ fromPubkey: from, toPubkey: new PublicKey(quote.escrowAddress), lamports: quote.lamports }));
