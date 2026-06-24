@@ -1,15 +1,16 @@
 // Money backend abstraction. The game treats a player's "worth" as an opaque number; THIS module
 // is the only place that knows whether that number is denominated in SOL or USDC. The active
 // backend is chosen once at startup by the MONEY_MODE env var:
-//   • MONEY_MODE=sol  (default) -> native-SOL path (Wallet.js) — today's exact behaviour.
-//   • MONEY_MODE=usdc           -> USDC SPL-token path (Usdc.js).
-// This lets the USDC code ship dormant and be switched on at cutover with one env flip + restart,
-// without ever deploying a broken-money intermediate state to the live game.
+//   • MONEY_MODE=sol            -> native-SOL path (Wallet.js) — the pre-cutover behaviour.
+//   • MONEY_MODE=usdc (DEFAULT) -> USDC SPL-token path (Usdc.js). Default flipped at the live
+//     cutover (2026-06-24); set MONEY_MODE=sol to roll back instantly.
+// The USDC code shipped dormant and was switched on at cutover by changing this default (no SSH
+// access to set the env var on the servers), without ever deploying a broken-money intermediate.
 const Wallet = require('./Wallet');
 const Usdc   = require('./Usdc');
 const prices = require('./prices');
 
-const MODE = (process.env.MONEY_MODE || 'sol').toLowerCase();
+const MODE = (process.env.MONEY_MODE || 'usdc').toLowerCase();
 
 // Lobby entry fees. SOL mode prices them in CAD (then converts to SOL); USDC mode prices them in
 // USD (which IS USDC, 1:1). Same lobby keys either way.
