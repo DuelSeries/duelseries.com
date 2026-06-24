@@ -730,23 +730,24 @@ fetch('https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=ca
 function setBalance(bal) {
   const amt = parseFloat(bal) || 0;
   if (account) account.balance = amt;
-  // USDC mode: the balance already IS US dollars. SOL mode: show SOL + its CAD value.
-  let mainStr, subStr;
+  // The card shows a big "primary" line (the dollar value) over a small "secondary" line (the unit
+  // /amount). USDC mode: dollars are the headline, "USDC" the label. SOL mode: CAD headline, SOL amount.
+  let primaryStr, secondaryStr;
   if (_moneyMode === 'usdc') {
-    mainStr = '$' + amt.toFixed(2);
-    subStr  = 'USDC';
+    primaryStr   = '$' + amt.toFixed(2);
+    secondaryStr = 'USDC';
   } else {
-    mainStr = amt.toFixed(4) + ' SOL';
-    subStr  = solPriceUsd !== null ? 'CA$' + (amt * solPriceUsd).toFixed(2) : 'CA$—';
+    primaryStr   = solPriceUsd !== null ? 'CA$' + (amt * solPriceUsd).toFixed(2) : 'CA$—';
+    secondaryStr = amt.toFixed(4) + ' SOL';
   }
-  // Update both lobbies
-  ['game-balance', 'game-balance-2'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.textContent = mainStr;
-  });
+  // game-balance-usd = the big primary line; game-balance = the small secondary line.
   ['game-balance-usd', 'game-balance-usd-2'].forEach(id => {
     const el = document.getElementById(id);
-    if (el) el.textContent = subStr;
+    if (el) el.textContent = primaryStr;
+  });
+  ['game-balance', 'game-balance-2'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = secondaryStr;
   });
   const sb = document.getElementById('sidebar-balance');
   if (sb) sb.textContent = _moneyMode === 'usdc' ? '$' + amt.toFixed(2) : amt.toFixed(4);

@@ -569,14 +569,16 @@ class Renderer {
       ctx.fillText(name, hx, hy - HR * 2.5);
     }
     if (snake.worth > 0) {
-      const rate = typeof solCadRate !== 'undefined' ? solCadRate : 200;
-      const cadVal = (Math.round(snake.worth * rate*100)/100);
+      // USDC mode: worth already IS dollars. SOL mode: convert SOL worth -> CAD via the live rate.
+      const usdc = (typeof moneyMode !== 'undefined' && moneyMode === 'usdc');
+      const rate = usdc ? 1 : (typeof solCadRate !== 'undefined' ? solCadRate : 200);
+      const label = (usdc ? '$' : 'C$') + (Math.round(snake.worth * rate * 100) / 100).toFixed(2);
       const wfs = Math.round(R * 1.0);
       ctx.font = `bold ${wfs}px Segoe UI`;
       ctx.strokeStyle = 'rgba(0,0,0,0.7)'; ctx.lineWidth = wfs * 0.18;
-      ctx.strokeText(`C$${cadVal}`, hx, hy - HR * (name ? 3.8 : 2.5));
+      ctx.strokeText(label, hx, hy - HR * (name ? 3.8 : 2.5));
       ctx.fillStyle = '#14F195';
-      ctx.fillText(`C$${cadVal}`, hx, hy - HR * (name ? 3.8 : 2.5));
+      ctx.fillText(label, hx, hy - HR * (name ? 3.8 : 2.5));
     }
 
     // ── Cashout ring ─────────────────────────────────────────────────────────
