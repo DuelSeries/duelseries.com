@@ -543,7 +543,9 @@ function fetchGlobalWinnings() {
   fetch('/api/stats/winnings')
     .then(r => r.json())
     .then(({ totalCad }) => {
-      const display = `C$${(totalCad || 0).toFixed(2)}`;
+      // totalCad is already a fiat sum from the server (CAD in SOL mode, USD/USDC after cutover) —
+      // don't re-multiply, just label it by mode.
+      const display = (_moneyMode === 'usdc' ? '$' : 'C$') + (totalCad || 0).toFixed(2);
       const el  = document.getElementById('stat-global-winnings');
       const el2 = document.getElementById('stat-global-winnings-2');
       if (el)  el.textContent  = display;
@@ -627,8 +629,7 @@ function renderLobbyLeaderboard() {
     return;
   }
   el.innerHTML = _lobbyEarnings.slice(0, 3).map(p => {
-    const cad = p.earnings * (_solCadRate || 200);
-    return `<li><span class="rank">#${p.rank}</span><span class="lb-name">${escHtml(p.name)}</span><span class="lb-score" style="color:#14F195">C$${cad.toFixed(2)}</span></li>`;
+    return `<li><span class="rank">#${p.rank}</span><span class="lb-name">${escHtml(p.name)}</span><span class="lb-score" style="color:#14F195">${fmtMoney(p.earnings)}</span></li>`;
   }).join('');
 }
 
@@ -652,8 +653,7 @@ function renderAgarLeaderboard() {
     return;
   }
   el.innerHTML = _agarEarnings.slice(0, 3).map(p => {
-    const cad = p.earnings * (_solCadRate || 200);
-    return `<li><span class="rank">#${p.rank}</span><span class="lb-name">${escHtml(p.name)}</span><span class="lb-score" style="color:#14F195">C$${cad.toFixed(2)}</span></li>`;
+    return `<li><span class="rank">#${p.rank}</span><span class="lb-name">${escHtml(p.name)}</span><span class="lb-score" style="color:#14F195">${fmtMoney(p.earnings)}</span></li>`;
   }).join('');
 }
 
@@ -667,6 +667,11 @@ setInterval(refreshEarningsBoard, 30000);
 // store rate for CAD conversion
 let _solCadRate = 200;
 fetch('/api/prices').then(r => r.json()).then(d => { if (d.solCadRate) _solCadRate = d.solCadRate; }).catch(() => {});
+let _moneyMode = 'sol';
+fetch('/api/money-config').then(r => r.json()).then(c => { if (c && c.mode) { _moneyMode = c.mode; if (typeof renderWalletState === 'function') renderWalletState(); } }).catch(() => {});
+// Format a money amount for display. USDC mode: the amount already IS US dollars. SOL mode: it's
+// SOL, converted to CAD via the live rate.
+function fmtMoney(amount) { amount = Number(amount) || 0; return _moneyMode === 'usdc' ? '$' + amount.toFixed(2) : 'C$' + (amount * (_solCadRate || 200)).toFixed(2); }
 
 function updateLobbyLeaderboard(lb) {
   // live lobby state now just triggers a re-render of earnings board
@@ -693,10 +698,9 @@ function escHtml(s) {
       .then(data => {
         if (!data.length) { listEl.innerHTML = '<li style="color:#555">No earnings recorded yet</li>'; return; }
         listEl.innerHTML = data.map(p => {
-          const cad = (p.earnings * (_solCadRate || 200)).toFixed(2);
           return `<li><span class="al-rank">#${p.rank}</span>` +
             `<span class="al-name">${escHtml(p.name)}</span>` +
-            `<span class="al-score" style="color:#14F195">C$${cad}</span></li>`;
+            `<span class="al-score" style="color:#14F195">${fmtMoney(p.earnings)}</span></li>`;
         }).join('');
       })
       .catch(() => { listEl.innerHTML = '<li style="color:#c33">Failed to load</li>'; });
@@ -724,21 +728,28 @@ fetch('https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=ca
   .catch(() => {});
 
 function setBalance(bal) {
-  const sol = parseFloat(bal) || 0;
-  if (account) account.balance = sol;
-  const cadStr = solPriceUsd !== null ? 'CA$' + (sol * solPriceUsd).toFixed(2) : 'CA$—';
-  const solStr = sol.toFixed(4) + ' SOL';
+  const amt = parseFloat(bal) || 0;
+  if (account) account.balance = amt;
+  // USDC mode: the balance already IS US dollars. SOL mode: show SOL + its CAD value.
+  let mainStr, subStr;
+  if (_moneyMode === 'usdc') {
+    mainStr = '$' + amt.toFixed(2);
+    subStr  = 'USDC';
+  } else {
+    mainStr = amt.toFixed(4) + ' SOL';
+    subStr  = solPriceUsd !== null ? 'CA$' + (amt * solPriceUsd).toFixed(2) : 'CA$—';
+  }
   // Update both lobbies
   ['game-balance', 'game-balance-2'].forEach(id => {
     const el = document.getElementById(id);
-    if (el) el.textContent = solStr;
+    if (el) el.textContent = mainStr;
   });
   ['game-balance-usd', 'game-balance-usd-2'].forEach(id => {
     const el = document.getElementById(id);
-    if (el) el.textContent = cadStr;
+    if (el) el.textContent = subStr;
   });
   const sb = document.getElementById('sidebar-balance');
-  if (sb) sb.textContent = sol.toFixed(4);
+  if (sb) sb.textContent = _moneyMode === 'usdc' ? '$' + amt.toFixed(2) : amt.toFixed(4);
 }
 
 function walletStatus(msg, isError) {
@@ -846,7 +857,9 @@ function openWithdrawModal() {
   if (!ensureWallet()) return;
   const bal = dw().balance || 0;
   const balEl = document.getElementById('withdraw-balance-display');
-  if (balEl) balEl.textContent = solPriceUsd ? 'CA$' + (bal * solPriceUsd).toFixed(2) : bal.toFixed(4) + ' SOL';
+  if (balEl) balEl.textContent = _moneyMode === 'usdc'
+    ? '$' + bal.toFixed(2) + ' USDC'
+    : (solPriceUsd ? 'CA$' + (bal * solPriceUsd).toFixed(2) : bal.toFixed(4) + ' SOL');
   document.getElementById('modal-withdraw').classList.add('active');
 }
 document.getElementById('btn-withdraw').addEventListener('click', openWithdrawModal);
@@ -857,33 +870,47 @@ document.getElementById('modal-withdraw').addEventListener('click', (e) => {
 });
 
 document.getElementById('withdraw-max').addEventListener('click', () => {
-  const maxSol = Math.max(0, (dw().balance || 0) - SEND_BUFFER_SOL);
-  const maxCad = solPriceUsd ? Math.floor(maxSol * solPriceUsd * 100) / 100 : 0;
-  document.getElementById('withdraw-amount').value = maxCad > 0 ? maxCad : '';
+  let maxVal;
+  if (_moneyMode === 'usdc') {
+    maxVal = Math.floor((dw().balance || 0) * 100) / 100;   // full USDC (tx fee is paid in SOL separately)
+  } else {
+    const maxSol = Math.max(0, (dw().balance || 0) - SEND_BUFFER_SOL);
+    maxVal = solPriceUsd ? Math.floor(maxSol * solPriceUsd * 100) / 100 : 0;
+  }
+  document.getElementById('withdraw-amount').value = maxVal > 0 ? maxVal : '';
   document.getElementById('withdraw-amount').dispatchEvent(new Event('input'));
 });
 
 document.getElementById('withdraw-amount').addEventListener('input', () => {
-  const cad = parseFloat(document.getElementById('withdraw-amount').value);
+  const amt = parseFloat(document.getElementById('withdraw-amount').value);
   const preview = document.getElementById('withdraw-cad-preview');
-  if (cad > 0 && solPriceUsd) preview.textContent = '≈ ' + (cad / solPriceUsd).toFixed(4) + ' SOL';
+  if (_moneyMode === 'usdc') preview.textContent = amt > 0 ? '≈ $' + amt.toFixed(2) + ' USDC' : '';
+  else if (amt > 0 && solPriceUsd) preview.textContent = '≈ ' + (amt / solPriceUsd).toFixed(4) + ' SOL';
   else preview.textContent = '';
 });
 
 document.getElementById('confirm-withdraw').addEventListener('click', async () => {
   if (!ensureWallet()) return;
   const walletAddress = document.getElementById('withdraw-wallet').value.trim();
-  const cadAmount = parseFloat(document.getElementById('withdraw-amount').value);
+  const enteredAmount = parseFloat(document.getElementById('withdraw-amount').value);
   if (!walletAddress) { alert('Enter the wallet address to send to.'); return; }
-  if (!cadAmount || cadAmount <= 0) return;
-  if (!solPriceUsd) { walletStatus('Price data not loaded — try again.', true); return; }
-  const amountSol = Math.floor((cadAmount / solPriceUsd) * 10000) / 10000;
+  if (!enteredAmount || enteredAmount <= 0) return;
+
+  let amountToSend, sentLabel;
+  if (_moneyMode === 'usdc') {
+    amountToSend = enteredAmount;                          // the entered $ IS the USDC amount
+    sentLabel = `Sent $${enteredAmount.toFixed(2)} USDC ✓`;
+  } else {
+    if (!solPriceUsd) { walletStatus('Price data not loaded — try again.', true); return; }
+    amountToSend = Math.floor((enteredAmount / solPriceUsd) * 10000) / 10000;
+    sentLabel = `Sent CA$${enteredAmount.toFixed(2)} (${amountToSend.toFixed(4)} SOL) ✓`;
+  }
 
   document.getElementById('modal-withdraw').classList.remove('active');
   walletStatus('Confirm in your wallet…');
   try {
-    await window.duelWalletSend(amountSol, walletAddress);
-    walletStatus(`Sent CA$${cadAmount.toFixed(2)} (${amountSol.toFixed(4)} SOL) ✓`);
+    await window.duelWalletSend(amountToSend, walletAddress);
+    walletStatus(sentLabel);
     if (window.duelWalletRefresh) await window.duelWalletRefresh();
     renderWalletState();
   } catch (e) {
@@ -1942,7 +1969,7 @@ document.getElementById('btn-spectate-lobby-2').addEventListener('click', () => 
           `<li>
             <span class="pm-lb-rank">#${i + 1}</span>
             <span class="pm-lb-name">${escHtmlLobby(p.name)}</span>
-            <span class="pm-lb-val">C$${(p.earnings * (_solCadRate || 200)).toFixed(2)}</span>
+            <span class="pm-lb-val">${fmtMoney(p.earnings)}</span>
           </li>`
         ).join('');
       })
@@ -2014,12 +2041,11 @@ document.getElementById('btn-spectate-lobby-2').addEventListener('click', () => 
       .then(r => r.json())
       .then(data => {
         if (data.error) { searchResult.innerHTML = `<p style="color:#ef4444;font-size:0.85rem;padding:8px 0">Player not found.</p>`; return; }
-        const cad  = (data.totalEarnings * (_solCadRate || 200)).toFixed(2);
         const time = fmtTime(data.playTimeSeconds || 0);
         searchResult.innerHTML = `
           <div class="pm-search-card">
             <div class="pm-sc-name">${escHtmlLobby(data.name)}</div>
-            <div class="pm-sc-row"><span class="pm-sc-lbl">Total Earnings</span><span class="pm-sc-val">C$${cad}</span></div>
+            <div class="pm-sc-row"><span class="pm-sc-lbl">Total Earnings</span><span class="pm-sc-val">${fmtMoney(data.totalEarnings)}</span></div>
             <div class="pm-sc-row"><span class="pm-sc-lbl">Games Played</span><span class="pm-sc-val">${data.gamesPlayed || 0}</span></div>
             <div class="pm-sc-row"><span class="pm-sc-lbl">Time Played</span><span class="pm-sc-val">${time}</span></div>
           </div>`;
@@ -2034,9 +2060,8 @@ document.getElementById('btn-spectate-lobby-2').addEventListener('click', () => 
     return h > 0 ? `${h}h ${m}m` : `${m}m`;
   }
 
-  function fmtCad(sol) {
-    const cad = sol * (_solCadRate || 200);
-    return `C$${cad.toFixed(2)}`;
+  function fmtCad(amount) {
+    return fmtMoney(amount);   // mode-aware: USDC mode shows $, SOL mode shows C$ via the rate
   }
 
   function drawChart() {

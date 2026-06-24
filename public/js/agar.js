@@ -14,6 +14,8 @@ let myName      = 'Player';
 let myColor     = '#6366f1';
 let lobbyType   = 'free';
 let spectateOnly = false;
+let moneyMode    = 'sol';
+fetch('/api/money-config').then(r => r.json()).then(c => { if (c && c.mode) moneyMode = c.mode; }).catch(() => {});
 
 let serverPlayers = new Map();
 let renderPlayers = new Map();
@@ -436,10 +438,12 @@ function connectSocket() {
     const earnedRow = document.getElementById('death-earned-row');
     const earnedVal = document.getElementById('death-earned-val');
     if (toWallet && earnedSol > 0) {
-      earnedVal.textContent = earnedSol.toFixed(4) + ' SOL → wallet…';
+      earnedVal.textContent = moneyMode === 'usdc'
+        ? '$' + earnedSol.toFixed(2) + ' USDC → wallet…'
+        : earnedSol.toFixed(4) + ' SOL → wallet…';
       earnedRow.style.display = '';
     } else if (earnedCad > 0) {
-      earnedVal.textContent = '$' + earnedCad.toFixed(2) + ' CAD';
+      earnedVal.textContent = '$' + earnedCad.toFixed(2) + (moneyMode === 'usdc' ? ' USDC' : ' CAD');
       earnedRow.style.display = '';
     } else {
       earnedRow.style.display = 'none';

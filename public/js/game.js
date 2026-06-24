@@ -24,6 +24,11 @@ const spectateOnly  = sessionStorage.getItem('spectateOnly') === 'true';
 // SOL/CAD rate — fetched once on load
 let solCadRate = 200;
 fetch('/api/prices').then(r => r.json()).then(d => { if (d.solCadRate) solCadRate = d.solCadRate; }).catch(() => {});
+let moneyMode = 'sol';
+fetch('/api/money-config').then(r => r.json()).then(c => { if (c && c.mode) moneyMode = c.mode; }).catch(() => {});
+// Format a money value for display. USDC mode: the value already IS US dollars. SOL mode: it's SOL,
+// converted to CAD via the live rate. (Pre-cutover this stayed CAD; post-cutover worth is in USDC.)
+function fmtMoney(v) { v = Number(v) || 0; return moneyMode === 'usdc' ? '$' + v.toFixed(2) : 'C$' + (v * solCadRate).toFixed(2); }
 
 let myId = null;
 let isDead = false;
@@ -630,7 +635,7 @@ socket.on('cashout:cancelled', ({ id }) => {
 });
 
 socket.on('cashout:result', ({ newBalance, earnedSol, score, length, toWallet }) => {
-  const earnedCad = (earnedSol * solCadRate).toFixed(2);
+  // earnedSol holds the earned amount in the active unit: USDC after cutover, SOL before.
   // Show death screen with cashout message
   document.getElementById('death-score').textContent = score || 0;
   document.getElementById('death-length').textContent = length || 0;
@@ -643,7 +648,9 @@ socket.on('cashout:result', ({ newBalance, earnedSol, score, length, toWallet })
     document.querySelector('#death-screen .death-stats').insertAdjacentElement('afterend', earnedEl);
   }
   earnedEl.textContent = earnedSol > 0
-    ? (toWallet ? `Sending ${earnedSol.toFixed(4)} SOL to your wallet…` : `+C$${earnedCad} deposited to your wallet`)
+    ? (moneyMode === 'usdc'
+        ? `+$${earnedSol.toFixed(2)} ${toWallet ? 'sent to' : 'deposited to'} your wallet`
+        : (toWallet ? `Sending ${earnedSol.toFixed(4)} SOL to your wallet…` : `+C$${(earnedSol * solCadRate).toFixed(2)} deposited to your wallet`))
     : '';
   const h2 = document.querySelector('#death-screen h2');
   h2.textContent = 'SUCCESSFULLY CASHED OUT';
@@ -915,7 +922,7 @@ function updateLeaderboard(snap) {
   const isPaid = lobbyType !== 'free';
   const html = lb.map(p => {
     const val = isPaid
-      ? `C$${(p.worth * solCadRate).toFixed(2)}`
+      ? fmtMoney(p.worth)
       : p.score;
     return `<li class="${p.id === myId ? 'me' : ''}" data-player-name="${escHtml(p.name)}">` +
       `<span class="lb-rank">#${p.rank}</span>` +
@@ -1109,7 +1116,8 @@ requestAnimationFrame(gameLoop);
   function drawChart(historyData, period) {
     const ctx = chartCanvas.getContext('2d');
     const W = chartCanvas.width, H = chartCanvas.height;
-    const rate = typeof solCadRate !== 'undefined' ? solCadRate : 200;
+    const rate = moneyMode === 'usdc' ? 1 : (typeof solCadRate !== 'undefined' ? solCadRate : 200);
+    const sym = moneyMode === 'usdc' ? '$' : 'C$';
     ctx.clearRect(0, 0, W, H);
 
     if (!historyData || historyData.length === 0) {
@@ -1149,8 +1157,8 @@ requestAnimationFrame(gameLoop);
     ctx.font = '10px monospace';
     ctx.textAlign = 'right';
     const topVal = (maxAbs * rate).toFixed(2);
-    ctx.fillText('+C$' + topVal, pad.left - 4, pad.top + 4);
-    ctx.fillText('-C$' + topVal, pad.left - 4, H - pad.bottom - 4);
+    ctx.fillText('+' + sym + topVal, pad.left - 4, pad.top + 4);
+    ctx.fillText('-' + sym + topVal, pad.left - 4, H - pad.bottom - 4);
     ctx.fillText('0', pad.left - 4, zeroY + 4);
 
     // Bars
@@ -1179,10 +1187,11 @@ requestAnimationFrame(gameLoop);
 
   function renderProfile() {
     if (!currentProfile) return;
-    const rate = typeof solCadRate !== 'undefined' ? solCadRate : 200;
+    const rate = moneyMode === 'usdc' ? 1 : (typeof solCadRate !== 'undefined' ? solCadRate : 200);
+    const sym = moneyMode === 'usdc' ? '$' : 'C$';
     const cad = (currentProfile.totalEarnings * rate).toFixed(2);
     const sign = currentProfile.totalEarnings >= 0 ? '+' : '';
-    earningsEl.textContent = sign + 'C$' + cad;
+    earningsEl.textContent = sign + sym + cad;
     earningsEl.style.color = currentProfile.totalEarnings >= 0 ? '#14F195' : '#ef4444';
     gamesEl.textContent = currentProfile.gamesPlayed;
     timeEl.textContent = formatPlayTime(currentProfile.playTimeSeconds);
