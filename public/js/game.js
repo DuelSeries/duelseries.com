@@ -193,21 +193,47 @@ function playKillSound() {
   } catch (e) {}
 }
 
-// Triumphant ascending "cha-ching" when YOU cash out.
+// Triumphant "win" fanfare when YOU cash out — a quick rising flourish, then a HELD major chord +
+// sparkle on top. Deliberately bigger/longer than the quick money-pickup blip so they're distinct.
 function playCashoutSound() {
   if (window.gameMuted) return;
   const ac = getAudioCtx(); if (!ac) return;
   try {
-    [[523, 0], [659, 0.08], [784, 0.16], [1047, 0.24], [1319, 0.34]].forEach(([freq, delay]) => {
-      const osc = ac.createOscillator(), gain = ac.createGain();
-      osc.connect(gain); gain.connect(ac.destination);
-      osc.type = 'triangle'; osc.frequency.value = freq;
-      const t = ac.currentTime + delay;
-      gain.gain.setValueAtTime(0, t);
-      gain.gain.linearRampToValueAtTime(0.26, t + 0.01);
-      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
-      osc.start(t); osc.stop(t + 0.42);
+    const t0 = ac.currentTime;
+    const vol = (window.gameMasterVol ?? 1) * (window.gameSfxVol ?? 0.5);
+    // 1) quick rising flourish
+    [[392, 0], [523, 0.07], [659, 0.14]].forEach(([f, d]) => {
+      const o = ac.createOscillator(), g = ac.createGain();
+      o.type = 'triangle'; o.frequency.value = f;
+      o.connect(g); g.connect(ac.destination);
+      const t = t0 + d;
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(0.2 * vol, t + 0.015);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+      o.start(t); o.stop(t + 0.2);
     });
+    // 2) sustained major chord (C5-E5-G5-C6) — the "you won" payoff
+    const ct = t0 + 0.22;
+    [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => {
+      const o = ac.createOscillator(), g = ac.createGain();
+      o.type = (i === 3) ? 'triangle' : 'sine'; o.frequency.value = f;
+      o.connect(g); g.connect(ac.destination);
+      g.gain.setValueAtTime(0, ct);
+      g.gain.linearRampToValueAtTime(0.16 * vol, ct + 0.03);
+      g.gain.setValueAtTime(0.16 * vol, ct + 0.35);
+      g.gain.exponentialRampToValueAtTime(0.001, ct + 0.85);
+      o.start(ct); o.stop(ct + 0.88);
+    });
+    // 3) sparkle gliding up over the chord
+    const s = ac.createOscillator(), sg = ac.createGain();
+    s.type = 'sine';
+    s.frequency.setValueAtTime(1568, ct + 0.05);
+    s.frequency.exponentialRampToValueAtTime(2093, ct + 0.3);
+    s.connect(sg); sg.connect(ac.destination);
+    sg.gain.setValueAtTime(0.0001, ct);
+    sg.gain.linearRampToValueAtTime(0.1 * vol, ct + 0.09);
+    sg.gain.exponentialRampToValueAtTime(0.0001, ct + 0.5);
+    s.start(ct); s.stop(ct + 0.52);
   } catch (e) {}
 }
 
