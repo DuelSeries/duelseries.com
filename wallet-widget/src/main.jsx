@@ -284,11 +284,12 @@ function WalletPanel() {
         ? sendUsdc(toAddress, amount, cfg.usdcMint, cfg.decimals, wallet, signTransaction)
         : sendSol(toAddress, amount, wallet, signTransaction);
     };
-    // "Buy with Card / Apple Pay" — Privy's fiat on-ramp (MoonPay) buys USDC on Solana straight
-    // into the embedded wallet. Opens Privy's own funding modal; resolves when done/cancelled.
+    // Add Funds — opens Privy's branded funding flow. defaultFundingMethod 'manual' lands the user
+    // straight on the "Receive USDC on Solana" deposit screen (QR + address). (Card/exchange methods
+    // only appear if their providers are enabled in the Privy dashboard.)
     window.duelWalletFund = (amountUsd) => {
       if (!address) return Promise.reject(new Error('Connect your wallet first.'));
-      return fundWallet({ address, options: { chain: 'solana:mainnet', asset: 'USDC', amount: String(amountUsd || 20) } });
+      return fundWallet({ address, options: { chain: 'solana:mainnet', asset: 'USDC', amount: String(amountUsd || 20), defaultFundingMethod: 'manual' } });
     };
   }, [wallet, signTransaction, address, login, logout, fundWallet]);
 

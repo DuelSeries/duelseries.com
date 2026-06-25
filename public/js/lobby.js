@@ -822,19 +822,17 @@ function openReceiveModal() {
   }
   document.getElementById('modal-receive').classList.add('active');
 }
-document.getElementById('btn-add-funds').addEventListener('click', openReceiveModal);
+// "Add Funds" — open Privy's branded funding flow, which lands on the "Receive USDC on Solana"
+// deposit screen (QR + address). Falls back to the built-in deposit modal if the wallet widget
+// isn't ready yet, or if the funding flow errors out.
+function openAddFunds() {
+  if (!ensureWallet()) return;
+  if (window.duelWalletFund) window.duelWalletFund(20).catch(() => openReceiveModal());
+  else openReceiveModal();
+}
+document.getElementById('btn-add-funds').addEventListener('click', openAddFunds);
 const _btnAddFunds2 = document.getElementById('btn-add-funds-2');
-if (_btnAddFunds2) _btnAddFunds2.addEventListener('click', openReceiveModal);
-
-// "Buy with Card / Apple Pay" — opens Privy's on-ramp (MoonPay) to buy USDC into the wallet.
-const _btnBuyCard = document.getElementById('btn-buy-card');
-if (_btnBuyCard) _btnBuyCard.addEventListener('click', async () => {
-  const st = document.getElementById('buy-card-status');
-  if (!window.duelWalletFund) { if (st) { st.style.color = '#7e93b4'; st.textContent = 'Wallet still loading — try again.'; } return; }
-  if (st) { st.style.color = '#7e93b4'; st.textContent = 'Opening checkout…'; }
-  try { await window.duelWalletFund(20); if (st) st.textContent = ''; refreshBalance(null); }
-  catch (e) { if (st) { st.style.color = '#ff7a7a'; st.textContent = (e && e.message) || 'Could not open checkout — try again.'; } }
-});
+if (_btnAddFunds2) _btnAddFunds2.addEventListener('click', openAddFunds);
 
 document.getElementById('btn-check-now').addEventListener('click', () => refreshBalance(null));
 document.getElementById('close-receive').addEventListener('click', () =>
@@ -924,7 +922,7 @@ document.getElementById('confirm-withdraw').addEventListener('click', async () =
 
 // ─── Lobby 2 wallet buttons (share same modals/functions as lobby 1) ──────────
 document.getElementById('btn-refresh-balance-2').addEventListener('click', () => refreshBalance('btn-refresh-balance-2'));
-document.getElementById('btn-add-funds-2').addEventListener('click', openReceiveModal);
+document.getElementById('btn-add-funds-2').addEventListener('click', openAddFunds);
 document.getElementById('btn-withdraw-2').addEventListener('click', openWithdrawModal);
 
 // ─── Lobby 2 lobby type selection ─────────────────────────────────────────────
