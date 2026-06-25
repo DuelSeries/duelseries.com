@@ -161,8 +161,9 @@ class Renderer {
     const PAD      = 12;
     const R        = Math.min(110, Math.floor(Math.min(W, H) * 0.15));
     const isMobile = Math.min(W, H) < 600;
-    const cx       = PAD + R;
-    const cy       = isMobile ? PAD + R : H - PAD - R;
+    // Bottom-right on desktop, lifted ~60px so the FPS/ping stats sit under it; top-left on mobile.
+    const cx       = isMobile ? PAD + R : W - PAD - R;
+    const cy       = isMobile ? PAD + R : H - PAD - R - 60;
     const scale  = R / state.worldRadius;
 
     ctx.save();
