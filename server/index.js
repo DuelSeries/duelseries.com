@@ -369,8 +369,10 @@ app.post('/api/submit-stake', entryFeeLimiter, express.json({ limit: '256kb' }),
 const COSMETIC_CATALOG = {
   'skin:crimson': 0.50, 'skin:mint': 0.50, 'skin:indigo': 0.50, 'skin:rose': 0.75,
   'skin:amber': 0.75, 'skin:sky': 0.75, 'skin:lime': 1.00, 'skin:galaxy': 1.50, 'skin:shadow': 2.00,
-  'hat:wizard': 0.50, 'hat:cowboy': 0.75, 'hat:party': 0.75, 'hat:halo': 1.50,
-  'boost:rainbow': 1.00, 'boost:lightning': 1.00, 'boost:smoke': 1.25, 'boost:stars': 1.50, 'boost:galaxy': 2.00,
+  // Hats + boosts are "Coming Soon" — disabled for players (the lobby also hides them via COMING_SOON).
+  // To bring them back: uncomment these AND remove 'hats'/'boosts' from COMING_SOON in lobby.js.
+  // 'hat:wizard': 0.50, 'hat:cowboy': 0.75, 'hat:party': 0.75, 'hat:halo': 1.50,
+  // 'boost:rainbow': 1.00, 'boost:lightning': 1.00, 'boost:smoke': 1.25, 'boost:stars': 1.50, 'boost:galaxy': 2.00,
 };
 
 // Catalog + the caller's owned items in one call (so the shop renders prices + ownership together).

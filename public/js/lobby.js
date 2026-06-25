@@ -1124,6 +1124,8 @@ document.getElementById('btn-spectate-lobby-2').addEventListener('click', () => 
   let _cosmeticPrices = {};
   const NS = { skins: 'skin', hats: 'hat', boosts: 'boost' };
   function nsId(cat, id) { return (NS[cat] || cat) + ':' + id; }
+  // Categories temporarily disabled for players (show a "Coming Soon" overlay). Remove an entry to re-enable.
+  const COMING_SOON = new Set(['hats', 'boosts']);
 
   let previewBycat = {
     skins:  Math.max(0, SKINS.findIndex(s => s.id === equippedId)),
@@ -1508,6 +1510,20 @@ document.getElementById('btn-spectate-lobby-2').addEventListener('click', () => 
     const nameEl  = document.getElementById('ap-sel-name');
     const lockEl  = document.getElementById('ap-sel-lock');
     const saveBtn = document.getElementById('ap-save');
+    const csEl    = document.getElementById('ap-coming-soon');
+    // Temporarily-disabled categories show a "Coming Soon" overlay — no preview/buy/equip.
+    if (COMING_SOON.has(apCat)) {
+      if (csEl) csEl.classList.remove('hidden');
+      nameEl.textContent = 'Coming Soon';
+      lockEl.classList.add('hidden');
+      saveBtn.disabled = true; saveBtn.textContent = 'Coming Soon';
+      document.getElementById('ap-prev').disabled = true;
+      document.getElementById('ap-next').disabled = true;
+      return;
+    }
+    if (csEl) csEl.classList.add('hidden');
+    document.getElementById('ap-prev').disabled = false;
+    document.getElementById('ap-next').disabled = false;
     if (item) {
       nameEl.textContent = item.name;
       const ns = nsId(apCat, item.id);
@@ -1641,6 +1657,7 @@ document.getElementById('btn-spectate-lobby-2').addEventListener('click', () => 
   });
 
   document.getElementById('ap-save').addEventListener('click', async () => {
+    if (COMING_SOON.has(apCat)) return;
     const list = CATS[apCat]; if (!list) return;
     const item = list[previewBycat[apCat]];
     if (!item) return;

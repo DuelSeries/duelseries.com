@@ -210,12 +210,16 @@
 
     <div class="ap-catbar" id="ap-catbar">
       <button class="ap-cat ap-cat-active" data-apcat="skins">&#128085; Skins</button>
-      <button class="ap-cat" data-apcat="hats">&#128081; Hats</button>
-      <button class="ap-cat" data-apcat="boosts">&#9889; Boosts</button>
+      <button class="ap-cat" data-apcat="hats">&#128081; Hats <span style="font-size:8px;font-weight:800;background:rgba(255,255,255,.2);padding:1px 4px;border-radius:4px;vertical-align:middle;letter-spacing:.5px;opacity:.85">SOON</span></button>
+      <button class="ap-cat" data-apcat="boosts">&#9889; Boosts <span style="font-size:8px;font-weight:800;background:rgba(255,255,255,.2);padding:1px 4px;border-radius:4px;vertical-align:middle;letter-spacing:.5px;opacity:.85">SOON</span></button>
     </div>
 
-    <div class="ap-preview-wrap" id="ap-preview-wrap">
+    <div class="ap-preview-wrap" id="ap-preview-wrap" style="position:relative">
       <canvas id="ap-canvas" class="ap-canvas"></canvas>
+      <div id="ap-coming-soon" class="hidden" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;background:rgba(6,12,8,.8);backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);border-radius:inherit;z-index:5;text-align:center">
+        <div style="font-size:34px">&#128679;</div>
+        <div style="font-weight:900;letter-spacing:2px;color:#14F195;text-transform:uppercase;font-size:1.15rem">Coming Soon</div>
+      </div>
     </div>
 
     <div class="ap-selector" id="ap-selector">
