@@ -142,7 +142,67 @@ function playMoneySound() {
   } catch(e) {}
 }
 
+// Sad descending tone when YOUR snake dies.
+function playDeathSound() {
+  if (window.gameMuted) return;
+  const ac = getAudioCtx(); if (!ac) return;
+  try {
+    [[330, 0], [247, 0.12], [165, 0.26]].forEach(([freq, delay]) => {
+      const osc = ac.createOscillator(), gain = ac.createGain();
+      osc.connect(gain); gain.connect(ac.destination);
+      osc.type = 'sawtooth'; osc.frequency.value = freq;
+      const t = ac.currentTime + delay;
+      osc.frequency.exponentialRampToValueAtTime(freq * 0.6, t + 0.3);
+      gain.gain.setValueAtTime(0, t);
+      gain.gain.linearRampToValueAtTime(0.2, t + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.32);
+      osc.start(t); osc.stop(t + 0.34);
+    });
+  } catch (e) {}
+}
+
+// Punchy zap when YOU eliminate another snake.
+function playKillSound() {
+  if (window.gameMuted) return;
+  const ac = getAudioCtx(); if (!ac) return;
+  try {
+    const t = ac.currentTime;
+    const osc = ac.createOscillator(), gain = ac.createGain();
+    osc.connect(gain); gain.connect(ac.destination);
+    osc.type = 'square'; osc.frequency.value = 660;
+    osc.frequency.exponentialRampToValueAtTime(170, t + 0.12);
+    gain.gain.setValueAtTime(0.28, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+    osc.start(t); osc.stop(t + 0.16);
+    const o2 = ac.createOscillator(), g2 = ac.createGain();
+    o2.connect(g2); g2.connect(ac.destination);
+    o2.type = 'square'; o2.frequency.value = 1320;
+    g2.gain.setValueAtTime(0.14, t);
+    g2.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
+    o2.start(t); o2.stop(t + 0.09);
+  } catch (e) {}
+}
+
+// Triumphant ascending "cha-ching" when YOU cash out.
+function playCashoutSound() {
+  if (window.gameMuted) return;
+  const ac = getAudioCtx(); if (!ac) return;
+  try {
+    [[523, 0], [659, 0.08], [784, 0.16], [1047, 0.24], [1319, 0.34]].forEach(([freq, delay]) => {
+      const osc = ac.createOscillator(), gain = ac.createGain();
+      osc.connect(gain); gain.connect(ac.destination);
+      osc.type = 'triangle'; osc.frequency.value = freq;
+      const t = ac.currentTime + delay;
+      gain.gain.setValueAtTime(0, t);
+      gain.gain.linearRampToValueAtTime(0.26, t + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
+      osc.start(t); osc.stop(t + 0.42);
+    });
+  } catch (e) {}
+}
+
 socket.on('ate_dropped_food', playMoneySound);
+socket.on(CONSTANTS.EVENTS.PLAYER_KILLED, () => playKillSound()); // satisfying zap when YOU kill another snake
 
 function playJoinSound() {
   if (window.gameMuted) return;
@@ -254,6 +314,7 @@ socket.on(CONSTANTS.EVENTS.SNAPSHOT, (meta, coords) => {
 
 socket.on(CONSTANTS.EVENTS.PLAYER_DIED, ({ score, length }) => {
   isDead = true;
+  playDeathSound();
   _lReset();
   const earnedEl = document.getElementById('cashout-earned-inline');
   if (earnedEl) earnedEl.textContent = '';
@@ -637,6 +698,7 @@ socket.on('cashout:cancelled', ({ id }) => {
 
 socket.on('cashout:result', ({ newBalance, earnedSol, score, length, toWallet }) => {
   if (window.phEvent) window.phEvent('cashed_out', { game: 'snake', amount: earnedSol, score: score, length: length });
+  playCashoutSound();
   // earnedSol holds the earned amount in the active unit: USDC after cutover, SOL before.
   // Show death screen with cashout message
   document.getElementById('death-score').textContent = score || 0;
