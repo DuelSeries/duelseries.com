@@ -272,6 +272,26 @@ socket.on(CONSTANTS.EVENTS.PLAYER_KILLED, () => playKillSound()); // satisfying 
     while (messages.children.length > 50) messages.removeChild(messages.firstChild); // keep last 50 for scrollback
     if (atBottom) messages.scrollTop = messages.scrollHeight; // stick to newest unless you scrolled up to read
   }
+  // Red kill-feed line: "💀 killer killed victim" (or "💀 victim died" with no killer).
+  function addKillMessage(killer, victim) {
+    const atBottom = messages.scrollTop + messages.clientHeight >= messages.scrollHeight - 6;
+    const el = document.createElement('div');
+    el.className = 'chat-msg chat-kill';
+    el.appendChild(document.createTextNode('💀 '));
+    const v = document.createElement('span'); v.className = 'kf-victim'; v.textContent = victim || 'a snake';
+    if (killer) {
+      const k = document.createElement('span'); k.className = 'kf-killer'; k.textContent = killer;
+      el.appendChild(k);
+      el.appendChild(document.createTextNode(' killed '));
+      el.appendChild(v);
+    } else {
+      el.appendChild(v);
+      el.appendChild(document.createTextNode(' died'));
+    }
+    messages.appendChild(el);
+    while (messages.children.length > 50) messages.removeChild(messages.firstChild);
+    if (atBottom) messages.scrollTop = messages.scrollHeight;
+  }
 
   // Press T (when not already typing or focused in another field) to open the chat input.
   window.addEventListener('keydown', (e) => {
@@ -293,8 +313,9 @@ socket.on(CONSTANTS.EVENTS.PLAYER_KILLED, () => playKillSound()); // satisfying 
   });
   input.addEventListener('blur', closeChat);
 
-  socket.on(CONSTANTS.EVENTS.CHAT, ({ name, text, self }) => {
-    addMessage(name || 'Player', text || '', !!self);
+  socket.on(CONSTANTS.EVENTS.CHAT, (data) => {
+    if (data && data.kind === 'kill') { addKillMessage(data.killer, data.victim); return; }
+    addMessage((data && data.name) || 'Player', (data && data.text) || '', !!(data && data.self));
   });
 })();
 

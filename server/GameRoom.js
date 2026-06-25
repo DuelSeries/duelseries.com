@@ -358,6 +358,18 @@ class GameRoom {
         });
       }
     }
+
+    // Kill-feed line in the chat. Only broadcast when a HUMAN is involved (skips bot-vs-bot spam).
+    const victimIsHuman = this.players.has(snake.id);
+    const killerIsHuman = !!killerId && this.players.has(killerId);
+    const victimName = String(snake.name || 'a snake').slice(0, 24);
+    if (killerId && (killerIsHuman || victimIsHuman)) {
+      const killerSnake = this.snakes.get(killerId);
+      const killerName = String((killerSnake && killerSnake.name) || 'A snake').slice(0, 24);
+      this.io.to(this.socketRoomName).emit(C.EVENTS.CHAT, { kind: 'kill', killer: killerName, victim: victimName });
+    } else if (!killerId && victimIsHuman) {
+      this.io.to(this.socketRoomName).emit(C.EVENTS.CHAT, { kind: 'kill', killer: null, victim: victimName });
+    }
   }
 
   respawnPlayer(socketId, entrySol) {
