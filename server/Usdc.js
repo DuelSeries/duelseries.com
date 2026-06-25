@@ -106,6 +106,24 @@ async function verifyUsdcStake(signature, minUsdc) {
   return { payer: keys[0].toString(), usdc: toUsdc(delta) };
 }
 
+// Generalized version of verifyUsdcStake for ANY recipient owner — used by the cosmetics shop,
+// which pays the house/owner wallet instead of the escrow. Verifies a confirmed tx credited
+// `recipientOwner`'s USDC account by >= minUsdc. Returns { payer, usdc }.
+async function verifyUsdcCredit(signature, recipientOwner, minUsdc) {
+  if (typeof signature !== 'string' || !signature) throw new Error('Missing transaction signature');
+  const tx = await withRetry(() => connection.getTransaction(signature, { commitment: 'confirmed', maxSupportedTransactionVersion: 0 }));
+  if (!tx) throw new Error('Transaction not found or not yet confirmed');
+  if (tx.meta && tx.meta.err) throw new Error('Transaction failed on-chain');
+  const delta = stakeDeltaUnits(tx.meta, String(recipientOwner), USDC_MINT.toString());
+  const min = toUnits(minUsdc);
+  if (delta < min) throw new Error(`Payment too small (${delta} < ${min} USDC units)`);
+  const keys = tx.transaction.message.staticAccountKeys || tx.transaction.message.accountKeys;
+  return { payer: keys[0].toString(), usdc: toUsdc(delta) };
+}
+
+// The USDC associated-token-account address for any owner (where a client sends a payment).
+function ataFor(ownerAddress) { return getAssociatedTokenAddressSync(USDC_MINT, new PublicKey(ownerAddress)).toString(); }
+
 // Build + sign a USDC payout from escrow -> recipient, creating the recipient's ATA if missing
 // (escrow pays that rent). Returns everything needed to broadcast AND recover it (same idempotent
 // model as Wallet.buildSignedPayout — re-broadcasting the same bytes can only land once).
@@ -206,6 +224,6 @@ async function attemptPayout(row, onFreshTx) {
 module.exports = {
   connection, NETWORK, USDC_MINT, USDC_DECIMALS, toUnits, toUsdc, withRetry, ataNotFound,
   escrowKeypair, escrowPubkey, escrowAta, stakeTargets,
-  usdcBalanceOf, escrowUsdcBalance, verifyUsdcStake, stakeDeltaUnits,
+  usdcBalanceOf, escrowUsdcBalance, verifyUsdcStake, verifyUsdcCredit, stakeDeltaUnits, ataFor,
   buildSignedUsdcPayout, withdrawUsdc, attemptPayout, getLatestBlockhash,
 };

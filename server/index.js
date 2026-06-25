@@ -14,6 +14,7 @@ const Wallet = require('./Wallet');
 const allTimeLb = require('./leaderboard');
 const prices = require('./prices');
 const money = require('./money'); // SOL- or USDC-denominated money backend (picked by MONEY_MODE)
+const Usdc  = require('./Usdc');  // USDC primitives — used directly by the cosmetics shop (always USDC)
 
 const REGION = process.env.REGION || 'na';
 
@@ -358,6 +359,66 @@ app.post('/api/submit-stake', entryFeeLimiter, express.json({ limit: '256kb' }),
   } catch (e) {
     res.status(400).json({ error: e.message });
   }
+});
+
+// ─── Cosmetics shop (paid skins/hats/boosts bought with USDC) ────────────────────
+// Server-authoritative catalog: namespaced item id -> price in USDC. These are the items the
+// client shows "locked" until bought. Buying pays the OWNER_WALLET (house revenue) and unlocks
+// the item forever for that wallet. Mirrors the stake flow (quote -> sign -> verify) but the
+// payment goes to the owner instead of the escrow and grants a cosmetic instead of an entry token.
+const COSMETIC_CATALOG = {
+  'skin:crimson': 0.50, 'skin:mint': 0.50, 'skin:indigo': 0.50, 'skin:rose': 0.75,
+  'skin:amber': 0.75, 'skin:sky': 0.75, 'skin:lime': 1.00, 'skin:galaxy': 1.50, 'skin:shadow': 2.00,
+  'hat:wizard': 0.50, 'hat:cowboy': 0.75, 'hat:party': 0.75, 'hat:halo': 1.50,
+  'boost:rainbow': 1.00, 'boost:lightning': 1.00, 'boost:smoke': 1.25, 'boost:stars': 1.50, 'boost:galaxy': 2.00,
+};
+
+// Catalog + the caller's owned items in one call (so the shop renders prices + ownership together).
+app.get('/api/cosmetics/catalog', async (req, res) => {
+  try {
+    const wallet = (req.query.wallet || '').toString();
+    const owned = wallet ? await db.getOwnedCosmetics(wallet) : [];
+    res.json({ items: COSMETIC_CATALOG, owned });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Quote: everything the client needs to build the USDC payment for one item (fresh blockhash).
+app.get('/api/cosmetics/quote', async (req, res) => {
+  try {
+    const itemId = (req.query.itemId || '').toString();
+    const price = COSMETIC_CATALOG[itemId];
+    if (price === undefined) return res.status(400).json({ error: 'Unknown item' });
+    if (req.query.wallet && OWNER_WALLETS.has(req.query.wallet.toString())) return res.json({ itemId, amountUsdc: 0, free: true });
+    const { blockhash } = await Usdc.getLatestBlockhash();
+    res.json({
+      itemId, amountUsdc: price, units: Usdc.toUnits(price).toString(),
+      payToOwner: OWNER_WALLET, payToAta: Usdc.ataFor(OWNER_WALLET),
+      usdcMint: Usdc.USDC_MINT.toString(), decimals: Usdc.USDC_DECIMALS, blockhash,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Buy: broadcast + verify the USDC payment landed in the owner wallet, then grant ownership.
+// markStakeSig claims the signature one-time so a single payment can't be replayed for free grants.
+app.post('/api/cosmetics/buy', entryFeeLimiter, express.json({ limit: '256kb' }), async (req, res) => {
+  const { signedTx, itemId, walletAddress } = req.body || {};
+  const price = COSMETIC_CATALOG[itemId];
+  if (price === undefined) return res.status(400).json({ error: 'Unknown item' });
+  try {
+    // The house doesn't pay itself — owner wallets get cosmetics free. (Granting to an owner address
+    // only ever benefits the owner, so a spoofed walletAddress gains an attacker nothing.)
+    if (walletAddress && OWNER_WALLETS.has(walletAddress)) {
+      await db.addCosmetic(walletAddress, itemId, null, 0);
+      return res.json({ ok: true, itemId, free: true, owned: await db.getOwnedCosmetics(walletAddress) });
+    }
+    if (!signedTx) return res.status(400).json({ error: 'Missing signed transaction' });
+    const sig = await Wallet.submitStake(Buffer.from(signedTx, 'base64')); // broadcast + confirm (mode-agnostic)
+    const { payer, usdc } = await Usdc.verifyUsdcCredit(sig, OWNER_WALLET, price * 0.99); // tiny rounding tolerance
+    if (!(await db.markStakeSig(sig))) return res.status(400).json({ error: 'Payment already used' });
+    const owner = walletAddress || payer;
+    await db.addCosmetic(owner, itemId, sig, usdc);
+    res.json({ ok: true, itemId, owned: await db.getOwnedCosmetics(owner) });
+  } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
 // (Phase B2 security: the legacy /api/verify-stake endpoint was removed — it duplicated

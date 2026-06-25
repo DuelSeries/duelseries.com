@@ -107,6 +107,15 @@ async function init() {
     ALTER TABLE accounts ADD COLUMN IF NOT EXISTS agar_total_earnings NUMERIC(18,9) DEFAULT 0;
     ALTER TABLE accounts ADD COLUMN IF NOT EXISTS agar_games_played INTEGER DEFAULT 0;
     ALTER TABLE accounts ADD COLUMN IF NOT EXISTS privy_wallet_id TEXT;
+
+    CREATE TABLE IF NOT EXISTS cosmetics_owned (
+      wallet_address TEXT NOT NULL,
+      item_id        TEXT NOT NULL,
+      tx_sig         TEXT,
+      paid_usdc      NUMERIC(18,6),
+      created_at     TIMESTAMPTZ DEFAULT NOW(),
+      PRIMARY KEY (wallet_address, item_id)
+    );
   `);
   console.log('[DB] Tables ready');
 }
@@ -361,6 +370,20 @@ async function getProfile(name) {
   };
 }
 
+// ─── Cosmetics ownership (paid skins/hats/boosts bought with USDC) ──────────────
+async function addCosmetic(walletAddress, itemId, txSig, paidUsdc) {
+  await pool.query(
+    `INSERT INTO cosmetics_owned (wallet_address, item_id, tx_sig, paid_usdc)
+     VALUES ($1, $2, $3, $4) ON CONFLICT (wallet_address, item_id) DO NOTHING`,
+    [walletAddress, itemId, txSig || null, paidUsdc || null],
+  );
+}
+async function getOwnedCosmetics(walletAddress) {
+  if (!walletAddress) return [];
+  const r = await pool.query(`SELECT item_id FROM cosmetics_owned WHERE wallet_address = $1`, [walletAddress]);
+  return r.rows.map((row) => row.item_id);
+}
+
 module.exports = {
   init, pool,
   recordGameResult, recordAgarGameResult,
@@ -370,4 +393,5 @@ module.exports = {
   recordFailedPayout, getFailedPayouts, claimDuePayout, savePayoutSignature, markPayoutPaid,
   recordEarnings, getTopEarners,
   getProfile, getMyProfile, searchPlayerNames, getGlobalWinnings,
+  addCosmetic, getOwnedCosmetics,
 };
