@@ -106,13 +106,9 @@ class Renderer {
     // mobile caused the background to flicker (canvas is cleared every frame).
     this.hexGrid.draw(ctx, camera, dpr);
 
-    // Clip food to world circle only
-    ctx.save();
-    ctx.beginPath();
-    ctx.arc(0, 0, state.worldRadius, 0, Math.PI * 2);
-    ctx.clip();
+    // Food — drawn UNCLIPPED so it's visible out past the border in the red zone too
+    // (the red border tint is painted last, on top, so that food reads as "in the red part").
     this._drawFood(ctx, state.food, camera);
-    ctx.restore();
 
     // Snakes drawn outside the clip so bodies stay visible under the red border zone
     // Viewport bounds in world space (with margin for snake body radius)

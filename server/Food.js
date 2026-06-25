@@ -25,7 +25,9 @@ class FoodManager {
       fy = y;
     } else {
       const angle = Math.random() * Math.PI * 2;
-      const r = Math.random() * (worldRadius - 50);
+      // sqrt → even spread by area (no center clumping); 1.15x pushes food out past the border
+      // (worldRadius) into the red zone, which looks better.
+      const r = Math.sqrt(Math.random()) * (worldRadius * 1.15);
       fx = Math.cos(angle) * r;
       fy = Math.sin(angle) * r;
     }
@@ -48,7 +50,7 @@ class FoodManager {
   refill(worldRadius) {
     const needed = C.FOOD_SPAWN_COUNT - this.items.size;
     const spawned = [];
-    for (let i = 0; i < Math.min(needed, 10); i++) {
+    for (let i = 0; i < Math.min(needed, 30); i++) {
       spawned.push(this.spawnOne(worldRadius));
     }
     return spawned;
