@@ -15,6 +15,7 @@ const renderer = new Renderer(canvas);
 const playerName    = sessionStorage.getItem('playerName')    || 'Player';
 const walletAddress = sessionStorage.getItem('walletAddress') || null;
 const googleId      = sessionStorage.getItem('googleId')      || null;
+if (window.phIdentify && walletAddress) window.phIdentify(walletAddress); // link in-game analytics to this player
 const lobbyType     = sessionStorage.getItem('lobbyType')     || 'free';
 const entrySol      = parseFloat(sessionStorage.getItem('entrySol') || '0');
 const entryToken    = sessionStorage.getItem('entryToken') || null;
@@ -635,6 +636,7 @@ socket.on('cashout:cancelled', ({ id }) => {
 });
 
 socket.on('cashout:result', ({ newBalance, earnedSol, score, length, toWallet }) => {
+  if (window.phEvent) window.phEvent('cashed_out', { game: 'snake', amount: earnedSol, score: score, length: length });
   // earnedSol holds the earned amount in the active unit: USDC after cutover, SOL before.
   // Show death screen with cashout message
   document.getElementById('death-score').textContent = score || 0;

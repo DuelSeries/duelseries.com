@@ -765,7 +765,13 @@ function dw() { return window.duelWallet || {}; }
 function walletConnected() { const w = dw(); return !!(w.authenticated && w.address); }
 
 function renderWalletState() {
-  if (walletConnected()) { setBalance(dw().balance || 0); return; }
+  if (walletConnected()) {
+    // Tie analytics events to this player (by wallet) once they're logged in.
+    if (window.phIdentify) window.phIdentify(dw().address);
+    if (window.phEvent && !window._phLoggedIn) { window._phLoggedIn = true; window.phEvent('logged_in'); }
+    setBalance(dw().balance || 0);
+    return;
+  }
   ['game-balance', 'game-balance-2'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = 'Connect wallet'; });
   ['game-balance-usd', 'game-balance-usd-2'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = ''; });
 }
@@ -961,6 +967,7 @@ document.getElementById('btn-play-2').addEventListener('click', () => {
   // All tiers route through the self-custody flow; the widget stakes (paid) or just launches
   // (free), using the wallet as the identity.
   localStorage.setItem('duelseries_playername', name);
+  if (window.phEvent) window.phEvent('game_started', { game: 'agar', lobbyType: selectedLobbyType2 });
   window.dispatchEvent(new CustomEvent('duel:play', { detail: { game: 'agar', lobbyType: selectedLobbyType2 } }));
 });
 
@@ -1034,6 +1041,7 @@ document.getElementById('btn-play').addEventListener('click', () => {
   // All tiers route through the self-custody flow; the widget stakes (paid) or just launches
   // (free), using the wallet as the identity.
   localStorage.setItem('duelseries_playername', name);
+  if (window.phEvent) window.phEvent('game_started', { game: 'snake', lobbyType: selectedLobbyType });
   window.dispatchEvent(new CustomEvent('duel:play', { detail: { game: 'snake', lobbyType: selectedLobbyType } }));
 });
 

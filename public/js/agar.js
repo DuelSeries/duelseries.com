@@ -434,6 +434,8 @@ function connectSocket() {
   socket.on('cell:worldSize', ({ size }) => { worldSize = size; });
 
   socket.on('cell:cashout:result', ({ newBalance, earnedCad, earnedSol, score, toWallet }) => {
+    var _w = sessionStorage.getItem('walletAddress'); if (window.phIdentify && _w) window.phIdentify(_w);
+    if (window.phEvent) window.phEvent('cashed_out', { game: 'agar', amount: earnedSol, score: score });
     document.getElementById('death-score-val').textContent = score || 0;
     const earnedRow = document.getElementById('death-earned-row');
     const earnedVal = document.getElementById('death-earned-val');
