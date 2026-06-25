@@ -1119,6 +1119,12 @@ document.getElementById('btn-spectate-lobby-2').addEventListener('click', () => 
   let equippedHat = localStorage.getItem('duelseries_hat_id')   || 'none';
   let equippedBoost = localStorage.getItem('duelseries_boost_id') || 'default';
 
+  // Cosmetics shop: which paid items this wallet owns + their USDC prices (from /api/cosmetics/catalog).
+  let _ownedCosmetics = new Set();
+  let _cosmeticPrices = {};
+  const NS = { skins: 'skin', hats: 'hat', boosts: 'boost' };
+  function nsId(cat, id) { return (NS[cat] || cat) + ':' + id; }
+
   let previewBycat = {
     skins:  Math.max(0, SKINS.findIndex(s => s.id === equippedId)),
     hats:   Math.max(0, HATS.findIndex(h => h.id === equippedHat)),
@@ -1504,12 +1510,23 @@ document.getElementById('btn-spectate-lobby-2').addEventListener('click', () => 
     const saveBtn = document.getElementById('ap-save');
     if (item) {
       nameEl.textContent = item.name;
-      lockEl.classList.toggle('hidden', !item.locked);
-      saveBtn.disabled = !!item.locked;
+      const ns = nsId(apCat, item.id);
+      const owned = !item.locked || _ownedCosmetics.has(ns);
+      const price = _cosmeticPrices[ns];
+      if (!owned && price !== undefined) {
+        lockEl.classList.add('hidden');                 // buyable → show price on the button
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Buy $' + Number(price).toFixed(2);
+      } else {
+        lockEl.classList.toggle('hidden', owned);        // lock icon only while still locked
+        saveBtn.disabled = !owned;
+        saveBtn.textContent = owned ? 'Save' : 'Locked';
+      }
     } else {
       nameEl.textContent = '—';
       lockEl.classList.add('hidden');
       saveBtn.disabled = true;
+      saveBtn.textContent = 'Save';
     }
   }
 
@@ -1541,6 +1558,15 @@ document.getElementById('btn-spectate-lobby-2').addEventListener('click', () => 
     previewBycat.boosts = Math.max(0, BOOSTS.findIndex(b => b.id === equippedBoost));
     apCat = 'skins';
     apMode = 'inventory';
+    // Load which paid cosmetics this wallet owns + their prices, so locked items show "Buy $X"
+    // and flip to equippable once owned.
+    try {
+      const _addr = (window.duelWallet && window.duelWallet.address) || '';
+      fetch('/api/cosmetics/catalog' + (_addr ? '?wallet=' + encodeURIComponent(_addr) : ''))
+        .then(r => r.json())
+        .then(d => { _cosmeticPrices = d.items || {}; _ownedCosmetics = new Set(d.owned || []); updateApSelector(); })
+        .catch(() => {});
+    } catch (e) {}
     const snakeCanvas = document.getElementById('snake-canvas');
     if (snakeCanvas) snakeCanvas.style.opacity = '0';
     if (lobbyNum === 2) {
@@ -1614,10 +1640,28 @@ document.getElementById('btn-spectate-lobby-2').addEventListener('click', () => 
     updateApSelector();
   });
 
-  document.getElementById('ap-save').addEventListener('click', () => {
+  document.getElementById('ap-save').addEventListener('click', async () => {
     const list = CATS[apCat]; if (!list) return;
     const item = list[previewBycat[apCat]];
-    if (!item || item.locked) return;
+    if (!item) return;
+    const saveBtn = document.getElementById('ap-save');
+    const ns = nsId(apCat, item.id);
+    // Buy flow: locked, not yet owned, and priced → purchase first, then fall through to equip.
+    if (item.locked && !_ownedCosmetics.has(ns) && _cosmeticPrices[ns] !== undefined) {
+      if (!ensureWallet()) return;
+      if (!window.duelWalletBuyCosmetic) return;
+      saveBtn.disabled = true;
+      try {
+        const r = await window.duelWalletBuyCosmetic(ns, (s) => { saveBtn.textContent = s; });
+        ((r && r.owned) || [ns]).forEach((x) => _ownedCosmetics.add(x));
+        _ownedCosmetics.add(ns);
+      } catch (e) {
+        updateApSelector();
+        alert('Purchase failed: ' + (e.message || e));
+        return;
+      }
+    }
+    if (item.locked && !_ownedCosmetics.has(ns)) return; // still locked — shouldn't happen
     if (apCat === 'skins') {
       equippedId = item.id;
       localStorage.setItem('duelseries_skin_id',    item.id);
