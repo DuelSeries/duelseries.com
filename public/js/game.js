@@ -115,8 +115,11 @@ function getAudioCtx() {
   if (_audioCtx.state === 'suspended') _audioCtx.resume().catch(() => {});
   return _audioCtx;
 }
-// Unlock on the first user interaction (required by mobile autoplay policies)
-['pointerdown', 'touchstart', 'keydown'].forEach(evt => {
+// Unlock on the first user interaction. Includes mousemove/mousedown/click because players steer
+// by MOVING the mouse (not clicking) — without these the audio context stayed suspended until the
+// first click/keypress (~1s in), so the join sound queued up and only fired then. The game iframe
+// inherits the lobby's "Play"-click activation (same origin), so resuming on first move works.
+['pointerdown', 'mousedown', 'mousemove', 'touchstart', 'touchmove', 'keydown', 'click'].forEach(evt => {
   window.addEventListener(evt, () => getAudioCtx(), { once: true, passive: true });
 });
 
