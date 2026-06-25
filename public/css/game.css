@@ -72,7 +72,6 @@ body {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  justify-content: flex-end;
   gap: 1px;
   height: 144px;            /* always ~8 lines tall, from the moment you join (doesn't grow) */
   overflow-y: auto;
@@ -85,6 +84,9 @@ body {
 #chat-messages::-webkit-scrollbar { width: 5px; }
 #chat-messages::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.22); border-radius: 3px; }
 #chat-messages::-webkit-scrollbar-track { background: transparent; }
+/* Anchor messages to the bottom when there are only a few — but unlike justify-content:flex-end,
+   this stays FULLY scrollable once they overflow (flex-end clips the top items unreachably). */
+#chat-messages > :first-child { margin-top: auto; }
 #chat-messages .chat-msg {
   font-size: 12.5px;
   line-height: 1.35;
