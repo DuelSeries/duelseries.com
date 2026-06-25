@@ -142,22 +142,29 @@ function playMoneySound() {
   } catch(e) {}
 }
 
-// Sad descending tone when YOUR snake dies.
+// Smooth "power-down" when YOUR snake dies — a soft sine glide downward + a low thump for weight.
 function playDeathSound() {
   if (window.gameMuted) return;
   const ac = getAudioCtx(); if (!ac) return;
   try {
-    [[330, 0], [247, 0.12], [165, 0.26]].forEach(([freq, delay]) => {
-      const osc = ac.createOscillator(), gain = ac.createGain();
-      osc.connect(gain); gain.connect(ac.destination);
-      osc.type = 'sawtooth'; osc.frequency.value = freq;
-      const t = ac.currentTime + delay;
-      osc.frequency.exponentialRampToValueAtTime(freq * 0.6, t + 0.3);
-      gain.gain.setValueAtTime(0, t);
-      gain.gain.linearRampToValueAtTime(0.2, t + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.32);
-      osc.start(t); osc.stop(t + 0.34);
-    });
+    const t = ac.currentTime;
+    // soft descending glide (sine = mellow, not buzzy)
+    const osc = ac.createOscillator(), gain = ac.createGain();
+    osc.connect(gain); gain.connect(ac.destination);
+    osc.type = 'sine'; osc.frequency.setValueAtTime(523, t);
+    osc.frequency.exponentialRampToValueAtTime(70, t + 0.55);
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.linearRampToValueAtTime(0.3, t + 0.03);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.6);
+    osc.start(t); osc.stop(t + 0.62);
+    // low "thump" underneath for a bit of weight
+    const o2 = ac.createOscillator(), g2 = ac.createGain();
+    o2.connect(g2); g2.connect(ac.destination);
+    o2.type = 'sine'; o2.frequency.setValueAtTime(160, t);
+    o2.frequency.exponentialRampToValueAtTime(55, t + 0.25);
+    g2.gain.setValueAtTime(0.28, t);
+    g2.gain.exponentialRampToValueAtTime(0.0001, t + 0.3);
+    o2.start(t); o2.stop(t + 0.32);
   } catch (e) {}
 }
 
