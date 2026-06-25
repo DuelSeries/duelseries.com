@@ -262,13 +262,15 @@ socket.on(CONSTANTS.EVENTS.PLAYER_KILLED, () => playKillSound()); // satisfying 
     if (document.activeElement === input) input.blur();
   }
   function addMessage(name, text, isMe) {
+    const atBottom = messages.scrollTop + messages.clientHeight >= messages.scrollHeight - 6;
     const el = document.createElement('div');
     el.className = 'chat-msg' + (isMe ? ' me' : '');
     const n = document.createElement('span'); n.className = 'chat-name'; n.textContent = name + ':';
     el.appendChild(n);
     el.appendChild(document.createTextNode(' ' + text)); // text node = can't inject HTML
     messages.appendChild(el);
-    while (messages.children.length > 8) messages.removeChild(messages.firstChild);
+    while (messages.children.length > 50) messages.removeChild(messages.firstChild); // keep last 50 for scrollback
+    if (atBottom) messages.scrollTop = messages.scrollHeight; // stick to newest unless you scrolled up to read
   }
 
   // Press T (when not already typing or focused in another field) to open the chat input.

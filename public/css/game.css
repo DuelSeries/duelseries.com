@@ -74,10 +74,17 @@ body {
   align-items: flex-start;
   justify-content: flex-end;
   gap: 1px;
-  max-height: 140px;
-  overflow: hidden;
+  height: 144px;            /* always ~8 lines tall, from the moment you join (doesn't grow) */
+  overflow-y: auto;
+  overflow-x: hidden;
+  margin-bottom: 6px;
+  pointer-events: auto;     /* lets you hover over the box and scroll through history */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.25) transparent;
 }
-#chat-messages:not(:empty) { margin-bottom: 6px; }
+#chat-messages::-webkit-scrollbar { width: 5px; }
+#chat-messages::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.22); border-radius: 3px; }
+#chat-messages::-webkit-scrollbar-track { background: transparent; }
 #chat-messages .chat-msg {
   font-size: 12.5px;
   line-height: 1.35;
