@@ -50,6 +50,61 @@ body {
   height: 100%;
 }
 
+/* ── In-game chat (bottom-right, just above the minimap) ── */
+#chat-box {
+  position: fixed;
+  right: 20px;
+  bottom: 175px;            /* sits above the 140px minimap pinned at bottom:20px */
+  width: 260px;
+  max-width: 42vw;
+  z-index: 11;
+  pointer-events: none;     /* don't block the game canvas; the input re-enables clicks */
+  font-family: system-ui, 'Segoe UI', Arial, sans-serif;
+}
+#chat-messages {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 3px;
+  max-height: 140px;
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+#chat-messages .chat-msg {
+  background: rgba(0,0,0,0.5);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 8px;
+  padding: 4px 9px;
+  font-size: 12.5px;
+  line-height: 1.3;
+  color: #e8e8e8;
+  max-width: 100%;
+  word-break: break-word;
+}
+#chat-messages .chat-msg .chat-name { color: #14F195; font-weight: 700; margin-right: 4px; }
+#chat-messages .chat-msg.me .chat-name { color: #ffcc00; }
+#chat-input {
+  display: none;
+  width: 100%;
+  box-sizing: border-box;
+  background: rgba(0,0,0,0.74);
+  border: 1px solid rgba(20,241,149,0.55);
+  border-radius: 8px;
+  padding: 7px 10px;
+  color: #fff;
+  font-size: 13px;
+  outline: none;
+  pointer-events: auto;
+}
+#chat-input.open { display: block; }
+#chat-hint {
+  font-size: 10.5px;
+  color: rgba(255,255,255,0.45);
+  text-align: right;
+}
+#chat-hint b { color: rgba(255,255,255,0.72); text-transform: uppercase; }
+
 #leaderboard {
   position: absolute;
   top: 16px;

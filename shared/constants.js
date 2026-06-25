@@ -46,6 +46,7 @@ const CONSTANTS = {
     PLAY: 'play',
     INPUT: 'input',
     RESPAWN: 'respawn',
+    CHAT: 'chat',          // in-game chat: client sends {text}; server re-broadcasts {name, text} to the room
     WALLET_CONNECT: 'wallet_connect',
     WALLET_DEPOSIT: 'wallet_deposit',
     WALLET_WITHDRAW: 'wallet_withdraw',

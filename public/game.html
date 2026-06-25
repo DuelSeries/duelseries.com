@@ -137,6 +137,13 @@
   <button id="boost-btn" class="boost-btn">BOOST</button>
   <button id="cashout-btn-mobile" class="cashout-btn-mobile">CASH OUT</button>
 
+  <!-- In-game chat (press T to type) — sits just above the minimap in the bottom-right -->
+  <div id="chat-box">
+    <div id="chat-messages"></div>
+    <input id="chat-input" type="text" maxlength="120" placeholder="Say something… (Enter to send)" autocomplete="off" spellcheck="false" />
+    <div id="chat-hint">press <b>t</b> to type in chat</div>
+  </div>
+
   <script src="/socket.io/socket.io.js"></script>
   <script src="/shared/constants.js"></script>
   <script src="/shared/snapshotCodec.js"></script>

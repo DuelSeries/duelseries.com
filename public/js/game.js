@@ -240,6 +240,62 @@ function playCashoutSound() {
 socket.on('ate_dropped_food', playMoneySound);
 socket.on(CONSTANTS.EVENTS.PLAYER_KILLED, () => playKillSound()); // satisfying zap when YOU kill another snake
 
+// ─── In-game chat (press T to type) ───────────────────────────────────────────
+(function () {
+  const messages = document.getElementById('chat-messages');
+  const input    = document.getElementById('chat-input');
+  const hint     = document.getElementById('chat-hint');
+  if (!messages || !input) return;
+  window._chatTyping = false;
+
+  function openChat() {
+    window._chatTyping = true;
+    input.classList.add('open');
+    if (hint) hint.style.display = 'none';
+    input.value = '';
+    setTimeout(() => input.focus(), 0);
+  }
+  function closeChat() {
+    window._chatTyping = false;
+    input.classList.remove('open');
+    if (hint) hint.style.display = '';
+    if (document.activeElement === input) input.blur();
+  }
+  function addMessage(name, text, isMe) {
+    const el = document.createElement('div');
+    el.className = 'chat-msg' + (isMe ? ' me' : '');
+    const n = document.createElement('span'); n.className = 'chat-name'; n.textContent = name + ':';
+    el.appendChild(n);
+    el.appendChild(document.createTextNode(' ' + text)); // text node = can't inject HTML
+    messages.appendChild(el);
+    while (messages.children.length > 8) messages.removeChild(messages.firstChild);
+  }
+
+  // Press T (when not already typing or focused in another field) to open the chat input.
+  window.addEventListener('keydown', (e) => {
+    if (window._chatTyping) return;
+    const a = document.activeElement;
+    if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA')) return;
+    if (e.key === 't' || e.key === 'T') { e.preventDefault(); openChat(); }
+  });
+
+  input.addEventListener('keydown', (e) => {
+    e.stopPropagation(); // keep game keys (space/q) from firing while typing
+    if (e.key === 'Enter') {
+      const text = input.value.trim();
+      if (text) socket.emit(CONSTANTS.EVENTS.CHAT, { text });
+      closeChat();
+    } else if (e.key === 'Escape') {
+      closeChat();
+    }
+  });
+  input.addEventListener('blur', closeChat);
+
+  socket.on(CONSTANTS.EVENTS.CHAT, ({ name, text, self }) => {
+    addMessage(name || 'Player', text || '', !!self);
+  });
+})();
+
 function playJoinSound() {
   if (window.gameMuted) return;
   const ctx = getAudioCtx();
@@ -573,7 +629,7 @@ canvas.addEventListener('mousemove', (e) => {
 canvas.addEventListener('contextmenu', e => e.preventDefault());
 canvas.addEventListener('mousedown', (e) => { if (e.button === 0 || e.button === 2) boostActive = true; });
 canvas.addEventListener('mouseup',   (e) => { if (e.button === 0 || e.button === 2) boostActive = false; });
-window.addEventListener('keydown', (e) => { if (e.code === 'Space') { e.preventDefault(); boostActive = true; } });
+window.addEventListener('keydown', (e) => { if (window._chatTyping) return; if (e.code === 'Space') { e.preventDefault(); boostActive = true; } });
 window.addEventListener('keyup',   (e) => { if (e.code === 'Space') boostActive = false; });
 // ─── Virtual Joystick ────────────────────────────────────────────────────────
 {
@@ -770,6 +826,7 @@ socket.on('cashout:error', ({ message }) => {
 });
 
 window.addEventListener('keydown', (e) => {
+  if (window._chatTyping) return;
   if ((e.key === 'q' || e.key === 'Q') && !e.repeat && !isDead && !cashedOut) {
     e.preventDefault();
     startQTimer();

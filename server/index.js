@@ -838,6 +838,22 @@ io.on('connection', (socket) => {
     if (socket._room) socket._room.handleInput(socket.id, angle, !!boost, speedMult);
   });
 
+  // In-game chat — re-broadcast a player's message to everyone in their game room (incl. themselves).
+  socket.on(C.EVENTS.CHAT, ({ text } = {}) => {
+    const room = socket._room;
+    if (!room) return;
+    const player = room.players.get(socket.id);
+    if (!player) return;                                            // spectators can't chat
+    const now = Date.now();
+    if (socket._lastChat && now - socket._lastChat < 600) return;   // simple anti-spam throttle
+    socket._lastChat = now;
+    const msg = String(text || '').replace(/[<>]/g, '').slice(0, 120).trim();
+    if (!msg) return;
+    const name = String(player.name || 'Player').slice(0, 24);
+    socket.emit(C.EVENTS.CHAT, { name, text: msg, self: true });   // echo to sender (highlighted)
+    socket.to(room.socketRoomName).emit(C.EVENTS.CHAT, { name, text: msg }); // to everyone else
+  });
+
   // Client reports how far it can see (world units) for area-of-interest culling —
   // the snapshot broadcaster only sends each player snakes/food within this radius.
   socket.on('view', ({ r } = {}) => {
