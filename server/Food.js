@@ -25,9 +25,9 @@ class FoodManager {
       fy = y;
     } else {
       const angle = Math.random() * Math.PI * 2;
-      // sqrt → even spread by area (no center clumping); 1.15x pushes food out past the border
-      // (worldRadius) into the red zone, which looks better.
-      const r = Math.sqrt(Math.random()) * (worldRadius * 1.15);
+      // sqrt → even spread by area (no center clumping); + ~one view-distance pushes food well out
+      // past the border (worldRadius) into the red zone, about as far as a player can typically see.
+      const r = Math.sqrt(Math.random()) * (worldRadius + 1600);
       fx = Math.cos(angle) * r;
       fy = Math.sin(angle) * r;
     }
