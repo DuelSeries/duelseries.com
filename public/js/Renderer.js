@@ -421,7 +421,7 @@ class Renderer {
   _drawSnakeBody(ctx, snake, isMe) {
     if (!snake.segs || snake.segs.length < 4) return;
     const { segs, color } = snake;
-    const growthScale = 1 + Math.min(1.5, (snake.length || 20) / 200);
+    const growthScale = Math.min(6, 1 + ((snake.length || 20) - CONSTANTS.SNAKE_MIN_SEGMENTS * 2) / CONSTANTS.SNAKE_SC_SEGS);
     const R  = CONSTANTS.SNAKE_HEAD_RADIUS * growthScale;
     const SN = segs.length >> 1;
     const base = this._parseColor(color);
@@ -441,7 +441,7 @@ class Renderer {
     if (!snake.segs || snake.segs.length < 4) return;
     const { segs, name } = snake;
     const hatId = snake.hatId || 'none';
-    const growthScale = 1 + Math.min(1.5, (snake.length || 20) / 200);
+    const growthScale = Math.min(6, 1 + ((snake.length || 20) - CONSTANTS.SNAKE_MIN_SEGMENTS * 2) / CONSTANTS.SNAKE_SC_SEGS);
     const R  = CONSTANTS.SNAKE_HEAD_RADIUS * growthScale;
     const HR = R; // same radius as body so head is flush
 
@@ -615,7 +615,7 @@ class Renderer {
     const SN = (segs.length >> 1);
     if (SN < 2) return;
     const tx = segs[(SN - 1) * 2], ty = segs[(SN - 1) * 2 + 1];
-    const growthScale = 1 + Math.min(1.5, (snake.length || 20) / 200);
+    const growthScale = Math.min(6, 1 + ((snake.length || 20) - CONSTANTS.SNAKE_MIN_SEGMENTS * 2) / CONSTANTS.SNAKE_SC_SEGS);
     const R = CONSTANTS.SNAKE_HEAD_RADIUS * growthScale;
 
     if (!this.boostTrails.has(id)) this.boostTrails.set(id, []);

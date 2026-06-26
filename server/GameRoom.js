@@ -9,7 +9,8 @@ const SpatialGrid = require('./SpatialGrid');
 const { encodeSnapshot } = require('../shared/snapshotCodec');
 
 // Spatial-grid cell size (world units). Must be >= the largest interaction radius
-// (food pull = 35, body hit = ~16) so a hit always lands within the 3×3 query block.
+// (food pull = 35, body hit up to ~46 for a max-scale snake) so a hit always lands
+// within the 3×3 query block.
 const GRID_CELL = 80;
 
 class GameRoom {
@@ -290,6 +291,9 @@ class GameRoom {
     segGrid.clear();
     for (const snake of allSnakes) {
       if (!snake.alive) continue;
+      // Fatter snakes are bigger targets: precompute this snake's body kill-radius² from its scale.
+      const kr = C.SNAKE_HEAD_RADIUS + 6 * snake.scale;
+      snake._killR2 = kr * kr;
       const segs = snake.segments;
       for (let i = 0; i < segs.length; i++) {
         segs[i]._o = snake;                 // tag owner (no allocation) so queries can skip self / dead
@@ -297,14 +301,13 @@ class GameRoom {
       }
     }
 
-    const KILL_R2 = (C.SNAKE_HEAD_RADIUS + 6) * (C.SNAKE_HEAD_RADIUS + 6);
     for (const snake of allSnakes) {
       if (!snake.alive) continue;
       const hx = snake.head.x, hy = snake.head.y;
       segGrid.forEachNear(hx, hy, (seg) => {
         if (seg._o === snake || !seg._o.alive) return false; // skip own body + already-dead snakes
         const dx = hx - seg.x, dy = hy - seg.y;
-        if (dx * dx + dy * dy < KILL_R2) { this.killSnake(snake, seg._o.id); return true; }
+        if (dx * dx + dy * dy < seg._o._killR2) { this.killSnake(snake, seg._o.id); return true; }
         return false;
       });
     }
