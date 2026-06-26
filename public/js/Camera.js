@@ -22,7 +22,10 @@ class Camera {
     // Use a fixed reference radius instead so the view only widens as the snake grows.
     const REF_RADIUS = 2000; // = CONSTANTS.BASE_WORLD_RADIUS — keeps the spawn feel identical
     const base = Math.min(canvasW, canvasH) / (REF_RADIUS * 0.22);
-    const lengthFactor = 1 - Math.min(0.75, (snakeLength || 0) / 600);
+    // Zoom out smoothly as the snake grows: a 1/x decay from full zoom (factor 1.0) toward a
+    // 0.38 floor, so the view widens quickly early then eases off. K sets how fast it zooms out.
+    const K = 60;
+    const lengthFactor = 0.38 + 0.62 * (K / ((snakeLength || 0) + K));
     this.targetScale = Math.max(0.15, Math.min(2.5, base * lengthFactor));
   }
 

@@ -19,10 +19,10 @@ const CONSTANTS = {
   SNAKE_HEAD_RADIUS: 10,
   SNAKE_MIN_SEGMENTS: 3,
   SNAKE_SPAWN_SEGMENTS: 10,
-  MAX_TURN_RATE: 0.08, // radians per tick
-  // Turning "heaviness": big snakes turn wider — the slither.io heavy-giant feel.
-  TURN_PENALTY_MAX: 0.62,  // max fraction of turn rate lost at full size (was 0.55)
-  TURN_PENALTY_SEGS: 460,  // segment span over which the penalty ramps to its max
+  MAX_TURN_RATE: 0.08, // radians per tick at scale 1; degrades with size (see Snake.turnRate)
+  // Snake "scale" grows 1 → 6 with length and drives turn heaviness, thickness, zoom & spacing
+  // (the slither.io-style size feel). Reaches 6 at SNAKE_MIN_SEGMENTS + 5*SNAKE_SC_SEGS segments.
+  SNAKE_SC_SEGS: 80,
 
   // Food
   FOOD_RADIUS: 3,

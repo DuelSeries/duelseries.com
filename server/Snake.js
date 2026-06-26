@@ -45,11 +45,17 @@ class Snake {
     return Math.min(1, this.boostFuel / max);
   }
 
-  // Turn rate degrades as snake grows, recovers when boosting/shrinking
+  // Scale grows 1 → 6 with length; drives turn heaviness, thickness, zoom & spacing.
+  get scale() {
+    return Math.min(6, 1 + (this.length - MIN_SEGMENTS) / C.SNAKE_SC_SEGS);
+  }
+
+  // Turn rate degrades with size on a quadratic curve — small snakes are nimble, giants turn
+  // wide and heavy. Factor is 1.0 at scale 1, easing to ~0.15 at scale 6.
   get turnRate() {
-    // Base rate degrades with size (heavy-giant feel), recovers proportionally as you shrink
-    const sizePenalty = Math.min(C.TURN_PENALTY_MAX, (this.length - MIN_SEGMENTS) / C.TURN_PENALTY_SEGS);
-    return C.MAX_TURN_RATE * (1 - sizePenalty);
+    const sc = this.scale;
+    const scang = 0.13 + 0.87 * Math.pow((7 - sc) / 6, 2);
+    return C.MAX_TURN_RATE * scang;
   }
 
   setInput(targetAngle, boosting, speedMult) {

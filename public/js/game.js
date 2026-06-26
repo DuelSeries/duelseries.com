@@ -580,8 +580,10 @@ function _lAdvance(dt, targetAngle) {
   // Match server turn rate including the size penalty so angles don't diverge
   const snakeLen = _latestMySnap ? (_latestMySnap.length || 0) : 0;
   const minSegs  = CONSTANTS.SNAKE_MIN_SEGMENTS * 2;
-  const sizePenalty = Math.min(CONSTANTS.TURN_PENALTY_MAX, (snakeLen - minSegs) / CONSTANTS.TURN_PENALTY_SEGS);
-  const tr = CONSTANTS.MAX_TURN_RATE * (1 - sizePenalty) * (dt / msPerTick);
+  // Match the server's size-based turn curve so the predicted angle doesn't diverge
+  const sc = Math.min(6, 1 + (snakeLen - minSegs) / CONSTANTS.SNAKE_SC_SEGS);
+  const scang = 0.13 + 0.87 * Math.pow((7 - sc) / 6, 2);
+  const tr = CONSTANTS.MAX_TURN_RATE * scang * (dt / msPerTick);
   let delta = targetAngle - _lAngle;
   while (delta >  Math.PI) delta -= Math.PI * 2;
   while (delta < -Math.PI) delta += Math.PI * 2;
