@@ -31,6 +31,7 @@ const CONSTANTS = {
   FOOD_RESPAWN_INTERVAL: 2000,
   FOOD_PER_GROWTH: 1,
   SEGMENTS_PER_FOOD: 1,
+  GROWTH_FALLOFF_LEN: 250, // diminishing growth: around this length, food adds ~half as many segments
 
   // Boost — boost ramps per-tick speed up toward SNAKE_MAX_SPEED (a fixed cap). Base speed rises
   // with size but the cap doesn't, so the boost *ratio* shrinks as you grow (slither.io feel).

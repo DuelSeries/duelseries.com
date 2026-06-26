@@ -132,7 +132,15 @@ class Snake {
   }
 
   grow(amount) {
-    this.pendingGrowth += amount * C.SEGMENTS_PER_FOOD;
+    // Diminishing returns: each food adds fewer segments as you get longer (the slither.io grind).
+    // Accumulate fractionally so pendingGrowth stays a whole-segment counter.
+    const falloff = C.GROWTH_FALLOFF_LEN / (C.GROWTH_FALLOFF_LEN + this.length);
+    this._growFrac = (this._growFrac || 0) + amount * C.SEGMENTS_PER_FOOD * falloff;
+    if (this._growFrac >= 1) {
+      const whole = Math.floor(this._growFrac);
+      this.pendingGrowth += whole;
+      this._growFrac     -= whole;
+    }
     this.score = Math.round(this.score + amount);
   }
 
