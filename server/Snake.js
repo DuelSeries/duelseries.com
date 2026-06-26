@@ -78,18 +78,14 @@ class Snake {
       this.angle = this.targetAngle;
     }
 
-    // Boost ramp — clean integer phases, no fractional alternation
-    let steps = 1;
+    // Boost ramp — boostRamp eases 0 → 1 over ~12 ticks; drives the speed target + client render.
     if (this.boosting && this.boostFuel > 0) {
       this._boostAge  = (this._boostAge  || 0) + 1; // total ticks held
       this._boostTick = (this._boostTick || 0) + 1; // resets for food drop
 
-      // boostRamp ramps 0 → 0.5 → 1 over 12 ticks; drives both the speed multiplier and client render
       this.boostRamp = this._boostAge <=  6 ? this._boostAge /  6 * 0.5
                      : this._boostAge <= 12 ? 0.5 + (this._boostAge -  6) / 6 * 0.5
                      : 1;
-      // Speed = (1 + ramp·(BOOST_MULT−1)) × base, applied as integer sub-steps per tick
-      steps = Math.max(1, Math.round(1 + this.boostRamp * (C.BOOST_MULT - 1)));
 
       // Drop 1 food at current tail every 8 ticks — 3 evenly spaced drops over 24 ticks
       if (this._boostTick % 8 === 0) {
@@ -108,18 +104,21 @@ class Snake {
       this.boostRamp  = 0;
     }
 
-    // Movement accumulator (handles speedMult < 1)
-    const mult = this.speedMult || 1;
-    if (this._moveAccum === undefined) this._moveAccum = 0;
-    this._moveAccum += mult;
-    if (this._moveAccum < 1) return;
-    this._moveAccum -= 1;
+    // Per-tick speed: base rises a little with size; boost eases toward a fixed cap, so the boost
+    // *ratio* shrinks as you grow. speedMult (<1) still handles the cashout slowdown.
+    const sc = this.scale;
+    const baseSpeed = C.SNAKE_BASE_SPEED + C.SNAKE_SPEED_PER_SC * (sc - 1);
+    const targetSpeed = baseSpeed + (C.SNAKE_MAX_SPEED - baseSpeed) * this.boostRamp;
+    const speedThisTick = targetSpeed * (this.speedMult || 1);
 
-    const speed = C.SNAKE_BASE_SPEED;
-    for (let s = 0; s < steps; s++) {
+    // Lay body points spaced SNAKE_BASE_SPEED apart so the head advances speedThisTick this tick.
+    if (this._moveAccum === undefined) this._moveAccum = 0;
+    this._moveAccum += speedThisTick / C.SNAKE_BASE_SPEED;
+    while (this._moveAccum >= 1) {
+      this._moveAccum -= 1;
       this.segments.unshift({
-        x: this.segments[0].x + Math.cos(this.angle) * speed,
-        y: this.segments[0].y + Math.sin(this.angle) * speed,
+        x: this.segments[0].x + Math.cos(this.angle) * C.SNAKE_BASE_SPEED,
+        y: this.segments[0].y + Math.sin(this.angle) * C.SNAKE_BASE_SPEED,
       });
       if (this.pendingGrowth > 0) {
         this.pendingGrowth--;

@@ -32,8 +32,10 @@ const CONSTANTS = {
   FOOD_PER_GROWTH: 1,
   SEGMENTS_PER_FOOD: 1,
 
-  // Boost
-  BOOST_MULT: 2,         // top boost speed as a multiple of base (slither.io is ~2x; was effectively 3x)
+  // Boost — boost ramps per-tick speed up toward SNAKE_MAX_SPEED (a fixed cap). Base speed rises
+  // with size but the cap doesn't, so the boost *ratio* shrinks as you grow (slither.io feel).
+  SNAKE_MAX_SPEED: 6.5,    // boost speed cap, per tick (~2.2x base when small, ~1.4x when huge)
+  SNAKE_SPEED_PER_SC: 0.3, // base speed added per unit of scale above 1 (base = SNAKE_BASE_SPEED at scale 1)
   BOOST_FOOD_COST: 0.05, // food units per tick
   BOOST_MIN_LENGTH: 12,  // minimum length to boost
 

@@ -476,7 +476,9 @@ function interpolateState(now) {
       const msPerTick = 1000 / CONSTANTS.TICK_RATE;
       const extSnakes = latest.state.snakes.map(s => {
         if (!s.segs || s.segs.length < 2) return s;
-        const speed = CONSTANTS.SNAKE_BASE_SPEED * (1 + (s.boostRamp || 0) * (CONSTANTS.BOOST_MULT - 1));
+        const esc = Math.min(6, 1 + ((s.length || 0) - CONSTANTS.SNAKE_MIN_SEGMENTS * 2) / CONSTANTS.SNAKE_SC_SEGS);
+        const ebase = CONSTANTS.SNAKE_BASE_SPEED + CONSTANTS.SNAKE_SPEED_PER_SC * (esc - 1);
+        const speed = ebase + (CONSTANTS.SNAKE_MAX_SPEED - ebase) * (s.boostRamp || 0);
         const dist = speed * extMs / msPerTick;
         const dx = Math.cos(s.angle) * dist;
         const dy = Math.sin(s.angle) * dist;
@@ -599,9 +601,11 @@ function _lAdvance(dt, targetAngle) {
     : _lBoostAge <= 6  ? _lBoostAge / 6 * 0.5
     : _lBoostAge <= 12 ? 0.5 + (_lBoostAge - 6) / 6 * 0.5
     : 1;
-  const boost = 1 + localBoostRamp * (CONSTANTS.BOOST_MULT - 1);
+  // Match the server speed model: base rises with size, boost eases toward the cap.
+  const baseSpeed   = CONSTANTS.SNAKE_BASE_SPEED + CONSTANTS.SNAKE_SPEED_PER_SC * (sc - 1);
+  const targetSpeed = baseSpeed + (CONSTANTS.SNAKE_MAX_SPEED - baseSpeed) * localBoostRamp;
   const sm    = cashoutSpeedMult || 1;
-  const dist  = CONSTANTS.SNAKE_BASE_SPEED * boost * sm * (dt / msPerTick);
+  const dist  = targetSpeed * sm * (dt / msPerTick);
   const hi    = (_lpHead - 1 + LP_SIZE) % LP_SIZE;
   _lpX[_lpHead] = _lpX[hi] + Math.cos(_lAngle) * dist;
   _lpY[_lpHead] = _lpY[hi] + Math.sin(_lAngle) * dist;
