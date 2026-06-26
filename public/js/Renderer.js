@@ -29,6 +29,21 @@ class Renderer {
     this._foodPhaseCache = new Map();
     this._foodOverlaySprite  = this._makeFoodOverlaySprite();
     this._goldenFoodSprite   = this._makeGoldenFoodSprite();
+    this._foodGlowSprite     = this._makeFoodGlowSprite();
+  }
+
+  _makeFoodGlowSprite() {
+    const sz = 48, c = document.createElement('canvas');
+    c.width = c.height = sz;
+    const ctx = c.getContext('2d');
+    const cx = sz / 2;
+    const g = ctx.createRadialGradient(cx, cx, 0, cx, cx, cx);
+    g.addColorStop(0,    'rgba(255,255,255,0.85)');
+    g.addColorStop(0.35, 'rgba(255,255,255,0.22)');
+    g.addColorStop(1,    'rgba(255,255,255,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, sz, sz);
+    return c;
   }
 
   _makeFoodOverlaySprite() {
@@ -235,6 +250,17 @@ class Renderer {
       }
       const wx = f.x + Math.sin(t * 1.4 + ph.phase) * ph.amp;
       const wy = f.y + Math.cos(t * 1.1 + ph.phase * 1.3) * ph.amp;
+
+      // Pulsing additive glow halo — makes food read as glowing orbs (golden food self-glows)
+      if (!f.isGolden) {
+        const pulse = 0.45 + 0.4 * Math.sin(t * 2.2 + ph.phase);
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalAlpha = (f.dropped ? 0.35 : 0.7) * Math.max(0.15, pulse);
+        const gr = r * 3.0;
+        ctx.drawImage(this._foodGlowSprite, wx - gr, wy - gr, gr * 2, gr * 2);
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.globalAlpha = 1;
+      }
 
       if (f.dropped) ctx.globalAlpha = 0.55;
 
@@ -454,6 +480,22 @@ class Renderer {
     const angle = snake.angle || 0;
     const fwdX  = Math.cos(angle), fwdY  = Math.sin(angle);
     const perpX = -Math.sin(angle), perpY = Math.cos(angle);
+
+    // ── Boost glow ───────────────────────────────────────────────────────────
+    // Soft pulsing aura around the head whenever boosting (every snake, not just bought boosts).
+    const bRamp = snake.boostRamp != null ? snake.boostRamp : (snake.boosting ? 1 : 0);
+    if (bRamp > 0.04 && !this._isMobile) {
+      const gr = HR * (2.0 + 0.35 * Math.sin(Date.now() / 70));
+      const gg = ctx.createRadialGradient(hx, hy, HR * 0.3, hx, hy, gr);
+      gg.addColorStop(0, snake.color || '#ffffff');
+      gg.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = 0.4 * bRamp;
+      ctx.fillStyle = gg;
+      ctx.beginPath(); ctx.arc(hx, hy, gr, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    }
 
     // ── Eyes ──────────────────────────────────────────────────────────────────
     const eyeR    = HR * 0.40;
