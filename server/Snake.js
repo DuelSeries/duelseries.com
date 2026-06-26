@@ -47,8 +47,8 @@ class Snake {
 
   // Turn rate degrades as snake grows, recovers when boosting/shrinking
   get turnRate() {
-    // Base rate degrades by up to 55% at 500 segments, recovers proportionally
-    const sizePenalty = Math.min(0.55, (this.length - MIN_SEGMENTS) / 500);
+    // Base rate degrades with size (heavy-giant feel), recovers proportionally as you shrink
+    const sizePenalty = Math.min(C.TURN_PENALTY_MAX, (this.length - MIN_SEGMENTS) / C.TURN_PENALTY_SEGS);
     return C.MAX_TURN_RATE * (1 - sizePenalty);
   }
 
@@ -78,14 +78,12 @@ class Snake {
       this._boostAge  = (this._boostAge  || 0) + 1; // total ticks held
       this._boostTick = (this._boostTick || 0) + 1; // resets for food drop
 
-      if      (this._boostAge <=  6) steps = 1;
-      else if (this._boostAge <= 12) steps = 2;
-      else                           steps = 3;
-
-      // boostRamp drives client-side rendering (0 → 0.5 → 1)
+      // boostRamp ramps 0 → 0.5 → 1 over 12 ticks; drives both the speed multiplier and client render
       this.boostRamp = this._boostAge <=  6 ? this._boostAge /  6 * 0.5
                      : this._boostAge <= 12 ? 0.5 + (this._boostAge -  6) / 6 * 0.5
                      : 1;
+      // Speed = (1 + ramp·(BOOST_MULT−1)) × base, applied as integer sub-steps per tick
+      steps = Math.max(1, Math.round(1 + this.boostRamp * (C.BOOST_MULT - 1)));
 
       // Drop 1 food at current tail every 8 ticks — 3 evenly spaced drops over 24 ticks
       if (this._boostTick % 8 === 0) {

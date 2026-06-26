@@ -476,7 +476,7 @@ function interpolateState(now) {
       const msPerTick = 1000 / CONSTANTS.TICK_RATE;
       const extSnakes = latest.state.snakes.map(s => {
         if (!s.segs || s.segs.length < 2) return s;
-        const speed = CONSTANTS.SNAKE_BASE_SPEED * (1 + (s.boostRamp || 0) * 2);
+        const speed = CONSTANTS.SNAKE_BASE_SPEED * (1 + (s.boostRamp || 0) * (CONSTANTS.BOOST_MULT - 1));
         const dist = speed * extMs / msPerTick;
         const dx = Math.cos(s.angle) * dist;
         const dy = Math.sin(s.angle) * dist;
@@ -580,7 +580,7 @@ function _lAdvance(dt, targetAngle) {
   // Match server turn rate including the size penalty so angles don't diverge
   const snakeLen = _latestMySnap ? (_latestMySnap.length || 0) : 0;
   const minSegs  = CONSTANTS.SNAKE_MIN_SEGMENTS * 2;
-  const sizePenalty = Math.min(0.55, (snakeLen - minSegs) / 500);
+  const sizePenalty = Math.min(CONSTANTS.TURN_PENALTY_MAX, (snakeLen - minSegs) / CONSTANTS.TURN_PENALTY_SEGS);
   const tr = CONSTANTS.MAX_TURN_RATE * (1 - sizePenalty) * (dt / msPerTick);
   let delta = targetAngle - _lAngle;
   while (delta >  Math.PI) delta -= Math.PI * 2;
@@ -597,7 +597,7 @@ function _lAdvance(dt, targetAngle) {
     : _lBoostAge <= 6  ? _lBoostAge / 6 * 0.5
     : _lBoostAge <= 12 ? 0.5 + (_lBoostAge - 6) / 6 * 0.5
     : 1;
-  const boost = 1 + localBoostRamp * 2;
+  const boost = 1 + localBoostRamp * (CONSTANTS.BOOST_MULT - 1);
   const sm    = cashoutSpeedMult || 1;
   const dist  = CONSTANTS.SNAKE_BASE_SPEED * boost * sm * (dt / msPerTick);
   const hi    = (_lpHead - 1 + LP_SIZE) % LP_SIZE;
