@@ -37,3 +37,25 @@ jobs:
             git reset --hard origin/main
             npm install --production
             pm2 restart duelseries-eu
+
+  notify:
+    needs: [deploy-na, deploy-eu]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify deploy finished (ntfy)
+        env:
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+          NA_RESULT: ${{ needs.deploy-na.result }}
+          EU_RESULT: ${{ needs.deploy-eu.result }}
+        run: |
+          if [ "$NA_RESULT" = "success" ] && [ "$EU_RESULT" = "success" ]; then
+            STATUS="deployed ✅"
+          else
+            STATUS="FAILED ❌ (na:$NA_RESULT eu:$EU_RESULT)"
+          fi
+          curl -s \
+            -H "Title: DuelSeries $STATUS" \
+            -H "Tags: rocket" \
+            -d "$COMMIT_MSG" \
+            ntfy.sh/duelseries-deploy-8382
