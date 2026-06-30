@@ -386,6 +386,7 @@ body {
 .region-na:hover, .region-eu:hover { opacity: 0.75; }
 .region-selected { opacity: 1 !important; box-shadow: 0 0 0 2px currentColor; }
 .region-asia { background: rgba(239,68,68,0.08);  color: #6b7280; border: 1px solid rgba(239,68,68,0.15); text-decoration: line-through; opacity: 0.3; cursor: default; pointer-events: none; }
+.region-offline { text-decoration: line-through; opacity: 0.3; cursor: default; pointer-events: none; box-shadow: none; }  /* EU temporarily offline — delete this line to re-enable EU */
 
 /* ── Wallet card ──────────────────────────────────────────────────────── */
 .wallet-balance-block { text-align: center; padding: 8px 0; }

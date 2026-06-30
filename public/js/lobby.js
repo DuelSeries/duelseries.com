@@ -364,6 +364,7 @@ setTimeout(showLobby, 0);
 
 // ─── Region selection ─────────────────────────────────────────────────────────
 let selectedRegion = localStorage.getItem('duelseries_region') || 'na';
+if (selectedRegion === 'eu') selectedRegion = 'na'; // EU server temporarily offline — delete this line to re-enable EU
 
 function applyRegionSelection(region) {
   selectedRegion = region;
