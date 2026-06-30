@@ -22,24 +22,31 @@ jobs:
             npm install --production
             pm2 restart duelseries
 
-  deploy-eu:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Deploy to EU (Ireland)
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.EC2_EU_HOST }}
-          username: ${{ secrets.EC2_EU_USER }}
-          key: ${{ secrets.EC2_EU_KEY }}
-          script: |
-            cd /home/ubuntu/duelseries
-            git fetch origin main
-            git reset --hard origin/main
-            npm install --production
-            pm2 restart duelseries-eu
+  # === EU deploy DISABLED while the EU server (duelseries-eu) is stopped to save cost. ===
+  # To re-enable at launch:
+  #   1. Start the EU EC2 instance in eu-west-1 (Ireland).
+  #   2. Update the EC2_EU_HOST GitHub secret with its NEW public IP (the IP changes on start).
+  #   3. Uncomment the deploy-eu job below, AND restore "deploy-eu" in the notify job's
+  #      `needs:` list and status check.
+  #   (The next push then runs `git reset --hard`, so EU auto-catches-up no matter how stale.)
+  # deploy-eu:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Deploy to EU (Ireland)
+  #       uses: appleboy/ssh-action@v1.0.3
+  #       with:
+  #         host: ${{ secrets.EC2_EU_HOST }}
+  #         username: ${{ secrets.EC2_EU_USER }}
+  #         key: ${{ secrets.EC2_EU_KEY }}
+  #         script: |
+  #           cd /home/ubuntu/duelseries
+  #           git fetch origin main
+  #           git reset --hard origin/main
+  #           npm install --production
+  #           pm2 restart duelseries-eu
 
   notify:
-    needs: [deploy-na, deploy-eu]
+    needs: [deploy-na]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -47,12 +54,11 @@ jobs:
         env:
           COMMIT_MSG: ${{ github.event.head_commit.message }}
           NA_RESULT: ${{ needs.deploy-na.result }}
-          EU_RESULT: ${{ needs.deploy-eu.result }}
         run: |
-          if [ "$NA_RESULT" = "success" ] && [ "$EU_RESULT" = "success" ]; then
+          if [ "$NA_RESULT" = "success" ]; then
             STATUS="deployed ✅"
           else
-            STATUS="FAILED ❌ (na:$NA_RESULT eu:$EU_RESULT)"
+            STATUS="FAILED ❌ (na:$NA_RESULT)"
           fi
           curl -s \
             -H "Title: DuelSeries $STATUS" \
