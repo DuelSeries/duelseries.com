@@ -14,7 +14,6 @@ const CONSTANTS = {
 
   // Snake
   SNAKE_BASE_SPEED: 3,
-  SNAKE_BOOST_SPEED: 9,
   SNAKE_SEGMENT_SPACING: 3,
   SNAKE_HEAD_RADIUS: 10,
   SNAKE_MIN_SEGMENTS: 3,
@@ -22,7 +21,9 @@ const CONSTANTS = {
   MAX_TURN_RATE: 0.08, // radians per tick at scale 1; degrades with size (see Snake.turnRate)
   // Snake "scale" grows 1 → 6 with length and drives turn heaviness, thickness, zoom & spacing
   // (the slither.io-style size feel). Reaches 6 at SNAKE_MIN_SEGMENTS + 5*SNAKE_SC_SEGS segments.
-  SNAKE_SC_SEGS: 80,
+  // 106 mirrors slither.io exactly: its scale is min(6, 1+(sct-2)/106), so max size lands at ~533
+  // segments here vs slither's ~532 — snakes stay nimble/thin the same length of time slither's do.
+  SNAKE_SC_SEGS: 106,
 
   // Food
   FOOD_RADIUS: 3,
@@ -35,7 +36,9 @@ const CONSTANTS = {
 
   // Boost — boost ramps per-tick speed up toward SNAKE_MAX_SPEED (a fixed cap). Base speed rises
   // with size but the cap doesn't, so the boost *ratio* shrinks as you grow (slither.io feel).
-  SNAKE_MAX_SPEED: 6.5,    // boost speed cap, per tick (~2.2x base when small, ~1.4x when huge)
+  SNAKE_MAX_SPEED: 7.5,    // boost speed cap, per tick — 7.5 matches slither.io's boost RATIO:
+                           // ~2.5x base when small (7.5/3), ~1.65x when huge (7.5/4.5), the same
+                           // curve as slither (fixed boost target 12 over base 4.75→7.25).
   SNAKE_SPEED_PER_SC: 0.3, // base speed added per unit of scale above 1 (base = SNAKE_BASE_SPEED at scale 1)
   BOOST_FOOD_COST: 0.05, // food units per tick
   BOOST_MIN_LENGTH: 12,  // minimum length to boost
