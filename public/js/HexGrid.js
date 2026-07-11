@@ -110,11 +110,18 @@ class HexGrid {
     ctx.fillStyle = 'rgb(15,25,38)';
     ctx.fillRect(0, 0, W, H);
 
-    // tiled hex pattern, panned with the camera and tilted
+    // tiled hex pattern, panned with the camera and tilted. The tile was built at
+    // _tileScale but the camera may have zoomed a little since (it only rebuilds past a
+    // 4% drift) — scale the pattern space by the ratio so hex size tracks the zoom
+    // CONTINUOUSLY. Without this the whole background snapped up to 4% on every rebuild,
+    // a visible jerk while growing; now rebuilds only swap in a crisper tile at the size
+    // already on screen.
+    const k = physScale / this._tileScale;
     ctx.translate(camera.x * dpr, camera.y * dpr);
     ctx.rotate(HEX_TILT);
+    ctx.scale(k, k);
     ctx.fillStyle = this._pattern;
-    // Fill ONLY the on-screen area, mapped back into this panned/rotated space.
+    // Fill ONLY the on-screen area, mapped back into this panned/rotated/scaled space.
     // The old (W+H)*1.5 block was ~40x the screen, painted every frame — fine on
     // desktop, but it tanked mobile GPU fill-rate (and could leave gaps far from
     // the origin). Project the 4 screen corners into this space and fill their bbox.
@@ -124,7 +131,7 @@ class HexGrid {
     for (let i = 0; i < 4; i++) {
       const sx = (i & 1) ? W : 0, sy = (i & 2) ? H : 0;
       const ddx = sx - px, ddy = sy - py;
-      const tx = ddx * cos + ddy * sin, ty = -ddx * sin + ddy * cos;
+      const tx = (ddx * cos + ddy * sin) / k, ty = (-ddx * sin + ddy * cos) / k;
       if (tx < fMinX) fMinX = tx; if (tx > fMaxX) fMaxX = tx;
       if (ty < fMinY) fMinY = ty; if (ty > fMaxY) fMaxY = ty;
     }

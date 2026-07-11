@@ -27,18 +27,18 @@ class Camera {
     // slither.io's exact zoom-out curve: dgsc = .64285 + .514285714 / max(1, (sct+16)/36),
     // where sct is its body-part count. Our spawn (20 segments) = slither's sct 2, so
     // sct = length - 18. Normalized to 1.0 at spawn, the view then widens with size on
-    // slither's exact curve (total ~1.69x zoom-out by the 411-part cap).
+    // slither's exact curve (total ~1.69x zoom-out by the 411-part cap → ~27 tiles).
     const sct   = Math.max(2, (snakeLength || 20) - 18);
     const dgsc  = 0.64285 + 0.514285714 / Math.max(1, (sct + 16) / 36);
     const DGSC_SPAWN = 1.157136; // dgsc at sct=2 — normalization anchor
-    // Spawn framing: snake width ≈ 3.2% of the short screen edge (slither's ~29px-wide
-    // spawn snake at its reference resolution). Phones get a 1.5x boost like the slither
-    // app, which zooms in further on small screens. This anchor is the one judgment call
-    // here (slither's absolute resolution scaling isn't fully documented) — tune to taste.
-    const minEdge   = Math.min(canvasW, canvasH);
-    const mobile    = minEdge < 600 ? 1.5 : 1;
-    const spawnScale = (0.032 * minEdge * mobile) / (CONSTANTS.SNAKE_HEAD_RADIUS * 2);
-    this.targetScale = Math.max(0.15, Math.min(2.5, spawnScale * (dgsc / DGSC_SPAWN)));
+    // Spawn framing (owner spec): ~16 background hex tiles visible across the screen at
+    // spawn. HexGrid column spacing = √3*(48*.62) + 14.6*.62 ≈ 60.6 world units, so the
+    // scale is derived directly from the tile count — resolution-independent. Phones show
+    // fewer tiles (more zoomed in), like the slither app.
+    const HEX_COL_STEP = Math.sqrt(3) * (48 * 0.62) + 14.6 * 0.62;
+    const TILES_ACROSS = canvasW < 900 ? 9 : 16;
+    const spawnScale   = canvasW / (TILES_ACROSS * HEX_COL_STEP);
+    this.targetScale = Math.max(0.15, Math.min(4, spawnScale * (dgsc / DGSC_SPAWN)));
   }
 
   update(dt) {
@@ -46,14 +46,20 @@ class Camera {
     // zoomed-out and animate in for the first ~0.5s.
     if (this.snapNextUpdate) {
       this.scale = this.targetScale;
+      this._scaleMid = this.targetScale;
       this.worldX = this.targetWorldX;
       this.worldY = this.targetWorldY;
       this.snapNextUpdate = false;
     } else {
       // dt-corrected: same feel at 60fps, 144fps, 240fps
       const posAlpha  = 1 - Math.exp(-(dt || 16.67) / 18);  // 18ms time constant
-      const zoomAlpha = 1 - Math.exp(-(dt || 16.67) / 300);
-      this.scale  += (this.targetScale - this.scale) * zoomAlpha;
+      const zoomAlpha = 1 - Math.exp(-(dt || 16.67) / 250);
+      // Zoom is smoothed through TWO cascaded stages: a single exponential starts with a
+      // velocity jump the instant the target steps (eating a food burst = visible lurch);
+      // cascading ramps the zoom speed up and back down — no jerk, ~500ms overall settle.
+      if (this._scaleMid === undefined) this._scaleMid = this.scale;
+      this._scaleMid += (this.targetScale - this._scaleMid) * zoomAlpha;
+      this.scale     += (this._scaleMid  - this.scale)      * zoomAlpha;
       this.worldX += (this.targetWorldX - this.worldX) * posAlpha;
       this.worldY += (this.targetWorldY - this.worldY) * posAlpha;
     }
