@@ -7,6 +7,8 @@ const COLORS = [
 ];
 
 const MIN_SEGMENTS = C.SNAKE_MIN_SEGMENTS * 2; // hard floor — can never shrink below this
+// Per-tick decay factor for the boost release glide (see constants.BOOST_DECAY_MS)
+const BOOST_DECAY = Math.exp(-(1000 / C.TICK_RATE) / C.BOOST_DECAY_MS);
 
 class Snake {
   constructor(id, name, x, y, color, hatId, boostId) {
@@ -78,14 +80,13 @@ class Snake {
       this.angle = this.targetAngle;
     }
 
-    // Boost ramp — boostRamp eases 0 → 1 over ~12 ticks; drives the speed target + client render.
+    // Boost ramp — slither.io speed dynamics: linear ramp 0 → 1 over BOOST_RAMP_TICKS while
+    // held, and an exponential glide back toward 0 on release (never an instant stop — the
+    // old boostRamp = 0 snap read as a harsh brake). Food cost/drops stay tied to the INPUT,
+    // so releasing stops the shedding immediately even while the speed is still gliding down.
     if (this.boosting && this.boostFuel > 0) {
-      this._boostAge  = (this._boostAge  || 0) + 1; // total ticks held
       this._boostTick = (this._boostTick || 0) + 1; // resets for food drop
-
-      this.boostRamp = this._boostAge <=  6 ? this._boostAge /  6 * 0.5
-                     : this._boostAge <= 12 ? 0.5 + (this._boostAge -  6) / 6 * 0.5
-                     : 1;
+      this.boostRamp = Math.min(1, (this.boostRamp || 0) + 1 / C.BOOST_RAMP_TICKS);
 
       // Drop 1 food at current tail every 8 ticks — 3 evenly spaced drops over 24 ticks
       if (this._boostTick % 8 === 0) {
@@ -99,9 +100,9 @@ class Snake {
       }
     } else {
       if (this.boosting) this.boosting = false;
-      this._boostAge  = 0;
       this._boostTick = 0;
-      this.boostRamp  = 0;
+      this.boostRamp = (this.boostRamp || 0) * BOOST_DECAY;
+      if (this.boostRamp < 0.02) this.boostRamp = 0;
     }
 
     // Per-tick speed: base rises a little with size; boost eases toward a fixed cap, so the boost

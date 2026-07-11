@@ -66,7 +66,7 @@ const _lpY = new Float32Array(LP_SIZE); // head path y coords
 let _lpHead = 0;   // next write index
 let _lpLen  = 0;   // valid entry count (≤ LP_SIZE)
 let _lAngle    = 0;   // current head angle
-let _lBoostAge = 0;   // local boost tick accumulator — matches server boostRamp logic
+let _lBoostRamp = 0;  // local boost ramp 0..1 — mirrors the server's ramp/glide exactly
 let _lNumSegs  = 0;   // smoothed segment count — prevents tail snap on boost drops
 let _lReady    = false;
 let _latestMySnap = null; // most recent server snapshot for local player
@@ -553,7 +553,7 @@ function lerpAngle(a, b, t) {
 
 // ─── Local snake simulation helpers ─────────────────────────────────────────
 
-function _lReset() { _lReady = false; _lpHead = 0; _lpLen = 0; _latestMySnap = null; _lNumSegs = 0; _lBoostAge = 0; }
+function _lReset() { _lReady = false; _lpHead = 0; _lpLen = 0; _latestMySnap = null; _lNumSegs = 0; _lBoostRamp = 0; }
 
 function _lInit(s) {
   if (!s || !s.segs || s.segs.length < 2) return;
@@ -589,8 +589,9 @@ function _lCorrect(s) {
   while (da >  Math.PI) da -= Math.PI * 2;
   while (da < -Math.PI) da += Math.PI * 2;
   _lAngle += da * 0.15 * corr;
-  // Only reset boost age when boost stops — re-syncing every tick fights the local advance and causes micro-jitter
-  if ((s.boostRamp || 0) === 0) _lBoostAge = 0;
+  // No hard boost-ramp resync — local ramp and glide use the same rules as the server,
+  // both are bounded 0..1, and the release decay converges to 0 on its own. (Snapping to
+  // the ~100ms-stale server value here fought the local advance and caused micro-jitter.)
 }
 
 // Advance head by dt ms using targetAngle with server-matched turn rate
@@ -608,17 +609,17 @@ function _lAdvance(dt, targetAngle) {
   while (delta >  Math.PI) delta -= Math.PI * 2;
   while (delta < -Math.PI) delta += Math.PI * 2;
   _lAngle += Math.abs(delta) > tr ? Math.sign(delta) * tr : delta;
-  // Advance boost age locally — don't wait for server snapshot (that's 1 tick stale)
+  // Advance the boost ramp locally — don't wait for server snapshot (that's 1 tick stale).
+  // Same slither-style dynamics as the server: linear ramp up over BOOST_RAMP_TICKS,
+  // exponential glide down on release (dt-based so it's identical at any framerate).
   const hasFuel = _latestMySnap && (_latestMySnap.boostRatio || 0) > 0;
   if (boostActive && hasFuel) {
-    _lBoostAge += dt / msPerTick;
+    _lBoostRamp = Math.min(1, _lBoostRamp + (dt / msPerTick) / CONSTANTS.BOOST_RAMP_TICKS);
   } else {
-    _lBoostAge = 0;
+    _lBoostRamp *= Math.exp(-dt / CONSTANTS.BOOST_DECAY_MS);
+    if (_lBoostRamp < 0.02) _lBoostRamp = 0;
   }
-  const localBoostRamp = _lBoostAge <= 0  ? 0
-    : _lBoostAge <= 6  ? _lBoostAge / 6 * 0.5
-    : _lBoostAge <= 12 ? 0.5 + (_lBoostAge - 6) / 6 * 0.5
-    : 1;
+  const localBoostRamp = _lBoostRamp;
   // Match the server speed model: base rises with size, boost eases toward the cap.
   const baseSpeed   = CONSTANTS.SNAKE_BASE_SPEED + CONSTANTS.SNAKE_SPEED_PER_SC * (sc - 1);
   const targetSpeed = baseSpeed + (CONSTANTS.SNAKE_MAX_SPEED - baseSpeed) * localBoostRamp;

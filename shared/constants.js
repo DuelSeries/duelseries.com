@@ -49,6 +49,11 @@ const CONSTANTS = {
   SNAKE_MAX_SPEED: 7.579,     // = 12 * 3/4.75 — boost ratio 2.526x small / 1.655x huge, slither-exact
   SNAKE_SPEED_PER_SC: 0.3158, // = 0.5 * 3/4.75 — base speed ratio 1.526x small→huge, slither-exact
   BOOST_FOOD_COST: 0.05, // food units per tick
+  // Boost speed dynamics, slither.io shape: constant-accel ramp UP (its +.3/8ms frame over
+  // the base→boost gap ≈ 200ms = 12 ticks), and on release an exponential GLIDE back down
+  // (its sp -= (sp-ssp)/20 per 8ms frame = ~160ms time constant) — never an instant stop.
+  BOOST_RAMP_TICKS: 12,  // ticks of linear ramp to full boost (~200ms at 60Hz)
+  BOOST_DECAY_MS: 160,   // release glide time constant (settles in ~450ms)
 
   // Border
   BORDER_SHRINK_PER_DEATH: 100,
