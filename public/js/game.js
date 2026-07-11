@@ -41,6 +41,8 @@ let snapBuffer   = [];
 let clockOffset  = null;
 let interpBeforeMap = null; // reused across frames to avoid Map allocation
 let interpSnakeBuf  = null; // reused across frames to avoid array allocation
+let interpFoodMap   = null; // reused across frames — before-snapshot food by id
+let interpFoodBuf   = null; // reused across frames — interpolated food list
 const _segPool      = new Map(); // snake id → Float32Array, reused to avoid GC
 const INTERP_DELAY_MS = 70; // ~2 snapshot periods at the 30Hz SNAPSHOT_RATE — absorbs jitter without over-delaying
 let spawnTime        = null;  // performance.now() when last joined — used to ramp up interp delay
@@ -498,8 +500,24 @@ function interpolateState(now) {
   // Interpolate world radius
   displayState.worldRadius = lerp(before.state.worldRadius, after.state.worldRadius, alpha);
   displayState.leaderboard = after.state.leaderboard;
-  displayState.food = after.state.food; // food doesn't need interpolation
   displayState.mm = after.state.mm;     // all-snakes minimap feed (not view-culled)
+
+  // Food: mostly static, but food being magnetized toward a mouth moves every server tick
+  // and visibly stepped at 30Hz. Lerp only the food that actually moved between snapshots
+  // (a handful at a time) — untouched food is passed through with zero allocation.
+  if (!interpFoodMap) interpFoodMap = new Map(); else interpFoodMap.clear();
+  for (const f of before.state.food) interpFoodMap.set(f.id, f);
+  if (!interpFoodBuf) interpFoodBuf = [];
+  interpFoodBuf.length = 0;
+  for (const fa of after.state.food) {
+    const fb = interpFoodMap.get(fa.id);
+    if (fb && (fb.x !== fa.x || fb.y !== fa.y)) {
+      interpFoodBuf.push({ ...fa, x: lerp(fb.x, fa.x, alpha), y: lerp(fb.y, fa.y, alpha) });
+    } else {
+      interpFoodBuf.push(fa);
+    }
+  }
+  displayState.food = interpFoodBuf;
 
   // Interpolate each snake — reuse persistent map to avoid per-frame allocation
   if (!interpBeforeMap) interpBeforeMap = new Map();
@@ -1176,9 +1194,10 @@ function gameLoop(now) {
   // Replace local snake in displayState with the locally-simulated version
   if (_lReady && myId && !isDead && !cashedOut && _latestMySnap) {
     const targetNumSegs = _latestMySnap.segs.length >> 1;
-    // Grow instantly (eating food), shrink gradually (boost drops) — prevents tail snap
+    // Grow instantly (eating food), shrink gradually (boost drops) — prevents tail snap.
+    // dt-corrected (~200ms time constant) so the shrink rate is identical at 60/144/240Hz.
     if (targetNumSegs > _lNumSegs) _lNumSegs = targetNumSegs;
-    else _lNumSegs += (targetNumSegs - _lNumSegs) * 0.08;
+    else _lNumSegs += (targetNumSegs - _lNumSegs) * (1 - Math.exp(-dt / 200));
     const simSegs = _lBuildSegs(Math.round(_lNumSegs));
     if (simSegs) {
       let found = false;

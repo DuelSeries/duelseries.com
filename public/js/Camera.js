@@ -1,32 +1,44 @@
 class Camera {
   constructor() {
-    this.x = 0;      // canvas translation x (pixels)
+    this.x = 0;      // canvas translation x (pixels) — derived from worldX/scale each update
     this.y = 0;      // canvas translation y (pixels)
     this.scale = 1;
-    this.targetX = 0;
-    this.targetY = 0;
     this.targetScale = 1;
-    this.LERP = 0.5;
+    // World-space follow point (the snake head). Smoothing happens in WORLD space and the
+    // pixel translation is derived from the CURRENT scale afterwards — previously targetX/Y
+    // were precomputed with a stale scale, so the view swam off the head while zoom animated.
+    this.worldX = 0;
+    this.worldY = 0;
+    this.targetWorldX = 0;
+    this.targetWorldY = 0;
+    this._w = null;  // last known canvas size (set by follow)
+    this._h = null;
     this.snapNextUpdate = false; // set on spawn/respawn to jump straight to the target (no zoom-in animation)
   }
 
   follow(worldX, worldY, canvasW, canvasH) {
-    this.targetX = canvasW / 2 - worldX * this.scale;
-    this.targetY = canvasH / 2 - worldY * this.scale;
+    this.targetWorldX = worldX;
+    this.targetWorldY = worldY;
+    this._w = canvasW;
+    this._h = canvasH;
   }
 
   setScale(worldRadius, canvasW, canvasH, snakeLength) {
-    // FOV depends ONLY on the player's own snake size — never on the arena size.
-    // The world radius breathes (1200..6000) as players/bots join and die; using it
-    // here made the camera zoom out whenever the arena grew (e.g. spawning bots).
-    // Use a fixed reference radius instead so the view only widens as the snake grows.
-    const REF_RADIUS = 2000; // = CONSTANTS.BASE_WORLD_RADIUS — keeps the spawn feel identical
-    const base = Math.min(canvasW, canvasH) / (REF_RADIUS * 0.22);
-    // Zoom out smoothly as the snake grows: a 1/x decay from full zoom (factor 1.0) toward a
-    // 0.38 floor, so the view widens quickly early then eases off. K sets how fast it zooms out.
-    const K = 60;
-    const lengthFactor = 0.38 + 0.62 * (K / ((snakeLength || 0) + K));
-    this.targetScale = Math.max(0.15, Math.min(2.5, base * lengthFactor));
+    // slither.io's exact zoom-out curve: dgsc = .64285 + .514285714 / max(1, (sct+16)/36),
+    // where sct is its body-part count. Our spawn (20 segments) = slither's sct 2, so
+    // sct = length - 18. Normalized to 1.0 at spawn, the view then widens with size on
+    // slither's exact curve (total ~1.69x zoom-out by the 411-part cap).
+    const sct   = Math.max(2, (snakeLength || 20) - 18);
+    const dgsc  = 0.64285 + 0.514285714 / Math.max(1, (sct + 16) / 36);
+    const DGSC_SPAWN = 1.157136; // dgsc at sct=2 — normalization anchor
+    // Spawn framing: snake width ≈ 3.2% of the short screen edge (slither's ~29px-wide
+    // spawn snake at its reference resolution). Phones get a 1.5x boost like the slither
+    // app, which zooms in further on small screens. This anchor is the one judgment call
+    // here (slither's absolute resolution scaling isn't fully documented) — tune to taste.
+    const minEdge   = Math.min(canvasW, canvasH);
+    const mobile    = minEdge < 600 ? 1.5 : 1;
+    const spawnScale = (0.032 * minEdge * mobile) / (CONSTANTS.SNAKE_HEAD_RADIUS * 2);
+    this.targetScale = Math.max(0.15, Math.min(2.5, spawnScale * (dgsc / DGSC_SPAWN)));
   }
 
   update(dt) {
@@ -34,17 +46,23 @@ class Camera {
     // zoomed-out and animate in for the first ~0.5s.
     if (this.snapNextUpdate) {
       this.scale = this.targetScale;
-      this.x = this.targetX;
-      this.y = this.targetY;
+      this.worldX = this.targetWorldX;
+      this.worldY = this.targetWorldY;
       this.snapNextUpdate = false;
-      return;
+    } else {
+      // dt-corrected: same feel at 60fps, 144fps, 240fps
+      const posAlpha  = 1 - Math.exp(-(dt || 16.67) / 18);  // 18ms time constant
+      const zoomAlpha = 1 - Math.exp(-(dt || 16.67) / 300);
+      this.scale  += (this.targetScale - this.scale) * zoomAlpha;
+      this.worldX += (this.targetWorldX - this.worldX) * posAlpha;
+      this.worldY += (this.targetWorldY - this.worldY) * posAlpha;
     }
-    // dt-corrected: same feel at 60fps, 144fps, 240fps
-    const posAlpha  = 1 - Math.exp(-(dt || 16.67) / 18);  // 18ms time constant
-    const zoomAlpha = 1 - Math.exp(-(dt || 16.67) / 300);
-    this.scale += (this.targetScale - this.scale) * zoomAlpha;
-    this.x += (this.targetX - this.x) * posAlpha;
-    this.y += (this.targetY - this.y) * posAlpha;
+    // Derive the pixel translation from the CURRENT scale — zoom and follow can no
+    // longer disagree, which removes the subtle swimming while the snake grows.
+    if (this._w !== null) {
+      this.x = this._w / 2 - this.worldX * this.scale;
+      this.y = this._h / 2 - this.worldY * this.scale;
+    }
   }
 
   apply(ctx, dpr) {

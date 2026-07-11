@@ -132,9 +132,12 @@ class Snake {
   }
 
   grow(amount) {
-    // Diminishing returns: each food adds fewer segments as you get longer (the slither.io grind).
+    // slither.io's exact growth curve: food converts to parts at rate (1 - sct/mscps)^2.25,
+    // where sct is the slither part-count equivalent of our length (spawn here = sct 2 there).
+    // Hits 0 at 411 parts — growth stops, score keeps accumulating (exactly like slither).
     // Accumulate fractionally so pendingGrowth stays a whole-segment counter.
-    const falloff = C.GROWTH_FALLOFF_LEN / (C.GROWTH_FALLOFF_LEN + this.length);
+    const sct = this.length - MIN_SEGMENTS + 2;
+    const falloff = Math.pow(Math.max(0, 1 - sct / C.GROWTH_MSCPS), C.GROWTH_EXP);
     this._growFrac = (this._growFrac || 0) + amount * C.SEGMENTS_PER_FOOD * falloff;
     if (this._growFrac >= 1) {
       const whole = Math.floor(this._growFrac);

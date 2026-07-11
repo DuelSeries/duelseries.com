@@ -8,9 +8,10 @@ const allTimeLb = require('./leaderboard');
 const SpatialGrid = require('./SpatialGrid');
 const { encodeSnapshot } = require('../shared/snapshotCodec');
 
-// Spatial-grid cell size (world units). Must be >= the largest interaction radius
-// (food pull = 35, body hit up to ~46 for a max-scale snake) so a hit always lands
-// within the 3×3 query block.
+// Spatial-grid cell size (world units). Body-hit queries use the 3×3 forEachNear block,
+// so GRID_CELL must be >= the largest body-hit radius (~46 for a max-scale snake). The food
+// query now uses forEachInRange (pull radius scales with snake size, up to ~170 at max scale),
+// which spans however many cells the radius needs — no GRID_CELL constraint there.
 const GRID_CELL = 80;
 
 class GameRoom {
@@ -217,9 +218,11 @@ class GameRoom {
     foodGrid.clear();
     for (const food of foodList) { food.eaten = false; foodGrid.insert(food.x, food.y, food); }
 
-    const EAT_R2      = C.FOOD_EAT_RADIUS * C.FOOD_EAT_RADIUS;
+    // Eat/pull radii scale with snake size (slither.io behaviour: big snakes vacuum food
+    // from proportionally farther and eat it at the lips, not deep inside the head).
+    // Values below are the scale-1 baselines, multiplied by snake.scale per snake.
+    const EAT_RADIUS  = C.FOOD_EAT_RADIUS;
     const PULL_RADIUS = 35;
-    const PULL_R2     = PULL_RADIUS * PULL_RADIUS;
     const PULL_SPEED  = 6;
 
     // Update snakes
@@ -255,11 +258,18 @@ class GameRoom {
       const turningSharp = Math.abs(_aDelta) > 0.25;
 
       const hx = snake.head.x, hy = snake.head.y;
-      foodGrid.forEachNear(hx, hy, (food) => {
+      const sc     = snake.scale;
+      const eatR   = EAT_RADIUS * sc;
+      const eatR2  = eatR * eatR;
+      const pullR  = PULL_RADIUS * sc;
+      const pullR2 = pullR * pullR;
+      // forEachInRange (not forEachNear): a max-scale snake's pull radius (~170) exceeds
+      // the 3×3 grid block, so scan the block the radius actually spans.
+      foodGrid.forEachInRange(hx, hy, pullR, (food) => {
         if (food.eaten) return false;
         const dx = hx - food.x, dy = hy - food.y;
         const d2 = dx * dx + dy * dy;
-        if (d2 < EAT_R2) {
+        if (d2 < eatR2) {
           snake.grow(food.value);
           if (food.cashValue > 0) {
             snake.worth += food.cashValue;
@@ -271,10 +281,11 @@ class GameRoom {
           }
           food.eaten = true;
           this.foodManager.remove(food.id);
-        } else if (!turningSharp && d2 < PULL_R2) {
-          // Smooth proportional pull — stronger closer to the head
+        } else if (!turningSharp && d2 < pullR2) {
+          // Smooth proportional pull — stronger closer to the head. Speed scales with
+          // size too so the suck-to-mouth time stays constant as distances grow.
           const d = Math.sqrt(d2) || 1;
-          const strength = (1 - d / PULL_RADIUS) * PULL_SPEED;
+          const strength = (1 - d / pullR) * PULL_SPEED * sc;
           food.x += (dx / d) * strength;
           food.y += (dy / d) * strength;
         }

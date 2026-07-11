@@ -19,8 +19,24 @@ test('grow() raises the score and lengthens the body as growth is consumed', () 
   const baseline = s.length;
   s.grow(3);
   assert.strictEqual(s.score, 3);
-  for (let i = 0; i < 5; i++) s.update();    // consume the 3 pending segments, then hold
-  assert.strictEqual(s.length, baseline + 3);
+  // slither.io growth curve: at spawn (sct=2) food converts at (1-2/411)^2.25 ≈ 0.9891,
+  // so 3 food ≈ 2.97 segments → 2 whole segments now, ~0.97 banked in the fraction.
+  for (let i = 0; i < 5; i++) s.update();
+  assert.strictEqual(s.length, baseline + 2);
+  s.grow(3); // banked fraction tips over: ~0.97 + ~2.95 → 3 more whole segments
+  for (let i = 0; i < 5; i++) s.update();
+  assert.strictEqual(s.length, baseline + 5);
+});
+
+test('growth stops entirely at the slither part cap (411 parts); score keeps rising', () => {
+  const s = new Snake('id', 'T', 0, 0, '#fff');
+  // Stuff the body to the cap: 411 parts = MIN_SEGMENTS + 409 segments here
+  const capLen = C.SNAKE_MIN_SEGMENTS * 2 + 409;
+  while (s.length < capLen) s.segments.push({ x: 0, y: 0 });
+  const scoreBefore = s.score;
+  s.grow(50);
+  assert.strictEqual(s.pendingGrowth, 0, 'no segments granted past the cap');
+  assert.ok(s.score > scoreBefore, 'score still accumulates past the cap');
 });
 
 test('update() moves the head forward along its angle', () => {

@@ -16,13 +16,17 @@ const CONSTANTS = {
   SNAKE_BASE_SPEED: 3,
   SNAKE_SEGMENT_SPACING: 3,
   SNAKE_HEAD_RADIUS: 10,
-  SNAKE_MIN_SEGMENTS: 3,
+  // Min = spawn, exactly like slither.io (its snakes spawn at sct=2 and can never shrink
+  // below it — boosting cuts off at spawn size instead of shrinking past it).
+  SNAKE_MIN_SEGMENTS: 10,
   SNAKE_SPAWN_SEGMENTS: 10,
-  MAX_TURN_RATE: 0.08, // radians per tick at scale 1; degrades with size (see Snake.turnRate)
-  // Snake "scale" grows 1 → 6 with length and drives turn heaviness, thickness, zoom & spacing
-  // (the slither.io-style size feel). Reaches 6 at SNAKE_MIN_SEGMENTS + 5*SNAKE_SC_SEGS segments.
-  // 106 mirrors slither.io exactly: its scale is min(6, 1+(sct-2)/106), so max size lands at ~533
-  // segments here vs slither's ~532 — snakes stay nimble/thin the same length of time slither's do.
+  // slither.io's max turn is mamu = .033 rad per 8ms frame = 4.125 rad/s; at our 60Hz
+  // tick that is 4.125/60 = .06875 rad/tick. (Was 0.08 — 16% twitchier than slither.)
+  MAX_TURN_RATE: 0.06875, // radians per tick at scale 1; degrades with size (see Snake.turnRate)
+  // Snake "scale" grows with length and drives turn heaviness, thickness, zoom & spacing.
+  // 106 mirrors slither.io exactly: its scale is min(6, 1+(sct-2)/106). With growth hard-capped
+  // at GROWTH_MSCPS parts (below), the max reachable scale is 1+409/106 ≈ 4.86 — same as slither,
+  // where sct also caps at 411 so a snake never actually reaches scale 6 through length.
   SNAKE_SC_SEGS: 106,
 
   // Food
@@ -32,16 +36,19 @@ const CONSTANTS = {
   FOOD_RESPAWN_INTERVAL: 2000,
   FOOD_PER_GROWTH: 1,
   SEGMENTS_PER_FOOD: 1,
-  GROWTH_FALLOFF_LEN: 250, // diminishing growth: around this length, food adds ~half as many segments
+  // slither.io's exact growth curve: the cost of body part i scales as 1/(1 - i/mscps)^2.25
+  // (its fmlts table), i.e. food converts to segments at rate (1 - parts/411)^2.25 — near 1 when
+  // small, grinding toward 0, and growth stops entirely at 411 parts (score still accumulates).
+  GROWTH_MSCPS: 411,  // slither's mscps — hard cap on body parts
+  GROWTH_EXP: 2.25,   // slither's fmlts exponent
 
   // Boost — boost ramps per-tick speed up toward SNAKE_MAX_SPEED (a fixed cap). Base speed rises
   // with size but the cap doesn't, so the boost *ratio* shrinks as you grow (slither.io feel).
-  SNAKE_MAX_SPEED: 7.5,    // boost speed cap, per tick — 7.5 matches slither.io's boost RATIO:
-                           // ~2.5x base when small (7.5/3), ~1.65x when huge (7.5/4.5), the same
-                           // curve as slither (fixed boost target 12 over base 4.75→7.25).
-  SNAKE_SPEED_PER_SC: 0.3, // base speed added per unit of scale above 1 (base = SNAKE_BASE_SPEED at scale 1)
+  // Exact slither.io speed curve, scaled into our units (k = 3/4.75, anchoring our base 3 to
+  // slither's base nsp1+nsp2 = 4.75): base speed nsp1+nsp2*sc → 4.75..7.25, boost target nsp3 = 12.
+  SNAKE_MAX_SPEED: 7.579,     // = 12 * 3/4.75 — boost ratio 2.526x small / 1.655x huge, slither-exact
+  SNAKE_SPEED_PER_SC: 0.3158, // = 0.5 * 3/4.75 — base speed ratio 1.526x small→huge, slither-exact
   BOOST_FOOD_COST: 0.05, // food units per tick
-  BOOST_MIN_LENGTH: 12,  // minimum length to boost
 
   // Border
   BORDER_SHRINK_PER_DEATH: 100,
