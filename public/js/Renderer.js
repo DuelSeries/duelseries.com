@@ -27,36 +27,53 @@ class Renderer {
     this.camera = new Camera();
     this.boostTrails = new Map();
     this._foodPhaseCache = new Map();
-    this._orbSpriteCache     = new Map(); // per-colour glowing orb sprites (slither.io look)
+    this._orbCoreCache   = new Map(); // per-colour crisp outlined cores
+    this._orbGlowCache   = new Map(); // per-colour wide soft glow halos
     this._goldenFoodSprite   = this._makeGoldenFoodSprite();
   }
 
-  // Slither.io food orb, rebuilt from a captured reference frame: a small white-hot
-  // pinpoint core → a crisp ring of the saturated colour → a BROAD soft bloom in that
-  // SAME colour (not white — the old white halo washed the colour out). Drawn additively
-  // ('lighter') so clustered orbs bloom brighter, exactly like slither's field.
-  //   ORB_SOLID = the crisp disc's fraction of the sprite radius; the draw call sets
-  //   span = r / ORB_SOLID so the disc renders at radius r and the bloom spills ~2.9x past.
-  _makeOrbSprite(color) {
-    let c = this._orbSpriteCache.get(color);
+  // Slither.io food = TWO layers (rebuilt from a captured reference frame):
+  //   1. a WIDE, light, soft glow in the orb's colour — drawn additively and pulsed so it
+  //      "blinks" that colour (see _drawFood). Only reads in additive blending.
+  //   2. a small crisp CORE on top — white-hot centre → saturated disc → a THIN DARK
+  //      OUTLINE at the rim. The dark rim only shows in normal (source-over) blending.
+  // Splitting them is why we can have both a black outline AND a colour-blinking glow.
+  _makeOrbGlow(color) {
+    let c = this._orbGlowCache.get(color);
+    if (c) return c;
+    const sz = 96, half = sz / 2;
+    c = document.createElement('canvas');
+    c.width = c.height = sz;
+    const ctx = c.getContext('2d');
+    const b = this._parseColor(color);
+    const g = ctx.createRadialGradient(half, half, 0, half, half, half);
+    g.addColorStop(0.00, `rgba(${b.r},${b.g},${b.b},0.55)`);
+    g.addColorStop(0.35, `rgba(${b.r},${b.g},${b.b},0.26)`);
+    g.addColorStop(0.70, `rgba(${b.r},${b.g},${b.b},0.07)`);
+    g.addColorStop(1.00, `rgba(${b.r},${b.g},${b.b},0)`);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, sz, sz);
+    this._orbGlowCache.set(color, c);
+    return c;
+  }
+  _makeOrbCore(color) {
+    let c = this._orbCoreCache.get(color);
     if (c) return c;
     const sz = 64, half = sz / 2;
     c = document.createElement('canvas');
     c.width = c.height = sz;
     const ctx = c.getContext('2d');
-    const base = this._parseColor(color);
-    const mix  = (k) => `rgba(${Math.round(base.r + (255 - base.r) * k)},${Math.round(base.g + (255 - base.g) * k)},${Math.round(base.b + (255 - base.b) * k)},1)`;
-    const rgba = (a) => `rgba(${base.r},${base.g},${base.b},${a})`;
+    const b = this._parseColor(color);
+    const mix = (k) => `rgba(${Math.round(b.r + (255 - b.r) * k)},${Math.round(b.g + (255 - b.g) * k)},${Math.round(b.b + (255 - b.b) * k)},1)`;
     const g = ctx.createRadialGradient(half, half, 0, half, half, half);
-    g.addColorStop(0.00, mix(0.85));   // white-hot centre
-    g.addColorStop(0.16, mix(0.38));   // lightened colour
-    g.addColorStop(Renderer.ORB_SOLID, rgba(1)); // saturated crisp disc edge
-    g.addColorStop(0.52, rgba(0.50));  // inner bloom
-    g.addColorStop(0.74, rgba(0.18));  // outer bloom
-    g.addColorStop(1.00, rgba(0));     // fade to transparent
+    g.addColorStop(0.00, mix(0.82));                        // white-hot centre
+    g.addColorStop(0.42, mix(0.26));                        // lightened colour
+    g.addColorStop(Renderer.ORB_SOLID, `rgba(${b.r},${b.g},${b.b},1)`); // saturated disc edge
+    g.addColorStop(0.90, 'rgba(0,0,0,0.85)');              // thin dark outline
+    g.addColorStop(1.00, 'rgba(0,0,0,0)');                 // transparent just outside
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, sz, sz);
-    this._orbSpriteCache.set(color, c);
+    this._orbCoreCache.set(color, c);
     return c;
   }
 
@@ -244,7 +261,7 @@ class Renderer {
         const idStr = String(f.id);
         let hash = 0;
         for (let i = 0; i < idStr.length; i++) hash = (hash * 31 + idStr.charCodeAt(i)) & 0xffff;
-        ph = { phase: hash * 0.00038, amp: 3.5 + (hash % 5) * 0.5 };
+        ph = { phase: hash * 0.00038, amp: 7 + (hash % 6) }; // wider hover — slither drifts a lot
         this._foodPhaseCache.set(f.id, ph);
       }
       // slither.io food HOVERS: a slow smooth per-orb drift (lissajous, ~6-8s loops) plus a
@@ -264,16 +281,17 @@ class Renderer {
         ctx.drawImage(this._goldenFoodSprite, wx - span, wy - span, span * 2, span * 2);
         ctx.globalAlpha = 1;
       } else {
-        // One additive colored orb = core + saturated disc + broad colored bloom in a single
-        // draw. 'lighter' makes overlapping orbs bloom brighter (slither's clustered look).
-        // Gentle brightness pulse; span = r / ORB_SOLID puts the crisp disc at radius r.
-        const orb = this._makeOrbSprite(f.color);
-        const span = r / Renderer.ORB_SOLID;
-        const pulse = 0.82 + 0.18 * Math.sin(t * 2.2 + ph.phase);
+        // Layer 1: wide light colour glow, additive, blinking in the orb's colour.
+        const gSpan = r * 3.4;
+        const blink = 0.30 + 0.45 * (0.5 + 0.5 * Math.sin(t * 2.2 + ph.phase)); // 0.30..0.75
         ctx.globalCompositeOperation = 'lighter';
-        ctx.globalAlpha = (f.dropped ? 0.72 : 1) * pulse;
-        ctx.drawImage(orb, wx - span, wy - span, span * 2, span * 2);
+        ctx.globalAlpha = (f.dropped ? 0.7 : 1) * blink;
+        ctx.drawImage(this._makeOrbGlow(f.color), wx - gSpan, wy - gSpan, gSpan * 2, gSpan * 2);
+        // Layer 2: crisp core with the thin dark outline, normal blending on top.
         ctx.globalCompositeOperation = 'source-over';
+        ctx.globalAlpha = f.dropped ? 0.9 : 1;
+        const cSpan = r / Renderer.ORB_SOLID;
+        ctx.drawImage(this._makeOrbCore(f.color), wx - cSpan, wy - cSpan, cSpan * 2, cSpan * 2);
         ctx.globalAlpha = 1;
       }
     }
@@ -855,6 +873,7 @@ class Renderer {
   }
 }
 
-// Fraction of the orb sprite radius occupied by the crisp saturated disc (rest is bloom).
-// Measured from a slither.io reference frame: solid core ≈ 1/3 of the visible glow radius.
-Renderer.ORB_SOLID = 0.34;
+// Fraction of the CORE sprite radius occupied by the saturated disc; the thin dark
+// outline sits just outside it (0.80 → disc, ~0.90 → black rim). The draw call sets
+// span = r / ORB_SOLID so the coloured disc renders at radius r and the rim hugs it.
+Renderer.ORB_SOLID = 0.80;
