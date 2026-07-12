@@ -1,9 +1,11 @@
 const { v4: uuidv4 } = require('uuid');
 const C = require('../shared/constants');
 
+// Palette read off a slither.io reference frame: saturated primaries PLUS the pale
+// lavender/near-white orbs that make up much of slither's field (the last three).
 const FOOD_COLORS = [
-  '#ff6b6b', '#ffd93d', '#6bcb77', '#4d96ff', '#ff922b',
-  '#cc5de8', '#20c997', '#f06595', '#74c0fc', '#a9e34b',
+  '#ff5b5b', '#ff9f3d', '#ffe14d', '#5be35b', '#33dcc0',
+  '#6fb6ff', '#b98bff', '#ff74d4', '#cdd8fb', '#e6ecff',
 ];
 
 class FoodManager {
@@ -37,7 +39,9 @@ class FoodManager {
       x: fx,
       y: fy,
       color: isGolden ? '#FFD700' : (color || FOOD_COLORS[Math.floor(Math.random() * FOOD_COLORS.length)]),
-      size: size !== undefined ? size : (isGolden ? 2.2 + Math.random() * 0.6 : 0.6 + Math.random() * 1.0),
+      // Normal food is small and fairly UNIFORM in slither (solid core ≈ 20% of a spawn
+      // snake's width). r = FOOD_RADIUS(3) * size, so 0.5-0.9 → solid radius ~1.5-2.7.
+      size: size !== undefined ? size : (isGolden ? 2.2 + Math.random() * 0.6 : 0.5 + Math.random() * 0.4),
       dropped: dropped || false,
       value: value !== undefined ? value : 1,
       cashValue: cashValue || 0,

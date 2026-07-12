@@ -29,12 +29,14 @@ class Renderer {
     this._foodPhaseCache = new Map();
     this._orbSpriteCache     = new Map(); // per-colour glowing orb sprites (slither.io look)
     this._goldenFoodSprite   = this._makeGoldenFoodSprite();
-    this._foodGlowSprite     = this._makeFoodGlowSprite();
   }
 
-  // Soft glowing orb, slither.io style: near-white hot core → saturated colour → soft
-  // transparent edge. One cached sprite per colour; drawImage per food replaces the old
-  // fill + dark-overlay + outline (slither food has no dark ring — it's pure glow).
+  // Slither.io food orb, rebuilt from a captured reference frame: a small white-hot
+  // pinpoint core → a crisp ring of the saturated colour → a BROAD soft bloom in that
+  // SAME colour (not white — the old white halo washed the colour out). Drawn additively
+  // ('lighter') so clustered orbs bloom brighter, exactly like slither's field.
+  //   ORB_SOLID = the crisp disc's fraction of the sprite radius; the draw call sets
+  //   span = r / ORB_SOLID so the disc renders at radius r and the bloom spills ~2.9x past.
   _makeOrbSprite(color) {
     let c = this._orbSpriteCache.get(color);
     if (c) return c;
@@ -43,29 +45,18 @@ class Renderer {
     c.width = c.height = sz;
     const ctx = c.getContext('2d');
     const base = this._parseColor(color);
-    const mix = (k) => `rgb(${Math.round(base.r + (255 - base.r) * k)},${Math.round(base.g + (255 - base.g) * k)},${Math.round(base.b + (255 - base.b) * k)})`;
+    const mix  = (k) => `rgba(${Math.round(base.r + (255 - base.r) * k)},${Math.round(base.g + (255 - base.g) * k)},${Math.round(base.b + (255 - base.b) * k)},1)`;
+    const rgba = (a) => `rgba(${base.r},${base.g},${base.b},${a})`;
     const g = ctx.createRadialGradient(half, half, 0, half, half, half);
-    g.addColorStop(0,    mix(0.75));                                        // hot core
-    g.addColorStop(0.30, mix(0.15));                                        // body colour
-    g.addColorStop(0.55, `rgba(${base.r},${base.g},${base.b},0.45)`);       // soft falloff
-    g.addColorStop(1,    `rgba(${base.r},${base.g},${base.b},0)`);          // glow edge
+    g.addColorStop(0.00, mix(0.85));   // white-hot centre
+    g.addColorStop(0.16, mix(0.38));   // lightened colour
+    g.addColorStop(Renderer.ORB_SOLID, rgba(1)); // saturated crisp disc edge
+    g.addColorStop(0.52, rgba(0.50));  // inner bloom
+    g.addColorStop(0.74, rgba(0.18));  // outer bloom
+    g.addColorStop(1.00, rgba(0));     // fade to transparent
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, sz, sz);
     this._orbSpriteCache.set(color, c);
-    return c;
-  }
-
-  _makeFoodGlowSprite() {
-    const sz = 48, c = document.createElement('canvas');
-    c.width = c.height = sz;
-    const ctx = c.getContext('2d');
-    const cx = sz / 2;
-    const g = ctx.createRadialGradient(cx, cx, 0, cx, cx, cx);
-    g.addColorStop(0,    'rgba(255,255,255,0.85)');
-    g.addColorStop(0.35, 'rgba(255,255,255,0.22)');
-    g.addColorStop(1,    'rgba(255,255,255,0)');
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, sz, sz);
     return c;
   }
 
@@ -266,32 +257,25 @@ class Renderer {
       const wx = f.x + Math.sin(t * 1.0 + ph.phase) * hov;
       const wy = f.y + Math.cos(t * 0.75 + ph.phase * 1.3) * hov;
 
-      // Pulsing additive glow halo — makes food read as glowing orbs (golden food self-glows)
-      if (!f.isGolden) {
-        const pulse = 0.45 + 0.4 * Math.sin(t * 2.2 + ph.phase);
+      if (f.isGolden) {
+        // Money food — self-glowing golden sprite (not a slither element).
+        if (f.dropped) ctx.globalAlpha = 0.55;
+        const span = r * GS;
+        ctx.drawImage(this._goldenFoodSprite, wx - span, wy - span, span * 2, span * 2);
+        ctx.globalAlpha = 1;
+      } else {
+        // One additive colored orb = core + saturated disc + broad colored bloom in a single
+        // draw. 'lighter' makes overlapping orbs bloom brighter (slither's clustered look).
+        // Gentle brightness pulse; span = r / ORB_SOLID puts the crisp disc at radius r.
+        const orb = this._makeOrbSprite(f.color);
+        const span = r / Renderer.ORB_SOLID;
+        const pulse = 0.82 + 0.18 * Math.sin(t * 2.2 + ph.phase);
         ctx.globalCompositeOperation = 'lighter';
-        ctx.globalAlpha = (f.dropped ? 0.35 : 0.7) * Math.max(0.15, pulse);
-        const gr = r * 3.0;
-        ctx.drawImage(this._foodGlowSprite, wx - gr, wy - gr, gr * 2, gr * 2);
+        ctx.globalAlpha = (f.dropped ? 0.72 : 1) * pulse;
+        ctx.drawImage(orb, wx - span, wy - span, span * 2, span * 2);
         ctx.globalCompositeOperation = 'source-over';
         ctx.globalAlpha = 1;
       }
-
-      if (f.dropped) ctx.globalAlpha = 0.55;
-
-      if (f.isGolden) {
-        // Pre-rendered sprite replaces 2 gradient allocations per frame
-        const span = r * GS;
-        ctx.drawImage(this._goldenFoodSprite, wx - span, wy - span, span * 2, span * 2);
-      } else {
-        // Soft glowing orb sprite (slither look) — the sprite's solid body spans ~42% of it,
-        // so scale the draw so the body matches r and the rest reads as glow falloff.
-        const orb = this._makeOrbSprite(f.color);
-        const span = r / 0.42;
-        ctx.drawImage(orb, wx - span, wy - span, span * 2, span * 2);
-      }
-
-      if (f.dropped) ctx.globalAlpha = 1;
     }
     // Evict stale phase cache entries
     if (this._foodPhaseCache.size > food.length * 2) this._foodPhaseCache.clear();
@@ -870,3 +854,7 @@ class Renderer {
     }
   }
 }
+
+// Fraction of the orb sprite radius occupied by the crisp saturated disc (rest is bloom).
+// Measured from a slither.io reference frame: solid core ≈ 1/3 of the visible glow radius.
+Renderer.ORB_SOLID = 0.34;
