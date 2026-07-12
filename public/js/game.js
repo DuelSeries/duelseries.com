@@ -512,7 +512,9 @@ function interpolateState(now) {
   for (const fa of after.state.food) {
     const fb = interpFoodMap.get(fa.id);
     if (fb && (fb.x !== fa.x || fb.y !== fa.y)) {
-      interpFoodBuf.push({ ...fa, x: lerp(fb.x, fa.x, alpha), y: lerp(fb.y, fa.y, alpha) });
+      // _pulled: this orb is being magnetized toward a mouth — the renderer suppresses
+      // its idle hover so the suck-in reads as a clean straight pull.
+      interpFoodBuf.push({ ...fa, x: lerp(fb.x, fa.x, alpha), y: lerp(fb.y, fa.y, alpha), _pulled: true });
     } else {
       interpFoodBuf.push(fa);
     }

@@ -253,14 +253,18 @@ class Renderer {
         const idStr = String(f.id);
         let hash = 0;
         for (let i = 0; i < idStr.length; i++) hash = (hash * 31 + idStr.charCodeAt(i)) & 0xffff;
-        ph = { phase: hash * 0.00038 };
+        ph = { phase: hash * 0.00038, amp: 3.5 + (hash % 5) * 0.5 };
         this._foodPhaseCache.set(f.id, ph);
       }
-      // slither.io food breathes IN PLACE — gentle size pulse, no position wander.
-      // (The old ±7-unit x/y wobble isn't slither and read as jitter.)
+      // slither.io food HOVERS: a slow smooth per-orb drift (lissajous, ~6-8s loops) plus a
+      // gentle size pulse. Amplitude/phase vary per orb so the field shimmers organically.
+      // Hover is suppressed while the orb is being magnetized toward a mouth (_pulled, set
+      // by the interpolator) so the suck-in reads as a clean straight pull.
       const breathe = 1 + 0.08 * Math.sin(t * 2.2 + ph.phase);
       const r = BASE_R * (f.size || 1) * breathe;
-      const wx = f.x, wy = f.y;
+      const hov = f._pulled ? 0 : (ph.amp || 4);
+      const wx = f.x + Math.sin(t * 1.0 + ph.phase) * hov;
+      const wy = f.y + Math.cos(t * 0.75 + ph.phase * 1.3) * hov;
 
       // Pulsing additive glow halo — makes food read as glowing orbs (golden food self-glows)
       if (!f.isGolden) {

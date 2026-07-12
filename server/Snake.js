@@ -150,17 +150,23 @@ class Snake {
 
   die() {
     this.alive = false;
+    // slither.io-style corpse food: big bright orbs laid ALONG the body (tracing the
+    // corpse's shape), not randomly scattered. Bigger snakes drop bigger orbs. NOT
+    // flagged `dropped` — that flag dims boost-trail crumbs to 55% alpha, and corpse
+    // food in slither is the biggest, brightest food in the game.
     const drops = [];
-    const dropCount = Math.floor(this.length / 4);
+    const dropCount = Math.max(1, Math.floor(this.length / 4));
+    const step = this.segments.length / dropCount;
+    const sizeMul = Math.min(1.6, 0.9 + 0.14 * this.scale); // giants drop visibly bigger orbs
     for (let i = 0; i < dropCount; i++) {
-      const seg = this.segments[Math.floor(Math.random() * this.segments.length)];
+      const seg = this.segments[Math.min(this.segments.length - 1, Math.floor(i * step))];
       drops.push({
-        x: seg.x + (Math.random() - 0.5) * 20,
-        y: seg.y + (Math.random() - 0.5) * 20,
+        x: seg.x + (Math.random() - 0.5) * 12,
+        y: seg.y + (Math.random() - 0.5) * 12,
         value: 2,
         color: this.color,
-        size: 1.5,
-        dropped: true,
+        size: (2.0 + Math.random() * 0.5) * sizeMul,
+        dropped: false,
       });
     }
     return drops;
