@@ -47,9 +47,10 @@ class Renderer {
     const ctx = c.getContext('2d');
     const b = this._parseColor(color);
     const g = ctx.createRadialGradient(half, half, 0, half, half, half);
-    g.addColorStop(0.00, `rgba(${b.r},${b.g},${b.b},0.55)`);
-    g.addColorStop(0.35, `rgba(${b.r},${b.g},${b.b},0.26)`);
-    g.addColorStop(0.70, `rgba(${b.r},${b.g},${b.b},0.07)`);
+    // Lower alphas because this glow is now drawn ~5x bigger; additive so overlaps still add up.
+    g.addColorStop(0.00, `rgba(${b.r},${b.g},${b.b},0.42)`);
+    g.addColorStop(0.26, `rgba(${b.r},${b.g},${b.b},0.15)`);
+    g.addColorStop(0.60, `rgba(${b.r},${b.g},${b.b},0.04)`);
     g.addColorStop(1.00, `rgba(${b.r},${b.g},${b.b},0)`);
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, sz, sz);
@@ -287,17 +288,27 @@ class Renderer {
         ctx.drawImage(this._goldenFoodSprite, wx - span, wy - span, span * 2, span * 2);
         ctx.globalAlpha = 1;
       } else {
-        // Layer 1: wide light colour glow, additive, blinking in the orb's colour.
-        const gSpan = r * 3.4;
-        const blink = 0.30 + 0.45 * (0.5 + 0.5 * Math.sin(t * 2.2 + ph.phase)); // 0.30..0.75
+        const glow = this._makeOrbGlow(f.color);
+        // Layer 1: a WIDE (~5x) soft colour glow, additive & steady. Because it's additive,
+        // where two orbs' glows overlap the light ADDS UP — 2 orbs read brighter, a pile
+        // reads very bright, so you can tell how many orbs are stacked.
+        const gSpan = r * 17;
         ctx.globalCompositeOperation = 'lighter';
-        ctx.globalAlpha = (f.dropped ? 0.7 : 1) * blink;
-        ctx.drawImage(this._makeOrbGlow(f.color), wx - gSpan, wy - gSpan, gSpan * 2, gSpan * 2);
-        // Layer 2: crisp core with the thin dark outline, normal blending on top.
+        ctx.globalAlpha = f.dropped ? 0.6 : 0.9;
+        ctx.drawImage(glow, wx - gSpan, wy - gSpan, gSpan * 2, gSpan * 2);
+        // Layer 2: crisp core with the thin dark outline, normal blending.
         ctx.globalCompositeOperation = 'source-over';
         ctx.globalAlpha = f.dropped ? 0.9 : 1;
         const cSpan = r / Renderer.ORB_SOLID;
         ctx.drawImage(this._makeOrbCore(f.color, ph.white), wx - cSpan, wy - cSpan, cSpan * 2, cSpan * 2);
+        // Layer 3: the BLINK — the orb's INTERIOR lightens then returns, each orb on its own
+        // phase. An additive flash concentrated on the core (reuses the glow sprite, small).
+        const blink = 0.5 + 0.5 * Math.sin(t * 2.4 + ph.phase); // 0..1
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalAlpha = 0.6 * blink;
+        const fSpan = r * 1.1;
+        ctx.drawImage(glow, wx - fSpan, wy - fSpan, fSpan * 2, fSpan * 2);
+        ctx.globalCompositeOperation = 'source-over';
         ctx.globalAlpha = 1;
       }
     }
