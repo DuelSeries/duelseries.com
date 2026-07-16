@@ -319,11 +319,15 @@ class Renderer {
     for (let i = 0; i < n; i++) {
       const e = vis[i];
       if (!e.ph.glow) continue;
+      // Very light shade that BLINKS: fades up to a faint peak, then ALL THE WAY DOWN TO
+      // NOTHING (blank) and holds there for the down-half of the cycle — per-orb phase so
+      // each halo blinks at its own time.
+      const gs = Math.sin(t * 2.5 + e.ph.gphase);
+      if (gs <= 0.02) continue; // blank half — skip the draw entirely
       const gSpan = e.r * 7;
       const gx = e.wx + e.ph.gox + Math.sin(t * 0.6 + e.ph.gphase) * e.ph.gamp;
       const gy = e.wy + e.ph.goy + Math.cos(t * 0.5 + e.ph.gphase * 1.2) * e.ph.gamp;
-      const gPulse = 0.82 + 0.18 * (0.5 + 0.5 * Math.sin(t * 6 + e.ph.gphase)); // barely-there
-      ctx.globalAlpha = (e.dropped ? 0.14 : 0.19) * gPulse;
+      ctx.globalAlpha = (e.dropped ? 0.13 : 0.18) * gs;
       ctx.drawImage(this._makeOrbGlow(e.color), gx - gSpan, gy - gSpan, gSpan * 2, gSpan * 2);
     }
 
