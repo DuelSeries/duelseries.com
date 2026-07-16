@@ -1,11 +1,15 @@
 const { v4: uuidv4 } = require('uuid');
 const C = require('../shared/constants');
 
-// Palette read off a slither.io reference frame: saturated primaries PLUS the pale
-// lavender/near-white orbs that make up much of slither's field (the last three).
+// Six-colour food palette (owner-chosen): red, orange, darker yellow, green, purple,
+// darker pink. No white/pale or blue/teal orbs.
 const FOOD_COLORS = [
-  '#ff5b5b', '#ff9f3d', '#ffe14d', '#5be35b', '#33dcc0',
-  '#6fb6ff', '#b98bff', '#ff74d4', '#cdd8fb', '#e6ecff',
+  '#ff5b5b', // red
+  '#ff9f3d', // orange
+  '#e9c22e', // yellow (deeper)
+  '#5be35b', // green
+  '#b98bff', // purple
+  '#e85bbb', // pink (deeper)
 ];
 
 class FoodManager {

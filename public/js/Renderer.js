@@ -56,8 +56,11 @@ class Renderer {
     this._orbGlowCache.set(color, c);
     return c;
   }
-  _makeOrbCore(color) {
-    let c = this._orbCoreCache.get(color);
+  // `w` = how light the centre is (0 = flat colour, 1 = white). Passed per orb so the
+  // amount of light-in-the-middle varies across the food field; cached by colour+level.
+  _makeOrbCore(color, w) {
+    const key = color + '|' + w;
+    let c = this._orbCoreCache.get(key);
     if (c) return c;
     const sz = 64, half = sz / 2;
     c = document.createElement('canvas');
@@ -66,14 +69,14 @@ class Renderer {
     const b = this._parseColor(color);
     const mix = (k) => `rgba(${Math.round(b.r + (255 - b.r) * k)},${Math.round(b.g + (255 - b.g) * k)},${Math.round(b.b + (255 - b.b) * k)},1)`;
     const g = ctx.createRadialGradient(half, half, 0, half, half, half);
-    g.addColorStop(0.00, mix(0.82));                        // white-hot centre
-    g.addColorStop(0.42, mix(0.26));                        // lightened colour
+    g.addColorStop(0.00, mix(w));                          // lighter centre — amount varies per orb
+    g.addColorStop(0.42, mix(w * 0.32));                   // transition scaled to that centre
     g.addColorStop(Renderer.ORB_SOLID, `rgba(${b.r},${b.g},${b.b},1)`); // saturated disc edge
     g.addColorStop(0.90, 'rgba(0,0,0,0.85)');              // thin dark outline
     g.addColorStop(1.00, 'rgba(0,0,0,0)');                 // transparent just outside
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, sz, sz);
-    this._orbCoreCache.set(color, c);
+    this._orbCoreCache.set(key, c);
     return c;
   }
 
@@ -261,7 +264,9 @@ class Renderer {
         const idStr = String(f.id);
         let hash = 0;
         for (let i = 0; i < idStr.length; i++) hash = (hash * 31 + idStr.charCodeAt(i)) & 0xffff;
-        ph = { phase: hash * 0.00038, amp: 7 + (hash % 6) }; // wider hover — slither drifts a lot
+        // white: how light the orb's centre is — VARIES per orb (some barely lightened,
+        // some near-white). Bucketed to 5 levels so cores stay cacheable.
+        ph = { phase: hash * 0.00038, amp: 7 + (hash % 6), white: 0.34 + (hash % 5) * 0.16 };
         this._foodPhaseCache.set(f.id, ph);
       }
       // slither.io food HOVERS: a slow smooth per-orb drift (lissajous, ~6-8s loops) plus a
@@ -291,7 +296,7 @@ class Renderer {
         ctx.globalCompositeOperation = 'source-over';
         ctx.globalAlpha = f.dropped ? 0.9 : 1;
         const cSpan = r / Renderer.ORB_SOLID;
-        ctx.drawImage(this._makeOrbCore(f.color), wx - cSpan, wy - cSpan, cSpan * 2, cSpan * 2);
+        ctx.drawImage(this._makeOrbCore(f.color, ph.white), wx - cSpan, wy - cSpan, cSpan * 2, cSpan * 2);
         ctx.globalAlpha = 1;
       }
     }
