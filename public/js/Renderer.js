@@ -47,10 +47,11 @@ class Renderer {
     c.width = c.height = sz;
     const ctx = c.getContext('2d');
     const b = this._parseColor(color);
+    // ONE flat sheet of the colour — uniform out to 80% of the radius, then a soft feather
+    // to nothing (no layered shades). Overall opacity + the blink are applied at draw time.
     const g = ctx.createRadialGradient(half, half, 0, half, half, half);
-    g.addColorStop(0.00, `rgba(${b.r},${b.g},${b.b},0.50)`);
-    g.addColorStop(0.32, `rgba(${b.r},${b.g},${b.b},0.20)`);
-    g.addColorStop(0.65, `rgba(${b.r},${b.g},${b.b},0.05)`);
+    g.addColorStop(0.00, `rgba(${b.r},${b.g},${b.b},1)`);
+    g.addColorStop(0.80, `rgba(${b.r},${b.g},${b.b},1)`);
     g.addColorStop(1.00, `rgba(${b.r},${b.g},${b.b},0)`);
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, sz, sz);
@@ -301,13 +302,16 @@ class Renderer {
       n++;
     }
 
-    // Pass A — soft glow halos (additive) under everything, on ~50% of orbs.
+    // Pass A — the glow "sheet": one big flat translucent colour halo on ~50% of orbs,
+    // pulsing in sync with that orb's own blink (same t*12 + phase) so glow and orb blink
+    // together. Uniform shade (not layered), drawn under everything.
     ctx.globalCompositeOperation = 'lighter';
     for (let i = 0; i < n; i++) {
       const e = vis[i];
       if (!e.ph.glow) continue;
-      const gSpan = e.r * 4;
-      ctx.globalAlpha = e.dropped ? 0.55 : 0.8;
+      const gSpan = e.r * 7;
+      const gb = e.dropped ? 0.24 : 0.30;
+      ctx.globalAlpha = gb * (0.45 + 0.55 * (0.5 + 0.5 * Math.sin(t * 12 + e.ph.phase)));
       ctx.drawImage(this._makeOrbGlow(e.color), e.wx - gSpan, e.wy - gSpan, gSpan * 2, gSpan * 2);
     }
 
