@@ -278,9 +278,19 @@ class Renderer {
         for (let i = 0; i < idStr.length; i++) hash = (hash * 31 + idStr.charCodeAt(i)) & 0xffff;
         // amp: hover distance VARIES per orb — ~1 in 4 sit completely STILL (amp 0), the rest
         //   drift a little to a lot. white: how light the centre is (5 levels). glow: only
-        //   ~50% of orbs get the soft halo.
+        //   ~50% of orbs get the halo. gox/goy/gamp/gphase: the glow sheet sits OFFSET from the
+        //   orb and drifts on its own slow phase, randomised per orb.
         const hb = hash % 8;
-        ph = { phase: hash * 0.00038, amp: hb <= 1 ? 0 : (hb - 1) * 2, white: 0.34 + (hash % 5) * 0.16, glow: (hash & 1) === 0 };
+        ph = {
+          phase: hash * 0.00038,
+          amp: hb <= 1 ? 0 : (hb - 1) * 2,
+          white: 0.34 + (hash % 5) * 0.16,
+          glow: (hash & 1) === 0,
+          gox: ((hash % 7) - 3) * 1.6,
+          goy: (((hash >> 3) % 7) - 3) * 1.6,
+          gamp: 2 + (hash >> 6) % 4,
+          gphase: (hash % 13) * 0.5,
+        };
         this._foodPhaseCache.set(f.id, ph);
       }
       // Constant size, no breathing. Per-orb HOVER (0 = still). Suppressed while magnetized.
@@ -302,17 +312,19 @@ class Renderer {
       n++;
     }
 
-    // Pass A — the glow "sheet": one big flat translucent colour halo on ~50% of orbs,
-    // pulsing in sync with that orb's own blink (same t*12 + phase) so glow and orb blink
-    // together. Uniform shade (not layered), drawn under everything.
+    // Pass A — the glow "sheet": one big flat translucent colour halo on ~50% of orbs, drawn
+    // under everything. It's OFFSET from the orb and drifts on its own slow phase (randomised),
+    // and its pulse is VERY subtle so it nearly blends into the background.
     ctx.globalCompositeOperation = 'lighter';
     for (let i = 0; i < n; i++) {
       const e = vis[i];
       if (!e.ph.glow) continue;
       const gSpan = e.r * 7;
-      const gb = e.dropped ? 0.24 : 0.30;
-      ctx.globalAlpha = gb * (0.45 + 0.55 * (0.5 + 0.5 * Math.sin(t * 12 + e.ph.phase)));
-      ctx.drawImage(this._makeOrbGlow(e.color), e.wx - gSpan, e.wy - gSpan, gSpan * 2, gSpan * 2);
+      const gx = e.wx + e.ph.gox + Math.sin(t * 0.6 + e.ph.gphase) * e.ph.gamp;
+      const gy = e.wy + e.ph.goy + Math.cos(t * 0.5 + e.ph.gphase * 1.2) * e.ph.gamp;
+      const gPulse = 0.82 + 0.18 * (0.5 + 0.5 * Math.sin(t * 6 + e.ph.gphase)); // barely-there
+      ctx.globalAlpha = (e.dropped ? 0.14 : 0.19) * gPulse;
+      ctx.drawImage(this._makeOrbGlow(e.color), gx - gSpan, gy - gSpan, gSpan * 2, gSpan * 2);
     }
 
     // Pass B — the black outline discs (slightly larger than the fill), normal blending so
