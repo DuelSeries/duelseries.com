@@ -264,18 +264,19 @@ class Renderer {
         const idStr = String(f.id);
         let hash = 0;
         for (let i = 0; i < idStr.length; i++) hash = (hash * 31 + idStr.charCodeAt(i)) & 0xffff;
-        // white: how light the orb's centre is — VARIES per orb (some barely lightened,
-        // some near-white). Bucketed to 5 levels so cores stay cacheable.
-        ph = { phase: hash * 0.00038, amp: 7 + (hash % 6), white: 0.34 + (hash % 5) * 0.16 };
+        // amp: hover distance VARIES per orb — ~1 in 4 sit completely STILL (amp 0), the
+        //   rest drift from a little to a lot (up to 12 units).
+        // white: how light the centre is — also varies per orb (5 levels).
+        const hb = hash % 8;
+        ph = { phase: hash * 0.00038, amp: hb <= 1 ? 0 : (hb - 1) * 2, white: 0.34 + (hash % 5) * 0.16 };
         this._foodPhaseCache.set(f.id, ph);
       }
-      // slither.io food HOVERS: a slow smooth per-orb drift (lissajous, ~6-8s loops) plus a
-      // gentle size pulse. Amplitude/phase vary per orb so the field shimmers organically.
-      // Hover is suppressed while the orb is being magnetized toward a mouth (_pulled, set
-      // by the interpolator) so the suck-in reads as a clean straight pull.
-      const breathe = 1 + 0.08 * Math.sin(t * 2.2 + ph.phase);
-      const r = BASE_R * (f.size || 1) * breathe;
-      const hov = f._pulled ? 0 : (ph.amp || 4);
+      // Food stays a CONSTANT size and only BLINKS (its glow opacity pulses — see below);
+      // there is no size breathing. It also HOVERS by a PER-ORB amount: some orbs sit
+      // perfectly still (amp 0), others drift a little or a lot. Hover is suppressed while
+      // the orb is magnetized toward a mouth (_pulled) so the suck-in reads as a clean pull.
+      const r = BASE_R * (f.size || 1);
+      const hov = f._pulled ? 0 : ph.amp;
       const wx = f.x + Math.sin(t * 1.0 + ph.phase) * hov;
       const wy = f.y + Math.cos(t * 0.75 + ph.phase * 1.3) * hov;
 
