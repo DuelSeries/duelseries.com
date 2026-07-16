@@ -303,8 +303,9 @@ class Renderer {
         ctx.globalAlpha = f.dropped ? 0.7 : 0.85;
         ctx.drawImage(disc, wx - dSpan, wy - dSpan, dSpan * 2, dSpan * 2);
         // BLINK: a second additive pass of the SAME disc, pulsing on the orb's own phase, so
-        // the interior brightens up from normal and eases back — the inside "changes colour".
-        ctx.globalAlpha = 0.55 * (0.5 + 0.5 * Math.sin(t * 3.0 + ph.phase));
+        // the interior brightens up from normal and eases back. ~2x/second and strong so it's
+        // clearly visible (t*12 ≈ 1.9 Hz).
+        ctx.globalAlpha = 0.80 * (0.5 + 0.5 * Math.sin(t * 12 + ph.phase));
         ctx.drawImage(disc, wx - dSpan, wy - dSpan, dSpan * 2, dSpan * 2);
         ctx.globalCompositeOperation = 'source-over';
         ctx.globalAlpha = 1;
