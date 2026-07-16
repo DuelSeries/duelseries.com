@@ -283,21 +283,22 @@ class Renderer {
         const hb = hash % 8;
         ph = {
           phase: hash * 0.00038,
-          amp: hb <= 1 ? 0 : (hb - 1) * 2,
+          amp: hb <= 1 ? 0 : (hb - 1),          // small hover radius (0..6) — circular
           white: 0.34 + (hash % 5) * 0.16,
           glow: (hash & 1) === 0,
-          gox: ((hash % 7) - 3) * 1.6,
-          goy: (((hash >> 3) % 7) - 3) * 1.6,
-          gamp: 2 + (hash >> 6) % 4,
+          gox: ((hash % 7) - 3) * 1.0,          // small fixed glow offset (±3)
+          goy: (((hash >> 3) % 7) - 3) * 1.0,
+          gamp: 1.5 + (hash >> 6) % 3,          // small glow drift radius (1.5..3.5)
           gphase: (hash % 13) * 0.5,
         };
         this._foodPhaseCache.set(f.id, ph);
       }
-      // Constant size, no breathing. Per-orb HOVER (0 = still). Suppressed while magnetized.
+      // Constant size, no breathing. Per-orb HOVER in a small CIRCLE (cos/sin share the
+      // argument), staying near the spawn spot. amp 0 = dead still. Suppressed while magnetized.
       const r = BASE_R * (f.size || 1);
       const hov = f._pulled ? 0 : ph.amp;
-      const wx = f.x + Math.sin(t * 1.0 + ph.phase) * hov;
-      const wy = f.y + Math.cos(t * 0.75 + ph.phase * 1.3) * hov;
+      const wx = f.x + Math.cos(t * 1.2 + ph.phase) * hov;
+      const wy = f.y + Math.sin(t * 1.2 + ph.phase) * hov;
 
       if (f.isGolden) {
         // Money food — self-glowing golden sprite (not a slither element, no union outline).
@@ -315,19 +316,20 @@ class Renderer {
     // Pass A — the glow "sheet": one big flat translucent colour halo on ~50% of orbs, drawn
     // under everything. It's OFFSET from the orb and drifts on its own slow phase (randomised),
     // and its pulse is VERY subtle so it nearly blends into the background.
+    // Glow "sheet": VERY faint, only barely fades in and out (never fully off). Tune these
+    // two numbers — sensible range is ~0.02 (all but invisible) .. ~0.30 (obvious):
+    const GLOW_MIN = 0.05; // resting opacity — the DIMMEST the glow ever gets
+    const GLOW_MAX = 0.08; // peak opacity   — the BRIGHTEST it ever gets
     ctx.globalCompositeOperation = 'lighter';
     for (let i = 0; i < n; i++) {
       const e = vis[i];
       if (!e.ph.glow) continue;
-      // Very light shade that BLINKS: fades up to a faint peak, then ALL THE WAY DOWN TO
-      // NOTHING (blank) and holds there for the down-half of the cycle — per-orb phase so
-      // each halo blinks at its own time.
-      const gs = Math.sin(t * 2.5 + e.ph.gphase);
-      if (gs <= 0.02) continue; // blank half — skip the draw entirely
       const gSpan = e.r * 7;
-      const gx = e.wx + e.ph.gox + Math.sin(t * 0.6 + e.ph.gphase) * e.ph.gamp;
-      const gy = e.wy + e.ph.goy + Math.cos(t * 0.5 + e.ph.gphase * 1.2) * e.ph.gamp;
-      ctx.globalAlpha = (e.dropped ? 0.13 : 0.18) * gs;
+      // drifts in a small CIRCLE in the general area of the orb (offset + own phase)
+      const gx = e.wx + e.ph.gox + Math.cos(t * 0.5 + e.ph.gphase) * e.ph.gamp;
+      const gy = e.wy + e.ph.goy + Math.sin(t * 0.5 + e.ph.gphase) * e.ph.gamp;
+      const gs = 0.5 + 0.5 * Math.sin(t * 2.5 + e.ph.gphase); // 0..1, a tiny fade
+      ctx.globalAlpha = (GLOW_MIN + (GLOW_MAX - GLOW_MIN) * gs) * (e.dropped ? 0.8 : 1);
       ctx.drawImage(this._makeOrbGlow(e.color), gx - gSpan, gy - gSpan, gSpan * 2, gSpan * 2);
     }
 
