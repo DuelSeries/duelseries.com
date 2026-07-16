@@ -256,6 +256,16 @@ class Renderer {
     const t = Date.now() / 1000;
     // golden sprite: food radius = sz * 0.19, so world span = r / 0.19 * 2 each side
     const GS = 1 / 0.19;
+
+    // Collect visible non-golden orbs once, then render them in PASSES. The pass split is
+    // what gives every orb a thin black outline that MERGES on overlap: all the black
+    // outline discs are laid down first (overlapping blacks fuse into one silhouette with no
+    // internal seam), then the colour fills cover every interior — so only a thin rim of
+    // black survives around the outside, and none between overlapping orbs.
+    if (!this._foodVis) this._foodVis = [];
+    const vis = this._foodVis;
+    let n = 0;
+
     for (const f of food) {
       if (Math.abs(f.x - worldCX) > halfW || Math.abs(f.y - worldCY) > halfH) continue;
 
@@ -265,52 +275,70 @@ class Renderer {
         const idStr = String(f.id);
         let hash = 0;
         for (let i = 0; i < idStr.length; i++) hash = (hash * 31 + idStr.charCodeAt(i)) & 0xffff;
-        // amp: hover distance VARIES per orb — ~1 in 4 sit completely STILL (amp 0), the
-        //   rest drift from a little to a lot (up to 12 units).
-        // white: how light the centre is — also varies per orb (5 levels).
-        // glow: only ~50% of orbs get the soft glow halo around them.
+        // amp: hover distance VARIES per orb — ~1 in 4 sit completely STILL (amp 0), the rest
+        //   drift a little to a lot. white: how light the centre is (5 levels). glow: only
+        //   ~50% of orbs get the soft halo.
         const hb = hash % 8;
         ph = { phase: hash * 0.00038, amp: hb <= 1 ? 0 : (hb - 1) * 2, white: 0.34 + (hash % 5) * 0.16, glow: (hash & 1) === 0 };
         this._foodPhaseCache.set(f.id, ph);
       }
-      // Food stays a CONSTANT size and only BLINKS (its glow opacity pulses — see below);
-      // there is no size breathing. It also HOVERS by a PER-ORB amount: some orbs sit
-      // perfectly still (amp 0), others drift a little or a lot. Hover is suppressed while
-      // the orb is magnetized toward a mouth (_pulled) so the suck-in reads as a clean pull.
+      // Constant size, no breathing. Per-orb HOVER (0 = still). Suppressed while magnetized.
       const r = BASE_R * (f.size || 1);
       const hov = f._pulled ? 0 : ph.amp;
       const wx = f.x + Math.sin(t * 1.0 + ph.phase) * hov;
       const wy = f.y + Math.cos(t * 0.75 + ph.phase * 1.3) * hov;
 
       if (f.isGolden) {
-        // Money food — self-glowing golden sprite (not a slither element).
+        // Money food — self-glowing golden sprite (not a slither element, no union outline).
         if (f.dropped) ctx.globalAlpha = 0.55;
         const span = r * GS;
         ctx.drawImage(this._goldenFoodSprite, wx - span, wy - span, span * 2, span * 2);
         ctx.globalAlpha = 1;
-      } else {
-        const disc = this._makeOrbCore(f.color, ph.white);
-        const dSpan = r / Renderer.ORB_SOLID;
-        ctx.globalCompositeOperation = 'lighter';
-        // Soft glow halo — but only on ~half the orbs (ph.glow). Modest size (not a big wash).
-        if (ph.glow) {
-          const gSpan = r * 4;
-          ctx.globalAlpha = f.dropped ? 0.55 : 0.8;
-          ctx.drawImage(this._makeOrbGlow(f.color), wx - gSpan, wy - gSpan, gSpan * 2, gSpan * 2);
-        }
-        // The disc, drawn ADDITIVELY: where two discs overlap, the intersection adds up and
-        // brightens (more orbs stacked = brighter). This is the overlap effect — on the discs.
-        ctx.globalAlpha = f.dropped ? 0.7 : 0.85;
-        ctx.drawImage(disc, wx - dSpan, wy - dSpan, dSpan * 2, dSpan * 2);
-        // BLINK: a second additive pass of the SAME disc, pulsing on the orb's own phase, so
-        // the interior brightens up from normal and eases back. ~2x/second and strong so it's
-        // clearly visible (t*12 ≈ 1.9 Hz).
-        ctx.globalAlpha = 0.80 * (0.5 + 0.5 * Math.sin(t * 12 + ph.phase));
-        ctx.drawImage(disc, wx - dSpan, wy - dSpan, dSpan * 2, dSpan * 2);
-        ctx.globalCompositeOperation = 'source-over';
-        ctx.globalAlpha = 1;
+        continue;
       }
+      let e = vis[n]; if (!e) e = vis[n] = {};
+      e.color = f.color; e.wx = wx; e.wy = wy; e.r = r; e.ph = ph; e.dropped = !!f.dropped;
+      n++;
     }
+
+    // Pass A — soft glow halos (additive) under everything, on ~50% of orbs.
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < n; i++) {
+      const e = vis[i];
+      if (!e.ph.glow) continue;
+      const gSpan = e.r * 4;
+      ctx.globalAlpha = e.dropped ? 0.55 : 0.8;
+      ctx.drawImage(this._makeOrbGlow(e.color), e.wx - gSpan, e.wy - gSpan, gSpan * 2, gSpan * 2);
+    }
+
+    // Pass B — the black outline discs (slightly larger than the fill), normal blending so
+    // overlapping ones FUSE into a single black silhouette (no seam where they meet).
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#000';
+    for (let i = 0; i < n; i++) {
+      const e = vis[i];
+      const outline = Math.max(0.7, e.r * 0.20); // very thin rim
+      ctx.beginPath();
+      ctx.arc(e.wx, e.wy, e.r + outline, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Pass C — colour fills (additive, so overlaps brighten) covering the black interiors,
+    // plus the fast per-orb BLINK. The fill sits inside the black disc, leaving only the rim.
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < n; i++) {
+      const e = vis[i];
+      const disc = this._makeOrbCore(e.color, e.ph.white);
+      const dSpan = e.r / Renderer.ORB_SOLID;
+      ctx.globalAlpha = e.dropped ? 0.85 : 0.95;
+      ctx.drawImage(disc, e.wx - dSpan, e.wy - dSpan, dSpan * 2, dSpan * 2);
+      ctx.globalAlpha = 0.80 * (0.5 + 0.5 * Math.sin(t * 12 + e.ph.phase)); // blink ~2x/sec
+      ctx.drawImage(disc, e.wx - dSpan, e.wy - dSpan, dSpan * 2, dSpan * 2);
+    }
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+
     // Evict stale phase cache entries
     if (this._foodPhaseCache.size > food.length * 2) this._foodPhaseCache.clear();
   }
@@ -890,5 +918,6 @@ class Renderer {
 }
 
 // Fraction of the disc sprite radius occupied by the solid colour before the soft edge.
-// The draw call sets span = r / ORB_SOLID so the disc renders at radius r.
-Renderer.ORB_SOLID = 0.86;
+// The draw call sets span = r / ORB_SOLID so the disc renders at radius r. Kept high (crisp
+// edge) so the colour fill covers the black outline disc cleanly, leaving a sharp thin rim.
+Renderer.ORB_SOLID = 0.92;
