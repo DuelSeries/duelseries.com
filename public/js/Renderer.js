@@ -32,12 +32,13 @@ class Renderer {
     this._goldenFoodSprite   = this._makeGoldenFoodSprite();
   }
 
-  // Slither.io food = TWO layers (rebuilt from a captured reference frame):
-  //   1. a WIDE, light, soft glow in the orb's colour — drawn additively and pulsed so it
-  //      "blinks" that colour (see _drawFood). Only reads in additive blending.
-  //   2. a small crisp CORE on top — white-hot centre → saturated disc → a THIN DARK
-  //      OUTLINE at the rim. The dark rim only shows in normal (source-over) blending.
-  // Splitting them is why we can have both a black outline AND a colour-blinking glow.
+  // Food = an additive coloured DISC plus, on ~half the orbs, a soft colour GLOW halo.
+  //   - The disc is drawn ADDITIVELY, so where two discs overlap the intersection ADDS UP
+  //     and brightens (2 orbs = brighter, a pile = very bright). The overlap effect lives on
+  //     the discs themselves, not one big glow.
+  //   - There is NO black outline: additive blending can't show black, so a dark rim and
+  //     overlap-brightening are mutually exclusive — overlap wins.
+  //   - The disc centre's lightness varies per orb, and pulses over time (the "blink").
   _makeOrbGlow(color) {
     let c = this._orbGlowCache.get(color);
     if (c) return c;
@@ -47,18 +48,18 @@ class Renderer {
     const ctx = c.getContext('2d');
     const b = this._parseColor(color);
     const g = ctx.createRadialGradient(half, half, 0, half, half, half);
-    // Lower alphas because this glow is now drawn ~5x bigger; additive so overlaps still add up.
-    g.addColorStop(0.00, `rgba(${b.r},${b.g},${b.b},0.42)`);
-    g.addColorStop(0.26, `rgba(${b.r},${b.g},${b.b},0.15)`);
-    g.addColorStop(0.60, `rgba(${b.r},${b.g},${b.b},0.04)`);
+    g.addColorStop(0.00, `rgba(${b.r},${b.g},${b.b},0.50)`);
+    g.addColorStop(0.32, `rgba(${b.r},${b.g},${b.b},0.20)`);
+    g.addColorStop(0.65, `rgba(${b.r},${b.g},${b.b},0.05)`);
     g.addColorStop(1.00, `rgba(${b.r},${b.g},${b.b},0)`);
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, sz, sz);
     this._orbGlowCache.set(color, c);
     return c;
   }
-  // `w` = how light the centre is (0 = flat colour, 1 = white). Passed per orb so the
-  // amount of light-in-the-middle varies across the food field; cached by colour+level.
+  // The additive colour disc. `w` = how light the centre is (0 = flat colour, 1 = white),
+  // passed per orb so light-in-the-middle varies across the field; cached by colour+level.
+  // No black rim — this is drawn additively (overlap-brightening) where black would vanish.
   _makeOrbCore(color, w) {
     const key = color + '|' + w;
     let c = this._orbCoreCache.get(key);
@@ -71,10 +72,9 @@ class Renderer {
     const mix = (k) => `rgba(${Math.round(b.r + (255 - b.r) * k)},${Math.round(b.g + (255 - b.g) * k)},${Math.round(b.b + (255 - b.b) * k)},1)`;
     const g = ctx.createRadialGradient(half, half, 0, half, half, half);
     g.addColorStop(0.00, mix(w));                          // lighter centre — amount varies per orb
-    g.addColorStop(0.42, mix(w * 0.32));                   // transition scaled to that centre
-    g.addColorStop(Renderer.ORB_SOLID, `rgba(${b.r},${b.g},${b.b},1)`); // saturated disc edge
-    g.addColorStop(0.90, 'rgba(0,0,0,0.85)');              // thin dark outline
-    g.addColorStop(1.00, 'rgba(0,0,0,0)');                 // transparent just outside
+    g.addColorStop(0.45, mix(w * 0.30));                   // transition scaled to that centre
+    g.addColorStop(Renderer.ORB_SOLID, `rgba(${b.r},${b.g},${b.b},1)`); // solid disc
+    g.addColorStop(1.00, `rgba(${b.r},${b.g},${b.b},0)`);  // soft edge (AA); no black rim
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, sz, sz);
     this._orbCoreCache.set(key, c);
@@ -268,8 +268,9 @@ class Renderer {
         // amp: hover distance VARIES per orb — ~1 in 4 sit completely STILL (amp 0), the
         //   rest drift from a little to a lot (up to 12 units).
         // white: how light the centre is — also varies per orb (5 levels).
+        // glow: only ~50% of orbs get the soft glow halo around them.
         const hb = hash % 8;
-        ph = { phase: hash * 0.00038, amp: hb <= 1 ? 0 : (hb - 1) * 2, white: 0.34 + (hash % 5) * 0.16 };
+        ph = { phase: hash * 0.00038, amp: hb <= 1 ? 0 : (hb - 1) * 2, white: 0.34 + (hash % 5) * 0.16, glow: (hash & 1) === 0 };
         this._foodPhaseCache.set(f.id, ph);
       }
       // Food stays a CONSTANT size and only BLINKS (its glow opacity pulses — see below);
@@ -288,26 +289,23 @@ class Renderer {
         ctx.drawImage(this._goldenFoodSprite, wx - span, wy - span, span * 2, span * 2);
         ctx.globalAlpha = 1;
       } else {
-        const glow = this._makeOrbGlow(f.color);
-        // Layer 1: a WIDE (~5x) soft colour glow, additive & steady. Because it's additive,
-        // where two orbs' glows overlap the light ADDS UP — 2 orbs read brighter, a pile
-        // reads very bright, so you can tell how many orbs are stacked.
-        const gSpan = r * 17;
+        const disc = this._makeOrbCore(f.color, ph.white);
+        const dSpan = r / Renderer.ORB_SOLID;
         ctx.globalCompositeOperation = 'lighter';
-        ctx.globalAlpha = f.dropped ? 0.6 : 0.9;
-        ctx.drawImage(glow, wx - gSpan, wy - gSpan, gSpan * 2, gSpan * 2);
-        // Layer 2: crisp core with the thin dark outline, normal blending.
-        ctx.globalCompositeOperation = 'source-over';
-        ctx.globalAlpha = f.dropped ? 0.9 : 1;
-        const cSpan = r / Renderer.ORB_SOLID;
-        ctx.drawImage(this._makeOrbCore(f.color, ph.white), wx - cSpan, wy - cSpan, cSpan * 2, cSpan * 2);
-        // Layer 3: the BLINK — the orb's INTERIOR lightens then returns, each orb on its own
-        // phase. An additive flash concentrated on the core (reuses the glow sprite, small).
-        const blink = 0.5 + 0.5 * Math.sin(t * 2.4 + ph.phase); // 0..1
-        ctx.globalCompositeOperation = 'lighter';
-        ctx.globalAlpha = 0.6 * blink;
-        const fSpan = r * 1.1;
-        ctx.drawImage(glow, wx - fSpan, wy - fSpan, fSpan * 2, fSpan * 2);
+        // Soft glow halo — but only on ~half the orbs (ph.glow). Modest size (not a big wash).
+        if (ph.glow) {
+          const gSpan = r * 4;
+          ctx.globalAlpha = f.dropped ? 0.55 : 0.8;
+          ctx.drawImage(this._makeOrbGlow(f.color), wx - gSpan, wy - gSpan, gSpan * 2, gSpan * 2);
+        }
+        // The disc, drawn ADDITIVELY: where two discs overlap, the intersection adds up and
+        // brightens (more orbs stacked = brighter). This is the overlap effect — on the discs.
+        ctx.globalAlpha = f.dropped ? 0.7 : 0.85;
+        ctx.drawImage(disc, wx - dSpan, wy - dSpan, dSpan * 2, dSpan * 2);
+        // BLINK: a second additive pass of the SAME disc, pulsing on the orb's own phase, so
+        // the interior brightens up from normal and eases back — the inside "changes colour".
+        ctx.globalAlpha = 0.55 * (0.5 + 0.5 * Math.sin(t * 3.0 + ph.phase));
+        ctx.drawImage(disc, wx - dSpan, wy - dSpan, dSpan * 2, dSpan * 2);
         ctx.globalCompositeOperation = 'source-over';
         ctx.globalAlpha = 1;
       }
@@ -890,7 +888,6 @@ class Renderer {
   }
 }
 
-// Fraction of the CORE sprite radius occupied by the saturated disc; the thin dark
-// outline sits just outside it (0.80 → disc, ~0.90 → black rim). The draw call sets
-// span = r / ORB_SOLID so the coloured disc renders at radius r and the rim hugs it.
-Renderer.ORB_SOLID = 0.80;
+// Fraction of the disc sprite radius occupied by the solid colour before the soft edge.
+// The draw call sets span = r / ORB_SOLID so the disc renders at radius r.
+Renderer.ORB_SOLID = 0.86;
