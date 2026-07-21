@@ -43,6 +43,7 @@ let interpBeforeMap = null; // reused across frames to avoid Map allocation
 let interpSnakeBuf  = null; // reused across frames to avoid array allocation
 let interpFoodMap   = null; // reused across frames — before-snapshot food by id
 let interpFoodBuf   = null; // reused across frames — interpolated food list
+let interpAfterIds  = null; // reused across frames — current snapshot's snake ids, for pruning _segPool
 const _segPool      = new Map(); // snake id → Float32Array, reused to avoid GC
 const INTERP_DELAY_MS = 70; // ~2 snapshot periods at the 30Hz SNAPSHOT_RATE — absorbs jitter without over-delaying
 let spawnTime        = null;  // performance.now() when last joined — used to ramp up interp delay
@@ -528,7 +529,9 @@ function interpolateState(now) {
 
   if (!interpSnakeBuf) interpSnakeBuf = [];
   interpSnakeBuf.length = 0;
+  if (!interpAfterIds) interpAfterIds = new Set(); else interpAfterIds.clear();
   for (const snakeAfter of after.state.snakes) {
+    interpAfterIds.add(snakeAfter.id);
     const snakeBefore = interpBeforeMap.get(snakeAfter.id);
     if (!snakeBefore) { interpSnakeBuf.push(snakeAfter); continue; }
     const len = Math.min(snakeBefore.segs.length, snakeAfter.segs.length);
@@ -542,6 +545,14 @@ function interpolateState(now) {
     interpSnakeBuf.push({ ...snakeAfter, segs, angle: lerpAngle(snakeBefore.angle, snakeAfter.angle, alpha) });
   }
   displayState.snakes = interpSnakeBuf;
+
+  // Prune _segPool of snakes no longer present (died/despawned) — otherwise every
+  // distinct snake id ever seen keeps its Float32Array alive for the whole session.
+  if (_segPool.size > interpAfterIds.size) {
+    for (const id of _segPool.keys()) {
+      if (!interpAfterIds.has(id)) _segPool.delete(id);
+    }
+  }
 }
 
 
