@@ -799,6 +799,8 @@ let lockedAngle  = null;
 const qTimerEl   = document.getElementById('q-timer');
 const qRingEl    = document.getElementById('q-timer-ring');
 const qTimerText = document.getElementById('q-timer-text');
+const qCountdown = document.getElementById('q-countdown');
+const Q_HOLD_SECS = Math.ceil(Q_HOLD_MS / 1000);
 
 // Tracks which snakes are currently cashing out: id -> { start, duration }
 const cashoutRings = new Map();
@@ -809,12 +811,15 @@ function startQTimer() {
   qHoldStart = performance.now();
   qTimerEl.classList.add('active');
   qRingEl.style.strokeDashoffset = RING_CIRC;
+  qCountdown.textContent = Q_HOLD_SECS;
   socket.emit('cashout:start');
 
   qHoldTimer = setInterval(() => {
     const elapsed = performance.now() - qHoldStart;
     const t = Math.min(elapsed / Q_HOLD_MS, 1);
     qRingEl.style.strokeDashoffset = RING_CIRC * (1 - t);
+    // Whole seconds remaining, counting 3 → 2 → 1 (never shows 0 — cash-out fires first)
+    qCountdown.textContent = Math.max(1, Math.ceil((Q_HOLD_MS - elapsed) / 1000));
 
     if (elapsed >= Q_HOLD_MS) {
       clearInterval(qHoldTimer);
@@ -830,6 +835,7 @@ function cancelQTimer() {
   lockedAngle = null;
   qTimerEl.classList.remove('active');
   qRingEl.style.strokeDashoffset = RING_CIRC;
+  qCountdown.textContent = Q_HOLD_SECS;
   socket.emit('cashout:cancel');
 }
 
