@@ -437,15 +437,6 @@ body {
   pointer-events: none;
 }
 #q-timer.active { display: flex; }
-#q-countdown {
-  font-size: 2rem;
-  font-weight: 800;
-  line-height: 1;
-  color: #14F195;
-  font-family: 'Segoe UI', sans-serif;
-  text-shadow: 0 0 10px rgba(20,241,149,0.7);
-  font-variant-numeric: tabular-nums;
-}
 #q-timer svg { filter: drop-shadow(0 0 8px rgba(20,241,149,0.6)); }
 #q-timer-label {
   font-size: 0.72rem;
