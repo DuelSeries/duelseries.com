@@ -15,6 +15,7 @@ const allTimeLb = require('./leaderboard');
 const prices = require('./prices');
 const money = require('./money'); // SOL- or USDC-denominated money backend (picked by MONEY_MODE)
 const Usdc  = require('./Usdc');  // USDC primitives — used directly by the cosmetics shop (always USDC)
+const notify = require('./notify'); // owner phone pushes (ntfy) — e.g. new-player alerts
 
 const REGION = process.env.REGION || 'na';
 
@@ -769,6 +770,12 @@ io.on('connection', (socket) => {
     socket._joinTime = Date.now();
     console.log(`[>] ${playerName} joins ${lobbyType || 'free'} lobby (worth: ${entry.worth} ${money.unit})`);
     room.addPlayer(socket, playerName, walletAddress || null, color || null, entry.worth, hatId || 'none', boostId || 'default');
+    notify.pushOwner(
+      `${playerName} joined the ${shortType} lobby` +
+        (entry.worth ? ` for ${entry.worth} ${money.unit}` : ' (free)') +
+        ` in ${(region || REGION).toUpperCase()}`,
+      { title: 'New player: slither.io', tags: 'video_game' }
+    );
     lobbyConnections.delete(socket);
     broadcastLobbyState();
   });
@@ -961,6 +968,12 @@ io.on('connection', (socket) => {
     const entryWorth = entry.worth; // worth from the verified stake token (native unit), same as the snake game
 
     room.addPlayer(socket, sanitizeName(name), color, entryWorth, socket._googleId || null);
+    notify.pushOwner(
+      `${sanitizeName(name)} joined the ${shortType} lobby` +
+        (entryWorth ? ` for ${entryWorth} ${money.unit}` : ' (free)') +
+        ` in ${(region || REGION).toUpperCase()}`,
+      { title: 'New player: agar.io', tags: 'video_game' }
+    );
     lobbyConnections.delete(socket);
     broadcastLobbyState();
   });
