@@ -116,6 +116,21 @@ async function init() {
       created_at     TIMESTAMPTZ DEFAULT NOW(),
       PRIMARY KEY (wallet_address, item_id)
     );
+
+    CREATE TABLE IF NOT EXISTS house_revenue (
+      id            SERIAL PRIMARY KEY,
+      source        TEXT NOT NULL,            -- 'game_rake' | 'cosmetic' | 'bot_fee'
+      game          TEXT,                     -- 'slither' | 'agar' | NULL
+      amount_usdc   NUMERIC(18,6) NOT NULL,
+      player_wallet TEXT,
+      player_name   TEXT,
+      lobby_type    TEXT,
+      region        TEXT,
+      tx_sig        TEXT,
+      created_at    TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_hr_created ON house_revenue(created_at);
+    CREATE INDEX IF NOT EXISTS idx_hr_source  ON house_revenue(source);
   `);
   console.log('[DB] Tables ready');
 }
@@ -271,6 +286,50 @@ async function recordEarnings(id, name, sol, cadAmount = 0) {
   await pool.query(`INSERT INTO earnings_history (google_id, amount, cad_amount) VALUES ($1, $2, $3)`, [id, sol, cadAmount]);
 }
 
+// ─── House revenue (the owner's take: game rake + cosmetic sales) ────────────────
+// One append-only ledger of everything the house earns, so the owner can see total
+// take at a glance. Callers use .catch() — a missed revenue log must never break a
+// cashout or a purchase.
+async function recordHouseRevenue({ source, game = null, amountUsdc, wallet = null, name = null, lobbyType = null, region = null, txSig = null }) {
+  const amt = Number(amountUsdc);
+  if (!Number.isFinite(amt) || amt <= 0) return;
+  await pool.query(
+    `INSERT INTO house_revenue (source, game, amount_usdc, player_wallet, player_name, lobby_type, region, tx_sig)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+    [source, game, amt, wallet, name, lobbyType, region, txSig]
+  );
+}
+
+// Totals for the owner earnings dashboard: grand total + per-source breakdown + today + last 7 days.
+async function getHouseRevenueSummary() {
+  const [bySource, grand, today, last7] = await Promise.all([
+    pool.query(`SELECT source, COALESCE(SUM(amount_usdc),0) AS total, COUNT(*) AS n FROM house_revenue GROUP BY source`),
+    pool.query(`SELECT COALESCE(SUM(amount_usdc),0) AS total, COUNT(*) AS n FROM house_revenue`),
+    pool.query(`SELECT COALESCE(SUM(amount_usdc),0) AS total FROM house_revenue WHERE created_at >= date_trunc('day', NOW())`),
+    pool.query(`SELECT COALESCE(SUM(amount_usdc),0) AS total FROM house_revenue WHERE created_at >= NOW() - INTERVAL '7 days'`),
+  ]);
+  return {
+    total:  parseFloat(grand.rows[0].total),
+    count:  parseInt(grand.rows[0].n, 10),
+    today:  parseFloat(today.rows[0].total),
+    last7:  parseFloat(last7.rows[0].total),
+    bySource: bySource.rows.map(r => ({ source: r.source, total: parseFloat(r.total), count: parseInt(r.n, 10) })),
+  };
+}
+
+// Most recent revenue events for the dashboard's live feed.
+async function getRecentHouseRevenue(limit = 30) {
+  const r = await pool.query(
+    `SELECT source, game, amount_usdc, player_name, lobby_type, region, created_at
+       FROM house_revenue ORDER BY created_at DESC LIMIT $1`,
+    [limit]
+  );
+  return r.rows.map(x => ({
+    source: x.source, game: x.game, amount: parseFloat(x.amount_usdc),
+    name: x.player_name, lobbyType: x.lobby_type, region: x.region, at: x.created_at,
+  }));
+}
+
 async function recordAgarGameResult(googleId, score) {
   await pool.query(
     `UPDATE accounts SET
@@ -394,4 +453,5 @@ module.exports = {
   recordEarnings, getTopEarners,
   getProfile, getMyProfile, searchPlayerNames, getGlobalWinnings,
   addCosmetic, getOwnedCosmetics,
+  recordHouseRevenue, getHouseRevenueSummary, getRecentHouseRevenue,
 };

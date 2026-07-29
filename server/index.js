@@ -420,6 +420,7 @@ app.post('/api/cosmetics/buy', entryFeeLimiter, express.json({ limit: '256kb' })
     if (!(await db.markStakeSig(sig))) return res.status(400).json({ error: 'Payment already used' });
     const owner = walletAddress || payer;
     await db.addCosmetic(owner, itemId, sig, usdc);
+    db.recordHouseRevenue({ source: 'cosmetic', amountUsdc: usdc, wallet: owner, name: itemId, txSig: sig }).catch(() => {});
     res.json({ ok: true, itemId, owned: await db.getOwnedCosmetics(owner) });
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
@@ -465,6 +466,20 @@ app.get('/api/admin/failed-payouts', async (req, res) => {
   if (!(await isOwnerReq(req))) return res.status(403).json({ error: 'Forbidden' });
   try {
     res.json(await db.getFailedPayouts(200));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Owner earnings: total house take (game rake + cosmetic sales) with a live feed.
+app.get('/api/admin/earnings', async (req, res) => {
+  if (!(await isOwnerReq(req))) return res.status(403).json({ error: 'Forbidden' });
+  try {
+    const [summary, recent] = await Promise.all([
+      db.getHouseRevenueSummary(),
+      db.getRecentHouseRevenue(30),
+    ]);
+    res.json({ ...summary, recent, unit: money.unit });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -811,6 +826,15 @@ io.on('connection', (socket) => {
     const ownerShare = worth * HOUSE_CUT;
     const playerShare = worth - ownerShare;
 
+    // House keeps the 10% cut; log it so the owner earnings dashboard can total the take.
+    if (worth > 0) {
+      db.recordHouseRevenue({
+        source: 'game_rake', game: 'slither', amountUsdc: ownerShare,
+        wallet: socket._walletAddress || null, name: snake.name,
+        lobbyType: room.lobbyType || null, region: REGION,
+      }).catch(() => {});
+    }
+
     // Self-custody (Phase 2): the escrow sends the player's 90% back to their own wallet
     // on-chain; the 10% house cut simply stays in the escrow. No custodial ledger involved.
     if (socket._walletAddress) {
@@ -1050,6 +1074,15 @@ io.on('connection', (socket) => {
 
     const HOUSE_CUT    = 0.10;
     const playerShare  = worth - worth * HOUSE_CUT; // 90% to the player, 10% house cut stays in escrow
+
+    // House keeps the 10% cut; log it for the owner earnings dashboard.
+    if (worth > 0) {
+      db.recordHouseRevenue({
+        source: 'game_rake', game: 'agar', amountUsdc: worth * HOUSE_CUT,
+        wallet: socket._walletAddress || null, name: player.name,
+        lobbyType: room.lobbyType || null, region: REGION,
+      }).catch(() => {});
+    }
 
     if (socket._walletAddress) {
       socket.emit('cell:cashout:result', { newBalance: null, earnedCad: money.fiatValue(playerShare), earnedSol: playerShare, score: player.score, toWallet: true });

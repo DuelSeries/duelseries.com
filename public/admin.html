@@ -35,6 +35,11 @@
   .wallet-result { font-size: 0.82rem; margin-top: 8px; padding: 10px 14px; border-radius: 8px; }
   .wallet-result.ok { background: #0e2a1a; border: 1px solid #14F195; color: #14F195; }
   .wallet-result.err { background: #2a0e0e; border: 1px solid #e74c3c; color: #e74c3c; }
+  .earn-list { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+  .earn-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; background: #161928; border: 1px solid #222840; border-radius: 8px; padding: 8px 12px; font-size: 0.82rem; }
+  .earn-desc { color: #cfd3e6; line-height: 1.35; }
+  .earn-time { color: #556; font-size: 0.68rem; }
+  .earn-amt { color: #14F195; font-weight: 600; white-space: nowrap; }
 </style>
 </head>
 <body>
@@ -47,9 +52,11 @@ async function load() {
   const content = document.getElementById('content');
   try {
     const _t = localStorage.getItem('duel_admin_token');
-    const [finRes, priceRes] = await Promise.all([
-      fetch('/admin/finance', _t ? { headers: { Authorization: 'Bearer ' + _t } } : undefined),
+    const authHdr = _t ? { headers: { Authorization: 'Bearer ' + _t } } : undefined;
+    const [finRes, priceRes, earnRes] = await Promise.all([
+      fetch('/admin/finance', authHdr),
       fetch('https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=cad').catch(() => null),
+      fetch('/api/admin/earnings', authHdr).catch(() => null),
     ]);
 
     if (finRes.status === 403) {
@@ -69,7 +76,7 @@ async function load() {
     const fmt = (sol) => sol.toFixed(4) + ' SOL' + (cadRate ? ' · CA$' + (sol * cadRate).toFixed(2) : '');
     const profitClass = fin.profit < -0.001 ? 'warning' : 'profit';
 
-    content.innerHTML = `
+    let html = `
       <div class="card ${profitClass}">
         <div class="card-label">Your Profit (Escrow − Owed)</div>
         <div class="card-value">${fmt(Math.max(0, fin.profit))}</div>
@@ -84,10 +91,46 @@ async function load() {
         <div class="card-label">Owed to Players</div>
         <div class="card-value">${fmt(fin.totalOwed)}</div>
         <div class="card-sub">Stakes currently live in-game — do not touch this</div>
-      </div>
+      </div>`;
+
+    // ── Earnings (house take: game rake + skin sales) ──
+    let earn = null;
+    if (earnRes && earnRes.ok) { try { earn = await earnRes.json(); } catch (_) {} }
+    if (earn && !earn.error) {
+      const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+      const usd = (v) => '$' + (Number(v) || 0).toFixed(2);
+      const bySrc = {}; (earn.bySource || []).forEach(s => { bySrc[s.source] = s; });
+      const rake = bySrc.game_rake ? bySrc.game_rake.total : 0;
+      const cos  = bySrc.cosmetic  ? bySrc.cosmetic.total  : 0;
+      const rows = (earn.recent || []).slice(0, 12).map(function (r) {
+        var label = r.source === 'game_rake'
+          ? 'Rake · ' + esc(r.game || 'game') + (r.lobbyType ? ' ' + esc(r.lobbyType) : '') + (r.name ? ' · ' + esc(r.name) : '')
+          : (r.source === 'cosmetic' ? 'Skin sale' + (r.name ? ' · ' + esc(r.name) : '') : esc(r.source));
+        return '<div class="earn-row"><span class="earn-desc">' + label +
+          '<br><span class="earn-time">' + new Date(r.at).toLocaleString() + '</span></span>' +
+          '<span class="earn-amt">' + usd(r.amount) + '</span></div>';
+      }).join('');
+      html += ''
+        + '<div class="section-title">Earnings (' + esc(earn.unit || 'USDC') + ')</div>'
+        + '<div class="card profit"><div class="card-label">Total Earnings</div>'
+        + '<div class="card-value">' + usd(earn.total) + '</div>'
+        + '<div class="card-sub">' + earn.count + ' events · today ' + usd(earn.today) + ' · last 7d ' + usd(earn.last7) + '</div></div>'
+        + '<div class="row">'
+        + '<div class="stat"><div class="stat-label">Game Rake (10%)</div><div class="stat-value">' + usd(rake) + '</div></div>'
+        + '<div class="stat"><div class="stat-label">Skin Sales</div><div class="stat-value">' + usd(cos) + '</div></div>'
+        + '</div>'
+        + (rows
+            ? '<div class="section-title" style="font-size:0.95rem">Recent</div><div class="earn-list">' + rows + '</div>'
+            : '<div class="card-sub" style="margin-top:12px">No earnings recorded yet. This fills in as players cash out and buy skins.</div>');
+    } else if (earnRes) {
+      html += '<div class="section-title">Earnings</div><div class="card-sub">Could not load earnings right now.</div>';
+    }
+
+    html += `
       <button class="refresh" onclick="load()">↻ Refresh</button>
       <div class="updated">Updated ${new Date().toLocaleTimeString()}</div>
     `;
+    content.innerHTML = html;
   } catch (e) {
     content.innerHTML = `<div class="error">Error: ${e.message}</div>`;
   }
