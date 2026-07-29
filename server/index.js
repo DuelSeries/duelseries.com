@@ -499,6 +499,23 @@ app.get('/api/ping', (req, res) => {
   res.json({ ok: true, region: REGION, ts: Date.now() });
 });
 
+// Someone opened the site — ping the owner's phone (every top-level page load, per request).
+// Obvious bots/crawlers/monitors are skipped so the pings stay real humans.
+app.post('/api/track/visit', express.json({ limit: '8kb' }), (req, res) => {
+  res.json({ ok: true });
+  try {
+    const ua = String(req.headers['user-agent'] || '');
+    if (/bot|crawl|spider|slurp|bingpreview|monitor|uptime|headless|curl|wget|python-requests|facebookexternalhit/i.test(ua)) return;
+    const page = String((req.body && req.body.page) || '/').slice(0, 40);
+    const ref  = String((req.body && req.body.ref) || '').slice(0, 60);
+    const country = req.headers['cf-ipcountry'] || '';
+    notify.pushOwner(
+      `Someone opened your site (${page})` + (country && country !== 'XX' ? ` from ${country}` : '') + (ref ? ` via ${ref}` : ''),
+      { title: 'Site visit', tags: 'eyes' }
+    );
+  } catch (_) {}
+});
+
 // ─── Static files ─────────────────────────────────────────────────────────────
 // All-time leaderboard API
 app.get('/api/leaderboard', (req, res) => {
@@ -940,6 +957,12 @@ io.on('connection', (socket) => {
     if (entry.googleId) socket._googleId = entry.googleId;
     if (entry.walletAddress) socket._walletAddress = entry.walletAddress;
     socket._room.respawnPlayer(socket.id, entry.worth);
+    const _rs = socket._room.snakes.get(socket.id);
+    notify.pushOwner(
+      `${(_rs && _rs.name) || 'A player'} pressed play again in the ${shortType} lobby` +
+        (entry.worth ? ` for ${entry.worth} ${money.unit}` : ' (free)'),
+      { title: 'Player respawned: slither.io', tags: 'arrows_counterclockwise' }
+    );
   });
 
   socket.on('ping_check', () => socket.emit('pong_check'));
@@ -1061,6 +1084,12 @@ io.on('connection', (socket) => {
     }
     if (entry.walletAddress) socket._walletAddress = entry.walletAddress;
     room.respawnPlayer(socket.id, entry.worth);
+    const _rp = room.players.get(socket.id);
+    notify.pushOwner(
+      `${(_rp && _rp.name) || 'A player'} pressed play again in the ${shortType} lobby` +
+        (entry.worth ? ` for ${entry.worth} ${money.unit}` : ' (free)'),
+      { title: 'Player respawned: agar.io', tags: 'arrows_counterclockwise' }
+    );
   });
 
   socket.on('cell:lock', () => {

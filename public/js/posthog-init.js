@@ -21,3 +21,16 @@ window.phEvent = function (name, props) {
 window.phIdentify = function (id, props) {
   try { if (id && window.posthog && window.posthog.identify) window.posthog.identify(String(id), props || {}); } catch (e) {}
 };
+
+// Tell the server someone opened the site so it can ping the owner's phone. Top-level page only
+// (window.self === window.top) so the in-game iframes don't double-count a single site visit.
+try {
+  if (window.self === window.top) {
+    fetch('/api/track/visit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ page: location.pathname, ref: document.referrer || '' }),
+      keepalive: true,
+    }).catch(function () {});
+  }
+} catch (e) {}
