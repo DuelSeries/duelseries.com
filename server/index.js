@@ -16,8 +16,16 @@ const prices = require('./prices');
 const money = require('./money'); // SOL- or USDC-denominated money backend (picked by MONEY_MODE)
 const Usdc  = require('./Usdc');  // USDC primitives — used directly by the cosmetics shop (always USDC)
 const notify = require('./notify'); // owner phone pushes (ntfy) — e.g. new-player alerts
+const analytics = require('./analytics'); // server-side PostHog capture (money events)
 
 const REGION = process.env.REGION || 'na';
+
+// Record a house money event to BOTH our own ledger (source of truth) and PostHog (dashboards).
+// amountUsdc is signed: positive = revenue (rake, skins), negative = cost (bot entries).
+function trackEarning(opts) {
+  db.recordHouseRevenue(opts).catch(() => {});
+  analytics.captureEarning(opts);
+}
 
 // (Phase 4d: the old per-account Privy SERVER wallet provisioning was removed — players use
 // their own client-side Privy embedded wallet now, so no server wallet is created on login.)
@@ -420,7 +428,7 @@ app.post('/api/cosmetics/buy', entryFeeLimiter, express.json({ limit: '256kb' })
     if (!(await db.markStakeSig(sig))) return res.status(400).json({ error: 'Payment already used' });
     const owner = walletAddress || payer;
     await db.addCosmetic(owner, itemId, sig, usdc);
-    db.recordHouseRevenue({ source: 'cosmetic', amountUsdc: usdc, wallet: owner, name: itemId, txSig: sig }).catch(() => {});
+    trackEarning({ source: 'cosmetic', amountUsdc: usdc, wallet: owner, name: itemId, txSig: sig });
     res.json({ ok: true, itemId, owned: await db.getOwnedCosmetics(owner) });
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
@@ -826,13 +834,13 @@ io.on('connection', (socket) => {
     const ownerShare = worth * HOUSE_CUT;
     const playerShare = worth - ownerShare;
 
-    // House keeps the 10% cut; log it so the owner earnings dashboard can total the take.
+    // House keeps the 10% cut; record it to our ledger + PostHog for the earnings dashboard.
     if (worth > 0) {
-      db.recordHouseRevenue({
+      trackEarning({
         source: 'game_rake', game: 'slither', amountUsdc: ownerShare,
         wallet: socket._walletAddress || null, name: snake.name,
         lobbyType: room.lobbyType || null, region: REGION,
-      }).catch(() => {});
+      });
     }
 
     // Self-custody (Phase 2): the escrow sends the player's 90% back to their own wallet
@@ -958,6 +966,7 @@ io.on('connection', (socket) => {
       try {
         await db.recordWithdrawal(OWNER_WALLET, null, feeAmt, 'paid_bot_entry');
         room.addPaidBot(feeAmt);
+        trackEarning({ source: 'bot_cost', game: 'slither', amountUsdc: -feeAmt, lobbyType: shortType, region: REGION });
         spawned++;
       } catch (e) {
         console.error('[BOT] Paid bot spawn failed:', e.message);
@@ -1014,6 +1023,7 @@ io.on('connection', (socket) => {
       try {
         await db.recordWithdrawal(OWNER_WALLET, null, feeAmt, 'paid_agar_bot_entry');
         room.addPaidBot(feeAmt);
+        trackEarning({ source: 'bot_cost', game: 'agar', amountUsdc: -feeAmt, lobbyType, region: REGION });
         broadcastLobbyState();
       } catch (e) {
         console.error('[AGAR BOT] Paid bot spawn failed:', e.message);
@@ -1075,13 +1085,13 @@ io.on('connection', (socket) => {
     const HOUSE_CUT    = 0.10;
     const playerShare  = worth - worth * HOUSE_CUT; // 90% to the player, 10% house cut stays in escrow
 
-    // House keeps the 10% cut; log it for the owner earnings dashboard.
+    // House keeps the 10% cut; record it to our ledger + PostHog.
     if (worth > 0) {
-      db.recordHouseRevenue({
+      trackEarning({
         source: 'game_rake', game: 'agar', amountUsdc: worth * HOUSE_CUT,
         wallet: socket._walletAddress || null, name: player.name,
         lobbyType: room.lobbyType || null, region: REGION,
-      }).catch(() => {});
+      });
     }
 
     if (socket._walletAddress) {

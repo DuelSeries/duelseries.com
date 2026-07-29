@@ -292,7 +292,7 @@ async function recordEarnings(id, name, sol, cadAmount = 0) {
 // cashout or a purchase.
 async function recordHouseRevenue({ source, game = null, amountUsdc, wallet = null, name = null, lobbyType = null, region = null, txSig = null }) {
   const amt = Number(amountUsdc);
-  if (!Number.isFinite(amt) || amt <= 0) return;
+  if (!Number.isFinite(amt) || amt === 0) return; // allow negatives (e.g. bot-entry costs)
   await pool.query(
     `INSERT INTO house_revenue (source, game, amount_usdc, player_wallet, player_name, lobby_type, region, tx_sig)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
