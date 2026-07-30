@@ -504,11 +504,12 @@ app.get('/api/admin/failed-payouts', async (req, res) => {
 app.get('/api/admin/earnings', async (req, res) => {
   if (!(await isOwnerReq(req))) return res.status(403).json({ error: 'Forbidden' });
   try {
-    const [summary, recent] = await Promise.all([
+    const [summary, recent, daily] = await Promise.all([
       db.getHouseRevenueSummary(),
-      db.getRecentHouseRevenue(30),
+      db.getRecentHouseRevenue(40),
+      db.getHouseRevenueDaily(30),
     ]);
-    res.json({ ...summary, recent, unit: money.unit });
+    res.json({ ...summary, recent, daily, unit: money.unit });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DuelSeries · Earnings</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0b0d1a; color: #e8e9f0; font-family: 'Segoe UI', system-ui, sans-serif; min-height: 100vh; }
+  .wrap { max-width: 940px; margin: 0 auto; padding: 28px 20px 60px; }
+  .top { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 22px; }
+  h1 { font-size: 1.3rem; letter-spacing: 0.04em; color: #14F195; }
+  h1 span { color: #6b7192; font-weight: 400; }
+  .updated { font-size: 0.72rem; color: #556; }
+  .loading, .error { text-align: center; padding: 60px 20px; color: #6b7192; }
+  .error { color: #ff6b6b; }
+
+  .ranges { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+  .range { background: #161a2e; border: 1px solid #262c47; color: #aeb3cc; padding: 7px 16px; border-radius: 999px; cursor: pointer; font-size: 0.82rem; }
+  .range.active { border-color: #14F195; color: #14F195; background: #14F1951a; }
+
+  .hero { background: linear-gradient(135deg, #14201c, #12162a); border: 1px solid #1e6b4f; border-radius: 16px; padding: 26px 28px; margin-bottom: 16px; }
+  .hero-label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.1em; color: #8a90ad; }
+  .hero-value { font-size: 2.6rem; font-weight: 800; color: #14F195; margin-top: 4px; line-height: 1.1; }
+  .hero-value.neg { color: #ff6b6b; }
+  .hero-sub { font-size: 0.82rem; color: #8a90ad; margin-top: 8px; }
+
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
+  .grid-2 { grid-template-columns: repeat(3, 1fr); }
+  .stat { background: #12162a; border: 1px solid #222842; border-radius: 12px; padding: 15px 17px; }
+  .stat-label { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.07em; color: #7d83a3; }
+  .stat-value { font-size: 1.3rem; font-weight: 700; margin-top: 4px; }
+  .stat-value.green { color: #14F195; }
+  .stat-value.red { color: #ff6b6b; }
+  .stat-sub { font-size: 0.7rem; color: #626892; margin-top: 3px; }
+
+  .section-title { font-size: 0.95rem; color: #cfd3ea; margin: 22px 0 10px; letter-spacing: 0.03em; }
+  .card { background: #12162a; border: 1px solid #222842; border-radius: 14px; padding: 18px 20px; }
+
+  .chart { width: 100%; height: 150px; display: block; }
+  .chart-empty { color: #626892; font-size: 0.82rem; padding: 40px 0; text-align: center; }
+
+  .feed { display: flex; flex-direction: column; gap: 7px; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: #12162a; border: 1px solid #222842; border-radius: 10px; padding: 9px 14px; }
+  .row-desc { font-size: 0.84rem; color: #d3d7ef; }
+  .row-meta { font-size: 0.68rem; color: #626892; margin-top: 2px; }
+  .row-amt { font-weight: 700; font-size: 0.92rem; white-space: nowrap; }
+  .row-amt.green { color: #14F195; }
+  .row-amt.red { color: #ff6b6b; }
+  .tag { display: inline-block; font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.05em; padding: 1px 7px; border-radius: 6px; margin-right: 6px; vertical-align: middle; }
+  .tag.rake { background: #14F1951a; color: #14F195; }
+  .tag.cosmetic { background: #7c5cff26; color: #b7a6ff; }
+  .tag.bot { background: #ff6b6b1a; color: #ff9d9d; }
+
+  .btn { background: none; border: 1px solid #2c3350; color: #aeb3cc; padding: 8px 18px; border-radius: 9px; cursor: pointer; font-size: 0.82rem; margin-top: 18px; }
+  .btn:hover { border-color: #14F195; color: #14F195; }
+  @media (max-width: 620px) { .grid, .grid-2 { grid-template-columns: 1fr; } .hero-value { font-size: 2.1rem; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <h1>DuelSeries <span>· Earnings</span></h1>
+    <div class="updated" id="updated"></div>
+  </div>
+  <div id="content" class="loading">Loading your earnings...</div>
+</div>
+<script>
+  var DATA = null;
+  var RANGE = 'total';
+  var RANGE_LABEL = { today: 'Today', last7: 'Last 7 days', last30: 'Last 30 days', total: 'All time' };
+
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]); }); }
+  function usd(v) { v = Number(v) || 0; var d = (v !== 0 && Math.abs(v) < 1) ? 4 : 2; return (v < 0 ? '-$' : '$') + Math.abs(v).toFixed(d); }
+
+  function bySrc(d, key) { var m = {}; (d.bySource || []).forEach(function (s) { m[s.source] = s; }); return m[key] ? m[key].total : 0; }
+  function lobby(d, key) { var m = {}; (d.byLobby || []).forEach(function (s) { m[s.lobby] = s; }); return m[key] ? m[key].total : 0; }
+
+  function svgChart(daily) {
+    if (!daily || !daily.length) return '<div class="chart-empty">No history yet. Bars appear here as earnings come in.</div>';
+    var W = 900, H = 150, pad = 6;
+    var vals = daily.map(function (d) { return d.total; });
+    var maxV = Math.max(0.0001, Math.max.apply(null, vals.map(Math.abs)));
+    var n = daily.length, bw = (W - pad * 2) / n;
+    var hasNeg = vals.some(function (v) { return v < 0; });
+    var baseY = hasNeg ? H / 2 : H - 12;
+    var scale = (hasNeg ? (H / 2 - 10) : (H - 22)) / maxV;
+    var bars = daily.map(function (d, i) {
+      var h = Math.abs(d.total) * scale;
+      var x = pad + i * bw + bw * 0.15, w = bw * 0.7;
+      var y = d.total >= 0 ? baseY - h : baseY;
+      var col = d.total >= 0 ? '#14F195' : '#ff6b6b';
+      return '<rect x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + w.toFixed(1) + '" height="' + Math.max(1, h).toFixed(1) + '" rx="1.5" fill="' + col + '"><title>' + esc(d.day) + ': ' + usd(d.total) + '</title></rect>';
+    }).join('');
+    return '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none">' +
+      '<line x1="0" y1="' + baseY + '" x2="' + W + '" y2="' + baseY + '" stroke="#2a3050" stroke-width="1"/>' + bars + '</svg>';
+  }
+
+  function render() {
+    var d = DATA, c = document.getElementById('content');
+    if (!d) return;
+    var net = d[RANGE] != null ? d[RANGE] : d.total;
+    var rake = bySrc(d, 'game_rake'), skins = bySrc(d, 'cosmetic'), bots = bySrc(d, 'bot_cost');
+
+    var recent = (d.recent || []).slice(0, 25).map(function (r) {
+      var tagClass = r.source === 'game_rake' ? 'rake' : (r.source === 'cosmetic' ? 'cosmetic' : 'bot');
+      var tagText = r.source === 'game_rake' ? 'Rake' : (r.source === 'cosmetic' ? 'Skin' : 'Bot');
+      var desc = r.source === 'game_rake' ? ('Rake ' + esc(r.game || '') + (r.name ? ' · ' + esc(r.name) : ''))
+        : (r.source === 'cosmetic' ? ('Skin sale' + (r.name ? ' · ' + esc(r.name) : '')) : ('Bot entry ' + esc(r.game || '')));
+      var meta = [r.lobbyType ? esc(r.lobbyType) + ' lobby' : '', r.region ? esc(r.region).toUpperCase() : '', new Date(r.at).toLocaleString()].filter(Boolean).join(' · ');
+      var amtClass = r.amount < 0 ? 'red' : 'green';
+      return '<div class="row"><div><div class="row-desc"><span class="tag ' + tagClass + '">' + tagText + '</span>' + desc + '</div>' +
+        '<div class="row-meta">' + meta + '</div></div><div class="row-amt ' + amtClass + '">' + usd(r.amount) + '</div></div>';
+    }).join('');
+
+    c.className = '';
+    c.innerHTML =
+      '<div class="ranges">' +
+        ['today', 'last7', 'last30', 'total'].map(function (k) {
+          return '<button class="range' + (k === RANGE ? ' active' : '') + '" onclick="setRange(\'' + k + '\')">' + RANGE_LABEL[k] + '</button>';
+        }).join('') +
+      '</div>' +
+      '<div class="hero"><div class="hero-label">Net earnings · ' + RANGE_LABEL[RANGE] + '</div>' +
+        '<div class="hero-value ' + (net < 0 ? 'neg' : '') + '">' + usd(net) + '</div>' +
+        '<div class="hero-sub">' + d.count + ' total events · all-time net ' + usd(d.total) + '</div></div>' +
+      '<div class="grid"><div class="stat"><div class="stat-label">Game Rake (10%)</div><div class="stat-value green">' + usd(rake) + '</div></div>' +
+        '<div class="stat"><div class="stat-label">Skin Sales</div><div class="stat-value green">' + usd(skins) + '</div></div>' +
+        '<div class="stat"><div class="stat-label">Bot Costs</div><div class="stat-value ' + (bots < 0 ? 'red' : 'green') + '">' + usd(bots) + '</div></div></div>' +
+      '<div class="section-title">By lobby</div>' +
+      '<div class="grid grid-2"><div class="stat"><div class="stat-label">Free</div><div class="stat-value">' + usd(lobby(d, 'free')) + '</div></div>' +
+        '<div class="stat"><div class="stat-label">Dime</div><div class="stat-value">' + usd(lobby(d, 'dime')) + '</div></div>' +
+        '<div class="stat"><div class="stat-label">Dollar</div><div class="stat-value">' + usd(lobby(d, 'dollar')) + '</div></div></div>' +
+      '<div class="section-title">Daily net (last 30 days)</div><div class="card">' + svgChart(d.daily) + '</div>' +
+      '<div class="section-title">Live feed</div>' + (recent ? '<div class="feed">' + recent + '</div>' : '<div class="card"><div class="chart-empty">No earnings recorded yet.</div></div>') +
+      '<button class="btn" onclick="load()">↻ Refresh</button>';
+    document.getElementById('updated').textContent = 'Updated ' + new Date().toLocaleTimeString();
+  }
+
+  function setRange(k) { RANGE = k; render(); }
+
+  async function load() {
+    var c = document.getElementById('content');
+    try {
+      var t = localStorage.getItem('duel_admin_token');
+      var res = await fetch('/api/admin/earnings', t ? { headers: { Authorization: 'Bearer ' + t } } : undefined);
+      if (res.status === 403) { c.className = 'error'; c.innerHTML = 'Not authorized. Connect your owner wallet on the lobby first, then reload this page.'; return; }
+      var j = await res.json();
+      if (j.error) { c.className = 'error'; c.innerHTML = esc(j.error); return; }
+      DATA = j; render();
+    } catch (e) { c.className = 'error'; c.innerHTML = 'Error: ' + esc(e.message); }
+  }
+  load();
+  setInterval(load, 20000); // auto-refresh every 20s
+</script>
+</body>
+</html>

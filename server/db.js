@@ -300,21 +300,38 @@ async function recordHouseRevenue({ source, game = null, amountUsdc, wallet = nu
   );
 }
 
-// Totals for the owner earnings dashboard: grand total + per-source breakdown + today + last 7 days.
+// Totals for the owner earnings dashboard: grand total + per-source + per-lobby + today/7d/30d.
 async function getHouseRevenueSummary() {
-  const [bySource, grand, today, last7] = await Promise.all([
+  const [bySource, byLobby, grand, today, last7, last30] = await Promise.all([
     pool.query(`SELECT source, COALESCE(SUM(amount_usdc),0) AS total, COUNT(*) AS n FROM house_revenue GROUP BY source`),
+    pool.query(`SELECT COALESCE(lobby_type,'unknown') AS lobby, COALESCE(SUM(amount_usdc),0) AS total, COUNT(*) AS n FROM house_revenue GROUP BY lobby_type`),
     pool.query(`SELECT COALESCE(SUM(amount_usdc),0) AS total, COUNT(*) AS n FROM house_revenue`),
     pool.query(`SELECT COALESCE(SUM(amount_usdc),0) AS total FROM house_revenue WHERE created_at >= date_trunc('day', NOW())`),
     pool.query(`SELECT COALESCE(SUM(amount_usdc),0) AS total FROM house_revenue WHERE created_at >= NOW() - INTERVAL '7 days'`),
+    pool.query(`SELECT COALESCE(SUM(amount_usdc),0) AS total FROM house_revenue WHERE created_at >= NOW() - INTERVAL '30 days'`),
   ]);
   return {
     total:  parseFloat(grand.rows[0].total),
     count:  parseInt(grand.rows[0].n, 10),
     today:  parseFloat(today.rows[0].total),
     last7:  parseFloat(last7.rows[0].total),
+    last30: parseFloat(last30.rows[0].total),
     bySource: bySource.rows.map(r => ({ source: r.source, total: parseFloat(r.total), count: parseInt(r.n, 10) })),
+    byLobby:  byLobby.rows.map(r => ({ lobby: r.lobby, total: parseFloat(r.total), count: parseInt(r.n, 10) })),
   };
+}
+
+// Daily net earnings for the dashboard trend chart (last `days` days, oldest first).
+async function getHouseRevenueDaily(days = 30) {
+  const r = await pool.query(
+    `SELECT to_char(date_trunc('day', created_at), 'YYYY-MM-DD') AS day,
+            COALESCE(SUM(amount_usdc),0) AS total
+       FROM house_revenue
+      WHERE created_at >= NOW() - ($1 || ' days')::interval
+      GROUP BY day ORDER BY day ASC`,
+    [days]
+  );
+  return r.rows.map(x => ({ day: x.day, total: parseFloat(x.total) }));
 }
 
 // Most recent revenue events for the dashboard's live feed.
@@ -453,5 +470,5 @@ module.exports = {
   recordEarnings, getTopEarners,
   getProfile, getMyProfile, searchPlayerNames, getGlobalWinnings,
   addCosmetic, getOwnedCosmetics,
-  recordHouseRevenue, getHouseRevenueSummary, getRecentHouseRevenue,
+  recordHouseRevenue, getHouseRevenueSummary, getRecentHouseRevenue, getHouseRevenueDaily,
 };
