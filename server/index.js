@@ -1,6 +1,7 @@
 require('dotenv').config({ override: true });
 const express    = require('express');
 const http       = require('http');
+const https      = require('https');
 const { Server } = require('socket.io');
 const path       = require('path');
 const { rateLimit } = require('express-rate-limit');
@@ -149,6 +150,26 @@ async function isOwnerReq(req) {
   const idToken = auth.startsWith('Bearer ') ? auth.slice(7) : (req.headers['privy-id-token'] || null);
   return isOwnerToken(idToken);
 }
+
+// ─── PostHog reverse proxy ───────────────────────────────────────────────────
+// Route analytics through our own domain so ad blockers can't block tracking.
+// Registered BEFORE the JSON body parser so we can stream the raw request straight
+// through untouched. /ingest/static/* -> the posthog-js asset host; everything else
+// (capture, flags, session recording) -> the capture host.
+app.all('/ingest/*', (req, res) => {
+  const isStatic = req.path.startsWith('/ingest/static/');
+  const host = isStatic ? 'us-assets.i.posthog.com' : 'us.i.posthog.com';
+  const upstreamPath = req.originalUrl.replace(/^\/ingest/, '') || '/';
+  const headers = { ...req.headers, host };
+  const upstream = https.request({ hostname: host, port: 443, path: upstreamPath, method: req.method, headers }, (up) => {
+    const h = { ...up.headers };
+    delete h.connection; delete h['transfer-encoding'];
+    res.writeHead(up.statusCode || 502, h);
+    up.pipe(res);
+  });
+  upstream.on('error', () => { if (!res.headersSent) res.status(502).end(); });
+  req.pipe(upstream);
+});
 
 app.use(express.json());
 // (Phase B2: all /auth/* routes — Google OAuth, logout, /auth/me, the 2FA verify/resend
