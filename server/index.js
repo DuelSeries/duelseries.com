@@ -28,6 +28,23 @@ function trackEarning(opts) {
   analytics.captureEarning(opts);
 }
 
+// All house revenue sweeps to the owner's OWN Phantom wallet ("DuelSeries earned"), kept separate
+// from the escrow (player funds) and from the embedded owner/login wallet.
+const REVENUE_WALLET = '24tf4BRDWvnAjFhpPxKczZSnWdUjKkVbXAc8x7Yj4Fff';
+
+// Move a rake cut out of the escrow to the revenue wallet. Best-effort + non-blocking: the player's
+// payout already happened, so a failed sweep is queued to the failed-payout drainer (retried
+// idempotently, money never lost). The very first sweep also creates the revenue wallet's USDC ATA.
+function sweepRake(amountUsdc, label) {
+  if (!(amountUsdc > 0)) return;
+  money.withdraw(REVENUE_WALLET, amountUsdc)
+    .then((sig) => console.log(`[RAKE] swept ${Number(amountUsdc).toFixed(6)} ${money.unit} -> revenue wallet (${label}) sig ${String(sig).slice(0, 12)}`))
+    .catch((e) => {
+      console.error(`[RAKE] sweep failed (${label}) for ${amountUsdc}: ${e.message}`);
+      db.recordFailedPayout(REVENUE_WALLET, amountUsdc, 'rake-sweep', `rake ${label}: ${e.message}`, e.broadcast).catch(() => {});
+    });
+}
+
 // (Phase 4d: the old per-account Privy SERVER wallet provisioning was removed — players use
 // their own client-side Privy embedded wallet now, so no server wallet is created on login.)
 
@@ -873,13 +890,14 @@ io.on('connection', (socket) => {
     const ownerShare = worth * HOUSE_CUT;
     const playerShare = worth - ownerShare;
 
-    // House keeps the 10% cut; record it to our ledger + PostHog for the earnings dashboard.
+    // The 10% house cut: record it (ledger + PostHog) and sweep it out of escrow to the revenue wallet.
     if (worth > 0) {
       trackEarning({
         source: 'game_rake', game: 'slither', amountUsdc: ownerShare,
         wallet: socket._walletAddress || null, name: snake.name,
         lobbyType: room.lobbyType || null, region: REGION,
       });
+      sweepRake(ownerShare, 'slither ' + (room.lobbyType || ''));
     }
 
     // Self-custody (Phase 2): the escrow sends the player's 90% back to their own wallet
@@ -1136,13 +1154,15 @@ io.on('connection', (socket) => {
     const HOUSE_CUT    = 0.10;
     const playerShare  = worth - worth * HOUSE_CUT; // 90% to the player, 10% house cut stays in escrow
 
-    // House keeps the 10% cut; record it to our ledger + PostHog.
+    // The 10% house cut: record it (ledger + PostHog) and sweep it out of escrow to the revenue wallet.
     if (worth > 0) {
+      const rake = worth * HOUSE_CUT;
       trackEarning({
-        source: 'game_rake', game: 'agar', amountUsdc: worth * HOUSE_CUT,
+        source: 'game_rake', game: 'agar', amountUsdc: rake,
         wallet: socket._walletAddress || null, name: player.name,
         lobbyType: room.lobbyType || null, region: REGION,
       });
+      sweepRake(rake, 'agar ' + (room.lobbyType || ''));
     }
 
     if (socket._walletAddress) {
