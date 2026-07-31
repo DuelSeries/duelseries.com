@@ -441,7 +441,7 @@ app.get('/api/cosmetics/quote', async (req, res) => {
     const { blockhash } = await Usdc.getLatestBlockhash();
     res.json({
       itemId, amountUsdc: price, units: Usdc.toUnits(price).toString(),
-      payToOwner: OWNER_WALLET, payToAta: Usdc.ataFor(OWNER_WALLET),
+      payToOwner: REVENUE_WALLET, payToAta: Usdc.ataFor(REVENUE_WALLET), // skin sales go to the owner's Phantom revenue wallet
       usdcMint: Usdc.USDC_MINT.toString(), decimals: Usdc.USDC_DECIMALS, blockhash,
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -462,7 +462,7 @@ app.post('/api/cosmetics/buy', entryFeeLimiter, express.json({ limit: '256kb' })
     }
     if (!signedTx) return res.status(400).json({ error: 'Missing signed transaction' });
     const sig = await Wallet.submitStake(Buffer.from(signedTx, 'base64')); // broadcast + confirm (mode-agnostic)
-    const { payer, usdc } = await Usdc.verifyUsdcCredit(sig, OWNER_WALLET, price * 0.99); // tiny rounding tolerance
+    const { payer, usdc } = await Usdc.verifyUsdcCredit(sig, REVENUE_WALLET, price * 0.99); // paid to the revenue wallet; tiny rounding tolerance
     if (!(await db.markStakeSig(sig))) return res.status(400).json({ error: 'Payment already used' });
     const owner = walletAddress || payer;
     await db.addCosmetic(owner, itemId, sig, usdc);
