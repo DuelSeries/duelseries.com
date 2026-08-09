@@ -571,10 +571,13 @@ class Renderer {
     }
 
     // ── Eyes ──────────────────────────────────────────────────────────────────
-    const eyeR    = HR * 0.40;
-    const pupilR  = eyeR * 0.54;
-    const eyeSide = HR * 0.46;
-    const eyeFwd  = HR * 0.38;
+    // Matched to slither.io's setSkin defaults, as fractions of the body radius
+    // (their er 6, pr 3.5, ed 6, esp 6 used as esp+0.5, pma 2.3, over a 14.5
+    // body radius). Their eye whites sit at 75% alpha (o.eca), not solid white.
+    const eyeR    = HR * 0.414;
+    const pupilR  = eyeR * 0.583;
+    const eyeSide = HR * 0.448;
+    const eyeFwd  = HR * 0.414;
 
     // Pupils follow mouse for local player, movement direction for others
     let pupilFwdX = fwdX, pupilFwdY = fwdY;
@@ -588,9 +591,11 @@ class Renderer {
     for (const side of [-1, 1]) {
       const ex = hx + fwdX * eyeFwd + perpX * eyeSide * side;
       const ey = hy + fwdY * eyeFwd + perpY * eyeSide * side;
+      ctx.globalAlpha = 0.75;                 // slither's o.eca
       ctx.beginPath(); ctx.arc(ex, ey, eyeR, 0, Math.PI * 2);
       ctx.fillStyle = '#FFFFFF'; ctx.fill();
-      const ps = eyeR - pupilR;
+      ctx.globalAlpha = 1;                    // o.ppa — pupils stay solid
+      const ps = eyeR * 0.383;                // o.pma / o.er
       ctx.beginPath(); ctx.arc(ex + pupilFwdX * ps, ey + pupilFwdY * ps, pupilR, 0, Math.PI * 2);
       ctx.fillStyle = '#060606'; ctx.fill();
     }
