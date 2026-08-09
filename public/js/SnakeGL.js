@@ -88,17 +88,31 @@ class SnakeGL {
           gFr = min(1.0, abs(dot(rel, vec2(-t0.y, t0.x))) / R);
         }
         float fr = clamp(best / R, 0.0, 1.0);
-        float lum = texture2D(uLut, vec2(fr, 0.5)).r;
-        float shade = 1.0 - 0.42 * fr * fr;
-        float endFade = clamp((uTotalArc - bestS) / (R * 1.15), 0.0, 1.0);
-        float sEff = sBand + R * sqrt(max(0.0, 1.0 - gFr * gFr));
-        float gp = fract(sEff / uGroove); if (gp > 0.5) gp -= 1.0;
-        float line = 1.0 - (0.06 * endFade) * exp(-(gp / 0.18) * (gp / 0.18));
-        float wp = fract((uTotalArc - bestS) / uWave);
-        float waveShade = 0.78 + 0.45 * (0.5 + 0.5 * cos(2.0 * PI * wp));
-        float scaleShade = 1.0 - (0.05 * endFade) * (0.5 + 0.5 * cos(2.0 * PI * gp));
-        float m = lum * shade * line * waveShade * scaleShade;
-        vec3 rgb = min(uColor * m, vec3(1.0));
+
+        // ── Cross-section, matching slither.io's body sprite ────────────────
+        // Their 48x48 sprite shades by distance across the tube as
+        //   v = (1 - |dy|/r)^0.35, then blends 37.5% toward a radial falloff
+        //   v2 = 1 - dist/34 (34 vs the 24px sprite radius => the 24/34 factor).
+        float v  = pow(max(0.0, 1.0 - fr), 0.35);
+        float v2 = clamp(1.0 - fr * (24.0 / 34.0), 0.0, 1.0);
+        v += (v2 - v) * 0.375;
+
+        // ── Segment rings ───────────────────────────────────────────────────
+        // slither pre-renders 7 brightness frames (1.22x down to 0.78x) and
+        // ping-pongs them along the body, indexed from the HEAD, so the head is
+        // always the brightest frame. Stamps sit 0.35*R apart.
+        float stampIdx = floor((uTotalArc - bestS) / (R * 0.35) + 0.5);
+        float kc = mod(stampIdx, 14.0);
+        float k  = kc >= 7.0 ? 13.0 - kc : kc;
+        v *= 1.22 - 0.44 * k / 6.0;
+
+        // ── Black outline ("komc") ──────────────────────────────────────────
+        // A soft black ring sitting on the silhouette: 80% alpha at the edge,
+        // falling off over a quarter of the radius.
+        float ring = clamp(1.0 - abs(best - R) / (R * 0.25), 0.0, 1.0) * 0.8;
+
+        vec3 rgb = clamp(uColor * v, 0.0, 1.0);
+        rgb = mix(rgb, vec3(0.0), ring);
         float aa = clamp((R + 0.5 * uAaw - best) / uAaw, 0.0, 1.0);
         gl_FragColor = vec4(rgb * aa, aa);   // premultiplied alpha
       }`;
