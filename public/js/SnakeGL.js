@@ -101,14 +101,7 @@ class SnakeGL {
         // slither pre-renders 7 brightness frames (1.22x down to 0.78x) and
         // ping-pongs them along the body, indexed from the HEAD, so the head is
         // always the brightest frame. Stamps sit 0.35*R apart.
-        //
-        // A pixel takes its colour from the most head-ward stamp whose disc
-        // still covers it. That disc's centre is sqrt(R^2 - d^2) further along
-        // the spine, so the band boundaries are circular arcs, not straight
-        // lines across the tube. Without this offset the rings render as flat
-        // perpendicular stripes and the body loses its curve.
-        float sEff = bestS + R * sqrt(max(0.0, 1.0 - fr * fr));
-        float stampIdx = floor((uTotalArc - sEff) / (R * 0.35) + 0.5);
+        float stampIdx = floor((uTotalArc - bestS) / (R * 0.35) + 0.5);
         float kc = mod(stampIdx, 14.0);
         float k  = kc >= 7.0 ? 13.0 - kc : kc;
         v *= 1.22 - 0.44 * k / 6.0;
