@@ -27,6 +27,7 @@ class Renderer {
     this.camera = new Camera();
     this.boostTrails = new Map();
     this._foodPhaseCache = new Map();
+    this._foodSprCache   = new Map();   // slither food sprites, keyed colour+kind+size
     this._orbCoreCache   = new Map(); // per-colour crisp outlined cores
     this._orbGlowCache   = new Map(); // per-colour wide soft glow halos
     this._goldenFoodSprite   = this._makeGoldenFoodSprite();
@@ -79,6 +80,68 @@ class Renderer {
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, sz, sz);
     this._orbCoreCache.set(key, c);
+    return c;
+  }
+
+  // ── slither.io food sprites ────────────────────────────────────────────────
+  // Three sprites per pellet, generated with slither's own formulas over their
+  // 17 size steps (j = 2.8 .. 18.8). We build the set once and, at draw time,
+  // scale the whole set so the CORE lands on our own food radius — that keeps
+  // their glow-to-core proportions exact at whatever size our food happens to be.
+  //   core    : sz = ceil(2*(j*0.65)),  solid centre -> 0.2 at 99% -> 0
+  //   glow    : sz = ceil(j*8+6),       solid centre -> transparent at radius j*4
+  //   outline : black disc bsz = ceil(2*(j*0.7))+2 on a bsz+20 canvas, with
+  //             shadowBlur 6 and shadowOffsetY 1 + 2*j/18.8
+  static get FOOD_JS() {
+    if (!Renderer._FOOD_JS) {
+      const a = []; for (let j = 2.8; j <= 18.8; j += 1) a.push(j);
+      Renderer._FOOD_JS = a;
+    }
+    return Renderer._FOOD_JS;
+  }
+
+  _foodCore(color, i) {
+    const key = color + '|c' + i;
+    let c = this._foodSprCache.get(key); if (c) return c;
+    const j = Renderer.FOOD_JS[i], sz = Math.ceil(2 * (j * 0.65));
+    const b = this._parseColor(color);
+    c = document.createElement('canvas'); c.width = c.height = sz;
+    const g = c.getContext('2d');
+    const grd = g.createRadialGradient(sz / 2, sz / 2, 0, sz / 2, sz / 2, sz / 2);
+    grd.addColorStop(0,    `rgba(${b.r},${b.g},${b.b},1)`);
+    grd.addColorStop(0.99, `rgba(${b.r},${b.g},${b.b},0.2)`);
+    grd.addColorStop(1,    `rgba(${b.r},${b.g},${b.b},0)`);
+    g.fillStyle = grd; g.fillRect(0, 0, sz, sz);
+    this._foodSprCache.set(key, c);
+    return c;
+  }
+
+  _foodGlow(color, i) {
+    const key = color + '|g' + i;
+    let c = this._foodSprCache.get(key); if (c) return c;
+    const j = Renderer.FOOD_JS[i], sz = Math.ceil(j * 8 + 6);
+    const b = this._parseColor(color);
+    c = document.createElement('canvas'); c.width = c.height = sz;
+    const g = c.getContext('2d');
+    const grd = g.createRadialGradient(sz / 2, sz / 2, 1, sz / 2, sz / 2, j * 4);
+    grd.addColorStop(0, `rgba(${b.r},${b.g},${b.b},1)`);
+    grd.addColorStop(1, `rgba(${b.r},${b.g},${b.b},0)`);
+    g.fillStyle = grd; g.fillRect(0, 0, sz, sz);
+    this._foodSprCache.set(key, c);
+    return c;
+  }
+
+  _foodOutline(i) {
+    const key = 'o' + i;
+    let c = this._foodSprCache.get(key); if (c) return c;
+    const j = Renderer.FOOD_JS[i];
+    const bsz = Math.ceil(2 * (j * 0.7)) + 2, sz = bsz + 20;
+    c = document.createElement('canvas'); c.width = c.height = sz;
+    const g = c.getContext('2d');
+    g.shadowBlur = 6; g.shadowOffsetY = 1 + 2 * j / 18.8; g.shadowColor = '#000000';
+    g.fillStyle = '#000000';
+    g.beginPath(); g.arc(sz / 2, sz / 2, bsz / 2, 0, Math.PI * 2); g.fill();
+    this._foodSprCache.set(key, c);
     return c;
   }
 
@@ -280,25 +343,37 @@ class Renderer {
         //   drift a little to a lot. white: how light the centre is (5 levels). glow: only
         //   ~50% of orbs get the halo. gox/goy/gamp/gphase: the glow sheet sits OFFSET from the
         //   orb and drifts on its own slow phase, randomised per orb.
-        const hb = hash % 8;
+        // slither's per-food state. gfr starts RANDOM and advances at gr, so no
+        // two pellets pulse in sync; wsp is a random speed AND direction, giving
+        // each pellet a slow drift around its own anchor. Derived from the id so
+        // it stays stable across snapshots.
+        const rnd1 = (hash & 0xff) / 255;
+        const rnd2 = ((hash >> 8) & 0xff) / 255;
+        // Map our food size onto slither's 0..16.5 scale to pick sprite indices.
+        // Their formulas need an `sz`; a normal pellet sits mid-range and bigger
+        // drops (death food) push toward the top, exactly as in their game.
+        const sz = Math.min(16.5, 5 * (f.size || 1));
+        const IC = Renderer.FOOD_JS.length;
+        const cl = v => Math.min(IC - 1, Math.max(0, v));
         ph = {
-          phase: hash * 0.00038,
-          amp: hb <= 1 ? 0 : (hb - 1),          // small hover radius (0..6) — circular
-          white: 0.34 + (hash % 5) * 0.16,
-          glow: (hash & 1) === 0,
-          gox: ((hash % 7) - 3) * 1.0,          // small fixed glow offset (±3)
-          goy: (((hash >> 3) % 7) - 3) * 1.0,
-          gamp: 1.5 + (hash >> 6) % 3,          // small glow drift radius (1.5..3.5)
-          gphase: (hash % 13) * 0.5,
+          gfr: rnd1 * 64,                       // random starting phase
+          gr:  0.65 + 0.1 * sz,                 // phase speed, scales with size
+          wsp: (2 * rnd2 - 1) * 0.0225,         // wobble speed + direction
+          cv2:  cl(Math.floor(IC * sz / 16.5)),                       // core + outline
+          gcv:  cl(Math.floor(IC * (0.25 + 0.75 * sz / 16.5))),       // glow layer 1
+          g2cv: cl(Math.floor(IC * 2 * (0.25 + 0.75 * sz / 16.5))),   // glow layer 2 (larger)
         };
         this._foodPhaseCache.set(f.id, ph);
       }
       // Constant size, no breathing. Per-orb HOVER in a small CIRCLE (cos/sin share the
       // argument), staying near the spawn spot. amp 0 = dead still. Suppressed while magnetized.
+      // slither's wobble: every pellet orbits its anchor on a radius-6 circle at
+      // its own speed and direction. Suppressed while magnetized toward a snake.
       const r = BASE_R * (f.size || 1);
-      const hov = f._pulled ? 0 : ph.amp;
-      const wx = f.x + Math.cos(t * 1.2 + ph.phase) * hov;
-      const wy = f.y + Math.sin(t * 1.2 + ph.phase) * hov;
+      const gfr = ph.gfr + t * 60 * ph.gr;          // t is seconds; their gfr is per frame-unit
+      const hov = f._pulled ? 0 : 6;
+      const wx = f.x + Math.cos(ph.wsp * gfr) * hov;
+      const wy = f.y + Math.sin(ph.wsp * gfr) * hov;
 
       if (f.isGolden) {
         // Money food — self-glowing golden sprite (not a slither element, no union outline).
@@ -310,6 +385,7 @@ class Renderer {
       }
       let e = vis[n]; if (!e) e = vis[n] = {};
       e.color = f.color; e.wx = wx; e.wy = wy; e.r = r; e.ph = ph; e.dropped = !!f.dropped;
+      e.gfr = gfr;
       n++;
     }
 
@@ -318,45 +394,74 @@ class Renderer {
     // and its pulse is VERY subtle so it nearly blends into the background.
     // Glow "sheet": VERY faint, only barely fades in and out (never fully off). Tune these
     // two numbers — sensible range is ~0.02 (all but invisible) .. ~0.30 (obvious):
-    const GLOW_MIN = 0.05; // resting opacity — the DIMMEST the glow ever gets
-    const GLOW_MAX = 0.08; // peak opacity   — the BRIGHTEST it ever gets
-    ctx.globalCompositeOperation = 'lighter';
+    // Every pellet is drawn as slither draws it: a normal-blended dark outline
+    // underneath, then an additive bright core, then two wide additive glow
+    // layers. The core and both glows are each drawn TWICE — once steady and
+    // once at alpha (0.5 + 0.5*cos(gfr/13)) — which is what makes them pulse.
+    // Note the outline pass is normal-blended, which is how slither gets both a
+    // dark rim AND additive overlap-brightening in the same field.
+    // Precompute each pellet's scale so their core sprite lands on our radius.
     for (let i = 0; i < n; i++) {
       const e = vis[i];
-      if (!e.ph.glow) continue;
-      const gSpan = e.r * 7;
-      // drifts in a small CIRCLE in the general area of the orb (offset + own phase)
-      const gx = e.wx + e.ph.gox + Math.cos(t * 0.5 + e.ph.gphase) * e.ph.gamp;
-      const gy = e.wy + e.ph.goy + Math.sin(t * 0.5 + e.ph.gphase) * e.ph.gamp;
-      const gs = 0.5 + 0.5 * Math.sin(t * 2.5 + e.ph.gphase); // 0..1, a tiny fade
-      ctx.globalAlpha = (GLOW_MIN + (GLOW_MAX - GLOW_MIN) * gs) * (e.dropped ? 0.8 : 1);
-      ctx.drawImage(this._makeOrbGlow(e.color), gx - gSpan, gy - gSpan, gSpan * 2, gSpan * 2);
+      const core = this._foodCore(e.color, e.ph.cv2);
+      e.k = e.r / (core.width / 2);          // sprite units -> world units
+      e.pulse = 0.5 + 0.5 * Math.cos(e.gfr / 13);
+      e.a = e.dropped ? 0.8 : 1;
     }
 
-    // Pass B — the black outline discs (slightly larger than the fill), normal blending so
-    // overlapping ones FUSE into a single black silhouette (no seam where they meet).
+    // Pass 1 — dark outline, NORMAL blending at 0.8 alpha, under everything.
     ctx.globalCompositeOperation = 'source-over';
-    ctx.globalAlpha = 1;
-    ctx.fillStyle = '#000';
     for (let i = 0; i < n; i++) {
       const e = vis[i];
-      const outline = Math.max(0.7, e.r * 0.20); // very thin rim
-      ctx.beginPath();
-      ctx.arc(e.wx, e.wy, e.r + outline, 0, Math.PI * 2);
-      ctx.fill();
+      const img = this._foodOutline(e.ph.cv2);
+      const sp = (img.width / 2) * e.k;
+      ctx.globalAlpha = 0.8 * e.a;
+      ctx.drawImage(img, e.wx - sp, e.wy - sp, sp * 2, sp * 2);
     }
 
-    // Pass C — colour fills (additive, so overlaps brighten) covering the black interiors,
-    // plus the fast per-orb BLINK. The fill sits inside the black disc, leaving only the rim.
+    // Pass 2 — the bright core, ADDITIVE, steady + pulse.
     ctx.globalCompositeOperation = 'lighter';
     for (let i = 0; i < n; i++) {
       const e = vis[i];
-      const disc = this._makeOrbCore(e.color, e.ph.white);
-      const dSpan = e.r / Renderer.ORB_SOLID;
-      ctx.globalAlpha = e.dropped ? 0.85 : 0.95;
-      ctx.drawImage(disc, e.wx - dSpan, e.wy - dSpan, dSpan * 2, dSpan * 2);
-      ctx.globalAlpha = 0.80 * (0.5 + 0.5 * Math.sin(t * 12 + e.ph.phase)); // blink ~2x/sec
-      ctx.drawImage(disc, e.wx - dSpan, e.wy - dSpan, dSpan * 2, dSpan * 2);
+      const img = this._foodCore(e.color, e.ph.cv2);
+      const sp = (img.width / 2) * e.k;
+      ctx.globalAlpha = e.a;
+      ctx.drawImage(img, e.wx - sp, e.wy - sp, sp * 2, sp * 2);
+      ctx.globalAlpha = e.pulse * e.a;
+      ctx.drawImage(img, e.wx - sp, e.wy - sp, sp * 2, sp * 2);
+    }
+
+    // Pass 3 — two wide ambient glow layers, ADDITIVE, each steady + pulse.
+    // Their alphas fall off with distance from the VIEW CENTRE:
+    //   layer 1: 0.005 + 0.09*(1 - fd2/(86000 + fd2))
+    //   layer 2: 0.085*(1 - fd2/(16500 + fd2))
+    // Those constants are squared distances in slither's world units, where the
+    // half-view is ~404 units — so the alpha halves at ~0.72 and ~0.32 of the
+    // half-view. Re-expressed against our own viewport so it scales with our
+    // camera. Without this falloff the whole field blows out to white.
+    const halfView = Math.min(halfW, halfH);
+    const K1 = Math.pow(halfView * 0.72, 2);
+    const K2 = Math.pow(halfView * 0.32, 2);
+    for (let i = 0; i < n; i++) {
+      const e = vis[i];
+      const dx = e.wx - worldCX, dy = e.wy - worldCY;
+      const fd2 = dx * dx + dy * dy;
+
+      let fal = (0.005 + 0.09 * (K1 / (K1 + fd2))) * e.a;
+      let img = this._foodGlow(e.color, e.ph.gcv);
+      let sp = (img.width / 2) * e.k;
+      ctx.globalAlpha = fal;
+      ctx.drawImage(img, e.wx - sp, e.wy - sp, sp * 2, sp * 2);
+      ctx.globalAlpha = fal * e.pulse;
+      ctx.drawImage(img, e.wx - sp, e.wy - sp, sp * 2, sp * 2);
+
+      fal = 0.085 * (K2 / (K2 + fd2)) * e.a;
+      img = this._foodGlow(e.color, e.ph.g2cv);
+      sp = (img.width / 2) * e.k;
+      ctx.globalAlpha = fal;
+      ctx.drawImage(img, e.wx - sp, e.wy - sp, sp * 2, sp * 2);
+      ctx.globalAlpha = fal * e.pulse;
+      ctx.drawImage(img, e.wx - sp, e.wy - sp, sp * 2, sp * 2);
     }
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = 1;
