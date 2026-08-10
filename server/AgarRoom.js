@@ -217,6 +217,16 @@ class AgarRoom {
   // ── Tick ──────────────────────────────────────────────────────────────────
 
   _tick() {
+    // Idle rooms don't need 60Hz — see the note in GameRoom.tick(). With no
+    // human in the room nobody can observe the simulation, so run it at ~6Hz and
+    // return to full rate the moment someone joins.
+    if (this.players.size === 0) {
+      this._idleSkip = (this._idleSkip || 0) + 1;
+      if (this._idleSkip < 10) return;
+      this._idleSkip = 0;
+    } else if (this._idleSkip) {
+      this._idleSkip = 0;
+    }
     const now = Date.now();
     const dt  = Math.min((now - this._lastTick) / 1000, 0.05);
     this._lastTick = now;

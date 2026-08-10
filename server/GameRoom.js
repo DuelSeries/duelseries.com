@@ -222,6 +222,21 @@ class GameRoom {
       this._lastTickAt = nowT;
     }
 
+    // ── Idle rooms don't need 60Hz ──────────────────────────────────────────
+    // Every room simulated at full rate whether or not a human was in it, so six
+    // rooms of bots kept the box near 85% CPU with nobody playing. At that
+    // saturation there is no headroom, and any GC or background job pushes ticks
+    // late — which is what players felt. With no human present nobody can see
+    // the result of a tick, so drop to ~6Hz. The instant someone joins,
+    // playerCount goes above zero and the very next tick runs at full rate.
+    if (this.players.size === 0) {
+      this._idleSkip = (this._idleSkip || 0) + 1;
+      if (this._idleSkip < 10) return;
+      this._idleSkip = 0;
+    } else if (this._idleSkip) {
+      this._idleSkip = 0;
+    }
+
     // Border drifts outward on deaths, inward on joins, gradually fading back to base
     this.borderDrift *= 0.9975; // half-life ≈ 2.3 seconds at 60Hz
     // World grows with the crowd — EVERY snake counts, bots included (intended: a
