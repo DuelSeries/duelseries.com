@@ -716,6 +716,31 @@ async function checkSolvency() {
     console.error('[SOLVENCY] check failed:', e.message);
   }
 }
+// Tick-lag readout. The sim, snapshots and every periodic job share one thread,
+// so a blocked thread shows up to players as a ping spike. This reports how late
+// ticks ran, with timestamps, so a spike can be lined up against the periodic
+// jobs below (solvency 60s, payouts 30s, leaderboard flushes 30s). Perf timings
+// only — no player, wallet or money data.
+app.get('/api/debug/tick', (_req, res) => {
+  const out = { now: Date.now(), tickRate: C.TICK_RATE, rooms: {} };
+  for (const rgn of REGIONS) {
+    for (const type of ['free', 'dime', 'dollar']) {
+      const room = gameRooms[rgn] && gameRooms[rgn][type];
+      const lag = room && room._lag;
+      if (!lag || !lag.ticks) continue;
+      out.rooms[`${rgn}_${type}`] = {
+        ticks: lag.ticks,
+        lateTicks: lag.late,
+        latePct: +(100 * lag.late / lag.ticks).toFixed(3),
+        worstMs: Math.round(lag.worst),
+        worstAgoSec: lag.worstAt ? Math.round((Date.now() - lag.worstAt) / 1000) : null,
+        recent: lag.recent.map(r => ({ ms: r.ms, agoSec: Math.round((Date.now() - r.at) / 1000) })),
+      };
+    }
+  }
+  res.json(out);
+});
+
 setInterval(checkSolvency, 60000).unref?.();
 checkSolvency();
 

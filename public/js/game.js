@@ -483,10 +483,26 @@ function interpolateState(now) {
         const ebase = CONSTANTS.SNAKE_BASE_SPEED + CONSTANTS.SNAKE_SPEED_PER_SC * (esc - 1);
         const speed = ebase + (CONSTANTS.SNAKE_MAX_SPEED - ebase) * (s.boostRamp || 0);
         const dist = speed * extMs / msPerTick;
-        const dx = Math.cos(s.angle) * dist;
-        const dy = Math.sin(s.angle) * dist;
+        // Advance the HEAD along its heading, then have every following segment
+        // walk toward the one ahead of it — the body stays on the path it already
+        // occupies. Translating every segment by the head's heading (which is what
+        // this used to do) slides a curved snake sideways as a rigid block and it
+        // visibly deforms, then snaps back when real snapshots resume. That made
+        // any late snapshot look like the snake was glitching.
         const extSegs = s.segs.slice();
-        for (let i = 0; i < extSegs.length; i += 2) { extSegs[i] += dx; extSegs[i + 1] += dy; }
+        extSegs[0] += Math.cos(s.angle) * dist;
+        extSegs[1] += Math.sin(s.angle) * dist;
+        for (let i = 2; i < extSegs.length; i += 2) {
+          const px = extSegs[i - 2], py = extSegs[i - 1];   // already-moved predecessor
+          const cx = s.segs[i], cy = s.segs[i + 1];         // this segment, pre-move
+          const ddx = px - cx, ddy = py - cy;
+          const d = Math.hypot(ddx, ddy);
+          if (d > 1e-6) {
+            const step = Math.min(dist, d);                 // never overshoot the one ahead
+            extSegs[i]     = cx + (ddx / d) * step;
+            extSegs[i + 1] = cy + (ddy / d) * step;
+          }
+        }
         return { ...s, segs: extSegs };
       });
       displayState = { ...latest.state, snakes: extSnakes };

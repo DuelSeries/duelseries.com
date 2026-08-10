@@ -198,6 +198,30 @@ class GameRoom {
   }
 
   tick() {
+    // ── Tick-lag instrumentation ────────────────────────────────────────────
+    // The sim, the snapshot broadcast and every periodic job share ONE thread,
+    // so anything that blocks (a slow RPC response, a DB flush, GC) delays the
+    // next tick and players see it as a ping spike plus half a second of jitter.
+    // Recording the gap here is what turns "it feels laggy" into a timestamped
+    // number we can line up against the 30s/60s jobs. Read via /api/debug/tick.
+    {
+      const nowT = Date.now();
+      const expected = 1000 / C.TICK_RATE;
+      if (!this._lag) this._lag = { worst: 0, worstAt: 0, late: 0, ticks: 0, recent: [] };
+      if (this._lastTickAt) {
+        const over = (nowT - this._lastTickAt) - expected;
+        this._lag.ticks++;
+        if (over > 20) {
+          this._lag.late++;
+          if (over > this._lag.worst) { this._lag.worst = over; this._lag.worstAt = nowT; }
+          this._lag.recent.push({ ms: Math.round(over), at: nowT });
+          if (this._lag.recent.length > 40) this._lag.recent.shift();
+          if (over > 100) console.warn(`[TICKLAG] ${this.region || ''}/${this.lobbyType || ''} tick late ${Math.round(over)}ms`);
+        }
+      }
+      this._lastTickAt = nowT;
+    }
+
     // Border drifts outward on deaths, inward on joins, gradually fading back to base
     this.borderDrift *= 0.9975; // half-life ≈ 2.3 seconds at 60Hz
     // World grows with the crowd — EVERY snake counts, bots included (intended: a
