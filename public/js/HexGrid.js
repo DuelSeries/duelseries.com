@@ -78,18 +78,45 @@ class HexGrid {
     const cctx = c.getContext('2d');
     cctx.drawImage(source, pad, pad, tileW, tileH, 0, 0, tileW, tileH);
     if (!this._isMobile) {
-      // subtle fuzzy grain (barely noticeable). Seeded PRNG so the grain is the
-      // SAME on every rebuild -> no shimmer/flicker when the tile rebuilds on zoom.
-      const gd = cctx.getImageData(0, 0, tileW, tileH), dd = gd.data;
-      let s = 0x9e3779b9 >>> 0;
-      const rnd = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
-      for (let k = 0; k < dd.length; k += 4) { const n = (rnd() - 0.5) * 4; dd[k] += n; dd[k+1] += n; dd[k+2] += n; }
-      cctx.putImageData(gd, 0, 0);
+      // Subtle fuzzy grain. This used to be a getImageData + per-pixel JS loop +
+      // putImageData on EVERY rebuild, and since the tile rebuilds whenever the
+      // zoom drifts (i.e. constantly, as the snake grows) that synchronous
+      // readback stalled the frame hard — a steady framerate with periodic
+      // half-second hitches. The grain is just fixed noise, so it is now built
+      // ONCE into a small tile and composited, which is a plain GPU blit.
+      const g = this._grainTile();
+      cctx.save();
+      cctx.globalAlpha = 0.5;
+      const gp = cctx.createPattern(g, 'repeat');
+      if (gp) { cctx.fillStyle = gp; cctx.fillRect(0, 0, tileW, tileH); }
+      cctx.restore();
     }
 
     this._tile      = c;
     this._tileScale = physScale;
     this._pattern   = null;   // recreated against the target ctx in draw()
+  }
+
+  // Fixed grain noise, generated once and reused for every tile rebuild. Seeded
+  // so it never shimmers between rebuilds.
+  _grainTile() {
+    if (this._grain) return this._grain;
+    const N = 128;
+    const c = document.createElement('canvas');
+    c.width = c.height = N;
+    const g = c.getContext('2d');
+    const img = g.createImageData(N, N), d = img.data;
+    let s = 0x9e3779b9 >>> 0;
+    const rnd = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+    for (let k = 0; k < d.length; k += 4) {
+      const n = (rnd() - 0.5) * 8;          // signed noise, applied as translucent grey
+      const v = Math.max(0, Math.min(255, 128 + n));
+      d[k] = d[k+1] = d[k+2] = v;
+      d[k+3] = 26;                           // faint, so it reads like the old +/-2 grain
+    }
+    g.putImageData(img, 0, 0);
+    this._grain = c;
+    return c;
   }
 
   draw(ctx, camera, dpr) {
@@ -98,7 +125,12 @@ class HexGrid {
     const W = ctx.canvas.width, H = ctx.canvas.height;
 
     // (re)build the tiny tile only when the zoom changes meaningfully
-    if (!this._tile || Math.abs(physScale - this._tileScale) > this._tileScale * 0.04) {
+    // Rebuild only on a MEANINGFUL zoom change. draw() already corrects for drift
+    // by scaling the pattern space by k = physScale / _tileScale, so a wide band
+    // costs nothing visually but turns a constant stream of rebuilds (each one a
+    // frame hitch, since the camera zooms continuously as the snake grows) into a
+    // rare event.
+    if (!this._tile || Math.abs(physScale - this._tileScale) > this._tileScale * 0.20) {
       this._buildTile(physScale);
     }
     if (!this._pattern) this._pattern = ctx.createPattern(this._tile, 'repeat');

@@ -170,6 +170,15 @@ class SnakeGL {
     if (this.canvas.width !== w || this.canvas.height !== h) { this.canvas.width = w; this.canvas.height = h; }
   }
 
+  // Grow-once scratch buffer for spine points. drawBody runs per snake per
+  // frame; allocating a Float32Array there produced enough garbage to cause
+  // periodic GC pauses (steady framerate with sudden half-second hitches).
+  _scratchPts(SN) {
+    const need = SN * 2;
+    if (!this._ptsBuf || this._ptsBuf.length < need) this._ptsBuf = new Float32Array(need + 64);
+    return this._ptsBuf;
+  }
+
   // Push one rotated quad (6 verts) into a vertex array.
   _quad(arr, n, cx, cy, half, ang, u0, u1, r, g, b) {
     const c = Math.cos(ang) * half, s = Math.sin(ang) * half;
@@ -265,7 +274,9 @@ class SnakeGL {
     const W = this.canvas.width, H = this.canvas.height;
 
     let minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9;
-    const pts = new Float32Array(SN * 2);
+    // Reused scratch — this runs per snake per frame, so allocating here would
+    // generate enough garbage to trigger periodic GC pauses (frame hitches).
+    const pts = this._scratchPts(SN);
     for (let i = 0; i < SN; i++) {
       const x = (segs[i * 2] * scale + camX) * dpr;
       const y = (segs[i * 2 + 1] * scale + camY) * dpr;
@@ -323,7 +334,7 @@ class SnakeGL {
 
     // world -> local pixels inside the offW x offH viewport
     const sx = offW / bw, sy = offH / bh;
-    const pts = new Float32Array(SN * 2);
+    const pts = this._scratchPts(SN);
     for (let i = 0; i < SN; i++) {
       pts[i * 2]     = (segs[i * 2]     - minX) * sx;
       pts[i * 2 + 1] = (segs[i * 2 + 1] - minY) * sy;

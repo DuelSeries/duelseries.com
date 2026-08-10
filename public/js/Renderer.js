@@ -466,8 +466,19 @@ class Renderer {
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = 1;
 
-    // Evict stale phase cache entries
-    if (this._foodPhaseCache.size > food.length * 2) this._foodPhaseCache.clear();
+    // Evict stale phase cache entries INCREMENTALLY. Clearing the whole map made
+    // every pellet rebuild its state — and lazily regenerate sprites — in a single
+    // frame, which showed up as a periodic half-second hitch. Map iterates in
+    // insertion order, so dropping from the front retires the oldest ids first.
+    const cap = Math.max(64, food.length * 2);
+    if (this._foodPhaseCache.size > cap) {
+      let over = this._foodPhaseCache.size - cap;
+      if (over > 24) over = 24;                      // bounded work per frame
+      for (const k of this._foodPhaseCache.keys()) {
+        this._foodPhaseCache.delete(k);
+        if (--over <= 0) break;
+      }
+    }
   }
 
   _parseColor(c) {
