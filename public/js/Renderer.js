@@ -100,9 +100,27 @@ class Renderer {
     return Renderer._FOOD_JS;
   }
 
+  // Sprites are built on first use, and a glow can be a 157px canvas with a
+  // radial gradient. Building several in one frame is a visible stall, so each
+  // frame gets a small budget and anything over it reuses the nearest size we
+  // already have for that colour. The full set fills in over the next few
+  // frames instead of all at once.
+  _budgetOk() { return this._sprBudget > 0 && (this._sprBudget--, true); }
+
+  _nearestCached(prefix, color, i) {
+    for (let d = 1; d < Renderer.FOOD_JS.length; d++) {
+      let c = this._foodSprCache.get(color + prefix + (i - d));
+      if (c) return c;
+      c = this._foodSprCache.get(color + prefix + (i + d));
+      if (c) return c;
+    }
+    return null;
+  }
+
   _foodCore(color, i) {
     const key = color + '|c' + i;
     let c = this._foodSprCache.get(key); if (c) return c;
+    if (!this._budgetOk()) { const n = this._nearestCached('|c', color, i); if (n) return n; }
     const j = Renderer.FOOD_JS[i], sz = Math.ceil(2 * (j * 0.65));
     const b = this._parseColor(color);
     c = document.createElement('canvas'); c.width = c.height = sz;
@@ -119,6 +137,7 @@ class Renderer {
   _foodGlow(color, i) {
     const key = color + '|g' + i;
     let c = this._foodSprCache.get(key); if (c) return c;
+    if (!this._budgetOk()) { const n = this._nearestCached('|g', color, i); if (n) return n; }
     const j = Renderer.FOOD_JS[i], sz = Math.ceil(j * 8 + 6);
     const b = this._parseColor(color);
     c = document.createElement('canvas'); c.width = c.height = sz;
@@ -134,6 +153,7 @@ class Renderer {
   _foodOutline(i) {
     const key = 'o' + i;
     let c = this._foodSprCache.get(key); if (c) return c;
+    if (!this._budgetOk()) { const n = this._nearestCached('', 'o', i); if (n) return n; }
     const j = Renderer.FOOD_JS[i];
     const bsz = Math.ceil(2 * (j * 0.7)) + 2, sz = bsz + 20;
     c = document.createElement('canvas'); c.width = c.height = sz;
@@ -308,6 +328,7 @@ class Renderer {
   }
 
   _drawFood(ctx, food, camera) {
+    this._sprBudget = 3;      // new sprite canvases allowed this frame
     const BASE_R = CONSTANTS.FOOD_RADIUS;
     const { x: camX, y: camY, scale } = camera;
     const W = this._canvasW, H = this._canvasH; // logical pixels
