@@ -628,7 +628,14 @@ app.use('/shared', express.static(path.join(__dirname, '../shared')));
 const REGIONS = ['na', 'eu'];
 const gameRooms = {};
 const agarRooms = {};
-for (const rgn of REGIONS) {
+// Only host the rooms for THIS server's region. Building every region on every
+// server meant the NA box ran 6 snake rooms + 6 agar rooms — 12 loops at 60Hz on
+// a single vCPU — half of them for a region whose server is stopped and which is
+// crossed out in the lobby, so nobody could reach them. That constant background
+// load is what kept ~2% of ticks running late even between the periodic spikes.
+// The room lookups fall back to this region, so a stale client asking for another
+// region still lands somewhere valid.
+for (const rgn of [REGION]) {
   gameRooms[rgn] = {
     free:   new GameRoom(io, `${rgn}_free`),
     dime:   new GameRoom(io, `${rgn}_dime`),
@@ -644,12 +651,12 @@ for (const rgn of REGIONS) {
 }
 
 function getRoomForType(lobbyType, region) {
-  const rgn = (region && gameRooms[region]) ? region : 'na';
+  const rgn = (region && gameRooms[region]) ? region : REGION;
   return gameRooms[rgn][lobbyType] || gameRooms[rgn].free;
 }
 
 function getAgarRoomForType(lobbyType, region) {
-  const rgn = (region && agarRooms[region]) ? region : 'na';
+  const rgn = (region && agarRooms[region]) ? region : REGION;
   return agarRooms[rgn][lobbyType] || agarRooms[rgn].free;
 }
 
@@ -779,14 +786,16 @@ if (REGION === 'na') setInterval(drainPayouts, 30000).unref?.();
 // reconnect. Covers a typical mobile network blip without leaving dead snakes around.
 const RECONNECT_GRACE_MS = 8000;
 
+// Guard the region lookup: a server only hosts its own region's rooms now, so
+// gameRooms[rgn] is undefined for the others.
 function totalInGame() {
   return REGIONS.reduce((t, rgn) =>
-    t + Object.values(gameRooms[rgn]).reduce((s, r) => s + r.playerCount + r.botCount, 0), 0);
+    t + Object.values(gameRooms[rgn] || {}).reduce((s, r) => s + r.playerCount + r.botCount, 0), 0);
 }
 
 function totalAgarInGame() {
   return REGIONS.reduce((t, rgn) =>
-    t + Object.values(agarRooms[rgn]).reduce((s, r) => s + r.playerCount + r.botCount, 0), 0);
+    t + Object.values(agarRooms[rgn] || {}).reduce((s, r) => s + r.playerCount + r.botCount, 0), 0);
 }
 
 function broadcastLobbyState() {
@@ -1035,7 +1044,7 @@ io.on('connection', (socket) => {
   socket.on('admin:spawnbot', async ({ count, idToken } = {}) => {
     if (!(await isOwnerToken(idToken))) return;
     const n = Math.min(Math.max(1, parseInt(count) || 1), 10);
-    const room = socket._room || gameRooms['na']['free'];
+    const room = socket._room || gameRooms[REGION].free;
 
     const shortType = room.lobbyType.replace(/^(na|eu)_/, '');
     if (shortType === 'free') {
@@ -1101,7 +1110,7 @@ io.on('connection', (socket) => {
 
   socket.on('cell:spawnbot', async ({ idToken } = {}) => {
     if (!(await isOwnerToken(idToken))) return;
-    const room = socket._agarRoom || agarRooms['na']['free'];
+    const room = socket._agarRoom || agarRooms[REGION].free;
 
     // Determine lobby type from room name (e.g. 'agar_dime' → 'dime')
     const lobbyType = room.roomName.replace('agar_', '');
