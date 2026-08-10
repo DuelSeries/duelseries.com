@@ -21,7 +21,15 @@ const NETWORK = process.env.SOLANA_NETWORK || 'mainnet-beta';
 const RPC_URL = process.env.RPC_URL || (NETWORK === 'mainnet-beta'
   ? 'https://api.mainnet-beta.solana.com'
   : 'https://api.devnet.solana.com');
-const connection = new Connection(RPC_URL, 'confirmed');
+// Keep-alive HTTPS agent. Without one, every RPC call opens a fresh TLS
+// connection, and the handshake is synchronous crypto on the same single core
+// that runs the 60Hz simulation. The solvency monitor only fires once a minute,
+// which is long enough that any pooled socket would otherwise be gone, so it
+// paid a full handshake every time and stalled the game loop. Reusing sockets
+// removes that cost entirely.
+const _https = require('https');
+const rpcAgent = new _https.Agent({ keepAlive: true, keepAliveMsecs: 30_000, maxSockets: 16 });
+const connection = new Connection(RPC_URL, { commitment: 'confirmed', httpAgent: rpcAgent });
 
 // USDC mint. Mainnet = Circle USDC; devnet defaults to Circle's devnet USDC. Override with
 // USDC_MINT (e.g. point at a self-minted test token on devnet during development).
@@ -64,8 +72,22 @@ async function withRetry(fn, retries = 5, delay = 600) {
 }
 
 // USDC balance (in USDC) of an owner's associated token account; 0 if the ATA doesn't exist yet.
+// ATA derivation runs findProgramAddressSync, which is a synchronous sha256
+// loop. Cheap once, but it was being redone on every balance poll on the same
+// thread as the sim, so memoise per owner.
+const _ataMemo = new Map();
+function ataForOwnerCached(ownerAddress) {
+  let a = _ataMemo.get(ownerAddress);
+  if (!a) {
+    a = getAssociatedTokenAddressSync(USDC_MINT, new PublicKey(ownerAddress));
+    if (_ataMemo.size > 5000) _ataMemo.clear();
+    _ataMemo.set(ownerAddress, a);
+  }
+  return a;
+}
+
 async function usdcBalanceOf(ownerAddress) {
-  const ata = getAssociatedTokenAddressSync(USDC_MINT, new PublicKey(ownerAddress));
+  const ata = ataForOwnerCached(ownerAddress);
   try {
     const acc = await withRetry(() => getAccount(connection, ata));
     return toUsdc(acc.amount);

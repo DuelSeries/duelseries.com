@@ -729,7 +729,7 @@ async function checkSolvency() {
 // jobs below (solvency 60s, payouts 30s, leaderboard flushes 30s). Perf timings
 // only — no player, wallet or money data.
 app.get('/api/debug/tick', (_req, res) => {
-  const out = { now: Date.now(), tickRate: C.TICK_RATE, rooms: {} };
+  const out = { now: Date.now(), tickRate: C.TICK_RATE, jobs: _jobStats, rooms: {} };
   for (const rgn of REGIONS) {
     for (const type of ['free', 'dime', 'dollar']) {
       const room = gameRooms[rgn] && gameRooms[rgn][type];
@@ -754,14 +754,38 @@ app.get('/api/debug/tick', (_req, res) => {
 // felt as a ping spike and half a second of jitter once a minute. Staggering
 // gives each job its own offset so they can never land together. Nothing about
 // what any job DOES changes — only when it runs.
+const _jobStats = {};
 function everyStaggered(fn, periodMs, offsetMs, label) {
   setTimeout(() => {
     const run = () => {
       const t0 = Date.now();
-      try { Promise.resolve(fn()).catch(e => console.error(`[JOB ${label}]`, e.message)); }
-      catch (e) { console.error(`[JOB ${label}]`, e.message); }
-      const sync = Date.now() - t0;
-      if (sync > 50) console.warn(`[JOB ${label}] blocked the loop for ${sync}ms`);
+      let done = false;
+      // Sample event-loop lag WHILE the job is in flight. The synchronous part of
+      // an async job is usually trivial; the stall shows up when its promise
+      // settles and the response is processed (TLS, parsing, retries). A timer
+      // that should fire every 20ms but arrives much later means the loop was
+      // blocked, and this attributes that to the job by name.
+      let worstLag = 0, last = Date.now();
+      const probe = setInterval(() => {
+        const now = Date.now();
+        const lag = (now - last) - 20;
+        if (lag > worstLag) worstLag = lag;
+        last = now;
+        if (done) clearInterval(probe);
+      }, 20);
+      probe.unref?.();
+      const finish = () => {
+        if (done) return;
+        done = true;
+        clearInterval(probe);
+        const total = Date.now() - t0;
+        if (total > 250 || worstLag > 50) {
+          console.warn(`[JOB ${label}] took ${total}ms, worst loop lag during it ${Math.round(worstLag)}ms`);
+        }
+        _jobStats[label] = { lastMs: total, worstLagMs: Math.round(worstLag), at: Date.now() };
+      };
+      try { Promise.resolve(fn()).then(finish, e => { console.error(`[JOB ${label}]`, e.message); finish(); }); }
+      catch (e) { console.error(`[JOB ${label}]`, e.message); finish(); }
     };
     run();
     const t = setInterval(run, periodMs);

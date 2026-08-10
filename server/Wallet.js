@@ -14,7 +14,12 @@ const RPC_URL = process.env.RPC_URL || (
     : 'https://api.devnet.solana.com'
 );
 
-const connection = new Connection(RPC_URL, 'confirmed');
+// Keep-alive HTTPS agent — see the note in Usdc.js. Without socket reuse every
+// RPC call pays a fresh TLS handshake, which is synchronous crypto on the same
+// core that runs the simulation.
+const _https = require('https');
+const rpcAgent = new _https.Agent({ keepAlive: true, keepAliveMsecs: 30_000, maxSockets: 16 });
+const connection = new Connection(RPC_URL, { commitment: 'confirmed', httpAgent: rpcAgent });
 // Log which RPC is active (host only — never the API key) so a deploy can confirm it's
 // using a dedicated provider (e.g. helius) and not the rate-limited public endpoint.
 try { console.log(`[WALLET] RPC endpoint: ${new URL(RPC_URL).host}`); } catch (_) {}
