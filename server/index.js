@@ -748,7 +748,28 @@ app.get('/api/debug/tick', (_req, res) => {
   res.json(out);
 });
 
-setInterval(checkSolvency, 60000).unref?.();
+// Every background job here runs on a 30s or 60s period and they all start at
+// boot, so every 60 seconds they fire on the SAME tick. The sim, the snapshot
+// broadcast and all of these share one thread, so that pile-up is what players
+// felt as a ping spike and half a second of jitter once a minute. Staggering
+// gives each job its own offset so they can never land together. Nothing about
+// what any job DOES changes — only when it runs.
+function everyStaggered(fn, periodMs, offsetMs, label) {
+  setTimeout(() => {
+    const run = () => {
+      const t0 = Date.now();
+      try { Promise.resolve(fn()).catch(e => console.error(`[JOB ${label}]`, e.message)); }
+      catch (e) { console.error(`[JOB ${label}]`, e.message); }
+      const sync = Date.now() - t0;
+      if (sync > 50) console.warn(`[JOB ${label}] blocked the loop for ${sync}ms`);
+    };
+    run();
+    const t = setInterval(run, periodMs);
+    t.unref?.();
+  }, offsetMs).unref?.();
+}
+
+everyStaggered(checkSolvency, 60000, 3000, 'solvency');
 checkSolvency();
 
 // ── Failed-payout drainer (NA only) ───────────────────────────────────────────
@@ -780,7 +801,7 @@ async function drainPayouts() {
     console.error('[PAYOUT] drainer tick failed:', e.message);
   }
 }
-if (REGION === 'na') setInterval(drainPayouts, 30000).unref?.();
+if (REGION === 'na') everyStaggered(drainPayouts, 30000, 11000, 'payouts');
 
 // How long to keep a disconnected player's snake gliding before giving up on a
 // reconnect. Covers a typical mobile network blip without leaving dead snakes around.

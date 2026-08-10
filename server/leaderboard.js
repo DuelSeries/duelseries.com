@@ -11,8 +11,10 @@ function setDb(db) {
   _db = db;
   // Load initial cache from DB
   _load().catch(e => console.error('[Leaderboard] initial load failed:', e.message));
-  // Flush any in-memory updates every 30s
-  setInterval(_flush, 30_000);
+  // Flush any in-memory updates every 30s, offset from the other periodic jobs.
+  // They were all 30s/60s starting at boot, so every minute they collided on one
+  // tick and stalled the shared game loop.
+  setTimeout(() => setInterval(_flush, 30_000).unref?.(), 19_000).unref?.();
   process.on('SIGTERM', _flush);
   process.on('SIGINT',  _flush);
 }

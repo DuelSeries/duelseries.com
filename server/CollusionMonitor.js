@@ -32,8 +32,13 @@ function init({ db, onFlag } = {}) {
   _db = db || null;
   _onFlag = onFlag || null;
   if (_timer) clearInterval(_timer);
-  _timer = setInterval(evaluate, EVAL_MS);
-  if (_timer.unref) _timer.unref();
+  // Offset from the other periodic jobs so they don't all fire on the same tick
+  // and stall the shared game loop — see the note in server/index.js.
+  const start = setTimeout(() => {
+    _timer = setInterval(evaluate, EVAL_MS);
+    if (_timer.unref) _timer.unref();
+  }, 7000);
+  if (start.unref) start.unref();
 }
 
 // Record that `amount` SOL of cash value moved from account `src` to account `dst`.

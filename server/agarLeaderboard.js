@@ -9,7 +9,8 @@ let _dirty = false;
 function setDb(db) {
   _db = db;
   _load().catch(e => console.error('[AgarLB] initial load failed:', e.message));
-  setInterval(_flush, 30_000);
+  // Offset from the other periodic jobs — see the note in leaderboard.js.
+  setTimeout(() => setInterval(_flush, 30_000).unref?.(), 25_000).unref?.();
   process.on('SIGTERM', _flush);
   process.on('SIGINT',  _flush);
 }
