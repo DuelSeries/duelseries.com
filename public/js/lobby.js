@@ -22,77 +22,56 @@ function glSnakeBody(ctx, pts, R, colorHex) {
 }
 
 // ─── Hex background ───────────────────────────────────────────────────────────
+// Painted from the same tile image the in-game background uses
+// (public/hexbg.jpg, 599x519), so the lobby and the game are literally the same
+// picture instead of two separate approximations. This replaced a per-frame loop
+// that stroked and gradient-filled every hex on screen.
+// The lattice tilt is baked into the image — do NOT rotate it here.
 (function() {
   const canvas = document.getElementById('bg-canvas');
   const ctx = canvas.getContext('2d');
 
-  const size    = 48;
-  const gap     = 14.6;
-  const colStep = Math.sqrt(3) * size + gap;
-  const rowStep = 1.5 * size + Math.sqrt(3) / 2 * gap;
-  const faceR   = size - gap / 2;
-  const SCROLL_SPEED = 80; // px per second in grid space
+  // Keeps the hexes the on-screen size the old generated grid had: its lattice was
+  // √3·48 + 14.6 = 97.74px drawn at 1.45x = 141.7px, against the image's own
+  // 83.43px lattice.
+  const SCALE = 1.70;
+  const SCROLL_SPEED = 80; // px per second
+
+  const img = new Image();
+  img.src = '/hexbg.jpg';
+  let pattern = null;
 
   let W = window.innerWidth, H = window.innerHeight;
   let scrollX = 0, lastTime = null;
 
   window.addEventListener('resize', () => { W = window.innerWidth; H = window.innerHeight; });
 
-  function hexPath(cx, cy, r) {
-    ctx.beginPath();
-    for (let i = 0; i < 6; i++) {
-      const angle = (Math.PI / 3) * i + Math.PI / 6;
-      ctx.lineTo(cx + r * Math.cos(angle), cy + r * Math.sin(angle));
-    }
-    ctx.closePath();
-  }
-
   function draw(now) {
-    if (lastTime !== null) scrollX = (scrollX + (now - lastTime) * SCROLL_SPEED / 1000) % colStep;
+    if (lastTime !== null) scrollX += (now - lastTime) * SCROLL_SPEED / 1000;
     lastTime = now;
 
     canvas.width  = W;
     canvas.height = H;
 
-    ctx.fillStyle = 'rgb(15,25,38)';   // dark navy gap
+    ctx.fillStyle = 'rgb(15,25,38)';   // dark navy gap (and what shows pre-decode)
     ctx.fillRect(0, 0, W, H);
 
-    ctx.save();
-    ctx.translate(W / 2, H / 2);
-    ctx.rotate(-0.285);
-    ctx.scale(1.45, 1.45);
-    ctx.translate(-W / 2, -H / 2);
-    ctx.translate(scrollX, 0);
-    ctx.lineJoin = 'round';
-    ctx.lineCap  = 'round';
-
-    for (let row = -4; row < H / rowStep + 5; row++) {
-      for (let col = -5; col < W / colStep + 6; col++) {
-        const cx = col * colStep + (row % 2 === 1 ? colStep / 2 : 0);
-        const cy = row * rowStep;
-
-        // soft shadow (lower-left)
-        hexPath(cx - faceR * 0.10, cy + faceR * 0.12, faceR);
-        ctx.fillStyle = 'rgba(0,0,0,0.28)';
-        ctx.fill();
-
-        // navy face — vertical gradient (light top -> dark bottom)
-        hexPath(cx, cy, faceR);
-        const face = ctx.createLinearGradient(cx, cy - faceR, cx, cy + faceR);
-        face.addColorStop(0, 'rgb(35,49,70)');
-        face.addColorStop(1, 'rgb(17,27,39)');
-        ctx.fillStyle = face;
-        ctx.fill();
-
-        // black outline
-        hexPath(cx, cy, faceR);
-        ctx.strokeStyle = 'rgb(8,13,19)';
-        ctx.lineWidth = faceR * 0.13;
-        ctx.stroke();
+    if (img.complete && img.naturalWidth > 0) {
+      if (!pattern) pattern = ctx.createPattern(img, 'repeat');
+      if (pattern) {
+        // The tile repeats exactly every image width, so wrapping the scroll there
+        // is seamless and stops the offset growing without bound.
+        const ox = scrollX % (img.naturalWidth * SCALE);
+        ctx.save();
+        ctx.translate(ox, 0);
+        ctx.scale(SCALE, SCALE);
+        ctx.fillStyle = pattern;
+        const pad = 4;
+        ctx.fillRect(-ox / SCALE - pad, -pad, W / SCALE + 2 * pad, H / SCALE + 2 * pad);
+        ctx.restore();
       }
     }
 
-    ctx.restore();
     hexBgRaf = requestAnimationFrame(draw);
   }
 
