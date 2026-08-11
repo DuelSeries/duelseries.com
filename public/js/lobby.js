@@ -36,15 +36,40 @@ function glSnakeBody(ctx, pts, R, colorHex) {
   // 83.43px lattice.
   const SCALE = 1.70;
   const SCROLL_SPEED = 80; // px per second
+  const WRAP_PAD = 4;
 
   const img = new Image();
   img.src = '/hexbg.jpg';
-  let pattern = null;
+  let tile = null, pattern = null;
 
   let W = window.innerWidth, H = window.innerHeight;
   let scrollX = 0, lastTime = null;
 
   window.addEventListener('resize', () => { W = window.innerWidth; H = window.innerHeight; });
+
+  // Pre-scale the image ONCE, then every frame is a pattern fill under a pure
+  // translate. Filling under a scale transform instead measured ~12x slower and is
+  // what tanked the in-game framerate; see the long note in HexGrid.js. The scale
+  // here is constant, so unlike the game this only ever builds one tile.
+  // The scale reads from a padded copy whose margin is the wrapped neighbouring
+  // pixels, because drawImage clamps at its source edges and that leaves a visible
+  // seam at every tile boundary.
+  function buildTile() {
+    const iw = img.naturalWidth, ih = img.naturalHeight;
+    const P = document.createElement('canvas');
+    P.width = iw + 2 * WRAP_PAD; P.height = ih + 2 * WRAP_PAD;
+    const pc = P.getContext('2d');
+    pc.translate(WRAP_PAD, WRAP_PAD);
+    const pp = pc.createPattern(img, 'repeat');
+    if (pp) { pc.fillStyle = pp; pc.fillRect(-WRAP_PAD, -WRAP_PAD, P.width, P.height); }
+
+    const tw = Math.round(iw * SCALE), th = Math.round(ih * SCALE);
+    const kx = tw / iw, ky = th / ih;
+    tile = document.createElement('canvas');
+    tile.width = tw; tile.height = th;
+    tile.getContext('2d').drawImage(P, 0, 0, P.width, P.height,
+                                    -WRAP_PAD * kx, -WRAP_PAD * ky, P.width * kx, P.height * ky);
+  }
 
   function draw(now) {
     if (lastTime !== null) scrollX += (now - lastTime) * SCROLL_SPEED / 1000;
@@ -57,17 +82,16 @@ function glSnakeBody(ctx, pts, R, colorHex) {
     ctx.fillRect(0, 0, W, H);
 
     if (img.complete && img.naturalWidth > 0) {
-      if (!pattern) pattern = ctx.createPattern(img, 'repeat');
+      if (!tile) buildTile();
+      if (!pattern) pattern = ctx.createPattern(tile, 'repeat');
       if (pattern) {
-        // The tile repeats exactly every image width, so wrapping the scroll there
+        // The tile repeats exactly every tile width, so wrapping the scroll there
         // is seamless and stops the offset growing without bound.
-        const ox = scrollX % (img.naturalWidth * SCALE);
+        const ox = scrollX % tile.width;
         ctx.save();
         ctx.translate(ox, 0);
-        ctx.scale(SCALE, SCALE);
         ctx.fillStyle = pattern;
-        const pad = 4;
-        ctx.fillRect(-ox / SCALE - pad, -pad, W / SCALE + 2 * pad, H / SCALE + 2 * pad);
+        ctx.fillRect(-ox, 0, W, H);
         ctx.restore();
       }
     }
