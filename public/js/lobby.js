@@ -1202,14 +1202,18 @@ document.getElementById('btn-spectate-lobby-2').addEventListener('click', () => 
     // Eyes (drawn on top in 2D either way)
     const fwdX = Math.cos(ang), fwdY = Math.sin(ang);
     const perpX = -Math.sin(ang), perpY = Math.cos(ang);
-    const eyeR = R * 0.38, pupilR = eyeR * 0.60;
-    const eyeSide = R * 0.43, eyeFwd = R * 0.40;
+    // Matched to the in-game snake (Renderer.js), which uses slither.io's setSkin
+    // defaults expressed as fractions of the body radius.
+    const eyeR = R * 0.414, pupilR = eyeR * 0.583;
+    const eyeSide = R * 0.448, eyeFwd = R * 0.414;
     for (const s of [-1, 1]) {
       const ex = hx + fwdX*eyeFwd + perpX*eyeSide*s;
       const ey = hy + fwdY*eyeFwd + perpY*eyeSide*s;
+      ctx.globalAlpha = 0.75;                 // slither's eye whites are not solid
       ctx.beginPath(); ctx.arc(ex, ey, eyeR, 0, Math.PI*2);
       ctx.fillStyle = '#FFFFFF'; ctx.fill();
-      const ps = eyeR - pupilR;
+      ctx.globalAlpha = 1;
+      const ps = eyeR * 0.383;                // their pupil offset toward the look dir
       ctx.beginPath(); ctx.arc(ex + fwdX*ps, ey + fwdY*ps, pupilR, 0, Math.PI*2);
       ctx.fillStyle = '#060606'; ctx.fill();
     }
@@ -1384,12 +1388,15 @@ document.getElementById('btn-spectate-lobby-2').addEventListener('click', () => 
     }
     const fwdX = Math.cos(ang), fwdY = Math.sin(ang);
     const perpX = -Math.sin(ang), perpY = Math.cos(ang);
-    const eyeR = R*0.38, pupilR = eyeR*0.60, eyeSide = R*0.43, eyeFwd = R*0.40;
+    // Matched to the in-game snake — see the note above.
+    const eyeR = R*0.414, pupilR = eyeR*0.583, eyeSide = R*0.448, eyeFwd = R*0.414;
     for (const ss of [-1,1]) {
       const ex = hx + fwdX*eyeFwd + perpX*eyeSide*ss;
       const ey = hy + fwdY*eyeFwd + perpY*eyeSide*ss;
+      ctx.globalAlpha = 0.75;                 // slither's eye whites are not solid
       ctx.beginPath(); ctx.arc(ex, ey, eyeR, 0, Math.PI*2); ctx.fillStyle='#FFF'; ctx.fill();
-      const ps = eyeR - pupilR;
+      ctx.globalAlpha = 1;
+      const ps = eyeR * 0.383;                // their pupil offset toward the look dir
       ctx.beginPath(); ctx.arc(ex+fwdX*ps, ey+fwdY*ps, pupilR, 0, Math.PI*2); ctx.fillStyle='#060606'; ctx.fill();
     }
 
@@ -1895,14 +1902,18 @@ document.getElementById('btn-spectate-lobby-2').addEventListener('click', () => 
 
     const fwdX = Math.cos(s.angle), fwdY = Math.sin(s.angle);
     const perpX = -Math.sin(s.angle), perpY = Math.cos(s.angle);
-    const eyeR = R * 0.38, pupilR = eyeR * 0.60;
-    const eyeSide = R * 0.43, eyeFwd = R * 0.40;
+    // Matched to the in-game snake (Renderer.js), which uses slither.io's setSkin
+    // defaults expressed as fractions of the body radius.
+    const eyeR = R * 0.414, pupilR = eyeR * 0.583;
+    const eyeSide = R * 0.448, eyeFwd = R * 0.414;
     for (const side of [-1, 1]) {
       const ex = hx + fwdX*eyeFwd + perpX*eyeSide*side;
       const ey = hy + fwdY*eyeFwd + perpY*eyeSide*side;
+      ctx.globalAlpha = 0.75;                 // slither's eye whites are not solid
       ctx.beginPath(); ctx.arc(ex, ey, eyeR, 0, Math.PI*2);
       ctx.fillStyle = '#FFFFFF'; ctx.fill();
-      const ps = eyeR - pupilR;
+      ctx.globalAlpha = 1;
+      const ps = eyeR * 0.383;                // their pupil offset toward the look dir
       ctx.beginPath(); ctx.arc(ex + fwdX*ps, ey + fwdY*ps, pupilR, 0, Math.PI*2);
       ctx.fillStyle = '#060606'; ctx.fill();
     }
