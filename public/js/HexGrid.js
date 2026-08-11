@@ -44,13 +44,23 @@ class HexGrid {
     // Colours sampled from slither's bg54.jpg: the gap between faces is its most
     // common colour (#0e1720), the brightest face pixel is #1e3142, and the
     // darkest pixel (the deep shadow under a face) is #01050e.
-    ctx.fillStyle = 'rgb(14,23,32)';         // gap / background  #0e1720
+    // Gap samples at rgb(14,23,32) in their image, but the grain pass below lifts
+    // dark areas by about 4, so the fill is set 4 lower and lands on target.
+    ctx.fillStyle = 'rgb(10,19,28)';         // gap / background
     ctx.fillRect(0, 0, big.width, big.height);
     ctx.lineJoin = 'round';
     ctx.lineCap  = 'round';
+    // Face gradient read straight off a full hex cycle in the folded average:
+    // top of face rgb(25,39,55), bottom of face rgb(17,27,37) before it meets
+    // the gap. The earlier top stop of rgb(30,49,66) was the single brightest
+    // JPEG pixel, not the true face colour, which is why ours read too contrasty.
+    // Stops corrected against a direct profile-vs-profile comparison with their
+    // image: the rendered face came out ~5 short on blue near the top and ~3
+    // heavy on red lower down, so the stops carry that correction rather than
+    // the raw sampled values (the blur and shadow shift the final pixels).
     const grad = ctx.createLinearGradient(0, -r, 0, r);
-    grad.addColorStop(0, 'rgb(30,49,66)');   // face top    #1e3142
-    grad.addColorStop(1, 'rgb(16,26,36)');   // face bottom, just above the gap
+    grad.addColorStop(0, 'rgb(24,40,60)');   // face top
+    grad.addColorStop(1, 'rgb(14,26,36)');   // face bottom
 
     const hex = (ox, oy) => { ctx.beginPath(); for (let i = 0; i < 6; i++) { const a = (Math.PI/3)*i + Math.PI/6; ctx.lineTo(ox + r*Math.cos(a), oy + r*Math.sin(a)); } ctx.closePath(); };
 
@@ -60,9 +70,15 @@ class HexGrid {
         const cx = (col * COL_STEP + off) * physScale + pad;
         const cy = (row * ROW_STEP) * physScale + pad;
         ctx.setTransform(1, 0, 0, 1, cx, cy);
-        hex(-r * 0.10, r * 0.12);  ctx.fillStyle = 'rgba(0,0,0,0.28)'; ctx.fill();  // soft shadow
+        // Shadow opacity solved from the fold: the gap sits at rgb(14,23,32) and
+        // its darkest point under a face is rgb(9,14,20). 9/14, 14/23 and 20/32
+        // all give the same answer, so black at ~0.375 alpha.
+        hex(-r * 0.10, r * 0.12);  ctx.fillStyle = 'rgba(0,0,0,0.375)'; ctx.fill(); // soft shadow
         hex(0, 0);                 ctx.fillStyle = grad;               ctx.fill();  // navy face
-        hex(0, 0);                 ctx.strokeStyle = 'rgb(1,5,14)'; ctx.lineWidth = lw; ctx.stroke();  // outline  #01050e
+        // Outline is the dark band immediately bordering a face in the fold,
+        // rgb(11,17,24). rgb(1,5,14) was the single darkest pixel in the whole
+        // image, which is the shadow floor, not the edge.
+        hex(0, 0);                 ctx.strokeStyle = 'rgb(11,17,24)'; ctx.lineWidth = lw; ctx.stroke();
       }
     }
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -95,6 +111,10 @@ class HexGrid {
       // readback stalled the frame hard — a steady framerate with periodic
       // half-second hitches. The grain is just fixed noise, so it is now built
       // ONCE into a small tile and composited, which is a plain GPU blit.
+      // Plain alpha compositing. 'overlay' was tried to keep the mean neutral but
+      // measured worse: it left the gap perfect while darkening the faces ~20%
+      // (profile comparison went from 3.11 to 5.44 average error). The slight
+      // lift this grain gives dark areas is compensated in the fill colour above.
       const g = this._grainTile();
       cctx.save();
       cctx.globalAlpha = 0.5;
@@ -123,7 +143,7 @@ class HexGrid {
       const n = (rnd() - 0.5) * 8;          // signed noise, applied as translucent grey
       const v = Math.max(0, Math.min(255, 128 + n));
       d[k] = d[k+1] = d[k+2] = v;
-      d[k+3] = 26;                           // faint, so it reads like the old +/-2 grain
+      d[k+3] = 26;                           // faint
     }
     g.putImageData(img, 0, 0);
     this._grain = c;
