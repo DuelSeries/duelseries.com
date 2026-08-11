@@ -2,7 +2,12 @@
 // rendered once (rebuilt only when the zoom changes), then painted across the
 // whole screen each frame as a tiled, tilted, panned pattern fill. This is
 // O(1) per frame regardless of movement/zoom, so it never falls behind.
-const HEX_TILT = -0.285;
+// Tilt measured off slither.io's own background tile (bg54.jpg, 599x519). A 2D
+// autocorrelation of that image gives three lattice vectors, all 83.43px long,
+// at -13.87, +45.97 and -73.96 degrees — 60 degrees apart, i.e. a hexagonal
+// lattice rotated by -13.87 degrees. Colours below are sampled from the same
+// image rather than eyeballed.
+const HEX_TILT = -13.87 * Math.PI / 180;   // -0.2421 rad
 
 class HexGrid {
   constructor(isMobile = false) {
@@ -12,7 +17,10 @@ class HexGrid {
     this._pattern    = null;
 
     this.SIZE     = 48 * 0.62;
-    this.GAP      = 14.6 * 0.62;
+    // Gap tightened from 14.6 to 12 to match slither's face-to-gap proportion,
+    // set by rendering this tile beside their bg54.jpg at a matched lattice
+    // spacing (83.43px) and comparing directly.
+    this.GAP      = 12 * 0.62;
     this.FACE_R   = this.SIZE - this.GAP / 2;
     this.COL_STEP = Math.sqrt(3) * this.SIZE + this.GAP;
     this.ROW_STEP = 1.5 * this.SIZE + Math.sqrt(3) / 2 * this.GAP;
@@ -33,13 +41,16 @@ class HexGrid {
     const big = document.createElement('canvas');
     big.width = tileW + pad * 2; big.height = tileH + pad * 2;
     const ctx = big.getContext('2d');
-    ctx.fillStyle = 'rgb(15,25,38)';
+    // Colours sampled from slither's bg54.jpg: the gap between faces is its most
+    // common colour (#0e1720), the brightest face pixel is #1e3142, and the
+    // darkest pixel (the deep shadow under a face) is #01050e.
+    ctx.fillStyle = 'rgb(14,23,32)';         // gap / background  #0e1720
     ctx.fillRect(0, 0, big.width, big.height);
     ctx.lineJoin = 'round';
     ctx.lineCap  = 'round';
     const grad = ctx.createLinearGradient(0, -r, 0, r);
-    grad.addColorStop(0, 'rgb(35,49,70)');   // navy light top (less yellow)
-    grad.addColorStop(1, 'rgb(17,27,39)');   // navy dark bottom (less yellow)
+    grad.addColorStop(0, 'rgb(30,49,66)');   // face top    #1e3142
+    grad.addColorStop(1, 'rgb(16,26,36)');   // face bottom, just above the gap
 
     const hex = (ox, oy) => { ctx.beginPath(); for (let i = 0; i < 6; i++) { const a = (Math.PI/3)*i + Math.PI/6; ctx.lineTo(ox + r*Math.cos(a), oy + r*Math.sin(a)); } ctx.closePath(); };
 
@@ -51,7 +62,7 @@ class HexGrid {
         ctx.setTransform(1, 0, 0, 1, cx, cy);
         hex(-r * 0.10, r * 0.12);  ctx.fillStyle = 'rgba(0,0,0,0.28)'; ctx.fill();  // soft shadow
         hex(0, 0);                 ctx.fillStyle = grad;               ctx.fill();  // navy face
-        hex(0, 0);                 ctx.strokeStyle = 'rgb(8,13,19)'; ctx.lineWidth = lw; ctx.stroke(); // outline (less yellow)
+        hex(0, 0);                 ctx.strokeStyle = 'rgb(1,5,14)'; ctx.lineWidth = lw; ctx.stroke();  // outline  #01050e
       }
     }
     ctx.setTransform(1, 0, 0, 1, 0, 0);
