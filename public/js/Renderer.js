@@ -468,21 +468,37 @@ class Renderer {
       const dx = e.wx - worldCX, dy = e.wy - worldCY;
       const fd2 = dx * dx + dy * dy;
 
+      // These glows are the most expensive thing per pellet: two large additive
+      // blits each, drawn twice. Their alpha already falls off toward the screen
+      // edges, and below ~1/255 a layer cannot change a single displayed pixel —
+      // an 8-bit channel has no value between "unchanged" and "one step". So skip
+      // those draws. This is a pure work saving with no visible difference, which
+      // matters now that the field is 5x denser.
+      const MIN_A = 1 / 255;
+
       let fal = (0.005 + 0.09 * (K1 / (K1 + fd2))) * e.a;
-      let img = this._foodGlow(e.color, e.ph.gcv);
-      let sp = (img.width / 2) * e.k;
-      ctx.globalAlpha = fal;
-      ctx.drawImage(img, e.wx - sp, e.wy - sp, sp * 2, sp * 2);
-      ctx.globalAlpha = fal * e.pulse;
-      ctx.drawImage(img, e.wx - sp, e.wy - sp, sp * 2, sp * 2);
+      if (fal >= MIN_A) {
+        let img = this._foodGlow(e.color, e.ph.gcv);
+        let sp = (img.width / 2) * e.k;
+        ctx.globalAlpha = fal;
+        ctx.drawImage(img, e.wx - sp, e.wy - sp, sp * 2, sp * 2);
+        if (fal * e.pulse >= MIN_A) {
+          ctx.globalAlpha = fal * e.pulse;
+          ctx.drawImage(img, e.wx - sp, e.wy - sp, sp * 2, sp * 2);
+        }
+      }
 
       fal = 0.085 * (K2 / (K2 + fd2)) * e.a;
-      img = this._foodGlow(e.color, e.ph.g2cv);
-      sp = (img.width / 2) * e.k;
-      ctx.globalAlpha = fal;
-      ctx.drawImage(img, e.wx - sp, e.wy - sp, sp * 2, sp * 2);
-      ctx.globalAlpha = fal * e.pulse;
-      ctx.drawImage(img, e.wx - sp, e.wy - sp, sp * 2, sp * 2);
+      if (fal >= MIN_A) {
+        const img = this._foodGlow(e.color, e.ph.g2cv);
+        const sp = (img.width / 2) * e.k;
+        ctx.globalAlpha = fal;
+        ctx.drawImage(img, e.wx - sp, e.wy - sp, sp * 2, sp * 2);
+        if (fal * e.pulse >= MIN_A) {
+          ctx.globalAlpha = fal * e.pulse;
+          ctx.drawImage(img, e.wx - sp, e.wy - sp, sp * 2, sp * 2);
+        }
+      }
     }
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = 1;

@@ -88,8 +88,10 @@ class Snake {
       this._boostTick = (this._boostTick || 0) + 1; // resets for food drop
       this.boostRamp = Math.min(1, (this.boostRamp || 0) + 1 / C.BOOST_RAMP_TICKS);
 
-      // Drop 1 food at current tail every 8 ticks — 3 evenly spaced drops over 24 ticks
-      if (this._boostTick % 8 === 0) {
+      // Drop 1 food at the current tail every 4 ticks — 6 evenly spaced drops over
+      // 24 ticks, twice the previous rate (was every 8). The shrink rate below is
+      // unchanged, so boosting costs the same length; it just leaves more behind.
+      if (this._boostTick % 4 === 0) {
         const tail = this.segments[this.segments.length - 1];
         if (tail) this.boostDrops.push({ x: tail.x, y: tail.y, value: 0.15, color: this.color, dropped: true });
       }
@@ -155,19 +157,46 @@ class Snake {
     // flagged `dropped` — that flag dims boost-trail crumbs to 55% alpha, and corpse
     // food in slither is the biggest, brightest food in the game.
     const drops = [];
-    const dropCount = Math.max(1, Math.floor(this.length / 4));
-    const step = this.segments.length / dropCount;
+    const segs = this.segments;
+    const n = segs.length;
+    if (n === 0) return drops;
+
     const sizeMul = Math.min(1.6, 0.9 + 0.14 * this.scale); // giants drop visibly bigger orbs
-    for (let i = 0; i < dropCount; i++) {
-      const seg = this.segments[Math.min(this.segments.length - 1, Math.floor(i * step))];
-      drops.push({
-        x: seg.x + (Math.random() - 0.5) * 12,
-        y: seg.y + (Math.random() - 0.5) * 12,
-        value: 2,
-        color: this.color,
-        size: (2.0 + Math.random() * 0.5) * sizeMul,
-        dropped: false,
-      });
+    const bodyR   = C.SNAKE_HEAD_RADIUS * this.scale;       // half the snake's width
+
+    // Space the orbs by ARC LENGTH, not by segment index. Segments sit only
+    // SNAKE_SEGMENT_SPACING (3) units apart while an orb renders about 7 units
+    // across, so index-spacing packed them on top of each other and the corpse
+    // read as one clump. Stepping by roughly an orb diameter lays a readable
+    // trail down the body instead.
+    const orbR        = C.FOOD_RADIUS * 2.0 * sizeMul;
+    const stepUnits   = Math.max(orbR * 1.1, C.SNAKE_SEGMENT_SPACING);
+    const segsPerStep = Math.max(1, Math.round(stepUnits / C.SNAKE_SEGMENT_SPACING));
+    const PER_STEP    = 2;   // orbs laid across the width at each step
+
+    for (let i = 0; i < n; i += segsPerStep) {
+      // local body direction, so the scatter runs ACROSS the snake rather than
+      // in a square box around each point
+      const nxt = segs[Math.min(n - 1, i + 1)];
+      const prv = segs[Math.max(0, i - 1)];
+      const dx = nxt.x - prv.x, dy = nxt.y - prv.y;
+      const L = Math.hypot(dx, dy) || 1;
+      const px = -dy / L, py = dx / L;      // unit perpendicular
+      for (let k = 0; k < PER_STEP; k++) {
+        // One orb to each side of the spine, each at least 15% of the body radius
+        // off centre. Independent random offsets let the pair land on the same
+        // spot, which is the clumping this is meant to avoid.
+        const side = k === 0 ? -1 : 1;
+        const off  = side * bodyR * (0.15 + Math.random() * 0.85);
+        drops.push({
+          x: segs[i].x + px * off,
+          y: segs[i].y + py * off,
+          value: 2,
+          color: this.color,
+          size: (2.0 + Math.random() * 0.5) * sizeMul,
+          dropped: false,
+        });
+      }
     }
     return drops;
   }

@@ -32,7 +32,13 @@ const CONSTANTS = {
   // Food
   FOOD_RADIUS: 3,
   FOOD_EAT_RADIUS: 20,
-  FOOD_SPAWN_COUNT: 720,
+  // 2x the previous 720. Measured: at a zoomed-out view roughly 20% of world
+  // food is on screen, and _drawFood costs ~14ms/frame at 800 visible pellets.
+  // 5x (3600) would put ~733 on screen when the snake is big, eating almost the
+  // whole 60fps budget and well past the 4.2ms a 240Hz display allows. 2x keeps
+  // the denser field well inside budget. Going higher wants food moved to the
+  // WebGL sprite path the snake already uses.
+  FOOD_SPAWN_COUNT: 1440,
   FOOD_RESPAWN_INTERVAL: 2000,
   FOOD_PER_GROWTH: 1,
   SEGMENTS_PER_FOOD: 1,
