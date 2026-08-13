@@ -206,42 +206,19 @@
 
     <div class="ap-preview-wrap" id="ap-preview-wrap">
       <canvas id="ap-canvas" class="ap-canvas"></canvas>
-      </div>
     </div>
 
-    <!-- Arrows drawn to slither.io's measured geometry: an 87x88 box, triangle
-         apex at x=7 with its base at x=53, shaft x54..79 / y29..57, flat fill
-         rgb(112,203,111) with a light inner bevel on the top edge, a darker one
-         along the bottom, and a soft drop shadow. Their own prev3.png/next3.png
-         are decoded in snake-design/ if a pixel-identical swap is ever wanted.
-         Drawn rather than shipped so the asset is ours. -->
-    <svg width="0" height="0" style="position:absolute" aria-hidden="true">
-      <defs>
-        <linearGradient id="skFace" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0.045" stop-color="rgb(194,232,194)"/>
-          <stop offset="0.136" stop-color="rgb(174,223,173)"/>
-          <stop offset="0.205" stop-color="rgb(118,205,117)"/>
-          <stop offset="0.261" stop-color="rgb(112,203,111)"/>
-          <stop offset="0.852" stop-color="rgb(112,203,111)"/>
-          <stop offset="0.909" stop-color="rgb(104,198,103)"/>
-          <stop offset="0.955" stop-color="rgb(87,182,86)"/>
-        </linearGradient>
-        <filter id="skShadow" x="-25%" y="-25%" width="160%" height="160%">
-          <feDropShadow dx="2" dy="3" stdDeviation="2.5" flood-color="#000" flood-opacity="0.45"/>
-        </filter>
-        <path id="skArrow" d="M7,42.5 L53,4 L53,29 L79,29 L79,57 L53,57 L53,81 Z"/>
-      </defs>
-    </svg>
-
+    <!-- slither.io's own arrow art, 87x88. Everything in here lives INSIDE
+         #appearance-screen — an earlier edit left a stray </div> above which
+         closed the screen early, so these fell out into the page and the
+         full-screen .ap-save-row blanketed the lobby and swallowed every
+         click. Keep the nesting intact. -->
     <div class="ap-selector" id="ap-selector">
       <button class="ap-arrow" id="ap-prev" aria-label="Previous skin">
-        <svg viewBox="0 0 87 88"><use href="#skArrow" fill="url(#skFace)" filter="url(#skShadow)"
-             stroke="rgb(112,203,111)" stroke-width="1" stroke-linejoin="round"/></svg>
+        <img src="/img/skin-prev.png" width="87" height="88" alt="" draggable="false">
       </button>
       <button class="ap-arrow" id="ap-next" aria-label="Next skin">
-        <svg viewBox="0 0 87 88"><g transform="translate(87,0) scale(-1,1)"><use href="#skArrow"
-             fill="url(#skFace)" filter="url(#skShadow)" stroke="rgb(112,203,111)"
-             stroke-width="1" stroke-linejoin="round"/></g></svg>
+        <img src="/img/skin-next.png" width="87" height="88" alt="" draggable="false">
       </button>
       <div class="hidden"><span id="ap-sel-name"></span><span id="ap-sel-lock"></span></div>
     </div>

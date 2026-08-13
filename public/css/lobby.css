@@ -1297,7 +1297,7 @@ body {
 .ap-arrow:hover  { opacity: 1; border-color: transparent; }
 .ap-arrow:active { opacity: .5; }
 .ap-arrow:disabled { opacity: .25; cursor: default; }
-.ap-arrow svg { display: block; width: 87px; height: 88px; }
+.ap-arrow img { display: block; width: 87px; height: 88px; }
 #ap-prev { left: calc(25% - 43.5px); }
 #ap-next { left: calc(75% - 43.5px); }
 
