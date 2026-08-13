@@ -70,8 +70,10 @@ test('serialize() exposes the wire fields the codec/client expect', () => {
 });
 
 test('only slither palette colours are accepted from the client', () => {
-  const palette = require('../../snake-design/slither-palette.json')
-    .map(p => p.hex.toLowerCase());
+  // From the module itself, not snake-design/slither-palette.json — that folder
+  // is reference material outside this repo, so requiring it would fail on a
+  // fresh checkout.
+  const palette = [...Snake.COLORS, ...Snake.SKIN_ONLY_COLORS];
 
   // every skin the shop offers survives untouched
   for (const c of ['#c080ff', '#ff4040', '#505050', '#6828aa', '#20f020']) {

@@ -252,4 +252,12 @@ class Snake {
   }
 }
 
+// Exposed as statics so tests (and any future caller) can check a colour against
+// the same list the server enforces, rather than re-declaring it or reading
+// snake-design/slither-palette.json — that folder is reference material and is
+// NOT part of this repo, so anything importing it breaks on a fresh checkout.
+Snake.COLORS = COLORS;
+Snake.SKIN_ONLY_COLORS = SKIN_ONLY_COLORS;
+Snake.sanitizeColor = sanitizeColor;
+
 module.exports = Snake;
