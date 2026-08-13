@@ -1,4 +1,3 @@
-const { v4: uuidv4 } = require('uuid');
 const C = require('../shared/constants');
 
 // Six-colour food palette (owner-chosen): red, orange, darker yellow, green, purple,
@@ -19,6 +18,13 @@ const FOOD_COLORS = [
   '#e030e0', // magenta
 ];
 
+// Food ids are plain incrementing integers, not uuids. The snapshot codec packs
+// each pellet's id as a Uint32, and a 36-char uuid string was by far the biggest
+// part of the ~141 bytes every pellet used to cost on the wire. The counter is
+// process-wide so ids stay unique across rooms; it wraps at 2^32, which at the
+// spawn rates here is years of continuous uptime.
+let nextFoodId = 1;
+
 class FoodManager {
   constructor() {
     this.items = new Map();
@@ -31,7 +37,7 @@ class FoodManager {
   }
 
   spawnOne(worldRadius, x, y, value, cashValue, color, size, dropped) {
-    const id = uuidv4();
+    const id = nextFoodId = (nextFoodId + 1) >>> 0 || 1;
     let fx, fy;
     if (x !== undefined && y !== undefined) {
       fx = x;

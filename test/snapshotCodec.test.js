@@ -20,6 +20,11 @@ function sample() {
   };
 }
 
+function roundTrip(snap) {
+  const enc = encodeSnapshot(snap);
+  return decodeSnapshot(enc.meta, enc.coords);
+}
+
 test('round-trips snake coordinates exactly for integer world units', () => {
   const enc = encodeSnapshot(sample());
   const out = decodeSnapshot(enc.meta, enc.coords);
@@ -36,7 +41,67 @@ test('round-trips food coordinates and preserves food metadata', () => {
   assert.strictEqual(out.food[1].y, 400);
   assert.strictEqual(out.food[1].isGolden, true);
   assert.strictEqual(out.food[1].dropped, true);
+  assert.strictEqual(out.food[0].dropped, false);
+  assert.strictEqual(out.food[0].isGolden, false);
   assert.strictEqual(out.food[0].color, '#f00');
+  assert.strictEqual(out.food[1].color, '#0f0');
+});
+
+test('round-trips food ids (packed as Uint32, so they must be integers)', () => {
+  const snap = sample();
+  snap.food[0].id = 1;
+  snap.food[1].id = 4294967295;          // max Uint32
+  const out = roundTrip(snap);
+  assert.strictEqual(out.food[0].id, 1);
+  assert.strictEqual(out.food[1].id, 4294967295);
+});
+
+test('food size survives quantization within half a step', () => {
+  const snap = sample();
+  // the real range: normal 0.5-0.9, golden 2.2-2.8, death drops up to ~4.0
+  const sizes = [0.5, 0.73, 0.9, 2.2, 2.86, 4.0];
+  snap.food = sizes.map((size, i) => ({ id: i + 1, x: 0, y: 0, color: '#f00', size, dropped: false, isGolden: false }));
+  const out = roundTrip(snap);
+  const halfStep = 1 / 50 / 2 + 1e-9;    // SIZE_Q is 50, so a step is 0.02
+  for (let i = 0; i < sizes.length; i++) {
+    assert.ok(Math.abs(out.food[i].size - sizes[i]) <= halfStep,
+      `size ${sizes[i]} came back as ${out.food[i].size}`);
+  }
+});
+
+test('colour palette dedupes and handles more colours than a byte could index', () => {
+  const snap = sample();
+  const many = [];
+  for (let i = 0; i < 600; i++) {
+    many.push({ id: i + 1, x: i, y: -i, color: '#' + i.toString(16).padStart(6, '0'),
+                size: 1, dropped: false, isGolden: false });
+  }
+  // plus 400 pellets that all reuse one colour, to prove the palette dedupes
+  for (let i = 0; i < 400; i++) {
+    many.push({ id: 1000 + i, x: 0, y: 0, color: '#abcdef', size: 1, dropped: false, isGolden: false });
+  }
+  snap.food = many;
+  const enc = encodeSnapshot(snap);
+  assert.strictEqual(enc.meta.fc.length, 601, 'palette should hold one entry per distinct colour');
+  const out = decodeSnapshot(enc.meta, enc.coords);
+  assert.strictEqual(out.food[0].color, '#000000');
+  assert.strictEqual(out.food[599].color, '#' + (599).toString(16).padStart(6, '0'));
+  assert.strictEqual(out.food[999].color, '#abcdef');
+});
+
+test('food costs 12 bytes on the wire and carries no per-pellet JSON', () => {
+  const snap = sample();
+  snap.snakes = [];
+  snap.food = [];
+  for (let i = 0; i < 1000; i++) {
+    snap.food.push({ id: i + 1, x: i, y: -i, color: '#ff4040', size: 0.7, dropped: false, isGolden: false });
+  }
+  const enc = encodeSnapshot(snap);
+  assert.strictEqual(enc.coords.byteLength, 1000 * 12);
+  assert.strictEqual(enc.meta.food, undefined, 'food must not ride along as a JSON array');
+  // the whole metadata object for 1000 pellets should now be tiny
+  assert.ok(JSON.stringify(enc.meta).length < 1000,
+    'meta was ' + JSON.stringify(enc.meta).length + ' bytes; the packing did not take effect');
 });
 
 test('preserves snake metadata (the non-coordinate fields)', () => {

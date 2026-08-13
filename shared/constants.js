@@ -32,13 +32,17 @@ const CONSTANTS = {
   // Food
   FOOD_RADIUS: 3,
   FOOD_EAT_RADIUS: 20,
-  // 2x the previous 720. Measured: at a zoomed-out view roughly 20% of world
-  // food is on screen, and _drawFood costs ~14ms/frame at 800 visible pellets.
-  // 5x (3600) would put ~733 on screen when the snake is big, eating almost the
-  // whole 60fps budget and well past the 4.2ms a 240Hz display allows. 2x keeps
-  // the denser field well inside budget. Going higher wants food moved to the
-  // WebGL sprite path the snake already uses.
-  FOOD_SPAWN_COUNT: 1440,
+  // 5x the original 720. This was held at 1440 for a while because food was
+  // costing ~14ms/frame to draw at 800 visible pellets and ~141 bytes/pellet on
+  // the wire. Both of those are fixed now, and re-measured at 5x:
+  //   render   FoodGL batches the pellets into 3 GPU draw calls — 3000 pellets
+  //            cost 5.6ms instead of 60ms (public/js/FoodGL.js)
+  //   wire     the snapshot codec packs a pellet into 12 fixed bytes instead of
+  //            a ~141-byte JSON object — ~1800 visible pellets is ~23KB per
+  //            snapshot, still well under what 1440 used to cost
+  //   server   the two loops that scale with TOTAL food (per-tick spatial grid
+  //            rebuild, per-snapshot view cull) come to ~2.5% of one core
+  FOOD_SPAWN_COUNT: 3600,
   FOOD_RESPAWN_INTERVAL: 2000,
   FOOD_PER_GROWTH: 1,
   SEGMENTS_PER_FOOD: 1,

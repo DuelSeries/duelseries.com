@@ -373,9 +373,21 @@ class Renderer {
       // Phase cached per food ID — avoids hashing every frame
       let ph = this._foodPhaseCache.get(f.id);
       if (!ph) {
-        const idStr = String(f.id);
-        let hash = 0;
-        for (let i = 0; i < idStr.length; i++) hash = (hash * 31 + idStr.charCodeAt(i)) & 0xffff;
+        // Food ids are now sequential integers (they used to be uuids, which
+        // cost 36 bytes each on the wire). Sequential ids run straight through
+        // the old string hash — neighbouring pellets would land on adjacent
+        // seeds and visibly pulse in sync — so mix the integer properly first.
+        let hash;
+        if (typeof f.id === 'number') {
+          let h = f.id | 0;
+          h = Math.imul(h ^ (h >>> 16), 2246822507);
+          h = Math.imul(h ^ (h >>> 13), 3266489909);
+          hash = (h ^ (h >>> 16)) >>> 0;
+        } else {
+          const idStr = String(f.id);
+          hash = 0;
+          for (let i = 0; i < idStr.length; i++) hash = (hash * 31 + idStr.charCodeAt(i)) & 0xffff;
+        }
         // amp: hover distance VARIES per orb — ~1 in 4 sit completely STILL (amp 0), the rest
         //   drift a little to a lot. white: how light the centre is (5 levels). glow: only
         //   ~50% of orbs get the halo. gox/goy/gamp/gphase: the glow sheet sits OFFSET from the

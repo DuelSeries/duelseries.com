@@ -37,9 +37,12 @@ class FoodGL {
     this.ok = false;
     this.JS = foodJs;                       // Renderer.FOOD_JS — j = 2.8 .. 18.8
     this.N  = foodJs.length;
-    this.MAXCORE = 8000;                    // core quads/frame  (2 per pellet)
-    this.MAXGLOW = 16000;                   // glow quads/frame  (4 per pellet)
-    this.MAXLINE = 4000;                    // outline quads/frame (1 per pellet)
+    // Vertex buffers grow on demand rather than being capped: a fixed cap would
+    // silently drop pellets once the field got dense enough (a zoomed-out view
+    // at FOOD_SPAWN_COUNT 3600 already puts ~2700 on screen), and sizing them
+    // for the worst case up front would reserve ~16MB that is almost never
+    // used. They only ever grow, so there is no per-frame allocation.
+    this.HARD_CAP = 60000;                  // quads per layer, a sanity ceiling
     try {
       this.canvas = document.createElement('canvas');
       this.canvas.width = 64; this.canvas.height = 64;
@@ -129,13 +132,29 @@ class FoodGL {
   _initBuffers() {
     const gl = this.gl;
     this.STRIDE = 8;                                   // x,y,u,v,r,g,b,a
-    this._vLine = new Float32Array(this.MAXLINE * 6 * this.STRIDE);
-    this._vCore = new Float32Array(this.MAXCORE * 6 * this.STRIDE);
-    this._vGlow = new Float32Array(this.MAXGLOW * 6 * this.STRIDE);
+    const seed = 2048 * 6 * this.STRIDE;
+    this._vLine = new Float32Array(seed);
+    this._vCore = new Float32Array(seed * 2);
+    this._vGlow = new Float32Array(seed * 4);
     this._nLine = 0; this._nCore = 0; this._nGlow = 0;  // vertex counts
     this.bufLine = gl.createBuffer();
     this.bufCore = gl.createBuffer();
     this.bufGlow = gl.createBuffer();
+  }
+
+  // Make room for `quads` more quads in one of the vertex arrays, doubling it if
+  // needed. Returns the array (possibly a new, larger one) or null at the cap.
+  _room(name, quads) {
+    const arr = this[name];
+    const need = this['_n' + name.slice(2)] * this.STRIDE + quads * 6 * this.STRIDE;
+    if (need <= arr.length) return arr;
+    if (need > this.HARD_CAP * 6 * this.STRIDE) return null;
+    let len = arr.length;
+    while (len < need) len *= 2;
+    const next = new Float32Array(len);
+    next.set(arr);
+    this[name] = next;
+    return next;
   }
 
   // Build a grid atlas. `paint(g, sz, i)` draws step i at its native size sz,
@@ -266,28 +285,32 @@ class FoodGL {
     // sprite pixels -> screen pixels; this is the 2D path's `k`
     const k = coreHalf / (this.coreW[cv2] / 2);
 
-    if (this._nLine / 6 < this.MAXLINE) {
+    const line = this._room('_vLine', 1);
+    if (line) {
       const sp = (this.lineW[cv2] / 2) * k;
-      this._nLine = this._quad(this._vLine, this._nLine, cx, cy, sp, this.texLine.uv, cv2, 0, 0, 0, 0.8 * a);
+      this._nLine = this._quad(line, this._nLine, cx, cy, sp, this.texLine.uv, cv2, 0, 0, 0, 0.8 * a);
     }
 
     // core: steady + pulse
-    if (this._nCore / 6 + 2 <= this.MAXCORE) {
-      this._nCore = this._quad(this._vCore, this._nCore, cx, cy, coreHalf, this.texCore.uv, cv2, R, G, B, a);
-      this._nCore = this._quad(this._vCore, this._nCore, cx, cy, coreHalf, this.texCore.uv, cv2, R, G, B, a * pulse);
+    const core = this._room('_vCore', 2);
+    if (core) {
+      this._nCore = this._quad(core, this._nCore, cx, cy, coreHalf, this.texCore.uv, cv2, R, G, B, a);
+      this._nCore = this._quad(core, this._nCore, cx, cy, coreHalf, this.texCore.uv, cv2, R, G, B, a * pulse);
     }
 
     // two glow layers, each steady + pulse
-    if (this._nGlow / 6 + 4 > this.MAXGLOW) return;
+    if (fal1 <= 0 && fal2 <= 0) return;
+    const glow = this._room('_vGlow', (fal1 > 0 ? 2 : 0) + (fal2 > 0 ? 2 : 0));
+    if (!glow) return;
     if (fal1 > 0) {
       const sp = (this.glowW[gcv] / 2) * k;
-      this._nGlow = this._quad(this._vGlow, this._nGlow, cx, cy, sp, this.texGlow.uv, gcv, R, G, B, fal1);
-      this._nGlow = this._quad(this._vGlow, this._nGlow, cx, cy, sp, this.texGlow.uv, gcv, R, G, B, fal1 * pulse);
+      this._nGlow = this._quad(glow, this._nGlow, cx, cy, sp, this.texGlow.uv, gcv, R, G, B, fal1);
+      this._nGlow = this._quad(glow, this._nGlow, cx, cy, sp, this.texGlow.uv, gcv, R, G, B, fal1 * pulse);
     }
     if (fal2 > 0) {
       const sp = (this.glowW[g2cv] / 2) * k;
-      this._nGlow = this._quad(this._vGlow, this._nGlow, cx, cy, sp, this.texGlow.uv, g2cv, R, G, B, fal2);
-      this._nGlow = this._quad(this._vGlow, this._nGlow, cx, cy, sp, this.texGlow.uv, g2cv, R, G, B, fal2 * pulse);
+      this._nGlow = this._quad(glow, this._nGlow, cx, cy, sp, this.texGlow.uv, g2cv, R, G, B, fal2);
+      this._nGlow = this._quad(glow, this._nGlow, cx, cy, sp, this.texGlow.uv, g2cv, R, G, B, fal2 * pulse);
     }
   }
 
