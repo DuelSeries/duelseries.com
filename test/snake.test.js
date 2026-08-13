@@ -57,16 +57,39 @@ test('die() marks the snake dead and returns food drops', () => {
 });
 
 test('serialize() exposes the wire fields the codec/client expect', () => {
-  const s = new Snake('id', 'T', 0, 0, '#abc', 'hat', 'boost');
+  const s = new Snake('id', 'T', 0, 0, '#c080ff', 'hat', 'boost');
   s.worth = 0.5;
   const w = s.serialize();
   assert.strictEqual(w.id, 'id');
-  assert.strictEqual(w.color, '#abc');
+  assert.strictEqual(w.color, '#c080ff');
   assert.strictEqual(w.hatId, 'hat');
   assert.strictEqual(w.worth, 0.5);
   assert.ok(Array.isArray(w.segs));
   assert.strictEqual(typeof w.angle, 'number');
   assert.strictEqual(typeof w.boostRatio, 'number');
+});
+
+test('only slither palette colours are accepted from the client', () => {
+  const palette = require('../../snake-design/slither-palette.json')
+    .map(p => p.hex.toLowerCase());
+
+  // every skin the shop offers survives untouched
+  for (const c of ['#c080ff', '#ff4040', '#505050', '#6828aa', '#20f020']) {
+    assert.strictEqual(new Snake('i', 'T', 0, 0, c).color, c,
+      c + ' is a slither colour and should be kept as-is');
+  }
+  // case and whitespace are normalized rather than rejected
+  assert.strictEqual(new Snake('i', 'T', 0, 0, ' #C080FF ').color, '#c080ff');
+
+  // anything off-palette falls back to a random palette colour — a modified
+  // client must not be able to play e.g. near-invisible black or a colour
+  // that isn't slither's
+  for (const bad of ['#000000', '#abc', '#3B82F6', 'red', '', null, undefined, 42, {}]) {
+    const got = new Snake('i', 'T', 0, 0, bad).color;
+    assert.ok(palette.includes(got),
+      JSON.stringify(bad) + ' should fall back to a palette colour, got ' + got);
+    assert.notStrictEqual(got, bad);
+  }
 });
 
 test('boost fuel never lets the body shrink below the hard floor', () => {

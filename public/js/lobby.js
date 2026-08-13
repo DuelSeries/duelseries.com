@@ -1076,25 +1076,36 @@ document.getElementById('btn-spectate-lobby-2').addEventListener('click', () => 
 
 // ─── Customize / Appearance Screen ───────────────────────────────────────────
 (function() {
+  // Every skin colour is a real slither.io palette entry — the index in each
+  // comment is its position in snake-design/slither-palette.json. These used to
+  // be Tailwind-ish colours (#E8756A, #3B82F6, #374151 …), which meant the food
+  // and the bots were slither's colours but the colour you actually PLAYED as
+  // was not. The server rejects anything outside this palette (Snake.js
+  // sanitizeColor), so a modified client can't put a non-slither snake in play.
+  //
+  // The free nine are slither's core nine — the same set their food uses.
+  // PAID ids are load-bearing: cosmetics are recorded in the DB as
+  // 'skin:<id>', so renaming one would orphan a purchase. Colours and display
+  // names can change freely; ids cannot.
   const SKINS = [
-    { id: 'coral',   name: 'Coral Red',  color: '#E8756A', locked: false },
-    { id: 'teal',    name: 'Teal',       color: '#4FC3C3', locked: false },
-    { id: 'gold',    name: 'Gold',       color: '#F5C842', locked: false },
-    { id: 'pink',    name: 'Pink',       color: '#E87FD4', locked: false },
-    { id: 'purple',  name: 'Purple',     color: '#8B5CF6', locked: false },
-    { id: 'cyan',    name: 'Cyan',       color: '#22D3EE', locked: false },
-    { id: 'green',   name: 'Emerald',    color: '#10B981', locked: false },
-    { id: 'orange',  name: 'Orange',     color: '#F97316', locked: false },
-    { id: 'blue',    name: 'Blue',       color: '#3B82F6', locked: false },
-    { id: 'crimson', name: 'Crimson',    color: '#EF4444', locked: true  },
-    { id: 'mint',    name: 'Mint',       color: '#6EE7B7', locked: true  },
-    { id: 'indigo',  name: 'Indigo',     color: '#6366F1', locked: true  },
-    { id: 'rose',    name: 'Rose',       color: '#FB7185', locked: true  },
-    { id: 'amber',   name: 'Amber',      color: '#F59E0B', locked: true  },
-    { id: 'sky',     name: 'Sky',        color: '#38BDF8', locked: true  },
-    { id: 'lime',    name: 'Lime',       color: '#84CC16', locked: true  },
-    { id: 'galaxy',  name: 'Galaxy',     color: '#7C3AED', locked: true  },
-    { id: 'shadow',  name: 'Shadow',     color: '#374151', locked: true  },
+    { id: 'purple',     name: 'Purple',     color: '#c080ff', locked: false }, // 0
+    { id: 'periwinkle', name: 'Periwinkle', color: '#9099ff', locked: false }, // 1
+    { id: 'teal',       name: 'Teal',       color: '#80d0d0', locked: false }, // 2
+    { id: 'green',      name: 'Green',      color: '#80ff80', locked: false }, // 3
+    { id: 'yellow',     name: 'Yellow',     color: '#eeee70', locked: false }, // 4
+    { id: 'orange',     name: 'Orange',     color: '#ffa060', locked: false }, // 5
+    { id: 'coral',      name: 'Coral',      color: '#ff9090', locked: false }, // 6
+    { id: 'red',        name: 'Red',        color: '#ff4040', locked: false }, // 7
+    { id: 'magenta',    name: 'Magenta',    color: '#e030e0', locked: false }, // 8
+    { id: 'crimson',    name: 'Crimson',    color: '#f02020', locked: true  }, // 31
+    { id: 'mint',       name: 'Mint',       color: '#00ff53', locked: true  }, // 26
+    { id: 'indigo',     name: 'Indigo',     color: '#4854ff', locked: true  }, // 16
+    { id: 'rose',       name: 'Rose',       color: '#f020f0', locked: true  }, // 34
+    { id: 'amber',      name: 'Amber',      color: '#ffc050', locked: true  }, // 12
+    { id: 'sky',        name: 'Sky',        color: '#65c8e8', locked: true  }, // 23
+    { id: 'lime',       name: 'Lime',       color: '#20f020', locked: true  }, // 35
+    { id: 'galaxy',     name: 'Galaxy',     color: '#6828aa', locked: true  }, // 39
+    { id: 'shadow',     name: 'Shadow',     color: '#505050', locked: true  }, // 11
   ];
 
   const HATS = [

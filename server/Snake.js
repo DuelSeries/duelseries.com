@@ -13,6 +13,22 @@ const COLORS = [
   '#f020f0', '#20f020', '#6880ff', '#6828aa', '#8080ff',
 ];
 
+// Palette entries the shop offers as skins but that aren't in the random pool
+// above. Also slither colours (index 11 of snake-design/slither-palette.json).
+const SKIN_ONLY_COLORS = ['#505050'];
+
+// The colour arrives from the CLIENT (PLAY sends whatever skin is equipped), and
+// nothing used to check it — a modified client could play any colour at all,
+// including near-invisible black. Everything a snake may be is a slither palette
+// entry, so anything else is rejected and falls back to a random palette colour.
+const ALLOWED_COLORS = new Set([...COLORS, ...SKIN_ONLY_COLORS].map(c => c.toLowerCase()));
+
+function sanitizeColor(color) {
+  if (typeof color !== 'string') return null;
+  const c = color.trim().toLowerCase();
+  return ALLOWED_COLORS.has(c) ? c : null;
+}
+
 const MIN_SEGMENTS = C.SNAKE_MIN_SEGMENTS * 2; // hard floor — can never shrink below this
 // Per-tick decay factor for the boost release glide (see constants.BOOST_DECAY_MS)
 const BOOST_DECAY = Math.exp(-(1000 / C.TICK_RATE) / C.BOOST_DECAY_MS);
@@ -21,7 +37,7 @@ class Snake {
   constructor(id, name, x, y, color, hatId, boostId) {
     this.id = id;
     this.name = name || 'Player';
-    this.color = color || COLORS[Math.floor(Math.random() * COLORS.length)];
+    this.color = sanitizeColor(color) || COLORS[Math.floor(Math.random() * COLORS.length)];
     this.hatId   = hatId   || 'none';
     this.boostId = boostId || 'default';
     this.angle = Math.random() * Math.PI * 2;
