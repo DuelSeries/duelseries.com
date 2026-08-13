@@ -22,6 +22,21 @@ class Renderer {
     if (this._glMode && typeof SnakeGL !== 'undefined') {
       try { this.snakeGL = new SnakeGL(SNAKE_CROSS_LUT); } catch (e) { this.snakeGL = null; }
     }
+    // WebGL food — same deal as the snake bodies. Canvas 2D charges ~1.6us per
+    // drawImage no matter how big the sprite is, and food is 7 draws per pellet,
+    // so a dense field is thousands of calls a frame. Batched quads make the
+    // pellet count free. Measured at 1600x900: 800 pellets 14.6ms -> 2.5ms,
+    // 3000 pellets 60.4ms -> 5.6ms, and the output matches the 2D passes to
+    // within 0.015% of pixels. ?foodgl=0 forces the 2D path back on (?gl=0 also
+    // covers it, along with the snakes); it falls back on its own if the
+    // context fails.
+    let foodGlMode = this._glMode;
+    try {
+      if (/[?&]foodgl=0/.test((location && location.search) || '') || localStorage.getItem('foodgl') === '0') foodGlMode = false;
+    } catch (e) {}
+    if (foodGlMode && typeof FoodGL !== 'undefined') {
+      try { this.foodGL = new FoodGL(Renderer.FOOD_JS); } catch (e) { this.foodGL = null; }
+    }
     this._hexFrame = 0;
     this.hexGrid = new HexGrid(this._isMobile);
     this.camera = new Camera();
@@ -220,6 +235,7 @@ class Renderer {
     ctx.fillRect(0, 0, canvas.width, canvas.height); // physical pixels — clear full canvas
 
     if (this.snakeGL && this.snakeGL.ok) this.snakeGL.ensureSize(canvas.width, canvas.height);
+    if (this.foodGL  && this.foodGL.ok)  this.foodGL.ensureSize(canvas.width, canvas.height);
 
     camera.apply(ctx, dpr);
 
@@ -421,39 +437,8 @@ class Renderer {
     // once at alpha (0.5 + 0.5*cos(gfr/13)) — which is what makes them pulse.
     // Note the outline pass is normal-blended, which is how slither gets both a
     // dark rim AND additive overlap-brightening in the same field.
-    // Precompute each pellet's scale so their core sprite lands on our radius.
-    for (let i = 0; i < n; i++) {
-      const e = vis[i];
-      const core = this._foodCore(e.color, e.ph.cv2);
-      e.k = e.r / (core.width / 2);          // sprite units -> world units
-      e.pulse = 0.5 + 0.5 * Math.cos(e.gfr / 13);
-      e.a = e.dropped ? 0.8 : 1;
-    }
-
-    // Pass 1 — dark outline, NORMAL blending at 0.8 alpha, under everything.
-    ctx.globalCompositeOperation = 'source-over';
-    for (let i = 0; i < n; i++) {
-      const e = vis[i];
-      const img = this._foodOutline(e.ph.cv2);
-      const sp = (img.width / 2) * e.k;
-      ctx.globalAlpha = 0.8 * e.a;
-      ctx.drawImage(img, e.wx - sp, e.wy - sp, sp * 2, sp * 2);
-    }
-
-    // Pass 2 — the bright core, ADDITIVE, steady + pulse.
-    ctx.globalCompositeOperation = 'lighter';
-    for (let i = 0; i < n; i++) {
-      const e = vis[i];
-      const img = this._foodCore(e.color, e.ph.cv2);
-      const sp = (img.width / 2) * e.k;
-      ctx.globalAlpha = e.a;
-      ctx.drawImage(img, e.wx - sp, e.wy - sp, sp * 2, sp * 2);
-      ctx.globalAlpha = e.pulse * e.a;
-      ctx.drawImage(img, e.wx - sp, e.wy - sp, sp * 2, sp * 2);
-    }
-
-    // Pass 3 — two wide ambient glow layers, ADDITIVE, each steady + pulse.
-    // Their alphas fall off with distance from the VIEW CENTRE:
+    // The two wide glow layers' alphas fall off with distance from the VIEW
+    // CENTRE:
     //   layer 1: 0.005 + 0.09*(1 - fd2/(86000 + fd2))
     //   layer 2: 0.085*(1 - fd2/(16500 + fd2))
     // Those constants are squared distances in slither's world units, where the
@@ -463,45 +448,103 @@ class Renderer {
     const halfView = Math.min(halfW, halfH);
     const K1 = Math.pow(halfView * 0.72, 2);
     const K2 = Math.pow(halfView * 0.32, 2);
+    // Below ~1/255 a layer cannot change a single displayed pixel — an 8-bit
+    // channel has no value between "unchanged" and "one step" — so those draws
+    // are skipped outright.
+    const MIN_A = 1 / 255;
+
+    // Precompute each pellet's pulse, alpha and glow falloffs. Both the GL and
+    // the 2D path below consume exactly these numbers.
     for (let i = 0; i < n; i++) {
       const e = vis[i];
+      e.pulse = 0.5 + 0.5 * Math.cos(e.gfr / 13);
+      e.a = e.dropped ? 0.8 : 1;
       const dx = e.wx - worldCX, dy = e.wy - worldCY;
       const fd2 = dx * dx + dy * dy;
-
-      // These glows are the most expensive thing per pellet: two large additive
-      // blits each, drawn twice. Their alpha already falls off toward the screen
-      // edges, and below ~1/255 a layer cannot change a single displayed pixel —
-      // an 8-bit channel has no value between "unchanged" and "one step". So skip
-      // those draws. This is a pure work saving with no visible difference, which
-      // matters now that the field is 5x denser.
-      const MIN_A = 1 / 255;
-
-      let fal = (0.005 + 0.09 * (K1 / (K1 + fd2))) * e.a;
-      if (fal >= MIN_A) {
-        let img = this._foodGlow(e.color, e.ph.gcv);
-        let sp = (img.width / 2) * e.k;
-        ctx.globalAlpha = fal;
-        ctx.drawImage(img, e.wx - sp, e.wy - sp, sp * 2, sp * 2);
-        if (fal * e.pulse >= MIN_A) {
-          ctx.globalAlpha = fal * e.pulse;
-          ctx.drawImage(img, e.wx - sp, e.wy - sp, sp * 2, sp * 2);
-        }
-      }
-
-      fal = 0.085 * (K2 / (K2 + fd2)) * e.a;
-      if (fal >= MIN_A) {
-        const img = this._foodGlow(e.color, e.ph.g2cv);
-        const sp = (img.width / 2) * e.k;
-        ctx.globalAlpha = fal;
-        ctx.drawImage(img, e.wx - sp, e.wy - sp, sp * 2, sp * 2);
-        if (fal * e.pulse >= MIN_A) {
-          ctx.globalAlpha = fal * e.pulse;
-          ctx.drawImage(img, e.wx - sp, e.wy - sp, sp * 2, sp * 2);
-        }
-      }
+      e.fal1 = (0.005 + 0.09 * (K1 / (K1 + fd2))) * e.a;
+      e.fal2 = 0.085 * (K2 / (K2 + fd2)) * e.a;
+      if (e.fal1 < MIN_A) e.fal1 = 0;
+      if (e.fal2 < MIN_A) e.fal2 = 0;
     }
-    ctx.globalCompositeOperation = 'source-over';
-    ctx.globalAlpha = 1;
+
+    if (this.foodGL && this.foodGL.ok) {
+      // ── WebGL path ──────────────────────────────────────────────────────────
+      // Same three passes, same sprites, same sizes — but queued as quads and
+      // flushed in three GPU draw calls, so the per-pellet CPU cost is gone.
+      // Camera is translate+scale only: screen = (world*scale + cam)*dpr.
+      const dpr = this._dpr || 1, ss = scale * dpr;
+      const gl = this.foodGL;
+      gl.beginFrame();
+      for (let i = 0; i < n; i++) {
+        const e = vis[i];
+        gl.addFood(
+          (e.wx * scale + camX) * dpr, (e.wy * scale + camY) * dpr,
+          e.r * ss, this._parseColor(e.color),
+          e.ph.cv2, e.ph.gcv, e.ph.g2cv,
+          e.a, e.pulse, e.fal1, e.fal2
+        );
+      }
+      ctx.setTransform(1, 0, 0, 1, 0, 0);   // screen space for the composites
+      gl.render(ctx);
+      camera.apply(ctx, dpr);               // back to world space
+    } else {
+      // ── Canvas 2D fallback ──────────────────────────────────────────────────
+      // Scale each pellet so its core sprite lands on our radius.
+      for (let i = 0; i < n; i++) {
+        const e = vis[i];
+        const core = this._foodCore(e.color, e.ph.cv2);
+        e.k = e.r / (core.width / 2);          // sprite units -> world units
+      }
+
+      // Pass 1 — dark outline, NORMAL blending at 0.8 alpha, under everything.
+      ctx.globalCompositeOperation = 'source-over';
+      for (let i = 0; i < n; i++) {
+        const e = vis[i];
+        const img = this._foodOutline(e.ph.cv2);
+        const sp = (img.width / 2) * e.k;
+        ctx.globalAlpha = 0.8 * e.a;
+        ctx.drawImage(img, e.wx - sp, e.wy - sp, sp * 2, sp * 2);
+      }
+
+      // Pass 2 — the bright core, ADDITIVE, steady + pulse.
+      ctx.globalCompositeOperation = 'lighter';
+      for (let i = 0; i < n; i++) {
+        const e = vis[i];
+        const img = this._foodCore(e.color, e.ph.cv2);
+        const sp = (img.width / 2) * e.k;
+        ctx.globalAlpha = e.a;
+        ctx.drawImage(img, e.wx - sp, e.wy - sp, sp * 2, sp * 2);
+        ctx.globalAlpha = e.pulse * e.a;
+        ctx.drawImage(img, e.wx - sp, e.wy - sp, sp * 2, sp * 2);
+      }
+
+      // Pass 3 — two wide ambient glow layers, ADDITIVE, each steady + pulse.
+      for (let i = 0; i < n; i++) {
+        const e = vis[i];
+        if (e.fal1 > 0) {
+          const img = this._foodGlow(e.color, e.ph.gcv);
+          const sp = (img.width / 2) * e.k;
+          ctx.globalAlpha = e.fal1;
+          ctx.drawImage(img, e.wx - sp, e.wy - sp, sp * 2, sp * 2);
+          if (e.fal1 * e.pulse >= MIN_A) {
+            ctx.globalAlpha = e.fal1 * e.pulse;
+            ctx.drawImage(img, e.wx - sp, e.wy - sp, sp * 2, sp * 2);
+          }
+        }
+        if (e.fal2 > 0) {
+          const img = this._foodGlow(e.color, e.ph.g2cv);
+          const sp = (img.width / 2) * e.k;
+          ctx.globalAlpha = e.fal2;
+          ctx.drawImage(img, e.wx - sp, e.wy - sp, sp * 2, sp * 2);
+          if (e.fal2 * e.pulse >= MIN_A) {
+            ctx.globalAlpha = e.fal2 * e.pulse;
+            ctx.drawImage(img, e.wx - sp, e.wy - sp, sp * 2, sp * 2);
+          }
+        }
+      }
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1;
+    }
 
     // Evict stale phase cache entries INCREMENTALLY. Clearing the whole map made
     // every pellet rebuild its state — and lazily regenerate sprites — in a single
