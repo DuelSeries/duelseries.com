@@ -36,13 +36,14 @@ already are, and let stakes be flexible rather than fixed.
 The front page stops being a per-game page and becomes a single **live board**
 of things you can join right now, grouped by game. Every row is an action.
 
-Three row types, so the board is never empty:
+Three row states, so the board is never empty. Every row shows one exact stake,
+because every player in a lobby pays the same amount:
 
-| row type | example | action |
+| row state | example | action |
 |---|---|---|
-| live world | `Snake · $1-$20 buy-in · 14 playing` | Join |
-| open challenge | `Rock Paper Scissors · $2 · tungsahur waiting 40s` | Accept |
-| full match | `Battleship · $5 · 2/2 players` | Spectate |
+| open, has room | `Snake · NA · $0.20 · 7/30 players` | Join |
+| open, waiting | `Rock Paper Scissors · EU · $2 · 1/2 · waiting 40s` | Join |
+| full | `Battleship · US · $5 · 2/2 players` | Spectate |
 
 A waiting player becomes content on somebody else's front page instead of a
 spinner on their own. A full match is still worth showing, because spectating
@@ -53,69 +54,125 @@ players online.
 Supporting controls, all on the board:
 
 - **Stake**: a free-text amount, not tier buttons. Any value at or above the
-  minimum.
+  minimum, with quick-pick chips for common amounts.
 - **Region**: NA / EU per row and on create.
 - **Visibility**: public or private when you create. Private lobbies let a
   player bring their own opponent, which is the only reliable answer to a cold
   start.
 - **Filter**: by game, stake range and region, for when the board is busy.
-- **Quick match**: accepts the best open challenge without browsing.
+- **Quick play**: joins the busiest open lobby for that game without browsing.
 
-### Reference
+### Reference: playpulp.io
 
-playpulp.io (a separate project the owner co-builds) implements close to this
-and validated it: a Live Matches board, arbitrary stake amounts such as $6.23,
-region badges, spectate on full matches, join on open ones, and the skin picker
-on the home page rather than buried. Two things to do differently:
+A separate project the owner co-builds, and the closest working example of this
+model. Its home page, read in full on 2026-08-13, runs in this order:
 
-1. PULP shows "No open lobbies" when quiet, which is a dead end. Bot-seeded
-   persistent worlds mean our board always has something joinable.
-2. PULP does not surface any trust signal. See the trust section below.
+1. **Live Matches** with a filter. Rows carry game, region, exact stake and
+   occupancy: `Rock, Paper, Scissors · US · $6.70 · 2/2` and
+   `Snake Teams · EU · $2 · 7/30`. Full rows offer spectate, open rows offer
+   join. Persistent games show capacity, not just a count.
+2. **Your look**, the skin preview and customize entry, on the home page.
+3. **Your balance** with copy address, deposit and withdraw, also on the home
+   page rather than behind a menu.
+4. **Games list with live player counts**: Tanks 0, Snake Game 2, Knockout 0,
+   Rock Paper Scissors 4, Battleship 0, Amoeba.io 0, Zone Wars 0.
+5. **A scrolling activity ticker** of real results: `qesku won $6.20 Battle
+   Royale Snake`, `tungsahur cashed out +$0.82 Slither`, and so on, looped.
+6. **Scheduled tournaments**: "Most profit in Snake, Thu 1:00 to 2:30 PM EDT,
+   live now, 38m left", a live top three podium, a $20 winner-takes-all prize
+   plus a cosmetic, and a second event announced for 6:00 PM with a countdown.
+   Eligibility is stake-bounded: "any wager from $0.50 to $3".
+
+Three things worth taking, in order of value:
+
+- **Scheduled tournaments are a scheduling answer to a matchmaking problem.**
+  Rather than hoping players independently choose the same game at the same
+  stake at the same moment, you tell them when to show up. Everyone converges
+  into a 90 minute window and the board is full for that window. This is far
+  cheaper than acquiring more players and neither fixed tiers nor an open board
+  achieves it. It is the single strongest idea on their site.
+- **The activity ticker is social proof that survives a quiet board.** Real
+  names and real amounts make the product feel alive even when only two people
+  are playing. Note their games list is mostly zeroes and the ticker covers it.
+- **Modes within a game** (Snake, Battle Royale Snake, Snake Teams) add depth
+  without the cost of building a whole new game.
+
+Two things to do differently:
+
+1. PULP's snake page shows "No open lobbies" when quiet, which is a dead end
+   with no invitation to start one. Bot-seeded persistent worlds mean our board
+   always has something joinable.
+2. PULP surfaces no trust signal at all. See the trust section below.
+
+One thing to note rather than copy: PULP uses cosmetics as **tournament
+prizes** ("+ Disco Ball Antenna") rather than as a shop. That is a use for
+cosmetics that survives the decision to delete the cosmetics shop, since it
+costs nothing and is earned rather than sold.
 
 ## Game types
 
 Two kinds of game, and the lobby treats them differently. This is the only
 distinction the shell needs to understand.
 
-**Persistent** (snake, agar). Runs 24/7. No queue. One free world and one cash
-world per game per region. You buy in at any amount and that becomes your
-starting worth.
+**Persistent** (snake, agar). A lobby starts as soon as you enter it and runs
+until it empties. You do not wait for anyone. Others join over time and pay the
+same stake you did. There is also always a free lobby per game per region.
 
-**Match** (rock paper scissors, battleship, knockout, tanks). Fixed player
-count, has a start and an end. You post a challenge at your stake, or accept
-someone else's. Both players stake the same amount.
+**Match** (rock paper scissors, battleship, knockout, tanks). Needs a fixed
+number of players before it can start, so creating a lobby means waiting until
+it fills.
+
+The mechanic is the same in both cases: a lobby at an exact stake that other
+people can see and join. The only difference is whether the game can start with
+one player in the room. The shell does not need to know anything else.
 
 ## Stake model
 
-Fixed tiers are removed. Buy-in is any amount at or above a per-game minimum.
+Fixed tiers are removed. In their place, **a lobby is created on demand at an
+exact stake, and everyone who joins it pays exactly that amount.**
 
-That creates one problem which must be solved for the rest of the design to
-work. In a shared cash world, a player who bought in for $0.50 can kill a
-player who bought in for $20 and take the lot, risking almost nothing. Today
-the fixed tiers are the only thing preventing this.
+A lobby is identified by `(game, region, stake)`. You pick a game, type an
+amount, and either join an open lobby already at that amount or create one.
+A $0.50 player and a $20 player are never in the same room. Stakes never mix.
 
-**Decision: capped transfer.** When you take another player's worth, you can
-only take up to what you are currently carrying. The $0.50 player who kills the
-$20 player wins $0.50. The remainder is returned to the loser's balance rather
-than dropped as food, so it cannot be farmed by a third party.
+This is simpler than it first looks, and it removes a problem rather than
+creating one. Because entry is symmetric, every fight inside a lobby is between
+equal buy-ins, so no transfer cap, side-pot rule, or change to what dying costs
+is needed. **The existing eat-and-take money rule is kept exactly as it is.**
+An earlier draft of this document proposed mixing stakes in one world with a
+capped transfer; that is rejected. It was more complex, it changed the meaning
+of death, and it touched the money path for no gain.
 
-In other words every encounter is played for the smaller of the two stakes.
-This is the poker side-pot rule. It is worth being explicit that this **changes
-what dying means**: today death costs you everything you carry, and afterwards
-it costs you only the amount you were matched against. That is a deliberate
-change to the money model, not a side effect, and it is the reason a whale's
-$20 is only ever at risk against another whale.
+Worth still diverges inside a lobby as players grow by eating, so a newcomer
+buying in at $0.20 may face someone carrying $3.00. That is not the same
+problem: entry was equal and the difference was earned in game. It is the core
+loop of the game and it is how the current tiers already behave, so it is not a
+regression.
 
-Consequences:
+### Then why is this not just tiers again?
 
-- Any stake can safely share one world, which is what makes removing tiers
-  possible.
-- High rollers can only be meaningfully hurt by other high rollers.
-- A cheap account cannot farm expensive ones, which closes an obvious attack.
-- It needs care in the money path and its own tests. This is the riskiest part
-  of the whole redesign and it touches real funds.
+Fixed tiers fail because the tiers are chosen up front, are always present, and
+are usually empty. On-demand lobbies fail differently and much more gently:
 
-Match games are unaffected: both sides stake the same amount by construction.
+- A lobby only exists because a real player created it, so an empty lobby is a
+  lobby that just started, not a permanent ghost town.
+- Open lobbies are **visible with their player counts**, so players converge on
+  the ones that already have people. That convergence is the anti-fragmentation
+  mechanism, and it is a behaviour rather than a rule.
+
+Two nudges keep amounts from scattering across $0.50, $0.51, $0.52:
+
+- **Quick-pick chips** for common amounts next to the free-text box, so most
+  players land on the same handful of values without being restricted to them.
+- **Sort the board by player count** by default, so the busiest lobbies are
+  what a new player sees first.
+
+### Match games
+
+Identical mechanic. Rock paper scissors, battleship and the rest post a lobby
+at an exact stake and wait for the required number of players. The only
+difference from snake is whether the game can start with one player in the
+room.
 
 ## Trust surface
 
@@ -156,11 +213,13 @@ communicated before the games exist.
 
 ### Server
 
-- `GET /api/live` returns the board: `{ worlds: [...], challenges: [...],
-  matches: [...] }`, already filtered to joinable state.
-- A `ChallengeBoard` service holds open challenges for match games: post,
-  accept, expire, cancel. Accepting is the money-critical path and must claim
-  the challenge atomically so two players cannot accept the same one.
+- `GET /api/live` returns the board as one flat list of lobbies:
+  `{ id, game, region, stake, players, capacity, state }`, where `state` is
+  `open` or `full`.
+- A `LobbyRegistry` service owns the lifecycle: create on demand at an exact
+  stake, list, join, expire when empty. Joining is the money-critical path. It
+  must charge exactly the lobby's stake and must claim a seat atomically, so
+  two players cannot take the last seat of a filling match at the same moment.
 - Persistent rooms keep their existing `GameRoom` / `AgarRoom` shape. Only the
   lobby-type dimension is removed from room keys.
 
@@ -184,12 +243,20 @@ Each phase ships on its own and leaves the game working.
 
 1. **Game registry and data-driven shell.** Pure refactor, no visible change,
    no money touched. Unlocks everything else.
-2. **Stake model.** Remove tiers, custom buy-in, capped transfer. Money
-   critical, needs tests before anything else depends on it.
-3. **Live board and challenges.** The new front page plus the `ChallengeBoard`
-   service.
+2. **Stake model.** Replace the three fixed tiers with a lobby keyed on an
+   exact stake, created on demand. The eat-and-take money rule is unchanged, so
+   this is smaller and safer than the earlier capped-transfer draft, but it
+   still touches buy-in and needs tests.
+3. **Live board.** The new front page: open lobbies with counts, quick-pick
+   stake chips, filter, and the activity ticker.
 4. **Brand and visual identity.** Only now, once the shape is settled.
 5. **New games,** one at a time against the registry.
+
+**Scheduled tournaments** are deliberately not numbered above. They are the
+strongest single idea taken from PULP and they do not depend on the shell
+refactor, so they can be built at any point once phase 3 exists. They may be
+worth pulling forward ahead of phase 4, because they solve liquidity, which is
+the actual problem, whereas visual identity solves perception.
 
 Visual identity is deliberately fourth. Colours and type are cheap to change;
 the shape of the product is not. Doing visuals first means redoing them.
@@ -200,15 +267,16 @@ turn comes, so that decisions made while building phase 1 can inform them.
 
 ## Risks and open questions
 
-- **Capped transfer touches real money.** It changes how worth moves between
-  players and must not be shipped without tests covering the cap, the refund
-  of the remainder, and the third-party-farming case.
+- **Buy-in changes touch real money.** Smaller than the rejected capped-transfer
+  idea, but joining a lobby must still charge exactly the lobby stake and
+  nothing else, and two players must not be able to claim the last seat of a
+  full lobby at once.
 - **Cold start.** Bots cover persistent games. Match games have no equivalent,
-  so private lobbies and a visible challenge board are the mitigation. There is
-  no bot answer for 1v1 without it being disclosed, which would be dishonest to
-  hide.
+  so private lobbies, a visible board and scheduled tournaments are the
+  mitigation. There is no bot answer for 1v1 without disclosing it, and hiding
+  that would be dishonest.
 - **Minimum stake per game** is unset. Needs a number before phase 2.
-- **Challenge expiry** is unset. How long does an unaccepted challenge sit
-  before it is withdrawn and the stake returned?
+- **Empty lobby expiry** is unset. How long does a lobby nobody joined sit on
+  the board before it is withdrawn and the stake returned?
 - **Spectating** is listed as a row action but does not exist yet in either
   game. It may need to move to a later phase.
