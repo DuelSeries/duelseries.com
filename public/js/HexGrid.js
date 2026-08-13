@@ -96,13 +96,38 @@ class HexGrid {
       const k  = camera.scale * dpr * this.IMG_SCALE;
       const tw = Math.max(2, Math.round(this._img.naturalWidth  * k));
       const th = Math.max(2, Math.round(this._img.naturalHeight * k));
-      if (!this._tile || Math.abs(this._tile.width - tw) >= 2) this._buildTile(tw, th);
+      // Rebuild on any change, not once the tile has drifted 2px. The old
+      // threshold was guarding a cost that no longer exists — the grain is baked
+      // into a 128px tile once now, so a rebuild is 0.0265ms (a full zoom-out
+      // triggers ~150 of them: 4ms total, spread over seconds). Holding a stale
+      // tile just doubled the background's scale error for no saving.
+      if (!this._tile || this._tile.width !== tw) this._buildTile(tw, th);
 
       if (!this._pattern) this._pattern = ctx.createPattern(this._tile, 'repeat');
       if (this._pattern) {
         // Pure translate — NO scale and NO rotate. Adding either here puts the
         // fill back on the slow path this whole file is arranged to avoid.
-        const px = camera.x * dpr, py = camera.y * dpr;
+        // (Measured: ctx.scale on this fill costs 6.4ms vs 0.107ms, 60x. Same
+        // for pattern.setTransform at 6.2ms. So the tile's whole-pixel size is
+        // the only scale the background can have, and the mismatch below has to
+        // be absorbed by the translate instead.)
+        //
+        // The tile is a whole number of pixels, so the background's real scale
+        // is a hair off the world's — up to 0.4% — and it re-snaps every time
+        // the tile is rebuilt (151 times across a full zoom-out). Anchoring the
+        // pattern at the world origin multiplied that error by your distance
+        // from the origin, so the background visibly slid against the world
+        // every time it re-snapped: ~1px near spawn but ~7px at 3000 units out
+        // and ~15px at 5000. That was the background "shake".
+        //
+        // Anchoring it at the CAMERA instead makes the background exact at the
+        // centre of the screen wherever you are, so the leftover error is only
+        // (distance from screen centre) x 0.4% — under 2px at the very edge,
+        // zero in the middle — and it no longer grows as you travel outward.
+        const scaleBg = this._tile.width / (this._img.naturalWidth * this.IMG_SCALE * dpr);
+        const drift = camera.scale - scaleBg;
+        const px = camera.x * dpr + camera.worldX * dpr * drift;
+        const py = camera.y * dpr + camera.worldY * dpr * drift;
         ctx.translate(px, py);
         ctx.fillStyle = this._pattern;
         ctx.fillRect(-px, -py, W, H);
