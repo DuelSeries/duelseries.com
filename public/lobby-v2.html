@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DuelSeries</title>
+<style>
+/* ─────────────────────────────────────────────────────────────────────────
+   Lobby v2 prototype. Mock data, real interactions.
+
+   Visual direction, deliberately not the two references:
+     damnbruh  = neon casino. PULP = stark monochrome.
+     DuelSeries = warm charcoal arcade. One accent green for actions only,
+     amber reserved for money, generous spacing, real type hierarchy.
+   Money is never the loudest thing on screen. That is what makes a
+   real-money site read as safe rather than as a slot machine.
+   ───────────────────────────────────────────────────────────────────────── */
+:root{
+  --bg:#0e1116; --bg-2:#141922; --card:#171d27; --card-2:#1c2330;
+  --line:#252d3a; --line-2:#323c4d;
+  --tx:#e8edf5; --tx-2:#9aa7ba; --tx-3:#68758a;
+  --go:#14f195; --go-dim:#0e8f5c;
+  --money:#f5b544;
+  --live:#ff5c5c;
+  --r:14px;
+  --font:'Segoe UI',system-ui,-apple-system,'Helvetica Neue',Arial,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--tx);font-family:var(--font);
+  -webkit-font-smoothing:antialiased;overflow-x:hidden}
+button{font-family:inherit;color:inherit;border:none;background:none;cursor:pointer}
+.wrap{max-width:1120px;margin:0 auto;padding:0 24px}
+
+/* ── header ─────────────────────────────────────────────────────────── */
+header{position:sticky;top:0;z-index:40;background:rgba(14,17,22,.86);
+  backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
+.hd{display:flex;align-items:center;gap:20px;height:64px}
+.logo{font-size:19px;font-weight:800;letter-spacing:1.5px}
+.logo span{color:var(--go)}
+.hd-sp{flex:1}
+.bal{display:flex;align-items:center;gap:10px;background:var(--card);
+  border:1px solid var(--line);border-radius:10px;padding:8px 14px}
+.bal-l{font-size:11px;color:var(--tx-3);text-transform:uppercase;letter-spacing:.8px}
+.bal-v{font-size:15px;font-weight:700;color:var(--money);font-variant-numeric:tabular-nums}
+.btn-dep{background:var(--go);color:#04120b;font-weight:700;font-size:13px;
+  padding:9px 16px;border-radius:9px}
+.btn-dep:hover{filter:brightness(1.08)}
+.av{width:34px;height:34px;border-radius:50%;background:var(--card-2);
+  border:1px solid var(--line-2);display:grid;place-items:center;font-size:13px;font-weight:700}
+
+/* ── trust strip ────────────────────────────────────────────────────── */
+.trust{display:flex;gap:26px;align-items:center;flex-wrap:wrap;
+  padding:11px 0;border-bottom:1px solid var(--line);font-size:12px;color:var(--tx-3)}
+.trust b{color:var(--tx-2);font-weight:600}
+.trust i{width:5px;height:5px;border-radius:50%;background:var(--go);
+  display:inline-block;margin-right:7px;vertical-align:1px}
+
+/* ── section heads ──────────────────────────────────────────────────── */
+.sec{margin:34px 0 14px;display:flex;align-items:baseline;gap:12px}
+.sec h2{font-size:15px;font-weight:700;letter-spacing:.4px;text-transform:uppercase}
+.sec .n{font-size:12px;color:var(--tx-3)}
+.sec .sp{flex:1}
+.sec a{font-size:12px;color:var(--tx-2);text-decoration:none}
+.sec a:hover{color:var(--go)}
+
+/* ── game rail (peek carousel) ──────────────────────────────────────── */
+.rail-o{position:relative}
+.rail{display:flex;gap:16px;overflow-x:auto;scroll-behavior:smooth;
+  padding:4px 0 12px;scrollbar-width:none}
+.rail::-webkit-scrollbar{display:none}
+.gcard{flex:0 0 236px;background:var(--card);border:1px solid var(--line);
+  border-radius:var(--r);overflow:hidden;cursor:pointer;transition:.16s;position:relative}
+.gcard:hover{border-color:var(--line-2);transform:translateY(-3px)}
+.gcard.soon{opacity:.5;cursor:not-allowed}
+.gcard.soon:hover{transform:none;border-color:var(--line)}
+.gart{height:118px;display:grid;place-items:center;font-size:44px;position:relative}
+.gbody{padding:13px 15px 15px}
+.gname{font-size:15px;font-weight:700;margin-bottom:5px}
+.gmeta{font-size:12px;color:var(--tx-3);display:flex;align-items:center;gap:7px}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--go);flex:0 0 auto}
+.dot.off{background:var(--tx-3)}
+.tag{position:absolute;top:10px;right:10px;font-size:10px;font-weight:700;
+  letter-spacing:.6px;text-transform:uppercase;padding:4px 8px;border-radius:6px;
+  background:rgba(0,0,0,.55);color:var(--tx-2)}
+.arw{position:absolute;top:50%;transform:translateY(-50%);width:38px;height:38px;
+  border-radius:50%;background:var(--card-2);border:1px solid var(--line-2);
+  display:grid;place-items:center;z-index:5;font-size:16px;color:var(--tx-2)}
+.arw:hover{background:var(--go);color:#04120b;border-color:var(--go)}
+.arw.l{left:-13px} .arw.r{right:-13px}
+
+/* ── lobby rows ─────────────────────────────────────────────────────── */
+.rows{display:flex;flex-direction:column;gap:8px}
+.row{display:flex;align-items:center;gap:14px;background:var(--card);
+  border:1px solid var(--line);border-radius:11px;padding:13px 16px;transition:.14s}
+.row:hover{border-color:var(--line-2);background:var(--card-2)}
+.rg{font-size:14px;font-weight:600;min-width:150px}
+.pill{font-size:10px;font-weight:700;letter-spacing:.5px;padding:3px 7px;
+  border-radius:5px;background:var(--bg-2);color:var(--tx-3);border:1px solid var(--line)}
+.rs{font-size:15px;font-weight:700;color:var(--money);font-variant-numeric:tabular-nums;min-width:66px}
+.rp{font-size:12px;color:var(--tx-2);font-variant-numeric:tabular-nums}
+.rsp{flex:1}
+.btn-join{background:var(--go);color:#04120b;font-weight:700;font-size:12px;
+  padding:8px 18px;border-radius:8px;letter-spacing:.3px}
+.btn-join:hover{filter:brightness(1.08)}
+.btn-spec{background:transparent;border:1px solid var(--line-2);color:var(--tx-2);
+  font-weight:600;font-size:12px;padding:7px 16px;border-radius:8px}
+.btn-spec:hover{border-color:var(--tx-3);color:var(--tx)}
+.wait{font-size:11px;color:var(--tx-3)}
+
+/* ── tournaments ────────────────────────────────────────────────────── */
+.trn{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.tcard{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:18px}
+.tcard.on{border-color:var(--go-dim)}
+.thead{display:flex;align-items:center;gap:9px;margin-bottom:4px}
+.tlive{font-size:10px;font-weight:800;letter-spacing:.7px;color:var(--live);
+  display:flex;align-items:center;gap:5px}
+.tlive .b{width:6px;height:6px;border-radius:50%;background:var(--live);
+  animation:pulse 1.6s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.tname{font-size:15px;font-weight:700}
+.twhen{font-size:12px;color:var(--tx-3);margin-bottom:14px}
+.tprize{font-size:24px;font-weight:800;color:var(--money);font-variant-numeric:tabular-nums}
+.tprize small{font-size:12px;color:var(--tx-3);font-weight:600;margin-left:6px}
+.pod{display:flex;flex-direction:column;gap:6px;margin:14px 0 0}
+.pr{display:flex;align-items:center;gap:10px;font-size:13px}
+.prn{width:18px;color:var(--tx-3);font-weight:700;font-variant-numeric:tabular-nums}
+.prv{margin-left:auto;color:var(--go);font-weight:700;font-variant-numeric:tabular-nums}
+.tnote{font-size:11px;color:var(--tx-3);margin-top:14px;line-height:1.6}
+
+/* ── game detail ────────────────────────────────────────────────────── */
+#detail{display:none}
+.back{display:inline-flex;align-items:center;gap:7px;font-size:13px;color:var(--tx-2);
+  padding:9px 0;margin-top:14px}
+.back:hover{color:var(--go)}
+.hero{display:grid;grid-template-columns:1fr 340px;gap:28px;margin:8px 0 0;align-items:start}
+.hero-art{background:var(--card);border:1px solid var(--line);border-radius:var(--r);
+  height:270px;display:grid;place-items:center;font-size:92px;position:relative;overflow:hidden}
+.hero-info h1{font-size:29px;font-weight:800;letter-spacing:-.4px}
+.hero-info .sub{color:var(--tx-2);font-size:14px;line-height:1.65;margin:9px 0 0}
+.hero-live{display:inline-flex;align-items:center;gap:7px;font-size:12px;
+  color:var(--tx-2);margin-top:14px;background:var(--card);border:1px solid var(--line);
+  padding:7px 13px;border-radius:8px}
+
+.stake{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:20px}
+.stake-l{font-size:11px;color:var(--tx-3);text-transform:uppercase;
+  letter-spacing:.9px;font-weight:700;text-align:center}
+.stepper{display:flex;align-items:center;justify-content:center;gap:18px;margin:16px 0 6px}
+.sbtn{width:46px;height:46px;border-radius:50%;background:var(--card-2);
+  border:1px solid var(--line-2);font-size:22px;color:var(--tx-2);display:grid;place-items:center}
+.sbtn:hover:not(:disabled){background:var(--go);color:#04120b;border-color:var(--go)}
+.sbtn:disabled{opacity:.3;cursor:not-allowed}
+.sval{font-size:38px;font-weight:800;color:var(--money);min-width:132px;
+  text-align:center;font-variant-numeric:tabular-nums;letter-spacing:-1px}
+.sval.free{color:var(--go);font-size:31px}
+.sdots{display:flex;justify-content:center;gap:6px;margin-bottom:18px}
+.sdot{width:6px;height:6px;border-radius:50%;background:var(--line-2)}
+.sdot.on{background:var(--money);transform:scale(1.25)}
+.btn-play{width:100%;background:var(--go);color:#04120b;font-size:16px;font-weight:800;
+  padding:15px;border-radius:11px;letter-spacing:.5px}
+.btn-play:hover{filter:brightness(1.08)}
+.rake{font-size:11px;color:var(--tx-3);text-align:center;margin-top:11px;line-height:1.6}
+.opts{display:flex;gap:8px;margin-top:14px}
+.opt{flex:1;background:var(--bg-2);border:1px solid var(--line);border-radius:8px;
+  padding:8px;font-size:11px;color:var(--tx-3);text-align:center}
+.opt.on{border-color:var(--go-dim);color:var(--tx-2)}
+
+.how{margin:38px 0 60px;background:var(--card);border:1px solid var(--line);
+  border-radius:var(--r);padding:26px 28px}
+.how h3{font-size:16px;font-weight:700;margin-bottom:16px}
+.steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:20px}
+.step-n{width:26px;height:26px;border-radius:50%;background:var(--card-2);
+  border:1px solid var(--line-2);display:grid;place-items:center;font-size:12px;
+  font-weight:700;color:var(--go);margin-bottom:9px}
+.step p{font-size:13px;color:var(--tx-2);line-height:1.7}
+.step b{color:var(--tx);font-weight:600;display:block;margin-bottom:3px;font-size:13px}
+
+/* ── waiting state ──────────────────────────────────────────────────── */
+.veil{position:fixed;inset:0;background:rgba(8,10,14,.86);backdrop-filter:blur(6px);
+  display:none;place-items:center;z-index:80}
+.veil.on{display:grid}
+.wbox{background:var(--card);border:1px solid var(--line);border-radius:18px;
+  padding:34px 40px;text-align:center;max-width:380px}
+.spin{width:44px;height:44px;border:3px solid var(--line-2);border-top-color:var(--go);
+  border-radius:50%;margin:0 auto 20px;animation:sp .9s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.wbox h3{font-size:18px;font-weight:700;margin-bottom:8px}
+.wbox p{font-size:13px;color:var(--tx-2);line-height:1.65}
+.wbox .amt{color:var(--money);font-weight:700}
+.btn-cancel{margin-top:20px;border:1px solid var(--line-2);color:var(--tx-2);
+  padding:9px 22px;border-radius:9px;font-size:13px;font-weight:600}
+.btn-cancel:hover{border-color:var(--tx-3);color:var(--tx)}
+.empty{color:var(--tx-3);font-size:13px;padding:22px;text-align:center;
+  border:1px dashed var(--line);border-radius:11px}
+@media(max-width:860px){
+  .hero{grid-template-columns:1fr}
+  .trn{grid-template-columns:1fr}
+  .rg{min-width:auto}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap hd">
+    <div class="logo">DUEL<span>SERIES</span></div>
+    <div class="hd-sp"></div>
+    <div class="bal"><span class="bal-l">Balance</span><span class="bal-v">$12.40</span></div>
+    <button class="btn-dep">Deposit</button>
+    <div class="av">OK</div>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="trust">
+    <span><i></i><b>Every payout settles on-chain</b></span>
+    <span>House cut <b>10%</b>, shown before you play</span>
+    <span>Escrow <b>C5cn…H3m9</b></span>
+    <span>Paid out <b>$1,284</b> in the last 24h</span>
+  </div>
+</div>
+
+<!-- ══ HOME ══════════════════════════════════════════════════════════ -->
+<main id="home" class="wrap">
+
+  <div class="sec"><h2>Games</h2><span class="n" id="g-count"></span><span class="sp"></span></div>
+  <div class="rail-o">
+    <button class="arw l" onclick="rail(-1)">&#8249;</button>
+    <button class="arw r" onclick="rail(1)">&#8250;</button>
+    <div class="rail" id="rail"></div>
+  </div>
+
+  <div class="sec"><h2>Open lobbies</h2><span class="n" id="l-count"></span><span class="sp"></span>
+    <a href="#" onclick="return false">Filter</a></div>
+  <div class="rows" id="lobbies"></div>
+
+  <div class="sec"><h2>Tournaments</h2><span class="sp"></span></div>
+  <div class="trn">
+    <div class="tcard on">
+      <div class="thead">
+        <span class="tlive"><span class="b"></span>LIVE</span>
+        <span class="tname">Most profit in Snake</span>
+      </div>
+      <div class="twhen">Ends in <b id="cd">38:59</b> &middot; buy-ins $0.50 to $3</div>
+      <div class="tprize">$20<small>winner takes all</small></div>
+      <div class="pod">
+        <div class="pr"><span class="prn">1</span> qesku <span class="prv">+$6.47</span></div>
+        <div class="pr"><span class="prn">2</span> ZachXBT <span class="prv">+$4.80</span></div>
+        <div class="pr"><span class="prn">3</span> dddickk <span class="prv">+$4.30</span></div>
+      </div>
+      <div class="tnote">Best net profit when the clock runs out takes the prize.</div>
+    </div>
+    <div class="tcard">
+      <div class="thead"><span class="tname">Battleship knockout</span></div>
+      <div class="twhen">Starts in <b>4h 08m</b> &middot; buy-ins $1 to $5</div>
+      <div class="tprize">$50<small>top 3 split</small></div>
+      <div class="tnote" style="margin-top:22px">Single elimination. Sign in to reserve a seat.</div>
+    </div>
+  </div>
+  <div style="height:60px"></div>
+</main>
+
+<!-- ══ GAME DETAIL ═══════════════════════════════════════════════════ -->
+<main id="detail" class="wrap">
+  <button class="back" onclick="goHome()">&#8592; All games</button>
+  <div class="hero">
+    <div>
+      <div class="hero-art" id="d-art"></div>
+      <div class="sec"><h2>Open lobbies</h2><span class="n" id="d-count"></span></div>
+      <div class="rows" id="d-lobbies"></div>
+    </div>
+    <div>
+      <div class="hero-info">
+        <h1 id="d-name"></h1>
+        <p class="sub" id="d-sub"></p>
+        <div class="hero-live"><span class="dot"></span><span id="d-live"></span></div>
+      </div>
+      <div class="stake" style="margin-top:20px">
+        <div class="stake-l">Your buy-in</div>
+        <div class="stepper">
+          <button class="sbtn" id="s-down" onclick="step(-1)">&#8722;</button>
+          <div class="sval" id="s-val">$1.00</div>
+          <button class="sbtn" id="s-up" onclick="step(1)">+</button>
+        </div>
+        <div class="sdots" id="s-dots"></div>
+        <button class="btn-play" onclick="play()">Create lobby</button>
+        <div class="rake" id="s-rake"></div>
+        <div class="opts">
+          <div class="opt on">Region NA</div>
+          <div class="opt on">Public</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="how">
+    <h3>How to play <span id="d-name2" style="color:var(--tx-3);font-weight:400"></span></h3>
+    <div class="steps" id="d-steps"></div>
+  </div>
+</main>
+
+<div class="veil" id="veil">
+  <div class="wbox">
+    <div class="spin"></div>
+    <h3>Lobby open</h3>
+    <p>You staked <span class="amt" id="w-amt"></span>. Anyone who joins pays the
+       same amount. You will start as soon as someone enters.</p>
+    <button class="btn-cancel" onclick="cancel()">Cancel and refund</button>
+  </div>
+</div>
+
+<script>
+/* Mock data only. Shapes match what GET /api/live would return. */
+const GAMES=[
+ {id:'snake',  name:'Snake',            icon:'\u{1F40D}',bg:'#1a2b22',live:14,type:'persistent',cap:30,
+  sub:'Grow by eating, cut off other players, cash out before someone cuts you off.'},
+ {id:'agar',   name:'Amoeba',           icon:'\u{1F7E2}',bg:'#1a2430',live:6, type:'persistent',cap:30,
+  sub:'Absorb smaller cells, split to chase, avoid anything bigger than you.'},
+ {id:'rps',    name:'Rock Paper Scissors',icon:'\u{270A}',bg:'#2b1f2e',live:4,type:'match',cap:2,
+  sub:'Best of five against one opponent. Fast rounds, instant settlement.'},
+ {id:'knockout',name:'Knockout',        icon:'\u{1F94A}',bg:'#2e2119',live:0, type:'match',cap:2,soon:1,
+  sub:'Last one standing in a shrinking arena.'},
+ {id:'battleship',name:'Battleship',    icon:'\u{1F6A2}',bg:'#1b2733',live:0, type:'match',cap:2,soon:1,
+  sub:'Hide your fleet, find theirs first.'},
+ {id:'tanks', name:'Tanks',             icon:'\u{1F6E1}',bg:'#26291b',live:0, type:'match',cap:2,soon:1,
+  sub:'Angle, power, fire. One shot each turn.'},
+ {id:'paper', name:'Paper.io',          icon:'\u{1F4C4}',bg:'#2a2431',live:0, type:'persistent',cap:30,soon:1,
+  sub:'Claim territory without anyone crossing your trail.'},
+];
+const LOBBIES=[
+ {game:'snake', region:'NA',stake:1.00,players:7, cap:30},
+ {game:'rps',   region:'EU',stake:2.00,players:1, cap:2, wait:'40s'},
+ {game:'snake', region:'NA',stake:0.25,players:12,cap:30},
+ {game:'agar',  region:'EU',stake:0.50,players:3, cap:30},
+ {game:'rps',   region:'NA',stake:5.00,players:2, cap:2},
+ {game:'snake', region:'EU',stake:2.00,players:1, cap:30},
+];
+/* His exact ladder, with free at the bottom. */
+const STEPS=[0,0.25,0.50,1,2,5];
+let si=3, cur=null;
+
+const money=v=>v===0?'Free':'$'+v.toFixed(2);
+const byId=id=>GAMES.find(g=>g.id===id);
+
+function drawRail(){
+  document.getElementById('rail').innerHTML=GAMES.map(g=>`
+    <div class="gcard${g.soon?' soon':''}" onclick="${g.soon?'':`open_('${g.id}')`}">
+      <div class="gart" style="background:${g.bg}">${g.icon}
+        ${g.soon?'<span class="tag">Soon</span>':''}</div>
+      <div class="gbody">
+        <div class="gname">${g.name}</div>
+        <div class="gmeta"><span class="dot${g.live?'':' off'}"></span>
+          ${g.soon?'In development':g.live+' playing now'}</div>
+      </div>
+    </div>`).join('');
+  document.getElementById('g-count').textContent=GAMES.filter(g=>!g.soon).length+' live, '+GAMES.filter(g=>g.soon).length+' coming';
+}
+function rail(d){document.getElementById('rail').scrollBy({left:d*252,behavior:'smooth'})}
+
+function rowHTML(l){
+  const g=byId(l.game), full=l.players>=l.cap;
+  return `<div class="row">
+    <span class="rg">${g.name}</span>
+    <span class="pill">${l.region}</span>
+    <span class="rs">${money(l.stake)}</span>
+    <span class="rp">${l.players}/${l.cap} players</span>
+    ${l.wait?`<span class="wait">waiting ${l.wait}</span>`:''}
+    <span class="rsp"></span>
+    ${full?'<button class="btn-spec">Spectate</button>'
+          :`<button class="btn-join" onclick="join(${l.stake})">Enter</button>`}
+  </div>`;
+}
+function drawLobbies(){
+  document.getElementById('lobbies').innerHTML=LOBBIES.map(rowHTML).join('');
+  document.getElementById('l-count').textContent=LOBBIES.length+' open';
+}
+
+function open_(id){
+  cur=byId(id);
+  si=STEPS.indexOf(1);
+  document.getElementById('home').style.display='none';
+  document.getElementById('detail').style.display='block';
+  const art=document.getElementById('d-art');
+  art.textContent=cur.icon; art.style.background=cur.bg;
+  document.getElementById('d-name').textContent=cur.name;
+  document.getElementById('d-name2').textContent='';
+  document.getElementById('d-sub').textContent=cur.sub;
+  document.getElementById('d-live').textContent=cur.type==='persistent'
+    ? cur.live+' playing right now'
+    : cur.live+' waiting for an opponent';
+  const mine=LOBBIES.filter(l=>l.game===id);
+  document.getElementById('d-lobbies').innerHTML=mine.length
+    ? mine.map(rowHTML).join('')
+    : '<div class="empty">No open lobbies yet. Create the first one and it will show up here for everyone else.</div>';
+  document.getElementById('d-count').textContent=mine.length+' open';
+  document.getElementById('d-steps').innerHTML=steps(cur);
+  drawStake(); window.scrollTo(0,0);
+}
+function goHome(){
+  document.getElementById('detail').style.display='none';
+  document.getElementById('home').style.display='block';
+  window.scrollTo(0,0);
+}
+function steps(g){
+  const a=[
+   ['Pick your buy-in','Use the arrows. Everyone who joins your lobby pays exactly the same amount, so no one can out-bet you.'],
+   ['Create or join','Create a lobby and wait, or enter one that already has players in it.'],
+   [g.type==='persistent'?'Grow your stack':'Win the match',
+    g.type==='persistent'?'Your buy-in becomes your starting worth. Eat to grow it, and take it from anyone you knock out.'
+                         :'Beat your opponent and take the pot. Both sides staked the same, so it is a straight coin flip on skill.'],
+   ['Cash out','Leave whenever you like and your worth is paid to your wallet on-chain, minus the 10% house cut.'],
+  ];
+  return a.map((s,i)=>`<div class="step"><div class="step-n">${i+1}</div>
+    <b>${s[0]}</b><p>${s[1]}</p></div>`).join('');
+}
+function drawStake(){
+  const v=STEPS[si], el=document.getElementById('s-val');
+  el.textContent=money(v);
+  el.className='sval'+(v===0?' free':'');
+  document.getElementById('s-down').disabled=si===0;
+  document.getElementById('s-up').disabled=si===STEPS.length-1;
+  document.getElementById('s-dots').innerHTML=STEPS.map((_,i)=>
+    `<span class="sdot${i===si?' on':''}"></span>`).join('');
+  document.getElementById('s-rake').textContent=v===0
+    ? 'Free play. No stake, no payout.'
+    : 'You stake '+money(v)+'. Cash out pays your worth minus the 10% house cut.';
+}
+function step(d){si=Math.max(0,Math.min(STEPS.length-1,si+d));drawStake()}
+function play(){
+  const v=STEPS[si];
+  if(v===0){alert('Free play would launch straight into the game.');return}
+  document.getElementById('w-amt').textContent=money(v);
+  document.getElementById('veil').classList.add('on');
+}
+function join(s){alert('Joining a '+money(s)+' lobby. You would pay exactly '+money(s)+'.')}
+function cancel(){document.getElementById('veil').classList.remove('on')}
+
+let t=38*60+59;
+setInterval(()=>{if(t>0)t--;
+  document.getElementById('cd').textContent=
+    String(Math.floor(t/60)).padStart(2,'0')+':'+String(t%60).padStart(2,'0');},1000);
+
+drawRail();drawLobbies();
+</script>
+</body>
+</html>
