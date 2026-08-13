@@ -408,68 +408,10 @@ app.post('/api/submit-stake', entryFeeLimiter, express.json({ limit: '256kb' }),
   }
 });
 
-// ─── Cosmetics shop (paid skins/hats/boosts bought with USDC) ────────────────────
-// Server-authoritative catalog: namespaced item id -> price in USDC. These are the items the
-// client shows "locked" until bought. Buying pays the OWNER_WALLET (house revenue) and unlocks
-// the item forever for that wallet. Mirrors the stake flow (quote -> sign -> verify) but the
-// payment goes to the owner instead of the escrow and grants a cosmetic instead of an entry token.
-const COSMETIC_CATALOG = {
-  'skin:crimson': 0.50, 'skin:mint': 0.50, 'skin:indigo': 0.50, 'skin:rose': 0.75,
-  'skin:amber': 0.75, 'skin:sky': 0.75, 'skin:lime': 1.00, 'skin:galaxy': 1.50, 'skin:shadow': 2.00,
-  // Hats + boosts are "Coming Soon" — disabled for players (the lobby also hides them via COMING_SOON).
-  // To bring them back: uncomment these AND remove 'hats'/'boosts' from COMING_SOON in lobby.js.
-  // 'hat:wizard': 0.50, 'hat:cowboy': 0.75, 'hat:party': 0.75, 'hat:halo': 1.50,
-  // 'boost:rainbow': 1.00, 'boost:lightning': 1.00, 'boost:smoke': 1.25, 'boost:stars': 1.50, 'boost:galaxy': 2.00,
-};
-
-// Catalog + the caller's owned items in one call (so the shop renders prices + ownership together).
-app.get('/api/cosmetics/catalog', async (req, res) => {
-  try {
-    const wallet = (req.query.wallet || '').toString();
-    const owned = wallet ? await db.getOwnedCosmetics(wallet) : [];
-    res.json({ items: COSMETIC_CATALOG, owned });
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-// Quote: everything the client needs to build the USDC payment for one item (fresh blockhash).
-app.get('/api/cosmetics/quote', async (req, res) => {
-  try {
-    const itemId = (req.query.itemId || '').toString();
-    const price = COSMETIC_CATALOG[itemId];
-    if (price === undefined) return res.status(400).json({ error: 'Unknown item' });
-    if (req.query.wallet && OWNER_WALLETS.has(req.query.wallet.toString())) return res.json({ itemId, amountUsdc: 0, free: true });
-    const { blockhash } = await Usdc.getLatestBlockhash();
-    res.json({
-      itemId, amountUsdc: price, units: Usdc.toUnits(price).toString(),
-      payToOwner: REVENUE_WALLET, payToAta: Usdc.ataFor(REVENUE_WALLET), // skin sales go to the owner's Phantom revenue wallet
-      usdcMint: Usdc.USDC_MINT.toString(), decimals: Usdc.USDC_DECIMALS, blockhash,
-    });
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-// Buy: broadcast + verify the USDC payment landed in the owner wallet, then grant ownership.
-// markStakeSig claims the signature one-time so a single payment can't be replayed for free grants.
-app.post('/api/cosmetics/buy', entryFeeLimiter, express.json({ limit: '256kb' }), async (req, res) => {
-  const { signedTx, itemId, walletAddress } = req.body || {};
-  const price = COSMETIC_CATALOG[itemId];
-  if (price === undefined) return res.status(400).json({ error: 'Unknown item' });
-  try {
-    // The house doesn't pay itself — owner wallets get cosmetics free. (Granting to an owner address
-    // only ever benefits the owner, so a spoofed walletAddress gains an attacker nothing.)
-    if (walletAddress && OWNER_WALLETS.has(walletAddress)) {
-      await db.addCosmetic(walletAddress, itemId, null, 0);
-      return res.json({ ok: true, itemId, free: true, owned: await db.getOwnedCosmetics(walletAddress) });
-    }
-    if (!signedTx) return res.status(400).json({ error: 'Missing signed transaction' });
-    const sig = await Wallet.submitStake(Buffer.from(signedTx, 'base64')); // broadcast + confirm (mode-agnostic)
-    const { payer, usdc } = await Usdc.verifyUsdcCredit(sig, REVENUE_WALLET, price * 0.99); // paid to the revenue wallet; tiny rounding tolerance
-    if (!(await db.markStakeSig(sig))) return res.status(400).json({ error: 'Payment already used' });
-    const owner = walletAddress || payer;
-    await db.addCosmetic(owner, itemId, sig, usdc);
-    trackEarning({ source: 'cosmetic', amountUsdc: usdc, wallet: owner, name: itemId, txSig: sig });
-    res.json({ ok: true, itemId, owned: await db.getOwnedCosmetics(owner) });
-  } catch (e) { res.status(400).json({ error: e.message }); }
-});
+// (The cosmetics shop was removed — every skin is free now, so there is nothing
+// to sell. db.addCosmetic/getOwnedCosmetics and the cosmetics_owned table are
+// left in place like the other vestigial tables; historical revenue rows with
+// source 'cosmetic' still show in the owner earnings feed.)
 
 // (Phase B2 security: the legacy /api/verify-stake endpoint was removed — it duplicated
 // /api/submit-stake's token minting and was unused by the client, so it only widened the
@@ -879,7 +821,7 @@ io.on('connection', (socket) => {
     broadcastLobbyState();
   });
 
-  socket.on(C.EVENTS.PLAY, ({ name, walletAddress, googleId, color, lobbyType, entryToken, hatId, boostId, region, reconnectKey } = {}) => {
+  socket.on(C.EVENTS.PLAY, ({ name, walletAddress, googleId, color, lobbyType, entryToken, region, reconnectKey } = {}) => {
     // Ignore duplicate PLAY events (e.g. from socket reconnect while alive)
     if (socket._room) {
       const existingSnake = socket._room.snakes.get(socket.id);
@@ -927,7 +869,7 @@ io.on('connection', (socket) => {
     socket._room = room;
     socket._joinTime = Date.now();
     console.log(`[>] ${playerName} joins ${lobbyType || 'free'} lobby (worth: ${entry.worth} ${money.unit})`);
-    room.addPlayer(socket, playerName, walletAddress || null, color || null, entry.worth, hatId || 'none', boostId || 'default');
+    room.addPlayer(socket, playerName, walletAddress || null, color || null, entry.worth);
     notify.pushOwner(
       `${playerName} joined the ${shortType} lobby` +
         (entry.worth ? ` for ${entry.worth} ${money.unit}` : ' (free)') +

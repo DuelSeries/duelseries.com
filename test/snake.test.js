@@ -57,12 +57,11 @@ test('die() marks the snake dead and returns food drops', () => {
 });
 
 test('serialize() exposes the wire fields the codec/client expect', () => {
-  const s = new Snake('id', 'T', 0, 0, '#c080ff', 'hat', 'boost');
+  const s = new Snake('id', 'T', 0, 0, '#c080ff');
   s.worth = 0.5;
   const w = s.serialize();
   assert.strictEqual(w.id, 'id');
   assert.strictEqual(w.color, '#c080ff');
-  assert.strictEqual(w.hatId, 'hat');
   assert.strictEqual(w.worth, 0.5);
   assert.ok(Array.isArray(w.segs));
   assert.strictEqual(typeof w.angle, 'number');

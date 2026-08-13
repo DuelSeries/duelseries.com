@@ -40,7 +40,6 @@ class Renderer {
     this._hexFrame = 0;
     this.hexGrid = new HexGrid(this._isMobile);
     this.camera = new Camera();
-    this.boostTrails = new Map();
     this._foodPhaseCache = new Map();
     this._foodSprCache   = new Map();   // slither food sprites, keyed colour+kind+size
     this._orbCoreCache   = new Map(); // per-colour crisp outlined cores
@@ -262,9 +261,6 @@ class Renderer {
       if (hx < visL || hx > visR || hy < visT || hy > visB) continue;
       visibleOthers.push(snake);
     }
-    for (const snake of visibleOthers) this._recordTrail(snake);
-    if (mySnake) this._recordTrail(mySnake);
-    this._drawLingeringTrails(ctx);
 
     // Snake bodies: render all into one GL layer, then composite once (a single
     // drawImage instead of one-per-snake — removes a GPU stall per snake).
@@ -743,11 +739,10 @@ class Renderer {
     ctx.restore();
   }
 
-  // Everything drawn on top of the bodies: eyes, hat, name/worth labels, cashout ring.
+  // Everything drawn on top of the bodies: eyes, name/worth labels, cashout ring.
   _drawSnakeOverlay(ctx, snake, isMe) {
     if (!snake.segs || snake.segs.length < 4) return;
     const { segs, name } = snake;
-    const hatId = snake.hatId || 'none';
     const growthScale = Math.min(6, 1 + ((snake.length || 20) - CONSTANTS.SNAKE_MIN_SEGMENTS * 2) / CONSTANTS.SNAKE_SC_SEGS);
     const R  = CONSTANTS.SNAKE_HEAD_RADIUS * growthScale;
     const HR = R; // same radius as body so head is flush
@@ -808,81 +803,6 @@ class Renderer {
       ctx.fillStyle = '#060606'; ctx.fill();
     }
 
-    // ── Hat ───────────────────────────────────────────────────────────────────
-    if (hatId !== 'none') {
-      ctx.save();
-      ctx.translate(hx, hy);
-      ctx.rotate(angle - Math.PI / 2);
-      const by = -HR * 1.08;
-
-      if (hatId === 'crown') {
-        const w = HR*1.5, h = HR*0.95;
-        ctx.fillStyle = '#FFD700'; ctx.strokeStyle = '#B8860B'; ctx.lineWidth = HR*0.06;
-        ctx.fillRect(-w/2, by - h*0.32, w, h*0.32);
-        ctx.beginPath();
-        ctx.moveTo(-w/2, by - h*0.32);
-        ctx.lineTo(-w/3, by - h); ctx.lineTo(-w/8, by - h*0.48);
-        ctx.lineTo(0, by - h);    ctx.lineTo(w/8, by - h*0.48);
-        ctx.lineTo(w/3, by - h);  ctx.lineTo(w/2, by - h*0.32);
-        ctx.closePath(); ctx.fill(); ctx.stroke();
-        for (const ox of [-w/3, 0, w/3]) {
-          ctx.beginPath(); ctx.arc(ox, by - h, HR*0.12, 0, Math.PI*2);
-          ctx.fillStyle = '#ff3333'; ctx.fill();
-        }
-      } else if (hatId === 'tophat') {
-        const w = HR*1.3, brimW = HR*1.8, brimH = HR*0.18, h = HR*1.1;
-        ctx.fillStyle = '#111'; ctx.strokeStyle = '#333'; ctx.lineWidth = HR*0.06;
-        ctx.fillRect(-w/2, by - h, w, h); ctx.strokeRect(-w/2, by - h, w, h);
-        ctx.fillRect(-brimW/2, by - brimH, brimW, brimH); ctx.strokeRect(-brimW/2, by - brimH, brimW, brimH);
-        ctx.fillStyle = '#8B0000'; ctx.fillRect(-w/2+HR*0.08, by - h*0.28, w - HR*0.16, HR*0.18);
-      } else if (hatId === 'cap') {
-        const w = HR*1.6, h = HR*0.7;
-        ctx.fillStyle = '#1a6eff'; ctx.strokeStyle = '#0044cc'; ctx.lineWidth = HR*0.06;
-        ctx.beginPath();
-        ctx.ellipse(0, by - h*0.5, w/2, h/2, 0, Math.PI, 0); ctx.closePath(); ctx.fill(); ctx.stroke();
-        ctx.fillStyle = '#1a6eff';
-        ctx.beginPath(); ctx.ellipse(w*0.15, by, w*0.48, HR*0.18, 0.25, 0, Math.PI); ctx.fill();
-        ctx.beginPath(); ctx.arc(0, by - h*0.5, HR*0.22, 0, Math.PI*2);
-        ctx.fillStyle = '#fff'; ctx.fill();
-      } else if (hatId === 'wizard') {
-        const w = HR*1.1, h = HR*1.6, brimW = HR*1.8, brimH = HR*0.18;
-        ctx.fillStyle = '#6a0dad'; ctx.strokeStyle = '#4a0080'; ctx.lineWidth = HR*0.06;
-        ctx.beginPath();
-        ctx.moveTo(-w/2, by); ctx.lineTo(w/2, by); ctx.lineTo(0, by - h); ctx.closePath(); ctx.fill(); ctx.stroke();
-        ctx.fillRect(-brimW/2, by - brimH, brimW, brimH); ctx.strokeRect(-brimW/2, by - brimH, brimW, brimH);
-        ctx.fillStyle = '#ffd700';
-        for (const [sx, sy] of [[-w*0.15, by - h*0.35],[w*0.1, by - h*0.6],[0, by - h*0.15]]) {
-          ctx.beginPath(); ctx.arc(sx, sy, HR*0.09, 0, Math.PI*2); ctx.fill();
-        }
-      } else if (hatId === 'cowboy') {
-        const brimW = HR*2.2, brimH = HR*0.2, w = HR*1.0, h = HR*0.8;
-        ctx.fillStyle = '#8B4513'; ctx.strokeStyle = '#5C2D0A'; ctx.lineWidth = HR*0.06;
-        ctx.fillRect(-brimW/2, by - brimH, brimW, brimH); ctx.strokeRect(-brimW/2, by - brimH, brimW, brimH);
-        ctx.beginPath();
-        ctx.moveTo(-w/2, by - brimH); ctx.lineTo(-w*0.7, by - brimH - h*0.4);
-        ctx.quadraticCurveTo(-w*0.4, by - brimH - h*1.1, 0, by - brimH - h);
-        ctx.quadraticCurveTo(w*0.4, by - brimH - h*1.1, w*0.7, by - brimH - h*0.4);
-        ctx.lineTo(w/2, by - brimH); ctx.closePath(); ctx.fill(); ctx.stroke();
-      } else if (hatId === 'party') {
-        const w = HR*0.9, h = HR*1.4;
-        ctx.fillStyle = '#ff1493'; ctx.strokeStyle = '#cc0077'; ctx.lineWidth = HR*0.06;
-        ctx.beginPath();
-        ctx.moveTo(-w/2, by); ctx.lineTo(w/2, by); ctx.lineTo(0, by - h); ctx.closePath(); ctx.fill(); ctx.stroke();
-        ctx.fillStyle = '#fff';
-        for (const [sx, sy] of [[-w*0.2, by - h*0.25],[w*0.15, by - h*0.55],[0, by - h*0.12],[-w*0.05, by - h*0.7]]) {
-          ctx.beginPath(); ctx.arc(sx, sy, HR*0.07, 0, Math.PI*2); ctx.fill();
-        }
-        ctx.fillStyle = '#ffff00'; ctx.beginPath(); ctx.arc(0, by - h, HR*0.16, 0, Math.PI*2); ctx.fill();
-      } else if (hatId === 'halo') {
-        ctx.strokeStyle = '#FFD700'; ctx.lineWidth = HR*0.28;
-        if (!this._isMobile) { ctx.shadowColor = '#FFD700'; ctx.shadowBlur = HR*0.6; }
-        ctx.beginPath(); ctx.ellipse(0, by - HR*0.5, HR*0.75, HR*0.22, 0, 0, Math.PI*2); ctx.stroke();
-        ctx.shadowBlur = 0;
-      }
-
-      ctx.restore();
-    }
-
     // ── Labels ────────────────────────────────────────────────────────────────
     ctx.textAlign = 'center';
     if (name) {
@@ -937,147 +857,6 @@ class Renderer {
     ctx.restore();
   }
 
-  _recordTrail(snake) {
-    const { id, segs, boosting, boostId } = snake;
-    if (!boosting || !boostId || boostId === 'default') return;
-    const SN = (segs.length >> 1);
-    if (SN < 2) return;
-    const tx = segs[(SN - 1) * 2], ty = segs[(SN - 1) * 2 + 1];
-    const growthScale = Math.min(6, 1 + ((snake.length || 20) - CONSTANTS.SNAKE_MIN_SEGMENTS * 2) / CONSTANTS.SNAKE_SC_SEGS);
-    const R = CONSTANTS.SNAKE_HEAD_RADIUS * growthScale;
-
-    if (!this.boostTrails.has(id)) this.boostTrails.set(id, []);
-    const trail = this.boostTrails.get(id);
-
-    // Only add a point if it's moved enough from the last one (avoid stacking dots)
-    if (trail.length > 0) {
-      const last = trail[trail.length - 1];
-      const dx = tx - last.x, dy = ty - last.y;
-      if (dx * dx + dy * dy < (R * 0.4) * (R * 0.4)) return;
-    }
-    trail.push({ x: tx, y: ty, t: Date.now(), boostId, r: R });
-  }
-
-  _drawLingeringTrails(ctx) {
-    const now = Date.now();
-    const t = now / 1000;
-    const MAX_AGE = 600;
-
-    // Compute perpendicular direction at trail point i
-    function perp(trail, i) {
-      const a = trail[Math.max(0, i - 1)], b = trail[Math.min(trail.length - 1, i + 1)];
-      const dx = b.x - a.x, dy = b.y - a.y, len = Math.sqrt(dx*dx + dy*dy) || 1;
-      return { px: -dy / len, py: dx / len };
-    }
-
-    ctx.save();
-    for (const [id, trail] of this.boostTrails) {
-      let start = 0;
-      while (start < trail.length && now - trail[start].t > MAX_AGE) start++;
-      if (start > 0) trail.splice(0, start);
-      if (trail.length === 0) { this.boostTrails.delete(id); continue; }
-
-      const boostId = trail[trail.length - 1].boostId;
-
-      if (boostId === 'fire') {
-        ctx.globalCompositeOperation = 'lighter';
-        for (let i = 0; i < trail.length; i++) {
-          const pt = trail[i]; const fade = 1 - (now - pt.t) / MAX_AGE; const R = pt.r;
-          const flk = 0.75 + 0.25 * Math.sin(t * 14 + i * 1.3);
-          ctx.fillStyle = `rgba(200,15,0,${(Math.round(fade*0.35*100)/100)})`; ctx.beginPath(); ctx.arc(pt.x, pt.y, R*1.3*fade*flk, 0, Math.PI*2); ctx.fill();
-          ctx.fillStyle = `rgba(255,80,0,${(Math.round(fade*0.55*100)/100)})`; ctx.beginPath(); ctx.arc(pt.x, pt.y, R*0.75*fade*flk, 0, Math.PI*2); ctx.fill();
-          ctx.fillStyle = `rgba(255,220,0,${(Math.round(fade*0.75*100)/100)})`; ctx.beginPath(); ctx.arc(pt.x, pt.y, R*0.35*fade, 0, Math.PI*2); ctx.fill();
-        }
-        for (let i = 0; i < trail.length; i += 2) {
-          const pt = trail[i]; const fade = 1 - (now - pt.t) / MAX_AGE; const R = pt.r;
-          const { px, py } = perp(trail, i);
-          ctx.fillStyle = `rgba(255,160,0,${(Math.round(fade*0.95*100)/100)})`;
-          ctx.beginPath(); ctx.arc(pt.x + px*Math.sin(t*5+i*2.3)*R*1.1, pt.y + py*Math.sin(t*5+i*2.3)*R*1.1, R*0.13*fade, 0, Math.PI*2); ctx.fill();
-        }
-
-      } else if (boostId === 'ice') {
-        ctx.globalCompositeOperation = 'lighter';
-        for (let i = 0; i < trail.length; i++) {
-          const pt = trail[i]; const fade = 1 - (now - pt.t) / MAX_AGE; const R = pt.r;
-          ctx.fillStyle = `rgba(80,180,255,${(Math.round(fade*0.35*100)/100)})`; ctx.beginPath(); ctx.arc(pt.x, pt.y, R*1.2*fade, 0, Math.PI*2); ctx.fill();
-          ctx.fillStyle = `rgba(180,235,255,${(Math.round(fade*0.55*100)/100)})`; ctx.beginPath(); ctx.arc(pt.x, pt.y, R*0.55*fade, 0, Math.PI*2); ctx.fill();
-        }
-        ctx.globalCompositeOperation = 'source-over';
-        for (let i = 0; i < trail.length; i += 3) {
-          const pt = trail[i]; const fade = 1 - (now - pt.t) / MAX_AGE; const R = pt.r;
-          if (fade < 0.1) continue;
-          const cr = R*0.32*fade, ang = t*1.2 + i*0.9;
-          ctx.strokeStyle = `rgba(210,245,255,${(Math.round(fade*0.9*100)/100)})`; ctx.lineWidth = R*0.08;
-          for (let arm = 0; arm < 6; arm++) {
-            const a = ang + arm*Math.PI/3;
-            ctx.beginPath(); ctx.moveTo(pt.x, pt.y); ctx.lineTo(pt.x + Math.cos(a)*cr, pt.y + Math.sin(a)*cr); ctx.stroke();
-          }
-        }
-
-      } else if (boostId === 'rainbow') {
-        ctx.globalCompositeOperation = 'lighter';
-        for (let i = 0; i < trail.length; i++) {
-          const pt = trail[i]; const fade = 1 - (now - pt.t) / MAX_AGE; const R = pt.r;
-          const h1 = ((t*150 - i*16) % 360 + 360) % 360;
-          ctx.fillStyle = `hsla(${h1},100%,60%,${(Math.round(fade*0.55*100)/100)})`; ctx.beginPath(); ctx.arc(pt.x, pt.y, R*1.0*fade, 0, Math.PI*2); ctx.fill();
-          ctx.fillStyle = `hsla(${(h1+120)%360},100%,80%,${(Math.round(fade*0.4*100)/100)})`; ctx.beginPath(); ctx.arc(pt.x, pt.y, R*0.5*fade, 0, Math.PI*2); ctx.fill();
-        }
-
-      } else if (boostId === 'lightning') {
-        ctx.globalCompositeOperation = 'lighter';
-        for (let i = 0; i < trail.length; i++) {
-          const pt = trail[i]; const fade = 1 - (now - pt.t) / MAX_AGE; const R = pt.r;
-          ctx.fillStyle = `rgba(80,80,255,${(Math.round(fade*0.3*100)/100)})`; ctx.beginPath(); ctx.arc(pt.x, pt.y, R*1.1*fade, 0, Math.PI*2); ctx.fill();
-        }
-        for (let bolt = 0; bolt < 2; bolt++) {
-          ctx.beginPath(); ctx.moveTo(trail[0].x, trail[0].y);
-          for (let i = 1; i < trail.length; i++) {
-            const pt = trail[i]; const { px, py } = perp(trail, i); const R = pt.r;
-            ctx.lineTo(pt.x + px*Math.sin(t*18+i*3.5+bolt*Math.PI)*R*0.6, pt.y + py*Math.sin(t*18+i*3.5+bolt*Math.PI)*R*0.6);
-          }
-          ctx.strokeStyle = `rgba(255,255,255,${bolt===0?0.95:0.5})`; ctx.lineWidth = (trail[0].r)*(bolt===0?0.12:0.06); ctx.lineCap = 'round'; ctx.stroke();
-        }
-
-      } else if (boostId === 'smoke') {
-        ctx.globalCompositeOperation = 'source-over';
-        for (let i = 0; i < trail.length; i++) {
-          const pt = trail[i]; const fade = 1 - (now - pt.t) / MAX_AGE; const R = pt.r;
-          const { px, py } = perp(trail, i);
-          const grow = 1 + (1 - fade) * 0.5;
-          const ox = px*Math.sin(i*0.6+t*0.8)*R*0.45, oy = py*Math.sin(i*0.6+t*0.8)*R*0.45;
-          const grey = Math.floor(130 + fade*60);
-          ctx.fillStyle = `rgba(${grey},${grey},${grey},${(Math.round(fade*0.22*100)/100)})`;
-          ctx.beginPath(); ctx.arc(pt.x+ox, pt.y+oy, R*grow*0.7, 0, Math.PI*2); ctx.fill();
-        }
-
-      } else if (boostId === 'stars') {
-        ctx.globalCompositeOperation = 'lighter';
-        for (let i = 0; i < trail.length; i++) {
-          const pt = trail[i]; const fade = 1 - (now - pt.t) / MAX_AGE; const R = pt.r;
-          const twinkle = 0.55 + 0.45*Math.sin(t*9+i*1.8), sr = R*0.6*fade, sa = t*2.5+i*0.55;
-          ctx.beginPath();
-          for (let s = 0; s < 10; s++) {
-            const a = s*Math.PI/5 + sa, rad = s%2===0 ? sr : sr*0.38;
-            s===0 ? ctx.moveTo(pt.x+Math.cos(a)*rad, pt.y+Math.sin(a)*rad) : ctx.lineTo(pt.x+Math.cos(a)*rad, pt.y+Math.sin(a)*rad);
-          }
-          ctx.closePath(); ctx.fillStyle = `rgba(255,240,100,${(Math.round(fade*0.75*twinkle*100)/100)})`; ctx.fill();
-        }
-
-      } else if (boostId === 'galaxy') {
-        ctx.globalCompositeOperation = 'lighter';
-        for (let i = 0; i < trail.length; i++) {
-          const pt = trail[i]; const fade = 1 - (now - pt.t) / MAX_AGE; const R = pt.r;
-          ctx.fillStyle = `rgba(100,0,200,${(Math.round(fade*0.4*100)/100)})`; ctx.beginPath(); ctx.arc(pt.x, pt.y, R*1.1*fade, 0, Math.PI*2); ctx.fill();
-          for (let arm = 0; arm < 3; arm++) {
-            const sa = t*4 + i*0.5 + arm*Math.PI*2/3;
-            ctx.fillStyle = `hsla(${260+arm*50},100%,70%,${(Math.round(fade*0.65*100)/100)})`;
-            ctx.beginPath(); ctx.arc(pt.x+Math.cos(sa)*R*0.33*fade, pt.y+Math.sin(sa)*R*0.33*fade, R*0.28*fade, 0, Math.PI*2); ctx.fill();
-          }
-        }
-      }
-    }
-    ctx.restore();
-  }
 
   _drawBorder(ctx, worldRadius, camera) {
     const dpr = this._dpr || 1;

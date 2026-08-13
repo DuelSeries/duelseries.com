@@ -44,7 +44,7 @@
   function clamp16(v) { v = Math.round(v); return v < -32768 ? -32768 : (v > 32767 ? 32767 : v); }
 
   // snap = { t, worldRadius, snakes:[{id,name,color,segs:[x,y,...],angle,boosting,
-  //          boostRamp,hatId,boostId,score,length,boostRatio,worth}],
+  //          boostRamp,score,length,boostRatio,worth}],
   //          food:[{id,x,y,color,size,dropped,isGolden,...}], leaderboard, mm }
   // -> { meta (no coords, no food array), coords: ArrayBuffer }
   function encodeSnapshot(snap) {
@@ -62,7 +62,7 @@
       for (let k = 0; k < segs.length; k++) { dv.setInt16(o, clamp16(segs[k]), true); o += 2; }
       snakes[i] = {
         id: s.id, name: s.name, color: s.color, angle: s.angle,
-        boosting: s.boosting, boostRamp: s.boostRamp, hatId: s.hatId, boostId: s.boostId,
+        boosting: s.boosting, boostRamp: s.boostRamp,
         score: s.score, length: s.length, boostRatio: s.boostRatio, worth: s.worth,
         nseg: segs.length,
       };

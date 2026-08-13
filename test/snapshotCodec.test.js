@@ -8,8 +8,8 @@ function sample() {
     t: 123456,
     worldRadius: 2000,
     snakes: [
-      { id: 'a', name: 'Alice', color: '#fff', segs: [10, 20, 13, 24, 16, 28], angle: 1.23, boosting: true,  boostRamp: 0.5, hatId: 'crown', boostId: 'fire',    score: 42, length: 3, boostRatio: 0.7, worth: 0.01 },
-      { id: 'b', name: 'Bob',   color: '#000', segs: [-5, -7, -8, -9],          angle: -2.1, boosting: false, boostRamp: 0,   hatId: 'none',  boostId: 'default', score: 7,  length: 2, boostRatio: 0,   worth: 0 },
+      { id: 'a', name: 'Alice', color: '#fff', segs: [10, 20, 13, 24, 16, 28], angle: 1.23, boosting: true,  boostRamp: 0.5, score: 42, length: 3, boostRatio: 0.7, worth: 0.01 },
+      { id: 'b', name: 'Bob',   color: '#000', segs: [-5, -7, -8, -9],          angle: -2.1, boosting: false, boostRamp: 0,   score: 7,  length: 2, boostRatio: 0,   worth: 0 },
     ],
     food: [
       { id: 1, x: 100,  y: -200, color: '#f00', size: 1, dropped: false, isGolden: false },
@@ -114,7 +114,6 @@ test('preserves snake metadata (the non-coordinate fields)', () => {
   assert.strictEqual(a.score, 42);
   assert.strictEqual(a.worth, 0.01);
   assert.strictEqual(a.boosting, true);
-  assert.strictEqual(a.hatId, 'crown');
   assert.strictEqual(a.angle, 1.23);
 });
 

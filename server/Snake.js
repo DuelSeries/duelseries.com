@@ -34,12 +34,10 @@ const MIN_SEGMENTS = C.SNAKE_MIN_SEGMENTS * 2; // hard floor — can never shrin
 const BOOST_DECAY = Math.exp(-(1000 / C.TICK_RATE) / C.BOOST_DECAY_MS);
 
 class Snake {
-  constructor(id, name, x, y, color, hatId, boostId) {
+  constructor(id, name, x, y, color) {
     this.id = id;
     this.name = name || 'Player';
     this.color = sanitizeColor(color) || COLORS[Math.floor(Math.random() * COLORS.length)];
-    this.hatId   = hatId   || 'none';
-    this.boostId = boostId || 'default';
     this.angle = Math.random() * Math.PI * 2;
     this.targetAngle = this.angle;
     this.boosting = false;
@@ -241,8 +239,6 @@ class Snake {
       angle: this.angle,
       boosting: this.boosting,
       boostRamp: this.boostRamp || 0,
-      hatId: this.hatId,
-      boostId: this.boostId,
       score: Math.floor(this.score),
       length: this.length,
       boostRatio: this.boostRatio,

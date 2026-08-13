@@ -93,16 +93,17 @@ const reconnectKey = (window.crypto && crypto.randomUUID)
   ? crypto.randomUUID()
   : 'rk_' + Date.now() + '_' + Math.random().toString(36).slice(2);
 
-const snakeColor = sessionStorage.getItem('snakeColor') || localStorage.getItem('duelseries_skin_color') || '#E8756A';
-const hatId      = sessionStorage.getItem('hatId')      || 'none';
-const boostId    = sessionStorage.getItem('boostId')    || 'default';
+// Fallback is a slither palette colour (was #E8756A, which wasn't one). The
+// server re-checks this anyway and swaps anything off-palette for a random
+// palette colour, so a stale value can't put a non-slither snake in play.
+const snakeColor = sessionStorage.getItem('snakeColor') || localStorage.getItem('duelseries_skin_color') || '#c080ff';
 
 socket.on('connect', () => {
   try { console.log('[net] transport:', socket.io.engine.transport.name); } catch (e) {}
   if (spectateOnly) {
     socket.emit('spectate:join', { lobbyType, region: selectedRegion });
   } else {
-    socket.emit(CONSTANTS.EVENTS.PLAY, { name: playerName, walletAddress, googleId, color: snakeColor, lobbyType, entryToken, hatId, boostId, region: selectedRegion, reconnectKey });
+    socket.emit(CONSTANTS.EVENTS.PLAY, { name: playerName, walletAddress, googleId, color: snakeColor, lobbyType, entryToken, region: selectedRegion, reconnectKey });
   }
 });
 

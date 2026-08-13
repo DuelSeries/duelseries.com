@@ -46,12 +46,12 @@ class GameRoom {
     if (this.tickInterval) clearInterval(this.tickInterval);
   }
 
-  addPlayer(socket, name, walletAddress, color, entrySol, hatId, boostId) {
+  addPlayer(socket, name, walletAddress, color, entrySol) {
     socket.join(this.socketRoomName);
-    this.players.set(socket.id, { socket, name, walletAddress, color, hatId, boostId });
+    this.players.set(socket.id, { socket, name, walletAddress, color });
 
     const { x, y } = this.safeSpawnPoint();
-    const snake = new Snake(socket.id, name, x, y, color, hatId, boostId);
+    const snake = new Snake(socket.id, name, x, y, color);
     snake.worth = entrySol || 0;
     this.snakes.set(socket.id, snake);
 
@@ -431,7 +431,7 @@ class GameRoom {
     const existing = this.snakes.get(socketId);
     if (existing && existing.alive) return; // don't respawn an alive snake
     const { x, y } = this.safeSpawnPoint();
-    const snake = new Snake(socketId, player.name, x, y, player.color, player.hatId, player.boostId);
+    const snake = new Snake(socketId, player.name, x, y, player.color);
     snake.worth = entrySol || 0;
     this.snakes.set(socketId, snake);
 

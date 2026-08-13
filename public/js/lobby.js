@@ -1097,61 +1097,21 @@ document.getElementById('btn-spectate-lobby-2').addEventListener('click', () => 
     { id: 'coral',      name: 'Coral',      color: '#ff9090', locked: false }, // 6
     { id: 'red',        name: 'Red',        color: '#ff4040', locked: false }, // 7
     { id: 'magenta',    name: 'Magenta',    color: '#e030e0', locked: false }, // 8
-    { id: 'crimson',    name: 'Crimson',    color: '#f02020', locked: true  }, // 31
-    { id: 'mint',       name: 'Mint',       color: '#00ff53', locked: true  }, // 26
-    { id: 'indigo',     name: 'Indigo',     color: '#4854ff', locked: true  }, // 16
-    { id: 'rose',       name: 'Rose',       color: '#f020f0', locked: true  }, // 34
-    { id: 'amber',      name: 'Amber',      color: '#ffc050', locked: true  }, // 12
-    { id: 'sky',        name: 'Sky',        color: '#65c8e8', locked: true  }, // 23
-    { id: 'lime',       name: 'Lime',       color: '#20f020', locked: true  }, // 35
-    { id: 'galaxy',     name: 'Galaxy',     color: '#6828aa', locked: true  }, // 39
-    { id: 'shadow',     name: 'Shadow',     color: '#505050', locked: true  }, // 11
+    { id: 'crimson',    name: 'Crimson',    color: '#f02020', locked: false  }, // 31
+    { id: 'mint',       name: 'Mint',       color: '#00ff53', locked: false  }, // 26
+    { id: 'indigo',     name: 'Indigo',     color: '#4854ff', locked: false  }, // 16
+    { id: 'rose',       name: 'Rose',       color: '#f020f0', locked: false  }, // 34
+    { id: 'amber',      name: 'Amber',      color: '#ffc050', locked: false  }, // 12
+    { id: 'sky',        name: 'Sky',        color: '#65c8e8', locked: false  }, // 23
+    { id: 'lime',       name: 'Lime',       color: '#20f020', locked: false  }, // 35
+    { id: 'galaxy',     name: 'Galaxy',     color: '#6828aa', locked: false  }, // 39
+    { id: 'shadow',     name: 'Shadow',     color: '#505050', locked: false  }, // 11
   ];
 
-  const HATS = [
-    { id: 'none',    name: 'No Hat',      locked: false },
-    { id: 'crown',   name: 'Crown',       locked: false },
-    { id: 'tophat',  name: 'Top Hat',     locked: false },
-    { id: 'cap',     name: 'Cap',         locked: false },
-    { id: 'wizard',  name: 'Wizard Hat',  locked: true  },
-    { id: 'cowboy',  name: 'Cowboy Hat',  locked: true  },
-    { id: 'party',   name: 'Party Hat',   locked: true  },
-    { id: 'halo',    name: 'Halo',        locked: true  },
-  ];
+  // 'coral' is a real id in SKINS above; a stale one just falls back to SKINS[0].
+  let equippedId  = localStorage.getItem('duelseries_skin_id') || 'coral';
+  let previewSkin = Math.max(0, SKINS.findIndex(s => s.id === equippedId));
 
-  const BOOSTS = [
-    { id: 'default',   name: 'Default',       locked: false },
-    { id: 'fire',      name: 'Fire Trail',     locked: false },
-    { id: 'ice',       name: 'Ice Trail',      locked: false },
-    { id: 'rainbow',   name: 'Rainbow',        locked: true  },
-    { id: 'lightning', name: 'Lightning',      locked: true  },
-    { id: 'smoke',     name: 'Smoke Trail',    locked: true  },
-    { id: 'stars',     name: 'Star Burst',     locked: true  },
-    { id: 'galaxy',    name: 'Galaxy Trail',   locked: true  },
-  ];
-
-  const CATS = { skins: SKINS, hats: HATS, boosts: BOOSTS };
-
-  let equippedId  = localStorage.getItem('duelseries_skin_id')  || 'coral';
-  let equippedHat = localStorage.getItem('duelseries_hat_id')   || 'none';
-  let equippedBoost = localStorage.getItem('duelseries_boost_id') || 'default';
-
-  // Cosmetics shop: which paid items this wallet owns + their USDC prices (from /api/cosmetics/catalog).
-  let _ownedCosmetics = new Set();
-  let _cosmeticPrices = {};
-  const NS = { skins: 'skin', hats: 'hat', boosts: 'boost' };
-  function nsId(cat, id) { return (NS[cat] || cat) + ':' + id; }
-  // Categories temporarily disabled for players (show a "Coming Soon" overlay). Remove an entry to re-enable.
-  const COMING_SOON = new Set(['hats', 'boosts']);
-
-  let previewBycat = {
-    skins:  Math.max(0, SKINS.findIndex(s => s.id === equippedId)),
-    hats:   Math.max(0, HATS.findIndex(h => h.id === equippedHat)),
-    boosts: Math.max(0, BOOSTS.findIndex(b => b.id === equippedBoost)),
-  };
-
-  let apCat      = 'skins';
-  let apMode     = 'inventory';
   let apAnimT    = 0;
   let apAnimRaf  = null;
   let apSrcLobby = 1;
@@ -1264,7 +1224,7 @@ document.getElementById('btn-spectate-lobby-2').addEventListener('click', () => 
     if (miniAnimRaf) cancelAnimationFrame(miniAnimRaf);
     function loop() {
       const skin = SKINS.find(s => s.id === equippedId) || SKINS[0];
-      drawAnimSnake(c1, skin.color, miniAnimT, equippedHat, equippedBoost, { spanFrac: 0.19, ampFrac: 0.13 });
+      drawAnimSnake(c1, skin.color, miniAnimT, { spanFrac: 0.19, ampFrac: 0.13 });
       miniAnimT += 0.022;
       miniAnimRaf = requestAnimationFrame(loop);
     }
@@ -1279,7 +1239,7 @@ document.getElementById('btn-spectate-lobby-2').addEventListener('click', () => 
   }
 
   // ── Animated snake for the appearance screen ─────────────────────────────────
-  function drawAnimSnake(canvas, color, t, hatId, boostId, opts) {
+  function drawAnimSnake(canvas, color, t, opts) {
     opts = opts || {};
     const W = canvas.width  = canvas.offsetWidth  || 520;
     const H = canvas.height = canvas.offsetHeight || 260;
@@ -1303,57 +1263,6 @@ document.getElementById('btn-spectate-lobby-2').addEventListener('click', () => 
     }
 
     // Boost trail — drawn BEFORE body so snake renders on top
-    if (boostId && boostId !== 'default') {
-      const tdx = pts[N-1].x-pts[N-2].x, tdy = pts[N-1].y-pts[N-2].y;
-      const tlen = Math.sqrt(tdx*tdx+tdy*tdy)||1;
-      const sX = tdx/tlen, sY = tdy/tlen;
-      const pX = -sY, pY = sX;
-      // Trail starts inside the body (BODY_STEPS back from tail tip) so snake covers it
-      const BODY_STEPS = 7, TRAIL_STEPS = 22;
-      const tp = [];
-      for (let i=0;i<BODY_STEPS+TRAIL_STEPS;i++) {
-        const step=i-BODY_STEPS; // negative=inside body, 0=tail tip, positive=outside
-        const tx=pts[N-1].x+sX*step*tlen, ty=pts[N-1].y+sY*step*tlen;
-        const ef=Math.max(0, Math.min(1, tx/(R*2.5), (W-tx)/(R*2.5), ty/(R*2.5), (H-ty)/(R*2.5)));
-        const f=Math.max(0, 1-Math.max(0,step)/TRAIL_STEPS); // 1 at tail tip→0 at end, 1 inside body
-        tp.push({x:tx, y:ty, ef, f});
-      }
-
-      if (boostId==='fire') {
-        ctx.save(); ctx.globalCompositeOperation='lighter';
-        for (let i=0;i<tp.length;i++){const fade=tp[i].f*tp[i].ef,flk=0.75+0.25*Math.sin(t*14+i*1.3); ctx.fillStyle=`rgba(200,15,0,${(fade*0.35).toFixed(2)})`; ctx.beginPath(); ctx.arc(tp[i].x,tp[i].y,R*1.3*fade*flk,0,Math.PI*2); ctx.fill(); ctx.fillStyle=`rgba(255,80,0,${(fade*0.55).toFixed(2)})`; ctx.beginPath(); ctx.arc(tp[i].x,tp[i].y,R*0.75*fade*flk,0,Math.PI*2); ctx.fill(); ctx.fillStyle=`rgba(255,220,0,${(fade*0.75).toFixed(2)})`; ctx.beginPath(); ctx.arc(tp[i].x,tp[i].y,R*0.35*fade,0,Math.PI*2); ctx.fill();}
-        for (let i=0;i<tp.length;i+=2){const fade=tp[i].f*tp[i].ef; ctx.fillStyle=`rgba(255,160,0,${(fade*0.95).toFixed(2)})`; ctx.beginPath(); ctx.arc(tp[i].x+pX*Math.sin(t*5+i*2.3)*R*1.1,tp[i].y+pY*Math.sin(t*5+i*2.3)*R*1.1,R*0.13*fade,0,Math.PI*2); ctx.fill();}
-        ctx.restore();
-      } else if (boostId==='ice') {
-        ctx.save(); ctx.globalCompositeOperation='lighter';
-        for (let i=0;i<tp.length;i++){const fade=tp[i].f*tp[i].ef; ctx.fillStyle=`rgba(80,180,255,${(fade*0.35).toFixed(2)})`; ctx.beginPath(); ctx.arc(tp[i].x,tp[i].y,R*1.2*fade,0,Math.PI*2); ctx.fill(); ctx.fillStyle=`rgba(180,235,255,${(fade*0.55).toFixed(2)})`; ctx.beginPath(); ctx.arc(tp[i].x,tp[i].y,R*0.55*fade,0,Math.PI*2); ctx.fill();}
-        ctx.restore(); ctx.save();
-        for (let i=0;i<tp.length;i+=3){const fade=tp[i].f*tp[i].ef; if(fade<0.1)continue; const cr=R*0.32*fade,ang=t*1.2+i*0.9; ctx.strokeStyle=`rgba(210,245,255,${(fade*0.9).toFixed(2)})`; ctx.lineWidth=R*0.08; for(let arm=0;arm<6;arm++){const a=ang+arm*Math.PI/3; ctx.beginPath(); ctx.moveTo(tp[i].x,tp[i].y); ctx.lineTo(tp[i].x+Math.cos(a)*cr,tp[i].y+Math.sin(a)*cr); ctx.stroke();}}
-        ctx.restore();
-      } else if (boostId==='rainbow') {
-        ctx.save(); ctx.globalCompositeOperation='lighter';
-        for (let i=0;i<tp.length;i++){const fade=tp[i].f*tp[i].ef,h1=((t*150-i*16)%360+360)%360; ctx.fillStyle=`hsla(${h1},100%,60%,${(fade*0.55).toFixed(2)})`; ctx.beginPath(); ctx.arc(tp[i].x,tp[i].y,R*1.0*fade,0,Math.PI*2); ctx.fill(); ctx.fillStyle=`hsla(${(h1+120)%360},100%,80%,${(fade*0.4).toFixed(2)})`; ctx.beginPath(); ctx.arc(tp[i].x,tp[i].y,R*0.5*fade,0,Math.PI*2); ctx.fill();}
-        ctx.restore();
-      } else if (boostId==='lightning') {
-        ctx.save(); ctx.globalCompositeOperation='lighter';
-        for (let i=0;i<tp.length;i++){const fade=tp[i].f*tp[i].ef; ctx.fillStyle=`rgba(80,80,255,${(fade*0.3).toFixed(2)})`; ctx.beginPath(); ctx.arc(tp[i].x,tp[i].y,R*1.1*fade,0,Math.PI*2); ctx.fill();}
-        for (let bolt=0;bolt<2;bolt++){ctx.beginPath(); ctx.moveTo(tp[0].x,tp[0].y); for(let i=1;i<tp.length;i++){ctx.lineTo(tp[i].x+pX*Math.sin(t*18+i*3.5+bolt*Math.PI)*R*0.6,tp[i].y+pY*Math.sin(t*18+i*3.5+bolt*Math.PI)*R*0.6);} ctx.strokeStyle=`rgba(255,255,255,${bolt===0?0.95:0.5})`; ctx.lineWidth=R*(bolt===0?0.12:0.06); ctx.lineCap='round'; ctx.stroke();}
-        ctx.restore();
-      } else if (boostId==='smoke') {
-        ctx.save();
-        for (let i=0;i<tp.length;i++){const fade=tp[i].f*tp[i].ef,grow=1+i*0.10,ox=pX*Math.sin(i*0.6+t*0.8)*R*0.45,oy=pY*Math.sin(i*0.6+t*0.8)*R*0.45,grey=Math.floor(130+fade*60); ctx.fillStyle=`rgba(${grey},${grey},${grey},${(fade*0.22).toFixed(2)})`; ctx.beginPath(); ctx.arc(tp[i].x+ox,tp[i].y+oy,R*grow*0.7,0,Math.PI*2); ctx.fill();}
-        ctx.restore();
-      } else if (boostId==='stars') {
-        ctx.save(); ctx.globalCompositeOperation='lighter';
-        for (let i=0;i<tp.length;i++){const fade=tp[i].f*tp[i].ef,twinkle=0.55+0.45*Math.sin(t*9+i*1.8),sr=R*0.6*fade,sa=t*2.5+i*0.55; ctx.beginPath(); for(let s=0;s<10;s++){const a=s*Math.PI/5+sa,rad=s%2===0?sr:sr*0.38; s===0?ctx.moveTo(tp[i].x+Math.cos(a)*rad,tp[i].y+Math.sin(a)*rad):ctx.lineTo(tp[i].x+Math.cos(a)*rad,tp[i].y+Math.sin(a)*rad);} ctx.closePath(); ctx.fillStyle=`rgba(255,240,100,${(fade*0.75*twinkle).toFixed(2)})`; ctx.fill();}
-        ctx.restore();
-      } else if (boostId==='galaxy') {
-        ctx.save(); ctx.globalCompositeOperation='lighter';
-        for (let i=0;i<tp.length;i++){const fade=tp[i].f*tp[i].ef; ctx.fillStyle=`rgba(100,0,200,${(fade*0.4).toFixed(2)})`; ctx.beginPath(); ctx.arc(tp[i].x,tp[i].y,R*1.1*fade,0,Math.PI*2); ctx.fill(); for(let arm=0;arm<3;arm++){const sa=t*4+i*0.5+arm*Math.PI*2/3; ctx.fillStyle=`hsla(${260+arm*50},100%,70%,${(fade*0.65).toFixed(2)})`; ctx.beginPath(); ctx.arc(tp[i].x+Math.cos(sa)*R*0.33*fade,tp[i].y+Math.sin(sa)*R*0.33*fade,R*0.28*fade,0,Math.PI*2); ctx.fill();}}
-        ctx.restore();
-      }
-    }
-
     ctx.save();
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
@@ -1417,90 +1326,6 @@ document.getElementById('btn-spectate-lobby-2').addEventListener('click', () => 
     }
 
     // Hat — drawn above head in local space rotated to head angle
-    if (hatId && hatId !== 'none') {
-      ctx.save();
-      ctx.translate(hx, hy);
-      ctx.rotate(ang - Math.PI / 2); // "up" in local space = above head visually
-      const by = -R * 1.08; // base of hat just above head circle
-
-      if (hatId === 'crown') {
-        const w = R*1.5, h = R*0.95;
-        ctx.fillStyle = '#FFD700'; ctx.strokeStyle = '#B8860B'; ctx.lineWidth = 0.8;
-        ctx.fillRect(-w/2, by - h*0.32, w, h*0.32);
-        ctx.beginPath();
-        ctx.moveTo(-w/2, by - h*0.32);
-        ctx.lineTo(-w/3, by - h); ctx.lineTo(-w/8, by - h*0.48);
-        ctx.lineTo(0, by - h);    ctx.lineTo(w/8, by - h*0.48);
-        ctx.lineTo(w/3, by - h);  ctx.lineTo(w/2, by - h*0.32);
-        ctx.closePath(); ctx.fill(); ctx.stroke();
-        for (const [rx, col] of [[-w/3,'#ff3333'],[0,'#3399ff'],[w/3,'#ff3333']]) {
-          ctx.fillStyle = col;
-          ctx.beginPath(); ctx.arc(rx, by - h*0.16, R*0.1, 0, Math.PI*2); ctx.fill();
-        }
-
-      } else if (hatId === 'tophat') {
-        const w = R*1.3, bw = R*1.75, bh = R*1.1;
-        ctx.fillStyle = '#111'; ctx.strokeStyle = '#333'; ctx.lineWidth = 0.7;
-        ctx.beginPath(); ctx.ellipse(0, by, bw/2, R*0.2, 0, 0, Math.PI*2);
-        ctx.fill(); ctx.stroke();
-        ctx.fillRect(-w/2, by - bh, w, bh); ctx.strokeRect(-w/2, by - bh, w, bh);
-        ctx.fillStyle = '#880000';
-        ctx.fillRect(-w/2, by - bh*0.25, w, bh*0.18);
-
-      } else if (hatId === 'cap') {
-        const w = R*1.35;
-        ctx.fillStyle = '#2255cc'; ctx.strokeStyle = '#1133aa'; ctx.lineWidth = 0.7;
-        ctx.beginPath(); ctx.arc(0, by, w/2, Math.PI, 0); ctx.closePath();
-        ctx.fill(); ctx.stroke();
-        ctx.beginPath(); ctx.ellipse(w*0.3, by, w*0.52, R*0.15, -0.25, 0, Math.PI*2);
-        ctx.fill();
-        ctx.fillStyle = '#fff';
-        ctx.beginPath(); ctx.arc(0, by - w/2, R*0.09, 0, Math.PI*2); ctx.fill();
-
-      } else if (hatId === 'wizard') {
-        const bw = R*1.7;
-        ctx.fillStyle = '#7722cc'; ctx.strokeStyle = '#5511aa'; ctx.lineWidth = 0.7;
-        ctx.beginPath(); ctx.ellipse(0, by, bw/2, R*0.2, 0, 0, Math.PI*2);
-        ctx.fill(); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(-R*0.62, by); ctx.lineTo(0, by - R*2.2); ctx.lineTo(R*0.62, by);
-        ctx.closePath(); ctx.fill(); ctx.stroke();
-        ctx.fillStyle = '#FFD700'; ctx.font = `${R*0.5}px serif`; ctx.textAlign = 'center';
-        ctx.fillText('★', R*0.08, by - R*0.7); ctx.fillText('✦', -R*0.08, by - R*1.35);
-
-      } else if (hatId === 'cowboy') {
-        const w = R*1.3, bw = R*2.0;
-        ctx.fillStyle = '#8B4513'; ctx.strokeStyle = '#5c2d0a'; ctx.lineWidth = 0.7;
-        ctx.beginPath(); ctx.ellipse(0, by, bw/2, R*0.22, 0, 0, Math.PI*2);
-        ctx.fill(); ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(-w/2, by);
-        ctx.bezierCurveTo(-w/2, by - R*1.1, -R*0.1, by - R*1.25, 0, by - R*1.25);
-        ctx.bezierCurveTo(R*0.1, by - R*1.25, w/2, by - R*1.1, w/2, by);
-        ctx.closePath(); ctx.fill(); ctx.stroke();
-        ctx.fillStyle = '#FFD700';
-        ctx.fillRect(-w/2, by - R*0.28, w, R*0.17);
-
-      } else if (hatId === 'party') {
-        ctx.fillStyle = '#ff3399'; ctx.strokeStyle = '#cc0077'; ctx.lineWidth = 0.7;
-        ctx.beginPath(); ctx.moveTo(-R*0.58, by); ctx.lineTo(0, by - R*1.85); ctx.lineTo(R*0.58, by);
-        ctx.closePath(); ctx.fill(); ctx.stroke();
-        ctx.fillStyle = '#FFD700';
-        for (const [px, py] of [[-R*0.22, by-R*0.4],[R*0.1, by-R*0.9],[-R*0.05, by-R*1.4]]) {
-          ctx.beginPath(); ctx.arc(px, py, R*0.1, 0, Math.PI*2); ctx.fill();
-        }
-        ctx.beginPath(); ctx.arc(0, by - R*1.9, R*0.18, 0, Math.PI*2); ctx.fill();
-
-      } else if (hatId === 'halo') {
-        ctx.strokeStyle = '#FFD700'; ctx.lineWidth = R*0.18;
-        ctx.shadowColor = '#FFD700'; ctx.shadowBlur = R*0.7;
-        ctx.beginPath(); ctx.ellipse(0, by - R*0.6, R*0.75, R*0.22, 0, 0, Math.PI*2);
-        ctx.stroke();
-        ctx.shadowBlur = 0;
-      }
-
-      ctx.restore();
-    }
-
     ctx.restore();
   }
 
@@ -1509,13 +1334,11 @@ document.getElementById('btn-spectate-lobby-2').addEventListener('click', () => 
     if (!canvas) return;
     if (apAnimRaf) cancelAnimationFrame(apAnimRaf);
     function loop() {
-      const skin = SKINS[previewBycat.skins] || SKINS[0];
+      const skin = SKINS[previewSkin] || SKINS[0];
       if (apSrcLobby === 2) {
         drawMiniCell(canvas, skin.color);
       } else {
-        const hatId   = apCat === 'hats'   ? (HATS[previewBycat.hats]     || HATS[0]).id   : equippedHat;
-        const boostId = apCat === 'boosts' ? (BOOSTS[previewBycat.boosts] || BOOSTS[0]).id : equippedBoost;
-        drawAnimSnake(canvas, skin.color, apAnimT, hatId, boostId);
+        drawAnimSnake(canvas, skin.color, apAnimT);
         apAnimT += 0.022;
       }
       apAnimRaf = requestAnimationFrame(loop);
@@ -1527,86 +1350,23 @@ document.getElementById('btn-spectate-lobby-2').addEventListener('click', () => 
     if (apAnimRaf) { cancelAnimationFrame(apAnimRaf); apAnimRaf = null; }
   }
 
-  // ── Selector UI ──────────────────────────────────────────────────────────────
+  // ── Selector UI ────────────────────────────────────────────────────────────
+  // Every skin is free now, so this is just the name of the one being previewed.
   function updateApSelector() {
-    const list = CATS[apCat];
-    const item = list ? list[previewBycat[apCat]] : null;
+    const item = SKINS[previewSkin] || SKINS[0];
     const nameEl  = document.getElementById('ap-sel-name');
     const lockEl  = document.getElementById('ap-sel-lock');
     const saveBtn = document.getElementById('ap-save');
-    const csEl    = document.getElementById('ap-coming-soon');
-    // Temporarily-disabled categories show a "Coming Soon" overlay — no preview/buy/equip.
-    if (COMING_SOON.has(apCat)) {
-      if (csEl) csEl.classList.remove('hidden');
-      nameEl.textContent = 'Coming Soon';
-      lockEl.classList.add('hidden');
-      saveBtn.disabled = true; saveBtn.textContent = 'Coming Soon';
-      document.getElementById('ap-prev').disabled = true;
-      document.getElementById('ap-next').disabled = true;
-      return;
-    }
-    if (csEl) csEl.classList.add('hidden');
-    document.getElementById('ap-prev').disabled = false;
-    document.getElementById('ap-next').disabled = false;
-    if (item) {
-      nameEl.textContent = item.name;
-      const ns = nsId(apCat, item.id);
-      const owned = !item.locked || _ownedCosmetics.has(ns);
-      const price = _cosmeticPrices[ns];
-      if (!owned && price !== undefined) {
-        lockEl.classList.add('hidden');                 // buyable → show price on the button
-        saveBtn.disabled = false;
-        saveBtn.textContent = 'Buy $' + Number(price).toFixed(2);
-      } else {
-        lockEl.classList.toggle('hidden', owned);        // lock icon only while still locked
-        saveBtn.disabled = !owned;
-        saveBtn.textContent = owned ? 'Save' : 'Locked';
-      }
-    } else {
-      nameEl.textContent = '—';
-      lockEl.classList.add('hidden');
-      saveBtn.disabled = true;
-      saveBtn.textContent = 'Save';
-    }
+    if (lockEl) lockEl.classList.add('hidden');
+    nameEl.textContent = item ? item.name : '—';
+    saveBtn.disabled = !item;
+    saveBtn.textContent = 'Save';
   }
 
-  function setApCat(cat) {
-    apCat = cat;
-    document.querySelectorAll('.ap-cat').forEach(b => b.classList.toggle('ap-cat-active', b.dataset.apcat === cat));
-    document.getElementById('ap-prev').disabled = false;
-    document.getElementById('ap-next').disabled = false;
-    updateApSelector();
-  }
-
-  function setApMode(mode) {
-    apMode = mode;
-    document.getElementById('ap-tab-inv').classList.toggle('ap-htab-active', mode === 'inventory');
-    document.getElementById('ap-tab-shop').classList.toggle('ap-htab-active', mode === 'shop');
-    const isShop = mode === 'shop';
-    document.getElementById('ap-preview-wrap').classList.toggle('hidden', isShop);
-    document.getElementById('ap-catbar').classList.toggle('hidden', isShop);
-    document.getElementById('ap-selector').classList.toggle('hidden', isShop);
-    document.getElementById('ap-save-row').classList.toggle('hidden', isShop);
-    document.getElementById('ap-shop-wrap').classList.toggle('hidden', !isShop);
-  }
-
-  // ── Open / close ─────────────────────────────────────────────────────────────
+        // ── Open / close ─────────────────────────────────────────────────────────────
   function openAppearanceScreen(lobbyNum) {
     apSrcLobby = lobbyNum || 1;
-    previewBycat.skins  = Math.max(0, SKINS.findIndex(s => s.id === equippedId));
-    previewBycat.hats   = Math.max(0, HATS.findIndex(h => h.id === equippedHat));
-    previewBycat.boosts = Math.max(0, BOOSTS.findIndex(b => b.id === equippedBoost));
-    apCat = 'skins';
-    apMode = 'inventory';
-    // Load which paid cosmetics this wallet owns + their prices, so locked items show "Buy $X"
-    // and flip to equippable once owned.
-    try {
-      const _addr = (window.duelWallet && window.duelWallet.address) || '';
-      fetch('/api/cosmetics/catalog' + (_addr ? '?wallet=' + encodeURIComponent(_addr) : ''))
-        .then(r => r.json())
-        .then(d => { _cosmeticPrices = d.items || {}; _ownedCosmetics = new Set(d.owned || []); updateApSelector(); })
-        .catch(() => {});
-    } catch (e) {}
+    previewSkin = Math.max(0, SKINS.findIndex(s => s.id === equippedId));
     const snakeCanvas = document.getElementById('snake-canvas');
     if (snakeCanvas) snakeCanvas.style.opacity = '0';
     if (lobbyNum === 2) {
@@ -1620,19 +1380,9 @@ document.getElementById('btn-spectate-lobby-2').addEventListener('click', () => 
     document.getElementById('lobby-screen-2').classList.add('hidden');
     document.querySelectorAll('.lobby-nav-arrow').forEach(el => el.classList.add('hidden'));
 
-    document.querySelectorAll('.ap-cat').forEach(b => {
-      b.classList.toggle('ap-cat-active', b.dataset.apcat === 'skins');
-      // Hide hats/boosts for the cell game — only color matters
-      if (lobbyNum === 2) b.style.display = b.dataset.apcat === 'skins' ? '' : 'none';
-      else b.style.display = '';
-    });
-    document.getElementById('ap-tab-inv').classList.add('ap-htab-active');
-    document.getElementById('ap-tab-shop').classList.remove('ap-htab-active');
     document.getElementById('ap-preview-wrap').classList.remove('hidden');
-    document.getElementById('ap-catbar').classList.remove('hidden');
     document.getElementById('ap-selector').classList.remove('hidden');
     document.getElementById('ap-save-row').classList.remove('hidden');
-    document.getElementById('ap-shop-wrap').classList.add('hidden');
     document.getElementById('ap-prev').disabled = false;
     document.getElementById('ap-next').disabled = false;
 
@@ -1661,60 +1411,23 @@ document.getElementById('btn-spectate-lobby-2').addEventListener('click', () => 
   document.getElementById('btn-change-appearance-2').addEventListener('click', () => openAppearanceScreen(2));
   document.getElementById('ap-back').addEventListener('click', closeAppearanceScreen);
 
-  document.getElementById('ap-tab-inv').addEventListener('click',  () => setApMode('inventory'));
-  document.getElementById('ap-tab-shop').addEventListener('click', () => setApMode('shop'));
-
-  document.querySelectorAll('.ap-cat').forEach(b => {
-    b.addEventListener('click', () => setApCat(b.dataset.apcat));
-  });
-
   document.getElementById('ap-prev').addEventListener('click', () => {
-    const list = CATS[apCat]; if (!list) return;
-    previewBycat[apCat] = (previewBycat[apCat] - 1 + list.length) % list.length;
+    previewSkin = (previewSkin - 1 + SKINS.length) % SKINS.length;
     updateApSelector();
   });
 
   document.getElementById('ap-next').addEventListener('click', () => {
-    const list = CATS[apCat]; if (!list) return;
-    previewBycat[apCat] = (previewBycat[apCat] + 1) % list.length;
+    previewSkin = (previewSkin + 1) % SKINS.length;
     updateApSelector();
   });
 
-  document.getElementById('ap-save').addEventListener('click', async () => {
-    if (COMING_SOON.has(apCat)) return;
-    const list = CATS[apCat]; if (!list) return;
-    const item = list[previewBycat[apCat]];
+  document.getElementById('ap-save').addEventListener('click', () => {
+    const item = SKINS[previewSkin];
     if (!item) return;
-    const saveBtn = document.getElementById('ap-save');
-    const ns = nsId(apCat, item.id);
-    // Buy flow: locked, not yet owned, and priced → purchase first, then fall through to equip.
-    if (item.locked && !_ownedCosmetics.has(ns) && _cosmeticPrices[ns] !== undefined) {
-      if (!ensureWallet()) return;
-      if (!window.duelWalletBuyCosmetic) return;
-      saveBtn.disabled = true;
-      try {
-        const r = await window.duelWalletBuyCosmetic(ns, (s) => { saveBtn.textContent = s; });
-        ((r && r.owned) || [ns]).forEach((x) => _ownedCosmetics.add(x));
-        _ownedCosmetics.add(ns);
-      } catch (e) {
-        updateApSelector();
-        alert('Purchase failed: ' + (e.message || e));
-        return;
-      }
-    }
-    if (item.locked && !_ownedCosmetics.has(ns)) return; // still locked — shouldn't happen
-    if (apCat === 'skins') {
-      equippedId = item.id;
-      localStorage.setItem('duelseries_skin_id',    item.id);
-      localStorage.setItem('duelseries_skin_color', item.color);
-      refreshMiniCanvas();
-    } else if (apCat === 'hats') {
-      equippedHat = item.id;
-      localStorage.setItem('duelseries_hat_id', item.id);
-    } else if (apCat === 'boosts') {
-      equippedBoost = item.id;
-      localStorage.setItem('duelseries_boost_id', item.id);
-    }
+    equippedId = item.id;
+    localStorage.setItem('duelseries_skin_id',    item.id);
+    localStorage.setItem('duelseries_skin_color', item.color);
+    refreshMiniCanvas();
     closeAppearanceScreen();
   });
 
