@@ -1253,86 +1253,102 @@ body {
   background: rgba(20,241,149,0.09);
 }
 
-.ap-preview-wrap {
-  flex: 1;
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 14px 28px 6px;
-  min-height: 0;
-}
-.ap-canvas {
-  width: 100%;
-  height: 100%;
-  max-height: 420px;
-  display: block;
-  background: transparent;
-}
+/* ── Skin picker, matched to slither.io ──────────────────────────────
+   Every number here was measured off slither.io's live page and its client
+   bundle, not eyeballed. Write-up + decoded gradient tables:
+   snake-design/slither-skin-picker-spec.md
 
+     arrows  87x88, centres on W/4 and 3W/4, vertically centred
+     Save    93x47, horizontally centred, top = H/2 + 120. Their Save sits a
+             CONSTANT 143.5px below the middle - verified at two viewport
+             sizes (H=595 -> top 418, H=800 -> top 520), so it is NOT a
+             fraction of the height.
+     .btn    opacity .7 idle / 1 hover / .5 active
+     radius  34px on the button, 35px on its highlight overlay
+     shadow  rgba(0,0,0,.75) 0 3px 20px
+
+   The two gradients are slither's own .sadg1 (base) and .sadu1 (hover). They
+   ship as 2x56 PNG strips; decoded here to exact per-row stops, so this is
+   their gradient reproduced rather than approximated. */
 .ap-selector {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 24px;
-  padding: 10px 28px 4px;
-  width: 100%;
-  max-width: 480px;
+  position: absolute;
+  inset: 0;
+  display: block;
+  padding: 0;
+  max-width: none;
+  pointer-events: none;   /* only the controls take clicks */
+  z-index: 52;
 }
 .ap-arrow {
+  position: absolute;
+  top: calc(50% - 44px);
+  width: 87px;
+  height: 88px;
+  padding: 0;
+  border: none;
   background: none;
-  border: 2px solid #2e2e42;
-  color: #ccc;
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
-  font-size: 2.4rem;
-  line-height: 1;
+  border-radius: 0;
   cursor: pointer;
-  transition: all 0.15s;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-family: inherit;
-  flex-shrink: 0;
+  opacity: .7;
+  pointer-events: auto;
+  transition: opacity .12s;
+  -webkit-tap-highlight-color: transparent;
 }
-.ap-arrow:hover { border-color: #14F195; color: #14F195; }
-.ap-arrow:disabled { border-color: #1e1e2e; color: #333; cursor: default; }
-.ap-sel-info { flex: 1; text-align: center; }
-.ap-sel-name {
-  color: #fff;
-  font-size: 1.15rem;
-  font-weight: 700;
-  letter-spacing: 0.5px;
-}
-.ap-sel-lock {
-  color: #f59e0b;
-  font-size: 0.8rem;
-  margin-top: 4px;
-}
+.ap-arrow:hover  { opacity: 1; border-color: transparent; }
+.ap-arrow:active { opacity: .5; }
+.ap-arrow:disabled { opacity: .25; cursor: default; }
+.ap-arrow svg { display: block; width: 87px; height: 88px; }
+#ap-prev { left: calc(25% - 43.5px); }
+#ap-next { left: calc(75% - 43.5px); }
 
 .ap-save-row {
-  padding: 14px 28px 28px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
+  position: absolute;
+  inset: 0;
+  padding: 0;
+  display: block;
+  pointer-events: none;
+  z-index: 53;
 }
 .ap-save-btn {
-  background: #14F195;
-  color: #000;
+  position: absolute;
+  left: 50%;
+  top: calc(50% + 120px);
+  transform: translateX(-50%);
+  min-width: 93px;
+  height: 47px;
+  padding: 0 14px;
   border: none;
-  padding: 14px 60px;
-  border-radius: 13px;
-  font-size: 1rem;
-  font-weight: 900;
+  border-radius: 34px;
+  color: #fff;
+  font: bold 20px/47px Arial, "Helvetica Neue", Helvetica, sans-serif;
+  letter-spacing: 0;
+  text-align: center;
   cursor: pointer;
-  letter-spacing: 1.5px;
-  transition: background 0.15s, transform 0.1s;
-  font-family: inherit;
+  pointer-events: auto;
+  box-shadow: rgba(0,0,0,.75) 0 3px 20px;
+  background-image: linear-gradient(to bottom, rgb(86,172,129) 0.00% 5.45%, rgb(85,171,128) 7.27% 9.09%, rgb(85,170,128) 10.91%, rgb(85,170,127) 12.73%, rgb(84,169,127) 14.55%, rgb(84,168,126) 16.36%, rgb(83,167,125) 18.18%, rgb(83,166,125) 20.00%, rgb(82,165,124) 21.82%, rgb(82,164,123) 23.64%, rgb(81,163,122) 25.45%, rgb(80,161,121) 27.27%, rgb(80,160,120) 29.09%, rgb(79,158,119) 30.91%, rgb(78,157,117) 32.73%, rgb(77,155,116) 34.55%, rgb(77,154,115) 36.36%, rgb(76,152,114) 38.18%, rgb(75,150,113) 40.00%, rgb(74,148,111) 41.82%, rgb(73,147,110) 43.64%, rgb(72,145,109) 45.45%, rgb(71,143,107) 47.27%, rgb(70,141,106) 49.09%, rgb(69,139,104) 50.91%, rgb(69,138,103) 52.73%, rgb(68,136,102) 54.55%, rgb(67,134,100) 56.36%, rgb(66,132,99) 58.18%, rgb(65,130,98) 60.00%, rgb(64,129,96) 61.82%, rgb(63,127,95) 63.64%, rgb(62,125,94) 65.45%, rgb(62,124,93) 67.27%, rgb(61,122,92) 69.09%, rgb(60,121,90) 70.91%, rgb(59,119,89) 72.73%, rgb(59,118,88) 74.55%, rgb(58,117,87) 76.36%, rgb(58,116,87) 78.18%, rgb(57,114,86) 80.00%, rgb(56,113,85) 81.82%, rgb(56,112,84) 83.64% 85.45%, rgb(55,111,83) 87.27%, rgb(55,110,82) 89.09% 90.91%, rgb(54,109,82) 92.73%, rgb(54,109,81) 94.55% 96.36%, rgb(54,108,81) 98.18% 100.00%);
+  transition: none;
 }
-.ap-save-btn:hover { background: #0fd980; transform: scale(1.03); }
-.ap-save-btn:disabled { background: #1e3028; color: #2a5040; cursor: default; transform: none; }
+/* slither's .sadu1 overlay: same box at radius 35, faded in on hover */
+.ap-save-btn::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 35px;
+  background-image: linear-gradient(to bottom, rgb(117,255,214) 0.00% 5.45%, rgb(117,255,213) 7.27%, rgb(116,255,212) 9.09% 10.91%, rgb(115,255,211) 12.73%, rgb(115,255,210) 14.55%, rgb(114,255,209) 16.36%, rgb(113,255,208) 18.18%, rgb(113,255,206) 20.00%, rgb(112,253,205) 21.82%, rgb(111,251,203) 23.64%, rgb(110,249,202) 25.45%, rgb(109,248,200) 27.27%, rgb(108,245,198) 29.09%, rgb(107,243,196) 30.91%, rgb(106,241,194) 32.73%, rgb(105,239,192) 34.55%, rgb(104,236,190) 36.36%, rgb(103,234,188) 38.18%, rgb(101,231,186) 40.00%, rgb(100,229,183) 41.82%, rgb(99,226,181) 43.64%, rgb(98,224,179) 45.45%, rgb(96,221,176) 47.27%, rgb(95,218,174) 49.09%, rgb(94,216,172) 50.91%, rgb(92,213,169) 52.73%, rgb(91,210,167) 54.55%, rgb(90,208,165) 56.36%, rgb(89,205,162) 58.18%, rgb(87,203,160) 60.00%, rgb(86,200,158) 61.82%, rgb(85,198,156) 63.64%, rgb(84,195,154) 65.45%, rgb(83,193,151) 67.27%, rgb(81,191,149) 69.09%, rgb(80,189,148) 70.91%, rgb(79,187,146) 72.73%, rgb(78,185,144) 74.55%, rgb(78,183,142) 76.36%, rgb(77,181,141) 78.18%, rgb(76,179,139) 80.00%, rgb(75,178,138) 81.82%, rgb(74,177,137) 83.64%, rgb(74,175,136) 85.45%, rgb(73,174,135) 87.27%, rgb(73,173,134) 89.09%, rgb(72,172,133) 90.91% 92.73%, rgb(72,171,132) 94.55% 100.00%);
+  opacity: 0;
+  transition: opacity .12s;
+}
+.ap-save-btn:hover::before { opacity: 1; }
+.ap-save-btn > span { position: relative; z-index: 1; }
+.ap-save-btn:hover  { transform: translateX(-50%); }
+.ap-save-btn:active { transform: translateX(-50%); opacity: .85; }
+.ap-save-btn:disabled { opacity: .4; cursor: default; }
+
+/* The preview canvas fills the screen, like slither's game canvas does. */
+.ap-preview-wrap { position: absolute; inset: 0; padding: 0; display: block; }
+.ap-canvas { width: 100%; height: 100%; max-height: none; display: block; background: transparent; }
+
 .ap-saved-msg {
   font-size: 0.85rem;
   color: #14F195;

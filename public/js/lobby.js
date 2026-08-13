@@ -1247,7 +1247,10 @@ document.getElementById('btn-spectate-lobby-2').addEventListener('click', () => 
     ctx.clearRect(0, 0, W, H);
 
     const N  = opts.N || 80;
-    const R  = Math.min(W * 0.068, H * 0.13);
+    // radiusFrac lets the caller size the snake against the WIDTH instead of the
+    // default min(W,H) rule — the skin picker needs that to match slither's
+    // proportions on a full-screen canvas.
+    const R  = opts.radiusFrac != null ? W * opts.radiusFrac : Math.min(W * 0.068, H * 0.13);
     const cx = W / 2, cy = H / 2;
     const spanX = W * (opts.spanFrac != null ? opts.spanFrac : 0.28); // half-length of the body
     const amp   = H * (opts.ampFrac  != null ? opts.ampFrac  : 0.16); // wave amplitude
@@ -1338,7 +1341,19 @@ document.getElementById('btn-spectate-lobby-2').addEventListener('click', () => 
       if (apSrcLobby === 2) {
         drawMiniCell(canvas, skin.color);
       } else {
-        drawAnimSnake(canvas, skin.color, apAnimT);
+        // Framing matched to slither's skin chooser. Theirs is not a special
+        // animation — it is the real snake with the camera zoom pinned
+        // (`if (choosing_skin) { view_xx -= slither.pts.length*5; gsc = dgsc = 1.3 }`
+        // in their bundle), so what matters is the on-screen proportions. Those
+        // were measured off their chooser at a 911px-wide viewport, using their
+        // 87px arrows as the ruler: body ~233px long (25.6% of width) and
+        // ~23px thick (radius ~1.25% of width). Screenshot-level precision, so
+        // treat these three as tunable if it reads slightly off.
+        drawAnimSnake(canvas, skin.color, apAnimT, {
+          spanFrac: 0.128,      // half the body length, as a fraction of width
+          radiusFrac: 0.0125,   // body radius, as a fraction of width
+          ampFrac: 0.022,       // gentle undulation, not the lobby's big wave
+        });
         apAnimT += 0.022;
       }
       apAnimRaf = requestAnimationFrame(loop);
@@ -1355,12 +1370,13 @@ document.getElementById('btn-spectate-lobby-2').addEventListener('click', () => 
   function updateApSelector() {
     const item = SKINS[previewSkin] || SKINS[0];
     const nameEl  = document.getElementById('ap-sel-name');
-    const lockEl  = document.getElementById('ap-sel-lock');
     const saveBtn = document.getElementById('ap-save');
-    if (lockEl) lockEl.classList.add('hidden');
-    nameEl.textContent = item ? item.name : '—';
+    // slither's chooser shows only the arrows, the snake and Save — no skin
+    // name — so the label is kept for screen readers but not displayed. Do NOT
+    // set saveBtn.textContent here: the button holds a <span> that sits above
+    // the hover-gradient overlay, and writing textContent would delete it.
+    if (nameEl) nameEl.textContent = item ? item.name : '';
     saveBtn.disabled = !item;
-    saveBtn.textContent = 'Save';
   }
 
         // ── Open / close ─────────────────────────────────────────────────────────────
