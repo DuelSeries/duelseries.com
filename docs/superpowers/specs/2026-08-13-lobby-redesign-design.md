@@ -99,6 +99,13 @@ only take up to what you are currently carrying. The $0.50 player who kills the
 $20 player wins $0.50. The remainder is returned to the loser's balance rather
 than dropped as food, so it cannot be farmed by a third party.
 
+In other words every encounter is played for the smaller of the two stakes.
+This is the poker side-pot rule. It is worth being explicit that this **changes
+what dying means**: today death costs you everything you carry, and afterwards
+it costs you only the amount you were matched against. That is a deliberate
+change to the money model, not a side effect, and it is the reason a whale's
+$20 is only ever at risk against another whale.
+
 Consequences:
 
 - Any stake can safely share one world, which is what makes removing tiers
@@ -186,6 +193,10 @@ Each phase ships on its own and leaves the game working.
 
 Visual identity is deliberately fourth. Colours and type are cheap to change;
 the shape of the product is not. Doing visuals first means redoing them.
+
+This document is the north star for all five phases. Only **phase 1** goes to
+an implementation plan next. Phases 2 to 5 each get their own spec when their
+turn comes, so that decisions made while building phase 1 can inform them.
 
 ## Risks and open questions
 
