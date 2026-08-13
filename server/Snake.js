@@ -1,9 +1,16 @@
 const C = require('../shared/constants');
 
+// slither.io's own skin palette, taken from their rrs[]/ggs[]/bbs[] arrays.
+// These are the plain solid colours a player can pick (their `csks` list minus
+// the patterned/special skins). Full 42-entry set in
+// snake-design/slither-palette.json.
 const COLORS = [
-  '#e74c3c', '#e67e22', '#f1c40f', '#2ecc71', '#1abc9c',
-  '#3498db', '#9b59b6', '#e91e63', '#ff5722', '#00bcd4',
-  '#8bc34a', '#ff9800', '#673ab7', '#009688', '#f44336',
+  '#c080ff', '#9099ff', '#80d0d0', '#80ff80', '#eeee70',
+  '#ffa060', '#ff9090', '#ff4040', '#e030e0', '#ffc050',
+  '#288860', '#6475ff', '#4854ff', '#a050ff', '#ffe040',
+  '#4e23c0', '#ff5609', '#65c8e8', '#3cc048', '#00ff53',
+  '#d94545', '#2020f0', '#f02020', '#f0f020', '#f09020',
+  '#f020f0', '#20f020', '#6880ff', '#6828aa', '#8080ff',
 ];
 
 const MIN_SEGMENTS = C.SNAKE_MIN_SEGMENTS * 2; // hard floor — can never shrink below this

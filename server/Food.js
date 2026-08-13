@@ -3,13 +3,20 @@ const C = require('../shared/constants');
 
 // Six-colour food palette (owner-chosen): red, orange, darker yellow, green, purple,
 // darker pink. No white/pale or blue/teal orbs.
+// slither.io's exact food palette, extracted from their client's rrs[]/ggs[]/bbs[]
+// arrays. Their newFood does `if (cv > 9) cv %= 9`, so food is limited to these
+// first nine entries of the 42-colour skin palette. Full set in
+// snake-design/slither-palette.json.
 const FOOD_COLORS = [
-  '#ff5b5b', // red
-  '#ff9f3d', // orange
-  '#e9c22e', // yellow (deeper)
-  '#5be35b', // green
-  '#b98bff', // purple
-  '#e85bbb', // pink (deeper)
+  '#c080ff', // purple
+  '#9099ff', // periwinkle
+  '#80d0d0', // teal
+  '#80ff80', // green
+  '#eeee70', // yellow
+  '#ffa060', // orange
+  '#ff9090', // salmon
+  '#ff4040', // red
+  '#e030e0', // magenta
 ];
 
 class FoodManager {

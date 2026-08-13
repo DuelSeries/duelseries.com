@@ -1,8 +1,12 @@
 const Snake = require('./Snake');
 
+// slither.io's skin palette, same set the real snakes use (see Snake.js) so bots
+// are indistinguishable from players.
 const BOT_COLORS = [
-  '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7',
-  '#DDA0DD', '#98FB98', '#F0E68C', '#FFB347', '#87CEEB',
+  '#c080ff', '#9099ff', '#80d0d0', '#80ff80', '#eeee70',
+  '#ffa060', '#ff9090', '#ff4040', '#e030e0', '#ffc050',
+  '#6475ff', '#a050ff', '#ffe040', '#65c8e8', '#3cc048',
+  '#00ff53', '#d94545', '#f0f020', '#f09020', '#8080ff',
 ];
 
 const BOT_NAMES = [

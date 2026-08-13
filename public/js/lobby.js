@@ -118,10 +118,12 @@ function glSnakeBody(ctx, pts, R, colorHex) {
     { r:  38, color: '#CC33FF', name: ''          },
     { r:  24, color: '#FFCC00', name: ''          },
   ];
+  // slither.io's food palette — their newFood does `cv %= 9`, so food only ever
+  // uses these nine. Matches server/Food.js so the lobby preview and the real
+  // game show the same colours.
   const FOOD_COLORS = [
-    '#FF2244','#FF6600','#FFCC00','#33CC33','#00CCFF',
-    '#0055FF','#CC33FF','#FF33CC','#00EE88','#FF4488',
-    '#FF3300','#66EE00','#00AAFF','#FFAA00',
+    '#c080ff','#9099ff','#80d0d0','#80ff80','#eeee70',
+    '#ffa060','#ff9090','#ff4040','#e030e0',
   ];
 
   function darken(hex) {
@@ -1715,9 +1717,10 @@ document.getElementById('btn-spectate-lobby-2').addEventListener('click', () => 
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
 
+  // slither.io skin colours, matching server/Snake.js
   const COLORS = [
-    '#1ECEA8', '#F5C020', '#E85DA8',
-    '#5B8CFF', '#FF6B35', '#A855F7',
+    '#80d0d0', '#ffe040', '#e030e0',
+    '#6475ff', '#ffa060', '#a050ff',
   ];
 
   const R      = 17;
