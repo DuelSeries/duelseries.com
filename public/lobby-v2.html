@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DuelSeries</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
 <style>
 /* ─────────────────────────────────────────────────────────────────────────
    Lobby v2. Mock data, real interactions.
@@ -20,10 +23,22 @@
         so the eye lands somewhere instead of scanning equal-weight boxes.
    ───────────────────────────────────────────────────────────────────────── */
 :root{
-  --bg:#0a0b0d; --s1:#111317; --s2:#171a1f; --s3:#1e2229;
-  --tx:#f2f4f7; --tx2:#8b93a1; --tx3:#5a616e;
-  --bone:#f4f1ea; --money:#e8b160; --live:#4ade80;
-  --f:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+  /* Warm ink, not neutral near-black. Every dark product page defaults to a
+     cold blue-grey #0a0b0d; the games themselves are cold (purple snakes,
+     cyan cells, a blue-white agar field), so warming the chrome is what makes
+     the artwork read as lit rather than as more of the same surface. */
+  --bg:#100e0b; --s1:#17140f; --s2:#1f1b15; --s3:#282219;
+  --tx:#f5f1e8; --tx2:#a89c8a; --tx3:#8d8171;
+  --ink:#100e0b;                 /* text sitting on a light control */
+  --bone:#f4f1ea; --money:#f0a830; --live:#8ed081;
+  /* Radius was 11 different values picked ad hoc. Three steps and a pill:
+     r1 tags, r2 controls, r3 panels. */
+  --r1:6px; --r2:10px; --r3:18px; --rf:999px;
+  --f:'Archivo',ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+  /* Every figure on this page is money, a count or a clock. Setting them all
+     in mono is the one signature move: it reads as a tote board, and it is
+     honest to a product whose claim is that each payout is verifiable. */
+  --fm:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace;
   /* Rail geometry, shared by the card width and the arrow placement so the
      two cannot drift apart. */
   --gap:18px; --capGap:12px; --capH:40px;
@@ -32,43 +47,47 @@
 html{scroll-behavior:smooth}
 body{background:var(--bg);color:var(--tx);font-family:var(--f);
   -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+/* One warm pool of light behind the top of the page, so the board sits in a
+   room instead of on a flat void. */
+body::before{content:'';position:fixed;inset:0 0 auto;height:520px;pointer-events:none;
+  background:radial-gradient(120% 100% at 50% 0,rgba(240,168,48,.07),transparent 62%)}
 button{font-family:inherit;color:inherit;border:none;background:none;cursor:pointer}
 a{color:inherit;text-decoration:none}
-:focus-visible{outline:2px solid var(--bone);outline-offset:3px;border-radius:4px}
+:focus-visible{outline:2px solid var(--bone);outline-offset:3px;border-radius:var(--r1)}
 @media(prefers-reduced-motion:reduce){
   html{scroll-behavior:auto}
   *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;
     transition-duration:.01ms!important}
 }
 .wrap{max-width:1080px;margin:0 auto;padding:0 32px}
-.num{font-variant-numeric:tabular-nums}
+.num{font-family:var(--fm);font-variant-numeric:tabular-nums;letter-spacing:-.01em}
 
 /* ── header ─────────────────────────────────────────────────────────── */
-header{position:sticky;top:0;z-index:50;background:rgba(10,11,13,.82);
+header{position:sticky;top:0;z-index:50;background:rgba(16,14,11,.82);
   backdrop-filter:saturate(180%) blur(14px)}
 .hd{display:flex;align-items:center;gap:14px;height:72px}
-.logo{font-size:17px;font-weight:700;letter-spacing:-.2px}
+.logo{font-size:20px;font-weight:700;letter-spacing:-.9px}
 .logo em{font-style:normal;color:var(--tx3)}
 .sp{flex:1}
 .bal{text-align:right;line-height:1.25;margin-right:4px}
 .bal .k{font-size:11px;color:var(--tx3)}
 .bal .v{font-size:16px;font-weight:600;color:var(--money)}
-.dep{background:var(--bone);color:#0a0b0d;font-weight:600;font-size:13.5px;
-  padding:9px 17px;border-radius:8px;transition:.15s}
+.dep{background:var(--bone);color:var(--ink);font-weight:600;font-size:13.5px;
+  padding:9px 17px;border-radius:var(--r2);transition:.15s}
 .dep:hover{transform:translateY(-1px)}
 .av{width:32px;height:32px;border-radius:50%;background:var(--s3);
   display:grid;place-items:center;font-size:12px;font-weight:600;color:var(--tx2)}
 
 /* ── section nav ────────────────────────────────────────────────────── */
-.nav{display:flex;gap:2px;background:var(--s1);padding:4px;border-radius:12px}
-.ni{width:38px;height:34px;border-radius:9px;display:grid;place-items:center;
+.nav{display:flex;gap:2px;background:var(--s1);padding:4px;border-radius:var(--r2)}
+.ni{width:38px;height:34px;border-radius:var(--r2);display:grid;place-items:center;
   color:var(--tx3);transition:.15s;position:relative}
 .ni:hover{color:var(--tx);background:var(--s2)}
 .ni.on{color:var(--tx);background:var(--s3)}
 .ni svg{width:18px;height:18px;stroke:currentColor;fill:none;
   stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
 .ni .tip{position:absolute;top:calc(100% + 9px);left:50%;transform:translateX(-50%);
-  background:var(--s3);color:var(--tx);font-size:11px;padding:5px 9px;border-radius:6px;
+  background:var(--s3);color:var(--tx);font-size:11px;padding:5px 9px;border-radius:var(--r1);
   white-space:nowrap;opacity:0;pointer-events:none;transition:.14s}
 .ni:hover .tip{opacity:1}
 
@@ -84,22 +103,22 @@ header{position:sticky;top:0;z-index:50;background:rgba(10,11,13,.82);
    adding a permanent box to the layout. */
 /* Two separate boxes: the balance is a readout, Wallet is the action. */
 .balbox{display:flex;flex-direction:column;justify-content:center;
-  background:var(--s1);border-radius:10px;padding:7px 15px;line-height:1.25}
+  background:var(--s1);border-radius:var(--r2);padding:7px 15px;line-height:1.25}
 .balbox .k{font-size:10.5px;color:var(--tx3)}
 .balbox .v{font-size:15px;font-weight:600;color:var(--tx)}
-.wbtn{display:flex;align-items:center;gap:8px;background:#12b981;color:#03150e;
-  font-weight:650;font-size:13.5px;padding:10px 16px;border-radius:10px;transition:.15s}
-.wbtn:hover{background:#15cf90;transform:translateY(-1px)}
+.wbtn{display:flex;align-items:center;gap:8px;background:var(--s2);color:var(--tx);
+  font-weight:650;font-size:13.5px;padding:10px 16px;border-radius:var(--r2);transition:.15s}
+.wbtn:hover{background:var(--s3);transform:translateY(-1px)}
 .wbtn svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2;
   stroke-linecap:round;stroke-linejoin:round}
 .wrapw{position:relative}
 .wcard{position:absolute;right:0;top:calc(100% + 10px);width:352px;
-  background:var(--s2);border-radius:16px;z-index:60;overflow:hidden;
+  background:var(--s2);border-radius:var(--r3);z-index:60;overflow:hidden;
   box-shadow:0 20px 56px rgba(0,0,0,.6);opacity:0;visibility:hidden;
   transform:translateY(-6px);transition:.18s cubic-bezier(.4,0,.2,1)}
 .wcard.on{opacity:1;visibility:visible;transform:none}
 .wtabs{display:flex;gap:2px;padding:6px;background:var(--s1)}
-.wtab{flex:1;padding:8px 4px;border-radius:8px;font-size:11.5px;font-weight:600;
+.wtab{flex:1;padding:8px 4px;border-radius:var(--r2);font-size:11.5px;font-weight:600;
   color:var(--tx3);transition:.14s;white-space:nowrap}
 .wtab:hover{color:var(--tx2)}
 .wtab.on{background:var(--s3);color:var(--tx)}
@@ -112,28 +131,31 @@ header{position:sticky;top:0;z-index:50;background:rgba(10,11,13,.82);
 .wsel{flex:1}
 .wlab{font-size:11px;color:var(--tx3);margin-bottom:5px}
 .wpick{display:flex;align-items:center;gap:7px;background:var(--bg);
-  border-radius:9px;padding:9px 11px;font-size:13px;font-weight:550;cursor:pointer;transition:.14s}
-.wpick:hover{background:#06070a}
+  border-radius:var(--r2);padding:9px 11px;font-size:13px;font-weight:550;cursor:pointer;transition:.14s}
+.wpick:hover{background:#0a0908}
 .wpick .d{width:8px;height:8px;border-radius:50%;background:var(--live);flex:0 0 auto}
 .wpick .c{margin-left:auto;font-size:9px;color:var(--tx3)}
-.winput{width:100%;background:var(--bg);border:none;border-radius:9px;padding:11px;
+.winput{width:100%;background:var(--bg);border:none;border-radius:var(--r2);padding:11px;
   color:var(--tx);font-family:inherit;font-size:13.5px;outline:none}
 .winput::placeholder{color:var(--tx3)}
 .waddr{display:flex;align-items:center;gap:9px;background:var(--bg);
-  border-radius:9px;padding:11px 12px;cursor:pointer;transition:.14s}
-.waddr:hover{background:#06070a}
+  border-radius:var(--r2);padding:11px 12px;cursor:pointer;transition:.14s}
+.waddr:hover{background:#0a0908}
 .waddr code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11.5px;
   color:var(--tx2);flex:1;word-break:break-all;line-height:1.5}
 .waddr .cp{font-size:11px;color:var(--tx3);font-weight:600;white-space:nowrap}
 .waddr.done .cp{color:var(--live)}
-.wgo{width:100%;background:#12b981;color:#03150e;font-weight:650;font-size:14px;
-  padding:12px;border-radius:10px;margin-top:12px;transition:.15s}
-.wgo:hover{background:#15cf90}
+.wgo{width:100%;background:var(--bone);color:var(--ink);font-weight:650;font-size:14px;
+  padding:12px;border-radius:var(--r2);margin-top:12px;transition:.15s}
+.wgo:hover{transform:translateY(-1px)}
 .wnote{font-size:11px;color:var(--tx3);margin-top:12px;line-height:1.65}
 .wnote b{color:var(--tx2);font-weight:600}
 
 /* ── type ───────────────────────────────────────────────────────────── */
-h2{font-size:22px;font-weight:650;letter-spacing:-.5px}
+/* Section headers were 22px/650, barely a step above body text, which is why
+   the page read as one flat sheet of same-sized grey. Big, heavy and tight
+   gives the eye somewhere to land. */
+h2{font-size:31px;font-weight:700;letter-spacing:-1.1px;line-height:1.1}
 .sub{font-size:13.5px;color:var(--tx3);margin-top:3px}
 .head{display:flex;align-items:flex-end;margin:56px 0 20px}
 .head .sp{flex:1}
@@ -156,7 +178,7 @@ h2{font-size:22px;font-weight:650;letter-spacing:-.5px}
    opened a gap under it and left the name sitting behind. */
 .card:hover{transform:translateY(-4px)}
 .card:focus-visible{outline-offset:5px}
-.art{aspect-ratio:3/2;border-radius:16px;overflow:hidden;position:relative;
+.art{aspect-ratio:3/2;border-radius:var(--r3);overflow:hidden;position:relative;
   background:var(--s1)}
 .art svg,.art canvas{display:block;width:100%;height:100%}
 /* Unbuilt games are drained of colour rather than just faded, so they read as
@@ -180,12 +202,12 @@ h2{font-size:22px;font-weight:650;letter-spacing:-.5px}
   height:44px;margin:auto 0;z-index:6;
   width:44px;border-radius:50%;background:var(--s2);
   display:grid;place-items:center;color:var(--tx2);font-size:17px;transition:.15s}
-.nb:hover{background:var(--bone);color:#0a0b0d}
+.nb:hover{background:var(--bone);color:var(--ink)}
 /* Sit in the gutter beside the cards. Below 1200px there is no gutter left,
    so they move onto the artwork and pick up a shadow to stay legible. */
 .nb.l{left:-56px} .nb.r{right:-56px}
 @media(max-width:1200px){
-  .nb{box-shadow:0 4px 16px rgba(0,0,0,.6);background:rgba(23,26,31,.92);
+  .nb{box-shadow:0 4px 16px rgba(0,0,0,.6);background:rgba(31,27,21,.94);
     backdrop-filter:blur(6px)}
   .nb.l{left:-8px} .nb.r{right:-8px}
 }
@@ -202,25 +224,25 @@ h2{font-size:22px;font-weight:650;letter-spacing:-.5px}
   scrollbar-color:var(--s3) transparent;
   -webkit-mask-image:linear-gradient(to bottom,#000 calc(100% - 26px),transparent)}
 .lob::-webkit-scrollbar{width:6px}
-.lob::-webkit-scrollbar-thumb{background:var(--s3);border-radius:3px}
+.lob::-webkit-scrollbar-thumb{background:var(--s3);border-radius:var(--r1)}
 .lob::-webkit-scrollbar-track{background:transparent}
 .lob.short{max-height:none;-webkit-mask-image:none}
 .lr{display:flex;align-items:center;gap:16px;padding:17px 4px;
   border-bottom:1px solid var(--s2);transition:.14s}
 .lr:hover{background:var(--s1);padding-left:12px;padding-right:12px;
-  border-radius:10px;border-color:transparent}
-.lswatch{width:34px;height:34px;border-radius:9px;overflow:hidden;flex:0 0 auto}
+  border-radius:var(--r2);border-color:transparent}
+.lswatch{width:34px;height:34px;border-radius:var(--r2);overflow:hidden;flex:0 0 auto}
 .lswatch svg{display:block;width:100%;height:100%}
 .lname{font-size:14.5px;font-weight:550;min-width:132px}
 .lreg{font-size:11.5px;color:var(--tx3)}
 .lstake{font-size:16px;font-weight:600;color:var(--money);min-width:62px}
 .lplay{font-size:13px;color:var(--tx2)}
 .lwait{font-size:12px;color:var(--tx3)}
-.enter{background:var(--bone);color:#0a0b0d;font-weight:600;font-size:12.5px;
-  padding:8px 17px;border-radius:7px;transition:.15s}
+.enter{background:var(--bone);color:var(--ink);font-weight:600;font-size:12.5px;
+  padding:8px 17px;border-radius:var(--r1);transition:.15s}
 .enter:hover{transform:translateY(-1px)}
 .spec{color:var(--tx2);font-weight:550;font-size:12.5px;padding:8px 15px;
-  border-radius:7px;background:var(--s2)}
+  border-radius:var(--r1);background:var(--s2)}
 .spec:hover{color:var(--tx)}
 
 /* ── tournaments ────────────────────────────────────────────────────── */
@@ -232,19 +254,23 @@ h2{font-size:22px;font-weight:650;letter-spacing:-.5px}
    The footer is pushed down by margin-top:auto, so the two buttons stay on
    one line however much the bodies above them differ. */
 .trn{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px}
-.tc{display:flex;flex-direction:column;background:var(--s1);border-radius:16px;padding:24px 26px}
+.tc{display:flex;flex-direction:column;background:var(--s1);border-radius:var(--r3);padding:24px 26px}
 .tt{display:flex;align-items:center;gap:10px;margin-bottom:9px}
 .tt h3{font-size:16px;font-weight:600}
 .chip{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;
-  color:var(--tx3);background:var(--s2);padding:4px 9px;border-radius:999px;flex:0 0 auto}
-.chip.live{color:var(--live);background:rgba(74,222,128,.1)}
+  color:var(--tx3);background:var(--s2);padding:4px 9px;border-radius:var(--rf);flex:0 0 auto}
+.chip.live{color:var(--live);background:rgba(142,208,129,.12)}
 .chip b{width:6px;height:6px;border-radius:50%;background:currentColor;
   animation:pl 1.8s ease-in-out infinite}
 @keyframes pl{0%,100%{opacity:1}50%{opacity:.3}}
 .tw{font-size:13px;color:var(--tx3)}
 .tw b{color:var(--tx2);font-weight:600}
-.tp{font-size:30px;font-weight:650;color:var(--money);margin-top:16px;letter-spacing:-1px}
-.tp span{font-size:12.5px;color:var(--tx3);font-weight:500;margin-left:8px;letter-spacing:0}
+/* The prize is the reason to read the card, so it gets the tote-board
+   treatment: mono, oversized, sitting on a hairline that stops it floating. */
+.tp{font-size:38px;font-weight:600;color:var(--money);margin-top:14px;letter-spacing:-1.5px;
+  padding-bottom:13px;box-shadow:inset 0 -1px 0 var(--s2);display:flex;align-items:baseline}
+.tp span{font-family:var(--f);font-size:12.5px;color:var(--tx3);font-weight:500;
+  margin-left:9px;letter-spacing:0}
 .tbody{margin-top:16px}
 /* One row rule for both bodies, so the standings and the format detail keep
    the same vertical rhythm. */
@@ -255,8 +281,8 @@ h2{font-size:22px;font-weight:650;letter-spacing:-.5px}
 .pl .v{margin-left:auto;color:var(--tx2);font-weight:550}
 .tfoot{margin-top:auto;padding-top:20px}
 .tn{font-size:12px;color:var(--tx3);line-height:1.65}
-.tgo{width:100%;margin-top:14px;padding:11px;border-radius:9px;font-size:13.5px;
-  font-weight:600;background:var(--bone);color:#0a0b0d;transition:.15s}
+.tgo{width:100%;margin-top:14px;padding:11px;border-radius:var(--r2);font-size:13.5px;
+  font-weight:600;background:var(--bone);color:var(--ink);transition:.15s}
 .tgo:hover{transform:translateY(-1px)}
 .tgo.alt{background:var(--s2);color:var(--tx2);font-weight:550}
 .tgo.alt:hover{background:var(--s3);color:var(--tx);transform:none}
@@ -266,19 +292,19 @@ h2{font-size:22px;font-weight:650;letter-spacing:-.5px}
 .back{font-size:13px;color:var(--tx2);padding:26px 0 0;display:inline-block}
 .back:hover{color:var(--tx)}
 .hero{display:grid;grid-template-columns:1fr 330px;gap:40px;margin-top:22px;align-items:start}
-.hart{height:300px;border-radius:20px;overflow:hidden}
+.hart{height:300px;border-radius:var(--r3);overflow:hidden}
 .hart svg{display:block;width:100%;height:100%}
 .hero h1{font-size:34px;font-weight:650;letter-spacing:-1px}
 .hero .desc{font-size:14.5px;color:var(--tx2);line-height:1.7;margin-top:10px}
 .hnow{font-size:13px;color:var(--tx2);margin-top:16px;display:flex;align-items:center;gap:8px}
 .hnow b{width:6px;height:6px;border-radius:50%;background:var(--live)}
 
-.stake{background:var(--s1);border-radius:18px;padding:26px 24px;margin-top:26px}
+.stake{background:var(--s1);border-radius:var(--r3);padding:26px 24px;margin-top:26px}
 .sl{font-size:12.5px;color:var(--tx3);text-align:center}
 .stp{display:flex;align-items:center;justify-content:center;gap:14px;margin:14px 0 4px}
 .sb{width:42px;height:42px;border-radius:50%;background:var(--s3);color:var(--tx2);
   font-size:19px;display:grid;place-items:center;transition:.15s}
-.sb:hover:not(:disabled){background:var(--bone);color:#0a0b0d}
+.sb:hover:not(:disabled){background:var(--bone);color:var(--ink)}
 .sb:disabled{opacity:.22;cursor:default}
 .sv{font-size:40px;font-weight:650;color:var(--money);min-width:140px;
   text-align:center;letter-spacing:-1.5px}
@@ -286,12 +312,12 @@ h2{font-size:22px;font-weight:650;letter-spacing:-.5px}
 .dots{display:flex;justify-content:center;gap:5px;margin-bottom:20px}
 .dt{width:5px;height:5px;border-radius:50%;background:var(--s3);transition:.2s}
 .dt.on{background:var(--money);transform:scale(1.4)}
-.go{width:100%;background:var(--bone);color:#0a0b0d;font-size:15px;font-weight:650;
-  padding:15px;border-radius:11px;transition:.15s}
+.go{width:100%;background:var(--bone);color:var(--ink);font-size:15px;font-weight:650;
+  padding:15px;border-radius:var(--r2);transition:.15s}
 .go:hover{transform:translateY(-1px)}
 .fine{font-size:12px;color:var(--tx3);text-align:center;margin-top:13px;line-height:1.6}
 .tog{display:flex;gap:8px;margin-top:16px}
-.tg{flex:1;background:var(--s2);border-radius:8px;padding:9px;font-size:12px;
+.tg{flex:1;background:var(--s2);border-radius:var(--r2);padding:9px;font-size:12px;
   color:var(--tx2);text-align:center;cursor:pointer;transition:.15s}
 .tg:hover{background:var(--s3)}
 
@@ -302,10 +328,10 @@ h2{font-size:22px;font-weight:650;letter-spacing:-.5px}
 .hs p{font-size:13.5px;color:var(--tx2);line-height:1.7}
 
 /* ── waiting ────────────────────────────────────────────────────────── */
-.veil{position:fixed;inset:0;background:rgba(6,7,9,.9);backdrop-filter:blur(8px);
+.veil{position:fixed;inset:0;background:rgba(16,14,11,.9);backdrop-filter:blur(8px);
   display:none;place-items:center;z-index:90}
 .veil.on{display:grid}
-.wb{background:var(--s1);border-radius:20px;padding:38px 40px;text-align:center;max-width:390px}
+.wb{background:var(--s1);border-radius:var(--r3);padding:38px 40px;text-align:center;max-width:390px}
 .ring{width:40px;height:40px;border:2.5px solid var(--s3);border-top-color:var(--bone);
   border-radius:50%;margin:0 auto 22px;animation:sp .85s linear infinite}
 @keyframes sp{to{transform:rotate(360deg)}}
@@ -313,7 +339,7 @@ h2{font-size:22px;font-weight:650;letter-spacing:-.5px}
 .wb p{font-size:13.5px;color:var(--tx2);line-height:1.7}
 .wb p b{color:var(--money)}
 .wc{margin-top:24px;color:var(--tx2);font-size:13px;font-weight:550;
-  padding:10px 22px;border-radius:9px;background:var(--s2)}
+  padding:10px 22px;border-radius:var(--r2);background:var(--s2)}
 .wc:hover{color:var(--tx)}
 .none{font-size:13.5px;color:var(--tx3);padding:26px 4px;line-height:1.7}
 
@@ -884,8 +910,8 @@ RM.addEventListener('change',repaintAll);
 function gstat(g){
   if(g.soon)return '<span class="st">In development</span>';
   const open=LOBBIES.filter(l=>l.g===g.id&&l.p<l.cap).length;
-  const who=g.live?`<em>${g.live} playing</em>`:'Nobody playing yet';
-  return `<span class="st">${who}${open?' &nbsp;·&nbsp; '+open+' open':''}</span>`;
+  const who=g.live?`<em><span class="num">${g.live}</span> playing</em>`:'Nobody playing yet';
+  return `<span class="st">${who}${open?' &nbsp;·&nbsp; <span class="num">'+open+'</span> open':''}</span>`;
 }
 /* A playable card is a real button so it can be tabbed to and fired with the
    keyboard. An unbuilt one is not a control at all, so it stays a div rather
@@ -954,8 +980,8 @@ function open_(id){
   document.getElementById('dart').innerHTML=art(cur,660,300,1);
   document.getElementById('dname').textContent=cur.name;
   document.getElementById('ddesc').textContent=cur.d;
-  document.getElementById('dnow').textContent=cur.type==='p'
-    ? cur.live+' playing right now' : cur.live+' waiting for an opponent';
+  document.getElementById('dnow').innerHTML=`<span class="num">${cur.live}</span> `+
+    (cur.type==='p'?'playing right now':'waiting for an opponent');
   const mine=LOBBIES.filter(l=>l.g===id).sort((a,b)=>b.p-a.p);
   document.getElementById('dlob').innerHTML=mine.length?mine.map(lrow).join('')
     :'<div class="none">Nobody has opened one yet. Create the first and it will appear here for everyone else.</div>';
