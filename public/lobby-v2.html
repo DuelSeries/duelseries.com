@@ -6,440 +6,473 @@
 <title>DuelSeries</title>
 <style>
 /* ─────────────────────────────────────────────────────────────────────────
-   Lobby v2 prototype. Mock data, real interactions.
+   Lobby v2. Mock data, real interactions.
 
-   Visual direction, deliberately not the two references:
-     damnbruh  = neon casino. PULP = stark monochrome.
-     DuelSeries = warm charcoal arcade. One accent green for actions only,
-     amber reserved for money, generous spacing, real type hierarchy.
-   Money is never the loudest thing on screen. That is what makes a
-   real-money site read as safe rather than as a slot machine.
+   Design rules, set deliberately against how generic dark dashboards look:
+     1. No emoji. Every game has drawn SVG art. Emoji as artwork is the
+        single loudest tell that nobody designed the page.
+     2. Almost no borders. Depth comes from surface lightness and space.
+        Borders on every element is what makes a page read as a template.
+     3. No uppercase letter-spaced labels. Sentence case, real type scale.
+     4. One accent. Bone white carries actions, amber carries money, and
+        all remaining colour lives inside the game artwork. No neon.
+     5. A focal point. The game rail is twice the weight of anything else,
+        so the eye lands somewhere instead of scanning equal-weight boxes.
    ───────────────────────────────────────────────────────────────────────── */
 :root{
-  --bg:#0e1116; --bg-2:#141922; --card:#171d27; --card-2:#1c2330;
-  --line:#252d3a; --line-2:#323c4d;
-  --tx:#e8edf5; --tx-2:#9aa7ba; --tx-3:#68758a;
-  --go:#14f195; --go-dim:#0e8f5c;
-  --money:#f5b544;
-  --live:#ff5c5c;
-  --r:14px;
-  --font:'Segoe UI',system-ui,-apple-system,'Helvetica Neue',Arial,sans-serif;
+  --bg:#0a0b0d; --s1:#111317; --s2:#171a1f; --s3:#1e2229;
+  --tx:#f2f4f7; --tx2:#8b93a1; --tx3:#5a616e;
+  --bone:#f4f1ea; --money:#e8b160; --live:#4ade80;
+  --f:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
 }
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:var(--bg);color:var(--tx);font-family:var(--font);
-  -webkit-font-smoothing:antialiased;overflow-x:hidden}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--tx);font-family:var(--f);
+  -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
 button{font-family:inherit;color:inherit;border:none;background:none;cursor:pointer}
-.wrap{max-width:1120px;margin:0 auto;padding:0 24px}
+a{color:inherit;text-decoration:none}
+.wrap{max-width:1080px;margin:0 auto;padding:0 32px}
+.num{font-variant-numeric:tabular-nums}
 
 /* ── header ─────────────────────────────────────────────────────────── */
-header{position:sticky;top:0;z-index:40;background:rgba(14,17,22,.86);
-  backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
-.hd{display:flex;align-items:center;gap:20px;height:64px}
-.logo{font-size:19px;font-weight:800;letter-spacing:1.5px}
-.logo span{color:var(--go)}
-.hd-sp{flex:1}
-.bal{display:flex;align-items:center;gap:10px;background:var(--card);
-  border:1px solid var(--line);border-radius:10px;padding:8px 14px}
-.bal-l{font-size:11px;color:var(--tx-3);text-transform:uppercase;letter-spacing:.8px}
-.bal-v{font-size:15px;font-weight:700;color:var(--money);font-variant-numeric:tabular-nums}
-.btn-dep{background:var(--go);color:#04120b;font-weight:700;font-size:13px;
-  padding:9px 16px;border-radius:9px}
-.btn-dep:hover{filter:brightness(1.08)}
-.av{width:34px;height:34px;border-radius:50%;background:var(--card-2);
-  border:1px solid var(--line-2);display:grid;place-items:center;font-size:13px;font-weight:700}
+header{position:sticky;top:0;z-index:50;background:rgba(10,11,13,.82);
+  backdrop-filter:saturate(180%) blur(14px)}
+.hd{display:flex;align-items:center;gap:14px;height:72px}
+.logo{font-size:17px;font-weight:700;letter-spacing:-.2px}
+.logo em{font-style:normal;color:var(--tx3)}
+.sp{flex:1}
+.bal{text-align:right;line-height:1.25;margin-right:4px}
+.bal .k{font-size:11px;color:var(--tx3)}
+.bal .v{font-size:16px;font-weight:600;color:var(--money)}
+.dep{background:var(--bone);color:#0a0b0d;font-weight:600;font-size:13.5px;
+  padding:9px 17px;border-radius:8px;transition:.15s}
+.dep:hover{transform:translateY(-1px)}
+.av{width:32px;height:32px;border-radius:50%;background:var(--s3);
+  display:grid;place-items:center;font-size:12px;font-weight:600;color:var(--tx2)}
 
-/* ── trust strip ────────────────────────────────────────────────────── */
-.trust{display:flex;gap:26px;align-items:center;flex-wrap:wrap;
-  padding:11px 0;border-bottom:1px solid var(--line);font-size:12px;color:var(--tx-3)}
-.trust b{color:var(--tx-2);font-weight:600}
-.trust i{width:5px;height:5px;border-radius:50%;background:var(--go);
-  display:inline-block;margin-right:7px;vertical-align:1px}
+/* ── type ───────────────────────────────────────────────────────────── */
+h2{font-size:22px;font-weight:650;letter-spacing:-.5px}
+.sub{font-size:13.5px;color:var(--tx3);margin-top:3px}
+.head{display:flex;align-items:flex-end;margin:56px 0 20px}
+.head .sp{flex:1}
+.head .more{font-size:13px;color:var(--tx2);padding:6px 0}
+.head .more:hover{color:var(--tx)}
 
-/* ── section heads ──────────────────────────────────────────────────── */
-.sec{margin:34px 0 14px;display:flex;align-items:baseline;gap:12px}
-.sec h2{font-size:15px;font-weight:700;letter-spacing:.4px;text-transform:uppercase}
-.sec .n{font-size:12px;color:var(--tx-3)}
-.sec .sp{flex:1}
-.sec a{font-size:12px;color:var(--tx-2);text-decoration:none}
-.sec a:hover{color:var(--go)}
+/* ── game rail ──────────────────────────────────────────────────────── */
+.rail{position:relative;overflow:hidden;margin:0 -6px}
+.track{display:flex;gap:18px;padding:6px}
+.track.anim{transition:transform .38s cubic-bezier(.4,0,.2,1)}
+.card{flex:0 0 262px;cursor:pointer}
+.art{height:172px;border-radius:16px;overflow:hidden;position:relative;
+  transition:transform .22s cubic-bezier(.4,0,.2,1)}
+.card:hover .art{transform:translateY(-4px)}
+.card.soon{cursor:default}
+.card.soon .art{opacity:.34}
+.card.soon:hover .art{transform:none}
+.art svg{display:block;width:100%;height:100%}
+.cap{display:flex;align-items:baseline;gap:9px;margin:13px 2px 0}
+.cap h3{font-size:15.5px;font-weight:600;letter-spacing:-.1px}
+.cap .st{font-size:12.5px;color:var(--tx3);margin-left:auto}
+.cap .st.on{color:var(--live)}
+.nav{display:flex;gap:8px}
+.nb{width:34px;height:34px;border-radius:50%;background:var(--s2);
+  display:grid;place-items:center;color:var(--tx2);font-size:15px;transition:.15s}
+.nb:hover{background:var(--s3);color:var(--tx)}
 
-/* ── game rail (peek carousel) ──────────────────────────────────────── */
-.rail-o{position:relative}
-.rail{display:flex;gap:16px;overflow-x:auto;scroll-behavior:smooth;
-  padding:4px 0 12px;scrollbar-width:none}
-.rail::-webkit-scrollbar{display:none}
-.gcard{flex:0 0 236px;background:var(--card);border:1px solid var(--line);
-  border-radius:var(--r);overflow:hidden;cursor:pointer;transition:.16s;position:relative}
-.gcard:hover{border-color:var(--line-2);transform:translateY(-3px)}
-.gcard.soon{opacity:.5;cursor:not-allowed}
-.gcard.soon:hover{transform:none;border-color:var(--line)}
-.gart{height:118px;display:grid;place-items:center;font-size:44px;position:relative}
-.gbody{padding:13px 15px 15px}
-.gname{font-size:15px;font-weight:700;margin-bottom:5px}
-.gmeta{font-size:12px;color:var(--tx-3);display:flex;align-items:center;gap:7px}
-.dot{width:6px;height:6px;border-radius:50%;background:var(--go);flex:0 0 auto}
-.dot.off{background:var(--tx-3)}
-.tag{position:absolute;top:10px;right:10px;font-size:10px;font-weight:700;
-  letter-spacing:.6px;text-transform:uppercase;padding:4px 8px;border-radius:6px;
-  background:rgba(0,0,0,.55);color:var(--tx-2)}
-.arw{position:absolute;top:50%;transform:translateY(-50%);width:38px;height:38px;
-  border-radius:50%;background:var(--card-2);border:1px solid var(--line-2);
-  display:grid;place-items:center;z-index:5;font-size:16px;color:var(--tx-2)}
-.arw:hover{background:var(--go);color:#04120b;border-color:var(--go)}
-.arw.l{left:-13px} .arw.r{right:-13px}
-
-/* ── lobby rows ─────────────────────────────────────────────────────── */
-.rows{display:flex;flex-direction:column;gap:8px}
-.row{display:flex;align-items:center;gap:14px;background:var(--card);
-  border:1px solid var(--line);border-radius:11px;padding:13px 16px;transition:.14s}
-.row:hover{border-color:var(--line-2);background:var(--card-2)}
-.rg{font-size:14px;font-weight:600;min-width:150px}
-.pill{font-size:10px;font-weight:700;letter-spacing:.5px;padding:3px 7px;
-  border-radius:5px;background:var(--bg-2);color:var(--tx-3);border:1px solid var(--line)}
-.rs{font-size:15px;font-weight:700;color:var(--money);font-variant-numeric:tabular-nums;min-width:66px}
-.rp{font-size:12px;color:var(--tx-2);font-variant-numeric:tabular-nums}
-.rsp{flex:1}
-.btn-join{background:var(--go);color:#04120b;font-weight:700;font-size:12px;
-  padding:8px 18px;border-radius:8px;letter-spacing:.3px}
-.btn-join:hover{filter:brightness(1.08)}
-.btn-spec{background:transparent;border:1px solid var(--line-2);color:var(--tx-2);
-  font-weight:600;font-size:12px;padding:7px 16px;border-radius:8px}
-.btn-spec:hover{border-color:var(--tx-3);color:var(--tx)}
-.wait{font-size:11px;color:var(--tx-3)}
+/* ── lobby list ─────────────────────────────────────────────────────── */
+.lob{display:flex;flex-direction:column}
+.lr{display:flex;align-items:center;gap:16px;padding:17px 4px;
+  border-bottom:1px solid var(--s2);transition:.14s}
+.lr:hover{background:var(--s1);padding-left:12px;padding-right:12px;
+  border-radius:10px;border-color:transparent}
+.lswatch{width:34px;height:34px;border-radius:9px;overflow:hidden;flex:0 0 auto}
+.lswatch svg{display:block;width:100%;height:100%}
+.lname{font-size:14.5px;font-weight:550;min-width:132px}
+.lreg{font-size:11.5px;color:var(--tx3)}
+.lstake{font-size:16px;font-weight:600;color:var(--money);min-width:62px}
+.lplay{font-size:13px;color:var(--tx2)}
+.lwait{font-size:12px;color:var(--tx3)}
+.enter{background:var(--bone);color:#0a0b0d;font-weight:600;font-size:12.5px;
+  padding:8px 17px;border-radius:7px;transition:.15s}
+.enter:hover{transform:translateY(-1px)}
+.spec{color:var(--tx2);font-weight:550;font-size:12.5px;padding:8px 15px;
+  border-radius:7px;background:var(--s2)}
+.spec:hover{color:var(--tx)}
 
 /* ── tournaments ────────────────────────────────────────────────────── */
-.trn{display:grid;grid-template-columns:1fr 1fr;gap:14px}
-.tcard{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:18px}
-.tcard.on{border-color:var(--go-dim)}
-.thead{display:flex;align-items:center;gap:9px;margin-bottom:4px}
-.tlive{font-size:10px;font-weight:800;letter-spacing:.7px;color:var(--live);
-  display:flex;align-items:center;gap:5px}
-.tlive .b{width:6px;height:6px;border-radius:50%;background:var(--live);
-  animation:pulse 1.6s infinite}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
-.tname{font-size:15px;font-weight:700}
-.twhen{font-size:12px;color:var(--tx-3);margin-bottom:14px}
-.tprize{font-size:24px;font-weight:800;color:var(--money);font-variant-numeric:tabular-nums}
-.tprize small{font-size:12px;color:var(--tx-3);font-weight:600;margin-left:6px}
-.pod{display:flex;flex-direction:column;gap:6px;margin:14px 0 0}
-.pr{display:flex;align-items:center;gap:10px;font-size:13px}
-.prn{width:18px;color:var(--tx-3);font-weight:700;font-variant-numeric:tabular-nums}
-.prv{margin-left:auto;color:var(--go);font-weight:700;font-variant-numeric:tabular-nums}
-.tnote{font-size:11px;color:var(--tx-3);margin-top:14px;line-height:1.6}
+.trn{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.tc{background:var(--s1);border-radius:16px;padding:24px 26px}
+.tt{display:flex;align-items:center;gap:10px}
+.tt h3{font-size:16px;font-weight:600}
+.blip{display:inline-flex;align-items:center;gap:6px;font-size:11px;
+  font-weight:600;color:var(--live)}
+.blip b{width:6px;height:6px;border-radius:50%;background:var(--live);
+  animation:pl 1.8s ease-in-out infinite}
+@keyframes pl{0%,100%{opacity:1}50%{opacity:.3}}
+.tw{font-size:13px;color:var(--tx3);margin-top:5px}
+.tw b{color:var(--tx2);font-weight:600}
+.tp{font-size:30px;font-weight:650;color:var(--money);margin-top:18px;letter-spacing:-1px}
+.tp span{font-size:12.5px;color:var(--tx3);font-weight:500;margin-left:8px;letter-spacing:0}
+.pod{margin-top:16px}
+.pl{display:flex;align-items:center;gap:11px;font-size:13.5px;padding:5px 0}
+.pl i{font-style:normal;color:var(--tx3);font-size:12px;width:12px}
+.pl b{margin-left:auto;color:var(--live);font-weight:600}
+.tn{font-size:12px;color:var(--tx3);margin-top:18px;line-height:1.65}
 
-/* ── game detail ────────────────────────────────────────────────────── */
+/* ── detail ─────────────────────────────────────────────────────────── */
 #detail{display:none}
-.back{display:inline-flex;align-items:center;gap:7px;font-size:13px;color:var(--tx-2);
-  padding:9px 0;margin-top:14px}
-.back:hover{color:var(--go)}
-.hero{display:grid;grid-template-columns:1fr 340px;gap:28px;margin:8px 0 0;align-items:start}
-.hero-art{background:var(--card);border:1px solid var(--line);border-radius:var(--r);
-  height:270px;display:grid;place-items:center;font-size:92px;position:relative;overflow:hidden}
-.hero-info h1{font-size:29px;font-weight:800;letter-spacing:-.4px}
-.hero-info .sub{color:var(--tx-2);font-size:14px;line-height:1.65;margin:9px 0 0}
-.hero-live{display:inline-flex;align-items:center;gap:7px;font-size:12px;
-  color:var(--tx-2);margin-top:14px;background:var(--card);border:1px solid var(--line);
-  padding:7px 13px;border-radius:8px}
+.back{font-size:13px;color:var(--tx2);padding:26px 0 0;display:inline-block}
+.back:hover{color:var(--tx)}
+.hero{display:grid;grid-template-columns:1fr 330px;gap:40px;margin-top:22px;align-items:start}
+.hart{height:300px;border-radius:20px;overflow:hidden}
+.hart svg{display:block;width:100%;height:100%}
+.hero h1{font-size:34px;font-weight:650;letter-spacing:-1px}
+.hero .desc{font-size:14.5px;color:var(--tx2);line-height:1.7;margin-top:10px}
+.hnow{font-size:13px;color:var(--tx2);margin-top:16px;display:flex;align-items:center;gap:8px}
+.hnow b{width:6px;height:6px;border-radius:50%;background:var(--live)}
 
-.stake{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:20px}
-.stake-l{font-size:11px;color:var(--tx-3);text-transform:uppercase;
-  letter-spacing:.9px;font-weight:700;text-align:center}
-.stepper{display:flex;align-items:center;justify-content:center;gap:18px;margin:16px 0 6px}
-.sbtn{width:46px;height:46px;border-radius:50%;background:var(--card-2);
-  border:1px solid var(--line-2);font-size:22px;color:var(--tx-2);display:grid;place-items:center}
-.sbtn:hover:not(:disabled){background:var(--go);color:#04120b;border-color:var(--go)}
-.sbtn:disabled{opacity:.3;cursor:not-allowed}
-.sval{font-size:38px;font-weight:800;color:var(--money);min-width:132px;
-  text-align:center;font-variant-numeric:tabular-nums;letter-spacing:-1px}
-.sval.free{color:var(--go);font-size:31px}
-.sdots{display:flex;justify-content:center;gap:6px;margin-bottom:18px}
-.sdot{width:6px;height:6px;border-radius:50%;background:var(--line-2)}
-.sdot.on{background:var(--money);transform:scale(1.25)}
-.btn-play{width:100%;background:var(--go);color:#04120b;font-size:16px;font-weight:800;
-  padding:15px;border-radius:11px;letter-spacing:.5px}
-.btn-play:hover{filter:brightness(1.08)}
-.rake{font-size:11px;color:var(--tx-3);text-align:center;margin-top:11px;line-height:1.6}
-.opts{display:flex;gap:8px;margin-top:14px}
-.opt{flex:1;background:var(--bg-2);border:1px solid var(--line);border-radius:8px;
-  padding:8px;font-size:11px;color:var(--tx-3);text-align:center}
-.opt.on{border-color:var(--go-dim);color:var(--tx-2)}
+.stake{background:var(--s1);border-radius:18px;padding:26px 24px;margin-top:26px}
+.sl{font-size:12.5px;color:var(--tx3);text-align:center}
+.stp{display:flex;align-items:center;justify-content:center;gap:14px;margin:14px 0 4px}
+.sb{width:42px;height:42px;border-radius:50%;background:var(--s3);color:var(--tx2);
+  font-size:19px;display:grid;place-items:center;transition:.15s}
+.sb:hover:not(:disabled){background:var(--bone);color:#0a0b0d}
+.sb:disabled{opacity:.22;cursor:default}
+.sv{font-size:40px;font-weight:650;color:var(--money);min-width:140px;
+  text-align:center;letter-spacing:-1.5px}
+.sv.free{color:var(--tx);font-size:32px}
+.dots{display:flex;justify-content:center;gap:5px;margin-bottom:20px}
+.dt{width:5px;height:5px;border-radius:50%;background:var(--s3);transition:.2s}
+.dt.on{background:var(--money);transform:scale(1.4)}
+.go{width:100%;background:var(--bone);color:#0a0b0d;font-size:15px;font-weight:650;
+  padding:15px;border-radius:11px;transition:.15s}
+.go:hover{transform:translateY(-1px)}
+.fine{font-size:12px;color:var(--tx3);text-align:center;margin-top:13px;line-height:1.6}
+.tog{display:flex;gap:8px;margin-top:16px}
+.tg{flex:1;background:var(--s2);border-radius:8px;padding:9px;font-size:12px;
+  color:var(--tx2);text-align:center;cursor:pointer;transition:.15s}
+.tg:hover{background:var(--s3)}
 
-.how{margin:38px 0 60px;background:var(--card);border:1px solid var(--line);
-  border-radius:var(--r);padding:26px 28px}
-.how h3{font-size:16px;font-weight:700;margin-bottom:16px}
-.steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:20px}
-.step-n{width:26px;height:26px;border-radius:50%;background:var(--card-2);
-  border:1px solid var(--line-2);display:grid;place-items:center;font-size:12px;
-  font-weight:700;color:var(--go);margin-bottom:9px}
-.step p{font-size:13px;color:var(--tx-2);line-height:1.7}
-.step b{color:var(--tx);font-weight:600;display:block;margin-bottom:3px;font-size:13px}
+.how{margin:64px 0 0}
+.hg{display:grid;grid-template-columns:repeat(auto-fit,minmax(216px,1fr));gap:30px;margin-top:22px}
+.hs i{font-style:normal;font-size:12px;color:var(--tx3);font-weight:600}
+.hs b{display:block;font-size:14.5px;font-weight:600;margin:8px 0 6px}
+.hs p{font-size:13.5px;color:var(--tx2);line-height:1.7}
 
-/* ── waiting state ──────────────────────────────────────────────────── */
-.veil{position:fixed;inset:0;background:rgba(8,10,14,.86);backdrop-filter:blur(6px);
-  display:none;place-items:center;z-index:80}
+/* ── waiting ────────────────────────────────────────────────────────── */
+.veil{position:fixed;inset:0;background:rgba(6,7,9,.9);backdrop-filter:blur(8px);
+  display:none;place-items:center;z-index:90}
 .veil.on{display:grid}
-.wbox{background:var(--card);border:1px solid var(--line);border-radius:18px;
-  padding:34px 40px;text-align:center;max-width:380px}
-.spin{width:44px;height:44px;border:3px solid var(--line-2);border-top-color:var(--go);
-  border-radius:50%;margin:0 auto 20px;animation:sp .9s linear infinite}
+.wb{background:var(--s1);border-radius:20px;padding:38px 40px;text-align:center;max-width:390px}
+.ring{width:40px;height:40px;border:2.5px solid var(--s3);border-top-color:var(--bone);
+  border-radius:50%;margin:0 auto 22px;animation:sp .85s linear infinite}
 @keyframes sp{to{transform:rotate(360deg)}}
-.wbox h3{font-size:18px;font-weight:700;margin-bottom:8px}
-.wbox p{font-size:13px;color:var(--tx-2);line-height:1.65}
-.wbox .amt{color:var(--money);font-weight:700}
-.btn-cancel{margin-top:20px;border:1px solid var(--line-2);color:var(--tx-2);
-  padding:9px 22px;border-radius:9px;font-size:13px;font-weight:600}
-.btn-cancel:hover{border-color:var(--tx-3);color:var(--tx)}
-.empty{color:var(--tx-3);font-size:13px;padding:22px;text-align:center;
-  border:1px dashed var(--line);border-radius:11px}
-@media(max-width:860px){
-  .hero{grid-template-columns:1fr}
+.wb h3{font-size:18px;font-weight:600;margin-bottom:9px}
+.wb p{font-size:13.5px;color:var(--tx2);line-height:1.7}
+.wb p b{color:var(--money)}
+.wc{margin-top:24px;color:var(--tx2);font-size:13px;font-weight:550;
+  padding:10px 22px;border-radius:9px;background:var(--s2)}
+.wc:hover{color:var(--tx)}
+.none{font-size:13.5px;color:var(--tx3);padding:26px 4px;line-height:1.7}
+
+/* ── footer ─────────────────────────────────────────────────────────── */
+footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
+.ft{display:flex;align-items:center;gap:26px;font-size:12.5px;color:var(--tx3)}
+.ft a:hover{color:var(--tx2)}
+.ft .sp{flex:1}
+@media(max-width:840px){
+  .hero{grid-template-columns:1fr;gap:26px}
   .trn{grid-template-columns:1fr}
-  .rg{min-width:auto}
+  .wrap{padding:0 20px}
+  .ft{flex-wrap:wrap;gap:16px}
 }
 </style>
 </head>
 <body>
 
-<header>
-  <div class="wrap hd">
-    <div class="logo">DUEL<span>SERIES</span></div>
-    <div class="hd-sp"></div>
-    <div class="bal"><span class="bal-l">Balance</span><span class="bal-v">$12.40</span></div>
-    <button class="btn-dep">Deposit</button>
-    <div class="av">OK</div>
-  </div>
-</header>
+<header><div class="wrap hd">
+  <div class="logo">Duel<em>Series</em></div>
+  <div class="sp"></div>
+  <div class="bal"><div class="k">Balance</div><div class="v num">$12.40</div></div>
+  <button class="dep">Deposit</button>
+  <div class="av">OK</div>
+</div></header>
 
-<div class="wrap">
-  <div class="trust">
-    <span><i></i><b>Every payout settles on-chain</b></span>
-    <span>House cut <b>10%</b>, shown before you play</span>
-    <span>Escrow <b>C5cn…H3m9</b></span>
-    <span>Paid out <b>$1,284</b> in the last 24h</span>
-  </div>
-</div>
-
-<!-- ══ HOME ══════════════════════════════════════════════════════════ -->
+<!-- ══ HOME ══ -->
 <main id="home" class="wrap">
-
-  <div class="sec"><h2>Games</h2><span class="n" id="g-count"></span><span class="sp"></span></div>
-  <div class="rail-o">
-    <button class="arw l" onclick="rail(-1)">&#8249;</button>
-    <button class="arw r" onclick="rail(1)">&#8250;</button>
-    <div class="rail" id="rail"></div>
+  <div class="head">
+    <div><h2>Games</h2><div class="sub" id="gsub"></div></div>
+    <div class="sp"></div>
+    <div class="nav">
+      <button class="nb" onclick="spin(-1)">&#8249;</button>
+      <button class="nb" onclick="spin(1)">&#8250;</button>
+    </div>
   </div>
+  <div class="rail"><div class="track" id="track"></div></div>
 
-  <div class="sec"><h2>Open lobbies</h2><span class="n" id="l-count"></span><span class="sp"></span>
-    <a href="#" onclick="return false">Filter</a></div>
-  <div class="rows" id="lobbies"></div>
+  <div class="head">
+    <div><h2>Open lobbies</h2><div class="sub">Busiest tables right now</div></div>
+    <div class="sp"></div>
+    <a class="more" href="#" onclick="return false">See all</a>
+  </div>
+  <div class="lob" id="lob"></div>
 
-  <div class="sec"><h2>Tournaments</h2><span class="sp"></span></div>
+  <div class="head">
+    <div><h2>Tournaments</h2><div class="sub">Scheduled events with a prize pool</div></div>
+  </div>
   <div class="trn">
-    <div class="tcard on">
-      <div class="thead">
-        <span class="tlive"><span class="b"></span>LIVE</span>
-        <span class="tname">Most profit in Snake</span>
-      </div>
-      <div class="twhen">Ends in <b id="cd">38:59</b> &middot; buy-ins $0.50 to $3</div>
-      <div class="tprize">$20<small>winner takes all</small></div>
+    <div class="tc">
+      <div class="tt"><span class="blip"><b></b>Live</span><h3>Most profit in Snake</h3></div>
+      <div class="tw">Ends in <b class="num" id="cd">38:59</b> &nbsp;·&nbsp; buy-ins $0.50 to $3</div>
+      <div class="tp num">$20<span>winner takes all</span></div>
       <div class="pod">
-        <div class="pr"><span class="prn">1</span> qesku <span class="prv">+$6.47</span></div>
-        <div class="pr"><span class="prn">2</span> ZachXBT <span class="prv">+$4.80</span></div>
-        <div class="pr"><span class="prn">3</span> dddickk <span class="prv">+$4.30</span></div>
+        <div class="pl"><i>1</i>qesku<b class="num">+$6.47</b></div>
+        <div class="pl"><i>2</i>ZachXBT<b class="num">+$4.80</b></div>
+        <div class="pl"><i>3</i>dddickk<b class="num">+$4.30</b></div>
       </div>
-      <div class="tnote">Best net profit when the clock runs out takes the prize.</div>
+      <div class="tn">Best net profit when the clock runs out takes the prize.</div>
     </div>
-    <div class="tcard">
-      <div class="thead"><span class="tname">Battleship knockout</span></div>
-      <div class="twhen">Starts in <b>4h 08m</b> &middot; buy-ins $1 to $5</div>
-      <div class="tprize">$50<small>top 3 split</small></div>
-      <div class="tnote" style="margin-top:22px">Single elimination. Sign in to reserve a seat.</div>
+    <div class="tc">
+      <div class="tt"><h3>Battleship knockout</h3></div>
+      <div class="tw">Starts in <b class="num">4h 08m</b> &nbsp;·&nbsp; buy-ins $1 to $5</div>
+      <div class="tp num">$50<span>top three split</span></div>
+      <div class="tn" style="margin-top:26px">Single elimination bracket. Seats open thirty
+        minutes before the start.</div>
     </div>
   </div>
-  <div style="height:60px"></div>
 </main>
 
-<!-- ══ GAME DETAIL ═══════════════════════════════════════════════════ -->
+<!-- ══ DETAIL ══ -->
 <main id="detail" class="wrap">
-  <button class="back" onclick="goHome()">&#8592; All games</button>
+  <a class="back" href="#" onclick="goHome();return false">&#8592; &nbsp;All games</a>
   <div class="hero">
     <div>
-      <div class="hero-art" id="d-art"></div>
-      <div class="sec"><h2>Open lobbies</h2><span class="n" id="d-count"></span></div>
-      <div class="rows" id="d-lobbies"></div>
+      <div class="hart" id="dart"></div>
+      <div class="head" style="margin-top:34px">
+        <div><h2>Open lobbies</h2><div class="sub" id="dsub2"></div></div>
+      </div>
+      <div class="lob" id="dlob"></div>
     </div>
     <div>
-      <div class="hero-info">
-        <h1 id="d-name"></h1>
-        <p class="sub" id="d-sub"></p>
-        <div class="hero-live"><span class="dot"></span><span id="d-live"></span></div>
-      </div>
-      <div class="stake" style="margin-top:20px">
-        <div class="stake-l">Your buy-in</div>
-        <div class="stepper">
-          <button class="sbtn" id="s-down" onclick="step(-1)">&#8722;</button>
-          <div class="sval" id="s-val">$1.00</div>
-          <button class="sbtn" id="s-up" onclick="step(1)">+</button>
+      <h1 id="dname"></h1>
+      <p class="desc" id="ddesc"></p>
+      <div class="hnow"><b></b><span id="dnow"></span></div>
+      <div class="stake">
+        <div class="sl">Your buy-in</div>
+        <div class="stp">
+          <button class="sb" id="sd" onclick="step(-1)">&#8722;</button>
+          <div class="sv num" id="sv">$1.00</div>
+          <button class="sb" id="su" onclick="step(1)">+</button>
         </div>
-        <div class="sdots" id="s-dots"></div>
-        <button class="btn-play" onclick="play()">Create lobby</button>
-        <div class="rake" id="s-rake"></div>
-        <div class="opts">
-          <div class="opt on">Region NA</div>
-          <div class="opt on">Public</div>
-        </div>
+        <div class="dots" id="dots"></div>
+        <button class="go" onclick="play()">Create lobby</button>
+        <div class="fine" id="fine"></div>
+        <div class="tog"><div class="tg">Region &nbsp;NA</div><div class="tg">Public</div></div>
       </div>
     </div>
   </div>
-
   <div class="how">
-    <h3>How to play <span id="d-name2" style="color:var(--tx-3);font-weight:400"></span></h3>
-    <div class="steps" id="d-steps"></div>
+    <h2>How to play</h2>
+    <div class="hg" id="hg"></div>
   </div>
 </main>
 
-<div class="veil" id="veil">
-  <div class="wbox">
-    <div class="spin"></div>
-    <h3>Lobby open</h3>
-    <p>You staked <span class="amt" id="w-amt"></span>. Anyone who joins pays the
-       same amount. You will start as soon as someone enters.</p>
-    <button class="btn-cancel" onclick="cancel()">Cancel and refund</button>
-  </div>
-</div>
+<div class="veil" id="veil"><div class="wb">
+  <div class="ring"></div>
+  <h3>Your lobby is open</h3>
+  <p>You staked <b id="wamt"></b>. Anyone who joins pays exactly the same,
+     so nobody can out-bet you. The game starts the moment someone enters.</p>
+  <button class="wc" onclick="cancel()">Cancel and refund</button>
+</div></div>
+
+<footer><div class="wrap ft">
+  <span>&copy; 2026 DuelSeries</span>
+  <span class="sp"></span>
+  <a href="#" onclick="return false">Privacy policy</a>
+  <a href="#" onclick="return false">Terms of service</a>
+  <a href="#" onclick="return false">Contact</a>
+</div></footer>
 
 <script>
-/* Mock data only. Shapes match what GET /api/live would return. */
+/* Flat geometric artwork, one scene per game. Drawn rather than iconed:
+   emoji or a generic icon set is what makes a games page look unmade. */
+const ART={
+ snake:(a,b)=>`<svg viewBox="0 0 262 172" preserveAspectRatio="xMidYMid slice">
+   <rect width="262" height="172" fill="${a}"/>
+   <path d="M-10 128 C40 128 44 74 84 74 C124 74 128 118 168 118 C202 118 206 84 240 84"
+     fill="none" stroke="${b}" stroke-width="21" stroke-linecap="round"/>
+   <circle cx="243" cy="79" r="4.6" fill="#0a0b0d"/><circle cx="240" cy="92" r="4.6" fill="#0a0b0d"/>
+   <circle cx="60" cy="150" r="4" fill="${b}" opacity=".5"/>
+   <circle cx="146" cy="44" r="5" fill="${b}" opacity=".38"/>
+   <circle cx="206" cy="140" r="3.4" fill="${b}" opacity=".45"/></svg>`,
+ agar:(a,b)=>`<svg viewBox="0 0 262 172" preserveAspectRatio="xMidYMid slice">
+   <rect width="262" height="172" fill="${a}"/>
+   <circle cx="96" cy="88" r="50" fill="${b}"/>
+   <circle cx="96" cy="88" r="50" fill="none" stroke="#0a0b0d" stroke-width="3" opacity=".22"/>
+   <circle cx="184" cy="56" r="26" fill="${b}" opacity=".72"/>
+   <circle cx="204" cy="122" r="17" fill="${b}" opacity=".5"/>
+   <circle cx="44" cy="34" r="9" fill="${b}" opacity=".4"/>
+   <circle cx="150" cy="146" r="7" fill="${b}" opacity=".34"/></svg>`,
+ rps:(a,b)=>`<svg viewBox="0 0 262 172" preserveAspectRatio="xMidYMid slice">
+   <rect width="262" height="172" fill="${a}"/>
+   <circle cx="76" cy="86" r="33" fill="${b}"/>
+   <rect x="106" y="52" width="66" height="68" rx="7" fill="${b}" opacity=".62"/>
+   <path d="M188 54 L226 118 M226 54 L188 118" stroke="${b}" stroke-width="13"
+     stroke-linecap="round" opacity=".82"/></svg>`,
+ knockout:(a,b)=>`<svg viewBox="0 0 262 172" preserveAspectRatio="xMidYMid slice">
+   <rect width="262" height="172" fill="${a}"/>
+   <circle cx="86" cy="86" r="38" fill="${b}"/>
+   <circle cx="182" cy="86" r="27" fill="${b}" opacity=".45"/>
+   <path d="M126 62 L142 86 L126 110" stroke="${a}" stroke-width="7" fill="none"
+     stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+ battleship:(a,b)=>`<svg viewBox="0 0 262 172" preserveAspectRatio="xMidYMid slice">
+   <rect width="262" height="172" fill="${a}"/>
+   <g fill="${b}" opacity=".26">${(()=>{let s='';for(let y=0;y<5;y++)for(let x=0;x<8;x++)
+     s+=`<circle cx="${44+x*24}" cy="${42+y*22}" r="3"/>`;return s})()}</g>
+   <rect x="66" y="78" width="120" height="17" rx="8.5" fill="${b}"/>
+   <path d="M186 86 L214 74 L214 98 Z" fill="${b}"/></svg>`,
+ tanks:(a,b)=>`<svg viewBox="0 0 262 172" preserveAspectRatio="xMidYMid slice">
+   <rect width="262" height="172" fill="${a}"/>
+   <path d="M40 116 C96 40 172 40 226 108" fill="none" stroke="${b}" stroke-width="3"
+     stroke-dasharray="7 9" opacity=".5"/>
+   <rect x="36" y="116" width="66" height="20" rx="9" fill="${b}"/>
+   <rect x="56" y="102" width="30" height="16" rx="5" fill="${b}"/>
+   <rect x="84" y="104" width="34" height="6" rx="3" fill="${b}"/>
+   <circle cx="222" cy="112" r="9" fill="${b}" opacity=".7"/></svg>`,
+ paper:(a,b)=>`<svg viewBox="0 0 262 172" preserveAspectRatio="xMidYMid slice">
+   <rect width="262" height="172" fill="${a}"/>
+   <path d="M52 40 H150 V78 H196 V132 H92 V96 H52 Z" fill="${b}" opacity=".82"/>
+   <path d="M196 132 L228 132 L228 60" fill="none" stroke="${b}" stroke-width="4"
+     stroke-dasharray="6 8" opacity=".55"/>
+   <circle cx="228" cy="60" r="7" fill="${b}"/></svg>`,
+};
 const GAMES=[
- {id:'snake',  name:'Snake',            icon:'\u{1F40D}',bg:'#1a2b22',live:14,type:'persistent',cap:30,
-  sub:'Grow by eating, cut off other players, cash out before someone cuts you off.'},
- {id:'agar',   name:'Amoeba',           icon:'\u{1F7E2}',bg:'#1a2430',live:6, type:'persistent',cap:30,
-  sub:'Absorb smaller cells, split to chase, avoid anything bigger than you.'},
- {id:'rps',    name:'Rock Paper Scissors',icon:'\u{270A}',bg:'#2b1f2e',live:4,type:'match',cap:2,
-  sub:'Best of five against one opponent. Fast rounds, instant settlement.'},
- {id:'knockout',name:'Knockout',        icon:'\u{1F94A}',bg:'#2e2119',live:0, type:'match',cap:2,soon:1,
-  sub:'Last one standing in a shrinking arena.'},
- {id:'battleship',name:'Battleship',    icon:'\u{1F6A2}',bg:'#1b2733',live:0, type:'match',cap:2,soon:1,
-  sub:'Hide your fleet, find theirs first.'},
- {id:'tanks', name:'Tanks',             icon:'\u{1F6E1}',bg:'#26291b',live:0, type:'match',cap:2,soon:1,
-  sub:'Angle, power, fire. One shot each turn.'},
- {id:'paper', name:'Paper.io',          icon:'\u{1F4C4}',bg:'#2a2431',live:0, type:'persistent',cap:30,soon:1,
-  sub:'Claim territory without anyone crossing your trail.'},
+ {id:'snake',name:'Snake',c:['#15251c','#5fd39a'],live:14,type:'p',cap:30,
+  d:'Grow by eating, cut other players off, and cash out before somebody cuts you off.'},
+ {id:'agar',name:'Amoeba',c:['#141f28','#5aa8d8'],live:6,type:'p',cap:30,
+  d:'Absorb anything smaller than you, split to chase, and stay clear of anything bigger.'},
+ {id:'rps',name:'Rock Paper Scissors',c:['#231a26','#b98ad4'],live:4,type:'m',cap:2,
+  d:'Best of five against a single opponent. Rounds are quick and settlement is instant.'},
+ {id:'knockout',name:'Knockout',c:['#261c14','#e0a05c'],live:0,type:'m',cap:2,soon:1,
+  d:'Last one standing in an arena that keeps shrinking.'},
+ {id:'battleship',name:'Battleship',c:['#141a24','#7b93c4'],live:0,type:'m',cap:2,soon:1,
+  d:'Hide your fleet, then find theirs before they find yours.'},
+ {id:'tanks',name:'Tanks',c:['#1d2016','#a8bd63'],live:0,type:'m',cap:2,soon:1,
+  d:'Angle, power, fire. One shot each and the terrain remembers.'},
+ {id:'paper',name:'Paper.io',c:['#1e1826','#a887d6'],live:0,type:'p',cap:30,soon:1,
+  d:'Claim ground by looping back home without anyone crossing your trail.'},
 ];
 const LOBBIES=[
- {game:'snake', region:'NA',stake:1.00,players:7, cap:30},
- {game:'rps',   region:'EU',stake:2.00,players:1, cap:2, wait:'40s'},
- {game:'snake', region:'NA',stake:0.25,players:12,cap:30},
- {game:'agar',  region:'EU',stake:0.50,players:3, cap:30},
- {game:'rps',   region:'NA',stake:5.00,players:2, cap:2},
- {game:'snake', region:'EU',stake:2.00,players:1, cap:30},
+ {g:'snake',r:'NA',s:1.00,p:7,cap:30},
+ {g:'rps',  r:'EU',s:2.00,p:1,cap:2,w:'40s'},
+ {g:'snake',r:'NA',s:0.25,p:12,cap:30},
+ {g:'agar', r:'EU',s:0.50,p:3,cap:30},
+ {g:'rps',  r:'NA',s:5.00,p:2,cap:2},
+ {g:'snake',r:'EU',s:2.00,p:1,cap:30},
 ];
-/* His exact ladder, with free at the bottom. */
 const STEPS=[0,0.25,0.50,1,2,5];
-let si=3, cur=null;
+let si=3, cur=null, order=GAMES.slice(), busy=false;
 
-const money=v=>v===0?'Free':'$'+v.toFixed(2);
-const byId=id=>GAMES.find(g=>g.id===id);
+const cash=v=>v===0?'Free':'$'+v.toFixed(2);
+const G=id=>GAMES.find(x=>x.id===id);
+const art=(g,w,h)=>ART[g.id](g.c[0],g.c[1]);
 
+/* ── infinite rail: render one extra card each side, slide, then rotate the
+      array and snap back with no transition, so it never reaches an end ── */
 function drawRail(){
-  document.getElementById('rail').innerHTML=GAMES.map(g=>`
-    <div class="gcard${g.soon?' soon':''}" onclick="${g.soon?'':`open_('${g.id}')`}">
-      <div class="gart" style="background:${g.bg}">${g.icon}
-        ${g.soon?'<span class="tag">Soon</span>':''}</div>
-      <div class="gbody">
-        <div class="gname">${g.name}</div>
-        <div class="gmeta"><span class="dot${g.live?'':' off'}"></span>
-          ${g.soon?'In development':g.live+' playing now'}</div>
-      </div>
+  document.getElementById('track').innerHTML=order.map(g=>`
+    <div class="card${g.soon?' soon':''}" ${g.soon?'':`onclick="open_('${g.id}')"`}>
+      <div class="art">${art(g)}</div>
+      <div class="cap"><h3>${g.name}</h3>
+        <span class="st${g.live?' on':''}">${g.soon?'Soon':g.live+' playing'}</span></div>
     </div>`).join('');
-  document.getElementById('g-count').textContent=GAMES.filter(g=>!g.soon).length+' live, '+GAMES.filter(g=>g.soon).length+' coming';
+  const n=GAMES.filter(g=>!g.soon).length;
+  document.getElementById('gsub').textContent=n+' playable now, '+(GAMES.length-n)+' in development';
 }
-function rail(d){document.getElementById('rail').scrollBy({left:d*252,behavior:'smooth'})}
+function spin(d){
+  if(busy)return; busy=true;
+  const t=document.getElementById('track'), w=262+18;
+  if(d>0){
+    t.classList.add('anim'); t.style.transform=`translateX(${-w}px)`;
+    setTimeout(()=>{order.push(order.shift());t.classList.remove('anim');
+      t.style.transform='';drawRail();busy=false},380);
+  }else{
+    order.unshift(order.pop()); drawRail();
+    t.style.transform=`translateX(${-w}px)`;
+    requestAnimationFrame(()=>{t.classList.add('anim');t.style.transform='';
+      setTimeout(()=>{t.classList.remove('anim');busy=false},380)});
+  }
+}
 
-function rowHTML(l){
-  const g=byId(l.game), full=l.players>=l.cap;
-  return `<div class="row">
-    <span class="rg">${g.name}</span>
-    <span class="pill">${l.region}</span>
-    <span class="rs">${money(l.stake)}</span>
-    <span class="rp">${l.players}/${l.cap} players</span>
-    ${l.wait?`<span class="wait">waiting ${l.wait}</span>`:''}
-    <span class="rsp"></span>
-    ${full?'<button class="btn-spec">Spectate</button>'
-          :`<button class="btn-join" onclick="join(${l.stake})">Enter</button>`}
+function lrow(l){
+  const g=G(l.g), full=l.p>=l.cap;
+  return `<div class="lr">
+    <div class="lswatch">${art(g)}</div>
+    <span class="lname">${g.name}</span>
+    <span class="lreg">${l.r}</span>
+    <span class="lstake num">${cash(l.s)}</span>
+    <span class="lplay num">${l.p}/${l.cap}</span>
+    ${l.w?`<span class="lwait">waiting ${l.w}</span>`:''}
+    <span class="sp" style="flex:1"></span>
+    ${full?'<button class="spec">Spectate</button>'
+          :`<button class="enter" onclick="join(${l.s})">Enter</button>`}
   </div>`;
 }
-function drawLobbies(){
-  document.getElementById('lobbies').innerHTML=LOBBIES.map(rowHTML).join('');
-  document.getElementById('l-count').textContent=LOBBIES.length+' open';
+/* Home shows only the three busiest. The rest live behind "See all". */
+function drawLob(){
+  const top=LOBBIES.slice().sort((a,b)=>b.p-a.p).slice(0,3);
+  document.getElementById('lob').innerHTML=top.map(lrow).join('');
 }
 
 function open_(id){
-  cur=byId(id);
-  si=STEPS.indexOf(1);
-  document.getElementById('home').style.display='none';
-  document.getElementById('detail').style.display='block';
-  const art=document.getElementById('d-art');
-  art.textContent=cur.icon; art.style.background=cur.bg;
-  document.getElementById('d-name').textContent=cur.name;
-  document.getElementById('d-name2').textContent='';
-  document.getElementById('d-sub').textContent=cur.sub;
-  document.getElementById('d-live').textContent=cur.type==='persistent'
-    ? cur.live+' playing right now'
-    : cur.live+' waiting for an opponent';
-  const mine=LOBBIES.filter(l=>l.game===id);
-  document.getElementById('d-lobbies').innerHTML=mine.length
-    ? mine.map(rowHTML).join('')
-    : '<div class="empty">No open lobbies yet. Create the first one and it will show up here for everyone else.</div>';
-  document.getElementById('d-count').textContent=mine.length+' open';
-  document.getElementById('d-steps').innerHTML=steps(cur);
-  drawStake(); window.scrollTo(0,0);
+  cur=G(id); si=STEPS.indexOf(1);
+  home.style.display='none'; detail.style.display='block';
+  document.getElementById('dart').innerHTML=art(cur);
+  document.getElementById('dname').textContent=cur.name;
+  document.getElementById('ddesc').textContent=cur.d;
+  document.getElementById('dnow').textContent=cur.type==='p'
+    ? cur.live+' playing right now' : cur.live+' waiting for an opponent';
+  const mine=LOBBIES.filter(l=>l.g===id).sort((a,b)=>b.p-a.p);
+  document.getElementById('dlob').innerHTML=mine.length?mine.map(lrow).join('')
+    :'<div class="none">Nobody has opened one yet. Create the first and it will appear here for everyone else.</div>';
+  document.getElementById('dsub2').textContent=mine.length?mine.length+' open':'None open';
+  document.getElementById('hg').innerHTML=[
+    ['Set your buy-in','Use the arrows. Everyone who joins pays exactly the same amount, so nobody can out-bet you.'],
+    ['Open or enter','Create a lobby and wait, or enter one that already has players in it.'],
+    [cur.type==='p'?'Grow your stack':'Win the match',
+     cur.type==='p'?'Your buy-in becomes your starting worth. Eat to grow it and take it from anyone you knock out.'
+                   :'Beat your opponent and take the pot. Both sides staked the same, so it comes down to skill.'],
+    ['Cash out','Leave whenever you like. Your worth is paid to your wallet on-chain, minus the ten percent house cut.'],
+  ].map((s,i)=>`<div class="hs"><i>0${i+1}</i><b>${s[0]}</b><p>${s[1]}</p></div>`).join('');
+  drawStake(); scrollTo(0,0);
 }
-function goHome(){
-  document.getElementById('detail').style.display='none';
-  document.getElementById('home').style.display='block';
-  window.scrollTo(0,0);
-}
-function steps(g){
-  const a=[
-   ['Pick your buy-in','Use the arrows. Everyone who joins your lobby pays exactly the same amount, so no one can out-bet you.'],
-   ['Create or join','Create a lobby and wait, or enter one that already has players in it.'],
-   [g.type==='persistent'?'Grow your stack':'Win the match',
-    g.type==='persistent'?'Your buy-in becomes your starting worth. Eat to grow it, and take it from anyone you knock out.'
-                         :'Beat your opponent and take the pot. Both sides staked the same, so it is a straight coin flip on skill.'],
-   ['Cash out','Leave whenever you like and your worth is paid to your wallet on-chain, minus the 10% house cut.'],
-  ];
-  return a.map((s,i)=>`<div class="step"><div class="step-n">${i+1}</div>
-    <b>${s[0]}</b><p>${s[1]}</p></div>`).join('');
-}
+function goHome(){detail.style.display='none';home.style.display='block';scrollTo(0,0)}
+
 function drawStake(){
-  const v=STEPS[si], el=document.getElementById('s-val');
-  el.textContent=money(v);
-  el.className='sval'+(v===0?' free':'');
-  document.getElementById('s-down').disabled=si===0;
-  document.getElementById('s-up').disabled=si===STEPS.length-1;
-  document.getElementById('s-dots').innerHTML=STEPS.map((_,i)=>
-    `<span class="sdot${i===si?' on':''}"></span>`).join('');
-  document.getElementById('s-rake').textContent=v===0
-    ? 'Free play. No stake, no payout.'
-    : 'You stake '+money(v)+'. Cash out pays your worth minus the 10% house cut.';
+  const v=STEPS[si], el=document.getElementById('sv');
+  el.textContent=cash(v); el.className='sv num'+(v===0?' free':'');
+  document.getElementById('sd').disabled=si===0;
+  document.getElementById('su').disabled=si===STEPS.length-1;
+  document.getElementById('dots').innerHTML=STEPS.map((_,i)=>`<span class="dt${i===si?' on':''}"></span>`).join('');
+  document.getElementById('fine').textContent=v===0
+    ?'Free play. Nothing staked, nothing paid out.'
+    :'Cash out pays your worth minus the ten percent house cut.';
 }
 function step(d){si=Math.max(0,Math.min(STEPS.length-1,si+d));drawStake()}
 function play(){
   const v=STEPS[si];
-  if(v===0){alert('Free play would launch straight into the game.');return}
-  document.getElementById('w-amt').textContent=money(v);
-  document.getElementById('veil').classList.add('on');
+  if(v===0){alert('Free play drops you straight into the game.');return}
+  document.getElementById('wamt').textContent=cash(v);
+  veil.classList.add('on');
 }
-function join(s){alert('Joining a '+money(s)+' lobby. You would pay exactly '+money(s)+'.')}
-function cancel(){document.getElementById('veil').classList.remove('on')}
+function join(s){alert('Entering a '+cash(s)+' lobby. You pay exactly '+cash(s)+'.')}
+function cancel(){veil.classList.remove('on')}
 
 let t=38*60+59;
-setInterval(()=>{if(t>0)t--;
-  document.getElementById('cd').textContent=
-    String(Math.floor(t/60)).padStart(2,'0')+':'+String(t%60).padStart(2,'0');},1000);
+setInterval(()=>{if(t>0)t--;document.getElementById('cd').textContent=
+  String(Math.floor(t/60)).padStart(2,'0')+':'+String(t%60).padStart(2,'0')},1000);
 
-drawRail();drawLobbies();
+drawRail();drawLob();
 </script>
 </body>
 </html>
