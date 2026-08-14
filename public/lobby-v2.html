@@ -287,6 +287,74 @@ h2{font-size:31px;font-weight:700;letter-spacing:-1.1px;line-height:1.1}
 .tgo.alt{background:var(--s2);color:var(--tx2);font-weight:550}
 .tgo.alt:hover{background:var(--s3);color:var(--tx);transform:none}
 
+/* ── wallet + stats ─────────────────────────────────────────────────── */
+#wallet-screen,#stats-screen{display:none}
+.panel{background:var(--s1);border-radius:var(--r3);padding:24px 26px}
+.wgrid{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+.plab{font-size:12px;color:var(--tx3);margin-bottom:9px}
+.bfig{display:flex;gap:44px}
+.blab{font-size:12px;color:var(--tx3)}
+.bnum{font-size:38px;font-weight:600;color:var(--money);letter-spacing:-1.5px;margin-top:2px}
+.bnum.sm{font-size:24px;color:var(--tx2);letter-spacing:-.8px}
+.brow{display:flex;gap:10px;margin-top:22px}
+.btn{flex:1;padding:12px;border-radius:var(--r2);font-size:13.5px;font-weight:600;transition:.15s}
+.btn.pri{background:var(--bone);color:var(--ink)}
+.btn.pri:hover{transform:translateY(-1px)}
+.btn.sec{background:var(--s2);color:var(--tx2);font-weight:550}
+.btn.sec:hover{background:var(--s3);color:var(--tx)}
+.note{font-size:12px;color:var(--tx3);line-height:1.7;margin-top:16px}
+.note b{color:var(--tx2);font-weight:600}
+.lnk{color:var(--tx2);text-decoration:underline;text-underline-offset:2px}
+.lnk:hover{color:var(--tx)}
+
+/* Tables carry no borders; the row rhythm and one hairline do the work. */
+.tbl{display:flex;flex-direction:column}
+[hidden]{display:none!important}   /* a display rule otherwise beats the attribute */
+.tr{display:grid;grid-template-columns:96px 1fr 106px 92px 78px;gap:14px;align-items:center;
+  padding:14px 4px;font-size:13.5px;box-shadow:inset 0 -1px 0 var(--s2)}
+.tr.hd{font-size:11.5px;color:var(--tx3);padding:8px 4px;box-shadow:none}
+.tr .r{text-align:right}
+.tr .neg{color:var(--tx2)}
+.tr .pos{color:var(--money)}
+.tag{display:inline-block;font-size:11px;padding:3px 8px;border-radius:var(--r1);
+  background:var(--s2);color:var(--tx2)}
+
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:16px}
+.tile{background:var(--s1);border-radius:var(--r3);padding:20px 22px}
+.tile .k{font-size:12px;color:var(--tx3)}
+.tile .v{font-size:31px;font-weight:600;letter-spacing:-1.2px;margin-top:6px}
+.tile .f{font-size:12px;color:var(--tx3);margin-top:5px}
+
+.chartwrap{position:relative}
+.legend{display:flex;gap:18px;font-size:12px;color:var(--tx3);margin-bottom:18px}
+.lg{display:inline-flex;align-items:center;gap:7px}
+.lg i{width:10px;height:10px;border-radius:3px;display:inline-block}
+#s-chart svg{display:block;width:100%;height:auto;overflow:visible}
+.bar{transition:opacity .12s}
+.chartwrap:hover .bar{opacity:.5}
+.chartwrap .bar:hover,.chartwrap .bar.on{opacity:1}
+.tip{position:absolute;pointer-events:none;opacity:0;transition:opacity .12s;
+  background:var(--s3);border-radius:var(--r2);padding:9px 12px;font-size:12px;
+  line-height:1.55;white-space:nowrap;box-shadow:0 10px 30px rgba(0,0,0,.55);z-index:5}
+.tip.on{opacity:1}
+.tip b{font-family:var(--fm);font-weight:600}
+.ledger{display:flex;flex-direction:column}
+.lrow{display:flex;align-items:baseline;padding:13px 0;font-size:14px;
+  box-shadow:inset 0 -1px 0 var(--s2)}
+.lrow:last-child{box-shadow:none;padding-top:18px}
+.lrow .k{color:var(--tx2)}
+.lrow .d{flex:1;color:var(--tx3);font-size:12px;margin-left:12px}
+.lrow .v{font-family:var(--fm);font-weight:600;font-variant-numeric:tabular-nums}
+.lrow.tot{font-size:17px}
+.lrow.tot .k{color:var(--tx);font-weight:600}
+.lrow.tot .v{color:var(--money);font-size:22px;letter-spacing:-.8px}
+@media(max-width:760px){
+  .wgrid{grid-template-columns:1fr}
+  .tr{grid-template-columns:74px 1fr 84px;gap:10px;font-size:12.5px}
+  .tr .c3,.tr .c4{display:none}
+  .bfig{gap:28px}
+}
+
 /* ── detail ─────────────────────────────────────────────────────────── */
 #detail{display:none}
 .back{font-size:13px;color:var(--tx2);padding:26px 0 0;display:inline-block}
@@ -420,16 +488,16 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
       </div>
     </article>
     <article class="tc">
-      <div class="tt"><span class="chip">Scheduled</span><h3>Battleship knockout</h3></div>
+      <div class="tt"><span class="chip">Scheduled</span><h3>Biggest cash-out</h3></div>
       <div class="tw">Starts in <b class="num">4h 08m</b> &nbsp;·&nbsp; any buy-in from $1 to $5</div>
       <div class="tp num">$50<span>top three split</span></div>
       <div class="tbody">
-        <div class="pl"><span class="k">Format</span><span class="v">Single elimination</span></div>
-        <div class="pl"><span class="k">Seats</span><span class="v num">32</span></div>
+        <div class="pl"><span class="k">Game</span><span class="v">slither.io</span></div>
+        <div class="pl"><span class="k">Runs for</span><span class="v">2 hours</span></div>
         <div class="pl"><span class="k">Seats open</span><span class="v">30 minutes before</span></div>
       </div>
       <div class="tfoot">
-        <p class="tn">Win your bracket to advance. One loss and you are out.</p>
+        <p class="tn">The three largest single cash-outs in the window take the prize.</p>
         <button class="tgo alt" aria-pressed="false" onclick="remindMe(this)">Remind me</button>
       </div>
     </article>
@@ -469,6 +537,68 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
     <h2>How to play</h2>
     <div class="hg" id="hg"></div>
   </div>
+</main>
+
+<!-- ══ WALLET ══ -->
+<main id="wallet-screen" class="wrap">
+  <div class="head"><div><h2>Wallet</h2>
+    <div class="sub">Your USDC, on Solana. Deposits and withdrawals settle on-chain.</div></div></div>
+
+  <div class="wgrid">
+    <div class="panel">
+      <div class="bfig">
+        <div><div class="blab">Available</div><div class="bnum num" id="w-avail">$0.00</div></div>
+        <div><div class="blab">In play</div><div class="bnum num sm" id="w-inplay">$0.00</div></div>
+      </div>
+      <div class="brow">
+        <button class="btn pri" onclick="wq('Deposit')">Deposit</button>
+        <button class="btn sec" onclick="wq('Withdraw')">Withdraw</button>
+      </div>
+      <p class="note">The house takes <b>10%</b> of what you cash out. Nothing is
+        taken from a deposit, and nothing is taken if you leave with your buy-in.</p>
+    </div>
+
+    <div class="panel">
+      <div class="plab">Deposit address</div>
+      <div class="waddr" id="waddr2" onclick="copyAddr2(event)">
+        <code id="addr2"></code><span class="cp">Copy</span></div>
+      <p class="note">Send only <b>USDC on Solana</b>. Any other token, or the right
+        token on the wrong network, cannot be recovered.</p>
+      <div class="plab" style="margin-top:22px">Escrow</div>
+      <p class="note">Stakes sit in a published escrow wallet while a game is live.
+        <a class="lnk" href="#" onclick="return false">View escrow on Solscan</a></p>
+    </div>
+  </div>
+
+  <div class="head"><div><h2>Activity</h2>
+    <div class="sub">Every line settles on-chain and links to the transaction.</div></div></div>
+  <div class="tbl" id="w-activity"></div>
+</main>
+
+<!-- ══ STATS ══ -->
+<main id="stats-screen" class="wrap">
+  <div class="head"><div><h2>Stats</h2>
+    <div class="sub" id="s-sub"></div></div></div>
+  <div class="tiles" id="s-tiles"></div>
+
+  <div class="head"><div><h2>Profit and loss</h2>
+    <div class="sub">What each game returned after your buy-in and the house cut.</div></div>
+    <div class="sp"></div>
+    <button class="more" id="s-toggle" onclick="toggleChart()">Table</button>
+  </div>
+  <div class="panel chartwrap">
+    <div class="legend">
+      <span class="lg"><i style="background:#bd8420"></i>Up on the game</span>
+      <span class="lg"><i style="background:#6e8fd0"></i>Down on the game</span>
+    </div>
+    <div id="s-chart"></div>
+    <div class="tip" id="s-tip"></div>
+  </div>
+  <div class="tbl" id="s-table" hidden></div>
+
+  <div class="head"><div><h2>Where the money went</h2>
+    <div class="sub">Every figure below is derived from the same games, so they reconcile.</div></div></div>
+  <div class="panel"><div class="ledger" id="s-ledger"></div></div>
 </main>
 
 <main id="stub" class="wrap"><div class="stub">
@@ -550,12 +680,14 @@ const ART={
      stroke-dasharray="6 8" opacity=".55"/>
    <circle cx="228" cy="60" r="7" fill="${b}"/></svg>`,
 };
+/* slither.io is the only game that is actually playable. Everything else is
+   marked soon, which greys the card and takes it out of the tab order. */
 const GAMES=[
  {id:'snake',name:'slither.io',c:['#15251c','#c080ff'],live:14,type:'p',cap:30,real:1,
   d:'Grow by eating, cut other players off, and cash out before somebody cuts you off.'},
- {id:'agar',name:'agar.io',c:['#141f28','#65c8e8'],live:6,type:'p',cap:30,real:1,
+ {id:'agar',name:'agar.io',c:['#141f28','#65c8e8'],live:0,type:'p',cap:30,soon:1,
   d:'Absorb anything smaller than you, split to chase, and stay clear of anything bigger.'},
- {id:'rps',name:'Rock Paper Scissors',c:['#231a26','#b98ad4'],live:4,type:'m',cap:2,
+ {id:'rps',name:'Rock Paper Scissors',c:['#231a26','#b98ad4'],live:0,type:'m',cap:2,soon:1,
   d:'Best of five against a single opponent. Rounds are quick and settlement is instant.'},
  {id:'knockout',name:'Knockout',c:['#261c14','#e0a05c'],live:0,type:'m',cap:2,soon:1,
   d:'Last one standing in an arena that keeps shrinking.'},
@@ -566,13 +698,13 @@ const GAMES=[
  {id:'paper',name:'Paper.io',c:['#1e1826','#a887d6'],live:0,type:'p',cap:30,soon:1,
   d:'Claim ground by looping back home without anyone crossing your trail.'},
 ];
+/* Only games that exist can have lobbies open. */
 const LOBBIES=[
  {g:'snake',r:'NA',s:1.00,p:7,cap:30},
- {g:'rps',  r:'EU',s:2.00,p:1,cap:2,w:'40s'},
  {g:'snake',r:'NA',s:0.25,p:12,cap:30},
- {g:'agar', r:'EU',s:0.50,p:3,cap:30},
- {g:'rps',  r:'NA',s:5.00,p:2,cap:2},
+ {g:'snake',r:'EU',s:0.50,p:4,cap:30},
  {g:'snake',r:'EU',s:2.00,p:1,cap:30},
+ {g:'snake',r:'NA',s:5.00,p:2,cap:30},
 ];
 const STEPS=[0,0.25,0.50,1,2,5];
 let si=3, cur=null, order=GAMES.slice(), busy=false;
@@ -638,8 +770,88 @@ let R=null;
   }catch(e){ console.warn('[lobby-v2] Renderer failed to start:',e); R=null }
 })();
 
+/* The renderer's worth label reads moneyMode to decide between "$" and a SOL
+   to CAD conversion. The lobby is USDC, so worth already is dollars. */
+window.moneyMode='usdc';
+
+/* ── the slither card: one fixed still ───────────────────────────────────
+   Not a random scene. Every visitor sees the same picture: a big snake
+   mid-meal with a small one cutting across in front of it, worth labels
+   above both heads exactly as the game draws them. Nothing here uses
+   Math.random, so the card is identical on every load. */
+
+/* Walk a densely sampled curve, emitting a point every `step` units, so the
+   body ends up with the same segment spacing the server produces. */
+function resample(curve,step,max){
+  const segs=[]; let px=curve[0][0], py=curve[0][1];
+  segs.push(px,py);
+  for(let k=1;k<curve.length&&segs.length<max*2;k++){
+    let dx=curve[k][0]-px, dy=curve[k][1]-py, d=Math.hypot(dx,dy);
+    while(d>=step&&segs.length<max*2){
+      px+=dx/d*step; py+=dy/d*step; segs.push(px,py);
+      dx=curve[k][0]-px; dy=curve[k][1]-py; d=Math.hypot(dx,dy);
+    }
+  }
+  return segs;
+}
+/* Head first, tail last: u=0 is the head, so the body trails away behind it.
+   A travelling sine reads as a snake gliding; a closed arc just reads as a
+   ring, which is what the first attempt at this looked like. */
+function waveCurve(x0,x1,y0,amp,phase,waves,n){
+  const out=[];
+  for(let i=0;i<=n;i++){
+    const u=i/n;
+    out.push([x0+u*(x1-x0), y0+Math.sin(phase+u*Math.PI*waves)*amp]);
+  }
+  return out;
+}
+/* A straight run between two points with a perpendicular wobble, for a snake
+   travelling in any direction rather than along the x axis. */
+function lineCurve(x0,y0,x1,y1,amp,n){
+  const dx=x1-x0, dy=y1-y0, L=Math.hypot(dx,dy)||1, px=-dy/L, py=dx/L, out=[];
+  for(let i=0;i<=n;i++){
+    const u=i/n, w=Math.sin(u*Math.PI*1.6)*amp;
+    out.push([x0+dx*u+px*w, y0+dy*u+py*w]);
+  }
+  return out;
+}
+function mkSnake(id,color,segs,worth){
+  const n=segs.length>>1;
+  return {id,name:'',color,segs,
+    angle:Math.atan2(segs[1]-segs[3],segs[0]-segs[2]),
+    boosting:false,boostRamp:0,score:0,length:n,boostRatio:0,worth};
+}
+function stillSnakeWorld(){
+  const SP=C_.SNAKE_SEGMENT_SPACING;
+  /* The big one glides in from off the left edge, so the body runs past the
+     frame rather than stopping inside it. length drives the body radius, so
+     a long body is what makes it read as the rich snake. */
+  const big=resample(waveCurve(40,-210,2,50,0.5,2.1,600),SP,132);
+  /* The small one cuts straight across the big snake's path just ahead of
+     its mouth, head at the top so it reads as darting up and across. */
+  const small=resample(lineCurve(100,-38,122,68,7,220),SP,36);
+  const snakes=[
+    mkSnake('big','#c080ff',big,50.20),
+    mkSnake('cut','#65c8e8',small,1.00),
+  ];
+  /* A trail of food running into the big snake's mouth, plus a thin scatter
+     for depth. Fixed ids so the renderer seeds each pellet's wobble the same
+     way on every load. */
+  const P=[[54,20,'#80ff80'],[63,30,'#ffa060'],[58,10,'#eeee70'],
+           [72,18,'#ff9090'],[50,34,'#c080ff'],[70,38,'#80d0d0'],
+           [80,26,'#9099ff'],[64,46,'#80ff80'],[86,14,'#ffa060'],
+           [-92,-54,'#c080ff'],[-108,30,'#80ff80'],[-74,66,'#eeee70'],
+           [8,74,'#ff9090'],[-150,20,'#9099ff'],[-44,-68,'#80d0d0'],
+           [-16,-60,'#ffa060'],[-120,-16,'#ff4040'],[26,60,'#e030e0']];
+  const food=P.map((p,i)=>({id:900+i,x:p[0],y:p[1],color:p[2],
+    size:i<9?1.15:0.7,dropped:false,isGolden:false}));
+  return {snakes,cells:[],food,halfW:130,halfH:86,agar:false,
+    worldRadius:9999,leaderboard:[],mm:[],still:true};
+}
+
 let FID=1;
 function mkWorld(cv){
+  if(cv.dataset.game==='snake')return stillSnakeWorld();
   const w=cv.width,h=cv.height;
   const halfW=w/(2*CAM), halfH=h/(2*CAM);          /* world units on screen */
   const snakes=[],food=[];
@@ -765,11 +977,15 @@ function paintScene(cv,dt){
   if(!R)return;
   fit(cv);
   const wd=scene(cv), w=cv.width, h=cv.height;
-  if(dt)stepWorld(wd,dt);
+  if(dt&&!wd.still)stepWorld(wd,dt);
   R.canvas=cv; R.ctx=cv.getContext('2d');
   R._canvasW=w; R._canvasH=h; R._dpr=1;
   const cam=R.camera;
-  cam.scale=cam.targetScale=CAM; cam._scaleMid=CAM;
+  /* A still is a composition, so it has to frame the same way at any size.
+     Contain-fit its world box instead of using the fixed CAM, or the card
+     and the detail hero show different amounts of it. */
+  const S=wd.still?Math.min(w/(2*wd.halfW),h/(2*wd.halfH)):CAM;
+  cam.scale=cam.targetScale=S; cam._scaleMid=S;
   cam._w=w; cam._h=h; cam.worldX=cam.worldY=0;
   cam.x=w/2; cam.y=h/2;
   const ctx=R.ctx;
@@ -1049,6 +1265,200 @@ const NAV=[
  {id:'settings',t:'Settings',d:'Graphics, sound, region and account preferences.',
   p:'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2v.1a2 2 0 1 1-4 0v-.2a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0-1.2-2.9H3a2 2 0 1 1 0-4h.2a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3h.1A1.7 1.7 0 0 0 10.3 3v-.1a2 2 0 1 1 4 0V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 2-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1a1.7 1.7 0 0 0 1.6 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z'},
 ];
+/* ── the money model ─────────────────────────────────────────────────────
+   One list of games is the only source of numbers on the stats screen, so
+   the tiles, the chart and the ledger cannot disagree with each other.
+
+   The rules are the game's real ones:
+     cashed out   you receive 90% of your worth, the house keeps 10%
+     died         your worth went to whoever killed you; you get nothing,
+                  and no cut is taken because nothing was paid out
+   Net for a game is therefore what came back minus what you put in, which
+   is negative on every death and on any cash-out below your buy-in. */
+const RAKE=0.10;
+const SESSIONS=[
+ {d:'Jul 28',stake:1.00,worth:3.40, out:1},
+ {d:'Jul 29',stake:1.00,worth:0,    out:0},
+ {d:'Jul 30',stake:0.25,worth:1.80, out:1},
+ {d:'Jul 31',stake:2.00,worth:0,    out:0},
+ {d:'Aug 1', stake:1.00,worth:2.10, out:1},
+ {d:'Aug 2', stake:0.50,worth:0,    out:0},
+ {d:'Aug 3', stake:1.00,worth:6.80, out:1},
+ {d:'Aug 4', stake:2.00,worth:0,    out:0},
+ {d:'Aug 5', stake:0.25,worth:0.90, out:1},
+ {d:'Aug 6', stake:1.00,worth:0,    out:0},
+ {d:'Aug 7', stake:5.00,worth:12.40,out:1},
+ {d:'Aug 8', stake:1.00,worth:0,    out:0},
+ {d:'Aug 9', stake:0.50,worth:2.60, out:1},
+ {d:'Aug 10',stake:2.00,worth:1.50, out:1},
+ {d:'Aug 12',stake:1.00,worth:4.20, out:1},
+ {d:'Aug 13',stake:2.00,worth:0,    out:0},
+];
+const ROWS=SESSIONS.map(s=>{
+  const payout=s.out?s.worth*(1-RAKE):0;
+  const cut   =s.out?s.worth*RAKE:0;
+  return {...s,payout,cut,net:payout-s.stake};
+});
+const T=ROWS.reduce((a,r)=>({
+  staked:a.staked+r.stake, payout:a.payout+r.payout, cut:a.cut+r.cut,
+  wins:a.wins+(r.net>0?1:0), cashouts:a.cashouts+r.out,
+}),{staked:0,payout:0,cut:0,wins:0,cashouts:0});
+T.games=ROWS.length;
+T.net=T.payout-T.staked;
+T.best=Math.max(...ROWS.map(r=>r.payout));
+T.winRate=Math.round(T.wins/T.games*100);
+const money=n=>(n<0?'-$':'$')+Math.abs(n).toFixed(2);
+const signed=n=>(n>0?'+$':n<0?'-$':'$')+Math.abs(n).toFixed(2);
+
+function drawStats(){
+  document.getElementById('s-sub').innerHTML=
+    `<span class="num">${T.games}</span> games on slither.io, `+
+    `<span class="num">${T.cashouts}</span> of them cashed out.`;
+  document.getElementById('s-tiles').innerHTML=[
+    ['Games played',String(T.games),`${T.cashouts} cashed out, ${T.games-T.cashouts} lost`],
+    ['Win rate',T.winRate+'%',`${T.wins} up, ${T.games-T.wins} down`],
+    ['Net profit',signed(T.net),'after the house cut'],
+    ['Biggest cash-out',money(T.best),'paid to your wallet'],
+  ].map(t=>`<div class="tile"><div class="k">${t[0]}</div>
+      <div class="v num"${t[1][0]==='+'?' style="color:var(--money)"':''}>${t[1]}</div>
+      <div class="f">${t[2]}</div></div>`).join('');
+
+  document.getElementById('s-ledger').innerHTML=[
+    ['Buy-ins',money(-T.staked),'what you put in across '+T.games+' games'],
+    ['Returned to you',money(T.payout),'paid on-chain to your wallet'],
+    ['House cut',money(-T.cut),'10% of every cash-out, kept in escrow'],
+  ].map(r=>`<div class="lrow"><span class="k">${r[0]}</span>
+      <span class="d">${r[2]}</span><span class="v">${r[1]}</span></div>`).join('')
+    +`<div class="lrow tot"><span class="k">Net profit</span>
+      <span class="d">returned minus buy-ins</span>
+      <span class="v">${signed(T.net)}</span></div>`;
+
+  document.getElementById('s-table').innerHTML=
+    `<div class="tr hd"><span>Date</span><span>Result</span>
+     <span class="r c4">Buy-in</span><span class="r c3">House cut</span><span class="r">Net</span></div>`+
+    ROWS.map(r=>`<div class="tr"><span class="num">${r.d}</span>
+      <span><span class="tag">${r.out?'Cashed out':'Knocked out'}</span></span>
+      <span class="r num neg c4">${money(r.stake)}</span>
+      <span class="r num neg c3">${r.cut?money(r.cut):'—'}</span>
+      <span class="r num ${r.net>0?'pos':'neg'}">${signed(r.net)}</span></div>`).join('');
+  drawChart();
+}
+
+/* Diverging bars around a zero line. Sign is carried by position first and
+   colour second, so the chart still reads without colour vision. The pair
+   was checked for colourblind separation rather than picked by eye; the
+   usual green/red fails deuteranopia badly. */
+function drawChart(){
+  const W=980,H=232,PL=52,PR=12,PT=18,PB=30;
+  const iw=W-PL-PR, ih=H-PT-PB;
+  const nets=ROWS.map(r=>r.net);
+  const hi=Math.max(...nets,0), lo=Math.min(...nets,0);
+  const pad=(hi-lo)*0.12, top=hi+pad, bot=lo-pad;
+  const y=v=>PT+ih*(top-v)/(top-bot);
+  const zy=y(0);
+  const step=iw/ROWS.length, bw=Math.min(30,step-6);
+  const bestI=nets.indexOf(Math.max(...nets)), worstI=nets.indexOf(Math.min(...nets));
+
+  const ticks=[];
+  for(let i=0;i<=4;i++){const v=bot+(top-bot)*i/4;
+    ticks.push(`<line x1="${PL}" x2="${W-PR}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}"
+      stroke="var(--s2)" stroke-width="1"/>
+      <text x="${PL-10}" y="${(y(v)+4).toFixed(1)}" text-anchor="end" font-size="11"
+        fill="var(--tx3)" font-family="var(--fm)">${v>=0?'':'-'}$${Math.abs(v).toFixed(0)}</text>`);}
+
+  const bars=ROWS.map((r,i)=>{
+    const x=PL+i*step+(step-bw)/2, up=r.net>=0;
+    const h=Math.max(2,Math.abs(zy-y(r.net)));
+    const by=up?zy-h:zy;
+    return `<path class="bar" d="${barPath(x,by,bw,h,4,up)}"
+      fill="${up?'#bd8420':'#6e8fd0'}" data-i="${i}"/>`;
+  });
+
+  const labels=[bestI,worstI].map(i=>{
+    const r=ROWS[i], up=r.net>=0, x=PL+i*step+step/2;
+    const ly=up?y(r.net)-9:y(r.net)+17;
+    return `<text x="${x.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle" font-size="11.5"
+      font-family="var(--fm)" font-weight="600" fill="var(--tx2)">${signed(r.net)}</text>`;
+  });
+
+  const dates=ROWS.map((r,i)=>i%3?'':
+    `<text x="${(PL+i*step+step/2).toFixed(1)}" y="${H-8}" text-anchor="middle"
+      font-size="11" fill="var(--tx3)">${r.d}</text>`);
+
+  document.getElementById('s-chart').innerHTML=
+    `<svg viewBox="0 0 ${W} ${H}" role="img"
+       aria-label="Profit and loss for each of ${T.games} games. Net ${signed(T.net)}.">
+      ${ticks.join('')}
+      <line x1="${PL}" x2="${W-PR}" y1="${zy.toFixed(1)}" y2="${zy.toFixed(1)}"
+        stroke="var(--tx3)" stroke-width="1.5"/>
+      ${bars.join('')}${labels.join('')}${dates.join('')}
+    </svg>`;
+  wireTip();
+}
+/* Square where it meets the baseline, rounded at the far end, so the bar
+   reads as growing out of zero rather than floating. */
+function barPath(x,yy,w,h,r,up){
+  r=Math.min(r,w/2,h);
+  return up
+    ? `M${x} ${yy+h} L${x} ${yy+r} Q${x} ${yy} ${x+r} ${yy} L${x+w-r} ${yy}
+       Q${x+w} ${yy} ${x+w} ${yy+r} L${x+w} ${yy+h} Z`
+    : `M${x} ${yy} L${x} ${yy+h-r} Q${x} ${yy+h} ${x+r} ${yy+h} L${x+w-r} ${yy+h}
+       Q${x+w} ${yy+h} ${x+w} ${yy+h-r} L${x+w} ${yy} Z`;
+}
+function wireTip(){
+  const wrap=document.querySelector('.chartwrap'), tip=document.getElementById('s-tip');
+  wrap.querySelectorAll('.bar').forEach(b=>{
+    b.addEventListener('mouseenter',()=>{
+      const r=ROWS[+b.dataset.i], bb=b.getBoundingClientRect(), wb=wrap.getBoundingClientRect();
+      tip.innerHTML=`${r.d} &nbsp;·&nbsp; ${r.out?'cashed out':'knocked out'}<br>`+
+        `Buy-in <b>${money(r.stake)}</b>`+(r.out?` &nbsp; back <b>${money(r.payout)}</b>`:'')+
+        `<br>Net <b>${signed(r.net)}</b>`;
+      tip.classList.add('on');
+      tip.style.left=Math.max(0,Math.min(wb.width-tip.offsetWidth,
+        bb.left-wb.left+bb.width/2-tip.offsetWidth/2))+'px';
+      tip.style.top=(bb.top-wb.top-tip.offsetHeight-10)+'px';
+    });
+    b.addEventListener('mouseleave',()=>tip.classList.remove('on'));
+  });
+}
+function toggleChart(){
+  const t=document.getElementById('s-table'), c=document.querySelector('.chartwrap');
+  const showTable=t.hidden;
+  t.hidden=!showTable; c.style.display=showTable?'none':'';
+  document.getElementById('s-toggle').textContent=showTable?'Chart':'Table';
+}
+
+/* ── wallet screen ──────────────────────────────────────────────────── */
+function drawWalletPage(){
+  document.getElementById('w-avail').textContent=money(12.40);
+  document.getElementById('w-inplay').textContent=money(0);
+  document.getElementById('addr2').textContent=ADDR;
+  /* Every game is a buy-in leaving the wallet; a cash-out is a second,
+     separate transaction coming back. One line per on-chain movement, not
+     one line per game, or the feed would not add up to the balance. */
+  const acts=[];
+  ROWS.forEach(r=>{
+    acts.push({d:r.d,t:'Buy-in',v:-r.stake});
+    if(r.out&&r.payout>0)acts.push({d:r.d,t:'Cash-out',v:r.payout});
+  });
+  document.getElementById('w-activity').innerHTML=
+    `<div class="tr hd"><span>Date</span><span>Type</span><span class="r">Amount</span>
+     <span class="r c3">Status</span><span class="r c4">Proof</span></div>`+
+    acts.reverse().slice(0,10).map(a=>`<div class="tr"><span class="num">${a.d}</span>
+        <span>${a.t}</span>
+        <span class="r num ${a.v>0?'pos':'neg'}">${signed(a.v)}</span>
+        <span class="r c3"><span class="tag">Settled</span></span>
+        <span class="r c4"><a class="lnk" href="#" onclick="return false">Tx</a></span></div>`).join('');
+}
+function wq(tab){ wtab=tab; drawWallet(); wcard.classList.add('on'); }
+function copyAddr2(e){
+  e.stopPropagation();
+  const el=document.getElementById('waddr2'), lbl=el.querySelector('.cp');
+  try{navigator.clipboard.writeText(ADDR)}catch(_){}
+  el.classList.add('done'); lbl.textContent='Copied';
+  setTimeout(()=>{el.classList.remove('done');lbl.textContent='Copy'},1400);
+}
+
 let route='play';
 function drawNav(){
   document.getElementById('nav').innerHTML=NAV.map(n=>
@@ -1058,11 +1468,14 @@ function drawNav(){
 }
 function go(id){
   route=id; drawNav();
-  const isPlay=id==='play';
-  home.style.display=isPlay?'block':'none';
-  detail.style.display='none';
-  stub.style.display=isPlay?'none':'block';
-  if(!isPlay){
+  const W=document.getElementById('wallet-screen'), S=document.getElementById('stats-screen');
+  home.style.display=detail.style.display=stub.style.display='none';
+  W.style.display=S.style.display='none';
+  if(id==='play')       home.style.display='block';
+  else if(id==='wallet'){W.style.display='block'; drawWalletPage()}
+  else if(id==='stats') {S.style.display='block'; drawStats()}
+  else{
+    stub.style.display='block';
     const n=NAV.find(x=>x.id===id);
     document.getElementById('stub-t').textContent=n.t;
     document.getElementById('stub-d').textContent=n.d;
