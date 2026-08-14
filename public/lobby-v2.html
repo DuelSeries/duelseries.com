@@ -73,33 +73,55 @@ header{position:sticky;top:0;z-index:50;background:rgba(10,11,13,.82);
 /* Hangs off the balance in the header rather than taking a slot on the
    page, so deposit, withdraw and the address are one click away without
    adding a permanent box to the layout. */
-.walletbtn{display:flex;align-items:center;gap:9px;padding:6px 10px;
-  border-radius:9px;cursor:pointer;transition:.15s}
-.walletbtn:hover{background:var(--s1)}
-.walletbtn .chev{font-size:10px;color:var(--tx3);transition:.2s}
-.walletbtn.open .chev{transform:rotate(180deg)}
+/* Two separate boxes: the balance is a readout, Wallet is the action. */
+.balbox{display:flex;flex-direction:column;justify-content:center;
+  background:var(--s1);border-radius:10px;padding:7px 15px;line-height:1.25}
+.balbox .k{font-size:10.5px;color:var(--tx3)}
+.balbox .v{font-size:15px;font-weight:600;color:var(--tx)}
+.wbtn{display:flex;align-items:center;gap:8px;background:#12b981;color:#03150e;
+  font-weight:650;font-size:13.5px;padding:10px 16px;border-radius:10px;transition:.15s}
+.wbtn:hover{background:#15cf90;transform:translateY(-1px)}
+.wbtn svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2;
+  stroke-linecap:round;stroke-linejoin:round}
 .wrapw{position:relative}
-.wcard{position:absolute;right:0;top:calc(100% + 10px);width:292px;
-  background:var(--s2);border-radius:16px;padding:20px;z-index:60;
-  box-shadow:0 18px 50px rgba(0,0,0,.55);opacity:0;visibility:hidden;
+.wcard{position:absolute;right:0;top:calc(100% + 10px);width:352px;
+  background:var(--s2);border-radius:16px;z-index:60;overflow:hidden;
+  box-shadow:0 20px 56px rgba(0,0,0,.6);opacity:0;visibility:hidden;
   transform:translateY(-6px);transition:.18s cubic-bezier(.4,0,.2,1)}
 .wcard.on{opacity:1;visibility:visible;transform:none}
-.wc-k{font-size:12px;color:var(--tx3)}
-.wc-v{font-size:30px;font-weight:650;color:var(--money);letter-spacing:-1px;margin-top:2px}
-.wc-usd{font-size:12px;color:var(--tx3);margin-top:3px}
-.wc-addr{display:flex;align-items:center;gap:8px;background:var(--bg);
-  border-radius:9px;padding:10px 12px;margin:18px 0 14px;cursor:pointer;transition:.15s}
-.wc-addr:hover{background:#06070a}
-.wc-addr code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;
-  color:var(--tx2);flex:1;letter-spacing:-.2px}
-.wc-addr .cp{font-size:11px;color:var(--tx3);font-weight:600;white-space:nowrap}
-.wc-addr.done .cp{color:var(--live)}
-.wc-btns{display:flex;gap:8px}
-.wc-btns button{flex:1;padding:11px;border-radius:9px;font-size:13px;font-weight:600;transition:.15s}
-.wc-dep{background:var(--bone);color:#0a0b0d}
-.wc-wd{background:var(--s3);color:var(--tx)}
-.wc-btns button:hover{transform:translateY(-1px)}
-.wc-note{font-size:11px;color:var(--tx3);margin-top:13px;line-height:1.6;text-align:center}
+.wtabs{display:flex;gap:2px;padding:6px;background:var(--s1)}
+.wtab{flex:1;padding:8px 4px;border-radius:8px;font-size:11.5px;font-weight:600;
+  color:var(--tx3);transition:.14s;white-space:nowrap}
+.wtab:hover{color:var(--tx2)}
+.wtab.on{background:var(--s3);color:var(--tx)}
+.wbody{padding:18px}
+.wtop{display:flex;align-items:flex-end;gap:10px;margin-bottom:16px}
+.wtop .k{font-size:11.5px;color:var(--tx3)}
+.wtop .v{font-size:27px;font-weight:650;color:var(--money);letter-spacing:-1px}
+.wtop .u{font-size:11.5px;color:var(--tx3);margin-left:auto;padding-bottom:5px}
+.wrow{display:flex;gap:8px;margin-bottom:11px}
+.wsel{flex:1}
+.wlab{font-size:11px;color:var(--tx3);margin-bottom:5px}
+.wpick{display:flex;align-items:center;gap:7px;background:var(--bg);
+  border-radius:9px;padding:9px 11px;font-size:13px;font-weight:550;cursor:pointer;transition:.14s}
+.wpick:hover{background:#06070a}
+.wpick .d{width:8px;height:8px;border-radius:50%;background:var(--live);flex:0 0 auto}
+.wpick .c{margin-left:auto;font-size:9px;color:var(--tx3)}
+.winput{width:100%;background:var(--bg);border:none;border-radius:9px;padding:11px;
+  color:var(--tx);font-family:inherit;font-size:13.5px;outline:none}
+.winput::placeholder{color:var(--tx3)}
+.waddr{display:flex;align-items:center;gap:9px;background:var(--bg);
+  border-radius:9px;padding:11px 12px;cursor:pointer;transition:.14s}
+.waddr:hover{background:#06070a}
+.waddr code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11.5px;
+  color:var(--tx2);flex:1;word-break:break-all;line-height:1.5}
+.waddr .cp{font-size:11px;color:var(--tx3);font-weight:600;white-space:nowrap}
+.waddr.done .cp{color:var(--live)}
+.wgo{width:100%;background:#12b981;color:#03150e;font-weight:650;font-size:14px;
+  padding:12px;border-radius:10px;margin-top:12px;transition:.15s}
+.wgo:hover{background:#15cf90}
+.wnote{font-size:11px;color:var(--tx3);margin-top:12px;line-height:1.65}
+.wnote b{color:var(--tx2);font-weight:600}
 
 /* ── type ───────────────────────────────────────────────────────────── */
 h2{font-size:22px;font-weight:650;letter-spacing:-.5px}
@@ -268,23 +290,21 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
   <div class="sp"></div>
   <nav class="nav" id="nav"></nav>
   <div class="sp"></div>
+  <div class="balbox"><span class="k">Balance</span><span class="v num">$12.40</span></div>
   <div class="wrapw">
-    <div class="walletbtn" id="wbtn" onclick="toggleWallet(event)">
-      <div class="bal"><div class="k">Balance</div><div class="v num">$12.40</div></div>
-      <span class="chev">&#9660;</span>
-    </div>
+    <button class="wbtn" id="wbtn" onclick="toggleWallet(event)">
+      <svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2H5a2 2 0 0 1-2-2m14 6h.01"/></svg>
+      Wallet
+    </button>
     <div class="wcard" id="wcard">
-      <div class="wc-k">Your balance</div>
-      <div class="wc-v num">$12.40</div>
-      <div class="wc-usd">12.40 USDC on Solana</div>
-      <div class="wc-addr" id="waddr" onclick="copyAddr(event)">
-        <code>C5cn…H3m9</code><span class="cp">Copy</span>
+      <div class="wtabs" id="wtabs"></div>
+      <div class="wbody">
+        <div class="wtop">
+          <div><div class="k">Your balance</div><div class="v num">$12.40</div></div>
+          <div class="u">12.40 USDC</div>
+        </div>
+        <div id="wpane"></div>
       </div>
-      <div class="wc-btns">
-        <button class="wc-dep">Deposit</button>
-        <button class="wc-wd">Withdraw</button>
-      </div>
-      <div class="wc-note">Withdrawals go straight to your own wallet.</div>
     </div>
   </div>
   <div class="av">OK</div>
@@ -573,30 +593,78 @@ function mkWorld(cv){
 }
 /* Same movement rule the server uses: turn toward a target at a capped rate,
    step the head forward, then follow-the-leader down the body. */
+/* Nothing teleports and nothing collides. Actors steer away from each other
+   before they touch, and are free to wander off screen because their next
+   target is always back inside the view, so they come back on their own. */
+function respawnFood(wd,f){
+  f.x=(Math.random()*2-1)*wd.halfW*1.15;
+  f.y=(Math.random()*2-1)*wd.halfH*1.15;
+  f.id=FID++;                       /* new id so the renderer re-seeds its wobble */
+}
 function stepWorld(wd,dt){
   const sp=C_.SNAKE_SEGMENT_SPACING;
-  for(const c of wd.cells){
+
+  /* agar cells: separate on contact, drift on, eat what they pass over */
+  for(let i=0;i<wd.cells.length;i++){
+    const c=wd.cells[i];
+    for(let j=i+1;j<wd.cells.length;j++){
+      const o=wd.cells[j];
+      const dx=o.x-c.x, dy=o.y-c.y, d=Math.hypot(dx,dy)||1, min=c.r+o.r+6;
+      if(d<min){
+        const push=(min-d)/d*0.5;
+        c.x-=dx*push; c.y-=dy*push; o.x+=dx*push; o.y+=dy*push;
+        c.vx-=dx/d*0.06; c.vy-=dy/d*0.06; o.vx+=dx/d*0.06; o.vy+=dy/d*0.06;
+      }
+    }
     c.x+=c.vx*dt; c.y+=c.vy*dt;
-    if(c.x<-wd.halfW||c.x>wd.halfW)c.vx*=-1;
-    if(c.y<-wd.halfH||c.y>wd.halfH)c.vy*=-1;
+    /* steer back rather than bounce, so it never snaps direction */
+    if(c.x<-wd.halfW*1.1)c.vx+=0.02*dt; if(c.x>wd.halfW*1.1)c.vx-=0.02*dt;
+    if(c.y<-wd.halfH*1.1)c.vy+=0.02*dt; if(c.y>wd.halfH*1.1)c.vy-=0.02*dt;
+    const sp2=Math.hypot(c.vx,c.vy);
+    if(sp2>0.6){c.vx=c.vx/sp2*0.6;c.vy=c.vy/sp2*0.6}
+    for(const f of wd.food){
+      const dx=c.x-f.x, dy=c.y-f.y;
+      if(dx*dx+dy*dy < (c.r+3)*(c.r+3)){ respawnFood(wd,f); c.r+=0.12; }
+    }
+    if(c.r>34)c.r=34;
   }
+
+  const AVOID=C_.SNAKE_HEAD_RADIUS*5;
   for(const s of wd.snakes){
-    if(--s._t<=0){ s._tx=(Math.random()*2-1)*wd.halfW; s._ty=(Math.random()*2-1)*wd.halfH;
-      s._t=70+Math.random()*110; }
-    let d=Math.atan2(s._ty-s.segs[1],s._tx-s.segs[0])-s._a;
+    if(--s._t<=0){ s._tx=(Math.random()*2-1)*wd.halfW*0.85;
+      s._ty=(Math.random()*2-1)*wd.halfH*0.85; s._t=70+Math.random()*110; }
+    const hx0=s.segs[0], hy0=s.segs[1];
+
+    /* repulsion from every other snake's body, sampled every 4th point */
+    let ax=0, ay=0;
+    for(const o of wd.snakes){
+      if(o===s)continue;
+      for(let i=0;i<o.segs.length;i+=8){
+        const dx=hx0-o.segs[i], dy=hy0-o.segs[i+1];
+        const d2=dx*dx+dy*dy;
+        if(d2<AVOID*AVOID&&d2>1){ const d=Math.sqrt(d2), w=1-d/AVOID;
+          ax+=dx/d*w; ay+=dy/d*w; }
+      }
+    }
+    let tx=s._tx, ty=s._ty;
+    if(ax||ay){ const m=Math.hypot(ax,ay); tx=hx0+ax/m*60; ty=hy0+ay/m*60; }
+
+    let d=Math.atan2(ty-hy0,tx-hx0)-s._a;
     while(d>Math.PI)d-=6.283; while(d<-Math.PI)d+=6.283;
     s._a+=Math.max(-0.055,Math.min(0.055,d))*dt;
     s.angle=s._a;
-    let hx=s.segs[0]+Math.cos(s._a)*1.9*dt, hy=s.segs[1]+Math.sin(s._a)*1.9*dt;
-    const lim=1.25;
-    if(hx<-wd.halfW*lim)hx=wd.halfW*lim; if(hx>wd.halfW*lim)hx=-wd.halfW*lim;
-    if(hy<-wd.halfH*lim)hy=wd.halfH*lim; if(hy>wd.halfH*lim)hy=-wd.halfH*lim;
-    s.segs[0]=hx; s.segs[1]=hy;
+    s.segs[0]=hx0+Math.cos(s._a)*1.9*dt;
+    s.segs[1]=hy0+Math.sin(s._a)*1.9*dt;
     const n=s.segs.length>>1;
     for(let i=1;i<n;i++){
       const dx=s.segs[(i-1)*2]-s.segs[i*2], dy=s.segs[(i-1)*2+1]-s.segs[i*2+1];
       const dd=Math.hypot(dx,dy)||1;
       if(dd>sp){ s.segs[i*2]+=dx/dd*(dd-sp); s.segs[i*2+1]+=dy/dd*(dd-sp); }
+    }
+    const eat=C_.SNAKE_HEAD_RADIUS+4;
+    for(const f of wd.food){
+      const dx=s.segs[0]-f.x, dy=s.segs[1]-f.y;
+      if(dx*dx+dy*dy<eat*eat)respawnFood(wd,f);
     }
   }
 }
@@ -655,19 +723,71 @@ function paintScene(cv,dt){
 const SCENES=new Map();
 function scene(cv){ let s=SCENES.get(cv); if(!s){s=mkWorld(cv);SCENES.set(cv,s)} return s }
 
+/* Lobby-row swatches are a still, zoomed-in crop rather than a tiny scene:
+   at 34px a whole world reads as noise. slither gets a head filling the
+   frame, agar gets a named cell cropped by the edge. Same backgrounds. */
+function paintSwatch(cv){
+  if(!R)return;
+  const w=cv.width,h=cv.height,game=cv.dataset.game;
+  R.canvas=cv; R.ctx=cv.getContext('2d');
+  R._canvasW=w; R._canvasH=h; R._dpr=1;
+  const ctx=R.ctx, cam=R.camera;
+  const S=game==='agar'?1.0:2.3;
+  cam.scale=cam.targetScale=cam._scaleMid=S;
+  cam._w=w; cam._h=h; cam.worldX=cam.worldY=0;
+  cam.x=w/2; cam.y=h/2;
+  ctx.setTransform(1,0,0,1,0,0);
+  if(R.snakeGL&&R.snakeGL.ok)R.snakeGL.ensureSize(w,h);
+  if(R.foodGL&&R.foodGL.ok)R.foodGL.ensureSize(w,h);
+
+  if(game==='agar'){
+    ctx.fillStyle='#f0f4ff'; ctx.fillRect(0,0,w,h);
+    cam.apply(ctx,1);
+    const G=60,L=w/S,T=h/S;
+    ctx.strokeStyle='rgba(99,102,241,0.13)'; ctx.lineWidth=1/S;
+    ctx.beginPath();
+    for(let x=-Math.ceil(L/G)*G;x<=L;x+=G){ctx.moveTo(x,-T);ctx.lineTo(x,T)}
+    for(let y=-Math.ceil(T/G)*G;y<=T;y+=G){ctx.moveTo(-L,y);ctx.lineTo(L,y)}
+    ctx.stroke();
+    const r=h/S*0.62, cy=h/S*0.30;
+    ctx.fillStyle='#5aa8f0';
+    ctx.beginPath(); ctx.arc(0,cy,r,0,6.284); ctx.fill();
+    ctx.strokeStyle='rgba(0,0,0,.30)'; ctx.lineWidth=r*0.10;
+    ctx.beginPath(); ctx.arc(0,cy,r-ctx.lineWidth/2,0,6.284); ctx.stroke();
+    ctx.fillStyle='#fff'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.font='600 '+(r*0.42)+'px '+getComputedStyle(document.body).fontFamily;
+    ctx.fillText('you',0,cy);
+  }else{
+    ctx.fillStyle='#070707'; ctx.fillRect(0,0,w,h);
+    R.hexGrid.draw(ctx,cam,1);
+    cam.apply(ctx,1);
+    const n=14, sp=C_.SNAKE_SEGMENT_SPACING, segs=new Array(n*2);
+    for(let i=0;i<n;i++){ segs[i*2]=6-i*sp; segs[i*2+1]=Math.sin(i*0.42)*2.2 }
+    const s={id:'sw',name:'',color:'#c080ff',segs,angle:0,boosting:false,
+      boostRamp:0,score:0,length:n,boostRatio:0,worth:0};
+    const useGL=R._glMode&&R.snakeGL&&R.snakeGL.ok;
+    if(useGL)R.snakeGL.beginFrame();
+    R._drawSnakeBody(ctx,s,false);
+    if(useGL){ R.snakeGL.endFrame(); ctx.setTransform(1,0,0,1,0,0);
+      R.snakeGL.compositeTo(ctx); cam.apply(ctx,1); }
+    R._drawSnakeOverlay(ctx,s,false);
+  }
+  cam.reset(ctx,1);
+}
+
 /* The live-render cards need the game's own modules, which only resolve when
    this page is served by the app. Opened straight off disk the script tags
    404, Renderer never constructs, and the canvas would sit there black. Fall
    back to the drawn art in that case so a card is never an empty box. */
-function art(g,w,h,anim){
+function art(g,w,h,anim,sw){
   if(!g.real||!R)return ART[g.id](g.c[0],g.c[1]);
-  return `<canvas data-game="${g.id}"${anim?' data-anim="1"':''}
+  return `<canvas data-game="${g.id}"${anim?' data-anim="1"':''}${sw?' data-swatch="1"':''}
     width="${w||262}" height="${h||172}"
     style="width:100%;height:100%;display:block"></canvas>`;
 }
 function repaintAll(){
   SCENES.clear();
-  document.querySelectorAll('canvas[data-game]').forEach(cv=>{try{paintScene(cv,0)}catch(e){}});
+  document.querySelectorAll('canvas[data-game]').forEach(cv=>{try{cv.dataset.swatch?paintSwatch(cv):paintScene(cv,0)}catch(e){}});
 }
 /* Only the big cards move. The lobby-row swatches are painted once and left
    still, so a busy list is not running a dozen simulations. */
@@ -709,7 +829,7 @@ function spin(d){
 function lrow(l){
   const g=G(l.g), full=l.p>=l.cap;
   return `<div class="lr">
-    <div class="lswatch">${art(g,68,68)}</div>
+    <div class="lswatch">${art(g,68,68,0,1)}</div>
     <span class="lname">${g.name}</span>
     <span class="lreg">${l.r}</span>
     <span class="lstake num">${cash(l.s)}</span>
@@ -812,28 +932,77 @@ function go(id){
   scrollTo(0,0);
 }
 
-function toggleWallet(e){
-  e.stopPropagation();
-  wcard.classList.toggle('on');
-  wbtn.classList.toggle('open');
+/* ── wallet ──────────────────────────────────────────────────────────────
+   Currency and network are pickers rather than fixed text because the
+   deposit address is only valid for one pair, and sending the right token
+   on the wrong chain is the most common way people lose funds. */
+const ADDR='C5cnQ7v2mK4pR9hT1xW6bY8dL3nF5gJ0sA2eU4iO7H3m9';
+const WTABS=['Deposit','Withdraw','Redeem','Buy crypto','Tip'];
+let wtab='Deposit';
+function pick(lab,val,live){
+  return `<div class="wsel"><div class="wlab">${lab}</div>
+    <div class="wpick">${live?'<span class="d"></span>':''}${val}<span class="c">&#9660;</span></div></div>`;
 }
+function wpaneHTML(){
+  if(wtab==='Deposit')return `
+    <div class="wrow">${pick('Currency','USDC')}${pick('Network','Solana',1)}</div>
+    <div class="wlab" style="margin-top:4px">Deposit address</div>
+    <div class="waddr" id="waddr" onclick="copyAddr(event)">
+      <code>${ADDR}</code><span class="cp">Copy</span></div>
+    <div class="wnote">Send only <b>USDC on Solana</b> to this address. Anything
+      else, or the right token on the wrong network, cannot be recovered.</div>`;
+  if(wtab==='Withdraw')return `
+    <div class="wrow">${pick('Currency','USDC')}${pick('Network','Solana',1)}</div>
+    <div class="wlab">Amount</div>
+    <input class="winput" placeholder="0.00" style="margin-bottom:11px">
+    <div class="wlab">Destination address</div>
+    <input class="winput" placeholder="Your Solana wallet">
+    <button class="wgo">Withdraw</button>
+    <div class="wnote">Goes straight to your own wallet. Network fee is
+      deducted from the amount.</div>`;
+  if(wtab==='Redeem')return `
+    <div class="wlab">Redeem code</div>
+    <input class="winput" placeholder="XXXX-XXXX-XXXX">
+    <button class="wgo">Redeem</button>
+    <div class="wnote">Credits land in your balance straight away.</div>`;
+  if(wtab==='Buy crypto')return `
+    <div class="wrow">${pick('Pay with','Card')}${pick('Receive','USDC')}</div>
+    <div class="wlab">Amount in USD</div>
+    <input class="winput" placeholder="20.00">
+    <button class="wgo">Continue</button>
+    <div class="wnote">Handled by a licensed provider. They run the identity
+      check and send USDC to your wallet.</div>`;
+  return `
+    <div class="wlab">Send to</div>
+    <input class="winput" placeholder="Player name" style="margin-bottom:11px">
+    <div class="wrow">${pick('Currency','USDC')}</div>
+    <div class="wlab">Amount</div>
+    <input class="winput" placeholder="0.00">
+    <button class="wgo">Send tip</button>
+    <div class="wnote">Tips are on-chain and cannot be reversed.</div>`;
+}
+function drawWallet(){
+  document.getElementById('wtabs').innerHTML=WTABS.map(t=>
+    `<button class="wtab${t===wtab?' on':''}" onclick="setWTab('${t}')">${t}</button>`).join('');
+  document.getElementById('wpane').innerHTML=wpaneHTML();
+}
+function setWTab(t){wtab=t;drawWallet()}
+function toggleWallet(e){ e.stopPropagation(); wcard.classList.toggle('on'); }
 function copyAddr(e){
   e.stopPropagation();
   const el=document.getElementById('waddr'), lbl=el.querySelector('.cp');
-  try{navigator.clipboard.writeText('C5cn0000000000000000000000000000000000H3m9')}catch(_){}
+  try{navigator.clipboard.writeText(ADDR)}catch(_){}
   el.classList.add('done'); lbl.textContent='Copied';
   setTimeout(()=>{el.classList.remove('done');lbl.textContent='Copy'},1400);
 }
-document.addEventListener('click',()=>{
-  wcard.classList.remove('on'); wbtn.classList.remove('open');
-});
+document.addEventListener('click',()=>wcard.classList.remove('on'));
 document.getElementById('wcard').addEventListener('click',e=>e.stopPropagation());
 
 let t=38*60+59;
 setInterval(()=>{if(t>0)t--;document.getElementById('cd').textContent=
   String(Math.floor(t/60)).padStart(2,'0')+':'+String(t%60).padStart(2,'0')},1000);
 
-drawNav();drawRail();drawLob();
+drawNav();drawWallet();drawRail();drawLob();
 </script>
 </body>
 </html>
