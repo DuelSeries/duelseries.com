@@ -561,7 +561,7 @@ function mkWorld(cv){
       color:['#c080ff','#9099ff','#80d0d0','#80ff80','#eeee70','#ffa060','#ff9090','#ff4040','#e030e0']
         [Math.floor(Math.random()*9)],
       size:0.5+Math.random()*0.4,dropped:false,isGolden:false});
-  return {snakes,cells,food,halfW,halfH,worldRadius:9999,leaderboard:[],mm:[]};
+  return {snakes,cells,food,halfW,halfH,agar:cv.dataset.game==='agar',worldRadius:9999,leaderboard:[],mm:[]};
 }
 /* Same movement rule the server uses: turn toward a target at a capped rate,
    step the head forward, then follow-the-leader down the body. */
@@ -604,12 +604,31 @@ function paintScene(cv,dt){
   cam.x=w/2; cam.y=h/2;
   const ctx=R.ctx;
   ctx.setTransform(1,0,0,1,0,0);
-  ctx.fillStyle='#070707'; ctx.fillRect(0,0,w,h);
   if(R.snakeGL&&R.snakeGL.ok)R.snakeGL.ensureSize(w,h);
   if(R.foodGL&&R.foodGL.ok)R.foodGL.ensureSize(w,h);
-  R.hexGrid.draw(ctx,cam,1);
-  cam.apply(ctx,1);
-  R._drawFood(ctx,wd.food,cam);
+  if(wd.agar){
+    /* agar.io does NOT use the hex background. Its own renderer paints
+       #f0f4ff with a 60-unit grid at rgba(99,102,241,.13) and its food is
+       plain filled discs, so that is what the card shows. Values read
+       straight out of public/js/agar.js. */
+    ctx.fillStyle='#f0f4ff'; ctx.fillRect(0,0,w,h);
+    cam.apply(ctx,1);
+    const G=60, L=wd.halfW*1.3, T=wd.halfH*1.3;
+    ctx.strokeStyle='rgba(99,102,241,0.13)'; ctx.lineWidth=1/CAM;
+    ctx.beginPath();
+    for(let x=-Math.ceil(L/G)*G;x<=L;x+=G){ctx.moveTo(x,-T);ctx.lineTo(x,T)}
+    for(let y=-Math.ceil(T/G)*G;y<=T;y+=G){ctx.moveTo(-L,y);ctx.lineTo(L,y)}
+    ctx.stroke();
+    for(const f of wd.food){
+      ctx.fillStyle=f.color; ctx.beginPath();
+      ctx.arc(f.x,f.y,C_.FOOD_RADIUS*f.size*1.6,0,6.284); ctx.fill();
+    }
+  }else{
+    ctx.fillStyle='#070707'; ctx.fillRect(0,0,w,h);
+    R.hexGrid.draw(ctx,cam,1);
+    cam.apply(ctx,1);
+    R._drawFood(ctx,wd.food,cam);
+  }
   /* agar cells: a filled disc with a darker rim, which is what the cell game
      draws. Same background and same food as above, so only the actors differ. */
   for(const c of wd.cells){
