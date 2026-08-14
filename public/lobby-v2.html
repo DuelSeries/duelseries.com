@@ -520,12 +520,20 @@ const C_=(typeof CONSTANTS!=='undefined')?CONSTANTS:{SNAKE_SEGMENT_SPACING:3,
   SNAKE_MIN_SEGMENTS:10,SNAKE_SC_SEGS:106,SNAKE_HEAD_RADIUS:10,FOOD_RADIUS:3};
 
 let R=null;
-(()=>{ try{
-  const d=document.createElement('canvas'); d.width=d.height=8;
-  R=new Renderer(d);
-  R.resize=function(){};            /* stop it sizing to the window */
-  R._dpr=1;
-}catch(e){ R=null } })();
+(()=>{
+  if(typeof Renderer==='undefined'||typeof HexGrid==='undefined'){
+    console.warn('[lobby-v2] Game modules did not load, so the cards are using '+
+      'the drawn fallback art. Serve this page from the app (npm start, then '+
+      '/lobby-v2.html) to see the real renderer.');
+    return;
+  }
+  try{
+    const d=document.createElement('canvas'); d.width=d.height=8;
+    R=new Renderer(d);
+    R.resize=function(){};            /* stop it sizing to the window */
+    R._dpr=1;
+  }catch(e){ console.warn('[lobby-v2] Renderer failed to start:',e); R=null }
+})();
 
 let FID=1;
 function mkWorld(cv){
@@ -647,8 +655,12 @@ function paintScene(cv,dt){
 const SCENES=new Map();
 function scene(cv){ let s=SCENES.get(cv); if(!s){s=mkWorld(cv);SCENES.set(cv,s)} return s }
 
+/* The live-render cards need the game's own modules, which only resolve when
+   this page is served by the app. Opened straight off disk the script tags
+   404, Renderer never constructs, and the canvas would sit there black. Fall
+   back to the drawn art in that case so a card is never an empty box. */
 function art(g,w,h,anim){
-  if(!g.real)return ART[g.id](g.c[0],g.c[1]);
+  if(!g.real||!R)return ART[g.id](g.c[0],g.c[1]);
   return `<canvas data-game="${g.id}"${anim?' data-anim="1"':''}
     width="${w||262}" height="${h||172}"
     style="width:100%;height:100%;display:block"></canvas>`;
