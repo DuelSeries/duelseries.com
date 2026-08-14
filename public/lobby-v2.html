@@ -326,13 +326,9 @@ h2{font-size:31px;font-weight:700;letter-spacing:-1.1px;line-height:1.1}
 .tile .f{font-size:12px;color:var(--tx3);margin-top:5px}
 
 .chartwrap{position:relative}
-.legend{display:flex;gap:18px;font-size:12px;color:var(--tx3);margin-bottom:18px}
-.lg{display:inline-flex;align-items:center;gap:7px}
-.lg i{width:10px;height:10px;border-radius:3px;display:inline-block}
 #s-chart svg{display:block;width:100%;height:auto;overflow:visible}
-.bar{transition:opacity .12s}
-.chartwrap:hover .bar{opacity:.5}
-.chartwrap .bar:hover,.chartwrap .bar.on{opacity:1}
+.cross,.cur{pointer-events:none;transition:opacity .12s}
+.dot{pointer-events:none}
 .tip{position:absolute;pointer-events:none;opacity:0;transition:opacity .12s;
   background:var(--s3);border-radius:var(--r2);padding:9px 12px;font-size:12px;
   line-height:1.55;white-space:nowrap;box-shadow:0 10px 30px rgba(0,0,0,.55);z-index:5}
@@ -581,16 +577,12 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
     <div class="sub" id="s-sub"></div></div></div>
   <div class="tiles" id="s-tiles"></div>
 
-  <div class="head"><div><h2>Profit and loss</h2>
-    <div class="sub">What each game returned after your buy-in and the house cut.</div></div>
+  <div class="head"><div><h2>Total earnings</h2>
+    <div class="sub">Your running profit after every buy-in and the house cut.</div></div>
     <div class="sp"></div>
     <button class="more" id="s-toggle" onclick="toggleChart()">Table</button>
   </div>
   <div class="panel chartwrap">
-    <div class="legend">
-      <span class="lg"><i style="background:#bd8420"></i>Up on the game</span>
-      <span class="lg"><i style="background:#6e8fd0"></i>Down on the game</span>
-    </div>
     <div id="s-chart"></div>
     <div class="tip" id="s-tip"></div>
   </div>
@@ -1344,81 +1336,95 @@ function drawStats(){
   drawChart();
 }
 
-/* Diverging bars around a zero line. Sign is carried by position first and
-   colour second, so the chart still reads without colour vision. The pair
-   was checked for colourblind separation rather than picked by eye; the
-   usual green/red fails deuteranopia badly. */
+/* Running total, so the question the chart answers is "am I up, and since
+   when". One series, so one hue and no legend: the heading names it. The
+   line starts at zero before the first game, otherwise the first point
+   would look like profit that appeared from nowhere. */
+const CUM=(()=>{
+  let run=0;
+  return [{d:'Start',cum:0,first:true}].concat(ROWS.map(r=>({...r,cum:(run+=r.net)})));
+})();
 function drawChart(){
-  const W=980,H=232,PL=52,PR=12,PT=18,PB=30;
+  const W=980,H=250,PL=54,PR=58,PT=22,PB=32;
   const iw=W-PL-PR, ih=H-PT-PB;
-  const nets=ROWS.map(r=>r.net);
-  const hi=Math.max(...nets,0), lo=Math.min(...nets,0);
-  const pad=(hi-lo)*0.12, top=hi+pad, bot=lo-pad;
-  const y=v=>PT+ih*(top-v)/(top-bot);
-  const zy=y(0);
-  const step=iw/ROWS.length, bw=Math.min(30,step-6);
-  const bestI=nets.indexOf(Math.max(...nets)), worstI=nets.indexOf(Math.min(...nets));
+  const vals=CUM.map(p=>p.cum);
+  const hi=Math.max(...vals,0), lo=Math.min(...vals,0);
+  const pad=Math.max((hi-lo)*0.14,0.5), top=hi+pad, bot=lo-pad;
+  const X=i=>PL+iw*i/(CUM.length-1);
+  const Y=v=>PT+ih*(top-v)/(top-bot);
+  const zy=Y(0);
 
   const ticks=[];
   for(let i=0;i<=4;i++){const v=bot+(top-bot)*i/4;
-    ticks.push(`<line x1="${PL}" x2="${W-PR}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}"
+    ticks.push(`<line x1="${PL}" x2="${W-PR}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}"
       stroke="var(--s2)" stroke-width="1"/>
-      <text x="${PL-10}" y="${(y(v)+4).toFixed(1)}" text-anchor="end" font-size="11"
-        fill="var(--tx3)" font-family="var(--fm)">${v>=0?'':'-'}$${Math.abs(v).toFixed(0)}</text>`);}
+      <text x="${PL-10}" y="${(Y(v)+4).toFixed(1)}" text-anchor="end" font-size="11"
+        fill="var(--tx3)" font-family="var(--fm)">${v<0?'-':''}$${Math.abs(v).toFixed(0)}</text>`);}
 
-  const bars=ROWS.map((r,i)=>{
-    const x=PL+i*step+(step-bw)/2, up=r.net>=0;
-    const h=Math.max(2,Math.abs(zy-y(r.net)));
-    const by=up?zy-h:zy;
-    return `<path class="bar" d="${barPath(x,by,bw,h,4,up)}"
-      fill="${up?'#bd8420':'#6e8fd0'}" data-i="${i}"/>`;
-  });
+  const line=CUM.map((p,i)=>`${i?'L':'M'}${X(i).toFixed(1)} ${Y(p.cum).toFixed(1)}`).join(' ');
+  const area=`${line} L${X(CUM.length-1).toFixed(1)} ${zy.toFixed(1)} L${X(0).toFixed(1)} ${zy.toFixed(1)} Z`;
 
-  const labels=[bestI,worstI].map(i=>{
-    const r=ROWS[i], up=r.net>=0, x=PL+i*step+step/2;
-    const ly=up?y(r.net)-9:y(r.net)+17;
-    return `<text x="${x.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle" font-size="11.5"
-      font-family="var(--fm)" font-weight="600" fill="var(--tx2)">${signed(r.net)}</text>`;
-  });
+  const dots=CUM.map((p,i)=>p.first?'':
+    `<circle class="dot" data-i="${i}" cx="${X(i).toFixed(1)}" cy="${Y(p.cum).toFixed(1)}"
+       r="3.2" fill="var(--money)"/>`).join('');
+  /* Wide invisible bands so the pointer does not have to find a 3px dot. */
+  const hits=CUM.map((p,i)=>p.first?'':
+    `<rect class="hit" data-i="${i}" x="${(X(i)-iw/(CUM.length-1)/2).toFixed(1)}" y="${PT}"
+       width="${(iw/(CUM.length-1)).toFixed(1)}" height="${ih}" fill="transparent"/>`).join('');
 
-  const dates=ROWS.map((r,i)=>i%3?'':
-    `<text x="${(PL+i*step+step/2).toFixed(1)}" y="${H-8}" text-anchor="middle"
-      font-size="11" fill="var(--tx3)">${r.d}</text>`);
+  const end=CUM[CUM.length-1];
+  const dates=CUM.map((p,i)=>(p.first||i%4)?'':
+    `<text x="${X(i).toFixed(1)}" y="${H-8}" text-anchor="middle" font-size="11"
+      fill="var(--tx3)">${p.d}</text>`).join('');
 
   document.getElementById('s-chart').innerHTML=
     `<svg viewBox="0 0 ${W} ${H}" role="img"
-       aria-label="Profit and loss for each of ${T.games} games. Net ${signed(T.net)}.">
+       aria-label="Running total earnings across ${T.games} games, ending at ${signed(T.net)}.">
+      <defs><linearGradient id="ag" x1="0" x2="0" y1="0" y2="1">
+        <stop offset="0" stop-color="#f0a830" stop-opacity=".26"/>
+        <stop offset="1" stop-color="#f0a830" stop-opacity="0"/>
+      </linearGradient></defs>
       ${ticks.join('')}
       <line x1="${PL}" x2="${W-PR}" y1="${zy.toFixed(1)}" y2="${zy.toFixed(1)}"
         stroke="var(--tx3)" stroke-width="1.5"/>
-      ${bars.join('')}${labels.join('')}${dates.join('')}
+      <path d="${area}" fill="url(#ag)"/>
+      <path d="${line}" fill="none" stroke="var(--money)" stroke-width="2"
+        stroke-linejoin="round" stroke-linecap="round"/>
+      <line class="cross" x1="0" x2="0" y1="${PT}" y2="${PT+ih}"
+        stroke="var(--tx3)" stroke-width="1" opacity="0"/>
+      ${dots}
+      <circle class="cur" r="5.5" fill="var(--money)" stroke="var(--s1)" stroke-width="2.5" opacity="0"/>
+      <text x="${(X(CUM.length-1)+10).toFixed(1)}" y="${(Y(end.cum)+4).toFixed(1)}"
+        font-size="13" font-family="var(--fm)" font-weight="600"
+        fill="var(--money)">${signed(end.cum)}</text>
+      ${dates}${hits}
     </svg>`;
   wireTip();
 }
-/* Square where it meets the baseline, rounded at the far end, so the bar
-   reads as growing out of zero rather than floating. */
-function barPath(x,yy,w,h,r,up){
-  r=Math.min(r,w/2,h);
-  return up
-    ? `M${x} ${yy+h} L${x} ${yy+r} Q${x} ${yy} ${x+r} ${yy} L${x+w-r} ${yy}
-       Q${x+w} ${yy} ${x+w} ${yy+r} L${x+w} ${yy+h} Z`
-    : `M${x} ${yy} L${x} ${yy+h-r} Q${x} ${yy+h} ${x+r} ${yy+h} L${x+w-r} ${yy+h}
-       Q${x+w} ${yy+h} ${x+w} ${yy+h-r} L${x+w} ${yy} Z`;
-}
 function wireTip(){
   const wrap=document.querySelector('.chartwrap'), tip=document.getElementById('s-tip');
-  wrap.querySelectorAll('.bar').forEach(b=>{
-    b.addEventListener('mouseenter',()=>{
-      const r=ROWS[+b.dataset.i], bb=b.getBoundingClientRect(), wb=wrap.getBoundingClientRect();
-      tip.innerHTML=`${r.d} &nbsp;·&nbsp; ${r.out?'cashed out':'knocked out'}<br>`+
-        `Buy-in <b>${money(r.stake)}</b>`+(r.out?` &nbsp; back <b>${money(r.payout)}</b>`:'')+
-        `<br>Net <b>${signed(r.net)}</b>`;
-      tip.classList.add('on');
-      tip.style.left=Math.max(0,Math.min(wb.width-tip.offsetWidth,
-        bb.left-wb.left+bb.width/2-tip.offsetWidth/2))+'px';
-      tip.style.top=(bb.top-wb.top-tip.offsetHeight-10)+'px';
-    });
-    b.addEventListener('mouseleave',()=>tip.classList.remove('on'));
+  const svg=wrap.querySelector('svg');
+  const cross=svg.querySelector('.cross'), cur=svg.querySelector('.cur');
+  const show=i=>{
+    const p=CUM[i], dot=svg.querySelector(`.dot[data-i="${i}"]`);
+    if(!dot)return;
+    const cx=+dot.getAttribute('cx'), cy=+dot.getAttribute('cy');
+    cross.setAttribute('x1',cx); cross.setAttribute('x2',cx); cross.setAttribute('opacity','.5');
+    cur.setAttribute('cx',cx); cur.setAttribute('cy',cy); cur.setAttribute('opacity','1');
+    tip.innerHTML=`${p.d} &nbsp;·&nbsp; ${p.out?'cashed out':'knocked out'}<br>`+
+      `This game <b>${signed(p.net)}</b><br>Running total <b>${signed(p.cum)}</b>`;
+    tip.classList.add('on');
+    const wb=wrap.getBoundingClientRect(), db=dot.getBoundingClientRect();
+    tip.style.left=Math.max(0,Math.min(wb.width-tip.offsetWidth,
+      db.left-wb.left+db.width/2-tip.offsetWidth/2))+'px';
+    tip.style.top=(db.top-wb.top-tip.offsetHeight-12)+'px';
+  };
+  svg.querySelectorAll('.hit').forEach(h=>{
+    h.addEventListener('mouseenter',()=>show(+h.dataset.i));
+  });
+  wrap.addEventListener('mouseleave',()=>{
+    tip.classList.remove('on');
+    cross.setAttribute('opacity','0'); cur.setAttribute('opacity','0');
   });
 }
 function toggleChart(){
