@@ -390,7 +390,12 @@ h2{font-size:31px;font-weight:700;letter-spacing:-1.1px;line-height:1.1}
 #detail{display:none}
 .back{font-size:13px;color:var(--tx2);padding:26px 0 0;display:inline-block}
 .back:hover{color:var(--tx)}
-.hero{display:grid;grid-template-columns:1fr 330px;gap:40px;margin-top:22px;align-items:start}
+/* The right column stretches to the left column's height and the look box is
+   pushed to the bottom of it, so its lower edge lands on the last lobby row
+   instead of stopping partway up. */
+.hero{display:grid;grid-template-columns:1fr 330px;gap:40px;margin-top:22px;align-items:stretch}
+.hero>div:last-child{display:flex;flex-direction:column}
+.hero .look{margin-top:auto}
 .hart{height:300px;border-radius:var(--r3);overflow:hidden}
 .hart svg{display:block;width:100%;height:100%}
 .hero h1{font-size:34px;font-weight:650;letter-spacing:-1px}
@@ -430,19 +435,56 @@ h2{font-size:31px;font-weight:700;letter-spacing:-1.1px;line-height:1.1}
 .lookbox{border-radius:var(--r2);overflow:hidden;background:var(--bg)}
 .lookbox canvas,.lookstage canvas{display:block;width:100%;height:auto}
 .lookbtn{width:100%;margin-top:14px}
-/* Change-appearance dialog: the snake, an arrow each side, and Save. */
-.lookwrap{background:var(--s1);border-radius:var(--r3);padding:26px 28px 24px;
-  width:min(680px,calc(100vw - 40px))}
-.lookwrap h3{font-size:17px;font-weight:600;text-align:center;margin-bottom:20px}
-.lookstage{display:flex;align-items:center;gap:12px}
-.lookstage canvas{flex:1;min-width:0;border-radius:var(--r2);background:var(--bg)}
-.ab{flex:0 0 auto;width:44px;height:44px;border-radius:50%;background:var(--s2);
-  color:var(--tx2);font-size:19px;display:grid;place-items:center;transition:.15s}
-.ab:hover{background:var(--bone);color:var(--ink)}
-.lookmeta{display:flex;align-items:baseline;justify-content:center;gap:10px;
-  margin-top:18px;font-size:14px;font-weight:550}
-.lookix{color:var(--tx3);font-size:12px;font-weight:500}
-.lookfoot{display:flex;gap:10px;margin-top:22px}
+
+/* ── change appearance ──────────────────────────────────────────────────
+   Copied from public/css/lobby.css so this screen is the one the game
+   already ships rather than a second interpretation of it. The arrow and
+   Save rules below are that file's, unchanged apart from the tokens: the
+   87x88 arrow art, the quarter and three-quarter positions, and slither's
+   own green Save gradient with its lighter hover overlay at radius 35.
+   The one deviation is the backdrop. The live screen is transparent because
+   the lobby behind it is already the game world; this page is not, so it
+   paints the page background instead of showing the board through it. */
+.apscreen{position:fixed;inset:0;background:var(--bg);z-index:200;
+  display:none;flex-direction:column;align-items:center}
+.apscreen.on{display:flex}
+.ap-header{width:100%;max-width:780px;display:flex;align-items:center;
+  justify-content:space-between;padding:20px 28px 14px}
+.ap-back-btn{background:none;border:1.5px solid var(--s3);color:var(--tx2);
+  padding:8px 18px;border-radius:9px;font-size:.88rem;font-weight:600;cursor:pointer}
+.ap-back-btn:hover{border-color:var(--money);color:var(--money)}
+.ap-title{font-size:1.25rem;font-weight:900;color:var(--tx);letter-spacing:3px}
+.ap-preview-wrap{position:absolute;inset:0;padding:0;display:block}
+.ap-canvas{width:100%;height:100%;max-height:none;display:block;background:transparent}
+.ap-selector{position:absolute;inset:0;display:block;padding:0;max-width:none;
+  pointer-events:none;z-index:52}
+.ap-arrow{position:absolute;top:calc(50% - 44px);width:87px;height:88px;padding:0;
+  border:none;background:none;border-radius:0;cursor:pointer;opacity:.7;
+  pointer-events:auto;transition:opacity .12s;-webkit-tap-highlight-color:transparent}
+.ap-arrow:hover{opacity:1}
+.ap-arrow:active{opacity:.5}
+.ap-arrow img{display:block;width:87px;height:88px}
+#ap-prev{left:calc(25% - 43.5px)}
+#ap-next{left:calc(75% - 43.5px)}
+.ap-save-row{position:absolute;inset:0;padding:0;display:block;
+  pointer-events:none;z-index:53}
+.ap-save-btn{position:absolute;left:50%;top:calc(50% + 120px);transform:translateX(-50%);
+  min-width:93px;height:47px;padding:0 14px;border:none;border-radius:34px;color:#fff;
+  font:bold 20px/47px Arial,"Helvetica Neue",Helvetica,sans-serif;letter-spacing:0;
+  text-align:center;cursor:pointer;pointer-events:auto;
+  box-shadow:rgba(0,0,0,.75) 0 3px 20px;
+  background-image:linear-gradient(to bottom,rgb(86,172,129),rgb(69,139,104) 50%,rgb(54,108,81));
+  transition:none}
+/* slither's .sadu1 overlay: the same box at radius 35, faded in on hover */
+.ap-save-btn::before{content:'';position:absolute;inset:0;border-radius:35px;
+  background-image:linear-gradient(to bottom,rgb(117,255,214),rgb(94,216,172) 50%,rgb(72,171,132));
+  opacity:0;transition:opacity .12s}
+.ap-save-btn:hover::before{opacity:1}
+.ap-save-btn>span{position:relative;z-index:1}
+.ap-save-btn:hover{transform:translateX(-50%)}
+.ap-save-btn:active{transform:translateX(-50%);opacity:.85}
+.ap-name{position:absolute;left:50%;top:calc(50% + 182px);transform:translateX(-50%);
+  font-size:13px;color:var(--tx3);white-space:nowrap}
 
 .how{margin:64px 0 0}
 .hg{display:grid;grid-template-columns:repeat(auto-fit,minmax(216px,1fr));gap:30px;margin-top:22px}
@@ -674,20 +716,29 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
   <h2 id="stub-t"></h2><p id="stub-d"></p>
 </div></main>
 
-<div class="veil" id="lookveil"><div class="lookwrap" role="dialog" aria-modal="true"
-     aria-label="Change appearance">
-  <h3>Change appearance</h3>
-  <div class="lookstage">
-    <button class="ab" onclick="cycleLook(-1)" aria-label="Previous skin">&#8249;</button>
-    <canvas id="skbig" data-look="big" width="900" height="250"></canvas>
-    <button class="ab" onclick="cycleLook(1)" aria-label="Next skin">&#8250;</button>
+<!-- Structure copied from #appearance-screen in index.html: a full-screen
+     takeover with the snake filling it, slither's own 87x88 arrow art at the
+     quarter and three-quarter marks, and one Save button. No cancel; Back is
+     the way out, exactly as in the live lobby. -->
+<div id="lookveil" class="apscreen" role="dialog" aria-modal="true" aria-label="Customize">
+  <div class="ap-header">
+    <button class="ap-back-btn" onclick="closeLook(false)">&#8592; Back</button>
+    <span class="ap-title">CUSTOMIZE</span>
   </div>
-  <div class="lookmeta"><span id="lookname"></span><span class="lookix num" id="lookix"></span></div>
-  <div class="lookfoot">
-    <button class="btn sec" onclick="closeLook(false)">Cancel</button>
-    <button class="btn pri" onclick="closeLook(true)">Save</button>
+  <div class="ap-preview-wrap"><canvas id="skbig" data-look="big" class="ap-canvas"></canvas></div>
+  <div class="ap-selector">
+    <button class="ap-arrow" id="ap-prev" onclick="cycleLook(-1)" aria-label="Previous skin">
+      <img src="/img/skin-prev.png" width="87" height="88" alt="" draggable="false">
+    </button>
+    <button class="ap-arrow" id="ap-next" onclick="cycleLook(1)" aria-label="Next skin">
+      <img src="/img/skin-next.png" width="87" height="88" alt="" draggable="false">
+    </button>
   </div>
-</div></div>
+  <div class="ap-save-row">
+    <button class="ap-save-btn" onclick="closeLook(true)"><span>&nbsp;Save&nbsp;</span></button>
+    <div class="ap-name num" id="lookname"></div>
+  </div>
+</div>
 
 <div class="veil" id="veil"><div class="wb">
   <div class="ring"></div>
@@ -1161,39 +1212,51 @@ const skin=()=>LOOKS.find(s=>s.id===skinId)||LOOKS[0];
    moves and the tail whips, which is what sells it as swimming rather than
    sliding. Written in world units so the game's own renderer draws it, and
    spaced at SNAKE_SEGMENT_SPACING so the stamped body has no gaps. */
-function animSegs(t,n,amp){
-  const SP=C_.SNAKE_SEGMENT_SPACING, span=(n-1)*SP/2, segs=new Array(n*2);
-  for(let i=0;i<n;i++){
-    const u=i/(n-1);
-    segs[i*2]=span*(1-u*2);
-    segs[i*2+1]=Math.sin(u*Math.PI*1.4-t*2)*amp*(0.3+u*0.7);
-  }
-  return segs;
-}
 let lookT=0;
-/* n is the body length, which is also what drives the radius, so the small
-   box gets a shorter and correspondingly thinner snake for free. */
-const LOOK_CFG={mini:{n:44,amp:15},big:{n:82,amp:26}};
+/* drawAnimSnake's options from lobby.js, unchanged. The appearance figures
+   were measured off slither's own chooser at a 911px viewport using their
+   87px arrows as the ruler, so they are not free parameters: body about
+   25.6% of the width long and radius about 1.25% of it. The lobby box uses
+   that file's other call, spanFrac .19 / ampFrac .13 with the default
+   radius rule. */
+const LOOK_CFG={
+  mini:{N:80,spanFrac:0.19, ampFrac:0.13,  radiusFrac:null},
+  big: {N:80,spanFrac:0.128,ampFrac:0.022, radiusFrac:0.0125},
+};
 function paintLook(cv){
   if(!R)return;
   fit(cv);
   const cfg=LOOK_CFG[cv.dataset.look]||LOOK_CFG.mini;
-  const w=cv.width,h=cv.height;
+  const w=cv.width,h=cv.height,N=cfg.N;
   R.canvas=cv; R.ctx=cv.getContext('2d');
   R._canvasW=w; R._canvasH=h; R._dpr=1;
   const ctx=R.ctx, cam=R.camera;
-  const HW=(cfg.n-1)*C_.SNAKE_SEGMENT_SPACING/2+20, HH=cfg.amp+22;
-  const S=Math.min(w/(2*HW),h/(2*HH));
+  /* Those fractions are screen-space, but the renderer works in world units
+     and takes the body radius from the segment count. So solve for the
+     camera scale that lands the on-screen thickness the reference asks for,
+     then express the points in world units through it. Same picture, drawn
+     by the game's own body renderer. */
+  const growth=Math.min(6,1+(N-C_.SNAKE_MIN_SEGMENTS*2)/C_.SNAKE_SC_SEGS);
+  const worldR=C_.SNAKE_HEAD_RADIUS*growth;
+  const wantR=cfg.radiusFrac!=null?w*cfg.radiusFrac:Math.min(w*0.068,h*0.13);
+  const S=wantR/worldR;
+  const spanX=w*cfg.spanFrac, amp=h*cfg.ampFrac;
+  const segs=new Array(N*2);
+  for(let i=0;i<N;i++){
+    const u=i/(N-1);                                   /* 0 head, 1 tail */
+    segs[i*2]  = (spanX*(1-u*2))/S;
+    segs[i*2+1]= (Math.sin(u*Math.PI*1.4-lookT*2)*amp*(0.3+u*0.7))/S;
+  }
   cam.scale=cam.targetScale=cam._scaleMid=S;
   cam._w=w; cam._h=h; cam.worldX=cam.worldY=0; cam.x=w/2; cam.y=h/2;
   ctx.setTransform(1,0,0,1,0,0);
   ctx.clearRect(0,0,w,h);                 /* plain box, as in the live lobby */
   if(R.snakeGL&&R.snakeGL.ok)R.snakeGL.ensureSize(w,h);
   cam.apply(ctx,1);
-  /* The dialog previews the skin being browsed; the lobby box always shows
+  /* The chooser previews the skin being browsed; the lobby box always shows
      what is actually equipped. */
   const col=(cv.dataset.look==='big'?LOOKS[lookIx]:skin()).color;
-  const s=mkSnake('look',col,animSegs(lookT,cfg.n,cfg.amp),0);  /* worth 0, no label */
+  const s=mkSnake('look',col,segs,0);                  /* worth 0, no label */
   const useGL=R._glMode&&R.snakeGL&&R.snakeGL.ok;
   if(useGL)R.snakeGL.beginFrame();
   R._drawSnakeBody(ctx,s,false);
@@ -1214,11 +1277,11 @@ function cycleLook(d){
   lookMeta();
 }
 function lookMeta(){
-  document.getElementById('lookname').textContent=LOOKS[lookIx].name;
-  document.getElementById('lookix').textContent=(lookIx+1)+' of '+LOOKS.length;
+  document.getElementById('lookname').textContent=
+    LOOKS[lookIx].name+'  '+(lookIx+1)+' / '+LOOKS.length;
 }
-/* Save commits what you were browsing; cancel just closes, leaving the
-   equipped skin untouched. */
+/* Save commits what you were browsing; Back closes without changing the
+   equipped skin. There is no cancel button, matching the live screen. */
 function closeLook(save){
   if(save){
     skinId=LOOKS[lookIx].id;
