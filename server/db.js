@@ -102,6 +102,19 @@ async function init() {
     CREATE INDEX IF NOT EXISTS idx_eh_gid ON earnings_history(google_id, created_at);
     ALTER TABLE earnings_history ADD COLUMN IF NOT EXISTS cad_amount NUMERIC(18,4) DEFAULT 0;
 
+    -- What a player put IN. earnings_history only ever recorded what came back,
+    -- so the product could say what someone had taken out but never whether
+    -- they were up: profit needs both halves. Append-only, one row per paid
+    -- entry, written when the entry token is consumed.
+    CREATE TABLE IF NOT EXISTS stakes_history (
+      id         SERIAL PRIMARY KEY,
+      google_id  TEXT NOT NULL,
+      amount     NUMERIC(18,9) NOT NULL,
+      game       TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_sh_gid ON stakes_history(google_id, created_at);
+
     ALTER TABLE accounts ADD COLUMN IF NOT EXISTS name_history TEXT[] DEFAULT '{}';
     ALTER TABLE accounts ADD COLUMN IF NOT EXISTS agar_high_score INTEGER DEFAULT 0;
     ALTER TABLE accounts ADD COLUMN IF NOT EXISTS agar_total_earnings NUMERIC(18,9) DEFAULT 0;
@@ -286,6 +299,18 @@ async function recordEarnings(id, name, sol, cadAmount = 0) {
   await pool.query(`INSERT INTO earnings_history (google_id, amount, cad_amount) VALUES ($1, $2, $3)`, [id, sol, cadAmount]);
 }
 
+// The other half of a player's ledger: what they paid to enter. Callers use
+// .catch() and never await this — a failed write must cost someone a stats row,
+// never their seat in a game they have already paid for.
+async function recordStake(id, amount, game = null) {
+  const amt = Number(amount);
+  if (!id || !Number.isFinite(amt) || amt <= 0) return;   // free play stakes nothing
+  await pool.query(
+    `INSERT INTO stakes_history (google_id, amount, game) VALUES ($1, $2, $3)`,
+    [id, amt, game]
+  );
+}
+
 // ─── House revenue (the owner's take: game rake + cosmetic sales) ────────────────
 // One append-only ledger of everything the house earns, so the owner can see total
 // take at a glance. Callers use .catch() — a missed revenue log must never break a
@@ -391,6 +416,18 @@ async function getMyProfile(googleId) {
     at: r.created_at,
   }));
 
+  // Buy-ins, so the client can show profit rather than only takings.
+  const stakesRes = await pool.query(
+    `SELECT amount, created_at FROM stakes_history
+     WHERE google_id=$1 ORDER BY created_at ASC`,
+    [googleId]
+  );
+  const stakes = stakesRes.rows.map(r => ({
+    amount: parseFloat(r.amount),
+    at: r.created_at,
+  }));
+  const totalStaked = stakes.reduce((a, s) => a + s.amount, 0);
+
   return {
     name: row.name,
     totalEarnings: parseFloat(row.total_earnings || 0),
@@ -398,6 +435,13 @@ async function getMyProfile(googleId) {
     playTimeSeconds: parseInt(row.play_time_seconds || 0),
     nameHistory: row.name_history || [],
     games,
+    stakes,
+    totalStaked,
+    /* Only meaningful once buy-ins have been recorded. Older accounts have
+       payouts stretching back before stakes_history existed, so their net
+       would look far better than it was; the flag lets the client say the
+       figure is partial instead of quietly overstating it. */
+    stakesTracked: stakes.length > 0,
   };
 }
 
@@ -467,7 +511,8 @@ module.exports = {
   recordCollusionFlag, getRecentCollusionFlags,
   markStakeSig,
   recordFailedPayout, getFailedPayouts, claimDuePayout, savePayoutSignature, markPayoutPaid,
-  recordEarnings, getTopEarners,
+  recordEarnings,
+  recordStake, getTopEarners,
   getProfile, getMyProfile, searchPlayerNames, getGlobalWinnings,
   addCosmetic, getOwnedCosmetics,
   recordHouseRevenue, getHouseRevenueSummary, getRecentHouseRevenue, getHouseRevenueDaily,

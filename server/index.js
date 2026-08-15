@@ -272,8 +272,18 @@ setInterval(() => entryStore.sweep(), ENTRY_TOKEN_MAX_AGE_MS);
 // carries the SERVER-recorded worth, so the client can neither forge it nor inflate the
 // worth — that's what closes the entrySol escrow-drain hole. Needs no socket auth (the
 // socket session is empty) and works for join + respawn identically.
-function consumePaidEntry(entryToken, shortType) {
-  return entryStore.consume(entryToken, shortType);
+function consumePaidEntry(entryToken, shortType, game) {
+  const r = entryStore.consume(entryToken, shortType);
+  /* Record the buy-in here rather than at each call site: this is the one
+     place every paid entry passes through, so the four join and respawn
+     handlers cannot drift apart or forget one. Fire and forget, never awaited
+     — a failed stats write must cost someone a row, never their seat in a
+     game they have already paid for on-chain. */
+  if (r.ok && r.worth > 0 && r.walletAddress) {
+    db.recordStake(r.walletAddress, r.worth, game || null)
+      .catch(e => console.error('[STAKE]', e.message));
+  }
+  return r;
 }
 
 // Phase 4d: the custodial entry-fee is gone — paid play stakes from the self-custody wallet
@@ -952,7 +962,7 @@ io.on('connection', (socket) => {
     // Never trust the client's entrySol — take the snake's cash worth from a
     // server-verified paid-entry token (0 for free lobbies).
     const shortType = (lobbyType in LOBBY_FEES) ? lobbyType : 'free';
-    const entry = consumePaidEntry(entryToken, shortType);
+    const entry = consumePaidEntry(entryToken, shortType, 'snake');
     if (!entry.ok) {
       socket.emit(C.EVENTS.ERROR, { message: 'Entry fee not verified. Please return to the lobby and try again.' });
       return;
@@ -1108,7 +1118,7 @@ io.on('connection', (socket) => {
     if (existing && existing.alive) return; // block respawn while alive
     // Server-verified worth from the echoed entry token — the client's entrySol is ignored.
     const shortType = socket._room.lobbyType.replace(/^(na|eu)_/, '');
-    const entry = consumePaidEntry(entryToken, shortType);
+    const entry = consumePaidEntry(entryToken, shortType, 'snake');
     if (!entry.ok) {
       socket.emit(C.EVENTS.ERROR, { message: 'Entry fee not verified. Please return to the lobby and try again.' });
       return;
@@ -1173,7 +1183,7 @@ io.on('connection', (socket) => {
     // take the cell's worth from the server, never from the client.
     const shortType = (lobbyType in LOBBY_FEES) ? lobbyType : 'free';
     socket._agarShortType = shortType; // remembered for the in-game re-stake on respawn
-    const entry = consumePaidEntry(entryToken, shortType);
+    const entry = consumePaidEntry(entryToken, shortType, 'agar');
     if (!entry.ok) {
       socket.emit('cell:join:error', { message: 'Entry fee not verified. Please return to lobby.' });
       return;
@@ -1236,7 +1246,7 @@ io.on('connection', (socket) => {
     if (!room) return;
     // Paid respawns re-stake (same one-time token the snake game uses); free respawns carry none.
     const shortType = socket._agarShortType || 'free';
-    const entry = consumePaidEntry(entryToken, shortType);
+    const entry = consumePaidEntry(entryToken, shortType, 'agar');
     if (!entry.ok) {
       socket.emit('cell:join:error', { message: 'Entry fee not verified. Please return to lobby.' });
       return;

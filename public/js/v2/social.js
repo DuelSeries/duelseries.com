@@ -11,8 +11,12 @@
                                     second request for the profile itself
      GET /api/profile/:name      -> { name, totalEarnings, gamesPlayed,
                                       playTimeSeconds,
-                                      week[], month[], sixMonth[], allTime[] }
-                                    each series is [{ period, total }]
+                                      history: { week[], month[], sixMonth[],
+                                                 allTime[] } }
+                                    each series is [{ period, total }].
+                                    NOTE the series are nested under `history`,
+                                    not top level; reading them flat silently
+                                    yields no chart at all.
      GET /api/stats/winnings     -> { totalCad }  a fiat sum already; do not
                                     re-multiply, only label it by money mode
      GET /api/money-config       -> { mode, unit, … }
@@ -171,9 +175,10 @@
      the running-total chart wants. Empty means a player with no recorded
      payouts, which says so rather than drawing a flat line at zero. */
   function drawEarnings(p) {
-    const series = (p.allTime && p.allTime.length ? p.allTime
-                 : p.sixMonth && p.sixMonth.length ? p.sixMonth
-                 : p.month) || [];
+    const h = p.history || {};
+    const series = (h.allTime && h.allTime.length ? h.allTime
+                 : h.sixMonth && h.sixMonth.length ? h.sixMonth
+                 : h.month) || [];
     const box = el('p-chart');
     if (!series.length) {
       box.innerHTML = '<div class="none2">No payouts recorded yet.</div>';

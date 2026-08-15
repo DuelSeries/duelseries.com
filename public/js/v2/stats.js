@@ -3,20 +3,19 @@
    Shape read from server/db.js getMyProfile on 2026-08-15:
 
      GET /api/my-profile?wallet=<address>
-       -> { name, totalEarnings, gamesPlayed, playTimeSeconds,
-            nameHistory[], games: [{ amount, at }] }
+       -> { name, totalEarnings, gamesPlayed, playTimeSeconds, nameHistory[],
+            games:  [{ amount, at }],     // earnings_history: what came back
+            stakes: [{ amount, at }],     // stakes_history:   what went in
+            totalStaked, stakesTracked }
 
-   `games` is earnings_history: one row per payout, ascending. It records what
-   came back, never what went in.
+   Both halves are recorded now, so this screen can finally answer the question
+   it exists to answer: am I up. It could not before — nothing persisted the
+   stake a player paid, and the prototype's profit and win rate were invented.
 
-   WHAT IS DELIBERATELY MISSING, AND WHY
-   The prototype showed net profit, win rate, buy-ins and house cut per game.
-   None of that can be derived here: nothing persists the stake a player paid.
-   total_earnings accumulates payouts only, so "earnings minus buy-ins" is not
-   a number this database can produce, and inventing it would mean telling
-   someone they are up when they may be down. Everything below is a payout-side
-   figure, labelled as such. Recording stakes server-side is what would unlock
-   real profit and loss. */
+   `stakesTracked` is the honesty catch. Buy-ins have only been recorded since
+   stakes_history was added, so an account with payouts stretching back before
+   that would show a net far better than the truth. When it is false the screen
+   says the figure is partial rather than quietly overstating it. */
 
 (function () {
   const el = id => document.getElementById(id);
@@ -62,19 +61,31 @@
     const games = Array.isArray(p.games) ? p.games : [];
     const cashouts = games.length;
     const best = games.reduce((m, g) => Math.max(m, Number(g.amount) || 0), 0);
+    const staked = Number(p.totalStaked) || 0;
+    const tracked = !!p.stakesTracked;
+    const net = Number(p.totalEarnings || 0) - staked;
+    const signed = n => (n > 0 ? '+' : n < 0 ? '-' : '') + '$' + Math.abs(n).toFixed(2);
 
     el('s-sub').innerHTML = p.gamesPlayed
       ? '<span class="num">' + p.gamesPlayed + '</span> games played.'
       : 'No games played yet.';
 
-    el('s-tiles').innerHTML = [
+    const tiles = [
       ['Total earnings', money(p.totalEarnings), 'paid to your wallet'],
-      ['Games played', String(p.gamesPlayed || 0), 'all time'],
+      ['Buy-ins', money(staked), tracked ? 'what you have put in' : 'not recorded yet'],
       ['Cash-outs', String(cashouts), cashouts ? 'games you left ahead' : 'none yet'],
       ['Biggest cash-out', money(best), 'single game'],
-    ].map(t => '<div class="tile"><div class="k">' + t[0] + '</div>' +
-               '<div class="v num">' + t[1] + '</div>' +
-               '<div class="f">' + t[2] + '</div></div>').join('');
+    ];
+    /* Profit is only shown once there is something to subtract. Showing
+       earnings-minus-nothing would read as pure profit and be wrong. */
+    if (tracked) {
+      tiles.unshift(['Net profit', signed(net),
+        'earnings minus buy-ins' + (net < 0 ? ', currently down' : '')]);
+    }
+    el('s-tiles').innerHTML = tiles.map(t =>
+      '<div class="tile"><div class="k">' + t[0] + '</div>' +
+      '<div class="v num"' + (t[0] === 'Net profit' ? ' style="color:var(--money)"' : '') + '>' +
+      t[1] + '</div><div class="f">' + t[2] + '</div></div>').join('');
 
     if (!cashouts) {
       el('s-body').innerHTML = '<div class="panel"><p class="note">No cash-outs yet. ' +
@@ -100,9 +111,13 @@
       '</div>' +
       /* Said plainly rather than left as a silent absence, because the obvious
          question looking at this screen is "am I up overall". */
-      '<p class="note" style="margin-top:22px">These are payouts. Your buy-ins are ' +
-      'not recorded yet, so this is what you have taken out, not profit after ' +
-      'what you put in.</p>';
+      (tracked
+        ? '<p class="note" style="margin-top:22px">Buy-ins have only been ' +
+          'recorded since this was added, so any games before that count their ' +
+          'payout but not what you paid to enter.</p>'
+        : '<p class="note" style="margin-top:22px">These are payouts. Your ' +
+          'buy-ins are not recorded yet, so this is what you have taken out, ' +
+          'not profit after what you put in.</p>');
   }
 
   window.addEventListener('duelwallet:change', () => {

@@ -101,18 +101,41 @@ test('a signed-out wallet never shows a fabricated balance', () => {
   assert.ok(!html.includes('C5cnQ7v2'), 'no hardcoded deposit address');
 });
 
-test('stats show payout-side figures only, never invented profit', () => {
+test('stats show profit only when buy-ins are actually recorded', () => {
   const src = fs.readFileSync(path.join(ROOT, 'public/js/v2/stats.js'), 'utf8');
   assert.ok(src.includes('/api/my-profile'), 'reads the real profile');
-  // Nothing persists the stake a player paid, so profit, win rate and a house
-  // cut per game cannot be derived. Claiming them would tell someone they are
-  // up when they may be down.
-  for (const bad of ['Net profit', 'Win rate', 'House cut paid', 'RAKE'])
-    assert.ok(!src.includes(bad), `stats.js does not claim ${bad}`);
-  // Matched on a fragment that survives line wrapping: the sentence is split
-  // across two source lines, so the whole phrase is never contiguous.
-  assert.ok(src.includes('not recorded yet'), 'says the gap out loud');
-  assert.ok(src.includes('not profit after'), 'and says what the figure is not');
+  // Profit is real now that stakes_history exists, but only for games played
+  // since. Showing earnings-minus-nothing would read as pure profit.
+  assert.ok(src.includes('stakesTracked'), 'checks whether buy-ins exist');
+  assert.ok(/if \(tracked\)/.test(src), 'and gates the profit tile on it');
+  assert.ok(src.includes('not recorded yet'), 'says so when they are not');
+  // Win rate and per-game house cut still are not derivable per player.
+  for (const bad of ['Win rate', 'House cut paid'])
+    assert.ok(!src.includes(bad), `stats.js still does not claim ${bad}`);
+});
+
+test('buy-ins are recorded at the single point every paid entry passes', () => {
+  // Four handlers consume entry tokens. Recording at each would let one drift
+  // or be forgotten; recording inside consumePaidEntry cannot.
+  const src = fs.readFileSync(path.join(ROOT, 'server/index.js'), 'utf8');
+  assert.ok(/function consumePaidEntry\(entryToken, shortType, game\)/.test(src),
+    'consumePaidEntry takes the game');
+  assert.ok(/db\.recordStake\(/.test(src), 'and records the stake');
+  assert.equal((src.match(/db\.recordStake\(/g) || []).length, 1,
+    'recorded in exactly one place');
+  // A failed stats write must never cost someone their seat.
+  const i = src.indexOf('db.recordStake(');
+  assert.ok(src.slice(i, i + 200).includes('.catch('), 'and never throws into the join path');
+  assert.ok(!/await db\.recordStake/.test(src), 'and is never awaited');
+});
+
+test('the profile series are read from where the server actually puts them', () => {
+  // getProfile nests week/month/sixMonth/allTime under `history`. Reading them
+  // flat silently yields no chart at all, which is exactly what happened.
+  const src = fs.readFileSync(path.join(ROOT, 'public/js/v2/social.js'), 'utf8');
+  assert.ok(/p\.history/.test(src), 'social.js reads p.history');
+  const db = fs.readFileSync(path.join(ROOT, 'server/db.js'), 'utf8');
+  assert.ok(/history: \{/.test(db), 'and the server really does nest them');
 });
 
 test('no invented game history survives in the shell', () => {
