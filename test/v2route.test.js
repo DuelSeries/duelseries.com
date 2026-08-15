@@ -35,6 +35,37 @@ test('the live lobby is untouched by the migration', () => {
   assert.ok(!server().includes("app.get('/', "), 'the root route is not redirected yet');
 });
 
+test('social data comes from the server, not from a generated roster', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'public/js/v2/social.js'), 'utf8');
+  for (const ep of ['/api/earningsboard', '/api/players/search', '/api/profile/',
+                    '/api/stats/winnings', '/api/money-config']) {
+    assert.ok(src.includes(ep), `social.js calls ${ep}`);
+  }
+  const html = v2();
+  for (const gone of ['mkPlayer', 'function seeded(', 'const PLAYERS=', 'const PNAMES=']) {
+    assert.ok(!html.includes(gone), `the generated roster is gone: ${gone}`);
+  }
+});
+
+test('the profile shows only figures the server actually records', () => {
+  // getProfile returns name, totalEarnings, gamesPlayed, playTimeSeconds and
+  // earnings series — no per-game win/loss, buy-in or house cut. Showing those
+  // would mean inventing them, which is what the prototype did.
+  const src = fs.readFileSync(path.join(ROOT, 'public/js/v2/social.js'), 'utf8');
+  assert.ok(!/Win rate/.test(src), 'no win rate, the server does not record it per player');
+  assert.ok(!/House cut paid/.test(src), 'no per-player house cut');
+  assert.ok(src.includes('gamesPlayed') && src.includes('playTimeSeconds'),
+    'shows the fields that do exist');
+});
+
+test('search is debounced and cancels the previous request', () => {
+  // Without both, fast typing lands an earlier response after a later one and
+  // the list shows results for a query the user has already moved past.
+  const src = fs.readFileSync(path.join(ROOT, 'public/js/v2/social.js'), 'utf8');
+  assert.ok(src.includes('setTimeout'), 'debounced');
+  assert.ok(src.includes('AbortController'), 'aborts the in-flight request');
+});
+
 test('the skin store is shared with the live lobby', () => {
   // Both lobbies run side by side during the migration, so they have to agree
   // on the equipped skin rather than each keeping their own.

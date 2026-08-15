@@ -761,7 +761,8 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
   <label class="search">
     <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4.2-4.2"/></svg>
     <input id="soc-q" type="search" placeholder="Search players by name"
-      autocomplete="off" oninput="drawBoard()" aria-label="Search players by name">
+      autocomplete="off" oninput="V2Social.search(this.value)"
+      aria-label="Search players by name">
   </label>
   <div class="tbl" id="soc-board"></div>
 </main>
@@ -776,12 +777,14 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
       <div class="psub" id="p-sub"></div>
     </div>
     <div class="sp"></div>
-    <div class="pnet"><div class="k">Net earnings</div><div class="v num" id="p-net"></div></div>
+    <!-- accounts.total_earnings accumulates winnings only, so this is a
+         cumulative total, not a net of buy-ins. Label it as what it is. -->
+    <div class="pnet"><div class="k">Total earnings</div><div class="v num" id="p-net"></div></div>
   </div>
   <div class="tiles" id="p-tiles" style="margin-top:26px"></div>
-  <div class="head"><div><h2>Recent games</h2>
-    <div class="sub">Their last ten, newest first.</div></div></div>
-  <div class="tbl" id="p-games"></div>
+  <div class="head"><div><h2>Earnings over time</h2>
+    <div class="sub">Their running total, from recorded payouts.</div></div></div>
+  <div class="panel" id="p-chart"></div>
 </main>
 
 <main id="stub" class="wrap"><div class="stub">
@@ -834,6 +837,8 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
 <script src="/js/SnakeGL.js"></script>
 <script src="/js/FoodGL.js"></script>
 <script src="/js/Renderer.js"></script>
+<script src="/js/v2/chart.js"></script>
+<script src="/js/v2/social.js"></script>
 <script>
 /* Flat geometric artwork, one scene per game. Drawn rather than iconed:
    emoji or a generic icon set is what makes a games page look unmade. */
@@ -1855,112 +1860,10 @@ function toggleChart(){
 }
 
 /* ── players ─────────────────────────────────────────────────────────────
-   Seeded from the name, so the board is identical on every load and for
-   every visitor rather than reshuffling on refresh, which is what a random
-   leaderboard looks like. Each player's games run through the same money
-   rules as your own stats, so a profile's net always equals the sum of its
-   games and the board cannot disagree with the profile behind it. */
-function seeded(str){
-  let h=1779033703^str.length;
-  for(let i=0;i<str.length;i++){h=Math.imul(h^str.charCodeAt(i),3432918353);h=h<<13|h>>>19}
-  return function(){
-    h=Math.imul(h^h>>>16,2246822507); h=Math.imul(h^h>>>13,3266489909);
-    return ((h^=h>>>16)>>>0)/4294967296;
-  };
-}
-const PNAMES=['PEPIK','hashim','degenmonkey','qesku','tungsahur','ZachXBT','dddickk',
- 'wenmoon','noodlearm','grasshopper','lilbogdan','sn4kepit','vorpal','mikoto',
- 'bagholder','0xhydra','pixelmaw','tinyfangs','coilcoil','nomnom','slithy','pogface',
- 'cashcow','ghostbyte','minttea','krakenjr','solsurfer','wormhole','fangz','dizzy',
- 'nightowl','pocketaces','bytesize','lunaris','greenhorn','tapeworm','zigzag','ouroboros'];
-const STAKES=[0.25,0.50,1,2,5];
-const DAY0=new Date(2026,7,13);
-function dayLabel(back){
-  const d=new Date(DAY0); d.setDate(d.getDate()-back);
-  return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
-}
-function mkPlayer(name){
-  const rnd=seeded(name), n=9+Math.floor(rnd()*52), games=[];
-  for(let i=0;i<n;i++){
-    const stake=STAKES[Math.floor(rnd()*STAKES.length)];
-    const out=rnd()<0.53;
-    const worth=out?stake*(0.35+rnd()*4.3):0;
-    games.push({d:dayLabel(n-1-i),stake,worth,out,
-      payout:out?worth*(1-RAKE):0, cut:out?worth*RAKE:0,
-      net:(out?worth*(1-RAKE):0)-stake});
-  }
-  const t=games.reduce((a,g)=>({staked:a.staked+g.stake,payout:a.payout+g.payout,
-    cut:a.cut+g.cut,wins:a.wins+(g.net>0?1:0)}),{staked:0,payout:0,cut:0,wins:0});
-  return {name,games,n,...t,net:t.payout-t.staked,
-    best:Math.max(0,...games.map(g=>g.payout)),
-    color:LOOKS[Math.floor(rnd()*LOOKS.length)].color};
-}
-const PLAYERS=PNAMES.map(mkPlayer).sort((a,b)=>b.net-a.net);
-PLAYERS.forEach((p,i)=>p.rank=i+1);
-const initials=n=>n.replace(/[^a-z0-9]/gi,'').slice(0,2).toUpperCase();
-const avatar=p=>`<span class="pav" style="background:${p.color}">${initials(p.name)}</span>`;
-
-function drawSocial(){
-  const paid=PLAYERS.reduce((a,p)=>a+p.payout,0);
-  const games=PLAYERS.reduce((a,p)=>a+p.n,0);
-  const best=Math.max(...PLAYERS.map(p=>p.best));
-  document.getElementById('soc-sub').innerHTML=
-    `<span class="num">${PLAYERS.length}</span> players, `+
-    `<span class="num">${games.toLocaleString()}</span> games played.`;
-  document.getElementById('soc-tiles').innerHTML=[
-    ['Paid out to players',money(paid),'across every cash-out'],
-    ['Players',String(PLAYERS.length),'who have staked at least once'],
-    ['Games played',games.toLocaleString(),'all time'],
-    ['Biggest cash-out',money(best),'single game'],
-  ].map(t=>`<div class="tile"><div class="k">${t[0]}</div>
-      <div class="v num">${t[1]}</div><div class="f">${t[2]}</div></div>`).join('');
-  drawBoard();
-}
-/* No search shows the top ten; a search shows everyone who matches, keeping
-   each player's real overall rank rather than renumbering the results. */
-function drawBoard(){
-  const q=(document.getElementById('soc-q').value||'').trim().toLowerCase();
-  const list=q?PLAYERS.filter(p=>p.name.toLowerCase().includes(q)):PLAYERS.slice(0,10);
-  const el=document.getElementById('soc-board');
-  if(!list.length){
-    el.innerHTML=`<div class="none2">Nobody matches &ldquo;${q.replace(/[<&]/g,'')}&rdquo;. `+
-      `Names are exact, so check the spelling.</div>`;
-    return;
-  }
-  el.innerHTML=list.map(p=>`<button class="prow" onclick="openPlayer('${p.name}')">
-      <span class="rk num">${p.rank}</span>${avatar(p)}
-      <span class="nm">${p.name}</span>
-      <span class="gp num">${p.n} games</span>
-      <span class="er num">${signed(p.net)}</span>
-    </button>`).join('');
-}
-function openPlayer(name){
-  const p=PLAYERS.find(x=>x.name===name); if(!p)return;
-  document.getElementById('p-av').style.background=p.color;
-  document.getElementById('p-av').textContent=initials(p.name);
-  document.getElementById('p-name').textContent=p.name;
-  document.getElementById('p-sub').innerHTML=
-    `Rank <span class="num">${p.rank}</span> of <span class="num">${PLAYERS.length}</span>`+
-    ` &nbsp;·&nbsp; <span class="num">${p.n}</span> games`;
-  document.getElementById('p-net').textContent=signed(p.net);
-  document.getElementById('p-tiles').innerHTML=[
-    ['Win rate',Math.round(p.wins/p.n*100)+'%',`${p.wins} up, ${p.n-p.wins} down`],
-    ['Biggest cash-out',money(p.best),'single game'],
-    ['Total staked',money(p.staked),'across '+p.n+' games'],
-    ['House cut paid',money(p.cut),'10% of every cash-out'],
-  ].map(t=>`<div class="tile"><div class="k">${t[0]}</div>
-      <div class="v num">${t[1]}</div><div class="f">${t[2]}</div></div>`).join('');
-  document.getElementById('p-games').innerHTML=
-    `<div class="tr hd"><span>Date</span><span>Result</span>
-     <span class="r c4">Buy-in</span><span class="r c3">House cut</span><span class="r">Net</span></div>`+
-    p.games.slice(-10).reverse().map(g=>`<div class="tr"><span class="num">${g.d}</span>
-      <span><span class="tag">${g.out?'Cashed out':'Knocked out'}</span></span>
-      <span class="r num neg c4">${money(g.stake)}</span>
-      <span class="r num neg c3">${g.cut?money(g.cut):'—'}</span>
-      <span class="r num ${g.net>0?'pos':'neg'}">${signed(g.net)}</span></div>`).join('');
-  showScreen('player-screen');
-  scrollTo(0,0);
-}
+   Leaderboard, search and profiles now live in public/js/v2/social.js and
+   come from the server. The generated roster that used to sit here is gone:
+   it invented win rates, house cut and buy-in history that the server does
+   not record, so a profile would have shown figures that cannot be true. */
 
 /* ── wallet screen ──────────────────────────────────────────────────── */
 function drawWalletPage(){
@@ -2009,12 +1912,16 @@ function showScreen(id){
   SCREENS.forEach(s=>{const el=document.getElementById(s); if(el)el.style.display='none'});
   const el=document.getElementById(id); if(el)el.style.display='block';
 }
+/* The extracted modules need these two: the router, and the palette they
+   derive player avatar colours from. */
+window.showScreen=showScreen;
+window.V2_LOOKS=LOOKS;
 function go(id){
   route=id; drawNav();
   if(id==='play')        showScreen('home');
   else if(id==='wallet'){ showScreen('wallet-screen'); drawWalletPage() }
   else if(id==='stats') { showScreen('stats-screen');  drawStats() }
-  else if(id==='social'){ showScreen('social-screen'); drawSocial() }
+  else if(id==='social'){ showScreen('social-screen'); V2Social.load() }
   else{
     showScreen('stub');
     const n=NAV.find(x=>x.id===id);
