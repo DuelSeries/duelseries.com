@@ -256,14 +256,15 @@ const crypto = require('crypto');
 const { makeEntryStore } = require('./entryStore');
 const ENTRY_TOKEN_MAX_AGE_MS = 5 * 60 * 1000;
 
-// Bounds for the any-amount stake model; see server/stakeRules.js for why they
-// are checked in three places and which of the three actually matters.
-const { MIN_STAKE, MAX_STAKE, stakeRangeError } = require('./stakeRules');
+// The stake ladder: free, 0.25, 0.50, 1, 2, 5, 10, 20, 100. A closed set, so an
+// amount is either on it or refused. See server/stakeRules.js.
+const { STAKE_TIERS, ALL_STAKES, MIN_STAKE, MAX_STAKE,
+        isStake, tierFor, stakeRangeError } = require('./stakeRules');
 
 // The store is the same logic that used to be inline here, moved out so it can
 // be tested directly (test/entryStore.test.js). The tier behaviour is unchanged.
 const entryStore = makeEntryStore({ ttlMs: ENTRY_TOKEN_MAX_AGE_MS, fees: LOBBY_FEES,
-                                    minStake: MIN_STAKE, maxStake: MAX_STAKE });
+                                    isStake: isStake });
 // Sweep expired (paid-but-never-used) tokens so the map stays bounded.
 setInterval(() => entryStore.sweep(), ENTRY_TOKEN_MAX_AGE_MS);
 
@@ -419,11 +420,15 @@ app.get('/api/stake-quote', entryFeeLimiter, async (req, res) => {
 app.post('/api/submit-stake', entryFeeLimiter, express.json({ limit: '256kb' }), async (req, res) => {
   const { lobbyType, stake, signedTx, walletAddress } = req.body || {};
 
-  /* Any-amount path. The requested amount is only a floor passed to
-     verifyStake; the token is minted against `worth`, which is what actually
-     landed in escrow. So the lobby a player may enter is derived from what
-     they really paid, never from what the request claimed — asking for a $50
-     room having paid $0.10 yields a $0.10 token and nothing else. */
+  /* Ladder path. The requested rung is only a floor passed to verifyStake; the
+     token is minted against what actually landed in escrow, resolved down to
+     the largest rung that payment covers. So the room a player may enter is
+     derived from what they really paid, never from what the request claimed:
+     ask for the $100 room having paid $0.25 and you get the $0.25 room.
+
+     Snapping down rather than demanding an exact match matters because by this
+     point the stake has settled on-chain. A small overpay must still buy the
+     rung it covers; refusing would leave someone out of pocket with no seat. */
   if (stake !== undefined) {
     const want = Number(stake);
     const bad = stakeRangeError(want);
@@ -433,12 +438,15 @@ app.post('/api/submit-stake', entryFeeLimiter, express.json({ limit: '256kb' }),
     try {
       const sig = await Wallet.submitStake(Buffer.from(signedTx, 'base64'));
       const { payer, worth } = await money.verifyStake(sig, money.amountFor(want));
-      const paidBad = stakeRangeError(worth);
-      if (paidBad) return res.status(400).json({ error: paidBad });
+      const rung = tierFor(worth);
+      if (!rung) return res.status(400).json({ error: 'Payment did not cover any buy-in' });
       // Atomic one-time claim AFTER verify, as in the tier path below.
       if (!(await db.markStakeSig(sig))) return res.status(400).json({ error: 'Stake already used' });
-      const entryToken = entryStore.mint({ stake: worth, worth, walletAddress: walletAddress || payer });
-      return res.json({ ok: true, entryToken, worth, stake: worth });
+      /* worth is the rung, not the raw payment: everyone in a room has to be
+         worth the same on entry or the eat-and-take rule stops being symmetric.
+         Any excess over the rung stays in escrow. */
+      const entryToken = entryStore.mint({ stake: rung, worth: rung, walletAddress: walletAddress || payer });
+      return res.json({ ok: true, entryToken, worth: rung, stake: rung, paid: worth });
     } catch (e) {
       return res.status(400).json({ error: e.message });
     }
@@ -696,8 +704,12 @@ function liveBoard() {
   return out.sort((a, b) => b.players - a.players);
 }
 app.get('/api/live', (_req, res) => {
-  try { res.json({ lobbies: liveBoard() }); }
-  catch (e) { console.error('[LIVE]', e.message); res.json({ lobbies: [] }); }
+  try {
+    /* The ladder ships with the board so the buy-in control offers exactly the
+       rungs the server will accept. A client with its own copy is a client
+       that can drift out of step and offer an amount that gets refused. */
+    res.json({ lobbies: liveBoard(), stakes: ALL_STAKES });
+  } catch (e) { console.error('[LIVE]', e.message); res.json({ lobbies: [], stakes: ALL_STAKES }); }
 });
 
 function getRoomForType(lobbyType, region) {

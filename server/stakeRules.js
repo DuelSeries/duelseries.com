@@ -1,36 +1,62 @@
 'use strict';
-/* ─── What a stake is allowed to be ───────────────────────────────────────────
-   One place, because the same limits are applied at three points and they must
-   not drift apart:
+/* ─── The stake ladder ────────────────────────────────────────────────────────
+   Buy-ins are a fixed set, not any amount:
 
-     1. the quote, so a player is never asked to sign a transfer for an amount
-        that will be refused afterwards
-     2. the submitted request, before anything is broadcast
-     3. the amount that actually landed on-chain, which is the only one of the
-        three the client did not choose
+     free · 0.25 · 0.50 · 1 · 2 · 5 · 10 · 20 · 100
 
-   The third check is the one that matters. The first two are courtesy.
+   A closed set is materially safer than a range. A range has to be checked at
+   the edges and trusted in the middle; a set is either matched or refused, so
+   there is no "valid but absurd" amount like 37.42 to reason about, and no
+   ladder of near-identical rooms splitting the player base across amounts
+   nobody chose deliberately.
 
-   The floor matches the lowest tier the game already sells, so nothing becomes
-   cheaper than it is today. The ceiling caps what one player can put at risk in
-   a single room, which caps how far a single bug or a single bad beat can move
-   real money. Both were unset in the spec and are chosen here; they are meant
-   to be tuned, not treated as physics. */
+   Free is kept because it already exists and the board should always have
+   something joinable with nobody online.
 
-const MIN_STAKE = 0.10;
-const MAX_STAKE = 100;
+   WHY SNAP-DOWN, AND NOT EXACT MATCH
+   The amount that reaches the server is what actually landed on-chain, and the
+   verifier tolerates a small overpay. Requiring exact equality would refuse a
+   stake that has already settled, leaving a player out of pocket with no seat.
+   So a payment buys the largest tier it covers: pay 1.00 and you get the $1
+   room; pay 1.04 and you still get the $1 room, with the excess left in escrow.
+   Paying less than the smallest tier buys nothing, which is the only case where
+   refusing is the right answer, and the client cannot get there because it is
+   quoted a tier before it signs anything. */
 
-/* Returns null when the amount is allowed, or a message saying why not.
-   Zero is free play and always allowed. */
-function stakeRangeError(v, { min = MIN_STAKE, max = MAX_STAKE } = {}) {
-  const n = Number(v);
-  if (typeof v === 'boolean' || v === null || v === '' ) return 'Not an amount';
-  if (!isFinite(n)) return 'Not an amount';
-  if (n < 0) return 'Not an amount';
-  if (n === 0) return null;                       // free play
-  if (n < min) return `Minimum stake is ${min.toFixed(2)}`;
-  if (n > max) return `Maximum stake is ${max.toFixed(2)}`;
-  return null;
+const STAKE_TIERS = [0.25, 0.50, 1, 2, 5, 10, 20, 100];
+const FREE = 0;
+const ALL_STAKES = [FREE].concat(STAKE_TIERS);
+
+const MIN_STAKE = STAKE_TIERS[0];
+const MAX_STAKE = STAKE_TIERS[STAKE_TIERS.length - 1];
+
+/* Money compared as fixed-point cents. 0.1 + 0.2 !== 0.3 in binary floats, and
+   a stake that misses its tier by one ulp is a room nobody else is in. */
+const cents = v => Math.round(Number(v) * 100);
+const isStake = v => Number.isFinite(Number(v)) && ALL_STAKES.some(t => cents(t) === cents(v));
+
+/* The largest tier this payment covers, or null if it covers none. */
+function tierFor(paid) {
+  const n = Number(paid);
+  if (!Number.isFinite(n) || n < 0) return null;
+  let best = null;
+  for (const t of ALL_STAKES) if (cents(t) <= cents(n)) best = t;
+  return best;
 }
 
-module.exports = { MIN_STAKE, MAX_STAKE, stakeRangeError };
+/* Returns null when the amount is an allowed buy-in, or a message saying why
+   not. Used on the quote and on the request, before anything is broadcast. */
+function stakeRangeError(v, { tiers = ALL_STAKES } = {}) {
+  if (typeof v === 'boolean' || v === null || v === '') return 'Not an amount';
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 'Not an amount';
+  if (n < 0) return 'Not an amount';
+  if (tiers.some(t => cents(t) === cents(n))) return null;
+  // Whole dollars read better without the cents; anything under a dollar needs
+  // them, or the ladder prints "$0.5".
+  const label = t => '$' + (t < 1 ? t.toFixed(2) : String(t));
+  return 'Buy-in must be one of ' + tiers.filter(t => t > 0).map(label).join(', ');
+}
+
+module.exports = { STAKE_TIERS, ALL_STAKES, FREE, MIN_STAKE, MAX_STAKE,
+                   isStake, tierFor, stakeRangeError };

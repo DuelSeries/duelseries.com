@@ -86,22 +86,22 @@ test('spending one token leaves other tokens intact', () => {
    rather than to a tier name. These are the same money-loss shapes as above,
    restated against that binding. */
 
-const amt = (ttlMs = 60000, min = 0.10, max = 100) =>
-  makeEntryStore({ ttlMs, fees: FEES, minStake: min, maxStake: max });
+const { isStake } = require('../server/stakeRules');
+const amt = (ttlMs = 60000) => makeEntryStore({ ttlMs, fees: FEES, isStake });
 
 test('a token opens exactly the lobby it was paid for', () => {
   const s = amt();
-  const tok = s.mint({ stake: 0.35, worth: 0.35, walletAddress: 'W1' });
-  assert.deepEqual(s.consumeAtStake(tok, 0.35),
-    { ok: true, worth: 0.35, googleId: undefined, walletAddress: 'W1' });
+  const tok = s.mint({ stake: 0.50, worth: 0.50, walletAddress: 'W1' });
+  assert.deepEqual(s.consumeAtStake(tok, 0.50),
+    { ok: true, worth: 0.50, googleId: undefined, walletAddress: 'W1' });
 });
 
 test('paying a little and claiming a lot buys nothing', () => {
   // The whole point of the model: the amount is not the client's to choose.
   const s = amt();
-  const tok = s.mint({ stake: 0.10, worth: 0.10, walletAddress: 'W1' });
+  const tok = s.mint({ stake: 0.25, worth: 0.25, walletAddress: 'W1' });
   assert.deepEqual(s.consumeAtStake(tok, 50), { ok: false, worth: 0 });
-  assert.deepEqual(s.consumeAtStake(tok, 0.11), { ok: false, worth: 0 },
+  assert.deepEqual(s.consumeAtStake(tok, 0.50), { ok: false, worth: 0 },
     'not even slightly more');
 });
 
@@ -135,12 +135,14 @@ test('a nonsense stake is refused rather than treated as free', () => {
     assert.deepEqual(s.consumeAtStake('x', bad), { ok: false, worth: 0 }, String(bad));
 });
 
-test('stakes outside the allowed range cannot be minted', () => {
-  const s = amt(60000, 0.10, 100);
-  assert.throws(() => s.mint({ stake: 0.01, worth: 0.01 }), /below the minimum/);
-  assert.throws(() => s.mint({ stake: 250, worth: 250 }), /above the maximum/);
-  assert.doesNotThrow(() => s.mint({ stake: 0.10, worth: 0.10 }), 'the floor itself is allowed');
-  assert.doesNotThrow(() => s.mint({ stake: 100, worth: 100 }), 'the ceiling itself is allowed');
+test('a stake off the ladder cannot be minted at all', () => {
+  // A token is the only thing between a client and a room, so one must never
+  // exist for an amount that has no room.
+  const s = amt();
+  for (const bad of [0.10, 0.26, 3, 37.42, 250])
+    assert.throws(() => s.mint({ stake: bad, worth: bad }), /not on the ladder/, String(bad));
+  for (const good of [0.25, 0.5, 1, 2, 5, 10, 20, 100])
+    assert.doesNotThrow(() => s.mint({ stake: good, worth: good }), String(good));
 });
 
 test('a tier token cannot be spent through the any-amount door unless it matches', () => {

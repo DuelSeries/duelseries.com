@@ -17,20 +17,22 @@
 
 const crypto = require('crypto');
 
-function makeEntryStore({ ttlMs = 5 * 60 * 1000, fees = {},
-                         minStake = 0.10, maxStake = 100 } = {}) {
+function makeEntryStore({ ttlMs = 5 * 60 * 1000, fees = {}, isStake = null } = {}) {
   const tokens = new Map();   // opaque token -> { lobbyType, stake, worth, walletAddress, googleId, exp }
   const EPS = 1e-9;
 
   return {
-    /* `stake` is the amount that actually landed on-chain. It is what the
-       any-amount model binds a token to; `lobbyType` is the tier model's
+    /* `stake` is the rung of the ladder this token buys, already resolved from
+       what actually landed on-chain. `lobbyType` is the old tier model's
        equivalent. Both are recorded so the two flows can run side by side
-       during the migration without a second store. */
+       during the migration without a second store.
+
+       A stake off the ladder is refused at mint rather than stored: a token is
+       the only thing standing between a client and a room, so it must never
+       exist for an amount no room has. */
     mint({ lobbyType, stake, worth, walletAddress, googleId }) {
-      if (stake !== undefined && stake !== null && stake !== 0) {
-        if (!(stake >= minStake)) throw new Error('stake below the minimum');
-        if (!(stake <= maxStake)) throw new Error('stake above the maximum');
+      if (stake !== undefined && stake !== null) {
+        if (isStake && !isStake(stake)) throw new Error('stake is not on the ladder');
       }
       const token = crypto.randomUUID();
       tokens.set(token, { lobbyType, stake, worth, walletAddress, googleId, exp: Date.now() + ttlMs });
