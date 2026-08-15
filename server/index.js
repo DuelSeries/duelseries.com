@@ -563,6 +563,14 @@ app.get('/api/my-profile', async (req, res) => {
 });
 
 app.use((req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
+
+// The redesigned lobby, served alongside the live one rather than replacing it,
+// so it can be exercised against the real server, the real wallet and real
+// money while index.html stays authoritative. The root route is switched over
+// in the cutover phase; until then a half-migrated push cannot take the lobby
+// down. See docs/superpowers/plans/2026-08-14-lobby-v2-migration.md.
+app.get('/v2', (_req, res) => res.sendFile(path.join(__dirname, '../public/v2.html')));
+
 app.use(express.static(path.join(__dirname, '../public')));
 app.use('/shared', express.static(path.join(__dirname, '../shared')));
 

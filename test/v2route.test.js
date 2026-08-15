@@ -1,0 +1,45 @@
+'use strict';
+// Guards the parallel-route migration: the redesigned lobby has to be reachable
+// on the real server without disturbing the live one. These are structural
+// checks, not behaviour — the page itself is exercised in the browser.
+const { test } = require('node:test');
+const assert = require('node:assert');
+const fs = require('fs');
+const path = require('path');
+
+const ROOT = path.join(__dirname, '..');
+const v2 = () => fs.readFileSync(path.join(ROOT, 'public/v2.html'), 'utf8');
+const server = () => fs.readFileSync(path.join(ROOT, 'server/index.js'), 'utf8');
+
+test('the redesigned lobby is served at /v2', () => {
+  const s = server();
+  assert.ok(/app\.get\(\s*'\/v2'/.test(s), "server/index.js registers a '/v2' route");
+  assert.ok(s.includes('v2.html'), 'the route points at v2.html');
+});
+
+test('the v2 shell is intact', () => {
+  const html = v2();
+  assert.ok(html.includes('<title>DuelSeries</title>'), 'has the title');
+  // The card art is the real game renderer, so these must keep loading.
+  for (const src of ['/shared/constants.js', '/js/HexGrid.js', '/js/SnakeGL.js',
+                     '/js/FoodGL.js', '/js/Renderer.js', '/js/Camera.js']) {
+    assert.ok(html.includes(src), `still loads ${src}`);
+  }
+});
+
+test('the live lobby is untouched by the migration', () => {
+  // index.html and lobby.js stay authoritative until the cutover phase, so a
+  // half-migrated push can never take the real lobby down.
+  assert.ok(fs.existsSync(path.join(ROOT, 'public/index.html')), 'index.html still exists');
+  assert.ok(fs.existsSync(path.join(ROOT, 'public/js/lobby.js')), 'lobby.js still exists');
+  assert.ok(!server().includes("app.get('/', "), 'the root route is not redirected yet');
+});
+
+test('the skin store is shared with the live lobby', () => {
+  // Both lobbies run side by side during the migration, so they have to agree
+  // on the equipped skin rather than each keeping their own.
+  const key = 'duelseries_skin_id';
+  assert.ok(v2().includes(key), 'v2 uses the live skin key');
+  assert.ok(fs.readFileSync(path.join(ROOT, 'public/js/lobby.js'), 'utf8').includes(key),
+    'the live lobby uses the same key');
+});
