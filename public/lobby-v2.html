@@ -215,6 +215,39 @@ h2{font-size:31px;font-weight:700;letter-spacing:-1.1px;line-height:1.1}
 @media(max-width:760px){.track{--per:2}}
 @media(max-width:520px){.track{--per:1.2}}
 
+/* ── winners ticker ─────────────────────────────────────────────────── */
+/* Social proof that survives a quiet board: real names and real amounts make
+   the product feel alive even when two people are playing.
+   The run holds the list twice, so translating it exactly -50% lands the
+   second copy where the first started and the loop has no seam. */
+.tickerwrap{position:relative;margin-top:30px}
+.ticker{overflow:hidden;
+  -webkit-mask-image:linear-gradient(90deg,transparent,#000 56px,#000 calc(100% - 96px),transparent);
+          mask-image:linear-gradient(90deg,transparent,#000 56px,#000 calc(100% - 96px),transparent)}
+.tkrun{display:flex;width:max-content;animation:tk 52s linear infinite}
+.tkrun.off{animation-play-state:paused}
+/* Reading a moving line is hard, so it holds still while you point at it. */
+.ticker:hover .tkrun,.ticker:focus-within .tkrun{animation-play-state:paused}
+@keyframes tk{to{transform:translateX(-50%)}}
+.tki{display:inline-flex;align-items:center;gap:8px;padding:9px 22px;
+  font-size:13px;white-space:nowrap}
+.tki .who{color:var(--tx);font-weight:550}
+.tki .won{color:var(--tx3)}
+.tki .amt{color:var(--money);font-weight:600}
+.tki .gm{color:var(--tx3)}
+.tki .sep{width:3px;height:3px;border-radius:50%;background:var(--s3);margin:0 4px}
+/* An auto-moving strip needs a real stop control, not just hover. */
+.tkbtn{position:absolute;right:0;top:50%;transform:translateY(-50%);
+  width:44px;height:44px;border-radius:50%;display:grid;place-items:center;
+  color:var(--tx3);transition:.15s}
+.tkbtn:hover{color:var(--tx);background:var(--s1)}
+.tkbtn svg{width:15px;height:15px;fill:currentColor}
+@media(prefers-reduced-motion:reduce){
+  .ticker{overflow-x:auto;scrollbar-width:none}
+  .tkrun{animation:none}
+  .tkbtn{display:none}
+}
+
 /* ── lobby list ─────────────────────────────────────────────────────── */
 /* Three rows are visible at rest. Hover and scroll to run through the rest
    without the page moving underneath you (overscroll-behavior contains the
@@ -456,6 +489,14 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
     <button class="nb l" onclick="spin(-1)" aria-label="Previous games">&#8249;</button>
     <div class="rail"><div class="track" id="track"></div></div>
     <button class="nb r" onclick="spin(1)" aria-label="Next games">&#8250;</button>
+  </div>
+
+  <div class="tickerwrap">
+    <div class="ticker"><div class="tkrun" id="tkrun"></div></div>
+    <button class="tkbtn" id="tkbtn" aria-pressed="false"
+      aria-label="Pause the recent winners ticker" onclick="tkToggle(this)">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="6" width="3" height="12" rx="1"/><rect x="14" y="6" width="3" height="12" rx="1"/></svg>
+    </button>
   </div>
 
   <div class="head">
@@ -1195,6 +1236,45 @@ function lrow(l){
           :`<button class="enter" onclick="join(${l.s})">Enter</button>`}
   </div>`;
 }
+/* ── recent winners ──────────────────────────────────────────────────────
+   Entries are filtered against the game registry, so the row can never
+   advertise a game nobody can play. Today that means every line is
+   slither.io; the moment another game loses its `soon` flag its wins start
+   appearing here on their own. */
+const WINS=[
+ {who:'PEPIK',       g:'snake', amt:13.25},
+ {who:'hashim',      g:'snake', amt:2.40},
+ {who:'degenmonkey', g:'snake', amt:0.48},
+ {who:'qesku',       g:'snake', amt:6.47},
+ {who:'tungsahur',   g:'snake', amt:0.82},
+ {who:'ZachXBT',     g:'snake', amt:11.03},
+ {who:'dddickk',     g:'snake', amt:1.05},
+ {who:'sol_maxi',    g:'rps',   amt:3.10},
+ {who:'wenmoon',     g:'snake', amt:4.30},
+ {who:'noodlearm',   g:'snake', amt:0.94},
+ {who:'grasshopper', g:'snake', amt:22.60},
+ {who:'lilbogdan',   g:'snake', amt:1.72},
+].filter(w=>{const g=G(w.g); return g&&!g.soon});
+
+function drawTicker(){
+  const one=WINS.map(w=>`<span class="tki"><span class="who">${w.who}</span>
+    <span class="won">won</span><span class="amt num">$${w.amt.toFixed(2)}</span>
+    <span class="sep"></span><span class="gm">${G(w.g).name}</span></span>`).join('');
+  /* Second copy is decoration for the loop, so it is hidden from readers
+     rather than read out twice. */
+  document.getElementById('tkrun').innerHTML=
+    `<span style="display:flex">${one}</span>`+
+    `<span style="display:flex" aria-hidden="true">${one}</span>`;
+}
+function tkToggle(btn){
+  const run=document.getElementById('tkrun'), off=run.classList.toggle('off');
+  btn.setAttribute('aria-pressed',String(off));
+  btn.setAttribute('aria-label',(off?'Play':'Pause')+' the recent winners ticker');
+  btn.innerHTML=off
+    ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6.5v11l9-5.5z"/></svg>'
+    : '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="6" width="3" height="12" rx="1"/><rect x="14" y="6" width="3" height="12" rx="1"/></svg>';
+}
+
 /* Busiest first. Three are visible; hovering the list and scrolling runs
    through the rest without moving the page. */
 function drawLob(){
@@ -1582,7 +1662,7 @@ let t=38*60+59;
 setInterval(()=>{if(t>0)t--;document.getElementById('cd').textContent=
   String(Math.floor(t/60)).padStart(2,'0')+':'+String(t%60).padStart(2,'0')},1000);
 
-drawNav();drawWallet();drawRail();drawLob();
+drawNav();drawWallet();drawRail();drawTicker();drawLob();
 </script>
 </body>
 </html>
