@@ -74,3 +74,29 @@ test('the skin store is shared with the live lobby', () => {
   assert.ok(fs.readFileSync(path.join(ROOT, 'public/js/lobby.js'), 'utf8').includes(key),
     'the live lobby uses the same key');
 });
+
+test('the wallet screen delegates to the Privy widget, not its own money code', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'public/js/v2/wallet.js'), 'utf8');
+  for (const g of ['duelWalletLogin', 'duelWalletFund', 'duelWalletSend', 'duelwallet:change'])
+    assert.ok(src.includes(g), `wallet.js uses ${g}`);
+  // A second implementation of staking or signing here would be a second money
+  // path to keep correct. There must not be one.
+  for (const bad of ['submit-stake', 'stake-quote', 'signTransaction', 'Keypair'])
+    assert.ok(!src.includes(bad), `wallet.js does not do its own ${bad}`);
+});
+
+test('the v2 lobby mounts the same wallet widget as the live lobby', () => {
+  const html = v2();
+  assert.ok(html.includes('/wallet/widget.js'), 'widget is mounted');
+  assert.ok(html.includes('id="wallet-root"'), 'widget has its mount point');
+  assert.ok(html.indexOf('window.global=window.global') < html.indexOf('/wallet/widget.js'),
+    'the node-global shims run before the bundle, as they must');
+});
+
+test('a signed-out wallet never shows a fabricated balance', () => {
+  // "$0.00" and "not connected" mean very different things about someone's
+  // money. The mock hardcoded $12.40 into the markup; nothing may do that.
+  const html = v2();
+  assert.ok(!/\$12\.40/.test(html), 'no hardcoded balance in the markup');
+  assert.ok(!html.includes('C5cnQ7v2'), 'no hardcoded deposit address');
+});

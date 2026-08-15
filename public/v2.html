@@ -555,23 +555,15 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
   <div class="sp"></div>
   <nav class="nav" id="nav"></nav>
   <div class="sp"></div>
-  <div class="balbox"><span class="k">Balance</span><span class="v num">$12.40</span></div>
-  <div class="wrapw">
-    <button class="wbtn" id="wbtn" onclick="toggleWallet(event)">
-      <svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2H5a2 2 0 0 1-2-2m14 6h.01"/></svg>
-      Wallet
-    </button>
-    <div class="wcard" id="wcard">
-      <div class="wtabs" id="wtabs"></div>
-      <div class="wbody">
-        <div class="wtop">
-          <div><div class="k">Your balance</div><div class="v num">$12.40</div></div>
-          <div class="u">12.40 USDC</div>
-        </div>
-        <div id="wpane"></div>
-      </div>
-    </div>
-  </div>
+  <!-- Signed out this reads "—", not $0.00: a real zero balance and having no
+       wallet at all are very different things to tell someone about money. -->
+  <div class="balbox"><span class="k">Balance</span><span class="v num" id="hdr-balance">—</span></div>
+  <!-- One wallet surface. The dropdown that used to hang here was a second
+       place to do money in, with its own tabs and its own idea of the balance. -->
+  <button class="wbtn" id="wbtn" onclick="go('wallet')">
+    <svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2H5a2 2 0 0 1-2-2m14 6h.01"/></svg>
+    <span>Wallet</span>
+  </button>
   <div class="av">OK</div>
 </div></header>
 
@@ -684,35 +676,10 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
   <div class="head"><div><h2>Wallet</h2>
     <div class="sub">Your USDC, on Solana. Deposits and withdrawals settle on-chain.</div></div></div>
 
-  <div class="wgrid">
-    <div class="panel">
-      <div class="bfig">
-        <div><div class="blab">Available</div><div class="bnum num" id="w-avail">$0.00</div></div>
-        <div><div class="blab">In play</div><div class="bnum num sm" id="w-inplay">$0.00</div></div>
-      </div>
-      <div class="brow">
-        <button class="btn pri" onclick="wq('Deposit')">Deposit</button>
-        <button class="btn sec" onclick="wq('Withdraw')">Withdraw</button>
-      </div>
-      <p class="note">The house takes <b>10%</b> of what you cash out. Nothing is
-        taken from a deposit, and nothing is taken if you leave with your buy-in.</p>
-    </div>
-
-    <div class="panel">
-      <div class="plab">Deposit address</div>
-      <div class="waddr" id="waddr2" onclick="copyAddr2(event)">
-        <code id="addr2"></code><span class="cp">Copy</span></div>
-      <p class="note">Send only <b>USDC on Solana</b>. Any other token, or the right
-        token on the wrong network, cannot be recovered.</p>
-      <div class="plab" style="margin-top:22px">Escrow</div>
-      <p class="note">Stakes sit in a published escrow wallet while a game is live.
-        <a class="lnk" href="#" onclick="return false">View escrow on Solscan</a></p>
-    </div>
-  </div>
-
-  <div class="head"><div><h2>Activity</h2>
-    <div class="sub">Every line settles on-chain and links to the transaction.</div></div></div>
-  <div class="tbl" id="w-activity"></div>
+  <!-- Filled by public/js/v2/wallet.js. No activity table: the server records
+       earnings totals, not a per-transaction ledger, so listing one would mean
+       inventing it. -->
+  <div id="w-body"></div>
 </main>
 
 <!-- ══ STATS ══ -->
@@ -828,6 +795,7 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
 <script src="/js/Renderer.js"></script>
 <script src="/js/v2/chart.js"></script>
 <script src="/js/v2/social.js"></script>
+<script src="/js/v2/wallet.js"></script>
 <script>
 /* Flat geometric artwork, one scene per game. Drawn rather than iconed:
    emoji or a generic icon set is what makes a games page look unmade. */
@@ -1846,36 +1814,10 @@ function toggleChart(){
    it invented win rates, house cut and buy-in history that the server does
    not record, so a profile would have shown figures that cannot be true. */
 
-/* ── wallet screen ──────────────────────────────────────────────────── */
-function drawWalletPage(){
-  document.getElementById('w-avail').textContent=money(12.40);
-  document.getElementById('w-inplay').textContent=money(0);
-  document.getElementById('addr2').textContent=ADDR;
-  /* Every game is a buy-in leaving the wallet; a cash-out is a second,
-     separate transaction coming back. One line per on-chain movement, not
-     one line per game, or the feed would not add up to the balance. */
-  const acts=[];
-  ROWS.forEach(r=>{
-    acts.push({d:r.d,t:'Buy-in',v:-r.stake});
-    if(r.out&&r.payout>0)acts.push({d:r.d,t:'Cash-out',v:r.payout});
-  });
-  document.getElementById('w-activity').innerHTML=
-    `<div class="tr hd"><span>Date</span><span>Type</span><span class="r">Amount</span>
-     <span class="r c3">Status</span><span class="r c4">Proof</span></div>`+
-    acts.reverse().slice(0,10).map(a=>`<div class="tr"><span class="num">${a.d}</span>
-        <span>${a.t}</span>
-        <span class="r num ${a.v>0?'pos':'neg'}">${signed(a.v)}</span>
-        <span class="r c3"><span class="tag">Settled</span></span>
-        <span class="r c4"><a class="lnk" href="#" onclick="return false">Tx</a></span></div>`).join('');
-}
-function wq(tab){ wtab=tab; drawWallet(); wcard.classList.add('on'); }
-function copyAddr2(e){
-  e.stopPropagation();
-  const el=document.getElementById('waddr2'), lbl=el.querySelector('.cp');
-  try{navigator.clipboard.writeText(ADDR)}catch(_){}
-  el.classList.add('done'); lbl.textContent='Copied';
-  setTimeout(()=>{el.classList.remove('done');lbl.textContent='Copy'},1400);
-}
+/* ── wallet screen ────────────────────────────────────────────────────────
+   Rendered by public/js/v2/wallet.js from the Privy widget's own state. What
+   used to be here had a hardcoded balance, a fake deposit address, and an
+   activity table built out of invented games. */
 
 let route='play';
 function drawNav(){
@@ -1900,7 +1842,7 @@ window.V2_LOOKS=LOOKS;
 function go(id){
   route=id; drawNav();
   if(id==='play')        showScreen('home');
-  else if(id==='wallet'){ showScreen('wallet-screen'); drawWalletPage() }
+  else if(id==='wallet'){ showScreen('wallet-screen'); V2Wallet.render() }
   else if(id==='stats') { showScreen('stats-screen');  drawStats() }
   else if(id==='social'){ showScreen('social-screen'); V2Social.load() }
   else{
@@ -1912,83 +1854,30 @@ function go(id){
   scrollTo(0,0);
 }
 
-/* ── wallet ──────────────────────────────────────────────────────────────
-   Currency and network are pickers rather than fixed text because the
-   deposit address is only valid for one pair, and sending the right token
-   on the wrong chain is the most common way people lose funds. */
-const ADDR='C5cnQ7v2mK4pR9hT1xW6bY8dL3nF5gJ0sA2eU4iO7H3m9';
-const WTABS=['Deposit','Withdraw','Redeem','Buy crypto','Tip'];
-let wtab='Deposit';
-function pick(lab,val,live){
-  return `<div class="wsel"><div class="wlab">${lab}</div>
-    <div class="wpick">${live?'<span class="d"></span>':''}${val}<span class="c">&#9660;</span></div></div>`;
-}
-function wpaneHTML(){
-  if(wtab==='Deposit')return `
-    <div class="wrow">${pick('Currency','USDC')}${pick('Network','Solana',1)}</div>
-    <div class="wlab" style="margin-top:4px">Deposit address</div>
-    <div class="waddr" id="waddr" onclick="copyAddr(event)">
-      <code>${ADDR}</code><span class="cp">Copy</span></div>
-    <div class="wnote">Send only <b>USDC on Solana</b> to this address. Anything
-      else, or the right token on the wrong network, cannot be recovered.</div>`;
-  if(wtab==='Withdraw')return `
-    <div class="wrow">${pick('Currency','USDC')}${pick('Network','Solana',1)}</div>
-    <div class="wlab">Amount</div>
-    <input class="winput" placeholder="0.00" style="margin-bottom:11px">
-    <div class="wlab">Destination address</div>
-    <input class="winput" placeholder="Your Solana wallet">
-    <button class="wgo">Withdraw</button>
-    <div class="wnote">Goes straight to your own wallet. Network fee is
-      deducted from the amount.</div>`;
-  if(wtab==='Redeem')return `
-    <div class="wlab">Redeem code</div>
-    <input class="winput" placeholder="XXXX-XXXX-XXXX">
-    <button class="wgo">Redeem</button>
-    <div class="wnote">Credits land in your balance straight away.</div>`;
-  if(wtab==='Buy crypto')return `
-    <div class="wrow">${pick('Pay with','Card')}${pick('Receive','USDC')}</div>
-    <div class="wlab">Amount in USD</div>
-    <input class="winput" placeholder="20.00">
-    <button class="wgo">Continue</button>
-    <div class="wnote">Handled by a licensed provider. They run the identity
-      check and send USDC to your wallet.</div>`;
-  return `
-    <div class="wlab">Send to</div>
-    <input class="winput" placeholder="Player name" style="margin-bottom:11px">
-    <div class="wrow">${pick('Currency','USDC')}</div>
-    <div class="wlab">Amount</div>
-    <input class="winput" placeholder="0.00">
-    <button class="wgo">Send tip</button>
-    <div class="wnote">Tips are on-chain and cannot be reversed.</div>`;
-}
-function drawWallet(){
-  document.getElementById('wtabs').innerHTML=WTABS.map(t=>
-    `<button class="wtab${t===wtab?' on':''}" onclick="setWTab('${t}')">${t}</button>`).join('');
-  document.getElementById('wpane').innerHTML=wpaneHTML();
-}
-function setWTab(t){wtab=t;drawWallet()}
-function toggleWallet(e){ e.stopPropagation(); wcard.classList.toggle('on'); }
-function copyAddr(e){
-  e.stopPropagation();
-  const el=document.getElementById('waddr'), lbl=el.querySelector('.cp');
-  try{navigator.clipboard.writeText(ADDR)}catch(_){}
-  el.classList.add('done'); lbl.textContent='Copied';
-  setTimeout(()=>{el.classList.remove('done');lbl.textContent='Copy'},1400);
-}
+/* The mock wallet dropdown that used to live here is gone: five tabs of
+   controls that did nothing, over a hardcoded balance and a fake deposit
+   address. Real wallet UI is public/js/v2/wallet.js, which is a view over the
+   Privy widget rather than a second implementation of anything. */
+
 /* Escape closes the appearance dialog without saving, which is what a modal
    is expected to do. */
 document.addEventListener('keydown',e=>{
   if(e.key==='Escape'&&document.getElementById('lookveil').classList.contains('on'))
     closeLook(false);
 });
-document.addEventListener('click',()=>wcard.classList.remove('on'));
-document.getElementById('wcard').addEventListener('click',e=>e.stopPropagation());
 
 let t=38*60+59;
 setInterval(()=>{if(t>0)t--;document.getElementById('cd').textContent=
   String(Math.floor(t/60)).padStart(2,'0')+':'+String(t%60).padStart(2,'0')},1000);
 
-drawNav();drawWallet();drawRail();drawTicker();drawLob();
+drawNav();V2Wallet.render();drawRail();drawTicker();drawLob();
 </script>
+
+<!-- Self-custody wallet widget (Privy embedded). React island; the lobby stays
+     vanilla and only reads the globals it publishes. The node-global shims must
+     run before widget.js, exactly as they do in index.html. -->
+<script>window.global=window.global||window;window.process=window.process||{env:{NODE_ENV:'production'}};</script>
+<div id="wallet-root"></div>
+<script src="/wallet/widget.js"></script>
 </body>
 </html>
