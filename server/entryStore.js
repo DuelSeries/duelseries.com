@@ -17,14 +17,39 @@
 
 const crypto = require('crypto');
 
-function makeEntryStore({ ttlMs = 5 * 60 * 1000, fees = {} } = {}) {
-  const tokens = new Map();   // opaque token -> { lobbyType, worth, walletAddress, googleId, exp }
+function makeEntryStore({ ttlMs = 5 * 60 * 1000, fees = {},
+                         minStake = 0.10, maxStake = 100 } = {}) {
+  const tokens = new Map();   // opaque token -> { lobbyType, stake, worth, walletAddress, googleId, exp }
+  const EPS = 1e-9;
 
   return {
-    mint({ lobbyType, worth, walletAddress, googleId }) {
+    /* `stake` is the amount that actually landed on-chain. It is what the
+       any-amount model binds a token to; `lobbyType` is the tier model's
+       equivalent. Both are recorded so the two flows can run side by side
+       during the migration without a second store. */
+    mint({ lobbyType, stake, worth, walletAddress, googleId }) {
+      if (stake !== undefined && stake !== null && stake !== 0) {
+        if (!(stake >= minStake)) throw new Error('stake below the minimum');
+        if (!(stake <= maxStake)) throw new Error('stake above the maximum');
+      }
       const token = crypto.randomUUID();
-      tokens.set(token, { lobbyType, worth, walletAddress, googleId, exp: Date.now() + ttlMs });
+      tokens.set(token, { lobbyType, stake, worth, walletAddress, googleId, exp: Date.now() + ttlMs });
       return token;
+    },
+
+    /* The any-amount counterpart of consume(). A token opens exactly the lobby
+       whose stake equals what was paid for it, so a client that asks for a $50
+       room having paid $0.10 gets nothing: the amount is not its to choose.
+       Stake 0 is free play and carries no worth, as with the free tier. */
+    consumeAtStake(entryToken, stake) {
+      stake = Number(stake);
+      if (!isFinite(stake) || stake < 0) return { ok: false, worth: 0 };
+      if (stake === 0) return { ok: true, worth: 0 };
+      const t = entryToken && tokens.get(entryToken);
+      if (!t || typeof t.stake !== 'number' || Date.now() > t.exp) return { ok: false, worth: 0 };
+      if (Math.abs(t.stake - stake) > EPS) return { ok: false, worth: 0 };
+      tokens.delete(entryToken);                       // one-time use
+      return { ok: true, worth: t.worth, googleId: t.googleId, walletAddress: t.walletAddress };
     },
 
     /* Returns { ok, worth, googleId, walletAddress }. An unknown lobby type is

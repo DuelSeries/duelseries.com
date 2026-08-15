@@ -80,3 +80,80 @@ test('spending one token leaves other tokens intact', () => {
   s.consume(a, 'dollar');
   assert.equal(s.consume(b, 'dollar').walletAddress, 'W2');
 });
+
+/* ─── any-amount stakes ───────────────────────────────────────────────────────
+   The new model binds a token to the amount that actually landed on-chain
+   rather than to a tier name. These are the same money-loss shapes as above,
+   restated against that binding. */
+
+const amt = (ttlMs = 60000, min = 0.10, max = 100) =>
+  makeEntryStore({ ttlMs, fees: FEES, minStake: min, maxStake: max });
+
+test('a token opens exactly the lobby it was paid for', () => {
+  const s = amt();
+  const tok = s.mint({ stake: 0.35, worth: 0.35, walletAddress: 'W1' });
+  assert.deepEqual(s.consumeAtStake(tok, 0.35),
+    { ok: true, worth: 0.35, googleId: undefined, walletAddress: 'W1' });
+});
+
+test('paying a little and claiming a lot buys nothing', () => {
+  // The whole point of the model: the amount is not the client's to choose.
+  const s = amt();
+  const tok = s.mint({ stake: 0.10, worth: 0.10, walletAddress: 'W1' });
+  assert.deepEqual(s.consumeAtStake(tok, 50), { ok: false, worth: 0 });
+  assert.deepEqual(s.consumeAtStake(tok, 0.11), { ok: false, worth: 0 },
+    'not even slightly more');
+});
+
+test('an any-amount token is one-time', () => {
+  const s = amt();
+  const tok = s.mint({ stake: 1, worth: 1, walletAddress: 'W1' });
+  assert.equal(s.consumeAtStake(tok, 1).ok, true);
+  assert.equal(s.consumeAtStake(tok, 1).ok, false);
+});
+
+test('an expired any-amount token is refused', () => {
+  const s = amt(-1);
+  const tok = s.mint({ stake: 1, worth: 1, walletAddress: 'W1' });
+  assert.deepEqual(s.consumeAtStake(tok, 1), { ok: false, worth: 0 });
+});
+
+test('a forged or absent any-amount token is refused', () => {
+  const s = amt();
+  for (const bad of [undefined, null, '', 'nope', 0])
+    assert.deepEqual(s.consumeAtStake(bad, 1), { ok: false, worth: 0 }, String(bad));
+});
+
+test('stake 0 is free play: no token, no worth', () => {
+  const s = amt();
+  assert.deepEqual(s.consumeAtStake(undefined, 0), { ok: true, worth: 0 });
+});
+
+test('a nonsense stake is refused rather than treated as free', () => {
+  const s = amt();
+  for (const bad of [NaN, Infinity, -1, 'abc'])
+    assert.deepEqual(s.consumeAtStake('x', bad), { ok: false, worth: 0 }, String(bad));
+});
+
+test('stakes outside the allowed range cannot be minted', () => {
+  const s = amt(60000, 0.10, 100);
+  assert.throws(() => s.mint({ stake: 0.01, worth: 0.01 }), /below the minimum/);
+  assert.throws(() => s.mint({ stake: 250, worth: 250 }), /above the maximum/);
+  assert.doesNotThrow(() => s.mint({ stake: 0.10, worth: 0.10 }), 'the floor itself is allowed');
+  assert.doesNotThrow(() => s.mint({ stake: 100, worth: 100 }), 'the ceiling itself is allowed');
+});
+
+test('a tier token cannot be spent through the any-amount door unless it matches', () => {
+  // Both flows share one store during the migration, so they must not launder
+  // into each other. A dime token is worth a dime, whichever door it uses.
+  const s = amt();
+  const tier = s.mint({ lobbyType: 'dime', worth: 0.10, walletAddress: 'W1' });
+  assert.deepEqual(s.consumeAtStake(tier, 0.10), { ok: false, worth: 0 },
+    'a token with no recorded stake opens no priced lobby');
+});
+
+test('an any-amount token cannot be spent through the tier door', () => {
+  const s = amt();
+  const tok = s.mint({ stake: 1.00, worth: 1.00, walletAddress: 'W1' });
+  assert.deepEqual(s.consume(tok, 'dollar'), { ok: false, worth: 0 });
+});

@@ -255,9 +255,15 @@ const LOBBY_FEES = money.lobbyFees; // { free, dime, dollar } — the active mon
 const crypto = require('crypto');
 const { makeEntryStore } = require('./entryStore');
 const ENTRY_TOKEN_MAX_AGE_MS = 5 * 60 * 1000;
+
+// Bounds for the any-amount stake model; see server/stakeRules.js for why they
+// are checked in three places and which of the three actually matters.
+const { MIN_STAKE, MAX_STAKE, stakeRangeError } = require('./stakeRules');
+
 // The store is the same logic that used to be inline here, moved out so it can
-// be tested directly (test/entryStore.test.js). Behaviour is unchanged.
-const entryStore = makeEntryStore({ ttlMs: ENTRY_TOKEN_MAX_AGE_MS, fees: LOBBY_FEES });
+// be tested directly (test/entryStore.test.js). The tier behaviour is unchanged.
+const entryStore = makeEntryStore({ ttlMs: ENTRY_TOKEN_MAX_AGE_MS, fees: LOBBY_FEES,
+                                    minStake: MIN_STAKE, maxStake: MAX_STAKE });
 // Sweep expired (paid-but-never-used) tokens so the map stays bounded.
 setInterval(() => entryStore.sweep(), ENTRY_TOKEN_MAX_AGE_MS);
 
@@ -370,6 +376,21 @@ app.post('/api/broadcast', walletWithdrawLimiter, express.json({ limit: '256kb' 
 // Quote how much SOL to stake for a paid lobby and where (the escrow), plus a fresh
 // blockhash for the client to build the transfer. No custodial balance is touched.
 app.get('/api/stake-quote', entryFeeLimiter, async (req, res) => {
+  // Any-amount path, used by the redesigned lobby. Taken only when a `stake` is
+  // supplied, so the tier path below is byte-for-byte what it was for the live
+  // client. The two run side by side until cutover.
+  if (req.query.stake !== undefined) {
+    const stake = Number(req.query.stake);
+    const bad = stakeRangeError(stake);
+    if (bad) return res.status(400).json({ error: bad });
+    if (stake === 0) return res.json({ stake: 0, escrowAddress: null, lamports: 0, feeSol: 0 });
+    try {
+      return res.json({ stake, ...(await money.stakeQuoteFor(stake)) });
+    } catch (e) {
+      return res.status(500).json({ error: e.message });
+    }
+  }
+
   const lobbyType = req.query.lobbyType;
   const fee = LOBBY_FEES[lobbyType];
   if (fee === undefined) return res.status(400).json({ error: 'Unknown lobby' });
@@ -386,7 +407,33 @@ app.get('/api/stake-quote', entryFeeLimiter, async (req, res) => {
 // Submit a client-SIGNED stake (Privy signs only; we send + confirm over HTTP), then
 // issue the entry token. This avoids the browser WebSocket the public RPC blocks.
 app.post('/api/submit-stake', entryFeeLimiter, express.json({ limit: '256kb' }), async (req, res) => {
-  const { lobbyType, signedTx, walletAddress } = req.body || {};
+  const { lobbyType, stake, signedTx, walletAddress } = req.body || {};
+
+  /* Any-amount path. The requested amount is only a floor passed to
+     verifyStake; the token is minted against `worth`, which is what actually
+     landed in escrow. So the lobby a player may enter is derived from what
+     they really paid, never from what the request claimed — asking for a $50
+     room having paid $0.10 yields a $0.10 token and nothing else. */
+  if (stake !== undefined) {
+    const want = Number(stake);
+    const bad = stakeRangeError(want);
+    if (bad) return res.status(400).json({ error: bad });
+    if (want === 0) return res.status(400).json({ error: 'Free play needs no stake' });
+    if (!signedTx) return res.status(400).json({ error: 'Missing signed transaction' });
+    try {
+      const sig = await Wallet.submitStake(Buffer.from(signedTx, 'base64'));
+      const { payer, worth } = await money.verifyStake(sig, money.amountFor(want));
+      const paidBad = stakeRangeError(worth);
+      if (paidBad) return res.status(400).json({ error: paidBad });
+      // Atomic one-time claim AFTER verify, as in the tier path below.
+      if (!(await db.markStakeSig(sig))) return res.status(400).json({ error: 'Stake already used' });
+      const entryToken = entryStore.mint({ stake: worth, worth, walletAddress: walletAddress || payer });
+      return res.json({ ok: true, entryToken, worth, stake: worth });
+    } catch (e) {
+      return res.status(400).json({ error: e.message });
+    }
+  }
+
   const fee = LOBBY_FEES[lobbyType];
   if (fee === undefined || fee === 0) return res.status(400).json({ error: 'Not a paid lobby' });
   if (!signedTx) return res.status(400).json({ error: 'Missing signed transaction' });

@@ -24,6 +24,15 @@ const solBackend = {
     const { blockhash } = await Wallet.getLatestBlockhash();
     return { mode: 'sol', escrowAddress: Wallet.getEscrowPublicKey(), lamports: Math.round(feeSol * 1e9), feeSol, blockhash };
   },
+  // Any-amount sibling of stakeQuote. Same shape; the amount comes from the
+  // player rather than from the tier table. `amount` is in the fiat unit (CAD
+  // here), matching FEES, and is converted to SOL the same way feeFor does.
+  async stakeQuoteFor(amount) {
+    const feeSol = prices.cadToSol(Number(amount) || 0);
+    const { blockhash } = await Wallet.getLatestBlockhash();
+    return { mode: 'sol', escrowAddress: Wallet.getEscrowPublicKey(), lamports: Math.round(feeSol * 1e9), feeSol, blockhash };
+  },
+  amountFor: (amount) => prices.cadToSol(Number(amount) || 0),
   async verifyStake(sig, expected) {                                  // expected = fee in SOL
     const minLamports = Math.round(expected * 1e9 * 0.95);            // tolerate 5% price slippage
     const { payer, lamports } = await Wallet.verifyStakeTransfer(sig, minLamports);
@@ -45,6 +54,14 @@ const usdcBackend = {
     const { blockhash } = await Usdc.getLatestBlockhash();
     return { mode: 'usdc', ...Usdc.stakeTargets(), amountUsdc: fee, units: Usdc.toUnits(fee).toString(), blockhash };
   },
+  // Any-amount sibling of stakeQuote. In USDC mode the unit already is dollars,
+  // so the amount passes straight through.
+  async stakeQuoteFor(amount) {
+    const fee = Number(amount) || 0;
+    const { blockhash } = await Usdc.getLatestBlockhash();
+    return { mode: 'usdc', ...Usdc.stakeTargets(), amountUsdc: fee, units: Usdc.toUnits(fee).toString(), blockhash };
+  },
+  amountFor: (amount) => Number(amount) || 0,
   async verifyStake(sig, expected) {                                  // expected = fee in USDC
     const { payer, usdc } = await Usdc.verifyUsdcStake(sig, expected * 0.99); // tiny rounding tolerance
     return { payer, worth: usdc };
