@@ -59,14 +59,18 @@
     return !!(f && f.style.display !== 'none' && f.style.display !== '');
   }
 
-  /* The one door. Everything else here funnels into this. */
-  function launch(game, lobbyType) {
+  /* The one door. Everything else here funnels into this.
+     `sel` names the room: { stake } for a rung of the ladder, or { lobbyType }
+     for one of the old fixed tiers. */
+  function launch(game, sel) {
     if (inGame()) return;
-    /* Never dispatch without an explicit tier. The widget defaults a missing
-       lobbyType to 'dime', so a launch with an undefined one silently charges
-       ten cents for a room the player did not choose. Refuse instead: a lobby
-       we cannot name is a lobby we must not stake into. */
-    if (!lobbyType) {
+    const hasStake = sel && sel.stake !== undefined && sel.stake !== null;
+    const hasTier = sel && !!sel.lobbyType;
+    /* Never dispatch without naming the room. The widget defaults a missing
+       lobbyType to 'dime', so an unnamed launch silently charges ten cents for
+       a room the player did not choose. Refuse instead: a room we cannot name
+       is a room we must not stake into. */
+    if (!hasStake && !hasTier) {
       say('That lobby is not available right now. Refresh and try again.');
       return;
     }
@@ -78,33 +82,37 @@
     const name = requireName();
     if (!name) return;
     say('');
-    if (window.phEvent) window.phEvent('game_started', { game: game, lobbyType: lobbyType });
-    /* The widget stakes if the lobby is paid, then launches. It owns the money;
-       this only says which room. */
-    window.dispatchEvent(new CustomEvent('duel:play', {
-      detail: { game: game, lobbyType: lobbyType },
-    }));
+    const detail = hasStake
+      ? { game: game, stake: Number(sel.stake) }
+      : { game: game, lobbyType: sel.lobbyType };
+    if (window.phEvent) window.phEvent('game_started', detail);
+    /* The widget stakes if the room is paid, then launches. It owns the money;
+       this only says which room. Exactly one of stake and lobbyType is sent, so
+       the server never has to guess which the player meant. */
+    window.dispatchEvent(new CustomEvent('duel:play', { detail: detail }));
   }
 
-  /* From a board row. The row carries its own tier, so nothing is guessed. */
+  /* From a board row. The row names its own room, so nothing is guessed. */
   function enter(lobby) {
     if (!lobby) return;
-    launch(lobby.game || 'snake', lobby.lobbyType);
+    launch(lobby.game || 'snake',
+      lobby.stake !== undefined && lobby.stake !== null
+        ? { stake: lobby.stake }
+        : { lobbyType: lobby.lobbyType });
   }
 
   /* From the detail screen, where a buy-in has been chosen. */
   function playChosen() {
     const game = (window.V2Detail && window.V2Detail.game) || 'snake';
     const stake = (window.V2Detail && window.V2Detail.stake);
-    const rows = (window.V2Board ? window.V2Board.lobbies : [])
-      .filter(l => l.game === game && l.region === region());
-    const hit = rows.find(l => Math.abs(l.stake - stake) < 1e-9)
-             || rows.find(l => Math.abs(l.stake - stake) < 1e-9);
+    const hit = (window.V2Board ? window.V2Board.lobbies : [])
+      .filter(l => l.game === game)
+      .find(l => Math.abs(l.stake - stake) < 1e-9);
     if (!hit) {
-      say('No room at that buy-in yet. Pick one the board is offering.');
+      say('No room at that buy-in. Pick one the board is offering.');
       return;
     }
-    launch(game, hit.lobbyType);
+    enter(hit);
   }
 
   function spectate(game) {

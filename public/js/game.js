@@ -16,7 +16,15 @@ const playerName    = sessionStorage.getItem('playerName')    || 'Player';
 const walletAddress = sessionStorage.getItem('walletAddress') || null;
 const googleId      = sessionStorage.getItem('googleId')      || null;
 if (window.phIdentify && walletAddress) window.phIdentify(walletAddress); // link in-game analytics to this player
-const lobbyType     = sessionStorage.getItem('lobbyType')     || 'free';
+/* Two ways a room can be named. The old lobby sets lobbyType; the redesigned
+   one sets stake, a rung of the ladder. The widget clears whichever it did not
+   set, so at most one is present and there is nothing to disambiguate. Both are
+   echoed back on join and the server decides the room from whichever it got. */
+const stakeRaw      = sessionStorage.getItem('stake');
+const stake         = (stakeRaw === null || stakeRaw === '') ? null : Number(stakeRaw);
+const lobbyType     = sessionStorage.getItem('lobbyType')     || (stake === null ? 'free' : null);
+// "Paid" is about money, not about which name was used to ask for the room.
+const isPaidRoom    = (stake !== null) ? stake > 0 : lobbyType !== 'free';
 const entrySol      = parseFloat(sessionStorage.getItem('entrySol') || '0');
 const entryToken    = sessionStorage.getItem('entryToken') || null;
 const selectedRegion = sessionStorage.getItem('region') || 'na';
@@ -101,9 +109,9 @@ const snakeColor = sessionStorage.getItem('snakeColor') || localStorage.getItem(
 socket.on('connect', () => {
   try { console.log('[net] transport:', socket.io.engine.transport.name); } catch (e) {}
   if (spectateOnly) {
-    socket.emit('spectate:join', { lobbyType, region: selectedRegion });
+    socket.emit('spectate:join', { lobbyType, stake, region: selectedRegion });
   } else {
-    socket.emit(CONSTANTS.EVENTS.PLAY, { name: playerName, walletAddress, googleId, color: snakeColor, lobbyType, entryToken, region: selectedRegion, reconnectKey });
+    socket.emit(CONSTANTS.EVENTS.PLAY, { name: playerName, walletAddress, googleId, color: snakeColor, lobbyType, stake, entryToken, region: selectedRegion, reconnectKey });
   }
 });
 
@@ -986,7 +994,7 @@ document.getElementById('spectate-stop').addEventListener('click', () => {
 
 // Ask the parent page's wallet widget to re-stake (Privy approval) for a paid respawn, and
 // resolve with the fresh entry token. Resolves null if cancelled/failed or not in an iframe.
-function requestRestake(game, lobbyType) {
+function requestRestake(game) {
   return new Promise((resolve) => {
     if (window.self === window.top) { resolve(null); return; }
     let settled = false;
@@ -998,7 +1006,7 @@ function requestRestake(game, lobbyType) {
       else finish(d.entryToken || '');
     };
     window.addEventListener('message', onMsg);
-    window.parent.postMessage({ type: 'duel:restake', game, lobbyType }, '*');
+    window.parent.postMessage({ type: 'duel:restake', game, lobbyType, stake }, '*');
     setTimeout(() => finish(null), 120000); // safety: don't hang forever
   });
 }
@@ -1010,10 +1018,10 @@ async function doRespawn() {
   respawning = true;
   try {
     let respawnToken = null;
-    if (lobbyType !== 'free') {
+    if (isPaidRoom) {
       // Paid lobbies are self-custody — re-stake from the wallet (Privy approval) right here,
       // then respawn in place. The prior stake was lost when the snake died.
-      respawnToken = await requestRestake('snake', lobbyType);
+      respawnToken = await requestRestake('snake');
       if (!respawnToken) return; // cancelled or failed — stay on the death screen
     }
     isDead = false;
@@ -1154,7 +1162,7 @@ let _lastLbHtml = '';
 function updateLeaderboard(snap) {
   const aliveIds = new Set(snap.snakes.map(s => s.id));
   const lb = (snap.leaderboard || []).filter(p => aliveIds.has(p.id));
-  const isPaid = lobbyType !== 'free';
+  const isPaid = isPaidRoom;
   const html = lb.map(p => {
     const val = isPaid
       ? fmtMoney(p.worth)

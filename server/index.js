@@ -273,8 +273,15 @@ setInterval(() => entryStore.sweep(), ENTRY_TOKEN_MAX_AGE_MS);
 // carries the SERVER-recorded worth, so the client can neither forge it nor inflate the
 // worth — that's what closes the entrySol escrow-drain hole. Needs no socket auth (the
 // socket session is empty) and works for join + respawn identically.
+/* The ladder's door. Same one-time, server-worth guarantee as the tier door
+   below, but the token has to have been bought for this exact rung. */
+function consumePaidEntryAtStake(entryToken, stake, game) {
+  return recordEntry(entryStore.consumeAtStake(entryToken, stake), game);
+}
 function consumePaidEntry(entryToken, shortType, game) {
-  const r = entryStore.consume(entryToken, shortType);
+  return recordEntry(entryStore.consume(entryToken, shortType), game);
+}
+function recordEntry(r, game) {
   /* Record the buy-in here rather than at each call site: this is the one
      place every paid entry passes through, so the four join and respawn
      handlers cannot drift apart or forget one. Fire and forget, never awaited
@@ -676,29 +683,33 @@ for (const rgn of [REGION]) {
    Bot-seeded rooms mean `players` is never the whole story — a room with only
    bots still shows as joinable, which is the point: the board is never empty. */
 function liveBoard() {
-  const out = [];
-  for (const rgn of Object.keys(gameRooms)) {
-    for (const type of Object.keys(gameRooms[rgn])) {
-      const room = gameRooms[rgn][type];
-      out.push({
-        id: `snake:${rgn}:${type}`,
-        game: 'snake', region: rgn,
-        /* The tier is published rather than parsed back out of the id: the
-           client has to send it to launch a game, and deriving it from a
-           string it did not build is how those two quietly diverge. It goes
-           away when the registry lands and the stake becomes the key. */
-        lobbyType: type,
-        stake: LOBBY_FEES[type] || 0,
-        players: room.playerCount || 0,
-        bots: room.botCount || 0,
-        /* Null, not a number. Persistent rooms have no seat limit: the world
-           grows with the crowd rather than filling up, so there is nothing to
-           be "7 of" and the prototype's /30 was invented. */
-        capacity: null,
-        state: 'open',
-      });
-    }
-  }
+  /* The ladder only. The fixed tier rooms still exist and still serve
+     index.html, but they are not on this board: listing both would show a $1
+     room twice under two different names, and would offer the $0.10 tier,
+     which is not a rung anyone can pick here.
+
+     Every rung is listed whether or not a room exists for it yet, because a
+     rung with no room is precisely what a player needs to be able to open. A
+     board showing only rooms somebody already made is the cold start this
+     redesign exists to avoid. */
+  const live = new Map(ladder.list()
+    .filter(l => l.game === 'snake')
+    .map(l => [l.stake, l]));
+  const out = ALL_STAKES.map(rung => {
+    const hit = live.get(rung);
+    return {
+      id: `snake:${REGION}:s${rung}`,
+      game: 'snake', region: REGION,
+      stake: rung,
+      players: hit ? hit.players : 0,
+      bots: hit ? (hit.bots || 0) : 0,
+      /* Null, not a number. Persistent rooms have no seat limit: the world
+         grows with the crowd rather than filling up, so there is nothing to
+         be "7 of" and the prototype's /30 was invented. */
+      capacity: null,
+      state: 'open',
+    };
+  });
   // Busiest first: players converge on rooms that already have people, and that
   // convergence is what stops the player base fragmenting across empty rooms.
   return out.sort((a, b) => b.players - a.players);
@@ -711,6 +722,33 @@ app.get('/api/live', (_req, res) => {
     res.json({ lobbies: liveBoard(), stakes: ALL_STAKES });
   } catch (e) { console.error('[LIVE]', e.message); res.json({ lobbies: [], stakes: ALL_STAKES }); }
 });
+
+/* ─── Ladder rooms ────────────────────────────────────────────────────────────
+   Created on demand, one per (game, region, rung), and swept when they have
+   been empty a while. They sit BESIDE the fixed tier rooms rather than
+   replacing them: index.html players keep going to gameRooms exactly as
+   before, and only a client that names a stake reaches these. That is what
+   makes this safe to deploy before the ladder has been tested with real money
+   — nothing routes here until a client asks. */
+const { LobbyRegistry } = require('./LobbyRegistry');
+const ladder = new LobbyRegistry({
+  emptyMs: 5 * 60 * 1000,
+  makeRoom: (game, rgn, stake) =>
+    new GameRoom(io, `${rgn}_s${String(stake).replace('.', '_')}`),
+});
+// Withdraw rooms nobody is in, so an idle server is not simulating empty worlds.
+setInterval(() => { try { ladder.sweep(); } catch (e) { console.error('[LADDER]', e.message); } }, 60 * 1000);
+
+/* Which room a join lands in. A stake wins when present, because only the
+   ladder client sends one; everything else is the original tier lookup,
+   untouched. */
+function getRoomForJoin({ lobbyType, stake, region }) {
+  const rgn = (region && gameRooms[region]) ? region : REGION;
+  if (stake !== undefined && stake !== null && isStake(stake)) {
+    return ladder.get('snake', rgn, Number(stake));
+  }
+  return getRoomForType(lobbyType, rgn);
+}
 
 function getRoomForType(lobbyType, region) {
   const rgn = (region && gameRooms[region]) ? region : REGION;
@@ -941,7 +979,7 @@ io.on('connection', (socket) => {
     broadcastLobbyState();
   });
 
-  socket.on(C.EVENTS.PLAY, ({ name, walletAddress, googleId, color, lobbyType, entryToken, region, reconnectKey } = {}) => {
+  socket.on(C.EVENTS.PLAY, ({ name, walletAddress, googleId, color, lobbyType, stake, entryToken, region, reconnectKey } = {}) => {
     // Ignore duplicate PLAY events (e.g. from socket reconnect while alive)
     if (socket._room) {
       const existingSnake = socket._room.snakes.get(socket.id);
@@ -954,7 +992,12 @@ io.on('connection', (socket) => {
       socket._googleId = verifiedId;
       lobbySocketsByGoogleId.set(verifiedId, socket);
     }
-    const room = getRoomForType(lobbyType, region || REGION);
+    /* A stake names a rung of the ladder, a lobbyType names a fixed tier. Only
+       the redesigned lobby sends the former, so existing clients keep landing
+       in exactly the rooms they always did. */
+    const byStake = stake !== undefined && stake !== null && isStake(stake);
+    const room = getRoomForJoin({ lobbyType, stake, region: region || REGION });
+    socket._stake = byStake ? Number(stake) : null;
 
     // Reconnect: if we kept this player's snake alive after a recent drop, put them
     // back on it (and their staked worth) instead of charging/spawning a fresh one.
@@ -971,10 +1014,17 @@ io.on('connection', (socket) => {
       }
     }
 
-    // Never trust the client's entrySol — take the snake's cash worth from a
-    // server-verified paid-entry token (0 for free lobbies).
-    const shortType = (lobbyType in LOBBY_FEES) ? lobbyType : 'free';
-    const entry = consumePaidEntry(entryToken, shortType, 'snake');
+    /* Never trust the client's entrySol — take the snake's cash worth from a
+       server-verified paid-entry token (0 for free lobbies).
+
+       On the ladder the token must have been bought for THIS rung: a $0.25
+       token cannot open the $20 room, which is the same guarantee the tier
+       door gives, restated against amounts. A client that sends a stake it did
+       not pay for gets nothing, because the amount is checked against the
+       token and not against the request. */
+    const entry = byStake
+      ? consumePaidEntryAtStake(entryToken, Number(stake), 'snake')
+      : consumePaidEntry(entryToken, (lobbyType in LOBBY_FEES) ? lobbyType : 'free', 'snake');
     if (!entry.ok) {
       socket.emit(C.EVENTS.ERROR, { message: 'Entry fee not verified. Please return to the lobby and try again.' });
       return;
@@ -1110,8 +1160,10 @@ io.on('connection', (socket) => {
     });
   });
 
-  socket.on('spectate:join', ({ lobbyType, region } = {}) => {
-    const room = getRoomForType(lobbyType || 'free', region || REGION);
+  socket.on('spectate:join', ({ lobbyType, stake, region } = {}) => {
+    // Watching costs nothing, so no token is consumed; it only has to resolve
+    // to the same room the player would have joined.
+    const room = getRoomForJoin({ lobbyType: lobbyType || 'free', stake, region: region || REGION });
     socket.join(room.socketRoomName);
     socket._room = room;
     socket._spectating = true;
@@ -1128,9 +1180,13 @@ io.on('connection', (socket) => {
     if (!socket._room) return;
     const existing = socket._room.snakes.get(socket.id);
     if (existing && existing.alive) return; // block respawn while alive
-    // Server-verified worth from the echoed entry token — the client's entrySol is ignored.
-    const shortType = socket._room.lobbyType.replace(/^(na|eu)_/, '');
-    const entry = consumePaidEntry(entryToken, shortType, 'snake');
+    /* Server-verified worth from the echoed entry token — the client's entrySol
+       is ignored. A respawn re-buys the room the socket is ALREADY in, taken
+       from socket._stake rather than from anything the client sends now, so a
+       player cannot die in the $0.25 room and respawn into the $20 one. */
+    const entry = (socket._stake !== null && socket._stake !== undefined)
+      ? consumePaidEntryAtStake(entryToken, socket._stake, 'snake')
+      : consumePaidEntry(entryToken, socket._room.lobbyType.replace(/^(na|eu)_/, ''), 'snake');
     if (!entry.ok) {
       socket.emit(C.EVENTS.ERROR, { message: 'Entry fee not verified. Please return to the lobby and try again.' });
       return;

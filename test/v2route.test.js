@@ -164,8 +164,8 @@ test('the server reports capacity as null, not an invented seat count', () => {
 test('bots are reported separately and not folded into the player count', () => {
   // "12 playing" when eleven are bots is a lie told to someone about to stake.
   const src = fs.readFileSync(path.join(ROOT, 'server/index.js'), 'utf8');
-  assert.ok(/players: room\.playerCount/.test(src), 'players is the real count');
-  assert.ok(/bots: room\.botCount/.test(src), 'bots are their own field');
+  assert.ok(/players: hit \? hit\.players/.test(src), 'players is the real count');
+  assert.ok(/bots: hit \?/.test(src), 'bots are their own field');
   const board = fs.readFileSync(path.join(ROOT, 'public/js/v2/board.js'), 'utf8');
   assert.ok(!/players\s*\+\s*.*bots|bots\s*\+\s*.*players/.test(board),
     'the client never adds them together');
@@ -178,14 +178,34 @@ test('play delegates to the widget and never stakes on its own', () => {
     assert.ok(!src.includes(bad), `play.js does not do its own ${bad}`);
 });
 
-test('a launch without an explicit tier is refused, not defaulted', () => {
-  // The widget defaults a missing lobbyType to 'dime'. Dispatching without one
-  // would silently charge ten cents for a room the player never chose.
+test('a launch that does not name a room is refused, not defaulted', () => {
+  // The widget defaults a missing lobbyType to 'dime'. Dispatching without
+  // naming a room would silently charge ten cents for one nobody chose.
   const src = fs.readFileSync(path.join(ROOT, 'public/js/v2/play.js'), 'utf8');
-  assert.ok(/if \(!lobbyType\)/.test(src), 'missing tier is checked');
-  const guard = src.indexOf('if (!lobbyType)');
+  assert.ok(/if \(!hasStake && !hasTier\)/.test(src), 'an unnamed room is checked for');
+  const guard = src.indexOf('if (!hasStake && !hasTier)');
   const fire = src.indexOf("new CustomEvent('duel:play'");
   assert.ok(guard > -1 && fire > guard, 'and checked before anything is dispatched');
+  // Exactly one selector goes out, so the server never has to guess.
+  assert.ok(/\{ game: game, stake: Number\(sel\.stake\) \}/.test(src), 'sends a rung');
+  assert.ok(/\{ game: game, lobbyType: sel\.lobbyType \}/.test(src), 'or a tier, not both');
+});
+
+test('a respawn re-buys the room the player is already in', () => {
+  // Taken from socket._stake, not from anything the client sends at respawn
+  // time, so nobody dies in the $0.25 room and respawns into the $20 one.
+  const src = fs.readFileSync(path.join(ROOT, 'server/index.js'), 'utf8');
+  assert.ok(/consumePaidEntryAtStake\(entryToken, socket\._stake/.test(src),
+    'respawn uses the socket\'s own rung');
+});
+
+test('the ladder door demands a token bought for that exact rung', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'server/index.js'), 'utf8');
+  assert.ok(/consumePaidEntryAtStake\(entryToken, Number\(stake\)/.test(src),
+    'join checks the token against the rung');
+  const store = fs.readFileSync(path.join(ROOT, 'server/entryStore.js'), 'utf8');
+  assert.ok(/Math\.abs\(t\.stake - stake\) > EPS/.test(store),
+    'and the store compares the amounts rather than trusting the request');
 });
 
 test('the lobby pauses its animations while the game is up', () => {
