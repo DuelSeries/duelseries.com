@@ -1,0 +1,152 @@
+'use strict';
+/* ─── Starting a game ─────────────────────────────────────────────────────────
+   This module starts nothing itself. It collects a name, a region and a lobby,
+   then fires the same duel:play event the live lobby fires, and the Privy
+   widget does the staking and the launch. Every line of money handling stays in
+   one place that way, and this lobby cannot drift from the live one.
+
+   The widget currently reads `detail.game` and `detail.lobbyType` off the
+   event, so that is what is sent. The any-amount model is built server-side but
+   nothing routes through it until the widget speaks it and the mainnet gate has
+   been run; sending a stake here would be a silent half-migration.
+
+   The game runs in an iframe on the shared main thread. Pausing the lobby's
+   animations before showing it is not cosmetic: leaving them running is what
+   cost a day of hunting a 30fps drop that turned out to be the lobby preview
+   animating behind the game. */
+
+(function () {
+  const NAME_KEY = 'duelseries_playername';
+  const el = id => document.getElementById(id);
+
+  const cleanName = s => String(s || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 16);
+
+  function savedName() {
+    try { return cleanName(localStorage.getItem(NAME_KEY) || ''); } catch (_) { return ''; }
+  }
+
+  function region() {
+    try { return localStorage.getItem('duelseries_region') || 'na'; } catch (_) { return 'na'; }
+  }
+
+  function connected() {
+    const w = window.duelWallet || {};
+    return !!(w.authenticated && w.address);
+  }
+
+  function say(msg) {
+    const box = el('play-msg');
+    if (!box) { alert(msg); return; }
+    box.textContent = msg;
+    box.hidden = !msg;
+  }
+
+  /* Returns the name to play under, or null having already explained why not. */
+  function requireName() {
+    const input = el('play-name');
+    const name = cleanName(input ? input.value : savedName());
+    if (name.length < 3) {
+      say('Pick a name of at least three letters or numbers to play.');
+      if (input) input.focus();
+      return null;
+    }
+    try { localStorage.setItem(NAME_KEY, name); } catch (_) {}
+    return name;
+  }
+
+  function inGame() {
+    const f = el('game-frame');
+    return !!(f && f.style.display !== 'none' && f.style.display !== '');
+  }
+
+  /* The one door. Everything else here funnels into this. */
+  function launch(game, lobbyType) {
+    if (inGame()) return;
+    /* Never dispatch without an explicit tier. The widget defaults a missing
+       lobbyType to 'dime', so a launch with an undefined one silently charges
+       ten cents for a room the player did not choose. Refuse instead: a lobby
+       we cannot name is a lobby we must not stake into. */
+    if (!lobbyType) {
+      say('That lobby is not available right now. Refresh and try again.');
+      return;
+    }
+    if (!connected()) {
+      say('Sign in first — your wallet is your account here.');
+      if (window.duelWalletLogin) window.duelWalletLogin();
+      return;
+    }
+    const name = requireName();
+    if (!name) return;
+    say('');
+    if (window.phEvent) window.phEvent('game_started', { game: game, lobbyType: lobbyType });
+    /* The widget stakes if the lobby is paid, then launches. It owns the money;
+       this only says which room. */
+    window.dispatchEvent(new CustomEvent('duel:play', {
+      detail: { game: game, lobbyType: lobbyType },
+    }));
+  }
+
+  /* From a board row. The row carries its own tier, so nothing is guessed. */
+  function enter(lobby) {
+    if (!lobby) return;
+    launch(lobby.game || 'snake', lobby.lobbyType);
+  }
+
+  /* From the detail screen, where a buy-in has been chosen. */
+  function playChosen() {
+    const game = (window.V2Detail && window.V2Detail.game) || 'snake';
+    const stake = (window.V2Detail && window.V2Detail.stake);
+    const rows = (window.V2Board ? window.V2Board.lobbies : [])
+      .filter(l => l.game === game && l.region === region());
+    const hit = rows.find(l => Math.abs(l.stake - stake) < 1e-9)
+             || rows.find(l => Math.abs(l.stake - stake) < 1e-9);
+    if (!hit) {
+      say('No room at that buy-in yet. Pick one the board is offering.');
+      return;
+    }
+    launch(game, hit.lobbyType);
+  }
+
+  function spectate(game) {
+    if (inGame()) return;
+    try {
+      sessionStorage.setItem('spectateOnly', 'true');
+      sessionStorage.setItem('region', region());
+    } catch (_) {}
+    show(game === 'agar' ? '/agar.html' : '/game.html');
+  }
+
+  function show(src) {
+    const f = el('game-frame');
+    if (!f) return;
+    if (window._pauseLobbyAnims) window._pauseLobbyAnims();
+    f.src = src;
+    f.style.display = 'block';
+  }
+
+  /* The game signals its own exit. Both frames are cleared and the lobby's
+     animations restart. */
+  window.addEventListener('message', e => {
+    if (e.data !== 'game:done') return;
+    const f = el('game-frame');
+    if (f) { f.style.display = 'none'; f.src = ''; }
+    if (window._resumeLobbyAnims) window._resumeLobbyAnims();
+    if (window.V2Board) window.V2Board.load();
+    if (window.duelWalletRefresh) window.duelWalletRefresh();
+  });
+
+  /* The widget shows the frame itself once a stake settles, so the lobby has to
+     notice that rather than assume it did the showing. */
+  const seen = new MutationObserver(() => {
+    if (inGame() && window._pauseLobbyAnims) window._pauseLobbyAnims();
+  });
+  document.addEventListener('DOMContentLoaded', () => {
+    const f = el('game-frame');
+    if (f) seen.observe(f, { attributes: true, attributeFilter: ['style', 'src'] });
+    const input = el('play-name');
+    if (input && !input.value) input.value = savedName();
+  });
+
+  window.V2Play = { enter: enter, playChosen: playChosen, spectate: spectate,
+                    launch: launch, savedName: savedName, cleanName: cleanName };
+})();

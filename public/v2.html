@@ -225,6 +225,8 @@ h2{font-size:31px;font-weight:700;letter-spacing:-1.1px;line-height:1.1}
   -webkit-mask-image:linear-gradient(90deg,transparent,#000 56px,#000 calc(100% - 96px),transparent);
           mask-image:linear-gradient(90deg,transparent,#000 56px,#000 calc(100% - 96px),transparent)}
 .tkrun{display:flex;width:max-content;animation:tk 52s linear infinite}
+/* Stopped only while the game is up, so it is not repainting behind it. */
+body.ingame .tkrun{animation-play-state:paused}
 @keyframes tk{to{transform:translateX(-50%)}}
 .tki{display:inline-flex;align-items:center;gap:8px;padding:9px 22px;
   font-size:13px;white-space:nowrap}
@@ -443,6 +445,11 @@ h2{font-size:31px;font-weight:700;letter-spacing:-1.1px;line-height:1.1}
 .dots{display:flex;justify-content:center;gap:5px;margin-bottom:20px}
 .dt{width:5px;height:5px;border-radius:50%;background:var(--s3);transition:.2s}
 .dt.on{background:var(--money);transform:scale(1.4)}
+.pname{width:100%;background:var(--bg);border:none;border-radius:var(--r2);
+  padding:12px 14px;color:var(--tx);font-family:inherit;font-size:14px;
+  outline:none;margin-bottom:10px;text-align:center}
+.pname::placeholder{color:var(--tx3)}
+.pname:focus{background:#0a0908}
 .go{width:100%;background:var(--bone);color:var(--ink);font-size:15px;font-weight:650;
   padding:15px;border-radius:var(--r2);transition:.15s}
 .go:hover{transform:translateY(-1px)}
@@ -649,8 +656,13 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
           <button class="sb" id="su" onclick="step(1)">+</button>
         </div>
         <div class="dots" id="dots"></div>
-        <button class="go" onclick="play()">Create lobby</button>
+        <!-- The name is stored under the live lobby's key, so switching between
+             the two does not ask for it twice. -->
+        <input class="pname" id="play-name" maxlength="16" autocomplete="off"
+               placeholder="Your name" aria-label="Your player name">
+        <button class="go" onclick="V2Play.playChosen()">Play</button>
         <div class="fine" id="fine"></div>
+        <div class="fine" id="play-msg" hidden style="color:var(--money)"></div>
         <div class="tog"><div class="tg">Region &nbsp;NA</div><div class="tg">Public</div></div>
       </div>
 
@@ -788,6 +800,7 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
 <script src="/js/v2/wallet.js"></script>
 <script src="/js/v2/stats.js"></script>
 <script src="/js/v2/board.js"></script>
+<script src="/js/v2/play.js"></script>
 <script>
 /* Flat geometric artwork, one scene per game. Drawn rather than iconed:
    emoji or a generic icon set is what makes a games page look unmade. */
@@ -861,7 +874,25 @@ const GAMES=[
 ];
 /* The lobby list is real now: V2Board polls /api/live. The hand-written rows
    that used to be here claimed player counts the server never had. */
-const STEPS=[0,0.25,0.50,1,2,5];
+/* Buy-ins the board is actually offering, not a wishlist. The hardcoded
+   0.25 / 0.50 / 2 / 5 let a player pick an amount with no room behind it and
+   then wonder why nothing happened. Recomputed from /api/live, so it widens on
+   its own once lobbies can be opened at any amount. */
+let STEPS=[0];
+function refreshSteps(gameId){
+  const rows=(window.V2Board?V2Board.lobbies:[]).filter(l=>l.game===gameId);
+  const stakes=[...new Set(rows.map(l=>l.stake))].sort((a,b)=>a-b);
+  STEPS=stakes.length?stakes:[0];
+  /* Clamped at BOTH ends. min alone let a -1 through and STEPS[-1] is
+     undefined, which took the whole detail screen down. */
+  si=Math.max(0,Math.min(si,STEPS.length-1));
+}
+/* The lowest real buy-in, so opening a game does not default to free play and
+   does not depend on a particular amount being on the board. */
+function defaultStep(){
+  const paid=STEPS.findIndex(v=>v>0);
+  return paid>=0?paid:0;
+}
 let si=3, cur=null, order=GAMES.slice(), busy=false;
 
 const cash=v=>v===0?'Free':'$'+v.toFixed(2);
@@ -1383,8 +1414,13 @@ function repaintAll(){
    loop checks reduced-motion itself and leaves the scenes as still art. */
 const RM=matchMedia('(prefers-reduced-motion: reduce)');
 let _last=0;
+/* Declared above the loop, not beside the pause functions below it: the loop is
+   an IIFE that runs on this line, so a `let` after it is still in its temporal
+   dead zone when the first frame reads it, and the whole script dies there. */
+let _paused=false;
 (function loop(t){
   const dt=Math.min(3,(t-_last)/16.67||1); _last=t;
+  if(_paused){requestAnimationFrame(loop);return}   // the game owns the thread
   document.querySelectorAll('canvas[data-anim]').forEach(cv=>{try{
     /* Reduced motion freezes the simulation, not the layout. The card still
        has to re-fit its canvas when it changes width, so the loop keeps
@@ -1402,6 +1438,26 @@ let _last=0;
   requestAnimationFrame(loop);
 })(0);
 RM.addEventListener('change',repaintAll);
+
+/* ── pausing everything while the game is up ──────────────────────────────
+   The game runs in an iframe on the SHARED main thread. A lobby that keeps
+   animating behind it steals frames from the game itself, which is exactly
+   what produced the "30fps drop" that took a day to find: the culprit was the
+   lobby's preview snake, not the netcode. So every moving thing here stops
+   before the frame is shown and restarts when it closes. The live lobby
+   publishes the same two globals; the widget and the game rely on them.
+   (_paused itself is declared above the frame loop, which reads it.) */
+window._pauseLobbyAnims=()=>{
+  _paused=true;
+  document.body.classList.add('ingame');      // freezes the ticker's CSS animation
+  if(window.V2Board)V2Board.stop();           // and stops polling the server
+};
+window._resumeLobbyAnims=()=>{
+  _paused=false;
+  document.body.classList.remove('ingame');
+  if(window.V2Board)V2Board.start();
+  repaintAll();
+};
 
 /* HexGrid paints a flat blue-grey gap colour and skips the hex tile entirely
    until /hexbg.jpg has decoded. A live scene repaints every frame so it heals
@@ -1544,7 +1600,10 @@ function drawTicker(){
    page, which is a CSS behaviour and unchanged. */
 
 function open_(id){
-  cur=G(id); si=STEPS.indexOf(1);
+  cur=G(id);
+  /* Steps first: the default buy-in has to be chosen from what the board is
+     actually offering, not from a fixed amount that may not exist. */
+  refreshSteps(id); si=defaultStep();
   showScreen('detail');
   document.getElementById('dart').innerHTML=art(cur,660,300,1);
   document.getElementById('dname').textContent=cur.name;
@@ -1591,14 +1650,9 @@ function drawStake(){
     :'Cash out pays your worth minus the ten percent house cut.';
 }
 function step(d){si=Math.max(0,Math.min(STEPS.length-1,si+d));drawStake()}
-function play(){
-  const v=STEPS[si];
-  if(v===0){alert('Free play drops you straight into the game.');return}
-  document.getElementById('wamt').textContent=cash(v);
-  veil.classList.add('on');
-}
-function join(s){alert('Entering a '+cash(s)+' lobby. You pay exactly '+cash(s)+'.')}
 function cancel(){veil.classList.remove('on')}
+/* What the play module reads to know which room was chosen. */
+window.V2Detail={get game(){return cur?cur.id:'snake'},get stake(){return STEPS[si]}};
 
 /* A live tournament with no way into it is the dead end this board exists to
    remove, so both cards end in an action. Entry sends you to the game the
@@ -1701,6 +1755,12 @@ setInterval(()=>{if(t>0)t--;document.getElementById('cd').textContent=
 
 drawNav();V2Wallet.render();drawRail();drawTicker();V2Board.start();
 </script>
+
+<!-- The game runs here. The id is fixed: the wallet widget looks up
+     'game-frame' by name when it launches and when it handles a restake, so
+     renaming it silently breaks both. -->
+<iframe id="game-frame" title="DuelSeries game" allow="autoplay; fullscreen"
+        style="display:none;position:fixed;inset:0;width:100%;height:100%;border:0;z-index:300;background:#000"></iframe>
 
 <!-- Self-custody wallet widget (Privy embedded). React island; the lobby stays
      vanilla and only reads the globals it publishes. The node-global shims must

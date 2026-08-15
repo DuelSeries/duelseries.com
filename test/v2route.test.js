@@ -147,3 +147,40 @@ test('bots are reported separately and not folded into the player count', () => 
   assert.ok(!/players\s*\+\s*.*bots|bots\s*\+\s*.*players/.test(board),
     'the client never adds them together');
 });
+
+test('play delegates to the widget and never stakes on its own', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'public/js/v2/play.js'), 'utf8');
+  assert.ok(src.includes("'duel:play'"), 'fires the same event the live lobby fires');
+  for (const bad of ['submit-stake', 'stake-quote', 'signTransaction'])
+    assert.ok(!src.includes(bad), `play.js does not do its own ${bad}`);
+});
+
+test('a launch without an explicit tier is refused, not defaulted', () => {
+  // The widget defaults a missing lobbyType to 'dime'. Dispatching without one
+  // would silently charge ten cents for a room the player never chose.
+  const src = fs.readFileSync(path.join(ROOT, 'public/js/v2/play.js'), 'utf8');
+  assert.ok(/if \(!lobbyType\)/.test(src), 'missing tier is checked');
+  const guard = src.indexOf('if (!lobbyType)');
+  const fire = src.indexOf("new CustomEvent('duel:play'");
+  assert.ok(guard > -1 && fire > guard, 'and checked before anything is dispatched');
+});
+
+test('the lobby pauses its animations while the game is up', () => {
+  // The game shares the main thread. Animating behind it is what produced the
+  // 30fps drop that took a day to trace to the lobby's preview snake.
+  const html = v2();
+  assert.ok(html.includes('window._pauseLobbyAnims'), 'publishes the pause hook');
+  assert.ok(html.includes('window._resumeLobbyAnims'), 'and the resume hook');
+  assert.ok(html.includes('body.ingame .tkrun'), 'the ticker stops too');
+  // _paused must be declared before the frame loop that reads it, or the whole
+  // script dies in the temporal dead zone on the first frame.
+  assert.ok(html.indexOf('let _paused=false;') < html.indexOf('(function loop(t){'),
+    '_paused is declared above the loop');
+});
+
+test('the game iframe keeps the id the wallet widget looks up', () => {
+  const html = v2();
+  assert.ok(html.includes('id="game-frame"'), 'the frame exists under the expected id');
+  const widget = fs.readFileSync(path.join(ROOT, 'public/wallet/widget.js'), 'utf8');
+  assert.ok(widget.includes('game-frame'), 'and the widget really does look it up');
+});

@@ -665,6 +665,11 @@ function liveBoard() {
       out.push({
         id: `snake:${rgn}:${type}`,
         game: 'snake', region: rgn,
+        /* The tier is published rather than parsed back out of the id: the
+           client has to send it to launch a game, and deriving it from a
+           string it did not build is how those two quietly diverge. It goes
+           away when the registry lands and the stake becomes the key. */
+        lobbyType: type,
         stake: LOBBY_FEES[type] || 0,
         players: room.playerCount || 0,
         bots: room.botCount || 0,
