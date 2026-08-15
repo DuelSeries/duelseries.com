@@ -100,3 +100,24 @@ test('a signed-out wallet never shows a fabricated balance', () => {
   assert.ok(!/\$12\.40/.test(html), 'no hardcoded balance in the markup');
   assert.ok(!html.includes('C5cnQ7v2'), 'no hardcoded deposit address');
 });
+
+test('stats show payout-side figures only, never invented profit', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'public/js/v2/stats.js'), 'utf8');
+  assert.ok(src.includes('/api/my-profile'), 'reads the real profile');
+  // Nothing persists the stake a player paid, so profit, win rate and a house
+  // cut per game cannot be derived. Claiming them would tell someone they are
+  // up when they may be down.
+  for (const bad of ['Net profit', 'Win rate', 'House cut paid', 'RAKE'])
+    assert.ok(!src.includes(bad), `stats.js does not claim ${bad}`);
+  // Matched on a fragment that survives line wrapping: the sentence is split
+  // across two source lines, so the whole phrase is never contiguous.
+  assert.ok(src.includes('not recorded yet'), 'says the gap out loud');
+  assert.ok(src.includes('not profit after'), 'and says what the figure is not');
+});
+
+test('no invented game history survives in the shell', () => {
+  const html = v2();
+  for (const gone of ['const SESSIONS=', 'const ROWS=', 'const CUM=', 'function drawStats',
+                      'function drawChart', "const RAKE=0.10"])
+    assert.ok(!html.includes(gone), `gone: ${gone}`);
+});

@@ -688,20 +688,10 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
     <div class="sub" id="s-sub"></div></div></div>
   <div class="tiles" id="s-tiles"></div>
 
-  <div class="head"><div><h2>Total earnings</h2>
-    <div class="sub">Your running profit after every buy-in and the house cut.</div></div>
-    <div class="sp"></div>
-    <button class="more" id="s-toggle" onclick="toggleChart()">Table</button>
-  </div>
-  <div class="panel chartwrap">
-    <div id="s-chart"></div>
-    <div class="tip" id="s-tip"></div>
-  </div>
-  <div class="tbl" id="s-table" hidden></div>
-
-  <div class="head"><div><h2>Where the money went</h2>
-    <div class="sub">Every figure below is derived from the same games, so they reconcile.</div></div></div>
-  <div class="panel"><div class="ledger" id="s-ledger"></div></div>
+  <!-- Filled by public/js/v2/stats.js. The old ledger claimed to reconcile
+       buy-ins, house cut and net profit; none of those are recorded, so it was
+       reconciling invented numbers against each other. -->
+  <div id="s-body"></div>
 </main>
 
 <!-- ══ SOCIAL ══ -->
@@ -796,6 +786,7 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
 <script src="/js/v2/chart.js"></script>
 <script src="/js/v2/social.js"></script>
 <script src="/js/v2/wallet.js"></script>
+<script src="/js/v2/stats.js"></script>
 <script>
 /* Flat geometric artwork, one scene per game. Drawn rather than iconed:
    emoji or a generic icon set is what makes a games page look unmade. */
@@ -1631,182 +1622,12 @@ const NAV=[
  {id:'settings',t:'Settings',d:'Graphics, sound, region and account preferences.',
   p:'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2v.1a2 2 0 1 1-4 0v-.2a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0-1.2-2.9H3a2 2 0 1 1 0-4h.2a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3h.1A1.7 1.7 0 0 0 10.3 3v-.1a2 2 0 1 1 4 0V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 2-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1a1.7 1.7 0 0 0 1.6 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z'},
 ];
-/* ── the money model ─────────────────────────────────────────────────────
-   One list of games is the only source of numbers on the stats screen, so
-   the tiles, the chart and the ledger cannot disagree with each other.
-
-   The rules are the game's real ones:
-     cashed out   you receive 90% of your worth, the house keeps 10%
-     died         your worth went to whoever killed you; you get nothing,
-                  and no cut is taken because nothing was paid out
-   Net for a game is therefore what came back minus what you put in, which
-   is negative on every death and on any cash-out below your buy-in. */
-const RAKE=0.10;
-const SESSIONS=[
- {d:'Jul 28',stake:1.00,worth:3.40, out:1},
- {d:'Jul 29',stake:1.00,worth:0,    out:0},
- {d:'Jul 30',stake:0.25,worth:1.80, out:1},
- {d:'Jul 31',stake:2.00,worth:0,    out:0},
- {d:'Aug 1', stake:1.00,worth:2.10, out:1},
- {d:'Aug 2', stake:0.50,worth:0,    out:0},
- {d:'Aug 3', stake:1.00,worth:6.80, out:1},
- {d:'Aug 4', stake:2.00,worth:0,    out:0},
- {d:'Aug 5', stake:0.25,worth:0.90, out:1},
- {d:'Aug 6', stake:1.00,worth:0,    out:0},
- {d:'Aug 7', stake:5.00,worth:12.40,out:1},
- {d:'Aug 8', stake:1.00,worth:0,    out:0},
- {d:'Aug 9', stake:0.50,worth:2.60, out:1},
- {d:'Aug 10',stake:2.00,worth:1.50, out:1},
- {d:'Aug 12',stake:1.00,worth:4.20, out:1},
- {d:'Aug 13',stake:2.00,worth:0,    out:0},
-];
-const ROWS=SESSIONS.map(s=>{
-  const payout=s.out?s.worth*(1-RAKE):0;
-  const cut   =s.out?s.worth*RAKE:0;
-  return {...s,payout,cut,net:payout-s.stake};
-});
-const T=ROWS.reduce((a,r)=>({
-  staked:a.staked+r.stake, payout:a.payout+r.payout, cut:a.cut+r.cut,
-  wins:a.wins+(r.net>0?1:0), cashouts:a.cashouts+r.out,
-}),{staked:0,payout:0,cut:0,wins:0,cashouts:0});
-T.games=ROWS.length;
-T.net=T.payout-T.staked;
-T.best=Math.max(...ROWS.map(r=>r.payout));
-T.winRate=Math.round(T.wins/T.games*100);
-const money=n=>(n<0?'-$':'$')+Math.abs(n).toFixed(2);
-const signed=n=>(n>0?'+$':n<0?'-$':'$')+Math.abs(n).toFixed(2);
-
-function drawStats(){
-  document.getElementById('s-sub').innerHTML=
-    `<span class="num">${T.games}</span> games on slither.io, `+
-    `<span class="num">${T.cashouts}</span> of them cashed out.`;
-  document.getElementById('s-tiles').innerHTML=[
-    ['Games played',String(T.games),`${T.cashouts} cashed out, ${T.games-T.cashouts} lost`],
-    ['Win rate',T.winRate+'%',`${T.wins} up, ${T.games-T.wins} down`],
-    ['Net profit',signed(T.net),'after the house cut'],
-    ['Biggest cash-out',money(T.best),'paid to your wallet'],
-  ].map(t=>`<div class="tile"><div class="k">${t[0]}</div>
-      <div class="v num"${t[1][0]==='+'?' style="color:var(--money)"':''}>${t[1]}</div>
-      <div class="f">${t[2]}</div></div>`).join('');
-
-  document.getElementById('s-ledger').innerHTML=[
-    ['Buy-ins',money(-T.staked),'what you put in across '+T.games+' games'],
-    ['Returned to you',money(T.payout),'paid on-chain to your wallet'],
-    ['House cut',money(-T.cut),'10% of every cash-out, kept in escrow'],
-  ].map(r=>`<div class="lrow"><span class="k">${r[0]}</span>
-      <span class="d">${r[2]}</span><span class="v">${r[1]}</span></div>`).join('')
-    +`<div class="lrow tot"><span class="k">Net profit</span>
-      <span class="d">returned minus buy-ins</span>
-      <span class="v">${signed(T.net)}</span></div>`;
-
-  document.getElementById('s-table').innerHTML=
-    `<div class="tr hd"><span>Date</span><span>Result</span>
-     <span class="r c4">Buy-in</span><span class="r c3">House cut</span><span class="r">Net</span></div>`+
-    ROWS.map(r=>`<div class="tr"><span class="num">${r.d}</span>
-      <span><span class="tag">${r.out?'Cashed out':'Knocked out'}</span></span>
-      <span class="r num neg c4">${money(r.stake)}</span>
-      <span class="r num neg c3">${r.cut?money(r.cut):'—'}</span>
-      <span class="r num ${r.net>0?'pos':'neg'}">${signed(r.net)}</span></div>`).join('');
-  drawChart();
-}
-
-/* Running total, so the question the chart answers is "am I up, and since
-   when". One series, so one hue and no legend: the heading names it. The
-   line starts at zero before the first game, otherwise the first point
-   would look like profit that appeared from nowhere. */
-const CUM=(()=>{
-  let run=0;
-  return [{d:'Start',cum:0,first:true}].concat(ROWS.map(r=>({...r,cum:(run+=r.net)})));
-})();
-function drawChart(){
-  const W=980,H=250,PL=54,PR=58,PT=22,PB=32;
-  const iw=W-PL-PR, ih=H-PT-PB;
-  const vals=CUM.map(p=>p.cum);
-  const hi=Math.max(...vals,0), lo=Math.min(...vals,0);
-  const pad=Math.max((hi-lo)*0.14,0.5), top=hi+pad, bot=lo-pad;
-  const X=i=>PL+iw*i/(CUM.length-1);
-  const Y=v=>PT+ih*(top-v)/(top-bot);
-  const zy=Y(0);
-
-  const ticks=[];
-  for(let i=0;i<=4;i++){const v=bot+(top-bot)*i/4;
-    ticks.push(`<line x1="${PL}" x2="${W-PR}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}"
-      stroke="var(--s2)" stroke-width="1"/>
-      <text x="${PL-10}" y="${(Y(v)+4).toFixed(1)}" text-anchor="end" font-size="11"
-        fill="var(--tx3)" font-family="var(--fm)">${v<0?'-':''}$${Math.abs(v).toFixed(0)}</text>`);}
-
-  const line=CUM.map((p,i)=>`${i?'L':'M'}${X(i).toFixed(1)} ${Y(p.cum).toFixed(1)}`).join(' ');
-  const area=`${line} L${X(CUM.length-1).toFixed(1)} ${zy.toFixed(1)} L${X(0).toFixed(1)} ${zy.toFixed(1)} Z`;
-
-  const dots=CUM.map((p,i)=>p.first?'':
-    `<circle class="dot" data-i="${i}" cx="${X(i).toFixed(1)}" cy="${Y(p.cum).toFixed(1)}"
-       r="3.2" fill="var(--money)"/>`).join('');
-  /* Wide invisible bands so the pointer does not have to find a 3px dot. */
-  const hits=CUM.map((p,i)=>p.first?'':
-    `<rect class="hit" data-i="${i}" x="${(X(i)-iw/(CUM.length-1)/2).toFixed(1)}" y="${PT}"
-       width="${(iw/(CUM.length-1)).toFixed(1)}" height="${ih}" fill="transparent"/>`).join('');
-
-  const end=CUM[CUM.length-1];
-  const dates=CUM.map((p,i)=>(p.first||i%4)?'':
-    `<text x="${X(i).toFixed(1)}" y="${H-8}" text-anchor="middle" font-size="11"
-      fill="var(--tx3)">${p.d}</text>`).join('');
-
-  document.getElementById('s-chart').innerHTML=
-    `<svg viewBox="0 0 ${W} ${H}" role="img"
-       aria-label="Running total earnings across ${T.games} games, ending at ${signed(T.net)}.">
-      <defs><linearGradient id="ag" x1="0" x2="0" y1="0" y2="1">
-        <stop offset="0" stop-color="#f0a830" stop-opacity=".26"/>
-        <stop offset="1" stop-color="#f0a830" stop-opacity="0"/>
-      </linearGradient></defs>
-      ${ticks.join('')}
-      <line x1="${PL}" x2="${W-PR}" y1="${zy.toFixed(1)}" y2="${zy.toFixed(1)}"
-        stroke="var(--tx3)" stroke-width="1.5"/>
-      <path d="${area}" fill="url(#ag)"/>
-      <path d="${line}" fill="none" stroke="var(--money)" stroke-width="2"
-        stroke-linejoin="round" stroke-linecap="round"/>
-      <line class="cross" x1="0" x2="0" y1="${PT}" y2="${PT+ih}"
-        stroke="var(--tx3)" stroke-width="1" opacity="0"/>
-      ${dots}
-      <circle class="cur" r="5.5" fill="var(--money)" stroke="var(--s1)" stroke-width="2.5" opacity="0"/>
-      <text x="${(X(CUM.length-1)+10).toFixed(1)}" y="${(Y(end.cum)+4).toFixed(1)}"
-        font-size="13" font-family="var(--fm)" font-weight="600"
-        fill="var(--money)">${signed(end.cum)}</text>
-      ${dates}${hits}
-    </svg>`;
-  wireTip();
-}
-function wireTip(){
-  const wrap=document.querySelector('.chartwrap'), tip=document.getElementById('s-tip');
-  const svg=wrap.querySelector('svg');
-  const cross=svg.querySelector('.cross'), cur=svg.querySelector('.cur');
-  const show=i=>{
-    const p=CUM[i], dot=svg.querySelector(`.dot[data-i="${i}"]`);
-    if(!dot)return;
-    const cx=+dot.getAttribute('cx'), cy=+dot.getAttribute('cy');
-    cross.setAttribute('x1',cx); cross.setAttribute('x2',cx); cross.setAttribute('opacity','.5');
-    cur.setAttribute('cx',cx); cur.setAttribute('cy',cy); cur.setAttribute('opacity','1');
-    tip.innerHTML=`${p.d} &nbsp;·&nbsp; ${p.out?'cashed out':'knocked out'}<br>`+
-      `This game <b>${signed(p.net)}</b><br>Running total <b>${signed(p.cum)}</b>`;
-    tip.classList.add('on');
-    const wb=wrap.getBoundingClientRect(), db=dot.getBoundingClientRect();
-    tip.style.left=Math.max(0,Math.min(wb.width-tip.offsetWidth,
-      db.left-wb.left+db.width/2-tip.offsetWidth/2))+'px';
-    tip.style.top=(db.top-wb.top-tip.offsetHeight-12)+'px';
-  };
-  svg.querySelectorAll('.hit').forEach(h=>{
-    h.addEventListener('mouseenter',()=>show(+h.dataset.i));
-  });
-  wrap.addEventListener('mouseleave',()=>{
-    tip.classList.remove('on');
-    cross.setAttribute('opacity','0'); cur.setAttribute('opacity','0');
-  });
-}
-function toggleChart(){
-  const t=document.getElementById('s-table'), c=document.querySelector('.chartwrap');
-  const showTable=t.hidden;
-  t.hidden=!showTable; c.style.display=showTable?'none':'';
-  document.getElementById('s-toggle').textContent=showTable?'Chart':'Table';
-}
+/* ── your stats ──────────────────────────────────────────────────────────
+   public/js/v2/stats.js, from /api/my-profile. What used to be here was a
+   hand-written list of games with buy-ins and a house cut, and a ledger that
+   reconciled those invented numbers against each other. The database records
+   payouts only, so net profit and win rate cannot be derived and are no
+   longer claimed. */
 
 /* ── players ─────────────────────────────────────────────────────────────
    Leaderboard, search and profiles now live in public/js/v2/social.js and
@@ -1843,7 +1664,7 @@ function go(id){
   route=id; drawNav();
   if(id==='play')        showScreen('home');
   else if(id==='wallet'){ showScreen('wallet-screen'); V2Wallet.render() }
-  else if(id==='stats') { showScreen('stats-screen');  drawStats() }
+  else if(id==='stats') { showScreen('stats-screen');  V2Stats.load() }
   else if(id==='social'){ showScreen('social-screen'); V2Social.load() }
   else{
     showScreen('stub');
