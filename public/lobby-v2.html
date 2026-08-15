@@ -427,20 +427,22 @@ h2{font-size:31px;font-weight:700;letter-spacing:-1.1px;line-height:1.1}
 .look{background:var(--s1);border-radius:var(--r3);padding:20px;margin-top:16px}
 .lookrow{display:flex;align-items:baseline;margin-bottom:12px}
 .lookname{font-size:12.5px;color:var(--tx2);font-weight:550}
-.lookprev{border-radius:var(--r2);overflow:hidden;background:var(--bg)}
-.lookprev canvas{display:block;width:100%;height:auto}
-.swatches{display:grid;grid-template-columns:repeat(9,1fr);gap:8px;margin-top:16px}
-.sw{position:relative;aspect-ratio:1;border-radius:50%;transition:.14s;
-  display:grid;place-items:center}
-.sw::after{content:'';position:absolute;inset:-4px;border-radius:50%;
-  box-shadow:0 0 0 2px var(--bone);opacity:0;transition:.14s}
-.sw:hover{transform:scale(1.12)}
-.sw[aria-pressed="true"]::after{opacity:1}
-/* A tick as well as the ring, so the equipped skin is not signalled by
-   colour and position alone. */
-.sw svg{width:13px;height:13px;opacity:0;stroke:#0a0a0a;stroke-width:3.2;
-  fill:none;stroke-linecap:round;stroke-linejoin:round}
-.sw[aria-pressed="true"] svg{opacity:.85}
+.lookbox{border-radius:var(--r2);overflow:hidden;background:var(--bg)}
+.lookbox canvas,.lookstage canvas{display:block;width:100%;height:auto}
+.lookbtn{width:100%;margin-top:14px}
+/* Change-appearance dialog: the snake, an arrow each side, and Save. */
+.lookwrap{background:var(--s1);border-radius:var(--r3);padding:26px 28px 24px;
+  width:min(680px,calc(100vw - 40px))}
+.lookwrap h3{font-size:17px;font-weight:600;text-align:center;margin-bottom:20px}
+.lookstage{display:flex;align-items:center;gap:12px}
+.lookstage canvas{flex:1;min-width:0;border-radius:var(--r2);background:var(--bg)}
+.ab{flex:0 0 auto;width:44px;height:44px;border-radius:50%;background:var(--s2);
+  color:var(--tx2);font-size:19px;display:grid;place-items:center;transition:.15s}
+.ab:hover{background:var(--bone);color:var(--ink)}
+.lookmeta{display:flex;align-items:baseline;justify-content:center;gap:10px;
+  margin-top:18px;font-size:14px;font-weight:550}
+.lookix{color:var(--tx3);font-size:12px;font-weight:500}
+.lookfoot{display:flex;gap:10px;margin-top:22px}
 
 .how{margin:64px 0 0}
 .hg{display:grid;grid-template-columns:repeat(auto-fit,minmax(216px,1fr));gap:30px;margin-top:22px}
@@ -599,8 +601,8 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
           <div class="sp"></div>
           <div class="lookname" id="skname"></div>
         </div>
-        <div class="lookprev"><canvas id="skprev" width="620" height="200"></canvas></div>
-        <div class="swatches" id="swatches"></div>
+        <div class="lookbox"><canvas id="skmini" data-look="mini" width="560" height="150"></canvas></div>
+        <button class="btn sec lookbtn" onclick="openLook()">Change appearance</button>
       </div>
     </div>
   </div>
@@ -671,6 +673,21 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
 <main id="stub" class="wrap"><div class="stub">
   <h2 id="stub-t"></h2><p id="stub-d"></p>
 </div></main>
+
+<div class="veil" id="lookveil"><div class="lookwrap" role="dialog" aria-modal="true"
+     aria-label="Change appearance">
+  <h3>Change appearance</h3>
+  <div class="lookstage">
+    <button class="ab" onclick="cycleLook(-1)" aria-label="Previous skin">&#8249;</button>
+    <canvas id="skbig" data-look="big" width="900" height="250"></canvas>
+    <button class="ab" onclick="cycleLook(1)" aria-label="Next skin">&#8250;</button>
+  </div>
+  <div class="lookmeta"><span id="lookname"></span><span class="lookix num" id="lookix"></span></div>
+  <div class="lookfoot">
+    <button class="btn sec" onclick="closeLook(false)">Cancel</button>
+    <button class="btn pri" onclick="closeLook(true)">Save</button>
+  </div>
+</div></div>
 
 <div class="veil" id="veil"><div class="wb">
   <div class="ring"></div>
@@ -1138,25 +1155,45 @@ let skinId=localStorage.getItem(SKIN_KEY)||'coral';
 if(!LOOKS.some(s=>s.id===skinId))skinId='coral';   /* a stale id falls back */
 const skin=()=>LOOKS.find(s=>s.id===skinId)||LOOKS[0];
 
-function paintSkin(){
-  const cv=document.getElementById('skprev');
-  if(!cv||!R)return;
+/* The live lobby's slither-in-place wave, same formula: head on the right at
+   u=0, tail on the left at u=1, and the wave travels down the body as t
+   advances. Amplitude ramps from 0.3 to 1.0 along the body so the head barely
+   moves and the tail whips, which is what sells it as swimming rather than
+   sliding. Written in world units so the game's own renderer draws it, and
+   spaced at SNAKE_SEGMENT_SPACING so the stamped body has no gaps. */
+function animSegs(t,n,amp){
+  const SP=C_.SNAKE_SEGMENT_SPACING, span=(n-1)*SP/2, segs=new Array(n*2);
+  for(let i=0;i<n;i++){
+    const u=i/(n-1);
+    segs[i*2]=span*(1-u*2);
+    segs[i*2+1]=Math.sin(u*Math.PI*1.4-t*2)*amp*(0.3+u*0.7);
+  }
+  return segs;
+}
+let lookT=0;
+/* n is the body length, which is also what drives the radius, so the small
+   box gets a shorter and correspondingly thinner snake for free. */
+const LOOK_CFG={mini:{n:44,amp:15},big:{n:82,amp:26}};
+function paintLook(cv){
+  if(!R)return;
   fit(cv);
+  const cfg=LOOK_CFG[cv.dataset.look]||LOOK_CFG.mini;
   const w=cv.width,h=cv.height;
   R.canvas=cv; R.ctx=cv.getContext('2d');
   R._canvasW=w; R._canvasH=h; R._dpr=1;
   const ctx=R.ctx, cam=R.camera;
-  const HW=78,HH=26;                       /* the world box the preview frames */
+  const HW=(cfg.n-1)*C_.SNAKE_SEGMENT_SPACING/2+20, HH=cfg.amp+22;
   const S=Math.min(w/(2*HW),h/(2*HH));
   cam.scale=cam.targetScale=cam._scaleMid=S;
   cam._w=w; cam._h=h; cam.worldX=cam.worldY=0; cam.x=w/2; cam.y=h/2;
   ctx.setTransform(1,0,0,1,0,0);
+  ctx.clearRect(0,0,w,h);                 /* plain box, as in the live lobby */
   if(R.snakeGL&&R.snakeGL.ok)R.snakeGL.ensureSize(w,h);
-  ctx.fillStyle='#070707'; ctx.fillRect(0,0,w,h);
-  R.hexGrid.draw(ctx,cam,1);
   cam.apply(ctx,1);
-  const segs=resample(waveCurve(46,-150,0,10,0.5,1.1,400),C_.SNAKE_SEGMENT_SPACING,52);
-  const s=mkSnake('sk',skin().color,segs,0);   /* worth 0, so no money label */
+  /* The dialog previews the skin being browsed; the lobby box always shows
+     what is actually equipped. */
+  const col=(cv.dataset.look==='big'?LOOKS[lookIx]:skin()).color;
+  const s=mkSnake('look',col,animSegs(lookT,cfg.n,cfg.amp),0);  /* worth 0, no label */
   const useGL=R._glMode&&R.snakeGL&&R.snakeGL.ok;
   if(useGL)R.snakeGL.beginFrame();
   R._drawSnakeBody(ctx,s,false);
@@ -1165,20 +1202,30 @@ function paintSkin(){
   R._drawSnakeOverlay(ctx,s,false);
   cam.reset(ctx,1);
 }
-function drawSkins(){
-  document.getElementById('skname').textContent=skin().name;
-  document.getElementById('swatches').innerHTML=LOOKS.map(s=>
-    `<button class="sw" style="background:${s.color}" data-id="${s.id}"
-       aria-pressed="${s.id===skinId}" aria-label="${s.name}" title="${s.name}"
-       onclick="pickSkin('${s.id}')">
-       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12.5 9.5 18 20 6.5"/></svg>
-     </button>`).join('');
-  paintSkin();
+
+let lookIx=0;
+function drawSkins(){ document.getElementById('skname').textContent=skin().name; }
+function openLook(){
+  lookIx=Math.max(0,LOOKS.findIndex(s=>s.id===skinId));
+  lookMeta(); document.getElementById('lookveil').classList.add('on');
 }
-function pickSkin(id){
-  skinId=id;
-  try{localStorage.setItem(SKIN_KEY,id)}catch(_){}
-  drawSkins();
+function cycleLook(d){
+  lookIx=(lookIx+d+LOOKS.length)%LOOKS.length;
+  lookMeta();
+}
+function lookMeta(){
+  document.getElementById('lookname').textContent=LOOKS[lookIx].name;
+  document.getElementById('lookix').textContent=(lookIx+1)+' of '+LOOKS.length;
+}
+/* Save commits what you were browsing; cancel just closes, leaving the
+   equipped skin untouched. */
+function closeLook(save){
+  if(save){
+    skinId=LOOKS[lookIx].id;
+    try{localStorage.setItem(SKIN_KEY,skinId)}catch(_){}
+    drawSkins();
+  }
+  document.getElementById('lookveil').classList.remove('on');
 }
 
 /* Lobby-row swatches are a still, zoomed-in crop rather than a tiny scene:
@@ -1262,6 +1309,13 @@ let _last=0;
     if(!RM.matches)paintScene(cv,dt);
     else if(fit(cv))paintScene(cv,0);
   }catch(e){}});
+  /* The appearance snake is the point of the box, so like the ticker it keeps
+     swimming under reduced motion. Only paint boxes that are actually on
+     screen: offsetParent is null for anything inside a hidden screen. */
+  lookT+=0.022*dt;
+  document.querySelectorAll('canvas[data-look]').forEach(cv=>{
+    if(cv.offsetParent)try{paintLook(cv)}catch(e){}
+  });
   requestAnimationFrame(loop);
 })(0);
 RM.addEventListener('change',repaintAll);
@@ -1783,6 +1837,12 @@ function copyAddr(e){
   el.classList.add('done'); lbl.textContent='Copied';
   setTimeout(()=>{el.classList.remove('done');lbl.textContent='Copy'},1400);
 }
+/* Escape closes the appearance dialog without saving, which is what a modal
+   is expected to do. */
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'&&document.getElementById('lookveil').classList.contains('on'))
+    closeLook(false);
+});
 document.addEventListener('click',()=>wcard.classList.remove('on'));
 document.getElementById('wcard').addEventListener('click',e=>e.stopPropagation());
 
