@@ -11,6 +11,15 @@
         ],
         "createdAt": "2026-08-15T01:07:44.596Z",
         "reason": "user confirmed: Owen asked for a recent-winners row that 'slowly scrolls through them and shows the winnings', and the activity ticker is a named requirement in docs/superpowers/specs/2026-08-13-lobby-redesign-design.md. Mitigated: pauses on hover and focus-within, has an explicit pause button, and the animation is dropped entirely under prefers-reduced-motion (strip becomes scrollable)."
+      },
+      {
+        "rule": "marquee",
+        "value": "*",
+        "files": [
+          "public/v2.html"
+        ],
+        "createdAt": "2026-08-15T14:14:24.640Z",
+        "reason": "user confirmed: Owen asked for a recent-winners row that 'slowly scrolls through them', then explicitly asked that it 'keep moving no matter what'. The activity ticker is also a named requirement in docs/superpowers/specs/2026-08-13-lobby-redesign-design.md. Same exception previously granted on public/lobby-v2.html; re-scoped after the git mv to public/v2.html. Stop control retained: an explicit pause button, which is the only thing that halts it."
       }
     ]
   }
