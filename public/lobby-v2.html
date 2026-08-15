@@ -323,7 +323,43 @@ h2{font-size:31px;font-weight:700;letter-spacing:-1.1px;line-height:1.1}
 .tgo.alt:hover{background:var(--s3);color:var(--tx);transform:none}
 
 /* ── wallet + stats ─────────────────────────────────────────────────── */
-#wallet-screen,#stats-screen{display:none}
+#wallet-screen,#stats-screen,#social-screen,#player-screen{display:none}
+
+/* ── social ─────────────────────────────────────────────────────────── */
+.search{display:flex;align-items:center;gap:10px;background:var(--s1);
+  border-radius:var(--r2);padding:0 14px;margin-bottom:6px}
+.search svg{width:16px;height:16px;flex:0 0 auto;stroke:var(--tx3);fill:none;
+  stroke-width:2;stroke-linecap:round}
+.search input{flex:1;background:none;border:none;outline:none;color:var(--tx);
+  font-family:inherit;font-size:14px;padding:13px 0}
+.search input::placeholder{color:var(--tx3)}
+.search:focus-within{background:var(--s2)}
+.search:focus-within svg{stroke:var(--tx2)}
+/* Whole row is the control, so the target is the row and not just the name. */
+.prow{display:grid;grid-template-columns:34px 34px 1fr 96px 110px;gap:14px;
+  align-items:center;width:100%;text-align:left;padding:13px 10px;font-size:14px;
+  border-radius:var(--r2);transition:.13s}
+.prow:hover{background:var(--s1)}
+.prow .rk{color:var(--tx3);font-size:12.5px;text-align:right}
+.prow .nm{font-weight:550}
+.prow .gp{color:var(--tx3);font-size:12.5px;text-align:right}
+.prow .er{color:var(--money);font-weight:600;text-align:right}
+.pav{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;
+  font-size:12px;font-weight:700;color:#0a0a0a;flex:0 0 auto}
+.none2{font-size:13.5px;color:var(--tx3);padding:26px 10px}
+
+.phead{display:flex;align-items:center;gap:16px;margin-top:26px}
+.phead .pav{width:56px;height:56px;font-size:19px}
+.phead h1{font-size:29px;font-weight:700;letter-spacing:-1px}
+.psub{font-size:13px;color:var(--tx3);margin-top:4px}
+.pnet{text-align:right}
+.pnet .k{font-size:12px;color:var(--tx3)}
+.pnet .v{font-size:31px;font-weight:600;color:var(--money);letter-spacing:-1.2px}
+@media(max-width:620px){
+  .prow{grid-template-columns:26px 34px 1fr 92px;gap:10px}
+  .prow .gp{display:none}
+  .phead{flex-wrap:wrap}
+}
 .panel{background:var(--s1);border-radius:var(--r3);padding:24px 26px}
 .wgrid{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
 .plab{font-size:12px;color:var(--tx3);margin-bottom:9px}
@@ -710,6 +746,42 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
   <div class="head"><div><h2>Where the money went</h2>
     <div class="sub">Every figure below is derived from the same games, so they reconcile.</div></div></div>
   <div class="panel"><div class="ledger" id="s-ledger"></div></div>
+</main>
+
+<!-- ══ SOCIAL ══ -->
+<main id="social-screen" class="wrap">
+  <div class="head"><div><h2>Players</h2>
+    <div class="sub" id="soc-sub"></div></div></div>
+
+  <div class="tiles" id="soc-tiles"></div>
+
+  <div class="head"><div><h2>Top earners</h2>
+    <div class="sub">All time, net of the house cut. Pick anyone to see their profile.</div></div>
+  </div>
+  <label class="search">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4.2-4.2"/></svg>
+    <input id="soc-q" type="search" placeholder="Search players by name"
+      autocomplete="off" oninput="drawBoard()" aria-label="Search players by name">
+  </label>
+  <div class="tbl" id="soc-board"></div>
+</main>
+
+<!-- ══ PLAYER PROFILE ══ -->
+<main id="player-screen" class="wrap">
+  <a class="back" href="#" onclick="go('social');return false">&#8592; &nbsp;All players</a>
+  <div class="phead">
+    <div class="pav" id="p-av"></div>
+    <div>
+      <h1 id="p-name"></h1>
+      <div class="psub" id="p-sub"></div>
+    </div>
+    <div class="sp"></div>
+    <div class="pnet"><div class="k">Net earnings</div><div class="v num" id="p-net"></div></div>
+  </div>
+  <div class="tiles" id="p-tiles" style="margin-top:26px"></div>
+  <div class="head"><div><h2>Recent games</h2>
+    <div class="sub">Their last ten, newest first.</div></div></div>
+  <div class="tbl" id="p-games"></div>
 </main>
 
 <main id="stub" class="wrap"><div class="stub">
@@ -1532,7 +1604,7 @@ function drawLob(){
 
 function open_(id){
   cur=G(id); si=STEPS.indexOf(1);
-  home.style.display='none'; detail.style.display='block';
+  showScreen('detail');
   document.getElementById('dart').innerHTML=art(cur,660,300,1);
   document.getElementById('dname').textContent=cur.name;
   document.getElementById('ddesc').textContent=cur.d;
@@ -1553,7 +1625,7 @@ function open_(id){
   ].map((s,i)=>`<div class="hs"><i>0${i+1}</i><b>${s[0]}</b><p>${s[1]}</p></div>`).join('');
   drawStake(); drawSkins(); repaintAll(); scrollTo(0,0);
 }
-function goHome(){detail.style.display='none';home.style.display='block';scrollTo(0,0)}
+function goHome(){showScreen('home');scrollTo(0,0)}
 
 function drawStake(){
   const v=STEPS[si], el=document.getElementById('sv');
@@ -1782,6 +1854,114 @@ function toggleChart(){
   document.getElementById('s-toggle').textContent=showTable?'Chart':'Table';
 }
 
+/* ── players ─────────────────────────────────────────────────────────────
+   Seeded from the name, so the board is identical on every load and for
+   every visitor rather than reshuffling on refresh, which is what a random
+   leaderboard looks like. Each player's games run through the same money
+   rules as your own stats, so a profile's net always equals the sum of its
+   games and the board cannot disagree with the profile behind it. */
+function seeded(str){
+  let h=1779033703^str.length;
+  for(let i=0;i<str.length;i++){h=Math.imul(h^str.charCodeAt(i),3432918353);h=h<<13|h>>>19}
+  return function(){
+    h=Math.imul(h^h>>>16,2246822507); h=Math.imul(h^h>>>13,3266489909);
+    return ((h^=h>>>16)>>>0)/4294967296;
+  };
+}
+const PNAMES=['PEPIK','hashim','degenmonkey','qesku','tungsahur','ZachXBT','dddickk',
+ 'wenmoon','noodlearm','grasshopper','lilbogdan','sn4kepit','vorpal','mikoto',
+ 'bagholder','0xhydra','pixelmaw','tinyfangs','coilcoil','nomnom','slithy','pogface',
+ 'cashcow','ghostbyte','minttea','krakenjr','solsurfer','wormhole','fangz','dizzy',
+ 'nightowl','pocketaces','bytesize','lunaris','greenhorn','tapeworm','zigzag','ouroboros'];
+const STAKES=[0.25,0.50,1,2,5];
+const DAY0=new Date(2026,7,13);
+function dayLabel(back){
+  const d=new Date(DAY0); d.setDate(d.getDate()-back);
+  return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+}
+function mkPlayer(name){
+  const rnd=seeded(name), n=9+Math.floor(rnd()*52), games=[];
+  for(let i=0;i<n;i++){
+    const stake=STAKES[Math.floor(rnd()*STAKES.length)];
+    const out=rnd()<0.53;
+    const worth=out?stake*(0.35+rnd()*4.3):0;
+    games.push({d:dayLabel(n-1-i),stake,worth,out,
+      payout:out?worth*(1-RAKE):0, cut:out?worth*RAKE:0,
+      net:(out?worth*(1-RAKE):0)-stake});
+  }
+  const t=games.reduce((a,g)=>({staked:a.staked+g.stake,payout:a.payout+g.payout,
+    cut:a.cut+g.cut,wins:a.wins+(g.net>0?1:0)}),{staked:0,payout:0,cut:0,wins:0});
+  return {name,games,n,...t,net:t.payout-t.staked,
+    best:Math.max(0,...games.map(g=>g.payout)),
+    color:LOOKS[Math.floor(rnd()*LOOKS.length)].color};
+}
+const PLAYERS=PNAMES.map(mkPlayer).sort((a,b)=>b.net-a.net);
+PLAYERS.forEach((p,i)=>p.rank=i+1);
+const initials=n=>n.replace(/[^a-z0-9]/gi,'').slice(0,2).toUpperCase();
+const avatar=p=>`<span class="pav" style="background:${p.color}">${initials(p.name)}</span>`;
+
+function drawSocial(){
+  const paid=PLAYERS.reduce((a,p)=>a+p.payout,0);
+  const games=PLAYERS.reduce((a,p)=>a+p.n,0);
+  const best=Math.max(...PLAYERS.map(p=>p.best));
+  document.getElementById('soc-sub').innerHTML=
+    `<span class="num">${PLAYERS.length}</span> players, `+
+    `<span class="num">${games.toLocaleString()}</span> games played.`;
+  document.getElementById('soc-tiles').innerHTML=[
+    ['Paid out to players',money(paid),'across every cash-out'],
+    ['Players',String(PLAYERS.length),'who have staked at least once'],
+    ['Games played',games.toLocaleString(),'all time'],
+    ['Biggest cash-out',money(best),'single game'],
+  ].map(t=>`<div class="tile"><div class="k">${t[0]}</div>
+      <div class="v num">${t[1]}</div><div class="f">${t[2]}</div></div>`).join('');
+  drawBoard();
+}
+/* No search shows the top ten; a search shows everyone who matches, keeping
+   each player's real overall rank rather than renumbering the results. */
+function drawBoard(){
+  const q=(document.getElementById('soc-q').value||'').trim().toLowerCase();
+  const list=q?PLAYERS.filter(p=>p.name.toLowerCase().includes(q)):PLAYERS.slice(0,10);
+  const el=document.getElementById('soc-board');
+  if(!list.length){
+    el.innerHTML=`<div class="none2">Nobody matches &ldquo;${q.replace(/[<&]/g,'')}&rdquo;. `+
+      `Names are exact, so check the spelling.</div>`;
+    return;
+  }
+  el.innerHTML=list.map(p=>`<button class="prow" onclick="openPlayer('${p.name}')">
+      <span class="rk num">${p.rank}</span>${avatar(p)}
+      <span class="nm">${p.name}</span>
+      <span class="gp num">${p.n} games</span>
+      <span class="er num">${signed(p.net)}</span>
+    </button>`).join('');
+}
+function openPlayer(name){
+  const p=PLAYERS.find(x=>x.name===name); if(!p)return;
+  document.getElementById('p-av').style.background=p.color;
+  document.getElementById('p-av').textContent=initials(p.name);
+  document.getElementById('p-name').textContent=p.name;
+  document.getElementById('p-sub').innerHTML=
+    `Rank <span class="num">${p.rank}</span> of <span class="num">${PLAYERS.length}</span>`+
+    ` &nbsp;·&nbsp; <span class="num">${p.n}</span> games`;
+  document.getElementById('p-net').textContent=signed(p.net);
+  document.getElementById('p-tiles').innerHTML=[
+    ['Win rate',Math.round(p.wins/p.n*100)+'%',`${p.wins} up, ${p.n-p.wins} down`],
+    ['Biggest cash-out',money(p.best),'single game'],
+    ['Total staked',money(p.staked),'across '+p.n+' games'],
+    ['House cut paid',money(p.cut),'10% of every cash-out'],
+  ].map(t=>`<div class="tile"><div class="k">${t[0]}</div>
+      <div class="v num">${t[1]}</div><div class="f">${t[2]}</div></div>`).join('');
+  document.getElementById('p-games').innerHTML=
+    `<div class="tr hd"><span>Date</span><span>Result</span>
+     <span class="r c4">Buy-in</span><span class="r c3">House cut</span><span class="r">Net</span></div>`+
+    p.games.slice(-10).reverse().map(g=>`<div class="tr"><span class="num">${g.d}</span>
+      <span><span class="tag">${g.out?'Cashed out':'Knocked out'}</span></span>
+      <span class="r num neg c4">${money(g.stake)}</span>
+      <span class="r num neg c3">${g.cut?money(g.cut):'—'}</span>
+      <span class="r num ${g.net>0?'pos':'neg'}">${signed(g.net)}</span></div>`).join('');
+  showScreen('player-screen');
+  scrollTo(0,0);
+}
+
 /* ── wallet screen ──────────────────────────────────────────────────── */
 function drawWalletPage(){
   document.getElementById('w-avail').textContent=money(12.40);
@@ -1820,16 +2000,23 @@ function drawNav(){
        <svg viewBox="0 0 24 24"><path d="${n.p}"/></svg><span class="tip">${n.t}</span>
      </button>`).join('');
 }
+/* One place that knows which screens exist, so a new one cannot be left
+   showing underneath another. The player profile has no nav slot of its
+   own: it is reached from the board and keeps Social lit while it is up. */
+const SCREENS=['home','detail','stub','wallet-screen','stats-screen',
+               'social-screen','player-screen'];
+function showScreen(id){
+  SCREENS.forEach(s=>{const el=document.getElementById(s); if(el)el.style.display='none'});
+  const el=document.getElementById(id); if(el)el.style.display='block';
+}
 function go(id){
   route=id; drawNav();
-  const W=document.getElementById('wallet-screen'), S=document.getElementById('stats-screen');
-  home.style.display=detail.style.display=stub.style.display='none';
-  W.style.display=S.style.display='none';
-  if(id==='play')       home.style.display='block';
-  else if(id==='wallet'){W.style.display='block'; drawWalletPage()}
-  else if(id==='stats') {S.style.display='block'; drawStats()}
+  if(id==='play')        showScreen('home');
+  else if(id==='wallet'){ showScreen('wallet-screen'); drawWalletPage() }
+  else if(id==='stats') { showScreen('stats-screen');  drawStats() }
+  else if(id==='social'){ showScreen('social-screen'); drawSocial() }
   else{
-    stub.style.display='block';
+    showScreen('stub');
     const n=NAV.find(x=>x.id===id);
     document.getElementById('stub-t').textContent=n.t;
     document.getElementById('stub-d').textContent=n.d;
