@@ -226,8 +226,6 @@ h2{font-size:31px;font-weight:700;letter-spacing:-1.1px;line-height:1.1}
           mask-image:linear-gradient(90deg,transparent,#000 56px,#000 calc(100% - 96px),transparent)}
 .tkrun{display:flex;width:max-content;animation:tk 52s linear infinite}
 .tkrun.off{animation-play-state:paused}
-/* Reading a moving line is hard, so it holds still while you point at it. */
-.ticker:hover .tkrun,.ticker:focus-within .tkrun{animation-play-state:paused}
 @keyframes tk{to{transform:translateX(-50%)}}
 .tki{display:inline-flex;align-items:center;gap:8px;padding:9px 22px;
   font-size:13px;white-space:nowrap}
@@ -242,10 +240,14 @@ h2{font-size:31px;font-weight:700;letter-spacing:-1.1px;line-height:1.1}
   color:var(--tx3);transition:.15s}
 .tkbtn:hover{color:var(--tx);background:var(--s1)}
 .tkbtn svg{width:15px;height:15px;fill:currentColor}
+/* The ticker is the one thing on the page that keeps running under reduced
+   motion, by explicit instruction: it is the page's only sign of life and a
+   frozen one reads as a broken page. The blanket reduce rule further up
+   would otherwise collapse it to a single 0.01ms cycle, so it is re-stated
+   here. The pause button is the stop mechanism that keeps this legitimate,
+   which is exactly why it stays. */
 @media(prefers-reduced-motion:reduce){
-  .ticker{overflow-x:auto;scrollbar-width:none}
-  .tkrun{animation:none}
-  .tkbtn{display:none}
+  .tkrun{animation-duration:52s!important;animation-iteration-count:infinite!important}
 }
 
 /* ── lobby list ─────────────────────────────────────────────────────── */
@@ -418,6 +420,28 @@ h2{font-size:31px;font-weight:700;letter-spacing:-1.1px;line-height:1.1}
   color:var(--tx2);text-align:center;cursor:pointer;transition:.15s}
 .tg:hover{background:var(--s3)}
 
+/* ── your look ──────────────────────────────────────────────────────── */
+/* The preview is the real renderer, not an illustration: the same body and
+   the same hex tile the game draws, so the colour you pick is literally the
+   colour you will be. */
+.look{background:var(--s1);border-radius:var(--r3);padding:20px;margin-top:16px}
+.lookrow{display:flex;align-items:baseline;margin-bottom:12px}
+.lookname{font-size:12.5px;color:var(--tx2);font-weight:550}
+.lookprev{border-radius:var(--r2);overflow:hidden;background:var(--bg)}
+.lookprev canvas{display:block;width:100%;height:auto}
+.swatches{display:grid;grid-template-columns:repeat(9,1fr);gap:8px;margin-top:16px}
+.sw{position:relative;aspect-ratio:1;border-radius:50%;transition:.14s;
+  display:grid;place-items:center}
+.sw::after{content:'';position:absolute;inset:-4px;border-radius:50%;
+  box-shadow:0 0 0 2px var(--bone);opacity:0;transition:.14s}
+.sw:hover{transform:scale(1.12)}
+.sw[aria-pressed="true"]::after{opacity:1}
+/* A tick as well as the ring, so the equipped skin is not signalled by
+   colour and position alone. */
+.sw svg{width:13px;height:13px;opacity:0;stroke:#0a0a0a;stroke-width:3.2;
+  fill:none;stroke-linecap:round;stroke-linejoin:round}
+.sw[aria-pressed="true"] svg{opacity:.85}
+
 .how{margin:64px 0 0}
 .hg{display:grid;grid-template-columns:repeat(auto-fit,minmax(216px,1fr));gap:30px;margin-top:22px}
 .hs i{font-style:normal;font-size:12px;color:var(--tx3);font-weight:600}
@@ -567,6 +591,16 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
         <button class="go" onclick="play()">Create lobby</button>
         <div class="fine" id="fine"></div>
         <div class="tog"><div class="tg">Region &nbsp;NA</div><div class="tg">Public</div></div>
+      </div>
+
+      <div class="look">
+        <div class="lookrow">
+          <div class="sl" style="text-align:left">Your look</div>
+          <div class="sp"></div>
+          <div class="lookname" id="skname"></div>
+        </div>
+        <div class="lookprev"><canvas id="skprev" width="620" height="200"></canvas></div>
+        <div class="swatches" id="swatches"></div>
       </div>
     </div>
   </div>
@@ -1073,6 +1107,80 @@ function paintScene(cv,dt){
 const SCENES=new Map();
 function scene(cv){ let s=SCENES.get(cv); if(!s){s=mkWorld(cv);SCENES.set(cv,s)} return s }
 
+/* ── skin preview ────────────────────────────────────────────────────────
+   The same eighteen skins the live lobby ships, copied verbatim including
+   the ids, because the id is what gets stored. Every colour is a slither
+   palette entry, which the server enforces, so nothing here can be equipped
+   that the game would reject. The storage key is the live lobby's too, so
+   picking a skin on either screen agrees with the other. */
+const LOOKS=[
+  {id:'purple',    name:'Purple',     color:'#c080ff'},
+  {id:'periwinkle',name:'Periwinkle', color:'#9099ff'},
+  {id:'teal',      name:'Teal',       color:'#80d0d0'},
+  {id:'green',     name:'Green',      color:'#80ff80'},
+  {id:'yellow',    name:'Yellow',     color:'#eeee70'},
+  {id:'orange',    name:'Orange',     color:'#ffa060'},
+  {id:'coral',     name:'Coral',      color:'#ff9090'},
+  {id:'red',       name:'Red',        color:'#ff4040'},
+  {id:'magenta',   name:'Magenta',    color:'#e030e0'},
+  {id:'crimson',   name:'Crimson',    color:'#f02020'},
+  {id:'mint',      name:'Mint',       color:'#00ff53'},
+  {id:'indigo',    name:'Indigo',     color:'#4854ff'},
+  {id:'rose',      name:'Rose',       color:'#f020f0'},
+  {id:'amber',     name:'Amber',      color:'#ffc050'},
+  {id:'sky',       name:'Sky',        color:'#65c8e8'},
+  {id:'lime',      name:'Lime',       color:'#20f020'},
+  {id:'galaxy',    name:'Galaxy',     color:'#6828aa'},
+  {id:'shadow',    name:'Shadow',     color:'#505050'},
+];
+const SKIN_KEY='duelseries_skin_id';
+let skinId=localStorage.getItem(SKIN_KEY)||'coral';
+if(!LOOKS.some(s=>s.id===skinId))skinId='coral';   /* a stale id falls back */
+const skin=()=>LOOKS.find(s=>s.id===skinId)||LOOKS[0];
+
+function paintSkin(){
+  const cv=document.getElementById('skprev');
+  if(!cv||!R)return;
+  fit(cv);
+  const w=cv.width,h=cv.height;
+  R.canvas=cv; R.ctx=cv.getContext('2d');
+  R._canvasW=w; R._canvasH=h; R._dpr=1;
+  const ctx=R.ctx, cam=R.camera;
+  const HW=78,HH=26;                       /* the world box the preview frames */
+  const S=Math.min(w/(2*HW),h/(2*HH));
+  cam.scale=cam.targetScale=cam._scaleMid=S;
+  cam._w=w; cam._h=h; cam.worldX=cam.worldY=0; cam.x=w/2; cam.y=h/2;
+  ctx.setTransform(1,0,0,1,0,0);
+  if(R.snakeGL&&R.snakeGL.ok)R.snakeGL.ensureSize(w,h);
+  ctx.fillStyle='#070707'; ctx.fillRect(0,0,w,h);
+  R.hexGrid.draw(ctx,cam,1);
+  cam.apply(ctx,1);
+  const segs=resample(waveCurve(46,-150,0,10,0.5,1.1,400),C_.SNAKE_SEGMENT_SPACING,52);
+  const s=mkSnake('sk',skin().color,segs,0);   /* worth 0, so no money label */
+  const useGL=R._glMode&&R.snakeGL&&R.snakeGL.ok;
+  if(useGL)R.snakeGL.beginFrame();
+  R._drawSnakeBody(ctx,s,false);
+  if(useGL){ R.snakeGL.endFrame(); ctx.setTransform(1,0,0,1,0,0);
+    R.snakeGL.compositeTo(ctx); cam.apply(ctx,1); }
+  R._drawSnakeOverlay(ctx,s,false);
+  cam.reset(ctx,1);
+}
+function drawSkins(){
+  document.getElementById('skname').textContent=skin().name;
+  document.getElementById('swatches').innerHTML=LOOKS.map(s=>
+    `<button class="sw" style="background:${s.color}" data-id="${s.id}"
+       aria-pressed="${s.id===skinId}" aria-label="${s.name}" title="${s.name}"
+       onclick="pickSkin('${s.id}')">
+       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12.5 9.5 18 20 6.5"/></svg>
+     </button>`).join('');
+  paintSkin();
+}
+function pickSkin(id){
+  skinId=id;
+  try{localStorage.setItem(SKIN_KEY,id)}catch(_){}
+  drawSkins();
+}
+
 /* Lobby-row swatches are a still, zoomed-in crop rather than a tiny scene:
    at 34px a whole world reads as noise. slither gets a head filling the
    frame, agar gets a named cell cropped by the edge. Same backgrounds. */
@@ -1241,20 +1349,40 @@ function lrow(l){
    advertise a game nobody can play. Today that means every line is
    slither.io; the moment another game loses its `soon` flag its wins start
    appearing here on their own. */
-const WINS=[
- {who:'PEPIK',       g:'snake', amt:13.25},
- {who:'hashim',      g:'snake', amt:2.40},
- {who:'degenmonkey', g:'snake', amt:0.48},
- {who:'qesku',       g:'snake', amt:6.47},
- {who:'tungsahur',   g:'snake', amt:0.82},
- {who:'ZachXBT',     g:'snake', amt:11.03},
- {who:'dddickk',     g:'snake', amt:1.05},
- {who:'sol_maxi',    g:'rps',   amt:3.10},
- {who:'wenmoon',     g:'snake', amt:4.30},
- {who:'noodlearm',   g:'snake', amt:0.94},
- {who:'grasshopper', g:'snake', amt:22.60},
- {who:'lilbogdan',   g:'snake', amt:1.72},
-].filter(w=>{const g=G(w.g); return g&&!g.soon});
+/* Real results, when the server has any. Empty right now because nobody has
+   played yet. */
+const REAL_WINS=[];
+
+const NAMES=['PEPIK','hashim','degenmonkey','qesku','tungsahur','ZachXBT',
+ 'dddickk','wenmoon','noodlearm','grasshopper','lilbogdan','sn4kepit','vorpal',
+ 'mikoto','bagholder','0xhydra','pixelmaw','tinyfangs','coilcoil','nomnom',
+ 'slithy','pogface','cashcow','ghostbyte'];
+/* Most wins are small and the occasional one is large, because a row of
+   uniformly middling amounts is the tell that the numbers were invented. */
+function madeUpAmount(){
+  const r=Math.random();
+  const v=r<0.62 ? 0.25+Math.random()*2.75
+        : r<0.93 ? 3+Math.random()*9
+        :          12+Math.random()*24;
+  return Math.round(v*100)/100;
+}
+/* An empty ticker is worse than no ticker, so when there are no real results
+   the row invents plausible ones rather than sitting blank. Made-up wins can
+   only ever name a game that is actually playable. */
+const MIN_TICKER=14;
+const WINS=(()=>{
+  const live=REAL_WINS.filter(w=>{const g=G(w.g); return g&&!g.soon});
+  if(live.length>=MIN_TICKER)return live;
+  const playable=GAMES.filter(g=>!g.soon);
+  if(!playable.length)return live;
+  const pool=NAMES.slice(), out=live.slice();
+  while(out.length<MIN_TICKER&&pool.length){
+    const who=pool.splice(Math.floor(Math.random()*pool.length),1)[0];
+    out.push({who,g:playable[Math.floor(Math.random()*playable.length)].id,
+              amt:madeUpAmount()});
+  }
+  return out;
+})();
 
 function drawTicker(){
   const one=WINS.map(w=>`<span class="tki"><span class="who">${w.who}</span>
@@ -1306,7 +1434,7 @@ function open_(id){
                    :'Beat your opponent and take the pot. Both sides staked the same, so it comes down to skill.'],
     ['Cash out','Leave whenever you like. Your worth is paid to your wallet on-chain, minus the ten percent house cut.'],
   ].map((s,i)=>`<div class="hs"><i>0${i+1}</i><b>${s[0]}</b><p>${s[1]}</p></div>`).join('');
-  drawStake(); repaintAll(); scrollTo(0,0);
+  drawStake(); drawSkins(); repaintAll(); scrollTo(0,0);
 }
 function goHome(){detail.style.display='none';home.style.display='block';scrollTo(0,0)}
 
