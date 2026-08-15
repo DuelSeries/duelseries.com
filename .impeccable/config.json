@@ -19,7 +19,7 @@
           "public/v2.html"
         ],
         "createdAt": "2026-08-15T14:14:24.640Z",
-        "reason": "user confirmed: Owen asked for a recent-winners row that 'slowly scrolls through them', then explicitly asked that it 'keep moving no matter what'. The activity ticker is also a named requirement in docs/superpowers/specs/2026-08-13-lobby-redesign-design.md. Same exception previously granted on public/lobby-v2.html; re-scoped after the git mv to public/v2.html. Stop control retained: an explicit pause button, which is the only thing that halts it."
+        "reason": "user confirmed: Owen asked for a scrolling recent-winners row, then that it 'keep moving no matter what', then that it have no controls of any sort - it is read-only decoration showing the board is alive. Named requirement in docs/superpowers/specs/2026-08-13-lobby-redesign-design.md. No pause control by explicit decision."
       }
     ]
   }

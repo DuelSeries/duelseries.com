@@ -225,7 +225,6 @@ h2{font-size:31px;font-weight:700;letter-spacing:-1.1px;line-height:1.1}
   -webkit-mask-image:linear-gradient(90deg,transparent,#000 56px,#000 calc(100% - 96px),transparent);
           mask-image:linear-gradient(90deg,transparent,#000 56px,#000 calc(100% - 96px),transparent)}
 .tkrun{display:flex;width:max-content;animation:tk 52s linear infinite}
-.tkrun.off{animation-play-state:paused}
 @keyframes tk{to{transform:translateX(-50%)}}
 .tki{display:inline-flex;align-items:center;gap:8px;padding:9px 22px;
   font-size:13px;white-space:nowrap}
@@ -234,18 +233,10 @@ h2{font-size:31px;font-weight:700;letter-spacing:-1.1px;line-height:1.1}
 .tki .amt{color:var(--money);font-weight:600}
 .tki .gm{color:var(--tx3)}
 .tki .sep{width:3px;height:3px;border-radius:50%;background:var(--s3);margin:0 4px}
-/* An auto-moving strip needs a real stop control, not just hover. */
-.tkbtn{position:absolute;right:0;top:50%;transform:translateY(-50%);
-  width:44px;height:44px;border-radius:50%;display:grid;place-items:center;
-  color:var(--tx3);transition:.15s}
-.tkbtn:hover{color:var(--tx);background:var(--s1)}
-.tkbtn svg{width:15px;height:15px;fill:currentColor}
-/* The ticker is the one thing on the page that keeps running under reduced
-   motion, by explicit instruction: it is the page's only sign of life and a
-   frozen one reads as a broken page. The blanket reduce rule further up
-   would otherwise collapse it to a single 0.01ms cycle, so it is re-stated
-   here. The pause button is the stop mechanism that keeps this legitimate,
-   which is exactly why it stays. */
+/* The ticker keeps running under reduced motion, by explicit instruction: it
+   is the page's sign of life and a frozen one reads as a broken page. The
+   blanket reduce rule further up would otherwise collapse it to a single
+   0.01ms cycle, so it is re-stated here. */
 @media(prefers-reduced-motion:reduce){
   .tkrun{animation-duration:52s!important;animation-iteration-count:infinite!important}
 }
@@ -595,12 +586,10 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
     <button class="nb r" onclick="spin(1)" aria-label="Next games">&#8250;</button>
   </div>
 
+  <!-- Read-only decoration: it exists to show the board is alive and people
+       are winning. No controls of any kind, by explicit instruction. -->
   <div class="tickerwrap">
     <div class="ticker"><div class="tkrun" id="tkrun"></div></div>
-    <button class="tkbtn" id="tkbtn" aria-pressed="false"
-      aria-label="Pause the recent winners ticker" onclick="tkToggle(this)">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="6" width="3" height="12" rx="1"/><rect x="14" y="6" width="3" height="12" rx="1"/></svg>
-    </button>
   </div>
 
   <div class="head">
@@ -1587,14 +1576,6 @@ function drawTicker(){
   document.getElementById('tkrun').innerHTML=
     `<span style="display:flex">${one}</span>`+
     `<span style="display:flex" aria-hidden="true">${one}</span>`;
-}
-function tkToggle(btn){
-  const run=document.getElementById('tkrun'), off=run.classList.toggle('off');
-  btn.setAttribute('aria-pressed',String(off));
-  btn.setAttribute('aria-label',(off?'Play':'Pause')+' the recent winners ticker');
-  btn.innerHTML=off
-    ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6.5v11l9-5.5z"/></svg>'
-    : '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="6" width="3" height="12" rx="1"/><rect x="14" y="6" width="3" height="12" rx="1"/></svg>';
 }
 
 /* Busiest first. Three are visible; hovering the list and scrolling runs
