@@ -818,10 +818,14 @@ function stillSnakeWorld(){
   /* The big one glides in from off the left edge, so the body runs past the
      frame rather than stopping inside it. length drives the body radius, so
      a long body is what makes it read as the rich snake. */
-  const big=resample(waveCurve(40,-210,2,50,0.5,2.1,600),SP,132);
-  /* The small one cuts straight across the big snake's path just ahead of
-     its mouth, head at the top so it reads as darting up and across. */
-  const small=resample(lineCurve(100,-38,122,68,7,220),SP,36);
+  const big=resample(waveCurve(40,-380,2,16,0.5,1.2,600),SP,132);
+  /* The small one is a body length off the big snake's face, crossing its
+     path with nowhere left to turn. The gap is deliberately about four world
+     units once both head radii are counted, so it reads as the instant
+     before the cut rather than as two snakes passing. */
+  /* It approaches from below rather than level, which keeps its worth label
+     clear of the big snake's instead of stacking the two on one line. */
+  const small=resample(lineCurve(68,26,104,68,5,220),SP,36);
   const snakes=[
     mkSnake('big','#c080ff',big,50.20),
     mkSnake('cut','#65c8e8',small,1.00),
@@ -829,9 +833,9 @@ function stillSnakeWorld(){
   /* A trail of food running into the big snake's mouth, plus a thin scatter
      for depth. Fixed ids so the renderer seeds each pellet's wobble the same
      way on every load. */
-  const P=[[54,20,'#80ff80'],[63,30,'#ffa060'],[58,10,'#eeee70'],
-           [72,18,'#ff9090'],[50,34,'#c080ff'],[70,38,'#80d0d0'],
-           [80,26,'#9099ff'],[64,46,'#80ff80'],[86,14,'#ffa060'],
+  const P=[[52,2,'#80ff80'],[61,10,'#ffa060'],[56,-10,'#eeee70'],
+           [66,-2,'#ff9090'],[48,14,'#c080ff'],[72,6,'#80d0d0'],
+           [70,-14,'#9099ff'],[60,-20,'#80ff80'],[45,-6,'#ffa060'],
            [-92,-54,'#c080ff'],[-108,30,'#80ff80'],[-74,66,'#eeee70'],
            [8,74,'#ff9090'],[-150,20,'#9099ff'],[-44,-68,'#80d0d0'],
            [-16,-60,'#ffa060'],[-120,-16,'#ff4040'],[26,60,'#e030e0']];
@@ -1109,6 +1113,22 @@ let _last=0;
   requestAnimationFrame(loop);
 })(0);
 RM.addEventListener('change',repaintAll);
+
+/* HexGrid paints a flat blue-grey gap colour and skips the hex tile entirely
+   until /hexbg.jpg has decoded. A live scene repaints every frame so it heals
+   itself within one frame, but a still paints once, and under reduced motion
+   the frame loop never repaints it either. Painting the card before the image
+   was ready therefore left slither's background as a plain blue rectangle for
+   good. Repaint as soon as the tile is actually decodable. */
+(function bgReady(){
+  const im=R&&R.hexGrid&&R.hexGrid._img;
+  if(!im)return;
+  const go=()=>{ try{repaintAll()}catch(_){} };
+  if(im.complete&&im.naturalWidth>0)
+    im.decode?im.decode().then(go,go):go();
+  else
+    im.addEventListener('load',go,{once:true});
+})();
 
 /* ── infinite rail: render one extra card each side, slide, then rotate the
       array and snap back with no transition, so it never reaches an end ── */
