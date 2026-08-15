@@ -823,9 +823,12 @@ function stillSnakeWorld(){
      path with nowhere left to turn. The gap is deliberately about four world
      units once both head radii are counted, so it reads as the instant
      before the cut rather than as two snakes passing. */
-  /* It approaches from below rather than level, which keeps its worth label
-     clear of the big snake's instead of stacking the two on one line. */
-  const small=resample(lineCurve(68,26,104,68,5,220),SP,36);
+  /* Sits high and dives down across the path, so the big snake's head is
+     aimed at the middle of its body rather than at its head: it is the one
+     about to be cut off, with nowhere left to go. Diving rather than
+     climbing also puts its worth label well below the big snake's instead
+     of stacking the two on one line. */
+  const small=resample(lineCurve(76,30,84,-24,4,220),SP,36);
   const snakes=[
     mkSnake('big','#c080ff',big,50.20),
     mkSnake('cut','#65c8e8',small,1.00),
@@ -833,9 +836,9 @@ function stillSnakeWorld(){
   /* A trail of food running into the big snake's mouth, plus a thin scatter
      for depth. Fixed ids so the renderer seeds each pellet's wobble the same
      way on every load. */
-  const P=[[52,2,'#80ff80'],[61,10,'#ffa060'],[56,-10,'#eeee70'],
-           [66,-2,'#ff9090'],[48,14,'#c080ff'],[72,6,'#80d0d0'],
-           [70,-14,'#9099ff'],[60,-20,'#80ff80'],[45,-6,'#ffa060'],
+  const P=[[50,8,'#80ff80'],[58,14,'#ffa060'],[56,0,'#eeee70'],
+           [64,6,'#ff9090'],[47,-2,'#c080ff'],[68,-4,'#80d0d0'],
+           [62,-13,'#9099ff'],[52,19,'#80ff80'],[69,15,'#ffa060'],
            [-92,-54,'#c080ff'],[-108,30,'#80ff80'],[-74,66,'#eeee70'],
            [8,74,'#ff9090'],[-150,20,'#9099ff'],[-44,-68,'#80d0d0'],
            [-16,-60,'#ffa060'],[-120,-16,'#ff4040'],[26,60,'#e030e0']];
