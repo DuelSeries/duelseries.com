@@ -253,10 +253,13 @@ const LOBBY_FEES = money.lobbyFees; // { free, dime, dollar } — the active mon
 // claimed entrySol (a modified client could otherwise inflate it and mint money on
 // cash-out). One-time use; carries the staker's wallet for the on-chain cash-out.
 const crypto = require('crypto');
-const entryTokens = new Map(); // opaque token -> { lobbyType, worth, walletAddress, exp }
+const { makeEntryStore } = require('./entryStore');
 const ENTRY_TOKEN_MAX_AGE_MS = 5 * 60 * 1000;
+// The store is the same logic that used to be inline here, moved out so it can
+// be tested directly (test/entryStore.test.js). Behaviour is unchanged.
+const entryStore = makeEntryStore({ ttlMs: ENTRY_TOKEN_MAX_AGE_MS, fees: LOBBY_FEES });
 // Sweep expired (paid-but-never-used) tokens so the map stays bounded.
-setInterval(() => { const now = Date.now(); for (const [k, v] of entryTokens) if (now > v.exp) entryTokens.delete(k); }, ENTRY_TOKEN_MAX_AGE_MS);
+setInterval(() => entryStore.sweep(), ENTRY_TOKEN_MAX_AGE_MS);
 
 // Verify + consume an opaque paid-entry token the client echoes back from the
 // /api/submit-stake response. The token is server-generated, unguessable, one-time, and
@@ -264,16 +267,11 @@ setInterval(() => { const now = Date.now(); for (const [k, v] of entryTokens) if
 // worth — that's what closes the entrySol escrow-drain hole. Needs no socket auth (the
 // socket session is empty) and works for join + respawn identically.
 function consumePaidEntry(entryToken, shortType) {
-  if (!(shortType in LOBBY_FEES)) shortType = 'free';
-  if (shortType === 'free') return { ok: true, worth: 0 }; // free lobbies carry no worth
-  const t = entryToken && entryTokens.get(entryToken);
-  if (!t || t.lobbyType !== shortType || Date.now() > t.exp) return { ok: false, worth: 0 };
-  entryTokens.delete(entryToken); // one-time use
-  return { ok: true, worth: t.worth, googleId: t.googleId, walletAddress: t.walletAddress };
+  return entryStore.consume(entryToken, shortType);
 }
 
 // Phase 4d: the custodial entry-fee is gone — paid play stakes from the self-custody wallet
-// (/api/stake-quote + /api/submit-stake issue the entry token). entryTokens/consumePaidEntry
+// (/api/stake-quote + /api/submit-stake issue the entry token). entryStore/consumePaidEntry
 // stay; only what backs the token changed (a real on-chain stake, not a ledger debit).
 
 // ─── Wallet API ───────────────────────────────────────────────────────────────
@@ -400,8 +398,7 @@ app.post('/api/submit-stake', entryFeeLimiter, express.json({ limit: '256kb' }),
     // requests with the same sig can't both pass) without burning a valid sig on a transient
     // verify failure. If it returns false, another request already consumed this stake.
     if (!(await db.markStakeSig(sig))) return res.status(400).json({ error: 'Stake already used' });
-    const entryToken = crypto.randomUUID();
-    entryTokens.set(entryToken, { lobbyType, worth, walletAddress: walletAddress || payer, exp: Date.now() + ENTRY_TOKEN_MAX_AGE_MS });
+    const entryToken = entryStore.mint({ lobbyType, worth, walletAddress: walletAddress || payer });
     res.json({ ok: true, entryToken, worth, worthSol: worth }); // worthSol kept for current client back-compat
   } catch (e) {
     res.status(400).json({ error: e.message });
