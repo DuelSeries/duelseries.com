@@ -644,6 +644,47 @@ for (const rgn of [REGION]) {
   Object.values(agarRooms[rgn]).forEach(r => r.start());
 }
 
+/* ─── The live board ──────────────────────────────────────────────────────────
+   One flat list of what a player can join right now, which is what the
+   redesigned lobby renders instead of a per-game page.
+
+   This reports the rooms that exist TODAY, keyed by tier, translated into the
+   board's shape. It deliberately does not use LobbyRegistry yet: swapping the
+   live room lifecycle is the one part of the stake migration that can strand a
+   player mid-game, so it happens at cutover behind the mainnet gate, not here.
+   The shape is already the any-amount one, so the client does not change when
+   the rooms underneath it do.
+
+   Bot-seeded rooms mean `players` is never the whole story — a room with only
+   bots still shows as joinable, which is the point: the board is never empty. */
+function liveBoard() {
+  const out = [];
+  for (const rgn of Object.keys(gameRooms)) {
+    for (const type of Object.keys(gameRooms[rgn])) {
+      const room = gameRooms[rgn][type];
+      out.push({
+        id: `snake:${rgn}:${type}`,
+        game: 'snake', region: rgn,
+        stake: LOBBY_FEES[type] || 0,
+        players: room.playerCount || 0,
+        bots: room.botCount || 0,
+        /* Null, not a number. Persistent rooms have no seat limit: the world
+           grows with the crowd rather than filling up, so there is nothing to
+           be "7 of" and the prototype's /30 was invented. */
+        capacity: null,
+        state: 'open',
+      });
+    }
+  }
+  // Busiest first: players converge on rooms that already have people, and that
+  // convergence is what stops the player base fragmenting across empty rooms.
+  return out.sort((a, b) => b.players - a.players);
+}
+app.get('/api/live', (_req, res) => {
+  try { res.json({ lobbies: liveBoard() }); }
+  catch (e) { console.error('[LIVE]', e.message); res.json({ lobbies: [] }); }
+});
+
 function getRoomForType(lobbyType, region) {
   const rgn = (region && gameRooms[region]) ? region : REGION;
   return gameRooms[rgn][lobbyType] || gameRooms[rgn].free;

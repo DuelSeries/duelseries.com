@@ -121,3 +121,29 @@ test('no invented game history survives in the shell', () => {
                       'function drawChart', "const RAKE=0.10"])
     assert.ok(!html.includes(gone), `gone: ${gone}`);
 });
+
+test('the board reads /api/live and invents no counts of its own', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'public/js/v2/board.js'), 'utf8');
+  assert.ok(src.includes('/api/live'), 'reads the live board');
+  const html = v2();
+  assert.ok(!html.includes('const LOBBIES=['), 'the hand-written lobby rows are gone');
+  assert.ok(!/cap:30/.test(html), 'and the invented capacity with them');
+});
+
+test('the server reports capacity as null, not an invented seat count', () => {
+  // Persistent rooms have no seat limit: the world grows with the crowd. A
+  // number here would put a fake "7 of 30" in front of someone about to stake.
+  const src = fs.readFileSync(path.join(ROOT, 'server/index.js'), 'utf8');
+  assert.ok(/capacity: null/.test(src), 'capacity is null');
+  assert.ok(src.includes("app.get('/api/live'"), '/api/live exists');
+});
+
+test('bots are reported separately and not folded into the player count', () => {
+  // "12 playing" when eleven are bots is a lie told to someone about to stake.
+  const src = fs.readFileSync(path.join(ROOT, 'server/index.js'), 'utf8');
+  assert.ok(/players: room\.playerCount/.test(src), 'players is the real count');
+  assert.ok(/bots: room\.botCount/.test(src), 'bots are their own field');
+  const board = fs.readFileSync(path.join(ROOT, 'public/js/v2/board.js'), 'utf8');
+  assert.ok(!/players\s*\+\s*.*bots|bots\s*\+\s*.*players/.test(board),
+    'the client never adds them together');
+});

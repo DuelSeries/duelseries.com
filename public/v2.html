@@ -787,6 +787,7 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
 <script src="/js/v2/social.js"></script>
 <script src="/js/v2/wallet.js"></script>
 <script src="/js/v2/stats.js"></script>
+<script src="/js/v2/board.js"></script>
 <script>
 /* Flat geometric artwork, one scene per game. Drawn rather than iconed:
    emoji or a generic icon set is what makes a games page look unmade. */
@@ -843,29 +844,23 @@ const ART={
 /* slither.io is the only game that is actually playable. Everything else is
    marked soon, which greys the card and takes it out of the tab order. */
 const GAMES=[
- {id:'snake',name:'slither.io',c:['#15251c','#c080ff'],live:14,type:'p',cap:30,real:1,
+ {id:'snake',name:'slither.io',c:['#15251c','#c080ff'],type:'p',real:1,
   d:'Grow by eating, cut other players off, and cash out before somebody cuts you off.'},
- {id:'agar',name:'agar.io',c:['#141f28','#65c8e8'],live:0,type:'p',cap:30,soon:1,
+ {id:'agar',name:'agar.io',c:['#141f28','#65c8e8'],type:'p',soon:1,
   d:'Absorb anything smaller than you, split to chase, and stay clear of anything bigger.'},
- {id:'rps',name:'Rock Paper Scissors',c:['#231a26','#b98ad4'],live:0,type:'m',cap:2,soon:1,
+ {id:'rps',name:'Rock Paper Scissors',c:['#231a26','#b98ad4'],type:'m',soon:1,
   d:'Best of five against a single opponent. Rounds are quick and settlement is instant.'},
- {id:'knockout',name:'Knockout',c:['#261c14','#e0a05c'],live:0,type:'m',cap:2,soon:1,
+ {id:'knockout',name:'Knockout',c:['#261c14','#e0a05c'],type:'m',soon:1,
   d:'Last one standing in an arena that keeps shrinking.'},
- {id:'battleship',name:'Battleship',c:['#141a24','#7b93c4'],live:0,type:'m',cap:2,soon:1,
+ {id:'battleship',name:'Battleship',c:['#141a24','#7b93c4'],type:'m',soon:1,
   d:'Hide your fleet, then find theirs before they find yours.'},
- {id:'tanks',name:'Tanks',c:['#1d2016','#a8bd63'],live:0,type:'m',cap:2,soon:1,
+ {id:'tanks',name:'Tanks',c:['#1d2016','#a8bd63'],type:'m',soon:1,
   d:'Angle, power, fire. One shot each and the terrain remembers.'},
- {id:'paper',name:'Paper.io',c:['#1e1826','#a887d6'],live:0,type:'p',cap:30,soon:1,
+ {id:'paper',name:'Paper.io',c:['#1e1826','#a887d6'],type:'p',soon:1,
   d:'Claim ground by looping back home without anyone crossing your trail.'},
 ];
-/* Only games that exist can have lobbies open. */
-const LOBBIES=[
- {g:'snake',r:'NA',s:1.00,p:7,cap:30},
- {g:'snake',r:'NA',s:0.25,p:12,cap:30},
- {g:'snake',r:'EU',s:0.50,p:4,cap:30},
- {g:'snake',r:'EU',s:2.00,p:1,cap:30},
- {g:'snake',r:'NA',s:5.00,p:2,cap:30},
-];
+/* The lobby list is real now: V2Board polls /api/live. The hand-written rows
+   that used to be here claimed player counts the server never had. */
 const STEPS=[0,0.25,0.50,1,2,5];
 let si=3, cur=null, order=GAMES.slice(), busy=false;
 
@@ -1431,9 +1426,14 @@ RM.addEventListener('change',repaintAll);
    how many are in the game, and how many rooms are open to walk into. */
 function gstat(g){
   if(g.soon)return '<span class="st">In development</span>';
-  const open=LOBBIES.filter(l=>l.g===g.id&&l.p<l.cap).length;
-  const who=g.live?`<em><span class="num">${g.live}</span> playing</em>`:'Nobody playing yet';
-  return `<span class="st">${who}${open?' &nbsp;·&nbsp; <span class="num">'+open+'</span> open':''}</span>`;
+  /* Counted off the live board rather than a hardcoded number, so the card
+     cannot claim players the server does not have. Before the first fetch
+     lands there is nothing to claim, and it says so. */
+  const rows=(window.V2Board?V2Board.lobbies:[]).filter(l=>l.game===g.id);
+  if(!rows.length)return '<span class="st">Checking…</span>';
+  const playing=rows.reduce((n,l)=>n+(l.players||0),0);
+  const who=playing?`<em><span class="num">${playing}</span> playing</em>`:'Nobody playing yet';
+  return `<span class="st">${who} &nbsp;·&nbsp; <span class="num">${rows.length}</span> open</span>`;
 }
 /* A playable card is a real button so it can be tabbed to and fired with the
    keyboard. An unbuilt one is not a control at all, so it stays a div rather
@@ -1472,20 +1472,22 @@ function spin(d){
   }
 }
 
-function lrow(l){
-  const g=G(l.g), full=l.p>=l.cap;
-  return `<div class="lr">
-    <div class="lswatch">${art(g,68,68,0,1)}</div>
-    <span class="lname">${g.name}</span>
-    <span class="lreg">${l.r}</span>
-    <span class="lstake num">${cash(l.s)}</span>
-    <span class="lplay num">${l.p}/${l.cap}</span>
-    ${l.w?`<span class="lwait">waiting ${l.w}</span>`:''}
-    <span class="sp" style="flex:1"></span>
-    ${full?'<button class="spec">Spectate</button>'
-          :`<button class="enter" onclick="join(${l.s})">Enter</button>`}
-  </div>`;
-}
+/* The board itself lives in public/js/v2/board.js and reads /api/live. These
+   two hooks are what it needs from the shell: the display name for a game id,
+   and the little canvas crop used as a row swatch. */
+window.V2_GAME_NAMES=Object.fromEntries(GAMES.map(g=>[g.id,g.name]));
+window.V2_SWATCH=id=>{const g=G(id); return g?art(g,68,68,0,1):''};
+window.repaintAll=repaintAll;
+/* The rail is drawn before the first /api/live response lands, so its counts
+   would otherwise sit on "Checking…" forever. Only the status line is swapped,
+   not the whole rail: redrawing it would rebuild every canvas and restart the
+   still scenes on every ten-second poll. */
+window.V2_REFRESH_CARDS=function(){
+  document.querySelectorAll('#track .card').forEach((c,i)=>{
+    const g=order[i], st=c.querySelector('.st');
+    if(g&&st)st.outerHTML=gstat(g);
+  });
+};
 /* ── recent winners ──────────────────────────────────────────────────────
    Entries are filtered against the game registry, so the row can never
    advertise a game nobody can play. Today that means every line is
@@ -1537,15 +1539,9 @@ function drawTicker(){
     `<span style="display:flex" aria-hidden="true">${one}</span>`;
 }
 
-/* Busiest first. Three are visible; hovering the list and scrolling runs
-   through the rest without moving the page. */
-function drawLob(){
-  const all=LOBBIES.slice().sort((a,b)=>b.p-a.p);
-  const el=document.getElementById('lob');
-  el.innerHTML=all.map(lrow).join('');
-  el.classList.toggle('short',all.length<=3);
-  repaintAll();
-}
+/* The lobby list is V2Board now, polling /api/live. Three rows are visible;
+   hovering the list and scrolling runs through the rest without moving the
+   page, which is a CSS behaviour and unchanged. */
 
 function open_(id){
   cur=G(id); si=STEPS.indexOf(1);
@@ -1553,11 +1549,23 @@ function open_(id){
   document.getElementById('dart').innerHTML=art(cur,660,300,1);
   document.getElementById('dname').textContent=cur.name;
   document.getElementById('ddesc').textContent=cur.d;
-  document.getElementById('dnow').innerHTML=`<span class="num">${cur.live}</span> `+
+  /* Both figures come off the live board, so the detail screen and the card
+     that led here cannot disagree about how busy a game is. */
+  const mine=(window.V2Board?V2Board.lobbies:[]).filter(l=>l.game===id);
+  const playing=mine.reduce((n,l)=>n+(l.players||0),0);
+  document.getElementById('dnow').innerHTML=`<span class="num">${playing}</span> `+
     (cur.type==='p'?'playing right now':'waiting for an opponent');
-  const mine=LOBBIES.filter(l=>l.g===id).sort((a,b)=>b.p-a.p);
-  document.getElementById('dlob').innerHTML=mine.length?mine.map(lrow).join('')
-    :'<div class="none">Nobody has opened one yet. Create the first and it will appear here for everyone else.</div>';
+  document.getElementById('dlob').innerHTML=mine.length
+    ?mine.map(l=>`<div class="lr">
+       <div class="lswatch">${art(cur,68,68,0,1)}</div>
+       <span class="lname">${cur.name}</span>
+       <span class="lreg">${String(l.region).toUpperCase()}</span>
+       <span class="lstake num">${cash(l.stake)}</span>
+       <span class="lplay num">${l.players} playing</span>
+       <span class="sp" style="flex:1"></span>
+       <button class="enter" onclick="V2Board.join('${l.id}')">Enter</button>
+     </div>`).join('')
+    :'<div class="none">Nothing open here yet. Set a buy-in and open the first one.</div>';
   document.getElementById('dsub2').textContent=mine.length?mine.length+' open':'None open';
   document.getElementById('dlob').classList.add('short');
   document.getElementById('hg').innerHTML=[
@@ -1691,7 +1699,7 @@ let t=38*60+59;
 setInterval(()=>{if(t>0)t--;document.getElementById('cd').textContent=
   String(Math.floor(t/60)).padStart(2,'0')+':'+String(t%60).padStart(2,'0')},1000);
 
-drawNav();V2Wallet.render();drawRail();drawTicker();drawLob();
+drawNav();V2Wallet.render();drawRail();drawTicker();V2Board.start();
 </script>
 
 <!-- Self-custody wallet widget (Privy embedded). React island; the lobby stays
