@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "marquee",
+        "value": "*",
+        "files": [
+          "public/lobby-v2.html"
+        ],
+        "createdAt": "2026-08-15T01:07:44.596Z",
+        "reason": "user confirmed: Owen asked for a recent-winners row that 'slowly scrolls through them and shows the winnings', and the activity ticker is a named requirement in docs/superpowers/specs/2026-08-13-lobby-redesign-design.md. Mitigated: pauses on hover and focus-within, has an explicit pause button, and the animation is dropped entirely under prefers-reduced-motion (strip becomes scrollable)."
+      }
+    ]
+  }
+}
