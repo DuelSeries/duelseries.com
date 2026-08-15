@@ -207,3 +207,22 @@ test('the game iframe keeps the id the wallet widget looks up', () => {
   const widget = fs.readFileSync(path.join(ROOT, 'public/wallet/widget.js'), 'utf8');
   assert.ok(widget.includes('game-frame'), 'and the widget really does look it up');
 });
+
+test('the wallet widget can stake by ladder rung as well as by tier', () => {
+  // The bundle is generated, so this checks the built artefact rather than the
+  // source: a stale bundle is the failure mode that matters.
+  const b = fs.readFileSync(path.join(ROOT, 'public/wallet/widget.js'), 'utf8');
+  assert.ok(b.includes('/api/stake-quote?stake='), 'quotes by rung');
+  assert.ok(b.includes('/api/stake-quote?lobbyType='), 'and still by tier');
+  assert.ok(/stake:.{0,20}signedTx/.test(b), 'submits a rung');
+  assert.ok(/lobbyType:.{0,20}signedTx/.test(b), 'and still submits a tier');
+});
+
+test('the widget source and the shipped bundle have not drifted apart', () => {
+  // A source edit that was never rebuilt ships nothing. Both must mention the
+  // ladder or the bundle is stale.
+  const src = fs.readFileSync(path.join(ROOT, 'wallet-widget/src/main.jsx'), 'utf8');
+  const bundle = fs.readFileSync(path.join(ROOT, 'public/wallet/widget.js'), 'utf8');
+  assert.ok(src.includes('/api/stake-quote?stake='), 'source has the ladder path');
+  assert.ok(bundle.includes('/api/stake-quote?stake='), 'and so does the bundle');
+});

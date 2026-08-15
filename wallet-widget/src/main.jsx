@@ -60,11 +60,30 @@ const TIER_LABEL = { free: 'Play Free', dime: 'Stake & Play 10¢', dollar: 'Stak
 const SERVER_URLS = { na: '', eu: 'https://eu.duelseries.com' };
 function regionBase() { return SERVER_URLS[localStorage.getItem('duelseries_region') || 'na'] || ''; }
 
-async function stakeOnly(lobbyType, wallet, signTransaction, onStatus) {
-  if (lobbyType === 'free') return { entryToken: '', worth: 0 };
+/* `sel` selects the room to buy into, in one of two forms:
+     'dime' | { lobbyType: 'dime' }   the original fixed tiers
+     { stake: 2 }                     a rung of the stake ladder
+   Both are supported while the two lobbies run side by side: index.html sends
+   a tier, /v2 sends a rung. The request differs only in which parameter names
+   the room; everything about building, signing and submitting the transfer is
+   the same code either way, so there is one staking path and not two. */
+function stakeSpec(sel) {
+  if (typeof sel === 'string') return { lobbyType: sel };
+  return sel || {};
+}
+async function stakeOnly(sel, wallet, signTransaction, onStatus) {
+  const spec = stakeSpec(sel);
+  const byStake = spec.stake !== undefined && spec.stake !== null;
+  // Free costs nothing and needs no token, whichever way it was named.
+  if (byStake ? Number(spec.stake) === 0 : spec.lobbyType === 'free') {
+    return { entryToken: '', worth: 0 };
+  }
   const base = regionBase();
   onStatus('Getting quote…');
-  const quote = await (await fetch(base + '/api/stake-quote?lobbyType=' + encodeURIComponent(lobbyType))).json();
+  const query = byStake
+    ? '/api/stake-quote?stake=' + encodeURIComponent(spec.stake)
+    : '/api/stake-quote?lobbyType=' + encodeURIComponent(spec.lobbyType);
+  const quote = await (await fetch(base + query)).json();
   if (quote.error) throw new Error(quote.error);
 
   onStatus('Building stake…');
@@ -96,10 +115,17 @@ async function stakeOnly(lobbyType, wallet, signTransaction, onStatus) {
   const verify = await (await fetch(base + '/api/submit-stake', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ lobbyType, signedTx, walletAddress: wallet.address }),
+    body: JSON.stringify(byStake
+      ? { stake: spec.stake, signedTx, walletAddress: wallet.address }
+      : { lobbyType: spec.lobbyType, signedTx, walletAddress: wallet.address }),
   })).json();
   if (!verify.ok) throw new Error(verify.error || 'Stake failed');
-  return { entryToken: verify.entryToken, worth: (verify.worth != null ? verify.worth : verify.worthSol) };
+  /* worth is the server's figure, never ours. On the ladder it is the rung the
+     payment resolved to, which can be lower than what was asked for if the
+     amount fell short, so the caller must use this and not spec.stake. */
+  return { entryToken: verify.entryToken,
+           worth: (verify.worth != null ? verify.worth : verify.worthSol),
+           stake: verify.stake };
 }
 
 // Buy a cosmetic with USDC. Mirrors stakeOnly, but the payment goes to the owner wallet (house
@@ -137,14 +163,27 @@ async function buyCosmetic(itemId, wallet, signTransaction, onStatus) {
   return r; // { ok, itemId, owned, free? }
 }
 
-async function stakeAndPlay(game, lobbyType, wallet, signTransaction, onStatus, onLaunch) {
-  const { entryToken, worth } = await stakeOnly(lobbyType, wallet, signTransaction, onStatus);
+async function stakeAndPlay(game, sel, wallet, signTransaction, onStatus, onLaunch) {
+  const spec = stakeSpec(sel);
+  const byStake = spec.stake !== undefined && spec.stake !== null;
+  const { entryToken, worth, stake } = await stakeOnly(spec, wallet, signTransaction, onStatus);
 
   onStatus('Joining…');
   sessionStorage.setItem('playerName', localStorage.getItem('duelseries_playername') || short(wallet.address));
   sessionStorage.setItem('googleId', wallet.address);       // self-custody identity = wallet
   sessionStorage.setItem('walletAddress', wallet.address);
-  sessionStorage.setItem('lobbyType', lobbyType);
+  /* The game echoes these back when it joins, and the server decides the room
+     from whichever it receives. On the ladder the stake is the SERVER's rung,
+     not what was asked for, so a payment that resolved down lands in the room
+     it actually bought. lobbyType stays set for the tier path and is cleared
+     on the ladder path so the two can never both be honoured. */
+  if (byStake) {
+    sessionStorage.setItem('stake', String(stake != null ? stake : worth));
+    sessionStorage.removeItem('lobbyType');
+  } else {
+    sessionStorage.setItem('lobbyType', spec.lobbyType);
+    sessionStorage.removeItem('stake');
+  }
   sessionStorage.setItem('entryToken', entryToken);
   sessionStorage.setItem('entrySol', String(worth));
   sessionStorage.setItem('region', localStorage.getItem('duelseries_region') || 'na'); // honour the lobby's region pick (na/eu)
@@ -272,8 +311,15 @@ function WalletPanel() {
     const onPlay = (e) => {
       const d = (e && e.detail) || {};
       const game = (d && typeof d === 'object') ? (d.game || 'snake') : 'snake';
-      const lt = (d && typeof d === 'object') ? (d.lobbyType || 'dime') : d;
-      if (stakeRef.current) stakeRef.current(game, lt);
+      /* A stake on the event wins, so the ladder lobby is served even though
+         the old default is still here for index.html. The 'dime' fallback is
+         deliberately NOT applied when a stake was given: defaulting a missing
+         room to a paid one is how a player gets charged for a room they did
+         not pick. */
+      const sel = (d && typeof d === 'object' && d.stake !== undefined && d.stake !== null)
+        ? { stake: d.stake }
+        : { lobbyType: (d && typeof d === 'object') ? (d.lobbyType || 'dime') : d };
+      if (stakeRef.current) stakeRef.current(game, sel);
     };
     window.addEventListener('duel:play', onPlay);
     return () => window.removeEventListener('duel:play', onPlay);
@@ -289,7 +335,11 @@ function WalletPanel() {
       const post = (msg) => { try { frame && frame.contentWindow && frame.contentWindow.postMessage(msg, '*'); } catch (_) {} };
       if (!wallet) { post({ type: 'duel:restake:error', message: 'Wallet not ready — return to lobby.' }); return; }
       try {
-        const { entryToken } = await stakeOnly(d.lobbyType, wallet, signTransaction, () => {});
+        /* Play Again re-buys the SAME room the game is already in. The game echoes
+           back whichever of the two named it, so a ladder game restakes at its
+           rung and a tier game at its tier. */
+        const reSel = (d.stake !== undefined && d.stake !== null) ? { stake: d.stake } : { lobbyType: d.lobbyType };
+        const { entryToken } = await stakeOnly(reSel, wallet, signTransaction, () => {});
         post({ type: 'duel:restake:done', entryToken });
         // Return focus to the game after the Privy modal so keyboard works without a click.
         const focusGame = () => { try { frame && frame.contentWindow && frame.contentWindow.focus(); } catch (_) {} };
@@ -346,13 +396,13 @@ function WalletPanel() {
     return () => { live = false; clearInterval(id); };
   }, [authenticated]);
 
-  const doStake = async (game, lobbyType) => {
+  const doStake = async (game, sel) => {
     if (busyRef.current) return; // already staking — drop the rapid re-clicks (no double charge)
     if (!wallet) { setErr('Wallet still loading — try again in a moment.'); return; }
     busyRef.current = true;
     setBusy(true); setErr(''); setStatus('');
     try {
-      await stakeAndPlay(game, lobbyType, wallet, signTransaction, setStatus, () => setPlaying(true));
+      await stakeAndPlay(game, sel, wallet, signTransaction, setStatus, () => setPlaying(true));
     } catch (e) {
       const m = (e && e.message) || 'Stake failed';
       setErr(/insufficient funds|rent|TokenAccountNotFound|could not find account/i.test(m)
