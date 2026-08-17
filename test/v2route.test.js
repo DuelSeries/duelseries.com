@@ -399,3 +399,17 @@ test('a forced desktop viewport is detected and explained', () => {
   // Must not fire on a real tablet or a small laptop.
   assert.ok(/physical <= 500/.test(src), 'gated on a physically narrow screen');
 });
+
+test('swipe navigation exempts anything that owns its own horizontal drag', () => {
+  // The earnings chart is scrubbed by dragging sideways and the appearance
+  // screen has its own arrows. A page-wide swipe handler that ignored those
+  // would make the chart unusable and change tabs mid-read.
+  const src = fs.readFileSync(path.join(ROOT, 'public/js/v2/swipe.js'), 'utf8');
+  for (const sel of ['.chartbox', '.apscreen', 'input', '#game-frame'])
+    assert.ok(src.includes(sel), `${sel} is exempt`);
+  assert.ok(/railwrap/.test(src), 'the games rail gets the swipe instead of the tabs');
+  // A mostly-vertical drag is a scroll, not a swipe.
+  assert.ok(/Math\.abs\(dx\) < Math\.abs\(dy\) \* RATIO/.test(src), 'direction is checked');
+  assert.ok(/touchstart/.test(src) && !/pointerdown/.test(src),
+    'touch only, since a mouse drag is a text selection');
+});

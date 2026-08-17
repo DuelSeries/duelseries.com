@@ -949,6 +949,7 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
 <script src="/js/v2/board.js"></script>
 <script src="/js/v2/play.js"></script>
 <script src="/js/v2/mobile.js"></script>
+<script src="/js/v2/swipe.js"></script>
 <script>
 /* Flat geometric artwork, one scene per game. Drawn rather than iconed:
    emoji or a generic icon set is what makes a games page look unmade. */
@@ -1813,6 +1814,8 @@ function cancel(){veil.classList.remove('on')}
 /* What the play module reads to know which room was chosen. */
 window.V2Detail={get game(){return cur?cur.id:'snake'},get stake(){return STEPS[si]}};
 window.rememberStake=rememberStake;
+window.spin=spin; window.go=go; window.goHome=goHome;
+Object.defineProperty(window,'route',{get:()=>route});
 
 /* enterTournament and remindMe are gone with the fake cards. Both were mock
    handlers: one alerted that you had entered an event that does not exist, the
