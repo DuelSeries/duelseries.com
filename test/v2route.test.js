@@ -372,3 +372,19 @@ test('the game screen puts the action above the lobby list on a phone', () => {
   assert.ok(/\.stake\{order:5/.test(html), 'then the buy-in');
   assert.ok(/#dlob\{order:8\}/.test(html), 'and the lobby list last');
 });
+
+test('the brand mark is wired everywhere a browser asks for one', () => {
+  // Tab, bookmark bar, iOS bookmark, installed app: four different requests,
+  // and a missing one silently falls back to a blank page glyph.
+  for (const page of ['public/v2.html', 'public/game.html', 'public/index.html',
+                      'public/agar.html']) {
+    const h = fs.readFileSync(path.join(ROOT, page), 'utf8');
+    assert.ok(h.includes('/img/favicon-32.png'), `${page} sets the tab icon`);
+    assert.ok(h.includes('/img/apple-touch-icon.png'), `${page} sets the iOS icon`);
+  }
+  const m = JSON.parse(fs.readFileSync(path.join(ROOT, 'public/manifest.webmanifest'), 'utf8'));
+  assert.ok(m.icons.some(i => i.src === '/img/icon-512.png'), 'the app uses it too');
+  for (const f of ['favicon-16.png', 'favicon-32.png', 'apple-touch-icon.png',
+                   'icon-192.png', 'icon-512.png'])
+    assert.ok(fs.existsSync(path.join(ROOT, 'public/img', f)), `${f} exists`);
+});

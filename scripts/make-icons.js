@@ -1,53 +1,53 @@
 'use strict';
-/* Generates the PWA app icons.
-   Chrome will only build a real installed app (a WebAPK, which is what can go
-   fullscreen and hide the status bar) if the manifest offers a PNG of at least
-   192x192. With anything smaller, Add to Home Screen silently makes a plain
-   bookmark shortcut that opens in a browser tab with all its chrome — which
-   looks like the fullscreen setting being ignored, but is really the install
-   never having happened.
+/* Generates every icon the site uses, from one drawing, at every size a
+   browser or launcher asks for:
+     favicon-16/32      the browser tab and the bookmark bar
+     apple-touch-180    iOS home screen and Safari bookmarks
+     icon-192/512       the installed app (Chrome needs >=192 to install at all)
 
-   Written by hand with zlib rather than pulled from an image library: this runs
-   once in a while and is not worth a dependency. Re-run with:
-     node scripts/make-icons.js
+   The mark is DuelSeries': crossed swords inside a gold ring on the lobby's
+   ink background. It is drawn as geometry rather than traced from a render,
+   because the whole job of this file is producing something legible at 16
+   pixels. A photoreal metallic render carries detail that turns to grey mush
+   at that size; flat shapes with one light direction do not.
+
+   Drawn at 3x and averaged down, which is the cheapest way to get clean edges
+   on every shape at once without writing a rasteriser per primitive.
+
+   Re-run after any change:  node scripts/make-icons.js
 */
 const fs = require('fs');
 const path = require('path');
 const zlib = require('zlib');
 
 const OUT = path.join(__dirname, '..', 'public', 'img');
+const SS = 3;                                  // supersampling factor
 
 // ── PNG encoding ────────────────────────────────────────────────────────────
 const CRC = (() => {
   const t = new Int32Array(256);
-  for (let n = 0; n < 256; n++) {
-    let c = n;
+  for (let n = 0; n < 256; n++) { let c = n;
     for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1;
-    t[n] = c;
-  }
+    t[n] = c; }
   return t;
 })();
-function crc32(buf) {
-  let c = -1;
-  for (let i = 0; i < buf.length; i++) c = CRC[(c ^ buf[i]) & 0xFF] ^ (c >>> 8);
-  return (c ^ -1) >>> 0;
-}
+const crc32 = b => { let c = -1;
+  for (let i = 0; i < b.length; i++) c = CRC[(c ^ b[i]) & 0xFF] ^ (c >>> 8);
+  return (c ^ -1) >>> 0; };
 function chunk(type, data) {
   const len = Buffer.alloc(4); len.writeUInt32BE(data.length);
   const td = Buffer.concat([Buffer.from(type, 'ascii'), data]);
   const crc = Buffer.alloc(4); crc.writeUInt32BE(crc32(td));
   return Buffer.concat([len, td, crc]);
 }
-function png(width, height, rgba) {
+function png(w, h, rgba) {
   const ihdr = Buffer.alloc(13);
-  ihdr.writeUInt32BE(width, 0); ihdr.writeUInt32BE(height, 4);
-  ihdr[8] = 8;     // bit depth
-  ihdr[9] = 6;     // colour type: RGBA
-  // 10,11,12 = compression, filter, interlace — all 0
-  const raw = Buffer.alloc((width * 4 + 1) * height);
-  for (let y = 0; y < height; y++) {
-    raw[y * (width * 4 + 1)] = 0;                      // filter: none
-    rgba.copy(raw, y * (width * 4 + 1) + 1, y * width * 4, (y + 1) * width * 4);
+  ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4);
+  ihdr[8] = 8; ihdr[9] = 6;
+  const raw = Buffer.alloc((w * 4 + 1) * h);
+  for (let y = 0; y < h; y++) {
+    raw[y * (w * 4 + 1)] = 0;
+    rgba.copy(raw, y * (w * 4 + 1) + 1, y * w * 4, (y + 1) * w * 4);
   }
   return Buffer.concat([
     Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]),
@@ -57,84 +57,152 @@ function png(width, height, rgba) {
   ]);
 }
 
-// ── the mark ────────────────────────────────────────────────────────────────
-const hex = h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
-const INK = hex('#100e0b');      // the lobby's background
-const BODY = hex('#c080ff');     // the snake
-const AMBER = hex('#f0a830');    // the money accent
+// ── palette ─────────────────────────────────────────────────────────────────
+const INK   = [0x10, 0x0e, 0x0b];     // the lobby background
+const PLATE = [0x1a, 0x1a, 0x1c];     // the disc behind the swords
+const GOLD_L = [0xf7, 0xd0, 0x6b];    // gold, lit edge
+const GOLD_M = [0xd4, 0xa0, 0x30];    // gold, body
+const GOLD_D = [0x9a, 0x6c, 0x12];    // gold, shadow edge
+const STEEL_L = [0xf2, 0xf4, 0xf7];   // blade, lit face
+const STEEL_M = [0xc3, 0xc9, 0xd2];   // blade, body
+const STEEL_D = [0x8d, 0x94, 0x9e];   // blade, shadow face
+const GRIP    = [0x2a, 0x26, 0x22];   // leather-wrapped handle
 
-/* Distance from p to the segment ab, used to give the snake a round-capped
-   body of even thickness however the curve bends. */
-function distToSeg(px, py, ax, ay, bx, by) {
-  const dx = bx - ax, dy = by - ay;
-  const l2 = dx * dx + dy * dy;
-  let t = l2 ? ((px - ax) * dx + (py - ay) * dy) / l2 : 0;
-  t = Math.max(0, Math.min(1, t));
-  const cx = ax + t * dx, cy = ay + t * dy;
-  return Math.hypot(px - cx, py - cy);
+// ── drawing helpers, all operating on a float RGB buffer ────────────────────
+function makeCanvas(n) { return { n, px: new Float32Array(n * n * 3) }; }
+function fillAll(c, col) {
+  for (let i = 0; i < c.n * c.n; i++) { c.px[i*3] = col[0]; c.px[i*3+1] = col[1]; c.px[i*3+2] = col[2]; }
+}
+function put(c, x, y, col) {
+  if (x < 0 || y < 0 || x >= c.n || y >= c.n) return;
+  const i = (y * c.n + x) * 3;
+  c.px[i] = col[0]; c.px[i+1] = col[1]; c.px[i+2] = col[2];
+}
+const mix = (a, b, t) => [a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t, a[2]+(b[2]-a[2])*t];
+
+/* Annulus with a light direction, so the ring reads as a bevelled metal band
+   rather than a flat donut: lighter at the top-left, darker at the bottom. */
+function ring(c, cx, cy, rOuter, rInner) {
+  for (let y = 0; y < c.n; y++) for (let x = 0; x < c.n; x++) {
+    const dx = x + 0.5 - cx, dy = y + 0.5 - cy;
+    const d = Math.hypot(dx, dy);
+    if (d > rOuter || d < rInner) continue;
+    const across = (d - rInner) / Math.max(1e-6, rOuter - rInner);   // 0 inner .. 1 outer
+    const lightDir = (-dx - dy) / (Math.SQRT2 * Math.max(1e-6, d));   // -1 .. 1
+    let col = mix(GOLD_D, GOLD_L, Math.max(0, Math.min(1, 0.5 + lightDir * 0.5)));
+    col = mix(col, GOLD_M, Math.abs(across - 0.5) * 0.9);
+    put(c, x, y, col);
+  }
+}
+function disc(c, cx, cy, r, col) {
+  for (let y = 0; y < c.n; y++) for (let x = 0; x < c.n; x++) {
+    const dx = x + 0.5 - cx, dy = y + 0.5 - cy;
+    if (dx*dx + dy*dy <= r*r) put(c, x, y, col);
+  }
+}
+/* Even-odd point-in-polygon. Every sword part is a polygon so one routine
+   covers blade, guard and grip. */
+function inPoly(px, py, pts) {
+  let inside = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const xi = pts[i][0], yi = pts[i][1], xj = pts[j][0], yj = pts[j][1];
+    if ((yi > py) !== (yj > py) && px < (xj - xi) * (py - yi) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+/* Fills a polygon with a left-to-right shade across its own axis, which is what
+   gives the blade a lit face, a bright fuller and a shadowed face. */
+function fillPoly(c, pts, shade) {
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const p of pts) { minX = Math.min(minX, p[0]); maxX = Math.max(maxX, p[0]);
+                         minY = Math.min(minY, p[1]); maxY = Math.max(maxY, p[1]); }
+  for (let y = Math.max(0, Math.floor(minY)); y <= Math.min(c.n - 1, Math.ceil(maxY)); y++)
+    for (let x = Math.max(0, Math.floor(minX)); x <= Math.min(c.n - 1, Math.ceil(maxX)); x++)
+      if (inPoly(x + 0.5, y + 0.5, pts)) put(c, x, y, shade(x + 0.5, y + 0.5));
+}
+const rot = (x, y, cx, cy, a) => {
+  const s = Math.sin(a), co = Math.cos(a), dx = x - cx, dy = y - cy;
+  return [cx + dx * co - dy * s, cy + dx * s + dy * co];
+};
+
+/* One sword, drawn pointing up through the centre then rotated. Coordinates are
+   fractions of the canvas so it scales with the icon. */
+function sword(c, cx, cy, R, angle) {
+  const P = (x, y) => rot(cx + x * R, cy + y * R, cx, cy, angle);
+  const bladeW = 0.085, tipY = -0.86, baseY = 0.16;
+
+  // Blade: a long tapered quad ending in a point.
+  const blade = [P(-bladeW, baseY), P(-bladeW, tipY + 0.16), P(0, tipY),
+                 P(bladeW, tipY + 0.16), P(bladeW, baseY)];
+  /* Shade across the blade's own width. The axis is rotated with it, so the
+     lit face stays on the same side of the blade whichever way it points. */
+  const ux = Math.cos(angle), uy = Math.sin(angle);
+  fillPoly(c, blade, (x, y) => {
+    const t = ((x - cx) * ux + (y - cy) * uy) / (bladeW * R) * 0.5 + 0.5;
+    const k = Math.max(0, Math.min(1, t));
+    return k < 0.42 ? mix(STEEL_D, STEEL_M, k / 0.42)
+         : k < 0.58 ? STEEL_L                       // the fuller catching light
+         : mix(STEEL_M, STEEL_D, (k - 0.58) / 0.42);
+  });
+
+  // Crossguard: a wide gold bar.
+  const gw = 0.30, gy = 0.16, gh = 0.075;
+  fillPoly(c, [P(-gw, gy), P(-gw * 0.86, gy + gh), P(gw * 0.86, gy + gh), P(gw, gy)],
+    () => GOLD_M);
+  fillPoly(c, [P(-gw, gy), P(gw, gy), P(gw * 0.93, gy + gh * 0.4), P(-gw * 0.93, gy + gh * 0.4)],
+    () => GOLD_L);
+
+  // Grip and pommel.
+  fillPoly(c, [P(-0.055, gy + gh), P(-0.055, 0.44), P(0.055, 0.44), P(0.055, gy + gh)],
+    () => GRIP);
+  const pom = P(0, 0.50);
+  for (let y = 0; y < c.n; y++) for (let x = 0; x < c.n; x++) {
+    const dx = x + 0.5 - pom[0], dy = y + 0.5 - pom[1], d = Math.hypot(dx, dy);
+    if (d <= 0.075 * R) put(c, x, y, mix(GOLD_L, GOLD_D, Math.max(0, Math.min(1, (dx + dy) / (0.15 * R) + 0.5))));
+  }
 }
 
-function draw(size) {
-  const buf = Buffer.alloc(size * size * 4);
-  /* Maskable icons get cropped to a circle on some launchers, so the mark stays
-     inside the middle 80% and the background bleeds to the edges. */
-  const S = size / 512;
-  const pts = [];
-  for (let i = 0; i <= 60; i++) {
-    const u = i / 60;
-    pts.push([ (110 + u * 300) * S, (300 - Math.sin(u * Math.PI * 1.15) * 105) * S ]);
-  }
-  const R = 46 * S;                       // body radius
-  const headX = pts[pts.length - 1][0], headY = pts[pts.length - 1][1];
-  const foodR = 20 * S;
-  const foodX = (452) * S, foodY = (168) * S;
+function draw(size, { bleed = true } = {}) {
+  const n = size * SS;
+  const c = makeCanvas(n);
+  fillAll(c, bleed ? INK : INK);
+  const cx = n / 2, cy = n / 2;
+  const R = n * 0.5;
 
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      const o = (y * size + x) * 4;
-      let r = INK[0], g = INK[1], b = INK[2];
+  ring(c, cx, cy, R * 0.96, R * 0.80);          // outer gold band
+  disc(c, cx, cy, R * 0.80, INK);               // gap
+  ring(c, cx, cy, R * 0.74, R * 0.68);          // inner gold hairline
+  disc(c, cx, cy, R * 0.68, PLATE);             // the dark plate
 
-      let d = Infinity;
-      for (let i = 1; i < pts.length; i++) {
-        const dd = distToSeg(x, y, pts[i - 1][0], pts[i - 1][1], pts[i][0], pts[i][1]);
-        if (dd < d) d = dd;
-      }
-      // Antialiased edge: one pixel of falloff either side of the radius.
-      const aBody = Math.max(0, Math.min(1, (R - d) + 0.5));
-      if (aBody > 0) {
-        /* Lit from above, like the in-game body: brightest along the top of the
-           cross-section, falling off towards the silhouette. */
-        const lift = Math.max(0, Math.min(1, 1 - d / R));
-        const k = 0.55 + 0.45 * Math.pow(lift, 0.6);
-        r = r + (BODY[0] * k - r) * aBody;
-        g = g + (BODY[1] * k - g) * aBody;
-        b = b + (BODY[2] * k - b) * aBody;
-      }
+  /* Crossed, and short enough to stay inside the plate. Drawn at 3/4 scale of
+     the plate so the blades never touch the ring, which is what turns to a
+     smudge at 16px. */
+  const swordR = R * 0.62;
+  sword(c, cx, cy + R * 0.06, swordR, Math.PI * 0.22);
+  sword(c, cx, cy + R * 0.06, swordR, -Math.PI * 0.22);
 
-      const df = Math.hypot(x - foodX, y - foodY);
-      const aFood = Math.max(0, Math.min(1, (foodR - df) + 0.5));
-      if (aFood > 0) {
-        r = r + (AMBER[0] - r) * aFood;
-        g = g + (AMBER[1] - g) * aFood;
-        b = b + (AMBER[2] - b) * aFood;
-      }
-
-      // The eye, so it reads as a creature and not a ribbon.
-      const de = Math.hypot(x - (headX - 6 * S), y - (headY - 12 * S));
-      const aEye = Math.max(0, Math.min(1, (13 * S - de) + 0.5));
-      if (aEye > 0) { r = r + (255 - r) * aEye; g = g + (255 - g) * aEye; b = b + (255 - b) * aEye; }
-      const dp = Math.hypot(x - (headX - 3 * S), y - (headY - 12 * S));
-      const aPup = Math.max(0, Math.min(1, (6 * S - dp) + 0.5));
-      if (aPup > 0) { r = r * (1 - aPup); g = g * (1 - aPup); b = b * (1 - aPup); }
-
-      buf[o] = Math.round(r); buf[o + 1] = Math.round(g); buf[o + 2] = Math.round(b); buf[o + 3] = 255;
+  // Average the supersampled buffer down to the requested size.
+  const out = Buffer.alloc(size * size * 4);
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    let r = 0, g = 0, b = 0;
+    for (let sy = 0; sy < SS; sy++) for (let sx = 0; sx < SS; sx++) {
+      const i = (((y * SS + sy) * n) + (x * SS + sx)) * 3;
+      r += c.px[i]; g += c.px[i+1]; b += c.px[i+2];
     }
+    const k = SS * SS, o = (y * size + x) * 4;
+    out[o] = Math.round(r / k); out[o+1] = Math.round(g / k);
+    out[o+2] = Math.round(b / k); out[o+3] = 255;
   }
-  return png(size, size, buf);
+  return png(size, size, out);
 }
 
-for (const size of [192, 512]) {
-  const file = path.join(OUT, `icon-${size}.png`);
+const targets = [
+  ['favicon-16.png', 16], ['favicon-32.png', 32],
+  ['apple-touch-icon.png', 180],
+  ['icon-192.png', 192], ['icon-512.png', 512],
+];
+for (const [name, size] of targets) {
+  const file = path.join(OUT, name);
   fs.writeFileSync(file, draw(size));
-  console.log('wrote', file, fs.statSync(file).size, 'bytes');
+  console.log('wrote', name.padEnd(22), size + 'x' + size, fs.statSync(file).size + ' bytes');
 }
