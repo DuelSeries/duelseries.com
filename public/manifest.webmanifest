@@ -2,14 +2,18 @@
   "name": "DuelSeries",
   "short_name": "DuelSeries",
   "description": "Real-money skill games. Every payout settles on-chain.",
+  "id": "/",
   "start_url": "/",
   "scope": "/",
   "display": "fullscreen",
-  "display_override": ["fullscreen", "standalone", "minimal-ui"],
+  "display_override": ["fullscreen", "standalone"],
   "orientation": "portrait",
   "background_color": "#100e0b",
   "theme_color": "#100e0b",
   "icons": [
-    { "src": "/img/skin-next.png", "sizes": "87x88", "type": "image/png" }
+    { "src": "/img/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/img/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/img/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "/img/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ]
 }

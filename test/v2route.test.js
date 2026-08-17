@@ -333,3 +333,28 @@ test('the earnings chart is scrubbable and has labelled axes', () => {
   assert.ok(/touchAction/.test(src), 'without the page stealing the drag as a scroll');
   assert.ok(/fmtDate/.test(src), 'dates along the x axis');
 });
+
+test('the manifest meets what Chrome needs to install a real app', () => {
+  // Below Chrome's bar, Add to Home Screen silently makes a bookmark shortcut
+  // that opens in a browser tab. That looks like the fullscreen setting being
+  // ignored, but the install never happened. The 87x88 icon it shipped with
+  // was exactly that failure.
+  const m = JSON.parse(fs.readFileSync(path.join(ROOT, 'public/manifest.webmanifest'), 'utf8'));
+  assert.ok(m.name && m.short_name && m.start_url, 'the basics are present');
+  assert.ok(['fullscreen', 'standalone'].includes(m.display), 'an installable display mode');
+  const png = s => m.icons.some(i => i.type === 'image/png' && parseInt(i.sizes) >= s);
+  assert.ok(png(192), 'a 192px icon, which is the hard minimum');
+  assert.ok(png(512), 'and a 512px one');
+  assert.ok(m.icons.some(i => (i.purpose || '').includes('maskable')), 'a maskable icon');
+  for (const i of m.icons)
+    assert.ok(fs.existsSync(path.join(ROOT, 'public' + i.src)), `${i.src} exists`);
+});
+
+test('the service worker exists and caches nothing', () => {
+  // A caching worker on a real-money lobby shows yesterday's balance with no
+  // obvious way for a player to clear it. It is here for installability only.
+  const sw = fs.readFileSync(path.join(ROOT, 'public/sw.js'), 'utf8');
+  assert.ok(/addEventListener\('fetch'/.test(sw), 'has a fetch handler, which is what Chrome checks');
+  assert.ok(!/cache\.put|caches\.open/.test(sw), 'and never writes to a cache');
+  assert.ok(/caches\.delete/.test(sw), 'and clears any cache a previous version left');
+});

@@ -70,6 +70,14 @@
   window.addEventListener('resize', setVH);
   window.addEventListener('orientationchange', () => setTimeout(setVH, 200));
 
+  /* Registered so Chrome will build a real installed app instead of a bookmark
+     shortcut. It caches nothing; see public/sw.js for why that is deliberate. */
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js').catch(() => {});
+    });
+  }
+
   document.addEventListener('DOMContentLoaded', maybeOfferInstall);
 
   window.V2Mobile = { standalone, isPhone, tryFullscreen };
