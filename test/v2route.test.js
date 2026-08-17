@@ -27,12 +27,26 @@ test('the v2 shell is intact', () => {
   }
 });
 
-test('the live lobby is untouched by the migration', () => {
-  // index.html and lobby.js stay authoritative until the cutover phase, so a
-  // half-migrated push can never take the real lobby down.
+test('the redesigned lobby is what players get at the root', () => {
+  const s = server();
+  assert.ok(/app\.get\('\/', .*v2\.html/.test(s), "'/' serves the redesigned lobby");
+  // Declared before express.static, which would otherwise serve
+  // public/index.html for '/' and quietly win.
+  assert.ok(s.indexOf("app.get('/', ") < s.indexOf('express.static(path.join(__dirname, \'../public\'))'),
+    'the root route is declared before the static handler');
+});
+
+test('the old lobby is still reachable as a way back', () => {
+  // Kept for one release. If something only shows up under real traffic, the
+  // fix is a URL rather than a revert and a redeploy.
+  const s = server();
+  assert.ok(/app\.get\('\/legacy', .*index\.html/.test(s), '/legacy serves the old lobby');
   assert.ok(fs.existsSync(path.join(ROOT, 'public/index.html')), 'index.html still exists');
   assert.ok(fs.existsSync(path.join(ROOT, 'public/js/lobby.js')), 'lobby.js still exists');
-  assert.ok(!server().includes("app.get('/', "), 'the root route is not redirected yet');
+});
+
+test('/v2 keeps working, so existing links do not break', () => {
+  assert.ok(/app\.get\('\/v2', .*v2\.html/.test(server()), '/v2 still serves it');
 });
 
 test('social data comes from the server, not from a generated roster', () => {

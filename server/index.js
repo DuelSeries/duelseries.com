@@ -638,7 +638,21 @@ app.use((req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next()
 // money while index.html stays authoritative. The root route is switched over
 // in the cutover phase; until then a half-migrated push cannot take the lobby
 // down. See docs/superpowers/plans/2026-08-14-lobby-v2-migration.md.
+/* ─── Cutover ─────────────────────────────────────────────────────────────────
+   The redesigned lobby is now what players get. It ran in parallel at /v2
+   through the whole migration and has been exercised on mainnet: free and paid
+   entry on the stake ladder, and cash-out, all with real money.
+
+   Both routes are declared BEFORE express.static, which would otherwise serve
+   public/index.html for '/' and win.
+
+   The old lobby stays reachable at /legacy for one release. It is not dead
+   weight: it is the way back if something only shows up under real traffic,
+   and reaching for it is a URL change rather than a revert and redeploy.
+   Delete it, and public/js/lobby.js with it, once this has held. */
+app.get('/', (_req, res) => res.sendFile(path.join(__dirname, '../public/v2.html')));
 app.get('/v2', (_req, res) => res.sendFile(path.join(__dirname, '../public/v2.html')));
+app.get('/legacy', (_req, res) => res.sendFile(path.join(__dirname, '../public/index.html')));
 
 app.use(express.static(path.join(__dirname, '../public')));
 app.use('/shared', express.static(path.join(__dirname, '../shared')));

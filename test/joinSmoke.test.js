@@ -41,7 +41,11 @@ test('a player can join without killing the server', { timeout: 90000 }, async (
   const srv = spawn(process.execPath, [path.join(ROOT, 'server/index.js')], {
     cwd: ROOT,
     env: { ...process.env, REGION: 'na', PORT: String(PORT),
-           SESSION_SECRET: 'test', MONEY_MODE: 'usdc', DATABASE_URL: '' },
+           SESSION_SECRET: 'test', MONEY_MODE: 'usdc', DATABASE_URL: '',
+           /* The join this test performs fires the owner's "new player" push.
+              Without this the suite buzzes a real phone every time anyone runs
+              it, which is how a useful alert gets muted and then ignored. */
+           NTFY_DISABLED: '1' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let stderr = '';
