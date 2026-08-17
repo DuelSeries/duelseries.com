@@ -598,36 +598,41 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
   </div>
   <div class="lob" id="lob"></div>
 
+  <!-- No tournament system exists yet. Until one does, this section describes
+       what is coming and claims nothing: no live badge, no countdown, no prize
+       figure, no podium, and no button that takes an entry. Those were all
+       hardcoded in the prototype, which was fine on a mock and is not fine in
+       front of players staking real money — a $20 prize with a running clock
+       is a promise, and we would not have been able to keep it. -->
   <div class="head">
-    <div><h2>Tournaments</h2><div class="sub">Scheduled events with a prize pool</div></div>
+    <div><h2>Tournaments</h2><div class="sub">Not running yet</div></div>
   </div>
   <div class="trn">
     <article class="tc">
-      <div class="tt"><span class="chip live"><b></b>Live</span><h3>Most profit in Snake</h3></div>
-      <div class="tw">Ends in <b class="num" id="cd">38:59</b> &nbsp;·&nbsp; any buy-in from $0.50 to $3</div>
-      <div class="tp num">$20<span>winner takes all</span></div>
+      <div class="tt"><span class="chip">Planned</span><h3>Most profit</h3></div>
+      <div class="tw">A window where everyone plays at once and the best net profit wins.</div>
       <div class="tbody">
-        <div class="pl"><i>1</i>qesku<b class="num">+$6.47</b></div>
-        <div class="pl"><i>2</i>ZachXBT<b class="num">+$4.80</b></div>
-        <div class="pl"><i>3</i>dddickk<b class="num">+$4.30</b></div>
+        <div class="pl"><span class="k">Game</span><span class="v">slither.io</span></div>
+        <div class="pl"><span class="k">Format</span><span class="v">Timed window</span></div>
+        <div class="pl"><span class="k">Status</span><span class="v">Being built</span></div>
       </div>
       <div class="tfoot">
-        <p class="tn">Best net profit when the clock runs out takes the prize.</p>
-        <button class="tgo" onclick="enterTournament()">Enter tournament</button>
+        <p class="tn">Scheduled events are how a small player base ends up in the
+          same rooms at the same time instead of spread thin.</p>
       </div>
     </article>
     <article class="tc">
-      <div class="tt"><span class="chip">Scheduled</span><h3>Biggest cash-out</h3></div>
-      <div class="tw">Starts in <b class="num">4h 08m</b> &nbsp;·&nbsp; any buy-in from $1 to $5</div>
-      <div class="tp num">$50<span>top three split</span></div>
+      <div class="tt"><span class="chip">Planned</span><h3>Biggest cash-out</h3></div>
+      <div class="tw">Same idea, judged on the single largest cash-out rather than
+        on profit across the window.</div>
       <div class="tbody">
         <div class="pl"><span class="k">Game</span><span class="v">slither.io</span></div>
-        <div class="pl"><span class="k">Runs for</span><span class="v">2 hours</span></div>
-        <div class="pl"><span class="k">Seats open</span><span class="v">30 minutes before</span></div>
+        <div class="pl"><span class="k">Format</span><span class="v">Timed window</span></div>
+        <div class="pl"><span class="k">Status</span><span class="v">Being built</span></div>
       </div>
       <div class="tfoot">
-        <p class="tn">The three largest single cash-outs in the window take the prize.</p>
-        <button class="tgo alt" aria-pressed="false" onclick="remindMe(this)">Remind me</button>
+        <p class="tn">Prizes and timings are announced here once the first event
+          has a date.</p>
       </div>
     </article>
   </div>
@@ -1654,19 +1659,9 @@ function cancel(){veil.classList.remove('on')}
 /* What the play module reads to know which room was chosen. */
 window.V2Detail={get game(){return cur?cur.id:'snake'},get stake(){return STEPS[si]}};
 
-/* A live tournament with no way into it is the dead end this board exists to
-   remove, so both cards end in an action. Entry sends you to the game the
-   event is being run in, at a buy-in inside the eligible range. */
-function enterTournament(){
-  alert('Entering the Snake tournament. Any buy-in from $0.50 to $3 counts '+
-        'toward your net profit.');
-}
-function remindMe(btn){
-  const set=btn.dataset.set==='1';
-  btn.dataset.set=set?'':'1';
-  btn.textContent=set?'Remind me':'Reminder set';
-  btn.setAttribute('aria-pressed',String(!set));
-}
+/* enterTournament and remindMe are gone with the fake cards. Both were mock
+   handlers: one alerted that you had entered an event that does not exist, the
+   other toggled a reminder nothing would ever send. */
 
 /* ── section nav ─────────────────────────────────────────────────────────
    Placeholder routing. Each icon swaps the screen; only Play is built. */
@@ -1749,9 +1744,8 @@ document.addEventListener('keydown',e=>{
     closeLook(false);
 });
 
-let t=38*60+59;
-setInterval(()=>{if(t>0)t--;document.getElementById('cd').textContent=
-  String(Math.floor(t/60)).padStart(2,'0')+':'+String(t%60).padStart(2,'0')},1000);
+/* The tournament countdown is gone with the card it counted down. It ticked
+   from a hardcoded 38:59 towards an event that was never going to happen. */
 
 drawNav();V2Wallet.render();drawRail();drawTicker();V2Board.start();
 </script>

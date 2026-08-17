@@ -246,3 +246,21 @@ test('the widget source and the shipped bundle have not drifted apart', () => {
   assert.ok(src.includes('/api/stake-quote?stake='), 'source has the ladder path');
   assert.ok(bundle.includes('/api/stake-quote?stake='), 'and so does the bundle');
 });
+
+test('the lobby makes no claim about money it cannot honour', () => {
+  // The prototype's tournament block advertised a live $20 prize with a running
+  // countdown and a podium of winners. There is no tournament system. In front
+  // of players staking real money that is a promise, not a placeholder.
+  const html = v2();
+  for (const claim of ['winner takes all', 'top three split', 'Ends in', 'chip live'])
+    assert.ok(!html.includes(claim), `no fabricated tournament claim: ${claim}`);
+  // The handlers must be gone as code, not merely unmentioned: a comment naming
+  // them is fine, a live onclick or definition is not.
+  for (const fn of ['enterTournament', 'remindMe']) {
+    assert.ok(!html.includes(`onclick="${fn}`), `nothing calls ${fn}`);
+    assert.ok(!html.includes(`function ${fn}(`), `${fn} is not defined`);
+  }
+  // The section still exists and says what it is.
+  assert.ok(html.includes('Not running yet'), 'it says the events are not running');
+  assert.ok(/Planned/.test(html), 'and marks them planned');
+});
