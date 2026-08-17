@@ -783,14 +783,21 @@ let _lastSolvency = null;
 // NOT the vestigial custodial `accounts.balance` — is the escrow's real liability.
 function sumLiveSelfCustodyStakes() {
   let total = 0; // SOL
+  const sumRoom = (room) => {
+    for (const [sid, snake] of room.snakes) {
+      if (!snake || !snake.alive) continue;
+      const p = room.players.get(sid);
+      if (p && p.socket && p.socket._walletAddress) total += snake.worth || 0;
+    }
+  };
+  /* Ladder rooms hold real stakes exactly as the tier rooms do, so they are
+     part of what the escrow owes. Counting only gameRooms under-reported the
+     liability, which is the one number the solvency monitor exists to get
+     right — it would have reported the escrow solvent while owing money. */
+  for (const l of ladder.rooms.values()) sumRoom(l.room);
   for (const rgn of REGIONS) {
     for (const lt of Object.keys(gameRooms[rgn] || {})) {
-      const room = gameRooms[rgn][lt];
-      for (const [sid, snake] of room.snakes) {
-        if (!snake || !snake.alive) continue;
-        const p = room.players.get(sid);
-        if (p && p.socket && p.socket._walletAddress) total += snake.worth || 0;
-      }
+      sumRoom(gameRooms[rgn][lt]);
     }
     for (const lt of Object.keys(agarRooms[rgn] || {})) {
       const room = agarRooms[rgn][lt];
@@ -998,6 +1005,10 @@ io.on('connection', (socket) => {
     const byStake = stake !== undefined && stake !== null && isStake(stake);
     const room = getRoomForJoin({ lobbyType, stake, region: region || REGION });
     socket._stake = byStake ? Number(stake) : null;
+    // One human-readable name for the room, used in logs and owner alerts.
+    const roomLabel = byStake
+      ? (Number(stake) === 0 ? 'free' : '$' + Number(stake).toFixed(2))
+      : ((lobbyType in LOBBY_FEES) ? lobbyType : 'free');
 
     // Reconnect: if we kept this player's snake alive after a recent drop, put them
     // back on it (and their staked worth) instead of charging/spawning a fresh one.
@@ -1038,10 +1049,10 @@ io.on('connection', (socket) => {
     if (entry.walletAddress) socket._walletAddress = entry.walletAddress; // self-custody cash-out target
     socket._room = room;
     socket._joinTime = Date.now();
-    console.log(`[>] ${playerName} joins ${lobbyType || 'free'} lobby (worth: ${entry.worth} ${money.unit})`);
+    console.log(`[>] ${playerName} joins ${roomLabel} lobby (worth: ${entry.worth} ${money.unit})`);
     room.addPlayer(socket, playerName, walletAddress || null, color || null, entry.worth);
     notify.pushOwner(
-      `${playerName} joined the ${shortType} lobby` +
+      `${playerName} joined the ${roomLabel} lobby` +
         (entry.worth ? ` for ${entry.worth} ${money.unit}` : ' (free)') +
         ` in ${(region || REGION).toUpperCase()}`,
       { title: 'New player: slither.io', tags: 'video_game' }
@@ -1184,7 +1195,11 @@ io.on('connection', (socket) => {
        is ignored. A respawn re-buys the room the socket is ALREADY in, taken
        from socket._stake rather than from anything the client sends now, so a
        player cannot die in the $0.25 room and respawn into the $20 one. */
-    const entry = (socket._stake !== null && socket._stake !== undefined)
+    const onLadder = socket._stake !== null && socket._stake !== undefined;
+    const roomLabel = onLadder
+      ? (socket._stake === 0 ? 'free' : '$' + Number(socket._stake).toFixed(2))
+      : socket._room.lobbyType.replace(/^(na|eu)_/, '');
+    const entry = onLadder
       ? consumePaidEntryAtStake(entryToken, socket._stake, 'snake')
       : consumePaidEntry(entryToken, socket._room.lobbyType.replace(/^(na|eu)_/, ''), 'snake');
     if (!entry.ok) {
@@ -1196,7 +1211,7 @@ io.on('connection', (socket) => {
     socket._room.respawnPlayer(socket.id, entry.worth);
     const _rs = socket._room.snakes.get(socket.id);
     notify.pushOwner(
-      `${(_rs && _rs.name) || 'A player'} pressed play again in the ${shortType} lobby` +
+      `${(_rs && _rs.name) || 'A player'} pressed play again in the ${roomLabel} lobby` +
         (entry.worth ? ` for ${entry.worth} ${money.unit}` : ' (free)'),
       { title: 'Player respawned: slither.io', tags: 'arrows_counterclockwise' }
     );
