@@ -60,6 +60,40 @@
     document.body.appendChild(bar);
   }
 
+  /* ── "Desktop site" detection ──────────────────────────────────────────
+     With Chrome's Desktop site setting on, the browser ignores
+     width=device-width and lays the page out at about 980 CSS pixels, then
+     scales the whole thing down to fit. Every media query below 760px stops
+     matching, so a phone gets the desktop layout at about a third size: the
+     page looks "zoomed out" and fills a fraction of the screen.
+
+     Nothing in CSS or JS can override that — it is the user's decision and the
+     browser enforces it. What we can do is notice, because the symptom looks
+     exactly like a broken responsive layout and is impossible to guess at.
+     The tell is a layout viewport far wider than the physical screen. */
+  function desktopSiteForced() {
+    if (!screen || !screen.width) return false;
+    const layout = window.innerWidth;
+    const physical = Math.min(screen.width, screen.height);
+    // A real tablet is wide AND has a wide screen; this is wide on a narrow one.
+    return physical <= 500 && layout > physical * 1.6 && layout >= 700;
+  }
+  function warnDesktopSite() {
+    if (!desktopSiteForced()) return;
+    try { if (sessionStorage.getItem('duelseries_dsite') === 'seen') return; } catch (_) {}
+    const bar = document.createElement('div');
+    bar.className = 'a2hs';
+    bar.innerHTML =
+      '<span>This is showing the desktop layout. Turn off <b>Desktop site</b> ' +
+      'in your browser menu for the phone version.</span>' +
+      '<button aria-label="Dismiss">Got it</button>';
+    bar.querySelector('button').addEventListener('click', () => {
+      bar.remove();
+      try { sessionStorage.setItem('duelseries_dsite', 'seen'); } catch (_) {}
+    });
+    document.body.appendChild(bar);
+  }
+
   /* Mobile browsers report 100vh as the height WITHOUT the collapsing address
      bar, so a full-height element is taller than the screen and the page
      rocks as the bar hides. --vh is the real height, updated as it changes. */
@@ -78,7 +112,7 @@
     });
   }
 
-  document.addEventListener('DOMContentLoaded', maybeOfferInstall);
+  document.addEventListener('DOMContentLoaded', () => { warnDesktopSite(); maybeOfferInstall(); });
 
-  window.V2Mobile = { standalone, isPhone, tryFullscreen };
+  window.V2Mobile = { standalone, isPhone, tryFullscreen, desktopSiteForced };
 })();

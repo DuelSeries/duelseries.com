@@ -125,41 +125,69 @@ const rot = (x, y, cx, cy, a) => {
   return [cx + dx * co - dy * s, cy + dx * s + dy * co];
 };
 
-/* One sword, drawn pointing up through the centre then rotated. Coordinates are
-   fractions of the canvas so it scales with the icon. */
+/* One sword, drawn pointing up through the centre then rotated. Proportions are
+   matched to the reference: a long blade reaching most of the way to the ring,
+   a crescent crossguard whose ends sweep up towards the tip, a banded grip, and
+   a ball pommel sitting out near the inner ring. */
 function sword(c, cx, cy, R, angle) {
   const P = (x, y) => rot(cx + x * R, cy + y * R, cx, cy, angle);
-  const bladeW = 0.085, tipY = -0.86, baseY = 0.16;
+  const halfW = 0.062, tipY = -0.70, shoulderY = -0.52, guardY = 0.20;
 
-  // Blade: a long tapered quad ending in a point.
-  const blade = [P(-bladeW, baseY), P(-bladeW, tipY + 0.16), P(0, tipY),
-                 P(bladeW, tipY + 0.16), P(bladeW, baseY)];
-  /* Shade across the blade's own width. The axis is rotated with it, so the
-     lit face stays on the same side of the blade whichever way it points. */
+  // Blade: parallel sides, then a long point.
+  const blade = [P(-halfW, guardY), P(-halfW, shoulderY), P(0, tipY),
+                 P(halfW, shoulderY), P(halfW, guardY)];
+  /* Shaded across the blade's own width, with the axis rotated with it, so the
+     lit face and the central fuller stay put whichever way the sword points. */
   const ux = Math.cos(angle), uy = Math.sin(angle);
   fillPoly(c, blade, (x, y) => {
-    const t = ((x - cx) * ux + (y - cy) * uy) / (bladeW * R) * 0.5 + 0.5;
-    const k = Math.max(0, Math.min(1, t));
-    return k < 0.42 ? mix(STEEL_D, STEEL_M, k / 0.42)
-         : k < 0.58 ? STEEL_L                       // the fuller catching light
-         : mix(STEEL_M, STEEL_D, (k - 0.58) / 0.42);
+    const k = Math.max(0, Math.min(1,
+      ((x - cx) * ux + (y - cy) * uy) / (halfW * R) * 0.5 + 0.5));
+    return k < 0.38 ? mix(STEEL_D, STEEL_M, k / 0.38)
+         : k < 0.56 ? STEEL_L                       // the fuller catching light
+         : mix(STEEL_M, STEEL_D, (k - 0.56) / 0.44);
   });
 
-  // Crossguard: a wide gold bar.
-  const gw = 0.30, gy = 0.16, gh = 0.075;
-  fillPoly(c, [P(-gw, gy), P(-gw * 0.86, gy + gh), P(gw * 0.86, gy + gh), P(gw, gy)],
-    () => GOLD_M);
-  fillPoly(c, [P(-gw, gy), P(gw, gy), P(gw * 0.93, gy + gh * 0.4), P(-gw * 0.93, gy + gh * 0.4)],
-    () => GOLD_L);
-
-  // Grip and pommel.
-  fillPoly(c, [P(-0.055, gy + gh), P(-0.055, 0.44), P(0.055, 0.44), P(0.055, gy + gh)],
-    () => GRIP);
-  const pom = P(0, 0.50);
-  for (let y = 0; y < c.n; y++) for (let x = 0; x < c.n; x++) {
-    const dx = x + 0.5 - pom[0], dy = y + 0.5 - pom[1], d = Math.hypot(dx, dy);
-    if (d <= 0.075 * R) put(c, x, y, mix(GOLD_L, GOLD_D, Math.max(0, Math.min(1, (dx + dy) / (0.15 * R) + 0.5))));
+  /* Crescent crossguard: the ends rise towards the tip, which is the detail
+     that makes it read as a sword hilt rather than a plus sign. Built by
+     sampling the curve rather than as a straight bar. */
+  const gw = 0.30, gh = 0.075, bow = 0.11, N = 14;
+  const top = [], bottom = [];
+  for (let i = 0; i <= N; i++) {
+    const t = -1 + (2 * i) / N;
+    const yc = guardY - bow * t * t;
+    top.push(P(t * gw, yc - gh / 2));
+    bottom.push(P(t * gw, yc + gh / 2));
   }
+  fillPoly(c, top.concat(bottom.reverse()), () => GOLD_M);
+  // A lit sliver along the guard's upper edge.
+  const lip = [];
+  for (let i = 0; i <= N; i++) {
+    const t = -1 + (2 * i) / N;
+    lip.push(P(t * gw, guardY - bow * t * t - gh / 2));
+  }
+  for (let i = N; i >= 0; i--) {
+    const t = -1 + (2 * i) / N;
+    lip.push(P(t * gw, guardY - bow * t * t - gh / 2 + gh * 0.42));
+  }
+  fillPoly(c, lip, () => GOLD_L);
+
+  // Grip, with two gold bands like the reference.
+  fillPoly(c, [P(-0.050, guardY + gh / 2), P(-0.050, 0.50),
+               P(0.050, 0.50), P(0.050, guardY + gh / 2)], () => GRIP);
+  for (const by of [0.31, 0.41]) {
+    fillPoly(c, [P(-0.052, by), P(-0.052, by + 0.026),
+                 P(0.052, by + 0.026), P(0.052, by)], () => GOLD_D);
+  }
+
+  // Ball pommel, lit from the same direction as the ring.
+  const pom = P(0, 0.575), pr = 0.085 * R;
+  for (let y = Math.max(0, Math.floor(pom[1] - pr)); y <= Math.min(c.n - 1, Math.ceil(pom[1] + pr)); y++)
+    for (let x = Math.max(0, Math.floor(pom[0] - pr)); x <= Math.min(c.n - 1, Math.ceil(pom[0] + pr)); x++) {
+      const dx = x + 0.5 - pom[0], dy = y + 0.5 - pom[1];
+      if (dx * dx + dy * dy > pr * pr) continue;
+      put(c, x, y, mix(GOLD_L, GOLD_D,
+        Math.max(0, Math.min(1, (dx + dy) / (2 * pr) + 0.5))));
+    }
 }
 
 function draw(size, { bleed = true } = {}) {

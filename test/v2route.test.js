@@ -388,3 +388,14 @@ test('the brand mark is wired everywhere a browser asks for one', () => {
                    'icon-192.png', 'icon-512.png'])
     assert.ok(fs.existsSync(path.join(ROOT, 'public/img', f)), `${f} exists`);
 });
+
+test('a forced desktop viewport is detected and explained', () => {
+  // Chrome's "Desktop site" lays the page out at ~980px and scales it down, so
+  // every phone media query stops matching and the symptom looks exactly like
+  // a broken responsive layout. Nothing can override it, so it is named.
+  const src = fs.readFileSync(path.join(ROOT, 'public/js/v2/mobile.js'), 'utf8');
+  assert.ok(/desktopSiteForced/.test(src), 'the case is detected');
+  assert.ok(/Desktop site/.test(src), 'and the fix is named in the message');
+  // Must not fire on a real tablet or a small laptop.
+  assert.ok(/physical <= 500/.test(src), 'gated on a physically narrow screen');
+});
