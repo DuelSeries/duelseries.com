@@ -85,6 +85,9 @@
     const detail = hasStake
       ? { game: game, stake: Number(sel.stake) }
       : { game: game, lobbyType: sel.lobbyType };
+    /* Remembered at launch, not at selection, so the buy-in that comes back
+       tomorrow is one actually played rather than one idly scrolled past. */
+    if (hasStake && window.rememberStake) window.rememberStake(Number(sel.stake));
     if (window.phEvent) window.phEvent('game_started', detail);
     /* The widget stakes if the room is paid, then launches. It owns the money;
        this only says which room. Exactly one of stake and lobbyType is sent, so

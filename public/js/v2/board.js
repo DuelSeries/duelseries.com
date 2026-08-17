@@ -47,17 +47,26 @@
       '</div>';
   }
 
+  /* "Open lobbies" means rooms with people in them. A rung with nobody in it is
+     not an open lobby, it is a buy-in you could choose, and those belong on the
+     buy-in control rather than in a list of places to join. Listing all nine
+     rungs every time made the board look busy while the game was empty, which
+     is the opposite of what it is for. */
+  const occupied = () => LOBBIES.filter(l => (l.players || 0) > 0);
+
   function draw() {
     const box = el('lob');
     if (!box) return;
-    if (!LOBBIES.length) {
-      box.innerHTML = '<div class="none">The board could not be loaded. ' +
-        'It refreshes on its own, so this usually clears by itself.</div>';
+    const rows = occupied();
+    if (!rows.length) {
+      box.innerHTML = '<div class="none">Nobody is playing right now. ' +
+        'Pick a buy-in and start a game, and it shows up here for everyone else.</div>';
       box.classList.add('short');
+      if (window.V2_REFRESH_CARDS) window.V2_REFRESH_CARDS();
       return;
     }
-    box.innerHTML = LOBBIES.map(rowHTML).join('');
-    box.classList.toggle('short', LOBBIES.length <= 3);
+    box.innerHTML = rows.map(rowHTML).join('');
+    box.classList.toggle('short', rows.length <= 3);
     if (window.repaintAll) window.repaintAll();
     // The game cards count off this same data, so they refresh together and
     // cannot show a different number from the rows underneath them.
@@ -86,5 +95,6 @@
   function stop() { if (timer) { clearInterval(timer); timer = null; } }
 
   window.V2Board = { load: load, draw: draw, join: join, start: start, stop: stop,
-                     get lobbies() { return LOBBIES; } };
+                     get lobbies() { return LOBBIES; },
+                     get occupied() { return occupied(); } };
 })();

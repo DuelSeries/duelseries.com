@@ -278,3 +278,58 @@ test('the lobby makes no claim about money it cannot honour', () => {
   assert.ok(html.includes('Not running yet'), 'it says the events are not running');
   assert.ok(/Planned/.test(html), 'and marks them planned');
 });
+
+test('the phone layout exists and the header cannot overflow again', () => {
+  const html = v2();
+  assert.ok(/@media\(max-width:760px\)/.test(html), 'there is a phone breakpoint');
+  assert.ok(/\.nav\{position:fixed;left:0;right:0;bottom:0/.test(html), 'nav moves to the bottom');
+  // A filtered ancestor becomes the containing block for its fixed children,
+  // which pinned the nav to the bottom of the HEADER instead of the screen.
+  assert.ok(/backdrop-filter:none/.test(html), 'the header drops its filter on phones');
+  assert.ok(/viewport-fit=cover/.test(html), 'the page paints under the notch');
+  assert.ok(/env\(safe-area-inset-bottom\)/.test(html), 'and keeps content off the home indicator');
+});
+
+test('the legal links are pinned on every screen', () => {
+  const html = v2();
+  assert.ok(/footer\{position:fixed/.test(html), 'the footer is fixed on phones');
+  // Transparent would let whatever is scrolling behind read through the text.
+  const i = html.indexOf('footer{position:fixed');
+  assert.ok(html.slice(i, i + 260).includes('background:var(--bg)'), 'and opaque');
+});
+
+test('fullscreen is attempted honestly, not faked', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'public/js/v2/mobile.js'), 'utf8');
+  // Browsers only honour it from a gesture, so it is hooked to the first tap.
+  assert.ok(/pointerdown/.test(src) && /once: true/.test(src), 'requested on first gesture');
+  assert.ok(/requestFullscreen/.test(src), 'uses the real API where it exists');
+  // iOS has no Fullscreen API for non-video, so the honest route is installing.
+  const html = v2();
+  assert.ok(html.includes('apple-mobile-web-app-capable'), 'iOS standalone is declared');
+  assert.ok(html.includes('manifest.webmanifest'), 'and a manifest is linked');
+  assert.ok(fs.existsSync(path.join(ROOT, 'public/manifest.webmanifest')), 'which exists');
+});
+
+test('the board lists only lobbies that have players', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'public/js/v2/board.js'), 'utf8');
+  assert.ok(/\(l\.players \|\| 0\) > 0/.test(src), 'filters to occupied rooms');
+  assert.ok(/Nobody is playing right now/.test(src), 'and says so when there are none');
+});
+
+test('the last buy-in played is remembered, including free', () => {
+  const html = v2();
+  assert.ok(html.includes('duelseries_last_stake'), 'the choice is stored');
+  // Free is 0, so a truthiness check would silently forget it.
+  assert.ok(/including 0: free is a real choice/.test(html), 'and 0 is not treated as unset');
+  const play = fs.readFileSync(path.join(ROOT, 'public/js/v2/play.js'), 'utf8');
+  assert.ok(/rememberStake\(Number\(sel\.stake\)\)/.test(play),
+    'recorded at launch, not at selection');
+});
+
+test('the earnings chart is scrubbable and has labelled axes', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'public/js/v2/chart.js'), 'utf8');
+  assert.ok(/pointerdown/.test(src) && /pointermove/.test(src), 'follows a finger');
+  assert.ok(/setPointerCapture/.test(src), 'and keeps following it off the element');
+  assert.ok(/touchAction/.test(src), 'without the page stealing the drag as a scroll');
+  assert.ok(/fmtDate/.test(src), 'dates along the x axis');
+});

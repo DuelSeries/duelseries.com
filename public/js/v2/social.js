@@ -187,6 +187,7 @@
     let run = 0;
     const pts = series.map(s => ({ d: s.period, cum: (run += Number(s.total) || 0) }));
     box.innerHTML = window.V2Chart(pts, money);
+    if (window.V2ChartWire) window.V2ChartWire(box, money);
   }
 
   window.V2Social = { load: load, drawBoard: drawBoard, search: search, openPlayer: openPlayer };

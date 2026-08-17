@@ -99,7 +99,7 @@
     el('s-body').innerHTML =
       '<div class="head"><div><h2>Earnings over time</h2>' +
         '<div class="sub">Your running total from every cash-out.</div></div></div>' +
-      '<div class="panel">' + window.V2Chart(pts, money) + '</div>' +
+      '<div class="panel chartbox">' + window.V2Chart(pts, money) + '</div>' +
       '<div class="head"><div><h2>Cash-outs</h2>' +
         '<div class="sub">Newest first.</div></div></div>' +
       '<div class="tbl">' +
@@ -118,6 +118,7 @@
         : '<p class="note" style="margin-top:22px">These are payouts. Your ' +
           'buy-ins are not recorded yet, so this is what you have taken out, ' +
           'not profit after what you put in.</p>');
+    if (window.V2ChartWire) window.V2ChartWire(el('s-body').querySelector('.chartbox'), money);
   }
 
   window.addEventListener('duelwallet:change', () => {
