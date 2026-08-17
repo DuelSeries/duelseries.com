@@ -646,6 +646,37 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
   .ft span:first-child,.ft .sp{display:none}   /* the copyright is not a link */
   .ft a{color:var(--tx3)}
 
+  /* The game screen is two columns on desktop: art and lobbies on the left,
+     name and buy-in on the right. Collapsed to one column that stacks the
+     whole left column first, which put an empty lobby list between the
+     artwork and the Play button and pushed the only action on the screen
+     below the fold.
+     display:contents dissolves the two column wrappers so every piece becomes
+     a flex item in its own right and can be ordered properly: art, what the
+     game is, what it costs, how you look, and only then where people are. */
+  .hero{display:flex;flex-direction:column;gap:0}
+  /* :last-child included explicitly. The desktop rule that bottom-aligns the
+     look box sets display:flex on .hero>div:last-child, which is the more
+     specific selector and kept the whole right column as one item — so it
+     ordered as a block and the artwork landed underneath it. */
+  .hero>div,.hero>div:last-child{display:contents}
+  .hero .look{margin-top:14px}          /* was auto, for the desktop alignment */
+  /* The art is 300px tall on desktop, which on a 780px phone screen ate most of
+     the first screen and pushed Play under the fixed bars. Shorter here, so
+     the buy-in and the button that uses it are both reachable without a
+     scroll — that is the whole job of this screen. */
+  .hart{order:1;height:auto;aspect-ratio:16/9}
+  #dname{order:2;margin-top:14px;font-size:25px}
+  .hero .desc{order:3;margin-top:6px;font-size:13.5px;line-height:1.55}
+  .hnow{order:4;margin-top:10px}
+  .stake{order:5;margin-top:16px;padding:18px 16px}
+  .stake .stp{margin:10px 0 2px}
+  .stake .sv{font-size:34px}
+  .stake .sb{width:38px;height:38px;font-size:17px}
+  .look{order:6;margin-top:12px}
+  .hero .head{order:7}
+  #dlob{order:8}
+
   h2{font-size:25px;letter-spacing:-.8px}
   .head{margin:36px 0 16px}
   .tiles{grid-template-columns:1fr 1fr;gap:10px}

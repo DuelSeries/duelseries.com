@@ -358,3 +358,17 @@ test('the service worker exists and caches nothing', () => {
   assert.ok(!/cache\.put|caches\.open/.test(sw), 'and never writes to a cache');
   assert.ok(/caches\.delete/.test(sw), 'and clears any cache a previous version left');
 });
+
+test('the game screen puts the action above the lobby list on a phone', () => {
+  // Collapsed naively, the two-column hero stacked the whole left column first,
+  // which put an empty lobby list between the artwork and the Play button and
+  // pushed the only action on the screen below the fold.
+  const html = v2();
+  assert.ok(/\.hero>div,\.hero>div:last-child\{display:contents\}/.test(html),
+    'both column wrappers dissolve so their contents can be ordered');
+  // :last-child is named explicitly because the desktop bottom-align rule sets
+  // display:flex on it and is the more specific selector.
+  assert.ok(/\.hart\{order:1/.test(html), 'art first');
+  assert.ok(/\.stake\{order:5/.test(html), 'then the buy-in');
+  assert.ok(/#dlob\{order:8\}/.test(html), 'and the lobby list last');
+});
