@@ -24,11 +24,14 @@
   <!-- HUD -->
   <div id="hud">
     <div id="leaderboard">
-      <h4>Leaderboard</h4>
+      <div class="lb-head">
+        <h4>Leaderboard</h4>
+        <!-- Was a floating trophy glyph parked beside the panel. It is the same
+             board, one scope further out, so it belongs on the board itself. -->
+        <button id="btn-alltime-lb" title="All-time top 10">All-time</button>
+      </div>
       <ul id="leaderboard-list"></ul>
     </div>
-
-    <button id="btn-alltime-lb" title="All-Time Leaderboard">🏆</button>
 
     <div id="ping-display"><span id="ping-dot" class="ping-dot ping-green"></span><span id="ping-value">-- ms</span></div>
     <div id="fps-counter">FPS: --</div>
@@ -39,7 +42,7 @@
   <div id="modal-alltime" class="modal-overlay hidden">
     <div class="modal-box">
       <div class="modal-header">
-        <span>🏆 All-Time Top 10</span>
+        <span>All-time top 10</span>
         <button id="modal-alltime-close">✕</button>
       </div>
       <ul id="alltime-list"><li style="color:#555">Loading…</li></ul>
@@ -53,17 +56,26 @@
     <div id="admin-feedback"></div>
   </div>
 
-  <!-- Death Screen -->
-  <div id="death-screen">
-    <h2>YOU DIED</h2>
-    <div class="death-stats">
-      Length: <span id="death-length">0</span><br>
-      Score: <span id="death-score">0</span>
-    </div>
-    <div class="death-btns">
-      <button class="btn btn-respawn" id="btn-respawn">Play Again</button>
-      <button class="btn btn-spectate" id="btn-spectate">👁 Spectate</button>
-      <button class="btn btn-lobby" id="btn-lobby">Lobby</button>
+  <!-- Death screen. Same card as the cash-out receipt so the two outcomes are
+       clearly the same product, and red rather than amber so they are never
+       mistaken for each other at a glance. -->
+  <div id="death-screen" role="dialog" aria-modal="true" aria-labelledby="dd-title">
+    <div class="co-card dd-card">
+      <p class="co-eyebrow" id="dd-title">You died</p>
+
+      <p class="co-amount" id="dd-lost">$0.00</p>
+      <p class="co-sub" id="dd-sub">lost with your snake</p>
+
+      <p class="co-stats">
+        <span>Length <b id="death-length">0</b></span>
+        <span>Score <b id="death-score">0</b></span>
+      </p>
+
+      <div class="co-btns dd-btns">
+        <button class="co-btn co-go" id="btn-respawn">Play again</button>
+        <button class="co-btn co-ghost" id="btn-lobby">Lobby</button>
+      </div>
+      <button class="dd-watch" id="btn-spectate">Keep watching</button>
     </div>
   </div>
 
@@ -158,14 +170,18 @@
     </div>
   </div>
 
-  <!-- Mobile joystick (only visible on touch devices via CSS) -->
-  <div id="joystick-zone" class="joystick-zone">
-    <div id="joystick-base" class="joystick-base">
-      <div id="joystick-knob" class="joystick-knob"></div>
-    </div>
-  </div>
-  <button id="boost-btn" class="boost-btn">BOOST</button>
+  <!-- Steering on touch is the whole screen (see game.js), so the only control
+       left is cash out. It takes the spot the boost button used to hold. -->
   <button id="cashout-btn-mobile" class="cashout-btn-mobile">CASH OUT</button>
+
+  <!-- Heading arrow, drawn at the head while a finger is down. -->
+  <div id="dir-arrow" aria-hidden="true">
+    <svg viewBox="0 0 24 24" width="24" height="24">
+      <path d="M2 12 h13 M15 12 l-5 -5 M15 12 l-5 5" fill="none"
+            stroke="currentColor" stroke-width="2.5"
+            stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+  </div>
 
   <!-- In-game chat (press T to type) — sits just above the minimap in the bottom-right -->
   <div id="chat-box">

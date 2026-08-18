@@ -429,7 +429,8 @@ test('cashing out gets its own screen, not the death card in green', () => {
   // and in a paid room that button re-stakes real money.
   assert.ok(/death-screen'\)\.classList\.remove\('active'\)/.test(handler),
     'showing the receipt clears the death card');
-  const died = js.slice(js.indexOf('EVENTS.PLAYER_DIED'), js.indexOf('EVENTS.PLAYER_DIED') + 700);
+  const diedAt = js.indexOf('EVENTS.PLAYER_DIED');
+  const died = js.slice(diedAt, js.indexOf('\n});', diedAt));
   assert.ok(/cashout-screen'\)\.classList\.remove\('active'\)/.test(died),
     'and dying clears the receipt');
 });
@@ -455,4 +456,63 @@ test('the cash-out receipt states the payout in the unit actually paid', () => {
   const srv = fs.readFileSync(path.join(ROOT, 'server/index.js'), 'utf8');
   assert.ok(/cashout:result',\s*\{[^}]*gross: worth[^}]*cut: ownerShare/.test(srv),
     'gross and cut are sent for display');
+});
+
+test('touch steering matches the scheme read out of slither.io, not a joystick', () => {
+  // These numbers come from slither.io's own client (window.ontouchstart /
+  // ontouchmove / ontouchend), not from taste. Their scheme is absolute: the
+  // heading is atan2 toward the finger measured from the screen centre, held
+  // while within 16px of it, and boost is a double-tap. If someone "improves"
+  // this into a relative joystick the feel stops matching slither.
+  const js = fs.readFileSync(path.join(ROOT, 'public/js/game.js'), 'utf8');
+  assert.ok(/TOUCH_DEADZONE_PX\s*=\s*16/.test(js), 'dead zone is 16px (their d2 > 256)');
+  assert.ok(/TOUCH_DBLTAP_MS\s*=\s*400/.test(js), 'double-tap window is 400ms');
+  assert.ok(/TOUCH_DBLTAP_SLOP\s*=\s*24/.test(js), 'double-tap slop is 24px per axis');
+  assert.ok(/innerWidth \/ 2/.test(js) && /innerHeight \/ 2/.test(js),
+    'measured from the screen centre, as they do');
+
+  // The joystick is gone, in markup, styles and script.
+  const html = fs.readFileSync(path.join(ROOT, 'public/game.html'), 'utf8');
+  const css = fs.readFileSync(path.join(ROOT, 'public/css/game.css'), 'utf8');
+  for (const src of [html, css, js]) {
+    assert.ok(!/joystick-zone|joystick-base|joystick-knob/.test(src), 'no joystick left');
+    assert.ok(!/boost-btn/.test(src), 'no boost button left');
+  }
+  assert.ok(html.includes('cashout-btn-mobile'), 'cash out is the only on-screen control');
+  assert.ok(/bottom: calc\(30px/.test(css), 'and it took the boost button\'s corner');
+});
+
+test('the death card is the receipt in red, and says what was lost', () => {
+  const css = fs.readFileSync(path.join(ROOT, 'public/css/game.css'), 'utf8');
+  const html = fs.readFileSync(path.join(ROOT, 'public/game.html'), 'utf8');
+  const js = fs.readFileSync(path.join(ROOT, 'public/js/game.js'), 'utf8');
+
+  // The card's rules sit later in the file than this screen's, so overriding
+  // colours per element here loses to them silently. It must recolour by
+  // redefining the accent token the shared card already reads.
+  assert.ok(/#death-screen \{[^}]*--co-money:\s*#e0705f/.test(css),
+    'recolours the shared card by its accent token');
+  assert.ok(!/^\s*\.dd-(amount|eyebrow|go)\s*\{/m.test(css),
+    'and not with same-specificity overrides that would lose');
+  assert.ok(!/death-shake/.test(css), 'the shake is gone');
+  assert.ok(html.includes('co-card dd-card'), 'same card as the cash-out receipt');
+
+  // Worth has to be read before _lReset clears the snapshot it comes from.
+  const diedAt = js.indexOf('EVENTS.PLAYER_DIED');
+  const died = js.slice(diedAt, js.indexOf('\n});', diedAt));
+  assert.ok(died.indexOf('_latestMySnap') < died.indexOf('_lReset()'),
+    'the lost amount is read before the state holding it is cleared');
+
+  // Play again re-stakes, so the price is on the button.
+  assert.ok(/Play again \$\{fmtMoney\(stake\)\}/.test(js.replace(/`/g, '')) ||
+            /Play again \${fmtMoney\(stake\)}/.test(js),
+    'the button names the cost in a paid room');
+});
+
+test('the trophy glyph is gone and the all-time board is still reachable', () => {
+  const html = fs.readFileSync(path.join(ROOT, 'public/game.html'), 'utf8');
+  assert.ok(!html.includes('\u{1F3C6}'), 'no trophy emoji anywhere');
+  // Removing the button would have removed the only way into that board.
+  assert.ok(/id="btn-alltime-lb"/.test(html), 'the all-time board still has an entry point');
+  assert.ok(/lb-head/.test(html), 'it lives on the leaderboard now, not floating beside it');
 });

@@ -126,39 +126,95 @@ body {
 }
 #chat-hint b { color: rgba(255,255,255,0.72); text-transform: uppercase; }
 
+/* ── Leaderboard ─────────────────────────────────────────────────────────────
+   A live money board, so it is set like one: names in the UI face, figures in
+   mono and tabular so the column holds still as they tick. */
 #leaderboard {
   position: absolute;
-  top: 16px;
-  right: 16px;
-  background: rgba(0,0,0,0.6);
-  border: 1px solid rgba(255,255,255,0.1);
+  top: calc(14px + env(safe-area-inset-top));
+  right: calc(14px + env(safe-area-inset-right));
+  background: rgba(16,14,11,0.72);
+  border: 1px solid #282219;
   border-radius: 12px;
-  padding: 12px 16px;
-  min-width: 180px;
+  padding: 10px 12px 11px;
+  min-width: 186px;
+  font-family: 'Archivo', ui-sans-serif, system-ui, 'Segoe UI', Arial, sans-serif;
+  backdrop-filter: blur(8px);
+}
+.lb-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 9px;
 }
 #leaderboard h4 {
-  font-size: 0.7rem;
+  font-family: 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace;
+  font-size: 0.62rem;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 2px;
-  color: #888;
-  margin-bottom: 8px;
+  letter-spacing: 0.14em;
+  color: #a89c8a;
+  margin: 0;
 }
+#btn-alltime-lb {
+  background: none;
+  border: none;
+  padding: 0;
+  color: #6f6558;
+  font-family: inherit;
+  font-size: 0.68rem;
+  cursor: pointer;
+  pointer-events: all;
+  transition: color 0.15s;
+}
+#btn-alltime-lb:hover { color: #f0a830; }
+#btn-alltime-lb:focus-visible { outline: 2px solid #f0a830; outline-offset: 2px; }
+
 #leaderboard-list {
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 1px;
 }
 #leaderboard-list li {
   display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  font-size: 0.82rem;
-  color: #ccc;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 0.8rem;
+  color: #a89c8a;
+  padding: 2px 0;
 }
-#leaderboard-list li.me { color: #ff8800; font-weight: 700; }
-#leaderboard-list .lb-rank { color: #555; }
-#leaderboard-list .lb-score { color: #ff8800; }
+#leaderboard-list .lb-rank {
+  font-family: 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace;
+  font-size: 0.68rem;
+  color: #57503f;
+  width: 1.5em;
+  flex: none;
+}
+#leaderboard-list .lb-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #d9d2c6;
+}
+#leaderboard-list .lb-score {
+  font-family: 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.78rem;
+  color: #f0a830;
+  flex: none;
+}
+/* Your own row, marked by weight and a rule rather than another colour. */
+#leaderboard-list li.me {
+  border-left: 2px solid #f0a830;
+  margin-left: -12px;
+  padding-left: 10px;
+}
+#leaderboard-list li.me .lb-name { color: #f5f1e8; font-weight: 600; }
+#leaderboard-list li.me .lb-rank { color: #a89c8a; }
 
 #ping-display {
   position: absolute;
@@ -238,64 +294,62 @@ body {
   min-height: 12px; font-family: monospace;
 }
 
-/* Death screen overlay */
+/* ── Death screen ────────────────────────────────────────────────────────────
+   The cash-out card in red. Same shape, same type, opposite outcome, so the
+   two read as one product without ever being confused for each other.
+
+   The old one shook. A shake on the losing screen is a punchline the second
+   time and an irritation the twentieth, and this is a game people lose a lot.
+
+   The card itself is shared with the cash-out receipt, and its rules sit later
+   in this file, so per-element colour overrides here would silently lose to
+   them. Instead this screen redefines the ACCENT token the card already reads:
+   one value, and the figure, the eyebrow and the primary button all follow. */
 #death-screen {
+  --co-ink:#100e0b; --co-s2:#1f1b15; --co-s3:#282219;
+  --co-bone:#f5f1e8; --co-tx2:#a89c8a;
+  --co-money:#e0705f;               /* the card's accent, red here */
   display: none;
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.75);
+  background: rgba(10,8,6,0.72);
   z-index: 50;
   align-items: center;
   justify-content: center;
-  flex-direction: column;
-  gap: 20px;
+  padding: 24px;
+  font-family: 'Archivo', ui-sans-serif, system-ui, 'Segoe UI', Arial, sans-serif;
 }
 #death-screen.active { display: flex; }
-#death-screen h2 {
-  font-size: 3rem;
-  color: #ff4444;
-  text-shadow: 0 0 30px rgba(255, 68, 68, 0.8);
-  animation: death-shake 0.4s;
+
+/* Id-scoped so they beat the shared card rules further down the file. */
+#death-screen .co-eyebrow { color: var(--co-money); }
+#death-screen .co-go { color: #fff; }          /* white on red, not ink on red */
+#death-screen .co-go:hover { background: #e8836f; }
+
+/* Free lobby, or a snake that was never worth anything: no figure to show. */
+#death-screen.dd-free .co-amount { display: none; }
+#death-screen.dd-free .co-sub {
+  color: var(--co-bone);
+  font-size: 1.15rem;
+  margin-top: 10px;
 }
-@keyframes death-shake {
-  0%,100% { transform: translateX(0); }
-  25% { transform: translateX(-10px); }
-  75% { transform: translateX(10px); }
-}
-.death-stats {
-  text-align: center;
-  color: #ccc;
-  font-size: 1.1rem;
-  line-height: 2;
-}
-.death-stats span { color: #ff8800; font-weight: 700; font-size: 1.3rem; }
-.death-btns { display: flex; gap: 16px; }
-.btn {
-  padding: 12px 28px;
+
+/* Third action, deliberately quieter than the other two: it is the one nobody
+   is reaching for at the moment they died. */
+.dd-watch {
+  display: block;
+  width: 100%;
+  margin-top: 10px;
+  padding: 8px;
+  background: none;
   border: none;
-  border-radius: 10px;
-  font-size: 1rem;
-  font-weight: 700;
+  color: var(--co-tx2);
+  font-family: inherit;
+  font-size: 0.84rem;
   cursor: pointer;
-  transition: transform 0.1s, box-shadow 0.2s;
-  letter-spacing: 1px;
 }
-.btn:active { transform: scale(0.97); }
-.btn-respawn {
-  background: linear-gradient(135deg, #ff4444, #ff8800);
-  color: #fff;
-  box-shadow: 0 4px 20px rgba(255,80,0,0.4);
-}
-.btn-lobby {
-  background: rgba(255,255,255,0.1);
-  color: #fff;
-  border: 1px solid rgba(255,255,255,0.2);
-}
-.btn-spectate {
-  background: rgba(100,180,255,0.15);
-  color: #7dd3fc;
-  border: 1px solid rgba(100,180,255,0.35);
-}
+.dd-watch:hover { color: var(--co-bone); }
+.dd-watch:focus-visible { outline: 2px solid var(--co-money); outline-offset: 2px; }
 
 /* Spectate bar */
 #spectate-bar {
@@ -338,25 +392,6 @@ body {
   font-weight: 700;
 }
 #spectate-play-again:hover { background: rgba(20,241,149,0.32) !important; }
-
-/* All-time leaderboard button */
-#btn-alltime-lb {
-  position: absolute;
-  top: 16px;
-  right: 216px;
-  background: rgba(0,0,0,0.6);
-  border: 1px solid rgba(255,255,255,0.15);
-  border-radius: 10px;
-  color: #fff;
-  font-size: 1.3rem;
-  width: 44px;
-  height: 44px;
-  cursor: pointer;
-  pointer-events: all;
-  transition: background 0.15s, transform 0.1s;
-  backdrop-filter: blur(6px);
-}
-#btn-alltime-lb:hover { background: rgba(255,200,0,0.25); transform: scale(1.08); }
 
 /* All-time leaderboard modal */
 .modal-overlay {
@@ -691,72 +726,27 @@ body {
 #leaderboard-list li[data-player-name]:hover .lb-name { text-decoration: underline; color: #7dd3fc; }
 
 /* ── Mobile Joystick & Boost Button ─────────────────────────────────────── */
-.joystick-zone,
-.boost-btn {
-  display: none;
+/* ── Heading arrow ───────────────────────────────────────────────────────────
+   Follows the head while a finger is down. Positioned by transform only, from
+   the render loop, so it never triggers layout. */
+#dir-arrow {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 40;
+  color: rgba(245, 241, 232, 0.85);
+  filter: drop-shadow(0 0 6px rgba(0,0,0,0.7));
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.12s linear;
+  will-change: transform;
 }
+#dir-arrow svg { display: block; }
+@media (hover: hover) and (pointer: fine) { #dir-arrow { display: none; } }
 
-@media (pointer: coarse) {
-  .joystick-zone {
-    display: block;
-    position: fixed;
-    bottom: 30px;
-    left: 30px;
-    z-index: 9999;
-    touch-action: none;
-  }
-  .joystick-base {
-    width: 110px;
-    height: 110px;
-    border-radius: 50%;
-    background: rgba(255,255,255,0.08);
-    border: 2px solid rgba(255,255,255,0.25);
-    position: relative;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .joystick-knob {
-    width: 46px;
-    height: 46px;
-    border-radius: 50%;
-    background: rgba(20, 241, 149, 0.7);
-    box-shadow: 0 0 14px rgba(20, 241, 149, 0.5);
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    pointer-events: none;
-  }
-  .boost-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    position: fixed;
-    bottom: 30px;
-    right: 30px;
-    z-index: 9999;
-    width: 80px;
-    height: 80px;
-    border-radius: 50%;
-    border: 2px solid rgba(20, 241, 149, 0.4);
-    background: rgba(20, 241, 149, 0.15);
-    color: #14F195;
-    font-size: 0.7rem;
-    font-weight: 800;
-    letter-spacing: 0.05em;
-    touch-action: none;
-    cursor: pointer;
-    transition: background 0.1s, transform 0.1s;
-  }
-  .boost-btn.active {
-    background: rgba(20, 241, 149, 0.35);
-    transform: scale(0.94);
-  }
-}
-
-
-/* ── Mobile Cash Out button ─────────────────────────────────────────────── */
+/* ── Mobile cash out ─────────────────────────────────────────────────────────
+   Takes the bottom-right spot the boost button used to hold. Boost is a
+   double-tap now, matching slither, so this is the only on-screen control. */
 .cashout-btn-mobile { display: none; }
 
 @media (pointer: coarse) {
@@ -765,18 +755,19 @@ body {
     align-items: center;
     justify-content: center;
     position: fixed;
-    bottom: 120px;
-    right: 30px;
+    bottom: calc(30px + env(safe-area-inset-bottom));
+    right: calc(30px + env(safe-area-inset-right));
     z-index: 9999;
-    width: 80px;
-    height: 80px;
+    width: 84px;
+    height: 84px;
     border-radius: 50%;
-    border: 2px solid rgba(240, 180, 41, 0.5);
-    background: rgba(240, 180, 41, 0.12);
-    color: #F0B429;
-    font-size: 0.6rem;
-    font-weight: 800;
-    letter-spacing: 0.04em;
+    border: 2px solid rgba(240, 168, 48, 0.55);
+    background: rgba(240, 168, 48, 0.14);
+    color: #f0a830;
+    font-family: 'Archivo', ui-sans-serif, system-ui, 'Segoe UI', Arial, sans-serif;
+    font-size: 0.66rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
     text-align: center;
     line-height: 1.3;
     touch-action: none;
@@ -784,7 +775,7 @@ body {
     transition: background 0.1s, transform 0.1s;
   }
   .cashout-btn-mobile.holding {
-    background: rgba(240, 180, 41, 0.35);
+    background: rgba(240, 168, 48, 0.4);
     transform: scale(0.94);
   }
 }

@@ -447,11 +447,30 @@ socket.on(CONSTANTS.EVENTS.SNAPSHOT, (meta, coords) => {
 socket.on(CONSTANTS.EVENTS.PLAYER_DIED, ({ score, length }) => {
   isDead = true;
   playDeathSound();
+
+  // What the snake was carrying when it died is what the player just lost, so
+  // the card says it. The last snapshot is the right source: every snake
+  // carries worth, while the leaderboard only holds the top ten. Read BEFORE
+  // _lReset, which clears it.
+  const lost = isPaidRoom && _latestMySnap ? (_latestMySnap.worth || 0) : 0;
+
   _lReset();
-  const deathH2 = document.querySelector('#death-screen h2');
-  deathH2.textContent = 'YOU DIED';
+  showTouchControls(false);
+
+  const screen = document.getElementById('death-screen');
+  screen.classList.toggle('dd-free', !(lost > 0));
+  document.getElementById('dd-lost').textContent = fmtMoney(lost);
+  document.getElementById('dd-sub').textContent = lost > 0
+    ? 'lost with your snake'
+    : (isPaidRoom ? 'Your snake was not carrying anything' : 'Free lobby, nothing was staked');
+
+  // Playing again in a paid room means staking again, so the button says the
+  // price rather than springing a wallet prompt on a tap labelled "Play again".
+  const again = document.getElementById('btn-respawn');
+  again.textContent = (isPaidRoom && stake > 0) ? `Play again ${fmtMoney(stake)}` : 'Play again';
+
   document.getElementById('cashout-screen').classList.remove('active');
-  document.getElementById('death-screen').classList.add('active');
+  screen.classList.add('active');
   document.getElementById('death-length').textContent = length;
   document.getElementById('death-score').textContent = score;
 });
@@ -720,80 +739,94 @@ canvas.addEventListener('mousedown', (e) => { if (e.button === 0 || e.button ===
 canvas.addEventListener('mouseup',   (e) => { if (e.button === 0 || e.button === 2) boostActive = false; });
 window.addEventListener('keydown', (e) => { if (window._chatTyping) return; if (e.code === 'Space') { e.preventDefault(); boostActive = true; } });
 window.addEventListener('keyup',   (e) => { if (e.code === 'Space') boostActive = false; });
-// ─── Virtual Joystick ────────────────────────────────────────────────────────
-{
-  const joystickZone = document.getElementById('joystick-zone');
-  const joystickBase = document.getElementById('joystick-base');
-  const joystickKnob = document.getElementById('joystick-knob');
-  const boostBtn     = document.getElementById('boost-btn');
-  const BASE_R = 55; // half of 110px base
-  const KNOB_CLAMP = BASE_R - 6;
+/* ─── Touch steering ──────────────────────────────────────────────────────────
+   This is slither.io's own scheme, read out of their client rather than guessed
+   at (slither.io/s/game*.js, window.ontouchstart / ontouchmove / ontouchend).
+   What they actually do, in full:
 
-  let joystickActive = false;
-  let joystickAngle  = null;
-  let joystickTouchId = null;
+     ontouchmove   xm = touch.clientX - ww/2;  ym = touch.clientY - hh/2
+     ontouchstart  same, plus: if this touch landed within 24px on BOTH axes of
+                   the previous one and within 400ms of it, setAcceleration(1)
+     ontouchend    setAcceleration(0)
 
-  function onJoyStart(e) {
-    e.preventDefault();
-    if (joystickTouchId !== null) return;
-    const t = e.changedTouches[0];
-    joystickTouchId = t.identifier;
-    joystickActive = true;
-    updateKnob(t.clientX, t.clientY);
-  }
-  function onJoyMove(e) {
-    e.preventDefault();
-    for (const t of e.changedTouches) {
-      if (t.identifier !== joystickTouchId) continue;
-      updateKnob(t.clientX, t.clientY);
-    }
-  }
-  function onJoyEnd(e) {
-    e.preventDefault();
-    for (const t of e.changedTouches) {
-      if (t.identifier !== joystickTouchId) continue;
-      joystickTouchId = null;
-      joystickActive = false;
-      joystickAngle = null;
-      joystickKnob.style.transform = 'translate(-50%, -50%)';
-    }
-  }
-  function updateKnob(cx, cy) {
-    const rect = joystickBase.getBoundingClientRect();
-    const ox = cx - (rect.left + BASE_R);
-    const oy = cy - (rect.top  + BASE_R);
-    const dist = Math.sqrt(ox * ox + oy * oy);
-    const clampDist = Math.min(dist, KNOB_CLAMP);
-    const nx = dist === 0 ? 0 : (ox / dist) * clampDist;
-    const ny = dist === 0 ? 0 : (oy / dist) * clampDist;
-    joystickKnob.style.transform = `translate(calc(-50% + ${nx}px), calc(-50% + ${ny}px))`;
-    if (dist > 6) joystickAngle = Math.atan2(oy, ox);
-  }
+   and the heading is Math.atan2(ym, xm), held at the current angle while
+   xm² + ym² <= 256, i.e. inside a 16px radius of the screen centre.
 
-  joystickZone.addEventListener('touchstart', onJoyStart, { passive: false });
-  joystickZone.addEventListener('touchmove',  onJoyMove,  { passive: false });
-  joystickZone.addEventListener('touchend',   onJoyEnd,   { passive: false });
-  joystickZone.addEventListener('touchcancel',onJoyEnd,   { passive: false });
+   So there is no virtual joystick and no anchor at the touch-down point: the
+   snake steers toward wherever your finger is, measured from the middle of the
+   screen, which is where the head sits. Put a thumb anywhere and it turns to
+   meet it. Boost is a double-tap, held for as long as the finger stays down.
 
-  // Boost button
-  boostBtn.addEventListener('touchstart', (e) => { e.preventDefault(); boostActive = true; boostBtn.classList.add('active'); },    { passive: false });
-  boostBtn.addEventListener('touchend',   (e) => { e.preventDefault(); boostActive = false; boostBtn.classList.remove('active'); }, { passive: false });
-  boostBtn.addEventListener('touchcancel',(e) => { boostActive = false; boostBtn.classList.remove('active'); }, { passive: false });
+   Ours measures from the head's real position instead of assuming it is dead
+   centre, which is identical whenever the camera is settled and better when it
+   is not. Everything else is their numbers. */
+const TOUCH_DEADZONE_PX  = 16;    // slither: d2 > 256
+const TOUCH_DBLTAP_MS    = 400;   // slither: mtm - ltchmtm < 400
+const TOUCH_DBLTAP_SLOP  = 24;    // slither: abs(dx) < 24 && abs(dy) < 24, per axis
 
-  // Expose for sendInput
-  window._joystick = { get active() { return joystickActive; }, get angle() { return joystickAngle; } };
+let touchSteering = false;   // a finger is down and steering
+let touchHolding  = false;   // inside the dead zone: keep the current heading
+let lastTapX = -1, lastTapY = -1, lastTapMs = -1;
+
+function touchPoint(e) {
+  const t = e.touches[0] || e.changedTouches[0];
+  return t ? { x: t.clientX, y: t.clientY } : null;
 }
 
-// Canvas touch (finger steering) — only used when joystick not active
+// Measured from the screen centre, exactly as slither does, so the dead zone is
+// the same patch of screen for everyone regardless of canvas offset.
+function updateTouchAim(p) {
+  mousePos.x = p.x;
+  mousePos.y = p.y;
+  const dx = p.x - window.innerWidth / 2;
+  const dy = p.y - window.innerHeight / 2;
+  touchHolding = (dx * dx + dy * dy) <= TOUCH_DEADZONE_PX * TOUCH_DEADZONE_PX;
+}
+
+canvas.addEventListener('touchstart', (e) => {
+  e.preventDefault();
+  const p = touchPoint(e);
+  if (!p) return;
+  const now = performance.now();
+  if (Math.abs(p.x - lastTapX) < TOUCH_DBLTAP_SLOP &&
+      Math.abs(p.y - lastTapY) < TOUCH_DBLTAP_SLOP &&
+      now - lastTapMs < TOUCH_DBLTAP_MS) {
+    boostActive = true;                       // double-tap, held while down
+  }
+  lastTapX = p.x; lastTapY = p.y; lastTapMs = now;
+  touchSteering = true;
+  updateTouchAim(p);
+}, { passive: false });
+
 canvas.addEventListener('touchmove', (e) => {
   e.preventDefault();
-  if (window._joystick && window._joystick.active) return;
-  const t = e.touches[0];
-  mousePos.x = t.clientX;
-  mousePos.y = t.clientY;
+  const p = touchPoint(e);
+  if (p) updateTouchAim(p);
 }, { passive: false });
-canvas.addEventListener('touchstart', (e) => { if (e.touches.length > 1) boostActive = true; });
-canvas.addEventListener('touchend',   (e) => { if (e.touches.length === 0) boostActive = false; });
+
+function endTouch(e) {
+  if (e.touches && e.touches.length > 0) return;   // another finger still down
+  boostActive = false;
+  touchSteering = false;
+  touchHolding = false;
+}
+canvas.addEventListener('touchend', endTouch);
+canvas.addEventListener('touchcancel', endTouch);
+
+/* The heading arrow. slither has no such thing — there is no arrow, pointer or
+   direction indicator anywhere in their client — so this is ours, kept to a
+   thin mark at the head that only exists while a finger is down. */
+const dirArrowEl = document.getElementById('dir-arrow');
+function updateDirArrow(headScreenX, headScreenY, angle) {
+  if (!dirArrowEl) return;
+  if (!touchSteering || isDead || cashedOut) {
+    if (dirArrowEl.style.opacity !== '0') dirArrowEl.style.opacity = '0';
+    return;
+  }
+  dirArrowEl.style.opacity = '1';
+  dirArrowEl.style.transform =
+    `translate(${headScreenX}px, ${headScreenY}px) rotate(${angle}rad) translateX(38px) translate(-50%, -50%)`;
+}
 
 // Mobile cash-out button — wired after startQTimer/cancelQTimer are defined below
 document.addEventListener('DOMContentLoaded', () => {});
@@ -896,10 +929,10 @@ function countUpMoney(el, target) {
   })(t0);
 }
 
-// The touch controls sit above the canvas, so without this the joystick and a
-// live CASH OUT button stay under the receipt on a snake that is already gone.
+// The cash-out button sits above the canvas, so without this it stays live
+// under the receipt on a snake that is already gone.
 function showTouchControls(on) {
-  ['joystick-zone', 'boost-btn', 'cashout-btn-mobile'].forEach(id => {
+  ['cashout-btn-mobile'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = on ? '' : 'none';
   });
@@ -1002,7 +1035,7 @@ function enterSpectate() {
   document.getElementById('death-screen').classList.remove('active');
   document.getElementById('spectate-bar').classList.add('active');
   updateSpectateLabel();
-  ['joystick-zone', 'boost-btn', 'cashout-btn-mobile'].forEach(id => {
+  ['cashout-btn-mobile'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = 'none';
   });
@@ -1011,7 +1044,7 @@ function enterSpectate() {
 function exitSpectate() {
   spectating = false;
   document.getElementById('spectate-bar').classList.remove('active');
-  ['joystick-zone', 'boost-btn', 'cashout-btn-mobile'].forEach(id => {
+  ['cashout-btn-mobile'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = '';
   });
@@ -1153,11 +1186,12 @@ function sendInput() {
 
   if (qHoldStart !== null && lockedAngle === null) lockedAngle = mySnake.angle;
 
-  const joy = window._joystick;
+  // Inside the touch dead zone the heading is held rather than recomputed, so a
+  // thumb resting near the middle does not spin the snake on jitter.
   const angle = lockedAngle !== null
     ? lockedAngle
-    : (joy && joy.active && joy.angle !== null)
-    ? joy.angle
+    : touchHolding
+    ? mySnake.angle
     : Math.atan2(
         renderer.camera.screenToWorld(mousePos.x, mousePos.y, canvas.width, canvas.height).y - mySnake.segs[1],
         renderer.camera.screenToWorld(mousePos.x, mousePos.y, canvas.width, canvas.height).x - mySnake.segs[0]
@@ -1268,19 +1302,22 @@ function gameLoop(now) {
 
   // Advance local snake simulation every frame (no server wait)
   if (_lReady && !isDead && !cashedOut) {
-    const joy = window._joystick;
     const localHeadX = _lpX[(_lpHead - 1 + LP_SIZE) % LP_SIZE];
     const localHeadY = _lpY[(_lpHead - 1 + LP_SIZE) % LP_SIZE];
     let targetAngle;
     if (lockedAngle !== null) {
       targetAngle = lockedAngle;
-    } else if (joy && joy.active && joy.angle !== null) {
-      targetAngle = joy.angle;
+    } else if (touchHolding) {
+      targetAngle = _lAngle;                 // dead zone: hold the current heading
     } else {
       const wm = renderer.camera.screenToWorld(mousePos.x, mousePos.y, canvas.width, canvas.height);
       targetAngle = Math.atan2(wm.y - localHeadY, wm.x - localHeadX);
     }
     _lAdvance(dt, targetAngle);
+    // The arrow sits at the head, pointing the way it is actually turning.
+    updateDirArrow(localHeadX * renderer.camera.scale + renderer.camera.x,
+                   localHeadY * renderer.camera.scale + renderer.camera.y,
+                   _lAngle);
   }
 
   interpolateState(now);
