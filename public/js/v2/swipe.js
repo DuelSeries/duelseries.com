@@ -2,97 +2,211 @@
 /* ─── Swipe navigation ────────────────────────────────────────────────────────
    Two horizontal gestures, decided by what is under the finger:
 
-     over the games rail   move through the games
-     anywhere else         move between tabs
+     over the games rail   move through the games (a flick, one game per flick)
+     anywhere else         drag between tabs
 
-   The interesting part is everything that must NOT be treated as a swipe. The
-   earnings chart is scrubbed by dragging horizontally, the appearance screen
-   has its own left/right controls, and the lobby list scrolls vertically inside
-   itself. A page-wide handler that ignored those would make the chart
-   unusable and change tabs while somebody was reading a figure off it.
+   The tab gesture follows the finger. The next screen is dragged in from the
+   edge as you move, so you can push it halfway, look at what is there, and
+   either carry on or pull it back. On release it settles to whichever side it
+   is closest to, or follows a fast flick even if it did not travel far.
+
+   That is the whole reason this is not a flick handler any more: an
+   instant swap, or even an animated one that fires after you let go, gives no
+   feedback DURING the gesture, so a half-swipe feels like a tap that did
+   nothing and you cannot tell what you are swiping towards.
+
+   The interesting part remains everything that must NOT be treated as a swipe.
+   The earnings chart is scrubbed by dragging horizontally, the appearance
+   screen has its own left/right controls, and the lobby list scrolls
+   vertically inside itself.
 
    Touch events only, deliberately. Pointer events would also fire for a mouse,
-   and a click-drag on a desktop is a text selection, not a swipe.
-
-   Nothing calls preventDefault: the page never scrolls horizontally, so there
-   is nothing to suppress, and staying passive keeps vertical scrolling smooth
-   on the main thread. */
+   and a click-drag on a desktop is a text selection, not a swipe. */
 
 (function () {
-  const MIN_X = 55;        // shorter than this is a tap or a jitter
-  const RATIO = 1.6;       // must be this much more horizontal than vertical
-  const MAX_MS = 700;      // slower than this is a drag, not a flick
+  const RAIL_MIN_X = 55;    // rail flicks stay discrete: this far, or nothing
+  const RAIL_RATIO = 1.6;
+  const RAIL_MAX_MS = 700;
+
+  const CLAIM_PX = 12;      // horizontal travel before the drag owns the gesture
+  const CLAIM_RATIO = 1.2;  // and it must be this much more horizontal than not
+  const COMMIT_FRAC = 0.32; // past a third of the screen, it lands on the next tab
+  const FLICK_VPX = 0.45;   // px/ms: a fast flick lands it regardless of distance
+  const SETTLE_MS = 240;    // must match .scr-settle in the stylesheet
 
   /* Anything here owns its own horizontal gestures. */
   const EXEMPT = '.chartbox, .apscreen, input, textarea, select, #game-frame, .ticker';
 
   const TABS = ['play', 'wallet', 'stats', 'social', 'locker', 'settings'];
+  const SCREEN_IDS = ['home', 'detail', 'stub', 'wallet-screen', 'stats-screen',
+                      'social-screen', 'player-screen'];
 
-  let x0 = 0, y0 = 0, t0 = 0, from = null, tracking = false;
+  let x0 = 0, y0 = 0, t0 = 0, from = null;
+  let tracking = false;     // a touch is down and might become a swipe
+  let drag = null;          // the live drag, once one has been claimed
+
+  const el = id => document.getElementById(id);
+  const visible = e => e && getComputedStyle(e).display !== 'none';
 
   function onStart(e) {
+    cancelSettle();
     if (e.touches.length !== 1) { tracking = false; return; }   // pinch, not swipe
     const t = e.touches[0];
     x0 = t.clientX; y0 = t.clientY; t0 = Date.now();
     from = e.target;
     tracking = true;
+    drag = null;
+  }
+
+  /* Which tab a swipe in this direction would land on, or null if there is
+     nowhere to go. Screens reached from below the tabs (a game's detail page,
+     a player profile) go back to where they came from instead. */
+  function targetFor(dir) {
+    if (visible(el('detail')) || visible(el('player-screen'))) return null;
+    const now = TABS.indexOf(window.route || 'play');
+    if (now < 0) return null;
+    const next = now + dir;
+    if (next < 0 || next >= TABS.length) return null;           // no wrap-around
+    return TABS[next];
+  }
+
+  function beginDrag(dir) {
+    const tab = targetFor(dir);
+    if (!tab || !window.prepareScreen) return false;
+    const cur = SCREEN_IDS.map(el).find(visible);
+    if (!cur) return false;
+
+    const incoming = window.prepareScreen(tab);
+    if (!incoming || incoming === cur) return false;
+
+    /* Pin the incoming screen over the outgoing one. Its own top is used, not
+       zero, so it lines up with the header rather than sliding under it. */
+    const r = cur.getBoundingClientRect();
+    const saved = incoming.getAttribute('style') || '';
+    incoming.classList.add('scr-drag');
+    Object.assign(incoming.style, {
+      display: 'block', top: r.top + 'px', left: '0px',
+      width: window.innerWidth + 'px', margin: '0',
+    });
+    cur.classList.add('scr-live');
+    document.body.classList.add('scr-dragging');
+
+    drag = { dir, tab, cur, incoming, saved, w: window.innerWidth, dx: 0,
+             lastX: x0, lastT: Date.now(), v: 0 };
+    move(0);
+    return true;
+  }
+
+  /* dx is the finger's travel. Both screens move together, the outgoing one
+     off and the incoming one on, and neither is allowed past its stop: a drag
+     back the way you came should not pull the previous screen into view from
+     the wrong side. */
+  function move(dx) {
+    if (!drag) return;
+    const lim = drag.dir > 0 ? Math.min(0, Math.max(-drag.w, dx))
+                             : Math.max(0, Math.min(drag.w, dx));
+    drag.dx = lim;
+    drag.cur.style.transform = `translateX(${lim}px)`;
+    drag.incoming.style.transform = `translateX(${lim + drag.dir * drag.w}px)`;
+  }
+
+  function onMove(e) {
+    if (!tracking || e.touches.length !== 1) return;
+    const t = e.touches[0];
+    const dx = t.clientX - x0, dy = t.clientY - y0;
+
+    if (!drag) {
+      if (Math.abs(dx) < CLAIM_PX) return;
+      if (Math.abs(dx) < Math.abs(dy) * CLAIM_RATIO) { tracking = false; return; }
+      const src = from && from.closest ? from : null;
+      if (src && src.closest(EXEMPT)) { tracking = false; return; }
+      if (src && src.closest('.railwrap')) return;      // rail keeps its flick
+      const look = el('lookveil');
+      if (look && look.classList.contains('on')) { tracking = false; return; }
+      if (!beginDrag(dx < 0 ? 1 : -1)) { tracking = false; return; }
+    }
+
+    /* Velocity from the last move only, so a pause before release does not
+       still count as a flick. Clamped to at least 1ms: two moves can land in
+       the same millisecond during a genuinely fast flick, and dividing by zero
+       there used to leave the velocity at 0 — the faster the flick, the more
+       likely it was ignored. */
+    const now = Date.now(), dt = Math.max(1, now - drag.lastT);
+    drag.v = (t.clientX - drag.lastX) / dt;
+    drag.lastX = t.clientX; drag.lastT = now;
+
+    e.preventDefault();          // the gesture is ours; stop the page scrolling
+    move(dx);
+  }
+
+  let settleTimer = null;
+  function cancelSettle() {
+    if (settleTimer) { clearTimeout(settleTimer); const f = settleTimer._done; settleTimer = null; if (f) f(); }
+  }
+
+  function finish(commit) {
+    const d = drag; drag = null;
+    if (!d) return;
+    const to = commit ? -d.dir * d.w : 0;
+
+    d.cur.classList.add('scr-settle');
+    d.incoming.classList.add('scr-settle');
+    // Next frame, so the transition has a start value to animate from.
+    requestAnimationFrame(() => {
+      d.cur.style.transform = `translateX(${to}px)`;
+      d.incoming.style.transform = `translateX(${to + d.dir * d.w}px)`;
+    });
+
+    const done = () => {
+      settleTimer = null;
+      d.cur.classList.remove('scr-live', 'scr-settle');
+      d.incoming.classList.remove('scr-drag', 'scr-settle');
+      d.cur.style.transform = '';
+      d.incoming.setAttribute('style', d.saved);
+      document.body.classList.remove('scr-dragging');
+      if (commit) window.commitScreen(d.tab);
+      else d.incoming.style.display = 'none';
+    };
+    settleTimer = setTimeout(done, SETTLE_MS + 20);
+    settleTimer._done = done;
   }
 
   function onEnd(e) {
+    if (drag) {
+      const past = Math.abs(drag.dx) > drag.w * COMMIT_FRAC;
+      // A flick counts only if it is still heading the way the drag started.
+      const flick = Math.abs(drag.v) > FLICK_VPX &&
+                    (drag.v < 0 ? 1 : -1) === drag.dir;
+      finish(past || flick);
+      tracking = false;
+      return;
+    }
     if (!tracking) return;
     tracking = false;
+
+    /* No drag was claimed, so this can still be a rail flick. */
     const t = (e.changedTouches && e.changedTouches[0]);
     if (!t) return;
-
     const dx = t.clientX - x0, dy = t.clientY - y0, dt = Date.now() - t0;
-    if (dt > MAX_MS) return;
-    if (Math.abs(dx) < MIN_X) return;
-    if (Math.abs(dx) < Math.abs(dy) * RATIO) return;            // mostly vertical
+    if (dt > RAIL_MAX_MS) return;
+    if (Math.abs(dx) < RAIL_MIN_X) return;
+    if (Math.abs(dx) < Math.abs(dy) * RAIL_RATIO) return;
+    const src = from && from.closest ? from : null;
+    if (!src || !src.closest('.railwrap')) return;
+    if (window.spin) window.spin(dx < 0 ? 1 : -1);
+  }
 
-    const el = from && from.closest ? from : null;
-    if (el && el.closest(EXEMPT)) return;                       // owns its own drag
-
-    // The appearance screen is a takeover; it is not a tab and has its arrows.
-    const look = document.getElementById('lookveil');
-    if (look && look.classList.contains('on')) return;
-
-    const dir = dx < 0 ? 1 : -1;                                // left = forward
-
-    /* Over the games: move the rail. The rail is only on the home screen, so
-       this cannot swallow a tab swipe anywhere else. */
-    if (el && el.closest('.railwrap')) {
-      if (window.spin) window.spin(dir);
-      return;
-    }
-
-    /* Everywhere else: move between tabs. From a game's detail screen a swipe
-       goes back to the board first, because that screen is below the tabs
-       rather than beside them, and jumping straight to Wallet from it would
-       lose your place. */
-    /* dir is handed on so the screens cross-slide the way the thumb moved.
-       Going back is always a leftward arrival regardless of which way the
-       swipe went, because that is the direction the screen came from. */
-    const detail = document.getElementById('detail');
-    if (detail && getComputedStyle(detail).display !== 'none') {
-      if (window.goHome) window.goHome(-1);
-      return;
-    }
-    const player = document.getElementById('player-screen');
-    if (player && getComputedStyle(player).display !== 'none') {
-      if (window.go) window.go('social', -1);
-      return;
-    }
-
-    const now = TABS.indexOf(window.route || 'play');
-    if (now < 0) return;
-    const next = now + dir;
-    if (next < 0 || next >= TABS.length) return;                // no wrap-around
-    if (window.go) window.go(TABS[next], dir);
+  function onCancel() {
+    if (drag) finish(false);
+    tracking = false;
   }
 
   document.addEventListener('touchstart', onStart, { passive: true });
+  // Not passive: once the drag is claimed it calls preventDefault so the page
+  // does not scroll underneath the screens being moved.
+  document.addEventListener('touchmove', onMove, { passive: false });
   document.addEventListener('touchend', onEnd, { passive: true });
-  document.addEventListener('touchcancel', () => { tracking = false; }, { passive: true });
+  document.addEventListener('touchcancel', onCancel, { passive: true });
 
-  window.V2Swipe = { tabs: TABS };
+  window.V2Swipe = { tabs: TABS, targetFor, get dragging() { return !!drag; } };
 })();

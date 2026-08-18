@@ -695,6 +695,20 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
   .tiles{grid-template-columns:1fr}
   .wrap{padding:0 14px}
 }
+/* ── Screen dragging ─────────────────────────────────────────────────────────
+   While a finger is dragging sideways, the incoming screen is lifted out of
+   flow so it can sit exactly on top of the outgoing one and both can be moved
+   together. Transform only, so following the finger costs no layout.
+
+   .scr-settle is the release: the same transforms, animated to their resting
+   place. It is a transition rather than a keyframe because the start value is
+   wherever the finger happened to let go. */
+.scr-drag { position:fixed; z-index:2; will-change:transform }
+.scr-live { will-change:transform }
+.scr-settle { transition:transform .24s cubic-bezier(.22,.7,.28,1) }
+/* Kill the vertical scroll while a horizontal drag owns the gesture. */
+body.scr-dragging { overflow:hidden; touch-action:pan-y }
+
 /* ── Screen transitions ──────────────────────────────────────────────────────
    A swipe used to change the screen instantly, which on a phone is hard to
    tell apart from a tap that did nothing. Now the screens cross-slide in the
@@ -1944,6 +1958,41 @@ function showScreen(id,dir){
   const t=setTimeout(done,300);
   _scrBusy=done;
 }
+/* ── Drag-to-change-screen support ───────────────────────────────────────────
+   The swipe handler drags the next screen in under the finger, so it needs to
+   put a screen up and fill it BEFORE routing to it, then either commit or put
+   it away. Three calls, so swipe.js never has to know the screen ids or which
+   module loads what. */
+const SCREEN_FOR={play:'home',wallet:'wallet-screen',stats:'stats-screen',
+                  social:'social-screen',locker:'stub',settings:'stub'};
+window.V2_SCREEN_FOR=SCREEN_FOR;
+
+/* Show a tab's screen and load its data without changing the route. */
+function prepareScreen(tab){
+  const id=SCREEN_FOR[tab]; if(!id)return null;
+  const el=document.getElementById(id); if(!el)return null;
+  if(tab==='wallet')V2Wallet.render();
+  else if(tab==='stats')V2Stats.load();
+  else if(tab==='social')V2Social.load();
+  else if(id==='stub'){
+    const n=NAV.find(x=>x.id===tab);
+    if(n){document.getElementById('stub-t').textContent=n.t;
+          document.getElementById('stub-d').textContent=n.d}
+  }
+  el.style.display='block';
+  return el;
+}
+/* The drag finished on the new screen: make it the route and drop the rest. */
+function commitScreen(tab){
+  const id=SCREEN_FOR[tab]; if(!id)return;
+  route=tab; drawNav();
+  SCREENS.forEach(s=>{const el=document.getElementById(s);
+                      if(el&&s!==id)el.style.display='none'});
+  scrollTo(0,0);
+}
+window.prepareScreen=prepareScreen;
+window.commitScreen=commitScreen;
+
 /* The extracted modules need these two: the router, and the palette they
    derive player avatar colours from. */
 window.showScreen=showScreen;

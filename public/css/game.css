@@ -126,6 +126,43 @@ body {
 }
 #chat-hint b { color: rgba(255,255,255,0.72); text-transform: uppercase; }
 
+/* ── Chat on a phone: read it, do not write it ───────────────────────────────
+   The box was desktop-sized and took a corner of a small screen, and the
+   input under it is unusable anyway: there is no T key to open it, and a
+   keyboard sliding up mid-game would cover the snake.
+
+   So on touch it becomes a small unboxed feed of the last few lines. No
+   panel, no input, no hint. Still readable, and it stops competing with the
+   game for the screen. */
+@media (pointer: coarse) {
+  #chat-box {
+    left: 10px;
+    bottom: calc(8px + env(safe-area-inset-bottom));
+    width: 190px;
+    max-width: 52vw;
+    padding: 0;
+    background: none;
+    border: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  #chat-messages {
+    height: 58px;                 /* about four lines */
+    margin-bottom: 0;
+    overflow-y: hidden;           /* no scrollbar to fight the canvas for touches */
+    pointer-events: none;         /* every touch here is a steering touch */
+    gap: 0;
+  }
+  #chat-messages .chat-msg {
+    font-size: 10.5px;
+    line-height: 1.28;
+    opacity: 0.72;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.9);
+  }
+  /* Typing is a desktop affordance; both of these are dead weight on a phone. */
+  #chat-input, #chat-input.open, #chat-hint { display: none !important; }
+}
+
 /* ── Leaderboard ─────────────────────────────────────────────────────────────
    A live money board, so it is set like one: names in the UI face, figures in
    mono and tabular so the column holds still as they tick. */
@@ -308,7 +345,8 @@ body {
 #death-screen {
   --co-ink:#100e0b; --co-s2:#1f1b15; --co-s3:#282219;
   --co-bone:#f5f1e8; --co-tx2:#a89c8a;
-  --co-money:#e0705f;               /* the card's accent, red here */
+  --co-money:#e0705f;               /* the figure, red: this is what was lost */
+  --co-act:#f0a830;                 /* the buttons stay the product's amber */
   display: none;
   position: fixed;
   inset: 0;
@@ -321,10 +359,15 @@ body {
 }
 #death-screen.active { display: flex; }
 
-/* Id-scoped so they beat the shared card rules further down the file. */
+/* Id-scoped so they beat the shared card rules further down the file.
+   Red is reserved for the amount lost. A red button reads as a warning about
+   the button, when the thing to be careful about is the number above it, and
+   it made this screen look like a different app from the receipt. */
 #death-screen .co-eyebrow { color: var(--co-money); }
-#death-screen .co-go { color: #fff; }          /* white on red, not ink on red */
-#death-screen .co-go:hover { background: #e8836f; }
+#death-screen .co-go { background: var(--co-act); color: var(--co-ink); }
+#death-screen .co-go:hover { background: #f6b845; }
+#death-screen .co-go:focus-visible { outline-color: var(--co-act); }
+#death-screen .dd-watch:focus-visible { outline-color: var(--co-act); }
 
 /* Free lobby, or a snake that was never worth anything: no figure to show. */
 #death-screen.dd-free .co-amount { display: none; }
@@ -349,7 +392,7 @@ body {
   cursor: pointer;
 }
 .dd-watch:hover { color: var(--co-bone); }
-.dd-watch:focus-visible { outline: 2px solid var(--co-money); outline-offset: 2px; }
+.dd-watch:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 
 /* Spectate bar */
 #spectate-bar {
@@ -392,6 +435,79 @@ body {
   font-weight: 700;
 }
 #spectate-play-again:hover { background: rgba(20,241,149,0.32) !important; }
+
+/* ── Spectate bar on a phone ─────────────────────────────────────────────────
+   One row of five controls around a 160px label is about 420px wide. Centred
+   with translateX(-50%) on a 375px screen that hangs off both edges, which is
+   what "messed up" looks like after tapping Keep watching.
+
+   Two rows instead: who you are watching and the arrows to change it, then the
+   two ways out at full width, on the product's palette. */
+@media (max-width: 560px), (pointer: coarse) {
+  #spectate-bar {
+    left: 12px;
+    right: 12px;
+    bottom: calc(14px + env(safe-area-inset-bottom));
+    transform: none;
+    display: none;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px;
+    border-radius: 14px;
+    background: rgba(16,14,11,0.9);
+    border-color: #282219;
+    font-family: 'Archivo', ui-sans-serif, system-ui, 'Segoe UI', Arial, sans-serif;
+  }
+  #spectate-bar.active { display: flex; }
+  #spectate-label {
+    order: 2;
+    flex: 1;
+    min-width: 0;
+    font-size: 0.82rem;
+    color: #a89c8a;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  #spectate-prev { order: 1; }
+  #spectate-next { order: 3; }
+  #spectate-prev, #spectate-next {
+    flex: none;
+    width: 44px;
+    min-height: 40px;
+    padding: 0;
+    border-radius: 10px;
+  }
+  /* A zero-height full-width item between the two groups, which is what
+     actually forces the wrap: flex-wrap alone lets all five squeeze onto one
+     row, and they did, down to a truncated label and buttons breaking mid-word. */
+  #spectate-bar::after {
+    content: '';
+    order: 4;
+    flex: 0 0 100%;
+    height: 0;
+  }
+  /* The two exits share the second row, so neither is a thumb-stretch away. */
+  #spectate-play-again, #spectate-stop {
+    order: 5;
+    flex: 1 1 0;
+    min-height: 44px;
+    border-radius: 10px;
+    font-size: 0.88rem;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  #spectate-play-again {
+    background: #f0a830 !important;
+    border-color: #f0a830 !important;
+    color: #100e0b !important;
+  }
+  #spectate-stop {
+    background: transparent;
+    border-color: #282219;
+    color: #f5f1e8;
+  }
+}
 
 /* All-time leaderboard modal */
 .modal-overlay {

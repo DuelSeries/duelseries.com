@@ -762,14 +762,15 @@ window.addEventListener('keyup',   (e) => { if (e.code === 'Space') boostActive 
    is not. Everything else is their numbers. */
 const TOUCH_DEADZONE_PX  = 10;    // below this the thumb has not asked for a turn
 const TOUCH_FOLLOW_R     = 60;    // the anchor is never left further behind than this
-const TOUCH_DBLTAP_MS    = 400;   // slither: mtm - ltchmtm < 400
-const TOUCH_DBLTAP_SLOP  = 24;    // slither: abs(dx) < 24 && abs(dy) < 24, per axis
 
 let touchSteering = false;   // a finger is down and steering
 let touchAngle    = null;    // heading the thumb has asked for; null means hold
 let anchorX = 0, anchorY = 0;
-let lastTapX = -1, lastTapY = -1, lastTapMs = -1;
 
+/* Steering always tracks the FIRST finger down. A second finger is the boost
+   pedal and must not move the snake, which is why this reads touches[0] and
+   not changedTouches: on a second-finger press changedTouches is the new
+   finger, and steering would jump to it. */
 function touchPoint(e) {
   const t = e.touches[0] || e.changedTouches[0];
   return t ? { x: t.clientX, y: t.clientY } : null;
@@ -798,17 +799,18 @@ function updateTouchAim(p) {
   // rather than jittering under a resting thumb.
 }
 
+/* Boost is a second finger anywhere on the screen: hold it down to boost, lift
+   it to stop, and the steering thumb never has to leave the glass.
+
+   This replaced a double-tap, which is what slither's web client does. A
+   double-tap means the boost only starts on a tap whose PREVIOUS tap was in
+   almost the same spot, so boosting mid-turn meant lifting the thumb you were
+   steering with, and the snake coasted straight for the gap. */
 canvas.addEventListener('touchstart', (e) => {
   e.preventDefault();
+  if (e.touches.length > 1) { boostActive = true; return; }   // pedal, not a turn
   const p = touchPoint(e);
   if (!p) return;
-  const now = performance.now();
-  if (Math.abs(p.x - lastTapX) < TOUCH_DBLTAP_SLOP &&
-      Math.abs(p.y - lastTapY) < TOUCH_DBLTAP_SLOP &&
-      now - lastTapMs < TOUCH_DBLTAP_MS) {
-    boostActive = true;                       // double-tap, held while down
-  }
-  lastTapX = p.x; lastTapY = p.y; lastTapMs = now;
   touchSteering = true;
   // A new touch starts a fresh stick under the thumb, and asks for no turn yet.
   anchorX = p.x; anchorY = p.y;
@@ -823,7 +825,11 @@ canvas.addEventListener('touchmove', (e) => {
 }, { passive: false });
 
 function endTouch(e) {
-  if (e.touches && e.touches.length > 0) return;   // another finger still down
+  // Lifting the pedal stops the boost while the steering finger stays down.
+  if (e.touches && e.touches.length > 0) {
+    if (e.touches.length < 2) boostActive = false;
+    return;
+  }
   boostActive = false;
   touchSteering = false;
   touchAngle = null;

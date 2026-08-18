@@ -409,7 +409,7 @@ test('swipe navigation exempts anything that owns its own horizontal drag', () =
     assert.ok(src.includes(sel), `${sel} is exempt`);
   assert.ok(/railwrap/.test(src), 'the games rail gets the swipe instead of the tabs');
   // A mostly-vertical drag is a scroll, not a swipe.
-  assert.ok(/Math\.abs\(dx\) < Math\.abs\(dy\) \* RATIO/.test(src), 'direction is checked');
+  assert.ok(/Math\.abs\(dx\) < Math\.abs\(dy\) \* CLAIM_RATIO/.test(src), 'direction is checked');
   assert.ok(/touchstart/.test(src) && !/pointerdown/.test(src),
     'touch only, since a mouse drag is a text selection');
 });
@@ -481,9 +481,18 @@ test('touch steering is anchored where the thumb lands, not at the screen centre
   assert.ok(!/inner(Width|Height)/.test(aim),
     'the heading is not measured from the screen centre any more');
   assert.ok(aim.includes('anchorX') && aim.includes('anchorY'), 'it is measured from the anchor');
-  // Boost stays as slither has it: a double-tap, their numbers.
-  assert.ok(/TOUCH_DBLTAP_MS\s*=\s*400/.test(js), 'double-tap window is 400ms');
-  assert.ok(/TOUCH_DBLTAP_SLOP\s*=\s*24/.test(js), 'double-tap slop is 24px per axis');
+  /* Boost is a second finger, not a double-tap. A double-tap only fires when
+     the previous tap was in nearly the same spot, so boosting mid-turn meant
+     lifting the thumb you were steering with and coasting straight. */
+  const start = js.slice(js.indexOf("canvas.addEventListener('touchstart'"),
+                         js.indexOf("canvas.addEventListener('touchmove'"));
+  assert.ok(/e\.touches\.length > 1.*boostActive = true/s.test(start),
+    'a second finger boosts');
+  assert.ok(start.includes('return'), 'and does not also become a steering touch');
+  assert.ok(!js.includes('TOUCH_DBLTAP'), 'the double-tap is gone');
+  // Steering must track the first finger, not whichever one just changed.
+  const tp = js.slice(js.indexOf('function touchPoint'), js.indexOf('function updateTouchAim'));
+  assert.ok(tp.includes('e.touches[0]'), 'steering follows the first finger down');
 
   // The joystick and boost button are gone from markup, styles and script.
   const html = fs.readFileSync(path.join(ROOT, 'public/game.html'), 'utf8');
@@ -593,8 +602,84 @@ test('swiping between tabs animates, and never leaves a screen pinned', () => {
 
   // Reduced motion is honoured, and a swipe still changes screen.
   assert.ok(/prefers-reduced-motion/.test(html), 'reduced motion is respected');
+});
 
-  // The swipe handler has to supply the direction or nothing animates.
+test('a tab swipe follows the finger and can be pulled back', () => {
+  /* The gesture drags the next screen in under the finger rather than firing
+     an animation after release, so a half-swipe shows you what is there and
+     can be abandoned. Without that, a partial swipe is indistinguishable from
+     a tap that did nothing. */
   const sw = fs.readFileSync(path.join(ROOT, 'public/js/v2/swipe.js'), 'utf8');
-  assert.ok(/window\.go\(TABS\[next\], dir\)/.test(sw), 'the swipe hands on its direction');
+  const html = v2();
+
+  assert.ok(/window\.prepareScreen/.test(sw) && /window\.commitScreen/.test(sw),
+    'it stages the incoming screen before routing to it');
+  assert.ok(/function prepareScreen/.test(html) && /function commitScreen/.test(html),
+    'and the lobby provides both');
+  // Staging must load the screen's data, or you drag in an empty panel.
+  const prep = html.slice(html.indexOf('function prepareScreen'),
+                          html.indexOf('function commitScreen'));
+  for (const m of ['V2Wallet.render()', 'V2Stats.load()', 'V2Social.load()'])
+    assert.ok(prep.includes(m), `prepareScreen fills the screen (${m})`);
+
+  // Release decides by distance OR speed: a short fast flick has to count.
+  assert.ok(/COMMIT_FRAC/.test(sw), 'distance decides');
+  assert.ok(/FLICK_VPX/.test(sw), 'and so does a flick');
+  // Two moves can land in the same millisecond during a fast flick; dividing
+  // by that zero left the velocity at 0 and ignored the fastest flicks.
+  assert.ok(/Math\.max\(1, now - drag\.lastT\)/.test(sw),
+    'the velocity clock cannot divide by zero');
+
+  // The drag must claim the gesture before it can suppress page scrolling.
+  assert.ok(/touchmove'.*\{ passive: false \}/s.test(sw), 'touchmove is cancelable');
+  assert.ok(sw.indexOf('e.preventDefault()') > sw.indexOf('if (!drag)'),
+    'and only prevents default once the drag is claimed');
+
+  // Every exit has to put the staged screen away; a screen left fixed covers
+  // the whole app.
+  assert.ok(/touchcancel/.test(sw), 'a cancelled touch settles the drag');
+  const fin = sw.slice(sw.indexOf('function finish'), sw.indexOf('function onEnd'));
+  assert.ok(/classList\.remove\('scr-drag'/.test(fin), 'the staged screen is unpinned');
+  assert.ok(/setAttribute\('style', d\.saved\)/.test(fin), 'and its inline styles restored');
+});
+
+test('chat on a phone is readable but not typeable, and small', () => {
+  /* There is no T key on a phone to open the input, and a keyboard sliding up
+     mid-game covers the snake. The feed stays; the panel and the input go. */
+  const css = fs.readFileSync(path.join(ROOT, 'public/css/game.css'), 'utf8');
+  const i = css.indexOf('Chat on a phone');
+  assert.ok(i > 0, 'there is a phone-specific chat block');
+  const block = css.slice(i, css.indexOf('\n}\n', css.indexOf('#chat-hint', i)) + 3);
+  assert.ok(/#chat-input[^}]*display: none/.test(block) ||
+            /#chat-input, #chat-input\.open, #chat-hint \{ display: none/.test(block),
+    'the input is hidden');
+  assert.ok(/pointer-events: none/.test(block),
+    'and the feed never swallows a steering touch');
+});
+
+test('the spectate bar fits a phone instead of hanging off both edges', () => {
+  /* Five controls around a 160px label is about 420px wide, centred with
+     translateX(-50%). On a 375px screen that overhangs both sides, which is
+     what you land on straight after tapping Keep watching. */
+  const css = fs.readFileSync(path.join(ROOT, 'public/css/game.css'), 'utf8');
+  const i = css.indexOf('Spectate bar on a phone');
+  assert.ok(i > 0, 'there is a phone-specific spectate block');
+  const block = css.slice(i, i + 2200);
+  assert.ok(/transform: none/.test(block), 'it is no longer centre-offset');
+  assert.ok(/left: 12px/.test(block) && /right: 12px/.test(block), 'it is pinned to both edges');
+  // flex-wrap alone let all five squeeze onto one row; the break is explicit.
+  assert.ok(/#spectate-bar::after/.test(block), 'the row break is forced');
+  assert.ok(/min-height: 44px/.test(block), 'the exits are a real touch target');
+});
+
+test('the death card uses the product palette for its buttons', () => {
+  // Red is for the amount lost. A red button reads as a warning about the
+  // button, and made this screen look like a different app from the receipt.
+  const css = fs.readFileSync(path.join(ROOT, 'public/css/game.css'), 'utf8');
+  assert.ok(/#death-screen \{[^}]*--co-act:\s*#f0a830/.test(css),
+    'the action colour is the product amber');
+  assert.ok(/#death-screen \.co-go \{ background: var\(--co-act\)/.test(css),
+    'and the primary button uses it');
+  assert.ok(/#death-screen \{[^}]*--co-money:\s*#e0705f/.test(css),
+    'while the amount lost stays red');
 });
