@@ -607,9 +607,32 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
    Below 760px it becomes two fixed bars instead: identity and money on top,
    navigation along the bottom where a thumb reaches. */
 @media(max-width:760px){
-  /* Room for the two fixed bars, plus the home indicator under the lower one. */
-  body{padding-top:calc(56px + env(safe-area-inset-top));
-       padding-bottom:calc(104px + env(safe-area-inset-bottom))}
+  /* ── One scroll per screen, instead of one for the whole document ──────────
+     The document does not scroll on a phone. Each screen is its own scrolling
+     pane, fixed in the band between the two bars.
+
+     This is what finally kills the pop at the end of a swipe, and it kills the
+     cause rather than the symptom. With a single document scroll, the screen
+     being dragged in has to be lifted out of the page to move independently,
+     which means the moment it is put back it is measured against a document
+     that is scrolled somewhere else — so something always has to be corrected,
+     and the correction is visible. Panes have nothing to correct: each keeps
+     its own scroll position, the document's is always zero, and sliding one
+     sideways cannot move the other at all.
+
+     It also removes a whole class of bug for free: the screens no longer share
+     a flow, so showing one can never displace another. */
+  html,body{height:100%;overflow:hidden;overscroll-behavior:none}
+  body{padding-top:0;padding-bottom:0}
+  main.wrap{
+    position:fixed;left:0;right:0;
+    top:calc(56px + env(safe-area-inset-top));
+    bottom:calc(104px + env(safe-area-inset-bottom));
+    max-width:none;margin:0;
+    overflow-y:auto;overflow-x:hidden;
+    -webkit-overflow-scrolling:touch;
+    overscroll-behavior:contain;   /* no rubber-banding the page behind it */
+  }
 
   /* backdrop-filter is dropped here on purpose, not for taste. A filtered
      element becomes the containing block for its position:fixed descendants,
@@ -2014,6 +2037,11 @@ function commitScreen(tab){
    on the element for the duration of the call is, because an inline style
    beats the stylesheet rule. Returns how far it actually moved. */
 function jumpToTop(){
+  /* On a phone the document does not scroll: each screen is its own pane, so
+     "top" means the top of the screen you are on. */
+  const cur=SCREENS.map(s=>document.getElementById(s))
+                   .find(e=>e&&getComputedStyle(e).display!=='none');
+  if(cur&&getComputedStyle(cur).position==='fixed'){cur.scrollTop=0;return 0}
   const y=window.scrollY||0;
   const h=document.documentElement, prev=h.style.scrollBehavior;
   h.style.scrollBehavior='auto';

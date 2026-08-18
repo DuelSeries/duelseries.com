@@ -755,8 +755,9 @@ test('a swipe never scrolls the page, and the incoming screen does not drop and 
   const bd = sw.slice(sw.indexOf('function beginDrag'), sw.indexOf('function move'));
   // The call, not the word: the comment above it explains the bug it caused.
   assert.ok(!/scrollTo\(/.test(bd), 'starting a drag does not scroll the page');
-  // Pinned at the resting position, so there is nothing left to correct.
-  assert.ok(/const restTop = r\.top \+ window\.scrollY/.test(bd),
+  // Pinned at the resting position in the desktop flow layout, so there is
+  // nothing left to correct. On a phone this path is not taken at all.
+  assert.ok(/restTop = paned \? 0 : r\.top \+ window\.scrollY/.test(bd),
     'the incoming screen is pinned where it will come to rest');
   assert.ok(/top: restTop/.test(bd), 'and that is what it is positioned at');
 
@@ -769,7 +770,8 @@ test('a swipe never scrolls the page, and the incoming screen does not drop and 
   const fin = sw.slice(sw.indexOf('function finish'), sw.indexOf('function onEnd(e)'));
   assert.ok(fin.indexOf('jumpToTop()') < fin.indexOf("classList.add('scr-settle')"),
     'the scroll is reset before the settle begins, not after it ends');
-  assert.ok(/if \(commit && window\.jumpToTop\)/.test(fin), 'and only when it commits');
+  assert.ok(/if \(commit && !d\.paned && window\.jumpToTop\)/.test(fin),
+    'and only when it commits, and only in the flow layout');
   const commit = html.slice(html.indexOf('function commitScreen'),
                             html.indexOf('/* scroll-behavior:smooth'));
   assert.ok(!/jumpToTop\(\)/.test(commit),
@@ -818,4 +820,48 @@ test('the settle is timed by distance left, so it never crawls into place', () =
   assert.ok(/safety net only/.test(fin), 'the timer is only a fallback');
   // Both paths must be idempotent or the cleanup runs twice.
   assert.ok(/if \(finished\) return/.test(fin), 'and they cannot both fire the cleanup');
+});
+
+test('on a phone each screen scrolls itself, so a swipe has nothing to correct', () => {
+  /* The pop at the end of a swipe was fixed four times and kept coming back,
+     because every fix treated a symptom of one structural fact: all the
+     screens shared the document's single scroll. That forces the screen being
+     dragged in to be lifted out of the page so it can move on its own, and the
+     moment it is put back it is measured against a document scrolled somewhere
+     else — so something always has to be corrected, and the correction is
+     visible.
+
+     Below 760px the document does not scroll at all now. Each screen is a
+     fixed pane with its own scrollbar, so sliding one sideways cannot move the
+     other, there is no document scroll to reset, and nothing is put back. */
+  const html = v2();
+  const i = html.indexOf('One scroll per screen');
+  assert.ok(i > 0, 'the pane layout is documented where it is defined');
+  const block = html.slice(i, i + 2200);
+  assert.ok(/html,body\{height:100%;overflow:hidden/.test(block),
+    'the document itself cannot scroll on a phone');
+  assert.ok(/main\.wrap\{/.test(block), 'the screens are the scrolling elements');
+  assert.ok(/position:fixed/.test(block) && /overflow-y:auto/.test(block),
+    'each is a fixed pane that scrolls itself');
+  // It has to sit between the two fixed bars or content hides behind them.
+  assert.ok(/top:calc\(56px \+ env\(safe-area-inset-top\)\)/.test(block), 'below the header');
+  assert.ok(/bottom:calc\(104px \+ env\(safe-area-inset-bottom\)\)/.test(block),
+    'above the nav and the legal links');
+  assert.ok(/overscroll-behavior:contain/.test(block), 'and does not rubber-band the page');
+
+  /* The drag must take the no-op path when panes are in play: no pinning, no
+     scroll reset, no compensation. Any of those coming back reintroduces the
+     pop, because they only exist to paper over the shared scroll. */
+  const sw = fs.readFileSync(path.join(ROOT, 'public/js/v2/swipe.js'), 'utf8');
+  const bd = sw.slice(sw.indexOf('function beginDrag'), sw.indexOf('function move'));
+  assert.ok(/const paned = getComputedStyle\(cur\)\.position === 'fixed'/.test(bd),
+    'the drag detects the pane layout');
+  assert.ok(/if \(paned\)/.test(bd), 'and skips the pinning when it applies');
+  const fin = sw.slice(sw.indexOf('function finish'), sw.indexOf('function onEnd(e)'));
+  assert.ok(/if \(commit && !d\.paned && window\.jumpToTop\)/.test(fin),
+    'and never touches the document scroll in pane mode');
+
+  // "Top" means the top of the screen you are on, not of the document.
+  const jt = html.slice(html.indexOf('function jumpToTop'), html.indexOf('window.jumpToTop='));
+  assert.ok(/cur\.scrollTop=0/.test(jt), 'jumpToTop scrolls the active pane');
 });

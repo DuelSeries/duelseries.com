@@ -96,16 +96,23 @@
     const cur = SCREEN_IDS.map(el).find(visible);
     if (!cur) return false;
 
-    /* Measured BEFORE the incoming screen is shown, and this order is the whole
-       fix for backward swipes. prepareScreen puts the incoming screen into
-       normal flow for an instant, and the screens are siblings: showing one
-       that sits EARLIER in the document pushes the outgoing one down by its
-       full height. Measuring after that read a top of ~1350px on a 812px
-       screen, so the incoming screen was pinned far below the fold and a
-       backward swipe appeared to drag in nothing at all. Forward swipes were
-       unaffected, because the incoming screen was later in the document and
-       pushed nothing. */
-    const r = cur.getBoundingClientRect();
+    /* On a phone every screen is its own fixed scrolling pane, so the two
+       already occupy the same box, neither can displace the other, and there
+       is no document scroll to reconcile. Nothing needs pinning or measuring,
+       and nothing has to be put back afterwards — which is what finally ends
+       the pop at the end of a swipe.
+
+       The other branch is the desktop layout, where the screens are still in
+       normal flow and the incoming one has to be lifted out and placed over
+       the outgoing one. Desktop has no touch, so it is close to unused, but it
+       stays correct rather than quietly broken. */
+    const paned = getComputedStyle(cur).position === 'fixed';
+
+    /* Flow layout only. Measured BEFORE the incoming screen is shown, because
+       prepareScreen puts it into flow for an instant and showing a screen that
+       sits EARLIER in the document pushes the outgoing one down by its full
+       height — which read as a top of ~1350px on an 812px screen. */
+    const r = paned ? null : cur.getBoundingClientRect();
 
     /* Where a screen sits when the page is at the top, in document space. The
        header is fixed on a phone, so this is a constant: the band under it.
@@ -122,20 +129,27 @@
        instantly. Pinning at the resting position means the incoming screen is
        already exactly where it will end up, so there is nothing left to
        correct when it lands. */
-    const restTop = r.top + window.scrollY;
+    const restTop = paned ? 0 : r.top + window.scrollY;
 
     const incoming = window.prepareScreen(tab);
     if (!incoming || incoming === cur) return false;
     const saved = incoming.getAttribute('style') || '';
-    incoming.classList.add('scr-drag');
-    Object.assign(incoming.style, {
-      display: 'block', top: restTop + 'px', left: '0px',
-      width: window.innerWidth + 'px', margin: '0',
-    });
+    incoming.classList.add('scr-drag');        // z-index and will-change
+    incoming.style.display = 'block';
+    if (paned) {
+      /* Arrive at the top of the new screen. Set while it is still off-screen,
+         so there is nothing for the eye to catch. */
+      incoming.scrollTop = 0;
+    } else {
+      Object.assign(incoming.style, {
+        top: restTop + 'px', left: '0px',
+        width: window.innerWidth + 'px', margin: '0',
+      });
+    }
     cur.classList.add('scr-live');
     document.body.classList.add('scr-dragging');
 
-    drag = { dir, tab, cur, incoming, saved, w: window.innerWidth, dx: 0,
+    drag = { dir, tab, cur, incoming, saved, paned, w: window.innerWidth, dx: 0,
              lastX: x0, lastT: Date.now(), v: 0 };
     move(0);
     return true;
@@ -212,8 +226,18 @@
        The outgoing screen is scrolled, so it is pushed back down by the same
        amount to keep it exactly where the eye last saw it while it slides
        away. Both happen in one go, so there is no frame in between. */
+    /* Only the flow layout needs this. There, the incoming screen is lifted
+       out of the page to move, so the moment it is put back it is measured
+       against a document scrolled somewhere else and the page has to travel to
+       catch up — the vertical pop. Resetting the scroll here, at the start of
+       the settle rather than at the swap, means it is already at the top by
+       then; the outgoing screen is pushed back down by the same amount so it
+       stays where the eye last saw it while it slides away.
+
+       With panes there is no document scroll and no lifting, so there is
+       nothing to reset and nothing to compensate. */
     let comp = 0;
-    if (commit && window.jumpToTop) comp = window.jumpToTop() || 0;
+    if (commit && !d.paned && window.jumpToTop) comp = window.jumpToTop() || 0;
 
     /* The compensation has to land instantly, and merely setting it before the
        transition class is not enough: style is recalculated once at the end of
