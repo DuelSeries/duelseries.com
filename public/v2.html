@@ -706,8 +706,11 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
 .scr-drag { position:fixed; z-index:2; will-change:transform }
 .scr-live { will-change:transform }
 .scr-settle { transition:transform .24s cubic-bezier(.22,.7,.28,1) }
-/* Kill the vertical scroll while a horizontal drag owns the gesture. */
-body.scr-dragging { overflow:hidden; touch-action:pan-y }
+/* Only the horizontal overflow the moving screens would otherwise create.
+   Setting overflow:hidden here instead would fight the page's scroll position
+   mid-gesture; the drag already calls preventDefault once it owns the touch,
+   which is what actually stops the page moving under your finger. */
+body.scr-dragging { overflow-x:hidden }
 
 /* ── Screen transitions ──────────────────────────────────────────────────────
    A swipe used to change the screen instantly, which on a phone is hard to
@@ -1824,9 +1827,9 @@ function open_(id){
                    :'Beat your opponent and take the pot. Both sides staked the same, so it comes down to skill.'],
     ['Cash out','Leave whenever you like. Your worth is paid to your wallet on-chain, minus the ten percent house cut.'],
   ].map((s,i)=>`<div class="hs"><i>0${i+1}</i><b>${s[0]}</b><p>${s[1]}</p></div>`).join('');
-  drawStake(); drawSkins(); repaintAll(); scrollTo(0,0);
+  drawStake(); drawSkins(); repaintAll(); jumpToTop();
 }
-function goHome(dir){showScreen('home',dir);scrollTo(0,0)}
+function goHome(dir){showScreen('home',dir);jumpToTop()}
 
 function drawStake(){
   const v=STEPS[si], el=document.getElementById('sv');
@@ -1984,13 +1987,25 @@ function prepareScreen(tab){
   el.style.display='block';
   return el;
 }
-/* The drag finished on the new screen: make it the route and drop the rest. */
+/* The drag finished on the new screen: make it the route and drop the rest.
+
+   The scroll reset is INSTANT, not the page's usual smooth scroll. The new
+   screen was dragged in already sitting at its resting position, so an
+   animated scroll here would slide it away from where it already is and then
+   back — the drop-and-snap this whole path exists to avoid. It also only
+   happens on a commit: a half-swipe that snaps back must not throw away where
+   you had scrolled to. */
 function commitScreen(tab){
   const id=SCREEN_FOR[tab]; if(!id)return;
   route=tab; drawNav();
   SCREENS.forEach(s=>{const el=document.getElementById(s);
                       if(el&&s!==id)el.style.display='none'});
-  scrollTo(0,0);
+  jumpToTop();
+}
+/* scroll-behavior:smooth is set on <html>, so plain scrollTo animates. */
+function jumpToTop(){
+  try{window.scrollTo({top:0,left:0,behavior:'instant'})}
+  catch(_){window.scrollTo(0,0)}
 }
 window.prepareScreen=prepareScreen;
 window.commitScreen=commitScreen;
@@ -2004,7 +2019,7 @@ function go(id,dir){
   const sid=SCREEN_FOR[id]; if(!sid)return;
   fillScreen(id);
   showScreen(sid,dir);
-  scrollTo(0,0);
+  jumpToTop();
 }
 
 /* The mock wallet dropdown that used to live here is gone: five tabs of

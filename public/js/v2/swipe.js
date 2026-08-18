@@ -41,8 +41,13 @@
      a phone is a wide target sitting right where a thumb lands. A text field
      has no horizontal gesture worth protecting: dragging in one moves a caret,
      and the drag has to travel 12px before it claims anything, so a tap to
-     focus and type still works exactly as before. */
-  const EXEMPT = '.chartbox, .apscreen, #game-frame, .ticker';
+     focus and type still works exactly as before.
+
+     The winners ticker is not exempt either. It is a CSS marquee with no
+     controls of any kind by design, so there is no gesture of its own to
+     protect — and it is a wide band sitting in the middle of the home screen,
+     so exempting it carved a dead stripe across the most swiped page. */
+  const EXEMPT = '.chartbox, .apscreen, #game-frame';
 
   const TABS = ['play', 'wallet', 'stats', 'social', 'locker', 'settings'];
   const SCREEN_IDS = ['home', 'detail', 'stub', 'stub2', 'wallet-screen',
@@ -83,10 +88,6 @@
     const cur = SCREEN_IDS.map(el).find(visible);
     if (!cur) return false;
 
-    /* Both screens start from the top of their content, which is where the
-       committed screen will sit, so nothing jumps at the end of the drag. */
-    window.scrollTo(0, 0);
-
     /* Measured BEFORE the incoming screen is shown, and this order is the whole
        fix for backward swipes. prepareScreen puts the incoming screen into
        normal flow for an instant, and the screens are siblings: showing one
@@ -98,12 +99,29 @@
        pushed nothing. */
     const r = cur.getBoundingClientRect();
 
+    /* Where a screen sits when the page is at the top, in document space. The
+       header is fixed on a phone, so this is a constant: the band under it.
+
+       The incoming screen is pinned HERE rather than at the outgoing screen's
+       current position, which is the fix for the drop-and-snap. This used to
+       scroll the page to the top first and then measure — but scroll-behavior
+       is smooth, so scrollTo ANIMATED: the rect read a moment later was still
+       the old scrolled one, the incoming screen got pinned that far down, and
+       then the whole page slid up under it. Two visible faults from one line,
+       and it also threw away your reading position on every half-swipe.
+
+       Nothing scrolls now until a swipe actually commits, and then only
+       instantly. Pinning at the resting position means the incoming screen is
+       already exactly where it will end up, so there is nothing left to
+       correct when it lands. */
+    const restTop = r.top + window.scrollY;
+
     const incoming = window.prepareScreen(tab);
     if (!incoming || incoming === cur) return false;
     const saved = incoming.getAttribute('style') || '';
     incoming.classList.add('scr-drag');
     Object.assign(incoming.style, {
-      display: 'block', top: r.top + 'px', left: '0px',
+      display: 'block', top: restTop + 'px', left: '0px',
       width: window.innerWidth + 'px', margin: '0',
     });
     cur.classList.add('scr-live');

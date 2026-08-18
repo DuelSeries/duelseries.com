@@ -407,15 +407,17 @@ test('swipe navigation exempts anything that owns its own horizontal drag', () =
   // screen has its own arrows. A page-wide swipe handler that ignored those
   // would make the chart unusable and change tabs mid-read.
   const src = fs.readFileSync(path.join(ROOT, 'public/js/v2/swipe.js'), 'utf8');
-  for (const sel of ['.chartbox', '.apscreen', '#game-frame', '.ticker'])
-    assert.ok(src.includes(sel), `${sel} is exempt`);
-  /* Form fields are NOT exempt, and must not be re-added. They were, and the
-     player search box on Social ate every swipe starting over it — a wide
-     target sitting exactly where a thumb lands. A text field has no horizontal
-     gesture worth protecting. */
   const ex = src.slice(src.indexOf('const EXEMPT'), src.indexOf('const TABS'));
-  for (const f of ['input', 'textarea', 'select'])
-    assert.ok(!new RegExp('[\\s,\']' + f + '[\\s,\']').test(ex), `${f} is not exempt`);
+  for (const sel of ['.chartbox', '.apscreen', '#game-frame'])
+    assert.ok(ex.includes(sel), `${sel} is exempt`);
+  /* These are NOT exempt and must not be re-added. Form fields were, and the
+     player search box on Social ate every swipe starting over it — a wide
+     target sitting exactly where a thumb lands. The winners ticker was too,
+     which carved a dead stripe across the middle of the most swiped screen;
+     it is a CSS marquee with no controls by design, so it has no gesture of
+     its own to protect. */
+  for (const f of ['input', 'textarea', 'select', '.ticker'])
+    assert.ok(!ex.includes(f), `${f} is not exempt`);
   assert.ok(/railwrap/.test(src), 'the games rail gets the swipe instead of the tabs');
   // A mostly-vertical drag is a scroll, not a swipe.
   assert.ok(/Math\.abs\(dx\) < Math\.abs\(dy\) \* CLAIM_RATIO/.test(src), 'direction is checked');
@@ -738,4 +740,36 @@ test('the free lobby is always on the board, with an honest count', () => {
   assert.ok(!/players: *1|fake|placeholder/i.test(src), 'no invented player count');
   assert.ok(/const occupied = \(\) => LOBBIES\.filter\(l => \(l\.players \|\| 0\) > 0\)/.test(src),
     'every other row still has to have someone in it');
+});
+
+test('a swipe never scrolls the page, and the incoming screen does not drop and snap', () => {
+  /* Two faults, one line. The drag used to scroll the page to the top before
+     measuring, but scroll-behavior:smooth is set on <html>, so scrollTo
+     ANIMATES: the rect read immediately after was still the old scrolled one,
+     the incoming screen got pinned that far down, and the page then slid up
+     underneath it. That is the drop-and-snap. The same line also threw away
+     your reading position every time a half-swipe snapped back. */
+  const sw = fs.readFileSync(path.join(ROOT, 'public/js/v2/swipe.js'), 'utf8');
+  const html = v2();
+
+  const bd = sw.slice(sw.indexOf('function beginDrag'), sw.indexOf('function move'));
+  // The call, not the word: the comment above it explains the bug it caused.
+  assert.ok(!/scrollTo\(/.test(bd), 'starting a drag does not scroll the page');
+  // Pinned at the resting position, so there is nothing left to correct.
+  assert.ok(/const restTop = r\.top \+ window\.scrollY/.test(bd),
+    'the incoming screen is pinned where it will come to rest');
+  assert.ok(/top: restTop/.test(bd), 'and that is what it is positioned at');
+
+  // Only a commit scrolls, and it must be instant or it animates away from
+  // the position the screen was already dragged to.
+  assert.ok(/behavior:'instant'/.test(html), 'the scroll reset is instant');
+  const commit = html.slice(html.indexOf('function commitScreen'),
+                            html.indexOf('function jumpToTop'));
+  assert.ok(/jumpToTop\(\)/.test(commit), 'a commit resets the scroll');
+  const fin = sw.slice(sw.indexOf('function finish'), sw.indexOf('function onEnd'));
+  assert.ok(!/scrollTo|jumpToTop/.test(fin), 'but settling back does not');
+
+  // overflow:hidden mid-gesture fights the page's own scroll position.
+  assert.ok(/body\.scr-dragging \{ overflow-x:hidden \}/.test(html),
+    'only horizontal overflow is clipped during a drag');
 });
