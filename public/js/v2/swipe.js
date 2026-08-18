@@ -34,12 +34,19 @@
   const FLICK_VPX = 0.45;   // px/ms: a fast flick lands it regardless of distance
   const SETTLE_MS = 240;    // must match .scr-settle in the stylesheet
 
-  /* Anything here owns its own horizontal gestures. */
-  const EXEMPT = '.chartbox, .apscreen, input, textarea, select, #game-frame, .ticker';
+  /* Anything here owns its own horizontal gestures.
+
+     Form fields are deliberately NOT on this list. They were, and it meant the
+     player search box on Social ate every swipe that started over it, which on
+     a phone is a wide target sitting right where a thumb lands. A text field
+     has no horizontal gesture worth protecting: dragging in one moves a caret,
+     and the drag has to travel 12px before it claims anything, so a tap to
+     focus and type still works exactly as before. */
+  const EXEMPT = '.chartbox, .apscreen, #game-frame, .ticker';
 
   const TABS = ['play', 'wallet', 'stats', 'social', 'locker', 'settings'];
-  const SCREEN_IDS = ['home', 'detail', 'stub', 'wallet-screen', 'stats-screen',
-                      'social-screen', 'player-screen'];
+  const SCREEN_IDS = ['home', 'detail', 'stub', 'stub2', 'wallet-screen',
+                      'stats-screen', 'social-screen', 'player-screen'];
 
   let x0 = 0, y0 = 0, t0 = 0, from = null;
   let tracking = false;     // a touch is down and might become a swipe
@@ -76,12 +83,23 @@
     const cur = SCREEN_IDS.map(el).find(visible);
     if (!cur) return false;
 
+    /* Both screens start from the top of their content, which is where the
+       committed screen will sit, so nothing jumps at the end of the drag. */
+    window.scrollTo(0, 0);
+
+    /* Measured BEFORE the incoming screen is shown, and this order is the whole
+       fix for backward swipes. prepareScreen puts the incoming screen into
+       normal flow for an instant, and the screens are siblings: showing one
+       that sits EARLIER in the document pushes the outgoing one down by its
+       full height. Measuring after that read a top of ~1350px on a 812px
+       screen, so the incoming screen was pinned far below the fold and a
+       backward swipe appeared to drag in nothing at all. Forward swipes were
+       unaffected, because the incoming screen was later in the document and
+       pushed nothing. */
+    const r = cur.getBoundingClientRect();
+
     const incoming = window.prepareScreen(tab);
     if (!incoming || incoming === cur) return false;
-
-    /* Pin the incoming screen over the outgoing one. Its own top is used, not
-       zero, so it lines up with the header rather than sliding under it. */
-    const r = cur.getBoundingClientRect();
     const saved = incoming.getAttribute('style') || '';
     incoming.classList.add('scr-drag');
     Object.assign(incoming.style, {

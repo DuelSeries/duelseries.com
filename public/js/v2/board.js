@@ -54,10 +54,22 @@
      is the opposite of what it is for. */
   const occupied = () => LOBBIES.filter(l => (l.players || 0) > 0);
 
+  /* The one exception: the free slither.io room is always listed, even empty.
+     It is the "just let me play" button — nothing to stake, nothing to think
+     about — and burying it behind the buy-in stepper made starting a game a
+     three-tap job from the screen whose entire purpose is starting a game.
+     It still shows its real count, so an empty one says so. */
+  function rowsToShow() {
+    const rows = occupied();
+    const free = LOBBIES.find(l => Number(l.stake) === 0 && l.game === 'snake');
+    if (free && !rows.some(r => r.id === free.id)) rows.unshift(free);
+    return rows;
+  }
+
   function draw() {
     const box = el('lob');
     if (!box) return;
-    const rows = occupied();
+    const rows = rowsToShow();
     if (!rows.length) {
       box.innerHTML = '<div class="none">Nobody is playing right now. ' +
         'Pick a buy-in and start a game, and it shows up here for everyone else.</div>';

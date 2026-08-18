@@ -274,9 +274,11 @@ test('the lobby makes no claim about money it cannot honour', () => {
     assert.ok(!html.includes(`onclick="${fn}`), `nothing calls ${fn}`);
     assert.ok(!html.includes(`function ${fn}(`), `${fn} is not defined`);
   }
-  // The section still exists and says what it is.
-  assert.ok(html.includes('Not running yet'), 'it says the events are not running');
-  assert.ok(/Planned/.test(html), 'and marks them planned');
+  /* The section itself is gone as of 2026-08-18: a panel describing a system
+     that does not exist is dead space on the screen people use to start a
+     game. What must not come back is a claim, so the guards above stay. */
+  assert.ok(!/<h2>Tournaments<\/h2>/.test(html), 'no tournament section');
+  assert.ok(!/class="trn"/.test(html), 'and none of its cards');
 });
 
 test('the phone layout exists and the header cannot overflow again', () => {
@@ -405,8 +407,15 @@ test('swipe navigation exempts anything that owns its own horizontal drag', () =
   // screen has its own arrows. A page-wide swipe handler that ignored those
   // would make the chart unusable and change tabs mid-read.
   const src = fs.readFileSync(path.join(ROOT, 'public/js/v2/swipe.js'), 'utf8');
-  for (const sel of ['.chartbox', '.apscreen', 'input', '#game-frame'])
+  for (const sel of ['.chartbox', '.apscreen', '#game-frame', '.ticker'])
     assert.ok(src.includes(sel), `${sel} is exempt`);
+  /* Form fields are NOT exempt, and must not be re-added. They were, and the
+     player search box on Social ate every swipe starting over it — a wide
+     target sitting exactly where a thumb lands. A text field has no horizontal
+     gesture worth protecting. */
+  const ex = src.slice(src.indexOf('const EXEMPT'), src.indexOf('const TABS'));
+  for (const f of ['input', 'textarea', 'select'])
+    assert.ok(!new RegExp('[\\s,\']' + f + '[\\s,\']').test(ex), `${f} is not exempt`);
   assert.ok(/railwrap/.test(src), 'the games rail gets the swipe instead of the tabs');
   // A mostly-vertical drag is a scroll, not a swipe.
   assert.ok(/Math\.abs\(dx\) < Math\.abs\(dy\) \* CLAIM_RATIO/.test(src), 'direction is checked');
@@ -617,10 +626,24 @@ test('a tab swipe follows the finger and can be pulled back', () => {
   assert.ok(/function prepareScreen/.test(html) && /function commitScreen/.test(html),
     'and the lobby provides both');
   // Staging must load the screen's data, or you drag in an empty panel.
+  const fill = html.slice(html.indexOf('function fillScreen'),
+                          html.indexOf('function prepareScreen'));
+  for (const m of ['V2Wallet.render()', 'V2Stats.load()', 'V2Social.load()'])
+    assert.ok(fill.includes(m), `fillScreen loads the screen's data (${m})`);
   const prep = html.slice(html.indexOf('function prepareScreen'),
                           html.indexOf('function commitScreen'));
-  for (const m of ['V2Wallet.render()', 'V2Stats.load()', 'V2Social.load()'])
-    assert.ok(prep.includes(m), `prepareScreen fills the screen (${m})`);
+  assert.ok(prep.includes('fillScreen(tab)'), 'and staging calls it');
+
+  /* The outgoing screen must be MEASURED before the incoming one is shown.
+     prepareScreen puts the incoming screen into flow for an instant, and the
+     screens are siblings: showing one that sits earlier in the document pushes
+     the outgoing one down by its whole height. Measuring after that pinned the
+     incoming screen ~1350px down an 812px screen, so backward swipes dragged
+     in nothing. Forward swipes were fine, which is exactly how it hid. */
+  const bd = sw.slice(sw.indexOf('function beginDrag'), sw.indexOf('function move'));
+  // Against the CALL, not the `!window.prepareScreen` guard above it.
+  assert.ok(bd.indexOf('cur.getBoundingClientRect()') < bd.indexOf('prepareScreen(tab)'),
+    'the outgoing screen is measured before the incoming one is shown');
 
   // Release decides by distance OR speed: a short fast flick has to count.
   assert.ok(/COMMIT_FRAC/.test(sw), 'distance decides');
@@ -682,4 +705,37 @@ test('the death card uses the product palette for its buttons', () => {
     'and the primary button uses it');
   assert.ok(/#death-screen \{[^}]*--co-money:\s*#e0705f/.test(css),
     'while the amount lost stays red');
+});
+
+test('Locker and Settings are separate screens, so you can swipe between them', () => {
+  /* They were both the single #stub element. A swipe between them therefore
+     had the same node on each side, beginDrag bailed out, and the gesture did
+     nothing — the only pair of neighbouring tabs where that happened. */
+  const html = v2();
+  assert.ok(/id="stub2"/.test(html), 'there is a second placeholder screen');
+  assert.ok(/id="stub2-t"/.test(html) && /id="stub2-d"/.test(html), 'with its own fields');
+  assert.ok(/locker:'stub',settings:'stub2'/.test(html), 'and the two tabs map to different ones');
+  // Both have to be in the hide-all list or one can be left showing under another.
+  const s = html.slice(html.indexOf('const SCREENS='), html.indexOf('function showScreen'));
+  assert.ok(s.includes("'stub'") && s.includes("'stub2'"), 'both are routable screens');
+  const sw = fs.readFileSync(path.join(ROOT, 'public/js/v2/swipe.js'), 'utf8');
+  assert.ok(/'stub', 'stub2'/.test(sw), 'and the swipe knows about both');
+});
+
+test('the free lobby is always on the board, with an honest count', () => {
+  /* Open lobbies otherwise lists only rooms with people in them, which is
+     right — an empty rung is a buy-in, not a lobby. The free room is the
+     exception: it is the "just let me play" row, and burying it behind the
+     buy-in stepper made starting a game a three-tap job from the screen whose
+     whole purpose is starting a game. */
+  const src = fs.readFileSync(path.join(ROOT, 'public/js/v2/board.js'), 'utf8');
+  assert.ok(/function rowsToShow/.test(src), 'the board pins a row');
+  assert.ok(/Number\(l\.stake\) === 0 && l\.game === 'snake'/.test(src),
+    'and it is the free slither.io room');
+  assert.ok(/!rows\.some\(r => r\.id === free\.id\)/.test(src),
+    'never listed twice when it does have players');
+  // The count itself must stay real: an empty room says 0.
+  assert.ok(!/players: *1|fake|placeholder/i.test(src), 'no invented player count');
+  assert.ok(/const occupied = \(\) => LOBBIES\.filter\(l => \(l\.players \|\| 0\) > 0\)/.test(src),
+    'every other row still has to have someone in it');
 });

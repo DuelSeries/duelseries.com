@@ -731,6 +731,27 @@ body.scr-anim { overflow-x:hidden }
 @media (prefers-reduced-motion: reduce) {
   .scr-in, .scr-out { animation-duration:.01ms }
 }
+
+/* ── Lobby rows on a phone ───────────────────────────────────────────────────
+   Seven items in a row needs about 420px; at 375 the player count and the
+   Enter button fell off the right edge. Two lines instead: what you are
+   joining and the way in on top, the details underneath.
+
+   The break is a zero-height full-width item rather than relying on wrapping,
+   because wrapping alone squeezed everything onto one line and clipped it. */
+@media(max-width:760px){
+  .lr{flex-wrap:wrap;gap:0 10px;padding:13px 4px;align-items:center}
+  .lr .sp{display:none}
+  .lr::after{content:'';order:4;flex:0 0 100%;height:0}
+  .lswatch{order:1;width:30px;height:30px}
+  .lname{order:2;flex:1 1 auto;min-width:0;font-size:14px;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .enter{order:3;flex:0 0 auto}
+  .lreg{order:5;margin-left:40px;margin-top:3px}   /* aligns under the name */
+  .lstake{order:6;min-width:0;font-size:13.5px;margin-top:3px}
+  .lplay{order:7;margin-top:3px}
+  .lr:hover{padding-left:4px;padding-right:4px}    /* no shift on a tap */
+}
 </style>
 </head>
 <body>
@@ -776,44 +797,10 @@ body.scr-anim { overflow-x:hidden }
   </div>
   <div class="lob" id="lob"></div>
 
-  <!-- No tournament system exists yet. Until one does, this section describes
-       what is coming and claims nothing: no live badge, no countdown, no prize
-       figure, no podium, and no button that takes an entry. Those were all
-       hardcoded in the prototype, which was fine on a mock and is not fine in
-       front of players staking real money — a $20 prize with a running clock
-       is a promise, and we would not have been able to keep it. -->
-  <div class="head">
-    <div><h2>Tournaments</h2><div class="sub">Not running yet</div></div>
-  </div>
-  <div class="trn">
-    <article class="tc">
-      <div class="tt"><span class="chip">Planned</span><h3>Most profit</h3></div>
-      <div class="tw">A window where everyone plays at once and the best net profit wins.</div>
-      <div class="tbody">
-        <div class="pl"><span class="k">Game</span><span class="v">slither.io</span></div>
-        <div class="pl"><span class="k">Format</span><span class="v">Timed window</span></div>
-        <div class="pl"><span class="k">Status</span><span class="v">Being built</span></div>
-      </div>
-      <div class="tfoot">
-        <p class="tn">Scheduled events are how a small player base ends up in the
-          same rooms at the same time instead of spread thin.</p>
-      </div>
-    </article>
-    <article class="tc">
-      <div class="tt"><span class="chip">Planned</span><h3>Biggest cash-out</h3></div>
-      <div class="tw">Same idea, judged on the single largest cash-out rather than
-        on profit across the window.</div>
-      <div class="tbody">
-        <div class="pl"><span class="k">Game</span><span class="v">slither.io</span></div>
-        <div class="pl"><span class="k">Format</span><span class="v">Timed window</span></div>
-        <div class="pl"><span class="k">Status</span><span class="v">Being built</span></div>
-      </div>
-      <div class="tfoot">
-        <p class="tn">Prizes and timings are announced here once the first event
-          has a date.</p>
-      </div>
-    </article>
-  </div>
+  <!-- Tournaments section removed 2026-08-18. There is no tournament system
+       yet, and a panel describing one that does not exist is just dead space
+       on the screen people actually use to start a game. It comes back when
+       there is something real to put in it. -->
 </main>
 
 <!-- ══ DETAIL ══ -->
@@ -928,8 +915,14 @@ body.scr-anim { overflow-x:hidden }
   <div class="panel" id="p-chart"></div>
 </main>
 
+<!-- Locker and Settings are both placeholders, but they need one element each:
+     a single shared stub is the same node on both sides of a swipe, so the
+     drag had nothing to move and the gesture did nothing between them. -->
 <main id="stub" class="wrap"><div class="stub">
   <h2 id="stub-t"></h2><p id="stub-d"></p>
+</div></main>
+<main id="stub2" class="wrap"><div class="stub">
+  <h2 id="stub2-t"></h2><p id="stub2-d"></p>
 </div></main>
 
 <!-- Structure copied from #appearance-screen in index.html: a full-screen
@@ -1901,7 +1894,7 @@ function drawNav(){
 /* One place that knows which screens exist, so a new one cannot be left
    showing underneath another. The player profile has no nav slot of its
    own: it is reached from the board and keeps Social lit while it is up. */
-const SCREENS=['home','detail','stub','wallet-screen','stats-screen',
+const SCREENS=['home','detail','stub','stub2','wallet-screen','stats-screen',
                'social-screen','player-screen'];
 /* dir: +1 the new screen arrives from the right (you swiped forward), -1 from
    the left, 0 or omitted for no animation. Taps on the nav pass 0 on purpose:
@@ -1964,21 +1957,30 @@ function showScreen(id,dir){
    it away. Three calls, so swipe.js never has to know the screen ids or which
    module loads what. */
 const SCREEN_FOR={play:'home',wallet:'wallet-screen',stats:'stats-screen',
-                  social:'social-screen',locker:'stub',settings:'stub'};
+                  social:'social-screen',locker:'stub',settings:'stub2'};
 window.V2_SCREEN_FOR=SCREEN_FOR;
+
+/* Put a tab's real content in place. Shared by the router and by the swipe,
+   which has to fill the incoming screen BEFORE dragging it into view or you
+   pull in an empty panel that populates after it lands. */
+function fillScreen(tab){
+  const id=SCREEN_FOR[tab];
+  if(tab==='wallet')V2Wallet.render();
+  else if(tab==='stats')V2Stats.load();
+  else if(tab==='social')V2Social.load();
+  else if(id==='stub'||id==='stub2'){
+    const n=NAV.find(x=>x.id===tab);
+    const p=id==='stub2'?'stub2':'stub';
+    if(n){document.getElementById(p+'-t').textContent=n.t;
+          document.getElementById(p+'-d').textContent=n.d}
+  }
+}
 
 /* Show a tab's screen and load its data without changing the route. */
 function prepareScreen(tab){
   const id=SCREEN_FOR[tab]; if(!id)return null;
   const el=document.getElementById(id); if(!el)return null;
-  if(tab==='wallet')V2Wallet.render();
-  else if(tab==='stats')V2Stats.load();
-  else if(tab==='social')V2Social.load();
-  else if(id==='stub'){
-    const n=NAV.find(x=>x.id===tab);
-    if(n){document.getElementById('stub-t').textContent=n.t;
-          document.getElementById('stub-d').textContent=n.d}
-  }
+  fillScreen(tab);
   el.style.display='block';
   return el;
 }
@@ -1999,16 +2001,9 @@ window.showScreen=showScreen;
 window.V2_LOOKS=LOOKS;
 function go(id,dir){
   route=id; drawNav();
-  if(id==='play')        showScreen('home',dir);
-  else if(id==='wallet'){ showScreen('wallet-screen',dir); V2Wallet.render() }
-  else if(id==='stats') { showScreen('stats-screen',dir);  V2Stats.load() }
-  else if(id==='social'){ showScreen('social-screen',dir); V2Social.load() }
-  else{
-    showScreen('stub',dir);
-    const n=NAV.find(x=>x.id===id);
-    document.getElementById('stub-t').textContent=n.t;
-    document.getElementById('stub-d').textContent=n.d;
-  }
+  const sid=SCREEN_FOR[id]; if(!sid)return;
+  fillScreen(id);
+  showScreen(sid,dir);
   scrollTo(0,0);
 }
 
