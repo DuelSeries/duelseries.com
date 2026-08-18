@@ -69,14 +69,17 @@
        goes back to the board first, because that screen is below the tabs
        rather than beside them, and jumping straight to Wallet from it would
        lose your place. */
+    /* dir is handed on so the screens cross-slide the way the thumb moved.
+       Going back is always a leftward arrival regardless of which way the
+       swipe went, because that is the direction the screen came from. */
     const detail = document.getElementById('detail');
     if (detail && getComputedStyle(detail).display !== 'none') {
-      if (window.goHome) window.goHome();
+      if (window.goHome) window.goHome(-1);
       return;
     }
     const player = document.getElementById('player-screen');
     if (player && getComputedStyle(player).display !== 'none') {
-      if (window.go) window.go('social');
+      if (window.go) window.go('social', -1);
       return;
     }
 
@@ -84,7 +87,7 @@
     if (now < 0) return;
     const next = now + dir;
     if (next < 0 || next >= TABS.length) return;                // no wrap-around
-    if (window.go) window.go(TABS[next]);
+    if (window.go) window.go(TABS[next], dir);
   }
 
   document.addEventListener('touchstart', onStart, { passive: true });

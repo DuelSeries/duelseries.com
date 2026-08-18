@@ -760,12 +760,14 @@ window.addEventListener('keyup',   (e) => { if (e.code === 'Space') boostActive 
    Ours measures from the head's real position instead of assuming it is dead
    centre, which is identical whenever the camera is settled and better when it
    is not. Everything else is their numbers. */
-const TOUCH_DEADZONE_PX  = 16;    // slither: d2 > 256
+const TOUCH_DEADZONE_PX  = 10;    // below this the thumb has not asked for a turn
+const TOUCH_FOLLOW_R     = 60;    // the anchor is never left further behind than this
 const TOUCH_DBLTAP_MS    = 400;   // slither: mtm - ltchmtm < 400
 const TOUCH_DBLTAP_SLOP  = 24;    // slither: abs(dx) < 24 && abs(dy) < 24, per axis
 
 let touchSteering = false;   // a finger is down and steering
-let touchHolding  = false;   // inside the dead zone: keep the current heading
+let touchAngle    = null;    // heading the thumb has asked for; null means hold
+let anchorX = 0, anchorY = 0;
 let lastTapX = -1, lastTapY = -1, lastTapMs = -1;
 
 function touchPoint(e) {
@@ -773,14 +775,27 @@ function touchPoint(e) {
   return t ? { x: t.clientX, y: t.clientY } : null;
 }
 
-// Measured from the screen centre, exactly as slither does, so the dead zone is
-// the same patch of screen for everyone regardless of canvas offset.
+/* The heading is the direction from the anchor to the thumb, and the anchor is
+   wherever the thumb first landed. Put a thumb at the bottom of the screen,
+   slide it up a little, and the snake goes up.
+
+   The anchor follows: once the thumb is further than TOUCH_FOLLOW_R away it is
+   dragged along so it stays exactly that far behind. Without that, a long drag
+   in one direction runs out of thumb travel and the stick pins at full lock;
+   with it there is always room to turn back, in any direction, forever. */
 function updateTouchAim(p) {
-  mousePos.x = p.x;
+  mousePos.x = p.x;                     // kept in sync for anything else reading it
   mousePos.y = p.y;
-  const dx = p.x - window.innerWidth / 2;
-  const dy = p.y - window.innerHeight / 2;
-  touchHolding = (dx * dx + dy * dy) <= TOUCH_DEADZONE_PX * TOUCH_DEADZONE_PX;
+  let dx = p.x - anchorX, dy = p.y - anchorY;
+  const d = Math.hypot(dx, dy);
+  if (d > TOUCH_FOLLOW_R) {
+    anchorX = p.x - (dx / d) * TOUCH_FOLLOW_R;
+    anchorY = p.y - (dy / d) * TOUCH_FOLLOW_R;
+    dx = p.x - anchorX; dy = p.y - anchorY;
+  }
+  if (d > TOUCH_DEADZONE_PX) touchAngle = Math.atan2(dy, dx);
+  // Inside the dead zone touchAngle is left alone, so the snake holds its line
+  // rather than jittering under a resting thumb.
 }
 
 canvas.addEventListener('touchstart', (e) => {
@@ -795,7 +810,10 @@ canvas.addEventListener('touchstart', (e) => {
   }
   lastTapX = p.x; lastTapY = p.y; lastTapMs = now;
   touchSteering = true;
-  updateTouchAim(p);
+  // A new touch starts a fresh stick under the thumb, and asks for no turn yet.
+  anchorX = p.x; anchorY = p.y;
+  touchAngle = null;
+  mousePos.x = p.x; mousePos.y = p.y;
 }, { passive: false });
 
 canvas.addEventListener('touchmove', (e) => {
@@ -808,14 +826,19 @@ function endTouch(e) {
   if (e.touches && e.touches.length > 0) return;   // another finger still down
   boostActive = false;
   touchSteering = false;
-  touchHolding = false;
+  touchAngle = null;
 }
 canvas.addEventListener('touchend', endTouch);
 canvas.addEventListener('touchcancel', endTouch);
 
-/* The heading arrow. slither has no such thing — there is no arrow, pointer or
-   direction indicator anywhere in their client — so this is ours, kept to a
-   thin mark at the head that only exists while a finger is down. */
+/* The heading arrow, sitting just ahead of the head and pointing exactly along
+   the direction the snake is travelling.
+
+   Transform order matters here and got it wrong the first time. CSS applies the
+   rightmost function first, so a trailing translate(-50%,-50%) is applied in
+   the element's own rotated frame: the centring offset spins with the heading
+   and the arrow drifts off to one side by up to its own size, worst at the
+   diagonals. Centring has to happen LAST in screen space, so it goes first. */
 const dirArrowEl = document.getElementById('dir-arrow');
 function updateDirArrow(headScreenX, headScreenY, angle) {
   if (!dirArrowEl) return;
@@ -825,7 +848,8 @@ function updateDirArrow(headScreenX, headScreenY, angle) {
   }
   dirArrowEl.style.opacity = '1';
   dirArrowEl.style.transform =
-    `translate(${headScreenX}px, ${headScreenY}px) rotate(${angle}rad) translateX(38px) translate(-50%, -50%)`;
+    `translate(-50%, -50%) translate(${headScreenX}px, ${headScreenY}px) ` +
+    `rotate(${angle}rad) translateX(46px)`;
 }
 
 // Mobile cash-out button — wired after startQTimer/cancelQTimer are defined below
@@ -1186,12 +1210,13 @@ function sendInput() {
 
   if (qHoldStart !== null && lockedAngle === null) lockedAngle = mySnake.angle;
 
-  // Inside the touch dead zone the heading is held rather than recomputed, so a
-  // thumb resting near the middle does not spin the snake on jitter.
+  // A thumb on the screen owns the heading outright: its angle comes from the
+  // anchor, not from a point in the world. Inside the dead zone touchAngle is
+  // still null, which holds the current line rather than snapping anywhere.
   const angle = lockedAngle !== null
     ? lockedAngle
-    : touchHolding
-    ? mySnake.angle
+    : touchSteering
+    ? (touchAngle !== null ? touchAngle : mySnake.angle)
     : Math.atan2(
         renderer.camera.screenToWorld(mousePos.x, mousePos.y, canvas.width, canvas.height).y - mySnake.segs[1],
         renderer.camera.screenToWorld(mousePos.x, mousePos.y, canvas.width, canvas.height).x - mySnake.segs[0]
@@ -1307,8 +1332,8 @@ function gameLoop(now) {
     let targetAngle;
     if (lockedAngle !== null) {
       targetAngle = lockedAngle;
-    } else if (touchHolding) {
-      targetAngle = _lAngle;                 // dead zone: hold the current heading
+    } else if (touchSteering) {
+      targetAngle = touchAngle !== null ? touchAngle : _lAngle;   // null: hold
     } else {
       const wm = renderer.camera.screenToWorld(mousePos.x, mousePos.y, canvas.width, canvas.height);
       targetAngle = Math.atan2(wm.y - localHeadY, wm.x - localHeadX);

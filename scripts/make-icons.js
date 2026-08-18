@@ -1,27 +1,34 @@
 'use strict';
-/* Generates every icon the site uses, from one drawing, at every size a
-   browser or launcher asks for:
+/* Cuts every icon the site uses from ONE source file, public/img/logo-source.png:
      favicon-16/32      the browser tab and the bookmark bar
      apple-touch-180    iOS home screen and Safari bookmarks
      icon-192/512       the installed app (Chrome needs >=192 to install at all)
 
-   The mark is DuelSeries': crossed swords inside a gold ring on the lobby's
-   ink background. It is drawn as geometry rather than traced from a render,
-   because the whole job of this file is producing something legible at 16
-   pixels. A photoreal metallic render carries detail that turns to grey mush
-   at that size; flat shapes with one light direction do not.
+   This used to redraw the emblem from canvas primitives, because the real
+   artwork was not on disk. It is now, so nothing is redrawn and nothing is
+   approximated: every size is a resample of the actual file, and that file is
+   the only thing anyone needs to replace to change the brand mark.
 
-   Drawn at 3x and averaged down, which is the cheapest way to get clean edges
-   on every shape at once without writing a rasteriser per primitive.
+   Node has no image decoder in core, so PNG decode and the downscale are both
+   here. The decode is the boring half of the spec (inflate, then undo the
+   per-scanline filters). The downscale is a box filter — each destination
+   pixel averages exactly the source pixels it covers — which for shrinking is
+   not a compromise but the correct answer: it uses every source pixel exactly
+   once, where bilinear sampling would skip most of them and alias the thin
+   highlights on the blades into sparkle.
 
-   Re-run after any change:  node scripts/make-icons.js
+   Alpha is premultiplied before averaging and divided back out after. Skipping
+   that step averages the colour of fully transparent pixels into the edge and
+   leaves a dark halo around the ring.
+
+   Re-run after replacing the source:  node scripts/make-icons.js
 */
 const fs = require('fs');
 const path = require('path');
 const zlib = require('zlib');
 
-const OUT = path.join(__dirname, '..', 'public', 'img');
-const SS = 3;                                  // supersampling factor
+const IMG = path.join(__dirname, '..', 'public', 'img');
+const SRC = path.join(IMG, 'logo-source.png');
 
 // ── PNG encoding ────────────────────────────────────────────────────────────
 const CRC = (() => {
@@ -57,180 +64,156 @@ function png(w, h, rgba) {
   ]);
 }
 
-// ── palette ─────────────────────────────────────────────────────────────────
-const INK   = [0x10, 0x0e, 0x0b];     // the lobby background
-const PLATE = [0x1a, 0x1a, 0x1c];     // the disc behind the swords
-const GOLD_L = [0xf7, 0xd0, 0x6b];    // gold, lit edge
-const GOLD_M = [0xd4, 0xa0, 0x30];    // gold, body
-const GOLD_D = [0x9a, 0x6c, 0x12];    // gold, shadow edge
-const STEEL_L = [0xf2, 0xf4, 0xf7];   // blade, lit face
-const STEEL_M = [0xc3, 0xc9, 0xd2];   // blade, body
-const STEEL_D = [0x8d, 0x94, 0x9e];   // blade, shadow face
-const GRIP    = [0x2a, 0x26, 0x22];   // leather-wrapped handle
+// ── PNG decoding ────────────────────────────────────────────────────────────
+function decodePng(buf) {
+  if (buf.readUInt32BE(0) !== 0x89504e47) throw new Error('not a PNG');
+  const w = buf.readUInt32BE(16), h = buf.readUInt32BE(20);
+  const depth = buf[24], colour = buf[25], interlace = buf[28];
+  if (depth !== 8) throw new Error(`bit depth ${depth} unsupported, need 8`);
+  if (colour !== 6 && colour !== 2) throw new Error(`colour type ${colour} unsupported, need 2 or 6`);
+  if (interlace) throw new Error('interlaced PNG unsupported');
 
-// ── drawing helpers, all operating on a float RGB buffer ────────────────────
-function makeCanvas(n) { return { n, px: new Float32Array(n * n * 3) }; }
-function fillAll(c, col) {
-  for (let i = 0; i < c.n * c.n; i++) { c.px[i*3] = col[0]; c.px[i*3+1] = col[1]; c.px[i*3+2] = col[2]; }
-}
-function put(c, x, y, col) {
-  if (x < 0 || y < 0 || x >= c.n || y >= c.n) return;
-  const i = (y * c.n + x) * 3;
-  c.px[i] = col[0]; c.px[i+1] = col[1]; c.px[i+2] = col[2];
-}
-const mix = (a, b, t) => [a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t, a[2]+(b[2]-a[2])*t];
+  const parts = [];
+  let off = 8;
+  while (off < buf.length) {
+    const len = buf.readUInt32BE(off);
+    const type = buf.toString('ascii', off + 4, off + 8);
+    if (type === 'IDAT') parts.push(buf.slice(off + 8, off + 8 + len));
+    if (type === 'IEND') break;
+    off += 12 + len;
+  }
+  const data = zlib.inflateSync(Buffer.concat(parts));
 
-/* Annulus with a light direction, so the ring reads as a bevelled metal band
-   rather than a flat donut: lighter at the top-left, darker at the bottom. */
-function ring(c, cx, cy, rOuter, rInner) {
-  for (let y = 0; y < c.n; y++) for (let x = 0; x < c.n; x++) {
-    const dx = x + 0.5 - cx, dy = y + 0.5 - cy;
-    const d = Math.hypot(dx, dy);
-    if (d > rOuter || d < rInner) continue;
-    const across = (d - rInner) / Math.max(1e-6, rOuter - rInner);   // 0 inner .. 1 outer
-    const lightDir = (-dx - dy) / (Math.SQRT2 * Math.max(1e-6, d));   // -1 .. 1
-    let col = mix(GOLD_D, GOLD_L, Math.max(0, Math.min(1, 0.5 + lightDir * 0.5)));
-    col = mix(col, GOLD_M, Math.abs(across - 0.5) * 0.9);
-    put(c, x, y, col);
-  }
-}
-function disc(c, cx, cy, r, col) {
-  for (let y = 0; y < c.n; y++) for (let x = 0; x < c.n; x++) {
-    const dx = x + 0.5 - cx, dy = y + 0.5 - cy;
-    if (dx*dx + dy*dy <= r*r) put(c, x, y, col);
-  }
-}
-/* Even-odd point-in-polygon. Every sword part is a polygon so one routine
-   covers blade, guard and grip. */
-function inPoly(px, py, pts) {
-  let inside = false;
-  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
-    const xi = pts[i][0], yi = pts[i][1], xj = pts[j][0], yj = pts[j][1];
-    if ((yi > py) !== (yj > py) && px < (xj - xi) * (py - yi) / (yj - yi) + xi) inside = !inside;
-  }
-  return inside;
-}
-/* Fills a polygon with a left-to-right shade across its own axis, which is what
-   gives the blade a lit face, a bright fuller and a shadowed face. */
-function fillPoly(c, pts, shade) {
-  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-  for (const p of pts) { minX = Math.min(minX, p[0]); maxX = Math.max(maxX, p[0]);
-                         minY = Math.min(minY, p[1]); maxY = Math.max(maxY, p[1]); }
-  for (let y = Math.max(0, Math.floor(minY)); y <= Math.min(c.n - 1, Math.ceil(maxY)); y++)
-    for (let x = Math.max(0, Math.floor(minX)); x <= Math.min(c.n - 1, Math.ceil(maxX)); x++)
-      if (inPoly(x + 0.5, y + 0.5, pts)) put(c, x, y, shade(x + 0.5, y + 0.5));
-}
-const rot = (x, y, cx, cy, a) => {
-  const s = Math.sin(a), co = Math.cos(a), dx = x - cx, dy = y - cy;
-  return [cx + dx * co - dy * s, cy + dx * s + dy * co];
-};
-
-/* One sword, drawn pointing up through the centre then rotated. Proportions are
-   matched to the reference: a long blade reaching most of the way to the ring,
-   a crescent crossguard whose ends sweep up towards the tip, a banded grip, and
-   a ball pommel sitting out near the inner ring. */
-function sword(c, cx, cy, R, angle) {
-  const P = (x, y) => rot(cx + x * R, cy + y * R, cx, cy, angle);
-  const halfW = 0.062, tipY = -0.70, shoulderY = -0.52, guardY = 0.20;
-
-  // Blade: parallel sides, then a long point.
-  const blade = [P(-halfW, guardY), P(-halfW, shoulderY), P(0, tipY),
-                 P(halfW, shoulderY), P(halfW, guardY)];
-  /* Shaded across the blade's own width, with the axis rotated with it, so the
-     lit face and the central fuller stay put whichever way the sword points. */
-  const ux = Math.cos(angle), uy = Math.sin(angle);
-  fillPoly(c, blade, (x, y) => {
-    const k = Math.max(0, Math.min(1,
-      ((x - cx) * ux + (y - cy) * uy) / (halfW * R) * 0.5 + 0.5));
-    return k < 0.38 ? mix(STEEL_D, STEEL_M, k / 0.38)
-         : k < 0.56 ? STEEL_L                       // the fuller catching light
-         : mix(STEEL_M, STEEL_D, (k - 0.56) / 0.44);
-  });
-
-  /* Crescent crossguard: the ends rise towards the tip, which is the detail
-     that makes it read as a sword hilt rather than a plus sign. Built by
-     sampling the curve rather than as a straight bar. */
-  const gw = 0.30, gh = 0.075, bow = 0.11, N = 14;
-  const top = [], bottom = [];
-  for (let i = 0; i <= N; i++) {
-    const t = -1 + (2 * i) / N;
-    const yc = guardY - bow * t * t;
-    top.push(P(t * gw, yc - gh / 2));
-    bottom.push(P(t * gw, yc + gh / 2));
-  }
-  fillPoly(c, top.concat(bottom.reverse()), () => GOLD_M);
-  // A lit sliver along the guard's upper edge.
-  const lip = [];
-  for (let i = 0; i <= N; i++) {
-    const t = -1 + (2 * i) / N;
-    lip.push(P(t * gw, guardY - bow * t * t - gh / 2));
-  }
-  for (let i = N; i >= 0; i--) {
-    const t = -1 + (2 * i) / N;
-    lip.push(P(t * gw, guardY - bow * t * t - gh / 2 + gh * 0.42));
-  }
-  fillPoly(c, lip, () => GOLD_L);
-
-  // Grip, with two gold bands like the reference.
-  fillPoly(c, [P(-0.050, guardY + gh / 2), P(-0.050, 0.50),
-               P(0.050, 0.50), P(0.050, guardY + gh / 2)], () => GRIP);
-  for (const by of [0.31, 0.41]) {
-    fillPoly(c, [P(-0.052, by), P(-0.052, by + 0.026),
-                 P(0.052, by + 0.026), P(0.052, by)], () => GOLD_D);
-  }
-
-  // Ball pommel, lit from the same direction as the ring.
-  const pom = P(0, 0.575), pr = 0.085 * R;
-  for (let y = Math.max(0, Math.floor(pom[1] - pr)); y <= Math.min(c.n - 1, Math.ceil(pom[1] + pr)); y++)
-    for (let x = Math.max(0, Math.floor(pom[0] - pr)); x <= Math.min(c.n - 1, Math.ceil(pom[0] + pr)); x++) {
-      const dx = x + 0.5 - pom[0], dy = y + 0.5 - pom[1];
-      if (dx * dx + dy * dy > pr * pr) continue;
-      put(c, x, y, mix(GOLD_L, GOLD_D,
-        Math.max(0, Math.min(1, (dx + dy) / (2 * pr) + 0.5))));
+  const ch = colour === 6 ? 4 : 3;          // source channels
+  const stride = w * ch;
+  const out = Buffer.alloc(w * h * 4);
+  const line = Buffer.alloc(stride);
+  const prev = Buffer.alloc(stride);
+  let p = 0;
+  for (let y = 0; y < h; y++) {
+    const filter = data[p++];
+    data.copy(line, 0, p, p + stride); p += stride;
+    for (let i = 0; i < stride; i++) {
+      const a = i >= ch ? line[i - ch] : 0;   // left
+      const b = prev[i];                      // up
+      const c = i >= ch ? prev[i - ch] : 0;   // up-left
+      let v = line[i];
+      switch (filter) {
+        case 0: break;
+        case 1: v += a; break;
+        case 2: v += b; break;
+        case 3: v += (a + b) >> 1; break;
+        case 4: {                              // Paeth
+          const pp = a + b - c;
+          const pa = Math.abs(pp - a), pb = Math.abs(pp - b), pc = Math.abs(pp - c);
+          v += (pa <= pb && pa <= pc) ? a : (pb <= pc ? b : c);
+          break;
+        }
+        default: throw new Error('bad filter ' + filter);
+      }
+      line[i] = v & 0xff;
     }
+    for (let x = 0; x < w; x++) {
+      const s = x * ch, d = (y * w + x) * 4;
+      out[d] = line[s]; out[d + 1] = line[s + 1]; out[d + 2] = line[s + 2];
+      out[d + 3] = ch === 4 ? line[s + 3] : 255;
+    }
+    line.copy(prev);
+  }
+  return { w, h, rgba: out };
 }
 
-function draw(size, { bleed = true } = {}) {
-  const n = size * SS;
-  const c = makeCanvas(n);
-  fillAll(c, bleed ? INK : INK);
-  const cx = n / 2, cy = n / 2;
-  const R = n * 0.5;
+// ── box-filter resize, alpha-correct ────────────────────────────────────────
+function resize(src, sw, sh, dw, dh) {
+  const out = Buffer.alloc(dw * dh * 4);
+  const xr = sw / dw, yr = sh / dh;
+  for (let y = 0; y < dh; y++) {
+    const y0 = Math.floor(y * yr), y1 = Math.max(y0 + 1, Math.floor((y + 1) * yr));
+    for (let x = 0; x < dw; x++) {
+      const x0 = Math.floor(x * xr), x1 = Math.max(x0 + 1, Math.floor((x + 1) * xr));
+      let r = 0, g = 0, b = 0, a = 0, n = 0;
+      for (let sy = y0; sy < y1 && sy < sh; sy++) {
+        for (let sx = x0; sx < x1 && sx < sw; sx++) {
+          const i = (sy * sw + sx) * 4, al = src[i + 3] / 255;
+          r += src[i] * al; g += src[i + 1] * al; b += src[i + 2] * al;
+          a += src[i + 3]; n++;
+        }
+      }
+      const d = (y * dw + x) * 4;
+      const am = a / n;                       // mean alpha, 0..255
+      if (am > 0) {
+        const k = n * (am / 255);             // undo the premultiply
+        out[d] = Math.round(r / k); out[d + 1] = Math.round(g / k); out[d + 2] = Math.round(b / k);
+      }
+      out[d + 3] = Math.round(am);
+    }
+  }
+  return out;
+}
 
-  ring(c, cx, cy, R * 0.96, R * 0.80);          // outer gold band
-  disc(c, cx, cy, R * 0.80, INK);               // gap
-  ring(c, cx, cy, R * 0.74, R * 0.68);          // inner gold hairline
-  disc(c, cx, cy, R * 0.68, PLATE);             // the dark plate
-
-  /* Crossed, and short enough to stay inside the plate. Drawn at 3/4 scale of
-     the plate so the blades never touch the ring, which is what turns to a
-     smudge at 16px. */
-  const swordR = R * 0.62;
-  sword(c, cx, cy + R * 0.06, swordR, Math.PI * 0.22);
-  sword(c, cx, cy + R * 0.06, swordR, -Math.PI * 0.22);
-
-  // Average the supersampled buffer down to the requested size.
+// Composite onto an opaque square, or leave transparent when bg is null.
+function compose(size, fit, fw, fh, bg) {
   const out = Buffer.alloc(size * size * 4);
-  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
-    let r = 0, g = 0, b = 0;
-    for (let sy = 0; sy < SS; sy++) for (let sx = 0; sx < SS; sx++) {
-      const i = (((y * SS + sy) * n) + (x * SS + sx)) * 3;
-      r += c.px[i]; g += c.px[i+1]; b += c.px[i+2];
+  if (bg) {
+    for (let i = 0; i < size * size; i++) {
+      out[i * 4] = bg[0]; out[i * 4 + 1] = bg[1]; out[i * 4 + 2] = bg[2]; out[i * 4 + 3] = 255;
     }
-    const k = SS * SS, o = (y * size + x) * 4;
-    out[o] = Math.round(r / k); out[o+1] = Math.round(g / k);
-    out[o+2] = Math.round(b / k); out[o+3] = 255;
   }
-  return png(size, size, out);
+  const ox = Math.round((size - fw) / 2), oy = Math.round((size - fh) / 2);
+  for (let y = 0; y < fh; y++) {
+    for (let x = 0; x < fw; x++) {
+      const dx = ox + x, dy = oy + y;
+      if (dx < 0 || dy < 0 || dx >= size || dy >= size) continue;
+      const s = (y * fw + x) * 4, d = (dy * size + dx) * 4;
+      const al = fit[s + 3] / 255;
+      if (al <= 0) continue;
+      const ia = 1 - al;
+      out[d]     = Math.round(fit[s]     * al + out[d]     * ia);
+      out[d + 1] = Math.round(fit[s + 1] * al + out[d + 1] * ia);
+      out[d + 2] = Math.round(fit[s + 2] * al + out[d + 2] * ia);
+      out[d + 3] = Math.min(255, Math.round(fit[s + 3] + out[d + 3] * ia));
+    }
+  }
+  return out;
 }
 
-const targets = [
-  ['favicon-16.png', 16], ['favicon-32.png', 32],
-  ['apple-touch-icon.png', 180],
-  ['icon-192.png', 192], ['icon-512.png', 512],
+const INK = [0x10, 0x0e, 0x0b];   // the lobby background
+
+/* fill: how much of the square the emblem occupies.
+   The two app icons are declared maskable, and a launcher may crop a maskable
+   icon to any shape, taking up to ~10% off each edge. They get the ink ground
+   and the emblem at 80%, which keeps it inside the safe circle. Favicons are
+   tiny and never masked, so they use the whole square and stay transparent. */
+const SIZES = [
+  { file: 'favicon-16.png',       size: 16,  fill: 1.00, bg: null },
+  { file: 'favicon-32.png',       size: 32,  fill: 1.00, bg: null },
+  { file: 'apple-touch-icon.png', size: 180, fill: 0.92, bg: INK  },
+  { file: 'icon-192.png',         size: 192, fill: 0.80, bg: INK  },
+  { file: 'icon-512.png',         size: 512, fill: 0.80, bg: INK  },
 ];
-for (const [name, size] of targets) {
-  const file = path.join(OUT, name);
-  fs.writeFileSync(file, draw(size));
-  console.log('wrote', name.padEnd(22), size + 'x' + size, fs.statSync(file).size + ' bytes');
+
+function main() {
+  if (!fs.existsSync(SRC)) {
+    console.error('Missing ' + path.relative(process.cwd(), SRC) + ' — put the artwork there first.');
+    process.exit(1);
+  }
+  const src = decodePng(fs.readFileSync(SRC));
+  console.log(`source ${src.w}x${src.h}`);
+
+  for (const { file, size, fill, bg } of SIZES) {
+    // Contain rather than cover: the source is not square and cropping it
+    // would clip the ring.
+    const target = size * fill;
+    const scale = Math.min(target / src.w, target / src.h);
+    const fw = Math.max(1, Math.round(src.w * scale));
+    const fh = Math.max(1, Math.round(src.h * scale));
+    const fit = resize(src.rgba, src.w, src.h, fw, fh);
+    const out = compose(size, fit, fw, fh, bg);
+    fs.writeFileSync(path.join(IMG, file), png(size, size, out));
+    console.log(`  ${file.padEnd(22)} ${size}x${size}  emblem ${fw}x${fh}${bg ? '  on ink' : '  transparent'}`);
+  }
+  console.log('done');
 }
+
+module.exports = { decodePng, resize, SIZES };
+if (require.main === module) main();

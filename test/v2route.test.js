@@ -458,20 +458,34 @@ test('the cash-out receipt states the payout in the unit actually paid', () => {
     'gross and cut are sent for display');
 });
 
-test('touch steering matches the scheme read out of slither.io, not a joystick', () => {
-  // These numbers come from slither.io's own client (window.ontouchstart /
-  // ontouchmove / ontouchend), not from taste. Their scheme is absolute: the
-  // heading is atan2 toward the finger measured from the screen centre, held
-  // while within 16px of it, and boost is a double-tap. If someone "improves"
-  // this into a relative joystick the feel stops matching slither.
+test('touch steering is anchored where the thumb lands, not at the screen centre', () => {
+  /* slither.io's WEB client steers absolutely from the middle of the screen
+     (xm = clientX - ww/2). That was built first and it is wrong for this game:
+     it forces you to keep a thumb near the centre, which is what the owner hit
+     immediately. Their native app does not behave that way, and the app is
+     what people actually play on a phone.
+
+     So the heading is the vector from an anchor set at touch-down to the thumb
+     now. Thumb at the bottom of the screen, slide up a little, snake goes up.
+     The anchor follows once the thumb is further than TOUCH_FOLLOW_R away, so
+     a long drag never runs out of travel and you can always turn back. */
   const js = fs.readFileSync(path.join(ROOT, 'public/js/game.js'), 'utf8');
-  assert.ok(/TOUCH_DEADZONE_PX\s*=\s*16/.test(js), 'dead zone is 16px (their d2 > 256)');
+  assert.ok(js.includes('anchorX = p.x; anchorY = p.y'), 'a touch sets the anchor under the thumb');
+  assert.ok(js.includes('TOUCH_FOLLOW_R'), 'and the anchor follows a long drag');
+  assert.ok(js.includes('anchorX = p.x - (dx / d) * TOUCH_FOLLOW_R'),
+    'dragged to sit exactly that far behind the thumb');
+  // Scoped to the aim function: innerWidth/2 legitimately appears elsewhere
+  // for the view radius, which has nothing to do with steering.
+  const aimAt = js.indexOf('function updateTouchAim');
+  const aim = js.slice(aimAt, js.indexOf('\n}', aimAt));
+  assert.ok(!/inner(Width|Height)/.test(aim),
+    'the heading is not measured from the screen centre any more');
+  assert.ok(aim.includes('anchorX') && aim.includes('anchorY'), 'it is measured from the anchor');
+  // Boost stays as slither has it: a double-tap, their numbers.
   assert.ok(/TOUCH_DBLTAP_MS\s*=\s*400/.test(js), 'double-tap window is 400ms');
   assert.ok(/TOUCH_DBLTAP_SLOP\s*=\s*24/.test(js), 'double-tap slop is 24px per axis');
-  assert.ok(/innerWidth \/ 2/.test(js) && /innerHeight \/ 2/.test(js),
-    'measured from the screen centre, as they do');
 
-  // The joystick is gone, in markup, styles and script.
+  // The joystick and boost button are gone from markup, styles and script.
   const html = fs.readFileSync(path.join(ROOT, 'public/game.html'), 'utf8');
   const css = fs.readFileSync(path.join(ROOT, 'public/css/game.css'), 'utf8');
   for (const src of [html, css, js]) {
@@ -479,7 +493,21 @@ test('touch steering matches the scheme read out of slither.io, not a joystick',
     assert.ok(!/boost-btn/.test(src), 'no boost button left');
   }
   assert.ok(html.includes('cashout-btn-mobile'), 'cash out is the only on-screen control');
-  assert.ok(/bottom: calc\(30px/.test(css), 'and it took the boost button\'s corner');
+});
+
+test('the heading arrow is centred in screen space, not in its rotated frame', () => {
+  /* CSS applies transform functions right to left, so a trailing
+     translate(-50%,-50%) is applied inside the element's own rotated frame:
+     the centring offset spins with the heading and the arrow slides off to one
+     side, worst at the diagonals. It has to come first. */
+  const js = fs.readFileSync(path.join(ROOT, 'public/js/game.js'), 'utf8');
+  const i = js.indexOf('function updateDirArrow');
+  const fn = js.slice(i, js.indexOf('\n}', i));
+  assert.ok(fn.includes('translate(-50%, -50%)'), 'the arrow is centred on its point');
+  assert.ok(fn.indexOf('translate(-50%') < fn.indexOf('rotate('),
+    'and centring comes before the rotation, so it is applied unrotated');
+  assert.ok(fn.indexOf('rotate(') < fn.indexOf('translateX('),
+    'the forward offset is applied in the rotated frame, which is the point');
 });
 
 test('the death card is the receipt in red, and says what was lost', () => {
@@ -515,4 +543,58 @@ test('the trophy glyph is gone and the all-time board is still reachable', () =>
   // Removing the button would have removed the only way into that board.
   assert.ok(/id="btn-alltime-lb"/.test(html), 'the all-time board still has an entry point');
   assert.ok(/lb-head/.test(html), 'it lives on the leaderboard now, not floating beside it');
+});
+
+test('the icons are cut from the real artwork, not redrawn', () => {
+  // make-icons.js used to redraw the emblem with canvas primitives because the
+  // real file was not on disk. It is now, and an approximation of someone's
+  // logo is not their logo.
+  const src = fs.readFileSync(path.join(ROOT, 'scripts/make-icons.js'), 'utf8');
+  assert.ok(src.includes('logo-source.png'), 'it reads the source artwork');
+  assert.ok(/function decodePng/.test(src), 'and decodes it rather than drawing');
+  assert.ok(fs.existsSync(path.join(ROOT, 'public/img/logo-source.png')),
+    'the source artwork is committed, so the icons can always be rebuilt');
+
+  // Downscaling without premultiplying averages the colour of transparent
+  // pixels into the edge and rings the logo with a dark halo.
+  assert.ok(/premultiply|al = src\[i \+ 3\]/.test(src), 'alpha is handled in the resize');
+
+  // Every size a browser or launcher asks for must exist.
+  for (const f of ['favicon-16.png', 'favicon-32.png', 'apple-touch-icon.png',
+                   'icon-192.png', 'icon-512.png']) {
+    const p = path.join(ROOT, 'public/img', f);
+    assert.ok(fs.existsSync(p), `${f} exists`);
+    const b = fs.readFileSync(p);
+    assert.equal(b.readUInt32BE(0), 0x89504e47, `${f} is a PNG`);
+  }
+  // Chrome will not install an app without a >=192 icon.
+  const big = fs.readFileSync(path.join(ROOT, 'public/img/icon-512.png'));
+  assert.equal(big.readUInt32BE(16), 512, 'icon-512 really is 512 wide');
+});
+
+test('swiping between tabs animates, and never leaves a screen pinned', () => {
+  /* An instant swap is hard to tell from a tap that did nothing, so the
+     screens cross-slide in the direction of travel. The outgoing one is lifted
+     to fixed position for the length of the animation, which means the cleanup
+     has to be airtight: a screen left fixed sits on top of everything. */
+  const html = v2();
+  assert.ok(/@keyframes scrIn/.test(html) && /@keyframes scrOut/.test(html),
+    'both halves of the cross-slide exist');
+  assert.ok(/function showScreen\(id,dir\)/.test(html), 'showScreen takes a direction');
+  assert.ok(/function go\(id,dir\)/.test(html), 'and go passes it through');
+
+  // The settle-up must run BEFORE the DOM is read. Mid-flight two screens are
+  // visible, and picking one of those as the outgoing screen grabs the one
+  // already leaving, which then gets re-pinned and sticks.
+  const i = html.indexOf('function showScreen(id,dir)');
+  const fn = html.slice(i, html.indexOf('\n}', html.indexOf('_scrBusy=done', i)));
+  assert.ok(fn.indexOf('if(_scrBusy)_scrBusy()') < fn.indexOf('const prev='),
+    'any running transition is finished before the DOM is inspected');
+
+  // Reduced motion is honoured, and a swipe still changes screen.
+  assert.ok(/prefers-reduced-motion/.test(html), 'reduced motion is respected');
+
+  // The swipe handler has to supply the direction or nothing animates.
+  const sw = fs.readFileSync(path.join(ROOT, 'public/js/v2/swipe.js'), 'utf8');
+  assert.ok(/window\.go\(TABS\[next\], dir\)/.test(sw), 'the swipe hands on its direction');
 });

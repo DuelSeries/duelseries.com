@@ -695,6 +695,28 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
   .tiles{grid-template-columns:1fr}
   .wrap{padding:0 14px}
 }
+/* ── Screen transitions ──────────────────────────────────────────────────────
+   A swipe used to change the screen instantly, which on a phone is hard to
+   tell apart from a tap that did nothing. Now the screens cross-slide in the
+   direction of travel, so the movement itself says what happened.
+
+   The outgoing screen is lifted to fixed position for the length of the
+   animation. It is on its way out, so taking it out of flow costs nothing,
+   and it means both screens can occupy the same space without the incoming
+   one being pushed down the page by the one it is replacing. */
+@keyframes scrIn  { from { opacity:0; transform:translateX(var(--sd)) }
+                    to   { opacity:1; transform:none } }
+@keyframes scrOut { from { opacity:1; transform:none }
+                    to   { opacity:0; transform:translateX(calc(var(--sd) * -1)) } }
+.scr-in  { animation:scrIn  .26s cubic-bezier(.22,.7,.28,1) both }
+.scr-out { animation:scrOut .26s cubic-bezier(.22,.7,.28,1) both;
+           pointer-events:none; z-index:1 }
+/* Nothing may scroll sideways while a screen is parked off-frame. */
+body.scr-anim { overflow-x:hidden }
+
+@media (prefers-reduced-motion: reduce) {
+  .scr-in, .scr-out { animation-duration:.01ms }
+}
 </style>
 </head>
 <body>
@@ -1797,7 +1819,7 @@ function open_(id){
   ].map((s,i)=>`<div class="hs"><i>0${i+1}</i><b>${s[0]}</b><p>${s[1]}</p></div>`).join('');
   drawStake(); drawSkins(); repaintAll(); scrollTo(0,0);
 }
-function goHome(){showScreen('home');scrollTo(0,0)}
+function goHome(dir){showScreen('home',dir);scrollTo(0,0)}
 
 function drawStake(){
   const v=STEPS[si], el=document.getElementById('sv');
@@ -1867,22 +1889,73 @@ function drawNav(){
    own: it is reached from the board and keeps Social lit while it is up. */
 const SCREENS=['home','detail','stub','wallet-screen','stats-screen',
                'social-screen','player-screen'];
-function showScreen(id){
-  SCREENS.forEach(s=>{const el=document.getElementById(s); if(el)el.style.display='none'});
-  const el=document.getElementById(id); if(el)el.style.display='block';
+/* dir: +1 the new screen arrives from the right (you swiped forward), -1 from
+   the left, 0 or omitted for no animation. Taps on the nav pass 0 on purpose:
+   a tap already tells you what you pressed, and animating it makes the whole
+   app feel slower for no information gained. */
+let _scrBusy=null;
+function showScreen(id,dir){
+  /* Finish any transition still running BEFORE looking at the DOM. Mid-flight
+     two screens are visible at once, and picking one of those as the screen
+     to animate out means grabbing the one already on its way out: it gets
+     cleaned up a line later and then re-pinned, leaving it stuck on top. */
+  if(_scrBusy)_scrBusy();
+
+  /* Computed, not inline: on first load the visible screen is showing by
+     stylesheet default and has no inline display at all, so reading
+     el.style.display finds nothing and the first swipe never animates. */
+  const prev=SCREENS.map(s=>document.getElementById(s))
+                    .find(el=>el&&getComputedStyle(el).display!=='none');
+  const next=document.getElementById(id);
+  const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  if(!dir||!prev||prev===next||!next||reduce){
+    SCREENS.forEach(s=>{const el=document.getElementById(s); if(el)el.style.display='none'});
+    if(next)next.style.display='block';
+    return;
+  }
+
+  const shift=(dir>0?'':'-')+'34%';
+  const r=prev.getBoundingClientRect();
+  const px=prev.style.cssText;
+  Object.assign(prev.style,{position:'fixed',left:r.left+'px',top:r.top+'px',
+                            width:r.width+'px',margin:'0'});
+  prev.style.setProperty('--sd',shift);
+  prev.classList.add('scr-out');
+
+  SCREENS.forEach(s=>{const el=document.getElementById(s);
+                      if(el&&el!==prev)el.style.display='none'});
+  next.style.display='block';
+  next.style.setProperty('--sd',shift);
+  next.classList.add('scr-in');
+  document.body.classList.add('scr-anim');
+
+  const done=()=>{
+    clearTimeout(t); _scrBusy=null;
+    prev.classList.remove('scr-out');
+    prev.style.cssText=px;
+    prev.style.display='none';
+    next.classList.remove('scr-in');
+    next.style.removeProperty('--sd');
+    document.body.classList.remove('scr-anim');
+  };
+  // Timer rather than animationend: if the tab is backgrounded mid-animation
+  // the event may never fire and the outgoing screen would stay pinned.
+  const t=setTimeout(done,300);
+  _scrBusy=done;
 }
 /* The extracted modules need these two: the router, and the palette they
    derive player avatar colours from. */
 window.showScreen=showScreen;
 window.V2_LOOKS=LOOKS;
-function go(id){
+function go(id,dir){
   route=id; drawNav();
-  if(id==='play')        showScreen('home');
-  else if(id==='wallet'){ showScreen('wallet-screen'); V2Wallet.render() }
-  else if(id==='stats') { showScreen('stats-screen');  V2Stats.load() }
-  else if(id==='social'){ showScreen('social-screen'); V2Social.load() }
+  if(id==='play')        showScreen('home',dir);
+  else if(id==='wallet'){ showScreen('wallet-screen',dir); V2Wallet.render() }
+  else if(id==='stats') { showScreen('stats-screen',dir);  V2Stats.load() }
+  else if(id==='social'){ showScreen('social-screen',dir); V2Social.load() }
   else{
-    showScreen('stub');
+    showScreen('stub',dir);
     const n=NAV.find(x=>x.id===id);
     document.getElementById('stub-t').textContent=n.t;
     document.getElementById('stub-d').textContent=n.d;
