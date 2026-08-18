@@ -705,7 +705,12 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
    wherever the finger happened to let go. */
 .scr-drag { position:fixed; z-index:2; will-change:transform }
 .scr-live { will-change:transform }
-.scr-settle { transition:transform .24s cubic-bezier(.22,.7,.28,1) }
+/* The duration is set per-release in swipe.js, from the distance still to
+   cover. The curve is deliberately close to linear at the end: the previous
+   one (.22,.7,.28,1) put 82% of the travel in the first 45% of the time and
+   then crawled the last 60px for over 100ms, which reads as the screen taking
+   half a second to line up rather than as a smooth arrival. */
+.scr-settle { transition:transform .2s cubic-bezier(.32,.72,.35,1) }
 /* Only the horizontal overflow the moving screens would otherwise create.
    Setting overflow:hidden here instead would fight the page's scroll position
    mid-gesture; the drag already calls preventDefault once it owns the touch,

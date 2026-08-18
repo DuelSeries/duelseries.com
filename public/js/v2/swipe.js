@@ -32,7 +32,15 @@
   const CLAIM_RATIO = 1.2;  // and it must be this much more horizontal than not
   const COMMIT_FRAC = 0.32; // past a third of the screen, it lands on the next tab
   const FLICK_VPX = 0.45;   // px/ms: a fast flick lands it regardless of distance
-  const SETTLE_MS = 240;    // must match .scr-settle in the stylesheet
+
+  /* How long the release takes to travel the distance still left, rather than
+     a fixed duration for any distance. A fixed 240ms meant a screen with 30px
+     to go spent the same time as one with 350px, crawling the last stretch —
+     which is what "it takes half a second to line up" is: the screen arrives
+     almost immediately and then creeps the last few pixels into place. */
+  const SETTLE_PX_MS = 1.9;  // travel speed of the settle
+  const SETTLE_MIN = 90;
+  const SETTLE_MAX = 220;
 
   /* Anything here owns its own horizontal gestures.
 
@@ -185,25 +193,46 @@
     if (!d) return;
     const to = commit ? -d.dir * d.w : 0;
 
-    d.cur.classList.add('scr-settle');
-    d.incoming.classList.add('scr-settle');
+    /* Time the settle by the distance still to cover, and let a flick keep its
+       own speed so letting go fast does not then finish slowly. */
+    const remaining = Math.abs(to - d.dx);
+    const speed = Math.max(SETTLE_PX_MS, Math.abs(d.v) || 0);
+    const dur = Math.round(Math.min(SETTLE_MAX, Math.max(SETTLE_MIN, remaining / speed)));
+
+    for (const e of [d.cur, d.incoming]) {
+      e.classList.add('scr-settle');
+      e.style.transitionDuration = dur + 'ms';
+    }
     // Next frame, so the transition has a start value to animate from.
     requestAnimationFrame(() => {
       d.cur.style.transform = `translateX(${to}px)`;
       d.incoming.style.transform = `translateX(${to + d.dir * d.w}px)`;
     });
 
+    let finished = false;
     const done = () => {
+      if (finished) return;
+      finished = true;
+      d.incoming.removeEventListener('transitionend', onEndTx);
+      clearTimeout(settleTimer);
       settleTimer = null;
       d.cur.classList.remove('scr-live', 'scr-settle');
       d.incoming.classList.remove('scr-drag', 'scr-settle');
       d.cur.style.transform = '';
+      d.cur.style.transitionDuration = '';
       d.incoming.setAttribute('style', d.saved);
       document.body.classList.remove('scr-dragging');
       if (commit) window.commitScreen(d.tab);
       else d.incoming.style.display = 'none';
     };
-    settleTimer = setTimeout(done, SETTLE_MS + 20);
+    /* transitionend rather than a timer alone, so the swap happens the instant
+       the movement stops. The timer left a gap after the screen had visibly
+       arrived, and under reduced motion — where the stylesheet forces the
+       transition to almost nothing — it would have waited out the full
+       duration for an animation that never ran. */
+    function onEndTx(ev) { if (ev.propertyName === 'transform') done(); }
+    d.incoming.addEventListener('transitionend', onEndTx);
+    settleTimer = setTimeout(done, dur + 60);   // safety net only
     settleTimer._done = done;
   }
 

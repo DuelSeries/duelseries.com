@@ -663,7 +663,7 @@ test('a tab swipe follows the finger and can be pulled back', () => {
   // Every exit has to put the staged screen away; a screen left fixed covers
   // the whole app.
   assert.ok(/touchcancel/.test(sw), 'a cancelled touch settles the drag');
-  const fin = sw.slice(sw.indexOf('function finish'), sw.indexOf('function onEnd'));
+  const fin = sw.slice(sw.indexOf('function finish'), sw.indexOf('function onEnd(e)'));
   assert.ok(/classList\.remove\('scr-drag'/.test(fin), 'the staged screen is unpinned');
   assert.ok(/setAttribute\('style', d\.saved\)/.test(fin), 'and its inline styles restored');
 });
@@ -766,10 +766,38 @@ test('a swipe never scrolls the page, and the incoming screen does not drop and 
   const commit = html.slice(html.indexOf('function commitScreen'),
                             html.indexOf('function jumpToTop'));
   assert.ok(/jumpToTop\(\)/.test(commit), 'a commit resets the scroll');
-  const fin = sw.slice(sw.indexOf('function finish'), sw.indexOf('function onEnd'));
+  const fin = sw.slice(sw.indexOf('function finish'), sw.indexOf('function onEnd(e)'));
   assert.ok(!/scrollTo|jumpToTop/.test(fin), 'but settling back does not');
 
   // overflow:hidden mid-gesture fights the page's own scroll position.
   assert.ok(/body\.scr-dragging \{ overflow-x:hidden \}/.test(html),
     'only horizontal overflow is clipped during a drag');
+});
+
+test('the settle is timed by distance left, so it never crawls into place', () => {
+  /* A fixed 240ms settle meant a screen with 30px to go took as long as one
+     with 350px, and the old curve put 82% of the travel in the first 45% of
+     the time. The result was a screen that arrived almost immediately and
+     then crept the last 60px for over 100ms — read as "it takes half a second
+     to line up". Measured after: fully settled and swapped in ~90-105ms with a
+     20-33ms tail, against 239ms and a 133ms crawl before. */
+  const sw = fs.readFileSync(path.join(ROOT, 'public/js/v2/swipe.js'), 'utf8');
+  const fin = sw.slice(sw.indexOf('function finish'), sw.indexOf('function onEnd(e)'));
+
+  assert.ok(/const remaining = Math\.abs\(to - d\.dx\)/.test(fin),
+    'the distance still to cover is measured');
+  assert.ok(/remaining \/ speed/.test(fin), 'and the duration comes from it');
+  assert.ok(/Math\.abs\(d\.v\)/.test(fin), 'a flick keeps its own speed');
+  assert.ok(/transitionDuration = dur/.test(fin), 'the duration is applied per release');
+  assert.ok(!/SETTLE_MS/.test(sw), 'no fixed settle duration remains');
+
+  /* The swap must happen when the movement stops, not on a timer that runs
+     past it — and under reduced motion, where the stylesheet forces the
+     transition to nothing, a timer alone would wait out an animation that
+     never ran. */
+  assert.ok(/addEventListener\('transitionend'/.test(fin), 'it waits for the transition');
+  assert.ok(/propertyName === 'transform'/.test(fin), 'and only for the one that moves it');
+  assert.ok(/safety net only/.test(fin), 'the timer is only a fallback');
+  // Both paths must be idempotent or the cleanup runs twice.
+  assert.ok(/if \(finished\) return/.test(fin), 'and they cannot both fire the cleanup');
 });
