@@ -2005,13 +2005,23 @@ function commitScreen(tab){
   route=tab; drawNav();
   SCREENS.forEach(s=>{const el=document.getElementById(s);
                       if(el&&s!==id)el.style.display='none'});
-  jumpToTop();
+  /* No scroll reset here. A drag already did it at the START of its settle,
+     precisely so this moment moves nothing; resetting again here would be the
+     jump this path exists to avoid. Taps go through go(), which does it. */
 }
-/* scroll-behavior:smooth is set on <html>, so plain scrollTo animates. */
+/* scroll-behavior:smooth is set on <html>, so a plain scrollTo animates, and
+   {behavior:'instant'} is not honoured everywhere. Turning the behaviour off
+   on the element for the duration of the call is, because an inline style
+   beats the stylesheet rule. Returns how far it actually moved. */
 function jumpToTop(){
-  try{window.scrollTo({top:0,left:0,behavior:'instant'})}
-  catch(_){window.scrollTo(0,0)}
+  const y=window.scrollY||0;
+  const h=document.documentElement, prev=h.style.scrollBehavior;
+  h.style.scrollBehavior='auto';
+  window.scrollTo(0,0);
+  h.style.scrollBehavior=prev;
+  return y;
 }
+window.jumpToTop=jumpToTop;
 window.prepareScreen=prepareScreen;
 window.commitScreen=commitScreen;
 

@@ -199,13 +199,44 @@
     const speed = Math.max(SETTLE_PX_MS, Math.abs(d.v) || 0);
     const dur = Math.round(Math.min(SETTLE_MAX, Math.max(SETTLE_MIN, remaining / speed)));
 
+    /* Reset the scroll NOW, at the start of the settle, rather than at the end
+       when the incoming screen stops being fixed.
+
+       This is the vertical pop. The incoming screen is fixed while it moves,
+       so the page scroll does not affect it; the moment it becomes a normal
+       part of the page it is placed relative to the document instead, and if
+       the scroll is only reset at that same moment the page has to travel to
+       catch up. Doing it here means that by the time the swap happens the
+       page is already at the top and nothing has anywhere left to go.
+
+       The outgoing screen is scrolled, so it is pushed back down by the same
+       amount to keep it exactly where the eye last saw it while it slides
+       away. Both happen in one go, so there is no frame in between. */
+    let comp = 0;
+    if (commit && window.jumpToTop) comp = window.jumpToTop() || 0;
+
+    /* The compensation has to land instantly, and merely setting it before the
+       transition class is not enough: style is recalculated once at the end of
+       the task, so the browser sees the new transform and the new transition
+       together and animates between them — a 700px vertical slide of the
+       screen that is supposed to be standing still. Suppressing the transition
+       and reading a layout property forces the value to be committed as the
+       base, so the settle that follows starts from it. */
+    if (comp) {
+      d.cur.style.transition = 'none';
+      d.cur.style.transform = `translate(${d.dx}px, ${-comp}px)`;
+      void d.cur.offsetHeight;                 // flush; do not remove
+      d.cur.style.transition = '';
+    }
+
     for (const e of [d.cur, d.incoming]) {
       e.classList.add('scr-settle');
       e.style.transitionDuration = dur + 'ms';
     }
-    // Next frame, so the transition has a start value to animate from.
+    // Next frame, so the transition has a start value to animate from. The
+    // outgoing screen keeps its vertical compensation for the whole slide.
     requestAnimationFrame(() => {
-      d.cur.style.transform = `translateX(${to}px)`;
+      d.cur.style.transform = `translate(${to}px, ${-comp}px)`;
       d.incoming.style.transform = `translateX(${to + d.dir * d.w}px)`;
     });
 

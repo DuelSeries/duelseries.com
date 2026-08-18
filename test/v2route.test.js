@@ -760,14 +760,32 @@ test('a swipe never scrolls the page, and the incoming screen does not drop and 
     'the incoming screen is pinned where it will come to rest');
   assert.ok(/top: restTop/.test(bd), 'and that is what it is positioned at');
 
-  // Only a commit scrolls, and it must be instant or it animates away from
-  // the position the screen was already dragged to.
-  assert.ok(/behavior:'instant'/.test(html), 'the scroll reset is instant');
-  const commit = html.slice(html.indexOf('function commitScreen'),
-                            html.indexOf('function jumpToTop'));
-  assert.ok(/jumpToTop\(\)/.test(commit), 'a commit resets the scroll');
+  /* The scroll reset happens at the START of the settle, not at the end.
+     The incoming screen is fixed while it moves, so the scroll does not touch
+     it; the instant it becomes a normal part of the page it is placed against
+     the document instead, and resetting the scroll at that same moment makes
+     the page travel to catch up — the vertical pop. Doing it up front means
+     the page is already at the top before the swap, so nothing moves. */
   const fin = sw.slice(sw.indexOf('function finish'), sw.indexOf('function onEnd(e)'));
-  assert.ok(!/scrollTo|jumpToTop/.test(fin), 'but settling back does not');
+  assert.ok(fin.indexOf('jumpToTop()') < fin.indexOf("classList.add('scr-settle')"),
+    'the scroll is reset before the settle begins, not after it ends');
+  assert.ok(/if \(commit && window\.jumpToTop\)/.test(fin), 'and only when it commits');
+  const commit = html.slice(html.indexOf('function commitScreen'),
+                            html.indexOf('/* scroll-behavior:smooth'));
+  assert.ok(!/jumpToTop\(\)/.test(commit),
+    'the swap itself does not scroll, or it would jump again');
+
+  /* The outgoing screen is held where the eye last saw it while it slides out,
+     and that has to be instant. Style is recalculated once per task, so a
+     transform set in the same task as the transition animates between them —
+     the outgoing screen would slide the whole scroll distance vertically. */
+  assert.ok(/style\.transition = 'none'/.test(fin), 'compensation suppresses the transition');
+  assert.ok(/void d\.cur\.offsetHeight/.test(fin), 'and flushes it as the base value');
+
+  // scroll-behavior:smooth is on <html>; behavior:'instant' is not honoured
+  // everywhere, but an inline style always beats the stylesheet.
+  assert.ok(/scrollBehavior='auto'/.test(html.replace(/\s/g, '')),
+    'the reset forces instant scrolling');
 
   // overflow:hidden mid-gesture fights the page's own scroll position.
   assert.ok(/body\.scr-dragging \{ overflow-x:hidden \}/.test(html),
