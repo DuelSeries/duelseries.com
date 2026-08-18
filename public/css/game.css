@@ -446,30 +446,188 @@ body {
   text-transform: uppercase;
 }
 
-/* Cash-out overlay */
+/* ─── Cash-out receipt ────────────────────────────────────────────────────────
+   The lobby's tokens, so walking out of a game lands you somewhere that looks
+   like the rest of the product. Amber, not green: amber is money everywhere
+   else here, and green would sit one hue away from the red death screen for
+   the two outcomes a player most needs to tell apart at a glance.
+
+   No shake, no glow. The old screen borrowed the death overlay, animation and
+   all, so a win arrived shaking. */
 #cashout-screen {
+  --co-ink:#100e0b; --co-s2:#1f1b15; --co-s3:#282219;
+  --co-bone:#f5f1e8; --co-tx2:#a89c8a; --co-money:#f0a830; --co-live:#8ed081;
   display: none;
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.78);
+  background: rgba(10,8,6,0.72);
   z-index: 55;
   align-items: center;
   justify-content: center;
-  flex-direction: column;
-  gap: 20px;
+  padding: 24px;
+  font-family: 'Archivo', ui-sans-serif, system-ui, 'Segoe UI', Arial, sans-serif;
 }
 #cashout-screen.active { display: flex; }
-#cashout-screen h2 {
-  font-size: 2.4rem;
-  color: #14F195;
-  letter-spacing: 3px;
-  text-shadow: 0 0 24px rgba(20,241,149,0.6);
+
+.co-card {
+  width: 100%;
+  max-width: 380px;
+  background: var(--co-ink);
+  border: 1px solid var(--co-s3);
+  border-radius: 18px;
+  padding: 26px 24px 22px;
+  box-shadow: 0 24px 60px rgba(0,0,0,0.55);
+  animation: co-rise 0.34s cubic-bezier(0.2,0.7,0.3,1) both;
 }
-#cashout-screen p {
-  color: #aaa;
-  font-size: 1rem;
+@keyframes co-rise {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: none; }
 }
-.cashout-btns { display: flex; gap: 16px; }
+
+.co-eyebrow {
+  font-family: 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--co-tx2);
+  margin: 0;
+}
+
+/* The figure is the whole point of the screen, so it gets the size. Tabular
+   digits keep it from twitching while it counts up. */
+.co-amount {
+  font-family: 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: clamp(2.6rem, 12vw, 3.3rem);
+  font-weight: 600;
+  line-height: 1.05;
+  color: var(--co-money);
+  margin: 12px 0 0;
+}
+.co-sub {
+  color: var(--co-tx2);
+  font-size: 0.9rem;
+  margin: 6px 0 0;
+}
+
+/* The ledger. Showing the cut as a line item is the point: a player can read
+   exactly what we took, which is the opposite of how this is usually done. */
+.co-ledger {
+  margin: 20px 0 0;
+  padding: 14px 14px 12px;
+  background: var(--co-s2);
+  border-radius: 10px;
+  font-family: 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.86rem;
+}
+.co-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 5px 0;
+}
+.co-row dt { color: var(--co-tx2); }
+.co-row dt i {
+  font-style: normal;
+  font-size: 0.76rem;
+  color: #6f6558;
+  margin-left: 4px;
+}
+.co-row dd { margin: 0; color: var(--co-bone); }
+.co-row.co-net {
+  border-top: 1px solid var(--co-s3);
+  margin-top: 6px;
+  padding-top: 10px;
+}
+.co-net dt { color: var(--co-bone); }
+.co-net dd { color: var(--co-money); font-weight: 600; }
+
+/* Settlement state. Pending is honest: the money is on its way, not there. */
+.co-settle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 14px 0 0;
+  font-size: 0.82rem;
+  color: var(--co-tx2);
+  min-height: 1.3em;
+}
+.co-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--co-tx2);
+  flex: none;
+  animation: co-pulse 1.4s ease-in-out infinite;
+}
+@keyframes co-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.25; } }
+.co-settle[data-state="done"] .co-dot { background: var(--co-live); animation: none; }
+.co-settle[data-state="done"] #co-settle-text { color: var(--co-live); }
+.co-settle[data-state="fail"] .co-dot { background: #e0705f; animation: none; }
+.co-settle[data-state="fail"] #co-settle-text { color: #e0705f; }
+.co-settle a {
+  color: var(--co-tx2);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  margin-left: auto;
+  white-space: nowrap;
+}
+.co-settle a:hover, .co-settle a:focus-visible { color: var(--co-bone); }
+
+.co-stats {
+  display: flex;
+  gap: 18px;
+  margin: 14px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--co-s3);
+  font-size: 0.8rem;
+  color: var(--co-tx2);
+}
+.co-stats b {
+  font-family: 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace;
+  color: var(--co-bone);
+  font-weight: 600;
+  margin-left: 4px;
+}
+
+.co-btns { display: flex; gap: 10px; margin-top: 20px; }
+.co-btn {
+  flex: 1;
+  min-height: 46px;               /* thumb-sized; this screen is mostly used on a phone */
+  padding: 12px 16px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  font-family: inherit;
+  font-size: 0.92rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, transform 0.1s;
+}
+.co-btn:active { transform: scale(0.98); }
+.co-btn:focus-visible { outline: 2px solid var(--co-money); outline-offset: 2px; }
+.co-go { background: var(--co-money); color: var(--co-ink); }
+.co-go:hover { background: #f6b845; }
+.co-ghost { background: transparent; color: var(--co-bone); border-color: var(--co-s3); }
+.co-ghost:hover { background: var(--co-s2); }
+
+/* Free lobby: there is no money, so no figure, no ledger, nothing to settle.
+   A large $0.00 would be the literal truth and still read as a loss. */
+#cashout-screen.co-free .co-amount,
+#cashout-screen.co-free .co-ledger,
+#cashout-screen.co-free .co-settle { display: none; }
+#cashout-screen.co-free .co-sub {
+  color: var(--co-bone);
+  font-size: 1.15rem;
+  margin-top: 10px;
+}
+#cashout-screen.co-free .co-stats { margin-top: 18px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .co-card { animation: none; }
+  .co-dot { animation: none; }
+}
 
 /* Player profile modal */
 .profile-box {

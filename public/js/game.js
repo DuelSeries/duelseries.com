@@ -34,7 +34,11 @@ const spectateOnly  = sessionStorage.getItem('spectateOnly') === 'true';
 let solCadRate = 200;
 fetch('/api/prices').then(r => r.json()).then(d => { if (d.solCadRate) solCadRate = d.solCadRate; }).catch(() => {});
 let moneyMode = 'sol';
-fetch('/api/money-config').then(r => r.json()).then(c => { if (c && c.mode) moneyMode = c.mode; }).catch(() => {});
+let moneyNetwork = 'mainnet-beta';   // which cluster payout links should point at
+fetch('/api/money-config').then(r => r.json()).then(c => {
+  if (c && c.mode) moneyMode = c.mode;
+  if (c && c.network) moneyNetwork = c.network;
+}).catch(() => {});
 // Format a money value for display. USDC mode: the value already IS US dollars. SOL mode: it's SOL,
 // converted to CAD via the live rate. (Pre-cutover this stayed CAD; post-cutover worth is in USDC.)
 function fmtMoney(v) { v = Number(v) || 0; return moneyMode === 'usdc' ? '$' + v.toFixed(2) : 'C$' + (v * solCadRate).toFixed(2); }
@@ -389,6 +393,7 @@ socket.on(CONSTANTS.EVENTS.GAME_JOINED, ({ playerId, worldRadius, food, snake })
   displayState = { snakes: snake ? [snake] : [], food: food || [], worldRadius, leaderboard: [] };
   document.getElementById('death-screen').classList.remove('active');
   document.getElementById('cashout-screen').classList.remove('active');
+  if (!spectateOnly) showTouchControls(true);
   _lReset();
   if (snake) _lInit(snake);
   // Snap the camera straight to the correct zoom/position so the spawn doesn't
@@ -443,11 +448,9 @@ socket.on(CONSTANTS.EVENTS.PLAYER_DIED, ({ score, length }) => {
   isDead = true;
   playDeathSound();
   _lReset();
-  const earnedEl = document.getElementById('cashout-earned-inline');
-  if (earnedEl) earnedEl.textContent = '';
   const deathH2 = document.querySelector('#death-screen h2');
   deathH2.textContent = 'YOU DIED';
-  deathH2.style.color = '';
+  document.getElementById('cashout-screen').classList.remove('active');
   document.getElementById('death-screen').classList.add('active');
   document.getElementById('death-length').textContent = length;
   document.getElementById('death-score').textContent = score;
@@ -874,41 +877,94 @@ socket.on('cashout:cancelled', ({ id }) => {
   cashoutRings.delete(id);
 });
 
-socket.on('cashout:result', ({ newBalance, earnedSol, score, length, toWallet }) => {
+// ─── Cash-out receipt ─────────────────────────────────────────────────────────
+// Its own screen, not the death overlay wearing a green headline. Dying and
+// walking away with money are the two outcomes a player most needs to tell
+// apart, and they used to share a shaking red card.
+
+// Counts the payout up so the number is watched rather than just present. Short
+// enough that nobody waits on it, and skipped entirely for reduced motion.
+function countUpMoney(el, target) {
+  const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (reduce || !(target > 0)) { el.textContent = fmtMoney(target); return; }
+  const DUR = 620, t0 = performance.now();
+  (function step(now) {
+    const p = Math.min(1, (now - t0) / DUR);
+    const eased = 1 - Math.pow(1 - p, 3);
+    el.textContent = fmtMoney(target * eased);
+    if (p < 1) requestAnimationFrame(step);
+  })(t0);
+}
+
+// The touch controls sit above the canvas, so without this the joystick and a
+// live CASH OUT button stay under the receipt on a snake that is already gone.
+function showTouchControls(on) {
+  ['joystick-zone', 'boost-btn', 'cashout-btn-mobile'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = on ? '' : 'none';
+  });
+}
+
+function setSettleState(state, text, sig) {
+  const row = document.getElementById('co-settle');
+  const link = document.getElementById('co-tx');
+  if (!row) return;
+  row.dataset.state = state;
+  document.getElementById('co-settle-text').textContent = text;
+  if (sig) {
+    // devnet/testnet payouts live on a different cluster, so the link has to say which.
+    const q = moneyNetwork && moneyNetwork !== 'mainnet-beta' ? `?cluster=${encodeURIComponent(moneyNetwork)}` : '';
+    link.href = `https://solscan.io/tx/${encodeURIComponent(sig)}${q}`;
+    link.hidden = false;
+  } else {
+    link.hidden = true;
+  }
+}
+
+socket.on('cashout:result', ({ newBalance, earnedSol, gross, cut, score, length, toWallet }) => {
   if (window.phEvent) window.phEvent('cashed_out', { game: 'snake', amount: earnedSol, score: score, length: length });
   playCashoutSound();
   // earnedSol holds the earned amount in the active unit: USDC after cutover, SOL before.
-  // Show death screen with cashout message
-  document.getElementById('death-score').textContent = score || 0;
-  document.getElementById('death-length').textContent = length || 0;
-  // Inject earned line if not already there
-  let earnedEl = document.getElementById('cashout-earned-inline');
-  if (!earnedEl) {
-    earnedEl = document.createElement('p');
-    earnedEl.id = 'cashout-earned-inline';
-    earnedEl.style.cssText = 'color:#14F195;font-size:1.05rem;font-weight:700;margin:8px 0 0;';
-    document.querySelector('#death-screen .death-stats').insertAdjacentElement('afterend', earnedEl);
-  }
-  earnedEl.textContent = earnedSol > 0
-    ? (moneyMode === 'usdc'
-        ? `+$${earnedSol.toFixed(2)} ${toWallet ? 'sent to' : 'deposited to'} your wallet`
-        : (toWallet ? `Sending ${earnedSol.toFixed(4)} SOL to your wallet…` : `+C$${(earnedSol * solCadRate).toFixed(2)} deposited to your wallet`))
-    : '';
-  const h2 = document.querySelector('#death-screen h2');
-  h2.textContent = 'SUCCESSFULLY CASHED OUT';
-  h2.style.color = '#14F195';
-  document.getElementById('death-screen').classList.add('active');
+  const net  = Number(earnedSol) || 0;
+  const paid = net > 0;
+  // Fall back to deriving the gross from the 90% share for servers that predate
+  // gross/cut being sent, so an older server still shows a coherent receipt.
+  const grossVal = Number.isFinite(gross) ? gross : (paid ? net / 0.9 : 0);
+  const cutVal   = Number.isFinite(cut)   ? cut   : Math.max(0, grossVal - net);
+
+  const screen = document.getElementById('cashout-screen');
+  screen.classList.toggle('co-free', !paid);
+
+  document.getElementById('co-sub').textContent = paid
+    ? (toWallet ? 'paid to your wallet' : 'added to your balance')
+    : 'Free lobby, nothing was staked';
+  document.getElementById('co-gross').textContent = fmtMoney(grossVal);
+  document.getElementById('co-cut').textContent   = '-' + fmtMoney(cutVal);
+  document.getElementById('co-net').textContent   = fmtMoney(net);
+  document.getElementById('co-length').textContent = length || 0;
+  document.getElementById('co-score').textContent  = score || 0;
+
+  if (paid) setSettleState('pending', toWallet ? 'Sending to your wallet' : 'Added to your balance');
+  countUpMoney(document.getElementById('co-amount'), net);
+
+  // Never both. The death card's Play Again sits behind this one and, in a paid
+  // room, re-stakes real money — a stray tap on the sliver around the receipt
+  // would charge someone who had just taken their money out.
+  document.getElementById('death-screen').classList.remove('active');
+  screen.classList.add('active');
+  showTouchControls(false);
+  document.getElementById('btn-cashout-lobby').focus();
   if (newBalance !== null) sessionStorage.setItem('lastBalance', newBalance);
 });
 
 // Self-custody payout follow-ups (Phase 2): the escrow → wallet transfer confirms async.
+// `sol` is the field name from before the USDC cutover; it carries whichever unit
+// is active, which is why it is formatted rather than labelled SOL.
 socket.on('cashout:paid', ({ sol, sig }) => {
-  const el = document.getElementById('cashout-earned-inline');
-  if (el) { el.textContent = `✓ ${Number(sol).toFixed(4)} SOL sent to your wallet`; el.style.color = '#14F195'; }
+  setSettleState('done', `${fmtMoney(Number(sol) || 0)} sent`, sig);
 });
 socket.on('cashout:error', ({ message }) => {
-  const el = document.getElementById('cashout-earned-inline');
-  if (el) { el.textContent = message || 'Payout failed — contact support'; el.style.color = '#ff7a7a'; }
+  setSettleState('fail', message || 'Payout failed, contact support');
 });
 
 window.addEventListener('keydown', (e) => {
@@ -1029,8 +1085,7 @@ async function doRespawn() {
     exitSpectate();
     socket.emit(CONSTANTS.EVENTS.RESPAWN, { entryToken: respawnToken });
     document.getElementById('death-screen').classList.remove('active');
-    const earnedEl = document.getElementById('cashout-earned-inline');
-    if (earnedEl) earnedEl.textContent = '';
+    document.getElementById('cashout-screen').classList.remove('active');
   } finally {
     respawning = false;
   }

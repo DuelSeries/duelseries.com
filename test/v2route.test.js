@@ -413,3 +413,46 @@ test('swipe navigation exempts anything that owns its own horizontal drag', () =
   assert.ok(/touchstart/.test(src) && !/pointerdown/.test(src),
     'touch only, since a mouse drag is a text selection');
 });
+
+test('cashing out gets its own screen, not the death card in green', () => {
+  // It used to reuse #death-screen: same red overlay, same shake animation,
+  // heading swapped to green. Winning and dying looked like the same event.
+  const js = fs.readFileSync(path.join(ROOT, 'public/js/game.js'), 'utf8');
+  const handler = js.slice(js.indexOf("socket.on('cashout:result'"),
+                           js.indexOf("socket.on('cashout:paid'"));
+  assert.ok(handler.includes("getElementById('cashout-screen')"), 'its own screen is shown');
+  assert.ok(!/death-screen'\)\.classList\.add\('active'\)/.test(handler),
+    'the death card is not raised on a win');
+  assert.ok(!/SUCCESSFULLY CASHED OUT/.test(js), 'the old headline swap is gone');
+
+  // Both up at once means the death card's Play Again sits behind the receipt,
+  // and in a paid room that button re-stakes real money.
+  assert.ok(/death-screen'\)\.classList\.remove\('active'\)/.test(handler),
+    'showing the receipt clears the death card');
+  const died = js.slice(js.indexOf('EVENTS.PLAYER_DIED'), js.indexOf('EVENTS.PLAYER_DIED') + 700);
+  assert.ok(/cashout-screen'\)\.classList\.remove\('active'\)/.test(died),
+    'and dying clears the receipt');
+});
+
+test('the cash-out receipt states the payout in the unit actually paid', () => {
+  // The payout event's field is still named `sol` from before the USDC
+  // cutover but carries whichever unit is live, so a hardcoded "SOL" label
+  // told a player their dollars were SOL.
+  const js = fs.readFileSync(path.join(ROOT, 'public/js/game.js'), 'utf8');
+  const paid = js.slice(js.indexOf("socket.on('cashout:paid'"),
+                        js.indexOf("socket.on('cashout:error'"));
+  assert.ok(/fmtMoney/.test(paid), 'formatted for the active money mode');
+  assert.ok(!/SOL/.test(paid), 'never labelled SOL outright');
+
+  // The rake is shown as a line item rather than quietly netted off.
+  const html = fs.readFileSync(path.join(ROOT, 'public/game.html'), 'utf8');
+  for (const id of ['co-gross', 'co-cut', 'co-net', 'co-settle', 'co-tx'])
+    assert.ok(html.includes(id), `${id} is on the receipt`);
+  assert.ok(/House cut/.test(html), 'the cut is named');
+
+  // The server sends the gross so the receipt is not doing its own arithmetic
+  // off the 90% share.
+  const srv = fs.readFileSync(path.join(ROOT, 'server/index.js'), 'utf8');
+  assert.ok(/cashout:result',\s*\{[^}]*gross: worth[^}]*cut: ownerShare/.test(srv),
+    'gross and cut are sent for display');
+});

@@ -12,6 +12,10 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <link rel="manifest" href="/manifest.json">
   <title>DuelSeries - Playing</title>
+  <!-- Same request the lobby makes, so inside the iframe these are already cached. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/game.css">
 </head>
 <body>
@@ -75,14 +79,38 @@
     <div id="q-timer-label">Hold to cash out</div>
   </div>
 
-  <!-- Cash-out overlay -->
-  <div id="cashout-screen">
-    <h2>CASHED OUT</h2>
-    <p>Your snake has been secured</p>
-    <p id="cashout-earned" style="color:#14F195;font-size:1.1rem;font-weight:700;margin:8px 0 0;min-height:1.4em;"></p>
-    <div class="cashout-btns">
-      <button class="btn btn-spectate" id="btn-cashout-spectate">👁 Spectate</button>
-      <button class="btn btn-lobby" id="btn-cashout-lobby">← Lobby</button>
+  <!-- Cash-out receipt. Deliberately a receipt and not a trophy: the player is
+       owed money and this is the record of it, including the cut we took. -->
+  <div id="cashout-screen" role="dialog" aria-modal="true" aria-labelledby="co-title">
+    <div class="co-card">
+      <p class="co-eyebrow" id="co-title">Cashed out</p>
+
+      <p class="co-amount" id="co-amount">$0.00</p>
+      <p class="co-sub" id="co-sub">paid to your wallet</p>
+
+      <dl class="co-ledger" id="co-ledger">
+        <div class="co-row"><dt>Snake worth</dt><dd id="co-gross">$0.00</dd></div>
+        <div class="co-row"><dt>House cut <i>10%</i></dt><dd id="co-cut">$0.00</dd></div>
+        <div class="co-row co-net"><dt>You received</dt><dd id="co-net">$0.00</dd></div>
+      </dl>
+
+      <!-- The transfer confirms after the figure is known, so this row resolves
+           on its own from pending to a real transaction you can go and check. -->
+      <p class="co-settle" id="co-settle" data-state="pending">
+        <span class="co-dot" aria-hidden="true"></span>
+        <span id="co-settle-text">Sending to your wallet</span>
+        <a id="co-tx" href="#" target="_blank" rel="noopener noreferrer" hidden>View transaction</a>
+      </p>
+
+      <p class="co-stats">
+        <span>Length <b id="co-length">0</b></span>
+        <span>Score <b id="co-score">0</b></span>
+      </p>
+
+      <div class="co-btns">
+        <button class="co-btn co-go" id="btn-cashout-lobby">Back to lobby</button>
+        <button class="co-btn co-ghost" id="btn-cashout-spectate">Keep watching</button>
+      </div>
     </div>
   </div>
 

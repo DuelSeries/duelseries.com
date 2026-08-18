@@ -201,7 +201,9 @@ app.get('/api/prices', (req, res) => {
 // Active money mode — tells the wallet widget whether to build SOL or USDC transfers and how to
 // label balances. usdcMint is null in SOL mode.
 app.get('/api/money-config', (req, res) => {
-  res.json({ mode: money.mode, unit: money.unit, usdcMint: money.usdcMint || null, decimals: money.decimals || 6 });
+  // network lets the client build an explorer link that points at the cluster the
+  // payout actually happened on, instead of guessing mainnet.
+  res.json({ mode: money.mode, unit: money.unit, usdcMint: money.usdcMint || null, decimals: money.decimals || 6, network: process.env.SOLANA_NETWORK || 'mainnet-beta' });
 });
 
 // ─── Cross-region stats: EU pushes to NA instantly on every change ────────────
@@ -1119,7 +1121,9 @@ io.on('connection', (socket) => {
     // Self-custody (Phase 2): the escrow sends the player's 90% back to their own wallet
     // on-chain; the 10% house cut simply stays in the escrow. No custodial ledger involved.
     if (socket._walletAddress) {
-      socket.emit('cashout:result', { newBalance: null, earnedSol: playerShare, score: Math.floor(snake.score), length: snake.length, toWallet: true });
+      // gross/cut are for the receipt only — the payout below is computed here and
+      // never read back from the client, so these are display values, not inputs.
+      socket.emit('cashout:result', { newBalance: null, earnedSol: playerShare, gross: worth, cut: ownerShare, score: Math.floor(snake.score), length: snake.length, toWallet: true });
       if (worth > 0) {
         money.withdraw(socket._walletAddress, playerShare)
           .then((sig) => {
