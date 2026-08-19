@@ -454,7 +454,18 @@ app.post('/api/submit-stake', entryFeeLimiter, express.json({ limit: '256kb' }),
       /* worth is the rung, not the raw payment: everyone in a room has to be
          worth the same on entry or the eat-and-take rule stops being symmetric.
          Any excess over the rung stays in escrow. */
-      const entryToken = entryStore.mint({ stake: rung, worth: rung, walletAddress: walletAddress || payer });
+      /* The payout address is the VERIFIED on-chain payer, never the one in
+         the request. This used to be `walletAddress || payer`, so the address
+         escrow eventually pays out to came from an unauthenticated field —
+         the one client-supplied value in the money path that was still being
+         trusted, after worth was carefully taken out of the client's hands.
+         The real client always sets the tx fee payer to the player's own
+         wallet, so the two agree; a request where they do not is either a bug
+         or someone redirecting a payout, and is worth refusing loudly. */
+      if (walletAddress && walletAddress !== payer) {
+        return res.status(400).json({ error: 'Stake was paid by a different wallet' });
+      }
+      const entryToken = entryStore.mint({ stake: rung, worth: rung, walletAddress: payer });
       return res.json({ ok: true, entryToken, worth: rung, stake: rung, paid: worth });
     } catch (e) {
       return res.status(400).json({ error: e.message });
@@ -472,7 +483,11 @@ app.post('/api/submit-stake', entryFeeLimiter, express.json({ limit: '256kb' }),
     // requests with the same sig can't both pass) without burning a valid sig on a transient
     // verify failure. If it returns false, another request already consumed this stake.
     if (!(await db.markStakeSig(sig))) return res.status(400).json({ error: 'Stake already used' });
-    const entryToken = entryStore.mint({ lobbyType, worth, walletAddress: walletAddress || payer });
+    // Same rule as the ladder path above: pay out to who actually paid.
+    if (walletAddress && walletAddress !== payer) {
+      return res.status(400).json({ error: 'Stake was paid by a different wallet' });
+    }
+    const entryToken = entryStore.mint({ lobbyType, worth, walletAddress: payer });
     res.json({ ok: true, entryToken, worth, worthSol: worth }); // worthSol kept for current client back-compat
   } catch (e) {
     res.status(400).json({ error: e.message });
@@ -1069,22 +1084,63 @@ io.on('connection', (socket) => {
     broadcastLobbyState();
   });
 
+  /* Cashing out is a HELD action, and the hold is what makes it risky: you
+     crawl, and a ring over your head tells everyone in the room to come and
+     take it. Both halves are timed and applied here rather than in the client,
+     because a client-side penalty in a real-money game is a penalty only for
+     the people who did not edit it out. */
+  function clearCashoutHold(snake) {
+    if (snake) snake.cashoutStartedAt = null;
+    if (socket._cashoutTimer) { clearTimeout(socket._cashoutTimer); socket._cashoutTimer = null; }
+  }
+
   socket.on('cashout:start', () => {
-    if (socket._room) {
-      socket.to(socket._room.socketRoomName).emit('cashout:started', { id: socket.id });
-      socket.emit('cashout:started', { id: socket.id }); // echo to self for own ring
-    }
+    const room = socket._room;
+    if (!room) return;
+    const snake = room.snakes && room.snakes.get(socket.id);
+    if (!snake || !snake.alive) return;
+    if (snake.cashoutStartedAt) return;                  // already holding
+    snake.cashoutStartedAt = Date.now();                 // starts the slowdown too
+    /* The SERVER completes the hold, rather than waiting to be told the hold
+       finished. The client starts its countdown when it sends this and the
+       server starts when it arrives, so the client's clock always runs ahead
+       by about one trip — asking it to tell us when three seconds were up
+       would have every honest player asking a fraction too early and being
+       refused. Owning the clock end to end avoids inventing a tolerance to
+       paper over that, and the tolerance is exactly what a cheat would aim at. */
+    socket._cashoutTimer = setTimeout(() => {
+      socket._cashoutTimer = null;
+      doCashout().catch(e => console.error('[CASHOUT]', e.message));
+    }, C.CASHOUT_HOLD_MS);
+    socket.to(room.socketRoomName).emit('cashout:started', { id: socket.id });
+    socket.emit('cashout:started', { id: socket.id });   // echo to self for own ring
   });
 
   socket.on('cashout:cancel', () => {
-    if (socket._room) {
-      socket.to(socket._room.socketRoomName).emit('cashout:cancelled', { id: socket.id });
-      socket.emit('cashout:cancelled', { id: socket.id });
-    }
+    const room = socket._room;
+    if (!room) return;
+    clearCashoutHold(room.snakes && room.snakes.get(socket.id));   // full speed again
+    socket.to(room.socketRoomName).emit('cashout:cancelled', { id: socket.id });
+    socket.emit('cashout:cancelled', { id: socket.id });
   });
 
-  socket.on('cashout', async () => {
-    if (!socketRL(socket, 'cashout', 5000)) return;
+  socket.on('disconnect', () => clearCashoutHold(
+    socket._room && socket._room.snakes && socket._room.snakes.get(socket.id)));
+
+  /* Kept so an older client that still drives this itself keeps working, but
+     it grants nothing: the hold must have run, and the timer above will have
+     paid out already in the normal case. */
+  socket.on('cashout', () => {
+    if (!socketRL(socket, 'cashout', 1000)) return;
+    const room = socket._room;
+    const snake = room && room.snakes && room.snakes.get(socket.id);
+    if (!snake || !snake.alive) return;
+    const held = snake.cashoutStartedAt ? Date.now() - snake.cashoutStartedAt : -1;
+    if (held < C.CASHOUT_HOLD_MS) return;   // no hold, no money
+    doCashout().catch(e => console.error('[CASHOUT]', e.message));
+  });
+
+  async function doCashout() {
     const room = socket._room;
     if (!room) return;
     const snake = room.snakes && room.snakes.get(socket.id);
@@ -1139,11 +1195,13 @@ io.on('connection', (socket) => {
     // No wallet here means a free/worthless player (paid play requires a connected wallet),
     // so there's nothing to pay out.
     socket.emit('cashout:result', { newBalance: null, earnedSol: 0, score: Math.floor(snake.score), length: snake.length });
-  });
+  }
 
-  socket.on(C.EVENTS.INPUT, ({ angle, boost, speedMult }) => {
-    if (typeof angle !== 'number') return;
-    if (socket._room) socket._room.handleInput(socket.id, angle, !!boost, speedMult);
+  // speedMult is no longer read from the client: the only thing it carried was
+  // the cash-out slowdown, and the server times that itself now.
+  socket.on(C.EVENTS.INPUT, ({ angle, boost }) => {
+    if (typeof angle !== 'number' || !Number.isFinite(angle)) return;
+    if (socket._room) socket._room.handleInput(socket.id, angle, !!boost);
   });
 
   // In-game chat — re-broadcast a player's message to everyone in their game room (incl. themselves).

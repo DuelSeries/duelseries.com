@@ -81,10 +81,24 @@ class Snake {
     return C.MAX_TURN_RATE * scang;
   }
 
-  setInput(targetAngle, boosting, speedMult) {
+  /* speedMult is deliberately NOT taken from the client any more.
+
+     It only ever carried the cash-out slowdown, and letting the client send it
+     meant the one penalty that makes banking a snake risky was optional: a
+     modified client simply kept sending 1 and crawled for nobody. The server
+     derives it from its own cash-out clock instead (see cashoutSpeed), so the
+     player who is banking is slow whatever their client says. */
+  setInput(targetAngle, boosting) {
     this.targetAngle = targetAngle;
     this.boosting = boosting && this.boostFuel > 0;
-    this.speedMult = (typeof speedMult === 'number') ? Math.max(0.2, Math.min(1, speedMult)) : 1;
+  }
+
+  /* Ramps from full speed down to CASHOUT_MIN_SPEED_MULT across the hold, and
+     snaps straight back to 1 the moment the hold is released. */
+  get speedMult() {
+    if (!this.cashoutStartedAt) return 1;
+    const t = Math.min(1, (Date.now() - this.cashoutStartedAt) / C.CASHOUT_HOLD_MS);
+    return Math.max(C.CASHOUT_MIN_SPEED_MULT, 1 - (1 - C.CASHOUT_MIN_SPEED_MULT) * t);
   }
 
   update() {

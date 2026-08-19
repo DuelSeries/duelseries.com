@@ -879,8 +879,12 @@ document.addEventListener('DOMContentLoaded', () => {});
   });
 })();
 
-// ─── Q Cash-out ───────────────────────────────────────────────────────────────
-const Q_HOLD_MS = 3000;
+/* ─── Q Cash-out ───────────────────────────────────────────────────────────────
+   The server times this hold and applies the slowdown itself; these values are
+   the same ones only so the ring and the local prediction agree with what the
+   server is already doing. Changing them here changes the animation, not the
+   rules — 'cashout' is refused until the server's own clock has run. */
+const Q_HOLD_MS = CONSTANTS.CASHOUT_HOLD_MS;
 const RING_CIRC = 213.6;
 let qHoldStart   = null;
 let qHoldTimer   = null;
@@ -1228,17 +1232,22 @@ function sendInput() {
         renderer.camera.screenToWorld(mousePos.x, mousePos.y, canvas.width, canvas.height).x - mySnake.segs[0]
       );
 
-  // Q held: ramp speed down to 0.2x. Released: instant full speed (no lag to clear).
+  /* Q held: ramp down to CASHOUT_MIN_SPEED_MULT, released: straight back to
+     full. This is LOCAL PREDICTION ONLY — the same ramp runs on the server
+     from its own clock and is what actually moves the snake. It is not sent,
+     because a speed the client chooses is a penalty only for the players who
+     do not edit it out. */
   if (qHoldStart) {
     const t = Math.min(1, (performance.now() - qHoldStart) / Q_HOLD_MS);
-    cashoutSpeedMult = Math.max(0.2, 1 - 0.8 * t);
+    const floor = CONSTANTS.CASHOUT_MIN_SPEED_MULT;
+    cashoutSpeedMult = Math.max(floor, 1 - (1 - floor) * t);
   } else {
     cashoutSpeedMult = 1;
   }
   // VOLATILE: input is sent 60x/sec and each carries the absolute current angle, so a
   // dropped one is harmlessly superseded 16ms later. Reliable emits would queue on a
   // congested mobile uplink and back up the buffer (delaying ping_check too).
-  socket.volatile.emit(CONSTANTS.EVENTS.INPUT, { angle, boost: boostActive && !qHoldStart, speedMult: cashoutSpeedMult });
+  socket.volatile.emit(CONSTANTS.EVENTS.INPUT, { angle, boost: boostActive && !qHoldStart });
 }
 setInterval(sendInput, 1000 / 60);
 

@@ -12,6 +12,16 @@ const CONSTANTS = {
   MIN_WORLD_RADIUS: 1200,
   MAX_WORLD_RADIUS: 6000,
 
+  /* Cashing out. Both numbers are the SERVER's: it times the hold and applies
+     the slowdown itself, and the client uses the same values only so its own
+     prediction and its ring animation line up.
+
+     They are the price of banking a snake in a real-money game — you crawl,
+     and everyone can see the ring and come for you. That has to be enforced
+     where it cannot be edited out. */
+  CASHOUT_HOLD_MS: 3000,
+  CASHOUT_MIN_SPEED_MULT: 0.2,
+
   // Snake
   SNAKE_BASE_SPEED: 3,
   SNAKE_SEGMENT_SPACING: 3,

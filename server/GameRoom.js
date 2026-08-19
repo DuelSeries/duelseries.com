@@ -142,10 +142,10 @@ class GameRoom {
     return snake;
   }
 
-  handleInput(socketId, targetAngle, boosting, speedMult) {
+  handleInput(socketId, targetAngle, boosting) {
     const snake = this.snakes.get(socketId);
     if (snake && snake.alive) {
-      snake.setInput(targetAngle, boosting, speedMult);
+      snake.setInput(targetAngle, boosting);
     }
   }
 
