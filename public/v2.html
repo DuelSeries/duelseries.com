@@ -1471,9 +1471,25 @@ const LOOKS=[
   {id:'shadow',    name:'Shadow',     color:'#505050'},
 ];
 const SKIN_KEY='duelseries_skin_id';
+/* TWO keys, and both are load-bearing. The id is what this screen equips; the
+   COLOUR is what actually reaches the snake — the wallet widget reads
+   duelseries_skin_color into sessionStorage.snakeColor, and game.js reads that
+   and sends it with PLAY. The old lobby wrote both. This one only wrote the
+   id, so from the redesign until 2026-08-19 the appearance screen equipped a
+   skin that never left the lobby: every snake in the game used the fallback
+   colour no matter what you picked. */
+const SKIN_COLOR_KEY='duelseries_skin_color';
 let skinId=localStorage.getItem(SKIN_KEY)||'coral';
 if(!LOOKS.some(s=>s.id===skinId))skinId='coral';   /* a stale id falls back */
 const skin=()=>LOOKS.find(s=>s.id===skinId)||LOOKS[0];
+function storeSkin(){
+  try{localStorage.setItem(SKIN_KEY,skinId);
+      localStorage.setItem(SKIN_COLOR_KEY,skin().color)}catch(_){}
+}
+/* Repair on load as well as on save, so anyone who equipped a skin while the
+   colour was not being written gets it applied without having to go back in
+   and pick it again. */
+storeSkin();
 
 /* The live lobby's slither-in-place wave, same formula: head on the right at
    u=0, tail on the left at u=1, and the wave travels down the body as t
@@ -1554,7 +1570,7 @@ function lookMeta(){
 function closeLook(save){
   if(save){
     skinId=LOOKS[lookIx].id;
-    try{localStorage.setItem(SKIN_KEY,skinId)}catch(_){}
+    storeSkin();          /* id AND colour: the colour is what reaches the game */
     drawSkins();
   }
   document.getElementById('lookveil').classList.remove('on');

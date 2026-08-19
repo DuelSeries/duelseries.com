@@ -36,13 +36,21 @@ test('the redesigned lobby is what players get at the root', () => {
     'the root route is declared before the static handler');
 });
 
-test('the old lobby is still reachable as a way back', () => {
-  // Kept for one release. If something only shows up under real traffic, the
-  // fix is a URL rather than a revert and a redeploy.
+test('the old lobby is gone, and nothing still reaches for it', () => {
+  /* Deleted 2026-08-19 after the redesign had held on mainnet through real
+     entry and cash-out. It was kept as an escape hatch for one release; past
+     that it is 2,800 lines of a second lobby that nobody loads and that every
+     change has to be read around. The way back is git. */
   const s = server();
-  assert.ok(/app\.get\('\/legacy', .*index\.html/.test(s), '/legacy serves the old lobby');
-  assert.ok(fs.existsSync(path.join(ROOT, 'public/index.html')), 'index.html still exists');
-  assert.ok(fs.existsSync(path.join(ROOT, 'public/js/lobby.js')), 'lobby.js still exists');
+  // The route specifically: "legacyHeaders" in the rate limiters is unrelated.
+  assert.ok(!/app\.get\('\/legacy'/.test(s), 'the /legacy route is gone');
+  assert.ok(!fs.existsSync(path.join(ROOT, 'public/index.html')), 'index.html is gone');
+  assert.ok(!fs.existsSync(path.join(ROOT, 'public/js/lobby.js')), 'lobby.js is gone');
+  // A dangling reference would 404 at runtime rather than fail a build.
+  for (const p of ['public/v2.html', 'public/game.html', 'public/agar.html']) {
+    const h = fs.readFileSync(path.join(ROOT, p), 'utf8');
+    assert.ok(!/["'\/]js\/lobby\.js/.test(h), `${p} does not load lobby.js`);
+  }
 });
 
 test('/v2 keeps working, so existing links do not break', () => {
@@ -80,13 +88,32 @@ test('search is debounced and cancels the previous request', () => {
   assert.ok(src.includes('AbortController'), 'aborts the in-flight request');
 });
 
-test('the skin store is shared with the live lobby', () => {
-  // Both lobbies run side by side during the migration, so they have to agree
-  // on the equipped skin rather than each keeping their own.
-  const key = 'duelseries_skin_id';
-  assert.ok(v2().includes(key), 'v2 uses the live skin key');
-  assert.ok(fs.readFileSync(path.join(ROOT, 'public/js/lobby.js'), 'utf8').includes(key),
-    'the live lobby uses the same key');
+test('equipping a skin actually changes the snake', () => {
+  /* Two keys, and the COLOUR is the one that reaches the game: the wallet
+     widget reads duelseries_skin_color into sessionStorage.snakeColor, and
+     game.js reads that and sends it with PLAY. The id alone never leaves the
+     lobby.
+
+     The old lobby wrote both. The redesign wrote only the id, so from the
+     migration until 2026-08-19 the appearance screen equipped a skin that had
+     no effect on the game: every snake used the fallback colour whatever you
+     picked. Verified in the browser at the time — equipping Galaxy stored the
+     id and the game still resolved to its own default. */
+  const html = v2();
+  assert.ok(html.includes('duelseries_skin_id'), 'the lobby stores the id');
+  assert.ok(html.includes('duelseries_skin_color'), 'and the colour');
+  // Written together, so one can never be updated without the other.
+  assert.ok(/function storeSkin\(\)\{[\s\S]{0,220}SKIN_KEY,skinId[\s\S]{0,160}SKIN_COLOR_KEY/.test(html),
+    'both are written by one function');
+  assert.ok(/storeSkin\(\);/.test(html), 'which also runs on load, repairing a missing colour');
+  const save = html.slice(html.indexOf('function closeLook'), html.indexOf('function closeLook') + 400);
+  assert.ok(/storeSkin\(\)/.test(save), 'and Save goes through it');
+
+  // The far end of the contract: whoever consumes it must read that key.
+  const widget = fs.readFileSync(path.join(ROOT, 'wallet-widget/src/main.jsx'), 'utf8');
+  assert.ok(widget.includes('duelseries_skin_color'), 'the widget reads the colour');
+  assert.ok(fs.readFileSync(path.join(ROOT, 'public/js/game.js'), 'utf8').includes('snakeColor'),
+    'and the game reads what the widget set');
 });
 
 test('the wallet screen delegates to the Privy widget, not its own money code', () => {
@@ -378,8 +405,7 @@ test('the game screen puts the action above the lobby list on a phone', () => {
 test('the brand mark is wired everywhere a browser asks for one', () => {
   // Tab, bookmark bar, iOS bookmark, installed app: four different requests,
   // and a missing one silently falls back to a blank page glyph.
-  for (const page of ['public/v2.html', 'public/game.html', 'public/index.html',
-                      'public/agar.html']) {
+  for (const page of ['public/v2.html', 'public/game.html', 'public/agar.html']) {
     const h = fs.readFileSync(path.join(ROOT, page), 'utf8');
     assert.ok(h.includes('/img/favicon-32.png'), `${page} sets the tab icon`);
     assert.ok(h.includes('/img/apple-touch-icon.png'), `${page} sets the iOS icon`);

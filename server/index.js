@@ -635,26 +635,18 @@ app.get('/api/my-profile', async (req, res) => {
 
 app.use((req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
 
-// The redesigned lobby, served alongside the live one rather than replacing it,
-// so it can be exercised against the real server, the real wallet and real
-// money while index.html stays authoritative. The root route is switched over
-// in the cutover phase; until then a half-migrated push cannot take the lobby
-// down. See docs/superpowers/plans/2026-08-14-lobby-v2-migration.md.
-/* ─── Cutover ─────────────────────────────────────────────────────────────────
-   The redesigned lobby is now what players get. It ran in parallel at /v2
-   through the whole migration and has been exercised on mainnet: free and paid
-   entry on the stake ladder, and cash-out, all with real money.
+/* The lobby. Declared BEFORE express.static, which would otherwise serve a
+   file for '/' and win.
 
-   Both routes are declared BEFORE express.static, which would otherwise serve
-   public/index.html for '/' and win.
+   /v2 is kept as an alias because it was the migration URL and is in people's
+   history and in the docs; it costs one line and breaks nothing.
 
-   The old lobby stays reachable at /legacy for one release. It is not dead
-   weight: it is the way back if something only shows up under real traffic,
-   and reaching for it is a URL change rather than a revert and redeploy.
-   Delete it, and public/js/lobby.js with it, once this has held. */
+   The old lobby and its /legacy escape hatch were deleted 2026-08-19, after
+   the redesign had held on mainnet through real entry and cash-out. The way
+   back now is git, which is what it should have been once the new one was
+   carrying real money. */
 app.get('/', (_req, res) => res.sendFile(path.join(__dirname, '../public/v2.html')));
 app.get('/v2', (_req, res) => res.sendFile(path.join(__dirname, '../public/v2.html')));
-app.get('/legacy', (_req, res) => res.sendFile(path.join(__dirname, '../public/index.html')));
 
 app.use(express.static(path.join(__dirname, '../public')));
 app.use('/shared', express.static(path.join(__dirname, '../shared')));
