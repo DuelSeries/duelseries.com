@@ -32,13 +32,10 @@ function init({ db, onFlag } = {}) {
   _db = db || null;
   _onFlag = onFlag || null;
   if (_timer) clearInterval(_timer);
-  // Offset from the other periodic jobs so they don't all fire on the same tick
-  // and stall the shared game loop — see the note in server/index.js.
-  const start = setTimeout(() => {
-    _timer = setInterval(evaluate, EVAL_MS);
-    if (_timer.unref) _timer.unref();
-  }, 7000);
-  if (start.unref) start.unref();
+  /* No self-scheduling. index.js drives this through everyStaggered so it is
+     offset from every other job AND timed, which is how a job that stalls the
+     game loop gets identified instead of guessed at. A bare interval here was
+     invisible to /api/debug/tick. */
 }
 
 // Record that `amount` SOL of cash value moved from account `src` to account `dst`.

@@ -9,8 +9,8 @@ let _dirty = false;
 function setDb(db) {
   _db = db;
   _load().catch(e => console.error('[AgarLB] initial load failed:', e.message));
-  // Offset from the other periodic jobs — see the note in leaderboard.js.
-  setTimeout(() => setInterval(_flush, 30_000).unref?.(), 25_000).unref?.();
+  // Scheduled from index.js through everyStaggered, so it is offset from the
+  // other jobs and timed. See the note there.
   process.on('SIGTERM', _flush);
   process.on('SIGINT',  _flush);
 }
@@ -56,4 +56,4 @@ function getTop(n) {
   return _cache.slice(0, n).map((e, i) => ({ rank: i + 1, name: e.name, score: e.score }));
 }
 
-module.exports = { setDb, record, getTop };
+module.exports = { setDb, record, getTop, flush: _flush };

@@ -759,8 +759,8 @@ const ladder = new LobbyRegistry({
   makeRoom: (game, rgn, stake) =>
     new GameRoom(io, `${rgn}_s${String(stake).replace('.', '_')}`),
 });
-// Withdraw rooms nobody is in, so an idle server is not simulating empty worlds.
-setInterval(() => { try { ladder.sweep(); } catch (e) { console.error('[LADDER]', e.message); } }, 60 * 1000);
+// Withdrawing rooms nobody is in is scheduled further down, through
+// everyStaggered, along with every other periodic job.
 
 /* Which room a join lands in. A stake wins when present, because only the
    ladder client sends one; everything else is the original tier lookup,
@@ -923,8 +923,27 @@ function everyStaggered(fn, periodMs, offsetMs, label) {
   }, offsetMs).unref?.();
 }
 
+/* EVERY periodic job goes through here. Two things matter and both were missed
+   last time this was "fixed": the offset keeps jobs off each other's tick, and
+   the wrapper TIMES them, so /api/debug/tick can name whichever one is stalling
+   the loop.
+
+   Only solvency and payouts were ever wrapped. The leaderboard flush, the lobby
+   sweeper and the collusion evaluator ran on bare intervals started at boot, so
+   they collided every 60 seconds and nothing was measuring any of them. The
+   flush was the expensive one: it issued a sequential UPDATE per cached player,
+   up to a thousand round trips, while the simulation waited. */
 everyStaggered(checkSolvency, 60000, 3000, 'solvency');
 checkSolvency();
+/* Offsets are chosen MOD 30s, because most of these repeat every 30s and a
+   60s job still lands on a 30s slot. Reduced: solvency 3, collusion 7,
+   payouts 11, lobby-sweep 14, lb-flush 19, agar-lb 25. No two share a second,
+   and the tightest gap is 3s. Picking 41 for the sweep looked staggered and
+   was not: 41 mod 30 is 11, exactly where payouts already lands. */
+everyStaggered(() => allTimeLb.flush(),    30000, 19000, 'lb-flush');
+everyStaggered(() => agarLb.flush(),       30000, 25000, 'agar-lb-flush');
+everyStaggered(() => ladder.sweep(),       60000, 44000, 'lobby-sweep');
+everyStaggered(() => collusion.evaluate(), 30000, 37000, 'collusion');
 
 // ── Failed-payout drainer (NA only) ───────────────────────────────────────────
 // Retries cash-out payouts that failed (e.g. an RPC outage) so a player's winnings are never
