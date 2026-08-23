@@ -1329,6 +1329,10 @@ function sendPing() {
 socket.on('pong_check', () => {
   if (pingSentAt === null) return;
   pingMs = Math.round(performance.now() - pingSentAt);
+  // Feed the stall recorder: a round trip that spikes at the same moment
+  // snapshots gap means the network, and one that stays flat means the
+  // packets were late leaving rather than late arriving.
+  if (window.__duelDiagPing) window.__duelDiagPing(pingMs);
   pingSentAt = null;
   pingValueEl.textContent = pingMs + ' ms';
   pingDotEl.className = 'ping-dot ' + (pingMs < 50 ? 'ping-green' : pingMs < 100 ? 'ping-orange' : 'ping-red');

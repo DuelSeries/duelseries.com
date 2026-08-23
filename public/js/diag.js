@@ -87,6 +87,16 @@
     keep(D.heap, 40);
   }, 2000);
 
+  /* Round-trip time, fed from game.js's existing 2-second ping. Paired with
+     the snapshot gaps this is what separates network from server: a ping that
+     spikes alongside a gap means the wire, a ping that stays flat while
+     snapshots gap means the packets left late. */
+  D.pings = [];
+  window.__duelDiagPing = function (ms) {
+    D.pings.push({ atSec: sec(), ms });
+    keep(D.pings, 90);
+  };
+
   /* Called by game.js on every snapshot, so the recorder needs no knowledge of
      the socket. */
   window.__duelDiagSnapshot = function () {
@@ -117,6 +127,7 @@
       snaps: D.snaps.slice(-25),
       longtasks: D.longtasks.slice(-25),
       heap: D.heap.slice(-20),
+      pings: D.pings.slice(-45),
       longtaskUnsupported: !!D.longtaskUnsupported,
       ua: navigator.userAgent.slice(0, 120),
     };

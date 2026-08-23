@@ -940,6 +940,7 @@ app.get('/api/debug/tick', (_req, res) => {
       const room = gameRooms[rgn] && gameRooms[rgn][type];
       const lag = room && room._lag;
       if (!lag || !lag.ticks) continue;
+      const bc = room._bc;
       out.rooms[`${rgn}_${type}`] = {
         ticks: lag.ticks,
         lateTicks: lag.late,
@@ -947,6 +948,17 @@ app.get('/api/debug/tick', (_req, res) => {
         worstMs: Math.round(lag.worst),
         worstAgoSec: lag.worstAt ? Math.round((Date.now() - lag.worstAt) / 1000) : null,
         recent: lag.recent.map(r => ({ ms: r.ms, agoSec: Math.round((Date.now() - r.at) / 1000) })),
+        // Whether the SERVER failed to send, as opposed to the packet arriving
+        // late. The client sees 110-200ms snapshot gaps with no stall in the
+        // tab; if these match, it is ours, and if these stay near 33ms it is
+        // the network.
+        broadcast: bc ? {
+          sends: bc.count,
+          lateSends: bc.late,
+          worstMs: Math.round(bc.worst),
+          worstAgoSec: bc.worstAt ? Math.round((Date.now() - bc.worstAt) / 1000) : null,
+          recent: bc.recent.map(r => ({ ms: r.ms, agoSec: Math.round((Date.now() - r.at) / 1000) })),
+        } : null,
       };
     }
   }

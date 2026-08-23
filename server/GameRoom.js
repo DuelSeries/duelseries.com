@@ -478,6 +478,31 @@ class GameRoom {
     if (!roomSet || roomSet.size === 0) return;
 
     const t           = Date.now();
+
+    /* Gap since the previous broadcast for this room. This is the measurement
+       that finally separates "the server did not send" from "the packet was
+       late arriving", which has been guessed at all the way through.
+
+       The client reports gaps of 110-200ms between snapshots WITHOUT any
+       matching freeze in the tab, so the browser is not the one stalling. If
+       these gaps show the same 200ms, the server failed to send and it is
+       ours. If these stay at a steady ~33ms while the client still sees 200ms,
+       the packets left on time and the delay is in the network, which is a
+       completely different investigation. */
+    if (!this._bc) this._bc = { worst: 0, worstAt: 0, count: 0, late: 0, recent: [] };
+    if (this._lastBcAt) {
+      const gap = t - this._lastBcAt;
+      const expected = 1000 / (C.SNAPSHOT_RATE || C.TICK_RATE);
+      this._bc.count++;
+      if (gap > expected * 2) {
+        this._bc.late++;
+        if (gap > this._bc.worst) { this._bc.worst = gap; this._bc.worstAt = t; }
+        this._bc.recent.push({ ms: Math.round(gap), at: t });
+        if (this._bc.recent.length > 30) this._bc.recent.shift();
+      }
+    }
+    this._lastBcAt = t;
+
     const worldRadius = this.worldRadius;
     const leaderboard = this.buildLeaderboard();
     const allFood     = this.foodManager.getAll();
