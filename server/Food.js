@@ -28,6 +28,23 @@ let nextFoodId = 1;
 class FoodManager {
   constructor() {
     this.items = new Map();
+    /* A live array of the same pellets, kept in step with the Map.
+
+       getAll() used to be Array.from(items.values()), and it is called from
+       the 60Hz tick AND the 30Hz snapshot broadcast. At FOOD_SPAWN_COUNT of
+       3600 that is a 3600-element array built NINETY times a second per busy
+       room, about 2.6 MB/s of garbage from this one method before anything
+       else in the snapshot path allocates.
+
+       Nothing was wrong with any single call. The cost only shows up as the
+       heap filling at a steady rate and the collector stopping the world for
+       80-160ms when it does, which is felt as the whole game hitching at
+       roughly regular intervals, in every room at once, attributable to no
+       job — because a collection is not a job.
+
+       Maintained here in O(1): append on spawn, swap-and-pop on remove, with
+       each pellet remembering its own index. */
+    this._all = [];
   }
 
   spawnInitial(worldRadius) {
@@ -64,6 +81,8 @@ class FoodManager {
       cashValue: cashValue || 0,
       isGolden,
     };
+    food._i = this._all.length;      // its own slot, so removal is O(1)
+    this._all.push(food);
     this.items.set(id, food);
     return food;
   }
@@ -77,8 +96,16 @@ class FoodManager {
     return spawned;
   }
 
+  /* Swap-and-pop: move the last pellet into the hole and shorten the array, so
+     removal costs the same whether there are 30 pellets or 3600. Order is not
+     meaningful anywhere — every consumer either filters by position or encodes
+     the whole set. */
   remove(id) {
+    const food = this.items.get(id);
+    if (food === undefined) return;
     this.items.delete(id);
+    const i = food._i, last = this._all.pop();
+    if (last !== food) { last._i = i; this._all[i] = last; }
   }
 
   serialize() {
@@ -89,8 +116,12 @@ class FoodManager {
     return result;
   }
 
+  /* Returns the live array, NOT a copy. Callers read it and may set fields on
+     the pellets themselves (tick clears food.eaten), which is fine. What they
+     must not do is push, splice or sort it — this manager owns its contents.
+     Every current caller only iterates or filters into a new array. */
   getAll() {
-    return Array.from(this.items.values());
+    return this._all;
   }
 }
 
