@@ -694,13 +694,20 @@ function _lAdvance(dt, targetAngle) {
 }
 
 // Walk path backward from head, placing numSegs segments at fixed spacing
+/* Reused between frames. This was `new Float32Array(numSegs * 2)` on every
+   frame, and on a 240Hz display that is 237 fresh typed arrays a second for
+   one snake, every one of them garbage a frame later. Grown when it needs to
+   be, then subarray'd so callers still see exactly numSegs*2 entries. */
+let _segBuf = null;
 function _lBuildSegs(numSegs) {
   if (!_lReady || _lpLen < 2 || numSegs < 1) return null;
   // Match the adaptive step used in Snake.js serialize()
   const snakeLen = _latestMySnap ? (_latestMySnap.length || 0) : 0;
   const step = snakeLen < 400 ? 2 : snakeLen < 800 ? 3 : 4;
   const SEG_SPACING = CONSTANTS.SNAKE_SEGMENT_SPACING * step;
-  const out = new Float32Array(numSegs * 2);
+  const need = numSegs * 2;
+  if (!_segBuf || _segBuf.length < need) _segBuf = new Float32Array(Math.ceil(need * 1.5));
+  const out = _segBuf.length === need ? _segBuf : _segBuf.subarray(0, need);
   let idx = (_lpHead - 1 + LP_SIZE) % LP_SIZE;
   let cx = _lpX[idx], cy = _lpY[idx];
   out[0] = cx; out[1] = cy;
@@ -1337,7 +1344,31 @@ if (perfEl) perfEl.style.display = 'none';   // CPU/GPU counter removed
 
 let _lastFrameTime = 0;
 // Main render loop — runs at monitor refresh rate (60/144/240Hz)
+/* ─── Frame cap ────────────────────────────────────────────────────────────
+   The server produces 30 states a second. This loop rebuilds the world from
+   them, and on a 240Hz display it was doing that 237 times a second: eight
+   rebuilds per state, seven of which can only produce a picture identical to
+   the one before it.
+
+   That is not a small waste. Measured on a 240Hz machine, the tab's heap was
+   sawtoothing between 60MB and 140MB every two seconds, about 25MB/s of
+   allocation, and the resulting collections stopped the tab for 80-130ms.
+   No long task was ever recorded, because a collection is not a task — which
+   is exactly why this stayed invisible while three server-side fixes went
+   after it.
+
+   90Hz is three states per server snapshot, above any refresh rate a person
+   can distinguish here, and roughly a third of the previous allocation. */
+const RENDER_HZ = 90;
+const FRAME_MS  = 1000 / RENDER_HZ;
+let _meView = null;
+
 function gameLoop(now) {
+  // Cheap and first: skip the whole frame before anything allocates.
+  if (_lastFrameTime && (now - _lastFrameTime) < FRAME_MS - 0.5) {
+    requestAnimationFrame(gameLoop);
+    return;
+  }
   const dt = Math.min(_lastFrameTime ? now - _lastFrameTime : 16.67, 50);
   _lastFrameTime = now;
 
@@ -1372,14 +1403,18 @@ function gameLoop(now) {
     else _lNumSegs += (targetNumSegs - _lNumSegs) * (1 - Math.exp(-dt / 200));
     const simSegs = _lBuildSegs(Math.round(_lNumSegs));
     if (simSegs) {
+      /* One reused object rather than a fresh spread per frame. `{...snap}`
+         here copied every field of the snapshot 237 times a second on a 240Hz
+         display, purely to change two of them. */
+      const me = _meView || (_meView = {});
+      for (const k in _latestMySnap) me[k] = _latestMySnap[k];
+      me.segs = simSegs;
+      me.angle = _lAngle;
       let found = false;
       for (let i = 0; i < displayState.snakes.length; i++) {
-        if (displayState.snakes[i].id === myId) {
-          displayState.snakes[i] = { ..._latestMySnap, segs: simSegs, angle: _lAngle };
-          found = true; break;
-        }
+        if (displayState.snakes[i].id === myId) { displayState.snakes[i] = me; found = true; break; }
       }
-      if (!found) displayState.snakes.push({ ..._latestMySnap, segs: simSegs, angle: _lAngle });
+      if (!found) displayState.snakes.push(me);
     }
   }
 
