@@ -554,10 +554,20 @@ class GameRoom {
       this.io.to(cell.roomName).volatile.emit(C.EVENTS.SNAPSHOT, enc.meta, enc.coords);
     }
 
-    // Dead / spectator sockets: full snapshot (rare and transient).
-    for (const sock of fullSends) {
+    /* Dead / spectator sockets get the unculled world. Encoded ONCE and fanned
+       out, not once per socket.
+
+       It used to build the full payload inside this loop, so every dead or
+       spectating socket cost its own serialization of every snake and every
+       food pellet, 30 times a second. That is precisely the per-socket
+       O(players²) encode the interest-group system above exists to avoid,
+       quietly reintroduced for anyone on the death screen. It is also the
+       worst possible moment for it: a player who just died sits here until
+       they respawn, and a busy room with several dead players multiplied the
+       cost of the single heaviest allocation in the tick. */
+    if (fullSends.length) {
       const enc = encodeSnapshot({ t, worldRadius, snakes: snakesSer, food: allFood, leaderboard, mm });
-      sock.volatile.emit(C.EVENTS.SNAPSHOT, enc.meta, enc.coords);
+      for (const sock of fullSends) sock.volatile.emit(C.EVENTS.SNAPSHOT, enc.meta, enc.coords);
     }
   }
 }

@@ -858,8 +858,61 @@ async function checkSolvency() {
 // ticks ran, with timestamps, so a spike can be lined up against the periodic
 // jobs below (solvency 60s, payouts 30s, leaderboard flushes 30s). Perf timings
 // only — no player, wallet or money data.
+/* ── Garbage-collection pauses ────────────────────────────────────────────────
+   With every periodic job now measured and all of them reporting zero, a stall
+   that hits all rooms on the same tick has one remaining explanation on a
+   single-threaded server: the collector stopped the world.
+
+   That is a real candidate here rather than a shrug. The snapshot path
+   allocates hard 30 times a second per room — a serialized copy of every
+   snake, a bounds array, a minimap array, a fresh snakes/food array per
+   interest cell, and typed arrays inside encodeSnapshot. Steady allocation at
+   that rate gives major collections that arrive at roughly regular intervals
+   and pause for exactly the 80-160ms being seen.
+
+   This costs nothing when nothing is collecting, and it turns the last of the
+   guesswork into timestamps that line up against the tick log. */
+const _gc = { pauses: 0, totalMs: 0, worstMs: 0, worstAt: 0, recent: [] };
+try {
+  const { PerformanceObserver } = require('perf_hooks');
+  new PerformanceObserver((list) => {
+    for (const e of list.getEntries()) {
+      const ms = e.duration;
+      _gc.pauses++;
+      _gc.totalMs += ms;
+      if (ms > _gc.worstMs) { _gc.worstMs = ms; _gc.worstAt = Date.now(); }
+      // A tick is 16.7ms, so anything near that can push one late on its own,
+      // and a run of 10ms pauses is felt as jitter even though none is dramatic.
+      if (ms > 10) {
+        _gc.recent.push({ ms: Math.round(ms), at: Date.now(),
+                          kind: (e.detail && e.detail.kind) || null });
+        if (_gc.recent.length > 40) _gc.recent.shift();
+      }
+    }
+  }).observe({ entryTypes: ['gc'] });
+} catch (e) {
+  console.warn('[GC] observer unavailable:', e.message);
+}
+
 app.get('/api/debug/tick', (_req, res) => {
-  const out = { now: Date.now(), tickRate: C.TICK_RATE, jobs: _jobStats, rooms: {} };
+  const mem = process.memoryUsage();
+  const out = {
+    now: Date.now(), tickRate: C.TICK_RATE, upSec: Math.round(process.uptime()),
+    jobs: _jobStats,
+    gc: {
+      pauses: _gc.pauses,
+      totalMs: Math.round(_gc.totalMs),
+      worstMs: Math.round(_gc.worstMs),
+      worstAgoSec: _gc.worstAt ? Math.round((Date.now() - _gc.worstAt) / 1000) : null,
+      recent: _gc.recent.map(g => ({ ms: g.ms, agoSec: Math.round((Date.now() - g.at) / 1000), kind: g.kind })),
+    },
+    heap: {
+      usedMB: Math.round(mem.heapUsed / 1048576),
+      totalMB: Math.round(mem.heapTotal / 1048576),
+      rssMB: Math.round(mem.rss / 1048576),
+    },
+    rooms: {},
+  };
   for (const rgn of REGIONS) {
     for (const type of ['free', 'dime', 'dollar']) {
       const room = gameRooms[rgn] && gameRooms[rgn][type];
