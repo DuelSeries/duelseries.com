@@ -978,6 +978,10 @@ app.get('/api/debug/tick', (_req, res) => {
 // gives each job its own offset so they can never land together. Nothing about
 // what any job DOES changes — only when it runs.
 const _jobStats = {};
+/* How long to keep watching the loop after a job's promise settles. See the
+   note by `settle` below: the expensive part of an async job happens after the
+   await, not during it. */
+const TAIL_MS = 3000;
 function everyStaggered(fn, periodMs, offsetMs, label) {
   setTimeout(() => {
     const run = () => {
@@ -988,7 +992,7 @@ function everyStaggered(fn, periodMs, offsetMs, label) {
       // settles and the response is processed (TLS, parsing, retries). A timer
       // that should fire every 20ms but arrives much later means the loop was
       // blocked, and this attributes that to the job by name.
-      let worstLag = 0, last = Date.now();
+      let worstLag = 0, last = Date.now(), settledAt = 0;
       const probe = setInterval(() => {
         const now = Date.now();
         const lag = (now - last) - 20;
@@ -1001,14 +1005,23 @@ function everyStaggered(fn, periodMs, offsetMs, label) {
         if (done) return;
         done = true;
         clearInterval(probe);
-        const total = Date.now() - t0;
-        if (total > 250 || worstLag > 50) {
-          console.warn(`[JOB ${label}] took ${total}ms, worst loop lag during it ${Math.round(worstLag)}ms`);
+        if (worstLag > 50) {
+          console.warn(`[JOB ${label}] ran ${settledAt - t0}ms, worst loop lag within ${TAIL_MS}ms of it ${Math.round(worstLag)}ms`);
         }
-        _jobStats[label] = { lastMs: total, worstLagMs: Math.round(worstLag), at: Date.now() };
+        _jobStats[label] = { lastMs: settledAt - t0, worstLagMs: Math.round(worstLag), at: Date.now() };
       };
-      try { Promise.resolve(fn()).then(finish, e => { console.error(`[JOB ${label}]`, e.message); finish(); }); }
-      catch (e) { console.error(`[JOB ${label}]`, e.message); finish(); }
+      /* Keep sampling AFTER the promise settles. This is the blind spot that let
+         solvency report worstLag 1 while a 60s stall kept happening: an async
+         job's cost does not land while it is awaiting, it lands afterwards, as
+         the response is parsed and the garbage it produced is collected. The
+         old probe stopped at exactly the moment the interesting part began. */
+      const settle = () => {
+        if (settledAt) return;
+        settledAt = Date.now();
+        setTimeout(finish, TAIL_MS).unref?.();
+      };
+      try { Promise.resolve(fn()).then(settle, e => { console.error(`[JOB ${label}]`, e.message); settle(); }); }
+      catch (e) { console.error(`[JOB ${label}]`, e.message); settle(); }
     };
     run();
     const t = setInterval(run, periodMs);
@@ -1035,7 +1048,17 @@ function everyStaggered(fn, periodMs, offsetMs, label) {
    Enable deliberately with PROFILER=on, read /api/debug/profile, turn it off. */
 if (process.env.PROFILER === 'on') profiler.start();
 
-everyStaggered(checkSolvency, 60000, 3000, 'solvency');
+/* 45s, not 60s, and deliberately so — this is a causal test, not a tuning
+   change. What is left of the hitch still arrives on a 60-second cycle (client
+   snapshot gaps at 63s, 124s, 243s), and the only two 60s jobs are this and the
+   lobby sweep, which measures 0ms against this one's 76ms and a Solana RPC
+   round trip. If the remaining stalls move to a 45-second spacing, this is the
+   cause and the fix goes here. If they stay on 60s, it is neither job and the
+   period is coming from somewhere outside the app.
+
+   Safe either way: running the solvency monitor MORE often cannot weaken it,
+   and it is the check that alerts when escrow drops below live stakes. */
+everyStaggered(checkSolvency, 45000, 3000, 'solvency');
 checkSolvency();
 /* Offsets are chosen MOD 30s, because most of these repeat every 30s and a
    60s job still lands on a 30s slot. Reduced: solvency 3, collusion 7,
