@@ -160,4 +160,22 @@
 
   window.V2Play = { enter: enter, playChosen: playChosen, spectate: spectate,
                     launch: launch, savedName: savedName, cleanName: cleanName };
+
+  /* Forward the stall marker into the game.
+
+     The recorder that measures the hitch lives inside the iframe, so its L
+     listener only ever sees a key when the canvas holds focus. If focus sits on
+     the lobby around it — which it does after any click out there — the press
+     lands here and is silently dropped. A whole test session came back with no
+     marks that way, which looks identical to a broken instrument.
+
+     Cheap to forward, and it costs nothing when the game is not open. */
+  window.addEventListener('keydown', (e) => {
+    if (e.key !== 'l' && e.key !== 'L') return;
+    const t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+    const f = el('game-frame');
+    if (!f || !f.contentWindow || f.style.display === 'none') return;
+    try { f.contentWindow.postMessage({ type: 'diag:mark' }, window.location.origin); } catch (_) {}
+  }, true);
 })();

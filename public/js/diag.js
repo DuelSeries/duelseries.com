@@ -101,9 +101,8 @@
      something none of this measures — which would be the single most useful
      thing to learn, and would explain why fixing real bugs kept not helping. */
   D.marks = [];
-  window.addEventListener('keydown', (e) => {
-    if (e.key !== 'l' && e.key !== 'L') return;
-    if (window._chatTyping) return;
+
+  function mark() {
     D.marks.push({ atSec: sec(), heapMB: performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null });
     keep(D.marks, 40);
     // Visible acknowledgement, so it is obvious the press registered.
@@ -116,6 +115,45 @@
       setTimeout(() => n.remove(), 900);
     } catch (_) {}
     report();          // send immediately, so a mark is never lost to a refresh
+  }
+
+  /* A whole session's presses were lost to this: the key listener lives inside
+     the GAME IFRAME, so unless the canvas holds focus the keydown goes to the
+     lobby page around it and never arrives. The player pressed, saw nothing,
+     and the report came back with no marks — which reads exactly like "the
+     instrument is broken" and wastes a whole round of testing.
+
+     So the button is the primary control and the key is the shortcut. A button
+     needs no focus, works on a phone where there is no L key at all, and is
+     visibly there, which answers "did that register?" before it is asked. */
+  try {
+    const b = document.createElement('button');
+    b.id = 'diag-mark-btn';
+    b.type = 'button';
+    b.textContent = '⚑ Mark lag';
+    b.style.cssText = 'position:fixed;left:12px;bottom:12px;z-index:99998;' +
+      'background:rgba(240,168,48,.92);color:#100e0b;border:0;border-radius:10px;' +
+      'font:600 13px Archivo,system-ui,sans-serif;padding:10px 14px;cursor:pointer;' +
+      'box-shadow:0 2px 10px rgba(0,0,0,.35);touch-action:manipulation;-webkit-user-select:none;user-select:none';
+    // pointerdown, not click: the moment of the hitch is what matters, and it
+    // fires on a phone without waiting out the tap delay.
+    b.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); mark(); });
+    const add = () => document.body && document.body.appendChild(b);
+    if (document.body) add(); else window.addEventListener('DOMContentLoaded', add);
+  } catch (_) {}
+
+  // Capture phase, so the game's own handlers can't swallow it first.
+  window.addEventListener('keydown', (e) => {
+    if (e.key !== 'l' && e.key !== 'L') return;
+    if (window._chatTyping) return;
+    mark();
+  }, true);
+
+  /* And if the lobby page has focus, the press lands in the PARENT document.
+     The lobby forwards it down; this accepts it. Same-origin only. */
+  window.addEventListener('message', (e) => {
+    if (e.origin !== window.location.origin) return;
+    if (e.data && e.data.type === 'diag:mark') mark();
   });
 
   /* Round-trip time, fed from game.js's existing 2-second ping. Paired with
