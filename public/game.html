@@ -190,6 +190,9 @@
     <div id="chat-hint">press <b>t</b> to type in chat</div>
   </div>
 
+  <!-- Stall recorder. Measures the hitch where the player actually sees it,
+       and posts a summary to /api/debug/client. See public/js/diag.js. -->
+  <script src="js/diag.js"></script>
   <script src="/socket.io/socket.io.js"></script>
   <script src="/shared/constants.js"></script>
   <script src="/shared/snapshotCodec.js"></script>

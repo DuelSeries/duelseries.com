@@ -407,6 +407,7 @@ socket.on(CONSTANTS.EVENTS.GAME_JOINED, ({ playerId, worldRadius, food, snake })
 });
 
 socket.on(CONSTANTS.EVENTS.SNAPSHOT, (meta, coords) => {
+  if (window.__duelDiagSnapshot) window.__duelDiagSnapshot();
   // Snapshots arrive packed: light metadata + an Int16 buffer of all coordinates.
   // Rebuild the full snapshot object the rest of this handler expects.
   const snap = SnapshotCodec.decodeSnapshot(meta, coords);

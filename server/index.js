@@ -894,6 +894,28 @@ try {
   console.warn('[GC] observer unavailable:', e.message);
 }
 
+/* ── Client stall reports ─────────────────────────────────────────────────────
+   The hitch is only visible in the browser, so the browser measures it and
+   posts a summary here. Kept in memory, last 30 reports, perf numbers only —
+   no player, wallet or money data, and nothing that identifies a person beyond
+   a truncated user-agent.
+
+   This exists because three fixes were reasoned from server code toward a
+   symptom only the player can see, and all three missed. */
+const _clientReports = [];
+app.post('/api/debug/client', express.json({ limit: '64kb' }), (req, res) => {
+  const b = req.body || {};
+  _clientReports.push({ at: Date.now(), ip: null, ...b });
+  if (_clientReports.length > 30) _clientReports.shift();
+  res.json({ ok: true });
+});
+app.get('/api/debug/client', (_req, res) => {
+  res.json({
+    now: Date.now(),
+    reports: _clientReports.map(r => ({ ...r, agoSec: Math.round((Date.now() - r.at) / 1000) })),
+  });
+});
+
 app.get('/api/debug/tick', (_req, res) => {
   const mem = process.memoryUsage();
   const out = {
