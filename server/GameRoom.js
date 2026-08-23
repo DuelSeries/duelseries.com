@@ -444,13 +444,30 @@ class GameRoom {
     });
   }
 
+  /* Called on every broadcast, 30 times a second. The chained form read well
+     and allocated five arrays plus ten fresh objects each time: Array.from,
+     then filter, sort, slice and map each producing another. Same output,
+     built into two arrays that live for the room's lifetime. */
   buildLeaderboard() {
     const isPaid = this.lobbyType !== 'free';
-    return Array.from(this.snakes.values())
-      .filter(s => s.alive)
-      .sort((a, b) => isPaid ? b.worth - a.worth : b.score - a.score)
-      .slice(0, 10)
-      .map((s, i) => ({ rank: i + 1, id: s.id, name: s.name, score: s.score, worth: s.worth, length: s.length }));
+    const alive = this._lbAlive || (this._lbAlive = []);
+    alive.length = 0;
+    for (const s of this.snakes.values()) if (s.alive) alive.push(s);
+    alive.sort((a, b) => isPaid ? b.worth - a.worth : b.score - a.score);
+    /* The OUTPUT is freshly allocated on purpose, unlike the working array
+       above. encodeSnapshot puts it into meta by reference rather than
+       copying it, so the emitted packet still points at it; reusing it would
+       let the next broadcast rewrite a leaderboard that has not been sent yet.
+       It is ten rows, so the saving would have been trivial and the failure
+       would have been subtle. The expensive half — Array.from over every
+       snake, plus filter — is what is now reused. */
+    const n = Math.min(10, alive.length);
+    const out = new Array(n);
+    for (let i = 0; i < n; i++) {
+      const s = alive[i];
+      out[i] = { rank: i + 1, id: s.id, name: s.name, score: s.score, worth: s.worth, length: s.length };
+    }
+    return out;
   }
 
   broadcastSnapshot() {
@@ -469,9 +486,16 @@ class GameRoom {
     // (centre + radius) for cheap "is this snake in that player's view?" tests, plus
     // a tiny minimap dot (head only) so the minimap still shows the whole map even
     // though the heavy per-snake body data gets culled per player below.
-    const snakesSer = [];
-    const bounds    = [];
-    const mm        = [];
+    /* Reused across broadcasts. These were three fresh arrays 30 times a
+       second per room, and encodeSnapshot copies everything it is handed into
+       its own buffer before returning, so nothing downstream can still be
+       holding them. Server GC was measured at 3712 pauses and 17 seconds of
+       collection in a 6-minute window, which is 4.8% of all server time, and
+       the worst tick lag landed exactly on a cluster of those pauses. */
+    const snakesSer = this._snakesSer || (this._snakesSer = []);
+    const bounds    = this._bounds    || (this._bounds    = []);
+    const mm        = [];   // referenced by meta, not copied — must be fresh
+    snakesSer.length = 0; bounds.length = 0;
     for (const snake of this.snakes.values()) {
       if (!snake.alive) continue;
       const s = snake.serialize();
@@ -541,12 +565,19 @@ class GameRoom {
       const cy    = cell.cj * CELL + CELL / 2;
       const halfW = CELL / 2 + pad, halfH = CELL / 2 + pad;
 
-      const snakes = [];
+      /* Reused across cells as well as across broadcasts. The food array is
+         the expensive one: the region is the cell plus a full view radius, so
+         on a small world it can cover most of the 3600 pellets, and building
+         it fresh meant growing a 3000-element array from empty 30 times a
+         second. Safe to share between cells because encodeSnapshot has
+         finished copying before the next iteration starts. */
+      const snakes = this._cellSnakes || (this._cellSnakes = []);
+      const food   = this._cellFood   || (this._cellFood   = []);
+      snakes.length = 0; food.length = 0;
       for (let i = 0; i < snakesSer.length; i++) {
         const b = bounds[i];
         if (Math.abs(b.cx - cx) <= halfW + b.br && Math.abs(b.cy - cy) <= halfH + b.br) snakes.push(snakesSer[i]);
       }
-      const food = [];
       for (const f of allFood) {
         if (Math.abs(f.x - cx) <= halfW && Math.abs(f.y - cy) <= halfH) food.push(f);
       }

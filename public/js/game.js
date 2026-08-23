@@ -1357,9 +1357,11 @@ let _lastFrameTime = 0;
    is exactly why this stayed invisible while three server-side fixes went
    after it.
 
-   90Hz is three states per server snapshot, above any refresh rate a person
-   can distinguish here, and roughly a third of the previous allocation. */
-const RENDER_HZ = 90;
+   120Hz: four states per server snapshot, and it divides a 240Hz display
+   exactly, so the cap lands on a clean 120fps. 90 did not divide it — three
+   refreshes had to elapse before the budget was met, which quietly produced
+   80fps rather than 90 and was visible in the counter. */
+const RENDER_HZ = 120;
 const FRAME_MS  = 1000 / RENDER_HZ;
 let _meView = null;
 
