@@ -87,6 +87,37 @@
     keep(D.heap, 40);
   }, 2000);
 
+  /* ── "It just happened" marker ────────────────────────────────────────────
+     Every instrument here assumes the anomalies it records ARE the thing the
+     player sees. That has never been checked, and after several wrong turns it
+     is the assumption most worth testing.
+
+     Press L the moment the snake hitches. That timestamp goes into the report
+     alongside everything else, so the question stops being "which of these
+     spikes is his?" and becomes "what was happening at 47 seconds?".
+
+     If a mark lands on a snapshot gap, the instruments are pointed correctly.
+     If marks land where every reading is clean, then whatever he is seeing is
+     something none of this measures — which would be the single most useful
+     thing to learn, and would explain why fixing real bugs kept not helping. */
+  D.marks = [];
+  window.addEventListener('keydown', (e) => {
+    if (e.key !== 'l' && e.key !== 'L') return;
+    if (window._chatTyping) return;
+    D.marks.push({ atSec: sec(), heapMB: performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null });
+    keep(D.marks, 40);
+    // Visible acknowledgement, so it is obvious the press registered.
+    try {
+      const n = document.createElement('div');
+      n.textContent = 'marked ' + sec() + 's';
+      n.style.cssText = 'position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:99999;' +
+        'background:#f0a830;color:#100e0b;font:600 13px Archivo,sans-serif;padding:6px 12px;border-radius:8px';
+      document.body.appendChild(n);
+      setTimeout(() => n.remove(), 900);
+    } catch (_) {}
+    report();          // send immediately, so a mark is never lost to a refresh
+  });
+
   /* Round-trip time, fed from game.js's existing 2-second ping. Paired with
      the snapshot gaps this is what separates network from server: a ping that
      spikes alongside a gap means the wire, a ping that stays flat while
@@ -128,6 +159,7 @@
       longtasks: D.longtasks.slice(-25),
       heap: D.heap.slice(-20),
       pings: D.pings.slice(-45),
+      marks: D.marks.slice(-20),
       longtaskUnsupported: !!D.longtaskUnsupported,
       ua: navigator.userAgent.slice(0, 120),
     };
