@@ -66,6 +66,22 @@
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html{scroll-behavior:smooth}
+/* ── No window scrollbar ─────────────────────────────────────────────────────
+   A scrollbar is about 15px of real page width, so a screen tall enough to
+   scroll is 15px narrower than one that is not, and centred content lands
+   ~7px off. Changing tabs therefore nudged the whole layout sideways
+   depending on whether that particular screen happened to overflow.
+
+   Hiding it fixes both halves at once: there is no line down the side, and a
+   hidden scrollbar occupies no width, so nothing can shift. Scrolling itself
+   is untouched — wheel, trackpad, keyboard and touch all still work.
+
+   scrollbar-gutter:stable would also stop the shift, but by permanently
+   reserving the strip, which keeps the line visible. */
+html,body{scrollbar-width:none;-ms-overflow-style:none}
+html::-webkit-scrollbar,body::-webkit-scrollbar{width:0;height:0;display:none}
+main.wrap{scrollbar-width:none}
+main.wrap::-webkit-scrollbar{width:0;height:0;display:none}
 body{background:var(--bg);color:var(--tx);font-family:var(--f);
   -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
 /* One warm pool of light behind the top of the page, so the board sits in a

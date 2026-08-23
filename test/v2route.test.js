@@ -891,3 +891,36 @@ test('on a phone each screen scrolls itself, so a swipe has nothing to correct',
   const jt = html.slice(html.indexOf('function jumpToTop'), html.indexOf('window.jumpToTop='));
   assert.ok(/cur\.scrollTop=0/.test(jt), 'jumpToTop scrolls the active pane');
 });
+
+test('a scrollbar can never shift the layout sideways', () => {
+  /* A window scrollbar is about 15px of real page width. A screen tall enough
+     to scroll is therefore 15px narrower than one that is not, so centred
+     content lands ~7px off and every tab change nudged the whole layout
+     sideways depending on whether that screen happened to overflow.
+
+     Measured at 1440x820 before the fix: Home overflowed and its header
+     centred at 713, while Wallet, Stats and Social centred at 720. After:
+     all six tabs centre at 720 and the scrollbar measures 0px.
+
+     Hiding it beats scrollbar-gutter:stable here, which also stops the shift
+     but by permanently reserving the strip, leaving the line visible. */
+  const html = v2();
+  const i = html.indexOf('No window scrollbar');
+  assert.ok(i > 0, 'the scrollbar rule is documented where it is defined');
+  const block = html.slice(i, i + 1400);
+
+  // Both engines, or it only works in one browser.
+  assert.ok(/scrollbar-width:none/.test(block), 'hidden in Firefox');
+  assert.ok(/::-webkit-scrollbar/.test(block), 'hidden in Chrome and Safari');
+  assert.ok(/html,body\{scrollbar-width:none/.test(block), 'on the document itself');
+  assert.ok(/main\.wrap\{scrollbar-width:none/.test(block),
+    'and on the per-screen panes, which scroll on a phone');
+
+  /* Hiding a scrollbar must never disable scrolling. overflow:hidden on the
+     document outside the phone breakpoint would trap content taller than the
+     window with no way to reach it. */
+  const desktopHidesOverflow = /^html,body\{[^}]*overflow:hidden/m.test(
+    html.slice(0, html.indexOf('@media(max-width:760px)')));
+  assert.ok(!desktopHidesOverflow,
+    'the document still scrolls on desktop, the bar is only invisible');
+});

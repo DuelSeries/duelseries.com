@@ -100,7 +100,12 @@ test('cashing out requires the hold, and the server times it', { timeout: 90000 
      by the client to finish it — deliberately, because the client's clock
      starts a round trip earlier than the server's, so a client that announced
      "three seconds are up" would always be announcing it slightly too early. */
-  const paid = nextResult(C.CASHOUT_HOLD_MS + 4000);
+  /* Generous slack on purpose. This file and joinSmoke each boot a real
+     server, node:test runs files in parallel, and under that contention the
+     run stretched from 10s to 14s and ate a 4s margin — a false failure that
+     teaches you to ignore red. What is being asserted is that the payout does
+     not arrive EARLY; waiting longer for it cannot weaken that. */
+  const paid = nextResult(C.CASHOUT_HOLD_MS + 20000);
   const t0 = Date.now();
   sock.emit('cashout:start');
   const result = await paid;
