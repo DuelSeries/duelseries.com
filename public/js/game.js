@@ -1368,6 +1368,7 @@ let _lastFrameTime = 0;
 const RENDER_HZ = 120;
 const FRAME_MS  = 1000 / RENDER_HZ;
 let _meView = null;
+let _lLastStep = 0;   // body-thinning step last seen from the server
 
 function gameLoop(now) {
   // Cheap and first: skip the whole frame before anything allocates.
@@ -1403,9 +1404,25 @@ function gameLoop(now) {
   // Replace local snake in displayState with the locally-simulated version
   if (_lReady && myId && !isDead && !cashedOut && _latestMySnap) {
     const targetNumSegs = _latestMySnap.segs.length >> 1;
+
+    /* The server thins the body as the snake grows: every 2nd point below
+       length 400, every 3rd below 800, every 4th above (Snake.js serialize).
+       Spacing widens to match, so the drawn snake should be the same.
+
+       Crossing a threshold therefore drops the POINT COUNT by a third in one
+       snapshot without the snake having lost anything. Decaying through that
+       drop, while _lBuildSegs has already switched to the wider spacing,
+       renders a body of the wrong length for about 200ms and then settles —
+       which is seen as the body resizing toward the head for no reason.
+
+       A step change is a change in how the body is described, not a change in
+       the body, so it is adopted immediately. Genuine growth and boost-shrink
+       keep the smoothing they need. */
+    const _step = (() => { const L = _latestMySnap.length || 0; return L < 400 ? 2 : L < 800 ? 3 : 4; })();
+    if (_step !== _lLastStep) { _lLastStep = _step; _lNumSegs = targetNumSegs; }
     // Grow instantly (eating food), shrink gradually (boost drops) — prevents tail snap.
     // dt-corrected (~200ms time constant) so the shrink rate is identical at 60/144/240Hz.
-    if (targetNumSegs > _lNumSegs) _lNumSegs = targetNumSegs;
+    else if (targetNumSegs > _lNumSegs) _lNumSegs = targetNumSegs;
     else _lNumSegs += (targetNumSegs - _lNumSegs) * (1 - Math.exp(-dt / 200));
     const simSegs = _lBuildSegs(Math.round(_lNumSegs));
     if (simSegs) {
