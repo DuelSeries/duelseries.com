@@ -1026,10 +1026,14 @@ function everyStaggered(fn, periodMs, offsetMs, label) {
    they collided every 60 seconds and nothing was measuring any of them. The
    flush was the expensive one: it issued a sequential UPDATE per cached player,
    up to a thousand round trips, while the simulation waited. */
-/* Temporary, for the stall hunt. Costs a few percent of one core and the game
-   has no live players yet, which is a cheap price for the only measurement that
-   can end this. Set PROFILER=off to disable; remove once the cause is fixed. */
-if (process.env.PROFILER !== 'off') profiler.start();
+/* OFF by default, and it must stay that way while anyone is playing.
+   It did its job — it named the spatial-grid reallocation that no amount of
+   reasoning had found — but leaving it on made it the worst blocker on the box.
+   Its 15-second window boundary showed up in the client trace as a snapshot gap
+   every 15 seconds, and the windows it chose to keep were the biggest gaps of
+   the session, because noticing a stall triggers the work that causes one.
+   Enable deliberately with PROFILER=on, read /api/debug/profile, turn it off. */
+if (process.env.PROFILER === 'on') profiler.start();
 
 everyStaggered(checkSolvency, 60000, 3000, 'solvency');
 checkSolvency();

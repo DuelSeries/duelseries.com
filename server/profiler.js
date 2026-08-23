@@ -22,9 +22,17 @@
    during it. Quiet windows are discarded. What survives is a profile guaranteed
    to contain the stall, and the hottest function in it is the answer.
 
-   Sampling at 1ms costs a low single-digit percent of one core. The game has no
-   live players yet, so that is a trade worth making to end a hunt that has cost
-   far more than that. Reverted once the cause is fixed. */
+   ── COST, learned the hard way ────────────────────────────────────────────
+   Sampling itself is cheap. Ending a window is not: Profiler.stop() serializes
+   the whole node tree on the main thread, and summarise() then walks and sorts
+   it. Left running during play, that landed in the client trace as a snapshot
+   gap every 15 seconds — the window boundary, exactly — and the windows it
+   kept were the three biggest gaps of the session, because recording a stall
+   triggers the summarise that causes a longer one.
+
+   So this is a diagnostic instrument, not a monitor. It is OFF unless
+   PROFILER=on, and it should be switched on to answer a specific question and
+   switched off again, never left running while anyone is playing. */
 
 const inspector = require('inspector');
 
