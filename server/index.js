@@ -11,6 +11,7 @@ const AgarRoom      = require('./AgarRoom');
 const agarLb        = require('./agarLeaderboard');
 const db     = require('./db');
 const collusion = require('./CollusionMonitor');
+const profiler = require('./profiler');
 const Wallet = require('./Wallet');
 const allTimeLb = require('./leaderboard');
 const prices = require('./prices');
@@ -916,6 +917,11 @@ app.get('/api/debug/client', (_req, res) => {
   });
 });
 
+/* The one instrument that can NAME the blocker. Tick lag says the thread died
+   and the job timers say it was no job, so what remains is a stack trace from
+   inside the stall. See server/profiler.js. */
+app.get('/api/debug/profile', (_req, res) => res.json(profiler.report()));
+
 app.get('/api/debug/tick', (_req, res) => {
   const mem = process.memoryUsage();
   const out = {
@@ -1020,6 +1026,11 @@ function everyStaggered(fn, periodMs, offsetMs, label) {
    they collided every 60 seconds and nothing was measuring any of them. The
    flush was the expensive one: it issued a sequential UPDATE per cached player,
    up to a thousand round trips, while the simulation waited. */
+/* Temporary, for the stall hunt. Costs a few percent of one core and the game
+   has no live players yet, which is a cheap price for the only measurement that
+   can end this. Set PROFILER=off to disable; remove once the cause is fixed. */
+if (process.env.PROFILER !== 'off') profiler.start();
+
 everyStaggered(checkSolvency, 60000, 3000, 'solvency');
 checkSolvency();
 /* Offsets are chosen MOD 30s, because most of these repeat every 30s and a

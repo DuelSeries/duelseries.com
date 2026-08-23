@@ -7,6 +7,7 @@ const { v4: uuidv4 } = require('uuid');
 const allTimeLb = require('./leaderboard');
 const SpatialGrid = require('./SpatialGrid');
 const { encodeSnapshot } = require('../shared/snapshotCodec');
+const profiler = require('./profiler');
 
 // Spatial-grid cell size (world units). Body-hit queries use the 3×3 forEachNear block,
 // so GRID_CELL must be >= the largest body-hit radius (~46 for a max-scale snake). The food
@@ -216,6 +217,9 @@ class GameRoom {
           if (over > this._lag.worst) { this._lag.worst = over; this._lag.worstAt = nowT; }
           this._lag.recent.push({ ms: Math.round(over), at: nowT });
           if (this._lag.recent.length > 40) this._lag.recent.shift();
+          // Marks the profiler's current window as worth keeping. Tick lag knows
+          // WHEN the thread died; only the profile knows what was running.
+          profiler.noteStall(over);
           if (over > 100) console.warn(`[TICKLAG] ${this.region || ''}/${this.lobbyType || ''} tick late ${Math.round(over)}ms`);
         }
       }
