@@ -6,10 +6,32 @@
 class SpatialGrid {
   constructor(cellSize) {
     this.cell = cellSize;
-    this.map  = new Map(); // packed cell key -> array of items
+    this.map  = new Map(); // packed cell key -> array of items (arrays are reused; see clear)
+    this._sweeps = 0;      // ticks since empty cells were last pruned
   }
 
-  clear() { this.map.clear(); }
+  /* Emptied, not dropped. This used to be map.clear(), which discarded every
+     cell array — so the rebuild that follows allocated a fresh array for each
+     occupied cell, every tick. With 3600 food pellets that is thousands of
+     short-lived arrays per room per tick at 60Hz across six rooms, and it is
+     what kept the collector running eleven times a second and taking 8.6% of
+     wall clock. The pauses themselves are short, but the server is single
+     threaded: a pause leaves all six rooms' timers due at once, and the
+     catch-up burst is the stall players actually feel.
+
+     Truncating instead reuses each array's capacity, so a steady state
+     allocates nothing here at all. Cells that empty out are left behind as
+     empty arrays, which cost nothing to skip on lookup, and the key set is
+     bounded by the world size — but a world that shrinks would strand them, so
+     they are pruned occasionally rather than never. */
+  clear() {
+    if (++this._sweeps >= 600) {          // ~10s at 60Hz
+      this._sweeps = 0;
+      for (const [k, arr] of this.map) { if (arr.length === 0) this.map.delete(k); else arr.length = 0; }
+      return;
+    }
+    for (const arr of this.map.values()) arr.length = 0;
+  }
 
   // Pack cell coords into one number. The +8192 offset keeps both axes positive so
   // the pack never collides; cy stays below the 16384 multiplier. World coords are
