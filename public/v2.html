@@ -1078,6 +1078,47 @@ const ART={
    <path d="M196 132 L228 132 L228 60" fill="none" stroke="${b}" stroke-width="4"
      stroke-dasharray="6 8" opacity=".55"/>
    <circle cx="228" cy="60" r="7" fill="${b}"/></svg>`,
+ /* Placeholders. Original flat shapes in the same two-colour language as the
+    rest, deliberately NOT drawings of the real games' characters or art — a
+    card is a reminder that a slot exists, and copying someone's artwork onto a
+    public lobby is a different thing entirely. */
+ rooftop:(a,b)=>`<svg viewBox="0 0 262 172" preserveAspectRatio="xMidYMid slice">
+   <rect width="262" height="172" fill="${a}"/>
+   <rect x="8" y="98" width="76" height="74" fill="${b}" opacity=".85"/>
+   <rect x="178" y="114" width="76" height="58" fill="${b}" opacity=".85"/>
+   <path d="M92 86 C124 54 150 54 172 94" fill="none" stroke="${b}" stroke-width="3"
+     stroke-dasharray="5 7" opacity=".5"/>
+   <circle cx="196" cy="74" r="15" fill="none" stroke="${b}" stroke-width="3" opacity=".85"/>
+   <path d="M196 55 L196 93 M177 74 L215 74" stroke="${b}" stroke-width="3" opacity=".85"/></svg>`,
+ headsoccer:(a,b)=>`<svg viewBox="0 0 262 172" preserveAspectRatio="xMidYMid slice">
+   <rect width="262" height="172" fill="${a}"/>
+   <path d="M188 42 L246 42 L246 146 L188 146" fill="none" stroke="${b}" stroke-width="4" opacity=".55"/>
+   <path d="M206 42 L206 146 M226 42 L226 146 M188 76 L246 76 M188 112 L246 112"
+     stroke="${b}" stroke-width="2" opacity=".26"/>
+   <circle cx="102" cy="102" r="31" fill="${b}"/>
+   <path d="M102 80 L119 94 L112 115 L92 115 L85 94 Z" fill="#0a0b0d" opacity=".4"/>
+   <path d="M30 146 L170 146" stroke="${b}" stroke-width="3" opacity=".4"/></svg>`,
+ maze:(a,b)=>`<svg viewBox="0 0 262 172" preserveAspectRatio="xMidYMid slice">
+   <rect width="262" height="172" fill="${a}"/>
+   <g fill="none" stroke="${b}" stroke-width="5" opacity=".8">
+     <rect x="20" y="22" width="58" height="38" rx="6"/>
+     <rect x="102" y="22" width="58" height="38" rx="6"/>
+     <rect x="184" y="22" width="58" height="38" rx="6"/>
+     <rect x="20" y="112" width="58" height="38" rx="6"/>
+     <rect x="102" y="112" width="140" height="38" rx="6"/>
+   </g>
+   <g fill="${b}" opacity=".75">
+     <circle cx="34" cy="86" r="5"/><circle cx="70" cy="86" r="5"/><circle cx="106" cy="86" r="5"/>
+     <circle cx="142" cy="86" r="5"/><circle cx="178" cy="86" r="5"/><circle cx="214" cy="86" r="5"/>
+   </g></svg>`,
+ stumble:(a,b)=>`<svg viewBox="0 0 262 172" preserveAspectRatio="xMidYMid slice">
+   <rect width="262" height="172" fill="${a}"/>
+   <rect x="0" y="142" width="262" height="30" fill="${b}" opacity=".3"/>
+   <rect x="26" y="98" width="42" height="44" rx="9" fill="${b}" opacity=".9"/>
+   <rect x="92" y="74" width="42" height="68" rx="9" fill="${b}" opacity=".7"/>
+   <g transform="rotate(24 178 94)"><rect x="157" y="72" width="42" height="44" rx="9" fill="${b}"/></g>
+   <circle cx="228" cy="50" r="14" fill="${b}" opacity=".55"/>
+   <path d="M210 130 L244 130" stroke="${b}" stroke-width="4" opacity=".5"/></svg>`,
 };
 /* slither.io is the only game that is actually playable. Everything else is
    marked soon, which greys the card and takes it out of the tab order. */
@@ -1096,6 +1137,20 @@ const GAMES=[
   d:'Angle, power, fire. One shot each and the terrain remembers.'},
  {id:'paper',name:'Paper.io',c:['#1e1826','#a887d6'],type:'p',soon:1,
   d:'Claim ground by looping back home without anyone crossing your trail.'},
+ /* Placeholders so these are not forgotten. soon:1 greys the card and takes it
+    out of the tab order, so none of them is reachable or clickable — the slot
+    exists, nothing behind it does.
+    Working titles: these four are the trademarks of their actual publishers,
+    and Pac-Man in particular is enforced hard. Fine as an internal reminder,
+    worth renaming before any of them ships on a public lobby. */
+ {id:'rooftop',name:'Rooftop Snipers',c:['#20181c','#e08a7a'],type:'m',soon:1,
+  d:'Two rooftops, one shot at a time, and the loser is whoever falls off first.'},
+ {id:'headsoccer',name:'Head Soccer',c:['#141e18','#6fd39a'],type:'m',soon:1,
+  d:'One on one, oversized heads, and a ball that rarely goes where you meant it to.'},
+ {id:'maze',name:'Pac Man',c:['#1a1726','#e8c860'],type:'p',soon:1,
+  d:'Clear the maze before whatever is chasing you closes off the last exit.'},
+ {id:'stumble',name:'Stumble Guys',c:['#191d26','#7fb0e0'],type:'p',soon:1,
+  d:'A crowd, an obstacle course, and physics that are on nobody’s side.'},
 ];
 /* The lobby list is real now: V2Board polls /api/live. The hand-written rows
    that used to be here claimed player counts the server never had. */
