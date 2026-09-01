@@ -36,16 +36,18 @@ const SNAKEGL_OUTLINE_PX    = 52;     // outline sprite size
      p              distance from head / (0.9655 * R) radians — one wavelength every ~6.07 body radii
      m              0 at base speed, 1 at full boost (our boostRamp is exactly this)
 
-   Their per-stamp alpha assumes THEIR stamp pitch (0.2414 of the radius). Ours
-   is coarser, so fewer blobs stack per unit length; the alpha is scaled by the
-   pitch ratio so the accumulated brightness per unit of body matches. */
+   Those alphas are PER STAMP in their renderer, and the passes are additive, so
+   what you see is the sum over every blob covering a pixel. That sum depends on
+   the stamp pitch, which is ours and not theirs, so the alpha is divided by the
+   overlap count (2*half/pitch) to make the accumulated result equal the peak
+   above. Without that the brightness is a function of how finely we stamp
+   rather than of how hard the snake is boosting. */
 const SNAKEGL_GLOW_PX      = 62;      // glow sprite cell
 const SNAKEGL_GLOW_EDGE    = 32;      // falloff reaches zero here (just past the 31px half-cell)
 const SNAKEGL_GLOW_UNDER   = 1.5;     // under-glow half-size / R, before the boost swell
 const SNAKEGL_GLOW_SWELL   = 62 / 32 - 1;  // how much the under-glow grows with sqrt(m)
 const SNAKEGL_GLOW_OVER    = 2.0;     // over-glow half-size / R
 const SNAKEGL_WAVE_R       = 0.9655;  // body radii travelled per radian of pulse phase
-const SNAKEGL_THEIR_PITCH  = 0.2414;  // their stamp pitch / radius — normalises our stamp density
 const SNAKEGL_MAXGLOW      = 12000;   // glow quads per frame (only boosting snakes emit any)
 
 class SnakeGL {
@@ -328,11 +330,26 @@ class SnakeGL {
       gOver  = R * SNAKEGL_GLOW_OVER;
       gStep  = spacing / (SNAKEGL_WAVE_R * R);   // pulse phase advanced per stamp
       gSfr   = boost.sfr;
-      // Our stamps are coarser than theirs, so each carries proportionally more
-      // of the glow to land on the same brightness per unit of body length.
-      const dens = (spacing / R) / SNAKEGL_THEIR_PITCH;
-      gAmpU = mr * 0.38 * dens;
-      gAmpO = m  * 0.37 * dens;
+      /* Additive passes accumulate, so a pixel on the spine is lit by every blob
+         that reaches it, and the alphas above are PER STAMP in their renderer at
+         THEIR stamp pitch. Ours is different, so the alpha is divided by how many
+         of our blobs overlap a point — otherwise the brightness is a function of
+         how finely we stamp rather than of how hard the snake is boosting, which
+         is what made the first version far too bright.
+
+         The overlap is not the blob's width: the blob is a raised cosine that is
+         near zero at its rim. Integrating that profile along the spine gives
+         exactly its falloff radius, so the effective count is E/pitch with
+         E = half * 32/31 (the falloff reaches zero at 32px of the 62px cell,
+         while the quad's half-size maps to 31). Accumulated peak then equals the
+         peak alpha above, by construction. */
+      const overlapU = (gUnder * (SNAKEGL_GLOW_EDGE / (SNAKEGL_GLOW_PX / 2))) / spacing;
+      const overlapO = (gOver  * (SNAKEGL_GLOW_EDGE / (SNAKEGL_GLOW_PX / 2))) / spacing;
+      // gain is a 1.0-by-default eyeball knob (?glow= in the URL), there so the
+      // final brightness can be nudged against the real thing without a deploy.
+      const gain = boost.gain || 1;
+      gAmpU = mr * 0.38 * gain / overlapU;
+      gAmpO = m  * 0.37 * gain / overlapO;
       gr = boost.r; gg = boost.g; gb = boost.b;
     }
     // Walk head -> tail collecting stamp positions, with the frame index j

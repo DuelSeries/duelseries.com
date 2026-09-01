@@ -772,8 +772,24 @@ class Renderer {
       cache.set(colorKey, c);
     }
 
+    /* Brightness knob. Everything else here is read off their client, but the
+       final on-screen brightness also depends on their stamp pitch, which their
+       current build no longer exposes to a draw-call hook. The maths below is
+       normalised so it does not depend on OUR pitch either, which is the part
+       that was wrong; this leaves one honest multiplier to trim it against the
+       real game. ?glow=1.4 in the URL, or localStorage 'glow'. */
+    if (this._glowGain === undefined) {
+      this._glowGain = 1;
+      try {
+        const mm = /[?&]glow=([0-9.]+)/.exec((location && location.search) || '');
+        const ls = localStorage.getItem('glow');
+        const v = parseFloat(mm ? mm[1] : ls);
+        if (isFinite(v) && v >= 0 && v <= 10) this._glowGain = v;
+      } catch (err) {}
+    }
+
     const g = this._glowOut || (this._glowOut = {});   // reused — this runs per snake per frame
-    g.m = m; g.sfr = e.p; g.r = c.r; g.g = c.g; g.b = c.b;
+    g.m = m; g.sfr = e.p; g.r = c.r; g.g = c.g; g.b = c.b; g.gain = this._glowGain;
     return g;
   }
 
