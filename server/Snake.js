@@ -185,19 +185,37 @@ class Snake {
 
     const segs = this.segments;
     const sep  = this.separation;
+    /* A body cannot curl tighter than its own width.
+
+       Without that bound the chain is forced onto one ever-tightening spiral.
+       Once the front reaches the middle there is nowhere left for it to go, so
+       the rest of the length gets flung radially outward: measured on a
+       300-part snake at full turn, the radius ran 102, 82, 59, 23 and then 309,
+       825, 1346, out to 3454. That straight section hanging thousands of units
+       outside the circle is the tail that never comes in.
+
+       Bounding the bend per link lets the body pile up and wrap around itself
+       instead, so the whole snake gathers into the circle. The bound is derived
+       rather than tuned: for a body of radius R, the tightest circle it can
+       form makes each link subtend 2*asin(link / 2R). On gentle turns the
+       natural bend sits far below it and nothing is clamped, so the coil there
+       is unchanged. */
+    const bodyR   = C.SNAKE_HEAD_RADIUS * this.scale;
+    const maxBend = 2 * Math.asin(Math.min(1, sep / (2 * bodyR)));
+    let prevAng   = this.angle + Math.PI;          // the link running back from the head
     for (let i = 1; i < segs.length; i++) {
       const a = segs[i - 1], p = segs[i];
       const dx = p.x - a.x, dy = p.y - a.y;
       const d  = Math.hypot(dx, dy);
-      if (d < 1e-6) {
-        // Degenerate: a just-grown tail point sits on its parent. Lay it straight back.
-        p.x = a.x - Math.cos(this.angle) * sep;
-        p.y = a.y - Math.sin(this.angle) * sep;
-        continue;
-      }
-      const t = sep / d;
-      p.x = a.x + dx * t;
-      p.y = a.y + dy * t;
+      let ang = d < 1e-6 ? prevAng : Math.atan2(dy, dx);
+      let bend = ang - prevAng;
+      while (bend >  Math.PI) bend -= Math.PI * 2;
+      while (bend < -Math.PI) bend += Math.PI * 2;
+      if      (bend >  maxBend) ang = prevAng + maxBend;
+      else if (bend < -maxBend) ang = prevAng - maxBend;
+      p.x = a.x + Math.cos(ang) * sep;
+      p.y = a.y + Math.sin(ang) * sep;
+      prevAng = ang;
     }
 
     /* Length changes at the TAIL now, the only place a chain can grow. It used

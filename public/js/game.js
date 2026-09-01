@@ -758,18 +758,26 @@ function _lBuildSegs(numSegs) {
   while (_lcLen < nChain) { _lcX[_lcLen] = _lcX[_lcLen - 1]; _lcY[_lcLen] = _lcY[_lcLen - 1]; _lcLen++; }
   if (_lcLen > nChain) _lcLen = nChain;
 
+  /* Same minimum curl radius the server enforces: a body cannot bend tighter
+     than its own width. Without it the chain is driven onto one ever-tightening
+     spiral and, once the front reaches the middle, the remaining length is flung
+     radially outward as a long straight tail that never comes back in. */
+  const bodyR   = CONSTANTS.SNAKE_HEAD_RADIUS * Math.max(1, sc);
+  const maxBend = 2 * Math.asin(Math.min(1, link / (2 * bodyR)));
+  let prevAng   = _lAngle + Math.PI;
   _lcX[0] = hx; _lcY[0] = hy;
   for (let i = 1; i < _lcLen; i++) {
     const dx = _lcX[i] - _lcX[i - 1], dy = _lcY[i] - _lcY[i - 1];
     const d  = Math.hypot(dx, dy);
-    if (d < 1e-6) {
-      _lcX[i] = _lcX[i - 1] - Math.cos(_lAngle) * link;
-      _lcY[i] = _lcY[i - 1] - Math.sin(_lAngle) * link;
-    } else {
-      const t = link / d;
-      _lcX[i] = _lcX[i - 1] + dx * t;
-      _lcY[i] = _lcY[i - 1] + dy * t;
-    }
+    let ang = d < 1e-6 ? prevAng : Math.atan2(dy, dx);
+    let bend = ang - prevAng;
+    while (bend >  Math.PI) bend -= Math.PI * 2;
+    while (bend < -Math.PI) bend += Math.PI * 2;
+    if      (bend >  maxBend) ang = prevAng + maxBend;
+    else if (bend < -maxBend) ang = prevAng - maxBend;
+    _lcX[i] = _lcX[i - 1] + Math.cos(ang) * link;
+    _lcY[i] = _lcY[i - 1] + Math.sin(ang) * link;
+    prevAng = ang;
   }
 
   /* Reused between frames: this was a fresh Float32Array per frame, which on a
