@@ -614,7 +614,7 @@ function lerpAngle(a, b, t) {
 
 // ─── Local snake simulation helpers ─────────────────────────────────────────
 
-function _lReset() { _lReady = false; _lpHead = 0; _lpLen = 0; _latestMySnap = null; _lNumSegs = 0; _lBoostRamp = 0; }
+function _lReset() { _lChainReset(); _lReady = false; _lpHead = 0; _lpLen = 0; _latestMySnap = null; _lNumSegs = 0; _lBoostRamp = 0; }
 
 function _lInit(s) {
   if (!s || !s.segs || s.segs.length < 2) return;
@@ -628,6 +628,7 @@ function _lInit(s) {
     if (_lpLen < LP_SIZE) _lpLen++;
   }
   _lAngle = s.angle || 0;
+  _lChainReset();        // respawn straight; _lBuildSegs lays the chain from the head
   _lReady = true;
 }
 
@@ -693,50 +694,87 @@ function _lAdvance(dt, targetAngle) {
   if (_lpLen < LP_SIZE) _lpLen++;
 }
 
-// Walk path backward from head, placing numSegs segments at fixed spacing
-/* Reused between frames. This was `new Float32Array(numSegs * 2)` on every
-   frame, and on a 240Hz display that is 237 fresh typed arrays a second for
-   one snake, every one of them garbage a frame later. Grown when it needs to
-   be, then subarray'd so callers still see exactly numSegs*2 entries. */
+/* THE LOCAL BODY IS A CHAIN, THE SAME ONE THE SERVER RUNS.
+
+   It used to be built by walking BACKWARDS along a recording of where the head
+   had been, dropping a point every so often. That construction guarantees the
+   tail retraces the head's exact route, and it is the single reason this snake
+   never coiled no matter what changed on the server: the shape was decided
+   here, on the client, and the server never got a say in what the player saw.
+
+   Now the body is persistent state, advanced a frame at a time by the same rule
+   as server/Snake.js: every point is held one link behind the point ahead of
+   it. Holding a turn winds it inward and the loops nest.
+
+   It is ADVANCED, never rebuilt. Rebuilding it every frame while the link
+   length changes with the snake's size is what produced the flickering,
+   growing-and-shrinking tail in an earlier attempt at this. Note the constraint
+   is a projection, so running it once per frame at 240Hz gives the same shape
+   as once per tick at 60Hz. */
+let _lcX = null, _lcY = null, _lcLen = 0;
 let _segBuf = null;
+
+function _lChainReset() { _lcLen = 0; }
+
+
 function _lBuildSegs(numSegs) {
-  if (!_lReady || _lpLen < 2 || numSegs < 1) return null;
-  // Match the adaptive step used in Snake.js serialize()
+  if (!_lReady || numSegs < 1) return null;
+  /* The chain is held at the server's OWN separation, at full resolution, and
+     only thinned when handing the points over to be drawn.
+
+     Chaining the thinned points directly with a step-times-longer link looks
+     equivalent and is not: corner cutting grows with link length, so the coarse
+     chain spirals several times faster than the real body. A cross-check against
+     the server put them 5.7 body radii apart, which is precisely the divergence
+     that showed up as waves travelling down the body with the head detached. */
   const snakeLen = _latestMySnap ? (_latestMySnap.length || 0) : 0;
   const step = snakeLen < 400 ? 2 : snakeLen < 800 ? 3 : 4;
-  /* Same scale-dependent separation the server lays its body down with
-     (SNAKE_SEP_PER_SC). If this stayed flat the predicted body would be a
-     different length from the real one and would stretch as the snake grew. */
   const sc = Math.min(6, 1 + (snakeLen - CONSTANTS.SNAKE_MIN_SEGMENTS * 2) / CONSTANTS.SNAKE_SC_SEGS);
-  const SEG_SPACING = CONSTANTS.SNAKE_SEP_PER_SC * Math.max(1, sc) * step;
+  const link = CONSTANTS.SNAKE_SEP_PER_SC * Math.max(1, sc);
+  const nChain = numSegs * step;
+
+  const hi = (_lpHead - 1 + LP_SIZE) % LP_SIZE;
+  const hx = _lpX[hi], hy = _lpY[hi];
+
+  if (!_lcX || _lcX.length < nChain) {
+    const nx = new Float32Array(nChain + 256), ny = new Float32Array(nChain + 256);
+    if (_lcX) { nx.set(_lcX.subarray(0, _lcLen)); ny.set(_lcY.subarray(0, _lcLen)); }
+    _lcX = nx; _lcY = ny;
+  }
+  // First frame after a spawn: lay it straight back from the head.
+  if (_lcLen < 2) {
+    for (let i = 0; i < nChain; i++) {
+      _lcX[i] = hx - Math.cos(_lAngle) * i * link;
+      _lcY[i] = hy - Math.sin(_lAngle) * i * link;
+    }
+    _lcLen = nChain;
+  }
+  // Count changes happen at the tail. The shape carries over from last frame.
+  while (_lcLen < nChain) { _lcX[_lcLen] = _lcX[_lcLen - 1]; _lcY[_lcLen] = _lcY[_lcLen - 1]; _lcLen++; }
+  if (_lcLen > nChain) _lcLen = nChain;
+
+  _lcX[0] = hx; _lcY[0] = hy;
+  for (let i = 1; i < _lcLen; i++) {
+    const dx = _lcX[i] - _lcX[i - 1], dy = _lcY[i] - _lcY[i - 1];
+    const d  = Math.hypot(dx, dy);
+    if (d < 1e-6) {
+      _lcX[i] = _lcX[i - 1] - Math.cos(_lAngle) * link;
+      _lcY[i] = _lcY[i - 1] - Math.sin(_lAngle) * link;
+    } else {
+      const t = link / d;
+      _lcX[i] = _lcX[i - 1] + dx * t;
+      _lcY[i] = _lcY[i - 1] + dy * t;
+    }
+  }
+
+  /* Reused between frames: this was a fresh Float32Array per frame, which on a
+     240Hz display is 237 throwaway arrays a second for one snake. */
   const need = numSegs * 2;
   if (!_segBuf || _segBuf.length < need) _segBuf = new Float32Array(Math.ceil(need * 1.5));
   const out = _segBuf.length === need ? _segBuf : _segBuf.subarray(0, need);
-  let idx = (_lpHead - 1 + LP_SIZE) % LP_SIZE;
-  let cx = _lpX[idx], cy = _lpY[idx];
-  out[0] = cx; out[1] = cy;
-  let remaining = SEG_SPACING;
-  let used = 1;
-  for (let seg = 1; seg < numSegs; seg++) {
-    let placed = false;
-    while (true) {
-      if (used >= _lpLen) { out[seg*2] = cx; out[seg*2+1] = cy; placed = true; break; }
-      const pi = (idx - 1 + LP_SIZE) % LP_SIZE;
-      const dx = _lpX[pi] - cx, dy = _lpY[pi] - cy;
-      const d  = Math.hypot(dx, dy);
-      if (d >= remaining) {
-        const t = remaining / d;
-        cx += dx * t; cy += dy * t;
-        out[seg*2] = cx; out[seg*2+1] = cy;
-        remaining = SEG_SPACING;
-        placed = true;
-        break;
-      }
-      remaining -= d;
-      cx = _lpX[pi]; cy = _lpY[pi];
-      idx = pi; used++;
-    }
-    if (!placed) break;
+  for (let i = 0; i < numSegs; i++) {          // thin only on the way out
+    const j = Math.min(_lcLen - 1, i * step);
+    out[i * 2] = _lcX[j]; out[i * 2 + 1] = _lcY[j];
   }
   return out;
 }

@@ -48,8 +48,8 @@ class Snake {
     const spawnLen = Math.max(MIN_SEGMENTS, C.SNAKE_SPAWN_SEGMENTS * 2);
     for (let i = 0; i < spawnLen; i++) {
       this.segments.push({
-        x: x - Math.cos(this.angle) * i * C.SNAKE_SEGMENT_SPACING,
-        y: y - Math.sin(this.angle) * i * C.SNAKE_SEGMENT_SPACING,
+        x: x - Math.cos(this.angle) * i * C.SNAKE_SEP_PER_SC,
+        y: y - Math.sin(this.angle) * i * C.SNAKE_SEP_PER_SC,
       });
     }
     this.pendingGrowth = 0;
@@ -153,31 +153,57 @@ class Snake {
     const targetSpeed = baseSpeed + (C.SNAKE_MAX_SPEED - baseSpeed) * this.boostRamp;
     const speedThisTick = targetSpeed * (this.speedMult || 1);
 
-    // Move the head CONTINUOUSLY by speedThisTick so it tracks the client's smooth local prediction
-    // exactly (quantizing the head to fixed 3-unit steps drifted against the prediction and read as
-    /* lag). Then drop frozen trail points behind it at SNAKE_SEGMENT_SPACING,
-       popping to hold length.
+    /* THE BODY IS A CHAIN, NOT A REPLAY OF WHERE THE HEAD HAS BEEN.
 
-       This spacing used to be read off SNAKE_BASE_SPEED, which quietly tied how
-       LONG a snake is to how FAST it moves — retuning the speed would have
-       shortened every snake by the same fraction. They are separate things and
-       the client already used SNAKE_SEGMENT_SPACING for its own body, so this
-       also makes the two agree. */
+       It used to freeze a point behind the head every few units and never touch
+       it again, so the body traced the head's exact route. Circling therefore
+       laid every loop on the same circle and read as one flat ring, and nothing
+       tuned elsewhere could change that: the shape was baked in by construction.
+
+       Now each point is held exactly one separation behind the point ahead of
+       it, in whatever direction it already lies. That single rule is what makes
+       a snake coil. The link is a straight chord across the arc its leader is
+       sweeping, so every point rides a little inside the one ahead of it, and
+       holding a turn winds the body steadily inward until the loops nest.
+
+       The drift works out to pi * separation per revolution, which is why the
+       separation constant is the coil's strength. At our sizes that is about
+       three quarters of a body width per lap, so a sustained turn stacks
+       visible rings instead of one thick circle.
+
+       Link lengths are exact rather than eased, so the body can neither creep
+       nor bunch: total length is always (points - 1) * separation. The soft
+       version of this, each point pulled a fraction of the way toward the one
+       ahead, was built and measured first. It cuts corners only to second order,
+       about 1% inward, which is invisible. */
     const head = this.segments[0];
     head.x += Math.cos(this.angle) * speedThisTick;
     head.y += Math.sin(this.angle) * speedThisTick;
 
-    if (this._segAccum === undefined) this._segAccum = 0;
-    this._segAccum += speedThisTick;
-    const sep = this.separation;
-    while (this._segAccum >= sep) {
-      this._segAccum -= sep;
-      const p1 = this.segments[1];
-      const dx = head.x - p1.x, dy = head.y - p1.y;
-      const d  = Math.hypot(dx, dy) || 1;
-      const t  = sep / d;
-      this.segments.splice(1, 0, { x: p1.x + dx * t, y: p1.y + dy * t });
-      if (this.pendingGrowth > 0) this.pendingGrowth--; else this.segments.pop();
+    const segs = this.segments;
+    const sep  = this.separation;
+    for (let i = 1; i < segs.length; i++) {
+      const a = segs[i - 1], p = segs[i];
+      const dx = p.x - a.x, dy = p.y - a.y;
+      const d  = Math.hypot(dx, dy);
+      if (d < 1e-6) {
+        // Degenerate: a just-grown tail point sits on its parent. Lay it straight back.
+        p.x = a.x - Math.cos(this.angle) * sep;
+        p.y = a.y - Math.sin(this.angle) * sep;
+        continue;
+      }
+      const t = sep / d;
+      p.x = a.x + dx * t;
+      p.y = a.y + dy * t;
+    }
+
+    /* Length changes at the TAIL now, the only place a chain can grow. It used
+       to ride on inserting trail points at the head, which no longer happens.
+       Boost shrink already pops the tail in the block above. */
+    if (this.pendingGrowth > 0) {
+      this.pendingGrowth--;
+      const tail = segs[segs.length - 1];
+      segs.push({ x: tail.x, y: tail.y });
     }
   }
 
