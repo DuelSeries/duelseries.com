@@ -30,6 +30,12 @@ function sanitizeColor(color) {
 }
 
 const MIN_SEGMENTS = C.SNAKE_MIN_SEGMENTS * 2; // hard floor — can never shrink below this
+/* How far each body point eases toward the point ahead of it whenever a new
+   point is laid. slither.io's cst. Read from their live client, where it sits
+   beside mamu and the nsp speeds in the same settings packet. Undamped (1.0)
+   makes the body collapse into the turn centre; this is what makes a circling
+   snake coil instead of closing into a ring. */
+const SETTLE_CST = 0.43;
 // Per-tick decay factor for the boost release glide (see constants.BOOST_DECAY_MS)
 const BOOST_DECAY = Math.exp(-(1000 / C.TICK_RATE) / C.BOOST_DECAY_MS);
 
@@ -187,6 +193,39 @@ class Snake {
       const t  = sep / d;
       this.segments.splice(1, 0, { x: p1.x + dx * t, y: p1.y + dy * t });
       if (this.pendingGrowth > 0) this.pendingGrowth--; else this.segments.pop();
+
+      /* Now let the body settle toward the head — this is what draws a SPIRAL
+         instead of a ring.
+
+         Dropping points and never touching them again replays the head's exact
+         path, so circling closes the loop and the tail lands on the head's own
+         track. slither doesn't do that: each time a point is added, every point
+         behind it eases a FRACTION of the way toward the point ahead of it. On
+         a curve that pull is inward, so each point ends up on a slightly
+         smaller radius than the one before it, and sustained circling coils.
+
+         The fraction is slither's cst = 0.43, and it is the whole reason this
+         is stable. A first attempt here used an undamped chain — snapping each
+         point to exactly one separation behind its neighbour — and the inward
+         correction compounded down the body until it collapsed to the centre
+         and whipped out again. Moving only 43% of the way lets the correction
+         decay instead of accumulating.
+
+         The first four points ease in at cst*n/4 so the settle ramps rather
+         than starting at full strength, and the run begins three points back
+         from the head so the head and its immediate neighbours stay exactly
+         where the movement code put them. */
+      const segs = this.segments;
+      let lead = segs[2];
+      if (lead) {
+        for (let i = 3, n = 1; i < segs.length; i++, n++) {
+          const p  = segs[i];
+          const mv = SETTLE_CST * (n < 4 ? n / 4 : 1);
+          p.x += (lead.x - p.x) * mv;
+          p.y += (lead.y - p.y) * mv;
+          lead = p;
+        }
+      }
     }
   }
 
