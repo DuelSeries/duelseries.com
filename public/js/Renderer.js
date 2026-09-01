@@ -229,6 +229,15 @@ class Renderer {
     }
     camera.update(Math.min(dt || 16.67, 50));
 
+    /* Boost-pulse bookkeeping. The phase has to persist across frames per snake,
+       so entries are kept in a Map and swept occasionally — snakes die and leave
+       and the Map would otherwise grow for the whole session. */
+    this._dtSec = Math.min(dt || 16.67, 50) / 1000;
+    this._frameNo = (this._frameNo || 0) + 1;
+    if (this._boostPhase && this._frameNo % 600 === 0) {
+      for (const [id, e] of this._boostPhase) if (this._frameNo - e.seen > 300) this._boostPhase.delete(id);
+    }
+
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = '#070707';
     ctx.fillRect(0, 0, canvas.width, canvas.height); // physical pixels — clear full canvas
@@ -719,6 +728,55 @@ class Renderer {
     }
   }
 
+  /* Boost pulse state for one snake, or null when it isn't boosting.
+     Returns {m, sfr, r, g, b} for SnakeGL — see the constants at the top of
+     SnakeGL.js for what the pulse is made of. Two things are worked out here
+     because they are per-snake rather than per-stamp:
+
+     THE PHASE. slither advances the pulse by (speed above the boost threshold)
+     per frame, so the bands travel faster the harder you are boosting and hold
+     their position — rather than snapping back to zero — the moment you let go.
+     In their units the speed above threshold is m*(nsp3 - ssp) - 0.1 with
+     ssp = 4.25 + 0.5*sc, and the accumulator gains 0.021 of it per 8ms frame,
+     which is the 2.625 rad/s below. At full boost on a small snake that is about
+     three pulses a second.
+
+     THE COLOUR. The glow is not the snake's own colour: it is that hue pushed to
+     a fixed mean brightness of 120, so a dark snake still throws a bright halo.
+     Near-black colours (mean <= 24) have no usable hue and become flat grey. */
+  _boostGlow(snake, growthScale, colorKey, base) {
+    const m = Math.max(0, Math.min(1, snake.boostRamp || 0));
+    if (m <= 0) return null;
+
+    const phases = this._boostPhase || (this._boostPhase = new Map());
+    let e = phases.get(snake.id);
+    if (!e) { e = { p: 0, seen: 0 }; phases.set(snake.id, e); }
+    e.seen = this._frameNo;
+    const rate = (m * (7.75 - 0.5 * growthScale) - 0.1) * 2.625;   // radians/second
+    if (rate > 0) e.p = (e.p + rate * (this._dtSec || 0.0167)) % (Math.PI * 2);
+
+    const cache = this._glowColCache || (this._glowColCache = new Map());
+    let c = cache.get(colorKey);
+    if (!c) {
+      const mean = (base.r + base.g + base.b) / 3;
+      if (mean <= 24) {
+        c = { r: 90 / 255, g: 90 / 255, b: 90 / 255 };
+      } else {
+        const k = 120 / mean;
+        c = {
+          r: Math.min(255, Math.floor(base.r * k)) / 255,
+          g: Math.min(255, Math.floor(base.g * k)) / 255,
+          b: Math.min(255, Math.floor(base.b * k)) / 255,
+        };
+      }
+      cache.set(colorKey, c);
+    }
+
+    const g = this._glowOut || (this._glowOut = {});   // reused — this runs per snake per frame
+    g.m = m; g.sfr = e.p; g.r = c.r; g.g = c.g; g.b = c.b;
+    return g;
+  }
+
   // Body only — goes into the batched GL layer (composited once by the caller),
   // or a 2D shaded stroke when WebGL is unavailable.
   _drawSnakeBody(ctx, snake, isMe) {
@@ -730,7 +788,8 @@ class Renderer {
     const base = this._parseColor(color);
 
     if (this._glMode && this.snakeGL && this.snakeGL.ok) {
-      if (this.snakeGL.drawBody(segs, SN, R, base, this.camera.scale || 1, this.camera.x, this.camera.y, this._dpr || 1)) return;
+      const boost = this._boostGlow(snake, growthScale, color, base);
+      if (this.snakeGL.drawBody(segs, SN, R, base, this.camera.scale || 1, this.camera.x, this.camera.y, this._dpr || 1, boost)) return;
     }
     // No WebGL on this device — shaded stroke body (+ head dome) for every snake
     ctx.save();

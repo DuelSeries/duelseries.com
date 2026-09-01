@@ -19,6 +19,35 @@ const SNAKEGL_OUTLINE_SCALE = 1.625;  // outline quad half-size / body radius (5
 const SNAKEGL_CELL          = 48;     // body sprite cell size
 const SNAKEGL_OUTLINE_PX    = 52;     // outline sprite size
 
+/* ── Boost pulse ────────────────────────────────────────────────────────────
+   The bright bands that travel down a boosting snake. Two ADDITIVE passes of a
+   soft round glow blob stamped along the same spine as the body, whose per-stamp
+   alpha is a cosine of distance-along-the-body minus a phase that advances while
+   boosting. One pass sits UNDER the body (the halo), one OVER it (the bands on
+   the body itself), and they run at slightly different phase speeds so they beat
+   against each other instead of reading as one clean sine.
+
+   Every number below is a ratio read out of slither.io's own client, expressed
+   against the body radius so it survives our different stamp pitch and units:
+
+     glow blob      alpha = raised-cosine of (1 - dist/32) on a 62px cell
+     under-glow     half-size R * 1.5 * (1 + 0.9375*sqrt(m)),  alpha sqrt(m)*0.38*(0.6+0.4cos(p - 1.15*sfr))
+     over-glow      half-size R * 2,                            alpha m*0.37*(0.5+0.5cos(p - sfr))
+     p              distance from head / (0.9655 * R) radians — one wavelength every ~6.07 body radii
+     m              0 at base speed, 1 at full boost (our boostRamp is exactly this)
+
+   Their per-stamp alpha assumes THEIR stamp pitch (0.2414 of the radius). Ours
+   is coarser, so fewer blobs stack per unit length; the alpha is scaled by the
+   pitch ratio so the accumulated brightness per unit of body matches. */
+const SNAKEGL_GLOW_PX      = 62;      // glow sprite cell
+const SNAKEGL_GLOW_EDGE    = 32;      // falloff reaches zero here (just past the 31px half-cell)
+const SNAKEGL_GLOW_UNDER   = 1.5;     // under-glow half-size / R, before the boost swell
+const SNAKEGL_GLOW_SWELL   = 62 / 32 - 1;  // how much the under-glow grows with sqrt(m)
+const SNAKEGL_GLOW_OVER    = 2.0;     // over-glow half-size / R
+const SNAKEGL_WAVE_R       = 0.9655;  // body radii travelled per radian of pulse phase
+const SNAKEGL_THEIR_PITCH  = 0.2414;  // their stamp pitch / radius — normalises our stamp density
+const SNAKEGL_MAXGLOW      = 12000;   // glow quads per frame (only boosting snakes emit any)
+
 class SnakeGL {
   constructor() {
     this.ok = false;
@@ -100,16 +129,68 @@ class SnakeGL {
     };
     this.pBody = link(fsBody);
     this.pLine = link(fsLine);
+
+    /* Glow needs a per-vertex alpha as well as a colour — the pulse brightness
+       differs from stamp to stamp — so it gets its own layout (stride 8) rather
+       than folding the alpha into the colour, which would light the blob but
+       leave it fully transparent in the composite. */
+    const vsGlow = `
+      attribute vec2 aPos;
+      attribute vec2 aUV;
+      attribute vec3 aColor;
+      attribute float aAlpha;
+      uniform vec2 uRes;
+      varying vec2 vUV;
+      varying vec3 vColor;
+      varying float vA;
+      void main() {
+        vUV = aUV; vColor = aColor; vA = aAlpha;
+        vec2 c = vec2(aPos.x / uRes.x * 2.0 - 1.0, 1.0 - aPos.y / uRes.y * 2.0);
+        gl_Position = vec4(c, 0.0, 1.0);
+      }`;
+    // Premultiplied output so it can be blended with ONE,ONE — the GL equivalent
+    // of the 2D canvas "lighter" operation slither draws the glow with.
+    const fsGlow = `
+      precision mediump float;
+      uniform sampler2D uTex;
+      varying vec2 vUV;
+      varying vec3 vColor;
+      varying float vA;
+      void main() {
+        float a = texture2D(uTex, vUV).a * vA;
+        gl_FragColor = vec4(vColor * a, a);
+      }`;
+    const pg = gl.createProgram();
+    gl.attachShader(pg, this._compile(gl.VERTEX_SHADER, vsGlow));
+    gl.attachShader(pg, this._compile(gl.FRAGMENT_SHADER, fsGlow));
+    gl.linkProgram(pg);
+    if (!gl.getProgramParameter(pg, gl.LINK_STATUS)) throw new Error('link: ' + gl.getProgramInfoLog(pg));
+    this.pGlow = {
+      prog: pg,
+      aPos:   gl.getAttribLocation(pg, 'aPos'),
+      aUV:    gl.getAttribLocation(pg, 'aUV'),
+      aColor: gl.getAttribLocation(pg, 'aColor'),
+      aAlpha: gl.getAttribLocation(pg, 'aAlpha'),
+      uRes:   gl.getUniformLocation(pg, 'uRes'),
+      uTex:   gl.getUniformLocation(pg, 'uTex'),
+    };
   }
 
   _initBuffers() {
     const gl = this.gl;
     this.STRIDE = 7;                                  // x,y,u,v,r,g,b
+    this.GSTRIDE = 8;                                 // ...plus a per-vertex alpha for the glow
     this._vbBody = new Float32Array(this.MAXSTAMPS * 6 * this.STRIDE);
     this._vbLine = new Float32Array(this.MAXSTAMPS * 6 * this.STRIDE);
     this._nBody = 0; this._nLine = 0;                 // vertex counts
     this.bufBody = gl.createBuffer();
     this.bufLine = gl.createBuffer();
+    // Only boosting snakes fill these, so they get a smaller cap than the body.
+    this._vbGlowU = new Float32Array(SNAKEGL_MAXGLOW * 6 * this.GSTRIDE);
+    this._vbGlowO = new Float32Array(SNAKEGL_MAXGLOW * 6 * this.GSTRIDE);
+    this._nGlowU = 0; this._nGlowO = 0;
+    this.bufGlowU = gl.createBuffer();
+    this.bufGlowO = gl.createBuffer();
   }
 
   // Body atlas: SNAKEGL_FRAMES cells in a row, brightness in RGB, mask in A.
@@ -153,6 +234,22 @@ class SnakeGL {
       }
     }
     this.texLine = this._makeTex(opx, OS, OS);
+
+    // Boost glow blob — a linear falloff to zero at SNAKEGL_GLOW_EDGE, then eased
+    // through a raised cosine so the halo has no visible rim. White, so the snake
+    // colour multiplies through it the same way it does for the body.
+    const GS = SNAKEGL_GLOW_PX, gpx = new Uint8Array(GS * GS * 4);
+    for (let y = 0; y < GS; y++) {
+      for (let x = 0; x < GS; x++) {
+        const dx = GS / 2 - x, dy = GS / 2 - y;
+        let v = 1 - Math.sqrt(dx * dx + dy * dy) / SNAKEGL_GLOW_EDGE;
+        v = v <= 0 ? 0 : 0.5 * (1 - Math.cos(Math.PI * v));
+        const o = (y * GS + x) * 4;
+        gpx[o] = gpx[o + 1] = gpx[o + 2] = 255;
+        gpx[o + 3] = Math.round(v * 255);
+      }
+    }
+    this.texGlow = this._makeTex(gpx, GS, GS);
   }
 
   _makeTex(px, w, h) {
@@ -198,12 +295,46 @@ class SnakeGL {
     return n + 6;
   }
 
+  /* Axis-aligned quad with a per-vertex alpha, for the glow layout (stride 8).
+     The glow blob is radially symmetric, so unlike the body stamps it does not
+     need rotating to the local body angle. */
+  _quadA(arr, n, cx, cy, half, r, g, b, a) {
+    const x0 = cx - half, y0 = cy - half, x1 = cx + half, y1 = cy + half;
+    const P = [x0, y0, 0, 0, x1, y0, 1, 0, x1, y1, 1, 1,
+               x0, y0, 0, 0, x1, y1, 1, 1, x0, y1, 0, 1];
+    let o = n * this.GSTRIDE;
+    for (let i = 0; i < 6; i++) {
+      arr[o++] = P[i * 4]; arr[o++] = P[i * 4 + 1];
+      arr[o++] = P[i * 4 + 2]; arr[o++] = P[i * 4 + 3];
+      arr[o++] = r; arr[o++] = g; arr[o++] = b; arr[o++] = a;
+    }
+    return n + 6;
+  }
+
   // Resample a spine (screen px, head-first) into stamps and queue their quads.
-  _stamp(pts, n, R, base) {
+  // `boost`, when present, adds the pulse passes: {m, sfr, r, g, b} with m the
+  // 0..1 boost amount, sfr the travelling phase in radians, rgb the glow colour.
+  _stamp(pts, n, R, base, boost) {
     const spacing = Math.max(0.75, R * SNAKEGL_STAMP_SPACING);
     const r = base.r / 255, g = base.g / 255, b = base.b / 255;
     const uw = 1 / SNAKEGL_FRAMES, KL = SNAKEGL_FRAMES, KL2 = KL * 2;
     const oHalf = R * SNAKEGL_OUTLINE_SCALE;
+    // Pulse geometry and amplitudes, precomputed once per snake.
+    const glow = boost && boost.m > 0;
+    let gUnder = 0, gOver = 0, gStep = 0, gSfr = 0, gAmpU = 0, gAmpO = 0, gr = 0, gg = 0, gb = 0;
+    if (glow) {
+      const m = boost.m, mr = Math.sqrt(m);
+      gUnder = R * SNAKEGL_GLOW_UNDER * (1 + SNAKEGL_GLOW_SWELL * mr);
+      gOver  = R * SNAKEGL_GLOW_OVER;
+      gStep  = spacing / (SNAKEGL_WAVE_R * R);   // pulse phase advanced per stamp
+      gSfr   = boost.sfr;
+      // Our stamps are coarser than theirs, so each carries proportionally more
+      // of the glow to land on the same brightness per unit of body length.
+      const dens = (spacing / R) / SNAKEGL_THEIR_PITCH;
+      gAmpU = mr * 0.38 * dens;
+      gAmpO = m  * 0.37 * dens;
+      gr = boost.r; gg = boost.g; gb = boost.b;
+    }
     // Walk head -> tail collecting stamp positions, with the frame index j
     // counted from the head (j = 0 is the head, slither's brightest frame).
     const S = this._scratch || (this._scratch = []);
@@ -232,6 +363,16 @@ class SnakeGL {
       const cx = S[s], cy = S[s + 1], a = S[s + 2], k = S[s + 3];
       this._nLine = this._quad(this._vbLine, this._nLine, cx, cy, oHalf, a, 0, 1, 0, 0, 0);
       this._nBody = this._quad(this._vbBody, this._nBody, cx, cy, R, a, k * uw, (k + 1) * uw, r, g, b);
+      if (glow && this._nGlowO / 6 < SNAKEGL_MAXGLOW) {
+        /* Phase along the body. The two waves run at 1x and 1.15x the phase
+           speed, so the halo and the bands on the body drift against each other
+           rather than pulsing in lockstep. */
+        const p = (s / 4) * gStep;
+        const au = gAmpU * (0.6 + 0.4 * Math.cos(p - 1.15 * gSfr));
+        const ao = gAmpO * (0.5 + 0.5 * Math.cos(p - gSfr));
+        if (au > 0.002) this._nGlowU = this._quadA(this._vbGlowU, this._nGlowU, cx, cy, gUnder, gr, gg, gb, au);
+        if (ao > 0.002) this._nGlowO = this._quadA(this._vbGlowO, this._nGlowO, cx, cy, gOver,  gr, gg, gb, ao);
+      }
     }
   }
 
@@ -252,11 +393,34 @@ class SnakeGL {
     gl.drawArrays(gl.TRIANGLES, 0, nVerts);
   }
 
+  // Glow shares the vertex/UV/colour layout but carries a per-vertex alpha.
+  _drawGlow(buf, arr, nVerts, w, h) {
+    if (!nVerts) return;
+    const gl = this.gl, p = this.pGlow;
+    gl.useProgram(p.prog);
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, arr.subarray(0, nVerts * this.GSTRIDE), gl.DYNAMIC_DRAW);
+    const FS = this.GSTRIDE * 4;
+    gl.enableVertexAttribArray(p.aPos);   gl.vertexAttribPointer(p.aPos,   2, gl.FLOAT, false, FS, 0);
+    gl.enableVertexAttribArray(p.aUV);    gl.vertexAttribPointer(p.aUV,    2, gl.FLOAT, false, FS, 8);
+    gl.enableVertexAttribArray(p.aColor); gl.vertexAttribPointer(p.aColor, 3, gl.FLOAT, false, FS, 16);
+    gl.enableVertexAttribArray(p.aAlpha); gl.vertexAttribPointer(p.aAlpha, 1, gl.FLOAT, false, FS, 28);
+    gl.uniform2f(p.uRes, w, h);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, this.texGlow);
+    gl.uniform1i(p.uTex, 0);
+    gl.blendFunc(gl.ONE, gl.ONE);                     // additive — the "lighter" pass
+    gl.drawArrays(gl.TRIANGLES, 0, nVerts);
+    gl.disableVertexAttribArray(p.aAlpha);            // body/outline don't have it
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);     // back to premultiplied normal
+  }
+
   // ── Batched in-game path: beginFrame → drawBody ×N → endFrame → compositeTo ──
   beginFrame() {
     if (!this.ok) return;
     this._rects = [];
     this._nBody = 0; this._nLine = 0;
+    this._nGlowU = 0; this._nGlowO = 0;
     const gl = this.gl;
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
     gl.disable(gl.SCISSOR_TEST);
@@ -267,7 +431,8 @@ class SnakeGL {
   }
 
   // Queue one snake. Camera is translate+scale only: screen = (world*scale + cam)*dpr.
-  drawBody(segs, SN, R, base, scale, camX, camY, dpr) {
+  // `boost` (optional) is {m, sfr, r, g, b} — see _stamp — and adds the pulse.
+  drawBody(segs, SN, R, base, scale, camX, camY, dpr, boost) {
     if (!this.ok || SN < 2) return false;
     scale = scale || 1; dpr = dpr || 1;
     const ss = scale * dpr;
@@ -285,10 +450,15 @@ class SnakeGL {
       if (y < minY) minY = y; if (y > maxY) maxY = y;
     }
     const Rs = R * ss;
-    const marg = Rs * SNAKEGL_OUTLINE_SCALE + 2;
+    /* The composite copies back only this box, so it has to cover the widest
+       pass. While boosting that is the halo (up to 2.9 radii), not the outline. */
+    const glowHalf = boost && boost.m > 0
+      ? Rs * Math.max(SNAKEGL_GLOW_OVER, SNAKEGL_GLOW_UNDER * (1 + SNAKEGL_GLOW_SWELL * Math.sqrt(boost.m)))
+      : 0;
+    const marg = Math.max(Rs * SNAKEGL_OUTLINE_SCALE, glowHalf) + 2;
     if (maxX + marg < 0 || maxY + marg < 0 || minX - marg > W || minY - marg > H) return true; // off-screen
 
-    this._stamp(pts, SN, Rs, base);
+    this._stamp(pts, SN, Rs, base, boost);
 
     const ix = Math.max(0, Math.floor(minX - marg)), iy = Math.max(0, Math.floor(minY - marg));
     const ir = Math.min(W, Math.ceil(maxX + marg)),  ib = Math.min(H, Math.ceil(maxY + marg));
@@ -296,12 +466,16 @@ class SnakeGL {
     return true;
   }
 
-  // Issue the two batched passes (outline under, bodies over).
+  /* Issue the batched passes bottom to top: outline, boost halo, bodies, then
+     the boost bands. The halo goes UNDER the bodies so it reads as light spilling
+     out around the snake; the bands go OVER so they brighten the body itself. */
   endFrame() {
     if (!this.ok) return;
     const gl = this.gl, W = this.canvas.width, H = this.canvas.height;
     this._draw(this.pLine, this.bufLine, this._vbLine, this._nLine, this.texLine, W, H);
+    this._drawGlow(this.bufGlowU, this._vbGlowU, this._nGlowU, W, H);
     this._draw(this.pBody, this.bufBody, this._vbBody, this._nBody, this.texBody, W, H);
+    this._drawGlow(this.bufGlowO, this._vbGlowO, this._nGlowO, W, H);
     gl.disable(gl.BLEND);
   }
 
@@ -340,8 +514,8 @@ class SnakeGL {
       pts[i * 2 + 1] = (segs[i * 2 + 1] - minY) * sy;
     }
 
-    this._nBody = 0; this._nLine = 0;
-    this._stamp(pts, SN, R * ((sx + sy) / 2), base);
+    this._nBody = 0; this._nLine = 0; this._nGlowU = 0; this._nGlowO = 0;
+    this._stamp(pts, SN, R * ((sx + sy) / 2), base);   // lobby previews never boost
 
     gl.viewport(0, 0, offW, offH);
     gl.enable(gl.SCISSOR_TEST);

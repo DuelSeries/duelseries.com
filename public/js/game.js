@@ -1433,6 +1433,9 @@ function gameLoop(now) {
       for (const k in _latestMySnap) me[k] = _latestMySnap[k];
       me.segs = simSegs;
       me.angle = _lAngle;
+      // Local ramp, not the snapshot's — the boost pulse should light up on the
+      // frame you press boost, not a round trip later.
+      me.boostRamp = _lBoostRamp;
       let found = false;
       for (let i = 0; i < displayState.snakes.length; i++) {
         if (displayState.snakes[i].id === myId) { displayState.snakes[i] = me; found = true; break; }
