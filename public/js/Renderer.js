@@ -234,8 +234,10 @@ class Renderer {
        and the Map would otherwise grow for the whole session. */
     this._dtSec = Math.min(dt || 16.67, 50) / 1000;
     this._frameNo = (this._frameNo || 0) + 1;
-    if (this._boostPhase && this._frameNo % 600 === 0) {
-      for (const [id, e] of this._boostPhase) if (this._frameNo - e.seen > 300) this._boostPhase.delete(id);
+    if (this._frameNo % 600 === 0) {
+      for (const m of [this._boostPhase, this._headAng]) {
+        if (m) for (const [id, e] of m) if (this._frameNo - e.seen > 300) m.delete(id);
+      }
     }
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -728,6 +730,39 @@ class Renderer {
     }
   }
 
+  /* The angle the HEAD is drawn at, which in slither.io is deliberately not the
+     angle the snake is travelling at. Two differences, and together they are why
+     their head reads as a separate thing that leads and cants into a turn rather
+     than as the front of a rigid train:
+
+     IT POINTS ALONG THE NECK, not along the heading. The angle is taken from the
+     first body point to the head, so mid-turn (when the head has already swung
+     but the body behind it has not caught up) the head is angled off the
+     direction of travel by however much the neck is bent.
+
+     IT LAGS. That neck angle is not used directly either: the drawn angle chases
+     it, closing 12% of the remaining gap every 8ms. So the head keeps turning for
+     a moment after you stop steering, and starts a beat late when you begin.
+
+     Rendering only — the simulation still steers on snake.angle. */
+  _headAngle(snake) {
+    const segs = snake.segs;
+    if (!segs || segs.length < 4) return snake.angle || 0;
+    const want = Math.atan2(segs[1] - segs[3], segs[0] - segs[2]);
+
+    const store = this._headAng || (this._headAng = new Map());
+    let e = store.get(snake.id);
+    if (!e) { e = { a: want, seen: 0 }; store.set(snake.id, e); }
+    e.seen = this._frameNo;
+
+    let d = want - e.a;
+    while (d >  Math.PI) d -= Math.PI * 2;
+    while (d < -Math.PI) d += Math.PI * 2;
+    // 12% per 8ms frame, held to that rate whatever the display refresh is.
+    e.a += d * (1 - Math.pow(0.88, ((this._dtSec || 0.0167) * 1000) / 8));
+    return e.a;
+  }
+
   /* Boost pulse state for one snake, or null when it isn't boosting.
      Returns {m, sfr, r, g, b} for SnakeGL — see the constants at the top of
      SnakeGL.js for what the pulse is made of. Two things are worked out here
@@ -828,7 +863,7 @@ class Renderer {
 
     // ── Head ──────────────────────────────────────────────────────────────────
     const hx    = segs[0], hy = segs[1];
-    const angle = snake.angle || 0;
+    const angle = this._headAngle(snake);
     const fwdX  = Math.cos(angle), fwdY  = Math.sin(angle);
     const perpX = -Math.sin(angle), perpY = Math.cos(angle);
 
