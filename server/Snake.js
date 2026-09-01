@@ -29,6 +29,7 @@ function sanitizeColor(color) {
   return ALLOWED_COLORS.has(c) ? c : null;
 }
 
+const SUBDIV = C.SNAKE_CHAIN_SUBDIV;   // chain points per body part
 const MIN_SEGMENTS = C.SNAKE_MIN_SEGMENTS * 2; // hard floor — can never shrink below this
 // Per-tick decay factor for the boost release glide (see constants.BOOST_DECAY_MS)
 const BOOST_DECAY = Math.exp(-(1000 / C.TICK_RATE) / C.BOOST_DECAY_MS);
@@ -45,11 +46,11 @@ class Snake {
     this.score = 0;
 
     this.segments = [];
-    const spawnLen = Math.max(MIN_SEGMENTS, C.SNAKE_SPAWN_SEGMENTS * 2);
+    const spawnLen = Math.max(MIN_SEGMENTS, C.SNAKE_SPAWN_SEGMENTS * 2) * SUBDIV;   // in chain points
     for (let i = 0; i < spawnLen; i++) {
       this.segments.push({
-        x: x - Math.cos(this.angle) * i * C.SNAKE_SEP_PER_SC,
-        y: y - Math.sin(this.angle) * i * C.SNAKE_SEP_PER_SC,
+        x: x - Math.cos(this.angle) * i * C.SNAKE_SEP_PER_SC / SUBDIV,
+        y: y - Math.sin(this.angle) * i * C.SNAKE_SEP_PER_SC / SUBDIV,
       });
     }
     this.pendingGrowth = 0;
@@ -58,7 +59,9 @@ class Snake {
   }
 
   get head() { return this.segments[0]; }
-  get length() { return this.segments.length; }
+  // Length is counted in PARTS, which is what score, scale, boost fuel and the
+  // wire all mean. The segments array holds SUBDIV chain points per part.
+  get length() { return this.segments.length / SUBDIV; }
 
   // Boost fuel = how many segments above the minimum floor
   get boostFuel() { return Math.max(0, this.length - MIN_SEGMENTS); }
@@ -75,7 +78,7 @@ class Snake {
 
   // Distance between body points. Grows with the snake, so body LENGTH grows
   // with the square of scale the way slither's does — see SNAKE_SEP_PER_SC.
-  get separation() { return C.SNAKE_SEP_PER_SC * this.scale; }
+  get separation() { return C.SNAKE_SEP_PER_SC * this.scale / SUBDIV; }
 
   // Turn rate degrades with size on a quadratic curve — small snakes are nimble, giants turn
   // wide and heavy. Factor is 1.0 at scale 1, easing to ~0.15 at scale 6.
@@ -137,7 +140,7 @@ class Snake {
       // Shrink once per 24 ticks — same rate as before
       if (this._boostTick >= 24) {
         this._boostTick = 0;
-        this.segments.pop();
+        for (let k = 0; k < SUBDIV; k++) this.segments.pop();   // one PART, not one chain point
       }
     } else {
       if (this.boosting) this.boosting = false;
@@ -203,7 +206,7 @@ class Snake {
     if (this.pendingGrowth > 0) {
       this.pendingGrowth--;
       const tail = segs[segs.length - 1];
-      segs.push({ x: tail.x, y: tail.y });
+      for (let k = 0; k < SUBDIV; k++) segs.push({ x: tail.x, y: tail.y });   // one PART
     }
   }
 
@@ -280,8 +283,13 @@ class Snake {
   serialize() {
     const segs = [];
     const len  = this.segments.length;
-    // Adaptive thinning — spline renderer handles gaps smoothly
-    const step = len < 400 ? 2 : len < 800 ? 3 : 4;
+    /* Adaptive thinning, counted in PARTS, so the wire carries the same number
+       of points it always did however finely the chain is subdivided below it.
+       Reading it off the raw point count instead would send SUBDIV times more
+       points and, worse, leave the client rebuilding its chain at a different
+       resolution from the server's. */
+    const parts = this.length;
+    const step = (parts < 400 ? 2 : parts < 800 ? 3 : 4) * SUBDIV;
     for (let i = 0; i < len; i += step) {
       segs.push(Math.round(this.segments[i].x * 10) / 10,
                 Math.round(this.segments[i].y * 10) / 10);

@@ -730,8 +730,13 @@ function _lBuildSegs(numSegs) {
   const snakeLen = _latestMySnap ? (_latestMySnap.length || 0) : 0;
   const step = snakeLen < 400 ? 2 : snakeLen < 800 ? 3 : 4;
   const sc = Math.min(6, 1 + (snakeLen - CONSTANTS.SNAKE_MIN_SEGMENTS * 2) / CONSTANTS.SNAKE_SC_SEGS);
-  const link = CONSTANTS.SNAKE_SEP_PER_SC * Math.max(1, sc);
-  const nChain = numSegs * step;
+  /* The chain runs at the SERVER's resolution: its separation split into
+     SNAKE_CHAIN_SUBDIV points. Running it any coarser cuts corners harder, and
+     the local snake would then coil faster than the real one. */
+  const sub    = CONSTANTS.SNAKE_CHAIN_SUBDIV;
+  const link   = CONSTANTS.SNAKE_SEP_PER_SC * Math.max(1, sc) / sub;
+  const stride = step * sub;                 // chain points between wire points
+  const nChain = numSegs * stride;
 
   const hi = (_lpHead - 1 + LP_SIZE) % LP_SIZE;
   const hx = _lpX[hi], hy = _lpY[hi];
@@ -773,7 +778,7 @@ function _lBuildSegs(numSegs) {
   if (!_segBuf || _segBuf.length < need) _segBuf = new Float32Array(Math.ceil(need * 1.5));
   const out = _segBuf.length === need ? _segBuf : _segBuf.subarray(0, need);
   for (let i = 0; i < numSegs; i++) {          // thin only on the way out
-    const j = Math.min(_lcLen - 1, i * step);
+    const j = Math.min(_lcLen - 1, i * stride);
     out[i * 2] = _lcX[j]; out[i * 2 + 1] = _lcY[j];
   }
   return out;

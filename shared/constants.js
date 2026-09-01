@@ -55,6 +55,26 @@ const CONSTANTS = {
      SNAKE_SEGMENT_SPACING stays as the scale-1 value for spawn layout. */
   SNAKE_SEGMENT_SPACING: 3,
   SNAKE_SEP_PER_SC: 4.83,
+
+  /* THE COIL DIAL. How many chain points make up one body part.
+
+     The body is a chain, and how hard it cuts corners is set purely by the LINK
+     length: a held turn winds it inward by pi * link every lap. At one point per
+     part the link is the full separation and that came out at 0.97 body widths
+     per lap, which is far too fast. Shortening the link alone would fix the coil
+     and shorten the snake with it, and a snake that is thick but not long was
+     the other complaint.
+
+     Splitting each part into several chain points does both. The link becomes
+     separation / SUBDIV, so the coil weakens by the same factor, while the body
+     keeps exactly its length because there are proportionally more points. It
+     also makes the drawn curve smoother, since the body is no longer a coarse
+     polygon at the scale of its own width.
+
+     Raise it for a gentler coil, lower it for a stronger one. Nothing else
+     changes: parts, score, boost fuel and the wire format are all still counted
+     in PARTS, not chain points. */
+  SNAKE_CHAIN_SUBDIV: 4,
   /* Half the snake's width. Measured on their live snake this is 14.5 per unit
      of scale in THEIR world units — but it was wrong to copy that number across,
      because our camera is zoomed in tighter than theirs. What has to match is
