@@ -30,12 +30,6 @@ function sanitizeColor(color) {
 }
 
 const MIN_SEGMENTS = C.SNAKE_MIN_SEGMENTS * 2; // hard floor — can never shrink below this
-/* How far each body point eases toward the point ahead of it whenever a new
-   point is laid. slither.io's cst. Read from their live client, where it sits
-   beside mamu and the nsp speeds in the same settings packet. Undamped (1.0)
-   makes the body collapse into the turn centre; this is what makes a circling
-   snake coil instead of closing into a ring. */
-const SETTLE_CST = 0.43;
 // Per-tick decay factor for the boost release glide (see constants.BOOST_DECAY_MS)
 const BOOST_DECAY = Math.exp(-(1000 / C.TICK_RATE) / C.BOOST_DECAY_MS);
 
@@ -54,12 +48,8 @@ class Snake {
     const spawnLen = Math.max(MIN_SEGMENTS, C.SNAKE_SPAWN_SEGMENTS * 2);
     for (let i = 0; i < spawnLen; i++) {
       this.segments.push({
-        // Spawn spacing must match the separation a spawn-size snake will use
-        // once it starts moving, or the body visibly stretches on the first few
-        // ticks as the trail re-spaces itself. At MIN_SEGMENTS the scale is 1,
-        // so this is SEP_PER_SC exactly.
-        x: x - Math.cos(this.angle) * i * C.SNAKE_SEP_PER_SC,
-        y: y - Math.sin(this.angle) * i * C.SNAKE_SEP_PER_SC,
+        x: x - Math.cos(this.angle) * i * C.SNAKE_SEGMENT_SPACING,
+        y: y - Math.sin(this.angle) * i * C.SNAKE_SEGMENT_SPACING,
       });
     }
     this.pendingGrowth = 0;
@@ -83,18 +73,8 @@ class Snake {
     return Math.min(6, 1 + (this.length - MIN_SEGMENTS) / C.SNAKE_SC_SEGS);
   }
 
-  /* Spacing between body points, growing with the snake exactly as slither.io's
-     wsep = 6*sc does. Held as a getter rather than a constant because every
-     consumer needs the CURRENT value — the snake's separation changes as it
-     eats, and a value captured at spawn would be wrong within seconds. */
-  get separation() {
-    return C.SNAKE_SEP_PER_SC * this.scale;
-  }
-
   // Turn rate degrades with size on a quadratic curve — small snakes are nimble, giants turn
   // wide and heavy. Factor is 1.0 at scale 1, easing to ~0.15 at scale 6.
-  // scang here is slither.io's own curve, verified against their client:
-  // .13 + .87 * ((7 - sc)/6)^2 — identical expression, not an approximation.
   get turnRate() {
     const sc = this.scale;
     const scang = 0.13 + 0.87 * Math.pow((7 - sc) / 6, 2);
@@ -176,56 +156,16 @@ class Snake {
     head.x += Math.cos(this.angle) * speedThisTick;
     head.y += Math.sin(this.angle) * speedThisTick;
 
-    /* Trail points are dropped one SEPARATION apart, not one BASE_SPEED apart.
-       That distinction is the whole fix: separation grows with the snake
-       (slither's wsep = 6*sc) while base speed barely moves, so a giant lays
-       points far apart and its body cuts the corner on a hard turn instead of
-       tracing the head's exact path. Read once per tick — it changes as the
-       snake eats. */
-    const sep = this.separation;
     if (this._segAccum === undefined) this._segAccum = 0;
     this._segAccum += speedThisTick;
-    while (this._segAccum >= sep) {
-      this._segAccum -= sep;
+    while (this._segAccum >= C.SNAKE_BASE_SPEED) {
+      this._segAccum -= C.SNAKE_BASE_SPEED;
       const p1 = this.segments[1];
       const dx = head.x - p1.x, dy = head.y - p1.y;
       const d  = Math.hypot(dx, dy) || 1;
-      const t  = sep / d;
+      const t  = C.SNAKE_BASE_SPEED / d;
       this.segments.splice(1, 0, { x: p1.x + dx * t, y: p1.y + dy * t });
       if (this.pendingGrowth > 0) this.pendingGrowth--; else this.segments.pop();
-
-      /* Now let the body settle toward the head — this is what draws a SPIRAL
-         instead of a ring.
-
-         Dropping points and never touching them again replays the head's exact
-         path, so circling closes the loop and the tail lands on the head's own
-         track. slither doesn't do that: each time a point is added, every point
-         behind it eases a FRACTION of the way toward the point ahead of it. On
-         a curve that pull is inward, so each point ends up on a slightly
-         smaller radius than the one before it, and sustained circling coils.
-
-         The fraction is slither's cst = 0.43, and it is the whole reason this
-         is stable. A first attempt here used an undamped chain — snapping each
-         point to exactly one separation behind its neighbour — and the inward
-         correction compounded down the body until it collapsed to the centre
-         and whipped out again. Moving only 43% of the way lets the correction
-         decay instead of accumulating.
-
-         The first four points ease in at cst*n/4 so the settle ramps rather
-         than starting at full strength, and the run begins three points back
-         from the head so the head and its immediate neighbours stay exactly
-         where the movement code put them. */
-      const segs = this.segments;
-      let lead = segs[2];
-      if (lead) {
-        for (let i = 3, n = 1; i < segs.length; i++, n++) {
-          const p  = segs[i];
-          const mv = SETTLE_CST * (n < 4 ? n / 4 : 1);
-          p.x += (lead.x - p.x) * mv;
-          p.y += (lead.y - p.y) * mv;
-          lead = p;
-        }
-      }
     }
   }
 
@@ -259,19 +199,14 @@ class Snake {
     const sizeMul = Math.min(1.6, 0.9 + 0.14 * this.scale); // giants drop visibly bigger orbs
     const bodyR   = C.SNAKE_HEAD_RADIUS * this.scale;       // half the snake's width
 
-    /* Space the orbs by ARC LENGTH, not by segment index — index-spacing packed
-       them on top of each other and the corpse read as one clump.
-
-       This must use the snake's LIVE separation, not a fixed constant. Spacing
-       now grows with the snake (3.8 units at spawn, 22.4 on a giant), so a
-       hardcoded 3 would tell a giant its points were seven times closer than
-       they are and fling its corpse orbs seven times too far apart. On a big
-       snake the separation already exceeds an orb diameter, so segsPerStep
-       correctly collapses to 1 and an orb lands at every point. */
-    const sep         = this.separation;
+    // Space the orbs by ARC LENGTH, not by segment index. Segments sit only
+    // SNAKE_SEGMENT_SPACING (3) units apart while an orb renders about 7 units
+    // across, so index-spacing packed them on top of each other and the corpse
+    // read as one clump. Stepping by roughly an orb diameter lays a readable
+    // trail down the body instead.
     const orbR        = C.FOOD_RADIUS * 2.0 * sizeMul;
-    const stepUnits   = Math.max(orbR * 1.1, sep);
-    const segsPerStep = Math.max(1, Math.round(stepUnits / sep));
+    const stepUnits   = Math.max(orbR * 1.1, C.SNAKE_SEGMENT_SPACING);
+    const segsPerStep = Math.max(1, Math.round(stepUnits / C.SNAKE_SEGMENT_SPACING));
     const PER_STEP    = 2;   // orbs laid across the width at each step
 
     for (let i = 0; i < n; i += segsPerStep) {

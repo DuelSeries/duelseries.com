@@ -25,19 +25,6 @@ const CONSTANTS = {
   // Snake
   SNAKE_BASE_SPEED: 3,
   SNAKE_SEGMENT_SPACING: 3,
-  /* Distance between body points, and it SCALES WITH THE SNAKE.
-     slither.io sets wsep = 6 * sc, so a giant's points sit six times further
-     apart than a spawn's. Ours was a flat 3 at every size, which is why our
-     body traced the head's exact path while slither's visibly cuts the corner
-     on a hard turn — with points packed tight there is nothing to cut.
-     6 * (3/4.75) = 3.7895, converting their units into ours the same way
-     SNAKE_MAX_SPEED and SNAKE_SPEED_PER_SC already do (our base speed 3 is
-     their nsp1+nsp2 = 4.75).
-     Checked against collision before changing: separation never exceeds twice
-     the body kill radius (3.8 vs 16 at scale 1, 22.7 vs 46 at scale 6), so
-     consecutive points still overlap and no gap opens for a head to slip
-     through. GRID_CELL 80 also still exceeds the largest kill radius. */
-  SNAKE_SEP_PER_SC: 3.7895,
   SNAKE_HEAD_RADIUS: 10,
   // Min = spawn, exactly like slither.io (its snakes spawn at sct=2 and can never shrink
   // below it — boosting cuts off at spawn size instead of shrinking past it).

@@ -699,23 +699,12 @@ function _lAdvance(dt, targetAngle) {
    one snake, every one of them garbage a frame later. Grown when it needs to
    be, then subarray'd so callers still see exactly numSegs*2 entries. */
 let _segBuf = null;
-/* Reused for the head-offset blend below, so the merge does not allocate a
-   fresh typed array every frame — at 240Hz that was the exact mistake _segBuf
-   already exists to avoid. */
-let _lHeadBuf = null;
 function _lBuildSegs(numSegs) {
   if (!_lReady || _lpLen < 2 || numSegs < 1) return null;
   // Match the adaptive step used in Snake.js serialize()
   const snakeLen = _latestMySnap ? (_latestMySnap.length || 0) : 0;
   const step = snakeLen < 400 ? 2 : snakeLen < 800 ? 3 : 4;
-  /* Spacing must track the snake's size, exactly as the server does. Point
-     separation is SEP_PER_SC * scale (slither's wsep = 6*sc), not a constant —
-     leaving this at a flat 3 would draw a giant's predicted body at a seventh
-     of its true length while the server sent the real thing, and the two would
-     fight every snapshot. Scale is derived the same way _lAdvance does it, from
-     the true segment count the server sends alongside the thinned points. */
-  const _sc = Math.min(6, 1 + (snakeLen - CONSTANTS.SNAKE_MIN_SEGMENTS * 2) / CONSTANTS.SNAKE_SC_SEGS);
-  const SEG_SPACING = CONSTANTS.SNAKE_SEP_PER_SC * Math.max(1, _sc) * step;
+  const SEG_SPACING = CONSTANTS.SNAKE_SEGMENT_SPACING * step;
   const need = numSegs * 2;
   if (!_segBuf || _segBuf.length < need) _segBuf = new Float32Array(Math.ceil(need * 1.5));
   const out = _segBuf.length === need ? _segBuf : _segBuf.subarray(0, need);
@@ -1446,48 +1435,7 @@ function gameLoop(now) {
       me.angle = _lAngle;
       let found = false;
       for (let i = 0; i < displayState.snakes.length; i++) {
-        if (displayState.snakes[i].id === myId) {
-          /* Draw the SERVER's body, not a locally rebuilt one, and move only
-             the head.
-
-             The server settles each point toward the one ahead every time a
-             point is laid (slither's cst), and the spiral you see when circling
-             is that settle accumulating over hundreds of applications. A body
-             rebuilt from the head's path each frame has none of that history,
-             so it draws a plain trail — our own snake was a ring while the
-             server, and therefore collision, had a spiral. The tail really was
-             somewhere its owner could not see.
-
-             An earlier attempt kept a persistent predicted body and advanced it
-             incrementally. It produced the right shape and shipped a mess: the
-             reseed triggered on almost every frame because spacing shifts
-             continuously as the snake grows, so the body flickered between
-             seeded and settled and the tail visibly grew and shrank. That is
-             the "leg glitch" — it was mine, and it is gone with this.
-
-             So: take the interpolated server body, which already has the true
-             spiral, and DO NOT TOUCH ITS POSITIONS AT ALL.
-
-             The attempt in between applied the head prediction as an offset
-             decaying over the first 8 points. That produced travelling waves
-             down the body and a head that looked detached, because the offset
-             is the gap between a locally predicted head and an interpolated
-             server head, and that gap oscillates every time a snapshot lands.
-             Feeding an oscillating value into the front of the body is a wave
-             generator.
-
-             Every local modification of these positions has made the rendering
-             worse. So there are none left. The body is the server's, and the
-             only locally predicted thing is the head ANGLE, which drives the
-             head sprite's facing and cannot deform the body.
-
-             Cost: the body follows one interpolation delay behind
-             (INTERP_DELAY_MS, 70ms). If steering feels heavy, lower that
-             constant rather than reintroducing local body maths here. */
-          const srv = displayState.snakes[i];
-          if (srv && srv.segs && srv.segs.length >= 4) me.segs = srv.segs;
-          displayState.snakes[i] = me; found = true; break;
-        }
+        if (displayState.snakes[i].id === myId) { displayState.snakes[i] = me; found = true; break; }
       }
       if (!found) displayState.snakes.push(me);
     }
