@@ -748,7 +748,24 @@ class Renderer {
   _headAngle(snake) {
     const segs = snake.segs;
     if (!segs || segs.length < 4) return snake.angle || 0;
-    const want = Math.atan2(segs[1] - segs[3], segs[0] - segs[2]);
+
+    /* WHICH point behind the head defines the neck matters more than it looks.
+       Taking the very next one is useless here: our body points sit 3 units
+       apart, so that vector is within a couple of degrees of the heading and the
+       whole effect is invisible — which is exactly why this read as unchanged.
+       Their body points are much further apart, and the neck they measure spans
+       roughly two body radii. So walk back that far instead of taking a fixed
+       index, which also keeps it right as the snake grows. */
+    const R = CONSTANTS.SNAKE_HEAD_RADIUS *
+              Math.min(6, 1 + ((snake.length || 20) - CONSTANTS.SNAKE_MIN_SEGMENTS * 2) / CONSTANTS.SNAKE_SC_SEGS);
+    const reach = R * 2;
+    let bx = segs[2], by = segs[3], acc = 0;
+    for (let i = 2; i + 1 < segs.length; i += 2) {
+      acc += Math.hypot(segs[i] - segs[i - 2], segs[i + 1] - segs[i - 1]);
+      bx = segs[i]; by = segs[i + 1];
+      if (acc >= reach) break;
+    }
+    const want = Math.atan2(segs[1] - by, segs[0] - bx);
 
     const store = this._headAng || (this._headAng = new Map());
     let e = store.get(snake.id);

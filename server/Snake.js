@@ -151,19 +151,26 @@ class Snake {
 
     // Move the head CONTINUOUSLY by speedThisTick so it tracks the client's smooth local prediction
     // exactly (quantizing the head to fixed 3-unit steps drifted against the prediction and read as
-    // lag). Then drop frozen trail points behind it at SNAKE_BASE_SPEED spacing, popping to hold length.
+    /* lag). Then drop frozen trail points behind it at SNAKE_SEGMENT_SPACING,
+       popping to hold length.
+
+       This spacing used to be read off SNAKE_BASE_SPEED, which quietly tied how
+       LONG a snake is to how FAST it moves — retuning the speed would have
+       shortened every snake by the same fraction. They are separate things and
+       the client already used SNAKE_SEGMENT_SPACING for its own body, so this
+       also makes the two agree. */
     const head = this.segments[0];
     head.x += Math.cos(this.angle) * speedThisTick;
     head.y += Math.sin(this.angle) * speedThisTick;
 
     if (this._segAccum === undefined) this._segAccum = 0;
     this._segAccum += speedThisTick;
-    while (this._segAccum >= C.SNAKE_BASE_SPEED) {
-      this._segAccum -= C.SNAKE_BASE_SPEED;
+    while (this._segAccum >= C.SNAKE_SEGMENT_SPACING) {
+      this._segAccum -= C.SNAKE_SEGMENT_SPACING;
       const p1 = this.segments[1];
       const dx = head.x - p1.x, dy = head.y - p1.y;
       const d  = Math.hypot(dx, dy) || 1;
-      const t  = C.SNAKE_BASE_SPEED / d;
+      const t  = C.SNAKE_SEGMENT_SPACING / d;
       this.segments.splice(1, 0, { x: p1.x + dx * t, y: p1.y + dy * t });
       if (this.pendingGrowth > 0) this.pendingGrowth--; else this.segments.pop();
     }

@@ -22,23 +22,29 @@ const CONSTANTS = {
   CASHOUT_HOLD_MS: 3000,
   CASHOUT_MIN_SPEED_MULT: 0.2,
 
-  // Snake
-  SNAKE_BASE_SPEED: 3,
+  /* Snake speed.
+     What matters for the look is speed measured against the SCREEN, not against
+     world units, because our camera is zoomed in tighter than theirs: we show
+     about 970 world units across, slither shows about 1296. Measured on their
+     live game, their snake covers 0.137 of the view width per second. At 3 we
+     covered 0.186 — 35% too fast, which is also why our turn felt wide, since
+     the turn circle is speed divided by turn rate and our turn rate already
+     matches theirs exactly. Scaling all three speeds by 0.74 puts us on their
+     0.137 and pulls the turn circle in by the same 26%. */
+  SNAKE_BASE_SPEED: 2.22,
+  // Body point spacing is deliberately NOT the speed. It used to be read off
+  // SNAKE_BASE_SPEED, so changing how fast a snake moves silently changed how
+  // long it is. Length is a gameplay quantity and stays put.
   SNAKE_SEGMENT_SPACING: 3,
-  /* Half the snake's width, before the size multiplier. MEASURED off slither.io
-     rather than read out of their source: their body is 14.5 per unit of scale.
-     (Their source has a 29 in it that reads like the radius and is not — it is
-     twice the drawn radius. Overlaying dashed edge bands at both values on their
-     live snake put 14.5 exactly on the body edge and 29 at double its width.)
-
-     This was 10, and that one number was the whole reason our snakes never
-     coiled the way theirs do. Everything else already matched: at scale 1 their
-     snakes move a measured 178 units/sec against our 180, and their tightest
-     turn circle is 43.1 units against our 43.6. But the circle a snake can turn
-     only reads as tight relative to how WIDE the snake is, and ours was 31% too
-     thin, so our minimum turn came out 4.36 body radii against their 2.97 and
-     the loops never closed on themselves. At 14.5 ours is 3.0. */
-  SNAKE_HEAD_RADIUS: 14.5,
+  /* Half the snake's width. Measured on their live snake this is 14.5 per unit
+     of scale in THEIR world units — but it was wrong to copy that number across,
+     because our camera is zoomed in tighter than theirs. What has to match is
+     how much of the SCREEN the snake takes up, and on that measure 10 was
+     already right: their body is 0.0112 of their view width, ours at 10 is
+     0.0103, ours at 14.5 was 0.0149 — a third too fat, which is exactly the
+     "insanely massive" snake. The turn-circle problem 14.5 was meant to fix is
+     really a speed problem and is fixed above instead. */
+  SNAKE_HEAD_RADIUS: 10,
   // Min = spawn, exactly like slither.io (its snakes spawn at sct=2 and can never shrink
   // below it — boosting cuts off at spawn size instead of shrinking past it).
   SNAKE_MIN_SEGMENTS: 10,
@@ -79,8 +85,10 @@ const CONSTANTS = {
   // with size but the cap doesn't, so the boost *ratio* shrinks as you grow (slither.io feel).
   // Exact slither.io speed curve, scaled into our units (k = 3/4.75, anchoring our base 3 to
   // slither's base nsp1+nsp2 = 4.75): base speed nsp1+nsp2*sc → 4.75..7.25, boost target nsp3 = 12.
-  SNAKE_MAX_SPEED: 7.579,     // = 12 * 3/4.75 — boost ratio 2.526x small / 1.655x huge, slither-exact
-  SNAKE_SPEED_PER_SC: 0.3158, // = 0.5 * 3/4.75 — base speed ratio 1.526x small→huge, slither-exact
+  // Both scaled by the same 0.74 as SNAKE_BASE_SPEED, so every speed ratio
+  // (boost multiplier, growth of base speed with size) is exactly as it was.
+  SNAKE_MAX_SPEED: 5.609,     // boost ratio 2.526x small / 1.655x huge, slither-exact
+  SNAKE_SPEED_PER_SC: 0.2337, // base speed ratio 1.526x small→huge, slither-exact
   BOOST_FOOD_COST: 0.05, // food units per tick
   // Boost speed dynamics, slither.io shape: constant-accel ramp UP (its +.3/8ms frame over
   // the base→boost gap ≈ 200ms = 12 ticks), and on release an exponential GLIDE back down
