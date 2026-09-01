@@ -1466,27 +1466,26 @@ function gameLoop(now) {
              the "leg glitch" — it was mine, and it is gone with this.
 
              So: take the interpolated server body, which already has the true
-             spiral, and apply the local head prediction as an offset that
-             DECAYS over the first few points. The head stays instant, the neck
-             stays attached, and the shape stays the server's. The decay matters
-             — translating the whole body by the head's offset is rigid-body
-             dead reckoning, which slid curved bodies sideways and has been a
-             real bug here before. */
+             spiral, and DO NOT TOUCH ITS POSITIONS AT ALL.
+
+             The attempt in between applied the head prediction as an offset
+             decaying over the first 8 points. That produced travelling waves
+             down the body and a head that looked detached, because the offset
+             is the gap between a locally predicted head and an interpolated
+             server head, and that gap oscillates every time a snapshot lands.
+             Feeding an oscillating value into the front of the body is a wave
+             generator.
+
+             Every local modification of these positions has made the rendering
+             worse. So there are none left. The body is the server's, and the
+             only locally predicted thing is the head ANGLE, which drives the
+             head sprite's facing and cannot deform the body.
+
+             Cost: the body follows one interpolation delay behind
+             (INTERP_DELAY_MS, 70ms). If steering feels heavy, lower that
+             constant rather than reintroducing local body maths here. */
           const srv = displayState.snakes[i];
-          if (srv && srv.segs && srv.segs.length >= 4) {
-            const n  = srv.segs.length >> 1;
-            const dx = simSegs[0] - srv.segs[0];
-            const dy = simSegs[1] - srv.segs[1];
-            if (!_lHeadBuf || _lHeadBuf.length < srv.segs.length) _lHeadBuf = new Float32Array(srv.segs.length);
-            const buf = _lHeadBuf.length === srv.segs.length ? _lHeadBuf : _lHeadBuf.subarray(0, srv.segs.length);
-            const BLEND = 8;             // points over which the head offset fades to nothing
-            for (let s = 0; s < n; s++) {
-              const w = s >= BLEND ? 0 : (1 - s / BLEND) * (1 - s / BLEND);
-              buf[s * 2]     = srv.segs[s * 2]     + dx * w;
-              buf[s * 2 + 1] = srv.segs[s * 2 + 1] + dy * w;
-            }
-            me.segs = buf;
-          }
+          if (srv && srv.segs && srv.segs.length >= 4) me.segs = srv.segs;
           displayState.snakes[i] = me; found = true; break;
         }
       }
