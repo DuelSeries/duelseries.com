@@ -48,8 +48,12 @@ class Snake {
     const spawnLen = Math.max(MIN_SEGMENTS, C.SNAKE_SPAWN_SEGMENTS * 2);
     for (let i = 0; i < spawnLen; i++) {
       this.segments.push({
-        x: x - Math.cos(this.angle) * i * C.SNAKE_SEGMENT_SPACING,
-        y: y - Math.sin(this.angle) * i * C.SNAKE_SEGMENT_SPACING,
+        // Spawn spacing must match the separation a spawn-size snake will use
+        // once it starts moving, or the body visibly stretches on the first few
+        // ticks as the trail re-spaces itself. At MIN_SEGMENTS the scale is 1,
+        // so this is SEP_PER_SC exactly.
+        x: x - Math.cos(this.angle) * i * C.SNAKE_SEP_PER_SC,
+        y: y - Math.sin(this.angle) * i * C.SNAKE_SEP_PER_SC,
       });
     }
     this.pendingGrowth = 0;
@@ -73,8 +77,18 @@ class Snake {
     return Math.min(6, 1 + (this.length - MIN_SEGMENTS) / C.SNAKE_SC_SEGS);
   }
 
+  /* Spacing between body points, growing with the snake exactly as slither.io's
+     wsep = 6*sc does. Held as a getter rather than a constant because every
+     consumer needs the CURRENT value — the snake's separation changes as it
+     eats, and a value captured at spawn would be wrong within seconds. */
+  get separation() {
+    return C.SNAKE_SEP_PER_SC * this.scale;
+  }
+
   // Turn rate degrades with size on a quadratic curve — small snakes are nimble, giants turn
   // wide and heavy. Factor is 1.0 at scale 1, easing to ~0.15 at scale 6.
+  // scang here is slither.io's own curve, verified against their client:
+  // .13 + .87 * ((7 - sc)/6)^2 — identical expression, not an approximation.
   get turnRate() {
     const sc = this.scale;
     const scang = 0.13 + 0.87 * Math.pow((7 - sc) / 6, 2);
@@ -156,14 +170,21 @@ class Snake {
     head.x += Math.cos(this.angle) * speedThisTick;
     head.y += Math.sin(this.angle) * speedThisTick;
 
+    /* Trail points are dropped one SEPARATION apart, not one BASE_SPEED apart.
+       That distinction is the whole fix: separation grows with the snake
+       (slither's wsep = 6*sc) while base speed barely moves, so a giant lays
+       points far apart and its body cuts the corner on a hard turn instead of
+       tracing the head's exact path. Read once per tick — it changes as the
+       snake eats. */
+    const sep = this.separation;
     if (this._segAccum === undefined) this._segAccum = 0;
     this._segAccum += speedThisTick;
-    while (this._segAccum >= C.SNAKE_BASE_SPEED) {
-      this._segAccum -= C.SNAKE_BASE_SPEED;
+    while (this._segAccum >= sep) {
+      this._segAccum -= sep;
       const p1 = this.segments[1];
       const dx = head.x - p1.x, dy = head.y - p1.y;
       const d  = Math.hypot(dx, dy) || 1;
-      const t  = C.SNAKE_BASE_SPEED / d;
+      const t  = sep / d;
       this.segments.splice(1, 0, { x: p1.x + dx * t, y: p1.y + dy * t });
       if (this.pendingGrowth > 0) this.pendingGrowth--; else this.segments.pop();
     }
@@ -199,14 +220,19 @@ class Snake {
     const sizeMul = Math.min(1.6, 0.9 + 0.14 * this.scale); // giants drop visibly bigger orbs
     const bodyR   = C.SNAKE_HEAD_RADIUS * this.scale;       // half the snake's width
 
-    // Space the orbs by ARC LENGTH, not by segment index. Segments sit only
-    // SNAKE_SEGMENT_SPACING (3) units apart while an orb renders about 7 units
-    // across, so index-spacing packed them on top of each other and the corpse
-    // read as one clump. Stepping by roughly an orb diameter lays a readable
-    // trail down the body instead.
+    /* Space the orbs by ARC LENGTH, not by segment index — index-spacing packed
+       them on top of each other and the corpse read as one clump.
+
+       This must use the snake's LIVE separation, not a fixed constant. Spacing
+       now grows with the snake (3.8 units at spawn, 22.4 on a giant), so a
+       hardcoded 3 would tell a giant its points were seven times closer than
+       they are and fling its corpse orbs seven times too far apart. On a big
+       snake the separation already exceeds an orb diameter, so segsPerStep
+       correctly collapses to 1 and an orb lands at every point. */
+    const sep         = this.separation;
     const orbR        = C.FOOD_RADIUS * 2.0 * sizeMul;
-    const stepUnits   = Math.max(orbR * 1.1, C.SNAKE_SEGMENT_SPACING);
-    const segsPerStep = Math.max(1, Math.round(stepUnits / C.SNAKE_SEGMENT_SPACING));
+    const stepUnits   = Math.max(orbR * 1.1, sep);
+    const segsPerStep = Math.max(1, Math.round(stepUnits / sep));
     const PER_STEP    = 2;   // orbs laid across the width at each step
 
     for (let i = 0; i < n; i += segsPerStep) {

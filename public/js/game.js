@@ -704,7 +704,14 @@ function _lBuildSegs(numSegs) {
   // Match the adaptive step used in Snake.js serialize()
   const snakeLen = _latestMySnap ? (_latestMySnap.length || 0) : 0;
   const step = snakeLen < 400 ? 2 : snakeLen < 800 ? 3 : 4;
-  const SEG_SPACING = CONSTANTS.SNAKE_SEGMENT_SPACING * step;
+  /* Spacing must track the snake's size, exactly as the server does. Point
+     separation is SEP_PER_SC * scale (slither's wsep = 6*sc), not a constant —
+     leaving this at a flat 3 would draw a giant's predicted body at a seventh
+     of its true length while the server sent the real thing, and the two would
+     fight every snapshot. Scale is derived the same way _lAdvance does it, from
+     the true segment count the server sends alongside the thinned points. */
+  const _sc = Math.min(6, 1 + (snakeLen - CONSTANTS.SNAKE_MIN_SEGMENTS * 2) / CONSTANTS.SNAKE_SC_SEGS);
+  const SEG_SPACING = CONSTANTS.SNAKE_SEP_PER_SC * Math.max(1, _sc) * step;
   const need = numSegs * 2;
   if (!_segBuf || _segBuf.length < need) _segBuf = new Float32Array(Math.ceil(need * 1.5));
   const out = _segBuf.length === need ? _segBuf : _segBuf.subarray(0, need);
