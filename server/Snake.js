@@ -73,6 +73,10 @@ class Snake {
     return Math.min(6, 1 + (this.length - MIN_SEGMENTS) / C.SNAKE_SC_SEGS);
   }
 
+  // Distance between body points. Grows with the snake, so body LENGTH grows
+  // with the square of scale the way slither's does — see SNAKE_SEP_PER_SC.
+  get separation() { return C.SNAKE_SEP_PER_SC * this.scale; }
+
   // Turn rate degrades with size on a quadratic curve — small snakes are nimble, giants turn
   // wide and heavy. Factor is 1.0 at scale 1, easing to ~0.15 at scale 6.
   get turnRate() {
@@ -165,12 +169,13 @@ class Snake {
 
     if (this._segAccum === undefined) this._segAccum = 0;
     this._segAccum += speedThisTick;
-    while (this._segAccum >= C.SNAKE_SEGMENT_SPACING) {
-      this._segAccum -= C.SNAKE_SEGMENT_SPACING;
+    const sep = this.separation;
+    while (this._segAccum >= sep) {
+      this._segAccum -= sep;
       const p1 = this.segments[1];
       const dx = head.x - p1.x, dy = head.y - p1.y;
       const d  = Math.hypot(dx, dy) || 1;
-      const t  = C.SNAKE_SEGMENT_SPACING / d;
+      const t  = sep / d;
       this.segments.splice(1, 0, { x: p1.x + dx * t, y: p1.y + dy * t });
       if (this.pendingGrowth > 0) this.pendingGrowth--; else this.segments.pop();
     }
@@ -212,8 +217,11 @@ class Snake {
     // read as one clump. Stepping by roughly an orb diameter lays a readable
     // trail down the body instead.
     const orbR        = C.FOOD_RADIUS * 2.0 * sizeMul;
-    const stepUnits   = Math.max(orbR * 1.1, C.SNAKE_SEGMENT_SPACING);
-    const segsPerStep = Math.max(1, Math.round(stepUnits / C.SNAKE_SEGMENT_SPACING));
+    // Points are further apart on a bigger snake, so the index step that covers
+    // one orb width has to come from the LIVE separation, not the scale-1 value.
+    const sep         = this.separation;
+    const stepUnits   = Math.max(orbR * 1.1, sep);
+    const segsPerStep = Math.max(1, Math.round(stepUnits / sep));
     const PER_STEP    = 2;   // orbs laid across the width at each step
 
     for (let i = 0; i < n; i += segsPerStep) {

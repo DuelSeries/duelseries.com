@@ -32,10 +32,29 @@ const CONSTANTS = {
      matches theirs exactly. Scaling all three speeds by 0.74 puts us on their
      0.137 and pulls the turn circle in by the same 26%. */
   SNAKE_BASE_SPEED: 2.22,
-  // Body point spacing is deliberately NOT the speed. It used to be read off
-  // SNAKE_BASE_SPEED, so changing how fast a snake moves silently changed how
-  // long it is. Length is a gameplay quantity and stays put.
+  /* Body point spacing, and it SCALES WITH THE SNAKE — this is why our snakes
+     got fat without getting long, and why circling made one open ring instead of
+     a coil. Both complaints are the same bug.
+
+     Their spacing grows with size (7 per unit of scale against a 14.5 body
+     radius, a ratio of 0.483), so their body length grows with the SQUARE of
+     scale. Ours was a flat 3, so length grew only linearly and the snake got
+     thick far faster than it got long. Matching their ratio against our own
+     10-unit radius gives 4.83 per unit of scale.
+
+     What that does to circling, counting how many times the body wraps its own
+     minimum turn circle:
+                    scale 2        scale 3
+       flat 3       1.2 wraps      1.5 wraps     <- one open ring, never a coil
+       4.83 * sc    4.0 wraps      7.1 wraps
+       slither      3.9 wraps      7.7 wraps
+     A spiral is just having enough body to go round more than once. Ours never
+     did. Segment COUNT is untouched, so score, boost fuel and bandwidth are
+     exactly as they were — only the distance between points changes.
+
+     SNAKE_SEGMENT_SPACING stays as the scale-1 value for spawn layout. */
   SNAKE_SEGMENT_SPACING: 3,
+  SNAKE_SEP_PER_SC: 4.83,
   /* Half the snake's width. Measured on their live snake this is 14.5 per unit
      of scale in THEIR world units — but it was wrong to copy that number across,
      because our camera is zoomed in tighter than theirs. What has to match is

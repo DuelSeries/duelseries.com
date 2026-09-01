@@ -704,7 +704,11 @@ function _lBuildSegs(numSegs) {
   // Match the adaptive step used in Snake.js serialize()
   const snakeLen = _latestMySnap ? (_latestMySnap.length || 0) : 0;
   const step = snakeLen < 400 ? 2 : snakeLen < 800 ? 3 : 4;
-  const SEG_SPACING = CONSTANTS.SNAKE_SEGMENT_SPACING * step;
+  /* Same scale-dependent separation the server lays its body down with
+     (SNAKE_SEP_PER_SC). If this stayed flat the predicted body would be a
+     different length from the real one and would stretch as the snake grew. */
+  const sc = Math.min(6, 1 + (snakeLen - CONSTANTS.SNAKE_MIN_SEGMENTS * 2) / CONSTANTS.SNAKE_SC_SEGS);
+  const SEG_SPACING = CONSTANTS.SNAKE_SEP_PER_SC * Math.max(1, sc) * step;
   const need = numSegs * 2;
   if (!_segBuf || _segBuf.length < need) _segBuf = new Float32Array(Math.ceil(need * 1.5));
   const out = _segBuf.length === need ? _segBuf : _segBuf.subarray(0, need);

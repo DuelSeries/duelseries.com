@@ -17,14 +17,21 @@ test('grow() raises the score and lengthens the body as growth is consumed', () 
   const s = new Snake('id', 'T', 0, 0, '#fff');
   s.angle = 0; s.targetAngle = 0;
   const baseline = s.length;
+  /* Growth is granted one segment per body point laid down, and points are laid
+     every `separation` units of travel — which scales with the snake. So this
+     drains the pending growth rather than assuming a fixed number of ticks
+     covers it; a hardcoded tick count silently encodes the speed and spacing of
+     the day it was written. */
+  const settle = () => { for (let i = 0; i < 200 && s.pendingGrowth > 0; i++) s.update(); };
+
   s.grow(3);
   assert.strictEqual(s.score, 3);
   // slither.io growth curve: at spawn (sct=2) food converts at (1-2/411)^2.25 ≈ 0.9891,
   // so 3 food ≈ 2.97 segments → 2 whole segments now, ~0.97 banked in the fraction.
-  for (let i = 0; i < 5; i++) s.update();
+  settle();
   assert.strictEqual(s.length, baseline + 2);
   s.grow(3); // banked fraction tips over: ~0.97 + ~2.95 → 3 more whole segments
-  for (let i = 0; i < 5; i++) s.update();
+  settle();
   assert.strictEqual(s.length, baseline + 5);
 });
 
