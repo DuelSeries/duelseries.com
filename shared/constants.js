@@ -25,7 +25,20 @@ const CONSTANTS = {
   // Snake
   SNAKE_BASE_SPEED: 3,
   SNAKE_SEGMENT_SPACING: 3,
-  SNAKE_HEAD_RADIUS: 10,
+  /* Half the snake's width, before the size multiplier. MEASURED off slither.io
+     rather than read out of their source: their body is 14.5 per unit of scale.
+     (Their source has a 29 in it that reads like the radius and is not — it is
+     twice the drawn radius. Overlaying dashed edge bands at both values on their
+     live snake put 14.5 exactly on the body edge and 29 at double its width.)
+
+     This was 10, and that one number was the whole reason our snakes never
+     coiled the way theirs do. Everything else already matched: at scale 1 their
+     snakes move a measured 178 units/sec against our 180, and their tightest
+     turn circle is 43.1 units against our 43.6. But the circle a snake can turn
+     only reads as tight relative to how WIDE the snake is, and ours was 31% too
+     thin, so our minimum turn came out 4.36 body radii against their 2.97 and
+     the loops never closed on themselves. At 14.5 ours is 3.0. */
+  SNAKE_HEAD_RADIUS: 14.5,
   // Min = spawn, exactly like slither.io (its snakes spawn at sct=2 and can never shrink
   // below it — boosting cuts off at spawn size instead of shrinking past it).
   SNAKE_MIN_SEGMENTS: 10,
