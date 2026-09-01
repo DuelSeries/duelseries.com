@@ -49,6 +49,7 @@ const SNAKEGL_GLOW_SWELL   = 62 / 32 - 1;  // how much the under-glow grows with
 const SNAKEGL_GLOW_OVER    = 2.0;     // over-glow half-size / R
 const SNAKEGL_WAVE_R       = 0.9655;  // body radii travelled per radian of pulse phase
 const SNAKEGL_MAXGLOW      = 12000;   // glow quads per frame (only boosting snakes emit any)
+const SNAKEGL_CURVE_SUB    = 4;       // spline steps per body point when stamping
 
 class SnakeGL {
   constructor() {
@@ -313,10 +314,40 @@ class SnakeGL {
     return n + 6;
   }
 
+  /* Body points arrive roughly a body-radius apart. Now that the body can curl
+     tightly, drawing straight between them turns a tight curve into flat chords
+     with a visible crease at every joint, which reads as the body crumpling and
+     bunching through a turn. Running a Catmull-Rom spline through the points
+     first restores the curve; the stamps are then laid along that.
+
+     Reused buffer, since this runs per snake per frame. */
+  _smooth(pts, n) {
+    if (n < 3) return n;
+    const SUB = SNAKEGL_CURVE_SUB;
+    const need = ((n - 1) * SUB + 1) * 2;
+    if (!this._smBuf || this._smBuf.length < need) this._smBuf = new Float32Array(need + 512);
+    const o = this._smBuf;
+    let w = 0;
+    for (let i = 0; i < n - 1; i++) {
+      const a = Math.max(0, i - 1) * 2, b = i * 2, c = (i + 1) * 2, e = Math.min(n - 1, i + 2) * 2;
+      const x0 = pts[a], y0 = pts[a+1], x1 = pts[b], y1 = pts[b+1];
+      const x2 = pts[c], y2 = pts[c+1], x3 = pts[e], y3 = pts[e+1];
+      for (let k = 0; k < SUB; k++) {
+        const t = k / SUB, t2 = t * t, t3 = t2 * t;
+        o[w++] = 0.5 * (2*x1 + (-x0 + x2)*t + (2*x0 - 5*x1 + 4*x2 - x3)*t2 + (-x0 + 3*x1 - 3*x2 + x3)*t3);
+        o[w++] = 0.5 * (2*y1 + (-y0 + y2)*t + (2*y0 - 5*y1 + 4*y2 - y3)*t2 + (-y0 + 3*y1 - 3*y2 + y3)*t3);
+      }
+    }
+    o[w++] = pts[(n-1)*2]; o[w++] = pts[(n-1)*2+1];
+    return w >> 1;
+  }
+
   // Resample a spine (screen px, head-first) into stamps and queue their quads.
   // `boost`, when present, adds the pulse passes: {m, sfr, r, g, b} with m the
   // 0..1 boost amount, sfr the travelling phase in radians, rgb the glow colour.
   _stamp(pts, n, R, base, boost) {
+    const smN = this._smooth(pts, n);
+    if (smN !== n) { pts = this._smBuf; n = smN; }
     const spacing = Math.max(0.75, R * SNAKEGL_STAMP_SPACING);
     const r = base.r / 255, g = base.g / 255, b = base.b / 255;
     const uw = 1 / SNAKEGL_FRAMES, KL = SNAKEGL_FRAMES, KL2 = KL * 2;
