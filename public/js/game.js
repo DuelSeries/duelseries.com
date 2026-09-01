@@ -699,26 +699,10 @@ function _lAdvance(dt, targetAngle) {
    one snake, every one of them garbage a frame later. Grown when it needs to
    be, then subarray'd so callers still see exactly numSegs*2 entries. */
 let _segBuf = null;
-/* The predicted body PERSISTS between frames now, instead of being rebuilt from
-   the head path each time.
-
-   It has to. The server settles every point a fraction of the way toward the
-   point ahead of it each time a new point is laid (Snake.js, slither's
-   cst = 0.43), and the spiral you see when circling is that settle ACCUMULATING
-   over hundreds of applications. Rebuilding from the head's path every frame
-   throws that history away and redraws a plain trail, so our own snake rendered
-   as a ring while the server — and therefore collision, and therefore every
-   other player's view of us — had a spiral. That is not a cosmetic gap: the
-   tail really was somewhere the local player could not see.
-
-   So the body is seeded from the path once, then advanced the same way the
-   server advances it: lay a point when the head has travelled one separation,
-   then settle. */
-const _lsX = new Float32Array(LP_SIZE);
-const _lsY = new Float32Array(LP_SIZE);
-let _lsN = 0, _lsAccum = 0, _lsHeadX = 0, _lsHeadY = 0, _lsSpacing = 0;
-const SETTLE_CST = 0.43;   // slither's cst — see Snake.js
-
+/* Reused for the head-offset blend below, so the merge does not allocate a
+   fresh typed array every frame — at 240Hz that was the exact mistake _segBuf
+   already exists to avoid. */
+let _lHeadBuf = null;
 function _lBuildSegs(numSegs) {
   if (!_lReady || _lpLen < 2 || numSegs < 1) return null;
   // Match the adaptive step used in Snake.js serialize()
@@ -735,74 +719,32 @@ function _lBuildSegs(numSegs) {
   const need = numSegs * 2;
   if (!_segBuf || _segBuf.length < need) _segBuf = new Float32Array(Math.ceil(need * 1.5));
   const out = _segBuf.length === need ? _segBuf : _segBuf.subarray(0, need);
-
-  const hIdx = (_lpHead - 1 + LP_SIZE) % LP_SIZE;
-  const hx = _lpX[hIdx], hy = _lpY[hIdx];
-
-  /* Seed from the head path when there is no body yet, when the length has
-     jumped (respawn, a big correction), or when the spacing changed because the
-     thinning step moved. Otherwise the existing body is kept and advanced, so
-     the settle keeps accumulating. */
-  const spacingMoved = Math.abs(SEG_SPACING - _lsSpacing) > 1e-6;
-  if (_lsN < 2 || spacingMoved || Math.abs(_lsN - numSegs) > Math.max(4, numSegs * 0.25)) {
-    let idx = hIdx;
-    let cx = _lpX[idx], cy = _lpY[idx];
-    _lsX[0] = cx; _lsY[0] = cy;
-    let remaining = SEG_SPACING, used = 1, n = 1;
-    for (let seg = 1; seg < numSegs; seg++) {
-      let placed = false;
-      while (true) {
-        if (used >= _lpLen) { _lsX[seg] = cx; _lsY[seg] = cy; placed = true; break; }
-        const pi = (idx - 1 + LP_SIZE) % LP_SIZE;
-        const dx = _lpX[pi] - cx, dy = _lpY[pi] - cy;
-        const d  = Math.hypot(dx, dy);
-        if (d >= remaining) {
-          const t = remaining / d;
-          cx += dx * t; cy += dy * t;
-          _lsX[seg] = cx; _lsY[seg] = cy;
-          remaining = SEG_SPACING;
-          placed = true;
-          break;
-        }
-        remaining -= d;
-        cx = _lpX[pi]; cy = _lpY[pi];
-        idx = pi; used++;
+  let idx = (_lpHead - 1 + LP_SIZE) % LP_SIZE;
+  let cx = _lpX[idx], cy = _lpY[idx];
+  out[0] = cx; out[1] = cy;
+  let remaining = SEG_SPACING;
+  let used = 1;
+  for (let seg = 1; seg < numSegs; seg++) {
+    let placed = false;
+    while (true) {
+      if (used >= _lpLen) { out[seg*2] = cx; out[seg*2+1] = cy; placed = true; break; }
+      const pi = (idx - 1 + LP_SIZE) % LP_SIZE;
+      const dx = _lpX[pi] - cx, dy = _lpY[pi] - cy;
+      const d  = Math.hypot(dx, dy);
+      if (d >= remaining) {
+        const t = remaining / d;
+        cx += dx * t; cy += dy * t;
+        out[seg*2] = cx; out[seg*2+1] = cy;
+        remaining = SEG_SPACING;
+        placed = true;
+        break;
       }
-      if (!placed) break;
-      n = seg + 1;
+      remaining -= d;
+      cx = _lpX[pi]; cy = _lpY[pi];
+      idx = pi; used++;
     }
-    _lsN = n; _lsAccum = 0; _lsSpacing = SEG_SPACING;
-  } else {
-    // Head moved since last frame; lay points and settle exactly as the server does.
-    _lsAccum += Math.hypot(hx - _lsHeadX, hy - _lsHeadY);
-    let guard = 0;
-    while (_lsAccum >= SEG_SPACING && guard++ < 64) {
-      _lsAccum -= SEG_SPACING;
-      const cap = Math.min(numSegs, LP_SIZE);
-      if (_lsN < cap) _lsN++;
-      for (let i = _lsN - 1; i > 0; i--) { _lsX[i] = _lsX[i - 1]; _lsY[i] = _lsY[i - 1]; }
-      const dx = hx - _lsX[1], dy = hy - _lsY[1];
-      const d  = Math.hypot(dx, dy) || 1;
-      const t  = SEG_SPACING / d;
-      _lsX[0] = _lsX[1] + dx * t; _lsY[0] = _lsY[1] + dy * t;
-
-      let lx = _lsX[2], ly = _lsY[2];
-      for (let i = 3, k = 1; i < _lsN; i++, k++) {
-        const mv = SETTLE_CST * (k < 4 ? k / 4 : 1);
-        _lsX[i] += (lx - _lsX[i]) * mv;
-        _lsY[i] += (ly - _lsY[i]) * mv;
-        lx = _lsX[i]; ly = _lsY[i];
-      }
-    }
-    // The head itself is authoritative from the local sim, never settled.
-    _lsX[0] = hx; _lsY[0] = hy;
-    if (_lsN < numSegs && _lsN < LP_SIZE) { _lsX[_lsN] = _lsX[_lsN - 1]; _lsY[_lsN] = _lsY[_lsN - 1]; _lsN++; }
+    if (!placed) break;
   }
-  _lsHeadX = hx; _lsHeadY = hy;
-
-  const m = Math.min(numSegs, _lsN);
-  for (let i = 0; i < m; i++) { out[i * 2] = _lsX[i]; out[i * 2 + 1] = _lsY[i]; }
-  for (let i = m; i < numSegs; i++) { out[i * 2] = _lsX[m - 1]; out[i * 2 + 1] = _lsY[m - 1]; }
   return out;
 }
 
@@ -1504,7 +1446,49 @@ function gameLoop(now) {
       me.angle = _lAngle;
       let found = false;
       for (let i = 0; i < displayState.snakes.length; i++) {
-        if (displayState.snakes[i].id === myId) { displayState.snakes[i] = me; found = true; break; }
+        if (displayState.snakes[i].id === myId) {
+          /* Draw the SERVER's body, not a locally rebuilt one, and move only
+             the head.
+
+             The server settles each point toward the one ahead every time a
+             point is laid (slither's cst), and the spiral you see when circling
+             is that settle accumulating over hundreds of applications. A body
+             rebuilt from the head's path each frame has none of that history,
+             so it draws a plain trail — our own snake was a ring while the
+             server, and therefore collision, had a spiral. The tail really was
+             somewhere its owner could not see.
+
+             An earlier attempt kept a persistent predicted body and advanced it
+             incrementally. It produced the right shape and shipped a mess: the
+             reseed triggered on almost every frame because spacing shifts
+             continuously as the snake grows, so the body flickered between
+             seeded and settled and the tail visibly grew and shrank. That is
+             the "leg glitch" — it was mine, and it is gone with this.
+
+             So: take the interpolated server body, which already has the true
+             spiral, and apply the local head prediction as an offset that
+             DECAYS over the first few points. The head stays instant, the neck
+             stays attached, and the shape stays the server's. The decay matters
+             — translating the whole body by the head's offset is rigid-body
+             dead reckoning, which slid curved bodies sideways and has been a
+             real bug here before. */
+          const srv = displayState.snakes[i];
+          if (srv && srv.segs && srv.segs.length >= 4) {
+            const n  = srv.segs.length >> 1;
+            const dx = simSegs[0] - srv.segs[0];
+            const dy = simSegs[1] - srv.segs[1];
+            if (!_lHeadBuf || _lHeadBuf.length < srv.segs.length) _lHeadBuf = new Float32Array(srv.segs.length);
+            const buf = _lHeadBuf.length === srv.segs.length ? _lHeadBuf : _lHeadBuf.subarray(0, srv.segs.length);
+            const BLEND = 8;             // points over which the head offset fades to nothing
+            for (let s = 0; s < n; s++) {
+              const w = s >= BLEND ? 0 : (1 - s / BLEND) * (1 - s / BLEND);
+              buf[s * 2]     = srv.segs[s * 2]     + dx * w;
+              buf[s * 2 + 1] = srv.segs[s * 2 + 1] + dy * w;
+            }
+            me.segs = buf;
+          }
+          displayState.snakes[i] = me; found = true; break;
+        }
       }
       if (!found) displayState.snakes.push(me);
     }
