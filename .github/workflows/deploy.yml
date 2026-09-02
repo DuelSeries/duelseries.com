@@ -12,7 +12,19 @@ jobs:
       - name: Deploy to NA (Canada)
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ secrets.EC2_HOST }}
+          # Elastic IP, set 2026-09-02. Deploys broke when the server was resized
+          # to t3.micro: that released its auto-assigned address, and the EC2_HOST
+          # secret still held the old one, so SSH went nowhere.
+          #
+          # Held here rather than in a secret because it is not one. The domain
+          # resolves to this address publicly, so anyone can already look it up.
+          # The SSH key is the actual secret and stays in EC2_KEY. Keeping the
+          # host in the repo also means it can be fixed with a normal commit
+          # instead of needing repo-admin access to edit secrets.
+          #
+          # It is an Elastic IP now, so it survives stop/start and should not
+          # need changing again.
+          host: 16.54.23.244
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_KEY }}
           script: |
