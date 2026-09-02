@@ -614,7 +614,7 @@ function lerpAngle(a, b, t) {
 
 // ─── Local snake simulation helpers ─────────────────────────────────────────
 
-function _lReset() { _lChainReset(); _lReady = false; _lpHead = 0; _lpLen = 0; _latestMySnap = null; _lNumSegs = 0; _lBoostRamp = 0; }
+function _lReset() { _lReady = false; _lpHead = 0; _lpLen = 0; _latestMySnap = null; _lNumSegs = 0; _lBoostRamp = 0; }
 
 function _lInit(s) {
   if (!s || !s.segs || s.segs.length < 2) return;
@@ -628,7 +628,6 @@ function _lInit(s) {
     if (_lpLen < LP_SIZE) _lpLen++;
   }
   _lAngle = s.angle || 0;
-  _lChainReset();        // respawn straight; _lBuildSegs lays the chain from the head
   _lReady = true;
 }
 
@@ -694,100 +693,67 @@ function _lAdvance(dt, targetAngle) {
   if (_lpLen < LP_SIZE) _lpLen++;
 }
 
-/* THE LOCAL BODY IS A CHAIN, THE SAME ONE THE SERVER RUNS.
+/* THE LOCAL BODY IS A FROZEN TRAIL, THE SAME MODEL THE SERVER RUNS.
 
-   It used to be built by walking BACKWARDS along a recording of where the head
-   had been, dropping a point every so often. That construction guarantees the
-   tail retraces the head's exact route, and it is the single reason this snake
-   never coiled no matter what changed on the server: the shape was decided
-   here, on the client, and the server never got a say in what the player saw.
+   _lAdvance already records every predicted head position into _lpX/_lpY, so
+   the body is that path resampled at the drawn spacing. A point, once passed,
+   is never moved again.
 
-   Now the body is persistent state, advanced a frame at a time by the same rule
-   as server/Snake.js: every point is held one link behind the point ahead of
-   it. Holding a turn winds it inward and the loops nest.
+   This replaces a chain that re-solved every point every frame. The chain cut
+   every corner, so through a turn the tail rode an inner ring and covered only
+   71% of the ground the head did, which read as the tail stopping while the
+   head carried on. Walking a frozen path cannot do that: the tail advances one
+   stored point for every one the head lays, so it travels at head speed by
+   construction rather than by tuning.
 
-   It is ADVANCED, never rebuilt. Rebuilding it every frame while the link
-   length changes with the snake's size is what produced the flickering,
-   growing-and-shrinking tail in an earlier attempt at this. Note the constraint
-   is a projection, so running it once per frame at 240Hz gives the same shape
-   as once per tick at 60Hz. */
-let _lcX = null, _lcY = null, _lcLen = 0;
+   No chain state is kept any more, so there is nothing to seed, reconcile or
+   rebuild per frame, and none of the flicker that rebuilding used to cause.
+
+   Spacing has to match what the SERVER sends. Its stored points sit one
+   separation apart (SNAKE_SEP_PER_SC * scale / SNAKE_CHAIN_SUBDIV) and it thins
+   by SUBDIV * step on the wire, so the drawn gap is step * SNAKE_SEP_PER_SC *
+   scale. Getting this wrong once put client and server 5.7 body radii apart,
+   which showed up as waves travelling down the body. */
 let _segBuf = null;
 
-function _lChainReset() { _lcLen = 0; }
-
-
 function _lBuildSegs(numSegs) {
-  if (!_lReady || numSegs < 1) return null;
-  /* The chain is held at the server's OWN separation, at full resolution, and
-     only thinned when handing the points over to be drawn.
-
-     Chaining the thinned points directly with a step-times-longer link looks
-     equivalent and is not: corner cutting grows with link length, so the coarse
-     chain spirals several times faster than the real body. A cross-check against
-     the server put them 5.7 body radii apart, which is precisely the divergence
-     that showed up as waves travelling down the body with the head detached. */
+  if (!_lReady || _lpLen < 2 || numSegs < 1) return null;
   const snakeLen = _latestMySnap ? (_latestMySnap.length || 0) : 0;
   const step = snakeLen < 400 ? 2 : snakeLen < 800 ? 3 : 4;
   const sc = Math.min(6, 1 + (snakeLen - CONSTANTS.SNAKE_MIN_SEGMENTS * 2) / CONSTANTS.SNAKE_SC_SEGS);
-  /* The chain runs at the SERVER's resolution: its separation split into
-     SNAKE_CHAIN_SUBDIV points. Running it any coarser cuts corners harder, and
-     the local snake would then coil faster than the real one. */
-  const sub    = CONSTANTS.SNAKE_CHAIN_SUBDIV;
-  const link   = CONSTANTS.SNAKE_SEP_PER_SC * Math.max(1, sc) / sub;
-  const stride = step * sub;                 // chain points between wire points
-  const nChain = numSegs * stride;
+  const SEG_SPACING = CONSTANTS.SNAKE_SEP_PER_SC * Math.max(1, sc) * step;
 
-  const hi = (_lpHead - 1 + LP_SIZE) % LP_SIZE;
-  const hx = _lpX[hi], hy = _lpY[hi];
-
-  if (!_lcX || _lcX.length < nChain) {
-    const nx = new Float32Array(nChain + 256), ny = new Float32Array(nChain + 256);
-    if (_lcX) { nx.set(_lcX.subarray(0, _lcLen)); ny.set(_lcY.subarray(0, _lcLen)); }
-    _lcX = nx; _lcY = ny;
-  }
-  // First frame after a spawn: lay it straight back from the head.
-  if (_lcLen < 2) {
-    for (let i = 0; i < nChain; i++) {
-      _lcX[i] = hx - Math.cos(_lAngle) * i * link;
-      _lcY[i] = hy - Math.sin(_lAngle) * i * link;
-    }
-    _lcLen = nChain;
-  }
-  // Count changes happen at the tail. The shape carries over from last frame.
-  while (_lcLen < nChain) { _lcX[_lcLen] = _lcX[_lcLen - 1]; _lcY[_lcLen] = _lcY[_lcLen - 1]; _lcLen++; }
-  if (_lcLen > nChain) _lcLen = nChain;
-
-  /* Same minimum curl radius the server enforces: a body cannot bend tighter
-     than its own width. Without it the chain is driven onto one ever-tightening
-     spiral and, once the front reaches the middle, the remaining length is flung
-     radially outward as a long straight tail that never comes back in. */
-  const bodyR   = CONSTANTS.SNAKE_HEAD_RADIUS * Math.max(1, sc);
-  const maxBend = 2 * Math.asin(Math.min(1, link / (2 * bodyR)));
-  let prevAng   = _lAngle + Math.PI;
-  _lcX[0] = hx; _lcY[0] = hy;
-  for (let i = 1; i < _lcLen; i++) {
-    const dx = _lcX[i] - _lcX[i - 1], dy = _lcY[i] - _lcY[i - 1];
-    const d  = Math.hypot(dx, dy);
-    let ang = d < 1e-6 ? prevAng : Math.atan2(dy, dx);
-    let bend = ang - prevAng;
-    while (bend >  Math.PI) bend -= Math.PI * 2;
-    while (bend < -Math.PI) bend += Math.PI * 2;
-    if      (bend >  maxBend) ang = prevAng + maxBend;
-    else if (bend < -maxBend) ang = prevAng - maxBend;
-    _lcX[i] = _lcX[i - 1] + Math.cos(ang) * link;
-    _lcY[i] = _lcY[i - 1] + Math.sin(ang) * link;
-    prevAng = ang;
-  }
-
-  /* Reused between frames: this was a fresh Float32Array per frame, which on a
-     240Hz display is 237 throwaway arrays a second for one snake. */
+  /* Reused between frames: a fresh Float32Array per frame is 237 throwaway
+     arrays a second for one snake on a 240Hz display. */
   const need = numSegs * 2;
   if (!_segBuf || _segBuf.length < need) _segBuf = new Float32Array(Math.ceil(need * 1.5));
   const out = _segBuf.length === need ? _segBuf : _segBuf.subarray(0, need);
-  for (let i = 0; i < numSegs; i++) {          // thin only on the way out
-    const j = Math.min(_lcLen - 1, i * stride);
-    out[i * 2] = _lcX[j]; out[i * 2 + 1] = _lcY[j];
+
+  let idx = (_lpHead - 1 + LP_SIZE) % LP_SIZE;
+  let cx = _lpX[idx], cy = _lpY[idx];
+  out[0] = cx; out[1] = cy;
+  let remaining = SEG_SPACING;
+  let used = 1;
+  for (let seg = 1; seg < numSegs; seg++) {
+    let placed = false;
+    while (true) {
+      if (used >= _lpLen) { out[seg*2] = cx; out[seg*2+1] = cy; placed = true; break; }
+      const pi = (idx - 1 + LP_SIZE) % LP_SIZE;
+      const dx = _lpX[pi] - cx, dy = _lpY[pi] - cy;
+      const d  = Math.hypot(dx, dy);
+      if (d >= remaining) {
+        const t = remaining / d;
+        cx += dx * t; cy += dy * t;
+        out[seg*2] = cx; out[seg*2+1] = cy;
+        remaining = SEG_SPACING;
+        placed = true;
+        break;
+      }
+      remaining -= d;
+      cx = _lpX[pi]; cy = _lpY[pi];
+      idx = pi; used++;
+    }
+    if (!placed) break;
   }
   return out;
 }

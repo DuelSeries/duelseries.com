@@ -183,77 +183,58 @@ class Snake {
     head.x += Math.cos(this.angle) * speedThisTick;
     head.y += Math.sin(this.angle) * speedThisTick;
 
+    /* THE BODY IS A FROZEN TRAIL, NOT A SOLVED CHAIN.
+
+       A point is laid one separation behind the head and then never moved
+       again. The body is therefore exactly the path the head has walked.
+
+       This replaces a rigid chain that re-solved every point every tick. The
+       chain cut every corner, so in a turn the body rode an inner ring and the
+       tail covered only 71% of the ground the head did. Owen kept reporting
+       that as the tail stopping while the head carried on, and he was right.
+
+       On a frozen trail the tail cannot lag: it advances exactly one stored
+       point for every point the head lays, so it travels at the head speed by
+       construction, not by tuning.
+
+       This is what slither does. Their points are pushed at the head position
+       and then only nudged toward the point ahead by their cst pull, which was
+       measured here as about 1% of inward drift across a whole body. That is
+       under a hundredth of the corner cutting a rigid chain does, so the pull
+       is deliberately left out: it costs a rebuild of the spacing model (it
+       compresses stored points to about 57% and their draw code compensates via
+       an smu table) to buy a difference below 1%.
+
+       Which means a circling snake coils only as tightly as the HEAD spirals.
+       That is also true of slither: hold a perfectly constant turn and you get
+       one ring, and the nested coil comes from the player progressively
+       tightening. If more coil than that is ever wanted, it is a body pull that
+       has to come back, and the spacing compensation with it. */
     const segs = this.segments;
     const sep  = this.separation;
-    /* A body cannot curl tighter than its own width.
+    this._segAccum = (this._segAccum || 0) + speedThisTick;
+    while (this._segAccum >= sep) {
+      this._segAccum -= sep;
+      const p1 = segs[1] || head;
+      const dx = head.x - p1.x, dy = head.y - p1.y;
+      const d  = Math.hypot(dx, dy) || 1;
+      const t  = sep / d;
+      segs.splice(1, 0, { x: p1.x + dx * t, y: p1.y + dy * t });
 
-       Without that bound the chain is forced onto one ever-tightening spiral.
-       Once the front reaches the middle there is nowhere left for it to go, so
-       the rest of the length gets flung radially outward: measured on a
-       300-part snake at full turn, the radius ran 102, 82, 59, 23 and then 309,
-       825, 1346, out to 3454. That straight section hanging thousands of units
-       outside the circle is the tail that never comes in.
+      /* GROWTH IS THE ABSENCE OF RETIREMENT.
 
-       Bounding the bend per link lets the body pile up and wrap around itself
-       instead, so the whole snake gathers into the circle. The bound is derived
-       rather than tuned: for a body of radius R, the tightest circle it can
-       form makes each link subtend 2*asin(link / 2R). On gentle turns the
-       natural bend sits far below it and nothing is clamped, so the coil there
-       is unchanged. */
-    const bodyR   = C.SNAKE_HEAD_RADIUS * this.scale;
-    const maxBend = 2 * Math.asin(Math.min(1, sep / (2 * bodyR)));
-    let prevAng   = this.angle + Math.PI;          // the link running back from the head
-    for (let i = 1; i < segs.length; i++) {
-      const a = segs[i - 1], p = segs[i];
-      const dx = p.x - a.x, dy = p.y - a.y;
-      const d  = Math.hypot(dx, dy);
-      let ang = d < 1e-6 ? prevAng : Math.atan2(dy, dx);
-      let bend = ang - prevAng;
-      while (bend >  Math.PI) bend -= Math.PI * 2;
-      while (bend < -Math.PI) bend += Math.PI * 2;
-      if      (bend >  maxBend) ang = prevAng + maxBend;
-      else if (bend < -maxBend) ang = prevAng - maxBend;
-      p.x = a.x + Math.cos(ang) * sep;
-      p.y = a.y + Math.sin(ang) * sep;
-      prevAng = ang;
+         Eating does not push anything onto the tail. It simply stops the tail
+         point being retired, so the tail stays exactly where it is and the
+         snake lengthens from the head end. That is slither's mechanism (their
+         sct++ keeps an extra already-placed point) and it removes the tail
+         flinging backward on a big feed without needing a rate limiter, since
+         growth is now paced by how fast the head lays new body down.
+
+         Spent per chain point rather than per part so a part arrives smoothly. */
+      if (this.pendingGrowth > 0) this.pendingGrowth -= 1 / SUBDIV;
+      else segs.pop();
     }
-
-    /* Length changes at the TAIL now, the only place a chain can grow. It used
-       to ride on inserting trail points at the head, which no longer happens.
-       Boost shrink already pops the tail in the block above. */
-    /* GROWTH IS RATE-LIMITED TO THE SNAKE'S OWN SPEED.
-
-       Eating a burst of food used to shove a whole part onto the tail every
-       tick. One part is SNAKE_SEP_PER_SC * scale of body, which at scale 2 is
-       9.7 units, while the head only advances 2.4 units in the same tick. The
-       body was therefore lengthening backward about four times faster than the
-       snake moved forward, and the tail visibly shot away behind it.
-
-       slither never has this problem because it does not add points at the tail
-       at all: eating just increments its part count and stops retiring old tail
-       points, which already sit at fixed positions in the world, so its tail
-       simply stays put and the snake lengthens from the head end.
-
-       Our body is a solved chain rather than a trail of frozen points, so the
-       equivalent is to cap how fast it may lengthen. The bound is physical, not
-       tuned: new body cannot appear faster than the head lays it down, so the
-       budget each tick is exactly the distance the head travelled. The tail then
-       holds station while the head pulls away, which is what theirs looks like.
-
-       pendingGrowth is decremented per CHAIN POINT rather than per part, so a
-       part arrives smoothly over several ticks instead of in one jump. */
-    if (this.pendingGrowth > 0) {
-      this._growBudget = (this._growBudget || 0) + speedThisTick;
-      while (this.pendingGrowth > 0 && this._growBudget >= sep) {
-        this._growBudget -= sep;
-        const tail = segs[segs.length - 1];
-        segs.push({ x: tail.x, y: tail.y });
-        this.pendingGrowth -= 1 / SUBDIV;
-      }
-      if (this.pendingGrowth < 1e-9) this.pendingGrowth = 0;
-    } else {
-      this._growBudget = 0;
-    }
+    if (this.pendingGrowth < 1e-9) this.pendingGrowth = 0;
   }
 
   grow(amount) {
