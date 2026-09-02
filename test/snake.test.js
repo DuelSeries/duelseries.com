@@ -37,9 +37,12 @@ test('grow() raises the score and lengthens the body as growth is consumed', () 
 
 test('growth stops entirely at the slither part cap (411 parts); score keeps rising', () => {
   const s = new Snake('id', 'T', 0, 0, '#fff');
-  // Stuff the body to the cap: 411 parts = MIN_SEGMENTS + 409 segments here
+  /* Stuff the body to the cap: 411 parts = MIN_SEGMENTS + 409.
+     Parts are the gameplay length and are set directly. The stored points are
+     derived from parts (roughly 0.73 of a point per part), so pushing segments
+     no longer changes length and looping on it would never terminate. */
   const capLen = C.SNAKE_MIN_SEGMENTS * 2 + 409;
-  while (s.length < capLen) s.segments.push({ x: 0, y: 0 });
+  s._parts = capLen;
   const scoreBefore = s.score;
   s.grow(50);
   assert.strictEqual(s.pendingGrowth, 0, 'no segments granted past the cap');

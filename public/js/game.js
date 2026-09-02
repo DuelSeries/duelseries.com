@@ -614,7 +614,7 @@ function lerpAngle(a, b, t) {
 
 // ─── Local snake simulation helpers ─────────────────────────────────────────
 
-function _lReset() { _lReady = false; _lpHead = 0; _lpLen = 0; _latestMySnap = null; _lNumSegs = 0; _lBoostRamp = 0; }
+function _lReset() { _lStoreReset(); _lReady = false; _lpHead = 0; _lpLen = 0; _latestMySnap = null; _lNumSegs = 0; _lBoostRamp = 0; }
 
 function _lInit(s) {
   if (!s || !s.segs || s.segs.length < 2) return;
@@ -693,67 +693,83 @@ function _lAdvance(dt, targetAngle) {
   if (_lpLen < LP_SIZE) _lpLen++;
 }
 
-/* THE LOCAL BODY IS A FROZEN TRAIL, THE SAME MODEL THE SERVER RUNS.
+/* THE LOCAL BODY RUNS THE SERVER'S MODEL: coarse stored points plus the pull.
 
-   _lAdvance already records every predicted head position into _lpX/_lpY, so
-   the body is that path resampled at the drawn spacing. A point, once passed,
-   is never moved again.
+   It must, because the pull makes the body ride inside the head's path. A plain
+   resample of the recorded path would not coil, so the local snake would behave
+   differently from every other snake on screen and from the server.
 
-   This replaces a chain that re-solved every point every frame. The chain cut
-   every corner, so through a turn the tail rode an inner ring and covered only
-   71% of the ground the head did, which read as the tail stopping while the
-   head carried on. Walking a frozen path cannot do that: the tail advances one
-   stored point for every one the head lays, so it travels at head speed by
-   construction rather than by tuning.
+   Deliberately mirrors server/Snake.js line for line, same array operations in
+   the same order. A hand-rolled shift here instead of splice/pop put the two
+   0.59 body radii apart, about one stored point of phase, which is the kind of
+   divergence that shows up as waves travelling down the body.
 
-   No chain state is kept any more, so there is nothing to seed, reconcile or
-   rebuild per frame, and none of the flicker that rebuilding used to cause.
-
-   Spacing has to match what the SERVER sends. Its stored points sit one
-   separation apart (SNAKE_SEP_PER_SC * scale / SNAKE_CHAIN_SUBDIV) and it thins
-   by SUBDIV * step on the wire, so the drawn gap is step * SNAKE_SEP_PER_SC *
-   scale. Getting this wrong once put client and server 5.7 body radii apart,
-   which showed up as waves travelling down the body. */
+   Persistent state, advanced a frame at a time, never rebuilt: rebuilding per
+   frame while the spacing changed with the snake caused the flickering tail. */
+let _lsPts = [], _lsAccum = 0;
 let _segBuf = null;
+
+function _lStoreReset() { _lsPts = []; _lsAccum = 0; }
 
 function _lBuildSegs(numSegs) {
   if (!_lReady || _lpLen < 2 || numSegs < 1) return null;
   const snakeLen = _latestMySnap ? (_latestMySnap.length || 0) : 0;
-  const step = snakeLen < 400 ? 2 : snakeLen < 800 ? 3 : 4;
-  const sc = Math.min(6, 1 + (snakeLen - CONSTANTS.SNAKE_MIN_SEGMENTS * 2) / CONSTANTS.SNAKE_SC_SEGS);
-  const SEG_SPACING = CONSTANTS.SNAKE_SEP_PER_SC * Math.max(1, sc) * step;
+  const sc = Math.max(1, Math.min(6, 1 + (snakeLen - CONSTANTS.SNAKE_MIN_SEGMENTS * 2) / CONSTANTS.SNAKE_SC_SEGS));
+  const settled = CONSTANTS.SNAKE_STORED_GAP_PER_R * CONSTANTS.SNAKE_HEAD_RADIUS * sc;
+  const sep     = settled * CONSTANTS.SNAKE_INSERT_COMPENSATION;
+  const pull    = CONSTANTS.SNAKE_BODY_PULL;
+
+  const hi = (_lpHead - 1 + LP_SIZE) % LP_SIZE;
+  const pi = (hi - 1 + LP_SIZE) % LP_SIZE;
+  const hx = _lpX[hi], hy = _lpY[hi];
+
+  // Fresh spawn: lay the body straight back from the head at the resting gap.
+  if (_lsPts.length < 2) {
+    _lsPts = [];
+    for (let i = 0; i < numSegs; i++) {
+      _lsPts.push({ x: hx - Math.cos(_lAngle) * i * settled,
+                    y: hy - Math.sin(_lAngle) * i * settled });
+    }
+    _lsAccum = 0;
+  }
+
+  _lsPts[0].x = hx; _lsPts[0].y = hy;
+  _lsAccum += Math.hypot(hx - _lpX[pi], hy - _lpY[pi]);
+
+  let guard = 0;
+  while (_lsAccum >= sep && guard++ < 8) {
+    _lsAccum -= sep;
+    const p1 = _lsPts[1] || _lsPts[0];
+    const dx = hx - p1.x, dy = hy - p1.y;
+    const d  = Math.hypot(dx, dy) || 1;
+    const t  = sep / d;
+    _lsPts.splice(1, 0, { x: p1.x + dx * t, y: p1.y + dy * t });
+    while (_lsPts.length > numSegs) _lsPts.pop();
+
+    // the pull, each point toward its leader's position at the start of the pass
+    let leadX = _lsPts[0].x, leadY = _lsPts[0].y;
+    for (let i = 1; i < _lsPts.length; i++) {
+      const p = _lsPts[i];
+      const oldX = p.x, oldY = p.y;
+      const mv = pull * (i < 4 ? i / 4 : 1);
+      p.x += (leadX - p.x) * mv;
+      p.y += (leadY - p.y) * mv;
+      leadX = oldX; leadY = oldY;
+    }
+  }
+  while (_lsPts.length < numSegs) {
+    const t = _lsPts[_lsPts.length - 1];
+    _lsPts.push({ x: t.x, y: t.y });
+  }
 
   /* Reused between frames: a fresh Float32Array per frame is 237 throwaway
      arrays a second for one snake on a 240Hz display. */
   const need = numSegs * 2;
   if (!_segBuf || _segBuf.length < need) _segBuf = new Float32Array(Math.ceil(need * 1.5));
   const out = _segBuf.length === need ? _segBuf : _segBuf.subarray(0, need);
-
-  let idx = (_lpHead - 1 + LP_SIZE) % LP_SIZE;
-  let cx = _lpX[idx], cy = _lpY[idx];
-  out[0] = cx; out[1] = cy;
-  let remaining = SEG_SPACING;
-  let used = 1;
-  for (let seg = 1; seg < numSegs; seg++) {
-    let placed = false;
-    while (true) {
-      if (used >= _lpLen) { out[seg*2] = cx; out[seg*2+1] = cy; placed = true; break; }
-      const pi = (idx - 1 + LP_SIZE) % LP_SIZE;
-      const dx = _lpX[pi] - cx, dy = _lpY[pi] - cy;
-      const d  = Math.hypot(dx, dy);
-      if (d >= remaining) {
-        const t = remaining / d;
-        cx += dx * t; cy += dy * t;
-        out[seg*2] = cx; out[seg*2+1] = cy;
-        remaining = SEG_SPACING;
-        placed = true;
-        break;
-      }
-      remaining -= d;
-      cx = _lpX[pi]; cy = _lpY[pi];
-      idx = pi; used++;
-    }
-    if (!placed) break;
+  for (let i = 0; i < numSegs; i++) {
+    const p = _lsPts[Math.min(_lsPts.length - 1, i)];
+    out[i * 2] = p.x; out[i * 2 + 1] = p.y;
   }
   return out;
 }

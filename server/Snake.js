@@ -29,7 +29,12 @@ function sanitizeColor(color) {
   return ALLOWED_COLORS.has(c) ? c : null;
 }
 
-const SUBDIV = C.SNAKE_CHAIN_SUBDIV;   // chain points per body part
+/* How many STORED points make up one body part. Derived, not chosen: a part is
+   SNAKE_SEP_PER_SC of body and a stored gap is SNAKE_STORED_GAP_PER_R body
+   radii, so 4.83 / (0.663 * 10) = 0.73 points per part. Coarse on purpose. A
+   100-part snake stores about 73 points where the old fine version stored 400,
+   and that coarseness IS the coil (see the constants). */
+const POINTS_PER_PART = C.SNAKE_SEP_PER_SC / (C.SNAKE_STORED_GAP_PER_R * C.SNAKE_HEAD_RADIUS);
 const MIN_SEGMENTS = C.SNAKE_MIN_SEGMENTS * 2; // hard floor — can never shrink below this
 // Per-tick decay factor for the boost release glide (see constants.BOOST_DECAY_MS)
 const BOOST_DECAY = Math.exp(-(1000 / C.TICK_RATE) / C.BOOST_DECAY_MS);
@@ -46,13 +51,17 @@ class Snake {
     this.score = 0;
 
     this.segments = [];
-    const spawnLen = Math.max(MIN_SEGMENTS, C.SNAKE_SPAWN_SEGMENTS * 2) * SUBDIV;   // in chain points
+    const spawnLen = Math.round(Math.max(MIN_SEGMENTS, C.SNAKE_SPAWN_SEGMENTS * 2) * POINTS_PER_PART);
     for (let i = 0; i < spawnLen; i++) {
       this.segments.push({
-        x: x - Math.cos(this.angle) * i * C.SNAKE_SEP_PER_SC / SUBDIV,
-        y: y - Math.sin(this.angle) * i * C.SNAKE_SEP_PER_SC / SUBDIV,
+        x: x - Math.cos(this.angle) * i * C.SNAKE_STORED_GAP_PER_R * C.SNAKE_HEAD_RADIUS,
+        y: y - Math.sin(this.angle) * i * C.SNAKE_STORED_GAP_PER_R * C.SNAKE_HEAD_RADIUS,
       });
     }
+    /* PARTS are the gameplay length and stay a whole number. Stored points are
+       derived from it (about 0.73 per part), not the other way round. Deriving
+       parts from the point count instead made length jump in steps of 1.37. */
+    this._parts = Math.max(MIN_SEGMENTS, C.SNAKE_SPAWN_SEGMENTS * 2);
     this.pendingGrowth = 0;
     this.boostDrops = []; // food positions to spawn when boosting
     this.worth = 0; // SOL value this snake is carrying (entry fee + eaten cash food)
@@ -60,8 +69,8 @@ class Snake {
 
   get head() { return this.segments[0]; }
   // Length is counted in PARTS, which is what score, scale, boost fuel and the
-  // wire all mean. The segments array holds SUBDIV chain points per part.
-  get length() { return this.segments.length / SUBDIV; }
+  // wire all mean. The segments array holds POINTS_PER_PART stored points per part.
+  get length() { return this._parts; }
 
   // Boost fuel = how many segments above the minimum floor
   get boostFuel() { return Math.max(0, this.length - MIN_SEGMENTS); }
@@ -78,7 +87,10 @@ class Snake {
 
   // Distance between body points. Grows with the snake, so body LENGTH grows
   // with the square of scale the way slither's does — see SNAKE_SEP_PER_SC.
-  get separation() { return C.SNAKE_SEP_PER_SC * this.scale / SUBDIV; }
+  /* Where a new point is LAID. The pull then compresses the body, so points are
+     laid further apart than they settle. settledGap gives the resting gap. */
+  get settledGap() { return C.SNAKE_STORED_GAP_PER_R * C.SNAKE_HEAD_RADIUS * this.scale; }
+  get separation() { return this.settledGap * C.SNAKE_INSERT_COMPENSATION; }
 
   // Turn rate degrades with size on a quadratic curve — small snakes are nimble, giants turn
   // wide and heavy. Factor is 1.0 at scale 1, easing to ~0.15 at scale 6.
@@ -140,7 +152,8 @@ class Snake {
       // Shrink once per 24 ticks — same rate as before
       if (this._boostTick >= 24) {
         this._boostTick = 0;
-        for (let k = 0; k < SUBDIV; k++) this.segments.pop();   // one PART, not one chain point
+        // Drop a whole part; the stored points follow from the target count.
+        if (this._parts > MIN_SEGMENTS) this._parts -= 1;
       }
     } else {
       if (this.boosting) this.boosting = false;
@@ -231,8 +244,38 @@ class Snake {
          growth is now paced by how fast the head lays new body down.
 
          Spent per chain point rather than per part so a part arrives smoothly. */
-      if (this.pendingGrowth > 0) this.pendingGrowth -= 1 / SUBDIV;
-      else segs.pop();
+      /* One part per point laid, so growth is paced by how far the snake has
+         travelled. Growing raises the target point count, so the tail simply is
+         not retired and stays where it is, which is slither's mechanism. */
+      if (this.pendingGrowth >= 1) { this.pendingGrowth -= 1; this._parts += 1; }
+      const target = Math.max(4, Math.round(this._parts * POINTS_PER_PART));
+      while (segs.length > target) segs.pop();
+
+      /* THE PULL. This is the coil.
+
+         Every stored point moves a fraction of the way toward the point ahead of
+         it, once per point laid, eased in over the first four so the neck stays
+         loose. The move is along the straight line to its leader, which is a
+         chord across the arc the leader swept, so each point ends up slightly
+         inside the one ahead and a held turn winds the body inward.
+
+         Each point moves toward where its leader was at the START of this pass,
+         not where the leader has just been moved to. Cascading within the pass
+         compounds the compression far past what their game shows.
+
+         Drift is proportional to the GAP between stored points, which is why
+         this same 0.43 did nothing at the old fine spacing and works at the
+         coarse spacing now. */
+      const pull = C.SNAKE_BODY_PULL;
+      let leadX = segs[0].x, leadY = segs[0].y;
+      for (let i = 1; i < segs.length; i++) {
+        const p = segs[i];
+        const oldX = p.x, oldY = p.y;
+        const mv = pull * (i < 4 ? i / 4 : 1);
+        p.x += (leadX - p.x) * mv;
+        p.y += (leadY - p.y) * mv;
+        leadX = oldX; leadY = oldY;
+      }
     }
     if (this.pendingGrowth < 1e-9) this.pendingGrowth = 0;
   }
@@ -312,11 +355,15 @@ class Snake {
     const len  = this.segments.length;
     /* Adaptive thinning, counted in PARTS, so the wire carries the same number
        of points it always did however finely the chain is subdivided below it.
-       Reading it off the raw point count instead would send SUBDIV times more
+       Reading it off the raw point count instead would send the wrong number of
        points and, worse, leave the client rebuilding its chain at a different
        resolution from the server's. */
     const parts = this.length;
-    const step = (parts < 400 ? 2 : parts < 800 ? 3 : 4) * SUBDIV;
+    /* No thinning. Stored points are coarse now (about 73 per 100 parts, versus
+       400 before), so the whole body fits on the wire and the client receives
+       exactly the points the server holds. That removes the resolution mismatch
+       that once put the two 5.7 body radii apart. */
+    const step = 1;
     for (let i = 0; i < len; i += step) {
       segs.push(Math.round(this.segments[i].x * 10) / 10,
                 Math.round(this.segments[i].y * 10) / 10);
