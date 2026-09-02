@@ -253,19 +253,16 @@ class Snake {
 
       /* THE PULL. This is the coil.
 
-         Every stored point moves a fraction of the way toward the point ahead of
-         it, once per point laid, eased in over the first four so the neck stays
-         loose. The move is along the straight line to its leader, which is a
-         chord across the arc the leader swept, so each point ends up slightly
-         inside the one ahead and a held turn winds the body inward.
+         Each stored point moves toward the point ahead, which is a chord across
+         the arc its leader swept, so every point ends up slightly inside the one
+         ahead and a held turn winds the body inward. Eased over the first four
+         so the neck stays loose. Toward the leader's position at the START of
+         the pass: cascading within a pass compounds the compression past theirs.
 
-         Each point moves toward where its leader was at the START of this pass,
-         not where the leader has just been moved to. Cascading within the pass
-         compounds the compression far past what their game shows.
-
-         Drift is proportional to the GAP between stored points, which is why
-         this same 0.43 did nothing at the old fine spacing and works at the
-         coarse spacing now. */
+         Applied once per point laid. Spreading the same total continuously per
+         tick was tried and is worse: it smooths the tail (11% of a body radius
+         instead of 36%) but throws the head gap to 63% and shifts the settled
+         gap off 0.663 to 0.823. */
       const pull = C.SNAKE_BODY_PULL;
       let leadX = segs[0].x, leadY = segs[0].y;
       for (let i = 1; i < segs.length; i++) {
@@ -276,8 +273,10 @@ class Snake {
         p.y += (leadY - p.y) * mv;
         leadX = oldX; leadY = oldY;
       }
+
     }
     if (this.pendingGrowth < 1e-9) this.pendingGrowth = 0;
+
   }
 
   grow(amount) {
@@ -350,24 +349,77 @@ class Snake {
     return drops;
   }
 
-  serialize() {
-    const segs = [];
-    const len  = this.segments.length;
-    /* Adaptive thinning, counted in PARTS, so the wire carries the same number
-       of points it always did however finely the chain is subdivided below it.
-       Reading it off the raw point count instead would send the wrong number of
-       points and, worse, leave the client rebuilding its chain at a different
-       resolution from the server's. */
-    const parts = this.length;
-    /* No thinning. Stored points are coarse now (about 73 per 100 parts, versus
-       400 before), so the whole body fits on the wire and the client receives
-       exactly the points the server holds. That removes the resolution mismatch
-       that once put the two 5.7 body radii apart. */
-    const step = 1;
-    for (let i = 0; i < len; i += step) {
-      segs.push(Math.round(this.segments[i].x * 10) / 10,
-                Math.round(this.segments[i].y * 10) / 10);
+  /* The body as it should be DRAWN: uniformly spaced, anchored at the head, and
+     ending exactly at the snake's true length.
+
+     The stored points cannot be drawn raw. They are laid at discrete intervals
+     while the head moves continuously, so the gap between the head and the first
+     stored point cycles from zero to a full separation. At a big size that is 24
+     units, more than a body radius, so the first segment stretches and snaps
+     every cycle: the head appears to blink, and the angle reference jumping
+     between points makes it look like it spins through a turn. The tail does the
+     same at the other end whenever the point count rounds up or down and a whole
+     point pops in or out.
+
+     Resampling fixes both. The path is identical, so the coil is untouched; only
+     the sample positions change. The first gap becomes constant, and the last
+     point lands at the exact fractional body length, so the tail slides out and
+     back continuously instead of popping a whole point. */
+  drawPoints() {
+    const segs = this.segments;
+    const gap  = this.settledGap;
+    const sepInsert = this.separation;
+    const out  = [segs[0].x, segs[0].y];
+    let cx = segs[0].x, cy = segs[0].y;
+    let need = gap;
+    for (let i = 1; i < segs.length; ) {
+      const dx = segs[i].x - cx, dy = segs[i].y - cy;
+      const d  = Math.hypot(dx, dy);
+      if (d < 1e-9) { i++; continue; }
+      if (d >= need) {
+        const t = need / d;
+        cx += dx * t; cy += dy * t;
+        out.push(cx, cy);
+        need = gap;
+      } else {
+        need -= d; cx = segs[i].x; cy = segs[i].y; i++;
+      }
     }
+    /* THE TAIL SLIDES, IT DOES NOT POP.
+
+       A trail retires its tail one whole point at a time. At the old fine
+       spacing that step was 2 units and invisible; at this coarse spacing it is
+       21, about a full body radius, and it read as the tail glitching and
+       blinking every time a point was laid.
+
+       slither solves this by never popping either: it flags the tail point
+       'dying' and fades it out over about five seconds instead. The drawing
+       equivalent is to put the tail END at a fraction between the last two
+       stored points, advanced by the same accumulator that drives insertion. By
+       the moment a point is actually popped the drawn tail has already reached
+       the next point, so the handover is seamless and the tail never jumps.
+
+       An earlier version stopped at a THEORETICAL body length, which the stored
+       body cannot reach while coiled (it compresses up to 28%). Crossing that
+       boundary threw the tail 33 units in one tick. */
+    const n = segs.length;
+    if (n >= 2) {
+      const frac = Math.min(1, Math.max(0, (this._segAccum || 0) / sepInsert));
+      const a = segs[n - 1], bpt = segs[n - 2];
+      const tx = a.x + (bpt.x - a.x) * frac;
+      const ty = a.y + (bpt.y - a.y) * frac;
+      if (Math.hypot(tx - out[out.length - 2], ty - out[out.length - 1]) > 1e-6) out.push(tx, ty);
+    }
+    return out;
+  }
+
+  serialize() {
+    /* The wire carries the DRAWN body: uniformly sampled and head-anchored, not
+       the raw stored points. See drawPoints() for why the raw ones cannot be
+       drawn directly. No thinning; at this coarseness the whole body fits. */
+    const pts = this.drawPoints();
+    const segs = new Array(pts.length);
+    for (let i = 0; i < pts.length; i++) segs[i] = Math.round(pts[i] * 10) / 10;
     return {
       id: this.id,
       name: this.name,

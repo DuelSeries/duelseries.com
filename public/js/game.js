@@ -764,13 +764,45 @@ function _lBuildSegs(numSegs) {
 
   /* Reused between frames: a fresh Float32Array per frame is 237 throwaway
      arrays a second for one snake on a 240Hz display. */
+  /* Resampled uniformly from the head, exactly as Snake.drawPoints does, with
+     the tail sliding between the last two stored points.
+
+     The raw stored points cannot be drawn: they are laid at discrete intervals
+     while the head moves continuously, so the head-to-first-point gap cycles
+     from zero to a full separation (24 units at a big size, more than a body
+     radius) and the first segment stretches and snaps every cycle. That is the
+     head blinking and appearing to spin through a turn. The tail retires a whole
+     point at a time for the same reason, which was a 148%-of-a-body-radius jump
+     before the slide was added. */
   const need = numSegs * 2;
   if (!_segBuf || _segBuf.length < need) _segBuf = new Float32Array(Math.ceil(need * 1.5));
   const out = _segBuf.length === need ? _segBuf : _segBuf.subarray(0, need);
-  for (let i = 0; i < numSegs; i++) {
-    const p = _lsPts[Math.min(_lsPts.length - 1, i)];
-    out[i * 2] = p.x; out[i * 2 + 1] = p.y;
+
+  let w = 0;
+  out[w++] = _lsPts[0].x; out[w++] = _lsPts[0].y;
+  let cx = _lsPts[0].x, cy = _lsPts[0].y, look = settled;
+  for (let i = 1; i < _lsPts.length && w < need; ) {
+    const dx = _lsPts[i].x - cx, dy = _lsPts[i].y - cy;
+    const d = Math.hypot(dx, dy);
+    if (d < 1e-9) { i++; continue; }
+    if (d >= look) {
+      const t = look / d;
+      cx += dx * t; cy += dy * t;
+      out[w++] = cx; out[w++] = cy;
+      look = settled;
+    } else {
+      look -= d; cx = _lsPts[i].x; cy = _lsPts[i].y; i++;
+    }
   }
+  // tail slides between the last two stored points, driven by the same
+  // accumulator that triggers insertion, so the handover is seamless
+  if (w < need && _lsPts.length >= 2) {
+    const fr = Math.min(1, Math.max(0, _lsAccum / sep));
+    const a = _lsPts[_lsPts.length - 1], c = _lsPts[_lsPts.length - 2];
+    out[w++] = a.x + (c.x - a.x) * fr;
+    out[w++] = a.y + (c.y - a.y) * fr;
+  }
+  while (w < need) { out[w] = out[w - 2]; out[w + 1] = out[w - 1]; w += 2; }
   return out;
 }
 

@@ -84,7 +84,7 @@ const CONSTANTS = {
      apart than they end up. Theirs settle to 22 from a 42 insert, a factor of
      0.52. This is measured against our own sim rather than assumed: see the
      settled-gap figure in the body-model harness. */
-  SNAKE_INSERT_COMPENSATION: 1.43,   // measured: 1.92 settled at 0.890 of body radius, so 1.92 * 0.663/0.890
+  SNAKE_INSERT_COMPENSATION: 1.375,  // tuned to the measurement: 1.276 gave 0.590, 1.35 gave 0.626, 1.43 gave 0.743, target 0.663
   /* Half the snake's width. Measured on their live snake this is 14.5 per unit
      of scale in THEIR world units — but it was wrong to copy that number across,
      because our camera is zoomed in tighter than theirs. What has to match is
