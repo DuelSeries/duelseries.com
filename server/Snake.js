@@ -221,10 +221,38 @@ class Snake {
     /* Length changes at the TAIL now, the only place a chain can grow. It used
        to ride on inserting trail points at the head, which no longer happens.
        Boost shrink already pops the tail in the block above. */
+    /* GROWTH IS RATE-LIMITED TO THE SNAKE'S OWN SPEED.
+
+       Eating a burst of food used to shove a whole part onto the tail every
+       tick. One part is SNAKE_SEP_PER_SC * scale of body, which at scale 2 is
+       9.7 units, while the head only advances 2.4 units in the same tick. The
+       body was therefore lengthening backward about four times faster than the
+       snake moved forward, and the tail visibly shot away behind it.
+
+       slither never has this problem because it does not add points at the tail
+       at all: eating just increments its part count and stops retiring old tail
+       points, which already sit at fixed positions in the world, so its tail
+       simply stays put and the snake lengthens from the head end.
+
+       Our body is a solved chain rather than a trail of frozen points, so the
+       equivalent is to cap how fast it may lengthen. The bound is physical, not
+       tuned: new body cannot appear faster than the head lays it down, so the
+       budget each tick is exactly the distance the head travelled. The tail then
+       holds station while the head pulls away, which is what theirs looks like.
+
+       pendingGrowth is decremented per CHAIN POINT rather than per part, so a
+       part arrives smoothly over several ticks instead of in one jump. */
     if (this.pendingGrowth > 0) {
-      this.pendingGrowth--;
-      const tail = segs[segs.length - 1];
-      for (let k = 0; k < SUBDIV; k++) segs.push({ x: tail.x, y: tail.y });   // one PART
+      this._growBudget = (this._growBudget || 0) + speedThisTick;
+      while (this.pendingGrowth > 0 && this._growBudget >= sep) {
+        this._growBudget -= sep;
+        const tail = segs[segs.length - 1];
+        segs.push({ x: tail.x, y: tail.y });
+        this.pendingGrowth -= 1 / SUBDIV;
+      }
+      if (this.pendingGrowth < 1e-9) this.pendingGrowth = 0;
+    } else {
+      this._growBudget = 0;
     }
   }
 
