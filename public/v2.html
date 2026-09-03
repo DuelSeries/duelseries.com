@@ -262,12 +262,19 @@ h2{font-size:31px;font-weight:700;letter-spacing:-1.1px;line-height:1.1}
 /* Cover, not fill: the files are not all the same shape, so stretching one to
    the box would squash it. Centre-cropped is the only honest fit. */
 .art svg,.art canvas,.gart{display:block;width:100%;height:100%;object-fit:cover}
-/* An unbuilt game says so with a shade over the artwork, which is the only
-   thing left saying it now that the caption is the name alone. Light enough
-   that the painting still reads, dark enough to look switched off. */
+/* A shade alone was too quiet: the row read as thirteen games you could play,
+   and finding out otherwise meant clicking. A padlock is the one symbol that
+   needs no sentence next to it, and it is what the sites this lobby is modelled
+   on use for the same thing.
+
+   The drain sits on the IMAGE, not on .art, because a filter applies to an
+   element's pseudo-elements too and would grey out the padlock with it. */
 .card.soon{cursor:default}
-.card.soon .art::after{content:"";position:absolute;inset:0;
-  background:rgba(0,0,0,.42);pointer-events:none}
+.card.soon .gart{filter:grayscale(.62) brightness(.58)}
+.card.soon .art::after{content:"";position:absolute;z-index:2;
+  left:50%;top:50%;width:46px;height:46px;margin:-23px 0 0 -23px;
+  border-radius:50%;background:rgba(8,7,5,.55) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='11' width='18' height='11' rx='2'/%3E%3Cpath d='M7 11V7a5 5 0 0 1 10 0v4'/%3E%3C/svg%3E") center/21px 21px no-repeat;
+  box-shadow:0 2px 14px rgba(0,0,0,.45);pointer-events:none}
 .gart.noart{background:var(--s2)}
 .card.soon:hover{transform:none}
 .card.soon .cap h3{color:var(--tx2)}
@@ -312,6 +319,9 @@ h2{font-size:31px;font-weight:700;letter-spacing:-1.1px;line-height:1.1}
   :root{--gap:9px; --capH:46px}
   :root{--capH:30px}
   .cap h3{font-size:11.5px}
+  /* The card is ~80px wide here, so the badge scales with it. */
+  .card.soon .art::after{width:32px;height:32px;margin:-16px 0 0 -16px;
+    background-size:15px 15px}
   /* Small and tucked into the very edge. There used to be a gradient scrim
      behind each one, which on a dark card read as a black band ruled down
      both sides of the row rather than as a fade. */
