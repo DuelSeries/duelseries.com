@@ -62,7 +62,7 @@
   --fm:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace;
   /* Rail geometry, shared by the card width and the arrow placement so the
      two cannot drift apart. */
-  --gap:18px; --capGap:10px; --capH:56px;
+  --gap:18px; --capGap:10px; --capH:34px;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html{scroll-behavior:smooth}
@@ -259,12 +259,13 @@ h2{font-size:31px;font-weight:700;letter-spacing:-1.1px;line-height:1.1}
 /* Cover, not fill: the files are not all the same shape, so stretching one to
    the box would squash it. Centre-cropped is the only honest fit. */
 .art svg,.art canvas,.gart{display:block;width:100%;height:100%;object-fit:cover}
-/* Unbuilt games are dimmed, not drained. Draining the colour out made sense
-   when the art was flat placeholder shapes and the grey said "placeholder".
-   These are real paintings, and greying them just made them look muddy or
-   broken; the caption already says In development. */
+/* An unbuilt game says so with a shade over the artwork, which is the only
+   thing left saying it now that the caption is the name alone. Light enough
+   that the painting still reads, dark enough to look switched off. */
 .card.soon{cursor:default}
-.card.soon .art{filter:saturate(.9);opacity:.72}
+.card.soon .art::after{content:"";position:absolute;inset:0;
+  background:rgba(0,0,0,.42);pointer-events:none}
+.gart.noart{background:var(--s2)}
 .card.soon:hover{transform:none}
 .card.soon .cap h3{color:var(--tx2)}
 /* Fixed caption height keeps every card the same height whatever the name
@@ -275,9 +276,6 @@ h2{font-size:31px;font-weight:700;letter-spacing:-1.1px;line-height:1.1}
 .cap{margin:var(--capGap) 2px 0;min-height:var(--capH);
   display:flex;flex-direction:column}
 .cap h3{font-size:13px;font-weight:600;letter-spacing:-.1px;line-height:1.3}
-.cap .st{display:block;font-size:11px;color:var(--tx3);line-height:1.3;
-  margin-top:auto;padding-top:3px}
-.cap .st em{font-style:normal;color:var(--live)}
 /* Arrows flank the rail rather than sitting in the corner, so they read as
    controls for the games rather than as page chrome. They live outside
    .rail because that clips overflow. Top, bottom and height are all set so
@@ -309,18 +307,13 @@ h2{font-size:31px;font-weight:700;letter-spacing:-1.1px;line-height:1.1}
   /* A ~97px card fits the name and one fact, not two. The room count is the
      one that goes: how many people are in there beats how many empty tables. */
   :root{--gap:9px; --capH:46px}
-  .cap h3{font-size:11.5px} .cap .st{font-size:10px} .cap .st .op{display:none}
-  /* Smaller, tucked into the very edge and sitting on a fade rather than
-     square on top of a card. They cover the half card that is already only
-     half there, instead of covering a whole one. */
+  :root{--capH:30px}
+  .cap h3{font-size:11.5px}
+  /* Small and tucked into the very edge. There used to be a gradient scrim
+     behind each one, which on a dark card read as a black band ruled down
+     both sides of the row rather than as a fade. */
   .nb{width:32px;height:32px;font-size:14px}
   .nb.l{left:0} .nb.r{right:0}
-  /* Full height, so the half card's NAME fades out too. Clipped at the art
-     band only, the peeking captions were cut mid-word at a hard edge. */
-  .railwrap::before,.railwrap::after{content:"";position:absolute;top:0;bottom:0;
-    width:54px;z-index:5;pointer-events:none}
-  .railwrap::before{left:0;background:linear-gradient(90deg,var(--bg),transparent)}
-  .railwrap::after{right:0;background:linear-gradient(270deg,var(--bg),transparent)}
 }
 
 /* ── winners ticker ─────────────────────────────────────────────────── */
@@ -1144,6 +1137,13 @@ const GAMES=[
   d:'Fire up the line, take the targets before they reach you, and keep the streak alive.'},
  {id:'swim',name:'Swim',c:['#141a16','#8fd06a'],type:'p',soon:1,
   d:'Pick your gap in moving traffic and cross without touching anything.'},
+ /* noart: no painting exists for these two yet, so the card is a plain block
+    in the game's own colour rather than a broken image. Drop the flag the
+    moment public/img/games/<id>.png lands and nothing else has to change. */
+ {id:'maze',name:'Pac Man',c:['#1a1726','#e8c860'],type:'p',soon:1,noart:1,
+  d:'Clear the maze before whatever is chasing you closes off the last exit.'},
+ {id:'stumble',name:'Stumble Guys',c:['#191d26','#7fb0e0'],type:'p',soon:1,noart:1,
+  d:'A crowd, an obstacle course, and physics that are on nobody’s side.'},
 ];
 /* The lobby list is real now: V2Board polls /api/live. The hand-written rows
    that used to be here claimed player counts the server never had. */
@@ -1697,6 +1697,7 @@ function paintSwatch(cv){
    404, Renderer never constructs, and the canvas would sit there black. Fall
    back to the drawn art in that case so a card is never an empty box. */
 function art(g){
+  if(g.noart)return `<div class="gart noart" style="background:${g.c[0]}"></div>`;
   return `<img class="gart" src="/img/games/${g.id}.png" alt="" draggable="false">`;
 }
 function repaintAll(){
@@ -1772,28 +1773,12 @@ window._resumeLobbyAnims=()=>{
 
 /* ── infinite rail: render one extra card each side, slide, then rotate the
       array and snap back with no transition, so it never reaches an end ── */
-/* The board's whole premise is showing players where people already are, so
-   the card carries the two numbers that decide whether it is worth a click:
-   how many are in the game, and how many rooms are open to walk into. */
-function gstat(g){
-  if(g.soon)return '<span class="st">In development</span>';
-  /* Counted off the live board rather than a hardcoded number, so the card
-     cannot claim players the server does not have. Before the first fetch
-     lands there is nothing to claim, and it says so. */
-  const rows=(window.V2Board?V2Board.lobbies:[]).filter(l=>l.game===g.id);
-  if(!rows.length)return '<span class="st">Checking…</span>';
-  const playing=rows.reduce((n,l)=>n+(l.players||0),0);
-  const who=playing?`<em><span class="num">${playing}</span> playing</em>`:'Nobody playing yet';
-  /* The room count is wrapped so a narrow card can drop it and keep the
-     player count, which is the half that decides whether to click. */
-  return `<span class="st">${who}<span class="op"> &nbsp;·&nbsp; <span class="num">${rows.length}</span> open</span></span>`;
-}
 /* A playable card is a real button so it can be tabbed to and fired with the
    keyboard. An unbuilt one is not a control at all, so it stays a div rather
    than becoming a button that does nothing. */
 function cardHTML(g){
   const inner=`<div class="art">${art(g)}</div>
-    <div class="cap"><h3>${g.name}</h3>${gstat(g)}</div>`;
+    <div class="cap"><h3>${g.name}</h3></div>`;
   return g.soon
     ? `<div class="card soon">${inner}</div>`
     : `<button type="button" class="card" onclick="open_('${g.id}')">${inner}</button>`;
@@ -1882,16 +1867,6 @@ function spin(d){
 window.V2_GAME_NAMES=Object.fromEntries(GAMES.map(g=>[g.id,g.name]));
 window.V2_SWATCH=id=>{const g=G(id); return g?art(g):''};
 window.repaintAll=repaintAll;
-/* The rail is drawn before the first /api/live response lands, so its counts
-   would otherwise sit on "Checking…" forever. Only the status line is swapped,
-   not the whole rail: redrawing it would rebuild every canvas and restart the
-   still scenes on every ten-second poll. */
-window.V2_REFRESH_CARDS=function(){
-  document.querySelectorAll('#track .card').forEach((c,i)=>{
-    const g=order[i%order.length], st=c.querySelector('.st');
-    if(g&&st)st.outerHTML=gstat(g);
-  });
-};
 /* ── recent winners ──────────────────────────────────────────────────────
    Entries are filtered against the game registry, so the row can never
    advertise a game nobody can play. Today that means every line is

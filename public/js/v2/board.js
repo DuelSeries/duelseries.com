@@ -74,15 +74,14 @@
       box.innerHTML = '<div class="none">Nobody is playing right now. ' +
         'Pick a buy-in and start a game, and it shows up here for everyone else.</div>';
       box.classList.add('short');
-      if (window.V2_REFRESH_CARDS) window.V2_REFRESH_CARDS();
       return;
     }
     box.innerHTML = rows.map(rowHTML).join('');
     box.classList.toggle('short', rows.length <= 3);
     if (window.repaintAll) window.repaintAll();
-    // The game cards count off this same data, so they refresh together and
-    // cannot show a different number from the rows underneath them.
-    if (window.V2_REFRESH_CARDS) window.V2_REFRESH_CARDS();
+    // The cards used to be refreshed here too, to keep their player counts in
+    // step with these rows. They carry the game name alone now, so there is
+    // nothing on them left to go stale.
   }
 
   function join(id) {
