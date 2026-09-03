@@ -256,11 +256,15 @@ h2{font-size:31px;font-weight:700;letter-spacing:-1.1px;line-height:1.1}
 .card:focus-visible{outline-offset:5px}
 .art{aspect-ratio:3/4;border-radius:var(--r3);overflow:hidden;position:relative;
   background:var(--s1)}
-.art svg,.art canvas{display:block;width:100%;height:100%}
-/* Unbuilt games are drained of colour rather than just faded, so they read as
-   deliberately held back instead of as artwork that failed to load. */
+/* Cover, not fill: the files are not all the same shape, so stretching one to
+   the box would squash it. Centre-cropped is the only honest fit. */
+.art svg,.art canvas,.gart{display:block;width:100%;height:100%;object-fit:cover}
+/* Unbuilt games are dimmed, not drained. Draining the colour out made sense
+   when the art was flat placeholder shapes and the grey said "placeholder".
+   These are real paintings, and greying them just made them look muddy or
+   broken; the caption already says In development. */
 .card.soon{cursor:default}
-.card.soon .art{filter:grayscale(.7) saturate(.6);opacity:.45}
+.card.soon .art{filter:saturate(.9);opacity:.72}
 .card.soon:hover{transform:none}
 .card.soon .cap h3{color:var(--tx2)}
 /* Fixed caption height keeps every card the same height whatever the name
@@ -364,7 +368,7 @@ body.ingame .tkrun{animation-play-state:paused}
 .lr:hover{background:var(--s1);padding-left:12px;padding-right:12px;
   border-radius:var(--r2);border-color:transparent}
 .lswatch{width:34px;height:34px;border-radius:var(--r2);overflow:hidden;flex:0 0 auto}
-.lswatch svg{display:block;width:100%;height:100%}
+.lswatch svg,.lswatch .gart{display:block;width:100%;height:100%;object-fit:cover}
 .lname{font-size:14.5px;font-weight:550;min-width:132px}
 .lreg{font-size:11.5px;color:var(--tx3)}
 .lstake{font-size:16px;font-weight:600;color:var(--money);min-width:62px}
@@ -555,7 +559,7 @@ body.ingame .tkrun{animation-play-state:paused}
 .hero>div:last-child{display:flex;flex-direction:column}
 .hero .look{margin-top:auto}
 .hart{height:300px;border-radius:var(--r3);overflow:hidden}
-.hart svg{display:block;width:100%;height:100%}
+.hart svg,.hart .gart{display:block;width:100%;height:100%;object-fit:cover}
 .hero h1{font-size:34px;font-weight:650;letter-spacing:-1px}
 .hero .desc{font-size:14.5px;color:var(--tx2);line-height:1.7;margin-top:10px}
 .hnow{font-size:13px;color:var(--tx2);margin-top:16px;display:flex;align-items:center;gap:8px}
@@ -1101,107 +1105,14 @@ body.scr-anim { overflow-x:hidden }
 <script>
 /* Flat geometric artwork, one scene per game. Drawn rather than iconed:
    emoji or a generic icon set is what makes a games page look unmade. */
-/* Composed PORTRAIT, on a 240x320 box, because that is the shape of a card.
-   They used to be 262x172 landscape, which was right when four wide cards
-   filled the rail. Eight portrait cards crop a landscape composition to its
-   middle 49% — every one of these would have shown a slice of itself with the
-   subject sliced off, so they are re-drawn rather than re-fitted.
+/* Each game is one painted file, cut from the artwork sheet into
+   public/img/games/<id>.png. These replaced a set of hand-drawn SVG
+   compositions, which had to be redrawn every time the card changed shape.
 
-   preserveAspectRatio stays "slice" because the same string is also the detail
-   hero (wide) and the lobby-row swatch (square), so each subject is kept near
-   the middle of the box where every one of those three crops still contains
-   it. Flat two-colour shapes throughout: `a` is the ground, `b` the subject. */
-const ART={
- snake:(a,b)=>`<svg viewBox="0 0 240 320" preserveAspectRatio="xMidYMid slice">
-   <rect width="240" height="320" fill="${a}"/>
-   <path d="M28 306 C28 250 212 258 212 186 C212 118 78 130 78 66"
-     fill="none" stroke="${b}" stroke-width="32" stroke-linecap="round"/>
-   <circle cx="66" cy="56" r="6" fill="#0a0b0d"/><circle cx="90" cy="58" r="6" fill="#0a0b0d"/>
-   <circle cx="176" cy="76" r="6" fill="${b}" opacity=".45"/>
-   <circle cx="46" cy="150" r="7" fill="${b}" opacity=".36"/>
-   <circle cx="196" cy="286" r="5" fill="${b}" opacity=".42"/></svg>`,
- agar:(a,b)=>`<svg viewBox="0 0 240 320" preserveAspectRatio="xMidYMid slice">
-   <rect width="240" height="320" fill="${a}"/>
-   <circle cx="110" cy="168" r="68" fill="${b}"/>
-   <circle cx="110" cy="168" r="68" fill="none" stroke="#0a0b0d" stroke-width="4" opacity=".22"/>
-   <circle cx="180" cy="70" r="32" fill="${b}" opacity=".72"/>
-   <circle cx="192" cy="256" r="22" fill="${b}" opacity=".5"/>
-   <circle cx="48" cy="60" r="11" fill="${b}" opacity=".4"/>
-   <circle cx="62" cy="272" r="9" fill="${b}" opacity=".34"/></svg>`,
- rps:(a,b)=>`<svg viewBox="0 0 240 320" preserveAspectRatio="xMidYMid slice">
-   <rect width="240" height="320" fill="${a}"/>
-   <circle cx="120" cy="76" r="40" fill="${b}"/>
-   <rect x="74" y="134" width="92" height="78" rx="9" fill="${b}" opacity=".62"/>
-   <path d="M82 238 L158 294 M158 238 L82 294" stroke="${b}" stroke-width="16"
-     stroke-linecap="round" opacity=".82"/></svg>`,
- knockout:(a,b)=>`<svg viewBox="0 0 240 320" preserveAspectRatio="xMidYMid slice">
-   <rect width="240" height="320" fill="${a}"/>
-   <circle cx="120" cy="106" r="48" fill="${b}"/>
-   <circle cx="120" cy="238" r="34" fill="${b}" opacity=".45"/>
-   <path d="M96 168 L120 192 L144 168" stroke="${a}" stroke-width="9" fill="none"
-     stroke-linecap="round" stroke-linejoin="round"/></svg>`,
- battleship:(a,b)=>`<svg viewBox="0 0 240 320" preserveAspectRatio="xMidYMid slice">
-   <rect width="240" height="320" fill="${a}"/>
-   <g fill="${b}" opacity=".26">${(()=>{let s='';for(let y=0;y<8;y++)for(let x=0;x<6;x++)
-     s+=`<circle cx="${32+x*35}" cy="${40+y*35}" r="4"/>`;return s})()}</g>
-   <rect x="110" y="104" width="20" height="130" rx="10" fill="${b}"/>
-   <path d="M120 246 L104 276 L136 276 Z" fill="${b}"/></svg>`,
- tanks:(a,b)=>`<svg viewBox="0 0 240 320" preserveAspectRatio="xMidYMid slice">
-   <rect width="240" height="320" fill="${a}"/>
-   <path d="M56 244 C56 96 184 96 184 232" fill="none" stroke="${b}" stroke-width="4"
-     stroke-dasharray="8 10" opacity=".5"/>
-   <rect x="22" y="244" width="76" height="24" rx="11" fill="${b}"/>
-   <rect x="44" y="226" width="34" height="20" rx="6" fill="${b}"/>
-   <rect x="74" y="228" width="40" height="7" rx="3.5" fill="${b}"/>
-   <circle cx="184" cy="240" r="11" fill="${b}" opacity=".7"/></svg>`,
- paper:(a,b)=>`<svg viewBox="0 0 240 320" preserveAspectRatio="xMidYMid slice">
-   <rect width="240" height="320" fill="${a}"/>
-   <path d="M48 62 H150 V126 H198 V212 H104 V162 H48 Z" fill="${b}" opacity=".82"/>
-   <path d="M198 212 L198 264 L112 264" fill="none" stroke="${b}" stroke-width="5"
-     stroke-dasharray="7 9" opacity=".55"/>
-   <circle cx="112" cy="264" r="9" fill="${b}"/></svg>`,
- /* Placeholders. Original flat shapes in the same two-colour language as the
-    rest, deliberately NOT drawings of the real games' characters or art — a
-    card is a reminder that a slot exists, and copying someone's artwork onto a
-    public lobby is a different thing entirely. */
- rooftop:(a,b)=>`<svg viewBox="0 0 240 320" preserveAspectRatio="xMidYMid slice">
-   <rect width="240" height="320" fill="${a}"/>
-   <rect x="0" y="214" width="98" height="106" fill="${b}" opacity=".85"/>
-   <rect x="146" y="246" width="94" height="74" fill="${b}" opacity=".85"/>
-   <path d="M104 200 C128 156 156 160 178 232" fill="none" stroke="${b}" stroke-width="4"
-     stroke-dasharray="6 8" opacity=".5"/>
-   <circle cx="150" cy="104" r="18" fill="none" stroke="${b}" stroke-width="4" opacity=".85"/>
-   <path d="M150 80 L150 128 M126 104 L174 104" stroke="${b}" stroke-width="4" opacity=".85"/></svg>`,
- headsoccer:(a,b)=>`<svg viewBox="0 0 240 320" preserveAspectRatio="xMidYMid slice">
-   <rect width="240" height="320" fill="${a}"/>
-   <path d="M40 36 L40 108 L200 108 L200 36" fill="none" stroke="${b}" stroke-width="5" opacity=".55"/>
-   <path d="M40 60 L200 60 M40 84 L200 84 M80 36 L80 108 M120 36 L120 108 M160 36 L160 108"
-     stroke="${b}" stroke-width="2.5" opacity=".26"/>
-   <circle cx="120" cy="196" r="40" fill="${b}"/>
-   <path d="M120 168 L142 186 L134 212 L106 212 L98 186 Z" fill="#0a0b0d" opacity=".4"/>
-   <path d="M28 286 L212 286" stroke="${b}" stroke-width="4" opacity=".4"/></svg>`,
- maze:(a,b)=>`<svg viewBox="0 0 240 320" preserveAspectRatio="xMidYMid slice">
-   <rect width="240" height="320" fill="${a}"/>
-   <g fill="none" stroke="${b}" stroke-width="6" opacity=".8">
-     <rect x="26" y="34" width="76" height="48" rx="7"/>
-     <rect x="138" y="34" width="76" height="48" rx="7"/>
-     <rect x="26" y="238" width="76" height="48" rx="7"/>
-     <rect x="138" y="238" width="76" height="48" rx="7"/>
-   </g>
-   <g fill="${b}" opacity=".75">
-     <circle cx="120" cy="108" r="6"/><circle cx="120" cy="138" r="6"/>
-     <circle cx="120" cy="168" r="6"/><circle cx="120" cy="198" r="6"/>
-     <circle cx="120" cy="228" r="6"/>
-   </g></svg>`,
- stumble:(a,b)=>`<svg viewBox="0 0 240 320" preserveAspectRatio="xMidYMid slice">
-   <rect width="240" height="320" fill="${a}"/>
-   <rect x="0" y="278" width="240" height="42" fill="${b}" opacity=".3"/>
-   <rect x="24" y="212" width="52" height="66" rx="10" fill="${b}" opacity=".9"/>
-   <rect x="96" y="170" width="52" height="108" rx="10" fill="${b}" opacity=".7"/>
-   <g transform="rotate(24 196 190)"><rect x="170" y="160" width="52" height="60" rx="10" fill="${b}"/></g>
-   <circle cx="60" cy="90" r="17" fill="${b}" opacity=".55"/>
-   <path d="M150 108 L206 108" stroke="${b}" stroke-width="5" opacity=".5"/></svg>`,
-};
+   The three places a game appears are three different shapes — a 3:4 rail
+   card, a wide detail hero, a square lobby-row swatch — so the image covers
+   its box and is centre-cropped, rather than being distorted to fit any of
+   them. The file name is the game id, so adding a game is adding a png. */
 /* slither.io is the only game that is actually playable. Everything else is
    marked soon, which greys the card and takes it out of the tab order. */
 const GAMES=[
@@ -1229,10 +1140,10 @@ const GAMES=[
   d:'Two rooftops, one shot at a time, and the loser is whoever falls off first.'},
  {id:'headsoccer',name:'Head Soccer',c:['#141e18','#6fd39a'],type:'m',soon:1,
   d:'One on one, oversized heads, and a ball that rarely goes where you meant it to.'},
- {id:'maze',name:'Pac Man',c:['#1a1726','#e8c860'],type:'p',soon:1,
-  d:'Clear the maze before whatever is chasing you closes off the last exit.'},
- {id:'stumble',name:'Stumble Guys',c:['#191d26','#7fb0e0'],type:'p',soon:1,
-  d:'A crowd, an obstacle course, and physics that are on nobody’s side.'},
+ {id:'omgshooter',name:'OMG Shooter',c:['#141a24','#e0405a'],type:'p',soon:1,
+  d:'Fire up the line, take the targets before they reach you, and keep the streak alive.'},
+ {id:'swim',name:'Swim',c:['#141a16','#8fd06a'],type:'p',soon:1,
+  d:'Pick your gap in moving traffic and cross without touching anything.'},
 ];
 /* The lobby list is real now: V2Board polls /api/live. The hand-written rows
    that used to be here claimed player counts the server never had. */
@@ -1785,20 +1696,8 @@ function paintSwatch(cv){
    this page is served by the app. Opened straight off disk the script tags
    404, Renderer never constructs, and the canvas would sit there black. Fall
    back to the drawn art in that case so a card is never an empty box. */
-/* meet=1 contains the composition instead of cropping it. The card and the
-   swatch crop happily, but the detail hero is a wide band and the artwork is
-   now a tall portrait, so cropping it there showed a slice of the middle with
-   the subject cut off. Contained, it sits centred; the caller paints the
-   container in the same ground colour the SVG uses, so the letterboxed area
-   is continuous with the artwork rather than a pair of visible bands. */
-function art(g,w,h,anim,sw,meet){
-  if(!g.real||!R){
-    const s=ART[g.id](g.c[0],g.c[1]);
-    return meet?s.replace("xMidYMid slice","xMidYMid meet"):s;
-  }
-  return `<canvas data-game="${g.id}"${anim?' data-anim="1"':''}${sw?' data-swatch="1"':''}
-    width="${w||240}" height="${h||320}"
-    style="width:100%;height:100%;display:block"></canvas>`;
+function art(g){
+  return `<img class="gart" src="/img/games/${g.id}.png" alt="" draggable="false">`;
 }
 function repaintAll(){
   SCENES.clear();
@@ -1893,7 +1792,7 @@ function gstat(g){
    keyboard. An unbuilt one is not a control at all, so it stays a div rather
    than becoming a button that does nothing. */
 function cardHTML(g){
-  const inner=`<div class="art">${art(g,240,320,1)}</div>
+  const inner=`<div class="art">${art(g)}</div>
     <div class="cap"><h3>${g.name}</h3>${gstat(g)}</div>`;
   return g.soon
     ? `<div class="card soon">${inner}</div>`
@@ -1981,7 +1880,7 @@ function spin(d){
    two hooks are what it needs from the shell: the display name for a game id,
    and the little canvas crop used as a row swatch. */
 window.V2_GAME_NAMES=Object.fromEntries(GAMES.map(g=>[g.id,g.name]));
-window.V2_SWATCH=id=>{const g=G(id); return g?art(g,68,68,0,1):''};
+window.V2_SWATCH=id=>{const g=G(id); return g?art(g):''};
 window.repaintAll=repaintAll;
 /* The rail is drawn before the first /api/live response lands, so its counts
    would otherwise sit on "Checking…" forever. Only the status line is swapped,
@@ -2056,7 +1955,7 @@ function open_(id){
   showScreen('detail');
   const dart=document.getElementById('dart');
   dart.style.background=cur.c[0];
-  dart.innerHTML=art(cur,660,300,1,0,1);
+  dart.innerHTML=art(cur);
   document.getElementById('dname').textContent=cur.name;
   document.getElementById('ddesc').textContent=cur.d;
   /* Both figures come off the live board, so the detail screen and the card
@@ -2069,7 +1968,7 @@ function open_(id){
     (cur.type==='p'?'playing right now':'waiting for an opponent');
   document.getElementById('dlob').innerHTML=mine.length
     ?mine.map(l=>`<div class="lr">
-       <div class="lswatch">${art(cur,68,68,0,1)}</div>
+       <div class="lswatch">${art(cur)}</div>
        <span class="lname">${cur.name}</span>
        <span class="lreg">${String(l.region).toUpperCase()}</span>
        <span class="lstake num">${cash(l.stake)}</span>
