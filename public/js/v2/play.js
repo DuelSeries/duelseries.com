@@ -108,14 +108,17 @@
   function playChosen() {
     const game = (window.V2Detail && window.V2Detail.game) || 'snake';
     const stake = (window.V2Detail && window.V2Detail.stake);
-    const hit = (window.V2Board ? window.V2Board.lobbies : [])
-      .filter(l => l.game === game)
-      .find(l => Math.abs(l.stake - stake) < 1e-9);
-    if (!hit) {
-      say('No room at that buy-in. Pick one the board is offering.');
-      return;
-    }
-    enter(hit);
+    const rows = (window.V2Board ? window.V2Board.lobbies : [])
+      .filter(l => l.game === game);
+    const hit = rows.find(l => Math.abs(l.stake - stake) < 1e-9);
+    if (hit) { enter(hit); return; }
+    /* The board carries buy-in rungs for snake only. A game with no rungs at
+       all is not a missing room, it is a game that runs on the fixed tiers, so
+       it opens on the free one — and ONLY the free one. The !stake guard is
+       what keeps that true: this path can never reach a paid room, so it
+       cannot stake anything. */
+    if (!rows.length && !stake) { launch(game, { lobbyType: 'free' }); return; }
+    say('No room at that buy-in. Pick one the board is offering.');
   }
 
   function spectate(game) {

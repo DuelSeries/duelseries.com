@@ -1124,7 +1124,10 @@ body.scr-anim { overflow-x:hidden }
 const GAMES=[
  {id:'snake',name:'slither.io',c:['#15251c','#c080ff'],type:'p',real:1,
   d:'Grow by eating, cut other players off, and cash out before somebody cuts you off.'},
- {id:'agar',name:'agar.io',c:['#141f28','#65c8e8'],type:'p',soon:1,
+ /* Playable: the room, the client and the page have all existed for months,
+    the lobby was just still flagging it as unbuilt. It carries no rungs on the
+    board, so it opens at Free and only at Free. */
+ {id:'agar',name:'agar.io',c:['#141f28','#65c8e8'],type:'p',
   d:'Absorb anything smaller than you, split to chase, and stay clear of anything bigger.'},
  {id:'rps',name:'Rock Paper Scissors',c:['#231a26','#b98ad4'],type:'m',soon:1,
   d:'Best of five against a single opponent. Rounds are quick and settlement is instant.'},
