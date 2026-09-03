@@ -128,6 +128,30 @@ header{position:sticky;top:0;z-index:50;background:rgba(16,14,11,.82);
   white-space:nowrap;opacity:0;pointer-events:none;transition:.14s}
 .ni:hover .tip{opacity:1}
 
+/* ── desktop: the same nav, as a left sidebar ────────────────────────────
+   Below 761px this element becomes the fixed bottom bar instead (see the
+   phones block). One element, one route state, two positions, so there is no
+   second navigation component that can drift out of step with the first.
+
+   It lives outside <header> because the header has a backdrop-filter, which
+   would make it the containing block and pin this inside the header. */
+.ni .lbl{display:none}                    /* icon-only unless a sidebar asks for it */
+@media(min-width:761px){
+  :root{--sbw:212px}
+  .nav{position:fixed;left:0;top:0;bottom:0;width:var(--sbw);z-index:40;
+       flex-direction:column;align-items:stretch;gap:3px;border-radius:0;
+       background:var(--bg);border-right:1px solid var(--s2);
+       padding:88px 12px 16px;overflow-y:auto}
+  .ni{width:auto;height:42px;display:flex;align-items:center;justify-content:flex-start;
+      gap:12px;padding:0 12px}
+  .ni svg{flex:none}
+  .ni .lbl{display:block;font-size:13.5px;font-weight:600;letter-spacing:-.1px}
+  .ni .tip{display:none}                  /* the label already says it */
+  /* Everything else clears the sidebar, so the content column centres in what
+     is left rather than in the whole viewport. */
+  body{padding-left:var(--sbw)}
+}
+
 /* ── placeholder screens ────────────────────────────────────────────── */
 #stub{display:none}
 .stub{padding:110px 0 140px;text-align:center}
@@ -806,8 +830,6 @@ body.scr-anim { overflow-x:hidden }
 <header><div class="wrap hd">
   <div class="logo">Duel<em>Series</em></div>
   <div class="sp"></div>
-  <nav class="nav" id="nav"></nav>
-  <div class="sp"></div>
   <!-- Signed out this reads "—", not $0.00: a real zero balance and having no
        wallet at all are very different things to tell someone about money. -->
   <div class="balbox"><span class="k">Balance</span><span class="v num" id="hdr-balance">—</span></div>
@@ -819,6 +841,13 @@ body.scr-anim { overflow-x:hidden }
   </button>
   <div class="av">OK</div>
 </div></header>
+
+<!-- Outside the header on purpose. The header carries a backdrop-filter, which
+     makes it the containing block for any fixed descendant, and this file already
+     records that trapping the nav inside it pinned the bar to the bottom of the
+     header. Desktop styles this as a left sidebar, phones as the bottom bar:
+     one element, one piece of state, two positions. -->
+<nav class="nav" id="nav"></nav>
 
 <!-- ══ HOME ══ -->
 <main id="home" class="wrap">
@@ -2006,7 +2035,7 @@ let route='play';
 function drawNav(){
   document.getElementById('nav').innerHTML=NAV.map(n=>
     `<button class="ni${n.id===route?' on':''}" onclick="go('${n.id}')" aria-label="${n.t}">
-       <svg viewBox="0 0 24 24"><path d="${n.p}"/></svg><span class="tip">${n.t}</span>
+       <svg viewBox="0 0 24 24"><path d="${n.p}"/></svg><span class="lbl">${n.t}</span><span class="tip">${n.t}</span>
      </button>`).join('');
 }
 /* One place that knows which screens exist, so a new one cannot be left
