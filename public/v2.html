@@ -62,7 +62,7 @@
   --fm:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace;
   /* Rail geometry, shared by the card width and the arrow placement so the
      two cannot drift apart. */
-  --gap:18px; --capGap:12px; --capH:40px;
+  --gap:18px; --capGap:10px; --capH:56px;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html{scroll-behavior:smooth}
@@ -230,7 +230,7 @@ h2{font-size:31px;font-weight:700;letter-spacing:-1.1px;line-height:1.1}
    every breakpoint, and the phone value is deliberately fractional so the
    peeking card reads as "there is more" rather than as a cut-off one. */
 .rail{position:relative;overflow:hidden;margin:0 -6px}
-.track{display:flex;gap:var(--gap);padding:6px;--per:4}
+.track{display:flex;gap:var(--gap);padding:6px;--per:8}
 .track.anim{transition:transform .38s cubic-bezier(.4,0,.2,1)}
 .card{flex:0 0 calc((100% - (var(--per) - 1) * var(--gap)) / var(--per));
   display:block;text-align:left;padding:0;cursor:pointer;
@@ -239,7 +239,7 @@ h2{font-size:31px;font-weight:700;letter-spacing:-1.1px;line-height:1.1}
    opened a gap under it and left the name sitting behind. */
 .card:hover{transform:translateY(-4px)}
 .card:focus-visible{outline-offset:5px}
-.art{aspect-ratio:3/2;border-radius:var(--r3);overflow:hidden;position:relative;
+.art{aspect-ratio:3/4;border-radius:var(--r3);overflow:hidden;position:relative;
   background:var(--s1)}
 .art svg,.art canvas{display:block;width:100%;height:100%}
 /* Unbuilt games are drained of colour rather than just faded, so they read as
@@ -250,9 +250,14 @@ h2{font-size:31px;font-weight:700;letter-spacing:-1.1px;line-height:1.1}
 .card.soon .cap h3{color:var(--tx2)}
 /* Fixed caption height keeps every card the same height whatever the name
    length, which is also what lets the arrows sit dead centre on the art. */
-.cap{margin:var(--capGap) 2px 0;min-height:var(--capH)}
-.cap h3{font-size:15.5px;font-weight:600;letter-spacing:-.1px;line-height:1.3}
-.cap .st{display:block;font-size:12.5px;color:var(--tx3);margin-top:3px;line-height:1.3}
+/* A column with the status pushed to the bottom, so a name that wraps to two
+   lines (Rock Paper Scissors) still leaves its player count level with every
+   other card in the row instead of hanging one line lower. */
+.cap{margin:var(--capGap) 2px 0;min-height:var(--capH);
+  display:flex;flex-direction:column}
+.cap h3{font-size:13px;font-weight:600;letter-spacing:-.1px;line-height:1.3}
+.cap .st{display:block;font-size:11px;color:var(--tx3);line-height:1.3;
+  margin-top:auto;padding-top:3px}
 .cap .st em{font-style:normal;color:var(--live)}
 /* Arrows flank the rail rather than sitting in the corner, so they read as
    controls for the games rather than as page chrome. They live outside
@@ -272,9 +277,18 @@ h2{font-size:31px;font-weight:700;letter-spacing:-1.1px;line-height:1.1}
     backdrop-filter:blur(6px)}
   .nb.l{left:-8px} .nb.r{right:-8px}
 }
-@media(max-width:1060px){.track{--per:3}}
-@media(max-width:760px){.track{--per:2}}
-@media(max-width:520px){.track{--per:1.2}}
+/* Eight across is the desktop target. Each step down keeps a WHOLE number of
+   cards in the rail: a fractional card is a card sliced down the middle, and
+   the arrows are what says there is more, not a sliver of the next one. */
+@media(max-width:1060px){.track{--per:6}}
+@media(max-width:760px){.track{--per:4}}
+@media(max-width:520px){
+  .track{--per:3}
+  /* A ~97px card fits the name and one fact, not two. The room count is the
+     one that goes: how many people are in there beats how many empty tables. */
+  :root{--gap:9px; --capH:46px}
+  .cap h3{font-size:11.5px} .cap .st{font-size:10px} .cap .st .op{display:none}
+}
 
 /* ── winners ticker ─────────────────────────────────────────────────── */
 /* Social proof that survives a quiet board: real names and real amounts make
@@ -1058,96 +1072,106 @@ body.scr-anim { overflow-x:hidden }
 <script>
 /* Flat geometric artwork, one scene per game. Drawn rather than iconed:
    emoji or a generic icon set is what makes a games page look unmade. */
+/* Composed PORTRAIT, on a 240x320 box, because that is the shape of a card.
+   They used to be 262x172 landscape, which was right when four wide cards
+   filled the rail. Eight portrait cards crop a landscape composition to its
+   middle 49% — every one of these would have shown a slice of itself with the
+   subject sliced off, so they are re-drawn rather than re-fitted.
+
+   preserveAspectRatio stays "slice" because the same string is also the detail
+   hero (wide) and the lobby-row swatch (square), so each subject is kept near
+   the middle of the box where every one of those three crops still contains
+   it. Flat two-colour shapes throughout: `a` is the ground, `b` the subject. */
 const ART={
- snake:(a,b)=>`<svg viewBox="0 0 262 172" preserveAspectRatio="xMidYMid slice">
-   <rect width="262" height="172" fill="${a}"/>
-   <path d="M-10 128 C40 128 44 74 84 74 C124 74 128 118 168 118 C202 118 206 84 240 84"
-     fill="none" stroke="${b}" stroke-width="21" stroke-linecap="round"/>
-   <circle cx="243" cy="79" r="4.6" fill="#0a0b0d"/><circle cx="240" cy="92" r="4.6" fill="#0a0b0d"/>
-   <circle cx="60" cy="150" r="4" fill="${b}" opacity=".5"/>
-   <circle cx="146" cy="44" r="5" fill="${b}" opacity=".38"/>
-   <circle cx="206" cy="140" r="3.4" fill="${b}" opacity=".45"/></svg>`,
- agar:(a,b)=>`<svg viewBox="0 0 262 172" preserveAspectRatio="xMidYMid slice">
-   <rect width="262" height="172" fill="${a}"/>
-   <circle cx="96" cy="88" r="50" fill="${b}"/>
-   <circle cx="96" cy="88" r="50" fill="none" stroke="#0a0b0d" stroke-width="3" opacity=".22"/>
-   <circle cx="184" cy="56" r="26" fill="${b}" opacity=".72"/>
-   <circle cx="204" cy="122" r="17" fill="${b}" opacity=".5"/>
-   <circle cx="44" cy="34" r="9" fill="${b}" opacity=".4"/>
-   <circle cx="150" cy="146" r="7" fill="${b}" opacity=".34"/></svg>`,
- rps:(a,b)=>`<svg viewBox="0 0 262 172" preserveAspectRatio="xMidYMid slice">
-   <rect width="262" height="172" fill="${a}"/>
-   <circle cx="76" cy="86" r="33" fill="${b}"/>
-   <rect x="106" y="52" width="66" height="68" rx="7" fill="${b}" opacity=".62"/>
-   <path d="M188 54 L226 118 M226 54 L188 118" stroke="${b}" stroke-width="13"
+ snake:(a,b)=>`<svg viewBox="0 0 240 320" preserveAspectRatio="xMidYMid slice">
+   <rect width="240" height="320" fill="${a}"/>
+   <path d="M28 306 C28 250 212 258 212 186 C212 118 78 130 78 66"
+     fill="none" stroke="${b}" stroke-width="32" stroke-linecap="round"/>
+   <circle cx="66" cy="56" r="6" fill="#0a0b0d"/><circle cx="90" cy="58" r="6" fill="#0a0b0d"/>
+   <circle cx="176" cy="76" r="6" fill="${b}" opacity=".45"/>
+   <circle cx="46" cy="150" r="7" fill="${b}" opacity=".36"/>
+   <circle cx="196" cy="286" r="5" fill="${b}" opacity=".42"/></svg>`,
+ agar:(a,b)=>`<svg viewBox="0 0 240 320" preserveAspectRatio="xMidYMid slice">
+   <rect width="240" height="320" fill="${a}"/>
+   <circle cx="110" cy="168" r="68" fill="${b}"/>
+   <circle cx="110" cy="168" r="68" fill="none" stroke="#0a0b0d" stroke-width="4" opacity=".22"/>
+   <circle cx="180" cy="70" r="32" fill="${b}" opacity=".72"/>
+   <circle cx="192" cy="256" r="22" fill="${b}" opacity=".5"/>
+   <circle cx="48" cy="60" r="11" fill="${b}" opacity=".4"/>
+   <circle cx="62" cy="272" r="9" fill="${b}" opacity=".34"/></svg>`,
+ rps:(a,b)=>`<svg viewBox="0 0 240 320" preserveAspectRatio="xMidYMid slice">
+   <rect width="240" height="320" fill="${a}"/>
+   <circle cx="120" cy="76" r="40" fill="${b}"/>
+   <rect x="74" y="134" width="92" height="78" rx="9" fill="${b}" opacity=".62"/>
+   <path d="M82 238 L158 294 M158 238 L82 294" stroke="${b}" stroke-width="16"
      stroke-linecap="round" opacity=".82"/></svg>`,
- knockout:(a,b)=>`<svg viewBox="0 0 262 172" preserveAspectRatio="xMidYMid slice">
-   <rect width="262" height="172" fill="${a}"/>
-   <circle cx="86" cy="86" r="38" fill="${b}"/>
-   <circle cx="182" cy="86" r="27" fill="${b}" opacity=".45"/>
-   <path d="M126 62 L142 86 L126 110" stroke="${a}" stroke-width="7" fill="none"
+ knockout:(a,b)=>`<svg viewBox="0 0 240 320" preserveAspectRatio="xMidYMid slice">
+   <rect width="240" height="320" fill="${a}"/>
+   <circle cx="120" cy="106" r="48" fill="${b}"/>
+   <circle cx="120" cy="238" r="34" fill="${b}" opacity=".45"/>
+   <path d="M96 168 L120 192 L144 168" stroke="${a}" stroke-width="9" fill="none"
      stroke-linecap="round" stroke-linejoin="round"/></svg>`,
- battleship:(a,b)=>`<svg viewBox="0 0 262 172" preserveAspectRatio="xMidYMid slice">
-   <rect width="262" height="172" fill="${a}"/>
-   <g fill="${b}" opacity=".26">${(()=>{let s='';for(let y=0;y<5;y++)for(let x=0;x<8;x++)
-     s+=`<circle cx="${44+x*24}" cy="${42+y*22}" r="3"/>`;return s})()}</g>
-   <rect x="66" y="78" width="120" height="17" rx="8.5" fill="${b}"/>
-   <path d="M186 86 L214 74 L214 98 Z" fill="${b}"/></svg>`,
- tanks:(a,b)=>`<svg viewBox="0 0 262 172" preserveAspectRatio="xMidYMid slice">
-   <rect width="262" height="172" fill="${a}"/>
-   <path d="M40 116 C96 40 172 40 226 108" fill="none" stroke="${b}" stroke-width="3"
-     stroke-dasharray="7 9" opacity=".5"/>
-   <rect x="36" y="116" width="66" height="20" rx="9" fill="${b}"/>
-   <rect x="56" y="102" width="30" height="16" rx="5" fill="${b}"/>
-   <rect x="84" y="104" width="34" height="6" rx="3" fill="${b}"/>
-   <circle cx="222" cy="112" r="9" fill="${b}" opacity=".7"/></svg>`,
- paper:(a,b)=>`<svg viewBox="0 0 262 172" preserveAspectRatio="xMidYMid slice">
-   <rect width="262" height="172" fill="${a}"/>
-   <path d="M52 40 H150 V78 H196 V132 H92 V96 H52 Z" fill="${b}" opacity=".82"/>
-   <path d="M196 132 L228 132 L228 60" fill="none" stroke="${b}" stroke-width="4"
-     stroke-dasharray="6 8" opacity=".55"/>
-   <circle cx="228" cy="60" r="7" fill="${b}"/></svg>`,
+ battleship:(a,b)=>`<svg viewBox="0 0 240 320" preserveAspectRatio="xMidYMid slice">
+   <rect width="240" height="320" fill="${a}"/>
+   <g fill="${b}" opacity=".26">${(()=>{let s='';for(let y=0;y<8;y++)for(let x=0;x<6;x++)
+     s+=`<circle cx="${32+x*35}" cy="${40+y*35}" r="4"/>`;return s})()}</g>
+   <rect x="110" y="104" width="20" height="130" rx="10" fill="${b}"/>
+   <path d="M120 246 L104 276 L136 276 Z" fill="${b}"/></svg>`,
+ tanks:(a,b)=>`<svg viewBox="0 0 240 320" preserveAspectRatio="xMidYMid slice">
+   <rect width="240" height="320" fill="${a}"/>
+   <path d="M56 244 C56 96 184 96 184 232" fill="none" stroke="${b}" stroke-width="4"
+     stroke-dasharray="8 10" opacity=".5"/>
+   <rect x="22" y="244" width="76" height="24" rx="11" fill="${b}"/>
+   <rect x="44" y="226" width="34" height="20" rx="6" fill="${b}"/>
+   <rect x="74" y="228" width="40" height="7" rx="3.5" fill="${b}"/>
+   <circle cx="184" cy="240" r="11" fill="${b}" opacity=".7"/></svg>`,
+ paper:(a,b)=>`<svg viewBox="0 0 240 320" preserveAspectRatio="xMidYMid slice">
+   <rect width="240" height="320" fill="${a}"/>
+   <path d="M48 62 H150 V126 H198 V212 H104 V162 H48 Z" fill="${b}" opacity=".82"/>
+   <path d="M198 212 L198 264 L112 264" fill="none" stroke="${b}" stroke-width="5"
+     stroke-dasharray="7 9" opacity=".55"/>
+   <circle cx="112" cy="264" r="9" fill="${b}"/></svg>`,
  /* Placeholders. Original flat shapes in the same two-colour language as the
     rest, deliberately NOT drawings of the real games' characters or art — a
     card is a reminder that a slot exists, and copying someone's artwork onto a
     public lobby is a different thing entirely. */
- rooftop:(a,b)=>`<svg viewBox="0 0 262 172" preserveAspectRatio="xMidYMid slice">
-   <rect width="262" height="172" fill="${a}"/>
-   <rect x="8" y="98" width="76" height="74" fill="${b}" opacity=".85"/>
-   <rect x="178" y="114" width="76" height="58" fill="${b}" opacity=".85"/>
-   <path d="M92 86 C124 54 150 54 172 94" fill="none" stroke="${b}" stroke-width="3"
-     stroke-dasharray="5 7" opacity=".5"/>
-   <circle cx="196" cy="74" r="15" fill="none" stroke="${b}" stroke-width="3" opacity=".85"/>
-   <path d="M196 55 L196 93 M177 74 L215 74" stroke="${b}" stroke-width="3" opacity=".85"/></svg>`,
- headsoccer:(a,b)=>`<svg viewBox="0 0 262 172" preserveAspectRatio="xMidYMid slice">
-   <rect width="262" height="172" fill="${a}"/>
-   <path d="M188 42 L246 42 L246 146 L188 146" fill="none" stroke="${b}" stroke-width="4" opacity=".55"/>
-   <path d="M206 42 L206 146 M226 42 L226 146 M188 76 L246 76 M188 112 L246 112"
-     stroke="${b}" stroke-width="2" opacity=".26"/>
-   <circle cx="102" cy="102" r="31" fill="${b}"/>
-   <path d="M102 80 L119 94 L112 115 L92 115 L85 94 Z" fill="#0a0b0d" opacity=".4"/>
-   <path d="M30 146 L170 146" stroke="${b}" stroke-width="3" opacity=".4"/></svg>`,
- maze:(a,b)=>`<svg viewBox="0 0 262 172" preserveAspectRatio="xMidYMid slice">
-   <rect width="262" height="172" fill="${a}"/>
-   <g fill="none" stroke="${b}" stroke-width="5" opacity=".8">
-     <rect x="20" y="22" width="58" height="38" rx="6"/>
-     <rect x="102" y="22" width="58" height="38" rx="6"/>
-     <rect x="184" y="22" width="58" height="38" rx="6"/>
-     <rect x="20" y="112" width="58" height="38" rx="6"/>
-     <rect x="102" y="112" width="140" height="38" rx="6"/>
+ rooftop:(a,b)=>`<svg viewBox="0 0 240 320" preserveAspectRatio="xMidYMid slice">
+   <rect width="240" height="320" fill="${a}"/>
+   <rect x="0" y="214" width="98" height="106" fill="${b}" opacity=".85"/>
+   <rect x="146" y="246" width="94" height="74" fill="${b}" opacity=".85"/>
+   <path d="M104 200 C128 156 156 160 178 232" fill="none" stroke="${b}" stroke-width="4"
+     stroke-dasharray="6 8" opacity=".5"/>
+   <circle cx="150" cy="104" r="18" fill="none" stroke="${b}" stroke-width="4" opacity=".85"/>
+   <path d="M150 80 L150 128 M126 104 L174 104" stroke="${b}" stroke-width="4" opacity=".85"/></svg>`,
+ headsoccer:(a,b)=>`<svg viewBox="0 0 240 320" preserveAspectRatio="xMidYMid slice">
+   <rect width="240" height="320" fill="${a}"/>
+   <path d="M40 36 L40 108 L200 108 L200 36" fill="none" stroke="${b}" stroke-width="5" opacity=".55"/>
+   <path d="M40 60 L200 60 M40 84 L200 84 M80 36 L80 108 M120 36 L120 108 M160 36 L160 108"
+     stroke="${b}" stroke-width="2.5" opacity=".26"/>
+   <circle cx="120" cy="196" r="40" fill="${b}"/>
+   <path d="M120 168 L142 186 L134 212 L106 212 L98 186 Z" fill="#0a0b0d" opacity=".4"/>
+   <path d="M28 286 L212 286" stroke="${b}" stroke-width="4" opacity=".4"/></svg>`,
+ maze:(a,b)=>`<svg viewBox="0 0 240 320" preserveAspectRatio="xMidYMid slice">
+   <rect width="240" height="320" fill="${a}"/>
+   <g fill="none" stroke="${b}" stroke-width="6" opacity=".8">
+     <rect x="26" y="34" width="76" height="48" rx="7"/>
+     <rect x="138" y="34" width="76" height="48" rx="7"/>
+     <rect x="26" y="238" width="76" height="48" rx="7"/>
+     <rect x="138" y="238" width="76" height="48" rx="7"/>
    </g>
    <g fill="${b}" opacity=".75">
-     <circle cx="34" cy="86" r="5"/><circle cx="70" cy="86" r="5"/><circle cx="106" cy="86" r="5"/>
-     <circle cx="142" cy="86" r="5"/><circle cx="178" cy="86" r="5"/><circle cx="214" cy="86" r="5"/>
+     <circle cx="120" cy="108" r="6"/><circle cx="120" cy="138" r="6"/>
+     <circle cx="120" cy="168" r="6"/><circle cx="120" cy="198" r="6"/>
+     <circle cx="120" cy="228" r="6"/>
    </g></svg>`,
- stumble:(a,b)=>`<svg viewBox="0 0 262 172" preserveAspectRatio="xMidYMid slice">
-   <rect width="262" height="172" fill="${a}"/>
-   <rect x="0" y="142" width="262" height="30" fill="${b}" opacity=".3"/>
-   <rect x="26" y="98" width="42" height="44" rx="9" fill="${b}" opacity=".9"/>
-   <rect x="92" y="74" width="42" height="68" rx="9" fill="${b}" opacity=".7"/>
-   <g transform="rotate(24 178 94)"><rect x="157" y="72" width="42" height="44" rx="9" fill="${b}"/></g>
-   <circle cx="228" cy="50" r="14" fill="${b}" opacity=".55"/>
-   <path d="M210 130 L244 130" stroke="${b}" stroke-width="4" opacity=".5"/></svg>`,
+ stumble:(a,b)=>`<svg viewBox="0 0 240 320" preserveAspectRatio="xMidYMid slice">
+   <rect width="240" height="320" fill="${a}"/>
+   <rect x="0" y="278" width="240" height="42" fill="${b}" opacity=".3"/>
+   <rect x="24" y="212" width="52" height="66" rx="10" fill="${b}" opacity=".9"/>
+   <rect x="96" y="170" width="52" height="108" rx="10" fill="${b}" opacity=".7"/>
+   <g transform="rotate(24 196 190)"><rect x="170" y="160" width="52" height="60" rx="10" fill="${b}"/></g>
+   <circle cx="60" cy="90" r="17" fill="${b}" opacity=".55"/>
+   <path d="M150 108 L206 108" stroke="${b}" stroke-width="5" opacity=".5"/></svg>`,
 };
 /* slither.io is the only game that is actually playable. Everything else is
    marked soon, which greys the card and takes it out of the tab order. */
@@ -1732,10 +1756,19 @@ function paintSwatch(cv){
    this page is served by the app. Opened straight off disk the script tags
    404, Renderer never constructs, and the canvas would sit there black. Fall
    back to the drawn art in that case so a card is never an empty box. */
-function art(g,w,h,anim,sw){
-  if(!g.real||!R)return ART[g.id](g.c[0],g.c[1]);
+/* meet=1 contains the composition instead of cropping it. The card and the
+   swatch crop happily, but the detail hero is a wide band and the artwork is
+   now a tall portrait, so cropping it there showed a slice of the middle with
+   the subject cut off. Contained, it sits centred; the caller paints the
+   container in the same ground colour the SVG uses, so the letterboxed area
+   is continuous with the artwork rather than a pair of visible bands. */
+function art(g,w,h,anim,sw,meet){
+  if(!g.real||!R){
+    const s=ART[g.id](g.c[0],g.c[1]);
+    return meet?s.replace("xMidYMid slice","xMidYMid meet"):s;
+  }
   return `<canvas data-game="${g.id}"${anim?' data-anim="1"':''}${sw?' data-swatch="1"':''}
-    width="${w||262}" height="${h||172}"
+    width="${w||240}" height="${h||320}"
     style="width:100%;height:100%;display:block"></canvas>`;
 }
 function repaintAll(){
@@ -1823,14 +1856,16 @@ function gstat(g){
   if(!rows.length)return '<span class="st">Checking…</span>';
   const playing=rows.reduce((n,l)=>n+(l.players||0),0);
   const who=playing?`<em><span class="num">${playing}</span> playing</em>`:'Nobody playing yet';
-  return `<span class="st">${who} &nbsp;·&nbsp; <span class="num">${rows.length}</span> open</span>`;
+  /* The room count is wrapped so a narrow card can drop it and keep the
+     player count, which is the half that decides whether to click. */
+  return `<span class="st">${who}<span class="op"> &nbsp;·&nbsp; <span class="num">${rows.length}</span> open</span></span>`;
 }
 /* A playable card is a real button so it can be tabbed to and fired with the
    keyboard. An unbuilt one is not a control at all, so it stays a div rather
    than becoming a button that does nothing. */
 function drawRail(){
   document.getElementById('track').innerHTML=order.map(g=>{
-    const inner=`<div class="art">${art(g,262,172,1)}</div>
+    const inner=`<div class="art">${art(g,240,320,1)}</div>
       <div class="cap"><h3>${g.name}</h3>${gstat(g)}</div>`;
     return g.soon
       ? `<div class="card soon">${inner}</div>`
@@ -1939,7 +1974,9 @@ function open_(id){
      actually offering, not from a fixed amount that may not exist. */
   refreshSteps(id); si=defaultStep();
   showScreen('detail');
-  document.getElementById('dart').innerHTML=art(cur,660,300,1);
+  const dart=document.getElementById('dart');
+  dart.style.background=cur.c[0];
+  dart.innerHTML=art(cur,660,300,1,0,1);
   document.getElementById('dname').textContent=cur.name;
   document.getElementById('ddesc').textContent=cur.d;
   /* Both figures come off the live board, so the detail screen and the card
