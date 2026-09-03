@@ -228,6 +228,26 @@ h2{font-size:31px;font-weight:700;letter-spacing:-1.1px;line-height:1.1}
 .head .more{font-size:13px;color:var(--tx2);padding:6px 0}
 .head .more:hover{color:var(--tx)}
 
+/* The button that opens every game at once. Sits at the end of the Games
+   header, opposite the heading, where the "See all" link sits on every other
+   section — same position, more weight, because this one is the only way to
+   reach a screen rather than a shortcut to more of what is already shown. */
+.head .allbtn{display:inline-flex;align-items:center;gap:7px;
+  font-size:13px;font-weight:600;color:var(--tx);
+  background:var(--s2);border-radius:var(--r2);padding:9px 14px;
+  transition:background .15s,color .15s}
+.head .allbtn:hover{background:var(--bone);color:var(--ink)}
+
+/* Every game, laid out rather than scrolled. auto-fill rather than a fixed
+   count so the row width follows the column the sidebar leaves behind. */
+.gamegrid{display:grid;gap:var(--gap);padding:2px 0 70px;
+  grid-template-columns:repeat(auto-fill,minmax(148px,1fr))}
+.gamegrid .card{flex:none}
+@media(max-width:520px){
+  .gamegrid{grid-template-columns:repeat(3,1fr);gap:9px;padding-bottom:30px}
+  .head .allbtn{font-size:12px;padding:8px 11px}
+}
+
 /* ── game rail ──────────────────────────────────────────────────────── */
 /* Card width is derived from the rail, never fixed. A fixed 262px card left
    3.67 of them visible in a 1028px rail, so the fourth was always sliced
@@ -555,7 +575,7 @@ body.ingame .tkrun{animation-play-state:paused}
 }
 
 /* ── detail ─────────────────────────────────────────────────────────── */
-#detail{display:none}
+#detail,#allgames{display:none}
 .back{font-size:13px;color:var(--tx2);padding:26px 0 0;display:inline-block}
 .back:hover{color:var(--tx)}
 /* The right column stretches to the left column's height and the look box is
@@ -564,7 +584,15 @@ body.ingame .tkrun{animation-play-state:paused}
 .hero{display:grid;grid-template-columns:1fr 330px;gap:40px;margin-top:22px;align-items:stretch}
 .hero>div:last-child{display:flex;flex-direction:column}
 .hero .look{margin-top:auto}
-.hart{height:300px;border-radius:var(--r3);overflow:hidden}
+/* The paintings are tall and this banner is wide, so covering it cropped them
+   to a middle band and containing them left two dead bars either side. Instead
+   the artwork is shown WHOLE and centred, on a blurred, darkened blow-up of
+   itself — the bars fill with the picture's own colour, and nothing is cut. */
+.hart{height:300px;border-radius:var(--r3);overflow:hidden;position:relative}
+.hart .hbg{position:absolute;inset:0;background-size:cover;background-position:center;
+  filter:blur(30px) brightness(.45) saturate(1.2);transform:scale(1.2)}
+.hart .hfront{position:relative;display:block;height:100%;width:auto;margin:0 auto;
+  object-fit:contain}
 .hart svg,.hart .gart{display:block;width:100%;height:100%;object-fit:cover}
 .hero h1{font-size:34px;font-weight:650;letter-spacing:-1px}
 .hero .desc{font-size:14.5px;color:var(--tx2);line-height:1.7;margin-top:10px}
@@ -658,6 +686,11 @@ body.ingame .tkrun{animation-play-state:paused}
 .ap-save-btn:active{transform:translateX(-50%);opacity:.85}
 .ap-name{position:absolute;left:50%;top:calc(50% + 182px);transform:translateX(-50%);
   font-size:13px;color:var(--tx3);white-space:nowrap}
+/* Shown only where the arrows are not, because a gesture with nothing on
+   screen to suggest it is a gesture nobody finds. */
+.ap-hint{display:none;position:absolute;left:50%;top:calc(96px + env(safe-area-inset-top));
+  transform:translateX(-50%);font-size:12px;color:var(--tx3);white-space:nowrap;
+  pointer-events:none;z-index:54}
 
 .how{margin:64px 0 0}
 .hg{display:grid;grid-template-columns:repeat(auto-fit,minmax(216px,1fr));gap:30px;margin-top:22px}
@@ -806,6 +839,13 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
   .tile .v{font-size:25px}
   .panel{padding:18px 16px}
   .apscreen .ap-header{padding-top:calc(14px + env(safe-area-inset-top))}
+  /* The arrows were 87px of artwork each on a 375px screen, sitting either
+     side of a four-pixel snake. The gesture replaces them: drag up or down and
+     the list turns, wrapping at both ends so it never dead-ends. */
+  .ap-arrow{display:none}
+  .ap-save-btn{top:auto;bottom:calc(96px + env(safe-area-inset-bottom))}
+  .ap-name{top:auto;bottom:calc(56px + env(safe-area-inset-bottom))}
+  .ap-hint{display:block}
 }
 @media(max-width:400px){
   .tiles{grid-template-columns:1fr}
@@ -905,7 +945,16 @@ body.scr-anim { overflow-x:hidden }
 <!-- ══ HOME ══ -->
 <main id="home" class="wrap">
   <div class="head">
-    <div><h2>Games</h2><div class="sub" id="gsub"></div></div>
+    <div><h2>Games</h2></div>
+    <div class="sp"></div>
+    <button type="button" class="allbtn" onclick="showAllGames()">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/>
+        <rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>
+      </svg>
+      View all games
+    </button>
   </div>
   <div class="railwrap">
     <button class="nb l" onclick="spin(-1)" aria-label="Previous games">&#8249;</button>
@@ -932,9 +981,19 @@ body.scr-anim { overflow-x:hidden }
        there is something real to put in it. -->
 </main>
 
+<!-- ══ ALL GAMES ══ -->
+<!-- Every game at once, which the rail cannot do: the rail is a row you push
+     through, and past about eight cards it stops being a way to find a
+     particular game and becomes a way to lose one. -->
+<main id="allgames" class="wrap">
+  <a class="back" href="#" onclick="goHome();return false">&#8592; &nbsp;Home</a>
+  <div class="head"><div><h2>All games</h2></div></div>
+  <div class="gamegrid" id="ggrid"></div>
+</main>
+
 <!-- ══ DETAIL ══ -->
 <main id="detail" class="wrap">
-  <a class="back" href="#" onclick="goHome();return false">&#8592; &nbsp;All games</a>
+  <a class="back" href="#" onclick="goBack();return false">&#8592; &nbsp;Back</a>
   <div class="hero">
     <div>
       <div class="hart" id="dart"></div>
@@ -1072,6 +1131,7 @@ body.scr-anim { overflow-x:hidden }
       <img src="/img/skin-next.png" width="87" height="88" alt="" draggable="false">
     </button>
   </div>
+  <div class="ap-hint">Swipe up or down to change skin</div>
   <div class="ap-save-row">
     <button class="ap-save-btn" onclick="closeLook(true)"><span>&nbsp;Save&nbsp;</span></button>
     <div class="ap-name num" id="lookname"></div>
@@ -1584,14 +1644,20 @@ let lookT=0;
    25.6% of the width long and radius about 1.25% of it. The lobby box uses
    that file's other call, spanFrac .19 / ampFrac .13 with the default
    radius rule. */
+/* Every fraction here is of the canvas WIDTH, which is why the big preview
+   collapsed on a phone: 0.0125 of 375px is a four-pixel snake. bigph is the
+   same picture solved for a narrow screen instead of a wide one. */
 const LOOK_CFG={
-  mini:{N:80,spanFrac:0.19, ampFrac:0.13,  radiusFrac:null},
-  big: {N:80,spanFrac:0.128,ampFrac:0.022, radiusFrac:0.0125},
+  mini: {N:80,spanFrac:0.19, ampFrac:0.13,  radiusFrac:null},
+  big:  {N:80,spanFrac:0.128,ampFrac:0.022, radiusFrac:0.0125},
+  bigph:{N:80,spanFrac:0.34, ampFrac:0.055, radiusFrac:0.055},
 };
+const PHONE_MQ=matchMedia('(max-width:520px)');
 function paintLook(cv){
   if(!R)return;
   fit(cv);
-  const cfg=LOOK_CFG[cv.dataset.look]||LOOK_CFG.mini;
+  const key=cv.dataset.look;
+  const cfg=LOOK_CFG[(key==='big'&&PHONE_MQ.matches)?'bigph':key]||LOOK_CFG.mini;
   const w=cv.width,h=cv.height,N=cfg.N;
   R.canvas=cv; R.ctx=cv.getContext('2d');
   R._canvasW=w; R._canvasH=h; R._dpr=1;
@@ -1641,6 +1707,25 @@ function cycleLook(d){
   lookIx=(lookIx+d+LOOKS.length)%LOOKS.length;
   lookMeta();
 }
+/* One skin per STEP px of travel, counted from the last change rather than
+   from where the finger started, so a long continuous drag keeps turning the
+   list instead of moving it once. Wraps, because cycleLook is modular. */
+(function(){
+  const STEP=46; let y=null;
+  const veil=()=>document.getElementById('lookveil');
+  addEventListener('touchstart',e=>{
+    const v=veil(); if(!v||!v.classList.contains('on')||!PHONE_MQ.matches)return;
+    if(e.target.closest('.ap-save-btn,.ap-back-btn'))return;   // taps stay taps
+    y=e.changedTouches[0].clientY;
+  },{passive:true});
+  addEventListener('touchmove',e=>{
+    if(y===null)return;
+    const ny=e.changedTouches[0].clientY, dy=ny-y;
+    if(Math.abs(dy)>=STEP){ cycleLook(dy<0?1:-1); y=ny; }
+  },{passive:true});
+  addEventListener('touchend',()=>{y=null},{passive:true});
+  addEventListener('touchcancel',()=>{y=null},{passive:true});
+})();
 function lookMeta(){
   document.getElementById('lookname').textContent=
     LOOKS[lookIx].name+'  '+(lookIx+1)+' / '+LOOKS.length;
@@ -1715,6 +1800,13 @@ function paintSwatch(cv){
 function art(g){
   if(g.noart)return `<div class="gart noart" style="background:${g.c[0]}"></div>`;
   return `<img class="gart" src="/img/games/${g.id}.png" alt="" draggable="false">`;
+}
+/* The detail banner, which is the one place the picture is shown whole. */
+function heroArt(g){
+  if(g.noart)return `<div class="gart noart" style="background:${g.c[0]}"></div>`;
+  const src='/img/games/'+g.id+'.png';
+  return `<div class="hbg" style="background-image:url('${src}')"></div>`+
+         `<img class="hfront" src="${src}" alt="" draggable="false">`;
 }
 function repaintAll(){
   SCENES.clear();
@@ -1810,8 +1902,6 @@ const RAIL_COPIES=3;
 const railEl=()=>document.querySelector('.rail');
 function drawRail(){
   document.getElementById('track').innerHTML=order.map(cardHTML).join('').repeat(RAIL_COPIES);
-  const n=GAMES.filter(g=>!g.soon).length;
-  document.getElementById('gsub').textContent=n+' playable now, '+(GAMES.length-n)+' in development';
   repaintAll();
   /* Synchronous, not on an animation frame: rAF does not fire in a background
      tab, so a lobby opened in one would never leave the first copy and the
@@ -1939,6 +2029,9 @@ function drawTicker(){
    page, which is a CSS behaviour and unchanged. */
 
 function open_(id){
+  const from=SCREENS.map(s=>document.getElementById(s))
+                    .find(el=>el&&getComputedStyle(el).display!=='none');
+  _cameFrom=(from&&from.id==='allgames')?'allgames':'home';
   cur=G(id);
   /* Steps first: the default buy-in has to be chosen from what the board is
      actually offering, not from a fixed amount that may not exist. */
@@ -1946,7 +2039,7 @@ function open_(id){
   showScreen('detail');
   const dart=document.getElementById('dart');
   dart.style.background=cur.c[0];
-  dart.innerHTML=art(cur);
+  dart.innerHTML=heroArt(cur);
   document.getElementById('dname').textContent=cur.name;
   document.getElementById('ddesc').textContent=cur.d;
   /* Both figures come off the live board, so the detail screen and the card
@@ -1981,6 +2074,18 @@ function open_(id){
   drawStake(); drawSkins(); repaintAll(); jumpToTop();
 }
 function goHome(dir){showScreen('home',dir);jumpToTop()}
+/* The grid is built on open rather than at load: it is the same thirteen cards
+   the rail already holds, and building both up front doubles the artwork on a
+   screen most visits never reach. */
+function showAllGames(){
+  document.getElementById('ggrid').innerHTML=GAMES.map(cardHTML).join('');
+  showScreen('allgames');
+  jumpToTop();
+}
+/* Detail is reachable from the rail and from the grid, so its back link has to
+   return to whichever one was used rather than always to home. */
+let _cameFrom='home';
+function goBack(){showScreen(_cameFrom);jumpToTop()}
 
 function drawStake(){
   const v=STEPS[si], el=document.getElementById('sv');
@@ -2007,7 +2112,7 @@ Object.defineProperty(window,'route',{get:()=>route});
 /* ── section nav ─────────────────────────────────────────────────────────
    Placeholder routing. Each icon swaps the screen; only Play is built. */
 const NAV=[
- {id:'play',   t:'Play',    d:'',
+ {id:'play',   t:'Home',    d:'',
   p:'M3 10.2 12 3l9 7.2V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z'},
  {id:'wallet', t:'Wallet',  d:'Deposits, withdrawals and your transaction history.',
   p:'M3 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2H5a2 2 0 0 1-2-2m14 6h.01'},
@@ -2048,7 +2153,7 @@ function drawNav(){
 /* One place that knows which screens exist, so a new one cannot be left
    showing underneath another. The player profile has no nav slot of its
    own: it is reached from the board and keeps Social lit while it is up. */
-const SCREENS=['home','detail','stub','stub2','wallet-screen','stats-screen',
+const SCREENS=['home','allgames','detail','stub','stub2','wallet-screen','stats-screen',
                'social-screen','player-screen'];
 /* dir: +1 the new screen arrives from the right (you swiped forward), -1 from
    the left, 0 or omitted for no animation. Taps on the nav pass 0 on purpose:

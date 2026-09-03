@@ -55,7 +55,7 @@
   const EXEMPT = '.chartbox, .apscreen, #game-frame';
 
   const TABS = ['play', 'wallet', 'stats', 'social', 'locker', 'settings'];
-  const SCREEN_IDS = ['home', 'detail', 'stub', 'stub2', 'wallet-screen',
+  const SCREEN_IDS = ['home', 'allgames', 'detail', 'stub', 'stub2', 'wallet-screen',
                       'stats-screen', 'social-screen', 'player-screen'];
 
   let x0 = 0, y0 = 0, t0 = 0, from = null;
