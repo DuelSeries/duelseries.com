@@ -24,9 +24,6 @@
    and a click-drag on a desktop is a text selection, not a swipe. */
 
 (function () {
-  const RAIL_MIN_X = 55;    // rail flicks stay discrete: this far, or nothing
-  const RAIL_RATIO = 1.6;
-  const RAIL_MAX_MS = 700;
 
   const CLAIM_PX = 12;      // horizontal travel before the drag owns the gesture
   const CLAIM_RATIO = 1.2;  // and it must be this much more horizontal than not
@@ -304,16 +301,13 @@
     if (!tracking) return;
     tracking = false;
 
-    /* No drag was claimed, so this can still be a rail flick. */
-    const t = (e.changedTouches && e.changedTouches[0]);
-    if (!t) return;
-    const dx = t.clientX - x0, dy = t.clientY - y0, dt = Date.now() - t0;
-    if (dt > RAIL_MAX_MS) return;
-    if (Math.abs(dx) < RAIL_MIN_X) return;
-    if (Math.abs(dx) < Math.abs(dy) * RAIL_RATIO) return;
-    const src = from && from.closest ? from : null;
-    if (!src || !src.closest('.railwrap')) return;
-    if (window.spin) window.spin(dx < 0 ? 1 : -1);
+    /* The rail used to need a synthetic flick here, because it was a transform
+       that could only be stepped one card at a time. It is a real scroll
+       container now, so the browser handles the flick itself, with momentum
+       and at whatever speed the finger actually moved. Calling spin() as well
+       would have added a card on top of the distance the scroll already
+       covered. onMove still leaves rail touches alone, so a sideways drag
+       there scrolls the rail instead of changing tab. */
   }
 
   function onCancel() {

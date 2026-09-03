@@ -96,7 +96,12 @@ a{color:inherit;text-decoration:none}
   *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;
     transition-duration:.01ms!important}
 }
+/* The column is capped so text lines stay readable, but on a big monitor a
+   1080px strip left the whole page looking shrunk into the middle. It grows
+   in two steps instead, which mostly shows up as bigger game cards. */
 .wrap{max-width:1080px;margin:0 auto;padding:0 32px}
+@media(min-width:1500px){.wrap{max-width:1380px}}
+@media(min-width:2000px){.wrap{max-width:1620px}}
 .num{font-family:var(--fm);font-variant-numeric:tabular-nums;letter-spacing:-.01em}
 
 /* ── header ─────────────────────────────────────────────────────────── */
@@ -229,10 +234,20 @@ h2{font-size:31px;font-weight:700;letter-spacing:-1.1px;line-height:1.1}
    down the middle. Deriving the width from --per makes a whole number fit at
    every breakpoint, and the phone value is deliberately fractional so the
    peeking card reads as "there is more" rather than as a cut-off one. */
-.rail{position:relative;overflow:hidden;margin:0 -6px}
+/* A real scroll container, not a transform stepped one card at a time. Native
+   scrolling is what lets a finger swipe carry with momentum and lets the
+   arrows be spammed, because each press just moves the scroll target instead
+   of waiting out an animation behind a busy flag. */
+.rail{position:relative;margin:0 -6px;
+  overflow-x:auto;overflow-y:hidden;
+  scroll-snap-type:x mandatory;scroll-padding-left:6px;
+  overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch;
+  scrollbar-width:none;-ms-overflow-style:none}
+.rail::-webkit-scrollbar{display:none}
 .track{display:flex;gap:var(--gap);padding:6px;--per:8}
 .track.anim{transition:transform .38s cubic-bezier(.4,0,.2,1)}
 .card{flex:0 0 calc((100% - (var(--per) - 1) * var(--gap)) / var(--per));
+  scroll-snap-align:start;
   display:block;text-align:left;padding:0;cursor:pointer;
   transition:transform .22s cubic-bezier(.4,0,.2,1)}
 /* The whole card lifts, artwork and label together. Lifting only the art
@@ -283,11 +298,25 @@ h2{font-size:31px;font-weight:700;letter-spacing:-1.1px;line-height:1.1}
 @media(max-width:1060px){.track{--per:6}}
 @media(max-width:760px){.track{--per:4}}
 @media(max-width:520px){
-  .track{--per:3}
+  /* Four card widths: three whole cards with a half of the next showing past
+     each edge, so the row reads as something you can push rather than as a
+     list that happens to end at the screen. */
+  .track{--per:4}
   /* A ~97px card fits the name and one fact, not two. The room count is the
      one that goes: how many people are in there beats how many empty tables. */
   :root{--gap:9px; --capH:46px}
   .cap h3{font-size:11.5px} .cap .st{font-size:10px} .cap .st .op{display:none}
+  /* Smaller, tucked into the very edge and sitting on a fade rather than
+     square on top of a card. They cover the half card that is already only
+     half there, instead of covering a whole one. */
+  .nb{width:32px;height:32px;font-size:14px}
+  .nb.l{left:0} .nb.r{right:0}
+  /* Full height, so the half card's NAME fades out too. Clipped at the art
+     band only, the peeking captions were cut mid-word at a hard edge. */
+  .railwrap::before,.railwrap::after{content:"";position:absolute;top:0;bottom:0;
+    width:54px;z-index:5;pointer-events:none}
+  .railwrap::before{left:0;background:linear-gradient(90deg,var(--bg),transparent)}
+  .railwrap::after{right:0;background:linear-gradient(270deg,var(--bg),transparent)}
 }
 
 /* ── winners ticker ─────────────────────────────────────────────────── */
@@ -1235,7 +1264,7 @@ function defaultStep(){
   const paid=STEPS.findIndex(v=>v>0);
   return paid>=0?paid:0;
 }
-let si=3, cur=null, order=GAMES.slice(), busy=false;
+let si=3, cur=null, order=GAMES.slice();
 
 const cash=v=>v===0?'Free':'$'+v.toFixed(2);
 const G=id=>GAMES.find(x=>x.id===id);
@@ -1863,38 +1892,89 @@ function gstat(g){
 /* A playable card is a real button so it can be tabbed to and fired with the
    keyboard. An unbuilt one is not a control at all, so it stays a div rather
    than becoming a button that does nothing. */
+function cardHTML(g){
+  const inner=`<div class="art">${art(g,240,320,1)}</div>
+    <div class="cap"><h3>${g.name}</h3>${gstat(g)}</div>`;
+  return g.soon
+    ? `<div class="card soon">${inner}</div>`
+    : `<button type="button" class="card" onclick="open_('${g.id}')">${inner}</button>`;
+}
+/* The list is rendered three times over. That is what keeps the rail endless
+   now that it scrolls natively: sitting in the middle copy there is always a
+   card past both edges, so a half card peeks on the left and the right at
+   every resting position — including the first one, which a finite list
+   cannot do because nothing exists before its first card. When the scroll
+   drifts into an outer copy it is rewound by exactly one copy's width, which
+   lands on identical pixels, so the rewind is invisible. */
+const RAIL_COPIES=3;
+const railEl=()=>document.querySelector('.rail');
 function drawRail(){
-  document.getElementById('track').innerHTML=order.map(g=>{
-    const inner=`<div class="art">${art(g,240,320,1)}</div>
-      <div class="cap"><h3>${g.name}</h3>${gstat(g)}</div>`;
-    return g.soon
-      ? `<div class="card soon">${inner}</div>`
-      : `<button type="button" class="card" onclick="open_('${g.id}')">${inner}</button>`;
-  }).join('');
+  document.getElementById('track').innerHTML=order.map(cardHTML).join('').repeat(RAIL_COPIES);
   const n=GAMES.filter(g=>!g.soon).length;
   document.getElementById('gsub').textContent=n+' playable now, '+(GAMES.length-n)+' in development';
   repaintAll();
+  /* Synchronous, not on an animation frame: rAF does not fire in a background
+     tab, so a lobby opened in one would never leave the first copy and the
+     rail would sit at a hard left edge until it was looked at. */
+  railHome();
 }
-/* Measured, not assumed. Cards are sized off the rail now, so a hardcoded
-   step would slide by the wrong distance at every breakpoint but one. */
+/* Measured, not assumed. Cards are sized off the rail, so a hardcoded step
+   would slide by the wrong distance at every breakpoint but one. */
 function cardStep(){
   const t=document.getElementById('track'), c=t.querySelector('.card');
   if(!c)return 280;
   return c.getBoundingClientRect().width+(parseFloat(getComputedStyle(t).columnGap)||18);
 }
+const copyWidth=()=>cardStep()*order.length;
+/* Half a card of inset, so a snapped card leaves half of its neighbour showing
+   on the left. The right-hand peek then falls out of the arithmetic: the rail
+   is a whole number of cards wide plus the two halves.
+
+   Phones only. On a desktop the ask is eight WHOLE cards between the arrows,
+   and insetting by half a card there would show seven and two slivers. */
+const PEEK_MQ=matchMedia('(max-width:520px)');
+function railPeek(){
+  if(!PEEK_MQ.matches)return 0;
+  const c=document.querySelector('#track .card');
+  return c?c.getBoundingClientRect().width/2:0;
+}
+PEEK_MQ.addEventListener('change',()=>setTimeout(railHome,0));
+function railHome(){
+  const r=railEl(); if(!r)return;
+  r.style.scrollPaddingLeft=(6+railPeek())+'px';
+  const prev=r.style.scrollBehavior; r.style.scrollBehavior='auto';
+  r.scrollLeft=copyWidth()-railPeek();      /* start of the middle copy */
+  r.style.scrollBehavior=prev;
+}
+/* Rewound only once the scroll has settled. Doing it mid-flight would move the
+   ground under a smooth scroll that is still animating toward an absolute
+   position, and the rail would visibly jump backwards. */
+let _railT=0;
+function railWrap(){
+  const r=railEl(), L=copyWidth(); if(!r||!L)return;
+  const prev=r.style.scrollBehavior; r.style.scrollBehavior='auto';
+  if(r.scrollLeft<L*0.5)r.scrollLeft+=L;
+  else if(r.scrollLeft>L*1.5)r.scrollLeft-=L;
+  r.style.scrollBehavior=prev;
+}
+/* Attached now rather than on DOMContentLoaded. The rail markup is above this
+   script, so it already exists, and waiting for an event that may have already
+   fired left the rewind silently unbound and the rail able to run off its end. */
+(function(){
+  const r=railEl(); if(!r)return;
+  r.addEventListener('scroll',()=>{
+    clearTimeout(_railT); _railT=setTimeout(railWrap,140);
+  },{passive:true});
+  addEventListener('resize',()=>{clearTimeout(_railT);_railT=setTimeout(railHome,160)});
+  /* Late-loading artwork can change the card box after the first pass. */
+  addEventListener('load',()=>setTimeout(railHome,0));
+})();
+/* One card per press, and pressing again while the last one is still gliding
+   just adds to the target — which is the whole point of dropping the old
+   busy flag, since that swallowed every press inside its 380ms window. */
 function spin(d){
-  if(busy)return; busy=true;
-  const t=document.getElementById('track'), w=cardStep();
-  if(d>0){
-    t.classList.add('anim'); t.style.transform=`translateX(${-w}px)`;
-    setTimeout(()=>{order.push(order.shift());t.classList.remove('anim');
-      t.style.transform='';drawRail();busy=false},380);
-  }else{
-    order.unshift(order.pop()); drawRail();
-    t.style.transform=`translateX(${-w}px)`;
-    requestAnimationFrame(()=>{t.classList.add('anim');t.style.transform='';
-      setTimeout(()=>{t.classList.remove('anim');busy=false},380)});
-  }
+  const r=railEl(); if(!r)return;
+  r.scrollBy({left:d*cardStep(),behavior:'smooth'});
 }
 
 /* The board itself lives in public/js/v2/board.js and reads /api/live. These
@@ -1909,7 +1989,7 @@ window.repaintAll=repaintAll;
    still scenes on every ten-second poll. */
 window.V2_REFRESH_CARDS=function(){
   document.querySelectorAll('#track .card').forEach((c,i)=>{
-    const g=order[i], st=c.querySelector('.st');
+    const g=order[i%order.length], st=c.querySelector('.st');
     if(g&&st)st.outerHTML=gstat(g);
   });
 };
