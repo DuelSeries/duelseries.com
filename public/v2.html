@@ -254,7 +254,10 @@ h2{font-size:31px;font-weight:700;letter-spacing:-1.1px;line-height:1.1}
    opened a gap under it and left the name sitting behind. */
 .card:hover{transform:translateY(-4px)}
 .card:focus-visible{outline-offset:5px}
-.art{aspect-ratio:3/4;border-radius:var(--r3);overflow:hidden;position:relative;
+/* 2:3, not 3:4. The paintings run about 0.65 wide-to-tall (median of the
+   thirteen), so a 3:4 card cover-cropped 12.6% off their height on average and
+   38% off the worst one. At 2:3 that falls to 5.4%. */
+.art{aspect-ratio:2/3;border-radius:var(--r3);overflow:hidden;position:relative;
   background:var(--s1)}
 /* Cover, not fill: the files are not all the same shape, so stretching one to
    the box would squash it. Centre-cropped is the only honest fit. */
@@ -1137,12 +1140,12 @@ const GAMES=[
   d:'Fire up the line, take the targets before they reach you, and keep the streak alive.'},
  {id:'swim',name:'Swim',c:['#141a16','#8fd06a'],type:'p',soon:1,
   d:'Pick your gap in moving traffic and cross without touching anything.'},
- /* noart: no painting exists for these two yet, so the card is a plain block
-    in the game's own colour rather than a broken image. Drop the flag the
-    moment public/img/games/<id>.png lands and nothing else has to change. */
- {id:'maze',name:'Pac Man',c:['#1a1726','#e8c860'],type:'p',soon:1,noart:1,
+ /* Every game here has a painting. A new one added before its art exists can
+    carry noart:1 and render as a plain block in its own colour instead of a
+    broken image; drop the flag when public/img/games/<id>.png lands. */
+ {id:'maze',name:'Pac Man',c:['#1a1726','#e8c860'],type:'p',soon:1,
   d:'Clear the maze before whatever is chasing you closes off the last exit.'},
- {id:'stumble',name:'Stumble Guys',c:['#191d26','#7fb0e0'],type:'p',soon:1,noart:1,
+ {id:'stumble',name:'Stumble Guys',c:['#191d26','#7fb0e0'],type:'p',soon:1,
   d:'A crowd, an obstacle course, and physics that are on nobody’s side.'},
 ];
 /* The lobby list is real now: V2Board polls /api/live. The hand-written rows
