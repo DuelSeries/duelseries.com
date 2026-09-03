@@ -235,7 +235,7 @@ class Renderer {
     this._dtSec = Math.min(dt || 16.67, 50) / 1000;
     this._frameNo = (this._frameNo || 0) + 1;
     if (this._frameNo % 600 === 0) {
-      for (const m of [this._boostPhase, this._headAng]) {
+      for (const m of [this._boostPhase, this._headAng, this._pupil]) {
         if (m) for (const [id, e] of m) if (this._frameNo - e.seen > 300) m.delete(id);
       }
     }
@@ -730,6 +730,27 @@ class Renderer {
     }
   }
 
+  /* Their pupils ease into the look direction rather than snapping to it: the
+     offset creeps toward its target at a fixed rate, so a full swing takes about
+     110ms whatever the snake's size, because their target and their rate are
+     both in the same unscaled units. In eye radii the reach is pma/er = 0.383
+     and the rate works out at 3.47 per second. Setting it directly, as this used
+     to, makes the eyes flick. */
+  _pupilOffset(snake, tx, ty) {
+    const MAX = 0.383, RATE = 3.47;
+    const store = this._pupil || (this._pupil = new Map());
+    let e = store.get(snake.id);
+    if (!e) { e = { x: tx * MAX, y: ty * MAX, seen: 0 }; store.set(snake.id, e); }
+    e.seen = this._frameNo;
+    const gx = tx * MAX, gy = ty * MAX;
+    const step = RATE * (this._dtSec || 0.0167);
+    const dx = gx - e.x, dy = gy - e.y;
+    const d = Math.hypot(dx, dy);
+    if (d <= step || d < 1e-6) { e.x = gx; e.y = gy; }
+    else { e.x += dx / d * step; e.y += dy / d * step; }
+    return e;
+  }
+
   /* The angle the HEAD is drawn at, which in slither.io is deliberately not the
      angle the snake is travelling at. Two differences, and together they are why
      their head reads as a separate thing that leads and cants into a turn rather
@@ -901,15 +922,20 @@ class Renderer {
     }
 
     // ── Eyes ──────────────────────────────────────────────────────────────────
-    // Matched to slither.io's setSkin defaults, as fractions of the body radius
-    // (their er 6, pr 3.5, ed 6, esp 6 used as esp+0.5, pma 2.3, over a 14.5
-    // body radius). Their eye whites sit at 75% alpha (o.eca), not solid white.
-    const eyeR    = HR * 0.414;
-    const pupilR  = eyeR * 0.583;
-    const eyeSide = HR * 0.448;
-    const eyeFwd  = HR * 0.414;
+    /* slither's setSkin defaults for the standard skin, over their 14.5 body
+       radius: er 6, pr 3.5, ed 6, esp 6, pma 2.3, eca 0.75, ppa 1, pupil black,
+       eo 0 so no outline. */
+    const eyeR   = HR * 0.414;                 // er 6 / 14.5
+    const pupilR = eyeR * 0.583;               // pr 3.5 / er 6
+    const eyeFwd = HR * 0.414;                 // ed 6 / 14.5
+    /* Their side offset is esp * scale + 0.5, and the 0.5 is added AFTER the
+       scale multiply, so it is a constant in world units and not a scaled one.
+       Against our body radius that is 0.414 + 0.0345/scale: 0.448 at spawn,
+       tightening as the snake grows. A flat 0.448 left the eyes about 5% too far
+       apart by scale 3. */
+    const eyeSide = HR * (0.414 + 0.0345 / growthScale);
 
-    // Pupils follow mouse for local player, movement direction for others
+    // Pupils follow the mouse for the local player, the heading for everyone else
     let pupilFwdX = fwdX, pupilFwdY = fwdY;
     if (isMe && this._mousePos) {
       const wm = this.camera.screenToWorld(this._mousePos.x, this._mousePos.y, this._canvasW, this._canvasH);
@@ -917,17 +943,18 @@ class Renderer {
       pupilFwdX = Math.cos(pa);
       pupilFwdY = Math.sin(pa);
     }
+    const pup = this._pupilOffset(snake, pupilFwdX, pupilFwdY);
 
     for (const side of [-1, 1]) {
       const ex = hx + fwdX * eyeFwd + perpX * eyeSide * side;
       const ey = hy + fwdY * eyeFwd + perpY * eyeSide * side;
-      ctx.globalAlpha = 0.75;                 // slither's o.eca
+      ctx.globalAlpha = 0.75;                  // eca, the whites are not solid
       ctx.beginPath(); ctx.arc(ex, ey, eyeR, 0, Math.PI * 2);
       ctx.fillStyle = '#FFFFFF'; ctx.fill();
-      ctx.globalAlpha = 1;                    // o.ppa — pupils stay solid
-      const ps = eyeR * 0.383;                // o.pma / o.er
-      ctx.beginPath(); ctx.arc(ex + pupilFwdX * ps, ey + pupilFwdY * ps, pupilR, 0, Math.PI * 2);
-      ctx.fillStyle = '#060606'; ctx.fill();
+      ctx.globalAlpha = 1;                     // ppa, pupils stay solid
+      ctx.beginPath();
+      ctx.arc(ex + pup.x * eyeR, ey + pup.y * eyeR, pupilR, 0, Math.PI * 2);
+      ctx.fillStyle = '#000000'; ctx.fill();  // ppc, pure black not near-black
     }
 
     // ── Labels ────────────────────────────────────────────────────────────────

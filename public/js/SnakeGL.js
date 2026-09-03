@@ -67,7 +67,7 @@ const SNAKEGL_CURVE_SUB    = 4;       // spline steps per body point when stampi
    times over. This is their idea applied along the body rather than a literal
    port of their per-point timer, because their fade rate depends on how often
    their server retires points, which I could not pin down reliably. */
-const SNAKEGL_TAIL_FADE    = 1.6;
+const SNAKEGL_TAIL_FADE    = 0;       // OFF. Tried at 1.6 and it looked worse: the tip read as dissolving rather than ending. Set >0 to bring it back.
 
 class SnakeGL {
   constructor() {
@@ -437,7 +437,7 @@ class SnakeGL {
       if (this._nBody / 6 >= this.MAXSTAMPS) break;
       const cx = S[s], cy = S[s + 1], a = S[s + 2], k = S[s + 3];
       const fromTail = (nStamps - 1 - (s / 4)) * spacing;
-      const ta = Math.min(1, fromTail / fadeLen);
+      const ta = SNAKEGL_TAIL_FADE > 0 ? Math.min(1, fromTail / fadeLen) : 1;
       this._nLine = this._quad(this._vbLine, this._nLine, cx, cy, oHalf, a, 0, 1, 0, 0, 0, ta);
       this._nBody = this._quad(this._vbBody, this._nBody, cx, cy, R, a, k * uw, (k + 1) * uw, r, g, b, ta);
       if (glow && this._nGlowO / 6 < SNAKEGL_MAXGLOW) {
