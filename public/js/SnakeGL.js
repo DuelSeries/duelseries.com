@@ -51,6 +51,24 @@ const SNAKEGL_WAVE_R       = 0.9655;  // body radii travelled per radian of puls
 const SNAKEGL_MAXGLOW      = 12000;   // glow quads per frame (only boosting snakes emit any)
 const SNAKEGL_CURVE_SUB    = 4;       // spline steps per body point when stamping
 
+/* THE TAIL FADES OUT RATHER THAN ENDING ON A HARD EDGE.
+
+   slither never removes a tail point outright. It flags the point 'dying', ramps
+   a value on it and draws it at 1 - that value, so the tip is always a soft
+   gradient rather than a cap. Their retiring point is literally fading while it
+   waits to be removed.
+
+   Ours needed it for the same reason: the stored tail moves in one 43% step each
+   time a point is laid, about a third of a body radius, and against a hard-edged
+   tip that reads as the very end blinking and shivering. There is nothing to
+   blink on a tip that is already transparent.
+
+   Length of the fade, in body radii. Wide enough to cover that step several
+   times over. This is their idea applied along the body rather than a literal
+   port of their per-point timer, because their fade rate depends on how often
+   their server retires points, which I could not pin down reliably. */
+const SNAKEGL_TAIL_FADE    = 1.6;
+
 class SnakeGL {
   constructor() {
     this.ok = false;
@@ -86,11 +104,13 @@ class SnakeGL {
       attribute vec2 aPos;
       attribute vec2 aUV;
       attribute vec3 aColor;
+      attribute float aAlpha;
       uniform vec2 uRes;
       varying vec2 vUV;
       varying vec3 vColor;
+      varying float vA;
       void main() {
-        vUV = aUV; vColor = aColor;
+        vUV = aUV; vColor = aColor; vA = aAlpha;
         vec2 c = vec2(aPos.x / uRes.x * 2.0 - 1.0, 1.0 - aPos.y / uRes.y * 2.0);
         gl_Position = vec4(c, 0.0, 1.0);
       }`;
@@ -101,9 +121,10 @@ class SnakeGL {
       uniform sampler2D uTex;
       varying vec2 vUV;
       varying vec3 vColor;
+      varying float vA;
       void main() {
         vec4 t = texture2D(uTex, vUV);
-        gl_FragColor = vec4(vColor * t.r * t.a, t.a);
+        gl_FragColor = vec4(vColor * t.r * t.a * vA, t.a * vA);
       }`;
     // Outline: flat black, alpha straight from the ring sprite.
     const fsLine = `
@@ -111,9 +132,10 @@ class SnakeGL {
       uniform sampler2D uTex;
       varying vec2 vUV;
       varying vec3 vColor;
+      varying float vA;
       void main() {
         vec4 t = texture2D(uTex, vUV);
-        gl_FragColor = vec4(0.0, 0.0, 0.0, t.a);
+        gl_FragColor = vec4(0.0, 0.0, 0.0, t.a * vA);
       }`;
     const link = (fsSrc) => {
       const p = gl.createProgram();
@@ -126,6 +148,7 @@ class SnakeGL {
         aPos:   gl.getAttribLocation(p, 'aPos'),
         aUV:    gl.getAttribLocation(p, 'aUV'),
         aColor: gl.getAttribLocation(p, 'aColor'),
+        aAlpha: gl.getAttribLocation(p, 'aAlpha'),
         uRes:   gl.getUniformLocation(p, 'uRes'),
         uTex:   gl.getUniformLocation(p, 'uTex'),
       };
@@ -181,7 +204,7 @@ class SnakeGL {
 
   _initBuffers() {
     const gl = this.gl;
-    this.STRIDE = 7;                                  // x,y,u,v,r,g,b
+    this.STRIDE = 8;                                  // x,y,u,v,r,g,b,a
     this.GSTRIDE = 8;                                 // ...plus a per-vertex alpha for the glow
     this._vbBody = new Float32Array(this.MAXSTAMPS * 6 * this.STRIDE);
     this._vbLine = new Float32Array(this.MAXSTAMPS * 6 * this.STRIDE);
@@ -280,7 +303,7 @@ class SnakeGL {
   }
 
   // Push one rotated quad (6 verts) into a vertex array.
-  _quad(arr, n, cx, cy, half, ang, u0, u1, r, g, b) {
+  _quad(arr, n, cx, cy, half, ang, u0, u1, r, g, b, a) {
     const c = Math.cos(ang) * half, s = Math.sin(ang) * half;
     // corners: (-1,-1) (1,-1) (1,1) (-1,1) rotated
     const x0 = cx - c + s, y0 = cy - s - c;
@@ -293,7 +316,7 @@ class SnakeGL {
     for (let i = 0; i < 6; i++) {
       arr[o++] = P[i * 4]; arr[o++] = P[i * 4 + 1];
       arr[o++] = P[i * 4 + 2]; arr[o++] = P[i * 4 + 3];
-      arr[o++] = r; arr[o++] = g; arr[o++] = b;
+      arr[o++] = r; arr[o++] = g; arr[o++] = b; arr[o++] = a;
     }
     return n + 6;
   }
@@ -406,11 +429,17 @@ class SnakeGL {
     // Emit TAIL -> HEAD so the head overlaps the body, matching slither's
     // `for (j = bp-1; j >= 0; j--)` loop. Emitting head-first would leave the
     // tail painted on top and the snake reads back to front.
+    /* The last stretch of the tail fades out instead of ending on a hard cap,
+       which is what slither does with its dying points. See SNAKEGL_TAIL_FADE. */
+    const nStamps = S.length / 4;
+    const fadeLen = Math.max(1e-6, R * SNAKEGL_TAIL_FADE);
     for (let s = S.length - 4; s >= 0; s -= 4) {
       if (this._nBody / 6 >= this.MAXSTAMPS) break;
       const cx = S[s], cy = S[s + 1], a = S[s + 2], k = S[s + 3];
-      this._nLine = this._quad(this._vbLine, this._nLine, cx, cy, oHalf, a, 0, 1, 0, 0, 0);
-      this._nBody = this._quad(this._vbBody, this._nBody, cx, cy, R, a, k * uw, (k + 1) * uw, r, g, b);
+      const fromTail = (nStamps - 1 - (s / 4)) * spacing;
+      const ta = Math.min(1, fromTail / fadeLen);
+      this._nLine = this._quad(this._vbLine, this._nLine, cx, cy, oHalf, a, 0, 1, 0, 0, 0, ta);
+      this._nBody = this._quad(this._vbBody, this._nBody, cx, cy, R, a, k * uw, (k + 1) * uw, r, g, b, ta);
       if (glow && this._nGlowO / 6 < SNAKEGL_MAXGLOW) {
         /* Phase along the body. The two waves run at 1x and 1.15x the phase
            speed, so the halo and the bands on the body drift against each other
@@ -434,6 +463,7 @@ class SnakeGL {
     gl.enableVertexAttribArray(p.aPos);   gl.vertexAttribPointer(p.aPos,   2, gl.FLOAT, false, FS, 0);
     gl.enableVertexAttribArray(p.aUV);    gl.vertexAttribPointer(p.aUV,    2, gl.FLOAT, false, FS, 8);
     gl.enableVertexAttribArray(p.aColor); gl.vertexAttribPointer(p.aColor, 3, gl.FLOAT, false, FS, 16);
+    gl.enableVertexAttribArray(p.aAlpha); gl.vertexAttribPointer(p.aAlpha, 1, gl.FLOAT, false, FS, 28);
     gl.uniform2f(p.uRes, w, h);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, tex);
@@ -459,7 +489,7 @@ class SnakeGL {
     gl.uniform1i(p.uTex, 0);
     gl.blendFunc(gl.ONE, gl.ONE);                     // additive — the "lighter" pass
     gl.drawArrays(gl.TRIANGLES, 0, nVerts);
-    gl.disableVertexAttribArray(p.aAlpha);            // body/outline don't have it
+    // aAlpha stays enabled: the body and outline passes carry it too now.
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);     // back to premultiplied normal
   }
 
