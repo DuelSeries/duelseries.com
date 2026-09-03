@@ -157,6 +157,37 @@ header{position:sticky;top:0;z-index:50;background:rgba(16,14,11,.82);
   body{padding-left:var(--sbw)}
 }
 
+/* ── locker ─────────────────────────────────────────────────────────── */
+.skingrid{display:grid;gap:14px;padding-bottom:70px;
+  grid-template-columns:repeat(auto-fill,minmax(158px,1fr))}
+.sktile{background:var(--s1);border-radius:var(--r3);padding:10px 10px 12px;
+  cursor:pointer;text-align:left;transition:background .15s,transform .15s;
+  border:1.5px solid transparent}
+.sktile:hover{background:var(--s2);transform:translateY(-3px)}
+.sktile canvas{display:block;width:100%;height:74px}
+.sktile .n{font-size:13px;font-weight:600;margin-top:6px}
+/* The equipped one is marked by a border and a word, not by colour alone:
+   every tile in this grid is already a different colour. */
+.sktile.on{border-color:var(--money);background:var(--s2)}
+.sktile .eq{display:none;font-size:11px;color:var(--money);font-weight:650}
+.sktile.on .eq{display:block}
+@media(max-width:520px){
+  .skingrid{grid-template-columns:repeat(2,1fr);gap:10px;padding-bottom:30px}
+  .sktile canvas{height:64px}
+}
+
+/* ── settings ───────────────────────────────────────────────────────── */
+.setgrid{display:grid;gap:16px;padding-bottom:70px;
+  grid-template-columns:repeat(auto-fit,minmax(300px,1fr));align-items:start}
+.sh{font-size:15px;font-weight:650}
+.sd{font-size:13px;color:var(--tx3);line-height:1.6;margin:6px 0 14px}
+.setgrid .tog{margin-top:0}
+.setgrid .tg{cursor:pointer;border:none;font-family:inherit;color:var(--tx2)}
+.setgrid .tg.on{background:var(--bone);color:var(--ink);font-weight:650}
+.acct{font-size:13px;color:var(--tx2);line-height:1.7;word-break:break-all}
+.acct b{display:block;color:var(--tx);font-weight:600;margin-bottom:2px}
+@media(max-width:520px){.setgrid{grid-template-columns:1fr;padding-bottom:30px}}
+
 /* ── placeholder screens ────────────────────────────────────────────── */
 #stub{display:none}
 .stub{padding:110px 0 140px;text-align:center}
@@ -360,7 +391,7 @@ h2{font-size:31px;font-weight:700;letter-spacing:-1.1px;line-height:1.1}
           mask-image:linear-gradient(90deg,transparent,#000 56px,#000 calc(100% - 96px),transparent)}
 .tkrun{display:flex;width:max-content;animation:tk 52s linear infinite}
 /* Stopped only while the game is up, so it is not repainting behind it. */
-body.ingame .tkrun{animation-play-state:paused}
+body.ingame .tkrun,body.nomotion .tkrun{animation-play-state:paused}
 @keyframes tk{to{transform:translateX(-50%)}}
 .tki{display:inline-flex;align-items:center;gap:8px;padding:9px 22px;
   font-size:13px;white-space:nowrap}
@@ -575,7 +606,7 @@ body.ingame .tkrun{animation-play-state:paused}
 }
 
 /* ── detail ─────────────────────────────────────────────────────────── */
-#detail,#allgames{display:none}
+#detail,#allgames,#locker-screen,#settings-screen{display:none}
 .back{font-size:13px;color:var(--tx2);padding:26px 0 0;display:inline-block}
 .back:hover{color:var(--tx)}
 /* The right column stretches to the left column's height and the look box is
@@ -1106,12 +1137,47 @@ body.scr-anim { overflow-x:hidden }
 <!-- Locker and Settings are both placeholders, but they need one element each:
      a single shared stub is the same node on both sides of a swipe, so the
      drag had nothing to move and the gesture did nothing between them. -->
-<main id="stub" class="wrap"><div class="stub">
-  <h2 id="stub-t"></h2><p id="stub-d"></p>
-</div></main>
-<main id="stub2" class="wrap"><div class="stub">
-  <h2 id="stub2-t"></h2><p id="stub2-d"></p>
-</div></main>
+<!-- ══ LOCKER ══ -->
+<!-- Every skin, equipped by tapping one. There is nothing to buy and nothing
+     to unlock: the shop was removed in August and all eighteen are free, so a
+     grid of them IS the whole feature. -->
+<main id="locker-screen" class="wrap">
+  <div class="head"><div><h2>Locker</h2>
+    <div class="sub">Every skin is free. Tap one to wear it.</div></div></div>
+  <div class="skingrid" id="skingrid"></div>
+</main>
+
+<!-- ══ SETTINGS ══ -->
+<!-- Only settings that do something. There is no sound to mute and no graphics
+     tier to pick, and a switch that changes nothing is worse than no switch. -->
+<main id="settings-screen" class="wrap">
+  <div class="head"><div><h2>Settings</h2></div></div>
+  <div class="setgrid">
+    <div class="panel">
+      <h3 class="sh">Player name</h3>
+      <p class="sd">Letters and numbers, up to sixteen. This is the name above
+         your snake and on the winners board.</p>
+      <input class="pname" id="set-name" maxlength="16" autocomplete="off"
+             placeholder="Your name" aria-label="Your player name">
+      <div class="sd" id="set-name-msg" aria-live="polite"></div>
+    </div>
+    <div class="panel">
+      <h3 class="sh">Motion</h3>
+      <p class="sd">The lobby animates its artwork and the winners row. Turn it
+         off to hold everything still.</p>
+      <div class="tog">
+        <button type="button" class="tg" id="mo-on"  onclick="setMotion(1)">On</button>
+        <button type="button" class="tg" id="mo-off" onclick="setMotion(0)">Off</button>
+      </div>
+    </div>
+    <div class="panel">
+      <h3 class="sh">Account</h3>
+      <p class="sd">Your wallet is your account here. There is nothing else to
+         sign in to and nothing else to remember.</p>
+      <div id="set-acct"></div>
+    </div>
+  </div>
+</main>
 
 <!-- Structure copied from #appearance-screen in index.html: a full-screen
      takeover with the snake filling it, slither's own 87x88 arrow art at the
@@ -1686,7 +1752,11 @@ function paintLook(cv){
   cam.apply(ctx,1);
   /* The chooser previews the skin being browsed; the lobby box always shows
      what is actually equipped. */
-  const col=(cv.dataset.look==='big'?LOOKS[lookIx]:skin()).color;
+  /* data-skin lets a canvas draw a skin that is not the equipped one, which
+     is what the locker grid needs: eighteen previews on one screen, each its
+     own colour. Without it every tile drew whatever was currently equipped. */
+  const col=(cv.dataset.skin?(LOOKS.find(s=>s.id===cv.dataset.skin)||LOOKS[0])
+            :cv.dataset.look==='big'?LOOKS[lookIx]:skin()).color;
   const s=mkSnake('look',col,segs,0);                  /* worth 0, no label */
   const useGL=R._glMode&&R.snakeGL&&R.snakeGL.ok;
   if(useGL)R.snakeGL.beginFrame();
@@ -1822,9 +1892,14 @@ let _last=0;
    an IIFE that runs on this line, so a `let` after it is still in its temporal
    dead zone when the first frame reads it, and the whole script dies there. */
 let _paused=false;
+/* Beside _paused and ABOVE the loop for the same reason it documents: the loop
+   is an IIFE that runs where it is written, so a let declared after it is still
+   in its temporal dead zone when the first frame reads it. */
+const MOTION_KEY='duelseries_motion';
+let motionOn=(function(){try{return localStorage.getItem(MOTION_KEY)!=='0'}catch(_){return true}})();
 (function loop(t){
   const dt=Math.min(3,(t-_last)/16.67||1); _last=t;
-  if(_paused){requestAnimationFrame(loop);return}   // the game owns the thread
+  if(_paused||!motionOn){requestAnimationFrame(loop);return}  // game, or held still by choice
   document.querySelectorAll('canvas[data-anim]').forEach(cv=>{try{
     /* Reduced motion freezes the simulation, not the layout. The card still
        has to re-fit its canvas when it changes width, so the loop keeps
@@ -2153,8 +2228,8 @@ function drawNav(){
 /* One place that knows which screens exist, so a new one cannot be left
    showing underneath another. The player profile has no nav slot of its
    own: it is reached from the board and keeps Social lit while it is up. */
-const SCREENS=['home','allgames','detail','stub','stub2','wallet-screen','stats-screen',
-               'social-screen','player-screen'];
+const SCREENS=['home','allgames','detail','locker-screen','settings-screen',
+               'wallet-screen','stats-screen','social-screen','player-screen'];
 /* dir: +1 the new screen arrives from the right (you swiped forward), -1 from
    the left, 0 or omitted for no animation. Taps on the nav pass 0 on purpose:
    a tap already tells you what you pressed, and animating it makes the whole
@@ -2216,7 +2291,8 @@ function showScreen(id,dir){
    it away. Three calls, so swipe.js never has to know the screen ids or which
    module loads what. */
 const SCREEN_FOR={play:'home',wallet:'wallet-screen',stats:'stats-screen',
-                  social:'social-screen',locker:'stub',settings:'stub2'};
+                  social:'social-screen',locker:'locker-screen',
+                  settings:'settings-screen'};
 window.V2_SCREEN_FOR=SCREEN_FOR;
 
 /* Put a tab's real content in place. Shared by the router and by the swipe,
@@ -2227,13 +2303,71 @@ function fillScreen(tab){
   if(tab==='wallet')V2Wallet.render();
   else if(tab==='stats')V2Stats.load();
   else if(tab==='social')V2Social.load();
-  else if(id==='stub'||id==='stub2'){
-    const n=NAV.find(x=>x.id===tab);
-    const p=id==='stub2'?'stub2':'stub';
-    if(n){document.getElementById(p+'-t').textContent=n.t;
-          document.getElementById(p+'-d').textContent=n.d}
-  }
+  else if(tab==='locker')drawLocker();
+  else if(tab==='settings')drawSettings();
 }
+
+/* ── locker ──────────────────────────────────────────────────────────────
+   Tapping a tile equips it there and then. There is no confirm step because
+   there is nothing to confirm: skins are free, and the change is visible on
+   the next frame in the box on the game screen. */
+function drawLocker(){
+  document.getElementById('skingrid').innerHTML=LOOKS.map(s=>
+    `<button type="button" class="sktile${s.id===skinId?' on':''}"
+       onclick="equipSkin('${s.id}')" aria-label="Wear ${s.name}">
+       <canvas data-look="mini" data-skin="${s.id}"></canvas>
+       <div class="n">${s.name}</div><div class="eq">Wearing</div>
+     </button>`).join('');
+  repaintAll();
+}
+function equipSkin(id){
+  if(!LOOKS.some(s=>s.id===id))return;
+  skinId=id; storeSkin();
+  document.querySelectorAll('#skingrid .sktile').forEach(t=>
+    t.classList.toggle('on',t.getAttribute('onclick')===`equipSkin('${id}')`));
+  if(typeof lookIx==='number')lookIx=Math.max(0,LOOKS.findIndex(s=>s.id===skinId));
+}
+
+/* ── settings ────────────────────────────────────────────────────────────
+   Ambient motion is a real switch: the canvas loop reads it every frame and
+   the ticker is a CSS animation this pauses. It is remembered, because a
+   preference you have to set again every visit is not a preference. */
+function applyMotion(){
+  document.body.classList.toggle('nomotion',!motionOn);
+  const on=document.getElementById('mo-on'), off=document.getElementById('mo-off');
+  if(on)on.classList.toggle('on',motionOn);
+  if(off)off.classList.toggle('on',!motionOn);
+}
+function setMotion(v){
+  motionOn=!!v;
+  try{localStorage.setItem(MOTION_KEY,motionOn?'1':'0')}catch(_){}
+  applyMotion();
+  if(motionOn)repaintAll();     /* redraw once so nothing is left half-painted */
+}
+function drawSettings(){
+  const inp=document.getElementById('set-name');
+  try{ inp.value=localStorage.getItem('duelseries_playername')||'' }catch(_){}
+  applyMotion();
+  /* Read-only on purpose. This screen does not sign, send or spend; the wallet
+     tab owns every one of those and there is only one implementation. */
+  const w=window.duelWallet||{};
+  const box=document.getElementById('set-acct');
+  box.innerHTML=(w.authenticated&&w.address)
+    ? `<div class="acct"><b>Wallet</b>${w.address}</div>`
+    : `<div class="acct">Not signed in.</div>
+       <div class="tog"><button type="button" class="tg" onclick="window.duelWalletLogin&&window.duelWalletLogin()">Sign in</button></div>`;
+}
+/* Saved as it is typed, cleaned the same way the Play button cleans it, so the
+   two can never disagree about what your name is. */
+document.addEventListener('input',e=>{
+  if(e.target.id!=='set-name')return;
+  const v=String(e.target.value||'').replace(/[^a-zA-Z0-9]/g,'').slice(0,16);
+  e.target.value=v;
+  try{localStorage.setItem('duelseries_playername',v)}catch(_){}
+  const live=document.getElementById('play-name'); if(live)live.value=v;
+  document.getElementById('set-name-msg').textContent=
+    v.length>=3?'Saved.':'At least three characters to play.';
+});
 
 /* Show a tab's screen and load its data without changing the route. */
 function prepareScreen(tab){
@@ -2308,7 +2442,7 @@ document.addEventListener('keydown',e=>{
 /* The tournament countdown is gone with the card it counted down. It ticked
    from a hardcoded 38:59 towards an event that was never going to happen. */
 
-drawNav();V2Wallet.render();drawRail();drawTicker();V2Board.start();
+drawNav();V2Wallet.render();drawRail();drawTicker();V2Board.start();applyMotion();
 </script>
 
 <!-- The game runs here. The id is fixed: the wallet widget looks up

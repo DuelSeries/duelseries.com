@@ -55,8 +55,8 @@
   const EXEMPT = '.chartbox, .apscreen, #game-frame';
 
   const TABS = ['play', 'wallet', 'stats', 'social', 'locker', 'settings'];
-  const SCREEN_IDS = ['home', 'allgames', 'detail', 'stub', 'stub2', 'wallet-screen',
-                      'stats-screen', 'social-screen', 'player-screen'];
+  const SCREEN_IDS = ['home', 'allgames', 'detail', 'locker-screen', 'settings-screen',
+                      'wallet-screen', 'stats-screen', 'social-screen', 'player-screen'];
 
   let x0 = 0, y0 = 0, t0 = 0, from = null;
   let tracking = false;     // a touch is down and might become a swipe
