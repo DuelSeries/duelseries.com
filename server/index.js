@@ -672,6 +672,22 @@ app.post('/api/my-name', async (req, res) => {
   }
 });
 
+/* A wallet's own money in and out. Read-only and entirely public information —
+   it is the chain — so this takes the address as a query param the way
+   /api/my-profile does, rather than requiring a token to look at something
+   anybody can already look at in an explorer. */
+app.get('/api/my-transactions', async (req, res) => {
+  const wallet = (req.query.wallet || '').trim();
+  if (!wallet) return res.status(400).json({ error: 'No wallet' });
+  try {
+    const rows = await Usdc.usdcHistory(wallet, 12);
+    res.json({ transactions: rows });
+  } catch (e) {
+    console.error('[MY-TX]', e.message);
+    res.status(502).json({ error: 'Could not reach the chain' });
+  }
+});
+
 app.use((req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
 
 /* The lobby. Declared BEFORE express.static, which would otherwise serve a

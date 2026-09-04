@@ -66,28 +66,85 @@
     const addr = w().address;
     const bal = Number(w().balance) || 0;
     body.innerHTML =
-      '<div class="wgrid">' +
-        '<div class="panel">' +
-          '<div class="bfig">' +
-            '<div><div class="blab">Available</div>' +
-              '<div class="bnum num">' + money(bal) + '</div></div>' +
-          '</div>' +
-          (cashing ? cashForm(bal) :
-            '<div class="brow">' +
-              '<button class="btn pri" onclick="V2Wallet.fund()">Add funds</button>' +
-              '<button class="btn sec" onclick="V2Wallet.cashOut()">Cash out</button>' +
-            '</div>') +
-        '</div>' +
-        '<div class="panel">' +
-          '<div class="plab">Your deposit address</div>' +
-          '<div class="waddr" id="w-addr" onclick="V2Wallet.copy()">' +
-            '<code>' + esc(addr) + '</code><span class="cp">Copy</span></div>' +
-          /* The one sentence kept. The rest of the copy on this screen was
-             explanation; this is the only line whose absence can cost somebody
-             their money. */
-          '<p class="note">USDC on Solana only. Anything else is unrecoverable.</p>' +
-        '</div>' +
-      '</div>';
+      /* The balance leads, at the size of the thing it is. Deposit and
+         Withdraw sit under it because they are what you came to do, and
+         Refresh is beside them rather than hidden, because an on-chain
+         balance can be a few seconds behind and the only honest answer to
+         "is it there yet" is a button that asks again. */
+      '<div class="wbal">' +
+        '<div class="blab">Available</div>' +
+        '<div class="bnum num" id="w-bal">' + money(bal) + '</div>' +
+        '<div class="wunit">USDC on Solana</div>' +
+        (cashing ? cashForm(bal) :
+          '<div class="wacts">' +
+            '<button class="btn pri" onclick="V2Wallet.fund()">Deposit</button>' +
+            '<button class="btn sec" onclick="V2Wallet.cashOut()">Withdraw</button>' +
+            '<button class="btn sec wref" id="w-refresh" onclick="V2Wallet.refresh()" ' +
+              'aria-label="Refresh balance" title="Refresh balance">' +
+              '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" ' +
+                'stroke="currentColor" stroke-width="2.2" stroke-linecap="round">' +
+                '<path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>' +
+            '</button>' +
+          '</div>') +
+      '</div>' +
+      '<div class="panel wdep">' +
+        '<div class="plab">Your deposit address</div>' +
+        '<div class="waddr" id="w-addr" onclick="V2Wallet.copy()">' +
+          '<code>' + esc(addr) + '</code><span class="cp">Copy</span></div>' +
+        /* The one sentence kept. The rest of the copy on this screen was
+           explanation; this is the only line whose absence can cost somebody
+           their money. */
+        '<p class="note">USDC on Solana only. Anything else is unrecoverable.</p>' +
+      '</div>' +
+      '<div class="head"><div><h2>Recent transactions</h2>' +
+        '<div class="sub">Money in and out of this wallet.</div></div></div>' +
+      '<div class="txl" id="w-tx"><div class="none">Loading…</div></div>';
+    loadTx();
+  }
+
+  /* Read off the chain, because that is the only place these exist: the
+     transfers are self-custody and never touch our server, and the old
+     deposits/withdrawals tables are vestigial from the custodial system. */
+  let txFor = null;
+  async function loadTx() {
+    const a = w().address; if (!a) return;
+    txFor = a;
+    let rows = null;
+    try {
+      const r = await fetch('/api/my-transactions?wallet=' + encodeURIComponent(a));
+      rows = (await r.json()).transactions;
+    } catch (_) { rows = null; }
+    const box = el('w-tx');
+    if (!box || txFor !== a) return;          // screen changed under us
+    if (!Array.isArray(rows)) {
+      box.innerHTML = '<div class="none">Could not reach the chain. Try refresh.</div>';
+      return;
+    }
+    if (!rows.length) {
+      box.innerHTML = '<div class="none">Nothing yet. Deposits and withdrawals show up here.</div>';
+      return;
+    }
+    box.innerHTML = rows.map(t => {
+      const inb = t.direction === 'in';
+      return '<a class="tx" href="https://solscan.io/tx/' + esc(t.signature) + '" ' +
+        'target="_blank" rel="noopener noreferrer">' +
+        '<span class="txi ' + (inb ? 'in' : 'out') + '">' + (inb ? '↓' : '↑') + '</span>' +
+        '<span class="txn">' + (inb ? 'Deposit' : 'Withdrawal') + '</span>' +
+        '<span class="txd">' + when(t.at) + '</span>' +
+        '<span class="txa num ' + (inb ? 'in' : 'out') + '">' +
+          (inb ? '+' : '-') + money(t.usdc) + '</span></a>';
+    }).join('');
+  }
+  const when = ms => {
+    if (!ms) return '';
+    return new Date(ms).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
+  /* Asks the chain again for both numbers, and says it is doing it. */
+  async function refresh() {
+    const b = el('w-refresh'); if (b) b.classList.add('spin');
+    try { if (window.duelWalletRefresh) await window.duelWalletRefresh(); } catch (_) {}
+    await loadTx();
+    if (b) setTimeout(() => b.classList.remove('spin'), 300);
   }
 
   /* Two steps in one panel, replacing three stacked browser dialogs: a prompt
@@ -186,6 +243,7 @@
      re-render mid-typing would throw away the address being pasted into it. */
   window.addEventListener('duelwallet:change', () => { cashing ? renderHeader() : render(); });
   window.V2Wallet = { render: render, login: login, fund: fund, copy: copy,
+                      refresh: refresh,
                       cashOut: cashOut, cancelCash: cancelCash, backCash: backCash,
                       max: max, submitCash: submitCash, confirmCash: confirmCash };
 })();

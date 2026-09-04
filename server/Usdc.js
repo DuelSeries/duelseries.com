@@ -146,6 +146,50 @@ async function verifyUsdcCredit(signature, recipientOwner, minUsdc) {
 // The USDC associated-token-account address for any owner (where a client sends a payment).
 function ataFor(ownerAddress) { return getAssociatedTokenAddressSync(USDC_MINT, new PublicKey(ownerAddress)).toString(); }
 
+/* Money in and out of a player's own wallet, read off the chain.
+
+   There is no ledger to read instead. The old deposits/withdrawals tables are
+   vestigial from the custodial system, and self-custody means these transfers
+   never touch our server — the chain is the only place they exist. Listing
+   anything else would be inventing it.
+
+   The signed delta of the owner's USDC balance IS the entry: positive is money
+   arriving, negative is money leaving, and the same pre/post-balance parse the
+   stake verifier trusts is what produces it. A tx that nets to zero for this
+   owner is not their transaction and is dropped.
+
+   Signatures are fetched for the token account, then the transactions are
+   pulled in ONE batched call rather than one per signature. */
+async function usdcHistory(ownerAddress, limit = 12) {
+  const owner = String(ownerAddress);
+  const ata = new PublicKey(ataFor(owner));
+  let sigs;
+  try {
+    sigs = await withRetry(() => connection.getSignaturesForAddress(ata, { limit: Math.min(50, limit * 3) }));
+  } catch (e) {
+    if (ataNotFound(e)) return [];      // never held USDC: no account, no history
+    throw e;
+  }
+  const ok = (sigs || []).filter(s => s && !s.err).slice(0, Math.min(50, limit * 3));
+  if (!ok.length) return [];
+  const txs = await withRetry(() => connection.getParsedTransactions(
+    ok.map(s => s.signature), { commitment: 'confirmed', maxSupportedTransactionVersion: 0 }));
+  const out = [];
+  for (let i = 0; i < ok.length && out.length < limit; i++) {
+    const tx = txs && txs[i];
+    if (!tx || !tx.meta || tx.meta.err) continue;
+    const delta = stakeDeltaUnits(tx.meta, owner, USDC_MINT.toString());
+    if (delta === 0n) continue;
+    out.push({
+      signature: ok[i].signature,
+      at: (ok[i].blockTime ? ok[i].blockTime * 1000 : null),
+      usdc: toUsdc(delta < 0n ? -delta : delta),
+      direction: delta > 0n ? 'in' : 'out',
+    });
+  }
+  return out;
+}
+
 // Build + sign a USDC payout from escrow -> recipient, creating the recipient's ATA if missing
 // (escrow pays that rent). Returns everything needed to broadcast AND recover it (same idempotent
 // model as Wallet.buildSignedPayout — re-broadcasting the same bytes can only land once).
@@ -247,5 +291,6 @@ module.exports = {
   connection, NETWORK, USDC_MINT, USDC_DECIMALS, toUnits, toUsdc, withRetry, ataNotFound,
   escrowKeypair, escrowPubkey, escrowAta, stakeTargets,
   usdcBalanceOf, escrowUsdcBalance, verifyUsdcStake, verifyUsdcCredit, stakeDeltaUnits, ataFor,
+  usdcHistory,
   buildSignedUsdcPayout, withdrawUsdc, attemptPayout, getLatestBlockhash,
 };
