@@ -723,19 +723,31 @@ test('chat on a phone is readable but not typeable, and small', () => {
     'and the feed never swallows a steering touch');
 });
 
-test('the spectate bar fits a phone instead of hanging off both edges', () => {
+test('the spectate bar fits a phone, and both games get the same one', () => {
   /* Five controls around a 160px label is about 420px wide, centred with
      translateX(-50%). On a 375px screen that overhangs both sides, which is
-     what you land on straight after tapping Keep watching. */
-  const css = fs.readFileSync(path.join(ROOT, 'public/css/game.css'), 'utf8');
-  const i = css.indexOf('Spectate bar on a phone');
-  assert.ok(i > 0, 'there is a phone-specific spectate block');
-  const block = css.slice(i, i + 2200);
-  assert.ok(/transform: none/.test(block), 'it is no longer centre-offset');
+     what you land on straight after tapping Keep watching.
+
+     The bar used to be phone-specific and per-game: two different designs, and
+     the fix applied to only one of them. It lives in the shared sheet now and
+     applies at every width, so this checks the shape AND that neither game has
+     quietly grown its own again. */
+  const css = fs.readFileSync(path.join(ROOT, 'public/css/cashout.css'), 'utf8');
+  const i = css.indexOf('#spectate-bar {');
+  assert.ok(i > 0, 'the shared sheet owns the bar');
+  const block = css.slice(i, i + 2600);
   assert.ok(/left: 12px/.test(block) && /right: 12px/.test(block), 'it is pinned to both edges');
+  assert.ok(!/translateX(-50%)/.test(block), 'it is not centre-offset off the screen');
   // flex-wrap alone let all five squeeze onto one row; the break is explicit.
   assert.ok(/#spectate-bar::after/.test(block), 'the row break is forced');
   assert.ok(/min-height: 44px/.test(block), 'the exits are a real touch target');
+  // (0,1,1) beat (0,1,0) and the primary rendered as a ghost.
+  assert.ok(/#spectate-bar #spectate-play-again {/.test(block),
+    'the primary out-specifies the bar-wide button rule');
+  for (const f of ['public/css/game.css', 'public/css/agar.css']) {
+    assert.ok(!fs.readFileSync(path.join(ROOT, f), 'utf8').includes('#spectate-bar'),
+      f + ' does not carry a second copy of the bar');
+  }
 });
 
 test('the death card uses the product palette for its buttons', () => {
