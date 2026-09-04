@@ -108,7 +108,15 @@ kbd {
 }
 
 /* ── Death Screen ───────────────────────────────────────────────────────────── */
+/* The card's colours live on the container, so the same markup is red for a
+   death and amber for a payout. */
 #death-screen {
+  --co-ink:#100e0b; --co-s2:#1f1b15; --co-s3:#282219;
+  --co-bone:#f5f1e8; --co-tx2:#a89c8a;
+  --co-money:#e0705f;               /* the figure, red: this is what was lost */
+  --co-act:#f0a830;                 /* the buttons stay the product's amber */
+  --co-live:#8ed081;
+  font-family:'Archivo', ui-sans-serif, system-ui, 'Segoe UI', Arial, sans-serif;
   display: none;
   position: fixed;
   inset: 0;
@@ -121,19 +129,12 @@ kbd {
   text-align: center;
 }
 #death-screen.active { display: flex; }
-#death-screen h2 {
-  font-size: 2.4rem;
-  color: #f87171;
-  letter-spacing: 3px;
-  text-shadow: 0 0 24px rgba(248,113,113,0.6);
-  margin: 0;
-}
-#death-screen p {
-  color: #aaa;
-  font-size: 1rem;
-  margin: 0;
-}
-#death-screen p span { color: #f87171; font-weight: 700; }
+#death-screen .co-eyebrow { color: var(--co-money); }
+#death-screen .co-go { background: var(--co-act); color: var(--co-ink); }
+#death-screen .co-go:hover { background: #f6b845; }
+/* Superseded by the shared card. Left targeting an h2 the markup no longer
+   has, so it applies to nothing; kept out of the way rather than deleted
+   blind, because agar.css is shared with the spectate bar below it. */
 
 /* ── Spectate bar ───────────────────────────────────────────────────────────── */
 #spectate-bar {
@@ -279,6 +280,11 @@ kbd {
 
 /* ── Cashout screen (matches slither.io style) ──────────────────────────────── */
 #cashout-overlay {
+  --co-ink:#100e0b; --co-s2:#1f1b15; --co-s3:#282219;
+  --co-bone:#f5f1e8; --co-tx2:#a89c8a;
+  --co-money:#f0a830;               /* amber: this one is money you kept */
+  --co-act:#f0a830; --co-live:#8ed081;
+  font-family:'Archivo', ui-sans-serif, system-ui, 'Segoe UI', Arial, sans-serif;
   display: none;
   position: fixed;
   inset: 0;
@@ -291,19 +297,6 @@ kbd {
   text-align: center;
 }
 #cashout-overlay.active { display: flex; }
-#cashout-overlay h2 {
-  font-size: 2.4rem;
-  color: #14F195;
-  letter-spacing: 3px;
-  text-shadow: 0 0 24px rgba(20,241,149,0.6);
-  margin: 0;
-}
-#cashout-overlay p {
-  color: #aaa;
-  font-size: 1rem;
-  margin: 0;
-}
-#cashout-overlay p span { color: #14F195; font-weight: 700; }
 
 .cashout-btn-row { display: flex; gap: 16px; margin-top: 8px; }
 

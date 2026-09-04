@@ -10,6 +10,7 @@
   <title>DuelSeries</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/cashout.css" />
   <link rel="stylesheet" href="/css/agar.css" />
 </head>
 <body>
@@ -26,14 +27,22 @@
   </div>
 
   <!-- Death screen -->
-  <div id="death-screen">
-    <h2 id="death-title">YOU WERE EATEN</h2>
-    <p>Score: <span id="death-score-val">0</span></p>
-    <p id="death-earned-row" style="display:none">Earned: <span id="death-earned-val" style="color:#14F195;font-weight:700"></span></p>
-    <div class="cashout-btn-row">
-      <button id="btn-respawn" class="co-btn co-btn-play">&#9654; Play Again</button>
-      <button id="btn-spectate" class="co-btn co-btn-spectate">&#128065; Spectate</button>
-      <button id="btn-death-lobby" class="co-btn co-btn-lobby">&#8592; Lobby</button>
+  <div id="death-screen" role="dialog" aria-modal="true" aria-labelledby="death-title">
+    <div class="co-card">
+      <p class="co-eyebrow" id="death-title">You were eaten</p>
+      <!-- agar.js hides #death-earned-row when there is nothing to pay out, so
+           it wraps the figure and its caption together: hiding the caption on
+           its own would leave a stray $0.00 sitting above the score. -->
+      <div id="death-earned-row" style="display:none">
+        <p class="co-amount" id="death-earned-val">$0.00</p>
+        <p class="co-sub">paid to your wallet</p>
+      </div>
+      <p class="co-stats">Score <b id="death-score-val">0</b></p>
+      <div class="co-btns">
+        <button class="co-btn co-go" id="btn-respawn">Play again</button>
+        <button class="co-btn co-ghost" id="btn-spectate">Spectate</button>
+        <button class="co-btn co-ghost" id="btn-death-lobby">Lobby</button>
+      </div>
     </div>
   </div>
 
@@ -47,14 +56,19 @@
   </div>
 
   <!-- Cashout screen -->
-  <div id="cashout-overlay">
-    <h2>CASHED OUT</h2>
-    <p>Score: <span id="cashout-score-val">0</span></p>
-    <p id="cashout-worth-row" style="display:none">Earned: <span id="cashout-worth-val" style="color:#fde047;font-weight:700"></span></p>
-    <div class="cashout-btn-row">
-      <button id="btn-cashout-respawn" class="co-btn co-btn-play">&#9654; Play Again</button>
-      <button id="btn-cashout-spectate" class="co-btn co-btn-spectate">&#128065; Spectate</button>
-      <button id="btn-cashout-lobby" class="co-btn co-btn-lobby">&#8592; Lobby</button>
+  <div id="cashout-overlay" role="dialog" aria-modal="true" aria-labelledby="cashout-title">
+    <div class="co-card">
+      <p class="co-eyebrow" id="cashout-title">Cashed out</p>
+      <div id="cashout-worth-row" style="display:none">
+        <p class="co-amount" id="cashout-worth-val">$0.00</p>
+        <p class="co-sub">paid to your wallet</p>
+      </div>
+      <p class="co-stats">Score <b id="cashout-score-val">0</b></p>
+      <div class="co-btns">
+        <button class="co-btn co-go" id="btn-cashout-respawn">Play again</button>
+        <button class="co-btn co-ghost" id="btn-cashout-spectate">Spectate</button>
+        <button class="co-btn co-ghost" id="btn-cashout-lobby">Lobby</button>
+      </div>
     </div>
   </div>
 

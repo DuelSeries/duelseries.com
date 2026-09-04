@@ -397,6 +397,20 @@ async function searchPlayerNames(query, limit = 8) {
   return res.rows.map(r => r.name);
 }
 
+/* The display name, stored on the account so it is the same on every device
+   the player signs in from. It used to live only in each browser's
+   localStorage, so the same person on a phone and a laptop was two names.
+
+   Upsert, because an account row is only created when earnings are first
+   recorded — somebody can pick a name before they have ever won anything. */
+async function setAccountName(googleId, name) {
+  await pool.query(
+    `INSERT INTO accounts (google_id, name) VALUES ($1, $2)
+     ON CONFLICT (google_id) DO UPDATE SET name = $2`,
+    [googleId, name]
+  );
+}
+
 async function getMyProfile(googleId) {
   const accRes = await pool.query(
     `SELECT name, total_earnings, games_played, play_time_seconds, name_history,
@@ -518,7 +532,7 @@ module.exports = {
   recordFailedPayout, getFailedPayouts, claimDuePayout, savePayoutSignature, markPayoutPaid,
   recordEarnings,
   recordStake, getTopEarners,
-  getProfile, getMyProfile, searchPlayerNames, getGlobalWinnings,
+  getProfile, getMyProfile, setAccountName, searchPlayerNames, getGlobalWinnings,
   addCosmetic, getOwnedCosmetics,
   recordHouseRevenue, getHouseRevenueSummary, getRecentHouseRevenue, getHouseRevenueDaily,
 };

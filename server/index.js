@@ -649,6 +649,29 @@ app.get('/api/my-profile', async (req, res) => {
   }
 });
 
+/* Set the display name for the signed-in account.
+
+   The wallet is taken from the VERIFIED Privy token, never from the body. A
+   body-supplied wallet would let anyone rename anyone: /api/my-profile already
+   trusts a query wallet, but that only reads, and a write has to be the
+   account it claims to be. */
+app.post('/api/my-name', async (req, res) => {
+  const auth = req.headers.authorization || '';
+  const idToken = auth.startsWith('Bearer ') ? auth.slice(7)
+                : (req.headers['privy-id-token'] || null);
+  const wallet = await walletFromIdToken(idToken);
+  if (!wallet) return res.status(401).json({ error: 'Sign in first' });
+  const name = sanitizeName(req.body && req.body.name);
+  if (!name || name.length < 3) return res.status(400).json({ error: 'Name too short' });
+  try {
+    await db.setAccountName(wallet, name);
+    res.json({ ok: true, name });
+  } catch (e) {
+    console.error('[MY-NAME]', e.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 app.use((req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
 
 /* The lobby. Declared BEFORE express.static, which would otherwise serve a

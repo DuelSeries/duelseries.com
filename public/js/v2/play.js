@@ -24,6 +24,52 @@
   function savedName() {
     try { return cleanName(localStorage.getItem(NAME_KEY) || ''); } catch (_) { return ''; }
   }
+  function setName(v) {
+    const n = cleanName(v);
+    try { localStorage.setItem(NAME_KEY, n); } catch (_) {}
+    const i = el('play-name'); if (i) i.value = n;
+    const s = el('set-name');  if (s) s.value = n;
+    return n;
+  }
+  const token = () => { try { return localStorage.getItem('duel_admin_token'); } catch (_) { return null; } };
+
+  /* The account's name is the truth, and it overwrites whatever this browser
+     had. That is the whole point: the same person on a phone and a laptop was
+     two different names, because the name only ever lived in localStorage. */
+  async function pullName() {
+    const w = (window.duelWallet || {}).address;
+    if (!w) return;
+    try {
+      const r = await fetch('/api/my-profile?wallet=' + encodeURIComponent(w));
+      const p = await r.json();
+      if (p && p.name) setName(p.name);
+      else if (savedName()) pushName(savedName());   // first device to name it, wins
+    } catch (_) {}
+  }
+  /* Authenticated by the Privy token; the server resolves the wallet from it
+     rather than believing anything sent from here. */
+  async function pushName(n) {
+    const t = token(); if (!t || !n || n.length < 3) return false;
+    try {
+      const r = await fetch('/api/my-name', { method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + t },
+        body: JSON.stringify({ name: n }) });
+      return r.ok;
+    } catch (_) { return false; }
+  }
+  /* The Save button beside the field. */
+  async function saveName() {
+    const n = setName((el('play-name') || {}).value || '');
+    const btn = el('name-save'), msg = el('name-msg');
+    if (n.length < 3) { if (msg) msg.textContent = 'At least three characters.'; return; }
+    const ok = await pushName(n);
+    if (btn) { btn.classList.add('done'); btn.textContent = 'Saved';
+      setTimeout(() => { btn.classList.remove('done'); btn.textContent = 'Save'; }, 1400); }
+    if (msg) msg.textContent = ok ? 'Saved to your account.'
+      : (window.duelWallet || {}).authenticated ? 'Saved on this device.'
+      : 'Sign in to use this name everywhere.';
+  }
+  window.addEventListener('duelwallet:change', pullName);
 
   function region() {
     try { return localStorage.getItem('duelseries_region') || 'na'; } catch (_) { return 'na'; }
@@ -51,6 +97,7 @@
       return null;
     }
     try { localStorage.setItem(NAME_KEY, name); } catch (_) {}
+    pushName(name);            /* so the next device you sign in on knows it */
     return name;
   }
 
@@ -164,7 +211,8 @@
   });
 
   window.V2Play = { enter: enter, playChosen: playChosen, spectate: spectate,
-                    launch: launch, savedName: savedName, cleanName: cleanName };
+                    launch: launch, savedName: savedName, cleanName: cleanName,
+                    saveName: saveName, pullName: pullName };
 
   /* Forward the stall marker into the game.
 
