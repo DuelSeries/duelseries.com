@@ -97,13 +97,17 @@ input.num{width:70px;text-align:center}
 
 /* The result of the last thing pressed, in place, so it is read where it was
    caused rather than in a corner. */
+/* Whether it worked is carried by the whole border and a matching tint, not by
+   a coloured bar down one side. The bar reads as decoration bolted on, and it
+   only ever tinted three pixels of an outline that was already there. */
 #say{position:fixed;left:50%;bottom:22px;transform:translate(-50%,10px);
-  background:var(--s2);border:1px solid var(--s3);border-left:3px solid var(--money);
+  background:rgba(240,168,48,.1);border:1px solid rgba(240,168,48,.42);
+  color:var(--tx);
   border-radius:var(--r2);padding:12px 18px;font-size:13px;max-width:520px;
   box-shadow:0 12px 40px rgba(0,0,0,.55);opacity:0;pointer-events:none;
   transition:opacity .18s,transform .18s;z-index:50}
 #say.on{opacity:1;transform:translate(-50%,0)}
-#say.bad{border-left-color:var(--bad)}
+#say.bad{background:rgba(224,112,95,.12);border-color:rgba(224,112,95,.45)}
 
 #gate{background:var(--s1);border:1px solid var(--s2);border-radius:var(--r3);
   padding:28px 24px;text-align:center}
