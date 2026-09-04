@@ -328,7 +328,27 @@ function render(s) {
     : '<span class="empty">Nothing yet this run.</span>';
 }
 
+/* The server checks WHO you are. It cannot check whether you MEANT it.
+
+   Signing is silent — the embedded wallet never prompts — so from an unlocked
+   browser every one of these is one click with no friction at all. That is
+   fine for adding bots and wrong for closing the game to everybody, so the
+   three that cannot be undone by pressing the same button again ask first.
+   This is not a security boundary; anyone at your keyboard can click OK. It is
+   there because the most likely way this gets used wrongly is you, in a hurry,
+   hitting the wrong row. */
+const CONFIRM = {
+  'maintenance:on': 'Close the game to new players?
+
+Anyone already playing carries on, but nobody new can start until you open it again.',
+  'br:stop':        'Stop the match that is running?
+
+Nobody wins it and no prize is paid.',
+  'bots:clear':     'Remove every bot from this room?',
+};
 async function act(action, args) {
+  const ask = CONFIRM[action];
+  if (ask && !confirm(ask)) return;
   const proof = await signed(action, args || {});
   if (!proof) { say('Sign in with the owner wallet first.', true); return; }
   const r = await post('/api/owner/do', proof);
