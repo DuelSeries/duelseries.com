@@ -143,30 +143,100 @@ const privyServer = (PrivyClient && process.env.PRIVY_APP_ID && process.env.PRIV
 const OWNER_WALLET = 'C5cnzckMwH459eEURA8NwuZcKVFMExpRcbRSAuULH3m9';
 const OWNER_WALLETS = new Set([OWNER_WALLET, process.env.OWNER_WALLET].filter(Boolean));
 
-// Resolve the Solana wallet for a Privy identity token (local verification of the signed
-// token — no API rate limit, scales). Returns the wallet address or null.
-async function walletFromIdToken(token) {
-  if (!privyServer || !token) return null;
-  try {
-    // Verify the owner's access token (local JWT check), then look up their Solana wallet.
-    const claims = await privyServer.verifyAuthToken(token);
-    const user = await privyServer.getUser(claims.userId);
-    for (const a of (user.linkedAccounts || [])) {
+if (!privyServer) {
+  console.warn('[AUTH] PRIVY_APP_ID / PRIVY_APP_SECRET not set — every token check will fail, '
+    + 'so nothing that needs a signed-in player (naming, owner actions) can work.');
+}
+
+// userId -> Solana wallet. getUser(userId) is documented as "subject to strict rate
+// limits", and it used to run on EVERY authenticated request; one hand on a phone and
+// one on a laptop is enough to start getting throttled, and a throttle came back as an
+// indistinguishable null. So it is looked up once and kept.
+//
+// Ten minutes, not forever: this feeds the OWNER check as well as naming, and a wallet
+// CAN change under a user if they link a different one. A cache that never expires would
+// hold an owner grant, or an account identity, past the moment it stopped being true.
+const _walletForUser = new Map();
+const WALLET_CACHE_MS = 10 * 60 * 1000;
+
+/* Resolve the Solana wallet behind a Privy login.
+ *
+ * Returns { wallet, reason }. The reason is the whole point of the rewrite: this used
+ * to be one try/catch returning null, so "Privy is not configured on this server",
+ * "your token expired", "Privy throttled us" and "this account has no Solana wallet"
+ * were the same answer, and the player was told the same useless thing for all four.
+ *
+ * Two tokens are accepted. The identity token is preferred because getUser({idToken})
+ * carries the linked accounts with it and is not rate limited; the access token is the
+ * fallback, since identity tokens have to be switched on for the app and an older
+ * cached login only has the access one. */
+async function walletFromIdToken(accessToken, identityToken) {
+  if (!privyServer) return { wallet: null, reason: 'privy-not-configured' };
+  if (!accessToken && !identityToken) return { wallet: null, reason: 'no-token' };
+
+  const solanaOf = user => {
+    for (const a of ((user && user.linkedAccounts) || [])) {
       if (a && a.type === 'wallet' && (a.chainType === 'solana' || a.chain_type === 'solana') && a.address) return a.address;
     }
     return null;
-  } catch (e) { return null; }
+  };
+
+  if (identityToken) {
+    try {
+      const wallet = solanaOf(await privyServer.getUser({ idToken: identityToken }));
+      if (wallet) return { wallet, reason: 'ok' };
+      return { wallet: null, reason: 'no-solana-wallet' };
+    } catch (e) {
+      // Fall through to the access token rather than failing here: an identity token
+      // is only present when the app has them enabled, and a stale one is not a reason
+      // to reject a login that is otherwise good.
+      console.warn('[AUTH] identity token rejected:', e.message);
+    }
+  }
+
+  /* Before this rewrite the privy-id-token header was read as an ACCESS token and
+     verified as one. Nothing we ship sends it that way, but anything that does must
+     not start failing, so a rejected identity token gets one more try down the old
+     path rather than being dropped. */
+  const bearer = accessToken || identityToken;
+  let claims;
+  try {
+    claims = await privyServer.verifyAuthToken(bearer);        // local JWT check
+  } catch (e) {
+    console.warn('[AUTH] access token rejected:', e.message);
+    return { wallet: null, reason: accessToken ? 'bad-token' : 'bad-identity-token' };
+  }
+  const hit = _walletForUser.get(claims.userId);
+  if (hit && Date.now() - hit.at < WALLET_CACHE_MS) return { wallet: hit.wallet, reason: 'ok' };
+  try {
+    const wallet = solanaOf(await privyServer.getUser(claims.userId));
+    if (!wallet) return { wallet: null, reason: 'no-solana-wallet' };
+    _walletForUser.set(claims.userId, { wallet, at: Date.now() });
+    return { wallet, reason: 'ok' };
+  } catch (e) {
+    console.warn('[AUTH] getUser failed:', e.message);
+    return { wallet: null, reason: 'privy-lookup-failed' };
+  }
+}
+
+/* Both tokens off a request, however the caller sent them. */
+function tokensFrom(req) {
+  const auth = req.headers.authorization || '';
+  return {
+    access: auth.startsWith('Bearer ') ? auth.slice(7) : (req.headers['privy-access-token'] || null),
+    identity: req.headers['privy-id-token'] || null,
+  };
 }
 async function isOwnerToken(idToken) {
   if (!idToken) return false;
-  const wallet = await walletFromIdToken(idToken);
+  const { wallet } = await walletFromIdToken(idToken, null);
   return !!wallet && OWNER_WALLETS.has(wallet);
 }
-// Owner check for HTTP routes — a verified Privy id token whose wallet is an owner wallet.
+// Owner check for HTTP routes — a verified Privy token whose wallet is an owner wallet.
 async function isOwnerReq(req) {
-  const auth = req.headers.authorization || '';
-  const idToken = auth.startsWith('Bearer ') ? auth.slice(7) : (req.headers['privy-id-token'] || null);
-  return isOwnerToken(idToken);
+  const { access, identity } = tokensFrom(req);
+  const { wallet } = await walletFromIdToken(access, identity);
+  return !!wallet && OWNER_WALLETS.has(wallet);
 }
 
 // ─── PostHog reverse proxy ───────────────────────────────────────────────────
@@ -656,11 +726,12 @@ app.get('/api/my-profile', async (req, res) => {
    trusts a query wallet, but that only reads, and a write has to be the
    account it claims to be. */
 app.post('/api/my-name', async (req, res) => {
-  const auth = req.headers.authorization || '';
-  const idToken = auth.startsWith('Bearer ') ? auth.slice(7)
-                : (req.headers['privy-id-token'] || null);
-  const wallet = await walletFromIdToken(idToken);
-  if (!wallet) return res.status(401).json({ error: 'Sign in first' });
+  const { access, identity } = tokensFrom(req);
+  const { wallet, reason } = await walletFromIdToken(access, identity);
+  /* The reason travels to the client. Naming yourself failing with a shrug is
+     what sent this round in circles: every distinct cause read as "could not
+     reach your account", so there was nothing to act on. */
+  if (!wallet) return res.status(401).json({ error: 'Sign in first', reason });
   const name = sanitizeName(req.body && req.body.name);
   if (!name || name.length < 3) return res.status(400).json({ error: 'Name too short' });
   try {

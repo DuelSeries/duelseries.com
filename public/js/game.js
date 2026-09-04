@@ -913,32 +913,46 @@ function drawAim() {
   const dpr = canvas.width / canvas.getBoundingClientRect().width || 1;
   const ax = anchorX * dpr, ay = anchorY * dpr;
   const ca = Math.cos(touchAngle), sa = Math.sin(touchAngle);
-  const R = 30 * dpr;
+  const R = 34 * dpr;
+  const x0 = ax + ca * (R + 5 * dpr),  y0 = ay + sa * (R + 5 * dpr);
+  const x1 = ax + ca * (R + 30 * dpr), y1 = ay + sa * (R + 30 * dpr);
+  const hx = ax + ca * (R + 44 * dpr), hy = ay + sa * (R + 44 * dpr);
+  const px = -sa, py = ca;                 // perpendicular, for the two barbs
+
+  const ring  = () => { ctx.beginPath(); ctx.arc(ax, ay, R, 0, Math.PI * 2); ctx.stroke(); };
+  const shaft = () => { ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke(); };
+  const head  = () => {
+    ctx.beginPath();
+    ctx.moveTo(hx, hy);
+    ctx.lineTo(x1 + px * 9 * dpr, y1 + py * 9 * dpr);
+    ctx.lineTo(x1 - px * 9 * dpr, y1 - py * 9 * dpr);
+    ctx.closePath();
+  };
+
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);      // screen space, whatever the camera left set
-  ctx.globalAlpha = 0.5;
-  ctx.strokeStyle = '#f5f1e8';
-  ctx.lineWidth = 2 * dpr;
-  ctx.beginPath(); ctx.arc(ax, ay, R, 0, Math.PI * 2); ctx.stroke();
-
-  const x0 = ax + ca * (R + 4 * dpr),  y0 = ay + sa * (R + 4 * dpr);
-  const x1 = ax + ca * (R + 26 * dpr), y1 = ay + sa * (R + 26 * dpr);
-  ctx.globalAlpha = 0.88;
   ctx.lineCap = 'round';
-  ctx.lineWidth = 3 * dpr;
-  ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+  ctx.lineJoin = 'round';
 
-  const hx = ax + ca * (R + 38 * dpr), hy = ay + sa * (R + 38 * dpr);
-  const px = -sa, py = ca;                 // perpendicular, for the two barbs
+  /* Halo under core, same as agar. This board is dark so the roles are swapped —
+     cream shape over a dark halo — but the shape, the sizes and the reason are the
+     same, so a player moving between the two games is holding one control. */
+  ctx.globalAlpha = 0.5;
+  ctx.strokeStyle = 'rgba(0,0,0,0.75)';
+  ctx.lineWidth = 7 * dpr; ring();
+  ctx.lineWidth = 8 * dpr; shaft();
+  head(); ctx.stroke();
+
+  ctx.globalAlpha = 0.55;
+  ctx.strokeStyle = '#f5f1e8';
+  ctx.lineWidth = 2.5 * dpr; ring();
+  ctx.globalAlpha = 0.92;
+  ctx.lineWidth = 4 * dpr; shaft();
   ctx.fillStyle = '#f5f1e8';
-  ctx.beginPath();
-  ctx.moveTo(hx, hy);
-  ctx.lineTo(x1 + px * 7 * dpr, y1 + py * 7 * dpr);
-  ctx.lineTo(x1 - px * 7 * dpr, y1 - py * 7 * dpr);
-  ctx.closePath(); ctx.fill();
+  head(); ctx.fill();
 
-  ctx.globalAlpha = 0.26;
-  ctx.beginPath(); ctx.arc(mousePos.x * dpr, mousePos.y * dpr, 16 * dpr, 0, Math.PI * 2); ctx.fill();
+  ctx.globalAlpha = 0.24;
+  ctx.beginPath(); ctx.arc(mousePos.x * dpr, mousePos.y * dpr, 18 * dpr, 0, Math.PI * 2); ctx.fill();
   ctx.restore();
 }
 

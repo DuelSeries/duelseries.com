@@ -732,39 +732,57 @@ function render() {
   if (touchSteering && touchAngle !== null) drawAim();
 }
 
-/* Where you are pointing, drawn as a ring at the anchor with an arrow leaving
-   it. Without this the anchored stick is invisible — you feel the turn but
-   nothing on screen says which way you asked to go, which is the one thing a
-   stick has to tell you. */
+/* Where you are pointing: a ring at the anchor, an arrow leaving it, and the thumb
+   marked so the gap between the two reads as how hard you are turning.
+
+   DARK ink, not cream. This was drawn in the snake game's #f5f1e8 on agar's board,
+   which is #f0f4ff — cream on near-white, at half alpha. It was drawing correctly
+   every frame and was simply invisible, which is why it read as "there is still no
+   arrow". Every stroke is laid down twice, a pale halo under a dark core, so it also
+   holds when it crosses a bright cell instead of the empty board. */
+const AIM_CORE = '#161b2b';
+const AIM_HALO = 'rgba(255,255,255,0.9)';
 function drawAim() {
   const ax = anchorX, ay = anchorY;
   const ca = Math.cos(touchAngle), sa = Math.sin(touchAngle);
-  const R = 30;                       // the ring sits just inside TOUCH_FOLLOW_R
-  ctx.save();
-  ctx.globalAlpha = 0.55;
-  ctx.strokeStyle = '#f5f1e8';
-  ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.arc(ax, ay, R, 0, Math.PI * 2); ctx.stroke();
-
-  // A short shaft from the ring's edge, and a solid head on the end of it.
-  const x0 = ax + ca * (R + 4),  y0 = ay + sa * (R + 4);
-  const x1 = ax + ca * (R + 26), y1 = ay + sa * (R + 26);
-  ctx.globalAlpha = 0.9;
-  ctx.lineCap = 'round';
-  ctx.lineWidth = 3;
-  ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
-  const hx = ax + ca * (R + 38), hy = ay + sa * (R + 38);
+  const R = 34;                       // the ring sits just inside TOUCH_FOLLOW_R
+  const x0 = ax + ca * (R + 5),  y0 = ay + sa * (R + 5);
+  const x1 = ax + ca * (R + 30), y1 = ay + sa * (R + 30);
+  const hx = ax + ca * (R + 44), hy = ay + sa * (R + 44);
   const px = -sa, py = ca;            // perpendicular, for the two barbs
-  ctx.fillStyle = '#f5f1e8';
-  ctx.beginPath();
-  ctx.moveTo(hx, hy);
-  ctx.lineTo(x1 + px * 7, y1 + py * 7);
-  ctx.lineTo(x1 - px * 7, y1 - py * 7);
-  ctx.closePath(); ctx.fill();
+
+  const ring  = () => { ctx.beginPath(); ctx.arc(ax, ay, R, 0, Math.PI * 2); ctx.stroke(); };
+  const shaft = () => { ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke(); };
+  const head  = () => {
+    ctx.beginPath();
+    ctx.moveTo(hx, hy);
+    ctx.lineTo(x1 + px * 9, y1 + py * 9);
+    ctx.lineTo(x1 - px * 9, y1 - py * 9);
+    ctx.closePath();
+  };
+
+  ctx.save();
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  // Halo first, wider, so the dark shape on top always has an edge to sit on.
+  ctx.globalAlpha = 0.85;
+  ctx.strokeStyle = AIM_HALO;
+  ctx.lineWidth = 7; ring();
+  ctx.lineWidth = 8; shaft();
+  head(); ctx.stroke();
+
+  ctx.globalAlpha = 0.6;
+  ctx.strokeStyle = AIM_CORE;
+  ctx.lineWidth = 2.5; ring();
+  ctx.globalAlpha = 0.92;
+  ctx.lineWidth = 4; shaft();
+  ctx.fillStyle = AIM_CORE;
+  head(); ctx.fill();
 
   // The thumb itself, so the gap between it and the anchor reads as the throw.
-  ctx.globalAlpha = 0.28;
-  ctx.beginPath(); ctx.arc(thumbX, thumbY, 16, 0, Math.PI * 2); ctx.fill();
+  ctx.globalAlpha = 0.22;
+  ctx.beginPath(); ctx.arc(thumbX, thumbY, 18, 0, Math.PI * 2); ctx.fill();
   ctx.restore();
 }
 

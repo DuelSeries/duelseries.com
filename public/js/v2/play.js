@@ -31,7 +31,21 @@
     const s = el('set-name');  if (s) s.value = n;
     return n;
   }
-  const token = () => { try { return localStorage.getItem('duel_admin_token'); } catch (_) { return null; } };
+  /* Ask the widget for a live token first. The localStorage copy is written by a
+     background effect after sign-in, so anything that runs before that effect has
+     landed sees nothing there and concludes the player is signed out. */
+  async function tokens() {
+    if (typeof window.duelWalletToken === 'function') {
+      try {
+        const t = await window.duelWalletToken();
+        if (t && (t.access || t.identity)) return t;
+      } catch (_) {}
+    }
+    try {
+      return { access: localStorage.getItem('duel_admin_token'),
+               identity: localStorage.getItem('duel_id_token') };
+    } catch (_) { return { access: null, identity: null }; }
+  }
 
   /* The account's name is the truth, and it overwrites whatever this browser
      had. That is the whole point: the same person on a phone and a laptop was
@@ -48,18 +62,26 @@
   }
   /* Authenticated by the Privy token; the server resolves the wallet from it
      rather than believing anything sent from here. */
-  /* true saved, 'taken' somebody else has it, false could not save. Three
-     outcomes rather than two, because "taken" is the one the player can
-     actually do something about. */
+  /* Returns true, or a string saying what stopped it. Every failure used to come
+     back as plain false and the player was told the same sentence for a taken name,
+     an expired login, a server that was not configured and no network at all — so
+     there was never anything to act on. */
   async function pushName(n) {
-    const t = token(); if (!t || !n || n.length < 3) return false;
+    if (!n || n.length < 3) return 'short';
+    const t = await tokens();
+    if (!t.access && !t.identity) return 'signed-out';
+    const headers = { 'Content-Type': 'application/json' };
+    if (t.access) headers.Authorization = 'Bearer ' + t.access;
+    if (t.identity) headers['privy-id-token'] = t.identity;
+    let r;
     try {
-      const r = await fetch('/api/my-name', { method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + t },
-        body: JSON.stringify({ name: n }) });
-      if (r.status === 409) return 'taken';
-      return r.ok;
-    } catch (_) { return false; }
+      r = await fetch('/api/my-name', { method: 'POST', headers, body: JSON.stringify({ name: n }) });
+    } catch (_) { return 'offline'; }
+    if (r.ok) return true;
+    if (r.status === 409) return 'taken';
+    let body = {};
+    try { body = await r.json(); } catch (_) {}
+    return body.reason || ('http-' + r.status);
   }
   let toastT = 0;
   function toast(text) {
@@ -68,6 +90,22 @@
     clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('on'), 4000);
   }
   const setState = s => { const b = el('name-act'); if (b) b.dataset.state = s; };
+
+  /* Said in the player's terms, one line per thing that can actually go wrong.
+     Anything not listed shows its code, so a report is one screenshot rather than
+     a round of guessing. */
+  const WHY = {
+    taken: 'That name is already taken. Please choose a different one.',
+    short: 'Names need at least three letters or numbers.',
+    'signed-out': 'Sign in first so your name follows you to your other devices.',
+    offline: 'No connection. Your name was not saved.',
+    'bad-token': 'Your sign-in expired. Sign out and back in, then try again.',
+    'bad-identity-token': 'Your sign-in expired. Sign out and back in, then try again.',
+    'no-solana-wallet': 'Your account has no wallet yet. Open the Wallet tab first.',
+    'privy-not-configured': 'The server cannot check logins right now. This is our end, not yours.',
+    'privy-lookup-failed': 'Could not check your login just now. Try again in a moment.',
+    'http-500': 'The server could not save it. Try again in a moment.',
+  };
 
   /* One button through four states. Locked it is a pen; pressing it opens the
      field and turns it into a tick; pressing the tick saves. The tick holds
@@ -94,21 +132,12 @@
     }
     setState('saving');
     const res = await pushName(n);
-    if (res === 'taken') {
+    if (res !== true) {
       setState('bad');
-      toast('That name is already taken. Please choose a different one.');
-      setTimeout(() => { setState('editing'); input.focus(); }, 1400);
+      toast(WHY[res] || ('Could not save your name (' + res + '). Tell Owen this code.'));
+      setTimeout(() => { setState('editing'); if (res === 'taken') input.focus(); }, 1500);
       return;
     }
-    if (!res && (window.duelWallet || {}).authenticated) {
-      setState('bad');
-      toast('Could not reach your account. The name is saved on this device only.');
-      setTimeout(() => { setState('editing'); }, 1600);
-      return;
-    }
-    /* Saved, or saved locally because nobody is signed in — which is the most
-       this can do and is not a failure to report as one. */
-    if (!res) toast('Saved here. Sign in to use this name on your other devices.');
     input.readOnly = true;
     setState('ok');
     btn.setAttribute('aria-label', 'Change name');
@@ -258,7 +287,8 @@
   window.V2Play = { enter: enter, playChosen: playChosen, spectate: spectate,
                     launch: launch, savedName: savedName, cleanName: cleanName,
                     nameAction: nameAction, pullName: pullName,
-                    pushName: pushName };
+                    pushName: pushName,
+                    nameWhy: r => WHY[r] || ('Could not save your name (' + r + ').') };
 
   /* Forward the stall marker into the game.
 

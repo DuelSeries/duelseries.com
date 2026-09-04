@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { PrivyProvider, usePrivy, useLogin } from '@privy-io/react-auth';
+import { PrivyProvider, usePrivy, useLogin, useIdentityToken } from '@privy-io/react-auth';
 import { useWallets as useSolanaWallets, useSignTransaction, useFundWallet } from '@privy-io/react-auth/solana';
 import { createSolanaRpc, createSolanaRpcSubscriptions } from '@solana/kit';
 import { PublicKey, SystemProgram, Transaction } from '@solana/web3.js';
@@ -260,6 +260,10 @@ async function sendUsdc(toAddress, amountUsdc, mint, decimals, wallet, signTrans
 function WalletPanel() {
   const { ready, authenticated, user, logout, getAccessToken } = usePrivy();
   const { login } = useLogin();
+  // Carries the linked accounts with it, so the server can resolve the wallet in one
+  // call that Privy does not rate limit. Null unless identity tokens are switched on
+  // for the app, which is why nothing depends on it alone.
+  const { identityToken } = useIdentityToken();
   const { wallets: solWallets } = useSolanaWallets();
   const { signTransaction } = useSignTransaction();
   const { fundWallet } = useFundWallet();
@@ -354,6 +358,17 @@ function WalletPanel() {
 
   // Expose wallet actions for the lobby's wallet card (Phase 4d: the card is the wallet UI).
   useEffect(() => {
+    /* A token straight from Privy at the moment it is needed. The localStorage copy
+       below is a cache for pages that cannot await anything (the game iframes); a
+       lobby action should not fail just because that cache is empty or stale. */
+    window.duelWalletToken = async () => {
+      let access = null;
+      try { access = await getAccessToken(); } catch (_) {}
+      if (!access) { try { access = localStorage.getItem('duel_admin_token'); } catch (_) {} }
+      let identity = identityToken;
+      if (!identity) { try { identity = localStorage.getItem('duel_id_token'); } catch (_) {} }
+      return { access, identity };
+    };
     window.duelWalletLogin = () => login();
     window.duelWalletLogout = () => logout();
     window.duelWalletRefresh = async () => {
@@ -381,20 +396,24 @@ function WalletPanel() {
       if (!wallet) return Promise.reject(new Error('Connect your wallet first.'));
       return buyCosmetic(itemId, wallet, signTransaction, onStatus);
     };
-  }, [wallet, signTransaction, address, login, logout, fundWallet]);
+  }, [wallet, signTransaction, address, login, logout, fundWallet, identityToken, getAccessToken]);
 
   // Keep the Privy access token in localStorage so same-origin admin pages + game iframes can
   // authenticate owner-only actions (the server verifies it → OWNER_WALLET). Refreshed on a timer.
   useEffect(() => {
-    if (!authenticated) { try { localStorage.removeItem('duel_admin_token'); } catch (_) {} return; }
+    if (!authenticated) {
+      try { localStorage.removeItem('duel_admin_token'); localStorage.removeItem('duel_id_token'); } catch (_) {}
+      return;
+    }
     let live = true;
     const refresh = async () => {
       try { const t = await getAccessToken(); if (live && t) localStorage.setItem('duel_admin_token', t); } catch (_) {}
+      try { if (live && identityToken) localStorage.setItem('duel_id_token', identityToken); } catch (_) {}
     };
     refresh();
     const id = setInterval(refresh, 5 * 60 * 1000);
     return () => { live = false; clearInterval(id); };
-  }, [authenticated]);
+  }, [authenticated, identityToken]);
 
   const doStake = async (game, sel) => {
     if (busyRef.current) return; // already staking — drop the rapid re-clicks (no double charge)

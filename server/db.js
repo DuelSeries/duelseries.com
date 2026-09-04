@@ -119,15 +119,20 @@ async function init() {
     /* Not IF NOT EXISTS alone: this can fail outright on a table that already
        holds two accounts with the same name, which is possible because names
        were never unique before. Wrapped so a failure leaves the check-then-write
-       in setAccountName as the only guard rather than stopping startup. */
-    DO $ BEGIN
+       in setAccountName as the only guard rather than stopping startup.
+
+       $$, not $. Postgres dollar-quoting is $tag$ and a bare $ is a syntax
+       error, and this whole template is ONE statement, so getting it wrong did
+       not just skip the index — it aborted every CREATE and ALTER in the file
+       on every boot. The schema silently stopped moving. */
+    DO $$ BEGIN
       BEGIN
         CREATE UNIQUE INDEX IF NOT EXISTS accounts_name_lower_uniq
           ON accounts (LOWER(name)) WHERE name IS NOT NULL;
       EXCEPTION WHEN others THEN
         RAISE NOTICE 'accounts_name_lower_uniq not created: %', SQLERRM;
       END;
-    END $;
+    END $$;
     ALTER TABLE accounts ADD COLUMN IF NOT EXISTS agar_high_score INTEGER DEFAULT 0;
     ALTER TABLE accounts ADD COLUMN IF NOT EXISTS agar_total_earnings NUMERIC(18,9) DEFAULT 0;
     ALTER TABLE accounts ADD COLUMN IF NOT EXISTS agar_games_played INTEGER DEFAULT 0;

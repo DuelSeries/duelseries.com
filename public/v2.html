@@ -2784,13 +2784,12 @@ document.addEventListener('blur',async e=>{
   const v=String(e.target.value||'').replace(/[^a-zA-Z0-9]/g,'').slice(0,16);
   const msg=document.getElementById('set-name-msg');
   if(v.length<3){if(msg)msg.textContent='At least three characters to play.';return}
+  /* pushName returns true or a reason; V2Play.nameWhy turns the reason into the
+     same sentence the game screen shows, so the two fields cannot disagree about
+     what just happened. */
   const res=await V2Play.pushName(v);
-  if(res==='taken'){
-    if(msg)msg.textContent='That name is already taken. Please choose a different one.';
-    return;
-  }
-  if(msg)msg.textContent=res?'Saved. This is your name on every device.'
-    :'Saved here. Sign in to use this name on your other devices.';
+  if(msg)msg.textContent=res===true?'Saved. This is your name on every device.'
+    :V2Play.nameWhy(res);
 },true);
 
 /* Show a tab's screen and load its data without changing the route. */
