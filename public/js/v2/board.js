@@ -42,6 +42,10 @@
        and the word only exists for a screen reader, which is the one reader that
        needs it spelled out. */
     const live = n > 0 ? ' on' : '';
+    /* The word is on the badge, not hidden behind it. This count is the only
+       one on the screen now — the one that used to sit under the game's name is
+       gone — so it has to say what it is counting rather than leave a bare
+       figure floating next to a button. */
     return '<div class="lr">' +
       '<div class="lswatch">' + (window.V2_SWATCH ? window.V2_SWATCH(l.game) : '') + '</div>' +
       '<div class="lmid">' +
@@ -50,10 +54,9 @@
           '<i></i>' + '<b class="lstake num">' + money(l.stake) + '</b></span>' +
       '</div>' +
       '<span class="sp" style="flex:1"></span>' +
-      '<span class="lcount' + live + '" title="Players in this lobby">' +
+      '<span class="lcount' + live + '">' +
         '<span class="ldot" aria-hidden="true"></span>' +
-        '<span class="num">' + n + '</span>' +
-        '<span class="vh">' + (n === 1 ? 'player' : 'players') + '</span></span>' +
+        '<span class="num">' + n + '</span> playing</span>' +
       '<button class="enter" onclick="V2Board.join(' +
         JSON.stringify(l.id).replace(/"/g, '&quot;') + ')">Enter</button>' +
       '</div>';

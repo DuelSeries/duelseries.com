@@ -417,8 +417,8 @@ body.ingame .tkrun,body.nomotion .tkrun{animation-play-state:paused}
 .lstake{font-size:11.5px;font-weight:600;color:var(--money)}
 /* The count as a count: a lit dot and a figure, in the mono the money uses.
    It used to be the words "0 playing" wedged between two other grey chips. */
-.lcount{display:flex;align-items:center;gap:6px;font-size:13.5px;font-weight:600;
-  color:var(--tx3);margin-right:14px}
+.lcount{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;
+  color:var(--tx3);margin-right:14px;white-space:nowrap}
 .lcount.on{color:var(--tx)}
 .ldot{width:6px;height:6px;border-radius:50%;background:var(--s3);flex:0 0 auto}
 .lcount.on .ldot{background:var(--live)}
@@ -803,9 +803,8 @@ body.no-foot footer{display:none}
   justify-content:center}
 #detail .back{position:relative;z-index:2;margin-left:24px}
 #dname{font-size:34px;font-weight:650;letter-spacing:-1px;margin-top:18px}
-.hnow{font-size:13px;color:var(--tx2);margin-top:14px;display:flex;
-  align-items:center;justify-content:center;gap:8px}
-.hnow b{width:6px;height:6px;border-radius:50%;background:var(--live)}
+/* The count that used to sit under the game's name has moved onto the lobby
+   row itself, where the thing being counted actually is. */
 .sl{font-size:12.5px;color:var(--tx3);text-align:center;margin-top:26px}
 /* One button per buy-in, all of them visible. */
 .stakes{display:flex;gap:8px;margin:14px 0 16px}
@@ -827,7 +826,7 @@ body.no-foot footer{display:none}
    cosmetic: a buy-in, a name field and a Play button on a game that cannot be
    started are four separate promises the product cannot keep. */
 .soonwrap{display:none}
-#detail.soon .hnow,#detail.soon .howrow,#detail.soon .sl,#detail.soon #stakes,
+#detail.soon .howrow,#detail.soon .sl,#detail.soon #stakes,
 #detail.soon #stakeoff,#detail.soon .namerow,#detail.soon .go,
 #detail.soon #play-msg,#detail.soon .lookrow,#detail.soon .lobwrap{display:none}
 #detail.soon .soonwrap{display:block}
@@ -1162,7 +1161,6 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
   .gcol{padding:6px 16px 12px;max-width:none;min-height:calc(100vh - 172px)}
   #detail .back{margin-left:16px;padding:12px 0 0}
   #dname{margin-top:4px;font-size:23px}
-  .hnow{margin-top:7px;font-size:12.5px}
   .howbtn{margin-top:10px;padding:7px 13px;font-size:12.5px}
   .sl{margin-top:12px}
   .stakes{margin:8px 0 10px}
@@ -1462,7 +1460,6 @@ body.scr-anim { overflow-x:hidden }
     <!-- The description used to sit here as a paragraph everybody reads once
          and then reads past forever. It is behind a button now: there when it
          is wanted, gone when it is not. -->
-    <div class="hnow"><b></b><span id="dnow"></span></div>
 
     <!-- What an unbuilt game shows instead of the whole play column. The
          description finally earns its place here: for a game you cannot start,
@@ -2774,8 +2771,7 @@ function open_(id){
      empty rung is a buy-in you can pick, not a lobby you can join. */
   const mine=(window.V2Board?V2Board.occupied:[]).filter(l=>l.game===id);
   const playing=mine.reduce((n,l)=>n+(l.players||0),0);
-  document.getElementById('dnow').innerHTML=`<span class="num">${playing}</span> `+
-    (cur.type==='p'?'playing':'waiting');
+  /* `playing` is still summed here: it is what the free row's own count shows. */
   /* The free room is listed whether or not anybody is in it. It is the row
      that costs nothing to press, and burying it until somebody else happens to
      be playing is the cold start this screen exists to avoid. */
@@ -2784,9 +2780,9 @@ function open_(id){
      <div class="lmid"><span class="lname">${cur.name}</span>
        <span class="lsub">NA<i></i><b class="lstake num">Free</b></span></div>
      <span class="sp" style="flex:1"></span>
-     <span class="lcount${playing>0?' on':''}" title="Players in this lobby">
+     <span class="lcount${playing>0?' on':''}">
        <span class="ldot" aria-hidden="true"></span><span class="num">${playing}</span>
-       <span class="vh">${playing===1?'player':'players'}</span></span>
+       playing</span>
      <button class="enter" onclick="V2Play.launch('${cur.id}',{lobbyType:'free'})">Enter</button>
    </div>`;
   document.getElementById('dlob').innerHTML=freeRow+(mine.length
@@ -2796,9 +2792,9 @@ function open_(id){
          <span class="lsub">${String(l.region).toUpperCase()}<i></i>
            <b class="lstake num">${cash(l.stake)}</b></span></div>
        <span class="sp" style="flex:1"></span>
-       <span class="lcount${l.players>0?' on':''}" title="Players in this lobby">
+       <span class="lcount${l.players>0?' on':''}">
          <span class="ldot" aria-hidden="true"></span><span class="num">${l.players}</span>
-         <span class="vh">${l.players===1?'player':'players'}</span></span>
+         playing</span>
        <button class="enter" onclick="V2Board.join('${l.id}')">Enter</button>
      </div>`).join(''):'');
   document.getElementById('dsub2').textContent=mine.length?mine.length+' open':'';
