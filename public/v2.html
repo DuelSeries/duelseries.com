@@ -679,6 +679,16 @@ body.ingame .tkrun,body.nomotion .tkrun{animation-play-state:paused}
 .howsteps b{display:block;font-size:14px;font-weight:600;margin-bottom:3px}
 .howsteps span{font-size:13px;color:var(--tx2);line-height:1.6}
 .howgo{width:100%}
+/* The money sheets reuse the how-to card, one size up. */
+.mcard{max-width:460px}
+.msub{font-size:13px;color:var(--tx2);line-height:1.65;margin:0 0 20px}
+.mcard .plab{margin-bottom:8px}
+.mcard .waddr{margin-bottom:12px}
+.mwarn{margin:0 0 20px}
+.mgo{width:100%;flex:none}
+.mfig{text-align:center;margin:0 0 20px}
+.mfig .k{font-size:12px;color:var(--tx3)}
+.mfig .v{font-size:34px;font-weight:650;color:var(--money);letter-spacing:-1.4px;margin-top:3px}
 
 /* ── the game screen ─────────────────────────────────────────────────────
    The game's own wide painting, full bleed, with everything standing on it in
@@ -1168,6 +1178,36 @@ body.scr-anim { overflow-x:hidden }
        on the screen people actually use to start a game. It comes back when
        there is something real to put in it. -->
 </main>
+
+<!-- ══ MONEY SHEETS ══ -->
+<!-- Deposit and Withdraw each get the whole screen. They were a pair of
+     buttons that swapped a panel out from under the balance, which gave the
+     one irreversible thing on the site less room than the how-to-play blurb. -->
+<div id="depveil" class="howveil" role="dialog" aria-modal="true" aria-label="Add funds">
+  <div class="howcard mcard">
+    <div class="howtop"><h2>Add funds</h2>
+      <button type="button" class="howx" onclick="V2Wallet.closeDep()" aria-label="Close">&#10005;</button>
+    </div>
+    <p class="msub">Send USDC to your DuelSeries wallet. It arrives in this
+       balance as soon as the transfer settles.</p>
+    <div class="plab">Your wallet address</div>
+    <div class="waddr" id="dep-addr" onclick="V2Wallet.copy('dep-addr')">
+      <code id="dep-addr-code"></code><span class="cp">Copy</span></div>
+    <p class="note mwarn">USDC on Solana only. Another token, or the right
+      token on another network, cannot be recovered.</p>
+    <button type="button" class="btn pri mgo" onclick="V2Wallet.fund()">
+      Show QR code and payment options</button>
+  </div>
+</div>
+
+<div id="wdrveil" class="howveil" role="dialog" aria-modal="true" aria-label="Withdraw">
+  <div class="howcard mcard">
+    <div class="howtop"><h2>Withdraw</h2>
+      <button type="button" class="howx" onclick="V2Wallet.cancelCash()" aria-label="Close">&#10005;</button>
+    </div>
+    <div id="wdr-body"></div>
+  </div>
+</div>
 
 <!-- ══ HOW TO PLAY ══ -->
 <!-- Asked for, not pushed. Four steps, the same four for every game bar the

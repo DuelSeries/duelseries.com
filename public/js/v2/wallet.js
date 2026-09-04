@@ -75,9 +75,9 @@
         '<div class="blab">Available</div>' +
         '<div class="bnum num" id="w-bal">' + money(bal) + '</div>' +
         '<div class="wunit">USDC on Solana</div>' +
-        (cashing ? cashForm(bal) :
-          '<div class="wacts">' +
-            '<button class="btn pri" onclick="V2Wallet.fund()">Deposit</button>' +
+        /* The form lives in its own sheet now, so this row never swaps out. */
+        ('<div class="wacts">' +
+            '<button class="btn pri" onclick="V2Wallet.openDep()">Deposit</button>' +
             '<button class="btn sec" onclick="V2Wallet.cashOut()">Withdraw</button>' +
             '<button class="btn sec wref" id="w-refresh" onclick="V2Wallet.refresh()" ' +
               'aria-label="Refresh balance" title="Refresh balance">' +
@@ -163,6 +163,11 @@
         '</div></div>';
     }
     return '<div class="cashout">' +
+      '<div class="mfig"><div class="k">Available to withdraw</div>' +
+        '<div class="v num">' + money(bal) + '</div></div>' +
+      '<p class="msub">Paste the Solana address you want the USDC sent to, ' +
+        'choose an amount, and confirm. It goes on-chain and cannot be reversed, ' +
+        'so check the address before you send.</p>' +
       '<input class="fld" id="co-to" placeholder="Solana address" autocomplete="off" ' +
         'spellcheck="false" aria-label="Destination Solana address">' +
       '<div class="amtrow">' +
@@ -184,22 +189,46 @@
     if (!window.duelWalletFund) return note('Your wallet is still starting. Try again in a moment.');
     /* The widget owns the funding flow; a rejection here is the user closing
        it or the provider refusing, not something to swallow silently. */
-    window.duelWalletFund(20).catch(e =>
+    /* Ten. Twenty was a number nobody chose, and it is the figure Privy prints
+       at the top of its own screen, so it reads as a price rather than a
+       starting point. */
+    window.duelWalletFund(10).catch(e =>
       note('Add funds did not open: ' + (e && e.message ? e.message : 'try again.')));
   }
 
   /* Cash out sends from the player's own wallet to an address they give us.
      The amount and destination are theirs; this screen only collects them and
      hands both to the widget, which owns every part of the money. */
+  /* Deposit is our screen, not Privy's. Privy's own funding modal is headed
+     "Receive 20 USDC", which says nothing about where the money is going; this
+     one says whose wallet it is, shows the address, and keeps the one warning
+     that matters. Privy is still one button away for the QR and the card and
+     exchange options, which are its to render. */
+  function openDep() {
+    if (!connected()) return login();
+    const a = w().address || '';
+    const code = el('dep-addr-code'); if (code) code.textContent = a;
+    el('depveil').classList.add('on');
+  }
+  function closeDep() { el('depveil').classList.remove('on'); }
+
   function cashOut() {
     if (!connected()) return login();
     if (!window.duelWalletSend) return note('Your wallet is still starting. Try again in a moment.');
-    if ((Number(w().balance) || 0) <= 0) return note('There is nothing to cash out yet.');
-    cashing = true; pending = null; render();
+    if ((Number(w().balance) || 0) <= 0) return note('There is nothing to withdraw yet.');
+    cashing = true; pending = null;
+    drawCash();
+    el('wdrveil').classList.add('on');
     const f = el('co-to'); if (f) f.focus();
   }
-  function cancelCash() { cashing = false; pending = null; render(); }
-  function backCash() { pending = null; render(); }
+  function drawCash() {
+    const b = el('wdr-body'); if (b) b.innerHTML = cashForm(Number(w().balance) || 0);
+  }
+  function cancelCash() {
+    cashing = false; pending = null;
+    el('wdrveil').classList.remove('on');
+  }
+  function backCash() { pending = null; drawCash(); }
   function max() {
     const a = el('co-amt');
     if (a) { a.value = (Number(w().balance) || 0).toFixed(2); a.focus(); }
@@ -217,20 +246,22 @@
     if (!isFinite(amt) || amt <= 0) return say('Enter an amount to cash out.');
     if (amt > bal) return say('That is more than the ' + money(bal) + ' you have.');
     pending = { to: to, amt: amt };
-    render();
+    drawCash();
   }
   function confirmCash() {
     if (!pending) return;
     const p = pending;
-    pending = null; cashing = false; render();
+    pending = null; cashing = false;
+    el('wdrveil').classList.remove('on');
+    render();
     window.duelWalletSend(p.amt, p.to)
       .then(() => { note('Sent.'); if (window.duelWalletRefresh) window.duelWalletRefresh(); })
       .catch(e => note('Send failed: ' + (e && e.message ? e.message : 'try again.')));
   }
 
 
-  function copy() {
-    const box = el('w-addr'); if (!box) return;
+  function copy(which) {
+    const box = el(which || 'w-addr'); if (!box) return;
     const lbl = box.querySelector('.cp');
     try { navigator.clipboard.writeText(w().address || ''); } catch (_) {}
     box.classList.add('done'); lbl.textContent = 'Copied';
@@ -243,7 +274,7 @@
      re-render mid-typing would throw away the address being pasted into it. */
   window.addEventListener('duelwallet:change', () => { cashing ? renderHeader() : render(); });
   window.V2Wallet = { render: render, login: login, fund: fund, copy: copy,
-                      refresh: refresh,
+                      refresh: refresh, openDep: openDep, closeDep: closeDep,
                       cashOut: cashOut, cancelCash: cancelCash, backCash: backCash,
                       max: max, submitCash: submitCash, confirmCash: confirmCash };
 })();
