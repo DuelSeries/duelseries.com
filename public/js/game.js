@@ -25,6 +25,9 @@ const stake         = (stakeRaw === null || stakeRaw === '') ? null : Number(sta
 const lobbyType     = sessionStorage.getItem('lobbyType')     || (stake === null ? 'free' : null);
 // "Paid" is about money, not about which name was used to ask for the room.
 const isPaidRoom    = (stake !== null) ? stake > 0 : lobbyType !== 'free';
+/* The nightly event. Free to enter and paid by the house, so it is not a paid
+   room in the staking sense — nothing here is staked and nothing is cashed out. */
+const isBattleRoyale = lobbyType === 'br';
 const entrySol      = parseFloat(sessionStorage.getItem('entrySol') || '0');
 const entryToken    = sessionStorage.getItem('entryToken') || null;
 const selectedRegion = sessionStorage.getItem('region') || 'na';
@@ -906,6 +909,67 @@ canvas.addEventListener('touchmove', (e) => {
   const p = touchPoint(e);
   if (p) updateTouchAim(p);
 }, { passive: false });
+
+/* ── Battle Royale ────────────────────────────────────────────────────────────
+   The server owns the match; this only draws what it says. Cash out is not
+   merely hidden here — the server refuses it in this room — but the button has
+   to go too, because a control that does nothing is worse than no control. */
+const brHud = document.getElementById('br-hud');
+const PHASE_WORDS = {
+  waiting:  'Waiting',
+  closing:  'Closing in',
+  roaming:  'The circle is moving',
+  overtime: 'Overtime',
+  over:     'Match over',
+};
+function brApply(s) {
+  if (!brHud || !isBattleRoyale) return;
+  brHud.hidden = false;
+  brHud.dataset.phase = s.phase || s.state || 'waiting';
+  document.getElementById('br-phase').textContent = PHASE_WORDS[s.phase] || 'Waiting';
+  document.getElementById('br-alive').textContent = s.alive || 0;
+
+  const sub = document.getElementById('br-sub');
+  if (s.state === 'running') {
+    const left = Math.max(0, (s.totalMs || 0) - (s.elapsedMs || 0));
+    const mm = Math.floor(left / 60000), ss = Math.floor((left % 60000) / 1000);
+    sub.textContent = s.phase === 'overtime'
+      ? 'Last one standing wins'
+      : mm + ':' + (ss < 10 ? '0' : '') + ss + ' left';
+  } else if (s.state === 'over') {
+    sub.textContent = s.winner ? s.winner.name + ' won' : 'Nobody survived';
+  } else {
+    sub.textContent = s.players >= s.minPlayers
+      ? 'Ready when the host starts it'
+      : 'Waiting for players (' + (s.players || 0) + '/' + (s.minPlayers || 2) + ')';
+  }
+
+  /* The start button is owner-only and the SERVER decides that — this just
+     avoids showing a control to somebody it would refuse. */
+  const btn = document.getElementById('br-start');
+  const token = (() => { try { return localStorage.getItem('duel_admin_token'); } catch (_) { return null; } })();
+  btn.hidden = !(token && s.canStart);
+
+  // No cashing out in a battle royale, so no button offering to.
+  const co = document.getElementById('cashout-btn-mobile');
+  if (co) co.style.display = 'none';
+}
+if (isBattleRoyale) {
+  socket.on('br:state', brApply);
+  socket.on('br:locked', (s) => {
+    brApply(s);
+    document.getElementById('br-sub').textContent = 'A match is already running';
+  });
+  const startBtn = document.getElementById('br-start');
+  if (startBtn) startBtn.addEventListener('click', () => {
+    let idToken = null;
+    try { idToken = localStorage.getItem('duel_admin_token'); } catch (_) {}
+    socket.emit('br:start', { idToken });
+  });
+  // Ask on arrival, then keep the clock honest without waiting on the server.
+  socket.on('connect', () => socket.emit('br:peek'));
+  setInterval(() => socket.emit('br:peek'), 2000);
+}
 
 function endTouch(e) {
   // Lifting the pedal stops the boost while the steering finger stays down.

@@ -606,6 +606,63 @@ body {
 #dir-arrow svg { display: block; }
 @media (hover: hover) and (pointer: fine) { #dir-arrow { display: none; } }
 
+/* ── Battle Royale HUD ───────────────────────────────────────────────────────
+   Top centre, above the leaderboard rather than beside it: while a circle is
+   closing on you, how long is left and how many are still alive is the only
+   thing on screen worth reading. */
+#br-hud {
+  position: fixed;
+  top: calc(12px + env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 45;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 9px 16px;
+  border-radius: 14px;
+  background: rgba(16, 14, 11, 0.9);
+  border: 1px solid #282219;
+  backdrop-filter: blur(8px);
+  font-family: Archivo, ui-sans-serif, system-ui, "Segoe UI", Arial, sans-serif;
+  color: #f5f1e8;
+  text-align: center;
+  pointer-events: none;
+}
+#br-hud[hidden] { display: none; }
+.br-line { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; font-weight: 700; }
+.br-dot { color: #282219; }
+.br-alive b { font-family: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace; }
+/* The phase is the warning. Closing is amber, overtime is red, because by then
+   the circle is smaller than the fight in it. */
+.br-phase { color: #a89c8a; }
+#br-hud[data-phase="closing"] .br-phase { color: #f0a830; }
+#br-hud[data-phase="roaming"] .br-phase { color: #f0a830; }
+#br-hud[data-phase="overtime"] .br-phase { color: #e0705f; }
+.br-sub {
+  font-family: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.78rem;
+  color: #a89c8a;
+}
+/* The only thing here anybody can press, and only the owner ever sees it. */
+#br-start {
+  pointer-events: auto;
+  margin-top: 3px;
+  background: #f0a830;
+  color: #100e0b;
+  border: none;
+  border-radius: 9px;
+  padding: 8px 18px;
+  font-family: inherit;
+  font-size: 0.84rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+#br-start[hidden] { display: none; }
+#br-start:hover { background: #f6b845; }
+
 /* ── Mobile cash out ─────────────────────────────────────────────────────────
    Takes the bottom-right spot the boost button used to hold. Boost is a
    double-tap now, matching slither, so this is the only on-screen control. */

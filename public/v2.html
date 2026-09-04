@@ -1623,7 +1623,7 @@ body.scr-anim { overflow-x:hidden }
   </section>
 
   <div class="evfoot">
-    <button type="button" class="evgo" onclick="open_('snake')">Play slither.io</button>
+    <button type="button" class="evgo" onclick="V2Play.launch('snake',{lobbyType:'br'})">Join the Battle Royale</button>
     <!-- The rules were one sentence pretending to be all of them. They live
          behind this now, where there is room to say the whole thing. -->
     <button type="button" class="evhow" onclick="openEventHow()">
@@ -2850,11 +2850,11 @@ function openHow(title,steps){
 }
 /* Written to be added to. Owen fills these in as the format settles. */
 function openEventHow(){
-  openHow('Nightly Top Three',[
-    ['Be in a game by 8:00','The hour runs 8:00 to 9:00 PM Eastern, every night. Join any slither.io table, free or paid, before it starts.'],
-    ['Play the hour','Your best score during the hour is the one that counts. Dying does not knock you out — go again.'],
-    ['Top three take the podium','The three highest scores at 9:00 take first, second and third.'],
-    ['First place is paid','$20 to first. Second and third take the placing, not the money.'],
+  openHow('Battle Royale',[
+    ['Get in before it starts','Free to enter, nothing staked. Once a match begins the room is shut, so be in it beforehand.'],
+    ['The wall closes in','Two minutes of the border closing, then the circle keeps moving for two more. Touch the wall and you are out — there is no warning and no way back.'],
+    ['No cashing out','You play for the placing, not for what your snake is worth. There is nothing to bank and nothing to lose.'],
+    ['Last one alive takes $20','Paid straight to your wallet. If two are left when the clock runs out, the circle keeps closing until one is not.'],
   ]);
 }
 function closeHow(){document.getElementById('howveil').classList.remove('on')}

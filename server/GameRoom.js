@@ -261,11 +261,18 @@ class GameRoom {
     // World grows with the crowd — EVERY snake counts, bots included (intended: a
     // lobby populated with bots spreads out and feels alive too). Keeps view-culling
     // effective and the arena playable as it fills up.
+    /* One seam, so a mode can own the zone without a second copy of the tick.
+       The battle royale drives the radius and the centre from a clock instead
+       of from the crowd; every other room keeps the behaviour below. */
+    if (this.updateZone) {
+      this.updateZone();
+    } else {
     const crowdFloor = Math.min(C.MAX_WORLD_RADIUS,
       C.BASE_WORLD_RADIUS + C.WORLD_RADIUS_PER_PLAYER * Math.max(0, this.snakes.size - 1));
     const targetRadius = Math.max(C.MIN_WORLD_RADIUS,
       Math.min(C.MAX_WORLD_RADIUS, Math.max(C.BASE_WORLD_RADIUS + this.borderDrift, crowdFloor)));
     this.worldRadius += (targetRadius - this.worldRadius) * 0.015; // ~2.5s to fully settle at 60Hz
+    }
 
     const foodList  = this.foodManager.getAll();
     const allSnakes = Array.from(this.snakes.values());
@@ -384,6 +391,11 @@ class GameRoom {
         return false;
       });
     }
+
+    /* After the sim and all the killing, so the living count is THIS tick's
+       truth rather than the previous one's. A battle royale ends the instant one
+       snake is left, whether that is at four minutes or at forty seconds. */
+    if (this.checkForWinner) this.checkForWinner();
 
     // Refill food
     this.foodManager.refill(this.worldRadius, this.worldCx, this.worldCy);

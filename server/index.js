@@ -8,6 +8,7 @@ const { rateLimit } = require('express-rate-limit');
 const C        = require('../shared/constants');
 const GameRoom = require('./GameRoom');
 const AgarRoom      = require('./AgarRoom');
+const { BattleRoyaleRoom, BR } = require('./BattleRoyaleRoom');
 const agarLb        = require('./agarLeaderboard');
 const db     = require('./db');
 const collusion = require('./CollusionMonitor');
@@ -801,6 +802,10 @@ for (const rgn of [REGION]) {
     free:   new GameRoom(io, `${rgn}_free`),
     dime:   new GameRoom(io, `${rgn}_dime`),
     dollar: new GameRoom(io, `${rgn}_dollar`),
+    /* The nightly event. Its own room and its own lobby type, deliberately NOT
+       on the buy-in ladder: entry is free and the prize comes from the house,
+       so there is no stake here to get wrong. */
+    br:     new BattleRoyaleRoom(io, `${rgn}_br`),
   };
   agarRooms[rgn] = {
     free:   new AgarRoom(io, `agar_${rgn}_free`),
@@ -872,6 +877,87 @@ app.get('/api/live', (_req, res) => {
    before, and only a client that names a stake reaches these. That is what
    makes this safe to deploy before the ladder has been tested with real money
    — nothing routes here until a client asks. */
+/* ── The nightly event: the clock, and the prize ─────────────────────────────
+
+   Eastern wall clock read straight from Intl, never UTC plus a fixed offset. A
+   hardcoded -5 is wrong for two thirds of the year and -4 for the other third,
+   and the failure is silent — the event simply runs an hour out and nothing
+   says which hour was right. Working in wall-clock seconds means the daylight
+   saving switch takes care of itself. Same reasoning as the lobby countdown. */
+const BR_PRIZE_USDC = 20;
+const BR_AUTOSTART_HOUR = 20, BR_AUTOSTART_MIN = 5;   // 8:05pm Eastern
+let _brFmt = null;
+try {
+  _brFmt = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York',
+    hour12: false, hour: '2-digit', minute: '2-digit', year: 'numeric',
+    month: '2-digit', day: '2-digit' });
+} catch (_) { _brFmt = null; }
+function easternNow() {
+  const d = new Date();
+  if (!_brFmt) return { hour: d.getHours(), minute: d.getMinutes(), day: d.toDateString() };
+  const o = {};
+  _brFmt.formatToParts(d).forEach(p => { if (p.type !== 'literal') o[p.type] = p.value; });
+  const hour = Number(o.hour) === 24 ? 0 : Number(o.hour);   // some engines say 24 at midnight
+  return { hour, minute: Number(o.minute), day: o.year + '-' + o.month + '-' + o.day };
+}
+
+/* Paid ONCE per match, keyed to the match id, by the server. Nothing the
+   winning client sends is involved: the winner is the last snake the SERVER had
+   alive, and this is called from the room, not from a socket. */
+const _brPaid = new Set();
+async function payBattleRoyaleWinner(room) {
+  const w = room && room.winner;
+  const matchId = room && room.matchId;
+  if (!w || !matchId) return;
+  if (_brPaid.has(matchId)) return;          // a reconnect or a double event must not pay twice
+  _brPaid.add(matchId);
+  if (!w.wallet) {
+    console.warn(`[BR] ${matchId} won by ${w.name} but they have no wallet — nothing paid`);
+    return;
+  }
+  try {
+    const sig = await money.withdraw(w.wallet, BR_PRIZE_USDC);
+    console.log(`[BR] paid ${BR_PRIZE_USDC} to ${w.name} (${w.wallet}) for ${matchId}: ${sig}`);
+    try { await db.recordEarnings(w.wallet, w.name, BR_PRIZE_USDC); } catch (_) {}
+    try {
+      notify.pushOwner(`${w.name} took ${BR_PRIZE_USDC} USDC in ${matchId}`,
+        { title: 'Battle Royale winner' });
+    } catch (_) {}
+  } catch (e) {
+    /* Left in the set deliberately. A retry loop on a payout is how somebody
+       gets paid twice; this surfaces instead so it can be settled by hand. */
+    console.error(`[BR] PAYOUT FAILED for ${matchId} to ${w.wallet}:`, e.message);
+    try {
+      notify.pushOwner(`${matchId} to ${w.name}: ${e.message}`,
+        { title: 'Battle Royale payout FAILED', priority: 'high' });
+    } catch (_) {}
+  }
+}
+
+/* One timer for the whole event: start it if nobody has by 8:05, and pay the
+   winner the moment a match is decided. Ten seconds is plenty — the match runs
+   for minutes and the payout only has to be prompt, not instant. */
+let _brLastAutoDay = null;
+setInterval(() => {
+  const room = gameRooms[REGION] && gameRooms[REGION].br;
+  if (!room) return;
+
+  if (room.state === 'over' && room.winner && !_brPaid.has(room.matchId)) {
+    payBattleRoyaleWinner(room).catch(e => console.error('[BR]', e.message));
+  }
+
+  const { hour, minute, day } = easternNow();
+  const due = hour > BR_AUTOSTART_HOUR ||
+              (hour === BR_AUTOSTART_HOUR && minute >= BR_AUTOSTART_MIN);
+  /* Once a day, and only in the event's own hour. Without the day stamp a room
+     that emptied and refilled at 9:40pm would start a second match nobody was
+     expecting. */
+  if (due && hour === BR_AUTOSTART_HOUR && _brLastAutoDay !== day && room.canStart()) {
+    _brLastAutoDay = day;
+    room.startMatch('auto 8:05pm ET');
+  }
+}, 10 * 1000);
+
 const { LobbyRegistry } = require('./LobbyRegistry');
 const ladder = new LobbyRegistry({
   emptyMs: 5 * 60 * 1000,
@@ -1289,6 +1375,15 @@ io.on('connection', (socket) => {
        in exactly the rooms they always did. */
     const byStake = stake !== undefined && stake !== null && isStake(stake);
     const room = getRoomForJoin({ lobbyType, stake, region: region || REGION });
+    /* A battle royale is shut once it starts. Turning up two minutes late to a
+       closing circle is not joining a match, it is being handed a death, and it
+       would let somebody wait out the dangerous part and walk into the end of
+       it. Refused here on the server; the lobby also hides the button, but a
+       hidden button is not a rule. */
+    if (room && room.isBattleRoyale && !room.acceptingPlayers()) {
+      socket.emit('br:locked', room.publicState());
+      return;
+    }
     socket._stake = byStake ? Number(stake) : null;
     // One human-readable name for the room, used in logs and owner alerts.
     const roomLabel = byStake
@@ -1357,6 +1452,10 @@ io.on('connection', (socket) => {
   }
 
   socket.on('cashout:start', () => {
+    /* The hold is the real cash-out path — it pays out on its own timer — so
+       blocking only the legacy 'cashout' event below would have left the whole
+       thing wide open in a battle royale. */
+    if (socket._room && socket._room.isBattleRoyale) return;
     const room = socket._room;
     if (!room) return;
     const snake = room.snakes && room.snakes.get(socket.id);
@@ -1394,6 +1493,11 @@ io.on('connection', (socket) => {
      paid out already in the normal case. */
   socket.on('cashout', () => {
     if (!socketRL(socket, 'cashout', 1000)) return;
+    /* Not available in a battle royale, and refused HERE rather than only
+       hidden in the client: you play for the placing, and if banking your worth
+       mid-match were possible it would be the correct move every time and the
+       mode would collapse into normal play with extra steps. */
+    if (socket._room && socket._room.isBattleRoyale) return;
     const room = socket._room;
     const snake = room && room.snakes && room.snakes.get(socket.id);
     if (!snake || !snake.alive) return;
@@ -1647,6 +1751,24 @@ io.on('connection', (socket) => {
   // player the entities within their view (area-of-interest culling).
   socket.on('cell:view', ({ r } = {}) => {
     if (typeof r === 'number' && isFinite(r) && r > 0) socket._agarViewR = Math.min(Math.max(r, 300), 12000);
+  });
+
+  /* Owner-only, verified against a real Privy token by the same check the bot
+     spawner uses. Nothing about this trusts the client beyond the token. */
+  socket.on('br:start', async ({ idToken } = {}) => {
+    if (!socketRL(socket, 'brstart', 2000)) return;
+    if (!(await isOwnerToken(idToken))) return;
+    const room = gameRooms[REGION] && gameRooms[REGION].br;
+    if (!room) return;
+    if (!room.canStart()) { socket.emit('br:state', room.publicState()); return; }
+    room.startMatch('owner');
+  });
+
+  /* Anyone in the room may ASK what the match is doing. It is the same thing
+     they can already see out of the window. */
+  socket.on('br:peek', () => {
+    const room = gameRooms[REGION] && gameRooms[REGION].br;
+    if (room) socket.emit('br:state', room.publicState());
   });
 
   socket.on('cell:split', () => {

@@ -22,6 +22,19 @@
 <body>
   <canvas id="game-canvas"></canvas>
 
+  <!-- Battle Royale. Hidden entirely in every other room: this is the only
+       screen furniture the mode adds, and a room that is not one should look
+       exactly as it did before. -->
+  <div id="br-hud" hidden>
+    <div class="br-line">
+      <span class="br-phase" id="br-phase">Waiting</span>
+      <span class="br-dot" aria-hidden="true">&middot;</span>
+      <span class="br-alive"><b id="br-alive">0</b> alive</span>
+    </div>
+    <div class="br-sub" id="br-sub">Waiting for players</div>
+    <button type="button" id="br-start" hidden>Start the match</button>
+  </div>
+
   <!-- HUD -->
   <div id="hud">
     <div id="leaderboard">
