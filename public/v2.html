@@ -612,14 +612,18 @@ body.ingame .tkrun,body.nomotion .tkrun{animation-play-state:paused}
    one centred column. It was four panels in two columns: artwork, open
    lobbies, buy-in, appearance — four things to read before reaching the one
    button the screen exists for. */
-#detail.wrap{max-width:none;padding:0;position:relative;
-  min-height:calc(100vh - 72px);display:flex;flex-direction:column}
+/* No display here. #detail.wrap outranks the #detail{display:none} that hides
+   this screen until it is routed to, so setting display in it left the game
+   screen permanently on — stacked under the home screen on desktop, and laid
+   straight over it on a phone, where the screens are fixed and overlap. The
+   centring moved into .gcol, which has no such job to fight with. */
+#detail.wrap{max-width:none;padding:0;position:relative}
 .gbg{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:0}
 /* Inset past the edges so the blur has material to pull from; a blur that
    reaches the edge of its own image samples transparency and hems the screen
    with a pale border. */
-.gbg .im{position:absolute;inset:-40px;background-size:cover;background-position:center;
-  filter:blur(3px) brightness(.34) saturate(1.06)}
+.gbg .im{position:absolute;inset:-40px;width:calc(100% + 80px);height:calc(100% + 80px);
+  display:block;filter:blur(2px) brightness(.5) saturate(1.05)}
 /* Darkest where the controls sit, so the artwork survives at the edges and the
    text never has to fight it. */
 .gbg::after{content:'';position:absolute;inset:0;
@@ -627,8 +631,10 @@ body.ingame .tkrun,body.nomotion .tkrun{animation-play-state:paused}
     rgba(10,9,7,.66)),linear-gradient(180deg,rgba(10,9,7,.55),transparent 30%,rgba(10,9,7,.55))}
 /* margin:auto on both axes, so the column sits in the middle of the surface
    rather than stacked against the top of it with the artwork empty below. */
-.gcol{position:relative;z-index:1;max-width:430px;width:100%;margin:auto;
-  padding:20px 24px 40px;text-align:center}
+.gcol{position:relative;z-index:1;max-width:430px;width:100%;margin:0 auto;
+  padding:20px 24px 40px;text-align:center;
+  min-height:calc(100vh - 160px);display:flex;flex-direction:column;
+  justify-content:center}
 #detail .back{position:relative;z-index:2;margin-left:24px}
 #dname{font-size:34px;font-weight:650;letter-spacing:-1px;margin-top:18px}
 .desc{font-size:14.5px;color:var(--tx2);line-height:1.7;margin-top:10px}
@@ -728,7 +734,7 @@ body.ingame .tkrun,body.nomotion .tkrun{animation-play-state:paused}
 #ap-next{left:calc(75% - 43.5px)}
 .ap-save-row{position:absolute;inset:0;padding:0;display:block;
   pointer-events:none;z-index:53}
-.ap-save-btn{position:absolute;left:50%;top:calc(50% + 120px);transform:translateX(-50%);
+.ap-save-btn{position:absolute;left:50%;top:auto;bottom:96px;transform:translateX(-50%);
   min-width:93px;height:47px;padding:0 14px;border:none;border-radius:34px;color:#fff;
   font:bold 20px/47px Arial,"Helvetica Neue",Helvetica,sans-serif;letter-spacing:0;
   text-align:center;cursor:pointer;pointer-events:auto;
@@ -743,46 +749,49 @@ body.ingame .tkrun,body.nomotion .tkrun{animation-play-state:paused}
 .ap-save-btn>span{position:relative;z-index:1}
 .ap-save-btn:hover{transform:translateX(-50%)}
 .ap-save-btn:active{transform:translateX(-50%);opacity:.85}
-.ap-name{position:absolute;left:50%;top:calc(50% + 182px);transform:translateX(-50%);
+.ap-name{position:absolute;left:50%;top:auto;bottom:56px;transform:translateX(-50%);
   font-size:13px;color:var(--tx3);white-space:nowrap}
 /* The reel replaces the single big preview on a phone. Each slot is sized by
    WIDTH, because every fraction in the preview painter is a fraction of canvas
    width — so a narrower slot draws a smaller snake for free, no second config
    per size. Nothing in here is tappable; the drag is read on the screen. */
-.ap-reel{display:none}
+/* The picker at every width, phone and desktop alike. It used to be phones
+   only, with desktop keeping a single big preview and two arrows — so the
+   arrows changed the picture in place instead of moving along a list, which
+   is the one thing the arrows are for.
+
+   A scroll container, so a finger drives it directly and the browser supplies
+   the momentum and the snapping. The end padding is what lets the first and
+   last skin reach the middle, and it is measured, not guessed. */
+.ap-reel{display:block;position:absolute;left:0;right:0;z-index:51;
+  top:96px;bottom:170px;padding:0 24px;overflow-y:auto;
+  scroll-snap-type:y mandatory;overscroll-behavior-y:contain;
+  -webkit-overflow-scrolling:touch;scrollbar-width:none;
+  -webkit-mask-image:linear-gradient(#0000,#000 24%,#000 76%,#0000);
+          mask-image:linear-gradient(#0000,#000 24%,#000 76%,#0000)}
+.ap-reel::-webkit-scrollbar{display:none}
+/* Fixed box, fixed canvas. The size you see is a transform, set per frame
+   from how far the slot is from the middle — NOT a class swapped at a
+   threshold. Swapping classes meant a fast flick changed a few sizes and
+   landed, so most of the skins you flew past never grew at all; scaling
+   continuously means every one of them swells and shrinks as it goes by,
+   however fast the scroll. Transform and opacity only, so nothing reflows and
+   no canvas is resized mid-gesture. */
+/* Capped and centred. Left to fill a 1440px screen the snakes were drawn a
+   metre long and the arrows sat on top of them. */
+.ap-slot{height:104px;max-width:420px;margin:0 auto;
+  display:flex;align-items:center;justify-content:center;
+  scroll-snap-align:center;transform-origin:50% 50%;will-change:transform,opacity}
+.ap-slot canvas{display:block;width:100%;height:104px}
+.ap-preview-wrap{display:none}          /* the single big preview it replaces */
 @media(max-width:520px){
   .ap-preview-wrap{display:none}
-  /* A scroll container, so the finger drives it directly and the browser
-     supplies the momentum and the snap. The padding is what lets the first
-     and last skin reach the middle. */
-  .ap-reel{display:block;position:absolute;left:0;right:0;z-index:51;
-    top:calc(76px + env(safe-area-inset-top));
-    bottom:calc(150px + env(safe-area-inset-bottom));
-    padding:0 24px;overflow-y:auto;
-    scroll-snap-type:y mandatory;overscroll-behavior-y:contain;
-    -webkit-overflow-scrolling:touch;scrollbar-width:none;
-    -webkit-mask-image:linear-gradient(#0000,#000 26%,#000 74%,#0000);
-            mask-image:linear-gradient(#0000,#000 26%,#000 74%,#0000)}
-  .ap-reel::-webkit-scrollbar{display:none}
-  /* Fixed height. Only the canvas inside changes size, so the snap points
-     never move while you are travelling between them. */
-  .ap-slot{height:104px;display:flex;align-items:center;justify-content:center;
-    scroll-snap-align:center;opacity:.1;transition:opacity .16s}
-  /* Every skin that is NOT the chosen one is drawn at exactly the same size.
-     Three sizes made the row read as a perspective tunnel, where the top one
-     shrinking told you nothing except that it was near the edge. One size for
-     the queue and one much larger for the selection says the only thing worth
-     saying: this is the one you are on. */
-  .ap-slot canvas{display:block;width:62%;height:54px;
-    transition:width .16s,height .16s}
-  .ap-slot[data-d="2"],.ap-slot[data-d="3"]{opacity:.34}
-  .ap-slot[data-d="1"]{opacity:.44}
-  .ap-slot[data-d="0"]{opacity:1}
-  .ap-slot[data-d="0"] canvas{width:100%;height:104px}
+  .ap-reel{top:calc(70px + env(safe-area-inset-top));
+    bottom:calc(146px + env(safe-area-inset-bottom))}
 }
 /* Shown only where the arrows are not, because a gesture with nothing on
    screen to suggest it is a gesture nobody finds. */
-.ap-hint{display:none;position:absolute;left:50%;top:calc(96px + env(safe-area-inset-top));
+.ap-hint{display:block;position:absolute;left:50%;top:calc(64px + env(safe-area-inset-top));
   transform:translateX(-50%);font-size:12px;color:var(--tx3);white-space:nowrap;
   pointer-events:none;z-index:54}
 
@@ -1076,7 +1085,13 @@ body.scr-anim { overflow-x:hidden }
      the background now and everything sits on it in one centred column, with
      Play in the middle of it. -->
 <main id="detail" class="wrap">
-  <div class="gbg"><div class="im" id="dart"></div></div>
+  <!-- Not a picture of the game: the game. This canvas is painted by the same
+       renderer, the same body code and the same hex tile the real thing uses,
+       so the snakes crossing behind the buttons are drawn exactly as they are
+       drawn in play. data-half keeps the backing store at half resolution,
+       which nobody can see through the blur and which quarters the fill. -->
+  <div class="gbg"><canvas class="im" id="dart" data-anim="1" data-game="bg"
+    data-half="1"></canvas></div>
   <a class="back" href="#" onclick="goBack();return false">&#8592; &nbsp;Back</a>
   <div class="gcol">
     <h1 id="dname"></h1>
@@ -1612,7 +1627,11 @@ function stepWorld(wd,dt){
    fixed 262x172 the bitmap was stretched to whatever the card happened to be,
    which softened the hex tile on the one element the page is built around. */
 function fit(cv){
-  const w=Math.round(cv.clientWidth), h=Math.round(cv.clientHeight);
+  /* data-half draws into half as many pixels each way and lets the browser
+     scale it up. For a full-screen backdrop that is a quarter of the fill
+     rate, and behind a blur there is nothing left to see of the difference. */
+  const q=cv.dataset.half?2:1;
+  const w=Math.round(cv.clientWidth/q), h=Math.round(cv.clientHeight/q);
   if(!w||!h||(cv.width===w&&cv.height===h))return false;
   cv.width=w; cv.height=h;
   SCENES.delete(cv);              /* world extents are derived from the size */
@@ -1862,16 +1881,22 @@ function reelTo(i,smooth){
 /* Whichever slot is nearest the middle IS the selection. Reading it from the
    scroll position rather than counting gestures means a flick that carries
    past three skins selects the one it actually stopped on. */
+const SMALL=0.60;      /* every skin that is not the one in the middle */
 function markReel(){
   const r=document.getElementById('ap-reel'); if(!r||!r.children.length)return;
   const mid=r.scrollTop+r.clientHeight/2;
   let best=0,bd=Infinity;
   for(let i=0;i<r.children.length;i++){
-    const el=r.children[i], d=Math.abs(el.offsetTop+el.offsetHeight/2-mid);
-    if(d<bd){bd=d;best=i}
+    const el=r.children[i];
+    /* Distance from the middle, in slots. k is 1 dead centre and 0 a whole
+       slot away, so a skin grows to full as it passes and is back to the
+       queue size by the time the next one arrives. */
+    const dist=Math.abs(el.offsetTop+el.offsetHeight/2-mid)/SLOT_H;
+    const k=Math.max(0,1-Math.min(1,dist));
+    el.style.transform='scale('+(SMALL+(1-SMALL)*k).toFixed(3)+')';
+    el.style.opacity=(0.34+0.66*k).toFixed(3);
+    if(dist<bd){bd=dist;best=i}
   }
-  for(let i=0;i<r.children.length;i++)
-    r.children[i].dataset.d=Math.min(3,Math.abs(i-best));
   /* best is a slot in one of three identical copies; the skin it stands for
      is that position within a single copy. */
   const ix=((best%LOOKS.length)+LOOKS.length)%LOOKS.length;
@@ -1991,7 +2016,9 @@ let motionOn=(function(){try{return localStorage.getItem(MOTION_KEY)!=='0'}catch
 (function loop(t){
   const dt=Math.min(3,(t-_last)/16.67||1); _last=t;
   if(_paused){requestAnimationFrame(loop);return}   // the game owns the thread
-  document.querySelectorAll('canvas[data-anim]').forEach(cv=>{try{
+  /* offsetParent is null for anything inside a hidden screen. Without this the
+     game screen's backdrop kept simulating while you were on the home tab. */
+  document.querySelectorAll('canvas[data-anim]').forEach(cv=>{if(!cv.offsetParent)return;try{
     /* Reduced motion freezes the simulation, not the layout. The card still
        has to re-fit its canvas when it changes width, so the loop keeps
        checking the box and repaints only on an actual size change. */
@@ -2205,15 +2232,11 @@ function open_(id){
      actually offering, not from a fixed amount that may not exist. */
   refreshSteps(id); si=defaultStep();
   showScreen('detail');
-  /* The game's own wide painting, used as the room you are standing in rather
-     than as a picture pinned to the wall. Lightly blurred and heavily darkened
-     by CSS so the controls on top of it stay readable. */
+  /* The background scene is rebuilt for this game's size and colours. Dropping
+     it from SCENES is what makes the next frame build a fresh one rather than
+     carrying the last game's snakes across. */
   const dart=document.getElementById('dart');
-  /* backgroundColor, not the background SHORTHAND: the shorthand resets
-     background-size to auto as an inline style, which outranks the cover in
-     the stylesheet and leaves the painting tiled across the screen. */
-  dart.style.backgroundColor=cur.c[0];
-  dart.style.backgroundImage=cur.noart?'none':"url('/img/games/"+cur.id+"-wide.png')";
+  SCENES.delete(dart);
   document.getElementById('dname').textContent=cur.name;
   document.getElementById('ddesc').textContent=cur.d;
   /* Both figures come off the live board, so the detail screen and the card
