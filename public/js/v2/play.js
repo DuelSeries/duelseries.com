@@ -201,6 +201,14 @@
      for one of the old fixed tiers. */
   function launch(game, sel) {
     if (inGame()) return;
+    /* The last gate, not the only one: an unbuilt game hides its Play button
+       and its buy-ins. This is here because those are presentation, and a room
+       that does not exist must not be stakeable through a stale handler, a
+       console call, or the next bug that shows a control it should not. */
+    if (window.V2_IS_SOON && window.V2_IS_SOON(game)) {
+      say('That game is not playable yet.');
+      return;
+    }
     const hasStake = sel && sel.stake !== undefined && sel.stake !== null;
     const hasTier = sel && !!sel.lobbyType;
     /* Never dispatch without naming the room. The widget defaults a missing

@@ -989,3 +989,35 @@ test('the nightly event states its prizes and counts down in real Eastern time',
   assert.ok(html.includes("V2Event)V2Event.tick(true)"),
     'opening the tab forces a tick rather than waiting for the interval');
 });
+
+test('an unbuilt game can be opened and looked at, and still cannot be played', () => {
+  /* Every card used to be a dead div if the game was unbuilt: the padlock said
+     you could not play it and the card agreed by doing nothing at all, so there
+     was no way to find out what any of the eleven even were. They open now, and
+     the screen behind them has to be the LOOKING screen, not the playing one
+     with a dead button on it. */
+  const html = v2();
+
+  assert.ok(!/class="card soon">\$\{inner\}<\/div>/.test(html),
+    'an unbuilt card is no longer an inert div');
+  assert.ok(/class="card\$\{g\.soon\?' soon':''\}"[\s\S]{0,60}onclick="open_/.test(html),
+    'every card opens its game, built or not');
+
+  /* Hiding the play column is not cosmetic. A buy-in, a name field and a Play
+     button on a game that cannot start are promises the product cannot keep. */
+  const hides = html.match(/#detail\.soon [^{]*\{display:none\}/);
+  assert.ok(hides, 'the locked screen hides the play column');
+  for (const part of ['.go', '#stakes', '.namerow', '.lookrow', '.lobwrap', '.howrow']) {
+    assert.ok(hides[0].includes(part), 'it hides ' + part);
+  }
+  assert.ok(html.includes('#detail.soon .soonwrap{display:block}'),
+    'and shows what it can say instead');
+
+  /* An inline display beats every selector, so a hardcoded block here punched
+     the buy-in note straight through that rule. It happened; this pins it. */
+  assert.ok(!/note\.style\.display=shut\.length\?'block'/.test(html),
+    'the buy-in note lets the stylesheet decide whether it shows');
+
+  // The last gate: presentation is not a security boundary.
+  assert.ok(html.includes('window.V2_IS_SOON'), 'the play path can ask what is built');
+});

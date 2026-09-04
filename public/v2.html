@@ -301,14 +301,16 @@ h2{font-size:31px;font-weight:700;letter-spacing:-1.1px;line-height:1.1}
 
    The drain sits on the IMAGE, not on .art, because a filter applies to an
    element's pseudo-elements too and would grey out the padlock with it. */
-.card.soon{cursor:default}
+/* Pressable, and dimmed. It was cursor:default and hover:none back when there
+   was nothing behind it. */
+.card.soon{cursor:pointer}
 .card.soon .gart{filter:grayscale(.62) brightness(.58)}
 .card.soon .art::after{content:"";position:absolute;z-index:2;
   left:50%;top:50%;width:46px;height:46px;margin:-23px 0 0 -23px;
   border-radius:50%;background:rgba(8,7,5,.55) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='11' width='18' height='11' rx='2'/%3E%3Cpath d='M7 11V7a5 5 0 0 1 10 0v4'/%3E%3C/svg%3E") center/21px 21px no-repeat;
   box-shadow:0 2px 14px rgba(0,0,0,.45);pointer-events:none}
 .gart.noart{background:var(--s2)}
-.card.soon:hover{transform:none}
+.card.soon:hover .gart{filter:grayscale(.4) brightness(.72)}
 .card.soon .cap h3{color:var(--tx2)}
 /* Fixed caption height keeps every card the same height whatever the name
    length, which is also what lets the arrows sit dead centre on the art. */
@@ -819,6 +821,32 @@ body.no-foot footer{display:none}
   text-decoration:line-through;cursor:not-allowed}
 .stk.off:hover{background:transparent;color:var(--tx3)}
 .stakeoff{font-size:11.5px;color:var(--tx3);text-align:center;margin:-8px 0 14px}
+
+/* ── a game you can look at but not play ─────────────────────────────────
+   One class on the screen swaps the whole column. Hiding the controls is not
+   cosmetic: a buy-in, a name field and a Play button on a game that cannot be
+   started are four separate promises the product cannot keep. */
+.soonwrap{display:none}
+#detail.soon .hnow,#detail.soon .howrow,#detail.soon .sl,#detail.soon #stakes,
+#detail.soon #stakeoff,#detail.soon .namerow,#detail.soon .go,
+#detail.soon #play-msg,#detail.soon .lookrow,#detail.soon .lobwrap{display:none}
+#detail.soon .soonwrap{display:block}
+.soontag{display:inline-block;margin-top:16px;font-family:var(--fm);font-size:11px;
+  font-weight:600;letter-spacing:.15em;text-transform:uppercase;color:var(--tx2);
+  background:var(--s2);border:1px solid var(--s3);border-radius:var(--rf);
+  padding:5px 13px}
+.soondesc{margin:20px auto 0;max-width:360px;font-size:15.5px;line-height:1.65;
+  color:var(--tx)}
+/* Shaped like Play and deliberately not one: same footprint, no affordance. */
+.soonbtn{margin:26px auto 0;max-width:360px;border:1px dashed var(--s3);
+  border-radius:var(--r2);padding:15px;font-size:15px;font-weight:650;
+  color:var(--tx3);cursor:not-allowed;user-select:none}
+.soonfoot{margin:16px auto 0;max-width:340px;font-size:12px;line-height:1.7;
+  color:var(--tx3)}
+@media(max-width:520px){
+  .soondesc{margin-top:16px;font-size:14.5px}
+  .soonbtn{margin-top:20px;padding:14px}
+}
 .stp{display:flex;align-items:center;justify-content:center;gap:14px;margin:14px 0 4px}
 .sb{width:42px;height:42px;border-radius:50%;background:var(--s3);color:var(--tx2);
   font-size:19px;display:grid;place-items:center;transition:.15s}
@@ -1435,6 +1463,17 @@ body.scr-anim { overflow-x:hidden }
          and then reads past forever. It is behind a button now: there when it
          is wanted, gone when it is not. -->
     <div class="hnow"><b></b><span id="dnow"></span></div>
+
+    <!-- What an unbuilt game shows instead of the whole play column. The
+         description finally earns its place here: for a game you cannot start,
+         what it IS is the only thing worth saying. -->
+    <div class="soonwrap">
+      <div class="soontag">In development</div>
+      <p class="soondesc" id="dsoon"></p>
+      <div class="soonbtn" role="note">Not playable yet</div>
+      <p class="soonfoot">Every game on DuelSeries pays out the same way. This one
+        opens when it is finished and worth staking on.</p>
+    </div>
     <div class="howrow">
       <button type="button" class="howbtn" onclick="openHow()">
         <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor"
@@ -2545,15 +2584,16 @@ window._resumeLobbyAnims=()=>{
 
 /* ── infinite rail: render one extra card each side, slide, then rotate the
       array and snap back with no transition, so it never reaches an end ── */
-/* A playable card is a real button so it can be tabbed to and fired with the
-   keyboard. An unbuilt one is not a control at all, so it stays a div rather
-   than becoming a button that does nothing. */
+/* Every card is a real button, so all of them can be tabbed to and fired with
+   the keyboard. An unbuilt one used to be an inert div: the padlock said you
+   could not play it, and the card agreed by doing nothing at all, so there was
+   no way to find out what any of them even were. They open now. The padlock
+   stays, because it is still true — you can look, you cannot play. */
 function cardHTML(g){
   const inner=`<div class="art">${art(g)}</div>
     <div class="cap"><h3>${g.name}</h3></div>`;
-  return g.soon
-    ? `<div class="card soon">${inner}</div>`
-    : `<button type="button" class="card" onclick="open_('${g.id}')">${inner}</button>`;
+  return `<button type="button" class="card${g.soon?' soon':''}"
+    onclick="open_('${g.id}')">${inner}</button>`;
 }
 /* The list is rendered three times over. That is what keeps the rail endless
    now that it scrolls natively: sitting in the middle copy there is always a
@@ -2712,6 +2752,13 @@ function open_(id){
      knowledge in the way "eat things, avoid heads" is. */
   const how=document.querySelector('.howrow');
   if(how)how.style.display=cur.id==='snake'?'none':'';
+  /* Everything below this point fills controls that an unbuilt game does not
+     show. It still runs — the code path is the same one — but the column it
+     writes into is hidden, so nothing here has to know about it twice. */
+  const det=document.getElementById('detail');
+  det.classList.toggle('soon',!!cur.soon);
+  const sd=document.getElementById('dsoon');
+  if(sd)sd.textContent=cur.d||'';
   const dart=document.getElementById('dart'), still=document.getElementById('dartstill');
   const live=cur.id==='snake'?'bg':cur.id==='agar'?'agar':null;
   dart.dataset.game=live||'bg';
@@ -2804,7 +2851,10 @@ function drawStake(){
   if(note){
     const shut=STEPS.filter(s=>STEPS_OFF.has(s)).map(cash);
     note.textContent=shut.length?shut.join(' and ')+(shut.length>1?' tables are':' tables are')+' not open yet.':'';
-    note.style.display=shut.length?'block':'none';
+    /* '', not 'block'. An inline display beats every selector, so hardcoding
+       block here punched this note straight through the rule that hides the
+       whole play column on a game you cannot play. */
+    note.style.display=shut.length?'':'none';
   }
 }
 function pickStake(i){
@@ -2815,6 +2865,9 @@ function pickStake(i){
 function cancel(){veil.classList.remove('on')}
 /* What the play module reads to know which room was chosen. */
 window.V2Detail={get game(){return cur?cur.id:'snake'},get stake(){return STEPS[si]}};
+/* The one list that knows which games are built, so the play path can refuse
+   an unbuilt one without keeping a second copy of that fact. */
+window.V2_IS_SOON=id=>{const g=G(id);return !!(g&&g.soon)};
 window.rememberStake=rememberStake;
 window.spin=spin; window.go=go; window.goHome=goHome;
 Object.defineProperty(window,'route',{get:()=>route});
