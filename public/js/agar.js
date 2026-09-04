@@ -47,10 +47,27 @@ let cashedOut         = false;
 let waitingToRespawn  = false;
 const Q_HOLD_MS = 3000;
 
-/* The joystick is gone. The canvas already steers from the touch position —
-   the cell moves toward wherever the finger is, which is how the game this one
-   is modelled on does it — so the stick was a second control for the same
-   thing, sitting on top of the board it was steering across. */
+/* ─── Touch steering ──────────────────────────────────────────────────────────
+   The same scheme as the snake game, so the two play the same way in the hand.
+
+   Put a finger anywhere and that spot becomes the stick. The heading is the
+   direction from there to the thumb, so a small slide up sends you up, and you
+   never have to reach a particular part of the glass.
+
+   The anchor FOLLOWS: once the thumb is further than TOUCH_FOLLOW_R away it is
+   dragged along to stay exactly that far behind. Without it a long drag runs
+   out of thumb and the stick pins at full lock; with it there is always room to
+   turn back, in any direction, forever.
+
+   Steering absolutely toward the touch point — what this did before — meant the
+   cell chased your finger, so holding still anywhere but on top of the cell was
+   a permanent turn and the middle of the screen was a dead spot. */
+const TOUCH_DEADZONE_PX = 10;   // below this the thumb has not asked for a turn
+const TOUCH_FOLLOW_R    = 60;   // the anchor is never left further behind than this
+let touchSteering = false;
+let touchAngle    = null;       // null means hold the current line
+let anchorX = 0, anchorY = 0;
+let thumbX  = 0, thumbY  = 0;
 
 // ─── Lobby navigation ─────────────────────────────────────────────────────────
 function goToLobby() {
@@ -74,11 +91,41 @@ window.addEventListener('DOMContentLoaded', () => {
   resize();
   window.addEventListener('resize', resize);
   canvas.addEventListener('mousemove', onMouseMove);
+  const touchPoint = e => {
+    const t = e.touches[0] || e.changedTouches[0];
+    return t ? { x: t.clientX, y: t.clientY } : null;
+  };
+  function updateTouchAim(p) {
+    thumbX = p.x; thumbY = p.y;
+    let dx = p.x - anchorX, dy = p.y - anchorY;
+    const d = Math.hypot(dx, dy);
+    if (d > TOUCH_FOLLOW_R) {
+      anchorX = p.x - (dx / d) * TOUCH_FOLLOW_R;
+      anchorY = p.y - (dy / d) * TOUCH_FOLLOW_R;
+      dx = p.x - anchorX; dy = p.y - anchorY;
+    }
+    if (d > TOUCH_DEADZONE_PX) touchAngle = Math.atan2(dy, dx);
+    // Inside the dead zone the angle is left alone, so a resting thumb holds
+    // its line instead of jittering.
+  }
+  canvas.addEventListener('touchstart', e => {
+    e.preventDefault();
+    const p = touchPoint(e); if (!p) return;
+    touchSteering = true;
+    anchorX = p.x; anchorY = p.y;   // a fresh stick under the thumb
+    thumbX  = p.x; thumbY  = p.y;
+    touchAngle = null;              // and no turn asked for yet
+  }, { passive: false });
   canvas.addEventListener('touchmove', e => {
     e.preventDefault();
-    const t = e.touches[0];
-    onMouseMove({ clientX: t.clientX, clientY: t.clientY });
+    const p = touchPoint(e); if (p) updateTouchAim(p);
   }, { passive: false });
+  const endTouch = e => {
+    if (e.touches && e.touches.length) return;
+    touchSteering = false; touchAngle = null;
+  };
+  canvas.addEventListener('touchend', endTouch, { passive: false });
+  canvas.addEventListener('touchcancel', endTouch, { passive: false });
   window.addEventListener('keydown', e => {
     if (consoleOpen) return;
     if (e.code === 'Space') { e.preventDefault(); socket && socket.emit('cell:split'); }
@@ -551,8 +598,20 @@ function loop(now) {
 
   // Re-emit input every frame so the circle keeps moving
   if (socket && myId && !cashedOut) {
-    const mw = mouseWorld();
-    socket.volatile.emit('cell:input', { mouseX: mw.x, mouseY: mw.y });
+    if (touchSteering && touchAngle !== null) {
+      /* A point far along the heading, so the server steers toward it at full
+         speed rather than easing off as the cell arrives. */
+      const me = renderPlayers.get(myId);
+      const cx = me && me.cells.length ? me.cells[0].rx : camX;
+      const cy = me && me.cells.length ? me.cells[0].ry : camY;
+      const DIST = 2000;
+      socket.volatile.emit('cell:input', {
+        mouseX: cx + Math.cos(touchAngle) * DIST,
+        mouseY: cy + Math.sin(touchAngle) * DIST });
+    } else {
+      const mw = mouseWorld();
+      socket.volatile.emit('cell:input', { mouseX: mw.x, mouseY: mw.y });
+    }
   }
 
   lerpPositions(dt);
@@ -666,6 +725,46 @@ function render() {
     drawQRing(me);
   }
 
+  ctx.restore();
+
+  // Drawn AFTER the restore, in screen space: the stick lives on the glass,
+  // not in the world, so it must not pan or scale with the camera.
+  if (touchSteering && touchAngle !== null) drawAim();
+}
+
+/* Where you are pointing, drawn as a ring at the anchor with an arrow leaving
+   it. Without this the anchored stick is invisible — you feel the turn but
+   nothing on screen says which way you asked to go, which is the one thing a
+   stick has to tell you. */
+function drawAim() {
+  const ax = anchorX, ay = anchorY;
+  const ca = Math.cos(touchAngle), sa = Math.sin(touchAngle);
+  const R = 30;                       // the ring sits just inside TOUCH_FOLLOW_R
+  ctx.save();
+  ctx.globalAlpha = 0.55;
+  ctx.strokeStyle = '#f5f1e8';
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(ax, ay, R, 0, Math.PI * 2); ctx.stroke();
+
+  // A short shaft from the ring's edge, and a solid head on the end of it.
+  const x0 = ax + ca * (R + 4),  y0 = ay + sa * (R + 4);
+  const x1 = ax + ca * (R + 26), y1 = ay + sa * (R + 26);
+  ctx.globalAlpha = 0.9;
+  ctx.lineCap = 'round';
+  ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+  const hx = ax + ca * (R + 38), hy = ay + sa * (R + 38);
+  const px = -sa, py = ca;            // perpendicular, for the two barbs
+  ctx.fillStyle = '#f5f1e8';
+  ctx.beginPath();
+  ctx.moveTo(hx, hy);
+  ctx.lineTo(x1 + px * 7, y1 + py * 7);
+  ctx.lineTo(x1 - px * 7, y1 - py * 7);
+  ctx.closePath(); ctx.fill();
+
+  // The thumb itself, so the gap between it and the anchor reads as the throw.
+  ctx.globalAlpha = 0.28;
+  ctx.beginPath(); ctx.arc(thumbX, thumbY, 16, 0, Math.PI * 2); ctx.fill();
   ctx.restore();
 }
 

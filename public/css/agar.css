@@ -245,37 +245,39 @@ kbd {
     z-index: 9999;
     touch-action: none;
   }
+  /* The product own buttons: Archivo, the amber, the same radius as every
+     other control. They were indigo and neon green in Inter, glowing, which
+     belonged to no other screen in the game. */
   .agar-mobile-btn {
-    padding: 14px 22px;
-    border-radius: 14px;
-    font-size: 0.88rem;
-    font-weight: 700;
-    letter-spacing: 1px;
+    min-width: 116px;
+    padding: 13px 20px;
+    border-radius: 12px;
+    font-family: 'Archivo', ui-sans-serif, system-ui, 'Segoe UI', Arial, sans-serif;
+    font-size: 0.86rem;
+    font-weight: 650;
+    letter-spacing: 0.2px;
     cursor: pointer;
     touch-action: none;
     user-select: none;
-    opacity: 0.88;
-    font-family: 'Inter', sans-serif;
+    transition: background 0.15s, border-color 0.15s, transform 0.1s;
   }
+  .agar-mobile-btn:active { transform: scale(0.97); }
   #agar-btn-split {
-    background: rgba(99,102,241,0.75);
-    color: #fff;
-    border: 1px solid rgba(99,102,241,0.5);
-    box-shadow: 0 0 14px rgba(99,102,241,0.4);
+    background: rgba(31,27,21,0.9);
+    color: #f5f1e8;
+    border: 1px solid #282219;
   }
+  /* Cash out is the one that moves money, so it is the one in the amber. */
   #agar-btn-cashout {
-    background: rgba(20,241,149,0.15);
-    color: #14F195;
-    border: 1px solid rgba(20,241,149,0.45);
-    box-shadow: 0 0 10px rgba(20,241,149,0.25);
+    background: rgba(240,168,48,0.14);
+    color: #f0a830;
+    border: 1px solid rgba(240,168,48,0.42);
   }
   #agar-btn-cashout.holding {
-    background: rgba(20,241,149,0.35);
-    box-shadow: 0 0 18px rgba(20,241,149,0.6);
+    background: #f0a830;
+    color: #100e0b;
+    border-color: #f0a830;
   }
-}
-
-@media (pointer: coarse) {
 }
 
 /* ── Cashout screen (matches slither.io style) ──────────────────────────────── */

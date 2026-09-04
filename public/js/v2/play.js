@@ -65,9 +65,15 @@
     const ok = await pushName(n);
     if (btn) { btn.classList.add('done'); btn.textContent = 'Saved';
       setTimeout(() => { btn.classList.remove('done'); btn.textContent = 'Save'; }, 1400); }
-    if (msg) msg.textContent = ok ? 'Saved to your account.'
-      : (window.duelWallet || {}).authenticated ? 'Saved on this device.'
-      : 'Sign in to use this name everywhere.';
+    /* Three genuinely different outcomes, and the middle one used to read as
+       success. "Saved on this device" is what you see when the account write
+       FAILED — the name is in this browser and nowhere else, so the phone will
+       not have it. Said plainly, because the whole point of the field is that
+       it follows you. */
+    if (msg) msg.textContent = ok ? 'Saved. This is your name on every device.'
+      : (window.duelWallet || {}).authenticated
+        ? 'Saved here only — could not reach your account. Try again.'
+        : 'Saved here. Sign in to use this name on your other devices.';
   }
   window.addEventListener('duelwallet:change', pullName);
 

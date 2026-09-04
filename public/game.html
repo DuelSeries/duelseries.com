@@ -72,11 +72,16 @@
         <span>Score <b id="death-score">0</b></span>
       </p>
 
+      <!-- Three across, with Play again in the MIDDLE: it is what most people
+           want after dying, and the middle of three is where a thumb already
+           is. Keep watching used to be a text link under the row, which made
+           the one non-destructive way to stay in the game the least visible
+           thing on the card. -->
       <div class="co-btns dd-btns">
+        <button class="co-btn co-ghost" id="btn-spectate">Keep watching</button>
         <button class="co-btn co-go" id="btn-respawn">Play again</button>
         <button class="co-btn co-ghost" id="btn-lobby">Lobby</button>
       </div>
-      <button class="dd-watch" id="btn-spectate">Keep watching</button>
     </div>
   </div>
 

@@ -737,7 +737,11 @@ body.ingame .tkrun,body.nomotion .tkrun{animation-play-state:paused}
 .dots{display:flex;justify-content:center;gap:5px;margin-bottom:20px}
 .dt{width:5px;height:5px;border-radius:50%;background:var(--s3);transition:.2s}
 .dt.on{background:var(--money);transform:scale(1.4)}
-.namerow{display:flex;gap:8px;margin-bottom:10px}
+.namerow{display:flex;gap:8px;margin-bottom:8px}
+/* Its own breathing room. Sat 6px under the field and immediately above the
+   Play button, so it read as a caption on the button rather than on the box
+   it belongs to. */
+.namemsg{margin:0 0 18px;text-align:center}
 .namerow .pname{margin:0;flex:1;min-width:0;text-align:left}
 .namesave{background:var(--s2);border:none;border-radius:var(--r2);
   padding:0 18px;font-family:inherit;font-size:13px;font-weight:650;
@@ -1237,7 +1241,7 @@ body.scr-anim { overflow-x:hidden }
       <button type="button" class="namesave" id="name-save"
               onclick="V2Play.saveName()">Save</button>
     </div>
-    <div class="sl" id="name-msg" style="margin-top:6px">Change name</div>
+    <div class="sl namemsg" id="name-msg">Change name</div>
     <button class="go" onclick="V2Play.playChosen()">Play</button>
     <!-- The line that used to sit here said either "Free play. Nothing staked,
          nothing paid out" or the house-cut sentence. Both are in How to play
@@ -2067,6 +2071,18 @@ function markReel(){
     if(tick)return; tick=true;
     requestAnimationFrame(()=>{tick=false;reelWrap();markReel()});
   },{passive:true});
+  /* A wheel notch is about 100px and a slot is 104, so left to the browser one
+     turn of the wheel plus its momentum carried two skins past. The wheel is
+     taken over instead: one notch, one skin, whatever the notch is worth.
+     Touch is untouched — this event does not fire for a finger. */
+  let wheelAt=0;
+  r.addEventListener('wheel',e=>{
+    e.preventDefault();
+    const now=Date.now();
+    if(now-wheelAt<180)return;          // a trackpad sends a burst; take the first
+    wheelAt=now;
+    cycleLook(e.deltaY>0?1:-1);
+  },{passive:false});
 })();
 /* The desktop arrows. They move the same selection, and scroll the reel with
    it so the two never disagree about which skin is showing. */
