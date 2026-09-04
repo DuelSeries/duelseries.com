@@ -68,20 +68,33 @@
      there was never anything to act on. */
   async function pushName(n) {
     if (!n || n.length < 3) return 'short';
+    /* Both proofs go in one request and the server takes whichever works.
+
+       The signature is the one that matters. It is made by the wallet that IS
+       the account, needs nothing from Privy at the moment it is used, and so
+       cannot fail for a mismatched app id, a rate limit or an outage — which is
+       every reason this was refusing a perfectly good login and telling the
+       player their sign-in had expired. The token stays as the fallback. */
+    let proof = null;
+    if (typeof window.duelWalletSignName === 'function') {
+      try { proof = await window.duelWalletSignName(n); } catch (_) {}
+    }
     const t = await tokens();
-    if (!t.access && !t.identity) return 'signed-out';
+    if (!proof && !t.access && !t.identity) return 'signed-out';
     const headers = { 'Content-Type': 'application/json' };
     if (t.access) headers.Authorization = 'Bearer ' + t.access;
     if (t.identity) headers['privy-id-token'] = t.identity;
+    const body = { name: n };
+    if (proof) { body.wallet = proof.wallet; body.ts = proof.ts; body.sig = proof.sig; }
     let r;
     try {
-      r = await fetch('/api/my-name', { method: 'POST', headers, body: JSON.stringify({ name: n }) });
+      r = await fetch('/api/my-name', { method: 'POST', headers, body: JSON.stringify(body) });
     } catch (_) { return 'offline'; }
     if (r.ok) return true;
     if (r.status === 409) return 'taken';
-    let body = {};
-    try { body = await r.json(); } catch (_) {}
-    return body.reason || ('http-' + r.status);
+    let err = {};
+    try { err = await r.json(); } catch (_) {}
+    return err.reason || ('http-' + r.status);
   }
   let toastT = 0;
   function toast(text) {
@@ -99,8 +112,8 @@
     short: 'Names need at least three letters or numbers.',
     'signed-out': 'Sign in first so your name follows you to your other devices.',
     offline: 'No connection. Your name was not saved.',
-    'bad-token': 'Your sign-in expired. Sign out and back in, then try again.',
-    'bad-identity-token': 'Your sign-in expired. Sign out and back in, then try again.',
+    'bad-token': 'Could not verify your account just now. Try again in a moment.',
+    'bad-identity-token': 'Could not verify your account just now. Try again in a moment.',
     'no-solana-wallet': 'Your account has no wallet yet. Open the Wallet tab first.',
     'privy-not-configured': 'The server cannot check logins right now. This is our end, not yours.',
     'privy-lookup-failed': 'Could not check your login just now. Try again in a moment.',

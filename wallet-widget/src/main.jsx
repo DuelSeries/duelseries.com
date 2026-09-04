@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { PrivyProvider, usePrivy, useLogin, useIdentityToken } from '@privy-io/react-auth';
-import { useWallets as useSolanaWallets, useSignTransaction, useFundWallet } from '@privy-io/react-auth/solana';
+import { useWallets as useSolanaWallets, useSignTransaction, useSignMessage, useFundWallet } from '@privy-io/react-auth/solana';
 import { createSolanaRpc, createSolanaRpcSubscriptions } from '@solana/kit';
+import bs58 from 'bs58';
 import { PublicKey, SystemProgram, Transaction } from '@solana/web3.js';
 import { getAssociatedTokenAddressSync, createTransferCheckedInstruction, createAssociatedTokenAccountIdempotentInstruction } from '@solana/spl-token';
 
@@ -266,6 +267,7 @@ function WalletPanel() {
   const { identityToken } = useIdentityToken();
   const { wallets: solWallets } = useSolanaWallets();
   const { signTransaction } = useSignTransaction();
+  const { signMessage } = useSignMessage();
   const { fundWallet } = useFundWallet();
   const [balance, setBalance] = useState(null);
   const [unit, setUnit] = useState('SOL'); // balance unit label (SOL or USDC), from /api/money-config
@@ -369,6 +371,23 @@ function WalletPanel() {
       if (!identity) { try { identity = localStorage.getItem('duel_id_token'); } catch (_) {} }
       return { access, identity };
     };
+    /* Proof that this wallet asked for this name, needing nothing from Privy's
+       servers at the moment it is used. The string must match the server's
+       nameMessage() byte for byte. */
+    window.duelWalletSignName = async (name) => {
+      if (!wallet || !address) return null;
+      const ts = Date.now();
+      const msg = 'DuelSeries: change display name\n'
+                + 'wallet: ' + address + '\n'
+                + 'name: ' + name + '\n'
+                + 'at: ' + ts;
+      const { signature } = await signMessage({
+        message: new TextEncoder().encode(msg),
+        wallet,
+        options: { uiOptions: { showWalletUIs: false } },
+      });
+      return { wallet: address, ts, sig: bs58.encode(signature) };
+    };
     window.duelWalletLogin = () => login();
     window.duelWalletLogout = () => logout();
     window.duelWalletRefresh = async () => {
@@ -396,7 +415,7 @@ function WalletPanel() {
       if (!wallet) return Promise.reject(new Error('Connect your wallet first.'));
       return buyCosmetic(itemId, wallet, signTransaction, onStatus);
     };
-  }, [wallet, signTransaction, address, login, logout, fundWallet, identityToken, getAccessToken]);
+  }, [wallet, signTransaction, signMessage, address, login, logout, fundWallet, identityToken, getAccessToken]);
 
   // Keep the Privy access token in localStorage so same-origin admin pages + game iframes can
   // authenticate owner-only actions (the server verifies it → OWNER_WALLET). Refreshed on a timer.

@@ -19,6 +19,7 @@ const money = require('./money'); // SOL- or USDC-denominated money backend (pic
 const Usdc  = require('./Usdc');  // USDC primitives — used directly by the cosmetics shop (always USDC)
 const notify = require('./notify'); // owner phone pushes (ntfy) — e.g. new-player alerts
 const analytics = require('./analytics'); // server-side PostHog capture (money events)
+const nameProof = require('./nameProof'); // a wallet signing for its own name change
 
 const REGION = process.env.REGION || 'na';
 
@@ -726,8 +727,14 @@ app.get('/api/my-profile', async (req, res) => {
    trusts a query wallet, but that only reads, and a write has to be the
    account it claims to be. */
 app.post('/api/my-name', async (req, res) => {
-  const { access, identity } = tokensFrom(req);
-  const { wallet, reason } = await walletFromIdToken(access, identity);
+  /* The wallet's own signature first, because it depends on nothing that can be
+     misconfigured or throttled. The token stays as the fallback so older clients
+     and anything already working keep working. */
+  let wallet = nameProof.verifyNameProof(req.body), reason = 'ok';
+  if (!wallet) {
+    const { access, identity } = tokensFrom(req);
+    ({ wallet, reason } = await walletFromIdToken(access, identity));
+  }
   /* The reason travels to the client. Naming yourself failing with a shrug is
      what sent this round in circles: every distinct cause read as "could not
      reach your account", so there was nothing to act on. */
