@@ -27,7 +27,11 @@
     if (!pts || !pts.length) return '';
     money = money || (n => '$' + Number(n).toFixed(2));
 
-    const W = 980, H = 260, PL = 62, PR = 26, PT = 22, PB = 46;
+    /* The plot is drawn in viewBox units and the svg is width:100%/height:auto,
+       so raising H alone makes it taller on screen without touching the type:
+       the horizontal scale is unchanged, so labels render at the same size and
+       simply get more room between them. */
+    const W = 980, H = 430, PL = 62, PR = 26, PT = 22, PB = 46;
     const iw = W - PL - PR, ih = H - PT - PB;
     const all = [{ d: pts[0].d, cum: 0, seed: true }].concat(pts);
     const vals = all.map(p => p.cum);

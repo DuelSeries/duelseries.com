@@ -541,6 +541,23 @@ body.ingame .tkrun,body.nomotion .tkrun{animation-play-state:paused}
    Drag anywhere across the plot and the readout follows. Touch is the primary
    case, so the whole plot is the target rather than each point: there is no
    hover on a phone and a per-point hit area is not findable with a thumb. */
+/* ── cash-out form ──────────────────────────────────────────────────── */
+.cashout{margin-top:16px}
+.fld{width:100%;background:var(--bg);border:none;border-radius:var(--r2);
+  padding:12px 14px;color:var(--tx);font-family:inherit;font-size:14px;
+  outline:none;margin-bottom:9px}
+.fld.num{font-family:var(--fm)}
+.fld::placeholder{color:var(--tx3)}
+.fld:focus{background:#0a0908}
+.amtrow{display:flex;gap:8px;margin-bottom:9px}
+.amtrow .fld{margin:0;flex:1;min-width:0}
+.maxbtn{background:var(--s2);border:none;border-radius:var(--r2);padding:0 18px;
+  font-family:inherit;font-size:13px;font-weight:650;color:var(--tx2);
+  cursor:pointer;transition:background .15s,color .15s}
+.maxbtn:hover{background:var(--bone);color:var(--ink)}
+.cashout .note{margin:0 0 14px}
+.cashout code{font-family:var(--fm);color:var(--tx)}
+
 .chartbox{position:relative}
 .chartbox svg.v2chart{display:block;width:100%;height:auto;
   -webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
@@ -722,11 +739,6 @@ body.ingame .tkrun,body.nomotion .tkrun{animation-play-state:paused}
   transform:translateX(-50%);font-size:12px;color:var(--tx3);white-space:nowrap;
   pointer-events:none;z-index:54}
 
-.how{margin:64px 0 0}
-.hg{display:grid;grid-template-columns:repeat(auto-fit,minmax(216px,1fr));gap:30px;margin-top:22px}
-.hs i{font-style:normal;font-size:12px;color:var(--tx3);font-weight:600}
-.hs b{display:block;font-size:14.5px;font-weight:600;margin:8px 0 6px}
-.hs p{font-size:13.5px;color:var(--tx2);line-height:1.7}
 
 /* ── waiting ────────────────────────────────────────────────────────── */
 .veil{position:fixed;inset:0;background:rgba(16,14,11,.9);backdrop-filter:blur(8px);
@@ -1064,10 +1076,6 @@ body.scr-anim { overflow-x:hidden }
         <button class="btn sec lookbtn" onclick="openLook()">Change appearance</button>
       </div>
     </div>
-  </div>
-  <div class="how">
-    <h2>How to play</h2>
-    <div class="hg" id="hg"></div>
   </div>
 </main>
 
@@ -2155,14 +2163,6 @@ function open_(id){
     :'<div class="none">Nobody is in a lobby right now. Set a buy-in and start one.</div>';
   document.getElementById('dsub2').textContent=mine.length?mine.length+' open':'None open';
   document.getElementById('dlob').classList.add('short');
-  document.getElementById('hg').innerHTML=[
-    ['Set your buy-in','Use the arrows. Everyone who joins pays exactly the same amount, so nobody can out-bet you.'],
-    ['Open or enter','Create a lobby and wait, or enter one that already has players in it.'],
-    [cur.type==='p'?'Grow your stack':'Win the match',
-     cur.type==='p'?'Your buy-in becomes your starting worth. Eat to grow it and take it from anyone you knock out.'
-                   :'Beat your opponent and take the pot. Both sides staked the same, so it comes down to skill.'],
-    ['Cash out','Leave whenever you like. Your worth is paid to your wallet on-chain, minus the ten percent house cut.'],
-  ].map((s,i)=>`<div class="hs"><i>0${i+1}</i><b>${s[0]}</b><p>${s[1]}</p></div>`).join('');
   drawStake(); drawSkins(); repaintAll(); jumpToTop();
 }
 function goHome(dir){showScreen('home',dir);jumpToTop()}

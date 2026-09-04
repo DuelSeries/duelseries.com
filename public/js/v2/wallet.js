@@ -20,6 +20,10 @@
 (function () {
   const el = id => document.getElementById(id);
   const w = () => window.duelWallet || {};
+  /* Which step the cash-out panel is on. Module state rather than DOM state,
+     because a balance refresh re-renders the panel and would otherwise throw
+     away whatever was half-typed into it. */
+  let cashing = false, pending = null;
   const connected = () => !!(w().authenticated && w().address);
   const money = n => '$' + (Number(n) || 0).toFixed(2);
   const esc = s => String(s == null ? '' : s)
@@ -60,29 +64,60 @@
     }
 
     const addr = w().address;
+    const bal = Number(w().balance) || 0;
     body.innerHTML =
       '<div class="wgrid">' +
         '<div class="panel">' +
           '<div class="bfig">' +
             '<div><div class="blab">Available</div>' +
-              '<div class="bnum num">' + money(w().balance) + '</div></div>' +
+              '<div class="bnum num">' + money(bal) + '</div></div>' +
           '</div>' +
-          '<div class="brow">' +
-            '<button class="btn pri" onclick="V2Wallet.fund()">Add funds</button>' +
-            '<button class="btn sec" onclick="V2Wallet.cashOut()">Cash out</button>' +
-          '</div>' +
-          '<p class="note">The house takes <b>10%</b> of what you cash out of a game. ' +
-          'Nothing is taken from a deposit, and nothing is taken if you leave with ' +
-          'your buy-in.</p>' +
+          (cashing ? cashForm(bal) :
+            '<div class="brow">' +
+              '<button class="btn pri" onclick="V2Wallet.fund()">Add funds</button>' +
+              '<button class="btn sec" onclick="V2Wallet.cashOut()">Cash out</button>' +
+            '</div>') +
         '</div>' +
         '<div class="panel">' +
           '<div class="plab">Your deposit address</div>' +
           '<div class="waddr" id="w-addr" onclick="V2Wallet.copy()">' +
             '<code>' + esc(addr) + '</code><span class="cp">Copy</span></div>' +
-          '<p class="note">Send only <b>USDC on Solana</b>. Any other token, or the ' +
-          'right token on the wrong network, cannot be recovered.</p>' +
+          /* The one sentence kept. The rest of the copy on this screen was
+             explanation; this is the only line whose absence can cost somebody
+             their money. */
+          '<p class="note">USDC on Solana only. Anything else is unrecoverable.</p>' +
         '</div>' +
       '</div>';
+  }
+
+  /* Two steps in one panel, replacing three stacked browser dialogs: a prompt
+     for the address, a prompt for the amount, then a confirm. Those cannot be
+     styled, cannot show the balance while you type an amount against it, and
+     on a phone each one covers the whole screen. */
+  function cashForm(bal) {
+    if (pending) {
+      return '<div class="cashout">' +
+        '<div class="plab">Confirm</div>' +
+        '<p class="note">Send <b>' + money(pending.amt) + '</b> to <code>' +
+          esc(shortAddr(pending.to)) + '</code>. On-chain transfers cannot be reversed.</p>' +
+        '<div class="brow">' +
+          '<button class="btn pri" onclick="V2Wallet.confirmCash()">Send it</button>' +
+          '<button class="btn sec" onclick="V2Wallet.backCash()">Back</button>' +
+        '</div></div>';
+    }
+    return '<div class="cashout">' +
+      '<input class="fld" id="co-to" placeholder="Solana address" autocomplete="off" ' +
+        'spellcheck="false" aria-label="Destination Solana address">' +
+      '<div class="amtrow">' +
+        '<input class="fld num" id="co-amt" inputmode="decimal" placeholder="0.00" ' +
+          'autocomplete="off" aria-label="Amount in USDC">' +
+        '<button type="button" class="maxbtn" onclick="V2Wallet.max()">Max</button>' +
+      '</div>' +
+      '<p class="note" id="co-msg">Available ' + money(bal) + ' USDC.</p>' +
+      '<div class="brow">' +
+        '<button class="btn pri" onclick="V2Wallet.submitCash()">Cash out</button>' +
+        '<button class="btn sec" onclick="V2Wallet.cancelCash()">Cancel</button>' +
+      '</div></div>';
   }
 
   function login() { if (window.duelWalletLogin) window.duelWalletLogin(); }
@@ -98,24 +133,44 @@
 
   /* Cash out sends from the player's own wallet to an address they give us.
      The amount and destination are theirs; this screen only collects them and
-     hands both to the widget. */
+     hands both to the widget, which owns every part of the money. */
   function cashOut() {
     if (!connected()) return login();
     if (!window.duelWalletSend) return note('Your wallet is still starting. Try again in a moment.');
+    if ((Number(w().balance) || 0) <= 0) return note('There is nothing to cash out yet.');
+    cashing = true; pending = null; render();
+    const f = el('co-to'); if (f) f.focus();
+  }
+  function cancelCash() { cashing = false; pending = null; render(); }
+  function backCash() { pending = null; render(); }
+  function max() {
+    const a = el('co-amt');
+    if (a) { a.value = (Number(w().balance) || 0).toFixed(2); a.focus(); }
+  }
+  function say(msg) { const m = el('co-msg'); if (m) m.textContent = msg; else note(msg); }
+
+  /* Checked here as well as in the widget, so a bad amount is answered in the
+     form instead of by a rejected transaction. The widget stays the authority
+     on what actually sends; this only catches the obvious cases early. */
+  function submitCash() {
     const bal = Number(w().balance) || 0;
-    if (bal <= 0) return note('There is nothing to cash out yet.');
-    const to = (prompt('Send USDC to which Solana address?') || '').trim();
-    if (!to) return;
-    const raw = (prompt('How much? You have ' + money(bal) + '.', bal.toFixed(2)) || '').trim();
-    const amt = Number(raw);
-    if (!isFinite(amt) || amt <= 0) return note('That is not an amount.');
-    if (amt > bal) return note('That is more than you have.');
-    if (!confirm('Send ' + money(amt) + ' to ' + shortAddr(to) + '?\n\n' +
-                 'On-chain transfers cannot be reversed.')) return;
-    window.duelWalletSend(amt, to)
+    const to = ((el('co-to') || {}).value || '').trim();
+    const amt = Number(((el('co-amt') || {}).value || '').trim());
+    if (!to) return say('Paste the Solana address to send to.');
+    if (!isFinite(amt) || amt <= 0) return say('Enter an amount to cash out.');
+    if (amt > bal) return say('That is more than the ' + money(bal) + ' you have.');
+    pending = { to: to, amt: amt };
+    render();
+  }
+  function confirmCash() {
+    if (!pending) return;
+    const p = pending;
+    pending = null; cashing = false; render();
+    window.duelWalletSend(p.amt, p.to)
       .then(() => { note('Sent.'); if (window.duelWalletRefresh) window.duelWalletRefresh(); })
       .catch(e => note('Send failed: ' + (e && e.message ? e.message : 'try again.')));
   }
+
 
   function copy() {
     const box = el('w-addr'); if (!box) return;
@@ -127,6 +182,10 @@
 
   function note(msg) { alert(msg); }
 
-  window.addEventListener('duelwallet:change', render);
-  window.V2Wallet = { render: render, login: login, fund: fund, cashOut: cashOut, copy: copy };
+  /* Only the header follows a balance change while the form is open: a full
+     re-render mid-typing would throw away the address being pasted into it. */
+  window.addEventListener('duelwallet:change', () => { cashing ? renderHeader() : render(); });
+  window.V2Wallet = { render: render, login: login, fund: fund, copy: copy,
+                      cashOut: cashOut, cancelCash: cancelCash, backCash: backCash,
+                      max: max, submitCash: submitCash, confirmCash: confirmCash };
 })();
