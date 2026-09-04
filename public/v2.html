@@ -2667,6 +2667,11 @@ drawNav();V2Wallet.render();drawRail();drawTicker();V2Board.start();applyMotion(
      renaming it silently breaks both. -->
 <iframe id="game-frame" title="DuelSeries game" allow="autoplay; fullscreen"
         style="display:none;position:fixed;inset:0;width:100%;height:100%;border:0;z-index:300;background:#000"></iframe>
+<!-- agar.io launches into its own frame. The widget has always looked up
+     'agar-frame' by name for a cell game and this lobby never had one, so
+     pressing Play on agar.io found no frame and silently did nothing. -->
+<iframe id="agar-frame" title="DuelSeries game" allow="autoplay; fullscreen"
+        style="display:none;position:fixed;inset:0;width:100%;height:100%;border:0;z-index:300;background:#000"></iframe>
 
 <!-- Self-custody wallet widget (Privy embedded). React island; the lobby stays
      vanilla and only reads the globals it publishes. The node-global shims must

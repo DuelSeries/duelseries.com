@@ -59,10 +59,24 @@
      about — and burying it behind the buy-in stepper made starting a game a
      three-tap job from the screen whose entire purpose is starting a game.
      It still shows its real count, so an empty one says so. */
+  /* agar.io runs on the fixed tiers, not on the buy-in ladder, so /api/live
+     carries no rung for it and there is nothing to pin. Its free room is added
+     here instead of on the server, deliberately: it is NOT put into LOBBIES,
+     because refreshSteps reads that list to build the buy-in buttons and a row
+     with no stake on it would put a blank rung on the control.
+
+     stake null rather than 0 matters. enter() sends { stake } when there is
+     one, and the server resolves a stake through the snake ladder — so a 0
+     here would route an agar player into a snake room. With no stake it sends
+     { lobbyType }, which is the door agar actually uses. */
+  const AGAR_FREE = { id: 'agar:free', game: 'agar', region: 'na',
+                      stake: null, lobbyType: 'free', players: 0, state: 'open' };
+
   function rowsToShow() {
     const rows = occupied();
     const free = LOBBIES.find(l => Number(l.stake) === 0 && l.game === 'snake');
     if (free && !rows.some(r => r.id === free.id)) rows.unshift(free);
+    rows.push(AGAR_FREE);
     return rows;
   }
 
@@ -85,7 +99,7 @@
   }
 
   function join(id) {
-    const l = LOBBIES.find(x => x.id === id);
+    const l = id === AGAR_FREE.id ? AGAR_FREE : LOBBIES.find(x => x.id === id);
     if (!l) return;
     if (window.V2Play) return window.V2Play.enter(l);
     alert('Entering a ' + money(l.stake) + ' lobby.');

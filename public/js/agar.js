@@ -47,10 +47,10 @@ let cashedOut         = false;
 let waitingToRespawn  = false;
 const Q_HOLD_MS = 3000;
 
-// ─── Joystick state ───────────────────────────────────────────────────────────
-let joystickActive = false;
-let joystickAngle  = null;
-let joystickTouchId = null;
+/* The joystick is gone. The canvas already steers from the touch position —
+   the cell moves toward wherever the finger is, which is how the game this one
+   is modelled on does it — so the stick was a second control for the same
+   thing, sitting on top of the board it was steering across. */
 
 // ─── Lobby navigation ─────────────────────────────────────────────────────────
 function goToLobby() {
@@ -206,47 +206,6 @@ window.addEventListener('DOMContentLoaded', () => {
     goToLobby();
   });
 
-  // Joystick
-  const joyZone = document.getElementById('agar-joystick-zone');
-  const joyBase = document.getElementById('agar-joystick-base');
-  const joyKnob = document.getElementById('agar-joystick-knob');
-  if (joyZone) {
-    const onJoyStart = e => {
-      e.preventDefault();
-      if (joystickTouchId !== null) return;
-      const t = e.changedTouches[0];
-      joystickTouchId = t.identifier;
-      joystickActive = true;
-    };
-    const onJoyEnd = e => {
-      for (const t of e.changedTouches) {
-        if (t.identifier !== joystickTouchId) continue;
-        joystickTouchId = null;
-        joystickActive = false;
-        joystickAngle = null;
-        joyKnob.style.transform = 'translate(-50%, -50%)';
-      }
-    };
-    const onJoyMove = e => {
-      e.preventDefault();
-      for (const t of e.changedTouches) {
-        if (t.identifier !== joystickTouchId) continue;
-        const rect = joyBase.getBoundingClientRect();
-        const ox = t.clientX - (rect.left + rect.width  / 2);
-        const oy = t.clientY - (rect.top  + rect.height / 2);
-        const dist = Math.sqrt(ox * ox + oy * oy);
-        const maxR = rect.width / 2;
-        const nx = ox / dist * Math.min(dist, maxR);
-        const ny = oy / dist * Math.min(dist, maxR);
-        joyKnob.style.transform = `translate(calc(-50% + ${nx}px), calc(-50% + ${ny}px))`;
-        if (dist > 6) joystickAngle = Math.atan2(oy, ox);
-      }
-    };
-    joyZone.addEventListener('touchstart',  onJoyStart, { passive: false });
-    joyZone.addEventListener('touchmove',   onJoyMove,  { passive: false });
-    joyZone.addEventListener('touchend',    onJoyEnd,   { passive: false });
-    joyZone.addEventListener('touchcancel', onJoyEnd,   { passive: false });
-  }
 
   // Mobile action buttons
   const splitBtn    = document.getElementById('agar-btn-split');
@@ -592,16 +551,8 @@ function loop(now) {
 
   // Re-emit input every frame so the circle keeps moving
   if (socket && myId && !cashedOut) {
-    if (joystickActive && joystickAngle !== null) {
-      const me = renderPlayers.get(myId);
-      const cx = me && me.cells.length ? me.cells[0].rx : camX;
-      const cy = me && me.cells.length ? me.cells[0].ry : camY;
-      const DIST = 2000;
-      socket.volatile.emit('cell:input', { mouseX: cx + Math.cos(joystickAngle) * DIST, mouseY: cy + Math.sin(joystickAngle) * DIST });
-    } else {
-      const mw = mouseWorld();
-      socket.volatile.emit('cell:input', { mouseX: mw.x, mouseY: mw.y });
-    }
+    const mw = mouseWorld();
+    socket.volatile.emit('cell:input', { mouseX: mw.x, mouseY: mw.y });
   }
 
   lerpPositions(dt);

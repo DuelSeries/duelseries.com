@@ -54,10 +54,13 @@
     return name;
   }
 
-  function inGame() {
-    const f = el('game-frame');
-    return !!(f && f.style.display !== 'none' && f.style.display !== '');
-  }
+  /* BOTH frames. This checked only game-frame, so with agar.io running the
+     lobby did not think it was in a game: its animations were never paused and
+     kept painting on the same main thread the game renders on. That is what
+     was costing agar its frame rate. */
+  const FRAMES = ['game-frame', 'agar-frame'];
+  const shown = () => FRAMES.map(el).filter(f => f && f.style.display === 'block');
+  function inGame() { return shown().length > 0; }
 
   /* The one door. Everything else here funnels into this.
      `sel` names the room: { stake } for a rung of the ladder, or { lobbyType }
@@ -131,7 +134,7 @@
   }
 
   function show(src) {
-    const f = el('game-frame');
+    const f = el(src.indexOf('agar') >= 0 ? 'agar-frame' : 'game-frame');
     if (!f) return;
     if (window._pauseLobbyAnims) window._pauseLobbyAnims();
     f.src = src;
@@ -142,8 +145,7 @@
      animations restart. */
   window.addEventListener('message', e => {
     if (e.data !== 'game:done') return;
-    const f = el('game-frame');
-    if (f) { f.style.display = 'none'; f.src = ''; }
+    FRAMES.forEach(id => { const f = el(id); if (f) { f.style.display = 'none'; f.src = ''; } });
     if (window._resumeLobbyAnims) window._resumeLobbyAnims();
     if (window.V2Board) window.V2Board.load();
     if (window.duelWalletRefresh) window.duelWalletRefresh();
@@ -155,8 +157,8 @@
     if (inGame() && window._pauseLobbyAnims) window._pauseLobbyAnims();
   });
   document.addEventListener('DOMContentLoaded', () => {
-    const f = el('game-frame');
-    if (f) seen.observe(f, { attributes: true, attributeFilter: ['style', 'src'] });
+    FRAMES.forEach(id => { const f = el(id);
+      if (f) seen.observe(f, { attributes: true, attributeFilter: ['style', 'src'] }); });
     const input = el('play-name');
     if (input && !input.value) input.value = savedName();
   });
@@ -173,12 +175,6 @@
      marks that way, which looks identical to a broken instrument.
 
      Cheap to forward, and it costs nothing when the game is not open. */
-  window.addEventListener('keydown', (e) => {
-    if (e.key !== 'l' && e.key !== 'L') return;
-    const t = e.target;
-    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
-    const f = el('game-frame');
-    if (!f || !f.contentWindow || f.style.display === 'none') return;
-    try { f.contentWindow.postMessage({ type: 'diag:mark' }, window.location.origin); } catch (_) {}
-  }, true);
+  /* The L-key forwarder went with diag.js: there is nothing in the frame left
+     listening for it. */
 })();
