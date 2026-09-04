@@ -16,6 +16,17 @@
 <body>
   <canvas id="game-canvas"></canvas>
 
+  <!-- Heading arrow, drawn just in front of your own cell while a finger is down.
+       Same element, same SVG and same transform as the snake game so the two read
+       as one control. -->
+  <div id="dir-arrow" aria-hidden="true">
+    <svg viewBox="0 0 24 24" width="26" height="26">
+      <path d="M2 12 h13 M15 12 l-5 -5 M15 12 l-5 5" fill="none"
+            stroke="currentColor" stroke-width="2.5"
+            stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+  </div>
+
   <div id="hud-leaderboard">
     <div class="hud-lb-title" id="hud-lb-title">LEADERBOARD</div>
     <div id="hud-lb-rows"></div>

@@ -901,61 +901,6 @@ canvas.addEventListener('touchmove', (e) => {
   if (p) updateTouchAim(p);
 }, { passive: false });
 
-/* Where you are pointing: a ring at the anchor, an arrow leaving it, and the
-   thumb marked so the gap between the two reads as how hard you are turning.
-
-   The stick is invisible without it. You can feel the turn, but nothing on the
-   glass says which way you asked to go, and on a screen your own hand is
-   covering that is the one thing it has to say. Same drawing as the agar game,
-   so the two feel like one product in the hand. */
-function drawAim() {
-  const ctx = canvas.getContext('2d');
-  const dpr = canvas.width / canvas.getBoundingClientRect().width || 1;
-  const ax = anchorX * dpr, ay = anchorY * dpr;
-  const ca = Math.cos(touchAngle), sa = Math.sin(touchAngle);
-  const R = 34 * dpr;
-  const x0 = ax + ca * (R + 5 * dpr),  y0 = ay + sa * (R + 5 * dpr);
-  const x1 = ax + ca * (R + 30 * dpr), y1 = ay + sa * (R + 30 * dpr);
-  const hx = ax + ca * (R + 44 * dpr), hy = ay + sa * (R + 44 * dpr);
-  const px = -sa, py = ca;                 // perpendicular, for the two barbs
-
-  const ring  = () => { ctx.beginPath(); ctx.arc(ax, ay, R, 0, Math.PI * 2); ctx.stroke(); };
-  const shaft = () => { ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke(); };
-  const head  = () => {
-    ctx.beginPath();
-    ctx.moveTo(hx, hy);
-    ctx.lineTo(x1 + px * 9 * dpr, y1 + py * 9 * dpr);
-    ctx.lineTo(x1 - px * 9 * dpr, y1 - py * 9 * dpr);
-    ctx.closePath();
-  };
-
-  ctx.save();
-  ctx.setTransform(1, 0, 0, 1, 0, 0);      // screen space, whatever the camera left set
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-
-  /* Halo under core, same as agar. This board is dark so the roles are swapped —
-     cream shape over a dark halo — but the shape, the sizes and the reason are the
-     same, so a player moving between the two games is holding one control. */
-  ctx.globalAlpha = 0.5;
-  ctx.strokeStyle = 'rgba(0,0,0,0.75)';
-  ctx.lineWidth = 7 * dpr; ring();
-  ctx.lineWidth = 8 * dpr; shaft();
-  head(); ctx.stroke();
-
-  ctx.globalAlpha = 0.55;
-  ctx.strokeStyle = '#f5f1e8';
-  ctx.lineWidth = 2.5 * dpr; ring();
-  ctx.globalAlpha = 0.92;
-  ctx.lineWidth = 4 * dpr; shaft();
-  ctx.fillStyle = '#f5f1e8';
-  head(); ctx.fill();
-
-  ctx.globalAlpha = 0.24;
-  ctx.beginPath(); ctx.arc(mousePos.x * dpr, mousePos.y * dpr, 18 * dpr, 0, Math.PI * 2); ctx.fill();
-  ctx.restore();
-}
-
 function endTouch(e) {
   // Lifting the pedal stops the boost while the steering finger stays down.
   if (e.touches && e.touches.length > 0) {
@@ -1577,9 +1522,6 @@ function gameLoop(now) {
     ? { ...displayState, snakes: displayState.snakes.filter(s => s.id !== myId) }
     : displayState;
   renderer.render(renderState, cashedOut ? null : myId, mousePos, spectateSnake, cashoutRings, dt);
-  // Over the finished frame, in screen space: the stick is on the glass, not
-  // in the world, so it must not pan or scale with the camera.
-  if (touchSteering && touchAngle !== null) drawAim();
 
 
   // Tell the server our current view radius (area-of-interest culling) so it only

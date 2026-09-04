@@ -727,9 +727,7 @@ function render() {
 
   ctx.restore();
 
-  // Drawn AFTER the restore, in screen space: the stick lives on the glass,
-  // not in the world, so it must not pan or scale with the camera.
-  if (touchSteering && touchAngle !== null) drawAim();
+  updateDirArrow();   // an element over the canvas, so it costs no draw call
 }
 
 /* Where you are pointing: a ring at the anchor, an arrow leaving it, and the thumb
@@ -740,50 +738,35 @@ function render() {
    every frame and was simply invisible, which is why it read as "there is still no
    arrow". Every stroke is laid down twice, a pale halo under a dark core, so it also
    holds when it crosses a bright cell instead of the empty board. */
-const AIM_CORE = '#161b2b';
-const AIM_HALO = 'rgba(255,255,255,0.9)';
-function drawAim() {
-  const ax = anchorX, ay = anchorY;
-  const ca = Math.cos(touchAngle), sa = Math.sin(touchAngle);
-  const R = 34;                       // the ring sits just inside TOUCH_FOLLOW_R
-  const x0 = ax + ca * (R + 5),  y0 = ay + sa * (R + 5);
-  const x1 = ax + ca * (R + 30), y1 = ay + sa * (R + 30);
-  const hx = ax + ca * (R + 44), hy = ay + sa * (R + 44);
-  const px = -sa, py = ca;            // perpendicular, for the two barbs
+/* Where you are going, put in front of your own cell rather than under your thumb.
 
-  const ring  = () => { ctx.beginPath(); ctx.arc(ax, ay, R, 0, Math.PI * 2); ctx.stroke(); };
-  const shaft = () => { ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke(); };
-  const head  = () => {
-    ctx.beginPath();
-    ctx.moveTo(hx, hy);
-    ctx.lineTo(x1 + px * 9, y1 + py * 9);
-    ctx.lineTo(x1 - px * 9, y1 - py * 9);
-    ctx.closePath();
-  };
+   The first version drew a stick at the touch anchor, which is the one place on a
+   phone that is guaranteed to be covered by a hand. Same element and same transform
+   as the snake game uses at its head, so both games point the same way.
 
-  ctx.save();
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-
-  // Halo first, wider, so the dark shape on top always has an edge to sit on.
-  ctx.globalAlpha = 0.85;
-  ctx.strokeStyle = AIM_HALO;
-  ctx.lineWidth = 7; ring();
-  ctx.lineWidth = 8; shaft();
-  head(); ctx.stroke();
-
-  ctx.globalAlpha = 0.6;
-  ctx.strokeStyle = AIM_CORE;
-  ctx.lineWidth = 2.5; ring();
-  ctx.globalAlpha = 0.92;
-  ctx.lineWidth = 4; shaft();
-  ctx.fillStyle = AIM_CORE;
-  head(); ctx.fill();
-
-  // The thumb itself, so the gap between it and the anchor reads as the throw.
-  ctx.globalAlpha = 0.22;
-  ctx.beginPath(); ctx.arc(thumbX, thumbY, 18, 0, Math.PI * 2); ctx.fill();
-  ctx.restore();
+   Offset by the cell RADIUS, not a constant: agar cells span an enormous range and a
+   fixed gap would sit inside a big one and miles from a small one. */
+const dirArrowEl = document.getElementById('dir-arrow');
+function updateDirArrow() {
+  if (!dirArrowEl) return;
+  const me = renderPlayers.get(myId);
+  const cell = me && me.alive && me.cells.length
+    ? me.cells.reduce((a, b) => (b.mass > a.mass ? b : a))
+    : null;
+  if (!touchSteering || touchAngle === null || !cell || cashedOut) {
+    if (dirArrowEl.style.opacity !== '0') dirArrowEl.style.opacity = '0';
+    return;
+  }
+  // rx/ry, not x/y: renderPlayers holds the INTERPOLATED positions under those
+  // names, and the raw ones do not exist on it. x/y here is undefined, which makes
+  // the whole transform invalid and the arrow simply never moves.
+  const sx = canvas.width  / 2 + (cell.rx - camX) * camScale;
+  const sy = canvas.height / 2 + (cell.ry - camY) * camScale;
+  const reach = radius(cell.mass) * camScale + 26;
+  dirArrowEl.style.opacity = '1';
+  dirArrowEl.style.transform =
+    `translate(-50%, -50%) translate(${sx}px, ${sy}px) ` +
+    `rotate(${touchAngle}rad) translateX(${reach}px)`;
 }
 
 function drawQRing(me) {

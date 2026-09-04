@@ -304,3 +304,32 @@ kbd {
 #cashout-overlay.active { display: flex; }
 
 
+
+/* ── Heading arrow ────────────────────────────────────────────────────────────
+   In front of your own cell, pointing where you are going — not at your thumb.
+   An arrow under your hand is an arrow you cannot see, which is exactly how the
+   thumb-anchored version failed.
+
+   DARK ink with a white glow, the mirror of the snake game's cream-on-dark: this
+   board is #f0f4ff, so the snake's colours would be invisible here.
+
+   Transform order matters and is easy to get backwards. CSS applies the
+   RIGHTMOST function first, so a trailing translate(-50%,-50%) would be applied
+   in the element's own rotated frame and the centring offset would spin with the
+   heading, drifting the arrow sideways by up to its own size, worst at the
+   diagonals. Centring happens last in screen space, so it is written first. */
+#dir-arrow {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 40;
+  color: rgba(18, 22, 38, 0.92);
+  filter: drop-shadow(0 0 5px rgba(255, 255, 255, 0.95));
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.12s linear;
+  will-change: transform;
+}
+#dir-arrow svg { display: block; }
+/* A mouse already shows you where you are pointing. */
+@media (hover: hover) and (pointer: fine) { #dir-arrow { display: none; } }
