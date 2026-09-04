@@ -98,9 +98,19 @@ function fmtAxis(t, longSpan) {
                fmtAxis(t0 + (t1 - t0) * frac, t1 - t0 > 300 * 864e5) + '</text>';
     }
 
-    const line = all.map((p, i) =>
-      (i ? 'L' : 'M') + X(i).toFixed(1) + ' ' + Y(p.cum).toFixed(1)).join(' ');
-    const area = line + ' L' + X(all.length - 1).toFixed(1) + ' ' + zy.toFixed(1) +
+    /* A STEP line, not a sloped one. Your total does not drift upward through a
+       quiet Tuesday — it sits still and then jumps the moment you cash out. The
+       sloped version invented a number for every instant in between, which is
+       also what made scrubbing impossible to get right: the dot on the slope and
+       the total in the readout could not both be true. Flat, then a step. */
+    let line = 'M' + X(0).toFixed(1) + ' ' + Y(all[0].cum).toFixed(1);
+    for (let i = 1; i < all.length; i++) {
+      line += ' L' + X(i).toFixed(1) + ' ' + Y(all[i - 1].cum).toFixed(1) +
+              ' L' + X(i).toFixed(1) + ' ' + Y(all[i].cum).toFixed(1);
+    }
+    // Out to today, so the last run is as long as it really is.
+    line += ' L' + (W - PR).toFixed(1) + ' ' + Y(all[all.length - 1].cum).toFixed(1);
+    const area = line + ' L' + (W - PR).toFixed(1) + ' ' + zy.toFixed(1) +
                  ' L' + X(0).toFixed(1) + ' ' + zy.toFixed(1) + ' Z';
 
     let dots = '';
@@ -109,12 +119,17 @@ function fmtAxis(t, longSpan) {
               '" r="3.2" fill="var(--money)"/>';
     }
 
-    // Geometry the scrubber needs, so it does not recompute any of this.
+    /* Geometry AND time. The scrubber used to be handed only the point
+       positions, so the best it could do was snap to the closest one — which,
+       on an account with a handful of cash-outs, meant the readout sat on the
+       last one no matter where the finger went. With t0/t1 it can turn any x
+       into a real date and read the total as of that day. */
     const meta = {
       xs: all.map((_, i) => +X(i).toFixed(2)),
       ys: all.map(p => +Y(p.cum).toFixed(2)),
-      labels: all.map(p => fmtDate(p.d)),
+      ts: ts,
       values: all.map(p => p.cum),
+      t0: t0, t1: t1, iw: iw,
       PL: PL, PR: W - PR, PT: PT, PB: PT + ih, W: W, H: H,
     };
 
@@ -159,29 +174,43 @@ function fmtAxis(t, longSpan) {
       if (getComputedStyle(container).position === 'static') container.style.position = 'relative';
     }
 
-    const nearest = (svgX) => {
-      let best = 1, bestD = Infinity;
-      // index 0 is the synthetic zero point; never report it as a reading.
-      for (let i = 1; i < meta.xs.length; i++) {
-        const d = Math.abs(meta.xs[i] - svgX);
-        if (d < bestD) { bestD = d; best = i; }
+    /* The running total as of a moment: the last entry at or before it. This is
+       a step function, which is what the total actually is, so between two
+       cash-outs every day reads the same figure — correctly. */
+    const asOf = (t) => {
+      let v = meta.values[0], i = 0;
+      for (let k = 0; k < meta.ts.length; k++) {
+        if (meta.ts[k] <= t) { v = meta.values[k]; i = k; } else break;
       }
-      return best;
+      return { v: v, i: i };
     };
+    const dayLabel = (t) => new Date(t).toLocaleDateString('en-US',
+      { month: 'short', day: 'numeric', year: 'numeric' });
 
     function show(clientX) {
       const r = svg.getBoundingClientRect();
       // The SVG scales to its box, so client pixels convert through the viewBox.
-      const svgX = (clientX - r.left) * (meta.W / r.width);
-      const i = nearest(svgX);
-      scrub.setAttribute('x1', meta.xs[i]); scrub.setAttribute('x2', meta.xs[i]);
+      let svgX = (clientX - r.left) * (meta.W / r.width);
+      svgX = Math.max(meta.PL, Math.min(meta.PR, svgX));
+      /* Straight to a DATE. Snapping to the nearest plotted point is what made
+         this jump to the last time money came in and stay there: with a handful
+         of entries spread over months, almost every x on the axis is nearest to
+         the same one. */
+      const span = meta.t1 - meta.t0;
+      const t = meta.t0 + (span ? (svgX - meta.PL) / meta.iw * span : 0);
+      // By INDEX. Looking the level up by value would pick the wrong row the
+      // moment two entries share a total, which a zero-value game does.
+      const { v, i } = asOf(t);
+      const yy = meta.ys[i];
+      scrub.setAttribute('x1', svgX.toFixed(1)); scrub.setAttribute('x2', svgX.toFixed(1));
       scrub.setAttribute('opacity', '.55');
-      dot.setAttribute('cx', meta.xs[i]); dot.setAttribute('cy', meta.ys[i]);
+      // On the step, so the dot and the figure can never disagree.
+      dot.setAttribute('cx', svgX.toFixed(1)); dot.setAttribute('cy', yy);
       dot.setAttribute('opacity', '1');
-      tip.innerHTML = '<b>' + money(meta.values[i]) + '</b><span>' + meta.labels[i] + '</span>';
+      tip.innerHTML = '<b>' + money(v) + '</b><span>' + dayLabel(t) + '</span>';
       tip.classList.add('on');
       // Keep the readout inside the box rather than letting it hang off an edge.
-      const px = meta.xs[i] / meta.W * r.width;
+      const px = svgX / meta.W * r.width;
       tip.style.left = Math.max(4, Math.min(r.width - tip.offsetWidth - 4,
         px - tip.offsetWidth / 2)) + 'px';
     }
@@ -195,15 +224,24 @@ function fmtAxis(t, longSpan) {
        the element stops the browser treating a horizontal drag as a scroll, so
        scrubbing does not fight the page. */
     svg.style.touchAction = 'pan-y';
+    /* Tracked with a flag rather than inferred from e.pressure. Plenty of touch
+       hardware reports pressure 0 for an ordinary finger, and buttons is 0 for
+       touch as well, so the move handler could drop every event in a drag and
+       leave the readout frozen where it started. */
+    let dragging = false;
     svg.addEventListener('pointerdown', e => {
-      svg.setPointerCapture(e.pointerId); show(e.clientX);
+      dragging = true;
+      try { svg.setPointerCapture(e.pointerId); } catch (_) {}
+      show(e.clientX);
     });
     svg.addEventListener('pointermove', e => {
-      if (e.pressure > 0 || e.buttons || e.pointerType === 'mouse') show(e.clientX);
+      if (dragging || e.pointerType === 'mouse') show(e.clientX);
     });
-    svg.addEventListener('pointerup', hide);
-    svg.addEventListener('pointercancel', hide);
-    svg.addEventListener('pointerleave', hide);
+    svg.addEventListener('pointerup', e => { dragging = false; hide(e); });
+    svg.addEventListener('pointercancel', e => { dragging = false; hide(e); });
+    // A mouse leaving clears it; a finger dragging past the edge does not, since
+    // pointer capture means the drag is still going.
+    svg.addEventListener('pointerleave', e => { if (!dragging) hide(e); });
   }
 
   window.V2Chart = V2Chart;
