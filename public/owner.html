@@ -1,156 +1,366 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>DuelSeries · Earnings</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>DuelSeries · Control</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { background: #0b0d1a; color: #e8e9f0; font-family: 'Segoe UI', system-ui, sans-serif; min-height: 100vh; }
-  .wrap { max-width: 940px; margin: 0 auto; padding: 28px 20px 60px; }
-  .top { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 22px; }
-  h1 { font-size: 1.3rem; letter-spacing: 0.04em; color: #14F195; }
-  h1 span { color: #6b7192; font-weight: 400; }
-  .updated { font-size: 0.72rem; color: #556; }
-  .loading, .error { text-align: center; padding: 60px 20px; color: #6b7192; }
-  .error { color: #ff6b6b; }
+/* The lobby's own tokens. This is the same product with its back panel off, not
+   a different application, and an ops screen in a different palette is one more
+   thing to reorient to at two in the morning. */
+:root{
+  --bg:#100e0b; --s1:#17140f; --s2:#1f1b15; --s3:#282219;
+  --tx:#f5f1e8; --tx2:#a89c8a; --tx3:#8d8171;
+  --ink:#100e0b; --bone:#f4f1ea; --money:#f0a830; --live:#8ed081; --bad:#e0705f;
+  --r1:6px; --r2:10px; --r3:18px; --rf:999px;
+  --f:'Archivo',ui-sans-serif,system-ui,-apple-system,'Segoe UI',Arial,sans-serif;
+  --fm:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font-family:var(--f);
+  font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
+.wrap{max-width:760px;margin:0 auto;padding:34px 20px 80px}
 
-  .ranges { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
-  .range { background: #161a2e; border: 1px solid #262c47; color: #aeb3cc; padding: 7px 16px; border-radius: 999px; cursor: pointer; font-size: 0.82rem; }
-  .range.active { border-color: #14F195; color: #14F195; background: #14F1951a; }
+h1{font-size:20px;font-weight:650;letter-spacing:-.3px;margin:0}
+.sub{font-size:12.5px;color:var(--tx3);margin-top:3px}
+.top{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:24px}
 
-  .hero { background: linear-gradient(135deg, #14201c, #12162a); border: 1px solid #1e6b4f; border-radius: 16px; padding: 26px 28px; margin-bottom: 16px; }
-  .hero-label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.1em; color: #8a90ad; }
-  .hero-value { font-size: 2.6rem; font-weight: 800; color: #14F195; margin-top: 4px; line-height: 1.1; }
-  .hero-value.neg { color: #ff6b6b; }
-  .hero-sub { font-size: 0.82rem; color: #8a90ad; margin-top: 8px; }
+/* ── the verdict ─────────────────────────────────────────────────────────────
+   The one thing this page knows that no other screen does: whether it is safe
+   to pull the plug. It leads, because every other control on the page is a
+   decision made in the light of it. */
+.verdict{background:var(--s1);border:1px solid var(--s2);border-radius:var(--r3);
+  padding:22px 24px;margin-bottom:20px}
+.vtop{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.pill{font-family:var(--fm);font-size:11px;font-weight:600;letter-spacing:.14em;
+  text-transform:uppercase;border-radius:var(--rf);padding:5px 12px;
+  border:1px solid transparent}
+.pill.open{color:var(--live);background:rgba(142,208,129,.12);border-color:rgba(142,208,129,.34)}
+.pill.down{color:var(--money);background:rgba(240,168,48,.12);border-color:rgba(240,168,48,.34)}
+.vmain{font-size:26px;font-weight:650;letter-spacing:-.5px;margin-top:14px}
+.vmain.risky{color:var(--money)}
+.vwhy{font-size:13px;color:var(--tx2);margin-top:6px}
+.vnums{display:flex;gap:26px;margin-top:18px;padding-top:16px;border-top:1px solid var(--s2)}
+.vnum b{display:block;font-family:var(--fm);font-variant-numeric:tabular-nums;
+  font-size:20px;font-weight:600}
+.vnum span{display:block;font-size:11px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--tx3);margin-top:3px}
 
-  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
-  .grid-2 { grid-template-columns: repeat(3, 1fr); }
-  .stat { background: #12162a; border: 1px solid #222842; border-radius: 12px; padding: 15px 17px; }
-  .stat-label { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.07em; color: #7d83a3; }
-  .stat-value { font-size: 1.3rem; font-weight: 700; margin-top: 4px; }
-  .stat-value.green { color: #14F195; }
-  .stat-value.red { color: #ff6b6b; }
-  .stat-sub { font-size: 0.7rem; color: #626892; margin-top: 3px; }
+/* ── controls ────────────────────────────────────────────────────────────────
+   Rows, not cards. Each is a label, whatever it needs to be told, and the
+   button that does it — so the page reads as a list of things you can do and
+   never as a dashboard you have to interpret. */
+.group{background:var(--s1);border:1px solid var(--s2);border-radius:var(--r3);
+  padding:6px 24px;margin-bottom:14px}
+.ghead{font-family:var(--fm);font-size:10.5px;font-weight:600;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--tx3);padding:16px 0 10px}
+.row{display:flex;align-items:center;gap:12px;padding:13px 0;border-top:1px solid var(--s2)}
+.row:first-of-type{border-top:none}
+.rlabel{flex:1;min-width:0}
+.rlabel b{display:block;font-size:14px;font-weight:600}
+.rlabel span{display:block;font-size:12px;color:var(--tx3);margin-top:2px}
 
-  .section-title { font-size: 0.95rem; color: #cfd3ea; margin: 22px 0 10px; letter-spacing: 0.03em; }
-  .card { background: #12162a; border: 1px solid #222842; border-radius: 14px; padding: 18px 20px; }
+button{font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;
+  border-radius:var(--r2);padding:9px 16px;border:1px solid var(--s3);
+  background:transparent;color:var(--tx);transition:background .14s,border-color .14s}
+button:hover:not(:disabled){background:var(--s2);border-color:#3a3126}
+button:disabled{opacity:.4;cursor:not-allowed}
+button:focus-visible{outline:2px solid var(--money);outline-offset:2px}
+button.go{background:var(--money);border-color:var(--money);color:var(--ink)}
+button.go:hover:not(:disabled){background:#f6b845;border-color:#f6b845}
+button.warn{color:var(--bad);border-color:rgba(224,112,95,.4)}
+button.warn:hover:not(:disabled){background:rgba(224,112,95,.12)}
 
-  .chart { width: 100%; height: 150px; display: block; }
-  .chart-empty { color: #626892; font-size: 0.82rem; padding: 40px 0; text-align: center; }
+input,select{font-family:var(--fm);font-size:13px;background:var(--bg);
+  border:1px solid var(--s3);border-radius:var(--r2);color:var(--tx);
+  padding:9px 11px;min-width:0}
+input:focus,select:focus{outline:none;border-color:var(--money)}
+input.wide{flex:1}
+input.num{width:70px;text-align:center}
 
-  .feed { display: flex; flex-direction: column; gap: 7px; }
-  .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: #12162a; border: 1px solid #222842; border-radius: 10px; padding: 9px 14px; }
-  .row-desc { font-size: 0.84rem; color: #d3d7ef; }
-  .row-meta { font-size: 0.68rem; color: #626892; margin-top: 2px; }
-  .row-amt { font-weight: 700; font-size: 0.92rem; white-space: nowrap; }
-  .row-amt.green { color: #14F195; }
-  .row-amt.red { color: #ff6b6b; }
-  .tag { display: inline-block; font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.05em; padding: 1px 7px; border-radius: 6px; margin-right: 6px; vertical-align: middle; }
-  .tag.rake { background: #14F1951a; color: #14F195; }
-  .tag.cosmetic { background: #7c5cff26; color: #b7a6ff; }
-  .tag.bot { background: #ff6b6b1a; color: #ff9d9d; }
+/* ── the log ─────────────────────────────────────────────────────────────────
+   What actually happened, newest first, in the mono everything factual is set
+   in. It answers "why is the game in maintenance" without anyone having to
+   remember. */
+.log{font-family:var(--fm);font-size:12px;line-height:1.85;color:var(--tx2);
+  background:var(--s1);border:1px solid var(--s2);border-radius:var(--r3);
+  padding:18px 22px;max-height:280px;overflow:auto}
+.log div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.log .t{color:var(--tx3)}
+.log .no{color:var(--bad)}
+.log .yes{color:var(--live)}
+.empty{color:var(--tx3);font-family:var(--f);font-size:13px}
 
-  .btn { background: none; border: 1px solid #2c3350; color: #aeb3cc; padding: 8px 18px; border-radius: 9px; cursor: pointer; font-size: 0.82rem; margin-top: 18px; }
-  .btn:hover { border-color: #14F195; color: #14F195; }
-  @media (max-width: 620px) { .grid, .grid-2 { grid-template-columns: 1fr; } .hero-value { font-size: 2.1rem; } }
+/* The result of the last thing pressed, in place, so it is read where it was
+   caused rather than in a corner. */
+#say{position:fixed;left:50%;bottom:22px;transform:translate(-50%,10px);
+  background:var(--s2);border:1px solid var(--s3);border-left:3px solid var(--money);
+  border-radius:var(--r2);padding:12px 18px;font-size:13px;max-width:520px;
+  box-shadow:0 12px 40px rgba(0,0,0,.55);opacity:0;pointer-events:none;
+  transition:opacity .18s,transform .18s;z-index:50}
+#say.on{opacity:1;transform:translate(-50%,0)}
+#say.bad{border-left-color:var(--bad)}
+
+#gate{background:var(--s1);border:1px solid var(--s2);border-radius:var(--r3);
+  padding:28px 24px;text-align:center}
+#gate p{color:var(--tx2);font-size:13.5px;margin:10px 0 18px}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+@media(max-width:560px){
+  .row{flex-wrap:wrap}
+  .vnums{gap:18px}
+}
 </style>
 </head>
 <body>
 <div class="wrap">
   <div class="top">
-    <h1>DuelSeries <span>· Earnings</span></h1>
-    <div class="updated" id="updated"></div>
+    <div>
+      <h1>Control</h1>
+      <div class="sub" id="who">Checking who you are…</div>
+    </div>
+    <button onclick="refresh()">Refresh</button>
   </div>
-  <div id="content" class="loading">Loading your earnings...</div>
+
+  <div id="gate" hidden>
+    <b>Sign in with the owner wallet</b>
+    <p>This page only answers to the wallet that owns the server. Nothing here
+       works from any other account.</p>
+    <button class="go" onclick="window.duelWalletLogin && window.duelWalletLogin()">Sign in</button>
+  </div>
+
+  <div id="panel" hidden>
+    <!-- The verdict. -->
+    <section class="verdict">
+      <div class="vtop">
+        <span class="pill open" id="pill">Open</span>
+        <span class="sub" id="uptime"></span>
+      </div>
+      <div class="vmain" id="verdict">Checking…</div>
+      <div class="vwhy" id="verdictWhy"></div>
+      <div class="vnums">
+        <div class="vnum"><b id="nPlaying">–</b><span>playing</span></div>
+        <div class="vnum"><b id="nPaid">–</b><span>with money on</span></div>
+        <div class="vnum"><b id="nWorth">–</b><span>USDC live</span></div>
+        <div class="vnum"><b id="nBots">–</b><span>bots</span></div>
+      </div>
+    </section>
+
+    <!-- Battle royale. -->
+    <section class="group">
+      <div class="ghead">Battle Royale</div>
+      <div class="row">
+        <div class="rlabel"><b id="brPhase">—</b><span id="brSub">—</span></div>
+        <button class="go" id="brStart" onclick="act('br:start',{})">Start match</button>
+        <button id="brForce" onclick="act('br:start',{force:true})">Start alone</button>
+        <button class="warn" id="brStop" onclick="act('br:stop',{})">Stop</button>
+      </div>
+    </section>
+
+    <!-- Bots. -->
+    <section class="group">
+      <div class="ghead">Bots</div>
+      <div class="row">
+        <div class="rlabel"><b>Add to a room</b><span>They play like anyone else and count as players.</span></div>
+        <select id="botRoom"></select>
+        <input class="num" id="botCount" type="number" min="1" max="30" value="5">
+        <button onclick="act('bots:add',{room:val('botRoom'),count:+val('botCount')})">Add</button>
+      </div>
+      <div class="row">
+        <div class="rlabel"><b>Take them all out</b><span>Removes every bot from the chosen room.</span></div>
+        <button class="warn" onclick="act('bots:clear',{room:val('botRoom')})">Clear</button>
+      </div>
+    </section>
+
+    <!-- Maintenance. -->
+    <section class="group">
+      <div class="ghead">Maintenance</div>
+      <div class="row">
+        <div class="rlabel"><b>Can I restart right now?</b><span>Checks whether anyone still has a stake on the table.</span></div>
+        <button onclick="act('maintenance:check',{})">Check</button>
+      </div>
+      <div class="row">
+        <div class="rlabel"><b>Close the doors</b><span>Stops new games. Anyone already playing finishes.</span></div>
+        <input class="wide" id="mMsg" placeholder="Back in a few minutes." maxlength="200">
+        <input class="num" id="mMin" type="number" min="1" max="240" placeholder="min">
+        <button class="warn" onclick="act('maintenance:on',{message:val('mMsg'),minutes:+val('mMin')||0})">Close</button>
+      </div>
+      <div class="row">
+        <div class="rlabel"><b>Open again</b><span>New games start immediately.</span></div>
+        <button class="go" onclick="act('maintenance:off',{})">Open</button>
+      </div>
+    </section>
+
+    <!-- Announce. -->
+    <section class="group">
+      <div class="ghead">Say something</div>
+      <div class="row">
+        <div class="rlabel"><b>To everyone in a game</b><span>Shows once, on screen, wherever they are.</span></div>
+        <input class="wide" id="annText" placeholder="Restarting in 5 minutes." maxlength="200">
+        <button onclick="act('announce',{text:val('annText')})">Send</button>
+      </div>
+    </section>
+
+    <div class="ghead" style="padding-left:2px">What has been done</div>
+    <div class="log" id="log"><span class="empty">Nothing yet this run.</span></div>
+  </div>
 </div>
+
+<div id="say" role="status" aria-live="polite"></div>
+
 <script>
-  var DATA = null;
-  var RANGE = 'total';
-  var RANGE_LABEL = { today: 'Today', last7: 'Last 7 days', last30: 'Last 30 days', total: 'All time' };
+/* Two globals from the wallet widget do everything here: one says who is signed
+   in, the other signs an action with their key. Owner auth needs nothing else —
+   no token to expire, no app id to be wrong, no call to anyone. */
+const $ = id => document.getElementById(id);
+const val = id => ($(id) || {}).value || '';
+let sayT = 0;
+function say(text, bad) {
+  const s = $('say');
+  s.textContent = text;
+  s.classList.toggle('bad', !!bad);
+  s.classList.add('on');
+  clearTimeout(sayT);
+  sayT = setTimeout(() => s.classList.remove('on'), 5000);
+}
 
-  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]); }); }
-  function usd(v) { v = Number(v) || 0; var d = (v !== 0 && Math.abs(v) < 1) ? 4 : 2; return (v < 0 ? '-$' : '$') + Math.abs(v).toFixed(d); }
+const fmtAgo = ms => {
+  const s = Math.round(ms / 1000);
+  if (s < 60) return s + 's';
+  if (s < 3600) return Math.floor(s / 60) + 'm';
+  return Math.floor(s / 3600) + 'h ' + Math.floor((s % 3600) / 60) + 'm';
+};
 
-  function bySrc(d, key) { var m = {}; (d.bySource || []).forEach(function (s) { m[s.source] = s; }); return m[key] ? m[key].total : 0; }
-  function lobby(d, key) { var m = {}; (d.byLobby || []).forEach(function (s) { m[s.lobby] = s; }); return m[key] ? m[key].total : 0; }
+async function post(path, body) {
+  const r = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body || {}),
+  });
+  const j = await r.json().catch(() => ({}));
+  return { ok: r.ok, status: r.status, body: j };
+}
 
-  function svgChart(daily) {
-    if (!daily || !daily.length) return '<div class="chart-empty">No history yet. Bars appear here as earnings come in.</div>';
-    var W = 900, H = 150, pad = 6;
-    var vals = daily.map(function (d) { return d.total; });
-    var maxV = Math.max(0.0001, Math.max.apply(null, vals.map(Math.abs)));
-    var n = daily.length, bw = (W - pad * 2) / n;
-    var hasNeg = vals.some(function (v) { return v < 0; });
-    var baseY = hasNeg ? H / 2 : H - 12;
-    var scale = (hasNeg ? (H / 2 - 10) : (H - 22)) / maxV;
-    var bars = daily.map(function (d, i) {
-      var h = Math.abs(d.total) * scale;
-      var x = pad + i * bw + bw * 0.15, w = bw * 0.7;
-      var y = d.total >= 0 ? baseY - h : baseY;
-      var col = d.total >= 0 ? '#14F195' : '#ff6b6b';
-      return '<rect x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + w.toFixed(1) + '" height="' + Math.max(1, h).toFixed(1) + '" rx="1.5" fill="' + col + '"><title>' + esc(d.day) + ': ' + usd(d.total) + '</title></rect>';
-    }).join('');
-    return '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none">' +
-      '<line x1="0" y1="' + baseY + '" x2="' + W + '" y2="' + baseY + '" stroke="#2a3050" stroke-width="1"/>' + bars + '</svg>';
+/* Every call is signed, including the read. Reading the console shows live
+   player counts and staked worth, which is nobody else's business either. */
+async function signed(action, args) {
+  if (typeof window.duelWalletSignAction !== 'function') return null;
+  try { return await window.duelWalletSignAction(action, args || {}); }
+  catch (e) { say('Could not sign: ' + e.message, true); return null; }
+}
+
+async function refresh() {
+  const proof = await signed('state', {});
+  if (!proof) return;
+  const r = await post('/api/owner/state', proof);
+  if (!r.ok) {
+    $('panel').hidden = true; $('gate').hidden = false;
+    $('who').textContent = 'This wallet does not own the server.';
+    return;
+  }
+  $('gate').hidden = true; $('panel').hidden = false;
+  render(r.body);
+}
+
+function render(s) {
+  const w = (window.duelWallet || {}).address || '';
+  $('who').textContent = 'Signed in as ' + w.slice(0, 4) + '…' + w.slice(-4)
+    + ' · ' + s.region.toUpperCase();
+  $('uptime').textContent = 'up ' + fmtAgo(s.uptimeSec * 1000);
+
+  const down = s.maintenance.maintenance;
+  const pill = $('pill');
+  pill.className = 'pill ' + (down ? 'down' : 'open');
+  pill.textContent = down ? 'Closed' : 'Open';
+
+  /* The verdict is about RESTARTING, not about traffic, because that is the
+     question this page exists to answer. */
+  const d = s.drain;
+  $('verdict').textContent = d.safe ? 'Safe to restart' : 'Do not restart yet';
+  $('verdict').className = 'vmain' + (d.safe ? '' : ' risky');
+  $('verdictWhy').textContent = d.safe
+    ? 'Nobody has money on the table. Pulling the plug costs no one anything.'
+    : d.reason + '. Their stake only exists while their snake does.';
+
+  $('nPlaying').textContent = d.playing;
+  $('nPaid').textContent = d.paid;
+  $('nWorth').textContent = d.paidWorth.toFixed(2);
+  $('nBots').textContent = s.rooms.reduce((n, r) => n + (r.bots || 0), 0);
+
+  const br = s.battleRoyale;
+  if (br) {
+    const running = br.state === 'running';
+    $('brPhase').textContent = running ? 'Running · ' + br.phase
+      : br.state === 'over' ? 'Just finished' : 'Waiting';
+    $('brSub').textContent = running
+      ? br.alive + ' alive of ' + br.players
+      : br.winner ? 'Won by ' + br.winner.name
+      : br.players + ' in the room, ' + br.minPlayers + ' needed';
+    $('brStart').disabled = running || !br.canStart;
+    $('brForce').disabled = running || br.players < 1;
+    $('brStop').disabled = !running;
   }
 
-  function render() {
-    var d = DATA, c = document.getElementById('content');
-    if (!d) return;
-    var net = d[RANGE] != null ? d[RANGE] : d.total;
-    var rake = bySrc(d, 'game_rake'), skins = bySrc(d, 'cosmetic'), bots = bySrc(d, 'bot_cost');
-
-    var recent = (d.recent || []).slice(0, 25).map(function (r) {
-      var tagClass = r.source === 'game_rake' ? 'rake' : (r.source === 'cosmetic' ? 'cosmetic' : 'bot');
-      var tagText = r.source === 'game_rake' ? 'Rake' : (r.source === 'cosmetic' ? 'Skin' : 'Bot');
-      var desc = r.source === 'game_rake' ? ('Rake ' + esc(r.game || '') + (r.name ? ' · ' + esc(r.name) : ''))
-        : (r.source === 'cosmetic' ? ('Skin sale' + (r.name ? ' · ' + esc(r.name) : '')) : ('Bot entry ' + esc(r.game || '')));
-      var meta = [r.lobbyType ? esc(r.lobbyType) + ' lobby' : '', r.region ? esc(r.region).toUpperCase() : '', new Date(r.at).toLocaleString()].filter(Boolean).join(' · ');
-      var amtClass = r.amount < 0 ? 'red' : 'green';
-      return '<div class="row"><div><div class="row-desc"><span class="tag ' + tagClass + '">' + tagText + '</span>' + desc + '</div>' +
-        '<div class="row-meta">' + meta + '</div></div><div class="row-amt ' + amtClass + '">' + usd(r.amount) + '</div></div>';
-    }).join('');
-
-    c.className = '';
-    c.innerHTML =
-      '<div class="ranges">' +
-        ['today', 'last7', 'last30', 'total'].map(function (k) {
-          return '<button class="range' + (k === RANGE ? ' active' : '') + '" onclick="setRange(\'' + k + '\')">' + RANGE_LABEL[k] + '</button>';
-        }).join('') +
-      '</div>' +
-      '<div class="hero"><div class="hero-label">Net earnings · ' + RANGE_LABEL[RANGE] + '</div>' +
-        '<div class="hero-value ' + (net < 0 ? 'neg' : '') + '">' + usd(net) + '</div>' +
-        '<div class="hero-sub">' + d.count + ' total events · all-time net ' + usd(d.total) + '</div></div>' +
-      '<div class="grid"><div class="stat"><div class="stat-label">Game Rake (10%)</div><div class="stat-value green">' + usd(rake) + '</div></div>' +
-        '<div class="stat"><div class="stat-label">Skin Sales</div><div class="stat-value green">' + usd(skins) + '</div></div>' +
-        '<div class="stat"><div class="stat-label">Bot Costs</div><div class="stat-value ' + (bots < 0 ? 'red' : 'green') + '">' + usd(bots) + '</div></div></div>' +
-      '<div class="section-title">By lobby</div>' +
-      '<div class="grid grid-2"><div class="stat"><div class="stat-label">Free</div><div class="stat-value">' + usd(lobby(d, 'free')) + '</div></div>' +
-        '<div class="stat"><div class="stat-label">Dime</div><div class="stat-value">' + usd(lobby(d, 'dime')) + '</div></div>' +
-        '<div class="stat"><div class="stat-label">Dollar</div><div class="stat-value">' + usd(lobby(d, 'dollar')) + '</div></div></div>' +
-      '<div class="section-title">Daily net (last 30 days)</div><div class="card">' + svgChart(d.daily) + '</div>' +
-      '<div class="section-title">Live feed</div>' + (recent ? '<div class="feed">' + recent + '</div>' : '<div class="card"><div class="chart-empty">No earnings recorded yet.</div></div>') +
-      '<button class="btn" onclick="load()">↻ Refresh</button>';
-    document.getElementById('updated').textContent = 'Updated ' + new Date().toLocaleTimeString();
+  const sel = $('botRoom');
+  if (sel.options.length !== s.rooms.length) {
+    sel.innerHTML = s.rooms.map(r =>
+      '<option value="' + r.id + '">' + r.id + ' · ' + r.players + 'p'
+      + (r.bots ? ' +' + r.bots + 'b' : '') + '</option>').join('');
   }
 
-  function setRange(k) { RANGE = k; render(); }
+  const log = $('log');
+  log.innerHTML = s.audit.length ? s.audit.map(a =>
+    '<div><span class="t">' + new Date(a.at).toLocaleTimeString() + '</span> '
+    + '<span class="' + (a.ok ? 'yes' : 'no') + '">' + (a.ok ? '✓' : '✕') + '</span> '
+    + a.action + (a.note ? ' — ' + a.note : '') + '</div>').join('')
+    : '<span class="empty">Nothing yet this run.</span>';
+}
 
-  async function load() {
-    var c = document.getElementById('content');
-    try {
-      var t = localStorage.getItem('duel_admin_token');
-      var res = await fetch('/api/admin/earnings', t ? { headers: { Authorization: 'Bearer ' + t } } : undefined);
-      if (res.status === 403) { c.className = 'error'; c.innerHTML = 'Not authorized. Connect your owner wallet on the lobby first, then reload this page.'; return; }
-      var j = await res.json();
-      if (j.error) { c.className = 'error'; c.innerHTML = esc(j.error); return; }
-      DATA = j; render();
-    } catch (e) { c.className = 'error'; c.innerHTML = 'Error: ' + esc(e.message); }
+async function act(action, args) {
+  const proof = await signed(action, args || {});
+  if (!proof) { say('Sign in with the owner wallet first.', true); return; }
+  const r = await post('/api/owner/do', proof);
+  say(r.ok ? (r.body.note || 'Done') : (r.body.error || ('Refused (' + r.status + ')')), !r.ok);
+  if (r.body && r.body.state) render(r.body.state);
+}
+
+/* The widget mounts asynchronously, so this waits for it rather than deciding
+   nobody is signed in a hundred milliseconds too early. */
+function boot() {
+  const w = window.duelWallet || {};
+  if (!w.ready) return;
+  booted = true;
+  if (!w.authenticated) {
+    $('gate').hidden = false; $('panel').hidden = true;
+    $('who').textContent = 'Not signed in.';
+    return;
   }
-  load();
-  setInterval(load, 20000); // auto-refresh every 20s
+  refresh();
+}
+
+/* THE ONE PAGE THAT MUST NOT GO BLANK. It is the screen you open when
+   something else is already wrong, and the sign-in widget is one of the things
+   that can be wrong. Waiting on w.ready forever left it on 'checking who you
+   are' with nothing else on screen and no way to tell whether the page, the
+   widget or the server had died. After five seconds it says so instead. */
+let booted = false;
+setTimeout(() => {
+  if (booted) return;
+  $('gate').hidden = false;
+  $('who').textContent = 'The sign-in widget did not load.';
+  $('gate').querySelector('p').textContent =
+    'Owner controls need a signature from the owner wallet, and the wallet has '
+    + 'not come up. Check the browser console, then reload. The server itself is '
+    + 'fine if this page rendered at all.';
+}, 5000);
+
+window.addEventListener('duelwallet:change', boot);
+setInterval(() => { if (!$('panel').hidden) refresh(); }, 15000);
+setTimeout(boot, 600);
 </script>
+<script src="/wallet/widget.js"></script>
 </body>
 </html>

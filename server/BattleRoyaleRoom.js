@@ -101,6 +101,35 @@ class BattleRoyaleRoom extends GameRoom {
     return true;
   }
 
+  /* Deliberately below the minimum, for testing the mode alone.
+
+     The two-player minimum exists so a real match cannot be 'won' by the only
+     person in the room, which is a rule about fairness to other players. An
+     owner starting an empty evening on purpose is not that case, so it is an
+     override rather than a lowering of the rule: canStart() still says no, and
+     the console has to ask for this by name. */
+  forceStart(reason) {
+    if (this.state === 'running') return false;
+    if (this.livingCount() < 1) return false;   // starting with nobody is not a match either
+    this.state = 'waiting';                     // so startMatch's own guard passes
+    const min = BR.MIN_PLAYERS;
+    BR.MIN_PLAYERS = 1;
+    try { return this.startMatch(reason || 'forced'); }
+    finally { BR.MIN_PLAYERS = min; }
+  }
+
+  /* Called off. No winner, no prize — the money is only ever paid to somebody
+     who actually outlasted the circle. */
+  abandon() {
+    if (this.state !== 'running') return false;
+    this.state = 'waiting';
+    this.winner = null;
+    this.matchId = null;
+    this._prevAlive = null;
+    this.io.to(this.socketRoomName).emit('br:state', this.publicState());
+    return true;
+  }
+
   /* Called from the tick. Owns worldRadius and worldCx/worldCy for this room. */
   updateZone() {
     if (this.state !== 'running') {

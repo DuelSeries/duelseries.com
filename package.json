@@ -8,7 +8,8 @@
     "dev": "nodemon server/index.js",
     "build": "vite build",
     "loadtest": "node scripts/loadtest.js",
-    "test": "node --test --test-force-exit"
+    "test": "node --test --test-force-exit",
+    "owner-smoke": "node scripts/owner-smoke.js"
   },
   "dependencies": {
     "@noble/curves": "^1.9.7",

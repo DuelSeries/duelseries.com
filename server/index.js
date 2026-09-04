@@ -21,6 +21,8 @@ const Usdc  = require('./Usdc');  // USDC primitives — used directly by the co
 const notify = require('./notify'); // owner phone pushes (ntfy) — e.g. new-player alerts
 const analytics = require('./analytics'); // server-side PostHog capture (money events)
 const nameProof = require('./nameProof'); // a wallet signing for its own name change
+const ownerAuth = require('./ownerAuth'); // the owner wallet signing for an owner action
+const ops       = require('./ops');       // maintenance mode
 
 const REGION = process.env.REGION || 'na';
 
@@ -234,8 +236,17 @@ async function isOwnerToken(idToken) {
   const { wallet } = await walletFromIdToken(idToken, null);
   return !!wallet && OWNER_WALLETS.has(wallet);
 }
-// Owner check for HTTP routes — a verified Privy token whose wallet is an owner wallet.
+/* An owner-signed action, or null. The signature is checked first because it
+   depends on nothing outside this process: no Privy, no app id, no network, no
+   expiry. The token stays as a second route so anything already working keeps
+   working. */
+function ownerFromSignature(body) {
+  const wallet = ownerAuth.walletForAction(body);
+  return (wallet && OWNER_WALLETS.has(wallet)) ? wallet : null;
+}
+// Owner check for HTTP routes — a signature from an owner wallet, or a Privy token.
 async function isOwnerReq(req) {
+  if (ownerFromSignature(req.body)) return true;
   const { access, identity } = tokensFrom(req);
   const { wallet } = await walletFromIdToken(access, identity);
   return !!wallet && OWNER_WALLETS.has(wallet);
@@ -750,6 +761,183 @@ app.post('/api/my-name', async (req, res) => {
     console.error('[MY-NAME]', e.message);
     res.status(500).json({ error: 'Server error' });
   }
+});
+
+/* ─── The owner console ──────────────────────────────────────────────────────
+   One endpoint for every control, because the alternative is a route per button
+   and a new auth mistake with each one. The action name is inside the signed
+   message, so a signature for 'bots' cannot be replayed as 'maintenance'.
+
+   Everything here is refused unless an OWNER wallet signed it. A signature is
+   good for two minutes and exactly once. */
+const ALL_SNAKE_ROOMS = () => {
+  const out = [];
+  for (const rgn of Object.keys(gameRooms)) {
+    for (const k of Object.keys(gameRooms[rgn] || {})) out.push(gameRooms[rgn][k]);
+  }
+  if (typeof ladder !== 'undefined' && ladder && ladder.rooms) {
+    for (const e of ladder.rooms.values()) if (e && e.room) out.push(e.room);
+  }
+  return out;
+};
+const ALL_ROOMS = () => {
+  const out = ALL_SNAKE_ROOMS();
+  for (const rgn of Object.keys(agarRooms)) {
+    for (const k of Object.keys(agarRooms[rgn] || {})) out.push(agarRooms[rgn][k]);
+  }
+  return out;
+};
+
+/* What the console shows. Readable by an owner only: it carries live player
+   counts and staked worth, which is nobody else's business. */
+function opsSnapshot() {
+  const br = gameRooms[REGION] && gameRooms[REGION].br;
+  const rooms = ALL_ROOMS().map(r => ({
+    id: r.lobbyType,
+    game: r.isBattleRoyale ? 'battle royale' : (String(r.lobbyType).startsWith('agar') ? 'agar.io' : 'slither.io'),
+    players: r.playerCount !== undefined ? r.playerCount : (r.players ? r.players.size : 0),
+    bots: r.botCount !== undefined ? r.botCount : 0,
+  }));
+  return {
+    now: Date.now(),
+    region: REGION,
+    uptimeSec: Math.round(process.uptime()),
+    maintenance: ops.get(),
+    drain: ops.drainStatus(ALL_ROOMS()),
+    battleRoyale: br ? br.publicState() : null,
+    rooms,
+    audit: ownerAuth.auditLog.slice(0, 25),
+  };
+}
+
+app.post('/api/owner/state', async (req, res) => {
+  if (!(await isOwnerReq(req))) return res.status(403).json({ error: 'Not an owner' });
+  res.json(opsSnapshot());
+});
+
+app.post('/api/owner/do', async (req, res) => {
+  const who = ownerFromSignature(req.body);
+  if (!who && !(await isOwnerReq(req))) {
+    return res.status(403).json({ error: 'Not an owner' });
+  }
+  const action = String((req.body && req.body.action) || '');
+  const args = (req.body && req.body.args) || {};
+  const done = (note) => { ownerAuth.audit(action, args, who || 'token', true, note);
+                           res.json({ ok: true, note, state: opsSnapshot() }); };
+  const refuse = (why) => { ownerAuth.audit(action, args, who || 'token', false, why);
+                            res.status(409).json({ error: why, state: opsSnapshot() }); };
+
+  const br = gameRooms[REGION] && gameRooms[REGION].br;
+
+  switch (action) {
+    /* Start the nightly match. `force` is for testing it alone: the two-player
+       minimum is there to stop a real match being 'won' by the only person in
+       the room, and the owner deliberately overriding that on an empty evening
+       is not the case it protects against. */
+    case 'br:start': {
+      if (!br) return refuse('No battle royale room');
+      if (br.state === 'running') return refuse('A match is already running');
+      if (args.force) {
+        if (br.livingCount() < 1) return refuse('Nobody is in the room to start with');
+        br.forceStart('owner override');
+        return done('Started with ' + br.livingCount() + ' player(s), minimum overridden');
+      }
+      if (!br.canStart()) return refuse('Needs ' + br.publicState().minPlayers + ' players');
+      br.startMatch('owner');
+      return done('Started with ' + br.livingCount() + ' players');
+    }
+    case 'br:stop': {
+      if (!br || br.state !== 'running') return refuse('No match is running');
+      br.abandon();
+      return done('Match stopped, no prize paid');
+    }
+
+    /* Bots, per room and reversible. The old control could only add, could only
+       add to whatever room the owner's own socket happened to be in, and had no
+       way to take them out again. */
+    case 'bots:add':
+    case 'bots:clear': {
+      const room = ALL_SNAKE_ROOMS().find(r => r.lobbyType === args.room);
+      if (!room) return refuse('No room called ' + args.room);
+      if (action === 'bots:clear') {
+        let removed = 0;
+        for (const [id, s] of [...room.snakes]) {
+          if (s && s.isBot) { room.snakes.delete(id); removed++; }
+        }
+        broadcastLobbyState();
+        return done('Removed ' + removed + ' bot(s) from ' + room.lobbyType);
+      }
+      const n = Math.min(Math.max(1, parseInt(args.count, 10) || 1), 30);
+      if (!room.addBot) return refuse('That room does not take bots');
+      for (let i = 0; i < n; i++) room.addBot();
+      broadcastLobbyState();
+      return done('Added ' + n + ' bot(s) to ' + room.lobbyType);
+    }
+
+    /* Maintenance. Turning it ON is always allowed — the point of it is to stop
+       the bleeding — but calling the game DOWN while somebody has a stake on
+       the table is refused, with the number, because their worth only exists
+       while their snake does. */
+    case 'maintenance:on':
+      ops.set({ on: true, message: args.message, minutes: args.minutes });
+      io.emit('maintenance', ops.get());
+      return done('Maintenance on. New games refused.');
+    case 'maintenance:off':
+      ops.set({ on: false });
+      io.emit('maintenance', ops.get());
+      return done('Maintenance off. The game is open.');
+    case 'maintenance:check': {
+      const d = ops.drainStatus(ALL_ROOMS());
+      return d.safe ? done('Safe to restart: nobody has money on the table.')
+                    : refuse(d.reason + ' (' + d.paidWorth + ' USDC live)');
+    }
+
+    /* Something to say to everyone who is currently in a game. */
+    case 'announce': {
+      const text = String(args.text || '').slice(0, 200);
+      if (!text) return refuse('Nothing to say');
+      io.emit('announce', { text, at: Date.now() });
+      return done('Sent to everyone in a game');
+    }
+
+    default:
+      return refuse('Unknown action: ' + action);
+  }
+});
+
+/* Why owner auth is failing, without leaking anything that is a secret. A Privy
+   app id is not one — it ships inside the browser bundle — and the whole reason
+   this exists is that a flat 401 gave nothing to act on. */
+app.post('/api/owner/diagnose', async (req, res) => {
+  const { access, identity } = tokensFrom(req);
+  const out = {
+    privyConfigured: !!privyServer,
+    serverAppId: process.env.PRIVY_APP_ID || null,
+    ownerWallets: [...OWNER_WALLETS],
+    sentAccessToken: !!access,
+    sentIdentityToken: !!identity,
+    signature: null, token: null,
+  };
+  const signed = ownerAuth.walletForAction(req.body);
+  out.signature = signed
+    ? { wallet: signed, isOwner: OWNER_WALLETS.has(signed) }
+    : { wallet: null, isOwner: false };
+  if (access || identity) {
+    const r = await walletFromIdToken(access, identity);
+    out.token = { wallet: r.wallet, reason: r.reason, isOwner: !!r.wallet && OWNER_WALLETS.has(r.wallet) };
+  }
+  /* The token's own audience, read WITHOUT verifying it. If this and
+     serverAppId differ, that is the whole bug: the box is checking tokens
+     against a different Privy app than the one that minted them. */
+  if (access) {
+    try {
+      const payload = JSON.parse(Buffer.from(access.split('.')[1], 'base64').toString('utf8'));
+      out.tokenAudience = payload.aud || null;
+      out.tokenExpired = payload.exp ? (payload.exp * 1000 < Date.now()) : null;
+      out.audienceMatchesServer = out.serverAppId ? (String(payload.aud) === String(out.serverAppId)) : null;
+    } catch (_) { out.tokenAudience = 'unreadable'; }
+  }
+  res.json(out);
 });
 
 /* A wallet's own money in and out. Read-only and entirely public information —
@@ -1375,6 +1563,14 @@ io.on('connection', (socket) => {
        in exactly the rooms they always did. */
     const byStake = stake !== undefined && stake !== null && isStake(stake);
     const room = getRoomForJoin({ lobbyType, stake, region: region || REGION });
+    /* Maintenance stops new games starting and says why. Refusing silently is
+       what makes a real-money game look broken rather than busy, and a player
+       who thinks it is broken does not come back. Anybody already playing is
+       left alone — see ops.js. */
+    if (ops.get().maintenance) {
+      socket.emit('maintenance', ops.get());
+      return;
+    }
     /* A battle royale is shut once it starts. Turning up two minutes late to a
        closing circle is not joining a match, it is being handed a death, and it
        would let somebody wait out the dangerous part and walk into the end of

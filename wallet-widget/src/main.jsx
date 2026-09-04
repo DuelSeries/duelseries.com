@@ -388,6 +388,26 @@ function WalletPanel() {
       });
       return { wallet: address, ts, sig: bs58.encode(signature) };
     };
+    /* Signs an OWNER action. Same mechanism as the name change and the same
+       reason: it needs nothing from Privy at the moment it is used, so owner
+       controls cannot be locked out by an app id, a rate limit or an outage.
+       The string must match server/ownerAuth.js actionMessage() byte for byte. */
+    window.duelWalletSignAction = async (action, args) => {
+      if (!wallet || !address) return null;
+      const ts = Date.now();
+      const a = args || {};
+      const msg = 'DuelSeries owner action\n'
+                + 'action: ' + action + '\n'
+                + 'args: ' + JSON.stringify(a) + '\n'
+                + 'wallet: ' + address + '\n'
+                + 'at: ' + ts;
+      const { signature } = await signMessage({
+        message: new TextEncoder().encode(msg),
+        wallet,
+        options: { uiOptions: { showWalletUIs: false } },
+      });
+      return { action, args: a, wallet: address, ts, sig: bs58.encode(signature) };
+    };
     window.duelWalletLogin = () => login();
     window.duelWalletLogout = () => logout();
     window.duelWalletRefresh = async () => {
