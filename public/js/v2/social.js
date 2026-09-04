@@ -71,16 +71,14 @@
       ? 'Everyone who has finished a game ahead.'
       : 'No winners yet. The first cash-out lands here.';
 
-    /* Only two figures are genuinely known site-wide: what has been paid out,
-       and how many players are on the board. Anything else would be invented. */
-    el('soc-tiles').innerHTML = [
-      ['Winnings paid out', winnings == null ? '—' : money(winnings),
-       'to players, all time'],
-      ['Players in profit', String(BOARD.length),
-       BOARD.length ? 'net positive right now' : 'nobody yet'],
-    ].map(t => '<div class="tile"><div class="k">' + t[0] + '</div>' +
-               '<div class="v num">' + t[1] + '</div>' +
-               '<div class="f">' + t[2] + '</div></div>').join('');
+    /* The one figure worth stating site-wide, and it belongs under the board
+       rather than over it: it is the total of the rows above. "Players in
+       profit" went with it — the board already IS that list, so the count was
+       a tile restating its own length. */
+    el('soc-tiles').innerHTML =
+      '<div class="tile"><div class="k">Total player earnings</div>' +
+      '<div class="v num">' + (winnings == null ? '—' : money(winnings)) + '</div>' +
+      '<div class="f">paid out to players, all time</div></div>';
 
     drawBoard();
   }

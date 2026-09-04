@@ -54,8 +54,8 @@
      so exempting it carved a dead stripe across the most swiped page. */
   const EXEMPT = '.chartbox, .apscreen, #game-frame';
 
-  const TABS = ['play', 'wallet', 'stats', 'social', 'locker', 'settings'];
-  const SCREEN_IDS = ['home', 'allgames', 'detail', 'locker-screen', 'settings-screen',
+  const TABS = ['play', 'wallet', 'stats', 'social', 'settings'];
+  const SCREEN_IDS = ['home', 'allgames', 'detail', 'settings-screen',
                       'wallet-screen', 'stats-screen', 'social-screen', 'player-screen'];
 
   let x0 = 0, y0 = 0, t0 = 0, from = null;

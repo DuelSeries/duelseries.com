@@ -157,25 +157,6 @@ header{position:sticky;top:0;z-index:50;background:rgba(16,14,11,.82);
   body{padding-left:var(--sbw)}
 }
 
-/* ── locker ─────────────────────────────────────────────────────────── */
-.skingrid{display:grid;gap:14px;padding-bottom:70px;
-  grid-template-columns:repeat(auto-fill,minmax(158px,1fr))}
-.sktile{background:var(--s1);border-radius:var(--r3);padding:10px 10px 12px;
-  cursor:pointer;text-align:left;transition:background .15s,transform .15s;
-  border:1.5px solid transparent}
-.sktile:hover{background:var(--s2);transform:translateY(-3px)}
-.sktile canvas{display:block;width:100%;height:74px}
-.sktile .n{font-size:13px;font-weight:600;margin-top:6px}
-/* The equipped one is marked by a border and a word, not by colour alone:
-   every tile in this grid is already a different colour. */
-.sktile.on{border-color:var(--money);background:var(--s2)}
-.sktile .eq{display:none;font-size:11px;color:var(--money);font-weight:650}
-.sktile.on .eq{display:block}
-@media(max-width:520px){
-  .skingrid{grid-template-columns:repeat(2,1fr);gap:10px;padding-bottom:30px}
-  .sktile canvas{height:64px}
-}
-
 /* ── settings ───────────────────────────────────────────────────────── */
 .setgrid{display:grid;gap:16px;padding-bottom:70px;
   grid-template-columns:repeat(auto-fit,minmax(300px,1fr));align-items:start}
@@ -606,7 +587,7 @@ body.ingame .tkrun,body.nomotion .tkrun{animation-play-state:paused}
 }
 
 /* ── detail ─────────────────────────────────────────────────────────── */
-#detail,#allgames,#locker-screen,#settings-screen{display:none}
+#detail,#allgames,#settings-screen{display:none}
 .back{font-size:13px;color:var(--tx2);padding:26px 0 0;display:inline-block}
 .back:hover{color:var(--tx)}
 /* The right column stretches to the left column's height and the look box is
@@ -678,12 +659,16 @@ body.ingame .tkrun,body.nomotion .tkrun{animation-play-state:paused}
   display:none;flex-direction:column;align-items:center}
 .apscreen.on{display:flex}
 .ap-header{width:100%;max-width:780px;display:flex;align-items:center;
-  justify-content:space-between;padding:20px 28px 14px}
+  justify-content:space-between;padding:20px 28px 14px;position:relative;z-index:55}
 .ap-back-btn{background:none;border:1.5px solid var(--s3);color:var(--tx2);
   padding:8px 18px;border-radius:9px;font-size:.88rem;font-weight:600;cursor:pointer}
 .ap-back-btn:hover{border-color:var(--money);color:var(--money)}
 .ap-title{font-size:1.25rem;font-weight:900;color:var(--tx);letter-spacing:3px}
-.ap-preview-wrap{position:absolute;inset:0;padding:0;display:block}
+/* pointer-events:none, and the header sits above it. This box is inset:0, so
+   it covered the whole screen INCLUDING the header, and every tap on Back went
+   into the canvas instead. Save escaped it only by living in a higher layer,
+   which is why Save was the only way out of this screen. */
+.ap-preview-wrap{position:absolute;inset:0;padding:0;display:block;pointer-events:none}
 .ap-canvas{width:100%;height:100%;max-height:none;display:block;background:transparent}
 .ap-selector{position:absolute;inset:0;display:block;padding:0;max-width:none;
   pointer-events:none;z-index:52}
@@ -714,6 +699,23 @@ body.ingame .tkrun,body.nomotion .tkrun{animation-play-state:paused}
 .ap-save-btn:active{transform:translateX(-50%);opacity:.85}
 .ap-name{position:absolute;left:50%;top:calc(50% + 182px);transform:translateX(-50%);
   font-size:13px;color:var(--tx3);white-space:nowrap}
+/* The reel replaces the single big preview on a phone. Each slot is sized by
+   WIDTH, because every fraction in the preview painter is a fraction of canvas
+   width — so a narrower slot draws a smaller snake for free, no second config
+   per size. Nothing in here is tappable; the drag is read on the screen. */
+.ap-reel{display:none}
+@media(max-width:520px){
+  .ap-preview-wrap{display:none}
+  .ap-reel{display:flex;position:absolute;inset:0;padding:0 24px;
+    flex-direction:column;align-items:center;justify-content:center;gap:2px;
+    pointer-events:none;z-index:51}
+  .ap-slot{width:56%;opacity:.2;transition:width .16s,opacity .16s}
+  .ap-slot canvas{display:block;width:100%;height:56px}
+  .ap-slot[data-off="-1"],.ap-slot[data-off="1"]{width:76%;opacity:.5}
+  .ap-slot[data-off="-1"] canvas,.ap-slot[data-off="1"] canvas{height:80px}
+  .ap-slot[data-off="0"]{width:100%;opacity:1}
+  .ap-slot[data-off="0"] canvas{height:120px}
+}
 /* Shown only where the arrows are not, because a gesture with nothing on
    screen to suggest it is a gesture nobody finds. */
 .ap-hint{display:none;position:absolute;left:50%;top:calc(96px + env(safe-area-inset-top));
@@ -1094,8 +1096,6 @@ body.scr-anim { overflow-x:hidden }
   <div class="head"><div><h2>Players</h2>
     <div class="sub" id="soc-sub"></div></div></div>
 
-  <div class="tiles" id="soc-tiles"></div>
-
   <div class="head"><div><h2>Top earners</h2>
     <div class="sub">All time, net of the house cut. Pick anyone to see their profile.</div></div>
   </div>
@@ -1106,6 +1106,10 @@ body.scr-anim { overflow-x:hidden }
       aria-label="Search players by name">
   </label>
   <div class="tbl" id="soc-board"></div>
+  <!-- One figure, under the board it is the total of. Two tiles used to sit
+       above the board instead, which put the summary before the thing being
+       summarised. -->
+  <div class="tiles" id="soc-tiles"></div>
 </main>
 
 <!-- ══ PLAYER PROFILE ══ -->
@@ -1131,16 +1135,6 @@ body.scr-anim { overflow-x:hidden }
 <!-- Locker and Settings are both placeholders, but they need one element each:
      a single shared stub is the same node on both sides of a swipe, so the
      drag had nothing to move and the gesture did nothing between them. -->
-<!-- ══ LOCKER ══ -->
-<!-- Every skin, equipped by tapping one. There is nothing to buy and nothing
-     to unlock: the shop was removed in August and all eighteen are free, so a
-     grid of them IS the whole feature. -->
-<main id="locker-screen" class="wrap">
-  <div class="head"><div><h2>Locker</h2>
-    <div class="sub">Every skin is free. Tap one to wear it.</div></div></div>
-  <div class="skingrid" id="skingrid"></div>
-</main>
-
 <!-- ══ SETTINGS ══ -->
 <!-- Only settings that do something. There is no sound to mute and no graphics
      tier to pick, and a switch that changes nothing is worse than no switch. -->
@@ -1183,6 +1177,9 @@ body.scr-anim { overflow-x:hidden }
     <span class="ap-title">CUSTOMIZE</span>
   </div>
   <div class="ap-preview-wrap"><canvas id="skbig" data-look="big" class="ap-canvas"></canvas></div>
+  <!-- Phones only. One snake alone gives a drag nothing to aim at; seeing the
+       two either side is what makes it read as a list you are moving through. -->
+  <div class="ap-reel" id="ap-reel" aria-hidden="true"></div>
   <div class="ap-selector">
     <button class="ap-arrow" id="ap-prev" onclick="cycleLook(-1)" aria-label="Previous skin">
       <img src="/img/skin-prev.png" width="87" height="88" alt="" draggable="false">
@@ -1711,6 +1708,7 @@ const LOOK_CFG={
   mini: {N:80,spanFrac:0.19, ampFrac:0.13,  radiusFrac:null},
   big:  {N:80,spanFrac:0.128,ampFrac:0.022, radiusFrac:0.0125},
   bigph:{N:80,spanFrac:0.34, ampFrac:0.055, radiusFrac:0.055},
+  reel: {N:80,spanFrac:0.30, ampFrac:0.05,  radiusFrac:0.05},
 };
 const PHONE_MQ=matchMedia('(max-width:520px)');
 function paintLook(cv){
@@ -1764,11 +1762,34 @@ function paintLook(cv){
 let lookIx=0;
 function drawSkins(){ document.getElementById('skname').textContent=skin().name; }
 function openLook(){
+  /* Always reopens on the skin actually being worn, which is also what makes
+     Back safe: browsing moves lookIx, and only Save writes it to skinId. */
   lookIx=Math.max(0,LOOKS.findIndex(s=>s.id===skinId));
-  lookMeta(); document.getElementById('lookveil').classList.add('on');
+  buildReel(); lookMeta();
+  document.getElementById('lookveil').classList.add('on');
+}
+/* Five slots, built once and then only re-pointed. Rebuilding the markup on
+   every step would throw away and recreate five canvases mid-drag; swapping
+   data-skin lets the paint loop pick the change up on its next frame. */
+const REEL_N=2;
+function buildReel(){
+  const r=document.getElementById('ap-reel'); if(!r)return;
+  let h='';
+  for(let d=-REEL_N;d<=REEL_N;d++)
+    h+='<div class="ap-slot" data-off="'+d+'"><canvas data-look="reel"></canvas></div>';
+  r.innerHTML=h;
+  syncReel();
+}
+function syncReel(){
+  const cs=document.querySelectorAll('#ap-reel .ap-slot canvas');
+  cs.forEach((cv,i)=>{
+    const d=i-REEL_N;
+    cv.dataset.skin=LOOKS[(lookIx+d+LOOKS.length*4)%LOOKS.length].id;
+  });
 }
 function cycleLook(d){
   lookIx=(lookIx+d+LOOKS.length)%LOOKS.length;
+  syncReel();
   lookMeta();
 }
 /* One skin per STEP px of travel, counted from the last change rather than
@@ -1893,7 +1914,7 @@ const MOTION_KEY='duelseries_motion';
 let motionOn=(function(){try{return localStorage.getItem(MOTION_KEY)!=='0'}catch(_){return true}})();
 (function loop(t){
   const dt=Math.min(3,(t-_last)/16.67||1); _last=t;
-  if(_paused||!motionOn){requestAnimationFrame(loop);return}  // game, or held still by choice
+  if(_paused){requestAnimationFrame(loop);return}   // the game owns the thread
   document.querySelectorAll('canvas[data-anim]').forEach(cv=>{try{
     /* Reduced motion freezes the simulation, not the layout. The card still
        has to re-fit its canvas when it changes width, so the loop keeps
@@ -1904,7 +1925,9 @@ let motionOn=(function(){try{return localStorage.getItem(MOTION_KEY)!=='0'}catch
   /* The appearance snake is the point of the box, so like the ticker it keeps
      swimming under reduced motion. Only paint boxes that are actually on
      screen: offsetParent is null for anything inside a hidden screen. */
-  lookT+=0.022*dt;
+  /* Motion off holds the snake still; it does not stop drawing it. Gating the
+     whole loop on the switch left the skin picker showing empty boxes. */
+  if(motionOn)lookT+=0.022*dt;
   document.querySelectorAll('canvas[data-look]').forEach(cv=>{
     if(cv.offsetParent)try{paintLook(cv)}catch(e){}
   });
@@ -2189,8 +2212,6 @@ const NAV=[
   p:'M4 20V10M10 20V4M16 20v-7M22 20H2'},
  {id:'social', t:'Social',  d:'Friends, challenges and the games they are in right now.',
   p:'M16 20v-1.5a3.5 3.5 0 0 0-3.5-3.5h-5A3.5 3.5 0 0 0 4 18.5V20M10 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7M20 20v-1.5a3.5 3.5 0 0 0-2.6-3.4M15.5 4.1a3.5 3.5 0 0 1 0 6.8'},
- {id:'locker', t:'Locker',  d:'Your skins and anything you win in a tournament.',
-  p:'M6 3h12l2 5-8 13L4 8zM4 8h16M10 3 8 8l4 13 4-13-2-5'},
  {id:'settings',t:'Settings',d:'Graphics, sound, region and account preferences.',
   p:'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2v.1a2 2 0 1 1-4 0v-.2a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0-1.2-2.9H3a2 2 0 1 1 0-4h.2a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3h.1A1.7 1.7 0 0 0 10.3 3v-.1a2 2 0 1 1 4 0V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 2-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1a1.7 1.7 0 0 0 1.6 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z'},
 ];
@@ -2222,7 +2243,7 @@ function drawNav(){
 /* One place that knows which screens exist, so a new one cannot be left
    showing underneath another. The player profile has no nav slot of its
    own: it is reached from the board and keeps Social lit while it is up. */
-const SCREENS=['home','allgames','detail','locker-screen','settings-screen',
+const SCREENS=['home','allgames','detail','settings-screen',
                'wallet-screen','stats-screen','social-screen','player-screen'];
 /* dir: +1 the new screen arrives from the right (you swiped forward), -1 from
    the left, 0 or omitted for no animation. Taps on the nav pass 0 on purpose:
@@ -2285,8 +2306,7 @@ function showScreen(id,dir){
    it away. Three calls, so swipe.js never has to know the screen ids or which
    module loads what. */
 const SCREEN_FOR={play:'home',wallet:'wallet-screen',stats:'stats-screen',
-                  social:'social-screen',locker:'locker-screen',
-                  settings:'settings-screen'};
+                  social:'social-screen',settings:'settings-screen'};
 window.V2_SCREEN_FOR=SCREEN_FOR;
 
 /* Put a tab's real content in place. Shared by the router and by the swipe,
@@ -2297,29 +2317,7 @@ function fillScreen(tab){
   if(tab==='wallet')V2Wallet.render();
   else if(tab==='stats')V2Stats.load();
   else if(tab==='social')V2Social.load();
-  else if(tab==='locker')drawLocker();
   else if(tab==='settings')drawSettings();
-}
-
-/* ── locker ──────────────────────────────────────────────────────────────
-   Tapping a tile equips it there and then. There is no confirm step because
-   there is nothing to confirm: skins are free, and the change is visible on
-   the next frame in the box on the game screen. */
-function drawLocker(){
-  document.getElementById('skingrid').innerHTML=LOOKS.map(s=>
-    `<button type="button" class="sktile${s.id===skinId?' on':''}"
-       onclick="equipSkin('${s.id}')" aria-label="Wear ${s.name}">
-       <canvas data-look="mini" data-skin="${s.id}"></canvas>
-       <div class="n">${s.name}</div><div class="eq">Wearing</div>
-     </button>`).join('');
-  repaintAll();
-}
-function equipSkin(id){
-  if(!LOOKS.some(s=>s.id===id))return;
-  skinId=id; storeSkin();
-  document.querySelectorAll('#skingrid .sktile').forEach(t=>
-    t.classList.toggle('on',t.getAttribute('onclick')===`equipSkin('${id}')`));
-  if(typeof lookIx==='number')lookIx=Math.max(0,LOOKS.findIndex(s=>s.id===skinId));
 }
 
 /* ── settings ────────────────────────────────────────────────────────────
