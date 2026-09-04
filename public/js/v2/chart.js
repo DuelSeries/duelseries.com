@@ -27,11 +27,20 @@
     if (!pts || !pts.length) return '';
     money = money || (n => '$' + Number(n).toFixed(2));
 
-    /* The plot is drawn in viewBox units and the svg is width:100%/height:auto,
-       so raising H alone makes it taller on screen without touching the type:
-       the horizontal scale is unchanged, so labels render at the same size and
-       simply get more room between them. */
-    const W = 980, H = 430, PL = 62, PR = 26, PT = 22, PB = 46;
+    /* Everything here is in viewBox units and the svg is width:100% with
+       height:auto, so the whole drawing scales by (box width / W). On a phone
+       the box is about 347px, and against W=980 that is a scale of 0.35 — which
+       is why the axis labels were rendering at roughly four pixels. Raising H
+       alone would have made a taller chart with the same unreadable type.
+
+       So the phone gets a NARROWER viewBox as well as a taller one: at W=420
+       the scale is 0.83, the same font-size 12 lands near 10px, and H=520 makes
+       it about 430px tall instead of 152. */
+    const narrow = typeof matchMedia === 'function' &&
+                   matchMedia('(max-width:520px)').matches;
+    const W  = narrow ? 420 : 980, H  = narrow ? 520 : 430;
+    const PL = narrow ? 52  : 62,  PR = narrow ? 16  : 26;
+    const PT = 22, PB = 46;
     const iw = W - PL - PR, ih = H - PT - PB;
     const all = [{ d: pts[0].d, cum: 0, seed: true }].concat(pts);
     const vals = all.map(p => p.cum);
@@ -59,7 +68,7 @@
        collide however many points there are. */
     let dates = '';
     const real = all.filter(p => !p.seed);
-    const want = Math.min(5, real.length);
+    const want = Math.min(narrow ? 3 : 5, real.length);
     for (let k = 0; k < want; k++) {
       const idx = want === 1 ? real.length - 1
                 : Math.round(k * (real.length - 1) / (want - 1));

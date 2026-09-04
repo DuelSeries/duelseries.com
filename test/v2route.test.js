@@ -142,17 +142,17 @@ test('a signed-out wallet never shows a fabricated balance', () => {
   assert.ok(!html.includes('C5cnQ7v2'), 'no hardcoded deposit address');
 });
 
-test('stats show profit only when buy-ins are actually recorded', () => {
+test('stats claim no figure the server cannot back', () => {
   const src = fs.readFileSync(path.join(ROOT, 'public/js/v2/stats.js'), 'utf8');
   assert.ok(src.includes('/api/my-profile'), 'reads the real profile');
-  // Profit is real now that stakes_history exists, but only for games played
-  // since. Showing earnings-minus-nothing would read as pure profit.
-  assert.ok(src.includes('stakesTracked'), 'checks whether buy-ins exist');
-  assert.ok(/if \(tracked\)/.test(src), 'and gates the profit tile on it');
-  assert.ok(src.includes('not recorded yet'), 'says so when they are not');
-  // Win rate and per-game house cut still are not derivable per player.
-  for (const bad of ['Win rate', 'House cut paid'])
-    assert.ok(!src.includes(bad), `stats.js still does not claim ${bad}`);
+  /* This used to gate a Net profit tile on whether buy-ins were recorded.
+     The tile row is gone entirely — the chart leads the screen now — so the
+     invariant it protected holds in the stronger form: the screen shows
+     payouts, which are recorded, and claims nothing derived from figures that
+     are not. Profit is back on the table the day it can be computed for every
+     game, not before. */
+  for (const bad of ['Net profit', 'Win rate', 'House cut paid', 'Biggest cash-out'])
+    assert.ok(!src.includes(bad), `stats.js does not claim ${bad}`);
 });
 
 test('buy-ins are recorded at the single point every paid entry passes', () => {
@@ -735,19 +735,25 @@ test('the death card uses the product palette for its buttons', () => {
     'while the amount lost stays red');
 });
 
-test('Locker and Settings are separate screens, so you can swipe between them', () => {
-  /* They were both the single #stub element. A swipe between them therefore
-     had the same node on each side, beginDrag bailed out, and the gesture did
-     nothing — the only pair of neighbouring tabs where that happened. */
+test('every tab owns its own screen node, so a swipe between neighbours has two sides', () => {
+  /* Locker and Settings were once both the single #stub element. A swipe
+     between them had the same node on each side, beginDrag bailed out, and the
+     gesture did nothing. Locker has since been removed and Settings given a
+     real screen, so this checks the general rule rather than that one pair:
+     no two tabs may share a node, whichever tabs exist. */
   const html = v2();
-  assert.ok(/id="stub2"/.test(html), 'there is a second placeholder screen');
-  assert.ok(/id="stub2-t"/.test(html) && /id="stub2-d"/.test(html), 'with its own fields');
-  assert.ok(/locker:'stub',settings:'stub2'/.test(html), 'and the two tabs map to different ones');
-  // Both have to be in the hide-all list or one can be left showing under another.
+  const m = html.match(/const SCREEN_FOR=\{([\s\S]*?)\};/);
+  assert.ok(m, 'the tab-to-screen map is there');
+  const ids = [...m[1].matchAll(/\w+:'([\w-]+)'/g)].map(x => x[1]);
+  assert.ok(ids.length >= 5, 'every tab is mapped, got ' + ids.length);
+  assert.equal(new Set(ids).size, ids.length,
+    'two tabs sharing one node makes the swipe between them a no-op: ' + ids.join(','));
+  // Each has to be in the hide-all list, or one can be left showing under another.
   const s = html.slice(html.indexOf('const SCREENS='), html.indexOf('function showScreen'));
-  assert.ok(s.includes("'stub'") && s.includes("'stub2'"), 'both are routable screens');
+  for (const id of ids) assert.ok(s.includes("'" + id + "'"), id + ' is a routable screen');
   const sw = fs.readFileSync(path.join(ROOT, 'public/js/v2/swipe.js'), 'utf8');
-  assert.ok(/'stub', 'stub2'/.test(sw), 'and the swipe knows about both');
+  for (const id of ids) assert.ok(sw.includes("'" + id + "'"), 'the swipe knows ' + id);
+  assert.ok(!/id="stub2?"/.test(html), 'and the shared placeholder is gone for good');
 });
 
 test('the free lobby is always on the board, with an honest count', () => {

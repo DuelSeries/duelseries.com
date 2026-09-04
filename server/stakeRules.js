@@ -2,7 +2,12 @@
 /* ─── The stake ladder ────────────────────────────────────────────────────────
    Buy-ins are a fixed set, not any amount:
 
-     free · 0.25 · 0.50 · 1 · 2 · 5 · 10 · 20 · 100
+     free · 0.50 · 2
+
+   Cut from nine rungs to three. Nine gave the buy-in control a stepper and a
+   row of dots to page through, and split what few players there are across
+   rooms nobody picked for a reason. Three fit on screen at once as three
+   buttons, which is the whole control.
 
    A closed set is materially safer than a range. A range has to be checked at
    the edges and trusted in the middle; a set is either matched or refused, so
@@ -23,7 +28,7 @@
    refusing is the right answer, and the client cannot get there because it is
    quoted a tier before it signs anything. */
 
-const STAKE_TIERS = [0.25, 0.50, 1, 2, 5, 10, 20, 100];
+const STAKE_TIERS = [0.50, 2];
 const FREE = 0;
 const ALL_STAKES = [FREE].concat(STAKE_TIERS);
 

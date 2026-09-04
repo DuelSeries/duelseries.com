@@ -627,6 +627,14 @@ body.ingame .tkrun,body.nomotion .tkrun{animation-play-state:paused}
 
 .stake{background:var(--s1);border-radius:var(--r3);padding:26px 24px;margin-top:26px}
 .sl{font-size:12.5px;color:var(--tx3);text-align:center}
+/* One button per buy-in, all of them visible. */
+.stakes{display:flex;gap:8px;margin:14px 0 16px}
+.stk{flex:1;background:var(--s2);border:none;border-radius:var(--r2);
+  padding:14px 6px;font-family:var(--fm);font-size:16px;font-weight:650;
+  color:var(--tx2);cursor:pointer;transition:background .15s,color .15s}
+.stk:hover{background:var(--s3);color:var(--tx)}
+.stk.on{background:var(--money);color:var(--ink)}
+.stk.free.on{background:var(--bone)}
 .stp{display:flex;align-items:center;justify-content:center;gap:14px;margin:14px 0 4px}
 .sb{width:42px;height:42px;border-radius:50%;background:var(--s3);color:var(--tx2);
   font-size:19px;display:grid;place-items:center;transition:.15s}
@@ -723,15 +731,29 @@ body.ingame .tkrun,body.nomotion .tkrun{animation-play-state:paused}
 .ap-reel{display:none}
 @media(max-width:520px){
   .ap-preview-wrap{display:none}
-  .ap-reel{display:flex;position:absolute;inset:0;padding:0 24px;
-    flex-direction:column;align-items:center;justify-content:center;gap:2px;
-    pointer-events:none;z-index:51}
-  .ap-slot{width:56%;opacity:.2;transition:width .16s,opacity .16s}
-  .ap-slot canvas{display:block;width:100%;height:56px}
-  .ap-slot[data-off="-1"],.ap-slot[data-off="1"]{width:76%;opacity:.5}
-  .ap-slot[data-off="-1"] canvas,.ap-slot[data-off="1"] canvas{height:80px}
-  .ap-slot[data-off="0"]{width:100%;opacity:1}
-  .ap-slot[data-off="0"] canvas{height:120px}
+  /* A scroll container, so the finger drives it directly and the browser
+     supplies the momentum and the snap. The padding is what lets the first
+     and last skin reach the middle. */
+  .ap-reel{display:block;position:absolute;left:0;right:0;z-index:51;
+    top:calc(76px + env(safe-area-inset-top));
+    bottom:calc(150px + env(safe-area-inset-bottom));
+    padding:0 24px;overflow-y:auto;
+    scroll-snap-type:y mandatory;overscroll-behavior-y:contain;
+    -webkit-overflow-scrolling:touch;scrollbar-width:none;
+    -webkit-mask-image:linear-gradient(#0000,#000 26%,#000 74%,#0000);
+            mask-image:linear-gradient(#0000,#000 26%,#000 74%,#0000)}
+  .ap-reel::-webkit-scrollbar{display:none}
+  /* Fixed height. Only the canvas inside changes size, so the snap points
+     never move while you are travelling between them. */
+  .ap-slot{height:104px;display:flex;align-items:center;justify-content:center;
+    scroll-snap-align:center;opacity:.1;transition:opacity .16s}
+  .ap-slot canvas{display:block;width:52%;height:44px;
+    transition:width .16s,height .16s}
+  .ap-slot[data-d="2"]{opacity:.22}
+  .ap-slot[data-d="1"]{opacity:.5}
+  .ap-slot[data-d="1"] canvas{width:74%;height:66px}
+  .ap-slot[data-d="0"]{opacity:1}
+  .ap-slot[data-d="0"] canvas{width:100%;height:96px}
 }
 /* Shown only where the arrows are not, because a gesture with nothing on
    screen to suggest it is a gesture nobody finds. */
@@ -867,9 +889,7 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
   .hero .desc{order:3;margin-top:6px;font-size:13.5px;line-height:1.55}
   .hnow{order:4;margin-top:10px}
   .stake{order:5;margin-top:16px;padding:18px 16px}
-  .stake .stp{margin:10px 0 2px}
-  .stake .sv{font-size:34px}
-  .stake .sb{width:38px;height:38px;font-size:17px}
+  .stake .stk{font-size:15px;padding:13px 4px}
   .look{order:6;margin-top:12px}
   .hero .head{order:7}
   #dlob{order:8}
@@ -1050,12 +1070,7 @@ body.scr-anim { overflow-x:hidden }
       <div class="hnow"><b></b><span id="dnow"></span></div>
       <div class="stake">
         <div class="sl">Your buy-in</div>
-        <div class="stp">
-          <button class="sb" id="sd" onclick="step(-1)">&#8722;</button>
-          <div class="sv num" id="sv">$1.00</div>
-          <button class="sb" id="su" onclick="step(1)">+</button>
-        </div>
-        <div class="dots" id="dots"></div>
+        <div class="stakes" id="stakes"></div>
         <!-- The name is stored under the live lobby's key, so switching between
              the two does not ask for it twice. -->
         <input class="pname" id="play-name" maxlength="16" autocomplete="off"
@@ -1063,7 +1078,6 @@ body.scr-anim { overflow-x:hidden }
         <button class="go" onclick="V2Play.playChosen()">Play</button>
         <div class="fine" id="fine"></div>
         <div class="fine" id="play-msg" hidden style="color:var(--money)"></div>
-        <div class="tog"><div class="tg">Region &nbsp;NA</div><div class="tg">Public</div></div>
       </div>
 
       <div class="look">
@@ -1196,7 +1210,7 @@ body.scr-anim { overflow-x:hidden }
       <img src="/img/skin-next.png" width="87" height="88" alt="" draggable="false">
     </button>
   </div>
-  <div class="ap-hint">Swipe up or down to change skin</div>
+  <div class="ap-hint">Scroll to change skin</div>
   <div class="ap-save-row">
     <button class="ap-save-btn" onclick="closeLook(true)"><span>&nbsp;Save&nbsp;</span></button>
     <div class="ap-name num" id="lookname"></div>
@@ -1773,52 +1787,75 @@ function openLook(){
   /* Always reopens on the skin actually being worn, which is also what makes
      Back safe: browsing moves lookIx, and only Save writes it to skinId. */
   lookIx=Math.max(0,LOOKS.findIndex(s=>s.id===skinId));
-  buildReel(); lookMeta();
+  /* Shown BEFORE the reel is built. buildReel measures the scrollport to work
+     out its end padding, and a display:none box measures zero. */
   document.getElementById('lookveil').classList.add('on');
+  buildReel(); lookMeta();
 }
 /* Five slots, built once and then only re-pointed. Rebuilding the markup on
    every step would throw away and recreate five canvases mid-drag; swapping
    data-skin lets the paint loop pick the change up on its next frame. */
-const REEL_N=2;
+/* Every skin is a slot in a real scroll container, rather than five slots
+   repainted in place. Repainting looked like the snake in front of you
+   changing colour; scrolling looks like moving along a list, because it is
+   one. The browser supplies the momentum and the snapping.
+
+   Slot height is FIXED and only the canvas inside it changes size, so nothing
+   reflows under the scroller mid-gesture — a growing slot would move the snap
+   points you are currently travelling between. */
 function buildReel(){
   const r=document.getElementById('ap-reel'); if(!r)return;
-  let h='';
-  for(let d=-REEL_N;d<=REEL_N;d++)
-    h+='<div class="ap-slot" data-off="'+d+'"><canvas data-look="reel"></canvas></div>';
-  r.innerHTML=h;
-  syncReel();
+  r.innerHTML=LOOKS.map(s=>
+    '<div class="ap-slot"><canvas data-look="reel" data-skin="'+s.id+'"></canvas></div>'
+  ).join('');
+  /* Half a scrollport, less half a slot, at each end — the space the first and
+     last skin need in order to reach the middle. Measured off the box rather
+     than written as a vh guess, because the box is not the whole screen. */
+  const pad=Math.max(0,(r.clientHeight-104)/2);
+  r.style.paddingTop=pad+'px'; r.style.paddingBottom=pad+'px';
+  reelTo(lookIx,false);
+  markReel();
 }
-function syncReel(){
-  const cs=document.querySelectorAll('#ap-reel .ap-slot canvas');
-  cs.forEach((cv,i)=>{
-    const d=i-REEL_N;
-    cv.dataset.skin=LOOKS[(lookIx+d+LOOKS.length*4)%LOOKS.length].id;
-  });
+/* Centres slot i. Not scrollIntoView: that scrolls every scrollable ancestor
+   too, and this one sits inside the lobby's own scrolling screen. */
+function reelTo(i,smooth){
+  const r=document.getElementById('ap-reel'), s=r&&r.children[i]; if(!s)return;
+  const prev=r.style.scrollBehavior;
+  r.style.scrollBehavior=smooth?'smooth':'auto';
+  r.scrollTop=s.offsetTop-(r.clientHeight-s.offsetHeight)/2;
+  r.style.scrollBehavior=prev;
 }
+/* Whichever slot is nearest the middle IS the selection. Reading it from the
+   scroll position rather than counting gestures means a flick that carries
+   past three skins selects the one it actually stopped on. */
+function markReel(){
+  const r=document.getElementById('ap-reel'); if(!r||!r.children.length)return;
+  const mid=r.scrollTop+r.clientHeight/2;
+  let best=0,bd=Infinity;
+  for(let i=0;i<r.children.length;i++){
+    const el=r.children[i], d=Math.abs(el.offsetTop+el.offsetHeight/2-mid);
+    if(d<bd){bd=d;best=i}
+  }
+  for(let i=0;i<r.children.length;i++)
+    r.children[i].dataset.d=Math.min(3,Math.abs(i-best));
+  if(best!==lookIx){lookIx=best;lookMeta()}
+}
+(function(){
+  const r=document.getElementById('ap-reel'); if(!r)return;
+  let tick=false;
+  r.addEventListener('scroll',()=>{
+    if(tick)return; tick=true;
+    requestAnimationFrame(()=>{tick=false;markReel()});
+  },{passive:true});
+})();
+/* The desktop arrows. They move the same selection, and scroll the reel with
+   it so the two never disagree about which skin is showing. */
 function cycleLook(d){
   lookIx=(lookIx+d+LOOKS.length)%LOOKS.length;
-  syncReel();
+  reelTo(lookIx,true);
+  markReel();
   lookMeta();
 }
-/* One skin per STEP px of travel, counted from the last change rather than
-   from where the finger started, so a long continuous drag keeps turning the
-   list instead of moving it once. Wraps, because cycleLook is modular. */
-(function(){
-  const STEP=46; let y=null;
-  const veil=()=>document.getElementById('lookveil');
-  addEventListener('touchstart',e=>{
-    const v=veil(); if(!v||!v.classList.contains('on')||!PHONE_MQ.matches)return;
-    if(e.target.closest('.ap-save-btn,.ap-back-btn'))return;   // taps stay taps
-    y=e.changedTouches[0].clientY;
-  },{passive:true});
-  addEventListener('touchmove',e=>{
-    if(y===null)return;
-    const ny=e.changedTouches[0].clientY, dy=ny-y;
-    if(Math.abs(dy)>=STEP){ cycleLook(dy<0?1:-1); y=ny; }
-  },{passive:true});
-  addEventListener('touchend',()=>{y=null},{passive:true});
-  addEventListener('touchcancel',()=>{y=null},{passive:true});
-})();
 function lookMeta(){
   document.getElementById('lookname').textContent=
     LOOKS[lookIx].name+'  '+(lookIx+1)+' / '+LOOKS.length;
@@ -2179,17 +2216,19 @@ function showAllGames(){
 let _cameFrom='home';
 function goBack(){showScreen(_cameFrom);jumpToTop()}
 
+/* Every buy-in on screen at once. With nine rungs this had to be a stepper
+   with a row of dots, which meant paging through amounts to find out what was
+   even offered. Three fit, so the control IS the list. */
 function drawStake(){
-  const v=STEPS[si], el=document.getElementById('sv');
-  el.textContent=cash(v); el.className='sv num'+(v===0?' free':'');
-  document.getElementById('sd').disabled=si===0;
-  document.getElementById('su').disabled=si===STEPS.length-1;
-  document.getElementById('dots').innerHTML=STEPS.map((_,i)=>`<span class="dt${i===si?' on':''}"></span>`).join('');
+  const v=STEPS[si];
+  document.getElementById('stakes').innerHTML=STEPS.map((s,i)=>
+    `<button type="button" class="stk${i===si?' on':''}${s===0?' free':''}"
+       onclick="pickStake(${i})">${cash(s)}</button>`).join('');
   document.getElementById('fine').textContent=v===0
     ?'Free play. Nothing staked, nothing paid out.'
     :'Cash out pays your worth minus the ten percent house cut.';
 }
-function step(d){si=Math.max(0,Math.min(STEPS.length-1,si+d));drawStake()}
+function pickStake(i){si=Math.max(0,Math.min(STEPS.length-1,i));drawStake()}
 function cancel(){veil.classList.remove('on')}
 /* What the play module reads to know which room was chosen. */
 window.V2Detail={get game(){return cur?cur.id:'snake'},get stake(){return STEPS[si]}};

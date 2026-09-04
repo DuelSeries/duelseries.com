@@ -99,23 +99,23 @@ test('a token opens exactly the lobby it was paid for', () => {
 test('paying a little and claiming a lot buys nothing', () => {
   // The whole point of the model: the amount is not the client's to choose.
   const s = amt();
-  const tok = s.mint({ stake: 0.25, worth: 0.25, walletAddress: 'W1' });
+  const tok = s.mint({ stake: 0.50, worth: 0.50, walletAddress: 'W1' });
   assert.deepEqual(s.consumeAtStake(tok, 50), { ok: false, worth: 0 });
-  assert.deepEqual(s.consumeAtStake(tok, 0.50), { ok: false, worth: 0 },
-    'not even slightly more');
+  assert.deepEqual(s.consumeAtStake(tok, 2), { ok: false, worth: 0 },
+    'not even one rung up');
 });
 
 test('an any-amount token is one-time', () => {
   const s = amt();
-  const tok = s.mint({ stake: 1, worth: 1, walletAddress: 'W1' });
-  assert.equal(s.consumeAtStake(tok, 1).ok, true);
-  assert.equal(s.consumeAtStake(tok, 1).ok, false);
+  const tok = s.mint({ stake: 2, worth: 2, walletAddress: 'W1' });
+  assert.equal(s.consumeAtStake(tok, 2).ok, true);
+  assert.equal(s.consumeAtStake(tok, 2).ok, false);
 });
 
 test('an expired any-amount token is refused', () => {
   const s = amt(-1);
-  const tok = s.mint({ stake: 1, worth: 1, walletAddress: 'W1' });
-  assert.deepEqual(s.consumeAtStake(tok, 1), { ok: false, worth: 0 });
+  const tok = s.mint({ stake: 2, worth: 2, walletAddress: 'W1' });
+  assert.deepEqual(s.consumeAtStake(tok, 2), { ok: false, worth: 0 });
 });
 
 test('a forged or absent any-amount token is refused', () => {
@@ -139,9 +139,11 @@ test('a stake off the ladder cannot be minted at all', () => {
   // A token is the only thing between a client and a room, so one must never
   // exist for an amount that has no room.
   const s = amt();
-  for (const bad of [0.10, 0.26, 3, 37.42, 250])
+  // Amounts that WERE rungs before the ladder was cut to three are the
+  // sharpest cases here: they are plausible, and they must now be refused.
+  for (const bad of [0.10, 0.25, 0.26, 1, 3, 5, 37.42, 100, 250])
     assert.throws(() => s.mint({ stake: bad, worth: bad }), /not on the ladder/, String(bad));
-  for (const good of [0.25, 0.5, 1, 2, 5, 10, 20, 100])
+  for (const good of [0.5, 2])
     assert.doesNotThrow(() => s.mint({ stake: good, worth: good }), String(good));
 });
 
@@ -156,6 +158,6 @@ test('a tier token cannot be spent through the any-amount door unless it matches
 
 test('an any-amount token cannot be spent through the tier door', () => {
   const s = amt();
-  const tok = s.mint({ stake: 1.00, worth: 1.00, walletAddress: 'W1' });
+  const tok = s.mint({ stake: 2.00, worth: 2.00, walletAddress: 'W1' });
   assert.deepEqual(s.consume(tok, 'dollar'), { ok: false, worth: 0 });
 });
