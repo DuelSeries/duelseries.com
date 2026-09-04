@@ -607,26 +607,35 @@ body.ingame .tkrun,body.nomotion .tkrun{animation-play-state:paused}
 #detail,#allgames,#settings-screen{display:none}
 .back{font-size:13px;color:var(--tx2);padding:26px 0 0;display:inline-block}
 .back:hover{color:var(--tx)}
-/* The right column stretches to the left column's height and the look box is
-   pushed to the bottom of it, so its lower edge lands on the last lobby row
-   instead of stopping partway up. */
-.hero{display:grid;grid-template-columns:1fr 330px;gap:40px;margin-top:22px;align-items:stretch}
-.hero>div:last-child{display:flex;flex-direction:column}
-.hero .look{margin-top:auto}
-/* Its own set of WIDE paintings, one per game, and the box is cut to their
-   shape: the twelve standard banners average 3.99 wide to tall, so at 4:1
-   nothing is cropped at all. This replaces a workaround that showed the tall
-   card painting whole on a blurred blow-up of itself, which existed only
-   because the one painting had to serve a tall card and a wide banner. */
-.hart{aspect-ratio:4/1;height:auto;border-radius:var(--r3);overflow:hidden;position:relative}
-.hart svg,.hart .gart{display:block;width:100%;height:100%;object-fit:cover}
-.hero h1{font-size:34px;font-weight:650;letter-spacing:-1px}
-.hero .desc{font-size:14.5px;color:var(--tx2);line-height:1.7;margin-top:10px}
-.hnow{font-size:13px;color:var(--tx2);margin-top:16px;display:flex;align-items:center;gap:8px}
+/* ── the game screen ─────────────────────────────────────────────────────
+   The game's own wide painting, full bleed, with everything standing on it in
+   one centred column. It was four panels in two columns: artwork, open
+   lobbies, buy-in, appearance — four things to read before reaching the one
+   button the screen exists for. */
+#detail.wrap{max-width:none;padding:0;position:relative;
+  min-height:calc(100vh - 72px);display:flex;flex-direction:column}
+.gbg{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:0}
+/* Inset past the edges so the blur has material to pull from; a blur that
+   reaches the edge of its own image samples transparency and hems the screen
+   with a pale border. */
+.gbg .im{position:absolute;inset:-40px;background-size:cover;background-position:center;
+  filter:blur(3px) brightness(.34) saturate(1.06)}
+/* Darkest where the controls sit, so the artwork survives at the edges and the
+   text never has to fight it. */
+.gbg::after{content:'';position:absolute;inset:0;
+  background:radial-gradient(120% 80% at 50% 48%,rgba(10,9,7,.74),rgba(10,9,7,.42) 66%,
+    rgba(10,9,7,.66)),linear-gradient(180deg,rgba(10,9,7,.55),transparent 30%,rgba(10,9,7,.55))}
+/* margin:auto on both axes, so the column sits in the middle of the surface
+   rather than stacked against the top of it with the artwork empty below. */
+.gcol{position:relative;z-index:1;max-width:430px;width:100%;margin:auto;
+  padding:20px 24px 40px;text-align:center}
+#detail .back{position:relative;z-index:2;margin-left:24px}
+#dname{font-size:34px;font-weight:650;letter-spacing:-1px;margin-top:18px}
+.desc{font-size:14.5px;color:var(--tx2);line-height:1.7;margin-top:10px}
+.hnow{font-size:13px;color:var(--tx2);margin-top:14px;display:flex;
+  align-items:center;justify-content:center;gap:8px}
 .hnow b{width:6px;height:6px;border-radius:50%;background:var(--live)}
-
-.stake{background:var(--s1);border-radius:var(--r3);padding:26px 24px;margin-top:26px}
-.sl{font-size:12.5px;color:var(--tx3);text-align:center}
+.sl{font-size:12.5px;color:var(--tx3);text-align:center;margin-top:26px}
 /* One button per buy-in, all of them visible. */
 .stakes{display:flex;gap:8px;margin:14px 0 16px}
 .stk{flex:1;background:var(--s2);border:none;border-radius:var(--r2);
@@ -664,12 +673,24 @@ body.ingame .tkrun,body.nomotion .tkrun{animation-play-state:paused}
 /* The preview is the real renderer, not an illustration: the same body and
    the same hex tile the game draws, so the colour you pick is literally the
    colour you will be. */
-.look{background:var(--s1);border-radius:var(--r3);padding:20px;margin-top:16px}
-.lookrow{display:flex;align-items:baseline;margin-bottom:12px}
-.lookname{font-size:12.5px;color:var(--tx2);font-weight:550}
-.lookbox{border-radius:var(--r2);overflow:hidden;background:var(--bg)}
-.lookbox canvas,.lookstage canvas{display:block;width:100%;height:auto}
-.lookbtn{width:100%;margin-top:14px}
+/* The whole row is the button: the skin you are wearing, its name, and the
+   way to change it. It was a panel with a preview and a separate button
+   underneath, which is three boxes to say one thing. */
+.lookrow{display:flex;align-items:center;gap:12px;width:100%;margin-top:20px;
+  background:rgba(23,20,15,.72);border:none;border-radius:var(--r3);
+  padding:10px 14px 10px 10px;cursor:pointer;text-align:left;
+  backdrop-filter:blur(8px);transition:background .15s}
+.lookrow:hover{background:rgba(40,34,25,.85)}
+.lookrow canvas{width:104px;height:36px;display:block;flex:none;border-radius:var(--r2)}
+.lookstage canvas{display:block;width:100%;height:auto}
+.lookrow .lkn{flex:1;font-size:13px;color:var(--tx);font-weight:600}
+.lookrow .lka{font-size:12.5px;color:var(--tx3);font-weight:600}
+
+/* Open lobbies, reduced to a strip at the foot of the screen. It was a headed
+   section with its own subtitle taking the left half of the page. */
+.lobwrap{margin-top:26px;text-align:left}
+.lobhd{font-size:12.5px;color:var(--tx3);margin-bottom:8px;text-align:center}
+.lobhd span{color:var(--tx2)}
 
 /* ── change appearance ──────────────────────────────────────────────────
    Copied from public/css/lobby.css so this screen is the one the game
@@ -747,13 +768,17 @@ body.ingame .tkrun,body.nomotion .tkrun{animation-play-state:paused}
      never move while you are travelling between them. */
   .ap-slot{height:104px;display:flex;align-items:center;justify-content:center;
     scroll-snap-align:center;opacity:.1;transition:opacity .16s}
-  .ap-slot canvas{display:block;width:52%;height:44px;
+  /* Every skin that is NOT the chosen one is drawn at exactly the same size.
+     Three sizes made the row read as a perspective tunnel, where the top one
+     shrinking told you nothing except that it was near the edge. One size for
+     the queue and one much larger for the selection says the only thing worth
+     saying: this is the one you are on. */
+  .ap-slot canvas{display:block;width:62%;height:54px;
     transition:width .16s,height .16s}
-  .ap-slot[data-d="2"]{opacity:.22}
-  .ap-slot[data-d="1"]{opacity:.5}
-  .ap-slot[data-d="1"] canvas{width:74%;height:66px}
+  .ap-slot[data-d="2"],.ap-slot[data-d="3"]{opacity:.34}
+  .ap-slot[data-d="1"]{opacity:.44}
   .ap-slot[data-d="0"]{opacity:1}
-  .ap-slot[data-d="0"] canvas{width:100%;height:96px}
+  .ap-slot[data-d="0"] canvas{width:100%;height:104px}
 }
 /* Shown only where the arrows are not, because a gesture with nothing on
    screen to suggest it is a gesture nobody finds. */
@@ -784,7 +809,6 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
 .ft a:hover{color:var(--tx2)}
 .ft .sp{flex:1}
 @media(max-width:840px){
-  .hero{grid-template-columns:1fr;gap:26px}
   .trn{grid-template-columns:1fr}
   .wrap{padding:0 20px}
   .ft{flex-wrap:wrap;gap:16px}
@@ -873,26 +897,18 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
      display:contents dissolves the two column wrappers so every piece becomes
      a flex item in its own right and can be ordered properly: art, what the
      game is, what it costs, how you look, and only then where people are. */
-  .hero{display:flex;flex-direction:column;gap:0}
-  /* :last-child included explicitly. The desktop rule that bottom-aligns the
-     look box sets display:flex on .hero>div:last-child, which is the more
-     specific selector and kept the whole right column as one item — so it
-     ordered as a block and the artwork landed underneath it. */
-  .hero>div,.hero>div:last-child{display:contents}
-  .hero .look{margin-top:14px}          /* was auto, for the desktop alignment */
-  /* The art is 300px tall on desktop, which on a 780px phone screen ate most of
-     the first screen and pushed Play under the fixed bars. Shorter here, so
-     the buy-in and the button that uses it are both reachable without a
-     scroll — that is the whole job of this screen. */
-  .hart{order:1;height:auto;aspect-ratio:5/2}   /* a touch taller than 4:1, which is thin on a phone */
-  #dname{order:2;margin-top:14px;font-size:25px}
-  .hero .desc{order:3;margin-top:6px;font-size:13.5px;line-height:1.55}
-  .hnow{order:4;margin-top:10px}
-  .stake{order:5;margin-top:16px;padding:18px 16px}
-  .stake .stk{font-size:15px;padding:13px 4px}
-  .look{order:6;margin-top:12px}
-  .hero .head{order:7}
-  #dlob{order:8}
+  /* The column is already one thing; the phone only needs it tighter. There is
+     no ordering to do any more, because there are no panels left to reorder. */
+  #detail.wrap{min-height:0}
+  .gcol{padding:14px 16px 30px;max-width:none}
+  #detail .back{margin-left:16px}
+  #dname{margin-top:10px;font-size:25px}
+  .desc{margin-top:6px;font-size:13.5px;line-height:1.55}
+  .hnow{margin-top:9px}
+  .sl{margin-top:18px}
+  .stakes .stk{font-size:15px;padding:13px 4px}
+  .lookrow{margin-top:16px}
+  .lobwrap{margin-top:20px}
 
   h2{font-size:25px;letter-spacing:-.8px}
   .head{margin:36px 0 16px}
@@ -1054,41 +1070,40 @@ body.scr-anim { overflow-x:hidden }
 </main>
 
 <!-- ══ DETAIL ══ -->
+<!-- One surface. This was four panels — art, open lobbies, buy-in, appearance —
+     laid out in two columns, which on a wide screen read as four separate
+     things to deal with before you could press Play. The game's own artwork is
+     the background now and everything sits on it in one centred column, with
+     Play in the middle of it. -->
 <main id="detail" class="wrap">
+  <div class="gbg"><div class="im" id="dart"></div></div>
   <a class="back" href="#" onclick="goBack();return false">&#8592; &nbsp;Back</a>
-  <div class="hero">
-    <div>
-      <div class="hart" id="dart"></div>
-      <div class="head" style="margin-top:34px">
-        <div><h2>Open lobbies</h2><div class="sub" id="dsub2"></div></div>
-      </div>
-      <div class="lob" id="dlob"></div>
-    </div>
-    <div>
-      <h1 id="dname"></h1>
-      <p class="desc" id="ddesc"></p>
-      <div class="hnow"><b></b><span id="dnow"></span></div>
-      <div class="stake">
-        <div class="sl">Your buy-in</div>
-        <div class="stakes" id="stakes"></div>
-        <!-- The name is stored under the live lobby's key, so switching between
-             the two does not ask for it twice. -->
-        <input class="pname" id="play-name" maxlength="16" autocomplete="off"
-               placeholder="Your name" aria-label="Your player name">
-        <button class="go" onclick="V2Play.playChosen()">Play</button>
-        <div class="fine" id="fine"></div>
-        <div class="fine" id="play-msg" hidden style="color:var(--money)"></div>
-      </div>
+  <div class="gcol">
+    <h1 id="dname"></h1>
+    <p class="desc" id="ddesc"></p>
+    <div class="hnow"><b></b><span id="dnow"></span></div>
 
-      <div class="look">
-        <div class="lookrow">
-          <div class="sl" style="text-align:left">Your look</div>
-          <div class="sp"></div>
-          <div class="lookname" id="skname"></div>
-        </div>
-        <div class="lookbox"><canvas id="skmini" data-look="mini" width="560" height="150"></canvas></div>
-        <button class="btn sec lookbtn" onclick="openLook()">Change appearance</button>
-      </div>
+    <div class="sl">Your buy-in</div>
+    <div class="stakes" id="stakes"></div>
+    <!-- The name is stored under the live lobby's key, so switching between
+         the two does not ask for it twice. -->
+    <input class="pname" id="play-name" maxlength="16" autocomplete="off"
+           placeholder="Your name" aria-label="Your player name">
+    <button class="go" onclick="V2Play.playChosen()">Play</button>
+    <div class="fine" id="fine"></div>
+    <div class="fine" id="play-msg" hidden style="color:var(--money)"></div>
+
+    <!-- The whole row is the button. A label, a live preview of the skin and
+         the action, rather than a panel with a button under it. -->
+    <button class="lookrow" onclick="openLook()">
+      <canvas id="skmini" data-look="mini" width="560" height="150"></canvas>
+      <span class="lkn" id="skname"></span>
+      <span class="lka">Change</span>
+    </button>
+
+    <div class="lobwrap">
+      <div class="lobhd">Open lobbies <span id="dsub2"></span></div>
+      <div class="lob" id="dlob"></div>
     </div>
   </div>
 </main>
@@ -1803,18 +1818,37 @@ function openLook(){
    Slot height is FIXED and only the canvas inside it changes size, so nothing
    reflows under the scroller mid-gesture — a growing slot would move the snap
    points you are currently travelling between. */
+/* The list is laid out three times over and the scroll is rewound by exactly
+   one copy whenever it drifts into an outer one. That is what makes it
+   endless: the rewind lands on identical pixels, so scrolling past the last
+   skin continues into the first with nothing to see. Same trick as the game
+   rail on the home screen. */
+const REEL_COPIES=3, SLOT_H=104;
 function buildReel(){
   const r=document.getElementById('ap-reel'); if(!r)return;
-  r.innerHTML=LOOKS.map(s=>
+  const one=LOOKS.map(s=>
     '<div class="ap-slot"><canvas data-look="reel" data-skin="'+s.id+'"></canvas></div>'
   ).join('');
-  /* Half a scrollport, less half a slot, at each end — the space the first and
-     last skin need in order to reach the middle. Measured off the box rather
-     than written as a vh guess, because the box is not the whole screen. */
-  const pad=Math.max(0,(r.clientHeight-104)/2);
+  r.innerHTML=one.repeat(REEL_COPIES);
+  /* Half a scrollport, less half a slot, at each end. Measured off the box
+     rather than written as a vh guess, because the box is not the whole
+     screen — and it is measured after the screen is shown, since a hidden box
+     measures zero. */
+  const pad=Math.max(0,(r.clientHeight-SLOT_H)/2);
   r.style.paddingTop=pad+'px'; r.style.paddingBottom=pad+'px';
-  reelTo(lookIx,false);
+  reelTo(lookIx+LOOKS.length,false);      /* open inside the middle copy */
   markReel();
+}
+const copyH=()=>LOOKS.length*SLOT_H;
+/* Rewound only once the scroll has settled. Doing it mid-flight would move the
+   ground under a scroll that is still travelling, and the reel would jump. */
+let _reelT=0;
+function reelWrap(){
+  const r=document.getElementById('ap-reel'), L=copyH(); if(!r||!L)return;
+  const prev=r.style.scrollBehavior; r.style.scrollBehavior='auto';
+  if(r.scrollTop<L*0.5)r.scrollTop+=L;
+  else if(r.scrollTop>L*1.5)r.scrollTop-=L;
+  r.style.scrollBehavior=prev;
 }
 /* Centres slot i. Not scrollIntoView: that scrolls every scrollable ancestor
    too, and this one sits inside the lobby's own scrolling screen. */
@@ -1838,12 +1872,16 @@ function markReel(){
   }
   for(let i=0;i<r.children.length;i++)
     r.children[i].dataset.d=Math.min(3,Math.abs(i-best));
-  if(best!==lookIx){lookIx=best;lookMeta()}
+  /* best is a slot in one of three identical copies; the skin it stands for
+     is that position within a single copy. */
+  const ix=((best%LOOKS.length)+LOOKS.length)%LOOKS.length;
+  if(ix!==lookIx){lookIx=ix;lookMeta()}
 }
 (function(){
   const r=document.getElementById('ap-reel'); if(!r)return;
   let tick=false;
   r.addEventListener('scroll',()=>{
+    clearTimeout(_reelT); _reelT=setTimeout(reelWrap,140);
     if(tick)return; tick=true;
     requestAnimationFrame(()=>{tick=false;markReel()});
   },{passive:true});
@@ -1852,7 +1890,7 @@ function markReel(){
    it so the two never disagree about which skin is showing. */
 function cycleLook(d){
   lookIx=(lookIx+d+LOOKS.length)%LOOKS.length;
-  reelTo(lookIx,true);
+  reelTo(lookIx+LOOKS.length,true);
   markReel();
   lookMeta();
 }
@@ -1930,13 +1968,6 @@ function paintSwatch(cv){
 function art(g){
   if(g.noart)return `<div class="gart noart" style="background:${g.c[0]}"></div>`;
   return `<img class="gart" src="/img/games/${g.id}.png" alt="" draggable="false">`;
-}
-/* The detail banner. A separate wide file per game, not the card painting:
-   one picture cannot be both a 2:3 card and a 4:1 banner without something
-   being cut off or padded out. */
-function heroArt(g){
-  if(g.noart)return `<div class="gart noart" style="background:${g.c[0]}"></div>`;
-  return `<img class="gart" src="/img/games/${g.id}-wide.png" alt="" draggable="false">`;
 }
 function repaintAll(){
   SCENES.clear();
@@ -2174,9 +2205,15 @@ function open_(id){
      actually offering, not from a fixed amount that may not exist. */
   refreshSteps(id); si=defaultStep();
   showScreen('detail');
+  /* The game's own wide painting, used as the room you are standing in rather
+     than as a picture pinned to the wall. Lightly blurred and heavily darkened
+     by CSS so the controls on top of it stay readable. */
   const dart=document.getElementById('dart');
-  dart.style.background=cur.c[0];
-  dart.innerHTML=heroArt(cur);
+  /* backgroundColor, not the background SHORTHAND: the shorthand resets
+     background-size to auto as an inline style, which outranks the cover in
+     the stylesheet and leaves the painting tiled across the screen. */
+  dart.style.backgroundColor=cur.c[0];
+  dart.style.backgroundImage=cur.noart?'none':"url('/img/games/"+cur.id+"-wide.png')";
   document.getElementById('dname').textContent=cur.name;
   document.getElementById('ddesc').textContent=cur.d;
   /* Both figures come off the live board, so the detail screen and the card

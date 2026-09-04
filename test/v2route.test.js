@@ -388,18 +388,26 @@ test('the service worker exists and caches nothing', () => {
   assert.ok(/caches\.delete/.test(sw), 'and clears any cache a previous version left');
 });
 
-test('the game screen puts the action above the lobby list on a phone', () => {
-  // Collapsed naively, the two-column hero stacked the whole left column first,
-  // which put an empty lobby list between the artwork and the Play button and
-  // pushed the only action on the screen below the fold.
+test('the game screen puts the action above the lobby list', () => {
+  /* Collapsed naively, the two-column hero used to stack the whole left column
+     first, which put an empty lobby list between the artwork and the Play
+     button and pushed the only action on the screen below the fold. It was
+     held together by a chain of CSS order values.
+
+     The screen is one column in source order now, so the rule is checked where
+     it actually lives: the markup. That holds at every width, and it cannot be
+     broken by a stylesheet edit the way the order chain could. */
   const html = v2();
-  assert.ok(/\.hero>div,\.hero>div:last-child\{display:contents\}/.test(html),
-    'both column wrappers dissolve so their contents can be ordered');
-  // :last-child is named explicitly because the desktop bottom-align rule sets
-  // display:flex on it and is the more specific selector.
-  assert.ok(/\.hart\{order:1/.test(html), 'art first');
-  assert.ok(/\.stake\{order:5/.test(html), 'then the buy-in');
-  assert.ok(/#dlob\{order:8\}/.test(html), 'and the lobby list last');
+  const screen = html.slice(html.indexOf('<main id="detail"'),
+                            html.indexOf('</main>', html.indexOf('<main id="detail"')));
+  const at = s => { const i = screen.indexOf(s); assert.notEqual(i, -1, 'missing: ' + s); return i; };
+  const buyIn = at('id="stakes"');
+  const name  = at('id="play-name"');
+  const play  = at('V2Play.playChosen()');
+  const lob   = at('id="dlob"');
+  assert.ok(buyIn < name, 'the buy-in comes before the name field');
+  assert.ok(name < play, 'and the name before the button that needs it');
+  assert.ok(play < lob, 'and Play before the lobby list, never under it');
 });
 
 test('the brand mark is wired everywhere a browser asks for one', () => {
