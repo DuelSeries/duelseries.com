@@ -624,6 +624,10 @@ body.ingame .tkrun,body.nomotion .tkrun{animation-play-state:paused}
    with a pale border. */
 .gbg .im{position:absolute;inset:-40px;width:calc(100% + 80px);height:calc(100% + 80px);
   display:block;filter:blur(2px) brightness(.5) saturate(1.05)}
+/* The fallback for a game with no simulation behind it: its own painting,
+   blurred harder because a still image has no motion to carry it. */
+.gbg .im.still{background-size:cover;background-position:center;
+  filter:blur(6px) brightness(.4) saturate(1.05)}
 /* Darkest where the controls sit, so the artwork survives at the edges and the
    text never has to fight it. */
 .gbg::after{content:'';position:absolute;inset:0;
@@ -1085,13 +1089,20 @@ body.scr-anim { overflow-x:hidden }
      the background now and everything sits on it in one centred column, with
      Play in the middle of it. -->
 <main id="detail" class="wrap">
-  <!-- Not a picture of the game: the game. This canvas is painted by the same
-       renderer, the same body code and the same hex tile the real thing uses,
-       so the snakes crossing behind the buttons are drawn exactly as they are
-       drawn in play. data-half keeps the backing store at half resolution,
-       which nobody can see through the blur and which quarters the fill. -->
-  <div class="gbg"><canvas class="im" id="dart" data-anim="1" data-game="bg"
-    data-half="1"></canvas></div>
+  <!-- Two layers, one shown at a time. The canvas is not a picture of the
+       game, it IS the game: painted by the same renderer, the same body code
+       and the same hex tile the real thing uses, so what moves behind the
+       buttons moves exactly as it does in play. Only the two built games have
+       one — snakes for slither.io, cells for agar.io — because a simulation is
+       a claim about how a game plays and eleven of these are not built yet.
+       Those fall back to their own painting, held still.
+
+       data-half keeps the backing store at half resolution, which nobody can
+       see through the blur and which quarters the fill rate. -->
+  <div class="gbg">
+    <canvas class="im" id="dart" data-anim="1" data-game="bg" data-half="1"></canvas>
+    <div class="im still" id="dartstill"></div>
+  </div>
   <a class="back" href="#" onclick="goBack();return false">&#8592; &nbsp;Back</a>
   <div class="gcol">
     <h1 id="dname"></h1>
@@ -1859,11 +1870,19 @@ function buildReel(){
   markReel();
 }
 const copyH=()=>LOOKS.length*SLOT_H;
-/* Rewound only once the scroll has settled. Doing it mid-flight would move the
-   ground under a scroll that is still travelling, and the reel would jump. */
-let _reelT=0;
+/* Rewound DURING the scroll, not after it settles. Waiting for the scroll to
+   stop meant a finger that kept going ran off the end of the three copies and
+   hit a hard stop, then jumped once the wait expired — which is the pause
+   that made the list feel like it was loading. The rewind is one copy exactly,
+   so it lands on identical pixels and there is nothing to see.
+
+   The one case that must NOT be interrupted is a programmatic smooth scroll
+   from the arrows: that one is travelling to an absolute position, so moving
+   the ground under it sends it somewhere else. */
+let _reelSmooth=0;
 function reelWrap(){
   const r=document.getElementById('ap-reel'), L=copyH(); if(!r||!L)return;
+  if(Date.now()<_reelSmooth)return;
   const prev=r.style.scrollBehavior; r.style.scrollBehavior='auto';
   if(r.scrollTop<L*0.5)r.scrollTop+=L;
   else if(r.scrollTop>L*1.5)r.scrollTop-=L;
@@ -1873,6 +1892,7 @@ function reelWrap(){
    too, and this one sits inside the lobby's own scrolling screen. */
 function reelTo(i,smooth){
   const r=document.getElementById('ap-reel'), s=r&&r.children[i]; if(!s)return;
+  if(smooth)_reelSmooth=Date.now()+420;    /* hands off until it lands */
   const prev=r.style.scrollBehavior;
   r.style.scrollBehavior=smooth?'smooth':'auto';
   r.scrollTop=s.offsetTop-(r.clientHeight-s.offsetHeight)/2;
@@ -1906,9 +1926,8 @@ function markReel(){
   const r=document.getElementById('ap-reel'); if(!r)return;
   let tick=false;
   r.addEventListener('scroll',()=>{
-    clearTimeout(_reelT); _reelT=setTimeout(reelWrap,140);
     if(tick)return; tick=true;
-    requestAnimationFrame(()=>{tick=false;markReel()});
+    requestAnimationFrame(()=>{tick=false;reelWrap();markReel()});
   },{passive:true});
 })();
 /* The desktop arrows. They move the same selection, and scroll the reel with
@@ -2019,10 +2038,14 @@ let motionOn=(function(){try{return localStorage.getItem(MOTION_KEY)!=='0'}catch
   /* offsetParent is null for anything inside a hidden screen. Without this the
      game screen's backdrop kept simulating while you were on the home tab. */
   document.querySelectorAll('canvas[data-anim]').forEach(cv=>{if(!cv.offsetParent)return;try{
-    /* Reduced motion freezes the simulation, not the layout. The card still
-       has to re-fit its canvas when it changes width, so the loop keeps
-       checking the box and repaints only on an actual size change. */
-    if(!RM.matches)paintScene(cv,dt);
+    /* Governed by the Motion switch in Settings rather than by the OS's
+       prefers-reduced-motion. The OS flag froze the game screen's backdrop on
+       any machine that had it set, with nothing on the page to say why or to
+       turn it back on. Settings is that control, it is discoverable, and it
+       defaults to on — same reasoning the ticker and the appearance snake
+       already carry. Frozen still means frozen: the canvas is refitted when
+       the box changes so it is never left stretched. */
+    if(motionOn)paintScene(cv,dt);
     else if(fit(cv))paintScene(cv,0);
   }catch(e){}});
   /* The appearance snake is the point of the box, so like the ticker it keeps
@@ -2232,10 +2255,18 @@ function open_(id){
      actually offering, not from a fixed amount that may not exist. */
   refreshSteps(id); si=defaultStep();
   showScreen('detail');
-  /* The background scene is rebuilt for this game's size and colours. Dropping
-     it from SCENES is what makes the next frame build a fresh one rather than
-     carrying the last game's snakes across. */
-  const dart=document.getElementById('dart');
+  /* Which backdrop this game gets. 'bg' is the generic moving-snakes world;
+     mkWorld's own 'snake' branch is a composed STILL for the card, which is
+     not what a background wants. Anything unbuilt shows its painting instead.
+     Dropping the canvas from SCENES is what makes the next frame build a fresh
+     world rather than carrying the last game's snakes across. */
+  const dart=document.getElementById('dart'), still=document.getElementById('dartstill');
+  const live=cur.id==='snake'?'bg':cur.id==='agar'?'agar':null;
+  dart.dataset.game=live||'bg';
+  dart.style.display=live?'block':'none';
+  still.style.display=live?'none':'block';
+  still.style.backgroundColor=cur.c[0];
+  still.style.backgroundImage=cur.noart?'none':"url('/img/games/"+cur.id+"-wide.png')";
   SCENES.delete(dart);
   document.getElementById('dname').textContent=cur.name;
   document.getElementById('ddesc').textContent=cur.d;

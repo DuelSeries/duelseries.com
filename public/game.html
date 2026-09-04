@@ -191,8 +191,11 @@
   </div>
 
   <!-- Stall recorder. Measures the hitch where the player actually sees it,
-       and posts a summary to /api/debug/client. See public/js/diag.js. -->
-  <script src="js/diag.js"></script>
+       and posted a summary to /api/debug/client. Removed once the hitch it was
+       built to find was traced to the lobby's preview snake: it put a Mark lag
+       button over the game, and a measuring instrument left running after the
+       measurement is just furniture. public/js/diag.js is still in the tree, so
+       putting this one line back brings it all with it. -->
   <script src="/socket.io/socket.io.js"></script>
   <script src="/shared/constants.js"></script>
   <script src="/shared/snapshotCodec.js"></script>
