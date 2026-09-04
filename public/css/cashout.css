@@ -130,15 +130,26 @@
   margin-left: 4px;
 }
 
-.co-btns { display: flex; gap: 10px; margin-top: 20px; }
+.co-btns { display: flex; gap: 8px; margin-top: 20px; }
 .co-btn {
-  flex: 1;
+  /* flex-basis 0 AND min-width 0. flex:1 alone still lets a button refuse to
+     shrink below the width of its own label, so "Keep watching" pushed itself
+     wider than the other two and the row came out lopsided — which reads as
+     the whole set being shifted sideways rather than as one button being fat.
+     nowrap because the alternative is a two-line button in a row of one-line
+     ones, which is the same fault standing up. */
+  flex: 1 1 0;
+  min-width: 0;
+  white-space: nowrap;
+  text-align: center;
   min-height: 46px;               /* thumb-sized; this screen is mostly used on a phone */
-  padding: 12px 16px;
+  padding: 12px 6px;
   border-radius: 10px;
   border: 1px solid transparent;
   font-family: inherit;
-  font-size: 0.92rem;
+  /* Sized so the longest of the three labels fits inside a third of a 380px
+     card without wrapping or spilling. */
+  font-size: 0.81rem;
   font-weight: 600;
   cursor: pointer;
   transition: background 0.15s, border-color 0.15s, transform 0.1s;

@@ -111,6 +111,8 @@ kbd {
 /* The card's colours live on the container, so the same markup is red for a
    death and amber for a payout. */
 #death-screen {
+  padding: 24px;                  /* same inset as the snake game's, so the two
+                                     cards are the same width and the same shape */
   --co-ink:#100e0b; --co-s2:#1f1b15; --co-s3:#282219;
   --co-bone:#f5f1e8; --co-tx2:#a89c8a;
   --co-money:#e0705f;               /* the figure, red: this is what was lost */
@@ -282,6 +284,7 @@ kbd {
 
 /* ── Cashout screen (matches slither.io style) ──────────────────────────────── */
 #cashout-overlay {
+  padding: 24px;
   --co-ink:#100e0b; --co-s2:#1f1b15; --co-s3:#282219;
   --co-bone:#f5f1e8; --co-tx2:#a89c8a;
   --co-money:#f0a830;               /* amber: this one is money you kept */
@@ -300,31 +303,4 @@ kbd {
 }
 #cashout-overlay.active { display: flex; }
 
-.cashout-btn-row { display: flex; gap: 16px; margin-top: 8px; }
 
-.co-btn {
-  padding: 12px 28px;
-  border-radius: 10px;
-  font-size: 1rem;
-  font-weight: 700;
-  cursor: pointer;
-  letter-spacing: 1px;
-  transition: transform 0.1s;
-  border: none;
-}
-.co-btn:hover { transform: scale(1.04); }
-.co-btn-play {
-  background: linear-gradient(135deg, #14F195, #0ea5e9);
-  color: #0f172a;
-  border: none;
-}
-.co-btn-spectate {
-  background: rgba(100,180,255,0.15);
-  color: #7dd3fc;
-  border: 1px solid rgba(100,180,255,0.35);
-}
-.co-btn-lobby {
-  background: rgba(255,255,255,0.1);
-  color: #fff;
-  border: 1px solid rgba(255,255,255,0.2);
-}

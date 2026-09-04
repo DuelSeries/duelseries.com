@@ -701,6 +701,11 @@ body.ingame .tkrun,body.nomotion .tkrun{animation-play-state:paused}
    straight over it on a phone, where the screens are fixed and overlap. The
    centring moved into .gcol, which has no such job to fight with. */
 #detail.wrap{max-width:none;padding:0;position:relative}
+/* The game screen is meant to be one screenful: everything you need to press
+   Play, with nothing under the fold. The footer is a site-wide row of legal
+   links that added just enough height to make it scroll, and it is the one
+   screen where scrolling costs something — the button is the point of it. */
+body.no-foot footer{display:none}
 .gbg{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:0}
 /* Inset past the edges so the blur has material to pull from; a blur that
    reaches the edge of its own image samples transparency and hems the screen
@@ -719,8 +724,8 @@ body.ingame .tkrun,body.nomotion .tkrun{animation-play-state:paused}
 /* margin:auto on both axes, so the column sits in the middle of the surface
    rather than stacked against the top of it with the artwork empty below. */
 .gcol{position:relative;z-index:1;max-width:430px;width:100%;margin:0 auto;
-  padding:20px 24px 40px;text-align:center;
-  min-height:calc(100vh - 160px);display:flex;flex-direction:column;
+  padding:12px 24px 20px;text-align:center;
+  min-height:calc(100vh - 120px);display:flex;flex-direction:column;
   justify-content:center}
 #detail .back{position:relative;z-index:2;margin-left:24px}
 #dname{font-size:34px;font-weight:650;letter-spacing:-1px;margin-top:18px}
@@ -1042,15 +1047,25 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
      game is, what it costs, how you look, and only then where people are. */
   /* The column is already one thing; the phone only needs it tighter. There is
      no ordering to do any more, because there are no panels left to reorder. */
-  #detail.wrap{min-height:0}
-  .gcol{padding:14px 16px 30px;max-width:none}
-  #detail .back{margin-left:16px}
-  #dname{margin-top:10px;font-size:25px}
-  .hnow{margin-top:9px}
-  .sl{margin-top:18px}
-  .stakes .stk{font-size:15px;padding:13px 4px}
-  .lookrow{margin-top:16px}
-  .lobwrap{margin-top:20px}
+  /* Every gap on this screen is trimmed so the whole thing lands inside one
+     phone screen. It is the screen you press Play on; anything under the fold
+     is a thing you have to go looking for first. */
+  #detail.wrap{min-height:0;overflow:hidden}
+  .gcol{padding:6px 16px 12px;max-width:none;min-height:calc(100vh - 172px)}
+  #detail .back{margin-left:16px;padding:12px 0 0}
+  #dname{margin-top:4px;font-size:23px}
+  .hnow{margin-top:7px;font-size:12.5px}
+  .howbtn{margin-top:10px;padding:7px 13px;font-size:12.5px}
+  .sl{margin-top:12px}
+  .stakes{margin:8px 0 10px}
+  .stakes .stk{font-size:15px;padding:12px 4px}
+  .namerow{margin-bottom:10px}
+  .go{padding:13px}
+  .lookrow{margin-top:10px;padding:8px 12px 8px 8px}
+  .lookrow canvas{height:32px}
+  .lobwrap{margin-top:12px}
+  .lobhd{margin-bottom:4px}
+  .lobwrap .lr{padding:8px 12px}
 
   h2{font-size:25px;letter-spacing:-.8px}
   .head{margin:36px 0 16px}
@@ -2668,6 +2683,7 @@ function showScreen(id,dir){
   if(!dir||!prev||prev===next||!next||reduce){
     SCREENS.forEach(s=>{const el=document.getElementById(s); if(el)el.style.display='none'});
     if(next)next.style.display='block';
+    document.body.classList.toggle('no-foot',id==='detail');
     return;
   }
 
@@ -2796,6 +2812,9 @@ function prepareScreen(tab){
 function commitScreen(tab){
   const id=SCREEN_FOR[tab]; if(!id)return;
   route=tab; drawNav();
+  /* Swipes land here rather than in showScreen, so the footer rule has to be
+     applied on this path too or it only ever holds for taps. */
+  document.body.classList.toggle('no-foot',id==='detail');
   SCREENS.forEach(s=>{const el=document.getElementById(s);
                       if(el&&s!==id)el.style.display='none'});
   /* No scroll reset here. A drag already did it at the START of its settle,
