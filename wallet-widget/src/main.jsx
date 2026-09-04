@@ -87,6 +87,20 @@ async function stakeOnly(sel, wallet, signTransaction, onStatus) {
   const quote = await (await fetch(base + query)).json();
   if (quote.error) throw new Error(quote.error);
 
+  /* The PRICE decides, not the name. The check above catches the lobby actually
+     called 'free'; this catches every other lobby that costs nothing — the
+     battle royale is the first, entered for free with the prize paid by the
+     house. Without it that quote came back priced at zero with no escrow to pay
+     (correctly, there is nothing to pay) and this threw 'No escrow configured
+     for this lobby' at a player trying to enter a free event.
+
+     Both money modes: SOL prices in lamports, USDC in units. A quote with
+     nothing to transfer needs no transfer. */
+  const owes = quote.mode === 'usdc'
+    ? Number(quote.units || 0)
+    : Number(quote.lamports || 0);
+  if (!owes) return { entryToken: '', worth: 0 };
+
   onStatus('Building stake…');
   const from = new PublicKey(wallet.address);
   const tx = new Transaction();
