@@ -607,6 +607,34 @@ body.ingame .tkrun,body.nomotion .tkrun{animation-play-state:paused}
 #detail,#allgames,#settings-screen{display:none}
 .back{font-size:13px;color:var(--tx2);padding:26px 0 0;display:inline-block}
 .back:hover{color:var(--tx)}
+/* ── how to play ─────────────────────────────────────────────────────── */
+.howbtn{display:inline-flex;align-items:center;gap:6px;margin-left:4px;
+  background:none;border:none;padding:2px 4px;cursor:pointer;
+  font-family:inherit;font-size:13px;font-weight:600;color:var(--tx3);
+  transition:color .15s}
+.howbtn:hover{color:var(--tx)}
+.howveil{position:fixed;inset:0;z-index:210;display:none;
+  align-items:center;justify-content:center;padding:24px;
+  background:rgba(6,5,4,.72);backdrop-filter:blur(6px)}
+.howveil.on{display:flex}
+.howcard{width:100%;max-width:420px;background:var(--s1);
+  border-radius:var(--r3);padding:24px 24px 20px;text-align:left}
+.howtop{display:flex;align-items:center;margin-bottom:16px}
+.howtop h2{flex:1;font-size:21px;font-weight:650;letter-spacing:-.4px}
+.howx{background:none;border:none;color:var(--tx3);font-size:15px;
+  cursor:pointer;padding:4px 6px;line-height:1}
+.howx:hover{color:var(--tx)}
+.howsteps{list-style:none;margin:0 0 20px;padding:0;counter-reset:hw}
+.howsteps li{counter-increment:hw;display:grid;
+  grid-template-columns:26px 1fr;gap:12px;padding:10px 0}
+.howsteps li::before{content:counter(hw);
+  font-family:var(--fm);font-size:12px;font-weight:650;color:var(--money);
+  background:var(--s2);border-radius:50%;width:26px;height:26px;
+  display:grid;place-items:center}
+.howsteps b{display:block;font-size:14px;font-weight:600;margin-bottom:3px}
+.howsteps span{font-size:13px;color:var(--tx2);line-height:1.6}
+.howgo{width:100%}
+
 /* ── the game screen ─────────────────────────────────────────────────────
    The game's own wide painting, full bleed, with everything standing on it in
    one centred column. It was four panels in two columns: artwork, open
@@ -641,7 +669,6 @@ body.ingame .tkrun,body.nomotion .tkrun{animation-play-state:paused}
   justify-content:center}
 #detail .back{position:relative;z-index:2;margin-left:24px}
 #dname{font-size:34px;font-weight:650;letter-spacing:-1px;margin-top:18px}
-.desc{font-size:14.5px;color:var(--tx2);line-height:1.7;margin-top:10px}
 .hnow{font-size:13px;color:var(--tx2);margin-top:14px;display:flex;
   align-items:center;justify-content:center;gap:8px}
 .hnow b{width:6px;height:6px;border-radius:50%;background:var(--live)}
@@ -774,6 +801,14 @@ body.ingame .tkrun,body.nomotion .tkrun{animation-play-state:paused}
   -webkit-mask-image:linear-gradient(#0000,#000 24%,#000 76%,#0000);
           mask-image:linear-gradient(#0000,#000 24%,#000 76%,#0000)}
 .ap-reel::-webkit-scrollbar{display:none}
+/* Desktop drives this with the arrows and nothing else. The scroll stays as
+   the MECHANISM — reelTo still sets scrollTop and the browser still animates
+   and snaps it — but the container is not hand-scrollable, because on a mouse
+   a list that both scrolls and has arrows gives two ways to do one thing and
+   no clue which is meant. On a phone the drag IS the control. */
+@media(min-width:521px){
+  .ap-reel{overflow:hidden;pointer-events:none}
+}
 /* Fixed box, fixed canvas. The size you see is a transform, set per frame
    from how far the slot is from the middle — NOT a class swapped at a
    threshold. Swapping classes meant a fast flick changed a few sizes and
@@ -792,10 +827,13 @@ body.ingame .tkrun,body.nomotion .tkrun{animation-play-state:paused}
   .ap-preview-wrap{display:none}
   .ap-reel{top:calc(70px + env(safe-area-inset-top));
     bottom:calc(146px + env(safe-area-inset-bottom))}
+  .ap-hint{display:block}
 }
 /* Shown only where the arrows are not, because a gesture with nothing on
    screen to suggest it is a gesture nobody finds. */
-.ap-hint{display:block;position:absolute;left:50%;top:calc(64px + env(safe-area-inset-top));
+/* Phones only, because desktop cannot scroll this and the arrows say what they
+   do without being told. */
+.ap-hint{display:none;position:absolute;left:50%;top:calc(64px + env(safe-area-inset-top));
   transform:translateX(-50%);font-size:12px;color:var(--tx3);white-space:nowrap;
   pointer-events:none;z-index:54}
 
@@ -916,7 +954,6 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
   .gcol{padding:14px 16px 30px;max-width:none}
   #detail .back{margin-left:16px}
   #dname{margin-top:10px;font-size:25px}
-  .desc{margin-top:6px;font-size:13.5px;line-height:1.55}
   .hnow{margin-top:9px}
   .sl{margin-top:18px}
   .stakes .stk{font-size:15px;padding:13px 4px}
@@ -1072,6 +1109,20 @@ body.scr-anim { overflow-x:hidden }
        there is something real to put in it. -->
 </main>
 
+<!-- ══ HOW TO PLAY ══ -->
+<!-- Asked for, not pushed. Four steps, the same four for every game bar the
+     middle one, which is the only part that differs between an arena you grow
+     in and a match you win. -->
+<div id="howveil" class="howveil" role="dialog" aria-modal="true" aria-label="How to play">
+  <div class="howcard">
+    <div class="howtop"><h2>How to play</h2>
+      <button type="button" class="howx" onclick="closeHow()" aria-label="Close">&#10005;</button>
+    </div>
+    <ol class="howsteps" id="howsteps"></ol>
+    <button type="button" class="btn pri howgo" onclick="closeHow()">Got it</button>
+  </div>
+</div>
+
 <!-- ══ ALL GAMES ══ -->
 <!-- Every game at once, which the rail cannot do: the rail is a row you push
      through, and past about eight cards it stops being a way to find a
@@ -1106,8 +1157,17 @@ body.scr-anim { overflow-x:hidden }
   <a class="back" href="#" onclick="goBack();return false">&#8592; &nbsp;Back</a>
   <div class="gcol">
     <h1 id="dname"></h1>
-    <p class="desc" id="ddesc"></p>
-    <div class="hnow"><b></b><span id="dnow"></span></div>
+    <!-- The description used to sit here as a paragraph everybody reads once
+         and then reads past forever. It is behind a button now: there when it
+         is wanted, gone when it is not. -->
+    <div class="hnow"><b></b><span id="dnow"></span>
+      <button type="button" class="howbtn" onclick="openHow()">
+        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor"
+             stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="9"/><path d="M9.6 9.2a2.5 2.5 0 1 1 3.2 2.4c-.5.2-.8.7-.8 1.2v.6"/>
+          <path d="M12 17h.01"/></svg>
+        How to play</button>
+    </div>
 
     <div class="sl">Your buy-in</div>
     <div class="stakes" id="stakes"></div>
@@ -1816,6 +1876,19 @@ function paintLook(cv){
      own colour. Without it every tile drew whatever was currently equipped. */
   const col=(cv.dataset.skin?(LOOKS.find(s=>s.id===cv.dataset.skin)||LOOKS[0])
             :cv.dataset.look==='big'?LOOKS[lookIx]:skin()).color;
+  /* agar.io is cells, so its skin preview is a cell. Drawing a snake to pick
+     the colour of a circle shows you the colour but not the thing. Same two
+     marks the game uses: a filled disc and a dark rim at low opacity. */
+  if(cur&&cur.id==='agar'){
+    ctx.setTransform(1,0,0,1,0,0);
+    ctx.clearRect(0,0,w,h);
+    const R0=Math.min(w*0.26,h*0.40);
+    ctx.beginPath(); ctx.arc(w/2,h/2,R0,0,6.283);
+    ctx.fillStyle=col; ctx.fill();
+    ctx.lineWidth=Math.max(2,R0*0.07); ctx.strokeStyle='#0a0b0d';
+    ctx.globalAlpha=0.22; ctx.stroke(); ctx.globalAlpha=1;
+    return;
+  }
   const s=mkSnake('look',col,segs,0);                  /* worth 0, no label */
   const useGL=R._glMode&&R.snakeGL&&R.snakeGL.ok;
   if(useGL)R.snakeGL.beginFrame();
@@ -2269,7 +2342,6 @@ function open_(id){
   still.style.backgroundImage=cur.noart?'none':"url('/img/games/"+cur.id+"-wide.png')";
   SCENES.delete(dart);
   document.getElementById('dname').textContent=cur.name;
-  document.getElementById('ddesc').textContent=cur.d;
   /* Both figures come off the live board, so the detail screen and the card
      that led here cannot disagree about how busy a game is. Only rooms with
      someone in them are listed, for the same reason as the home board: an
@@ -2293,6 +2365,23 @@ function open_(id){
   document.getElementById('dlob').classList.add('short');
   drawStake(); drawSkins(); repaintAll(); jumpToTop();
 }
+/* Step three is the only one that changes: an arena you grow in and a match
+   you win are different games, and the other three steps are the product. */
+function openHow(){
+  const arena=!cur||cur.type==='p';
+  const steps=[
+    ['Pick your buy-in','Free, 50c or $2. Everyone in the room paid exactly the same, so nobody can out-bet you.'],
+    ['Start or join','Open a room and wait, or drop into one that already has people in it.'],
+    arena
+      ? ['Grow your stack','Your buy-in is what you are worth at the start. Eat to grow it, and take the worth of anyone you knock out.']
+      : ['Win the match','Beat your opponent and take the pot. You both staked the same, so it comes down to how you play.'],
+    ['Cash out','Leave whenever you like. What you are worth is paid to your wallet on-chain, minus the ten percent house cut.'],
+  ];
+  document.getElementById('howsteps').innerHTML=steps.map(s=>
+    '<li><div><b>'+s[0]+'</b><span>'+s[1]+'</span></div></li>').join('');
+  document.getElementById('howveil').classList.add('on');
+}
+function closeHow(){document.getElementById('howveil').classList.remove('on')}
 function goHome(dir){showScreen('home',dir);jumpToTop()}
 /* The grid is built on open rather than at load: it is the same thirteen cards
    the rail already holds, and building both up front doubles the artwork on a
@@ -2557,8 +2646,14 @@ function go(id,dir){
 /* Escape closes the appearance dialog without saving, which is what a modal
    is expected to do. */
 document.addEventListener('keydown',e=>{
-  if(e.key==='Escape'&&document.getElementById('lookveil').classList.contains('on'))
-    closeLook(false);
+  if(e.key!=='Escape')return;
+  if(document.getElementById('howveil').classList.contains('on'))return closeHow();
+  if(document.getElementById('lookveil').classList.contains('on'))closeLook(false);
+});
+/* Clicking the darkened area outside the card closes it, which is what a
+   dimmed backdrop looks like it should do. */
+document.getElementById('howveil').addEventListener('click',e=>{
+  if(e.target.id==='howveil')closeHow();
 });
 
 /* The tournament countdown is gone with the card it counted down. It ticked
