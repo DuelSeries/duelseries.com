@@ -116,6 +116,18 @@ async function init() {
     CREATE INDEX IF NOT EXISTS idx_sh_gid ON stakes_history(google_id, created_at);
 
     ALTER TABLE accounts ADD COLUMN IF NOT EXISTS name_history TEXT[] DEFAULT '{}';
+    /* Not IF NOT EXISTS alone: this can fail outright on a table that already
+       holds two accounts with the same name, which is possible because names
+       were never unique before. Wrapped so a failure leaves the check-then-write
+       in setAccountName as the only guard rather than stopping startup. */
+    DO $ BEGIN
+      BEGIN
+        CREATE UNIQUE INDEX IF NOT EXISTS accounts_name_lower_uniq
+          ON accounts (LOWER(name)) WHERE name IS NOT NULL;
+      EXCEPTION WHEN others THEN
+        RAISE NOTICE 'accounts_name_lower_uniq not created: %', SQLERRM;
+      END;
+    END $;
     ALTER TABLE accounts ADD COLUMN IF NOT EXISTS agar_high_score INTEGER DEFAULT 0;
     ALTER TABLE accounts ADD COLUMN IF NOT EXISTS agar_total_earnings NUMERIC(18,9) DEFAULT 0;
     ALTER TABLE accounts ADD COLUMN IF NOT EXISTS agar_games_played INTEGER DEFAULT 0;
@@ -403,12 +415,32 @@ async function searchPlayerNames(query, limit = 8) {
 
    Upsert, because an account row is only created when earnings are first
    recorded — somebody can pick a name before they have ever won anything. */
+/* Throws NAME_TAKEN if somebody else already has it, compared case-insensitively
+   — Owen and owen are the same name to a person, and the profile lookup already
+   resolves names with LOWER(), so two accounts sharing one would make that
+   lookup ambiguous.
+
+   Checked and then written, which leaves a small race: two people claiming the
+   same free name in the same instant both pass the check. The proper close is a
+   unique index, attempted at startup — it cannot simply be assumed, because any
+   duplicate already sitting in the table would make creating it fail. Where it
+   exists, the insert below fails instead and the caller still gets NAME_TAKEN. */
 async function setAccountName(googleId, name) {
-  await pool.query(
-    `INSERT INTO accounts (google_id, name) VALUES ($1, $2)
-     ON CONFLICT (google_id) DO UPDATE SET name = $2`,
-    [googleId, name]
+  const clash = await pool.query(
+    `SELECT google_id FROM accounts WHERE LOWER(name) = LOWER($1) AND google_id <> $2 LIMIT 1`,
+    [name, googleId]
   );
+  if (clash.rows[0]) { const e = new Error('NAME_TAKEN'); e.code = 'NAME_TAKEN'; throw e; }
+  try {
+    await pool.query(
+      `INSERT INTO accounts (google_id, name) VALUES ($1, $2)
+       ON CONFLICT (google_id) DO UPDATE SET name = $2`,
+      [googleId, name]
+    );
+  } catch (e) {
+    if (e && e.code === '23505') { const t = new Error('NAME_TAKEN'); t.code = 'NAME_TAKEN'; throw t; }
+    throw e;
+  }
 }
 
 async function getMyProfile(googleId) {

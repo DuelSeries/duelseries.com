@@ -747,17 +747,39 @@ body.ingame .tkrun,body.nomotion .tkrun{animation-play-state:paused}
 .dots{display:flex;justify-content:center;gap:5px;margin-bottom:20px}
 .dt{width:5px;height:5px;border-radius:50%;background:var(--s3);transition:.2s}
 .dt.on{background:var(--money);transform:scale(1.4)}
-.namerow{display:flex;gap:8px;margin-bottom:8px}
-/* Its own breathing room. Sat 6px under the field and immediately above the
-   Play button, so it read as a caption on the button rather than on the box
-   it belongs to. */
-.namemsg{margin:0 0 18px;text-align:center}
+.namerow{display:flex;gap:8px;margin-bottom:14px}
 .namerow .pname{margin:0;flex:1;min-width:0;text-align:left}
-.namesave{background:var(--s2);border:none;border-radius:var(--r2);
-  padding:0 18px;font-family:inherit;font-size:13px;font-weight:650;
-  color:var(--tx2);cursor:pointer;transition:background .15s,color .15s}
-.namesave:hover{background:var(--bone);color:var(--ink)}
-.namesave.done{background:var(--money);color:var(--ink)}
+/* A locked field should not look like a box waiting for typing. */
+.pname[readonly]{color:var(--tx2);cursor:default}
+.pname[readonly]:focus{background:var(--bg)}
+/* One square button, one icon showing at a time. */
+.nameact{width:46px;flex:none;background:var(--s2);border:none;
+  border-radius:var(--r2);color:var(--tx2);cursor:pointer;
+  display:grid;place-items:center;transition:background .15s,color .15s}
+.nameact:hover{background:var(--s3);color:var(--tx)}
+.nameact svg{display:none}
+.nameact[data-state="idle"] .i-pen{display:block}
+.nameact[data-state="editing"]{background:var(--bone);color:var(--ink)}
+.nameact[data-state="editing"] .i-tick{display:block}
+.nameact[data-state="saving"]{background:var(--bone);color:var(--ink);opacity:.6}
+.nameact[data-state="saving"] .i-tick{display:block}
+.nameact[data-state="ok"]{background:var(--live);color:var(--ink)}
+.nameact[data-state="ok"] .i-tick{display:block;animation:npop .42s cubic-bezier(.3,1.4,.5,1)}
+.nameact[data-state="bad"]{background:#e0705f;color:var(--ink)}
+.nameact[data-state="bad"] .i-cross{display:block;animation:nshake .32s}
+@keyframes npop{0%{transform:scale(.4);opacity:0}60%{transform:scale(1.25)}100%{transform:scale(1)}}
+@keyframes nshake{0%,100%{transform:translateX(0)}25%{transform:translateX(-3px)}75%{transform:translateX(3px)}}
+
+/* Bottom right, out of the way of the form it is about. */
+.toast{position:fixed;right:18px;bottom:18px;z-index:220;max-width:300px;
+  background:var(--s2);color:var(--tx);border-left:3px solid #e0705f;
+  border-radius:var(--r2);padding:13px 16px;font-size:13px;line-height:1.5;
+  box-shadow:0 8px 30px rgba(0,0,0,.5);opacity:0;transform:translateY(8px);
+  transition:opacity .18s,transform .18s;pointer-events:none}
+.toast.on{opacity:1;transform:none}
+@media(max-width:520px){
+  .toast{right:12px;left:12px;bottom:calc(76px + env(safe-area-inset-bottom));max-width:none}
+}
 .pname{width:100%;background:var(--bg);border:none;border-radius:var(--r2);
   padding:12px 14px;color:var(--tx);font-family:inherit;font-size:14px;
   outline:none;margin-bottom:10px;text-align:center}
@@ -1179,6 +1201,10 @@ body.scr-anim { overflow-x:hidden }
        there is something real to put in it. -->
 </main>
 
+<!-- Said in the corner rather than under the field: the field is mid-column
+     and a message there pushes the Play button down as it appears. -->
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+
 <!-- ══ MONEY SHEETS ══ -->
 <!-- Deposit and Withdraw each get the whole screen. They were a pair of
      buttons that swapped a panel out from under the balance, which gave the
@@ -1275,13 +1301,28 @@ body.scr-anim { overflow-x:hidden }
     <!-- The name is stored under the live lobby's key, so switching between
          the two does not ask for it twice, and it is saved to the account so
          it is the same name on every device you sign in from. -->
+    <!-- One button, four states. Locked, the field cannot be typed in and the
+         button is a pen; pressed, the field opens and the pen becomes a tick;
+         pressed again it saves, and the tick either holds for a beat and falls
+         back to the pen, or turns into a cross if the name is spoken for. The
+         label that used to sit under here said "Change name", which is what
+         the pen says without taking a line to say it. -->
     <div class="namerow">
-      <input class="pname" id="play-name" maxlength="16" autocomplete="off"
+      <input class="pname" id="play-name" maxlength="16" autocomplete="off" readonly
              placeholder="Your name" aria-label="Your player name">
-      <button type="button" class="namesave" id="name-save"
-              onclick="V2Play.saveName()">Save</button>
+      <button type="button" class="nameact" id="name-act" data-state="idle"
+              onclick="V2Play.nameAction()" aria-label="Change name">
+        <svg class="i-pen" viewBox="0 0 24 24" width="17" height="17" fill="none"
+             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+        <svg class="i-tick" viewBox="0 0 24 24" width="18" height="18" fill="none"
+             stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 6 9 17l-5-5"/></svg>
+        <svg class="i-cross" viewBox="0 0 24 24" width="17" height="17" fill="none"
+             stroke="currentColor" stroke-width="2.6" stroke-linecap="round">
+          <path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
     </div>
-    <div class="sl namemsg" id="name-msg">Change name</div>
     <button class="go" onclick="V2Play.playChosen()">Play</button>
     <!-- The line that used to sit here said either "Free play. Nothing staked,
          nothing paid out" or the house-cut sentence. Both are in How to play
@@ -2707,8 +2748,8 @@ function drawSettings(){
     : `<div class="acct">Not signed in.</div>
        <div class="tog"><button type="button" class="tg" onclick="window.duelWalletLogin&&window.duelWalletLogin()">Sign in</button></div>`;
 }
-/* Saved as it is typed, cleaned the same way the Play button cleans it, so the
-   two can never disagree about what your name is. */
+/* Cleaned as it is typed, the same way the game screen cleans it, so the two
+   can never disagree about what your name is. */
 document.addEventListener('input',e=>{
   if(e.target.id!=='set-name')return;
   const v=String(e.target.value||'').replace(/[^a-zA-Z0-9]/g,'').slice(0,16);
@@ -2716,8 +2757,25 @@ document.addEventListener('input',e=>{
   try{localStorage.setItem('duelseries_playername',v)}catch(_){}
   const live=document.getElementById('play-name'); if(live)live.value=v;
   document.getElementById('set-name-msg').textContent=
-    v.length>=3?'Saved.':'At least three characters to play.';
+    v.length>=3?'':'At least three characters to play.';
 });
+/* Committed on blur, not on every keystroke: this field writes to the ACCOUNT
+   now, and a name is only free or taken once you have finished typing it.
+   Without this the two name fields did different things — the game screen
+   claimed the name, this one only ever changed the label on this browser. */
+document.addEventListener('blur',async e=>{
+  if(e.target.id!=='set-name')return;
+  const v=String(e.target.value||'').replace(/[^a-zA-Z0-9]/g,'').slice(0,16);
+  const msg=document.getElementById('set-name-msg');
+  if(v.length<3){if(msg)msg.textContent='At least three characters to play.';return}
+  const res=await V2Play.pushName(v);
+  if(res==='taken'){
+    if(msg)msg.textContent='That name is already taken. Please choose a different one.';
+    return;
+  }
+  if(msg)msg.textContent=res?'Saved. This is your name on every device.'
+    :'Saved here. Sign in to use this name on your other devices.';
+},true);
 
 /* Show a tab's screen and load its data without changing the route. */
 function prepareScreen(tab){

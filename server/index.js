@@ -667,6 +667,7 @@ app.post('/api/my-name', async (req, res) => {
     await db.setAccountName(wallet, name);
     res.json({ ok: true, name });
   } catch (e) {
+    if (e && e.code === 'NAME_TAKEN') return res.status(409).json({ error: 'Name taken' });
     console.error('[MY-NAME]', e.message);
     res.status(500).json({ error: 'Server error' });
   }

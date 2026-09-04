@@ -48,32 +48,71 @@
   }
   /* Authenticated by the Privy token; the server resolves the wallet from it
      rather than believing anything sent from here. */
+  /* true saved, 'taken' somebody else has it, false could not save. Three
+     outcomes rather than two, because "taken" is the one the player can
+     actually do something about. */
   async function pushName(n) {
     const t = token(); if (!t || !n || n.length < 3) return false;
     try {
       const r = await fetch('/api/my-name', { method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + t },
         body: JSON.stringify({ name: n }) });
+      if (r.status === 409) return 'taken';
       return r.ok;
     } catch (_) { return false; }
   }
-  /* The Save button beside the field. */
-  async function saveName() {
-    const n = setName((el('play-name') || {}).value || '');
-    const btn = el('name-save'), msg = el('name-msg');
-    if (n.length < 3) { if (msg) msg.textContent = 'At least three characters.'; return; }
-    const ok = await pushName(n);
-    if (btn) { btn.classList.add('done'); btn.textContent = 'Saved';
-      setTimeout(() => { btn.classList.remove('done'); btn.textContent = 'Save'; }, 1400); }
-    /* Three genuinely different outcomes, and the middle one used to read as
-       success. "Saved on this device" is what you see when the account write
-       FAILED — the name is in this browser and nowhere else, so the phone will
-       not have it. Said plainly, because the whole point of the field is that
-       it follows you. */
-    if (msg) msg.textContent = ok ? 'Saved. This is your name on every device.'
-      : (window.duelWallet || {}).authenticated
-        ? 'Saved here only — could not reach your account. Try again.'
-        : 'Saved here. Sign in to use this name on your other devices.';
+  let toastT = 0;
+  function toast(text) {
+    const t = el('toast'); if (!t) return;
+    t.textContent = text; t.classList.add('on');
+    clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('on'), 4000);
+  }
+  const setState = s => { const b = el('name-act'); if (b) b.dataset.state = s; };
+
+  /* One button through four states. Locked it is a pen; pressing it opens the
+     field and turns it into a tick; pressing the tick saves. The tick holds
+     green for a beat and falls back to the pen, or turns into a cross and says
+     why in the corner. */
+  async function nameAction() {
+    const input = el('play-name'), btn = el('name-act');
+    if (!input || !btn) return;
+
+    if (btn.dataset.state === 'idle') {
+      input.readOnly = false;
+      setState('editing');
+      btn.setAttribute('aria-label', 'Save name');
+      input.focus(); input.select();
+      return;
+    }
+    if (btn.dataset.state === 'saving') return;      // already in flight
+
+    const n = setName(input.value || '');
+    if (n.length < 3) {
+      setState('bad'); toast('Names need at least three letters or numbers.');
+      setTimeout(() => setState('editing'), 1200);
+      return;
+    }
+    setState('saving');
+    const res = await pushName(n);
+    if (res === 'taken') {
+      setState('bad');
+      toast('That name is already taken. Please choose a different one.');
+      setTimeout(() => { setState('editing'); input.focus(); }, 1400);
+      return;
+    }
+    if (!res && (window.duelWallet || {}).authenticated) {
+      setState('bad');
+      toast('Could not reach your account. The name is saved on this device only.');
+      setTimeout(() => { setState('editing'); }, 1600);
+      return;
+    }
+    /* Saved, or saved locally because nobody is signed in — which is the most
+       this can do and is not a failure to report as one. */
+    if (!res) toast('Saved here. Sign in to use this name on your other devices.');
+    input.readOnly = true;
+    setState('ok');
+    btn.setAttribute('aria-label', 'Change name');
+    setTimeout(() => setState('idle'), 1100);
   }
   window.addEventListener('duelwallet:change', pullName);
 
@@ -218,7 +257,8 @@
 
   window.V2Play = { enter: enter, playChosen: playChosen, spectate: spectate,
                     launch: launch, savedName: savedName, cleanName: cleanName,
-                    saveName: saveName, pullName: pullName };
+                    nameAction: nameAction, pullName: pullName,
+                    pushName: pushName };
 
   /* Forward the stall marker into the game.
 
