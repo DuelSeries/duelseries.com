@@ -54,6 +54,7 @@
       return;
     }
     if (!connected()) {
+      const earn = el('w-earn'); if (earn) earn.hidden = true;
       body.innerHTML =
         '<div class="panel"><div class="plab">Not connected</div>' +
         '<p class="note">Sign in to see your balance, deposit USDC and cash out. ' +
@@ -100,6 +101,8 @@
         '<div class="sub">Money in and out of this wallet.</div></div></div>' +
       '<div class="txl" id="w-tx"><div class="none">Loading…</div></div>';
     loadTx();
+    /* The earnings chart and the payout list, which used to be their own tab. */
+    if (window.V2Stats) window.V2Stats.load();
   }
 
   /* Read off the chain, because that is the only place these exist: the

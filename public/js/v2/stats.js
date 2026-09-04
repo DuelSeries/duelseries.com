@@ -34,13 +34,11 @@
     return isNaN(t) ? '' : new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
 
+  /* This section lives inside the wallet screen now, which has its own signed
+     out state one panel above. A second Sign in button under it would be the
+     same prompt twice, so the whole section is hidden instead. */
   function signedOut() {
-    el('s-sub').textContent = 'Sign in to see your own record.';
-    el('s-body').innerHTML =
-      '<div class="panel"><p class="note">Your stats are tied to your wallet, ' +
-      'because your wallet is your account here. Sign in and they appear.</p>' +
-      '<div class="brow"><button class="btn pri" onclick="V2Wallet.login()">Sign in</button></div>' +
-      '</div>';
+    const box = el('w-earn'); if (box) box.hidden = true;
   }
 
   async function load() {
@@ -60,6 +58,7 @@
     const games = Array.isArray(p.games) ? p.games : [];
     const cashouts = games.length;
 
+    const box = el('w-earn'); if (box) box.hidden = false;
     el('s-sub').innerHTML = p.gamesPlayed
       ? '<span class="num">' + p.gamesPlayed + '</span> games played.'
       : 'No games played yet.';
@@ -99,7 +98,7 @@
   }
 
   window.addEventListener('duelwallet:change', () => {
-    const s = el('stats-screen');
+    const s = el('wallet-screen');
     if (s && getComputedStyle(s).display !== 'none') load();
   });
   window.V2Stats = { load: load };

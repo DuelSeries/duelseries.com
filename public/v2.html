@@ -461,8 +461,8 @@ body.ingame .tkrun,body.nomotion .tkrun{animation-play-state:paused}
 .tgo.alt{background:var(--s2);color:var(--tx2);font-weight:550}
 .tgo.alt:hover{background:var(--s3);color:var(--tx);transform:none}
 
-/* ── wallet + stats ─────────────────────────────────────────────────── */
-#wallet-screen,#stats-screen,#social-screen,#player-screen{display:none}
+/* ── wallet ─────────────────────────────────────────────────────────── */
+#wallet-screen,#social-screen,#player-screen{display:none}
 
 /* ── social ─────────────────────────────────────────────────────────── */
 .search{display:flex;align-items:center;gap:10px;background:var(--s1);
@@ -646,7 +646,7 @@ body.ingame .tkrun,body.nomotion .tkrun{animation-play-state:paused}
 }
 
 /* ── detail ─────────────────────────────────────────────────────────── */
-#detail,#allgames,#settings-screen{display:none}
+#detail,#allgames,#settings-screen,#events-screen{display:none}
 .back{font-size:13px;color:var(--tx2);padding:26px 0 0;display:inline-block}
 .back:hover{color:var(--tx)}
 /* ── how to play ─────────────────────────────────────────────────────── */
@@ -1308,19 +1308,30 @@ body.scr-anim { overflow-x:hidden }
   <div class="head"><div><h2>Wallet</h2>
     <div class="sub">Your USDC, on Solana. Deposits and withdrawals settle on-chain.</div></div></div>
 
-  <!-- Filled by public/js/v2/wallet.js. No activity table: the server records
-       earnings totals, not a per-transaction ledger, so listing one would mean
-       inventing it. -->
+  <!-- Filled by public/js/v2/wallet.js. -->
   <div id="w-body"></div>
+
+  <!-- Stats used to be its own tab. It was one chart and one list, both about
+       money, sitting one tab away from the screen that holds the money — so
+       what you have and what you made were never on screen together. Filled by
+       public/js/v2/stats.js, which kept its ids. -->
+  <div id="w-earn" hidden>
+    <div class="head"><div><h2>Earnings</h2>
+      <div class="sub" id="s-sub"></div></div></div>
+    <div id="s-body"></div>
+  </div>
 </main>
 
 <!-- ══ STATS ══ -->
-<main id="stats-screen" class="wrap">
-  <div class="head"><div><h2>Stats</h2>
-    <div class="sub" id="s-sub"></div></div></div>
-  <!-- Filled by public/js/v2/stats.js. The tile row that used to sit here is
-       gone: the chart is the thing worth looking at, so it goes first. -->
-  <div id="s-body"></div>
+<!-- ══ EVENTS ══ -->
+<!-- Nothing in it yet, and it says so rather than showing an empty frame. -->
+<main id="events-screen" class="wrap">
+  <div class="head"><div><h2>Events</h2>
+    <div class="sub">Tournaments and one-off games with a prize on them.</div></div></div>
+  <div class="panel evempty">
+    <p class="note">No events running. When one is on, it shows up here with
+      its buy-in, its prize and how long is left to enter.</p>
+  </div>
 </main>
 
 <!-- ══ SOCIAL ══ -->
@@ -2556,8 +2567,8 @@ const NAV=[
   p:'M3 10.2 12 3l9 7.2V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z'},
  {id:'wallet', t:'Wallet',  d:'Deposits, withdrawals and your transaction history.',
   p:'M3 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2H5a2 2 0 0 1-2-2m14 6h.01'},
- {id:'stats',  t:'Stats',   d:'Your win rate, biggest cash-outs and time played per game.',
-  p:'M4 20V10M10 20V4M16 20v-7M22 20H2'},
+ {id:'events', t:'Events',  d:'Tournaments and one-off games with a prize on them.',
+  p:'M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2'},
  {id:'social', t:'Social',  d:'Friends, challenges and the games they are in right now.',
   p:'M16 20v-1.5a3.5 3.5 0 0 0-3.5-3.5h-5A3.5 3.5 0 0 0 4 18.5V20M10 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7M20 20v-1.5a3.5 3.5 0 0 0-2.6-3.4M15.5 4.1a3.5 3.5 0 0 1 0 6.8'},
  {id:'settings',t:'Settings',d:'Graphics, sound, region and account preferences.',
@@ -2592,7 +2603,7 @@ function drawNav(){
    showing underneath another. The player profile has no nav slot of its
    own: it is reached from the board and keeps Social lit while it is up. */
 const SCREENS=['home','allgames','detail','settings-screen',
-               'wallet-screen','stats-screen','social-screen','player-screen'];
+               'wallet-screen','events-screen','social-screen','player-screen'];
 /* dir: +1 the new screen arrives from the right (you swiped forward), -1 from
    the left, 0 or omitted for no animation. Taps on the nav pass 0 on purpose:
    a tap already tells you what you pressed, and animating it makes the whole
@@ -2653,7 +2664,7 @@ function showScreen(id,dir){
    put a screen up and fill it BEFORE routing to it, then either commit or put
    it away. Three calls, so swipe.js never has to know the screen ids or which
    module loads what. */
-const SCREEN_FOR={play:'home',wallet:'wallet-screen',stats:'stats-screen',
+const SCREEN_FOR={play:'home',wallet:'wallet-screen',events:'events-screen',
                   social:'social-screen',settings:'settings-screen'};
 window.V2_SCREEN_FOR=SCREEN_FOR;
 
@@ -2663,7 +2674,6 @@ window.V2_SCREEN_FOR=SCREEN_FOR;
 function fillScreen(tab){
   const id=SCREEN_FOR[tab];
   if(tab==='wallet')V2Wallet.render();
-  else if(tab==='stats')V2Stats.load();
   else if(tab==='social')V2Social.load();
   else if(tab==='settings')drawSettings();
 }

@@ -664,8 +664,15 @@ test('a tab swipe follows the finger and can be pulled back', () => {
   // Staging must load the screen's data, or you drag in an empty panel.
   const fill = html.slice(html.indexOf('function fillScreen'),
                           html.indexOf('function prepareScreen'));
-  for (const m of ['V2Wallet.render()', 'V2Stats.load()', 'V2Social.load()'])
+  for (const m of ['V2Wallet.render()', 'V2Social.load()'])
     assert.ok(fill.includes(m), `fillScreen loads the screen's data (${m})`);
+  /* Stats is no longer a tab of its own — the chart and the payout list sit
+     inside the wallet screen. The rule still holds, one level down: staging
+     the wallet has to stage those too, or the earnings section drags in
+     empty. */
+  const wal = fs.readFileSync(path.join(ROOT, 'public/js/v2/wallet.js'), 'utf8');
+  assert.ok(/V2Stats\.load\(\)/.test(wal),
+    'the wallet loads the earnings section it now contains');
   const prep = html.slice(html.indexOf('function prepareScreen'),
                           html.indexOf('function commitScreen'));
   assert.ok(prep.includes('fillScreen(tab)'), 'and staging calls it');
