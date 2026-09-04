@@ -36,7 +36,6 @@
 
   function signedOut() {
     el('s-sub').textContent = 'Sign in to see your own record.';
-    el('s-tiles').innerHTML = '';
     el('s-body').innerHTML =
       '<div class="panel"><p class="note">Your stats are tied to your wallet, ' +
       'because your wallet is your account here. Sign in and they appear.</p>' +
@@ -60,32 +59,10 @@
 
     const games = Array.isArray(p.games) ? p.games : [];
     const cashouts = games.length;
-    const best = games.reduce((m, g) => Math.max(m, Number(g.amount) || 0), 0);
-    const staked = Number(p.totalStaked) || 0;
-    const tracked = !!p.stakesTracked;
-    const net = Number(p.totalEarnings || 0) - staked;
-    const signed = n => (n > 0 ? '+' : n < 0 ? '-' : '') + '$' + Math.abs(n).toFixed(2);
 
     el('s-sub').innerHTML = p.gamesPlayed
       ? '<span class="num">' + p.gamesPlayed + '</span> games played.'
       : 'No games played yet.';
-
-    const tiles = [
-      ['Total earnings', money(p.totalEarnings), 'paid to your wallet'],
-      ['Buy-ins', money(staked), tracked ? 'what you have put in' : 'not recorded yet'],
-      ['Cash-outs', String(cashouts), cashouts ? 'games you left ahead' : 'none yet'],
-      ['Biggest cash-out', money(best), 'single game'],
-    ];
-    /* Profit is only shown once there is something to subtract. Showing
-       earnings-minus-nothing would read as pure profit and be wrong. */
-    if (tracked) {
-      tiles.unshift(['Net profit', signed(net),
-        'earnings minus buy-ins' + (net < 0 ? ', currently down' : '')]);
-    }
-    el('s-tiles').innerHTML = tiles.map(t =>
-      '<div class="tile"><div class="k">' + t[0] + '</div>' +
-      '<div class="v num"' + (t[0] === 'Net profit' ? ' style="color:var(--money)"' : '') + '>' +
-      t[1] + '</div><div class="f">' + t[2] + '</div></div>').join('');
 
     if (!cashouts) {
       el('s-body').innerHTML = '<div class="panel"><p class="note">No cash-outs yet. ' +
@@ -96,28 +73,21 @@
     let run = 0;
     const pts = games.map(g => ({ d: g.at, cum: (run += Number(g.amount) || 0) }));
 
+    /* The chart leads. It carries its own heading in the page title above it,
+       so it opens the screen rather than sitting under a row of boxes.
+       Ten rows, not twenty: this is a glance at recent payouts, and a list long
+       enough to scroll stops being a glance. */
     el('s-body').innerHTML =
-      '<div class="head"><div><h2>Earnings over time</h2>' +
-        '<div class="sub">Your running total from every cash-out.</div></div></div>' +
       '<div class="panel chartbox">' + window.V2Chart(pts, money) + '</div>' +
-      '<div class="head"><div><h2>Cash-outs</h2>' +
+      '<div class="head"><div><h2>Recent payouts</h2>' +
         '<div class="sub">Newest first.</div></div></div>' +
       '<div class="tbl">' +
         '<div class="tr hd"><span>Date</span><span>Result</span><span class="r">Paid out</span></div>' +
-        games.slice().reverse().slice(0, 20).map(g =>
+        games.slice().reverse().slice(0, 10).map(g =>
           '<div class="tr"><span class="num">' + when(g.at) + '</span>' +
           '<span><span class="tag">Cashed out</span></span>' +
           '<span class="r num pos">' + money(g.amount) + '</span></div>').join('') +
-      '</div>' +
-      /* Said plainly rather than left as a silent absence, because the obvious
-         question looking at this screen is "am I up overall". */
-      (tracked
-        ? '<p class="note" style="margin-top:22px">Buy-ins have only been ' +
-          'recorded since this was added, so any games before that count their ' +
-          'payout but not what you paid to enter.</p>'
-        : '<p class="note" style="margin-top:22px">These are payouts. Your ' +
-          'buy-ins are not recorded yet, so this is what you have taken out, ' +
-          'not profit after what you put in.</p>');
+      '</div>';
     if (window.V2ChartWire) window.V2ChartWire(el('s-body').querySelector('.chartbox'), money);
   }
 
