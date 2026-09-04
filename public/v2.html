@@ -407,10 +407,22 @@ body.ingame .tkrun,body.nomotion .tkrun{animation-play-state:paused}
   border-radius:var(--r2);border-color:transparent}
 .lswatch{width:34px;height:34px;border-radius:var(--r2);overflow:hidden;flex:0 0 auto}
 .lswatch svg,.lswatch .gart{display:block;width:100%;height:100%;object-fit:cover}
-.lname{font-size:14.5px;font-weight:550;min-width:132px}
-.lreg{font-size:11.5px;color:var(--tx3)}
-.lstake{font-size:16px;font-weight:600;color:var(--money);min-width:62px}
-.lplay{font-size:13px;color:var(--tx2)}
+/* Name over its details, so the row is two things to read instead of five. */
+.lmid{display:flex;flex-direction:column;gap:3px;min-width:0}
+.lname{font-size:14.5px;font-weight:550}
+.lsub{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--tx3)}
+.lsub i{width:3px;height:3px;border-radius:50%;background:var(--s3);flex:0 0 auto}
+.lstake{font-size:11.5px;font-weight:600;color:var(--money)}
+/* The count as a count: a lit dot and a figure, in the mono the money uses.
+   It used to be the words "0 playing" wedged between two other grey chips. */
+.lcount{display:flex;align-items:center;gap:6px;font-size:13.5px;font-weight:600;
+  color:var(--tx3);margin-right:14px}
+.lcount.on{color:var(--tx)}
+.ldot{width:6px;height:6px;border-radius:50%;background:var(--s3);flex:0 0 auto}
+.lcount.on .ldot{background:var(--live)}
+/* Read aloud, never drawn. */
+.vh{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
+  clip:rect(0 0 0 0);white-space:nowrap;border:0}
 .lwait{font-size:12px;color:var(--tx3)}
 .enter{background:var(--bone);color:var(--ink);font-weight:600;font-size:12.5px;
   padding:8px 17px;border-radius:var(--r1);transition:.15s}
@@ -801,6 +813,12 @@ body.no-foot footer{display:none}
 .stk:hover{background:var(--s3);color:var(--tx)}
 .stk.on{background:var(--money);color:var(--ink)}
 .stk.free.on{background:var(--bone)}
+/* A rung that exists but cannot be sat at. Struck through and dimmed rather
+   than hidden, because hiding it says the product does not offer it. */
+.stk.off{background:transparent;border:1px dashed var(--s3);color:var(--tx3);
+  text-decoration:line-through;cursor:not-allowed}
+.stk.off:hover{background:transparent;color:var(--tx3)}
+.stakeoff{font-size:11.5px;color:var(--tx3);text-align:center;margin:-8px 0 14px}
 .stp{display:flex;align-items:center;justify-content:center;gap:14px;margin:14px 0 4px}
 .sb{width:42px;height:42px;border-radius:50%;background:var(--s3);color:var(--tx2);
   font-size:19px;display:grid;place-items:center;transition:.15s}
@@ -884,9 +902,11 @@ body.no-foot footer{display:none}
    the Enter button fell off the end of it. The region and the buy-in are both
    dropped here: there is one region, and the row IS the free one. */
 .lobwrap .lr{padding:10px 12px;gap:10px}
-.lobwrap .lr .lreg,.lobwrap .lr .lstake{display:none}
+/* The sub-line is dropped here and nowhere else: there is one region, and the
+   buy-in is already the control directly above this list. */
+.lobwrap .lr .lsub{display:none}
 .lobwrap .lr .lname{font-size:13.5px}
-.lobwrap .lr .lplay{font-size:12px;white-space:nowrap}
+.lobwrap .lr .lcount{font-size:12.5px;white-space:nowrap}
 .lobwrap .lr .enter{flex:none;padding:7px 16px;font-size:12.5px}
 .lobhd span{color:var(--tx2)}
 
@@ -1199,16 +1219,17 @@ body.scr-anim { overflow-x:hidden }
    The break is a zero-height full-width item rather than relying on wrapping,
    because wrapping alone squeezed everything onto one line and clipped it. */
 @media(max-width:760px){
-  .lr{flex-wrap:wrap;gap:0 10px;padding:13px 4px;align-items:center}
-  .lr .sp{display:none}
-  .lr::after{content:'';order:4;flex:0 0 100%;height:0}
-  .lswatch{order:1;width:30px;height:30px}
-  .lname{order:2;flex:1 1 auto;min-width:0;font-size:14px;
-    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .enter{order:3;flex:0 0 auto}
-  .lreg{order:5;margin-left:40px;margin-top:3px}   /* aligns under the name */
-  .lstake{order:6;min-width:0;font-size:13.5px;margin-top:3px}
-  .lplay{order:7;margin-top:3px}
+  /* The five chips used to be reordered and wrapped onto a second line to fit.
+     They are two elements now — a name over its details, and a count — so the
+     row just fits, and all of that ordering is gone. Leaving it in was worse
+     than useless: it targeted children .lr no longer has, so the row fell apart
+     into Enter beside the name with the count dumped underneath. */
+  .lr{gap:10px;padding:13px 4px;align-items:center}
+  .lswatch{width:30px;height:30px}
+  .lmid{flex:1 1 auto}
+  .lname{font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .lcount{margin-right:8px}
+  .enter{flex:0 0 auto}
   .lr:hover{padding-left:4px;padding-right:4px}    /* no shift on a tap */
 }
 </style>
@@ -1414,7 +1435,7 @@ body.scr-anim { overflow-x:hidden }
          and then reads past forever. It is behind a button now: there when it
          is wanted, gone when it is not. -->
     <div class="hnow"><b></b><span id="dnow"></span></div>
-    <div>
+    <div class="howrow">
       <button type="button" class="howbtn" onclick="openHow()">
         <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor"
              stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
@@ -1425,6 +1446,7 @@ body.scr-anim { overflow-x:hidden }
 
     <div class="sl">Your buy-in</div>
     <div class="stakes" id="stakes"></div>
+    <div class="stakeoff" id="stakeoff"></div>
     <!-- The name is stored under the live lobby's key, so switching between
          the two does not ask for it twice, and it is saved to the account so
          it is the same name on every device you sign in from. -->
@@ -1733,13 +1755,24 @@ const GAMES=[
    then wonder why nothing happened. Recomputed from /api/live, so it widens on
    its own once lobbies can be opened at any amount. */
 let STEPS=[0];
+/* The buy-ins the product offers. Fixed, and the same for both games, because
+   it is what the product charges rather than what happens to be running. */
+const LADDER=[0,0.5,2];
+let STEPS_OFF=new Set();
 function refreshSteps(gameId){
-  const rows=(window.V2Board?V2Board.lobbies:[]).filter(l=>l.game===gameId);
-  const stakes=[...new Set(rows.map(l=>l.stake))].sort((a,b)=>a-b);
-  STEPS=stakes.length?stakes:[0];
+  /* Every rung is drawn, and the ones this game cannot seat are struck through.
+     Building the list out of the LIVE lobbies instead meant agar.io showed a
+     lone Free button with nothing to say the other tiers exist at all. */
+  STEPS=LADDER.slice();
+  const open=(window.V2Board&&V2Board.playableStakes)?V2Board.playableStakes(gameId):null;
+  STEPS_OFF=new Set(open?STEPS.filter(s=>!open.has(s)):[]);
   /* Clamped at BOTH ends. min alone let a -1 through and STEPS[-1] is
      undefined, which took the whole detail screen down. */
   si=Math.max(0,Math.min(si,STEPS.length-1));
+  if(STEPS_OFF.has(STEPS[si])){
+    const ok=STEPS.findIndex(s=>!STEPS_OFF.has(s));
+    si=ok>=0?ok:0;                 // never land on a rung that cannot be played
+  }
 }
 /* The buy-in you last played, so coming back tomorrow lands on the same one
    rather than making you set it again. Falls back to the lowest real buy-in
@@ -1749,12 +1782,15 @@ function rememberStake(v){ try{localStorage.setItem(LAST_STAKE_KEY,String(v))}ca
 function defaultStep(){
   let last=null;
   try{ const raw=localStorage.getItem(LAST_STAKE_KEY); if(raw!==null)last=Number(raw); }catch(_){}
+  const openAt=i=>i>=0&&!STEPS_OFF.has(STEPS[i]);
   if(last!==null&&isFinite(last)){
     const i=STEPS.findIndex(v=>Math.abs(v-last)<1e-9);
-    if(i>=0)return i;              /* including 0: free is a real choice */
+    if(openAt(i))return i;        /* including 0: free is a real choice */
   }
-  const paid=STEPS.findIndex(v=>v>0);
-  return paid>=0?paid:0;
+  const paid=STEPS.findIndex(v=>v>0&&!STEPS_OFF.has(v));
+  if(paid>=0)return paid;
+  const any=STEPS.findIndex(v=>!STEPS_OFF.has(v));
+  return any>=0?any:0;
 }
 let si=3, cur=null, order=GAMES.slice();
 
@@ -2670,6 +2706,12 @@ function open_(id){
      not what a background wants. Anything unbuilt shows its painting instead.
      Dropping the canvas from SCENES is what makes the next frame build a fresh
      world rather than carrying the last game's snakes across. */
+  /* No How to play on the snake game. Everyone already knows how slither works,
+     so the button was a control in the middle of the screen earning nothing.
+     agar.io keeps it, because splitting and cashing out are not common
+     knowledge in the way "eat things, avoid heads" is. */
+  const how=document.querySelector('.howrow');
+  if(how)how.style.display=cur.id==='snake'?'none':'';
   const dart=document.getElementById('dart'), still=document.getElementById('dartstill');
   const live=cur.id==='snake'?'bg':cur.id==='agar'?'agar':null;
   dart.dataset.game=live||'bg';
@@ -2686,27 +2728,30 @@ function open_(id){
   const mine=(window.V2Board?V2Board.occupied:[]).filter(l=>l.game===id);
   const playing=mine.reduce((n,l)=>n+(l.players||0),0);
   document.getElementById('dnow').innerHTML=`<span class="num">${playing}</span> `+
-    (cur.type==='p'?'playing right now':'waiting for an opponent');
+    (cur.type==='p'?'playing':'waiting');
   /* The free room is listed whether or not anybody is in it. It is the row
      that costs nothing to press, and burying it until somebody else happens to
      be playing is the cold start this screen exists to avoid. */
   const freeRow=`<div class="lr">
      <div class="lswatch">${art(cur)}</div>
-     <span class="lname">${cur.name}</span>
-     <span class="lreg">NA</span>
-     <span class="lstake num free">Free</span>
-     <span class="lplay num">${playing} playing</span>
+     <div class="lmid"><span class="lname">${cur.name}</span>
+       <span class="lsub">NA<i></i><b class="lstake num">Free</b></span></div>
      <span class="sp" style="flex:1"></span>
+     <span class="lcount${playing>0?' on':''}" title="Players in this lobby">
+       <span class="ldot" aria-hidden="true"></span><span class="num">${playing}</span>
+       <span class="vh">${playing===1?'player':'players'}</span></span>
      <button class="enter" onclick="V2Play.launch('${cur.id}',{lobbyType:'free'})">Enter</button>
    </div>`;
   document.getElementById('dlob').innerHTML=freeRow+(mine.length
     ?mine.filter(l=>Number(l.stake)!==0).map(l=>`<div class="lr">
        <div class="lswatch">${art(cur)}</div>
-       <span class="lname">${cur.name}</span>
-       <span class="lreg">${String(l.region).toUpperCase()}</span>
-       <span class="lstake num">${cash(l.stake)}</span>
-       <span class="lplay num">${l.players} playing</span>
+       <div class="lmid"><span class="lname">${cur.name}</span>
+         <span class="lsub">${String(l.region).toUpperCase()}<i></i>
+           <b class="lstake num">${cash(l.stake)}</b></span></div>
        <span class="sp" style="flex:1"></span>
+       <span class="lcount${l.players>0?' on':''}" title="Players in this lobby">
+         <span class="ldot" aria-hidden="true"></span><span class="num">${l.players}</span>
+         <span class="vh">${l.players===1?'player':'players'}</span></span>
        <button class="enter" onclick="V2Board.join('${l.id}')">Enter</button>
      </div>`).join(''):'');
   document.getElementById('dsub2').textContent=mine.length?mine.length+' open':'';
@@ -2748,12 +2793,25 @@ function goBack(){showScreen(_cameFrom);jumpToTop()}
    with a row of dots, which meant paging through amounts to find out what was
    even offered. Three fit, so the control IS the list. */
 function drawStake(){
-  const v=STEPS[si];
-  document.getElementById('stakes').innerHTML=STEPS.map((s,i)=>
-    `<button type="button" class="stk${i===si?' on':''}${s===0?' free':''}"
-       onclick="pickStake(${i})">${cash(s)}</button>`).join('');
+  document.getElementById('stakes').innerHTML=STEPS.map((s,i)=>{
+    const off=STEPS_OFF.has(s);
+    return `<button type="button" class="stk${i===si?' on':''}${s===0?' free':''}${off?' off':''}"
+       ${off?'disabled aria-disabled="true" title="Not open yet"':''}
+       onclick="pickStake(${i})">${cash(s)}</button>`;
+  }).join('');
+  /* Said once, under the row, rather than repeated on each dead button. */
+  const note=document.getElementById('stakeoff');
+  if(note){
+    const shut=STEPS.filter(s=>STEPS_OFF.has(s)).map(cash);
+    note.textContent=shut.length?shut.join(' and ')+(shut.length>1?' tables are':' tables are')+' not open yet.':'';
+    note.style.display=shut.length?'block':'none';
+  }
 }
-function pickStake(i){si=Math.max(0,Math.min(STEPS.length-1,i));drawStake()}
+function pickStake(i){
+  const s=STEPS[i];
+  if(STEPS_OFF.has(s))return;      // the button is disabled; this is the belt to that brace
+  si=Math.max(0,Math.min(STEPS.length-1,i));drawStake();
+}
 function cancel(){veil.classList.remove('on')}
 /* What the play module reads to know which room was chosen. */
 window.V2Detail={get game(){return cur?cur.id:'snake'},get stake(){return STEPS[si]}};

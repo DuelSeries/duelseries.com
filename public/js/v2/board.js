@@ -34,14 +34,26 @@
 
   function rowHTML(l) {
     const g = (window.V2_GAME_NAMES || {})[l.game] || l.game;
-    const who = l.players === 1 ? '1 playing' : l.players + ' playing';
+    const n = l.players || 0;
+    /* A count, shown as a count. Every row used to end in the words "0 playing"
+       sitting between two other grey chips, so the line read as four scraps of
+       text with a number buried in it. It is one badge now — a dot that is lit
+       when anyone is in there, and the figure in the same mono the money uses —
+       and the word only exists for a screen reader, which is the one reader that
+       needs it spelled out. */
+    const live = n > 0 ? ' on' : '';
     return '<div class="lr">' +
       '<div class="lswatch">' + (window.V2_SWATCH ? window.V2_SWATCH(l.game) : '') + '</div>' +
-      '<span class="lname">' + esc(g) + '</span>' +
-      '<span class="lreg">' + esc(String(l.region).toUpperCase()) + '</span>' +
-      '<span class="lstake num">' + money(l.stake) + '</span>' +
-      '<span class="lplay num">' + who + '</span>' +
+      '<div class="lmid">' +
+        '<span class="lname">' + esc(g) + '</span>' +
+        '<span class="lsub">' + esc(String(l.region).toUpperCase()) +
+          '<i></i>' + '<b class="lstake num">' + money(l.stake) + '</b></span>' +
+      '</div>' +
       '<span class="sp" style="flex:1"></span>' +
+      '<span class="lcount' + live + '" title="Players in this lobby">' +
+        '<span class="ldot" aria-hidden="true"></span>' +
+        '<span class="num">' + n + '</span>' +
+        '<span class="vh">' + (n === 1 ? 'player' : 'players') + '</span></span>' +
       '<button class="enter" onclick="V2Board.join(' +
         JSON.stringify(l.id).replace(/"/g, '&quot;') + ')">Enter</button>' +
       '</div>';
@@ -71,6 +83,21 @@
      { lobbyType }, which is the door agar actually uses. */
   const AGAR_FREE = { id: 'agar:free', game: 'agar', region: 'na',
                       stake: null, lobbyType: 'free', players: 0, state: 'open' };
+
+  /* Which buy-ins a game can actually seat right now.
+
+     agar.io has no rungs on /api/live at all — its free room is added on this
+     side — so asking the lobby list what agar offers returns nothing, and the
+     buy-in control ended up with a single Free button and no hint that the
+     other tiers exist. This reports what is REALLY playable, and the control
+     draws the rest struck through. When agar's paid rooms do open, they will
+     appear on the server and light up here with no change to this code. */
+  function playableStakes(game) {
+    const out = new Set();
+    LOBBIES.forEach(l => { if (l.game === game) out.add(Number(l.stake)); });
+    if (game === 'agar') out.add(0);          // the free room this file adds itself
+    return out;
+  }
 
   function rowsToShow() {
     const rows = occupied();
@@ -120,6 +147,7 @@
   function stop() { if (timer) { clearInterval(timer); timer = null; } }
 
   window.V2Board = { load: load, draw: draw, join: join, start: start, stop: stop,
+                     playableStakes: playableStakes,
                      get lobbies() { return LOBBIES; },
                      get occupied() { return occupied(); } };
 })();
