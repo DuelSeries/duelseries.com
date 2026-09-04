@@ -67,6 +67,7 @@ const TOUCH_FOLLOW_R    = 60;   // the anchor is never left further behind than 
 let touchSteering = false;
 let touchAngle    = null;       // null means hold the current line
 let anchorX = 0, anchorY = 0;
+let steerId = null;             // identifier of the finger doing the steering
 let thumbX  = 0, thumbY  = 0;
 
 // ─── Lobby navigation ─────────────────────────────────────────────────────────
@@ -91,8 +92,16 @@ window.addEventListener('DOMContentLoaded', () => {
   resize();
   window.addEventListener('resize', resize);
   canvas.addEventListener('mousemove', onMouseMove);
+  /* By identifier, not by position in the list. Once a second finger can be down
+     at the same time, touches[0] is not reliably the finger that is steering, and
+     picking the wrong one snaps the heading to wherever the other hand tapped. */
+  const findTouch = (list, id) => {
+    for (let i = 0; i < list.length; i++) if (list[i].identifier === id) return list[i];
+    return null;
+  };
   const touchPoint = e => {
-    const t = e.touches[0] || e.changedTouches[0];
+    const t = (steerId !== null && (findTouch(e.touches, steerId) || findTouch(e.changedTouches, steerId)))
+            || e.touches[0] || e.changedTouches[0];
     return t ? { x: t.clientX, y: t.clientY } : null;
   };
   function updateTouchAim(p) {
@@ -110,19 +119,45 @@ window.addEventListener('DOMContentLoaded', () => {
   }
   canvas.addEventListener('touchstart', e => {
     e.preventDefault();
-    const p = touchPoint(e); if (!p) return;
+    /* A second finger down while the first is steering is a split. It is the
+       gesture your hand is already in the shape of, and it beats reaching across
+       the screen for a button in the middle of a chase. The steering finger keeps
+       its anchor and its heading — this tap must not become the new stick. */
+    if (steerId !== null && e.touches.length > 1) {
+      socket && socket.emit('cell:split');
+      return;
+    }
+    const t = e.changedTouches[0]; if (!t) return;
+    steerId = t.identifier;
+    const p = { x: t.clientX, y: t.clientY };
     touchSteering = true;
     anchorX = p.x; anchorY = p.y;   // a fresh stick under the thumb
     thumbX  = p.x; thumbY  = p.y;
-    touchAngle = null;              // and no turn asked for yet
+    // touchAngle is deliberately NOT reset: putting a finger back down should
+    // pick up the line you were already on, not stop the cell dead.
   }, { passive: false });
   canvas.addEventListener('touchmove', e => {
     e.preventDefault();
     const p = touchPoint(e); if (p) updateTouchAim(p);
   }, { passive: false });
   const endTouch = e => {
-    if (e.touches && e.touches.length) return;
-    touchSteering = false; touchAngle = null;
+    // Only the STEERING finger ending ends the steering; lifting the split finger
+    // must not stop the cell.
+    if (steerId !== null && !findTouch(e.changedTouches, steerId)) return;
+    if (e.touches && e.touches.length) {
+      // Another finger is still down — hand steering to it rather than stopping.
+      steerId = e.touches[0].identifier;
+      anchorX = e.touches[0].clientX; anchorY = e.touches[0].clientY;
+      thumbX = anchorX; thumbY = anchorY;
+      return;
+    }
+    steerId = null;
+    touchSteering = false;
+    /* touchAngle SURVIVES the lift. Clearing it dropped the emit back to the
+       mouse path, and on a phone the mouse was never anywhere — screenMX/screenMY
+       sit at their initial values, which is the top-left corner, so letting go
+       sent the cell north every time. It keeps going the way you last pointed it,
+       which is also what it does in the snake game. */
   };
   canvas.addEventListener('touchend', endTouch, { passive: false });
   canvas.addEventListener('touchcancel', endTouch, { passive: false });
@@ -609,7 +644,7 @@ function loop(now) {
 
   // Re-emit input every frame so the circle keeps moving
   if (socket && myId && !cashedOut) {
-    if (touchSteering && touchAngle !== null) {
+    if (touchAngle !== null) {
       /* A point far along the heading, so the server steers toward it at full
          speed rather than easing off as the cell arrives. */
       const me = renderPlayers.get(myId);
@@ -764,7 +799,7 @@ function updateDirArrow() {
   const cell = me && me.alive && me.cells.length
     ? me.cells.reduce((a, b) => (b.mass > a.mass ? b : a))
     : null;
-  if (!touchSteering || touchAngle === null || !cell || cashedOut) {
+  if (touchAngle === null || !cell || cashedOut) {
     if (dirArrowEl.style.opacity !== '0') dirArrowEl.style.opacity = '0';
     return;
   }
