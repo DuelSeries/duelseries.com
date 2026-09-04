@@ -86,7 +86,8 @@ let _latestMySnap = null; // most recent server snapshot for local player
 let cashoutSpeedMult = 1;    // smoothed speedMult sent to server during Q hold/release
 
 // Displayed (interpolated) state used for rendering
-let displayState = { snakes: [], food: [], worldRadius: CONSTANTS.BASE_WORLD_RADIUS, leaderboard: [] };
+let displayState = { snakes: [], food: [], worldRadius: CONSTANTS.BASE_WORLD_RADIUS,
+                     worldCx: 0, worldCy: 0, leaderboard: [] };
 
 // Socket — connect to EU EC2 for low ping when EU region is selected
 const SERVER_URLS = { na: '', eu: 'https://eu.duelseries.com' };
@@ -377,7 +378,7 @@ function playJoinSound() {
   } catch (e) { /* audio not supported */ }
 }
 
-socket.on(CONSTANTS.EVENTS.GAME_JOINED, ({ playerId, worldRadius, food, snake }) => {
+socket.on(CONSTANTS.EVENTS.GAME_JOINED, ({ playerId, worldRadius, worldCx, worldCy, food, snake }) => {
   myId = playerId;
   isDead = spectateOnly;
   cashedOut = false;
@@ -390,7 +391,8 @@ socket.on(CONSTANTS.EVENTS.GAME_JOINED, ({ playerId, worldRadius, food, snake })
   _lastSnapAt = 0;
   _jitterBuf = 0;
   spawnTime = performance.now();
-  displayState = { snakes: snake ? [snake] : [], food: food || [], worldRadius, leaderboard: [] };
+  displayState = { snakes: snake ? [snake] : [], food: food || [], worldRadius,
+                   worldCx: worldCx || 0, worldCy: worldCy || 0, leaderboard: [] };
   document.getElementById('death-screen').classList.remove('active');
   document.getElementById('cashout-screen').classList.remove('active');
   if (!spectateOnly) showTouchControls(true);
@@ -546,8 +548,12 @@ function interpolateState(now) {
 
   const alpha = Math.max(0, Math.min(1, (renderTime - before.t) / (after.t - before.t)));
 
-  // Interpolate world radius
+  /* Radius AND centre. A zone that closes in on somewhere off-centre moves both
+     at once, and interpolating one without the other makes the ring appear to
+     wobble as it shrinks. */
   displayState.worldRadius = lerp(before.state.worldRadius, after.state.worldRadius, alpha);
+  displayState.worldCx = lerp(before.state.worldCx || 0, after.state.worldCx || 0, alpha);
+  displayState.worldCy = lerp(before.state.worldCy || 0, after.state.worldCy || 0, alpha);
   displayState.leaderboard = after.state.leaderboard;
   displayState.mm = after.state.mm;     // all-snakes minimap feed (not view-culled)
 

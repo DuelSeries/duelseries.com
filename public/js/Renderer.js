@@ -290,7 +290,7 @@ class Renderer {
     if (mySnake) this._drawSnakeOverlay(ctx, mySnake, true);
 
     // Border overlay drawn last so red tint still appears on top of snakes
-    this._drawBorder(ctx, state.worldRadius, camera);
+    this._drawBorder(ctx, state.worldRadius, camera, state.worldCx || 0, state.worldCy || 0);
 
     camera.reset(ctx, dpr);
 
@@ -1012,12 +1012,14 @@ class Renderer {
   }
 
 
-  _drawBorder(ctx, worldRadius, camera) {
+  _drawBorder(ctx, worldRadius, camera, wcx, wcy) {
     const dpr = this._dpr || 1;
     const W = ctx.canvas.width, H = ctx.canvas.height;
-    // camera.x/y are in logical pixels; multiply by dpr for physical pixel space
-    const cx = camera.x * dpr;
-    const cy = camera.y * dpr;
+    /* camera.x/y put WORLD ORIGIN on the screen, so the circle's own centre has
+       to be carried out from there. It was drawn at the origin because that is
+       where the world always sat; a closing zone is the first time it moves. */
+    const cx = (camera.x + (wcx || 0) * camera.scale) * dpr;
+    const cy = (camera.y + (wcy || 0) * camera.scale) * dpr;
     const screenR = worldRadius * camera.scale * dpr;
 
     ctx.save();
@@ -1062,11 +1064,16 @@ class Renderer {
     const mc = minimapCtx;
     const SIZE = mc.canvas.width;
     mc.clearRect(0, 0, SIZE, SIZE);
+    /* The minimap is drawn AROUND the circle's centre, so a zone closing on one
+       corner still fills the map instead of sliding off it. Everything plotted
+       below is offset by the same amount, which is why the world coordinates
+       get the centre subtracted rather than the circle getting moved. */
     const scale = SIZE / (state.worldRadius * 2);
-    const cx = SIZE / 2, cy = SIZE / 2;
+    const wcx = state.worldCx || 0, wcy = state.worldCy || 0;
+    const cx = SIZE / 2 - wcx * scale, cy = SIZE / 2 - wcy * scale;
 
     mc.beginPath();
-    mc.arc(cx, cy, state.worldRadius * scale, 0, Math.PI * 2);
+    mc.arc(cx + wcx * scale, cy + wcy * scale, state.worldRadius * scale, 0, Math.PI * 2);
     mc.fillStyle = 'rgba(10,14,40,0.8)'; mc.fill();
     mc.strokeStyle = '#ff3333'; mc.lineWidth = 2; mc.stroke();
 

@@ -26,6 +26,13 @@ class GameRoom {
     this.orphans = new Map();     // reconnectKey -> { socketId, timer } — snakes kept alive across a brief drop
     this.foodManager = new FoodManager();
     this.worldRadius = C.BASE_WORLD_RADIUS;
+    /* The world circle has been centred on the origin everywhere — the kill
+       check, the border ring, the minimap, the food spawner all assumed it. A
+       battle royale needs the circle to close in on somewhere that is not the
+       middle, so the centre is real data now. It stays (0,0) for every existing
+       mode, which is why nothing else changes shape. */
+    this.worldCx = 0;
+    this.worldCy = 0;
     this.borderDrift = 0;  // positive = expanded, negative = contracted
     this.tickInterval = null;
     this.leaderboard = [];
@@ -39,7 +46,7 @@ class GameRoom {
   }
 
   start() {
-    this.foodManager.spawnInitial(this.worldRadius);
+    this.foodManager.spawnInitial(this.worldRadius, this.worldCx, this.worldCy);
     this.tickInterval = setInterval(() => this.tick(), 1000 / C.TICK_RATE);
   }
 
@@ -59,6 +66,8 @@ class GameRoom {
     socket.emit(C.EVENTS.GAME_JOINED, {
       playerId: socket.id,
       worldRadius: this.worldRadius,
+      worldCx: this.worldCx,
+      worldCy: this.worldCy,
       snakeColor: snake.color,
       food: this.foodManager.getAll(),
       snake: snake.serialize(),
@@ -80,11 +89,15 @@ class GameRoom {
       // Player leaving counts as a death — shrink the border
       this.borderDrift = Math.max(this.borderDrift - 120, -1000);
       const drops = snake.die();
-      const safeR = this.worldRadius * 0.95;
+      const safeR = this.worldRadius * 0.95;   // measured from worldCx/worldCy
       const cashPerDrop = drops.length > 0 && snake.worth > 0 ? snake.worth / drops.length : 0;
       drops.forEach(d => {
-        const dist = Math.hypot(d.x, d.y);
-        if (dist > safeR) { const sc = safeR / dist; d.x *= sc; d.y *= sc; }
+        const dist = Math.hypot(d.x - this.worldCx, d.y - this.worldCy);
+        if (dist > safeR) {
+          const sc = safeR / dist;
+          d.x = this.worldCx + (d.x - this.worldCx) * sc;
+          d.y = this.worldCy + (d.y - this.worldCy) * sc;
+        }
         const f = this.foodManager.spawnOne(this.worldRadius, d.x, d.y, d.value, cashPerDrop, d.color, d.size, d.dropped);
         if (f && gid) f._srcGid = gid; // tag dropped cash with its source account (collusion tracking)
       });
@@ -136,6 +149,8 @@ class GameRoom {
     newSocket.emit(C.EVENTS.GAME_JOINED, {
       playerId: newSocket.id,
       worldRadius: this.worldRadius,
+      worldCx: this.worldCx,
+      worldCy: this.worldCy,
       snakeColor: snake.color,
       food: this.foodManager.getAll(),
       snake: snake.serialize(),
@@ -165,8 +180,8 @@ class GameRoom {
     for (let attempt = 0; attempt < 20; attempt++) {
       const angle = Math.random() * Math.PI * 2;
       const r = 100 + Math.random() * (maxR - 100);
-      const x = Math.cos(angle) * r;
-      const y = Math.sin(angle) * r;
+      const x = this.worldCx + Math.cos(angle) * r;
+      const y = this.worldCy + Math.sin(angle) * r;
       let safe = true;
       for (const snake of this.snakes.values()) {
         if (!snake.alive) continue;
@@ -278,14 +293,18 @@ class GameRoom {
       if (snake.boostDrops.length > 0) {
         const safeR = this.worldRadius * 0.95;
         for (const drop of snake.boostDrops) {
-          const dist = Math.hypot(drop.x, drop.y);
+          const dist = Math.hypot(drop.x - this.worldCx, drop.y - this.worldCy);
           if (dist <= safeR) this.foodManager.spawnOne(this.worldRadius, drop.x, drop.y, drop.value, 0, drop.color, undefined, drop.dropped);
         }
         snake.boostDrops = [];
       }
 
-      // Border collision
-      const headDist = Math.hypot(snake.head.x, snake.head.y);
+      /* Border collision — on the SERVER's head position, never the client's.
+         The client predicts its own snake ahead of what the server has, so a
+         predicted head can be over the line while the real one is not. Instant
+         death is only fair if it is applied to the truth, so this check lives
+         here and the client only ever draws the ring. */
+      const headDist = Math.hypot(snake.head.x - this.worldCx, snake.head.y - this.worldCy);
       if (headDist >= this.worldRadius) {
         this.killSnake(snake, null);
         continue;
@@ -367,7 +386,7 @@ class GameRoom {
     }
 
     // Refill food
-    this.foodManager.refill(this.worldRadius);
+    this.foodManager.refill(this.worldRadius, this.worldCx, this.worldCy);
 
     // Broadcast a snapshot at SNAPSHOT_RATE (lower than the sim TICK_RATE) so weaker
     // clients receive ~half the data. Simulation still runs every tick.
@@ -442,6 +461,8 @@ class GameRoom {
     player.socket.emit(C.EVENTS.GAME_JOINED, {
       playerId: socketId,
       worldRadius: this.worldRadius,
+      worldCx: this.worldCx,
+      worldCy: this.worldCy,
       snakeColor: snake.color,
       food: this.foodManager.getAll(),
       snake: snake.serialize(),
@@ -610,7 +631,8 @@ class GameRoom {
       for (const f of allFood) {
         if (Math.abs(f.x - cx) <= halfW && Math.abs(f.y - cy) <= halfH) food.push(f);
       }
-      const enc = encodeSnapshot({ t, worldRadius, snakes, food, leaderboard, mm });
+      const enc = encodeSnapshot({ t, worldRadius, worldCx: this.worldCx, worldCy: this.worldCy,
+                                   snakes, food, leaderboard, mm });
       this.io.to(cell.roomName).volatile.emit(C.EVENTS.SNAPSHOT, enc.meta, enc.coords);
     }
 
@@ -626,7 +648,8 @@ class GameRoom {
        they respawn, and a busy room with several dead players multiplied the
        cost of the single heaviest allocation in the tick. */
     if (fullSends.length) {
-      const enc = encodeSnapshot({ t, worldRadius, snakes: snakesSer, food: allFood, leaderboard, mm });
+      const enc = encodeSnapshot({ t, worldRadius, worldCx: this.worldCx, worldCy: this.worldCy,
+                                   snakes: snakesSer, food: allFood, leaderboard, mm });
       for (const sock of fullSends) sock.volatile.emit(C.EVENTS.SNAPSHOT, enc.meta, enc.coords);
     }
   }

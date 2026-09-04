@@ -93,6 +93,7 @@
 
     const meta = {
       t: snap.t, worldRadius: snap.worldRadius,
+      wcx: snap.worldCx || 0, wcy: snap.worldCy || 0,
       snakes, nfood: nFood, fc,
       leaderboard: snap.leaderboard, mm: snap.mm,
     };
@@ -137,6 +138,13 @@
       };
     }
     meta.food = food;
+    /* Short on the wire, long in the client. The rest of the client already
+       says worldRadius, so the centre that goes with it says worldCx/worldCy
+       rather than leaving two spellings of the same idea in the codebase. */
+    meta.worldCx = meta.wcx || 0;
+    meta.worldCy = meta.wcy || 0;
+    delete meta.wcx;
+    delete meta.wcy;
     delete meta.nfood;
     delete meta.fc;
     return meta;

@@ -47,13 +47,16 @@ class FoodManager {
     this._all = [];
   }
 
-  spawnInitial(worldRadius) {
+  /* cx/cy default to the origin, which is where every mode but the battle
+     royale keeps its world, so these signatures are additive. */
+  spawnInitial(worldRadius, cx, cy) {
     for (let i = 0; i < C.FOOD_SPAWN_COUNT; i++) {
-      this.spawnOne(worldRadius);
+      this.spawnOne(worldRadius, undefined, undefined, undefined, undefined,
+                    undefined, undefined, undefined, cx, cy);
     }
   }
 
-  spawnOne(worldRadius, x, y, value, cashValue, color, size, dropped) {
+  spawnOne(worldRadius, x, y, value, cashValue, color, size, dropped, cx, cy) {
     const id = nextFoodId = (nextFoodId + 1) >>> 0 || 1;
     let fx, fy;
     if (x !== undefined && y !== undefined) {
@@ -64,8 +67,8 @@ class FoodManager {
       // sqrt → even spread by area (no center clumping); + ~one view-distance pushes food well out
       // past the border (worldRadius) into the red zone, about as far as a player can typically see.
       const r = Math.sqrt(Math.random()) * (worldRadius + 1600);
-      fx = Math.cos(angle) * r;
-      fy = Math.sin(angle) * r;
+      fx = (cx || 0) + Math.cos(angle) * r;
+      fy = (cy || 0) + Math.sin(angle) * r;
     }
     const isGolden = cashValue > 0;
     const food = {
@@ -87,11 +90,12 @@ class FoodManager {
     return food;
   }
 
-  refill(worldRadius) {
+  refill(worldRadius, cx, cy) {
     const needed = C.FOOD_SPAWN_COUNT - this.items.size;
     const spawned = [];
     for (let i = 0; i < Math.min(needed, 30); i++) {
-      spawned.push(this.spawnOne(worldRadius));
+      spawned.push(this.spawnOne(worldRadius, undefined, undefined, undefined,
+                                 undefined, undefined, undefined, undefined, cx, cy));
     }
     return spawned;
   }
