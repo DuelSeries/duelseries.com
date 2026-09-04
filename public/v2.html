@@ -555,6 +555,66 @@ body.ingame .tkrun,body.nomotion .tkrun{animation-play-state:paused}
 .btn.sec{background:var(--s2);color:var(--tx2);font-weight:550}
 .btn.sec:hover{background:var(--s3);color:var(--tx)}
 .note{font-size:12px;color:var(--tx3);line-height:1.7;margin-top:16px}
+
+/* ── the nightly event ───────────────────────────────────────────────────
+   Nothing new invented here: the page borrows the tote-board mono the money
+   already uses and spends its one bold move on first place. */
+.evhero{background:var(--s1);border-radius:var(--r3);padding:30px 26px 26px;
+  text-align:center}
+.evtag{display:inline-block;font-family:var(--fm);font-size:11px;
+  font-weight:600;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--money);background:rgba(240,168,48,.12);
+  border:1px solid rgba(240,168,48,.3);border-radius:var(--rf);padding:5px 12px}
+.evname{margin:14px 0 0;font-size:27px;font-weight:650;letter-spacing:-.6px}
+.evline{margin:18px 0 0;font-size:12px;font-weight:600;letter-spacing:.13em;
+  text-transform:uppercase;color:var(--tx3)}
+.evclock{display:flex;align-items:flex-start;justify-content:center;gap:6px;
+  margin-top:8px}
+/* Tabular figures, or every ticking second shuffles the whole row sideways. */
+.evclock b{display:block;font-family:var(--fm);font-variant-numeric:tabular-nums;
+  font-size:clamp(38px,11vw,54px);font-weight:600;line-height:1.05;color:var(--tx)}
+.evclock span{display:block;margin-top:4px;font-size:10.5px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--tx3)}
+.evclock i{font-family:var(--fm);font-size:clamp(28px,8vw,40px);font-style:normal;
+  line-height:1.35;color:var(--s3)}
+.evwhen{margin:16px 0 0;font-size:13px;color:var(--tx2)}
+/* Live changes the accent, not the layout: the same page, in its other state. */
+.evhero.live .evtag{color:var(--live);background:rgba(142,208,129,.13);
+  border-color:rgba(142,208,129,.36)}
+.evhero.live .evclock b{color:var(--live)}
+
+.podium{display:grid;grid-template-columns:repeat(3,1fr);align-items:end;
+  gap:10px;margin-top:20px;max-width:430px;margin-left:auto;margin-right:auto}
+.plinth{text-align:center}
+.pmoney{font-family:var(--fm);font-variant-numeric:tabular-nums;font-weight:600;
+  font-size:19px;color:var(--tx2);margin-bottom:9px}
+.pblock{display:flex;align-items:center;justify-content:center;
+  background:var(--s1);border:1px solid var(--s2);
+  border-radius:var(--r2) var(--r2) 0 0;border-bottom:none}
+.prank{font-family:var(--fm);font-size:12.5px;font-weight:600;letter-spacing:.08em;
+  color:var(--tx3)}
+/* The heights are the ranking. */
+.p1 .pblock{height:120px}
+.p2 .pblock{height:88px}
+.p3 .pblock{height:66px}
+.p1 .pmoney{font-size:26px;color:var(--money)}
+.p1 .pblock{background:rgba(240,168,48,.11);border-color:rgba(240,168,48,.34)}
+.p1 .prank{color:var(--money)}
+/* One line under all three, so they read as one object standing on a floor. */
+.podium::after{content:"";grid-column:1/-1;height:1px;background:var(--s3)}
+
+.evfoot{max-width:430px;margin:0 auto;text-align:center}
+.evgo{width:100%;margin-top:20px;background:var(--bone);color:var(--ink);
+  border:none;border-radius:var(--r2);padding:15px;cursor:pointer;
+  font-family:inherit;font-size:15px;font-weight:650;transition:opacity .15s}
+.evgo:hover{opacity:.88}
+.evnote{text-align:left}
+.evfoot{padding-bottom:26px}
+@media(max-width:520px){
+  .evhero{padding:24px 18px 22px}
+  .evname{font-size:23px}
+  .podium{margin-top:16px}
+}
 .note b{color:var(--tx2);font-weight:600}
 .lnk{color:var(--tx2);text-decoration:underline;text-underline-offset:2px}
 .lnk:hover{color:var(--tx)}
@@ -1220,6 +1280,58 @@ body.scr-anim { overflow-x:hidden }
      and a message there pushes the Play button down as it appears. -->
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
+<script>
+/* The nightly event clock.
+
+   Eastern wall clock, read straight from Intl rather than by adding a fixed
+   offset to UTC. A hardcoded -5 is wrong for two thirds of the year and a
+   hardcoded -4 is wrong for the other third, and the failure is silent: the
+   countdown is simply an hour out and nobody can tell which hour is right.
+   Working in wall-clock seconds means the DST switch takes care of itself. */
+(function(){
+  var START=20, END=21;                 // 8pm to 9pm, Eastern
+  var fmt;
+  try {
+    fmt=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',hour12:false,
+      hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  } catch(_) { fmt=null; }
+  function etSeconds(){
+    var d=new Date();
+    if(!fmt) return d.getHours()*3600+d.getMinutes()*60+d.getSeconds();
+    var o={};
+    fmt.formatToParts(d).forEach(function(p){ if(p.type!=='literal') o[p.type]=+p.value; });
+    // Some engines render midnight as hour 24 under hour12:false.
+    if(o.hour===24) o.hour=0;
+    return o.hour*3600+o.minute*60+o.second;
+  }
+  var pad=function(n){ return n<10?'0'+n:''+n };
+  /* force: fillScreen runs BEFORE showScreen, so the screen is still display:none
+     when the tab hook fires. Without this the arrival tick bailed on the
+     visibility test and the clock sat on dashes until the next interval. */
+  function tick(force){
+    var screen=document.getElementById('events-screen');
+    if(!screen) return;
+    // Off-screen it writes nothing on its own schedule. A lobby animation left
+    // running behind the game once cost a day of hunting a frame-rate drop;
+    // this is one DOM write a second, but the rule is the rule.
+    if(!force&&getComputedStyle(screen).display==='none') return;
+    var now=etSeconds(), s=START*3600, e=END*3600, left, live=now>=s&&now<e;
+    if(live) left=e-now;
+    else if(now<s) left=s-now;
+    else left=86400-now+s;
+    document.getElementById('ev-h').textContent=pad(Math.floor(left/3600));
+    document.getElementById('ev-m').textContent=pad(Math.floor(left%3600/60));
+    document.getElementById('ev-s').textContent=pad(left%60);
+    document.getElementById('ev-line').textContent=live?'Live now, ends in':'Starts in';
+    document.getElementById('ev-tag').textContent=live?'Live':'Tonight';
+    document.getElementById('evhero').classList.toggle('live',live);
+  }
+  window.V2Event={tick:tick, etSeconds:etSeconds};
+  tick();
+  setInterval(tick,1000);
+})();
+</script>
+
 <!-- ══ MONEY SHEETS ══ -->
 <!-- Deposit and Withdraw each get the whole screen. They were a pair of
      buttons that swapped a panel out from under the balance, which gave the
@@ -1383,10 +1495,47 @@ body.scr-anim { overflow-x:hidden }
 <!-- Nothing in it yet, and it says so rather than showing an empty frame. -->
 <main id="events-screen" class="wrap">
   <div class="head"><div><h2>Events</h2>
-    <div class="sub">Tournaments and one-off games with a prize on them.</div></div></div>
-  <div class="panel evempty">
-    <p class="note">No events running. When one is on, it shows up here with
-      its buy-in, its prize and how long is left to enter.</p>
+    <div class="sub">Every night, the top three share the pot.</div></div></div>
+
+  <!-- The countdown is the hero because it is the only thing this page has to
+       tell you: whether to be here now. The prizes are why, but the clock is the
+       decision. Set in the same mono the money uses, so the page reads as one
+       tote board rather than a poster with a widget on it. -->
+  <section class="evhero" id="evhero">
+    <div class="evtag" id="ev-tag">Tonight</div>
+    <h3 class="evname">Nightly Top Three</h3>
+    <p class="evline" id="ev-line">Starts in</p>
+    <div class="evclock" role="timer" aria-live="off">
+      <div class="evu"><b id="ev-h">--</b><span>hrs</span></div>
+      <i aria-hidden="true">:</i>
+      <div class="evu"><b id="ev-m">--</b><span>min</span></div>
+      <i aria-hidden="true">:</i>
+      <div class="evu"><b id="ev-s">--</b><span>sec</span></div>
+    </div>
+    <p class="evwhen">8:00 to 9:00 PM Eastern, every day of the week</p>
+  </section>
+
+  <!-- Tallest in the middle. The plinth heights ARE the ranking, so the shape
+       says who won before you read a word of it. -->
+  <section class="podium" aria-label="Prizes">
+    <div class="plinth p2">
+      <div class="pmoney">$10</div>
+      <div class="pblock"><span class="prank">2nd</span></div>
+    </div>
+    <div class="plinth p1">
+      <div class="pmoney">$20</div>
+      <div class="pblock"><span class="prank">1st</span></div>
+    </div>
+    <div class="plinth p3">
+      <div class="pmoney">$5</div>
+      <div class="pblock"><span class="prank">3rd</span></div>
+    </div>
+  </section>
+
+  <div class="evfoot">
+    <button type="button" class="evgo" onclick="open_('snake')">Play slither.io</button>
+    <p class="note evnote">Highest score in slither.io during the hour takes first.
+      Free and paid tables both count.</p>
   </div>
 </main>
 
@@ -2733,6 +2882,10 @@ function fillScreen(tab){
   if(tab==='wallet')V2Wallet.render();
   else if(tab==='social')V2Social.load();
   else if(tab==='settings')drawSettings();
+  /* Ticked on arrival, not on the interval's own schedule. The clock only
+     writes while its screen is up, so opening the tab used to show a row of
+     dashes for up to a second before the first tick landed. */
+  else if(tab==='events'&&window.V2Event)V2Event.tick(true);
 }
 
 /* ── settings ────────────────────────────────────────────────────────────

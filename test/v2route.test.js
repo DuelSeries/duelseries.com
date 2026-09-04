@@ -957,3 +957,35 @@ test('a scrollbar can never shift the layout sideways', () => {
   assert.ok(!desktopHidesOverflow,
     'the document still scrolls on desktop, the bar is only invisible');
 });
+
+test('the nightly event states its prizes and counts down in real Eastern time', () => {
+  /* A fixed UTC offset is wrong for two thirds of the year one way and one
+     third the other, and the failure is silent — the clock is simply an hour
+     out and nothing on screen says which hour is right. The page has to read
+     the Eastern wall clock, so this checks it still does. */
+  const html = v2();
+  assert.ok(/timeZone:\s*'America\/New_York'/.test(html),
+    'the countdown reads the Eastern wall clock');
+  assert.ok(!/getTimezoneOffset\(\)\s*[-+]\s*\d|UTC[-+]\s*[45]\b/.test(html),
+    'and does not add a hardcoded offset');
+  assert.ok(/var START\s*=\s*20\s*,\s*END\s*=\s*21/.test(html),
+    'the window is 8pm to 9pm');
+
+  // The prizes are the page's whole claim; a shell ate these once already.
+  for (const money of ['$20', '$10', '$5']) {
+    assert.ok(html.includes('<div class="pmoney">' + money + '</div>'),
+      'the podium states ' + money);
+  }
+  // Tallest in the middle: the heights ARE the ranking.
+  const h = (k) => {
+    const at = html.indexOf('.p' + k + ' .pblock{height:');
+    assert.ok(at > 0, 'plinth ' + k + ' has a height');
+    return parseInt(html.slice(at).split('height:')[1], 10);
+  };
+  assert.ok(h(1) > h(2) && h(2) > h(3), 'first place stands highest');
+
+  /* fillScreen runs BEFORE showScreen, so the arrival tick sees display:none.
+     Without the force flag the clock shows dashes until the next interval. */
+  assert.ok(html.includes("V2Event)V2Event.tick(true)"),
+    'opening the tab forces a tick rather than waiting for the interval');
+});
