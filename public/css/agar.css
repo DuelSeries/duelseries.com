@@ -138,43 +138,6 @@ kbd {
    has, so it applies to nothing; kept out of the way rather than deleted
    blind, because agar.css is shared with the spectate bar below it. */
 
-/* ── Spectate bar ───────────────────────────────────────────────────────────── */
-#spectate-bar {
-  display: none;
-  position: fixed;
-  bottom: 24px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 40;
-  background: rgba(255,255,255,0.9);
-  border: 1px solid rgba(99,102,241,0.25);
-  border-radius: 30px;
-  padding: 8px 16px;
-  align-items: center;
-  gap: 12px;
-  color: #1e1b4b;
-  font-size: 0.9rem;
-  font-weight: 600;
-  pointer-events: all;
-  backdrop-filter: blur(8px);
-  box-shadow: 0 4px 20px rgba(99,102,241,0.15);
-}
-#spectate-bar.active { display: flex; }
-#spectate-bar button {
-  background: rgba(99,102,241,0.1);
-  border: 1px solid rgba(99,102,241,0.25);
-  border-radius: 20px;
-  color: #6366f1;
-  cursor: pointer;
-  font-size: 0.9rem;
-  font-weight: 600;
-  padding: 4px 14px;
-  transition: background 0.15s;
-}
-#spectate-bar button:hover { background: rgba(99,102,241,0.2); }
-#spectate-prev, #spectate-next { font-size: 1.1rem; padding: 4px 12px; }
-#spectate-label { min-width: 170px; text-align: center; color: #6366f1; }
-
 /* ── Admin console ──────────────────────────────────────────────────────────── */
 #admin-console {
   position: fixed;

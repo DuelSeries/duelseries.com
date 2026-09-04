@@ -1128,6 +1128,7 @@ document.getElementById('btn-cashout-spectate').addEventListener('click', () => 
   document.getElementById('cashout-screen').classList.remove('active');
   enterSpectate();
 });
+document.getElementById('btn-cashout-respawn').addEventListener('click', doRespawn);
 document.getElementById('btn-cashout-lobby').addEventListener('click', () => {
   goToLobby();
 });

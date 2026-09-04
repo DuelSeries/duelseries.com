@@ -125,9 +125,13 @@
         <span>Score <b id="co-score">0</b></span>
       </p>
 
+      <!-- The same three, in the same order, as the death card and as agar. Cashing
+           out is not leaving: you took your money off the table and most people want
+           to sit back down. There was no way to do that from here at all. -->
       <div class="co-btns">
-        <button class="co-btn co-go" id="btn-cashout-lobby">Back to lobby</button>
-        <button class="co-btn co-ghost" id="btn-cashout-spectate">Keep watching</button>
+        <button class="co-btn co-ghost" id="btn-cashout-spectate">Watch</button>
+        <button class="co-btn co-go" id="btn-cashout-respawn">Play again</button>
+        <button class="co-btn co-ghost" id="btn-cashout-lobby">Lobby</button>
       </div>
     </div>
   </div>
@@ -137,8 +141,8 @@
     <button id="spectate-prev">&#8592;</button>
     <span id="spectate-label">Spectating: —</span>
     <button id="spectate-next">&#8594;</button>
-    <button id="spectate-play-again">▶ Play Again</button>
-    <button id="spectate-stop">⬅ Lobby</button>
+    <button id="spectate-play-again">Play again</button>
+    <button id="spectate-stop">Lobby</button>
   </div>
 
   <!-- Player Profile Modal -->

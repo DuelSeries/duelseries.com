@@ -521,17 +521,28 @@ function getSpectateTargets() {
   return [...renderPlayers.values()].filter(p => p.id !== myId && p.alive && p.cells.length);
 }
 
+const MOBILE_BTNS = ['agar-btn-cashout', 'agar-btn-split'];
+function showMobileBtns(on) {
+  MOBILE_BTNS.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = on ? '' : 'none';
+  });
+}
 function enterSpectate() {
   spectating  = true;
   spectateIdx = 0;
   document.getElementById('death-screen').classList.remove('active');
   document.getElementById('spectate-bar').classList.add('active');
+  // Neither button does anything while you are watching someone else, and both
+  // sat directly on top of the bar.
+  showMobileBtns(false);
   updateSpectateLabel();
 }
 
 function exitSpectate() {
   spectating = false;
   document.getElementById('spectate-bar').classList.remove('active');
+  showMobileBtns(true);
 }
 
 function updateSpectateLabel() {
