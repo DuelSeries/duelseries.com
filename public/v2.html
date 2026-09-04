@@ -421,7 +421,19 @@ body.ingame .tkrun,body.nomotion .tkrun{animation-play-state:paused}
   color:var(--tx3);margin-right:14px;white-space:nowrap}
 .lcount.on{color:var(--tx)}
 .ldot{width:6px;height:6px;border-radius:50%;background:var(--s3);flex:0 0 auto}
-.lcount.on .ldot{background:var(--live)}
+/* Lit AND beating, but only when the number is real. An empty room gets a dead
+   grey dot and no movement, so the pulse means something: it is the difference
+   between a room you can join and a room that is just listed. */
+.lcount.on .ldot{background:var(--live);animation:lpulse 1.9s ease-in-out infinite}
+@keyframes lpulse{
+  0%,100%{box-shadow:0 0 0 0 rgba(142,208,129,.55);opacity:1}
+  50%    {box-shadow:0 0 0 5px rgba(142,208,129,0);opacity:.72}
+}
+/* The Motion switch in Settings turns it off with everything else, and so does
+   the system setting. A light that beats forever is exactly what somebody who
+   asked for less movement asked to be rid of. */
+body.nomotion .lcount.on .ldot{animation:none}
+@media(prefers-reduced-motion:reduce){.lcount.on .ldot{animation:none}}
 /* Read aloud, never drawn. */
 .vh{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
   clip:rect(0 0 0 0);white-space:nowrap;border:0}
@@ -599,21 +611,29 @@ body.ingame .tkrun,body.nomotion .tkrun{animation-play-state:paused}
 
 .podium{display:grid;grid-template-columns:repeat(3,1fr);align-items:end;
   gap:10px;margin-top:20px;max-width:430px;margin-left:auto;margin-right:auto}
-.plinth{text-align:center}
-.pmoney{font-family:var(--fm);font-variant-numeric:tabular-nums;font-weight:600;
-  font-size:19px;color:var(--tx2);margin-bottom:9px}
-.pblock{display:flex;align-items:center;justify-content:center;
-  background:var(--s1);border:1px solid var(--s2);
+.plinth{text-align:center;min-width:0}
+/* The seat. A question mark until somebody is standing in it. */
+.pwho{font-size:14px;font-weight:600;color:var(--tx2);margin-bottom:9px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pwho.empty{font-family:var(--fm);font-size:20px;color:var(--s3)}
+.pblock{display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:7px;background:var(--s1);border:1px solid var(--s2);
   border-radius:var(--r2) var(--r2) 0 0;border-bottom:none}
 .prank{font-family:var(--fm);font-size:12.5px;font-weight:600;letter-spacing:.08em;
   color:var(--tx3)}
+/* The prize sits on the plinth with the placing, because the two belong to each
+   other: second and third are placings that pay nothing, and a dash on the
+   block says that far better than a number that is not there. */
+.pmoney{font-family:var(--fm);font-variant-numeric:tabular-nums;font-weight:600;
+  font-size:15px;color:var(--tx3)}
 /* The heights are the ranking. */
-.p1 .pblock{height:120px}
-.p2 .pblock{height:88px}
-.p3 .pblock{height:66px}
-.p1 .pmoney{font-size:26px;color:var(--money)}
+.p1 .pblock{height:124px}
+.p2 .pblock{height:90px}
+.p3 .pblock{height:68px}
 .p1 .pblock{background:rgba(240,168,48,.11);border-color:rgba(240,168,48,.34)}
 .p1 .prank{color:var(--money)}
+.p1 .pmoney{font-size:21px;color:var(--money)}
+.p1 .pwho{color:var(--tx);font-size:15px}
 /* One line under all three, so they read as one object standing on a floor. */
 .podium::after{content:"";grid-column:1/-1;height:1px;background:var(--s3)}
 
@@ -622,7 +642,11 @@ body.ingame .tkrun,body.nomotion .tkrun{animation-play-state:paused}
   border:none;border-radius:var(--r2);padding:15px;cursor:pointer;
   font-family:inherit;font-size:15px;font-weight:650;transition:opacity .15s}
 .evgo:hover{opacity:.88}
-.evnote{text-align:left}
+.evhow{display:inline-flex;align-items:center;gap:7px;margin-top:14px;
+  background:none;border:none;cursor:pointer;font-family:inherit;
+  font-size:13px;font-weight:600;color:var(--tx3);padding:6px 8px;
+  transition:color .15s}
+.evhow:hover{color:var(--tx)}
 .evfoot{padding-bottom:26px}
 @media(max-width:520px){
   .evhero{padding:24px 18px 22px}
@@ -826,7 +850,7 @@ body.no-foot footer{display:none}
    cosmetic: a buy-in, a name field and a Play button on a game that cannot be
    started are four separate promises the product cannot keep. */
 .soonwrap{display:none}
-#detail.soon .howrow,#detail.soon .sl,#detail.soon #stakes,
+#detail.soon .sl,#detail.soon #stakes,
 #detail.soon #stakeoff,#detail.soon .namerow,#detail.soon .go,
 #detail.soon #play-msg,#detail.soon .lookrow,#detail.soon .lobwrap{display:none}
 #detail.soon .soonwrap{display:block}
@@ -1373,7 +1397,18 @@ body.scr-anim { overflow-x:hidden }
     document.getElementById('ev-tag').textContent=live?'Live':'Tonight';
     document.getElementById('evhero').classList.toggle('live',live);
   }
-  window.V2Event={tick:tick, etSeconds:etSeconds};
+  /* Names on the plinths. Nobody has won one yet, so all three hold a question
+     mark; pass an array of names to seat them. Kept as a function rather than
+     three ids in the markup so the page never has to be edited to fill it. */
+  function podium(names){
+    ['ev-1st','ev-2nd','ev-3rd'].forEach(function(id,i){
+      var el=document.getElementById(id); if(!el) return;
+      var who=names&&names[i];
+      el.textContent=who||'?';
+      el.classList.toggle('empty',!who);
+    });
+  }
+  window.V2Event={tick:tick, etSeconds:etSeconds, podium:podium};
   tick();
   setInterval(tick,1000);
 })();
@@ -1415,7 +1450,7 @@ body.scr-anim { overflow-x:hidden }
      in and a match you win. -->
 <div id="howveil" class="howveil" role="dialog" aria-modal="true" aria-label="How to play">
   <div class="howcard">
-    <div class="howtop"><h2>How to play</h2>
+    <div class="howtop"><h2 id="howtitle">How to play</h2>
       <button type="button" class="howx" onclick="closeHow()" aria-label="Close">&#10005;</button>
     </div>
     <ol class="howsteps" id="howsteps"></ol>
@@ -1470,14 +1505,6 @@ body.scr-anim { overflow-x:hidden }
       <div class="soonbtn" role="note">Not playable yet</div>
       <p class="soonfoot">Every game on DuelSeries pays out the same way. This one
         opens when it is finished and worth staking on.</p>
-    </div>
-    <div class="howrow">
-      <button type="button" class="howbtn" onclick="openHow()">
-        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor"
-             stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
-          <circle cx="12" cy="12" r="9"/><path d="M9.6 9.2a2.5 2.5 0 1 1 3.2 2.4c-.5.2-.8.7-.8 1.2v.6"/>
-          <path d="M12 17h.01"/></svg>
-        How to play</button>
     </div>
 
     <div class="sl">Your buy-in</div>
@@ -1553,7 +1580,7 @@ body.scr-anim { overflow-x:hidden }
 <!-- Nothing in it yet, and it says so rather than showing an empty frame. -->
 <main id="events-screen" class="wrap">
   <div class="head"><div><h2>Events</h2>
-    <div class="sub">Every night, the top three share the pot.</div></div></div>
+    <div class="sub">Every night at 8. First place takes $20.</div></div></div>
 
   <!-- The countdown is the hero because it is the only thing this page has to
        tell you: whether to be here now. The prizes are why, but the clock is the
@@ -1574,26 +1601,37 @@ body.scr-anim { overflow-x:hidden }
   </section>
 
   <!-- Tallest in the middle. The plinth heights ARE the ranking, so the shape
-       says who won before you read a word of it. -->
-  <section class="podium" aria-label="Prizes">
+       says who won before you read a word of it.
+
+       The name goes ON the plinth, which is why the podium is worth drawing at
+       all: a podium with nobody standing on it is just three rectangles. Until
+       somebody wins one they hold a question mark, which reads as a seat nobody
+       has taken rather than as missing data. -->
+  <section class="podium" aria-label="Tonight's podium">
     <div class="plinth p2">
-      <div class="pmoney">$10</div>
-      <div class="pblock"><span class="prank">2nd</span></div>
+      <div class="pwho" id="ev-2nd">?</div>
+      <div class="pblock"><span class="prank">2nd</span><span class="pmoney">&mdash;</span></div>
     </div>
     <div class="plinth p1">
-      <div class="pmoney">$20</div>
-      <div class="pblock"><span class="prank">1st</span></div>
+      <div class="pwho" id="ev-1st">?</div>
+      <div class="pblock"><span class="prank">1st</span><span class="pmoney">$20</span></div>
     </div>
     <div class="plinth p3">
-      <div class="pmoney">$5</div>
-      <div class="pblock"><span class="prank">3rd</span></div>
+      <div class="pwho" id="ev-3rd">?</div>
+      <div class="pblock"><span class="prank">3rd</span><span class="pmoney">&mdash;</span></div>
     </div>
   </section>
 
   <div class="evfoot">
     <button type="button" class="evgo" onclick="open_('snake')">Play slither.io</button>
-    <p class="note evnote">Highest score in slither.io during the hour takes first.
-      Free and paid tables both count.</p>
+    <!-- The rules were one sentence pretending to be all of them. They live
+         behind this now, where there is room to say the whole thing. -->
+    <button type="button" class="evhow" onclick="openEventHow()">
+      <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor"
+           stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="9"/><path d="M9.6 9.2a2.5 2.5 0 1 1 3.2 2.4c-.5.2-.8.7-.8 1.2v.6"/>
+        <path d="M12 17h.01"/></svg>
+      How it works</button>
   </div>
 </main>
 
@@ -2747,8 +2785,6 @@ function open_(id){
      so the button was a control in the middle of the screen earning nothing.
      agar.io keeps it, because splitting and cashing out are not common
      knowledge in the way "eat things, avoid heads" is. */
-  const how=document.querySelector('.howrow');
-  if(how)how.style.display=cur.id==='snake'?'none':'';
   /* Everything below this point fills controls that an unbuilt game does not
      show. It still runs — the code path is the same one — but the column it
      writes into is hidden, so nothing here has to know about it twice. */
@@ -2803,19 +2839,23 @@ function open_(id){
 }
 /* Step three is the only one that changes: an arena you grow in and a match
    you win are different games, and the other three steps are the product. */
-function openHow(){
-  const arena=!cur||cur.type==='p';
-  const steps=[
-    ['Pick your buy-in','Free, 50c or $2. Everyone in the room paid exactly the same, so nobody can out-bet you.'],
-    ['Start or join','Open a room and wait, or drop into one that already has people in it.'],
-    arena
-      ? ['Grow your stack','Your buy-in is what you are worth at the start. Eat to grow it, and take the worth of anyone you knock out.']
-      : ['Win the match','Beat your opponent and take the pot. You both staked the same, so it comes down to how you play.'],
-    ['Cash out','Leave whenever you like. What you are worth is paid to your wallet on-chain, minus the ten percent house cut.'],
-  ];
-  document.getElementById('howsteps').innerHTML=steps.map(s=>
+/* The sheet, with whatever the caller wants in it. The games no longer open it
+   — everybody already knows how a snake game works — but the event does, and
+   the rules of an event are not something anyone can guess. */
+function openHow(title,steps){
+  document.getElementById('howtitle').textContent=title||'How to play';
+  document.getElementById('howsteps').innerHTML=(steps||[]).map(s=>
     '<li><div><b>'+s[0]+'</b><span>'+s[1]+'</span></div></li>').join('');
   document.getElementById('howveil').classList.add('on');
+}
+/* Written to be added to. Owen fills these in as the format settles. */
+function openEventHow(){
+  openHow('Nightly Top Three',[
+    ['Be in a game by 8:00','The hour runs 8:00 to 9:00 PM Eastern, every night. Join any slither.io table, free or paid, before it starts.'],
+    ['Play the hour','Your best score during the hour is the one that counts. Dying does not knock you out — go again.'],
+    ['Top three take the podium','The three highest scores at 9:00 take first, second and third.'],
+    ['First place is paid','$20 to first. Second and third take the placing, not the money.'],
+  ]);
 }
 function closeHow(){document.getElementById('howveil').classList.remove('on')}
 function goHome(dir){showScreen('home',dir);jumpToTop()}
@@ -2992,7 +3032,7 @@ function fillScreen(tab){
   /* Ticked on arrival, not on the interval's own schedule. The clock only
      writes while its screen is up, so opening the tab used to show a row of
      dashes for up to a second before the first tick landed. */
-  else if(tab==='events'&&window.V2Event)V2Event.tick(true);
+  else if(tab==='events'&&window.V2Event){V2Event.tick(true);V2Event.podium();}
 }
 
 /* ── settings ────────────────────────────────────────────────────────────

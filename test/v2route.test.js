@@ -971,11 +971,19 @@ test('the nightly event states its prizes and counts down in real Eastern time',
   assert.ok(/var START\s*=\s*20\s*,\s*END\s*=\s*21/.test(html),
     'the window is 8pm to 9pm');
 
-  // The prizes are the page's whole claim; a shell ate these once already.
-  for (const money of ['$20', '$10', '$5']) {
-    assert.ok(html.includes('<div class="pmoney">' + money + '</div>'),
-      'the podium states ' + money);
+  /* One prize now: first place takes $20, second and third take the placing.
+     The page must not imply otherwise anywhere, which is a thing prose gets
+     wrong long after the number is fixed. */
+  assert.ok(html.includes('<span class="pmoney">$20</span>'), 'first place is paid $20');
+  assert.ok(!/$10|$5/.test(html.slice(html.indexOf('class="podium"'),
+    html.indexOf('class="evfoot"'))), 'and nothing else on the podium is');
+  assert.ok(!/top three share the pot/i.test(html),
+    'and the page does not still say the pot is shared');
+  // A seat with nobody in it, ready to hold a name.
+  for (const id of ['ev-1st', 'ev-2nd', 'ev-3rd']) {
+    assert.ok(html.includes('id="' + id + '"'), 'the podium has a seat for ' + id);
   }
+  assert.ok(/V2Event={[^}]*podium/.test(html), 'and a way to seat a winner in it');
   // Tallest in the middle: the heights ARE the ranking.
   const h = (k) => {
     const at = html.indexOf('.p' + k + ' .pblock{height:');
@@ -986,7 +994,7 @@ test('the nightly event states its prizes and counts down in real Eastern time',
 
   /* fillScreen runs BEFORE showScreen, so the arrival tick sees display:none.
      Without the force flag the clock shows dashes until the next interval. */
-  assert.ok(html.includes("V2Event)V2Event.tick(true)"),
+  assert.ok(html.includes("V2Event.tick(true)"),
     'opening the tab forces a tick rather than waiting for the interval');
 });
 
@@ -1007,7 +1015,7 @@ test('an unbuilt game can be opened and looked at, and still cannot be played', 
      button on a game that cannot start are promises the product cannot keep. */
   const hides = html.match(/#detail\.soon [^{]*\{display:none\}/);
   assert.ok(hides, 'the locked screen hides the play column');
-  for (const part of ['.go', '#stakes', '.namerow', '.lookrow', '.lobwrap', '.howrow']) {
+  for (const part of ['.go', '#stakes', '.namerow', '.lookrow', '.lobwrap']) {
     assert.ok(hides[0].includes(part), 'it hides ' + part);
   }
   assert.ok(html.includes('#detail.soon .soonwrap{display:block}'),
@@ -1020,4 +1028,31 @@ test('an unbuilt game can be opened and looked at, and still cannot be played', 
 
   // The last gate: presentation is not a security boundary.
   assert.ok(html.includes('window.V2_IS_SOON'), 'the play path can ask what is built');
+});
+
+test('How to play is off the games and on the event', () => {
+  /* Everyone already knows how a snake game works, so the button was a control
+     in the middle of the game screen earning nothing. An event's rules are the
+     opposite: nobody can guess them, and there is no other place to read them. */
+  const html = v2();
+  assert.ok(!html.includes('class="howrow"'), 'no game carries a How to play button');
+  assert.ok(!/onclick="openHow\(\)"/.test(html), 'and nothing opens it with no arguments');
+  assert.ok(html.includes('openEventHow()'), 'the event opens its own');
+  assert.ok(/function openHow\(title,steps\)/.test(html),
+    'the sheet takes its content from whoever opens it');
+});
+
+test('the live dot beats only when somebody is really in there', () => {
+  /* The dot is the whole signal: lit and moving means a room worth joining.
+     An empty room must not pulse, or it means nothing at all. */
+  const html = v2();
+  assert.ok(/\.lcount\.on \.ldot\{[^}]*animation:lpulse/.test(html),
+    'a lobby with players pulses');
+  assert.ok(!/\.ldot\{[^}]*animation/.test(html.match(/\.ldot\{[^}]*\}/)[0]),
+    'and an empty one does not');
+  // A light that beats forever is exactly what "less motion" asks to be rid of.
+  assert.ok(/body\.nomotion \.lcount\.on \.ldot\{animation:none\}/.test(html),
+    'the Motion switch stops it');
+  assert.ok(/prefers-reduced-motion:reduce\)\{\.lcount\.on \.ldot\{animation:none\}/.test(html),
+    'and so does the system setting');
 });
