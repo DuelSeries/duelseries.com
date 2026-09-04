@@ -38,7 +38,10 @@ const post = async (path, body) => {
 
 const srv = spawn(process.execPath, [ROOT + '/server/index.js'], {
   cwd: ROOT,
-  env: { ...process.env, PORT: String(PORT), OWNER_WALLET: ownerAddr, NTFY_DISABLED: '1' },
+  env: { ...process.env, PORT: String(PORT), NTFY_DISABLED: '1',
+         /* Not OWNER_WALLET: that no longer registers anybody. Owners live in
+            the code now, and this switch is refused outright in production. */
+         ALLOW_TEST_OWNER: '1', TEST_OWNER_WALLET: ownerAddr, NODE_ENV: 'test' },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 let out = '';

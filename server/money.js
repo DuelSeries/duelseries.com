@@ -14,7 +14,13 @@ const MODE = (process.env.MONEY_MODE || 'usdc').toLowerCase();
 
 // Lobby entry fees. SOL mode prices them in CAD (then converts to SOL); USDC mode prices them in
 // USD (which IS USDC, 1:1). Same lobby keys either way.
-const FEES = { free: 0, dime: 0.10, dollar: 1.00 };
+/* br is the nightly Battle Royale and it costs nothing to enter — the prize
+   comes from the house. It has to be IN this table even so, because the table is
+   what validates a lobby type: without it the stake quote answered 'Unknown
+   lobby' and the game never launched. At zero it takes the free path here and is
+   refused outright by /api/submit-stake, which is exactly right: there is no
+   such thing as staking into a battle royale. */
+const FEES = { free: 0, br: 0, dime: 0.10, dollar: 1.00 };
 
 const solBackend = {
   mode: 'sol', unit: 'SOL', lobbyFees: FEES,

@@ -142,10 +142,37 @@ catch (e) { console.warn('[AUTH] @privy-io/server-auth unavailable — owner tok
 const privyServer = (PrivyClient && process.env.PRIVY_APP_ID && process.env.PRIVY_APP_SECRET)
   ? new PrivyClient(process.env.PRIVY_APP_ID, process.env.PRIVY_APP_SECRET)
   : null;
-// Owner's embedded game wallet — what your Privy login resolves to (public, not a secret).
-// Always recognized; the OWNER_WALLET env var can register an ADDITIONAL owner wallet.
+/* Owner's embedded game wallet — what the Privy login resolves to. Public, not
+   a secret: it is an address, and it is on-chain anyway.
+
+   ONE OWNER, AND IT IS WRITTEN HERE. The OWNER_WALLET env var used to add a
+   second, and a second one had been sitting on the live box long enough that
+   Owen no longer recognised it — an old wallet or a different account, still
+   holding every control on the server. Nobody had done anything with it, but
+   nobody knew it was there either, and that is the part worth fixing.
+
+   Reading it from the environment is what made that possible. A value in a
+   file on a box is invisible to code review, survives every deploy, and is
+   remembered by nobody. In the code it shows up in a diff, and removing an
+   owner is a commit rather than an SSH session. */
 const OWNER_WALLET = 'C5cnzckMwH459eEURA8NwuZcKVFMExpRcbRSAuULH3m9';
-const OWNER_WALLETS = new Set([OWNER_WALLET, process.env.OWNER_WALLET].filter(Boolean));
+const OWNER_WALLETS = new Set([OWNER_WALLET]);
+if (process.env.OWNER_WALLET && process.env.OWNER_WALLET !== OWNER_WALLET) {
+  console.warn('[AUTH] OWNER_WALLET is set in the environment to '
+    + process.env.OWNER_WALLET + ' and is IGNORED. Owners are listed in the code.'
+    + ' Delete the line from .env when convenient.');
+}
+/* The smoke test boots a real server and needs a key it actually holds. Gated
+   behind a switch named for what it is, and refused outright in production, so
+   it can never quietly become the hole this just closed. */
+if (process.env.ALLOW_TEST_OWNER === '1' && process.env.TEST_OWNER_WALLET) {
+  if (process.env.NODE_ENV === 'production') {
+    console.error('[AUTH] ALLOW_TEST_OWNER is set in PRODUCTION. Refusing.');
+    process.exit(1);
+  }
+  OWNER_WALLETS.add(process.env.TEST_OWNER_WALLET);
+  console.warn('[AUTH] test owner wallet registered — not for production');
+}
 
 if (!privyServer) {
   console.warn('[AUTH] PRIVY_APP_ID / PRIVY_APP_SECRET not set — every token check will fail, '

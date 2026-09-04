@@ -257,21 +257,53 @@ async function post(path, body) {
    player counts and staked worth, which is nobody else's business either. */
 async function signed(action, args) {
   if (typeof window.duelWalletSignAction !== 'function') return null;
-  try { return await window.duelWalletSignAction(action, args || {}); }
-  catch (e) { say('Could not sign: ' + e.message, true); return null; }
+  /* Raced against a clock. This awaits a promise from Privy's SDK, and a
+     promise that never settles is a page that never finishes loading: the
+     console sat on "Checking who you are" with no gate, no panel and nothing
+     to press, which from the outside is a dead page. Ten seconds is far longer
+     than signing takes and far shorter than staring at a frozen screen. */
+  try {
+    return await Promise.race([
+      window.duelWalletSignAction(action, args || {}),
+      new Promise((_, no) => setTimeout(() => no(new Error('the wallet did not answer')), 10000)),
+    ]);
+  } catch (e) {
+    say('Could not sign: ' + e.message, true);
+    return null;
+  }
 }
 
+let refreshing = false;
 async function refresh() {
-  const proof = await signed('state', {});
-  if (!proof) return;
-  const r = await post('/api/owner/state', proof);
-  if (!r.ok) {
-    $('panel').hidden = true; $('gate').hidden = false;
-    $('who').textContent = 'This wallet does not own the server.';
-    return;
-  }
-  $('gate').hidden = true; $('panel').hidden = false;
-  render(r.body);
+  if (refreshing) return;              // the poll must not stack behind a slow one
+  refreshing = true;
+  /* Says what it is doing WHILE it does it. Every failure below lands the page
+     somewhere with a message and a button; none of them leaves it on this. */
+  if ($('panel').hidden) $('who').textContent = 'Asking your wallet to sign…';
+  try {
+    const proof = await signed('state', {});
+    if (!proof) {
+      $('panel').hidden = true; $('gate').hidden = false;
+      $('who').textContent = 'Your wallet did not sign. Reload and try again.';
+      return;
+    }
+    let r;
+    try { r = await post('/api/owner/state', proof); }
+    catch (e) {
+      $('who').textContent = 'Could not reach the server. It may be restarting.';
+      say('No answer from the server: ' + e.message, true);
+      return;
+    }
+    if (!r.ok) {
+      $('panel').hidden = true; $('gate').hidden = false;
+      $('who').textContent = r.status === 403
+        ? 'That wallet does not own this server.'
+        : 'The server refused the request (' + r.status + ').';
+      return;
+    }
+    $('gate').hidden = true; $('panel').hidden = false;
+    render(r.body);
+  } finally { refreshing = false; }
 }
 
 function render(s) {

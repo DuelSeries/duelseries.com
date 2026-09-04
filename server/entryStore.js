@@ -60,7 +60,13 @@ function makeEntryStore({ ttlMs = 5 * 60 * 1000, fees = {}, isStake = null } = {
        able to buy a paid seat. */
     consume(entryToken, shortType) {
       if (!(shortType in fees)) shortType = 'free';
-      if (shortType === 'free') return { ok: true, worth: 0 };
+      /* By FEE, not by the name 'free'. A lobby that costs nothing needs no
+         token, and there is more than one of those now: the battle royale is
+         free to enter. Matching on the name meant adding br to the fee table
+         made it a KNOWN type and therefore no longer the free case, so it
+         started demanding a paid token for a lobby with no fee and every join
+         was refused with 'Entry fee not verified'. */
+      if (!fees[shortType]) return { ok: true, worth: 0 };
       const t = entryToken && tokens.get(entryToken);
       if (!t || t.lobbyType !== shortType || Date.now() > t.exp) return { ok: false, worth: 0 };
       tokens.delete(entryToken);                       // one-time use
