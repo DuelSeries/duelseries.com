@@ -970,6 +970,11 @@ app.use((req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next()
    carrying real money. */
 app.get('/', (_req, res) => res.sendFile(path.join(__dirname, '../public/v2.html')));
 app.get('/v2', (_req, res) => res.sendFile(path.join(__dirname, '../public/v2.html')));
+/* The owner console, without the file extension. The page itself is not a
+   secret and does not need to be — it shows nothing and does nothing until an
+   owner wallet signs for it, and every route behind it checks that server-side.
+   Keeping the URL obscure would be the only protection it did NOT have. */
+app.get('/owner', (_req, res) => res.sendFile(path.join(__dirname, '../public/owner.html')));
 
 app.use(express.static(path.join(__dirname, '../public')));
 app.use('/shared', express.static(path.join(__dirname, '../shared')));
