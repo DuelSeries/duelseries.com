@@ -370,14 +370,9 @@ function render(s) {
    there because the most likely way this gets used wrongly is you, in a hurry,
    hitting the wrong row. */
 const CONFIRM = {
-  'maintenance:on': 'Close the game to new players?
-
-Anyone already playing carries on, but nobody new can start until you open it again.',
-  'br:stop':        'Stop the match that is running?
-
-Nobody wins it and no prize is paid.',
-  'bots:clear':     'Remove every bot from this room?',
-};
+  'maintenance:on': 'Close the game to new players?\n\nAnyone already playing carries on, but nobody new can start until you open it again.',
+  'br:stop':        'Stop the match that is running?\n\nNobody wins it and no prize is paid.',
+  'bots:clear':     'Remove every bot from this room?',};
 async function act(action, args) {
   const ask = CONFIRM[action];
   if (ask && !confirm(ask)) return;

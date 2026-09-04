@@ -1689,10 +1689,15 @@ io.on('connection', (socket) => {
   }
 
   socket.on('cashout:start', () => {
-    /* The hold is the real cash-out path — it pays out on its own timer — so
-       blocking only the legacy 'cashout' event below would have left the whole
-       thing wide open in a battle royale. */
-    if (socket._room && socket._room.isBattleRoyale) return;
+    /* Blocked by the MATCH, not by the room. Owen's call and the better rule:
+       while the room is filling it is an ordinary game and there is no reason
+       to take the control away. Once the circle starts closing you are playing
+       for the placing, and banking your worth would be the correct move every
+       time — which would collapse the mode into normal play with extra steps.
+
+       The hold is the real cash-out path: it pays out on its own timer, so
+       blocking only the legacy 'cashout' event below leaves this wide open. */
+    if (socket._room && socket._room.isBattleRoyale && socket._room.state === 'running') return;
     const room = socket._room;
     if (!room) return;
     const snake = room.snakes && room.snakes.get(socket.id);
@@ -1730,11 +1735,8 @@ io.on('connection', (socket) => {
      paid out already in the normal case. */
   socket.on('cashout', () => {
     if (!socketRL(socket, 'cashout', 1000)) return;
-    /* Not available in a battle royale, and refused HERE rather than only
-       hidden in the client: you play for the placing, and if banking your worth
-       mid-match were possible it would be the correct move every time and the
-       mode would collapse into normal play with extra steps. */
-    if (socket._room && socket._room.isBattleRoyale) return;
+    // Same rule as the hold above: only while a match is actually running.
+    if (socket._room && socket._room.isBattleRoyale && socket._room.state === 'running') return;
     const room = socket._room;
     const snake = room && room.snakes && room.snakes.get(socket.id);
     if (!snake || !snake.alive) return;

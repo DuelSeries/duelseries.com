@@ -924,6 +924,7 @@ const PHASE_WORDS = {
 };
 function brApply(s) {
   if (!brHud || !isBattleRoyale) return;
+  brRunning = s.state === 'running';
   brHud.hidden = false;
   brHud.dataset.phase = s.phase || s.state || 'waiting';
   document.getElementById('br-phase').textContent = PHASE_WORDS[s.phase] || 'Waiting';
@@ -950,9 +951,12 @@ function brApply(s) {
   const token = (() => { try { return localStorage.getItem('duel_admin_token'); } catch (_) { return null; } })();
   btn.hidden = !(token && s.canStart);
 
-  // No cashing out in a battle royale, so no button offering to.
+  /* The button follows the match, not the room. While the room is filling this
+     is an ordinary game and cashing out is allowed; once the circle starts
+     closing the server refuses it, so the control goes away rather than sitting
+     there doing nothing when pressed. */
   const co = document.getElementById('cashout-btn-mobile');
-  if (co) co.style.display = 'none';
+  if (co) co.style.display = (s.state === 'running') ? 'none' : '';
 }
 if (isBattleRoyale) {
   socket.on('br:state', brApply);
@@ -1045,8 +1049,14 @@ const qTimerText = document.getElementById('q-timer-text');
 // Tracks which snakes are currently cashing out: id -> { start, duration }
 const cashoutRings = new Map();
 
+/* brRunning is set from the server's own match state, so holding Q during a
+   battle royale does not spin a ring that the server is going to ignore. The
+   server refuses it either way — this only stops the UI promising something
+   that is not going to happen. */
+let brRunning = false;
 function startQTimer() {
   if (isDead || cashedOut || !myId) return;
+  if (brRunning) return;
   boostActive = false; // disable boost while cashing out
   qHoldStart = performance.now();
   qTimerEl.classList.add('active');
