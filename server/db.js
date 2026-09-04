@@ -399,7 +399,8 @@ async function searchPlayerNames(query, limit = 8) {
 
 async function getMyProfile(googleId) {
   const accRes = await pool.query(
-    `SELECT name, total_earnings, games_played, play_time_seconds, name_history
+    `SELECT name, total_earnings, games_played, play_time_seconds, name_history,
+            created_at
      FROM accounts WHERE google_id = $1`,
     [googleId]
   );
@@ -434,6 +435,10 @@ async function getMyProfile(googleId) {
     gamesPlayed: parseInt(row.games_played || 0),
     playTimeSeconds: parseInt(row.play_time_seconds || 0),
     nameHistory: row.name_history || [],
+    /* When the account was opened. The earnings chart starts here rather than
+       at the first cash-out, so a quiet first month reads as a quiet first
+       month instead of being cropped out of the picture. */
+    joinedAt: row.created_at,
     games,
     stakes,
     totalStaked,

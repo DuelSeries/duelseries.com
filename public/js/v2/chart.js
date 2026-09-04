@@ -17,13 +17,20 @@
 (function () {
   const NS = 'http://www.w3.org/2000/svg';
 
+/* Axis labels drop the day and name the year once the span is long enough for
+   "Sep 3" to appear three times meaning three different years. */
+function fmtAxis(t, longSpan) {
+  return new Date(t).toLocaleDateString('en-US',
+    longSpan ? { month: 'short', year: 'numeric' } : { month: 'short', day: 'numeric' });
+}
+
   function fmtDate(d) {
     const t = Date.parse(d);
     if (isNaN(t)) return String(d == null ? '' : d).replace(/[<&>]/g, '');
     return new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   }
 
-  function V2Chart(pts, money) {
+  function V2Chart(pts, money, from) {
     if (!pts || !pts.length) return '';
     money = money || (n => '$' + Number(n).toFixed(2));
 
@@ -42,13 +49,24 @@
     const PL = narrow ? 52  : 62,  PR = narrow ? 16  : 26;
     const PT = 22, PB = 46;
     const iw = W - PL - PR, ih = H - PT - PB;
-    const all = [{ d: pts[0].d, cum: 0, seed: true }].concat(pts);
+    /* The line opens at zero on the day the account was opened, when the
+       caller says when that was. Falling back to the first entry's own date is
+       what this did before, and it made the first cash-out look like money
+       that appeared from nowhere on day one. */
+    const all = [{ d: from || pts[0].d, cum: 0, seed: true }].concat(pts);
     const vals = all.map(p => p.cum);
     const hi = Math.max.apply(null, vals.concat([0]));
     const lo = Math.min.apply(null, vals.concat([0]));
     const pad = Math.max((hi - lo) * 0.14, 0.5);
     const top = hi + pad, bot = lo - pad;
-    const X = i => PL + (all.length === 1 ? 0 : iw * i / (all.length - 1));
+    /* Placed by DATE, not by position in the list. Spacing the points evenly
+       drew a year of nothing and an afternoon of three cash-outs at the same
+       width, so the shape of the line said nothing about when anything
+       happened. Now a quiet stretch is a long flat run, which is the whole
+       point of plotting a total over time. */
+    const ts = all.map(p => { const t = Date.parse(p.d); return isNaN(t) ? 0 : t; });
+    const t0 = Math.min.apply(null, ts), t1 = Math.max.apply(null, ts);
+    const X = i => PL + (t1 === t0 ? iw / 2 : iw * (ts[i] - t0) / (t1 - t0));
     const Y = v => PT + ih * (top - v) / (top - bot);
     const zy = Y(0);
 
@@ -66,17 +84,18 @@
 
     /* Dates along the bottom. At most five, evenly spaced, so they never
        collide however many points there are. */
+    /* Evenly spaced along the TIME span rather than every Nth entry, so the
+       labels describe the axis they sit under. Picking by entry put three
+       labels inside one busy afternoon and none across the year beside it. */
     let dates = '';
-    const real = all.filter(p => !p.seed);
-    const want = Math.min(narrow ? 3 : 5, real.length);
+    const want = Math.min(narrow ? 3 : 5, Math.max(2, all.length));
     for (let k = 0; k < want; k++) {
-      const idx = want === 1 ? real.length - 1
-                : Math.round(k * (real.length - 1) / (want - 1));
-      const i = idx + 1;                    // +1 for the seed point at index 0
+      const frac = want === 1 ? 1 : k / (want - 1);
+      const x = PL + iw * frac;
       const anchor = k === 0 ? 'start' : k === want - 1 ? 'end' : 'middle';
-      dates += '<text x="' + X(i).toFixed(1) + '" y="' + (H - 22) +
+      dates += '<text x="' + x.toFixed(1) + '" y="' + (H - 22) +
                '" text-anchor="' + anchor + '" font-size="12" fill="var(--tx3)">' +
-               fmtDate(real[idx].d) + '</text>';
+               fmtAxis(t0 + (t1 - t0) * frac, t1 - t0 > 300 * 864e5) + '</text>';
     }
 
     const line = all.map((p, i) =>

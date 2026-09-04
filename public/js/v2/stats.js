@@ -72,13 +72,20 @@
 
     let run = 0;
     const pts = games.map(g => ({ d: g.at, cum: (run += Number(g.amount) || 0) }));
+    /* Carried to today at the total it reached, so the line ends where you are
+       standing rather than at the last time you happened to win. A year
+       without a cash-out is a year of flat line, which is true and is worth
+       seeing. */
+    const lastAt = Date.parse(pts[pts.length - 1].d);
+    if (!isNaN(lastAt) && Date.now() > lastAt + 60000)
+      pts.push({ d: new Date().toISOString(), cum: run });
 
     /* The chart leads. It carries its own heading in the page title above it,
        so it opens the screen rather than sitting under a row of boxes.
        Ten rows, not twenty: this is a glance at recent payouts, and a list long
        enough to scroll stops being a glance. */
     el('s-body').innerHTML =
-      '<div class="panel chartbox">' + window.V2Chart(pts, money) + '</div>' +
+      '<div class="panel chartbox">' + window.V2Chart(pts, money, p.joinedAt) + '</div>' +
       '<div class="head"><div><h2>Recent payouts</h2>' +
         '<div class="sub">Newest first.</div></div></div>' +
       '<div class="tbl">' +
