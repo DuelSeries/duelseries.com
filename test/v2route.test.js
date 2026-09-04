@@ -403,7 +403,9 @@ test('the game screen puts the action above the lobby list', () => {
   const at = s => { const i = screen.indexOf(s); assert.notEqual(i, -1, 'missing: ' + s); return i; };
   const buyIn = at('id="stakes"');
   const name  = at('id="play-name"');
-  const play  = at('V2Play.playChosen()');
+  /* The button routes through startFromDetail now: one control that either
+     drops you into an arena or queues you for a duel, decided by the game. */
+  const play  = at('startFromDetail()');
   const lob   = at('id="dlob"');
   assert.ok(buyIn < name, 'the buy-in comes before the name field');
   assert.ok(name < play, 'and the name before the button that needs it');
@@ -1055,4 +1057,45 @@ test('the live dot beats only when somebody is really in there', () => {
     'the Motion switch stops it');
   assert.ok(/prefers-reduced-motion:reduce\)\{\.lcount\.on \.ldot\{animation:none\}/.test(html),
     'and so does the system setting');
+});
+
+test('a duel names its own stake, and does not pretend to find an opponent', () => {
+  /* Rock Paper Scissors against nobody is not a game. These eight are matched
+     INTO rather than dropped into, so there is no lobby to list and no fixed
+     ladder to pick from — you name your stake and wait for somebody to take it.
+
+     They are still unbuilt. The layout is real so it can be judged; the queue
+     is real so it can be seen; and after four seconds it says outright that
+     nobody can be matched yet, rather than spinning forever at somebody. */
+  const html = v2();
+
+  for (const id of ['rps', 'knockout', 'battleship', 'tanks',
+                    'rooftop', 'headsoccer', 'swim', 'maze']) {
+    const m = html.match(new RegExp("\{id:'" + id + "'[^\n]*"));
+    assert.ok(m, id + ' is in the game list');
+    assert.ok(/duel:1/.test(m[0]), id + ' is a duel');
+    assert.ok(/soon:1/.test(m[0]), id + ' is still unbuilt, and still says so');
+  }
+
+  // A game that is NOT a duel must keep the locked screen.
+  const paper = html.match(/\{id:'paper'[^\n]*/)[0];
+  assert.ok(/soon:1/.test(paper) && !/duel:1/.test(paper),
+    'paper.io is unbuilt but not a duel, so it keeps the locked panel');
+
+  /* The arena furniture has to be gone. A ladder, an open-lobby list and a
+     snake skin on a Rock Paper Scissors screen are all borrowed from a
+     different game. */
+  const hide = html.match(/#detail\.duel [^{]*\{display:none\}/);
+  assert.ok(hide, 'a duel hides what belongs to an arena');
+  for (const part of ['.stakes', '.lobwrap', '.lookrow']) {
+    assert.ok(hide[0].includes(part), 'it hides ' + part);
+  }
+
+  // The stake is bounded. An unbounded field on a real-money control is not one.
+  assert.ok(/const DUEL_MIN=[\d.]+, DUEL_MAX=\d+/.test(html), 'the stake has limits');
+  assert.ok(/amt>=DUEL_MIN\)\|\|amt>DUEL_MAX/.test(html), 'and they are enforced before queueing');
+
+  // The honesty: the queue says what it cannot do.
+  assert.ok(/Nobody to match you with yet/.test(html),
+    'the queue admits nobody can be matched yet');
 });

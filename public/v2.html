@@ -845,6 +845,52 @@ body.no-foot footer{display:none}
 .stk.off:hover{background:transparent;color:var(--tx3)}
 .stakeoff{font-size:11.5px;color:var(--tx3);text-align:center;margin:-8px 0 14px}
 
+/* ── naming your own stake ───────────────────────────────────────────────
+   The amount IS the control, so it is set at the size of the thing it stands
+   for — in the same mono every other figure on this product uses. */
+.duelbet{display:none}
+#detail.duel .duelbet{display:block}
+/* The ladder, the open-lobby list and the snake skin all belong to an arena.
+   A duel has no room to list, nobody is in it yet, and Rock Paper Scissors has
+   no snake to dress — showing any of them is furniture from another game. */
+#detail.duel .stakes,#detail.duel .stakeoff,#detail.duel .sl,
+#detail.duel .lobwrap,#detail.duel .lookrow{display:none}
+.dbrow{display:flex;align-items:center;justify-content:center;gap:4px;
+  background:var(--s2);border:1px solid var(--s3);border-radius:var(--r2);
+  padding:14px 16px;margin-top:6px;transition:border-color .15s}
+.dbrow:focus-within{border-color:var(--money)}
+.dbcur{font-family:var(--fm);font-size:26px;font-weight:600;color:var(--tx3)}
+.dbamt{width:150px;background:none;border:none;outline:none;color:var(--tx);
+  font-family:var(--fm);font-variant-numeric:tabular-nums;font-size:32px;
+  font-weight:600;text-align:left;padding:0}
+.dbquick{display:flex;gap:8px;margin-top:10px}
+.dbq{flex:1;background:var(--s2);border:1px solid transparent;border-radius:var(--r2);
+  padding:9px 0;font-family:var(--fm);font-size:13.5px;font-weight:600;
+  color:var(--tx2);cursor:pointer;transition:background .14s,color .14s}
+.dbq:hover{background:var(--s3);color:var(--tx)}
+.dbq.on{background:var(--money);border-color:var(--money);color:var(--ink)}
+.dbnote{margin:12px 0 0;font-size:11.5px;line-height:1.65;color:var(--tx3)}
+
+/* ── waiting for somebody ───────────────────────────────────────────────── */
+.queued{display:none;align-items:center;gap:14px;margin-top:18px;
+  background:var(--s1);border:1px solid var(--s2);border-radius:var(--r3);
+  padding:16px 18px;text-align:left}
+#detail.queueing .queued{display:flex}
+#detail.queueing .duelbet,#detail.queueing .go,
+#detail.queueing .namerow,#detail.queueing .lobwrap{display:none}
+.qspin{width:20px;height:20px;flex:0 0 auto;border-radius:50%;
+  border:2px solid var(--s3);border-top-color:var(--money);
+  animation:qspin .8s linear infinite}
+@keyframes qspin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.qspin{animation:none}}
+.qtext{flex:1;min-width:0}
+.qtext b{display:block;font-size:14.5px;font-weight:600}
+.qtext span{display:block;font-size:12px;color:var(--tx3);margin-top:2px}
+.qcancel{background:none;border:1px solid var(--s3);border-radius:var(--r2);
+  color:var(--tx2);padding:8px 14px;font-family:inherit;font-size:12.5px;
+  font-weight:600;cursor:pointer}
+.qcancel:hover{color:var(--tx);border-color:#3a3126}
+
 /* ── a game you can look at but not play ─────────────────────────────────
    One class on the screen swaps the whole column. Hiding the controls is not
    cosmetic: a buy-in, a name field and a Play button on a game that cannot be
@@ -895,8 +941,10 @@ body.no-foot footer{display:none}
 .nameact[data-state="idle"] .i-pen{display:block}
 .nameact[data-state="editing"]{background:var(--bone);color:var(--ink)}
 .nameact[data-state="editing"] .i-tick{display:block}
-.nameact[data-state="saving"]{background:var(--bone);color:var(--ink);opacity:.6}
-.nameact[data-state="saving"] .i-tick{display:block}
+.nameact[data-state="saving"]{background:var(--bone);color:var(--ink)}
+.nameact[data-state="saving"] .i-spin{display:block;animation:nspin .7s linear infinite}
+@keyframes nspin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.nameact[data-state="saving"] .i-spin{animation:none}}
 .nameact[data-state="ok"]{background:var(--live);color:var(--ink)}
 .nameact[data-state="ok"] .i-tick{display:block;animation:npop .42s cubic-bezier(.3,1.4,.5,1)}
 .nameact[data-state="bad"]{background:#e0705f;color:var(--ink)}
@@ -905,15 +953,36 @@ body.no-foot footer{display:none}
 @keyframes nshake{0%,100%{transform:translateX(0)}25%{transform:translateX(-3px)}75%{transform:translateX(3px)}}
 
 /* Bottom right, out of the way of the form it is about. */
-.toast{position:fixed;right:18px;bottom:18px;z-index:220;max-width:300px;
-  background:rgba(224,112,95,.12);color:var(--tx);
-  border:1px solid rgba(224,112,95,.45);
-  border-radius:var(--r2);padding:13px 16px;font-size:13px;line-height:1.5;
-  box-shadow:0 8px 30px rgba(0,0,0,.5);opacity:0;transform:translateY(8px);
-  transition:opacity .18s,transform .18s;pointer-events:none}
+/* ── what just happened ──────────────────────────────────────────────────
+   Bottom right, stacked, newest at the bottom. There was ONE toast element and
+   a second message overwrote the first mid-read; a stack means two things
+   happening close together are both readable.
+
+   Green for done, red for wrong. The colour is the first thing seen and often
+   the only thing read, so it carries the outcome on its own — the words are
+   there for what specifically happened. */
+.toasts{position:fixed;right:18px;bottom:18px;z-index:220;
+  display:flex;flex-direction:column;align-items:flex-end;gap:9px;
+  pointer-events:none}
+.toast{max-width:320px;color:var(--tx);
+  border-radius:var(--r2);padding:12px 15px;font-size:13px;line-height:1.5;
+  font-weight:550;
+  background:rgba(224,112,95,.13);border:1px solid rgba(224,112,95,.5);
+  box-shadow:0 8px 30px rgba(0,0,0,.5);
+  opacity:0;transform:translateY(8px) scale(.98);
+  transition:opacity .2s,transform .2s}
 .toast.on{opacity:1;transform:none}
+.toast.good{background:rgba(142,208,129,.13);border-color:rgba(142,208,129,.5)}
+/* A tick or a cross ahead of the words, so the outcome survives being read at
+   a glance and does not depend on telling two colours apart. */
+.toast::before{content:'✕';display:inline-block;margin-right:9px;font-weight:700;
+  color:#e0705f}
+.toast.good::before{content:'✓';color:var(--live)}
+@media(prefers-reduced-motion:reduce){.toast{transition:none}}
 @media(max-width:520px){
-  .toast{right:12px;left:12px;bottom:calc(76px + env(safe-area-inset-bottom));max-width:none}
+  .toasts{right:12px;left:12px;bottom:calc(76px + env(safe-area-inset-bottom));
+    align-items:stretch}
+  .toast{max-width:none}
 }
 .pname{width:100%;background:var(--bg);border:none;border-radius:var(--r2);
   padding:12px 14px;color:var(--tx);font-family:inherit;font-size:14px;
@@ -1350,7 +1419,7 @@ body.scr-anim { overflow-x:hidden }
 
 <!-- Said in the corner rather than under the field: the field is mid-column
      and a message there pushes the Play button down as it appears. -->
-<div id="toast" class="toast" role="status" aria-live="polite"></div>
+<div id="toasts" class="toasts" role="status" aria-live="polite"></div>
 
 <script>
 /* The nightly event clock.
@@ -1511,6 +1580,20 @@ body.scr-anim { overflow-x:hidden }
     <div class="sl">Your buy-in</div>
     <div class="stakes" id="stakes"></div>
     <div class="stakeoff" id="stakeoff"></div>
+
+    <!-- A duel has no ladder: you name the stake and wait for somebody to take
+         it. Both players put in the same amount, which is the only rule that
+         makes an open-ended stake fair. -->
+    <div class="duelbet" id="duelbet">
+      <div class="dbrow">
+        <span class="dbcur">$</span>
+        <input id="dbamt" class="dbamt" type="text" inputmode="decimal"
+               value="1.00" maxlength="7" aria-label="Your buy-in">
+      </div>
+      <div class="dbquick" id="dbquick"></div>
+      <p class="dbnote">Your opponent puts in the same. Winner takes both,
+        minus the ten percent house cut.</p>
+    </div>
     <!-- The name is stored under the live lobby's key, so switching between
          the two does not ask for it twice, and it is saved to the account so
          it is the same name on every device you sign in from. -->
@@ -1521,7 +1604,11 @@ body.scr-anim { overflow-x:hidden }
          label that used to sit under here said "Change name", which is what
          the pen says without taking a line to say it. -->
     <div class="namerow">
+      <!-- The field is the obvious thing to click, so it does what the pen does.
+           Making the pen the ONLY way in meant tapping your own name did nothing
+           at all, which reads as a broken input rather than a locked one. -->
       <input class="pname" id="play-name" maxlength="16" autocomplete="off" readonly
+             onclick="V2Play.nameEdit()" title="Click to change your name"
              placeholder="Your name" aria-label="Your player name">
       <button type="button" class="nameact" id="name-act" data-state="idle"
               onclick="V2Play.nameAction()" aria-label="Change name">
@@ -1534,9 +1621,15 @@ body.scr-anim { overflow-x:hidden }
         <svg class="i-cross" viewBox="0 0 24 24" width="17" height="17" fill="none"
              stroke="currentColor" stroke-width="2.6" stroke-linecap="round">
           <path d="M18 6 6 18M6 6l12 12"/></svg>
+        <!-- Shown only while the write is in flight. A name save is a round
+             trip to a server and then to a chain-backed account; without this
+             the button sat looking pressed and nothing said it was working. -->
+        <svg class="i-spin" viewBox="0 0 24 24" width="17" height="17" fill="none"
+             stroke="currentColor" stroke-width="2.6" stroke-linecap="round">
+          <path d="M12 3a9 9 0 1 0 9 9"/></svg>
       </button>
     </div>
-    <button class="go" onclick="V2Play.playChosen()">Play</button>
+    <button class="go" onclick="startFromDetail()">Play</button>
     <!-- The line that used to sit here said either "Free play. Nothing staked,
          nothing paid out" or the house-cut sentence. Both are in How to play
          now, which is where somebody goes to be told how it works. -->
@@ -1549,6 +1642,17 @@ body.scr-anim { overflow-x:hidden }
       <span class="lkn" id="skname"></span>
       <span class="lka">Change</span>
     </button>
+
+    <!-- Waiting for somebody to take the same stake. Shown in place of the
+         lobby list, because a duel has no lobby to list. -->
+    <div class="queued" id="queued">
+      <div class="qspin" aria-hidden="true"></div>
+      <div class="qtext">
+        <b id="qmain">Waiting for an opponent</b>
+        <span id="qsub">Looking for someone at $1.00</span>
+      </div>
+      <button type="button" class="qcancel" onclick="leaveQueue()">Cancel</button>
+    </div>
 
     <div class="lobwrap">
       <div class="lobhd">Open lobbies <span id="dsub2"></span></div>
@@ -1783,6 +1887,16 @@ body.scr-anim { overflow-x:hidden }
    them. The file name is the game id, so adding a game is adding a png. */
 /* slither.io is the only game that is actually playable. Everything else is
    marked soon, which greys the card and takes it out of the tab order. */
+/* duel:1 — a game you are matched INTO rather than a room you drop into.
+
+   The two built games are arenas: a room exists, people are in it, you join and
+   play. These are not. Rock Paper Scissors against nobody is not a game, so
+   there is no lobby to list and no fixed buy-in ladder to pick from — you name
+   your own stake and wait for somebody to take it.
+
+   They are still soon:1. Nothing behind them is built, and the screen says so;
+   this is the layout, with a real buy-in control and a real queue, so the shape
+   of it can be judged before any of it is wired to a server. */
 const GAMES=[
  {id:'snake',name:'slither.io',c:['#15251c','#c080ff'],type:'p',real:1,
   d:'Grow by eating, cut other players off, and cash out before somebody cuts you off.'},
@@ -1791,13 +1905,13 @@ const GAMES=[
     board, so it opens at Free and only at Free. */
  {id:'agar',name:'agar.io',c:['#141f28','#65c8e8'],type:'p',
   d:'Absorb anything smaller than you, split to chase, and stay clear of anything bigger.'},
- {id:'rps',name:'Rock Paper Scissors',c:['#231a26','#b98ad4'],type:'m',soon:1,
+ {id:'rps',name:'Rock Paper Scissors',c:['#231a26','#b98ad4'],type:'m',soon:1,duel:1,
   d:'Best of five against a single opponent. Rounds are quick and settlement is instant.'},
- {id:'knockout',name:'Knockout',c:['#261c14','#e0a05c'],type:'m',soon:1,
+ {id:'knockout',name:'Knockout',c:['#261c14','#e0a05c'],type:'m',soon:1,duel:1,
   d:'Last one standing in an arena that keeps shrinking.'},
- {id:'battleship',name:'Battleship',c:['#141a24','#7b93c4'],type:'m',soon:1,
+ {id:'battleship',name:'Battleship',c:['#141a24','#7b93c4'],type:'m',soon:1,duel:1,
   d:'Hide your fleet, then find theirs before they find yours.'},
- {id:'tanks',name:'Tanks',c:['#1d2016','#a8bd63'],type:'m',soon:1,
+ {id:'tanks',name:'Tanks',c:['#1d2016','#a8bd63'],type:'m',soon:1,duel:1,
   d:'Angle, power, fire. One shot each and the terrain remembers.'},
  {id:'paper',name:'Paper.io',c:['#1e1826','#a887d6'],type:'p',soon:1,
   d:'Claim ground by looping back home without anyone crossing your trail.'},
@@ -1807,18 +1921,18 @@ const GAMES=[
     Working titles: these four are the trademarks of their actual publishers,
     and Pac-Man in particular is enforced hard. Fine as an internal reminder,
     worth renaming before any of them ships on a public lobby. */
- {id:'rooftop',name:'Rooftop Snipers',c:['#20181c','#e08a7a'],type:'m',soon:1,
+ {id:'rooftop',name:'Rooftop Snipers',c:['#20181c','#e08a7a'],type:'m',soon:1,duel:1,
   d:'Two rooftops, one shot at a time, and the loser is whoever falls off first.'},
- {id:'headsoccer',name:'Head Soccer',c:['#141e18','#6fd39a'],type:'m',soon:1,
+ {id:'headsoccer',name:'Head Soccer',c:['#141e18','#6fd39a'],type:'m',soon:1,duel:1,
   d:'One on one, oversized heads, and a ball that rarely goes where you meant it to.'},
  {id:'omgshooter',name:'OMG Shooter',c:['#141a24','#e0405a'],type:'p',soon:1,
   d:'Fire up the line, take the targets before they reach you, and keep the streak alive.'},
- {id:'swim',name:'Swim',c:['#141a16','#8fd06a'],type:'p',soon:1,
+ {id:'swim',name:'Swim',c:['#141a16','#8fd06a'],type:'p',soon:1,duel:1,
   d:'Pick your gap in moving traffic and cross without touching anything.'},
  /* Every game here has a painting. A new one added before its art exists can
     carry noart:1 and render as a plain block in its own colour instead of a
     broken image; drop the flag when public/img/games/<id>.png lands. */
- {id:'maze',name:'Pac Man',c:['#1a1726','#e8c860'],type:'p',soon:1,
+ {id:'maze',name:'Pac Man',c:['#1a1726','#e8c860'],type:'p',soon:1,duel:1,
   d:'Clear the maze before whatever is chasing you closes off the last exit.'},
  {id:'stumble',name:'Stumble Guys',c:['#191d26','#7fb0e0'],type:'p',soon:1,
   d:'A crowd, an obstacle course, and physics that are on nobody’s side.'},
@@ -2790,7 +2904,13 @@ function open_(id){
      show. It still runs — the code path is the same one — but the column it
      writes into is hidden, so nothing here has to know about it twice. */
   const det=document.getElementById('detail');
-  det.classList.toggle('soon',!!cur.soon);
+  /* A duel is soon:1 too — nothing behind it is built — but it shows the real
+     screen rather than the locked panel, because the whole point is to see the
+     layout. What it does NOT do is pretend to find you an opponent. */
+  det.classList.toggle('duel',!!cur.duel);
+  det.classList.toggle('soon',!!cur.soon && !cur.duel);
+  det.classList.remove('queueing');
+  if(cur.duel)drawDuelBet();
   const sd=document.getElementById('dsoon');
   if(sd)sd.textContent=cur.d||'';
   const dart=document.getElementById('dart'), still=document.getElementById('dartstill');
@@ -2802,6 +2922,9 @@ function open_(id){
   still.style.backgroundImage=cur.noart?'none':"url('/img/games/"+cur.id+"-wide.png')";
   SCENES.delete(dart);
   document.getElementById('dname').textContent=cur.name;
+  /* Play is the wrong word for a game that has to find you somebody first. */
+  const goBtn=document.querySelector('#detail .go');
+  if(goBtn)goBtn.textContent=cur.duel?'Find an opponent':'Play';
   /* Both figures come off the live board, so the detail screen and the card
      that led here cannot disagree about how busy a game is. Only rooms with
      someone in them are listed, for the same reason as the home board: an
@@ -2871,11 +2994,81 @@ function showAllGames(){
 /* Detail is reachable from the rail and from the grid, so its back link has to
    return to whichever one was used rather than always to home. */
 let _cameFrom='home';
+/* One button, two jobs, decided by the game rather than by the caller: an arena
+   you drop into, or a duel you queue for. */
+function startFromDetail(){
+  if(cur&&cur.duel){joinQueue();return}
+  V2Play.playChosen();
+}
+
 function goBack(){showScreen(_cameFrom);jumpToTop()}
 
 /* Every buy-in on screen at once. With nine rungs this had to be a stepper
    with a row of dots, which meant paging through amounts to find out what was
    even offered. Three fit, so the control IS the list. */
+/* ── naming your own stake ───────────────────────────────────────────────
+   A duel has no ladder. Both players put in the same amount, which is what
+   makes an open-ended stake fair, and the quick amounts are there because most
+   people want a round number rather than a decision. */
+const DUEL_QUICK=[1,5,20];
+const DUEL_MIN=0.5, DUEL_MAX=500;
+function duelAmount(){
+  const raw=parseFloat(String((document.getElementById('dbamt')||{}).value||'').replace(/[^0-9.]/g,''));
+  return isFinite(raw)?raw:0;
+}
+function drawDuelBet(){
+  const q=document.getElementById('dbquick'); if(!q)return;
+  const amt=duelAmount();
+  q.innerHTML=DUEL_QUICK.map(v=>
+    `<button type="button" class="dbq${Math.abs(v-amt)<0.005?' on':''}"
+       onclick="setDuelBet(${v})">$${v}</button>`).join('');
+}
+function setDuelBet(v){
+  const el=document.getElementById('dbamt'); if(!el)return;
+  el.value=Number(v).toFixed(2);
+  drawDuelBet();
+}
+/* Cleaned as it is typed, so the field can never hold something that is not a
+   number. Clamping happens on the way OUT rather than here — rewriting what
+   somebody is halfway through typing is how you make a field impossible to
+   use. */
+document.addEventListener('input',e=>{
+  if(e.target.id!=='dbamt')return;
+  const cleaned=String(e.target.value).replace(/[^0-9.]/g,'').replace(/(\..*)\./g,'$1');
+  if(cleaned!==e.target.value)e.target.value=cleaned;
+  drawDuelBet();
+});
+
+/* Joining the queue. This is the honest half of the preview: the control, the
+   waiting state and the cancel are all real, and nothing pretends an opponent
+   is coming, because none of these games exists on the server yet. */
+function joinQueue(){
+  const amt=duelAmount();
+  if(!(amt>=DUEL_MIN)||amt>DUEL_MAX){
+    V2Play.toast('Pick a buy-in between $'+DUEL_MIN.toFixed(2)+' and $'+DUEL_MAX+'.');
+    return;
+  }
+  document.getElementById('qsub').textContent=
+    'Looking for someone at $'+amt.toFixed(2);
+  document.getElementById('qmain').textContent='Waiting for an opponent';
+  document.getElementById('detail').classList.add('queueing');
+  /* Said out loud rather than left to be discovered by waiting. A queue that
+     can never match is a spinner that spins forever, and letting somebody sit
+     in front of it is worse than telling them. */
+  clearTimeout(window._qNote);
+  window._qNote=setTimeout(()=>{
+    const m=document.getElementById('qmain');
+    if(!m||!document.getElementById('detail').classList.contains('queueing'))return;
+    m.textContent='Nobody to match you with yet';
+    document.getElementById('qsub').textContent=
+      cur.name+' is still being built. This is the queue it will use.';
+  },4000);
+}
+function leaveQueue(){
+  clearTimeout(window._qNote);
+  document.getElementById('detail').classList.remove('queueing');
+}
+
 function drawStake(){
   document.getElementById('stakes').innerHTML=STEPS.map((s,i)=>{
     const off=STEPS_OFF.has(s);

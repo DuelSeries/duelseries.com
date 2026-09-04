@@ -96,12 +96,42 @@
     try { err = await r.json(); } catch (_) {}
     return err.reason || ('http-' + r.status);
   }
-  let toastT = 0;
-  function toast(text) {
-    const t = el('toast'); if (!t) return;
-    t.textContent = text; t.classList.add('on');
-    clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('on'), 4000);
+  /* One element per message rather than one element reused. The single toast
+     overwrote itself, so two things happening close together showed only the
+     second and the first vanished mid-sentence.
+
+     `good` is the whole point of the redesign: a success and a failure look
+     different before a word of either is read. */
+  /* Enter saves and Escape backs out. Once the field is genuinely typeable a
+     keyboard is how it gets used, and hunting for a button to confirm what you
+     just typed is not how a text field behaves anywhere else. */
+  document.addEventListener('keydown', (e) => {
+    if (!e.target || e.target.id !== 'play-name') return;
+    const btn = el('name-act');
+    if (!btn || btn.dataset.state !== 'editing') return;
+    if (e.key === 'Enter') { e.preventDefault(); nameAction(); }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      setName(savedName());                     // put back what it was
+      e.target.readOnly = true;
+      setState('idle');
+      e.target.blur();
+    }
+  });
+  function toast(text, good) {
+    const box = el('toasts'); if (!box || !text) return;
+    const t = document.createElement('div');
+    t.className = 'toast' + (good ? ' good' : '');
+    t.textContent = text;
+    box.appendChild(t);
+    requestAnimationFrame(() => t.classList.add('on'));   // so the transition runs
+    const ms = Math.max(3200, Math.min(9000, 1600 + String(text).length * 55));
+    setTimeout(() => {
+      t.classList.remove('on');
+      setTimeout(() => t.remove(), 260);                  // after it has faded
+    }, ms);
   }
+  const toastOk = (text) => toast(text, true);
   const setState = s => { const b = el('name-act'); if (b) b.dataset.state = s; };
 
   /* Said in the player's terms, one line per thing that can actually go wrong.
@@ -124,17 +154,22 @@
      field and turns it into a tick; pressing the tick saves. The tick holds
      green for a beat and falls back to the pen, or turns into a cross and says
      why in the corner. */
+  /* Opening the editor, from the pen or from the field itself. */
+  function nameEdit() {
+    const input = el('play-name'), btn = el('name-act');
+    if (!input || !btn) return;
+    if (btn.dataset.state !== 'idle') return;   // already open, or mid-save
+    input.readOnly = false;
+    setState('editing');
+    btn.setAttribute('aria-label', 'Save name');
+    input.focus(); input.select();
+  }
+
   async function nameAction() {
     const input = el('play-name'), btn = el('name-act');
     if (!input || !btn) return;
 
-    if (btn.dataset.state === 'idle') {
-      input.readOnly = false;
-      setState('editing');
-      btn.setAttribute('aria-label', 'Save name');
-      input.focus(); input.select();
-      return;
-    }
+    if (btn.dataset.state === 'idle') { nameEdit(); return; }
     if (btn.dataset.state === 'saving') return;      // already in flight
 
     const n = setName(input.value || '');
@@ -143,7 +178,7 @@
       setTimeout(() => setState('editing'), 1200);
       return;
     }
-    setState('saving');
+    setState('saving');                  // a spinner until the server answers
     const res = await pushName(n);
     if (res !== true) {
       setState('bad');
@@ -151,6 +186,7 @@
       setTimeout(() => { setState('editing'); if (res === 'taken') input.focus(); }, 1500);
       return;
     }
+    toastOk('Name updated to ' + n + '.');
     input.readOnly = true;
     setState('ok');
     btn.setAttribute('aria-label', 'Change name');
@@ -307,7 +343,8 @@
 
   window.V2Play = { enter: enter, playChosen: playChosen, spectate: spectate,
                     launch: launch, savedName: savedName, cleanName: cleanName,
-                    nameAction: nameAction, pullName: pullName,
+                    nameAction: nameAction, nameEdit: nameEdit, pullName: pullName,
+                    toast: toast, toastOk: toastOk,
                     pushName: pushName,
                     nameWhy: r => WHY[r] || ('Could not save your name (' + r + ').') };
 
