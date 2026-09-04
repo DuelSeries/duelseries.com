@@ -116,6 +116,10 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
     r = await post('/api/owner/diagnose', proof(ownerKey, ownerAddr, 'diagnose', {}));
     ok('the diagnostic reports the signature path', r.status === 200 && r.body.signature.isOwner === true,
        'privyConfigured=' + r.body.privyConfigured + ' serverAppId=' + r.body.serverAppId);
+
+    r = await post('/api/owner/diagnose', {});
+    ok('and refuses to name the owner wallets to a stranger', r.status === 403,
+       'status=' + r.status);
   } catch (e) {
     console.error('THREW:', e.message);
     fails.push('threw: ' + e.message);

@@ -908,7 +908,17 @@ app.post('/api/owner/do', async (req, res) => {
 /* Why owner auth is failing, without leaking anything that is a secret. A Privy
    app id is not one — it ships inside the browser bundle — and the whole reason
    this exists is that a flat 401 gave nothing to act on. */
+/* Owner-only, like everything else here. It was ungated so it could be used
+   WHEN owner auth was broken — but it also answered with the list of wallets
+   that control the server, to anyone who asked, which is a map for somebody
+   deciding what to attack. The signature path does not depend on Privy, so it
+   still works in exactly the case this exists for. */
 app.post('/api/owner/diagnose', async (req, res) => {
+  /* Verified ONCE and the answer kept. A signature is good for a single use, so
+     checking the gate and then checking it again inside the handler burns it on
+     the way in and reports the caller as a forgery. */
+  const signed = ownerFromSignature(req.body);
+  if (!signed && !(await isOwnerReq(req))) return res.status(403).json({ error: 'Not an owner' });
   const { access, identity } = tokensFrom(req);
   const out = {
     privyConfigured: !!privyServer,
@@ -918,7 +928,6 @@ app.post('/api/owner/diagnose', async (req, res) => {
     sentIdentityToken: !!identity,
     signature: null, token: null,
   };
-  const signed = ownerAuth.walletForAction(req.body);
   out.signature = signed
     ? { wallet: signed, isOwner: OWNER_WALLETS.has(signed) }
     : { wallet: null, isOwner: false };

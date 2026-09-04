@@ -133,7 +133,12 @@ input.num{width:70px;text-align:center}
     <b>Sign in with the owner wallet</b>
     <p>This page only answers to the wallet that owns the server. Nothing here
        works from any other account.</p>
-    <button class="go" onclick="window.duelWalletLogin && window.duelWalletLogin()">Sign in</button>
+    <!-- The widget publishes globals and renders nothing visible — the lobby
+         draws its own controls from them, so this page does too. #wallet-root
+         is where its hidden Privy iframe lives and must exist, or the whole
+         widget bails without mounting. -->
+    <div id="wallet-root"></div>
+    <button class="go" onclick="signIn()">Sign in</button>
   </div>
 
   <div id="panel" hidden>
@@ -333,6 +338,15 @@ async function act(action, args) {
 
 /* The widget mounts asynchronously, so this waits for it rather than deciding
    nobody is signed in a hundred milliseconds too early. */
+function signIn() {
+  if (typeof window.duelWalletLogin !== 'function') {
+    say('The wallet has not loaded yet. Give it a moment, then reload.', true);
+    return;
+  }
+  try { window.duelWalletLogin(); }
+  catch (e) { say('Could not open sign-in: ' + e.message, true); }
+}
+
 function boot() {
   const w = window.duelWallet || {};
   if (!w.ready) return;
@@ -365,6 +379,12 @@ window.addEventListener('duelwallet:change', boot);
 setInterval(() => { if (!$('panel').hidden) refresh(); }, 15000);
 setTimeout(boot, 600);
 </script>
+<!-- The widget is a React island that mounts into #wallet-root and returns
+     without rendering if that element is missing. The node-global shims have to
+     run before it loads, exactly as they do on the lobby. Both were missing
+     here, so the widget never mounted, window.duelWalletLogin never existed,
+     and pressing Sign in did nothing at all. -->
+<script>window.global=window.global||window;window.process=window.process||{env:{NODE_ENV:'production'}};</script>
 <script src="/wallet/widget.js"></script>
 </body>
 </html>
