@@ -22,6 +22,11 @@
 <body>
   <canvas id="game-canvas"></canvas>
 
+  <!-- Anything the game needs to say across the whole room: the owner's
+       announcements and the countdown into a match. Top centre, because it
+       has to be read without looking away from your own snake. -->
+  <div id="gmsg" aria-live="polite"></div>
+
   <!-- Battle Royale. Hidden entirely in every other room: this is the only
        screen furniture the mode adds, and a room that is not one should look
        exactly as it did before. -->

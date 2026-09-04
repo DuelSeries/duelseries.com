@@ -16,6 +16,11 @@
 <body>
   <canvas id="game-canvas"></canvas>
 
+  <!-- Anything the game needs to say across the whole room: the owner's
+       announcements and the countdown into a match. Top centre, because it
+       has to be read without looking away from your own snake. -->
+  <div id="gmsg" aria-live="polite"></div>
+
   <!-- Heading arrow, drawn just in front of your own cell while a finger is down.
        Same element, same SVG and same transform as the snake game so the two read
        as one control. -->

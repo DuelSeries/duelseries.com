@@ -24,9 +24,18 @@ const GameRoom = require('./GameRoom');
 const SEC = 1000;
 
 const BR = {
+  /* Ten seconds between pressing start and the circle mattering. Dropping
+     straight into a closing border gives nobody time to look up, and the count
+     is also what tells everyone in the room that this is now a match rather
+     than a lobby. */
+  COUNTDOWN_MS: 10 * SEC,
   SHRINK_MS:   2 * 60 * SEC,   // closing in
   ROAM_MS:     2 * 60 * SEC,   // the small circle wandering
-  MIN_PLAYERS: 2,              // a match of one is not a match
+  /* One. Owen tests this alone and there is nobody else on the game yet, so a
+     two-player minimum only ever stopped him starting it. It stays a named
+     constant rather than being deleted, because the day there are real players
+     a lone match IS worth refusing and this is the line to change. */
+  MIN_PLAYERS: 1,
   START_RADIUS: C.MAX_WORLD_RADIUS,
   FINAL_RADIUS: 420,           // about six snake-lengths across at spawn size
   /* How far the small circle wanders, as a fraction of the room it has. Kept
@@ -46,7 +55,8 @@ class BattleRoyaleRoom extends GameRoom {
   constructor(io, lobbyType) {
     super(io, lobbyType);
     this.isBattleRoyale = true;
-    this.state = 'waiting';        // waiting | running | over
+    this.state = 'waiting';        // waiting | countdown | running | over
+    this.countdownUntil = 0;
     this.matchId = null;
     this.startedAt = 0;
     this.endedAt = 0;
@@ -65,6 +75,8 @@ class BattleRoyaleRoom extends GameRoom {
      reopened, which is what makes 'the circle goes back to normal and then
      people can play again' true rather than nearly true. */
   acceptingPlayers() {
+    /* 'waiting' only. A countdown is the match starting, and somebody dropping
+       in at three seconds has joined a match already under way. */
     return this.state === 'waiting' && this.worldRadius > BR.START_RADIUS * 0.9;
   }
 
@@ -87,18 +99,30 @@ class BattleRoyaleRoom extends GameRoom {
 
   startMatch(reason) {
     if (!this.canStart()) return false;
-    this.state = 'running';
+    this.state = 'countdown';
+    this.countdownUntil = Date.now() + BR.COUNTDOWN_MS;
     this.matchId = 'br_' + Date.now().toString(36);
-    this.startedAt = Date.now();
+    this.startedAt = 0;                 // set when the count reaches zero
     this.endedAt = 0;
     this.winner = null;
+    this._prevAlive = null;
     this.worldCx = 0;
     this.worldCy = 0;
     this.worldRadius = BR.START_RADIUS;
     this.io.to(this.socketRoomName).emit('br:state', this.publicState());
-    console.log(`[BR] ${this.lobbyType} match ${this.matchId} started (${reason || 'manual'}) `
+    console.log(`[BR] ${this.lobbyType} match ${this.matchId} counting down (${reason || 'manual'}) `
       + `with ${this.livingCount()} players`);
     return true;
+  }
+
+  /* Called from the tick while the count runs. */
+  _tickCountdown() {
+    if (this.state !== 'countdown') return;
+    if (Date.now() < this.countdownUntil) return;
+    this.state = 'running';
+    this.startedAt = Date.now();
+    this.io.to(this.socketRoomName).emit('br:state', this.publicState());
+    console.log(`[BR] ${this.lobbyType} match ${this.matchId} is live`);
   }
 
   /* Deliberately below the minimum, for testing the mode alone.
@@ -132,6 +156,7 @@ class BattleRoyaleRoom extends GameRoom {
 
   /* Called from the tick. Owns worldRadius and worldCx/worldCy for this room. */
   updateZone() {
+    this._tickCountdown();
     if (this.state !== 'running') {
       // Between matches the arena sits open at full size so people can gather.
       this.worldCx = 0; this.worldCy = 0;
@@ -221,6 +246,8 @@ class BattleRoyaleRoom extends GameRoom {
     const t = this.state === 'running' ? Date.now() - this.startedAt : 0;
     return {
       state: this.state,
+      countdownMs: this.state === 'countdown'
+        ? Math.max(0, this.countdownUntil - Date.now()) : 0,
       matchId: this.matchId,
       alive: this.livingCount(),
       players: this.snakes.size,
@@ -228,7 +255,8 @@ class BattleRoyaleRoom extends GameRoom {
       canStart: this.canStart(),
       elapsedMs: t,
       totalMs: BR.SHRINK_MS + BR.ROAM_MS,
-      phase: this.state !== 'running' ? this.state
+      phase: this.state === 'countdown' ? 'countdown'
+           : this.state !== 'running' ? this.state
            : t < BR.SHRINK_MS ? 'closing'
            : t < BR.SHRINK_MS + BR.ROAM_MS ? 'roaming' : 'overtime',
       winner: this.winner ? { name: this.winner.name } : null,

@@ -797,6 +797,10 @@ app.post('/api/my-name', async (req, res) => {
 
    Everything here is refused unless an OWNER wallet signed it. A signature is
    good for two minutes and exactly once. */
+/* A battle royale has begun the moment the count starts, not when it reaches
+   zero. Written once so the two cash-out paths cannot drift apart. */
+const brClosed = (room) => room.state === 'running' || room.state === 'countdown';
+
 const ALL_SNAKE_ROOMS = () => {
   const out = [];
   for (const rgn of Object.keys(gameRooms)) {
@@ -1697,7 +1701,7 @@ io.on('connection', (socket) => {
 
        The hold is the real cash-out path: it pays out on its own timer, so
        blocking only the legacy 'cashout' event below leaves this wide open. */
-    if (socket._room && socket._room.isBattleRoyale && socket._room.state === 'running') return;
+    if (socket._room && socket._room.isBattleRoyale && brClosed(socket._room)) return;
     const room = socket._room;
     if (!room) return;
     const snake = room.snakes && room.snakes.get(socket.id);
@@ -1736,7 +1740,7 @@ io.on('connection', (socket) => {
   socket.on('cashout', () => {
     if (!socketRL(socket, 'cashout', 1000)) return;
     // Same rule as the hold above: only while a match is actually running.
-    if (socket._room && socket._room.isBattleRoyale && socket._room.state === 'running') return;
+    if (socket._room && socket._room.isBattleRoyale && brClosed(socket._room)) return;
     const room = socket._room;
     const snake = room && room.snakes && room.snakes.get(socket.id);
     if (!snake || !snake.alive) return;

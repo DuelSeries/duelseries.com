@@ -24,7 +24,13 @@ const stakeRaw      = sessionStorage.getItem('stake');
 const stake         = (stakeRaw === null || stakeRaw === '') ? null : Number(stakeRaw);
 const lobbyType     = sessionStorage.getItem('lobbyType')     || (stake === null ? 'free' : null);
 // "Paid" is about money, not about which name was used to ask for the room.
-const isPaidRoom    = (stake !== null) ? stake > 0 : lobbyType !== 'free';
+/* By the LIST, not by the name. lobbyType !== 'free' made the battle royale a
+   paid room, so dying in one sent Play again off to buy an entry it does not
+   sell: the widget correctly returned an empty token for a free lobby, the
+   token read as falsy, and the respawn silently gave up. That is why the button
+   did nothing. */
+const FREE_TYPES    = new Set(CONSTANTS.FREE_LOBBY_TYPES || ['free']);
+const isPaidRoom    = (stake !== null) ? stake > 0 : !FREE_TYPES.has(lobbyType);
 /* The nightly event. Free to enter and paid by the house, so it is not a paid
    room in the staking sense — nothing here is staked and nothing is cashed out. */
 const isBattleRoyale = lobbyType === 'br';
@@ -916,15 +922,49 @@ canvas.addEventListener('touchmove', (e) => {
    to go too, because a control that does nothing is worse than no control. */
 const brHud = document.getElementById('br-hud');
 const PHASE_WORDS = {
-  waiting:  'Waiting',
+  waiting:   'Waiting',
+  countdown: 'Starting',
   closing:  'Closing in',
   roaming:  'The circle is moving',
   overtime: 'Overtime',
   over:     'Match over',
 };
+/* The count is driven by a LOCAL clock from a server deadline, not by a message
+   per second. A ticking number needs to move smoothly and a snapshot every two
+   seconds cannot do that; and if the connection hiccups at 3, the number must
+   not freeze on 3 and then jump to GO. */
+let brCountEnd = 0, brCountTimer = 0;
+function brRunCountdown(msLeft) {
+  brCountEnd = Date.now() + msLeft;
+  clearInterval(brCountTimer);
+  const paint = () => {
+    const left = brCountEnd - Date.now();
+    if (left <= 0) {
+      clearInterval(brCountTimer); brCountTimer = 0;
+      showGameMessage('GO', { count: true });
+      return;
+    }
+    showGameMessage('Starting in ' + Math.ceil(left / 1000), { count: true, hold: true });
+  };
+  paint();
+  brCountTimer = setInterval(paint, 120);
+}
+
 function brApply(s) {
   if (!brHud || !isBattleRoyale) return;
-  brRunning = s.state === 'running';
+  /* Counting down IS the match starting, so cash out closes here rather than
+     ten seconds later. Nothing is gained by banking in the last ten seconds,
+     and a control that works right up to the gun is a control people will try
+     to use at the gun. */
+  brRunning = s.state === 'running' || s.state === 'countdown';
+  if (s.state === 'countdown' && !brCountTimer) brRunCountdown(s.countdownMs || 0);
+  if (s.state !== 'countdown' && brCountTimer) {
+    clearInterval(brCountTimer); brCountTimer = 0;
+    /* The count is pinned on screen with hold:true, which means nothing else
+       will ever take it down. A cancelled match would otherwise leave
+       'Starting in 4' sitting there for the rest of the session. */
+    hideGameMessage();
+  }
   brHud.hidden = false;
   brHud.dataset.phase = s.phase || s.state || 'waiting';
   document.getElementById('br-phase').textContent = PHASE_WORDS[s.phase] || 'Waiting';
@@ -1827,3 +1867,35 @@ requestAnimationFrame(gameLoop);
   closeBtn.addEventListener('click', () => modal.classList.add('hidden'));
   modal.addEventListener('click', e => { if (e.target === modal) modal.classList.add('hidden'); });
 })();
+
+/* ─── What the game says to everybody ─────────────────────────────────────────
+   The owner's announcements and the countdown into a match share one banner,
+   because they are the same thing from a player's point of view: the game
+   telling the whole room something.
+
+   How long it stays is worked out from the LENGTH of what was said. A fixed
+   three seconds is too long for "GG" and nowhere near enough for two lines
+   about a restart, and the person typing it should not have to think about
+   timing at all. Roughly reading speed, with a floor and a ceiling. */
+const gmsgEl = document.getElementById('gmsg');
+let gmsgTimer = 0;
+function showGameMessage(text, opts) {
+  if (!gmsgEl || !text) return;
+  const o = opts || {};
+  gmsgEl.textContent = text;
+  gmsgEl.classList.toggle('count', !!o.count);
+  gmsgEl.classList.add('on');
+  clearTimeout(gmsgTimer);
+  if (o.hold) return;                       // the caller will clear it
+  // ~13 characters a second, which is a comfortable read, plus a beat to notice it.
+  const ms = Math.max(2600, Math.min(14000, 1400 + String(text).length * 75));
+  gmsgTimer = setTimeout(() => gmsgEl.classList.remove('on'), ms);
+}
+function hideGameMessage() {
+  if (!gmsgEl) return;
+  clearTimeout(gmsgTimer);
+  gmsgEl.classList.remove('on');
+}
+/* Sent by the owner console to everyone in a game. It was already being
+   broadcast and nothing anywhere was listening for it. */
+socket.on('announce', (m) => showGameMessage(m && m.text));

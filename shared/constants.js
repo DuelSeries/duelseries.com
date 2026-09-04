@@ -171,7 +171,17 @@ const CONSTANTS = {
     PLAYER_KILLED: 'player_killed',
     WALLET_BALANCE: 'wallet_balance',
     ERROR: 'error',
-  }
+  },
+
+  /* The lobby types that cost nothing to enter.
+
+     This exists because the string 'free' kept being used to MEAN "costs
+     nothing", in four separate places, and every one of them broke the day a
+     second free lobby existed: the fee table refused to price it, the entry
+     check demanded a paid token for it, the wallet widget tried to stake into
+     it, and the game client treated it as a paid room and refused to respawn.
+     Four bugs, one assumption. It is a list now, and it is shared. */
+  FREE_LOBBY_TYPES: ['free', 'br'],
 };
 
 if (typeof module !== 'undefined') module.exports = CONSTANTS;

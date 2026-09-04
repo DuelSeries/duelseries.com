@@ -22,21 +22,52 @@ function room(n = 2) {
 // Wind the match clock to a given point and let the zone catch up.
 const at = (r, ms) => { r.startedAt = Date.now() - ms; r.updateZone(); };
 
-test('a match needs two people, and refuses to start with one', () => {
-  const r = room(1);
-  assert.equal(r.canStart(), false, 'one player is not a match');
-  assert.equal(r.startMatch('test'), false, 'and starting is refused, not just discouraged');
-  assert.equal(r.state, 'waiting');
+/* Start a match and skip its countdown. Every test below is about what happens
+   once the circle is moving, and the ten seconds before that is its own test. */
+const go = (r, reason) => {
+  const started = r.startMatch(reason || 'test');
+  r.countdownUntil = Date.now() - 1;   // the count has elapsed
+  r.updateZone();                      // which is what promotes it to running
+  return started;
+};
 
-  r.snakes.set('p1', snake('p1', 'Player1'));
-  assert.equal(r.canStart(), true, 'two is enough');
+test('a match needs somebody in the room, and one is enough', () => {
+  /* The minimum is one. There are no other players on the game yet and a
+     two-player floor only ever stopped Owen testing it alone; it stays a named
+     constant so the day it should be two, there is one line to change. */
+  const empty = room(0);
+  assert.equal(empty.canStart(), false, 'a match of nobody is not a match');
+  assert.equal(empty.startMatch('test'), false, 'and starting is refused outright');
+  assert.equal(empty.state, 'waiting');
+
+  const r = room(1);
+  assert.equal(r.canStart(), true, 'one player can start');
   assert.equal(r.startMatch('test'), true);
-  assert.equal(r.state, 'running');
+});
+
+test('starting begins a countdown, not the closing', () => {
+  /* Dropping straight into a shrinking border gives nobody time to look up,
+     and the count is also what tells the room this is a match now. */
+  const r = room(2);
+  r.startMatch('test');
+  assert.equal(r.state, 'countdown', 'it counts first');
+  assert.ok(r.publicState().countdownMs > 0, 'and says how long is left');
+  assert.equal(r.publicState().phase, 'countdown');
+
+  // The zone must not start closing while the count runs.
+  r.updateZone();
+  assert.equal(Math.round(r.worldRadius), BR.START_RADIUS, 'the circle is still open');
+  assert.equal(r.acceptingPlayers(), false, 'and the door is already shut');
+
+  r.countdownUntil = Date.now() - 1;
+  r.updateZone();
+  assert.equal(r.state, 'running', 'then it goes live on its own');
+  assert.ok(r.startedAt > 0, 'and the match clock starts THERE, not when start was pressed');
 });
 
 test('the zone closes for two minutes, then roams for two', () => {
   const r = room();
-  r.startMatch('test');
+  go(r);
 
   at(r, 0);
   assert.equal(Math.round(r.worldRadius), BR.START_RADIUS, 'it opens at full size');
@@ -63,7 +94,7 @@ test('overtime squeezes, and leaves a circle somebody can survive in', () => {
   /* At 14 units a second this went from 420 to the floor in thirty seconds — a
      guillotine, and one likely to take both finalists at once. */
   const r = room();
-  r.startMatch('test');
+  go(r);
   at(r, BR.SHRINK_MS + BR.ROAM_MS + 30000);
   assert.ok(r.worldRadius < BR.FINAL_RADIUS, 'overtime keeps closing');
   assert.ok(r.worldRadius > BR.OVERTIME_FLOOR, 'but has not bottomed out in thirty seconds');
@@ -73,7 +104,7 @@ test('overtime squeezes, and leaves a circle somebody can survive in', () => {
 
 test('the match ends the moment one snake is left, whatever the clock says', () => {
   const r = room(3);
-  r.startMatch('test');
+  go(r);
   at(r, 20000);                       // twenty seconds in, nowhere near the buzzer
 
   r.checkForWinner();
@@ -97,7 +128,7 @@ test('a double knockout still has somebody to pay', () => {
   const r = room();
   r.snakes.get('p0').score = 500;
   r.snakes.get('p1').score = 20;
-  r.startMatch('test');
+  go(r);
   r.checkForWinner();                 // both alive: records them
   r.snakes.get('p0').alive = false;
   r.snakes.get('p1').alive = false;
@@ -114,7 +145,7 @@ test('surviving beats scoring', () => {
   const r = room();
   r.snakes.get('p0').score = 1;
   r.snakes.get('p1').score = 9999;
-  r.startMatch('test');
+  go(r);
   r.checkForWinner();
   r.snakes.get('p1').alive = false;
   r.checkForWinner();
@@ -125,7 +156,7 @@ test('nobody joins a match under way, or a circle that has not reopened', () => 
   const r = room();
   assert.equal(r.acceptingPlayers(), true, 'the door is open before it starts');
 
-  r.startMatch('test');
+  go(r);
   assert.equal(r.acceptingPlayers(), false, 'and shut while it runs');
 
   at(r, BR.SHRINK_MS + 30000);        // zone now small
@@ -144,7 +175,7 @@ test('nobody joins a match under way, or a circle that has not reopened', () => 
 
 test('the public state never leaks more than it should', () => {
   const r = room();
-  r.startMatch('test');
+  go(r);
   at(r, 1000);
   const s = r.publicState();
   assert.equal(s.phase, 'closing');

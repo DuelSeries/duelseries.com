@@ -910,3 +910,35 @@ function darken(hex, amt) {
   const b = Math.max(0, ( n        & 0xff) - Math.round(255 * amt));
   return `rgb(${r},${g},${b})`;
 }
+
+/* ─── What the game says to everybody ─────────────────────────────────────────
+   The owner's announcements and the countdown into a match share one banner,
+   because they are the same thing from a player's point of view: the game
+   telling the whole room something.
+
+   How long it stays is worked out from the LENGTH of what was said. A fixed
+   three seconds is too long for "GG" and nowhere near enough for two lines
+   about a restart, and the person typing it should not have to think about
+   timing at all. Roughly reading speed, with a floor and a ceiling. */
+const gmsgEl = document.getElementById('gmsg');
+let gmsgTimer = 0;
+function showGameMessage(text, opts) {
+  if (!gmsgEl || !text) return;
+  const o = opts || {};
+  gmsgEl.textContent = text;
+  gmsgEl.classList.toggle('count', !!o.count);
+  gmsgEl.classList.add('on');
+  clearTimeout(gmsgTimer);
+  if (o.hold) return;                       // the caller will clear it
+  // ~13 characters a second, which is a comfortable read, plus a beat to notice it.
+  const ms = Math.max(2600, Math.min(14000, 1400 + String(text).length * 75));
+  gmsgTimer = setTimeout(() => gmsgEl.classList.remove('on'), ms);
+}
+function hideGameMessage() {
+  if (!gmsgEl) return;
+  clearTimeout(gmsgTimer);
+  gmsgEl.classList.remove('on');
+}
+/* Sent by the owner console to everyone in a game. It was already being
+   broadcast and nothing anywhere was listening for it. */
+socket.on('announce', (m) => showGameMessage(m && m.text));
