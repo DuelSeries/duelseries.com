@@ -6,10 +6,10 @@
 <title>Tank art · OMG Shooter</title>
 <!-- A workbench, not a screen in the game. Every sprite in OMG Shooter is drawn
      by public/js/shooterArt.js, and this page renders that file at a size where
-     the drawing can actually be judged: one big tank, the ten guns on it, and
-     the tiles at the real ratio with a tank standing next to them for scale. -->
+     the drawing can actually be judged: the three tanks, the ten guns, and the
+     blocks at their real ratio with a tank standing next to them for scale. -->
 <style>
-  :root { --ink:#100e0b; --s2:#1f1b15; --s3:#282219; --tx:#f5f1e8; --tx3:#8d8171; --gold:#f0a830; }
+  :root { --ink:#100e0b; --s2:#1f1b15; --s3:#282219; --tx:#f5f1e8; --tx3:#8d8171; }
   * { box-sizing: border-box; }
   body { margin:0; background:var(--ink); color:var(--tx); padding:28px 22px 60px;
          font-family:'Archivo',ui-sans-serif,system-ui,'Segoe UI',Arial,sans-serif; }
@@ -18,84 +18,106 @@
              letter-spacing:.14em; text-transform:uppercase; color:var(--tx3); }
   h2 { margin:34px 0 12px; font-size:13px; font-weight:600; letter-spacing:.1em;
        text-transform:uppercase; color:var(--tx3); }
-  .wrap { max-width:960px; margin:0 auto; }
+  .wrap { max-width:980px; margin:0 auto; }
   .panel { border:1px solid var(--s3); border-radius:14px; overflow:hidden; background:var(--s2); }
   canvas { display:block; width:100%; height:auto; }
-  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:10px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(168px,1fr)); gap:10px; }
   .cell { border:1px solid var(--s3); border-radius:12px; overflow:hidden; background:var(--s2); }
   .cell b { display:block; padding:8px 10px 9px; font-size:12px; font-weight:600; }
   .cell span { display:block; padding:0 10px 10px; font-size:11px; line-height:1.5; color:var(--tx3); }
-  .note { margin:10px 0 0; font-size:12.5px; line-height:1.7; color:var(--tx3); max-width:640px; }
+  .note { margin:10px 0 0; font-size:12.5px; line-height:1.75; color:var(--tx3); max-width:660px; }
   .note b { color:var(--tx); font-weight:600; }
+  code { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11.5px; color:var(--tx); }
 </style>
 </head>
 <body>
 <div class="wrap">
   <p class="eyebrow">OMG Shooter</p>
   <h1>Tank art</h1>
-  <p class="note">Drawn in code, no image files. Proportions measured off the
-    reference at 7&times;: a block is <b>86</b>, a tank is <b>66</b> across, the
-    hull <b>53&times;54</b>, each tread band <b>7.5</b> thick, the turret
-    <b>33&times;35</b>.</p>
+  <p class="note">Drawn in code, no image files. Every size and colour was read
+    off the reference's own sprite atlas rather than estimated: a tile is
+    <b>54</b>, a tank body <b>41&times;42</b> with <b>10</b>-thick tracks and a
+    <b>34&times;22</b> hull, the turret sprite <b>54&times;39</b> pivoting at
+    <b>23.5, 19.5</b>, crates and barrels <b>35</b>. Grass is
+    <code>#3a8145</code>, stone <code>#a29184</code>, the player hull
+    <code>#650a0a</code> with <code>#f5821f</code> fittings.</p>
 
-  <h2>Player tank, minigun</h2>
-  <div class="panel"><canvas id="hero" width="1400" height="620"></canvas></div>
+  <h2>The three tanks</h2>
+  <div class="panel"><canvas id="hero" width="1400" height="560"></canvas></div>
+  <p class="note">Left is ours. The middle and right are the reference's own two
+    palettes, matched exactly &mdash; its player is dark red with orange
+    fittings, its enemies amber with brown tracks. A free-for-all needs a third
+    that reads as <b>you</b> at a glance, which its single-player game never
+    had to solve.</p>
 
   <h2>The ten guns</h2>
   <div class="grid" id="guns"></div>
 
-  <h2>Ground and blocks, at the real ratio</h2>
-  <div class="panel"><canvas id="tiles" width="1400" height="420"></canvas></div>
+  <h2>Blocks and pickups, at the real ratio</h2>
+  <div class="panel"><canvas id="tiles" width="1400" height="380"></canvas></div>
 </div>
 
 <script src="js/shooterArt.js"></script>
 <script>
 (function () {
   var A = window.ShooterArt;
-  var BLOCK = 86;
+  var T = 54;
 
-  function grassBed(ctx, w, h, s) {
-    for (var r = 0; r * s < h + s; r++)
-      for (var c = 0; c * s < w + s; c++) A.drawGrass(ctx, c * s, r * s, s, c, r);
+  function grassBed(ctx, w, h) {
+    for (var r = 0; r * T < h + T; r++)
+      for (var c = 0; c * T < w + T; c++) A.drawGrass(ctx, c * T, r * T, T, c, r);
   }
 
-  // ── one big tank, turned a little so hull and turret are visibly separate
   var hero = document.getElementById('hero').getContext('2d');
-  grassBed(hero, 1400, 620, BLOCK);
-  A.drawTank(hero, { x: 470, y: 310, size: 300, hull: 0.42, turret: -0.25,
-                     team: 'you', weapon: 'minigun' });
-  A.drawTank(hero, { x: 980, y: 250, size: 190, hull: 2.7, turret: 3.05,
-                     team: 'them', weapon: 'cannon', hp: 26, max: 45 });
-  A.drawTank(hero, { x: 1190, y: 430, size: 190, hull: 1.4, turret: 2.4,
-                     team: 'them', weapon: 'rockets' });
+  grassBed(hero, 1400, 560);
+  A.drawTank(hero, { x: 240, y: 280, size: 230, hull: 0.42, turret: -0.25,
+                     team: 'you', weapon: 'minigun', roll: 0, label: 'You' });
+  A.drawTank(hero, { x: 700, y: 280, size: 230, hull: 0, turret: 0.15,
+                     team: 'them', weapon: 'cannon', hp: 62, max: 100 });
+  A.drawTank(hero, { x: 1160, y: 280, size: 230, hull: 2.6, turret: 3.0,
+                     team: 'enemy', weapon: 'rockets' });
 
-  // ── every gun, on its own tank
   var wrap = document.getElementById('guns');
   A.WEAPONS.forEach(function (w) {
     var d = document.createElement('div');
     d.className = 'cell';
-    d.innerHTML = '<canvas width="320" height="240"></canvas><b>' + w.name +
+    d.innerHTML = '<canvas width="336" height="240"></canvas><b>' + w.name +
                   '</b><span>' + w.blurb + '</span>';
     wrap.appendChild(d);
     var g = d.querySelector('canvas').getContext('2d');
-    grassBed(g, 320, 240, BLOCK);
-    A.drawTank(g, { x: 150, y: 120, size: 150, hull: 0, turret: 0,
+    grassBed(g, 336, 240);
+    A.drawTank(g, { x: 160, y: 120, size: 130, hull: 0, turret: 0,
                     team: 'you', weapon: w.key });
   });
 
-  // ── the tiles, with a tank standing among them for scale
   var t = document.getElementById('tiles').getContext('2d');
-  grassBed(t, 1400, 420, BLOCK);
-  var kinds = [A.drawStone, A.drawWood, A.drawBrick, A.drawBarrel];
-  for (var i = 0; i < 4; i++) {
-    for (var j = 0; j < 2; j++) kinds[i](t, 120 + i * 200, 90 + j * BLOCK, BLOCK);
-  }
-  A.drawTank(t, { x: 1010, y: 176, size: 66, hull: 0, turret: -0.5,
+  grassBed(t, 1400, 380);
+  var S = 108;                                  // two tiles, so the detail shows
+  var blocks = [
+    ['Stone',  function (x, y) { A.drawStone(t, x, y, S, 1, 1); }],
+    ['Brick',  function (x, y) { A.drawBrick(t, x, y, S, 2, 1); }],
+    ['Wood',   function (x, y) { A.drawWood(t, x, y, S, 3, 1); }],
+    ['Crate',  function (x, y) { A.drawCrate(t, x, y, S, 0.55); }],
+    ['Barrel', function (x, y) { A.drawBarrel(t, x, y, S); }],
+  ];
+  t.font = '600 15px Archivo, system-ui, sans-serif';
+  t.textAlign = 'center';
+  blocks.forEach(function (b, i) {
+    var x = 90 + i * 150;
+    b[1](x, 90);
+    t.fillStyle = 'rgba(0,0,0,0.6)';
+    t.fillRect(x, 206, S, 24);
+    t.fillStyle = '#f5f1e8';
+    t.fillText(b[0], x + S / 2, 223);
+  });
+  A.drawMedkit(t, 940, 144, S);
+  A.drawCoin(t, 1040, 144, S, true);
+  A.drawTank(t, { x: 1200, y: 144, size: 41, hull: 0, turret: -0.4,
                   team: 'you', weapon: 'minigun' });
-  A.drawStone(t, 1120, 133, BLOCK);
+  A.drawStone(t, 1270, 117, S / 2, 4, 4);
+  t.fillStyle = 'rgba(0,0,0,0.6)'; t.fillRect(900, 206, 420, 24);
   t.fillStyle = '#f5f1e8';
-  t.font = '600 22px Archivo, system-ui, sans-serif';
-  t.fillText('tank 66  ·  block 86', 940, 300);
+  t.fillText('med kit · coin · a tank at 41 beside a tile at 54', 1110, 223);
 })();
 </script>
 </body>

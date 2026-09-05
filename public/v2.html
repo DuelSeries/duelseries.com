@@ -868,7 +868,7 @@ body.no-foot footer{display:none}
    an empty lobby list here would say the game has rooms that are quiet, when
    what it has is no rooms at all. */
 #detail.solo .sl,#detail.solo .stakes,#detail.solo .stakeoff,
-#detail.solo .duelbet,#detail.solo .lobwrap,#detail.solo .lookrow,
+#detail.solo .duelbet,#detail.solo .lobwrap,#detail.solo .lookrow:not(.weaprow),
 #detail.solo .queued{display:none}
 #detail.solo .dbnote{display:block}
 /* The amount is the control, so it gets the size — and the arrows sit either
@@ -1062,6 +1062,25 @@ body.no-foot footer{display:none}
 .lookstage canvas{display:block;width:100%;height:auto}
 .lookrow .lkn{flex:1;font-size:13px;color:var(--tx);font-weight:600}
 .lookrow .lka{font-size:12.5px;color:var(--tx3);font-weight:600}
+/* The weapon row is the skin row for a game that has no skins: same shape,
+   same place, and it only exists on the one game that has weapons. */
+.weaprow{display:none}
+#detail.solo .weaprow{display:flex}
+.weaprow canvas{width:76px;height:36px;background:#1b2415;border-radius:var(--r2)}
+/* The sheet. Ten silhouettes, because you are choosing a shape you will
+   recognise on top of your own tank rather than reading a list of names. */
+.wgrid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:20px}
+.wcell{display:flex;flex-direction:column;align-items:center;gap:2px;
+  padding:6px 4px 7px;border-radius:var(--r2);cursor:pointer;
+  background:var(--s2);border:1px solid transparent;color:var(--tx3);
+  font-family:inherit;transition:border-color .14s,background .14s}
+.wcell canvas{width:100%;height:auto;max-width:74px}
+.wcell b{font-size:10.5px;font-weight:600}
+.wcell:hover{background:var(--s3)}
+.wcell.on{border-color:var(--money);background:rgba(240,168,48,.14)}
+.wcell.on b{color:var(--tx)}
+.wblurb{font-size:13px;color:var(--tx2);line-height:1.6;margin:0 0 18px;min-height:42px}
+@media (max-width:560px){.wgrid{grid-template-columns:repeat(3,1fr)}}
 
 /* Open lobbies, reduced to a strip at the foot of the screen. It was a headed
    section with its own subtitle taking the left half of the page. */
@@ -1576,6 +1595,20 @@ body.scr-anim { overflow-x:hidden }
   </div>
 </div>
 
+<!-- ══ WEAPONS ══ -->
+<!-- All ten, all free. The only thing being chosen here is what you want to
+     play, so there is nothing to buy and nothing to unlock. -->
+<div id="weapveil" class="howveil" role="dialog" aria-modal="true" aria-label="Choose a weapon">
+  <div class="howcard mcard">
+    <div class="howtop"><h2>Weapon</h2>
+      <button type="button" class="howx" onclick="closeWeapons()" aria-label="Close">&#10005;</button>
+    </div>
+    <div class="wgrid" id="wgrid"></div>
+    <p class="wblurb" id="wblurb"></p>
+    <button type="button" class="btn pri howgo" onclick="closeWeapons()">Done</button>
+  </div>
+</div>
+
 <!-- ══ ALL GAMES ══ -->
 <!-- Every game at once, which the rail cannot do: the rail is a row you push
      through, and past about eight cards it stops being a way to find a
@@ -1707,6 +1740,15 @@ body.scr-anim { overflow-x:hidden }
          nothing paid out" or the house-cut sentence. Both are in How to play
          now, which is where somebody goes to be told how it works. -->
     <div class="fine" id="play-msg" hidden style="color:var(--money)"></div>
+
+    <!-- Same shape as the skin row, for the one game that picks a weapon
+         instead of a colour. It draws the gun it is offering, so what you
+         choose here is what you will see on your own tank. -->
+    <button class="lookrow weaprow" id="weaprow" onclick="openWeapons()">
+      <canvas id="weapmini" width="228" height="108"></canvas>
+      <span class="lkn" id="weapname">Minigun</span>
+      <span class="lka">Change</span>
+    </button>
 
     <!-- The whole row is the button. A label, a live preview of the skin and
          the action, rather than a panel with a button under it. -->
@@ -1938,6 +1980,7 @@ body.scr-anim { overflow-x:hidden }
 <script src="/js/Camera.js"></script>
 <script src="/js/SnakeGL.js"></script>
 <script src="/js/FoodGL.js"></script>
+<script src="/js/shooterArt.js"></script>
 <script src="/js/Renderer.js"></script>
 <script src="/js/v2/chart.js"></script>
 <script src="/js/v2/social.js"></script>
@@ -2002,12 +2045,12 @@ const GAMES=[
   d:'Two rooftops, one shot at a time, and the loser is whoever falls off first.'},
  {id:'headsoccer',name:'Head Soccer',c:['#141e18','#6fd39a'],type:'m',soon:1,duel:1,
   d:'One on one, oversized heads, and a ball that rarely goes where you meant it to.'},
- /* Built, and the only solo game on the board: one player against an arena
-    rather than a room full of people or an opponent to be matched with. It is
-    free and stays free while it is new — there is no stake to verify and
-    nothing to pay out, so none of the money path is involved in it. */
+ /* Built. One arena that everybody drops into, so it is neither a rung on
+    the buy-in ladder nor an opponent to be matched with — which is what the
+    solo flag means here: no ladder, no lobby list, its own page. Free while it
+    is new, so none of the money path is involved in it. */
  {id:'omgshooter',name:'OMG Shooter',c:['#141a24','#e0405a'],type:'p',built:1,solo:1,
-  d:'Drive, aim, and shoot your way through the arena to the base at the other end of it.'},
+  d:'Free-for-all. Kill people, take what they drop, and bank it in the middle before somebody takes it off you.'},
  {id:'swim',name:'Swim',c:['#141a16','#8fd06a'],type:'p',soon:1,duel:1,
   d:'Pick your gap in moving traffic and cross without touching anything.'},
  /* Every game here has a painting. A new one added before its art exists can
@@ -3015,6 +3058,7 @@ function open_(id){
   }
   det.classList.remove('queueing');
   if(cur.duel)drawDuelBet();
+  if(cur.solo)drawWeapRow();
   const sd=document.getElementById('dsoon');
   if(sd)sd.textContent=cur.d||'';
   const dart=document.getElementById('dart'), still=document.getElementById('dartstill');
@@ -3086,6 +3130,69 @@ function openEventHow(){
   ]);
 }
 function closeHow(){document.getElementById('howveil').classList.remove('on')}
+
+/* ── choosing a weapon ────────────────────────────────────────────────────
+   Ten guns, all free, drawn by the same module the game draws them with, so
+   the picker can never offer something the game does not have. The choice
+   lives in localStorage and the game reads it on the way in; there is no
+   account state to keep in step because there is nothing to buy. */
+var WEAP_KEY='shooter:weapon';
+function weapNow(){
+  var A=window.ShooterArt; if(!A)return null;
+  var k; try{k=localStorage.getItem(WEAP_KEY)}catch(_){}
+  var hit=A.WEAPONS.filter(function(w){return w.key===k})[0];
+  return hit||A.WEAPONS[0];
+}
+/* Drawn at the size the button is, not scaled down from something bigger:
+   these are small and the barrel is the only part that tells them apart. */
+function drawGunInto(cv,key,w,h){
+  var A=window.ShooterArt; if(!A||!cv)return;
+  var g=cv.getContext('2d');
+  g.clearRect(0,0,cv.width,cv.height);
+  g.save();
+  g.translate(cv.width*0.42,cv.height/2);
+  var k=Math.min(cv.width/78,cv.height/44);
+  g.scale(k,k);
+  A.gun(g,key,A.TEAMS.you);
+  g.restore();
+}
+function drawWeapRow(){
+  var w=weapNow(); if(!w)return;
+  var n=document.getElementById('weapname'); if(n)n.textContent=w.name;
+  drawGunInto(document.getElementById('weapmini'),w.key);
+}
+function openWeapons(){
+  var A=window.ShooterArt; if(!A)return;
+  var cur=weapNow().key;
+  document.getElementById('wgrid').innerHTML=A.WEAPONS.map(function(w){
+    return '<button type="button" class="wcell'+(w.key===cur?' on':'')+'" '+
+           'data-w="'+w.key+'"><canvas width="148" height="86"></canvas>'+
+           '<b>'+w.name+'</b></button>';
+  }).join('');
+  var cells=document.querySelectorAll('#wgrid .wcell');
+  for(var i=0;i<cells.length;i++){
+    (function(cell){
+      drawGunInto(cell.querySelector('canvas'),cell.dataset.w);
+      cell.addEventListener('click',function(){pickWeapon(cell.dataset.w)});
+    })(cells[i]);
+  }
+  weapBlurb(cur);
+  document.getElementById('weapveil').classList.add('on');
+}
+function weapBlurb(key){
+  var A=window.ShooterArt;
+  var hit=A.WEAPONS.filter(function(w){return w.key===key})[0];
+  var el=document.getElementById('wblurb');
+  if(el&&hit)el.textContent=hit.blurb;
+}
+function pickWeapon(key){
+  try{localStorage.setItem(WEAP_KEY,key)}catch(_){}
+  var cells=document.querySelectorAll('#wgrid .wcell');
+  for(var i=0;i<cells.length;i++)cells[i].classList.toggle('on',cells[i].dataset.w===key);
+  weapBlurb(key);
+  drawWeapRow();
+}
+function closeWeapons(){document.getElementById('weapveil').classList.remove('on')}
 function goHome(dir){showScreen('home',dir);jumpToTop()}
 /* The grid is built on open rather than at load: it is the same thirteen cards
    the rail already holds, and building both up front doubles the artwork on a
@@ -3480,11 +3587,15 @@ function go(id,dir){
    is expected to do. */
 document.addEventListener('keydown',e=>{
   if(e.key!=='Escape')return;
+  if(document.getElementById('weapveil').classList.contains('on'))return closeWeapons();
   if(document.getElementById('howveil').classList.contains('on'))return closeHow();
   if(document.getElementById('lookveil').classList.contains('on'))closeLook(false);
 });
 /* Clicking the darkened area outside the card closes it, which is what a
    dimmed backdrop looks like it should do. */
+document.getElementById('weapveil').addEventListener('click',e=>{
+  if(e.target.id==='weapveil')closeWeapons();
+});
 document.getElementById('howveil').addEventListener('click',e=>{
   if(e.target.id==='howveil')closeHow();
 });

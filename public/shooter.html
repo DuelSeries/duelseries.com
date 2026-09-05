@@ -13,66 +13,72 @@
 
 <canvas id="arena"></canvas>
 
-<!-- Health, coins, the level and the base you are here to destroy. Four facts,
-     read at a glance, never in the way of the middle of the screen. -->
+<!-- Health, what you are carrying, what you have banked. Three numbers, read at
+     a glance, and never in the middle of the screen where a tank has to drive. -->
 <header id="hud" hidden>
   <div class="hudLeft">
     <div class="hpWrap"><i id="hpBar"></i></div>
     <span class="hpNum num" id="hpNum">100</span>
   </div>
   <div class="hudMid">
-    <span class="lvl">Level <b class="num" id="lvlNum">1</b></span>
-    <div class="baseWrap" title="Enemy base"><i id="baseBar"></i></div>
+    <!-- Carried is the number that can be taken off you. Banked is the one that
+         cannot. Showing them side by side is the whole risk of the game in two
+         figures. -->
+    <span class="stat"><b class="num" id="carry">0</b><em>carrying</em></span>
+    <span class="stat safe"><b class="num" id="banked">0</b><em>banked</em></span>
   </div>
   <div class="hudRight">
-    <span class="coins num" id="coinNum">0</span>
-    <span class="coinsLabel">coins</span>
-    <!-- A way out that does not depend on finishing a level. Without it the
-         only door was the between-levels card, so a run you wanted to quit had
-         to be won first. -->
+    <ol id="board" class="board"></ol>
     <button type="button" class="exit" id="exitBtn" aria-label="Back to the lobby">Leave</button>
   </div>
 </header>
 
-<!-- The three weapons. Owned ones switch for nothing; the rest show their price
-     and light up the moment you can afford them. -->
-<div id="guns" hidden>
-  <button type="button" class="gun" data-w="cannon"><b>Cannon</b><em class="num"></em></button>
-  <button type="button" class="gun" data-w="rapid"><b>Machine gun</b><em class="num"></em></button>
-  <button type="button" class="gun" data-w="scatter"><b>Scattergun</b><em class="num"></em></button>
+<!-- Only on screen while you are actually banking. -->
+<div id="cashwrap" hidden>
+  <span class="cashlbl">Cashing out</span>
+  <div class="cashTrack"><i id="cashBar"></i></div>
+  <span class="cashNum num" id="cashNum">5.0</span>
 </div>
 
-<!-- Touch controls. A stick to drive and a thumb button to fire, shown only on
-     a device that has no keyboard. -->
+<!-- The ten guns, as silhouettes rather than names: you are picking a shape you
+     will recognise on top of your own tank. -->
+<div id="guns" hidden></div>
+
+<ul id="feed"></ul>
+
+<div id="dead" hidden>
+  <div class="deadCard">
+    <p class="eyebrow">Destroyed</p>
+    <p class="big">Back in <span class="num" id="deadIn">3.0</span>s</p>
+    <p class="sub">Whatever you were carrying is on the floor where you died.
+      Somebody is probably driving toward it.</p>
+  </div>
+</div>
+
+<!-- Touch controls: a stick to drive and aim, a thumb button to fire. -->
 <div id="touch" hidden>
   <div id="stick"><i id="stickNub"></i></div>
   <button type="button" id="tfire">Fire</button>
 </div>
 
-<div id="msg" hidden></div>
-
-<!-- Between levels. The one moment to spend what you have collected. -->
-<div id="between" hidden>
-  <div class="card">
-    <p class="eyebrow">Level cleared</p>
-    <p class="big"><span class="num" id="clearedCoins">0</span> coins</p>
-    <p class="sub">Spend them before you go on. Whatever you keep is still yours.</p>
-    <button type="button" class="go" id="nextBtn">Next level</button>
-    <button type="button" class="ghost" id="quitBtn">Back to the lobby</button>
-  </div>
-</div>
-
 <div id="boot">
   <div class="card">
     <p class="eyebrow">OMG Shooter</p>
-    <p class="sub bootSub">Drive with <b>WASD</b> or the arrow keys. Aim with the mouse and
-      hold to fire. Break the crates, take the coins, and destroy the red base to
-      clear the level.</p>
-    <button type="button" class="go" id="startBtn">Start</button>
+    <h1>Free-for-all</h1>
+    <p class="sub" id="howto">Drive with <b>WASD</b>, aim with the mouse, hold to fire.
+      Break crates for coins and med kits. Kill someone and they drop everything
+      they were carrying.</p>
+    <p class="sub gold">Coins are only yours once you bank them. Sit in the gold
+      square in the middle of the map for five seconds — without leaving it — and
+      they are safe. Die first and they are on the floor for whoever gets there.</p>
+    <p class="pick">Pick a gun. You can switch any time with 1&ndash;0.</p>
+    <div id="bootguns" class="gunpick"></div>
+    <button type="button" class="go" id="startBtn">Play</button>
   </div>
 </div>
 
 <script src="/socket.io/socket.io.js"></script>
+<script src="js/shooterArt.js"></script>
 <script src="js/shooter.js"></script>
 </body>
 </html>

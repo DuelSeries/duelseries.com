@@ -1045,18 +1045,15 @@ const agarRooms = {};
    new: there is no stake to verify and nothing to pay out, so none of the money
    path is involved in it at all. */
 const tanksLobby = new TanksLobby(io);
-/* The shooter is a solo run, so a room is one player's own arena rather than
-   a shared world: one per socket, built when they press Start and thrown away
-   when they leave. Nothing about it is worth persisting — a run is the whole
-   unit — and a room left ticking for a closed tab is a 30Hz loop burning a
-   core for nobody, which is why the disconnect path below is not optional. */
-const shooterRooms = new Map();   // socket.id -> ShooterRoom
-function endShooter(socketId) {
-  const room = shooterRooms.get(socketId);
-  if (!room) return;
-  room.stop();
-  shooterRooms.delete(socketId);
-}
+/* ONE arena for the whole region, not one per player. The shooter is a
+   free-for-all: everybody who presses Play lands in the same map, which is
+   the entire point of it and the reason it cannot be a room per socket.
+
+   The room starts itself when the first player arrives and stops itself when
+   the last one leaves — an empty arena still ticks thirty times a second and
+   still drives five bots around, for nobody. */
+const shooterRoom = new ShooterRoom(io, REGION);
+function endShooter(socketId) { shooterRoom.removePlayer(socketId); }
 
 for (const rgn of [REGION]) {
   gameRooms[rgn] = {
@@ -2082,36 +2079,27 @@ io.on('connection', (socket) => {
      down and where it is aiming; it never says that it hit something, took a
      coin or cleared a level. There is no money in this mode today, and the
      day there is, none of this has to be rewritten. */
-  socket.on('sh:join', ({ name } = {}) => {
+  socket.on('sh:join', ({ name, weapon } = {}) => {
     if (!socketRL(socket, 'shjoin', 1000)) return;
     if (ops.get().maintenance) { socket.emit('maintenance', ops.get()); return; }
-    endShooter(socket.id);                       // a second Start replaces the first run
-    const room = new ShooterRoom(io, socket.id);
-    room.addPlayer(socket, sanitizeName(name));
-    shooterRooms.set(socket.id, room);
-    socket.emit('sh:map', room.mapPayload());
-    room.start();
+    shooterRoom.removePlayer(socket.id);         // a second Play replaces the first
+    shooterRoom.addPlayer(socket, sanitizeName(name), String(weapon || ''));
+    socket.emit('sh:map', shooterRoom.mapPayload());
   });
 
   socket.on('sh:input', (input) => {
-    const room = shooterRooms.get(socket.id);
-    if (!room || !input || typeof input !== 'object') return;
-    room.setInput(socket.id, input);
+    if (!input || typeof input !== 'object') return;
+    shooterRoom.setInput(socket.id, input);
   });
 
-  socket.on('sh:buy', ({ weapon } = {}) => {
-    if (!socketRL(socket, 'shbuy', 120)) return;
-    const room = shooterRooms.get(socket.id);
-    if (!room) return;
-    const r = room.buy(String(weapon || ''));
-    if (!r.ok) socket.emit('sh:refused', { why: r.why });
-  });
-
-  socket.on('sh:next', () => {
-    if (!socketRL(socket, 'shnext', 500)) return;
-    const room = shooterRooms.get(socket.id);
-    if (!room) return;
-    if (room.nextLevel()) socket.emit('sh:map', room.mapPayload());
+  /* Switching guns mid-round is free and instant. They are all free anyway —
+     the choice is what you want to play, not what you can afford — so the only
+     thing this has to refuse is a weapon that does not exist. */
+  socket.on('sh:weapon', ({ weapon } = {}) => {
+    if (!socketRL(socket, 'shweapon', 150)) return;
+    if (!shooterRoom.setWeapon(socket.id, String(weapon || ''))) {
+      socket.emit('sh:refused', { why: 'no such weapon' });
+    }
   });
 
   socket.on('sh:leave', () => endShooter(socket.id));
