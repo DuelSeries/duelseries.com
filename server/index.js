@@ -10,6 +10,7 @@ const GameRoom = require('./GameRoom');
 const AgarRoom      = require('./AgarRoom');
 const { BattleRoyaleRoom, BR } = require('./BattleRoyaleRoom');
 const { TanksLobby } = require('./TanksLobby');   // the artillery duel
+const { ShooterRoom } = require('./ShooterRoom'); // the top-down tank arena
 const agarLb        = require('./agarLeaderboard');
 const db     = require('./db');
 const collusion = require('./CollusionMonitor');
@@ -1024,6 +1025,7 @@ app.get('/v2', (_req, res) => res.sendFile(path.join(__dirname, '../public/v2.ht
    Keeping the URL obscure would be the only protection it did NOT have. */
 app.get('/owner', (_req, res) => res.sendFile(path.join(__dirname, '../public/owner.html')));
 app.get('/tanks', (_req, res) => res.sendFile(path.join(__dirname, '../public/tanks.html')));
+app.get('/shooter', (_req, res) => res.sendFile(path.join(__dirname, '../public/shooter.html')));
 
 app.use(express.static(path.join(__dirname, '../public')));
 app.use('/shared', express.static(path.join(__dirname, '../shared')));
@@ -1043,6 +1045,18 @@ const agarRooms = {};
    new: there is no stake to verify and nothing to pay out, so none of the money
    path is involved in it at all. */
 const tanksLobby = new TanksLobby(io);
+/* The shooter is a solo run, so a room is one player's own arena rather than
+   a shared world: one per socket, built when they press Start and thrown away
+   when they leave. Nothing about it is worth persisting — a run is the whole
+   unit — and a room left ticking for a closed tab is a 30Hz loop burning a
+   core for nobody, which is why the disconnect path below is not optional. */
+const shooterRooms = new Map();   // socket.id -> ShooterRoom
+function endShooter(socketId) {
+  const room = shooterRooms.get(socketId);
+  if (!room) return;
+  room.stop();
+  shooterRooms.delete(socketId);
+}
 
 for (const rgn of [REGION]) {
   gameRooms[rgn] = {
@@ -2063,6 +2077,44 @@ io.on('connection', (socket) => {
   });
 
   socket.on('tanks:leave', () => tanksLobby.leave(socket.id));
+  /* ── Shooter ──────────────────────────────────────────────────────────────
+     Free, solo, and server-simulated anyway. The client sends which keys are
+     down and where it is aiming; it never says that it hit something, took a
+     coin or cleared a level. There is no money in this mode today, and the
+     day there is, none of this has to be rewritten. */
+  socket.on('sh:join', ({ name } = {}) => {
+    if (!socketRL(socket, 'shjoin', 1000)) return;
+    if (ops.get().maintenance) { socket.emit('maintenance', ops.get()); return; }
+    endShooter(socket.id);                       // a second Start replaces the first run
+    const room = new ShooterRoom(io, socket.id);
+    room.addPlayer(socket, sanitizeName(name));
+    shooterRooms.set(socket.id, room);
+    socket.emit('sh:map', room.mapPayload());
+    room.start();
+  });
+
+  socket.on('sh:input', (input) => {
+    const room = shooterRooms.get(socket.id);
+    if (!room || !input || typeof input !== 'object') return;
+    room.setInput(socket.id, input);
+  });
+
+  socket.on('sh:buy', ({ weapon } = {}) => {
+    if (!socketRL(socket, 'shbuy', 120)) return;
+    const room = shooterRooms.get(socket.id);
+    if (!room) return;
+    const r = room.buy(String(weapon || ''));
+    if (!r.ok) socket.emit('sh:refused', { why: r.why });
+  });
+
+  socket.on('sh:next', () => {
+    if (!socketRL(socket, 'shnext', 500)) return;
+    const room = shooterRooms.get(socket.id);
+    if (!room) return;
+    if (room.nextLevel()) socket.emit('sh:map', room.mapPayload());
+  });
+
+  socket.on('sh:leave', () => endShooter(socket.id));
 
   socket.on('cell:split', () => {
     if (!socketRL(socket, 'split', 100)) return;
@@ -2152,6 +2204,7 @@ io.on('connection', (socket) => {
        socket out of the queue if it never got into one. Without it a closed tab
        leaves an opponent staring at a turn that will never come. */
     tanksLobby.leave(socket.id);
+    endShooter(socket.id);
     console.log(`[-] Disconnected: ${socket.id}`);
     if (socket._agarRoom) {
       const agarPlayer = socket._agarRoom.players.get(socket.id);

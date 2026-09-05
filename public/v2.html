@@ -862,6 +862,15 @@ body.no-foot footer{display:none}
    no snake to dress — showing any of them is furniture from another game. */
 #detail.duel .stakes,#detail.duel .stakeoff,#detail.duel .sl,
 #detail.duel .lobwrap,#detail.duel .lookrow{display:none}
+/* ── a solo run ────────────────────────────────────────────────────────────
+   Nobody to be matched with and no room to join, so there is no buy-in, no
+   lobby list and no skin to pick: one player, one arena, one button. Showing
+   an empty lobby list here would say the game has rooms that are quiet, when
+   what it has is no rooms at all. */
+#detail.solo .sl,#detail.solo .stakes,#detail.solo .stakeoff,
+#detail.solo .duelbet,#detail.solo .lobwrap,#detail.solo .lookrow,
+#detail.solo .queued{display:none}
+#detail.solo .dbnote{display:block}
 /* The amount is the control, so it gets the size — and the arrows sit either
    side of it where a thumb already is, rather than stacked above and below
    where one of them is always the wrong distance away. */
@@ -1993,8 +2002,12 @@ const GAMES=[
   d:'Two rooftops, one shot at a time, and the loser is whoever falls off first.'},
  {id:'headsoccer',name:'Head Soccer',c:['#141e18','#6fd39a'],type:'m',soon:1,duel:1,
   d:'One on one, oversized heads, and a ball that rarely goes where you meant it to.'},
- {id:'omgshooter',name:'OMG Shooter',c:['#141a24','#e0405a'],type:'p',soon:1,
-  d:'Fire up the line, take the targets before they reach you, and keep the streak alive.'},
+ /* Built, and the only solo game on the board: one player against an arena
+    rather than a room full of people or an opponent to be matched with. It is
+    free and stays free while it is new — there is no stake to verify and
+    nothing to pay out, so none of the money path is involved in it. */
+ {id:'omgshooter',name:'OMG Shooter',c:['#141a24','#e0405a'],type:'p',built:1,solo:1,
+  d:'Drive, aim, and shoot your way through the arena to the base at the other end of it.'},
  {id:'swim',name:'Swim',c:['#141a16','#8fd06a'],type:'p',soon:1,duel:1,
   d:'Pick your gap in moving traffic and cross without touching anything.'},
  /* Every game here has a painting. A new one added before its art exists can
@@ -2989,10 +3002,14 @@ function open_(id){
      than the open-ended stepper: you cannot name your own stake at a table
      that does not take one yet. */
   det.classList.toggle('freeonly',!!cur.freeOnly);
+  det.classList.toggle('solo',!!cur.solo);
   /* The stepper note describes a stake, and this table takes none. Leaving it
      there had the screen promising a $1.00 pot on a free game. */
   const dn=document.getElementById('dbnote');
-  if(dn&&cur.freeOnly){
+  if(dn&&cur.solo){
+    dn.textContent='Free, and on your own. No stake, no opponent and nothing paid '
+      +'out — you are playing for the next level.';
+  }else if(dn&&cur.freeOnly){
     dn.textContent='Free while the game is new. Nothing staked, nothing paid out '
       +'— you are playing for the win.';
   }
@@ -3087,7 +3104,10 @@ function startFromDetail(){
   /* Three cases, and they are genuinely different: a built duel launches its
      own page, an unbuilt one shows the queue it WILL use, and an arena joins a
      room that already exists. */
-  if(cur&&cur.built&&cur.duel){V2Play.launch(cur.id,{lobbyType:'free'});return}
+  /* A built duel and a solo run both open their own page at Free, and both
+     name the room rather than letting the buy-in ladder pick one: neither of
+     them has a ladder on screen to read a choice from. */
+  if(cur&&cur.built&&(cur.duel||cur.solo)){V2Play.launch(cur.id,{lobbyType:'free'});return}
   if(cur&&cur.duel){joinQueue();return}
   V2Play.playChosen();
 }

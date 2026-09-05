@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>OMG Shooter · DuelSeries</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/shooter.css">
+</head>
+<body>
+
+<canvas id="arena"></canvas>
+
+<!-- Health, coins, the level and the base you are here to destroy. Four facts,
+     read at a glance, never in the way of the middle of the screen. -->
+<header id="hud" hidden>
+  <div class="hudLeft">
+    <div class="hpWrap"><i id="hpBar"></i></div>
+    <span class="hpNum num" id="hpNum">100</span>
+  </div>
+  <div class="hudMid">
+    <span class="lvl">Level <b class="num" id="lvlNum">1</b></span>
+    <div class="baseWrap" title="Enemy base"><i id="baseBar"></i></div>
+  </div>
+  <div class="hudRight">
+    <span class="coins num" id="coinNum">0</span>
+    <span class="coinsLabel">coins</span>
+    <!-- A way out that does not depend on finishing a level. Without it the
+         only door was the between-levels card, so a run you wanted to quit had
+         to be won first. -->
+    <button type="button" class="exit" id="exitBtn" aria-label="Back to the lobby">Leave</button>
+  </div>
+</header>
+
+<!-- The three weapons. Owned ones switch for nothing; the rest show their price
+     and light up the moment you can afford them. -->
+<div id="guns" hidden>
+  <button type="button" class="gun" data-w="cannon"><b>Cannon</b><em class="num"></em></button>
+  <button type="button" class="gun" data-w="rapid"><b>Machine gun</b><em class="num"></em></button>
+  <button type="button" class="gun" data-w="scatter"><b>Scattergun</b><em class="num"></em></button>
+</div>
+
+<!-- Touch controls. A stick to drive and a thumb button to fire, shown only on
+     a device that has no keyboard. -->
+<div id="touch" hidden>
+  <div id="stick"><i id="stickNub"></i></div>
+  <button type="button" id="tfire">Fire</button>
+</div>
+
+<div id="msg" hidden></div>
+
+<!-- Between levels. The one moment to spend what you have collected. -->
+<div id="between" hidden>
+  <div class="card">
+    <p class="eyebrow">Level cleared</p>
+    <p class="big"><span class="num" id="clearedCoins">0</span> coins</p>
+    <p class="sub">Spend them before you go on. Whatever you keep is still yours.</p>
+    <button type="button" class="go" id="nextBtn">Next level</button>
+    <button type="button" class="ghost" id="quitBtn">Back to the lobby</button>
+  </div>
+</div>
+
+<div id="boot">
+  <div class="card">
+    <p class="eyebrow">OMG Shooter</p>
+    <p class="sub bootSub">Drive with <b>WASD</b> or the arrow keys. Aim with the mouse and
+      hold to fire. Break the crates, take the coins, and destroy the red base to
+      clear the level.</p>
+    <button type="button" class="go" id="startBtn">Start</button>
+  </div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="js/shooter.js"></script>
+</body>
+</html>

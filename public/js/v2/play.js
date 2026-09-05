@@ -271,7 +271,7 @@
        asking the money layer to handle a game that never touches money.
 
        Everything else still goes through the widget exactly as before. */
-    const OWN_PAGE = { tanks: '/tanks' };
+    const OWN_PAGE = { tanks: '/tanks', omgshooter: '/shooter' };
     if (OWN_PAGE[game]) {
       try { sessionStorage.setItem('playerName', name); } catch (_) {}
       const frame = document.getElementById('game-frame');
