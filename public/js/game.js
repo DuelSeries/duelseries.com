@@ -974,11 +974,16 @@ function brApply(s) {
   if (s.state === 'running') {
     const left = Math.max(0, (s.totalMs || 0) - (s.elapsedMs || 0));
     const mm = Math.floor(left / 60000), ss = Math.floor((left % 60000) / 1000);
-    sub.textContent = s.phase === 'overtime'
+    /* A solo run is a test against the zone, not a match, and saying so stops
+       it looking like a match that nobody else turned up to. */
+    const solo = s.startedWith === 1 ? ' · solo run' : '';
+    sub.textContent = (s.phase === 'overtime'
       ? 'Last one standing wins'
-      : mm + ':' + (ss < 10 ? '0' : '') + ss + ' left';
+      : mm + ':' + (ss < 10 ? '0' : '') + ss + ' left') + solo;
   } else if (s.state === 'over') {
-    sub.textContent = s.winner ? s.winner.name + ' won' : 'Nobody survived';
+    sub.textContent = s.soloRun
+      ? (s.winner ? 'You lasted the whole match' : 'The circle got you')
+      : (s.winner ? s.winner.name + ' won' : 'Nobody survived');
   } else {
     sub.textContent = s.players >= s.minPlayers
       ? 'Ready when the host starts it'

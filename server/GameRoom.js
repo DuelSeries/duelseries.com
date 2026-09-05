@@ -194,7 +194,16 @@ class GameRoom {
   }
 
   addBot() {
-    if (!this.lobbyType.endsWith('free')) return null; // no free bots in paid lobbies
+    /* By the free LIST, not by the name. The guard is real — a bot worth
+       nothing sitting in a paid room is a free player among people who staked —
+       but endsWith('free') is the same mistake that has now bitten five times:
+       it read 'na_br' as a paid room and silently refused every bot, so the
+       battle royale could not be filled and could not be tested.
+
+       The region prefix comes off first; what is left is the lobby type. */
+    const type = String(this.lobbyType).replace(/^(na|eu)_/, '');
+    const free = (C.FREE_LOBBY_TYPES || ['free']).indexOf(type) !== -1;
+    if (!free) return null;                  // no free bots in paid lobbies
     const id = 'bot_' + uuidv4();
     const { x, y } = this.safeSpawnPoint();
     const bot = new Bot(id, x, y);

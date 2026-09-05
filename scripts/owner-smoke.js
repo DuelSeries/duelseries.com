@@ -104,6 +104,29 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
     r = await post('/api/owner/do', proof(ownerKey, ownerAddr, 'br:start', { force: true }));
     ok('and forcing one with nobody in it is refused too', r.status === 409, JSON.stringify(r.body.error));
 
+    /* Bots into the battle royale room, then start a real match with them.
+       This is the other way to test the mode: a solo run exercises the zone,
+       bots exercise the actual win condition. */
+    r = await post('/api/owner/do', proof(ownerKey, ownerAddr, 'bots:add', { room: 'na_br', count: 3 }));
+    ok('bots can be added to the battle royale room', r.status === 200,
+       JSON.stringify(r.body.note || r.body.error));
+    ok('and they count as players in it',
+       (r.body.state.battleRoyale || {}).players >= 3,
+       'players=' + JSON.stringify((r.body.state.battleRoyale || {}).players));
+
+    r = await post('/api/owner/do', proof(ownerKey, ownerAddr, 'br:start', {}));
+    ok('so a real match can be started against them', r.status === 200,
+       JSON.stringify(r.body.note || r.body.error));
+    ok('and it counts down rather than starting cold',
+       (r.body.state.battleRoyale || {}).state === 'countdown',
+       'state=' + JSON.stringify((r.body.state.battleRoyale || {}).state));
+
+    r = await post('/api/owner/do', proof(ownerKey, ownerAddr, 'br:stop', {}));
+    ok('and called off again', r.status === 200, JSON.stringify(r.body.note || r.body.error));
+
+    r = await post('/api/owner/do', proof(ownerKey, ownerAddr, 'bots:clear', { room: 'na_br' }));
+    ok('and the bots cleared out', r.status === 200, JSON.stringify(r.body.note || r.body.error));
+
     r = await post('/api/owner/do', proof(ownerKey, ownerAddr, 'announce', { text: 'testing' }));
     ok('an announcement goes out', r.status === 200);
 

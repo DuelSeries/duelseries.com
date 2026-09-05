@@ -188,3 +188,52 @@ test('the public state never leaks more than it should', () => {
   assert.equal(done.winner.name, 'Player0');
   assert.equal(done.winner.wallet, undefined, 'the wallet stays on the server');
 });
+
+test('a solo run plays the whole clock instead of ending the instant it starts', () => {
+  /* "Last one standing" is true the moment a one-player match begins, so the
+     match ended before the countdown had cleared and the mode could not be
+     tested by the only person on the game. A solo run is scored against the
+     ZONE instead: it ends when the player dies, or when the full four minutes
+     are up and they are still alive. */
+  const r = room(1);
+  go(r);
+  assert.equal(r.isSoloRun(), true, 'it knows it started alone');
+
+  at(r, 1000);
+  r.checkForWinner();
+  assert.equal(r.state, 'running', 'one second in, it is still going');
+
+  at(r, BR.SHRINK_MS);
+  r.checkForWinner();
+  assert.equal(r.state, 'running', 'two minutes in, still going');
+
+  at(r, BR.SHRINK_MS + BR.ROAM_MS + 1000);
+  r.checkForWinner();
+  assert.equal(r.state, 'over', 'and it ends when the clock does');
+  assert.ok(r.winner, 'surviving the whole thing counts as winning it');
+  assert.equal(r.soloRun, true, 'and it is marked as a solo run');
+});
+
+test('a solo run ends early if the circle gets you', () => {
+  const r = room(1);
+  go(r);
+  at(r, 30000);
+  r.snakes.get('p0').alive = false;
+  r.checkForWinner();
+  assert.equal(r.state, 'over', 'dying still ends it');
+  assert.equal(r.soloRun, true);
+});
+
+test('a real match is unaffected by any of that', () => {
+  // Two players still ends the moment one is left, at any point on the clock.
+  const r = room(2);
+  go(r);
+  assert.equal(r.isSoloRun(), false);
+  at(r, 5000);
+  r.checkForWinner();
+  assert.equal(r.state, 'running');
+  r.snakes.get('p1').alive = false;
+  r.checkForWinner();
+  assert.equal(r.state, 'over', 'one left ends it');
+  assert.equal(r.soloRun, false, 'and it is a real match, so it can be paid');
+});

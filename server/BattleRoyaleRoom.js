@@ -101,6 +101,11 @@ class BattleRoyaleRoom extends GameRoom {
     if (!this.canStart()) return false;
     this.state = 'countdown';
     this.countdownUntil = Date.now() + BR.COUNTDOWN_MS;
+    /* How many were in it when it began, which is what decides how it can END.
+       A real match is over when one is left; a match of ONE is over the instant
+       it starts by that rule, because the only player is already the last one
+       standing. */
+    this.startedWith = this.livingCount();
     this.matchId = 'br_' + Date.now().toString(36);
     this.startedAt = 0;                 // set when the count reaches zero
     this.endedAt = 0;
@@ -145,7 +150,11 @@ class BattleRoyaleRoom extends GameRoom {
   /* Called off. No winner, no prize — the money is only ever paid to somebody
      who actually outlasted the circle. */
   abandon() {
-    if (this.state !== 'running') return false;
+    /* Countdown counts. Ten seconds after pressing start is exactly when you
+       notice you did not mean to, and refusing to cancel then made Stop useless
+       in the one window where it is most wanted. */
+    if (this.state !== 'running' && this.state !== 'countdown') return false;
+    this.countdownUntil = 0;
     this.state = 'waiting';
     this.winner = null;
     this.matchId = null;
@@ -200,10 +209,29 @@ class BattleRoyaleRoom extends GameRoom {
   /* ── ending ────────────────────────────────────────────────────────────── */
 
   /* Called after the sim has run, so the living count is this tick's truth. */
+  /* A match that began with one player. Owen is the only person on the game, so
+     without this the mode cannot be tested at all: 'last one standing' is true
+     the moment a solo match starts and it ends before the countdown clears.
+
+     A solo run is scored against the ZONE instead of against other people. It
+     ends when the player dies, or when the full four minutes are up and they
+     are still alive — which is the real test of the thing anyway, since what is
+     being tested is the closing circle and not the fighting.
+
+     It pays NOTHING. Winning $20 for outlasting nobody is escrow paying a
+     player to be alone in a room, and the payout reads this flag. */
+  isSoloRun() { return this.startedWith === 1; }
+
   checkForWinner() {
     if (this.state !== 'running') return;
     const alive = this.livingSnakes();
-    if (alive.length > 1) { this._prevAlive = alive; return; }
+
+    if (this.isSoloRun()) {
+      const t = Date.now() - this.startedAt;
+      const timeUp = t >= BR.SHRINK_MS + BR.ROAM_MS;
+      if (alive.length && !timeUp) { this._prevAlive = alive; return; }
+      // Died, or survived the whole thing. Either way it is over.
+    } else if (alive.length > 1) { this._prevAlive = alive; return; }
 
     /* The previous tick's survivors, kept because the count can go straight
        from two to zero. The border kills instantly, so two snakes on opposite
@@ -226,8 +254,11 @@ class BattleRoyaleRoom extends GameRoom {
       wallet: (this.players.get(won.id) || {}).walletAddress || null,
     } : null;
 
-    console.log(`[BR] ${this.lobbyType} match ${this.matchId} won by `
-      + (this.winner ? this.winner.name : 'nobody') + ` after ${(this.endedAt - this.startedAt) / 1000 | 0}s`);
+    this.soloRun = this.isSoloRun();
+    console.log(`[BR] ${this.lobbyType} match ${this.matchId}`
+      + (this.soloRun ? ' (solo test run, no prize)' : '')
+      + ` won by ` + (this.winner ? this.winner.name : 'nobody')
+      + ` after ${(this.endedAt - this.startedAt) / 1000 | 0}s`);
     this.io.to(this.socketRoomName).emit('br:state', this.publicState());
 
     /* The room reopens for the next one. The prize is not paid here — that is
@@ -259,6 +290,8 @@ class BattleRoyaleRoom extends GameRoom {
            : this.state !== 'running' ? this.state
            : t < BR.SHRINK_MS ? 'closing'
            : t < BR.SHRINK_MS + BR.ROAM_MS ? 'roaming' : 'overtime',
+      soloRun: !!this.soloRun,
+      startedWith: this.startedWith || 0,
       winner: this.winner ? { name: this.winner.name } : null,
     };
   }

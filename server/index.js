@@ -878,7 +878,9 @@ app.post('/api/owner/do', async (req, res) => {
       return done('Started with ' + br.livingCount() + ' players');
     }
     case 'br:stop': {
-      if (!br || br.state !== 'running') return refuse('No match is running');
+      if (!br || (br.state !== 'running' && br.state !== 'countdown')) {
+        return refuse('No match is running');
+      }
       br.abandon();
       return done('Match stopped, no prize paid');
     }
@@ -900,9 +902,14 @@ app.post('/api/owner/do', async (req, res) => {
       }
       const n = Math.min(Math.max(1, parseInt(args.count, 10) || 1), 30);
       if (!room.addBot) return refuse('That room does not take bots');
-      for (let i = 0; i < n; i++) room.addBot();
+      /* COUNTED, not assumed. addBot returns null when it refuses, and this
+         reported 'Added 3' for three refusals — a console that lies about what
+         it just did is worse than one that fails out loud. */
+      let made = 0;
+      for (let i = 0; i < n; i++) if (room.addBot()) made++;
       broadcastLobbyState();
-      return done('Added ' + n + ' bot(s) to ' + room.lobbyType);
+      if (!made) return refuse('That room would not take any bots');
+      return done('Added ' + made + ' bot(s) to ' + room.lobbyType);
     }
 
     /* Maintenance. Turning it ON is always allowed — the point of it is to stop
@@ -1142,6 +1149,13 @@ async function payBattleRoyaleWinner(room) {
   const w = room && room.winner;
   const matchId = room && room.matchId;
   if (!w || !matchId) return;
+  /* Outlasting nobody is not winning. A solo run exists so the mode can be
+     tested at all, and paying $20 out of escrow for being alone in a room is
+     escrow paying somebody to test the game. */
+  if (room.soloRun) {
+    console.log(`[BR] ${matchId} was a solo test run — no prize paid`);
+    return;
+  }
   if (_brPaid.has(matchId)) return;          // a reconnect or a double event must not pay twice
   _brPaid.add(matchId);
   if (!w.wallet) {
