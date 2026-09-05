@@ -141,7 +141,36 @@ html, body {
   display: flex; align-items: center; justify-content: center;
   background: rgba(6,8,5,0.55); pointer-events: none;
 }
-.deadCard { text-align: center; max-width: 340px; padding: 0 24px; }
+#dead { pointer-events: auto; }
+.deadCard {
+  text-align: center; max-width: 380px; padding: 26px 24px 22px;
+  background: var(--s1); border: 1px solid var(--s3); border-radius: 18px;
+  box-shadow: 0 24px 60px rgba(0,0,0,0.6);
+}
+.deadCard .go { margin-top: 20px; }
+.deadCard .ghost {
+  display: block; width: 100%; margin-top: 8px; padding: 12px;
+  border-radius: 10px; font-family: inherit; font-size: 13.5px; font-weight: 600;
+  cursor: pointer; border: 1px solid var(--s3);
+  background: transparent; color: var(--tx3);
+}
+.deadCard .ghost:hover { color: var(--tx); border-color: #3d4632; }
+
+/* The banked flash. Big, brief, dead centre, and impossible to drive past. */
+#banked-flash {
+  position: fixed; top: 34%; left: 50%; transform: translate(-50%, -50%);
+  z-index: 13; text-align: center; pointer-events: none;
+  animation: pop 0.28s ease-out;
+}
+#banked-flash span {
+  display: block; font-size: 56px; font-weight: 700; color: var(--gold);
+  letter-spacing: -2px; text-shadow: 0 6px 30px rgba(0,0,0,0.85);
+}
+#banked-flash em {
+  display: block; margin-top: 2px; font-style: normal; font-size: 12px;
+  letter-spacing: 0.2em; text-transform: uppercase; color: var(--tx2);
+}
+@keyframes pop { from { opacity: 0; transform: translate(-50%, -40%) scale(0.85); } }
 
 /* ── touch ─────────────────────────────────────────────────────────────────── */
 #stick {

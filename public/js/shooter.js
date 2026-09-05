@@ -33,6 +33,12 @@
   var prev = null, next = null, prevAt = 0, nextAt = 0;
   var dpr = 1, started = false, S = 1;
   var cam = { x: 0, y: 0 };
+  /* Where your own tank actually is ON SCREEN, in CSS pixels, as of the last
+     frame. The camera stops at the edge of the map, so for a good part of the
+     arena the tank is NOT in the middle of the screen — and aiming from the
+     middle then points the barrel somewhere the mouse is not. This is the
+     number the barrel is aimed from. */
+  var meScreen = { x: 0, y: 0 };
   var feed = [];                  // recent kills and cash-outs
   var mini = null, miniDirty = true;
 
@@ -43,7 +49,7 @@
   var vis = null, seen = null, fogAt = 0, fogX = -1e9, fogY = -1e9;
 
   var keys = Object.create(null);
-  var input = { up: 0, down: 0, left: 0, right: 0, fire: 0, aim: 0 };
+  var input = { up: 0, down: 0, left: 0, right: 0, fire: 0, bank: 0, aim: 0 };
   var mouse = { x: 0, y: 0 };
   var touch = { active: false, dx: 0, dy: 0, id: null };
   var isTouch = matchMedia('(pointer: coarse)').matches;
@@ -59,12 +65,23 @@
   window.addEventListener('resize', resize);
   resize();
 
-  /* About twenty-two tiles across a desktop screen and fewer on a phone, which
-     is the range where a tank is big enough to aim and the room is big enough
-     to see. */
+  /* MEASURED, not chosen. Their game fits a fixed FIFTEEN tiles into the
+     height of the canvas whatever its shape — checked at two viewport sizes,
+     988x1261 and 1280x800, where their 54px tile drew at 86 and 53 CSS pixels
+     respectively, both of which are height/15.
+
+     Ours is deliberately wider than that: nineteen tiles tall, because Owen
+     asked to see more of the map than their game shows. Width is capped too,
+     so a wide monitor does not turn the tanks into specks, and a phone falls
+     back to fitting the width because a portrait screen has height to spare
+     and none to spare across. */
+  var TILES_TALL = 19, TILES_WIDE = 30;
+  var TILES_TALL_PHONE = 24, TILES_WIDE_PHONE = 13;
   function zoom() {
-    var want = window.innerWidth < 620 ? 11 : 22;
-    return cv.width / (want * (map ? map.tile : 54));
+    var T = map ? map.tile : 54;
+    var phone = window.innerWidth < 620;
+    return Math.min(cv.width / ((phone ? TILES_WIDE_PHONE : TILES_WIDE) * T),
+                    cv.height / ((phone ? TILES_TALL_PHONE : TILES_TALL) * T));
   }
 
   /* ── input ────────────────────────────────────────────────────────────────── */
@@ -74,6 +91,9 @@
   };
   window.addEventListener('keydown', function (e) {
     if (KEYMAP[e.code]) { keys[KEYMAP[e.code]] = 1; e.preventDefault(); }
+    /* Hold Q to bank where you stand. A hold rather than a tap, because
+       cashing out is the one action in the game you can never take back. */
+    if (e.code === 'KeyQ') input.bank = 1;
     if (e.code === 'Escape') leave();
     var n = e.code.indexOf('Digit') === 0 ? Number(e.code.slice(5)) : -1;
     if (n >= 0) {
@@ -81,12 +101,16 @@
       if (A.WEAPONS[idx]) pickWeapon(A.WEAPONS[idx].key);
     }
   });
-  window.addEventListener('keyup', function (e) { if (KEYMAP[e.code]) keys[KEYMAP[e.code]] = 0; });
+  window.addEventListener('keyup', function (e) {
+    if (KEYMAP[e.code]) keys[KEYMAP[e.code]] = 0;
+    if (e.code === 'KeyQ') input.bank = 0;
+  });
   /* Keys held when the window loses focus stay held forever otherwise, and you
      come back to a tank driving into a wall on its own. */
   window.addEventListener('blur', function () {
     for (var k in keys) keys[k] = 0;
     input.fire = 0;
+    input.bank = 0;
   });
 
   cv.addEventListener('mousemove', function (e) { mouse = { x: e.clientX, y: e.clientY }; });
@@ -145,9 +169,10 @@
     } else {
       input.up = keys.up || 0; input.down = keys.down || 0;
       input.left = keys.left || 0; input.right = keys.right || 0;
-      /* The camera is locked to your tank, so the centre of the screen IS the
-         tank and the barrel points from there to the cursor. */
-      input.aim = Math.atan2(mouse.y - window.innerHeight / 2, mouse.x - window.innerWidth / 2);
+      /* From the tank, not from the middle of the screen. Those are the same
+         point only while the camera is free to follow, and it is not free
+         anywhere near the edge of the map. */
+      input.aim = Math.atan2(mouse.y - meScreen.y, mouse.x - meScreen.x);
     }
     socket.volatile.emit('sh:input', input);
   }
@@ -211,17 +236,29 @@
     $('carry').textContent = s.you.coins;
     $('banked').textContent = s.you.banked;
 
-    /* The cash-out bar only exists while you are actually banking. A permanent
+    /* One bar, two ways of filling it: standing in the square, or holding Q.
+       It only exists while one of them is actually happening — a permanent
        empty bar is a control that is broken 99% of the time. */
     var cw = $('cashwrap');
-    cw.hidden = !(s.you.cash > 0);
-    if (s.you.cash > 0) {
-      $('cashBar').style.width = (s.you.cash * 100) + '%';
-      $('cashNum').textContent = (map ? (map.cashoutMs / 1000 * (1 - s.you.cash)).toFixed(1) : '');
+    var prog = Math.max(s.you.cash || 0, s.you.quick || 0);
+    var quick = (s.you.quick || 0) > 0;
+    cw.hidden = !(prog > 0);
+    if (prog > 0) {
+      $('cashBar').style.width = (prog * 100) + '%';
+      var full = quick ? 1200 : (map ? map.cashoutMs : 5000);
+      $('cashNum').textContent = (full / 1000 * (1 - prog)).toFixed(1);
+      $('cashLbl').textContent = quick ? 'Banking' : 'Cashing out';
     }
+    /* And the result, which the first version left to a one-line kill feed
+       nobody reads while driving. Five seconds of standing still deserves
+       more than that. */
+    var flash = $('banked-flash');
+    if (s.you.banked_ms !== undefined && s.you.banked_ms < 2200 && s.you.banked_last > 0) {
+      flash.hidden = false;
+      $('flashNum').textContent = '+' + s.you.banked_last;
+    } else { flash.hidden = true; }
 
     $('dead').hidden = !s.you.dead;
-    if (s.you.dead) $('deadIn').textContent = (s.you.respawn / 1000).toFixed(1);
 
     for (var i = 0; i < gunBtns.length; i++) {
       gunBtns[i].classList.toggle('on', gunBtns[i].dataset.w === s.you.weapon);
@@ -345,6 +382,8 @@
     cam.y = clampCam(py, halfH, worldH);
 
     var ox = cv.width / 2 - cam.x * S, oy = cv.height / 2 - cam.y * S;
+    meScreen.x = (px * S + ox) / dpr;
+    meScreen.y = (py * S + oy) / dpr;
     var X = function (x) { return x * S + ox; };
     var Y = function (y) { return y * S + oy; };
 
@@ -372,12 +411,18 @@
     var c1 = Math.min(map.cols - 1, Math.ceil(cam.x / T + cv.width / 2 / S / T) + 1);
     var r0 = Math.max(0, Math.floor(cam.y / T - cv.height / 2 / S / T) - 1);
     var r1 = Math.min(map.rows - 1, Math.ceil(cam.y / T + cv.height / 2 / S / T) + 1);
-    var s = T * S;
+    /* Each tile is drawn from its own left edge to the NEXT tile's left edge,
+       rather than at a rounded width. At a fractional zoom a fixed width leaves
+       hairline gaps between tiles that flicker as the camera moves — the floor
+       looks cracked. Deriving the size from the neighbour makes adjacent tiles
+       share an edge exactly, at every zoom. */
     for (var r = r0; r <= r1; r++) {
       for (var c = c0; c <= c1; c++) {
         if (!seen[r * map.cols + c]) continue;      // never been here: leave it black
-        var x = X(c * T), y = Y(r * T), v = map.cells[r * map.cols + c];
-        A.drawGrass(ctx, x, y, s + 1, c, r);
+        var x = Math.floor(X(c * T)), y = Math.floor(Y(r * T));
+        var s = Math.ceil(X((c + 1) * T)) - x;
+        var v = map.cells[r * map.cols + c];
+        A.drawGrass(ctx, x, y, s, c, r);
         if (v === 1) A.drawCrate(ctx, x, y, s);
         else if (v === 2) A.drawStone(ctx, x, y, s, c, r);
         else if (v === 3) A.drawBrick(ctx, x, y, s, c, r);
@@ -525,7 +570,7 @@
      now. Drawn last, over everything, so a tank standing in the dark is in the
      dark rather than half-lit. */
   function drawFog(X, Y) {
-    var T = map.tile, s = T * S + 1;
+    var T = map.tile;
     var c0 = Math.max(0, Math.floor(cam.x / T - cv.width / 2 / S / T) - 1);
     var c1 = Math.min(map.cols - 1, Math.ceil(cam.x / T + cv.width / 2 / S / T) + 1);
     var r0 = Math.max(0, Math.floor(cam.y / T - cv.height / 2 / S / T) - 1);
@@ -534,8 +579,9 @@
       for (var c = c0; c <= c1; c++) {
         var i = r * map.cols + c;
         if (vis[i]) continue;
+        var fx = Math.floor(X(c * T)), fy = Math.floor(Y(r * T));
         ctx.fillStyle = seen[i] ? 'rgba(6,10,6,0.66)' : '#0b0f09';
-        ctx.fillRect(X(c * T), Y(r * T), s, s);
+        ctx.fillRect(fx, fy, Math.ceil(X((c + 1) * T)) - fx, Math.ceil(Y((r + 1) * T)) - fy);
       }
     }
   }
@@ -549,7 +595,7 @@
        the corner. It is sized off the screen rather than fixed, and it sits
        above the stick rather than under it. */
     var pad = 14 * dpr;
-    var box = Math.min(172, cv.width / dpr * 0.30) * dpr;
+    var box = Math.min(186, cv.width / dpr * 0.30) * dpr;
     var x0 = pad, y0 = cv.height - box - pad - (isTouch ? 216 * dpr : 0);
     var k = box / (map.cols * map.tile);
 
@@ -616,12 +662,20 @@
     else window.location.href = '/';
   }
   $('exitBtn').addEventListener('click', leave);
+  $('againBtn').addEventListener('click', function () {
+    $('dead').hidden = true;
+    socket.emit('sh:respawn');
+  });
+  $('deadLeaveBtn').addEventListener('click', leave);
 
   /* The last snapshot, for the console. It is the same data the page has
      already been sent and can already read off the wire, so this gives nothing
      away; what it gives is a way to check where a tank actually is when the
      screen says something odd, without adding a HUD nobody wants. */
   window.SHOOTER_STATE = function () { return next; };
+  /* The view transform too, so a mismatch between where the tank is drawn and
+     where the barrel points can be measured rather than argued about. */
+  window.SHOOTER_VIEW = function () { return { cam: cam, scale: S, me: meScreen, dpr: dpr }; };
 
   pickWeapon(WEAPON);
   draw();

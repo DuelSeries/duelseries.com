@@ -43,7 +43,7 @@ const SH = {
 
   /* How far you can see down an open lane. Everything past it, and everything
      round a corner, is black. */
-  SIGHT: 720,
+  SIGHT: 1000,
 
   RESPAWN_MS: 3200,
   SPAWN_SAFE_MS: 2000,
@@ -52,6 +52,11 @@ const SH = {
   /* The bank. Five seconds, and stepping out resets it — Owen's rule, and the
      reason the middle of the map is the most dangerous place on it. */
   CASHOUT_MS: 5000,
+  /* Holding Q banks you where you stand. Owen asked for it in the free lobby
+     and this arena is free-only, so it is always available here; the day one of
+     these tables takes a stake, this is the flag that has to come off. */
+  QUICK_BANK_MS: 1200,
+  QUICK_BANK_ALLOWED: true,
   CASHOUT_HALF: 3 * 54,        // half-width of the square, in world units
 
   CRATE_COINS: 15,
@@ -59,7 +64,11 @@ const SH = {
   PICKUP_R: 30,
   COIN_LIFE_MS: 45000,
 
-  BOT_FLOOR: 4,                // keep this many tanks in the arena at all times
+  /* No bots. Owen asked for them gone: a free-for-all against robots is not
+     the game, and an arena that is empty until somebody else turns up is at
+     least honest about being empty. The machinery below is kept and driven by
+     this one number, so putting them back is changing a 0 to a 4. */
+  BOT_FLOOR: 0,
 
   EMPTY: 0, CRATE: 1, STONE: 2, BRICK: 3, WOOD: 4, BARREL: 5,
 };
@@ -189,7 +198,15 @@ class ShooterRoom {
       for (let c = 2; c < COLS - 2; c++) {
         if (this.map[r][c] !== SH.EMPTY) continue;
         if (Math.hypot(c - cx, r - cy) > R - 2) continue;
-        const k = rnd();
+        /* Density varies across the map instead of being the same everywhere.
+           A uniform scatter gives you one texture of cover from wall to wall,
+           and nowhere that feels like anything: no open ground to be caught
+           on, no thicket to lose somebody in. Two slow waves crossed give
+           plazas and tangles without hand-placing either. */
+        const wave = Math.sin(c * 0.21 + 1.3) * Math.cos(r * 0.18)
+                   + 0.5 * Math.sin((c + r) * 0.11);
+        const dense = 0.5 + 0.42 * wave;              // about 0.05 .. 0.95
+        const k = rnd() / (0.30 + dense * 1.15);   // ~4% cover in a plaza, ~25% in a thicket
         if (k < 0.035) put(c, r, SH.CRATE);
         else if (k < 0.055) put(c, r, SH.BARREL);
         else if (k < 0.085) put(c, r, SH.WOOD);
@@ -327,9 +344,9 @@ class ShooterRoom {
       x: 0, y: 0, hull: 0, aim: 0, roll: 0,
       health: SH.HEALTH, maxHealth: SH.HEALTH,
       coins: 0, banked: 0, kills: 0, deaths: 0,
-      input: { up: 0, down: 0, left: 0, right: 0, fire: 0 },
+      input: { up: 0, down: 0, left: 0, right: 0, fire: 0, bank: 0 },
       nextFire: 0, dead: false, deadUntil: 0, safeUntil: 0,
-      cashMs: 0, wander: 0,
+      cashMs: 0, quickMs: 0, wander: 0, waiting: false,
     };
     this.tanks.set(id, t);
     this.place(t);
@@ -418,7 +435,7 @@ class ShooterRoom {
     t.input = {
       up: input.up ? 1 : 0, down: input.down ? 1 : 0,
       left: input.left ? 1 : 0, right: input.right ? 1 : 0,
-      fire: input.fire ? 1 : 0,
+      fire: input.fire ? 1 : 0, bank: input.bank ? 1 : 0,
     };
     if (typeof input.aim === 'number' && isFinite(input.aim)) t.aim = input.aim;
   }
@@ -456,7 +473,10 @@ class ShooterRoom {
     const dt = 1 / SH.TICK_RATE;
     const now = this.now();
     for (const t of this.tanks.values()) {
-      if (t.dead) { if (now >= t.deadUntil) this.place(t); continue; }
+      /* A dead player stays dead until they ask to come back. Being thrown
+         into the arena again the instant you die takes the decision away from
+         you, and the decision is the whole of "do I want another go". */
+      if (t.dead) { if (t.bot && now >= t.deadUntil) this.place(t); continue; }
       if (t.bot) this.driveBot(t, dt, now); else this.drivePlayer(t, dt, now);
       this.stepCashout(t, dt);
     }
@@ -527,15 +547,49 @@ class ShooterRoom {
   }
 
   stepCashout(t, dt) {
-    if (!this.inBank(t) || t.coins <= 0) { t.cashMs = 0; return; }
+    /* Two ways to bank, and they share one bar so the screen only ever has one
+       thing to say. Standing in the square is the slow public one everybody can
+       see you doing; holding Q is the quick private one, and it exists because
+       this table is free and a free game should not make you drive across a map
+       to keep fifteen coins. */
+    if (t.coins <= 0) { t.cashMs = 0; t.quickMs = 0; return; }
+
+    if (SH.QUICK_BANK_ALLOWED && t.input && t.input.bank) {
+      t.quickMs += dt * 1000;
+      t.cashMs = 0;
+      if (t.quickMs >= SH.QUICK_BANK_MS) this.bankCoins(t, 'held Q');
+      return;
+    }
+    t.quickMs = 0;
+
+    if (!this.inBank(t)) { t.cashMs = 0; return; }
     t.cashMs += dt * 1000;
-    if (t.cashMs < SH.CASHOUT_MS) return;
+    if (t.cashMs >= SH.CASHOUT_MS) this.bankCoins(t, 'the middle');
+  }
+
+  /* Named bankCoins, not bank: this.bank is already the square in the middle
+     of the map, and a method that shares a name with a property is a method the
+     property quietly deletes. The tests caught it; nothing else would have. */
+  bankCoins(t, how) {
     const took = t.coins;
+    if (took <= 0) return;
     t.banked += took;
     t.coins = 0;
     t.cashMs = 0;
+    t.quickMs = 0;
+    t.bankedAt = this.now();
+    t.bankedLast = took;
     this.io.to(this.socketRoomName).emit('sh:banked',
-      { name: t.name, amount: took, total: t.banked });
+      { name: t.name, amount: took, total: t.banked, how });
+  }
+
+  /* Asked for by a dead player, so nothing puts them back in the arena until
+     they say so. Refused for anybody who is not actually dead. */
+  respawn(id) {
+    const t = this.tanks.get(id);
+    if (!t || !t.dead) return false;
+    this.place(t);
+    return true;
   }
 
   /* ── shooting ───────────────────────────────────────────────────────────── */
@@ -756,6 +810,9 @@ class ShooterRoom {
         dead: !!me.dead, respawn: me.dead ? Math.max(0, me.deadUntil - now) : 0,
         safe: !!(me.safeUntil && now < me.safeUntil),
         cash: me.cashMs > 0 ? Math.min(1, me.cashMs / SH.CASHOUT_MS) : 0,
+        quick: me.quickMs > 0 ? Math.min(1, me.quickMs / SH.QUICK_BANK_MS) : 0,
+        banked_ms: me.bankedAt ? now - me.bankedAt : 99999,
+        banked_last: me.bankedLast || 0,
       } : null,
       tanks: [...this.tanks.values()].filter(t => t.id !== forId && !t.dead).map(t => ({
         id: t.id, n: t.name, x: r1(t.x), y: r1(t.y), h: r2(t.hull), a: r2(t.aim),

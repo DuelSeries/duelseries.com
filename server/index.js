@@ -2102,6 +2102,13 @@ io.on('connection', (socket) => {
     }
   });
 
+  /* Asked for by a dead player. Nothing else puts them back in the arena, so
+     dying is a full stop rather than a two-second interruption. */
+  socket.on('sh:respawn', () => {
+    if (!socketRL(socket, 'shrespawn', 400)) return;
+    shooterRoom.respawn(socket.id);
+  });
+
   socket.on('sh:leave', () => endShooter(socket.id));
 
   socket.on('cell:split', () => {

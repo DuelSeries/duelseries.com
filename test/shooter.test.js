@@ -360,16 +360,15 @@ test('an empty arena stops ticking, and forgets the mess', () => {
   assert.equal(r.timer, null, 'the loop is stopped');
 });
 
-test('bots fill an empty arena and stand down as people arrive', () => {
+test('there are no bots in the arena', () => {
+  /* Owen asked for them gone: a free-for-all against robots is not the game.
+     The machinery is still there behind SH.BOT_FLOOR, so this is the test that
+     notices if it ever comes back by accident. */
   const r = new Room();
   r.addPlayer(sock(), 'Owen', 'cannon');
   r.stop();
-  const withOne = [...r.tanks.values()].filter(t => t.bot).length;
-  assert.ok(withOne >= 1, 'one player is not alone in here');
-  for (let i = 0; i < 4; i++) r.addPlayer(sock(), 'P' + i, 'cannon');
-  r.stop();
-  const withFive = [...r.tanks.values()].filter(t => t.bot).length;
-  assert.ok(withFive < withOne, 'fewer bots with five humans (' + withOne + ' -> ' + withFive + ')');
+  assert.equal([...r.tanks.values()].filter(t => t.bot).length, 0);
+  assert.equal(r.tanks.size, 1, 'just the one player');
 });
 
 test('a snapshot is a sane size and carries no sockets', () => {
@@ -413,4 +412,92 @@ test('a weapon that does not exist at join time is a cannon, not a crash', () =>
   r.stop();
   assert.equal(p.weapon, 'cannon');
   assert.ok(WEAPONS[p.weapon], 'and it is a real one');
+});
+
+test('holding Q banks you where you stand', () => {
+  /* The square in the middle is the public way to bank and the interesting one.
+     This is the private one, and it exists because this table is free: a free
+     game should not make you drive across a map to keep fifteen coins. */
+  const { r, p } = withPlayer();
+  p.coins = 60;
+  put(r, p, 8 * SH.TILE, 8 * SH.TILE);          // nowhere near the middle
+  assert.equal(r.inBank(p), false);
+  r.setInput(p.id, { bank: 1 });
+  r.seconds(0.8);
+  assert.equal(p.banked, 0, 'a tap does not do it');
+  r.seconds(0.8);
+  assert.equal(p.banked, 60, 'a hold does');
+  assert.equal(p.coins, 0);
+});
+
+test('letting go of Q starts the hold again', () => {
+  const { r, p } = withPlayer();
+  p.coins = 60;
+  put(r, p, 8 * SH.TILE, 8 * SH.TILE);
+  r.setInput(p.id, { bank: 1 });
+  r.seconds(0.9);
+  r.setInput(p.id, { bank: 0 });
+  r.step(1);
+  assert.equal(p.quickMs, 0, 'the hold reset');
+  r.setInput(p.id, { bank: 1 });
+  r.seconds(0.9);
+  assert.equal(p.banked, 0, 'so nine tenths twice is still not one and a bit');
+});
+
+test('holding Q with nothing to bank does nothing at all', () => {
+  const { r, p } = withPlayer();
+  p.coins = 0;
+  r.setInput(p.id, { bank: 1 });
+  r.seconds(3);
+  assert.equal(p.quickMs, 0);
+  assert.equal(p.banked, 0);
+});
+
+test('death waits for you to ask for another go', () => {
+  /* Being thrown back into the arena the instant you die takes the decision
+     away from you, and the decision is the whole of "do I want another go". */
+  const { r, p } = withPlayer();
+  r.hurt(p, 9999, 'someone');
+  assert.equal(p.dead, true);
+  r.seconds(20);
+  assert.equal(p.dead, true, 'still dead twenty seconds later');
+
+  assert.equal(r.respawn(p.id), true);
+  assert.equal(p.dead, false, 'and back when asked');
+  assert.equal(p.health, p.maxHealth, 'at full health');
+  assert.ok(!r.blocked(p.x, p.y), 'somewhere you can stand');
+});
+
+test('you cannot respawn a tank that is not dead', () => {
+  const { r, p } = withPlayer();
+  const where = { x: p.x, y: p.y };
+  assert.equal(r.respawn(p.id), false);
+  assert.equal(p.x, where.x, 'and it did not move you');
+  assert.equal(r.respawn('nobody'), false);
+});
+
+test('the arena has open ground as well as cover', () => {
+  /* A uniform scatter gives one texture of cover from wall to wall: nowhere to
+     be caught in the open and nowhere to lose somebody in. This does not assert
+     an absolute amount of either — that is a number that moves every time the
+     map is tuned — it asserts that the map VARIES, which is the thing that was
+     actually missing. */
+  const { r } = withPlayer();
+  const cx = (SH.COLS - 1) / 2, cy = (SH.ROWS - 1) / 2;
+  const fills = [];
+  for (let r0 = 4; r0 < SH.ROWS - 10; r0 += 5) {
+    for (let c0 = 4; c0 < SH.COLS - 10; c0 += 5) {
+      if (Math.hypot(c0 + 2.5 - cx, r0 + 2.5 - cy) > Math.min(cx, cy) - 7) continue;
+      let filled = 0;
+      for (let dr = 0; dr < 5; dr++) for (let dc = 0; dc < 5; dc++) {
+        if (r.map[r0 + dr][c0 + dc] !== SH.EMPTY) filled++;
+      }
+      fills.push(filled);
+    }
+  }
+  fills.sort((a, b) => a - b);
+  const low = fills[Math.floor(fills.length * 0.15)];
+  const high = fills[Math.floor(fills.length * 0.85)];
+  assert.ok(low <= 4, 'the sparse end is genuinely sparse (' + low + '/25)');
+  assert.ok(high >= low * 3, 'and the dense end is much denser (' + low + ' vs ' + high + ')');
 });

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
-<title>OMG Shooter · DuelSeries</title>
+<title>Tanks · DuelSeries</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -35,7 +35,7 @@
 
 <!-- Only on screen while you are actually banking. -->
 <div id="cashwrap" hidden>
-  <span class="cashlbl">Cashing out</span>
+  <span class="cashlbl" id="cashLbl">Cashing out</span>
   <div class="cashTrack"><i id="cashBar"></i></div>
   <span class="cashNum num" id="cashNum">5.0</span>
 </div>
@@ -46,12 +46,19 @@
 
 <ul id="feed"></ul>
 
+<!-- Banked. Five seconds of standing still in the open deserves more than a
+     line in the kill feed. -->
+<div id="banked-flash" hidden><span class="num" id="flashNum">+0</span><em>banked</em></div>
+
+<!-- Death waits for you. Nothing puts you back in the arena until you ask. -->
 <div id="dead" hidden>
   <div class="deadCard">
     <p class="eyebrow">Destroyed</p>
-    <p class="big">Back in <span class="num" id="deadIn">3.0</span>s</p>
+    <p class="big">You are out</p>
     <p class="sub">Whatever you were carrying is on the floor where you died.
       Somebody is probably driving toward it.</p>
+    <button type="button" class="go" id="againBtn">Play again</button>
+    <button type="button" class="ghost" id="deadLeaveBtn">Back to the lobby</button>
   </div>
 </div>
 
@@ -63,14 +70,15 @@
 
 <div id="boot">
   <div class="card">
-    <p class="eyebrow">OMG Shooter</p>
+    <p class="eyebrow">Tanks</p>
     <h1>Free-for-all</h1>
     <p class="sub" id="howto">Drive with <b>WASD</b>, aim with the mouse, hold to fire.
       Break crates for coins and med kits. Kill someone and they drop everything
       they were carrying.</p>
     <p class="sub gold">Coins are only yours once you bank them. Sit in the gold
-      square in the middle of the map for five seconds — without leaving it — and
-      they are safe. Die first and they are on the floor for whoever gets there.</p>
+      square in the middle of the map for five seconds without leaving it, or hold
+      <b>Q</b> for a second wherever you are. Die first and they are on the floor
+      for whoever gets there.</p>
     <p class="pick">Pick a gun. You can switch any time with 1&ndash;0.</p>
     <div id="bootguns" class="gunpick"></div>
     <button type="button" class="go" id="startBtn">Play</button>
