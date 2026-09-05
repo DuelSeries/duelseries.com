@@ -29,7 +29,7 @@ const BR = {
      is also what tells everyone in the room that this is now a match rather
      than a lobby. */
   COUNTDOWN_MS: 10 * SEC,
-  SHRINK_MS:   2 * 60 * SEC,   // closing in
+  SHRINK_MS:   1 * 60 * SEC,   // closing in
   ROAM_MS:     2 * 60 * SEC,   // the small circle wandering
   /* One. Owen tests this alone and there is nobody else on the game yet, so a
      two-player minimum only ever stopped him starting it. It stays a named
@@ -38,10 +38,25 @@ const BR = {
   MIN_PLAYERS: 1,
   START_RADIUS: C.MAX_WORLD_RADIUS,
   FINAL_RADIUS: 420,           // about six snake-lengths across at spawn size
-  /* How far the small circle wanders, as a fraction of the room it has. Kept
-     below 1 so the zone can never wander off the world it was drawn in. */
-  ROAM_REACH:  0.55,
-  ROAM_PERIOD_MS: 46 * SEC,    // one lap of its drift path
+  /* HOW FAR AND HOW FAST THE CIRCLE WANDERS, and both are speed limits rather
+     than taste.
+
+     A snake cruises at SNAKE_BASE_SPEED per tick — 2.22 at 60Hz, so about 133
+     units a second, and roughly 337 flat out on boost. A zone whose centre
+     moves faster than that cannot be followed by anyone: you watch a wall
+     arrive at a speed you cannot outrun, which is not a game.
+
+     The first version wandered 2160 units on a 46-second lap — about 295 units
+     a second, more than twice cruising speed. 800 units on a 100-second lap is
+     roughly 50, comfortably under half of cruising, so following the circle is
+     something you do WHILE playing rather than the whole of what you do. */
+  ROAM_RADIUS: 800,
+  ROAM_PERIOD_MS: 100 * SEC,   // one lap of its drift path
+  /* And it eases out of the middle instead of appearing off to one side. The
+     centre used to jump from (0,0) to wherever the path began the instant the
+     closing finished: the circle teleported out from under everybody and the
+     border killed whoever was standing in the middle of it. */
+  ROAM_EASE_MS: 20 * SEC,
   /* Overtime: the clock is up and more than one snake is alive, so it keeps
      closing until somebody is. Six a second, not fourteen: fourteen went from
      420 to the floor in thirty seconds, which is not a squeeze, it is a
@@ -191,10 +206,17 @@ class BattleRoyaleRoom extends GameRoom {
        the same oval and become predictable. */
     this.worldRadius = BR.FINAL_RADIUS;
     const roamT = t - BR.SHRINK_MS;
-    const reach = BR.START_RADIUS * BR.ROAM_REACH - BR.FINAL_RADIUS;
+    /* Smoothstep from nothing to full reach, so the circle leaves the middle
+       at walking pace instead of jumping there. At roamT = 0 this is exactly
+       zero whatever the seed is, which is the property that matters: the
+       wander begins precisely where the closing left off. */
+    const k = Math.min(1, roamT / BR.ROAM_EASE_MS);
+    const ease = k * k * (3 - 2 * k);
     const a = this._roamSeed + (roamT / BR.ROAM_PERIOD_MS) * Math.PI * 2;
-    this.worldCx = Math.cos(a) * reach * 0.75;
-    this.worldCy = Math.sin(a * 0.61) * reach * 0.75;
+    /* Two frequencies that do not divide into each other, so the path does not
+       retrace one oval and become something you can stand still and wait for. */
+    this.worldCx = Math.cos(a) * BR.ROAM_RADIUS * ease;
+    this.worldCy = Math.sin(a * 0.61) * BR.ROAM_RADIUS * ease;
 
     /* Overtime. The clock is up but more than one snake is alive, so the circle
        keeps wandering AND starts closing again. Owen asked for it to keep going

@@ -65,7 +65,7 @@ test('starting begins a countdown, not the closing', () => {
   assert.ok(r.startedAt > 0, 'and the match clock starts THERE, not when start was pressed');
 });
 
-test('the zone closes for two minutes, then roams for two', () => {
+test('the zone closes, then roams, on the clock', () => {
   const r = room();
   go(r);
 
@@ -236,4 +236,65 @@ test('a real match is unaffected by any of that', () => {
   r.checkForWinner();
   assert.equal(r.state, 'over', 'one left ends it');
   assert.equal(r.soloRun, false, 'and it is a real match, so it can be paid');
+});
+
+test('the zone can be followed, and never teleports out from under you', () => {
+  /* Two failures that made the mode unplayable, both about SPEED.
+
+     A snake cruises at SNAKE_BASE_SPEED per tick — about 133 units a second at
+     60Hz. The first roam wandered 2160 units on a 46-second lap, roughly 295 a
+     second: more than twice cruising, so the wall arrived at a speed nobody
+     could outrun.
+
+     And the centre jumped straight from (0,0) to wherever the path happened to
+     begin the instant the closing finished, which killed whoever was standing
+     in the middle — the exact thing that happened at the two-minute mark. */
+  const C = require('../shared/constants');
+  const cruise = C.SNAKE_BASE_SPEED * C.TICK_RATE;
+
+  const r = room(1);
+  go(r);
+
+  const sample = (ms) => { at(r, ms); return { cx: r.worldCx, cy: r.worldCy, rad: r.worldRadius }; };
+
+  // No jump at the handover: the wander starts exactly where the closing ended.
+  const before = sample(BR.SHRINK_MS - 50);
+  const after  = sample(BR.SHRINK_MS + 50);
+  assert.ok(Math.hypot(after.cx - before.cx, after.cy - before.cy) < 30,
+    'the circle does not teleport when it stops closing');
+
+  // And it never outruns a snake.
+  let worst = 0, prev = sample(BR.SHRINK_MS);
+  for (let ms = BR.SHRINK_MS + 100; ms <= BR.SHRINK_MS + BR.ROAM_MS; ms += 100) {
+    const p = sample(ms);
+    worst = Math.max(worst, Math.hypot(p.cx - prev.cx, p.cy - prev.cy) / 0.1);
+    prev = p;
+  }
+  assert.ok(worst < cruise * 0.75,
+    'the zone moves at ' + Math.round(worst) + ' u/s, well under a snake at ' + Math.round(cruise));
+
+  // It still has to be a threat: standing still must eventually leave you out.
+  let stranded = null;
+  for (let s = 0; s <= BR.ROAM_MS / 1000 && stranded === null; s++) {
+    const p = sample(BR.SHRINK_MS + s * 1000);
+    if (Math.hypot(p.cx, p.cy) > p.rad) stranded = s;
+  }
+  assert.ok(stranded !== null && stranded >= 6,
+    'a player who never moves is left outside, but not instantly (was ' + stranded + 's)');
+
+  // And it still cannot wander out of the world it is drawn in.
+  let worstOut = 0;
+  for (let s = 0; s <= BR.ROAM_MS / 1000; s++) {
+    const p = sample(BR.SHRINK_MS + s * 1000);
+    worstOut = Math.max(worstOut, Math.hypot(p.cx, p.cy) + p.rad);
+  }
+  assert.ok(worstOut < BR.START_RADIUS, 'the circle stays inside the world');
+});
+
+test('the closing takes a minute', () => {
+  assert.equal(BR.SHRINK_MS, 60 * 1000, 'one minute of closing, not two');
+  const r = room(1);
+  go(r);
+  at(r, BR.SHRINK_MS - 10);
+  assert.ok(Math.abs(r.worldRadius - BR.FINAL_RADIUS) < 5, 'and it is fully closed by then');
 });
