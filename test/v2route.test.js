@@ -1091,9 +1091,23 @@ test('a duel names its own stake, and does not pretend to find an opponent', () 
     assert.ok(hide[0].includes(part), 'it hides ' + part);
   }
 
-  // The stake is bounded. An unbounded field on a real-money control is not one.
-  assert.ok(/const DUEL_MIN=[\d.]+, DUEL_MAX=\d+/.test(html), 'the stake has limits');
-  assert.ok(/amt>=DUEL_MIN\)\|\|amt>DUEL_MAX/.test(html), 'and they are enforced before queueing');
+  /* The stake is a LADDER of set rungs, not a box you type into.
+
+     Set amounts are what let two people meet at the same number without either
+     naming one the other has to accept — and there is no such thing as a typo
+     on a ladder. No 500 where 5.00 was meant, which on a real-money control is
+     precisely the mistake worth designing out. */
+  const ladder = html.match(/const DUEL_LADDER=\[([^\]]+)\]/);
+  assert.ok(ladder, 'the buy-ins are a fixed ladder');
+  assert.deepEqual(ladder[1].split(',').map(Number), [0, 0.25, 0.5, 1, 2, 5, 10, 20],
+    'and it is the rungs Owen asked for, in order');
+  assert.ok(!/id="dbamt"[^>]*<input/.test(html) && !/input[^>]*id="dbamt"/.test(html),
+    'the amount is not a text field any more');
+
+  /* Disabled at the ends rather than wrapping. A stepper that rolls from $20
+     round to free is one mis-tap from staking nothing when you meant twenty. */
+  assert.ok(/down\.disabled=duelStep===0/.test(html), 'it stops at the bottom');
+  assert.ok(/up\.disabled=duelStep===DUEL_LADDER\.length-1/.test(html), 'and at the top');
 
   // The honesty: the queue says what it cannot do.
   assert.ok(/Nobody to match you with yet/.test(html),

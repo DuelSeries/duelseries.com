@@ -855,20 +855,32 @@ body.no-foot footer{display:none}
    no snake to dress — showing any of them is furniture from another game. */
 #detail.duel .stakes,#detail.duel .stakeoff,#detail.duel .sl,
 #detail.duel .lobwrap,#detail.duel .lookrow{display:none}
-.dbrow{display:flex;align-items:center;justify-content:center;gap:4px;
+/* The amount is the control, so it gets the size — and the arrows sit either
+   side of it where a thumb already is, rather than stacked above and below
+   where one of them is always the wrong distance away. */
+.dbrow{display:flex;align-items:center;justify-content:space-between;gap:10px;
   background:var(--s2);border:1px solid var(--s3);border-radius:var(--r2);
-  padding:14px 16px;margin-top:6px;transition:border-color .15s}
-.dbrow:focus-within{border-color:var(--money)}
-.dbcur{font-family:var(--fm);font-size:26px;font-weight:600;color:var(--tx3)}
-.dbamt{width:150px;background:none;border:none;outline:none;color:var(--tx);
-  font-family:var(--fm);font-variant-numeric:tabular-nums;font-size:32px;
-  font-weight:600;text-align:left;padding:0}
-.dbquick{display:flex;gap:8px;margin-top:10px}
-.dbq{flex:1;background:var(--s2);border:1px solid transparent;border-radius:var(--r2);
-  padding:9px 0;font-family:var(--fm);font-size:13.5px;font-weight:600;
-  color:var(--tx2);cursor:pointer;transition:background .14s,color .14s}
-.dbq:hover{background:var(--s3);color:var(--tx)}
-.dbq.on{background:var(--money);border-color:var(--money);color:var(--ink)}
+  padding:10px 12px;margin-top:6px}
+.dbstep{flex:0 0 auto;width:46px;height:46px;display:grid;place-items:center;
+  background:var(--s1);border:1px solid var(--s3);border-radius:var(--r2);
+  color:var(--tx);cursor:pointer;transition:background .14s,color .14s,opacity .14s}
+.dbstep:hover:not(:disabled){background:var(--s3)}
+.dbstep:disabled{opacity:.3;cursor:default}
+.dbstep:focus-visible{outline:2px solid var(--money);outline-offset:2px}
+.dbval{flex:1;min-width:0;display:flex;align-items:baseline;justify-content:center;gap:3px}
+.dbcur{font-family:var(--fm);font-size:22px;font-weight:600;color:var(--tx3)}
+/* Tabular figures, or every step nudges the number sideways. */
+.dbamt{font-family:var(--fm);font-variant-numeric:tabular-nums;font-size:32px;
+  font-weight:600;color:var(--tx);line-height:1.1}
+/* Free is a word, not an amount, so it is set as one. */
+.duelbet.free .dbcur{display:none}
+.duelbet.free .dbamt{font-family:var(--f);font-size:26px;letter-spacing:-.5px}
+
+.dbrungs{display:flex;align-items:center;justify-content:center;gap:7px;margin-top:12px}
+.dbrung{width:6px;height:6px;border-radius:50%;background:var(--s3);
+  transition:background .14s,transform .14s}
+.dbrung.on{background:var(--money);transform:scale(1.5)}
+.dbrung.past{background:var(--tx3)}
 .dbnote{margin:12px 0 0;font-size:11.5px;line-height:1.65;color:var(--tx3)}
 
 /* ── waiting for somebody ───────────────────────────────────────────────── */
@@ -1586,13 +1598,28 @@ body.scr-anim { overflow-x:hidden }
          makes an open-ended stake fair. -->
     <div class="duelbet" id="duelbet">
       <div class="dbrow">
-        <span class="dbcur">$</span>
-        <input id="dbamt" class="dbamt" type="text" inputmode="decimal"
-               value="1.00" maxlength="7" aria-label="Your buy-in">
+        <button type="button" class="dbstep" id="dbdown" onclick="stepDuel(-1)"
+                aria-label="Lower the buy-in">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
+               stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M6 9l6 6 6-6"/></svg>
+        </button>
+        <div class="dbval">
+          <span class="dbcur" id="dbcur">$</span>
+          <span class="dbamt" id="dbamt" aria-live="polite">1.00</span>
+        </div>
+        <button type="button" class="dbstep" id="dbup" onclick="stepDuel(1)"
+                aria-label="Raise the buy-in">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
+               stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 15l-6-6-6 6"/></svg>
+        </button>
       </div>
-      <div class="dbquick" id="dbquick"></div>
-      <p class="dbnote">Your opponent puts in the same. Winner takes both,
-        minus the ten percent house cut.</p>
+      <!-- Where you are on the ladder. Eight rungs is few enough to show all of
+           them, and seeing that the next press is 2 and not 1.25 is the thing a
+           bare number cannot tell you. -->
+      <div class="dbrungs" id="dbrungs" aria-hidden="true"></div>
+      <p class="dbnote" id="dbnote"></p>
     </div>
     <!-- The name is stored under the live lobby's key, so switching between
          the two does not ask for it twice, and it is saved to the account so
@@ -3006,50 +3033,62 @@ function goBack(){showScreen(_cameFrom);jumpToTop()}
 /* Every buy-in on screen at once. With nine rungs this had to be a stepper
    with a row of dots, which meant paging through amounts to find out what was
    even offered. Three fit, so the control IS the list. */
-/* ── naming your own stake ───────────────────────────────────────────────
-   A duel has no ladder. Both players put in the same amount, which is what
-   makes an open-ended stake fair, and the quick amounts are there because most
-   people want a round number rather than a decision. */
-const DUEL_QUICK=[1,5,20];
-const DUEL_MIN=0.5, DUEL_MAX=500;
-function duelAmount(){
-  const raw=parseFloat(String((document.getElementById('dbamt')||{}).value||'').replace(/[^0-9.]/g,''));
-  return isFinite(raw)?raw:0;
+/* ── choosing what a duel is worth ───────────────────────────────────────
+   A ladder of set amounts rather than a box you type into.
+
+   Both players put in the same, which is what makes an open-ended stake fair,
+   and set rungs make that agreement possible: two people can meet at 5 without
+   either of them naming a number the other has to accept. It also means there
+   is no such thing as a typo here — no 500 where 5.00 was meant, which on a
+   real-money control is the mistake worth designing out.
+
+   Free is a rung, because a duel you can try for nothing is how anybody finds
+   out whether they like the game. */
+const DUEL_LADDER=[0,0.25,0.5,1,2,5,10,20];
+let duelStep=3;                       // opens at $1
+function duelAmount(){ return DUEL_LADDER[duelStep]; }
+function stepDuel(dir){
+  const next=duelStep+dir;
+  if(next<0||next>=DUEL_LADDER.length)return;
+  duelStep=next;
+  drawDuelBet();
 }
 function drawDuelBet(){
-  const q=document.getElementById('dbquick'); if(!q)return;
   const amt=duelAmount();
-  q.innerHTML=DUEL_QUICK.map(v=>
-    `<button type="button" class="dbq${Math.abs(v-amt)<0.005?' on':''}"
-       onclick="setDuelBet(${v})">$${v}</button>`).join('');
+  const box=document.getElementById('duelbet');
+  const val=document.getElementById('dbamt');
+  if(!box||!val)return;
+  box.classList.toggle('free',amt===0);
+  val.textContent=amt===0?'Free':amt.toFixed(2);
+  /* Disabled at the ends rather than wrapping around. A stepper that jumps from
+     $20 back to free is one mis-tap from staking nothing when you meant twenty. */
+  const down=document.getElementById('dbdown'), up=document.getElementById('dbup');
+  if(down)down.disabled=duelStep===0;
+  if(up)up.disabled=duelStep===DUEL_LADDER.length-1;
+  const rungs=document.getElementById('dbrungs');
+  if(rungs)rungs.innerHTML=DUEL_LADDER.map((_,i)=>
+    `<span class="dbrung${i===duelStep?' on':i<duelStep?' past':''}"></span>`).join('');
+  const note=document.getElementById('dbnote');
+  if(note)note.textContent=amt===0
+    ? 'Nothing staked and nothing paid out. Play for the win.'
+    : 'Your opponent puts in the same $'+amt.toFixed(2)+'. Winner takes both, minus the ten percent house cut.';
 }
-function setDuelBet(v){
-  const el=document.getElementById('dbamt'); if(!el)return;
-  el.value=Number(v).toFixed(2);
-  drawDuelBet();
-}
-/* Cleaned as it is typed, so the field can never hold something that is not a
-   number. Clamping happens on the way OUT rather than here — rewriting what
-   somebody is halfway through typing is how you make a field impossible to
-   use. */
-document.addEventListener('input',e=>{
-  if(e.target.id!=='dbamt')return;
-  const cleaned=String(e.target.value).replace(/[^0-9.]/g,'').replace(/(\..*)\./g,'$1');
-  if(cleaned!==e.target.value)e.target.value=cleaned;
-  drawDuelBet();
+/* Up and down work on the keyboard too, once either arrow has focus. */
+document.addEventListener('keydown',e=>{
+  const t=e.target; if(!t||(t.id!=='dbup'&&t.id!=='dbdown'))return;
+  if(e.key==='ArrowUp'||e.key==='ArrowRight'){e.preventDefault();stepDuel(1)}
+  if(e.key==='ArrowDown'||e.key==='ArrowLeft'){e.preventDefault();stepDuel(-1)}
 });
 
 /* Joining the queue. This is the honest half of the preview: the control, the
    waiting state and the cancel are all real, and nothing pretends an opponent
    is coming, because none of these games exists on the server yet. */
 function joinQueue(){
+  /* No range check: every rung on the ladder is a valid buy-in by construction,
+     which is the point of having a ladder instead of a text field. */
   const amt=duelAmount();
-  if(!(amt>=DUEL_MIN)||amt>DUEL_MAX){
-    V2Play.toast('Pick a buy-in between $'+DUEL_MIN.toFixed(2)+' and $'+DUEL_MAX+'.');
-    return;
-  }
   document.getElementById('qsub').textContent=
-    'Looking for someone at $'+amt.toFixed(2);
+    'Looking for someone at '+(amt===0?'a free table':'$'+amt.toFixed(2));
   document.getElementById('qmain').textContent='Waiting for an opponent';
   document.getElementById('detail').classList.add('queueing');
   /* Said out loud rather than left to be discovered by waiting. A queue that
