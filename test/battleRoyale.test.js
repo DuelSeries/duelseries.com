@@ -127,18 +127,33 @@ test('the zone closes, then roams, on the clock', () => {
   assert.ok(worst < BR.START_RADIUS, 'and never wanders outside the world');
 });
 
-test('overtime squeezes, and leaves a circle somebody can survive in', () => {
-  /* At 14 units a second this went from 420 to the floor in thirty seconds — a
-     guillotine, and one likely to take both finalists at once. */
-  const r = room();
+test('the clock running out starts sudden death, and does not end anything', () => {
+  /* The buzzer used to end the match. It begins the part that ends it: the
+     circle holds at its smallest and hunts faster every second, so there is a
+     point past which nobody can stay ahead of it. Shrinking further was the old
+     answer and it was wrong — crushing a circle two snake-lengths across just
+     kills everyone at once. */
+  const full = BR.SHRINK_MS + BR.ROAM_MS;
+  const r = room(2);
   go(r);
-  /* Overtime picks up from the ENDGAME size, not the roaming one — by the
-     buzzer the circle has already closed to ENDGAME_RADIUS. */
-  at(r, BR.SHRINK_MS + BR.ROAM_MS + 3000);
-  assert.ok(r.worldRadius < BR.ENDGAME_RADIUS, 'overtime keeps closing');
-  assert.ok(r.worldRadius > BR.OVERTIME_FLOOR, 'but has not bottomed out in three seconds');
-  at(r, BR.SHRINK_MS + BR.ROAM_MS + 10 * 60 * 1000);
-  assert.equal(Math.round(r.worldRadius), BR.OVERTIME_FLOOR, 'and stops at the floor');
+
+  at(r, full + 3000);
+  assert.equal(r.state, 'running', 'the buzzer does not end it');
+  assert.equal(Math.round(r.worldRadius), BR.ENDGAME_RADIUS, 'and it stops shrinking');
+  assert.equal(r.publicState().phase, 'sudden', 'the phase says what this is');
+
+  at(r, full + 120000);
+  assert.equal(Math.round(r.worldRadius), BR.ENDGAME_RADIUS,
+    'two minutes later it is still exactly that size');
+
+  /* And it really does accelerate — this is the only thing guaranteeing the
+     match ends at all. A snake tops out at SNAKE_MAX_SPEED; the hunt must pass
+     it. */
+  const C = require('../shared/constants');
+  const boost = C.SNAKE_MAX_SPEED * C.TICK_RATE;
+  assert.ok(r.huntSpeed(full + 1000, 0) < boost, 'it starts slower than a boosting snake');
+  assert.ok(r.huntSpeed(full + 90000, 0) > boost,
+    'and outruns one before long, so the match cannot last forever');
 });
 
 test('the match ends the moment one snake is left, whatever the clock says', () => {
@@ -228,29 +243,26 @@ test('the public state never leaks more than it should', () => {
   assert.equal(done.winner.wallet, undefined, 'the wallet stays on the server');
 });
 
-test('a solo run plays the whole clock instead of ending the instant it starts', () => {
-  /* "Last one standing" is true the moment a one-player match begins, so the
-     match ended before the countdown had cleared and the mode could not be
-     tested by the only person on the game. A solo run is scored against the
-     ZONE instead: it ends when the player dies, or when the full four minutes
-     are up and they are still alive. */
+test('a solo run keeps going past the buzzer, until the circle gets you', () => {
+  /* "Last one standing" is true the moment a one-player match begins, so this
+     used to end before the countdown had even cleared. Then it ended on the
+     buzzer — which meant the one person who can test this never saw sudden
+     death, the part worth testing. It ends when the circle gets you. */
   const r = room(1);
   go(r);
   assert.equal(r.isSoloRun(), true, 'it knows it started alone');
 
-  at(r, 1000);
-  r.checkForWinner();
-  assert.equal(r.state, 'running', 'one second in, it is still going');
+  for (const ms of [1000, BR.SHRINK_MS, BR.SHRINK_MS + BR.ROAM_MS + 1000,
+                    BR.SHRINK_MS + BR.ROAM_MS + 60000]) {
+    at(r, ms);
+    r.checkForWinner();
+    assert.equal(r.state, 'running', 'still going at ' + ms / 1000 + 's');
+  }
 
-  at(r, BR.SHRINK_MS);
+  r.snakes.get('p0').alive = false;
   r.checkForWinner();
-  assert.equal(r.state, 'running', 'two minutes in, still going');
-
-  at(r, BR.SHRINK_MS + BR.ROAM_MS + 1000);
-  r.checkForWinner();
-  assert.equal(r.state, 'over', 'and it ends when the clock does');
-  assert.ok(r.winner, 'surviving the whole thing counts as winning it');
-  assert.equal(r.soloRun, true, 'and it is marked as a solo run');
+  assert.equal(r.state, 'over', 'and it ends when the player dies');
+  assert.equal(r.soloRun, true, 'marked as a solo run, so no prize is paid');
 });
 
 test('a solo run ends early if the circle gets you', () => {

@@ -50,7 +50,10 @@ function run(hug) {
   const warnings = [];
   const ringGap = [];
 
-  for (let ms = 0; ms <= TOTAL && caught === null; ms += STEP) {
+  /* Well past the buzzer: the clock running out STARTS the ending now, so a sim
+     that stops at TOTAL never sees the part that decides the match. */
+  const CAP = TOTAL + 5 * 60 * 1000;
+  for (let ms = 0; ms <= CAP && caught === null; ms += STEP) {
     FAKE += STEP;
     room.startedAt = FAKE - ms;
     room.updateZone();
@@ -61,15 +64,29 @@ function run(hug) {
     const ty = room.worldCy + (py - room.worldCy) / off * room.worldRadius * hug;
     const dx = tx - px, dy = ty - py, d = Math.hypot(dx, dy);
     if (d > 1) {
-      const move = Math.min(d, cruise * STEP / 1000);
+      /* Flat out once the clock is gone. If a snake at MAX speed still cannot
+         stay ahead, the match is guaranteed to end, which is the property that
+         matters most about sudden death. */
+      const speed = ms > TOTAL ? C.SNAKE_MAX_SPEED * C.TICK_RATE : cruise;
+      const move = Math.min(d, speed * STEP / 1000);
       px += dx / d * move; py += dy / d * move;
     }
     if (Math.hypot(px - room.worldCx, py - room.worldCy) >= room.worldRadius) caught = ms;
 
     const to = room.hopTarget();
     if (to && (!lastTo || to.x !== lastTo.x || to.y !== lastTo.y)) {
-      if (announce) warnings.push(announce / 1000);
-      hops++; lastTo = { x: to.x, y: to.y }; announce = 0;
+      /* Only announcements that both began AND ended inside the timed part.
+         The one still running when the buzzer goes is cut short by the buzzer,
+         not by the design, and counting it made the shortest warning look like
+         one second. */
+      /* Announcements that both began AND ended inside the timed part. The one
+         running when the buzzer goes is cut short by the buzzer rather than by
+         the design, and the first is clipped by the start of the roam. */
+      if (announce && ms > BR.SHRINK_MS + 3000 && ms <= TOTAL - 3000) {
+        warnings.push(announce / 1000);
+      }
+      if (ms <= TOTAL) hops++;
+      lastTo = { x: to.x, y: to.y }; announce = 0;
     }
     if (to) {
       announce += STEP;
@@ -79,13 +96,16 @@ function run(hug) {
          Outside the endgame the two are the same and the gap is zero. */
       if (ms >= TOTAL - BR.ENDGAME_MS) ringGap.push(room.radiusAt(ms) - to.r);
     }
-    if (prev && ms > BR.SHRINK_MS) {
+    if (prev && ms > BR.SHRINK_MS && ms <= TOTAL) {
       const v = Math.hypot(room.worldCx - prev.x, room.worldCy - prev.y) / (STEP / 1000);
       if (v > worstSpeed) worstSpeed = v;
     }
     prev = { x: room.worldCx, y: room.worldCy };
   }
-  if (announce) warnings.push(announce / 1000);
+  /* The announcement still running when the loop stops is a fragment of one,
+     cut off by the end of the simulation rather than by anything the zone did.
+     Pushing it made the shortest warning read 0.9s when the shortest real one
+     was eight seconds. */
   Date.now = REAL;
   return { caught, worstSpeed, hops, warnings, ringGap, endRadius: room.worldRadius };
 }
@@ -98,6 +118,8 @@ const edge = run(0.8);
 
 console.log('A match is ' + TOTAL / 1000 + 's: ' + BR.SHRINK_MS / 1000 + 's closing, '
   + BR.ROAM_MS / 1000 + 's hopping, the last ' + BR.ENDGAME_MS / 1000 + 's closing again.\n');
+console.log('Figures below describe the TIMED part. Sudden death is meant to be unsurvivable.');
+console.log('');
 console.log('hops announced          ', centre.hops);
 console.log('warning per hop         ', fmt(avg(centre.warnings)) + 's average, '
   + fmt(Math.min.apply(null, centre.warnings)) + 's shortest');
@@ -108,19 +130,24 @@ console.log('circle at the end       ', Math.round(centre.endRadius), 'radius');
 console.log('endgame ring warns by   ', fmt(avg(centre.ringGap)),
   'units smaller than the wall is now');
 console.log('');
-console.log('player who holds the middle:', centre.caught === null
-  ? 'survives' : 'CAUGHT at ' + centre.caught / 1000 + 's');
-console.log('player who hugs the rim    :', edge.caught === null
-  ? 'survives' : 'CAUGHT at ' + edge.caught / 1000 + 's');
+const sd = (r) => r.caught === null ? 'NEVER CAUGHT'
+  : r.caught <= TOTAL ? 'caught at ' + r.caught / 1000 + 's (before the buzzer)'
+  : 'caught ' + fmt((r.caught - TOTAL) / 1000) + 's into sudden death';
+console.log('player who holds the middle:', sd(centre));
+console.log('player who hugs the rim    :', sd(edge));
 
 const fails = [];
 if (centre.worstSpeed > cruise * 0.75) fails.push('the wall outruns a snake');
 if (Math.min.apply(null, centre.warnings) < 2) fails.push('a hop gives under two seconds of warning');
 if (centre.hops < 3) fails.push('barely any hops in a whole match');
-if (centre.caught !== null) fails.push('holding the middle is not enough to survive');
+if (centre.caught !== null && centre.caught <= TOTAL) {
+  fails.push('holding the middle is not enough to survive the timed part');
+}
 if (edge.caught !== null && edge.caught < TOTAL - BR.ENDGAME_MS) {
   fails.push('the rim is lethal before the endgame even starts');
 }
+/* The one guarantee sudden death exists to make. */
+if (centre.caught === null) fails.push('sudden death never ends the match');
 if (avg(centre.ringGap) <= 0) {
   fails.push('the ring does not shrink ahead of the wall in the endgame');
 }

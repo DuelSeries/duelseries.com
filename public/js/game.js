@@ -931,6 +931,7 @@ const PHASE_WORDS = {
   countdown: 'Starting',
   closing:  'Closing in',
   roaming:  'The circle is moving',
+  sudden:   'Sudden death',
   overtime: 'Overtime',
   over:     'Match over',
 };
@@ -982,8 +983,8 @@ function brApply(s) {
     /* A solo run is a test against the zone, not a match, and saying so stops
        it looking like a match that nobody else turned up to. */
     const solo = s.startedWith === 1 ? ' · solo run' : '';
-    sub.textContent = (s.phase === 'overtime'
-      ? 'Last one standing wins'
+    sub.textContent = (s.phase === 'sudden' || s.phase === 'overtime'
+      ? 'The circle is hunting. Last one alive wins.'
       : mm + ':' + (ss < 10 ? '0' : '') + ss + ' left') + solo;
   } else if (s.state === 'over') {
     sub.textContent = s.soloRun

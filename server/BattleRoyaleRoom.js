@@ -73,18 +73,20 @@ const BR = {
      Just above it, so the endgame is desperate rather than unplayable. */
   ENDGAME_MS: 30 * SEC,
   ENDGAME_RADIUS: 165,
-  /* Overtime: the clock is up and more than one snake is alive, so it keeps
-     closing until somebody is. Six a second, not fourteen: fourteen went from
-     420 to the floor in thirty seconds, which is not a squeeze, it is a
-     guillotine — and one very likely to take both finalists on the same tick.
-     The floor is a circle a snake can still turn inside. */
-  OVERTIME_SHRINK_PER_SEC: 6,
-  /* Below the endgame size, or overtime does nothing. It used to floor at 150
-     while the endgame already closed to 165 — fifteen units of squeeze, over in
-     two seconds. Overtime exists to force an ending when two players are still
-     alive at the buzzer, and it cannot do that from a size they are both
-     comfortably surviving in. */
-  OVERTIME_FLOOR: 120,
+  /* SUDDEN DEATH. The clock running out does not end the match — it starts the
+     part that does.
+
+     The circle holds at its smallest and stops shrinking; from here the ending
+     comes from SPEED instead. Every second it hunts a little faster, and since
+     a snake tops out at SNAKE_MAX_SPEED there is a point past which nobody can
+     stay ahead of it. That is the guarantee that matters: a match cannot run
+     forever waiting for two people to make a mistake.
+
+     Shrinking further was the old answer and it was the wrong one — squeezing a
+     circle two snake-lengths across just kills everyone at once, and a double
+     knockout has to be handled rather than engineered. */
+  SUDDEN_ACCEL: 10,            // units a second added to the hunt, per second
+  SUDDEN_HOLD_MS: 250,         // it barely pauses now
 };
 
 class BattleRoyaleRoom extends GameRoom {
@@ -237,6 +239,25 @@ class BattleRoyaleRoom extends GameRoom {
      the last thirty seconds those are very different numbers — a ring showing
      420 when the wall will be 305 by the time it gets there is not a warning,
      it is a promise that gets broken. */
+  /* How long the clock has been out. 0 while the match is still on its timer. */
+  suddenMs(t) {
+    return Math.max(0, t - (BR.SHRINK_MS + BR.ROAM_MS));
+  }
+
+  /* How fast the circle travels, given where the match is.
+
+     Through the roam it eases DOWN as the circle closes, because a shrinking
+     circle that is also sprinting kills whoever is on the trailing rim. Once
+     the clock is out it does the opposite and climbs without limit, which is
+     what actually ends the match: a snake tops out at SNAKE_MAX_SPEED, so there
+     is a moment past which staying ahead of the wall is not possible. */
+  huntSpeed(t, endgameEase) {
+    const sudden = this.suddenMs(t);
+    if (sudden > 0) return BR.ROAM_HOP_SPEED + (sudden / 1000) * BR.SUDDEN_ACCEL;
+    const e = isFinite(endgameEase) ? endgameEase : 0;
+    return BR.ROAM_HOP_SPEED * (1 - 0.55 * e);
+  }
+
   /* 0 through the ordinary roam, ramping to 1 by the final buzzer. Everything
      that should ease off as the circle closes reads this. */
   _endgameEase(t) {
@@ -251,11 +272,9 @@ class BattleRoyaleRoom extends GameRoom {
       const k = t / BR.SHRINK_MS;
       return BR.START_RADIUS + (BR.FINAL_RADIUS - BR.START_RADIUS) * (k * k);
     }
-    const over = t - full;
-    if (over > 0) {
-      return Math.max(BR.OVERTIME_FLOOR,
-        BR.ENDGAME_RADIUS - (over / 1000) * BR.OVERTIME_SHRINK_PER_SEC);
-    }
+    /* Past the clock it stays exactly as small as it got. Sudden death is a
+       chase, not a crush. */
+    if (t >= full) return BR.ENDGAME_RADIUS;
     const leftMs = full - t;
     return leftMs > BR.ENDGAME_MS
       ? BR.FINAL_RADIUS
@@ -304,13 +323,22 @@ class BattleRoyaleRoom extends GameRoom {
       this._hopTo = this._pickHop(endgame);
       const d = Math.hypot(this._hopTo.x - this._hopFrom.x, this._hopTo.y - this._hopFrom.y);
       const e = isFinite(endgame) ? endgame : 0;
-      const speed = BR.ROAM_HOP_SPEED * (1 - 0.55 * e);
+      const speed = this.huntSpeed(t, e);
       const ms = (d / speed) * 1000;
       /* Guarded, because a NaN here does not throw — it makes every comparison
          against progress false, and the circle simply stops choosing new places
          to go while looking otherwise healthy. That is a far worse failure than
          a crash, and it already happened once. */
-      this._hopMs = isFinite(ms) ? Math.max(1200, ms) : 1200;
+      /* A floor on how long a leg may take, so the ring is readable — a warning
+         you have barely a second to read is decoration.
+
+         It does NOT apply in sudden death. There the leg time IS the speed, and
+         holding every hop to two and a half seconds capped how fast the circle
+         could ever hunt: with the floor applied throughout, nobody was ever
+         caught and the match ran forever. Once the clock is out the ring has
+         stopped being advice. */
+      const floor = this.suddenMs(t) > 0 ? 250 : 2500;
+      this._hopMs = isFinite(ms) ? Math.max(floor, ms) : floor;
       this._hopStart = now;
       this._hopHoldUntil = 0;
       return;
@@ -334,7 +362,12 @@ class BattleRoyaleRoom extends GameRoom {
     const ease = k * k * (3 - 2 * k);      // no lurch at either end of a leg
     this.worldCx = this._hopFrom.x + (this._hopTo.x - this._hopFrom.x) * ease;
     this.worldCy = this._hopFrom.y + (this._hopTo.y - this._hopFrom.y) * ease;
-    if (k >= 1) this._hopHoldUntil = now + BR.ROAM_HOP_HOLD_MS;
+    /* Barely a pause once the clock is out. The half-second rest is what makes
+       the roam readable; in sudden death being readable is no longer the job. */
+    if (k >= 1) {
+      this._hopHoldUntil = now +
+        (this.suddenMs(t) > 0 ? BR.SUDDEN_HOLD_MS : BR.ROAM_HOP_HOLD_MS);
+    }
   }
 
   /* Where it is heading, for the outline on screen. Null while it is resting,
@@ -371,11 +404,12 @@ class BattleRoyaleRoom extends GameRoom {
     if (this.state !== 'running') return;
     const alive = this.livingSnakes();
 
+    /* A solo run ends when the circle gets you, and NOT when the clock runs
+       out — the clock running out is the start of sudden death, which is the
+       part worth watching. Ending on the buzzer meant the one person who can
+       test this never got to see it. */
     if (this.isSoloRun()) {
-      const t = Date.now() - this.startedAt;
-      const timeUp = t >= BR.SHRINK_MS + BR.ROAM_MS;
-      if (alive.length && !timeUp) { this._prevAlive = alive; return; }
-      // Died, or survived the whole thing. Either way it is over.
+      if (alive.length) { this._prevAlive = alive; return; }
     } else if (alive.length > 1) { this._prevAlive = alive; return; }
 
     /* The previous tick's survivors, kept because the count can go straight
@@ -431,8 +465,10 @@ class BattleRoyaleRoom extends GameRoom {
       canStart: this.canStart(),
       elapsedMs: t,
       totalMs: BR.SHRINK_MS + BR.ROAM_MS,
+      suddenMs: this.state === 'running' ? this.suddenMs(t) : 0,
       phase: this.state === 'countdown' ? 'countdown'
            : this.state !== 'running' ? this.state
+           : this.suddenMs(t) > 0 ? 'sudden'
            : t < BR.SHRINK_MS ? 'closing'
            : t < BR.SHRINK_MS + BR.ROAM_MS ? 'roaming' : 'overtime',
       soloRun: !!this.soloRun,
