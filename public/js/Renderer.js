@@ -291,6 +291,7 @@ class Renderer {
 
     // Border overlay drawn last so red tint still appears on top of snakes
     this._drawBorder(ctx, state.worldRadius, camera, state.worldCx || 0, state.worldCy || 0);
+    if (state.zoneTo) this._drawZoneTarget(ctx, state, camera);
 
     camera.reset(ctx, dpr);
 
@@ -1012,6 +1013,34 @@ class Renderer {
   }
 
 
+  /* Where the wall is going next: a white ring, the size the wall will be when
+     it gets there, pulsing so it reads as a warning rather than as scenery.
+
+     Dashed and thin on purpose. It has to be legible across the whole arena
+     without ever being mistaken for the real border, which is solid and red —
+     one of these kills you and the other is advice. */
+  _drawZoneTarget(ctx, state, camera) {
+    const dpr = this._dpr || 1;
+    const t = state.zoneTo;
+    const cx = (camera.x + t.x * camera.scale) * dpr;
+    const cy = (camera.y + t.y * camera.scale) * dpr;
+    const r = state.worldRadius * camera.scale * dpr;
+
+    // ~1.4s per breath. Never fully out, or it reads as a rendering fault.
+    const pulse = 0.42 + 0.38 * (0.5 + 0.5 * Math.sin(Date.now() / 225));
+
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalAlpha = pulse;
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2.5 * dpr;
+    ctx.setLineDash([14 * dpr, 11 * dpr]);
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
   _drawBorder(ctx, worldRadius, camera, wcx, wcy) {
     const dpr = this._dpr || 1;
     const W = ctx.canvas.width, H = ctx.canvas.height;
@@ -1075,6 +1104,21 @@ class Renderer {
     mc.beginPath();
     mc.arc(cx + wcx * scale, cy + wcy * scale, state.worldRadius * scale, 0, Math.PI * 2);
     mc.fillStyle = 'rgba(10,14,40,0.8)'; mc.fill();
+    /* The map is where you decide WHERE to go, so the next circle belongs on it
+       more than anywhere else — on screen you can only see the part of the ring
+       that happens to be in front of you. */
+    if (state.zoneTo) {
+      mc.save();
+      mc.globalAlpha = 0.85;
+      mc.setLineDash([3, 3]);
+      mc.strokeStyle = '#ffffff';
+      mc.lineWidth = 1.5;
+      mc.beginPath();
+      mc.arc(cx + state.zoneTo.x * scale, cy + state.zoneTo.y * scale,
+             state.worldRadius * scale, 0, Math.PI * 2);
+      mc.stroke();
+      mc.restore();
+    }
     mc.strokeStyle = '#ff3333'; mc.lineWidth = 2; mc.stroke();
 
     mc.fillStyle = 'rgba(100,255,100,0.5)';

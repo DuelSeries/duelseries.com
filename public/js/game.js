@@ -563,6 +563,11 @@ function interpolateState(now) {
   displayState.worldRadius = lerp(before.state.worldRadius, after.state.worldRadius, alpha);
   displayState.worldCx = lerp(before.state.worldCx || 0, after.state.worldCx || 0, alpha);
   displayState.worldCy = lerp(before.state.worldCy || 0, after.state.worldCy || 0, alpha);
+  /* NOT interpolated. The target is a fixed place the zone is travelling to,
+     not a moving thing — lerping between two snapshots of it would slide the
+     outline around for no reason, and it must sit exactly where the wall will
+     stop or it is lying about where to stand. */
+  displayState.zoneTo = after.state.zoneTo || null;
   displayState.leaderboard = after.state.leaderboard;
   displayState.mm = after.state.mm;     // all-snakes minimap feed (not view-culled)
 

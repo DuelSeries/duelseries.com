@@ -19,8 +19,29 @@ function room(n = 2) {
   }
   return r;
 }
-// Wind the match clock to a given point and let the zone catch up.
-const at = (r, ms) => { r.startedAt = Date.now() - ms; r.updateZone(); };
+/* ── the clock ────────────────────────────────────────────────────────────
+   Installed once, for the whole file, because the zone is no longer a pure
+   function of the match clock: the hops run on Date.now and so does
+   checkForWinner. Faking it only INSIDE `at` meant the hop machine and the
+   ending saw two different times, and a match that should have run out of
+   clock quietly had a second left.
+
+   Everything below shares this one clock: startMatch, the zone, the ending. */
+let FAKE = Date.now();
+Date.now = () => FAKE;
+const tick = (ms) => { FAKE += ms; };
+
+/* Wind the match clock to a point, advancing the wall clock with it.
+
+   FORWARD ONLY. The hop machine is stateful — it remembers when the current leg
+   started — so rewinding the match clock mid-test makes it think a leg has
+   overrun and teleport to its target. Any loop that walks the roam has to walk
+   it once, in order, on a fresh room. */
+const at = (r, ms) => {
+  tick(100);
+  r.startedAt = FAKE - ms;
+  r.updateZone();
+};
 
 /* Start a match and skip its countdown. Every test below is about what happens
    once the circle is moving, and the ten seconds before that is its own test. */
@@ -76,16 +97,32 @@ test('the zone closes, then roams, on the clock', () => {
   assert.ok(Math.abs(r.worldRadius - BR.FINAL_RADIUS) < 5, 'and is closed by two minutes');
   assert.ok(r.worldCx === 0 && r.worldCy === 0, 'closing in on the middle');
 
-  at(r, BR.SHRINK_MS + 45000);
-  assert.ok(Math.abs(r.worldRadius - BR.FINAL_RADIUS) < 1, 'then holds its size');
-  assert.ok(Math.hypot(r.worldCx, r.worldCy) > 100, 'and wanders off centre');
+  /* Stepped, not sampled: the hops advance on the wall clock, so one jump to
+     t+45s would leave the machine on its very first leg. */
+  let farthest = 0;
+  for (let ms = BR.SHRINK_MS; ms <= BR.SHRINK_MS + 45000; ms += 100) {
+    at(r, ms);
+    farthest = Math.max(farthest, Math.hypot(r.worldCx, r.worldCy));
+  }
+  assert.ok(Math.abs(r.worldRadius - BR.FINAL_RADIUS) < 1, 'it holds its size while hopping');
+  /* The FARTHEST it got, not where it happens to be right now: a leg can pass
+     straight through the middle on its way somewhere else, so sampling one
+     instant is a coin toss rather than a test. */
+  assert.ok(farthest > 300, 'and it travels (farthest ' + Math.round(farthest) + ')');
 
   /* The one thing a roaming zone must never do is leave the world it is drawn
-     in, which would put the circle somewhere no snake can follow it. */
+     in, which would put the circle somewhere no snake can follow it.
+
+     A FRESH room, walked once from the start. Re-walking the same room rewinds
+     its hop clock, which makes the machine think the current leg overran and
+     teleport — a measurement artefact that looks exactly like the bug this
+     whole file exists to catch. */
+  const r2 = room(1);
+  go(r2);
   let worst = 0;
-  for (let s = 0; s < 240; s += 2) {
-    at(r, BR.SHRINK_MS + s * 1000);
-    worst = Math.max(worst, Math.hypot(r.worldCx, r.worldCy) + r.worldRadius);
+  for (let ms = BR.SHRINK_MS; ms <= BR.SHRINK_MS + BR.ROAM_MS; ms += 100) {
+    at(r2, ms);
+    worst = Math.max(worst, Math.hypot(r2.worldCx, r2.worldCy) + r2.worldRadius);
   }
   assert.ok(worst < BR.START_RADIUS, 'and never wanders outside the world');
 });
@@ -95,9 +132,11 @@ test('overtime squeezes, and leaves a circle somebody can survive in', () => {
      guillotine, and one likely to take both finalists at once. */
   const r = room();
   go(r);
-  at(r, BR.SHRINK_MS + BR.ROAM_MS + 30000);
-  assert.ok(r.worldRadius < BR.FINAL_RADIUS, 'overtime keeps closing');
-  assert.ok(r.worldRadius > BR.OVERTIME_FLOOR, 'but has not bottomed out in thirty seconds');
+  /* Overtime picks up from the ENDGAME size, not the roaming one — by the
+     buzzer the circle has already closed to ENDGAME_RADIUS. */
+  at(r, BR.SHRINK_MS + BR.ROAM_MS + 3000);
+  assert.ok(r.worldRadius < BR.ENDGAME_RADIUS, 'overtime keeps closing');
+  assert.ok(r.worldRadius > BR.OVERTIME_FLOOR, 'but has not bottomed out in three seconds');
   at(r, BR.SHRINK_MS + BR.ROAM_MS + 10 * 60 * 1000);
   assert.equal(Math.round(r.worldRadius), BR.OVERTIME_FLOOR, 'and stops at the floor');
 });
@@ -270,23 +309,27 @@ test('the zone can be followed, and never teleports out from under you', () => {
     worst = Math.max(worst, Math.hypot(p.cx - prev.cx, p.cy - prev.cy) / 0.1);
     prev = p;
   }
+  assert.ok(worst > 5, 'and it does actually move (' + Math.round(worst) + ' u/s)');
   assert.ok(worst < cruise * 0.75,
     'the zone moves at ' + Math.round(worst) + ' u/s, well under a snake at ' + Math.round(cruise));
 
   // It still has to be a threat: standing still must eventually leave you out.
+  const r3 = room(1); go(r3);
+  const sample3 = (ms) => { at(r3, ms); return { cx: r3.worldCx, cy: r3.worldCy, rad: r3.worldRadius }; };
   let stranded = null;
-  for (let s = 0; s <= BR.ROAM_MS / 1000 && stranded === null; s++) {
-    const p = sample(BR.SHRINK_MS + s * 1000);
-    if (Math.hypot(p.cx, p.cy) > p.rad) stranded = s;
+  for (let ms = BR.SHRINK_MS; ms <= BR.SHRINK_MS + BR.ROAM_MS && stranded === null; ms += 100) {
+    const p = sample3(ms);
+    if (Math.hypot(p.cx, p.cy) > p.rad) stranded = (ms - BR.SHRINK_MS) / 1000;
   }
-  assert.ok(stranded !== null && stranded >= 6,
+  assert.ok(stranded !== null && stranded >= 3,
     'a player who never moves is left outside, but not instantly (was ' + stranded + 's)');
 
   // And it still cannot wander out of the world it is drawn in.
+  const r4 = room(1); go(r4);
   let worstOut = 0;
-  for (let s = 0; s <= BR.ROAM_MS / 1000; s++) {
-    const p = sample(BR.SHRINK_MS + s * 1000);
-    worstOut = Math.max(worstOut, Math.hypot(p.cx, p.cy) + p.rad);
+  for (let ms = BR.SHRINK_MS; ms <= BR.SHRINK_MS + BR.ROAM_MS; ms += 100) {
+    at(r4, ms);
+    worstOut = Math.max(worstOut, Math.hypot(r4.worldCx, r4.worldCy) + r4.worldRadius);
   }
   assert.ok(worstOut < BR.START_RADIUS, 'the circle stays inside the world');
 });

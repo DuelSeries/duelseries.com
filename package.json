@@ -10,7 +10,8 @@
     "loadtest": "node scripts/loadtest.js",
     "test": "node --test --test-force-exit",
     "owner-smoke": "node scripts/owner-smoke.js",
-    "br-smoke": "node scripts/br-join-smoke.js"
+    "br-smoke": "node scripts/br-join-smoke.js",
+    "zone-sim": "node scripts/br-zone-sim.js"
   },
   "dependencies": {
     "@noble/curves": "^1.9.7",

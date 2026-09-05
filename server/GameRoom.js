@@ -653,6 +653,7 @@ class GameRoom {
         if (Math.abs(f.x - cx) <= halfW && Math.abs(f.y - cy) <= halfH) food.push(f);
       }
       const enc = encodeSnapshot({ t, worldRadius, worldCx: this.worldCx, worldCy: this.worldCy,
+                                   zoneTo: this.hopTarget ? this.hopTarget() : null,
                                    snakes, food, leaderboard, mm });
       this.io.to(cell.roomName).volatile.emit(C.EVENTS.SNAPSHOT, enc.meta, enc.coords);
     }
@@ -670,6 +671,7 @@ class GameRoom {
        cost of the single heaviest allocation in the tick. */
     if (fullSends.length) {
       const enc = encodeSnapshot({ t, worldRadius, worldCx: this.worldCx, worldCy: this.worldCy,
+                                   zoneTo: this.hopTarget ? this.hopTarget() : null,
                                    snakes: snakesSer, food: allFood, leaderboard, mm });
       for (const sock of fullSends) sock.volatile.emit(C.EVENTS.SNAPSHOT, enc.meta, enc.coords);
     }

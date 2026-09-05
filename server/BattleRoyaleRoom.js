@@ -50,20 +50,41 @@ const BR = {
      a second, more than twice cruising speed. 800 units on a 100-second lap is
      roughly 50, comfortably under half of cruising, so following the circle is
      something you do WHILE playing rather than the whole of what you do. */
-  ROAM_RADIUS: 800,
-  ROAM_PERIOD_MS: 100 * SEC,   // one lap of its drift path
-  /* And it eases out of the middle instead of appearing off to one side. The
-     centre used to jump from (0,0) to wherever the path began the instant the
-     closing finished: the circle teleported out from under everybody and the
-     border killed whoever was standing in the middle of it. */
-  ROAM_EASE_MS: 20 * SEC,
+  ROAM_RADIUS: 800,            // how far from the middle it will ever wander
+
+  /* THE HOP. The circle picks somewhere to go, that somewhere is shown on
+     screen as an outline before it sets off, it travels there, and it rests
+     half a second before choosing again. Announcing the destination is the
+     whole point: a border you can see coming is a decision, and one that just
+     arrives is an accident.
+
+     The speed is the constraint, as before. 55 units a second against a snake
+     that cruises at 133 leaves room to get there and to fight on the way. */
+  ROAM_HOP_SPEED: 55,          // units a second while travelling
+  ROAM_HOP_HOLD_MS: 500,       // the rest once it arrives, before the next call
+  ROAM_HOP_MIN_DIST: 420,      // or the hop is not worth announcing
+
+  /* THE LAST THIRTY SECONDS. It keeps moving and closes to roughly two
+     snake-lengths across.
+
+     Two snake lengths is not a fixed number of units — a snake's length is
+     whatever it has eaten — so this is set against the thing that is fixed:
+     OVERTIME_FLOOR, the smallest circle a snake can still turn around inside.
+     Just above it, so the endgame is desperate rather than unplayable. */
+  ENDGAME_MS: 30 * SEC,
+  ENDGAME_RADIUS: 165,
   /* Overtime: the clock is up and more than one snake is alive, so it keeps
      closing until somebody is. Six a second, not fourteen: fourteen went from
      420 to the floor in thirty seconds, which is not a squeeze, it is a
      guillotine — and one very likely to take both finalists on the same tick.
      The floor is a circle a snake can still turn inside. */
   OVERTIME_SHRINK_PER_SEC: 6,
-  OVERTIME_FLOOR: 150,
+  /* Below the endgame size, or overtime does nothing. It used to floor at 150
+     while the endgame already closed to 165 — fifteen units of squeeze, over in
+     two seconds. Overtime exists to force an ending when two players are still
+     alive at the buzzer, and it cannot do that from a size they are both
+     comfortably surviving in. */
+  OVERTIME_FLOOR: 120,
 };
 
 class BattleRoyaleRoom extends GameRoom {
@@ -121,6 +142,7 @@ class BattleRoyaleRoom extends GameRoom {
        it starts by that rule, because the only player is already the last one
        standing. */
     this.startedWith = this.livingCount();
+    this._hopTo = null; this._hopHoldUntil = 0;   // no leftovers from the last match
     this.matchId = 'br_' + Date.now().toString(36);
     this.startedAt = 0;                 // set when the count reaches zero
     this.endedAt = 0;
@@ -201,31 +223,82 @@ class BattleRoyaleRoom extends GameRoom {
       return;
     }
 
-    /* Roaming. The circle holds its size and wanders on a slow looping path.
-       Two frequencies that do not divide into each other, so it does not retrace
-       the same oval and become predictable. */
-    this.worldRadius = BR.FINAL_RADIUS;
-    const roamT = t - BR.SHRINK_MS;
-    /* Smoothstep from nothing to full reach, so the circle leaves the middle
-       at walking pace instead of jumping there. At roamT = 0 this is exactly
-       zero whatever the seed is, which is the property that matters: the
-       wander begins precisely where the closing left off. */
-    const k = Math.min(1, roamT / BR.ROAM_EASE_MS);
-    const ease = k * k * (3 - 2 * k);
-    const a = this._roamSeed + (roamT / BR.ROAM_PERIOD_MS) * Math.PI * 2;
-    /* Two frequencies that do not divide into each other, so the path does not
-       retrace one oval and become something you can stand still and wait for. */
-    this.worldCx = Math.cos(a) * BR.ROAM_RADIUS * ease;
-    this.worldCy = Math.sin(a * 0.61) * BR.ROAM_RADIUS * ease;
+    /* Roaming: a sequence of announced hops, and a hard close at the end. */
+    const full = BR.SHRINK_MS + BR.ROAM_MS;
+    const leftMs = full - t;
+    /* The last thirty seconds close it the rest of the way while it is still
+       moving, so the end is a shrinking target rather than a stationary one. */
+    this.worldRadius = leftMs > BR.ENDGAME_MS
+      ? BR.FINAL_RADIUS
+      : BR.FINAL_RADIUS + (BR.ENDGAME_RADIUS - BR.FINAL_RADIUS)
+        * (1 - Math.max(0, leftMs) / BR.ENDGAME_MS);
+    this._stepHop();
 
     /* Overtime. The clock is up but more than one snake is alive, so the circle
-       keeps wandering AND starts closing again. Owen asked for it to keep going
-       until everyone dies, and a match that ends in a draw has nobody to pay. */
-    const over = roamT - BR.ROAM_MS;
+       keeps hopping AND keeps closing. Owen asked for it to run until everyone
+       dies, and a match that ends in a draw has nobody to pay.
+
+       Measured off `t`, not the roam-local clock the smooth version used — that
+       variable went with it, and the runtime caught the reference on the first
+       call rather than silently doing nothing. Overtime picks up from the
+       endgame size rather than jumping back to the full one. */
+    const over = t - (BR.SHRINK_MS + BR.ROAM_MS);
     if (over > 0) {
       this.worldRadius = Math.max(BR.OVERTIME_FLOOR,
-        BR.FINAL_RADIUS - (over / 1000) * BR.OVERTIME_SHRINK_PER_SEC);
+        BR.ENDGAME_RADIUS - (over / 1000) * BR.OVERTIME_SHRINK_PER_SEC);
     }
+  }
+
+  /* Somewhere new to go: inside the wander radius, far enough to be worth
+     announcing, and never so far out that the circle leaves the world. */
+  _pickHop() {
+    const cx = this.worldCx, cy = this.worldCy;
+    for (let i = 0; i < 24; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const r = Math.sqrt(Math.random()) * BR.ROAM_RADIUS;   // even by area
+      const x = Math.cos(a) * r, y = Math.sin(a) * r;
+      if (Math.hypot(x - cx, y - cy) < BR.ROAM_HOP_MIN_DIST) continue;
+      if (Math.hypot(x, y) + BR.FINAL_RADIUS > BR.START_RADIUS) continue;
+      return { x, y };
+    }
+    return { x: 0, y: 0 };            // give up and go back to the middle
+  }
+
+  /* One hop: travel, arrive, rest, choose again.
+
+     The first leg begins wherever the closing left the circle, which is the
+     middle, so there is no jump into the roam — the property the smooth version
+     had to be engineered to keep, this one gets for free. */
+  _stepHop() {
+    const now = Date.now();
+    if (!this._hopTo) {
+      this._hopFrom = { x: this.worldCx, y: this.worldCy };
+      this._hopTo = this._pickHop();
+      const d = Math.hypot(this._hopTo.x - this._hopFrom.x, this._hopTo.y - this._hopFrom.y);
+      this._hopMs = Math.max(1200, (d / BR.ROAM_HOP_SPEED) * 1000);
+      this._hopStart = now;
+      this._hopHoldUntil = 0;
+      return;
+    }
+    if (this._hopHoldUntil && now < this._hopHoldUntil) {
+      this.worldCx = this._hopTo.x; this.worldCy = this._hopTo.y;
+      return;
+    }
+    if (this._hopHoldUntil) { this._hopTo = null; this._stepHop(); return; }
+
+    const k = Math.min(1, (now - this._hopStart) / this._hopMs);
+    const ease = k * k * (3 - 2 * k);      // no lurch at either end of a leg
+    this.worldCx = this._hopFrom.x + (this._hopTo.x - this._hopFrom.x) * ease;
+    this.worldCy = this._hopFrom.y + (this._hopTo.y - this._hopFrom.y) * ease;
+    if (k >= 1) this._hopHoldUntil = now + BR.ROAM_HOP_HOLD_MS;
+  }
+
+  /* Where it is heading, for the outline on screen. Null while it is resting,
+     because there is nothing to announce until it has chosen. */
+  hopTarget() {
+    if (this.state !== 'running') return null;
+    if (!this._hopTo || this._hopHoldUntil) return null;
+    return this._hopTo;
   }
 
   /* ── ending ────────────────────────────────────────────────────────────── */

@@ -94,6 +94,11 @@
     const meta = {
       t: snap.t, worldRadius: snap.worldRadius,
       wcx: snap.worldCx || 0, wcy: snap.worldCy || 0,
+      /* Where the zone is HEADING, when it is heading anywhere. Absent while it
+         rests between hops, which is what the client reads to know there is
+         nothing to announce yet. */
+      wtx: snap.zoneTo ? snap.zoneTo.x : null,
+      wty: snap.zoneTo ? snap.zoneTo.y : null,
       snakes, nfood: nFood, fc,
       leaderboard: snap.leaderboard, mm: snap.mm,
     };
@@ -143,8 +148,12 @@
        rather than leaving two spellings of the same idea in the codebase. */
     meta.worldCx = meta.wcx || 0;
     meta.worldCy = meta.wcy || 0;
+    meta.zoneTo = (meta.wtx === null || meta.wtx === undefined)
+      ? null : { x: meta.wtx, y: meta.wty };
     delete meta.wcx;
     delete meta.wcy;
+    delete meta.wtx;
+    delete meta.wty;
     delete meta.nfood;
     delete meta.fc;
     return meta;
