@@ -9,6 +9,7 @@ const C        = require('../shared/constants');
 const GameRoom = require('./GameRoom');
 const AgarRoom      = require('./AgarRoom');
 const { BattleRoyaleRoom, BR } = require('./BattleRoyaleRoom');
+const { TanksLobby } = require('./TanksLobby');   // the artillery duel
 const agarLb        = require('./agarLeaderboard');
 const db     = require('./db');
 const collusion = require('./CollusionMonitor');
@@ -1022,6 +1023,7 @@ app.get('/v2', (_req, res) => res.sendFile(path.join(__dirname, '../public/v2.ht
    owner wallet signs for it, and every route behind it checks that server-side.
    Keeping the URL obscure would be the only protection it did NOT have. */
 app.get('/owner', (_req, res) => res.sendFile(path.join(__dirname, '../public/owner.html')));
+app.get('/tanks', (_req, res) => res.sendFile(path.join(__dirname, '../public/tanks.html')));
 
 app.use(express.static(path.join(__dirname, '../public')));
 app.use('/shared', express.static(path.join(__dirname, '../shared')));
@@ -1037,6 +1039,11 @@ const agarRooms = {};
 // load is what kept ~2% of ticks running late even between the periodic spikes.
 // The room lookups fall back to this region, so a stale client asking for another
 // region still lands somewhere valid.
+/* One queue and its rooms, for the artillery duel. Free only while the mode is
+   new: there is no stake to verify and nothing to pay out, so none of the money
+   path is involved in it at all. */
+const tanksLobby = new TanksLobby(io);
+
 for (const rgn of [REGION]) {
   gameRooms[rgn] = {
     free:   new GameRoom(io, `${rgn}_free`),
@@ -1053,6 +1060,7 @@ for (const rgn of [REGION]) {
     dollar: new AgarRoom(io, `agar_${rgn}_dollar`),
   };
   Object.values(gameRooms[rgn]).forEach(r => r.start());
+  tanksLobby.start();
   Object.values(agarRooms[rgn]).forEach(r => r.start());
 }
 
@@ -2028,6 +2036,34 @@ io.on('connection', (socket) => {
     if (room) socket.emit('br:state', room.publicState());
   });
 
+  /* ── Tanks ────────────────────────────────────────────────────────────────
+     A duel, so the whole surface is four messages: get in the queue, get out,
+     fire, and leave. Everything about what a shot DOES is decided in the room
+     and sent back; nothing here trusts a number from the client beyond the two
+     the player is entitled to choose. */
+  socket.on('tanks:queue', ({ name, wallet } = {}) => {
+    if (!socketRL(socket, 'tanksq', 1000)) return;
+    if (ops.get().maintenance) { socket.emit('maintenance', ops.get()); return; }
+    tanksLobby.enqueue(socket, sanitizeName(name), wallet || socket._walletAddress || null);
+    socket.emit('tanks:queued', { waitingMs: tanksLobby.queuedFor(socket.id) || 0 });
+  });
+
+  socket.on('tanks:unqueue', () => {
+    tanksLobby.dequeue(socket.id);
+    socket.emit('tanks:unqueued', {});
+  });
+
+  socket.on('tanks:fire', ({ angle, power } = {}) => {
+    if (!socketRL(socket, 'tanksfire', 300)) return;
+    const room = tanksLobby.roomOf(socket.id);
+    if (!room) return;
+    const shot = room.fire(socket.id, angle, power);
+    if (!shot.ok) { socket.emit('tanks:refused', { why: shot.why }); return; }
+    room.broadcast('tanks:shot', shot.result);
+  });
+
+  socket.on('tanks:leave', () => tanksLobby.leave(socket.id));
+
   socket.on('cell:split', () => {
     if (!socketRL(socket, 'split', 100)) return;
     if (socket._agarRoom) socket._agarRoom.handleSplit(socket.id);
@@ -2112,6 +2148,10 @@ io.on('connection', (socket) => {
   });
 
   socket.on('disconnect', async () => {
+    /* Dropping out of a duel hands the other player the win, and takes this
+       socket out of the queue if it never got into one. Without it a closed tab
+       leaves an opponent staring at a turn that will never come. */
+    tanksLobby.leave(socket.id);
     console.log(`[-] Disconnected: ${socket.id}`);
     if (socket._agarRoom) {
       const agarPlayer = socket._agarRoom.players.get(socket.id);

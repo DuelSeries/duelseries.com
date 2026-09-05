@@ -1069,13 +1069,21 @@ test('a duel names its own stake, and does not pretend to find an opponent', () 
      nobody can be matched yet, rather than spinning forever at somebody. */
   const html = v2();
 
-  for (const id of ['rps', 'knockout', 'battleship', 'tanks',
+  for (const id of ['rps', 'knockout', 'battleship',
                     'rooftop', 'headsoccer', 'swim', 'maze']) {
     const m = html.match(new RegExp("\{id:'" + id + "'[^\n]*"));
     assert.ok(m, id + ' is in the game list');
     assert.ok(/duel:1/.test(m[0]), id + ' is a duel');
     assert.ok(/soon:1/.test(m[0]), id + ' is still unbuilt, and still says so');
   }
+
+  /* Tanks is the first of them actually built. It is still a duel — matched
+     into rather than dropped into — but it is not 'soon' any more, and it seats
+     only the free rung while the mode is new. */
+  const tanks = html.match(new RegExp("\\{id:'tanks'[^\\n]*"))[0];
+  assert.ok(/duel:1/.test(tanks) && /built:1/.test(tanks), 'tanks is a built duel');
+  assert.ok(!/soon:1/.test(tanks), 'and no longer says it is unbuilt');
+  assert.ok(/freeOnly:1/.test(tanks), 'and seats only the free rung for now');
 
   // A game that is NOT a duel must keep the locked screen.
   const paper = html.match(/\{id:'paper'[^\n]*/)[0];

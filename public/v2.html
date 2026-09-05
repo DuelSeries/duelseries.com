@@ -850,6 +850,13 @@ body.no-foot footer{display:none}
    for — in the same mono every other figure on this product uses. */
 .duelbet{display:none}
 #detail.duel .duelbet{display:block}
+/* A built duel plays for nothing while the mode is new, so it shows the real
+   ladder with the paid rungs struck through rather than a stepper that implies
+   a stake it cannot take. */
+#detail.duel.freeonly .duelbet{display:none}
+#detail.duel.freeonly .stakes,#detail.duel.freeonly .stakeoff,
+#detail.duel.freeonly .sl{display:block}
+#detail.duel.freeonly .stakes{display:flex}
 /* The ladder, the open-lobby list and the snake skin all belong to an arena.
    A duel has no room to list, nobody is in it yet, and Rock Paper Scissors has
    no snake to dress — showing any of them is furniture from another game. */
@@ -1968,7 +1975,11 @@ const GAMES=[
   d:'Last one standing in an arena that keeps shrinking.'},
  {id:'battleship',name:'Battleship',c:['#141a24','#7b93c4'],type:'m',soon:1,duel:1,
   d:'Hide your fleet, then find theirs before they find yours.'},
- {id:'tanks',name:'Tanks',c:['#1d2016','#a8bd63'],type:'m',soon:1,duel:1,
+ /* Built. The only rung it seats is Free — there is no stake to verify and
+   nothing to pay out, so none of the money path is involved while the mode is
+   new. The other rungs still show, struck through, because the product does
+   offer them and hiding them would say it does not. */
+ {id:'tanks',name:'Tanks',c:['#1d2016','#a8bd63'],type:'m',duel:1,built:1,freeOnly:1,
   d:'Angle, power, fire. One shot each and the terrain remembers.'},
  {id:'paper',name:'Paper.io',c:['#1e1826','#a887d6'],type:'p',soon:1,
   d:'Claim ground by looping back home without anyone crossing your trail.'},
@@ -2010,8 +2021,16 @@ function refreshSteps(gameId){
      Building the list out of the LIVE lobbies instead meant agar.io showed a
      lone Free button with nothing to say the other tiers exist at all. */
   STEPS=LADDER.slice();
+  const g=G(gameId);
+  if(g&&g.freeOnly){
+    /* Free is the only rung this game seats today. Everything else is drawn
+       struck through, which says the product offers it and this table does not
+       yet — quieter and more honest than hiding it. */
+    STEPS_OFF=new Set(STEPS.filter(s=>s!==0));
+  }else{
   const open=(window.V2Board&&V2Board.playableStakes)?V2Board.playableStakes(gameId):null;
   STEPS_OFF=new Set(open?STEPS.filter(s=>!open.has(s)):[]);
+  }
   /* Clamped at BOTH ends. min alone let a -1 through and STEPS[-1] is
      undefined, which took the whole detail screen down. */
   si=Math.max(0,Math.min(si,STEPS.length-1));
@@ -2966,6 +2985,17 @@ function open_(id){
      layout. What it does NOT do is pretend to find you an opponent. */
   det.classList.toggle('duel',!!cur.duel);
   det.classList.toggle('soon',!!cur.soon && !cur.duel);
+  /* A duel that is BUILT shows the fixed ladder with only Free open, rather
+     than the open-ended stepper: you cannot name your own stake at a table
+     that does not take one yet. */
+  det.classList.toggle('freeonly',!!cur.freeOnly);
+  /* The stepper note describes a stake, and this table takes none. Leaving it
+     there had the screen promising a $1.00 pot on a free game. */
+  const dn=document.getElementById('dbnote');
+  if(dn&&cur.freeOnly){
+    dn.textContent='Free while the game is new. Nothing staked, nothing paid out '
+      +'— you are playing for the win.';
+  }
   det.classList.remove('queueing');
   if(cur.duel)drawDuelBet();
   const sd=document.getElementById('dsoon');
@@ -2981,7 +3011,7 @@ function open_(id){
   document.getElementById('dname').textContent=cur.name;
   /* Play is the wrong word for a game that has to find you somebody first. */
   const goBtn=document.querySelector('#detail .go');
-  if(goBtn)goBtn.textContent=cur.duel?'Find an opponent':'Play';
+  if(goBtn)goBtn.textContent=(cur.duel&&!cur.built)?'Find an opponent':'Play';
   /* Both figures come off the live board, so the detail screen and the card
      that led here cannot disagree about how busy a game is. Only rooms with
      someone in them are listed, for the same reason as the home board: an
@@ -3054,6 +3084,10 @@ let _cameFrom='home';
 /* One button, two jobs, decided by the game rather than by the caller: an arena
    you drop into, or a duel you queue for. */
 function startFromDetail(){
+  /* Three cases, and they are genuinely different: a built duel launches its
+     own page, an unbuilt one shows the queue it WILL use, and an arena joins a
+     room that already exists. */
+  if(cur&&cur.built&&cur.duel){V2Play.launch(cur.id,{lobbyType:'free'});return}
   if(cur&&cur.duel){joinQueue();return}
   V2Play.playChosen();
 }
@@ -3099,6 +3133,7 @@ function drawDuelBet(){
   if(rungs)rungs.innerHTML=DUEL_LADDER.map((_,i)=>
     `<span class="dbrung${i===duelStep?' on':i<duelStep?' past':''}"></span>`).join('');
   const note=document.getElementById('dbnote');
+  if(cur&&cur.freeOnly)return;          // its note is set by open_, not by the ladder
   if(note)note.textContent=amt===0
     ? 'Nothing staked and nothing paid out. Play for the win.'
     : 'Your opponent puts in the same $'+amt.toFixed(2)+'. Winner takes both, minus the ten percent house cut.';
@@ -3166,7 +3201,7 @@ function cancel(){veil.classList.remove('on')}
 window.V2Detail={get game(){return cur?cur.id:'snake'},get stake(){return STEPS[si]}};
 /* The one list that knows which games are built, so the play path can refuse
    an unbuilt one without keeping a second copy of that fact. */
-window.V2_IS_SOON=id=>{const g=G(id);return !!(g&&g.soon)};
+window.V2_IS_SOON=id=>{const g=G(id);return !!(g&&g.soon&&!g.built)};
 window.rememberStake=rememberStake;
 window.spin=spin; window.go=go; window.goHome=goHome;
 Object.defineProperty(window,'route',{get:()=>route});

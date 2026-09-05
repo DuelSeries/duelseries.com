@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>Tanks · DuelSeries</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/tanks.css">
+</head>
+<body>
+
+<!-- The battlefield. Everything in the match is drawn here; the furniture below
+     is only for reading numbers and dialling them. -->
+<canvas id="field"></canvas>
+
+<!-- Both tanks, the wind, and whose turn it is — one strip, because in an
+     artillery duel these four facts are read together or not at all. -->
+<header id="top" hidden>
+  <div class="side you">
+    <span class="who" id="youName">You</span>
+    <div class="bar"><i id="youBar"></i></div>
+    <span class="hp num" id="youHp">100</span>
+  </div>
+
+  <!-- The wind is the reason the same shot does not work twice, so it gets the
+       middle and an arrow you can read without counting. -->
+  <div class="wind">
+    <span class="windArrow num" id="windArrow">—</span>
+    <span class="windLabel">wind</span>
+  </div>
+
+  <div class="side them">
+    <span class="hp num" id="themHp">100</span>
+    <div class="bar"><i id="themBar"></i></div>
+    <span class="who" id="themName">Opponent</span>
+  </div>
+</header>
+
+<!-- Whose shot it is, said once, where the eye already is. -->
+<div id="turn" hidden><span id="turnText">Your shot</span></div>
+
+<!-- The controls. Two numbers and a button: that is the whole game. -->
+<footer id="controls" hidden>
+  <!-- The turn clock drains rather than counts. A number counting down is
+       anxiety without information; a line emptying tells you how long you have
+       at a glance. -->
+  <div class="clock"><i id="clockBar"></i></div>
+
+  <div class="dials">
+    <label class="dial">
+      <span class="dialTop"><b>Angle</b><em class="num" id="angleVal">45°</em></span>
+      <input type="range" id="angle" min="0" max="180" step="1" value="45">
+    </label>
+    <label class="dial">
+      <span class="dialTop"><b>Power</b><em class="num" id="powerVal">55</em></span>
+      <input type="range" id="power" min="10" max="100" step="1" value="55">
+    </label>
+  </div>
+
+  <button id="fire" type="button">Fire</button>
+</footer>
+
+<!-- Waiting for somebody. Honest about the bot rather than quietly substituting
+     one: you should know who you are shooting at. -->
+<div id="wait">
+  <div class="waitCard">
+    <div class="waitSpin" aria-hidden="true"></div>
+    <b id="waitMain">Looking for an opponent</b>
+    <span id="waitSub">Free table. Nothing staked.</span>
+    <button type="button" id="waitCancel">Back to the lobby</button>
+  </div>
+</div>
+
+<!-- The result. Same shape as the other games' end cards, because leaving any
+     of them should land you in the same place. -->
+<div id="over" hidden>
+  <div class="overCard">
+    <p class="overEyebrow" id="overEyebrow">Match over</p>
+    <p class="overWho" id="overWho">—</p>
+    <p class="overWhy" id="overWhy"></p>
+    <div class="overBtns">
+      <button type="button" class="ghost" id="againBtn">Play again</button>
+      <button type="button" class="go" id="lobbyBtn">Lobby</button>
+    </div>
+  </div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="js/tanks.js"></script>
+</body>
+</html>

@@ -1,0 +1,201 @@
+/* ─── Tanks ───────────────────────────────────────────────────────────────────
+   An artillery duel at dusk.
+
+   The lobby's palette, with one addition it earns: a battlefield is a PLACE, so
+   it gets a sky. The amber that means money everywhere else in this product is
+   used here as sunlight — it lights the crust of the hill and it is the colour
+   of the power reading, because power is the number the light is on.
+
+   Every figure is set in mono. That is the product's existing rule for money,
+   counts and clocks, and it happens to be exactly right for a game whose whole
+   substance is dialling in two numbers. */
+
+:root {
+  --sky-high: #14110d;      /* ink, overhead */
+  --sky-low:  #3a2a18;      /* warm haze at the horizon */
+  --dirt:     #241d14;
+  --crust:    #f0a830;      /* the lit top edge of the ground */
+  --ink:      #100e0b;
+  --s1:       #17140f;
+  --s2:       #1f1b15;
+  --s3:       #282219;
+  --tx:       #f5f1e8;
+  --tx2:      #a89c8a;
+  --tx3:      #8d8171;
+  --you:      #f4f1ea;
+  --them:     #e0705f;
+  --live:     #8ed081;
+  --f:  'Archivo', ui-sans-serif, system-ui, 'Segoe UI', Arial, sans-serif;
+  --fm: 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; height: 100%; overflow: hidden;
+  background: var(--ink); color: var(--tx);
+  font-family: var(--f);
+  -webkit-font-smoothing: antialiased;
+  /* A duel is aimed with a drag; the page must never scroll under the thumb. */
+  overscroll-behavior: none;
+  touch-action: manipulation;
+}
+.num { font-family: var(--fm); font-variant-numeric: tabular-nums; }
+
+#field { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+
+/* ── the strip ─────────────────────────────────────────────────────────────
+   Both healths, the wind and the turn are read together, so they sit together. */
+#top {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 10;
+  display: flex; align-items: center; gap: 14px;
+  padding: calc(10px + env(safe-area-inset-top)) 14px 10px;
+  background: linear-gradient(to bottom, rgba(16,14,11,0.92), rgba(16,14,11,0));
+  pointer-events: none;
+}
+#top[hidden] { display: none; }
+.side { flex: 1; display: flex; align-items: center; gap: 9px; min-width: 0; }
+.side.them { flex-direction: row-reverse; }
+.who {
+  font-size: 12.5px; font-weight: 600; color: var(--tx2);
+  max-width: 92px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.hp { font-size: 13px; font-weight: 600; min-width: 26px; text-align: center; }
+.bar {
+  flex: 1; height: 7px; min-width: 40px; border-radius: 4px;
+  background: var(--s2); overflow: hidden;
+}
+.bar i { display: block; height: 100%; width: 100%; transition: width 0.35s ease; }
+.you .bar i { background: var(--you); }
+.them .bar i { background: var(--them); }
+.you .hp { color: var(--you); }
+.them .hp { color: var(--them); }
+
+.wind { flex: 0 0 auto; text-align: center; }
+.windArrow { display: block; font-size: 15px; font-weight: 600; color: var(--crust); letter-spacing: -1px; }
+.windLabel {
+  display: block; font-size: 9.5px; letter-spacing: 0.16em;
+  text-transform: uppercase; color: var(--tx3); margin-top: 1px;
+}
+
+/* Whose shot it is. Stated once, near the top, then it gets out of the way. */
+#turn {
+  position: fixed; top: calc(58px + env(safe-area-inset-top)); left: 50%;
+  transform: translateX(-50%); z-index: 10;
+  font-size: 12px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--tx3); pointer-events: none;
+}
+#turn[hidden] { display: none; }
+#turn.mine { color: var(--crust); }
+
+/* ── the dials ─────────────────────────────────────────────────────────────
+   Two numbers and a button. Sliders rather than steppers because artillery is a
+   continuous guess you correct, not a menu you pick from. */
+#controls {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
+  padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
+  background: linear-gradient(to top, rgba(16,14,11,0.96) 60%, rgba(16,14,11,0));
+}
+#controls[hidden] { display: none; }
+/* Everything is dimmed and dead while the other player is shooting, so there is
+   never a moment where the controls look live and do nothing. */
+#controls.waiting { opacity: 0.45; pointer-events: none; }
+
+.clock { height: 2px; background: var(--s3); border-radius: 2px; overflow: hidden; margin-bottom: 12px; }
+.clock i { display: block; height: 100%; width: 100%; background: var(--crust); }
+
+.dials { display: flex; gap: 14px; max-width: 620px; margin: 0 auto; }
+.dial { flex: 1; min-width: 0; display: block; }
+.dialTop { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 6px; }
+.dialTop b { font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--tx3); }
+.dialTop em { font-style: normal; font-size: 19px; font-weight: 600; color: var(--tx); }
+#powerVal { color: var(--crust); }
+
+input[type=range] {
+  -webkit-appearance: none; appearance: none;
+  width: 100%; height: 30px; background: none; margin: 0;
+}
+input[type=range]::-webkit-slider-runnable-track {
+  height: 6px; border-radius: 3px; background: var(--s2);
+}
+input[type=range]::-moz-range-track { height: 6px; border-radius: 3px; background: var(--s2); }
+/* A thumb big enough to find without looking, because your eyes are on the hill. */
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 26px; height: 26px; margin-top: -10px; border-radius: 50%;
+  background: var(--tx); border: 3px solid var(--ink); cursor: pointer;
+}
+input[type=range]::-moz-range-thumb {
+  width: 26px; height: 26px; border-radius: 50%;
+  background: var(--tx); border: 3px solid var(--ink); cursor: pointer;
+}
+#power::-webkit-slider-thumb { background: var(--crust); }
+#power::-moz-range-thumb { background: var(--crust); }
+input[type=range]:focus-visible { outline: 2px solid var(--crust); outline-offset: 4px; }
+
+#fire {
+  display: block; width: 100%; max-width: 620px; margin: 12px auto 0;
+  padding: 15px; border: none; border-radius: 12px;
+  background: var(--crust); color: var(--ink);
+  font-family: inherit; font-size: 16px; font-weight: 700; letter-spacing: 0.02em;
+  cursor: pointer; transition: background 0.15s, transform 0.08s;
+}
+#fire:hover:not(:disabled) { background: #f6b845; }
+#fire:active:not(:disabled) { transform: translateY(1px); }
+#fire:disabled { background: var(--s2); color: var(--tx3); cursor: default; }
+
+/* ── waiting, and the end ──────────────────────────────────────────────────
+   Both are the same card as the other games use, so leaving any DuelSeries game
+   lands you somewhere you recognise. */
+#wait, #over {
+  position: fixed; inset: 0; z-index: 20;
+  display: flex; align-items: center; justify-content: center; padding: 24px;
+  background: rgba(6, 5, 4, 0.72); backdrop-filter: blur(6px);
+}
+#wait[hidden], #over[hidden] { display: none; }
+.waitCard, .overCard {
+  width: 100%; max-width: 380px; text-align: center;
+  background: var(--ink); border: 1px solid var(--s3); border-radius: 18px;
+  padding: 28px 24px 22px; box-shadow: 0 24px 60px rgba(0,0,0,0.55);
+}
+.waitSpin {
+  width: 24px; height: 24px; margin: 0 auto 16px; border-radius: 50%;
+  border: 2px solid var(--s3); border-top-color: var(--crust);
+  animation: tspin 0.8s linear infinite;
+}
+@keyframes tspin { to { transform: rotate(360deg); } }
+.waitCard b { display: block; font-size: 17px; font-weight: 650; }
+.waitCard span { display: block; margin-top: 6px; font-size: 13px; color: var(--tx3); }
+.waitCard button, .overBtns button {
+  font-family: inherit; font-size: 13.5px; font-weight: 600;
+  border-radius: 10px; padding: 11px 16px; cursor: pointer;
+  border: 1px solid var(--s3); background: transparent; color: var(--tx);
+  transition: background 0.15s, border-color 0.15s;
+}
+.waitCard button { margin-top: 20px; width: 100%; }
+.waitCard button:hover, .overBtns .ghost:hover { background: var(--s2); border-color: #3a3126; }
+
+.overEyebrow {
+  margin: 0; font-family: var(--fm); font-size: 0.72rem; font-weight: 600;
+  letter-spacing: 0.14em; text-transform: uppercase; color: var(--tx2);
+}
+.overWho { margin: 10px 0 0; font-size: 28px; font-weight: 650; letter-spacing: -0.5px; }
+.overWho.won { color: var(--live); }
+.overWho.lost { color: var(--them); }
+.overWhy { margin: 8px 0 0; font-size: 13px; color: var(--tx3); }
+.overBtns { display: flex; gap: 8px; margin-top: 22px; }
+.overBtns button { flex: 1 1 0; min-width: 0; white-space: nowrap; }
+.overBtns .go { background: var(--crust); border-color: var(--crust); color: var(--ink); }
+.overBtns .go:hover { background: #f6b845; border-color: #f6b845; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+  .waitSpin { animation: none; }
+}
+
+/* On a phone the controls take the bottom third, so the hill is drawn into the
+   space that is left rather than under the dials. */
+@media (max-width: 560px) {
+  .dialTop em { font-size: 17px; }
+  #fire { padding: 14px; font-size: 15px; }
+  .who { max-width: 70px; }
+}

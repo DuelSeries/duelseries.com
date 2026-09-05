@@ -263,6 +263,25 @@
     const name = requireName();
     if (!name) return;
     say('');
+
+    /* Games with their own page and no stake are launched here rather than
+       through the wallet widget. The widget's job is money: it quotes a stake,
+       signs a transfer and mints an entry token. Tanks has none of those — it
+       is free while the mode is new — so routing it through that path would be
+       asking the money layer to handle a game that never touches money.
+
+       Everything else still goes through the widget exactly as before. */
+    const OWN_PAGE = { tanks: '/tanks' };
+    if (OWN_PAGE[game]) {
+      try { sessionStorage.setItem('playerName', name); } catch (_) {}
+      const frame = document.getElementById('game-frame');
+      if (!frame) { say('That game could not be opened. Refresh and try again.'); return; }
+      if (window.phEvent) window.phEvent('game_started', { game: game, lobbyType: 'free' });
+      frame.src = OWN_PAGE[game];
+      frame.style.display = 'block';
+      document.body.classList.add('playing');
+      return;
+    }
     const detail = hasStake
       ? { game: game, stake: Number(sel.stake) }
       : { game: game, lobbyType: sel.lobbyType };
