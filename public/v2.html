@@ -858,16 +858,26 @@ body.no-foot footer{display:none}
 /* The amount is the control, so it gets the size — and the arrows sit either
    side of it where a thumb already is, rather than stacked above and below
    where one of them is always the wrong distance away. */
-.dbrow{display:flex;align-items:center;justify-content:space-between;gap:10px;
+.dbrow{display:flex;align-items:center;gap:12px;
   background:var(--s2);border:1px solid var(--s3);border-radius:var(--r2);
-  padding:10px 12px;margin-top:6px}
-.dbstep{flex:0 0 auto;width:46px;height:46px;display:grid;place-items:center;
-  background:var(--s1);border:1px solid var(--s3);border-radius:var(--r2);
+  padding:12px 14px;margin-top:6px}
+/* The pair, stacked and touching, so they read as one control. */
+.dbsteps{flex:0 0 auto;display:flex;flex-direction:column;gap:4px}
+.dbstep{width:44px;height:30px;display:grid;place-items:center;
+  background:var(--s1);border:1px solid var(--s3);border-radius:8px;
   color:var(--tx);cursor:pointer;transition:background .14s,color .14s,opacity .14s}
 .dbstep:hover:not(:disabled){background:var(--s3)}
-.dbstep:disabled{opacity:.3;cursor:default}
+.dbstep:disabled{opacity:.28;cursor:default}
 .dbstep:focus-visible{outline:2px solid var(--money);outline-offset:2px}
-.dbval{flex:1;min-width:0;display:flex;align-items:baseline;justify-content:center;gap:3px}
+/* The number takes the room the arrows gave back, and is left-aligned so it
+   does not slide about as it changes width.
+
+   FIXED HEIGHT. 'Free' is set in the sans face at 26px and the amounts in mono
+   at 32px, so without this the row is ten pixels shorter at one end of the
+   ladder — and everything below it, the name field and the button, jumped by
+   ten pixels every time the amount crossed that boundary. */
+.dbval{flex:1;min-width:0;height:40px;display:flex;align-items:center;
+  gap:3px;padding-left:4px}
 .dbcur{font-family:var(--fm);font-size:22px;font-weight:600;color:var(--tx3)}
 /* Tabular figures, or every step nudges the number sideways. */
 .dbamt{font-family:var(--fm);font-variant-numeric:tabular-nums;font-size:32px;
@@ -881,7 +891,17 @@ body.no-foot footer{display:none}
   transition:background .14s,transform .14s}
 .dbrung.on{background:var(--money);transform:scale(1.5)}
 .dbrung.past{background:var(--tx3)}
-.dbnote{margin:12px 0 0;font-size:11.5px;line-height:1.65;color:var(--tx3)}
+/* Fine print at the foot of the column, with the room for two lines RESERVED.
+
+   Moving it below the button was not enough on its own: this column is
+   vertically centred, so a note that grows from one line to two still pushes
+   everything above it up by half the difference — ten pixels, right under the
+   thumb about to press Play. Holding the space means the ladder can say
+   whatever it needs to at any rung and nothing else on the screen moves. */
+.dbnote{display:none;margin:14px 0 0;font-size:11.5px;line-height:1.65;
+  color:var(--tx3);text-align:center;min-height:38px}
+#detail.duel .dbnote{display:block}
+#detail.queueing .dbnote{display:none}
 
 /* ── waiting for somebody ───────────────────────────────────────────────── */
 .queued{display:none;align-items:center;gap:14px;margin-top:18px;
@@ -1598,28 +1618,32 @@ body.scr-anim { overflow-x:hidden }
          makes an open-ended stake fair. -->
     <div class="duelbet" id="duelbet">
       <div class="dbrow">
-        <button type="button" class="dbstep" id="dbdown" onclick="stepDuel(-1)"
-                aria-label="Lower the buy-in">
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
-               stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M6 9l6 6 6-6"/></svg>
-        </button>
         <div class="dbval">
           <span class="dbcur" id="dbcur">$</span>
           <span class="dbamt" id="dbamt" aria-live="polite">1.00</span>
         </div>
-        <button type="button" class="dbstep" id="dbup" onclick="stepDuel(1)"
-                aria-label="Raise the buy-in">
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
-               stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M18 15l-6-6-6 6"/></svg>
-        </button>
+        <!-- Both arrows together, up above down, so the pair reads as one
+             control for one value. Split either side of the number they read as
+             two separate buttons that happen to be near a figure. -->
+        <div class="dbsteps">
+          <button type="button" class="dbstep" id="dbup" onclick="stepDuel(1)"
+                  aria-label="Raise the buy-in">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+                 stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M18 15l-6-6-6 6"/></svg>
+          </button>
+          <button type="button" class="dbstep" id="dbdown" onclick="stepDuel(-1)"
+                  aria-label="Lower the buy-in">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+                 stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M6 9l6 6 6-6"/></svg>
+          </button>
+        </div>
       </div>
       <!-- Where you are on the ladder. Eight rungs is few enough to show all of
            them, and seeing that the next press is 2 and not 1.25 is the thing a
            bare number cannot tell you. -->
       <div class="dbrungs" id="dbrungs" aria-hidden="true"></div>
-      <p class="dbnote" id="dbnote"></p>
     </div>
     <!-- The name is stored under the live lobby's key, so switching between
          the two does not ask for it twice, and it is saved to the account so
@@ -1657,6 +1681,12 @@ body.scr-anim { overflow-x:hidden }
       </button>
     </div>
     <button class="go" onclick="startFromDetail()">Play</button>
+    <!-- Under the button, not above it. It sat between the stepper and the name
+         field, where it is one to three lines depending on the amount — so
+         every press of an arrow shoved the name field and the Play button up or
+         down under the thumb about to hit them. Down here it can say whatever
+         it needs to and nothing above it moves. -->
+    <p class="dbnote" id="dbnote"></p>
     <!-- The line that used to sit here said either "Free play. Nothing staked,
          nothing paid out" or the house-cut sentence. Both are in How to play
          now, which is where somebody goes to be told how it works. -->

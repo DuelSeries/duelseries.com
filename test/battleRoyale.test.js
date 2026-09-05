@@ -341,3 +341,48 @@ test('the closing takes a minute', () => {
   at(r, BR.SHRINK_MS - 10);
   assert.ok(Math.abs(r.worldRadius - BR.FINAL_RADIUS) < 5, 'and it is fully closed by then');
 });
+
+test('the ring shows the size the wall will be, not the size it is', () => {
+  /* Owen watched the endgame start and died before he could see it work. The
+     ring was drawn at the CURRENT radius, so during the last thirty seconds it
+     showed a circle bigger than the one that actually arrives — it promised
+     room that would not be there by the time he got to it. */
+  const r = room(1);
+  go(r);
+
+  // Well before the endgame, the two agree: nothing is shrinking yet.
+  for (let ms = BR.SHRINK_MS; ms <= BR.SHRINK_MS + 20000; ms += 100) at(r, ms);
+  let to = r.hopTarget();
+  if (to) assert.ok(Math.abs(to.r - r.worldRadius) < 1,
+    'outside the endgame the ring is simply the current size');
+
+  // Inside it, the ring must be SMALLER than the wall is right now.
+  const total = BR.SHRINK_MS + BR.ROAM_MS;
+  let warned = 0, samples = 0;
+  for (let ms = BR.SHRINK_MS + 20100; ms <= total; ms += 100) {
+    at(r, ms);
+    if (ms < total - BR.ENDGAME_MS) continue;
+    to = r.hopTarget();
+    if (!to) continue;
+    samples++;
+    if (to.r < r.worldRadius) warned++;
+  }
+  assert.ok(samples > 0, 'there are hops during the endgame at all');
+  assert.ok(warned / samples > 0.8,
+    'and the ring is smaller than the wall for most of it (' + warned + '/' + samples + ')');
+});
+
+test('a leg length can never be NaN, which would freeze the zone', () => {
+  /* This is not hypothetical. Dropping the clock argument from one recursive
+     call made the endgame factor NaN, which made the hop speed NaN, which made
+     the leg duration NaN — and every comparison against NaN is false, so the
+     circle sat on one leg for the whole match while looking perfectly healthy.
+     Two hops in three minutes instead of nine. A silent freeze is worse than a
+     crash, so the guard stays. */
+  const r = room(1);
+  go(r);
+  r._hopTo = null;
+  r._stepHop(undefined);              // the exact mistake, made on purpose
+  assert.ok(isFinite(r._hopMs), 'a missing clock cannot produce a NaN leg');
+  assert.ok(r._hopMs >= 1200, 'and it falls back to a real duration');
+});

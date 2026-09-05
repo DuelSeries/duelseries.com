@@ -99,6 +99,9 @@
          nothing to announce yet. */
       wtx: snap.zoneTo ? snap.zoneTo.x : null,
       wty: snap.zoneTo ? snap.zoneTo.y : null,
+      /* And how big it will be when it gets there, which is NOT the current
+         radius once the endgame has started closing. */
+      wtr: snap.zoneTo ? snap.zoneTo.r : null,
       snakes, nfood: nFood, fc,
       leaderboard: snap.leaderboard, mm: snap.mm,
     };
@@ -149,11 +152,12 @@
     meta.worldCx = meta.wcx || 0;
     meta.worldCy = meta.wcy || 0;
     meta.zoneTo = (meta.wtx === null || meta.wtx === undefined)
-      ? null : { x: meta.wtx, y: meta.wty };
+      ? null : { x: meta.wtx, y: meta.wty, r: meta.wtr };
     delete meta.wcx;
     delete meta.wcy;
     delete meta.wtx;
     delete meta.wty;
+    delete meta.wtr;
     delete meta.nfood;
     delete meta.fc;
     return meta;

@@ -216,52 +216,70 @@ class BattleRoyaleRoom extends GameRoom {
       /* Closing. Eased rather than linear: it barely moves for the first while,
          which gives people time to find each other, then closes hard at the end
          when the fight is the point. */
-      const k = t / BR.SHRINK_MS;
-      const eased = k * k;
-      this.worldRadius = BR.START_RADIUS + (BR.FINAL_RADIUS - BR.START_RADIUS) * eased;
+      this.worldRadius = this.radiusAt(t);
       this.worldCx = 0; this.worldCy = 0;
       return;
     }
 
-    /* Roaming: a sequence of announced hops, and a hard close at the end. */
+    /* Roaming: a sequence of announced hops, and a slow close at the end. */
+    this.worldRadius = this.radiusAt(t);
+    this._stepHop(t);
+
+    /* Overtime lives in radiusAt with everything else, so there is one place
+       that knows how big the circle is at a given moment and no chance of the
+       ring and the wall disagreeing. */
+  }
+
+  /* What the circle will be at a given point on the match clock.
+
+     Pulled out as a function of time because the WHITE RING has to be drawn at
+     the size the circle will be when it arrives, not the size it is now. During
+     the last thirty seconds those are very different numbers — a ring showing
+     420 when the wall will be 305 by the time it gets there is not a warning,
+     it is a promise that gets broken. */
+  /* 0 through the ordinary roam, ramping to 1 by the final buzzer. Everything
+     that should ease off as the circle closes reads this. */
+  _endgameEase(t) {
+    const leftMs = (BR.SHRINK_MS + BR.ROAM_MS) - t;
+    if (leftMs > BR.ENDGAME_MS) return 0;
+    return Math.min(1, Math.max(0, 1 - leftMs / BR.ENDGAME_MS));
+  }
+
+  radiusAt(t) {
     const full = BR.SHRINK_MS + BR.ROAM_MS;
+    if (t < BR.SHRINK_MS) {
+      const k = t / BR.SHRINK_MS;
+      return BR.START_RADIUS + (BR.FINAL_RADIUS - BR.START_RADIUS) * (k * k);
+    }
+    const over = t - full;
+    if (over > 0) {
+      return Math.max(BR.OVERTIME_FLOOR,
+        BR.ENDGAME_RADIUS - (over / 1000) * BR.OVERTIME_SHRINK_PER_SEC);
+    }
     const leftMs = full - t;
-    /* The last thirty seconds close it the rest of the way while it is still
-       moving, so the end is a shrinking target rather than a stationary one. */
-    this.worldRadius = leftMs > BR.ENDGAME_MS
+    return leftMs > BR.ENDGAME_MS
       ? BR.FINAL_RADIUS
       : BR.FINAL_RADIUS + (BR.ENDGAME_RADIUS - BR.FINAL_RADIUS)
         * (1 - Math.max(0, leftMs) / BR.ENDGAME_MS);
-    this._stepHop();
-
-    /* Overtime. The clock is up but more than one snake is alive, so the circle
-       keeps hopping AND keeps closing. Owen asked for it to run until everyone
-       dies, and a match that ends in a draw has nobody to pay.
-
-       Measured off `t`, not the roam-local clock the smooth version used — that
-       variable went with it, and the runtime caught the reference on the first
-       call rather than silently doing nothing. Overtime picks up from the
-       endgame size rather than jumping back to the full one. */
-    const over = t - (BR.SHRINK_MS + BR.ROAM_MS);
-    if (over > 0) {
-      this.worldRadius = Math.max(BR.OVERTIME_FLOOR,
-        BR.ENDGAME_RADIUS - (over / 1000) * BR.OVERTIME_SHRINK_PER_SEC);
-    }
   }
 
   /* Somewhere new to go: inside the wander radius, far enough to be worth
      announcing, and never so far out that the circle leaves the world. */
-  _pickHop() {
+  _pickHop(endgame) {
+    const e = endgame || 0;
     const cx = this.worldCx, cy = this.worldCy;
+    // Late on it wanders less far and hops shorter distances.
+    const reach = BR.ROAM_RADIUS * (1 - 0.6 * e);
+    const minDist = BR.ROAM_HOP_MIN_DIST * (1 - 0.7 * e);
     for (let i = 0; i < 24; i++) {
       const a = Math.random() * Math.PI * 2;
-      const r = Math.sqrt(Math.random()) * BR.ROAM_RADIUS;   // even by area
+      const r = Math.sqrt(Math.random()) * reach;            // even by area
       const x = Math.cos(a) * r, y = Math.sin(a) * r;
-      if (Math.hypot(x - cx, y - cy) < BR.ROAM_HOP_MIN_DIST) continue;
+      if (Math.hypot(x - cx, y - cy) < minDist) continue;
       if (Math.hypot(x, y) + BR.FINAL_RADIUS > BR.START_RADIUS) continue;
       return { x, y };
     }
-    return { x: 0, y: 0 };            // give up and go back to the middle
+    return { x: cx * 0.5, y: cy * 0.5 };   // give up and drift back toward the middle
   }
 
   /* One hop: travel, arrive, rest, choose again.
@@ -269,13 +287,30 @@ class BattleRoyaleRoom extends GameRoom {
      The first leg begins wherever the closing left the circle, which is the
      middle, so there is no jump into the roam — the property the smooth version
      had to be engineered to keep, this one gets for free. */
-  _stepHop() {
+  _stepHop(t) {
     const now = Date.now();
+    /* In the last thirty seconds the circle is closing AND moving, and those
+       two squeeze from opposite sides: the edge comes in at 8 units a second
+       while the whole circle slides away at up to 80. Anyone on the trailing
+       side is overtaken by the sum of the two, which is how a survivable
+       endgame turns into being deleted for standing in the wrong half.
+
+       So the hops shorten as it closes. It keeps moving — that is the point of
+       the ending — but it stops travelling further than a shrinking circle can
+       reasonably drag people. */
+    const endgame = this._endgameEase(t);
     if (!this._hopTo) {
       this._hopFrom = { x: this.worldCx, y: this.worldCy };
-      this._hopTo = this._pickHop();
+      this._hopTo = this._pickHop(endgame);
       const d = Math.hypot(this._hopTo.x - this._hopFrom.x, this._hopTo.y - this._hopFrom.y);
-      this._hopMs = Math.max(1200, (d / BR.ROAM_HOP_SPEED) * 1000);
+      const e = isFinite(endgame) ? endgame : 0;
+      const speed = BR.ROAM_HOP_SPEED * (1 - 0.55 * e);
+      const ms = (d / speed) * 1000;
+      /* Guarded, because a NaN here does not throw — it makes every comparison
+         against progress false, and the circle simply stops choosing new places
+         to go while looking otherwise healthy. That is a far worse failure than
+         a crash, and it already happened once. */
+      this._hopMs = isFinite(ms) ? Math.max(1200, ms) : 1200;
       this._hopStart = now;
       this._hopHoldUntil = 0;
       return;
@@ -284,7 +319,16 @@ class BattleRoyaleRoom extends GameRoom {
       this.worldCx = this._hopTo.x; this.worldCy = this._hopTo.y;
       return;
     }
-    if (this._hopHoldUntil) { this._hopTo = null; this._stepHop(); return; }
+    if (this._hopHoldUntil) {
+      /* t, not nothing. Dropping it made _endgameEase(undefined) NaN, so the
+         hop speed was NaN, so the leg duration was NaN — and every comparison
+         against progress is false against NaN, which froze the circle on one
+         leg for the rest of the match. Two hops in three minutes instead of
+         nine, and a ring whose size was NaN. One missing argument. */
+      this._hopTo = null;
+      this._stepHop(t);
+      return;
+    }
 
     const k = Math.min(1, (now - this._hopStart) / this._hopMs);
     const ease = k * k * (3 - 2 * k);      // no lurch at either end of a leg
@@ -298,7 +342,13 @@ class BattleRoyaleRoom extends GameRoom {
   hopTarget() {
     if (this.state !== 'running') return null;
     if (!this._hopTo || this._hopHoldUntil) return null;
-    return this._hopTo;
+    /* The size the wall will BE when it gets there, worked out from when this
+       leg ends. Drawing the ring at today's radius during the endgame shows a
+       circle bigger than the one that actually arrives, which is worse than no
+       ring at all: it tells you there is room where there will not be. */
+    const arriveAt = (Date.now() + Math.max(0, this._hopStart + this._hopMs - Date.now()))
+                     - this.startedAt;
+    return { x: this._hopTo.x, y: this._hopTo.y, r: this.radiusAt(arriveAt) };
   }
 
   /* ── ending ────────────────────────────────────────────────────────────── */

@@ -1024,7 +1024,12 @@ class Renderer {
     const t = state.zoneTo;
     const cx = (camera.x + t.x * camera.scale) * dpr;
     const cy = (camera.y + t.y * camera.scale) * dpr;
-    const r = state.worldRadius * camera.scale * dpr;
+    /* The size on ARRIVAL, falling back to the current one for an older server
+       that does not send it. During the last thirty seconds these differ by a
+       hundred units or more, and drawing the bigger of the two promises room
+       that will not be there. */
+    const worldR = (t.r === undefined || t.r === null) ? state.worldRadius : t.r;
+    const r = worldR * camera.scale * dpr;
 
     // ~1.4s per breath. Never fully out, or it reads as a rendering fault.
     const pulse = 0.42 + 0.38 * (0.5 + 0.5 * Math.sin(Date.now() / 225));
@@ -1114,8 +1119,10 @@ class Renderer {
       mc.strokeStyle = '#ffffff';
       mc.lineWidth = 1.5;
       mc.beginPath();
+      const tr = (state.zoneTo.r === undefined || state.zoneTo.r === null)
+        ? state.worldRadius : state.zoneTo.r;
       mc.arc(cx + state.zoneTo.x * scale, cy + state.zoneTo.y * scale,
-             state.worldRadius * scale, 0, Math.PI * 2);
+             tr * scale, 0, Math.PI * 2);
       mc.stroke();
       mc.restore();
     }
