@@ -48,6 +48,20 @@
      time you turn round. */
   var vis = null, seen = null, fogAt = 0, fogX = -1e9, fogY = -1e9;
 
+  /* How hurt every cell is (100 = untouched), and when it was last struck.
+     A wall that takes four shots has to show the first three landing, or you
+     cannot tell a tough wall from an indestructible one. */
+  var cellHp = null, hitAt = null;
+
+  /* The sound layer is driven by DIFFS on the snapshot rather than by events,
+     because the server already tells us everything: a shot counter that only
+     goes up, health that moves, coins that move, cells that change kind. One
+     comparison per frame and nothing new has to be sent down the wire. */
+  var SND = null;
+  var lastShots = 0, lastHp = null, lastCoins = null, lastDead = false;
+  var lastAim = 0, aimRate = 0;
+  var FLASH_MS = 110;   // my number, not a measured one: long enough to see, short enough not to strobe
+
   var keys = Object.create(null);
   var input = { up: 0, down: 0, left: 0, right: 0, fire: 0, bank: 0, aim: 0 };
   var mouse = { x: 0, y: 0 };
@@ -95,6 +109,7 @@
        cashing out is the one action in the game you can never take back. */
     if (e.code === 'KeyQ') input.bank = 1;
     if (e.code === 'Escape') leave();
+    if (e.code === 'KeyM') toggleMute();
     var n = e.code.indexOf('Digit') === 0 ? Number(e.code.slice(5)) : -1;
     if (n >= 0) {
       var idx = n === 0 ? 9 : n - 1;          // 1..9 then 0 for the tenth
@@ -190,27 +205,90 @@
             bank: m.bank, cashoutMs: m.cashoutMs, sight: m.sight };
     vis = new Uint8Array(m.cols * m.rows);
     seen = new Uint8Array(m.cols * m.rows);
+    cellHp = new Uint8Array(m.cols * m.rows).fill(100);
+    hitAt = new Float64Array(m.cols * m.rows);
     fogX = -1e9;
     miniDirty = true;
   });
 
   socket.on('sh:state', function (s) {
     if (map && s.cells) {
-      for (var i = 0; i < s.cells.length; i += 2) map.cells[s.cells[i]] = s.cells[i + 1];
+      for (var i = 0; i < s.cells.length; i += 3) {
+        map.cells[s.cells[i]] = s.cells[i + 1];
+        cellHp[s.cells[i]] = s.cells[i + 2];
+      }
       miniDirty = true;
       fogX = -1e9;                       // a wall came down: the sight lines changed
+    }
+    if (map && s.hits) {
+      var t0 = performance.now();
+      for (var h = 0; h < s.hits.length; h++) hitAt[s.hits[h]] = t0;
     }
     prev = next; prevAt = nextAt;
     next = s; nextAt = performance.now();
     if (!prev) { prev = s; prevAt = nextAt; }
     paintHud(s);
+    playFor(s);
   });
+
+  /* Everything audible, derived from what changed since the last snapshot. */
+  function playFor(s) {
+    if (!SND || !started || !s.you) return;
+
+    // Your own gun. The counter is authoritative, so a beam and a chain fire
+    // exactly as reliably as a bullet does.
+    var shots = s.you.shots || 0;
+    if (lastShots && shots > lastShots) {
+      var n = Math.min(3, shots - lastShots);   // never stack more than three
+      for (var i = 0; i < n; i++) SND.gun(s.you.weapon);
+    }
+    lastShots = shots;
+
+    // Walls. A cell that went to kind 0 broke; anything else that got hit
+    // took damage and held.
+    if (s.cells) {
+      var broke = false, dinged = false;
+      for (var c = 0; c < s.cells.length; c += 3) {
+        if (s.cells[c + 1] === 0) broke = true; else dinged = true;
+      }
+      if (broke) SND.fx('breakBlock');
+      else if (dinged) SND.fx('hit');
+    } else if (s.hits && s.hits.length) {
+      SND.fx('hit');
+    }
+
+    // Blasts. fx kind 2 is the explosion the server already sends for barrels,
+    // rockets and mines.
+    for (var f = 0; f < s.fx.length; f++) {
+      if (s.fx[f][0] === 2) { SND.fx('boom'); break; }
+    }
+
+    // You: hurt, healed, paid, killed.
+    if (lastHp !== null) {
+      if (s.you.hp < lastHp && !s.you.dead) SND.fx('hurt');
+      else if (s.you.hp > lastHp) SND.fx('medkit');
+    }
+    if (lastCoins !== null && s.you.coins > lastCoins) SND.fx('coin');
+    if (s.you.dead && !lastDead) SND.fx('death');
+    lastHp = s.you.hp; lastCoins = s.you.coins; lastDead = !!s.you.dead;
+
+    /* The two beds. Drive comes from the keys actually held, not from the
+       snapshot, so the engine reacts the instant you press rather than a
+       frame later. Turn is how fast the barrel is swinging. */
+    var moving = (input.up || input.down || input.left || input.right) ? 1 : 0;
+    var da = Math.abs(s.you.aim - lastAim);
+    if (da > Math.PI) da = Math.PI * 2 - da;
+    aimRate = aimRate * 0.7 + Math.min(1, da * 6) * 0.3;
+    lastAim = s.you.aim;
+    SND.rig(s.you.dead ? 0 : moving, s.you.dead ? 0 : aimRate);
+  }
 
   socket.on('sh:killed', function (e) {
     say(e.by ? e.by + ' killed ' + e.name : e.name + ' was destroyed');
   });
   socket.on('sh:banked', function (e) {
     say(e.name + ' banked ' + e.amount, true);
+    if (SND && e.name === NAME) SND.fx('banked');
   });
 
   function say(text, good) {
@@ -406,7 +484,7 @@
   }
 
   function drawGround(X, Y) {
-    var T = map.tile;
+    var T = map.tile, nowMs = performance.now();
     var c0 = Math.max(0, Math.floor(cam.x / T - cv.width / 2 / S / T) - 1);
     var c1 = Math.min(map.cols - 1, Math.ceil(cam.x / T + cv.width / 2 / S / T) + 1);
     var r0 = Math.max(0, Math.floor(cam.y / T - cv.height / 2 / S / T) - 1);
@@ -421,13 +499,29 @@
         if (!seen[r * map.cols + c]) continue;      // never been here: leave it black
         var x = Math.floor(X(c * T)), y = Math.floor(Y(r * T));
         var s = Math.ceil(X((c + 1) * T)) - x;
-        var v = map.cells[r * map.cols + c];
+        var idx = r * map.cols + c;
+        var v = map.cells[idx];
         A.drawGrass(ctx, x, y, s, c, r);
-        if (v === 1) A.drawCrate(ctx, x, y, s);
+        var hp = cellHp[idx] / 100;
+        if (v === 1) A.drawCrate(ctx, x, y, s, hp);
         else if (v === 2) A.drawStone(ctx, x, y, s, c, r);
-        else if (v === 3) A.drawBrick(ctx, x, y, s, c, r);
-        else if (v === 4) A.drawWood(ctx, x, y, s, c, r);
+        else if (v === 3) A.drawBrick(ctx, x, y, s, c, r, hp);
+        else if (v === 4) A.drawWood(ctx, x, y, s, c, r, hp);
         else if (v === 5) A.drawBarrel(ctx, x, y, s);
+        /* Struck this instant: a white flash over the whole cell, fading
+           out. Their game does this and it is the single cheapest way to
+           make shooting a wall feel like it connected. */
+        if (v !== 0) {
+          var age = nowMs - hitAt[idx];
+          if (age >= 0 && age < FLASH_MS) {
+            ctx.save();
+            ctx.globalCompositeOperation = 'lighter';
+            ctx.globalAlpha = 0.85 * (1 - age / FLASH_MS);
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(x, y, s, s);
+            ctx.restore();
+          }
+        }
       }
     }
   }
@@ -653,6 +747,8 @@
   $('startBtn').addEventListener('click', function () {
     $('boot').hidden = true;
     started = true;
+    SND = window.ShooterSound || null;
+    if (SND) { SND.init(); SND.unlock(); }
     socket.emit('sh:join', { name: NAME, weapon: WEAPON });
   });
 
@@ -662,6 +758,13 @@
     else window.location.href = '/';
   }
   $('exitBtn').addEventListener('click', leave);
+  function toggleMute() {
+    if (!SND) return;
+    var m = SND.setMuted(!SND.muted);
+    $('muteBtn').textContent = m ? 'Sound off' : 'Sound on';
+    try { localStorage.setItem('shooter:muted', m ? '1' : '0'); } catch (_) {}
+  }
+  $('muteBtn').addEventListener('click', toggleMute);
   $('againBtn').addEventListener('click', function () {
     $('dead').hidden = true;
     socket.emit('sh:respawn');
@@ -676,6 +779,12 @@
   /* The view transform too, so a mismatch between where the tank is drawn and
      where the barrel points can be measured rather than argued about. */
   window.SHOOTER_VIEW = function () { return { cam: cam, scale: S, me: meScreen, dpr: dpr }; };
+
+  /* The baked tiles. Everything keeps working if this never arrives: the
+     art module falls back to drawing the same shapes. */
+  A.loadTiles('/img/shooter/tiles.png', function (ok) {
+    if (!ok) console.warn('shooter: tile atlas failed to load, drawing tiles live');
+  });
 
   pickWeapon(WEAPON);
   draw();

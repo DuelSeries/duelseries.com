@@ -326,7 +326,56 @@
 
   var GRASS = '#3a8145';
 
+  /* ── the baked tiles ────────────────────────────────────────────────────
+     Every ground tile is also a PNG, rendered once by scripts/bake-tiles and
+     carrying per-pixel work no live renderer can afford three hundred times a
+     frame: grain, a light direction, and edge shading. When the atlas is
+     loaded the tile functions blit from it; until then, and if it fails, they
+     fall back to drawing the same shapes, so the game never depends on a file
+     arriving.
+
+     The frame order IS the contract with the bake script:
+       0-3 grass   4-6 stone   7-8 brick   9-10 wood   11 crate   12 barrel */
+  var TILE_CELL = 108, TILE_PAD = 4, TILE_STEP = 116, TILE_COLS = 8;
+  var atlas = null;
+  var BASE = { grass: 0, stone: 4, brick: 7, wood: 9, crate: 11, barrel: 12 };
+  var COUNT = { grass: 4, stone: 3, brick: 2, wood: 2, crate: 1, barrel: 1 };
+
+  function loadTiles(url, done) {
+    var img = new Image();
+    img.onload = function () { atlas = img; if (done) done(true); };
+    img.onerror = function () { if (done) done(false); };
+    img.src = url;
+    return img;
+  }
+
+  /* Which variant a cell gets, from its own coordinates, so the arena looks
+     the same every time you walk back into it. */
+  function blit(ctx, kind, x, y, s, col, row) {
+    if (!atlas) return false;
+    var n = COUNT[kind];
+    var v = n > 1 ? Math.floor(hash(col || 0, row || 0) * n) % n : 0;
+    var idx = BASE[kind] + v;
+    var sx = (idx % TILE_COLS) * TILE_STEP + TILE_PAD;
+    var sy = ((idx / TILE_COLS) | 0) * TILE_STEP + TILE_PAD;
+    ctx.drawImage(atlas, sx, sy, TILE_CELL, TILE_CELL, x, y, s, s);
+    return true;
+  }
+
+  /* The damage bar every breakable shares. Only drawn once something has
+     actually been hit, so an untouched arena is not covered in meters. */
+  function damageBar(ctx, x, y, s, hp) {
+    if (hp === undefined || hp >= 1) return;
+    var u = s / 54, w = s * 0.62, h = Math.max(2, 4 * u);
+    var bx = x + (s - w) / 2, by = y + 5 * u;
+    ctx.fillStyle = 'rgba(0,0,0,0.72)';
+    ctx.fillRect(bx - u, by - u, w + 2 * u, h + 2 * u);
+    ctx.fillStyle = hp > 0.5 ? '#7fce4a' : hp > 0.25 ? '#ffb500' : '#ef3f35';
+    ctx.fillRect(bx, by, w * Math.max(0.04, hp), h);
+  }
+
   function drawGrass(ctx, x, y, s, col, row) {
+    if (blit(ctx, 'grass', x, y, s, col, row)) return;
     ctx.fillStyle = GRASS;
     ctx.fillRect(x, y, s, s);
     /* Their grass tile is 58% one flat colour and the rest a fine scatter
@@ -353,6 +402,7 @@
      along the bottom and right. That layering is the whole reason theirs looks
      carved and a flat grey square does not. */
   function drawStone(ctx, x, y, s, col, row) {
+    if (blit(ctx, 'stone', x, y, s, col, row)) return;
     var u = s / 54;
     ctx.fillStyle = '#000000'; ctx.fillRect(x, y, s, s);
     rr(ctx, x + 2 * u, y + 2 * u, s - 4 * u, s - 4 * u, 7 * u);
@@ -378,7 +428,8 @@
   /* Brick: five courses, offset, with mortar between them. The first pass drew
      four flat blocks the size of a quarter of the tile, which at any zoom reads
      as a red square rather than as brick. */
-  function drawBrick(ctx, x, y, s, col, row) {
+  function drawBrick(ctx, x, y, s, col, row, hp) {
+    if (blit(ctx, 'brick', x, y, s, col, row)) return damageBar(ctx, x, y, s, hp);
     var u = s / 52, tones = ['#ee5533', '#dd6633', '#ee6644', '#aa3322'];
     ctx.fillStyle = '#772211'; ctx.fillRect(x, y, s, s);
     var courses = 5, ch = (s - 6 * u) / courses, bw = 14 * u;
@@ -395,12 +446,14 @@
     }
     ctx.strokeStyle = '#000000'; ctx.lineWidth = 3 * u;
     ctx.strokeRect(x + 1.5 * u, y + 1.5 * u, s - 3 * u, s - 3 * u);
+    damageBar(ctx, x, y, s, hp);
   }
 
   /* Wood: a panel of VERTICAL planks, dark on the left and lighter on the
      right, with grain. The first pass drew horizontal bars, which is the one
      thing it definitely is not. */
-  function drawWood(ctx, x, y, s, col, row) {
+  function drawWood(ctx, x, y, s, col, row, hp) {
+    if (blit(ctx, 'wood', x, y, s, col, row)) return damageBar(ctx, x, y, s, hp);
     var u = s / 52, planks = 6, pw = (s - 6 * u) / planks;
     ctx.fillStyle = '#000000'; ctx.fillRect(x, y, s, s);
     /* A left-to-right lightening across the whole panel, with the plank joins
@@ -418,12 +471,14 @@
       var gx = x + 3 * u + (i - 1) * pw + (0.3 + hash((col || 0) + i, row || 0) * 0.4) * pw;
       ctx.fillRect(gx, y + 5 * u, 1.2 * u, s - 10 * u);
     }
+    damageBar(ctx, x, y, s, hp);
   }
 
   /* Crate: 35 of 54, so it sits inside its tile with grass all round it.
      Vertical planks with two dark divisions, a light plank near the left, and
      two darker bands across. */
   function drawCrate(ctx, x, y, s, hp) {
+    if (blit(ctx, 'crate', x, y, s, 0, 0)) return damageBar(ctx, x, y, s, hp);
     var u = s / 54, i = 9.5 * u, w = 35 * u;
     var bx = x + i, by = y + i;
     ctx.fillStyle = '#000000'; ctx.fillRect(bx, by, w, w);
@@ -440,18 +495,14 @@
     ctx.fillStyle = '#eeaa44'; ctx.fillRect(bx + 27 * u, by + 2 * u, 2 * u, w - 4 * u);
     /* Their crates have no bar; ours do, because Owen asked to see one and a
        crate you have already hit twice is worth knowing about. */
-    if (hp !== undefined && hp < 1) {
-      var barW = w * 0.9, barH = Math.max(2, 3 * u);
-      var px = bx + (w - barW) / 2, py = by - barH - 2 * u;
-      ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(px - 1, py - 1, barW + 2, barH + 2);
-      ctx.fillStyle = '#ffb500'; ctx.fillRect(px, py, barW * Math.max(0, hp), barH);
-    }
+    damageBar(ctx, x, y, s, hp);
   }
 
   /* Barrel: a 35 circle, black outlined, a bright #ff4411 ring round a dark
      #bb2200 body, lit on the left. Darker overall than the first pass, which
      was almost the same orange as a crate. */
   function drawBarrel(ctx, x, y, s) {
+    if (blit(ctx, 'barrel', x, y, s, 0, 0)) return;
     var cx = x + s / 2, cy = y + s / 2, r = 17.5 * (s / 54);
     ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2);
     fillLine(ctx, '#ff4411', '#000000', Math.max(1, s * 0.045));
@@ -486,6 +537,8 @@
     GUN_PIVOT: [GUN_PX, GUN_PY],
     TEAMS: TEAMS, WEAPONS: WEAPONS, GRASS: GRASS,
     drawTank: drawTank, gun: gun, roundRect: rr,
+    loadTiles: loadTiles,
+    get atlasReady() { return !!atlas; },
     drawGrass: drawGrass, drawStone: drawStone, drawBrick: drawBrick,
     drawWood: drawWood, drawCrate: drawCrate, drawBarrel: drawBarrel,
     drawMedkit: drawMedkit, drawCoin: drawCoin,

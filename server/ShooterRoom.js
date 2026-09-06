@@ -122,7 +122,13 @@ class ShooterRoom {
     this.mines = [];
     this.pickups = [];
     this.fx = [];
-    this.dirty = [];               // cells changed since the last broadcast
+    /* Cells changed since the last broadcast, as [index, kind, hp%] triples.
+       It used to be [index, kind] pairs sent only when a wall DIED, which is
+       why the crate health bar the art module can draw has never once appeared
+       on screen: the client was never told a crate was hurt, only that it was
+       gone. Damage is a state the player has to be able to see. */
+    this.dirty = [];
+    this.hits = [];                // cells struck this tick, for the white flash
     this.timer = null;
     this.seq = 0;
     this.buildMap();
@@ -282,7 +288,7 @@ class ShooterRoom {
   setCell(r, c, v) {
     this.map[r][c] = v;
     this.hp[r][c] = CELL_HP[v] || 0;
-    this.dirty.push(r * SH.COLS + c, v);
+    this.dirty.push(r * SH.COLS + c, v, 100);
   }
 
   /* Everything that breaks, breaks here. Stone returns false and is the reason
@@ -293,7 +299,15 @@ class ShooterRoom {
     if (v === SH.EMPTY || v === SH.STONE) return false;
     if (v === SH.BARREL) { this.blowBarrel(r, c); return true; }
     this.hp[r][c] -= dmg;
-    if (this.hp[r][c] > 0) return true;
+    /* Hit, whether or not it broke. The flash is how you know your shots
+       are landing on a wall that takes several of them. */
+    this.hits.push(r * SH.COLS + c);
+    if (this.hp[r][c] > 0) {
+      const full = CELL_HP[v] || 1;
+      this.dirty.push(r * SH.COLS + c, v,
+                      Math.max(1, Math.round(this.hp[r][c] / full * 100)));
+      return true;
+    }
     this.setCell(r, c, SH.EMPTY);
     const x = (c + 0.5) * SH.TILE, y = (r + 0.5) * SH.TILE;
     /* A crate is worth opening: coins, and a med kit, which is the only way to
@@ -347,6 +361,7 @@ class ShooterRoom {
       input: { up: 0, down: 0, left: 0, right: 0, fire: 0, bank: 0 },
       nextFire: 0, dead: false, deadUntil: 0, safeUntil: 0,
       cashMs: 0, quickMs: 0, wander: 0, waiting: false,
+      shots: 0,               // only ever counts up; the client plays the delta
     };
     this.tanks.set(id, t);
     this.place(t);
@@ -486,6 +501,7 @@ class ShooterRoom {
     if (this.fx.length) this.fx = this.fx.filter(f => f.until > now);
     this.broadcast();
     this.dirty.length = 0;
+    this.hits.length = 0;
   }
 
   drivePlayer(t, dt, now) {
@@ -606,6 +622,11 @@ class ShooterRoom {
 
   fireFrom(t, angle, weaponKey) {
     const w = WEAPONS[weaponKey] || WEAPONS.cannon;
+    /* Counted here rather than guessed on the client. The client cannot know
+       a shot happened: a beam and a chain leave no projectile to watch, and a
+       cooldown re-derived in the browser drifts. A counter it can diff is the
+       whole of what the sound needs. */
+    t.shots = (t.shots || 0) + 1;
     if (w.kind === 'beam') return this.fireBeam(t, angle, w);
     if (w.kind === 'chain') return this.fireChain(t, w);
     if (w.kind === 'mine') return this.dropMine(t, w);
@@ -810,6 +831,7 @@ class ShooterRoom {
         dead: !!me.dead, respawn: me.dead ? Math.max(0, me.deadUntil - now) : 0,
         safe: !!(me.safeUntil && now < me.safeUntil),
         cash: me.cashMs > 0 ? Math.min(1, me.cashMs / SH.CASHOUT_MS) : 0,
+        shots: me.shots || 0,
         quick: me.quickMs > 0 ? Math.min(1, me.quickMs / SH.QUICK_BANK_MS) : 0,
         banked_ms: me.bankedAt ? now - me.bankedAt : 99999,
         banked_last: me.bankedLast || 0,
@@ -824,6 +846,7 @@ class ShooterRoom {
       pickups: this.pickups.map(p => [r1(p.x), r1(p.y), p.kind === 'medkit' ? 1 : 0, p.value || 0]),
       fx: this.fx.map(f => [f.k].concat(f.a)),
       cells: this.dirty.length ? this.dirty.slice() : null,
+      hits: this.hits.length ? this.hits.slice() : null,
       board: [...this.tanks.values()]
         .sort((a, b) => (b.banked - a.banked) || (b.kills - a.kills))
         .slice(0, 6)
