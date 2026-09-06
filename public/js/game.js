@@ -739,6 +739,24 @@ function _lBuildSegs(numSegs) {
   const sep     = settled * CONSTANTS.SNAKE_INSERT_COMPENSATION;
   const pull    = CONSTANTS.SNAKE_BODY_PULL;
 
+  /* Keep more stored points than the render needs.
+
+     The body is resampled at a fixed `settled` spacing walking back from the
+     head. Stored points sit `sep` apart and the pull then compresses them to
+     about `settled`, which means a store of exactly numSegs points is almost
+     exactly the arc length the resample wants. "Almost exactly" is the bug:
+     it crosses the boundary constantly, so on some frames the walk fills every
+     slot from real geometry and on others it runs out and the last point falls
+     back to an interpolated slide. Measured frame to frame, the final segment
+     length cycled 0, 0.05, 0.41, 0.78, 1.14, 1.49, then snapped to a full 6.69
+     and back to 0, many times a second. That is the tail tip visibly growing
+     and shrinking, which is what it looks like from the outside.
+
+     Four points of slack puts the store safely past what the walk can consume,
+     so the tip is always a real point on the path and recedes as smoothly as
+     the path itself moves. */
+  const STORE = numSegs + 4;
+
   const hi = (_lpHead - 1 + LP_SIZE) % LP_SIZE;
   const pi = (hi - 1 + LP_SIZE) % LP_SIZE;
   const hx = _lpX[hi], hy = _lpY[hi];
@@ -746,7 +764,7 @@ function _lBuildSegs(numSegs) {
   // Fresh spawn: lay the body straight back from the head at the resting gap.
   if (_lsPts.length < 2) {
     _lsPts = [];
-    for (let i = 0; i < numSegs; i++) {
+    for (let i = 0; i < STORE; i++) {
       _lsPts.push({ x: hx - Math.cos(_lAngle) * i * settled,
                     y: hy - Math.sin(_lAngle) * i * settled });
     }
@@ -764,7 +782,7 @@ function _lBuildSegs(numSegs) {
     const d  = Math.hypot(dx, dy) || 1;
     const t  = sep / d;
     _lsPts.splice(1, 0, { x: p1.x + dx * t, y: p1.y + dy * t });
-    while (_lsPts.length > numSegs) _lsPts.pop();
+    while (_lsPts.length > STORE) _lsPts.pop();
 
     // the pull, each point toward its leader's position at the start of the pass
     let leadX = _lsPts[0].x, leadY = _lsPts[0].y;
@@ -777,9 +795,17 @@ function _lBuildSegs(numSegs) {
       leadX = oldX; leadY = oldY;
     }
   }
-  while (_lsPts.length < numSegs) {
+  while (_lsPts.length < STORE) {
     const t = _lsPts[_lsPts.length - 1];
-    _lsPts.push({ x: t.x, y: t.y });
+    const u = _lsPts[_lsPts.length - 2];
+    /* Extend along the tail heading rather than duplicating the last point.
+       A duplicate adds no arc length, so the store would report the right
+       number of points while being exactly as short as it was, and the walk
+       would starve anyway. */
+    let ux = u ? t.x - u.x : Math.cos(_lAngle + Math.PI) * settled;
+    let uy = u ? t.y - u.y : Math.sin(_lAngle + Math.PI) * settled;
+    const ul = Math.hypot(ux, uy) || 1;
+    _lsPts.push({ x: t.x + ux / ul * sep, y: t.y + uy / ul * sep });
   }
 
   /* Reused between frames: a fresh Float32Array per frame is 237 throwaway

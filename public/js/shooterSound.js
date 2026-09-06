@@ -147,12 +147,15 @@
     var d = Math.max(0, Math.min(1, drive || 0));
     var r = Math.max(0, Math.min(1, turn || 0));
 
-    beds.engGain.gain.setTargetAtTime(0.028 + d * 0.10, t, 0.08);
-    beds.engFilter.frequency.setTargetAtTime(260 + d * 520, t, 0.08);
+    /* Quiet. This is a bed, not an instrument: you should notice it stop,
+       not notice it playing. Roughly a third of where it started, and the
+       filter stays low so it never gets bright enough to pull focus off a gun. */
+    beds.engGain.gain.setTargetAtTime(0.009 + d * 0.030, t, 0.08);
+    beds.engFilter.frequency.setTargetAtTime(190 + d * 240, t, 0.08);
     beds.engA.frequency.setTargetAtTime(44 + d * 26, t, 0.10);
     beds.engB.frequency.setTargetAtTime(66 + d * 40, t, 0.10);
 
-    beds.srvGain.gain.setTargetAtTime(r * 0.022, t, 0.05);
+    beds.srvGain.gain.setTargetAtTime(r * 0.013, t, 0.05);
     beds.srvOsc.frequency.setTargetAtTime(280 + r * 260, t, 0.05);
   }
 
