@@ -92,11 +92,26 @@
      and none to spare across. */
   var TILES_TALL = 19, TILES_WIDE = 30;
   var TILES_TALL_PHONE = 24, TILES_WIDE_PHONE = 13;
+  /* Turned sideways, a phone has the shape this game actually wants and about
+     half the height. Roughly the portrait numbers transposed, so the amount of
+     arena on screen barely changes as you rotate and the tanks stay the size
+     your thumb learned. */
+  var TILES_TALL_LAND = 13, TILES_WIDE_LAND = 24;
+
+  /* By SHAPE, not by width. A phone on its side is wider than the 620px phone
+     breakpoint, so a width test calls it a desktop and hands it the desktop
+     view on a 375px-tall screen. */
+  function phoneish() { return window.innerWidth < 620 || window.innerHeight < 560; }
+  function landscape() { return window.innerWidth > window.innerHeight; }
+
   function zoom() {
     var T = map ? map.tile : 54;
-    var phone = window.innerWidth < 620;
-    return Math.min(cv.width / ((phone ? TILES_WIDE_PHONE : TILES_WIDE) * T),
-                    cv.height / ((phone ? TILES_TALL_PHONE : TILES_TALL) * T));
+    var w = TILES_WIDE, h = TILES_TALL;
+    if (phoneish()) {
+      if (landscape()) { w = TILES_WIDE_LAND; h = TILES_TALL_LAND; }
+      else { w = TILES_WIDE_PHONE; h = TILES_TALL_PHONE; }
+    }
+    return Math.min(cv.width / (w * T), cv.height / (h * T));
   }
 
   /* ── input ────────────────────────────────────────────────────────────────── */
@@ -159,29 +174,66 @@
   }
   stick.addEventListener('touchend', stickEnd, { passive: false });
   stick.addEventListener('touchcancel', stickEnd, { passive: false });
-  $('tfire').addEventListener('touchstart', function (e) { e.preventDefault(); input.fire = 1; }, { passive: false });
-  $('tfire').addEventListener('touchend', function (e) { e.preventDefault(); input.fire = 0; }, { passive: false });
+  /* The aim stick. Pushing it IS the trigger: the thumb that decides where the
+     shot goes is the thumb that takes it, which is one fewer thing to find on
+     a screen you are already driving with. Below the dead zone it neither aims
+     nor fires, so resting a thumb on it does not empty the magazine. */
+  var astick = $('astick'), anub = $('astickNub');
+  var aim = { id: null, dx: 0, dy: 0 };
+  var AIM_DEAD = 0.22;
+  function aimAt(t) {
+    var r = astick.getBoundingClientRect();
+    var dx = t.clientX - (r.left + r.width / 2), dy = t.clientY - (r.top + r.height / 2);
+    var d = Math.hypot(dx, dy), max = r.width / 2 - 12;
+    if (d > max) { dx = dx / d * max; dy = dy / d * max; }
+    anub.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+    aim.dx = dx / max; aim.dy = dy / max;
+    astick.classList.toggle('firing', Math.hypot(aim.dx, aim.dy) > AIM_DEAD);
+  }
+  astick.addEventListener('touchstart', function (e) {
+    e.preventDefault(); aim.id = e.changedTouches[0].identifier; aimAt(e.changedTouches[0]);
+  }, { passive: false });
+  astick.addEventListener('touchmove', function (e) {
+    e.preventDefault();
+    for (var i = 0; i < e.changedTouches.length; i++) {
+      if (e.changedTouches[i].identifier === aim.id) aimAt(e.changedTouches[i]);
+    }
+  }, { passive: false });
+  function aimEnd(e) {
+    e.preventDefault(); aim.id = null; aim.dx = aim.dy = 0;
+    anub.style.transform = 'translate(0,0)';
+    astick.classList.remove('firing');
+  }
+  astick.addEventListener('touchend', aimEnd, { passive: false });
+  astick.addEventListener('touchcancel', aimEnd, { passive: false });
   if (isTouch) {
     $('touch').hidden = false;
     /* The card explains a mouse and a keyboard to somebody holding neither.
        One line, swapped, rather than a second card to keep in step. */
     var how = $('howto');
     if (how) {
-      how.innerHTML = 'Drive and aim with the stick, tap <b>Fire</b> to shoot. ' +
-        'Break crates for coins and med kits. Kill someone and they drop ' +
-        'everything they were carrying.';
+      how.innerHTML = 'Left stick drives. <b>Right stick aims and fires</b> — ' +
+        'point it and it shoots. Break crates for coins and med kits. Kill ' +
+        'someone and they drop everything they were carrying. Turn the phone ' +
+        'sideways if you would rather play that way.';
     }
   }
 
   function sendInput() {
     if (!started) return;
     if (isTouch) {
-      /* One stick that drives and aims. Two thumbs and a second stick is the
-         other answer and it is worse on a phone this size: aiming where you are
-         driving is at least always true. */
+      /* Left stick drives. It no longer aims: it used to, because one stick was
+         all there was, and driving one way while shooting another was simply
+         not expressible. */
       input.left = touch.dx < -0.2 ? 1 : 0; input.right = touch.dx > 0.2 ? 1 : 0;
       input.up = touch.dy < -0.2 ? 1 : 0; input.down = touch.dy > 0.2 ? 1 : 0;
-      if (Math.hypot(touch.dx, touch.dy) > 0.2) input.aim = Math.atan2(touch.dy, touch.dx);
+
+      /* Right stick aims and fires together. Held past the dead zone it is
+         both; inside it, the barrel holds its last heading rather than snapping
+         back to somewhere arbitrary the moment the thumb lifts. */
+      var ad = Math.hypot(aim.dx, aim.dy);
+      if (ad > AIM_DEAD) { input.aim = Math.atan2(aim.dy, aim.dx); input.fire = 1; }
+      else input.fire = 0;
     } else {
       input.up = keys.up || 0; input.down = keys.down || 0;
       input.left = keys.left || 0; input.right = keys.right || 0;
@@ -343,12 +395,23 @@
     var cw = $('cashwrap');
     var prog = Math.max(s.you.cash || 0, s.you.quick || 0);
     var quick = (s.you.quick || 0) > 0;
-    cw.hidden = !(prog > 0);
+    /* Standing on the square with nothing to bank used to show NOTHING: no
+       bar, no timer, no word, which from the driver's seat is exactly what a
+       broken box looks like. It was the most reported problem with this game
+       and it was never the banking, it was the silence. The square now always
+       says something while you are on it. */
+    var empty = !!s.you.inBox && !s.you.dead && (s.you.coins || 0) <= 0;
+    cw.hidden = !(prog > 0 || empty);
+    cw.classList.toggle('idle', empty && prog <= 0);
     if (prog > 0) {
       $('cashBar').style.width = (prog * 100) + '%';
       var full = quick ? 1200 : (map ? map.cashoutMs : 5000);
       $('cashNum').textContent = (full / 1000 * (1 - prog)).toFixed(1);
       $('cashLbl').textContent = quick ? 'Banking' : 'Cashing out';
+    } else if (empty) {
+      $('cashBar').style.width = '0%';
+      $('cashNum').textContent = '';
+      $('cashLbl').textContent = 'Nothing to bank yet';
     }
     /* And the result, which the first version left to a one-line kill feed
        nobody reads while driving. Five seconds of standing still deserves
@@ -474,6 +537,7 @@
 
   function draw() {
     requestAnimationFrame(draw);
+    countFrame();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = '#0b0f09';
     ctx.fillRect(0, 0, cv.width, cv.height);
@@ -775,16 +839,44 @@
   }
 
   /* ── the minimap ──────────────────────────────────────────────────────────
-     Bottom left, the whole arena, white for you and red for everybody else.
-     The walls are painted once into an offscreen canvas and only repainted when
-     one of them comes down, so the per-frame cost is a handful of dots. */
+     Top left, the whole arena, white for you and red for everybody else. The
+     walls are painted once into an offscreen canvas and only repainted when one
+     of them comes down, so the per-frame cost is a handful of dots.
+
+     It used to sit bottom left, which put it exactly where the driving thumb
+     goes — it had to be shoved 216px up the screen on a phone to stay clear,
+     and turned sideways there is no 216px to give. The top left is the one
+     corner nothing else wants, so the HUD is padded around it instead. */
+  var miniW = 0, miniB = 0;
   function drawMinimap(px, py) {
     /* A third of a phone screen is not a minimap, it is a map with a game in
-       the corner. It is sized off the screen rather than fixed, and it sits
-       above the stick rather than under it. */
-    var pad = 14 * dpr;
-    var box = Math.min(186, cv.width / dpr * 0.30) * dpr;
-    var x0 = pad, y0 = cv.height - box - pad - (isTouch ? 216 * dpr : 0);
+       the corner. Sized off the screen rather than fixed, and smaller again
+       when the screen is short, because height is what a sideways phone has
+       none of. */
+    /* A radar, not a panel. Moving it to the top left put it beside the HUD
+       instead of in empty space, and at its old size it pushed the health bar
+       a third of the way across the screen — which is being in the way in a
+       different corner rather than being out of it. Both dimensions are
+       capped, because a sideways phone has width to spare and no height. */
+    var pad = 12 * dpr;
+    var narrow = Math.min(cv.width, cv.height) / dpr < 620;
+    var lim = Math.min(cv.width / dpr * (narrow ? 0.24 : 0.26),
+                       cv.height / dpr * (narrow ? 0.24 : 0.26));
+    var box = Math.min(narrow ? 96 : 132, lim) * dpr;
+    var top = pad + (Number(getComputedStyle(document.documentElement)
+                     .getPropertyValue('--sat').replace('px', '')) || 0) * dpr;
+    var x0 = pad, y0 = top;
+
+    /* Tell the HUD how much room this took, so it can lay out beside the map
+       rather than on top of it. One source of truth: the size actually drawn. */
+    var wantW = Math.round((box + pad * 2) / dpr);
+    var wantB = Math.round((y0 + box + pad) / dpr);
+    if (wantW !== miniW || wantB !== miniB) {
+      miniW = wantW; miniB = wantB;
+      var st = document.documentElement.style;
+      st.setProperty('--minimap', wantW + 'px');
+      st.setProperty('--minimapb', wantB + 'px');
+    }
     var k = box / (map.cols * map.tile);
 
     if (!mini || miniDirty) {
@@ -880,6 +972,40 @@
     socket.emit('sh:respawn');
   });
   $('coLeaveBtn').addEventListener('click', leave);
+
+  /* ── ping and frame rate ──────────────────────────────────────────────────
+     The same two readouts the snake game has, driven the same way: the server
+     already answers `ping_check` for every socket, so this needed no server
+     change at all. Every two seconds, because it is a health indicator rather
+     than a graph and a round trip every frame is itself traffic. */
+  var pingDot = $('ping-dot'), pingVal = $('ping-value'), fpsEl = $('fps-counter');
+  var pingSentAt = null;
+  function sendPing() { pingSentAt = performance.now(); socket.emit('ping_check'); }
+  socket.on('pong_check', function () {
+    if (pingSentAt === null) return;
+    var ms = Math.round(performance.now() - pingSentAt);
+    pingSentAt = null;
+    if (pingVal) pingVal.textContent = ms + ' ms';
+    if (pingDot) {
+      pingDot.className = 'ping-dot ' +
+        (ms < 50 ? 'ping-green' : ms < 100 ? 'ping-orange' : 'ping-red');
+    }
+  });
+  setInterval(sendPing, 2000);
+  sendPing();
+
+  /* Counted over a whole second rather than derived from one frame's delta,
+     which reads as a number flickering between 58 and 61 and tells you nothing
+     about the stutter you are actually looking at. */
+  var fpsFrames = 0, fpsSince = performance.now();
+  function countFrame() {
+    fpsFrames++;
+    var now = performance.now();
+    if (now - fpsSince < 1000) return;
+    var fps = Math.round(fpsFrames * 1000 / (now - fpsSince));
+    fpsFrames = 0; fpsSince = now;
+    if (fpsEl) fpsEl.textContent = 'FPS ' + fps;
+  }
 
   /* The last snapshot, for the console. It is the same data the page has
      already been sent and can already read off the wire, so this gives nothing

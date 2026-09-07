@@ -646,9 +646,17 @@ class ShooterRoom {
 
   /* ── the bank ───────────────────────────────────────────────────────────── */
 
+  /* Touching the square counts, not just having your centre over it.
+
+     This compared the tank's CENTRE point against the square, so there was a
+     ring one tank-radius wide where you are visibly parked on the gold and
+     nothing happens. "I drove onto the box and it did not work" is exactly
+     what that looks like from the outside, and the instruction has always
+     been drive INTO the square rather than line your middle up with it. */
   inBank(t) {
-    return Math.abs(t.x - this.bank.x) <= this.bank.half &&
-           Math.abs(t.y - this.bank.y) <= this.bank.half;
+    const reach = this.bank.half + SH.TANK_R;
+    return Math.abs(t.x - this.bank.x) <= reach &&
+           Math.abs(t.y - this.bank.y) <= reach;
   }
 
   stepCashout(t, dt) {
@@ -657,6 +665,11 @@ class ShooterRoom {
        see you doing; holding Q is the quick private one, and it exists because
        this table is free and a free game should not make you drive across a map
        to keep fifteen coins. */
+    /* Carrying nothing means there is nothing to bank, and that is the honest
+       answer, but it used to be a SILENT one: you drove onto the square, no
+       bar appeared, and the box was indistinguishable from a broken box. The
+       state goes to the client now (`inBox` on the snapshot) so the screen can
+       say why it is doing nothing. Feedback was the bug, not the rule. */
     if (t.coins <= 0) { t.cashMs = 0; t.quickMs = 0; return; }
 
     if (SH.QUICK_BANK_ALLOWED && t.input && t.input.bank) {
@@ -961,6 +974,10 @@ class ShooterRoom {
         cashed: !!me.cashedOut,
         safe: !!(me.safeUntil && now < me.safeUntil),
         cash: me.cashMs > 0 ? Math.min(1, me.cashMs / SH.CASHOUT_MS) : 0,
+        /* Standing on the square, whether or not anything is happening because
+           of it. The client needs this to tell "nothing to bank" apart from
+           "not on the square", which from the driver's seat look identical. */
+        inBox: this.inBank(me) ? 1 : 0,
         shots: me.shots || 0,
         quick: me.quickMs > 0 ? Math.min(1, me.quickMs / SH.QUICK_BANK_MS) : 0,
         banked_ms: me.bankedAt ? now - me.bankedAt : 99999,

@@ -293,6 +293,43 @@ test('a tank that has cashed out is out of everyone else\'s arena too', () => {
   assert.ok(!seen.includes(p.id), 'a cashed-out tank is not a target');
 });
 
+test('the square counts you as on it if the tank is touching it', () => {
+  /* It used to compare the tank's CENTRE against the square, so there was a
+     ring one tank-radius wide where you are visibly parked on the gold and
+     nothing happens. That is what "I drove onto the box and it did not work"
+     looks like from the driver's seat. */
+  const { r, p } = withPlayer();
+  const edge = r.bank.x + r.bank.half;
+
+  put(r, p, edge - 1, r.bank.y);
+  assert.equal(r.inBank(p), true, 'well inside');
+
+  put(r, p, edge + SH.TANK_R - 2, r.bank.y);
+  assert.equal(r.inBank(p), true, 'nose over the line still counts');
+
+  put(r, p, edge + SH.TANK_R + 6, r.bank.y);
+  assert.equal(r.inBank(p), false, 'clear of it does not');
+});
+
+test('the square says where you are even when it cannot pay you', () => {
+  /* Carrying nothing means there is nothing to bank, which is the right rule
+     and used to be a SILENT one: no bar, no timer, no word, which is
+     indistinguishable from a broken box. The client cannot tell "nothing to
+     bank" from "not on the square" without being told which it is. */
+  const { r, p } = withPlayer();
+  p.coins = 0;
+  put(r, p, r.bank.x, r.bank.y);
+  r.seconds(1);
+
+  const s = r.snapshot(p.id);
+  assert.equal(s.you.inBox, 1, 'on the square');
+  assert.equal(s.you.cash, 0, 'and nothing is happening, correctly');
+
+  put(r, p, 8 * SH.TILE, 8 * SH.TILE);
+  r.step(1);
+  assert.equal(r.snapshot(p.id).you.inBox, 0, 'and off it again');
+});
+
 test('there is nothing to bank when you are carrying nothing', () => {
   const { r, p } = withPlayer();
   p.coins = 0;

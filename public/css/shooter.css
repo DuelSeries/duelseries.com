@@ -188,22 +188,53 @@ html, body {
 }
 @keyframes pop { from { opacity: 0; transform: translate(-50%, -40%) scale(0.85); } }
 
+/* The square telling you why it is doing nothing. Dimmed and without a bar,
+   so it reads as an explanation rather than as progress that has stalled. */
+#cashwrap.idle { opacity: 0.72; }
+#cashwrap.idle .cashTrack { display: none; }
+
+/* Ping and frame rate, bottom of the HUD's right column so they sit under the
+   leaderboard rather than beside it. Same dot colours as the other games. */
+#netwrap {
+  display: flex; flex-direction: column; align-items: flex-end; gap: 3px;
+  /* It sits over the arena on a phone, and grey text on green grass is text
+     nobody can read. Its own quiet backdrop rather than a brighter colour,
+     because it is a diagnostic and should not compete with the game. */
+  padding: 3px 7px; border-radius: 7px; background: rgba(8,11,6,0.42);
+  font-family: var(--fm, ui-monospace, monospace); font-size: 11px;
+  color: var(--tx3); font-variant-numeric: tabular-nums;
+}
+#ping-display { display: flex; align-items: center; gap: 5px; }
+.ping-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+.ping-green  { background: #22c55e; box-shadow: 0 0 4px #22c55e88; }
+.ping-orange { background: #f97316; box-shadow: 0 0 4px #f9731688; }
+.ping-red    { background: #ef4444; box-shadow: 0 0 4px #ef444488; }
+
 /* ── touch ─────────────────────────────────────────────────────────────────── */
-#stick {
-  position: fixed; left: 22px; bottom: calc(86px + env(safe-area-inset-bottom));
+/* Two sticks, one under each thumb. The right one aims and fires together:
+   pushing it is the trigger, so the thumb that decides where the shot goes is
+   the thumb that takes it, and there is no separate button to find. */
+.tstick {
+  position: fixed; bottom: calc(86px + env(safe-area-inset-bottom));
   width: 116px; height: 116px; border-radius: 50%; z-index: 11;
   background: rgba(28,33,22,0.55); border: 1px solid var(--s3);
+  touch-action: none;
 }
-#stickNub {
+#stick  { left: 22px; }
+#astick { right: 22px; border-color: rgba(255,181,0,0.5); }
+#stickNub, #astickNub {
   position: absolute; left: 50%; top: 50%; width: 46px; height: 46px;
   margin: -23px 0 0 -23px; border-radius: 50%;
   background: rgba(242,244,234,0.85);
 }
-#tfire {
-  position: fixed; right: 22px; bottom: calc(86px + env(safe-area-inset-bottom));
-  width: 96px; height: 96px; border-radius: 50%; z-index: 11;
-  background: rgba(255,181,0,0.9); border: none; color: #201800;
-  font-family: inherit; font-size: 15px; font-weight: 700; cursor: pointer;
+/* Lit while it is deflected, because that is also when it is shooting. */
+#astickNub { background: rgba(255,181,0,0.92); transition: background 0.12s; }
+#astick.firing { border-color: rgba(255,181,0,0.95); }
+#astick.firing #astickNub { background: #ffd05a; }
+.tlabel {
+  position: absolute; left: 0; right: 0; bottom: -19px; text-align: center;
+  font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--tx3); pointer-events: none;
 }
 
 /* ── the way in ────────────────────────────────────────────────────────────── */
@@ -259,10 +290,78 @@ html, body {
 }
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+/* The minimap is painted into the arena canvas at the top left, so the HUD is
+   pushed clear of it rather than overlapping it. JS sets the variable from the
+   size it actually drew, so the two can never disagree about how much room it
+   took. */
+/* --sat is the top safe area as a plain number of pixels, so the canvas can
+   read it: env() is not available to script, and the minimap has to clear the
+   notch the same way the HUD does. */
+:root { --minimap: 0px; --sat: env(safe-area-inset-top, 0px); }
+#hud { padding-left: calc(14px + var(--minimap)); }
+
+/* Sideways. A phone turned on its side has the shape this game wants and half
+   the height, so the controls come down and in, the HUD gets thinner, and the
+   kill feed goes with them. Keyed off orientation rather than a width, because
+   a landscape phone is wider than the phone breakpoint and would otherwise be
+   styled as a desktop. */
+@media (orientation: landscape) and (max-height: 560px) {
+  #hud { padding-top: calc(6px + env(safe-area-inset-top)); padding-bottom: 6px; }
+  .hudMid { gap: 16px; }
+  .stat b { font-size: 17px; }
+  .stat em { font-size: 9px; }
+  .board { display: none; }
+  #guns { display: none !important; }
+  .tstick { width: 96px; height: 96px; bottom: calc(14px + env(safe-area-inset-bottom)); }
+  #stickNub, #astickNub { width: 40px; height: 40px; margin: -20px 0 0 -20px; }
+  #stick  { left: calc(16px + env(safe-area-inset-left)); }
+  #astick { right: calc(16px + env(safe-area-inset-right)); }
+  #feed { bottom: calc(122px + env(safe-area-inset-bottom)); max-width: 40vw; }
+  .hpWrap { display: none; }
+  .hudLeft { flex: 0 0 auto; max-width: none; }
+  .hudMid { flex: 1 1 auto; justify-content: flex-start; min-width: 0; }
+  .hudRight { flex: 0 0 auto; flex-direction: column; align-items: flex-end; gap: 4px; }
+  .hudRight .exit { padding: 4px 9px; font-size: 10.5px; }
+  /* Under the radar, not above the stick. Sideways there is no room between
+     the two: the sticks come down to within 14px of the bottom edge and the
+     bottom left corner IS the driving thumb. */
+  #netwrap {
+    position: fixed; left: calc(12px + env(safe-area-inset-left)); z-index: 10;
+    top: var(--minimapb, 120px); bottom: auto;
+    align-items: flex-start; opacity: 0.8; font-size: 10px;
+  }
+  /* Above the stick rather than below it, where the screen edge is. */
+  .tlabel { bottom: auto; top: -16px; }
+  #cashwrap { bottom: calc(122px + env(safe-area-inset-bottom)); }
+  .card { padding: 16px 18px 14px; }
+  .card h1 { font-size: 21px; }
+  #boot { padding: 12px; }
+}
+
 @media (max-width: 620px) {
   .hudMid { gap: 14px; }
   .stat b { font-size: 18px; }
   .board { display: none; }             /* the minimap is the priority down here */
+
+  /* A phone bar has room for health, two money figures and two buttons, and
+     that is all of it. The radar takes the left end, so everything else has to
+     earn its width: the health bar becomes the number it was labelling, and
+     the ping and frame rate go to the bottom corner where there is nothing but
+     fog. They are diagnostics, not something to read while driving. */
+  #hud { gap: 10px; padding-right: 10px; }
+  .hudLeft { flex: 0 0 auto; max-width: none; }
+  .hpWrap { display: none; }
+  .hudMid { flex: 1 1 auto; justify-content: flex-start; min-width: 0; }
+  /* Stacked rather than side by side. Sound and Leave are the two controls
+     nobody presses while driving, so they are the two that can afford to give
+     up the width the money figures cannot. */
+  .hudRight { flex: 0 0 auto; flex-direction: column; align-items: flex-end; gap: 5px; }
+  .hudRight .exit { padding: 5px 9px; font-size: 11px; }
+  #netwrap {
+    position: fixed; left: 12px; z-index: 10;
+    bottom: calc(212px + env(safe-area-inset-bottom));
+    align-items: flex-start; opacity: 0.75; font-size: 10px;
+  }
   /* No gun row in game on a phone. Ten buttons across 375px is 26px each,
      which is under the size of a thumb and therefore not a button, and any
      arrangement that IS thumb-sized covers a third of the arena. The weapon is

@@ -29,6 +29,12 @@
   </div>
   <div class="hudRight">
     <ol id="board" class="board"></ol>
+    <!-- The same two readouts the snake game has, and deliberately the same
+         class names: one set of ping-dot colours for the whole product. -->
+    <div id="netwrap">
+      <div id="ping-display"><span id="ping-dot" class="ping-dot ping-green"></span><span id="ping-value">-- ms</span></div>
+      <div id="fps-counter">FPS --</div>
+    </div>
     <button type="button" class="exit" id="muteBtn" aria-label="Mute sound" title="Mute (M)">Sound on</button>
     <button type="button" class="exit" id="exitBtn" aria-label="Back to the lobby">Leave</button>
   </div>
@@ -79,10 +85,12 @@
   </div>
 </div>
 
-<!-- Touch controls: a stick to drive and aim, a thumb button to fire. -->
+<!-- Touch controls: two sticks. Left drives, right aims AND fires, so where
+     you point is where it shoots and there is no separate button to find with
+     a thumb that is already busy. -->
 <div id="touch" hidden>
-  <div id="stick"><i id="stickNub"></i></div>
-  <button type="button" id="tfire">Fire</button>
+  <div id="stick" class="tstick"><i id="stickNub"></i></div>
+  <div id="astick" class="tstick"><i id="astickNub"></i><span class="tlabel">aim</span></div>
 </div>
 
 <div id="boot">
