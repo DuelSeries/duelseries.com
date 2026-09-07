@@ -713,6 +713,9 @@ function _lBuildSegs(numSegs) {
   const settled = CONSTANTS.SNAKE_STORED_GAP_PER_R * CONSTANTS.SNAKE_HEAD_RADIUS * sc;
   const sep     = settled * CONSTANTS.SNAKE_INSERT_COMPENSATION;
   const pull    = CONSTANTS.SNAKE_BODY_PULL;
+  /* Published so the geometry check compares against the step actually used
+     rather than re-deriving it and agreeing with itself. */
+  _lLastSettled = settled;
 
   /* Keep more stored points than the render needs.
 
@@ -1654,6 +1657,7 @@ const FRAME_MS  = 1000 / RENDER_HZ;
 let _nextFrameAt = 0;
 let _meView = null;
 let _lLastStep = 0;   // body-thinning step last seen from the server
+let _lLastSettled = 0; // resample step the local body was last built at
 
 function gameLoop(now) {
   // Cheap and first: skip the whole frame before anything allocates.
@@ -1714,6 +1718,12 @@ function gameLoop(now) {
     else if (targetNumSegs > _lNumSegs) _lNumSegs = targetNumSegs;
     else _lNumSegs += (targetNumSegs - _lNumSegs) * (1 - Math.exp(-dt / 200));
     const simSegs = _lBuildSegs(Math.round(_lNumSegs));
+    /* Checked against the spacing it was resampled at. This body is built
+       from a fixed step, so every gap in it must be that step; anything else
+       is the distortion, caught at the moment it happens. */
+    if (simSegs && window.__duelDiagBody) {
+      window.__duelDiagBody(simSegs, _lLastSettled, Math.round(_lNumSegs));
+    }
     if (simSegs) {
       /* One reused object rather than a fresh spread per frame. `{...snap}`
          here copied every field of the snapshot 237 times a second on a 240Hz

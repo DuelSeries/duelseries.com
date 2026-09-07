@@ -148,6 +148,39 @@
      spikes alongside a gap means the wire, a ping that stays flat while
      snapshots gap means the packets left late. */
   D.pings = [];
+  /* The drawn body, checked against the spacing it is supposed to have.
+
+     Cheap enough to run every frame: one pass over the points, no
+     allocation, and it only records when something is actually wrong. */
+  D.body = [];
+  D.bodyChecks = 0;
+  D.bodyBad = 0;
+  window.__duelDiagBody = function (segs, settled, numSegs) {
+    if (!segs || segs.length < 8 || !(settled > 0)) return;
+    D.bodyChecks++;
+    var worstHi = 0, worstLo = Infinity, dupes = 0;
+    /* The last point is the sliding tail and is MEANT to be a fraction of a
+       step, so it is excluded — including it reports a fault every frame. */
+    for (var i = 2; i < segs.length - 2; i += 2) {
+      var dx = segs[i] - segs[i-2], dy = segs[i+1] - segs[i-1];
+      var g = Math.sqrt(dx*dx + dy*dy) / settled;   // 1.0 is perfect
+      if (g > worstHi) worstHi = g;
+      if (g < worstLo) worstLo = g;
+      if (g < 0.05) dupes++;
+    }
+    if (worstLo === Infinity) return;
+    /* A tenth off is not visible. Half a step out, or a duplicate point, is
+       a kink you can see. */
+    if (worstHi > 1.5 || worstLo < 0.5 || dupes) {
+      D.bodyBad++;
+      if (D.body.length < 40) {
+        D.body.push({ atSec: Math.round((Date.now() - started) / 1000),
+                      hi: +worstHi.toFixed(2), lo: +worstLo.toFixed(2),
+                      dupes: dupes, pts: segs.length / 2, want: numSegs || 0 });
+      }
+    }
+  };
+
   window.__duelDiagPing = function (ms) {
     D.pings.push({ atSec: sec(), ms });
     keep(D.pings, 90);
@@ -185,6 +218,9 @@
       heap: D.heap.slice(-20),
       pings: D.pings.slice(-45),
       marks: D.marks.slice(-20),
+      bodyChecks: D.bodyChecks || 0,
+      bodyBad: D.bodyBad || 0,
+      body: (D.body || []).slice(-25),
       longtaskUnsupported: !!D.longtaskUnsupported,
       ua: navigator.userAgent.slice(0, 120),
     };
