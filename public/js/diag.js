@@ -117,30 +117,17 @@
     report();          // send immediately, so a mark is never lost to a refresh
   }
 
-  /* A whole session's presses were lost to this: the key listener lives inside
-     the GAME IFRAME, so unless the canvas holds focus the keydown goes to the
-     lobby page around it and never arrives. The player pressed, saw nothing,
-     and the report came back with no marks — which reads exactly like "the
-     instrument is broken" and wastes a whole round of testing.
+  /* THERE IS NO BUTTON. There used to be one, bottom left, because a keypress
+     inside the game iframe goes to the lobby page unless the canvas has focus
+     and a whole session of marks was lost to that. The reasoning was right and
+     the button still had to go: it sits over the game, and an instrument that
+     annoys the person holding it gets switched off, which measures nothing.
 
-     So the button is the primary control and the key is the shortcut. A button
-     needs no focus, works on a phone where there is no L key at all, and is
-     visibly there, which answers "did that register?" before it is asked. */
-  try {
-    const b = document.createElement('button');
-    b.id = 'diag-mark-btn';
-    b.type = 'button';
-    b.textContent = '⚑ Mark lag';
-    b.style.cssText = 'position:fixed;left:12px;bottom:12px;z-index:99998;' +
-      'background:rgba(240,168,48,.92);color:#100e0b;border:0;border-radius:10px;' +
-      'font:600 13px Archivo,system-ui,sans-serif;padding:10px 14px;cursor:pointer;' +
-      'box-shadow:0 2px 10px rgba(0,0,0,.35);touch-action:manipulation;-webkit-user-select:none;user-select:none';
-    // pointerdown, not click: the moment of the hitch is what matters, and it
-    // fires on a phone without waiting out the tap delay.
-    b.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); mark(); });
-    const add = () => document.body && document.body.appendChild(b);
-    if (document.body) add(); else window.addEventListener('DOMContentLoaded', add);
-  } catch (_) {}
+     The L key keeps its capture-phase listener below, and everything else this
+     file records — frames, snapshots, long tasks, heap — needs no input at all
+     and is the part that actually matters. window.__duelDiagMark() marks from
+     the console if a mark is ever wanted again. */
+  window.__duelDiagMark = function () { mark(); };
 
   // Capture phase, so the game's own handlers can't swallow it first.
   window.addEventListener('keydown', (e) => {

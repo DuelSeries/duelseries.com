@@ -454,6 +454,14 @@ socket.on(CONSTANTS.EVENTS.PLAYER_DIED, ({ score, length }) => {
   document.getElementById('death-score').textContent = score;
 });
 
+/* The drawn world, for the console. Same reasoning as SHOOTER_STATE in the tank
+   game: this is data the page has already been sent and already draws, so it
+   gives nothing away — what it gives is a way to measure what is actually on
+   screen when it looks wrong, instead of arguing about it. */
+window.SNAKE_STATE = function () { return displayState; };
+window.SNAKE_SNAPS = function () { return snapBuffer; };
+window.SNAKE_ME = function () { return myId; };
+
 // --- Interpolation ---
 function interpolateState(now) {
   if (snapBuffer.length === 0 || clockOffset === null) return;
