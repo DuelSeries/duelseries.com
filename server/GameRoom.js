@@ -517,6 +517,10 @@ class GameRoom {
 
   killSnake(snake, killerId) {
     if (!snake.alive) return;
+    /* One seam, so a mode can watch its own deaths without a second copy of
+       this method. The battle royale keeps the order people go out in, which
+       is the only moment that order exists. */
+    if (this.noteFallen) this.noteFallen(snake);
     const kPlayer = this.players.get(snake.id);
     const kGid = kPlayer?.socket?._googleId;
     allTimeLb.record(kGid || snake.name, snake.name, snake.score);

@@ -321,14 +321,22 @@
     say('No room at that buy-in. Pick one the board is offering.');
   }
 
-  function spectate(game) {
+  function spectate(game, lobbyType) {
     if (inGame()) return;
     try {
       sessionStorage.setItem('spectateOnly', 'true');
       sessionStorage.setItem('region', region());
+      /* Which ROOM to watch. Without this the viewer lands in whatever free
+         room the last session happened to leave behind, which for the nightly
+         event is the one place the match is definitely not happening. */
+      if (lobbyType) sessionStorage.setItem('lobbyType', lobbyType);
+      sessionStorage.removeItem('stake');
     } catch (_) {}
     show(game === 'agar' ? '/agar.html' : '/game.html');
   }
+
+  /* The nightly event is a battle royale in the `br` room. */
+  function spectateEvent() { spectate('snake', 'br'); }
 
   function show(src) {
     const f = el(src.indexOf('agar') >= 0 ? 'agar-frame' : 'game-frame');
@@ -361,6 +369,7 @@
   });
 
   window.V2Play = { enter: enter, playChosen: playChosen, spectate: spectate,
+                    spectateEvent: spectateEvent,
                     launch: launch, savedName: savedName, cleanName: cleanName,
                     nameAction: nameAction, nameEdit: nameEdit, pullName: pullName,
                     toast: toast, toastOk: toastOk,

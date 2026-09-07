@@ -189,6 +189,16 @@ class BattleRoyaleRoom extends GameRoom {
     super.topUpBots();
   }
 
+  /* Called by GameRoom.killSnake for every death in this room, so the order
+     people went out in is known when it is needed rather than reconstructed
+     from bodies that no longer carry it. */
+  noteFallen(snake) {
+    if (this.state !== 'running' || !snake || snake.isBot) return;
+    (this._fallen || (this._fallen = [])).push({
+      id: snake.id, name: snake.name, score: snake.score || 0,
+    });
+  }
+
   startMatch(reason) {
     if (!this.canStart()) return false;
     this.state = 'countdown';
@@ -199,6 +209,7 @@ class BattleRoyaleRoom extends GameRoom {
        standing. */
     this.startedWith = this.humanLiving();
     this._ring = null; this._ringNo = 0;          // no leftovers from the last match
+    this._fallen = []; this.podium = null;        // nor from its podium
     this.matchId = 'br_' + Date.now().toString(36);
     this.startedAt = 0;                 // set when the count reaches zero
     this.endedAt = 0;
@@ -430,6 +441,23 @@ class BattleRoyaleRoom extends GameRoom {
       wallet: (this.players.get(won.id) || {}).walletAddress || null,
     } : null;
 
+    /* THE PODIUM. Who was last standing, second last, third last.
+
+       Kept as they fall rather than worked out at the end, because by the time
+       there is a winner the other two are dead and a dead snake's place in the
+       order is not recoverable from anything left on it. `_fallen` is appended
+       to by killSnake in the order people go out, so the last three entries
+       ARE third, second and first from the back. */
+    const order = (this._fallen || []).slice().reverse();
+    const podium = [];
+    if (won) podium.push({ place: 1, name: won.name, score: won.score || 0 });
+    for (const f of order) {
+      if (podium.length >= 3) break;
+      if (won && f.id === won.id) continue;
+      podium.push({ place: podium.length + 1, name: f.name, score: f.score || 0 });
+    }
+    this.podium = podium;
+
     this.soloRun = this.isSoloRun();
     console.log(`[BR] ${this.lobbyType} match ${this.matchId}`
       + (this.soloRun ? ' (solo test run, no prize)' : '')
@@ -472,6 +500,9 @@ class BattleRoyaleRoom extends GameRoom {
       soloRun: !!this.soloRun,
       startedWith: this.startedWith || 0,
       winner: this.winner ? { name: this.winner.name } : null,
+      /* Names and scores only. A wallet address is nobody else's business and
+         the podium is the most public thing this room produces. */
+      podium: this.podium || null,
     };
   }
 }

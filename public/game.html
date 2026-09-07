@@ -155,6 +155,22 @@
   </div>
 
   <!-- Spectate HUD -->
+  <!-- The podium. Goes up over the arena when a battle royale ends, because
+       the end of a match is the only moment the whole room is looking at the
+       same thing and it deserves more than a line in the HUD. -->
+  <div id="podium" hidden>
+    <div class="pod-card">
+      <p class="pod-eyebrow">Match over</p>
+      <h2 class="pod-winner" id="pod-winner">—</h2>
+      <ol class="pod-list" id="pod-list"></ol>
+      <div class="pod-btns">
+        <button class="co-btn co-go" id="pod-again">Play again</button>
+        <button class="co-btn co-ghost" id="pod-lobby">Lobby</button>
+      </div>
+      <p class="pod-next" id="pod-next"></p>
+    </div>
+  </div>
+
   <div id="spectate-bar">
     <button id="spectate-prev">&#8592;</button>
     <span id="spectate-label">Spectating: —</span>

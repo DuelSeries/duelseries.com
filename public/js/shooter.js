@@ -507,6 +507,13 @@
       }
     }
   }
+  /* What actually takes sight away. Stone, brick and wood are built up to head
+     height; a crate is knee-high and a barrel is a barrel, and treating those
+     as walls put blind spots behind things you are plainly looking over. They
+     still stop a TANK — you cannot drive through a crate — which is a separate
+     question about the same cell, asked separately on the server. */
+  var SIGHT_SOLID = { 2: 1, 3: 1, 4: 1 };   // stone, brick, wood
+
   /* The walk stops one step short of the destination, so a wall cell is visible
      from its own near side rather than invisible because it is solid. */
   function open(x0, y0, x1, y1) {
@@ -517,7 +524,7 @@
       var x = x0 + (x1 - x0) * t, y = y0 + (y1 - y0) * t;
       var c = Math.floor(x / T), r = Math.floor(y / T);
       if (c < 0 || r < 0 || c >= map.cols || r >= map.rows) return false;
-      if (map.cells[r * map.cols + c] !== 0) return false;
+      if (SIGHT_SOLID[map.cells[r * map.cols + c]]) return false;
     }
     return true;
   }

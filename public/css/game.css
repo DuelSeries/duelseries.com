@@ -253,6 +253,49 @@ body {
 #leaderboard-list li.me .lb-name { color: #f5f1e8; font-weight: 600; }
 #leaderboard-list li.me .lb-rank { color: #a89c8a; }
 
+/* ── the podium ─────────────────────────────────────────────────────────────
+   Over everything, because the end of a match is the one moment the whole
+   room is looking at the same thing. */
+#podium {
+  position: fixed; inset: 0; z-index: 60;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(4,6,10,0.72); backdrop-filter: blur(5px);
+}
+#podium[hidden] { display: none; }
+.pod-card {
+  width: min(380px, 88vw); padding: 26px 24px 20px; text-align: center;
+  background: #12161f; border: 1px solid #263042; border-radius: 18px;
+  box-shadow: 0 30px 70px rgba(0,0,0,0.65);
+}
+.pod-eyebrow {
+  margin: 0; font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase;
+  color: #7d8aa3;
+}
+.pod-winner {
+  margin: 8px 0 18px; font-size: 27px; font-weight: 700; color: #ffd75e;
+  overflow-wrap: anywhere;
+}
+.pod-list { list-style: none; margin: 0 0 20px; padding: 0; text-align: left; }
+.pod-list li {
+  display: flex; align-items: baseline; gap: 10px; padding: 8px 10px;
+  border-radius: 10px; background: #171d29; margin-bottom: 6px;
+  font-size: 14px; color: #c9d3e4;
+}
+.pod-list li .pl { width: 22px; font-weight: 700; color: #7d8aa3; }
+.pod-list li .pn { flex: 1; overflow-wrap: anywhere; }
+.pod-list li .ps { font-variant-numeric: tabular-nums; color: #9fb0c9; }
+.pod-list li.first { background: rgba(255,215,94,0.12); }
+.pod-list li.first .pl, .pod-list li.first .pn { color: #ffd75e; }
+.pod-btns { display: flex; gap: 8px; }
+/* Its own colours, not the cash-out tokens. Those are declared ON
+   #death-screen, so referencing them from here resolved to nothing and the
+   button came out transparent — reading as disabled next to the ghost one. */
+.pod-btns .co-btn { flex: 1; }
+.pod-btns .co-go { background: #f0a830; color: #100e0b; border-color: #f0a830; }
+.pod-btns .co-go:hover { background: #f6b845; border-color: #f6b845; }
+.pod-btns .co-go:focus-visible { outline: 2px solid #f0a830; outline-offset: 2px; }
+.pod-next { margin: 14px 0 0; font-size: 12px; color: #7d8aa3; min-height: 1em; }
+
 #ping-display {
   position: absolute;
   bottom: 52px;
@@ -364,6 +407,9 @@ body {
    the button, when the thing to be careful about is the number above it, and
    it made this screen look like a different app from the receipt. */
 #death-screen .co-eyebrow { color: var(--co-money); }
+/* The gold action button. Scoped to the death card, which meant the podium's
+   own Play again — same markup, same classes — came out grey and looked
+   disabled next to the ghost button beside it. Both cards now. */
 #death-screen .co-go { background: var(--co-act); color: var(--co-ink); }
 #death-screen .co-go:hover { background: #f6b845; }
 #death-screen .co-go:focus-visible { outline-color: var(--co-act); }

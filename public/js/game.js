@@ -957,6 +957,18 @@ function brApply(s) {
      and a control that works right up to the gun is a control people will try
      to use at the gun. */
   brRunning = s.state === 'running' || s.state === 'countdown';
+
+  /* PLAY AGAIN IS OFF WHILE THE MATCH IS ON. This is last snake standing for a
+     real prize: somebody who can rejoin cannot lose, and the server refuses it
+     anyway. Watch and Lobby stay, so dying still leaves you two things to do
+     rather than a dead button and a shrug. */
+  const again = document.getElementById('btn-respawn');
+  if (again) {
+    again.disabled = brRunning;
+    again.title = brRunning ? 'The match is under way. Watch, or wait for the next one.' : '';
+    again.textContent = brRunning ? 'Match under way' : 'Play again';
+  }
+  podiumApply(s);
   if (s.state === 'countdown' && !brCountTimer) brRunCountdown(s.countdownMs || 0);
   if (s.state !== 'countdown' && brCountTimer) {
     clearInterval(brCountTimer); brCountTimer = 0;
@@ -1006,6 +1018,43 @@ function brApply(s) {
 }
 if (isBattleRoyale) {
   socket.on('br:state', brApply);
+
+/* ── the podium ────────────────────────────────────────────────────────────
+   Up when a battle royale ends, down when the next one is waiting. It carries
+   its own Play again because the death card behind it is the wrong place to
+   put it: you may well have died four minutes before the match finished. */
+function podiumApply(s) {
+  const el = document.getElementById('podium');
+  if (!el || !isBattleRoyale) return;
+  const show = s.state === 'over' && !!(s.podium && s.podium.length);
+  if (!show) { el.hidden = true; return; }
+  if (!el.hidden) return;                 // already up; do not rebuild under them
+
+  document.getElementById('pod-winner').textContent =
+    s.winner ? s.winner.name : 'Nobody survived';
+  document.getElementById('pod-list').innerHTML = s.podium.map(p =>
+    '<li' + (p.place === 1 ? ' class="first"' : '') + '>' +
+      '<span class="pl">' + p.place + '</span>' +
+      '<span class="pn">' + escapeHtml(String(p.name || 'Player').slice(0, 18)) + '</span>' +
+      '<span class="ps">' + (p.score || 0) + '</span>' +
+    '</li>').join('');
+  document.getElementById('pod-next').textContent =
+    'The next match opens in this lobby. Play again to wait in it.';
+  el.hidden = false;
+}
+
+function escapeHtml(v) {
+  return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+document.getElementById('pod-again').addEventListener('click', () => {
+  document.getElementById('podium').hidden = true;
+  doRespawn();
+});
+document.getElementById('pod-lobby').addEventListener('click', () => {
+  document.getElementById('podium').hidden = true;
+  goToLobby();
+});
   socket.on('br:locked', (s) => {
     brApply(s);
     document.getElementById('br-sub').textContent = 'A match is already running';

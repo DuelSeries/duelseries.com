@@ -601,6 +601,7 @@ body.ingame .tkrun{animation-play-state:paused}
   text-transform:uppercase;color:var(--tx3)}
 .evclock i{font-family:var(--fm);font-size:clamp(28px,8vw,40px);font-style:normal;
   line-height:1.35;color:var(--s3)}
+.evwatch{margin-top:18px;min-width:200px}
 .evwhen{margin:16px 0 0;font-size:13px;color:var(--tx2)}
 /* Live changes the accent, not the layout: the same page, in its other state. */
 .evhero.live .evtag{color:var(--live);background:rgba(142,208,129,.13);
@@ -1511,6 +1512,8 @@ body.scr-anim { overflow-x:hidden }
     document.getElementById('ev-s').textContent=pad(left%60);
     document.getElementById('ev-line').textContent=live?'Live now, ends in':'Starts in';
     document.getElementById('ev-tag').textContent=live?'Live':'Tonight';
+    var watch=document.getElementById('ev-watch');
+    if(watch)watch.hidden=!live;
     document.getElementById('evhero').classList.toggle('live',live);
   }
   /* Names on the plinths. Nobody has won one yet, so all three hold a question
@@ -1781,6 +1784,10 @@ body.scr-anim { overflow-x:hidden }
       <div class="evu"><b id="ev-s">--</b><span>sec</span></div>
     </div>
     <p class="evwhen">8:00 to 9:00 PM Eastern, every day of the week</p>
+    <!-- Only while it is actually on. A Watch button on a match that has not
+         started is a button that drops you into an empty room. -->
+    <button type="button" class="btn pri evwatch" id="ev-watch" hidden
+            onclick="V2Play.spectateEvent()">Watch it live</button>
   </section>
 
   <!-- Tallest in the middle. The plinth heights ARE the ranking, so the shape

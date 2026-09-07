@@ -303,7 +303,23 @@ class ShooterRoom {
     if (r < 0 || c < 0 || r >= SH.ROWS || c >= SH.COLS) return SH.STONE;
     return this.map[r][c];
   }
+  /* Solid to a TANK: everything that is not floor. A crate stops you driving
+     through it even though you can see over it. */
   blocked(x, y) { return this.cellAt(x, y) !== SH.EMPTY; }
+
+  /* Solid to the EYE, which is a shorter list. A crate is knee-high and a
+     barrel is a barrel: you can see past both, and the fog treating them as
+     walls put blind spots behind things you are plainly looking over. Only
+     the things that are actually built up to head height take sight away —
+     stone, brick and wood.
+
+     Deliberately not the same test as `blocked`. Sight and movement are
+     different questions about the same cell and this is the one place they
+     part company. */
+  blocksSight(x, y) {
+    const v = this.cellAt(x, y);
+    return v === SH.STONE || v === SH.BRICK || v === SH.WOOD;
+  }
 
   setCell(r, c, v) {
     this.map[r][c] = v;
@@ -744,7 +760,7 @@ class ShooterRoom {
     const steps = Math.ceil(d / (SH.TILE * 0.5));
     for (let i = 1; i < steps; i++) {
       const t = i / steps;
-      if (this.blocked(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t)) return false;
+      if (this.blocksSight(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t)) return false;
     }
     return true;
   }
