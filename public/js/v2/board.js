@@ -10,7 +10,11 @@
    Bots are counted separately from players and are not added to the number
    shown. A row saying "12 playing" when eleven are bots would be a lie told to
    someone about to stake real money. Rooms seeded with bots still appear, which
-   is what keeps the board from ever being empty, but the count is honest. */
+   is what keeps the board from ever being empty, but the count is honest.
+
+   The pinned free rows below are the one place a count is not live: those games
+   have no rung on /api/live to read one from, so they sit at 0. That is worth
+   fixing when those rooms carry a stake, and harmless while they are free. */
 
 (function () {
   const el = id => document.getElementById(id);
@@ -84,8 +88,27 @@
      one, and the server resolves a stake through the snake ladder — so a 0
      here would route an agar player into a snake room. With no stake it sends
      { lobbyType }, which is the door agar actually uses. */
-  const AGAR_FREE = { id: 'agar:free', game: 'agar', region: 'na',
-                      stake: null, lobbyType: 'free', players: 0, state: 'open' };
+  /* Every free room that has to be reachable in one press, whether or not the
+     server has a rung for it. agar.io, Awesome Tanks and Bowmasters all run on
+     their own doors rather than on the snake buy-in ladder, so /api/live has
+     nothing to list for them and there is nothing to pin from the real board.
+
+     stake null rather than 0, and this is the part that matters: enter() sends
+     { stake } when there is one, and the server resolves a stake through the
+     SNAKE ladder, so a 0 here would route a tank player into a snake room.
+     With no stake it sends { lobbyType }, which is the door these games use.
+
+     None of these go into LOBBIES either. refreshSteps reads that list to
+     build the buy-in buttons, and a row carrying no stake would put a blank
+     rung on the control. */
+  const PINNED = [
+    { id: 'agar:free',       game: 'agar',       region: 'na',
+      stake: null, lobbyType: 'free', players: 0, state: 'open' },
+    { id: 'omgshooter:free', game: 'omgshooter', region: 'na',
+      stake: null, lobbyType: 'free', players: 0, state: 'open' },
+    { id: 'tanks:free',      game: 'tanks',      region: 'na',
+      stake: null, lobbyType: 'free', players: 0, state: 'open' },
+  ];
 
   /* Which buy-ins a game can actually seat right now.
 
@@ -106,7 +129,7 @@
     const rows = occupied();
     const free = LOBBIES.find(l => Number(l.stake) === 0 && l.game === 'snake');
     if (free && !rows.some(r => r.id === free.id)) rows.unshift(free);
-    rows.push(AGAR_FREE);
+    PINNED.forEach(p => { if (!rows.some(r => r.id === p.id)) rows.push(p); });
     return rows;
   }
 
@@ -129,7 +152,7 @@
   }
 
   function join(id) {
-    const l = id === AGAR_FREE.id ? AGAR_FREE : LOBBIES.find(x => x.id === id);
+    const l = PINNED.find(p => p.id === id) || LOBBIES.find(x => x.id === id);
     if (!l) return;
     if (window.V2Play) return window.V2Play.enter(l);
     alert('Entering a ' + money(l.stake) + ' lobby.');

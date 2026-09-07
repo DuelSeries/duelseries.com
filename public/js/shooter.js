@@ -619,7 +619,7 @@
       var p = was[n.id] || n;
       A.drawTank(ctx, {
         x: X(lerp(p.x, n.x, t)), y: Y(lerp(p.y, n.y, t)), size: size,
-        hull: n.h, turret: n.a, roll: n.r, team: 'them', weapon: n.w,
+        hull: n.h, turret: n.a, roll: n.r, team: 'foe', weapon: n.w,
         hp: n.hp, max: n.max, label: n.n,
       });
       if (n.c) ring(X(n.x), Y(n.y), size * 0.9, '#ffb500');

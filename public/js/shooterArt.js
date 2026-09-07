@@ -69,6 +69,18 @@
       barrel: '#20501a', barrelDim: '#173a0c', lit: '#d8f7a8',
       track: '#0d1a06', line: '#000000',
     },
+    /* Everyone who is not you, in a free-for-all where that is the only
+       distinction that matters. Their own two palettes above are kept exactly
+       as measured because they are the reference, but neither is usable as
+       "the enemy": one is amber and the other is a dark red under a BRIGHT
+       ORANGE rim, and at arm's length an orange-rimmed tank on green grass
+       reads as orange, not as a threat. Same build as yours, same rim-over-
+       core structure, unmistakably red. */
+    foe: {                                    // ours: the same build, our red
+      rim: '#ef4a3a', rimDim: '#c3301f', core: '#3d0b06', panel: '#8f2418',
+      barrel: '#6e1a10', barrelDim: '#4a1109', lit: '#ffb3a2',
+      track: '#1a0603', line: '#000000',
+    },
   };
   /* The ten, in their order. Every one draws a different barrel, because a
      weapon you cannot see on your own tank is one you have to remember you
@@ -77,7 +89,7 @@
   var WEAPONS = [
     { key: 'minigun',      name: 'Minigun',      blurb: 'Two barrels, no pause, and not much per shot.' },
     { key: 'shotgun',      name: 'Shotgun',      blurb: 'A wall of pellets. Brutal up close, useless down a corridor.' },
-    { key: 'ricochet',     name: 'Ricochet',     blurb: 'Bounces off stone. Shoot the wall, not the tank.' },
+    { key: 'ricochet',     name: 'Ricochet',     blurb: 'Comes off anything still standing. Shoot the wall, not the tank.' },
     { key: 'flamethrower', name: 'Flamethrower', blurb: 'Short reach, constant damage, and it lights up the room.' },
     { key: 'cannon',       name: 'Cannon',       blurb: 'One heavy shell. Slow, and it hurts.' },
     { key: 'shock',        name: 'Shock',        blurb: 'Jumps between anything close. No aiming required.' },

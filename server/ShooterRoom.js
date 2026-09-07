@@ -766,7 +766,20 @@ class ShooterRoom {
       if (r < 0 || c < 0 || r >= SH.ROWS || c >= SH.COLS) continue;
       const cell = this.map[r][c];
       if (cell !== SH.EMPTY) {
-        if (cell === SH.STONE && b.bounce > 0) {
+        /* Damage first, then decide whether there is still anything to come
+           off. The ricochet used to bounce off stone alone and stop dead in a
+           crate, which made half the arena a backstop and half of it a sponge
+           with no way to tell them apart by looking. It comes off everything
+           now, and breakables still take the hit on the way.
+
+           `stillThere` is read back off the map rather than taken from
+           damageCell, which returns true for a hit that landed whether the
+           wall survived it or not. That distinction is the whole rule here: a
+           wall you just destroyed is a hole, and bouncing off a hole would be
+           a ball rebounding from thin air. Kill it and you go through. */
+        if (cell !== SH.STONE) this.damageCell(r, c, b.dmg);
+        const stillThere = this.map[r][c] !== SH.EMPTY;
+        if (b.bounce > 0 && stillThere) {
           /* Which wall it met, decided by which axis crossed a tile line. On a
              grid this is exact and free; working it out from a surface normal
              is neither. */
@@ -776,7 +789,6 @@ class ShooterRoom {
           keep.push(b);
           continue;
         }
-        if (cell !== SH.STONE) this.damageCell(r, c, b.dmg);
         if (b.splash) this.explode(b.x, b.y, b.splash, b.splashDmg, b.from);
         continue;
       }

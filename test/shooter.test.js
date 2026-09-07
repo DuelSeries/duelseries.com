@@ -389,6 +389,40 @@ test('a ricochet comes off stone instead of stopping in it', () => {
   assert.ok(!still || still.vx < 0 || still.bounce < 4, 'it turned round rather than dying in the wall');
 });
 
+test('a ricochet comes off a crate as well, and still breaks it', () => {
+  /* It used to bounce off stone alone and stop dead in anything breakable,
+     which made half the arena a backstop and half of it a sponge with no way
+     to tell which by looking. */
+  const { r, p } = withPlayer('ricochet');
+  put(r, p, 20.5 * SH.TILE, 20.5 * SH.TILE);
+  for (let c = 15; c < 26; c++) { r.map[20][c] = SH.EMPTY; r.hp[20][c] = 0; }
+  r.map[20][24] = SH.CRATE; r.hp[20][24] = 500;      // tough enough to survive the hit
+  r.fireFrom(p, 0, 'ricochet');
+  const hp0 = r.hp[20][24];
+  assert.ok(r.bullets[0].vx > 0, 'it starts going right');
+  for (let i = 0; i < 60 && r.bullets.length && r.bullets[0].vx > 0; i++) r.step(1);
+  const b = r.bullets[0];
+  assert.ok(b && b.vx < 0, 'it turned round off the crate');
+  assert.ok(r.hp[20][24] < hp0, 'and took a bite out of it on the way');
+});
+
+test('a ricochet goes through the wall it just destroyed', () => {
+  /* The other half of the rule. Bouncing off a hole would be a ball rebounding
+     from thin air, so what you bounce off is what is still standing. */
+  const { r, p } = withPlayer('ricochet');
+  put(r, p, 20.5 * SH.TILE, 20.5 * SH.TILE);
+  for (let c = 15; c < 30; c++) { r.map[20][c] = SH.EMPTY; r.hp[20][c] = 0; }
+  r.map[20][24] = SH.CRATE; r.hp[20][24] = 1;        // one hit and it is gone
+  r.fireFrom(p, 0, 'ricochet');
+  for (let i = 0; i < 40 && r.bullets.length; i++) {
+    r.step(1);
+    if (r.map[20][24] === SH.EMPTY) break;
+  }
+  assert.equal(r.map[20][24], SH.EMPTY, 'the crate broke');
+  const b = r.bullets[0];
+  assert.ok(!b || b.vx > 0, 'and the shot carried on rather than bouncing off nothing');
+});
+
 test('the railgun goes through brick and the laser does not', () => {
   function shoot(key) {
     const { r, p } = withPlayer(key);
