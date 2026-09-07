@@ -134,6 +134,9 @@ class ShooterRoom {
     this.io = io;
     this.id = roomId || ('sh_' + (nextId++));
     this.socketRoomName = 'sh_' + this.id;
+    /* What the owner console calls this room in its dropdown. It is also what
+       botsAllowed() reads: no stake, so bots are allowed here. */
+    this.lobbyType = 'tanks';
     this.tanks = new Map();        // id -> tank (players and bots alike)
     this.bullets = [];
     this.mines = [];
@@ -419,6 +422,34 @@ class ShooterRoom {
   humans() { let n = 0; for (const t of this.tanks.values()) if (!t.bot) n++; return n; }
   bots()   { let n = 0; for (const t of this.tanks.values()) if (t.bot) n++; return n; }
 
+  /* The shape the owner console reads. It talks to snake rooms, agar rooms and
+     this one through the same four names, so the console needs no idea which
+     kind of room it has hold of. */
+  get playerCount() { return this.humans(); }
+  get botCount() { return this.bots(); }
+
+  /* One bot, by hand, from the console. Marked `manual` so topUpBots leaves it
+     alone: `bots:add 10` means ten, not ten until the next second. It is still
+     refused outright in a room that takes a stake, because that guard is not
+     something an owner should be able to click past either. */
+  addBot() {
+    if (!this.botsAllowed()) return null;
+    const t = this.makeTank('bot' + (nextId++),
+      BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)],
+      WEAPON_KEYS[Math.floor(Math.random() * WEAPON_KEYS.length)], true);
+    t.manual = true;
+    return t;
+  }
+
+  /* Every bot out, hand-placed ones included. Returns how many went, because a
+     console that says "removed 5" after removing none is worse than one that
+     fails out loud. */
+  clearBots() {
+    let n = 0;
+    for (const [id, t] of [...this.tanks]) if (t.bot) { this.tanks.delete(id); n++; }
+    return n;
+  }
+
   /* THE ONE RULE. A bot may exist only in a room where nothing is staked.
 
      One switch, on the room, rather than a check at each call site: there is
@@ -437,23 +468,38 @@ class ShooterRoom {
      floor and stand down as real players arrive, so the first person through
      the door still has a game and the tenth is not fighting robots. */
   topUpBots() {
-    const bots = [...this.tanks.values()].filter(t => t.bot);
+    /* A room that takes a stake drops every bot it has, immediately. */
+    if (!this.botsAllowed()) {
+      for (const [id, t] of [...this.tanks]) if (t.bot) this.tanks.delete(id);
+      return;
+    }
+
     /* Fill toward a floor of BOT_FLOOR tanks in the arena, counting the people
        already in it, so the arena is about as busy whether one person or five
-       are playing and the bots quietly make room as the humans arrive. */
-    const want = this.botsAllowed()
-      ? Math.max(0, SH.BOT_FLOOR - this.humans())
-      : 0;
-    for (let i = bots.length; i < want; i++) {
+       are playing and the bots quietly make room as the humans arrive.
+
+       The floor governs AUTOMATIC bots only. A tank added by hand from the
+       owner console sits outside this accounting entirely: never counted
+       toward the floor, never culled by it, and not replaced when it dies.
+       Otherwise 'add five' would cull five of these and the arena would be
+       exactly as full as before, which makes the control useless for the one
+       thing it is for. */
+    const want = Math.max(0, SH.BOT_FLOOR - this.humans());
+    const auto = () => [...this.tanks.values()].filter(t => t.bot && !t.manual);
+
+    for (let have = auto().length; have < want; have++) {
       this.makeTank('bot' + (nextId++),
         BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)],
         WEAPON_KEYS[Math.floor(Math.random() * WEAPON_KEYS.length)], true);
     }
-    /* Taken from the end, and only ones that are already out of the fight, so
-       nobody watches a tank they are shooting at blink out of existence. A bot
-       over the floor that is still alive is left to die on its own. */
-    for (let i = bots.length - 1; i >= 0 && this.bots() > want; i--) {
-      if (bots[i].dead) this.tanks.delete(bots[i].id);
+
+    /* Only ones already out of the fight, so nobody watches a tank they are
+       shooting at blink out of existence. One over the floor that is still
+       alive is left to die on its own. */
+    const surplus = auto();
+    let over = surplus.length - want;
+    for (let i = surplus.length - 1; i >= 0 && over > 0; i--) {
+      if (surplus[i].dead) { this.tanks.delete(surplus[i].id); over--; }
     }
   }
 

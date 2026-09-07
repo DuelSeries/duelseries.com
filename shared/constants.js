@@ -182,6 +182,18 @@ const CONSTANTS = {
      it, and the game client treated it as a paid room and refused to respawn.
      Four bugs, one assumption. It is a list now, and it is shared. */
   FREE_LOBBY_TYPES: ['free', 'br'],
+
+  /* How many snakes a FREE room is kept topped up to, bots included.
+
+     A lobby you can walk into and find empty is the cold start the whole
+     product is fighting, and bots existed here already: what was missing was
+     anything to keep them coming. They were added by hand from the owner
+     console, they died, and nothing replaced them, so the room drained back
+     to empty on its own.
+
+     ONLY EVER APPLIED TO A FREE ROOM. See GameRoom.botsAllowed, and the
+     comment on it, which is the one rule that matters here. */
+  BOT_FLOOR_FREE: 8,
 };
 
 if (typeof module !== 'undefined') module.exports = CONSTANTS;

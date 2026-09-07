@@ -528,6 +528,11 @@ test('a bot never sees through a wall', () => {
   const p = r.addPlayer(sock(), 'Owen', 'cannon');
   r.stop();
   const bot = [...r.tanks.values()].find(t => t.bot);
+  /* Every OTHER bot out. This test is about one bot and one wall, and the
+     three others wander and shoot: leaving them in makes the result depend on
+     where they happened to drive, which is how a suite that passes once fails
+     the next time with nothing changed in between. */
+  for (const t of [...r.tanks.values()]) if (t.bot && t !== bot) r.tanks.delete(t.id);
   /* Put them either side of a stone wall, close enough that distance alone
      would make the player a target. */
   const row = 20;

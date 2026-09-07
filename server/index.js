@@ -818,6 +818,12 @@ const ALL_ROOMS = () => {
   for (const rgn of Object.keys(agarRooms)) {
     for (const k of Object.keys(agarRooms[rgn] || {})) out.push(agarRooms[rgn][k]);
   }
+  /* The tanks arena too. It is one room for the whole region rather than a
+     ladder, and it answers to the same playerCount / botCount / addBot /
+     clearBots the console already uses. Anything here that wants `.snakes`
+     skips it on its own — drainStatus does exactly that — so this adds a room
+     to the console without adding a case to everything that reads the list. */
+  if (typeof shooterRoom !== 'undefined' && shooterRoom) out.push(shooterRoom);
   return out;
 };
 
@@ -827,7 +833,9 @@ function opsSnapshot() {
   const br = gameRooms[REGION] && gameRooms[REGION].br;
   const rooms = ALL_ROOMS().map(r => ({
     id: r.lobbyType,
-    game: r.isBattleRoyale ? 'battle royale' : (String(r.lobbyType).startsWith('agar') ? 'agar.io' : 'slither.io'),
+    game: r.isBattleRoyale ? 'battle royale'
+        : r.lobbyType === 'tanks' ? 'Awesome Tanks'
+        : String(r.lobbyType).startsWith('agar') ? 'agar.io' : 'slither.io',
     players: r.playerCount !== undefined ? r.playerCount : (r.players ? r.players.size : 0),
     bots: r.botCount !== undefined ? r.botCount : 0,
   }));
@@ -892,12 +900,18 @@ app.post('/api/owner/do', async (req, res) => {
        way to take them out again. */
     case 'bots:add':
     case 'bots:clear': {
-      const room = ALL_SNAKE_ROOMS().find(r => r.lobbyType === args.room);
+      /* Every room, not just the snake ones. agar and the tanks arena answer
+         to the same addBot/clearBots, so the console did not need to learn
+         about either of them — it needed to stop looking in one list. */
+      const room = ALL_ROOMS().find(r => r.lobbyType === args.room);
       if (!room) return refuse('No room called ' + args.room);
       if (action === 'bots:clear') {
         let removed = 0;
-        for (const [id, s] of [...room.snakes]) {
-          if (s && s.isBot) { room.snakes.delete(id); removed++; }
+        if (typeof room.clearBots === 'function') removed = room.clearBots();
+        else if (room.snakes) {
+          for (const [id, s] of [...room.snakes]) {
+            if (s && s.isBot) { room.snakes.delete(id); removed++; }
+          }
         }
         broadcastLobbyState();
         return done('Removed ' + removed + ' bot(s) from ' + room.lobbyType);
@@ -908,7 +922,15 @@ app.post('/api/owner/do', async (req, res) => {
          reported 'Added 3' for three refusals — a console that lies about what
          it just did is worse than one that fails out loud. */
       let made = 0;
-      for (let i = 0; i < n; i++) if (room.addBot()) made++;
+      for (let i = 0; i < n; i++) {
+        const b = room.addBot();
+        if (!b) continue;
+        /* Marked by hand, so the room's own top-up leaves it alone. Asking for
+           twenty and getting eight because the floor is eight would make this
+           control useless for the thing it is for, which is testing. */
+        if (typeof b === 'object') b._manual = b.manual = true;
+        made++;
+      }
       broadcastLobbyState();
       if (!made) return refuse('That room would not take any bots');
       return done('Added ' + made + ' bot(s) to ' + room.lobbyType);

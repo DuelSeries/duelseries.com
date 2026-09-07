@@ -44,6 +44,75 @@ class GameRoom {
     for (const s of this.snakes.values()) if (s.isBot && s.alive) n++;
     return n;
   }
+  /* Live humans, which is what the bot floor is measured against.
+     `players` counts sockets in the room, including anybody sitting on a
+     death screen, and a floor measured against those would stop refilling
+     the moment a few people died. */
+  get humanCount() {
+    let n = 0;
+    for (const id of this.players.keys()) {
+      const s = this.snakes.get(id);
+      if (s && s.alive) n++;
+    }
+    return n;
+  }
+
+  /* THE ONE RULE. Bots may exist only where nothing is staked.
+
+     House robots among people who have staked real money is the single thing
+     most likely to end a real-money game, so this is a property of the room
+     and every path that makes a bot goes through it.
+
+     By the free LIST, not by the name. endsWith('free') is the mistake that
+     has now bitten five times: it read 'na_br' as a paid room and silently
+     refused every bot, so the battle royale could not be filled and could not
+     be tested. The region prefix comes off first; what is left is the type. */
+  botsAllowed() {
+    const type = String(this.lobbyType).replace(/^(na|eu)_/, '');
+    return (C.FREE_LOBBY_TYPES || ['free']).indexOf(type) !== -1;
+  }
+
+  /* Keeps a free room populated, and is the thing that was missing: bots were
+     only ever added by hand, so the room drained back to empty as they died.
+
+     Adds toward the floor counting the people already playing, so the room is
+     about as busy whether one person or eight are in it. Bots stand down as
+     real players arrive, but only once they are already dead: nobody watches
+     a snake they are chasing blink out of existence.
+
+     A bot spawned by hand from the owner console is exempt from the culling.
+     `bots:add 20` means twenty, not twenty until the next tick. */
+  topUpBots() {
+    /* A paid room drops every bot it has, alive or not, immediately. This is
+       the branch that matters, so it is unconditional and it is first. */
+    if (!this.botsAllowed()) {
+      for (const [id, s] of [...this.snakes]) if (s && s.isBot) this.snakes.delete(id);
+      return;
+    }
+
+    /* Dead bots are swept. A dead snake stays in the map so the client can
+       play its death out, but a bot nobody is watching is just a leak. */
+    for (const [id, s] of [...this.snakes]) {
+      if (s && s.isBot && !s.alive) this.snakes.delete(id);
+    }
+
+    const want = Math.max(0, (C.BOT_FLOOR_FREE || 0) - this.humanCount);
+    const auto = () => {
+      let n = 0;
+      for (const s of this.snakes.values()) if (s.isBot && s.alive && !s._manual) n++;
+      return n;
+    };
+
+    for (let have = auto(); have < want; have++) { if (!this.addBot()) break; }
+
+    let over = auto() - want;
+    if (over > 0) {
+      for (const [id, s] of [...this.snakes]) {
+        if (over <= 0) break;
+        if (s && s.isBot && !s._manual) { this.snakes.delete(id); over--; }
+      }
+    }
+  }
 
   start() {
     this.foodManager.spawnInitial(this.worldRadius, this.worldCx, this.worldCy);
@@ -194,16 +263,9 @@ class GameRoom {
   }
 
   addBot() {
-    /* By the free LIST, not by the name. The guard is real — a bot worth
-       nothing sitting in a paid room is a free player among people who staked —
-       but endsWith('free') is the same mistake that has now bitten five times:
-       it read 'na_br' as a paid room and silently refused every bot, so the
-       battle royale could not be filled and could not be tested.
-
-       The region prefix comes off first; what is left is the lobby type. */
-    const type = String(this.lobbyType).replace(/^(na|eu)_/, '');
-    const free = (C.FREE_LOBBY_TYPES || ['free']).indexOf(type) !== -1;
-    if (!free) return null;                  // no free bots in paid lobbies
+    /* One guard, on the room. A bot worth nothing sitting in a paid room is a
+       free player among people who staked. */
+    if (!this.botsAllowed()) return null;
     const id = 'bot_' + uuidv4();
     const { x, y } = this.safeSpawnPoint();
     const bot = new Bot(id, x, y);
@@ -298,6 +360,14 @@ class GameRoom {
     const EAT_RADIUS  = C.FOOD_EAT_RADIUS;
     const PULL_RADIUS = 35;
     const PULL_SPEED  = 6;
+
+    /* Once a second, not sixty times. Adding a snake is cheap but sweeping
+       the map is not free, and a room's population does not change fast
+       enough to be worth checking every tick. */
+    if ((this._botTick = (this._botTick || 0) + 1) >= C.TICK_RATE) {
+      this._botTick = 0;
+      this.topUpBots();
+    }
 
     // Update snakes
     for (const snake of allSnakes) {
