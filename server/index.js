@@ -1960,8 +1960,13 @@ io.on('connection', (socket) => {
 
   // Client reports how far it can see (world units) for area-of-interest culling —
   // the snapshot broadcaster only sends each player snakes/food within this radius.
-  socket.on('view', ({ r } = {}) => {
+  socket.on('view', ({ r, x, y } = {}) => {
     if (typeof r === 'number' && isFinite(r) && r > 0) socket._viewR = Math.min(Math.max(r, 200), 20000);
+    /* Where the camera is looking, which is the only way to cull for somebody
+       who has no snake to be centred on. Bounded to the world so a bad value
+       cannot push the interest cell somewhere absurd. */
+    if (typeof x === 'number' && isFinite(x)) socket._viewX = Math.max(-1e5, Math.min(1e5, x));
+    if (typeof y === 'number' && isFinite(y)) socket._viewY = Math.max(-1e5, Math.min(1e5, y));
   });
 
   socket.on('spectate:join:agar', ({ lobbyType, region } = {}) => {

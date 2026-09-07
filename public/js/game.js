@@ -1508,15 +1508,29 @@ setInterval(sendInput, 1000 / 60);
 // Report how far we can currently see, in world units, so the server only sends
 // snakes/food within range. Without it every snapshot carries the WHOLE map — fine
 // on desktop, but it floods a phone's connection once the room fills with bots.
-let _lastViewR = 0, _lastViewSentAt = 0;
+let _lastViewR = 0, _lastViewSentAt = 0, _lastViewX = 0, _lastViewY = 0;
 function maybeSendView(now) {
-  const scale = (renderer.camera && renderer.camera.scale) || 1;
+  const cam = renderer.camera || {};
+  const scale = cam.scale || 1;
   // radius of the circle that covers the whole screen rectangle, in world units
   const viewR = Math.hypot(window.innerWidth / 2, window.innerHeight / 2) / scale;
+
+  /* WHERE the camera is, as well as how far it reaches.
+
+     While you are alive the server can use your snake's head and does. While
+     you are DEAD or spectating it has nothing to centre on, and the answer
+     was to send you the whole world unculled — measured at 49KB a snapshot
+     and nine megabits a second, against seven kilobytes and 1.3 alive. That
+     is the death screen costing seven times what playing costs, and it is
+     about to matter more now that there are Watch buttons. */
+  const cx = Math.round(cam.worldX || 0), cy = Math.round(cam.worldY || 0);
+  const moved = Math.hypot(cx - _lastViewX, cy - _lastViewY) > 300;
+
   // it's a control message, not per-frame state — only resend on a real change
-  if (Math.abs(viewR - _lastViewR) > _lastViewR * 0.15 || now - _lastViewSentAt > 1000) {
-    socket.emit('view', { r: Math.round(viewR) });
-    _lastViewR = viewR;
+  if (moved || Math.abs(viewR - _lastViewR) > _lastViewR * 0.15 ||
+      now - _lastViewSentAt > 1000) {
+    socket.emit('view', { r: Math.round(viewR), x: cx, y: cy });
+    _lastViewR = viewR; _lastViewX = cx; _lastViewY = cy;
     _lastViewSentAt = now;
   }
 }

@@ -712,13 +712,30 @@ class GameRoom {
       if (!sock) continue;
       const mine = this.snakes.get(sid);
 
-      if (!mine || !mine.alive) {
+      /* WHERE THIS SOCKET IS LOOKING.
+
+         Alive, it is your snake's head. Dead or spectating, it is the camera
+         position the client reports — because the alternative, and what this
+         used to do, was send the entire world unculled to anybody without a
+         living snake. Measured: 49KB a snapshot and nine megabits a second on
+         the death screen, against seven kilobytes and 1.3 while playing. The
+         one screen where nothing is happening cost seven times the one where
+         everything is.
+
+         A socket that has never reported a camera still falls through to the
+         full send, because guessing where somebody is looking is worse than
+         sending them everything once. */
+      const hasCam = typeof sock._viewX === 'number' && typeof sock._viewY === 'number';
+      const eyeX = (mine && mine.alive) ? mine.head.x : (hasCam ? sock._viewX : null);
+      const eyeY = (mine && mine.alive) ? mine.head.y : (hasCam ? sock._viewY : null);
+
+      if (eyeX === null) {
         if (sock._cellRoom) { sock.leave(sock._cellRoom); sock._cellRoom = null; }
         fullSends.push(sock);
         continue;
       }
 
-      const ci = Math.floor(mine.head.x / CELL), cj = Math.floor(mine.head.y / CELL);
+      const ci = Math.floor(eyeX / CELL), cj = Math.floor(eyeY / CELL);
       const key = ci + ',' + cj;
       const roomName = 'aoi_' + this.roomId + '_' + key;
       // keep the socket in exactly its current cell room (cheap; only changes when it
