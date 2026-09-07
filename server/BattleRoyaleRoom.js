@@ -29,97 +29,77 @@ const BR = {
      is also what tells everyone in the room that this is now a match rather
      than a lobby. */
   COUNTDOWN_MS: 10 * SEC,
-  ROAM_MS:     2 * 60 * SEC,   // the small circle wandering
 
-  /* HOW FAST THE WALL CLOSES, as a share of what a snake can actually do.
-
-     This was a DURATION — one minute — and the speed was whatever fell out of
-     it. What fell out of it was a wall that outran everybody. The close is
-     eased rather than linear, so its rate is 2*(START-FINAL)/SHRINK_MS at the
-     very end, and one minute made that 186 units a second against a snake
-     that cruises at 133. The only way to survive the last seconds of the
-     shrink was to boost, which costs body, and a bot never boosts to escape
-     because nothing tells it to. So bots died to the wall in a heap, every
-     match, and so did anyone not paying full attention.
-
-     The duration is derived from the speed now, and the speed is written as a
-     fraction of cruising, so it cannot drift out of spec again by somebody
-     adjusting a number of seconds. At 0.7 the wall closes at about 93 units a
-     second, which leaves 40 a second of margin at a walk — you can outrun it
-     while fighting rather than only by burning body to boost. */
-  CLOSE_SPEED_FRAC: 0.7,
   /* One. Owen tests this alone and there is nobody else on the game yet, so a
      two-player minimum only ever stopped him starting it. It stays a named
      constant rather than being deleted, because the day there are real players
      a lone match IS worth refusing and this is the line to change. */
   MIN_PLAYERS: 1,
+
+  /* The arena at its widest, which is the whole world: a battle royale starts
+     with everywhere in play and takes it away a ring at a time. */
   START_RADIUS: C.MAX_WORLD_RADIUS,
-  FINAL_RADIUS: 420,           // about six snake-lengths across at spawn size
-  /* HOW FAR AND HOW FAST THE CIRCLE WANDERS, and both are speed limits rather
-     than taste.
 
-     A snake cruises at SNAKE_BASE_SPEED per tick — 2.22 at 60Hz, so about 133
-     units a second, and roughly 337 flat out on boost. A zone whose centre
-     moves faster than that cannot be followed by anyone: you watch a wall
-     arrive at a speed you cannot outrun, which is not a game.
+  /* HOW MUCH SMALLER EACH RING IS THAN THE ONE BEFORE IT.
 
-     The first version wandered 2160 units on a 46-second lap — about 295 units
-     a second, more than twice cruising speed. 800 units on a 100-second lap is
-     roughly 50, comfortably under half of cruising, so following the circle is
-     something you do WHILE playing rather than the whole of what you do. */
-  ROAM_RADIUS: 800,            // how far from the middle it will ever wander
+     Owen asked for about 10%. From a 6000 starting radius down to 165 that is
+     34 rings, and even with the wall moving at its limit the whole way it comes
+     out around eight minutes — which is a long time to ask people to stand in a
+     lobby for. 0.78 is the same mechanic at about fourteen rings and roughly
+     four minutes, which is what the mode was already budgeted at. It is one
+     number: raise it toward 0.9 for a longer, gentler match. */
+  RING_SHRINK: 0.78,
+  /* The circle does not stop at a size a match can be survived in.
 
-  /* THE HOP. The circle picks somewhere to go, that somewhere is shown on
-     screen as an outline before it sets off, it travels there, and it rests
-     half a second before choosing again. Announcing the destination is the
-     whole point: a border you can see coming is a decision, and one that just
-     arrives is an accident.
+     165 is the smallest circle a snake can still turn around inside, and the
+     first version stopped there — which froze the zone completely, because a
+     ring that cannot shrink also has no slack to move its centre into. Two
+     snakes could then circle each other for as long as they liked, and there
+     is no clock left in this mode to end it for them.
 
-     The speed is the constraint, as before. 55 units a second against a snake
-     that cruises at 133 leaves room to get there and to fight on the way. */
-  ROAM_HOP_SPEED: 55,          // units a second while travelling
-  ROAM_HOP_HOLD_MS: 500,       // the rest once it arrives, before the next call
-  ROAM_HOP_MIN_DIST: 420,      // or the hop is not worth announcing
+     So it keeps going, past the point where the arena is playable and down to
+     a floor nothing can survive sharing. Below 165 you can no longer turn
+     inside it, which is the endgame: the last two are pushed into each other
+     rather than politely waiting. */
+  RING_MIN_RADIUS: 40,
+  RING_ENDGAME_RADIUS: 165,    // below this a snake can no longer turn inside
 
-  /* THE LAST THIRTY SECONDS. It keeps moving and closes to roughly two
-     snake-lengths across.
+  /* THE ANNOUNCEMENT. The white circle is up and the wall has not moved yet.
+     Longer when the circle is small, because that is when being caught outside
+     it costs you the match; the first rings are enormous and nobody is near
+     their edge. */
+  RING_WARN_MIN_MS: 4 * SEC,
+  RING_WARN_MAX_MS: 11 * SEC,
 
-     Two snake lengths is not a fixed number of units — a snake's length is
-     whatever it has eaten — so this is set against the thing that is fixed:
-     OVERTIME_FLOOR, the smallest circle a snake can still turn around inside.
-     Just above it, so the endgame is desperate rather than unplayable. */
-  ENDGAME_MS: 30 * SEC,
-  ENDGAME_RADIUS: 165,
-  /* SUDDEN DEATH. The clock running out does not end the match — it starts the
-     part that does.
+  /* A floor on the travel, so even a tiny adjustment is something you can watch
+     arrive rather than a jump. The rest afterwards is a breath before the next
+     circle is called. */
+  RING_MOVE_MIN_MS: 2500,
+  RING_REST_MS: 1500,
 
-     The circle holds at its smallest and stops shrinking; from here the ending
-     comes from SPEED instead. Every second it hunts a little faster, and since
-     a snake tops out at SNAKE_MAX_SPEED there is a point past which nobody can
-     stay ahead of it. That is the guarantee that matters: a match cannot run
-     forever waiting for two people to make a mistake.
+  /* HOW FAST THE WALL MAY CLOSE, as a share of what a snake can actually do.
 
-     Shrinking further was the old answer and it was the wrong one — squeezing a
-     circle two snake-lengths across just kills everyone at once, and a double
-     knockout has to be handled rather than engineered. */
-  SUDDEN_ACCEL: 10,            // units a second added to the hunt, per second
-  SUDDEN_HOLD_MS: 250,         // it barely pauses now
+     This was a DURATION — one minute — and the speed was whatever fell out of
+     it. What fell out of it was a wall that outran everybody: the close is
+     eased, so its rate peaked at 186 units a second against a snake that
+     cruises at 133. The only way to survive the last seconds was to boost,
+     which costs body, and nothing tells a bot to boost.
+
+     Now it is the speed that is set and the durations that fall out. At 0.7 the
+     wall never exceeds about 93 units a second, which leaves 40 a second of
+     margin at a walk — you outrun it while fighting rather than only by burning
+     body. Every ring's travel time is derived from this. */
+  CLOSE_SPEED_FRAC: 0.7,
 };
 
-/* A snake's cruising speed in units per SECOND. Everything above that is a
-   speed limit is written against this one number, so the day the snake gets
-   faster the circle does too and none of the margins quietly invert. */
+/* A snake's cruising speed in units per SECOND. Every speed limit above is
+   written against this one number, so the day the snake gets faster the wall
+   does too and none of the margins quietly invert. */
 BR.CRUISE = C.SNAKE_BASE_SPEED * C.TICK_RATE;
 
-/* Long enough that the fastest moment of the close stays under the fraction of
-   cruising speed above. The ease is quadratic, so peak rate is
-   2*(START-FINAL)/SHRINK_MS; solve that for the duration. */
-BR.SHRINK_MS = Math.round(
-  2 * (BR.START_RADIUS - BR.FINAL_RADIUS) / (BR.CLOSE_SPEED_FRAC * BR.CRUISE) * SEC);
-
-/* The peak, kept as a number so a test can assert it rather than re-derive it
-   and agree with itself. */
-BR.CLOSE_SPEED = 2 * (BR.START_RADIUS - BR.FINAL_RADIUS) / (BR.SHRINK_MS / SEC);
+/* The fastest the wall may ever travel, kept as a number so a test can assert
+   it rather than re-derive it and agree with itself. */
+BR.CLOSE_SPEED = BR.CLOSE_SPEED_FRAC * BR.CRUISE;
 
 class BattleRoyaleRoom extends GameRoom {
   constructor(io, lobbyType) {
@@ -218,7 +198,7 @@ class BattleRoyaleRoom extends GameRoom {
        it starts by that rule, because the only player is already the last one
        standing. */
     this.startedWith = this.humanLiving();
-    this._hopTo = null; this._hopHoldUntil = 0;   // no leftovers from the last match
+    this._ring = null; this._ringNo = 0;          // no leftovers from the last match
     this.matchId = 'br_' + Date.now().toString(36);
     this.startedAt = 0;                 // set when the count reaches zero
     this.endedAt = 0;
@@ -276,6 +256,24 @@ class BattleRoyaleRoom extends GameRoom {
     return true;
   }
 
+  /* ── the zone ─────────────────────────────────────────────────────────────
+     RINGS, not a clock.
+
+     A white circle appears somewhere inside the current one and a little
+     smaller. It sits there long enough to be read and run for. Then the wall
+     travels to it — radius and centre together — and rests. Then it happens
+     again, and again, until the circle is as small as it goes and only one
+     snake is still in it.
+
+     The old model was a two-minute close to the middle followed by two minutes
+     of the small circle hopping about, with sudden death when the clock ran
+     out. It worked, but the match was on rails: the zone always ended up in
+     the middle, so where you stood at the start decided how far you had to
+     swim, and it decided it before anybody had done anything.
+
+     Nothing here runs on the match clock any more. A match is over when one
+     snake is left, and the pressure that makes that happen is geometric. */
+
   /* Called from the tick. Owns worldRadius and worldCx/worldCy for this room. */
   updateZone() {
     this._tickCountdown();
@@ -283,180 +281,105 @@ class BattleRoyaleRoom extends GameRoom {
       // Between matches the arena sits open at full size so people can gather.
       this.worldCx = 0; this.worldCy = 0;
       this.worldRadius += (BR.START_RADIUS - this.worldRadius) * 0.02;
+      this._ring = null;
       return;
     }
 
-    const t = Date.now() - this.startedAt;
-
-    if (t < BR.SHRINK_MS) {
-      /* Closing. Eased rather than linear: it barely moves for the first while,
-         which gives people time to find each other, then closes hard at the end
-         when the fight is the point. */
-      this.worldRadius = this.radiusAt(t);
-      this.worldCx = 0; this.worldCy = 0;
-      return;
-    }
-
-    /* Roaming: a sequence of announced hops, and a slow close at the end. */
-    this.worldRadius = this.radiusAt(t);
-    this._stepHop(t);
-
-    /* Overtime lives in radiusAt with everything else, so there is one place
-       that knows how big the circle is at a given moment and no chance of the
-       ring and the wall disagreeing. */
-  }
-
-  /* What the circle will be at a given point on the match clock.
-
-     Pulled out as a function of time because the WHITE RING has to be drawn at
-     the size the circle will be when it arrives, not the size it is now. During
-     the last thirty seconds those are very different numbers — a ring showing
-     420 when the wall will be 305 by the time it gets there is not a warning,
-     it is a promise that gets broken. */
-  /* How long the clock has been out. 0 while the match is still on its timer. */
-  suddenMs(t) {
-    return Math.max(0, t - (BR.SHRINK_MS + BR.ROAM_MS));
-  }
-
-  /* How fast the circle travels, given where the match is.
-
-     Through the roam it eases DOWN as the circle closes, because a shrinking
-     circle that is also sprinting kills whoever is on the trailing rim. Once
-     the clock is out it does the opposite and climbs without limit, which is
-     what actually ends the match: a snake tops out at SNAKE_MAX_SPEED, so there
-     is a moment past which staying ahead of the wall is not possible. */
-  huntSpeed(t, endgameEase) {
-    const sudden = this.suddenMs(t);
-    if (sudden > 0) return BR.ROAM_HOP_SPEED + (sudden / 1000) * BR.SUDDEN_ACCEL;
-    const e = isFinite(endgameEase) ? endgameEase : 0;
-    return BR.ROAM_HOP_SPEED * (1 - 0.55 * e);
-  }
-
-  /* 0 through the ordinary roam, ramping to 1 by the final buzzer. Everything
-     that should ease off as the circle closes reads this. */
-  _endgameEase(t) {
-    const leftMs = (BR.SHRINK_MS + BR.ROAM_MS) - t;
-    if (leftMs > BR.ENDGAME_MS) return 0;
-    return Math.min(1, Math.max(0, 1 - leftMs / BR.ENDGAME_MS));
-  }
-
-  radiusAt(t) {
-    const full = BR.SHRINK_MS + BR.ROAM_MS;
-    if (t < BR.SHRINK_MS) {
-      const k = t / BR.SHRINK_MS;
-      return BR.START_RADIUS + (BR.FINAL_RADIUS - BR.START_RADIUS) * (k * k);
-    }
-    /* Past the clock it stays exactly as small as it got. Sudden death is a
-       chase, not a crush. */
-    if (t >= full) return BR.ENDGAME_RADIUS;
-    const leftMs = full - t;
-    return leftMs > BR.ENDGAME_MS
-      ? BR.FINAL_RADIUS
-      : BR.FINAL_RADIUS + (BR.ENDGAME_RADIUS - BR.FINAL_RADIUS)
-        * (1 - Math.max(0, leftMs) / BR.ENDGAME_MS);
-  }
-
-  /* Somewhere new to go: inside the wander radius, far enough to be worth
-     announcing, and never so far out that the circle leaves the world. */
-  _pickHop(endgame) {
-    const e = endgame || 0;
-    const cx = this.worldCx, cy = this.worldCy;
-    // Late on it wanders less far and hops shorter distances.
-    const reach = BR.ROAM_RADIUS * (1 - 0.6 * e);
-    const minDist = BR.ROAM_HOP_MIN_DIST * (1 - 0.7 * e);
-    for (let i = 0; i < 24; i++) {
-      const a = Math.random() * Math.PI * 2;
-      const r = Math.sqrt(Math.random()) * reach;            // even by area
-      const x = Math.cos(a) * r, y = Math.sin(a) * r;
-      if (Math.hypot(x - cx, y - cy) < minDist) continue;
-      if (Math.hypot(x, y) + BR.FINAL_RADIUS > BR.START_RADIUS) continue;
-      return { x, y };
-    }
-    return { x: cx * 0.5, y: cy * 0.5 };   // give up and drift back toward the middle
-  }
-
-  /* One hop: travel, arrive, rest, choose again.
-
-     The first leg begins wherever the closing left the circle, which is the
-     middle, so there is no jump into the roam — the property the smooth version
-     had to be engineered to keep, this one gets for free. */
-  _stepHop(t) {
     const now = Date.now();
-    /* In the last thirty seconds the circle is closing AND moving, and those
-       two squeeze from opposite sides: the edge comes in at 8 units a second
-       while the whole circle slides away at up to 80. Anyone on the trailing
-       side is overtaken by the sum of the two, which is how a survivable
-       endgame turns into being deleted for standing in the wrong half.
+    if (!this._ring) this._ring = this._nextRing(now);
+    const g = this._ring;
 
-       So the hops shorten as it closes. It keeps moving — that is the point of
-       the ending — but it stops travelling further than a shrinking circle can
-       reasonably drag people. */
-    const endgame = this._endgameEase(t);
-    if (!this._hopTo) {
-      this._hopFrom = { x: this.worldCx, y: this.worldCy };
-      this._hopTo = this._pickHop(endgame);
-      const d = Math.hypot(this._hopTo.x - this._hopFrom.x, this._hopTo.y - this._hopFrom.y);
-      const e = isFinite(endgame) ? endgame : 0;
-      const speed = this.huntSpeed(t, e);
-      const ms = (d / speed) * 1000;
-      /* Guarded, because a NaN here does not throw — it makes every comparison
-         against progress false, and the circle simply stops choosing new places
-         to go while looking otherwise healthy. That is a far worse failure than
-         a crash, and it already happened once. */
-      /* A floor on how long a leg may take, so the ring is readable — a warning
-         you have barely a second to read is decoration.
-
-         It does NOT apply in sudden death. There the leg time IS the speed, and
-         holding every hop to two and a half seconds capped how fast the circle
-         could ever hunt: with the floor applied throughout, nobody was ever
-         caught and the match ran forever. Once the clock is out the ring has
-         stopped being advice. */
-      const floor = this.suddenMs(t) > 0 ? 250 : 2500;
-      this._hopMs = isFinite(ms) ? Math.max(floor, ms) : floor;
-      this._hopStart = now;
-      this._hopHoldUntil = 0;
-      return;
-    }
-    if (this._hopHoldUntil && now < this._hopHoldUntil) {
-      this.worldCx = this._hopTo.x; this.worldCy = this._hopTo.y;
-      return;
-    }
-    if (this._hopHoldUntil) {
-      /* t, not nothing. Dropping it made _endgameEase(undefined) NaN, so the
-         hop speed was NaN, so the leg duration was NaN — and every comparison
-         against progress is false against NaN, which froze the circle on one
-         leg for the rest of the match. Two hops in three minutes instead of
-         nine, and a ring whose size was NaN. One missing argument. */
-      this._hopTo = null;
-      this._stepHop(t);
+    if (now < g.warnUntil) {
+      /* Announced and not yet moving. The wall is exactly where it was; the
+         white circle is on screen saying where it is going. */
+      this.worldRadius = g.fr; this.worldCx = g.fx; this.worldCy = g.fy;
       return;
     }
 
-    const k = Math.min(1, (now - this._hopStart) / this._hopMs);
-    const ease = k * k * (3 - 2 * k);      // no lurch at either end of a leg
-    this.worldCx = this._hopFrom.x + (this._hopTo.x - this._hopFrom.x) * ease;
-    this.worldCy = this._hopFrom.y + (this._hopTo.y - this._hopFrom.y) * ease;
-    /* Barely a pause once the clock is out. The half-second rest is what makes
-       the roam readable; in sudden death being readable is no longer the job. */
-    if (k >= 1) {
-      this._hopHoldUntil = now +
-        (this.suddenMs(t) > 0 ? BR.SUDDEN_HOLD_MS : BR.ROAM_HOP_HOLD_MS);
+    const moveEnd = g.warnUntil + g.moveMs;
+    if (now < moveEnd) {
+      /* Travelling. Radius and centre move together and at a constant rate, so
+         the speed the wall shows on one side is the speed it shows on all of
+         them and there is no moment where it lurches. */
+      const k = g.moveMs > 0 ? (now - g.warnUntil) / g.moveMs : 1;
+      this.worldRadius = g.fr + (g.tr - g.fr) * k;
+      this.worldCx = g.fx + (g.tx - g.fx) * k;
+      this.worldCy = g.fy + (g.ty - g.fy) * k;
+      return;
     }
+
+    this.worldRadius = g.tr; this.worldCx = g.tx; this.worldCy = g.ty;
+    if (now >= moveEnd + BR.RING_REST_MS) this._ring = this._nextRing(now);
   }
 
-  /* Where it is heading, for the outline on screen. Null while it is resting,
-     because there is nothing to announce until it has chosen. */
+  /* Where the next circle goes, and how long each part of getting there takes.
+
+     CONTAINED. The new circle is always wholly inside the old one, which is
+     what makes this a shrinking game rather than a wandering one: the ground
+     that is safe now was safe a moment ago, so running for the ring can never
+     take you through the wall. That is the constraint the centre is picked
+     under — its distance from the old centre is at most the difference in
+     radii. */
+  _nextRing(now) {
+    const fr = this.worldRadius, fx = this.worldCx, fy = this.worldCy;
+    const tr = Math.max(BR.RING_MIN_RADIUS, fr * BR.RING_SHRINK);
+
+    const slack = Math.max(0, fr - tr);
+    const a = Math.random() * Math.PI * 2;
+    /* sqrt for an even spread by AREA. Without it the centre bunches toward
+       the middle and every ring lands roughly where the last one did, which is
+       the on-rails problem this model exists to get away from. */
+    const d = Math.sqrt(Math.random()) * slack;
+    const tx = fx + Math.cos(a) * d, ty = fy + Math.sin(a) * d;
+
+    /* THE SPEED LIMIT, which is the one rule the wall cannot break. A point on
+       the boundary moves by at most the shrink plus the centre's travel, so
+       holding that under a fraction of a snake's cruising speed is what makes
+       the wall something you outrun rather than something that catches you. */
+    const worst = (fr - tr) + Math.hypot(tx - fx, ty - fy);
+    const moveMs = Math.max(BR.RING_MOVE_MIN_MS,
+                            worst / (BR.CLOSE_SPEED_FRAC * BR.CRUISE) * SEC);
+
+    /* The warning is longer when the circle is small, because that is when
+       being caught outside it costs you the match. Early rings are enormous and
+       nobody is anywhere near their edge. */
+    const smallness = 1 - Math.min(1, (fr - BR.RING_ENDGAME_RADIUS) /
+                                      Math.max(1, BR.START_RADIUS - BR.RING_ENDGAME_RADIUS));
+    const warnMs = BR.RING_WARN_MIN_MS +
+                   (BR.RING_WARN_MAX_MS - BR.RING_WARN_MIN_MS) * smallness;
+
+    this._ringNo = (this._ringNo || 0) + 1;
+    return { fx, fy, fr, tx, ty, tr, moveMs,
+             warnUntil: now + warnMs, startedAt: now };
+  }
+
+  /* The white circle: where the wall is going and how big it will be when it
+     gets there. Shown while it is announced AND while it is travelling, so it
+     stays on screen as a destination the whole time it matters. Null while the
+     zone is resting, because there is nothing to announce yet. */
   hopTarget() {
-    if (this.state !== 'running') return null;
-    if (!this._hopTo || this._hopHoldUntil) return null;
-    /* The size the wall will BE when it gets there, worked out from when this
-       leg ends. Drawing the ring at today's radius during the endgame shows a
-       circle bigger than the one that actually arrives, which is worse than no
-       ring at all: it tells you there is room where there will not be. */
-    const arriveAt = (Date.now() + Math.max(0, this._hopStart + this._hopMs - Date.now()))
-                     - this.startedAt;
-    return { x: this._hopTo.x, y: this._hopTo.y, r: this.radiusAt(arriveAt) };
+    if (this.state !== 'running' || !this._ring) return null;
+    const g = this._ring;
+    if (Date.now() >= g.warnUntil + g.moveMs) return null;
+    return { x: g.tx, y: g.ty, r: g.tr };
   }
+
+  /* Which phase the zone is in, for the HUD. */
+  zonePhase() {
+    if (this.state !== 'running' || !this._ring) return 'open';
+    const now = Date.now(), g = this._ring;
+    if (now < g.warnUntil) return 'warning';
+    if (now < g.warnUntil + g.moveMs) return 'closing';
+    return 'holding';
+  }
+
+  /* How long until the wall starts moving, which is the only countdown left in
+     this mode and the only one worth putting on screen. */
+  zoneMs() {
+    if (this.state !== 'running' || !this._ring) return 0;
+    return Math.max(0, this._ring.warnUntil - Date.now());
+  }
+
 
   /* ── ending ────────────────────────────────────────────────────────────── */
 
@@ -538,13 +461,14 @@ class BattleRoyaleRoom extends GameRoom {
       minPlayers: BR.MIN_PLAYERS,
       canStart: this.canStart(),
       elapsedMs: t,
-      totalMs: BR.SHRINK_MS + BR.ROAM_MS,
-      suddenMs: this.state === 'running' ? this.suddenMs(t) : 0,
+      /* No total any more: the match runs until one snake is left, not until
+         a clock says so. What there IS to count down is the wall's next move,
+         which is the only number on this screen anybody can act on. */
+      ring: this._ringNo || 0,
+      zoneMs: this.zoneMs(),
       phase: this.state === 'countdown' ? 'countdown'
            : this.state !== 'running' ? this.state
-           : this.suddenMs(t) > 0 ? 'sudden'
-           : t < BR.SHRINK_MS ? 'closing'
-           : t < BR.SHRINK_MS + BR.ROAM_MS ? 'roaming' : 'overtime',
+           : this.zonePhase(),
       soloRun: !!this.soloRun,
       startedWith: this.startedWith || 0,
       winner: this.winner ? { name: this.winner.name } : null,

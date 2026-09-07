@@ -919,14 +919,15 @@ canvas.addEventListener('touchmove', (e) => {
    merely hidden here — the server refuses it in this room — but the button has
    to go too, because a control that does nothing is worse than no control. */
 const brHud = document.getElementById('br-hud');
+/* The zone runs on rings now, not on a clock: it announces where the circle is
+   going, travels there, and rests before calling the next one. The old clock
+   phases are kept as aliases so a client that is mid-session against a server
+   that has not restarted yet still has a word to show. */
 const PHASE_WORDS = {
-  waiting:   'Waiting',
-  countdown: 'Starting',
-  closing:  'Closing in',
-  roaming:  'The circle is moving',
-  sudden:   'Sudden death',
-  overtime: 'Overtime',
-  over:     'Match over',
+  waiting: 'Waiting', countdown: 'Starting',
+  warning: 'Next circle', closing: 'Closing in', holding: 'The circle is set',
+  roaming: 'The circle is moving', sudden: 'Sudden death', overtime: 'Overtime',
+  over: 'Match over',
 };
 /* The count is driven by a LOCAL clock from a server deadline, not by a message
    per second. A ticking number needs to move smoothly and a snapshot every two
@@ -971,14 +972,15 @@ function brApply(s) {
 
   const sub = document.getElementById('br-sub');
   if (s.state === 'running') {
-    const left = Math.max(0, (s.totalMs || 0) - (s.elapsedMs || 0));
-    const mm = Math.floor(left / 60000), ss = Math.floor((left % 60000) / 1000);
-    /* A solo run is a test against the zone, not a match, and saying so stops
-       it looking like a match that nobody else turned up to. */
+    /* There is no match clock any more, so there is no time remaining to show.
+       The match runs until one snake is left; what there IS to count is the
+       wall's next move, which is the only number here anybody can act on. */
     const solo = s.startedWith === 1 ? ' · solo run' : '';
-    sub.textContent = (s.phase === 'sudden' || s.phase === 'overtime'
-      ? 'The circle is hunting. Last one alive wins.'
-      : mm + ':' + (ss < 10 ? '0' : '') + ss + ' left') + solo;
+    const secs = Math.ceil((s.zoneMs || 0) / 1000);
+    sub.textContent = (
+      s.phase === 'warning' ? 'The circle closes in ' + secs + 's'
+      : s.phase === 'closing' ? 'The circle is closing. Get inside it.'
+      : 'Ring ' + (s.ring || 1) + ' · last one alive wins') + solo;
   } else if (s.state === 'over') {
     sub.textContent = s.soloRun
       ? (s.winner ? 'You lasted the whole match' : 'The circle got you')
