@@ -101,11 +101,24 @@ test('the board lists busiest first', () => {
 });
 
 test('a listed lobby carries what the board needs to render a row', () => {
+  /* A deepEqual on purpose: this is the wire shape the lobby board reads, and
+     a field added or dropped here changes what every row on the home screen
+     can show. It earned that when `bots` was added — the board had been
+     reporting every room as having none because this list never carried it. */
   const r = reg();
   const room = r.get('snake', 'eu', 0.5);
   room.players.set('a', {});
-  assert.deepEqual(r.list()[0],
-    { id: 'snake:eu:0.50', game: 'snake', region: 'eu', stake: 0.5, players: 1, capacity: 30 });
+  assert.deepEqual(r.list()[0], {
+    id: 'snake:eu:0.50', game: 'snake', region: 'eu', stake: 0.5,
+    players: 1, bots: 0, capacity: 30,
+  });
+});
+
+test('a room reports the bots in it, so the board can count them', () => {
+  const r = reg();
+  const room = r.get('snake', 'na', 0);
+  room.botCount = 17;
+  assert.equal(r.list()[0].bots, 17);
 });
 
 test('a registry without a room factory refuses to be built', () => {

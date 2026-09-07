@@ -70,6 +70,9 @@ class LobbyRegistry {
         id: this.key(e.game, e.region, e.stake),
         game: e.game, region: e.region, stake: e.stake,
         players: e.room.players ? e.room.players.size : 0,
+        /* Reported, because the board shows it. This was missing entirely, so
+           every rung told the lobby it had no bots in it. */
+        bots: e.room.botCount || 0,
         capacity: e.room.capacity || null,
       });
     }

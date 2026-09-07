@@ -57,17 +57,28 @@ class GameRoom {
     return n;
   }
 
+  /* Ordinary rooms let you press Play again as often as you like. The battle
+     royale does not once its match is running, and says so by overriding this
+     rather than by the respawn handler knowing about match states. */
+  allowsRespawn() { return true; }
+
   /* THE ONE RULE. Bots may exist only where nothing is staked.
 
      House robots among people who have staked real money is the single thing
      most likely to end a real-money game, so this is a property of the room
      and every path that makes a bot goes through it.
 
-     By the free LIST, not by the name. endsWith('free') is the mistake that
-     has now bitten five times: it read 'na_br' as a paid room and silently
-     refused every bot, so the battle royale could not be filled and could not
-     be tested. The region prefix comes off first; what is left is the type. */
+     ASK WHAT IT COSTS, never what it is called. Reading the answer out of a
+     room's name has now gone wrong six times: endsWith('free') read 'na_br'
+     as paid and silently refused the battle royale every bot, and the free
+     list read the ladder's own free room — which is called 'na_s0' — as paid
+     and left it empty while the board advertised it as the room to join.
+
+     A ladder room carries its stake, so it can simply be asked. Only a fixed
+     tier room, which has no stake on it, falls back to the type, and that
+     lookup is a shared LIST rather than a string test on the word 'free'. */
   botsAllowed() {
+    if (this.stake !== undefined && this.stake !== null) return Number(this.stake) === 0;
     const type = String(this.lobbyType).replace(/^(na|eu)_/, '');
     return (C.FREE_LOBBY_TYPES || ['free']).indexOf(type) !== -1;
   }
@@ -96,22 +107,20 @@ class GameRoom {
       if (s && s.isBot && !s.alive) this.snakes.delete(id);
     }
 
+    /* The target is the ROOM, not the bot count: twenty bodies in here,
+       players and robots together. Five people means fifteen robots, twenty
+       people means none, and fifty people means none rather than fifty more.
+
+       ADDING IS ALL THIS DOES. Being over the target is not a problem to be
+       corrected: robots die on their own and are simply not replaced, so a
+       busy room drains back to people by itself within a minute or two. The
+       first version deleted live snakes to hold the number, which is a snake
+       vanishing out from under whoever was chasing it — the same mistake the
+       tank arena had already been fixed for. */
     const want = Math.max(0, (C.BOT_FLOOR_FREE || 0) - this.humanCount);
-    const auto = () => {
-      let n = 0;
-      for (const s of this.snakes.values()) if (s.isBot && s.alive && !s._manual) n++;
-      return n;
-    };
-
-    for (let have = auto(); have < want; have++) { if (!this.addBot()) break; }
-
-    let over = auto() - want;
-    if (over > 0) {
-      for (const [id, s] of [...this.snakes]) {
-        if (over <= 0) break;
-        if (s && s.isBot && !s._manual) { this.snakes.delete(id); over--; }
-      }
-    }
+    let have = 0;
+    for (const s of this.snakes.values()) if (s.isBot && s.alive) have++;
+    for (; have < want; have++) { if (!this.addBot()) break; }
   }
 
   start() {
@@ -361,11 +370,15 @@ class GameRoom {
     const PULL_RADIUS = 35;
     const PULL_SPEED  = 6;
 
-    /* Once a second, not sixty times. Adding a snake is cheap but sweeping
-       the map is not free, and a room's population does not change fast
-       enough to be worth checking every tick. */
-    if ((this._botTick = (this._botTick || 0) + 1) >= C.TICK_RATE) {
-      this._botTick = 0;
+    /* Once a second by the CLOCK, not once every sixty ticks. Adding a snake
+       is cheap but sweeping the map is not free, and a room's population does
+       not change fast enough to be worth checking every tick. By the clock
+       because an idle room deliberately ticks at a tenth of the rate, which
+       turned a one-second top-up into a ten-second one in precisely the room
+       that most needs to be full: the empty one somebody is about to open. */
+    const _bNow = Date.now();
+    if (_bNow - (this._botAt || 0) >= 1000) {
+      this._botAt = _bNow;
       this.topUpBots();
     }
 

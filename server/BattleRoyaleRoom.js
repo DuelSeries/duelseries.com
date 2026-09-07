@@ -153,6 +153,17 @@ class BattleRoyaleRoom extends GameRoom {
   }
   humanLiving() { return this.humanSnakes().length; }
 
+  /* Once the timer starts, nobody comes back.
+
+     The match is last snake standing and it pays a real prize, so a player who
+     can press Play again is a player who cannot lose: the circle would close
+     on somebody who simply rejoins behind it. Dying in a battle royale has to
+     be the end of your match, and it was not — the respawn handler had no idea
+     this room was any different from the free one.
+
+     Bots are covered by topUpBots below, which adds none while a match runs. */
+  allowsRespawn() { return this.state === 'waiting'; }
+
   /* Bots fill the LOBBY, not the match.
 
      This room inherits GameRoom's tick, which now tops a free room up to the

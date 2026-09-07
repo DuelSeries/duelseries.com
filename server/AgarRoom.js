@@ -278,10 +278,12 @@ class AgarRoom {
     } else if (this._idleSkip) {
       this._idleSkip = 0;
     }
-    /* Once a second rather than every tick: a room's population does not
-       change fast enough to be worth sweeping the map for sixty times. */
-    if ((this._botTick = (this._botTick || 0) + 1) >= TICK_RATE) {
-      this._botTick = 0;
+    /* Once a second by the CLOCK, not once every sixty ticks: an idle room
+       drops to a tenth of the tick rate, which would stretch this to ten
+       seconds in the empty room that most needs filling. */
+    const _bNow = Date.now();
+    if (_bNow - (this._botAt || 0) >= 1000) {
+      this._botAt = _bNow;
       this.topUpBots();
     }
 

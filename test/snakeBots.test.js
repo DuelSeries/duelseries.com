@@ -86,16 +86,49 @@ test('a bot that dies is replaced, which is the whole point', () => {
   assert.equal([...r.snakes.values()].filter(s => s.isBot && !s.alive).length, 0);
 });
 
-test('bots make way for people, so the room is as busy either way', () => {
+test('the target is the ROOM, so bots fill whatever people do not', () => {
+  /* Twenty bodies in here, players and robots together. Five people means
+     fifteen robots; twenty people means none. */
+  const r = room('na_free');
+  for (let i = 0; i < 5; i++) addHuman(r);
+  r.topUpBots();
+  assert.equal(r.humanCount, 5);
+  assert.equal(r.botCount, C.BOT_FLOOR_FREE - 5, 'the rest are robots');
+  assert.equal(r.humanCount + r.botCount, C.BOT_FLOOR_FREE, 'twenty in the room');
+});
+
+test('a full room of people gets no bots at all', () => {
+  /* The thing that must never happen: fifty real players and robots still
+     arriving to join them. */
+  const r = room('na_free');
+  for (let i = 0; i < C.BOT_FLOOR_FREE + 30; i++) addHuman(r);
+  r.topUpBots();
+  assert.equal(r.botCount, 0, 'nobody needs company in a full room');
+  r.topUpBots();
+  assert.equal(r.botCount, 0, 'and asking again does not add any');
+});
+
+test('being over the target is left alone, never corrected by deleting a snake', () => {
+  /* A room that is too full is not a problem to be fixed: robots die on their
+     own and are simply not replaced, so it drains back to people by itself.
+     Deleting live ones to hold a number is a snake vanishing out from under
+     whoever was chasing it. */
   const r = room('na_free');
   r.topUpBots();
-  assert.equal(r.botCount, C.BOT_FLOOR_FREE);
+  const ids = [...r.snakes.values()].filter(s => s.isBot).map(s => s.id);
+  assert.equal(ids.length, C.BOT_FLOOR_FREE);
 
-  for (let i = 0; i < 3; i++) addHuman(r);
+  for (let i = 0; i < 12; i++) addHuman(r);      // a crowd turns up
   r.topUpBots();
-  assert.equal(r.humanCount, 3);
-  assert.equal(r.botCount, C.BOT_FLOOR_FREE - 3, 'three fewer robots');
-  assert.equal(r.humanCount + r.botCount, C.BOT_FLOOR_FREE, 'same size room');
+  assert.equal(r.botCount, C.BOT_FLOOR_FREE, 'every robot is still alive and still here');
+  ids.forEach(id => assert.ok(r.snakes.has(id), 'including ' + id));
+
+  /* And as they die they are not replaced, so it converges on its own. */
+  const bots = [...r.snakes.values()].filter(s => s.isBot);
+  for (let i = 0; i < 15; i++) bots[i].alive = false;
+  r.topUpBots();
+  assert.equal(r.humanCount, 12);
+  assert.equal(r.botCount, C.BOT_FLOOR_FREE - 12, 'down to what the room is short by');
 });
 
 test('the floor is measured against LIVE humans, not sockets in the room', () => {

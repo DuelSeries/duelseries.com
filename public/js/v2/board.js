@@ -7,14 +7,20 @@
    than filling up, so a row shows a count and not "7 of 30". The prototype's
    /30 was invented.
 
-   Bots are counted separately from players and are not added to the number
-   shown. A row saying "12 playing" when eleven are bots would be a lie told to
-   someone about to stake real money. Rooms seeded with bots still appear, which
-   is what keeps the board from ever being empty, but the count is honest.
+   The count on a row is players PLUS bots: it is how many things are moving
+   around in there, which is what somebody deciding whether to press Enter
+   actually wants to know.
 
-   The pinned free rows below are the one place a count is not live: those games
-   have no rung on /api/live to read one from, so they sit at 0. That is worth
-   fixing when those rooms carry a stake, and harmless while they are free. */
+   That used to be players only, on the grounds that "12 playing" with eleven
+   bots is a lie told to someone about to stake real money. The reasoning was
+   right and no longer applies: bots cannot exist in a room that takes a stake
+   at all now, enforced on the room itself, so every row that can contain a bot
+   is a row where nothing is staked and there is nothing to mislead anybody
+   about. A paid row's count is still people only, because that is all it can
+   ever hold.
+
+   The pinned free rows get their counts from /api/live's `extras`, which is
+   where the rooms that are not on the snake ladder report themselves. */
 
 (function () {
   const el = id => document.getElementById(id);
@@ -23,6 +29,7 @@
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
   let LOBBIES = [];
+  let EXTRAS = [];
   let timer = null;
 
   async function load() {
@@ -30,15 +37,17 @@
       const r = await fetch('/api/live');
       const j = await r.json();
       LOBBIES = Array.isArray(j.lobbies) ? j.lobbies : [];
+      EXTRAS = Array.isArray(j.extras) ? j.extras : [];
     } catch (_) {
       LOBBIES = [];
+      EXTRAS = [];
     }
     draw();
   }
 
   function rowHTML(l) {
     const g = (window.V2_GAME_NAMES || {})[l.game] || l.game;
-    const n = l.players || 0;
+    const n = (l.players || 0) + (l.bots || 0);
     /* A count, shown as a count. Every row used to end in the words "0 playing"
        sitting between two other grey chips, so the line read as four scraps of
        text with a number buried in it. It is one badge now — a dot that is lit
@@ -129,7 +138,13 @@
     const rows = occupied();
     const free = LOBBIES.find(l => Number(l.stake) === 0 && l.game === 'snake');
     if (free && !rows.some(r => r.id === free.id)) rows.unshift(free);
-    PINNED.forEach(p => { if (!rows.some(r => r.id === p.id)) rows.push(p); });
+    PINNED.forEach(p => {
+      if (rows.some(r => r.id === p.id)) return;
+      /* The pinned row keeps its own id, stake and door — those are what make
+         it work — and takes only its population from the server. */
+      const live = EXTRAS.find(e => e.id === p.id);
+      rows.push(live ? Object.assign({}, p, { players: live.players, bots: live.bots }) : p);
+    });
     return rows;
   }
 

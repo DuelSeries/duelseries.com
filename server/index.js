@@ -939,7 +939,11 @@ app.post('/api/owner/do', async (req, res) => {
         broadcastLobbyState();
         return done('Removed ' + removed + ' bot(s) from ' + room.lobbyType);
       }
-      const n = Math.min(Math.max(1, parseInt(args.count, 10) || 1), 30);
+      /* By hand means by hand. The automatic floor is a floor, not a ceiling,
+         and an owner asking for a hundred bots to test something with should
+         get a hundred. The only thing that still refuses is a room that takes
+         a stake, and that one is not negotiable. */
+      const n = Math.min(Math.max(1, parseInt(args.count, 10) || 1), 500);
       if (!room.addBot) return refuse('That room does not take bots');
       /* COUNTED, not assumed. addBot returns null when it refuses, and this
          reported 'Added 3' for three refusals — a console that lies about what
@@ -1165,13 +1169,44 @@ function liveBoard() {
   // convergence is what stops the player base fragmenting across empty rooms.
   return out.sort((a, b) => b.players - a.players);
 }
+/* The free rooms that are NOT on the snake ladder: agar, the tank arena and
+   Bowmasters. The lobby pins a row for each of them and had nothing to put in
+   the count, so all three read "0 playing" however busy they were.
+
+   Kept out of `lobbies` on purpose. That list is the snake buy-in ladder and
+   the client builds its rung buttons from it; a row carrying no stake would
+   put a blank rung on the control. */
+function liveExtras() {
+  const out = [];
+  const agar = agarRooms[REGION] && agarRooms[REGION].free;
+  if (agar) out.push({ id: 'agar:free', game: 'agar', region: REGION,
+    players: agar.playerCount || 0, bots: agar.botCount || 0 });
+  if (typeof shooterRoom !== 'undefined' && shooterRoom) {
+    out.push({ id: 'omgshooter:free', game: 'omgshooter', region: REGION,
+      players: shooterRoom.playerCount || 0, bots: shooterRoom.botCount || 0 });
+  }
+  if (typeof tanksLobby !== 'undefined' && tanksLobby) {
+    /* Bowmasters is a queue that makes rooms, so its population is whoever is
+       waiting plus whoever is already in a match. */
+    let inGame = 0;
+    try { for (const r of tanksLobby.rooms.values()) inGame += (r.players ? r.players.size : 0); }
+    catch (_) {}
+    out.push({ id: 'tanks:free', game: 'tanks', region: REGION,
+      players: (tanksLobby.queue ? tanksLobby.queue.length : 0) + inGame, bots: 0 });
+  }
+  return out;
+}
+
 app.get('/api/live', (_req, res) => {
   try {
     /* The ladder ships with the board so the buy-in control offers exactly the
        rungs the server will accept. A client with its own copy is a client
        that can drift out of step and offer an amount that gets refused. */
-    res.json({ lobbies: liveBoard(), stakes: ALL_STAKES });
-  } catch (e) { console.error('[LIVE]', e.message); res.json({ lobbies: [], stakes: ALL_STAKES }); }
+    res.json({ lobbies: liveBoard(), stakes: ALL_STAKES, extras: liveExtras() });
+  } catch (e) {
+    console.error('[LIVE]', e.message);
+    res.json({ lobbies: [], stakes: ALL_STAKES, extras: [] });
+  }
 });
 
 /* ─── Ladder rooms ────────────────────────────────────────────────────────────
@@ -1272,9 +1307,25 @@ setInterval(() => {
 const { LobbyRegistry } = require('./LobbyRegistry');
 const ladder = new LobbyRegistry({
   emptyMs: 5 * 60 * 1000,
-  makeRoom: (game, rgn, stake) =>
-    new GameRoom(io, `${rgn}_s${String(stake).replace('.', '_')}`),
+  makeRoom: (game, rgn, stake) => {
+    const r = new GameRoom(io, `${rgn}_s${String(stake).replace('.', '_')}`);
+    /* What it costs to sit down, on the room itself. Everything that has to
+       know whether this room is free asks the room, rather than trying to
+       read a price out of its name. */
+    r.stake = Number(stake);
+    return r;
+  },
 });
+/* The free rung is opened at boot rather than on the first join.
+
+   Ladder rooms are made on demand, and the free one is already exempt from
+   the sweeper — but a room that does not exist yet cannot be filled with
+   bots and cannot report a count, so the lobby board showed the free table
+   as empty until somebody walked into it. That is the cold start the board
+   exists to avoid, and it was showing 0 while twenty snakes were ready to
+   play. Opening it here means it is populated before anyone looks. */
+ladder.get('snake', REGION, 0);
+
 // Withdrawing rooms nobody is in is scheduled further down, through
 // everyStaggered, along with every other periodic job.
 
@@ -1946,6 +1997,13 @@ io.on('connection', (socket) => {
     if (!socket._room) return;
     const existing = socket._room.snakes.get(socket.id);
     if (existing && existing.alive) return; // block respawn while alive
+    /* And the room gets a say. A battle royale refuses once its match is
+       running: it is last snake standing for a real prize, so coming back
+       after dying would make it unloseable. */
+    if (typeof socket._room.allowsRespawn === 'function' && !socket._room.allowsRespawn()) {
+      socket.emit(C.EVENTS.ERROR, { message: 'The match is under way. Wait for the next one.' });
+      return;
+    }
     /* Server-verified worth from the echoed entry token — the client's entrySol
        is ignored. A respawn re-buys the room the socket is ALREADY in, taken
        from socket._stake rather than from anything the client sends now, so a
