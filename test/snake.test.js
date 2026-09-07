@@ -143,12 +143,21 @@ test('a corpse is worth a fixed share of the body, at every size', () => {
   });
 });
 
-test('a snake that never ate anything leaves nothing behind', () => {
-  /* The reported exploit, at its root. The spawn body is given away free, so
-     there is nothing owed on it and nothing to drop. */
+test('every corpse leaves food, and a spawn one is worth about a part', () => {
+  /* A body that vanishes without a trace is a body nobody believes died there,
+     so even the smallest snake drops something. The bound that matters is that
+     it stays small: this is the size the reported exploit was performed at, and
+     it used to hand back 4.85x the body. */
   const s = new Snake('t', 'T', 0, 0, '#c080ff');
-  assert.equal(s.mass, 0, 'a fresh snake has earned no mass');
-  assert.equal(corpseValue(s), 0, 'and its corpse is worth nothing');
+  const food = corpseValue(s);
+  assert.ok(food > 0, 'a spawn corpse is worth something');
+
+  const eater = new Snake('e', 'E', 0, 0, '#c080ff');
+  const start = eater.length;
+  eater.grow(food);
+  for (let i = 0; i < 500 && eater.pendingGrowth > 0; i++) eater.update();
+  assert.ok(eater.length - start <= 1,
+    'eating a whole spawn corpse gained ' + (eater.length - start) + ' parts');
 });
 
 test('eating a whole corpse never gets you as big as the snake that died', () => {

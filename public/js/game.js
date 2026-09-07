@@ -1558,18 +1558,40 @@ let _lastFrameTime = 0;
    120Hz: four states per server snapshot, and it divides a 240Hz display
    exactly, so the cap lands on a clean 120fps. 90 did not divide it — three
    refreshes had to elapse before the budget was met, which quietly produced
-   80fps rather than 90 and was visible in the counter. */
+   80fps rather than 90 and was visible in the counter.
+
+   AND THAT SAME ALIASING WAS STILL HERE, on the displays most people game on.
+   The test was "has a whole frame budget passed since the last one I drew",
+   which on a refresh rate that does not divide the budget throws away every
+   other frame. Replayed frame by frame:
+
+        60Hz -> 60    120Hz -> 120    240Hz -> 120
+       144Hz -> 72    165Hz ->  83    180Hz ->  90
+
+   144 and 165 are the two commonest gaming monitors and both were running at
+   half rate, in a visible draw-skip-draw pattern — which is what a dropped
+   frame every other frame looks like, and it looks like lag.
+
+   A DEADLINE fixes it. Ask whether this frame is past the time the next one
+   was due, rather than whether a budget has elapsed since the last one drawn,
+   and the skipped frames land where they have to instead of on every other
+   one. Same 60/120/240 as before; 144, 165, 180 and 200 all reach 120. */
 const RENDER_HZ = 120;
 const FRAME_MS  = 1000 / RENDER_HZ;
+let _nextFrameAt = 0;
 let _meView = null;
 let _lLastStep = 0;   // body-thinning step last seen from the server
 
 function gameLoop(now) {
   // Cheap and first: skip the whole frame before anything allocates.
-  if (_lastFrameTime && (now - _lastFrameTime) < FRAME_MS - 0.5) {
+  if (now < _nextFrameAt) {
     requestAnimationFrame(gameLoop);
     return;
   }
+  /* Advance from the DEADLINE so the budget cannot drift, but never leave it
+     behind `now` — otherwise a stall banks a debt and is paid off with a burst
+     of catch-up frames the moment the tab wakes up. */
+  _nextFrameAt = Math.max(now, _nextFrameAt + FRAME_MS);
   const dt = Math.min(_lastFrameTime ? now - _lastFrameTime : 16.67, 50);
   _lastFrameTime = now;
 

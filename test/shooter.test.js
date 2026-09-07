@@ -573,6 +573,14 @@ test('a bot never sees through a wall', () => {
      where they happened to drive, which is how a suite that passes once fails
      the next time with nothing changed in between. */
   for (const t of [...r.tanks.values()]) if (t.bot && t !== bot) r.tanks.delete(t.id);
+  /* A CANNON, not whatever it was handed at spawn. A bot picks its weapon at
+     random, and two of the ten do not need line of sight to hurt somebody
+     through a wall: rockets splash 95 units, which reaches straight past one
+     54-unit tile of stone. That is correct behaviour for a rocket and has
+     nothing to do with what this test is about, but it failed the assertion
+     roughly one run in three and looked like the AI cheating. */
+  bot.weapon = 'cannon';
+
   /* Put them either side of a stone wall, close enough that distance alone
      would make the player a target. */
   const row = 20;
@@ -581,9 +589,18 @@ test('a bot never sees through a wall', () => {
   put(r, p,   19.5 * SH.TILE, (row + 0.5) * SH.TILE);
   put(r, bot, 21.5 * SH.TILE, (row + 0.5) * SH.TILE);
   assert.equal(r.lineOfSight(bot.x, bot.y, p.x, p.y), false, 'the wall is between them');
+
+  /* Both of them held where they were put. The bot wanders when it cannot see
+     anything, and given two seconds it will eventually drive round the wall
+     and shoot the player entirely fairly — which is the AI working, and would
+     fail a test that is asking whether it can shoot THROUGH the wall. */
+  const px = p.x, py = p.y, bx = bot.x, by = bot.y;
   const before = p.health;
   bot.nextFire = 0;
-  r.seconds(2);
+  for (let i = 0; i < SH.TICK_RATE * 2; i++) {
+    p.x = px; p.y = py; bot.x = bx; bot.y = by;
+    r.step(1);
+  }
   assert.equal(p.health, before, 'and it never shot through it');
 });
 

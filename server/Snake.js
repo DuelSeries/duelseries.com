@@ -353,19 +353,23 @@ class Snake {
     return Math.max(0, Math.min(C.GROWTH_MSCPS, this.length - MIN_SEGMENTS + 2));
   }
 
-  /* What this body cost to EARN, in food units: everything above the body you
-     are given for nothing at spawn.
+  /* What this body cost to build, in food units.
 
      A function of SIZE alone, so two snakes the same length are worth the same
      however long one has been farming — score keeps climbing after the part
      cap and a corpse priced off it would make a veteran's body absurd.
 
-     Above SPAWN because the first parts were not paid for. Pricing the whole
-     body meant dying at spawn size and eating yourself came back one part up:
-     not an exploit worth the respawn, but it is still mass appearing out of a
-     death, and the honest floor is that a snake which never ate anything
-     leaves nothing behind. */
-  get mass() { return Math.max(0, FPSLS[this.sct] - FPSLS[SPAWN_SCT]); }
+     The WHOLE body, spawn parts included, so every corpse leaves food on the
+     floor. Owen's call, and the right one: a body that vanishes without a
+     trace is a body nobody believes died there. Pricing only the earned part
+     made a spawn-size corpse worth exactly nothing.
+
+     A spawn body is worth 2.0 food units, of which a corpse drops the ratio —
+     enough to be worth driving over, and enough that dying at spawn size and
+     eating yourself comes back ONE part up. That is the whole of the surplus,
+     against losing your position and your speed and respawning somewhere else,
+     and it is a rounding error next to the 4.85x this replaced. */
+  get mass() { return FPSLS[this.sct]; }
 
   die() {
     this.alive = false;

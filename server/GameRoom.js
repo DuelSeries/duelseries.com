@@ -69,19 +69,31 @@ class GameRoom {
      and every path that makes a bot goes through it.
 
      ASK WHAT IT COSTS, never what it is called. Reading the answer out of a
-     room's name has now gone wrong six times: endsWith('free') read 'na_br'
-     as paid and silently refused the battle royale every bot, and the free
-     list read the ladder's own free room — which is called 'na_s0' — as paid
-     and left it empty while the board advertised it as the room to join.
+     room's name has now gone wrong seven separate times in this codebase:
 
-     A ladder room carries its stake, so it can simply be asked. Only a fixed
-     tier room, which has no stake on it, falls back to the type, and that
-     lookup is a shared LIST rather than a string test on the word 'free'. */
-  botsAllowed() {
+       endsWith('free') read 'na_br' as paid and silently refused the battle
+       royale every bot, so it could not be filled and could not be tested
+
+       the free LIST read the ladder's own free room — which is called
+       'na_s0' — as paid and left it empty while the board advertised it
+
+       and buildLeaderboard tested `lobbyType !== 'free'` against a room
+       called 'na_free', so EVERY free room decided it was a paid one and
+       ranked itself by worth, which is zero for everybody in it. Sorting by
+       a constant leaves the array in whatever order it was built, so the
+       leaderboard has been showing ten players in no order at all, with
+       ranks 1 to 10 written down the side of them.
+
+     So there is one of these now and everything asks it. A ladder room
+     carries its stake and can simply be asked; only a fixed tier room, which
+     has no stake on it, falls back to the type, and that lookup is a shared
+     LIST rather than a string test on the word 'free'. */
+  isFree() {
     if (this.stake !== undefined && this.stake !== null) return Number(this.stake) === 0;
     const type = String(this.lobbyType).replace(/^(na|eu)_/, '');
     return (C.FREE_LOBBY_TYPES || ['free']).indexOf(type) !== -1;
   }
+  botsAllowed() { return this.isFree(); }
 
   /* Keeps a free room populated, and is the thing that was missing: bots were
      only ever added by hand, so the room drained back to empty as they died.
@@ -578,7 +590,11 @@ class GameRoom {
      then filter, sort, slice and map each producing another. Same output,
      built into two arrays that live for the room's lifetime. */
   buildLeaderboard() {
-    const isPaid = this.lobbyType !== 'free';
+    /* Asked, not guessed from the name. `this.lobbyType !== 'free'` was true
+       in a room called 'na_free', so every free room ranked itself by worth —
+       which is 0 for everyone in a free room, so the sort compared zero with
+       zero and left ten players in the order the Map happened to yield. */
+    const isPaid = !this.isFree();
     const alive = this._lbAlive || (this._lbAlive = []);
     alive.length = 0;
     for (const s of this.snakes.values()) if (s.alive) alive.push(s);
