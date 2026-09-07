@@ -136,18 +136,25 @@ html, body {
 #feed li.good { color: var(--gold); font-weight: 600; }
 
 /* ── dead ──────────────────────────────────────────────────────────────────── */
-#dead {
+#dead, #cashedout {
   position: fixed; inset: 0; z-index: 14;
   display: flex; align-items: center; justify-content: center;
-  background: rgba(6,8,5,0.55); pointer-events: none;
+  background: rgba(6,8,5,0.55); pointer-events: auto;
 }
-#dead { pointer-events: auto; }
+/* Cashing out is the good ending, so its card is lit rather than grey. */
+#cashedout { background: rgba(6,8,5,0.62); }
+#cashedout .deadCard {
+  border-color: color-mix(in srgb, var(--gold) 34%, var(--s3));
+  box-shadow: 0 24px 60px rgba(0,0,0,0.6),
+              0 0 0 1px color-mix(in srgb, var(--gold) 12%, transparent);
+}
+#cashedout .eyebrow { color: var(--gold); }
+#coTotal:empty { display: none; }
 .deadCard {
   text-align: center; max-width: 380px; padding: 26px 24px 22px;
   background: var(--s1); border: 1px solid var(--s3); border-radius: 18px;
   box-shadow: 0 24px 60px rgba(0,0,0,0.6);
 }
-.deadCard .go { margin-top: 20px; }
 .deadCard .ghost {
   display: block; width: 100%; margin-top: 8px; padding: 12px;
   border-radius: 10px; font-family: inherit; font-size: 13.5px; font-weight: 600;
@@ -225,15 +232,22 @@ html, body {
 }
 .gunpick .gun.on b { color: var(--tx); }
 
-.card .go {
+/* The one gold button. It was scoped to `.card`, which is the boot card only,
+   so the Play again on the death card has been rendering as a bare browser
+   button this whole time: grey, tiny, and sitting in the middle of an
+   otherwise finished card. Scoped to both, since both are the same button
+   doing the same job. */
+.card .go, .deadCard .go {
   display: block; width: 100%; margin-top: 20px; padding: 14px;
   border-radius: 10px; font-family: inherit; font-size: 15px; font-weight: 650;
   cursor: pointer; border: 1px solid var(--gold);
   background: var(--gold); color: #201800;
   transition: background 0.15s, border-color 0.15s;
 }
-.card .go:hover { background: #ffc536; border-color: #ffc536; }
-.card .go:focus-visible { outline: 2px solid var(--you); outline-offset: 3px; }
+.card .go:hover, .deadCard .go:hover { background: #ffc536; border-color: #ffc536; }
+.card .go:focus-visible, .deadCard .go:focus-visible {
+  outline: 2px solid var(--you); outline-offset: 3px;
+}
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 @media (max-width: 620px) {

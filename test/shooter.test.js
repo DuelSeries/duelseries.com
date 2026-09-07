@@ -17,7 +17,19 @@ class Room extends ShooterRoom {
 }
 
 let n = 0;
-const sock = () => ({ id: 'p' + (++n), join() {}, volatile: { emit() {} } });
+/* `emit` as well as `volatile.emit`, and the difference matters. Snapshots go
+   out volatile so a client that cannot keep up drops frames instead of backing
+   up its buffer. A cash-out receipt is the opposite: dropping it means somebody
+   banked and was never told, so it goes out reliably. The double has to have
+   both or the room can only be tested through half of what it does. */
+const sent = new Map();          // socket id -> [[event, payload], ...]
+const sock = () => {
+  const id = 'p' + (++n);
+  sent.set(id, []);
+  return { id, join() {}, emit(e, p) { sent.get(id).push([e, p]); },
+           volatile: { emit() {} } };
+};
+const sentTo = (t, event) => (sent.get(t.id) || []).filter(m => m[0] === event).map(m => m[1]);
 /* Bots are stripped by default. They wander and shoot, so leaving them in makes
    every test about anything else quietly depend on where five of them happened
    to drive — which is how a suite that passes alone fails in a full run. The
@@ -237,6 +249,48 @@ test('five seconds in the middle banks it; stepping out resets the clock', () =>
   r.seconds(2.2);
   assert.equal(p.banked, 75, 'five is');
   assert.equal(p.coins, 0, 'and it is off you now');
+});
+
+test('cashing out ends the run, and says so once', () => {
+  /* Banking used to leave you in the arena with the money already safe, so
+     there was never a reason not to walk straight back in. Ending the run is
+     what makes the middle of the map a decision, and it is what cashing out
+     does in every other game here. */
+  const { r, p } = withPlayer();
+  p.coins = 75;
+  put(r, p, r.bank.x, r.bank.y);
+  r.seconds(5.2);
+
+  assert.equal(p.banked, 75, 'paid');
+  assert.equal(p.dead, true, 'and out of the arena');
+  assert.equal(p.cashedOut, true, 'out because they were paid, not destroyed');
+
+  const receipts = sentTo(p, 'sh:cashedout');
+  assert.equal(receipts.length, 1, 'told exactly once');
+  assert.equal(receipts[0].amount, 75);
+
+  // Nothing they were carrying is left on the floor: it was banked, not lost.
+  assert.equal(r.pickups.filter(x => x.kind === 'coin').length, 0);
+
+  // And they stay out until they ask, then come back clean.
+  r.seconds(4);
+  assert.equal(p.dead, true, 'still out four seconds later');
+  assert.equal(r.respawn(p.id), true);
+  assert.equal(p.dead, false);
+  assert.equal(p.cashedOut, false, 'the receipt is gone when you are back in');
+  assert.equal(p.coins, 0, 'and you start again carrying nothing');
+});
+
+test('a tank that has cashed out is out of everyone else\'s arena too', () => {
+  const { r, p } = withPlayer();
+  const other = r.addPlayer(sock(), 'Them', 'cannon');
+  put(r, other, 10 * SH.TILE, 10 * SH.TILE);
+  p.coins = 40;
+  put(r, p, r.bank.x, r.bank.y);
+  r.seconds(5.2);
+  assert.equal(p.cashedOut, true);
+  const seen = r.snapshot(other.id).tanks.map(t => t.id);
+  assert.ok(!seen.includes(p.id), 'a cashed-out tank is not a target');
 });
 
 test('there is nothing to bank when you are carrying nothing', () => {

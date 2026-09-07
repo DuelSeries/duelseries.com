@@ -63,6 +63,22 @@
   </div>
 </div>
 
+<!-- Cashed out. Not a death card with different words: dying loses what you
+     were carrying and this is the one screen in the game that means you kept
+     it. The run is over either way, which is the point of the square. -->
+<div id="cashedout" hidden>
+  <div class="deadCard">
+    <p class="eyebrow">Cashed out</p>
+    <p class="big"><span class="num" id="coAmount">0</span> banked</p>
+    <p class="sub">That is yours and nobody can take it off you now. Your run
+      is over, which is the whole cost of cashing out: the only way to keep
+      coins is to stop playing with them.</p>
+    <p class="sub gold" id="coTotal"></p>
+    <button type="button" class="go" id="coAgainBtn">Play again</button>
+    <button type="button" class="ghost" id="coLeaveBtn">Back to the lobby</button>
+  </div>
+</div>
+
 <!-- Touch controls: a stick to drive and aim, a thumb button to fire. -->
 <div id="touch" hidden>
   <div id="stick"><i id="stickNub"></i></div>

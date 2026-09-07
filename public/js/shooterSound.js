@@ -204,7 +204,43 @@
     bB.connect(bBg); bBg.connect(trem);
     bA.start(); bB.start(); tremLfo.start();
 
+    /* THE FLAMETHROWER. Every other gun here is an event, so every other gun
+       is a one-shot. Fire is not an event, it is a thing that is happening,
+       and firing a one-shot every 50ms produced a stuttering rattle that
+       sounded like a gun because it WAS shaped like a gun, twenty times a
+       second. So the flamethrower is a bed like the engine: held open for
+       exactly as long as the trigger is.
+
+       Two layers. The roar is broad low noise with its cutoff pushed around
+       by two LFOs at rates that do not divide into each other, so it billows
+       and never settles into a loop you can hear repeating. Over it, a thin
+       high hiss, which is the gas leaving the nozzle. */
+    var flmGain = ctx.createGain(); flmGain.gain.value = 0;
+    flmGain.connect(master);
+
+    var roar = ctx.createBufferSource(); roar.buffer = noiseBuf; roar.loop = true;
+    var roarF = ctx.createBiquadFilter();
+    roarF.type = 'lowpass'; roarF.frequency.value = 700; roarF.Q.value = 0.9;
+    var roarG = ctx.createGain(); roarG.gain.value = 0.9;
+    roar.connect(roarF); roarF.connect(roarG); roarG.connect(flmGain);
+
+    var wob = ctx.createOscillator(); wob.type = 'sine'; wob.frequency.value = 5.5;
+    var wobD = ctx.createGain(); wobD.gain.value = 260;
+    wob.connect(wobD); wobD.connect(roarF.frequency);
+    var wob2 = ctx.createOscillator(); wob2.type = 'sine'; wob2.frequency.value = 1.7;
+    var wob2D = ctx.createGain(); wob2D.gain.value = 170;
+    wob2.connect(wob2D); wob2D.connect(roarF.frequency);
+
+    var hiss = ctx.createBufferSource(); hiss.buffer = noiseBuf; hiss.loop = true;
+    var hissF = ctx.createBiquadFilter();
+    hissF.type = 'highpass'; hissF.frequency.value = 2600;
+    var hissG = ctx.createGain(); hissG.gain.value = 0.22;
+    hiss.connect(hissF); hissF.connect(hissG); hissG.connect(flmGain);
+
+    roar.start(); hiss.start(); wob.start(); wob2.start();
+
     beds = { engGain: engGain, sub: sub, chugT: chugT, chugF: chugF, lfo: lfo,
+             flmGain: flmGain,
              clat: clat, clatLfo: clatLfo,
              srvGain: srvGain, srvOsc: srv,
              bankGain: bankGain, tremLfo: tremLfo };
@@ -222,18 +258,30 @@
     /* Very quiet, and pulsed rather than droning, which lowers what you
        actually hear again at the same peak. The rate climbing with speed is
        what carries the effort, so this does not need volume to read as work. */
-    beds.engGain.gain.setTargetAtTime(0.006 + d * 0.017, t, 0.12);
+    /* The idle stays where it was. Only the driving half comes up, by about
+       3dB, which is the smallest step that reads as louder at all. */
+    beds.engGain.gain.setTargetAtTime(0.006 + d * 0.026, t, 0.12);
     beds.lfo.frequency.setTargetAtTime(7 + d * 13, t, 0.18);
     var f0 = 33 + d * 15;                       // the engine's own low tone
     beds.sub.frequency.setTargetAtTime(f0, t, 0.18);
     beds.chugT.frequency.setTargetAtTime(f0 * 2, t, 0.18);   // locked, never beating
     beds.chugF.frequency.setTargetAtTime(250 + d * 240, t, 0.15);
 
-    beds.clat.gain.setTargetAtTime(d * 0.0075, t, 0.14);
+    beds.clat.gain.setTargetAtTime(d * 0.0105, t, 0.14);
     beds.clatLfo.frequency.setTargetAtTime(9 + d * 13, t, 0.18);
 
     beds.srvGain.gain.setTargetAtTime(r * 0.010, t, 0.05);
     beds.srvOsc.frequency.setTargetAtTime(280 + r * 260, t, 0.05);
+  }
+
+  /* The trigger, every frame, for the one gun that is a sound rather than a
+     series of them. Fast on and slower off: fire catches at once and trails
+     away as the last of the fuel burns. */
+  function flame(on) {
+    if (!ready || !beds) return;
+    var t = now();
+    var want = (on && !muted) ? 0.07 : 0;
+    beds.flmGain.gain.setTargetAtTime(want, t, on ? 0.03 : 0.10);
   }
 
   /* The cash-out square, every frame. `inBox` is whether the tank is inside it
@@ -269,7 +317,14 @@
       noise(0.10, 0.14, 'bandpass', 2400, 4);
     },
     flamethrower: function () {
-      noise(0.22, 0.10, 'bandpass', 900, 1.2);
+      /* Nearly silent per shot, on purpose. What a flamethrower sounds like
+         is the bed in buildBeds, held for as long as the trigger is; all this
+         adds is the occasional pop of something catching, at a random pitch
+         and only some of the time, so twenty shots a second do not become a
+         rattle. */
+      if (Math.random() < 0.28) {
+        noise(0.05, 0.035, 'bandpass', 1200 + Math.random() * 1800, 6);
+      }
     },
     cannon: function () {
       noise(0.34, 0.50, 'lowpass', 1400);
@@ -368,7 +423,7 @@
   }
 
   root.ShooterSound = {
-    init: init, unlock: unlock, gun: gun, fx: fx, rig: rig, bank: bank,
+    init: init, unlock: unlock, gun: gun, fx: fx, rig: rig, bank: bank, flame: flame,
     setMuted: setMuted,
     get muted() { return muted; },
     get ready() { return ready; },

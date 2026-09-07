@@ -19,7 +19,8 @@
    after are measured by identical code on an identical scale.
 
    The sound module is a singleton and keeps the first context it is handed, so
-   each measurement needs its own page load. ?test=engine or ?test=bank.
+   each measurement needs its own page load. ?test=engine, ?test=bank or
+   ?test=flame.
 
    ?test=engine compares against the PREVIOUS version of the sound module, which
    it fetches from public/dev-old-shootersound.js. That file is not in git
@@ -145,35 +146,37 @@ function report(name, buf, t0, t1) {
   log('  ' + ' '.repeat(18) + 'whole signal          ' + fmt(r.whole));
   return r;
 }
+/* The baseline is whatever public/dev-old-shootersound.js happens to be, and
+   that has been two different shapes over its life: the original could only
+   build its own context, and everything since takes one. Handle both, because
+   the point of a baseline is to be able to reach back past the current one. */
 async function loadOld() {
   const src = await (await fetch('dev-old-shootersound.js')).text();
-  /* The old init built its own context and cannot be handed one, so the three
-     lines that build it are swapped for the injected one. Nothing else is
-     touched, so what gets measured is the old graph exactly as it shipped. */
   const patched = src.replace(
     '    var AC = root.AudioContext || root.webkitAudioContext;\n    if (!AC) return null;\n    ctx = new AC();',
     '    ctx = root.__ctx;');
-  if (patched === src) throw new Error('could not inject a context into the old module');
   const shim = {};
   new Function('window', patched)(shim);
-  return shim;
+  const api = shim.ShooterSound;
+  if (!api) throw new Error('the baseline file did not define ShooterSound');
+  /* If the swap took, the old init has to be fed through root.__ctx. If it did
+     not, this baseline already accepts a context as an argument. */
+  return { api, shim, injectVia: patched === src ? 'arg' : 'root' };
 }
-
 async function engineTest() {
   log('THE TANK ENGINE      idle 0.6-1.4s, full throttle 2.6-3.9s');
   log('');
 
-  const oldShim = await loadOld();
+  const old = await loadOld();
   const oOff = new OfflineAudioContext(1, SR * 4, SR);
-  oldShim.__ctx = oOff;
-  oldShim.ShooterSound.init();
-  oldShim.ShooterSound.rig(0, 0);
-  oOff.suspend(1.5).then(() => { oldShim.ShooterSound.rig(1, 0); oOff.resume(); });
+  if (old.injectVia === 'root') { old.shim.__ctx = oOff; old.api.init(); }
+  else old.api.init(oOff);
+  old.api.rig(0, 0);
+  oOff.suspend(1.5).then(() => { old.api.rig(1, 0); oOff.resume(); });
   const ob = await oOff.startRendering();
   log('before:');
   const oi = report('idle', ob, 0.6, 1.4);
   const od = report('full throttle', ob, 2.6, 3.9);
-
   const nOff = new OfflineAudioContext(1, SR * 4, SR);
   const S = window.ShooterSound;
   S.init(nOff);
@@ -200,6 +203,33 @@ async function engineTest() {
   report('after 1.15s', fb, 1.15, 1.40);
 
   window.__soundcheck = { oldIdle: oi, oldDrive: od, newIdle: ni, newDrive: nd, fanfare: ok };
+}
+
+async function flameTest() {
+  /* The flamethrower is the one gun that is a sound rather than a series of
+     them, so it is measured like a bed and not like a shot: does it come up
+     when the trigger goes down, does it hold steady while it is held, does it
+     move (fire that does not billow is static), and does it go away. */
+  log('THE FLAMETHROWER   trigger down at 1.0s, released at 3.0s');
+  log('');
+  const off = new OfflineAudioContext(1, SR * 5, SR);
+  const S = window.ShooterSound;
+  S.init(off);
+  S.flame(false);
+  off.suspend(1.0).then(() => { S.flame(true);  off.resume(); });
+  off.suspend(3.0).then(() => { S.flame(false); off.resume(); });
+  const b = await off.startRendering();
+  const q = report('trigger up', b, 0.3, 0.9);
+  const a = report('firing, first half', b, 1.3, 2.1);
+  const c = report('firing, second half', b, 2.1, 2.9);
+  const d = report('released', b, 3.6, 4.6);
+  log('');
+  log('  silent before firing:  ' + (q.peak < 1e-6));
+  log('  steady while held:     ' + dB(c.rms, a.rms) + ' dB across two seconds');
+  log('  gone after release:    ' + (d.peak < c.peak / 1000) + '  (' + dB(d.peak, c.peak) + ' dB)');
+  log('  it billows rather than sitting still: the roar filter is pushed by two');
+  log('  LFOs at 5.5 and 1.7 Hz, which is what the rhythm column should show.');
+  window.__soundcheck = { quiet: q, firingA: a, firingB: c, released: d };
 }
 
 async function bankTest() {
@@ -235,6 +265,7 @@ async function bankTest() {
   out.textContent = '';
   try {
     if (TEST === 'bank') await bankTest();
+    else if (TEST === 'flame') await flameTest();
     else await engineTest();
     log('');
     log('done');

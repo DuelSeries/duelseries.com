@@ -362,6 +362,40 @@
     return true;
   }
 
+  /* ── fire ────────────────────────────────────────────────────────────────
+     A flamethrower jet is a lot of overlapping soft blobs, drawn additively so
+     the middle of the stream sums to white-hot while the edges stay orange.
+     Four tinted sprites are baked once rather than building a radial gradient
+     per blob per frame, because there are a dozen blobs per firing tank and
+     gradients are not free. Which sprite a blob gets comes from its age, so
+     the jet cools from white at the nozzle to deep red at the tip, which is
+     what makes it read as fire rather than as orange pellets. */
+  var FLAME_RGB = [[255, 246, 214], [255, 201, 70], [255, 124, 26], [214, 52, 26]];
+  var flameSprites = null;
+  function buildFlames() {
+    flameSprites = FLAME_RGB.map(function (c) {
+      var s = 64, cv = document.createElement('canvas');
+      cv.width = cv.height = s;
+      var g = cv.getContext('2d');
+      var rgb = c[0] + ',' + c[1] + ',' + c[2];
+      var gr = g.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
+      gr.addColorStop(0,    'rgba(' + rgb + ',1)');
+      gr.addColorStop(0.35, 'rgba(' + rgb + ',0.70)');
+      gr.addColorStop(1,    'rgba(' + rgb + ',0)');
+      g.fillStyle = gr;
+      g.fillRect(0, 0, s, s);
+      return cv;
+    });
+  }
+  /* `age` is 0 at the muzzle and 1 as the flame dies. */
+  function flame(ctx, x, y, r, age, alpha) {
+    if (!flameSprites) buildFlames();
+    var i = age < 0.22 ? 0 : age < 0.5 ? 1 : age < 0.78 ? 2 : 3;
+    ctx.globalAlpha = alpha;
+    ctx.drawImage(flameSprites[i], x - r, y - r, r * 2, r * 2);
+    ctx.globalAlpha = 1;
+  }
+
   /* The damage bar every breakable shares. Only drawn once something has
      actually been hit, so an untouched arena is not covered in meters. */
   function damageBar(ctx, x, y, s, hp) {
@@ -537,7 +571,7 @@
     GUN_PIVOT: [GUN_PX, GUN_PY],
     TEAMS: TEAMS, WEAPONS: WEAPONS, GRASS: GRASS,
     drawTank: drawTank, gun: gun, roundRect: rr,
-    loadTiles: loadTiles,
+    loadTiles: loadTiles, flame: flame,
     get atlasReady() { return !!atlas; },
     drawGrass: drawGrass, drawStone: drawStone, drawBrick: drawBrick,
     drawWood: drawWood, drawCrate: drawCrate, drawBarrel: drawBarrel,

@@ -91,7 +91,14 @@ const WEAPONS = {
   minigun:      { name: 'Minigun',      cooldown: 95,   damage: 6,  speed: 520, spread: 0.10, shots: 1, radius: 4 },
   shotgun:      { name: 'Shotgun',      cooldown: 780,  damage: 10, speed: 380, spread: 0.42, shots: 7, radius: 4, life: 0.42 },
   ricochet:     { name: 'Ricochet',     cooldown: 520,  damage: 18, speed: 420, spread: 0,    shots: 1, radius: 5, bounce: 4, life: 3.4 },
-  flamethrower: { name: 'Flamethrower', cooldown: 50,   damage: 4,  speed: 300, spread: 0.30, shots: 1, radius: 9, life: 0.28 },
+  /* `fire` marks this as burning rather than solid, which is the only thing
+     the client needs to draw a jet of flame instead of a pellet. The reach
+     was 0.28s at 300, which is 84 units, and the muzzle is already 27 of
+     those: a flamethrower whose flame stopped one tile past its own barrel
+     read as a gun firing orange dots. 0.5s puts the tip about two and a half
+     tiles out, which is close enough to touch and still short enough that
+     closing the distance is the risk it is supposed to be. */
+  flamethrower: { name: 'Flamethrower', cooldown: 50,   damage: 4,  speed: 300, spread: 0.34, shots: 1, radius: 9, life: 0.5, fire: 1 },
   cannon:       { name: 'Cannon',       cooldown: 640,  damage: 34, speed: 400, spread: 0,    shots: 1, radius: 6 },
   shock:        { name: 'Shock',        cooldown: 900,  damage: 24, kind: 'chain', chain: 3, range: 300 },
   rockets:      { name: 'Rockets',      cooldown: 880,  damage: 22, speed: 300, spread: 0.02, shots: 1, radius: 7, splash: 95, splashDmg: 34 },
@@ -436,6 +443,7 @@ class ShooterRoom {
       t.x = x; t.y = y;
       t.health = t.maxHealth;
       t.dead = false;
+      t.cashedOut = false;
       t.cashMs = 0;
       t.safeUntil = this.now() + SH.SPAWN_SAFE_MS;
       return;
@@ -595,12 +603,34 @@ class ShooterRoom {
     t.quickMs = 0;
     t.bankedAt = this.now();
     t.bankedLast = took;
+
+    /* And that is the run. Banking used to leave you in the arena with the
+       money safe, which made the square a free top-up rather than a decision:
+       there was never a reason not to go back in. Cashing out ends the game
+       here for the same reason it does in the snake and agar rooms, so the
+       question the middle of the map asks is the real one. You leave the
+       arena at once and nothing puts you back in until you ask.
+
+       Marked dead because that is already the state meaning "out of the
+       simulation": no collisions, no shooting, no snapshot entry for anyone
+       else. `cashedOut` is only there to say WHY, so the client can show a
+       receipt rather than a wreck, and `deadUntil` is now because taking your
+       money out is not something to be punished with a respawn timer. */
+    t.dead = true;
+    t.cashedOut = true;
+    t.deadUntil = this.now();
+
     this.io.to(this.socketRoomName).emit('sh:banked',
       { name: t.name, amount: took, total: t.banked, how });
+    if (t.socket) {
+      t.socket.emit('sh:cashedout',
+        { amount: took, total: t.banked, kills: t.kills, how });
+    }
   }
 
-  /* Asked for by a dead player, so nothing puts them back in the arena until
-     they say so. Refused for anybody who is not actually dead. */
+  /* Asked for by a player who is out, so nothing puts them back in the arena
+     until they say so. Out covers both ways of leaving it: destroyed, or
+     cashed out. Refused for anybody still driving around. */
   respawn(id) {
     const t = this.tanks.get(id);
     if (!t || !t.dead) return false;
@@ -640,7 +670,8 @@ class ShooterRoom {
         x: t.x + Math.cos(a) * (SH.TANK_R + 8),
         y: t.y + Math.sin(a) * (SH.TANK_R + 8),
         vx: Math.cos(a) * w.speed, vy: Math.sin(a) * w.speed,
-        life: w.life || 2.4, dmg: w.damage, r: w.radius, from: t.id,
+        life: w.life || 2.4, life0: w.life || 2.4,
+        dmg: w.damage, r: w.radius, from: t.id, fire: w.fire ? 1 : 0,
         bounce: w.bounce || 0, splash: w.splash || 0, splashDmg: w.splashDmg || 0,
       });
     }
@@ -829,6 +860,7 @@ class ShooterRoom {
         hp: Math.round(me.health), max: me.maxHealth,
         coins: me.coins, banked: me.banked, kills: me.kills, weapon: me.weapon,
         dead: !!me.dead, respawn: me.dead ? Math.max(0, me.deadUntil - now) : 0,
+        cashed: !!me.cashedOut,
         safe: !!(me.safeUntil && now < me.safeUntil),
         cash: me.cashMs > 0 ? Math.min(1, me.cashMs / SH.CASHOUT_MS) : 0,
         shots: me.shots || 0,
@@ -841,7 +873,13 @@ class ShooterRoom {
         hp: Math.round(t.health), max: t.maxHealth, w: t.weapon, r: r1(t.roll),
         c: t.cashMs > 0 ? 1 : 0,
       })),
-      bullets: this.bullets.map(b => [r1(b.x), r1(b.y), b.r]),
+      /* [x, y, radius, burning, age]. The last two are new and appended, so
+         anything reading the first three still reads them. Age is how far
+         through its life this one is, 0 at the muzzle and 1 as it dies,
+         which is what lets flame cool from white to smoke down the jet
+         instead of being three hundred identical orange circles. */
+      bullets: this.bullets.map(b => [r1(b.x), r1(b.y), b.r, b.fire || 0,
+                                      r2(1 - b.life / b.life0)]),
       mines: this.mines.map(m => [r1(m.x), r1(m.y), now >= m.armAt ? 1 : 0]),
       pickups: this.pickups.map(p => [r1(p.x), r1(p.y), p.kind === 'medkit' ? 1 : 0, p.value || 0]),
       fx: this.fx.map(f => [f.k].concat(f.a)),

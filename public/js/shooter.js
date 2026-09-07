@@ -59,6 +59,7 @@
      comparison per frame and nothing new has to be sent down the wire. */
   var SND = null;
   var lastShots = 0, lastHp = null, lastCoins = null, lastDead = false;
+  var flameUntil = 0;
   var lastAim = 0, aimRate = 0;
   var FLASH_MS = 110;   // my number, not a measured one: long enough to see, short enough not to strobe
 
@@ -238,6 +239,7 @@
     // Your own gun. The counter is authoritative, so a beam and a chain fire
     // exactly as reliably as a bullet does.
     var shots = s.you.shots || 0;
+    var firedNow = !!(lastShots && shots > lastShots);
     if (lastShots && shots > lastShots) {
       var n = Math.min(3, shots - lastShots);   // never stack more than three
       for (var i = 0; i < n; i++) SND.gun(s.you.weapon);
@@ -292,6 +294,16 @@
                    Math.abs(s.you.x - b.x) <= b.half &&
                    Math.abs(s.you.y - b.y) <= b.half);
     SND.bank(inBox, s.you.cash || 0);
+
+    /* The flamethrower is held open rather than triggered per shot. Snapshots
+       arrive at 30Hz and the gun fires every 50ms, so a snapshot can easily
+       land between two shots; without the hold the roar would gate on and off
+       at the beat frequency between the two, which is a stutter, which is the
+       exact thing being fixed. 200ms outlasts any single gap. */
+    if (firedNow && !s.you.dead && s.you.weapon === 'flamethrower') {
+      flameUntil = performance.now() + 200;
+    }
+    SND.flame(performance.now() < flameUntil);
   }
 
   socket.on('sh:killed', function (e) {
@@ -347,7 +359,11 @@
       $('flashNum').textContent = '+' + s.you.banked_last;
     } else { flash.hidden = true; }
 
-    $('dead').hidden = !s.you.dead;
+    /* Two ways out of the arena and they are not the same news, so they are
+       not the same card. */
+    var cashed = !!s.you.cashed;
+    $('dead').hidden = !(s.you.dead && !cashed);
+    $('cashedout').hidden = !cashed;
 
     for (var i = 0; i < gunBtns.length; i++) {
       gunBtns[i].classList.toggle('on', gunBtns[i].dataset.w === s.you.weapon);
@@ -627,10 +643,73 @@
     ctx.restore();
   }
 
+  /* One scratch canvas for the whole page, kept the same size as the arena. */
+  var flameBuf = null, flameBufCtx = null;
+  function flameLayer() {
+    if (!flameBuf) {
+      flameBuf = document.createElement('canvas');
+      flameBufCtx = flameBuf.getContext('2d');
+    }
+    if (flameBuf.width !== cv.width || flameBuf.height !== cv.height) {
+      flameBuf.width = cv.width; flameBuf.height = cv.height;
+    }
+    return flameBufCtx;
+  }
+
   function drawBullets(X, Y) {
-    for (var i = 0; i < next.bullets.length; i++) {
-      var b = next.bullets[i];
-      if (!visibleAt(b[0], b[1])) continue;
+    var i, b;
+
+    /* THE FIRE, IN ITS OWN LAYER.
+
+       A jet is a dozen overlapping blobs and they have to SUM, or the core of
+       the stream is just more orange instead of white-hot. But additive drawing
+       straight onto the arena adds the fire to whatever is behind it, and what
+       is behind it is bright green grass: orange plus green is yellow-green, so
+       the first version of this painted a lime-coloured jet.
+
+       So the blobs are summed against transparent black in a scratch layer, and
+       the finished flame is then composited over the arena normally. Additive
+       where it belongs, ordinary where it belongs. Only the rectangle the jet
+       actually occupies is cleared and copied, so this costs a small blit while
+       somebody is firing and nothing at all when nobody is. */
+    var fire = null, bx0 = 1e9, by0 = 1e9, bx1 = -1e9, by1 = -1e9;
+    for (i = 0; i < next.bullets.length; i++) {
+      b = next.bullets[i];
+      if (!b[3] || !visibleAt(b[0], b[1])) continue;
+      var age = b[4] || 0;
+      /* A jet widens as it goes and the last of it fades rather than stopping
+         dead, which is the difference between a flame and a line of dots that
+         vanish. Fat enough at the muzzle that consecutive blobs overlap. */
+      var rr = b[2] * S * (0.8 + age * 2.0);
+      var sx = X(b[0]), sy = Y(b[1]);
+      (fire || (fire = [])).push([sx, sy, rr, age]);
+      if (sx - rr < bx0) bx0 = sx - rr;
+      if (sy - rr < by0) by0 = sy - rr;
+      if (sx + rr > bx1) bx1 = sx + rr;
+      if (sy + rr > by1) by1 = sy + rr;
+    }
+    if (fire) {
+      bx0 = Math.max(0, Math.floor(bx0) - 2); by0 = Math.max(0, Math.floor(by0) - 2);
+      bx1 = Math.min(cv.width,  Math.ceil(bx1) + 2);
+      by1 = Math.min(cv.height, Math.ceil(by1) + 2);
+      var bw = bx1 - bx0, bh = by1 - by0;
+      if (bw > 0 && bh > 0) {
+        var fx = flameLayer();
+        fx.clearRect(bx0, by0, bw, bh);
+        fx.save();
+        fx.globalCompositeOperation = 'lighter';
+        for (i = 0; i < fire.length; i++) {
+          var p = fire[i];
+          A.flame(fx, p[0], p[1], p[2], p[3], Math.min(1, (1 - p[3]) * 2.2));
+        }
+        fx.restore();
+        ctx.drawImage(flameBuf, bx0, by0, bw, bh, bx0, by0, bw, bh);
+      }
+    }
+
+    for (i = 0; i < next.bullets.length; i++) {
+      b = next.bullets[i];
+      if (b[3] || !visibleAt(b[0], b[1])) continue;
       ctx.beginPath();
       ctx.arc(X(b[0]), Y(b[1]), Math.max(1.5, b[2] * S), 0, Math.PI * 2);
       ctx.fillStyle = '#ffe9b8'; ctx.fill();
@@ -781,6 +860,22 @@
     socket.emit('sh:respawn');
   });
   $('deadLeaveBtn').addEventListener('click', leave);
+
+  /* The amount comes off the event rather than off a snapshot. A snapshot is
+     volatile and a dropped one is nothing; a receipt that never arrives is
+     somebody being paid and not told, so the server sends this reliably and
+     the card reads what it was actually sent. */
+  socket.on('sh:cashedout', function (e) {
+    $('coAmount').textContent = e && e.amount || 0;
+    var total = e && e.total || 0;
+    $('coTotal').textContent = total > (e && e.amount || 0)
+      ? total + ' banked in this session' : '';
+  });
+  $('coAgainBtn').addEventListener('click', function () {
+    $('cashedout').hidden = true;
+    socket.emit('sh:respawn');
+  });
+  $('coLeaveBtn').addEventListener('click', leave);
 
   /* The last snapshot, for the console. It is the same data the page has
      already been sent and can already read off the wire, so this gives nothing
