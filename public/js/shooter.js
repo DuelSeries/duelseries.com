@@ -369,8 +369,12 @@
       gunBtns[i].classList.toggle('on', gunBtns[i].dataset.w === s.you.weapon);
     }
 
+    /* Bots are labelled. They are here to keep an empty arena from feeling
+       empty, not to be mistaken for people, and a player is entitled to know
+       which of the things shooting at them is a person. */
     $('board').innerHTML = (s.board || []).map(function (b) {
-      return '<li' + (b.me ? ' class="me"' : '') + '><b>' + esc(b.n) + '</b>' +
+      return '<li' + (b.me ? ' class="me"' : '') + '><b>' + esc(b.n) +
+             (b.bot ? '<i class="bottag">bot</i>' : '') + '</b>' +
              '<span class="num">' + b.b + '</span></li>';
     }).join('');
   }

@@ -448,15 +448,98 @@ test('an empty arena stops ticking, and forgets the mess', () => {
   assert.equal(r.timer, null, 'the loop is stopped');
 });
 
-test('there are no bots in the arena', () => {
-  /* Owen asked for them gone: a free-for-all against robots is not the game.
-     The machinery is still there behind SH.BOT_FLOOR, so this is the test that
-     notices if it ever comes back by accident. */
+/* ── bots ───────────────────────────────────────────────────────────────────
+   The guard first, because it is the one that matters. Everything else here is
+   about an arena feeling populated; that one is about a real-money game not
+   putting house robots among people who have staked. */
+
+test('a room that takes a stake gets no bots at all', () => {
+  const r = new Room();
+  r.stake = 1;                       // the day one of these tables charges
+  r.addPlayer(sock(), 'Owen', 'cannon');
+  r.stop();
+  assert.equal(r.botsAllowed(), false);
+  assert.equal(r.bots(), 0, 'no bots where money is staked');
+  r.topUpBots();                     // and asking again does not sneak one in
+  assert.equal(r.bots(), 0);
+});
+
+test('a free arena fills toward the floor, and bots make way for people', () => {
   const r = new Room();
   r.addPlayer(sock(), 'Owen', 'cannon');
   r.stop();
-  assert.equal([...r.tanks.values()].filter(t => t.bot).length, 0);
-  assert.equal(r.tanks.size, 1, 'just the one player');
+  assert.equal(r.humans(), 1);
+  assert.equal(r.bots(), SH.BOT_FLOOR - 1, 'one person, the rest robots');
+
+  /* As people arrive the bots stand down. They are only removed once they are
+     out of the fight, so a tank somebody is shooting at never blinks away. */
+  for (let i = 0; i < SH.BOT_FLOOR - 1; i++) r.addPlayer(sock(), 'P' + i, 'cannon');
+  for (const t of r.tanks.values()) if (t.bot) t.dead = true;
+  r.topUpBots();
+  assert.equal(r.humans(), SH.BOT_FLOOR);
+  assert.equal(r.bots(), 0, 'a full arena of people needs no robots');
+});
+
+test('a live bot over the floor is left to die rather than vanishing', () => {
+  const r = new Room();
+  r.addPlayer(sock(), 'Owen', 'cannon');
+  r.stop();
+  const before = r.bots();
+  for (let i = 0; i < 4; i++) r.addPlayer(sock(), 'P' + i, 'cannon');
+  assert.equal(r.bots(), before, 'still there, because none of them are dead');
+});
+
+test('a bot can never bank, however much it is carrying', () => {
+  /* It carries coins so that killing it is worth something, and drops them on
+     death like anybody else. Turning them into a payout is the one thing it
+     must not do. */
+  const r = new Room();
+  r.addPlayer(sock(), 'Owen', 'cannon');
+  r.stop();
+  const bot = [...r.tanks.values()].find(t => t.bot);
+  assert.ok(bot, 'there is a bot to test');
+  bot.coins = 500;
+  r.bankCoins(bot, 'quick');
+  assert.equal(bot.banked, 0, 'nothing banked');
+  assert.equal(bot.coins, 500, 'and it still has it to drop');
+});
+
+test('every bot is labelled as one, everywhere a player can see it', () => {
+  /* The whole reason this is safe to switch on. A player is entitled to know
+     which of the things shooting at them is a person. */
+  const r = new Room();
+  const p = r.addPlayer(sock(), 'Owen', 'cannon');
+  r.stop();
+  const s = r.snapshot(p.id);
+  const bots = [...r.tanks.values()].filter(t => t.bot).map(t => t.id);
+  assert.ok(bots.length, 'there are bots to label');
+  s.tanks.forEach(t => {
+    assert.equal(t.bot, bots.includes(t.id) ? 1 : 0, t.n + ' is labelled correctly');
+  });
+  s.board.forEach(b => assert.ok(b.bot === 0 || b.bot === 1, 'every board row says'));
+  assert.ok(s.board.some(b => b.bot === 1), 'and the bots on it say so');
+});
+
+test('a bot never sees through a wall', () => {
+  /* Bots run the same simulation as players and get no shortcuts. This is the
+     one that would be easy to give away by accident, because a bot that aims
+     through stone is much better and nothing complains. */
+  const r = new Room();
+  const p = r.addPlayer(sock(), 'Owen', 'cannon');
+  r.stop();
+  const bot = [...r.tanks.values()].find(t => t.bot);
+  /* Put them either side of a stone wall, close enough that distance alone
+     would make the player a target. */
+  const row = 20;
+  for (let c = 15; c < 26; c++) { r.map[row][c] = SH.EMPTY; r.hp[row][c] = 0; }
+  r.map[row][20] = SH.STONE;
+  put(r, p,   19.5 * SH.TILE, (row + 0.5) * SH.TILE);
+  put(r, bot, 21.5 * SH.TILE, (row + 0.5) * SH.TILE);
+  assert.equal(r.lineOfSight(bot.x, bot.y, p.x, p.y), false, 'the wall is between them');
+  const before = p.health;
+  bot.nextFire = 0;
+  r.seconds(2);
+  assert.equal(p.health, before, 'and it never shot through it');
 });
 
 test('a snapshot is a sane size and carries no sockets', () => {

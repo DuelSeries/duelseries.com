@@ -163,6 +163,15 @@ html, body {
 }
 .deadCard .ghost:hover { color: var(--tx); border-color: #3d4632; }
 
+/* The bot tag. Small and unemphatic — it is a fact about the row, not a
+   warning — but never absent, because a player has to be able to tell. */
+.board .bottag{
+  display:inline-block; margin-left:5px; padding:1px 4px; border-radius:4px;
+  font-style:normal; font-size:9px; font-weight:600; letter-spacing:.04em;
+  text-transform:uppercase; color:var(--tx3);
+  background:rgba(255,255,255,0.08); vertical-align:1px;
+}
+
 /* The banked flash. Big, brief, dead centre, and impossible to drive past. */
 #banked-flash {
   position: fixed; top: 34%; left: 50%; transform: translate(-50%, -50%);

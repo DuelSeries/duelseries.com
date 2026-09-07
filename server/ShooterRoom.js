@@ -64,11 +64,21 @@ const SH = {
   PICKUP_R: 30,
   COIN_LIFE_MS: 45000,
 
-  /* No bots. Owen asked for them gone: a free-for-all against robots is not
-     the game, and an arena that is empty until somebody else turns up is at
-     least honest about being empty. The machinery below is kept and driven by
-     this one number, so putting them back is changing a 0 to a 4. */
-  BOT_FLOOR: 0,
+  /* How full an empty arena is made to feel. Bots fill toward this many tanks
+     and stand down as real players arrive, so the first person through the
+     door still has a game and the sixth is not fighting robots.
+
+     This was 0 for a while, because a free-for-all against robots is not the
+     game and an arena that is empty until somebody turns up is at least honest
+     about being empty. What makes it safe to turn on is that the bots are now
+     labelled as bots everywhere they appear.
+
+     THIS NUMBER IS ONLY EVER REACHED IN A ROOM THAT TAKES NO STAKE. The guard
+     is botsAllowed() and it is not a formality: house robots among people who
+     have staked real money is the single thing most likely to end a real-money
+     game, so it has to be impossible by construction rather than by anybody
+     remembering. */
+  BOT_FLOOR: 5,
 
   EMPTY: 0, CRATE: 1, STONE: 2, BRICK: 3, WOOD: 4, BARREL: 5,
 };
@@ -407,19 +417,44 @@ class ShooterRoom {
   }
 
   humans() { let n = 0; for (const t of this.tanks.values()) if (!t.bot) n++; return n; }
+  bots()   { let n = 0; for (const t of this.tanks.values()) if (t.bot) n++; return n; }
+
+  /* THE ONE RULE. A bot may exist only in a room where nothing is staked.
+
+     One switch, on the room, rather than a check at each call site: there is
+     exactly one place to be wrong, and it is this line. This arena takes no
+     stake today, so `stake` is 0 and bots are allowed; the day one of these
+     tables charges to enter, setting a stake on the room turns them off
+     everywhere at once with nothing else to remember.
+
+     The snake room learned this the hard way and its comment is worth
+     repeating: test the free-room CONDITION, never a name. endsWith('free')
+     read 'na_br' as a paid room and silently refused every bot, which is a
+     failure that looks like nothing happening. */
+  botsAllowed() { return !Number(this.stake || 0); }
 
   /* An arena with one person in it is not an arena. Bots keep it populated to a
      floor and stand down as real players arrive, so the first person through
      the door still has a game and the tenth is not fighting robots. */
   topUpBots() {
-    const want = Math.max(0, SH.BOT_FLOOR - this.humans() + 1);
     const bots = [...this.tanks.values()].filter(t => t.bot);
+    /* Fill toward a floor of BOT_FLOOR tanks in the arena, counting the people
+       already in it, so the arena is about as busy whether one person or five
+       are playing and the bots quietly make room as the humans arrive. */
+    const want = this.botsAllowed()
+      ? Math.max(0, SH.BOT_FLOOR - this.humans())
+      : 0;
     for (let i = bots.length; i < want; i++) {
       this.makeTank('bot' + (nextId++),
         BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)],
         WEAPON_KEYS[Math.floor(Math.random() * WEAPON_KEYS.length)], true);
     }
-    for (let i = bots.length; i > want; i--) this.tanks.delete(bots[i - 1].id);
+    /* Taken from the end, and only ones that are already out of the fight, so
+       nobody watches a tank they are shooting at blink out of existence. A bot
+       over the floor that is still alive is left to die on its own. */
+    for (let i = bots.length - 1; i >= 0 && this.bots() > want; i--) {
+      if (bots[i].dead) this.tanks.delete(bots[i].id);
+    }
   }
 
   /* Somewhere empty, and away from everybody. Dropping in next to a full-health
@@ -597,6 +632,11 @@ class ShooterRoom {
   bankCoins(t, how) {
     const took = t.coins;
     if (took <= 0) return;
+    /* A bot cannot cash out. It carries coins so that killing it is worth
+       something, and it drops them when it dies like anybody else, but the
+       one thing it must never do is turn them into a payout. Harmless while
+       this room is free and the whole point the day it is not. */
+    if (t.bot) return;
     t.banked += took;
     t.coins = 0;
     t.cashMs = 0;
@@ -881,7 +921,10 @@ class ShooterRoom {
         banked_last: me.bankedLast || 0,
       } : null,
       tanks: [...this.tanks.values()].filter(t => t.id !== forId && !t.dead).map(t => ({
-        id: t.id, n: t.name, x: r1(t.x), y: r1(t.y), h: r2(t.hull), a: r2(t.aim),
+        /* `bot` is sent, not hidden. A player is entitled to know which of the
+           things shooting at them is a person. */
+        id: t.id, n: t.name, bot: t.bot ? 1 : 0,
+        x: r1(t.x), y: r1(t.y), h: r2(t.hull), a: r2(t.aim),
         hp: Math.round(t.health), max: t.maxHealth, w: t.weapon, r: r1(t.roll),
         c: t.cashMs > 0 ? 1 : 0,
       })),
@@ -900,7 +943,8 @@ class ShooterRoom {
       board: [...this.tanks.values()]
         .sort((a, b) => (b.banked - a.banked) || (b.kills - a.kills))
         .slice(0, 6)
-        .map(t => ({ n: t.name, b: t.banked, k: t.kills, me: t.id === forId ? 1 : 0 })),
+        .map(t => ({ n: t.name, b: t.banked, k: t.kills,
+                     bot: t.bot ? 1 : 0, me: t.id === forId ? 1 : 0 })),
     };
   }
 
