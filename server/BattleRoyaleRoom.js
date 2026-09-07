@@ -29,8 +29,25 @@ const BR = {
      is also what tells everyone in the room that this is now a match rather
      than a lobby. */
   COUNTDOWN_MS: 10 * SEC,
-  SHRINK_MS:   1 * 60 * SEC,   // closing in
   ROAM_MS:     2 * 60 * SEC,   // the small circle wandering
+
+  /* HOW FAST THE WALL CLOSES, as a share of what a snake can actually do.
+
+     This was a DURATION — one minute — and the speed was whatever fell out of
+     it. What fell out of it was a wall that outran everybody. The close is
+     eased rather than linear, so its rate is 2*(START-FINAL)/SHRINK_MS at the
+     very end, and one minute made that 186 units a second against a snake
+     that cruises at 133. The only way to survive the last seconds of the
+     shrink was to boost, which costs body, and a bot never boosts to escape
+     because nothing tells it to. So bots died to the wall in a heap, every
+     match, and so did anyone not paying full attention.
+
+     The duration is derived from the speed now, and the speed is written as a
+     fraction of cruising, so it cannot drift out of spec again by somebody
+     adjusting a number of seconds. At 0.7 the wall closes at about 93 units a
+     second, which leaves 40 a second of margin at a walk — you can outrun it
+     while fighting rather than only by burning body to boost. */
+  CLOSE_SPEED_FRAC: 0.7,
   /* One. Owen tests this alone and there is nobody else on the game yet, so a
      two-player minimum only ever stopped him starting it. It stays a named
      constant rather than being deleted, because the day there are real players
@@ -88,6 +105,21 @@ const BR = {
   SUDDEN_ACCEL: 10,            // units a second added to the hunt, per second
   SUDDEN_HOLD_MS: 250,         // it barely pauses now
 };
+
+/* A snake's cruising speed in units per SECOND. Everything above that is a
+   speed limit is written against this one number, so the day the snake gets
+   faster the circle does too and none of the margins quietly invert. */
+BR.CRUISE = C.SNAKE_BASE_SPEED * C.TICK_RATE;
+
+/* Long enough that the fastest moment of the close stays under the fraction of
+   cruising speed above. The ease is quadratic, so peak rate is
+   2*(START-FINAL)/SHRINK_MS; solve that for the duration. */
+BR.SHRINK_MS = Math.round(
+  2 * (BR.START_RADIUS - BR.FINAL_RADIUS) / (BR.CLOSE_SPEED_FRAC * BR.CRUISE) * SEC);
+
+/* The peak, kept as a number so a test can assert it rather than re-derive it
+   and agree with itself. */
+BR.CLOSE_SPEED = 2 * (BR.START_RADIUS - BR.FINAL_RADIUS) / (BR.SHRINK_MS / SEC);
 
 class BattleRoyaleRoom extends GameRoom {
   constructor(io, lobbyType) {

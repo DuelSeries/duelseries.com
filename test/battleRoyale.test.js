@@ -346,12 +346,14 @@ test('the zone can be followed, and never teleports out from under you', () => {
   assert.ok(worstOut < BR.START_RADIUS, 'the circle stays inside the world');
 });
 
-test('the closing takes a minute', () => {
-  assert.equal(BR.SHRINK_MS, 60 * 1000, 'one minute of closing, not two');
+test('the close is fully shut by the time it says it is', () => {
+  /* The duration is no longer the setting — the SPEED is, and the duration
+     falls out of it, because a wall that outruns a snake is not a wall anybody
+     can play against. Asserting 60000 here pinned the wrong end of that. */
   const r = room(1);
   go(r);
   at(r, BR.SHRINK_MS - 10);
-  assert.ok(Math.abs(r.worldRadius - BR.FINAL_RADIUS) < 5, 'and it is fully closed by then');
+  assert.ok(Math.abs(r.worldRadius - BR.FINAL_RADIUS) < 5, 'fully closed by then');
 });
 
 test('the ring shows the size the wall will be, not the size it is', () => {
@@ -448,4 +450,86 @@ test('bots fill the lobby and never join a match already running', () => {
   for (const [id, sn] of [...r.snakes]) if (sn.isBot) r.snakes.delete(id);
   r.topUpBots();
   assert.equal(r.botCount, 0, 'and a running match gets none');
+});
+
+/* ── the wall, and whether anything can outrun it ────────────────────────── */
+
+const Bot = require('../server/Bot');
+const CC = require('../shared/constants');
+
+test('the wall never closes faster than a snake can swim', () => {
+  /* The close is eased, so its rate peaks at the very end at
+     2*(START-FINAL)/SHRINK_MS. That used to be 186 units a second against a
+     snake that cruises at 133: the only way to survive the last seconds was to
+     boost, which costs body, and a bot never boosts to escape.
+
+     The duration is derived from the speed now rather than the other way round,
+     so this asserts the property rather than a number of seconds. */
+  const cruise = CC.SNAKE_BASE_SPEED * CC.TICK_RATE;
+  assert.ok(BR.CLOSE_SPEED < cruise,
+    'wall ' + BR.CLOSE_SPEED.toFixed(0) + '/s vs cruise ' + cruise.toFixed(0) + '/s');
+  /* And with room to spare, or you can only ever escape it in a straight line
+     with nothing else going on. */
+  assert.ok(BR.CLOSE_SPEED < cruise * 0.8, 'and with margin to fight in');
+  /* The circle's own wandering is bounded the same way. */
+  assert.ok(BR.ROAM_HOP_SPEED < cruise * 0.5, 'and the circle cannot chase you down');
+});
+
+test('a bot runs toward the circle, not toward the origin', () => {
+  /* The bug that actually killed them. Border avoidance measured from (0,0) and
+     steered at (0,0), which is right in every room except the one where the
+     border matters: a battle royale's circle roams up to 800 units off centre,
+     so a bot fleeing the wall ran toward where the circle used to be, often
+     straight through it and out the far side. */
+  const bot = new Bot('b', 0, 0);
+  const R = 1000;
+  const cx = 800, cy = 0;
+
+  /* OFF the line through the origin and the circle. The first version put the
+     bot, the circle and the origin all on the x-axis, where 'toward the
+     circle' and 'toward the origin' are the same direction — so the test could
+     not tell the fixed code from the broken code, and said so. */
+  bot.head.x = cx; bot.head.y = cy + 900;   // straight out from the circle
+  bot.updateAI([], R, [bot], cx, cy);
+
+  /* Shortest angle between two headings. JavaScript's % keeps the sign of the
+     dividend, so the usual one-liner returns something near -2PI for a
+     negative difference and Math.abs then reports it as 6.28 radians out. The
+     first version of this test did exactly that and failed a bot that was
+     pointing precisely where it should. */
+  const angleGap = (a, b) => {
+    let d = (a - b + Math.PI) % (Math.PI * 2);
+    if (d < 0) d += Math.PI * 2;
+    return Math.abs(d - Math.PI);
+  };
+
+  const toCircle = Math.atan2(cy - bot.head.y, cx - bot.head.x);
+  const off = angleGap(bot.targetAngle, toCircle);
+  assert.ok(off < 0.01, 'it heads for the circle (off by ' + off.toFixed(3) + ' rad)');
+
+  /* And that is NOT the direction the origin is in, or the test would pass on
+     the broken code too. */
+  const toOrigin = Math.atan2(-bot.head.y, -bot.head.x);
+  assert.ok(angleGap(toCircle, toOrigin) > 0.01,
+    'and the two directions really are different here');
+});
+
+test('a bot keeps going until it is properly inside, not just barely', () => {
+  /* One threshold made it flee until a unit inside the line, resume wandering
+     outward, and cross again — a twitch rather than a journey, holding station
+     while the wall came in. Latched, it keeps swimming until it is safe. */
+  const bot = new Bot('b', 0, 0);
+  const R = 1000;
+
+  bot.head.x = 850; bot.head.y = 0;          // outside caution (0.78)
+  bot.updateAI([], R, [bot], 0, 0);
+  assert.equal(bot._fleeing, true, 'it starts running');
+
+  bot.head.x = 700; bot.head.y = 0;          // inside caution, outside safe
+  bot.updateAI([], R, [bot], 0, 0);
+  assert.equal(bot._fleeing, true, 'and is still running at 0.70R');
+
+  bot.head.x = 500; bot.head.y = 0;          // inside safe (0.55)
+  bot.updateAI([], R, [bot], 0, 0);
+  assert.equal(bot._fleeing, false, 'and stops once it is properly clear');
 });

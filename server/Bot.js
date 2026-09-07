@@ -20,6 +20,22 @@ const BOT_NAMES = [
   'noobmaster_', 'slitherio_pro', 'wormy_mcworm', 'danger_noodle', 'mr_slithers',
 ];
 
+/* WHEN A BOT RUNS FOR THE MIDDLE, AND WHEN IT STOPS.
+
+   Two thresholds rather than one, and the second is the whole point. With a
+   single line the bot fled until it was one unit inside it, went straight back
+   to wandering — outward as often as not — fell outside again, and fled again.
+   Traced against a closing circle its distance from the centre sat flat at
+   ~2540 for the whole match while the wall came in at up to 93 units a second,
+   so it oscillated on the threshold making no headway and the wall took it.
+   Every bot in a twenty-bot match died that way, none to another snake.
+
+   So: start running at CAUTION, and keep running until comfortably inside at
+   SAFE. The gap between them is what turns a twitch into a journey. */
+const BORDER_CAUTION = 0.78;   // outside this, head for the middle
+const BORDER_SAFE    = 0.55;   // and keep heading there until inside this
+const BORDER_PANIC   = 0.92;   // outside this, spend body to get there
+
 const usedNames = new Set();
 
 function pickBotName() {
@@ -41,16 +57,34 @@ class Bot extends Snake {
     this._aggroTarget = null;
     this._aggroTimer  = 0;
     this._aggroCooldown = 0;
+    this._fleeing = false;   // latched by the border thresholds below
   }
 
-  updateAI(foodList, worldRadius, allSnakes) {
+  /* `cx`/`cy` are where the circle actually IS.
+
+     This used to measure from the origin and steer toward the origin, which is
+     correct in every room except the one where the border matters. A battle
+     royale's circle roams up to 800 units off centre, so a bot fleeing the
+     wall ran toward where the circle used to be — often straight through it
+     and out the far side. That is why they died to the border in a heap. */
+  updateAI(foodList, worldRadius, allSnakes, cx, cy) {
     if (!this.alive) return;
 
     // ── 1. Border avoidance ──────────────────────────────────────────────────
-    const distFromCenter = Math.hypot(this.head.x, this.head.y);
-    if (distFromCenter > worldRadius * 0.82) {
-      this.targetAngle = Math.atan2(-this.head.y, -this.head.x);
-      this.boosting = false;
+    const zx = cx || 0, zy = cy || 0;
+    const bx = this.head.x - zx, by = this.head.y - zy;
+    const distFromCenter = Math.hypot(bx, by);
+
+    /* Latched. Crossing CAUTION starts the run; only reaching SAFE ends it. */
+    if (distFromCenter > worldRadius * BORDER_CAUTION) this._fleeing = true;
+    else if (distFromCenter < worldRadius * BORDER_SAFE) this._fleeing = false;
+
+    if (this._fleeing) {
+      this.targetAngle = Math.atan2(-by, -bx);
+      /* Boost only when it is genuinely about to be caught. A bot that boosts
+         the moment it gets near the edge burns its body for nothing; one that
+         never boosts dies to a wall it could have outrun. */
+      this.boosting = distFromCenter > worldRadius * BORDER_PANIC && this.boostFuel > 15;
       this._aggro = false;
       return;
     }

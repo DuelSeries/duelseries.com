@@ -397,7 +397,11 @@ class GameRoom {
     // Update snakes
     for (const snake of allSnakes) {
       if (!snake.alive) continue;
-      if (snake.isBot) snake.updateAI(foodList, this.worldRadius, allSnakes);
+      /* The circle's CENTRE goes with its radius. A battle royale moves it, and
+         a bot that does not know where the middle is cannot run to it. */
+      if (snake.isBot) {
+        snake.updateAI(foodList, this.worldRadius, allSnakes, this.worldCx, this.worldCy);
+      }
       snake.update();
 
       // Spawn food from boost drops
