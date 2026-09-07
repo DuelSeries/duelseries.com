@@ -284,6 +284,7 @@ test('cashing out ends the run, and says so once', () => {
 test('a tank that has cashed out is out of everyone else\'s arena too', () => {
   const { r, p } = withPlayer();
   const other = r.addPlayer(sock(), 'Them', 'cannon');
+  r.stop();                        // addPlayer starts the room again
   put(r, other, 10 * SH.TILE, 10 * SH.TILE);
   p.coins = 40;
   put(r, p, r.bank.x, r.bank.y);
@@ -511,6 +512,7 @@ test('a free arena fills toward the floor, and bots make way for people', () => 
   /* As people arrive the bots stand down. They are only removed once they are
      out of the fight, so a tank somebody is shooting at never blinks away. */
   for (let i = 0; i < SH.BOT_FLOOR - 1; i++) r.addPlayer(sock(), 'P' + i, 'cannon');
+  r.stop();                        // addPlayer starts the room again
   for (const t of r.tanks.values()) if (t.bot) t.dead = true;
   r.topUpBots();
   assert.equal(r.humans(), SH.BOT_FLOOR);
@@ -523,6 +525,7 @@ test('a live bot over the floor is left to die rather than vanishing', () => {
   r.stop();
   const before = r.bots();
   for (let i = 0; i < 4; i++) r.addPlayer(sock(), 'P' + i, 'cannon');
+  r.stop();                        // addPlayer starts the room again
   assert.equal(r.bots(), before, 'still there, because none of them are dead');
 });
 

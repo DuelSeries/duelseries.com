@@ -827,6 +827,23 @@ const ALL_ROOMS = () => {
   return out;
 };
 
+/* A room's name in words, for the owner console. `na_free` and `agar_na_dime`
+   are what the code calls them; nobody should have to translate that in their
+   head while looking for the free slither table. */
+function roomLabel(r) {
+  const raw = String(r.lobbyType || '');
+  if (raw === 'tanks') return 'Awesome Tanks';
+  const agar = raw.startsWith('agar');
+  const type = raw.replace(/^agar_/, '').replace(/^(na|eu)_/, '');
+  const game = r.isBattleRoyale ? 'slither.io' : agar ? 'agar.io' : 'slither.io';
+  const tier = type === 'free' ? 'Free'
+             : type === 'br' ? 'Battle royale'
+             : type === 'dime' ? '$0.10'
+             : type === 'dollar' ? '$1'
+             : type;
+  return game + ' · ' + tier;
+}
+
 /* What the console shows. Readable by an owner only: it carries live player
    counts and staked worth, which is nobody else's business. */
 function opsSnapshot() {
@@ -838,6 +855,12 @@ function opsSnapshot() {
         : String(r.lobbyType).startsWith('agar') ? 'agar.io' : 'slither.io',
     players: r.playerCount !== undefined ? r.playerCount : (r.players ? r.players.size : 0),
     bots: r.botCount !== undefined ? r.botCount : 0,
+    /* Whether this room can hold bots AT ALL, asked of the room rather than
+       worked out again on the client. The console used to offer every room in
+       one dropdown and refuse most of them after the fact, so the control that
+       adds bots mostly did nothing and never said why beforehand. */
+    takesBots: typeof r.botsAllowed === 'function' ? r.botsAllowed() : false,
+    label: roomLabel(r),
   }));
   return {
     now: Date.now(),

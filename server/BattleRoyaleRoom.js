@@ -119,7 +119,7 @@ class BattleRoyaleRoom extends GameRoom {
   }
 
   canStart() {
-    return this.state === 'waiting' && this.livingCount() >= BR.MIN_PLAYERS;
+    return this.state === 'waiting' && this.humanLiving() >= BR.MIN_PLAYERS;
   }
 
   livingCount() {
@@ -128,11 +128,42 @@ class BattleRoyaleRoom extends GameRoom {
     return n;
   }
 
-  /* Everyone who is still alive, which is what decides the winner. */
+  /* Everyone who is still alive, robots included. This is the room's
+     population, which is what the console and the lobby want to show. */
   livingSnakes() {
     const out = [];
     for (const s of this.snakes.values()) if (s && s.alive) out.push(s);
     return out;
+  }
+
+  /* Everyone still alive who is a PERSON, which is what decides the prize.
+
+     A bot has no wallet to be paid into, so a match ending with a robot
+     winner is a $20 prize with nobody to give it to — the payout would look
+     up `players` for an id that was never in it and find nothing. Worse, a
+     room standing full of robots satisfied the minimum to START a match, so
+     the event could kick off with no people in it at all.
+
+     Bots are opposition in this mode, never contenders. They make the circle
+     worth running from; they do not win it. */
+  humanSnakes() {
+    const out = [];
+    for (const s of this.snakes.values()) if (s && s.alive && !s.isBot) out.push(s);
+    return out;
+  }
+  humanLiving() { return this.humanSnakes().length; }
+
+  /* Bots fill the LOBBY, not the match.
+
+     This room inherits GameRoom's tick, which now tops a free room up to the
+     bot floor once a second — and `br` is a free lobby type, so without this
+     the moment that floor was raised a prize match would have found itself
+     sharing the circle with twenty robots that arrived mid-round. They are
+     here so somebody who opens the lobby early sees a room with life in it,
+     and that job is finished the moment the countdown starts. */
+  topUpBots() {
+    if (this.state !== 'waiting') return;
+    super.topUpBots();
   }
 
   startMatch(reason) {
@@ -143,7 +174,7 @@ class BattleRoyaleRoom extends GameRoom {
        A real match is over when one is left; a match of ONE is over the instant
        it starts by that rule, because the only player is already the last one
        standing. */
-    this.startedWith = this.livingCount();
+    this.startedWith = this.humanLiving();
     this._hopTo = null; this._hopHoldUntil = 0;   // no leftovers from the last match
     this.matchId = 'br_' + Date.now().toString(36);
     this.startedAt = 0;                 // set when the count reaches zero
@@ -178,7 +209,7 @@ class BattleRoyaleRoom extends GameRoom {
      the console has to ask for this by name. */
   forceStart(reason) {
     if (this.state === 'running') return false;
-    if (this.livingCount() < 1) return false;   // starting with nobody is not a match either
+    if (this.humanLiving() < 1) return false;   // starting with nobody is not a match either
     this.state = 'waiting';                     // so startMatch's own guard passes
     const min = BR.MIN_PLAYERS;
     BR.MIN_PLAYERS = 1;
@@ -402,7 +433,7 @@ class BattleRoyaleRoom extends GameRoom {
 
   checkForWinner() {
     if (this.state !== 'running') return;
-    const alive = this.livingSnakes();
+    const alive = this.humanSnakes();
 
     /* A solo run ends when the circle gets you, and NOT when the clock runs
        out — the clock running out is the start of sudden death, which is the

@@ -398,3 +398,54 @@ test('a leg length can never be NaN, which would freeze the zone', () => {
   assert.ok(isFinite(r._hopMs), 'a missing clock cannot produce a NaN leg');
   assert.ok(r._hopMs >= 1200, 'and it falls back to a real duration');
 });
+
+/* ── bots in a prize match ─────────────────────────────────────────────────
+   This mode pays real money to one winner. Bots exist here so somebody who
+   opens the lobby early sees a room with life in it, and that is the whole of
+   their job: they have no wallet to be paid into, so anything that lets one
+   reach the end as the winner is a $20 prize with nobody to give it to. */
+
+const bot = (id, name) => ({ id, name, score: 0, alive: true, isBot: true, head: { x: 0, y: 0 } });
+
+test('a room full of robots cannot start a match', () => {
+  const r = new BattleRoyaleRoom(io, 'test_br');
+  for (let i = 0; i < 8; i++) r.snakes.set('b' + i, bot('b' + i, 'Bot' + i));
+  assert.equal(r.livingCount(), 8, 'the room has bodies in it');
+  assert.equal(r.humanLiving(), 0, 'and nobody in it');
+  assert.equal(r.canStart(), false, 'so there is no match to start');
+  assert.equal(r.forceStart('owner'), false, 'not even by force');
+});
+
+test('a bot is never the winner, however long it survives', () => {
+  const r = room(1);                       // one person
+  for (let i = 0; i < 5; i++) r.snakes.set('b' + i, bot('b' + i, 'Bot' + i));
+  r.startMatch('test');
+  r.state = 'running';
+
+  // The person dies; five robots are still driving around.
+  r.snakes.get('p0').alive = false;
+  r.checkForWinner();
+
+  assert.equal(r.state, 'over', 'the match ended when the last PERSON died');
+  assert.ok(!r.winner || !r.snakes.get(r.winner.id).isBot,
+            'and a robot did not win it');
+});
+
+test('bots fill the lobby and never join a match already running', () => {
+  /* This room inherits the free-lobby top-up, and `br` IS a free lobby type,
+     so without a guard the moment the bot floor went up a prize match would
+     have found twenty robots arriving mid-round. */
+  /* na_br, not test_br: whether a room takes bots is decided by its lobby
+     TYPE against the shared free list, and 'test_br' is not a lobby type the
+     product has. The guard was right to refuse it. */
+  const r = new BattleRoyaleRoom(io, 'na_br');
+  r.stop();
+  r.topUpBots();
+  const filled = r.botCount;
+  assert.ok(filled > 0, 'the waiting lobby fills (' + filled + ')');
+
+  r.state = 'running';
+  for (const [id, sn] of [...r.snakes]) if (sn.isBot) r.snakes.delete(id);
+  r.topUpBots();
+  assert.equal(r.botCount, 0, 'and a running match gets none');
+});

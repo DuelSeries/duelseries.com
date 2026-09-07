@@ -193,7 +193,7 @@ const CONSTANTS = {
 
      ONLY EVER APPLIED TO A FREE ROOM. See GameRoom.botsAllowed, and the
      comment on it, which is the one rule that matters here. */
-  BOT_FLOOR_FREE: 8,
+  BOT_FLOOR_FREE: 20,
 };
 
 if (typeof module !== 'undefined') module.exports = CONSTANTS;

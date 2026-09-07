@@ -1986,18 +1986,22 @@ const GAMES=[
     board, so it opens at Free and only at Free. */
  {id:'agar',name:'agar.io',c:['#141f28','#65c8e8'],type:'p',
   d:'Absorb anything smaller than you, split to chase, and stay clear of anything bigger.'},
+ /* Built, and free while it is new: no ladder, no lobby list, its own page,
+    and none of the money path involved in it. `solo` is what says so. */
+ {id:'omgshooter',name:'Awesome Tanks',c:['#1d2016','#a8bd63'],type:'p',built:1,solo:1,
+  d:'Free-for-all. Kill people, take what they drop, and bank it in the middle before somebody takes it off you.'},
+ /* Built. The only rung it seats is Free — there is no stake to verify and
+    nothing to pay out. The other rungs still show, struck through, because
+    the product does offer them and hiding them would say it does not. */
+ {id:'tanks',name:'Bowmasters',c:['#1b4f7a','#7fd4f5'],type:'m',duel:1,built:1,freeOnly:1,
+  d:'One shot each, an arc to judge, and whoever reads the wind first wins.'},
  {id:'rps',name:'Rock Paper Scissors',c:['#231a26','#b98ad4'],type:'m',soon:1,duel:1,
   d:'Best of five against a single opponent. Rounds are quick and settlement is instant.'},
  {id:'knockout',name:'Knockout',c:['#261c14','#e0a05c'],type:'m',soon:1,duel:1,
   d:'Last one standing in an arena that keeps shrinking.'},
  {id:'battleship',name:'Battleship',c:['#141a24','#7b93c4'],type:'m',soon:1,duel:1,
   d:'Hide your fleet, then find theirs before they find yours.'},
- /* Built. The only rung it seats is Free — there is no stake to verify and
-   nothing to pay out, so none of the money path is involved while the mode is
-   new. The other rungs still show, struck through, because the product does
-   offer them and hiding them would say it does not. */
- {id:'tanks',name:'Bowmasters',c:['#1b4f7a','#7fd4f5'],type:'m',duel:1,built:1,freeOnly:1,
-  d:'One shot each, an arc to judge, and whoever reads the wind first wins.'},
+
  {id:'paper',name:'Paper.io',c:['#1e1826','#a887d6'],type:'p',soon:1,
   d:'Claim ground by looping back home without anyone crossing your trail.'},
  /* Placeholders so these are not forgotten. soon:1 greys the card and takes it
@@ -2014,8 +2018,7 @@ const GAMES=[
     the buy-in ladder nor an opponent to be matched with — which is what the
     solo flag means here: no ladder, no lobby list, its own page. Free while it
     is new, so none of the money path is involved in it. */
- {id:'omgshooter',name:'Awesome Tanks',c:['#1d2016','#a8bd63'],type:'p',built:1,solo:1,
-  d:'Free-for-all. Kill people, take what they drop, and bank it in the middle before somebody takes it off you.'},
+
  {id:'swim',name:'Swim',c:['#141a16','#8fd06a'],type:'p',soon:1,duel:1,
   d:'Pick your gap in moving traffic and cross without touching anything.'},
  /* Every game here has a painting. A new one added before its art exists can

@@ -2,6 +2,9 @@
 const agarLb = require('./agarLeaderboard');
 const collusion = require('./CollusionMonitor');
 const SpatialGrid = require('./SpatialGrid');
+/* The shared free-lobby list. This file never needed a constant until it had
+   a rule about which rooms may hold bots. */
+const C = require('../shared/constants');
 
 const TICK_RATE      = 60;
 const WORLD_BASE     = 6000;
@@ -37,6 +40,11 @@ class AgarRoom {
   constructor(io, roomName) {
     this.io        = io;
     this.roomName  = roomName;
+    /* The name the owner console addresses this room by. It had none, so the
+       console's room list carried a literal `undefined` for every agar room
+       and none of them could be picked. The room name IS the lobby type here
+       ('agar_na_free'); snake rooms use the same field for the same job. */
+    this.lobbyType = roomName;
     this.players   = new Map(); // socketId → player
     this.bots      = new Map(); // botId → bot
     this.foods     = new Map(); // foodId → food
@@ -49,6 +57,48 @@ class AgarRoom {
 
   get playerCount() { return this.players.size; }
   get botCount()    { let n = 0; for (const b of this.bots.values()) if (b.alive) n++; return n; }
+  /* Live players, which is what the floor is measured against: somebody on a
+     death screen is not somebody to play against. */
+  get humanCount()  { let n = 0; for (const p of this.players.values()) if (p && p.alive !== false) n++; return n; }
+
+  /* THE ONE RULE, the same one the snake and tank rooms enforce: bots only
+     where nothing is staked. This room had NO guard at all, so the console's
+     add-bots control would happily have put free bots into a paid agar table.
+
+     By the free LIST and never by the name. The prefixes come off first:
+     'agar_na_free' is the free room, 'agar_na_dollar' is not. */
+  botsAllowed() {
+    const type = String(this.lobbyType).replace(/^agar_/, '').replace(/^(na|eu)_/, '');
+    return (C.FREE_LOBBY_TYPES || ['free']).indexOf(type) !== -1;
+  }
+
+  /* Keeps a free room populated. Same shape and same reasoning as GameRoom's:
+     adds toward the floor counting the people already playing, sweeps dead
+     bots so they do not pile up, and leaves hand-placed ones alone so that
+     'add ten' from the console means ten. */
+  topUpBots() {
+    if (!this.botsAllowed()) {
+      for (const [id, b] of [...this.bots]) { this.bots.delete(id); }
+      return;
+    }
+    for (const [id, b] of [...this.bots]) if (b && !b.alive) this.bots.delete(id);
+
+    const want = Math.max(0, (C.BOT_FLOOR_FREE || 0) - this.humanCount);
+    const auto = () => {
+      let n = 0;
+      for (const b of this.bots.values()) if (b.alive && !b._manual) n++;
+      return n;
+    };
+    for (let have = auto(); have < want; have++) { if (!this.addBot()) break; }
+
+    let over = auto() - want;
+    if (over > 0) {
+      for (const [id, b] of [...this.bots]) {
+        if (over <= 0) break;
+        if (b && !b._manual) { this.bots.delete(id); over--; }
+      }
+    }
+  }
 
   start() {
     this._spawnFoods(FOOD_TARGET);
@@ -181,6 +231,7 @@ class AgarRoom {
   // ── Bot spawning ──────────────────────────────────────────────────────────
 
   addBot() {
+    if (!this.botsAllowed()) return null;
     const ws  = this.worldSize;
     const x   = ws * 0.1 + Math.random() * ws * 0.8;
     const y   = ws * 0.1 + Math.random() * ws * 0.8;
@@ -227,6 +278,13 @@ class AgarRoom {
     } else if (this._idleSkip) {
       this._idleSkip = 0;
     }
+    /* Once a second rather than every tick: a room's population does not
+       change fast enough to be worth sweeping the map for sixty times. */
+    if ((this._botTick = (this._botTick || 0) + 1) >= TICK_RATE) {
+      this._botTick = 0;
+      this.topUpBots();
+    }
+
     const now = Date.now();
     const dt  = Math.min((now - this._lastTick) / 1000, 0.05);
     this._lastTick = now;

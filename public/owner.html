@@ -63,6 +63,11 @@ h1{font-size:20px;font-weight:650;letter-spacing:-.3px;margin:0}
 .rlabel{flex:1;min-width:0}
 .rlabel b{display:block;font-size:14px;font-weight:600}
 .rlabel span{display:block;font-size:12px;color:var(--tx3);margin-top:2px}
+/* The bot rows. Buttons sit on the room, so the count you are changing and
+   the control that changes it are on the same line. */
+.botrow button{padding:7px 13px;font-size:12.5px}
+.botn{color:var(--tx);font-weight:600}
+.botnote{margin:12px 0 0;font-size:12px;color:var(--tx3)}
 
 button{font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;
   border-radius:var(--r2);padding:9px 16px;border:1px solid var(--s3);
@@ -169,19 +174,16 @@ input.num{width:70px;text-align:center}
       </div>
     </section>
 
-    <!-- Bots. -->
+    <!-- Bots. One row per room that can actually hold them, with the buttons
+         on the room rather than a dropdown, a number box and a verb to
+         assemble first. Rooms that take a stake are not listed at all: they
+         can never hold a bot, so offering them was offering a choice that
+         does nothing. -->
     <section class="group">
       <div class="ghead">Bots</div>
-      <div class="row">
-        <div class="rlabel"><b>Add to a room</b><span>They play like anyone else and count as players.</span></div>
-        <select id="botRoom"></select>
-        <input class="num" id="botCount" type="number" min="1" max="30" value="5">
-        <button onclick="act('bots:add',{room:val('botRoom'),count:+val('botCount')})">Add</button>
-      </div>
-      <div class="row">
-        <div class="rlabel"><b>Take them all out</b><span>Removes every bot from the chosen room.</span></div>
-        <button class="warn" onclick="act('bots:clear',{room:val('botRoom')})">Clear</button>
-      </div>
+      <div id="botRooms"></div>
+      <p class="botnote">Free rooms only. A table that takes money never holds
+        bots, and is not listed here.</p>
     </section>
 
     <!-- Maintenance. -->
@@ -225,6 +227,11 @@ input.num{width:70px;text-align:center}
    in, the other signs an action with their key. Owner auth needs nothing else —
    no token to expire, no app id to be wrong, no call to anyone. */
 const $ = id => document.getElementById(id);
+/* Room labels come off the server, so they are ours rather than a player's,
+   but this builds HTML from them and a console that trusts its input is a
+   console one bad room name away from executing it. */
+const esc = v => String(v == null ? '' : v)
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const val = id => ($(id) || {}).value || '';
 let sayT = 0;
 function say(text, bad) {
@@ -345,12 +352,23 @@ function render(s) {
     $('brStop').disabled = !running;
   }
 
-  const sel = $('botRoom');
-  if (sel.options.length !== s.rooms.length) {
-    sel.innerHTML = s.rooms.map(r =>
-      '<option value="' + r.id + '">' + r.id + ' · ' + r.players + 'p'
-      + (r.bots ? ' +' + r.bots + 'b' : '') + '</option>').join('');
-  }
+  /* Rebuilt from the live snapshot every time, because the counts on it are
+     the whole point: the old control showed a room's population inside a
+     dropdown option, where it was only visible while the dropdown was open. */
+  const rooms = s.rooms.filter(r => r.takesBots);
+  $('botRooms').innerHTML = rooms.length ? rooms.map(r => {
+    const id = JSON.stringify(r.id).replace(/"/g, '&quot;');
+    return '<div class="row botrow">' +
+      '<div class="rlabel"><b>' + esc(r.label || r.id) + '</b>' +
+        '<span><b class="botn">' + r.bots + '</b> bots · ' +
+        r.players + ' playing</span></div>' +
+      '<button onclick="act(\'bots:add\',{room:' + id + ',count:1})">+1</button>' +
+      '<button onclick="act(\'bots:add\',{room:' + id + ',count:5})">+5</button>' +
+      '<button class="warn" onclick="act(\'bots:clear\',{room:' + id + '})">Clear</button>' +
+      '</div>';
+  }).join('') : '<div class="row"><div class="rlabel">' +
+      '<b>No free rooms are running.</b><span>Bots only go in rooms that cost' +
+      ' nothing to enter.</span></div></div>';
 
   const log = $('log');
   log.innerHTML = s.audit.length ? s.audit.map(a =>
