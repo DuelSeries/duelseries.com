@@ -374,7 +374,7 @@ h2{font-size:31px;font-weight:700;letter-spacing:-1.1px;line-height:1.1}
           mask-image:linear-gradient(90deg,transparent,#000 56px,#000 calc(100% - 96px),transparent)}
 .tkrun{display:flex;width:max-content;animation:tk 52s linear infinite}
 /* Stopped only while the game is up, so it is not repainting behind it. */
-body.ingame .tkrun,body.nomotion .tkrun{animation-play-state:paused}
+body.ingame .tkrun{animation-play-state:paused}
 @keyframes tk{to{transform:translateX(-50%)}}
 .tki{display:inline-flex;align-items:center;gap:8px;padding:9px 22px;
   font-size:13px;white-space:nowrap}
@@ -429,10 +429,8 @@ body.ingame .tkrun,body.nomotion .tkrun{animation-play-state:paused}
   0%,100%{box-shadow:0 0 0 0 rgba(142,208,129,.55);opacity:1}
   50%    {box-shadow:0 0 0 5px rgba(142,208,129,0);opacity:.72}
 }
-/* The Motion switch in Settings turns it off with everything else, and so does
-   the system setting. A light that beats forever is exactly what somebody who
-   asked for less movement asked to be rid of. */
-body.nomotion .lcount.on .ldot{animation:none}
+/* Stopped by the system setting. A light that beats forever is exactly what
+   somebody who asked for less movement asked to be rid of. */
 @media(prefers-reduced-motion:reduce){.lcount.on .ldot{animation:none}}
 /* Read aloud, never drawn. */
 .vh{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
@@ -1878,15 +1876,7 @@ body.scr-anim { overflow-x:hidden }
              placeholder="Your name" aria-label="Your player name">
       <div class="sd" id="set-name-msg" aria-live="polite"></div>
     </div>
-    <div class="panel">
-      <h3 class="sh">Motion</h3>
-      <p class="sd">The lobby animates its artwork and the winners row. Turn it
-         off to hold everything still.</p>
-      <div class="tog">
-        <button type="button" class="tg" id="mo-on"  onclick="setMotion(1)">On</button>
-        <button type="button" class="tg" id="mo-off" onclick="setMotion(0)">Off</button>
-      </div>
-    </div>
+
     <div class="panel">
       <h3 class="sh">Account</h3>
       <p class="sd">Your wallet is your account here. There is nothing else to
@@ -2765,30 +2755,24 @@ let _paused=false;
 /* Beside _paused and ABOVE the loop for the same reason it documents: the loop
    is an IIFE that runs where it is written, so a let declared after it is still
    in its temporal dead zone when the first frame reads it. */
-const MOTION_KEY='duelseries_motion';
-let motionOn=(function(){try{return localStorage.getItem(MOTION_KEY)!=='0'}catch(_){return true}})();
+
 (function loop(t){
   const dt=Math.min(3,(t-_last)/16.67||1); _last=t;
   if(_paused){requestAnimationFrame(loop);return}   // the game owns the thread
   /* offsetParent is null for anything inside a hidden screen. Without this the
      game screen's backdrop kept simulating while you were on the home tab. */
   document.querySelectorAll('canvas[data-anim]').forEach(cv=>{if(!cv.offsetParent)return;try{
-    /* Governed by the Motion switch in Settings rather than by the OS's
-       prefers-reduced-motion. The OS flag froze the game screen's backdrop on
-       any machine that had it set, with nothing on the page to say why or to
-       turn it back on. Settings is that control, it is discoverable, and it
-       defaults to on — same reasoning the ticker and the appearance snake
-       already carry. Frozen still means frozen: the canvas is refitted when
-       the box changes so it is never left stretched. */
-    if(motionOn)paintScene(cv,dt);
-    else if(fit(cv))paintScene(cv,0);
+    /* Always animated. This used to be gated on a Motion switch in Settings,
+       which existed because the OS's prefers-reduced-motion froze the game
+       screen's backdrop with nothing on the page to say why. The switch is
+       gone; the OS flag still stops the CSS animations, which is the part
+       somebody who asked for less movement actually asked for. */
+    paintScene(cv,dt);
   }catch(e){}});
   /* The appearance snake is the point of the box, so like the ticker it keeps
      swimming under reduced motion. Only paint boxes that are actually on
      screen: offsetParent is null for anything inside a hidden screen. */
-  /* Motion off holds the snake still; it does not stop drawing it. Gating the
-     whole loop on the switch left the skin picker showing empty boxes. */
-  if(motionOn)lookT+=0.022*dt;
+  lookT+=0.022*dt;
   document.querySelectorAll('canvas[data-look]').forEach(cv=>{
     if(cv.offsetParent)try{paintLook(cv)}catch(e){}
   });
@@ -3380,22 +3364,10 @@ function fillScreen(tab){
    Ambient motion is a real switch: the canvas loop reads it every frame and
    the ticker is a CSS animation this pauses. It is remembered, because a
    preference you have to set again every visit is not a preference. */
-function applyMotion(){
-  document.body.classList.toggle('nomotion',!motionOn);
-  const on=document.getElementById('mo-on'), off=document.getElementById('mo-off');
-  if(on)on.classList.toggle('on',motionOn);
-  if(off)off.classList.toggle('on',!motionOn);
-}
-function setMotion(v){
-  motionOn=!!v;
-  try{localStorage.setItem(MOTION_KEY,motionOn?'1':'0')}catch(_){}
-  applyMotion();
-  if(motionOn)repaintAll();     /* redraw once so nothing is left half-painted */
-}
+
 function drawSettings(){
   const inp=document.getElementById('set-name');
   try{ inp.value=localStorage.getItem('duelseries_playername')||'' }catch(_){}
-  applyMotion();
   /* Read-only on purpose. This screen does not sign, send or spend; the wallet
      tab owns every one of those and there is only one implementation. */
   const w=window.duelWallet||{};
@@ -3515,7 +3487,7 @@ document.getElementById('howveil').addEventListener('click',e=>{
 /* The tournament countdown is gone with the card it counted down. It ticked
    from a hardcoded 38:59 towards an event that was never going to happen. */
 
-drawNav();V2Wallet.render();drawRail();drawTicker();V2Board.start();applyMotion();
+drawNav();V2Wallet.render();drawRail();drawTicker();V2Board.start();
 </script>
 
 <!-- The game runs here. The id is fixed: the wallet widget looks up

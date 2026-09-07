@@ -108,3 +108,83 @@ test('boost fuel never lets the body shrink below the hard floor', () => {
   assert.ok(s.boostFuel >= 0);
   assert.ok(s.boostRatio >= 0 && s.boostRatio <= 1);
 });
+
+/* ─── What a corpse is worth ─────────────────────────────────────────────────
+   The bug this pins down: a corpse used to be priced per SEGMENT, so a
+   spawn-size snake dropped 4.85x its own mass and you could die at minimum
+   size, eat your own body and come back several times bigger. The same formula
+   gave a 411-part snake 0.03x, because real mass explodes near the part cap
+   while segment count does not.
+
+   slither's own tables, read out of their live client bundle:
+     fmlts[i] = (1 - i/mscps)^2.25
+     fpsls[i] = fpsls[i-1] + 1/fmlts[i-1]
+   and fpsls[sct] is the food it takes to build a body of sct parts. */
+
+function grown(parts) {
+  const s = new Snake('t', 'T', 0, 0, '#c080ff');
+  let guard = 0;
+  while (s.length < parts && guard++ < 20000) { s.grow(40); s.update(); }
+  return s;
+}
+const corpseValue = s => s.die().reduce((n, d) => n + (d.value || 0), 0);
+
+test('a corpse is worth a fixed share of the body, at every size', () => {
+  [30, 60, 120, 250, 400].forEach(parts => {
+    const s = grown(parts);
+    const mass = s.mass;
+    const got = corpseValue(s);
+    assert.ok(mass > 0, parts + ' parts has mass');
+    /* Exactly the ratio, not roughly: the orb COUNT is a drawing decision that
+       follows the shape of the snake, and it must not be what decides the
+       value. That it used to was the whole bug. */
+    assert.ok(Math.abs(got / mass - C.CORPSE_DROP_RATIO) < 1e-6,
+      parts + ' parts dropped ' + (got / mass).toFixed(3) + 'x, wanted ' + C.CORPSE_DROP_RATIO);
+  });
+});
+
+test('a snake that never ate anything leaves nothing behind', () => {
+  /* The reported exploit, at its root. The spawn body is given away free, so
+     there is nothing owed on it and nothing to drop. */
+  const s = new Snake('t', 'T', 0, 0, '#c080ff');
+  assert.equal(s.mass, 0, 'a fresh snake has earned no mass');
+  assert.equal(corpseValue(s), 0, 'and its corpse is worth nothing');
+});
+
+test('eating a whole corpse never gets you as big as the snake that died', () => {
+  /* The invariant that makes dying a loss instead of a move. It has to hold at
+     every size, because the failure was size-dependent in both directions. */
+  [30, 60, 120, 250, 400].forEach(parts => {
+    const victim = grown(parts);
+    const was = victim.length;
+    const food = corpseValue(victim);
+
+    const eater = new Snake('e', 'E', 0, 0, '#c080ff');
+    eater.grow(food);
+    for (let i = 0; i < 5000 && eater.pendingGrowth > 0; i++) eater.update();
+    assert.ok(eater.length < was,
+      'a spawn snake ate a ' + was + '-part corpse and reached ' + eater.length);
+  });
+});
+
+test('growth is integrated, so one big meal is worth exactly what many small ones are', () => {
+  /* grow() used to read the falloff ONCE, at the size before eating, and apply
+     it to the whole mouthful — so a snake that ate a lot in one go grew at its
+     starting rate the whole way up. Invisible one pellet at a time, which is
+     why it sat here unnoticed until a corpse orb could be worth thousands. */
+  const TOTAL = 400;
+
+  const oneGo = new Snake('a', 'A', 0, 0, '#c080ff');
+  oneGo.grow(TOTAL);
+  for (let i = 0; i < 5000 && oneGo.pendingGrowth > 0; i++) oneGo.update();
+
+  const nibbling = new Snake('b', 'B', 0, 0, '#c080ff');
+  for (let i = 0; i < TOTAL; i++) {
+    nibbling.grow(1);
+    nibbling.update();
+  }
+  for (let i = 0; i < 5000 && nibbling.pendingGrowth > 0; i++) nibbling.update();
+
+  assert.ok(Math.abs(oneGo.length - nibbling.length) <= 1,
+    'one mouthful gave ' + oneGo.length + ', four hundred gave ' + nibbling.length);
+});

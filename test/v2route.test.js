@@ -1052,11 +1052,13 @@ test('the live dot beats only when somebody is really in there', () => {
     'a lobby with players pulses');
   assert.ok(!/\.ldot\{[^}]*animation/.test(html.match(/\.ldot\{[^}]*\}/)[0]),
     'and an empty one does not');
-  // A light that beats forever is exactly what "less motion" asks to be rid of.
-  assert.ok(/body\.nomotion \.lcount\.on \.ldot\{animation:none\}/.test(html),
-    'the Motion switch stops it');
+  /* A light that beats forever is exactly what "less motion" asks to be rid
+     of. There used to be a Motion switch in Settings stopping it as well; that
+     is gone, and the machine's own setting is the one that remains — which is
+     the one that belongs to the person rather than to this page. */
   assert.ok(/prefers-reduced-motion:reduce\)\{\.lcount\.on \.ldot\{animation:none\}/.test(html),
-    'and so does the system setting');
+    'the system setting stops it');
+  assert.ok(!/nomotion/.test(html), 'and nothing is left of the switch');
 });
 
 test('a duel names its own stake, and does not pretend to find an opponent', () => {

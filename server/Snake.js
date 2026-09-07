@@ -36,6 +36,28 @@ function sanitizeColor(color) {
    and that coarseness IS the coil (see the constants). */
 const POINTS_PER_PART = C.SNAKE_SEP_PER_SC / (C.SNAKE_STORED_GAP_PER_R * C.SNAKE_HEAD_RADIUS);
 const MIN_SEGMENTS = C.SNAKE_MIN_SEGMENTS * 2; // hard floor — can never shrink below this
+
+/* slither's mass tables, built exactly the way their client builds them. Read
+   out of their live bundle rather than reconstructed:
+
+     fmlts[i] = (1 - i/mscps)^2.25            growth falloff at i parts
+     fpsls[i] = fpsls[i-1] + 1/fmlts[i-1]     cumulative FOOD to reach i parts
+     score    = floor((fpsls[sct] + fam/fmlts[sct] - 1) * 15 - 5)
+
+   fmlts is already what grow() curves by. fpsls is its running total, and
+   that is the useful one here: fpsls[sct] is how much food it takes to build
+   a body of sct parts, which is the only honest answer to what a corpse is
+   worth. It is steep — a 403-part body is 41,500 food units against 12 for a
+   fresh one — which is exactly why a per-segment corpse was wrong at both
+   ends at once. */
+/* Our spawn is slither's sct 2, which is the anchor grow() curves against. */
+const SPAWN_SCT = 2;
+const FMLTS = [], FPSLS = [];
+for (let i = 0; i <= C.GROWTH_MSCPS; i++) {
+  FMLTS.push(i >= C.GROWTH_MSCPS ? FMLTS[i - 1]
+                                 : Math.pow(1 - i / C.GROWTH_MSCPS, C.GROWTH_EXP));
+  FPSLS.push(i === 0 ? 0 : FPSLS[i - 1] + 1 / FMLTS[i - 1]);
+}
 // Per-tick decay factor for the boost release glide (see constants.BOOST_DECAY_MS)
 const BOOST_DECAY = Math.exp(-(1000 / C.TICK_RATE) / C.BOOST_DECAY_MS);
 
@@ -279,21 +301,71 @@ class Snake {
 
   }
 
+  /* slither's growth curve, integrated rather than sampled.
+
+     Their rule is that one more part costs 1/fmlts[sct] food AT THE SIZE YOU
+     CURRENTLY ARE, which is why fpsls is a running sum of exactly that. This
+     used to read fmlts ONCE, at the size the snake was before eating, and
+     apply it to the whole mouthful — so a snake that ate a lot in one go grew
+     at its starting rate the whole way up, as though it had never got bigger.
+
+     Eating one pellet at a time that error is invisible, which is why it sat
+     here unnoticed. It stopped being invisible the moment a corpse orb could
+     be worth thousands of food units: a spawn snake eating a 250-part corpse
+     came back as 357 parts, bigger than the snake that died.
+
+     Spending the food one part at a time makes this match fpsls by
+     construction: the cost of going from A parts to B is the sum of 1/fmlts
+     over that range, which IS fpsls[B] - fpsls[A]. */
   grow(amount) {
-    // slither.io's exact growth curve: food converts to parts at rate (1 - sct/mscps)^2.25,
-    // where sct is the slither part-count equivalent of our length (spawn here = sct 2 there).
-    // Hits 0 at 411 parts — growth stops, score keeps accumulating (exactly like slither).
-    // Accumulate fractionally so pendingGrowth stays a whole-segment counter.
-    const sct = this.length - MIN_SEGMENTS + 2;
-    const falloff = Math.pow(Math.max(0, 1 - sct / C.GROWTH_MSCPS), C.GROWTH_EXP);
-    this._growFrac = (this._growFrac || 0) + amount * C.SEGMENTS_PER_FOOD * falloff;
-    if (this._growFrac >= 1) {
-      const whole = Math.floor(this._growFrac);
-      this.pendingGrowth += whole;
-      this._growFrac     -= whole;
-    }
     this.score = Math.round(this.score + amount);
+    if (!(amount > 0)) return;
+
+    /* Where the body will be once what is already owed has been laid down.
+       Growth queued but not yet grown still counts as size, or a big meal
+       eaten in two mouthfuls would be cheaper than the same meal in one. */
+    let sct = Math.min(C.GROWTH_MSCPS, this.sct + this.pendingGrowth);
+    let food = amount * C.SEGMENTS_PER_FOOD;
+    let parts = 0;
+
+    /* Bounded by the part cap: there is no amount of food that can buy more
+       than GROWTH_MSCPS parts, so this cannot spin however much is eaten. */
+    while (food > 0 && sct < C.GROWTH_MSCPS) {
+      const rate = FMLTS[sct];
+      if (!(rate > 0)) break;                       // at the cap: score only
+      const need = (1 - (this._growFrac || 0)) / rate;   // food to finish this part
+      if (food < need) {
+        this._growFrac = (this._growFrac || 0) + food * rate;
+        food = 0;
+        break;
+      }
+      food -= need;
+      this._growFrac = 0;
+      parts++;
+      sct++;
+    }
+    this.pendingGrowth += parts;
   }
+
+  /* slither's part count for this body. Our spawn is their sct 2, which is the
+     same anchor grow() curves against. */
+  get sct() {
+    return Math.max(0, Math.min(C.GROWTH_MSCPS, this.length - MIN_SEGMENTS + 2));
+  }
+
+  /* What this body cost to EARN, in food units: everything above the body you
+     are given for nothing at spawn.
+
+     A function of SIZE alone, so two snakes the same length are worth the same
+     however long one has been farming — score keeps climbing after the part
+     cap and a corpse priced off it would make a veteran's body absurd.
+
+     Above SPAWN because the first parts were not paid for. Pricing the whole
+     body meant dying at spawn size and eating yourself came back one part up:
+     not an exploit worth the respawn, but it is still mass appearing out of a
+     death, and the honest floor is that a snake which never ate anything
+     leaves nothing behind. */
+  get mass() { return Math.max(0, FPSLS[this.sct] - FPSLS[SPAWN_SCT]); }
 
   die() {
     this.alive = false;
@@ -322,6 +394,14 @@ class Snake {
     const segsPerStep = Math.max(1, Math.round(stepUnits / sep));
     const PER_STEP    = 2;   // orbs laid across the width at each step
 
+    /* The corpse is worth a share of the BODY, split evenly across however
+       many orbs it takes to trace it. The orb count is a drawing decision —
+       it follows the shape of the snake — so it must not be what decides the
+       value, which is the mistake this replaces: value per orb was a constant
+       and the total was therefore whatever the geometry happened to produce. */
+    const steps = Math.max(1, Math.ceil(n / segsPerStep));
+    const orbValue = (this.mass * C.CORPSE_DROP_RATIO) / (steps * PER_STEP);
+
     for (let i = 0; i < n; i += segsPerStep) {
       // local body direction, so the scatter runs ACROSS the snake rather than
       // in a square box around each point
@@ -339,7 +419,7 @@ class Snake {
         drops.push({
           x: segs[i].x + px * off,
           y: segs[i].y + py * off,
-          value: 2,
+          value: orbValue,
           color: this.color,
           size: (2.0 + Math.random() * 0.5) * sizeMul,
           dropped: false,

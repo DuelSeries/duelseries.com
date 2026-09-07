@@ -130,6 +130,26 @@ const CONSTANTS = {
   GROWTH_MSCPS: 411,  // slither's mscps — hard cap on body parts
   GROWTH_EXP: 2.25,   // slither's fmlts exponent
 
+  /* How much of a snake's mass its corpse is worth.
+
+     A corpse used to be worth a fixed amount PER SEGMENT, which has nothing
+     to do with what the snake ate: measured, a spawn-size snake dropped 4.85x
+     its own mass, so dying at minimum size and eating your own body made you
+     several times bigger than you started. The same formula gave a 411-part
+     snake 0.03x, because real mass explodes near the cap while segment count
+     does not.
+
+     Below 1 is what makes dying a loss rather than a move: eating your entire
+     corpse returns this share of what you had, and you respawn at spawn size,
+     so suicide can never be a gain at any size.
+
+     THIS IS THE ONE NUMBER HERE NOT READ OUT OF SLITHER'S CODE. Their growth
+     curve, their part cap and their mass function are all theirs, taken from
+     their live bundle. The corpse share is decided on their SERVER and their
+     client never sees it — the client is told its fullness, never the value
+     of what it ate — so there was nothing to read. */
+  CORPSE_DROP_RATIO: 0.6,
+
   // Boost — boost ramps per-tick speed up toward SNAKE_MAX_SPEED (a fixed cap). Base speed rises
   // with size but the cap doesn't, so the boost *ratio* shrinks as you grow (slither.io feel).
   // Exact slither.io speed curve, scaled into our units (k = 3/4.75, anchoring our base 3 to
