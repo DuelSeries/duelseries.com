@@ -32,11 +32,17 @@
      every gun in the game wants some, so it is made once and re-read. */
   var noiseBuf = null;
 
-  function init() {
+  /* `existing` lets a caller hand in its own context. The game never does,
+     but it means the whole graph can be rendered into an OfflineAudioContext
+     and measured, which is the only way to check a mix without ears. */
+  function init(existing) {
     if (ctx) return ctx;
-    var AC = root.AudioContext || root.webkitAudioContext;
-    if (!AC) return null;
-    ctx = new AC();
+    if (existing) { ctx = existing; }
+    else {
+      var AC = root.AudioContext || root.webkitAudioContext;
+      if (!AC) return null;
+      ctx = new AC();
+    }
 
     master = ctx.createGain();
     master.gain.value = 0.55;
@@ -97,32 +103,76 @@
   }
 
   /* ── the beds ───────────────────────────────────────────────────────────
-     Two continuous voices that never stop, whose volume is ridden by the game.
-     Owen asked for these to sit in the background, so they are quiet, and the
-     engine is deliberately duller than the guns so it never competes with a
-     shot for attention. */
+     Continuous voices that never stop, whose levels are ridden by the game.
+     Owen asked for these to sit behind everything, so they are tiny. */
   function buildBeds() {
-    // Engine: two detuned saws through a low-pass, plus a little rumble.
+    /* THE ENGINE. A tank does not drone, it chugs. The first version was two
+       detuned sawtooths through a resonant low-pass, which is a generator, or
+       a fridge, and Owen was right that it did not sound like a tank at all.
+
+       What makes a diesel read as a diesel is that you can hear the separate
+       cylinders firing, so this is built as a pulse train. An inverted
+       sawtooth LFO gates a band of low noise and a low saw; inverted, because
+       a rising ramp is a wobble and a falling one is a bang, and a combustion
+       stroke is a bang. The rate of that LFO IS the engine speed, so driving
+       revs the engine rather than merely turning it up. Under it sits a
+       steady sub and some rumble, which is the mass of the thing.
+
+       Then the tracks, on their own faster pulse train of bright filtered
+       noise: link plates slapping the road wheels. They only exist while the
+       tank is actually rolling, which is the other half of why the old bed
+       read as a machine sitting still. */
     var engGain = ctx.createGain();
     engGain.gain.value = 0;
-    var engFilter = ctx.createBiquadFilter();
-    engFilter.type = 'lowpass';
-    engFilter.frequency.value = 320;
-    engFilter.Q.value = 3;
-    engFilter.connect(engGain);
     engGain.connect(master);
 
-    var a = ctx.createOscillator(); a.type = 'sawtooth'; a.frequency.value = 46;
-    var b = ctx.createOscillator(); b.type = 'sawtooth'; b.frequency.value = 69;
-    var rumble = ctx.createBufferSource();
-    rumble.buffer = noiseBuf; rumble.loop = true;
-    var rf = ctx.createBiquadFilter(); rf.type = 'lowpass'; rf.frequency.value = 140;
-    var rg = ctx.createGain(); rg.gain.value = 0.5;
-    rumble.connect(rf); rf.connect(rg); rg.connect(engFilter);
-    a.connect(engFilter); b.connect(engFilter);
-    a.start(); b.start(); rumble.start();
+    // the mass: always there while the engine is running
+    var body = ctx.createGain(); body.gain.value = 0.30;
+    body.connect(engGain);
+    var sub = ctx.createOscillator(); sub.type = 'sine'; sub.frequency.value = 33;
+    sub.connect(body);
+    var rum = ctx.createBufferSource(); rum.buffer = noiseBuf; rum.loop = true;
+    var rumF = ctx.createBiquadFilter(); rumF.type = 'lowpass'; rumF.frequency.value = 110;
+    var rumG = ctx.createGain(); rumG.gain.value = 0.45;
+    rum.connect(rumF); rumF.connect(rumG); rumG.connect(body);
 
-    // Turret servo: a filtered triangle that only exists while the gun turns.
+    // the chug: one pulse per firing stroke
+    var chug = ctx.createGain(); chug.gain.value = 0.5;  // offset; the LFO swings it 0..1
+    chug.connect(engGain);
+    var chugN = ctx.createBufferSource(); chugN.buffer = noiseBuf; chugN.loop = true;
+    var chugF = ctx.createBiquadFilter();
+    chugF.type = 'lowpass'; chugF.frequency.value = 250; chugF.Q.value = 1.1;
+    chugN.connect(chugF); chugF.connect(chug);
+    /* Exactly TWO octaves-worth of the sub, not a free-running pitch. Two low
+       oscillators at an unrelated interval beat at their difference, and that
+       slow throb is what made the first bed sound like a generator: its 46Hz
+       and 69Hz saws beat at 23Hz, which measured as a stronger rhythm than
+       anything intentional in it. Locked to a harmonic, the two reinforce
+       into one tone and the only rhythm left is the chug. */
+    var chugT = ctx.createOscillator(); chugT.type = 'sawtooth'; chugT.frequency.value = 66;
+    var chugTG = ctx.createGain(); chugTG.gain.value = 0.22;
+    chugT.connect(chugTG); chugTG.connect(chug);
+
+    var lfo = ctx.createOscillator(); lfo.type = 'sawtooth'; lfo.frequency.value = 7;
+    var lfoD = ctx.createGain(); lfoD.gain.value = -0.5;   // negative depth = inverted saw
+    lfo.connect(lfoD); lfoD.connect(chug.gain);
+
+    // the tracks
+    var clat = ctx.createGain(); clat.gain.value = 0;
+    clat.connect(master);
+    var clatN = ctx.createBufferSource(); clatN.buffer = noiseBuf; clatN.loop = true;
+    var clatF = ctx.createBiquadFilter();
+    clatF.type = 'bandpass'; clatF.frequency.value = 2400; clatF.Q.value = 2.5;
+    var clatGate = ctx.createGain(); clatGate.gain.value = 0.5;
+    clatN.connect(clatF); clatF.connect(clatGate); clatGate.connect(clat);
+    var clatLfo = ctx.createOscillator(); clatLfo.type = 'sawtooth'; clatLfo.frequency.value = 10;
+    var clatD = ctx.createGain(); clatD.gain.value = -0.5;
+    clatLfo.connect(clatD); clatD.connect(clatGate.gain);
+
+    sub.start(); rum.start(); chugN.start(); chugT.start(); lfo.start();
+    clatN.start(); clatLfo.start();
+
+    // TURRET SERVO: a filtered triangle that only exists while the gun turns.
     var srvGain = ctx.createGain();
     srvGain.gain.value = 0;
     var srvFilter = ctx.createBiquadFilter();
@@ -131,11 +181,33 @@
     srvFilter.Q.value = 6;
     srvFilter.connect(srvGain);
     srvGain.connect(master);
-    var s = ctx.createOscillator(); s.type = 'triangle'; s.frequency.value = 320;
-    s.connect(srvFilter); s.start();
+    var srv = ctx.createOscillator(); srv.type = 'triangle'; srv.frequency.value = 320;
+    srv.connect(srvFilter); srv.start();
 
-    beds = { engGain: engGain, engA: a, engB: b, engFilter: engFilter,
-             srvGain: srvGain, srvOsc: s };
+    /* THE CASH-OUT SQUARE. Sitting in the box is worth its own sound, and Owen
+       asked for a very quiet one. It is the first two notes of the fanfare you
+       get when the five seconds are up, C5 and the G above it, held under a
+       slow tremolo so it breathes rather than sitting there like a test tone.
+       You should barely notice it start and definitely notice it stop. */
+    var bankGain = ctx.createGain(); bankGain.gain.value = 0;
+    bankGain.connect(master);
+    var trem = ctx.createGain(); trem.gain.value = 0.62;
+    trem.connect(bankGain);
+    var tremLfo = ctx.createOscillator(); tremLfo.type = 'sine'; tremLfo.frequency.value = 2.6;
+    var tremD = ctx.createGain(); tremD.gain.value = 0.38;   // swings the tremolo 0.24..1
+    tremLfo.connect(tremD); tremD.connect(trem.gain);
+    var bA = ctx.createOscillator(); bA.type = 'sine'; bA.frequency.value = 523.25;
+    var bAg = ctx.createGain(); bAg.gain.value = 0.55;
+    bA.connect(bAg); bAg.connect(trem);
+    var bB = ctx.createOscillator(); bB.type = 'sine'; bB.frequency.value = 783.99;
+    var bBg = ctx.createGain(); bBg.gain.value = 0.32;
+    bB.connect(bBg); bBg.connect(trem);
+    bA.start(); bB.start(); tremLfo.start();
+
+    beds = { engGain: engGain, sub: sub, chugT: chugT, chugF: chugF, lfo: lfo,
+             clat: clat, clatLfo: clatLfo,
+             srvGain: srvGain, srvOsc: srv,
+             bankGain: bankGain, tremLfo: tremLfo };
   }
 
   /* Called every frame with how hard the tank is working. `drive` is 0..1 of
@@ -147,18 +219,37 @@
     var d = Math.max(0, Math.min(1, drive || 0));
     var r = Math.max(0, Math.min(1, turn || 0));
 
-    /* Quiet. This is a bed, not an instrument: you should notice it stop,
-       not notice it playing. Roughly a third of where it started, and the
-       filter stays low so it never gets bright enough to pull focus off a gun. */
-    beds.engGain.gain.setTargetAtTime(0.009 + d * 0.030, t, 0.08);
-    beds.engFilter.frequency.setTargetAtTime(190 + d * 240, t, 0.08);
-    beds.engA.frequency.setTargetAtTime(44 + d * 26, t, 0.10);
-    beds.engB.frequency.setTargetAtTime(66 + d * 40, t, 0.10);
+    /* Very quiet, and pulsed rather than droning, which lowers what you
+       actually hear again at the same peak. The rate climbing with speed is
+       what carries the effort, so this does not need volume to read as work. */
+    beds.engGain.gain.setTargetAtTime(0.006 + d * 0.017, t, 0.12);
+    beds.lfo.frequency.setTargetAtTime(7 + d * 13, t, 0.18);
+    var f0 = 33 + d * 15;                       // the engine's own low tone
+    beds.sub.frequency.setTargetAtTime(f0, t, 0.18);
+    beds.chugT.frequency.setTargetAtTime(f0 * 2, t, 0.18);   // locked, never beating
+    beds.chugF.frequency.setTargetAtTime(250 + d * 240, t, 0.15);
 
-    beds.srvGain.gain.setTargetAtTime(r * 0.013, t, 0.05);
+    beds.clat.gain.setTargetAtTime(d * 0.0075, t, 0.14);
+    beds.clatLfo.frequency.setTargetAtTime(9 + d * 13, t, 0.18);
+
+    beds.srvGain.gain.setTargetAtTime(r * 0.010, t, 0.05);
     beds.srvOsc.frequency.setTargetAtTime(280 + r * 260, t, 0.05);
   }
 
+  /* The cash-out square, every frame. `inBox` is whether the tank is inside it
+     at all, which is what starts the sound, and `progress` is 0..1 of the five
+     seconds, which leans it up and speeds the tremolo so the sound itself
+     tells you how close you are. Two arguments rather than one because a bare
+     progress value is 0 at the moment you drive in, and that moment is exactly
+     what Owen asked to be able to hear. */
+  function bank(inBox, progress) {
+    if (!ready || !beds) return;
+    var t = now();
+    if (!inBox || muted) { beds.bankGain.gain.setTargetAtTime(0, t, 0.12); return; }
+    var p = Math.max(0, Math.min(1, progress || 0));
+    beds.bankGain.gain.setTargetAtTime(0.0045 + p * 0.0075, t, 0.10);
+    beds.tremLfo.frequency.setTargetAtTime(2.6 + p * 2.6, t, 0.15);
+  }
   /* ── the guns ───────────────────────────────────────────────────────────
      Ten weapons, ten voices. The rule each one follows is that you should be
      able to name the gun with your eyes shut: the minigun is a dry tick, the
@@ -250,15 +341,18 @@
       noise(0.9, 0.45, 'lowpass', 600);
       tone('sawtooth', 220, 34, 0.85, 0.22);
     },
-    // The five seconds in the middle paying off.
+    /* The five seconds in the middle paying off. This is the SAME sound the
+       snake game plays when you cash out, because every game should pay out
+       the same way and three copies of a sound do not stay identical. It
+       lives in js/cashoutSound.js. Routed through master so mute still works,
+       and at 0.9 because master already sits at 0.55 while the snake game
+       plays the same thing at 0.5 straight to the destination.
+
+       There used to be a bankTick one-shot here for the seconds counting up.
+       Nothing ever called it, and the quiet held bed in buildBeds is what
+       actually covers standing in the square now. */
     banked: function () {
-      [660, 880, 1320].forEach(function (f, i) {
-        tone('sine', f, f, 0.22, 0.15, i * 0.09);
-      });
-    },
-    // Ticking up while you stand in the square.
-    bankTick: function () {
-      tone('sine', 880, 880, 0.05, 0.05);
+      if (root.CashoutSound) root.CashoutSound.play(ctx, master, 0.9);
     },
   };
 
@@ -274,7 +368,7 @@
   }
 
   root.ShooterSound = {
-    init: init, unlock: unlock, gun: gun, fx: fx, rig: rig,
+    init: init, unlock: unlock, gun: gun, fx: fx, rig: rig, bank: bank,
     setMuted: setMuted,
     get muted() { return muted; },
     get ready() { return ready; },

@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Sound check</title>
+<style>
+ body{margin:0;background:#111;color:#ddd;font:13px ui-monospace,monospace;padding:16px}
+ pre{white-space:pre-wrap;color:#9c9;line-height:1.5}
+</style></head>
+<body>
+<pre id="out">measuring…</pre>
+<script src="js/cashoutSound.js"></script>
+<script src="js/shooterSound.js"></script>
+<script>
+/* ─── Measuring the mix ───────────────────────────────────────────────────────
+   You cannot check a sound design by reading it, and "it sounds quieter now" is
+   not a fact. So the real module is rendered into an OfflineAudioContext and
+   the samples are measured. Offline rendering is deterministic, needs no
+   gesture and no speakers, and gives the same numbers every run.
+
+   The old module is loaded alongside under a shadowed `window`, so before and
+   after are measured by identical code on an identical scale.
+
+   The sound module is a singleton and keeps the first context it is handed, so
+   each measurement needs its own page load. ?test=engine or ?test=bank.
+
+   ?test=engine compares against the PREVIOUS version of the sound module, which
+   it fetches from public/dev-old-shootersound.js. That file is not in git
+   because it is just an older commit of a file that is; regenerate it with
+
+     git show <commit>:public/js/shooterSound.js > public/dev-old-shootersound.js
+
+   and the before/after columns come back. Without it the engine test throws,
+   which is deliberate: a comparison with nothing to compare against should
+   fail loudly rather than quietly print one column. */
+
+const SR = 44100;
+const out = document.getElementById('out');
+const log = (m) => { out.textContent += '\n' + m; };
+const TEST = new URLSearchParams(location.search).get('test') || 'engine';
+
+/* ── the measurements ── */
+function slice(buf, t0, t1) {
+  return buf.getChannelData(0).subarray(Math.floor(t0 * SR), Math.floor(t1 * SR));
+}
+function rms(d) {
+  let s = 0;
+  for (let i = 0; i < d.length; i++) s += d[i] * d[i];
+  return Math.sqrt(s / d.length);
+}
+function peak(d) {
+  let m = 0;
+  for (let i = 0; i < d.length; i++) { const a = Math.abs(d[i]); if (a > m) m = a; }
+  return m;
+}
+
+/* MEASURING A RHYTHM YOU CANNOT SEE PAST THE CARRIER.
+
+   Three attempts at this measured the wrong thing, which is worth writing down
+   because each failure looked like a result:
+
+     1. a moving MAX for the envelope measured its own noise, and reported a
+        confident 92Hz for a bed with no rhythm in it at all
+     2. smoothing at 111Hz left the 33Hz sub sitting in the envelope, so the
+        "pulse rate" came back as 33Hz, which is the carrier, not a pulse
+     3. with the smoothing removed entirely the envelope IS the rectified
+        carrier, and the 7Hz chug did not appear anywhere
+
+   The real problem is that at full throttle the chug (20Hz) and the tone it
+   gates (48Hz) are barely an octave apart, and no envelope filter separates
+   those cleanly. So do not try. Measure the rhythm in a band where the
+   carriers do not exist: everything tonal in the engine sits below 110Hz
+   (sub 33-48, its octave 66-96, rumble under 110), while the gated noise runs
+   up to 490Hz. High-pass at 140Hz and what is left is the pulse train itself,
+   whose envelope needs no cleverness to read. */
+
+const ENV_SR = 2000, ENV_W = Math.round(SR / ENV_SR);   // 22 samples
+
+/* Two one-pole highpasses at 140Hz, run over a copy of the samples. */
+function highpass(d, hz) {
+  const a = 1 - Math.exp(-2 * Math.PI * hz / SR);
+  const o = new Float32Array(d.length);
+  let lp = 0;
+  for (let i = 0; i < d.length; i++) { lp += (d[i] - lp) * a; o[i] = d[i] - lp; }
+  lp = 0;
+  for (let i = 0; i < o.length; i++) { lp += (o[i] - lp) * a; o[i] = o[i] - lp; }
+  return o;
+}
+
+function envelope(d) {
+  const n = Math.floor(d.length / ENV_W), e = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    let s = 0;
+    for (let j = 0; j < ENV_W; j++) s += Math.abs(d[i * ENV_W + j]);
+    e[i] = s / ENV_W;
+  }
+  /* 60Hz, four poles. Comfortably above any rhythm worth finding and far
+     below what is left after the highpass. */
+  const a = 1 - Math.exp(-2 * Math.PI * 60 / ENV_SR);
+  for (let p = 0; p < 4; p++) {
+    let y = e[0];
+    for (let i = 0; i < n; i++) { y += (e[i] - y) * a; e[i] = y; }
+  }
+  return e;
+}
+
+/* The top few components of the envelope, so nothing has to be inferred from a
+   single peak-picked number. Magnitudes are relative to the envelope's own
+   mean: 0.40 means the level swings +-40% of average at that rate. */
+function envSpectrum(d) {
+  const e = envelope(d), n = e.length;
+  let mean = 0;
+  for (let i = 0; i < n; i++) mean += e[i];
+  mean /= n;
+  if (mean <= 1e-12) return [];
+  const bins = [];
+  for (let hz = 2; hz <= 60; hz += 0.25) {
+    const w = 2 * Math.PI * hz / ENV_SR;
+    let re = 0, im = 0;
+    for (let i = 0; i < n; i++) {
+      const v = e[i] - mean;
+      re += v * Math.cos(w * i);
+      im += v * Math.sin(w * i);
+    }
+    bins.push([hz, 2 * Math.hypot(re, im) / n / mean]);
+  }
+  const peaks = [];
+  for (let i = 2; i < bins.length - 2; i++) {
+    if (bins[i][1] > bins[i - 1][1] && bins[i][1] >= bins[i + 1][1] &&
+        bins[i][1] > bins[i - 2][1] && bins[i][1] >= bins[i + 2][1]) peaks.push(bins[i]);
+  }
+  peaks.sort((a, b) => b[1] - a[1]);
+  return peaks.slice(0, 3);
+}
+const dB = (a, b) => (20 * Math.log10((a || 1e-9) / (b || 1e-9))).toFixed(1);
+
+const fmt = (sp) => sp.length
+  ? sp.map(p => p[0].toFixed(1) + 'Hz x' + p[1].toFixed(2)).join('  ')
+  : 'none';
+
+function report(name, buf, t0, t1) {
+  const d = slice(buf, t0, t1);
+  const r = { rms: rms(d), peak: peak(d),
+              rhythm: envSpectrum(highpass(d, 140)), whole: envSpectrum(d) };
+  log('  ' + name.padEnd(18) +
+      'rms ' + r.rms.toFixed(5) + '  peak ' + r.peak.toFixed(5));
+  log('  ' + ' '.repeat(18) + 'pulse train (>140Hz)  ' + fmt(r.rhythm));
+  log('  ' + ' '.repeat(18) + 'whole signal          ' + fmt(r.whole));
+  return r;
+}
+async function loadOld() {
+  const src = await (await fetch('dev-old-shootersound.js')).text();
+  /* The old init built its own context and cannot be handed one, so the three
+     lines that build it are swapped for the injected one. Nothing else is
+     touched, so what gets measured is the old graph exactly as it shipped. */
+  const patched = src.replace(
+    '    var AC = root.AudioContext || root.webkitAudioContext;\n    if (!AC) return null;\n    ctx = new AC();',
+    '    ctx = root.__ctx;');
+  if (patched === src) throw new Error('could not inject a context into the old module');
+  const shim = {};
+  new Function('window', patched)(shim);
+  return shim;
+}
+
+async function engineTest() {
+  log('THE TANK ENGINE      idle 0.6-1.4s, full throttle 2.6-3.9s');
+  log('');
+
+  const oldShim = await loadOld();
+  const oOff = new OfflineAudioContext(1, SR * 4, SR);
+  oldShim.__ctx = oOff;
+  oldShim.ShooterSound.init();
+  oldShim.ShooterSound.rig(0, 0);
+  oOff.suspend(1.5).then(() => { oldShim.ShooterSound.rig(1, 0); oOff.resume(); });
+  const ob = await oOff.startRendering();
+  log('before:');
+  const oi = report('idle', ob, 0.6, 1.4);
+  const od = report('full throttle', ob, 2.6, 3.9);
+
+  const nOff = new OfflineAudioContext(1, SR * 4, SR);
+  const S = window.ShooterSound;
+  S.init(nOff);
+  S.rig(0, 0);
+  nOff.suspend(1.5).then(() => { S.rig(1, 0); nOff.resume(); });
+  const nb = await nOff.startRendering();
+  log('');
+  log('after:');
+  const ni = report('idle', nb, 0.6, 1.4);
+  const nd = report('full throttle', nb, 2.6, 3.9);
+
+  log('');
+  log('  level      ' + dB(ni.rms, oi.rms) + ' dB idle, ' + dB(nd.rms, od.rms) + ' dB driving');
+  log('  the chug was programmed to run at 7 Hz idle and 20 Hz at full drive.');
+  log('');
+  log('THE CASH-OUT FANFARE (shared with the snake and agar games)');
+  log('');
+  const fOff = new OfflineAudioContext(1, SR * 2, SR);
+  const ok = window.CashoutSound.play(fOff, fOff.destination, 0.5);
+  const fb = await fOff.startRendering();
+  log('  play() returned ' + ok);
+  report('flourish', fb, 0.02, 0.20);
+  report('held chord', fb, 0.30, 0.55);
+  report('after 1.15s', fb, 1.15, 1.40);
+
+  window.__soundcheck = { oldIdle: oi, oldDrive: od, newIdle: ni, newDrive: nd, fanfare: ok };
+}
+
+async function bankTest() {
+  /* Its own page load, so the module's context is this one. The engine is
+     never rigged, so engGain stays at 0 and what is measured is the box bed
+     alone. */
+  log('THE CASH-OUT SQUARE  enter at 1.0s, timer full at 2.5s, drive out at 3.6s');
+  log('');
+  const off = new OfflineAudioContext(1, SR * 5, SR);
+  const S = window.ShooterSound;
+  S.init(off);
+  S.bank(false, 0);
+  off.suspend(1.0).then(() => { S.bank(true, 0);  off.resume(); });
+  off.suspend(2.5).then(() => { S.bank(true, 1);  off.resume(); });
+  off.suspend(3.6).then(() => { S.bank(false, 0); off.resume(); });
+  const b = await off.startRendering();
+  const b0 = report('outside the box', b, 0.4, 0.9);
+  const b1 = report('just entered', b, 1.4, 2.2);
+  const b2 = report('nearly paid', b, 2.9, 3.4);
+  const b3 = report('driven back out', b, 4.1, 4.9);
+  log('');
+  /* Leaving the box ramps the gain down rather than cutting it, so the tail is
+     never bit-zero and must not be tested as though it were. Anything 60dB
+     under the bed's own level is gone as far as a listener is concerned. */
+  const gone = b3.peak < b2.peak / 1000;
+  log('  silent outside the box: ' + (b0.peak < 1e-6));
+  log('  gone after driving out:  ' + gone + '  (' + dB(b3.peak, b2.peak) + ' dB)');
+  log('  audible on entry: ' + (b1.rms > 0) + ', leans up by ' + dB(b2.rms, b1.rms) + ' dB as it fills');
+  window.__soundcheck = { out: b0, entered: b1, nearly: b2, left: b3 };
+}
+
+(async function () {
+  out.textContent = '';
+  try {
+    if (TEST === 'bank') await bankTest();
+    else await engineTest();
+    log('');
+    log('done');
+  } catch (e) {
+    log('FAILED: ' + (e && e.stack || e));
+    window.__soundcheck = { error: String(e) };
+  }
+})();
+</script>
+</body></html>

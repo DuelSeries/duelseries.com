@@ -474,7 +474,23 @@ function connectSocket() {
 
   socket.on('cell:worldSize', ({ size }) => { worldSize = size; });
 
+  /* The same cash-out fanfare the snake game and the tank arena play. This
+     game used to pay out in silence, which made it the odd one out. The
+     sound itself lives in js/cashoutSound.js so all three cannot drift.
+     Its own context, lazily made, because nothing else here needs audio. */
+  let _cashCtx = null;
+  function playCashoutSound() {
+    if (window.gameMuted || !window.CashoutSound) return;
+    try {
+      if (!_cashCtx) _cashCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (_cashCtx.state === 'suspended') _cashCtx.resume().catch(() => {});
+      const vol = (window.gameMasterVol ?? 1) * (window.gameSfxVol ?? 0.5);
+      window.CashoutSound.play(_cashCtx, _cashCtx.destination, vol);
+    } catch (e) {}
+  }
+
   socket.on('cell:cashout:result', ({ newBalance, earnedCad, earnedSol, score, toWallet }) => {
+    playCashoutSound();
     var _w = sessionStorage.getItem('walletAddress'); if (window.phIdentify && _w) window.phIdentify(_w);
     if (window.phEvent) window.phEvent('cashed_out', { game: 'agar', amount: earnedSol, score: score });
     document.getElementById('death-score-val').textContent = score || 0;

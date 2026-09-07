@@ -281,6 +281,17 @@
     aimRate = aimRate * 0.7 + Math.min(1, da * 6) * 0.3;
     lastAim = s.you.aim;
     SND.rig(s.you.dead ? 0 : moving, s.you.dead ? 0 : aimRate);
+
+    /* The cash-out square. Whether the tank is inside it is worked out here
+       rather than read off the snapshot, because the snapshot only carries
+       the timer, and the timer is 0 on the frame you drive in. Driving in is
+       exactly the moment that is supposed to make a sound, so it has to come
+       from the position, which is the same box test the server does. */
+    var b = map && map.bank;
+    var inBox = !!(b && !s.you.dead &&
+                   Math.abs(s.you.x - b.x) <= b.half &&
+                   Math.abs(s.you.y - b.y) <= b.half);
+    SND.bank(inBox, s.you.cash || 0);
   }
 
   socket.on('sh:killed', function (e) {
