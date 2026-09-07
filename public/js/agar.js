@@ -517,6 +517,10 @@ function connectSocket() {
   socket.on('cell:cashout:error', ({ message }) => {
     alert('Cashout error: ' + message);
   });
+
+  /* Sent by the owner console to everyone in a game. It lives in here with the
+     other handlers because `socket` only exists once this function has run. */
+  socket.on('announce', (m) => showGameMessage(m && m.text));
 }
 
 // ─── In-game leaderboard ──────────────────────────────────────────────────────
@@ -955,6 +959,3 @@ function hideGameMessage() {
   clearTimeout(gmsgTimer);
   gmsgEl.classList.remove('on');
 }
-/* Sent by the owner console to everyone in a game. It was already being
-   broadcast and nothing anywhere was listening for it. */
-socket.on('announce', (m) => showGameMessage(m && m.text));
