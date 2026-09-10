@@ -78,6 +78,16 @@ class HexGrid {
     this._pattern = null;    // recreated against the target ctx in draw()
   }
 
+  /* Will the next draw() paint every pixel of the canvas by itself?
+
+     The pattern fill covers the full viewport and is opaque, so when it runs
+     there is nothing underneath it left to see and the caller's clear is dead
+     work. Conservative on purpose: the pattern is built inside draw(), so the
+     very first frame answers no and clears, as it should. */
+  covers() {
+    return !!(this._img && this._img.complete && this._img.naturalWidth > 0 && this._pattern);
+  }
+
   draw(ctx, camera, dpr) {
     dpr = dpr || window.devicePixelRatio || 1;
     const W = ctx.canvas.width, H = ctx.canvas.height;
@@ -85,10 +95,17 @@ class HexGrid {
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
 
-    // Gap colour underneath — this is also what shows for the frame or two before
-    // the image has decoded, so the world is never blank.
-    ctx.fillStyle = 'rgb(15,25,38)';
-    ctx.fillRect(0, 0, W, H);
+    /* The gap colour is what shows for the frame or two before the image has
+       decoded, so the world is never blank. It used to be painted on EVERY
+       frame, and then the pattern below covered every pixel of it — a whole
+       screen of fill, thrown away, sixty to eighty times a second. At Owen's
+       canvas size that is 4.1 megapixels a frame of pure waste.
+
+       So it only paints when it is actually the thing you will see. */
+    if (!(this._img.complete && this._img.naturalWidth > 0)) {
+      ctx.fillStyle = 'rgb(15,25,38)';
+      ctx.fillRect(0, 0, W, H);
+    }
 
     if (this._img.complete && this._img.naturalWidth > 0) {
       if (!this._padded) this._buildPadded();

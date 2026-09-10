@@ -247,8 +247,23 @@ class Renderer {
     }
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = '#070707';
-    ctx.fillRect(0, 0, canvas.width, canvas.height); // physical pixels — clear full canvas
+    /* Clear only when something will still be showing through afterwards.
+
+       The background below paints an opaque pattern across the whole
+       viewport, so on every frame where that runs, this fill was covered
+       completely — a second full screen of fill thrown away, on top of the
+       one HexGrid was also throwing away. Between them that is 8.2 of the
+       12.3 megapixels the background was costing Owen every frame, and his
+       own client proved the frame is fill-rate bound: quartering the pixels
+       took him from 75fps to 235.
+
+       Nothing stale can survive, because the thing that replaces this covers
+       the same pixels and is opaque. When it cannot — the first frame, or
+       before the image decodes — covers() says so and the clear happens. */
+    if (!(this.hexGrid && this.hexGrid.covers && this.hexGrid.covers())) {
+      ctx.fillStyle = '#070707';
+      ctx.fillRect(0, 0, canvas.width, canvas.height); // physical pixels
+    }
 
     if (this.snakeGL && this.snakeGL.ok) this.snakeGL.ensureSize(canvas.width, canvas.height);
     if (this.foodGL  && this.foodGL.ok)  this.foodGL.ensureSize(canvas.width, canvas.height);
