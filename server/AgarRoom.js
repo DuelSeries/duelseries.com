@@ -622,6 +622,25 @@ class AgarRoom {
       if (v > cell.maxV) cell.maxV = v;
     }
 
+    /* THE LEADERBOARD, built once from EVERYONE.
+
+       The client used to build this itself out of the players it had been
+       sent — but that list is view-culled, so the board only ever ranked
+       whoever was near you and called it the top ten. It has to come from
+       the server, because the server is the only party that can see the
+       whole room.
+
+       Ten rows of three short fields, so sending it in every payload costs
+       nothing worth measuring against the player and food arrays beside it. */
+    const lb = [];
+    for (const p of this.players.values()) if (p && p.alive) lb.push(p);
+    for (const b of this.bots.values()) if (b && b.alive) lb.push(b);
+    lb.sort((x, y) => (y.score || 0) - (x.score || 0));
+    const board = lb.slice(0, 10).map((p, i) => ({
+      rank: i + 1, id: p.id, name: p.name, score: Math.floor(p.score || 0),
+      worth: p.worth || 0,
+    }));
+
     // One culled payload per occupied cell, padded by the widest view among its players.
     for (const cell of cells.values()) {
       const pad = cell.maxV + MARGIN;
@@ -632,12 +651,12 @@ class AgarRoom {
         const b = bounds[i];
         if (Math.abs(b.cx - cx) <= halfW + b.br && Math.abs(b.cy - cy) <= halfH + b.br) players.push(all[i]);
       }
-      this.io.to(cell.roomName).volatile.emit('cell:state', { players, removedFoods, addedFoods });
+      this.io.to(cell.roomName).volatile.emit('cell:state', { players, removedFoods, addedFoods, lb: board });
     }
 
     // Dead / spectator sockets get the full set (rare and transient).
     for (const sock of fullSends) {
-      sock.volatile.emit('cell:state', { players: all, removedFoods, addedFoods });
+      sock.volatile.emit('cell:state', { players: all, removedFoods, addedFoods, lb: board });
     }
   }
 

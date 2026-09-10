@@ -1567,8 +1567,19 @@ function escHtml(s) {
 // Leaderboard — updated from snapshot (60Hz max), not render loop
 let _lastLbHtml = '';
 function updateLeaderboard(snap) {
-  const aliveIds = new Set(snap.snakes.map(s => s.id));
-  const lb = (snap.leaderboard || []).filter(p => aliveIds.has(p.id));
+  /* Exactly what the server sent, unfiltered.
+
+     This used to keep only the entries whose snake was also in snap.snakes —
+     and snap.snakes is VIEW-CULLED. So the global top ten was cut down to
+     whichever of them happened to be on your screen: a board that sat half
+     empty, reshuffled every time you moved, and never showed the leader
+     unless you were next to them. Which is what a leaderboard is for.
+
+     The filter was presumably guarding against a player who died between the
+     server building the board and this frame drawing it. The server rebuilds
+     it from living snakes on every broadcast, so that window is one snapshot
+     wide — and one stale row for 33ms is not worth hiding nine real ones. */
+  const lb = snap.leaderboard || [];
   const isPaid = isPaidRoom;
   const html = lb.map(p => {
     const val = isPaid

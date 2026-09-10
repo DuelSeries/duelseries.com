@@ -18,6 +18,10 @@ let moneyMode    = 'sol';
 fetch('/api/money-config').then(r => r.json()).then(c => { if (c && c.mode) moneyMode = c.mode; }).catch(() => {});
 
 let serverPlayers = new Map();
+/* The ranking the SERVER built, over everyone in the room. serverPlayers is
+   view-culled — the client time-evicts anyone it stops hearing about — so a
+   board built from it ranks the neighbours and calls them the top ten. */
+let serverLb = [];
 let renderPlayers = new Map();
 
 let foods       = new Map();
@@ -420,7 +424,8 @@ function connectSocket() {
     if (spectateOnly) enterSpectate();
   });
 
-  socket.on('cell:state', ({ players: updates, removedFoods, addedFoods }) => {
+  socket.on('cell:state', ({ players: updates, removedFoods, addedFoods, lb }) => {
+    if (lb) serverLb = lb;      // the whole room's ranking, not just what is near me
     for (const p of updates) {
       // Once cashed out, ignore server state for own player so cells stay gone
       if (p.id === myId && cashedOut) continue;
@@ -528,9 +533,15 @@ function renderIngameLb() {
   const el = document.getElementById('hud-lb-rows');
   if (!el) return;
   const isPaid = lobbyType !== 'free';
-  const alive  = [...serverPlayers.values()].filter(p => p.alive && p.cells && p.cells.length);
-  alive.sort((a, b) => isPaid ? b.worth - a.worth : b.score - a.score);
-  const top = alive.slice(0, 10);
+  /* Straight from the server, already ranked over the whole room. Falls back
+     to the local view only if a server that predates this is on the other
+     end, so an old server still shows something rather than nothing. */
+  let top = serverLb;
+  if (!top.length) {
+    const alive = [...serverPlayers.values()].filter(p => p.alive && p.cells && p.cells.length);
+    alive.sort((a, b) => isPaid ? b.worth - a.worth : b.score - a.score);
+    top = alive.slice(0, 10);
+  }
   el.innerHTML = top.map((p, i) => {
     const isMe  = p.id === myId;
     const val   = isPaid ? '$' + (p.worth || 0).toFixed(3) : String(p.score || 0);
