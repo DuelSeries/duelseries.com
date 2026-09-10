@@ -590,6 +590,27 @@ class ShooterRoom {
   stop() { if (this.timer) { clearInterval(this.timer); this.timer = null; } }
 
   tick() {
+    /* An empty arena does not need 30Hz — the same rule GameRoom and AgarRoom
+       already follow, and this was the one room without it.
+
+       So the tanks arena drove its bots, stepped every bullet, mine and
+       pickup, and broadcast a snapshot thirty times a second, forever, with
+       nobody in it. On a t3.micro that is not free: the box runs on CPU
+       credits, it earns 12 an hour, and once the balance hits zero AWS bills
+       the surplus. The balance has been at zero since 2026-09-08.
+
+       Nobody can see the result of a tick nobody is watching, so drop to a
+       tenth of the rate. The instant a human joins, humans() goes above zero
+       and the very next tick runs at full rate. Bots do not count — a room of
+       robots playing to an empty house is exactly the case this exists for. */
+    if (this.humans() === 0) {
+      this._idleSkip = (this._idleSkip || 0) + 1;
+      if (this._idleSkip < 10) return;
+      this._idleSkip = 0;
+    } else if (this._idleSkip) {
+      this._idleSkip = 0;
+    }
+
     const dt = 1 / SH.TICK_RATE;
     const now = this.now();
     for (const t of this.tanks.values()) {
