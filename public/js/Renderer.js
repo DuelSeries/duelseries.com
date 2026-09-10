@@ -264,12 +264,43 @@ class Renderer {
     const visR = (W - camera.x) / camera.scale + margin;
     const visT = (-camera.y) / camera.scale - margin;
     const visB = (H - camera.y) / camera.scale + margin;
-    // Compute visible other snakes once — used for both trail recording and drawing
+    /* Compute visible other snakes once — used for both trail recording and
+       drawing.
+
+       BY THE WHOLE SNAKE, not by its head. This tested segs[0] and segs[1],
+       which is the head, and skipped the snake entirely when that one point
+       left the viewport — so a big snake whose head had gone off the edge
+       vanished completely while most of its body was still on screen, and you
+       could still run into the part you could no longer see. The bigger the
+       snake the worse it got, because the head is exactly the part that
+       leaves the screen first.
+
+       The head test stays as the fast path, because it is right nearly all of
+       the time and costs two comparisons. Only when it fails does the whole
+       body get measured, which is precisely the case that was being dropped. */
     const visibleOthers = [];
     for (const snake of state.snakes) {
       if (snake.id === myId) continue;
-      const hx = snake.segs && snake.segs[0], hy = snake.segs && snake.segs[1];
-      if (hx < visL || hx > visR || hy < visT || hy > visB) continue;
+      const s = snake.segs;
+      if (!s || s.length < 2) continue;
+
+      const hx = s[0], hy = s[1];
+      if (hx >= visL && hx <= visR && hy >= visT && hy <= visB) {
+        visibleOthers.push(snake);
+        continue;
+      }
+
+      /* Head is off screen. Does any of the BODY reach it? One pass for the
+         extent, and only for snakes that would otherwise be thrown away. */
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (let i = 0; i < s.length; i += 2) {
+        const x = s[i], y = s[i + 1];
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+      if (maxX < visL || minX > visR || maxY < visT || minY > visB) continue;
       visibleOthers.push(snake);
     }
 
