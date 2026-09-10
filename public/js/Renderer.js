@@ -205,9 +205,13 @@ class Renderer {
     /* Mobile has always capped this at 2. Desktop does not cap it at all, so
        a machine reporting 1.5 or 2 draws two and a quarter to four times the
        pixels of a 1x canvas, every frame — the background, the snake pass,
-       the composite and the food all at that size. Whether that is what is
-       holding Owen at 80fps is measured, not assumed: _resScale is what the
-       experiment in game.js turns to find out. */
+       the composite and the food all at that size.
+
+       _resScale is kept as a knob because the measurement that used it was
+       decisive: half resolution took a 240Hz machine from 75fps to 235, which
+       is what proved the frame was bound by pixels rather than by anything
+       the game computes. If a quality setting is ever wanted, this is where
+       it goes. Default 1 does nothing. */
     const dpr = (this._isMobile ? Math.min(rawDpr, 2) : rawDpr) * (this._resScale || 1);
     this.canvas.style.width  = window.innerWidth  + 'px';
     this.canvas.style.height = window.innerHeight + 'px';
@@ -270,25 +274,13 @@ class Renderer {
 
     camera.apply(ctx, dpr);
 
-    /* OFF is a measurement, not a feature. Two changes that should have made
-       this faster did nothing, so each layer now gets switched off in turn on
-       the machine that has the problem, and the frame rate says which one was
-       costing. Sequence lives in game.js; all of it comes out once it has
-       answered. */
-    const AB = window.__duelAblate || '';
-
     // Hex grid — drawn every frame (cheap pattern fill). Skipping frames on
     // mobile caused the background to flicker (canvas is cleared every frame).
-    if (AB !== 'bg') this.hexGrid.draw(ctx, camera, dpr);
-    else {
-      ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.fillStyle = '#0b1826'; ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.restore();
-    }
+    this.hexGrid.draw(ctx, camera, dpr);
 
     // Food — drawn UNCLIPPED so it's visible out past the border in the red zone too
     // (the red border tint is painted last, on top, so that food reads as "in the red part").
-    if (AB !== 'food') this._drawFood(ctx, state.food, camera);
+    this._drawFood(ctx, state.food, camera);
 
     // Snakes drawn outside the clip so bodies stay visible under the red border zone
     // Viewport bounds in world space (with margin for snake body radius)
@@ -339,41 +331,31 @@ class Renderer {
 
     // Snake bodies: render all into one GL layer, then composite once (a single
     // drawImage instead of one-per-snake — removes a GPU stall per snake).
+    /* Measured, when the frame rate was hunted down: this whole block is one
+       of the cheap ones. Switching it off entirely bought 79.8Hz against a
+       72Hz baseline, and skipping just the per-snake composite bought 76.2.
+       Both are noise. The border overlay was the cost. */
     const glBatch = this._glMode && this.snakeGL && this.snakeGL.ok;
-    /* Two separate things to blame, so two separate switches.
-
-         'bodies' draws nothing at all.
-         'nocopy' draws the whole GL pass and never copies it back.
-
-       compositeTo is one cross-context drawImage PER SNAKE, out of a WebGL
-       canvas into a 2D one, every frame — and that cost scales with
-       resolution, which is the shape of the half-res result. If the frame
-       rate recovers under 'nocopy' as well as under 'bodies', the copy is
-       the cost and the drawing is not. */
-    if (AB !== 'bodies') {
-      if (glBatch) this.snakeGL.beginFrame();
-      for (const snake of visibleOthers) this._drawSnakeBody(ctx, snake, false);
-      if (mySnake) this._drawSnakeBody(ctx, mySnake, true);
-      if (glBatch) {
-        this.snakeGL.endFrame();
-        ctx.setTransform(1, 0, 0, 1, 0, 0);        // screen space for the composite
-        if (AB !== 'nocopy') this.snakeGL.compositeTo(ctx);
-        camera.apply(ctx, dpr);                      // back to world space
-      }
+    if (glBatch) this.snakeGL.beginFrame();
+    for (const snake of visibleOthers) this._drawSnakeBody(ctx, snake, false);
+    if (mySnake) this._drawSnakeBody(ctx, mySnake, true);
+    if (glBatch) {
+      this.snakeGL.endFrame();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);        // screen space for the composite
+      this.snakeGL.compositeTo(ctx);              // small per-snake copies (1 GL sync total)
+      camera.apply(ctx, dpr);                      // back to world space
     }
     // Heads / eyes / hats / names / cashout rings, drawn on top of the bodies
-    if (AB !== 'overlay') {
-      for (const snake of visibleOthers) this._drawSnakeOverlay(ctx, snake, false);
-      if (mySnake) this._drawSnakeOverlay(ctx, mySnake, true);
-    }
+    for (const snake of visibleOthers) this._drawSnakeOverlay(ctx, snake, false);
+    if (mySnake) this._drawSnakeOverlay(ctx, mySnake, true);
 
     // Border overlay drawn last so red tint still appears on top of snakes
-    if (AB !== 'border') this._drawBorder(ctx, state.worldRadius, camera, state.worldCx || 0, state.worldCy || 0);
+    this._drawBorder(ctx, state.worldRadius, camera, state.worldCx || 0, state.worldCy || 0);
     if (state.zoneTo) this._drawZoneTarget(ctx, state, camera);
 
     camera.reset(ctx, dpr);
 
-    if (AB !== 'minimap') this._drawMinimap(ctx, state, myId, W, H);
+    this._drawMinimap(ctx, state, myId, W, H);
   }
 
   _drawMinimap(ctx, state, myId, W, H) {
@@ -1134,8 +1116,69 @@ class Renderer {
     const cy = (camera.y + (wcy || 0) * camera.scale) * dpr;
     const screenR = worldRadius * camera.scale * dpr;
 
+    /* WHERE IS THE CIRCLE, RELATIVE TO THE SCREEN?
+
+       This used to fill a full-screen rect with the world circle punched out
+       of it — a compound path, nonzero winding, translucent — on every frame,
+       unconditionally. Almost always you are deep inside the world, so that
+       circle contains the whole screen and the path paints NOTHING. The
+       canvas still has to flatten an arc whose radius is world radius times
+       scale times dpr (thousands of pixels, so a great many segments) and
+       rasterise a compound path across all 4.1 megapixels to discover that.
+
+       Owen's own client named it. Switching each layer off in turn, four
+       seconds each: background 78.6Hz, food 82.2, snake bodies 79.8, the GL
+       composite 76.2, overlays 72.9, minimap 74.5 — all noise against a 72Hz
+       baseline. Border off: 233.5, 213.1, 217. Three times the frame rate,
+       from the one layer that was usually drawing nothing at all.
+
+       Two distances decide everything, and they are exact rather than
+       approximate, so this draws the same pixels as before in every case:
+
+         dFar   the farthest screen corner from the circle's centre
+         dNear  the nearest point of the screen to that centre (0 if inside)
+
+       dFar <= r : every pixel is inside the world. The old path punched out
+                   the entire screen and painted nothing, and the ring sits
+                   beyond every corner. So: draw nothing. This is the case
+                   that was costing three quarters of the frame rate.
+       dNear >= r: every pixel is outside the world. The punch-out removed
+                   nothing visible, so the result was a flat tint over the
+                   whole screen — which is a plain fillRect, no arc, no
+                   compound path.
+       otherwise : the ring crosses the screen and the old path is the right
+                   one. That is the only case that needs it, and it is the
+                   rare one.
+
+       The ring itself has WIDTH, and that is where the first version of this
+       was wrong. A pixel-for-pixel diff against the old code over 126 screen
+       and circle arrangements found two that differed, by 238 of 255: the
+       cases where the circle passes exactly through a screen corner. The ring
+       is 3px wide, so half of it is still on screen at that moment, and a
+       test on the centre line alone throws it away. Both bounds carry half
+       the stroke plus a pixel for antialiasing. */
+    const RING_HALF = 3 / 2 + 1;              // lineWidth 3, plus an AA pixel
+    const fx = Math.max(Math.abs(cx), Math.abs(W - cx));
+    const fy = Math.max(Math.abs(cy), Math.abs(H - cy));
+    const dFar = Math.hypot(fx, fy);
+    if (dFar <= screenR - RING_HALF) return;  // whole screen inside, ring past every corner
+
+    const nx = cx < 0 ? -cx : (cx > W ? cx - W : 0);
+    const ny = cy < 0 ? -cy : (cy > H ? cy - H : 0);
+    const dNear = Math.hypot(nx, ny);
+
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0); // work in screen space — no outer arc edge possible
+
+    if (dNear >= screenR + RING_HALF) {
+      // Entirely outside the world: the punch-out could never have removed
+      // anything on screen, so this is the same pixels for a fraction of the
+      // work. The ring cannot be visible either, beyond a tangent point.
+      ctx.fillStyle = 'rgba(180,0,0,0.22)';
+      ctx.fillRect(0, 0, W, H);
+      ctx.restore();
+      return;
+    }
 
     // Fill entire screen, punch out the world circle (nonzero winding: CW rect + CCW arc)
     ctx.beginPath();

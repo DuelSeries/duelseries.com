@@ -1582,29 +1582,15 @@ window.addEventListener('resize', resize);
    back. The report carries the frame rate through all three, and the
    comparison is the answer. Five seconds of a softer picture, once, and then
    it is over — and this whole block comes out as soon as it has answered. */
-/* THE ABLATION RUN.
+/* The ablation run that used to live here has been removed: it answered.
 
-   The resolution test already answered its own question: half resolution
-   took Owen from 75fps to 235, so the frame is bound by something that
-   scales with pixels. Two guesses at WHICH thing then changed nothing he
-   could feel — the tanks room's idle tick, and 8.2 megapixels a frame of
-   redundant background fill. Both were real waste. Neither was the answer.
+   Each render layer switched off for four seconds in turn, against a 72Hz
+   baseline on a 240Hz panel — background 78.6, food 82.2, snake bodies 79.8,
+   the per-snake GL composite 76.2, snake overlays 72.9, minimap 74.5, and
+   then border 233.5, 213.1, 217.
 
-   So stop guessing at it. Switch each layer off for four seconds in turn and
-   let the frame rate name the one that matters. The report carries a
-   per-second frame rate and a mark at every switch, so reading it is just
-   lining those two up.
-
-   Free rooms only, and the whole block comes out once it has answered. */
-if (window.__duelDiagPhase && !isPaidRoom) {
-  ['bg', 'food', 'bodies', 'nocopy', 'overlay', 'border', 'minimap', ''].forEach(
-    function (name, i) {
-      setTimeout(function () {
-        window.__duelAblate = name;
-        if (window.__duelDiagMarkPhase) window.__duelDiagMarkPhase(name || 'all-on');
-      }, 10000 + i * 4000);
-    });
-}
+   One layer, three times the frame rate, and it was the one that usually
+   draws nothing at all. See _drawBorder in Renderer.js. */
 
 /* What the canvas actually is, which decides whether the above can matter. */
 if (window.__duelDiagDisplay) {
