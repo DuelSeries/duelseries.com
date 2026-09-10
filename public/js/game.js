@@ -1582,17 +1582,28 @@ window.addEventListener('resize', resize);
    back. The report carries the frame rate through all three, and the
    comparison is the answer. Five seconds of a softer picture, once, and then
    it is over — and this whole block comes out as soon as it has answered. */
-/* Free rooms only. Softening the picture for five seconds is a fair price for
-   an answer, but not while somebody has money on the table. */
+/* THE ABLATION RUN.
+
+   The resolution test already answered its own question: half resolution
+   took Owen from 75fps to 235, so the frame is bound by something that
+   scales with pixels. Two guesses at WHICH thing then changed nothing he
+   could feel — the tanks room's idle tick, and 8.2 megapixels a frame of
+   redundant background fill. Both were real waste. Neither was the answer.
+
+   So stop guessing at it. Switch each layer off for four seconds in turn and
+   let the frame rate name the one that matters. The report carries a
+   per-second frame rate and a mark at every switch, so reading it is just
+   lining those two up.
+
+   Free rooms only, and the whole block comes out once it has answered. */
 if (window.__duelDiagPhase && !isPaidRoom) {
-  setTimeout(function () {
-    renderer._resScale = 0.5; resize();
-    if (window.__duelDiagMarkScale) window.__duelDiagMarkScale(0.5);
-    setTimeout(function () {
-      renderer._resScale = 1; resize();
-      if (window.__duelDiagMarkScale) window.__duelDiagMarkScale(1);
-    }, 5000);
-  }, 10000);
+  ['bg', 'food', 'bodies', 'nocopy', 'overlay', 'border', 'minimap', ''].forEach(
+    function (name, i) {
+      setTimeout(function () {
+        window.__duelAblate = name;
+        if (window.__duelDiagMarkPhase) window.__duelDiagMarkPhase(name || 'all-on');
+      }, 10000 + i * 4000);
+    });
 }
 
 /* What the canvas actually is, which decides whether the above can matter. */

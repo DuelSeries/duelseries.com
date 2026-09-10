@@ -270,13 +270,25 @@ class Renderer {
 
     camera.apply(ctx, dpr);
 
+    /* OFF is a measurement, not a feature. Two changes that should have made
+       this faster did nothing, so each layer now gets switched off in turn on
+       the machine that has the problem, and the frame rate says which one was
+       costing. Sequence lives in game.js; all of it comes out once it has
+       answered. */
+    const AB = window.__duelAblate || '';
+
     // Hex grid — drawn every frame (cheap pattern fill). Skipping frames on
     // mobile caused the background to flicker (canvas is cleared every frame).
-    this.hexGrid.draw(ctx, camera, dpr);
+    if (AB !== 'bg') this.hexGrid.draw(ctx, camera, dpr);
+    else {
+      ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.fillStyle = '#0b1826'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.restore();
+    }
 
     // Food — drawn UNCLIPPED so it's visible out past the border in the red zone too
     // (the red border tint is painted last, on top, so that food reads as "in the red part").
-    this._drawFood(ctx, state.food, camera);
+    if (AB !== 'food') this._drawFood(ctx, state.food, camera);
 
     // Snakes drawn outside the clip so bodies stay visible under the red border zone
     // Viewport bounds in world space (with margin for snake body radius)
@@ -328,26 +340,40 @@ class Renderer {
     // Snake bodies: render all into one GL layer, then composite once (a single
     // drawImage instead of one-per-snake — removes a GPU stall per snake).
     const glBatch = this._glMode && this.snakeGL && this.snakeGL.ok;
-    if (glBatch) this.snakeGL.beginFrame();
-    for (const snake of visibleOthers) this._drawSnakeBody(ctx, snake, false);
-    if (mySnake) this._drawSnakeBody(ctx, mySnake, true);
-    if (glBatch) {
-      this.snakeGL.endFrame();
-      ctx.setTransform(1, 0, 0, 1, 0, 0);        // screen space for the composite
-      this.snakeGL.compositeTo(ctx);              // small per-snake copies (1 GL sync total)
-      camera.apply(ctx, dpr);                      // back to world space
+    /* Two separate things to blame, so two separate switches.
+
+         'bodies' draws nothing at all.
+         'nocopy' draws the whole GL pass and never copies it back.
+
+       compositeTo is one cross-context drawImage PER SNAKE, out of a WebGL
+       canvas into a 2D one, every frame — and that cost scales with
+       resolution, which is the shape of the half-res result. If the frame
+       rate recovers under 'nocopy' as well as under 'bodies', the copy is
+       the cost and the drawing is not. */
+    if (AB !== 'bodies') {
+      if (glBatch) this.snakeGL.beginFrame();
+      for (const snake of visibleOthers) this._drawSnakeBody(ctx, snake, false);
+      if (mySnake) this._drawSnakeBody(ctx, mySnake, true);
+      if (glBatch) {
+        this.snakeGL.endFrame();
+        ctx.setTransform(1, 0, 0, 1, 0, 0);        // screen space for the composite
+        if (AB !== 'nocopy') this.snakeGL.compositeTo(ctx);
+        camera.apply(ctx, dpr);                      // back to world space
+      }
     }
     // Heads / eyes / hats / names / cashout rings, drawn on top of the bodies
-    for (const snake of visibleOthers) this._drawSnakeOverlay(ctx, snake, false);
-    if (mySnake) this._drawSnakeOverlay(ctx, mySnake, true);
+    if (AB !== 'overlay') {
+      for (const snake of visibleOthers) this._drawSnakeOverlay(ctx, snake, false);
+      if (mySnake) this._drawSnakeOverlay(ctx, mySnake, true);
+    }
 
     // Border overlay drawn last so red tint still appears on top of snakes
-    this._drawBorder(ctx, state.worldRadius, camera, state.worldCx || 0, state.worldCy || 0);
+    if (AB !== 'border') this._drawBorder(ctx, state.worldRadius, camera, state.worldCx || 0, state.worldCy || 0);
     if (state.zoneTo) this._drawZoneTarget(ctx, state, camera);
 
     camera.reset(ctx, dpr);
 
-    this._drawMinimap(ctx, state, myId, W, H);
+    if (AB !== 'minimap') this._drawMinimap(ctx, state, myId, W, H);
   }
 
   _drawMinimap(ctx, state, myId, W, H) {

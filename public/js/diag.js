@@ -228,6 +228,11 @@
   window.__duelDiagMarkScale = function (s) {
     D.scaleMarks.push({ atSec: Math.round((Date.now() - started) / 1000), scale: s });
   };
+  /* Which layer is switched off, stamped at the moment it changes, so the
+     per-second frame rate above can be lined up against it. */
+  window.__duelDiagMarkPhase = function (label) {
+    D.scaleMarks.push({ atSec: Math.round((Date.now() - started) / 1000), off: label });
+  };
   window.__duelDiagDisplay = function (d) { D.display = d; };
 
   window.__duelDiagPing = function (ms) {
