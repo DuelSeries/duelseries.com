@@ -730,10 +730,37 @@ function _lBuildSegs(numSegs) {
      and back to 0, many times a second. That is the tail tip visibly growing
      and shrinking, which is what it looks like from the outside.
 
-     Four points of slack puts the store safely past what the walk can consume,
-     so the tip is always a real point on the path and recedes as smoothly as
-     the path itself moves. */
-  const STORE = numSegs + 4;
+     Four points of slack is NOT enough, and that is the distortion.
+
+     "The pull then compresses them to about `settled`" is the wrong word.
+     Measured off this very code, the pull settles the stored gaps at 0.86 to
+     0.96 of `settled` depending on size, and lower still for several seconds
+     after the snake grows, because growth widens `settled` immediately while
+     the store only respaces one point per insertion.
+
+     So the store runs a few percent SHORT of the arc the walk wants, and that
+     shortfall is a percentage while the slack was a fixed count of four. The
+     two cross over. Measured: the walk starves past about 60 drawn points in
+     steady play, and past about 30 while growing. From then on it runs off the
+     end of the path every frame, the tail-slide fallback fires early, and two
+     points land almost on top of each other — one gap at 5% to 45% of the
+     spacing while every other gap in the body is exact. Which is what a kink
+     in the body is.
+
+     The fix is to size the store by the ARC IT MUST HOLD rather than by a
+     point count, since arc length is what the walk actually consumes. The
+     bound below is proportional so it cannot be outgrown, and the top-up after
+     the extend loop makes short-store starvation structurally impossible
+     rather than merely unlikely — it measures the store instead of trusting a
+     constant, so retuning the pull can never quietly bring this back.
+
+     This cannot change the drawn body anywhere it was already correct. The
+     pull cascades strictly head-to-tail, so points added past the tail can
+     never move a point ahead of them, and the walk stops as soon as it has
+     numSegs points. The only thing extra store changes is whether the walk
+     reaches the end of the path. */
+  const needArc = (numSegs - 1) * settled;
+  const STORE = Math.max(numSegs + 4, Math.ceil(needArc / (settled * 0.85)) + 4);
 
   const hi = (_lpHead - 1 + LP_SIZE) % LP_SIZE;
   const pi = (hi - 1 + LP_SIZE) % LP_SIZE;
@@ -786,6 +813,31 @@ function _lBuildSegs(numSegs) {
     _lsPts.push({ x: t.x + ux / ul * sep, y: t.y + uy / ul * sep });
   }
 
+  /* The guarantee the walk below depends on: the store holds at least the arc
+     the walk will ask for. STORE is sized from a compression bound, and a
+     bound is an assumption; this measures the real thing and extends the tail
+     until it is true, so the walk cannot run off the end whatever the pull
+     does. Costs one pass over points that are already in cache, and the loop
+     normally runs zero times.
+
+     Bounded so a degenerate store (every point stacked, so haveArc never
+     rises) cannot spin: extendable points are capped at what the arc could
+     possibly need at `sep` apart, plus the same four points of slack. */
+  let haveArc = 0;
+  for (let i = 1; i < _lsPts.length; i++) {
+    haveArc += Math.hypot(_lsPts[i].x - _lsPts[i - 1].x, _lsPts[i].y - _lsPts[i - 1].y);
+  }
+  const capPts = Math.ceil(needArc / sep) + STORE + 4;
+  while (haveArc < needArc && _lsPts.length < capPts) {
+    const t = _lsPts[_lsPts.length - 1];
+    const u = _lsPts[_lsPts.length - 2];
+    let ux = u ? t.x - u.x : Math.cos(_lAngle + Math.PI) * settled;
+    let uy = u ? t.y - u.y : Math.sin(_lAngle + Math.PI) * settled;
+    const ul = Math.hypot(ux, uy) || 1;
+    _lsPts.push({ x: t.x + ux / ul * sep, y: t.y + uy / ul * sep });
+    haveArc += sep;
+  }
+
   /* Reused between frames: a fresh Float32Array per frame is 237 throwaway
      arrays a second for one snake on a 240Hz display. */
   /* Resampled uniformly from the head, exactly as Snake.drawPoints does, with
@@ -826,7 +878,20 @@ function _lBuildSegs(numSegs) {
     out[w++] = a.x + (c.x - a.x) * fr;
     out[w++] = a.y + (c.y - a.y) * fr;
   }
-  while (w < need) { out[w] = out[w - 2]; out[w + 1] = out[w - 1]; w += 2; }
+  /* Last resort, and it should now be unreachable: the store is guaranteed
+     above to hold the arc this walk consumes. It used to copy the previous
+     point, which produces a zero-length gap — two body circles stamped at the
+     same place, the most visible kink of the lot. Extending along the last
+     heading keeps the spacing right, so even if something upstream does go
+     wrong the body stays smooth instead of folding. */
+  while (w < need) {
+    let ux = out[w - 2] - out[w - 4], uy = out[w - 1] - out[w - 3];
+    let ul = Math.hypot(ux, uy);
+    if (!(ul > 1e-9)) { ux = Math.cos(_lAngle + Math.PI); uy = Math.sin(_lAngle + Math.PI); ul = 1; }
+    out[w] = out[w - 2] + ux / ul * settled;
+    out[w + 1] = out[w - 1] + uy / ul * settled;
+    w += 2;
+  }
   return out;
 }
 

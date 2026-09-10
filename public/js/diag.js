@@ -158,14 +158,14 @@
   window.__duelDiagBody = function (segs, settled, numSegs) {
     if (!segs || segs.length < 8 || !(settled > 0)) return;
     D.bodyChecks++;
-    var worstHi = 0, worstLo = Infinity, dupes = 0;
+    var worstHi = 0, worstLo = Infinity, dupes = 0, loAt = -1;
     /* The last point is the sliding tail and is MEANT to be a fraction of a
        step, so it is excluded — including it reports a fault every frame. */
     for (var i = 2; i < segs.length - 2; i += 2) {
       var dx = segs[i] - segs[i-2], dy = segs[i+1] - segs[i-1];
       var g = Math.sqrt(dx*dx + dy*dy) / settled;   // 1.0 is perfect
       if (g > worstHi) worstHi = g;
-      if (g < worstLo) worstLo = g;
+      if (g < worstLo) { worstLo = g; loAt = i / 2; }
       if (g < 0.05) dupes++;
     }
     if (worstLo === Infinity) return;
@@ -176,6 +176,10 @@
       if (D.body.length < 40) {
         D.body.push({ atSec: Math.round((Date.now() - started) / 1000),
                       hi: +worstHi.toFixed(2), lo: +worstLo.toFixed(2),
+                      /* WHICH point, counted from the head. A kink at the head
+                         and a kink two from the tail have completely different
+                         causes, and the ratio alone cannot tell them apart. */
+                      loAt: loAt, fromTail: (segs.length / 2) - loAt,
                       dupes: dupes, pts: segs.length / 2, want: numSegs || 0 });
       }
     }
