@@ -63,13 +63,21 @@ const storeDecls = 'let _lsPts = [], _lsAccum = 0; let _segBuf = null;' +
 const ctx = vm.createContext({ CONSTANTS: C, Math, Float32Array, console });
 vm.runInContext(
   ringDecls + storeDecls +
-  'let _lReady = true, _latestMySnap = null, boostActive = false, cashoutSpeedMult = 1, _lLastSettled = 0;' +
-  lift('_lAdvance') + lift('_lBuildSegs') +
+  'let _lReady = true, _latestMySnap = null, pingMs = 0, boostActive = false, cashoutSpeedMult = 1, _lLastSettled = 0;' +
+  lift('_lAdvance') + lift('_lBuildSegs') + lift('_lCorrect') + lift('_lInit') +
   'function seed(x, y, a) { _lAngle = a; _lpHead = 0; _lpLen = 0;' +
   '  for (let i = 39; i >= 0; i--) { _lpX[_lpHead] = x - Math.cos(a) * i * 3; _lpY[_lpHead] = y - Math.sin(a) * i * 3;' +
   '    _lpHead = (_lpHead + 1) % LP_SIZE; if (_lpLen < LP_SIZE) _lpLen++; } _lStoreReset(); }' +
   'function setSnap(s) { _latestMySnap = s; }' +
   'function setBoost(b) { boostActive = b; }' +
+  'function setPing(p) { pingMs = p; }' +
+  'function notReady() { _lReady = false; }' +
+  'function headNow() { const h = (_lpHead - 1 + LP_SIZE) % LP_SIZE;' +
+  '  return { x: _lpX[h], y: _lpY[h] }; }' +
+  'function p1AheadOfHead(settled) {' +
+  '  if (_lsPts.length < 2) return 0;' +
+  '  const fx = Math.cos(_lAngle), fy = Math.sin(_lAngle);' +
+  '  return ((_lsPts[1].x - _lsPts[0].x) * fx + (_lsPts[1].y - _lsPts[0].y) * fy) / settled; }' +
   'function settledNow() { return _lLastSettled; }' +
   'function storeArc() { let a = 0; for (let i = 1; i < _lsPts.length; i++)' +
   '  a += Math.hypot(_lsPts[i].x - _lsPts[i-1].x, _lsPts[i].y - _lsPts[i-1].y); return a; }',
@@ -152,5 +160,130 @@ test('at every size up to the 411 cap, including hairpins', () => {
       assert.strictEqual(r.kinked, 0, `${numSegs} points: ` + why(r));
       assert.ok(r.worstArc >= 1, `${numSegs} points: ` + why(r));
     }
+  }
+});
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   THE SECOND KINK, at the head this time.
+
+   The first fix above cured starvation at the tail, and Owen played a round and
+   said it still distorts. His client then reported where: loAt 1 on all 25
+   samples, in three separate reports. The first gap, head to first body point,
+   at 0.01 to 0.5 of the spacing it should be, on about 30% of frames.
+
+   The walk emits that point exactly one `settled` of ARC from the head, so a
+   short straight line between them means the stored path leaves the head going
+   forwards and immediately doubles back. Two things put it there:
+
+     _lCorrect used to slide the predicted head toward the server's without
+     moving the stored body with it. The local head runs AHEAD of the server's
+     by design, so that correction is almost always backwards, several times a
+     second, sliding the head back through its own first body point.
+
+     the insertion then locked it in. It lays a point one separation behind the
+     head measured from p1, as p1 + (head - p1) * (sep / d) — and sep/d exceeds
+     1 whenever the head is nearer to p1 than a separation, which puts the new
+     point PAST the head.
+
+   None of this could be seen without the server in the loop, which is why the
+   tests above missed it: they drove the body builder alone. This one runs the
+   real server Snake, its real serialize() over a delayed wire, and _lCorrect. */
+const Snake = require('../server/Snake');
+
+/* A whole session: server ticking at 60Hz, snapshots at 25Hz over a wire with
+   the latency profile his own report recorded, and a player steering at a
+   moving point on screen so aim depends on where the head actually is. */
+function session(opt) {
+  let seed = 12345;                       // deterministic, so a failure repeats
+  const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+
+  const srv = new Snake('me', 'me', 1000, 1000, '#4af');
+  const wire = [];
+  let simT = 0, tickAcc = 0, snapAcc = 0, started = false, stallUntil = -1;
+  let frames = 0, kinked = 0, aheadFrames = 0, worstAhead = 0;
+  let worst = Infinity, worstAt = null;
+
+  ctx.notReady();
+  ctx.seed(1000, 1000, 0);
+
+  for (let f = 0; f < 120 * 25; f++) {
+    // 85fps with the occasional long frame, clamped the way the game loop clamps it
+    const dt = rnd() < 0.004 ? 50 : 1000 / 85;
+    simT += dt;
+
+    tickAcc += dt;
+    while (tickAcc >= 1000 / C.TICK_RATE) {
+      tickAcc -= 1000 / C.TICK_RATE;
+      srv.update();
+      if (srv.length < 400) srv.grow(0.5);     // you are always eating
+    }
+
+    snapAcc += dt;
+    if (snapAcc >= 1000 / 25) {
+      snapAcc -= 1000 / 25;
+      if (opt.stalls && rnd() < 0.004) stallUntil = simT + 700;   // his worst snapshot gap
+      const ping = simT < 4000 ? opt.joinPing : opt.ping;
+      wire.push({ at: Math.max(simT + ping / 2, stallUntil), s: srv.serialize(), ping });
+    }
+    while (wire.length && wire[0].at <= simT) {
+      const w = wire.shift();
+      ctx.setSnap(w.s);
+      ctx.setPing(w.ping);
+      if (!started) { ctx._lInit(w.s); started = true; } else { ctx._lCorrect(w.s); }
+    }
+    if (!started) continue;
+
+    const h = ctx.headNow(), t = simT / 1000;
+    const target = Math.atan2(1000 + Math.sin(t * opt.aim * 1.6) * 350 - h.y,
+                              1000 + Math.cos(t * opt.aim) * 350 - h.x);
+    srv.setInput(target, false);
+    ctx._lAdvance(dt, target);
+
+    const numSegs = srv.serialize().segs.length >> 1;
+    const segs = ctx._lBuildSegs(numSegs);
+    if (!segs || segs.length < 8) continue;
+    const settled = ctx.settledNow();
+    if (!(settled > 0)) continue;
+    frames++;
+
+    const ahead = ctx.p1AheadOfHead(settled);
+    if (ahead > 0.02) { aheadFrames++; if (ahead > worstAhead) worstAhead = ahead; }
+
+    let lo = Infinity, loAt = -1;
+    for (let i = 2; i < segs.length - 2; i += 2) {
+      const g = Math.hypot(segs[i] - segs[i - 2], segs[i + 1] - segs[i - 1]) / settled;
+      if (g < lo) { lo = g; loAt = i / 2; }
+    }
+    if (lo < worst) { worst = lo; worstAt = { frame: f, gapIndex: loAt, numSegs }; }
+    if (lo < 0.5) kinked++;
+  }
+  return { frames, kinked, aheadFrames, worstAhead, worst, worstAt };
+}
+
+const sessionWhy = (r) => `${r.kinked}/${r.frames} frames kinked, worst gap ` +
+  `${r.worst.toFixed(3)} of a step at ${JSON.stringify(r.worstAt)}; the first stored ` +
+  `point was in front of the head on ${r.aheadFrames} frames, by up to ` +
+  `${r.worstAhead.toFixed(2)} steps — the stored path folds at the head and the ` +
+  `resampler draws the fold`;
+
+/* A body point in front of the head is never geometry, at any latency. This is
+   the property both halves of the fix exist to hold, so assert it directly
+   rather than only through the kink it causes. */
+test('no body point is ever in front of the head', () => {
+  for (const ping of [15, 60, 120, 250]) {
+    const r = session({ ping, joinPing: 700, aim: 2.5, stalls: true });
+    assert.strictEqual(r.aheadFrames, 0, `${ping}ms ping: ` + sessionWhy(r));
+  }
+});
+
+test('and the neck keeps its spacing through server corrections', () => {
+  for (const opt of [
+    { label: 'quiet line',   ping: 15,  joinPing: 15,  aim: 0.8, stalls: false },
+    { label: 'busy mouse',   ping: 20,  joinPing: 700, aim: 2.5, stalls: true  },
+    { label: 'high latency', ping: 120, joinPing: 700, aim: 2.5, stalls: true  },
+  ]) {
+    const r = session(opt);
+    assert.strictEqual(r.kinked, 0, `${opt.label}: ` + sessionWhy(r));
+    assert.ok(r.worst > 0.9, `${opt.label}: ` + sessionWhy(r));
   }
 });

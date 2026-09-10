@@ -637,9 +637,29 @@ function _lCorrect(s) {
   if (!_lReady || !s || !s.segs || s.segs.length < 2) return;
   const ping = pingMs || 0;
   const corr = ping < 60 ? 1 : Math.max(0.2, 1 - (ping - 60) / 250);
+  /* THE WHOLE SNAKE MOVES, not just its head.
+
+     Being told the head is somewhere else means the whole snake was predicted
+     in the wrong place, so the whole snake shifts. This used to slide the head
+     alone and leave the stored body where it was, and since the local head
+     runs ahead of the server's, the correction was almost always BACKWARDS —
+     sliding the head back through its own first body point, several times a
+     second, forever. The stored path then ran forward out of the head and
+     doubled back, and the body resampler walked that fold and stacked the
+     first drawn point on the head. Measured in a full client-and-server loop:
+     the first stored point ended up 0.41 of a body step IN FRONT of the head,
+     and every kink landed on the first gap — which is exactly what Owen's own
+     client reported, loAt 1 on all 25 samples.
+
+     Translating the body by the same delta costs one pass over points already
+     in cache and keeps the snake rigid through a correction, which is what a
+     position correction means. */
   const hi = (_lpHead - 1 + LP_SIZE) % LP_SIZE;
-  _lpX[hi] += (s.segs[0] - _lpX[hi]) * 0.10 * corr;
-  _lpY[hi] += (s.segs[1] - _lpY[hi]) * 0.10 * corr;
+  const cdx = (s.segs[0] - _lpX[hi]) * 0.10 * corr;
+  const cdy = (s.segs[1] - _lpY[hi]) * 0.10 * corr;
+  _lpX[hi] += cdx;
+  _lpY[hi] += cdy;
+  for (let i = 0; i < _lsPts.length; i++) { _lsPts[i].x += cdx; _lsPts[i].y += cdy; }
   // Blend angle toward server — never snap, avoids visible direction changes
   let da = s.angle - _lAngle;
   while (da >  Math.PI) da -= Math.PI * 2;
@@ -785,7 +805,9 @@ function _lBuildSegs(numSegs) {
     const p1 = _lsPts[1] || _lsPts[0];
     const dx = hx - p1.x, dy = hy - p1.y;
     const d  = Math.hypot(dx, dy) || 1;
-    const t  = sep / d;
+    // Clamped so a point can never land in front of the head — see Snake.js,
+    // which this mirrors line for line.
+    const t  = Math.min(1, sep / d);
     _lsPts.splice(1, 0, { x: p1.x + dx * t, y: p1.y + dy * t });
     while (_lsPts.length > STORE) _lsPts.pop();
 

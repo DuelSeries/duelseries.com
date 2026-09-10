@@ -253,7 +253,24 @@ class Snake {
       const p1 = segs[1] || head;
       const dx = head.x - p1.x, dy = head.y - p1.y;
       const d  = Math.hypot(dx, dy) || 1;
-      const t  = sep / d;
+      /* CLAMPED, because a body point in front of the head is not a body.
+
+         This lays the new point one separation behind the head measured from
+         p1 — but sep/d is greater than 1 whenever the head is closer to p1
+         than a separation, and then the point lands PAST the head. The stored
+         path then runs forward from the head and immediately doubles back, and
+         the resampler that draws the body walks that fold and puts the first
+         drawn point almost on top of the head. A kink in the neck, every
+         frame, which is what Owen has been looking at.
+
+         The head gets closer to p1 than a separation for two reasons. Turning
+         is the small one: the accumulator counts arc travelled while this
+         measures the straight line, and a chord is shorter than its arc. On
+         the client the large one is _lCorrect, which used to slide the
+         predicted head back toward the server's without moving the body with
+         it. Both are fixed at their source; this is the guard that makes the
+         geometry impossible rather than merely unlikely. */
+      const t  = Math.min(1, sep / d);
       segs.splice(1, 0, { x: p1.x + dx * t, y: p1.y + dy * t });
 
       /* GROWTH IS THE ABSENCE OF RETIREMENT.
