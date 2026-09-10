@@ -1758,6 +1758,9 @@ let _lLastStep = 0;   // body-thinning step last seen from the server
 let _lLastSettled = 0; // resample step the local body was last built at
 
 function gameLoop(now) {
+  // Counted before the cap, so this is what the DISPLAY offers rather than
+  // what we choose to draw. The two answer different questions.
+  if (window.__duelDiagRaf) window.__duelDiagRaf();
   // Cheap and first: skip the whole frame before anything allocates.
   if (now < _nextFrameAt) {
     requestAnimationFrame(gameLoop);
@@ -1790,7 +1793,12 @@ function gameLoop(now) {
                    _lAngle);
   }
 
+  var _tPhase = window.__duelDiagPhase ? performance.now() : 0;
   interpolateState(now);
+  if (window.__duelDiagPhase) {
+    window.__duelDiagPhase('interpolate', performance.now() - _tPhase);
+    _tPhase = performance.now();
+  }
 
   // Replace local snake in displayState with the locally-simulated version
   if (_lReady && myId && !isDead && !cashedOut && _latestMySnap) {
@@ -1841,6 +1849,8 @@ function gameLoop(now) {
     }
   }
 
+  if (window.__duelDiagPhase) window.__duelDiagPhase('localBody', performance.now() - _tPhase);
+
   let spectateSnake = null;
   if (spectating) {
     const targets = getSpectateTargets();
@@ -1849,7 +1859,11 @@ function gameLoop(now) {
   const renderState = cashedOut
     ? { ...displayState, snakes: displayState.snakes.filter(s => s.id !== myId) }
     : displayState;
+  /* The one that matters. Everything above is arithmetic on a few hundred
+     points; this is every draw call for the world, the snakes and the food. */
+  var _tRender = window.__duelDiagPhase ? performance.now() : 0;
   renderer.render(renderState, cashedOut ? null : myId, mousePos, spectateSnake, cashoutRings, dt);
+  if (window.__duelDiagPhase) window.__duelDiagPhase('render', performance.now() - _tRender);
 
 
   // Tell the server our current view radius (area-of-interest culling) so it only

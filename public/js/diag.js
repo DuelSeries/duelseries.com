@@ -185,6 +185,30 @@
     }
   };
 
+  /* WHERE THE FRAME GOES.
+
+     "60-70fps, how do I 4x it" cannot be answered by reading the code,
+     because the answer is a number and it is a number on HIS machine: his
+     GPU, his browser, his monitor. Guessing which phase is expensive is the
+     failure mode that has cost this project several rounds already.
+
+     Four performance.now() calls a frame, summed, no allocation. */
+  D.phase = Object.create(null);
+  window.__duelDiagPhase = function (name, ms) {
+    var p = D.phase[name] || (D.phase[name] = { n: 0, sum: 0, max: 0, over8: 0 });
+    p.n++; p.sum += ms;
+    if (ms > p.max) p.max = ms;
+    if (ms > 8.33) p.over8++;      // a whole 120Hz frame in one phase
+  };
+
+  /* Every requestAnimationFrame callback, INCLUDING the ones the frame cap
+     throws away. fps counts frames drawn; this counts frames offered, which
+     is what the display is actually running at. Without it there is no way
+     to tell a 240Hz monitor doing too much work from a 60Hz monitor doing
+     fine, and those need opposite fixes. */
+  D.rafTicks = 0;
+  window.__duelDiagRaf = function () { D.rafTicks++; };
+
   window.__duelDiagPing = function (ms) {
     D.pings.push({ atSec: sec(), ms });
     keep(D.pings, 90);
@@ -222,6 +246,16 @@
       heap: D.heap.slice(-20),
       pings: D.pings.slice(-45),
       marks: D.marks.slice(-20),
+      rafHz: +((D.rafTicks || 0) / elapsed).toFixed(1),
+      phases: (function () {
+        var out = {};
+        for (var k in D.phase) {
+          var p = D.phase[k];
+          out[k] = { avgMs: +(p.sum / Math.max(1, p.n)).toFixed(2),
+                     maxMs: +p.max.toFixed(1), framesOver8ms: p.over8, n: p.n };
+        }
+        return out;
+      })(),
       bodyChecks: D.bodyChecks || 0,
       bodyBad: D.bodyBad || 0,
       body: (D.body || []).slice(-25),
