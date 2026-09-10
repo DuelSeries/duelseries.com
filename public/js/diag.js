@@ -207,7 +207,28 @@
      to tell a 240Hz monitor doing too much work from a 60Hz monitor doing
      fine, and those need opposite fixes. */
   D.rafTicks = 0;
-  window.__duelDiagRaf = function () { D.rafTicks++; };
+  /* Per second, not just an average. The experiment changes the resolution
+     partway through, so an average over the whole session would blend the
+     two halves together and answer nothing. */
+  D.rafTimeline = [];
+  D.scaleMarks = [];
+  D._rafSecTicks = 0;
+  D._rafSecAt = Date.now();
+  window.__duelDiagRaf = function () {
+    D.rafTicks++; D._rafSecTicks++;
+    var n = Date.now();
+    if (n - D._rafSecAt >= 1000) {
+      if (D.rafTimeline.length < 90) {
+        D.rafTimeline.push({ atSec: Math.round((n - started) / 1000),
+                             hz: +(D._rafSecTicks * 1000 / (n - D._rafSecAt)).toFixed(1) });
+      }
+      D._rafSecTicks = 0; D._rafSecAt = n;
+    }
+  };
+  window.__duelDiagMarkScale = function (s) {
+    D.scaleMarks.push({ atSec: Math.round((Date.now() - started) / 1000), scale: s });
+  };
+  window.__duelDiagDisplay = function (d) { D.display = d; };
 
   window.__duelDiagPing = function (ms) {
     D.pings.push({ atSec: sec(), ms });
@@ -247,6 +268,9 @@
       pings: D.pings.slice(-45),
       marks: D.marks.slice(-20),
       rafHz: +((D.rafTicks || 0) / elapsed).toFixed(1),
+      rafTimeline: D.rafTimeline || [],
+      scaleMarks: D.scaleMarks || [],
+      display: D.display || null,
       phases: (function () {
         var out = {};
         for (var k in D.phase) {

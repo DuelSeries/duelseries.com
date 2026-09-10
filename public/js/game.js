@@ -1563,6 +1563,55 @@ function resize() { renderer.resize(); }
 resize();
 window.addEventListener('resize', resize);
 
+/* THE RESOLUTION EXPERIMENT.
+
+   Owen's own client says the game's JavaScript costs about 1ms a frame —
+   interpolate 0.11, the local body 0.03, issuing every draw call 0.9 — while
+   the frames themselves are 12ms apart. So eleven of those twelve milliseconds
+   are spent somewhere no JS timer can see: the browser painting, compositing
+   and presenting the canvas. Nothing in the game loop can be optimised to
+   recover time it is not spending.
+
+   The obvious suspect is how many pixels that canvas is. Desktop uses the
+   raw devicePixelRatio, so a machine at 1.5 draws 2.25x the pixels and one at
+   2 draws 4x, every frame. If the canvas is fill-rate bound, halving the
+   linear resolution quarters the pixels and the framerate should jump.
+
+   That is a question the code cannot answer and his machine can, so ask his
+   machine: play at full resolution, drop to half for five seconds, put it
+   back. The report carries the frame rate through all three, and the
+   comparison is the answer. Five seconds of a softer picture, once, and then
+   it is over — and this whole block comes out as soon as it has answered. */
+/* Free rooms only. Softening the picture for five seconds is a fair price for
+   an answer, but not while somebody has money on the table. */
+if (window.__duelDiagPhase && !isPaidRoom) {
+  setTimeout(function () {
+    renderer._resScale = 0.5; resize();
+    if (window.__duelDiagMarkScale) window.__duelDiagMarkScale(0.5);
+    setTimeout(function () {
+      renderer._resScale = 1; resize();
+      if (window.__duelDiagMarkScale) window.__duelDiagMarkScale(1);
+    }, 5000);
+  }, 10000);
+}
+
+/* What the canvas actually is, which decides whether the above can matter. */
+if (window.__duelDiagDisplay) {
+  var _gl = null;
+  try { _gl = document.createElement('canvas').getContext('webgl'); } catch (e) {}
+  var _gpu = '';
+  try {
+    var _dbg = _gl && _gl.getExtension('WEBGL_debug_renderer_info');
+    if (_dbg) _gpu = String(_gl.getParameter(_dbg.UNMASKED_RENDERER_WEBGL) || '');
+  } catch (e) {}
+  window.__duelDiagDisplay({
+    dpr: window.devicePixelRatio || 1,
+    cssW: window.innerWidth, cssH: window.innerHeight,
+    canvasW: canvas.width, canvasH: canvas.height,
+    gpu: _gpu.slice(0, 90),
+  });
+}
+
 // Send input at 60Hz (matches server tick rate)
 function sendInput() {
   if (!myId || isDead) return;

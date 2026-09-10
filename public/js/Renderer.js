@@ -202,7 +202,13 @@ class Renderer {
 
   resize() {
     const rawDpr = window.devicePixelRatio || 1;
-    const dpr = this._isMobile ? Math.min(rawDpr, 2) : rawDpr;
+    /* Mobile has always capped this at 2. Desktop does not cap it at all, so
+       a machine reporting 1.5 or 2 draws two and a quarter to four times the
+       pixels of a 1x canvas, every frame — the background, the snake pass,
+       the composite and the food all at that size. Whether that is what is
+       holding Owen at 80fps is measured, not assumed: _resScale is what the
+       experiment in game.js turns to find out. */
+    const dpr = (this._isMobile ? Math.min(rawDpr, 2) : rawDpr) * (this._resScale || 1);
     this.canvas.style.width  = window.innerWidth  + 'px';
     this.canvas.style.height = window.innerHeight + 'px';
     this.canvas.width  = Math.round(window.innerWidth  * dpr);
