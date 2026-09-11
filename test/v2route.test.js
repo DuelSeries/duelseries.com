@@ -960,18 +960,38 @@ test('a scrollbar can never shift the layout sideways', () => {
     'the document still scrolls on desktop, the bar is only invisible');
 });
 
-test('the nightly event states its prizes and counts down in real Eastern time', () => {
-  /* A fixed UTC offset is wrong for two thirds of the year one way and one
-     third the other, and the failure is silent — the clock is simply an hour
-     out and nothing on screen says which hour is right. The page has to read
-     the Eastern wall clock, so this checks it still does. */
+test('the nightly event states its prizes and reads the match, not a clock', () => {
+  /* THE PAGE NO LONGER KEEPS THE TIMETABLE.
+
+     It used to hold `var START=20, END=21` and its own Intl formatter, and
+     called the event "Live now" between eight and nine whether or not a match
+     existed — so it could never say "in progress", because it had no idea, and
+     its Watch button appeared on the hour rather than on a match.
+
+     The server owns the schedule (BR_AUTOSTART_HOUR/MIN) and is what starts the
+     thing. A second copy out here is a copy that can drift, and the failure is
+     silent: a countdown simply an hour out with nothing to say which hour was
+     right. So the assertions have inverted — the page must NOT carry its own
+     window any more, and must read the live state instead.
+
+     A fixed UTC offset stays banned on both sides for the daylight-saving
+     reason; the server sends Eastern as an hour and a minute. */
   const html = v2();
-  assert.ok(/timeZone:\s*'America\/New_York'/.test(html),
-    'the countdown reads the Eastern wall clock');
+  assert.ok(!/var START\s*=\s*20\s*,\s*END\s*=\s*21/.test(html),
+    'the page no longer keeps its own copy of the schedule');
   assert.ok(!/getTimezoneOffset\(\)\s*[-+]\s*\d|UTC[-+]\s*[45]\b/.test(html),
     'and does not add a hardcoded offset');
-  assert.ok(/var START\s*=\s*20\s*,\s*END\s*=\s*21/.test(html),
-    'the window is 8pm to 9pm');
+  assert.ok(/startHour/.test(html) && /etHour/.test(html),
+    'it takes the schedule and the Eastern wall clock from the server');
+  assert.ok(/\/api\/live/.test(html.slice(html.indexOf('V2Event') - 6000)),
+    'which it gets from the live endpoint');
+
+  /* The states it must be able to show. "in progress" is the one the wall
+     clock could never express. */
+  assert.ok(/in progress/i.test(html), 'it can say a match is in progress');
+  assert.ok(/still alive/i.test(html), 'and how many are left in it');
+  assert.ok(html.includes('id="ev-lock"'),
+    'and that the doors are shut once a match is running');
 
   /* One prize now: first place takes $20, second and third take the placing.
      The page must not imply otherwise anywhere, which is a thing prose gets

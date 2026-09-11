@@ -1197,15 +1197,59 @@ function liveExtras() {
   return out;
 }
 
+/* WHAT THE NIGHTLY EVENT IS ACTUALLY DOING.
+
+   The Events tab used to run on a wall clock of its own: START=20, END=21 in
+   the page, and it called the event "Live now" between eight and nine whether
+   or not a match existed. It had no way to say "in progress" because it had no
+   idea, and its Watch button appeared on the hour rather than on a match.
+
+   The schedule is sent too, rather than duplicated in the page. The server
+   already owns BR_AUTOSTART_HOUR/MIN and starts the thing; a second copy in the
+   client is a copy that can disagree, and the failure is silent — a countdown
+   that is simply an hour out with nothing to say which hour was right.
+
+   `joinable` is the same question the door answers (acceptingPlayers), so the
+   lobby and the server cannot disagree about whether you may come in. It is a
+   courtesy for the UI: the rule is enforced on join, where it already is. */
+function liveBattleRoyale() {
+  const room = gameRooms[REGION] && gameRooms[REGION].br;
+  if (!room) return null;
+  const st = room.publicState();
+  const { hour, minute } = easternNow();
+  return {
+    state: st.state,
+    alive: st.alive,
+    players: st.players,
+    /* People, not bodies. The lobby fills with bots between matches, so
+       `players` reported "20 waiting" for a room nobody was in. */
+    humans: st.humans,
+    ring: st.ring,
+    phase: st.phase,
+    countdownMs: st.countdownMs,
+    winner: st.winner,
+    podium: st.podium,
+    joinable: room.acceptingPlayers(),
+    /* The wall clock, from the box that runs the schedule. Eastern hour and
+       minute rather than a UTC offset, for the daylight-saving reason written
+       at BR_AUTOSTART_HOUR. */
+    startHour: BR_AUTOSTART_HOUR,
+    startMin: BR_AUTOSTART_MIN,
+    etHour: hour,
+    etMin: minute,
+  };
+}
+
 app.get('/api/live', (_req, res) => {
   try {
     /* The ladder ships with the board so the buy-in control offers exactly the
        rungs the server will accept. A client with its own copy is a client
        that can drift out of step and offer an amount that gets refused. */
-    res.json({ lobbies: liveBoard(), stakes: ALL_STAKES, extras: liveExtras() });
+    res.json({ lobbies: liveBoard(), stakes: ALL_STAKES, extras: liveExtras(),
+               br: liveBattleRoyale() });
   } catch (e) {
     console.error('[LIVE]', e.message);
-    res.json({ lobbies: [], stakes: ALL_STAKES, extras: [] });
+    res.json({ lobbies: [], stakes: ALL_STAKES, extras: [], br: null });
   }
 });
 

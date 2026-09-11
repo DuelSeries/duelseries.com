@@ -603,6 +603,13 @@ body.ingame .tkrun{animation-play-state:paused}
   line-height:1.35;color:var(--s3)}
 .evwatch{margin-top:18px;min-width:200px}
 .evwhen{margin:16px 0 0;font-size:13px;color:var(--tx2)}
+/* The shut door. Given the money amber and a tinted panel rather than another
+   line of grey text, because it explains why a thing someone just tried to do
+   did not happen — and grey-on-dark next to two other greys is how a notice
+   ends up invisible rather than merely quiet. */
+.evlock{margin:16px 0 0;padding:10px 14px;font-size:13px;line-height:1.5;
+  color:var(--money);background:rgba(240,168,48,.1);
+  border:1px solid rgba(240,168,48,.34);border-radius:var(--r2)}
 /* Live changes the accent, not the layout: the same page, in its other state. */
 .evhero.live .evtag{color:var(--live);background:rgba(142,208,129,.13);
   border-color:rgba(142,208,129,.36)}
@@ -641,6 +648,12 @@ body.ingame .tkrun{animation-play-state:paused}
   border:none;border-radius:var(--r2);padding:15px;cursor:pointer;
   font-family:inherit;font-size:15px;font-weight:650;transition:opacity .15s}
 .evgo:hover{opacity:.88}
+/* The shut door. Still legible — a disabled control people cannot read is a
+   control they assume is broken — but plainly not pressable: no pointer, no
+   hover lift, and the bone fill drops back to a surface tone so it stops
+   reading as the thing to do next. */
+.evgo:disabled{background:var(--s2);color:var(--tx3);cursor:not-allowed}
+.evgo:disabled:hover{opacity:1}
 .evhow{display:inline-flex;align-items:center;gap:7px;margin-top:14px;
   background:none;border:none;cursor:pointer;font-family:inherit;
   font-size:13px;font-weight:600;color:var(--tx3);padding:6px 8px;
@@ -1469,53 +1482,154 @@ body.scr-anim { overflow-x:hidden }
 <div id="toasts" class="toasts" role="status" aria-live="polite"></div>
 
 <script>
-/* The nightly event clock.
+/* The nightly event, driven by the MATCH rather than by a clock.
 
-   Eastern wall clock, read straight from Intl rather than by adding a fixed
-   offset to UTC. A hardcoded -5 is wrong for two thirds of the year and a
-   hardcoded -4 is wrong for the other third, and the failure is silent: the
-   countdown is simply an hour out and nobody can tell which hour is right.
-   Working in wall-clock seconds means the DST switch takes care of itself. */
+   It used to keep its own schedule — START=20, END=21 right here — and call the
+   event "Live now" between eight and nine whether or not a match existed. So it
+   could never say "in progress": it had no idea. Its Watch button appeared on
+   the hour rather than on a match, and dropped you into whatever was or was not
+   happening.
+
+   Now the server says. /api/live carries the real room state (waiting,
+   countdown, running, over), the survivor count, and the schedule itself, so
+   the page holds no copy of the timetable that could drift out of step with the
+   box that actually starts the thing.
+
+   Eastern wall clock still comes from the server as an hour and a minute, never
+   as a UTC offset: a hardcoded -5 is wrong for two thirds of the year and -4 for
+   the other third, and the failure is silent. */
 (function(){
-  var START=20, END=21;                 // 8pm to 9pm, Eastern
-  var fmt;
-  try {
-    fmt=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',hour12:false,
-      hour:'2-digit',minute:'2-digit',second:'2-digit'});
-  } catch(_) { fmt=null; }
-  function etSeconds(){
-    var d=new Date();
-    if(!fmt) return d.getHours()*3600+d.getMinutes()*60+d.getSeconds();
-    var o={};
-    fmt.formatToParts(d).forEach(function(p){ if(p.type!=='literal') o[p.type]=+p.value; });
-    // Some engines render midnight as hour 24 under hour12:false.
-    if(o.hour===24) o.hour=0;
-    return o.hour*3600+o.minute*60+o.second;
-  }
   var pad=function(n){ return n<10?'0'+n:''+n };
-  /* force: fillScreen runs BEFORE showScreen, so the screen is still display:none
-     when the tab hook fires. Without this the arrival tick bailed on the
-     visibility test and the clock sat on dashes until the next interval. */
-  function tick(force){
-    var screen=document.getElementById('events-screen');
-    if(!screen) return;
-    // Off-screen it writes nothing on its own schedule. A lobby animation left
-    // running behind the game once cost a day of hunting a frame-rate drop;
-    // this is one DOM write a second, but the rule is the rule.
-    if(!force&&getComputedStyle(screen).display==='none') return;
-    var now=etSeconds(), s=START*3600, e=END*3600, left, live=now>=s&&now<e;
-    if(live) left=e-now;
-    else if(now<s) left=s-now;
-    else left=86400-now+s;
-    document.getElementById('ev-h').textContent=pad(Math.floor(left/3600));
-    document.getElementById('ev-m').textContent=pad(Math.floor(left%3600/60));
-    document.getElementById('ev-s').textContent=pad(left%60);
-    document.getElementById('ev-line').textContent=live?'Live now, ends in':'Starts in';
-    document.getElementById('ev-tag').textContent=live?'Live':'Tonight';
-    var watch=document.getElementById('ev-watch');
-    if(watch)watch.hidden=!live;
-    document.getElementById('evhero').classList.toggle('live',live);
+  var BR=null;          // last state from the server
+  var BRAT=0;           // when we got it, so the clock can run on between polls
+  var pulling=false;
+
+  function screenOn(){
+    var s=document.getElementById('events-screen');
+    return s && getComputedStyle(s).display!=='none';
   }
+
+  /* One request every few seconds while the tab is actually open. The clock in
+     between is extrapolated locally, so the countdown ticks every second
+     without asking the server sixty times a minute. Off-screen it asks for
+     nothing at all — a lobby animation left running behind the game once cost a
+     day of hunting a frame-rate drop, and the rule is the rule. */
+  function pull(force){
+    if(pulling) return;
+    if(!force && (!screenOn() || document.hidden)) return;
+    pulling=true;
+    fetch('/api/live').then(function(r){ return r.json() }).then(function(j){
+      BR=j&&j.br?j.br:null; BRAT=Date.now(); tick(true);
+    }).catch(function(){}).then(function(){ pulling=false });
+  }
+
+  /* Seconds until the next scheduled start, measured from the server's own
+     Eastern wall clock and advanced locally since we were told it. */
+  function untilStart(){
+    if(!BR) return null;
+    var elapsed=Math.floor((Date.now()-BRAT)/1000);
+    var now=BR.etHour*3600+BR.etMin*60+elapsed;
+    var s=BR.startHour*3600+BR.startMin*60;
+    var left=s-now;
+    if(left<0) left+=86400;
+    return left;
+  }
+
+  function setClock(secs){
+    var h=document.getElementById('ev-h'), m=document.getElementById('ev-m'),
+        sec=document.getElementById('ev-s');
+    if(!h||!m||!sec) return;
+    if(secs===null||secs===undefined){ h.textContent='--'; m.textContent='--'; sec.textContent='--'; return; }
+    h.textContent=pad(Math.floor(secs/3600));
+    m.textContent=pad(Math.floor(secs%3600/60));
+    sec.textContent=pad(Math.floor(secs%60));
+  }
+
+  /* The digits and their hrs/min/sec labels, together. A running match has no
+     clock to show, and a row of dashes under three unit labels reads as a
+     broken timer rather than as an absent one. */
+  function showClock(on){
+    var c=document.querySelector('.evclock');
+    if(c) c.style.display = on ? '' : 'none';
+  }
+
+  function tick(force){
+    if(!force && !screenOn()) return;
+    var line=document.getElementById('ev-line'),
+        tag=document.getElementById('ev-tag'),
+        watch=document.getElementById('ev-watch'),
+        lock=document.getElementById('ev-lock'),
+        hero=document.getElementById('evhero');
+    if(!line||!tag||!hero) return;
+
+    if(!BR){ tag.textContent='Tonight'; line.textContent='Starts in'; showClock(true); setClock(null);
+             if(watch)watch.hidden=true; if(lock)lock.hidden=true;
+             hero.classList.remove('live'); return; }
+
+    var running = BR.state==='running' || BR.state==='countdown';
+    hero.classList.toggle('live', running);
+    if(watch) watch.hidden = !running;
+
+    /* THE DOOR. The server refuses a late join outright (acceptingPlayers), so
+       this is the UI catching up to a rule that already exists rather than a
+       new one — but a rule nobody can see is a rule that looks like a bug when
+       it fires, and Join used to sit there fully lit through a running match
+       and simply bounce you.
+
+       Disabled rather than hidden: a button that disappears reads as something
+       broken, where a dimmed one that says why reads as a closed door. */
+    if(lock) lock.hidden = !!BR.joinable;
+    var join=document.getElementById('ev-join');
+    if(join){
+      join.disabled = !BR.joinable;
+      /* Three states, not two. A finished match is also not joinable — the
+         circle is still tiny and the room has not reopened — but saying "match
+         in progress" over a podium with a winner on it is simply wrong. */
+      join.textContent = BR.joinable ? 'Join the Battle Royale'
+                       : BR.state==='over' ? 'The next match opens shortly'
+                       : 'Match in progress';
+      join.title = BR.joinable ? ''
+                 : BR.state==='over' ? 'The arena reopens once the circle does.'
+                 : 'The doors are shut until this match ends.';
+    }
+
+    if(BR.state==='countdown'){
+      tag.textContent='Starting';
+      showClock(true);
+      line.textContent='The match begins in';
+      setClock(Math.max(0, Math.round((BR.countdownMs||0)/1000)
+                          - Math.floor((Date.now()-BRAT)/1000)));
+      return;
+    }
+    if(BR.state==='running'){
+      tag.textContent='Live';
+      /* NO CLOCK WHILE IT RUNS. There is no match timer any more — it runs
+         until one snake is left, not until a countdown expires — so the hero
+         hides the digits rather than showing a time that does not exist.
+
+         The first attempt put the ring number in the hours slot, which came out
+         reading "R4 HRS : -- MIN : -- SEC". The ring belongs in the sentence. */
+      setClock(null);
+      showClock(false);
+      line.textContent='Battle royale in progress · ring '+(BR.ring||1)
+                      +' · '+(BR.alive||0)+' still alive';
+      return;
+    }
+    if(BR.state==='over'){
+      tag.textContent='Finished';
+      showClock(false);
+      line.textContent = BR.winner ? (BR.winner.name+' won it') : 'Nobody survived';
+      setClock(null);
+      if(BR.podium&&BR.podium.length) podium(BR.podium.map(function(p){return p.name}));
+      return;
+    }
+    // waiting
+    tag.textContent='Tonight';
+    showClock(true);
+    line.textContent = BR.humans ? ('Starts in · '+BR.humans+' waiting') : 'Starts in';
+    setClock(untilStart());
+  }
+
   /* Names on the plinths. Nobody has won one yet, so all three hold a question
      mark; pass an array of names to seat them. Kept as a function rather than
      three ids in the markup so the page never has to be edited to fill it. */
@@ -1527,9 +1641,12 @@ body.scr-anim { overflow-x:hidden }
       el.classList.toggle('empty',!who);
     });
   }
-  window.V2Event={tick:tick, etSeconds:etSeconds, podium:podium};
-  tick();
-  setInterval(tick,1000);
+
+  window.V2Event={tick:tick, podium:podium, pull:pull,
+                  get state(){ return BR }};
+  pull(true);
+  setInterval(function(){ pull(false) }, 3000);
+  setInterval(function(){ tick(false) }, 1000);
 })();
 </script>
 
@@ -1784,10 +1901,16 @@ body.scr-anim { overflow-x:hidden }
       <div class="evu"><b id="ev-s">--</b><span>sec</span></div>
     </div>
     <p class="evwhen">8:00 to 9:00 PM Eastern, every day of the week</p>
-    <!-- Only while it is actually on. A Watch button on a match that has not
-         started is a button that drops you into an empty room. -->
+    <!-- Only while a match is REALLY on, which the server says — not while a
+         clock in this page thinks it is eight o'clock. A Watch button on a
+         match that has not started is a button that drops you into an empty
+         room, which is what the old wall-clock version did every night at 8. -->
     <button type="button" class="btn pri evwatch" id="ev-watch" hidden
             onclick="V2Play.spectateEvent()">Watch it live</button>
+    <!-- The door is shut once the circle starts closing. The server already
+         refuses a late join; this is so the refusal is not a surprise. -->
+    <p class="evlock" id="ev-lock" hidden>The doors are shut for this match.
+       You can watch it, and the next one opens when it ends.</p>
   </section>
 
   <!-- Tallest in the middle. The plinth heights ARE the ranking, so the shape
@@ -1813,7 +1936,7 @@ body.scr-anim { overflow-x:hidden }
   </section>
 
   <div class="evfoot">
-    <button type="button" class="evgo" onclick="V2Play.launch('snake',{lobbyType:'br'})">Join the Battle Royale</button>
+    <button type="button" class="evgo" id="ev-join" onclick="V2Play.launch('snake',{lobbyType:'br'})">Join the Battle Royale</button>
     <!-- The rules were one sentence pretending to be all of them. They live
          behind this now, where there is room to say the whole thing. -->
     <button type="button" class="evhow" onclick="openEventHow()">
@@ -3361,10 +3484,15 @@ function fillScreen(tab){
   if(tab==='wallet')V2Wallet.render();
   else if(tab==='social')V2Social.load();
   else if(tab==='settings')drawSettings();
-  /* Ticked on arrival, not on the interval's own schedule. The clock only
-     writes while its screen is up, so opening the tab used to show a row of
-     dashes for up to a second before the first tick landed. */
-  else if(tab==='events'&&window.V2Event){V2Event.tick(true);V2Event.podium();}
+  /* Asked on arrival, not on the interval's own schedule. The page only polls
+     while its screen is up, so opening the tab used to show a row of dashes
+     until the first tick landed.
+
+     It pulls rather than merely ticking, because the state it draws now comes
+     from the server — and it no longer blanks the podium first: that reset was
+     harmless when the plinths were decoration, but they hold a real winner now
+     and wiping them on every tab switch would show '?' until the next poll. */
+  else if(tab==='events'&&window.V2Event){V2Event.tick(true);V2Event.pull(true);}
 }
 
 /* ── settings ────────────────────────────────────────────────────────────

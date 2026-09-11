@@ -498,6 +498,11 @@ class BattleRoyaleRoom extends GameRoom {
       matchId: this.matchId,
       alive: this.livingCount(),
       players: this.snakes.size,
+      /* PEOPLE, separately from bodies. `players` counts every snake in the
+         room and the lobby fills with bots between matches, so a room nobody is
+         in reported "20 waiting" on the Events page. Bots are opposition in
+         this mode, never contenders — they do not queue for it either. */
+      humans: this.humanLiving(),
       minPlayers: BR.MIN_PLAYERS,
       canStart: this.canStart(),
       elapsedMs: t,
