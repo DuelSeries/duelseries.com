@@ -121,6 +121,34 @@ const CONSTANTS = {
   //   server   the two loops that scale with TOTAL food (per-tick spatial grid
   //            rebuild, per-snapshot view cull) come to ~2.5% of one core
   FOOD_SPAWN_COUNT: 3600,
+  /* How far past the border food is allowed to sit, in an ordinary room.
+     The red zone is somewhere you can briefly be, so food out there is
+     reachable and worth having. A battle royale passes 0 instead: outside its
+     circle is instant death, so a pellet there is bait nobody can take. */
+  FOOD_SPAWN_MARGIN: 1600,
+  /* THE TARGET IS A DENSITY, NOT A HEADCOUNT.
+
+     It used to be a headcount, and in a battle royale that is the bug: refill
+     asked `FOOD_SPAWN_COUNT - items.size`, and once the circle had shrunk away
+     from three thousand pellets stranded out in the red zone, the answer was
+     zero. Measured on the real room, the playable zone held literally NO food
+     from about 165s onward while the global count sat at 3711. The food was
+     never eaten; it was left behind.
+
+     Calibrated so an ordinary room is unchanged: a free room sits at
+     BASE_WORLD_RADIUS with a FOOD_SPAWN_MARGIN skirt, and that disc holding
+     FOOD_SPAWN_COUNT pellets IS this number. Every other room is then the same
+     arena per unit of area rather than the same arena per room.
+
+     This is our own measured density, not a slither constant. Their food is
+     per-sector (sector_size 480, world grd 16384, every pellet carries fo.sx
+     /fo.sy) — that architecture is read from their client and is what this
+     copies. The per-sector COUNT is server-side and not in their client, so it
+     is deliberately not guessed at here. */
+  get FOOD_DENSITY() {
+    const r = this.BASE_WORLD_RADIUS + this.FOOD_SPAWN_MARGIN;
+    return this.FOOD_SPAWN_COUNT / (Math.PI * r * r);
+  },
   FOOD_RESPAWN_INTERVAL: 2000,
   FOOD_PER_GROWTH: 1,
   SEGMENTS_PER_FOOD: 1,

@@ -38,6 +38,10 @@ class GameRoom {
     this.leaderboard = [];
   }
 
+  /* How far past the border this room's food may sit. One seam so a mode can
+     answer differently without a second copy of the refill. */
+  foodMargin() { return C.FOOD_SPAWN_MARGIN; }
+
   get playerCount() { return this.players.size; }
   get botCount() {
     let n = 0;
@@ -505,8 +509,11 @@ class GameRoom {
        snake is left, whether that is at four minutes or at forty seconds. */
     if (this.checkForWinner) this.checkForWinner();
 
-    // Refill food
-    this.foodManager.refill(this.worldRadius, this.worldCx, this.worldCy);
+    // Refill food. Density-driven over the PLAYABLE disc, not a global headcount,
+    // so a zone that moves cannot leave the arena bare while the room still holds
+    // thousands of pellets nobody can reach. See FoodManager.refill.
+    this.foodManager.refill(this.worldRadius, this.worldCx, this.worldCy,
+                            { margin: this.foodMargin() });
 
     // Broadcast a snapshot at SNAPSHOT_RATE (lower than the sim TICK_RATE) so weaker
     // clients receive ~half the data. Simulation still runs every tick.

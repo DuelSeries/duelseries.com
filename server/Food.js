@@ -49,14 +49,16 @@ class FoodManager {
 
   /* cx/cy default to the origin, which is where every mode but the battle
      royale keeps its world, so these signatures are additive. */
-  spawnInitial(worldRadius, cx, cy) {
-    for (let i = 0; i < C.FOOD_SPAWN_COUNT; i++) {
+  spawnInitial(worldRadius, cx, cy, margin) {
+    const m = (margin === undefined) ? C.FOOD_SPAWN_MARGIN : margin;
+    const n = this.targetFor(worldRadius + m);
+    for (let i = 0; i < n; i++) {
       this.spawnOne(worldRadius, undefined, undefined, undefined, undefined,
-                    undefined, undefined, undefined, cx, cy);
+                    undefined, undefined, undefined, cx, cy, m);
     }
   }
 
-  spawnOne(worldRadius, x, y, value, cashValue, color, size, dropped, cx, cy) {
+  spawnOne(worldRadius, x, y, value, cashValue, color, size, dropped, cx, cy, margin) {
     const id = nextFoodId = (nextFoodId + 1) >>> 0 || 1;
     let fx, fy;
     if (x !== undefined && y !== undefined) {
@@ -64,9 +66,12 @@ class FoodManager {
       fy = y;
     } else {
       const angle = Math.random() * Math.PI * 2;
-      // sqrt → even spread by area (no center clumping); + ~one view-distance pushes food well out
-      // past the border (worldRadius) into the red zone, about as far as a player can typically see.
-      const r = Math.sqrt(Math.random()) * (worldRadius + 1600);
+      // sqrt → even spread by area (no center clumping); the margin pushes food out
+      // past the border into the red zone, about as far as a player can typically see.
+      // A battle royale passes 0: outside its circle is instant death, so food there
+      // is bait nobody can take.
+      const m = (margin === undefined) ? C.FOOD_SPAWN_MARGIN : margin;
+      const r = Math.sqrt(Math.random()) * (worldRadius + m);
       fx = (cx || 0) + Math.cos(angle) * r;
       fy = (cy || 0) + Math.sin(angle) * r;
     }
@@ -90,12 +95,94 @@ class FoodManager {
     return food;
   }
 
-  refill(worldRadius, cx, cy) {
-    const needed = C.FOOD_SPAWN_COUNT - this.items.size;
+  /* How many pellets belong in a disc of this radius, and never more than the
+     headcount the wire and the renderer were budgeted for. */
+  targetFor(spawnRadius) {
+    return Math.min(C.FOOD_SPAWN_COUNT,
+                    Math.round(C.FOOD_DENSITY * Math.PI * spawnRadius * spawnRadius));
+  }
+
+  /* Keep the PLAYABLE area stocked, and reclaim what has been left outside it.
+
+     The old version counted every pellet in the room and topped up to a fixed
+     3600. That is correct only while the arena never moves. In a battle royale
+     the circle shrinks and travels, and the pellets it leaves behind are still
+     in the Map — so the count said "full" while the part of the world anyone
+     could reach was empty. Measured: zero food inside the zone from ~165s on,
+     with 3711 pellets in the room.
+
+     Two changes. The census counts only what is inside the disc, so stranded
+     food cannot mask a shortage. And a slice of the array is swept each tick
+     for pellets the arena has abandoned, which frees both the headroom and the
+     wire budget they were holding.
+
+     `margin` is how far past the border food may sit — a view distance in an
+     ordinary room, zero in a battle royale where outside the circle is death. */
+  refill(worldRadius, cx, cy, opts) {
+    const margin = (opts && opts.margin !== undefined) ? opts.margin : C.FOOD_SPAWN_MARGIN;
+    const R  = Math.max(1, worldRadius + margin);
+    const R2 = R * R;
+    const ox = cx || 0, oy = cy || 0;
+
+    /* THE SWEEP, amortised. Walking 3600 pellets every tick to find strays is
+       216k distance checks a second for a job whose answer changes slowly, and
+       this codebase has already paid once for a per-tick cost that looked free
+       in isolation. A thirtieth of the array per tick covers everything twice a
+       second and costs ~120 checks.
+
+       Strays are removed rather than moved, because a pellet that teleports is
+       a pellet that vanishes from under a snake already turning toward it. The
+       refill below puts fresh ones inside the disc in the same tick. */
+    const all = this._all;
+    const n = all.length;
+    if (n) {
+      const slice = Math.max(1, Math.ceil(n / 30));
+      let i = (this._sweep || 0) % n;
+      /* A pellet is only reclaimed once it is well outside — 1.25x the disc —
+         so food skimming the border is not churned every time the wall breathes. */
+      const cull2 = (R * 1.25) * (R * 1.25);
+      for (let k = 0; k < slice; k++) {
+        const f = all[i];
+        if (f === undefined) break;
+        const dx = f.x - ox, dy = f.y - oy;
+        /* NEVER SWEEP FOOD THAT IS WORTH ANYTHING.
+
+           Dropped food is somebody's death or boost and is the reward for a
+           kill; culling it would delete a payoff a player just earned. Cash
+           food is stronger than that — `GameRoom` does `snake.worth +=
+           food.cashValue`, so a pellet with cashValue on it IS real money, and
+           deleting one destroys funds.
+
+           The test is `cashValue`, the field the money actually rides on,
+           rather than the derived `isGolden` flag. Today `isGolden` is exactly
+           `cashValue > 0`, so the two agree; keying on the money itself means
+           they cannot silently stop agreeing later. */
+        const worthless = !f.dropped && !(f.cashValue > 0) && !f.isGolden;
+        if (worthless && dx * dx + dy * dy > cull2) {
+          this.remove(f.id);
+          if (i >= this._all.length) break;   // swap-and-pop moved the tail in
+          continue;                           // re-test whatever landed in this slot
+        }
+        i++; if (i >= this._all.length) i = 0;
+      }
+      this._sweep = i;
+    }
+
+    /* The census: only pellets inside the disc count toward the target. */
+    let inPlay = 0;
+    for (let i = 0; i < all.length; i++) {
+      const dx = all[i].x - ox, dy = all[i].y - oy;
+      if (dx * dx + dy * dy <= R2) inPlay++;
+    }
+
+    const needed = this.targetFor(R) - inPlay;
     const spawned = [];
+    /* Still rate-limited. A zone that jumps should refill over a second or two
+       rather than dumping two thousand pellets into one snapshot. */
     for (let i = 0; i < Math.min(needed, 30); i++) {
       spawned.push(this.spawnOne(worldRadius, undefined, undefined, undefined,
-                                 undefined, undefined, undefined, undefined, cx, cy));
+                                 undefined, undefined, undefined, undefined,
+                                 ox, oy, margin));
     }
     return spawned;
   }

@@ -87,10 +87,18 @@ test('removing an id that is not there changes nothing', () => {
 });
 
 test('refill tops back up to the target and stays consistent', () => {
+  /* The target is a DENSITY over the spawnable disc now, not a flat headcount,
+     so it is asked for rather than assumed. A standard room still comes out at
+     exactly FOOD_SPAWN_COUNT — that is what the density is calibrated on — and
+     the case below deliberately uses a smaller world to prove the target really
+     does follow the area. */
   const fm = new FoodManager();
   fm.spawnInitial(1500);
   const full = fm.items.size;
-  assert.equal(full, C.FOOD_SPAWN_COUNT, 'starts at the configured count');
+  assert.equal(full, fm.targetFor(1500 + C.FOOD_SPAWN_MARGIN),
+    'starts at the density target for its own world');
+  assert.ok(full < C.FOOD_SPAWN_COUNT,
+    'a world smaller than the base one gets proportionally less food');
 
   const ids = fm.getAll().map(f => f.id).slice(0, 100);
   for (const id of ids) fm.remove(id);
@@ -100,7 +108,65 @@ test('refill tops back up to the target and stays consistent', () => {
   // refill is capped per call, so it takes several ticks to catch up
   for (let i = 0; i < 10; i++) fm.refill(1500);
   invariant(fm, 'after refilling');
-  assert.equal(fm.items.size, full, 'back to the configured count');
+  assert.equal(fm.items.size, full, 'back to the density target');
+});
+
+test('a standard room is unchanged: the density target is exactly FOOD_SPAWN_COUNT', () => {
+  const fm = new FoodManager();
+  fm.spawnInitial(C.BASE_WORLD_RADIUS);
+  assert.equal(fm.items.size, C.FOOD_SPAWN_COUNT,
+    'the density is calibrated so an ordinary room keeps the count it always had');
+});
+
+test('a zone that shrinks and walks away never leaves the arena empty', () => {
+  /* THE BUG THIS EXISTS FOR. refill used to ask `FOOD_SPAWN_COUNT - items.size`,
+     which counts pellets the battle royale's circle has already abandoned out in
+     the red zone. Measured on the real room, the playable area held ZERO food
+     from about 165s onward while 3711 pellets sat in the Map — the count said
+     full, so nothing ever spawned, and the arena was bare.
+
+     Here the circle starts wide and centred, then shrinks to a twentieth of its
+     radius somewhere else entirely, which is exactly the move that stranded the
+     food. Nothing is eaten: every pellet lost is one the zone walked away from. */
+  const fm = new FoodManager();
+  fm.spawnInitial(6000, 0, 0, 0);
+  assert.ok(fm.items.size > 0, 'starts stocked');
+
+  let R = 6000, cx = 0, cy = 0;
+  const inside = () => {
+    let n = 0;
+    for (const f of fm.getAll()) {
+      const dx = f.x - cx, dy = f.y - cy;
+      if (dx * dx + dy * dy <= R * R) n++;
+    }
+    return n;
+  };
+
+  for (let step = 0; step < 40; step++) {
+    R = Math.max(300, R * 0.9);
+    cx += 90; cy += 60;                       // the circle travels as it closes
+    for (let t = 0; t < 60; t++) fm.refill(R, cx, cy, { margin: 0 });
+    assert.ok(inside() > 0,
+      `food inside the zone at step ${step} (R=${Math.round(R)})`);
+    invariant(fm, 'step ' + step);
+  }
+
+  const want = fm.targetFor(R);
+  const got = inside();
+  assert.ok(got >= want * 0.5,
+    `settles near the density target inside the final zone (got ${got}, target ${want})`);
+});
+
+test('death drops are never swept up, even when the zone leaves them behind', () => {
+  /* Dropped food is the payoff for a kill. The sweep reclaims pellets the arena
+     has abandoned, and it must not reclaim these — deleting them takes back a
+     reward a player has already earned. */
+  const fm = new FoodManager();
+  const far = fm.spawnOne(500, 40000, 40000, undefined, undefined, undefined,
+                          undefined, true /* dropped */, 0, 0);
+  for (let t = 0; t < 400; t++) fm.refill(500, 0, 0, { margin: 0 });
+  assert.ok(fm.items.has(far.id), 'the death drop is still there');
+  invariant(fm, 'after sweeping around a death drop');
 });
 
 test('a pellet removed while the array is being iterated cannot be read as undefined', () => {
@@ -117,4 +183,17 @@ test('a pellet removed while the array is being iterated cannot be read as undef
     if (seen % 3 === 0) fm.remove(f.id);      // remove while iterating
   }
   invariant(fm, 'after removing during iteration');
+});
+
+test('cash food is never swept, because sweeping it would destroy real money', () => {
+  /* GameRoom does `snake.worth += food.cashValue`, so a pellet carrying
+     cashValue is real USDC worth. The sweep reclaims abandoned food, and it
+     must never reclaim one of these. Keyed on cashValue rather than the derived
+     isGolden flag, so the two cannot quietly stop agreeing. */
+  const fm = new FoodManager();
+  const cash = fm.spawnOne(500, 40000, 40000, 1, 2.5 /* cashValue */);
+  assert.ok(cash.cashValue > 0, 'the pellet really carries worth');
+  for (let t = 0; t < 400; t++) fm.refill(500, 0, 0, { margin: 0 });
+  assert.ok(fm.items.has(cash.id), 'the cash pellet survived the sweep');
+  invariant(fm, 'after sweeping around cash food');
 });

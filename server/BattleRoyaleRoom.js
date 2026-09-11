@@ -189,6 +189,18 @@ class BattleRoyaleRoom extends GameRoom {
     super.topUpBots();
   }
 
+  /* NO SKIRT WHILE THE CIRCLE IS LIVE.
+
+     An ordinary room lets food sit a view-distance past the border, because the
+     red zone there is somewhere you can dip into and come back from. Here it is
+     instant death on the server's authoritative head position, so a pellet
+     outside the circle is bait that can only ever kill the player who goes for
+     it. While a match runs, food lives inside the zone and nowhere else.
+
+     Between matches the arena is an ordinary free room again, so the skirt
+     comes back and the lobby looks like the rest of the game. */
+  foodMargin() { return this.state === 'running' ? 0 : C.FOOD_SPAWN_MARGIN; }
+
   /* Called by GameRoom.killSnake for every death in this room, so the order
      people went out in is known when it is needed rather than reconstructed
      from bodies that no longer carry it. */
