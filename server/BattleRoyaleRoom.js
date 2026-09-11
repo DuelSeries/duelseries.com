@@ -90,6 +90,23 @@ const BR = {
      margin at a walk — you outrun it while fighting rather than only by burning
      body. Every ring's travel time is derived from this. */
   CLOSE_SPEED_FRAC: 0.7,
+
+  /* THE WINNER'S MOMENT, before the game takes the controls off them.
+
+     A match ends the instant one snake is left, and the wall was still closing
+     when it did — so the winner spent their win being chased by a circle that
+     no longer had anything to decide. The zone freezes where it stopped and
+     nothing moves for these five seconds; then they are cashed out and the
+     arena starts reopening. Long enough to see that you won, short enough that
+     it is not a lull. */
+  CASHOUT_DELAY_MS: 5 * SEC,
+
+  /* How long the arena takes to open back up. The circle has to travel from
+     wherever it died back to the full world, and this is the rate rather than
+     a duration so a match that ended at radius 300 and one that ended at 2000
+     both feel like the same reopening rather than the same wait. */
+  REOPEN_RATE: 0.035,          // share of the remaining distance per tick
+  REOPEN_DONE_FRAC: 0.985,     // "full size" is this much of START_RADIUS
 };
 
 /* A snake's cruising speed in units per SECOND. Every speed limit above is
@@ -105,7 +122,12 @@ class BattleRoyaleRoom extends GameRoom {
   constructor(io, lobbyType) {
     super(io, lobbyType);
     this.isBattleRoyale = true;
-    this.state = 'waiting';        // waiting | countdown | running | over
+    /* waiting | countdown | running | over | reopening.
+       'over' holds the arena frozen while the podium is read and the winner is
+       cashed out; 'reopening' is the circle travelling back out to the full
+       world, which is what the loader on the client is showing. Neither of
+       them accepts players — the door opens when the ARENA is open. */
+    this.state = 'waiting';
     this.countdownUntil = 0;
     this.matchId = null;
     this.startedAt = 0;
@@ -221,6 +243,7 @@ class BattleRoyaleRoom extends GameRoom {
        standing. */
     this.startedWith = this.humanLiving();
     this._ring = null; this._ringNo = 0;          // no leftovers from the last match
+    this._frozen = null; this.cashoutAt = 0;      // nor the last ending's held wall
     this._fallen = []; this.podium = null;        // nor from its podium
     this.matchId = 'br_' + Date.now().toString(36);
     this.startedAt = 0;                 // set when the count reaches zero
@@ -269,9 +292,11 @@ class BattleRoyaleRoom extends GameRoom {
     /* Countdown counts. Ten seconds after pressing start is exactly when you
        notice you did not mean to, and refusing to cancel then made Stop useless
        in the one window where it is most wanted. */
-    if (this.state !== 'running' && this.state !== 'countdown') return false;
+    if (this.state !== 'running' && this.state !== 'countdown'
+        && this.state !== 'over' && this.state !== 'reopening') return false;
     this.countdownUntil = 0;
     this.state = 'waiting';
+    this._frozen = null; this.cashoutAt = 0;   // release the wall, or it stays pinned
     this.winner = null;
     this.matchId = null;
     this._prevAlive = null;
@@ -300,6 +325,47 @@ class BattleRoyaleRoom extends GameRoom {
   /* Called from the tick. Owns worldRadius and worldCx/worldCy for this room. */
   updateZone() {
     this._tickCountdown();
+
+    /* OVER: THE WALL STOPS DEAD.
+
+       It used to fall straight through to the reopening ease below, so the
+       moment the last opponent died the circle started growing again and the
+       winner's final ring dissolved under them. Worse, the frame before that
+       the wall was still closing in on somebody who had already won.
+
+       Nothing moves here. The arena is held exactly where the match ended,
+       which is the picture the podium is drawn over, until the winner has been
+       cashed out and the room begins to reopen. */
+    if (this.state === 'over') {
+      if (this._frozen) {
+        this.worldRadius = this._frozen.r;
+        this.worldCx = this._frozen.x;
+        this.worldCy = this._frozen.y;
+      }
+      this._ring = null;
+      this._tickOver();
+      return;
+    }
+
+    /* REOPENING: the circle travels back out to the whole world, and the
+       clients show the loader while it does. Eased rather than snapped, so it
+       reads as the arena opening rather than as a scene change. */
+    if (this.state === 'reopening') {
+      this.worldRadius += (BR.START_RADIUS - this.worldRadius) * BR.REOPEN_RATE;
+      this.worldCx += (0 - this.worldCx) * BR.REOPEN_RATE;
+      this.worldCy += (0 - this.worldCy) * BR.REOPEN_RATE;
+      this._ring = null;
+      if (this.worldRadius >= BR.START_RADIUS * BR.REOPEN_DONE_FRAC) {
+        this.worldRadius = BR.START_RADIUS;
+        this.worldCx = 0; this.worldCy = 0;
+        this.state = 'waiting';
+        this._frozen = null;
+        this.io.to(this.socketRoomName).emit('br:state', this.publicState());
+        console.log(`[BR] ${this.lobbyType} arena reopened, waiting for the next match`);
+      }
+      return;
+    }
+
     if (this.state !== 'running') {
       // Between matches the arena sits open at full size so people can gather.
       this.worldCx = 0; this.worldCy = 0;
@@ -376,6 +442,32 @@ class BattleRoyaleRoom extends GameRoom {
              warnUntil: now + warnMs, startedAt: now };
   }
 
+  /* THE END OF A MATCH, in order.
+
+     Five seconds of held silence with the arena frozen, then the winner is
+     cashed out where they stand, then the arena starts opening again.
+
+     The cash-out is fired through a hook the server sets, not from in here.
+     This room knows WHEN a match is decided; it has no business knowing how
+     money moves, and the one place that does is already written and already
+     guarded. The hook is called exactly once per match, keyed to the match id,
+     because "pay the winner" is not a thing to run twice — same reasoning as
+     the prize payout's own _brPaid set. */
+  _tickOver() {
+    if (this.state !== 'over') return;
+    if (!this.cashoutAt || Date.now() < this.cashoutAt) return;
+    if (this._cashedOut !== this.matchId) {
+      this._cashedOut = this.matchId;
+      if (typeof this.onWinnerCashout === 'function') {
+        try { this.onWinnerCashout(this.winner, this.matchId); }
+        catch (e) { console.error('[BR] winner cash-out hook failed:', e.message); }
+      }
+    }
+    this.state = 'reopening';
+    this.io.to(this.socketRoomName).emit('br:state', this.publicState());
+    console.log(`[BR] ${this.lobbyType} match ${this.matchId} closed, arena reopening`);
+  }
+
   /* The white circle: where the wall is going and how big it will be when it
      gets there. Shown while it is announced AND while it is travelling, so it
      stays on screen as a destination the whole time it matters. Null while the
@@ -447,6 +539,12 @@ class BattleRoyaleRoom extends GameRoom {
     this._prevAlive = alive;
     this.state = 'over';
     this.endedAt = Date.now();
+    /* THE WALL STOPS HERE. Captured at the instant the match is decided, and
+       held by updateZone until the arena reopens, so the winner's last ring is
+       still on screen while the podium is read rather than growing out from
+       under them. */
+    this._frozen = { r: this.worldRadius, x: this.worldCx, y: this.worldCy };
+    this.cashoutAt = this.endedAt + BR.CASHOUT_DELAY_MS;
     this.winner = (won && this.snakes.has(won.id)) ? {
       id: won.id,
       name: won.name,
@@ -477,15 +575,20 @@ class BattleRoyaleRoom extends GameRoom {
       + ` after ${(this.endedAt - this.startedAt) / 1000 | 0}s`);
     this.io.to(this.socketRoomName).emit('br:state', this.publicState());
 
-    /* The room reopens for the next one. The prize is not paid here — that is
-       phase 4, and it will be triggered from the server off this.winner, never
-       from anything the winning client sends. */
-    setTimeout(() => {
-      if (this.state === 'over') {
-        this.state = 'waiting';
-        this.io.to(this.socketRoomName).emit('br:state', this.publicState());
-      }
-    }, 15 * SEC);
+    /* The room reopens on the TICK now, not on a timer.
+
+       It used to be a bare 15-second setTimeout straight back to 'waiting',
+       which had two problems. It ignored where the zone actually was, so the
+       room could declare itself open while the circle was still a few hundred
+       units across and the next arrival spawned into a death trap. And a timer
+       holds a reference to a room across an abandon or a restart, so a stopped
+       match could still reopen itself fifteen seconds later.
+
+       The sequence lives in updateZone/_tickOver instead: freeze, cash the
+       winner out, ease the circle back to the full world, and only then call it
+       waiting. The door opens because the arena is open, not because a clock
+       said so. The prize payout is separate and unchanged — server side, off
+       this.winner, never from anything the winning client sends. */
   }
 
   /* What the lobby and the game are allowed to know. */
@@ -516,6 +619,15 @@ class BattleRoyaleRoom extends GameRoom {
            : this.zonePhase(),
       soloRun: !!this.soloRun,
       startedWith: this.startedWith || 0,
+      /* The winner's five seconds, counted down so the client can show it
+         rather than guess at it. */
+      cashoutMs: this.state === 'over'
+        ? Math.max(0, (this.cashoutAt || 0) - Date.now()) : 0,
+      /* How far the arena has reopened, 0..1. This is what the loader fills:
+         the bar is the circle actually travelling back out, not a fake timer
+         that can finish before the room is ready. */
+      reopenPct: this.state === 'reopening'
+        ? Math.max(0, Math.min(1, this.worldRadius / BR.START_RADIUS)) : 0,
       winner: this.winner ? { name: this.winner.name } : null,
       /* Names and scores only. A wallet address is nobody else's business and
          the podium is the most public thing this room produces. */

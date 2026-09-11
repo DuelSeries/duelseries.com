@@ -1087,6 +1087,7 @@ function brApply(s) {
     again.textContent = brRunning ? 'Match under way' : 'Play again';
   }
   podiumApply(s);
+  brNextApply(s);
   if (s.state === 'countdown' && !brCountTimer) brRunCountdown(s.countdownMs || 0);
   if (s.state !== 'countdown' && brCountTimer) {
     clearInterval(brCountTimer); brCountTimer = 0;
@@ -1171,6 +1172,96 @@ function podiumApply(s) {
 function escapeHtml(v) {
   return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
+
+/* ── between matches ────────────────────────────────────────────────────────
+   The match is decided, the podium has had its moment, and the arena is
+   travelling back out to full size. Nobody can join a half-open circle — the
+   server refuses it — so this fills the gap with the reason rather than leaving
+   a dead screen behind a button that bounces.
+
+   Three states, and they follow the ROOM rather than a timer here:
+
+     over        the podium is up; this stays out of its way
+     reopening   the ring fills with the arena's real progress
+     waiting     the ring is full, and there is a Play button
+
+   The ring is driven by reopenPct, which is the circle's actual radius on its
+   way back to the whole world. A fake progress bar would finish before the room
+   was ready, and Play would then refuse — which is the exact failure this
+   screen exists to stop. */
+/* Whether we watched the arena reopen. Gates the Play half of the panel, so it
+   is the tail of a match rather than a greeting for anyone who walks in. */
+let _brSawReopen = false;
+
+function brNextApply(s) {
+  const el = document.getElementById('br-next');
+  if (!el || !isBattleRoyale) return;
+
+  /* Only once the podium is down. During 'over' the winner is being decided,
+     read and cashed out, and two stacked cards is one too many. */
+  const reopening = s.state === 'reopening';
+
+  /* THIS IS THE END OF A MATCH, NOT A GREETING.
+
+     The 'waiting' half only follows a reopening we actually watched. Without
+     that, anyone arriving at a quiet room — a spectator especially — was met
+     with "the next battle royale is open" and a Play button over the arena,
+     which is a modal in front of a lobby they had just chosen to enter. The
+     latch clears the moment they play, so it cannot come back uninvited. */
+  if (reopening) _brSawReopen = true;
+  if (s.state === 'running' || s.state === 'countdown') _brSawReopen = false;
+  const openAgain = s.state === 'waiting' && _brSawReopen;
+
+  /* Nothing to show to somebody who is alive and playing: they are in the
+     lobby already and the arena is opening around them. This screen is for
+     the people waiting to get back in. */
+  const waitingToPlay = isDead || cashedOut || spectateOnly;
+  const show = reopening || (openAgain && waitingToPlay);
+
+  /* The spectate bar sits under this at a lower z-index, and it carries its own
+     Play again and Lobby. Two sets of the same two buttons, one of them behind
+     a blur, is a screen that cannot be read — so it steps aside while this is
+     up. Visibility rather than the `active` class, so spectating is exactly
+     where it was when the panel comes down. */
+  const bar = document.getElementById('spectate-bar');
+  if (bar) bar.style.visibility = show ? 'hidden' : '';
+
+  if (!show) { el.hidden = true; return; }
+
+  const ring = document.getElementById('brn-ring');
+  const msg  = document.getElementById('brn-msg');
+  const btns = document.getElementById('brn-btns');
+
+  if (reopening) {
+    const p = Math.max(0, Math.min(1, s.reopenPct || 0));
+    if (ring) {
+      /* Spin until there is real progress to report, then switch to the sweep.
+         A ring sitting at zero reads as broken; a moving one reads as working. */
+      ring.classList.toggle('spin', p < 0.02);
+      ring.style.setProperty('--p', String(p));
+    }
+    if (msg) msg.textContent = 'Loading next battle royale lobby';
+    if (btns) btns.hidden = true;
+  } else {
+    if (ring) { ring.classList.remove('spin'); ring.style.setProperty('--p', '1'); }
+    if (msg) msg.textContent = 'The next battle royale is open';
+    if (btns) btns.hidden = false;
+  }
+  el.hidden = false;
+}
+
+/* Play, once the arena is actually open. The panel only shows this button in
+   the 'waiting' state, so respawn cannot be refused from here. */
+document.getElementById('brn-play').addEventListener('click', () => {
+  document.getElementById('br-next').hidden = true;
+  _brSawReopen = false;              // the sequence is finished with
+  doRespawn();
+});
+document.getElementById('brn-lobby').addEventListener('click', () => {
+  document.getElementById('br-next').hidden = true;
+  _brSawReopen = false;
+  goToLobby();
+});
 
 document.getElementById('pod-again').addEventListener('click', () => {
   document.getElementById('podium').hidden = true;
@@ -2049,13 +2140,12 @@ function gameLoop(now) {
     const offered = Math.round(_rafFrames / secs);
     fpsFrames = 0; _rafFrames = 0; fpsLast = now;
     if (fpsEl) {
-      fpsEl.textContent = (offered > fpsDisplay + 8)
-        ? `FPS: ${fpsDisplay} / ${offered} Hz`
-        : `FPS: ${fpsDisplay}`;
-      fpsEl.title = (offered > fpsDisplay + 8)
-        ? `Drawing ${fpsDisplay} of the ${offered} frames this display offers `
-          + `(cap ${RENDER_HZ || 'off'}). Add ?hz=240 or ?hz=0 to the game URL to change it.`
-        : '';
+      /* ALWAYS both. Showing the pair only when they diverged meant the one
+         moment you wanted to check the display rate — when the numbers happen
+         to agree — was the moment it was hidden. */
+      fpsEl.textContent = `FPS: ${fpsDisplay} · ${offered}Hz`;
+      fpsEl.title = `Drawing ${fpsDisplay} of the ${offered} frames this display `
+        + `offers (cap ${RENDER_HZ || 'off'}). ?hz=240 or ?hz=0 on the game URL changes it.`;
     }
   }
 

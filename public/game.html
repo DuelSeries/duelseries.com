@@ -171,6 +171,22 @@
     </div>
   </div>
 
+  <!-- Between matches. The podium comes down, the arena is still travelling
+       back out to full size, and nobody can join a half-open circle — so this
+       says so rather than leaving a dead screen with a button that bounces.
+       The ring fills with the arena's REAL progress, not a fake timer, so it
+       cannot finish before the room is ready. -->
+  <div id="br-next" hidden>
+    <div class="pod-card">
+      <div class="brn-ring" id="brn-ring" aria-hidden="true"><i></i></div>
+      <p class="brn-msg" id="brn-msg">Loading next battle royale lobby</p>
+      <div class="pod-btns brn-btns" id="brn-btns" hidden>
+        <button class="co-btn co-go" id="brn-play">Play</button>
+        <button class="co-btn co-ghost" id="brn-lobby">Lobby</button>
+      </div>
+    </div>
+  </div>
+
   <div id="spectate-bar">
     <button id="spectate-prev">&#8592;</button>
     <span id="spectate-label">Spectating: —</span>

@@ -788,3 +788,43 @@ body {
 }
 @media (prefers-reduced-motion: reduce) { #gmsg { transition: none; } }
 @media (max-width: 560px) { #gmsg { top: calc(66px + env(safe-area-inset-top)); font-size: 0.88rem; } }
+
+/* ── between matches ────────────────────────────────────────────────────────
+   The arena is travelling back out to full size and the door is shut until it
+   gets there. Shares the podium's card so the end of a match and the wait for
+   the next one read as one screen rather than two designs. */
+#br-next {
+  position: fixed; inset: 0; z-index: 60;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(4,6,10,0.72); backdrop-filter: blur(5px);
+}
+#br-next[hidden] { display: none; }
+
+/* The ring. A conic sweep driven by --p (0..1), which is the arena's actual
+   radius on its way back to full — so it cannot fill before the room is open.
+   The inner disc punches the middle out, which is cheaper and steadier than
+   animating a border. */
+.brn-ring {
+  width: 74px; height: 74px; margin: 4px auto 18px; border-radius: 50%;
+  background: conic-gradient(#f0a830 calc(var(--p, 0) * 360deg), #222a38 0);
+  display: grid; place-items: center;
+  transition: background 0.25s linear;
+}
+.brn-ring i {
+  width: 58px; height: 58px; border-radius: 50%; background: #12161f;
+  display: block;
+}
+/* Before there is any progress to show, it spins instead of sitting at zero:
+   an empty ring reads as broken, a moving one reads as working. */
+.brn-ring.spin {
+  background: conic-gradient(#f0a830 0 25%, #222a38 0);
+  animation: brn-spin 0.9s linear infinite;
+}
+@keyframes brn-spin { to { transform: rotate(360deg); } }
+
+.brn-msg {
+  margin: 0; font-size: 15px; font-weight: 600; color: #c9d3e4;
+  line-height: 1.45;
+}
+.brn-btns { margin-top: 18px; }
+.brn-btns[hidden] { display: none; }

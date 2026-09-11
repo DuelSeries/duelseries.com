@@ -1114,6 +1114,43 @@ for (const rgn of [REGION]) {
        so there is no stake here to get wrong. */
     br:     new BattleRoyaleRoom(io, `${rgn}_br`),
   };
+  /* THE WINNER IS CASHED OUT WHERE THEY STAND, five seconds after the match is
+     decided. The room owns the timing; it does not own the money, and this is
+     the seam between the two.
+
+     Everything about the payout stays where it already was: doCashout reads
+     worth off the SERVER's snake, takes the house cut here, and sends the
+     player's share to the wallet the server has for them. Nothing about the
+     amount comes from the winning client, and the room is only saying WHO and
+     WHEN — the same two facts it already had to know to seat the podium.
+
+     The $20 prize is a separate payment on its own one-time-per-match latch
+     (payBattleRoyaleWinner / _brPaid) and is untouched by this. */
+  gameRooms[rgn].br.onWinnerCashout = (winner, matchId) => {
+    if (!winner || !winner.id) return;
+    const room = gameRooms[rgn].br;
+    const entry = room.players.get(winner.id);
+    const sock = entry && entry.socket;
+    if (!sock || typeof sock._doCashout !== 'function') {
+      // A winner who has already left. The prize still pays: it goes to the
+      // wallet recorded on the room, not to whoever happens to be connected.
+      console.log(`[BR] ${matchId} winner ${winner.name} is no longer connected — nothing to cash out`);
+      return;
+    }
+    /* THE SAME ROOM, STILL. doCashout reads socket._room fresh, so if this
+       player has since walked into another lobby, calling it here would cash
+       them out of THAT room using its worth — money moved on the strength of
+       a battle royale they are no longer in. Five seconds is plenty of time to
+       press Lobby and join something else. */
+    if (sock._room !== room) {
+      console.log(`[BR] ${matchId} winner ${winner.name} has left the arena — not cashing out`);
+      return;
+    }
+    sock._doCashout()
+      .then(() => console.log(`[BR] ${matchId} cashed out ${winner.name}`))
+      .catch(e => console.error(`[BR] winner cash-out failed for ${matchId}:`, e.message));
+  };
+
   agarRooms[rgn] = {
     free:   new AgarRoom(io, `agar_${rgn}_free`),
     dime:   new AgarRoom(io, `agar_${rgn}_dime`),
@@ -1978,6 +2015,15 @@ io.on('connection', (socket) => {
     // so there's nothing to pay out.
     socket.emit('cashout:result', { newBalance: null, earnedSol: 0, score: Math.floor(snake.score), length: snake.length });
   }
+
+  /* Reachable from outside this connection, so the battle royale can cash its
+     winner out without a round trip through the winning client.
+
+     Deliberately the SAME function the hold pays through, not a copy: worth is
+     read off the server's snake, the house cut is taken here, and the payout is
+     computed here and never read back from anything sent in. A second
+     implementation of "pay this player" is the last thing this file needs. */
+  socket._doCashout = doCashout;
 
   // speedMult is no longer read from the client: the only thing it carried was
   // the cash-out slowdown, and the server times that itself now.

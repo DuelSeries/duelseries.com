@@ -447,3 +447,134 @@ test('nobody joins a match under way, or a circle that has not reopened', () => 
   r.worldRadius = BR.START_RADIUS;
   assert.equal(r.acceptingPlayers(), true, 'but yes once it is open again');
 });
+
+/* ── the ending ──────────────────────────────────────────────────────────────
+   What happens between "one snake left" and "the next match can start". It was
+   a bare fifteen-second setTimeout back to 'waiting', which ignored where the
+   circle actually was: the room could call itself open while the arena was
+   still three hundred units across, and the next arrival spawned into a death
+   trap. The sequence is on the tick now — freeze, cash out, reopen. */
+
+/* Start a match, then kill everyone but one and decide it. */
+function endedMatch(n) {
+  const r = room(n || 3);
+  go(r);
+  run(r, 20000);                                  // let the circle actually close a bit
+  const survivor = [...r.snakes.values()][0];
+  for (const s of r.snakes.values()) if (s !== survivor) s.alive = false;
+  r.checkForWinner();
+  return { r, survivor };
+}
+
+test('the wall stops dead the moment the match is decided', () => {
+  /* It used to fall straight through to the reopening ease, so the winner's
+     final ring grew out from under them the instant they won — and the frame
+     before that, the wall was still closing in on somebody who had already
+     won it. */
+  const { r } = endedMatch(3);
+  assert.equal(r.state, 'over');
+  const at = { r: r.worldRadius, x: r.worldCx, y: r.worldCy };
+  assert.ok(at.r < BR.START_RADIUS, 'the circle had actually closed');
+
+  run(r, 4000);                                   // inside the winner's five seconds
+  assert.equal(r.state, 'over', 'still holding');
+  assert.equal(r.worldRadius, at.r, 'the radius has not moved');
+  assert.equal(r.worldCx, at.x, 'nor the centre');
+  assert.equal(r.worldCy, at.y);
+});
+
+test('the winner is cashed out five seconds later, exactly once', () => {
+  const { r, survivor } = endedMatch(3);
+  const paid = [];
+  r.onWinnerCashout = (w, id) => paid.push({ name: w && w.name, id });
+
+  run(r, 4000);
+  assert.equal(paid.length, 0, 'not before the five seconds are up');
+
+  run(r, 2000);
+  assert.equal(paid.length, 1, 'cashed out once the delay has passed');
+  assert.equal(paid[0].name, survivor.name, 'and it is the winner');
+  assert.equal(paid[0].id, r.matchId, 'keyed to this match');
+
+  run(r, 10000);
+  assert.equal(paid.length, 1, 'and never a second time, however long it runs');
+});
+
+test('a winner who has already left does not stop the room reopening', () => {
+  /* The hook reaches for a socket that may be gone. If that threw, the room
+     would be stuck at 'over' forever and the event would never run again. */
+  const { r } = endedMatch(3);
+  r.onWinnerCashout = () => { throw new Error('they disconnected'); };
+  run(r, 8000);
+  assert.notEqual(r.state, 'over', 'the room moved on regardless');
+});
+
+test('then the arena reopens, and only then does the door', () => {
+  const { r } = endedMatch(3);
+  r.onWinnerCashout = () => {};
+  run(r, 6000);
+  assert.equal(r.state, 'reopening', 'the circle is travelling back out');
+  assert.equal(r.acceptingPlayers(), false, 'and nobody may join a half-open arena');
+  assert.equal(r.allowsRespawn(), false, 'nor respawn into one');
+  assert.equal(r.canStart(), false, 'nor start the next match yet');
+
+  const partway = r.worldRadius;
+  run(r, 1000);
+  assert.ok(r.worldRadius > partway, 'it is actually growing');
+
+  run(r, 30000);                                   // let it finish
+  assert.equal(r.state, 'waiting', 'the arena is open');
+  assert.equal(r.worldRadius, BR.START_RADIUS, 'at full size, exactly');
+  assert.equal(r.worldCx, 0, 'and back in the middle');
+  assert.equal(r.worldCy, 0);
+  assert.equal(r.acceptingPlayers(), true, 'NOW people can come in');
+  assert.equal(r.allowsRespawn(), true);
+});
+
+test('the reopening is reported so the loader can show real progress', () => {
+  const { r } = endedMatch(3);
+  r.onWinnerCashout = () => {};
+  run(r, 6000);
+  const early = r.publicState();
+  assert.equal(early.state, 'reopening');
+  assert.ok(early.reopenPct > 0 && early.reopenPct < 1,
+    'a fraction of the way open, not a fake timer');
+  /* Sampled while it is still travelling. The first version stepped 8s and the
+     arena had already finished, so reopenPct had fallen back to 0 for a room
+     that was simply done — the assertion was reading the wrong moment. */
+  run(r, 1000);
+  const later = r.publicState();
+  assert.equal(later.state, 'reopening', 'still opening at this point');
+  assert.ok(later.reopenPct > early.reopenPct, 'and it climbs');
+});
+
+test('the winner countdown is reported while it runs', () => {
+  const { r } = endedMatch(3);
+  const s = r.publicState();
+  assert.equal(s.state, 'over');
+  assert.ok(s.cashoutMs > 0 && s.cashoutMs <= BR.CASHOUT_DELAY_MS,
+    'the five seconds are on the wire, not guessed at by the client');
+});
+
+test('stopping a match that is ending releases the wall', () => {
+  /* abandon() only knew about running and countdown, so a match called off
+     while it was ending left the circle pinned wherever it had frozen and the
+     room could never reopen. */
+  const { r } = endedMatch(3);
+  assert.equal(r.abandon(), true, 'a match that is ending can still be called off');
+  assert.equal(r.state, 'waiting');
+  run(r, 30000);
+  assert.ok(r.worldRadius > BR.START_RADIUS * 0.9, 'and the arena comes back');
+});
+
+test('a new match does not inherit the last one s frozen wall', () => {
+  const { r } = endedMatch(3);
+  r.onWinnerCashout = () => {};
+  run(r, 40000);                                   // all the way back to waiting
+  for (const s of r.snakes.values()) s.alive = true;
+  go(r);
+  assert.equal(r.state, 'running');
+  assert.equal(r.worldRadius, BR.START_RADIUS, 'the next match starts wide open');
+  run(r, 20000);
+  assert.ok(r.worldRadius < BR.START_RADIUS, 'and its circle closes normally');
+});
