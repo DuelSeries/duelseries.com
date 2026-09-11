@@ -474,11 +474,31 @@ class GameRoom {
       });
     }
 
-    // Body collision via a spatial grid of every live snake's segments — replaces the
-    // old O(players²·segments) all-pairs scan. Each snake only tests its head against
-    // the segments in the cells around it. Behaviour matches the old code: a snake
-    // dies when its head touches ANOTHER live snake's body (never its own), and in a
-    // head-on the first-iterated snake wins (the other is already dead, so skipped).
+    /* Body collision via a spatial grid of every live snake's segments — replaces
+       the old O(players²·segments) all-pairs scan. Each snake only tests its head
+       against the segments in the cells around it. A snake dies when its head
+       touches ANOTHER live snake's body, never its own.
+
+       DECIDED FIRST, APPLIED AFTER, and that ordering is the whole point.
+
+       This used to kill a snake the instant its head was found inside another's
+       body, in the middle of the same walk that was still deciding everyone
+       else. In a head-on both heads are inside each other — the head IS segment
+       0 — so the first snake reached died, and the second was then spared,
+       because its killer was now dead and dead snakes are skipped. `snakes` is a
+       Map keyed by socket id, so "first reached" meant "joined the room first".
+
+       Measured on two identical snakes with insertion order as the only
+       variable: insert A first and A dies, insert B first and B dies. Perfectly
+       consistent, and invisible from either screen — both players watch the
+       other run into them and one of them is simply told they lost. It reads
+       exactly like a netcode problem and is not one.
+
+       Now every head is tested against the world as it stood at the start of the
+       tick, and the deaths are applied together. A genuine head-on takes both,
+       which is the only symmetric answer. Driving into somebody's SIDE is
+       unchanged and still one-sided: their head is nowhere near your body, so
+       only you are a victim, and that is correct — it was your fault. */
     const segGrid = this._segGrid || (this._segGrid = new SpatialGrid(GRID_CELL));
     segGrid.clear();
     for (const snake of allSnakes) {
@@ -493,15 +513,35 @@ class GameRoom {
       }
     }
 
+    /* Pass one: who has hit what. Nobody dies yet.
+
+       A flat reused array of [victim, killerId, victim, killerId, …]. Reused and
+       flat because this runs every tick in every room, and a fresh array of
+       little objects here is exactly the steady allocation that shows up later
+       as a collector pause nothing can be attributed to. */
+    const hits = this._hits || (this._hits = []);
+    hits.length = 0;
     for (const snake of allSnakes) {
       if (!snake.alive) continue;
       const hx = snake.head.x, hy = snake.head.y;
+      let killerId = null;
       segGrid.forEachNear(hx, hy, (seg) => {
+        // `alive` here still means "alive at the start of this tick" — nothing
+        // below has run yet, which is what keeps the pass order-independent.
         if (seg._o === snake || !seg._o.alive) return false; // skip own body + already-dead snakes
         const dx = hx - seg.x, dy = hy - seg.y;
-        if (dx * dx + dy * dy < seg._o._killR2) { this.killSnake(snake, seg._o.id); return true; }
+        if (dx * dx + dy * dy < seg._o._killR2) { killerId = seg._o.id; return true; }
         return false;
       });
+      if (killerId !== null) { hits.push(snake, killerId); }
+    }
+
+    /* Pass two: apply them. Two snakes that hit each other on the same tick both
+       appear here, so both go. The `alive` guard is for a snake killed earlier
+       in this same loop by a different route, not for one killed by this pass. */
+    for (let i = 0; i < hits.length; i += 2) {
+      const victim = hits[i];
+      if (victim.alive) this.killSnake(victim, hits[i + 1]);
     }
 
     /* After the sim and all the killing, so the living count is THIS tick's
