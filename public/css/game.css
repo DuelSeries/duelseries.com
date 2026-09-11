@@ -720,8 +720,12 @@ body {
     align-items: center;
     justify-content: center;
     position: fixed;
+    /* CENTRED, at the same height it always sat at. It was tucked into the
+       bottom-right corner, which on a phone is both the hardest place to reach
+       across and the corner your steering thumb is already in. */
     bottom: calc(30px + env(safe-area-inset-bottom));
-    right: calc(30px + env(safe-area-inset-right));
+    left: 50%;
+    transform: translateX(-50%);
     z-index: 9999;
     width: 84px;
     height: 84px;
@@ -739,9 +743,11 @@ body {
     cursor: pointer;
     transition: background 0.1s, transform 0.1s;
   }
+  /* Both transforms, or the press throws it back to the left edge: a second
+     transform REPLACES the first, it does not add to it. */
   .cashout-btn-mobile.holding {
     background: rgba(240, 168, 48, 0.4);
-    transform: scale(0.94);
+    transform: translateX(-50%) scale(0.94);
   }
 }
 
@@ -828,3 +834,33 @@ body {
 }
 .brn-btns { margin-top: 18px; }
 .brn-btns[hidden] { display: none; }
+
+/* ── the board, on a phone ──────────────────────────────────────────────────
+   Ten rows in the corner of a small screen is a panel you play around rather
+   than glance at, and that corner is one you need to see through. Three rows,
+   and everything a step smaller — the same board, just quieter.
+
+   The row count is cut in game.js against this same (pointer: coarse) test, so
+   the hidden rows are never built rather than merely hidden. Matching the query
+   in both places is what keeps them from disagreeing about what a phone is. */
+@media (pointer: coarse) {
+  #leaderboard {
+    top: calc(10px + env(safe-area-inset-top));
+    right: calc(10px + env(safe-area-inset-right));
+    min-width: 0;
+    max-width: 44vw;
+    padding: 7px 9px 8px;
+    border-radius: 10px;
+  }
+  .lb-head { margin-bottom: 6px; gap: 8px; }
+  #leaderboard h4 { font-size: 0.54rem; letter-spacing: 0.12em; }
+  /* The all-time link is a second thing to read in a box that is now three
+     lines tall, and it opens a panel over the game mid-match. Off on a phone. */
+  #btn-alltime-lb { display: none; }
+  #leaderboard-list li { font-size: 0.7rem; padding: 1px 0; gap: 6px; }
+  #leaderboard-list .lb-rank { font-size: 0.58rem; width: 1.3em; }
+  #leaderboard-list .lb-score { font-size: 0.68rem; }
+  /* The marker rule has to move with the smaller padding or it floats away
+     from the edge of the card. */
+  #leaderboard-list li.me { margin-left: -9px; padding-left: 7px; }
+}

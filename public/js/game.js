@@ -960,6 +960,18 @@ const TOUCH_FOLLOW_R     = 60;    // the anchor is never left further behind tha
 
 let touchSteering = false;   // a finger is down and steering
 let touchAngle    = null;    // heading the thumb has asked for; null means hold
+/* THE HEADING TO HOLD AFTER THE THUMB COMES OFF.
+
+   Lifting used to drop straight through to the mouse branch, which steers at
+   the last touch COORDINATE — so letting go mid-turn sent the snake off toward
+   wherever your finger happened to leave the glass, which is not a direction
+   anybody aimed. Reported as "it goes in the direction of where I let off my
+   finger, I want it to keep going where the arrow was pointing".
+
+   The arrow is drawn from _lAngle, the snake's real heading, so that is what is
+   captured here. Null on desktop and while a finger is down, which is what
+   keeps the mouse path untouched. */
+let touchHoldAngle = null;
 let anchorX = 0, anchorY = 0;
 
 /* Steering always tracks the FIRST finger down. A second finger is the boost
@@ -1010,6 +1022,7 @@ canvas.addEventListener('touchstart', (e) => {
   // A new touch starts a fresh stick under the thumb, and asks for no turn yet.
   anchorX = p.x; anchorY = p.y;
   touchAngle = null;
+  touchHoldAngle = null;       // the thumb is back; it is steering again
   mousePos.x = p.x; mousePos.y = p.y;
 }, { passive: false });
 
@@ -1340,7 +1353,13 @@ function endTouch(e) {
   boostActive = false;
   touchSteering = false;
   touchAngle = null;
+  /* Carry on the way the arrow is pointing, which is the heading the snake
+     actually has — not the angle to wherever the finger left the screen. */
+  touchHoldAngle = _lAngle;
 }
+/* A real mouse takes the wheel back. On a laptop with a touchscreen the hold
+   would otherwise stick until the next tap, with the mouse doing nothing. */
+canvas.addEventListener('mousemove', () => { touchHoldAngle = null; });
 canvas.addEventListener('touchend', endTouch);
 canvas.addEventListener('touchcancel', endTouch);
 
@@ -1571,15 +1590,62 @@ document.getElementById('btn-cashout-lobby').addEventListener('click', () => {
 
 // ─── Spectate ─────────────────────────────────────────────────────────────────
 let spectating   = false;
-let spectateIndex = 0;
+/* WHO is being watched, not WHERE they were in a list that rebuilds itself
+   thirty times a second. See resolveSpectateTarget. */
+let spectateId = null;
 
+/* WHO YOU CAN WATCH, IN A STABLE ORDER.
+
+   `displayState.snakes` is view-culled and rebuilt from every snapshot, so its
+   contents AND its order change thirty times a second as snakes drift in and
+   out of the camera. Sorting by id gives the same list the same order twice
+   running, which is what makes "next" mean the next snake rather than whichever
+   one happens to be in slot 3 this frame. */
 function getSpectateTargets() {
-  return displayState.snakes.filter(s => s.id !== myId);
+  return displayState.snakes
+    .filter(s => s.id !== myId)
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+}
+
+/* The snake being watched, resolved by ID rather than by position.
+
+   THE BUG THIS FIXES: the target used to be an INDEX into the list above, and
+   that list is rebuilt every snapshot from whatever is in view. The index
+   stayed put while the list churned underneath it, so the camera hopped from
+   snake to snake on its own — reported as "it glitches out and starts going
+   through all the snakes really fast". Nobody was pressing anything.
+
+   An id cannot drift. When the snake being watched dies or leaves the view
+   there is a real decision to make, and it is made once, here, rather than
+   implicitly by an index landing somewhere new. */
+function resolveSpectateTarget() {
+  const targets = getSpectateTargets();
+  if (targets.length === 0) { spectateId = null; return null; }
+  if (spectateId !== null) {
+    const found = targets.find(s => s.id === spectateId);
+    if (found) return found;
+  }
+  /* Lost them. Take whoever is at the front of the stable order rather than
+     holding an id that will never come back. */
+  spectateId = targets[0].id;
+  return targets[0];
+}
+
+/* Step through the stable order. Works off the CURRENT target's position in
+   that order, so a snake appearing or dying between presses shifts the list
+   without also shifting where you were in it. */
+function stepSpectate(dir) {
+  const targets = getSpectateTargets();
+  if (targets.length === 0) return;
+  const at = targets.findIndex(s => s.id === spectateId);
+  const from = at < 0 ? 0 : at;
+  spectateId = targets[(from + dir + targets.length) % targets.length].id;
+  updateSpectateLabel();
 }
 
 function enterSpectate() {
   spectating = true;
-  spectateIndex = 0;
+  spectateId = null;          // resolved to the first target on the next frame
   document.getElementById('death-screen').classList.remove('active');
   document.getElementById('spectate-bar').classList.add('active');
   updateSpectateLabel();
@@ -1599,31 +1665,16 @@ function exitSpectate() {
 }
 
 function updateSpectateLabel() {
-  const targets = getSpectateTargets();
   const label = document.getElementById('spectate-label');
-  if (targets.length === 0) {
-    label.textContent = 'No players to spectate';
-  } else {
-    const t = targets[spectateIndex % targets.length];
-    label.textContent = 'Spectating: ' + (t.name || 'Player');
-  }
+  if (!label) return;
+  const t = resolveSpectateTarget();
+  label.textContent = t ? ('Spectating: ' + (t.name || 'Player')) : 'No players to spectate';
 }
 
 document.getElementById('btn-spectate').addEventListener('click', enterSpectate);
 
-document.getElementById('spectate-prev').addEventListener('click', () => {
-  const n = getSpectateTargets().length;
-  if (n === 0) return;
-  spectateIndex = (spectateIndex - 1 + n) % n;
-  updateSpectateLabel();
-});
-
-document.getElementById('spectate-next').addEventListener('click', () => {
-  const n = getSpectateTargets().length;
-  if (n === 0) return;
-  spectateIndex = (spectateIndex + 1) % n;
-  updateSpectateLabel();
-});
+document.getElementById('spectate-prev').addEventListener('click', () => stepSpectate(-1));
+document.getElementById('spectate-next').addEventListener('click', () => stepSpectate(1));
 
 document.getElementById('spectate-stop').addEventListener('click', () => {
   goToLobby();
@@ -1861,6 +1912,13 @@ function escHtml(s) {
 }
 
 // Leaderboard — updated from snapshot (60Hz max), not render loop
+/* Coarse pointer, which is the same test the mobile CSS uses, so the row count
+   and the styling can never disagree about what a phone is. Live, so rotating a
+   tablet into a different mode is picked up. */
+const _lbPhoneQuery = window.matchMedia("(pointer: coarse)");
+let _lbIsPhone = _lbPhoneQuery.matches;
+try { _lbPhoneQuery.addEventListener("change", e => { _lbIsPhone = e.matches; _lastLbHtml = null; }); } catch (_) {}
+
 let _lastLbHtml = '';
 function updateLeaderboard(snap) {
   /* Exactly what the server sent, unfiltered.
@@ -1875,7 +1933,14 @@ function updateLeaderboard(snap) {
      server building the board and this frame drawing it. The server rebuilds
      it from living snakes on every broadcast, so that window is one snapshot
      wide — and one stale row for 33ms is not worth hiding nine real ones. */
-  const lb = snap.leaderboard || [];
+  /* TOP THREE ON A PHONE. Ten rows in the corner of a small screen is a panel
+     you play around rather than glance at, and on a phone the corner it sits in
+     is a corner you also need to see through. The cut is here rather than in
+     CSS so the rows are never built at all — the board only redraws when the
+     string changes, and a hidden row still forces that string to change every
+     time somebody in eighth place scores. */
+  const lbAll = snap.leaderboard || [];
+  const lb = _lbIsPhone ? lbAll.slice(0, 3) : lbAll;
   const isPaid = isPaidRoom;
   const html = lb.map(p => {
     const val = isPaid
@@ -2035,6 +2100,11 @@ function gameLoop(now) {
       targetAngle = lockedAngle;
     } else if (touchSteering) {
       targetAngle = touchAngle !== null ? touchAngle : _lAngle;   // null: hold
+    } else if (touchHoldAngle !== null) {
+      /* Thumb is off the glass. Carry straight on the heading the arrow was
+         showing, rather than falling through to the mouse branch below, which
+         would steer at the pixel the finger last occupied. */
+      targetAngle = touchHoldAngle;
     } else {
       const wm = renderer.camera.screenToWorld(mousePos.x, mousePos.y, canvas.width, canvas.height);
       targetAngle = Math.atan2(wm.y - localHeadY, wm.x - localHeadX);
@@ -2105,10 +2175,7 @@ function gameLoop(now) {
   if (window.__duelDiagPhase) window.__duelDiagPhase('localBody', performance.now() - _tPhase);
 
   let spectateSnake = null;
-  if (spectating) {
-    const targets = getSpectateTargets();
-    if (targets.length > 0) spectateSnake = targets[spectateIndex % targets.length];
-  }
+  if (spectating) spectateSnake = resolveSpectateTarget();
   const renderState = cashedOut
     ? { ...displayState, snakes: displayState.snakes.filter(s => s.id !== myId) }
     : displayState;
