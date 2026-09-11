@@ -358,6 +358,27 @@ class Renderer {
     this._drawMinimap(ctx, state, myId, W, H);
   }
 
+  /* THE MAP SHOWS THE MAP. It does not follow the zone.
+
+     It used to scale by `R / state.worldRadius` and plot every dot at
+     `cx + d.x * scale` with no centre offset at all. Two consequences, and in a
+     battle royale they compound:
+
+       - the scale is tied to the SHRINKING radius, so as the circle closed the
+         map zoomed in, further and further, on a fixed point;
+       - the plot is relative to world origin while the real circle walks away
+         from it, so the arena being drawn was not the arena being played.
+
+     Between them, any snake more than R/scale from the origin fell outside the
+     clip and simply vanished. Late in a match that is most of the board.
+
+     The fix is a fixed scale and an honest offset: the whole world, always, at
+     one size, with the zone drawn ON it as a circle that gets smaller. Every
+     snake stays on the map from the first ring to the last.
+
+     A near-identical correct version of this already existed as
+     `Renderer.drawMinimap` and was never called — the fix landed in the copy
+     nobody runs. That copy is gone now; there is one minimap. */
   _drawMinimap(ctx, state, myId, W, H) {
     const PAD      = 12;
     const R        = Math.min(110, Math.floor(Math.min(W, H) * 0.15));
@@ -365,7 +386,23 @@ class Renderer {
     // Bottom-right on desktop, lifted ~60px so the FPS/ping stats sit under it; top-left on mobile.
     const cx       = isMobile ? PAD + R : W - PAD - R;
     const cy       = isMobile ? PAD + R : H - PAD - R - 60;
-    const scale  = R / state.worldRadius;
+
+    /* HOW MUCH WORLD THE WIDGET COVERS, and it may never shrink.
+
+       A battle royale says outright how big its arena starts (state.mapRadius),
+       so a spectator arriving at the last ring still sees the whole board
+       rather than a keyhole. Everywhere else the world only ever grows with the
+       crowd, so a high-water mark tracks it and the map never zooms back in
+       under someone mid-game. */
+    const seen = Math.max(state.mapRadius || 0, state.worldRadius || 0, 1);
+    if (!(this._mapR >= seen)) this._mapR = seen;
+    const mapR = this._mapR;
+    const scale = R / mapR;
+
+    // World -> widget. One place, so the ring, the target and the dots cannot
+    // disagree about where the middle is.
+    const px = (wx) => cx + wx * scale;
+    const py = (wy) => cy + wy * scale;
 
     ctx.save();
 
@@ -376,6 +413,38 @@ class Renderer {
     ctx.fill();
     ctx.clip();
 
+    /* THE LIVE ZONE, drawn where it actually is. In an ordinary room this sits
+       concentric with the widget and reads as the border; in a battle royale it
+       is the circle closing in, and watching it shrink against a fixed map is
+       the whole point of the change. */
+    const zr = (state.worldRadius || 0) * scale;
+    if (zr > 0.5) {
+      ctx.beginPath();
+      ctx.arc(px(state.worldCx || 0), py(state.worldCy || 0), zr, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255,60,60,0.07)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,60,60,0.75)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+
+    /* WHERE IT IS GOING NEXT. The map is where you decide where to run, and it
+       is the only place the next ring can be seen whole — on screen you only
+       ever catch the arc that happens to be in front of you. */
+    if (state.zoneTo) {
+      const tr = (state.zoneTo.r === undefined || state.zoneTo.r === null)
+        ? state.worldRadius : state.zoneTo.r;
+      ctx.save();
+      ctx.globalAlpha = 0.9;
+      ctx.setLineDash([3, 3]);
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(px(state.zoneTo.x), py(state.zoneTo.y), Math.max(1, tr * scale), 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
     // Snake dots — prefer the compact all-snakes minimap feed (state.mm). The main
     // `snakes` list is culled to the player's view, so without `mm` the minimap would
     // only show nearby snakes; `mm` carries every snake's head so the overview stays
@@ -384,8 +453,8 @@ class Renderer {
       .filter(s => s.segs && s.segs.length >= 2)
       .map(s => ({ x: s.segs[0], y: s.segs[1], c: s.color, id: s.id }));
     for (const d of dots) {
-      const sx = cx + d.x * scale;
-      const sy = cy + d.y * scale;
+      const sx = px(d.x);
+      const sy = py(d.y);
       const isMe = d.id === myId;
       const dotR = isMe ? 4 : 2.5;
 
@@ -1213,54 +1282,6 @@ class Renderer {
     const g = Math.min(255, ((num >> 8) & 0xff) + amount);
     const b = Math.min(255, (num & 0xff) + amount);
     return `rgb(${r},${g},${b})`;
-  }
-
-  drawMinimap(minimapCtx, state, myId) {
-    const mc = minimapCtx;
-    const SIZE = mc.canvas.width;
-    mc.clearRect(0, 0, SIZE, SIZE);
-    /* The minimap is drawn AROUND the circle's centre, so a zone closing on one
-       corner still fills the map instead of sliding off it. Everything plotted
-       below is offset by the same amount, which is why the world coordinates
-       get the centre subtracted rather than the circle getting moved. */
-    const scale = SIZE / (state.worldRadius * 2);
-    const wcx = state.worldCx || 0, wcy = state.worldCy || 0;
-    const cx = SIZE / 2 - wcx * scale, cy = SIZE / 2 - wcy * scale;
-
-    mc.beginPath();
-    mc.arc(cx + wcx * scale, cy + wcy * scale, state.worldRadius * scale, 0, Math.PI * 2);
-    mc.fillStyle = 'rgba(10,14,40,0.8)'; mc.fill();
-    /* The map is where you decide WHERE to go, so the next circle belongs on it
-       more than anywhere else — on screen you can only see the part of the ring
-       that happens to be in front of you. */
-    if (state.zoneTo) {
-      mc.save();
-      mc.globalAlpha = 0.85;
-      mc.setLineDash([3, 3]);
-      mc.strokeStyle = '#ffffff';
-      mc.lineWidth = 1.5;
-      mc.beginPath();
-      const tr = (state.zoneTo.r === undefined || state.zoneTo.r === null)
-        ? state.worldRadius : state.zoneTo.r;
-      mc.arc(cx + state.zoneTo.x * scale, cy + state.zoneTo.y * scale,
-             tr * scale, 0, Math.PI * 2);
-      mc.stroke();
-      mc.restore();
-    }
-    mc.strokeStyle = '#ff3333'; mc.lineWidth = 2; mc.stroke();
-
-    mc.fillStyle = 'rgba(100,255,100,0.5)';
-    for (const f of state.food) {
-      mc.fillRect(cx + f.x * scale - 1, cy + f.y * scale - 1, 2, 2);
-    }
-    for (const snake of state.snakes) {
-      if (!snake.segs || snake.segs.length < 2) continue;
-      mc.beginPath();
-      mc.arc(cx + snake.segs[0] * scale, cy + snake.segs[1] * scale,
-        snake.id === myId ? 4 : 2.5, 0, Math.PI * 2);
-      mc.fillStyle = snake.id === myId ? '#ffe066' : snake.color;
-      mc.fill();
-    }
   }
 }
 

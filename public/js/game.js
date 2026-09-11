@@ -543,6 +543,13 @@ function interpolateState(now) {
      outline around for no reason, and it must sit exactly where the wall will
      stop or it is lying about where to stand. */
   displayState.zoneTo = after.state.zoneTo || null;
+  /* HOW MUCH WORLD THE MINIMAP DRAWS, which is not how much of it is currently
+     in play. A battle royale arena starts at the full world and only closes in,
+     so the map is pinned to that from the outset — otherwise somebody arriving
+     to watch the last ring gets a minimap of a 300-unit circle and no idea
+     where anything is. Everywhere else the renderer's own high-water mark is
+     right, because those worlds only grow. */
+  displayState.mapRadius = isBattleRoyale ? CONSTANTS.MAX_WORLD_RADIUS : 0;
   displayState.leaderboard = after.state.leaderboard;
   displayState.mm = after.state.mm;     // all-snakes minimap feed (not view-culled)
 
