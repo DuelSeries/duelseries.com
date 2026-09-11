@@ -8,6 +8,7 @@ const allTimeLb = require('./leaderboard');
 const SpatialGrid = require('./SpatialGrid');
 const { encodeSnapshot } = require('../shared/snapshotCodec');
 const profiler = require('./profiler');
+const { botTarget } = require('./botPopulation');
 
 // Spatial-grid cell size (world units). Body-hit queries use the 3×3 forEachNear block,
 // so GRID_CELL must be >= the largest body-hit radius (~46 for a max-scale snake). The food
@@ -123,20 +124,38 @@ class GameRoom {
       if (s && s.isBot && !s.alive) this.snakes.delete(id);
     }
 
-    /* The target is the ROOM, not the bot count: twenty bodies in here,
-       players and robots together. Five people means fifteen robots, twenty
-       people means none, and fifty people means none rather than fifty more.
+    /* The target is the ROOM, not the bot count: this many bodies in here,
+       players and robots together. Five people means five fewer robots, and a
+       room with more people than the target gets none rather than more.
 
-       ADDING IS ALL THIS DOES. Being over the target is not a problem to be
-       corrected: robots die on their own and are simply not replaced, so a
-       busy room drains back to people by itself within a minute or two. The
-       first version deleted live snakes to hold the number, which is a snake
-       vanishing out from under whoever was chasing it — the same mistake the
-       tank arena had already been fixed for. */
-    const want = Math.max(0, (C.BOT_FLOOR_FREE || 0) - this.humanCount);
+       AND THE TARGET MOVES NOW. It was a flat twenty, every hour of every day,
+       which is the one thing a real player count never is — anyone who opened
+       the lobby twice saw exactly twenty both times. It walks a daily curve
+       between BOT_MIN and BOT_MAX instead, quiet before dawn and busiest in the
+       evening beside the nightly event, with a slow wander so two days are not
+       identical. See server/botPopulation.js.
+
+       ADDING IS ALL THIS DOES, and that matters more now the target can fall by
+       sixty across an evening. Being over it is not a problem to be corrected:
+       robots die on their own and are simply not replaced, so the room drains
+       down by itself. The first version deleted live snakes to hold the number,
+       which is a snake vanishing out from under whoever was chasing it — the
+       same mistake the tank arena had already been fixed for. */
+    const want = Math.max(0, botTarget() - this.humanCount);
     let have = 0;
     for (const s of this.snakes.values()) if (s.isBot && s.alive) have++;
-    for (; have < want; have++) { if (!this.addBot()) break; }
+
+    /* A FEW AT A TIME. This runs once a second, and the target now moves across
+       the day rather than sitting on one number — so the first tick after a
+       quiet night would otherwise drop sixty snakes into the arena at once,
+       which is not what a room filling up looks like from inside it.
+
+       Eight a second means a swing of forty takes five seconds to arrive, which
+       reads as people turning up. It also keeps any single tick cheap: spawning
+       is the expensive part, and sixty of them in one tick is a visible hitch in
+       a room somebody is already playing in. */
+    const room = Math.min(want - have, 8);
+    for (let i = 0; i < room; i++, have++) { if (!this.addBot()) break; }
   }
 
   start() {

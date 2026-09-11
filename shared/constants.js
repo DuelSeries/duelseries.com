@@ -242,6 +242,19 @@ const CONSTANTS = {
      ONLY EVER APPLIED TO A FREE ROOM. See GameRoom.botsAllowed, and the
      comment on it, which is the one rule that matters here. */
   BOT_FLOOR_FREE: 20,
+  /* HOW BUSY A FREE ROOM LOOKS, and it is a range rather than a number.
+
+     It was a flat 20, forever. Anyone who opened the lobby twice in one day saw
+     exactly twenty both times, and twenty at four in the morning is not a
+     figure a real game produces — a constant is the tell. The target now walks a
+     daily curve between these two, quiet before dawn and busiest in the evening
+     beside the nightly event. See server/botPopulation.js.
+
+     ⚠️ THE TOP OF THIS RANGE COSTS CPU. Every bot is a snake the server
+     simulates and ships. Raising BOT_MAX is not free; it is the one number here
+     that can put a room near the measured per-lobby ceiling. */
+  BOT_MIN: 22,
+  BOT_MAX: 101,
 };
 
 if (typeof module !== 'undefined') module.exports = CONSTANTS;

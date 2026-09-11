@@ -3,6 +3,7 @@ const { test } = require('node:test');
 const assert = require('node:assert');
 const GameRoom = require('../server/GameRoom');
 const C = require('../shared/constants');
+const { botTarget } = require('../server/botPopulation');
 
 /* ─── Keeping a free lobby populated ─────────────────────────────────────────
    Bots existed here long before this file did. What was missing was anything to
@@ -20,6 +21,25 @@ function room(lobbyType) {
   r.stop();
   return r;
 }
+
+/* SETTLE THE ROOM, the way a second of real time would.
+
+   topUpBots adds at most eight per call now, because the target moves across
+   the day and the first call after a quiet night would otherwise drop sixty
+   snakes into the arena in one tick. The tick loop calls it once a second, so a
+   test that calls it once is testing one second of filling, not the outcome.
+
+   Called until it stops changing, with a cap so a bug cannot hang the suite. */
+function fill(r) {
+  let last = -1;
+  for (let i = 0; i < 60 && r.botCount !== last; i++) { last = r.botCount; r.topUpBots(); }
+  return r.botCount;
+}
+
+/* What the room is aiming at RIGHT NOW. It is no longer a constant: it walks a
+   daily curve between BOT_MIN and BOT_MAX, so the tests ask rather than assume.
+   Read once per assertion — it moves by at most one a minute, and these run in
+   milliseconds. */
 
 /* A human in the room, alive, without needing a socket or the join path. */
 let n = 0;
@@ -51,12 +71,13 @@ test('THE ONE RULE: a paid room gets no bots, and loses any it somehow has', () 
   assert.equal(r.botCount, 0);
 });
 
-test('the free room fills itself to the floor', () => {
+test('the free room fills itself to whatever the day is asking for', () => {
   const r = room('na_free');
   assert.equal(r.botsAllowed(), true);
   assert.equal(r.botCount, 0, 'empty to begin with');
-  r.topUpBots();
-  assert.equal(r.botCount, C.BOT_FLOOR_FREE, 'filled');
+  const want = botTarget();
+  fill(r);
+  assert.equal(r.botCount, want, 'filled to whatever the day is asking for');
 });
 
 test('the battle royale counts as free, which endsWith(\'free\') got wrong', () => {
@@ -64,13 +85,13 @@ test('the battle royale counts as free, which endsWith(\'free\') got wrong', () 
      so the battle royale silently refused every bot and could not be filled. */
   const r = room('na_br');
   assert.equal(r.botsAllowed(), true);
-  r.topUpBots();
+  fill(r);
   assert.ok(r.botCount > 0, 'the br takes bots');
 });
 
 test('a bot that dies is replaced, which is the whole point', () => {
   const r = room('na_free');
-  r.topUpBots();
+  fill(r);
   const before = r.botCount;
 
   // Kill half of them, the way the game would.
@@ -78,8 +99,8 @@ test('a bot that dies is replaced, which is the whole point', () => {
   for (let i = 0; i < 4; i++) bots[i].alive = false;
   assert.equal(r.botCount, before - 4, 'four fewer alive');
 
-  r.topUpBots();
-  assert.equal(r.botCount, before, 'and back to the floor a second later');
+  fill(r);
+  assert.equal(r.botCount, before, 'and back to the target');
   /* The dead ones are gone rather than piling up: a dead snake is kept around
      so the client can play the death out, but a dead BOT nobody is watching is
      just a leak in a room that runs for the life of the process. */
@@ -91,18 +112,19 @@ test('the target is the ROOM, so bots fill whatever people do not', () => {
      fifteen robots; twenty people means none. */
   const r = room('na_free');
   for (let i = 0; i < 5; i++) addHuman(r);
-  r.topUpBots();
+  const want = botTarget();
+  fill(r);
   assert.equal(r.humanCount, 5);
-  assert.equal(r.botCount, C.BOT_FLOOR_FREE - 5, 'the rest are robots');
-  assert.equal(r.humanCount + r.botCount, C.BOT_FLOOR_FREE, 'twenty in the room');
+  assert.equal(r.botCount, want - 5, 'the rest are robots');
+  assert.equal(r.humanCount + r.botCount, want, 'the room holds what the day asked for');
 });
 
 test('a full room of people gets no bots at all', () => {
   /* The thing that must never happen: fifty real players and robots still
      arriving to join them. */
   const r = room('na_free');
-  for (let i = 0; i < C.BOT_FLOOR_FREE + 30; i++) addHuman(r);
-  r.topUpBots();
+  for (let i = 0; i < C.BOT_MAX + 30; i++) addHuman(r);
+  fill(r);
   assert.equal(r.botCount, 0, 'nobody needs company in a full room');
   r.topUpBots();
   assert.equal(r.botCount, 0, 'and asking again does not add any');
@@ -114,21 +136,22 @@ test('being over the target is left alone, never corrected by deleting a snake',
      Deleting live ones to hold a number is a snake vanishing out from under
      whoever was chasing it. */
   const r = room('na_free');
-  r.topUpBots();
+  const want = botTarget();
+  fill(r);
   const ids = [...r.snakes.values()].filter(s => s.isBot).map(s => s.id);
-  assert.equal(ids.length, C.BOT_FLOOR_FREE);
+  assert.equal(ids.length, want);
 
   for (let i = 0; i < 12; i++) addHuman(r);      // a crowd turns up
-  r.topUpBots();
-  assert.equal(r.botCount, C.BOT_FLOOR_FREE, 'every robot is still alive and still here');
+  fill(r);
+  assert.equal(r.botCount, want, 'every robot is still alive and still here');
   ids.forEach(id => assert.ok(r.snakes.has(id), 'including ' + id));
 
   /* And as they die they are not replaced, so it converges on its own. */
   const bots = [...r.snakes.values()].filter(s => s.isBot);
   for (let i = 0; i < 15; i++) bots[i].alive = false;
-  r.topUpBots();
+  fill(r);
   assert.equal(r.humanCount, 12);
-  assert.equal(r.botCount, C.BOT_FLOOR_FREE - 12, 'down to what the room is short by');
+  assert.equal(r.botCount, want - 12, 'down to what the room is short by');
 });
 
 test('the floor is measured against LIVE humans, not sockets in the room', () => {
@@ -137,17 +160,19 @@ test('the floor is measured against LIVE humans, not sockets in the room', () =>
      had just been emptied out by a good player, which is when it matters. */
   const r = room('na_free');
   for (let i = 0; i < 5; i++) addHuman(r, false);      // five dead players
-  r.topUpBots();
+  const want = botTarget();
+  fill(r);
   assert.equal(r.players.size, 5, 'five sockets in the room');
   assert.equal(r.humanCount, 0, 'and nobody actually playing');
-  assert.equal(r.botCount, C.BOT_FLOOR_FREE, 'so it is filled as if empty');
+  assert.equal(r.botCount, want, 'so it is filled as if empty');
 });
 
 test('a bot spawned by hand is not culled by the top-up', () => {
   /* `bots:add 20` has to mean twenty. A control that quietly undoes itself a
      second later is useless for the thing it exists for, which is testing. */
   const r = room('na_free');
-  r.topUpBots();
+  const want = botTarget();
+  fill(r);
   const extra = [];
   for (let i = 0; i < 5; i++) {
     const b = r.addBot();
@@ -155,7 +180,7 @@ test('a bot spawned by hand is not culled by the top-up', () => {
     extra.push(b);
   }
   const swollen = r.botCount;
-  assert.equal(swollen, C.BOT_FLOOR_FREE + 5);
+  assert.equal(swollen, want + 5);
 
   r.topUpBots();
   assert.equal(r.botCount, swollen, 'all still there');
