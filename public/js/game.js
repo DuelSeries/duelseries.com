@@ -1829,6 +1829,9 @@ sendPing();
 // FPS / perf counters
 let fpsFrames = 0, fpsLast = performance.now(), fpsDisplay = 0;
 const fpsEl   = document.getElementById('fps-counter');
+/* Frames the DISPLAY offered, counted before the cap — what the monitor can do,
+   as opposed to what we chose to draw out of it. */
+let _rafFrames = 0;
 const perfEl  = document.getElementById('perf-counter');
 if (perfEl) perfEl.style.display = 'none';   // CPU/GPU counter removed
 
@@ -1868,8 +1871,48 @@ let _lastFrameTime = 0;
    was due, rather than whether a budget has elapsed since the last one drawn,
    and the skipped frames land where they have to instead of on every other
    one. Same 60/120/240 as before; 144, 165, 180 and 200 all reach 120. */
-const RENDER_HZ = 120;
-const FRAME_MS  = 1000 / RENDER_HZ;
+/* THE CAP IS NOW ADJUSTABLE FROM THE URL, so it can be settled by measurement
+   instead of by argument.
+
+   120 is not arbitrary — see the whole comment above — but the two things that
+   justified it have since changed underneath it: food moved to the GPU (FoodGL)
+   and snake bodies were batched into one pass, which is most of the per-frame
+   allocation the sawtooth was made of. Whether the collector still stalls at
+   240 is now an open question, and an open question is not something to answer
+   by picking a number.
+
+   The honest reason this is a switch rather than a new default: it cannot be
+   measured from here. The preview surface this was developed against paints at
+   1Hz, so 120 and 240 are indistinguishable on it. The machine that can tell
+   them apart is the one with the 233Hz display in front of it.
+
+       ?hz=240   uncap toward the display
+       ?hz=0     no cap at all, draw every frame the display offers
+       ?hz=120   the shipped default
+
+   The choice sticks in localStorage, because the lobby launches the game in an
+   iframe and a query string typed at the lobby does not survive into it.
+   diag.js is already loaded and already records frame gaps, long tasks and the
+   heap sawtooth, and posts the summary to the server — so the comparison is a
+   reading, not an impression. */
+const RENDER_HZ = (() => {
+  const DEFAULT = 120;
+  let v = null;
+  try {
+    const q = new URLSearchParams(location.search).get('hz');
+    if (q !== null && q !== '') {
+      v = Number(q);
+      localStorage.setItem('duel_render_hz', String(v));
+    } else {
+      const saved = localStorage.getItem('duel_render_hz');
+      if (saved !== null) v = Number(saved);
+    }
+  } catch (_) { v = null; }
+  if (v === null || !isFinite(v) || v < 0) return DEFAULT;
+  return v;                                  // 0 means "no cap"
+})();
+// 0 -> a zero budget, so the deadline is always already past and nothing is skipped.
+const FRAME_MS  = RENDER_HZ > 0 ? 1000 / RENDER_HZ : 0;
 let _nextFrameAt = 0;
 let _meView = null;
 let _lLastStep = 0;   // body-thinning step last seen from the server
@@ -1879,6 +1922,7 @@ function gameLoop(now) {
   // Counted before the cap, so this is what the DISPLAY offers rather than
   // what we choose to draw. The two answer different questions.
   if (window.__duelDiagRaf) window.__duelDiagRaf();
+  _rafFrames++;                 // counted before the cap: this is the display's rate
   // Cheap and first: skip the whole frame before anything allocates.
   if (now < _nextFrameAt) {
     requestAnimationFrame(gameLoop);
@@ -1988,12 +2032,31 @@ function gameLoop(now) {
   // sends snakes/food we can actually see — keeps the snapshot small on mobile.
   maybeSendView(now);
 
-  // FPS
+  /* FPS, as two numbers when they differ.
+
+     They answer different questions and conflating them is what made 120 look
+     like a fault: the first is what we chose to DRAW, the second is what the
+     display OFFERED. A 233Hz monitor showing "FPS: 120" is the cap working
+     exactly as designed, not a frame rate problem — and there was no way to see
+     that from inside the game, which is why it got reported as one.
+
+     Only shown as a pair when the cap is actually biting, so an ordinary 60Hz
+     machine still just sees one number. */
   fpsFrames++;
   if (now - fpsLast >= 500) {
-    fpsDisplay = Math.round(fpsFrames * 1000 / (now - fpsLast));
-    fpsFrames = 0; fpsLast = now;
-    if (fpsEl) fpsEl.textContent = `FPS: ${fpsDisplay}`;
+    const secs = (now - fpsLast) / 1000;
+    fpsDisplay = Math.round(fpsFrames / secs);
+    const offered = Math.round(_rafFrames / secs);
+    fpsFrames = 0; _rafFrames = 0; fpsLast = now;
+    if (fpsEl) {
+      fpsEl.textContent = (offered > fpsDisplay + 8)
+        ? `FPS: ${fpsDisplay} / ${offered} Hz`
+        : `FPS: ${fpsDisplay}`;
+      fpsEl.title = (offered > fpsDisplay + 8)
+        ? `Drawing ${fpsDisplay} of the ${offered} frames this display offers `
+          + `(cap ${RENDER_HZ || 'off'}). Add ?hz=240 or ?hz=0 to the game URL to change it.`
+        : '';
+    }
   }
 
   requestAnimationFrame(gameLoop);
