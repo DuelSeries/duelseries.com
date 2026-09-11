@@ -346,6 +346,45 @@
     f.style.display = 'block';
   }
 
+  /* SIGNING ON BEHALF OF THE FRAME.
+
+     The wallet widget is mounted out here, not inside the game iframe, so the
+     game cannot call duelWalletSignAction itself. It asks, and this answers —
+     the same shape as the restake bridge above it.
+
+     This exists because the in-game owner controls had no way to produce a
+     signature and were reaching for localStorage.duel_admin_token instead, a
+     Privy token on the auth route that ownerAuth.js documents as broken. The
+     signature never leaves the wallet's own approval flow, and the server is
+     what decides whether the wallet that signed is an owner. */
+  window.addEventListener('message', async e => {
+    const d = e.data;
+    if (!d || d.type !== 'duel:signaction') return;
+    const frame = el('game-frame');
+    const reply = (msg) => {
+      if (frame && frame.contentWindow) frame.contentWindow.postMessage(msg, '*');
+    };
+    if (typeof window.duelWalletSignAction !== 'function') {
+      reply({ type: 'duel:signaction:error', id: d.id,
+              message: 'The wallet has not loaded yet. Give it a moment.' });
+      return;
+    }
+    try {
+      /* Raced against a clock, for the same reason owner.html races it: a
+         promise from the SDK that never settles is a button that never comes
+         back, which from the outside is a dead control. */
+      const proof = await Promise.race([
+        window.duelWalletSignAction(d.action, d.args || {}),
+        new Promise((_, no) =>
+          setTimeout(() => no(new Error('the wallet did not answer')), 10000)),
+      ]);
+      reply({ type: 'duel:signaction:done', id: d.id, proof: proof || null });
+    } catch (err) {
+      reply({ type: 'duel:signaction:error', id: d.id,
+              message: 'Could not sign: ' + (err && err.message ? err.message : 'unknown') });
+    }
+  });
+
   /* The game signals its own exit. Both frames are cleared and the lobby's
      animations restart. */
   window.addEventListener('message', e => {

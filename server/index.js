@@ -2137,22 +2137,79 @@ io.on('connection', (socket) => {
     if (typeof r === 'number' && isFinite(r) && r > 0) socket._agarViewR = Math.min(Math.max(r, 300), 12000);
   });
 
-  /* Owner-only, verified against a real Privy token by the same check the bot
-     spawner uses. Nothing about this trusts the client beyond the token. */
-  socket.on('br:start', async ({ idToken } = {}) => {
-    if (!socketRL(socket, 'brstart', 2000)) return;
-    if (!(await isOwnerToken(idToken))) return;
+  /* Owner-only, verified by an ed25519 SIGNATURE from the owner wallet.
+
+     It used to take a Privy token and call isOwnerToken, and that is precisely
+     the route server/ownerAuth.js exists to replace: "It is what owner auth
+     used before and it is what stopped working." The in-game button was the one
+     caller never migrated, so pressing Start match did nothing — and because
+     the refusal was a bare `return`, it did nothing SILENTLY, with no error to
+     show and nothing in the log.
+
+     The signature path depends on nothing outside this process: no Privy, no
+     app id, no network, no expiry. The message names the action and the second
+     it was signed, so a captured signature cannot be replayed or re-aimed.
+
+     Every refusal now says so. A control that refuses without a word is
+     indistinguishable from a broken one, which is exactly how this survived. */
+  socket.on('br:start', ({ proof, force } = {}) => {
+    /* Even the rate limit says something. A silent drop here is the same
+       failure as the silent auth refusal above: the button does nothing and
+       nothing anywhere says why. */
+    if (!socketRL(socket, 'brstart', 2000)) {
+      socket.emit('br:error', { message: 'Give it a second, then try again.' });
+      return;
+    }
     const room = gameRooms[REGION] && gameRooms[REGION].br;
-    if (!room) return;
-    if (!room.canStart()) { socket.emit('br:state', room.publicState()); return; }
+    if (!room) { socket.emit('br:error', { message: 'No battle royale room' }); return; }
+    if (!ownerFromSignature(proof)) {
+      socket.emit('br:error', { message: 'That did not come from the owner wallet.' });
+      return;
+    }
+    if (room.state === 'running') {
+      socket.emit('br:error', { message: 'A match is already running' });
+      return;
+    }
+    /* `force` overrides the player minimum, the same override the owner console
+       has. It is not a lowering of the rule: canStart() still says no, and the
+       caller has to ask for it by name. */
+    if (force) {
+      if (room.livingCount() < 1) {
+        socket.emit('br:error', { message: 'Nobody is in the room to start with' });
+        return;
+      }
+      room.forceStart('owner override');
+      return;
+    }
+    if (!room.canStart()) {
+      socket.emit('br:error', {
+        message: 'Needs ' + room.publicState().minPlayers + ' player(s) in the room',
+      });
+      socket.emit('br:state', room.publicState());
+      return;
+    }
     room.startMatch('owner');
   });
 
   /* Anyone in the room may ASK what the match is doing. It is the same thing
-     they can already see out of the window. */
-  socket.on('br:peek', () => {
+     they can already see out of the window.
+
+     `isOwner` rides on THIS reply rather than on the room broadcast, because it
+     is the one field that differs per listener and the broadcast goes to
+     everybody at once. It decides whether the Start match button is drawn, and
+     nothing more: the wallet named here is merely claimed, so a forged one buys
+     a button whose action still has to carry a real signature. Visibility is a
+     courtesy; the signature is the rule.
+
+     This replaces a check on `localStorage.duel_admin_token`, which the wallet
+     widget writes for EVERY signed-in player. Every player who had ever logged
+     in was being shown an owner control. */
+  socket.on('br:peek', ({ wallet } = {}) => {
     const room = gameRooms[REGION] && gameRooms[REGION].br;
-    if (room) socket.emit('br:state', room.publicState());
+    if (!room) return;
+    const st = room.publicState();
+    st.isOwner = !!wallet && OWNER_WALLETS.has(String(wallet));
+    socket.emit('br:state', st);
   });
 
   /* ── Tanks ────────────────────────────────────────────────────────────────
