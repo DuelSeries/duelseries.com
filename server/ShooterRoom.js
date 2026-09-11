@@ -1027,6 +1027,12 @@ class ShooterRoom {
         x: r1(t.x), y: r1(t.y), h: r2(t.hull), a: r2(t.aim),
         hp: Math.round(t.health), max: t.maxHealth, w: t.weapon, r: r1(t.roll),
         c: t.cashMs > 0 ? 1 : 0,
+        /* WHAT THIS TANK IS WORTH, over its head, for everybody to see.
+           It is carried coins, not banked ones: banked is safe and cannot be
+           taken, so it is not what killing them pays. This number IS the bounty
+           — kill them and exactly this much hits the floor as one coin. Showing
+           it turns every tank on screen into a decision. */
+        v: t.coins,
       })),
       /* [x, y, radius, burning, age]. The last two are new and appended, so
          anything reading the first three still reads them. Age is how far

@@ -264,40 +264,20 @@ html, body {
   color: var(--tx3); pointer-events: none;
 }
 
-/* ── the way in ────────────────────────────────────────────────────────────── */
-#boot {
-  position: fixed; inset: 0; z-index: 20; overflow: auto;
-  display: flex; align-items: center; justify-content: center; padding: 24px;
-  background: rgba(5,7,4,0.82); backdrop-filter: blur(6px);
-}
-.card {
-  width: 100%; max-width: 560px;
-  background: var(--s1); border: 1px solid var(--s3); border-radius: 18px;
-  padding: 26px 26px 22px; box-shadow: 0 24px 60px rgba(0,0,0,0.6);
-}
+/* ── the cards ─────────────────────────────────────────────────────────────
+   The boot screen is gone: it asked which gun you wanted before you had seen
+   the arena, then said on the same card that the choice did not matter because
+   1-0 switches any time. What survives here is shared with the death and
+   cash-out cards, which still need it. */
 .eyebrow {
   margin: 0; font-family: var(--fm); font-size: 0.72rem; font-weight: 600;
   letter-spacing: 0.14em; text-transform: uppercase; color: var(--tx2);
 }
-.card h1 { margin: 8px 0 0; font-size: 30px; font-weight: 650; letter-spacing: -0.6px; }
 .big { margin: 10px 0 0; font-size: 30px; font-weight: 650; color: var(--gold); }
 .sub { margin: 12px 0 0; font-size: 13.5px; line-height: 1.7; color: var(--tx3); }
 .sub b { color: var(--tx); font-weight: 600; }
 .sub.gold { color: var(--tx2); border-left: 2px solid var(--gold); padding-left: 12px; }
-.pick {
-  margin: 22px 0 10px; font-size: 11px; font-weight: 600; letter-spacing: 0.12em;
-  text-transform: uppercase; color: var(--tx3);
-}
 
-/* On the way in the guns get names and room to breathe; in game they are a row
-   of icons. Same buttons, same builder, two jobs. */
-.gunpick { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
-.gunpick .gun { display: flex; flex-direction: column; align-items: center; padding-bottom: 7px; }
-.gunpick .gun canvas { width: 100%; height: auto; max-width: 92px; }
-.gunpick .gun b {
-  display: block; font-size: 10.5px; font-weight: 600; letter-spacing: 0.01em;
-}
-.gunpick .gun.on b { color: var(--tx); }
 
 /* The one gold button. It was scoped to `.card`, which is the boot card only,
    so the Play again on the death card has been rendering as a bare browser
@@ -360,9 +340,6 @@ html, body {
   /* Above the stick rather than below it, where the screen edge is. */
   .tlabel { bottom: auto; top: -16px; }
   #cashwrap { bottom: calc(122px + env(safe-area-inset-bottom)); }
-  .card { padding: 16px 18px 14px; }
-  .card h1 { font-size: 21px; }
-  #boot { padding: 12px; }
 }
 
 @media (max-width: 620px) {
@@ -393,9 +370,6 @@ html, body {
      chosen on the way in and in the lobby, where there is room to see it. */
   #guns { display: none !important; }
   #feed { bottom: calc(206px + env(safe-area-inset-bottom)); font-size: 11px; max-width: 58vw; }
-  .gunpick { grid-template-columns: repeat(3, 1fr); }
-  .card { padding: 20px 18px 18px; }
-  .card h1 { font-size: 24px; }
 }
 
 /* ── the board, on a phone ──────────────────────────────────────────────────
@@ -418,4 +392,61 @@ html, body {
   /* The bot tag is a third thing to read on a row that is now two thirds the
      size. The colour already says which tanks are bots. */
   .board .bottag { display: none; }
+}
+
+/* ── the phone's weapon button ──────────────────────────────────────────────
+   One silhouette, between the two sticks where neither thumb rests, showing the
+   gun you are holding. Tap it and the ten open above it.
+
+   This replaces two things at once: a boot screen that asked which gun you
+   wanted before you had seen the arena, and a ten-wide row along the bottom
+   that on a phone is either unreadable or most of the screen. */
+#gunbtn {
+  position: fixed; z-index: 12;
+  left: 50%; transform: translateX(-50%);
+  bottom: calc(18px + env(safe-area-inset-bottom));
+  display: none;
+  align-items: center; justify-content: center;
+  width: 74px; height: 58px; padding: 0;
+  border: 1px solid rgba(255,181,0,0.45);
+  border-radius: 14px;
+  background: rgba(20,24,16,0.82);
+  backdrop-filter: blur(6px);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+#gunbtn[hidden] { display: none; }
+#gunbtn canvas { display: block; width: 60px; height: 39px; pointer-events: none; }
+#gunbtn[aria-expanded="true"] { border-color: var(--gold); background: rgba(255,181,0,0.2); }
+
+/* The sheet. Five across and two down, which fits ten on the narrowest phone
+   without scrolling and keeps every target a thumb's width. */
+#gunsheet {
+  position: fixed; z-index: 12;
+  left: 50%; transform: translateX(-50%);
+  bottom: calc(84px + env(safe-area-inset-bottom));
+  display: none;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+  padding: 10px;
+  width: min(340px, calc(100vw - 24px));
+  border: 1px solid #2a3122;
+  border-radius: 16px;
+  background: rgba(14,17,11,0.93);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 18px 44px rgba(0,0,0,0.6);
+}
+#gunsheet[hidden] { display: none; }
+#gunsheet .gun {
+  width: auto; padding: 4px 2px;
+  display: flex; align-items: center; justify-content: center;
+}
+#gunsheet .gun canvas { width: 100%; height: auto; max-width: 52px; }
+#gunsheet .gun i { font-size: 9px; }
+
+/* Only on a phone. Desktop keeps the row along the bottom, which has the room
+   for it and a number key for every gun. */
+@media (pointer: coarse) {
+  #gunbtn:not([hidden]) { display: flex; }
+  #gunsheet:not([hidden]) { display: grid; }
 }

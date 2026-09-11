@@ -299,6 +299,32 @@
 
     if (o.hp !== undefined && o.max && o.hp < o.max) drawHealth(ctx, o, size);
     if (o.label) drawLabel(ctx, o, size);
+    if (o.value > 0) drawValue(ctx, o, size);
+  }
+
+  /* WHAT THIS TANK IS WORTH, over its head.
+
+     Carried coins, which is the number that can be taken off them — so it is
+     also the bounty. Kill this tank and exactly this much hits the floor as one
+     coin. Above the health bar rather than below the name, because it is the
+     thing you decide on: whether that tank is worth driving at.
+
+     Gold, and gold only. It is the one number on the field that is money, and
+     it reads as the same currency as the coin it will turn into. */
+  function drawValue(ctx, o, size) {
+    var txt = String(o.value);
+    ctx.save();
+    ctx.font = '700 ' + Math.round(size * 0.36) + 'px Archivo, system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = Math.max(2.5, size * 0.11);
+    ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+    var y = o.y - size * 1.02;                 // clear of the health bar at 0.78
+    ctx.strokeText(txt, o.x, y);
+    ctx.fillStyle = '#ffb500';
+    ctx.fillText(txt, o.x, y);
+    ctx.restore();
   }
 
   /* Their life bar is 95 x 15 for a 41-wide tank — more than twice its width,
@@ -570,12 +596,39 @@
     ctx.fillRect(x - w * 0.12, y - h * 0.32, w * 0.24, h * 0.64);
   }
 
-  function drawCoin(ctx, x, y, s, big) {
+  /* A coin, with what it is worth written on it.
+
+     Everything a tank was carrying falls as ONE coin, so two coins on the floor
+     are not two of the same thing — one might be worth forty times the other,
+     and from across the map they were identical. The number is what makes the
+     drop from a kill worth crossing the arena for, or worth leaving.
+
+     Small and centred ON the coin, not floating above it, so a field of them
+     still reads as coins rather than as a column of labels. Below a few units
+     the disc is too small to hold a number and the size alone says enough. */
+  function drawCoin(ctx, x, y, s, big, value) {
     var r = s * (big ? 0.16 : 0.11);
     ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
     fillLine(ctx, '#ffb500', '#513a00', Math.max(1, s * 0.03));
     ctx.beginPath(); ctx.arc(x - r * 0.28, y - r * 0.28, r * 0.34, 0, Math.PI * 2);
     ctx.fillStyle = '#ffe49f'; ctx.fill();
+
+    if (!(value > 0)) return;
+    var txt = String(Math.round(value));
+    // Shrink the type for longer numbers so "1250" still sits inside the disc.
+    var fs = r * (txt.length >= 4 ? 0.78 : txt.length === 3 ? 0.92 : 1.05);
+    if (fs < 6) return;                         // too small to read; the disc says enough
+    ctx.save();
+    ctx.font = '700 ' + fs.toFixed(1) + 'px Archivo, system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = Math.max(1.5, fs * 0.32);
+    ctx.strokeStyle = 'rgba(50,34,0,0.85)';
+    ctx.strokeText(txt, x, y + fs * 0.04);
+    ctx.fillStyle = '#3a2a00';
+    ctx.fillText(txt, x, y + fs * 0.04);
+    ctx.restore();
   }
 
   root.ShooterArt = {

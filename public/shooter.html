@@ -21,10 +21,9 @@
      at, and it is the snake game's board, down to the markup, so the two games
      do not each have their own idea of what a leaderboard is. -->
 <header id="hud" hidden>
-  <div class="hudLeft">
-    <div class="hpWrap"><i id="hpBar"></i></div>
-    <span class="hpNum num" id="hpNum">100</span>
-  </div>
+  <!-- No health up here any more. It was a bar and a number in the corner
+       duplicating the bar that is already drawn over your own tank, where you
+       are actually looking. One health readout, in the place you are looking. -->
   <div class="hudRight">
     <!-- Same structure and the same class names as the snake game's board, so
          one set of styles describes both. -->
@@ -94,22 +93,18 @@
   <div id="astick" class="tstick"><i id="astickNub"></i><span class="tlabel">aim</span></div>
 </div>
 
-<div id="boot">
-  <div class="card">
-    <p class="eyebrow">Awesome Tanks</p>
-    <h1>Free-for-all</h1>
-    <p class="sub" id="howto">Drive with <b>WASD</b>, aim with the mouse, hold to fire.
-      Break crates for coins and med kits. Kill someone and they drop everything
-      they were carrying.</p>
-    <p class="sub gold">Coins are only yours once you bank them. Sit in the gold
-      square in the middle of the map for five seconds without leaving it, or hold
-      <b>Q</b> for a second wherever you are. Die first and they are on the floor
-      for whoever gets there.</p>
-    <p class="pick">Pick a gun. You can switch any time with 1&ndash;0.</p>
-    <div id="bootguns" class="gunpick"></div>
-    <button type="button" class="go" id="startBtn">Play</button>
-  </div>
-</div>
+<!-- The gun picker that used to be a whole screen in front of the game.
+
+     It asked you to choose before you had seen the arena, and then told you the
+     choice did not matter because 1-0 switches any time. A wall between the
+     player and the game, to collect an answer the game does not need.
+
+     On a phone it is this: one button showing the gun you are holding, tucked
+     between the two sticks where neither thumb rests. Tap it and the ten open
+     above it; tap one and it closes. Nothing permanent on screen but a single
+     silhouette. -->
+<button type="button" id="gunbtn" aria-label="Change weapon" aria-expanded="false" hidden></button>
+<div id="gunsheet" hidden></div>
 
 <script src="/socket.io/socket.io.js"></script>
 <script src="js/cashoutSound.js"></script>

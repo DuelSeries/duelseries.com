@@ -319,12 +319,30 @@ test('the phone layout exists and the header cannot overflow again', () => {
   assert.ok(/env\(safe-area-inset-bottom\)/.test(html), 'and keeps content off the home indicator');
 });
 
-test('the legal links are pinned on every screen', () => {
+test('the legal links are off the phone entirely', () => {
+  /* THE ASSERTION IS INVERTED, on purpose.
+
+     This used to pin the footer as position:fixed above the nav bar on every
+     screen. Fixed means it takes no space in the flow, so content scrolled
+     UNDERNEATH it — and the last row of the open-lobbies list sat behind it
+     permanently. A bar that hides the thing you came to the screen to read, to
+     show three links nobody taps mid-session.
+
+     Measured after removing it: scrolled to the bottom of All games, the last
+     card sits 74px clear of the nav bar instead of behind a legal strip.
+
+     Desktop keeps the footer, where there is a page to put it at the bottom of. */
   const html = v2();
-  assert.ok(/footer\{position:fixed/.test(html), 'the footer is fixed on phones');
-  // Transparent would let whatever is scrolling behind read through the text.
-  const i = html.indexOf('footer{position:fixed');
-  assert.ok(html.slice(i, i + 260).includes('background:var(--bg)'), 'and opaque');
+  assert.ok(!/footer\{position:fixed/.test(html),
+    'the footer is not pinned over the content on a phone');
+
+  const mob = html.slice(html.indexOf('@media(max-width:760px)'));
+  assert.ok(/footer\{display:none\}/.test(mob),
+    'it is gone on mobile rather than merely moved');
+
+  // Still there for desktop, which has the room.
+  assert.ok(/Privacy policy/.test(html) && /Terms of service/.test(html),
+    'the links still exist for the desktop layout');
 });
 
 test('fullscreen is attempted honestly, not faked', () => {

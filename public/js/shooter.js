@@ -206,18 +206,7 @@
   }
   astick.addEventListener('touchend', aimEnd, { passive: false });
   astick.addEventListener('touchcancel', aimEnd, { passive: false });
-  if (isTouch) {
-    $('touch').hidden = false;
-    /* The card explains a mouse and a keyboard to somebody holding neither.
-       One line, swapped, rather than a second card to keep in step. */
-    var how = $('howto');
-    if (how) {
-      how.innerHTML = 'Left stick drives. <b>Right stick aims and fires</b> — ' +
-        'point it and it shoots. Break crates for coins and med kits. Kill ' +
-        'someone and they drop everything they were carrying. Turn the phone ' +
-        'sideways if you would rather play that way.';
-    }
-  }
+  if (isTouch) $('touch').hidden = false;
 
   function sendInput() {
     if (!started) return;
@@ -383,9 +372,10 @@
   function paintHud(s) {
     if (!started || !s.you) return;
     $('hud').hidden = false;
-    $('guns').hidden = false;
-    $('hpBar').style.width = Math.max(0, s.you.hp / s.you.max * 100) + '%';
-    $('hpNum').textContent = s.you.hp;
+    if (!isTouch) $('guns').hidden = false;      // the desktop row
+    else $('gunbtn').hidden = false;             // the phone's one button
+    /* Health is drawn over your own tank, where you are looking, and nowhere
+       else. The corner bar and its number said the same thing twice. */
     /* carrying / banked are off the HUD now — the board took the space.
        What you are holding is still on screen the moment it matters: the bank
        flash when it lands, and the cash-out card when you take it. */
@@ -478,16 +468,76 @@
       A.gun(g, w.key, A.TEAMS.you);
     });
   }
-  buildGuns($('bootguns'), true);
-  buildGuns($('guns'), false);
+  buildGuns($('guns'), false);      // desktop: the row along the bottom
+  buildGuns($('gunsheet'), false);  // phone: the sheet behind the weapon button
   function pickWeapon(key) {
     try { localStorage.setItem('shooter:weapon', key); } catch (_) {}
     WEAPON = key;
     if (started) socket.emit('sh:weapon', { weapon: key });
-    else for (var i = 0; i < gunBtns.length; i++) {
+    /* Always mark the chosen one, in every copy of the picker. This used to run
+       only while NOT started, back when the picker was a screen you left behind;
+       now both pickers live inside the running game and have to keep up. */
+    for (var i = 0; i < gunBtns.length; i++) {
       gunBtns[i].classList.toggle('on', gunBtns[i].dataset.w === key);
     }
+    paintGunBtn();
+    closeGunSheet();
   }
+
+  /* ── the phone's weapon button ────────────────────────────────────────────
+     One button showing the gun you are holding, sitting between the two sticks
+     where neither thumb rests. Tap it and the ten open above it; tap one and it
+     closes. The row of ten that desktop keeps along the bottom would be either
+     unreadable or most of the screen on a phone, and the boot-screen picker it
+     replaces was a whole page in front of the game.
+
+     It shares buildGuns with the desktop row, so the phone can never be offered
+     a gun the game does not draw. */
+  /* EXACTLY the picker tile's canvas: a 120x78 backing store with the origin at
+     (60, 44), drawn at 60x39 by the stylesheet. Copied rather than recomputed —
+     the first attempt sized it 60x44 and put the origin in the corner, and the
+     gun came out clipped and half off its own button. */
+  function paintGunBtn() {
+    var b = $('gunbtn');
+    if (!b) return;
+    var cvs = b.querySelector('canvas');
+    if (!cvs) { cvs = document.createElement('canvas'); b.appendChild(cvs); }
+    cvs.width = 120; cvs.height = 78;
+    var g = cvs.getContext('2d');
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.clearRect(0, 0, 120, 78);
+    g.translate(60, 44);
+    g.rotate(-Math.PI / 2);
+    A.gun(g, WEAPON, A.TEAMS.you);
+  }
+
+  function openGunSheet() {
+    var sheet = $('gunsheet');
+    if (!sheet) return;
+    sheet.hidden = false;
+    $('gunbtn').setAttribute('aria-expanded', 'true');
+  }
+  function closeGunSheet() {
+    var sheet = $('gunsheet');
+    if (!sheet) return;
+    sheet.hidden = true;
+    var b = $('gunbtn');
+    if (b) b.setAttribute('aria-expanded', 'false');
+  }
+  (function wireGunBtn() {
+    var b = $('gunbtn');
+    if (!b) return;
+    b.addEventListener('click', function (e) {
+      e.preventDefault();
+      if ($('gunsheet').hidden) openGunSheet(); else closeGunSheet();
+    });
+    /* Tapping the arena closes it. A sheet you can only dismiss by choosing is
+       a sheet that traps somebody who opened it by accident, mid-fight. */
+    cv.addEventListener('pointerdown', function () {
+      if (!$('gunsheet').hidden) closeGunSheet();
+    });
+    paintGunBtn();
+  })();
 
   /* ── the fog ──────────────────────────────────────────────────────────────
      A cell is visible if any of its centre or corners can be reached from the
@@ -665,7 +715,7 @@
       var p = next.pickups[i];
       if (!visibleAt(p[0], p[1])) continue;
       if (p[2]) A.drawMedkit(ctx, X(p[0]), Y(p[1]), T * S);
-      else A.drawCoin(ctx, X(p[0]), Y(p[1]), T * S, p[3] >= 40);
+      else A.drawCoin(ctx, X(p[0]), Y(p[1]), T * S, p[3] >= 40, p[3]);
     }
   }
 
@@ -706,7 +756,7 @@
       A.drawTank(ctx, {
         x: X(lerp(p.x, n.x, t)), y: Y(lerp(p.y, n.y, t)), size: size,
         hull: n.h, turret: n.a, roll: n.r, team: 'foe', weapon: n.w,
-        hp: n.hp, max: n.max, label: n.n,
+        hp: n.hp, max: n.max, label: n.n, value: n.v || 0,
       });
       if (n.c) ring(X(n.x), Y(n.y), size * 0.9, '#ffb500');
     }
@@ -716,7 +766,7 @@
       A.drawTank(ctx, {
         x: X(px), y: Y(py), size: size,
         hull: you.hull, turret: you.aim, roll: you.roll, team: 'you',
-        weapon: you.weapon, hp: you.hp, max: you.max,
+        weapon: you.weapon, hp: you.hp, max: you.max, value: you.coins || 0,
       });
     }
   }
@@ -948,13 +998,31 @@
 
   /* ── starting, and leaving ────────────────────────────────────────────────── */
 
-  $('startBtn').addEventListener('click', function () {
-    $('boot').hidden = true;
+  /* STRAIGHT IN. There is no card in front of the arena any more.
+
+     It existed to ask which gun you wanted, and then told you on the same card
+     that the answer did not matter because 1-0 switches any time. So it was a
+     wall between the player and the game collecting an answer the game does not
+     need: the weapon is remembered from last time, and changeable the moment
+     you are driving.
+
+     Sound still has to be woken by a real gesture — browsers refuse audio
+     started without one — so it is unlocked on the first touch or key instead
+     of on a Play button that no longer exists. */
+  function begin() {
+    if (started) return;
     started = true;
+    socket.emit('sh:join', { name: NAME, weapon: WEAPON });
+  }
+  function wakeSound() {
+    if (SND) return;
     SND = window.ShooterSound || null;
     if (SND) { SND.init(); SND.unlock(); }
-    socket.emit('sh:join', { name: NAME, weapon: WEAPON });
+  }
+  ['pointerdown', 'touchstart', 'keydown'].forEach(function (ev) {
+    window.addEventListener(ev, wakeSound, { once: true, passive: true });
   });
+  begin();
 
   function leave() {
     socket.emit('sh:leave');

@@ -1288,15 +1288,16 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
   .ni svg{width:21px;height:21px}
   .ni .tip{display:none}         /* no hover on a touchscreen */
 
-  /* The legal links sit directly above the nav bar, on every screen, always.
-     Opaque, because a transparent fixed bar lets whatever is scrolling behind
-     it read straight through the text. */
-  footer{position:fixed;left:0;right:0;z-index:59;margin:0;border-top:none;
-         bottom:calc(60px + env(safe-area-inset-bottom));
-         background:var(--bg);padding:7px 0 8px}
-  .ft{justify-content:center;gap:16px;font-size:11px;padding:0 12px;flex-wrap:nowrap}
-  .ft span:first-child,.ft .sp{display:none}   /* the copyright is not a link */
-  .ft a{color:var(--tx3)}
+  /* NO LEGAL ROW ON A PHONE.
+
+     It was position:fixed above the nav bar, so it did not take space in the
+     flow — content scrolled UNDERNEATH it, and the last row of the open-lobbies
+     list sat behind it permanently. A bar that hides the thing you came to the
+     screen to read, to show three links nobody taps mid-session.
+
+     Gone on mobile entirely. Desktop keeps it, where there is a page to put it
+     at the bottom of. */
+  footer{display:none}
 
   /* The game screen is two columns on desktop: art and lobbies on the left,
      name and buy-in on the right. Collapsed to one column that stacks the
