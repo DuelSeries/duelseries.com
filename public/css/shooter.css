@@ -50,27 +50,54 @@ html, body {
 .hpWrap i { display: block; height: 100%; width: 100%; background: var(--you); transition: width 0.15s; }
 .hpNum { font-size: 14px; font-weight: 600; color: var(--you); min-width: 28px; }
 
-/* Carried and banked, side by side. That pairing IS the game: one number can be
-   taken off you and the other cannot, and seeing the gap between them is what
-   makes the drive to the middle feel like a decision. */
-.hudMid { flex: 0 0 auto; display: flex; gap: 22px; }
-.stat { display: flex; flex-direction: column; align-items: center; line-height: 1.1; }
-.stat b { font-size: 22px; font-weight: 650; color: var(--gold); }
-.stat em {
-  font-style: normal; font-size: 10px; letter-spacing: 0.14em;
-  text-transform: uppercase; color: var(--tx3); margin-top: 3px;
-}
-.stat.safe b { color: var(--you); }
+/* The carrying/banked pair is gone from the HUD. It used to sit in the middle
+   and the board was hidden outright on a phone; they have swapped. What you are
+   holding still reaches the screen when it matters — the bank flash as it lands,
+   and the cash-out card when you take it. */
 
 .hudRight { flex: 1 1 0; display: flex; align-items: flex-start; justify-content: flex-end; gap: 12px; }
-.board { list-style: none; margin: 0; padding: 0; min-width: 118px; }
-.board li {
-  display: flex; gap: 10px; align-items: baseline; justify-content: space-between;
-  font-size: 12px; color: var(--tx3); padding: 1px 0;
+/* THE SNAKE GAME'S BOARD. Same card, same header, same three columns, same
+   amber rule on your own row — copied deliberately rather than approximated,
+   because two games in one product should not each have their own idea of what
+   a leaderboard is. Colours come from this game's tokens so it still belongs to
+   the arena it sits over. */
+#leaderboard {
+  background: rgba(16,14,11,0.72);
+  border: 1px solid #282219;
+  border-radius: 12px;
+  padding: 10px 12px 11px;
+  min-width: 186px;
+  backdrop-filter: blur(8px);
+  pointer-events: none;
 }
-.board li b { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 84px; }
-.board li span { color: var(--gold); }
-.board li.me b { color: var(--tx); font-weight: 650; }
+.lb-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 9px; }
+#leaderboard h4 {
+  font-family: 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace;
+  font-size: 0.62rem; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.14em; color: var(--tx3); margin: 0;
+}
+.board { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; }
+.board li {
+  display: flex; align-items: baseline; gap: 8px;
+  font-size: 0.8rem; color: var(--tx3); padding: 2px 0;
+}
+.board .lb-rank {
+  font-family: 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace;
+  font-size: 0.68rem; color: #57503f; width: 1.5em; flex: none;
+}
+.board .lb-name {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; color: #d9d2c6;
+}
+.board .lb-score {
+  font-family: 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums; font-size: 0.78rem;
+  color: var(--gold); flex: none;
+}
+/* Your own row, marked by weight and a rule rather than another colour. */
+.board li.me { border-left: 2px solid var(--gold); margin-left: -12px; padding-left: 10px; }
+.board li.me .lb-name { color: var(--tx); font-weight: 600; }
+.board li.me .lb-rank { color: var(--tx3); }
 
 .exit {
   pointer-events: auto; padding: 6px 11px; border-radius: 8px;
@@ -307,10 +334,10 @@ html, body {
    styled as a desktop. */
 @media (orientation: landscape) and (max-height: 560px) {
   #hud { padding-top: calc(6px + env(safe-area-inset-top)); padding-bottom: 6px; }
-  .hudMid { gap: 16px; }
-  .stat b { font-size: 17px; }
-  .stat em { font-size: 9px; }
-  .board { display: none; }
+  /* The board STAYS sideways. It used to be hidden here and the carrying/banked
+     pair kept the space; they have swapped, so the thing worth a corner is the
+     one that survives the rotation. Three rows and a size down — see the coarse
+     block below, which this inherits. */
   #guns { display: none !important; }
   .tstick { width: 96px; height: 96px; bottom: calc(14px + env(safe-area-inset-bottom)); }
   #stickNub, #astickNub { width: 40px; height: 40px; margin: -20px 0 0 -20px; }
@@ -319,9 +346,9 @@ html, body {
   #feed { bottom: calc(122px + env(safe-area-inset-bottom)); max-width: 40vw; }
   .hpWrap { display: none; }
   .hudLeft { flex: 0 0 auto; max-width: none; }
-  .hudMid { flex: 1 1 auto; justify-content: flex-start; min-width: 0; }
-  .hudRight { flex: 0 0 auto; flex-direction: column; align-items: flex-end; gap: 4px; }
-  .hudRight .exit { padding: 4px 9px; font-size: 10.5px; }
+  /* margin-left:auto is the spacer now: the middle column that used to push
+     this to the right edge went with carrying/banked. */
+  .hudRight { flex: 0 0 auto; margin-left: auto; flex-direction: column; align-items: flex-end; gap: 4px; }
   /* Under the radar, not above the stick. Sideways there is no room between
      the two: the sticks come down to within 14px of the bottom edge and the
      bottom left corner IS the driving thumb. */
@@ -339,9 +366,9 @@ html, body {
 }
 
 @media (max-width: 620px) {
-  .hudMid { gap: 14px; }
-  .stat b { font-size: 18px; }
-  .board { display: none; }             /* the minimap is the priority down here */
+  /* The board used to be hidden here so the carrying/banked pair could keep the
+     bar. They have swapped: the board is what stays, at three rows and a size
+     down (see the coarse block at the end of this file). */
 
   /* A phone bar has room for health, two money figures and two buttons, and
      that is all of it. The radar takes the left end, so everything else has to
@@ -351,12 +378,10 @@ html, body {
   #hud { gap: 10px; padding-right: 10px; }
   .hudLeft { flex: 0 0 auto; max-width: none; }
   .hpWrap { display: none; }
-  .hudMid { flex: 1 1 auto; justify-content: flex-start; min-width: 0; }
   /* Stacked rather than side by side. Sound and Leave are the two controls
      nobody presses while driving, so they are the two that can afford to give
      up the width the money figures cannot. */
-  .hudRight { flex: 0 0 auto; flex-direction: column; align-items: flex-end; gap: 5px; }
-  .hudRight .exit { padding: 5px 9px; font-size: 11px; }
+  .hudRight { flex: 0 0 auto; margin-left: auto; flex-direction: column; align-items: flex-end; gap: 5px; }
   #netwrap {
     position: fixed; left: 12px; z-index: 10;
     bottom: calc(212px + env(safe-area-inset-bottom));
@@ -371,4 +396,26 @@ html, body {
   .gunpick { grid-template-columns: repeat(3, 1fr); }
   .card { padding: 20px 18px 18px; }
   .card h1 { font-size: 24px; }
+}
+
+/* ── the board, on a phone ──────────────────────────────────────────────────
+   Three rows and a step smaller, exactly as the snake game does it, and keyed
+   off the same (pointer: coarse) test the row count in shooter.js uses so the
+   two cannot disagree about what a phone is. */
+@media (pointer: coarse) {
+  #leaderboard {
+    min-width: 0;
+    max-width: 44vw;
+    padding: 7px 9px 8px;
+    border-radius: 10px;
+  }
+  .lb-head { margin-bottom: 6px; }
+  #leaderboard h4 { font-size: 0.54rem; letter-spacing: 0.12em; }
+  .board li { font-size: 0.7rem; padding: 1px 0; gap: 6px; }
+  .board .lb-rank { font-size: 0.58rem; width: 1.3em; }
+  .board .lb-score { font-size: 0.68rem; }
+  .board li.me { margin-left: -9px; padding-left: 7px; }
+  /* The bot tag is a third thing to read on a row that is now two thirds the
+     size. The colour already says which tanks are bots. */
+  .board .bottag { display: none; }
 }

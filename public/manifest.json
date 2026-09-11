@@ -4,7 +4,7 @@
   "description": "Multiplayer snake duels with real stakes",
   "start_url": "/",
   "display": "standalone",
-  "orientation": "landscape",
+  "orientation": "any",
   "background_color": "#0a0a0a",
   "theme_color": "#0a0a0a",
   "icons": [

@@ -386,8 +386,9 @@
     $('guns').hidden = false;
     $('hpBar').style.width = Math.max(0, s.you.hp / s.you.max * 100) + '%';
     $('hpNum').textContent = s.you.hp;
-    $('carry').textContent = s.you.coins;
-    $('banked').textContent = s.you.banked;
+    /* carrying / banked are off the HUD now — the board took the space.
+       What you are holding is still on screen the moment it matters: the bank
+       flash when it lands, and the cash-out card when you take it. */
 
     /* One bar, two ways of filling it: standing in the square, or holding Q.
        It only exists while one of them is actually happening — a permanent
@@ -435,10 +436,20 @@
     /* Bots are labelled. They are here to keep an empty arena from feeling
        empty, not to be mistaken for people, and a player is entitled to know
        which of the things shooting at them is a person. */
-    $('board').innerHTML = (s.board || []).map(function (b) {
-      return '<li' + (b.me ? ' class="me"' : '') + '><b>' + esc(b.n) +
-             (b.bot ? '<i class="bottag">bot</i>' : '') + '</b>' +
-             '<span class="num">' + b.b + '</span></li>';
+    /* THE SNAKE GAME'S BOARD, down to the class names, so one set of styles
+       describes both and they cannot drift apart.
+
+       Top three on a phone. The old board was hidden outright on mobile and the
+       carrying/banked pair had the space; they have swapped, and a board is only
+       worth the corner it costs if it stays small enough to glance at. */
+    var rows = s.board || [];
+    if (isTouch) rows = rows.slice(0, 3);   // isTouch IS (pointer: coarse), same as the CSS
+    $('board').innerHTML = rows.map(function (b, i) {
+      return '<li' + (b.me ? ' class="me"' : '') + '>' +
+             '<span class="lb-rank">#' + (i + 1) + '</span>' +
+             '<span class="lb-name">' + esc(b.n) +
+               (b.bot ? '<i class="bottag">bot</i>' : '') + '</span>' +
+             '<span class="lb-score">' + b.b + '</span></li>';
     }).join('');
   }
 
@@ -950,14 +961,17 @@
     if (window.parent && window.parent !== window) window.parent.postMessage('game:done', '*');
     else window.location.href = '/';
   }
-  $('exitBtn').addEventListener('click', leave);
+  /* The Sound and Leave buttons are gone from the HUD. Both were permanent
+     furniture in the corner of a game you are trying to see out of, and Leave
+     also sat one mis-tap from ending a run with coins on the floor.
+
+     Neither behaviour is gone, only the buttons: M still toggles sound, and
+     both the death card and the cash-out card still carry Back to the lobby. */
   function toggleMute() {
     if (!SND) return;
     var m = SND.setMuted(!SND.muted);
-    $('muteBtn').textContent = m ? 'Sound off' : 'Sound on';
     try { localStorage.setItem('shooter:muted', m ? '1' : '0'); } catch (_) {}
   }
-  $('muteBtn').addEventListener('click', toggleMute);
   $('againBtn').addEventListener('click', function () {
     $('dead').hidden = true;
     socket.emit('sh:respawn');
