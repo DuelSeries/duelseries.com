@@ -555,12 +555,38 @@ class GameRoom {
       if (killerId !== null) { hits.push(snake, killerId); }
     }
 
-    /* Pass two: apply them. Two snakes that hit each other on the same tick both
-       appear here, so both go. The `alive` guard is for a snake killed earlier
-       in this same loop by a different route, not for one killed by this pass. */
+    /* Pass two: apply them.
+
+       A HEAD-ON IS WON BY THE BIGGER SNAKE. When two snakes hit each other on
+       the same tick they both appear in `hits`, each naming the other — that is
+       what a head-on is. The bigger one lives and the smaller one dies.
+
+       This used to take both, which was the fix for the real bug: the outcome
+       had been decided by Map insertion order, meaning whoever joined the room
+       first. Symmetric was the honest answer while there was no rule. There is
+       a rule now, and size is a better one than a coin toss: it is a thing you
+       can see coming and play around, so driving head-first at somebody bigger
+       is a decision rather than a dice roll.
+
+       Dead level, both go. There is no fair way to separate two identical
+       snakes, and inventing one would put us straight back to an arbitrary
+       tiebreak deciding matches. */
     for (let i = 0; i < hits.length; i += 2) {
       const victim = hits[i];
-      if (victim.alive) this.killSnake(victim, hits[i + 1]);
+      if (!victim.alive) continue;        // already gone, by some other route
+
+      const killerId = hits[i + 1];
+      const killer = this.snakes.get(killerId);
+      /* Mutual? The other snake is in this same list naming THIS one. */
+      let mutual = false;
+      if (killer) {
+        for (let j = 0; j < hits.length; j += 2) {
+          if (hits[j] === killer && hits[j + 1] === victim.id) { mutual = true; break; }
+        }
+      }
+      if (mutual && (victim.length || 0) > (killer.length || 0)) continue;   // the bigger one lives
+
+      this.killSnake(victim, killerId);
     }
 
     /* After the sim and all the killing, so the living count is THIS tick's
@@ -835,9 +861,49 @@ class GameRoom {
       const snakes = this._cellSnakes || (this._cellSnakes = []);
       const food   = this._cellFood   || (this._cellFood   = []);
       snakes.length = 0; food.length = 0;
+      /* Distance to the cell centre, kept alongside so the list can be trimmed
+         to the nearest few without a second pass over the bounds. */
+      const near = this._cellNear || (this._cellNear = []);
+      near.length = 0;
       for (let i = 0; i < snakesSer.length; i++) {
         const b = bounds[i];
-        if (Math.abs(b.cx - cx) <= halfW + b.br && Math.abs(b.cy - cy) <= halfH + b.br) snakes.push(snakesSer[i]);
+        if (Math.abs(b.cx - cx) <= halfW + b.br && Math.abs(b.cy - cy) <= halfH + b.br) {
+          const dx = b.cx - cx, dy = b.cy - cy;
+          near.push(dx * dx + dy * dy, i);
+        }
+      }
+
+      /* THE NEAREST FEW, NOT EVERYONE IN THE BOX.
+
+         A cell's region is the cell plus a whole view radius, which on a world
+         only twelve thousand units across is most of the map — so every snake
+         in the room qualified for every payload. That was fine at twenty. The
+         bot population now runs up to a hundred, and measured on the real room
+         with one viewer it took a snapshot from 6.3KB to 29.7KB, and 185KB/s
+         per player to 869KB/s. That is the lag: not the simulation, which is
+         3% of a tick, but the wire — and this codebase has already been bitten
+         once by snapshots backing up on phone connections.
+
+         Bodies are the expensive part and the only part that needs range: a
+         snake far enough away to be trimmed here is a snake you cannot see. The
+         minimap is unaffected, because `mm` carries every head in the room
+         separately and is tiny — so the room still looks as full as it is.
+
+         Sorted by distance so the ones kept are the ones nearest the people in
+         that cell, and the cut is a constant rather than a guess per room. */
+      const CAP = C.SNAKES_PER_SNAPSHOT || 28;
+      if (near.length / 2 > CAP) {
+        /* Pair-wise sort on the flat [d2, i, d2, i, …] array. Flat and reused
+           because this runs per cell, 30 times a second, and a list of little
+           objects here is exactly the steady allocation the reuse above exists
+           to avoid. */
+        const pairs = this._cellPairs || (this._cellPairs = []);
+        pairs.length = 0;
+        for (let k = 0; k < near.length; k += 2) pairs.push([near[k], near[k + 1]]);
+        pairs.sort((a, b) => a[0] - b[0]);
+        for (let k = 0; k < CAP; k++) snakes.push(snakesSer[pairs[k][1]]);
+      } else {
+        for (let k = 1; k < near.length; k += 2) snakes.push(snakesSer[near[k]]);
       }
       for (const f of allFood) {
         if (Math.abs(f.x - cx) <= halfW && Math.abs(f.y - cy) <= halfH) food.push(f);

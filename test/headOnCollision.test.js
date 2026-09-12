@@ -5,25 +5,29 @@
    running into me, but on their screen it is the other way around, and I end up
    dying." That reads like a prediction artifact and is not one.
 
-   The collision pass walked every snake in turn, and killed a snake the moment
-   its head was found inside another's body. In a head-on both heads are inside
-   each other — segment 0 IS the head — so the FIRST snake reached died, and the
-   second was then spared because its killer was already dead and dead snakes
-   are skipped. `snakes` is a Map keyed by socket id, so "first reached" means
-   "joined the room first". Measured, with two identical snakes and insertion
-   order as the only variable:
+   The collision pass walked every snake in turn and killed one the moment its
+   head was found inside another's body. In a head-on both heads are inside each
+   other — segment 0 IS the head — so the FIRST snake reached died, and the
+   second was spared because its killer was already dead and dead snakes are
+   skipped. `snakes` is a Map keyed by socket id, so "first reached" meant
+   "joined the room first". Measured, insertion order the only variable:
 
        inserted first   outcome
        A                A died, B survived
        B                B died, A survived
 
-   Completely consistent, and invisible from either screen: each player sees the
-   other run into them, and one of them is simply told they lost.
+   Completely consistent, and invisible from either screen: each player watches
+   the other run into them and one is simply told they lost.
 
-   The fix is to decide every collision against the state at the START of the
-   tick and apply the deaths together, so a genuine head-on kills both. Running
-   into somebody's SIDE is unchanged and still one-sided: that is your fault and
-   only you die. */
+   Collisions are decided against the state at the START of the tick now and
+   applied together, which is what makes the outcome independent of order.
+
+   THE RULE ON TOP OF THAT IS SIZE: the bigger snake wins a head-on. Symmetric
+   (both die) was the honest answer while there was no rule at all; size is a
+   better one than a coin toss, because it is a thing you can see coming and
+   play around. Dead level, both still go — there is no fair way to separate two
+   identical snakes, and inventing one lands straight back on an arbitrary
+   tiebreak deciding matches. */
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -54,54 +58,78 @@ function lay(room, id, x, y, angle) {
 }
 
 /* Drive two snakes nose to nose. `firstId` decides only who goes into the Map
-   first, which is the variable under test. */
-function headOn(firstId, gap) {
+   first; `grow` optionally makes one of them bigger. */
+function headOn(firstId, opts) {
+  const o = opts || {};
   const room = makeRoom();
-  const A = lay(room, 'A', -(gap / 2), 0, 0);          // facing +x
-  const B = lay(room, 'B',  (gap / 2), 0, Math.PI);    // facing -x
+  const A = lay(room, 'A', -30, 0, 0);            // facing +x
+  const B = lay(room, 'B', 30, 0, Math.PI);       // facing -x
+  if (o.growA) A._parts = (A._parts || A.length) + o.growA;
+  if (o.growB) B._parts = (B._parts || B.length) + o.growB;
   if (firstId === 'A') { room.snakes.set('A', A); room.snakes.set('B', B); }
   else                 { room.snakes.set('B', B); room.snakes.set('A', A); }
   for (let t = 0; t < 200 && (A.alive || B.alive); t++) {
     room.tick();
     if (!A.alive || !B.alive) break;
   }
-  return { a: A.alive, b: B.alive };
+  return { a: A.alive, b: B.alive, lenA: A.length, lenB: B.length };
 }
 
-test('a head-on kills both snakes, whoever joined first', () => {
+test('two snakes of the SAME size both die in a head-on', () => {
   for (const first of ['A', 'B']) {
-    const r = headOn(first, 60);
-    assert.equal(r.a, false, `A died in a head-on (inserted first: ${first})`);
-    assert.equal(r.b, false, `B died in a head-on (inserted first: ${first})`);
+    const r = headOn(first);
+    assert.equal(r.lenA, r.lenB, 'the two really are the same size');
+    assert.equal(r.a, false, 'A died (inserted first: ' + first + ')');
+    assert.equal(r.b, false, 'B died (inserted first: ' + first + ')');
   }
 });
 
-test('and the outcome does not depend on join order at all', () => {
-  /* The regression this exists for. Before the fix these two rows disagreed,
-     and which player was punished was decided by nothing but who had walked
-     into the lobby first. */
-  const first = headOn('A', 60);
-  const second = headOn('B', 60);
-  assert.deepEqual(first, second,
-    'the same collision has the same outcome regardless of insertion order');
+test('the BIGGER snake wins a head-on, and the smaller one dies', () => {
+  for (const first of ['A', 'B']) {
+    const r = headOn(first, { growA: 40 });
+    assert.ok(r.lenA > r.lenB, 'A really is bigger (' + r.lenA + ' vs ' + r.lenB + ')');
+    assert.equal(r.a, true, 'the bigger snake lived (inserted first: ' + first + ')');
+    assert.equal(r.b, false, 'the smaller one did not');
+  }
+});
+
+test('and it is size that decides it, not which one is called A', () => {
+  /* The mirror image. If the rule were quietly reading anything but size, one
+     of these two rows would disagree with the other. */
+  const aBigger = headOn('A', { growA: 40 });
+  const bBigger = headOn('A', { growB: 40 });
+  assert.deepEqual([aBigger.a, aBigger.b], [true, false], 'A bigger: A lives');
+  assert.deepEqual([bBigger.a, bBigger.b], [false, true], 'B bigger: B lives');
+});
+
+test('the outcome does not depend on join order at all', () => {
+  /* The regression this file exists for. Before the fix these disagreed, and
+     which player was punished was decided by nothing but who had walked into
+     the lobby first. Checked for both the level case and the lopsided one. */
+  assert.deepEqual(headOn('A'), headOn('B'),
+    'a level head-on has the same outcome regardless of insertion order');
+
+  const x = headOn('A', { growA: 40 }), y = headOn('B', { growA: 40 });
+  assert.deepEqual([x.a, x.b], [y.a, y.b],
+    'and so does a lopsided one');
 });
 
 test('running into somebody s side is still your fault alone', () => {
-  /* The one-sided case has to STAY one-sided. If a head-on killing both were
-     achieved by making every collision mutual, then clipping a stationary
-     snake's tail would take them with you, which is worse than the bug. */
+  /* The one-sided case has to STAY one-sided, and size must not leak into it:
+     clipping a BIGGER snake's tail still kills only you. If head-on-by-size
+     were implemented by comparing sizes everywhere, this would invert. */
   const room = makeRoom();
-  // Victim drives straight up; the other sits across its path, pointing away,
-  // so only the first snake's head reaches the other's body.
   const runner = lay(room, 'runner', 0, -60, Math.PI / 2);       // heading +y
   const bystander = lay(room, 'bystander', 0, 0, 0);             // lying along +x
+  runner._parts = runner.length + 60;                            // and the runner is HUGE
   room.snakes.set('runner', runner);
   room.snakes.set('bystander', bystander);
 
   for (let t = 0; t < 200 && runner.alive; t++) room.tick();
 
-  assert.equal(runner.alive, false, 'the one who drove into the body died');
-  assert.equal(bystander.alive, true, 'the one who was driven into did not');
+  assert.ok(runner.length > bystander.length, 'the runner is the bigger snake');
+  assert.equal(runner.alive, false, 'and still died, because it drove into a body');
+  assert.equal(bystander.alive, true, 'the one that was driven into did not');
 });
 
 test('a snake never dies on its own body', () => {

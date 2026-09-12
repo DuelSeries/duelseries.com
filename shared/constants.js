@@ -254,7 +254,42 @@ const CONSTANTS = {
      simulates and ships. Raising BOT_MAX is not free; it is the one number here
      that can put a room near the measured per-lobby ceiling. */
   BOT_MIN: 22,
-  BOT_MAX: 101,
+  /* MEASURED, not chosen. Swept on the real room with one viewer, after the
+     per-snapshot snake cap below:
+
+       bots | tick    | KB/s per player
+         20 | 1.51ms  | 212
+         40 | 2.49ms  | 301
+         55 | 2.87ms  | 336     <- the knee
+         70 | 3.93ms  | 623
+        101 | 4.59ms  | 757
+
+     The step between 55 and 70 is where per-player bandwidth nearly doubles.
+     101 also spent a quarter of the tick budget on bots alone before a single
+     real player had joined, and a late tick is exactly what is felt as lag.
+
+     55 still swings two and a half times across a day, which is the point of
+     having a range at all — nobody mistakes 22-at-dawn / 55-at-nine for a
+     constant. Raise it knowing what it costs; the table above is the price. */
+  BOT_MAX: 55,
+  /* HOW MANY SNAKE BODIES ANY ONE PLAYER IS SENT PER SNAPSHOT.
+
+     The per-cell region is the cell plus a full view radius, which on a world
+     twelve thousand units across is most of the map — so before this, every
+     snake in the room went into every payload. Harmless at twenty. Measured at
+     a hundred, on the real room with one viewer:
+
+       20 bots   6.3KB/snapshot   185 KB/s per player   1.6ms/tick
+      101 bots  29.7KB/snapshot   869 KB/s per player   6.7ms/tick
+
+     Bodies are the expensive part and the only part that needs range: a snake
+     far enough away to be cut is one you cannot see. The minimap is unaffected
+     — `mm` carries every head in the room separately and is tiny — so a busy
+     room still looks busy.
+
+     Raise it if snakes ever pop in at the edge of a crowded screen; that is the
+     one symptom this can cause. */
+  SNAKES_PER_SNAPSHOT: 28,
 };
 
 if (typeof module !== 'undefined') module.exports = CONSTANTS;
