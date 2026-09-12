@@ -275,17 +275,90 @@ body {
   margin: 8px 0 18px; font-size: 27px; font-weight: 700; color: #ffd75e;
   overflow-wrap: anywhere;
 }
-.pod-list { list-style: none; margin: 0 0 20px; padding: 0; text-align: left; }
-.pod-list li {
-  display: flex; align-items: baseline; gap: 10px; padding: 8px 10px;
-  border-radius: 10px; background: #171d29; margin-bottom: 6px;
-  font-size: 14px; color: #c9d3e4;
+/* An actual podium: second, first, third, standing on plinths of the right
+   heights. A ranked list says the same thing, but this is the one screen a
+   whole room looks at together and a list does not read as winning. Columns are
+   assigned rather than ordered by source, so the winner is in the middle even
+   when a match finishes with only two people in it. */
+.pod-prize {
+  margin: -10px 0 16px; font-size: 13px; color: #8ed081;
+  font-variant-numeric: tabular-nums;
 }
-.pod-list li .pl { width: 22px; font-weight: 700; color: #7d8aa3; }
-.pod-list li .pn { flex: 1; overflow-wrap: anywhere; }
-.pod-list li .ps { font-variant-numeric: tabular-nums; color: #9fb0c9; }
-.pod-list li.first { background: rgba(255,215,94,0.12); }
-.pod-list li.first .pl, .pod-list li.first .pn { color: #ffd75e; }
+.pod-prize[hidden] { display: none; }
+.pod-prize .pp-state { color: #7d8aa3; }
+
+.pod-stand {
+  list-style: none; display: grid; grid-template-columns: repeat(3, 1fr);
+  align-items: end; gap: 8px; margin: 0 0 18px; padding: 0;
+}
+.pod-stand li { display: flex; flex-direction: column; align-items: center; min-width: 0; }
+/* Row as well as column. Without the row, auto-placement puts first (which
+   asks for column 2 and comes first in the source) on row one, and then second
+   cannot go backwards to column 1 on the same row — so it starts a second row
+   and the podium comes out as a staircase instead of three plinths on a floor. */
+.pod-stand .p1 { grid-column: 2; grid-row: 1; }
+.pod-stand .p2 { grid-column: 1; grid-row: 1; }
+.pod-stand .p3 { grid-column: 3; grid-row: 1; }
+.pod-stand .pn {
+  font-size: 13px; color: #c9d3e4; max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pod-stand .ps {
+  font-size: 11px; color: #7d8aa3; font-variant-numeric: tabular-nums;
+  margin: 1px 0 6px;
+}
+.pod-stand .plinth {
+  width: 100%; border-radius: 9px 9px 0 0; background: #171d29;
+  border: 1px solid #263042; border-bottom: none;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 17px; color: #7d8aa3;
+}
+.pod-stand .p1 .plinth {
+  height: 76px; background: rgba(255,215,94,0.13);
+  border-color: #6b5a20; color: #ffd75e;
+}
+.pod-stand .p2 .plinth { height: 54px; }
+.pod-stand .p3 .plinth { height: 40px; }
+.pod-stand .p1 .pn { color: #ffd75e; font-weight: 700; }
+
+/* The arena travelling back out to full size, on the card that is already up
+   rather than on a second one stacked behind it. Real progress: it is the
+   circle's actual radius, so it cannot finish before the room will let anybody
+   in. Play stays disabled until it does. */
+.pod-reopen {
+  height: 4px; border-radius: 99px; background: rgba(255,255,255,0.1);
+  overflow: hidden; margin: 0 0 16px;
+}
+.pod-reopen[hidden] { display: none; }
+.pod-reopen i {
+  display: block; height: 100%; width: 0%; border-radius: 99px;
+  background: #4b9dff; transition: width 0.2s linear;
+}
+
+/* ── the winner's five seconds ───────────────────────────────────────────────
+   Along the bottom edge, deliberately. The arena is frozen exactly where the
+   match ended, and that frame is the reward; a modal over it would cover the
+   only thing worth seeing. Pointer-events off so it cannot eat a click meant
+   for the arena behind it. */
+#brcash {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 58;
+  padding: 16px 16px calc(18px + env(safe-area-inset-bottom, 0px));
+  background: linear-gradient(to top, rgba(4,6,10,0.9), rgba(4,6,10,0));
+  text-align: center; pointer-events: none;
+}
+#brcash[hidden] { display: none; }
+.bc-track {
+  width: min(420px, 84vw); height: 8px; margin: 0 auto; border-radius: 99px;
+  background: rgba(255,255,255,0.16); overflow: hidden;
+}
+.bc-track i {
+  display: block; height: 100%; width: 0%; border-radius: 99px;
+  background: linear-gradient(90deg, #f0a830, #ffd75e);
+}
+.bc-label {
+  margin: 10px 0 0; font-size: 13px; letter-spacing: 0.04em; color: #e7eefc;
+  text-shadow: 0 2px 8px rgba(0,0,0,0.85);
+}
 .pod-btns { display: flex; gap: 8px; }
 /* Its own colours, not the cash-out tokens. Those are declared ON
    #death-screen, so referencing them from here resolved to nothing and the

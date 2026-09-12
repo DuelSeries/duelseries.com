@@ -160,17 +160,38 @@
   </div>
 
   <!-- Spectate HUD -->
+  <!-- The winner's five seconds, at the BOTTOM of the screen rather than over
+       it. The arena is frozen exactly where the match ended and that picture is
+       worth looking at, so the payout reports itself along the bottom edge
+       instead of covering the thing it is about. The bar is the real countdown
+       the server is running, not a decorative one. -->
+  <div id="brcash" hidden>
+    <div class="bc-track"><i id="bc-fill"></i></div>
+    <p class="bc-label" id="bc-label">Cashing you out</p>
+  </div>
+
   <!-- The podium. Goes up over the arena when a battle royale ends, because
        the end of a match is the only moment the whole room is looking at the
        same thing and it deserves more than a line in the HUD. -->
   <div id="podium" hidden>
     <div class="pod-card">
-      <p class="pod-eyebrow">Match over</p>
+      <p class="pod-eyebrow" id="pod-eyebrow">Match over</p>
       <h2 class="pod-winner" id="pod-winner">—</h2>
-      <ol class="pod-list" id="pod-list"></ol>
+      <!-- The prize, on the card that is already up. The normal cash-out
+           receipt would otherwise open UNDERNEATH this one, which is a modal
+           nobody can see and a stale receipt waiting to be revealed the moment
+           the podium comes down. -->
+      <p class="pod-prize" id="pod-prize" hidden></p>
+      <!-- Three plinths, second-first-third, built in JS because a match can
+           finish with fewer than three people in it. -->
+      <ol class="pod-stand" id="pod-stand"></ol>
+      <!-- The arena reopening, on the card that is already up. The loader used
+           to be a second card stacked behind this one, which is two modals for
+           one moment. -->
+      <div class="pod-reopen" id="pod-reopen" hidden><i id="pod-reopen-fill"></i></div>
       <div class="pod-btns">
         <button class="co-btn co-go" id="pod-again">Play again</button>
-        <button class="co-btn co-ghost" id="pod-lobby">Lobby</button>
+        <button class="co-btn co-ghost" id="pod-lobby">Return to lobby</button>
       </div>
       <p class="pod-next" id="pod-next"></p>
     </div>

@@ -1123,6 +1123,31 @@ function brRunCountdown(msLeft) {
   brCountTimer = setInterval(paint, 120);
 }
 
+function escapeHtml(v) {
+  return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/* THE WINNING PRIZE, and who it belongs to. Module scope on purpose: brApply
+   and the cash-out receipt handler both live outside the `isBattleRoyale`
+   block below, so these cannot be declared inside it.
+
+   Held because the two halves arrive in either order. The server pays the
+   winner and flips the room to reopening on the same tick, and which socket
+   message the browser gets to first is not ours to decide. */
+let _brWinnerId = null, _brPrize = null;
+
+/* The prize line on the podium, and the only place a battle royale payout is
+   reported. Called when the podium is built AND when the payout settles, for
+   that same reason. */
+function paintPrize() {
+  const el = document.getElementById('pod-prize');
+  if (!el) return;
+  if (!_brPrize) { el.hidden = true; return; }
+  el.innerHTML = escapeHtml(_brPrize.text) + (_brPrize.state
+    ? ' <span class="pp-state">' + escapeHtml(_brPrize.state) + '</span>' : '');
+  el.hidden = false;
+}
+
 function brApply(s) {
   if (!brHud || !isBattleRoyale) return;
   /* Counting down IS the match starting, so cash out closes here rather than
@@ -1148,6 +1173,13 @@ function brApply(s) {
   _brNextStartAt = (s.nextStartMs > 0) ? Date.now() + s.nextStartMs : 0;
   _brAlive = s.alive || 0;
   paintDeathWhen(s.state);
+  /* Who won, kept so the cash-out receipt can tell a battle royale prize from
+     an ordinary Q cash-out. Cleared while a match is live so a stale winner
+     from the last one cannot claim the next receipt. */
+  _brWinnerId = (s.state === 'over' || s.state === 'reopening')
+    ? ((s.winner && s.winner.id) || null) : null;
+
+  cashoutApply(s);
   podiumApply(s);
   brNextApply(s);
   if (s.state === 'countdown' && !brCountTimer) brRunCountdown(s.countdownMs || 0);
@@ -1207,32 +1239,126 @@ function brApply(s) {
 if (isBattleRoyale) {
   socket.on('br:state', brApply);
 
+/* ── the winner's five seconds ──────────────────────────────────────────────
+   The last opponent is gone, the wall has stopped dead, and the arena is held
+   exactly where the match ended. A bar fills along the BOTTOM of the screen
+   while the payout runs, because that frozen frame is the reward and a modal
+   over it would cover the only thing worth looking at.
+
+   The bar is the server's real countdown. It arrives as cashoutMs plus the
+   total those milliseconds are counted from, and is then run locally: br:state
+   lands every couple of seconds, so a bar painted only when one arrives would
+   move in two or three jumps and read as broken. cashoutTotalMs exists for
+   exactly that reason. The client must not be the place that decides how long
+   a payout takes. */
+let _cashEnd = 0, _cashTotal = 0, _cashTimer = 0;
+
+function cashoutApply(s) {
+  const el = document.getElementById('brcash');
+  if (!el || !isBattleRoyale) return;
+
+  const on = s.state === 'over' && (s.cashoutMs || 0) > 0;
+  if (!on) {
+    if (_cashTimer) { clearInterval(_cashTimer); _cashTimer = 0; }
+    el.hidden = true;
+    return;
+  }
+  _cashTotal = s.cashoutTotalMs || 5000;
+  _cashEnd = Date.now() + s.cashoutMs;
+
+  /* WHAT IT IS HONEST TO SAY HERE.
+
+     'Cashing you out' is a sentence about money, and it is only true for the
+     person the money is going to. A solo run pays NOTHING — the server refuses
+     to hand somebody a prize for outlasting nobody — so saying it there would
+     promise a payout that is never coming, to the one player who tests this
+     mode the most. Three different truths, three different labels. */
+  const label = document.getElementById('bc-label');
+  if (label) {
+    const iWon = !!(s.winner && s.winner.id && s.winner.id === myId);
+    label.textContent = s.soloRun ? 'Match over'
+      : iWon ? 'Cashing you out'
+      : 'Cashing out ' + String((s.winner && s.winner.name) || 'the winner').slice(0, 18);
+  }
+  el.hidden = false;
+  if (!_cashTimer) _cashTimer = setInterval(paintCashout, 60);
+  paintCashout();
+}
+
+function paintCashout() {
+  const fill = document.getElementById('bc-fill');
+  const left = Math.max(0, _cashEnd - Date.now());
+  const pct = _cashTotal ? 1 - (left / _cashTotal) : 1;
+  if (fill) fill.style.width = (Math.max(0, Math.min(1, pct)) * 100).toFixed(1) + '%';
+  if (left <= 0 && _cashTimer) { clearInterval(_cashTimer); _cashTimer = 0; }
+}
+
 /* ── the podium ────────────────────────────────────────────────────────────
-   Up when a battle royale ends, down when the next one is waiting. It carries
-   its own Play again because the death card behind it is the wrong place to
-   put it: you may well have died four minutes before the match finished. */
+   Up once the cash-out bar has finished, down when the player is done with it.
+   It carries its own Play again because the death card behind it is the wrong
+   place to put it: you may well have died four minutes before the match
+   finished.
+
+   It stays up THROUGH the arena reopening rather than handing over to a second
+   card. The reopening progress is a line inside this one, and Play is disabled
+   until the circle is actually back at full size — nobody can join a half-open
+   arena and the server refuses it, so an enabled button there is a button that
+   bounces. _podiumDone latches a dismissal, because br:state keeps arriving and
+   a card that comes back after you close it is a card you cannot close. */
+let _podiumUp = false, _podiumDone = false;
+
 function podiumApply(s) {
   const el = document.getElementById('podium');
   if (!el || !isBattleRoyale) return;
-  const show = s.state === 'over' && !!(s.podium && s.podium.length);
+
+  /* A new match clears the latch, so closing one podium does not suppress the
+     next one. Same place _brSawReopen is reset, for the same reason. */
+  if (s.state === 'running' || s.state === 'countdown') { _podiumDone = false; _brPrize = null; }
+
+  /* Not during the cash-out. Those five seconds belong to the bar at the
+     bottom and to the frozen arena behind it. */
+  const post = s.state === 'reopening' || (s.state === 'waiting' && _brSawReopen);
+  const show = post && !_podiumDone && !!(s.podium && s.podium.length);
+  _podiumUp = show;
   if (!show) { el.hidden = true; return; }
-  if (!el.hidden) return;                 // already up; do not rebuild under them
 
-  document.getElementById('pod-winner').textContent =
-    s.winner ? s.winner.name : 'Nobody survived';
-  document.getElementById('pod-list').innerHTML = s.podium.map(p =>
-    '<li' + (p.place === 1 ? ' class="first"' : '') + '>' +
-      '<span class="pl">' + p.place + '</span>' +
-      '<span class="pn">' + escapeHtml(String(p.name || 'Player').slice(0, 18)) + '</span>' +
-      '<span class="ps">' + (p.score || 0) + '</span>' +
-    '</li>').join('');
-  document.getElementById('pod-next').textContent =
-    'The next match opens in this lobby. Play again to wait in it.';
+  if (el.hidden) {                        // build once; never rebuild under them
+    const iWon = !!(s.winner && s.winner.id && s.winner.id === myId);
+    document.getElementById('pod-eyebrow').textContent = iWon ? 'Victory' : 'Match over';
+    document.getElementById('pod-winner').textContent = iWon
+      ? 'Congratulations, you won!'
+      : s.winner ? String(s.winner.name).slice(0, 22) + ' wins'
+      : 'Nobody survived';
+    paintPrize();
+
+    /* Place decides the column, so the winner stands in the middle whether
+       three people finished or two. */
+    document.getElementById('pod-stand').innerHTML = s.podium.slice(0, 3).map(p =>
+      '<li class="p' + p.place + '">' +
+        '<span class="pn">' + escapeHtml(String(p.name || 'Player').slice(0, 14)) + '</span>' +
+        '<span class="ps">' + (p.score || 0) + '</span>' +
+        '<span class="plinth">' + p.place + '</span>' +
+      '</li>').join('');
+  }
+
+  /* Every update, not just the first: the arena is still travelling. */
+  const open = s.state === 'waiting';
+  const bar = document.getElementById('pod-reopen');
+  const fill = document.getElementById('pod-reopen-fill');
+  if (bar) bar.hidden = open;
+  if (fill) fill.style.width =
+    (Math.max(0, Math.min(1, s.reopenPct || 0)) * 100).toFixed(1) + '%';
+
+  const again = document.getElementById('pod-again');
+  if (again) {
+    again.disabled = !open;
+    again.textContent = open ? 'Play again' : 'Reopening arena';
+  }
+  document.getElementById('pod-next').textContent = !open
+    ? 'The arena is opening back up.'
+    : s.soloRun ? 'Solo run, so no prize. The next match opens in this lobby.'
+    : 'The next match opens in this lobby.';
   el.hidden = false;
-}
-
-function escapeHtml(v) {
-  return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 /* ── between matches ────────────────────────────────────────────────────────
@@ -1278,7 +1404,10 @@ function brNextApply(s) {
      lobby already and the arena is opening around them. This screen is for
      the people waiting to get back in. */
   const waitingToPlay = isDead || cashedOut || spectateOnly;
-  const show = reopening || (openAgain && waitingToPlay);
+  /* The podium absorbed this screen's job: it stays up through the reopening
+     with the progress line and the Play button inside it. This one is now only
+     for the case where there is no podium to show. */
+  const show = !_podiumUp && (reopening || (openAgain && waitingToPlay));
 
   /* The spectate bar sits under this at a lower z-index, and it carries its own
      Play again and Lobby. Two sets of the same two buttons, one of them behind
@@ -1286,7 +1415,7 @@ function brNextApply(s) {
      up. Visibility rather than the `active` class, so spectating is exactly
      where it was when the panel comes down. */
   const bar = document.getElementById('spectate-bar');
-  if (bar) bar.style.visibility = show ? 'hidden' : '';
+  if (bar) bar.style.visibility = (show || _podiumUp) ? 'hidden' : '';
 
   if (!show) { el.hidden = true; return; }
 
@@ -1325,12 +1454,17 @@ document.getElementById('brn-lobby').addEventListener('click', () => {
   goToLobby();
 });
 
+/* Both of these latch. The podium now lives across three server states, and
+   br:peek lands every two seconds, so without the latch the card you just
+   closed comes straight back on the next poll. */
 document.getElementById('pod-again').addEventListener('click', () => {
   document.getElementById('podium').hidden = true;
+  _podiumUp = false; _podiumDone = true; _brSawReopen = false;
   doRespawn();
 });
 document.getElementById('pod-lobby').addEventListener('click', () => {
   document.getElementById('podium').hidden = true;
+  _podiumUp = false; _podiumDone = true; _brSawReopen = false;
   goToLobby();
 });
   socket.on('br:locked', (s) => {
@@ -1572,6 +1706,29 @@ function setSettleState(state, text, sig) {
 socket.on('cashout:result', ({ newBalance, earnedSol, gross, cut, score, length, toWallet }) => {
   if (window.phEvent) window.phEvent('cashed_out', { game: 'snake', amount: earnedSol, score: score, length: length });
   playCashoutSound();
+
+  /* A BATTLE ROYALE WIN REPORTS ITSELF ON THE PODIUM.
+
+     The server cashes the winner out automatically five seconds after the match
+     ends, so this receipt arrives at exactly the moment the podium goes up —
+     and it would open UNDERNEATH it, at a lower z-index. That is a modal nobody
+     can see, sitting there waiting to be revealed the instant the podium comes
+     down: tap Play again and you are looking at the last match's receipt over a
+     fresh game. So the number moves onto the card that is actually on screen.
+
+     Keyed on the winner's id rather than on "we are in a battle royale",
+     because a player who cashes out with Q mid-match has earned an ordinary
+     receipt and should get one. */
+  if (isBattleRoyale && _brWinnerId && _brWinnerId === myId) {
+    const won = Number(earnedSol) || 0;
+    _brPrize = won > 0
+      ? { text: 'You won ' + fmtMoney(won), state: toWallet ? 'sending to your wallet' : '' }
+      : { text: 'No prize', state: 'nothing was staked' };
+    paintPrize();
+    if (newBalance !== null) sessionStorage.setItem('lastBalance', newBalance);
+    return;
+  }
+
   // earnedSol holds the earned amount in the active unit: USDC after cutover, SOL before.
   const net  = Number(earnedSol) || 0;
   const paid = net > 0;
@@ -1609,9 +1766,14 @@ socket.on('cashout:result', ({ newBalance, earnedSol, gross, cut, score, length,
 // `sol` is the field name from before the USDC cutover; it carries whichever unit
 // is active, which is why it is formatted rather than labelled SOL.
 socket.on('cashout:paid', ({ sol, sig }) => {
+  /* When the podium owns the payout, the settle state has to land there too.
+     A prize that says 'sending to your wallet' for ever is a prize that looks
+     stuck. */
+  if (_brPrize) { _brPrize.state = 'sent'; paintPrize(); return; }
   setSettleState('done', `${fmtMoney(Number(sol) || 0)} sent`, sig);
 });
 socket.on('cashout:error', ({ message }) => {
+  if (_brPrize) { _brPrize.state = message || 'payout failed, contact support'; paintPrize(); return; }
   setSettleState('fail', message || 'Payout failed, contact support');
 });
 

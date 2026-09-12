@@ -657,6 +657,11 @@ class BattleRoyaleRoom extends GameRoom {
          rather than guess at it. */
       cashoutMs: this.state === 'over'
         ? Math.max(0, (this.cashoutAt || 0) - Date.now()) : 0,
+      /* How long those five seconds ARE, so the client can fill a bar instead
+         of guessing at a duration. The client polls this every two seconds; a
+         bar that only moves when a poll lands is a bar that stutters, so it
+         needs the total to run the fill locally between them. */
+      cashoutTotalMs: BR.CASHOUT_DELAY_MS,
       /* HOW LONG UNTIL THE NEXT ONE STARTS ITSELF.
 
          A player who dies during a match is refused Play again, correctly — it
@@ -672,7 +677,11 @@ class BattleRoyaleRoom extends GameRoom {
          that can finish before the room is ready. */
       reopenPct: this.state === 'reopening'
         ? Math.max(0, Math.min(1, this.worldRadius / BR.START_RADIUS)) : 0,
-      winner: this.winner ? { name: this.winner.name } : null,
+      /* The id as well as the name, so a client can tell 'you won' from
+         'somebody won'. Two players can share a name; nobody shares a socket
+         id, and the id is already on every snapshot. The WALLET stays out of
+         this, which is the part that was ever private. */
+      winner: this.winner ? { name: this.winner.name, id: this.winner.id } : null,
       /* Names and scores only. A wallet address is nobody else's business and
          the podium is the most public thing this room produces. */
       podium: this.podium || null,
