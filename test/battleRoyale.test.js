@@ -668,3 +668,28 @@ test('the start-time countdown does not send the start minute a day away', () =>
   const aMinuteBefore = instantAt(C.BR_AUTOSTART_HOUR, C.BR_AUTOSTART_MIN - 1);
   assert.equal(msUntilNextStart(aMinuteBefore), 60000, 'a minute before, one minute');
 });
+
+test('spectating does not hand over every pellet in the arena', () => {
+  /* The spectate join used to carry foodManager.getAll(). That was 3,600
+     pellets when food was a flat count; it is a DENSITY now, so a full-size
+     arena holds about 16,000 — roughly 600KB in one message, with the client
+     drawing all of them until the first snapshot replaces them a thirtieth of a
+     second later. A spike on the exact frame somebody pressed Spectate.
+
+     This reads the server source rather than booting a socket, because what is
+     being pinned is that the payload does not reach for the whole list again. */
+  const fs = require('fs');
+  const path = require('path');
+  const src = fs.readFileSync(
+    path.join(__dirname, '..', 'server', 'index.js'), 'utf8');
+
+  const at = src.indexOf("socket.on('spectate:join'");
+  assert.ok(at > 0, 'found the spectate join handler');
+  const block = src.slice(at, at + 1600);
+
+  assert.ok(/spectateOnly:\s*true/.test(block), 'it is the right handler');
+  assert.ok(!/food:\s*room\.foodManager\.getAll\(\)/.test(block),
+    'it does not send the whole food list');
+  assert.ok(/food:\s*\[\]/.test(block),
+    'it sends an empty list and lets the first snapshot supply the culled set');
+});

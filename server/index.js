@@ -2104,7 +2104,18 @@ io.on('connection', (socket) => {
     socket.emit(C.EVENTS.GAME_JOINED, {
       playerId: socket.id,
       worldRadius: room.worldRadius,
-      food: room.foodManager.getAll(),
+      /* NO FOOD HERE. This handed over every pellet in the room, and the room
+         holds a lot more of them than it used to: food is a constant DENSITY
+         now, so a full-size arena carries about 16,000 rather than 3,600. That
+         is roughly 600KB in one message, and the client then draws all sixteen
+         thousand until the first real snapshot replaces them a thirtieth of a
+         second later — a spike on exactly the frame somebody just pressed
+         Spectate, which is the worst moment to have one.
+
+         The snapshot that arrives next carries the culled set for wherever the
+         camera actually is, which is all this ever needed to be. Playing never
+         sent it; only watching did. */
+      food: [],
       snake: null,
       spectateOnly: true,
     });
