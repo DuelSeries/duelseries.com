@@ -197,3 +197,44 @@ test('cash food is never swept, because sweeping it would destroy real money', (
   assert.ok(fm.items.has(cash.id), 'the cash pellet survived the sweep');
   invariant(fm, 'after sweeping around cash food');
 });
+
+test('the same patch of ground holds the same food, whatever size the arena is', () => {
+  /* THE CAP MADE A BIG ARENA A THIN ONE.
+
+     The world grows with the crowd, up to MAX_WORLD_RADIUS. The pellet target
+     used to be min(FOOD_SPAWN_COUNT, density * area), so past about radius 2000
+     the count pinned at 3,600 while the area kept expanding — a full arena ran
+     at under a quarter of the density of a quiet one. The busier the room got,
+     the emptier the ground under your snake. Exactly backwards.
+
+     Density is the whole spec now: same food per unit of area, always. */
+  const fm = new FoodManager();
+  const density = (r) => {
+    const disc = r + C.FOOD_SPAWN_MARGIN;
+    return fm.targetFor(disc) / (Math.PI * disc * disc);
+  };
+
+  const base = density(C.BASE_WORLD_RADIUS);
+  for (const r of [1200, 2000, 3000, 4000, 5000, C.MAX_WORLD_RADIUS]) {
+    const d = density(r);
+    assert.ok(Math.abs(d - base) / base < 0.01,
+      'world radius ' + r + ' runs at the same density as the base one '
+      + '(' + (d * 1e6).toFixed(1) + ' vs ' + (base * 1e6).toFixed(1) + ' per 1e6u2)');
+  }
+
+  /* And the total really does climb with the area, rather than flattening. */
+  assert.ok(fm.targetFor(C.MAX_WORLD_RADIUS + C.FOOD_SPAWN_MARGIN)
+            > fm.targetFor(C.BASE_WORLD_RADIUS + C.FOOD_SPAWN_MARGIN) * 3,
+    'a full-size arena holds several times the pellets a small one does');
+});
+
+test('the seatbelt is above anything the world can actually reach', () => {
+  /* FOOD_ABSOLUTE_MAX exists so an unbounded world cannot become an unbounded
+     wire. It must not be low enough to quietly reintroduce the thinning it
+     replaced. */
+  const fm = new FoodManager();
+  const biggest = fm.targetFor(C.MAX_WORLD_RADIUS + C.FOOD_SPAWN_MARGIN);
+  assert.ok(biggest < C.FOOD_ABSOLUTE_MAX,
+    'the largest arena the world can reach is under the seatbelt '
+    + '(' + biggest + ' < ' + C.FOOD_ABSOLUTE_MAX + ')');
+});

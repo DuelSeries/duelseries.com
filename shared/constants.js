@@ -120,7 +120,18 @@ const CONSTANTS = {
   //            snapshot, still well under what 1440 used to cost
   //   server   the two loops that scale with TOTAL food (per-tick spatial grid
   //            rebuild, per-snapshot view cull) come to ~2.5% of one core
+  /* NOT A CEILING ANY MORE — it is what FOOD_DENSITY is calibrated from.
+
+     It used to cap the count, which made a big arena a thin one: the world
+     grows with the crowd, so past about radius 2000 the pellet count pinned here
+     while the area kept expanding, and a full arena ran at under a quarter of
+     the density of a quiet one. The busier the room, the sparser the ground.
+     See FoodManager.targetFor. */
   FOOD_SPAWN_COUNT: 3600,
+  /* A seatbelt, not a policy. Density times area is unbounded if the world ever
+     becomes unbounded, and a runaway here is a runaway on the wire. The world is
+     capped at MAX_WORLD_RADIUS, which puts the real figure near 16,000. */
+  FOOD_ABSOLUTE_MAX: 24000,
   /* How far past the border food is allowed to sit, in an ordinary room.
      The red zone is somewhere you can briefly be, so food out there is
      reachable and worth having. A battle royale passes 0 instead: outside its

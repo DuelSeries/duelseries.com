@@ -16,6 +16,12 @@ const { botTarget, globalHeadroom, roomShare, registerRoom, unregisterRoom } = r
 // which spans however many cells the radius needs — no GRID_CELL constraint there.
 const GRID_CELL = 80;
 
+/* Cell size for the SNAPSHOT's food grid, which is a different job from the
+   sim's. The sim asks 'what is within 170 units of this head' and wants fine
+   cells; the snapshot asks 'what is within a few thousand units of this cell'
+   and a fine grid would mean thousands of empty lookups to answer it. */
+const BC_FOOD_CELL = 1000;
+
 class GameRoom {
   constructor(io, lobbyType) {
     this.io = io;
@@ -831,6 +837,18 @@ class GameRoom {
     const cells     = new Map(); // cellKey -> { ci, cj, roomName, maxV }
     const fullSends = [];        // dead / spectator sockets get the unculled set
 
+    /* A COARSE grid of the food, built once per snapshot for the per-cell view
+       cull below. Coarse deliberately: the sim's own food grid is 80 units, and
+       a region several thousand units across would touch thousands of empty
+       cells looking through it. At BC_FOOD_CELL a region is a few dozen
+       lookups, which is the point.
+
+       Reused across snapshots for the same reason everything else here is —
+       this runs thirty times a second per room. */
+    const bcGrid = this._bcFoodGrid || (this._bcFoodGrid = new SpatialGrid(BC_FOOD_CELL));
+    bcGrid.clear();
+    for (let i = 0; i < allFood.length; i++) bcGrid.insert(allFood[i].x, allFood[i].y, allFood[i]);
+
     for (const sid of roomSet) {
       const sock = this.io.sockets.sockets.get(sid);
       if (!sock) continue;
@@ -937,9 +955,21 @@ class GameRoom {
       } else {
         for (let k = 1; k < near.length; k += 2) snakes.push(snakesSer[near[k]]);
       }
-      for (const f of allFood) {
+      /* THE GRID, NOT THE WHOLE LIST.
+
+         This walked every pellet in the room for every occupied cell. Harmless
+         at 3,600; the food target is a DENSITY now, so a full-size arena holds
+         about 16,000 and only a couple of thousand of them are ever in one
+         region. Measured at 100 bots with 15,000 pellets it took the tick to
+         5.6ms, against 1.2ms at 3,600 — the same shape of bug as the bot AI
+         reading all 3,600 pellets to find one within 280 units.
+
+         Built once per snapshot, coarse: at this cell size a region touches a
+         few dozen cells instead of every pellet on the map. */
+      bcGrid.forEachInRange(cx, cy, halfW, (f) => {
         if (Math.abs(f.x - cx) <= halfW && Math.abs(f.y - cy) <= halfH) food.push(f);
-      }
+        return false;                       // keep scanning the region
+      });
       const enc = encodeSnapshot({ t, worldRadius, worldCx: this.worldCx, worldCy: this.worldCy,
                                    zoneTo: this.hopTarget ? this.hopTarget() : null,
                                    snakes, food, leaderboard, mm });

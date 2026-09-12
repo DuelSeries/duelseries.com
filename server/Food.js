@@ -95,11 +95,36 @@ class FoodManager {
     return food;
   }
 
-  /* How many pellets belong in a disc of this radius, and never more than the
-     headcount the wire and the renderer were budgeted for. */
+  /* How many pellets belong in a disc of this radius.
+
+     DENSITY ALL THE WAY UP, with no headcount cap on top. The cap used to be
+     FOOD_SPAWN_COUNT, and it meant the arena got thinner the bigger it grew:
+     the world expands with the crowd up to MAX_WORLD_RADIUS, and past about
+     2000 the count pinned at 3,600 while the area kept going. A full-size arena
+     ran at less than a quarter of the density a quiet one did — so the busier
+     the room, the less food each part of it held. Exactly backwards.
+
+     Now the same patch of ground holds the same amount of food whatever size
+     the world is. The cost of that is bounded and measured: the world itself is
+     capped at MAX_WORLD_RADIUS, which puts the ceiling near 16,000 pellets, and
+     what a PLAYER receives does not change at all — they are sent the food in
+     their own view, and constant density means that is a constant amount.
+     Measured at 100 bots on a full-size world, one viewer:
+
+       food    | tick    | KB/s per player
+        3,200  | 1.15ms  | 405
+       15,000  | 2.24ms  | 435
+
+     The wire is flat, as it must be; the tick pays a little more for holding
+     more of the world in memory, after the per-cell food cull was moved onto a
+     grid. FOOD_SPAWN_COUNT survives as what the density is CALIBRATED from —
+     see FOOD_DENSITY — not as a ceiling.
+
+     ABSOLUTE_MAX is a seatbelt, not a policy: if the world ever grew without
+     bound this would too, and a runaway here is a runaway on the wire. */
   targetFor(spawnRadius) {
-    return Math.min(C.FOOD_SPAWN_COUNT,
-                    Math.round(C.FOOD_DENSITY * Math.PI * spawnRadius * spawnRadius));
+    const want = Math.round(C.FOOD_DENSITY * Math.PI * spawnRadius * spawnRadius);
+    return Math.min(C.FOOD_ABSOLUTE_MAX, want);
   }
 
   /* Keep the PLAYABLE area stocked, and reclaim what has been left outside it.
