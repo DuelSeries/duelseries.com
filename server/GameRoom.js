@@ -452,7 +452,10 @@ class GameRoom {
       /* The circle's CENTRE goes with its radius. A battle royale moves it, and
          a bot that does not know where the middle is cannot run to it. */
       if (snake.isBot) {
-        snake.updateAI(foodList, this.worldRadius, allSnakes, this.worldCx, this.worldCy);
+        /* The GRID, not the list. A bot only ever wanted food within 280 units
+           of its head, and it was reading all 3,600 pellets to find it — see
+           the note in Bot.updateAI. The grid is already built above. */
+        snake.updateAI(foodList, this.worldRadius, allSnakes, this.worldCx, this.worldCy, foodGrid);
       }
       snake.update();
 

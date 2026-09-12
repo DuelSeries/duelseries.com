@@ -261,24 +261,30 @@ const CONSTANTS = {
   BR_AUTOSTART_MIN: 5,
 
   BOT_MIN: 22,
-  /* MEASURED, not chosen. Swept on the real room with one viewer, after the
+  /* BACK TO THE HUNDRED ORIGINALLY ASKED FOR, because the thing that made it
+     expensive is gone.
+
+     It was cut to 55 on a measured knee: at 70 bots the per-player bandwidth
+     nearly doubled and the tick was approaching a quarter of its budget. Then a
+     CPU profile found what was actually behind it — Bot.updateAI at 80.8% of
+     the tick, because every bot read all 3,600 pellets to find the nearest one
+     within 280 units. It uses the spatial grid now. Same behaviour, pinned by
+     test/botAiCost.test.js, four times faster.
+
+     Re-swept on the real room with one viewer, after that fix and the
      per-snapshot snake cap below:
 
-       bots | tick    | KB/s per player
-         20 | 1.51ms  | 212
-         40 | 2.49ms  | 301
-         55 | 2.87ms  | 336     <- the knee
-         70 | 3.93ms  | 623
-        101 | 4.59ms  | 757
+       bots |  tick before | tick after | KB/s per player
+         20 |      1.51ms  |    0.48ms  | 212
+         55 |      2.87ms  |    0.69ms  | 337
+         70 |      3.93ms  |    0.80ms  | 372
+        101 |      4.59ms  |    1.17ms  | 446
 
-     The step between 55 and 70 is where per-player bandwidth nearly doubles.
-     101 also spent a quarter of the tick budget on bots alone before a single
-     real player had joined, and a late tick is exactly what is felt as lag.
-
-     55 still swings two and a half times across a day, which is the point of
-     having a range at all — nobody mistakes 22-at-dawn / 55-at-nine for a
-     constant. Raise it knowing what it costs; the table above is the price. */
-  BOT_MAX: 55,
+     101 bots is 7% of the tick budget now instead of 28%, and the bandwidth
+     knee between 55 and 70 flattened out with it. The population is also shared
+     across every free room rather than claimed by each, so this is the whole
+     game's figure and not one room's. */
+  BOT_MAX: 101,
   /* HOW MANY SNAKE BODIES ANY ONE PLAYER IS SENT PER SNAPSHOT.
 
      The per-cell region is the cell plus a full view radius, which on a world

@@ -67,7 +67,7 @@ class Bot extends Snake {
      royale's circle roams up to 800 units off centre, so a bot fleeing the
      wall ran toward where the circle used to be — often straight through it
      and out the far side. That is why they died to the border in a heap. */
-  updateAI(foodList, worldRadius, allSnakes, cx, cy) {
+  updateAI(foodList, worldRadius, allSnakes, cx, cy, foodGrid) {
     if (!this.alive) return;
 
     // ── 1. Border avoidance ──────────────────────────────────────────────────
@@ -99,10 +99,12 @@ class Bot extends Snake {
 
       const hdx = this.head.x - other.head.x;
       const hdy = this.head.y - other.head.y;
-      const hd  = Math.hypot(hdx, hdy);
-
-      // Broad-phase: skip entirely if snake is far away
-      if (hd > SCAN_R) continue;
+      /* Broad-phase on the SQUARE, before any square root. This tested
+         Math.hypot(...) > SCAN_R, so the reject paid for the sqrt it existed to
+         avoid — on every other snake in the room, for every bot, every tick. */
+      const hd2 = hdx * hdx + hdy * hdy;
+      if (hd2 > SCAN_R * SCAN_R) continue;
+      const hd = Math.sqrt(hd2);
 
       // Avoid head
       if (hd > 0 && hd < DANGER_R) {
@@ -175,11 +177,41 @@ class Bot extends Snake {
       }
     }
 
-    // ── 4. Seek nearest food ─────────────────────────────────────────────────
-    let nearestFood = null, nearestDist = 280;
-    for (const f of foodList) {
-      const d = Math.hypot(this.head.x - f.x, this.head.y - f.y);
-      if (d < nearestDist) { nearestDist = d; nearestFood = f; }
+    /* ── 4. Seek nearest food ──────────────────────────────────────────────
+       THE ONE THAT COSTS EVERYTHING.
+
+       This read EVERY pellet in the world to find the nearest one within 280
+       units, with a Math.hypot each. At a hundred bots and 3,600 pellets that
+       is twenty-one million square roots a second, and a CPU profile of the
+       real tick put updateAI at 80.8% of it — more than the simulation, the
+       collisions and the whole snapshot path put together.
+
+       It is also exactly why cutting the pellet count appeared to fix the lag:
+       it was not making the food system cheaper, it was giving the bots less to
+       read. And it is why a bigger world did nothing — spreading the same food
+       over seven times the area does not shorten a list.
+
+       The grid is already built for the magnetism pass a few lines up, and 280
+       units spans nine cells across rather than the whole map. Same answer,
+       same behaviour: still the nearest pellet within 280 units.
+
+       `foodList` is still accepted so an older caller keeps working, and is
+       used only when no grid is handed in. */
+    let nearestFood = null, nearestD2 = 280 * 280;
+    const hx = this.head.x, hy = this.head.y;
+    if (foodGrid) {
+      foodGrid.forEachInRange(hx, hy, 280, (f) => {
+        const dx = hx - f.x, dy = hy - f.y;
+        const d2 = dx * dx + dy * dy;
+        if (d2 < nearestD2) { nearestD2 = d2; nearestFood = f; }
+        return false;                       // keep scanning the rest
+      });
+    } else {
+      for (const f of foodList) {
+        const dx = hx - f.x, dy = hy - f.y;
+        const d2 = dx * dx + dy * dy;
+        if (d2 < nearestD2) { nearestD2 = d2; nearestFood = f; }
+      }
     }
 
     if (nearestFood) {
