@@ -1100,16 +1100,16 @@ test('the live dot beats only when somebody is really in there', () => {
 });
 
 test('a duel names its own stake, and does not pretend to find an opponent', () => {
-  /* Rock Paper Scissors against nobody is not a game. These eight are matched
-     INTO rather than dropped into, so there is no lobby to list and no fixed
-     ladder to pick from — you name your stake and wait for somebody to take it.
+  /* A duel against nobody is not a game. These are matched INTO rather than
+     dropped into, so there is no lobby to list — you wait for somebody to take
+     the same buy-in.
 
-     They are still unbuilt. The layout is real so it can be judged; the queue
-     is real so it can be seen; and after four seconds it says outright that
-     nobody can be matched yet, rather than spinning forever at somebody. */
+     These ones are still unbuilt. The layout is real so it can be judged; the
+     queue is real so it can be seen; and it says outright that nobody can be
+     matched yet, rather than spinning forever at somebody. */
   const html = v2();
 
-  for (const id of ['rps', 'knockout', 'battleship',
+  for (const id of ['battleship',
                     'rooftop', 'headsoccer', 'swim', 'maze']) {
     const m = html.match(new RegExp("\{id:'" + id + "'[^\n]*"));
     assert.ok(m, id + ' is in the game list');
@@ -1131,8 +1131,8 @@ test('a duel names its own stake, and does not pretend to find an opponent', () 
     'paper.io is unbuilt but not a duel, so it keeps the locked panel');
 
   /* The arena furniture has to be gone. A ladder, an open-lobby list and a
-     snake skin on a Rock Paper Scissors screen are all borrowed from a
-     different game. */
+     snake skin on a one-on-one duel screen are all borrowed from a different
+     game. */
   const hide = html.match(/#detail\.duel [^{]*\{display:none\}/);
   assert.ok(hide, 'a duel hides what belongs to an arena');
   for (const part of ['.stakes', '.lobwrap', '.lookrow']) {

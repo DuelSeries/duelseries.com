@@ -315,7 +315,7 @@ h2{font-size:31px;font-weight:700;letter-spacing:-1.1px;line-height:1.1}
 /* Fixed caption height keeps every card the same height whatever the name
    length, which is also what lets the arrows sit dead centre on the art. */
 /* A column with the status pushed to the bottom, so a name that wraps to two
-   lines (Rock Paper Scissors) still leaves its player count level with every
+   lines (Rooftop Snipers) still leaves its player count level with every
    other card in the row instead of hanging one line lower. */
 .cap{margin:var(--capGap) 2px 0;min-height:var(--capH);
   display:flex;flex-direction:column}
@@ -870,8 +870,8 @@ body.no-foot footer{display:none}
 #detail.duel.freeonly .sl{display:block}
 #detail.duel.freeonly .stakes{display:flex}
 /* The ladder, the open-lobby list and the snake skin all belong to an arena.
-   A duel has no room to list, nobody is in it yet, and Rock Paper Scissors has
-   no snake to dress — showing any of them is furniture from another game. */
+   A duel has no room to list, nobody is in it yet, and a duel game has no
+   snake to dress — showing any of them is furniture from another game. */
 #detail.duel .stakes,#detail.duel .stakeoff,#detail.duel .sl,
 #detail.duel .lobwrap,#detail.duel .lookrow{display:none}
 /* ── a solo run ────────────────────────────────────────────────────────────
@@ -2098,14 +2098,19 @@ body.scr-anim { overflow-x:hidden }
    marked soon, which greys the card and takes it out of the tab order. */
 /* duel:1 — a game you are matched INTO rather than a room you drop into.
 
-   The two built games are arenas: a room exists, people are in it, you join and
-   play. These are not. Rock Paper Scissors against nobody is not a game, so
-   there is no lobby to list and no fixed buy-in ladder to pick from — you name
-   your own stake and wait for somebody to take it.
+   The arena games are rooms: one exists, people are in it, you join and play.
+   These are not. A duel against nobody is not a game, so there is no lobby to
+   list — you wait for somebody to take the same buy-in.
 
-   They are still soon:1. Nothing behind them is built, and the screen says so;
-   this is the layout, with a real buy-in control and a real queue, so the shape
-   of it can be judged before any of it is wired to a server. */
+   The ones still marked soon:1 have nothing behind them, and the screen says
+   so. The layout is real, with a working buy-in control and a working queue, so
+   the shape can be judged before any of it is wired to a server.
+
+   ROCK PAPER SCISSORS WAS REMOVED, deliberately and not as a placeholder. Every
+   other game here is decided by something the player does better than their
+   opponent. Rock Paper Scissors is decided by a coin, and a site that takes a
+   cut of a coin flip is a gambling site wearing a game's clothes. That is not
+   what this is, so it is gone rather than parked. */
 const GAMES=[
  {id:'snake',name:'slither.io',c:['#15251c','#c080ff'],type:'p',real:1,
   d:'Grow by eating, cut other players off, and cash out before somebody cuts you off.'},
@@ -2123,8 +2128,6 @@ const GAMES=[
     the product does offer them and hiding them would say it does not. */
  {id:'tanks',name:'Bowmasters',c:['#1b4f7a','#7fd4f5'],type:'m',duel:1,built:1,freeOnly:1,
   d:'One shot each, an arc to judge, and whoever reads the wind first wins.'},
- {id:'rps',name:'Rock Paper Scissors',c:['#231a26','#b98ad4'],type:'m',soon:1,duel:1,
-  d:'Best of five against a single opponent. Rounds are quick and settlement is instant.'},
  {id:'knockout',name:'Knockout',c:['#261c14','#e0a05c'],type:'m',soon:1,duel:1,
   d:'Last one standing in an arena that keeps shrinking.'},
  {id:'battleship',name:'Battleship',c:['#141a24','#7b93c4'],type:'m',soon:1,duel:1,
