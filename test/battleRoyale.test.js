@@ -578,3 +578,93 @@ test('a new match does not inherit the last one s frozen wall', () => {
   run(r, 20000);
   assert.ok(r.worldRadius < BR.START_RADIUS, 'and its circle closes normally');
 });
+
+/* ── one at a time ───────────────────────────────────────────────────────────
+   There is one battle royale room, so "two matches" can only mean starting a
+   second one on top of a first. forceStart refused only when the state was
+   'running' and then set the state to 'waiting' so startMatch's guard would
+   pass — so pressing it during the countdown, during the winner's five seconds,
+   or while the arena was still reopening abandoned what was happening and began
+   another, with a podium half read and a winner possibly not yet cashed out. */
+
+test('a second match cannot be started on top of the first, in any state', () => {
+  for (const phase of ['countdown', 'running', 'over', 'reopening']) {
+    const r = room(3);
+    go(r);
+    if (phase === 'countdown') { r.state = 'countdown'; }
+    if (phase === 'running') { run(r, 3000); }
+    if (phase === 'over' || phase === 'reopening') {
+      run(r, 20000);
+      const survivor = [...r.snakes.values()][0];
+      for (const s of r.snakes.values()) if (s !== survivor) s.alive = false;
+      r.checkForWinner();
+      r.onWinnerCashout = () => {};
+      if (phase === 'reopening') run(r, 7000);
+    }
+    assert.equal(r.state, phase, 'the room is in the ' + phase + ' state');
+
+    const matchBefore = r.matchId;
+    assert.equal(r.startMatch('second'), false, 'startMatch refuses during ' + phase);
+    assert.equal(r.forceStart('second'), false, 'and so does the override');
+    assert.equal(r.state, phase, 'the state is untouched by the refusal');
+    assert.equal(r.matchId, matchBefore, 'and it is still the same match');
+  }
+});
+
+test('the override relaxes the player minimum, and nothing else', () => {
+  /* What forceStart is actually for: a room with fewer people than MIN_PLAYERS
+     that is otherwise perfectly ready. */
+  const r = room(1);
+  const min = BR.MIN_PLAYERS;
+  BR.MIN_PLAYERS = 5;                       // more than the room has
+  try {
+    assert.equal(r.canStart(), false, 'the minimum refuses it');
+    assert.equal(r.startMatch('no'), false);
+    assert.equal(r.forceStart('yes'), true, 'the override gets past the minimum');
+    assert.equal(r.state, 'countdown');
+  } finally { BR.MIN_PLAYERS = min; }
+});
+
+test('the next start time is on the wire, so the death card can count it down', () => {
+  const r = room(2);
+  const s = r.publicState();
+  assert.ok(s.nextStartMs > 0, 'there is always a next one');
+  assert.ok(s.nextStartMs <= 24 * 60 * 60 * 1000, 'and it is within a day');
+});
+
+test('the start-time countdown does not send the start minute a day away', () => {
+  /* Caught live at exactly 20:05 Eastern. `start - now` is 0 in that minute,
+     and a `<= 0` wrap sent it a full day forward: the death card read "next
+     battle royale starts in 24h 0m 0s" at the exact moment it was starting.
+     Zero is a real answer — it means this minute. Only a negative gap is
+     tomorrow's. */
+  const { msUntilNextStart } = require('../server/BattleRoyaleRoom');
+  const C = require('../shared/constants');
+  const DAY = 24 * 60 * 60 * 1000;
+
+  /* Build a real instant at a given Eastern hour:minute by searching the day —
+     cheaper and more honest than reimplementing the timezone maths the code
+     under test uses. */
+  const { easternNow } = require('../server/botPopulation');
+  function instantAt(h, m) {
+    const base = Date.now() - 2 * DAY;
+    for (let i = 0; i < 24 * 60; i++) {
+      const t = base + i * 60000;
+      const e = easternNow(t);
+      if (e.hour === h && e.minute === m) return t;
+    }
+    return null;
+  }
+
+  const onTheMinute = instantAt(C.BR_AUTOSTART_HOUR, C.BR_AUTOSTART_MIN);
+  assert.ok(onTheMinute, 'found the start minute');
+  assert.equal(msUntilNextStart(onTheMinute), 0,
+    'at the start minute the answer is now, not a day from now');
+
+  const aMinuteAfter = instantAt(C.BR_AUTOSTART_HOUR, C.BR_AUTOSTART_MIN + 1);
+  assert.equal(msUntilNextStart(aMinuteAfter), (24 * 60 - 1) * 60000,
+    'a minute past it, the next one really is tomorrow');
+
+  const aMinuteBefore = instantAt(C.BR_AUTOSTART_HOUR, C.BR_AUTOSTART_MIN - 1);
+  assert.equal(msUntilNextStart(aMinuteBefore), 60000, 'a minute before, one minute');
+});

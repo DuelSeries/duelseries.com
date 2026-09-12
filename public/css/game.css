@@ -864,3 +864,16 @@ body {
      from the edge of the card. */
   #leaderboard-list li.me { margin-left: -9px; padding-left: 7px; }
 }
+
+/* The wait, under the death card's buttons. Battle royale only: Play again is
+   refused while a match runs, and a disabled button with nothing beside it is
+   indistinguishable from a broken one. Muted, because it is an explanation
+   rather than a thing to press. */
+.dd-when {
+  margin: 12px 0 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: #a89c8a;
+  text-align: center;
+}
+.dd-when[hidden] { display: none; }

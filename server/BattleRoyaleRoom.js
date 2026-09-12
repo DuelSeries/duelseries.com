@@ -20,8 +20,31 @@
 
 const C = require('../shared/constants');
 const GameRoom = require('./GameRoom');
+const { easternNow } = require('./botPopulation');
 
 const SEC = 1000;
+
+/* Milliseconds until the next scheduled start, on the Eastern wall clock.
+
+   Eastern read from Intl rather than by adding an offset to UTC, for the same
+   reason as everything else here: a hardcoded -5 is wrong for two thirds of the
+   year and -4 for the other third, and the failure is silent — the countdown is
+   simply an hour out with nothing on screen to say which hour was right. */
+function msUntilNextStart(at) {
+  const { hour, minute } = easternNow(at);
+  const now = hour * 60 + minute;
+  const start = C.BR_AUTOSTART_HOUR * 60 + C.BR_AUTOSTART_MIN;
+  let mins = start - now;
+  /* STRICTLY less than zero, not "or equal".
+     `<=` sent the one minute that matters a full day into the future: caught at
+     exactly 20:05 Eastern, where the answer should be "starting now" and the
+     death card instead read "next battle royale starts in 24h 0m 0s". Zero is a
+     real answer — it means this minute — and only a negative gap is tomorrow. */
+  if (mins < 0) mins += 24 * 60;
+  /* To the minute, because that is all the Eastern clock gives. Seconds would
+     be invented precision, and the client counts them down locally anyway. */
+  return mins * 60 * SEC;
+}
 
 const BR = {
   /* Ten seconds between pressing start and the circle mattering. Dropping
@@ -277,9 +300,20 @@ class BattleRoyaleRoom extends GameRoom {
      override rather than a lowering of the rule: canStart() still says no, and
      the console has to ask for this by name. */
   forceStart(reason) {
-    if (this.state === 'running') return false;
+    /* ONE MATCH AT A TIME, and this is the override that nearly broke that.
+
+       It refused only when the state was 'running', then set the state to
+       'waiting' so startMatch's own guard would pass. Every other state fell
+       through: pressing it during the ten-second COUNTDOWN, during the winner's
+       five seconds, or while the arena was still reopening would abandon what
+       was happening and begin a second match on top of it — with a podium half
+       read, a winner possibly not yet cashed out, and the circle wherever it
+       had been frozen.
+
+       This override exists to relax the PLAYER MINIMUM, nothing else. A room
+       that is not idle is not waiting for a minimum. */
+    if (this.state !== 'waiting') return false;
     if (this.humanLiving() < 1) return false;   // starting with nobody is not a match either
-    this.state = 'waiting';                     // so startMatch's own guard passes
     const min = BR.MIN_PLAYERS;
     BR.MIN_PLAYERS = 1;
     try { return this.startMatch(reason || 'forced'); }
@@ -623,6 +657,16 @@ class BattleRoyaleRoom extends GameRoom {
          rather than guess at it. */
       cashoutMs: this.state === 'over'
         ? Math.max(0, (this.cashoutAt || 0) - Date.now()) : 0,
+      /* HOW LONG UNTIL THE NEXT ONE STARTS ITSELF.
+
+         A player who dies during a match is refused Play again, correctly — it
+         is last snake standing for a real prize. A disabled button with no
+         reason next to it is just a broken one, so the death card says how long
+         the wait is. Milliseconds to the next scheduled auto-start in Eastern
+         wall clock, which is the only start anybody can count on: the owner can
+         begin one sooner, and that arrives as a state change rather than as a
+         number to predict. */
+      nextStartMs: msUntilNextStart(),
       /* How far the arena has reopened, 0..1. This is what the loader fills:
          the bar is the circle actually travelling back out, not a fake timer
          that can finish before the room is ready. */
@@ -636,4 +680,4 @@ class BattleRoyaleRoom extends GameRoom {
   }
 }
 
-module.exports = { BattleRoyaleRoom, BR };
+module.exports = { BattleRoyaleRoom, BR, msUntilNextStart };

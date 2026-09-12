@@ -1057,6 +1057,48 @@ let brCountEnd = 0, brCountTimer = 0;
    is the one field that differs per listener. */
 let _brIsOwner = false;
 
+/* When the next match starts, as a local deadline, and how many are still in
+   the current one. Kept so the death card can COUNT rather than restate a
+   number that only refreshes every couple of seconds. */
+let _brNextStartAt = 0;
+let _brAlive = 0;
+let _brWhenTimer = 0;
+
+/* The line under the death card's buttons, in a battle royale.
+
+   Two states, and they answer different questions. While a match runs the
+   question is "why can I not press Play again", and the answer is that one is
+   on and how many are left in it. Between matches it is "when can I play", and
+   the answer is a clock. */
+function paintDeathWhen(state) {
+  const el = document.getElementById('dd-when');
+  if (!el) return;
+  if (!isBattleRoyale) { el.hidden = true; return; }
+
+  const running = state === 'running' || state === 'countdown';
+  const tick = () => {
+    if (running) {
+      el.textContent = _brAlive === 1
+        ? 'A match is finishing. The next one opens right after.'
+        : 'A match is under way, ' + _brAlive + ' still alive. Watch it, or wait for the next.';
+      return;
+    }
+    if (!_brNextStartAt) { el.textContent = ''; return; }
+    const left = Math.max(0, _brNextStartAt - Date.now());
+    const h = Math.floor(left / 3600000);
+    const m = Math.floor(left % 3600000 / 60000);
+    const sec = Math.floor(left % 60000 / 1000);
+    el.textContent = 'Next battle royale starts in '
+      + (h ? h + 'h ' : '') + m + 'm ' + sec + 's';
+  };
+  tick();
+  el.hidden = false;
+  /* One timer, restarted rather than stacked: brApply runs on every state and
+     a fresh interval each time would leave a dozen of them counting at once. */
+  clearInterval(_brWhenTimer);
+  _brWhenTimer = setInterval(tick, 1000);
+}
+
 /* Say something to the person pressing an owner control. It goes in the HUD
    subtitle, which the next state tick will overwrite a second or two later —
    long enough to read, and it cannot get stuck on screen. */
@@ -1099,6 +1141,13 @@ function brApply(s) {
     again.title = brRunning ? 'The match is under way. Watch, or wait for the next one.' : '';
     again.textContent = brRunning ? 'Match under way' : 'Play again';
   }
+  /* Say how long the wait is. A disabled Play again with nothing beside it is
+     indistinguishable from a broken one, and "wait for the next one" without a
+     number is not an answer. Held here and ticked down locally between server
+     states, so it counts rather than jumping every two seconds. */
+  _brNextStartAt = (s.nextStartMs > 0) ? Date.now() + s.nextStartMs : 0;
+  _brAlive = s.alive || 0;
+  paintDeathWhen(s.state);
   podiumApply(s);
   brNextApply(s);
   if (s.state === 'countdown' && !brCountTimer) brRunCountdown(s.countdownMs || 0);

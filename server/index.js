@@ -900,7 +900,9 @@ app.post('/api/owner/do', async (req, res) => {
        is not the case it protects against. */
     case 'br:start': {
       if (!br) return refuse('No battle royale room');
-      if (br.state === 'running') return refuse('A match is already running');
+      // Not just 'running' — a countdown is one starting, and over/reopening
+      // is one finishing. Any of them means a match is already under way.
+      if (br.state !== 'waiting') return refuse('A match is already under way');
       if (args.force) {
         if (br.livingCount() < 1) return refuse('Nobody is in the room to start with');
         br.forceStart('owner override');
@@ -1305,7 +1307,7 @@ app.get('/api/live', (_req, res) => {
    says which hour was right. Working in wall-clock seconds means the daylight
    saving switch takes care of itself. Same reasoning as the lobby countdown. */
 const BR_PRIZE_USDC = 20;
-const BR_AUTOSTART_HOUR = 20, BR_AUTOSTART_MIN = 5;   // 8:05pm Eastern
+const BR_AUTOSTART_HOUR = C.BR_AUTOSTART_HOUR, BR_AUTOSTART_MIN = C.BR_AUTOSTART_MIN;  // 8:05pm Eastern
 let _brFmt = null;
 try {
   _brFmt = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York',
@@ -2256,8 +2258,11 @@ io.on('connection', (socket) => {
       socket.emit('br:error', { message: 'That did not come from the owner wallet.' });
       return;
     }
-    if (room.state === 'running') {
-      socket.emit('br:error', { message: 'A match is already running' });
+    /* ONE AT A TIME. Not just 'running': a countdown is a match starting, and
+       'over' / 'reopening' are one finishing. Beginning another on top of any of
+       them is a second battle royale. */
+    if (room.state !== 'waiting') {
+      socket.emit('br:error', { message: 'A match is already under way' });
       return;
     }
     /* `force` overrides the player minimum, the same override the owner console

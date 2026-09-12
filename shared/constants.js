@@ -253,6 +253,13 @@ const CONSTANTS = {
      ⚠️ THE TOP OF THIS RANGE COSTS CPU. Every bot is a snake the server
      simulates and ships. Raising BOT_MAX is not free; it is the one number here
      that can put a room near the measured per-lobby ceiling. */
+  /* WHEN THE NIGHTLY EVENT STARTS ITSELF, Eastern wall clock. Lived in
+     server/index.js, which meant the room could not tell anyone when the next
+     one was — it only knew whether one was running now. Here, so the room, the
+     lobby and the auto-starter all read the same two numbers. */
+  BR_AUTOSTART_HOUR: 20,
+  BR_AUTOSTART_MIN: 5,
+
   BOT_MIN: 22,
   /* MEASURED, not chosen. Swept on the real room with one viewer, after the
      per-snapshot snake cap below:

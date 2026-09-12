@@ -1569,7 +1569,12 @@ body.scr-anim { overflow-x:hidden }
 
     var running = BR.state==='running' || BR.state==='countdown';
     hero.classList.toggle('live', running);
-    if(watch) watch.hidden = !running;
+    /* The button is always there; only what it promises changes. Somebody who
+       has never seen a battle royale needs it most when one is NOT running. */
+    if(watch){
+      watch.hidden = false;
+      watch.textContent = running ? 'Watch it live' : 'Spectate the arena';
+    }
 
     /* THE DOOR. The server refuses a late join outright (acceptingPlayers), so
        this is the UI catching up to a rule that already exists rather than a
@@ -1902,12 +1907,14 @@ body.scr-anim { overflow-x:hidden }
       <div class="evu"><b id="ev-s">--</b><span>sec</span></div>
     </div>
     <p class="evwhen">8:00 to 9:00 PM Eastern, every day of the week</p>
-    <!-- Only while a match is REALLY on, which the server says — not while a
-         clock in this page thinks it is eight o'clock. A Watch button on a
-         match that has not started is a button that drops you into an empty
-         room, which is what the old wall-clock version did every night at 8. -->
-    <button type="button" class="btn pri evwatch" id="ev-watch" hidden
-            onclick="V2Play.spectateEvent()">Watch it live</button>
+    <!-- ALWAYS HERE, because the point of it is somebody who has never seen one.
+         It used to appear only while a match was running, which meant the one
+         person it exists for — a new player wondering what a battle royale even
+         is — could never find it. Watching an arena between matches is a fair
+         answer to that question too, so the button stays and the LABEL changes
+         to say which of the two you are about to get. -->
+    <button type="button" class="btn pri evwatch" id="ev-watch"
+            onclick="V2Play.spectateEvent()">Spectate</button>
     <!-- The door is shut once the circle starts closing. The server already
          refuses a late join; this is so the refusal is not a surprise. -->
     <p class="evlock" id="ev-lock" hidden>The doors are shut for this match.
