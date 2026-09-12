@@ -200,11 +200,46 @@ class FoodManager {
       if (dx * dx + dy * dy <= R2) inPlay++;
     }
 
-    const needed = this.targetFor(R) - inPlay;
+    const target = this.targetFor(R);
+    const needed = target - inPlay;
+
+    /* HOW FAST IT REFILLS, AND WHY IT IS COUNTED IN TICKS.
+
+       This was a flat thirty per call, and per CALL is the first problem: an
+       empty room deliberately ticks at a tenth of the rate to save CPU, so the
+       same code filled ten times slower in exactly the room nobody was watching
+       yet. The second is that thirty was chosen when an arena held 3,600
+       pellets. Food is a density now, so a full-size battle royale holds about
+       16,000 - and a battle royale ENDS with its arena almost bare, because the
+       circle shrank to a couple of hundred units and the sweep quite correctly
+       reclaimed everything outside it. Refilling that at thirty a tick took
+       nine seconds at full rate and a minute and a half idle, which is why the
+       arena looked empty until a match started.
+
+       So: a share of the TARGET per second. A big arena refills proportionally
+       faster than a small one.
+
+       Counted in TICKS, not off the wall clock. The first version read
+       Date.now() and refilled nothing at all under test, because a harness
+       steps thousands of ticks inside a single millisecond, and a sim that
+       stops working when it is not run in real time is a sim that cannot be
+       measured. `ticks` is how many sim ticks this call stands for: one
+       normally, ten from an idle room, which is what puts the idle case back on
+       the same footing without the food manager needing to know what idle means.
+
+       Still rate-limited, deliberately. Dumping sixteen thousand pellets into
+       one snapshot is its own spike, and food arriving over a couple of seconds
+       reads as the arena coming back rather than as a switch being flipped. */
+    const ticks = (opts && opts.ticks) || 1;
+    const perTick = target / (C.FOOD_REFILL_SECONDS * C.TICK_RATE);
+    /* Carried between calls, because a few thousand a second is a fraction of a
+       pellet per tick — truncating that to zero every time refills nothing. */
+    this._refillOwed = (this._refillOwed || 0) + perTick * ticks;
+    const budget = Math.floor(this._refillOwed);
+    this._refillOwed -= budget;
+
     const spawned = [];
-    /* Still rate-limited. A zone that jumps should refill over a second or two
-       rather than dumping two thousand pellets into one snapshot. */
-    for (let i = 0; i < Math.min(needed, 30); i++) {
+    for (let i = 0; i < Math.min(needed, budget); i++) {
       spawned.push(this.spawnOne(worldRadius, undefined, undefined, undefined,
                                  undefined, undefined, undefined, undefined,
                                  ox, oy, margin));

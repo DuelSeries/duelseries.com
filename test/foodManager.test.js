@@ -238,3 +238,58 @@ test('the seatbelt is above anything the world can actually reach', () => {
     'the largest arena the world can reach is under the seatbelt '
     + '(' + biggest + ' < ' + C.FOOD_ABSOLUTE_MAX + ')');
 });
+
+test('an empty arena refills in FOOD_REFILL_SECONDS, at 60Hz or at the idle 6Hz', () => {
+  /* Owen: "in battle royale the food doesn't start spawning until I start the
+     battle royale." It did spawn; it crawled. Refill was a flat 30 per CALL,
+     and an idle room deliberately runs one tick in ten, so the arena nobody had
+     joined yet filled at 180/sec instead of 1800 — about 90 seconds to fill a
+     density-sized battle royale, which reads as "no food" to anyone looking.
+
+     The rate is now a share of the target per SECOND, and a throttled room says
+     how many ticks its one call stands for. Both paths must reach full in the
+     same wall-clock time; that equality is the whole fix. */
+  const R = 6000, secs = C.FOOD_REFILL_SECONDS;
+
+  const fillTime = (ticksPerCall) => {
+    const fm = new FoodManager();
+    const target = fm.targetFor(R);
+    const callsPerSecond = C.TICK_RATE / ticksPerCall;
+    for (let s = 1; s <= secs + 2; s++) {
+      for (let i = 0; i < callsPerSecond; i++) {
+        fm.refill(R, 0, 0, { margin: 0, ticks: ticksPerCall });
+      }
+      if (fm.items.size >= target * 0.95) return s;
+    }
+    return null;
+  };
+
+  const busy = fillTime(1);    // a room with somebody in it
+  const idle = fillTime(10);   // a room nobody has joined, ticking at ~6Hz
+
+  assert.ok(busy !== null && busy <= secs,
+    `a busy room fills within ${secs}s (took ${busy})`);
+  assert.strictEqual(idle, busy,
+    `an idle room fills just as fast (idle ${idle}s vs busy ${busy}s)`);
+});
+
+test('refill does not depend on the wall clock', () => {
+  /* The first version of the rate limit read Date.now(), and it spawned nothing
+     at all under test: a harness steps thousands of ticks inside one
+     millisecond, so the elapsed time was always zero and the budget always
+     truncated to zero. A simulation that only works when it is run in real time
+     cannot be measured, which means it cannot be trusted. Freezing the clock
+     must change nothing. */
+  const realNow = Date.now;
+  Date.now = () => 1600000000000;              // time stands completely still
+  try {
+    const fm = new FoodManager();
+    for (let i = 0; i < C.TICK_RATE; i++) fm.refill(2000, 0, 0, { margin: 0 });
+    assert.ok(fm.items.size > 0, 'pellets still spawn with a frozen clock');
+    assert.ok(Math.abs(fm.items.size - fm.targetFor(2000) / C.FOOD_REFILL_SECONDS)
+              <= 2, 'and at the same one-second share of the target');
+    invariant(fm, 'after refilling with a frozen clock');
+  } finally {
+    Date.now = realNow;
+  }
+});

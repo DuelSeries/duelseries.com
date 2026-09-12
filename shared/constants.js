@@ -132,6 +132,19 @@ const CONSTANTS = {
      becomes unbounded, and a runaway here is a runaway on the wire. The world is
      capped at MAX_WORLD_RADIUS, which puts the real figure near 16,000. */
   FOOD_ABSOLUTE_MAX: 24000,
+  /* HOW LONG A BARE ARENA TAKES TO FILL, in seconds.
+
+     The refill is a share of the target per second rather than a flat count per
+     tick. Per tick was wrong twice over: an idle room ticks at a tenth of the
+     rate to save CPU, so it refilled ten times slower, and the flat thirty was
+     chosen when an arena held 3,600 rather than the ~16,000 a full one holds
+     now. A battle royale ends with its arena bare — the circle shrank and the
+     sweep reclaimed what it left behind — and it took nine seconds to come back
+     at full rate, ninety when nobody was in the room yet.
+
+     Three seconds is long enough to read as the arena filling rather than a
+     switch being flipped, and short enough that nobody waits for it. */
+  FOOD_REFILL_SECONDS: 3,
   /* How far past the border food is allowed to sit, in an ordinary room.
      The red zone is somewhere you can briefly be, so food out there is
      reachable and worth having. A battle royale passes 0 instead: outside its

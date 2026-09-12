@@ -398,9 +398,15 @@ class GameRoom {
     // late — which is what players felt. With no human present nobody can see
     // the result of a tick, so drop to ~6Hz. The instant someone joins,
     // playerCount goes above zero and the very next tick runs at full rate.
+    /* How many sim ticks THIS pass stands for. An idle room runs one tick in
+    // ten, so anything rate-limited per tick would otherwise run ten times
+    // slower in exactly the room nobody is watching yet. The food refill reads
+    // it, and that is what kept a waiting battle royale looking empty. */
+    this._tickSpan = 1;
     if (this.players.size === 0) {
       this._idleSkip = (this._idleSkip || 0) + 1;
       if (this._idleSkip < 10) return;
+      this._tickSpan = this._idleSkip;
       this._idleSkip = 0;
     } else if (this._idleSkip) {
       this._idleSkip = 0;
@@ -636,7 +642,7 @@ class GameRoom {
     // so a zone that moves cannot leave the arena bare while the room still holds
     // thousands of pellets nobody can reach. See FoodManager.refill.
     this.foodManager.refill(this.worldRadius, this.worldCx, this.worldCy,
-                            { margin: this.foodMargin() });
+                            { margin: this.foodMargin(), ticks: this._tickSpan || 1 });
 
     // Broadcast a snapshot at SNAPSHOT_RATE (lower than the sim TICK_RATE) so weaker
     // clients receive ~half the data. Simulation still runs every tick.
