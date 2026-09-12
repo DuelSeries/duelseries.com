@@ -111,4 +111,60 @@ function botTarget(at) {
   return Math.max(lo, Math.min(hi, Math.round(base + wander)));
 }
 
-module.exports = { botTarget, curveAt, easternNow, HOURLY };
+/* ── the population is the GAME's, not each room's ───────────────────────────
+   botTarget was applied per room, and there is more than one free snake room:
+   the fixed `na_free` tier, the ladder's free rung `na_s0`, and the battle
+   royale's waiting room. Each filled to the target independently, so a target
+   of 55 meant a hundred and sixty-five snakes being simulated and shipped on
+   one core — three times what the number says, and three times what was
+   measured before shipping it.
+
+   Rooms register here and the target is shared out. First room to tick in a
+   given second takes what it needs; the rest see the total and stop. They tick
+   at different offsets so no one room starves — and a room with PEOPLE in it
+   counts its humans against its own share first, so the busy room is the one
+   that keeps its company. */
+const _rooms = new Set();
+function registerRoom(room) { _rooms.add(room); }
+function unregisterRoom(room) { _rooms.delete(room); }
+
+/* Live bots across every room that is allowed to have them. */
+function liveBotsEverywhere() {
+  let n = 0;
+  for (const r of _rooms) {
+    if (typeof r.botsAllowed === 'function' && !r.botsAllowed()) continue;
+    n += r.botCount || 0;
+  }
+  return n;
+}
+
+/* How many more bots the GAME as a whole can take right now. Never negative. */
+function globalHeadroom(at) {
+  return Math.max(0, botTarget(at) - liveBotsEverywhere());
+}
+
+/* THIS ROOM'S SHARE of the game's population.
+
+   A plain global headroom is first-come-first-served, and measured that way the
+   last room to tick got nothing: na_free 31, na_br 24, na_s0 ZERO. The ladder's
+   free rung is on the lobby board, so "nothing" means the board advertises a
+   table with nobody at it — which is the exact thing this whole population
+   exists to avoid.
+
+   An even share instead, so every free room looks lived in. Rounded up, so
+   three rooms against a target of 55 come out at 19 each rather than 18 and a
+   remainder nobody claims. The global headroom still applies on top, so the
+   rounding cannot push the total past the target by more than a room's worth. */
+function roomShare(at) {
+  let n = 0;
+  for (const r of _rooms) {
+    if (typeof r.botsAllowed === 'function' && !r.botsAllowed()) continue;
+    n++;
+  }
+  return Math.ceil(botTarget(at) / Math.max(1, n));
+}
+
+module.exports = {
+  botTarget, curveAt, easternNow, HOURLY,
+  registerRoom, unregisterRoom, liveBotsEverywhere, globalHeadroom, roomShare,
+};

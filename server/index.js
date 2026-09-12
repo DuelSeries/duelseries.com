@@ -801,6 +801,11 @@ app.post('/api/my-name', async (req, res) => {
    good for two minutes and exactly once. */
 /* A battle royale has begun the moment the count starts, not when it reaches
    zero. Written once so the two cash-out paths cannot drift apart. */
+/* How long a room stays empty after the console's Clear. Long enough to
+   actually measure something with the bots out of the way, short enough that a
+   forgotten click heals itself. */
+const BOTS_PAUSE_MS = 15 * 60 * 1000;
+
 const brClosed = (room) => room.state === 'running' || room.state === 'countdown';
 
 const ALL_SNAKE_ROOMS = () => {
@@ -938,8 +943,20 @@ app.post('/api/owner/do', async (req, res) => {
             if (s && s.isBot) { room.snakes.delete(id); removed++; }
           }
         }
+        /* AND THEY STAY GONE. The automatic top-up runs once a second, so
+           clearing a room used to last about one second — the ops log shows
+           four clears in two minutes, each reporting success, because each one
+           really did remove them and the next tick really did put them back.
+           The button is for taking the bots off to see what the game costs
+           without them, and it could not do that.
+
+           A window rather than a switch: a room cannot be left permanently
+           empty by a click somebody forgot about, and the console says how long
+           it has. Adding bots by hand lifts it immediately. */
+        room._botsPausedUntil = Date.now() + BOTS_PAUSE_MS;
         broadcastLobbyState();
-        return done('Removed ' + removed + ' bot(s) from ' + room.lobbyType);
+        return done('Removed ' + removed + ' bot(s) from ' + room.lobbyType
+          + ' — staying empty for ' + Math.round(BOTS_PAUSE_MS / 60000) + ' minutes');
       }
       /* By hand means by hand. The automatic floor is a floor, not a ceiling,
          and an owner asking for a hundred bots to test something with should
@@ -950,6 +967,9 @@ app.post('/api/owner/do', async (req, res) => {
       /* COUNTED, not assumed. addBot returns null when it refuses, and this
          reported 'Added 3' for three refusals — a console that lies about what
          it just did is worse than one that fails out loud. */
+      /* Asking for bots lifts a Clear. Otherwise +5 during a pause would look
+         exactly as broken as Clear did, in the other direction. */
+      room._botsPausedUntil = 0;
       let made = 0;
       for (let i = 0; i < n; i++) {
         const b = room.addBot();

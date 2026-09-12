@@ -203,3 +203,83 @@ test('bots are snakes, so they look and move exactly like a player does', () => 
       'and a real skin colour: ' + bot.color);
   }
 });
+
+/* ── one population, shared across rooms ─────────────────────────────────────
+   There is more than one free snake room: the fixed `na_free` tier, the
+   ladder's free rung `na_s0`, and the battle royale's waiting room. The target
+   was applied to each of them independently, so a target of 55 meant a hundred
+   and sixty-five snakes simulated and shipped on one core — three times the
+   number, and three times what was measured before it shipped.
+
+   Owen's own console showed it: na_free 8, na_br 55, na_s0 55, agar 20. */
+
+const { registerRoom, unregisterRoom } = require('../server/botPopulation');
+
+function freeRooms(names) {
+  return names.map(n => {
+    const r = room(n);
+    if (/_s\d/.test(n)) r.stake = 0;      // the ladder sets this on its rungs
+    registerRoom(r);
+    return r;
+  });
+}
+function settleAll(rooms) {
+  for (let i = 0; i < 80; i++) for (const r of rooms) r.topUpBots();
+}
+
+test('three free rooms share ONE population, they do not each take it', () => {
+  const rooms = freeRooms(['na_free', 'na_br', 'na_s0']);
+  try {
+    const target = botTarget();
+    settleAll(rooms);
+
+    const total = rooms.reduce((a, r) => a + r.botCount, 0);
+    assert.ok(total <= target + 2,
+      'the whole game holds the target, not the target times three '
+      + '(got ' + total + ' against a target of ' + target + ')');
+    assert.ok(total >= target - 4, 'and it does actually fill (got ' + total + ')');
+
+    /* Every room gets a share. The first version handed out global headroom
+       first-come-first-served and the last room to tick got ZERO — which on the
+       lobby board is a table advertised with nobody at it. */
+    for (const r of rooms) {
+      assert.ok(r.botCount > 0, r.lobbyType + ' is not left empty (' + r.botCount + ')');
+    }
+  } finally { rooms.forEach(unregisterRoom); }
+});
+
+test('clearing a room actually empties it, and it stays empty', () => {
+  /* The console's Clear removed every bot and the once-a-second top-up put them
+     straight back, so the button appeared to do nothing — four clears in two
+     minutes in the ops log, each reporting success. */
+  const rooms = freeRooms(['na_free']);
+  try {
+    settleAll(rooms);
+    const r = rooms[0];
+    assert.ok(r.botCount > 0, 'it filled first');
+
+    for (const [id, s] of [...r.snakes]) if (s && s.isBot) r.snakes.delete(id);
+    r._botsPausedUntil = Date.now() + 60000;          // what bots:clear sets
+
+    for (let i = 0; i < 60; i++) r.topUpBots();
+    assert.equal(r.botCount, 0, 'still empty a minute of top-ups later');
+
+    /* And it heals: the pause is a window, not a switch, so a forgotten click
+       cannot leave a room dead forever. */
+    r._botsPausedUntil = Date.now() - 1;
+    settleAll(rooms);
+    assert.ok(r.botCount > 0, 'once the window passes it fills again');
+  } finally { rooms.forEach(unregisterRoom); }
+});
+
+test('a paused room does not hold the others hostage', () => {
+  /* The paused room still counts toward the shared population. If its share
+     were reserved, clearing one room would starve the rest. */
+  const rooms = freeRooms(['na_free', 'na_br']);
+  try {
+    rooms[0]._botsPausedUntil = Date.now() + 60000;
+    settleAll(rooms);
+    assert.equal(rooms[0].botCount, 0, 'the cleared one stays empty');
+    assert.ok(rooms[1].botCount > 0, 'and the other one still fills');
+  } finally { rooms.forEach(unregisterRoom); }
+});

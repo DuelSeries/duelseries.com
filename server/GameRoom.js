@@ -8,7 +8,7 @@ const allTimeLb = require('./leaderboard');
 const SpatialGrid = require('./SpatialGrid');
 const { encodeSnapshot } = require('../shared/snapshotCodec');
 const profiler = require('./profiler');
-const { botTarget } = require('./botPopulation');
+const { botTarget, globalHeadroom, roomShare, registerRoom, unregisterRoom } = require('./botPopulation');
 
 // Spatial-grid cell size (world units). Body-hit queries use the 3×3 forEachNear block,
 // so GRID_CELL must be >= the largest body-hit radius (~46 for a max-scale snake). The food
@@ -118,6 +118,18 @@ class GameRoom {
       return;
     }
 
+    /* CLEARED MEANS CLEARED, for a while.
+
+       The owner console's Clear deleted every bot and then this refilled the
+       room a second later, so the button appeared to do nothing — four clears
+       in two minutes in the ops log, each one reporting success. It is meant to
+       be usable for exactly what it was being used for: taking the bots off to
+       find out whether they are what is making the game heavy.
+
+       A window rather than a switch, so a room cannot be left permanently empty
+       by a click somebody forgot about. The console says how long it has. */
+    if (this._botsPausedUntil && Date.now() < this._botsPausedUntil) return;
+
     /* Dead bots are swept. A dead snake stays in the map so the client can
        play its death out, but a bot nobody is watching is just a leak. */
     for (const [id, s] of [...this.snakes]) {
@@ -141,9 +153,21 @@ class GameRoom {
        down by itself. The first version deleted live snakes to hold the number,
        which is a snake vanishing out from under whoever was chasing it — the
        same mistake the tank arena had already been fixed for. */
-    const want = Math.max(0, botTarget() - this.humanCount);
+    const want = Math.max(0, roomShare() - this.humanCount);
     let have = 0;
     for (const s of this.snakes.values()) if (s.isBot && s.alive) have++;
+
+    /* THE TARGET IS THE GAME'S, NOT THIS ROOM'S.
+
+       There is more than one free snake room — the fixed `na_free` tier, the
+       ladder's free rung `na_s0`, and the battle royale's waiting room — and
+       each of them was filling to the target on its own. A target of 55 meant
+       165 snakes simulated and shipped on one core: three times the number, and
+       three times what was measured before it shipped. That is the lag.
+
+       So a room may only take what the game as a whole has left. */
+    const headroom = globalHeadroom();
+    if (headroom <= 0) return;
 
     /* A FEW AT A TIME. This runs once a second, and the target now moves across
        the day rather than sitting on one number — so the first tick after a
@@ -154,16 +178,21 @@ class GameRoom {
        reads as people turning up. It also keeps any single tick cheap: spawning
        is the expensive part, and sixty of them in one tick is a visible hitch in
        a room somebody is already playing in. */
-    const room = Math.min(want - have, 8);
+    const room = Math.min(want - have, headroom, 8);
     for (let i = 0; i < room; i++, have++) { if (!this.addBot()) break; }
   }
 
   start() {
     this.foodManager.spawnInitial(this.worldRadius, this.worldCx, this.worldCy);
+    /* Counted toward the game-wide bot population from the moment it runs, so
+       three free rooms share one target instead of each claiming the whole of
+       it. See botPopulation.registerRoom. */
+    registerRoom(this);
     this.tickInterval = setInterval(() => this.tick(), 1000 / C.TICK_RATE);
   }
 
   stop() {
+    unregisterRoom(this);
     if (this.tickInterval) clearInterval(this.tickInterval);
   }
 
