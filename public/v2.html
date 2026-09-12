@@ -3180,7 +3180,13 @@ function open_(id){
      <span class="lcount${playing>0?' on':''}">
        <span class="ldot" aria-hidden="true"></span><span class="num">${playing}</span>
        playing</span>
-     <button class="enter" onclick="V2Play.launch('${cur.id}',{lobbyType:'free'})">Enter</button>
+     <!-- BY STAKE, not by tier name. There are two free snake rooms on this
+          server: the ladder's free rung (na_s0) and a fixed tier from before
+          the ladder existed (na_free). Play sends {stake:0} and lands in the
+          rung; this button sent {lobbyType:'free'} and landed in the tier — so
+          two buttons on one screen, both saying Free, put players in two
+          different rooms, and each made the other look empty. Free IS a rung. -->
+     <button class="enter" onclick="V2Play.launch('${cur.id}',{stake:0})">Enter</button>
    </div>`;
   document.getElementById('dlob').innerHTML=freeRow+(mine.length
     ?mine.filter(l=>Number(l.stake)!==0).map(l=>`<div class="lr">
