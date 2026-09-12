@@ -1642,6 +1642,13 @@ let spectating   = false;
 /* WHO is being watched, not WHERE they were in a list that rebuilds itself
    thirty times a second. See resolveSpectateTarget. */
 let spectateId = null;
+/* The last body actually handed to the camera, and how many frames the chosen
+   target has been missing from the snapshot. A snake absent for a frame or two
+   is a gap in the payload, not a snake that has gone — see
+   resolveSpectateTarget, which is where the jitter was. */
+let _specLast = null;
+let _specMissing = 0;
+const SPEC_GRACE_FRAMES = 45;   // about a third of a second at the 120Hz cap
 
 /* WHO YOU CAN WATCH, IN A STABLE ORDER.
 
@@ -1669,14 +1676,42 @@ function getSpectateTargets() {
    implicitly by an index landing somewhere new. */
 function resolveSpectateTarget() {
   const targets = getSpectateTargets();
-  if (targets.length === 0) { spectateId = null; return null; }
+  if (targets.length === 0) {
+    /* Hold the last body rather than dropping to nothing. With no target the
+       camera has nothing to follow and stops dead, then snaps when one comes
+       back — which is a jump, not a loss of signal. */
+    return _specLast;
+  }
+
   if (spectateId !== null) {
     const found = targets.find(s => s.id === spectateId);
-    if (found) return found;
+    if (found) { _specLast = found; _specMissing = 0; return found; }
   }
-  /* Lost them. Take whoever is at the front of the stable order rather than
-     holding an id that will never come back. */
+
+  /* MISSING FOR ONE FRAME IS NOT GONE.
+
+     This switched target the instant the snake was absent from displayState,
+     and displayState is rebuilt from whatever the last snapshot happened to
+     carry. A snake can be missing from a single snapshot for reasons that have
+     nothing to do with it dying: the payload is capped at the nearest
+     SNAKES_PER_SNAPSHOT bodies per interest cell, and a snake near that
+     boundary drops in and out as distances shift; the camera crossing a cell
+     boundary swaps which payload arrives at all.
+
+     So the camera jumped to another snake and back, frame after frame, which is
+     exactly what "the snake I am spectating is jittering around" looks like
+     from the outside. It was not the snake moving.
+
+     A few frames of grace covers the flicker. Only a target that has genuinely
+     stayed away gives up its place. */
+  if (spectateId !== null && _specMissing < SPEC_GRACE_FRAMES) {
+    _specMissing++;
+    if (_specLast) return _specLast;          // keep the camera where it was
+  }
+
   spectateId = targets[0].id;
+  _specMissing = 0;
+  _specLast = targets[0];
   return targets[0];
 }
 
@@ -1689,12 +1724,14 @@ function stepSpectate(dir) {
   const at = targets.findIndex(s => s.id === spectateId);
   const from = at < 0 ? 0 : at;
   spectateId = targets[(from + dir + targets.length) % targets.length].id;
+  _specMissing = 0; _specLast = null;     // a deliberate switch is not a gap
   updateSpectateLabel();
 }
 
 function enterSpectate() {
   spectating = true;
   spectateId = null;          // resolved to the first target on the next frame
+  _specLast = null; _specMissing = 0;
   document.getElementById('death-screen').classList.remove('active');
   document.getElementById('spectate-bar').classList.add('active');
   updateSpectateLabel();
