@@ -685,6 +685,10 @@ class BattleRoyaleRoom extends GameRoom {
       /* Names and scores only. A wallet address is nobody else's business and
          the podium is the most public thing this room produces. */
       podium: this.podium || null,
+      /* What first place takes, so the plinth can say it. Zero on a solo run,
+         because payBattleRoyaleWinner refuses to pay one and a podium that
+         promises $20 there would be the screen lying about money. */
+      prize: this.soloRun ? 0 : C.BR_PRIZE_USDC,
     };
   }
 }

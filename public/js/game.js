@@ -1148,6 +1148,44 @@ function paintPrize() {
   el.hidden = false;
 }
 
+/* THE PODIUM, built exactly the way the events page builds its own.
+
+   Three seats in the order they stand in, second then first then third, each
+   a name over a block carrying the placing and what that placing pays. Source
+   order IS the layout, which is why nothing here assigns a column.
+
+   A match can finish with fewer than three people in it, so a seat nobody
+   reached holds a question mark. That reads as an empty seat rather than as
+   missing data, which is the same choice the events page makes for a podium
+   nobody has won yet. */
+function buildPodium(s) {
+  const el = document.getElementById('pod-stand');
+  if (!el) return;
+  const by = {};
+  for (const p of (s.podium || [])) by[p.place] = p;
+
+  /* Only first place is paid, and a dash on second and third says that better
+     than an absent number would. On a solo run the server sends a prize of
+     zero, so first place gets the dash too rather than being shown a $20 that
+     payBattleRoyaleWinner will refuse to pay. */
+  const prize = Number(s.prize) || 0;
+  const RANK = ['1st', '2nd', '3rd'];
+
+  el.innerHTML = [2, 1, 3].map(function (place) {
+    const who = by[place];
+    const pays = (place === 1 && prize > 0) ? ('$' + prize) : '&mdash;';
+    return '<div class="plinth p' + place + '">' +
+        '<div class="pwho' + (who ? '' : ' empty') + '">' +
+          (who ? escapeHtml(String(who.name || 'Player')) : '?') +
+        '</div>' +
+        '<div class="pblock">' +
+          '<span class="prank">' + RANK[place - 1] + '</span>' +
+          '<span class="pmoney">' + pays + '</span>' +
+        '</div>' +
+      '</div>';
+  }).join('');
+}
+
 function brApply(s) {
   if (!brHud || !isBattleRoyale) return;
   /* Counting down IS the match starting, so cash out closes here rather than
@@ -1331,14 +1369,7 @@ function podiumApply(s) {
       : 'Nobody survived';
     paintPrize();
 
-    /* Place decides the column, so the winner stands in the middle whether
-       three people finished or two. */
-    document.getElementById('pod-stand').innerHTML = s.podium.slice(0, 3).map(p =>
-      '<li class="p' + p.place + '">' +
-        '<span class="pn">' + escapeHtml(String(p.name || 'Player').slice(0, 14)) + '</span>' +
-        '<span class="ps">' + (p.score || 0) + '</span>' +
-        '<span class="plinth">' + p.place + '</span>' +
-      '</li>').join('');
+    buildPodium(s);
   }
 
   /* Every update, not just the first: the arena is still travelling. */
@@ -1722,8 +1753,8 @@ socket.on('cashout:result', ({ newBalance, earnedSol, gross, cut, score, length,
   if (isBattleRoyale && _brWinnerId && _brWinnerId === myId) {
     const won = Number(earnedSol) || 0;
     _brPrize = won > 0
-      ? { text: 'You won ' + fmtMoney(won), state: toWallet ? 'sending to your wallet' : '' }
-      : { text: 'No prize', state: 'nothing was staked' };
+      ? { text: 'Cashed out ' + fmtMoney(won), state: toWallet ? 'sending to your wallet' : '' }
+      : null;   /* nothing was staked, so there is nothing to report here */
     paintPrize();
     if (newBalance !== null) sessionStorage.setItem('lastBalance', newBalance);
     return;

@@ -79,8 +79,9 @@ function client({ winnerId = 'me', myId = 'me' } = {}) {
     String,
   };
   vm.createContext(sandbox);
-  vm.runInContext([lift('escapeHtml'), lift('paintPrize'), lift('paintCashout'),
-                   lift('cashoutApply'), lift('podiumApply')].join('\n\n'), sandbox);
+  vm.runInContext([lift('escapeHtml'), lift('paintPrize'), lift('buildPodium'),
+                   lift('paintCashout'), lift('cashoutApply'),
+                   lift('podiumApply')].join('\n\n'), sandbox);
   return { dom, sandbox, apply: (s) => {
     /* brApply's own order, so the test cannot pass on an order the game never
        uses: the cash-out bar is decided before the podium that follows it. */
@@ -93,7 +94,7 @@ function client({ winnerId = 'me', myId = 'me' } = {}) {
 }
 
 const OVER = { state: 'over', cashoutMs: 5000, cashoutTotalMs: 5000, reopenPct: 0,
-               winner: { name: 'Owen', id: 'me' }, soloRun: false,
+               winner: { name: 'Owen', id: 'me' }, soloRun: false, prize: 20,
                podium: [{ place: 1, name: 'Owen', score: 900 },
                         { place: 2, name: 'Nia', score: 640 },
                         { place: 3, name: 'Rob', score: 300 }] };
@@ -161,10 +162,15 @@ test('the congratulations screen comes up when the bar is done, with the podium'
   for (const who of ['Owen', 'Nia', 'Rob']) {
     assert.ok(stand.includes(who), who + ' is on the podium');
   }
-  /* Place drives the column, so first stands in the middle whatever order the
-     server sent them in. */
-  assert.ok(stand.includes('class="p1"') && stand.includes('class="p2"')
-         && stand.includes('class="p3"'), 'each finisher is placed by rank');
+  /* Source order IS the layout, second then first then third, exactly the way
+     the events page builds its own podium. */
+  assert.ok(/class="plinth p2"[\s\S]*class="plinth p1"[\s\S]*class="plinth p3"/.test(stand),
+    'the seats are built in the order they stand in');
+  assert.ok(stand.includes('1st') && stand.includes('2nd') && stand.includes('3rd'),
+    'each block carries its placing');
+  assert.ok(stand.includes('$20'), 'first place carries the prize');
+  assert.ok((stand.match(/&mdash;/g) || []).length === 2,
+    'and second and third carry a dash, because those placings pay nothing');
 });
 
 test('somebody who did not win is not congratulated', () => {
@@ -225,7 +231,7 @@ test('the prize is shown on the podium, whichever half arrives first', () => {
     const c = client();
     c.apply(OVER);
     const receipt = () => {
-      c.sandbox._brPrize = { text: 'You won $18.00', state: 'sending to your wallet' };
+      c.sandbox._brPrize = { text: 'Cashed out $18.00', state: 'sending to your wallet' };
       vm.runInContext('paintPrize()', c.sandbox);
     };
     if (receiptFirst) { receipt(); c.apply(REOPENING); }
@@ -234,7 +240,7 @@ test('the prize is shown on the podium, whichever half arrives first', () => {
     const el = c.dom.els.get('pod-prize');
     assert.strictEqual(el.hidden, false,
       'prize shown when the receipt came ' + (receiptFirst ? 'first' : 'second'));
-    assert.ok(el.innerHTML.includes('You won $18.00'), 'with the amount on it');
+    assert.ok(el.innerHTML.includes('Cashed out $18.00'), 'with the amount on it');
     assert.ok(el.innerHTML.includes('sending to your wallet'), 'and the settle state');
   }
 });
@@ -309,4 +315,33 @@ test('the wall really does stop when the match is decided', () => {
   assert.strictEqual(room.worldCx, 1200);
   assert.strictEqual(room.worldCy, -400);
   assert.strictEqual(room.state, 'over', 'and it is still holding');
+});
+
+test('a solo run shows a dash on first place, not a prize it will not be paid', () => {
+  /* payBattleRoyaleWinner refuses to pay a solo run, so the server sends a
+     prize of zero and the plinth must say so. A podium showing $20 that never
+     arrives is the screen lying about money, which is the one thing it cannot
+     do. */
+  const c = client();
+  c.apply(Object.assign({}, OVER, { soloRun: true, prize: 0 }));
+  c.apply(Object.assign({}, REOPENING, { soloRun: true, prize: 0 }));
+  const stand = c.dom.els.get('pod-stand').innerHTML;
+  assert.ok(!stand.includes('$'), 'no money is promised anywhere on the podium');
+  assert.strictEqual((stand.match(/&mdash;/g) || []).length, 3,
+    'all three placings show a dash');
+});
+
+test('a podium seat nobody reached holds a question mark', () => {
+  /* A match can finish with two people in it. The events page draws an unwon
+     podium the same way, so an empty seat reads as a seat rather than as
+     missing data. */
+  const c = client();
+  const two = { podium: [{ place: 1, name: 'Owen', score: 900 },
+                         { place: 2, name: 'Nia', score: 640 }] };
+  c.apply(Object.assign({}, OVER, two));
+  c.apply(Object.assign({}, REOPENING, two));
+  const stand = c.dom.els.get('pod-stand').innerHTML;
+  assert.ok(stand.includes('pwho empty'), 'third place is drawn as an empty seat');
+  assert.ok(stand.includes('>?<'), 'holding a question mark');
+  assert.ok(stand.includes('Owen') && stand.includes('Nia'), 'the two who finished are on it');
 });

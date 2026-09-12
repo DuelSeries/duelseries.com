@@ -1326,7 +1326,7 @@ app.get('/api/live', (_req, res) => {
    and the failure is silent — the event simply runs an hour out and nothing
    says which hour was right. Working in wall-clock seconds means the daylight
    saving switch takes care of itself. Same reasoning as the lobby countdown. */
-const BR_PRIZE_USDC = 20;
+const BR_PRIZE_USDC = C.BR_PRIZE_USDC;
 const BR_AUTOSTART_HOUR = C.BR_AUTOSTART_HOUR, BR_AUTOSTART_MIN = C.BR_AUTOSTART_MIN;  // 8:05pm Eastern
 let _brFmt = null;
 try {

@@ -145,6 +145,12 @@ const CONSTANTS = {
      Three seconds is long enough to read as the arena filling rather than a
      switch being flipped, and short enough that nobody waits for it. */
   FOOD_REFILL_SECONDS: 3,
+
+  /* What first place takes. Shared because three places need it now: the payout
+     in index.js, the plinth on the in-game podium, and the events page. A
+     number that is written down twice is a number that will disagree with
+     itself the first time it changes. */
+  BR_PRIZE_USDC: 20,
   /* How far past the border food is allowed to sit, in an ordinary room.
      The red zone is somewhere you can briefly be, so food out there is
      reachable and worth having. A battle royale passes 0 instead: outside its
