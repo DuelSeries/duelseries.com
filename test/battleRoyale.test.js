@@ -693,3 +693,83 @@ test('spectating does not hand over every pellet in the arena', () => {
   assert.ok(/food:\s*\[\]/.test(block),
     'it sends an empty list and lets the first snapshot supply the culled set');
 });
+
+/* ── the configuration Owen actually plays ────────────────────────────────
+   One person, a lobby full of bots. Every other test in this file uses two
+   humans, which is a match nobody has ever played on this game, and that is
+   exactly why the bug below survived: the path that was measured was not the
+   path that runs. */
+
+function soloRoom(bots) {
+  const io = { to: () => ({ emit: () => {} }), emit: () => {} };
+  const r = new BattleRoyaleRoom(io, 'na_br');
+  r.broadcastSnapshot = () => {};
+  r.topUpBots = () => {};
+  r.start();
+  if (r.tickInterval) clearInterval(r.tickInterval);
+
+  const human = r.addBot();
+  human.isBot = false; human.name = 'MrPeanuttt';
+  r.players.set(human.id, { socket: { emit() {} }, name: 'MrPeanuttt' });
+
+  const mobs = [];
+  for (let i = 0; i < bots; i++) mobs.push(r.addBot());
+
+  r.state = 'running';
+  r.startedWith = 1;                      // one human: a solo run
+  r.startedAt = Date.now();
+  return { r, human, mobs };
+}
+
+test('a solo run is not over while bots are still alive', () => {
+  const { r, mobs } = soloRoom(3);
+  r.checkForWinner();
+  assert.strictEqual(r.state, 'running', 'three bots left, nothing is decided');
+  r.killSnake(mobs[0]);
+  r.checkForWinner();
+  assert.strictEqual(r.state, 'running', 'two left, still nothing');
+});
+
+test('outlasting the last bot ends it while you are STILL ALIVE', () => {
+  /* Owen's words: "when the second to last person dies and there is only 1
+     person left, as soon as this happens that auto cashout bar will appear".
+     The bar is driven by state 'over' with a cash-out countdown, so what has
+     to be true here is that the match is decided while he is on his feet. */
+  const { r, human, mobs } = soloRoom(2);
+  r.killSnake(mobs[0]);
+  r.checkForWinner();
+  assert.strictEqual(r.state, 'running');
+
+  r.killSnake(mobs[1]);                   // the second-to-last snake dies
+  r.checkForWinner();
+
+  assert.strictEqual(r.state, 'over', 'the match is decided');
+  assert.strictEqual(human.alive, true, 'and he is ALIVE for it');
+  assert.ok(r.winner && r.winner.id === human.id, 'he won it');
+  assert.ok(r.cashoutAt > r.endedAt, 'with the five seconds still to run');
+  assert.strictEqual(r.publicState().cashoutMs > 0, true, 'so the bar has something to fill');
+});
+
+test('dying in a solo run is losing, not winning', () => {
+  /* THE BUG HE REPORTED. The old fallback reached back one tick and crowned
+     the corpse, so dying produced "Congratulations, you won!" over a podium. */
+  const { r, human } = soloRoom(3);
+  r.killSnake(human);
+  r.checkForWinner();
+
+  assert.strictEqual(r.state, 'over', 'his match is finished');
+  assert.strictEqual(r.winner, null, 'and he did NOT win it');
+  const st = r.publicState();
+  assert.strictEqual(st.winner, null, 'nothing on screen congratulates him');
+});
+
+test('a solo run still pays nothing, however it ends', () => {
+  /* Outlasting bots is not outlasting people, and escrow is not paying $20 for
+     it. This is the guard that lets the fix above be safe. */
+  const { r, mobs } = soloRoom(1);
+  r.killSnake(mobs[0]);
+  r.checkForWinner();
+  assert.strictEqual(r.state, 'over');
+  assert.strictEqual(r.soloRun, true, 'still flagged a solo run');
+  assert.strictEqual(r.publicState().prize, 0, 'and the podium promises nothing');
+});

@@ -550,12 +550,31 @@ class BattleRoyaleRoom extends GameRoom {
     if (this.state !== 'running') return;
     const alive = this.humanSnakes();
 
-    /* A solo run ends when the circle gets you, and NOT when the clock runs
-       out — the clock running out is the start of sudden death, which is the
-       part worth watching. Ending on the buzzer meant the one person who can
-       test this never got to see it. */
+    /* A SOLO RUN IS DECIDED BY THE WHOLE MAP, NOT BY THE ONE HUMAN ON IT.
+
+       This used to read "if the human is alive, carry on", which meant a solo
+       run could only ever end when Owen died — and then handed him the podium
+       for dying. He reported exactly that: "it was only after i die is when
+       this screen comes up", over a card saying Congratulations, you won.
+
+       The reason it went unnoticed is worth keeping: every test and every
+       measurement of this path used two humans, which is a match nobody has
+       ever played on this game. The one configuration that exists in real life
+       is one person and a lobby full of bots, and that was the configuration
+       nothing covered.
+
+       So in a solo run the bots ARE the opposition, because they are the only
+       opposition there is. The match runs until one snake is left standing on
+       the map, whoever that snake belongs to, which is what "last one standing"
+       says on the card and what Owen asked for: the second-to-last snake dies,
+       he is the only one left, and the cash-out starts while he is still alive.
+
+       A multi-human match is untouched. Its rule is already last human
+       standing, and that path does hand the winner five seconds alive before
+       the payout — measured, on a two-player match. */
+    const onMap = this.livingSnakes();
     if (this.isSoloRun()) {
-      if (alive.length) { this._prevAlive = alive; return; }
+      if (alive.length && onMap.length > 1) { this._prevAlive = alive; return; }
     } else if (alive.length > 1) { this._prevAlive = alive; return; }
 
     /* The previous tick's survivors, kept because the count can go straight
@@ -567,7 +586,20 @@ class BattleRoyaleRoom extends GameRoom {
        the better run wins, which is the only tiebreak here that is about how
        they played rather than which one the loop happened to reach first. */
     let won = alive[0] || null;
-    if (!won && this._prevAlive && this._prevAlive.length) {
+
+    /* DYING DOES NOT WIN A SOLO RUN. The fallback below exists for a real
+       hazard — two snakes killed by the border on the same tick, where nobody
+       is left and the better run should take it. In a solo run it did something
+       else entirely: the human dies, there is no living human, and the fallback
+       reached back a tick and crowned the corpse. That is the "Congratulations,
+       you won!" Owen got for losing.
+
+       Here the answer is simply whoever is still standing. If that is a bot, he
+       was beaten, and the card has to say so. */
+    if (this.isSoloRun()) {
+      const last = onMap.length === 1 ? onMap[0] : null;
+      won = (last && !last.isBot) ? last : null;
+    } else if (!won && this._prevAlive && this._prevAlive.length) {
       won = this._prevAlive.slice().sort((a, b) => (b.score || 0) - (a.score || 0))[0];
     }
     this._prevAlive = alive;
