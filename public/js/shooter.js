@@ -31,6 +31,9 @@
 
   var map = null;                 // { cols, rows, tile, cells: Uint8Array, bank, sight }
   var prev = null, next = null, prevAt = 0, nextAt = 0;
+  /* The room's tick, and a smoothed view of how fast snapshots really land. */
+  var SNAP_MS = 1000 / 30;
+  var _span = SNAP_MS;
   var dpr = 1, started = false, S = 1;
   var cam = { x: 0, y: 0 };
   /* Where your own tank actually is ON SCREEN, in CSS pixels, as of the last
@@ -650,7 +653,23 @@ function pressable(el, fn) {
     ctx.fillRect(0, 0, cv.width, cv.height);
     if (!map || !next || !next.you || !started) return;
 
-    var span = Math.max(1, nextAt - prevAt);
+    /* HOW FAST THE REPLAY RUNS.
+
+       This used to be the raw gap between the last two packets ARRIVING. The
+       room ticks at a fixed rate, so every snapshot is the same slice of
+       simulated time whenever it turns up — but playing each one back over
+       however long the network happened to take meant a packet 20ms behind the
+       last one was replayed in 20ms and one 60ms behind in 60ms. The tank
+       therefore sped up and slowed down in step with the jitter. At a hundred
+       frames a second you see every bit of that, which is how a game reports a
+       high frame rate and still does not look smooth.
+
+       Smoothed towards the nominal tick instead, and held near it. A burst of
+       jitter no longer changes the speed of anything; a genuine change in rate
+       is still followed, just over a second rather than instantly. */
+    var gap = Math.max(1, nextAt - prevAt);
+    _span += (gap - _span) * 0.08;
+    var span = Math.max(SNAP_MS * 0.6, Math.min(SNAP_MS * 2.2, _span));
     var t = Math.min(1, (performance.now() - nextAt) / span);
     var you = next.you, pyou = (prev && prev.you) || you;
 
