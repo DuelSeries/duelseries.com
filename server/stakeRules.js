@@ -2,7 +2,7 @@
 /* ─── The stake ladder ────────────────────────────────────────────────────────
    Buy-ins are a fixed set, not any amount:
 
-     free · 0.50 · 2
+     free · 0.10 · 1
 
    Cut from nine rungs to three. Nine gave the buy-in control a stepper and a
    row of dots to page through, and split what few players there are across
@@ -28,7 +28,12 @@
    refusing is the right answer, and the client cannot get there because it is
    quoted a tier before it signs anything. */
 
-const STAKE_TIERS = [0.50, 2];
+/* Ten cents and a dollar, which is what Owen asked for and also what the
+   rooms have always been called: money.js has carried { dime: 0.10,
+   dollar: 1.00 } since before this ladder existed, and the ladder had drifted
+   to 0.50/2 beside it. Two tables disagreeing about what a rung costs is the
+   kind of thing that is fine until the day it is not. */
+const STAKE_TIERS = [0.10, 1];
 const FREE = 0;
 const ALL_STAKES = [FREE].concat(STAKE_TIERS);
 
