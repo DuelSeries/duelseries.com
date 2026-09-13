@@ -865,7 +865,12 @@ body.no-foot footer{display:none}
 /* A built duel plays for nothing while the mode is new, so it shows the real
    ladder with the paid rungs struck through rather than a stepper that implies
    a stake it cannot take. */
-#detail.duel.freeonly .duelbet{display:none}
+/* A table with a fixed ladder has no use for the open-ended stepper, and
+   showing both meant two buy-in controls on one screen disagreeing about which
+   one you were actually choosing. The stepper is still here, and still the
+   right control for a duel where you name your own stake - there just is not
+   one of those today. */
+#detail.duel.freeonly .duelbet,#detail.duel.paidduel .duelbet{display:none}
 #detail.duel.freeonly .stakes,#detail.duel.freeonly .stakeoff,
 #detail.duel.freeonly .sl,#detail.duel.paidduel .sl{display:block}
 #detail.duel.freeonly .stakes,#detail.duel.paidduel .stakes{display:flex}

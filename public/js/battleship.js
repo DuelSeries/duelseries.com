@@ -294,6 +294,16 @@ function buildTray() {
 
 /* Picking a ship up, dragging it over the chart, and dropping it. Pointer
    events so a mouse and a finger are the same code. */
+/* PICKING A SHIP UP.
+
+   On a mouse this is a drag: press, move, release. On a finger it is a TAP —
+   tap the ship, tap Turn as many times as you like, tap the square. Dragging
+   with one finger while reaching for a rotate button with another works, but it
+   is fiddly, and this is the same three taps without the holding.
+
+   Both live in the same `dragging` object, so everything downstream — the
+   ghost, the drop preview, the rotate — is one code path. `held` is the only
+   thing that differs: a held ship stays picked up when the pointer lifts. */
 $('tray').addEventListener('pointerdown', (e) => {
   const el = e.target.closest('.trayShip');
   if (!el || !st || st.state !== 'placing') return;
@@ -301,15 +311,58 @@ $('tray').addEventListener('pointerdown', (e) => {
   const spec = (st.fleet || []).find(f => f.key === key);
   if (!spec) return;
   e.preventDefault();
-  dragging = { key, len: spec.len, horiz, at: null, el };
+
+  /* Already carrying this one? The tap puts it back down. */
+  if (dragging && dragging.held && dragging.key === key) {
+    clearHeld();
+    return;
+  }
+  const touch = e.pointerType !== 'mouse';
+  if (dragging && dragging.el) dragging.el.classList.remove('dragging');
+  dragging = { key, len: spec.len, horiz, at: null, el, held: touch };
   el.classList.add('dragging');
   showGhost(e.clientX, e.clientY);
   paintRotFab();
+  if (touch) $('dockMsg').textContent = spec.name + ' in hand. Tap a square to drop it.';
+});
+
+function clearHeld() {
+  if (!dragging) return;
+  if (dragging.el) dragging.el.classList.remove('dragging');
+  dragging = null;
+  hideGhost();
+  buildTray();
+  paint();
+  paintRotFab();
+  maybeSubmit();
+}
+
+/* A held ship lands on the square you tap. */
+$('mine').addEventListener('click', (e) => {
+  if (!dragging || !dragging.held || !st || st.state !== 'placing') return;
+  const sq = squareAt($('mine'), e.clientX, e.clientY);
+  if (!sq) return;
+  const cells = cellsFor(sq.x, sq.y, dragging.len, dragging.horiz);
+  if (!cells) { $('dockMsg').textContent = 'That hangs off the grid.'; return; }
+  const used = occupied(dragging.key);
+  if (cells.some(c => used.has(c))) { $('dockMsg').textContent = 'Something is already there.'; return; }
+  layout.set(dragging.key, { x: sq.x, y: sq.y, horiz: dragging.horiz });
+  clearHeld();
+});
+
+/* And it follows the finger between taps, so you can see where it will go. */
+$('mine').addEventListener('pointermove', (e) => {
+  if (!dragging || !dragging.held) return;
+  const sq = squareAt($('mine'), e.clientX, e.clientY);
+  dragging.at = sq;
+  moveGhost(e.clientX, e.clientY);
+  paint();
 });
 
 /* A ship already on the chart can be picked back up. */
 $('mine').addEventListener('pointerdown', (e) => {
   if (!st || st.state !== 'placing' || dragging) return;
+  const heldTap = e.pointerType !== 'mouse';
   const sq = squareAt($('mine'), e.clientX, e.clientY);
   if (!sq) return;
   for (const [key, pos] of layout) {
@@ -320,11 +373,13 @@ $('mine').addEventListener('pointerdown', (e) => {
     e.preventDefault();
     layout.delete(key);
     horiz = pos.horiz;
-    dragging = { key, len: spec.len, horiz: pos.horiz, at: null, el: null };
+    dragging = { key, len: spec.len, horiz: pos.horiz, at: null, el: null, held: heldTap };
+    horiz = pos.horiz;
     buildTray();
     showGhost(e.clientX, e.clientY);
     paint();
     paintRotFab();
+    if (heldTap) $('dockMsg').textContent = spec.name + ' in hand. Tap a square to drop it.';
     return;
   }
 });
@@ -339,6 +394,9 @@ window.addEventListener('pointermove', (e) => {
 
 window.addEventListener('pointerup', () => {
   if (!dragging) return;
+  /* A held ship stays in hand when the finger lifts: that is the whole point
+     of tapping rather than dragging. It is put down by tapping a square. */
+  if (dragging.held) return;
   const d = dragging;
   hideGhost();
   if (d.el) d.el.classList.remove('dragging');
@@ -522,12 +580,48 @@ $('theirs').addEventListener('click', (e) => {
    says "actually, not there". */
 
 
-$('fire').addEventListener('click', () => {
-  if (aimed === null || !st || !st.yourTurn) return;
-  socket.emit('bs:fire', { cell: aimed });
+function fireAt(cell) {
+  if (cell === null || !st || !st.yourTurn) return false;
+  socket.emit('bs:fire', { cell });
   aimed = null;
   paintBar();
   paint();
+  return true;
+}
+
+$('fire').addEventListener('click', () => { fireAt(aimed); });
+
+/* Owen: "if I tap a slot twice then it would fire a shot there instead of
+   dragging my mouse down to confirm every time."
+
+   Only on your own turn, and only on a square you could actually fire at — a
+   double-click out of turn still just leaves the square lined up, which is the
+   same thing a single one does. Confirm stays for anybody who would rather not
+   commit on a double-click. */
+$('theirs').addEventListener('dblclick', (e) => {
+  if (!st || !st.yourTurn) return;
+  const sq = squareAt($('theirs'), e.clientX, e.clientY);
+  if (!sq) return;
+  if ((st.myShots || []).some(m => m.cell === sq.cell)) return;
+  e.preventDefault();
+  fireAt(sq.cell);
+});
+
+/* The same gesture with a finger. dblclick is unreliable on touch, so two taps
+   on the same square inside half a second count. */
+let lastTap = { cell: -1, at: 0 };
+$('theirs').addEventListener('pointerdown', (e) => {
+  if (e.pointerType === 'mouse') return;
+  if (!st || st.state !== 'playing') return;
+  const sq = squareAt($('theirs'), e.clientX, e.clientY);
+  if (!sq) return;
+  const now = Date.now();
+  const again = sq.cell === lastTap.cell && now - lastTap.at < 500;
+  lastTap = { cell: sq.cell, at: now };
+  if (!again || !st.yourTurn) return;
+  if ((st.myShots || []).some(m => m.cell === sq.cell)) return;
+  e.preventDefault();
+  fireAt(sq.cell);
 });
 
 const name = (c) => LETTERS[c % GRID] + (Math.floor(c / GRID) + 1);
@@ -656,6 +750,9 @@ socket.on('bs:state', (view) => {
   $('bar').hidden = false;
   $('dock').hidden = view.state !== 'placing';
   document.body.classList.toggle('firing', view.state === 'playing' || view.state === 'settling');
+  /* The dock only exists while placing, and on a phone the two boards are
+     sized off whatever height is left over, so the layout has to know. */
+  document.body.classList.toggle('placing', view.state === 'placing');
 
   if (first) buildTray();
   if (wasPlacing && view.state === 'countdown') {
@@ -682,6 +779,10 @@ socket.on('bs:state', (view) => {
   paintLive();
   paintRotFab();
   paintClock();
+  /* Twice: once to size the boards against the furniture this state shows, and
+     again after, because hiding the dock changes what is left over. */
+  fitBoards();
+  fitBoards();
   paint();
 });
 
@@ -764,5 +865,38 @@ $('againBtn').addEventListener('click', () => {
   queue();
 });
 
-window.addEventListener('resize', () => paint());
+/* ── BOTH BOARDS ON ONE SCREEN ───────────────────────────────────────────────
+   Owen: "I want both of mine and the opponent's squares to fit on my one
+   screen, I don't want to have to scroll."
+
+   On a phone a board sized off the WIDTH is about 350px, and two of those is
+   700px of board before any furniture. So on a narrow screen they are sized off
+   what is LEFT: measure the strip, the bar, the dock and the two titles, halve
+   the remainder, and cap the boards at that. They shrink rather than the page
+   growing, which is the trade Owen offered.
+
+   Measured rather than written into the stylesheet as a calc, because the
+   furniture is not a fixed height — the dock is only there while placing, the
+   safe-area inset differs per phone, and a font that renders a pixel taller
+   moves all of it. The calc version got within eleven pixels, which is another
+   way of saying it did not fit. */
+function fitBoards() {
+  const boards = $('boards');
+  if (!boards || !window.matchMedia('(max-width: 760px)').matches) {
+    if (boards) boards.style.removeProperty('--bmax');
+    return;
+  }
+  const h = (el) => (el && !el.hidden ? el.offsetHeight : 0);
+  const title = document.querySelector('.bt');
+  const titles = title ? (title.offsetHeight + 4) * 2 : 44;
+  /* 10 for the gap between them, 6 top padding, and 8 of slack so a rounding
+     error lands on the safe side of the fold rather than the wrong one. */
+  const avail = window.innerHeight - h($('top')) - h($('bar')) - h($('dock')) - titles - 30;
+  const max = Math.max(140, Math.floor(avail / 2));
+  const now = max + 'px';
+  if (boards.style.getPropertyValue('--bmax') === now) return;   // no layout thrash
+  boards.style.setProperty('--bmax', now);
+}
+
+window.addEventListener('resize', () => { fitBoards(); paint(); });
 window.addEventListener('beforeunload', () => socket.emit('bs:leave'));

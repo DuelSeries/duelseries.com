@@ -232,18 +232,84 @@ canvas { width: 100%; height: auto; display: block; border-radius: 10px; }
    so they stack: the board you are working on goes FIRST once the shooting
    starts, and your own goes first while you are still laying ships out. */
 @media (max-width: 760px) {
-  #boards { grid-template-columns: 1fr; gap: 14px; padding: 8px 12px 0; }
-  body.firing .boardwrap:first-child { order: 2; }
-  #top { gap: 10px; padding-left: 12px; padding-right: 12px; }
-  .who { font-size: 12px; }
+  /* ── BOTH BOARDS ON ONE SCREEN ────────────────────────────────────────────
+     Owen: "I want both of mine and the opponent's squares to fit on my one
+     screen, I don't want to have to scroll." They did not before — two boards
+     sized off the WIDTH of a phone are about 350px each, which is 700px of
+     board before any of the furniture, and a phone has neither the room nor the
+     patience for that.
+
+     So on a phone they are sized off the HEIGHT instead: take the screen, take
+     off everything that is not board, halve what is left, and no board may be
+     wider than that. They shrink rather than the page growing, which is the
+     trade Owen offered — "I don't mind it being a little bit smaller."
+
+     The budget differs between the two halves of a match, because the ship dock
+     only exists while you are placing. dvh rather than vh so the browser's own
+     chrome sliding in and out does not push a board off the bottom. */
+  #boards {
+    grid-template-columns: 1fr; gap: 10px; padding: 6px 12px 0;
+    justify-items: center;
+  }
+  /* --bmax is set by fitBoards() in the client, from the height actually left
+     over once the strip, the bar, the dock and the two titles have taken
+     theirs. Hard-coding those in a calc here got within eleven pixels of
+     fitting, which is another way of saying it did not fit — and eleven pixels
+     is what a slightly taller font or one more safe-area inset costs. */
+  .boardwrap { width: 100%; max-width: min(100%, var(--bmax, 100%)); }
+
+  /* THEIRS ON TOP, MINE UNDERNEATH, always.
+
+     While placing it means the tray and your own waters are next to each other,
+     so a ship travels a couple of centimetres instead of the length of the
+     screen. While firing it puts the board you shoot at nearest the top, where
+     it is not under your own hand. The ring says which one is live, so nothing
+     is lost by keeping the order fixed. */
+  #wrapTheirs { order: 1; }
+  #wrapMine   { order: 2; }
+
+  .bt { font-size: 9px; margin-bottom: 4px; letter-spacing: 0.1em; }
+  #top { gap: 10px; padding-left: 12px; padding-right: 12px;
+         padding-top: calc(6px + env(safe-area-inset-top)); padding-bottom: 6px; }
+  .who { font-size: 11.5px; }
   .fleetbar i { width: 4px; height: 9px; }
+  .clock .num { font-size: 20px; }
+  #dock { margin-top: 8px; }
+  /* The message gets its own line. Sharing a row with the hint and Auto on a
+     300px screen squeezed it into a five-line column, which is both ugly and
+     forty pixels of height spent on nothing. */
+  .dockhd { gap: 8px; }
+  #dockMsg { flex: 1 1 100%; font-size: 12px; }
   #dock, #bar { padding-left: 12px; padding-right: 12px; }
-  #tray { gap: 7px; }
+  #bar { margin-top: 8px; padding-top: 8px; padding-bottom: calc(8px + env(safe-area-inset-bottom)); }
+  #tray { gap: 6px; min-height: 0; }
+  .trayShip { padding: 3px; }
+  .trayName { font-size: 8px; }
+  #hint { font-size: 12px; }
+  #fire { padding: 10px 16px; font-size: 13px; }
 }
 
+/* A LOADING INDICATOR THAT DOES NOT INDICATE LOADING IS BROKEN.
+
+   Owen: "the little circle spins on mobile but on PC it doesn't." It is this
+   block. Turning every animation off under reduced motion froze the one thing
+   on that card whose whole job is to say something is happening, so a desktop
+   with animations turned down showed a still ring over "Looking for an
+   opponent" and no sign it was looking.
+
+   Reduced motion asks for less MOVEMENT, not less feedback. The spin is
+   replaced with a slow opacity breathe: nothing travels across the screen, and
+   the card still plainly says it is working. */
+@media (prefers-reduced-motion: reduce) {
+  .waitSpin {
+    animation: bs-breathe 1.6s ease-in-out infinite !important;
+    border-top-color: var(--act, #f0a830);
+  }
+  @keyframes bs-breathe { 0%,100% { opacity: 0.30; } 50% { opacity: 1; } }
+}
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
-  .waitSpin, #count span, #over, #over .overCard { animation: none; }
+  #count span, #over, #over .overCard { animation: none; }
 }
 
 /* ── WHOSE SHOT IT IS ────────────────────────────────────────────────────────
@@ -281,8 +347,11 @@ canvas { width: 100%; height: auto; display: block; border-radius: 10px; }
 .boardwrap.live.theirs .bt { --ring: 240,168,48; }
 .boardwrap.live.mine .bt { --ring: 224,85,74; }
 
+/* Low, not high. Sat under the strip it landed squarely on the board title,
+   so for two seconds every turn the screen read "HOPPER · THE…". Down here it
+   is over empty space, next to the button the call is telling you to press. */
 #turnCall {
-  position: fixed; left: 50%; top: calc(54px + env(safe-area-inset-top));
+  position: fixed; left: 50%; bottom: calc(84px + env(safe-area-inset-bottom));
   transform: translateX(-50%); z-index: 30; pointer-events: none;
 }
 #turnCall[hidden] { display: none; }
@@ -296,10 +365,10 @@ canvas { width: 100%; height: auto; display: block; border-radius: 10px; }
 }
 #turnCall.theirs span { background: var(--hit); color: #1a0c0a; }
 @keyframes bs-call {
-  0%   { opacity: 0; transform: translateY(-12px) scale(0.94); }
+  0%   { opacity: 0; transform: translateY(10px) scale(0.94); }
   14%  { opacity: 1; transform: none; }
   72%  { opacity: 1; transform: none; }
-  100% { opacity: 0; transform: translateY(-6px); }
+  100% { opacity: 0; transform: translateY(6px); }
 }
 
 /* The clock leans on it too: its label already says whose shot it is, so it
