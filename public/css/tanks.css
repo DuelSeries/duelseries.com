@@ -187,24 +187,18 @@ input[type=range]:focus-visible { outline: 2px solid var(--crust); outline-offse
 .overBtns .go { background: var(--crust); border-color: var(--crust); color: var(--ink); }
 .overBtns .go:hover { background: #f6b845; border-color: #f6b845; }
 
-/* A LOADING INDICATOR THAT DOES NOT INDICATE LOADING IS BROKEN.
+/* THE SPINNER SPINS. Under reduced motion as well.
 
-   Owen: "the little circle spins on mobile but on PC it doesn't." It is this
-   block. Turning every animation off under reduced motion froze the one thing
-   on that card whose whole job is to say something is happening, so a desktop
-   with animations turned down showed a still ring over "Looking for an
-   opponent" and no sign it was looking.
+   Twice now: first it was frozen solid by a blanket "animation: none", then it
+   was swapped for an opacity breathe, and Owen's answer to that was the same
+   as before — "the loading circle doesn't move." He is right, and a fade is
+   not movement.
 
-   Reduced motion asks for less MOVEMENT, not less feedback. The spin is
-   replaced with a slow opacity breathe: nothing travels across the screen, and
-   the card still plainly says it is working. */
-@media (prefers-reduced-motion: reduce) {
-  .waitSpin {
-    animation: tk-breathe 1.6s ease-in-out infinite !important;
-    border-top-color: var(--act, #f0a830);
-  }
-  @keyframes tk-breathe { 0%,100% { opacity: 0.30; } 50% { opacity: 1; } }
-}
+   Reduced motion is about not making people ill with large, travelling or
+   parallaxing motion. A 24px ring turning on the spot is the textbook example
+   of essential feedback that stays: it is the only thing on that card saying
+   the search is running, and a still one says the opposite. It is exempted
+   here deliberately rather than by accident. */
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
   /* .waitSpin keeps a breathe above: a still loader says nothing is happening. */

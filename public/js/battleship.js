@@ -263,23 +263,21 @@ function dropPreview() {
   return { cells, ok };
 }
 
-/* How big a ship is in the rail. Seventeen cells of ship stack up down the
-   left, and on a phone turned sideways there are only about 350 pixels to
-   stack them in - at a fixed 22 the rail alone was 450 tall and hung 240 below
-   the fold. Worked out from the height actually available, like the boards. */
-let railCell = 22;
+/* How big a ship is in the row under the board. Seventeen cells of ship have
+   to sit side by side in the width of the board above them, so the cell is
+   worked out from that rather than fixed: at a fixed size the five either
+   wrapped onto a second line or ran off the edge, depending on the phone. */
+let railCell = 18;
 
 function fitRail() {
-  const rail = $('rail');
-  if (!rail || rail.hidden || !st) { return; }
+  const dock = $('dock');
+  if (!dock || dock.hidden || !st) return;
   const fleet = (st.fleet || []);
   const cells = fleet.reduce((a, f) => a + f.len, 0) || 17;
-  /* Everything in the rail that is not ship: the count, the two buttons, and
-     each ship's label, padding and gap. */
-  const furniture = 92 + fleet.length * 16;
-  const room = window.innerHeight - $('top').offsetHeight - furniture - 40;
-  const want = Math.floor(room / cells);
-  railCell = Math.max(9, Math.min(22, want));
+  /* Each ship carries its own padding and border, and there is a gap between
+     them; that is what is NOT available to the hulls. */
+  const room = (dock.clientWidth || window.innerWidth) - fleet.length * 14 - 8;
+  railCell = Math.max(7, Math.min(20, Math.floor(room / cells)));
 }
 
 function buildTray() {
@@ -297,13 +295,16 @@ function buildTray() {
     const cell = railCell;
     const cv = document.createElement('canvas');
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    cv.width = cell * dpr;
-    cv.height = spec.len * cell * dpr;
-    cv.style.width = cell + 'px';
-    cv.style.height = (spec.len * cell) + 'px';
+    /* Lying the way they will sit on the water, in a row under the board.
+       Standing on end they were a short stubby row that wasted the width and
+       did not look like the fleet you are about to place. */
+    cv.width = spec.len * cell * dpr;
+    cv.height = cell * dpr;
+    cv.style.width = (spec.len * cell) + 'px';
+    cv.style.height = cell + 'px';
     const c2 = cv.getContext('2d');
     c2.setTransform(dpr, 0, 0, dpr, 0, 0);
-    window.BattleshipArt.drawShip(c2, spec.key, spec.len, 0, 0, cell, false, 1);
+    window.BattleshipArt.drawShip(c2, spec.key, spec.len, 0, 0, cell, true, 1);
 
     const nm = document.createElement('span');
     nm.className = 'trayName';
@@ -546,15 +547,38 @@ function randomLayout() {
 /* The fleet goes up the moment it is complete. There is no separate Ready: a
    placed fleet IS ready, and a button that is only ever pressed once the work
    is done is a button that exists to be forgotten. */
+/* NOTHING IS SENT UNTIL CONFIRM IS PRESSED.
+
+   It used to go up the moment the fifth ship landed, which took the board away
+   from somebody who had only just finished putting it down and might well want
+   to move one. Now the button lights when the fleet is complete, and the match
+   starts when it is pressed — or when the minute runs out, which the server
+   handles by laying out whatever is missing. */
 function maybeSubmit() {
   if (!st || st.state !== 'placing') return;
   const total = (st.fleet || []).length;
-  if (layout.size !== total) { $('railMsg').textContent = (total - layout.size) + ' to place'; return; }
-  $('railMsg').textContent = 'Fleet ready';
+  const done = layout.size === total;
+  const btn = $('confirm');
+  if (btn) {
+    btn.disabled = !done || sentFleet;
+    btn.textContent = sentFleet ? 'Waiting for them…' : 'Confirm fleet';
+  }
+  $('railMsg').textContent = sentFleet ? 'Fleet confirmed'
+    : done ? 'Ready when you are'
+    : (total - layout.size) + ' to place';
+}
+
+let sentFleet = false;
+
+$('confirm').addEventListener('click', () => {
+  if (!st || st.state !== 'placing' || sentFleet) return;
+  if (layout.size !== (st.fleet || []).length) return;
+  sentFleet = true;
   socket.emit('bs:place', {
     layout: [...layout.entries()].map(([key, p]) => ({ key, x: p.x, y: p.y, horiz: p.horiz })),
   });
-}
+  maybeSubmit();
+});
 
 /* ── the ship under the cursor ─────────────────────────────────────────── */
 
@@ -733,13 +757,13 @@ socket.on('bs:state', (view) => {
   $('wait').hidden = true;
   $('top').hidden = false;
   $('stage').hidden = false;
-  $('rail').hidden = view.state !== 'placing';
+  $('dock').hidden = view.state !== 'placing';
   document.body.classList.toggle('firing', view.state === 'playing' || view.state === 'settling');
   /* The dock only exists while placing, and on a phone the two boards are
      sized off whatever height is left over, so the layout has to know. */
   document.body.classList.toggle('placing', view.state === 'placing');
 
-  if (first) { fitRail(); buildTray(); }
+  if (first) { buildTray(); fitRail(); buildTray(); }
   if (wasPlacing && view.state === 'countdown') {
     /* The server lays a fleet for anybody who ran out of time, so take its word
        for where my ships are rather than keeping my half-finished attempt. */
@@ -846,7 +870,7 @@ $('againBtn').addEventListener('click', () => {
   $('over').hidden = true;
   $('top').hidden = true;
   $('stage').hidden = true;
-  st = null; aimed = null; layout.clear();
+  st = null; aimed = null; layout.clear(); sentFleet = false;
   queue();
 });
 
@@ -879,8 +903,10 @@ function fitBoards() {
   const titles = title ? title.offsetHeight + 6 : 22;
   /* 10 for the gap between them, 6 top padding, and 8 of slack so a rounding
      error lands on the safe side of the fold rather than the wrong one. */
-  const rail = $('rail');
-  const railW = (rail && !rail.hidden) ? rail.offsetWidth + 8 : 0;
+  /* The fleet sits UNDER the board now, so it takes height rather than width. */
+  const dock = $('dock');
+  const dockH = (dock && !dock.hidden) ? dock.offsetHeight + 12 : 0;
+  const railW = 0;
   /* HOW MANY BOARDS ARE ACTUALLY ON SCREEN, which is not always two. While
      placing, the opponent's is hidden and yours has the lot — halving the
      height for a board with nothing beside it left it at two thirds the size it
@@ -893,7 +919,7 @@ function fitBoards() {
   const side = window.matchMedia('(orientation: landscape)').matches;
   const cols = (placing || !side) ? 1 : 2;
   const rows = (placing || side) ? 1 : 2;
-  const avail = window.innerHeight - h($('top')) - titles * rows - 24;
+  const avail = window.innerHeight - h($('top')) - dockH - titles * rows - 24;
   const byHeight = Math.floor(avail / rows);
   const byWidth = Math.floor((window.innerWidth - railW - 24) / cols) - 8;
   const max = Math.max(140, Math.min(byHeight, byWidth));

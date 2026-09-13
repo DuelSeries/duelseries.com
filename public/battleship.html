@@ -40,18 +40,14 @@
      to it, and hiding it hands its entire half of the screen to the board you
      are actually working on — which is the half of this game that needed the
      room. Both are back the moment the shooting starts. -->
-<div id="stage" hidden>
-  <aside id="rail" hidden>
-    <div class="railhd"><span id="railMsg">5 to place</span></div>
-    <div id="tray"></div>
-    <!-- Turn, in the rail rather than floating. As a circle over the board it
-         covered four squares of the thing it was helping you aim at. Touch only:
-         a desktop has R and right-click, both faster. -->
-    <button type="button" id="rotFab" hidden class="mini turnbtn">Turn</button>
-    <button type="button" id="auto" class="mini">Auto</button>
-    <span class="tip" id="rotTip">R or right-click to turn</span>
-  </aside>
+<!-- The board, and the fleet waiting under it.
 
+     The ships were down the left for one round and Owen sent them back: under
+     the board is where your thumb already is, and the drag is straight up onto
+     the water rather than across it. WHILE PLACING, THEIR BOARD IS NOT DRAWN —
+     it is empty and nothing can be done to it, so its half of the screen goes
+     to the one you are working on. Both are back when the shooting starts. -->
+<div id="stage" hidden>
   <main id="boards">
     <section class="boardwrap" id="wrapTheirs">
       <h2 class="bt them" id="foeTitle">Opponent</h2>
@@ -62,6 +58,16 @@
       <div class="pane"><canvas id="mine" width="520" height="520"></canvas></div>
     </section>
   </main>
+
+  <section id="dock" hidden>
+    <div id="tray"></div>
+    <div class="dockbtns">
+      <button type="button" id="auto" class="mini">Auto</button>
+      <button type="button" id="rotFab" hidden class="mini turnbtn">Turn</button>
+      <button type="button" id="confirm" class="mini go" disabled>Confirm fleet</button>
+    </div>
+    <div class="railhd"><span id="railMsg">5 to place</span></div>
+  </section>
 </div>
 
 

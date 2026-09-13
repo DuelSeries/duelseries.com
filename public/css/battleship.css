@@ -79,133 +79,151 @@ html, body {
   font-size: 9.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--tx3);
 }
 
-/* ── the stage: a rail of ships and the boards ──────────────────────────── */
-/* Centred rather than pinned to the top: while placing there is only one
-   board, and left at flex-start it floated under the strip with the space it
-   did not use sitting empty below it. */
+/* ── the stage: the boards, and the fleet under them ───────────────────────
+   A column. The board sits above centre — high enough that the fleet beneath
+   it is within thumb reach and there is no dead band under the buttons — and
+   the ships line up directly under it, so a drag onto the water is a short
+   move straight up rather than across the screen. */
 #stage {
-  display: flex; gap: 14px; align-items: center;
-  min-height: calc(100dvh - 76px);
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
   max-width: 1180px; margin: 0 auto; padding: 10px 16px 0;
+  min-height: calc(100dvh - 76px);
+  justify-content: flex-start;
 }
 #stage[hidden] { display: none; }
 
-/* THE FLEET, STANDING ON END DOWN THE LEFT.
-
-   Along the bottom the ships were competing with the boards for the one
-   dimension a phone does not have. On the left they cost 68px of width, which
-   it does have, and the drag from rail to water is a short sideways move
-   instead of the length of the screen. */
-#rail {
-  flex: 0 0 auto; width: 76px;
-  display: flex; flex-direction: column; align-items: center; gap: 8px;
-  /* A floor under the arithmetic. fitRail() sizes the ships to the height that
-     is there, but if it is ever wrong - a font loads a pixel taller, a phone
-     has a notch nobody predicted - the rail scrolls rather than pushing the
-     board off the bottom of the page. */
-  max-height: calc(100dvh - 64px); overflow-y: auto; overscroll-behavior: contain;
-  scrollbar-width: none;
-}
-#rail::-webkit-scrollbar { display: none; }
-#rail[hidden] { display: none; }
-.railhd {
-  font-family: var(--fm); font-size: 9.5px; letter-spacing: 0.1em;
-  text-transform: uppercase; color: var(--tx3); text-align: center;
-}
-#tray { display: flex; flex-direction: column; align-items: center; gap: 7px; }
-.trayShip {
-  position: relative; cursor: grab; touch-action: none;
-  border-radius: 8px; padding: 3px; background: var(--s1);
-  border: 1px solid var(--s3);
-  display: flex; flex-direction: column; align-items: center;
-  transition: border-color 0.15s, opacity 0.2s, transform 0.12s;
-}
-.trayShip:hover { border-color: #3f4b5b; }
-.trayShip.placed { opacity: 0.26; cursor: default; }
-/* In hand. It stays on screen but plainly spoken for. */
-.trayShip.dragging { opacity: 0.40; border-color: var(--act); }
-.trayShip canvas { border-radius: 0; }
-.trayName {
-  display: block; margin-top: 2px; text-align: center;
-  font-family: var(--fm); font-size: 7.5px; letter-spacing: 0.06em;
-  text-transform: uppercase; color: var(--tx3);
-}
-.mini {
-  font-family: inherit; font-size: 11px; font-weight: 600;
-  border-radius: 8px; padding: 7px 10px; cursor: pointer; width: 100%;
-  border: 1px solid var(--s3); background: var(--s1); color: var(--tx);
-  transition: background 0.15s, border-color 0.15s;
-}
-.mini:hover { background: var(--s2); border-color: #3a4553; }
-.tip {
-  font-family: var(--fm); font-size: 8.5px; line-height: 1.35; text-align: center;
-  letter-spacing: 0.04em; text-transform: uppercase; color: var(--tx3);
-}
-@media (hover: none) and (pointer: coarse) { .tip { display: none; } }
-
 #boards {
-  flex: 1 1 auto; min-width: 0;
+  width: 100%;
   display: grid; grid-template-columns: 1fr 1fr; gap: 16px; justify-items: center;
 }
-/* WHILE PLACING, ONLY YOUR OWN WATERS ARE DRAWN. Theirs is empty and nothing
-   can be done to it, so it hands its half of the screen to the board that
-   needs it. Both are back the moment the shooting starts. */
+/* WHILE PLACING, ONLY YOUR OWN WATERS. Theirs is empty and nothing can be done
+   to it, so its half of the screen goes to the board that needs it. */
 body.placing #boards { grid-template-columns: 1fr; }
 body.placing #wrapTheirs { display: none; }
 
-/* margin-inline rather than leaning on justify-items: a block with a
-   max-width is centred by its own margins, reliably, whatever the grid is
-   doing around it. */
-.boardwrap { min-width: 0; width: 100%; margin-inline: auto;
-  max-width: min(100%, var(--bmax, 100%)); }
+.boardwrap {
+  min-width: 0; width: 100%; margin-inline: auto;
+  max-width: min(100%, var(--bmax, 100%));
+}
 .bt {
   margin: 0 0 8px; font-family: var(--fm); font-size: 10.5px; font-weight: 600;
   letter-spacing: 0.14em; text-transform: uppercase; color: var(--tx3);
 }
 .bt.them { color: var(--hit); opacity: 0.85; }
 canvas { width: 100%; height: auto; display: block; border-radius: 10px; }
+/* THE BOARDS OWN THE GESTURE. Without this the browser reads a finger dragged
+   across the canvas as a page pan and keeps it, so the pointermove events never
+   arrive and a ship already on the water cannot be picked up and moved — which
+   is exactly what Owen hit: "it's hard to drag them from there." The page does
+   not scroll anyway. */
+#mine, #theirs { touch-action: none; }
 #theirs { cursor: crosshair; }
 #mine { cursor: pointer; }
 
-/* The ship under the cursor while it is being dragged. */
+/* ── the fleet, waiting under the board ─────────────────────────────────── */
+#dock {
+  width: 100%; max-width: min(100%, var(--bmax, 100%));
+  display: flex; flex-direction: column; align-items: center; gap: 9px;
+}
+#dock[hidden] { display: none; }
+/* One neat row, centred, sized so all five fit the width of the board above
+   them. They lie the way they will sit on the water. */
+#tray {
+  display: flex; flex-direction: row; justify-content: center; align-items: center;
+  flex-wrap: nowrap; gap: 6px; width: 100%;
+}
+.trayShip {
+  position: relative; cursor: grab; touch-action: none;
+  border-radius: 7px; padding: 3px 4px; background: var(--s1);
+  border: 1px solid var(--s3);
+  display: flex; flex-direction: column; align-items: center;
+  transition: border-color 0.15s, opacity 0.2s, transform 0.12s;
+}
+.trayShip:hover { border-color: #3f4b5b; }
+.trayShip.placed { opacity: 0.24; cursor: default; }
+.trayShip.dragging { opacity: 0.40; border-color: var(--act); }
+.trayShip canvas { border-radius: 0; }
+.trayName {
+  display: block; margin-top: 2px; text-align: center;
+  font-family: var(--fm); font-size: 7px; letter-spacing: 0.04em;
+  text-transform: uppercase; color: var(--tx3);
+}
+
+.dockbtns { display: flex; gap: 8px; width: 100%; }
+.mini {
+  flex: 1 1 0; min-width: 0;
+  font-family: inherit; font-size: 12px; font-weight: 600;
+  border-radius: 9px; padding: 10px 8px; cursor: pointer;
+  border: 1px solid var(--s3); background: var(--s1); color: var(--tx);
+  transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+}
+.mini:hover:not(:disabled) { background: var(--s2); border-color: #3a4553; }
+.turnbtn {
+  border-color: var(--act); background: rgba(240,168,48,0.14); color: var(--act);
+}
+.turnbtn:hover { background: rgba(240,168,48,0.24); }
+/* Touch only: a desktop has R and right-click, both faster than a button. */
+#rotFab { display: none; }
+@media (hover: none) and (pointer: coarse) { #rotFab:not([hidden]) { display: block; } }
+#rotFab[hidden] { display: none !important; }
+
+/* NOTHING STARTS UNTIL THIS IS PRESSED. The fleet used to go up the moment the
+   fifth ship landed, which took the last look away from somebody who had only
+   just put it down. It lights up when all five are placed and not before. */
+.mini.go {
+  border-color: var(--act); background: var(--act); color: #1a1206; font-weight: 700;
+}
+.mini.go:hover:not(:disabled) { background: #f6b845; border-color: #f6b845; }
+.mini.go:disabled {
+  background: transparent; color: var(--tx3); border-color: var(--s3);
+  cursor: default; opacity: 0.7;
+}
+.mini.go:not(:disabled) { animation: bs-ready 1.8s ease-in-out infinite; }
+@keyframes bs-ready {
+  0%,100% { box-shadow: 0 0 0 0 rgba(240,168,48,0.0); }
+  50%     { box-shadow: 0 0 0 4px rgba(240,168,48,0.20); }
+}
+
+.railhd {
+  font-family: var(--fm); font-size: 9.5px; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--tx3); text-align: center;
+}
+.tip { display: none; }
+
 #ghost {
   position: fixed; z-index: 40; pointer-events: none; display: none;
   filter: drop-shadow(0 6px 14px rgba(0,0,0,0.55));
 }
 
-/* ── a phone ────────────────────────────────────────────────────────────────
-   Upright, the rail runs down the left and the boards stack beside it. Sideways
-   they sit next to each other. Either way both fit without scrolling, because
-   fitBoards() in the client measures what is actually left rather than trusting
-   a number written here. */
+/* ── a phone ──────────────────────────────────────────────────────────────── */
 @media (max-width: 760px) {
-  #stage { gap: 8px; padding: 6px 8px 0; }
-  #rail { width: 62px; gap: 6px; }
-  .trayName { font-size: 7px; }
-  .mini { font-size: 10px; padding: 6px 4px; }
-  #boards { gap: 8px; }
+  #stage { gap: 9px; padding: 6px 10px 0; }
+  #boards { gap: 8px; grid-template-columns: 1fr; }
+  /* Stacked upright: theirs on top, mine underneath and nearest the fleet. */
+  #wrapTheirs { order: 1; }
+  #wrapMine   { order: 2; }
   .bt { font-size: 9px; margin-bottom: 4px; letter-spacing: 0.08em; }
   #top { gap: 10px; padding-left: 12px; padding-right: 12px;
          padding-top: calc(6px + env(safe-area-inset-top)); padding-bottom: 6px; }
   .who { font-size: 11.5px; }
   .fleetbar i { width: 4px; height: 9px; }
   .clock .num { font-size: 20px; }
-  /* Stacked upright: theirs on top, mine underneath and nearest the rail. */
-  #boards { grid-template-columns: 1fr; }
-  #wrapTheirs { order: 1; }
-  #wrapMine   { order: 2; }
+  #tray { gap: 4px; }
+  .trayShip { padding: 2px 3px; border-radius: 6px; }
+  .trayName { font-size: 6.5px; }
+  .mini { font-size: 11px; padding: 9px 4px; }
 }
 
-/* Sideways on a phone. Two boards fit beside each other comfortably at this
-   aspect, which is the whole reason to turn it, so they go back to a row. */
+/* Sideways on a phone, the two boards sit next to each other, which is the
+   whole reason to turn it. */
 @media (max-width: 900px) and (orientation: landscape) {
   #boards { grid-template-columns: 1fr 1fr; }
-  #wrapTheirs { order: 2; }     /* mine on the left, theirs on the right */
+  #wrapTheirs { order: 2; }
   #wrapMine   { order: 1; }
-  #rail { width: 56px; }
   #top { padding-top: calc(4px + env(safe-area-inset-top)); padding-bottom: 4px; }
   .clock .num { font-size: 18px; }
   .bt { font-size: 8.5px; margin-bottom: 3px; }
+  #stage { gap: 6px; }
 }
 
 /* ── the countdown ─────────────────────────────────────────────────────── */
@@ -276,24 +294,18 @@ canvas { width: 100%; height: auto; display: block; border-radius: 10px; }
 
 /* ── narrow screens ────────────────────────────────────────────────────────
 
-/* A LOADING INDICATOR THAT DOES NOT INDICATE LOADING IS BROKEN.
+/* THE SPINNER SPINS. Under reduced motion as well.
 
-   Owen: "the little circle spins on mobile but on PC it doesn't." It is this
-   block. Turning every animation off under reduced motion froze the one thing
-   on that card whose whole job is to say something is happening, so a desktop
-   with animations turned down showed a still ring over "Looking for an
-   opponent" and no sign it was looking.
+   Twice now: first it was frozen solid by a blanket "animation: none", then it
+   was swapped for an opacity breathe, and Owen's answer to that was the same
+   as before — "the loading circle doesn't move." He is right, and a fade is
+   not movement.
 
-   Reduced motion asks for less MOVEMENT, not less feedback. The spin is
-   replaced with a slow opacity breathe: nothing travels across the screen, and
-   the card still plainly says it is working. */
-@media (prefers-reduced-motion: reduce) {
-  .waitSpin {
-    animation: bs-breathe 1.6s ease-in-out infinite !important;
-    border-top-color: var(--act, #f0a830);
-  }
-  @keyframes bs-breathe { 0%,100% { opacity: 0.30; } 50% { opacity: 1; } }
-}
+   Reduced motion is about not making people ill with large, travelling or
+   parallaxing motion. A 24px ring turning on the spot is the textbook example
+   of essential feedback that stays: it is the only thing on that card saying
+   the search is running, and a still one says the opposite. It is exempted
+   here deliberately rather than by accident. */
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
   #count span, #over, #over .overCard { animation: none; }
