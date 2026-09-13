@@ -279,6 +279,12 @@
        test is the amount rather than the game. */
     const staking = hasStake && Number(sel.stake) > 0;
     if (OWN_PAGE[game] && !staking) {
+      /* Remember Free as well. defaultStep() already treats 0 as a real rung
+         ("including 0: free is a real choice"), but nothing ever WROTE it —
+         this path returned before the remember below — so playing a free table
+         and coming back landed you on the cheapest paid one instead of where
+         you left off. */
+      if (hasStake && window.rememberStake) window.rememberStake(Number(sel.stake));
       try { sessionStorage.setItem('playerName', name); } catch (_) {}
       const frame = document.getElementById('game-frame');
       if (!frame) { say('That game could not be opened. Refresh and try again.'); return; }

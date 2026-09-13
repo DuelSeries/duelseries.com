@@ -349,3 +349,30 @@ test('a square is a number, not whatever Number() will accept', () => {
   /* And a real one still works, including as the string a query param would be. */
   assert.strictEqual(r.fire(me, '55', 3000).ok, true, 'a numeric string is a square');
 });
+
+test('a shot is ten seconds, because the aiming happens off the clock', () => {
+  /* Owen wanted to line his next square up while the other player is still
+     thinking, and once that is possible twenty seconds of your own turn is dead
+     air: the decision is already made by the time the turn arrives. */
+  assert.strictEqual(BS.TURN_MS, 10000);
+  const { r } = room();
+  play(r, 1000 + BS.PLACE_MS);
+  play(r, 1000 + BS.PLACE_MS + BS.COUNTDOWN_MS);
+  const started = r.phaseEndsAt;
+  const me = r.turn;
+  r.fire(me, 55, 5000);
+  assert.strictEqual(r.phaseEndsAt, 5000 + BS.TURN_MS, 'the next turn gets ten seconds too');
+  assert.ok(started > 0);
+});
+
+test('picking a square early is the client\'s business, and firing is still policed', () => {
+  /* Aiming ahead of your turn happens entirely in the browser — nothing is sent
+     until Confirm. So the guard that matters is unchanged: a shot arriving out
+     of turn is refused however early it was decided on. */
+  const { r } = room();
+  play(r, 1000 + BS.PLACE_MS);
+  play(r, 1000 + BS.PLACE_MS + BS.COUNTDOWN_MS);
+  const notMine = r.opponentOf(r.turn);
+  assert.strictEqual(r.fire(notMine, 44, 5000).ok, false, 'still refused out of turn');
+  assert.strictEqual(r.boards.get(r.turn).shotsAt.size, 0, 'and nothing landed');
+});

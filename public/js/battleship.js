@@ -304,6 +304,7 @@ $('tray').addEventListener('pointerdown', (e) => {
   dragging = { key, len: spec.len, horiz, at: null, el };
   el.classList.add('dragging');
   showGhost(e.clientX, e.clientY);
+  paintRotFab();
 });
 
 /* A ship already on the chart can be picked back up. */
@@ -323,6 +324,7 @@ $('mine').addEventListener('pointerdown', (e) => {
     buildTray();
     showGhost(e.clientX, e.clientY);
     paint();
+    paintRotFab();
     return;
   }
 });
@@ -352,16 +354,57 @@ window.addEventListener('pointerup', () => {
   if (pv) layout.set(d.key, { x: d.at.x, y: d.at.y, horiz: d.horiz });
   buildTray();
   paint();
+  paintRotFab();
   maybeSubmit();
 });
 
-/* Rotate applies to whatever is being dragged, and to the next one placed. */
-$('rotate').addEventListener('click', () => {
+/* TURNING A SHIP. Three ways in, one behaviour.
+
+   The first version had a Rotate button in the dock that set a mode you had to
+   decide BEFORE picking a ship up, which is backwards: you find out a ship does
+   not fit while it is already in your hand. All three of these work mid-drag,
+   and the ghost under the cursor turns with it, so the answer to "will this
+   fit" is on screen while you are asking it.
+
+   R is the one anybody who has played a game like this will try first.
+   Right-click is the other. The button exists for the case where neither is
+   available, which is a phone. */
+function turnShip() {
   horiz = !horiz;
   if (dragging) { dragging.horiz = horiz; showGhostFor(dragging); }
-  $('dockMsg').textContent = horiz ? 'Ships lie across' : 'Ships stand up';
   paint();
+}
+
+window.addEventListener('keydown', (e) => {
+  if (e.key !== 'r' && e.key !== 'R') return;
+  if (!st || st.state !== 'placing') return;
+  e.preventDefault();
+  turnShip();
 });
+
+/* Right-click anywhere on the board while placing. preventDefault so the
+   browser menu does not open over the thing being turned. */
+$('mine').addEventListener('contextmenu', (e) => {
+  if (!st || st.state !== 'placing') return;
+  e.preventDefault();
+  turnShip();
+});
+
+$('rotFab').addEventListener('click', (e) => { e.preventDefault(); turnShip(); });
+/* And on a touch screen the press itself has to turn it, because a finger that
+   is already holding a ship never delivers a click to anything else. */
+$('rotFab').addEventListener('pointerdown', (e) => {
+  if (e.pointerType === 'mouse') return;
+  e.preventDefault();
+  turnShip();
+});
+
+/* On screen only while there is something to turn. */
+function paintRotFab() {
+  const show = !!st && st.state === 'placing'
+    && (dragging !== null || layout.size < (st.fleet || []).length);
+  $('rotFab').hidden = !show;
+}
 
 /* Somebody who does not want to place five ships by hand should not have to. */
 $('auto').addEventListener('click', () => {
@@ -369,6 +412,7 @@ $('auto').addEventListener('click', () => {
   layout = randomLayout();
   buildTray();
   paint();
+  paintRotFab();
   maybeSubmit();
 });
 
@@ -450,8 +494,17 @@ function hideGhost() { if (ghost) ghost.style.display = 'none'; }
 
 /* ── firing ────────────────────────────────────────────────────────────── */
 
+/* AIM WHENEVER YOU LIKE, FIRE ON YOUR TURN.
+
+   Owen: "while the other player is choosing their attack I want to be able to
+   preselect where I want to shoot, and then once it's my turn I'll press
+   confirm attack."
+
+   That is also why the turn clock came down to ten seconds. Picking the square
+   is the slow part and it now happens off the clock, so what is left on your
+   own turn is pressing one button. */
 $('theirs').addEventListener('click', (e) => {
-  if (!st || !st.yourTurn) return;
+  if (!st || (st.state !== 'playing' && st.state !== 'countdown')) return;
   const sq = squareAt($('theirs'), e.clientX, e.clientY);
   if (!sq) return;
   /* A square already fired at is not a target. The server refuses it too; this
@@ -464,6 +517,10 @@ $('theirs').addEventListener('click', (e) => {
   paintBar();
   paint();
 });
+
+/* Aiming again clears an aim; tapping the same square twice is how somebody
+   says "actually, not there". */
+
 
 $('fire').addEventListener('click', () => {
   if (aimed === null || !st || !st.yourTurn) return;
@@ -491,13 +548,48 @@ function paintBar() {
 
   if (st.yourTurn) {
     fire.disabled = aimed === null;
+    fire.classList.toggle('ready', aimed !== null);
     hint.textContent = aimed === null
-      ? 'Your turn. Pick a square on their waters.'
+      ? 'Your shot. Pick a square on their waters.'
       : 'Attack ' + name(aimed) + '?';
   } else {
     fire.disabled = true;
-    hint.textContent = (st.them ? st.them.name : 'Your opponent') + ' is taking their shot…';
+    fire.classList.remove('ready');
+    hint.textContent = aimed === null
+      ? (st.them ? st.them.name : 'Your opponent') + ' is taking their shot. Line yours up now.'
+      : name(aimed) + ' is lined up. Fires as soon as it is your shot.';
   }
+}
+
+/* WHICH BOARD IS LIVE. The ring goes round the board about to be acted on, so
+   attention lands where the work is: their waters when it is your shot, your
+   own while you are being shot at. */
+function paintLive() {
+  const mine = $('wrapMine'), theirs = $('wrapTheirs');
+  const playing = st && st.state === 'playing';
+  mine.classList.toggle('live', !!(playing && !st.yourTurn));
+  mine.classList.toggle('mine', true);
+  theirs.classList.toggle('live', !!(playing && st.yourTurn));
+  theirs.classList.toggle('theirs', true);
+  const clock = $('clockNum').parentElement;
+  clock.classList.toggle('mine', !!(playing && st.yourTurn));
+  clock.classList.toggle('theirs', !!(playing && !st.yourTurn));
+}
+
+/* And the change of hands is announced once, rather than being something you
+   have to notice. */
+let callTimer = 0;
+function callTurn(yours) {
+  const box = $('turnCall');
+  $('turnCallText').textContent = yours ? 'Your shot' : 'Their shot';
+  box.classList.toggle('theirs', !yours);
+  box.hidden = false;
+  /* Restart the animation rather than waiting for it: two turns can change
+     hands inside two seconds when both players are quick. */
+  const span = $('turnCallText');
+  span.style.animation = 'none'; void span.offsetWidth; span.style.animation = '';
+  clearTimeout(callTimer);
+  callTimer = setTimeout(() => { box.hidden = true; }, 1900);
 }
 
 function paintTop() {
@@ -572,13 +664,28 @@ socket.on('bs:state', (view) => {
     layout.clear();
     runCountdown(view.phaseMs || 3000);
   }
-  if (view.state === 'playing' && !view.yourTurn) aimed = null;
+  /* An aim SURVIVES the other player's turn — that is the whole point of
+     picking one early. It is only dropped if the square stopped being a legal
+     target, which on their waters can only happen because I fired there. */
+  if (aimed !== null && (view.myShots || []).some(m => m.cell === aimed)) aimed = null;
+
+  /* Only when it actually changes hands, so it is not re-announced by every
+     state message that happens to arrive during a turn. */
+  if (view.state === 'playing' && view.yourTurn !== lastTurnWasMine) {
+    lastTurnWasMine = view.yourTurn;
+    callTurn(view.yourTurn);
+  }
+  if (view.state !== 'playing') lastTurnWasMine = null;
 
   paintTop();
   paintBar();
+  paintLive();
+  paintRotFab();
   paintClock();
   paint();
 });
+
+let lastTurnWasMine = null;
 
 socket.on('bs:refused', ({ why }) => {
   $('hint').textContent = why ? 'Refused: ' + why : 'That was refused.';

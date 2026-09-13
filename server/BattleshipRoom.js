@@ -43,7 +43,10 @@ const BS = {
   SHIP_SQUARES: FLEET.reduce((n, s) => n + s.len, 0),   // 17
 
   PLACE_MS: 30000,      // Owen's thirty seconds to lay a fleet out
-  TURN_MS: 20000,       // long enough to think, short enough to keep moving
+  /* Ten seconds a shot. Twenty was too long once you can line the next one up
+     while the other player is still thinking: the decision is already made by
+     the time the turn arrives, so the rest of the clock is dead air. */
+  TURN_MS: 10000,
   COUNTDOWN_MS: 3000,   // the beat between placing and the first shot
   WIN_HOLD_MS: 3000,    // the board sits there before the result card
 };
