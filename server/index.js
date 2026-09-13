@@ -10,6 +10,7 @@ const GameRoom = require('./GameRoom');
 const AgarRoom      = require('./AgarRoom');
 const { BattleRoyaleRoom, BR } = require('./BattleRoyaleRoom');
 const { TanksLobby } = require('./TanksLobby');   // the artillery duel
+const { KnockoutLobby } = require('./KnockoutLobby'); // the shrinking-disc duel
 const { ShooterRoom } = require('./ShooterRoom'); // the top-down tank arena
 const agarLb        = require('./agarLeaderboard');
 const db     = require('./db');
@@ -1096,6 +1097,7 @@ app.get('/v2', (_req, res) => res.sendFile(path.join(__dirname, '../public/v2.ht
    Keeping the URL obscure would be the only protection it did NOT have. */
 app.get('/owner', (_req, res) => res.sendFile(path.join(__dirname, '../public/owner.html')));
 app.get('/tanks', (_req, res) => res.sendFile(path.join(__dirname, '../public/tanks.html')));
+app.get('/knockout', (_req, res) => res.sendFile(path.join(__dirname, '../public/knockout.html')));
 app.get('/shooter', (_req, res) => res.sendFile(path.join(__dirname, '../public/shooter.html')));
 
 app.use(express.static(path.join(__dirname, '../public')));
@@ -1116,6 +1118,7 @@ const agarRooms = {};
    new: there is no stake to verify and nothing to pay out, so none of the money
    path is involved in it at all. */
 const tanksLobby = new TanksLobby(io);
+const knockoutLobby = new KnockoutLobby(io);
 /* ONE arena for the whole region, not one per player. The shooter is a
    free-for-all: everybody who presses Play lands in the same map, which is
    the entire point of it and the reason it cannot be a room per socket.
@@ -1180,6 +1183,7 @@ for (const rgn of [REGION]) {
   };
   Object.values(gameRooms[rgn]).forEach(r => r.start());
   tanksLobby.start();
+  knockoutLobby.start();
   Object.values(agarRooms[rgn]).forEach(r => r.start());
 }
 
@@ -1252,6 +1256,19 @@ function liveExtras() {
     catch (_) {}
     out.push({ id: 'tanks:free', game: 'tanks', region: REGION,
       players: (tanksLobby.queue ? tanksLobby.queue.length : 0) + inGame, bots: 0 });
+  }
+  if (typeof knockoutLobby !== 'undefined' && knockoutLobby) {
+    /* Counting only the HUMANS on a disc. A bot stand-in sits in a room's
+       players map like anybody else, so counting the map would have an empty
+       game reporting two people playing it. */
+    let inGame = 0;
+    try {
+      for (const r of knockoutLobby.rooms.values()) {
+        for (const id of r.players.keys()) if (!String(id).startsWith('bot_')) inGame++;
+      }
+    } catch (_) {}
+    out.push({ id: 'knockout:free', game: 'knockout', region: REGION,
+      players: (knockoutLobby.queue ? knockoutLobby.queue.length : 0) + inGame, bots: 0 });
   }
   return out;
 }
@@ -2365,6 +2382,42 @@ io.on('connection', (socket) => {
   });
 
   socket.on('tanks:leave', () => tanksLobby.leave(socket.id));
+
+  /* ── Knockout ─────────────────────────────────────────────────────────────
+     A duel on a shrinking disc. The client sends an arrow per piece and a
+     lock-in, and that is the entire surface: where the pieces end up, what hit
+     what, and who won are all decided in KnockoutRoom and sent back. An aim is
+     clamped there rather than believed, so a patched client that sends a pull
+     of ten thousand gets the same shot as a player who dragged to the edge of
+     their screen. */
+  socket.on('ko:queue', ({ name, wallet } = {}) => {
+    if (!socketRL(socket, 'koq', 1000)) return;
+    if (ops.get().maintenance) { socket.emit('maintenance', ops.get()); return; }
+    knockoutLobby.enqueue(socket, sanitizeName(name), wallet || socket._walletAddress || null);
+    socket.emit('ko:queued', { waitingMs: knockoutLobby.queuedFor(socket.id) || 0 });
+  });
+
+  socket.on('ko:unqueue', () => {
+    knockoutLobby.dequeue(socket.id);
+    socket.emit('ko:unqueued', {});
+  });
+
+  socket.on('ko:aim', ({ aims } = {}) => {
+    if (!socketRL(socket, 'koaim', 120)) return;
+    const room = knockoutLobby.roomOf(socket.id);
+    if (!room) return;
+    const r = room.submitAim(socket.id, aims);
+    if (!r.ok) { socket.emit('ko:refused', { why: r.why }); return; }
+    socket.emit('ko:aimed', { count: r.count });
+  });
+
+  socket.on('ko:lock', () => {
+    const room = knockoutLobby.roomOf(socket.id);
+    if (!room) return;
+    if (room.lockIn(socket.id)) room.broadcast('ko:ready', { ready: [...room.ready] });
+  });
+
+  socket.on('ko:leave', () => knockoutLobby.leave(socket.id));
   /* ── Shooter ──────────────────────────────────────────────────────────────
      Free, solo, and server-simulated anyway. The client sends which keys are
      down and where it is aiming; it never says that it hit something, took a
@@ -2490,6 +2543,7 @@ io.on('connection', (socket) => {
        socket out of the queue if it never got into one. Without it a closed tab
        leaves an opponent staring at a turn that will never come. */
     tanksLobby.leave(socket.id);
+    knockoutLobby.leave(socket.id);
     endShooter(socket.id);
     console.log(`[-] Disconnected: ${socket.id}`);
     if (socket._agarRoom) {

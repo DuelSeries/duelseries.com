@@ -165,3 +165,43 @@ function playOut() {
   }
   return { over: room.state === 'over', winner: room.winner, turns: room.turn };
 }
+
+test('the bot plays the game rather than falling into the pit', () => {
+  /* THE BUG THIS EXISTS FOR. The first bot chose its power purely from the
+     distance to its target and never asked whether that shot would carry it
+     past the rim behind them. Measured against an opponent that never moved, it
+     threw away most of its own pieces and a player could win without aiming
+     once. It was not an opponent, it was a thing falling over.
+
+     An opponent that never moves is the only way to attribute a loss honestly:
+     every piece the bot loses here is one it threw away, and every piece the
+     duck loses is one the bot really knocked off. */
+  const io2 = { to: () => ({ emit: () => {} }) };
+  let botLost = 0, duckLost = 0, botWins = 0;
+  const N = 60;
+
+  for (let m = 0; m < N; m++) {
+    const lob = new KnockoutLobby(io2);
+    const room = lob.makeMatch([{ socket: sock('duck'), name: 'Duck', wallet: null }], true);
+    const bot = room.bot.id;
+    let t = Date.now(), steps = 0;
+    /* Stop once the ring bottoms out: past that the arena is deciding it, not
+       the play, and nothing either side does can be read from the result. */
+    while (room.state !== 'over' && steps < 20000 && room.arenaR > KO.ARENA_R_MIN) {
+      t += 100; steps++;
+      lob.botAim(room, t);              // the duck never aims
+      room.tick(t);
+    }
+    botLost += 2 - room.piecesOf(bot).length;
+    duckLost += 2 - room.piecesOf('duck').length;
+    if (room.state === 'over' && room.winner === bot) botWins++;
+  }
+
+  assert.ok(duckLost > botLost * 1.5,
+    'it takes far more pieces than it loses (' + duckLost + ' taken vs ' + botLost + ' thrown away)');
+  assert.ok(botLost / (N * 2) < 0.45,
+    'and it does not mostly kill itself (' + (botLost / (N * 2) * 100).toFixed(0) + '% of its own)');
+  assert.ok(botWins > N * 0.4,
+    'it beats an opponent who does nothing, which is the floor for calling it an opponent ('
+    + botWins + '/' + N + ')');
+});

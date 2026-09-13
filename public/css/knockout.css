@@ -1,0 +1,188 @@
+/* ─── Knockout ────────────────────────────────────────────────────────────────
+   A lit disc over a dark drop.
+
+   The product's palette, with one thing this game earns: the arena is a LIT
+   SURFACE with nothing under it. Everything readable sits on the disc and
+   everything off the disc is gone, so the single most important thing the
+   screen can do is make the edge unmistakable. The rim gets the amber that
+   means money everywhere else in this product, because on this screen the rim
+   is the stake.
+
+   Your pieces are bone, theirs are the same red the other duels use for an
+   opponent. Two colours, no icons, no labels: at a glance you need to know
+   which circles are yours and nothing else.
+
+   Every figure is mono, which is the product's rule for money, counts and
+   clocks, and this screen is nothing but a clock and a count. */
+
+:root {
+  --ink:   #100e0b;
+  --pit:   #0b0907;        /* the drop around the disc */
+  --disc:  #1c1813;        /* the surface you play on */
+  --disc2: #241d16;        /* its lit inner face */
+  --rim:   #f0a830;        /* the edge, and the whole game */
+  --s1:    #17140f;
+  --s2:    #1f1b15;
+  --s3:    #282219;
+  --tx:    #f5f1e8;
+  --tx2:   #a89c8a;
+  --tx3:   #8d8171;
+  --you:   #f4f1ea;
+  --them:  #e0705f;
+  --live:  #8ed081;
+  --crust: #f0a830;        /* shared name with tanks.css, same role */
+  --f:  'Archivo', ui-sans-serif, system-ui, 'Segoe UI', Arial, sans-serif;
+  --fm: 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; height: 100%; overflow: hidden;
+  background: var(--pit); color: var(--tx);
+  font-family: var(--f);
+  -webkit-font-smoothing: antialiased;
+  /* The whole game is a drag. The page must never scroll under the thumb, and
+     a long press must not pop a selection handle over the board. */
+  overscroll-behavior: none;
+  touch-action: none;
+  -webkit-user-select: none; user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.num { font-family: var(--fm); font-variant-numeric: tabular-nums; }
+
+#board { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+
+/* ── the strip ─────────────────────────────────────────────────────────────
+   Who is left and how long is left. Nothing else belongs up here. */
+#top {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 10;
+  display: flex; align-items: center; gap: 14px;
+  padding: calc(10px + env(safe-area-inset-top)) 14px 10px;
+  background: linear-gradient(to bottom, rgba(11,9,7,0.94), rgba(11,9,7,0));
+  pointer-events: none;
+}
+#top[hidden] { display: none; }
+.side { flex: 1; display: flex; align-items: center; gap: 9px; min-width: 0; }
+.side.them { flex-direction: row-reverse; }
+.who {
+  font-size: 12.5px; font-weight: 600; color: var(--tx2);
+  max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* Pieces left, as pips rather than a number. Two is a count you read by
+   looking, not by counting, and a pip that goes out is a thing you feel. */
+.pips { display: flex; gap: 5px; }
+.pip {
+  width: 11px; height: 11px; border-radius: 50%;
+  background: var(--you); transition: background 0.25s, opacity 0.25s, transform 0.25s;
+}
+.side.them .pip { background: var(--them); }
+.pip.gone { background: transparent; box-shadow: inset 0 0 0 1.5px var(--s3); transform: scale(0.8); }
+
+/* The clock. It is the only thing on screen that is running, so it sits in the
+   middle and it changes colour rather than only counting down — a number you
+   have to read is a number you read too late. */
+.clock { text-align: center; flex: 0 0 auto; }
+.clock .num {
+  display: block; font-size: 26px; font-weight: 600; line-height: 1;
+  color: var(--tx); transition: color 0.2s;
+}
+.clock.urgent .num { color: var(--rim); }
+.clock.locked .num { color: var(--live); }
+.clock .lbl {
+  display: block; margin-top: 3px; font-family: var(--fm);
+  font-size: 9.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--tx3);
+}
+
+/* ── the bar ───────────────────────────────────────────────────────────────
+   What to do, whether they have gone, and the button that ends your turn. */
+#bar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
+  background: linear-gradient(to top, rgba(11,9,7,0.96), rgba(11,9,7,0));
+}
+#bar[hidden] { display: none; }
+#hint { flex: 1; font-size: 12.5px; color: var(--tx3); min-width: 0; }
+.their {
+  font-family: var(--fm); font-size: 11px; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--tx3); white-space: nowrap;
+}
+.their.ready { color: var(--live); }
+#lock {
+  font-family: inherit; font-size: 13.5px; font-weight: 650;
+  border-radius: 10px; padding: 11px 18px; cursor: pointer;
+  border: 1px solid var(--rim); background: var(--rim); color: var(--ink);
+  transition: opacity 0.15s, background 0.15s;
+}
+#lock:hover:not(:disabled) { background: #f6b845; }
+/* Still legible when it is off. A disabled control people cannot read is a
+   control they assume is broken. */
+#lock:disabled { background: transparent; color: var(--tx3); border-color: var(--s3); cursor: default; }
+
+/* ── the three seconds ─────────────────────────────────────────────────── */
+#count {
+  position: fixed; inset: 0; z-index: 18;
+  display: flex; align-items: center; justify-content: center;
+  pointer-events: none;
+}
+#count[hidden] { display: none; }
+#count span {
+  font-family: var(--fm); font-size: 110px; font-weight: 600; color: var(--tx);
+  text-shadow: 0 10px 40px rgba(0,0,0,0.8);
+  animation: kobeat 1s ease-out infinite;
+}
+@keyframes kobeat {
+  0%   { transform: scale(1.25); opacity: 0; }
+  25%  { transform: scale(1);    opacity: 1; }
+  100% { transform: scale(0.92); opacity: 0.25; }
+}
+
+/* ── waiting, and the end ──────────────────────────────────────────────────
+   The same card the other games use, word for word where the words are the
+   same, so leaving any DuelSeries game lands you somewhere you recognise. */
+#wait, #over {
+  position: fixed; inset: 0; z-index: 20;
+  display: flex; align-items: center; justify-content: center; padding: 24px;
+  background: rgba(6, 5, 4, 0.72); backdrop-filter: blur(6px);
+}
+#wait[hidden], #over[hidden] { display: none; }
+.waitCard, .overCard {
+  width: 100%; max-width: 380px; text-align: center;
+  background: var(--ink); border: 1px solid var(--s3); border-radius: 18px;
+  padding: 28px 24px 22px; box-shadow: 0 24px 60px rgba(0,0,0,0.55);
+}
+.waitSpin {
+  width: 24px; height: 24px; margin: 0 auto 16px; border-radius: 50%;
+  border: 2px solid var(--s3); border-top-color: var(--rim);
+  animation: kospin 0.8s linear infinite;
+}
+@keyframes kospin { to { transform: rotate(360deg); } }
+.waitCard b { display: block; font-size: 17px; font-weight: 650; }
+.waitCard span { display: block; margin-top: 6px; font-size: 13px; color: var(--tx3); }
+.waitCard button, .overBtns button {
+  font-family: inherit; font-size: 13.5px; font-weight: 600;
+  border-radius: 10px; padding: 11px 16px; cursor: pointer;
+  border: 1px solid var(--s3); background: transparent; color: var(--tx);
+  transition: background 0.15s, border-color 0.15s;
+}
+.waitCard button { margin-top: 20px; width: 100%; }
+.waitCard button:hover, .overBtns .ghost:hover { background: var(--s2); border-color: #3a3126; }
+
+.overEyebrow {
+  margin: 0; font-family: var(--fm); font-size: 0.72rem; font-weight: 600;
+  letter-spacing: 0.14em; text-transform: uppercase; color: var(--tx2);
+}
+.overWho { margin: 10px 0 0; font-size: 28px; font-weight: 650; letter-spacing: -0.5px; }
+.overWho.won { color: var(--live); }
+.overWho.lost { color: var(--them); }
+.overWhy { margin: 8px 0 0; font-size: 13px; color: var(--tx3); }
+.overBtns { display: flex; gap: 8px; margin-top: 22px; }
+.overBtns button { flex: 1 1 0; min-width: 0; white-space: nowrap; }
+.overBtns .go { background: var(--rim); border-color: var(--rim); color: var(--ink); }
+.overBtns .go:hover { background: #f6b845; border-color: #f6b845; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+  .waitSpin, #count span { animation: none; }
+}

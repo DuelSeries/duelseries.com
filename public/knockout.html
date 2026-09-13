@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>Knockout · DuelSeries</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/knockout.css">
+</head>
+<body>
+
+<!-- The disc and everything on it. One canvas: the board, the arrows you are
+     dragging and the playback all live in the same space, and splitting them
+     across layers would only mean keeping two coordinate systems in step. -->
+<canvas id="board"></canvas>
+
+<!-- Both players and the clock. One strip, because whose pieces are left and
+     how long is left are read together or not at all. -->
+<header id="top" hidden>
+  <div class="side you">
+    <span class="who" id="youName">You</span>
+    <span class="pips" id="youPips"></span>
+  </div>
+
+  <!-- The turn clock, in the middle, where it cannot be missed. It turns when
+       it is nearly out rather than only counting, because a number you have to
+       read is a number you will look at too late. -->
+  <div class="clock">
+    <span class="num" id="clockNum">15</span>
+    <span class="lbl" id="clockLbl">Aim</span>
+  </div>
+
+  <div class="side them">
+    <span class="who" id="themName">Opponent</span>
+    <span class="pips" id="themPips"></span>
+  </div>
+</header>
+
+<!-- What to do, and whether they have gone yet. Two facts, one line, under the
+     board where the thumb is not. -->
+<footer id="bar" hidden>
+  <span id="hint">Drag from each of your pieces to aim</span>
+  <span id="theirState" class="their"></span>
+  <button id="lock" type="button" disabled>Lock in</button>
+</footer>
+
+<!-- Waiting for somebody. Honest about the bot rather than quietly substituting
+     one: you should know who you are playing. Same card, and the same words, as
+     the one Bowmasters uses. -->
+<div id="wait">
+  <div class="waitCard">
+    <div class="waitSpin" aria-hidden="true"></div>
+    <b id="waitMain">Looking for an opponent</b>
+    <span id="waitSub">Free table. Nothing staked.</span>
+    <button type="button" id="waitCancel">Back to the lobby</button>
+  </div>
+</div>
+
+<!-- The three seconds before the first turn. -->
+<div id="count" hidden><span id="countNum">3</span></div>
+
+<!-- The result. Same shape as the other games' end cards, because leaving any
+     of them should land you in the same place. -->
+<div id="over" hidden>
+  <div class="overCard">
+    <p class="overEyebrow" id="overEyebrow">Match over</p>
+    <p class="overWho" id="overWho">—</p>
+    <p class="overWhy" id="overWhy"></p>
+    <div class="overBtns">
+      <button type="button" class="ghost" id="againBtn">Play again</button>
+      <button type="button" class="go" id="lobbyBtn">Lobby</button>
+    </div>
+  </div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="js/knockout.js"></script>
+</body>
+</html>

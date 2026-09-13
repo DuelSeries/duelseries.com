@@ -17,6 +17,28 @@
 const { KnockoutRoom, KO } = require('./KnockoutRoom');
 
 const BOT_AFTER_MS = 6000;        // how long you wait before one turns up
+
+/* HOW FAR THIS PIECE CAN GO BEFORE THE EDGE, along the line it is about to be
+   fired down. Ray against circle, solved for the positive root.
+
+   This exists because the first bot did not have it, and measured, 87% of every
+   piece lost in a bot-vs-bot match was a piece that had fired ITSELF off the
+   disc — against zero knocked off by an opponent. It was not playing the game,
+   it was falling over, and a player would have won every match without aiming. */
+function rimDistance(px, py, ux, uy, R) {
+  const b = px * ux + py * uy;
+  const c = px * px + py * py - R * R;
+  const disc = b * b - c;
+  if (disc <= 0) return 0;
+  return Math.max(0, -b + Math.sqrt(disc));
+}
+
+/* The pull that carries a piece exactly `dist` and no further. Travel under
+   exponential drag settles at v/DRAG, so this inverts that. */
+function pullForTravel(dist) {
+  const speed = Math.max(0, dist) * KO.DRAG_PER_S;
+  return KO.MAX_PULL * Math.min(1, speed / KO.MAX_SPEED);
+}
 const BOT_NAMES = ['Sergeant Bot', 'Bishop', 'Cinder', 'Tally', 'Nine'];
 
 class KnockoutLobby {
@@ -202,10 +224,33 @@ class KnockoutLobby {
       const a = Math.atan2(dy, dx) + (Math.random() * 2 - 1) * spread;
 
       /* Enough power to arrive with something left, and a little more the
-         further it has to go. Capped, and jittered so it is not a formula. */
+         further it has to go. Jittered so it is not a formula. */
       const want = Math.min(1, 0.5 + dist / (KO.MAX_SPEED * 0.62));
-      const pull = KO.MAX_PULL * Math.max(0.3, Math.min(1, want * (0.88 + Math.random() * 0.24)));
-      aims.push({ pieceId: p.id, ax: Math.cos(a) * pull, ay: Math.sin(a) * pull });
+      let pull = KO.MAX_PULL * Math.max(0.3, Math.min(1, want * (0.88 + Math.random() * 0.24)));
+
+      /* AND NOT ONE UNIT HARDER THAN THE DISC WILL TAKE.
+
+         This is the whole difference between an opponent and a piece that
+         throws itself into the pit. The cap is worked out from where the rim
+         actually is along this exact line, so a shot across the middle can be
+         full power and a shot at something parked on the edge cannot. It is
+         conservative on purpose: it assumes the shot meets nothing, and a
+         collision only ever takes speed away. */
+      const ux = Math.cos(a), uy = Math.sin(a);
+      const room2rim = rimDistance(p.x, p.y, ux, uy, room.arenaR);
+      const safe = Math.max(0, room2rim - KO.PIECE_R * 1.8);
+      pull = Math.min(pull, pullForTravel(safe));
+
+      /* If there is no shot down this line that keeps the piece on the disc,
+         do not take a weak one: back off toward the middle and live. A person
+         in that spot does the same thing. */
+      if (pull < KO.MAX_PULL * 0.16) {
+        const d = Math.hypot(p.x, p.y) || 1;
+        const back = KO.MAX_PULL * (0.3 + Math.random() * 0.18);
+        aims.push({ pieceId: p.id, ax: (-p.x / d) * back, ay: (-p.y / d) * back });
+        continue;
+      }
+      aims.push({ pieceId: p.id, ax: ux * pull, ay: uy * pull });
     }
 
     if (aims.length) room.submitAim(me, aims);
