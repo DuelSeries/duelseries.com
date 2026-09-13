@@ -211,7 +211,13 @@ function draw() {
          reached it — so you see the ring arrive and then the piece go. */
       const t = Math.min(1, Math.max(0, (performance.now() - dropping) / 480));
       scale = 1 - t * 0.8; alpha = 1 - t;
-      if (t >= 1) { ringFall.delete(p.id); continue; }
+      /* THE ENTRY STAYS once the fall has finished. Deleting it was a loop: the
+         frame below re-adds any piece in st.ringOut that is not already in this
+         map, so the moment the fade ended the piece was signed up for another
+         one. Owen: "the circle blinks a lot and it does not fully disappear
+         even though it is dead." It was dying on repeat, several times a
+         second, for the rest of the match. */
+      if (t >= 1) continue;
     }
     if (alpha <= 0.02) continue;
 

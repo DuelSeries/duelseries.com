@@ -395,14 +395,22 @@ body.ingame .tkrun{animation-play-state:paused}
 /* Three rows are visible at rest. Hover and scroll to run through the rest
    without the page moving underneath you (overscroll-behavior contains the
    scroll chain once the list hits its end). */
+/* NO FADE ACROSS THE BOTTOM. It was a mask that took the last 26px of the
+   scroller down to transparent to hint there was more below — except a mask
+   does not know whether there IS more, so it faded the last row out even when
+   you had scrolled all the way to it. Owen: "the very last one is just cut
+   off... there is like a rectangle that goes across the screen." That was the
+   fade, permanently eating the row he had scrolled down to read.
+
+   A scrollbar already says there is more. */
 .lob{display:flex;flex-direction:column;max-height:207px;overflow-y:auto;
   overscroll-behavior:contain;scrollbar-width:thin;
   scrollbar-color:var(--s3) transparent;
-  -webkit-mask-image:linear-gradient(to bottom,#000 calc(100% - 26px),transparent)}
+  padding-bottom:2px}
 .lob::-webkit-scrollbar{width:6px}
 .lob::-webkit-scrollbar-thumb{background:var(--s3);border-radius:var(--r1)}
 .lob::-webkit-scrollbar-track{background:transparent}
-.lob.short{max-height:none;-webkit-mask-image:none}
+.lob.short{max-height:none}
 .lr{display:flex;align-items:center;gap:16px;padding:17px 4px;
   border-bottom:1px solid var(--s2);transition:.14s}
 .lr:hover{background:var(--s1);padding-left:12px;padding-right:12px;
@@ -499,7 +507,9 @@ body.ingame .tkrun{animation-play-state:paused}
 .search:focus-within{background:var(--s2)}
 .search:focus-within svg{stroke:var(--tx2)}
 /* Whole row is the control, so the target is the row and not just the name. */
-.prow{display:grid;grid-template-columns:34px 34px 1fr 96px 110px;gap:14px;
+/* Four columns, not five: the avatar disc is gone and its 34px with it,
+   otherwise every row carries an empty gap where it used to be. */
+.prow{display:grid;grid-template-columns:34px 1fr 96px 110px;gap:14px;
   align-items:center;width:100%;text-align:left;padding:13px 10px;font-size:14px;
   border-radius:var(--r2);transition:.13s}
 .prow:hover{background:var(--s1)}

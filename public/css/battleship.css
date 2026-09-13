@@ -128,9 +128,12 @@ canvas { width: 100%; height: auto; display: block; border-radius: 10px; }
 #dock[hidden] { display: none; }
 /* One neat row, centred, sized so all five fit the width of the board above
    them. They lie the way they will sit on the water. */
+/* Allowed to wrap onto a second line. The ships are drag handles first and
+   pictures second, so they are sized for a thumb rather than squeezed into one
+   row — and there is a screenful of empty space under them to spend. */
 #tray {
   display: flex; flex-direction: row; justify-content: center; align-items: center;
-  flex-wrap: nowrap; gap: 6px; width: 100%;
+  flex-wrap: wrap; gap: 8px; width: 100%;
 }
 .trayShip {
   position: relative; cursor: grab; touch-action: none;

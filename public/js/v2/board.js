@@ -117,6 +117,13 @@
       stake: null, lobbyType: 'free', players: 0, state: 'open' },
     { id: 'tanks:free',      game: 'tanks',      region: 'na',
       stake: null, lobbyType: 'free', players: 0, state: 'open' },
+    /* The two duels. They are matched INTO rather than joined, so there is no
+       room sitting there to list — but Enter on one of these puts you in the
+       queue, which is the thing anybody reading this row wants to do. */
+    { id: 'knockout:free',   game: 'knockout',   region: 'na',
+      stake: null, lobbyType: 'free', players: 0, state: 'open' },
+    { id: 'battleship:free', game: 'battleship', region: 'na',
+      stake: null, lobbyType: 'free', players: 0, state: 'open' },
   ];
 
   /* Which buy-ins a game can actually seat right now.

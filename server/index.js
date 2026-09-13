@@ -12,7 +12,7 @@ const { BattleRoyaleRoom, BR } = require('./BattleRoyaleRoom');
 const { TanksLobby } = require('./TanksLobby');   // the artillery duel
 const { KnockoutLobby } = require('./KnockoutLobby'); // the shrinking-disc duel
 const { BattleshipLobby } = require('./BattleshipLobby'); // the two-grid duel
-const { ShooterRoom } = require('./ShooterRoom'); // the top-down tank arena
+const { ShooterRoom, SH: SHOOTER } = require('./ShooterRoom'); // the top-down tank arena
 const agarLb        = require('./agarLeaderboard');
 const db     = require('./db');
 const collusion = require('./CollusionMonitor');
@@ -1358,8 +1358,22 @@ function liveExtras() {
   if (agar) out.push({ id: 'agar:free', game: 'agar', region: REGION,
     players: agar.playerCount || 0, bots: agar.botCount || 0 });
   if (typeof shooterRoom !== 'undefined' && shooterRoom) {
+    /* WHAT YOU WILL FIND, not what is there with nobody looking.
+
+       An empty shooter arena deletes its bots and stops ticking — a room that
+       drives five tanks around for nobody is CPU spent on an empty room — so
+       the lobby asked an idle arena how busy it was and was correctly told
+       nothing. Owen: "it says zero playing but there's bots in there." Both
+       true, a second apart.
+
+       So an idle arena reports the floor it fills to the moment somebody
+       arrives. That is not a guess or a decoration: join it and those tanks
+       are there. A busy one keeps reporting its real count. */
+    const shBots = shooterRoom.playerCount > 0
+      ? (shooterRoom.botCount || 0)
+      : SHOOTER.BOT_FLOOR;
     out.push({ id: 'omgshooter:free', game: 'omgshooter', region: REGION,
-      players: shooterRoom.playerCount || 0, bots: shooterRoom.botCount || 0 });
+      players: shooterRoom.playerCount || 0, bots: shBots });
   }
   if (typeof tanksLobby !== 'undefined' && tanksLobby) {
     /* Bowmasters is a queue that makes rooms, so its population is whoever is

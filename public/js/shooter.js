@@ -447,6 +447,36 @@
      bottom in game. One builder, so the picker can never offer a gun the game
      does not draw. */
   var gunBtns = [];
+/* A PRESS THAT WORKS WITH A THUMB ALREADY ON THE STICK.
+
+   Owen: "I want to change my gun while I'm moving — move with the joystick and
+   press the change gun button with my other hand."
+
+   `click` will not do it. On a touch screen a click is synthesised after a
+   touchstart/touchend pair on the same element, and the sticks call
+   preventDefault on every touch they handle to stop the page panning under the
+   thumb — which suppresses the synthesised events. So while a finger was on the
+   joystick, a tap on the gun button produced nothing at all.
+
+   touchstart is the real event and arrives regardless of how many other fingers
+   are down. Mouse keeps click, because a mouse has one pointer and click is the
+   right thing there — and the guard stops a touch firing both. */
+function pressable(el, fn) {
+  if (!el) return;
+  var touched = false;
+  el.addEventListener('touchstart', function (e) {
+    touched = true;
+    e.preventDefault();
+    e.stopPropagation();
+    fn(e);
+  }, { passive: false });
+  el.addEventListener('click', function (e) {
+    e.preventDefault();
+    if (touched) { touched = false; return; }   // the touch already handled it
+    fn(e);
+  });
+}
+
   function buildGuns(wrap, withNames) {
     if (!wrap) return;
     A.WEAPONS.forEach(function (w, i) {
@@ -458,7 +488,7 @@
       b.innerHTML = '<canvas width="120" height="78"></canvas>' +
                     (withNames ? '<b>' + w.name + '</b>' : '') +
                     '<i>' + ((i + 1) % 10) + '</i>';
-      b.addEventListener('click', function () { pickWeapon(w.key); });
+      pressable(b, function () { pickWeapon(w.key); });
       wrap.appendChild(b);
       gunBtns.push(b);
       // A picture of the gun, not its name: you are choosing a silhouette.
@@ -471,6 +501,10 @@
   buildGuns($('guns'), false);      // desktop: the row along the bottom
   buildGuns($('gunsheet'), false);  // phone: the sheet behind the weapon button
   function pickWeapon(key) {
+    /* Choosing closes the sheet. It used to stay open until something else
+       dismissed it, which on a phone meant the picker sat over the arena while
+       you were already shooting with the new gun. */
+    closeGunSheet();
     try { localStorage.setItem('shooter:weapon', key); } catch (_) {}
     WEAPON = key;
     if (started) socket.emit('sh:weapon', { weapon: key });
@@ -527,14 +561,19 @@
   (function wireGunBtn() {
     var b = $('gunbtn');
     if (!b) return;
-    b.addEventListener('click', function (e) {
-      e.preventDefault();
+    pressable(b, function () {
       if ($('gunsheet').hidden) openGunSheet(); else closeGunSheet();
     });
-    /* Tapping the arena closes it. A sheet you can only dismiss by choosing is
-       a sheet that traps somebody who opened it by accident, mid-fight. */
-    cv.addEventListener('pointerdown', function () {
-      if (!$('gunsheet').hidden) closeGunSheet();
+    /* Tapping the ARENA closes it. A sheet you can only dismiss by choosing is
+       a sheet that traps somebody who opened it by accident, mid-fight — but
+       the sticks sit over the canvas, and closing the sheet because somebody
+       started driving is the opposite of what this change is for. So: only a
+       press that is not on a control. */
+    cv.addEventListener('pointerdown', function (e) {
+      if ($('gunsheet').hidden) return;
+      var t = e.target;
+      if (t && t.closest && t.closest('#stick, #astick, #gunbtn, #gunsheet')) return;
+      closeGunSheet();
     });
     paintGunBtn();
   })();

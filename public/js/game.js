@@ -66,6 +66,10 @@ let interpFoodMap   = null; // reused across frames — before-snapshot food by 
 let interpFoodBuf   = null; // reused across frames — interpolated food list
 let interpAfterIds  = null; // reused across frames — current snapshot's snake ids, for pruning _segPool
 const _segPool      = new Map(); // snake id → Float32Array, reused to avoid GC
+/* What a SPECTATOR adds on top. Three snapshot periods at 30Hz, which is
+   enough that a late one still lands inside the buffer instead of forcing a
+   guess. Invisible to somebody who is only watching. */
+const SPECTATE_EXTRA_DELAY_MS = 100;
 const INTERP_DELAY_MS = 70; // ~2 snapshot periods at the 30Hz SNAPSHOT_RATE — absorbs jitter without over-delaying
 let spawnTime        = null;  // performance.now() when last joined — used to ramp up interp delay
 
@@ -470,7 +474,27 @@ function interpolateState(now) {
   const serverNow = now + clockOffset;
   // Ramp interp delay from 0→full over first 500ms after spawn to avoid initial lag
   const spawnAge = spawnTime ? now - spawnTime : Infinity;
-  const baseDelay = (spawnAge < 500 ? INTERP_DELAY_MS * (spawnAge / 500) : INTERP_DELAY_MS) + _jitterBuf;
+  /* A SPECTATOR WATCHES FURTHER BEHIND, ON PURPOSE.
+
+     The buffer below is tuned for somebody PLAYING: every millisecond of it is
+     a millisecond between their thumb and their snake, so it is kept as small
+     as it can be and the gap is covered by dead-reckoning forward when a
+     snapshot is late. That trade is right for a player and wrong for a viewer.
+
+     Extrapolation guesses; the next snapshot corrects the guess; the snake
+     steps back. While you are playing you barely see it, because the camera is
+     locked to your OWN snake and that one is locally predicted. Spectating, the
+     camera is glued to somebody else, so every correction moves the whole
+     screen and the thing you are watching visibly shakes. Owen: "the snake just
+     jitters back and forth, it looks like it is not even moving."
+
+     A spectator is not reacting to anything, so latency costs them nothing.
+     Another two snapshot periods of delay means render time lands between two
+     snapshots that have actually arrived, and the extrapolation path below is
+     simply never taken. */
+  const watching = spectating || spectateOnly;
+  const baseDelay = (spawnAge < 500 ? INTERP_DELAY_MS * (spawnAge / 500) : INTERP_DELAY_MS)
+    + _jitterBuf + (watching ? SPECTATE_EXTRA_DELAY_MS : 0);
   const renderTime = serverNow - baseDelay;
 
   // Find the two snapshots that bracket renderTime
@@ -1644,6 +1668,8 @@ const cashoutRings = new Map();
    that is not going to happen. */
 let brRunning = false;
 function startQTimer() {
+  /* Not while spectating. There is no snake to cash out and nothing to pay. */
+  if (spectating || spectateOnly) return;
   if (isDead || cashedOut || !myId) return;
   if (brRunning) return;
   boostActive = false; // disable boost while cashing out
@@ -1928,16 +1954,21 @@ function enterSpectate() {
   document.getElementById('death-screen').classList.remove('active');
   document.getElementById('spectate-bar').classList.add('active');
   updateSpectateLabel();
-  ['cashout-btn-mobile'].forEach(id => {
+  /* EVERY WAY TO CASH OUT GOES AWAY. A spectator has no snake and no worth, so
+     a cash-out control on their screen is a button that cannot do anything —
+     and on a product about money that reads as broken rather than as inert.
+     The mobile button was already hidden here; the hold ring was not, and it
+     is the thing that actually says 'Hold to cash out' on screen. */
+  ['cashout-btn-mobile', 'q-timer'].forEach(id => {
     const el = document.getElementById(id);
-    if (el) el.style.display = 'none';
+    if (el) { el.style.display = 'none'; el.classList.remove('active'); }
   });
 }
 
 function exitSpectate() {
   spectating = false;
   document.getElementById('spectate-bar').classList.remove('active');
-  ['cashout-btn-mobile'].forEach(id => {
+  ['cashout-btn-mobile', 'q-timer'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = '';
   });

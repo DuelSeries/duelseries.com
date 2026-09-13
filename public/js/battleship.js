@@ -277,7 +277,13 @@ function fitRail() {
   /* Each ship carries its own padding and border, and there is a gap between
      them; that is what is NOT available to the hulls. */
   const room = (dock.clientWidth || window.innerWidth) - fleet.length * 14 - 8;
-  railCell = Math.max(7, Math.min(20, Math.floor(room / cells)));
+  /* Bigger than they need to be, on purpose. These are drag handles before they
+     are pictures: a 12px hull is a hard thing to get a thumb onto, and there is
+     a screenful of empty space under them to spend. They are allowed up to two
+     rows so the extra size does not have to come out of the width. */
+  const oneRow = Math.floor(room / cells);
+  const twoRows = Math.floor((room * 2) / cells);
+  railCell = Math.max(12, Math.min(34, oneRow >= 20 ? oneRow : twoRows));
 }
 
 function buildTray() {
@@ -748,9 +754,47 @@ function queue() {
   try { sessionStorage.removeItem('entryToken'); } catch (_) {}
 }
 
+/* WHAT JUST HAPPENED, AS A SOUND.
+
+   Worked out by DIFFING the shots against the previous view rather than from an
+   event, because the state message is the only thing that arrives: a shot
+   landing on me and a shot landing on them both turn up as one more entry in a
+   list. Comparing the counts says which, and whose, in two lines.
+
+   Only ever one sound per message. A reconnect brings the whole board down at
+   once and playing seventeen splashes into somebody's ear is not a summary of
+   the match so far. */
+let _sndMine = 0, _sndTheirs = 0, _sndSunk = 0;
+
+function soundFor(view) {
+  const S = window.BattleshipSound;
+  if (!S) return;
+  const mine = (view.myShots || []).length;          // shots I have fired
+  const theirs = (view.shotsOnMe || []).length;      // shots they have fired
+  const sunk = (view.sunkOfTheirs || []).length;
+  const hadMine = _sndMine, hadTheirs = _sndTheirs, hadSunk = _sndSunk;
+  _sndMine = mine; _sndTheirs = theirs; _sndSunk = sunk;
+
+  /* The first view of a match is not news. */
+  if (!st) return;
+  if (mine - hadMine > 1 || theirs - hadTheirs > 1) return;   // a resync, not a shot
+
+  if (sunk > hadSunk) { S.sunk(); return; }                   // outranks the hit that caused it
+  if (mine > hadMine) {
+    const last = (view.myShots || [])[mine - 1];
+    (last && last.hit) ? S.hit() : S.miss();
+    return;
+  }
+  if (theirs > hadTheirs) {
+    const last = (view.shotsOnMe || [])[theirs - 1];
+    (last && last.hit) ? S.taken() : S.miss();
+  }
+}
+
 socket.on('bs:state', (view) => {
   const first = !st;
   const wasPlacing = st && st.state === 'placing';
+  soundFor(view);
   st = view;
   phaseEndsAt = Date.now() + (view.phaseMs || 0);
 
@@ -871,6 +915,7 @@ $('againBtn').addEventListener('click', () => {
   $('top').hidden = true;
   $('stage').hidden = true;
   st = null; aimed = null; layout.clear(); sentFleet = false;
+  _sndMine = 0; _sndTheirs = 0; _sndSunk = 0;
   queue();
 });
 

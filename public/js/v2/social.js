@@ -87,7 +87,10 @@
     return '<button class="prow" onclick="V2Social.openPlayer(' +
       JSON.stringify(name).replace(/"/g, '&quot;') + ')">' +
       '<span class="rk num">' + (rank == null ? '' : rank) + '</span>' +
-      '<span class="pav" style="background:' + tint(name) + '">' + initials(name) + '</span>' +
+      /* No avatar disc. It was two letters of a name on a colour derived from
+         that same name, which told a reader nothing they could not already see
+         in the name beside it, and a wall of arbitrary colours down the left of
+         a money table reads as decoration rather than data. */
       '<span class="nm">' + esc(name) + '</span>' +
       '<span class="gp num"></span>' +
       '<span class="er num">' + (earnings == null ? '' : money(earnings)) + '</span>' +
