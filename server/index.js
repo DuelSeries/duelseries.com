@@ -11,6 +11,7 @@ const AgarRoom      = require('./AgarRoom');
 const { BattleRoyaleRoom, BR } = require('./BattleRoyaleRoom');
 const { TanksLobby } = require('./TanksLobby');   // the artillery duel
 const { KnockoutLobby } = require('./KnockoutLobby'); // the shrinking-disc duel
+const { BattleshipLobby } = require('./BattleshipLobby'); // the two-grid duel
 const { ShooterRoom } = require('./ShooterRoom'); // the top-down tank arena
 const agarLb        = require('./agarLeaderboard');
 const db     = require('./db');
@@ -1098,6 +1099,7 @@ app.get('/v2', (_req, res) => res.sendFile(path.join(__dirname, '../public/v2.ht
 app.get('/owner', (_req, res) => res.sendFile(path.join(__dirname, '../public/owner.html')));
 app.get('/tanks', (_req, res) => res.sendFile(path.join(__dirname, '../public/tanks.html')));
 app.get('/knockout', (_req, res) => res.sendFile(path.join(__dirname, '../public/knockout.html')));
+app.get('/battleship', (_req, res) => res.sendFile(path.join(__dirname, '../public/battleship.html')));
 app.get('/shooter', (_req, res) => res.sendFile(path.join(__dirname, '../public/shooter.html')));
 
 app.use(express.static(path.join(__dirname, '../public')));
@@ -1165,6 +1167,43 @@ knockoutLobby.onSettled = ({ roomId, winnerId, why, pot, seats }) => {
   koSend(winner.wallet, prize, winner.name, 'knockout ' + roomId);
   console.log('[KO] ' + roomId + ' pot ' + pot.toFixed(2) + ' -> ' + winner.name
     + ' ' + prize.toFixed(2) + ' (cut ' + cut.toFixed(2) + ')');
+};
+
+const battleshipLobby = new BattleshipLobby(io);
+
+/* Battleship settles exactly the way Knockout does, through the same helper.
+   Two duels paying out by two different sets of rules would be two sets of
+   rules to keep right, and the split is a product decision rather than a
+   per-game one. */
+const _bsPaid = new Set();
+battleshipLobby.onSettled = ({ roomId, winnerId, why, pot, seats }) => {
+  if (!roomId || !(pot > 0) || _bsPaid.has(roomId)) return;
+  _bsPaid.add(roomId);
+  const winner = seats.find(s => s.id === winnerId) || null;
+  if (!winner || !winner.wallet) {
+    for (const s of seats) {
+      if (!(s.worth > 0) || !s.wallet) continue;
+      koSend(s.wallet, s.worth, s.name, 'battleship refund (' + (why || 'no winner') + ')');
+    }
+    console.log('[BS] ' + roomId + ' refunded ' + pot.toFixed(2) + ' — ' + (why || 'no winner'));
+    return;
+  }
+  const cut = pot * KO_HOUSE_CUT;
+  const prize = pot - cut;
+  trackEarning({
+    source: 'game_rake', game: 'battleship', amountUsdc: cut,
+    wallet: winner.wallet, name: winner.name, lobbyType: 'battleship', region: REGION,
+  });
+  sweepRake(cut, 'battleship');
+  koSend(winner.wallet, prize, winner.name, 'battleship ' + roomId);
+  console.log('[BS] ' + roomId + ' pot ' + pot.toFixed(2) + ' -> ' + winner.name
+    + ' ' + prize.toFixed(2) + ' (cut ' + cut.toFixed(2) + ')');
+};
+
+battleshipLobby.onRefund = ({ wallet, name, amount, why }) => {
+  if (!wallet || !(amount > 0)) return;
+  console.log('[BS] refunding ' + amount.toFixed(2) + ' to ' + name + ' — ' + why);
+  koSend(wallet, amount, name, 'battleship refund');
 };
 
 /* A stake handed back because a paid table never found an opponent. Same
@@ -1257,6 +1296,7 @@ for (const rgn of [REGION]) {
   Object.values(gameRooms[rgn]).forEach(r => r.start());
   tanksLobby.start();
   knockoutLobby.start();
+  battleshipLobby.start();
   Object.values(agarRooms[rgn]).forEach(r => r.start());
 }
 
@@ -1342,6 +1382,16 @@ function liveExtras() {
     } catch (_) {}
     out.push({ id: 'knockout:free', game: 'knockout', region: REGION,
       players: (knockoutLobby.queue ? knockoutLobby.queue.length : 0) + inGame, bots: 0 });
+  }
+  if (typeof battleshipLobby !== 'undefined' && battleshipLobby) {
+    let inGame = 0;
+    try {
+      for (const r of battleshipLobby.rooms.values()) {
+        for (const id of r.players.keys()) if (!String(id).startsWith('bot_')) inGame++;
+      }
+    } catch (_) {}
+    out.push({ id: 'battleship:free', game: 'battleship', region: REGION,
+      players: (battleshipLobby.queue ? battleshipLobby.queue.length : 0) + inGame, bots: 0 });
   }
   return out;
 }
@@ -2520,6 +2570,56 @@ io.on('connection', (socket) => {
   });
 
   socket.on('ko:leave', () => knockoutLobby.leave(socket.id));
+
+  /* ── Battleship ───────────────────────────────────────────────────────────
+     The client sends a fleet layout and, on its turn, one square. Everything
+     else — whether that square holds a ship, whose turn it is next, and who has
+     won — is decided in BattleshipRoom and pushed back per player. The one
+     thing that must never travel is the opponent's layout, which is why state
+     is sent with viewFor rather than broadcast to the room. */
+  socket.on('bs:queue', ({ name, wallet, stake, entryToken } = {}) => {
+    if (!socketRL(socket, 'bsq', 1000)) return;
+    if (ops.get().maintenance) { socket.emit('maintenance', ops.get()); return; }
+
+    let worth = 0, rung = 0;
+    const wants = Number(stake) || 0;
+    if (wants > 0) {
+      const entry = consumePaidEntryAtStake(entryToken, wants, 'battleship');
+      if (!entry.ok) { socket.emit('bs:refused', { why: 'that buy-in was not paid for' }); return; }
+      worth = entry.worth;
+      rung = wants;
+      if (entry.walletAddress) socket._walletAddress = entry.walletAddress;
+    }
+
+    battleshipLobby.enqueue(socket, sanitizeName(name),
+      wallet || socket._walletAddress || null, rung, worth);
+    socket.emit('bs:queued', {
+      waitingMs: battleshipLobby.queuedFor(socket.id) || 0,
+      stake: rung, worth,
+      paidWaitMs: rung > 0 ? BattleshipLobby.PAID_WAIT_MS : 0,
+    });
+  });
+
+  socket.on('bs:unqueue', () => battleshipLobby.leave(socket.id));
+
+  socket.on('bs:place', ({ layout } = {}) => {
+    if (!socketRL(socket, 'bsplace', 250)) return;
+    const room = battleshipLobby.roomOf(socket.id);
+    if (!room) return;
+    const r = room.placeFleet(socket.id, layout);
+    if (!r.ok) { socket.emit('bs:refused', { why: r.why }); return; }
+    socket.emit('bs:placed', {});
+  });
+
+  socket.on('bs:fire', ({ cell } = {}) => {
+    if (!socketRL(socket, 'bsfire', 250)) return;
+    const room = battleshipLobby.roomOf(socket.id);
+    if (!room) return;
+    const r = room.fire(socket.id, cell);
+    if (!r.ok) { socket.emit('bs:refused', { why: r.why }); return; }
+  });
+
+  socket.on('bs:leave', () => battleshipLobby.leave(socket.id));
   /* ── Shooter ──────────────────────────────────────────────────────────────
      Free, solo, and server-simulated anyway. The client sends which keys are
      down and where it is aiming; it never says that it hit something, took a
@@ -2646,6 +2746,7 @@ io.on('connection', (socket) => {
        leaves an opponent staring at a turn that will never come. */
     tanksLobby.leave(socket.id);
     knockoutLobby.leave(socket.id);
+    battleshipLobby.leave(socket.id);
     endShooter(socket.id);
     console.log(`[-] Disconnected: ${socket.id}`);
     if (socket._agarRoom) {

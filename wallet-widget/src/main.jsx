@@ -214,7 +214,7 @@ async function stakeAndPlay(game, sel, wallet, signTransaction, onStatus, onLaun
      single isAgar flag. Its free seats never reach this function at all -
      the lobby opens those directly, because there is nothing to stake. */
   const isAgar = game === 'agar';
-  const PAGES = { agar: '/agar.html', knockout: '/knockout', snake: '/game.html' };
+  const PAGES = { agar: '/agar.html', knockout: '/knockout', battleship: '/battleship', snake: '/game.html' };
   const frame = document.getElementById(isAgar ? 'agar-frame' : 'game-frame');
   const html = PAGES[game] || '/game.html';
   if (frame) {

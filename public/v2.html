@@ -2136,7 +2136,9 @@ const GAMES=[
     cannot cover a pot. If nobody comes the buy-in goes back. */
  {id:'knockout',name:'Knockout',c:['#261c14','#e0a05c'],type:'m',duel:1,built:1,paid:1,
   d:'Two pieces each on a shrinking disc. Aim both, commit blind, and find out together whose read was right.'},
- {id:'battleship',name:'Battleship',c:['#141a24','#7b93c4'],type:'m',soon:1,duel:1,
+ /* Built, and it takes a buy-in on the same terms as Knockout: free plays a
+    bot, a paid table waits for a real person and refunds if none comes. */
+ {id:'battleship',name:'Battleship',c:['#141a24','#7b93c4'],type:'m',duel:1,built:1,paid:1,
   d:'Hide your fleet, then find theirs before they find yours.'},
 
  {id:'paper',name:'Paper.io',c:['#1e1826','#a887d6'],type:'p',soon:1,

@@ -271,7 +271,7 @@
        asking the money layer to handle a game that never touches money.
 
        Everything else still goes through the widget exactly as before. */
-    const OWN_PAGE = { tanks: '/tanks', omgshooter: '/shooter', knockout: '/knockout' };
+    const OWN_PAGE = { tanks: '/tanks', omgshooter: '/shooter', knockout: '/knockout', battleship: '/battleship' };
     /* A PAID SEAT NEVER TAKES THIS SHORTCUT. The shortcut exists for games with
        no money in them; routing a real buy-in down it would open the table with
        no stake taken and no entry token, which the server would then refuse.

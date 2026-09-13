@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>Battleship · DuelSeries</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/battleship.css">
+</head>
+<body>
+
+<!-- The clock and the state of the match. One strip, because how long is left
+     and whose move it is are read together. -->
+<header id="top" hidden>
+  <div class="side">
+    <span class="who" id="youName">You</span>
+    <span class="fleetbar" id="youBar" aria-label="Your fleet"></span>
+  </div>
+  <div class="clock">
+    <span class="num" id="clockNum">30</span>
+    <span class="lbl" id="clockLbl">Place</span>
+  </div>
+  <div class="side them">
+    <span class="who" id="themName">Opponent</span>
+    <span class="fleetbar" id="themBar" aria-label="Their fleet"></span>
+  </div>
+</header>
+
+<!-- The two boards. Yours on the left with your fleet on it, theirs on the
+     right with nothing but the marks you have earned. -->
+<main id="boards" hidden>
+  <section class="boardwrap">
+    <h2 class="bt" id="myTitle">Your waters</h2>
+    <canvas id="mine" width="520" height="520"></canvas>
+  </section>
+  <section class="boardwrap">
+    <h2 class="bt them" id="foeTitle">Opponent</h2>
+    <canvas id="theirs" width="520" height="520"></canvas>
+  </section>
+</main>
+
+<!-- The dock. Your five ships sit here until you drag them onto your own
+     board; it collapses away once the fleet is down and the shooting starts. -->
+<section id="dock" hidden>
+  <div class="dockhd">
+    <span id="dockMsg">Drag your ships onto your waters</span>
+    <button type="button" id="rotate" class="mini">Rotate</button>
+    <button type="button" id="auto" class="mini">Auto</button>
+  </div>
+  <div id="tray"></div>
+</section>
+
+<!-- The one control during the shooting half: what you have aimed at, and the
+     button that commits it. -->
+<footer id="bar" hidden>
+  <span id="hint">Waiting…</span>
+  <button id="fire" type="button" disabled>Confirm attack</button>
+</footer>
+
+<!-- Matching. Same card and the same words as the other duels. -->
+<div id="wait">
+  <div class="waitCard">
+    <div class="waitSpin" aria-hidden="true"></div>
+    <b id="waitMain">Looking for an opponent</b>
+    <span id="waitSub">Free table. Nothing staked.</span>
+    <button type="button" id="waitCancel">Back to the lobby</button>
+  </div>
+</div>
+
+<div id="count" hidden><span id="countNum">3</span></div>
+
+<div id="over" hidden>
+  <div class="overCard">
+    <p class="overEyebrow" id="overEyebrow">Match over</p>
+    <p class="overWho" id="overWho">—</p>
+    <p class="overWhy" id="overWhy"></p>
+    <div class="overBtns">
+      <button type="button" class="ghost" id="againBtn">Play again</button>
+      <button type="button" class="go" id="lobbyBtn">Lobby</button>
+    </div>
+  </div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="js/battleshipArt.js"></script>
+<script src="js/battleship.js"></script>
+</body>
+</html>

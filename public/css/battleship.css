@@ -1,0 +1,247 @@
+/* ─── Battleship ──────────────────────────────────────────────────────────────
+   Two charts side by side on a dark table.
+
+   The product's palette, with one thing this game earns: the grids are BLUE,
+   because they are water and nothing else on this screen is. Everything that
+   matters is one of three states and each gets exactly one colour — a white
+   mark for a miss, a red one for a hit, and the ship itself once it is sunk.
+   Nothing else on the board is allowed to be red or white.
+
+   Your chart on the left carries your fleet; theirs on the right starts empty
+   and fills only with what you have earned. That asymmetry is the game, so the
+   two boards are deliberately NOT styled identically: yours is calm and theirs
+   is the one you are working on, with a live cursor and a confirm. */
+
+:root {
+  --ink:   #0d1117;
+  --deep:  #0a1622;        /* the water, unfired */
+  --grid:  #1d3348;
+  --gridl: #274863;
+  --s1:    #141a22;
+  --s2:    #1d242e;
+  --s3:    #2a323d;
+  --tx:    #f5f1e8;
+  --tx2:   #a3adbb;
+  --tx3:   #7c869a;
+  --hit:   #e0554a;        /* a hit, and nothing else is this colour */
+  --miss:  #eef2f7;        /* a miss, likewise */
+  --live:  #8ed081;
+  --act:   #f0a830;        /* the product's amber: buttons and the clock */
+  --f:  'Archivo', ui-sans-serif, system-ui, 'Segoe UI', Arial, sans-serif;
+  --fm: 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; min-height: 100%;
+  background: var(--ink); color: var(--tx);
+  font-family: var(--f);
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+  -webkit-user-select: none; user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.num { font-family: var(--fm); font-variant-numeric: tabular-nums; }
+
+/* ── the strip ─────────────────────────────────────────────────────────── */
+#top {
+  position: sticky; top: 0; z-index: 10;
+  display: flex; align-items: center; gap: 14px;
+  padding: calc(10px + env(safe-area-inset-top)) 16px 10px;
+  background: linear-gradient(to bottom, rgba(13,17,23,0.97), rgba(13,17,23,0.86));
+}
+#top[hidden] { display: none; }
+.side { flex: 1; display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.side.them { align-items: flex-end; }
+.who {
+  font-size: 13px; font-weight: 650; color: var(--tx);
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.side.them .who { color: var(--hit); }
+
+/* Seventeen squares, as seventeen ticks. A number would say the same thing and
+   be slower to read; this shows how close the match is at a glance. */
+.fleetbar { display: flex; gap: 2px; }
+.fleetbar i {
+  width: 5px; height: 11px; border-radius: 1px;
+  background: var(--tx); opacity: 0.85; transition: opacity 0.3s, background 0.3s;
+}
+.side.them .fleetbar i { background: var(--hit); }
+.fleetbar i.gone { opacity: 0.16; }
+
+.clock { text-align: center; flex: 0 0 auto; }
+.clock .num {
+  display: block; font-size: 24px; font-weight: 600; line-height: 1; color: var(--tx);
+  transition: color 0.2s;
+}
+.clock.urgent .num { color: var(--act); }
+.clock .lbl {
+  display: block; margin-top: 3px; font-family: var(--fm);
+  font-size: 9.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--tx3);
+}
+
+/* ── the boards ────────────────────────────────────────────────────────── */
+#boards {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 18px;
+  padding: 10px 16px 0; max-width: 1180px; margin: 0 auto;
+}
+#boards[hidden] { display: none; }
+.boardwrap { min-width: 0; }
+.bt {
+  margin: 0 0 8px; font-family: var(--fm); font-size: 10.5px; font-weight: 600;
+  letter-spacing: 0.14em; text-transform: uppercase; color: var(--tx3);
+}
+.bt.them { color: var(--hit); opacity: 0.85; }
+canvas { width: 100%; height: auto; display: block; border-radius: 10px; }
+/* Only the enemy chart is clickable, and it says so. */
+#theirs { cursor: crosshair; }
+#theirs.idle { cursor: default; }
+
+/* ── the dock ──────────────────────────────────────────────────────────── */
+#dock {
+  max-width: 1180px; margin: 14px auto 0; padding: 0 16px;
+}
+#dock[hidden] { display: none; }
+.dockhd {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 12.5px; color: var(--tx2); margin-bottom: 8px;
+}
+#dockMsg { flex: 1; min-width: 0; }
+.mini {
+  font-family: inherit; font-size: 12px; font-weight: 600;
+  border-radius: 8px; padding: 7px 12px; cursor: pointer;
+  border: 1px solid var(--s3); background: var(--s1); color: var(--tx);
+  transition: background 0.15s, border-color 0.15s;
+}
+.mini:hover { background: var(--s2); border-color: #3a4553; }
+#tray {
+  display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end;
+  min-height: 58px;
+}
+/* A ship waiting to be placed. It carries its own canvas so the thing you drag
+   is the thing that lands, rather than a coloured box standing in for it. */
+.trayShip {
+  position: relative; cursor: grab; touch-action: none;
+  border-radius: 8px; padding: 4px; background: var(--s1);
+  border: 1px solid var(--s3);
+  transition: border-color 0.15s, opacity 0.2s, transform 0.15s;
+}
+.trayShip:hover { border-color: #3f4b5b; }
+.trayShip.placed { opacity: 0.30; cursor: default; }
+.trayShip.dragging { opacity: 0.45; }
+.trayShip canvas { border-radius: 0; }
+.trayName {
+  display: block; margin-top: 3px; text-align: center;
+  font-family: var(--fm); font-size: 9px; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--tx3);
+}
+
+/* The ship under the cursor while it is being dragged. Follows the pointer and
+   must never eat the pointer events the board needs. */
+#ghost {
+  position: fixed; z-index: 40; pointer-events: none; display: none;
+  filter: drop-shadow(0 6px 14px rgba(0,0,0,0.55));
+}
+
+/* ── the bar ───────────────────────────────────────────────────────────── */
+#bar {
+  position: sticky; bottom: 0; z-index: 10;
+  display: flex; align-items: center; gap: 12px;
+  max-width: 1180px; margin: 14px auto 0;
+  padding: 12px 16px calc(14px + env(safe-area-inset-bottom));
+  background: linear-gradient(to top, rgba(13,17,23,0.98), rgba(13,17,23,0.80));
+}
+#bar[hidden] { display: none; }
+#hint { flex: 1; font-size: 13px; color: var(--tx2); min-width: 0; }
+#fire {
+  font-family: inherit; font-size: 14px; font-weight: 700;
+  border-radius: 10px; padding: 12px 22px; cursor: pointer;
+  border: 1px solid var(--act); background: var(--act); color: #1a1206;
+  transition: background 0.15s;
+}
+#fire:hover:not(:disabled) { background: #f6b845; }
+#fire:disabled { background: transparent; color: var(--tx3); border-color: var(--s3); cursor: default; }
+
+/* ── the countdown ─────────────────────────────────────────────────────── */
+#count {
+  position: fixed; inset: 0; z-index: 18;
+  display: flex; align-items: center; justify-content: center; pointer-events: none;
+}
+#count[hidden] { display: none; }
+#count span {
+  font-family: var(--fm); font-size: 104px; font-weight: 600; color: var(--tx);
+  text-shadow: 0 10px 40px rgba(0,0,0,0.85);
+  animation: bsbeat 1s ease-out infinite;
+}
+@keyframes bsbeat {
+  0%   { transform: scale(1.22); opacity: 0; }
+  25%  { transform: scale(1);    opacity: 1; }
+  100% { transform: scale(0.93); opacity: 0.25; }
+}
+
+/* ── waiting, and the end ──────────────────────────────────────────────── */
+#wait, #over {
+  position: fixed; inset: 0; z-index: 20;
+  display: flex; align-items: center; justify-content: center; padding: 24px;
+  background: rgba(5, 8, 12, 0.76); backdrop-filter: blur(6px);
+}
+#wait[hidden], #over[hidden] { display: none; }
+#over { animation: bs-veil 0.55s ease-out both; }
+#over .overCard { animation: bs-card 0.45s cubic-bezier(.2,.8,.3,1) 0.12s both; }
+@keyframes bs-veil { from { opacity: 0; } to { opacity: 1; } }
+@keyframes bs-card {
+  from { opacity: 0; transform: translateY(14px) scale(0.97); }
+  to   { opacity: 1; transform: none; }
+}
+.waitCard, .overCard {
+  width: 100%; max-width: 380px; text-align: center;
+  background: var(--s1); border: 1px solid var(--s3); border-radius: 18px;
+  padding: 28px 24px 22px; box-shadow: 0 24px 60px rgba(0,0,0,0.6);
+}
+.waitSpin {
+  width: 24px; height: 24px; margin: 0 auto 16px; border-radius: 50%;
+  border: 2px solid var(--s3); border-top-color: var(--act);
+  animation: bsspin 0.8s linear infinite;
+}
+@keyframes bsspin { to { transform: rotate(360deg); } }
+.waitCard b { display: block; font-size: 17px; font-weight: 650; }
+.waitCard span { display: block; margin-top: 6px; font-size: 13px; color: var(--tx3); }
+.waitCard button, .overBtns button {
+  font-family: inherit; font-size: 13.5px; font-weight: 600;
+  border-radius: 10px; padding: 11px 16px; cursor: pointer;
+  border: 1px solid var(--s3); background: transparent; color: var(--tx);
+  transition: background 0.15s, border-color 0.15s;
+}
+.waitCard button { margin-top: 20px; width: 100%; }
+.waitCard button:hover, .overBtns .ghost:hover { background: var(--s2); border-color: #3a4553; }
+
+.overEyebrow {
+  margin: 0; font-family: var(--fm); font-size: 0.72rem; font-weight: 600;
+  letter-spacing: 0.14em; text-transform: uppercase; color: var(--tx2);
+}
+.overWho { margin: 10px 0 0; font-size: 28px; font-weight: 650; letter-spacing: -0.5px; }
+.overWho.won { color: var(--live); }
+.overWho.lost { color: var(--hit); }
+.overWhy { margin: 8px 0 0; font-size: 13px; color: var(--tx3); }
+.overBtns { display: flex; gap: 8px; margin-top: 22px; }
+.overBtns button { flex: 1 1 0; min-width: 0; white-space: nowrap; }
+.overBtns .go { background: var(--act); border-color: var(--act); color: #1a1206; }
+.overBtns .go:hover { background: #f6b845; border-color: #f6b845; }
+
+/* ── narrow screens ────────────────────────────────────────────────────────
+   Two ten-by-ten grids will not sit side by side on a phone and stay legible,
+   so they stack: the board you are working on goes FIRST once the shooting
+   starts, and your own goes first while you are still laying ships out. */
+@media (max-width: 760px) {
+  #boards { grid-template-columns: 1fr; gap: 14px; padding: 8px 12px 0; }
+  body.firing .boardwrap:first-child { order: 2; }
+  #top { gap: 10px; padding-left: 12px; padding-right: 12px; }
+  .who { font-size: 12px; }
+  .fleetbar i { width: 4px; height: 9px; }
+  #dock, #bar { padding-left: 12px; padding-right: 12px; }
+  #tray { gap: 7px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+  .waitSpin, #count span, #over, #over .overCard { animation: none; }
+}

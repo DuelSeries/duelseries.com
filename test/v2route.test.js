@@ -1109,8 +1109,7 @@ test('a duel names its own stake, and does not pretend to find an opponent', () 
      matched yet, rather than spinning forever at somebody. */
   const html = v2();
 
-  for (const id of ['battleship',
-                    'rooftop', 'headsoccer', 'swim', 'maze']) {
+  for (const id of ['rooftop', 'headsoccer', 'swim', 'maze']) {
     const m = html.match(new RegExp("\{id:'" + id + "'[^\n]*"));
     assert.ok(m, id + ' is in the game list');
     assert.ok(/duel:1/.test(m[0]), id + ' is a duel');
@@ -1160,4 +1159,24 @@ test('a duel names its own stake, and does not pretend to find an opponent', () 
   // The honesty: the queue says what it cannot do.
   assert.ok(/Nobody to match you with yet/.test(html),
     'the queue admits nobody can be matched yet');
+});
+
+test('the two duels that take a buy-in are built and offer real rungs', () => {
+  /* Knockout and Battleship are the only games on here that are matched INTO
+     and take money. Both must be past soon:1 and flagged paid, or the lobby
+     draws a ladder over a game that cannot seat anybody. */
+  const html = v2();
+  for (const id of ['knockout', 'battleship']) {
+    const m = html.match(new RegExp("\{id:'" + id + "'[^\n]*"));
+    assert.ok(m, id + ' is in the game list');
+    assert.ok(/built:1/.test(m[0]), id + ' is built');
+    assert.ok(/paid:1/.test(m[0]), id + ' offers a buy-in');
+    assert.ok(/duel:1/.test(m[0]), id + ' is a duel');
+    assert.ok(!/soon:1/.test(m[0]), id + ' no longer says it is coming');
+  }
+  /* And the lobby has to know where to open them. */
+  const play = require('fs').readFileSync(
+    require('path').join(__dirname, '..', 'public', 'js', 'v2', 'play.js'), 'utf8');
+  assert.ok(/knockout:\s*'\/knockout'/.test(play), 'knockout has a page');
+  assert.ok(/battleship:\s*'\/battleship'/.test(play), 'battleship has a page');
 });
