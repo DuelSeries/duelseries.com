@@ -1119,6 +1119,79 @@ const agarRooms = {};
    path is involved in it at all. */
 const tanksLobby = new TanksLobby(io);
 const knockoutLobby = new KnockoutLobby(io);
+
+/* ─── Paying out a Knockout table ─────────────────────────────────────────────
+   The room decides who won; this moves the money, and it is the only thing that
+   does. Same split as everywhere else in the product: the winner takes the pot
+   less a ten percent house cut, which stays in escrow and is swept to revenue.
+
+   A DRAW REFUNDS, it does not split. Both sides being knocked off on the same
+   reveal is a real outcome of this game, and taking a rake off a match nobody
+   won would be charging two people for nothing. Each seat gets its own stake
+   back rather than half a pot, because the two are only the same number while
+   both seats paid the same, and that is an assumption rather than a fact.
+
+   Paid once per room, keyed by room id, for the same reason the battle royale
+   payout is: "pay the winner" is not a thing to run twice, and a reconnect, a
+   double event or a retry must not become a second transfer. */
+const _koPaid = new Set();
+const KO_HOUSE_CUT = 0.10;
+
+knockoutLobby.onSettled = ({ roomId, winnerId, why, pot, seats }) => {
+  if (!roomId || !(pot > 0)) return;
+  if (_koPaid.has(roomId)) return;
+  _koPaid.add(roomId);
+
+  const winner = seats.find(s => s.id === winnerId) || null;
+
+  /* Nobody won it: a draw, or a winner who has no wallet to pay. Hand every
+     seat its own stake back. */
+  if (!winner || !winner.wallet) {
+    for (const s of seats) {
+      if (!(s.worth > 0) || !s.wallet) continue;
+      koSend(s.wallet, s.worth, s.name, 'knockout refund (' + (why || 'no winner') + ')');
+    }
+    console.log('[KO] ' + roomId + ' refunded ' + pot.toFixed(2) + ' — ' + (why || 'no winner'));
+    return;
+  }
+
+  const cut = pot * KO_HOUSE_CUT;
+  const prize = pot - cut;
+  trackEarning({
+    source: 'game_rake', game: 'knockout', amountUsdc: cut,
+    wallet: winner.wallet, name: winner.name, lobbyType: 'knockout', region: REGION,
+  });
+  sweepRake(cut, 'knockout');
+  koSend(winner.wallet, prize, winner.name, 'knockout ' + roomId);
+  console.log('[KO] ' + roomId + ' pot ' + pot.toFixed(2) + ' -> ' + winner.name
+    + ' ' + prize.toFixed(2) + ' (cut ' + cut.toFixed(2) + ')');
+};
+
+/* A stake handed back because a paid table never found an opponent. Same
+   one-time guarantee: the lobby marks the entry refunded before calling. */
+knockoutLobby.onRefund = ({ wallet, name, amount, why }) => {
+  if (!wallet || !(amount > 0)) return;
+  console.log('[KO] refunding ' + amount.toFixed(2) + ' to ' + name + ' — ' + why);
+  koSend(wallet, amount, name, 'knockout refund');
+};
+
+/* One place that actually moves it, so a failed transfer is recorded the same
+   way whoever it was going to. A payout that fails is written down rather than
+   retried: a re-send is how you pay twice. */
+function koSend(wallet, amount, name, note) {
+  money.withdraw(wallet, amount)
+    .then((sig) => {
+      console.log('[KO] sent ' + amount.toFixed(6) + ' ' + money.unit + ' -> '
+        + String(wallet).slice(0, 8) + '… sig ' + String(sig).slice(0, 12));
+      db.recordEarnings(wallet, name || 'Player', amount, money.fiatValue(amount)).catch(() => {});
+    })
+    .catch((e) => {
+      console.error('[KO] CRITICAL: payout failed for ' + wallet + ' — owed '
+        + amount.toFixed(6) + ': ' + e.message);
+      db.recordFailedPayout(wallet, amount, name || 'Player', note + ': ' + e.message, e.broadcast)
+        .catch(() => {});
+    });
+}
 /* ONE arena for the whole region, not one per player. The shooter is a
    free-for-all: everybody who presses Play lands in the same map, which is
    the entire point of it and the reason it cannot be a room per socket.
@@ -2390,16 +2463,45 @@ io.on('connection', (socket) => {
      clamped there rather than believed, so a patched client that sends a pull
      of ten thousand gets the same shot as a player who dragged to the edge of
      their screen. */
-  socket.on('ko:queue', ({ name, wallet } = {}) => {
+  socket.on('ko:queue', ({ name, wallet, stake, entryToken } = {}) => {
     if (!socketRL(socket, 'koq', 1000)) return;
     if (ops.get().maintenance) { socket.emit('maintenance', ops.get()); return; }
-    knockoutLobby.enqueue(socket, sanitizeName(name), wallet || socket._walletAddress || null);
-    socket.emit('ko:queued', { waitingMs: knockoutLobby.queuedFor(socket.id) || 0 });
+
+    /* A PAID SEAT IS PROVED, NOT CLAIMED. The stake is whatever the server
+       recorded when it verified the on-chain transfer and minted a one-time
+       token; nothing the client says about what it paid is read. A seat with no
+       valid token is a free seat, and a client asking for a paid table without
+       one is refused rather than quietly seated for nothing. */
+    let worth = 0, rung = 0;
+    const wants = Number(stake) || 0;
+    if (wants > 0) {
+      const entry = consumePaidEntryAtStake(entryToken, wants, 'knockout');
+      if (!entry.ok) {
+        socket.emit('ko:refused', { why: 'that buy-in was not paid for' });
+        return;
+      }
+      worth = entry.worth;
+      rung = wants;
+      if (entry.walletAddress) socket._walletAddress = entry.walletAddress;
+    }
+
+    knockoutLobby.enqueue(socket, sanitizeName(name),
+      wallet || socket._walletAddress || null, rung, worth);
+    socket.emit('ko:queued', {
+      waitingMs: knockoutLobby.queuedFor(socket.id) || 0,
+      stake: rung, worth,
+      /* So the screen can say how long it will wait before giving the money
+         back, rather than the player finding out by being refunded. */
+      paidWaitMs: rung > 0 ? KnockoutLobby.PAID_WAIT_MS : 0,
+    });
   });
 
   socket.on('ko:unqueue', () => {
-    knockoutLobby.dequeue(socket.id);
-    socket.emit('ko:unqueued', {});
+    /* leave(), not dequeue(). dequeue only forgets the seat; on a PAID table the
+       buy-in has already settled on-chain by the time somebody is standing in
+       the queue, so dropping them without handing it back is taking their money
+       for a match that never happened. leave() refunds, once, and tells them. */
+    knockoutLobby.leave(socket.id);
   });
 
   socket.on('ko:aim', ({ aims } = {}) => {

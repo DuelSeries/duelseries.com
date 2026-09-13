@@ -16,7 +16,20 @@
 
 const { KnockoutRoom, KO } = require('./KnockoutRoom');
 
-const BOT_AFTER_MS = 6000;        // how long you wait before one turns up
+const BOT_AFTER_MS = 6000;        // how long you wait before one turns up on a FREE table
+
+/* PAID TABLES NEVER GET A BOT.
+
+   The bot has no wallet and stakes nothing. Put a dollar in against it and
+   either you win a dollar out of escrow that nobody paid in, or you lose a
+   dollar to a machine. There is no version of that which is a game, and the
+   second one is the house booking a wager, which is a different and licensed
+   business. So a paid seat waits for a person.
+
+   And it does not wait for ever. Nobody is going to sit in front of a spinner
+   indefinitely, and a stake that has already settled on-chain cannot just be
+   forgotten, so after this long the seat is given up and the money goes back. */
+const PAID_WAIT_MS = 60000;
 
 /* HOW FAR THIS PIECE CAN GO BEFORE THE EDGE, along the line it is about to be
    fired down. Ray against circle, solved for the positive root.
@@ -58,9 +71,15 @@ class KnockoutLobby {
 
   /* ── the queue ──────────────────────────────────────────────────────────── */
 
-  enqueue(socket, name, wallet) {
+  /* `worth` is what the SERVER recorded this player staking, already taken out
+     of a one-time entry token by the caller. Zero means a free seat. */
+  enqueue(socket, name, wallet, stake, worth) {
     this.dequeue(socket.id);
-    this.queue.push({ socket, name, wallet, since: Date.now() });
+    this.queue.push({
+      socket, name, wallet, since: Date.now(),
+      stake: Number(stake) > 0 ? Number(stake) : 0,
+      worth: Number(worth) > 0 ? Number(worth) : 0,
+    });
     this.pump();
     return this.queue.some(e => e.socket.id === socket.id);
   }
@@ -76,18 +95,39 @@ class KnockoutLobby {
     return e ? Date.now() - e.since : null;
   }
 
-  /* Two waiting? Put them on a disc. A real opponent always beats a bot, so
-     this runs before the timer that hands one out. */
+  /* Two waiting AT THE SAME BUY-IN? Put them on a disc.
+
+     Matched by rung rather than by who is next, because a table where the two
+     seats paid different amounts has no honest way to split the pot. A real
+     opponent always beats a bot, so this runs before the timer that hands one
+     out. */
   pump() {
-    while (this.queue.length >= 2) {
-      const a = this.queue.shift(), b = this.queue.shift();
-      this.makeMatch([a, b]);
+    const byStake = new Map();
+    for (const e of this.queue) {
+      const k = String(e.stake || 0);
+      if (!byStake.has(k)) byStake.set(k, []);
+      byStake.get(k).push(e);
+    }
+    for (const group of byStake.values()) {
+      while (group.length >= 2) {
+        const a = group.shift(), b = group.shift();
+        this.dequeue(a.socket.id); this.dequeue(b.socket.id);
+        this.makeMatch([a, b]);
+      }
     }
   }
 
   tick(now) {
     const t = typeof now === 'number' ? now : Date.now();
     for (const e of [...this.queue]) {
+      /* A paid seat waits for a person, and then gives up and gets its money
+         back. A free one gets a bot, because there is nothing to lose. */
+      if (e.stake > 0) {
+        if (t - e.since < PAID_WAIT_MS) continue;
+        this.dequeue(e.socket.id);
+        this.refund(e, 'nobody joined that table');
+        continue;
+      }
       if (t - e.since < BOT_AFTER_MS) continue;
       this.dequeue(e.socket.id);
       this.makeMatch([e], true);
@@ -104,11 +144,17 @@ class KnockoutLobby {
 
   makeMatch(entries, withBot) {
     const room = new KnockoutRoom(this.io);
+    room.stake = entries.length ? (entries[0].stake || 0) : 0;
+    room.onSettled = this.onSettled || null;
     for (const e of entries) {
-      room.addPlayer(e.socket, e.name, e.wallet);
+      room.addPlayer(e.socket, e.name, e.wallet, e.worth);
       this.bySocket.set(e.socket.id, room.id);
       e.socket._koRoom = room.id;
     }
+    /* Belt and braces over the rule above: a paid room can never be given a
+       bot, whatever the caller asked for. This is the one line standing between
+       a real stake and an opponent that cannot cover it. */
+    if (withBot && room.stake > 0) withBot = false;
     if (withBot) {
       /* A stand-in socket. It joins nothing and receives nothing: the room only
          ever calls .id and .join on it, and a bot has no client to send to. */
@@ -122,6 +168,21 @@ class KnockoutLobby {
     return room;
   }
 
+  /* Handing a stake back, once. Whoever set onRefund owns actually moving it;
+     this only says who is owed what and why, which keeps every path that moves
+     money in one file. */
+  refund(entry, why) {
+    if (!entry || entry.refunded) return;
+    entry.refunded = true;
+    try { entry.socket.emit('ko:unqueued', { refunded: entry.worth > 0, why: why || '' }); }
+    catch (_) {}
+    if (entry.worth > 0 && typeof this.onRefund === 'function') {
+      try {
+        this.onRefund({ wallet: entry.wallet, name: entry.name, amount: entry.worth, why: why || '' });
+      } catch (e) { console.error('[KO] refund hook failed:', e.message); }
+    }
+  }
+
   roomOf(socketId) {
     const id = this.bySocket.get(socketId);
     return id ? this.rooms.get(id) : null;
@@ -129,6 +190,10 @@ class KnockoutLobby {
 
   leave(socketId) {
     const room = this.roomOf(socketId);
+    /* Backing out of a PAID queue is a refund, not just a dequeue. The stake
+       has already settled on-chain by the time they are standing in it. */
+    const waiting = this.queue.find(e => e.socket.id === socketId);
+    if (waiting) this.refund(waiting, 'left the queue');
     this.dequeue(socketId);
     if (!room) return;
     room.removePlayer(socketId);
@@ -258,4 +323,8 @@ class KnockoutLobby {
   }
 }
 
-module.exports = { KnockoutLobby, BOT_AFTER_MS };
+/* Hung off the class as well as exported, so a caller that already has the
+   class does not need a second import just to say how long a paid seat waits. */
+KnockoutLobby.PAID_WAIT_MS = PAID_WAIT_MS;
+
+module.exports = { KnockoutLobby, BOT_AFTER_MS, PAID_WAIT_MS };

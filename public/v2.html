@@ -867,8 +867,11 @@ body.no-foot footer{display:none}
    a stake it cannot take. */
 #detail.duel.freeonly .duelbet{display:none}
 #detail.duel.freeonly .stakes,#detail.duel.freeonly .stakeoff,
-#detail.duel.freeonly .sl{display:block}
-#detail.duel.freeonly .stakes{display:flex}
+#detail.duel.freeonly .sl,#detail.duel.paidduel .sl{display:block}
+#detail.duel.freeonly .stakes,#detail.duel.paidduel .stakes{display:flex}
+/* The struck-through note belongs to a table with closed rungs. This one has
+   none, so it would be an empty line pushing the button down. */
+#detail.duel.paidduel .stakeoff{display:none}
 /* The ladder, the open-lobby list and the snake skin all belong to an arena.
    A duel has no room to list, nobody is in it yet, and a duel game has no
    snake to dress — showing any of them is furniture from another game. */
@@ -2128,9 +2131,10 @@ const GAMES=[
     the product does offer them and hiding them would say it does not. */
  {id:'tanks',name:'Bowmasters',c:['#1b4f7a','#7fd4f5'],type:'m',duel:1,built:1,freeOnly:1,
   d:'One shot each, an arc to judge, and whoever reads the wind first wins.'},
- /* Built, and free while it is new. Same shape as Bowmasters: its own page, a
-    ladder whose only open rung is Free, and none of the money path involved. */
- {id:'knockout',name:'Knockout',c:['#261c14','#e0a05c'],type:'m',duel:1,built:1,freeOnly:1,
+ /* Built, and the first duel that takes a buy-in. Free seats you against a
+    bot; a paid table waits for a real person, because a bot stakes nothing and
+    cannot cover a pot. If nobody comes the buy-in goes back. */
+ {id:'knockout',name:'Knockout',c:['#261c14','#e0a05c'],type:'m',duel:1,built:1,paid:1,
   d:'Two pieces each on a shrinking disc. Aim both, commit blind, and find out together whose read was right.'},
  {id:'battleship',name:'Battleship',c:['#141a24','#7b93c4'],type:'m',soon:1,duel:1,
   d:'Hide your fleet, then find theirs before they find yours.'},
@@ -2179,7 +2183,12 @@ function refreshSteps(gameId){
      lone Free button with nothing to say the other tiers exist at all. */
   STEPS=LADDER.slice();
   const g=G(gameId);
-  if(g&&g.freeOnly){
+  if(g&&g.paid){
+    /* Every rung is real here. The board does not list a room per rung for a
+       duel - there is no room until two people are matched - so asking it
+       which stakes are playable would strike them all through. */
+    STEPS_OFF=new Set();
+  }else if(g&&g.freeOnly){
     /* Free is the only rung this game seats today. Everything else is drawn
        struck through, which says the product offers it and this table does not
        yet — quieter and more honest than hiding it. */
@@ -3140,6 +3149,9 @@ function open_(id){
      than the open-ended stepper: you cannot name your own stake at a table
      that does not take one yet. */
   det.classList.toggle('freeonly',!!cur.freeOnly);
+  /* A duel that TAKES a buy-in shows the same fixed ladder as a free-only one,
+     with every rung live. Same panel, different rungs open. */
+  det.classList.toggle('paidduel',!!cur.paid);
   det.classList.toggle('solo',!!cur.solo);
   /* The stepper note describes a stake, and this table takes none. Leaving it
      there had the screen promising a $1.00 pot on a free game. */
@@ -3150,6 +3162,13 @@ function open_(id){
   }else if(dn&&cur.freeOnly){
     dn.textContent='Free while the game is new. Nothing staked, nothing paid out '
       +'— you are playing for the win.';
+  }else if(dn&&cur.paid){
+    /* Said before they pay, not after. A paid duel cannot be seated against a
+       bot, so on a game this new the honest thing is to say it will wait and
+       what happens if nobody comes. */
+    dn.textContent='Free plays a bot straight away. A paid table waits for a real '
+      +'opponent at the same buy-in — winner takes both, minus the ten percent '
+      +'house cut. If nobody joins within a minute your buy-in is returned.';
   }
   det.classList.remove('queueing');
   if(cur.duel)drawDuelBet();

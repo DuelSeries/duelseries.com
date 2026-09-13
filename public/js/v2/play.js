@@ -272,7 +272,13 @@
 
        Everything else still goes through the widget exactly as before. */
     const OWN_PAGE = { tanks: '/tanks', omgshooter: '/shooter', knockout: '/knockout' };
-    if (OWN_PAGE[game]) {
+    /* A PAID SEAT NEVER TAKES THIS SHORTCUT. The shortcut exists for games with
+       no money in them; routing a real buy-in down it would open the table with
+       no stake taken and no entry token, which the server would then refuse.
+       Knockout is the first game that is on both sides of this line, so the
+       test is the amount rather than the game. */
+    const staking = hasStake && Number(sel.stake) > 0;
+    if (OWN_PAGE[game] && !staking) {
       try { sessionStorage.setItem('playerName', name); } catch (_) {}
       const frame = document.getElementById('game-frame');
       if (!frame) { say('That game could not be opened. Refresh and try again.'); return; }

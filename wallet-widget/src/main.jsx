@@ -209,9 +209,14 @@ async function stakeAndPlay(game, sel, wallet, signTransaction, onStatus, onLaun
   sessionStorage.removeItem('spectateOnly');
   // Launch in the lobby's iframe (snake → game-frame/game.html, agar → agar-frame/agar.html);
   // the in-game Lobby button returns cleanly via the lobby's game:done handler.
+  /* Which page this buy-in opens. Knockout is the first game here that has
+     its own page AND takes money, so the map is by game rather than by a
+     single isAgar flag. Its free seats never reach this function at all -
+     the lobby opens those directly, because there is nothing to stake. */
   const isAgar = game === 'agar';
+  const PAGES = { agar: '/agar.html', knockout: '/knockout', snake: '/game.html' };
   const frame = document.getElementById(isAgar ? 'agar-frame' : 'game-frame');
-  const html = isAgar ? '/agar.html' : '/game.html';
+  const html = PAGES[game] || '/game.html';
   if (frame) {
     if (window._pauseLobbyAnims) window._pauseLobbyAnims();
     onLaunch();

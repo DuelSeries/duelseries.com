@@ -130,7 +130,20 @@ class KnockoutRoom {
     this.phaseEndsAt = 0;
     this.winner = null;       // socketId, or null for a draw
     this.overWhy = '';
-    this.stake = 0;           // free while the game is new
+    /* THE MONEY ON THIS TABLE.
+
+       `stake` is the rung every seat paid, and `worth` per player is what the
+       SERVER recorded them paying — taken from the one-time entry token, never
+       from anything a client said. A free table leaves both at zero and no
+       payout code ever runs.
+
+       This room decides WHO WON and nothing else. What that is worth, and
+       moving it, is index.js's job through onSettled: the same split as
+       everywhere else in this product, because a second copy of the payout
+       rules is a second set of rules to get wrong. */
+    this.stake = 0;
+    this.worth = new Map();   // socketId -> what the server recorded them staking
+    this.settled = false;
     this.aims = new Map();    // socketId -> [{ pieceId, ax, ay }]
     this.ready = new Set();   // who has locked in this turn
     this.lastResolve = null;
@@ -138,12 +151,21 @@ class KnockoutRoom {
 
   /* ── seats ──────────────────────────────────────────────────────────────── */
 
-  addPlayer(socket, name, wallet) {
+  addPlayer(socket, name, wallet, worth) {
     if (this.players.size >= 2) return false;
-    const side = this.players.size;        // 0 = left, 1 = right
+    const side = this.players.size;        // 0 = bottom, 1 = top
     this.players.set(socket.id, { socket, name: name || 'Player', wallet: wallet || null, side });
+    this.worth.set(socket.id, Number(worth) > 0 ? Number(worth) : 0);
     if (socket.join) socket.join(this.socketRoomName);
     return true;
+  }
+
+  /* Everything staked on this table. The winner's prize and a draw's refunds
+     both come out of exactly this and never out of anything else. */
+  pot() {
+    let n = 0;
+    for (const v of this.worth.values()) n += v;
+    return n;
   }
 
   removePlayer(socketId) {
@@ -513,11 +535,38 @@ class KnockoutRoom {
     this.state = 'over';
     this.winner = winnerId || null;
     this.overWhy = why || '';
+
+    /* EXACTLY ONCE PER TABLE. finish() is reachable from a win, from a draw and
+       from somebody closing their laptop, and a room that settles twice pays
+       twice. The guard is here rather than at the money end because this is the
+       one place all three routes pass through. */
+    if (!this.settled) {
+      this.settled = true;
+      const pot = this.pot();
+      if (pot > 0 && typeof this.onSettled === 'function') {
+        try {
+          this.onSettled({
+            roomId: this.id,
+            winnerId: winnerId || null,
+            why: why || '',
+            pot,
+            /* Per seat, so a refund gives each player back their OWN stake
+               rather than half a pot they may not have paid half of. */
+            seats: [...this.players.entries()].map(([id, p]) => ({
+              id, name: p.name, wallet: p.wallet, worth: this.worth.get(id) || 0,
+            })),
+          });
+        } catch (e) { console.error('[KO] settle hook failed:', e.message); }
+      }
+    }
+
     this.broadcast('ko:over', {
       winner: winnerId ? (this.players.get(winnerId) || {}).name || null : null,
       winnerId: winnerId || null,
       why: this.overWhy,
       turn: this.turn,
+      stake: this.stake,
+      pot: this.pot(),
     });
   }
 
@@ -545,12 +594,15 @@ class KnockoutRoom {
          opponent who has locked in is information you are allowed to have, and
          it is what makes the last few seconds of a turn tense. */
       ready: [...this.ready],
+      /* What is on the table. Shown, because a player is entitled to see what
+         they are playing for, and it is the same number on both screens. */
+      stake: this.stake,
+      pot: this.pot(),
       /* Where the ring was before this turn closed it, and what that cost.
          The client eases the wall in from one to the other and drops these over
          the edge as it passes them. */
       prevArenaR: Math.round(this.prevArenaR || this.arenaR),
       ringOut: this.ringOut || [],
-      stake: this.stake,
     };
   }
 

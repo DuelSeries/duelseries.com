@@ -69,6 +69,19 @@ const myWallet = (() => {
   try { return localStorage.getItem('duelseries_wallet') || null; } catch (_) { return null; }
 })();
 
+/* The buy-in, and the proof it was paid. Both are written by the wallet widget
+   immediately before it opens this page, exactly as the snake game reads them.
+   Neither is trusted here or on the wire: the server re-reads the token, takes
+   the worth it recorded when it verified the transfer on-chain, and refuses the
+   seat if the token does not cover the rung being asked for. This is only how
+   the two get carried across. */
+const myStake = (() => {
+  try { return Number(sessionStorage.getItem('stake')) || 0; } catch (_) { return 0; }
+})();
+const myEntryToken = (() => {
+  try { return sessionStorage.getItem('entryToken') || null; } catch (_) { return null; }
+})();
+
 /* ── the transform ─────────────────────────────────────────────────────────
    One scale, one centre, recomputed on resize. The disc is fitted with room
    around it so a piece sailing off the edge is still visible while it goes,
@@ -500,8 +513,20 @@ function queue() {
   $('over').hidden = true;
   $('wait').hidden = false;
   $('waitMain').textContent = 'Looking for an opponent';
-  $('waitSub').textContent = 'Free table. Nothing staked.';
-  socket.emit('ko:queue', { name: myName, wallet: myWallet });
+  /* A paid table says what is on it and that it is waiting for a PERSON,
+     because it is: a bot cannot cover a stake, so this queue does not get one
+     the way the free one does. */
+  $('waitSub').textContent = myStake > 0
+    ? '$' + myStake.toFixed(2) + ' table. Waiting for a real opponent.'
+    : 'Free table. Nothing staked.';
+  socket.emit('ko:queue', {
+    name: myName, wallet: myWallet,
+    stake: myStake, entryToken: myEntryToken,
+  });
+  /* One use only. Re-sending it on a Play again would be asking the server to
+     spend a token it has already burned, and the seat would be refused with
+     nothing to show for it. */
+  try { sessionStorage.removeItem('entryToken'); } catch (_) {}
 }
 
 socket.on('ko:start', (state) => {
@@ -569,6 +594,17 @@ socket.on('ko:over', (m) => {
     : 'Last one standing after ' + (m.turn || 0) + (m.turn === 1 ? ' turn.' : ' turns.');
   $('over').hidden = false;
   $('bar').hidden = true;
+});
+
+/* The stake came back: nobody took the table, or they backed out. Said out
+   loud, because money quietly returning is money a player thinks they lost. */
+socket.on('ko:unqueued', ({ refunded, why } = {}) => {
+  if (!refunded) return;
+  $('wait').hidden = false;
+  $('waitMain').textContent = 'Buy-in refunded';
+  $('waitSub').textContent = (why === 'nobody joined that table'
+    ? 'Nobody joined that table, so your buy-in went back to your wallet.'
+    : 'Your buy-in went back to your wallet.');
 });
 
 socket.on('ko:refused', ({ why }) => {
