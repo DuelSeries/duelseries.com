@@ -79,87 +79,134 @@ html, body {
   font-size: 9.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--tx3);
 }
 
-/* ── the boards ────────────────────────────────────────────────────────── */
-#boards {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 18px;
-  padding: 10px 16px 0; max-width: 1180px; margin: 0 auto;
+/* ── the stage: a rail of ships and the boards ──────────────────────────── */
+/* Centred rather than pinned to the top: while placing there is only one
+   board, and left at flex-start it floated under the strip with the space it
+   did not use sitting empty below it. */
+#stage {
+  display: flex; gap: 14px; align-items: center;
+  min-height: calc(100dvh - 76px);
+  max-width: 1180px; margin: 0 auto; padding: 10px 16px 0;
 }
-#boards[hidden] { display: none; }
-.boardwrap { min-width: 0; }
+#stage[hidden] { display: none; }
+
+/* THE FLEET, STANDING ON END DOWN THE LEFT.
+
+   Along the bottom the ships were competing with the boards for the one
+   dimension a phone does not have. On the left they cost 68px of width, which
+   it does have, and the drag from rail to water is a short sideways move
+   instead of the length of the screen. */
+#rail {
+  flex: 0 0 auto; width: 76px;
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  /* A floor under the arithmetic. fitRail() sizes the ships to the height that
+     is there, but if it is ever wrong - a font loads a pixel taller, a phone
+     has a notch nobody predicted - the rail scrolls rather than pushing the
+     board off the bottom of the page. */
+  max-height: calc(100dvh - 64px); overflow-y: auto; overscroll-behavior: contain;
+  scrollbar-width: none;
+}
+#rail::-webkit-scrollbar { display: none; }
+#rail[hidden] { display: none; }
+.railhd {
+  font-family: var(--fm); font-size: 9.5px; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--tx3); text-align: center;
+}
+#tray { display: flex; flex-direction: column; align-items: center; gap: 7px; }
+.trayShip {
+  position: relative; cursor: grab; touch-action: none;
+  border-radius: 8px; padding: 3px; background: var(--s1);
+  border: 1px solid var(--s3);
+  display: flex; flex-direction: column; align-items: center;
+  transition: border-color 0.15s, opacity 0.2s, transform 0.12s;
+}
+.trayShip:hover { border-color: #3f4b5b; }
+.trayShip.placed { opacity: 0.26; cursor: default; }
+/* In hand. It stays on screen but plainly spoken for. */
+.trayShip.dragging { opacity: 0.40; border-color: var(--act); }
+.trayShip canvas { border-radius: 0; }
+.trayName {
+  display: block; margin-top: 2px; text-align: center;
+  font-family: var(--fm); font-size: 7.5px; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--tx3);
+}
+.mini {
+  font-family: inherit; font-size: 11px; font-weight: 600;
+  border-radius: 8px; padding: 7px 10px; cursor: pointer; width: 100%;
+  border: 1px solid var(--s3); background: var(--s1); color: var(--tx);
+  transition: background 0.15s, border-color 0.15s;
+}
+.mini:hover { background: var(--s2); border-color: #3a4553; }
+.tip {
+  font-family: var(--fm); font-size: 8.5px; line-height: 1.35; text-align: center;
+  letter-spacing: 0.04em; text-transform: uppercase; color: var(--tx3);
+}
+@media (hover: none) and (pointer: coarse) { .tip { display: none; } }
+
+#boards {
+  flex: 1 1 auto; min-width: 0;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 16px; justify-items: center;
+}
+/* WHILE PLACING, ONLY YOUR OWN WATERS ARE DRAWN. Theirs is empty and nothing
+   can be done to it, so it hands its half of the screen to the board that
+   needs it. Both are back the moment the shooting starts. */
+body.placing #boards { grid-template-columns: 1fr; }
+body.placing #wrapTheirs { display: none; }
+
+/* margin-inline rather than leaning on justify-items: a block with a
+   max-width is centred by its own margins, reliably, whatever the grid is
+   doing around it. */
+.boardwrap { min-width: 0; width: 100%; margin-inline: auto;
+  max-width: min(100%, var(--bmax, 100%)); }
 .bt {
   margin: 0 0 8px; font-family: var(--fm); font-size: 10.5px; font-weight: 600;
   letter-spacing: 0.14em; text-transform: uppercase; color: var(--tx3);
 }
 .bt.them { color: var(--hit); opacity: 0.85; }
 canvas { width: 100%; height: auto; display: block; border-radius: 10px; }
-/* Only the enemy chart is clickable, and it says so. */
 #theirs { cursor: crosshair; }
-#theirs.idle { cursor: default; }
+#mine { cursor: pointer; }
 
-/* ── the dock ──────────────────────────────────────────────────────────── */
-#dock {
-  max-width: 1180px; margin: 14px auto 0; padding: 0 16px;
-}
-#dock[hidden] { display: none; }
-.dockhd {
-  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-  font-size: 12.5px; color: var(--tx2); margin-bottom: 8px;
-}
-#dockMsg { flex: 1; min-width: 0; }
-.mini {
-  font-family: inherit; font-size: 12px; font-weight: 600;
-  border-radius: 8px; padding: 7px 12px; cursor: pointer;
-  border: 1px solid var(--s3); background: var(--s1); color: var(--tx);
-  transition: background 0.15s, border-color 0.15s;
-}
-.mini:hover { background: var(--s2); border-color: #3a4553; }
-#tray {
-  display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end;
-  min-height: 58px;
-}
-/* A ship waiting to be placed. It carries its own canvas so the thing you drag
-   is the thing that lands, rather than a coloured box standing in for it. */
-.trayShip {
-  position: relative; cursor: grab; touch-action: none;
-  border-radius: 8px; padding: 4px; background: var(--s1);
-  border: 1px solid var(--s3);
-  transition: border-color 0.15s, opacity 0.2s, transform 0.15s;
-}
-.trayShip:hover { border-color: #3f4b5b; }
-.trayShip.placed { opacity: 0.30; cursor: default; }
-.trayShip.dragging { opacity: 0.45; }
-.trayShip canvas { border-radius: 0; }
-.trayName {
-  display: block; margin-top: 3px; text-align: center;
-  font-family: var(--fm); font-size: 9px; letter-spacing: 0.08em;
-  text-transform: uppercase; color: var(--tx3);
-}
-
-/* The ship under the cursor while it is being dragged. Follows the pointer and
-   must never eat the pointer events the board needs. */
+/* The ship under the cursor while it is being dragged. */
 #ghost {
   position: fixed; z-index: 40; pointer-events: none; display: none;
   filter: drop-shadow(0 6px 14px rgba(0,0,0,0.55));
 }
 
-/* ── the bar ───────────────────────────────────────────────────────────── */
-#bar {
-  position: sticky; bottom: 0; z-index: 10;
-  display: flex; align-items: center; gap: 12px;
-  max-width: 1180px; margin: 14px auto 0;
-  padding: 12px 16px calc(14px + env(safe-area-inset-bottom));
-  background: linear-gradient(to top, rgba(13,17,23,0.98), rgba(13,17,23,0.80));
+/* ── a phone ────────────────────────────────────────────────────────────────
+   Upright, the rail runs down the left and the boards stack beside it. Sideways
+   they sit next to each other. Either way both fit without scrolling, because
+   fitBoards() in the client measures what is actually left rather than trusting
+   a number written here. */
+@media (max-width: 760px) {
+  #stage { gap: 8px; padding: 6px 8px 0; }
+  #rail { width: 62px; gap: 6px; }
+  .trayName { font-size: 7px; }
+  .mini { font-size: 10px; padding: 6px 4px; }
+  #boards { gap: 8px; }
+  .bt { font-size: 9px; margin-bottom: 4px; letter-spacing: 0.08em; }
+  #top { gap: 10px; padding-left: 12px; padding-right: 12px;
+         padding-top: calc(6px + env(safe-area-inset-top)); padding-bottom: 6px; }
+  .who { font-size: 11.5px; }
+  .fleetbar i { width: 4px; height: 9px; }
+  .clock .num { font-size: 20px; }
+  /* Stacked upright: theirs on top, mine underneath and nearest the rail. */
+  #boards { grid-template-columns: 1fr; }
+  #wrapTheirs { order: 1; }
+  #wrapMine   { order: 2; }
 }
-#bar[hidden] { display: none; }
-#hint { flex: 1; font-size: 13px; color: var(--tx2); min-width: 0; }
-#fire {
-  font-family: inherit; font-size: 14px; font-weight: 700;
-  border-radius: 10px; padding: 12px 22px; cursor: pointer;
-  border: 1px solid var(--act); background: var(--act); color: #1a1206;
-  transition: background 0.15s;
+
+/* Sideways on a phone. Two boards fit beside each other comfortably at this
+   aspect, which is the whole reason to turn it, so they go back to a row. */
+@media (max-width: 900px) and (orientation: landscape) {
+  #boards { grid-template-columns: 1fr 1fr; }
+  #wrapTheirs { order: 2; }     /* mine on the left, theirs on the right */
+  #wrapMine   { order: 1; }
+  #rail { width: 56px; }
+  #top { padding-top: calc(4px + env(safe-area-inset-top)); padding-bottom: 4px; }
+  .clock .num { font-size: 18px; }
+  .bt { font-size: 8.5px; margin-bottom: 3px; }
 }
-#fire:hover:not(:disabled) { background: #f6b845; }
-#fire:disabled { background: transparent; color: var(--tx3); border-color: var(--s3); cursor: default; }
 
 /* ── the countdown ─────────────────────────────────────────────────────── */
 #count {
@@ -228,66 +275,6 @@ canvas { width: 100%; height: auto; display: block; border-radius: 10px; }
 .overBtns .go:hover { background: #f6b845; border-color: #f6b845; }
 
 /* ── narrow screens ────────────────────────────────────────────────────────
-   Two ten-by-ten grids will not sit side by side on a phone and stay legible,
-   so they stack: the board you are working on goes FIRST once the shooting
-   starts, and your own goes first while you are still laying ships out. */
-@media (max-width: 760px) {
-  /* ── BOTH BOARDS ON ONE SCREEN ────────────────────────────────────────────
-     Owen: "I want both of mine and the opponent's squares to fit on my one
-     screen, I don't want to have to scroll." They did not before — two boards
-     sized off the WIDTH of a phone are about 350px each, which is 700px of
-     board before any of the furniture, and a phone has neither the room nor the
-     patience for that.
-
-     So on a phone they are sized off the HEIGHT instead: take the screen, take
-     off everything that is not board, halve what is left, and no board may be
-     wider than that. They shrink rather than the page growing, which is the
-     trade Owen offered — "I don't mind it being a little bit smaller."
-
-     The budget differs between the two halves of a match, because the ship dock
-     only exists while you are placing. dvh rather than vh so the browser's own
-     chrome sliding in and out does not push a board off the bottom. */
-  #boards {
-    grid-template-columns: 1fr; gap: 10px; padding: 6px 12px 0;
-    justify-items: center;
-  }
-  /* --bmax is set by fitBoards() in the client, from the height actually left
-     over once the strip, the bar, the dock and the two titles have taken
-     theirs. Hard-coding those in a calc here got within eleven pixels of
-     fitting, which is another way of saying it did not fit — and eleven pixels
-     is what a slightly taller font or one more safe-area inset costs. */
-  .boardwrap { width: 100%; max-width: min(100%, var(--bmax, 100%)); }
-
-  /* THEIRS ON TOP, MINE UNDERNEATH, always.
-
-     While placing it means the tray and your own waters are next to each other,
-     so a ship travels a couple of centimetres instead of the length of the
-     screen. While firing it puts the board you shoot at nearest the top, where
-     it is not under your own hand. The ring says which one is live, so nothing
-     is lost by keeping the order fixed. */
-  #wrapTheirs { order: 1; }
-  #wrapMine   { order: 2; }
-
-  .bt { font-size: 9px; margin-bottom: 4px; letter-spacing: 0.1em; }
-  #top { gap: 10px; padding-left: 12px; padding-right: 12px;
-         padding-top: calc(6px + env(safe-area-inset-top)); padding-bottom: 6px; }
-  .who { font-size: 11.5px; }
-  .fleetbar i { width: 4px; height: 9px; }
-  .clock .num { font-size: 20px; }
-  #dock { margin-top: 8px; }
-  /* The message gets its own line. Sharing a row with the hint and Auto on a
-     300px screen squeezed it into a five-line column, which is both ugly and
-     forty pixels of height spent on nothing. */
-  .dockhd { gap: 8px; }
-  #dockMsg { flex: 1 1 100%; font-size: 12px; }
-  #dock, #bar { padding-left: 12px; padding-right: 12px; }
-  #bar { margin-top: 8px; padding-top: 8px; padding-bottom: calc(8px + env(safe-area-inset-bottom)); }
-  #tray { gap: 6px; min-height: 0; }
-  .trayShip { padding: 3px; }
-  .trayName { font-size: 8px; }
-  #hint { font-size: 12px; }
-  #fire { padding: 10px 16px; font-size: 13px; }
-}
 
 /* A LOADING INDICATOR THAT DOES NOT INDICATE LOADING IS BROKEN.
 
@@ -351,7 +338,7 @@ canvas { width: 100%; height: auto; display: block; border-radius: 10px; }
    so for two seconds every turn the screen read "HOPPER · THE…". Down here it
    is over empty space, next to the button the call is telling you to press. */
 #turnCall {
-  position: fixed; left: 50%; bottom: calc(84px + env(safe-area-inset-bottom));
+  position: fixed; left: 50%; bottom: calc(22px + env(safe-area-inset-bottom));
   transform: translateX(-50%); z-index: 30; pointer-events: none;
 }
 #turnCall[hidden] { display: none; }
@@ -391,27 +378,22 @@ canvas { width: 100%; height: auto; display: block; border-radius: 10px; }
    goes on the right EDGE at mid-height: clear of the tray at the bottom and
    the strip at the top, and reachable by the thumb of whichever hand is not
    holding the ship. */
+/* Touch only. A desktop has R and right-click, and a permanent button for
+   something you do five times a match is a button in the way for the rest of
+   it. In the rail rather than floating over the board, which is where the
+   circle version was sitting: on top of four squares of the grid it exists to
+   help you aim at. */
 #rotFab { display: none; }
 @media (hover: none) and (pointer: coarse) {
-  #rotFab:not([hidden]) { display: flex; }
-}
-#rotFab {
-  position: fixed; z-index: 41;
-  right: max(12px, env(safe-area-inset-right));
-  top: 50%; transform: translateY(-50%);
-  display: flex; flex-direction: column; align-items: center; gap: 2px;
-  width: 72px; height: 72px; border-radius: 50%;
-  border: 1px solid var(--act); background: rgba(240,168,48,0.14);
-  color: var(--act); cursor: pointer;
-  font-family: var(--fm); font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase;
-  justify-content: center;
-  backdrop-filter: blur(6px);
-  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
-  transition: transform 0.12s, background 0.15s;
+  #rotFab:not([hidden]) { display: block; }
 }
 #rotFab[hidden] { display: none !important; }
-#rotFab:hover { background: rgba(240,168,48,0.24); }
-#rotFab:active { transform: translateY(-50%) scale(0.92); }
+.turnbtn {
+  border-color: var(--act); background: rgba(240,168,48,0.14); color: var(--act);
+  padding: 11px 4px; font-size: 11px;
+}
+.turnbtn:hover { background: rgba(240,168,48,0.24); border-color: var(--act); }
+.turnbtn:active { transform: scale(0.95); }
 
 .tip {
   font-family: var(--fm); font-size: 10px; letter-spacing: 0.06em;
@@ -420,10 +402,3 @@ canvas { width: 100%; height: auto; display: block; border-radius: 10px; }
 /* A keyboard hint is a lie on a device with no keyboard. */
 @media (hover: none) and (pointer: coarse) { .tip { display: none; } }
 
-/* A square you have picked BEFORE your turn comes round reads as pencilled in
-   rather than committed, so the two are never confused. */
-#fire.ready { animation: bs-ready 1.6s ease-in-out infinite; }
-@keyframes bs-ready {
-  0%,100% { box-shadow: 0 0 0 0 rgba(240,168,48,0.0); }
-  50%     { box-shadow: 0 0 0 4px rgba(240,168,48,0.22); }
-}

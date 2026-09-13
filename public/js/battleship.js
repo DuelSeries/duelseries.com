@@ -263,47 +263,88 @@ function dropPreview() {
   return { cells, ok };
 }
 
+/* How big a ship is in the rail. Seventeen cells of ship stack up down the
+   left, and on a phone turned sideways there are only about 350 pixels to
+   stack them in - at a fixed 22 the rail alone was 450 tall and hung 240 below
+   the fold. Worked out from the height actually available, like the boards. */
+let railCell = 22;
+
+function fitRail() {
+  const rail = $('rail');
+  if (!rail || rail.hidden || !st) { return; }
+  const fleet = (st.fleet || []);
+  const cells = fleet.reduce((a, f) => a + f.len, 0) || 17;
+  /* Everything in the rail that is not ship: the count, the two buttons, and
+     each ship's label, padding and gap. */
+  const furniture = 92 + fleet.length * 16;
+  const room = window.innerHeight - $('top').offsetHeight - furniture - 40;
+  const want = Math.floor(room / cells);
+  railCell = Math.max(9, Math.min(22, want));
+}
+
 function buildTray() {
   const tray = $('tray');
   tray.innerHTML = '';
   for (const spec of (st.fleet || [])) {
     const el = document.createElement('div');
-    el.className = 'trayShip' + (layout.has(spec.key) ? ' placed' : '');
+    el.className = 'trayShip' + (layout.has(spec.key) ? ' placed' : '')
+      + (dragging && dragging.key === spec.key ? ' dragging' : '');
     el.dataset.key = spec.key;
 
-    const cell = 26;
+    /* Drawn STANDING ON END, because that is how they sit in the rail. The art
+       takes the orientation as an argument, so this is the same five ships the
+       board draws and not a second set of pictures to keep in step. */
+    const cell = railCell;
     const cv = document.createElement('canvas');
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    cv.width = spec.len * cell * dpr;
-    cv.height = cell * dpr;
-    cv.style.width = (spec.len * cell) + 'px';
-    cv.style.height = cell + 'px';
+    cv.width = cell * dpr;
+    cv.height = spec.len * cell * dpr;
+    cv.style.width = cell + 'px';
+    cv.style.height = (spec.len * cell) + 'px';
     const c2 = cv.getContext('2d');
     c2.setTransform(dpr, 0, 0, dpr, 0, 0);
-    window.BattleshipArt.drawShip(c2, spec.key, spec.len, 0, 0, cell, true, 1);
+    window.BattleshipArt.drawShip(c2, spec.key, spec.len, 0, 0, cell, false, 1);
 
     const nm = document.createElement('span');
     nm.className = 'trayName';
-    nm.textContent = spec.name;
+    nm.textContent = spec.name.slice(0, 4);
 
     el.appendChild(cv);
     el.appendChild(nm);
     tray.appendChild(el);
   }
+  const left = (st.fleet || []).length - layout.size;
+  $('railMsg').textContent = left ? left + ' to place' : 'Fleet ready';
 }
 
-/* Picking a ship up, dragging it over the chart, and dropping it. Pointer
-   events so a mouse and a finger are the same code. */
-/* PICKING A SHIP UP.
+/* ── PICKING A SHIP UP, MOVING IT, AND PUTTING IT DOWN ───────────────────────
 
-   On a mouse this is a drag: press, move, release. On a finger it is a TAP —
-   tap the ship, tap Turn as many times as you like, tap the square. Dragging
-   with one finger while reaching for a rotate button with another works, but it
-   is fiddly, and this is the same three taps without the holding.
+   One gesture, and which one it was is decided by whether the pointer MOVED:
 
-   Both live in the same `dragging` object, so everything downstream — the
-   ghost, the drop preview, the rotate — is one code path. `held` is the only
-   thing that differs: a held ship stays picked up when the pointer lifts. */
+     drag and release  →  the ship lands on the squares under it
+     press and release →  the ship stays in hand, and the next tap places it
+
+   Owen: "I want to hold and drag my boat and then let go, and it should
+   automatically go into whatever squares are highlighted. Right now it kinda
+   just floats there." That was this: on a touch screen every press was treated
+   as a pick-up, so releasing left the ship in hand rather than dropping it.
+   Eight pixels of movement is the whole difference now.
+
+   And a placed ship answers a TAP by turning on the spot, which is the other
+   thing he asked for, while a drag on one picks it back up. */
+const MOVE_SLOP = 8;
+
+function startDrag(key, spec, x, y, el, fromBoard) {
+  dragging = {
+    key, len: spec.len, horiz: fromBoard ? fromBoard.horiz : horiz,
+    at: null, el: el || null, held: false, moved: false, x0: x, y0: y,
+  };
+  if (fromBoard) horiz = fromBoard.horiz;
+  if (el) el.classList.add('dragging');
+  showGhost(x, y);
+  paintRotFab();
+}
+
 $('tray').addEventListener('pointerdown', (e) => {
   const el = e.target.closest('.trayShip');
   if (!el || !st || st.state !== 'placing') return;
@@ -312,23 +353,81 @@ $('tray').addEventListener('pointerdown', (e) => {
   if (!spec) return;
   e.preventDefault();
 
-  /* Already carrying this one? The tap puts it back down. */
-  if (dragging && dragging.held && dragging.key === key) {
-    clearHeld();
-    return;
-  }
-  const touch = e.pointerType !== 'mouse';
+  /* Tapping the ship already in hand puts it back. */
+  if (dragging && dragging.held && dragging.key === key) { dropHeld(); return; }
   if (dragging && dragging.el) dragging.el.classList.remove('dragging');
-  dragging = { key, len: spec.len, horiz, at: null, el, held: touch };
-  el.classList.add('dragging');
-  showGhost(e.clientX, e.clientY);
-  paintRotFab();
-  if (touch) $('dockMsg').textContent = spec.name + ' in hand. Tap a square to drop it.';
+  startDrag(key, spec, e.clientX, e.clientY, el, null);
 });
 
-function clearHeld() {
+/* A ship already on the water: a drag lifts it, a tap turns it. */
+let boardPress = null;
+$('mine').addEventListener('pointerdown', (e) => {
+  if (!st || st.state !== 'placing') return;
+  const sq = squareAt($('mine'), e.clientX, e.clientY);
+
+  /* Something in hand? This press is the drop. */
+  if (dragging && dragging.held) { e.preventDefault(); placeHeldAt(sq); return; }
+  if (dragging || !sq) return;
+
+  for (const [key, pos] of layout) {
+    const spec = (st.fleet || []).find(f => f.key === key);
+    if (!spec) continue;
+    const cells = cellsFor(pos.x, pos.y, spec.len, pos.horiz) || [];
+    if (!cells.includes(sq.cell)) continue;
+    e.preventDefault();
+    boardPress = { key, spec, pos, x0: e.clientX, y0: e.clientY };
+    return;
+  }
+});
+
+window.addEventListener('pointermove', (e) => {
+  /* A press on a placed ship only becomes a lift once it has actually moved.
+     Without this, the tap that is meant to turn a ship picks it up instead. */
+  if (boardPress) {
+    if (Math.abs(e.clientX - boardPress.x0) + Math.abs(e.clientY - boardPress.y0) < MOVE_SLOP) return;
+    const p = boardPress; boardPress = null;
+    layout.delete(p.key);
+    buildTray();
+    startDrag(p.key, p.spec, e.clientX, e.clientY, null, p.pos);
+    dragging.moved = true;
+    paint();
+  }
   if (!dragging) return;
-  if (dragging.el) dragging.el.classList.remove('dragging');
+  if (!dragging.moved
+      && Math.abs(e.clientX - dragging.x0) + Math.abs(e.clientY - dragging.y0) >= MOVE_SLOP) {
+    dragging.moved = true;
+  }
+  dragging.at = squareAt($('mine'), e.clientX, e.clientY);
+  moveGhost(e.clientX, e.clientY);
+  paint();
+});
+
+window.addEventListener('pointerup', () => {
+  /* A tap on a placed ship, which never moved: turn it where it sits. */
+  if (boardPress) {
+    const p = boardPress; boardPress = null;
+    turnPlaced(p.key, p.spec, p.pos);
+    return;
+  }
+  if (!dragging) return;
+
+  /* Never moved, so it was a tap: keep it in hand for the next one. */
+  if (!dragging.moved) {
+    dragging.held = true;
+    $('railMsg').textContent = 'Tap a square';
+    return;
+  }
+  dropHeld();
+});
+window.addEventListener('pointercancel', () => { boardPress = null; });
+
+/* Put down whatever is in hand, at the square it is over. */
+function dropHeld() {
+  if (!dragging) return;
+  const d = dragging;
+  const ok = d.at && fits(d.at.x, d.at.y, d.len, d.horiz, d.key);
+  if (ok) layout.set(d.key, { x: d.at.x, y: d.at.y, horiz: d.horiz });
+  if (d.el) d.el.classList.remove('dragging');
   dragging = null;
   hideGhost();
   buildTray();
@@ -337,96 +436,43 @@ function clearHeld() {
   maybeSubmit();
 }
 
-/* A held ship lands on the square you tap. */
-$('mine').addEventListener('click', (e) => {
-  if (!dragging || !dragging.held || !st || st.state !== 'placing') return;
-  const sq = squareAt($('mine'), e.clientX, e.clientY);
-  if (!sq) return;
-  const cells = cellsFor(sq.x, sq.y, dragging.len, dragging.horiz);
-  if (!cells) { $('dockMsg').textContent = 'That hangs off the grid.'; return; }
-  const used = occupied(dragging.key);
-  if (cells.some(c => used.has(c))) { $('dockMsg').textContent = 'Something is already there.'; return; }
-  layout.set(dragging.key, { x: sq.x, y: sq.y, horiz: dragging.horiz });
-  clearHeld();
-});
-
-/* And it follows the finger between taps, so you can see where it will go. */
-$('mine').addEventListener('pointermove', (e) => {
-  if (!dragging || !dragging.held) return;
-  const sq = squareAt($('mine'), e.clientX, e.clientY);
+function placeHeldAt(sq) {
+  if (!dragging) return;
   dragging.at = sq;
-  moveGhost(e.clientX, e.clientY);
-  paint();
-});
-
-/* A ship already on the chart can be picked back up. */
-$('mine').addEventListener('pointerdown', (e) => {
-  if (!st || st.state !== 'placing' || dragging) return;
-  const heldTap = e.pointerType !== 'mouse';
-  const sq = squareAt($('mine'), e.clientX, e.clientY);
-  if (!sq) return;
-  for (const [key, pos] of layout) {
-    const spec = (st.fleet || []).find(f => f.key === key);
-    if (!spec) continue;
-    const cells = cellsFor(pos.x, pos.y, spec.len, pos.horiz) || [];
-    if (!cells.includes(sq.cell)) continue;
-    e.preventDefault();
-    layout.delete(key);
-    horiz = pos.horiz;
-    dragging = { key, len: spec.len, horiz: pos.horiz, at: null, el: null, held: heldTap };
-    horiz = pos.horiz;
-    buildTray();
-    showGhost(e.clientX, e.clientY);
-    paint();
-    paintRotFab();
-    if (heldTap) $('dockMsg').textContent = spec.name + ' in hand. Tap a square to drop it.';
+  if (!sq || !fits(sq.x, sq.y, dragging.len, dragging.horiz, dragging.key)) {
+    $('railMsg').textContent = sq ? 'Will not fit' : 'Tap a square';
     return;
   }
-});
+  dropHeld();
+}
 
-window.addEventListener('pointermove', (e) => {
-  if (!dragging) return;
-  const sq = squareAt($('mine'), e.clientX, e.clientY);
-  dragging.at = sq;
-  moveGhost(e.clientX, e.clientY);
+function fits(x, y, len, hz, exceptKey) {
+  const cells = cellsFor(x, y, len, hz);
+  if (!cells) return false;
+  const used = occupied(exceptKey);
+  return cells.every(c => !used.has(c));
+}
+
+/* Turning a ship that is already down, about its own bow. Refused rather than
+   nudged if the turned ship would not fit: quietly shifting somebody's ship a
+   square sideways to make it work is a worse surprise than it not turning. */
+function turnPlaced(key, spec, pos) {
+  const want = !pos.horiz;
+  if (!fits(pos.x, pos.y, spec.len, want, key)) {
+    $('railMsg').textContent = 'No room to turn';
+    return;
+  }
+  layout.set(key, { x: pos.x, y: pos.y, horiz: want });
+  horiz = want;
   paint();
-});
-
-window.addEventListener('pointerup', () => {
-  if (!dragging) return;
-  /* A held ship stays in hand when the finger lifts: that is the whole point
-     of tapping rather than dragging. It is put down by tapping a square. */
-  if (dragging.held) return;
-  const d = dragging;
-  hideGhost();
-  if (d.el) d.el.classList.remove('dragging');
-  dragging = null;
-
-  const pv = d.at ? (() => {
-    const cells = cellsFor(d.at.x, d.at.y, d.len, d.horiz);
-    if (!cells) return null;
-    const used = occupied(d.key);
-    return cells.every(c => !used.has(c)) ? cells : null;
-  })() : null;
-
-  if (pv) layout.set(d.key, { x: d.at.x, y: d.at.y, horiz: d.horiz });
-  buildTray();
-  paint();
-  paintRotFab();
   maybeSubmit();
-});
+}
 
-/* TURNING A SHIP. Three ways in, one behaviour.
-
-   The first version had a Rotate button in the dock that set a mode you had to
-   decide BEFORE picking a ship up, which is backwards: you find out a ship does
-   not fit while it is already in your hand. All three of these work mid-drag,
-   and the ghost under the cursor turns with it, so the answer to "will this
-   fit" is on screen while you are asking it.
-
-   R is the one anybody who has played a game like this will try first.
-   Right-click is the other. The button exists for the case where neither is
-   available, which is a phone. */
+/* ── turning a ship ──────────────────────────────────────────────────────────
+   R on a keyboard, right-click anywhere on your own waters, or the thumb
+   button. All three work with a ship in hand, and the ghost under the cursor
+   turns with it, so "will this fit" is answered while it is being asked. A
+   ship already on the water is turned by tapping it instead — see turnPlaced. */
 function turnShip() {
   horiz = !horiz;
   if (dragging) { dragging.horiz = horiz; showGhostFor(dragging); }
@@ -440,8 +486,6 @@ window.addEventListener('keydown', (e) => {
   turnShip();
 });
 
-/* Right-click anywhere on the board while placing. preventDefault so the
-   browser menu does not open over the thing being turned. */
 $('mine').addEventListener('contextmenu', (e) => {
   if (!st || st.state !== 'placing') return;
   e.preventDefault();
@@ -449,8 +493,8 @@ $('mine').addEventListener('contextmenu', (e) => {
 });
 
 $('rotFab').addEventListener('click', (e) => { e.preventDefault(); turnShip(); });
-/* And on a touch screen the press itself has to turn it, because a finger that
-   is already holding a ship never delivers a click to anything else. */
+/* On a touch screen the press itself has to turn it: a finger already holding
+   a ship never delivers a click to anything else. */
 $('rotFab').addEventListener('pointerdown', (e) => {
   if (e.pointerType === 'mouse') return;
   e.preventDefault();
@@ -464,9 +508,10 @@ function paintRotFab() {
   $('rotFab').hidden = !show;
 }
 
-/* Somebody who does not want to place five ships by hand should not have to. */
+/* Nobody should have to place five ships by hand who does not want to. */
 $('auto').addEventListener('click', () => {
   if (!st || st.state !== 'placing') return;
+  if (dragging) { if (dragging.el) dragging.el.classList.remove('dragging'); dragging = null; hideGhost(); }
   layout = randomLayout();
   buildTray();
   paint();
@@ -499,21 +544,19 @@ function randomLayout() {
 }
 
 /* The fleet goes up the moment it is complete. There is no separate Ready: a
-   placed fleet IS ready, and a button that only ever gets pressed once the work
+   placed fleet IS ready, and a button that is only ever pressed once the work
    is done is a button that exists to be forgotten. */
 function maybeSubmit() {
   if (!st || st.state !== 'placing') return;
-  if (layout.size !== (st.fleet || []).length) {
-    $('dockMsg').textContent = ((st.fleet || []).length - layout.size) + ' still to place';
-    return;
-  }
-  $('dockMsg').textContent = 'Fleet ready. Waiting for your opponent…';
+  const total = (st.fleet || []).length;
+  if (layout.size !== total) { $('railMsg').textContent = (total - layout.size) + ' to place'; return; }
+  $('railMsg').textContent = 'Fleet ready';
   socket.emit('bs:place', {
     layout: [...layout.entries()].map(([key, p]) => ({ key, x: p.x, y: p.y, horiz: p.horiz })),
   });
 }
 
-/* ── the ghost under the cursor ────────────────────────────────────────── */
+/* ── the ship under the cursor ─────────────────────────────────────────── */
 
 function showGhost(x, y) {
   if (!ghost) {
@@ -550,54 +593,36 @@ function moveGhost(x, y) {
 
 function hideGhost() { if (ghost) ghost.style.display = 'none'; }
 
-/* ── firing ────────────────────────────────────────────────────────────── */
+/* ── firing ──────────────────────────────────────────────────────────────────
+   No Confirm button any more. One tap lines a square up, a second tap on the
+   SAME square fires it.
 
-/* AIM WHENEVER YOU LIKE, FIRE ON YOUR TURN.
-
-   Owen: "while the other player is choosing their attack I want to be able to
-   preselect where I want to shoot, and then once it's my turn I'll press
-   confirm attack."
-
-   That is also why the turn clock came down to ten seconds. Picking the square
-   is the slow part and it now happens off the clock, so what is left on your
-   own turn is pressing one button. */
-$('theirs').addEventListener('click', (e) => {
-  if (!st || (st.state !== 'playing' && st.state !== 'countdown')) return;
-  const sq = squareAt($('theirs'), e.clientX, e.clientY);
-  if (!sq) return;
-  /* A square already fired at is not a target. The server refuses it too; this
-     is so the crosshair never lands somewhere the Confirm will bounce off. */
-  if ((st.myShots || []).some(m => m.cell === sq.cell)) {
-    $('hint').textContent = 'You have already fired at ' + name(sq.cell) + '.';
-    return;
-  }
-  aimed = sq.cell;
-  paintBar();
-  paint();
-});
-
-/* Aiming again clears an aim; tapping the same square twice is how somebody
-   says "actually, not there". */
-
-
+   That covers both things at once: a double-tap fires straight away, and a
+   square lined up during the other player's turn is fired by a single tap once
+   the turn comes round — which is what the Confirm button used to be for. */
 function fireAt(cell) {
   if (cell === null || !st || !st.yourTurn) return false;
   socket.emit('bs:fire', { cell });
   aimed = null;
-  paintBar();
   paint();
   return true;
 }
 
-$('fire').addEventListener('click', () => { fireAt(aimed); });
+function aimOrFire(cell) {
+  if (!st || (st.state !== 'playing' && st.state !== 'countdown')) return;
+  if ((st.myShots || []).some(m => m.cell === cell)) return;   // already been there
+  if (aimed === cell && st.yourTurn) { fireAt(cell); return; }
+  aimed = cell;
+  paint();
+}
 
-/* Owen: "if I tap a slot twice then it would fire a shot there instead of
-   dragging my mouse down to confirm every time."
+$('theirs').addEventListener('click', (e) => {
+  const sq = squareAt($('theirs'), e.clientX, e.clientY);
+  if (sq) aimOrFire(sq.cell);
+});
 
-   Only on your own turn, and only on a square you could actually fire at — a
-   double-click out of turn still just leaves the square lined up, which is the
-   same thing a single one does. Confirm stays for anybody who would rather not
-   commit on a double-click. */
+/* dblclick as well, so a quick double on a fresh square fires without waiting
+   for the two separate clicks to be noticed. */
 $('theirs').addEventListener('dblclick', (e) => {
   if (!st || !st.yourTurn) return;
   const sq = squareAt($('theirs'), e.clientX, e.clientY);
@@ -607,53 +632,14 @@ $('theirs').addEventListener('dblclick', (e) => {
   fireAt(sq.cell);
 });
 
-/* The same gesture with a finger. dblclick is unreliable on touch, so two taps
-   on the same square inside half a second count. */
-let lastTap = { cell: -1, at: 0 };
-$('theirs').addEventListener('pointerdown', (e) => {
-  if (e.pointerType === 'mouse') return;
-  if (!st || st.state !== 'playing') return;
-  const sq = squareAt($('theirs'), e.clientX, e.clientY);
-  if (!sq) return;
-  const now = Date.now();
-  const again = sq.cell === lastTap.cell && now - lastTap.at < 500;
-  lastTap = { cell: sq.cell, at: now };
-  if (!again || !st.yourTurn) return;
-  if ((st.myShots || []).some(m => m.cell === sq.cell)) return;
-  e.preventDefault();
-  fireAt(sq.cell);
-});
-
 const name = (c) => LETTERS[c % GRID] + (Math.floor(c / GRID) + 1);
 
 /* ── the furniture ─────────────────────────────────────────────────────── */
 
-function paintBar() {
-  if (!st) return;
-  const fire = $('fire'), hint = $('hint');
-  if (st.state === 'placing') {
-    fire.disabled = true;
-    hint.textContent = st.placed ? 'Fleet ready. Waiting for your opponent…'
-      : 'Drag your five ships onto your waters.';
-    return;
-  }
-  if (st.state === 'countdown') { fire.disabled = true; hint.textContent = 'Starting…'; return; }
-  if (st.state === 'over' || st.state === 'settling') { fire.disabled = true; return; }
-
-  if (st.yourTurn) {
-    fire.disabled = aimed === null;
-    fire.classList.toggle('ready', aimed !== null);
-    hint.textContent = aimed === null
-      ? 'Your shot. Pick a square on their waters.'
-      : 'Attack ' + name(aimed) + '?';
-  } else {
-    fire.disabled = true;
-    fire.classList.remove('ready');
-    hint.textContent = aimed === null
-      ? (st.them ? st.them.name : 'Your opponent') + ' is taking their shot. Line yours up now.'
-      : name(aimed) + ' is lined up. Fires as soon as it is your shot.';
-  }
-}
+/* The bar is gone: what it said is now said by the ring round the live board,
+   the clock, and the turn pill. A row of text under a board nobody was reading
+   was a row of text taking up the one dimension a phone does not have. */
+function paintBar() {}
 
 /* WHICH BOARD IS LIVE. The ring goes round the board about to be acted on, so
    attention lands where the work is: their waters when it is your shot, your
@@ -746,15 +732,14 @@ socket.on('bs:state', (view) => {
 
   $('wait').hidden = true;
   $('top').hidden = false;
-  $('boards').hidden = false;
-  $('bar').hidden = false;
-  $('dock').hidden = view.state !== 'placing';
+  $('stage').hidden = false;
+  $('rail').hidden = view.state !== 'placing';
   document.body.classList.toggle('firing', view.state === 'playing' || view.state === 'settling');
   /* The dock only exists while placing, and on a phone the two boards are
      sized off whatever height is left over, so the layout has to know. */
   document.body.classList.toggle('placing', view.state === 'placing');
 
-  if (first) buildTray();
+  if (first) { fitRail(); buildTray(); }
   if (wasPlacing && view.state === 'countdown') {
     /* The server lays a fleet for anybody who ran out of time, so take its word
        for where my ships are rather than keeping my half-finished attempt. */
@@ -781,6 +766,7 @@ socket.on('bs:state', (view) => {
   paintClock();
   /* Twice: once to size the boards against the furniture this state shows, and
      again after, because hiding the dock changes what is left over. */
+  fitRail();
   fitBoards();
   fitBoards();
   paint();
@@ -789,7 +775,7 @@ socket.on('bs:state', (view) => {
 let lastTurnWasMine = null;
 
 socket.on('bs:refused', ({ why }) => {
-  $('hint').textContent = why ? 'Refused: ' + why : 'That was refused.';
+  $('railMsg').textContent = why ? 'Refused: ' + why : 'That was refused.';
 });
 
 socket.on('bs:unqueued', ({ refunded, why } = {}) => {
@@ -831,7 +817,6 @@ socket.on('bs:over', (m) => {
     }
   }
   $('over').hidden = false;
-  $('bar').hidden = true;
 });
 
 /* ── the countdown ─────────────────────────────────────────────────────── */
@@ -860,7 +845,7 @@ $('againBtn').addEventListener('click', () => {
   socket.emit('bs:leave');
   $('over').hidden = true;
   $('top').hidden = true;
-  $('boards').hidden = true;
+  $('stage').hidden = true;
   st = null; aimed = null; layout.clear();
   queue();
 });
@@ -881,22 +866,46 @@ $('againBtn').addEventListener('click', () => {
    moves all of it. The calc version got within eleven pixels, which is another
    way of saying it did not fit. */
 function fitBoards() {
+  /* ALWAYS, not just on a narrow screen. The guard here was max-width 760,
+     which is exactly wrong for the case Owen asked about: a phone turned
+     sideways is 880 by 400 — WIDE and short — so the fit never ran and the
+     second board hung 74 pixels below the fold. Short matters as much as
+     narrow. On a large screen the number it works out is bigger than the
+     column anyway, so min(100%, --bmax) leaves the layout alone. */
   const boards = $('boards');
-  if (!boards || !window.matchMedia('(max-width: 760px)').matches) {
-    if (boards) boards.style.removeProperty('--bmax');
-    return;
-  }
+  if (!boards) return;
   const h = (el) => (el && !el.hidden ? el.offsetHeight : 0);
   const title = document.querySelector('.bt');
-  const titles = title ? (title.offsetHeight + 4) * 2 : 44;
+  const titles = title ? title.offsetHeight + 6 : 22;
   /* 10 for the gap between them, 6 top padding, and 8 of slack so a rounding
      error lands on the safe side of the fold rather than the wrong one. */
-  const avail = window.innerHeight - h($('top')) - h($('bar')) - h($('dock')) - titles - 30;
-  const max = Math.max(140, Math.floor(avail / 2));
+  const rail = $('rail');
+  const railW = (rail && !rail.hidden) ? rail.offsetWidth + 8 : 0;
+  /* HOW MANY BOARDS ARE ACTUALLY ON SCREEN, which is not always two. While
+     placing, the opponent's is hidden and yours has the lot — halving the
+     height for a board with nothing beside it left it at two thirds the size it
+     could have been, with the space it did not take sitting empty underneath.
+
+     Upright they stack, so two of them share the HEIGHT. Turned sideways they
+     sit in a row, so two of them share the WIDTH and each keeps the full
+     height, which is the whole reason to turn the phone. */
+  const placing = document.body.classList.contains('placing');
+  const side = window.matchMedia('(orientation: landscape)').matches;
+  const cols = (placing || !side) ? 1 : 2;
+  const rows = (placing || side) ? 1 : 2;
+  const avail = window.innerHeight - h($('top')) - titles * rows - 24;
+  const byHeight = Math.floor(avail / rows);
+  const byWidth = Math.floor((window.innerWidth - railW - 24) / cols) - 8;
+  const max = Math.max(140, Math.min(byHeight, byWidth));
   const now = max + 'px';
   if (boards.style.getPropertyValue('--bmax') === now) return;   // no layout thrash
   boards.style.setProperty('--bmax', now);
 }
 
-window.addEventListener('resize', () => { fitBoards(); paint(); });
+window.addEventListener('resize', () => {
+  fitRail();
+  if (st && st.state === 'placing') buildTray();
+  fitBoards();
+  paint();
+});
 window.addEventListener('beforeunload', () => socket.emit('bs:leave'));

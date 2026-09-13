@@ -28,47 +28,42 @@
   </div>
 </header>
 
-<!-- The two boards. Yours on the left with your fleet on it, theirs on the
-     right with nothing but the marks you have earned. -->
-<main id="boards" hidden>
-  <section class="boardwrap" id="wrapMine">
-    <h2 class="bt" id="myTitle">Your waters</h2>
-    <div class="pane"><canvas id="mine" width="520" height="520"></canvas></div>
-  </section>
-  <section class="boardwrap" id="wrapTheirs">
-    <h2 class="bt them" id="foeTitle">Opponent</h2>
-    <div class="pane"><canvas id="theirs" width="520" height="520"></canvas></div>
-  </section>
-</main>
+<!-- The fleet rail and the boards, side by side.
 
-<!-- The dock. Your five ships sit here until you drag them onto your own
-     board; it collapses away once the fleet is down and the shooting starts. -->
-<section id="dock" hidden>
-  <div class="dockhd">
-    <span id="dockMsg">Drag your ships onto your waters</span>
-    <span class="tip" id="rotTip">R or right-click to turn</span>
+     The rail holds your five ships standing on end down the left, which is
+     where they are while you are placing them and nowhere at all afterwards.
+     Along the bottom they were competing with the boards for the one dimension
+     a phone has none of; on the left they cost 68 pixels of width, which a
+     phone has.
+
+     WHILE PLACING, THEIR BOARD IS NOT DRAWN. It is empty, nothing can be done
+     to it, and hiding it hands its entire half of the screen to the board you
+     are actually working on — which is the half of this game that needed the
+     room. Both are back the moment the shooting starts. -->
+<div id="stage" hidden>
+  <aside id="rail" hidden>
+    <div class="railhd"><span id="railMsg">5 to place</span></div>
+    <div id="tray"></div>
+    <!-- Turn, in the rail rather than floating. As a circle over the board it
+         covered four squares of the thing it was helping you aim at. Touch only:
+         a desktop has R and right-click, both faster. -->
+    <button type="button" id="rotFab" hidden class="mini turnbtn">Turn</button>
     <button type="button" id="auto" class="mini">Auto</button>
-  </div>
-  <div id="tray"></div>
-</section>
+    <span class="tip" id="rotTip">R or right-click to turn</span>
+  </aside>
 
-<!-- The one control during the shooting half: what you have aimed at, and the
-     button that commits it. -->
-<footer id="bar" hidden>
-  <span id="hint">Waiting…</span>
-  <button id="fire" type="button" disabled>Confirm attack</button>
-</footer>
+  <main id="boards">
+    <section class="boardwrap" id="wrapTheirs">
+      <h2 class="bt them" id="foeTitle">Opponent</h2>
+      <div class="pane"><canvas id="theirs" width="520" height="520"></canvas></div>
+    </section>
+    <section class="boardwrap" id="wrapMine">
+      <h2 class="bt" id="myTitle">Your waters</h2>
+      <div class="pane"><canvas id="mine" width="520" height="520"></canvas></div>
+    </section>
+  </main>
+</div>
 
-<!-- Rotate. Big, thumb-reachable, and only on screen while a ship is in hand
-     or waiting to be placed — a control that is always there for a thing you do
-     five times a match is a control in the way for the rest of it. -->
-<button type="button" id="rotFab" hidden aria-label="Turn the ship">
-  <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor"
-       stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-    <path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/>
-  </svg>
-  <span>Turn</span>
-</button>
 
 <!-- Whose shot it is, said once, when it changes. The ring around the live
      board carries it from then on. -->

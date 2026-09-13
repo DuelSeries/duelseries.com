@@ -42,7 +42,10 @@ const BS = {
   CELLS: GRID * GRID,
   SHIP_SQUARES: FLEET.reduce((n, s) => n + s.len, 0),   // 17
 
-  PLACE_MS: 30000,      // Owen's thirty seconds to lay a fleet out
+  /* A minute to lay a fleet out. Thirty seconds was enough to drop five ships
+     if you already knew where they were going, and not enough to think about
+     it, which is the only interesting decision in that half of the match. */
+  PLACE_MS: 60000,
   /* Ten seconds a shot. Twenty was too long once you can line the next one up
      while the other player is still thinking: the decision is already made by
      the time the turn arrives, so the rest of the clock is dead air. */
