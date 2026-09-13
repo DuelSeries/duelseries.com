@@ -173,12 +173,29 @@ test('the congratulations screen comes up when the bar is done, with the podium'
     'and second and third carry a dash, because those placings pay nothing');
 });
 
-test('somebody who did not win is not congratulated', () => {
+test('somebody who did not win gets no podium at all', () => {
+  /* Owen, after dying in one: "it shows the podium, this should only come up
+     if you came first." A result card is for the person who got the result.
+     Somebody who was killed forty seconds ago gets the death card, which knows
+     how to say when the next match starts. */
   const c = client({ myId: 'someone-else' });
   c.apply(OVER);
   c.apply(REOPENING);
-  assert.strictEqual(c.dom.els.get('pod-winner').textContent, 'Owen wins');
-  assert.strictEqual(c.dom.els.get('pod-eyebrow').textContent, 'Match over');
+  assert.strictEqual(c.dom.els.get('podium').hidden, true, 'no podium');
+});
+
+test('nobody winning means no podium and no cash-out bar', () => {
+  /* A solo run ends when the one human dies, and the last thing standing is
+     then a bot, which nobody is paid for. The card used to announce that
+     nobody survived, to the player who had just been killed by one of the
+     things still driving around, over a bar counting down to a payout that was
+     never coming. */
+  const c = client({ myId: 'me' });
+  const nobody = Object.assign({}, OVER, { winner: null, prize: 0 });
+  c.apply(nobody);
+  assert.strictEqual(c.dom.els.get('brcash').hidden, true, 'no bar with nothing to pay');
+  c.apply(Object.assign({}, REOPENING, { winner: null, prize: 0 }));
+  assert.strictEqual(c.dom.els.get('podium').hidden, true, 'and no podium');
 });
 
 test('Play again is dead until the arena is actually open again', () => {

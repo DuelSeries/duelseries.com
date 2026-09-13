@@ -1099,6 +1099,16 @@ function paintDeathWhen(state) {
   if (!el) return;
   if (!isBattleRoyale) { el.hidden = true; return; }
 
+  /* NO PLAY AGAIN AFTER DYING IN A BATTLE ROYALE, ever — not greyed out, gone.
+
+     It is last snake standing for a real prize, so somebody who can rejoin
+     cannot lose, and the server refuses it anyway. It used to sit in the middle
+     of the row disabled, which is the most prominent thing on the card being
+     permanently dead. Watch and Lobby are the two things you can actually do,
+     so they are the two things on it. */
+  const again = document.getElementById('btn-respawn');
+  if (again) again.hidden = true;
+
   const running = state === 'running' || state === 'countdown';
   const tick = () => {
     if (running) {
@@ -1319,7 +1329,10 @@ function cashoutApply(s) {
   const el = document.getElementById('brcash');
   if (!el || !isBattleRoyale) return;
 
-  const on = s.state === 'over' && (s.cashoutMs || 0) > 0;
+  /* And the bar is about somebody's money. With no winner there is none to
+     move, and a progress bar counting down to nothing is the screen pretending
+     something is happening. */
+  const on = s.state === 'over' && (s.cashoutMs || 0) > 0 && !!(s.winner && s.winner.name);
   if (!on) {
     if (_cashTimer) { clearInterval(_cashTimer); _cashTimer = 0; }
     el.hidden = true;
@@ -1379,8 +1392,24 @@ function podiumApply(s) {
 
   /* Not during the cash-out. Those five seconds belong to the bar at the
      bottom and to the frozen arena behind it. */
+  /* THE PODIUM IS FOR WHOEVER WON IT.
+
+     Owen, after dying in one: "the bar at the bottom goes to the end, it says
+     nobody survived, and it shows the podium. This should only come up if you
+     came first."
+
+     He is right, and it was worse than untidy. A solo run ends the moment he
+     dies, because he is the only person in it; the last thing standing is then
+     a bot, which is not a winner anybody is paid for, so the card announced
+     that nobody survived — to the person who had just been killed by one of the
+     forty things still driving around. A result card for a match you lost, with
+     the wrong result on it.
+
+     Somebody who died gets the death card instead, which already knows how to
+     say when the next one starts. */
   const post = s.state === 'reopening' || (s.state === 'waiting' && _brSawReopen);
-  const show = post && !_podiumDone && !!(s.podium && s.podium.length);
+  const iWon = !!(s.winner && s.winner.id && s.winner.id === myId);
+  const show = post && iWon && !_podiumDone && !!(s.podium && s.podium.length);
   _podiumUp = show;
   if (!show) { el.hidden = true; return; }
 
@@ -1928,9 +1957,16 @@ function resolveSpectateTarget() {
     if (_specLast) return _specLast;          // keep the camera where it was
   }
 
+  /* A NEW TARGET RENAMES THE BAR. The label was written once, by
+     enterSpectate, at a moment when no snapshot had arrived yet — so it said
+     "No players to spectate" and then kept saying it while the camera happily
+     followed somebody. Whose snake you are watching is the one thing that bar
+     is for. */
+  const changed = spectateId !== targets[0].id;
   spectateId = targets[0].id;
   _specMissing = 0;
   _specLast = targets[0];
+  if (changed) updateSpectateLabel();
   return targets[0];
 }
 
@@ -2144,10 +2180,25 @@ function sendInput() {
   // A thumb on the screen owns the heading outright: its angle comes from the
   // anchor, not from a point in the world. Inside the dead zone touchAngle is
   // still null, which holds the current line rather than snapping anywhere.
+  /* THE THUMB COMING OFF THE GLASS HAS TO BE SENT, TOO.
+
+     The local prediction has held the heading on release since the arrow was
+     added — and this, the angle that actually reaches the server, did not. It
+     fell straight through to the mouse branch, so the moment a finger lifted
+     the server was told, sixty times a second, to steer at whatever point
+     mousePos happened to hold. On a phone that is wherever the last touch
+     landed, or the origin.
+
+     So the client drove straight and the server turned, and the correction
+     between them dragged the whole snake sideways. Owen: "I take my finger off
+     the screen and the whole snake is just drifting." Two branches that have
+     to agree, and only one of them had been told. */
   const angle = lockedAngle !== null
     ? lockedAngle
     : touchSteering
     ? (touchAngle !== null ? touchAngle : mySnake.angle)
+    : touchHoldAngle !== null
+    ? touchHoldAngle
     : Math.atan2(
         renderer.camera.screenToWorld(mousePos.x, mousePos.y, canvas.width, canvas.height).y - mySnake.segs[1],
         renderer.camera.screenToWorld(mousePos.x, mousePos.y, canvas.width, canvas.height).x - mySnake.segs[0]

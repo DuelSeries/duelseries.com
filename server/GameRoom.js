@@ -403,7 +403,17 @@ class GameRoom {
     // slower in exactly the room nobody is watching yet. The food refill reads
     // it, and that is what kept a waiting battle royale looking empty. */
     this._tickSpan = 1;
-    if (this.players.size === 0) {
+    /* SOMEBODY WATCHING IS SOMEBODY. A spectator joins the socket room but is
+       never a player, so "players.size === 0" called a room with an audience
+       idle and dropped the whole simulation to a sixth speed. Measured from a
+       spectating client: snapshots 459-567ms apart against the 33ms they are
+       meant to be. That is the entire "the snakes are frozen" report — the
+       world really was crawling, and no amount of interpolation was going to
+       cover a room running at six hertz.
+
+       broadcastSnapshot already asks this exact question, for this exact
+       reason. The tick had simply never been told. */
+    if (this.audience() === 0) {
       this._idleSkip = (this._idleSkip || 0) + 1;
       if (this._idleSkip < 10) return;
       this._tickSpan = this._idleSkip;
@@ -757,6 +767,16 @@ class GameRoom {
       out[i] = { rank: i + 1, id: s.id, name: s.name, score: s.score, worth: s.worth, length: s.length };
     }
     return out;
+  }
+
+  /* Everyone attached to this room: players, and anybody watching. Bots are
+     not in here and should not be — a room of nothing but bots with nobody
+     looking at it is exactly what the idle throttle is for. */
+  audience() {
+    if (this.players.size > 0) return this.players.size;
+    const set = this.io && this.io.sockets && this.io.sockets.adapter
+      && this.io.sockets.adapter.rooms.get(this.socketRoomName);
+    return set ? set.size : 0;
   }
 
   broadcastSnapshot() {

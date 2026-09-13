@@ -209,3 +209,68 @@ test('the bot plays the game rather than falling into the pit', () => {
     'it beats an opponent who does nothing, which is the floor for calling it an opponent ('
     + botWins + '/' + N + ')');
 });
+
+test('two people waiting never get a bot each', () => {
+  /* THE BUG OWEN HIT. He and a friend pressed Play together and both ended up
+     against bots. pump() only ran when somebody joined the queue — which is
+     exactly the moment the second of them had not arrived yet — so when the bot
+     timer came round the loop handed one bot to each waiting seat instead of
+     handing them each other. */
+  const lob = new KnockoutLobby(io);
+  const now = Date.now();
+  /* Both already waiting, both past the bot timer, and the tick arrives. */
+  lob.queue.push({ socket: sock('A'), name: 'Owen', wallet: null, since: now - BOT_AFTER_MS - 1, stake: 0, worth: 0 });
+  lob.queue.push({ socket: sock('B'), name: 'Nia', wallet: null, since: now - BOT_AFTER_MS - 1, stake: 0, worth: 0 });
+  lob.tick(now);
+
+  assert.strictEqual(lob.rooms.size, 1, 'one room, not two');
+  const room = lob.roomOf('A');
+  assert.ok(room && room.players.has('B'), 'they are in it together');
+  assert.ok(!room.bot, 'and no bot was invented for either of them');
+});
+
+test('a late arrival pulls the first out of a bot match', () => {
+  /* With two people on the whole game, a friend twenty seconds behind you is
+     the normal case, not the edge one. Two people beats two bots. */
+  const lob = new KnockoutLobby(io);
+  lob.enqueue(sock('A'), 'Owen', null, 0, 0);
+  lob.tick(Date.now() + BOT_AFTER_MS + 1);
+  const botRoom = lob.roomOf('A');
+  assert.ok(botRoom && botRoom.bot, 'A is against a bot');
+
+  lob.enqueue(sock('B'), 'Nia', null, 0, 0);
+  const room = lob.roomOf('A');
+  assert.ok(room, 'A is still in a match');
+  assert.ok(!room.bot, 'but not against a bot any more');
+  assert.ok(room.players.has('B'), 'they are together');
+  assert.strictEqual(lob.rooms.size, 1, 'the bot room is gone, not orphaned');
+  assert.strictEqual(lob.queue.length, 0, 'and nobody is left waiting');
+});
+
+test('a match already under way is not broken up', () => {
+  /* Pulling somebody out of a position they have been working on, to hand them
+     an opponent they did not ask for, is worse than the problem it solves. */
+  const lob = new KnockoutLobby(io);
+  lob.enqueue(sock('A'), 'Owen', null, 0, 0);
+  lob.tick(Date.now() + BOT_AFTER_MS + 1);
+  const botRoom = lob.roomOf('A');
+  botRoom.state = 'aiming';
+  botRoom.turn = 4;                       // four turns in
+
+  lob.enqueue(sock('B'), 'Nia', null, 0, 0);
+  assert.strictEqual(lob.roomOf('A'), botRoom, 'A is left alone');
+  assert.ok(lob.queue.some(e => e.socket.id === 'B'), 'B waits for their own match');
+});
+
+test('a paid seat is never rescued into, and never rescues', () => {
+  /* A paid table has no bot match to be pulled out of, and a free seat must not
+     be dragged into a room with money on it. */
+  const lob = new KnockoutLobby(io);
+  lob.enqueue(sock('A'), 'Owen', 'W1', 1, 1);          // paid, waiting
+  lob.enqueue(sock('B'), 'Nia', null, 0, 0);           // free, waiting
+  assert.strictEqual(lob.rooms.size, 0, 'different rungs do not match');
+  lob.tick(Date.now() + BOT_AFTER_MS + 1);
+  const free = lob.roomOf('B');
+  assert.ok(free && free.bot, 'the free seat got its bot');
+  assert.ok(lob.queue.some(e => e.socket.id === 'A'), 'the paid seat is still waiting');
+});

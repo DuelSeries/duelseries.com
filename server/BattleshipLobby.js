@@ -18,7 +18,19 @@
 
 const { BattleshipRoom, BS } = require('./BattleshipRoom');
 
-const BOT_AFTER_MS = 6000;        // how long you wait before one turns up on a FREE table
+/* HOW LONG A REAL PERSON GETS TO TURN UP.
+
+   Six seconds, which is what this was, sounds like plenty and is not. Owen and
+   a friend pressed Play "at the same time" and both ended up against bots:
+   between opening the page, the socket connecting and the widget settling,
+   two people clicking together land in the queue several seconds apart, and
+   whoever got there first was already in a bot match before the second arrived.
+
+   Fifteen is long enough for two people coordinating over a phone call and
+   still short enough that somebody alone is not left staring. It matters less
+   than it looks, because a second person arriving inside the first minute now
+   pulls the first out of their bot match anyway — see rescueFromBot. */
+const BOT_AFTER_MS = 15000;        // how long you wait before one turns up on a FREE table
 const PAID_WAIT_MS = 60000;       // and how long a paid seat waits for a person
 const BOT_THINK_MS = 1100;        // it does not answer instantly
 const BOT_PLACE_MS = 2500;        // nor lay its fleet out the moment the match opens
@@ -50,6 +62,16 @@ class BattleshipLobby {
       worth: Number(worth) > 0 ? Number(worth) : 0,
     });
     this.pump();
+    /* Still waiting after that? Somebody may be in a bot match that has only
+       just started, and two people beats two bots. */
+    const mine = this.queue.find(e => e.socket.id === socket.id);
+    if (mine) {
+      const freed = this.rescueFromBot(mine);
+      if (freed) {
+        this.dequeue(socket.id);
+        this.makeMatch([freed, mine]);
+      }
+    }
     return this.queue.some(e => e.socket.id === socket.id);
   }
 
@@ -84,6 +106,12 @@ class BattleshipLobby {
 
   tick(now) {
     const t = typeof now === 'number' ? now : Date.now();
+    /* PAIR PEOPLE FIRST, EVERY TICK. The loop below hands out one bot per
+       waiting seat, so two people who were both in the queue when the timer
+       came round got a bot each instead of getting each other. pump() only ran
+       on enqueue, which is exactly the moment the second of them was not there
+       yet. */
+    this.pump();
     for (const e of [...this.queue]) {
       if (e.stake > 0) {
         if (t - e.since < PAID_WAIT_MS) continue;
@@ -100,6 +128,43 @@ class BattleshipLobby {
       room.tick(t);
       if (room.state === 'over') this.sweep(room);
     }
+  }
+
+  /* SOMEBODY WAITING BEATS A BOT, EVEN A LITTLE LATE.
+
+     With two people on the whole game, the common case is a friend arriving
+     twenty seconds after you did — by which time you are in a bot match and
+     they get one of their own, and the two of you sit in separate rooms playing
+     machines. So a human joining the queue looks for another human in a bot
+     match that has barely begun, dissolves it, and takes them along.
+
+     Only while it has barely begun. Pulling somebody out of a match they are
+     three turns into is worse than the problem: they lose a position they have
+     been working on, to be handed an opponent they did not ask for. */
+  rescueFromBot(entry) {
+    if (!entry || entry.stake > 0) return null;        // paid tables never had a bot
+    for (const room of this.rooms.values()) {
+      if (!room.bot) continue;
+      if (room.stake > 0) continue;
+      const early = room.state === 'placing' || room.state === 'countdown';
+      if (!early) continue;
+      const human = [...room.players.keys()].find(id => !String(id).startsWith('bot_'));
+      if (!human || human === entry.socket.id) continue;
+      const seat = room.players.get(human);
+      if (!seat || !seat.socket) continue;
+
+      /* Take the room away without finishing it: finish() would broadcast a
+         result for a match that is not over and did not happen. */
+      this.rooms.delete(room.id);
+      for (const [sid, rid] of [...this.bySocket]) {
+        if (rid === room.id) this.bySocket.delete(sid);
+      }
+      console.log('[BS] pairing ' + seat.name + ' with ' + entry.name
+        + ' instead of a bot');
+      return { socket: seat.socket, name: seat.name, wallet: seat.wallet,
+               since: Date.now(), stake: 0, worth: 0 };
+    }
+    return null;
   }
 
   makeMatch(entries, withBot) {
