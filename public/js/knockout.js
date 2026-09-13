@@ -37,6 +37,26 @@ let overShown = false;
 let aims = new Map();
 let drag = null;             // { pieceId, x, y } while a finger or mouse is down
 
+/* THE BOARD IS TURNED AROUND FOR SEAT 1. The server has one fixed layout, seat
+   0 along the bottom and seat 1 along the top, and each client rotates it half
+   a turn if it is sitting in seat 1. Every player then sees their own pieces
+   nearest them and their opponent's across the disc, which is how every board
+   game works and is what Owen asked for. A rotation rather than a mirror,
+   because a mirror would flip left and right too and an arrow dragged right
+   would fire left. */
+let flip = false;
+
+/* Both sets of arrows, held on screen before the tape runs. */
+let reveal = null;           // [{ pieceId, owner, ax, ay }]
+let revealUntil = 0;
+
+/* The wall eases in rather than jumping. Drawn radius chases the real one. */
+let drawR = 0;
+
+/* Pieces the closing ring took this turn, and when we started dropping them,
+   so they fall over the edge instead of blinking out. */
+let ringFall = new Map();    // pieceId -> start timestamp
+
 /* The name and wallet, read exactly the way the other own-page games read
    them: the lobby writes the name into sessionStorage immediately before it
    sets this page's src, and the wallet lives under the key the wallet widget
@@ -71,10 +91,10 @@ function fit() {
   VIEW = { s: (usable / 2) / (R * pad), cx: w / 2, cy: h / 2, dpr };
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
-const toScreenX = (x) => VIEW.cx + x * VIEW.s;
-const toScreenY = (y) => VIEW.cy + y * VIEW.s;
-const toWorldX = (px) => (px - VIEW.cx) / VIEW.s;
-const toWorldY = (py) => (py - VIEW.cy) / VIEW.s;
+const toScreenX = (x) => VIEW.cx + (flip ? -x : x) * VIEW.s;
+const toScreenY = (y) => VIEW.cy + (flip ? -y : y) * VIEW.s;
+const toWorldX = (px) => { const v = (px - VIEW.cx) / VIEW.s; return flip ? -v : v; };
+const toWorldY = (py) => { const v = (py - VIEW.cy) / VIEW.s; return flip ? -v : v; };
 
 window.addEventListener('resize', fit);
 window.addEventListener('orientationchange', fit);
@@ -128,7 +148,7 @@ function draw() {
   ctx.clearRect(0, 0, w, h);
   if (!st) return;
 
-  const R = (tape ? tape.arenaR : st.arenaR) * VIEW.s;
+  const R = drawR * VIEW.s;
   const cx = VIEW.cx, cy = VIEW.cy;
 
   /* The disc. Lit from above so it reads as a surface with a top, and with a
@@ -143,7 +163,7 @@ function draw() {
      off. It is the one piece of information the physics has that the picture
      otherwise does not, and without it "stay in the middle" is folklore rather
      than something the screen told you. */
-  const danger = Math.max(0, (tape ? tape.arenaR : st.arenaR) - 220) * VIEW.s;
+  const danger = Math.max(0, drawR - 220) * VIEW.s;
   if (danger > 8) {
     ctx.beginPath(); ctx.arc(cx, cy, danger, 0, Math.PI * 2);
     ctx.setLineDash([5, 9]);
@@ -160,7 +180,8 @@ function draw() {
   const pr = st.pieceR * VIEW.s;
 
   for (const p of pieces) {
-    if (!p.alive && !p.falling) continue;          // long gone, in an earlier turn
+    const dropping = ringFall.get(p.id);
+    if (!p.alive && !p.falling && dropping === undefined) continue;   // long gone
     const x = toScreenX(p.x), y = toScreenY(p.y);
     const isMine = mine(p);
 
@@ -171,6 +192,13 @@ function draw() {
       const since = tapeAt - ((tape.out || []).find(o => o.id === p.id) || {}).frame;
       const t = Math.min(1, Math.max(0, since / 26));
       scale = 1 - t * 0.75; alpha = 1 - t;
+    } else if (dropping !== undefined) {
+      /* Taken by the wall rather than by a hit. Same fall, timed off the clock
+         rather than off a tape, and started only once the wall has actually
+         reached it — so you see the ring arrive and then the piece go. */
+      const t = Math.min(1, Math.max(0, (performance.now() - dropping) / 480));
+      scale = 1 - t * 0.8; alpha = 1 - t;
+      if (t >= 1) { ringFall.delete(p.id); continue; }
     }
     if (alpha <= 0.02) continue;
 
@@ -187,15 +215,27 @@ function draw() {
     ctx.restore();
   }
 
-  /* My arrows. Only ever mine: the server does not send theirs, and this is the
-     mode. */
-  if (!tape && st.state === 'aiming') {
+  /* My arrows while I am aiming. Only ever mine: the server does not send
+     theirs during a turn, and that is the mode. */
+  if (!tape && !reveal && st.state === 'aiming') {
     for (const p of pieces) {
       if (!mine(p) || !p.alive) continue;
       const a = drag && drag.pieceId === p.id
         ? { ax: drag.x - p.x, ay: drag.y - p.y }
         : aims.get(p.id);
-      if (a) drawArrow(p, a);
+      if (a) drawArrow(p, a, true);
+    }
+  }
+
+  /* And EVERYBODY'S, for the beat before anything moves. This is the moment the
+     two blind commitments are laid side by side, which is the whole point of
+     the mode, so it gets held on screen rather than being over before it has
+     registered. */
+  if (reveal) {
+    for (const a of reveal) {
+      const p = pieces.find(q => q.id === a.pieceId);
+      if (!p || !p.alive) continue;
+      drawArrow(p, a, a.owner === me);
     }
   }
 }
@@ -204,7 +244,7 @@ function draw() {
    sits where the piece is being sent — clamped, and shown clamped, because a
    drag past the cap that keeps growing on screen is the screen lying about how
    hard the shot will be. */
-function drawArrow(p, a) {
+function drawArrow(p, a, isMine) {
   const maxPull = st.maxPull || 260;
   const len = Math.hypot(a.ax, a.ay);
   if (len < 4) return;
@@ -214,10 +254,13 @@ function drawArrow(p, a) {
   const x0 = toScreenX(p.x), y0 = toScreenY(p.y);
   const x1 = toScreenX(p.x + ux * pull), y1 = toScreenY(p.y + uy * pull);
   const full = pull >= maxPull - 0.5;
+  /* Their arrow is their colour. During the reveal both are on screen at once
+     and telling them apart is the entire thing you are looking at. */
+  const tint = isMine ? (full ? '#f0a830' : 'rgba(244,241,234,0.9)') : '#e0705f';
 
   ctx.save();
   ctx.lineCap = 'round';
-  ctx.strokeStyle = full ? '#f0a830' : 'rgba(244,241,234,0.85)';
+  ctx.strokeStyle = tint;
   ctx.lineWidth = full ? 4 : 3;
   ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
 
@@ -228,7 +271,7 @@ function drawArrow(p, a) {
   ctx.lineTo(x1 - Math.cos(ang - 0.42) * head, y1 - Math.sin(ang - 0.42) * head);
   ctx.lineTo(x1 - Math.cos(ang + 0.42) * head, y1 - Math.sin(ang + 0.42) * head);
   ctx.closePath();
-  ctx.fillStyle = full ? '#f0a830' : 'rgba(244,241,234,0.85)';
+  ctx.fillStyle = tint;
   ctx.fill();
   ctx.restore();
 }
@@ -239,9 +282,35 @@ function drawArrow(p, a) {
    running at 144, just less smoothly. */
 function frame() {
   refit();
-  if (tape) {
-    const elapsed = performance.now() - tapeStartedAt;
-    tapeAt = Math.floor(elapsed / (1000 / 60));
+  const now = performance.now();
+
+  /* THE WALL EASES IN. The server moves it in one step, because the physics has
+     to be unambiguous about where the edge is; the picture does not. Chasing the
+     real radius at a fixed fraction per frame turns a jump into a close, which
+     is all Owen asked for — the same distance per turn, arriving over about half
+     a second instead of between two frames. */
+  const wantR = tape ? tape.arenaR : (st ? st.arenaR : 0);
+  if (!drawR) drawR = wantR;
+  else if (Math.abs(drawR - wantR) < 0.4) drawR = wantR;
+  else drawR += (wantR - drawR) * 0.10;
+
+  /* A piece the wall closed past drops as the wall REACHES it, not when the
+     message arrived, so the ring visibly arrives and then takes it. */
+  if (st && st.ringOut && st.ringOut.length) {
+    for (const id of st.ringOut) {
+      if (ringFall.has(id)) continue;
+      const p = (st.pieces || []).find(q => q.id === id);
+      if (!p) continue;
+      if (Math.hypot(p.x, p.y) >= drawR - 1) ringFall.set(id, now);
+    }
+  }
+
+  /* The reveal holds the board on frame zero, arrows over the top of it. */
+  if (reveal) {
+    tapeAt = 0;
+    if (now >= revealUntil) { reveal = null; tapeStartedAt = now; }
+  } else if (tape && tapeStartedAt) {
+    tapeAt = Math.floor((now - tapeStartedAt) / (1000 / 60));
     if (tapeAt >= tape.frames.length + 30) { tape = null; tapeAt = 0; }
   }
   paintClock();
@@ -253,6 +322,16 @@ requestAnimationFrame(frame);
 function paintClock() {
   const num = $('clockNum'), lbl = $('clockLbl'), box = num && num.parentElement;
   if (!num || !st) return;
+  if (reveal) {
+    num.textContent = '—'; lbl.textContent = 'Go';
+    box.classList.remove('urgent', 'locked');
+    return;
+  }
+  if (st.state === 'settling') {
+    num.textContent = '—'; lbl.textContent = '';
+    box.classList.remove('urgent', 'locked');
+    return;
+  }
   if (tape || st.state === 'resolving') {
     num.textContent = '—'; lbl.textContent = 'Resolving';
     box.classList.remove('urgent', 'locked');
@@ -354,7 +433,9 @@ function paintBar() {
   } else {
     lock.disabled = true;
     lock.textContent = 'Lock in';
-    hint.textContent = tape || st.state === 'resolving' ? 'Watching it play out'
+    hint.textContent = reveal ? 'Both moves are in'
+      : st.state === 'settling' ? ''
+      : tape || st.state === 'resolving' ? 'Watching it play out'
       : st.state === 'countdown' ? 'Starting' : '';
   }
   their.textContent = theirReady ? 'They are ready' : '';
@@ -384,7 +465,15 @@ function paintPips() {
 /* ── what the server says ──────────────────────────────────────────────── */
 
 function apply(state) {
+  const prev = st;
   st = state;
+  /* Which end of the board am I? Seat 1 sees it turned around, so both players
+     play from the bottom. Settled once per match, from the seat the server
+     gave us. */
+  const seat = (state.players || []).find(p => p.id === me);
+  if (seat) flip = seat.side === 1;
+  /* Where the wall is coming FROM, so the ease has somewhere to start. */
+  if (!prev && state.prevArenaR) drawR = state.prevArenaR;
   phaseEndsAt = Date.now() + (state.phaseMs || 0);
   theirReady = (state.ready || []).some(id => id !== me);
   $('top').hidden = false;
@@ -411,12 +500,14 @@ function queue() {
 socket.on('ko:start', (state) => {
   me = socket.id;
   aims.clear(); drag = null; locked = false; tape = null;
+  reveal = null; ringFall.clear(); drawR = 0;
   apply(state);
   runCountdown(state.phaseMs || 3000);
 });
 
 socket.on('ko:turn', (state) => {
   aims.clear(); drag = null; locked = false; tape = null;
+  reveal = null;
   apply(state);
 });
 
@@ -426,15 +517,34 @@ socket.on('ko:ready', ({ ready }) => {
 });
 
 socket.on('ko:resolve', (msg) => {
-  /* Play the tape, THEN take the state. The state already describes the board
-     after everything has happened, so applying it first would snap every piece
-     to its final position and then animate it getting there. */
-  tape = { order: msg.order, frames: msg.frames, out: msg.out || [], arenaR: msg.arenaR };
-  tapeAt = 0;
-  tapeStartedAt = performance.now();
+  /* Both arrows first, held still, THEN the tape. The state already describes
+     the board after everything has happened, so it is taken now but the tape is
+     what is drawn from — applying the state alone would snap every piece to its
+     final position and then animate it getting there. */
+  const t = { order: msg.order, frames: msg.frames, out: msg.out || [], arenaR: msg.arenaR };
   drag = null; locked = false; theirReady = false;
-  if (msg.state) { st = Object.assign({}, msg.state, { arenaR: msg.arenaR }); }
+  if (msg.state) { st = Object.assign({}, msg.state, { arenaR: msg.arenaR, ringOut: [] }); }
   aims.clear();
+
+  tape = t; tapeAt = 0;
+  if (msg.reveal && msg.reveal.length) {
+    reveal = msg.reveal;
+    revealUntil = performance.now() + (msg.revealMs || 2000);
+    tapeStartedAt = 0;                  // held at frame zero until the reveal ends
+  } else {
+    reveal = null;
+    tapeStartedAt = performance.now();
+  }
+  paintBar();
+});
+
+/* The winner sitting on the board for a moment before the card. The board is
+   already drawn and the tape has finished, so there is nothing to do but stop
+   calling it 'resolving' - the clock kept saying so through the whole hold,
+   because this arrives as its own event rather than as a state message. */
+socket.on('ko:settling', () => {
+  if (st) st.state = 'settling';
+  reveal = null;
   paintBar();
 });
 

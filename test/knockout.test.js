@@ -276,9 +276,15 @@ test('the result is not announced until the tape has finished playing', () => {
   assert.strictEqual(sent.filter(m => m.ev === 'ko:over').length, 0,
     'nothing announced while the tape is still running');
 
+  /* Then the winner sits on the board for a moment before the card. */
   runTo(r, r.phaseEndsAt);
+  assert.strictEqual(r.state, 'settling', 'the board is held up first');
+  assert.strictEqual(sent.filter(m => m.ev === 'ko:over').length, 0,
+    'and still nothing announced');
+
+  runTo(r, r.phaseEndsAt + 1);
   assert.strictEqual(r.state, 'over');
-  assert.strictEqual(sent.filter(m => m.ev === 'ko:over').length, 1, 'announced once it has played');
+  assert.strictEqual(sent.filter(m => m.ev === 'ko:over').length, 1, 'announced after the hold');
 });
 
 test('the tape and the state agree about where the pieces ended', () => {
@@ -363,4 +369,95 @@ test('a turn is quick to watch and cheap to send', () => {
   assert.ok(seconds < 4, 'plays back in under four seconds, took ' + seconds.toFixed(1));
   const kb = JSON.stringify(r.lastResolve).length / 1024;
   assert.ok(kb < 16, 'the tape is under 16KB, was ' + kb.toFixed(1));
+});
+
+/* ── the things Owen asked for after playing it ─────────────────────────── */
+
+test('a piece that fell in an earlier turn never appears in a later tape', () => {
+  /* HIS BUG, in his words: "right after i have made my move the old dead
+     circles just appear for a second then disappear again."
+
+     Nothing removes a piece from this.pieces when it goes off, so every later
+     frame still carried a position for it, and the client had no way to tell a
+     corpse from a live one. Leaving them out of the tape fixes it where it
+     starts, rather than asking the client to remember who is dead. */
+  const { r } = room();
+  runTo(r, 1000 + KO.COUNTDOWN_MS);
+  const doomed = r.piecesOf('B')[0];
+  doomed.x = r.arenaR - KO.PIECE_R; doomed.y = 0;
+  r.submitAim('B', [{ pieceId: doomed.id, ax: KO.MAX_PULL, ay: 0 }]);
+  r.tick(1000 + KO.COUNTDOWN_MS + KO.AIM_MS);
+
+  assert.ok(r.lastResolve.order.includes(doomed.id), 'it is in the tape it dies in');
+  assert.strictEqual(doomed.alive, false);
+
+  /* Next turn. */
+  runTo(r, r.phaseEndsAt);
+  assert.strictEqual(r.state, 'aiming', 'a new turn opened');
+  const t2 = r.phaseEndsAt;
+  r.tick(t2);
+
+  assert.ok(!r.lastResolve.order.includes(doomed.id),
+    'and it is nowhere in the next one');
+  assert.strictEqual(r.lastResolve.frames[0].length, r.lastResolve.order.length * 2,
+    'the frames match the pieces the tape claims to cover');
+});
+
+test('both sets of arrows are revealed together, and only when the turn is closed', () => {
+  /* The mode is committing blind. Showing the arrows DURING the turn would give
+     it away; not showing them afterwards would withhold the answer. */
+  const { r, sent } = room();
+  runTo(r, 1000 + KO.COUNTDOWN_MS);
+  r.submitAim('A', [{ pieceId: r.piecesOf('A')[0].id, ax: 200, ay: 20 }]);
+  r.submitAim('B', [{ pieceId: r.piecesOf('B')[0].id, ax: -180, ay: 60 }]);
+
+  assert.ok(!JSON.stringify(r.publicState()).includes('"ax"'),
+    'still nothing while the turn is live');
+
+  r.tick(1000 + KO.COUNTDOWN_MS + KO.AIM_MS);
+  const msg = sent.filter(m => m.ev === 'ko:resolve').pop();
+  assert.ok(msg, 'the reveal was sent');
+  const owners = new Set(msg.payload.reveal.map(a => a.owner));
+  assert.ok(owners.has('A') && owners.has('B'), 'both players\' arrows are in it');
+  assert.strictEqual(msg.payload.revealMs, KO.REVEAL_MS, 'with how long to hold them');
+});
+
+test('the turn is long enough to show the arrows before anything moves', () => {
+  const { r } = room();
+  runTo(r, 1000 + KO.COUNTDOWN_MS);
+  const t = 1000 + KO.COUNTDOWN_MS + KO.AIM_MS;
+  r.tick(t);
+  const tapeMs = r.lastResolve.frames.length * KO.STEP * 1000;
+  assert.ok(r.phaseEndsAt - t >= KO.REVEAL_MS + tapeMs,
+    'the resolving phase covers the reveal AND the playback');
+});
+
+test('the ring says what it closed past, and where it closed from', () => {
+  /* So the client can ease the wall in from one radius to the other and drop
+     the pieces it passes over the edge, instead of blinking them away. */
+  const { r } = room();
+  runTo(r, 1000 + KO.COUNTDOWN_MS);
+  const r1 = r.arenaR;
+  const doomed = r.piecesOf('B')[0];
+  doomed.x = r1 - 4; doomed.y = 0;
+
+  r.tick(1000 + KO.COUNTDOWN_MS + KO.AIM_MS);
+  runTo(r, r.phaseEndsAt);
+
+  const st = r.publicState();
+  assert.strictEqual(st.prevArenaR, Math.round(r1), 'where the wall came from');
+  assert.ok(st.arenaR < st.prevArenaR, 'and where it got to');
+  assert.ok(st.ringOut.includes(doomed.id), 'and which piece it took on the way');
+});
+
+test('seat 0 is along the bottom and seat 1 along the top', () => {
+  /* The client turns the board around for seat 1, so both players see their own
+     pieces nearest them. That only works if the server puts the two sides on
+     opposite ENDS rather than opposite sides. */
+  const { r } = room();
+  const a = r.piecesOf('A'), b = r.piecesOf('B');
+  for (const p of a) assert.ok(p.y > 0, 'seat 0 is at the bottom');
+  for (const p of b) assert.ok(p.y < 0, 'seat 1 is at the top');
+  /* And each pair is spread across, not stacked. */
+  assert.ok(Math.abs(a[0].x - a[1].x) > KO.PIECE_R * 2, 'a pair does not overlap');
 });

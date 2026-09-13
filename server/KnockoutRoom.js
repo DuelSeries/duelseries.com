@@ -52,6 +52,16 @@ const KO = {
   COUNTDOWN_MS: 3000,         // the three seconds before the first turn
   AIM_MS: 15000,              // how long you have to commit
 
+  /* Both sets of arrows, held on screen before anything moves. The whole mode
+     is two people committing blind, so the moment the arrows appear together is
+     the moment you find out whether you read them right — and it is worth a
+     beat of its own rather than being over before it registers. */
+  REVEAL_MS: 2000,
+
+  /* The winner sits there for a moment before the card goes up. Cutting
+     straight to a result covers the board that produced it. */
+  WIN_HOLD_MS: 3000,
+
   /* Aiming. The drag is measured in world units and clamped, so a longer screen
      cannot buy a harder shot — a phone and a desktop hit exactly as hard. */
   MAX_PULL: 260,
@@ -155,18 +165,24 @@ class KnockoutRoom {
   piecesOf(socketId) { return this.pieces.filter(p => p.owner === socketId && p.alive); }
 
   /* ── the opening position ───────────────────────────────────────────────
-     Facing each other across the disc, offset off the centre line so the very
-     first turn is not a head-on shot down a straight line that both players can
-     solve identically. */
+     Seat 0 along the BOTTOM, seat 1 along the TOP, each pair spread either side
+     of the centre line so the first turn is not a head-on shot down a straight
+     line that both players can solve identically.
+
+     Bottom and top rather than left and right because the client turns the
+     board around for whoever is sitting in seat 1: every player sees their own
+     pieces nearest them and their opponent's across the disc, which is how
+     every board game anybody has played works. The server has one fixed
+     layout; the view is the client's problem. */
   layOut() {
     this.pieces = [];
     let n = 0;
     const spread = this.arenaR * 0.42;
     for (const [id, p] of this.players) {
-      const dir = p.side === 0 ? -1 : 1;
+      const dir = p.side === 0 ? 1 : -1;          // seat 0 is the bottom, +y
       for (let i = 0; i < KO.PIECES_EACH; i++) {
-        const y = (i === 0 ? -1 : 1) * spread * 0.5;
-        this.pieces.push(new Piece(++n, id, dir * spread, y));
+        const x = (i === 0 ? -1 : 1) * spread * 0.5;
+        this.pieces.push(new Piece(++n, id, x, dir * spread));
       }
     }
   }
@@ -241,11 +257,25 @@ class KnockoutRoom {
       return;
     }
     if (this.state === 'resolving') {
+      if (t < this.phaseEndsAt) return;
       /* Only once the tape has finished playing. Deciding the match the instant
          the maths is done would put the result card on screen over the top of
          the collision that caused it, and the collision is the part worth
          watching. */
-      if (t >= this.phaseEndsAt && !this.checkOver()) this.beginTurn(t);
+      if (this.decided()) {
+        /* And then the winner simply sits there for a moment. Cutting from the
+           last collision straight to a result card covers the board that
+           produced it, which is the one thing everybody wants to look at. */
+        this.state = 'settling';
+        this.phaseEndsAt = t + KO.WIN_HOLD_MS;
+        this.broadcast('ko:settling', { holdMs: KO.WIN_HOLD_MS });
+        return;
+      }
+      this.beginTurn(t);
+      return;
+    }
+    if (this.state === 'settling') {
+      if (t >= this.phaseEndsAt) this.checkOver();
       return;
     }
   }
@@ -260,16 +290,24 @@ class KnockoutRoom {
       /* Each turn bites harder than the last, so an early match has room to
          manoeuvre and a late one does not. */
       const bite = KO.ARENA_SHRINK * (1 + (this.turn - 2) * KO.ARENA_SHRINK_GROWTH);
+      this.prevArenaR = this.arenaR;
       this.arenaR = Math.max(KO.ARENA_R_MIN, this.arenaR - bite);
-      /* Anything the ring closed past goes now, before anybody aims at it. */
+      /* Anything the ring closed past goes now, before anybody aims at it. The
+         ids go out with the turn so the client can close the ring in and drop
+         them over the edge as it passes, rather than blinking them away. */
+      this.ringOut = [];
       for (const p of this.pieces) {
-        if (p.alive && Math.hypot(p.x, p.y) > this.arenaR) p.alive = false;
+        if (p.alive && Math.hypot(p.x, p.y) > this.arenaR) {
+          p.alive = false;
+          this.ringOut.push(p.id);
+        }
       }
       if (this.checkOver()) return;
     }
     this.aims.clear();
     this.ready.clear();
     this.state = 'aiming';
+    if (this.turn <= 1) { this.ringOut = []; this.prevArenaR = this.arenaR; }
     this.phaseEndsAt = t + KO.AIM_MS;
     this.broadcast('ko:turn', this.publicState());
   }
@@ -295,10 +333,36 @@ class KnockoutRoom {
     const tape = this.simulate();
     this.lastResolve = tape;
     this.state = 'resolving';
-    /* Held for as long as the tape takes to play, plus a beat to read the
-       result, so the next aiming phase does not open over a moving board. */
-    this.phaseEndsAt = t + Math.round(tape.frames.length * KO.STEP * 1000) + 900;
-    this.broadcast('ko:resolve', Object.assign({ state: this.publicState() }, tape));
+    /* The reveal, then the tape, then a beat to read the result, so the next
+       aiming phase never opens over a moving board. */
+    this.phaseEndsAt = t + KO.REVEAL_MS
+      + Math.round(tape.frames.length * KO.STEP * 1000) + 900;
+    this.broadcast('ko:resolve', Object.assign({
+      state: this.publicState(),
+      /* BOTH SETS OF ARROWS, and this is the only message that carries them.
+
+         Hiding them during the turn is the mode; hiding them after it is just
+         withholding the answer. This is the moment the two commitments are laid
+         next to each other and you find out whether you read them right, so it
+         goes out to everybody and the client holds it on screen for REVEAL_MS
+         before anything moves. */
+      reveal: this.revealAims(),
+      revealMs: KO.REVEAL_MS,
+    }, tape));
+  }
+
+  /* Every arrow that is about to be fired, by piece. Safe now and only now:
+     the turn is closed and nothing can be changed on the strength of it. */
+  revealAims() {
+    const out = [];
+    for (const [id, list] of this.aims) {
+      for (const a of list) {
+        const p = this.pieces.find(q => q.id === a.pieceId);
+        if (!p) continue;
+        out.push({ pieceId: a.pieceId, owner: id, ax: Math.round(a.ax), ay: Math.round(a.ay) });
+      }
+    }
+    return out;
   }
 
   /* The whole resolution, run flat out. Returns the frames to play back.
@@ -308,7 +372,15 @@ class KnockoutRoom {
      the size of the message. */
   simulate() {
     const frames = [];
-    const order = this.pieces.map(p => p.id);
+    /* ONLY WHAT IS STILL ON THE DISC. A piece knocked off three turns ago is
+       still in this.pieces — nothing removes it — and it used to get a position
+       in every frame of every later tape. The client had no way to tell those
+       from live ones, so every reveal briefly resurrected the dead: Owen saw
+       "the old dead circles just appear for a second then disappear again".
+       Leaving them out of the tape entirely fixes it at the source, and makes
+       the message smaller every turn somebody loses a piece. */
+    const active = this.pieces.filter(p => p.alive);
+    const order = active.map(p => p.id);
     const maxFrames = Math.round(KO.MAX_RESOLVE_S / KO.STEP);
     const decay = Math.exp(-KO.DRAG_PER_S * KO.STEP);
     const R = this.arenaR;
@@ -318,13 +390,13 @@ class KnockoutRoom {
     const wentOut = [];
 
     for (let f = 0; f < maxFrames; f++) {
-      for (const p of this.pieces) {
+      for (const p of active) {
         p.x += p.vx * KO.STEP;
         p.y += p.vy * KO.STEP;
       }
       this.collide();
       let moving = false;
-      for (const p of this.pieces) {
+      for (const p of active) {
         p.vx *= decay; p.vy *= decay;
         if (Math.hypot(p.vx, p.vy) < KO.STOP_SPEED) { p.vx = 0; p.vy = 0; }
         else moving = true;
@@ -340,7 +412,7 @@ class KnockoutRoom {
           wentOut.push({ id: p.id, frame: f });
         }
       }
-      frames.push(this.snapshotFrame());
+      frames.push(this.snapshotFrame(active));
       if (!moving) break;
     }
 
@@ -350,11 +422,11 @@ class KnockoutRoom {
   /* One row of the tape: every piece's position, in the order `order` lists
      them, flat rather than as objects because this is the part of the message
      there are several hundred of. */
-  snapshotFrame() {
-    const row = new Array(this.pieces.length * 2);
-    for (let i = 0; i < this.pieces.length; i++) {
-      row[i * 2] = Math.round(this.pieces[i].x);
-      row[i * 2 + 1] = Math.round(this.pieces[i].y);
+  snapshotFrame(active) {
+    const row = new Array(active.length * 2);
+    for (let i = 0; i < active.length; i++) {
+      row[i * 2] = Math.round(active[i].x);
+      row[i * 2 + 1] = Math.round(active[i].y);
     }
     return row;
   }
@@ -396,6 +468,15 @@ class KnockoutRoom {
   }
 
   /* ── the end ────────────────────────────────────────────────────────────── */
+
+  /* Is this match finished, without finishing it? The hold before the result
+     card needs to know the answer a full three seconds before it acts on it. */
+  decided() {
+    if (this.state === 'over') return true;
+    let standing = 0;
+    for (const id of this.players.keys()) if (this.piecesOf(id).length > 0) standing++;
+    return standing <= 1;
+  }
 
   checkOver() {
     if (this.state === 'over') return true;
@@ -451,6 +532,11 @@ class KnockoutRoom {
          opponent who has locked in is information you are allowed to have, and
          it is what makes the last few seconds of a turn tense. */
       ready: [...this.ready],
+      /* Where the ring was before this turn closed it, and what that cost.
+         The client eases the wall in from one to the other and drops these over
+         the edge as it passes them. */
+      prevArenaR: Math.round(this.prevArenaR || this.arenaR),
+      ringOut: this.ringOut || [],
       stake: this.stake,
     };
   }
