@@ -389,6 +389,17 @@ class KnockoutRoom {
        the client would replay an old knock-off animation each time. */
     const wentOut = [];
 
+    /* THE BOARD AS IT STANDS, BEFORE ANYTHING MOVES.
+
+       The loop below integrates first and captures second, so its first frame
+       was already a physics step in — every piece a fifth of its own width from
+       where it had been sitting all turn. Owen: "after I press lock in and it
+       shows the other player's arrows it sort of jumps a little." That is the
+       jump: the reveal switched from the resting board to a frame that had
+       already moved. The tape has to open on the position the arrows are drawn
+       out of. */
+    frames.push(this.snapshotFrame(active));
+
     for (let f = 0; f < maxFrames; f++) {
       for (const p of active) {
         p.x += p.vx * KO.STEP;
@@ -408,8 +419,10 @@ class KnockoutRoom {
            is something you watch rather than something you are told about. */
         if (p.alive && Math.hypot(p.x, p.y) > R) {
           p.alive = false;
-          p.outAt = f;
-          wentOut.push({ id: p.id, frame: f });
+          /* The index of the frame about to be pushed, not the loop counter:
+             there is a resting frame in front of them now. */
+          p.outAt = frames.length;
+          wentOut.push({ id: p.id, frame: frames.length });
         }
       }
       frames.push(this.snapshotFrame(active));

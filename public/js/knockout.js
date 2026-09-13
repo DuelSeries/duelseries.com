@@ -258,13 +258,20 @@ function drawArrow(p, a, isMine) {
      and telling them apart is the entire thing you are looking at. */
   const tint = isMine ? (full ? '#f0a830' : 'rgba(244,241,234,0.9)') : '#e0705f';
 
+  /* SIZED OFF THE PIECE, not off the screen. The first version used a fixed
+     pixel width and a head worked out from the zoom, which came out thick and
+     blunt — an arrow as wide as a third of the circle it belongs to reads as a
+     bar, and it covers the board it is pointing across. Tied to the piece
+     radius it stays in proportion at any zoom and on any phone. */
+  const pr = (st.pieceR || 26) * VIEW.s;
+
   ctx.save();
   ctx.lineCap = 'round';
   ctx.strokeStyle = tint;
-  ctx.lineWidth = full ? 4 : 3;
+  ctx.lineWidth = Math.max(1.5, pr * (full ? 0.20 : 0.16));
   ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
 
-  const head = Math.max(9, 13 * VIEW.s * 6);
+  const head = Math.max(6, pr * 0.62);
   const ang = Math.atan2(y1 - y0, x1 - x0);
   ctx.beginPath();
   ctx.moveTo(x1, y1);

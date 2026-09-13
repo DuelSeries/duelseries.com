@@ -461,3 +461,51 @@ test('seat 0 is along the bottom and seat 1 along the top', () => {
   /* And each pair is spread across, not stacked. */
   assert.ok(Math.abs(a[0].x - a[1].x) > KO.PIECE_R * 2, 'a pair does not overlap');
 });
+
+test('the tape opens on the board as it was, so the reveal does not jump', () => {
+  /* Owen: "after I press lock in and it shows the other player's arrows it
+     sort of jumps a little."
+
+     The loop integrates before it captures, so its first frame used to be a
+     whole physics step in — at full power that is a fifth of a piece's width,
+     which is plenty to see. The arrows are drawn out of the resting board, so
+     the tape has to start from the resting board. */
+  const { r } = room();
+  runTo(r, 1000 + KO.COUNTDOWN_MS);
+  const before = r.pieces.filter(p => p.alive).map(p => ({ id: p.id, x: p.x, y: p.y }));
+  for (const p of r.piecesOf('A')) {
+    r.submitAim('A', [{ pieceId: p.id, ax: 0, ay: -KO.MAX_PULL }]);
+  }
+  r.tick(1000 + KO.COUNTDOWN_MS + KO.AIM_MS);
+
+  const tape = r.lastResolve;
+  const first = tape.frames[0];
+  tape.order.forEach((id, i) => {
+    const was = before.find(p => p.id === id);
+    assert.ok(Math.abs(first[i * 2] - was.x) <= 1 && Math.abs(first[i * 2 + 1] - was.y) <= 1,
+      'piece ' + id + ' starts the tape where it was sitting, not one step along');
+  });
+});
+
+test('a knock-off is reported against the frame it is actually drawn on', () => {
+  /* The out index is what the client uses to start the fall. Off by one frame
+     and the piece drops a beat early or late; off by one BECAUSE a resting
+     frame was inserted in front would be the obvious way to break it. */
+  const { r } = room();
+  runTo(r, 1000 + KO.COUNTDOWN_MS);
+  const victim = r.piecesOf('B')[0];
+  victim.x = 0; victim.y = -(r.arenaR - KO.PIECE_R);
+  r.submitAim('B', [{ pieceId: victim.id, ax: 0, ay: -KO.MAX_PULL }]);
+  r.tick(1000 + KO.COUNTDOWN_MS + KO.AIM_MS);
+
+  const tape = r.lastResolve;
+  const out = tape.out.find(o => o.id === victim.id);
+  assert.ok(out, 'it went off');
+  assert.ok(out.frame >= 1, 'never on the resting frame');
+  assert.ok(out.frame < tape.frames.length, 'and inside the tape');
+
+  const i = tape.order.indexOf(victim.id);
+  const at = tape.frames[out.frame];
+  assert.ok(Math.hypot(at[i * 2], at[i * 2 + 1]) > tape.arenaR,
+    'and on that frame it really is past the edge');
+});
