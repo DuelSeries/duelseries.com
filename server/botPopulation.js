@@ -158,7 +158,21 @@ function globalHeadroom(at) {
 function roomShare(at) {
   let n = 0;
   for (const r of _rooms) {
-    if (typeof r.botsAllowed === 'function' && !r.botsAllowed()) continue;
+    /* SEEDS, not ALLOWED, and the difference is the whole point of this line.
+
+       A room that is merely allowed to hold bots still counts its live ones in
+       liveBotsEverywhere above, so the global total stays honest while a
+       retired room drains. But it must not take a SHARE, or the budget keeps
+       being divided by a room that is never going to spend it and the rooms
+       people are in stay a third emptier than the target says.
+
+       Splitting it this way is also what stops the retirement backfiring.
+       Dropping a room from the live count instead, while it carried on filling
+       itself from its own tick, was measured at 91 bots becoming 137: the room
+       kept spawning and simply stopped being counted. Counted but unshared is
+       the combination that actually lowers the load. */
+    if (typeof r.seedsBots === 'function' ? !r.seedsBots()
+        : (typeof r.botsAllowed === 'function' && !r.botsAllowed())) continue;
     n++;
   }
   return Math.ceil(botTarget(at) / Math.max(1, n));

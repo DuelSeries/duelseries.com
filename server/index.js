@@ -1270,6 +1270,21 @@ for (const rgn of [REGION]) {
        so there is no stake here to get wrong. */
     br:     new BattleRoyaleRoom(io, `${rgn}_br`),
   };
+  /* THE SNAKE FIXED TIERS ARE A FALLBACK, NOT A DESTINATION.
+
+     They pre-date the ladder. liveBoard lists rungs only, index.html is gone,
+     and the play path sends every snake player to a rung — so the only way into
+     one of these now is getRoomForType failing to recognise a name. They stay
+     for exactly that reason and are still perfectly playable if somebody lands
+     in one.
+
+     What they stop doing is drawing a crowd. `na_free` was holding a third of
+     the game's whole bot budget and simulating it on one core for a room the
+     lobby does not list, which is both the wasted CPU and the reason the rooms
+     people ARE in looked quieter than the target. The battle royale room is
+     deliberately not marked: it is free, it is on the lobby, and it needs a
+     waiting room that looks alive. */
+  for (const t of ['free', 'dime', 'dollar']) gameRooms[rgn][t].fallbackOnly = true;
   /* THE WINNER IS CASHED OUT WHERE THEY STAND, five seconds after the match is
      decided. The room owns the timing; it does not own the money, and this is
      the seam between the two.

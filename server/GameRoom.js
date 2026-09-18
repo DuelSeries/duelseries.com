@@ -106,6 +106,24 @@ class GameRoom {
   }
   botsAllowed() { return this.isFree(); }
 
+  /* Whether the AUTOMATIC population should FILL this room.
+
+     botsAllowed() answers "may a bot exist in here at all", which is the money
+     guard and is unchanged. This is a different question: should the game spend
+     its bot budget making this particular room look busy.
+
+     The snake fixed tiers say no. They pre-date the ladder, the lobby board
+     lists only rungs, and nothing routes a player to them on purpose any more —
+     they survive as the room getRoomForType lands on when it does not recognise
+     a name. Filling one means simulating a crowd on one core for a room nobody
+     can walk into, AND taking a third of the shared target away from the two
+     rooms people are actually in.
+
+     Marked on the room at construction rather than read out of its name, for
+     the reason isFree() spells out above: every attempt to infer this from the
+     string has been wrong. */
+  seedsBots() { return this.botsAllowed() && !this.fallbackOnly; }
+
   /* Keeps a free room populated, and is the thing that was missing: bots were
      only ever added by hand, so the room drained back to empty as they died.
 
@@ -141,6 +159,18 @@ class GameRoom {
     for (const [id, s] of [...this.snakes]) {
       if (s && s.isBot && !s.alive) this.snakes.delete(id);
     }
+
+    /* A FALLBACK ROOM DRAINS, it is not emptied.
+
+       The sweep above still runs, so whatever this room is already holding dies
+       off and is not replaced and the room empties itself over a few minutes.
+       Deleting them here instead would be the one thing this file refuses to do
+       anywhere else: a live snake vanishing out from under whoever was chasing
+       it. Anyone who somehow ended up in here keeps the game they are in.
+
+       Bots added by hand from the console still work, because that control is
+       for testing and this is exactly the room you would want to test. */
+    if (!this.seedsBots()) return;
 
     /* The target is the ROOM, not the bot count: this many bodies in here,
        players and robots together. Five people means five fewer robots, and a

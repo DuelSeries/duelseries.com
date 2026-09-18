@@ -283,3 +283,92 @@ test('a paused room does not hold the others hostage', () => {
     assert.ok(rooms[1].botCount > 0, 'and the other one still fills');
   } finally { rooms.forEach(unregisterRoom); }
 });
+
+/* ─── Retiring the fixed tier ─────────────────────────────────────────────────
+   `na_free` pre-dates the ladder. The board lists rungs only and the play path
+   sends every snake player to one, so nothing routes here on purpose any more —
+   it survives as the room getRoomForType lands on for a name it does not know.
+   It should stay playable and stop drawing a crowd. */
+
+test('a fallback tier does not fill itself, and the rooms people use get its share', () => {
+  /* THE REGRESSION THIS EXISTS FOR. The obvious retirement — drop the room from
+     the bot roster — was measured making things WORSE: 91 bots became 137,
+     because the room kept filling from its own tick and simply stopped being
+     counted. Counted but unshared is the combination that actually lowers it. */
+  const rooms = freeRooms(['na_free', 'na_br', 'na_s0']);
+  rooms[0].fallbackOnly = true;
+  try {
+    const target = botTarget();
+    settleAll(rooms);
+    const total = rooms.reduce((a, r) => a + r.botCount, 0);
+
+    assert.equal(rooms[0].botCount, 0, 'the fallback tier is not filled at all');
+    assert.ok(total <= target + 2,
+      'and the game still holds the target, not more (got ' + total
+      + ' against ' + target + ')');
+    /* The whole point: the two real rooms are fuller than they were when three
+       rooms split the target, not emptier. */
+    for (const r of [rooms[1], rooms[2]]) {
+      assert.ok(r.botCount > 0, r.lobbyType + ' is populated (' + r.botCount + ')');
+    }
+    assert.ok(total >= target - 4, 'the budget is actually spent (got ' + total + ')');
+  } finally { rooms.forEach(unregisterRoom); }
+});
+
+test('a retired room drains rather than being emptied under whoever is in it', () => {
+  /* Nothing in this file ever deletes a LIVE bot to hit a number — a snake
+     vanishing mid-chase is the bug that rule exists to prevent. Retiring a room
+     must not become an exception to it. */
+  const r = room('na_free');
+  registerRoom(r);
+  try {
+    fill(r);
+    const before = r.botCount;
+    assert.ok(before > 0, 'it filled while it was still a destination');
+
+    r.fallbackOnly = true;
+    r.topUpBots();
+    assert.equal(r.botCount, before, 'retiring it kills nobody who is already in there');
+
+    // They are simply not replaced as they die.
+    for (const s of [...r.snakes.values()]) if (s.isBot) { s.alive = false; break; }
+    r.topUpBots();
+    assert.equal(r.botCount, before - 1, 'a death is swept and not refilled');
+  } finally { unregisterRoom(r); }
+});
+
+test('the owner console can still put bots in a retired room by hand', () => {
+  // It is a fallback nobody is routed to, which makes it exactly the room you
+  // would want to add bots to in order to test it.
+  const r = room('na_free');
+  r.fallbackOnly = true;
+  registerRoom(r);
+  try {
+    assert.ok(r.addBot(), 'addBot still works');
+    assert.equal(r.botCount, 1, 'and the bot is really in there');
+    r.topUpBots();
+    assert.equal(r.botCount, 1, 'the top-up neither culls it nor adds more');
+  } finally { unregisterRoom(r); }
+});
+
+test('the battle royale waiting room is NOT retired', () => {
+  // It is free, it is on the lobby, and an empty waiting room is the one thing
+  // the nightly event cannot afford to look like.
+  const r = room('na_br');
+  registerRoom(r);
+  try {
+    assert.ok(r.seedsBots(), 'the br room still seeds');
+    fill(r);
+    assert.ok(r.botCount > 0, 'and fills');
+  } finally { unregisterRoom(r); }
+});
+
+test('a paid room is still refused bots, retired or not', () => {
+  // The money guard is a separate question from the seeding one and must not
+  // have been weakened by adding the second.
+  const paid = room('na_dime');
+  paid.fallbackOnly = true;
+  assert.equal(paid.botsAllowed(), false, 'a paid room allows no bots');
+  assert.equal(paid.seedsBots(), false, 'and certainly seeds none');
+  assert.equal(paid.addBot(), null, 'addBot refuses');
+});
