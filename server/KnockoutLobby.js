@@ -85,10 +85,18 @@ class KnockoutLobby {
 
   /* `worth` is what the SERVER recorded this player staking, already taken out
      of a one-time entry token by the caller. Zero means a free seat. */
-  enqueue(socket, name, wallet, stake, worth) {
+  /* `now` is only for tests, and it is the same seam tick() already has.
+
+     Without it a test has to say `tick(Date.now() + PAID_WAIT_MS - 1)`, which
+     reads the clock a SECOND time: the gap between enqueue stamping `since` and
+     that line running is added to the wait, so on a loaded machine a seat one
+     millisecond short of giving up had already given up. That is a test failing
+     for a reason that has nothing to do with the thing it is testing, and it
+     was doing it in the middle of the pre-deploy run. */
+  enqueue(socket, name, wallet, stake, worth, now) {
     this.dequeue(socket.id);
     this.queue.push({
-      socket, name, wallet, since: Date.now(),
+      socket, name, wallet, since: typeof now === 'number' ? now : Date.now(),
       stake: Number(stake) > 0 ? Number(stake) : 0,
       worth: Number(worth) > 0 ? Number(worth) : 0,
     });

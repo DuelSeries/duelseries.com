@@ -27,10 +27,14 @@ test('two people waiting are matched with each other, not with bots', () => {
 
 test('waiting alone gets you a bot rather than a spinner', () => {
   const lob = new KnockoutLobby(io);
-  lob.enqueue(sock('A'), 'Owen', null);
-  lob.tick(Date.now() + BOT_AFTER_MS - 1);
+  /* One clock reading for the stamp and both ticks. Reading it again per line
+     adds the gap between them to the elapsed wait, so "not straight away" was
+     one scheduling hiccup away from being wrong. */
+  const T0 = Date.now();
+  lob.enqueue(sock('A'), 'Owen', null, 0, 0, T0);
+  lob.tick(T0 + BOT_AFTER_MS - 1);
   assert.strictEqual(lob.rooms.size, 0, 'not straight away');
-  lob.tick(Date.now() + BOT_AFTER_MS + 1);
+  lob.tick(T0 + BOT_AFTER_MS + 1);
   const room = lob.roomOf('A');
   assert.ok(room, 'matched');
   assert.ok(room.bot, 'with a bot');

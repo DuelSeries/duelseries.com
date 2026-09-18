@@ -122,12 +122,21 @@ test('a free table never settles anything', () => {
 test('a paid seat that nobody joins gets its money back', () => {
   const { lob, refunds } = lobby();
   const s = sock('A');
-  lob.enqueue(s, 'Owen', 'W1', 1, 1);
+  /* ONE CLOCK READING, passed in, used for both the stamp and the ticks.
 
-  lob.tick(Date.now() + PAID_WAIT_MS - 1);
+     This read Date.now() again on each tick line. The gap between enqueue
+     stamping `since` and the next line running is added to the elapsed wait, so
+     under a loaded machine "one millisecond short of giving up" had already
+     given up and the seat was refunded before the assertion. It failed exactly
+     that way during a pre-deploy run, which is the worst possible moment for a
+     test to be wrong about something it is not testing. */
+  const T0 = Date.now();
+  lob.enqueue(s, 'Owen', 'W1', 1, 1, T0);
+
+  lob.tick(T0 + PAID_WAIT_MS - 1);
   assert.strictEqual(refunds.length, 0, 'not while it is still waiting');
 
-  lob.tick(Date.now() + PAID_WAIT_MS + 1);
+  lob.tick(T0 + PAID_WAIT_MS + 1);
   assert.strictEqual(refunds.length, 1, 'refunded once the wait is up');
   assert.strictEqual(refunds[0].amount, 1);
   assert.strictEqual(refunds[0].wallet, 'W1');
