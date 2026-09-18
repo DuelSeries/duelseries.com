@@ -1,5 +1,21 @@
 # DuelSeries — Project Context
 
+## HOW TO TALK TO ME (read before anything else)
+
+**Do not narrate between tool calls.** No "Let me check X", no "Found it", no
+"Now running the tests". Chain the tool calls with no prose between them. Work
+silently and only speak at the end. This is the rule that gets broken most.
+
+**The final reply is at most 2 sentences.** No headings, no bullets, no tables,
+no sections, no file paths, no line numbers, no code, no em dashes. Say what it
+does now in plain words and stop.
+
+All the reasoning, evidence and caveats go in the **commit message**, never in
+chat. Finish the whole job (including commit and push) before replying, rather
+than stopping to report progress.
+
+Only give detail when I explicitly ask for it.
+
 ## The Goal (read this first)
 This is a **real-money, multiplayer skill game** being built into a legitimate product. The end goal is a polished, trustworthy game with **1,000+ concurrent users**. Every decision should serve that bar:
 - **It handles real money (Solana/SOL).** Correctness and security in the money paths are non-negotiable — a bug here loses real funds or lets a cheater mint them. Treat anything touching stakes, escrow, cash-out, or worth as critical code.
