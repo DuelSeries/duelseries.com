@@ -2130,7 +2130,10 @@ body.scr-anim { overflow-x:hidden }
    cut of a coin flip is a gambling site wearing a game's clothes. That is not
    what this is, so it is gone rather than parked. */
 const GAMES=[
- {id:'snake',name:'slither.io',c:['#15251c','#c080ff'],type:'p',real:1,
+ /* `ladder:1` means this game's rooms are RUNGS, priced by stake, and that its
+    Free is the stake-0 rung rather than a fixed tier. The play path needs that
+    fact even when /api/live has told it nothing — see V2_HAS_LADDER below. */
+ {id:'snake',name:'slither.io',c:['#15251c','#c080ff'],type:'p',real:1,ladder:1,
   d:'Grow by eating, cut other players off, and cash out before somebody cuts you off.'},
  /* Playable: the room, the client and the page have all existed for months,
     the lobby was just still flagging it as unbuilt. It carries no rungs on the
@@ -3414,6 +3417,10 @@ window.V2Detail={get game(){return cur?cur.id:'snake'},get stake(){return STEPS[
 /* The one list that knows which games are built, so the play path can refuse
    an unbuilt one without keeping a second copy of that fact. */
 window.V2_IS_SOON=id=>{const g=G(id);return !!(g&&g.soon&&!g.built)};
+/* Whether this game is priced in RUNGS. Asked by the play path when the board
+   has told it nothing, because "no rows" and "no ladder" are two different
+   facts and reading one as the other sent snake players to the fixed tier. */
+window.V2_HAS_LADDER=id=>{const g=G(id);return !!(g&&g.ladder)};
 window.rememberStake=rememberStake;
 window.spin=spin; window.go=go; window.goHome=goHome;
 Object.defineProperty(window,'route',{get:()=>route});

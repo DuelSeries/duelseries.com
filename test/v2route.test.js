@@ -1180,3 +1180,99 @@ test('the two duels that take a buy-in are built and offer real rungs', () => {
   assert.ok(/knockout:\s*'\/knockout'/.test(play), 'knockout has a page');
   assert.ok(/battleship:\s*'\/battleship'/.test(play), 'battleship has a page');
 });
+
+test('an empty board never sends a laddered game to the fixed tier', () => {
+  /* THE TWO-ROOMS-BOTH-CALLED-FREE BUG, third instance.
+
+     There are two free snake rooms: the ladder's rung (na_s0), which is what
+     the board advertises and where everybody plays, and a fixed tier from
+     before the ladder (na_free), which nothing points at any more.
+
+     playChosen's fallback read `!rows.length` as "this game has no ladder".
+     It does not mean that. `rows` is also empty when /api/live has failed, and
+     when it simply has not returned yet — V2Board.start() is the last call in
+     the init line while the game cards are already clickable. The same empty
+     list ALSO strikes out every rung and collapses the buy-in to Free, so
+     `!stake` is true at the same instant. Snake therefore fell through to
+     na_free on every cold start that beat the fetch, landing the player alone
+     in a room with its own separate bot population while the board said the
+     free table was busy.
+
+     The detail screen's Enter button had already been fixed for exactly this,
+     with a comment saying so. This was the line it missed. */
+  const play = fs.readFileSync(path.join(ROOT, 'public/js/v2/play.js'), 'utf8');
+  const html = v2();
+
+  const i = play.indexOf('if (!rows.length && !stake)');
+  assert.notEqual(i, -1, 'the no-rows fallback is still the thing being guarded');
+  const fb = play.slice(i, play.indexOf('No room at that buy-in', i));
+
+  assert.ok(/V2_HAS_LADDER/.test(fb),
+    'the branch asks the catalogue whether this game is priced in rungs');
+  assert.ok(/onLadder \? \{ stake: 0 \}/.test(fb),
+    'a laddered game opens on the stake-0 rung, which the server creates at boot');
+  assert.ok(/\{ lobbyType: 'free' \}/.test(fb),
+    'and only a game with no ladder at all opens on the fixed tier');
+  // The guard that keeps either branch off a paid room must survive.
+  assert.ok(/!stake/.test(play.slice(i, i + 40)), 'the !stake guard is still there');
+
+  // The predicate is worthless if the catalogue does not carry the flag.
+  assert.ok(/id:'snake'[^}]*ladder:1/.test(html), 'snake is marked as a ladder game');
+  assert.ok(/window\.V2_HAS_LADDER=/.test(html), 'and the predicate is published');
+  /* agar really does have no rungs on /api/live — board.js adds its free room
+     client-side — so its tier fallback is correct and must not be flagged. */
+  assert.ok(!/id:'agar'[^}]*ladder:1/.test(html), 'agar is not a ladder game');
+});
+
+test('the owner console names the room players are actually in', () => {
+  /* Same two rooms, seen from the other end. The console printed a ladder
+     room's raw id, so na_s0 — the room every free player is in — showed up as
+     "slither.io · s0", sitting under a row called "slither.io · Free" that is
+     the unreachable tier. Adding bots to the wrong one of those looks exactly
+     like a broken button, and cost an afternoon of debugging a control that
+     was working perfectly. */
+  const s = server();
+  const i = s.indexOf('function roomLabel(');
+  assert.notEqual(i, -1, 'roomLabel still exists');
+  const fn = s.slice(i, s.indexOf('\nfunction ', i + 10));
+
+  // A rung is named by its price, parsed from the id rather than printed raw.
+  assert.ok(/\^s\(\d\+\(\?:_\d\+\)\?\)\$/.test(fn) || /rung/.test(fn),
+    'ladder rungs are recognised');
+  assert.ok(/stake === 0 \? 'Free'/.test(fn), 'the stake-0 rung is called Free');
+  assert.ok(/'\$' \+ stake\.toFixed\(2\)/.test(fn), 'and a paid rung names its price');
+
+  // The tier rooms say they are the old ones, so they cannot be mistaken for
+  // the live table again. agar's free room is NOT one of them.
+  assert.ok(/old tier/.test(fn), 'the snake fixed tiers are marked as old');
+  assert.ok(/!agar && !r\.isBattleRoyale/.test(fn),
+    "and agar's own free room is not marked, because agar really uses it");
+});
+
+test('an unrecognised lobbyType is logged rather than silently absorbed', () => {
+  /* getRoomForType falls back to the free tier for ANY name it does not know.
+     That is deliberate — a bad join should not fail outright — but it was
+     silent, so a client sending a stale name ended up alone in a room nothing
+     routes to and nothing anywhere said so. */
+  const s = server();
+  const i = s.indexOf('function getRoomForType(');
+  const fn = s.slice(i, s.indexOf('\nfunction ', i + 10));
+  assert.ok(/console\.warn/.test(fn), 'the fallback is logged');
+  assert.ok(/unrecognised lobbyType/.test(fn), 'and says what it did not recognise');
+  // The behaviour itself must not have changed in the same edit.
+  assert.ok(/gameRooms\[rgn\]\.free/.test(fn), 'it still falls back rather than throwing');
+
+  /* The logged value is chosen by whoever is connecting, so the line has to be
+     written as if it were hostile: capped in length whatever type arrives,
+     escaped so a newline cannot forge a second log entry, and rate-limited so
+     a stranger does not get to decide how much disk one core writes. */
+  assert.ok(/String\(lobbyType\)\.slice\(0, 40\)/.test(fn), 'the value is capped in length');
+  assert.ok(/JSON\.stringify\(/.test(fn), 'and escaped, so it cannot forge a log line');
+  assert.ok(/_unknownLobbyAt/.test(fn) && /UNKNOWN_LOBBY_EVERY_MS/.test(fn),
+    'the warning is rate-limited');
+  assert.ok(/_unknownLobbySkipped/.test(fn),
+    'and says how many it suppressed, so throttling never reads as quiet');
+  // Throttle state must be two counters, not a per-value map a client can grow.
+  assert.ok(/let _unknownLobbyAt = 0, _unknownLobbySkipped = 0;/.test(s),
+    'the throttle keeps no client-keyed state');
+});

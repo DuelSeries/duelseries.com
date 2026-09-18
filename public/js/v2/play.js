@@ -324,12 +324,37 @@
       .filter(l => l.game === game);
     const hit = rows.find(l => Math.abs(l.stake - stake) < 1e-9);
     if (hit) { enter(hit); return; }
-    /* The board carries buy-in rungs for snake only. A game with no rungs at
-       all is not a missing room, it is a game that runs on the fixed tiers, so
-       it opens on the free one — and ONLY the free one. The !stake guard is
-       what keeps that true: this path can never reach a paid room, so it
-       cannot stake anything. */
-    if (!rows.length && !stake) { launch(game, { lobbyType: 'free' }); return; }
+    /* NO ROWS IS NOT THE SAME FACT AS NO LADDER, and reading one as the other
+       put real players in the wrong room.
+
+       `rows` is empty whenever /api/live failed OR has simply not come back
+       yet — V2Board.start() is the last call in the init line and the game
+       cards are clickable before it, so an ordinary cold start reaches here —
+       and once the player is on the detail screen the board's poll is gated on
+       the home screen, so an empty list never heals itself.
+
+       The same empty list ALSO forces the buy-in control down to Free: every
+       rung gets struck out, si collapses and defaultStep returns 0. So
+       `!rows.length && !stake` fires together, and a laddered game fell
+       through to the fixed tier every single time the board hiccuped.
+
+       For snake that tier is `na_free`, which is NOT where anybody else is
+       playing — it is exactly the two-rooms-both-called-Free split the detail
+       screen's Enter button was already fixed for, still live on this line.
+
+       So ask the catalogue which games are priced in rungs instead of asking
+       how many rows happen to have loaded. Free IS a rung for those, and the
+       server opens the stake-0 room at boot, so it is a valid door even when
+       the board has said nothing at all. A game with no ladder — agar, whose
+       rows are never on /api/live — still opens on the fixed free tier, which
+       is the room it actually uses. The !stake guard stays: neither branch can
+       reach a paid room, so neither can stake anything. */
+    if (!rows.length && !stake) {
+      const onLadder = typeof window.V2_HAS_LADDER === 'function'
+        && window.V2_HAS_LADDER(game);
+      launch(game, onLadder ? { stake: 0 } : { lobbyType: 'free' });
+      return;
+    }
     say('No room at that buy-in. Pick one the board is offering.');
   }
 

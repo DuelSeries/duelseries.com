@@ -843,10 +843,29 @@ function roomLabel(r) {
   const agar = raw.startsWith('agar');
   const type = raw.replace(/^agar_/, '').replace(/^(na|eu)_/, '');
   const game = r.isBattleRoyale ? 'slither.io' : agar ? 'agar.io' : 'slither.io';
-  const tier = type === 'free' ? 'Free'
-             : type === 'br' ? 'Battle royale'
-             : type === 'dime' ? '$0.10'
-             : type === 'dollar' ? '$1'
+
+  /* A LADDER RUNG NAMES ITS OWN PRICE. These rooms are called `na_s0` and
+     `na_s0_1`, and this printed the raw id, so the one room every free snake
+     player is actually in came up as "slither.io · s0" — which reads like a
+     debug artefact sitting underneath a row called "slither.io · Free" that
+     nobody is routed to on purpose. Adding bots to the wrong one of those two
+     is a control that looks broken while working perfectly, and it cost an
+     afternoon. */
+  const rung = /^s(\d+(?:_\d+)?)$/.exec(type);
+  if (rung) {
+    const stake = Number(rung[1].replace('_', '.'));
+    return game + ' · ' + (stake === 0 ? 'Free' : '$' + stake.toFixed(2));
+  }
+
+  /* SAY WHICH ROOMS ARE THE OLD ONES. The snake fixed tiers pre-date the
+     ladder and nothing on the lobby board points at them any more — they are
+     kept only as the fallback `getRoomForType` lands on. agar's free room is
+     NOT one of these: it is the room agar genuinely uses, so it is not marked. */
+  const oldTier = !agar && !r.isBattleRoyale;
+  const tier = type === 'free'   ? (oldTier ? 'Free (old tier, off the board)' : 'Free')
+             : type === 'br'     ? 'Battle royale'
+             : type === 'dime'   ? '$0.10' + (oldTier ? ' (old tier, off the board)' : '')
+             : type === 'dollar' ? '$1' + (oldTier ? ' (old tier, off the board)' : '')
              : type;
   return game + ' · ' + tier;
 }
@@ -1597,9 +1616,45 @@ function getRoomForJoin({ lobbyType, stake, region }) {
   return getRoomForType(lobbyType, rgn);
 }
 
+/* Throttle state for the warning below. Two numbers, deliberately: the thing
+   being logged is client-supplied, so anything that grew per distinct value
+   would be a memory leak with a stranger holding the pen. */
+let _unknownLobbyAt = 0, _unknownLobbySkipped = 0;
+const UNKNOWN_LOBBY_EVERY_MS = 30000;
+
 function getRoomForType(lobbyType, region) {
   const rgn = (region && gameRooms[region]) ? region : REGION;
-  return gameRooms[rgn][lobbyType] || gameRooms[rgn].free;
+  const hit = gameRooms[rgn][lobbyType];
+  /* THE CATCH-ALL IS LOUD NOW. Any lobbyType this server does not recognise
+     lands in the snake fixed tier, and that tier is off the lobby board — so a
+     client sending a stale or unknown name ends up alone in a room nothing
+     else routes to, and until now nothing anywhere said so.
+
+     The behaviour is deliberately unchanged: this fallback is what keeps a bad
+     join from failing outright, and tightening it belongs in the same change
+     as retiring the tier, not in this one. It just stops being invisible.
+
+     THE VALUE COMES FROM THE CLIENT, so the line is written defensively:
+     String() then slice() caps the length whatever type arrives, and
+     JSON.stringify escapes the newlines that would otherwise let somebody
+     forge a log entry. Rate-limited because the alternative is a stranger
+     choosing how much disk this box writes — one core, and pm2 keeps the
+     stdout. The suppressed count is carried so throttling never reads as
+     quiet. */
+  if (!hit) {
+    const now = Date.now();
+    if (now - _unknownLobbyAt > UNKNOWN_LOBBY_EVERY_MS) {
+      console.warn('[ROOM] unrecognised lobbyType '
+        + JSON.stringify(String(lobbyType).slice(0, 40))
+        + ' in ' + rgn + ' — falling back to the ' + rgn + '_free tier'
+        + (_unknownLobbySkipped ? ' (+' + _unknownLobbySkipped + ' more since)' : ''));
+      _unknownLobbyAt = now;
+      _unknownLobbySkipped = 0;
+    } else if (_unknownLobbySkipped < Number.MAX_SAFE_INTEGER) {
+      _unknownLobbySkipped++;
+    }
+  }
+  return hit || gameRooms[rgn].free;
 }
 
 function getAgarRoomForType(lobbyType, region) {
