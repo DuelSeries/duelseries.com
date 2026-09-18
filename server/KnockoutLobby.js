@@ -100,7 +100,7 @@ class KnockoutLobby {
       stake: Number(stake) > 0 ? Number(stake) : 0,
       worth: Number(worth) > 0 ? Number(worth) : 0,
     });
-    this.pump();
+    this.pump(typeof now === 'number' ? now : undefined);
     /* Still waiting after that? Somebody may be in a bot match that has only
        just started, and two people beats two bots. */
     const mine = this.queue.find(e => e.socket.id === socket.id);
@@ -108,7 +108,7 @@ class KnockoutLobby {
       const freed = this.rescueFromBot(mine);
       if (freed) {
         this.dequeue(socket.id);
-        this.makeMatch([freed, mine]);
+        this.makeMatch([freed, mine], false, now);
       }
     }
     return this.queue.some(e => e.socket.id === socket.id);
@@ -131,7 +131,7 @@ class KnockoutLobby {
      seats paid different amounts has no honest way to split the pot. A real
      opponent always beats a bot, so this runs before the timer that hands one
      out. */
-  pump() {
+  pump(now) {
     const byStake = new Map();
     for (const e of this.queue) {
       const k = String(e.stake || 0);
@@ -142,7 +142,7 @@ class KnockoutLobby {
       while (group.length >= 2) {
         const a = group.shift(), b = group.shift();
         this.dequeue(a.socket.id); this.dequeue(b.socket.id);
-        this.makeMatch([a, b]);
+        this.makeMatch([a, b], false, now);
       }
     }
   }
@@ -154,7 +154,7 @@ class KnockoutLobby {
        came round got a bot each instead of getting each other. pump() only ran
        on enqueue, which is exactly the moment the second of them was not there
        yet. */
-    this.pump();
+    this.pump(t);
     for (const e of [...this.queue]) {
       /* A paid seat waits for a person, and then gives up and gets its money
          back. A free one gets a bot, because there is nothing to lose. */
@@ -166,7 +166,7 @@ class KnockoutLobby {
       }
       if (t - e.since < BOT_AFTER_MS) continue;
       this.dequeue(e.socket.id);
-      this.makeMatch([e], true);
+      this.makeMatch([e], true, t);
     }
     for (const room of [...this.rooms.values()]) {
       /* Aim BEFORE the clock is advanced, so the bot's arrows are in before the
@@ -216,7 +216,7 @@ class KnockoutLobby {
     return null;
   }
 
-  makeMatch(entries, withBot) {
+  makeMatch(entries, withBot, now) {
     const room = new KnockoutRoom(this.io);
     room.stake = entries.length ? (entries[0].stake || 0) : 0;
     room.onSettled = this.onSettled || null;
@@ -238,7 +238,19 @@ class KnockoutLobby {
       room.bot = { id: botSocket.id, aimedTurn: 0 };
     }
     this.rooms.set(room.id, room);
-    room.start(Date.now());
+    /* THE ROOM'S CLOCK MUST BE THE LOBBY'S CLOCK.
+
+       This read Date.now() while the lobby around it was running on whatever
+       time tick() was handed, so a test driving a synthetic timeline got a room
+       stamped with the real one and the two drifted by however long the gap
+       between the two reads was.
+
+       It survived only because BOT_AFTER_MS happens to be 15 seconds, which is
+       how big a stall it took to break: measured, the countdown assertion flips
+       at 15009 ms. That margin is an accident of a constant that used to be
+       6000 and could be lowered again, and at a few hundred milliseconds it
+       would sit inside stalls that really do happen. */
+    room.start(typeof now === 'number' ? now : Date.now());
     return room;
   }
 

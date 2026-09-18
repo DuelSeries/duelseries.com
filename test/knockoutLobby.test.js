@@ -73,13 +73,25 @@ test('the bot does not answer the instant the turn opens', () => {
 
 test('the bot actually moves its pieces', () => {
   const lob = new KnockoutLobby(io);
-  lob.enqueue(sock('A'), 'Owen', null);
-  let t = Date.now() + BOT_AFTER_MS + 1;
+  /* STEPPED, the way the real lobby runs it, rather than jumped.
+
+     The bot's think timer is SET on the first aiming tick and only checked on a
+     later one, so a single leap forward sets the deadline instead of passing
+     it. This used to jump straight from the countdown to +6000 and still see
+     the arrows, but only because the room's clock was stamped off the real
+     Date.now while the ticks ran on a synthetic one: the room thought it was
+     already fifteen seconds old the moment it was made, and blew through every
+     phase in one step. With the room on the lobby's own clock that drift is
+     gone, and the honest way to advance is the way the timer does it. */
+  const T0 = Date.now();
+  lob.enqueue(sock('A'), 'Owen', null, 0, 0, T0);
+  let t = T0 + BOT_AFTER_MS + 1;
   lob.tick(t);
   const room = lob.roomOf('A');
-  t += KO.COUNTDOWN_MS + 10;
-  lob.tick(t);
-  lob.tick(t + 6000);
+  for (let i = 0; i < 60 && !(room.aims.get(room.bot.id) || []).length; i++) {
+    t += 200;                       // KnockoutLobby.start() ticks at 200ms
+    lob.tick(t);
+  }
   const aims = room.aims.get(room.bot.id) || [];
   assert.strictEqual(aims.length, KO.PIECES_EACH, 'an arrow on each of its pieces');
   for (const a of aims) assert.ok(Math.hypot(a.ax, a.ay) > 1, 'a real one');
