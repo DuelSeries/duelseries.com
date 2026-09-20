@@ -2159,7 +2159,11 @@ const GAMES=[
  {id:'battleship',name:'Battleship',c:['#141a24','#7b93c4'],type:'m',duel:1,built:1,paid:1,
   d:'Hide your fleet, then find theirs before they find yours.'},
 
- {id:'paper',name:'Paper.io',c:['#1e1826','#a887d6'],type:'p',soon:1,
+ /* Built, and free: it runs entirely in the player's browser against bots, so
+    there is no room on the server and nothing a stake could be held against.
+    Paid tables need the server to run the round, which is a separate build. */
+ {id:'paper',name:'Paper.io',c:['#1e1826','#a887d6'],type:'p',built:1,solo:1,
+  soloNote:'Free, against bots. No stake and nothing paid out. You are playing for the biggest share of the map.',
   d:'Claim ground by looping back home without anyone crossing your trail.'},
  /* Placeholders so these are not forgotten. soon:1 greys the card and takes it
     out of the tab order, so none of them is reachable or clickable — the slot
@@ -3177,7 +3181,7 @@ function open_(id){
      there had the screen promising a $1.00 pot on a free game. */
   const dn=document.getElementById('dbnote');
   if(dn&&cur.solo){
-    dn.textContent='Free, and on your own. No stake, no opponent and nothing paid '
+    dn.textContent=cur.soloNote||'Free, and on your own. No stake, no opponent and nothing paid '
       +'out — you are playing for the next level.';
   }else if(dn&&cur.freeOnly){
     dn.textContent='Free while the game is new. Nothing staked, nothing paid out '

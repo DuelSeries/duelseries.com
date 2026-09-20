@@ -124,6 +124,10 @@
       stake: null, lobbyType: 'free', players: 0, state: 'open' },
     { id: 'battleship:free', game: 'battleship', region: 'na',
       stake: null, lobbyType: 'free', players: 0, state: 'open' },
+    /* Paper runs in the browser against bots, so the server never reports a
+       room for it. This row is the only place it can come from. */
+    { id: 'paper:free',      game: 'paper',      region: 'na',
+      stake: null, lobbyType: 'free', players: 0, state: 'open' },
   ];
 
   /* Which buy-ins a game can actually seat right now.

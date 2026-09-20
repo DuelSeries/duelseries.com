@@ -1125,9 +1125,16 @@ test('a duel names its own stake, and does not pretend to find an opponent', () 
   assert.ok(/freeOnly:1/.test(tanks), 'and seats only the free rung for now');
 
   // A game that is NOT a duel must keep the locked screen.
+  const stumble = html.match(/\{id:'stumble'[^\n]*/)[0];
+  assert.ok(/soon:1/.test(stumble) && !/duel:1/.test(stumble),
+    'stumble is unbuilt but not a duel, so it keeps the locked panel');
+
+  /* Paper used to be that example. It is built now: a solo run against bots in
+     the browser, free, with its own page and no part of the money path. */
   const paper = html.match(/\{id:'paper'[^\n]*/)[0];
-  assert.ok(/soon:1/.test(paper) && !/duel:1/.test(paper),
-    'paper.io is unbuilt but not a duel, so it keeps the locked panel');
+  assert.ok(/built:1/.test(paper) && /solo:1/.test(paper) && !/soon:1/.test(paper),
+    'paper.io is a built solo game');
+  assert.ok(!/duel:1/.test(paper) && !/paid:1/.test(paper), 'and takes no stake');
 
   /* The arena furniture has to be gone. A ladder, an open-lobby list and a
      snake skin on a one-on-one duel screen are all borrowed from a different

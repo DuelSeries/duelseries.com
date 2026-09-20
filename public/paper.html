@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#2d3331">
+<title>Paper - DuelSeries</title>
+<!-- Every url on this page is relative and same-origin: it can be served from any path and inside an iframe. -->
+<link rel="preload" href="fonts/ptsanscaption-700-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="fonts/ptsanscaption.css">
+<style>
+  /* The canvas must sit at the page origin and fill the viewport: steering measures from its centre. */
+  body { background: #e7fff4; font-family: 'PT Sans Caption', sans-serif; }
+  html, body, canvas { margin: 0; border: 0; padding: 0; display: block; overflow: hidden; height: 100%; }
+  #view { position: absolute; width: 100%; height: 100%; z-index: 1; }
+
+  .paper-layer {
+    position: absolute; left: 0; top: 0; width: 100%; height: 100%; z-index: 2;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    color: #fff; text-align: center; user-select: none; -webkit-user-select: none;
+    touch-action: manipulation; cursor: pointer;
+  }
+  .paper-layer[hidden] { display: none; }
+  #paper-loading { background: #e7fff4; color: #4b6b5f; font-size: 20px; }
+  #paper-loading small { display: block; margin-top: 10px; font-size: 13px; opacity: 0.7; }
+  #paper-again { background: rgba(0, 0, 0, 0.6); }
+  #paper-again-score { font-size: 44px; margin-bottom: 18px; text-shadow: 0 0 2px #000; }
+  #paper-again button {
+    font: inherit; font-size: 28px; letter-spacing: 1px; color: #1d2a26; background: #fff;
+    border: 0; border-radius: 10px; padding: 12px 30px; cursor: pointer;
+  }
+  #paper-again small { margin-top: 14px; font-size: 13px; opacity: 0.75; }
+  #paper-again #paper-leave {
+    margin-top: 22px; font-size: 16px; letter-spacing: 0; color: #fff; background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.55); padding: 8px 18px;
+  }
+  #paper-again #paper-leave[hidden] { display: none; }
+  #paper-unsupported { background: #2d3331; cursor: default; font-size: 18px; }
+</style>
+</head>
+<body>
+<div id="game"></div>
+<div id="paper-loading" class="paper-layer">Loading<small>Click to start right away</small></div>
+<div id="paper-again" class="paper-layer" hidden>
+  <div id="paper-again-score"></div>
+  <button type="button">Play again</button>
+  <small>Click, tap, Space or Enter</small>
+  <button type="button" id="paper-leave" hidden>Back to lobby</button>
+</div>
+<div id="paper-unsupported" class="paper-layer" hidden>This browser cannot run the game.</div>
+
+<script src="js/paper/paperGeom.js"></script>
+<script src="js/paper/paperTerritory.js"></script>
+<script src="js/paper/paperBots.js"></script>
+<script src="js/paper/paperUnits.js"></script>
+<script src="js/paper/paperGame.js"></script>
+<script src="js/paper/paperGameMoves.js"></script>
+<script src="js/paper/paperInput.js"></script>
+<script src="js/paper/paperSkins.js"></script>
+<script src="js/paper/paperRender.js"></script>
+<script src="js/paper/paperMain.js"></script>
+<script>
+  // The lobby stores the player's chosen name before it opens this page in its frame.
+  var lobbyName = '';
+  try { lobbyName = (sessionStorage.getItem('playerName') || '').slice(0, 20); } catch (_) {}
+  DuelPaperLib.boot({ autoStart: true, nickName: lobbyName });
+</script>
+</body>
+</html>

@@ -1120,6 +1120,7 @@ app.get('/tanks', (_req, res) => res.sendFile(path.join(__dirname, '../public/ta
 app.get('/knockout', (_req, res) => res.sendFile(path.join(__dirname, '../public/knockout.html')));
 app.get('/battleship', (_req, res) => res.sendFile(path.join(__dirname, '../public/battleship.html')));
 app.get('/shooter', (_req, res) => res.sendFile(path.join(__dirname, '../public/shooter.html')));
+app.get('/paper', (_req, res) => res.sendFile(path.join(__dirname, '../public/paper.html')));
 
 app.use(express.static(path.join(__dirname, '../public')));
 app.use('/shared', express.static(path.join(__dirname, '../shared')));
