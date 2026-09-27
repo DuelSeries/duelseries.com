@@ -114,5 +114,7 @@ Still open (defaults chosen by the design, none blocks the build): (5) an arena 
   untouched. A failed join closes any account it opened (withdraw) before the caller's refund, so no phantom liability.
   Test lesson: never `assert.strictEqual` two rooms or seats (a failing diff of the whole sim graph runs node out of
   memory); compare with `assert.ok(a === b)`.
+- T8 sockets: done (a6b3e7b). Each arena's io room name is now unique per process (a re-created arena must not reach
+  sockets left in the old one). STOPPED HERE 2026-09-27 at a clean point (5-hour usage window at 95 percent). Next: T11.
 - Pre-existing flaky tests (fail without any Paper change): `localBody.test.js` "the neck keeps its spacing" about 1 run
   in 3, and `cashoutHold.test.js` under CPU contention. Not touched.
