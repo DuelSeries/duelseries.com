@@ -109,5 +109,10 @@ Still open (defaults chosen by the design, none blocks the build): (5) an arena 
   same tick, before movement (the tests wrap `applyInputs` to do exactly that); a lock that lags one tick would make
   every hold a one-step divergence. The "north" exact-vertex sweep cannot be exact (254 angle steps cannot point at
   pi/2), so it runs at byte 64; the east sweep is exact and trips the guard (13 calls max, the stock border hangs).
+- T7 room + directory: done. The hold starts and stops in a wrapper around `applyInputs` (before movement, as T10
+  needs); captures queue `['cap']` through a wrapper around `handleReturn`; both are instance wraps, T4's file is
+  untouched. A failed join closes any account it opened (withdraw) before the caller's refund, so no phantom liability.
+  Test lesson: never `assert.strictEqual` two rooms or seats (a failing diff of the whole sim graph runs node out of
+  memory); compare with `assert.ok(a === b)`.
 - Pre-existing flaky tests (fail without any Paper change): `localBody.test.js` "the neck keeps its spacing" about 1 run
   in 3, and `cashoutHold.test.js` under CPU contention. Not touched.
