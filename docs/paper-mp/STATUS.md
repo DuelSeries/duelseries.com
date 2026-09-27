@@ -105,5 +105,9 @@ Still open (defaults chosen by the design, none blocks the build): (5) an arena 
   (no ring sent) from a carve. Finding for T11: the design's RADIAL clamp of stored rings is exact along the wall run
   but cuts the corner where a ring meets the wall by up to about 1.2 u (measured); cosmetic (land percent comes from
   the server), but the mirror should CLIP the ring against the wall (crossing points plus the wall run), not clamp.
+- T10 predictor: done. Requirement it puts on T7: the room must set `unit.locked` from the APPLIED hold bit in the
+  same tick, before movement (the tests wrap `applyInputs` to do exactly that); a lock that lags one tick would make
+  every hold a one-step divergence. The "north" exact-vertex sweep cannot be exact (254 angle steps cannot point at
+  pi/2), so it runs at byte 64; the east sweep is exact and trips the guard (13 calls max, the stock border hangs).
 - Pre-existing flaky tests (fail without any Paper change): `localBody.test.js` "the neck keeps its spacing" about 1 run
   in 3, and `cashoutHold.test.js` under CPU contention. Not touched.
