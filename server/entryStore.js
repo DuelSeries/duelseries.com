@@ -18,7 +18,7 @@
 const crypto = require('crypto');
 
 function makeEntryStore({ ttlMs = 5 * 60 * 1000, fees = {}, isStake = null } = {}) {
-  const tokens = new Map();   // opaque token -> { lobbyType, stake, worth, walletAddress, googleId, exp }
+  const tokens = new Map();   // opaque token -> { lobbyType, stake, worth, paid, walletAddress, googleId, onlyGame, exp }
   const EPS = 1e-9;
 
   return {
@@ -29,32 +29,46 @@ function makeEntryStore({ ttlMs = 5 * 60 * 1000, fees = {}, isStake = null } = {
 
        A stake off the ladder is refused at mint rather than stored: a token is
        the only thing standing between a client and a room, so it must never
-       exist for an amount no room has. */
-    mint({ lobbyType, stake, worth, walletAddress, googleId }) {
+       exist for an amount no room has.
+
+       `paid` is what actually landed on-chain, which can sit a little under the
+       rung (the verifier accepts 99 percent of it). It is carried only so a
+       refund can be bounded by it: refunding the rung would mint the gap on
+       every refused join. The tier path and older tokens have none.
+
+       `onlyGame` scopes a token to one game's door. Paper's dev entry tokens
+       carry it: they have no chain behind them and only Paper pays them out
+       through a fake withdraw, while every other game pays, refunds and sweeps
+       through the real money module, where an unbacked token would become a
+       real owed-payout row. Real tokens have none and open every game. */
+    mint({ lobbyType, stake, worth, paid, walletAddress, googleId, onlyGame }) {
       if (stake !== undefined && stake !== null) {
         if (isStake && !isStake(stake)) throw new Error('stake is not on the ladder');
       }
       const token = crypto.randomUUID();
-      tokens.set(token, { lobbyType, stake, worth, walletAddress, googleId, exp: Date.now() + ttlMs });
+      tokens.set(token, { lobbyType, stake, worth, paid, walletAddress, googleId, onlyGame, exp: Date.now() + ttlMs });
       return token;
     },
 
     /* The any-amount counterpart of consume(). A token opens exactly the lobby
        whose stake equals what was paid for it, so a client that asks for a $50
        room having paid $0.10 gets nothing: the amount is not its to choose.
-       Stake 0 is free play and carries no worth, as with the free tier. */
-    consumeAtStake(entryToken, stake) {
+       Stake 0 is free play and carries no worth, as with the free tier.
+       `game` names the door; a scoped token refused at another game's door is
+       left unspent, the same as one offered at the wrong rung. */
+    consumeAtStake(entryToken, stake, game) {
       stake = Number(stake);
       if (!isFinite(stake) || stake < 0) return { ok: false, worth: 0 };
       if (stake === 0) return { ok: true, worth: 0 };
       const t = entryToken && tokens.get(entryToken);
       if (!t || typeof t.stake !== 'number' || Date.now() > t.exp) return { ok: false, worth: 0 };
       if (Math.abs(t.stake - stake) > EPS) return { ok: false, worth: 0 };
+      if (t.onlyGame && t.onlyGame !== game) return { ok: false, worth: 0 };
       tokens.delete(entryToken);                       // one-time use
-      return { ok: true, worth: t.worth, googleId: t.googleId, walletAddress: t.walletAddress };
+      return { ok: true, worth: t.worth, paid: t.paid, googleId: t.googleId, walletAddress: t.walletAddress };
     },
 
-    /* Returns { ok, worth, googleId, walletAddress }. An unknown lobby type is
+    /* Returns { ok, worth, paid, googleId, walletAddress }. An unknown lobby type is
        treated as free rather than rejected, which is what the live code does:
        the type only ever reaches here from a client, and a bad one must not be
        able to buy a paid seat. */
@@ -69,8 +83,9 @@ function makeEntryStore({ ttlMs = 5 * 60 * 1000, fees = {}, isStake = null } = {
       if (!fees[shortType]) return { ok: true, worth: 0 };
       const t = entryToken && tokens.get(entryToken);
       if (!t || t.lobbyType !== shortType || Date.now() > t.exp) return { ok: false, worth: 0 };
+      if (t.onlyGame) return { ok: false, worth: 0 };  // a scoped token opens its own game's ladder door only
       tokens.delete(entryToken);                       // one-time use
-      return { ok: true, worth: t.worth, googleId: t.googleId, walletAddress: t.walletAddress };
+      return { ok: true, worth: t.worth, paid: t.paid, googleId: t.googleId, walletAddress: t.walletAddress };
     },
 
     /* Paid-but-never-used tokens would otherwise accumulate forever. */

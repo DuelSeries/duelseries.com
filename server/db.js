@@ -257,6 +257,8 @@ async function getFailedPayouts(limit = 200) {
 
 // Atomically claim the next owed-but-unpaid payout that's due for a retry, bumping its attempt
 // counter so two ticks/servers can't grab the same row (SKIP LOCKED). Returns the row or null.
+// `reason` comes back so the drainer can tell a refund (reason begins 'refund') from winnings:
+// a recovered refund is the player's own money going home and must not count as earnings.
 async function claimDuePayout(retrySeconds = 30, maxAttempts = 200) {
   const res = await pool.query(
     `UPDATE failed_payouts SET attempts = attempts + 1, last_attempt_at = NOW()
@@ -267,7 +269,7 @@ async function claimDuePayout(retrySeconds = 30, maxAttempts = 200) {
           ORDER BY created_at ASC
           LIMIT 1 FOR UPDATE SKIP LOCKED
        )
-     RETURNING id, wallet_address, amount_sol, name, signature, signed_tx, blockhash, last_valid_block_height, attempts`,
+     RETURNING id, wallet_address, amount_sol, name, reason, signature, signed_tx, blockhash, last_valid_block_height, attempts`,
     [retrySeconds, maxAttempts]
   );
   if (!res.rows[0]) return null;

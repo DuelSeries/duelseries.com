@@ -177,6 +177,31 @@ if (process.env.ALLOW_TEST_OWNER === '1' && process.env.TEST_OWNER_WALLET) {
   OWNER_WALLETS.add(process.env.TEST_OWNER_WALLET);
   console.warn('[AUTH] test owner wallet registered — not for production');
 }
+/* Paper dev entry tokens, so the paid Paper HUD and money path can be driven on
+   a dev PC before real money. /api/submit-stake then mints a token with no
+   chain behind it, and Paper pays out through a fake withdraw. Honoured only
+   where there is nothing to pay with and nothing to write to: no escrow key
+   (an empty string counts as unset, as in Wallet.js), no database and not
+   production. Any one of them set refuses to boot, so the switch can never
+   mint an unbacked token on a server that could cash it out for real, nor put
+   a fake stake, earning or owed-payout row into a database that a keyed
+   server reads and pays from. dev-local.js stubs the database in memory. */
+const PAPER_DEV_TOKENS = process.env.PAPER_DEV_TOKENS === '1';
+if (PAPER_DEV_TOKENS) {
+  if (process.env.ESCROW_PRIVATE_KEY) {
+    console.error('[PAPER] PAPER_DEV_TOKENS=1 is set on a server holding ESCROW_PRIVATE_KEY. Refusing.');
+    process.exit(1);
+  }
+  if (process.env.NODE_ENV === 'production') {
+    console.error('[PAPER] PAPER_DEV_TOKENS=1 is set in PRODUCTION. Refusing.');
+    process.exit(1);
+  }
+  if (String(process.env.DATABASE_URL || '').trim()) {
+    console.error('[PAPER] PAPER_DEV_TOKENS=1 is set with a DATABASE_URL. Refusing: dev money must not reach a real database.');
+    process.exit(1);
+  }
+  console.warn('[PAPER] PAPER_DEV_TOKENS=1: unbacked dev entry tokens and a fake Paper withdraw. Not for production.');
+}
 
 if (!privyServer) {
   console.warn('[AUTH] PRIVY_APP_ID / PRIVY_APP_SECRET not set — every token check will fail, '
@@ -391,9 +416,11 @@ setInterval(() => entryStore.sweep(), ENTRY_TOKEN_MAX_AGE_MS);
 // worth — that's what closes the entrySol escrow-drain hole. Needs no socket auth (the
 // socket session is empty) and works for join + respawn identically.
 /* The ladder's door. Same one-time, server-worth guarantee as the tier door
-   below, but the token has to have been bought for this exact rung. */
+   below, but the token has to have been bought for this exact rung. `game`
+   is also the door a scoped token is checked against: a Paper dev token opens
+   Paper only, never a game that pays through the real money module. */
 function consumePaidEntryAtStake(entryToken, stake, game) {
-  return recordEntry(entryStore.consumeAtStake(entryToken, stake), game);
+  return recordEntry(entryStore.consumeAtStake(entryToken, stake, game), game);
 }
 function consumePaidEntry(entryToken, shortType, game) {
   return recordEntry(entryStore.consume(entryToken, shortType), game);
@@ -558,6 +585,21 @@ app.post('/api/submit-stake', entryFeeLimiter, express.json({ limit: '256kb' }),
     const bad = stakeRangeError(want);
     if (bad) return res.status(400).json({ error: bad });
     if (want === 0) return res.status(400).json({ error: 'Free play needs no stake' });
+    /* Dev entry tokens (PAPER_DEV_TOKENS, refused at boot beside an escrow key
+       or in production). No chain and no signature to claim, but the token is
+       minted through the same store at the rung, so the join order, the
+       one-time consume and recordEntry all run exactly as for real money.
+       Scoped to Paper: only Paper pays it out through the fake withdraw, and
+       any other game would pay, refund or rake it through the real one. */
+    if (!signedTx && PAPER_DEV_TOKENS) {
+      if (typeof walletAddress !== 'string' || !walletAddress || walletAddress.length > 64) {
+        return res.status(400).json({ error: 'Missing wallet address' });
+      }
+      const rung = tierFor(want);
+      const entryToken = entryStore.mint({ stake: rung, worth: rung, paid: rung, walletAddress, onlyGame: 'paper' });
+      console.warn(`[PAPER] DEV token ${rung} for ${walletAddress.slice(0, 8)}`);
+      return res.json({ ok: true, entryToken, worth: rung, stake: rung, paid: rung, dev: true });
+    }
     if (!signedTx) return res.status(400).json({ error: 'Missing signed transaction' });
     try {
       const sig = await Wallet.submitStake(Buffer.from(signedTx, 'base64'));
@@ -580,7 +622,10 @@ app.post('/api/submit-stake', entryFeeLimiter, express.json({ limit: '256kb' }),
       if (walletAddress && walletAddress !== payer) {
         return res.status(400).json({ error: 'Stake was paid by a different wallet' });
       }
-      const entryToken = entryStore.mint({ stake: rung, worth: rung, walletAddress: payer });
+      /* paid is what landed, which the verifier lets sit up to 1 percent under
+         the rung. It rides the token only to bound a refund: a join the server
+         refuses sends back what landed, never the rung. */
+      const entryToken = entryStore.mint({ stake: rung, worth: rung, paid: worth, walletAddress: payer });
       return res.json({ ok: true, entryToken, worth: rung, stake: rung, paid: worth });
     } catch (e) {
       return res.status(400).json({ error: e.message });
@@ -831,6 +876,10 @@ const ALL_ROOMS = () => {
      skips it on its own — drainStatus does exactly that — so this adds a room
      to the console without adding a case to everything that reads the list. */
   if (typeof shooterRoom !== 'undefined' && shooterRoom) out.push(shooterRoom);
+  /* Every Paper arena, overflow ones included. Each answers to the same
+     playerCount / botCount / addBot / clearBots, and its `snakes` lists the
+     live paid squares, so drainStatus counts Paper money before a push. */
+  if (typeof paperArenas !== 'undefined' && paperArenas) out.push(...paperArenas.all());
   return out;
 };
 
@@ -840,6 +889,11 @@ const ALL_ROOMS = () => {
 function roomLabel(r) {
   const raw = String(r.lobbyType || '');
   if (raw === 'tanks') return 'Awesome Tanks';
+  // Paper arenas are `paper_na_s0_1#2`: the rung, then which overflow arena.
+  if (raw.startsWith('paper_')) {
+    return 'Paper · ' + (r.stake === 0 ? 'Free' : '$' + Number(r.stake).toFixed(2))
+      + (r.index > 0 ? ' #' + r.index : '');
+  }
   const agar = raw.startsWith('agar');
   const type = raw.replace(/^agar_/, '').replace(/^(na|eu)_/, '');
   const game = r.isBattleRoyale ? 'slither.io' : agar ? 'agar.io' : 'slither.io';
@@ -878,6 +932,7 @@ function opsSnapshot() {
     id: r.lobbyType,
     game: r.isBattleRoyale ? 'battle royale'
         : r.lobbyType === 'tanks' ? 'Awesome Tanks'
+        : String(r.lobbyType).startsWith('paper_') ? 'Paper'
         : String(r.lobbyType).startsWith('agar') ? 'agar.io' : 'slither.io',
     players: r.playerCount !== undefined ? r.playerCount : (r.players ? r.players.size : 0),
     bots: r.botCount !== undefined ? r.botCount : 0,
@@ -887,6 +942,10 @@ function opsSnapshot() {
        adds bots mostly did nothing and never said why beforehand. */
     takesBots: typeof r.botsAllowed === 'function' ? r.botsAllowed() : false,
     label: roomLabel(r),
+    /* Paper only (undefined, so absent, for every other room): money lying on
+       an arena floor. It is memory only like a live stake but the drain does
+       not count it, so this is where to look before a push. */
+    floorWorth: r.floorWorth,
   }));
   return {
     now: Date.now(),
@@ -958,8 +1017,13 @@ app.post('/api/owner/do', async (req, res) => {
       if (!room) return refuse('No room called ' + args.room);
       if (action === 'bots:clear') {
         let removed = 0;
-        if (typeof room.clearBots === 'function') removed = room.clearBots();
-        else if (room.snakes) {
+        if (typeof room.clearBots === 'function') {
+          /* Counted when the room does not say: PaperRoom.clearBots returns
+             nothing, and the console reported 'Removed undefined'. */
+          const before = room.botCount;
+          const n = room.clearBots();
+          removed = typeof n === 'number' ? n : Math.max(0, (before || 0) - (room.botCount || 0));
+        } else if (room.snakes) {
           for (const [id, s] of [...room.snakes]) {
             if (s && s.isBot) { room.snakes.delete(id); removed++; }
           }
@@ -974,6 +1038,16 @@ app.post('/api/owner/do', async (req, res) => {
            A window rather than a switch: a room cannot be left permanently
            empty by a click somebody forgot about, and the console says how long
            it has. Adding bots by hand lifts it immediately. */
+        /* Paper has no such window: the free arena tops its own bots back up
+           within seconds, and a paid one never has any, so the console says
+           that instead of promising a pause. */
+        if (String(room.lobbyType).startsWith('paper_')) {
+          broadcastLobbyState();
+          return done('Removed ' + removed + ' bot(s) from ' + room.lobbyType
+            + (room.botsAllowed()
+              ? '. This arena tops its bots back up on its own within seconds.'
+              : '. A paid Paper arena never has bots.'));
+        }
         room._botsPausedUntil = Date.now() + BOTS_PAUSE_MS;
         broadcastLobbyState();
         return done('Removed ' + removed + ' bot(s) from ' + room.lobbyType
@@ -1121,6 +1195,7 @@ app.get('/knockout', (_req, res) => res.sendFile(path.join(__dirname, '../public
 app.get('/battleship', (_req, res) => res.sendFile(path.join(__dirname, '../public/battleship.html')));
 app.get('/shooter', (_req, res) => res.sendFile(path.join(__dirname, '../public/shooter.html')));
 app.get('/paper', (_req, res) => res.sendFile(path.join(__dirname, '../public/paper.html')));
+app.get('/paper-arena', (_req, res) => res.sendFile(path.join(__dirname, '../public/paper-arena.html')));
 
 app.use(express.static(path.join(__dirname, '../public')));
 app.use('/shared', express.static(path.join(__dirname, '../shared')));
@@ -1260,6 +1335,80 @@ function koSend(wallet, amount, name, note) {
    still drives five bots around, for nobody. */
 const shooterRoom = new ShooterRoom(io, REGION);
 function endShooter(socketId) { shooterRoom.removePlayer(socketId); }
+
+/* ── Paper (the territory arena, docs/paper-multiplayer-design.md 6.4) ───────
+   Arenas per rung for this region. Money in an arena lives in its bank and
+   leaves only through these hooks: a cash-out at 90/10, a refund bounded by
+   what landed on-chain, the hour sweep of floor money to the house. Every
+   hook must be a function or the PaperRoom constructor throws HERE, at boot,
+   rather than at the first paid cash-out (the free arena never pays one).
+   The paid rungs open only with PAPER_PAID=1. */
+const { PaperArenas } = require('./paper/PaperArenas');
+const PAPER_PAID = process.env.PAPER_PAID === '1';
+/* Dev entry tokens pay with a fake withdraw, for Paper only: the global money
+   module is untouched. The house side is faked too. An unbacked token's rake
+   must never become a failed_payouts row that a real drainer later pays out
+   of the real escrow, nor a revenue row or a PostHog event on the owner's
+   real books. */
+const paperDevMoney = {
+  unit: money.unit,
+  fiatValue: (amt) => money.fiatValue(amt),
+  withdraw: async (wallet, amt) => {
+    const sig = 'DEV' + crypto.randomUUID().replace(/-/g, '');
+    console.log(`[PAPER] DEV withdraw ${amt} ${money.unit} -> ${wallet} sig ${sig}`);
+    return sig;
+  },
+};
+const paperPayout = require('./paperPayout').create({
+  money: PAPER_DEV_TOKENS ? paperDevMoney : money,
+  db,
+  trackEarning: PAPER_DEV_TOKENS
+    ? (e) => console.log(`[PAPER] DEV earning ${e.source} ${e.amountUsdc} (${e.lobbyType}) not recorded`)
+    : trackEarning,
+  sweepRake: PAPER_DEV_TOKENS
+    ? (amt, label) => console.log(`[PAPER] DEV rake ${amt} (${label}) not swept`)
+    : sweepRake,
+  io,
+  REGION,
+});
+/* A ledger breach or an emergency close. Each is latched once per arena, so
+   this cannot flood. Same two routes the other money alerts take: the owner's
+   socket if it is connected, and a push to the owner's phone. */
+function paperOwnerAlert(info) {
+  try {
+    const s = lobbySocketsByGoogleId.get(OWNER_WALLET);
+    if (s) s.emit('admin:paper_alert', info);
+    notify.pushOwner(`${info.kind} in ${info.lobbyType}: ${JSON.stringify(info)}`,
+      { title: 'Paper money alert', priority: 'high' });
+  } catch (e) {
+    console.error('[PAPER] owner alert', e.message);
+  }
+}
+const paperArenas = new PaperArenas({
+  region: REGION,
+  io,
+  paidEnabled: PAPER_PAID,
+  hooks: {
+    onCashout: paperPayout.payCashout,
+    onTransfer: (t) => collusion.record(t.srcWallet, t.dstWallet, t.micro / 1e6, { lobbyType: t.label }),
+    onRefund: paperPayout.refund,
+    onSweep: paperPayout.sweepFloor,
+    onBreach: paperOwnerAlert,
+  },
+});
+const paper = require('./paperSockets')({
+  arenas: paperArenas,
+  ops,
+  socketRL,
+  sanitizeName,
+  isStake,
+  consumePaidEntryAtStake,
+  /* Bound to Paper's door. paperSockets consumes directly (no stake row) for a
+     refusal it refunds, and a Paper-scoped dev token must open that door too. */
+  entryStore: { consumeAtStake: (token, stake) => entryStore.consumeAtStake(token, stake, 'paper') },
+  payout: paperPayout,
+  paidEnabled: PAPER_PAID,
+});
 
 for (const rgn of [REGION]) {
   gameRooms[rgn] = {
@@ -1493,7 +1642,7 @@ app.get('/api/live', (_req, res) => {
     /* The ladder ships with the board so the buy-in control offers exactly the
        rungs the server will accept. A client with its own copy is a client
        that can drift out of step and offer an amount that gets refused. */
-    res.json({ lobbies: liveBoard(), stakes: ALL_STAKES, extras: liveExtras(),
+    res.json({ lobbies: liveBoard().concat(paperArenas.boardRows()), stakes: ALL_STAKES, extras: liveExtras(),
                br: liveBattleRoyale() });
   } catch (e) {
     console.error('[LIVE]', e.message);
@@ -1724,6 +1873,11 @@ function sumLiveSelfCustodyStakes() {
       }
     }
   }
+  /* Paper: each arena's whole bank, which is every live square (a seat in its
+     disconnect grace included) PLUS floor money nobody has picked up yet, each
+     dollar once. A coin swept to the house after the hour has left the bank,
+     so the liability drops by exactly what the paper_floor ledger row says. */
+  for (const r of paperArenas.all()) total += r.liveStakeTotal();
   return total;
 }
 // The escrow is SHARED across the NA + EU servers, so its true liability is the live stakes
@@ -1956,13 +2110,17 @@ everyStaggered(checkSolvency, 45000, 3000, 'solvency');
 checkSolvency();
 /* Offsets are chosen MOD 30s, because most of these repeat every 30s and a
    60s job still lands on a 30s slot. Reduced: solvency 3, collusion 7,
-   payouts 11, lobby-sweep 14, lb-flush 19, agar-lb 25. No two share a second,
+   payouts 11, lobby-sweep 14, lb-flush 19, agar-lb 25, paper-sweep 29. No two share a second,
    and the tightest gap is 3s. Picking 41 for the sweep looked staggered and
    was not: 41 mod 30 is 11, exactly where payouts already lands. */
 everyStaggered(() => allTimeLb.flush(),    30000, 19000, 'lb-flush');
 everyStaggered(() => agarLb.flush(),       30000, 25000, 'agar-lb-flush');
 everyStaggered(() => ladder.sweep(),       60000, 44000, 'lobby-sweep');
 everyStaggered(() => collusion.evaluate(), 30000, 37000, 'collusion');
+/* Paper: deletes an empty overflow arena, and runs the hour sweep of floor money
+   on any arena that has gone idle and stopped ticking. 29 mod 30 sits 4s from
+   agar-lb (25) and 4s from solvency (3). */
+everyStaggered(() => paperArenas.sweep(Date.now()), 60000, 29000, 'paper-sweep');
 
 // ── Failed-payout drainer (NA only) ───────────────────────────────────────────
 // Retries cash-out payouts that failed (e.g. an RPC outage) so a player's winnings are never
@@ -1980,7 +2138,11 @@ async function drainPayouts() {
           await db.markPayoutPaid(row.id, r.sig);
           // Earnings count on actual payout — record now that the recovery landed (it was not
           // recorded at failure time), so the board reflects this real payout exactly once.
-          db.recordEarnings(row.wallet_address, row.name, row.amount_sol, money.fiatValue(row.amount_sol)).catch(() => {});
+          // Not for a refund (Paper writes its failed refunds with a reason beginning 'refund'):
+          // that is the player's own entry going home, not something they won.
+          if (!String(row.reason || '').startsWith('refund')) {
+            db.recordEarnings(row.wallet_address, row.name, row.amount_sol, money.fiatValue(row.amount_sol)).catch(() => {});
+          }
           console.log(`[PAYOUT] recovered ${row.amount_sol} SOL → ${String(row.wallet_address).slice(0, 8)}… sig ${String(r.sig).slice(0, 12)} (attempt ${row.attempts})`);
         } else {
           console.warn(`[PAYOUT] ${row.amount_sol} SOL to ${String(row.wallet_address).slice(0, 8)}… still pending (attempt ${row.attempts})`);
@@ -2742,6 +2904,12 @@ io.on('connection', (socket) => {
 
   socket.on('sh:leave', () => endShooter(socket.id));
 
+  /* ── Paper ─────────────────────────────────────────────────────────────────
+     pp:join, pp:respawn, pp:in, pp:need, pp:leave, pp:ping. Every handler is
+     wrapped so nothing a client sends can throw out of socket.io, and the worth
+     of a paid seat comes from the one-time entry token only. */
+  paper.attach(socket);
+
   socket.on('cell:split', () => {
     if (!socketRL(socket, 'split', 100)) return;
     if (socket._agarRoom) socket._agarRoom.handleSplit(socket.id);
@@ -2833,6 +3001,7 @@ io.on('connection', (socket) => {
     knockoutLobby.leave(socket.id);
     battleshipLobby.leave(socket.id);
     endShooter(socket.id);
+    paper.drop(socket.id);                       // a Paper seat enters its 5 s grace
     console.log(`[-] Disconnected: ${socket.id}`);
     if (socket._agarRoom) {
       const agarPlayer = socket._agarRoom.players.get(socket.id);

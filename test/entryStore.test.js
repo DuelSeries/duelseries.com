@@ -14,7 +14,7 @@ test('a valid token yields the server-recorded worth', () => {
   const s = store();
   const tok = s.mint({ lobbyType: 'dollar', worth: 1.00, walletAddress: 'W1' });
   assert.deepEqual(s.consume(tok, 'dollar'),
-    { ok: true, worth: 1.00, googleId: undefined, walletAddress: 'W1' });
+    { ok: true, worth: 1.00, paid: undefined, googleId: undefined, walletAddress: 'W1' });
 });
 
 test('a token is one-time — a replay mints nothing', () => {
@@ -93,7 +93,7 @@ test('a token opens exactly the lobby it was paid for', () => {
   const s = amt();
   const tok = s.mint({ stake: 0.10, worth: 0.10, walletAddress: 'W1' });
   assert.deepEqual(s.consumeAtStake(tok, 0.10),
-    { ok: true, worth: 0.10, googleId: undefined, walletAddress: 'W1' });
+    { ok: true, worth: 0.10, paid: undefined, googleId: undefined, walletAddress: 'W1' });
 });
 
 test('paying a little and claiming a lot buys nothing', () => {
@@ -163,4 +163,82 @@ test('an any-amount token cannot be spent through the tier door', () => {
      what separates them is which flow minted the token and not the amount. */
   const tok = s.mint({ stake: 0.10, worth: 0.10, walletAddress: 'W1' });
   assert.deepEqual(s.consume(tok, 'dime'), { ok: false, worth: 0 });
+});
+
+/* ─── what landed on-chain ───────────────────────────────────────────────────
+   The verifier accepts 99 percent of the rung, so 0.099 buys a $0.10 token. A
+   refund of a join the server refused has to be bounded by what landed, not
+   by the rung, or every refused join mints the gap. The token carries it. */
+
+test('the amount that landed rides the token through the ladder door', () => {
+  const s = amt();
+  const tok = s.mint({ stake: 0.10, worth: 0.10, paid: 0.099, walletAddress: 'W1' });
+  const r = s.consumeAtStake(tok, 0.10);
+  assert.equal(r.ok, true);
+  assert.equal(r.worth, 0.10, 'worth stays the rung');
+  assert.equal(r.paid, 0.099, 'paid is what landed');
+  assert.equal(r.walletAddress, 'W1');
+});
+
+test('the amount that landed rides the token through the tier door', () => {
+  const s = store();
+  const tok = s.mint({ lobbyType: 'dollar', worth: 1.00, paid: 0.995, walletAddress: 'W1' });
+  const r = s.consume(tok, 'dollar');
+  assert.equal(r.ok, true);
+  assert.equal(r.worth, 1.00);
+  assert.equal(r.paid, 0.995);
+});
+
+test('a token minted without paid reports it as undefined, never 0 or NaN', () => {
+  // undefined is what makes a refund fall back to the rung; a 0 would refund nothing.
+  const s = amt();
+  const tok = s.mint({ stake: 1, worth: 1, walletAddress: 'W1' });
+  const r = s.consumeAtStake(tok, 1);
+  assert.equal(r.ok, true);
+  assert.strictEqual(r.paid, undefined);
+  const t = store();
+  const tier = t.mint({ lobbyType: 'dime', worth: 0.10, walletAddress: 'W1' });
+  assert.strictEqual(t.consume(tier, 'dime').paid, undefined);
+});
+
+test('paid comes from the mint only: a refused or spent token carries none', () => {
+  const s = amt();
+  const tok = s.mint({ stake: 1, worth: 1, paid: 1.5, walletAddress: 'W1' });
+  assert.strictEqual(s.consumeAtStake(tok, 0.10).paid, undefined, 'wrong rung');
+  assert.equal(s.consumeAtStake(tok, 1).paid, 1.5, 'the right rung still works after that');
+  assert.strictEqual(s.consumeAtStake(tok, 1).paid, undefined, 'a replay carries nothing');
+  assert.strictEqual(s.consumeAtStake(undefined, 0).paid, undefined, 'free play carries nothing');
+});
+
+/* ─── a token scoped to one game ─────────────────────────────────────────────
+   Paper's dev entry tokens have no chain behind them and are paid out only by
+   Paper's fake withdraw. Every other game pays, refunds and sweeps through the
+   real money module, so an unbacked token spent there would become a real
+   owed-payout row. A token minted with onlyGame opens that game's door only. */
+
+test('a token scoped to one game opens that game only', () => {
+  const s = amt();
+  const tok = s.mint({ stake: 1, worth: 1, paid: 1, walletAddress: 'W1', onlyGame: 'paper' });
+  for (const game of ['snake', 'knockout', 'battleship', undefined, '', 'PAPER']) {
+    assert.deepEqual(s.consumeAtStake(tok, 1, game), { ok: false, worth: 0 }, 'refused for ' + game);
+  }
+  assert.deepEqual(s.consumeAtStake(tok, 1, 'paper'),
+    { ok: true, worth: 1, paid: 1, googleId: undefined, walletAddress: 'W1' },
+    'a refusal at another door does not spend it');
+  assert.deepEqual(s.consumeAtStake(tok, 1, 'paper'), { ok: false, worth: 0 }, 'and it is still one-time');
+});
+
+test('a scoped token never opens the tier door', () => {
+  const s = makeEntryStore({ ttlMs: 60000, fees: FEES, isStake: (x) => [0.10, 1].includes(x) });
+  const tok = s.mint({ lobbyType: 'dime', stake: 0.10, worth: 0.10, walletAddress: 'W1', onlyGame: 'paper' });
+  assert.deepEqual(s.consume(tok, 'dime'), { ok: false, worth: 0 });
+  assert.equal(s.consumeAtStake(tok, 0.10, 'paper').ok, true, 'still good at its own door');
+});
+
+test('an unscoped token still opens every game, as before', () => {
+  const s = amt();
+  for (const game of ['paper', 'snake', 'knockout', 'battleship', undefined]) {
+    const tok = s.mint({ stake: 1, worth: 1, walletAddress: 'W1' });
+    assert.equal(s.consumeAtStake(tok, 1, game).ok, true, 'opens ' + game);
+  }
 });
