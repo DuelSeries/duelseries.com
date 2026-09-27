@@ -14,6 +14,7 @@ const TRIM_ON = false;
 
 const REQUIRED_HOOKS = ['onCashout', 'onTransfer', 'onRefund', 'onSweep', 'onBreach'];
 const IN_RATE_MAX = 120; // pp:in per second per seat; more are ignored (6.2)
+let roomSeq = 0; // makes every arena's socket.io room name unique for the process
 
 function stakeLabel(stake) {
   return 's' + String(Number(stake)).replace('.', '_');
@@ -29,7 +30,9 @@ class PaperRoom {
     this.region = region;
     this.index = index;
     this.lobbyType = 'paper_' + region + '_' + stakeLabel(this.stake) + (index > 0 ? '#' + index : '');
-    this.ioRoom = 'pp:' + this.lobbyType;
+    // Unique per arena object: an arena re-created at a swept or closed index must not reach
+    // sockets still sitting in the old one's io room.
+    this.ioRoom = 'pp:' + this.lobbyType + ':' + ++roomSeq;
     this.io = io;
     this.hooks = hooks;
     this.now = now;
