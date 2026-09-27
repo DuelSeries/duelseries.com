@@ -292,6 +292,11 @@ function applyTrim(game, base, plan) {
   const ring = base.polygon;
   const keep = plan.keep;
   const old = ring.segments;
+  // For the wire (arenaWire): a plain trim is not a carve and sends no ring, so it records the
+  // size the ring had before this apply.
+  base._trimTick = game.tick;
+  base._preTrimSquare = base.square;
+  base._preTrimSegs = old.length;
   const fresh = [];
   for (let i = 0; i < keep.length; i++) fresh.push(new P.Segment(keep[i], keep[(i + 1) % keep.length]));
   fresh.forEach((s) => s.commit(ring));

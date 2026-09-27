@@ -100,5 +100,10 @@ Still open (defaults chosen by the design, none blocks the build): (5) an arena 
   6. `pushCrossings` is counted, not required to be 0: a presser's zigzag makes all three twists cross sometimes (41 in
      the 1500-tick test); each is vetoed with a rewind, never a death, trails stay simple.
   `MP.pushPoint` was added to `paperWire.js` (T1's file) because the predictor (T10) needs the same push target.
+- T5 trim: done (e69bac1), still OFF (TRIM_ON waits for T14).
+- T6 wire builder: done. `arenaTrim.applyTrim` now records the pre-trim ring size so the wire can tell a plain trim
+  (no ring sent) from a carve. Finding for T11: the design's RADIAL clamp of stored rings is exact along the wall run
+  but cuts the corner where a ring meets the wall by up to about 1.2 u (measured); cosmetic (land percent comes from
+  the server), but the mirror should CLIP the ring against the wall (crossing points plus the wall run), not clamp.
 - Pre-existing flaky tests (fail without any Paper change): `localBody.test.js` "the neck keeps its spacing" about 1 run
   in 3, and `cashoutHold.test.js` under CPU contention. Not touched.
