@@ -79,3 +79,26 @@ Still open (defaults chosen by the design, none blocks the build): (5) an arena 
 1. money-security: attack as a cheater and an auditor (replayed entry token, double kill credit, kill and cash-out same tick, pickup collected twice, cash-out completing while dead, disconnect during the hold, reconnect, two sockets one wallet, self-kill collusion, worth shown but not backed by escrow, payout failure limbo, server restart with money alive). Every transition server-decided, atomic, idempotent; solvency liability counted; CollusionMonitor fed. Compare with the snake game code.
 2. netcode-feasibility: fixed server timestep vs the solo variable-dt loop; snapshot size with hundred-point base polygons; trail and polygon deltas after packet loss with volatile emits; own-square prediction for a turn-rate-limited constant-speed mover, reconciliation without snapping; does the replica let paperRender.js draw unchanged; CPU per arena; trim robustness (self-intersection, slivers, base entirely outside, base split in two, player on trimmed land, trail crossing the new edge) and the fallback.
 3. parity-scope: does any seam change solo behaviour, rng draw order or canvas call order (golden parity must stay 600/600); does it follow the owner rules in docs/paper-multiplayer-brief.md to the letter; is the task breakdown conflict-free with measurable acceptance checks; what is missing.
+
+## Build progress (Opus chat, from 2026-09-27)
+
+- T1 wire + constants + parity gate: done (31cbb14). T2 bank: done (855937b). T3 payout: done (db495d6).
+- T4 sim: done. Deviations from the design, each forced by a probe in `test/paperArenaGame.test.js`, all in
+  `server/paper/ArenaGame.js` (no solo file touched):
+  1. The rest of a pushed step runs with the steering target moved by the push offset, so the heading the player asked
+     for is kept (a stale target bent the heading back across the push piece).
+  2. Besides the push piece itself, a crossing of any trail piece that a PUSH laid never kills (rewind instead): the
+     player never drew it. Detected by the piece's end point, recorded when the push is built.
+  3. While the wall is moving in, and 250 ms after its last step (`SHRINK_VETO_MS`), the wall rule (reason 2) rewinds
+     instead of killing a human: the push walks a presser along the wall and the stock rule kills a square pressed into
+     a wall corner even on a static wall (probed: 7 of 20 static corner pressers die). On a static wall every stock rule
+     kills exactly as solo. This is the timed veto the design rejected, made safe by the rewind (trails stay simple).
+  4. `rewindTrail` cuts in place (kept segments stay the same objects) so later hits of the same move are still
+     dispatched; rebuilding them hid real crossings and left a non-simple trail.
+  5. Free arena: at most 15 bots, and `botsCount` is refreshed when a human dies mid-tick (else a 16th bot with an
+     undefined type spawned in the same tick, caught by the cap test).
+  6. `pushCrossings` is counted, not required to be 0: a presser's zigzag makes all three twists cross sometimes (41 in
+     the 1500-tick test); each is vetoed with a rewind, never a death, trails stay simple.
+  `MP.pushPoint` was added to `paperWire.js` (T1's file) because the predictor (T10) needs the same push target.
+- Pre-existing flaky tests (fail without any Paper change): `localBody.test.js` "the neck keeps its spacing" about 1 run
+  in 3, and `cashoutHold.test.js` under CPU contention. Not touched.

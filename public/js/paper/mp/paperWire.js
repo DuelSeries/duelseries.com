@@ -464,6 +464,17 @@
     return cross / Math.sqrt(ex * ex + ey * ey) >= -WALL_TOL;
   }
 
+  // Push target (design 9.3): the point at apothem - PUSH_INSET on the radial through (x, y),
+  // rotated by `twist` radians, so it is never an exact symmetric coordinate. Shared by the
+  // server's getMovement and the client predictor.
+  function pushPoint(wall, x, y, twist) {
+    var cx = wall.center.x;
+    var cy = wall.center.y;
+    var a = Math.atan2(y - cy, x - cx) + twist;
+    var d = wall.radius * Math.cos(Math.PI / wall.pointCount) - MP.PUSH_INSET;
+    return { x: cx + Math.cos(a) * d, y: cy + Math.sin(a) * d };
+  }
+
   // -----------------------------------------------------------------------------------------
   // Guarded border (design 4.3). Built at CALL time from the solo modules.
   // -----------------------------------------------------------------------------------------
@@ -545,6 +556,7 @@
   MP.Decimator = Decimator;
   MP.decimateRing = decimateRing;
   MP.wallInside = wallInside;
+  MP.pushPoint = pushPoint;
   MP.guardedBorder = guardedBorder;
   return MP;
 });
