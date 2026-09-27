@@ -348,3 +348,21 @@ test('guardedBorder caps, resets, rebuilds and reuses registered vertex objects'
   const plain = MP.guardedBorder(center, 300, 800);
   assert.notStrictEqual(plain.polygon.segments[37].start, registered, 'no space: fresh objects');
 });
+
+test('packBin puts every blob in ONE attachment and unpackBin restores them', () => {
+  const a = MP.encodePoints([{ x: 1, y: 2 }, { x: 3, y: 4 }]);
+  const b = MP.encodePoints([{ x: 5, y: 6 }]);
+  const payload = { tick: 9, ev: [['b', 1, 2, 0.5, a], ['t', 1, 0, 0, b], ['k', 3, 0, 1, 0, 0]], rings: [a, b], name: 'x' };
+  const packed = MP.packBin(payload);
+  const count = (v) => (v instanceof ArrayBuffer ? 1 : Array.isArray(v) ? v.reduce((n, x) => n + count(x), 0) : v && typeof v === 'object' ? Object.values(v).reduce((n, x) => n + count(x), 0) : 0);
+  assert.strictEqual(count(packed), 1, 'one binary attachment');
+  const back = MP.unpackBin(JSON.parse(JSON.stringify({ ...packed, $bin: null }, null)) && { ...packed, $bin: Buffer.from(packed.$bin) });
+  assert.deepStrictEqual(MP.decodePoints(back.ev[0][4]), MP.decodePoints(a));
+  assert.deepStrictEqual(MP.decodePoints(back.rings[1]), MP.decodePoints(b));
+  assert.deepStrictEqual(back.ev[2], ['k', 3, 0, 1, 0, 0]);
+  assert.strictEqual(back.name, 'x');
+  assert.ok(!('$bin' in back));
+  assert.strictEqual(MP.packBin({ tick: 1, ev: [['k', 1]] }).$bin, undefined, 'no blobs, no attachment');
+  assert.deepStrictEqual(MP.unpackBin({ tick: 1 }), { tick: 1 });
+  assert.throws(() => MP.unpackBin({ x: { $b: [0, 99] }, $bin: new ArrayBuffer(4) }), /bad blob ref/);
+});

@@ -6,6 +6,7 @@
 // payload of the wrong shape before reading it, and no handler can throw out of socket.io
 // (the server has no uncaughtException handler, so a throw would take every live stake down).
 const { toMicro } = require('./paperPayout');
+const { MP } = require('./paper/loadPaperLib');
 
 const TEXT = {
   'bad-stake': 'That table does not exist.',
@@ -125,7 +126,7 @@ module.exports = function createPaperSockets({
     if (!room) return;
     const id = Number.isInteger(msg.id) && msg.id > 0 ? msg.id : 0;
     if (!socketRL(socket, 'ppneed' + id, id ? 250 : 2000)) return;
-    socket.emit('pp:geo', room.geo(id));
+    socket.emit('pp:geo', MP.packBin(room.geo(id)));
   }
 
   function onLeave(socket) {

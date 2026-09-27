@@ -116,5 +116,19 @@ Still open (defaults chosen by the design, none blocks the build): (5) an arena 
   memory); compare with `assert.ok(a === b)`.
 - T8 sockets: done (a6b3e7b). Each arena's io room name is now unique per process (a re-created arena must not reach
   sockets left in the old one). STOPPED HERE 2026-09-27 at a clean point (5-hour usage window at 95 percent). Next: T11.
+- T11 client net + mirror: done (built, adversarially reviewed and fixed by a workflow). Deviations: rings are CLIPPED
+  against the wall (agrees with the server's planTrim to 1e-6 u); the mirror wall follows the newest frame radius; an
+  unknown id's ['b'] adopts the unit; client timing numbers live in paperNet.js/paperMirror.js; ['cap'] idempotent
+  per (unit, tick, gain). Review fixes: no pp:in between a resume pp:join and its pp:joined; a local ['p-'] pulls its
+  ['p+'] forward; the mirror works around the predictor's miss branch clearing the whole ring (paperPredict.js still
+  does that, as design 8.2 says; worth revisiting). Known: about one own-square re-base per wall quantum while pressed
+  against a SHRINKING wall (hidden by the visual offset), and one at a first join.
+- Cross-cutting fix with T11: every pp:joined / pp:ev / pp:geo packs its ring and trail blobs into ONE binary
+  attachment (MP.packBin / unpackBin): socket.io-parser 4.2.6 refuses more than 10 attachments (the node client does
+  today; the browser bundle 4.8.3 does not yet). PaperRoom now announces bots spawned mid-game with ['j'].
+- T9 server wiring: built, reviewed (money/security) and fixed; COMMITTED LOCALLY, NOT PUSHED until T12 + T13 join it.
+  Dev entry tokens are scoped to Paper (a dev token cannot open a Knockout or snake table) and the dev mode refuses to
+  boot with NODE_ENV=production, a non-empty ESCROW_PRIVATE_KEY or a non-empty DATABASE_URL. Pre-existing, flagged not
+  fixed: drainPayouts records earnings for recovered rake-sweep rows; Knockout/Battleship refunds pay the rung.
 - Pre-existing flaky tests (fail without any Paper change): `localBody.test.js` "the neck keeps its spacing" about 1 run
   in 3, and `cashoutHold.test.js` under CPU contention. Not touched.

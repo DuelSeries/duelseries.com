@@ -78,6 +78,14 @@ class PaperRoom {
       apply();
       this._holdInputs();
     };
+    // Bots the sim spawns mid-game are announced like joiners, so clients learn name and skin.
+    const addUnit = this.game.addUnit.bind(this.game);
+    this.game.addUnit = (unit) => {
+      addUnit(unit);
+      if (!unit.isHuman) {
+        this.pending.push(['j', { id: unit.id, name: unit.name, skin: unit.skin ? unit.skin.name : null, bot: true, micro: 0, x: unit.position.x, y: unit.position.y }]);
+      }
+    };
     // A capture drives the owner's "+x.xx%" label.
     const handleReturn = this.game.handleReturn.bind(this.game);
     this.game.handleReturn = (unit) => {
@@ -179,7 +187,7 @@ class PaperRoom {
       this.pending.push(['j', { id: unit.id, name: unit.name, skin: unit.skin ? unit.skin.name : null, bot: false, micro, x: unit.position.x, y: unit.position.y }]);
       this._flushPending(); // to the members already here, never to the joiner
       socket.join(this.ioRoom);
-      socket.emit('pp:joined', this.joinedPayload(seat, false));
+      socket.emit('pp:joined', MP.packBin(this.joinedPayload(seat, false)));
       this._ensureTicking();
       return seat;
     } catch (e) {
@@ -251,7 +259,7 @@ class PaperRoom {
     if (this.directory) this.directory._seatSocket(seat, prev);
     this._flushPending();
     socket.join(this.ioRoom);
-    socket.emit('pp:joined', this.joinedPayload(seat, true));
+    socket.emit('pp:joined', MP.packBin(this.joinedPayload(seat, true)));
     return true;
   }
 
@@ -463,7 +471,7 @@ class PaperRoom {
     if (!this.pending.length) return;
     const ev = this.pending;
     this.pending = [];
-    if (this.io) this.io.to(this.ioRoom).emit('pp:ev', { tick: this.game.tick, ev });
+    if (this.io) this.io.to(this.ioRoom).emit('pp:ev', MP.packBin({ tick: this.game.tick, ev }));
   }
 
   _snapshot() {

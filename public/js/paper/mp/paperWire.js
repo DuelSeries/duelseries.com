@@ -338,6 +338,70 @@
   }
 
   // -----------------------------------------------------------------------------------------
+  // One binary attachment per message. pp:joined, pp:ev and pp:geo carry a ring or trail blob
+  // per unit; socket.io sends each ArrayBuffer as its own attachment, and socket.io-parser 4.2.6
+  // (the node client, and any future browser bundle) refuses a packet with more than 10. So the
+  // sender packs every blob into ONE buffer, $bin, and leaves { $b: [offset, length] } in place;
+  // the receiver swaps them back. A payload with no $bin passes through unpackBin untouched.
+  // -----------------------------------------------------------------------------------------
+
+  function isBinary(v) {
+    return v instanceof ArrayBuffer || (ArrayBuffer.isView(v) && !(v instanceof DataView));
+  }
+
+  function packBin(payload) {
+    var parts = [];
+    var total = 0;
+    function walk(v) {
+      if (isBinary(v)) {
+        var u8 = v instanceof ArrayBuffer ? new Uint8Array(v) : new Uint8Array(v.buffer, v.byteOffset, v.byteLength);
+        var ref = { $b: [total, u8.byteLength] };
+        parts.push(u8);
+        total += u8.byteLength;
+        return ref;
+      }
+      if (Array.isArray(v)) return v.map(walk);
+      if (v && typeof v === 'object') {
+        var o = {};
+        for (var k in v) if (Object.prototype.hasOwnProperty.call(v, k)) o[k] = walk(v[k]);
+        return o;
+      }
+      return v;
+    }
+    var out = walk(payload);
+    if (!parts.length) return payload;
+    var bin = new Uint8Array(total);
+    for (var i = 0, off = 0; i < parts.length; i++) {
+      bin.set(parts[i], off);
+      off += parts[i].byteLength;
+    }
+    out.$bin = bin.buffer;
+    return out;
+  }
+
+  function unpackBin(payload) {
+    if (!payload || typeof payload !== 'object' || !payload.$bin) return payload;
+    var raw = payload.$bin;
+    var u8 = raw instanceof ArrayBuffer ? new Uint8Array(raw) : new Uint8Array(raw.buffer, raw.byteOffset, raw.byteLength);
+    function walk(v) {
+      if (Array.isArray(v)) return v.map(walk);
+      if (v && typeof v === 'object') {
+        if (Array.isArray(v.$b) && v.$b.length === 2) {
+          var o0 = v.$b[0] | 0;
+          var n0 = v.$b[1] | 0;
+          if (o0 < 0 || n0 < 0 || o0 + n0 > u8.byteLength) throw new Error('paperWire: bad blob ref');
+          return u8.slice(o0, o0 + n0).buffer;
+        }
+        var o = {};
+        for (var k in v) if (k !== '$bin' && Object.prototype.hasOwnProperty.call(v, k)) o[k] = walk(v[k]);
+        return o;
+      }
+      return v;
+    }
+    return walk(payload);
+  }
+
+  // -----------------------------------------------------------------------------------------
   // Decimation (design 7.3, 7.4). A streaming chord test: a raw point becomes a corner when the
   // chord from the last corner to the newest point would leave any point since that corner
   // more than `tol` away, or when the newest point lies more than `maxGap` past the corner.
@@ -553,6 +617,8 @@
   MP.encodePoints = encodePoints;
   MP.decodePoints = decodePoints;
   MP.distToSegmentSq = distToSegmentSq;
+  MP.packBin = packBin;
+  MP.unpackBin = unpackBin;
   MP.Decimator = Decimator;
   MP.decimateRing = decimateRing;
   MP.wallInside = wallInside;
