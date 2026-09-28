@@ -1,10 +1,19 @@
 'use strict';
-/* PEOPLE PLAYING EACH GAME, for the little count on each lobby card.
+/* PLAYING EACH GAME, for the little count on each lobby card.
 
-   One number per game: every room, tier, rung and match of that game on this
-   server added up, HUMANS ONLY. The board rows count bots too (a free row is
-   "how many things are moving in there"), but a card that says 23 people are
-   playing slither.io when 22 of them are the house's bots is simply false.
+   One number per game, and it has to agree with the Open lobbies rows on the
+   same screen. Those rows count players PLUS bots (board.js explains why: bots
+   only exist in free rooms, where nothing is staked). A card that said 0 right
+   above a row saying "20 playing" read as broken, so the card is built as:
+
+     every HUMAN in every room of that game on this server (tiers, rungs, the
+     nightly event, paid rooms not on the board), plus the BOTS in that game's
+     board rows (withBoardBots, from the very rows /api/live sends).
+
+   So the card is never smaller than a row of its own game, equals the rows'
+   total when every human is in a listed room, and bots in rooms nobody can see
+   from this screen (a legacy tier, the event lobby between matches) are not
+   counted as players.
 
    Built from the rooms the server already holds, on the /api/live request that
    the lobby already polls. No timer, no cache, no extra state: it is a walk
@@ -76,4 +85,19 @@ function liveCounts(src = {}) {
   };
 }
 
-module.exports = { liveCounts };
+/* Adds the bots of each game's board rows to its human count, so the card and
+   the rows agree. rows: the /api/live lobbies and extras, { game, bots }. A
+   game with no human count (not a key of counts) is left alone rather than
+   invented. */
+function withBoardBots(counts, rows) {
+  if (!counts || typeof counts !== 'object') return counts;
+  const out = Object.assign({}, counts);
+  for (const r of rows || []) {
+    if (!r || !Object.prototype.hasOwnProperty.call(out, r.game)) continue;
+    const b = Number(r.bots);
+    if (Number.isFinite(b) && b > 0) out[r.game] += Math.floor(b);
+  }
+  return out;
+}
+
+module.exports = { liveCounts, withBoardBots };

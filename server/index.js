@@ -27,7 +27,7 @@ const analytics = require('./analytics'); // server-side PostHog capture (money 
 const nameProof = require('./nameProof'); // a wallet signing for its own name change
 const ownerAuth = require('./ownerAuth'); // the owner wallet signing for an owner action
 const ops       = require('./ops');       // maintenance mode
-const { liveCounts } = require('./liveCounts'); // humans per game, for the lobby cards
+const { liveCounts, withBoardBots } = require('./liveCounts'); // per-game totals, for the lobby cards
 
 const REGION = process.env.REGION || 'na';
 
@@ -1562,12 +1562,16 @@ function liveExtras() {
   }
   if (typeof tanksLobby !== 'undefined' && tanksLobby) {
     /* Bowmasters is a queue that makes rooms, so its population is whoever is
-       waiting plus whoever is already in a match. */
-    let inGame = 0;
-    try { for (const r of tanksLobby.rooms.values()) inGame += (r.players ? r.players.size : 0); }
-    catch (_) {}
-    out.push({ id: 'tanks:free', game: 'tanks', region: REGION,
-      players: (tanksLobby.queue ? tanksLobby.queue.length : 0) + inGame, bots: 0 });
+       waiting plus whoever is already in a match. A bot stand-in (id bot_...)
+       goes under bots rather than players: the row's total is the same, and the
+       game card, which adds the rows' bots to its human count, then agrees. */
+    let humans = 0, bots = 0;
+    const tally = id => { if (String(id).startsWith('bot_')) bots++; else humans++; };
+    try {
+      for (const q of (tanksLobby.queue || [])) tally(q && q.socket ? q.socket.id : '');
+      for (const r of tanksLobby.rooms.values()) if (r.players) for (const id of r.players.keys()) tally(id);
+    } catch (_) {}
+    out.push({ id: 'tanks:free', game: 'tanks', region: REGION, players: humans, bots });
   }
   if (typeof knockoutLobby !== 'undefined' && knockoutLobby) {
     /* Counting only the HUMANS on a disc. A bot stand-in sits in a room's
@@ -1638,8 +1642,9 @@ function liveBattleRoyale() {
   };
 }
 
-/* People playing each game, humans only, for the count on each lobby card.
-   Every snake room counts: the fixed tiers, the nightly event and every ladder
+/* Humans in every room of each game, for the count on each lobby card. The
+   /api/live handler adds the board rows' bots (withBoardBots) so the card and
+   the rows agree. Every snake room counts: the fixed tiers, the nightly event and every ladder
    rung. See server/liveCounts.js for where each kind of room keeps its humans. */
 function liveGameCounts() {
   const snakeRooms = Object.values(gameRooms[REGION] || {});
@@ -1660,8 +1665,12 @@ app.get('/api/live', (_req, res) => {
     /* The ladder ships with the board so the buy-in control offers exactly the
        rungs the server will accept. A client with its own copy is a client
        that can drift out of step and offer an amount that gets refused. */
-    res.json({ lobbies: liveBoard().concat(paperArenas.boardRows()), stakes: ALL_STAKES, extras: liveExtras(),
-               br: liveBattleRoyale(), counts: liveGameCounts() });
+    const lobbies = liveBoard().concat(paperArenas.boardRows());
+    const extras = liveExtras();
+    /* Card counts: every human of the game plus the bots in its rows, from these
+       same rows, so a card never reads 0 above a row saying 20 playing. */
+    res.json({ lobbies, stakes: ALL_STAKES, extras,
+               br: liveBattleRoyale(), counts: withBoardBots(liveGameCounts(), lobbies.concat(extras)) });
   } catch (e) {
     console.error('[LIVE]', e.message);
     res.json({ lobbies: [], stakes: ALL_STAKES, extras: [], br: null, counts: null });

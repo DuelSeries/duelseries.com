@@ -30,8 +30,9 @@
 
   let LOBBIES = [];
   let EXTRAS = [];
-  /* People playing each game (humans only, all its rooms), for the count on
-     each game card. Null when the poll failed, so the cards hide it. */
+  /* Playing each game (every human in all its rooms plus the bots in its rows
+     here, so card and rows agree), for the count on each game card. Null when
+     the poll failed, so the cards hide it. */
   let COUNTS = null;
   let timer = null;
 
