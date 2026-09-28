@@ -1288,10 +1288,19 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
      a flow, so showing one can never displace another. */
   html,body{height:100%;overflow:hidden;overscroll-behavior:none}
   body{padding-top:0;padding-bottom:0}
+  /* The bottom edge is the nav bar's own height, from the same number the bar
+     is built with (--navh, below), so the scroll area ends exactly where the
+     bar starts. It used to be 104px: 60 of bar plus 44 for the legal row that
+     sat above it, and that row has been gone on phones for a while. The 44px
+     it left behind was an invisible edge above the bar that sliced cards in
+     half with empty background underneath, which reads as "cut off".
+     padding-bottom keeps a small gap under the last thing on every screen
+     instead of leaving it flush against that edge. */
   main.wrap{
     position:fixed;left:0;right:0;
     top:calc(56px + env(safe-area-inset-top));
-    bottom:calc(104px + env(safe-area-inset-bottom));
+    bottom:calc(var(--navh) + env(safe-area-inset-bottom));
+    padding-bottom:16px;
     max-width:none;margin:0;
     overflow-y:auto;overflow-x:hidden;
     -webkit-overflow-scrolling:touch;
@@ -1320,6 +1329,7 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
      rather than translucent for the containing-block reason above: this one
      has no fixed descendants, but keeping both bars opaque means neither can
      develop that bug later. */
+  :root{--navh:60px}             /* 6 + 48 + 6: the .nav padding and .ni height */
   .nav{position:fixed;left:0;right:0;bottom:0;z-index:60;
        display:flex;justify-content:space-around;gap:0;border-radius:0;
        background:var(--bg);
@@ -1354,7 +1364,27 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
      phone screen. It is the screen you press Play on; anything under the fold
      is a thing you have to go looking for first. */
   #detail.wrap{min-height:0;overflow:hidden}
-  .gcol{padding:6px 16px 12px;max-width:none;min-height:calc(100vh - 172px)}
+  /* svh, not vh. On Android Chrome 100vh is the LARGE viewport, the height with
+     the address bar scrolled away, and the address bar never scrolls away here
+     because the page itself does not scroll. So the column came out one toolbar
+     (about 56px) taller than the screen, its centred contents slid down half of
+     that and the bottom ran under the nav bar. svh is the height with the bar
+     showing; the vh line stays as the fallback for browsers without it. */
+  .gcol{padding:6px 16px 12px;max-width:none;min-height:calc(100vh - 172px);
+        min-height:calc(100svh - 172px - env(safe-area-inset-top) - env(safe-area-inset-bottom))}
+
+  /* ONE SCROLLER ON A PHONE. The open-lobbies list is its own scroll box on
+     desktop (three rows, scroll for the rest). On a phone that box sits at the
+     bottom of a screen that ALSO scrolls, with overscroll-behavior:contain on
+     it, and Chrome on Android applies contain strictly: a swipe that starts on
+     the list scrolls the list to its last row and then stops dead, never
+     handing the rest of the swipe to the page. The list is most of the lower
+     half of the screen, so that is where the thumb lands, and the page stays
+     short of its bottom with the last game's row cut off by the edge. iOS
+     Safari chains a swipe on a finished list differently, the likeliest reason
+     only the Android phone showed it. Here the list just grows and the page is
+     the only thing that scrolls. */
+  #lob{max-height:none;overflow:visible}
   #detail .back{margin-left:16px;padding:12px 0 0}
   #dname{margin-top:4px;font-size:23px}
   .howbtn{margin-top:10px;padding:7px 13px;font-size:12.5px}

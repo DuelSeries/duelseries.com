@@ -925,8 +925,19 @@ test('on a phone each screen scrolls itself, so a swipe has nothing to correct',
     'each is a fixed pane that scrolls itself');
   // It has to sit between the two fixed bars or content hides behind them.
   assert.ok(/top:calc\(56px \+ env\(safe-area-inset-top\)\)/.test(block), 'below the header');
-  assert.ok(/bottom:calc\(104px \+ env\(safe-area-inset-bottom\)\)/.test(block),
-    'above the nav and the legal links');
+  /* Exactly the nav bar's height, from the same variable. It was 104px (bar
+     plus a legal row that is gone on phones), which left a 44px invisible edge
+     above the bar that sliced the last card in half on Owen's Android phone. */
+  assert.ok(/bottom:calc\(var\(--navh\) \+ env\(safe-area-inset-bottom\)\)/.test(block),
+    'ends exactly at the top of the nav bar');
+  assert.ok(/:root\{--navh:60px\}/.test(html), 'the nav height is 6 + 48 + 6');
+  assert.ok(/\.ni\{width:auto;flex:1;height:48px/.test(html) &&
+    /padding:6px 4px calc\(6px \+ env\(safe-area-inset-bottom\)\)/.test(html),
+    'and the bar really is that tall');
+  // One scroller on a phone: a nested list with overscroll-behavior:contain
+  // traps an Android swipe and leaves the page short of its bottom.
+  assert.ok(/#lob\{max-height:none;overflow:visible\}/.test(html),
+    'the home lobby list is not a second scroll box on a phone');
   assert.ok(/overscroll-behavior:contain/.test(block), 'and does not rubber-band the page');
 
   /* The drag must take the no-op path when panes are in play: no pinning, no
