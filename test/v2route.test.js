@@ -1460,3 +1460,48 @@ test('a paid Paper rung goes to the widget to be staked, never straight to a pag
   assert.ok(h.fetched.includes('/api/stake-quote?stake=0.1'), 'the widget asked for the $0.10 quote');
   assert.equal(h.el('game-frame').src, '', 'and nothing opened without a stake');
 });
+
+test('each playable game card carries a people count, and a padlocked one does not', () => {
+  const html = v2();
+  const fnSrc = (name) => {
+    const i = html.indexOf('function ' + name + '(');
+    assert.ok(i >= 0, name + ' exists');
+    let depth = 0, j = html.indexOf('{', i);
+    for (let k = j; k < html.length; k++) {
+      if (html[k] === '{') depth++;
+      else if (html[k] === '}' && --depth === 0) return html.slice(i, k + 1);
+    }
+    throw new Error('unterminated ' + name);
+  };
+  // The slot: bottom left of the art, a person drawn as SVG (not an emoji), hidden until counted.
+  assert.ok(/\.gpc\{position:absolute;left:6px;bottom:6px/.test(html), 'bottom left of the card image');
+  assert.ok(/\.gpc\{[^}]*background:rgba\(255,255,255,\.8\d\)[^}]*color:#000/.test(html),
+    'black person and number on a light pill, so it reads on dark art');
+  assert.ok(/const PERSON_SVG='<svg /.test(html), 'the person is inline SVG');
+  const countHTML = new Function('PERSON_SVG', fnSrc('countHTML') + '; return countHTML;')('<svg></svg>');
+  assert.ok(countHTML({ id: 'paper' }).includes('data-pc="paper"') && / hidden>/.test(countHTML({ id: 'paper' })));
+  assert.strictEqual(countHTML({ id: 'swim', soon: 1 }), '', 'a game that is not live shows nothing');
+  assert.ok(/<div class="art">\$\{art\(g\)\}\$\{countHTML\(g\)\}<\/div>/.test(html), 'inside the art box');
+  // Refreshed on every poll and every time the rail or grid is rebuilt.
+  assert.ok(/paintCounts\(\);\s*repaintAll\(\);/.test(html), 'the rail paints its counts');
+  assert.ok(/GAMES\.map\(cardHTML\)\.join\(''\);\s*paintCounts\(\);/.test(html), 'the all-games grid too');
+  const board = fs.readFileSync(path.join(ROOT, 'public/js/v2/board.js'), 'utf8');
+  assert.ok(/COUNTS = j\.counts/.test(board) && /window\.V2_paintCounts\(\)/.test(board), 'every poll repaints them');
+  assert.ok(/get counts\(\)/.test(board));
+
+  // paintCounts, run: textContent only, and no number without the server's say-so.
+  const paint = fnSrc('paintCounts');
+  assert.ok(!/innerHTML/.test(paint), 'server data never goes through innerHTML');
+  const mk = (id) => { const b = { textContent: '' }; return { dataset: { pc: id }, hidden: true, attrs: {},
+    querySelector: () => b, setAttribute(k, v) { this.attrs[k] = v; }, b }; };
+  const els = [mk('snake'), mk('agar'), mk('paper'), mk('tanks')];
+  const document = { querySelectorAll: () => els };
+  const run = (counts) => new Function('window', 'V2Board', 'document', paint + '; paintCounts();')(
+    { V2Board: { counts } }, { counts }, document);
+  run({ snake: 12, agar: 0, paper: '<img src=x onerror=alert(1)>' });
+  assert.deepStrictEqual(els.map(e => [e.hidden, e.b.textContent]),
+    [[false, '12'], [false, '0'], [true, ''], [true, '']], 'numbers shown, anything else hidden');
+  assert.strictEqual(els[0].attrs['aria-label'], '12 playing now');
+  run(null);
+  assert.ok(els.every(e => e.hidden), 'a failed poll hides every count');
+});

@@ -30,6 +30,9 @@
 
   let LOBBIES = [];
   let EXTRAS = [];
+  /* People playing each game (humans only, all its rooms), for the count on
+     each game card. Null when the poll failed, so the cards hide it. */
+  let COUNTS = null;
   let timer = null;
 
   async function load() {
@@ -38,11 +41,14 @@
       const j = await r.json();
       LOBBIES = Array.isArray(j.lobbies) ? j.lobbies : [];
       EXTRAS = Array.isArray(j.extras) ? j.extras : [];
+      COUNTS = j.counts && typeof j.counts === 'object' ? j.counts : null;
     } catch (_) {
       LOBBIES = [];
       EXTRAS = [];
+      COUNTS = null;
     }
     draw();
+    if (window.V2_paintCounts) window.V2_paintCounts();
   }
 
   function rowHTML(l) {
@@ -171,9 +177,8 @@
     box.innerHTML = rows.map(rowHTML).join('');
     box.classList.toggle('short', rows.length <= 3);
     if (window.repaintAll) window.repaintAll();
-    // The cards used to be refreshed here too, to keep their player counts in
-    // step with these rows. They carry the game name alone now, so there is
-    // nothing on them left to go stale.
+    // The game cards' people counts are refreshed by load(), not here: draw()
+    // returns early when this list is not on the page, and the cards still are.
   }
 
   function join(id) {
@@ -200,5 +205,6 @@
   window.V2Board = { load: load, draw: draw, join: join, start: start, stop: stop,
                      playableStakes: playableStakes,
                      get lobbies() { return LOBBIES; },
+                     get counts() { return COUNTS; },
                      get occupied() { return occupied(); } };
 })();

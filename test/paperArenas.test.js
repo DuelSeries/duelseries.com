@@ -133,6 +133,24 @@ test('rows: free always, the paid rungs only with PAPER_PAID', () => {
   assert.strictEqual(on[2].bots, 0);
 });
 
+test('humanTotal: every seated human on every rung, never a bot (the lobby card count)', () => {
+  const { d } = directory({ paidEnabled: true });
+  assert.strictEqual(d.humanTotal(), 0);
+  seatIn(d, 0);
+  seatIn(d, 0);
+  seatIn(d, 0.1);
+  const last = seatIn(d, 1);
+  assert.strictEqual(d.humanTotal(), 4);
+  const free = d.all().find(r => r.stake === 0);
+  // A random spawn can miss a spot now and then, so try until two are in.
+  for (let i = 0; i < 40 && free.botCount < 2; i++) free.addBot();
+  assert.ok(free.botCount >= 2, 'the free arena really has bots in it');
+  assert.strictEqual(d.humanTotal(), 4, 'and they are not counted');
+  assert.strictEqual(d.humanTotal(), d.all().reduce((n, r) => n + r.liveHumans, 0));
+  last.room.removeHuman(last.seat.unit.id, REASON.LEAVE);
+  assert.strictEqual(d.humanTotal(), 3);
+});
+
 test('neither the room nor the directory requires money, db or Wallet', () => {
   const fs = require('fs');
   const path = require('path');

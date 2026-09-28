@@ -27,6 +27,7 @@ const analytics = require('./analytics'); // server-side PostHog capture (money 
 const nameProof = require('./nameProof'); // a wallet signing for its own name change
 const ownerAuth = require('./ownerAuth'); // the owner wallet signing for an owner action
 const ops       = require('./ops');       // maintenance mode
+const { liveCounts } = require('./liveCounts'); // humans per game, for the lobby cards
 
 const REGION = process.env.REGION || 'na';
 
@@ -1637,16 +1638,33 @@ function liveBattleRoyale() {
   };
 }
 
+/* People playing each game, humans only, for the count on each lobby card.
+   Every snake room counts: the fixed tiers, the nightly event and every ladder
+   rung. See server/liveCounts.js for where each kind of room keeps its humans. */
+function liveGameCounts() {
+  const snakeRooms = Object.values(gameRooms[REGION] || {});
+  for (const e of ladder.rooms.values()) if (e.game === 'snake') snakeRooms.push(e.room);
+  return liveCounts({
+    snakeRooms,
+    agarRooms: Object.values(agarRooms[REGION] || {}),
+    shooter: typeof shooterRoom !== 'undefined' ? shooterRoom : null,
+    tanks: typeof tanksLobby !== 'undefined' ? tanksLobby : null,
+    knockout: typeof knockoutLobby !== 'undefined' ? knockoutLobby : null,
+    battleship: typeof battleshipLobby !== 'undefined' ? battleshipLobby : null,
+    paper: paperArenas,
+  });
+}
+
 app.get('/api/live', (_req, res) => {
   try {
     /* The ladder ships with the board so the buy-in control offers exactly the
        rungs the server will accept. A client with its own copy is a client
        that can drift out of step and offer an amount that gets refused. */
     res.json({ lobbies: liveBoard().concat(paperArenas.boardRows()), stakes: ALL_STAKES, extras: liveExtras(),
-               br: liveBattleRoyale() });
+               br: liveBattleRoyale(), counts: liveGameCounts() });
   } catch (e) {
     console.error('[LIVE]', e.message);
-    res.json({ lobbies: [], stakes: ALL_STAKES, extras: [], br: null });
+    res.json({ lobbies: [], stakes: ALL_STAKES, extras: [], br: null, counts: null });
   }
 });
 

@@ -167,6 +167,15 @@ class PaperArenas {
     return rows;
   }
 
+  // Humans seated across every Paper arena and rung (the lobby card's count). Bots are not seats.
+  humanTotal() {
+    let n = 0;
+    for (const key of Object.keys(this.arenas)) {
+      for (const r of this.arenas[key]) if (!r.stopped) n += r.liveHumans;
+    }
+    return n;
+  }
+
   get warming() {
     const free = this.arenas[keyOf(0)][0];
     return !!(free && free.warming);

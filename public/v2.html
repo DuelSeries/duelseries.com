@@ -310,6 +310,17 @@ h2{font-size:31px;font-weight:700;letter-spacing:-1.1px;line-height:1.1}
   border-radius:50%;background:rgba(8,7,5,.55) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='11' width='18' height='11' rx='2'/%3E%3Cpath d='M7 11V7a5 5 0 0 1 10 0v4'/%3E%3C/svg%3E") center/21px 21px no-repeat;
   box-shadow:0 2px 14px rgba(0,0,0,.45);pointer-events:none}
 .gart.noart{background:var(--s2)}
+/* People playing this game right now, humans only, every lobby added up
+   (/api/live `counts`). A black person and number, as asked, so it sits on a
+   light pill: black straight on the dark paintings would vanish. Black on
+   84% white over the darkest art is above 12:1. Hidden until the server has
+   said, and for a game the server does not count. */
+.gpc{position:absolute;left:6px;bottom:6px;z-index:3;display:inline-flex;align-items:center;
+  gap:2px;padding:1px 6px 1px 4px;border-radius:999px;background:rgba(255,255,255,.84);
+  color:#000;font:700 10px/14px var(--fm);font-variant-numeric:tabular-nums;
+  box-shadow:0 1px 3px rgba(0,0,0,.35);pointer-events:none}
+.gpc[hidden]{display:none}
+.gpc svg{width:9px;height:9px;fill:currentColor;flex:none}
 .card.soon:hover .gart{filter:grayscale(.4) brightness(.72)}
 .card.soon .cap h3{color:var(--tx2)}
 /* Fixed caption height keeps every card the same height whatever the name
@@ -356,6 +367,8 @@ h2{font-size:31px;font-weight:700;letter-spacing:-1.1px;line-height:1.1}
   /* The card is ~80px wide here, so the badge scales with it. */
   .card.soon .art::after{width:32px;height:32px;margin:-16px 0 0 -16px;
     background-size:15px 15px}
+  .gpc{left:4px;bottom:4px;font-size:9px;line-height:12px;padding:0 5px 0 3px}
+  .gpc svg{width:8px;height:8px}
   /* Small and tucked into the very edge. There used to be a gradient scrim
      behind each one, which on a dark card read as a black band ruled down
      both sides of the row rather than as a fade. */
@@ -3005,8 +3018,30 @@ window._resumeLobbyAnims=()=>{
    could not play it, and the card agreed by doing nothing at all, so there was
    no way to find out what any of them even were. They open now. The padlock
    stays, because it is still true — you can look, you cannot play. */
+/* The player count's slot. Only games you can play get one; a padlocked card
+   has nobody in it to count. The figure goes in later, by paintCounts. */
+const PERSON_SVG='<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="4.6" r="3.1"/>'+
+  '<path d="M2.2 15.4c0-3.6 2.6-6 5.8-6s5.8 2.4 5.8 6z"/></svg>';
+function countHTML(g){
+  return g.soon?'':`<span class="gpc" data-pc="${g.id}" hidden>${PERSON_SVG}<b></b></span>`;
+}
+/* Fills every card's count from the last /api/live poll. textContent only: the
+   number comes from the server. No counts (a failed poll, or a game the server
+   does not report) hides the pill rather than showing a made-up 0. */
+function paintCounts(){
+  const c=window.V2Board&&V2Board.counts;
+  document.querySelectorAll('.gpc[data-pc]').forEach(el=>{
+    const v=c?c[el.dataset.pc]:undefined;
+    if(typeof v!=='number'||!Number.isFinite(v)){el.hidden=true;return}
+    const n=Math.max(0,Math.floor(v));
+    el.querySelector('b').textContent=String(n);
+    el.setAttribute('aria-label',n+' playing now');
+    el.hidden=false;
+  });
+}
+window.V2_paintCounts=paintCounts;
 function cardHTML(g){
-  const inner=`<div class="art">${art(g)}</div>
+  const inner=`<div class="art">${art(g)}${countHTML(g)}</div>
     <div class="cap"><h3>${g.name}</h3></div>`;
   return `<button type="button" class="card${g.soon?' soon':''}"
     onclick="open_('${g.id}')">${inner}</button>`;
@@ -3022,6 +3057,7 @@ const RAIL_COPIES=3;
 const railEl=()=>document.querySelector('.rail');
 function drawRail(){
   document.getElementById('track').innerHTML=order.map(cardHTML).join('').repeat(RAIL_COPIES);
+  paintCounts();
   repaintAll();
   /* Synchronous, not on an animation frame: rAF does not fire in a background
      tab, so a lobby opened in one would never leave the first copy and the
@@ -3298,6 +3334,7 @@ function goHome(dir){showScreen('home',dir);jumpToTop()}
    screen most visits never reach. */
 function showAllGames(){
   document.getElementById('ggrid').innerHTML=GAMES.map(cardHTML).join('');
+  paintCounts();
   showScreen('allgames');
   jumpToTop();
 }

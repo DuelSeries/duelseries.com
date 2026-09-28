@@ -72,6 +72,13 @@ test('a player can join without killing the server', { timeout: 90000 }, async (
     sock.on('connect_error', (e) => { clearTimeout(bail); rej(e); });
   });
 
+  // The card counts are people only: at boot the free room is full of bots and
+  // nobody is playing, so every game reads 0.
+  const before = JSON.parse((await get(`http://localhost:${PORT}/api/live`)).body);
+  assert.ok(before.counts && typeof before.counts === 'object', '/api/live carries per-game counts');
+  for (const g of ['snake', 'agar', 'omgshooter', 'tanks', 'knockout', 'battleship', 'paper'])
+    assert.strictEqual(before.counts[g], 0, `${g} counts no bots (${JSON.stringify(before.counts)})`);
+
   // Free play on the ladder: a stake of 0 needs no token, which is exactly the
   // path a player takes when they press Play on a free room.
   sock.emit(C.EVENTS.PLAY, {
@@ -94,4 +101,5 @@ test('a player can join without killing the server', { timeout: 90000 }, async (
   const board = JSON.parse((await get(`http://localhost:${PORT}/api/live`)).body);
   const free = board.lobbies.find(l => l.stake === 0);
   assert.ok(free && free.players >= 1, 'the free ladder room has the player in it');
+  assert.strictEqual(board.counts.snake, 1, 'and the slither.io card counts exactly that one person');
 });
