@@ -1,4 +1,5 @@
 'use strict';
+const { refundBound } = require('./stakeRules');
 /* ─── Battleship ──────────────────────────────────────────────────────────────
    Two fleets, two ten-by-ten grids, and one thing neither player is allowed to
    know: where the other one's ships are.
@@ -214,10 +215,11 @@ class BattleshipRoom {
     this.settled = false;
   }
 
-  addPlayer(socket, name, wallet, worth) {
+  addPlayer(socket, name, wallet, worth, paid) {
     if (this.players.size >= 2) return false;
     const side = this.players.size;
-    this.players.set(socket.id, { socket, name: name || 'Player', wallet: wallet || null, side });
+    this.players.set(socket.id, { socket, name: name || 'Player', wallet: wallet || null, side,
+                                  paid: Number(paid) > 0 ? Number(paid) : undefined });
     this.boards.set(socket.id, new Board());
     this.worth.set(socket.id, Number(worth) > 0 ? Number(worth) : 0);
     if (socket.join) socket.join(this.socketRoomName);
@@ -382,6 +384,8 @@ class BattleshipRoom {
             roomId: this.id, winnerId: winnerId || null, why: why || '', pot,
             seats: [...this.players.entries()].map(([id, p]) => ({
               id, name: p.name, wallet: p.wallet, worth: this.worth.get(id) || 0,
+              /* A draw's refund: the stake, never more than what landed on-chain. */
+              refund: refundBound(this.worth.get(id) || 0, p.paid),
             })),
           });
         } catch (e) { console.error('[BS] settle hook failed:', e.message); }

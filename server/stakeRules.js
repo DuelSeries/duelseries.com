@@ -68,5 +68,15 @@ function stakeRangeError(v, { tiers = ALL_STAKES } = {}) {
   return 'Buy-in must be one of ' + tiers.filter(t => t > 0).map(label).join(', ');
 }
 
+/* What a refund of a seat may pay: its stake, never more than what landed on-chain. The
+   verifier accepts a payment up to 1 percent under the rung (the token's paid), so refunding
+   the rung itself would mint the difference out of escrow on every refund. paid unknown or
+   not a positive number (a free seat, an old caller): the stake, as before. */
+function refundBound(worth, paid) {
+  const w = Number(worth) > 0 ? Number(worth) : 0;
+  const p = Number(paid);
+  return Number.isFinite(p) && p > 0 ? Math.min(w, p) : w;
+}
+
 module.exports = { STAKE_TIERS, ALL_STAKES, FREE, MIN_STAKE, MAX_STAKE,
-                   isStake, tierFor, stakeRangeError };
+                   isStake, tierFor, stakeRangeError, refundBound };

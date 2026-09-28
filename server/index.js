@@ -1247,7 +1247,7 @@ knockoutLobby.onSettled = ({ roomId, winnerId, why, pot, seats }) => {
   if (!winner || !winner.wallet) {
     for (const s of seats) {
       if (!(s.worth > 0) || !s.wallet) continue;
-      koSend(s.wallet, s.worth, s.name, 'knockout refund (' + (why || 'no winner') + ')');
+      koSend(s.wallet, s.refund, s.name, 'knockout refund (' + (why || 'no winner') + ')');
     }
     console.log('[KO] ' + roomId + ' refunded ' + pot.toFixed(2) + ' — ' + (why || 'no winner'));
     return;
@@ -1279,7 +1279,7 @@ battleshipLobby.onSettled = ({ roomId, winnerId, why, pot, seats }) => {
   if (!winner || !winner.wallet) {
     for (const s of seats) {
       if (!(s.worth > 0) || !s.wallet) continue;
-      koSend(s.wallet, s.worth, s.name, 'battleship refund (' + (why || 'no winner') + ')');
+      koSend(s.wallet, s.refund, s.name, 'battleship refund (' + (why || 'no winner') + ')');
     }
     console.log('[BS] ' + roomId + ' refunded ' + pot.toFixed(2) + ' — ' + (why || 'no winner'));
     return;
@@ -2796,7 +2796,7 @@ io.on('connection', (socket) => {
        token; nothing the client says about what it paid is read. A seat with no
        valid token is a free seat, and a client asking for a paid table without
        one is refused rather than quietly seated for nothing. */
-    let worth = 0, rung = 0;
+    let worth = 0, rung = 0, paid, payTo = null;
     const wants = Number(stake) || 0;
     if (wants > 0) {
       const entry = consumePaidEntryAtStake(entryToken, wants, 'knockout');
@@ -2806,11 +2806,15 @@ io.on('connection', (socket) => {
       }
       worth = entry.worth;
       rung = wants;
+      paid = entry.paid;               // what landed: bounds a refund (stakeRules.refundBound)
+      payTo = entry.walletAddress || null;
       if (entry.walletAddress) socket._walletAddress = entry.walletAddress;
     }
 
+    /* A paid seat's prize or refund goes to the wallet that paid (from the token), never to
+       a wallet the client names; a free seat pays nothing, so its name is only a label. */
     knockoutLobby.enqueue(socket, sanitizeName(name),
-      wallet || socket._walletAddress || null, rung, worth);
+      worth > 0 ? payTo : (wallet || socket._walletAddress || null), rung, worth, undefined, paid);
     socket.emit('ko:queued', {
       waitingMs: knockoutLobby.queuedFor(socket.id) || 0,
       stake: rung, worth,
@@ -2855,18 +2859,21 @@ io.on('connection', (socket) => {
     if (!socketRL(socket, 'bsq', 1000)) return;
     if (ops.get().maintenance) { socket.emit('maintenance', ops.get()); return; }
 
-    let worth = 0, rung = 0;
+    let worth = 0, rung = 0, paid, payTo = null;
     const wants = Number(stake) || 0;
     if (wants > 0) {
       const entry = consumePaidEntryAtStake(entryToken, wants, 'battleship');
       if (!entry.ok) { socket.emit('bs:refused', { why: 'that buy-in was not paid for' }); return; }
       worth = entry.worth;
       rung = wants;
+      paid = entry.paid;               // what landed: bounds a refund (stakeRules.refundBound)
+      payTo = entry.walletAddress || null;
       if (entry.walletAddress) socket._walletAddress = entry.walletAddress;
     }
 
+    /* A paid seat's prize or refund goes to the wallet that paid (from the token). */
     battleshipLobby.enqueue(socket, sanitizeName(name),
-      wallet || socket._walletAddress || null, rung, worth);
+      worth > 0 ? payTo : (wallet || socket._walletAddress || null), rung, worth, paid);
     socket.emit('bs:queued', {
       waitingMs: battleshipLobby.queuedFor(socket.id) || 0,
       stake: rung, worth,

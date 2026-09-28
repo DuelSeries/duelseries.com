@@ -17,6 +17,7 @@
    that makes a solver nearly unbeatable and a game joyless. */
 
 const { BattleshipRoom, BS } = require('./BattleshipRoom');
+const { refundBound } = require('./stakeRules');
 
 /* HOW LONG A REAL PERSON GETS TO TURN UP.
 
@@ -54,12 +55,14 @@ class BattleshipLobby {
 
   /* ── the queue ──────────────────────────────────────────────────────────── */
 
-  enqueue(socket, name, wallet, stake, worth) {
+  /* paid: what landed on-chain for this seat (the entry token's paid), which bounds a refund. */
+  enqueue(socket, name, wallet, stake, worth, paid) {
     this.dequeue(socket.id);
     this.queue.push({
       socket, name, wallet, since: Date.now(),
       stake: Number(stake) > 0 ? Number(stake) : 0,
       worth: Number(worth) > 0 ? Number(worth) : 0,
+      paid: Number(paid) > 0 ? Number(paid) : undefined,
     });
     this.pump();
     /* Still waiting after that? Somebody may be in a bot match that has only
@@ -172,7 +175,7 @@ class BattleshipLobby {
     room.stake = entries.length ? (entries[0].stake || 0) : 0;
     room.onSettled = this.onSettled || null;
     for (const e of entries) {
-      room.addPlayer(e.socket, e.name, e.wallet, e.worth);
+      room.addPlayer(e.socket, e.name, e.wallet, e.worth, e.paid);
       this.bySocket.set(e.socket.id, room.id);
       e.socket._bsRoom = room.id;
     }
@@ -205,7 +208,7 @@ class BattleshipLobby {
     entry.refunded = true;
     try { entry.socket.emit('bs:unqueued', { refunded: entry.worth > 0, why: why || '' }); } catch (_) {}
     if (entry.worth > 0 && typeof this.onRefund === 'function') {
-      try { this.onRefund({ wallet: entry.wallet, name: entry.name, amount: entry.worth, why: why || '' }); }
+      try { this.onRefund({ wallet: entry.wallet, name: entry.name, amount: refundBound(entry.worth, entry.paid), why: why || '' }); }
       catch (e) { console.error('[BS] refund hook failed:', e.message); }
     }
   }

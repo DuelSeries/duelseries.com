@@ -15,6 +15,7 @@
    misses often enough to be worth beating. Which is what a person does. */
 
 const { KnockoutRoom, KO } = require('./KnockoutRoom');
+const { refundBound } = require('./stakeRules');
 
 /* HOW LONG A REAL PERSON GETS TO TURN UP.
 
@@ -93,12 +94,14 @@ class KnockoutLobby {
      millisecond short of giving up had already given up. That is a test failing
      for a reason that has nothing to do with the thing it is testing, and it
      was doing it in the middle of the pre-deploy run. */
-  enqueue(socket, name, wallet, stake, worth, now) {
+  /* paid: what landed on-chain for this seat (the entry token's paid), which bounds a refund. */
+  enqueue(socket, name, wallet, stake, worth, now, paid) {
     this.dequeue(socket.id);
     this.queue.push({
       socket, name, wallet, since: typeof now === 'number' ? now : Date.now(),
       stake: Number(stake) > 0 ? Number(stake) : 0,
       worth: Number(worth) > 0 ? Number(worth) : 0,
+      paid: Number(paid) > 0 ? Number(paid) : undefined,
     });
     this.pump(typeof now === 'number' ? now : undefined);
     /* Still waiting after that? Somebody may be in a bot match that has only
@@ -221,7 +224,7 @@ class KnockoutLobby {
     room.stake = entries.length ? (entries[0].stake || 0) : 0;
     room.onSettled = this.onSettled || null;
     for (const e of entries) {
-      room.addPlayer(e.socket, e.name, e.wallet, e.worth);
+      room.addPlayer(e.socket, e.name, e.wallet, e.worth, e.paid);
       this.bySocket.set(e.socket.id, room.id);
       e.socket._koRoom = room.id;
     }
@@ -264,7 +267,7 @@ class KnockoutLobby {
     catch (_) {}
     if (entry.worth > 0 && typeof this.onRefund === 'function') {
       try {
-        this.onRefund({ wallet: entry.wallet, name: entry.name, amount: entry.worth, why: why || '' });
+        this.onRefund({ wallet: entry.wallet, name: entry.name, amount: refundBound(entry.worth, entry.paid), why: why || '' });
       } catch (e) { console.error('[KO] refund hook failed:', e.message); }
     }
   }

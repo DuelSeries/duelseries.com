@@ -1,4 +1,5 @@
 'use strict';
+const { refundBound } = require('./stakeRules');
 /* ─── Knockout ────────────────────────────────────────────────────────────────
    Two players, two pieces each, one shrinking disc over a pit. Every turn both
    players get fifteen seconds to drag an arrow out of each of their pieces —
@@ -151,10 +152,11 @@ class KnockoutRoom {
 
   /* ── seats ──────────────────────────────────────────────────────────────── */
 
-  addPlayer(socket, name, wallet, worth) {
+  addPlayer(socket, name, wallet, worth, paid) {
     if (this.players.size >= 2) return false;
     const side = this.players.size;        // 0 = bottom, 1 = top
-    this.players.set(socket.id, { socket, name: name || 'Player', wallet: wallet || null, side });
+    this.players.set(socket.id, { socket, name: name || 'Player', wallet: wallet || null, side,
+                                  paid: Number(paid) > 0 ? Number(paid) : undefined });
     this.worth.set(socket.id, Number(worth) > 0 ? Number(worth) : 0);
     if (socket.join) socket.join(this.socketRoomName);
     return true;
@@ -554,6 +556,8 @@ class KnockoutRoom {
                rather than half a pot they may not have paid half of. */
             seats: [...this.players.entries()].map(([id, p]) => ({
               id, name: p.name, wallet: p.wallet, worth: this.worth.get(id) || 0,
+              /* A draw's refund: the stake, never more than what landed on-chain. */
+              refund: refundBound(this.worth.get(id) || 0, p.paid),
             })),
           });
         } catch (e) { console.error('[KO] settle hook failed:', e.message); }
