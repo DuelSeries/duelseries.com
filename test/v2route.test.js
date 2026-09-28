@@ -1324,17 +1324,18 @@ test('Paper takes the widget path to its arena page, on every rung', () => {
   assert.ok(/app\.get\('\/paper-arena', .*public\/paper-arena\.html/.test(s), 'and /paper-arena is served');
 });
 
-test('the Paper detail screen shows its rules and no snake skin', () => {
+test('the Paper detail screen shows no rules line and no snake skin', () => {
   const html = v2();
   const paper = html.match(/\{id:'paper'[^\n]*/)[0];
   assert.ok(/nolook:1/.test(paper), 'Paper has no snake to dress');
   assert.ok(html.includes('#detail.nolook .lookrow{display:none}'), 'so the skin row is hidden');
   assert.ok(html.includes("det.classList.toggle('nolook',!!cur.nolook)"), 'by a class the game sets');
-  assert.ok(html.includes("rules:'Kill a player, take their money. Hold Q for 3 seconds to cash out.'"),
-    'the money rules are said before the buy-in');
-  assert.ok(/\.grules\{display:none/.test(html) && html.includes('#detail.hasrules .grules{display:block}'),
-    'on a line of their own that shows only for a game carrying one');
-  assert.ok(html.includes("det.classList.toggle('hasrules',!!cur.rules)"), 'and is switched per game');
+  // Owen asked (2026-09-28) for the rules line under Paper's Play to go, and it
+  // was the only game carrying one, so the whole per-game rules line went too.
+  assert.ok(!html.includes('Kill a player, take their money'), 'the rules sentence is gone');
+  assert.ok(!/\brules:'/.test(html), 'no game row carries a rules line');
+  assert.ok(!html.includes('grules') && !html.includes('hasrules'),
+    'and its element, CSS and per-game toggle are gone with it');
 
   // The browser-only row is gone, and the stake-0 row off the board is pinned instead.
   const board = fs.readFileSync(path.join(ROOT, 'public/js/v2/board.js'), 'utf8');
