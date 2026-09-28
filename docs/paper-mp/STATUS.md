@@ -256,8 +256,10 @@ Still open (defaults chosen by the design, none blocks the build): (5) an arena 
         those attempts or the 200 cap. The slow lane has its own budget after the normal lane, a backoff (2, 4, 8, 16,
         32 minutes, then hourly), a 10 minute lease per try, and no cap, so no row is dropped; once the account exists
         the row is paid there, once, and a payout that then fails for another reason goes back to the normal lane with
-        its signed tx (never built twice). A row owed for that reason starts in the slow lane; rows already owed move
-        there at the first boot. Tests: test/payoutDrainer.test.js (honest rows paid on the first tick behind 12
+        its signed tx (never built twice) and a fresh 200-attempt budget (review fix: a row the old drainer had given up
+        on arrived with 200 attempts, so after one slow-lane try that did not confirm neither lane ever took it again).
+        A row owed for that reason starts in the slow lane; rows already owed move there at the first boot, once.
+        Tests: test/payoutDrainer.test.js (honest rows paid on the first tick behind 12
         no-account rows; never dropped over three days, then paid once; lane budgets; no second tx), test/dbLedger.test.js.
         Residual: a row whose account is missing but not yet known costs one quick look (no signing) in the normal lane;
         a burst of more than 40 such rows can delay the rows behind them by one 30 s tick per 40.

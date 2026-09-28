@@ -205,7 +205,8 @@ const PAYOUT_LANE_DDL = [
   `ALTER TABLE failed_payouts ADD COLUMN IF NOT EXISTS account_waits INT DEFAULT 0`,
   `ALTER TABLE failed_payouts ADD COLUMN IF NOT EXISTS next_attempt_at TIMESTAMPTZ`,
   // Rows already owed for that reason move to the slow lane once, including any the old drainer
-  // had given up on after 200 attempts (the slow lane has no cap). A row that later went back to
+  // had given up on after 200 attempts (the slow lane has no cap; a row it sends back to the
+  // normal lane starts a fresh budget there, returnPayoutToLane). A row that later went back to
   // the normal lane has account_waits > 0 and is left where it is.
   `UPDATE failed_payouts SET missing_account = true
      WHERE paid = false AND missing_account IS NOT TRUE AND COALESCE(account_waits, 0) = 0
@@ -483,12 +484,22 @@ async function deferPayoutNoAccount(id) {
   );
 }
 
-// A slow-lane row whose account exists now but whose payout did not finish: back to the normal
-// lane and its normal 30 s cadence (a tx it built is recovered there, never built twice).
+/* A slow-lane row whose account exists now but whose payout did not finish: back to the normal
+   lane and its normal 30 s cadence (a tx it built is recovered there, never built twice).
+   It starts a fresh normal-lane budget (attempts = 0). A row the migration moved here can carry
+   200 attempts, or 199, that the old drainer spent on looks at a wallet with no account; kept, the
+   normal lane (attempts < 200) would never take it again, so a payout that did not confirm would
+   never be retried, or would land with the row still unpaid in /api/admin/failed-payouts. A fresh
+   budget cannot pay twice: attemptPayout is signature-first (it re-sends only the saved bytes and
+   builds a new tx only once the saved one has provably expired without landing).
+   account_waits >= 1 marks the row as having been through the slow lane, so the migration, which
+   runs at every boot, does not take it back (it only moves rows with account_waits = 0). */
 async function returnPayoutToLane(id) {
   if (!features.payoutLanes) return;
   await pool.query(
-    `UPDATE failed_payouts SET missing_account = false, next_attempt_at = NULL WHERE id = $1 AND missing_account IS TRUE`,
+    `UPDATE failed_payouts SET missing_account = false, next_attempt_at = NULL,
+            attempts = 0, account_waits = GREATEST(COALESCE(account_waits, 0), 1)
+      WHERE id = $1 AND missing_account IS TRUE`,
     [id]
   );
 }

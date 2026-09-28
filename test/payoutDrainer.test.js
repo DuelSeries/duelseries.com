@@ -170,6 +170,82 @@ test('the slow lane has its own budget: it runs after the normal lane and cannot
   assert.deepStrictEqual(w.sent.map((x) => x.wallet), honest, 'and the rest next tick');
 });
 
+/* Rows owed before the lanes existed (review of 5e6cb3f). The old drainer counted every look at a
+   wallet with no USDC account as an attempt, so a row can reach the migration at or near the
+   200-attempt cap (it gave up at 200), and the same happens to a row that reached the cap while
+   the lanes were off. The migration moves it to the slow lane, which has no cap. Once the account
+   exists, a slow-lane payout that does not confirm in time, or fails for another reason, sends the
+   row back to the normal lane; it used to keep its old count there, so the normal lane (attempts
+   < 200) never took it again: a payout never retried, or a tx that landed later with the row still
+   showing unpaid. A row back from the slow lane now starts a fresh normal-lane budget. */
+function preLaneRow(db, t, attempts) {
+  db.payouts.push({ id: 1, wallet_address: 'OLD', amount_sol: 0.9, name: 'P',
+    reason: 'paper $1: ' + NO_USDC_ACCOUNT + ': the wallet has no USDC account; paid once it has one again',
+    paid: false, paid_sig: null, attempts, last_attempt_at: t - 3600 * S, signature: null, signed_tx: null,
+    blockhash: null, last_valid_block_height: null, missing_account: false, account_waits: 0,
+    next_attempt_at: null, stake_sig: null, created_at: t - 86400 * S, seq: 1 });
+}
+
+// The account exists now. The first `fails` payout attempts do not finish (mode 'pending': a tx is
+// built and sent but not confirmed in time, then its same bytes are re-sent; mode 'error': the call
+// throws, e.g. escrow USDC too low), after that the payout lands. One tx is ever built.
+function lateChain(mode, fails) {
+  const built = [];
+  let calls = 0;
+  const money = {
+    unit: 'USDC', fiatValue: (a) => a,
+    async attemptPayout(row, onFreshTx) {
+      calls++;
+      const ok = calls > fails;
+      if (!ok && mode === 'error') throw new Error('Escrow USDC too low');
+      if (row.signature) return ok ? { paid: true, sig: row.signature } : { paid: false };
+      built.push(row.id);
+      await onFreshTx({ signature: 'S1', signedTx: 'b64', blockhash: 'bh', lastValidBlockHeight: 1 });
+      return ok ? { paid: true, sig: 'S1' } : { paid: false };
+    },
+  };
+  return { money, built, calls: () => calls };
+}
+
+for (const [attempts, mode] of [[200, 'pending'], [200, 'error'], [199, 'pending'], [150, 'error']]) {
+  test(`a pre-lane row at ${attempts} attempts whose slow-lane payout ${mode === 'pending' ? 'did not confirm' : 'threw'} is retried in the normal lane and paid once`, async () => {
+    let t = 1e12;
+    const db = createMemLedgerDb({ now: () => t });
+    db.recordEarnings = async () => {};
+    preLaneRow(db, t, attempts);
+    await db.migratePayoutLanes();
+    assert.strictEqual(db.payouts[0].missing_account, true, 'the migration moved it to the slow lane');
+    const c = lateChain(mode, 3);
+    const drainer = createPayoutDrainer({ db, money: c.money, noAccountCode: NO_USDC_ACCOUNT, log: quiet });
+    for (let i = 0; i < 2880; i++) { await drainer.drain(); t += 30 * S; }     // one day of ticks
+    const row = db.payouts[0];
+    assert.strictEqual(row.paid, true, 'paid: ' + JSON.stringify({ calls: c.calls(), attempts: row.attempts, missing_account: row.missing_account }));
+    assert.strictEqual(row.paid_sig, 'S1');
+    assert.strictEqual(c.calls(), 4, 'one slow-lane try, two more that did not finish, then paid, and never tried again');
+    assert.deepStrictEqual(c.built, [1], 'one transaction was ever built for the row');
+    assert.strictEqual(row.missing_account, false);
+  });
+}
+
+test('a pre-lane row that went back to the normal lane stays there when a later boot runs the migration again', async () => {
+  let t = 1e12;
+  const db = createMemLedgerDb({ now: () => t });
+  db.recordEarnings = async () => {};
+  preLaneRow(db, t, 200);
+  await db.migratePayoutLanes();
+  const c = lateChain('pending', 1e9);
+  const drainer = createPayoutDrainer({ db, money: c.money, noAccountCode: NO_USDC_ACCOUNT, log: quiet });
+  await drainer.drain();
+  assert.strictEqual(db.payouts[0].missing_account, false, 'back to the normal lane');
+  assert.strictEqual(db.payouts[0].attempts, 0, 'with a fresh normal-lane budget');
+  t += 31 * S;
+  await drainer.drain();
+  assert.strictEqual(db.payouts[0].attempts, 1, 'the normal lane takes it');
+  await db.migratePayoutLanes();            // a push restarts the server and db.init runs the DDL again
+  assert.strictEqual(db.payouts[0].missing_account, false, 'the migration moves a row once, not at every boot');
+  assert.strictEqual(db.payouts[0].attempts, 1, 'and its count is not reset again');
+});
+
 test('db.js: the lanes\' SQL, and the no-account marker agrees with Usdc.js', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'server', 'db.js'), 'utf8');
   const fn = (name) => src.slice(src.indexOf('async function ' + name), src.indexOf('\n}\n', src.indexOf('async function ' + name)));
@@ -179,6 +255,10 @@ test('db.js: the lanes\' SQL, and the no-account marker agrees with Usdc.js', ()
   assert.match(claim, /LIMIT 1 FOR UPDATE SKIP LOCKED/);
   assert.match(fn('deferPayoutNoAccount'), /LEAST\(3600, 120 \* POWER\(2, LEAST\(COALESCE\(account_waits, 0\), 5\)\)\)/);
   assert.match(fn('recordFailedPayout'), /features\.payoutLanes && why\.includes\(NO_USDC_ACCOUNT\)/);
+  assert.match(fn('returnPayoutToLane'),
+    /SET missing_account = false, next_attempt_at = NULL,\s*attempts = 0, account_waits = GREATEST\(COALESCE\(account_waits, 0\), 1\)\s*WHERE id = \$1 AND missing_account IS TRUE/);
+  // The migration memLedgerDb.migratePayoutLanes models.
+  assert.match(src, /UPDATE failed_payouts SET missing_account = true\s*WHERE paid = false AND missing_account IS NOT TRUE AND COALESCE\(account_waits, 0\) = 0\s*AND reason LIKE '%\$\{NO_USDC_ACCOUNT\}%'`,\s*\];/);
   const Usdc = require('../server/Usdc');
   const db = require('../server/db');
   assert.strictEqual(db.NO_USDC_ACCOUNT, Usdc.RECIPIENT_NO_USDC_ACCOUNT);

@@ -11,6 +11,7 @@
                       INSERT INTO failed_payouts ... ; failed_payouts.stake_sig is UNIQUE
    listUnsettledStakes  SELECT ... WHERE state = 'pending' AND (own region, other boot) OR stale
    claimDuePayout     the two lanes; deferPayoutNoAccount, returnPayoutToLane, markPayoutPaid
+   migratePayoutLanes the boot-time UPDATE at the end of PAYOUT_LANE_DDL
 
    `latency(name)` (optional) returns how many turns of the event loop a call waits before it
    applies, so a test can interleave a door and a sweep in any order. `now()` is injectable. */
@@ -140,10 +141,20 @@ function createMemLedgerDb({ now = () => Date.now(), latency = null } = {}) {
     r.next_attempt_at = now() + Math.min(3600, 120 * Math.pow(2, Math.min(waits, 5))) * 1000;
   }
 
+  // The last statement of PAYOUT_LANE_DDL, which runs at every boot (db.init).
+  async function migratePayoutLanes() {
+    await wait('migratePayoutLanes');
+    for (const p of payouts) {
+      if (!p.paid && p.missing_account !== true && (p.account_waits || 0) === 0 && String(p.reason || '').includes(NO_USDC_ACCOUNT)) {
+        p.missing_account = true;
+      }
+    }
+  }
+
   async function returnPayoutToLane(id) {
     await wait('returnPayoutToLane');
     const r = payouts.find((p) => p.id === id && p.missing_account === true);
-    if (r) { r.missing_account = false; r.next_attempt_at = null; }
+    if (r) { r.missing_account = false; r.next_attempt_at = null; r.attempts = 0; r.account_waits = Math.max(r.account_waits || 0, 1); }
   }
 
   async function savePayoutSignature(id, b) {
@@ -164,7 +175,7 @@ function createMemLedgerDb({ now = () => Date.now(), latency = null } = {}) {
   return {
     stakes, payouts, seedStake,
     claimStakeSig, markStakeSig, claimStakeSeat, refundStakeOwed, listUnsettledStakes,
-    recordFailedPayout, claimDuePayout, deferPayoutNoAccount, returnPayoutToLane,
+    recordFailedPayout, claimDuePayout, deferPayoutNoAccount, returnPayoutToLane, migratePayoutLanes,
     savePayoutSignature, markPayoutPaid, getFailedPayouts,
     features: { durableStakes: true, payoutLanes: true }, NO_USDC_ACCOUNT,
   };

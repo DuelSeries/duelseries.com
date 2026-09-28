@@ -15,7 +15,8 @@
      does not use up one of those attempts (maxClaims bounds the whole tick).
    - slow lane: only rows waiting for an account, with a growing backoff, its own budget after the
      normal lane, and no attempt cap (never dropped). Once the account exists it is paid there; a
-     payout that then fails for another reason goes back to the normal lane.
+     payout that then fails for another reason goes back to the normal lane with a fresh attempt
+     budget (a row owed before the lanes existed can arrive with the old cap used up).
    A row is only ever moved between lanes after an attempt that signed nothing new, so a lane move
    can never lead to a second transaction for one row. */
 
