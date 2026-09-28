@@ -197,7 +197,18 @@ function session(opt) {
   let seed = 12345;                       // deterministic, so a failure repeats
   const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
 
-  const srv = new Snake('me', 'me', 1000, 1000, '#4af');
+  /* The spawn heading is pinned. The server Snake draws it from Math.random,
+     and that was a flaky test hiding a real bug: about one spawn heading in
+     nine put the snake, 20 seconds in, into a 700ms stall that left the
+     predicted heading 130 degrees off the server's, and the correction burst
+     that followed kinked the neck (0.683 of a step, busy mouse). A different
+     heading every run meant it failed about one run in three. Pinned, a
+     failure repeats, and SPAWN_ANGLES below keeps the headings that caught it. */
+  const realRandom = Math.random;
+  Math.random = () => opt.spawnAngle / (Math.PI * 2);
+  let srv;
+  try { srv = new Snake('me', 'me', 1000, 1000, '#4af'); } finally { Math.random = realRandom; }
+  assert.ok(Math.abs(srv.angle - opt.spawnAngle) < 1e-9, 'spawn heading was not pinned');
   const wire = [];
   let simT = 0, tickAcc = 0, snapAcc = 0, started = false, stallUntil = -1;
   let frames = 0, kinked = 0, aheadFrames = 0, worstAhead = 0;
@@ -266,13 +277,22 @@ const sessionWhy = (r) => `${r.kinked}/${r.frames} frames kinked, worst gap ` +
   `${r.worstAhead.toFixed(2)} steps — the stored path folds at the head and the ` +
   `resampler draws the fold`;
 
+/* Spawn headings every session runs at. Before the correction was capped at the
+   snake's own turn rate (see _lCorrect in public/js/game.js), PI / 15 kinked the
+   busy mouse neck to 0.683 of a step and the high latency one to 0.892; 2.5 and
+   3.54 sit in the other two windows that failed. Swept over 360 headings the fix
+   holds every one (worst gap 0.94 or better). */
+const SPAWN_ANGLES = [Math.PI / 15, 2.5, 3.54];
+
 /* A body point in front of the head is never geometry, at any latency. This is
    the property both halves of the fix exist to hold, so assert it directly
    rather than only through the kink it causes. */
 test('no body point is ever in front of the head', () => {
-  for (const ping of [15, 60, 120, 250]) {
-    const r = session({ ping, joinPing: 700, aim: 2.5, stalls: true });
-    assert.strictEqual(r.aheadFrames, 0, `${ping}ms ping: ` + sessionWhy(r));
+  for (const spawnAngle of SPAWN_ANGLES) {
+    for (const ping of [15, 60, 120, 250]) {
+      const r = session({ ping, joinPing: 700, aim: 2.5, stalls: true, spawnAngle });
+      assert.strictEqual(r.aheadFrames, 0, `${ping}ms ping, spawn ${spawnAngle.toFixed(3)}: ` + sessionWhy(r));
+    }
   }
 });
 
@@ -282,8 +302,11 @@ test('and the neck keeps its spacing through server corrections', () => {
     { label: 'busy mouse',   ping: 20,  joinPing: 700, aim: 2.5, stalls: true  },
     { label: 'high latency', ping: 120, joinPing: 700, aim: 2.5, stalls: true  },
   ]) {
-    const r = session(opt);
-    assert.strictEqual(r.kinked, 0, `${opt.label}: ` + sessionWhy(r));
-    assert.ok(r.worst > 0.9, `${opt.label}: ` + sessionWhy(r));
+    for (const spawnAngle of SPAWN_ANGLES) {
+      const r = session({ ...opt, spawnAngle });
+      const at = `${opt.label}, spawn ${spawnAngle.toFixed(3)}: `;
+      assert.strictEqual(r.kinked, 0, at + sessionWhy(r));
+      assert.ok(r.worst > 0.9, at + sessionWhy(r));
+    }
   }
 });

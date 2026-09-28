@@ -93,6 +93,7 @@ let _lpHead = 0;   // next write index
 let _lpLen  = 0;   // valid entry count (≤ LP_SIZE)
 let _lAngle    = 0;   // current head angle
 let _lBoostRamp = 0;  // local boost ramp 0..1 — mirrors the server's ramp/glide exactly
+let _lAngPend = 0, _lAngRate = 0; // heading correction still to turn in, and how fast (rad/ms)
 let _lNumSegs  = 0;   // smoothed segment count — prevents tail snap on boost drops
 let _lReady    = false;
 let _latestMySnap = null; // most recent server snapshot for local player
@@ -640,7 +641,7 @@ function lerpAngle(a, b, t) {
 
 // ─── Local snake simulation helpers ─────────────────────────────────────────
 
-function _lReset() { _lStoreReset(); _lReady = false; _lpHead = 0; _lpLen = 0; _latestMySnap = null; _lNumSegs = 0; _lBoostRamp = 0; }
+function _lReset() { _lStoreReset(); _lAngPend = 0; _lReady = false; _lpHead = 0; _lpLen = 0; _latestMySnap = null; _lNumSegs = 0; _lBoostRamp = 0; }
 
 function _lInit(s) {
   if (!s || !s.segs || s.segs.length < 2) return;
@@ -654,6 +655,7 @@ function _lInit(s) {
     if (_lpLen < LP_SIZE) _lpLen++;
   }
   _lAngle = s.angle || 0;
+  _lAngPend = 0;
   _lReady = true;
 }
 
@@ -695,7 +697,27 @@ function _lCorrect(s) {
   let da = s.angle - _lAngle;
   while (da >  Math.PI) da -= Math.PI * 2;
   while (da < -Math.PI) da += Math.PI * 2;
-  _lAngle += da * 0.15 * corr;
+  /* Turned in by _lAdvance over the next snapshot interval, no faster than the
+     snake can turn, rather than applied here as a step.
+
+     After a network stall the predicted heading can be 130 degrees off the
+     server's, and every queued snapshot lands in the same frame, up to 18 of
+     them for a 700ms gap. As steps they compounded to 1 - 0.85^18 = 95% of the
+     way: the heading swung 96 degrees between two frames, the head set off at
+     that angle from its own neck, and the first body gap drew at 0.68 of a
+     step. Even one step at a time, 15% of 130 degrees per snapshot turns the
+     head about three times faster than the snake can turn, a curve tighter
+     than the body model ever sees, and the neck drew at 0.88. Measured in the
+     client-and-server loop in test/localBody.test.js: 14 of 120 spawn angles
+     kinked this way after a stall.
+
+     Measured from the heading as it is now, so a newer snapshot replaces an
+     older one's remainder instead of stacking on it; a burst lands as one
+     correction, from the newest snapshot. In steady play 15% of the error is
+     well under the turn cap, so sync is unchanged there (same mean and p99
+     heading error in that loop). */
+  _lAngPend = da * 0.15 * corr;
+  _lAngRate = Math.abs(_lAngPend) / (1000 / (CONSTANTS.SNAPSHOT_RATE || CONSTANTS.TICK_RATE));
   // No hard boost-ramp resync — local ramp and glide use the same rules as the server,
   // both are bounded 0..1, and the release decay converges to 0 on its own. (Snapping to
   // the ~100ms-stale server value here fought the local advance and caused micro-jitter.)
@@ -712,6 +734,11 @@ function _lAdvance(dt, targetAngle) {
   const sc = Math.min(6, 1 + (snakeLen - minSegs) / CONSTANTS.SNAKE_SC_SEGS);
   const scang = 0.13 + 0.87 * Math.pow((7 - sc) / 6, 2);
   const tr = CONSTANTS.MAX_TURN_RATE * scang * (dt / msPerTick);
+  if (_lAngPend) {  // the server's heading correction, see _lCorrect
+    const step = Math.min(Math.abs(_lAngPend), _lAngRate * dt, tr) * Math.sign(_lAngPend);
+    _lAngle += step;
+    _lAngPend -= step;
+  }
   let delta = targetAngle - _lAngle;
   while (delta >  Math.PI) delta -= Math.PI * 2;
   while (delta < -Math.PI) delta += Math.PI * 2;
