@@ -275,7 +275,12 @@
 
   /* Only the header follows a balance change while the form is open: a full
      re-render mid-typing would throw away the address being pasted into it. */
-  window.addEventListener('duelwallet:change', () => { cashing ? renderHeader() : render(); });
+  /* Signed out mid cash-out: the half-filled form belongs to the wallet that
+     just left, so it is dropped rather than shown to whoever signs in next. */
+  window.addEventListener('duelwallet:change', () => {
+    if (!connected()) { cashing = false; pending = null; }
+    cashing ? renderHeader() : render();
+  });
   window.V2Wallet = { render: render, login: login, fund: fund, copy: copy,
                       refresh: refresh, openDep: openDep, closeDep: closeDep,
                       cashOut: cashOut, cancelCash: cancelCash, backCash: backCash,

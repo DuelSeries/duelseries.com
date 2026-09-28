@@ -165,6 +165,12 @@ header{position:sticky;top:0;z-index:50;background:rgba(16,14,11,.82);
 .setgrid .tog{margin-top:0}
 .setgrid .tg{cursor:pointer;border:none;font-family:inherit;color:var(--tx2)}
 .setgrid .tg.on{background:var(--bone);color:var(--ink);font-weight:650}
+/* Sign out: the one destructive control on the page, so it is the one red
+   one. Same shape as every other .tg; the red is the lobby's existing error
+   red (the toast cross, a taken name). */
+.setgrid .tg.out{background:#e0705f;color:var(--ink);font-weight:650}
+.setgrid .tg.out:hover{background:#ea8676}
+.setgrid .tg.out:disabled{opacity:.6;cursor:default}
 .acct{font-size:13px;color:var(--tx2);line-height:1.7;word-break:break-all}
 .acct b{display:block;color:var(--tx);font-weight:600;margin-bottom:2px}
 @media(max-width:520px){.setgrid{grid-template-columns:1fr;padding-bottom:30px}}
@@ -3617,11 +3623,54 @@ function drawSettings(){
      tab owns every one of those and there is only one implementation. */
   const w=window.duelWallet||{};
   const box=document.getElementById('set-acct');
+  drawAcct();
+}
+/* The account box alone, so a wallet change can redraw it without resetting
+   the name field someone may be typing in. Sign out shows only when there is
+   a session to end. */
+function drawAcct(){
+  const w=window.duelWallet||{};
+  const box=document.getElementById('set-acct'); if(!box)return;
   box.innerHTML=(w.authenticated&&w.address)
-    ? `<div class="acct"><b>Wallet</b>${w.address}</div>`
+    ? `<div class="acct"><b>Wallet</b>${w.address}</div>
+       <div class="tog"><button type="button" class="tg out" id="set-signout" onclick="signOut(this)">Sign out</button></div>`
     : `<div class="acct">Not signed in.</div>
        <div class="tog"><button type="button" class="tg" onclick="window.duelWalletLogin&&window.duelWalletLogin()">Sign in</button></div>`;
 }
+/* Everything this browser holds that says who you are or what you paid for.
+   The widget already drops the two token copies when Privy reports signed
+   out; doing it here as well means nothing waits on that re-render. The
+   player name and the look stay: they are this device's preferences, and a
+   free game still uses them. */
+function forgetIdentity(){
+  try{['duel_admin_token','duel_id_token'].forEach(k=>localStorage.removeItem(k))}catch(_){}
+  try{['entryToken','entrySol','stake','walletAddress','googleId','playerName']
+        .forEach(k=>sessionStorage.removeItem(k))}catch(_){}
+}
+/* Privy's own logout() through the widget, the same path Sign in uses. The
+   widget then publishes authenticated:false and every screen (header, wallet,
+   stats, this box) redraws itself as signed out. */
+async function signOut(btn){
+  if(typeof window.duelWalletLogout!=='function')return;
+  if(btn){btn.disabled=true;btn.textContent='Signing out...'}
+  try{ await window.duelWalletLogout() }
+  catch(_){
+    if(btn){btn.disabled=false;btn.textContent='Sign out'}
+    if(window.V2Play)V2Play.toast('Could not sign out. Try again.');
+    return;
+  }
+  forgetIdentity();
+  drawAcct();
+}
+/* A session can also end outside this button (another tab, Privy expiring
+   it), so the cache is dropped on any signed-in to signed-out change. */
+let wasAuthed=false;
+window.addEventListener('duelwallet:change',()=>{
+  const now=!!(window.duelWallet||{}).authenticated;
+  if(wasAuthed&&!now)forgetIdentity();
+  wasAuthed=now;
+  drawAcct();
+});
 /* Cleaned as it is typed, the same way the game screen cleans it, so the two
    can never disagree about what your name is. */
 document.addEventListener('input',e=>{
