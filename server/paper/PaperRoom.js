@@ -324,7 +324,9 @@ class PaperRoom {
     }
     const refunded = !!(w && w.micro > 0);
     if (this.directory) this.directory._rememberRelease(seat, why, refunded);
-    console.log('[PAPER] RELEASE ' + this.lobbyType + ' ' + why + ' refund=' + (w ? w.micro : 0) + ' rest=' + rest);
+    // The wallet is logged so a wallet that keeps doing this shows up (review finding: the
+    // unconfirmed seat is a free option; PaperArenas pauses a wallet after RELEASE_MAX).
+    console.log('[PAPER] RELEASE ' + this.lobbyType + ' ' + why + ' refund=' + (w ? w.micro : 0) + ' rest=' + rest + ' wallet=' + (seat.wallet || '-'));
     try {
       this.game.removeHuman(u.id, REASON.FORCED_EXIT);
     } finally {
@@ -420,6 +422,14 @@ class PaperRoom {
     if (m > 0) {
       if (killer && killer.isHuman && this.bank.isOpen(killer.id) && this.bank.transferAll(victim.id, killer.id) >= 0) {
         this.pending.push(['m', killer.id, this.bank.balance(killer.id)]);
+        // A page that reconnects with this seat's resumeKey (pp:dead lost with the link, or a
+        // cut during the grace) is told who took the money, not that it dropped on the floor.
+        if (seat && this.paid && this.directory) {
+          const said = { killerName: killer.name || null };
+          this.directory.rememberOutcome('k:' + seat.resumeKey, 'killed', false, said);
+          // Cut before its first input: a page re-sending the token hears the same.
+          if (seat.proof && !seat.confirmed) this.directory.rememberOutcome('t:' + seat.proof, 'killed', false, said);
+        }
       } else {
         const c = this._clampInside(at);
         const p = this.bank.drop(victim.id, c.x, c.y, this.now());
@@ -530,6 +540,12 @@ class PaperRoom {
       stake: this.stake,
       label: this.lobbyType
     };
+    // The hold can finish after a silent link loss (inputs stay fresh for HOLD_INPUT_STALE_MS):
+    // a page that reconnects with this resumeKey is told it cashed out, not that its money
+    // dropped (review finding). Paid arenas only; a free leave has nothing to report.
+    if (order && order.grossMicro > 0 && seat && this.paid && this.directory) {
+      this.directory.rememberOutcome('k:' + seat.resumeKey, 'cashedout', false, { grossMicro: order.grossMicro, cashoutId: order.cashoutId });
+    }
     try {
       this.game.removeHuman(unit.id, REASON.CASHOUT);
     } finally {
@@ -704,7 +720,11 @@ class PaperRoom {
   }
 
   // Design 5.9: every live account cashed out at the normal 90/10 through onCashout, every
-  // floor coin refunded to its source once, then the arena stops for good.
+  // floor coin refunded to its source once, then the arena stops for good. An UNCONFIRMED
+  // paid seat never played (no input yet): its buy-in goes back in full through onRefund,
+  // bounded by what landed, as on every other exit before a first input (STATUS item 2);
+  // only money it won meanwhile is cashed out at 90/10. Each seat's outcome is remembered so a
+  // page asking again with its token or resumeKey is told the truth, not 'expired'.
   emergencyClose() {
     if (this.closed) return;
     this.closed = true;
@@ -713,16 +733,41 @@ class PaperRoom {
     let total = 0;
     for (const seat of Array.from(this.seats.values())) {
       const id = seat.unit.id;
+      const unconfirmed = this.paid && !seat.confirmed && !seat.released;
+      const back = unconfirmed ? this.bank.withdrawUpTo(id, seat.deposit) : null;
+      if (unconfirmed) seat.released = true; // _seatFreed must not write 'expired' over it
       const w = this.bank.withdraw(id);
+      const socketId = seat.socketId;
       this.seats.delete(id);
-      if (seat.socketId) this.bySocket.delete(seat.socketId);
-      if (this.directory) this.directory._seatFreed(seat);
-      if (!w) continue;
+      if (socketId) this.bySocket.delete(socketId);
+      const refunded = !!(back && back.micro > 0);
+      const cashoutId = w && w.micro > 0 ? crypto.randomUUID() : null;
+      if (this.directory) {
+        if (unconfirmed) this.directory._rememberRelease(seat, 'emergency', refunded);
+        else if (cashoutId && this.paid) this.directory.rememberOutcome('k:' + seat.resumeKey, 'cashedout', false, { grossMicro: w.micro, cashoutId });
+        this.directory._seatFreed(seat);
+      }
+      if (!w && !back) continue;
       accounts++;
-      total += w.micro;
-      if (w.micro > 0) {
+      if (refunded) {
+        total += back.micro;
         try {
-          this.hooks.onCashout({ cashoutId: crypto.randomUUID(), socketId: seat.socketId, wallet: w.wallet, name: w.name, grossMicro: w.micro, stake: this.stake, label: this.lobbyType });
+          this.hooks.onRefund({ wallet: back.wallet, name: back.name, micro: back.micro, paid: seat.paid, why: 'emergency' });
+        } catch (e) {
+          console.error('[PAPER] EMERGENCY CRITICAL refund hook threw, owed ' + back.micro + ' micro to ' + back.wallet + ': ' + (e && e.message));
+        }
+        if (socketId && this.io && !cashoutId) {
+          try {
+            this.io.to(socketId).emit('pp:refused', { why: 'emergency', text: 'This table closed because of a server problem.', refunded: true });
+          } catch (e) {
+            console.error('[PAPER] EMERGENCY tell', e && e.message);
+          }
+        }
+      }
+      if (cashoutId) {
+        total += w.micro;
+        try {
+          this.hooks.onCashout({ cashoutId, socketId, wallet: w.wallet, name: w.name, grossMicro: w.micro, stake: this.stake, label: this.lobbyType });
         } catch (e) {
           console.error('[PAPER] EMERGENCY cashout hook', e && e.message);
         }

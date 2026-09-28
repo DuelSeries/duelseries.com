@@ -45,6 +45,7 @@ const solBackend = {
     return { payer, worth: lamports / 1e9 };
   },
   withdraw:      (addr, amt) => Wallet.withdraw(addr, amt),
+  allowAccountRentFor: () => {},                                      // SOL has no token account
   attemptPayout: (row, fn)   => Wallet.attemptPayout(row, fn),
   escrowBalance: ()          => Wallet.getEscrowBalance(),
   balanceOf:     (addr)      => Wallet.getAddressBalance(addr),
@@ -68,11 +69,18 @@ const usdcBackend = {
     return { mode: 'usdc', ...Usdc.stakeTargets(), amountUsdc: fee, units: Usdc.toUnits(fee).toString(), blockhash };
   },
   amountFor: (amount) => Number(amount) || 0,
+  /* No tolerance (review finding, night queue item 5). The quote is exact integer units and
+     the widget signs exactly quote.units, so an honest stake lands exactly `expected`. The old
+     99 percent floor let a hand-built transfer of 99000 units buy a 100000-unit seat (0.995 a
+     $1 seat): 1 percent off every entry, paid by escrow at every cash-out. SOL mode keeps its
+     price-slippage tolerance, since its amount is a conversion. */
   async verifyStake(sig, expected) {                                  // expected = fee in USDC
-    const { payer, usdc } = await Usdc.verifyUsdcStake(sig, expected * 0.99); // tiny rounding tolerance
+    const { payer, usdc } = await Usdc.verifyUsdcStake(sig, expected);
     return { payer, worth: usdc };
   },
-  withdraw:      (addr, amt) => Usdc.withdrawUsdc(addr, amt),
+  // opts.payRent: escrow may create a missing recipient USDC account (Usdc.js explains when).
+  withdraw:      (addr, amt, opts) => Usdc.withdrawUsdc(addr, amt, opts),
+  allowAccountRentFor: (addr) => Usdc.allowAccountRentFor(addr),
   attemptPayout: (row, fn)   => Usdc.attemptPayout(row, fn),
   escrowBalance: ()          => Usdc.escrowUsdcBalance(),
   balanceOf:     (addr)      => Usdc.usdcBalanceOf(addr),

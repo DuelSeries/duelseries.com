@@ -190,6 +190,24 @@ Still open (defaults chosen by the design, none blocks the build): (5) an arena 
      between the stake and the join, or 5 minutes pass) expires with no refund, for every game; /api/submit-stake
      claims the signature before it refuses a stake paid by a different wallet than the request names (that money
      stays in escrow with no token); an emergency close cashes out an unconfirmed Paper seat at 90/10 like the rest.
+     DONE (night queue item 5, adversarial review fixes), with the other confirmed review findings:
+     - Stakes are exact rungs everywhere (stakeRules.rungOf): 0.10499 or 0.004 no longer opens or relabels an arena,
+       is quoted or minted; arenas are built only from RUNGS. tierFor floors in micro-dollars; the USDC verifier is
+       exact (no 99 percent floor), so a short transfer never buys the rung.
+     - An unspent paid token is refunded when it expires (entryStore onExpire, server/entryExpiry.js: what landed, to
+       the verified payer, once; a failed send is an owed 'refund' row; dev tokens never reach the real escrow). A real
+       token at a shut paid table is refunded at the door. Unspent tokens count as liability and in drainStatus.
+     - Still open: a RESTART between a stake and its join loses the token (memory only). maintenance:check now says
+       "not safe" while any token is pending or a Paper floor coin exists; wait for it before a push.
+     - submit-stake mints to the verified payer and logs a mismatched walletAddress instead of stranding the stake.
+     - Emergency close refunds an unconfirmed seat in full (bounded by what landed), cashes out only what it won.
+     - A reconnect after a finished cash-out gets pp:cashedout again; after being cut, 'killed'; never a false
+       "your money dropped" (PaperArenas outcomes by resumeKey).
+     - Escrow never pays a player's USDC account rent (Usdc.js RECIPIENT_NO_USDC_ACCOUNT, owed until the account
+       exists again); only the revenue wallet and the Battle Royale prize may open one. Escrow SOL low alarm (0.01).
+     - A wallet with RELEASE_MAX (2) unconfirmed-seat refunds in 10 minutes is paused, refunded in full at the door.
+     - The Paper buy-in row is written when the seat is first steered, not when the token is spent.
+     Tests: test/paperReviewFixes, entryExpiry, usdcAccountRent, submitStakeReview (real server), stakeRules.
 - T14 soak: done, TRIM_ON = true in PaperRoom.js (committed, not pushed by the T14 step). `test/paperSoak.test.js`:
   three seeds (Math.random stubbed per run, restored), a paid room, 16 wanderers incl. two wall huggers, scripted exits
   (hold, grace, leave) drive the wall 950 to 475 and joins bring it back, trim injected ON; every tick asserts no

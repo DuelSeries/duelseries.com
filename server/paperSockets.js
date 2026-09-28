@@ -6,7 +6,8 @@
 // payload of the wrong shape before reading it, and no handler can throw out of socket.io
 // (the server has no uncaughtException handler, so a throw would take every live stake down).
 const crypto = require('crypto');
-const { toMicro } = require('./paperPayout');
+const { toMicro, HOUSE_CUT_DIV } = require('./paperPayout');
+const { rungOf } = require('./stakeRules');
 const { MP } = require('./paper/loadPaperLib');
 
 const TEXT = {
@@ -19,7 +20,10 @@ const TEXT = {
   expired: 'Your square is gone. Your money dropped where you stood.',
   warming: 'The table is getting ready.',
   'join-lost': 'The connection dropped while you were joining. Your entry was refunded.',
-  'join-timeout': 'Your connection did not answer in time. Your entry was refunded.'
+  'join-timeout': 'Your connection did not answer in time. Your entry was refunded.',
+  cooldown: 'Your last joins did not connect, so paid tables are paused for this wallet for a few minutes. Your entry was refunded.',
+  emergency: 'This table closed because of a server problem. Your entry was refunded.',
+  killed: 'Your square was cut. The player who cut it took its money.'
 };
 
 const TOKEN_MAX_LEN = 256; // a real token is a UUID; anything longer names no seat
@@ -75,16 +79,33 @@ module.exports = function createPaperSockets({
   function enter(socket, msg, stake, respawn) {
     const token = typeof msg.entryToken === 'string' ? msg.entryToken : undefined;
     const name = sanitizeName(msg.name);
-    // 2. the stake is a ladder rung
-    if (!isStake(stake)) return refuse(socket, 'bad-stake');
-    // 3. paid tables open only behind PAPER_PAID
-    if (stake > 0 && !paidEnabled) return refuse(socket, 'not-open');
+    // 2. the stake is a ladder rung, and from here on it is the ladder's own number: nothing
+    // a message sends (0.10499, 0.004) can become an arena's stake, a label or _ppStake.
+    stake = rungOf(stake);
+    if (stake === null || !isStake(stake)) return refuse(socket, 'bad-stake');
+    // 3. paid tables open only behind PAPER_PAID. A real token offered here (the page leaves
+    // every rung selectable until the board answers) is paid for: it is refunded like any
+    // other door refusal, never left to expire unspent. A page asking again hears that.
+    if (stake > 0 && !paidEnabled) {
+      const p = proofOf(token);
+      const was = p ? arenas.outcomeOf('t:' + p) : null;
+      if (was) return refuse(socket, was.why, { refunded: was.refunded });
+      return refuseAndRefund(socket, token, stake, 'not-open', name);
+    }
     // 3r. reconnect: the seat is proven by its resumeKey; no token is read or consumed
     if (!respawn && msg.resumeKey !== undefined) {
       const key = String(msg.resumeKey);
       const seat = arenas.seatByKey(key);
       if (!seat || !seat.room.resume(socket, seat)) {
-        const was = arenas.outcomeOf('k:' + key); // refunded before its first input
+        // What really became of the seat while the link was down: refunded before its first
+        // input, cashed out (the hold finished and the money went to the wallet), or cut by
+        // a player who took its money. Only a square whose money dropped is 'expired'.
+        const was = arenas.outcomeOf('k:' + key);
+        if (was && was.why === 'cashedout') {
+          const grossMicro = Number(was.grossMicro) || 0;
+          const cutMicro = Math.floor(grossMicro / HOUSE_CUT_DIV);
+          return socket.emit('pp:cashedout', { grossMicro, cutMicro, netMicro: grossMicro - cutMicro, cashoutId: was.cashoutId, resumed: true });
+        }
         return was ? refuse(socket, was.why, { refunded: was.refunded }) : refuse(socket, 'expired');
       }
       socket._ppRoom = seat.room;
@@ -125,6 +146,17 @@ module.exports = function createPaperSockets({
     const entry = consumePaidEntryAtStake(token, stake, 'paper');
     if (!entry || !entry.ok || (stake > 0 && !(entry.worth > 0 && entry.walletAddress))) {
       return refuse(socket, 'entry');
+    }
+    // 7c. a wallet whose last paid joins were refunded before their first input (join-lost,
+    // join-timeout) is paused for a while: an unconfirmed seat's loss is refunded but its win
+    // is kept, so a script could otherwise repeat that 3 s free option on every buy-in. Only
+    // the wallet in the token says who this is, so the pause is decided here, after the
+    // consume, and pays back what landed in full like every other server-decided refusal.
+    if (stake > 0 && arenas.releaseCooldown && arenas.releaseCooldown(entry.walletAddress)) {
+      console.warn('[PAPER] COOLDOWN ' + entry.walletAddress + ' ' + stake);
+      payout.refund({ wallet: entry.walletAddress, name, micro: toMicro(entry.worth), paid: entry.paid, why: 'cooldown' });
+      remember(token, 'cooldown', true);
+      return refuse(socket, 'cooldown', { refunded: true });
     }
     // 8. seat; any throw refunds what landed and leaves no unit behind (addHuman cleans up)
     if (socket._ppRoom && socket._ppRoom !== seat.room) socket.leave(socket._ppRoom.ioRoom);

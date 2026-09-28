@@ -40,17 +40,35 @@ const ALL_STAKES = [FREE].concat(STAKE_TIERS);
 const MIN_STAKE = STAKE_TIERS[0];
 const MAX_STAKE = STAKE_TIERS[STAKE_TIERS.length - 1];
 
-/* Money compared as fixed-point cents. 0.1 + 0.2 !== 0.3 in binary floats, and
-   a stake that misses its tier by one ulp is a room nobody else is in. */
-const cents = v => Math.round(Number(v) * 100);
-const isStake = v => Number.isFinite(Number(v)) && ALL_STAKES.some(t => cents(t) === cents(v));
+/* A stake names a rung only when it IS the rung, up to float noise (0.7 - 0.6 is
+   0.09999999999999998, 2e-17 off). This used to round to cents, so 0.10499 named the
+   $0.10 rung and 0.004 the free one: a Paper join with no token and no money at 0.10499
+   opened the $0.10 arena with that number as its stake, and every honest player seated
+   there was then quoted 0.10499 on Play again (review finding, night queue item 5). An
+   honest client only ever sends a number the server gave it, so an exact match refuses
+   nobody honest. rungOf hands back the ladder's OWN number, which is what every door
+   uses from then on, never the request's. */
+const RUNG_EPS = 1e-9;
+function rungOf(v) {
+  if (typeof v === 'boolean' || v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  if (!Number.isFinite(n)) return null;
+  const t = ALL_STAKES.find(r => Math.abs(r - n) <= RUNG_EPS);
+  return t === undefined ? null : t;
+}
+const isStake = v => rungOf(v) !== null;
+
+/* Money compared as whole micro-dollars (USDC has 6 decimals, so what landed is an exact
+   count of them). Never rounded up to a rung: comparing rounded cents let 0.099 buy the
+   $0.10 rung and 0.995 the $1 rung, a seat worth more than was paid (review finding). */
+const micro = v => Math.round(Number(v) * 1e6);
 
 /* The largest tier this payment covers, or null if it covers none. */
 function tierFor(paid) {
   const n = Number(paid);
   if (!Number.isFinite(n) || n < 0) return null;
   let best = null;
-  for (const t of ALL_STAKES) if (cents(t) <= cents(n)) best = t;
+  for (const t of ALL_STAKES) if (micro(t) <= micro(n)) best = t;
   return best;
 }
 
@@ -61,7 +79,7 @@ function stakeRangeError(v, { tiers = ALL_STAKES } = {}) {
   const n = Number(v);
   if (!Number.isFinite(n)) return 'Not an amount';
   if (n < 0) return 'Not an amount';
-  if (tiers.some(t => cents(t) === cents(n))) return null;
+  if (tiers.some(t => Math.abs(t - n) <= RUNG_EPS)) return null;
   // Whole dollars read better without the cents; anything under a dollar needs
   // them, or the ladder prints "$0.5".
   const label = t => '$' + (t < 1 ? t.toFixed(2) : String(t));
@@ -69,7 +87,8 @@ function stakeRangeError(v, { tiers = ALL_STAKES } = {}) {
 }
 
 /* What a refund of a seat may pay: its stake, never more than what landed on-chain. The
-   verifier accepts a payment up to 1 percent under the rung (the token's paid), so refunding
+   verifier accepted a USDC payment up to 1 percent under the rung until night item 5, and
+   SOL mode still allows 5 percent (the token's paid), so refunding
    the rung itself would mint the difference out of escrow on every refund. paid unknown or
    not a positive number (a free seat, an old caller): the stake, as before. */
 function refundBound(worth, paid) {
@@ -79,4 +98,4 @@ function refundBound(worth, paid) {
 }
 
 module.exports = { STAKE_TIERS, ALL_STAKES, FREE, MIN_STAKE, MAX_STAKE,
-                   isStake, tierFor, stakeRangeError, refundBound };
+                   isStake, rungOf, tierFor, stakeRangeError, refundBound };

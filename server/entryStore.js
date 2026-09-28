@@ -17,7 +17,13 @@
 
 const crypto = require('crypto');
 
-function makeEntryStore({ ttlMs = 5 * 60 * 1000, fees = {}, isStake = null } = {}) {
+/* `onExpire(record)` is called once for every token that expires unspent: the
+   stake behind it landed in escrow and nobody joined with it (the tab closed
+   during the load, the frame was busy, the table was shut), so it is owed
+   back. The token leaves the store BEFORE the call and neither consume path
+   ever removes an expired token, so each one is handed over exactly once.
+   A throwing hook cannot stop the sweep. */
+function makeEntryStore({ ttlMs = 5 * 60 * 1000, fees = {}, isStake = null, onExpire = null, now = () => Date.now() } = {}) {
   const tokens = new Map();   // opaque token -> { lobbyType, stake, worth, paid, walletAddress, googleId, onlyGame, exp }
   const EPS = 1e-9;
 
@@ -32,7 +38,8 @@ function makeEntryStore({ ttlMs = 5 * 60 * 1000, fees = {}, isStake = null } = {
        exist for an amount no room has.
 
        `paid` is what actually landed on-chain, which can sit a little under the
-       rung (the verifier accepts 99 percent of it). It is carried only so a
+       rung in SOL mode (the USDC verifier is exact since night item 5, it used
+       to accept 99 percent). It is carried only so a
        refund can be bounded by it: refunding the rung would mint the gap on
        every refused join. The tier path and older tokens have none.
 
@@ -46,7 +53,7 @@ function makeEntryStore({ ttlMs = 5 * 60 * 1000, fees = {}, isStake = null } = {
         if (isStake && !isStake(stake)) throw new Error('stake is not on the ladder');
       }
       const token = crypto.randomUUID();
-      tokens.set(token, { lobbyType, stake, worth, paid, walletAddress, googleId, onlyGame, exp: Date.now() + ttlMs });
+      tokens.set(token, { lobbyType, stake, worth, paid, walletAddress, googleId, onlyGame, exp: now() + ttlMs });
       return token;
     },
 
@@ -61,7 +68,7 @@ function makeEntryStore({ ttlMs = 5 * 60 * 1000, fees = {}, isStake = null } = {
       if (!isFinite(stake) || stake < 0) return { ok: false, worth: 0 };
       if (stake === 0) return { ok: true, worth: 0 };
       const t = entryToken && tokens.get(entryToken);
-      if (!t || typeof t.stake !== 'number' || Date.now() > t.exp) return { ok: false, worth: 0 };
+      if (!t || typeof t.stake !== 'number' || now() > t.exp) return { ok: false, worth: 0 };
       if (Math.abs(t.stake - stake) > EPS) return { ok: false, worth: 0 };
       if (t.onlyGame && t.onlyGame !== game) return { ok: false, worth: 0 };
       tokens.delete(entryToken);                       // one-time use
@@ -82,16 +89,45 @@ function makeEntryStore({ ttlMs = 5 * 60 * 1000, fees = {}, isStake = null } = {
          was refused with 'Entry fee not verified'. */
       if (!fees[shortType]) return { ok: true, worth: 0 };
       const t = entryToken && tokens.get(entryToken);
-      if (!t || t.lobbyType !== shortType || Date.now() > t.exp) return { ok: false, worth: 0 };
+      if (!t || t.lobbyType !== shortType || now() > t.exp) return { ok: false, worth: 0 };
       if (t.onlyGame) return { ok: false, worth: 0 };  // a scoped token opens its own game's ladder door only
       tokens.delete(entryToken);                       // one-time use
       return { ok: true, worth: t.worth, paid: t.paid, googleId: t.googleId, walletAddress: t.walletAddress };
     },
 
-    /* Paid-but-never-used tokens would otherwise accumulate forever. */
+    /* Paid-but-never-used tokens would otherwise accumulate forever. Each one
+       is a stake that landed and bought nothing, so it goes to onExpire to be
+       paid back (review finding: this used to delete it and the money stayed
+       in escrow with no refund and no record). Deleted first, then handed over. */
     sweep() {
-      const now = Date.now();
-      for (const [k, v] of tokens) if (now > v.exp) tokens.delete(k);
+      const t = now();
+      const expired = [];
+      for (const [k, v] of tokens) if (t > v.exp) { tokens.delete(k); expired.push(v); }
+      if (typeof onExpire !== 'function') return expired.length;
+      for (const v of expired) {
+        try {
+          onExpire(Object.assign({}, v));
+        } catch (e) {
+          console.error('[ENTRY] CRITICAL expiry hook threw, owed ' + v.worth + ' to ' + v.walletAddress + ': ' + (e && e.message));
+        }
+      }
+      return expired.length;
+    },
+
+    /* The tokens minted and not yet spent or swept: stakes in escrow that are
+       owed to somebody (a join or a refund). `worth` is what a refund of each
+       would pay, never more than landed. backedOnly leaves out the scoped dev
+       tokens, which have no chain behind them and are not escrow's to owe. */
+    pending({ backedOnly = false } = {}) {
+      let count = 0, worth = 0;
+      for (const v of tokens.values()) {
+        if (backedOnly && v.onlyGame) continue;
+        count++;
+        const w = Number(v.worth) > 0 ? Number(v.worth) : 0;
+        const p = Number(v.paid);
+        worth += Number.isFinite(p) && p > 0 ? Math.min(w, p) : w;
+      }
+      return { count, worth };
     },
 
     get size() { return tokens.size; },

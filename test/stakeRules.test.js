@@ -79,3 +79,20 @@ test('paying less than the smallest tier buys free play, not a paid seat', () =>
 test('a nonsense payment buys nothing at all', () => {
   for (const v of [-1, NaN, Infinity, 'abc']) assert.equal(tierFor(v), null, String(v));
 });
+
+test('a stake off a rung by more than float noise is refused, however it rounds to cents', () => {
+  // Review finding (night queue item 5): cents rounding made 0.10499 the $0.10 rung and 0.004
+  // the free one, and a Paper join with no token at 0.10499 then set the $0.10 arena's stake.
+  const { rungOf } = require('../server/stakeRules');
+  for (const v of [0.10499, 1.00499, 0.1049, 0.004, 0.0049, 0.105, 0.0999, 1.004, 0.995]) {
+    assert.equal(isStake(v), false, String(v));
+    assert.equal(rungOf(v), null, String(v));
+    assert.match(stakeRangeError(v), /Buy-in must be one of/, String(v));
+  }
+  // What a door uses from here on is the ladder's own number, never the request's.
+  assert.equal(rungOf('0.10'), ALL_STAKES[1]);
+  assert.equal(rungOf(0.7 - 0.6), 0.1);
+  assert.equal(Object.is(rungOf(0.7 - 0.6), ALL_STAKES[1]), true);
+  assert.equal(rungOf(0), 0);
+  for (const v of ['', null, undefined, true, false, 'abc', NaN, Infinity]) assert.equal(rungOf(v), null, String(v));
+});

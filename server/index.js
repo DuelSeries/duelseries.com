@@ -41,6 +41,9 @@ function trackEarning(opts) {
 // All house revenue sweeps to the owner's OWN Phantom wallet ("DuelSeries earned"), kept separate
 // from the escrow (player funds) and from the embedded owner/login wallet.
 const REVENUE_WALLET = '24tf4BRDWvnAjFhpPxKczZSnWdUjKkVbXAc8x7Yj4Fff';
+/* The one address escrow may open a USDC account for (Usdc.js: escrow never pays a
+   player's account rent). Needed only if the revenue wallet's account were ever closed. */
+money.allowAccountRentFor(REVENUE_WALLET);
 
 // Move a rake cut out of the escrow to the revenue wallet. Best-effort + non-blocking: the player's
 // payout already happened, so a failed sweep is queued to the failed-payout drainer (retried
@@ -402,14 +405,28 @@ const ENTRY_TOKEN_MAX_AGE_MS = 5 * 60 * 1000;
 // The stake ladder: free, 0.25, 0.50, 1, 2, 5, 10, 20, 100. A closed set, so an
 // amount is either on it or refused. See server/stakeRules.js.
 const { STAKE_TIERS, ALL_STAKES, MIN_STAKE, MAX_STAKE,
-        isStake, tierFor, stakeRangeError } = require('./stakeRules');
+        isStake, rungOf, tierFor, stakeRangeError } = require('./stakeRules');
+
+/* A paid token that expires unspent is a stake that landed and bought nothing:
+   it is refunded, once, what landed, to the verified payer (server/entryExpiry.js,
+   review finding). Paper's dev tokens go back through Paper's own payout, which is
+   the fake withdraw in dev; paperPayout is defined further down and only read when
+   a sweep runs, long after boot. */
+const refundExpiredEntry = require('./entryExpiry').createExpiryRefund({
+  money,
+  db,
+  devRefund: PAPER_DEV_TOKENS
+    ? (t) => paperPayout.refund({ wallet: t.walletAddress, name: 'Player', micro: Math.round(Number(t.worth) * 1e6), paid: t.paid, why: 'unspent' })
+    : null,
+});
 
 // The store is the same logic that used to be inline here, moved out so it can
 // be tested directly (test/entryStore.test.js). The tier behaviour is unchanged.
 const entryStore = makeEntryStore({ ttlMs: ENTRY_TOKEN_MAX_AGE_MS, fees: LOBBY_FEES,
-                                    isStake: isStake });
-// Sweep expired (paid-but-never-used) tokens so the map stays bounded.
-setInterval(() => entryStore.sweep(), ENTRY_TOKEN_MAX_AGE_MS);
+                                    isStake: isStake, onExpire: refundExpiredEntry });
+// Sweep expired (paid-but-never-used) tokens: each one is refunded by onExpire.
+// Every minute, so a refund goes out within a minute of its token's 5 minutes.
+setInterval(() => entryStore.sweep(), 60 * 1000);
 
 // Verify + consume an opaque paid-entry token the client echoes back from the
 // /api/submit-stake response. The token is server-generated, unguessable, one-time, and
@@ -543,9 +560,12 @@ app.get('/api/stake-quote', entryFeeLimiter, async (req, res) => {
   // supplied, so the tier path below is byte-for-byte what it was for the live
   // client. The two run side by side until cutover.
   if (req.query.stake !== undefined) {
-    const stake = Number(req.query.stake);
-    const bad = stakeRangeError(stake);
+    const bad = stakeRangeError(Number(req.query.stake));
     if (bad) return res.status(400).json({ error: bad });
+    // Quoted at the ladder's own number, never the request's (review finding: 0.10499 was
+    // quoted as 104990 units and then bought the $0.10 rung).
+    const stake = rungOf(Number(req.query.stake));
+    if (stake === null) return res.status(400).json({ error: 'Not an amount' });
     if (stake === 0) return res.json({ stake: 0, escrowAddress: null, lamports: 0, feeSol: 0 });
     try {
       return res.json({ stake, ...(await money.stakeQuoteFor(stake)) });
@@ -582,9 +602,11 @@ app.post('/api/submit-stake', entryFeeLimiter, express.json({ limit: '256kb' }),
      point the stake has settled on-chain. A small overpay must still buy the
      rung it covers; refusing would leave someone out of pocket with no seat. */
   if (stake !== undefined) {
-    const want = Number(stake);
-    const bad = stakeRangeError(want);
+    const bad = stakeRangeError(Number(stake));
     if (bad) return res.status(400).json({ error: bad });
+    // The ladder's own number from here on: verified, minted and answered as the rung.
+    const want = rungOf(Number(stake));
+    if (want === null) return res.status(400).json({ error: 'Not an amount' });
     if (want === 0) return res.status(400).json({ error: 'Free play needs no stake' });
     /* Dev entry tokens (PAPER_DEV_TOKENS, refused at boot beside an escrow key
        or in production). No chain and no signature to claim, but the token is
@@ -617,15 +639,18 @@ app.post('/api/submit-stake', entryFeeLimiter, express.json({ limit: '256kb' }),
          escrow eventually pays out to came from an unauthenticated field —
          the one client-supplied value in the money path that was still being
          trusted, after worth was carefully taken out of the client's hands.
-         The real client always sets the tx fee payer to the player's own
-         wallet, so the two agree; a request where they do not is either a bug
-         or someone redirecting a payout, and is worth refusing loudly. */
+         A request naming another wallet is logged loudly but still minted, to
+         the payer: by here the signature is claimed and the transfer can never
+         be submitted again, so refusing stranded the stake in escrow with no
+         token and no retry (review finding). Nothing is redirected either way:
+         the token, its refunds and its cash-out all go to the payer. */
       if (walletAddress && walletAddress !== payer) {
-        return res.status(400).json({ error: 'Stake was paid by a different wallet' });
+        console.warn(`[STAKE] request named ${String(walletAddress).slice(0, 12)} but ${payer} paid ${sig}: minted to the payer`);
       }
-      /* paid is what landed, which the verifier lets sit up to 1 percent under
-         the rung. It rides the token only to bound a refund: a join the server
-         refuses sends back what landed, never the rung. */
+      /* paid is what landed. In USDC mode that is at least the rung now (the
+         verifier is exact; SOL mode still allows 5 percent under). It rides the
+         token only to bound a refund: a join the server refuses sends back what
+         landed, never more than the rung. */
       const entryToken = entryStore.mint({ stake: rung, worth: rung, paid: worth, walletAddress: payer });
       return res.json({ ok: true, entryToken, worth: rung, stake: rung, paid: worth });
     } catch (e) {
@@ -644,9 +669,10 @@ app.post('/api/submit-stake', entryFeeLimiter, express.json({ limit: '256kb' }),
     // requests with the same sig can't both pass) without burning a valid sig on a transient
     // verify failure. If it returns false, another request already consumed this stake.
     if (!(await db.markStakeSig(sig))) return res.status(400).json({ error: 'Stake already used' });
-    // Same rule as the ladder path above: pay out to who actually paid.
+    // Same rule as the ladder path above: pay out to who actually paid, and a
+    // request naming someone else is logged, never left holding a claimed stake.
     if (walletAddress && walletAddress !== payer) {
-      return res.status(400).json({ error: 'Stake was paid by a different wallet' });
+      console.warn(`[STAKE] request named ${String(walletAddress).slice(0, 12)} but ${payer} paid ${sig}: minted to the payer`);
     }
     const entryToken = entryStore.mint({ lobbyType, worth, walletAddress: payer });
     res.json({ ok: true, entryToken, worth, worthSol: worth }); // worthSol kept for current client back-compat
@@ -878,8 +904,9 @@ const ALL_ROOMS = () => {
      to the console without adding a case to everything that reads the list. */
   if (typeof shooterRoom !== 'undefined' && shooterRoom) out.push(shooterRoom);
   /* Every Paper arena, overflow ones included. Each answers to the same
-     playerCount / botCount / addBot / clearBots, and its `snakes` lists the
-     live paid squares, so drainStatus counts Paper money before a push. */
+     playerCount / botCount / addBot / clearBots, its `snakes` lists the live
+     paid squares and its `floorWorth` the coins on its floor, so drainStatus
+     counts both kinds of Paper money before a push. */
   if (typeof paperArenas !== 'undefined' && paperArenas) out.push(...paperArenas.all());
   return out;
 };
@@ -953,7 +980,7 @@ function opsSnapshot() {
     region: REGION,
     uptimeSec: Math.round(process.uptime()),
     maintenance: ops.get(),
-    drain: ops.drainStatus(ALL_ROOMS()),
+    drain: ops.drainStatus(ALL_ROOMS(), entryStore.pending()),
     battleRoyale: br ? br.publicState() : null,
     rooms,
     audit: ownerAuth.auditLog.slice(0, 25),
@@ -1094,9 +1121,14 @@ app.post('/api/owner/do', async (req, res) => {
       io.emit('maintenance', ops.get());
       return done('Maintenance off. The game is open.');
     case 'maintenance:check': {
-      const d = ops.drainStatus(ALL_ROOMS());
+      /* Unsafe while any stake exists only in this process: a live paid seat,
+         a Paper floor coin, or a paid entry token minted and not yet joined
+         (each refunds itself within about 6 minutes; turn maintenance on and
+         wait). A restart would lose all three with no record. */
+      const d = ops.drainStatus(ALL_ROOMS(), entryStore.pending());
+      const live = Math.round((d.paidWorth + d.floorWorth + d.pendingWorth) * 1e6) / 1e6;
       return d.safe ? done('Safe to restart: nobody has money on the table.')
-                    : refuse(d.reason + ' (' + d.paidWorth + ' USDC live)');
+                    : refuse(d.reason + ' (' + live + ' USDC in memory)');
     }
 
     /* Something to say to everyone who is currently in a game. */
@@ -1395,6 +1427,12 @@ const paperArenas = new PaperArenas({
     onRefund: paperPayout.refund,
     onSweep: paperPayout.sweepFloor,
     onBreach: paperOwnerAlert,
+    /* The buy-in row, written when a paid seat is first steered rather than
+       when its token is spent: a seat refunded before its first input
+       (join-lost, join-timeout, seat-failed, an emergency close, a cooldown)
+       must not show on the player's profile as a stake they lost (review
+       finding). Through recordEntry, still the one place a buy-in is written. */
+    onStake: ({ wallet, worth }) => { recordEntry({ ok: true, worth, walletAddress: wallet }, 'paper'); },
   },
 });
 const paper = require('./paperSockets')({
@@ -1403,7 +1441,9 @@ const paper = require('./paperSockets')({
   socketRL,
   sanitizeName,
   isStake,
-  consumePaidEntryAtStake,
+  /* Paper's door spends the token WITHOUT recordEntry's stake row: the row is
+     written by onStake above, once the seat is steered. */
+  consumePaidEntryAtStake: (token, stake) => entryStore.consumeAtStake(token, stake, 'paper'),
   /* Bound to Paper's door. paperSockets consumes directly (no stake row) for a
      refusal it refunds, and a Paper-scoped dev token must open that door too. */
   entryStore: { consumeAtStake: (token, stake) => entryStore.consumeAtStake(token, stake, 'paper') },
@@ -1730,7 +1770,11 @@ async function payBattleRoyaleWinner(room) {
     return;
   }
   try {
-    const sig = await money.withdraw(w.wallet, BR_PRIZE_USDC);
+    /* payRent: the Battle Royale is free to enter, so its winner may never
+       have held USDC, and this house-funded prize (one a night, won, not
+       farmable) may open their account. Every other payout refuses to
+       (Usdc.js, review finding). */
+    const sig = await money.withdraw(w.wallet, BR_PRIZE_USDC, { payRent: true });
     console.log(`[BR] paid ${BR_PRIZE_USDC} to ${w.name} (${w.wallet}) for ${matchId}: ${sig}`);
     try { await db.recordEarnings(w.wallet, w.name, BR_PRIZE_USDC); } catch (_) {}
     try {
@@ -1803,7 +1847,8 @@ ladder.get('snake', REGION, 0);
 function getRoomForJoin({ lobbyType, stake, region }) {
   const rgn = (region && gameRooms[region]) ? region : REGION;
   if (stake !== undefined && stake !== null && isStake(stake)) {
-    return ladder.get('snake', rgn, Number(stake));
+    // The ladder's own number: a room is never built from a request's 0.10499.
+    return ladder.get('snake', rgn, rungOf(stake));
   }
   return getRoomForType(lobbyType, rgn);
 }
@@ -1905,6 +1950,10 @@ function sumLiveSelfCustodyStakes() {
      dollar once. A coin swept to the house after the hour has left the bank,
      so the liability drops by exactly what the paper_floor ledger row says. */
   for (const r of paperArenas.all()) total += r.liveStakeTotal();
+  /* Paid entry tokens minted and not yet spent: the stake is in escrow and is
+     owed to somebody, as a seat or as the refund its expiry pays. Dev tokens
+     have no chain behind them and are left out. */
+  total += entryStore.pending({ backedOnly: true }).worth;
   return total;
 }
 // The escrow is SHARED across the NA + EU servers, so its true liability is the live stakes
@@ -1927,6 +1976,32 @@ async function checkSolvency() {
     }
   } catch (e) {
     console.error('[SOLVENCY] check failed:', e.message);
+  }
+  if (money.mode === 'usdc' && process.env.ESCROW_PRIVATE_KEY) await checkEscrowSol();
+}
+
+/* Escrow SOL pays the fee of every USDC payout, refund and rake sweep; when it
+   runs out they all fail into failed_payouts. The USDC check above cannot see
+   it, and a leak of it (review finding: escrow paying players' account rent)
+   went unnoticed. Below the floor: logged every check, the owner told at most
+   once an hour. 0.01 SOL is about 2000 payouts at 5000 lamports each. */
+const ESCROW_SOL_FLOOR = 0.01;
+let _escrowSolAlertAt = 0;
+async function checkEscrowSol() {
+  try {
+    const lamports = await Usdc.withRetry(() => Usdc.connection.getBalance(Usdc.escrowPubkey()));
+    const sol = lamports / 1e9;
+    if (_lastSolvency) _lastSolvency.escrowFeeSol = sol;
+    if (!(sol < ESCROW_SOL_FLOOR)) return;
+    console.warn(`[SOLVENCY] escrow SOL low: ${sol.toFixed(6)} SOL left for payout fees (floor ${ESCROW_SOL_FLOOR})`);
+    if (Date.now() - _escrowSolAlertAt < 60 * 60 * 1000) return;
+    _escrowSolAlertAt = Date.now();
+    const s = lobbySocketsByGoogleId.get(OWNER_WALLET);
+    if (s) s.emit('admin:solvency_alert', Object.assign({}, _lastSolvency, { escrowFeeSol: sol, feeSolLow: true }));
+    notify.pushOwner(`Escrow has ${sol.toFixed(4)} SOL left for payout fees. Top it up or payouts will start failing.`,
+      { title: 'Escrow SOL low', priority: 'high' });
+  } catch (e) {
+    console.error('[SOLVENCY] escrow SOL check failed:', e.message);
   }
 }
 // Tick-lag readout. The sim, snapshots and every periodic job share one thread,
@@ -2271,7 +2346,7 @@ io.on('connection', (socket) => {
       socket.emit('br:locked', room.publicState());
       return;
     }
-    socket._stake = byStake ? Number(stake) : null;
+    socket._stake = byStake ? rungOf(stake) : null;
     // One human-readable name for the room, used in logs and owner alerts.
     const roomLabel = byStake
       ? (Number(stake) === 0 ? 'free' : '$' + Number(stake).toFixed(2))

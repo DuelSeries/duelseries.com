@@ -190,10 +190,29 @@ async function usdcHistory(ownerAddress, limit = 12) {
   return out;
 }
 
-// Build + sign a USDC payout from escrow -> recipient, creating the recipient's ATA if missing
-// (escrow pays that rent). Returns everything needed to broadcast AND recover it (same idempotent
-// model as Wallet.buildSignedPayout — re-broadcasting the same bytes can only land once).
-async function buildSignedUsdcPayout(toAddress, amountUsdc) {
+/* Escrow never pays the rent for a player's USDC account (review finding, night queue item 5).
+   It used to create a missing recipient account on every payout, about 0.002 SOL of escrow SOL
+   each time. A stake tx can move a wallet's last USDC in and close its now-empty account in the
+   same tx (the rent goes back to the player, and the verifier only reads the escrow's side);
+   Paper's refund before a first input then sent the stake back AND had escrow re-open the
+   account: a free loop that drained escrow SOL until every payout on the site failed. A real
+   player always has the account, because they staked from it. So a payout to a wallet with no
+   USDC account now throws RECIPIENT_NO_USDC_ACCOUNT before anything is signed or sent: the
+   callers record it owed in failed_payouts, and the drainer pays it once the wallet has an
+   account again (the player makes it, at their own cost). Only addresses the server names here
+   (the house's revenue wallet) or a payout that asks for it (the house-funded Battle Royale
+   prize, one a night, whose winner may never have staked) may have the account created. */
+const RECIPIENT_NO_USDC_ACCOUNT = 'recipient-no-usdc-account';
+const _rentOk = new Set();
+function allowAccountRentFor(address) {
+  if (address) _rentOk.add(String(address));
+}
+
+// Build + sign a USDC payout from escrow -> recipient. Returns everything needed to broadcast
+// AND recover it (same idempotent model as Wallet.buildSignedPayout: re-broadcasting the same
+// bytes can only land once). opts.payRent: create the recipient's account if missing (escrow
+// pays the rent); otherwise a missing account throws RECIPIENT_NO_USDC_ACCOUNT.
+async function buildSignedUsdcPayout(toAddress, amountUsdc, opts) {
   const escrow    = escrowKeypair();
   const recipient = new PublicKey(toAddress);
   const amount    = toUnits(amountUsdc);
@@ -209,7 +228,15 @@ async function buildSignedUsdcPayout(toAddress, amountUsdc) {
   let toExists = true;
   try { await withRetry(() => getAccount(connection, toAta)); }
   catch (e) { if (ataNotFound(e)) toExists = false; else throw e; }
-  if (!toExists) ixs.push(createAssociatedTokenAccountInstruction(escrow.publicKey, toAta, recipient, USDC_MINT));
+  if (!toExists) {
+    const payRent = !!(opts && opts.payRent) || _rentOk.has(recipient.toString());
+    if (!payRent) {
+      const e = new Error(RECIPIENT_NO_USDC_ACCOUNT + ': the wallet has no USDC account; paid once it has one again');
+      e.code = RECIPIENT_NO_USDC_ACCOUNT;
+      throw e;
+    }
+    ixs.push(createAssociatedTokenAccountInstruction(escrow.publicKey, toAta, recipient, USDC_MINT));
+  }
   ixs.push(createTransferCheckedInstruction(fromAta, USDC_MINT, toAta, escrow.publicKey, amount, USDC_DECIMALS));
 
   const { blockhash, lastValidBlockHeight } = await withRetry(() => connection.getLatestBlockhash(), 8);
@@ -223,8 +250,8 @@ async function buildSignedUsdcPayout(toAddress, amountUsdc) {
 
 // Inline cash-out payout (happy path). On failure attaches e.broadcast for the drainer, exactly
 // like Wallet.withdraw, so the USDC payout queue can recover it idempotently.
-async function withdrawUsdc(toAddress, amountUsdc) {
-  const built = await buildSignedUsdcPayout(toAddress, amountUsdc);
+async function withdrawUsdc(toAddress, amountUsdc, opts) {
+  const built = await buildSignedUsdcPayout(toAddress, amountUsdc, opts);
   try {
     await withRetry(() => connection.sendRawTransaction(built.raw, { skipPreflight: false }), 6);
     await withRetry(() => connection.confirmTransaction({ signature: built.signature, blockhash: built.blockhash, lastValidBlockHeight: built.lastValidBlockHeight }), 6);
@@ -293,4 +320,5 @@ module.exports = {
   usdcBalanceOf, escrowUsdcBalance, verifyUsdcStake, verifyUsdcCredit, stakeDeltaUnits, ataFor,
   usdcHistory,
   buildSignedUsdcPayout, withdrawUsdc, attemptPayout, getLatestBlockhash,
+  RECIPIENT_NO_USDC_ACCOUNT, allowAccountRentFor,
 };
