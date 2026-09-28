@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<script src="/js/posthog-init.js"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#2d3331">
+<title>Paper Arena - DuelSeries</title>
+<link rel="preload" href="/fonts/ptsanscaption-700-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/fonts/ptsanscaption.css">
+<link rel="stylesheet" href="/css/paper-arena.css">
+</head>
+<body>
+<canvas id="view"></canvas>
+
+<!-- Live play has no leave control (design 8.6): holding Q (or the button below) is the only way
+     out while the square is alive. "Back to the lobby" lives on the end screens only. -->
+<div id="pp-hint" class="pp-hint" hidden>Hold <b>Q</b> to cash out</div>
+<button type="button" id="pp-cash" class="pp-cash" hidden aria-label="Hold to cash out">
+  <svg viewBox="0 0 72 72" aria-hidden="true">
+    <circle class="pp-cash-track" cx="36" cy="36" r="32"></circle>
+    <circle class="pp-cash-fill" id="pp-cash-fill" cx="36" cy="36" r="32"></circle>
+  </svg>
+  <span id="pp-cash-label">CASH<br>OUT</span>
+</button>
+
+<div id="pp-connecting" class="pp-layer pp-soft">
+  <div id="pp-connecting-text">Connecting</div>
+  <small id="pp-connecting-sub">Finding you a table</small>
+</div>
+
+<div id="pp-reconnecting" class="pp-layer pp-veil" hidden>
+  <div>Reconnecting...</div>
+  <small>Your square keeps moving for a few seconds</small>
+</div>
+
+<div id="pp-refused" class="pp-layer pp-end" hidden>
+  <div class="pp-card">
+    <div class="pp-title">Could not join</div>
+    <div class="pp-line" id="pp-refused-text"></div>
+    <div class="pp-note" id="pp-refused-refund" hidden>Your entry was refunded to your wallet.</div>
+    <div class="pp-actions">
+      <button type="button" class="pp-lobby">Back to the lobby</button>
+    </div>
+  </div>
+</div>
+
+<div id="pp-dead" class="pp-layer pp-end" hidden>
+  <div class="pp-card">
+    <div class="pp-title" id="pp-dead-title">You died</div>
+    <div class="pp-big" id="pp-dead-big"></div>
+    <div class="pp-line" id="pp-dead-line"></div>
+    <div class="pp-note pp-error" id="pp-dead-error" hidden></div>
+    <div class="pp-actions">
+      <button type="button" class="pp-again pp-primary">Play again</button>
+      <button type="button" class="pp-lobby">Back to the lobby</button>
+    </div>
+  </div>
+</div>
+
+<div id="pp-cashed" class="pp-layer pp-end" hidden>
+  <div class="pp-card">
+    <div class="pp-title" id="pp-cashed-title">Cashed out</div>
+    <div class="pp-big" id="pp-cashed-big"></div>
+    <div class="pp-receipt" id="pp-receipt" hidden>
+      <div class="pp-row"><span>Winnings</span><span id="pp-gross"></span></div>
+      <div class="pp-row"><span>10% fee</span><span id="pp-cut"></span></div>
+      <div class="pp-row pp-total"><span>You receive</span><span id="pp-net"></span></div>
+    </div>
+    <div class="pp-note" id="pp-pay-status" hidden></div>
+    <div class="pp-note pp-error" id="pp-cashed-error" hidden></div>
+    <div class="pp-actions">
+      <button type="button" class="pp-again pp-primary">Play again</button>
+      <button type="button" class="pp-lobby">Back to the lobby</button>
+    </div>
+  </div>
+</div>
+
+<div id="pp-gone" class="pp-layer pp-end" hidden>
+  <div class="pp-card">
+    <div class="pp-title" id="pp-gone-title">Disconnected</div>
+    <div class="pp-line" id="pp-gone-text"></div>
+    <div class="pp-actions">
+      <button type="button" class="pp-lobby">Back to the lobby</button>
+    </div>
+  </div>
+</div>
+
+<div id="pp-unsupported" class="pp-layer pp-soft" hidden>This browser cannot run the game.</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="/js/paper/paperGeom.js"></script>
+<script src="/js/paper/paperTerritory.js"></script>
+<script src="/js/paper/paperBots.js"></script>
+<script src="/js/paper/paperUnits.js"></script>
+<script src="/js/paper/paperGame.js"></script>
+<script src="/js/paper/paperGameMoves.js"></script>
+<script src="/js/paper/paperInput.js"></script>
+<script src="/js/paper/paperSkins.js"></script>
+<script src="/js/paper/paperRender.js"></script>
+<script src="/js/paper/paperMain.js"></script>
+<script src="/js/paper/mp/paperWire.js"></script>
+<script src="/js/paper/mp/paperPredict.js"></script>
+<script src="/js/paper/mp/paperNet.js"></script>
+<script src="/js/paper/mp/paperMirror.js"></script>
+<script src="/js/paper/mp/paperHud.js"></script>
+<script src="/js/paper/mp/paperArenaMain.js"></script>
+</body>
+</html>
