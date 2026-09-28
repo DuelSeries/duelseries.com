@@ -124,10 +124,8 @@
       stake: null, lobbyType: 'free', players: 0, state: 'open' },
     { id: 'battleship:free', game: 'battleship', region: 'na',
       stake: null, lobbyType: 'free', players: 0, state: 'open' },
-    /* Paper runs in the browser against bots, so the server never reports a
-       room for it. This row is the only place it can come from. */
-    { id: 'paper:free',      game: 'paper',      region: 'na',
-      stake: null, lobbyType: 'free', players: 0, state: 'open' },
+    /* Paper is not pinned here. Its arenas are on the server and /api/live
+       reports a row per rung, so its Free comes off the real board below. */
   ];
 
   /* Which buy-ins a game can actually seat right now.
@@ -149,6 +147,7 @@
     const rows = occupied();
     const free = LOBBIES.find(l => Number(l.stake) === 0 && l.game === 'snake');
     if (free && !rows.some(r => r.id === free.id)) rows.unshift(free);
+    LOBBIES.forEach(l => { if (l.game === 'paper' && Number(l.stake) === 0 && !rows.includes(l)) rows.push(l); });
     PINNED.forEach(p => {
       if (rows.some(r => r.id === p.id)) return;
       /* The pinned row keeps its own id, stake and door — those are what make

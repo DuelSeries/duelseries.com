@@ -270,8 +270,14 @@
        is free while the mode is new — so routing it through that path would be
        asking the money layer to handle a game that never touches money.
 
-       Everything else still goes through the widget exactly as before. */
-    const OWN_PAGE = { tanks: '/tanks', omgshooter: '/shooter', knockout: '/knockout', battleship: '/battleship', paper: '/paper' };
+       Everything else still goes through the widget exactly as before.
+
+       Paper is deliberately NOT on this list. Its arena is on the server and
+       all three rungs, Free included, go through the widget: stake 0 costs
+       nothing there (an empty token) and every launch writes the whole
+       hand-off the arena page reads, so a Free seat can never open on a
+       token or a stake left over from an earlier paid one. */
+    const OWN_PAGE = { tanks: '/tanks', omgshooter: '/shooter', knockout: '/knockout', battleship: '/battleship' };
     /* A PAID SEAT NEVER TAKES THIS SHORTCUT. The shortcut exists for games with
        no money in them; routing a real buy-in down it would open the table with
        no stake taken and no entry token, which the server would then refuse.

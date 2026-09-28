@@ -212,9 +212,14 @@ async function stakeAndPlay(game, sel, wallet, signTransaction, onStatus, onLaun
   /* Which page this buy-in opens. Knockout is the first game here that has
      its own page AND takes money, so the map is by game rather than by a
      single isAgar flag. Its free seats never reach this function at all -
-     the lobby opens those directly, because there is nothing to stake. */
+     the lobby opens those directly, because there is nothing to stake.
+     Paper is different: all three of its rungs come through here, Free
+     included (stake 0 short-circuits to an empty token above), so every
+     launch writes a fresh hand-off. Without its entry a paid Paper token
+     would fall through to /game.html and the snake client would spend it. */
   const isAgar = game === 'agar';
-  const PAGES = { agar: '/agar.html', knockout: '/knockout', battleship: '/battleship', snake: '/game.html' };
+  const PAGES = { agar: '/agar.html', knockout: '/knockout', battleship: '/battleship', snake: '/game.html',
+                  paper: '/paper-arena' };
   const frame = document.getElementById(isAgar ? 'agar-frame' : 'game-frame');
   const html = PAGES[game] || '/game.html';
   if (frame) {

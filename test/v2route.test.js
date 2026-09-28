@@ -6,6 +6,7 @@ const { test } = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
+const vm = require('vm');
 
 const ROOT = path.join(__dirname, '..');
 const v2 = () => fs.readFileSync(path.join(ROOT, 'public/v2.html'), 'utf8');
@@ -1129,12 +1130,18 @@ test('a duel names its own stake, and does not pretend to find an opponent', () 
   assert.ok(/soon:1/.test(stumble) && !/duel:1/.test(stumble),
     'stumble is unbuilt but not a duel, so it keeps the locked panel');
 
-  /* Paper used to be that example. It is built now: a solo run against bots in
-     the browser, free, with its own page and no part of the money path. */
+  /* Paper used to be that example, and then a solo run against bots in the
+     browser. It is an arena on the server now (docs/paper-multiplayer-design.md
+     section 10): its rooms are rungs of the ladder, Free, $0.10 and $1.00, so
+     it is laddered like the snake game. It is dropped into rather than matched
+     into, so it is never a duel, and never the paid:1 of a paid duel either. */
   const paper = html.match(/\{id:'paper'[^\n]*/)[0];
-  assert.ok(/built:1/.test(paper) && /solo:1/.test(paper) && !/soon:1/.test(paper),
-    'paper.io is a built solo game');
-  assert.ok(!/duel:1/.test(paper) && !/paid:1/.test(paper), 'and takes no stake');
+  assert.ok(/built:1/.test(paper) && /ladder:1/.test(paper),
+    'paper.io is a built game priced in rungs');
+  assert.ok(!/solo:1/.test(paper), 'and no longer a solo run with its own free page');
+  assert.ok(!/soon:1/.test(paper), 'and does not say it is unbuilt');
+  assert.ok(!/duel:1/.test(paper), 'and is not a duel');
+  assert.ok(!/paid:1/.test(paper), 'and not a paid duel either');
 
   /* The arena furniture has to be gone. A ladder, an open-lobby list and a
      snake skin on a one-on-one duel screen are all borrowed from a different
@@ -1282,4 +1289,173 @@ test('an unrecognised lobbyType is logged rather than silently absorbed', () => 
   // Throttle state must be two counters, not a per-value map a client can grow.
   assert.ok(/let _unknownLobbyAt = 0, _unknownLobbySkipped = 0;/.test(s),
     'the throttle keeps no client-keyed state');
+});
+
+test('Paper takes the widget path to its arena page, on every rung', () => {
+  /* docs/paper-multiplayer-design.md section 10. The widget maps a game to its
+     page, and a game it does not know falls through to /game.html, where the
+     snake client would spend a paid Paper token. The bundle is what ships (the
+     deploy does not build), so the map is checked in BOTH. */
+  const src = fs.readFileSync(path.join(ROOT, 'wallet-widget/src/main.jsx'), 'utf8');
+  assert.ok(/const PAGES = \{[^}]*paper: '\/paper-arena'/.test(src), 'the widget source maps paper');
+  const bundle = fs.readFileSync(path.join(ROOT, 'public/wallet/widget.js'), 'utf8');
+  assert.ok(bundle.includes('paper-arena'), 'the built bundle names the arena page');
+  assert.ok(/\{agar:[`'"]\/agar\.html[`'"][^}]*paper:[`'"]\/paper-arena[`'"]/.test(bundle),
+    'and maps paper to it in the same page map, so the bundle is not stale');
+
+  /* The lobby's own shortcut is for games with no money in them. Paper has
+     money on two rungs and a fresh hand-off on all three, so it is not there. */
+  const play = fs.readFileSync(path.join(ROOT, 'public/js/v2/play.js'), 'utf8');
+  const own = play.match(/const OWN_PAGE = \{[^}]*\}/);
+  assert.ok(own, 'the own-page map is still there');
+  assert.ok(!/paper/.test(own[0]), 'and Paper is not on it');
+
+  /* The rows that light the rungs come from the server: /api/live appends the
+     Paper directory's rows, which are game 'paper'. */
+  const s = server();
+  assert.ok(/lobbies: liveBoard\(\)\.concat\(paperArenas\.boardRows\(\)\)/.test(s),
+    '/api/live lists the Paper rows with the lobbies');
+  const arenas = fs.readFileSync(path.join(ROOT, 'server/paper/PaperArenas.js'), 'utf8');
+  const rows = arenas.slice(arenas.indexOf('boardRows()'), arenas.indexOf('get warming'));
+  assert.ok(/game: 'paper'/.test(rows), 'and each of those rows is a paper row');
+
+  // The solo game keeps its own page and route; the arena gets its own.
+  assert.ok(/app\.get\('\/paper', .*public\/paper\.html/.test(s), 'the solo /paper route stays');
+  assert.ok(/app\.get\('\/paper-arena', .*public\/paper-arena\.html/.test(s), 'and /paper-arena is served');
+});
+
+test('the Paper detail screen shows its rules and no snake skin', () => {
+  const html = v2();
+  const paper = html.match(/\{id:'paper'[^\n]*/)[0];
+  assert.ok(/nolook:1/.test(paper), 'Paper has no snake to dress');
+  assert.ok(html.includes('#detail.nolook .lookrow{display:none}'), 'so the skin row is hidden');
+  assert.ok(html.includes("det.classList.toggle('nolook',!!cur.nolook)"), 'by a class the game sets');
+  assert.ok(html.includes("rules:'Kill a player, take their money. Hold Q for 3 seconds to cash out.'"),
+    'the money rules are said before the buy-in');
+  assert.ok(/\.grules\{display:none/.test(html) && html.includes('#detail.hasrules .grules{display:block}'),
+    'on a line of their own that shows only for a game carrying one');
+  assert.ok(html.includes("det.classList.toggle('hasrules',!!cur.rules)"), 'and is switched per game');
+
+  // The browser-only row is gone, and the stake-0 row off the board is pinned instead.
+  const board = fs.readFileSync(path.join(ROOT, 'public/js/v2/board.js'), 'utf8');
+  assert.ok(!board.includes("'paper:free'"), 'no pinned paper:free row');
+  assert.ok(/l\.game === 'paper' && Number\(l\.stake\) === 0/.test(board), 'the Free Paper rung is pinned');
+});
+
+/* A lobby in a box: board.js and play.js as the page loads them, plus the
+   widget's own launch code cut from main.jsx (the duel:play listener and
+   stakeAndPlay), all on one stub window. No browser, no React, no Privy. */
+function lobbyHarness(liveRows) {
+  const els = {};
+  const el = id => (els[id] = els[id] || {
+    id, value: '', hidden: false, readOnly: true, textContent: '', innerHTML: '', src: '',
+    style: { display: '' }, dataset: {},
+    classList: { add() {}, remove() {}, toggle() {} },
+    addEventListener() {}, focus() {}, blur() {}, select() {}, setAttribute() {},
+    contentWindow: { focus() {}, postMessage() {} },
+  });
+  const store = () => {
+    const m = new Map();
+    return { getItem: k => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)),
+             removeItem: k => m.delete(k) };
+  };
+  const on = {};
+  const fetched = [];
+  const plays = [];
+  let pending = null;
+  const win = {
+    console, setTimeout, clearTimeout, setInterval, clearInterval,
+    localStorage: store(), sessionStorage: store(),
+    document: { getElementById: el, addEventListener() {},
+                body: { classList: { add() {}, remove() {} } } },
+    addEventListener(t, fn) { (on[t] = on[t] || []).push(fn); },
+    dispatchEvent(e) { (on[e.type] || []).forEach(fn => fn(e)); return true; },
+    CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init && init.detail; } },
+    MutationObserver: class { observe() {} },
+    requestAnimationFrame: () => 0,
+    alert() {},
+    fetch: async url => {
+      fetched.push(String(url));
+      if (url === '/api/live') {
+        if (!liveRows) throw new Error('offline');
+        return { json: async () => ({ lobbies: liveRows, extras: [] }) };
+      }
+      throw new Error('no server here for ' + url);
+    },
+    duelWallet: { authenticated: true, address: 'WALLET1' },
+    rememberStake() {},
+  };
+  win.window = win;
+  const wallet = { address: 'WALLET1' };
+  win.stakeRef = { current: (game, sel) => {
+    plays.push({ game, sel });
+    pending = win.stakeAndPlay(game, sel, wallet,
+      () => { throw new Error('Free never signs'); }, () => {}, () => {});
+    return pending;
+  } };
+  vm.createContext(win);
+  const widget = fs.readFileSync(path.join(ROOT, 'wallet-widget/src/main.jsx'), 'utf8');
+  const a = widget.indexOf('const SERVER_URLS = ');
+  const b = widget.indexOf('// Self-custody Cash Out');
+  const c = widget.indexOf('const onPlay = (e) => {');
+  const d = widget.indexOf("window.addEventListener('duel:play', onPlay);", c);
+  assert.ok(a > -1 && b > a && c > -1 && d > c, 'the widget launch code is where this test cuts it');
+  vm.runInContext(widget.slice(a, b) + '\nthis.stakeAndPlay = stakeAndPlay;\n' +
+                  widget.slice(c, d) + "\nwindow.addEventListener('duel:play', onPlay);\n", win);
+  for (const f of ['public/js/v2/board.js', 'public/js/v2/play.js'])
+    vm.runInContext(fs.readFileSync(path.join(ROOT, f), 'utf8'), win, { filename: f });
+  el('play-name').value = 'Tester';
+  return { win, el, fetched, plays, pending: () => pending };
+}
+const plain = x => JSON.parse(JSON.stringify(x));   // across the vm realm
+
+test('from the lobby, Free Paper opens /paper-arena with stake 0 and no token', async () => {
+  const h = lobbyHarness([
+    { id: 'na_s0', game: 'snake', region: 'na', stake: 0, players: 0, bots: 0, capacity: null, state: 'open' },
+    { id: 'paper:na:s0', game: 'paper', region: 'na', stake: 0, players: 0, bots: 15, capacity: 16, state: 'open' },
+  ]);
+  await h.win.V2Board.load();
+  const lob = h.el('lob').innerHTML;
+  assert.ok(lob.includes('paper:na:s0'), 'the empty Free Paper rung is on the board');
+  assert.ok(!lob.includes('paper:free'), 'and the old browser-only row is not');
+
+  h.win.V2Board.join('paper:na:s0');                  // its Enter button
+  assert.deepEqual(plain(h.plays), [{ game: 'paper', sel: { stake: 0 } }],
+    'the lobby hands the widget the stake-0 rung, never a tier');
+  await h.pending();
+  const ss = h.win.sessionStorage;
+  assert.equal(h.el('game-frame').src, '/paper-arena', 'the widget opens the arena page');
+  assert.equal(h.el('game-frame').style.display, 'block', 'in the game frame');
+  assert.equal(ss.getItem('stake'), '0', 'with stake 0 in sessionStorage');
+  assert.equal(ss.getItem('entryToken'), '', 'and an empty token, freshly written');
+  assert.equal(ss.getItem('lobbyType'), null, 'and no tier beside it');
+  assert.equal(ss.getItem('walletAddress'), 'WALLET1');
+  assert.equal(ss.getItem('region'), 'na');
+  assert.equal(ss.getItem('playerName'), 'Tester');
+  assert.ok(!h.fetched.some(u => /stake/.test(u)), 'Free asks for no quote and stakes nothing');
+});
+
+test('a cold start with no board still opens Free Paper on the stake-0 rung', async () => {
+  /* /api/live failed: no rows at all. The ladder flag is what keeps this off
+     the widget's lobbyType path, which would clear the stake the arena page
+     reads. The flag is read from the real catalogue row. */
+  const h = lobbyHarness(null);
+  await h.win.V2Board.load();
+  const row = v2().match(/\{id:'paper'[^\n]*/)[0];
+  h.win.V2_HAS_LADDER = id => id === 'paper' && /ladder:1/.test(row);
+  h.win.V2Detail = { game: 'paper', stake: 0 };
+  h.win.V2Play.playChosen();
+  assert.deepEqual(plain(h.plays), [{ game: 'paper', sel: { stake: 0 } }]);
+  await h.pending();
+  assert.equal(h.el('game-frame').src, '/paper-arena');
+  assert.equal(h.win.sessionStorage.getItem('stake'), '0');
+});
+
+test('a paid Paper rung goes to the widget to be staked, never straight to a page', async () => {
+  const h = lobbyHarness([]);
+  h.win.V2Play.launch('paper', { stake: 0.1 });
+  assert.deepEqual(plain(h.plays), [{ game: 'paper', sel: { stake: 0.1 } }]);
+  await assert.rejects(h.pending(), /no server here/, 'the stub server refuses the quote');
+  assert.ok(h.fetched.includes('/api/stake-quote?stake=0.1'), 'the widget asked for the $0.10 quote');
+  assert.equal(h.el('game-frame').src, '', 'and nothing opened without a stake');
 });

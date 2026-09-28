@@ -901,6 +901,10 @@ body.no-foot footer{display:none}
 #detail.solo .duelbet,#detail.solo .lobwrap,#detail.solo .lookrow,
 #detail.solo .queued{display:none}
 #detail.solo .dbnote{display:block}
+/* ── an arena with no snake in it ──────────────────────────────────────────
+   Paper has the ladder and the lobby list of an arena, but the skin row
+   dresses a snake, and a game of squares has none to dress. */
+#detail.nolook .lookrow{display:none}
 /* The amount is the control, so it gets the size — and the arrows sit either
    side of it where a thumb already is, rather than stacked above and below
    where one of them is always the wrong distance away. */
@@ -948,6 +952,11 @@ body.no-foot footer{display:none}
   color:var(--tx3);text-align:center;min-height:38px}
 #detail.duel .dbnote{display:block}
 #detail.queueing .dbnote{display:none}
+/* The money rules of a game nobody could guess them for, said once before the
+   buy-in is spent. Hidden unless the game carries its own line. */
+.grules{display:none;margin:14px 0 0;font-size:12.5px;line-height:1.6;
+  color:var(--tx2);text-align:center}
+#detail.hasrules .grules{display:block}
 
 /* ── waiting for somebody ───────────────────────────────────────────────── */
 .queued{display:none;align-items:center;gap:14px;margin-top:18px;
@@ -1851,6 +1860,9 @@ body.scr-anim { overflow-x:hidden }
          down under the thumb about to hit them. Down here it can say whatever
          it needs to and nothing above it moves. -->
     <p class="dbnote" id="dbnote"></p>
+    <!-- One line of rules, for a game that carries its own. Filled from the
+         game's row in GAMES by open_, and shown only then. -->
+    <p class="grules" id="grules"></p>
     <!-- The line that used to sit here said either "Free play. Nothing staked,
          nothing paid out" or the house-cut sentence. Both are in How to play
          now, which is where somebody goes to be told how it works. -->
@@ -2159,11 +2171,13 @@ const GAMES=[
  {id:'battleship',name:'Battleship',c:['#141a24','#7b93c4'],type:'m',duel:1,built:1,paid:1,
   d:'Hide your fleet, then find theirs before they find yours.'},
 
- /* Built, and free: it runs entirely in the player's browser against bots, so
-    there is no room on the server and nothing a stake could be held against.
-    Paid tables need the server to run the round, which is a separate build. */
- {id:'paper',name:'Paper.io',c:['#1e1826','#a887d6'],type:'p',built:1,solo:1,
-  soloNote:'Free, against bots. No stake and nothing paid out. You are playing for the biggest share of the map.',
+ /* Built, and an arena on the server now: the rooms are rungs of the same
+    ladder as slither.io (Free, $0.10, $1.00), so it is ladder:1 and every rung
+    goes through the wallet widget to /paper-arena. It is not paid:1 or duel:1,
+    because it is dropped into rather than matched into. nolook:1 hides the
+    snake skin row, and `rules` is the one line it shows under Play. */
+ {id:'paper',name:'Paper.io',c:['#1e1826','#a887d6'],type:'p',built:1,ladder:1,nolook:1,
+  rules:'Kill a player, take their money. Hold Q for 3 seconds to cash out.',
   d:'Claim ground by looping back home without anyone crossing your trail.'},
  /* Placeholders so these are not forgotten. soon:1 greys the card and takes it
     out of the tab order, so none of them is reachable or clickable — the slot
@@ -3177,6 +3191,11 @@ function open_(id){
      with every rung live. Same panel, different rungs open. */
   det.classList.toggle('paidduel',!!cur.paid);
   det.classList.toggle('solo',!!cur.solo);
+  det.classList.toggle('nolook',!!cur.nolook);
+  /* Its own line and its own class, so no game shows another game's rules. */
+  det.classList.toggle('hasrules',!!cur.rules);
+  const gr=document.getElementById('grules');
+  if(gr)gr.textContent=cur.rules||'';
   /* The stepper note describes a stake, and this table takes none. Leaving it
      there had the screen promising a $1.00 pot on a free game. */
   const dn=document.getElementById('dbnote');
