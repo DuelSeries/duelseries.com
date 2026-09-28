@@ -72,6 +72,7 @@ function wallDistance(border, p) {
 function crossingOf(border, space, pIn, qOut) {
   const n = border.pointCount;
   const wallVerts = border.polygon.segments;
+  if (wallDistance(border, qOut) <= NEAR_WALL) return onWall(border, qOut);
   let hit = null;
   // Analytic: the sectors between the two ends (the short way round) plus one each side.
   const k1 = sectorOf(border, pIn);
@@ -126,6 +127,38 @@ function crossingOf(border, space, pIn, qOut) {
   return { point: obj, k, s, pos: k + s };
 }
 
+// A ring vertex that sits on the wall (planTrim counts it as outside) IS the crossing of its
+// edge: the same object, placed on its wall edge (exactly on a wall vertex when within 2^-26).
+function onWall(border, q) {
+  const n = border.pointCount;
+  let k = sectorOf(border, q);
+  const { a, b } = edgeInfo(border, k);
+  let s;
+  if (Math.abs(q.x - a.x) <= GEOM_EPSILON && Math.abs(q.y - a.y) <= GEOM_EPSILON) s = 0;
+  else if (Math.abs(q.x - b.x) <= GEOM_EPSILON && Math.abs(q.y - b.y) <= GEOM_EPSILON) {
+    k = (k + 1) % n;
+    s = 0;
+  } else {
+    const ex = b.x - a.x;
+    const ey = b.y - a.y;
+    s = Math.min(1, Math.max(0, ((q.x - a.x) * ex + (q.y - a.y) * ey) / (ex * ex + ey * ey)));
+  }
+  return { point: q, k, s, pos: k + s };
+}
+
+// Does the segment a-b meet any committed trail piece anywhere but at its own two ends?
+function crossesTrail(space, a, b) {
+  const hits = space.intersections(new P.Segment(a, b));
+  for (let i = 0; i < hits.length; i++) {
+    const h = hits[i];
+    const shape = h.segment.shape;
+    if (!shape || !shape.owner || !shape.owner.isTrack) continue;
+    if (!h.overlay && (h.point === a || h.point === b || h.point.equal(a) || h.point.equal(b))) continue;
+    return true;
+  }
+  return false;
+}
+
 // Pure. Returns { status, keep?, droppedLobe?, pieces? }; see design 9.4 for each status.
 function planTrim(base, border, anchor) {
   const ring = base.polygon;
@@ -134,6 +167,14 @@ function planTrim(base, border, anchor) {
   if (n < 3) return { status: 'invalid', why: 'ring under 3' };
   const inside = verts.map((v) => MP.wallInside(border, v.x, v.y));
   if (inside.every(Boolean)) return { status: 'clean' };
+  // A ring vertex ON the wall (a wall slide lays trail points on the edge, and a capture
+  // makes them ring vertices) counts as outside for the clip, the usual perturbation for
+  // Weiler-Atherton: the wall walk then replaces the ring's own run along the edge, and the
+  // crossings at its ends resolve to those same vertex objects (checkPoint). Counted inside,
+  // the wall walk could run back over them and the kept ring touched itself (soak probe).
+  for (let i = 0; i < n; i++) {
+    if (inside[i] && wallDistance(border, verts[i]) <= NEAR_WALL) inside[i] = false;
+  }
 
   const ringSign = Math.sign(signedArea(verts));
   const wallPts = vertsOf(border.polygon);
@@ -277,6 +318,11 @@ function planTrim(base, border, anchor) {
     if (len <= GEOM_EPSILON) return { status: 'invalid', why: 'zero-length edge' };
     const isOld = oldNext.get(a) === b || oldNext.get(b) === a;
     if (!isOld && len > MP.TRIM_MAX_EDGE) return { status: 'invalid', why: 'long new edge ' + len };
+    // A new edge (the wall run, or an edge to a crossing) must not cross any trail: the trail
+    // was laid against the old ring, so it holds no enter or exit record for this edge, and
+    // the owner's next capture would merge its trail across it (soak probe: a spiked ring
+    // hundreds of ticks later). Wait until the trail is gone, as for a dropped trail vertex.
+    if (!isOld && space && crossesTrail(space, a, b)) return { status: 'blocked', why: 'trail crosses a new edge' };
   }
   const area = signedArea(keep);
   if (Math.abs(area) < MP.TRIM_MIN_AREA) return { status: 'empty' };
@@ -333,12 +379,35 @@ function checkRing(base) {
     const b = segs[(i + 1) % n].start;
     if (a !== b && Math.abs(a.x - b.x) <= GEOM_EPSILON && Math.abs(a.y - b.y) <= GEOM_EPSILON) return 'two points within 2^-26 at ' + i;
   }
+  // Every non-adjacent pair, through a sweep over x: Segment.intersect only ever reports a
+  // point inside both boxes (within 2^-26), so pairs whose boxes miss by more are skipped
+  // without changing the answer (the all-pairs loop cost seconds on a 2000-vertex ring).
+  const E = 1e-6;
+  const lo = new Float64Array(n);
+  const hi = new Float64Array(n);
+  const top = new Float64Array(n);
+  const bot = new Float64Array(n);
+  const order = new Array(n);
   for (let i = 0; i < n; i++) {
-    for (let j = i + 2; j < n; j++) {
-      if (i === 0 && j === n - 1) continue;
-      const hit = segs[i].intersect(segs[j]);
-      if (hit) return 'not simple: ' + i + ' x ' + j;
+    const s = segs[i];
+    lo[i] = Math.min(s.start.x, s.end.x) - E;
+    hi[i] = Math.max(s.start.x, s.end.x) + E;
+    top[i] = Math.min(s.start.y, s.end.y) - E;
+    bot[i] = Math.max(s.start.y, s.end.y) + E;
+    order[i] = i;
+  }
+  order.sort((a, b) => lo[a] - lo[b]);
+  let active = [];
+  for (const k of order) {
+    active = active.filter((o) => hi[o] >= lo[k]);
+    for (const o of active) {
+      const i = Math.min(o, k);
+      const j = Math.max(o, k);
+      if (j - i < 2 || (i === 0 && j === n - 1)) continue;
+      if (top[k] > bot[o] || top[o] > bot[k]) continue;
+      if (segs[i].intersect(segs[j])) return 'not simple: ' + i + ' x ' + j;
     }
+    active.push(k);
   }
   const unit = base.unit;
   if (unit && unit.in !== base && unit.track && unit.track.polyline.start) {

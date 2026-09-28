@@ -9,8 +9,9 @@ const PaperBank = require('./PaperBank');
 const { ArenaWire } = require('./arenaWire');
 const arenaTrim = require('./arenaTrim');
 
-// The territory trim ships switched off until the T14 soak test passes (design 9.6).
-const TRIM_ON = false;
+// The territory trim is on: the T14 soak (test/paperSoak.test.js) passed three runs in a row
+// (design 9.6). A room built with trim: null still runs without it.
+const TRIM_ON = true;
 
 const REQUIRED_HOOKS = ['onCashout', 'onTransfer', 'onRefund', 'onSweep', 'onBreach'];
 const IN_RATE_MAX = 120; // pp:in per second per seat; more are ignored (6.2)

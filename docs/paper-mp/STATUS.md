@@ -60,7 +60,7 @@ Final design written. Base is reuse-first (scores: reuse 26, netcode 24, money 2
   acceptance: test/inlineScripts.test.js still passes; posthog-init.js is the first script and both phEvent calls are present; canvas fills the frame at phone and desktop sizes; FREE arena in the browser against duelseries-local: 5 minutes with zero console errors, own square within 2 u at 100 ms simulated latency, minimap and leaderboard with percentages updating within a second of a capture, Kill and +x.xx% labels and the kill counter, the hold ring and all five screens, a reconnect resumes the same square; PAID HUD against duelseries-local with PAPER_DEV_TOKENS=1 and hand-seeded sessionStorage: money label, coin, count-up, cashed-out receipt; the touch hold button does not steer on a phone viewport; game:done returns to the lobby only from an end screen (no live-play leave control); entryToken is removed from sessionStorage after the single pp:join.
 - **T13 Lobby wiring for Free, $0.10 and $1.00**  files: public/v2.html, public/js/v2/play.js, public/js/v2/board.js, wallet-widget/src/main.jsx, public/wallet/widget.js, test/v2route.test.js  depends on: T9 AND T12
   acceptance: test/v2route.test.js passes with the rewritten Paper assertions (built:1, ladder:1, not solo, not paid) and new pins (PAGES maps paper in source AND built bundle, OWN_PAGE has no paper); the committed public/wallet/widget.js contains paper-arena; from the lobby Free opens /paper-arena with stake 0 in sessionStorage; ships in the same push as T9 and T12, never before the page exists.
-- **T14 Shrink and trim soak test, then switch the trim on**  files: test/paperSoak.test.js  depends on: T4, T5, T7
+- **T14 Shrink and trim soak test, then switch the trim on** (DONE 2026-09-28, TRIM_ON = true)  files: test/paperSoak.test.js  depends on: T4, T5, T7
   acceptance: test/paperSoak.test.js passes three runs in a row with different Math.random stubs: 16 wandering humans incl. a wall hugger through 950 to 475 and back with the trim on, zero throws, zero deaths on a push piece, zero units outside the wall after any tick, pushCrossings 0, every trail and ring simple, checkRing on every base every 60 ticks, bank conserved; only then is TRIM_ON set true by the T7 owner (PaperRoom.js stays T7's file).
 
 Order: T1, T2, T3 in parallel. T4 and T5 next. T6, T10. T7. T8, T11. T12. Then T9 + T12 + T13 in ONE push (free only) = milestone 1. T14.
@@ -100,7 +100,7 @@ Still open (defaults chosen by the design, none blocks the build): (5) an arena 
   6. `pushCrossings` is counted, not required to be 0: a presser's zigzag makes all three twists cross sometimes (41 in
      the 1500-tick test); each is vetoed with a rewind, never a death, trails stay simple.
   `MP.pushPoint` was added to `paperWire.js` (T1's file) because the predictor (T10) needs the same push target.
-- T5 trim: done (e69bac1), still OFF (TRIM_ON waits for T14).
+- T5 trim: done (e69bac1), switched ON by T14 (2026-09-28).
 - T6 wire builder: done. `arenaTrim.applyTrim` now records the pre-trim ring size so the wire can tell a plain trim
   (no ring sent) from a carve. Finding for T11: the design's RADIAL clamp of stored rings is exact along the wall run
   but cuts the corner where a ring meets the wall by up to about 1.2 u (measured); cosmetic (land percent comes from
@@ -148,6 +148,40 @@ Still open (defaults chosen by the design, none blocks the build): (5) an arena 
      18 u in the first 500 ms after a spawn). Check on the Linux server; consider a drift-corrected timer.
   5. Pre-existing: drainPayouts records earnings for recovered rake-sweep rows; Knockout/Battleship refunds pay the
      rung; the stock leaderboard cache throws if first drawn at 0 size (arena page guards it, solo cannot be edited).
-- NEXT: T14 (shrink + trim soak test, then TRIM_ON = true in PaperRoom.js).
+- T14 soak: done, TRIM_ON = true in PaperRoom.js (committed, not pushed by the T14 step). `test/paperSoak.test.js`:
+  three seeds (Math.random stubbed per run, restored), a paid room, 16 wanderers incl. two wall huggers, scripted exits
+  (hold, grace, leave) drive the wall 950 to 475 and joins bring it back, trim injected ON; every tick asserts no
+  throw, no death on or across a push piece, every square inside the wall, pushCrossings matched to pushed squares
+  that lived, every trail and changed ring simple, the bank and liability conserved; checkRing on every base every 60
+  ticks. About 10 s per seed (about 32 s for the file, full npm test about 40 s). PAPER_SOAK_RUNS=n runs n seeds (the
+  13 listed ones first), PAPER_SOAK_SEEDS=a,b,c exactly those; 40 listed/derived seeds and 60 fresh ones passed.
+  It found six real bugs, each fixed without loosening an invariant:
+  1. ArenaGame: a square pressed into a wall corner while the wall moves makes an OVERLAY self-hit; the veto rewound,
+     then the rest of the move laid the fold again (non-simple trail). An overlay veto (not on the push piece) now
+     stops the square at the cut for the rest of that tick (`_haltMove`).
+  2. ArenaGame: a square pressed square-on into the wall slides a hair one way, then back, so a piece can run straight
+     back along the trail piece before it, ending under 1e-6 u off it on the far side; the next push piece then crosses
+     it at a point the geometry snaps to the tip, so nothing sees it. Inside the wall-rule veto window (wall moving, or
+     under SHRINK_VETO_MS since its last step) and within 5 u of the wall, a piece that folds back within 1e-5 u of the
+     previous piece's line is now cut and the square rests that tick (`_cutFold`, `stats.foldCuts`; never the push
+     piece). That is the same rest the vetoed stock kill for running back along the trail gives; on a static wall the
+     stock rules stay exactly as solo. The client predictor does not model the cut; a rare cut is a tiny re-base.
+  3. ArenaGame: a trail that comes home along the base's own edge (sliding along a wall run) makes a zero-area loop,
+     and the stock sign test on it is noise: a 1759-edge base became a 7-edge sliver. A return whose loop is under
+     1e-6 u2 (flat loops measured about 1e-12, the smallest real capture 0.005) now captures nothing
+     (`flatReturn`, `stats.flatReturns`).
+  4. arenaTrim.planTrim: ring vertices ON the wall edge (trail points from a wall slide, captured) counted as inside, so
+     the wall walk could run back over them and the kept ring touched itself. They now count as outside (the usual
+     Weiler-Atherton perturbation) and the crossing at the end of such a run IS that vertex (`onWall`).
+  5. arenaTrim.planTrim: a new edge of the kept ring (the wall run) could cross a trail laid against the old ring, so
+     the owner's next capture merged across it (a spiked ring hundreds of ticks later). Such a plan is now `blocked`
+     until the trail is gone (`crossesTrail`).
+  6. ArenaGame: a trail that leaves home along the ring's own edge (a slide out of a wall corner along a wall run)
+     is merged by the next capture as a zero-width spike (three ring vertices collinear within 1e-13, running out and
+     straight back). After each capture, spike tips used only by that ring (and the returning trail) are dropped; no
+     area changes (`_despike`, `stats.despiked`).
+  Also `checkRing` finds non-adjacent crossings with a sweep over x instead of all pairs (same answer on 4000 random
+  rings; the all-pairs loop cost seconds per 2000-vertex ring).
+- NEXT: the night queue (Paper lag, lobby items, paid tables through their own safeguards).
 - Pre-existing flaky tests (fail without any Paper change): `localBody.test.js` "the neck keeps its spacing" about 1 run
   in 3, and `cashoutHold.test.js` under CPU contention. Not touched.

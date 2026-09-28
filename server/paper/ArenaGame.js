@@ -76,6 +76,51 @@ class ArenaHuman extends P.GameUnit {
   }
 }
 
+// Does `piece` (starting where `prev` ends) run back along `prev`, ending within FOLD_EPS of
+// its line? A real turn, however sharp, ends well off the line and stays simple.
+const FOLD_EPS = 1e-5;
+function foldsBack(prev, piece) {
+  const vx = prev.end.x - prev.start.x;
+  const vy = prev.end.y - prev.start.y;
+  const wx = piece.end.x - piece.start.x;
+  const wy = piece.end.y - piece.start.y;
+  if (vx * wx + vy * wy >= 0) return false;
+  const len = Math.hypot(vx, vy);
+  if (!(len > 0)) return false;
+  const off = Math.abs(vx * (piece.end.y - prev.start.y) - vy * (piece.end.x - prev.start.x)) / len;
+  return off <= FOLD_EPS;
+}
+
+// The loop stock handleReturn builds (paperGameMoves.js, the ring between the trail's two
+// ends, reversed, then the trail) has |area| under FLAT_AREA: the capture is ambiguous. Measured in
+// the soak: flat loops about 1e-12 u2, the smallest real capture 0.005 u2.
+const FLAT_AREA = 1e-6;
+function flatReturn(unit) {
+  const trail = unit.track.polyline;
+  const ring = unit.base.polygon;
+  const first = trail.start;
+  const last = trail.end;
+  if (!first || !last) return false;
+  const fromIdx = ring.segments.findIndex((seg) => seg.start === first);
+  const toIdx = ring.segments.findIndex((seg) => seg.start === last);
+  if (fromIdx < 0 || toIdx < 0) return false;
+  const lo = Math.min(fromIdx, toIdx);
+  const hi = Math.max(fromIdx, toIdx);
+  const trailPts = [trail.start];
+  for (const seg of trail.segments) trailPts.push(seg.end);
+  if (lo !== fromIdx) trailPts.reverse();
+  const loop = [];
+  for (let i = hi - 1; i > lo; i--) loop.push(ring.segments[i].start);
+  for (const p of trailPts) loop.push(p);
+  let sum = 0;
+  for (let i = 0; i < loop.length; i++) {
+    const a = loop[i];
+    const b = loop[i + 1 < loop.length ? i + 1 : 0];
+    sum += (a.x + b.x) * (b.y - a.y);
+  }
+  return Math.abs(sum / 2) < FLAT_AREA;
+}
+
 class ArenaGame extends P.Game {
   constructor(config, view, space, border, skinManager, gameOverCallback, nameManager,
     controller, language, schemesManager, seed) {
@@ -98,6 +143,9 @@ class ArenaGame extends P.Game {
     this._lastShrinkAt = -Infinity;
     this.stats.pushCrossings = 0;
     this.stats.shrinkVetoes = 0;
+    this.stats.foldCuts = 0;
+    this.stats.flatReturns = 0;
+    this.stats.despiked = 0;
   }
 
   // Bots read game.player; here it is the prey the per-bot wrap hands them (4.5). The stock
@@ -276,8 +324,10 @@ class ArenaGame extends P.Game {
     const border = this.border;
     border.resetGuard();
     unit._pushPiece = null;
+    unit._moveHalted = false;
+    unit._curMove = null;
     if (MP.wallInside(border, unit.position.x, unit.position.y)) {
-      return super.getMovement(dtMs, unit);
+      return (unit._moveQueue = this._cutFold(unit, super.getMovement(dtMs, unit), 0));
     }
     const piece = this._pushPieceFor(unit);
     unit._pushPiece = piece;
@@ -298,7 +348,39 @@ class ArenaGame extends P.Game {
       unit.target = savedTarget;
     }
     rest.unshift(piece);
-    return rest;
+    return (unit._moveQueue = this._cutFold(unit, rest, 1));
+  }
+
+  // A square pressed square-on into the wall slides a hair one way and then the other, so a
+  // piece can run straight back along the trail piece before it (soak probe: the end lands
+  // under 1e-6 u off that piece, on its far side, and the next push piece crosses it at a point
+  // the geometry snaps to the tip, so nothing sees the crossing). Such a fold is cut: the
+  // pieces from the fold on are dropped and the square rests for this tick. Only inside the
+  // wall-rule veto window (wall moving, or under SHRINK_VETO_MS since its last step) and within
+  // 5 u of the wall, where the stock kill for running back along the trail is vetoed anyway
+  // (rewind and halt, the same rest); on a static wall the stock rules stay exactly as solo.
+  // `from` skips the push piece, which must always carry the square inside.
+  _cutFold(unit, pieces, from) {
+    if (!(this.shrinking || this.nowMs - this._lastShrinkAt < SHRINK_VETO_MS)) return pieces;
+    const c = this.space.center;
+    if (this.border.radius - unit.position.distance(c) >= 5) return pieces;
+    let prev = null;
+    if (from === 0 && unit.in !== unit.base) {
+      const segs = unit.track.polyline.segments;
+      if (segs.length) prev = segs[segs.length - 1];
+    } else if (from > 0) {
+      prev = pieces[from - 1];
+    }
+    for (let i = from; i < pieces.length; i++) {
+      const piece = pieces[i];
+      if (prev && foldsBack(prev, piece)) {
+        pieces.length = i;
+        this.stats.foldCuts++;
+        break;
+      }
+      prev = piece;
+    }
+    return pieces;
   }
 
   // The first twist of PUSH_TWIST_CANDIDATES whose piece does not cross the unit's own trail;
@@ -336,6 +418,8 @@ class ArenaGame extends P.Game {
   }
 
   dispatchBucket(bucket, unit, move) {
+    if (unit._moveHalted) return undefined; // a vetoed retrace stopped this square for the tick
+    unit._curMove = move;
     unit._inPush = move === unit._pushPiece;
     try {
       return super.dispatchBucket(bucket, unit, move);
@@ -349,7 +433,14 @@ class ArenaGame extends P.Game {
     if (this._shrinkMadeCross(victim, killer, reason)) {
       // The push never kills, and neither does crossing a piece a push laid; the rewind keeps
       // the trail simple.
-      this.rewindTrail(victim);
+      const hit = victim._selfHit;
+      const cut = this.rewindTrail(victim);
+      // An OVERLAY hit means this move runs back along the trail (a square pressed into a wall
+      // corner: the wall slide folds the step back on itself). The rest of the move would lay
+      // the fold again after the cut, so the square stops at the cut for the rest of this tick
+      // (soak probe: a folded trail, then a spiked ring after the capture). Never on the push
+      // piece: that one must still carry the square inside the wall.
+      if (cut && hit && hit.overlay === true && !victim._inPush) this._haltMove(victim);
       return;
     }
     if (reason === REASON.SYSTEM_REMOVED && victim.isHuman) return; // never evict a human
@@ -387,6 +478,17 @@ class ArenaGame extends P.Game {
       return true;
     }
     return false;
+  }
+
+  // Ends this square's movement for the tick at its (rewound) trail tip: the move being
+  // dispatched ends there (stock handleUnitMovements appends move.end, a no-op for the tip
+  // itself), its remaining hits are skipped and the queued pieces are dropped.
+  _haltMove(unit) {
+    const move = unit._curMove;
+    if (!move) return;
+    unit._moveHalted = true;
+    move.end = unit.position;
+    if (unit._moveQueue) unit._moveQueue.length = 0;
   }
 
   // Only from the veto: the stock intersect already moved the unit to the crossing X and the
@@ -469,12 +571,69 @@ class ArenaGame extends P.Game {
   }
 
   handleReturn(unit) {
+    if (!unit.death && flatReturn(unit)) {
+      // The trail came home along the base's own edge (a slide along a wall run the trim or an
+      // earlier capture laid): it encloses no land, and the stock sign test on a zero-area loop
+      // is noise, so it could keep the sliver as the whole base (soak probe: a 1759-edge base
+      // became 7 edges). Nothing is captured; the exit and entry points already sit in the ring.
+      this.events.returns++;
+      this.stats.flatReturns++;
+      if (unit.base) {
+        unit.base._trimDirty = true;
+        unit.base.wireVer++;
+      }
+      return undefined;
+    }
     const r = super.handleReturn(unit);
+    if (!unit.death && unit.base) this._despike(unit.base, unit.track.polyline);
     if (unit.base) {
       unit.base._trimDirty = true;
       unit.base.wireVer++;
     }
     return r;
+  }
+
+  // A trail that left home along the ring's own edge (a slide out of a wall corner along a wall
+  // run) is merged by the capture as a zero-width spike: the ring runs out along a line and
+  // straight back (soak probe: 51 -> 52 -> 53 collinear within 1e-13). Each spike tip that only
+  // this ring uses (and the returning trail, which the stock caller removes right after) is
+  // dropped (no area changes), until none is left. Any other ring is untouched.
+  _despike(base, trail) {
+    const ring = base.polygon;
+    const verts = ring.segments.map((seg) => seg.start);
+    const own = (v) => v.segments.every((seg) => seg.shape === ring || seg.shape === trail);
+    let dropped = 0;
+    for (let guard = 0; guard < verts.length && verts.length > 3; guard++) {
+      let hit = -1;
+      for (let i = 0; i < verts.length; i++) {
+        const u = verts[(i + verts.length - 1) % verts.length];
+        const v = verts[i];
+        const w = verts[(i + 1) % verts.length];
+        if ((v.equal(u) || foldsBack({ start: u, end: v }, { start: v, end: w })) && own(v)) {
+          hit = i;
+          break;
+        }
+      }
+      if (hit < 0) break;
+      verts.splice(hit, 1);
+      dropped++;
+    }
+    if (!dropped || verts.length < 3) return;
+    const old = ring.segments;
+    const byStart = new Map(old.map((seg) => [seg.start, seg]));
+    const fresh = [];
+    for (let i = 0; i < verts.length; i++) {
+      const a = verts[i];
+      const b = verts[(i + 1) % verts.length];
+      const kept = byStart.get(a);
+      fresh.push(kept && kept.end === b ? kept : new P.Segment(a, b).commit(ring));
+    }
+    const keep = new Set(fresh);
+    for (const seg of old) if (!keep.has(seg)) seg.remove();
+    ring.segments = fresh;
+    base.calcSquare();
+    ring.calcPath();
+    this.stats.despiked += dropped;
   }
 
   // THE ONE RULE: a paid arena never has bots.
