@@ -209,9 +209,10 @@ Still open (defaults chosen by the design, none blocks the build): (5) an arena 
      - A wallet with RELEASE_MAX (2) unconfirmed-seat refunds in 10 minutes is paused, refunded in full at the door.
      - The Paper buy-in row is written when the seat is first steered, not when the token is spent.
      Tests: test/paperReviewFixes, entryExpiry, usdcAccountRent, submitStakeReview (real server), stakeRules.
-  7. WHAT BLOCKED PAPER_PAID (night queue item 5, written 2026-09-28 16:00 ET, closed 2026-09-28 night). Commits 6e66948,
-     6dd5739 and 2830ea7 are pushed (npm test 757/757, deploy check and security pass on the money diff done). PAPER_PAID
-     stays OFF in production until the switch-on step (the live /api/live lists only paper:na:s0).
+  7. WHAT BLOCKS PAPER_PAID (night queue item 5, written 2026-09-28 16:00 ET, updated 2026-09-28 17:50 ET). Commits
+     6e66948, 6dd5739, 2830ea7, 5e6cb3f, 1a78fc8 and ef8d2ab are pushed (npm test 791/791 at ef8d2ab, deploy check and
+     security pass on the money diff done). PAPER_PAID stays OFF in production (the live /api/live lists only
+     paper:na:s0). a to d below are closed, recorded or superseded; e and f are what still blocks the switch-on.
      a. CLOSED (5e6cb3f). A restart between a stake and its join lost that entry token and its money (tokens lived only in
         memory, and a push to main restarts the server). Now the row /api/submit-stake already wrote to claim the
         stake's signature once (used_stake_sigs, via db.claimStakeSig, the same single INSERT) is the stake's durable
@@ -270,6 +271,20 @@ Still open (defaults chosen by the design, none blocks the build): (5) an arena 
         of a SOL there; topping up to about 0.1 SOL is the owner's action.
      d. SUPERSEDED. The owner's Fable money review was replaced by Owen asking for the paid tables directly on
         2026-09-27 (NIGHT-QUEUE.md hard rule 3); it does not block.
+     e. STILL BLOCKS. The ledger SQL of a and b has never run on real Postgres (this machine has none; it was checked by
+        hand, pinned by source tests and run against scripts/memLedgerDb.js). ef8d2ab was pushed at 2026-09-28 17:45 ET
+        and deploys itself. The owner (or a step with server access) must see "[DB] durable stakes on, payout lanes on"
+        in the pm2 log of that boot (pm2 logs duelseries). If it says OFF, or a "[DB] CRITICAL ... migration failed" line
+        is there, a and b are not in effect in production and the old behaviour, including the restart loss, is what
+        runs: fix that first.
+     f. STILL BLOCKS. Money already seated when the server restarts is lost (see a, "Not covered"), and every push to main
+        restarts it with no drain. With paid Paper on, any push while a paid seat is live (including the 3 s unconfirmed
+        seat) costs that player the stake, and the reconnect is told "expired" instead. Switch on only with one of: a
+        deploy drain (stop new paid joins, wait for or refund seated paid players, then restart), or a written rule that
+        nobody pushes while /api/live shows a paid Paper player, accepted by the owner. The same gap already exists for
+        paid snake, knockout and battleship; Paper's longer rounds make it likelier.
+     Not blocking, owner's call: the escrow holds 0.0206 SOL for fees (c), about 2,100 payouts before the 0.01 alarm; a
+     top-up to about 0.1 SOL is advised before real traffic. Owed failed_payouts rows are not in the solvency sum.
      Passed, not blocking: the local dev-token proof on duelseries-local (scratchpad/night/item5/e2e-paid.js, 87 of 87
      checks at 2830ea7 twice, and again after 7a and 7b: join, kill transfer, coins, cash-out 90/10, full-table refund,
      banks balanced, both rungs). After a switch-on the owner does one real $0.10 join and cash-out. Also noted:
