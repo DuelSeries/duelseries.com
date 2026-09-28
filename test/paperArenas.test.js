@@ -26,6 +26,7 @@ function seatIn(d, stake, preferred) {
   const found = d.seatFor(stake, preferred);
   if (!found) return null;
   const seat = found.room.addHuman(s, { name: s.id, micro: stake ? Math.round(stake * 1e6) : 0, wallet: stake ? 'W' + s.id : null, spot: found.spot });
+  found.room._confirm(seat); // its player got pp:joined (the unconfirmed-seat rules have their own tests)
   return { s, seat, room: found.room };
 }
 

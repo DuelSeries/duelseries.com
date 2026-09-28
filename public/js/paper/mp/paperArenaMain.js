@@ -26,6 +26,8 @@
     full: 'Every Paper table at this stake is full.',
     entry: 'Entry fee not verified.',
     'seat-failed': 'Could not seat you.',
+    'join-lost': 'The connection dropped while you were joining.',
+    'join-timeout': 'Your connection did not answer in time.',
     warming: 'The table is getting ready. Try again in a few seconds.'
   };
   var REASON_TEXT = {
@@ -79,6 +81,17 @@
       walletAddress: storageGet('sessionStorage', 'walletAddress') || null,
       region: storageGet('sessionStorage', 'region') || null
     };
+  }
+
+  // A fresh id for one restake request, echoed back by the lobby's wallet with its answer.
+  function newNonce() {
+    try {
+      var a = new root.Uint32Array(4);
+      root.crypto.getRandomValues(a);
+      return Array.prototype.map.call(a, function (n) { return n.toString(36); }).join('');
+    } catch (_) {
+      return Math.random().toString(36).slice(2) + Date.now().toString(36);
+    }
   }
 
   function queryNumber(name) {
@@ -192,6 +205,7 @@
       holdDown: false,
       timers: {},
       restaking: false,
+      restakeNonce: null,
       lobbyLocked: false,
       network: 'mainnet-beta',
       networkAsked: false,
@@ -199,6 +213,12 @@
       drops: 0,
       joinSent: false,
       joinOutDrop: null,
+      // The entry token of the paid join (or respawn) still waiting for its answer, in page
+      // memory only. If the link drops before pp:joined, the same token goes out once more on
+      // the next connection: the server takes back the seat it bought (still unconfirmed, no
+      // second buy-in), tells the refund it already made, or seats it for the first time if
+      // the first message never arrived. Cleared by pp:joined and pp:refused.
+      joinToken: null,
       roundBest: 0
     };
 
@@ -484,6 +504,7 @@
     function sendJoin(token) {
       var msg = { name: session.name, stake: page.stake };
       if (token) msg.entryToken = token;
+      page.joinToken = page.stake > 0 && token ? token : null;
       markJoin();
       net.join(msg);
     }
@@ -494,6 +515,7 @@
       showConnecting('Starting', 'A new round is on its way');
       page.phase = 'connecting';
       if (socket.id && socket.id === page.joinedSocketId) {
+        page.joinToken = page.stake > 0 && token ? token : null;
         markJoin();
         net.respawn(token || undefined);
       } else {
@@ -513,8 +535,9 @@
         restakeError('');
         lockLobby(true);
         later('restake', restakeSlow, RESTAKE_WAIT_MS);
+        page.restakeNonce = newNonce();
         try {
-          root.parent.postMessage({ type: 'duel:restake', game: 'paper', stake: page.stake }, '*');
+          root.parent.postMessage({ type: 'duel:restake', game: 'paper', stake: page.stake, nonce: page.restakeNonce }, '*');
         } catch (_) {
           page.restaking = false;
           cancel('restake');
@@ -547,11 +570,16 @@
     });
 
     // The lobby's answer to duel:restake (wallet-widget/src/main.jsx). Only the parent frame
-    // may answer; the fresh token goes straight into pp:respawn and is never stored.
+    // may answer, only on this page's origin, and only to the request this page made (the
+    // nonce: a wallet built before it answers without one); the fresh token goes straight into
+    // pp:respawn and is never stored.
     root.addEventListener('message', function (e) {
       var d = e && e.data;
       if (!d || typeof d !== 'object' || !page.restaking) return;
       if (e.source !== root.parent) return;
+      var here = root.location && root.location.origin;
+      if (here && e.origin && e.origin !== here) return;
+      if (d.nonce !== undefined && d.nonce !== page.restakeNonce) return;
       if (d.type === 'duel:restake:done' && typeof d.entryToken === 'string' && d.entryToken) {
         page.restaking = false;
         cancel('restake');
@@ -640,6 +668,7 @@
 
     // ---- net ----
     net.on('joined', function (p) {
+      page.joinToken = null;
       cancel('giveUp');
       cancel('dead');
       cancel('retry');
@@ -669,6 +698,7 @@
 
     net.on('pp:refused', function (p) {
       p = p || {};
+      page.joinToken = null;
       if (p.why === 'warming' && page.phase === 'connecting') {
         // The free table's boot warm-up: no token is at stake, so ask again by itself.
         showConnecting('Getting the table ready', 'This takes a few seconds after the server starts');
@@ -752,10 +782,17 @@
       // before this event) or has not gone out yet: its answer comes on this link.
       if (page.joinOutDrop === null || page.joinOutDrop === page.drops) return;
       // The link dropped between a join (or respawn) and its answer, so no resumeKey ever
-      // arrived. A free table simply asks again; a paid entry token went out with that one
-      // message and is never sent twice (design 5.7), so the page says what may have happened.
+      // arrived. A free table simply asks again. A paid one asks again with the same entry
+      // token: the server answers with the seat that token bought (taken back, nothing spent
+      // twice), the refund it made when the link closed, or a first seat if the message never
+      // arrived. Each answer clears the token, so it is re-sent only while none has come.
       if (page.stake === 0) {
         sendJoin(null);
+        return;
+      }
+      if (page.joinToken) {
+        showConnecting('Reconnecting', 'Getting your seat back');
+        sendJoin(page.joinToken);
         return;
       }
       showGone('Disconnected', 'The connection dropped while you were joining. If your entry was taken, ' +
@@ -770,7 +807,9 @@
       started = true;
       game.loop();
       // One pp:join with the entry token, then the token leaves sessionStorage for good: a
-      // reconnect proves the seat with its resumeKey, never with a token (design 5.7).
+      // reconnect proves the seat with its resumeKey (design 5.7). Until pp:joined or
+      // pp:refused answers, page memory keeps it (page.joinToken) for the one case with no
+      // resumeKey yet: the link dropping before the answer.
       var token = session.entryToken;
       session.entryToken = null;
       sendJoin(token);

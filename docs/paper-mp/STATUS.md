@@ -136,13 +136,36 @@ Still open (defaults chosen by the design, none blocks the build): (5) an arena 
   the entryToken leaves sessionStorage after the one pp:join, reconnect resumes the same square, solo /paper still
   plays. Fixed on the way: the last seat dying mid-tick now still sends its own ['k'] and coin before the arena idles.
 - BEFORE PAPER_PAID IS SWITCHED ON (owner's Fable money review), open items found during the build:
-  1. Region: the widget stakes and mints on regionBase() (localStorage duelseries_region, can be EU) while the arena
-     page connects to its own origin; a paid Paper token minted on EU would be refused on NA. Pin paid Paper to one
-     region or make the page follow the widget's region.
-  2. A paid socket that drops after pp:join reaches the server but before pp:joined returns never gets a resumeKey,
-     so the seat is orphaned and its money drops as a coin when the grace ends (design gap).
-  3. wallet-widget restake posts duel:restake:done into whatever frame it finds even after the lobby cleared it; the
-     arena page's own lock covers the normal path.
+  1. DONE (night queue item 5, 2026-09-28). Region: the widget staked every buy-in on regionBase() (localStorage
+     duelseries_region, can be EU) while the arena page connects to its own origin, so an EU token was refused on NA.
+     Decision: Paper stakes on the page's own origin, the same server that serves its lobby rows and its free table
+     (the brief keeps EU specifics out of scope). `wallet-widget/src/stakeRoute.mjs` picks the server per game:
+     Paper, Knockout and Battleship (all three pages call io() with no URL, and Knockout and Battleship had the same
+     split) stake on this origin; snake and agar follow the region, read once, and the launch writes the region the
+     stake used. A Play again stakes on the region its page was launched with (sessionStorage), not the lobby's
+     current pick. Tests: test/stakeRoute.test.js, v2route "staked on this origin" (the real widget launch code).
+  2. DONE (night queue item 5, 2026-09-28). The orphaned paid seat. A paid seat is now UNCONFIRMED until its first
+     input (the page steers only after pp:joined; a resumeKey resume also confirms). Unconfirmed at its socket's
+     close: refunded at once (paperPayout.refund, bounded by what landed), square removed with reason 10, no coin;
+     any money it won meanwhile stays on the floor as a coin. Unconfirmed `MP.JOIN_CONFIRM_MS` (3000) after the join:
+     the same refund, and the socket gets pp:refused { why: 'join-timeout', refunded: true } (bounds how long a
+     square nobody steers can fly after a silent link loss). The page keeps the entry token in memory until pp:joined
+     or pp:refused answers and re-sends it once per new link when its join went out before a drop: the token's
+     sha256 names the unconfirmed seat, which the new socket takes back (nothing consumed or deposited twice), or the
+     outcome it already had is told again (refunded, full, expired; kept 10 minutes, at most 5000). A confirmed seat
+     is never named by its token and follows the owner's grace rule unchanged; free seats are untouched. The design's
+     "a token is never sent twice" is relaxed to this one case, which cannot spend anything twice. Checked in a real
+     browser on duelseries-local: a page in a hidden pane (no animation frames, so no input) was refunded by
+     join-timeout; the same page driving frames confirmed its seat. Tests: test/paperJoinLost.test.js (server),
+     paperJoinSmoke "closes before pp:joined" (real server), paperArenaPage "lost before pp:joined" (page),
+     paperBank withdrawUpTo.
+  3. DONE (night queue item 5, 2026-09-28). The restake bridge (`wallet-widget/src/restakeBridge.mjs`) answers only
+     the document that asked: same origin, the game frame's own window, no document load since the request, frame on
+     screen; answers go to this origin only (was '*') with the page's nonce, and the arena page takes only its own
+     nonce. Page gone before the money moves (game:done, or a new document): stakeOnly stops before the wallet prompt
+     or before the submit, so the signed transfer is never sent. Gone after the submit: the paid round opens in the
+     free frame through the normal launch instead of being posted into a blank one (a frame busy with another game is
+     logged, not overwritten). Tests: test/restakeBridge.test.js, paperArenaPage "Back to the lobby is shut".
   4. DONE (night queue item 3, 2026-09-28; measurements in scratchpad/night/paper-lag.md, gitignored). The lag had
      three real causes on every platform, the Windows timer only a fourth for local testing. (1) The server sent the
      reliable pp:ev before the volatile pp:s in the same turn, so socket.io threw away the frame on every snapshot with
@@ -156,8 +179,17 @@ Still open (defaults chosen by the design, none blocks the build): (5) an arena 
      (4) The room clock is a setTimeout to the next step on a monotonic clock, capped catch-up (no 33 ms gap in the
      Linux model, no double steps on Windows). Remaining: the join transient (the first compare after a spawn re-bases
      by about one RTT of travel, then 1 to 4 one-tick starves while the FIFO builds its cushion on a jittery link).
-  5. Pre-existing: drainPayouts records earnings for recovered rake-sweep rows; Knockout/Battleship refunds pay the
-     rung; the stock leaderboard cache throws if first drawn at 0 size (arena page guards it, solo cannot be edited).
+  5. Pre-existing. FIXED (night queue item 5, money safety): Knockout and Battleship refunds paid the rung, a mint of
+     up to 1 percent of the rung per refund (the verifier accepts 99 percent); queue and draw refunds are now bounded
+     by the token's paid (`stakeRules.refundBound`), and a paid Knockout or Battleship seat is paid to the token's
+     verified wallet, never a client-sent one (test/duelRefundBound.test.js). OPEN, stats only (no money moves):
+     drainPayouts records earnings for recovered rake-sweep rows (and for recovered Knockout/Battleship refund rows,
+     whose reason does not begin with 'refund'); the stock leaderboard cache throws if first drawn at 0 size (arena
+     page guards it, solo cannot be edited).
+  6. Found while fixing 1 to 3, left for the money-path review: a paid entry token that is never spent (tab closed
+     between the stake and the join, or 5 minutes pass) expires with no refund, for every game; /api/submit-stake
+     claims the signature before it refuses a stake paid by a different wallet than the request names (that money
+     stays in escrow with no token); an emergency close cashes out an unconfirmed Paper seat at 90/10 like the rest.
 - T14 soak: done, TRIM_ON = true in PaperRoom.js (committed, not pushed by the T14 step). `test/paperSoak.test.js`:
   three seeds (Math.random stubbed per run, restored), a paid room, 16 wanderers incl. two wall huggers, scripted exits
   (hold, grace, leave) drive the wall 950 to 475 and joins bring it back, trim injected ON; every tick asserts no

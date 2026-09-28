@@ -100,6 +100,7 @@ Every new number lives here and nowhere else. Tests import this block; no test h
 | `HOLD_TICKS` | `Math.round(HOLD_MS / STEP_MS)` = 180 | the hold is counted in whole SIM ticks so it is exact (180 additions of the float `STEP_MS` sum to 2999.999999999995 and would complete one tick late); every one of those ticks the holder was killable |
 | `HOLD_INPUT_STALE_MS` | 500 | wall clock, measured from the last RECEIVED input: the hold bit counts as released when no input arrived for 500 ms, so a released key whose packets were lost on a dying link must not cash out |
 | `DISCONNECT_GRACE_MS` | 5000 | owner decision 3 (section 13): after the socket closes the square keeps moving on its last steering for 5 s and the same seat can be taken back; only then does the money drop |
+| `JOIN_CONFIRM_MS` | 3000 | added 2026-09-28 (night queue item 5, STATUS "BEFORE PAPER_PAID" item 2): a paid seat is unconfirmed until its first input; unconfirmed at its socket's close, or this long after the join, its buy-in is refunded (bounded by what landed) instead of the square flying on with nobody steering |
 | `PICKUP_SWEEP_MS` | 3600000 | owner decision 1 (section 13): a coin nobody collects within 60 minutes of dropping (server clock) leaves the arena to the house, recorded like rake |
 | `UNIT_ID_MAX` | 65535 | `unit.id` is 1..65535 (0 is the wire's "none", 7.1); the per-arena counter wraps and skips any id held by a live unit or an open account, so a long-lived free arena never hands out a colliding id |
 | `HOUSE_CUT_DIV` | 10 | `cut = floor(gross / 10)` in integer micro-USDC: the existing 90/10 (`server/index.js:2221-2223`) |
@@ -596,6 +597,13 @@ stake, resumeKey }` with NO `entryToken` (it was removed from sessionStorage aft
 `resumeKey` lives in page memory only: a page reload is a new page and that seat is lost at the end of its grace, like
 a closed tab. This replaces the earlier "never re-emit `pp:join` on a reconnect" rule; the Knockout client's mistake
 (`public/js/knockout.js:512-536`) was re-sending a SPENT TOKEN, which this path never carries.
+**Unconfirmed paid seat (added 2026-09-28, night queue item 5).** The server cannot know pp:joined arrived until the
+first input does, so a paid seat starts unconfirmed: its first accepted `pp:in` (or a resumeKey resume) confirms it.
+A socket close while unconfirmed refunds the buy-in at once (`room.releaseUnconfirmed`, `paperPayout.refund` bounded
+by `entry.paid`, square removed with reason 10, any winnings left as a coin); so does `JOIN_CONFIRM_MS` with no input.
+The page keeps the entry token in memory until pp:joined or pp:refused and, when the link dropped first, re-sends it
+once per new link: its sha256 names the unconfirmed seat (taken back, nothing consumed twice) or the outcome it had
+(told again). This is the one case where a token is sent twice; it can never spend anything twice.
 **Leave.** `pp:leave` is deliberate: `room.removeHuman(id, 9)` at once, no grace, hold cleared, `kill(unit, undefined,
 9)`, coin dropped where the square stood; `socket.leave(ioRoom)` (GameRoom does, `server/GameRoom.js:262`; the shooter
 forgets). The live HUD has no leave control (8.6); `pp:leave` is sent only from the end screens, where the unit is

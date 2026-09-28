@@ -289,6 +289,10 @@ test('dev tokens: a POST without signedTx buys a paid seat that cashes out 90/10
   const me = (seated.joined.units || []).find(u => u && u.id === seated.joined.you);
   assert.ok(me, 'the join payload lists my own square');
   assert.equal(me.micro, 100000, 'worth from the token, not the 50 the message claimed');
+  // The player steers, as the page does right after pp:joined: that confirms the seat, so the
+  // token no longer names it (an unconfirmed seat's token takes it back, see the join-lost test).
+  a.emit('pp:in', MP.encodeInput(1, 0, false));
+  await new Promise(r => setTimeout(r, 300));
 
   // One-time: the same token on another socket buys nothing.
   const b = await connect(io, port);
@@ -338,5 +342,60 @@ test('dev tokens: a POST without signedTx buys a paid seat that cashes out 90/10
   // The seat is gone and the paid row is empty again.
   const end = paperRows(JSON.parse((await get(`http://localhost:${port}/api/live`)).body));
   assert.equal(end.find(r => r.stake === 0.1).players, 0, 'no one left at $0.10');
+  assertHealthy(srv, out);
+});
+
+/* STATUS "BEFORE PAPER_PAID IS SWITCHED ON" item 2 on the real server: the link closes after
+   pp:join went out but before pp:joined came back. Before the fix the seat was orphaned (no
+   resumeKey ever reached the player) and its money dropped on the floor when the grace ended;
+   now the buy-in goes back once, through the (dev) withdraw, and the page's second ask with the
+   same token is told so. */
+test('a paid join whose link closes before pp:joined is refunded once and never left on the floor', { timeout: 60000 }, async (t) => {
+  const io = requireClient(t);
+  if (!io) return;
+  const { srv, port, out } = boot({ PAPER_PAID: '1', PAPER_DEV_TOKENS: '1' });
+  const socks = [];
+  t.after(() => {
+    for (const s of socks) { try { s.close(); } catch (_) {} }
+    try { srv.kill('SIGKILL'); } catch (_) {}
+  });
+  assert.ok(await waitForServer(port, srv), 'server came up\n' + out.stderr.slice(-1500));
+  const wallet = 'DevWa11et2222222222222222222222222222222222';
+  const tok = JSON.parse((await post(`http://localhost:${port}/api/submit-stake`, { stake: 0.1, walletAddress: wallet })).body);
+  assert.equal(typeof tok.entryToken, 'string');
+
+  const a = await connect(io, port);
+  socks.push(a);
+  /* The link closes before the player ever steered. To the server that is exactly the lost
+     pp:joined case (it cannot tell whether pp:joined arrived); waiting for it here only makes
+     the order deterministic (a close sent right behind the join raced it under load). */
+  const seated = await join(a, { name: 'lost', stake: 0.1, entryToken: tok.entryToken });
+  assert.ok(seated.joined, 'the join reached the server and seated: ' + JSON.stringify(seated.refused));
+  a.disconnect(); // no pp:in ever went out
+
+  const waitFor = async (fn, ms, what) => {
+    const end = Date.now() + ms;
+    while (Date.now() < end) { if (fn()) return; await new Promise(r => setTimeout(r, 50)); }
+    assert.fail(what + '\n--- stdout ---\n' + out.stdout.slice(-2000));
+  };
+  await waitFor(() => out.stdout.includes('[PAPER] REFUND ' + wallet + ' 100000 join-lost'), 8000, 'refunded at the close');
+  await waitFor(() => out.stdout.includes('[PAPER] DEV withdraw 0.1 '), 8000, 'paid back through the (dev) withdraw');
+
+  // The page asks again with the same token on its next link: told, nothing more paid or seated.
+  const b = await connect(io, port);
+  socks.push(b);
+  const again = await join(b, { stake: 0.1, name: 'lost', entryToken: tok.entryToken });
+  assert.ok(again.refused, 'no seat: ' + JSON.stringify(again.joined && again.joined.you));
+  assert.equal(again.refused.why, 'join-lost');
+  assert.equal(again.refused.refunded, true);
+
+  // Past the old grace: still exactly one refund and one withdraw, no coin, nobody seated.
+  await new Promise(r => setTimeout(r, MP.DISCONNECT_GRACE_MS + 500));
+  const count = (needle) => out.stdout.split(needle).length - 1;
+  assert.equal(count('[PAPER] REFUND ' + wallet + ' '), 1, 'refunded exactly once');
+  assert.equal(count('[PAPER] DEV withdraw'), 1, 'one withdraw');
+  assert.ok(!/\[PAPER\] IDLE paper_na_s0_1 .*"coins":\[\{/.test(out.stdout), 'no coin left on the floor');
+  const rows = paperRows(JSON.parse((await get(`http://localhost:${port}/api/live`)).body));
+  assert.equal(rows.find(r => r.stake === 0.1).players, 0, 'no orphaned seat');
   assertHealthy(srv, out);
 });

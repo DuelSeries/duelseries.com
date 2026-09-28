@@ -58,6 +58,7 @@ function join(k, spot, micro = 100000, name) {
   const s = sock();
   const seat = k.room.addHuman(s, { name: name || s.id, micro, wallet: 'W' + s.id, spot });
   seat.unit.locked = false;
+  k.room._confirm(seat); // its player got pp:joined (the unconfirmed-seat rules have their own tests)
   return { s, seat, u: seat.unit };
 }
 

@@ -166,7 +166,14 @@ class PaperRoom {
 
   // The join (design 5.6 step 8). Throws when the arena cannot seat; the caller refunds. A
   // failed join never leaves a unit or an open account behind.
-  addHuman(socket, { name, micro, wallet, spot }) {
+  //
+  // A PAID seat starts UNCONFIRMED: the server cannot know that pp:joined (and the resumeKey in
+  // it) ever reached the player until the first input arrives, because the client steers only
+  // after pp:joined. Until then the seat can be taken back with the entry token that bought it
+  // (proof = its sha256), and if its socket closes, or JOIN_CONFIRM_MS pass with no input, the
+  // buy-in is refunded instead of the square being left to fly with nobody steering and its
+  // money dropping on the floor (STATUS "BEFORE PAPER_PAID IS SWITCHED ON" item 2).
+  addHuman(socket, { name, micro, wallet, spot, proof, paid }) {
     const game = this.game;
     game._enter();
     if (this.stopped) throw new Error('stopped');
@@ -185,7 +192,13 @@ class PaperRoom {
         wallet: wallet || null,
         name,
         inWindow: 0,
-        inCount: 0
+        inCount: 0,
+        proof: this.paid && typeof proof === 'string' ? proof : null,
+        paid: Number.isFinite(paid) ? paid : undefined, // what landed on-chain: bounds a refund
+        deposit: micro,
+        confirmed: !this.paid,
+        confirmBy: this.paid ? this.now() + MP.JOIN_CONFIRM_MS : 0,
+        released: false
       };
       this.seats.set(unit.id, seat);
       this.bySocket.set(socket.id, seat);
@@ -225,7 +238,12 @@ class PaperRoom {
   }
 
   // Disconnect (design 5.7): the hold is cancelled, the square keeps moving on its last angle.
+  // An unconfirmed paid seat has nobody who ever steered it: its buy-in is refunded at once.
   beginGrace(seat) {
+    if (!seat.confirmed) {
+      this.releaseUnconfirmed(seat, 'join-lost');
+      return;
+    }
     const u = seat.unit;
     u.holdBit = false;
     u.locked = false;
@@ -239,9 +257,15 @@ class PaperRoom {
     if (this.directory) this.directory._seatSocket(seat, prev);
   }
 
-  // Reconnect by resumeKey (design 5.7): no token, no deposit, the hold is not restored.
-  resume(socket, seat) {
-    if (seat.room !== this || seat.unit.death || !this.seats.has(seat.unit.id)) return false;
+  // Reconnect by resumeKey (design 5.7): no token, no deposit, the hold is not restored. Only a
+  // player who got pp:joined holds the resumeKey, so that resume confirms the seat. byToken: an
+  // unconfirmed seat taken back with the entry token that bought it (the page re-sends it when
+  // its link dropped before pp:joined); nothing is consumed or deposited, the seat stays
+  // unconfirmed until its first input, and pp:joined says resumed: false because this is the
+  // first one that player sees.
+  resume(socket, seat, byToken) {
+    if (seat.room !== this || seat.unit.death || !this.seats.has(seat.unit.id) || seat.released) return false;
+    if (byToken && seat.confirmed) return false;
     const prev = seat.socketId;
     if (prev && prev !== socket.id) {
       const old = this._socketById(prev);
@@ -264,9 +288,67 @@ class PaperRoom {
     this.game.resetInput(u.id);
     this.bySocket.set(socket.id, seat);
     if (this.directory) this.directory._seatSocket(seat, prev);
+    if (!byToken) this._confirm(seat);
     this._flushPending();
     socket.join(this.ioRoom);
-    socket.emit('pp:joined', MP.packBin(this.joinedPayload(seat, true)));
+    socket.emit('pp:joined', MP.packBin(this.joinedPayload(seat, !byToken)));
+    return true;
+  }
+
+  _confirm(seat) {
+    if (seat.confirmed) return;
+    seat.confirmed = true;
+    seat.confirmBy = 0;
+    if (this.directory) this.directory._seatConfirmed(seat);
+  }
+
+  // An unconfirmed paid seat whose player never took control: its socket closed ('join-lost')
+  // or JOIN_CONFIRM_MS passed with no input ('join-timeout'). The buy-in goes back through
+  // onRefund exactly once, bounded by what landed (paperPayout.refund caps at seat.paid); any
+  // money the square picked up meanwhile stays in the arena as a coin where it stood; the
+  // square leaves with reason 10 (no coin, no pp:dead). All synchronous, latched by
+  // seat.released, and the refund is dispatched even if the sim throws on the removal.
+  releaseUnconfirmed(seat, why) {
+    const u = seat.unit;
+    if (seat.released || seat.confirmed || u.death || this.seats.get(u.id) !== seat) return false;
+    seat.released = true;
+    const socketId = seat.socketId;
+    const w = this.bank.withdrawUpTo(u.id, seat.deposit);
+    const rest = this.bank.balance(u.id);
+    if (rest > 0) {
+      const c = this._clampInside(u.position);
+      const p = this.bank.drop(u.id, c.x, c.y, this.now());
+      if (p) this.pending.push(['p+', p.pid, p.x, p.y, p.micro]);
+    } else if (this.bank.isOpen(u.id)) {
+      this.bank.drop(u.id, 0, 0, this.now()); // closes the emptied account
+    }
+    const refunded = !!(w && w.micro > 0);
+    if (this.directory) this.directory._rememberRelease(seat, why, refunded);
+    console.log('[PAPER] RELEASE ' + this.lobbyType + ' ' + why + ' refund=' + (w ? w.micro : 0) + ' rest=' + rest);
+    try {
+      this.game.removeHuman(u.id, REASON.FORCED_EXIT);
+    } finally {
+      if (this.seats.get(u.id) === seat) this._forgetSeat(seat);
+      if (refunded) {
+        try {
+          this.hooks.onRefund({ wallet: w.wallet, name: w.name, micro: w.micro, paid: seat.paid, why });
+        } catch (e) {
+          console.error('[PAPER] RELEASE CRITICAL refund hook threw, owed ' + w.micro + ' micro to ' + w.wallet + ': ' + (e && e.message));
+        }
+      }
+      if (socketId) {
+        try {
+          const s = this._socketById(socketId);
+          if (s) {
+            s.leave(this.ioRoom);
+            if (s._ppRoom === this) s._ppRoom = null;
+          }
+          if (this.io) this.io.to(socketId).emit('pp:refused', { why, refunded });
+        } catch (e) {
+          console.error('[PAPER] RELEASE tell', e && e.message);
+        }
+      }
+    }
     return true;
   }
 
@@ -302,6 +384,7 @@ class PaperRoom {
     if (++seat.inCount > IN_RATE_MAX) return false;
     const d = MP.decodeInput(n);
     if (!d) return false;
+    if (!seat.confirmed) this._confirm(seat); // the player has pp:joined: it is steering
     return this.game.setInput(seat.unit.id, d.seq, d.angle, d.hold, now);
   }
 
@@ -389,6 +472,11 @@ class PaperRoom {
     const now = this.now();
     this._collectPickups();
     this.sweepPickups(now);
+    for (const seat of Array.from(this.seats.values())) {
+      if (!seat.confirmed && seat.confirmBy && seat.confirmBy <= now && !seat.unit.death) {
+        this.releaseUnconfirmed(seat, 'join-timeout');
+      }
+    }
     for (const seat of Array.from(this.seats.values())) {
       if (seat.graceUntil && seat.graceUntil <= now && !seat.unit.death) {
         this.game.removeHuman(seat.unit.id, REASON.DISCONNECT);

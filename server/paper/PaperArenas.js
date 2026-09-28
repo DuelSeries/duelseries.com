@@ -6,6 +6,12 @@ const { PaperRoom } = require('./PaperRoom');
 const { MP } = require('./ArenaGame');
 
 const RUNGS = [0, 0.1, 1];
+// What became of a paid join whose answer may never have reached the player (its link dropped
+// before pp:joined, or its refusal was lost): kept this long, at most this many, so a page that
+// asks again with its entry token or resumeKey hears the real outcome. Longer than an entry
+// token lives (5 minutes), far longer than a reconnect takes.
+const OUTCOME_TTL_MS = 10 * 60 * 1000;
+const OUTCOME_MAX = 5000;
 
 function keyOf(stake) {
   return Number(stake).toFixed(2);
@@ -24,6 +30,8 @@ class PaperArenas {
     for (const s of RUNGS) this.arenas[keyOf(s)] = [];
     this.byKey = new Map(); // resumeKey -> seat
     this.bySocket = new Map(); // socketId -> seat
+    this.byProof = new Map(); // sha256(entry token) -> UNCONFIRMED paid seat
+    this.outcomes = new Map(); // 't:' + proof or 'k:' + resumeKey -> { why, refunded, at }, oldest first
     this.emptySince = new Map(); // room -> ms
     const free = this._create(0, 0);
     if (warm && free) free.warmUp();
@@ -96,10 +104,46 @@ class PaperArenas {
     return this.bySocket.get(socketId) || null;
   }
 
+  // An unconfirmed paid seat, named by the sha256 of the entry token that bought it.
+  seatByProof(proof) {
+    const seat = this.byProof.get(proof);
+    return seat && !seat.room.stopped && !seat.unit.death && !seat.confirmed && !seat.released ? seat : null;
+  }
+
+  // -> { why, refunded } | null, for 't:' + proof or 'k:' + resumeKey.
+  outcomeOf(key) {
+    const o = this.outcomes.get(key);
+    if (!o) return null;
+    if (this.now() - o.at > OUTCOME_TTL_MS) {
+      this.outcomes.delete(key);
+      return null;
+    }
+    return { why: o.why, refunded: o.refunded };
+  }
+
+  rememberOutcome(key, why, refunded) {
+    if (typeof key !== 'string' || !key) return;
+    this.outcomes.delete(key);
+    this.outcomes.set(key, { why, refunded: !!refunded, at: this.now() });
+    while (this.outcomes.size > OUTCOME_MAX) this.outcomes.delete(this.outcomes.keys().next().value);
+  }
+
   // Kept in step by the rooms.
   _seatAdded(seat) {
     this.byKey.set(seat.resumeKey, seat);
     if (seat.socketId) this.bySocket.set(seat.socketId, seat);
+    if (seat.proof && !seat.confirmed) this.byProof.set(seat.proof, seat);
+  }
+
+  // The player steered (or came back with its resumeKey): the token no longer names the seat.
+  _seatConfirmed(seat) {
+    if (seat.proof && this.byProof.get(seat.proof) === seat) this.byProof.delete(seat.proof);
+  }
+
+  // An unconfirmed seat refunded by its room: a page asking again hears that, by either proof.
+  _rememberRelease(seat, why, refunded) {
+    if (seat.proof) this.rememberOutcome('t:' + seat.proof, why, refunded);
+    this.rememberOutcome('k:' + seat.resumeKey, why, refunded);
   }
 
   _seatSocket(seat, prevSocketId) {
@@ -110,6 +154,11 @@ class PaperArenas {
   _seatFreed(seat) {
     if (this.byKey.get(seat.resumeKey) === seat) this.byKey.delete(seat.resumeKey);
     for (const [sid, s] of this.bySocket) if (s === seat) this.bySocket.delete(sid);
+    if (seat.proof && this.byProof.get(seat.proof) === seat) {
+      this.byProof.delete(seat.proof);
+      // Gone by the game's own rules before its player ever steered (killed, or its arena closed).
+      if (!seat.released) this.rememberOutcome('t:' + seat.proof, 'expired', false);
+    }
   }
 
   all() {

@@ -272,15 +272,21 @@ test('Back to the lobby is shut while a paid restake is with the wallet', () => 
   const t = paidDeadPage();
   const dead = t.$('pp-dead');
   dead.querySelector('.pp-again').click();
-  assert.strictEqual(JSON.stringify(t.parent.messages), JSON.stringify([{ type: 'duel:restake', game: 'paper', stake: 0.1 }]));
+  assert.strictEqual(t.parent.messages.length, 1);
+  const ask = t.parent.messages[0];
+  assert.deepStrictEqual({ type: ask.type, game: ask.game, stake: ask.stake }, { type: 'duel:restake', game: 'paper', stake: 0.1 });
+  assert.ok(typeof ask.nonce === 'string' && ask.nonce.length >= 8, 'the request carries its own id');
   for (const b of t.lobbyButtons()) assert.strictEqual(b.disabled, true);
   // Even a click that reaches the listener (a stale event) neither leaves nor closes the frame.
   dead.querySelector('.pp-lobby').dispatch('click');
   assert.strictEqual(t.parent.messages.indexOf('game:done'), -1);
   assert.strictEqual(t.wire('pp:leave').length, 0);
 
+  // An answer to some other request (another nonce) is not taken.
+  t.fromLobby({ type: 'duel:restake:done', entryToken: 'tok-other', nonce: 'not-mine' });
+  assert.strictEqual(t.wire('pp:respawn').length, 0);
   // The wallet answers: the new token goes straight into a respawn on the same socket.
-  t.fromLobby({ type: 'duel:restake:done', entryToken: 'tok-2' });
+  t.fromLobby({ type: 'duel:restake:done', entryToken: 'tok-2', nonce: ask.nonce });
   const respawns = t.wire('pp:respawn');
   assert.strictEqual(respawns.length, 1);
   assert.strictEqual(respawns[0][1].entryToken, 'tok-2');
@@ -331,14 +337,56 @@ test('a paid join buffered while the link was down is waited for, not reported l
   assert.strictEqual(t.wire('pp:leave').length, 0);
 });
 
-test('a paid join that went out before the link dropped is reported, never resent', () => {
+// Item 2 of STATUS "BEFORE PAPER_PAID IS SWITCHED ON": this page used to give up here ("If
+// your entry was taken, its money dropped where your square stood") and the seat it had paid
+// for was orphaned. It now asks again with the same token, once per new link, until answered.
+test('a paid join lost before pp:joined is asked again with the same token on the next link', () => {
   const t = page({ stake: 0.1, entryToken: 'tok-1' });
   t.sock.connect('sock-a'); // the first join goes out on this link
   t.sock.drop(); // before pp:joined
   t.sock.connect('sock-b');
-  assert.strictEqual(t.wire('pp:join').length, 1);
-  assert.strictEqual(t.$('pp-gone').hidden, false);
-  assert.strictEqual(t.api.page.screen, t.$('pp-gone'));
+  const joins = t.wire('pp:join');
+  assert.strictEqual(joins.length, 2, 'asked again on the new link');
+  assert.strictEqual(joins[1][1].entryToken, 'tok-1', 'with the token that bought the seat');
+  assert.strictEqual(joins[1][1].stake, 0.1);
+  assert.strictEqual(t.$('pp-gone').hidden, true, 'no "money dropped" screen');
+  assert.strictEqual(t.api.page.screen, t.$('pp-connecting'));
+  assert.strictEqual(t.win.sessionStorage.getItem('entryToken'), null, 'still never written back to storage');
+  // The server hands back the seat: live, and the token is forgotten for good.
+  t.joined({ stake: 0.1 });
+  assert.strictEqual(t.api.page.phase, 'live');
+  t.sock.drop();
+  t.sock.connect('sock-c');
+  assert.strictEqual(t.wire('pp:join').length, 3, 'the reconnect after pp:joined is the resumeKey one');
+  assert.strictEqual(t.wire('pp:join')[2][1].entryToken, undefined);
+  assert.strictEqual(t.wire('pp:join')[2][1].resumeKey, 'rk-1');
+});
+
+test('a paid join lost before pp:joined that the server refunded shows the refund, and asks no more', () => {
+  const t = page({ stake: 0.1, entryToken: 'tok-1' });
+  t.sock.connect('sock-a');
+  t.sock.drop();
+  t.sock.connect('sock-b');
+  t.sock.fire('pp:refused', { why: 'join-lost', text: 'x', refunded: true });
+  assert.strictEqual(t.api.page.screen, t.$('pp-refused'));
+  assert.strictEqual(t.$('pp-refused-text').textContent, 'The connection dropped while you were joining.');
+  assert.strictEqual(t.$('pp-refused-refund').hidden, false);
+  t.sock.drop();
+  t.sock.connect('sock-c');
+  assert.strictEqual(t.wire('pp:join').length, 2, 'an answered token is never sent again');
+});
+
+test('a paid respawn lost before pp:joined is asked again as a join with the same token', () => {
+  const t = paidDeadPage();
+  t.$('pp-dead').querySelector('.pp-again').click();
+  t.fromLobby({ type: 'duel:restake:done', entryToken: 'tok-2', nonce: t.parent.messages[0].nonce });
+  assert.strictEqual(t.wire('pp:respawn').length, 1);
+  t.sock.drop();
+  t.sock.connect('sock-b');
+  const joins = t.wire('pp:join');
+  assert.strictEqual(joins.length, 2);
+  assert.strictEqual(joins[1][1].entryToken, 'tok-2');
+  assert.strictEqual(joins[1][1].stake, 0.1);
 });
 
 test('free: a lost join is asked again without a token; a buffered one is not doubled', () => {

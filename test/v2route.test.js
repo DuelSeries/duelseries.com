@@ -1407,7 +1407,14 @@ function lobbyHarness(liveRows) {
   } };
   vm.createContext(win);
   const widget = fs.readFileSync(path.join(ROOT, 'wallet-widget/src/main.jsx'), 'utf8');
-  const a = widget.indexOf('const SERVER_URLS = ');
+  // The widget's plain modules first, as its imports (they have none of their own).
+  for (const m of ['stakeRoute.mjs', 'restakeBridge.mjs']) {
+    if (!widget.includes("from './" + m + "'")) continue;
+    const f = 'wallet-widget/src/' + m;
+    vm.runInContext(fs.readFileSync(path.join(ROOT, f), 'utf8').replace(/^export /gm, ''), win, { filename: f });
+  }
+  let a = widget.indexOf('function lobbyRegion()');
+  if (a < 0) a = widget.indexOf('const SERVER_URLS = '); // the widget before stakeRoute.mjs
   const b = widget.indexOf('// Self-custody Cash Out');
   const c = widget.indexOf('const onPlay = (e) => {');
   const d = widget.indexOf("window.addEventListener('duel:play', onPlay);", c);
@@ -1470,6 +1477,27 @@ test('a paid Paper rung goes to the widget to be staked, never straight to a pag
   await assert.rejects(h.pending(), /no server here/, 'the stub server refuses the quote');
   assert.ok(h.fetched.includes('/api/stake-quote?stake=0.1'), 'the widget asked for the $0.10 quote');
   assert.equal(h.el('game-frame').src, '', 'and nothing opened without a stake');
+});
+
+/* STATUS "BEFORE PAPER_PAID IS SWITCHED ON" item 1 (night queue item 5), through the widget's
+   real launch code: with the EU region picked, a Paper buy-in was quoted and submitted on
+   https://eu.duelseries.com while /paper-arena (io() with no URL) joined this origin, which
+   refused the EU token: a stake with no seat. Knockout and Battleship had the same split. */
+test('a paid Paper, Knockout or Battleship buy-in is staked on this origin even with EU picked', async () => {
+  for (const game of ['paper', 'knockout', 'battleship']) {
+    const h = lobbyHarness([]);
+    h.win.localStorage.setItem('duelseries_region', 'eu');
+    h.win.V2Play.launch(game, { stake: 0.1 });
+    await assert.rejects(h.pending(), /no server here/);
+    const quotes = h.fetched.filter(u => /stake-quote/.test(u));
+    assert.deepEqual(quotes, ['/api/stake-quote?stake=0.1'], game + ' is quoted by the server its page joins');
+  }
+  // The snake game's page follows the region, so its stake still does.
+  const s = lobbyHarness([]);
+  s.win.localStorage.setItem('duelseries_region', 'eu');
+  s.win.V2Play.launch('snake', { stake: 0.1 });
+  await assert.rejects(s.pending(), /no server here/);
+  assert.deepEqual(s.fetched.filter(u => /stake-quote/.test(u)), ['https://eu.duelseries.com/api/stake-quote?stake=0.1']);
 });
 
 test('each playable game card carries a people count, and a padlocked one does not', () => {

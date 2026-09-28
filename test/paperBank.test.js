@@ -231,3 +231,36 @@ test('10,000 random ops (incl. sweeps) keep totalMicro() === inMicro - outMicro 
   assert.ok(transfers.every(t => (t.kind === 'kill' || t.kind === 'pickup') && t.micro > 0));
   for (const [k, n] of Object.entries(ops)) assert.ok(n > 100, k + ' ran ' + n + ' times');
 });
+
+// Night queue item 5: an unconfirmed seat is refunded its buy-in while its winnings stay put.
+test('withdrawUpTo: takes at most the cap, leaves the account open with the rest, stays conserved and capped', () => {
+  const { bank, breaches } = bankWithLog();
+  bank.deposit(1, 100000, 'W1', 'one');
+  bank.deposit(2, 100000, 'W2', 'two');
+  bank.transferAll(2, 1);
+  const w = bank.withdrawUpTo(1, 100000);
+  assert.deepStrictEqual(w, { micro: 100000, wallet: 'W1', name: 'one' });
+  assert.strictEqual(bank.isOpen(1), true, 'still open');
+  assert.strictEqual(bank.balance(1), 100000, 'the winnings stay');
+  assert.ok(conserved(bank));
+  const p = bank.drop(1, 5, 5, 0);
+  assert.strictEqual(p.micro, 100000);
+  assert.strictEqual(bank.isOpen(1), false);
+  assert.ok(conserved(bank));
+  // A cap above the balance takes the balance; the account stays open at zero.
+  bank.deposit(3, 50000, 'W3', 'three');
+  assert.strictEqual(bank.withdrawUpTo(3, 100000).micro, 50000);
+  assert.strictEqual(bank.balance(3), 0);
+  assert.strictEqual(bank.isOpen(3), true);
+  assert.strictEqual(bank.drop(3, 0, 0, 0), null, 'a zero account closes with no coin');
+  assert.ok(conserved(bank));
+  // Bad input or a closed account moves nothing.
+  assert.strictEqual(bank.withdrawUpTo(3, 1), null);
+  bank.deposit(4, 1000, 'W4', 'four');
+  for (const bad of [-1, 1.5, NaN, '5', undefined]) assert.strictEqual(bank.withdrawUpTo(4, bad), null);
+  assert.strictEqual(bank.balance(4), 1000);
+  // The arena ceiling holds for it too.
+  bank.ledger.outMicro = bank.ledger.inMicro - 10;
+  assert.strictEqual(bank.withdrawUpTo(4, 1000).micro, 10);
+  assert.strictEqual(breaches.length, 1);
+});

@@ -33,6 +33,10 @@
     HOLD_TICKS: Math.round(HOLD_MS / STEP_MS),
     HOLD_INPUT_STALE_MS: 500,
     DISCONNECT_GRACE_MS: 5000,
+    // A paid seat is unconfirmed until its first input arrives (the client only steers after
+    // pp:joined). Unconfirmed at its socket's close, or still unconfirmed this long after the
+    // join, it is refunded instead of left to fly with nobody steering (night queue item 5).
+    JOIN_CONFIRM_MS: 3000,
     PICKUP_SWEEP_MS: 3600000,
     UNIT_ID_MAX: 65535,
     HOUSE_CUT_DIV: 10,

@@ -137,6 +137,7 @@ test('a spent token re-sent after death is refused with no refund and no seat', 
   const s = sock(w);
   const tok = w.mint(0.1);
   s.fire('pp:join', { name: 'c', stake: 0.1, entryToken: tok });
+  s.fire('pp:in', MP.encodeInput(1, 0, false)); // the player got pp:joined and steered
   const room = paidRoom(w);
   const unit = room.seatOfSocket(s.id).unit;
   room.game.kill(unit, undefined, REASON.SELF_CROSS);
@@ -224,6 +225,7 @@ test('reconnect: in time, too late, after a death in the grace, two sockets on o
   const w = world();
   const a = sock(w);
   a.fire('pp:join', { name: 'r', stake: 0.1, entryToken: w.mint(0.1) });
+  a.fire('pp:in', MP.encodeInput(1, 0, false)); // the player got pp:joined and steered
   const key = a.last('pp:joined').resumeKey;
   const room = paidRoom(w);
   const unit = room.seatOfSocket(a.id).unit;
@@ -258,6 +260,7 @@ test('reconnect: in time, too late, after a death in the grace, two sockets on o
   // Die during the grace, then reconnect.
   const f = sock(w);
   f.fire('pp:join', { name: 'q', stake: 0.1, entryToken: w.mint(0.1) });
+  f.fire('pp:in', MP.encodeInput(1, 0, false));
   const key2 = f.last('pp:joined').resumeKey;
   w.paper.drop(f.id);
   const fr = f._ppRoom;

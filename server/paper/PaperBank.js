@@ -1,6 +1,6 @@
 'use strict';
 // All the money inside one Paper arena, in integer micro-USDC (design 5.1). Pure: no imports,
-// no clock, no sockets. Only deposit, withdraw and sweepPickup change the arena total; every
+// no clock, no sockets. Only deposit, withdraw (and withdrawUpTo) and sweepPickup change the arena total; every
 // other operation moves money between accounts and floor coins, so
 //     totalMicro() === inMicro - outMicro
 // holds by construction, and withdraw is capped at inMicro - outMicro so an arena can never
@@ -93,6 +93,18 @@ class PaperBank {
     if (!a) return null;
     this.accounts.delete(unitId);
     const micro = this._capToArena(a.micro, 'withdraw', unitId);
+    this.ledger.outMicro += micro;
+    return { micro, wallet: a.wallet, name: a.name };
+  }
+
+  // Part of an account leaves (at most maxMicro) and the account STAYS OPEN with the rest, for
+  // the caller to drop or withdraw. Used to refund an unconfirmed seat its buy-in while any
+  // winnings stay in the arena. Null when the account is not open or maxMicro is not micro.
+  withdrawUpTo(unitId, maxMicro) {
+    const a = this.accounts.get(unitId);
+    if (!a || !isMicro(maxMicro)) return null;
+    const micro = this._capToArena(Math.min(a.micro, maxMicro), 'withdrawUpTo', unitId);
+    a.micro -= micro;
     this.ledger.outMicro += micro;
     return { micro, wallet: a.wallet, name: a.name };
   }

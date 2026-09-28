@@ -6,6 +6,8 @@ import { createSolanaRpc, createSolanaRpcSubscriptions } from '@solana/kit';
 import bs58 from 'bs58';
 import { PublicKey, SystemProgram, Transaction } from '@solana/web3.js';
 import { getAssociatedTokenAddressSync, createTransferCheckedInstruction, createAssociatedTokenAccountIdempotentInstruction } from '@solana/spl-token';
+import { SERVER_URLS, stakeRoute } from './stakeRoute.mjs';
+import { createRestakeBridge, cancelledError } from './restakeBridge.mjs';
 
 // Active money mode (sol|usdc) reported by the server — decides whether the widget builds native
 // SOL transfers or USDC SPL-token transfers, and how it labels balances. Cached after first fetch.
@@ -55,11 +57,16 @@ const TIER_LABEL = { free: 'Play Free', dime: 'Stake & Play 10¢', dollar: 'Stak
 // server-side, then launch the game. Free lobbies skip the stake entirely.
 // Stake the entry fee for a paid lobby and return the verified entry token (no launch). Used
 // by both stakeAndPlay and the in-game "Play Again" re-stake. Free lobbies stake nothing.
-// The lobby is served from the NA origin, but a paid stake must hit the SAME regional server
-// the game will connect to (game.js's SERVER_URLS) — the one-time entry token is minted in
-// that server's memory and consumed there on join. Mismatch = paid EU lobbies never load.
-const SERVER_URLS = { na: '', eu: 'https://eu.duelseries.com' };
-function regionBase() { return SERVER_URLS[localStorage.getItem('duelseries_region') || 'na'] || ''; }
+// The lobby is served from the NA origin, but a paid stake must hit the SAME server the game
+// will connect to: the one-time entry token is minted in that server's memory and consumed
+// there on join. Which server that is depends on the game (stakeRoute.mjs): snake and agar
+// follow the lobby's region, Paper, Knockout and Battleship play on this origin.
+function lobbyRegion() { try { return localStorage.getItem('duelseries_region') || 'na'; } catch (_) { return 'na'; } }
+function regionBase() { return SERVER_URLS[lobbyRegion()] || ''; } // cosmetics only
+// The region the running game page was launched with (same-origin frames share this tab's
+// sessionStorage), so a Play again stakes where that page is connected, not where the lobby
+// points now.
+function pageRegion() { try { return sessionStorage.getItem('region') || lobbyRegion(); } catch (_) { return lobbyRegion(); } }
 
 /* `sel` selects the room to buy into, in one of two forms:
      'dime' | { lobbyType: 'dime' }   the original fixed tiers
@@ -72,14 +79,19 @@ function stakeSpec(sel) {
   if (typeof sel === 'string') return { lobbyType: sel };
   return sel || {};
 }
-async function stakeOnly(sel, wallet, signTransaction, onStatus) {
+/* base: the server to stake on (stakeRoute), '' for this origin. hooks.stillWanted, when given,
+   is asked right before the wallet prompt and right before the submit: false means the game
+   that asked is gone, so the stake stops there with nothing sent (the signed transfer is
+   never broadcast, so no money moves). */
+async function stakeOnly(sel, wallet, signTransaction, onStatus, base, hooks) {
   const spec = stakeSpec(sel);
+  const wanted = () => !(hooks && typeof hooks.stillWanted === 'function') || hooks.stillWanted();
   const byStake = spec.stake !== undefined && spec.stake !== null;
   // Free costs nothing and needs no token, whichever way it was named.
   if (byStake ? Number(spec.stake) === 0 : spec.lobbyType === 'free') {
     return { entryToken: '', worth: 0 };
   }
-  const base = regionBase();
+  if (typeof base !== 'string') throw new Error('No server chosen for this stake');
   onStatus('Getting quote…');
   const query = byStake
     ? '/api/stake-quote?stake=' + encodeURIComponent(spec.stake)
@@ -122,9 +134,11 @@ async function stakeOnly(sel, wallet, signTransaction, onStatus) {
   }
   const serialized = tx.serialize({ requireAllSignatures: false, verifySignatures: false });
 
+  if (!wanted()) throw cancelledError();
   onStatus('Confirm in your wallet…');
   const { signedTransaction } = await signTransaction({ transaction: serialized, wallet }); // sign only — no browser WSS
   const signedTx = Buffer.from(signedTransaction).toString('base64');
+  if (!wanted()) throw cancelledError(); // signed but never sent: nothing moved
 
   onStatus('Submitting stake…');
   const verify = await (await fetch(base + '/api/submit-stake', {
@@ -179,11 +193,22 @@ async function buyCosmetic(itemId, wallet, signTransaction, onStatus) {
 }
 
 async function stakeAndPlay(game, sel, wallet, signTransaction, onStatus, onLaunch) {
+  // One read of the lobby's region: the stake and the page's connection use the same answer.
+  const route = stakeRoute(game, lobbyRegion());
+  const staked = await stakeOnly(stakeSpec(sel), wallet, signTransaction, onStatus, route.base);
+  onStatus('Joining…');
+  launchStaked(game, sel, Object.assign({}, staked, { region: route.region }), wallet, onLaunch);
+}
+
+/* Opens a round that is already paid for (or free): the hand-off the page reads, then the page
+   in the lobby's frame. staked = { entryToken, worth, stake, region } from stakeOnly plus the
+   route; region is null for a game that plays on this origin. Also used when a Play again was
+   paid for after its page had gone (restakeBridge.mjs), so the stake still gets its seat. */
+function launchStaked(game, sel, staked, wallet, onLaunch) {
   const spec = stakeSpec(sel);
   const byStake = spec.stake !== undefined && spec.stake !== null;
-  const { entryToken, worth, stake } = await stakeOnly(spec, wallet, signTransaction, onStatus);
+  const { entryToken, worth, stake } = staked;
 
-  onStatus('Joining…');
   sessionStorage.setItem('playerName', localStorage.getItem('duelseries_playername') || short(wallet.address));
   sessionStorage.setItem('googleId', wallet.address);       // self-custody identity = wallet
   sessionStorage.setItem('walletAddress', wallet.address);
@@ -201,7 +226,9 @@ async function stakeAndPlay(game, sel, wallet, signTransaction, onStatus, onLaun
   }
   sessionStorage.setItem('entryToken', entryToken);
   sessionStorage.setItem('entrySol', String(worth));
-  sessionStorage.setItem('region', localStorage.getItem('duelseries_region') || 'na'); // honour the lobby's region pick (na/eu)
+  // The region the stake went to, for pages that follow it (snake, agar); a game that plays on
+  // this origin still gets the lobby's pick, which it does not use to connect.
+  sessionStorage.setItem('region', staked.region || lobbyRegion());
   sessionStorage.setItem('snakeColor', localStorage.getItem('duelseries_skin_color') || '#14F195');
   sessionStorage.setItem('hatId', localStorage.getItem('duelseries_hat_id') || 'none');
   sessionStorage.setItem('boostId', localStorage.getItem('duelseries_boost_id') || 'default');
@@ -324,7 +351,12 @@ function WalletPanel() {
 
   // Hide the widget while the game iframe covers the screen; re-show on return to lobby.
   useEffect(() => {
-    const onMsg = (e) => { if (e && e.data === 'game:done') { setPlaying(false); setBusy(false); setStatus(''); } };
+    const onMsg = (e) => {
+      if (e && e.data === 'game:done') {
+        if (restakeRef.current) restakeRef.current.onGameDone(); // the lobby clears the frames now
+        setPlaying(false); setBusy(false); setStatus('');
+      }
+    };
     window.addEventListener('message', onMsg);
     return () => window.removeEventListener('message', onMsg);
   }, []);
@@ -355,32 +387,48 @@ function WalletPanel() {
     return () => window.removeEventListener('duel:play', onPlay);
   }, []);
 
-  // In-game "Play Again": the game iframe asks us to re-stake; we run the Privy approval and
-  // post the fresh entry token back so it can respawn without a trip to the lobby.
-  useEffect(() => {
-    const onMsg = async (e) => {
-      const d = e && e.data;
-      if (!d || d.type !== 'duel:restake') return;
-      const frame = document.getElementById(d.game === 'agar' ? 'agar-frame' : 'game-frame');
-      const post = (msg) => { try { frame && frame.contentWindow && frame.contentWindow.postMessage(msg, '*'); } catch (_) {} };
-      if (!wallet) { post({ type: 'duel:restake:error', message: 'Wallet not ready — return to lobby.' }); return; }
-      try {
-        /* Play Again re-buys the SAME room the game is already in. The game echoes
-           back whichever of the two named it, so a ladder game restakes at its
-           rung and a tier game at its tier. */
-        const reSel = (d.stake !== undefined && d.stake !== null) ? { stake: d.stake } : { lobbyType: d.lobbyType };
-        const { entryToken } = await stakeOnly(reSel, wallet, signTransaction, () => {});
-        post({ type: 'duel:restake:done', entryToken });
-        // Return focus to the game after the Privy modal so keyboard works without a click.
-        const focusGame = () => { try { frame && frame.contentWindow && frame.contentWindow.focus(); } catch (_) {} };
+  // In-game "Play again": the game iframe asks us to re-stake (duel:restake); we run the wallet
+  // approval and post the fresh entry token back so it can respawn without a trip to the lobby.
+  // The bridge (restakeBridge.mjs) answers only the document that asked: a page the lobby
+  // cleared while the wallet was open gets no token posted into a blank frame. Gone before the
+  // money moved, nothing is submitted; gone after, the round that was paid for opens instead.
+  // Made once, so an outstanding request survives re-renders; the latest wallet via refs.
+  const walletRef = useRef(null);
+  walletRef.current = wallet;
+  const signRef = useRef(null);
+  signRef.current = signTransaction;
+  const restakeRef = useRef(null);
+  if (!restakeRef.current) {
+    const frameFor = (game) => document.getElementById(game === 'agar' ? 'agar-frame' : 'game-frame');
+    restakeRef.current = createRestakeBridge({
+      origin: window.location.origin,
+      frames: frameFor,
+      stake: async (req, hooks) => {
+        const w = walletRef.current;
+        if (!w) throw new Error('Wallet not ready. Return to the lobby.');
+        const route = stakeRoute(req.game, pageRegion());
+        const staked = await stakeOnly(req.sel, w, signRef.current, () => {}, route.base, hooks);
+        // Return focus to the game after the wallet modal so keyboard works without a click.
+        const f = frameFor(req.game);
+        const focusGame = () => { try { f && f.contentWindow && f.contentWindow.focus(); } catch (_) {} };
         focusGame(); setTimeout(focusGame, 150);
-      } catch (err) {
-        post({ type: 'duel:restake:error', message: (err && err.message) || 'Stake failed' });
-      }
-    };
+        return Object.assign({}, staked, { region: route.region });
+      },
+      relaunch: (req, staked) => {
+        const f = frameFor(req.game);
+        const w = walletRef.current;
+        if (busyRef.current || !w || !f || f.style.display === 'block') return false;
+        launchStaked(req.game, req.sel, staked, w, () => setPlaying(true));
+        return true;
+      },
+      log: (m) => console.warn('[restake] ' + m),
+    });
+  }
+  useEffect(() => {
+    const onMsg = (e) => { restakeRef.current.onMessage(e); };
     window.addEventListener('message', onMsg);
     return () => window.removeEventListener('message', onMsg);
-  }, [wallet, signTransaction]);
+  }, []);
 
   // Expose wallet actions for the lobby's wallet card (Phase 4d: the card is the wallet UI).
   useEffect(() => {

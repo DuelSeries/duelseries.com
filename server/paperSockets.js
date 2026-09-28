@@ -5,6 +5,7 @@
 // client sends can set a stake, a worth, a wallet or an amount. Every handler ignores a
 // payload of the wrong shape before reading it, and no handler can throw out of socket.io
 // (the server has no uncaughtException handler, so a throw would take every live stake down).
+const crypto = require('crypto');
 const { toMicro } = require('./paperPayout');
 const { MP } = require('./paper/loadPaperLib');
 
@@ -16,11 +17,22 @@ const TEXT = {
   entry: 'Entry fee not verified',
   'seat-failed': 'Could not seat you. Your entry was refunded.',
   expired: 'Your square is gone. Your money dropped where you stood.',
-  warming: 'The table is getting ready.'
+  warming: 'The table is getting ready.',
+  'join-lost': 'The connection dropped while you were joining. Your entry was refunded.',
+  'join-timeout': 'Your connection did not answer in time. Your entry was refunded.'
 };
+
+const TOKEN_MAX_LEN = 256; // a real token is a UUID; anything longer names no seat
 
 function isObject(v) {
   return v !== null && typeof v === 'object' && !Array.isArray(v);
+}
+
+// What the directory keeps instead of the token itself: enough to recognise a re-sent token,
+// useless to anyone reading memory or logs.
+function proofOf(token) {
+  if (typeof token !== 'string' || !token || token.length > TOKEN_MAX_LEN) return null;
+  return crypto.createHash('sha256').update(token).digest('hex');
 }
 
 module.exports = function createPaperSockets({
@@ -48,8 +60,15 @@ module.exports = function createPaperSockets({
         payout.refund({ wallet: r.walletAddress, name, micro: toMicro(r.worth), paid: r.paid, why });
         refunded = true;
       }
+      // A refusal lost with a dropped link is told again when the page re-sends the token.
+      if (r.ok) remember(token, why, refunded);
     }
     refuse(socket, why, { refunded });
+  }
+
+  function remember(token, why, refunded) {
+    const proof = proofOf(token);
+    if (proof) arenas.rememberOutcome('t:' + proof, why, refunded);
   }
 
   // pp:join and pp:respawn share this; `stake` comes from the message only for a first join.
@@ -62,11 +81,36 @@ module.exports = function createPaperSockets({
     if (stake > 0 && !paidEnabled) return refuse(socket, 'not-open');
     // 3r. reconnect: the seat is proven by its resumeKey; no token is read or consumed
     if (!respawn && msg.resumeKey !== undefined) {
-      const seat = arenas.seatByKey(String(msg.resumeKey));
-      if (!seat || !seat.room.resume(socket, seat)) return refuse(socket, 'expired');
+      const key = String(msg.resumeKey);
+      const seat = arenas.seatByKey(key);
+      if (!seat || !seat.room.resume(socket, seat)) {
+        const was = arenas.outcomeOf('k:' + key); // refunded before its first input
+        return was ? refuse(socket, was.why, { refunded: was.refunded }) : refuse(socket, 'expired');
+      }
       socket._ppRoom = seat.room;
       socket._ppStake = seat.room.stake;
       return;
+    }
+    // 3t. a paid join re-sent with its entry token: the page keeps the token in memory until
+    // pp:joined or pp:refused answers it, and asks again on the next connection when its link
+    // dropped first. The token names the UNCONFIRMED seat it bought, which this socket takes
+    // back (nothing consumed, nothing deposited), or the outcome that join already had (a
+    // refund, a refusal) is told again. A token that did not reach the server goes on below
+    // as a first join; a confirmed seat is never named by its token (only its resumeKey).
+    const proof = stake > 0 ? proofOf(token) : null;
+    if (proof) {
+      // Step 4's guard first: a socket already playing never takes a second seat this way.
+      if (socket._ppRoom && socket._ppRoom.hasLiveUnit(socket.id)) return;
+      const seat = arenas.seatByProof(proof);
+      if (seat) {
+        if (!seat.room.resume(socket, seat, true)) return refuse(socket, 'expired');
+        if (socket._ppRoom && socket._ppRoom !== seat.room) socket.leave(socket._ppRoom.ioRoom);
+        socket._ppRoom = seat.room;
+        socket._ppStake = seat.room.stake;
+        return;
+      }
+      const was = arenas.outcomeOf('t:' + proof);
+      if (was) return refuse(socket, was.why, { refunded: was.refunded });
     }
     // 4. already playing on this socket: a buggy or hostile duplicate, dropped silently
     if (socket._ppRoom && socket._ppRoom.hasLiveUnit(socket.id)) return;
@@ -86,13 +130,21 @@ module.exports = function createPaperSockets({
     if (socket._ppRoom && socket._ppRoom !== seat.room) socket.leave(socket._ppRoom.ioRoom);
     const micro = stake > 0 ? toMicro(entry.worth) : 0;
     try {
-      seat.room.addHuman(socket, { name, micro, wallet: stake > 0 ? entry.walletAddress : null, spot: seat.spot });
+      seat.room.addHuman(socket, {
+        name,
+        micro,
+        wallet: stake > 0 ? entry.walletAddress : null,
+        spot: seat.spot,
+        proof,
+        paid: stake > 0 ? entry.paid : undefined
+      });
     } catch (e) {
       console.error('[PAPER] seat failed', seat.room.lobbyType, e && e.message);
       let refunded = false;
       if (stake > 0 && entry.worth > 0) {
         payout.refund({ wallet: entry.walletAddress, name, micro, paid: entry.paid, why: 'seat-failed' });
         refunded = true;
+        remember(token, 'seat-failed', true);
       }
       return refuse(socket, 'seat-failed', { refunded });
     }
