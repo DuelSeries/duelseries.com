@@ -310,3 +310,26 @@ test('and the neck keeps its spacing through server corrections', () => {
     }
   }
 });
+
+/* A thumb resting inside the touch dead zone steers at the heading the snake
+   already has (the call site passes _lAngle as the target). The server's heading
+   correction must still land in that state. It used to be turned in before the
+   steering line, which then turned straight back to the old heading by the same
+   amount every frame, so the local heading never moved toward the server's. */
+test('the heading correction lands while steering holds the current heading', () => {
+  ctx.setPing(0);
+  ctx.setSnap({ length: 40, boostRatio: 1 });
+  ctx.seed(1000, 1000, 0);
+  const serverAngle = 1.0, hz = 120, snapEvery = hz / (C.SNAPSHOT_RATE || C.TICK_RATE);
+  for (let f = 0; f < hz; f++) {
+    if (f % Math.round(snapEvery) === 0) {
+      const h = ctx.headNow();
+      ctx._lCorrect({ segs: [h.x, h.y, h.x - 3, h.y], angle: serverAngle });
+    }
+    ctx._lAdvance(1000 / hz, vm.runInContext('_lAngle', ctx));
+  }
+  const a = vm.runInContext('_lAngle', ctx);
+  assert.ok(a > 0.5 && a <= serverAngle + 1e-9,
+    `after 1s of holding the current heading the local heading is ${a.toFixed(4)}, ` +
+    `server ${serverAngle}: the correction is being steered back out`);
+});

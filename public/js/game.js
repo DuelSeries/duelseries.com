@@ -734,15 +734,18 @@ function _lAdvance(dt, targetAngle) {
   const sc = Math.min(6, 1 + (snakeLen - minSegs) / CONSTANTS.SNAKE_SC_SEGS);
   const scang = 0.13 + 0.87 * Math.pow((7 - sc) / 6, 2);
   const tr = CONSTANTS.MAX_TURN_RATE * scang * (dt / msPerTick);
-  if (_lAngPend) {  // the server's heading correction, see _lCorrect
-    const step = Math.min(Math.abs(_lAngPend), _lAngRate * dt, tr) * Math.sign(_lAngPend);
-    _lAngle += step;
-    _lAngPend -= step;
-  }
   let delta = targetAngle - _lAngle;
   while (delta >  Math.PI) delta -= Math.PI * 2;
   while (delta < -Math.PI) delta += Math.PI * 2;
   _lAngle += Math.abs(delta) > tr ? Math.sign(delta) * tr : delta;
+  /* The server's heading correction, see _lCorrect. Turned in AFTER steering:
+     a thumb resting in the touch dead zone steers at the current heading, and
+     turned in first, the steering line undid the step every frame. */
+  if (_lAngPend) {
+    const step = Math.min(Math.abs(_lAngPend), _lAngRate * dt, tr) * Math.sign(_lAngPend);
+    _lAngle += step;
+    _lAngPend -= step;
+  }
   // Advance the boost ramp locally — don't wait for server snapshot (that's 1 tick stale).
   // Same slither-style dynamics as the server: linear ramp up over BOOST_RAMP_TICKS,
   // exponential glide down on release (dt-based so it's identical at any framerate).
