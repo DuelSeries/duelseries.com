@@ -383,7 +383,10 @@ class PaperRoom {
     }
     this.wire.feed();
     this.bank.assertConserved();
-    if (this.game.tick % MP.SNAPSHOT_EVERY === 0) this._snapshot();
+    if (this.game.tick % MP.SNAPSHOT_EVERY === 0 || this._idleFlush) {
+      this._idleFlush = false;
+      this._snapshot();
+    }
   }
 
   // IDLE -> HOLDING -> IDLE on the applied hold bit, before movement (design 5.4).
@@ -493,11 +496,15 @@ class PaperRoom {
     if (this.timer && typeof this.timer.unref === 'function') this.timer.unref();
   }
 
+  // The last seat just went. The tick in progress (if any) still finishes, and its events
+  // (the victim's own ['k'], a dropped coin) must reach the room before the clock stops.
   _goIdle() {
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;
     }
+    if (this._inTick) this._idleFlush = true;
+    else this._snapshot();
     if (this.paid && !this.idleLogged && this.bank.totalMicro() > 0) {
       this.idleLogged = true;
       const accounts = this.bank.openIds().map((id) => {
@@ -522,6 +529,7 @@ class PaperRoom {
   // One guarded sim step. EMERGENCY_FAIL_TICKS throws in a row close the arena once.
   tickOnce() {
     if (this.stopped) return false;
+    this._inTick = true;
     try {
       this.game.update(MP.STEP_MS);
       this.failCount = 0;
@@ -531,6 +539,8 @@ class PaperRoom {
       console.error('[PAPER] TICK threw', this.lobbyType, this.failCount, e && e.stack ? e.stack : e);
       if (this.failCount >= MP.EMERGENCY_FAIL_TICKS) this.emergencyClose();
       return false;
+    } finally {
+      this._inTick = false;
     }
   }
 

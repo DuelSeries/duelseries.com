@@ -336,3 +336,27 @@ test('5000 random ticks of joins, kills, coins, cash-outs, disconnects, graces, 
   assert.strictEqual(k.calls.breach.length, 0);
   assert.ok(ops.join > 50 && ops.kill > 20 && ops.grace > 5 && ops.cashout > 0, JSON.stringify(ops));
 });
+
+test('the last seat dying mid-tick still sends its own kill and coin before the room goes idle', () => {
+  for (const oddTick of [false, true]) {
+    const k = kit();
+    const a = join(k, at(300, 0.3));
+    tick(k, oddTick ? 1 : 2);
+    const move = k.g.handleUnitMovements.bind(k.g);
+    k.g.handleUnitMovements = function (dt) {
+      this.handleUnitMovements = move;
+      this.kill(a.u, undefined, REASON.SELF_CROSS);
+      return move(dt);
+    };
+    tick(k);
+    const sent = k.emits.filter(e => e[1] === 'pp:ev').flatMap(e => e[2].ev);
+    assert.ok(sent.some(e => e[0] === 'k' && e[1] === a.u.id), 'the victim\'s own kill went out (tick ' + k.g.tick + ')');
+    assert.ok(sent.some(e => e[0] === 'p+'), 'and its coin');
+    assert.deepStrictEqual(k.room.pending, []);
+  }
+  // Outside a tick (pp:leave of the last seat): flushed at once.
+  const k2 = kit();
+  const b = join(k2, at(300, 0.3));
+  k2.room.removeHuman(b.u.id, REASON.LEAVE);
+  assert.ok(k2.emits.filter(e => e[1] === 'pp:ev').flatMap(e => e[2].ev).some(e => e[0] === 'k' && e[1] === b.u.id));
+});

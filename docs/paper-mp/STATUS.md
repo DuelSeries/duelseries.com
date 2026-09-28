@@ -130,5 +130,24 @@ Still open (defaults chosen by the design, none blocks the build): (5) an arena 
   Dev entry tokens are scoped to Paper (a dev token cannot open a Knockout or snake table) and the dev mode refuses to
   boot with NODE_ENV=production, a non-empty ESCROW_PRIVATE_KEY or a non-empty DATABASE_URL. Pre-existing, flagged not
   fixed: drainPayouts records earnings for recovered rake-sweep rows; Knockout/Battleship refunds pay the rung.
+- MILESTONE 1 (T9 + T12 + T13, free only, PAPER_PAID off everywhere) pushed together. End-to-end browser check against
+  duelseries-local passed: lobby shows Free (and $0.10/$1.00 with PAPER_PAID=1 locally), Free launches /paper-arena,
+  2+ minutes of play with zero app console errors, a paid dev-token join shows $0.10, holding Q pays 90000 of 100000,
+  the entryToken leaves sessionStorage after the one pp:join, reconnect resumes the same square, solo /paper still
+  plays. Fixed on the way: the last seat dying mid-tick now still sends its own ['k'] and coin before the arena idles.
+- BEFORE PAPER_PAID IS SWITCHED ON (owner's Fable money review), open items found during the build:
+  1. Region: the widget stakes and mints on regionBase() (localStorage duelseries_region, can be EU) while the arena
+     page connects to its own origin; a paid Paper token minted on EU would be refused on NA. Pin paid Paper to one
+     region or make the page follow the widget's region.
+  2. A paid socket that drops after pp:join reaches the server but before pp:joined returns never gets a resumeKey,
+     so the seat is orphaned and its money drops as a coin when the grace ends (design gap).
+  3. wallet-widget restake posts duel:restake:done into whatever frame it finds even after the lobby cleared it; the
+     arena page's own lock covers the normal path.
+  4. Server tick timing on Windows: setInterval(16) fires at about 23 ms median, so the input FIFO starves/overflows
+     and the own square is within 2 u about 97 percent of the time at 230 ms RTT (worst 3 u after spawn settles, up to
+     18 u in the first 500 ms after a spawn). Check on the Linux server; consider a drift-corrected timer.
+  5. Pre-existing: drainPayouts records earnings for recovered rake-sweep rows; Knockout/Battleship refunds pay the
+     rung; the stock leaderboard cache throws if first drawn at 0 size (arena page guards it, solo cannot be edited).
+- NEXT: T14 (shrink + trim soak test, then TRIM_ON = true in PaperRoom.js).
 - Pre-existing flaky tests (fail without any Paper change): `localBody.test.js` "the neck keeps its spacing" about 1 run
   in 3, and `cashoutHold.test.js` under CPU contention. Not touched.
