@@ -208,6 +208,24 @@ Still open (defaults chosen by the design, none blocks the build): (5) an arena 
      - A wallet with RELEASE_MAX (2) unconfirmed-seat refunds in 10 minutes is paused, refunded in full at the door.
      - The Paper buy-in row is written when the seat is first steered, not when the token is spent.
      Tests: test/paperReviewFixes, entryExpiry, usdcAccountRent, submitStakeReview (real server), stakeRules.
+  7. WHAT STILL BLOCKS PAPER_PAID (night queue item 5, 2026-09-28 16:00 ET). Commits 6e66948, 6dd5739 and 2830ea7
+     are pushed (npm test 757/757, deploy check and security pass on the money diff done). PAPER_PAID stays OFF in
+     production: the live /api/live lists only paper:na:s0. It may be switched on only when all of these are closed:
+     a. A restart between a stake and its join loses that entry token and its money (tokens live only in server
+        memory), and a push to main auto-deploys without running maintenance:check. Needs either the pending tokens
+        persisted (a DB table, refunded once at boot with a guard against paying a join twice) or the deploy
+        workflow refusing to restart while maintenance:check says "not safe".
+     b. Owed payouts to wallets with no USDC account are retried 5 rows every 30 s, oldest first, so a player who
+        leaves many such rows can delay everyone else's payouts. Needs the drainer to skip rows whose account is still
+        missing (or retry them on a slower lane) so honest rows are never queued behind them.
+     c. The escrow SOL alarm floor (0.01 SOL) is a guess. The owner has to read the escrow's real SOL balance, top it
+        up if needed and confirm the floor, or the alarm is either silent or hourly noise.
+     d. The owner's Fable money review of the Paper paid path (the reason this list exists) has not happened.
+     Passed, not blocking: the local dev-token proof on duelseries-local at 2830ea7 (scratchpad/night/item5/e2e-paid.js,
+     87 of 87 checks, twice: join, kill transfer, coins, cash-out 90/10, full-table refund, banks balanced, both rungs).
+     After a switch-on the owner does one real $0.10 join and cash-out. Also noted: drainPayouts records earnings for recovered rake-sweep and Knockout/Battleship refund rows
+     (stats only); a stake that lands after its page left while another game fills the frame is not relaunched, and
+     its token is now refunded when it expires (item 6) instead of being lost.
 - T14 soak: done, TRIM_ON = true in PaperRoom.js (committed, not pushed by the T14 step). `test/paperSoak.test.js`:
   three seeds (Math.random stubbed per run, restored), a paid room, 16 wanderers incl. two wall huggers, scripted exits
   (hold, grace, leave) drive the wall 950 to 475 and joins bring it back, trim injected ON; every tick asserts no
