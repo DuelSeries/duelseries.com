@@ -4,6 +4,7 @@
 // the directory wires to paperPayout (cash-out, refund, floor sweep). This file never touches
 // money, db or Wallet directly.
 const crypto = require('crypto');
+const { performance } = require('perf_hooks');
 const { makeArena, REASON, P, MP } = require('./ArenaGame');
 const PaperBank = require('./PaperBank');
 const { ArenaWire } = require('./arenaWire');
@@ -16,13 +17,16 @@ const TRIM_ON = true;
 const REQUIRED_HOOKS = ['onCashout', 'onTransfer', 'onRefund', 'onSweep', 'onBreach'];
 const IN_RATE_MAX = 120; // pp:in per second per seat; more are ignored (6.2)
 let roomSeq = 0; // makes every arena's socket.io room name unique for the process
+const monotonicNow = () => performance.now();
 
 function stakeLabel(stake) {
   return 's' + String(Number(stake)).replace('.', '_');
 }
 
 class PaperRoom {
-  constructor({ stake = 0, region = 'na', index = 0, io = null, hooks = {}, now = Date.now, seed, directory = null, autoTick = true, trim } = {}) {
+  // now: the wall clock of every deadline (grace, stale hold, coin age). clock: the monotonic
+  // clock the tick loop runs on (never steps with the wall clock).
+  constructor({ stake = 0, region = 'na', index = 0, io = null, hooks = {}, now = Date.now, clock = monotonicNow, seed, directory = null, autoTick = true, trim } = {}) {
     for (const name of REQUIRED_HOOKS) {
       if (typeof hooks[name] !== 'function') throw new Error('PaperRoom: hook ' + name + ' must be a function');
     }
@@ -37,6 +41,7 @@ class PaperRoom {
     this.io = io;
     this.hooks = hooks;
     this.now = now;
+    this.clock = clock;
     this.directory = directory;
     this.autoTick = autoTick;
     this.stopped = false;
@@ -44,6 +49,7 @@ class PaperRoom {
     this.failCount = 0;
     this.closed = false; // the once-only emergency latch
     this.timer = null;
+    this._onWake = () => this._timerWake();
     this.acc = 0;
     this.last = 0;
     this.pending = [];
@@ -272,8 +278,20 @@ class PaperRoom {
     return null;
   }
 
-  // One pp:in integer from a seated socket. Anything malformed or over the rate is ignored.
+  // One pp:in from a seated socket: an input integer, or an array of up to MP.INPUT_BATCH_MAX
+  // of them in send order (every tick one client frame predicted). Each input counts against
+  // the rate on its own. Anything malformed or over the rate is ignored.
   setInput(socketId, n) {
+    if (Array.isArray(n)) {
+      if (n.length < 1 || n.length > MP.INPUT_BATCH_MAX || !n.every(Number.isInteger)) return false;
+      let any = false;
+      for (let i = 0; i < n.length; i++) any = this._setOneInput(socketId, n[i]) || any;
+      return any;
+    }
+    return this._setOneInput(socketId, n);
+  }
+
+  _setOneInput(socketId, n) {
     const seat = this.bySocket.get(socketId);
     if (!seat || seat.unit.death) return false;
     const now = this.now();
@@ -478,30 +496,52 @@ class PaperRoom {
     if (this.io) this.io.to(this.ioRoom).emit('pp:ev', MP.packBin({ tick: this.game.tick, ev }));
   }
 
+  // The volatile frame goes out BEFORE the reliable bundle. Any send leaves a socket's transport
+  // unwritable until its write completes (after this turn), and socket.io throws away a
+  // volatile packet to an unwritable transport: frame after bundle lost the frame on every
+  // snapshot tick that had an event (13 of 30 frames a second arrived, live and local; night
+  // queue item 3). A frame that lands just before its own tick's bundle is harmless: entries
+  // apply by tick, and the version compare waits RESYNC_AFTER_MS before it asks for anything.
   _snapshot() {
+    if (this.io) {
+      const buf = this.wire.frame(this.bank.pickups().map((p) => ({ pid: p.pid, x: p.x, y: p.y, micro: p.micro })));
+      this.io.to(this.ioRoom).volatile.emit('pp:s', buf);
+    }
     this._flushPending();
-    if (!this.io) return;
-    const buf = this.wire.frame(this.bank.pickups().map((p) => ({ pid: p.pid, x: p.x, y: p.y, micro: p.micro })));
-    this.io.to(this.ioRoom).volatile.emit('pp:s', buf);
   }
 
   // ---------------------------------------------------------------------------------------
-  // Clock: a 16 ms interval while anyone is seated; fixed STEP_MS steps, MAX_STEPS_PER_WAKE
+  // Clock, while anyone is seated: fixed STEP_MS steps against the monotonic clock. Each wake
+  // runs every step that is due (at most MAX_STEPS_PER_WAKE: a longer stall drops the rest of
+  // its backlog, never one long step and never a spiral) and then sleeps until the next step
+  // is due, so ticks land every STEP_MS on average with no drift. The old setInterval(16) woke
+  // at a fixed 16 ms whatever was due: on Linux a zero-step wake and a 33 ms gap about 2.5
+  // times a second, on Windows (15.6 ms timer) two steps back to back every 31 ms.
   // ---------------------------------------------------------------------------------------
 
   _ensureTicking() {
     if (this.timer || this.stopped || !this.autoTick) return;
-    this.last = this.now();
+    this.last = this.clock();
     this.acc = 0;
-    this.timer = setInterval(() => this.wake(), 16);
-    if (this.timer && typeof this.timer.unref === 'function') this.timer.unref();
+    this._arm();
+  }
+
+  // Milliseconds until the next step is due (0 when one already is).
+  _dueIn() {
+    return Math.max(0, MP.STEP_MS - this.acc - (this.clock() - this.last));
+  }
+
+  // Timers are whole milliseconds: sleep to the first one at or after the due time.
+  _arm() {
+    this.timer = setTimeout(this._onWake, Math.max(1, Math.ceil(this._dueIn())));
+    if (typeof this.timer.unref === 'function') this.timer.unref();
   }
 
   // The last seat just went. The tick in progress (if any) still finishes, and its events
   // (the victim's own ['k'], a dropped coin) must reach the room before the clock stops.
   _goIdle() {
     if (this.timer) {
-      clearInterval(this.timer);
+      clearTimeout(this.timer);
       this.timer = null;
     }
     if (this._inTick) this._idleFlush = true;
@@ -517,14 +557,28 @@ class PaperRoom {
     }
   }
 
+  // Every step is a whole tickOnce with its own afterTick (kills, holds, grace, snapshot), so
+  // the cash-out hold (HOLD_TICKS) and every other count in ticks stay exact whatever the wake.
   wake() {
-    const now = this.now();
+    const now = this.clock();
     this.acc += now - this.last;
     this.last = now;
-    let steps = Math.min(MP.MAX_STEPS_PER_WAKE, Math.floor(this.acc / MP.STEP_MS));
-    this.acc -= steps * MP.STEP_MS;
-    if (this.acc >= MP.STEP_MS) this.acc = 0; // extra backlog is dropped, never one long step
+    let steps = Math.floor(this.acc / MP.STEP_MS);
+    if (steps > MP.MAX_STEPS_PER_WAKE) {
+      steps = MP.MAX_STEPS_PER_WAKE;
+      this.acc %= MP.STEP_MS; // extra backlog is dropped, never one long step
+    } else {
+      this.acc -= steps * MP.STEP_MS;
+    }
     while (steps-- > 0 && !this.stopped) this.tickOnce();
+  }
+
+  // The timer's callback: the steps, then the next sleep while anyone is still seated.
+  _timerWake() {
+    this.timer = null;
+    if (this.stopped) return;
+    this.wake();
+    if (!this.stopped && !this.timer && this.seats.size) this._arm();
   }
 
   // One guarded sim step. EMERGENCY_FAIL_TICKS throws in a row close the arena once.
@@ -611,7 +665,7 @@ class PaperRoom {
     if (this.stopped) return;
     this.stopped = true;
     if (this.timer) {
-      clearInterval(this.timer);
+      clearTimeout(this.timer);
       this.timer = null;
     }
     try {

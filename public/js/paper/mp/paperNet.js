@@ -149,7 +149,12 @@
     this.resuming = false;
     this.lastPingAt = -Infinity;
     this.rtt = null;
-    this.stats = { frames: 0, badFrames: 0, bundles: 0, needs: 0, joins: 0 };
+    this.stats = { frames: 0, badFrames: 0, bundles: 0, needs: 0, joins: 0, drainWaits: 0 };
+    // Volatile sends waiting for the transport (see _flushOut): the inputs of this frame, and
+    // when the ping fell due (null: none waiting).
+    this._outIn = [];
+    this._outPing = null;
+    this._drainOn = null; // the engine a drain wait is registered on
     this._resetStream();
     if (this.socket) this.attach();
   }
@@ -169,6 +174,7 @@
     this.mismatch = new Map(); // id -> when the frame first disagreed with recv
     this.lastNeed = new Map(); // id -> when pp:need { id } was last sent
     this.lastNeedAll = -Infinity;
+    this._outIn = []; // inputs of an older stream never go out
   };
 
   ArenaNet.prototype.attach = function () {
@@ -252,10 +258,82 @@
     (s.volatile || s).emit(ev, payload);
   };
 
-  // One pp:in integer per predicted tick (volatile, 6.2). Never while a resume is in flight.
-  ArenaNet.prototype.sendInput = function (n) {
+  // The socket.io engine under the socket, when there is one (a test double has none).
+  ArenaNet.prototype._engine = function () {
+    var s = this.socket;
+    return s && s.io && s.io.engine ? s.io.engine : null;
+  };
+
+  // engine.io marks its transport unwritable from every send until that send is handed off
+  // (the next microtask on a websocket, the end of the request on polling), and socket.io
+  // throws away a volatile emit made while it is unwritable. So a second volatile emit in one
+  // task was lost: the 1 Hz ping took that frame's pp:in, and a frame that predicted two ticks
+  // lost its second input (half of all inputs at 30 fps). Night queue item 3.
+  ArenaNet.prototype._writable = function () {
+    var eng = this._engine();
+    return !eng || !eng.transport || eng.transport.writable !== false;
+  };
+
+  // Sends what is waiting, inputs first (one emit), then the ping. What the transport cannot
+  // take right now goes out on the engine's next drain instead of being thrown away.
+  ArenaNet.prototype._flushOut = function () {
+    if (this._outIn.length) {
+      if (!this.seated || !this.connected || this.resuming) {
+        this._outIn = [];
+      } else if (!this._writable()) {
+        return this._waitDrain();
+      } else {
+        var q = this._outIn;
+        this._outIn = [];
+        this._volatile('pp:in', q.length === 1 ? q[0] : q);
+      }
+    }
+    if (this._outPing !== null) {
+      if (!this.seated || !this.connected) {
+        this._outPing = null;
+      } else if (!this._writable()) {
+        return this._waitDrain();
+      } else {
+        var t = this._outPing;
+        this._outPing = null;
+        this._volatile('pp:ping', { t: t });
+      }
+    }
+  };
+
+  // One drain wait at a time, per engine: a reconnect brings a new engine, and a wait left on
+  // the old one never fires, so it must not block the new one.
+  ArenaNet.prototype._waitDrain = function () {
+    var eng = this._engine();
+    if (!eng || typeof eng.once !== 'function' || this._drainOn === eng) return;
+    var self = this;
+    this._drainOn = eng;
+    this.stats.drainWaits++;
+    eng.once('drain', function () {
+      if (self._drainOn !== eng) return;
+      self._drainOn = null;
+      if (self._outPing !== null) self._outPing = self.now(); // the round trip starts now
+      self._flushOut();
+    });
+  };
+
+  // One predicted tick's pp:in integer, held until flushInputs (volatile, 6.2): the mirror
+  // queues every tick of a frame and flushes once, so the frame is one emit. At most
+  // INPUT_BATCH_MAX wait (the oldest goes first). Never while a resume is in flight.
+  ArenaNet.prototype.queueInput = function (n) {
     if (!this.seated || !this.connected || this.resuming) return;
-    this._volatile('pp:in', n);
+    this._outIn.push(n);
+    if (this._outIn.length > mp().INPUT_BATCH_MAX) this._outIn.shift();
+  };
+
+  ArenaNet.prototype.flushInputs = function () {
+    this._flushOut();
+  };
+
+  // One input, sent now (or on the next drain).
+  ArenaNet.prototype.sendInput = function (n) {
+    this.queueInput(n);
+    this._flushOut();
   };
 
   ArenaNet.prototype._need = function (id) {
@@ -263,12 +341,14 @@
     this.socket.emit('pp:need', { id: id });
   };
 
-  // Called once per mirror update: the 1 Hz ping.
+  // Called once per mirror update, after its inputs: the 1 Hz ping (volatile), which leaves
+  // behind them on the next drain.
   ArenaNet.prototype.update = function (now) {
     if (now === undefined) now = this.now();
     if (this.seated && this.connected && now - this.lastPingAt >= PING_MS) {
       this.lastPingAt = now;
-      this._volatile('pp:ping', { t: now });
+      this._outPing = now;
+      this._flushOut();
     }
   };
 
@@ -288,6 +368,9 @@
 
   ArenaNet.prototype.onDisconnect = function (reason) {
     this.connected = false;
+    this._outIn = [];
+    this._outPing = null;
+    this._drainOn = null;
     if (this.seated) this.resuming = true;
     this._hook('disconnect', reason);
   };

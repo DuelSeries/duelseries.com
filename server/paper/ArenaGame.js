@@ -49,6 +49,8 @@ class ArenaHuman extends P.GameUnit {
     this._inPush = false;
     this._fifo = [];
     this._lastSeq = -1;
+    this._fifoMin = Infinity; // the smallest FIFO depth at a pop in the current trim window
+    this._fifoTicks = 0;
     // End points of trail pieces laid by a push. The player never drew those pieces, so
     // crossing one is the shrink's doing and must not kill (brief rule 6).
     this._pushEnds = new WeakSet();
@@ -146,6 +148,7 @@ class ArenaGame extends P.Game {
     this.stats.foldCuts = 0;
     this.stats.flatReturns = 0;
     this.stats.despiked = 0;
+    this.stats.inputTrims = 0;
   }
 
   // Bots read game.player; here it is the prey the per-bot wrap hands them (4.5). The stock
@@ -191,12 +194,29 @@ class ArenaGame extends P.Game {
     return ok;
   }
 
-  // One queued input per human per tick, never two; an empty queue repeats the last input.
+  // One queued input per human per tick; an empty queue repeats the last input. The FIFO is a
+  // jitter buffer (MP.INPUT_TRIM_*): once the stream has started, a window of INPUT_TRIM_TICKS
+  // ticks in which every pop found at least INPUT_TRIM_DEPTH inputs queued drops the oldest, so
+  // the input delay a burst of late packets built up does not stay for good. That drop is the
+  // only time a tick consumes two inputs (the client sees it as one tick of re-base, like an
+  // overflow), and it can only happen once per window.
   applyInputs() {
     let best = -1;
     for (const h of this.humans) {
       if (h.death) continue;
-      const next = h._fifo.shift();
+      const q = h._fifo;
+      if (h._lastSeq >= 0) {
+        if (q.length < h._fifoMin) h._fifoMin = q.length;
+        if (++h._fifoTicks >= MP.INPUT_TRIM_TICKS) {
+          if (h._fifoMin >= MP.INPUT_TRIM_DEPTH) {
+            q.shift();
+            this.stats.inputTrims++;
+          }
+          h._fifoMin = Infinity;
+          h._fifoTicks = 0;
+        }
+      }
+      const next = q.shift();
       if (next) {
         h.angle = next.angle;
         h.holdBit = next.hold;
@@ -231,6 +251,8 @@ class ArenaGame extends P.Game {
     if (!u || !u.isHuman) return false;
     u._fifo = [];
     u._lastSeq = -1;
+    u._fifoMin = Infinity;
+    u._fifoTicks = 0;
     u.holdBit = false;
     return true;
   }

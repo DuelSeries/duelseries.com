@@ -75,7 +75,16 @@
     SNAP_DIST: 40,
     VISUAL_DECAY_MS: 100,
     INPUT_BUFFER: 64,
-    INPUT_QUEUE_MAX: 3,
+    // The server's per-seat input FIFO is a small jitter buffer: a starve (no input queued at a
+    // tick) leaves one more input queued for good, so the depth grows to what the network needs;
+    // when the depth never fell below INPUT_TRIM_DEPTH for INPUT_TRIM_TICKS, the oldest input is
+    // dropped (one tick less input delay). INPUT_QUEUE_MAX is only the hard cap (drop-oldest).
+    INPUT_QUEUE_MAX: 8,
+    INPUT_TRIM_DEPTH: 3,
+    INPUT_TRIM_TICKS: 120,
+    // One pp:in message carries every input a client frame predicted (an integer for one, an
+    // array for more): a second volatile emit in the same task would be thrown away.
+    INPUT_BATCH_MAX: 8,
     MAX_PREDICT_TICKS_PER_FRAME: 4,
     RESYNC_AFTER_MS: 500,
     WARM_CHUNK: 100,

@@ -782,8 +782,8 @@
         if (dtMs == null) dtMs = MP.STEP_MS;
         var net = this.net;
         var now = net ? net.now() : 0;
-        if (net) net.update(now);
         this._predict(dtMs);
+        if (net) net.update(now); // the ping, behind this frame's inputs
         var br = null;
         if (net) {
           var rt = net.renderTick(now);
@@ -801,9 +801,12 @@
         return true;
       }
 
-      // One predicted tick per STEP_MS + PREDICT_DT_BIAS_MS of frame time: the stock readInput
-      // and quantise, then the predictor, then pp:in. A backlog past the per-frame cap is
-      // dropped, as the server drops its own.
+      // One predicted tick per STEP_MS of frame time, the server's tick period: the stock
+      // readInput and quantise, then the predictor (whose step MOVES by STEP_MS +
+      // PREDICT_DT_BIAS_MS, the server's mean per-tick dt), then the input is queued; all of the
+      // frame's inputs leave as one pp:in. A backlog past the per-frame cap is dropped, as the
+      // server drops its own. (Counting ticks at STEP_MS + bias made 59.98 inputs a second
+      // against the server's 60 ticks: its FIFO ran dry once a minute, a one-tick re-base.)
       _predict(dtMs) {
         var me = this.player;
         var net = this.net;
@@ -814,19 +817,20 @@
           return;
         }
         var pr = this.predictor;
-        var dt = pr.dtMs;
+        var period = MP.STEP_MS;
         var budget = this._frameBudget !== null ? this._frameBudget : MP.MAX_PREDICT_TICKS_PER_FRAME;
         this.predictAcc += dtMs;
-        while (this.predictAcc >= dt && budget > 0) {
-          this.predictAcc -= dt;
+        while (this.predictAcc >= period && budget > 0) {
+          this.predictAcc -= period;
           budget--;
-          this.readInput(dt);
+          this.readInput(pr.dtMs);
           this.angle = quantAngle(this.direction);
-          net.sendInput(pr.next(this.angle));
+          net.queueInput(pr.next(this.angle));
           if (this._sentSinceReset < 256) this._sentSinceReset++;
         }
+        net.flushInputs();
         if (this._frameBudget !== null) this._frameBudget = budget;
-        if (this.predictAcc >= dt) this.predictAcc %= dt;
+        if (this.predictAcc >= period) this.predictAcc %= period;
       }
 
       // Position lerps and the heading takes the shortest arc; past the newest frame it dead

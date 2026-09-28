@@ -127,6 +127,7 @@ function jitterRun({ maxDelay, seed, oldRules = false, drop = () => false, hold 
       if (r !== 'ok') mismatches++;
     }
   }
+  drops += g.stats.inputTrims; // a trim is a drop too (one tick consumes two inputs)
   return { g, h, pred, starves, drops, exactAcks, mismatches, rebases: pred.stats.rebases, snaps: pred.stats.snaps };
 }
 

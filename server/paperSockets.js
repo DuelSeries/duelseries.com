@@ -114,9 +114,11 @@ module.exports = function createPaperSockets({
     enter(socket, msg, socket._ppStake, true);
   }
 
+  // One input integer, or an array of them (every tick one client frame predicted, in order;
+  // the room checks the length and every element).
   function onInput(socket, n) {
     const room = socket._ppRoom;
-    if (!room || !Number.isInteger(n)) return;
+    if (!room || !(Number.isInteger(n) || Array.isArray(n))) return;
     room.setInput(socket.id, n);
   }
 

@@ -143,9 +143,19 @@ Still open (defaults chosen by the design, none blocks the build): (5) an arena 
      so the seat is orphaned and its money drops as a coin when the grace ends (design gap).
   3. wallet-widget restake posts duel:restake:done into whatever frame it finds even after the lobby cleared it; the
      arena page's own lock covers the normal path.
-  4. Server tick timing on Windows: setInterval(16) fires at about 23 ms median, so the input FIFO starves/overflows
-     and the own square is within 2 u about 97 percent of the time at 230 ms RTT (worst 3 u after spawn settles, up to
-     18 u in the first 500 ms after a spawn). Check on the Linux server; consider a drift-corrected timer.
+  4. DONE (night queue item 3, 2026-09-28; measurements in scratchpad/night/paper-lag.md, gitignored). The lag had
+     three real causes on every platform, the Windows timer only a fourth for local testing. (1) The server sent the
+     reliable pp:ev before the volatile pp:s in the same turn, so socket.io threw away the frame on every snapshot with
+     an event: 13 of 30 frames a second arrived (live too), remotes were drawn about 200 ms late. Frame first now:
+     30.05 frames/s, 0 dropped, jitter buffer 7 ms median (was 127), remotes about 77 ms late, 0% extrapolating.
+     (2) The client lost its own pp:in whenever the ping or a second input went out in the same frame (half of all
+     inputs at 30 fps): a frame's inputs are now one emit and anything the transport cannot take waits for its drain,
+     0 discarded at 30, 60 and 120 fps; the mirror also counts ticks at STEP_MS now (it sent 59.98 inputs a second).
+     (3) The 3-deep FIFO starved and overflowed on internet jitter: it is now an 8-deep jitter buffer with a slow trim;
+     at 15+U(0,20) ms one way re-bases went from 2.5/s to 0 in steady play, at 30+U(0,40) from 4.25/s to 0.
+     (4) The room clock is a setTimeout to the next step on a monotonic clock, capped catch-up (no 33 ms gap in the
+     Linux model, no double steps on Windows). Remaining: the join transient (the first compare after a spawn re-bases
+     by about one RTT of travel, then 1 to 4 one-tick starves while the FIFO builds its cushion on a jittery link).
   5. Pre-existing: drainPayouts records earnings for recovered rake-sweep rows; Knockout/Battleship refunds pay the
      rung; the stock leaderboard cache throws if first drawn at 0 size (arena page guards it, solo cannot be edited).
 - T14 soak: done, TRIM_ON = true in PaperRoom.js (committed, not pushed by the T14 step). `test/paperSoak.test.js`:

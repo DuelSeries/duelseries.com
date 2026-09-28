@@ -404,3 +404,119 @@ test('ping at 1 Hz while seated; pong gives the round trip; respawn and leave', 
   net.update(9000);
   assert.strictEqual(socket.sent.filter(s => s[0] === 'pp:ping').length, 2, 'no ping once left');
 });
+
+// A socket that throws volatile emits away the way socket.io-client does: every send leaves the
+// engine's transport unwritable until its drain (a microtask on a websocket), and a volatile
+// emit made while it is unwritable is discarded. `drain()` is that microtask.
+function engineSocket() {
+  const s = socketDouble();
+  s.discarded = [];
+  const engine = {
+    transport: { writable: true },
+    listeners: [],
+    once(ev, fn) { if (ev === 'drain') this.listeners.push(fn); }
+  };
+  s.io = { engine };
+  const send = (ev, p, how) => {
+    if (how === 'volatile' && !s.io.engine.transport.writable) {
+      s.discarded.push([ev, p]);
+      return;
+    }
+    s.sent.push(how ? [ev, p, how] : [ev, p]);
+    s.io.engine.transport.writable = false;
+  };
+  s.emit = (ev, p) => send(ev, p);
+  s.volatile = { emit: (ev, p) => send(ev, p, 'volatile') };
+  s.drain = () => {
+    const eng = s.io.engine;
+    eng.transport.writable = true;
+    const fns = eng.listeners;
+    eng.listeners = [];
+    fns.forEach((fn) => fn());
+  };
+  return s;
+}
+
+function seatedOn(socket, clock) {
+  const net = new Net.ArenaNet({ socket, now: () => clock.t, onError: (w, e) => { throw e; } });
+  net.join({ name: 'Ann', stake: 0 });
+  socket.drain();
+  socket.fire('pp:joined', { you: 3, tick: 50, resumeKey: 'RK', units: [], rings: [], trails: [], pickups: [] });
+  socket.sent.length = 0;
+  return net;
+}
+
+test('a frame\'s inputs leave as one pp:in: an integer for one tick, an array in order for more, at most INPUT_BATCH_MAX', () => {
+  const { socket, net } = kit();
+  const ins = () => socket.sent.filter(s => s[0] === 'pp:in');
+  net.queueInput(11);
+  assert.strictEqual(ins().length, 0, 'queued, not sent');
+  net.flushInputs();
+  assert.deepStrictEqual(ins(), [['pp:in', 11, 'volatile']]);
+  net.queueInput(12);
+  net.queueInput(13);
+  net.flushInputs();
+  assert.deepStrictEqual(ins()[1], ['pp:in', [12, 13], 'volatile']);
+  net.flushInputs();
+  assert.strictEqual(ins().length, 2, 'nothing waiting, nothing sent');
+  for (let i = 0; i < MP.INPUT_BATCH_MAX + 3; i++) net.queueInput(100 + i);
+  net.flushInputs();
+  const big = ins()[2][1];
+  assert.strictEqual(big.length, MP.INPUT_BATCH_MAX);
+  assert.strictEqual(big[big.length - 1], 100 + MP.INPUT_BATCH_MAX + 2, 'the newest are kept');
+});
+
+test('nothing volatile is thrown away while the transport is busy: the ping and a second emit wait for the drain', () => {
+  const clock = { t: 5000 };
+  const socket = engineSocket();
+  // The double is faithful: two volatile emits in one task lose the second.
+  socket.volatile.emit('x', 1);
+  socket.volatile.emit('x', 2);
+  assert.deepStrictEqual(socket.discarded, [['x', 2]]);
+  socket.drain();
+  socket.discarded.length = 0;
+  const net = seatedOn(socket, clock);
+  // A frame: its input, then the ping that fell due (the old order lost the input to the ping).
+  net.sendInput(21);
+  net.update(clock.t);
+  assert.deepStrictEqual(socket.sent, [['pp:in', 21, 'volatile']]);
+  clock.t = 5000.4;
+  socket.drain();
+  assert.deepStrictEqual(socket.sent[1], ['pp:ping', { t: 5000.4 }, 'volatile'], 'the round trip starts when it leaves');
+  socket.drain();
+  // Two flushes in one task (a long frame split into sub-steps): the second waits.
+  net.queueInput(22);
+  net.flushInputs();
+  net.queueInput(23);
+  net.queueInput(24);
+  net.flushInputs();
+  assert.strictEqual(socket.sent.length, 3);
+  socket.drain();
+  assert.deepStrictEqual(socket.sent.slice(2), [['pp:in', 22, 'volatile'], ['pp:in', [23, 24], 'volatile']]);
+  assert.deepStrictEqual(socket.discarded, [], 'nothing was discarded');
+  assert.ok(net.stats.drainWaits >= 2);
+});
+
+test('a disconnect drops the inputs waiting for a drain; a wait left on the old engine never blocks the new one', () => {
+  const clock = { t: 0 };
+  const socket = engineSocket();
+  const net = seatedOn(socket, clock);
+  net.sendInput(31);
+  net.sendInput(32);
+  assert.deepStrictEqual(socket.sent, [['pp:in', 31, 'volatile']]);
+  const oldEngine = socket.io.engine;
+  socket.fire('disconnect', 'transport close');
+  socket.io.engine = { transport: { writable: true }, listeners: [], once(ev, fn) { if (ev === 'drain') this.listeners.push(fn); } };
+  socket.fire('connect');
+  assert.deepStrictEqual(socket.sent[1], ['pp:join', { name: 'Ann', stake: 0, resumeKey: 'RK' }]);
+  oldEngine.transport.writable = true;
+  oldEngine.listeners.forEach((fn) => fn());
+  socket.drain();
+  assert.strictEqual(socket.sent.filter(s => s[0] === 'pp:in').length, 1, 'the old stream\'s input never went out');
+  socket.fire('pp:joined', { you: 3, tick: 90, resumeKey: 'RK', resumed: true, units: [], rings: [], trails: [], pickups: [] });
+  net.sendInput(0);
+  net.sendInput(1);
+  socket.drain();
+  assert.deepStrictEqual(socket.sent.filter(s => s[0] === 'pp:in').slice(1), [['pp:in', 0, 'volatile'], ['pp:in', 1, 'volatile']]);
+  assert.deepStrictEqual(socket.discarded, []);
+});

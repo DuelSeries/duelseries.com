@@ -125,11 +125,13 @@ Every new number lives here and nowhere else. Tests import this block; no test h
 | `TRAIL_TOL` / `TRAIL_MAX_GAP` / `TRAIL_TAIL_MAX` | 0.35 u / 40 u / 4 | wire trail decimation (a wall crawler lays 5885 raw points in 25 s, probe); tail = corners since the last reliable batch; 4 is double the sim-reachable maximum of about 3 corners per batch window (turn cap `2 * PI / 60` rad per 1.5 u tick against `TRAIL_TOL`, exhaustive search, plus one wall-touch corner); corners past the cap wait for the next reliable batch, at most 100 ms of trail lag and never a gap after the batch lands |
 | `RING_TOL` / `RING_ENCODES_PER_TICK` | 0.4 u / 3 | stock `simplify` is 25 u, too coarse to draw; a capture that carves five bases cannot spike a tick |
 | `INTERP_DELAY_MS` / `MAX_JITTER_BUF_MS` / `DEAD_RECKON_MS` | 70 / 180 / 200 | the snake client's proven numbers (`public/js/game.js:73-84`) |
-| `PREDICT_DT_BIAS_MS` | 0.005 | the mean of the server's per-tick `rng() * 0.01` ms (`paperGame.js:406`); the predictor steps at `STEP_MS + PREDICT_DT_BIAS_MS` so the one-sided jitter does not accumulate against it |
+| `PREDICT_DT_BIAS_MS` | 0.005 | the mean of the server's per-tick `rng() * 0.01` ms (`paperGame.js:406`); the predictor steps at `STEP_MS + PREDICT_DT_BIAS_MS` so the one-sided jitter does not accumulate against it. That is how far a predicted tick MOVES; the mirror still counts one predicted tick per `STEP_MS` of frame time, the server's tick period (counting at `STEP_MS + bias` sent 59.98 inputs a second against 60 ticks, so the FIFO ran dry about once a minute; night queue item 3) |
 | `RECONCILE_POS_EPS` / `RECONCILE_DIR_EPS` | 0.5 u / 0.5 deg | below this the predictor is left alone. The server's dt jitter is one-sided (mean +0.005 ms, 0.00045 u per tick) and accumulates linearly on straight runs (0.25 u over 600 ticks, probe), so the predictor carries the mean; 0.5 u sits above the stacked u16 rounding (0.044 u) and the residual random walk (under 0.02 u per minute, probe) and is invisible against an 8 u trail. Direction differences stay under 0.001 rad and do not accumulate |
 | `SNAP_DIST` / `VISUAL_DECAY_MS` | 40 u / 100 ms | larger error snaps (push, reseat); smaller is hidden by a decaying visual offset |
 | `INPUT_BUFFER` | 64 | one second of predicted inputs, keyed by `seq` (8.2 says how a miss is detected) |
-| `INPUT_QUEUE_MAX` | 3 | per-human FIFO on the server so the ack advances exactly one `seq` per server tick, which is what `buffer[ack]` assumes; a bunch of up to 3 late packets is absorbed; costs up to 2 ticks (33 ms) of input latency while jitter persists, drained one tick at a time on the next gap; drop-oldest on overflow |
+| `INPUT_QUEUE_MAX` | 8 | per-human FIFO on the server so the ack advances exactly one `seq` per server tick, which is what `buffer[ack]` assumes. It is a small jitter buffer: a starve leaves one more input queued for good, so the depth grows to what the network needs (3 was too shallow for internet jitter: at 15 + U(0, 20) ms one way it starved and overflowed about 3.7 times a second, a 1.5 u re-base each; night queue item 3). 8 is only the hard cap, drop-oldest |
+| `INPUT_TRIM_DEPTH` / `INPUT_TRIM_TICKS` | 3 / 120 | when every pop in a window of 120 ticks found at least 3 inputs queued, the oldest is dropped: the cushion a burst built up does not stay as input delay for good. At most one trim per window; the equilibrium keeps 1 to 2 spare inputs, below the trim line, so a steady link never trims |
+| `INPUT_BATCH_MAX` | 8 | a `pp:in` may carry every input one client frame predicted, as an array in order (a second volatile emit in the same task is discarded by socket.io, 6.2) |
 | `MAX_PREDICT_TICKS_PER_FRAME` | 4 | client mirror of `MAX_STEPS_PER_WAKE`: a resume burst after a tab stall neither blows through the input ring nor trips the server's 120 per second `pp:in` limit |
 | `RESYNC_AFTER_MS` | 500 | a version mismatch older than this sends `pp:need` |
 | `WARM_CHUNK` | 100 updates per `setImmediate` | 6000 warm-up updates cost 474 ms in one block (probe), which would stall snake and agar |
@@ -245,7 +247,8 @@ and wraps it:
   `super.update`, before holds, so on a same-tick tie DEATH WINS and the killer gets the money.
 - `applyInputs()` (before `super.update`), per human seat: the input FIFO (`INPUT_QUEUE_MAX`, filled by `setInput`,
   6.2) is popped EXACTLY ONE entry per tick, never two (popping two reintroduces the client mismatch that the queue
-  exists to remove): that entry's `angle` and hold bit become the unit's, `seqAck` = its `seq`. An arriving `seq` not
+  exists to remove), except the jitter-buffer trim (`INPUT_TRIM_*`, section 2), which drops the oldest at most once per
+  window, a one-tick re-base like an overflow: that entry's `angle` and hold bit become the unit's, `seqAck` = its `seq`. An arriving `seq` not
   newer than the last applied one (modulo 256) is ignored at `setInput`. When the FIFO is empty the unit repeats its
   last angle and hold bit and `seqAck` is unchanged. Then, free arena only: `config.botsCount = humans > 0 ? 16 : 15`,
   and `BOT_LEVEL_SOURCE` (section 2): `const live = this.humans.filter(h => !h.death); this.config.botLevel = live.length
@@ -337,8 +340,12 @@ golden re-run. Nothing else may touch a solo file.
   tick (`paperGame.js:404`). Every public mutator of `ArenaGame` (`spawnHuman`, `removeHuman`, `reseat`, `applyTrim`,
   `stop`) starts with `_enter()` = `P.Vec2.space = this.space`. Node is single threaded and no `update` is ever
   suspended, so a synchronous set is sufficient and keeps the join one atomic turn (5.6).
-- Tick: `PaperRoom` owns `setInterval(wake, 16)`. `wake`: `acc += now() - last`; run `min(MAX_STEPS_PER_WAKE, floor(acc /
-  STEP_MS))` steps of exactly `STEP_MS`; drop the rest. Never `loop()` (rAF, `paperGame.js:685-724`). Each step is wrapped
+- Tick: `PaperRoom` owns a `setTimeout` armed for the next step boundary (whole ms, at least 1) on the MONOTONIC clock
+  (`clock`, `performance.now`; `now()` stays the wall clock of every deadline). `wake`: `acc += clock() - last`; run
+  `floor(acc / STEP_MS)` steps of exactly `STEP_MS`, at most `MAX_STEPS_PER_WAKE` (a longer stall drops the rest of its
+  backlog, keeping the phase); re-arm while anyone is seated. Ticks land every `STEP_MS` on average with no drift (the
+  old `setInterval(16)` gave a 33 ms gap about 2.5 times a second on Linux and two steps back to back every 31 ms on
+  Windows; night queue item 3). Never `loop()` (rAF, `paperGame.js:685-724`). Each step is wrapped
   in try/catch (5.9). Every deadline reads `room.now()` or sim time, so tests step a fake clock (`test/shooter.test.js:8-17`).
 - Idle: the interval exists only while `liveHumans > 0`, where a seat in its disconnect grace (5.7) still counts (its
   square is alive and moving). A paid arena with money on its floor and nobody in it is frozen, not destroyed. At the
@@ -669,12 +676,12 @@ seat keys) is ever derived from it.
 |---|---|---|---|
 | `pp:join` | reliable | `{ name, stake, entryToken }` or, on a reconnect, `{ name, stake, resumeKey }` | once per token, 5.6; the reconnect form carries no token and consumes nothing, 5.7 |
 | `pp:respawn` | reliable | `{ entryToken }` | stake from `socket._ppStake` |
-| `pp:in` | **volatile**, EVERY predicted tick (60 Hz, exactly like the snake's `sendInput`, `public/js/game.js:2222-2224`) | one integer `(seq & 255) << 16 \| angle << 8 \| flags` | `Number.isInteger`, `angle <= 253`, flags bit0 = HOLD. Queued per human in a FIFO of `INPUT_QUEUE_MAX`, one consumed per server tick (4.4 `applyInputs`); a `seq` not newer than the last applied (modulo 256) is ignored; on overflow the OLDEST queued entry is dropped, never the newest; more than 120 per second from one socket are ignored (dropping the oldest queued entry, never the newest) |
+| `pp:in` | **volatile**, one emit per client frame carrying EVERY tick it predicted (60 Hz of inputs, like the snake's `sendInput`, `public/js/game.js:2222-2224`) | one integer `(seq & 255) << 16 \| angle << 8 \| flags`, or an array of up to `INPUT_BATCH_MAX` of them in order | `Number.isInteger` (each element of an array, which is ignored whole when it is empty, too long or holds anything else), `angle <= 253`, flags bit0 = HOLD. engine.io leaves its transport unwritable from each send until the next microtask and socket.io discards a volatile emit made meanwhile, so the client never makes two in one task: whatever the transport cannot take waits for the engine's `drain` (paperNet `_flushOut`). Queued per human in a FIFO of `INPUT_QUEUE_MAX`, one consumed per server tick (4.4 `applyInputs`); a `seq` not newer than the last applied (modulo 256) is ignored; on overflow the OLDEST queued entry is dropped, never the newest; more than 120 per second from one socket are ignored (dropping the oldest queued entry, never the newest) |
 | `pp:need` | reliable | `{ id \| 0 }` | 250 ms limit per unit, 2000 ms for `0` (everything) |
 | `pp:leave` | reliable | none | deliberate exit, no grace: the money drops at once (5.7); only sent from end screens |
-| `pp:ping` | volatile, 1 Hz | `{ t }` | reply `pp:pong { t, tick }` |
+| `pp:ping` | volatile, 1 Hz, after the frame's `pp:in` (on the next drain) | `{ t }` (when it leaves) | reply `pp:pong { t, tick }` |
 
-Every handler first checks that an object payload is a non-null object (`pp:in` that it is an integer) and returns
+Every handler first checks that an object payload is a non-null object (`pp:in` that it is an integer or an array of them) and returns
 silently otherwise, before any destructuring: `server/` has no `uncaughtException` handler, so a thrown handler would
 be a process crash with every live stake in memory (5.9), not an emergency close.
 
@@ -682,7 +689,7 @@ be a process crash with every live stake in memory (5.9), not an emergency close
 | Event | Emit | Payload |
 |---|---|---|
 | `pp:joined` | reliable, one socket | `{ you, arenaId (display only, 6.1), stake, tick, radius, targetRadius, holdTicks, resumeKey, resumed: false \| true, units: [{ id, name, skin, bot, x, y, dir, inId, micro, pct, ver, epoch }], pickups, rings: ArrayBuffer[], trails: ArrayBuffer[] }`; `skin` is the colour skin NAME, its main hex (`paperSkins.js:381,472`); `pct` clamped to `[0, 1]`; `resumed: true` is the event a client needs to resume after a reconnect (5.7): the full state, applied exactly like a first join |
-| `pp:s` | **volatile**, room, 30 Hz | one shared `ArrayBuffer`, 7.1 |
+| `pp:s` | **volatile**, room, 30 Hz, sent BEFORE that tick's `pp:ev` | one shared `ArrayBuffer`, 7.1 |
 | `pp:ev` | reliable, room, on snapshot ticks with events, and flushed early at any join or resume (5.6) | `{ tick, ev: [...] }`, 7.2. ONE stream, so order is total |
 | `pp:geo` | reliable, one socket | reply to `pp:need`: `{ tick, ev: [['b', ...], ['t', ...]] }` for that unit or all |
 | `pp:dead` | reliable, victim | `{ reason, killerId, killerName, lostMicro, tick }` |
@@ -863,11 +870,11 @@ step(state{x, y, dir}, angleByte, locked, dtMs, border, config, ownTrail?) -> st
 mirror's `MP.guardedBorder` (4.3): the same cap and the same `resetGuard()` before every step as the server, so on the
 exact-vertex phase (a reconcile installs the wire-quantised `y = 1000.0` exactly, and angle byte 0 keeps it there) the
 server and the predictor take the same escape on the same input instead of the tab freezing, and after the push both
-are `wallInside` (a unit parked exactly on the vertex counts as inside by 9.2's boundary rule). An accumulator runs
-predicted ticks at `STEP_MS + PREDICT_DT_BIAS_MS` (the server's per-tick dt is `STEP_MS + rng() * 0.01`, `paperGame.js:406`,
-whose one-sided mean would otherwise accumulate 0.25 u per 600 ticks on a straight run), at most
-`MAX_PREDICT_TICKS_PER_FRAME` per frame. Each tick: stock `readInput` and the stock quantise (`paperGame.js:409`), push
-`{ seq, angle, hold, stateAfter }` into the `INPUT_BUFFER` ring (keyed by `seq`), send `pp:in` (EVERY tick, 6.2). The
+are `wallInside` (a unit parked exactly on the vertex counts as inside by 9.2's boundary rule). An accumulator runs one
+predicted tick per `STEP_MS` of frame time (the server's tick period), each MOVING by `STEP_MS + PREDICT_DT_BIAS_MS` (the
+server's per-tick dt is `STEP_MS + rng() * 0.01`, `paperGame.js:406`, whose one-sided mean would otherwise accumulate
+0.25 u per 600 ticks on a straight run), at most `MAX_PREDICT_TICKS_PER_FRAME` per frame. Each tick: stock `readInput` and the stock quantise (`paperGame.js:409`), push
+`{ seq, angle, hold, stateAfter }` into the `INPUT_BUFFER` ring (keyed by `seq`), queue its `pp:in` (EVERY tick; the frame's inputs leave as one emit, 6.2). The
 rendered position is `step(last, angle, locked, remainderMs)` on a scratch copy, so a 144 Hz screen is as smooth as solo
 with zero added latency.
 
