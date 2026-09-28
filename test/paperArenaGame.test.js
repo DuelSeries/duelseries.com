@@ -3,7 +3,7 @@
 // humans, prey-wrapped bots, the push and its veto, and no edit to any solo file.
 const test = require('node:test');
 const assert = require('node:assert');
-const { makeArena, REASON, P, MP } = require('../server/paper/ArenaGame');
+const { makeArena, REASON, P, MP, flatReturn } = require('../server/paper/ArenaGame');
 
 const C = 1000;
 
@@ -434,4 +434,59 @@ test('steady tick with 16 squares', () => {
   const perTick = Number(process.hrtime.bigint() - t0) / 1e6 / 600;
   console.log('# steady tick with ' + g.units.length + ' squares: ' + perTick.toFixed(3) + ' ms');
   assert.ok(perTick < 1, perTick + ' ms');
+});
+
+// The two capture fixes the default soak seeds never reach (review): each built directly.
+function giveSquareBase(g, h, pts) {
+  g._enter();
+  h.track.remove();
+  h.base.remove();
+  h.base = new P.TerritoryBase(h, pts.map(p => new P.Vec2(p[0], p[1])));
+  h.base.wireVer = 1;
+  h.in = h.base;
+  return h.base.polygon.segments.map(s => s.start);
+}
+
+function fakeTrail(pts) {
+  return { start: pts[0], end: pts[pts.length - 1], segments: pts.slice(1).map(p => ({ end: p })) };
+}
+
+test('flatReturn: a trail home along the ring edge captures nothing and keeps the ring', () => {
+  const g = wideArena();
+  const h = g.spawnHuman({ name: 'flat' }, at(300, 1.0));
+  const ring = giveSquareBase(g, h, [[600, 600], [700, 600], [700, 700], [600, 700]]);
+  const flat = fakeTrail([ring[0], new P.Vec2(650, 600), new P.Vec2(700, 600), new P.Vec2(700, 650), ring[2]]);
+  const bulge = fakeTrail([ring[0], new P.Vec2(650, 550), new P.Vec2(750, 650), ring[2]]);
+  assert.strictEqual(flatReturn({ track: { polyline: flat }, base: h.base }), true);
+  assert.strictEqual(flatReturn({ track: { polyline: bulge }, base: h.base }), false);
+  const before = h.base.polygon.segments.map(s => [s.start, s.end]);
+  const sq = h.base.square;
+  const ver = h.base.wireVer;
+  const r = g.handleReturn({ death: null, track: { polyline: flat }, base: h.base });
+  assert.strictEqual(r, undefined);
+  assert.strictEqual(g.stats.flatReturns, 1);
+  assert.deepStrictEqual(h.base.polygon.segments.map(s => [s.start, s.end]), before);
+  assert.strictEqual(h.base.square, sq);
+  assert.strictEqual(h.base._trimDirty, true);
+  assert.strictEqual(h.base.wireVer, ver + 1);
+});
+
+test('_despike: a zero-width spike tip is dropped with no area change', () => {
+  const g = wideArena();
+  const h = g.spawnHuman({ name: 'spike' }, at(300, 1.0));
+  // (700,700) runs out to the tip (550,700) and straight back to (600,700).
+  const ring = giveSquareBase(g, h, [[600, 600], [700, 600], [700, 700], [550, 700], [600, 700]]);
+  const tip = ring[3];
+  const sq = h.base.square;
+  g._despike(h.base, h.track.polyline);
+  const after = h.base.polygon.segments.map(s => s.start);
+  assert.strictEqual(g.stats.despiked, 1);
+  assert.strictEqual(after.length, 4);
+  assert.ok(!after.includes(tip), 'the tip is gone');
+  for (const v of [ring[0], ring[1], ring[2], ring[4]]) assert.ok(after.includes(v), 'kept vertices are the same objects');
+  assert.ok(Math.abs(h.base.square - sq) < 1e-9 && Math.abs(h.base.square - 10000) < 1e-9, 'area ' + sq + ' -> ' + h.base.square);
+  const segs = h.base.polygon.segments;
+  for (let i = 0; i < segs.length; i++) assert.strictEqual(segs[i].end, segs[(i + 1) % segs.length].start, 'closed at ' + i);
+  g._despike(h.base, h.track.polyline);
+  assert.strictEqual(g.stats.despiked, 1, 'nothing left to drop');
 });

@@ -866,4 +866,4 @@ function makeArena({ stake = 0, seed = Math.random(), hooks, trim = null } = {})
   return game.setup({ stake, hooks, trim });
 }
 
-module.exports = { ArenaGame, ArenaHuman, makeArena, REASON, P, MP };
+module.exports = { ArenaGame, ArenaHuman, makeArena, REASON, P, MP, flatReturn };

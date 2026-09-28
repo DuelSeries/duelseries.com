@@ -203,6 +203,23 @@ test('blocked: an away owner whose exit vertex would go, and a foreign trail on 
   assert.strictEqual(trim.planTrim(a.base, g2.border).status, 'blocked');
 });
 
+test('blocked: a foreign trail across the new wall-run edge (crossesTrail)', () => {
+  const g = arena(950);
+  const a = g.spawnHuman({ name: 'a' }, at(900, 2.0));
+  const b = g.spawnHuman({ name: 'b' }, at(700, 2.0));
+  g.setRadiusNow(912);
+  assert.strictEqual(trim.planTrim(a.base, g.border).status, 'ok', 'no trail: the trim goes through');
+  g._enter();
+  b.in = null;
+  b.track.add(at(905, 2.0));
+  b.track.add(at(925, 2.0)); // across the wall run the trim would lay, touching no ring vertex
+  const before = snapshot(a.base);
+  const plan = trim.planTrim(a.base, g.border);
+  assert.strictEqual(plan.status, 'blocked');
+  assert.strictEqual(plan.why, 'trail crosses a new edge');
+  assert.deepStrictEqual(snapshot(a.base), before);
+});
+
 test('empty: a base wholly outside the new wall', () => {
   const g = arena(950);
   const h = g.spawnHuman({ name: 'out' }, at(900, 2.6));
@@ -267,6 +284,44 @@ for (const dir of [1, -1]) {
       if (slider.death) break;
     }
   });
+}
+
+// A ring vertex exactly on the wall with both ring neighbours inside is a lone touch, not a
+// wall run: with a real bump outside elsewhere the trim must still go through (review probe:
+// it once failed 'wall walk met an exit' every tick until the retry limit gave up).
+for (const mode of ['edge midpoint', 'wall vertex']) {
+  for (const order of [1, -1]) {
+    test('a lone on-wall vertex plus a bump outside trims cleanly (' + mode + ', order ' + order + ')', () => {
+      const g = arena(950);
+      const h = g.spawnHuman({ name: 'w' }, at(700, 0.5));
+      const ws = g.border.polygon.segments;
+      const a = ws[10].start;
+      const b = ws[10].end;
+      const q = mode === 'wall vertex' ? { x: a.x, y: a.y } : { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      const ang = Math.atan2(q.y - C, q.x - C);
+      const d = 10 / 950;
+      let pts = [q];
+      for (let t = 1; t <= 3; t++) pts.push(at(940, ang + t * d));
+      for (let t = 4; t <= 8; t++) pts.push(at(960, ang + t * d));
+      for (let t = 9; t <= 11; t++) pts.push(at(940, ang + t * d));
+      for (let t = 11; t >= -3; t--) pts.push(at(925, ang + t * d));
+      for (let t = -3; t <= -1; t++) pts.push(at(940, ang + t * d));
+      if (order < 0) pts = pts.reverse();
+      giveBase(g, h, pts);
+      h.position = at(932, ang + 5 * d);
+      const touch = ringPts(h.base).find(v => v.x === q.x && v.y === q.y);
+      assert.ok(touch, 'the touch vertex is in the ring');
+      const sq0 = h.base.square;
+      const plan = trim.planTrim(h.base, g.border);
+      assert.strictEqual(plan.status, 'ok', 'plan ' + plan.why);
+      assert.ok(plan.keep.includes(touch), 'the lone touch vertex is kept');
+      assert.strictEqual(trim.trimBase(g, h), 'trimmed');
+      assert.strictEqual(trim.checkRing(h.base), null);
+      assert.ok(h.base.square < sq0 - 300 && h.base.square > sq0 - 600, 'the bump went: ' + sq0 + ' -> ' + h.base.square);
+      assert.strictEqual(trim.planTrim(h.base, g.border).status, 'clean', 'second call');
+      assert.strictEqual(gridHealthy(g), null);
+    });
+  }
 }
 
 test('fuzz: 300 random blobs at random radii, zero throws, every applied ring checks', () => {

@@ -172,8 +172,20 @@ function planTrim(base, border, anchor) {
   // Weiler-Atherton: the wall walk then replaces the ring's own run along the edge, and the
   // crossings at its ends resolve to those same vertex objects (checkPoint). Counted inside,
   // the wall walk could run back over them and the kept ring touched itself (soak probe).
+  const onWallIn = [];
   for (let i = 0; i < n; i++) {
-    if (inside[i] && wallDistance(border, verts[i]) <= NEAR_WALL) inside[i] = false;
+    if (inside[i] && wallDistance(border, verts[i]) <= NEAR_WALL) {
+      inside[i] = false;
+      onWallIn.push(i);
+    }
+  }
+  // A lone touch (an on-wall vertex whose two ring neighbours are both inside) is not a run
+  // along the wall: counted outside it would get an exit and an enter at the same object and
+  // the same wall position, and the wall walk from that exit meets the next exit (review probe:
+  // a lone touch plus a real bump outside gave 'wall walk met an exit' every tick until the
+  // retry limit). Counted inside, as before the run rule, the ring simply keeps that vertex.
+  for (const i of onWallIn) {
+    if (inside[(i + n - 1) % n] && inside[(i + 1) % n]) inside[i] = true;
   }
 
   const ringSign = Math.sign(signedArea(verts));
