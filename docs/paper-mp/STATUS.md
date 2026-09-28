@@ -197,8 +197,9 @@ Still open (defaults chosen by the design, none blocks the build): (5) an arena 
      - An unspent paid token is refunded when it expires (entryStore onExpire, server/entryExpiry.js: what landed, to
        the verified payer, once; a failed send is an owed 'refund' row; dev tokens never reach the real escrow). A real
        token at a shut paid table is refunded at the door. Unspent tokens count as liability and in drainStatus.
-     - Still open: a RESTART between a stake and its join loses the token (memory only). maintenance:check now says
-       "not safe" while any token is pending or a Paper floor coin exists; wait for it before a push.
+     - Was open: a RESTART between a stake and its join lost the token (memory only). CLOSED by item 7a (5e6cb3f):
+       every verified stake has a durable row and a restart refunds the unspent ones once. maintenance:check still
+       says "not safe" while any token is pending or a Paper floor coin exists (a coin on a floor is still memory).
      - submit-stake mints to the verified payer and logs a mismatched walletAddress instead of stranding the stake.
      - Emergency close refunds an unconfirmed seat in full (bounded by what landed), cashes out only what it won.
      - A reconnect after a finished cash-out gets pp:cashedout again; after being cut, 'killed'; never a false
@@ -208,24 +209,71 @@ Still open (defaults chosen by the design, none blocks the build): (5) an arena 
      - A wallet with RELEASE_MAX (2) unconfirmed-seat refunds in 10 minutes is paused, refunded in full at the door.
      - The Paper buy-in row is written when the seat is first steered, not when the token is spent.
      Tests: test/paperReviewFixes, entryExpiry, usdcAccountRent, submitStakeReview (real server), stakeRules.
-  7. WHAT STILL BLOCKS PAPER_PAID (night queue item 5, 2026-09-28 16:00 ET). Commits 6e66948, 6dd5739 and 2830ea7
-     are pushed (npm test 757/757, deploy check and security pass on the money diff done). PAPER_PAID stays OFF in
-     production: the live /api/live lists only paper:na:s0. It may be switched on only when all of these are closed:
-     a. A restart between a stake and its join loses that entry token and its money (tokens live only in server
-        memory), and a push to main auto-deploys without running maintenance:check. Needs either the pending tokens
-        persisted (a DB table, refunded once at boot with a guard against paying a join twice) or the deploy
-        workflow refusing to restart while maintenance:check says "not safe".
-     b. Owed payouts to wallets with no USDC account are retried 5 rows every 30 s, oldest first, so a player who
-        leaves many such rows can delay everyone else's payouts. Needs the drainer to skip rows whose account is still
-        missing (or retry them on a slower lane) so honest rows are never queued behind them.
-     c. The escrow SOL alarm floor (0.01 SOL) is a guess. The owner has to read the escrow's real SOL balance, top it
-        up if needed and confirm the floor, or the alarm is either silent or hourly noise.
-     d. The owner's Fable money review of the Paper paid path (the reason this list exists) has not happened.
-     Passed, not blocking: the local dev-token proof on duelseries-local at 2830ea7 (scratchpad/night/item5/e2e-paid.js,
-     87 of 87 checks, twice: join, kill transfer, coins, cash-out 90/10, full-table refund, banks balanced, both rungs).
-     After a switch-on the owner does one real $0.10 join and cash-out. Also noted: drainPayouts records earnings for recovered rake-sweep and Knockout/Battleship refund rows
-     (stats only); a stake that lands after its page left while another game fills the frame is not relaunched, and
-     its token is now refunded when it expires (item 6) instead of being lost.
+  7. WHAT BLOCKED PAPER_PAID (night queue item 5, written 2026-09-28 16:00 ET, closed 2026-09-28 night). Commits 6e66948,
+     6dd5739 and 2830ea7 are pushed (npm test 757/757, deploy check and security pass on the money diff done). PAPER_PAID
+     stays OFF in production until the switch-on step (the live /api/live lists only paper:na:s0).
+     a. CLOSED (5e6cb3f). A restart between a stake and its join lost that entry token and its money (tokens lived only in
+        memory, and a push to main restarts the server). Now the row /api/submit-stake already wrote to claim the
+        stake's signature once (used_stake_sigs, via db.claimStakeSig, the same single INSERT) is the stake's durable
+        record: payer, what a refund pays (what landed, capped at the rung), region, boot id, and a state. pending ->
+        consumed when a door claims it, BEFORE anything is seated; pending -> refunded when a refund claims it, in ONE
+        statement with its owed failed_payouts row (the drainer pays it with its idempotent signature-first payout); a
+        door that claimed and then could not seat turns its own claim (its claimKey, known only to that server's memory)
+        into the refund. Each arrow is one conditional UPDATE, so for one stake exactly one wins on any server, and a
+        unique index on failed_payouts.stake_sig allows one owed row per stake whatever happens. Who refunds a pending
+        row: its token's expiry (entryExpiry, now through the row, never inline beside it), the boot sweep (this
+        region's rows from earlier boots of this server: their tokens died with it; this boot's live tokens and EU's
+        are left alone), and every 5 minutes any row older than 30 minutes (a token lives 5). Covered doors, since the
+        token code is shared: Paper (pp:join, pp:respawn), snake PLAY and RESPAWN, agar cell:join and cell:respawn,
+        ko:queue, bs:queue (server/index.js enterPaid, server/paperSockets.js step 7d). The database not answering at a
+        door seats nothing and puts the token back; a claim whose answer was lost after it committed wins again for the
+        same token, or is refunded by that token's expiry. A Paper page that re-sends its token while the claim is in
+        flight is answered once the claim settles. Real-token refunds at Paper's door (not-open, maintenance, full,
+        cooldown, seat-failed) now go through the row as well; dev tokens have no row and behave exactly as before. If
+        the migration fails at boot, both features stay off (logged CRITICAL) and every path is exactly the old one.
+        Tests: test/stakeLedger.test.js (boot refund once; a door racing a boot sweep, 60 random interleavings, exactly
+        one wins; the expiry racing a boot sweep, one owed row; a lost claim answer; the Paper door), test/dbLedger.test.js,
+        test/durableStakeServer.test.js (the real server: the boot sweep refunds a planted orphan once and nothing else,
+        submit-stake writes the row, real tokens at Paper, snake, knockout and agar claim before seating, a refused one is
+        paid through its row). The dev machine has no Postgres, so the SQL runs against scripts/memLedgerDb.js (each
+        statement's rule applied in one step) and the statements are pinned by those tests; the first production boot
+        must log "[DB] durable stakes on, payout lanes on" (check the pm2 log after the push).
+        Not covered (written down, not blockers of this item): money already seated when the server crashes (including
+        Paper's 3 s unconfirmed seat and a knockout or battleship queue entry) is lost as before, since its row is
+        consumed; a transfer that lands while the server dies inside /api/submit-stake (broadcast and verify, a second
+        or two) has no row yet (would need a row written before the broadcast and a chain check at boot); a claim that
+        commits in the instant before the process dies is consumed with no seat; a refund queued in memory during a
+        database outage is lost if the process then dies (pending rows are still found by the sweeps, a door's own
+        claimed row is not). Pre-existing on the other games, unchanged: a second PLAY on one socket replaces the snake,
+        a second paid ko:queue or bs:queue drops the first entry without a refund, an agar respawn overwrites worth.
+        Owed failed_payouts rows are not part of the solvency liability sum.
+     b. CLOSED (5e6cb3f). Owed payouts to wallets with no USDC account were retried 5 rows every 30 s, oldest first, so rows
+        like that in front held back everyone else's payout (a local run of the old drainer: 12 such rows ahead of 3
+        honest ones, the honest ones paid after 401 ticks, 3.3 hours) and each was dropped for good after 200 attempts
+        (100 minutes). Now the drainer (server/payoutDrainer.js, moved out of index.js) has two lanes: the normal lane is
+        the old queue minus every row known to be waiting for an account, 5 real attempts a tick; a row found to have no
+        account (Usdc.js throws before anything is signed) moves to the slow lane on the spot without using up one of
+        those attempts or the 200 cap. The slow lane has its own budget after the normal lane, a backoff (2, 4, 8, 16,
+        32 minutes, then hourly), a 10 minute lease per try, and no cap, so no row is dropped; once the account exists
+        the row is paid there, once, and a payout that then fails for another reason goes back to the normal lane with
+        its signed tx (never built twice). A row owed for that reason starts in the slow lane; rows already owed move
+        there at the first boot. Tests: test/payoutDrainer.test.js (honest rows paid on the first tick behind 12
+        no-account rows; never dropped over three days, then paid once; lane budgets; no second tx), test/dbLedger.test.js.
+        Residual: a row whose account is missing but not yet known costs one quick look (no signing) in the normal lane;
+        a burst of more than 40 such rows can delay the rows behind them by one 30 s tick per 40.
+     c. Recorded, not a code blocker. The escrow EZAAbJxzrsULmTxeMTw56mQtnvaUM2ZUaHmoDYh7USZV (confirmed by the live
+        /wallet/debug) held 0.020559177 SOL (20,559,177 lamports) at slot 451428071, 2026-09-28 20:36 UTC, read with a
+        public mainnet getBalance (no key, nothing set on chain). The alarm floor stays 0.01 SOL: the alarm is silent
+        now and fires after about 2,100 more payouts at 5,000 lamports each. The USDC runbook says to keep a few tenths
+        of a SOL there; topping up to about 0.1 SOL is the owner's action.
+     d. SUPERSEDED. The owner's Fable money review was replaced by Owen asking for the paid tables directly on
+        2026-09-27 (NIGHT-QUEUE.md hard rule 3); it does not block.
+     Passed, not blocking: the local dev-token proof on duelseries-local (scratchpad/night/item5/e2e-paid.js, 87 of 87
+     checks at 2830ea7 twice, and again after 7a and 7b: join, kill transfer, coins, cash-out 90/10, full-table refund,
+     banks balanced, both rungs). After a switch-on the owner does one real $0.10 join and cash-out. Also noted:
+     drainPayouts records earnings for recovered rake-sweep and Knockout/Battleship refund rows (stats only); a stake
+     that lands after its page left while another game fills the frame is not relaunched, and its token is refunded
+     when it expires (item 6) instead of being lost.
 - T14 soak: done, TRIM_ON = true in PaperRoom.js (committed, not pushed by the T14 step). `test/paperSoak.test.js`:
   three seeds (Math.random stubbed per run, restored), a paid room, 16 wanderers incl. two wall huggers, scripted exits
   (hold, grace, leave) drive the wall 950 to 475 and joins bring it back, trim injected ON; every tick asserts no
