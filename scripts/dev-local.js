@@ -89,9 +89,15 @@ require.cache[dotenvPath] = { id: dotenvPath, filename: dotenvPath, loaded: true
 // Every export of server/db.js, plus `pool.query` (leaderboard.js and
 // agarLeaderboard.js query the pool directly). Return shapes match db.js.
 const accounts     = new Map();   // id -> { name, totalEarnings, gamesPlayed, playTimeSeconds, nameHistory, createdAt }
-const usedSigs     = new Set();
-const failedPayouts = [];
 const houseRevenue = [];
+/* The stake rows and owed payouts (server/db.js STATUS items 7a and 7b), modelled statement for
+   statement by scripts/memLedgerDb.js. DEV_LOCAL_SEED_STAKES (a JSON array of rows) plants
+   stakes before the server boots, so a test can see the boot refund; the model is exported for
+   tests that load this script in their own process. */
+const ledgerDb = require('./memLedgerDb').createMemLedgerDb();
+if (process.env.DEV_LOCAL_SEED_STAKES) {
+  for (const row of JSON.parse(process.env.DEV_LOCAL_SEED_STAKES)) ledgerDb.seedStake(row);
+}
 const acct = (id, name) => {
   if (!accounts.has(id)) accounts.set(id, { id, name: name || 'Player', totalEarnings: 0, gamesPlayed: 0,
                                              playTimeSeconds: 0, nameHistory: [], createdAt: new Date() });
@@ -107,14 +113,22 @@ const dbStub = {
   recordWithdrawal: async () => {},
   recordCollusionFlag: async () => {},
   getRecentCollusionFlags: async () => [],
-  markStakeSig: async (sig) => { if (usedSigs.has(sig)) return false; usedSigs.add(sig); return true; },
-  recordFailedPayout: async (wallet, amount, name, reason) => {
-    failedPayouts.push({ id: failedPayouts.length + 1, wallet_address: wallet, amount_sol: amount, name, reason, attempts: 0 });
-  },
-  getFailedPayouts: async () => failedPayouts.slice(),
-  claimDuePayout: async () => null,          // the drainer sees nothing due, ever
+  markStakeSig: ledgerDb.markStakeSig,
+  claimStakeSig: ledgerDb.claimStakeSig,
+  claimStakeSeat: ledgerDb.claimStakeSeat,
+  refundStakeOwed: ledgerDb.refundStakeOwed,
+  listUnsettledStakes: ledgerDb.listUnsettledStakes,
+  recordFailedPayout: ledgerDb.recordFailedPayout,
+  getFailedPayouts: ledgerDb.getFailedPayouts,
+  // The drainer sees nothing due, ever: there is no escrow here to pay from. Owed rows stay in
+  // ledgerDb.payouts for a test to read.
+  claimDuePayout: async () => null,
+  deferPayoutNoAccount: async () => {},
+  returnPayoutToLane: async () => {},
   savePayoutSignature: async () => {},
   markPayoutPaid: async () => {},
+  features: ledgerDb.features,
+  NO_USDC_ACCOUNT: ledgerDb.NO_USDC_ACCOUNT,
   recordEarnings: async (id, name, amount) => { const a = acct(id, name); a.name = name || a.name; a.totalEarnings += Number(amount) || 0; },
   recordStake: async () => {},
   getTopEarners: async (n) => [...accounts.values()].filter(a => a.totalEarnings > 0)
@@ -185,3 +199,4 @@ console.log(`[dev-local] pid ${process.pid}  port ${PORT}  db=in-memory  network
 console.log(`[dev-local] throwaway owner wallet ${ownerWallet}`);
 console.log(`[dev-local] throwaway owner secret (bs58, local only) ${bs58.encode(ownerSecret)}`);
 require(path.join(ROOT, 'server', 'index.js'));
+module.exports = { ledgerDb };

@@ -20,15 +20,31 @@
    paid from the real escrow: Paper's go through Paper's own payout (the fake
    withdraw when PAPER_DEV_TOKENS is on), anything else is logged and dropped.
 
+   A token whose stake has a durable row (t.stakeSig, STATUS item 7a) is refunded through that
+   row instead (stakeLedger.refund): the row turns 'refunded' and the owed row is written in one
+   statement, and the drainer pays it. The same row is what a boot or stale sweep refunds, so the
+   expiry and a sweep can never both pay: whichever commits first wins, the other finds nothing.
+   The token's claimKey goes with it, so a claim whose answer was lost (the row says 'consumed'
+   but the token came back to memory unspent) is refunded too, and only by this token.
+
    Every dependency is injected, so the tests run it with fakes. */
 const { refundBound } = require('./stakeRules');
 
-function createExpiryRefund({ money, db, devRefund = null, log = console }) {
+function createExpiryRefund({ money, db, devRefund = null, ledger = null, log = console }) {
   return function refundExpired(t) {
     if (!t) return Promise.resolve(null);
     const wallet = t.walletAddress;
     const amount = refundBound(t.worth, t.paid);
     const label = (t.stake !== undefined && t.stake !== null) ? 'stake ' + t.stake : 'lobby ' + t.lobbyType;
+    if (t.stakeSig && !t.onlyGame) {
+      const led = typeof ledger === 'function' ? ledger() : ledger;
+      if (led) {
+        log.log(`[ENTRY] EXPIRED unspent ${label}: owed back through its stake row`);
+        return led.refund(t.stakeSig, 'refund unspent entry ' + label, t.claimKey);
+      }
+      log.error(`[ENTRY] CRITICAL expired durable token with no ledger (${label}); left pending for the stake sweep`);
+      return Promise.resolve(null);
+    }
     if (t.onlyGame) {
       if (t.onlyGame === 'paper' && typeof devRefund === 'function') {
         log.log(`[ENTRY] EXPIRED unspent dev token (${label}) -> Paper's own refund`);

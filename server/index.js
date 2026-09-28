@@ -131,6 +131,9 @@ app.use((req, res, next) => {
     try {
       await db.init();
       console.log('[DB] Connected');
+      /* The boot refund (STATUS item 7a): every stake an earlier boot of this server verified and
+         never seated or refunded is owed back now, once, through the owed-payout lane. */
+      stakeLedger.sweep({ boot: true }).catch((e) => console.error('[STAKE] boot sweep', e.message));
       return;
     } catch (e) {
       console.error(`[DB] Init attempt ${attempt}/8 failed: ${e.message}`);
@@ -405,16 +408,29 @@ const ENTRY_TOKEN_MAX_AGE_MS = 5 * 60 * 1000;
 // The stake ladder: free, 0.25, 0.50, 1, 2, 5, 10, 20, 100. A closed set, so an
 // amount is either on it or refused. See server/stakeRules.js.
 const { STAKE_TIERS, ALL_STAKES, MIN_STAKE, MAX_STAKE,
-        isStake, rungOf, tierFor, stakeRangeError } = require('./stakeRules');
+        isStake, rungOf, tierFor, stakeRangeError, refundBound } = require('./stakeRules');
 
 /* A paid token that expires unspent is a stake that landed and bought nothing:
    it is refunded, once, what landed, to the verified payer (server/entryExpiry.js,
    review finding). Paper's dev tokens go back through Paper's own payout, which is
    the fake withdraw in dev; paperPayout is defined further down and only read when
    a sweep runs, long after boot. */
+/* Every verified stake has a durable row (server/stakeLedger.js, STATUS item 7a): a door claims
+   it before seating, a refund claims it with its owed payout row, and at boot every stake an
+   earlier boot of this server verified but never seated or refunded is refunded once. BOOT_ID
+   names this process's rows, so the boot sweep leaves this boot's live tokens alone. */
+const BOOT_ID = crypto.randomUUID();
+const stakeLedger = require('./stakeLedger').createStakeLedger({
+  db,
+  region: REGION,
+  bootId: BOOT_ID,
+  kickDrain: () => kickDrain(),
+});
+
 const refundExpiredEntry = require('./entryExpiry').createExpiryRefund({
   money,
   db,
+  ledger: stakeLedger,
   devRefund: PAPER_DEV_TOKENS
     ? (t) => paperPayout.refund({ wallet: t.walletAddress, name: 'Player', micro: Math.round(Number(t.worth) * 1e6), paid: t.paid, why: 'unspent' })
     : null,
@@ -426,7 +442,11 @@ const entryStore = makeEntryStore({ ttlMs: ENTRY_TOKEN_MAX_AGE_MS, fees: LOBBY_F
                                     isStake: isStake, onExpire: refundExpiredEntry });
 // Sweep expired (paid-but-never-used) tokens: each one is refunded by onExpire.
 // Every minute, so a refund goes out within a minute of its token's 5 minutes.
-setInterval(() => entryStore.sweep(), 60 * 1000);
+// Also retries any stake refund the database could not take yet.
+setInterval(() => {
+  entryStore.sweep();
+  stakeLedger.retryQueued().catch((e) => console.error('[STAKE] retry', e.message));
+}, 60 * 1000);
 
 // Verify + consume an opaque paid-entry token the client echoes back from the
 // /api/submit-stake response. The token is server-generated, unguessable, one-time, and
@@ -437,12 +457,58 @@ setInterval(() => entryStore.sweep(), 60 * 1000);
    below, but the token has to have been bought for this exact rung. `game`
    is also the door a scoped token is checked against: a Paper dev token opens
    Paper only, never a game that pays through the real money module. */
+/* A durable entry (r.stakeSig) is recorded by enterPaid once it is seated, not here: its
+   stake row is claimed first and the seat can still be refused after that. */
 function consumePaidEntryAtStake(entryToken, stake, game) {
-  return recordEntry(entryStore.consumeAtStake(entryToken, stake, game), game);
+  const r = entryStore.consumeAtStake(entryToken, stake, game);
+  return r.stakeSig ? r : recordEntry(r, game);
 }
 function consumePaidEntry(entryToken, shortType, game) {
-  return recordEntry(entryStore.consume(entryToken, shortType), game);
+  const r = entryStore.consume(entryToken, shortType);
+  return r.stakeSig ? r : recordEntry(r, game);
 }
+
+/* EVERY PAID DOOR BUT PAPER'S (paperSockets.js has its own, same rules): snake PLAY and RESPAWN,
+   agar cell:join and cell:respawn, ko:queue, bs:queue.
+
+   `entry` is what the consume returned (the token already left memory, one-time as before). A
+   free, dev or non-durable entry is seated right here, synchronously, exactly as before. A
+   durable one (STATUS item 7a) claims its stake row in the database FIRST, and only a won claim
+   is seated, so a stake can never be both seated and refunded by a restart's sweep:
+   - the database did not answer: nothing is seated, and the token goes back (nothing spent);
+   - the row was refunded already (a sweep got there first): nothing is seated;
+   - claimed, but the seat is refused by then (the socket went away while the claim was in
+     flight, or seat() says no because the room changed meanwhile): the claim is turned into an
+     owed refund, through the same row, once.
+   seat(entry) returns false to decline; if it THROWS the seat may half exist, so nothing is
+   refunded automatically (never pay twice) and the owed amount is logged for the owner.
+   refuse(why): why is undefined (not verified), 'unavailable', 'settled' or 'refunded'. */
+function enterPaid(socket, game, entry, seat, refuse) {
+  if (!entry || !entry.ok) { refuse(undefined); return; }
+  if (!entry.stakeSig) { seat(entry); return; }
+  stakeLedger.claimSeat(entry).then((c) => {
+    if (c === 'error') { if (entry.restore) entry.restore(); refuse('unavailable'); return; }
+    if (c !== 'ok') { refuse('settled'); return; }
+    let seated = false;
+    if (socket.disconnected !== true) {
+      try {
+        seated = seat(entry) !== false;
+      } catch (e) {
+        console.error(`[ENTRY] CRITICAL ${game} seat threw after its stake was claimed; not refunded automatically, `
+          + `owed at most ${entry.worth} to ${entry.walletAddress} (stake ${String(entry.stakeSig).slice(0, 16)}): ${e && e.stack ? e.stack : e}`);
+        return;
+      }
+    }
+    if (seated) { recordEntry(entry, game); return; }
+    stakeLedger.refund(entry.stakeSig, `refund ${game} entry not seated`, entry.claimKey);
+    if (socket.disconnected !== true) refuse('refunded');
+  }).catch((e) => console.error('[ENTRY] door', game, e && e.stack ? e.stack : e));
+}
+const ENTRY_REFUSED = {
+  unavailable: 'Could not confirm your entry right now. An entry that is never used is refunded within a few minutes.',
+  settled: 'This entry was already refunded.',
+  refunded: 'Could not seat you. Your entry was refunded.',
+};
 function recordEntry(r, game) {
   /* Record the buy-in here rather than at each call site: this is the one
      place every paid entry passes through, so the four join and respawn
@@ -629,8 +695,11 @@ app.post('/api/submit-stake', entryFeeLimiter, express.json({ limit: '256kb' }),
       const { payer, worth } = await money.verifyStake(sig, money.amountFor(want));
       const rung = tierFor(worth);
       if (!rung) return res.status(400).json({ error: 'Payment did not cover any buy-in' });
-      // Atomic one-time claim AFTER verify, as in the tier path below.
-      if (!(await db.markStakeSig(sig))) return res.status(400).json({ error: 'Stake already used' });
+      // Atomic one-time claim AFTER verify, as in the tier path below. The same INSERT writes
+      // the stake's durable row (who is owed, what a refund pays: what landed, capped at the
+      // rung), so a restart before the join refunds it instead of losing it (STATUS item 7a).
+      const rec = await stakeLedger.record(sig, { wallet: payer, amount: refundBound(rung, worth), label: 'stake ' + rung });
+      if (!rec.claimed) return res.status(400).json({ error: 'Stake already used' });
       /* worth is the rung, not the raw payment: everyone in a room has to be
          worth the same on entry or the eat-and-take rule stops being symmetric.
          Any excess over the rung stays in escrow. */
@@ -651,7 +720,8 @@ app.post('/api/submit-stake', entryFeeLimiter, express.json({ limit: '256kb' }),
          verifier is exact; SOL mode still allows 5 percent under). It rides the
          token only to bound a refund: a join the server refuses sends back what
          landed, never more than the rung. */
-      const entryToken = entryStore.mint({ stake: rung, worth: rung, paid: worth, walletAddress: payer });
+      const entryToken = entryStore.mint({ stake: rung, worth: rung, paid: worth, walletAddress: payer,
+                                           stakeSig: rec.durable ? sig : undefined });
       return res.json({ ok: true, entryToken, worth: rung, stake: rung, paid: worth });
     } catch (e) {
       return res.status(400).json({ error: e.message });
@@ -668,13 +738,14 @@ app.post('/api/submit-stake', entryFeeLimiter, express.json({ limit: '256kb' }),
     // Atomic one-time claim AFTER verify — closes the double-mint race (two concurrent
     // requests with the same sig can't both pass) without burning a valid sig on a transient
     // verify failure. If it returns false, another request already consumed this stake.
-    if (!(await db.markStakeSig(sig))) return res.status(400).json({ error: 'Stake already used' });
+    const rec = await stakeLedger.record(sig, { wallet: payer, amount: refundBound(worth), label: 'lobby ' + lobbyType });
+    if (!rec.claimed) return res.status(400).json({ error: 'Stake already used' });
     // Same rule as the ladder path above: pay out to who actually paid, and a
     // request naming someone else is logged, never left holding a claimed stake.
     if (walletAddress && walletAddress !== payer) {
       console.warn(`[STAKE] request named ${String(walletAddress).slice(0, 12)} but ${payer} paid ${sig}: minted to the payer`);
     }
-    const entryToken = entryStore.mint({ lobbyType, worth, walletAddress: payer });
+    const entryToken = entryStore.mint({ lobbyType, worth, walletAddress: payer, stakeSig: rec.durable ? sig : undefined });
     res.json({ ok: true, entryToken, worth, worthSol: worth }); // worthSol kept for current client back-compat
   } catch (e) {
     res.status(400).json({ error: e.message });
@@ -1448,6 +1519,9 @@ const paper = require('./paperSockets')({
      refusal it refunds, and a Paper-scoped dev token must open that door too. */
   entryStore: { consumeAtStake: (token, stake) => entryStore.consumeAtStake(token, stake, 'paper') },
   payout: paperPayout,
+  /* A real token's stake row: claimed before the seat, and every refund at the door goes
+     through it to the owed-payout lane (STATUS item 7a). Dev tokens have no row. */
+  ledger: stakeLedger,
   paidEnabled: PAPER_PAID,
 });
 
@@ -2225,39 +2299,38 @@ everyStaggered(() => collusion.evaluate(), 30000, 37000, 'collusion');
 everyStaggered(() => paperArenas.sweep(Date.now()), 60000, 29000, 'paper-sweep');
 
 // ── Failed-payout drainer (NA only) ───────────────────────────────────────────
-// Retries cash-out payouts that failed (e.g. an RPC outage) so a player's winnings are never
-// stranded. money.attemptPayout is idempotent — it only ever re-broadcasts the SAME signed tx
-// (so it can't double-pay) and saves a freshly-built tx BEFORE sending it. Runs only on NA so
-// the two servers never race the same payout; the DB row claim (SKIP LOCKED) is a 2nd safeguard.
-async function drainPayouts() {
-  try {
-    for (let i = 0; i < 5; i++) {              // drain a few per tick, then yield
-      const row = await db.claimDuePayout(30, 200);
-      if (!row) break;
-      try {
-        const r = await money.attemptPayout(row, (b) => db.savePayoutSignature(row.id, b));
-        if (r && r.paid) {
-          await db.markPayoutPaid(row.id, r.sig);
-          // Earnings count on actual payout — record now that the recovery landed (it was not
-          // recorded at failure time), so the board reflects this real payout exactly once.
-          // Not for a refund (Paper writes its failed refunds with a reason beginning 'refund'):
-          // that is the player's own entry going home, not something they won.
-          if (!String(row.reason || '').startsWith('refund')) {
-            db.recordEarnings(row.wallet_address, row.name, row.amount_sol, money.fiatValue(row.amount_sol)).catch(() => {});
-          }
-          console.log(`[PAYOUT] recovered ${row.amount_sol} SOL → ${String(row.wallet_address).slice(0, 8)}… sig ${String(r.sig).slice(0, 12)} (attempt ${row.attempts})`);
-        } else {
-          console.warn(`[PAYOUT] ${row.amount_sol} SOL to ${String(row.wallet_address).slice(0, 8)}… still pending (attempt ${row.attempts})`);
-        }
-      } catch (e) {
-        console.error(`[PAYOUT] retry errored for ${String(row.wallet_address).slice(0, 8)}…: ${e.message}`);
-      }
-    }
-  } catch (e) {
-    console.error('[PAYOUT] drainer tick failed:', e.message);
-  }
+// Retries payouts that failed (e.g. an RPC outage) so a player's winnings are never stranded.
+// server/payoutDrainer.js: money.attemptPayout is idempotent (it only ever re-broadcasts the SAME
+// signed tx and saves a freshly built one BEFORE sending it), the row claim (SKIP LOCKED) keeps
+// two runs off one row, and rows whose wallet has no USDC account wait in their own slow lane so
+// they can never hold up anybody else's payout (STATUS item 7b). Runs only on NA so the two
+// servers never race the same payout.
+const payoutDrainer = require('./payoutDrainer').createPayoutDrainer({
+  db,
+  money,
+  noAccountCode: Usdc.RECIPIENT_NO_USDC_ACCOUNT,
+});
+function drainPayouts() {
+  return payoutDrainer.drain();
 }
 if (REGION === 'na') everyStaggered(drainPayouts, 30000, 11000, 'payouts');
+/* A stake refund just became an owed row (server/stakeLedger.js): drain soon rather than on the
+   next 30 s tick, so the player sees it within seconds. NA only, like the drainer; EU's owed rows
+   are paid by NA's next tick. At most one pending kick. */
+let _drainKick = null;
+function kickDrain() {
+  if (REGION !== 'na' || _drainKick) return;
+  _drainKick = setTimeout(() => {
+    _drainKick = null;
+    drainPayouts().catch((e) => console.error('[PAYOUT] kick', e.message));
+  }, 1500);
+  if (_drainKick.unref) _drainKick.unref();
+}
+/* Stakes verified but never seated or refunded: refunded once through their rows. At boot (after
+   the DB is up, below) this region's rows from earlier boots of this server, whose tokens died
+   with it; every 5 minutes any row older than 30 minutes. Offset 22 mod 30 is free (19 and 25
+   are the nearest). */
+everyStaggered(() => stakeLedger.sweep({ boot: false }), 300000, 22000, 'stake-sweep');
 
 // How long to keep a disconnected player's snake gliding before giving up on a
 // reconnect. Covers a typical mobile network blip without leaving dead snakes around.
@@ -2375,32 +2448,33 @@ io.on('connection', (socket) => {
        door gives, restated against amounts. A client that sends a stake it did
        not pay for gets nothing, because the amount is checked against the
        token and not against the request. */
-    const entry = byStake
+    const consumed = byStake
       ? consumePaidEntryAtStake(entryToken, Number(stake), 'snake')
       : consumePaidEntry(entryToken, (lobbyType in LOBBY_FEES) ? lobbyType : 'free', 'snake');
-    if (!entry.ok) {
-      socket.emit(C.EVENTS.ERROR, { message: 'Entry fee not verified. Please return to the lobby and try again.' });
-      return;
-    }
-    // Server-verified identity from the paid token — overrides the client-claimed
-    // googleId so cash-out credits the account that actually paid.
-    if (entry.googleId) {
-      socket._googleId = entry.googleId;
-      lobbySocketsByGoogleId.set(entry.googleId, socket);
-    }
-    if (entry.walletAddress) socket._walletAddress = entry.walletAddress; // self-custody cash-out target
-    socket._room = room;
-    socket._joinTime = Date.now();
-    console.log(`[>] ${playerName} joins ${roomLabel} lobby (worth: ${entry.worth} ${money.unit})`);
-    room.addPlayer(socket, playerName, walletAddress || null, color || null, entry.worth);
-    notify.pushOwner(
-      `${playerName} joined the ${roomLabel} lobby` +
-        (entry.worth ? ` for ${entry.worth} ${money.unit}` : ' (free)') +
-        ` in ${(region || REGION).toUpperCase()}`,
-      { title: 'New player: slither.io', tags: 'video_game' }
-    );
-    lobbyConnections.delete(socket);
-    broadcastLobbyState();
+    // A paid entry is seated only once its stake row is claimed (enterPaid, STATUS item 7a).
+    enterPaid(socket, 'snake', consumed, (entry) => {
+      // Server-verified identity from the paid token — overrides the client-claimed
+      // googleId so cash-out credits the account that actually paid.
+      if (entry.googleId) {
+        socket._googleId = entry.googleId;
+        lobbySocketsByGoogleId.set(entry.googleId, socket);
+      }
+      if (entry.walletAddress) socket._walletAddress = entry.walletAddress; // self-custody cash-out target
+      socket._room = room;
+      socket._joinTime = Date.now();
+      console.log(`[>] ${playerName} joins ${roomLabel} lobby (worth: ${entry.worth} ${money.unit})`);
+      room.addPlayer(socket, playerName, walletAddress || null, color || null, entry.worth);
+      notify.pushOwner(
+        `${playerName} joined the ${roomLabel} lobby` +
+          (entry.worth ? ` for ${entry.worth} ${money.unit}` : ' (free)') +
+          ` in ${(region || REGION).toUpperCase()}`,
+        { title: 'New player: slither.io', tags: 'video_game' }
+      );
+      lobbyConnections.delete(socket);
+      broadcastLobbyState();
+    }, (why) => {
+      socket.emit(C.EVENTS.ERROR, { message: ENTRY_REFUSED[why] || 'Entry fee not verified. Please return to the lobby and try again.' });
+    });
   });
 
   /* Cashing out is a HELD action, and the hold is what makes it risky: you
@@ -2629,22 +2703,29 @@ io.on('connection', (socket) => {
     const roomLabel = onLadder
       ? (socket._stake === 0 ? 'free' : '$' + Number(socket._stake).toFixed(2))
       : socket._room.lobbyType.replace(/^(na|eu)_/, '');
-    const entry = onLadder
+    const consumed = onLadder
       ? consumePaidEntryAtStake(entryToken, socket._stake, 'snake')
       : consumePaidEntry(entryToken, socket._room.lobbyType.replace(/^(na|eu)_/, ''), 'snake');
-    if (!entry.ok) {
-      socket.emit(C.EVENTS.ERROR, { message: 'Entry fee not verified. Please return to the lobby and try again.' });
-      return;
-    }
-    if (entry.googleId) socket._googleId = entry.googleId;
-    if (entry.walletAddress) socket._walletAddress = entry.walletAddress;
-    socket._room.respawnPlayer(socket.id, entry.worth);
-    const _rs = socket._room.snakes.get(socket.id);
-    notify.pushOwner(
-      `${(_rs && _rs.name) || 'A player'} pressed play again in the ${roomLabel} lobby` +
-        (entry.worth ? ` for ${entry.worth} ${money.unit}` : ' (free)'),
-      { title: 'Player respawned: slither.io', tags: 'arrows_counterclockwise' }
-    );
+    const room = socket._room;
+    enterPaid(socket, 'snake', consumed, (entry) => {
+      /* A durable entry gets here after its stake claim, a moment later: the checks above are
+         made again, because respawnPlayer silently does nothing for a socket that left the room
+         or already has a live snake, and a paid respawn must never be spent on nothing. */
+      if (socket._room !== room || !room.players.has(socket.id)) return false;
+      const live = room.snakes.get(socket.id);
+      if (live && live.alive) return false;
+      if (entry.googleId) socket._googleId = entry.googleId;
+      if (entry.walletAddress) socket._walletAddress = entry.walletAddress;
+      room.respawnPlayer(socket.id, entry.worth);
+      const _rs = room.snakes.get(socket.id);
+      notify.pushOwner(
+        `${(_rs && _rs.name) || 'A player'} pressed play again in the ${roomLabel} lobby` +
+          (entry.worth ? ` for ${entry.worth} ${money.unit}` : ' (free)'),
+        { title: 'Player respawned: slither.io', tags: 'arrows_counterclockwise' }
+      );
+    }, (why) => {
+      socket.emit(C.EVENTS.ERROR, { message: ENTRY_REFUSED[why] || 'Entry fee not verified. Please return to the lobby and try again.' });
+    });
   });
 
   socket.on('ping_check', () => socket.emit('pong_check'));
@@ -2696,24 +2777,24 @@ io.on('connection', (socket) => {
     // take the cell's worth from the server, never from the client.
     const shortType = (lobbyType in LOBBY_FEES) ? lobbyType : 'free';
     socket._agarShortType = shortType; // remembered for the in-game re-stake on respawn
-    const entry = consumePaidEntry(entryToken, shortType, 'agar');
-    if (!entry.ok) {
-      socket.emit('cell:join:error', { message: 'Entry fee not verified. Please return to lobby.' });
-      return;
-    }
-    if (entry.googleId) { socket._googleId = entry.googleId; lobbySocketsByGoogleId.set(entry.googleId, socket); }
-    if (entry.walletAddress) socket._walletAddress = entry.walletAddress; // self-custody cash-out target
-    const entryWorth = entry.worth; // worth from the verified stake token (native unit), same as the snake game
+    const consumed = consumePaidEntry(entryToken, shortType, 'agar');
+    enterPaid(socket, 'agar', consumed, (entry) => {
+      if (entry.googleId) { socket._googleId = entry.googleId; lobbySocketsByGoogleId.set(entry.googleId, socket); }
+      if (entry.walletAddress) socket._walletAddress = entry.walletAddress; // self-custody cash-out target
+      const entryWorth = entry.worth; // worth from the verified stake token (native unit), same as the snake game
 
-    room.addPlayer(socket, sanitizeName(name), color, entryWorth, socket._googleId || null);
-    notify.pushOwner(
-      `${sanitizeName(name)} joined the ${shortType} lobby` +
-        (entryWorth ? ` for ${entryWorth} ${money.unit}` : ' (free)') +
-        ` in ${(region || REGION).toUpperCase()}`,
-      { title: 'New player: agar.io', tags: 'video_game' }
-    );
-    lobbyConnections.delete(socket);
-    broadcastLobbyState();
+      room.addPlayer(socket, sanitizeName(name), color, entryWorth, socket._googleId || null);
+      notify.pushOwner(
+        `${sanitizeName(name)} joined the ${shortType} lobby` +
+          (entryWorth ? ` for ${entryWorth} ${money.unit}` : ' (free)') +
+          ` in ${(region || REGION).toUpperCase()}`,
+        { title: 'New player: agar.io', tags: 'video_game' }
+      );
+      lobbyConnections.delete(socket);
+      broadcastLobbyState();
+    }, (why) => {
+      socket.emit('cell:join:error', { message: ENTRY_REFUSED[why] || 'Entry fee not verified. Please return to lobby.' });
+    });
   });
 
   socket.on('cell:spawnbot', async ({ idToken } = {}) => {
@@ -2871,31 +2952,33 @@ io.on('connection', (socket) => {
        token; nothing the client says about what it paid is read. A seat with no
        valid token is a free seat, and a client asking for a paid table without
        one is refused rather than quietly seated for nothing. */
-    let worth = 0, rung = 0, paid, payTo = null;
     const wants = Number(stake) || 0;
-    if (wants > 0) {
-      const entry = consumePaidEntryAtStake(entryToken, wants, 'knockout');
-      if (!entry.ok) {
-        socket.emit('ko:refused', { why: 'that buy-in was not paid for' });
-        return;
+    const seat = (entry) => {
+      let worth = 0, rung = 0, paid, payTo = null;
+      if (entry) {
+        worth = entry.worth;
+        rung = wants;
+        paid = entry.paid;               // what landed: bounds a refund (stakeRules.refundBound)
+        payTo = entry.walletAddress || null;
+        if (entry.walletAddress) socket._walletAddress = entry.walletAddress;
       }
-      worth = entry.worth;
-      rung = wants;
-      paid = entry.paid;               // what landed: bounds a refund (stakeRules.refundBound)
-      payTo = entry.walletAddress || null;
-      if (entry.walletAddress) socket._walletAddress = entry.walletAddress;
-    }
 
-    /* A paid seat's prize or refund goes to the wallet that paid (from the token), never to
-       a wallet the client names; a free seat pays nothing, so its name is only a label. */
-    knockoutLobby.enqueue(socket, sanitizeName(name),
-      worth > 0 ? payTo : (wallet || socket._walletAddress || null), rung, worth, undefined, paid);
-    socket.emit('ko:queued', {
-      waitingMs: knockoutLobby.queuedFor(socket.id) || 0,
-      stake: rung, worth,
-      /* So the screen can say how long it will wait before giving the money
-         back, rather than the player finding out by being refunded. */
-      paidWaitMs: rung > 0 ? KnockoutLobby.PAID_WAIT_MS : 0,
+      /* A paid seat's prize or refund goes to the wallet that paid (from the token), never to
+         a wallet the client names; a free seat pays nothing, so its name is only a label. */
+      knockoutLobby.enqueue(socket, sanitizeName(name),
+        worth > 0 ? payTo : (wallet || socket._walletAddress || null), rung, worth, undefined, paid);
+      socket.emit('ko:queued', {
+        waitingMs: knockoutLobby.queuedFor(socket.id) || 0,
+        stake: rung, worth,
+        /* So the screen can say how long it will wait before giving the money
+           back, rather than the player finding out by being refunded. */
+        paidWaitMs: rung > 0 ? KnockoutLobby.PAID_WAIT_MS : 0,
+      });
+    };
+    if (!(wants > 0)) return seat(null);
+    // A paid seat is queued only once its stake row is claimed (enterPaid, STATUS item 7a).
+    enterPaid(socket, 'knockout', consumePaidEntryAtStake(entryToken, wants, 'knockout'), seat, (why) => {
+      socket.emit('ko:refused', { why: ENTRY_REFUSED[why] || 'that buy-in was not paid for' });
     });
   });
 
@@ -2934,25 +3017,30 @@ io.on('connection', (socket) => {
     if (!socketRL(socket, 'bsq', 1000)) return;
     if (ops.get().maintenance) { socket.emit('maintenance', ops.get()); return; }
 
-    let worth = 0, rung = 0, paid, payTo = null;
     const wants = Number(stake) || 0;
-    if (wants > 0) {
-      const entry = consumePaidEntryAtStake(entryToken, wants, 'battleship');
-      if (!entry.ok) { socket.emit('bs:refused', { why: 'that buy-in was not paid for' }); return; }
-      worth = entry.worth;
-      rung = wants;
-      paid = entry.paid;               // what landed: bounds a refund (stakeRules.refundBound)
-      payTo = entry.walletAddress || null;
-      if (entry.walletAddress) socket._walletAddress = entry.walletAddress;
-    }
+    const seat = (entry) => {
+      let worth = 0, rung = 0, paid, payTo = null;
+      if (entry) {
+        worth = entry.worth;
+        rung = wants;
+        paid = entry.paid;               // what landed: bounds a refund (stakeRules.refundBound)
+        payTo = entry.walletAddress || null;
+        if (entry.walletAddress) socket._walletAddress = entry.walletAddress;
+      }
 
-    /* A paid seat's prize or refund goes to the wallet that paid (from the token). */
-    battleshipLobby.enqueue(socket, sanitizeName(name),
-      worth > 0 ? payTo : (wallet || socket._walletAddress || null), rung, worth, paid);
-    socket.emit('bs:queued', {
-      waitingMs: battleshipLobby.queuedFor(socket.id) || 0,
-      stake: rung, worth,
-      paidWaitMs: rung > 0 ? BattleshipLobby.PAID_WAIT_MS : 0,
+      /* A paid seat's prize or refund goes to the wallet that paid (from the token). */
+      battleshipLobby.enqueue(socket, sanitizeName(name),
+        worth > 0 ? payTo : (wallet || socket._walletAddress || null), rung, worth, paid);
+      socket.emit('bs:queued', {
+        waitingMs: battleshipLobby.queuedFor(socket.id) || 0,
+        stake: rung, worth,
+        paidWaitMs: rung > 0 ? BattleshipLobby.PAID_WAIT_MS : 0,
+      });
+    };
+    if (!(wants > 0)) return seat(null);
+    // A paid seat is queued only once its stake row is claimed (enterPaid, STATUS item 7a).
+    enterPaid(socket, 'battleship', consumePaidEntryAtStake(entryToken, wants, 'battleship'), seat, (why) => {
+      socket.emit('bs:refused', { why: ENTRY_REFUSED[why] || 'that buy-in was not paid for' });
     });
   });
 
@@ -3029,19 +3117,21 @@ io.on('connection', (socket) => {
     if (!room) return;
     // Paid respawns re-stake (same one-time token the snake game uses); free respawns carry none.
     const shortType = socket._agarShortType || 'free';
-    const entry = consumePaidEntry(entryToken, shortType, 'agar');
-    if (!entry.ok) {
-      socket.emit('cell:join:error', { message: 'Entry fee not verified. Please return to lobby.' });
-      return;
-    }
-    if (entry.walletAddress) socket._walletAddress = entry.walletAddress;
-    room.respawnPlayer(socket.id, entry.worth);
-    const _rp = room.players.get(socket.id);
-    notify.pushOwner(
-      `${(_rp && _rp.name) || 'A player'} pressed play again in the ${shortType} lobby` +
-        (entry.worth ? ` for ${entry.worth} ${money.unit}` : ' (free)'),
-      { title: 'Player respawned: agar.io', tags: 'arrows_counterclockwise' }
-    );
+    const consumed = consumePaidEntry(entryToken, shortType, 'agar');
+    enterPaid(socket, 'agar', consumed, (entry) => {
+      // After a durable entry's claim: still in this room? respawnPlayer does nothing otherwise.
+      if (socket._agarRoom !== room || !room.players.has(socket.id)) return false;
+      if (entry.walletAddress) socket._walletAddress = entry.walletAddress;
+      room.respawnPlayer(socket.id, entry.worth);
+      const _rp = room.players.get(socket.id);
+      notify.pushOwner(
+        `${(_rp && _rp.name) || 'A player'} pressed play again in the ${shortType} lobby` +
+          (entry.worth ? ` for ${entry.worth} ${money.unit}` : ' (free)'),
+        { title: 'Player respawned: agar.io', tags: 'arrows_counterclockwise' }
+      );
+    }, (why) => {
+      socket.emit('cell:join:error', { message: ENTRY_REFUSED[why] || 'Entry fee not verified. Please return to lobby.' });
+    });
   });
 
   socket.on('cell:lock', () => {

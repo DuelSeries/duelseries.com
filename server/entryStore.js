@@ -24,8 +24,23 @@ const crypto = require('crypto');
    ever removes an expired token, so each one is handed over exactly once.
    A throwing hook cannot stop the sweep. */
 function makeEntryStore({ ttlMs = 5 * 60 * 1000, fees = {}, isStake = null, onExpire = null, now = () => Date.now() } = {}) {
-  const tokens = new Map();   // opaque token -> { lobbyType, stake, worth, paid, walletAddress, googleId, onlyGame, exp }
+  const tokens = new Map();   // opaque token -> { lobbyType, stake, worth, paid, walletAddress, googleId, onlyGame, exp, stakeSig?, claimKey? }
   const EPS = 1e-9;
+
+  /* One-time use: the token leaves the store here. A durable token's result also carries its
+     stake row (stakeSig, claimKey) for the door's claim, and restore(), which puts the token
+     back unchanged (same expiry) when that claim could not reach the database: nothing was
+     spent, so it can be used again or expire into a refund like any other. */
+  function spend(entryToken, t) {
+    tokens.delete(entryToken);
+    const r = { ok: true, worth: t.worth, paid: t.paid, googleId: t.googleId, walletAddress: t.walletAddress };
+    if (t.stakeSig) {
+      r.stakeSig = t.stakeSig;
+      r.claimKey = t.claimKey;
+      r.restore = () => { if (!tokens.has(entryToken)) tokens.set(entryToken, t); };
+    }
+    return r;
+  }
 
   return {
     /* `stake` is the rung of the ladder this token buys, already resolved from
@@ -48,12 +63,18 @@ function makeEntryStore({ ttlMs = 5 * 60 * 1000, fees = {}, isStake = null, onEx
        through a fake withdraw, while every other game pays, refunds and sweeps
        through the real money module, where an unbacked token would become a
        real owed-payout row. Real tokens have none and open every game. */
-    mint({ lobbyType, stake, worth, paid, walletAddress, googleId, onlyGame }) {
+    /* `stakeSig` is set only when the stake's durable row was written (db.claimStakeSig,
+       STATUS item 7a): a door must then claim that row before it seats anybody, and a refund
+       goes through the same row, so a restart can neither lose the stake nor pay it twice.
+       `claimKey` is this token's own name for its claim, known only to this server's memory. */
+    mint({ lobbyType, stake, worth, paid, walletAddress, googleId, onlyGame, stakeSig }) {
       if (stake !== undefined && stake !== null) {
         if (isStake && !isStake(stake)) throw new Error('stake is not on the ladder');
       }
       const token = crypto.randomUUID();
-      tokens.set(token, { lobbyType, stake, worth, paid, walletAddress, googleId, onlyGame, exp: now() + ttlMs });
+      const rec = { lobbyType, stake, worth, paid, walletAddress, googleId, onlyGame, exp: now() + ttlMs };
+      if (stakeSig) { rec.stakeSig = String(stakeSig); rec.claimKey = crypto.randomUUID(); }
+      tokens.set(token, rec);
       return token;
     },
 
@@ -71,8 +92,7 @@ function makeEntryStore({ ttlMs = 5 * 60 * 1000, fees = {}, isStake = null, onEx
       if (!t || typeof t.stake !== 'number' || now() > t.exp) return { ok: false, worth: 0 };
       if (Math.abs(t.stake - stake) > EPS) return { ok: false, worth: 0 };
       if (t.onlyGame && t.onlyGame !== game) return { ok: false, worth: 0 };
-      tokens.delete(entryToken);                       // one-time use
-      return { ok: true, worth: t.worth, paid: t.paid, googleId: t.googleId, walletAddress: t.walletAddress };
+      return spend(entryToken, t);
     },
 
     /* Returns { ok, worth, paid, googleId, walletAddress }. An unknown lobby type is
@@ -91,8 +111,7 @@ function makeEntryStore({ ttlMs = 5 * 60 * 1000, fees = {}, isStake = null, onEx
       const t = entryToken && tokens.get(entryToken);
       if (!t || t.lobbyType !== shortType || now() > t.exp) return { ok: false, worth: 0 };
       if (t.onlyGame) return { ok: false, worth: 0 };  // a scoped token opens its own game's ladder door only
-      tokens.delete(entryToken);                       // one-time use
-      return { ok: true, worth: t.worth, paid: t.paid, googleId: t.googleId, walletAddress: t.walletAddress };
+      return spend(entryToken, t);
     },
 
     /* Paid-but-never-used tokens would otherwise accumulate forever. Each one

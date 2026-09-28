@@ -162,7 +162,72 @@ async function init() {
     CREATE INDEX IF NOT EXISTS idx_hr_created ON house_revenue(created_at);
     CREATE INDEX IF NOT EXISTS idx_hr_source  ON house_revenue(source);
   `);
+  await ensureLedgerSchema();
   console.log('[DB] Tables ready');
+}
+
+/* ─── Durable stakes and payout lanes (STATUS item 7a and 7b, night queue item 5) ──────────────
+   Run one statement at a time, NOT inside the big template above: that template is a single
+   statement, so one bad line there stops every CREATE and ALTER on every boot (it happened once).
+   Each group below turns its feature on only when every one of its statements went through; a
+   feature that is off falls back to exactly the old SQL, so a failed migration can never strand a
+   stake at /api/submit-stake or stop the payout drainer. */
+const features = { durableStakes: false, payoutLanes: false };
+// Usdc.RECIPIENT_NO_USDC_ACCOUNT, repeated here so this module does not load the Solana stack
+// (test/stakeLedger.test.js checks the two agree). Every caller of recordFailedPayout puts the
+// error's message in the reason, and that error's message starts with this.
+const NO_USDC_ACCOUNT = 'recipient-no-usdc-account';
+
+const DURABLE_STAKE_DDL = [
+  // The row /api/submit-stake already writes for every verified stake (markStakeSig) becomes the
+  // durable record of that stake: who it is owed to, how much a refund pays, and what became of
+  // it. state: NULL for rows written before this change (never touched), 'pending' until a door
+  // claims it ('consumed') or a refund does ('refunded'). Both claims are conditional UPDATEs on
+  // state = 'pending', so exactly one of them can ever win.
+  `ALTER TABLE used_stake_sigs ADD COLUMN IF NOT EXISTS state TEXT`,
+  `ALTER TABLE used_stake_sigs ADD COLUMN IF NOT EXISTS wallet_address TEXT`,
+  `ALTER TABLE used_stake_sigs ADD COLUMN IF NOT EXISTS refund_amount NUMERIC(18,9)`,
+  `ALTER TABLE used_stake_sigs ADD COLUMN IF NOT EXISTS label TEXT`,
+  `ALTER TABLE used_stake_sigs ADD COLUMN IF NOT EXISTS region TEXT`,
+  `ALTER TABLE used_stake_sigs ADD COLUMN IF NOT EXISTS boot_id TEXT`,
+  `ALTER TABLE used_stake_sigs ADD COLUMN IF NOT EXISTS claim_key TEXT`,
+  `ALTER TABLE used_stake_sigs ADD COLUMN IF NOT EXISTS settled_at TIMESTAMPTZ`,
+  `CREATE INDEX IF NOT EXISTS idx_uss_pending ON used_stake_sigs (created_at) WHERE state = 'pending'`,
+  // A second, independent guard: at most one owed refund row per stake, whatever the code does.
+  `ALTER TABLE failed_payouts ADD COLUMN IF NOT EXISTS stake_sig TEXT`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS failed_payouts_stake_sig_uniq ON failed_payouts (stake_sig) WHERE stake_sig IS NOT NULL`,
+];
+
+const PAYOUT_LANE_DDL = [
+  // A row whose wallet has no USDC account waits in its own slow lane with a backoff, never ahead
+  // of rows that can be paid, and is never dropped by the 200-attempt cap of the normal lane.
+  `ALTER TABLE failed_payouts ADD COLUMN IF NOT EXISTS missing_account BOOLEAN DEFAULT false`,
+  `ALTER TABLE failed_payouts ADD COLUMN IF NOT EXISTS account_waits INT DEFAULT 0`,
+  `ALTER TABLE failed_payouts ADD COLUMN IF NOT EXISTS next_attempt_at TIMESTAMPTZ`,
+  // Rows already owed for that reason move to the slow lane once, including any the old drainer
+  // had given up on after 200 attempts (the slow lane has no cap). A row that later went back to
+  // the normal lane has account_waits > 0 and is left where it is.
+  `UPDATE failed_payouts SET missing_account = true
+     WHERE paid = false AND missing_account IS NOT TRUE AND COALESCE(account_waits, 0) = 0
+       AND reason LIKE '%${NO_USDC_ACCOUNT}%'`,
+];
+
+async function runDdl(label, statements) {
+  for (const sql of statements) {
+    try {
+      await pool.query(sql);
+    } catch (e) {
+      console.error(`[DB] CRITICAL ${label} migration failed, feature stays OFF (old behaviour): ${e.message} :: ${sql.replace(/\s+/g, ' ').slice(0, 160)}`);
+      return false;
+    }
+  }
+  return true;
+}
+
+async function ensureLedgerSchema() {
+  features.durableStakes = await runDdl('durable stakes', DURABLE_STAKE_DDL);
+  features.payoutLanes = await runDdl('payout lanes', PAYOUT_LANE_DDL);
+  console.log(`[DB] durable stakes ${features.durableStakes ? 'on' : 'OFF'}, payout lanes ${features.payoutLanes ? 'on' : 'OFF'}`);
 }
 
 // ─── Accounts ─────────────────────────────────────────────────────────────────
@@ -232,16 +297,114 @@ async function markStakeSig(sig) {
   return r.rowCount > 0;
 }
 
+/* markStakeSig plus the durable record of the stake (STATUS item 7a). One INSERT, so the
+   one-time claim of the signature and the record of what the stake is owed can never come apart.
+   meta: { wallet, amount (what a refund pays: what landed, capped at the rung), label, region,
+   bootId }. Returns { claimed, durable }: durable only when the row carries that record; without
+   meta, or while the migration has not run, this is exactly markStakeSig (durable false). */
+async function claimStakeSig(sig, meta) {
+  const amount = meta ? Number(meta.amount) : 0;
+  if (meta && features.durableStakes && typeof meta.wallet === 'string' && meta.wallet && Number.isFinite(amount) && amount > 0) {
+    try {
+      const r = await pool.query(
+        `INSERT INTO used_stake_sigs (sig, state, wallet_address, refund_amount, label, region, boot_id)
+         VALUES ($1, 'pending', $2, $3, $4, $5, $6)
+         ON CONFLICT DO NOTHING RETURNING sig`,
+        [sig, meta.wallet, amount, String(meta.label || '').slice(0, 100), meta.region || null, meta.bootId || null]
+      );
+      return { claimed: r.rowCount > 0, durable: r.rowCount > 0 };
+    } catch (e) {
+      if (!(e && e.code === '42703')) throw e;           // undefined_column: the migration is missing
+      features.durableStakes = false;
+      console.error('[DB] CRITICAL used_stake_sigs has no ledger columns; stakes are not durable until the next boot');
+    }
+  }
+  return { claimed: await markStakeSig(sig), durable: false };
+}
+
+/* A door takes the stake: 'pending' -> 'consumed', BEFORE anything is seated. False when the row
+   is no longer pending (a refund got it first), so nothing is seated for a refunded stake.
+   claimKey is minted with the token and lives only in that server's memory: a retry of the SAME
+   claim (the first answer was lost with its connection after the row committed) wins again, so a
+   lost answer can never strand a stake as 'consumed' with no seat. */
+async function claimStakeSeat(sig, claimKey) {
+  const r = await pool.query(
+    `UPDATE used_stake_sigs SET state = 'consumed', claim_key = $2, settled_at = NOW()
+      WHERE sig = $1 AND (state = 'pending' OR (state = 'consumed' AND claim_key = $2))
+      RETURNING sig`,
+    [sig, String(claimKey)]
+  );
+  return r.rowCount > 0;
+}
+
+/* A refund of a stake: 'pending' (or 'consumed' by this token's own claimKey, a door that claimed
+   and then could not seat) -> 'refunded', and the owed row the drainer pays, in ONE statement:
+   either both happen or neither. A row that is not in that state (seated, or refunded already)
+   gives null and nothing is owed; two refunds racing each other, or a refund racing a door, see
+   the other's committed state and exactly one wins. The unique index on failed_payouts.stake_sig
+   refuses a second owed row for one stake even if everything above were wrong. The reason must
+   begin with 'refund' so the drainer never counts it as winnings. */
+async function refundStakeOwed(sig, reason, claimKey) {
+  const r = await pool.query(
+    `WITH s AS (
+       UPDATE used_stake_sigs SET state = 'refunded', settled_at = NOW()
+        WHERE sig = $1 AND wallet_address IS NOT NULL AND refund_amount > 0
+          AND (state = 'pending' OR ($3::text IS NOT NULL AND state = 'consumed' AND claim_key = $3::text))
+        RETURNING sig, wallet_address, refund_amount
+     )
+     INSERT INTO failed_payouts (wallet_address, amount_sol, name, reason, stake_sig)
+     SELECT wallet_address, refund_amount, 'Player', LEFT($2::text, 500), sig FROM s
+     RETURNING id, wallet_address, amount_sol`,
+    [sig, String(reason || 'refund'), claimKey ? String(claimKey) : null]
+  );
+  if (!r.rows[0]) return null;
+  const row = r.rows[0];
+  return { id: row.id, wallet_address: row.wallet_address, amount_sol: parseFloat(row.amount_sol) };
+}
+
+/* Stakes still 'pending' that no live server can spend any more: this region's rows written by an
+   earlier boot of this server (it restarted or crashed, and the tokens died with its memory), and
+   any row older than staleSeconds (a token lives 5 minutes, so nobody can spend it). region null
+   leaves out the first kind. Legacy rows (state NULL) are never listed. */
+async function listUnsettledStakes({ region = null, bootId = null, staleSeconds = 1800, limit = 200 } = {}) {
+  if (!features.durableStakes) return [];
+  const r = await pool.query(
+    `SELECT sig, wallet_address, refund_amount, label, region, boot_id, created_at
+       FROM used_stake_sigs
+      WHERE state = 'pending'
+        AND (($1::text IS NOT NULL AND region = $1::text AND boot_id IS DISTINCT FROM $2::text)
+             OR created_at < NOW() - make_interval(secs => $3))
+      ORDER BY created_at ASC
+      LIMIT $4`,
+    [region, bootId, Number(staleSeconds), limit]
+  );
+  return r.rows.map(x => ({ ...x, refund_amount: parseFloat(x.refund_amount) }));
+}
+
 // A self-custody cash-out that ultimately failed on-chain (e.g. an RPC outage). Recorded
 // durably so the owed SOL is never silently lost — the owner reconciles + pays it out manually
 // via /api/admin/failed-payouts. No auto-retry, because blindly re-sending could double-pay if
 // the original tx actually landed but its confirmation was what failed.
 async function recordFailedPayout(walletAddress, amountSol, name, reason, broadcast) {
   const b = broadcast || {};
+  const why = (reason || '').slice(0, 500);
+  /* A payout that failed because the wallet has no USDC account starts in the slow lane (STATUS
+     item 7b): its first retry is 2 minutes out, and it never waits in front of payable rows.
+     Nothing was signed for it (Usdc.js throws before signing), so there is no tx to recover. */
+  if (features.payoutLanes && why.includes(NO_USDC_ACCOUNT)) {
+    await pool.query(
+      `INSERT INTO failed_payouts (wallet_address, amount_sol, name, reason, signature, signed_tx, blockhash, last_valid_block_height,
+                                   missing_account, account_waits, next_attempt_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true, 1, NOW() + make_interval(secs => 120))`,
+      [walletAddress, amountSol, name || null, why,
+       b.signature || null, b.signedTx || null, b.blockhash || null, b.lastValidBlockHeight || null]
+    );
+    return;
+  }
   await pool.query(
     `INSERT INTO failed_payouts (wallet_address, amount_sol, name, reason, signature, signed_tx, blockhash, last_valid_block_height)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-    [walletAddress, amountSol, name || null, (reason || '').slice(0, 500),
+    [walletAddress, amountSol, name || null, why,
      b.signature || null, b.signedTx || null, b.blockhash || null, b.lastValidBlockHeight || null]
   );
 }
@@ -259,13 +422,38 @@ async function getFailedPayouts(limit = 200) {
 // counter so two ticks/servers can't grab the same row (SKIP LOCKED). Returns the row or null.
 // `reason` comes back so the drainer can tell a refund (reason begins 'refund') from winnings:
 // a recovered refund is the player's own money going home and must not count as earnings.
-async function claimDuePayout(retrySeconds = 30, maxAttempts = 200) {
+/* Two lanes (STATUS item 7b). 'normal' is the old queue, oldest first, minus every row known to
+   be waiting for a USDC account. 'slow' holds only those: a row is due when its backoff ends, the
+   claim itself pushes next_attempt_at 10 minutes out (a lease, so no second drainer takes it while
+   it is being tried), and it has no attempt cap, so it is never dropped. Without the migration
+   there is one lane, exactly the old query, and 'slow' is always empty. */
+async function claimDuePayout(retrySeconds = 30, maxAttempts = 200, lane = 'normal') {
+  if (lane === 'slow') {
+    if (!features.payoutLanes) return null;
+    const res = await pool.query(
+      `UPDATE failed_payouts SET last_attempt_at = NOW(), next_attempt_at = NOW() + make_interval(secs => 600)
+         WHERE id = (
+           SELECT id FROM failed_payouts
+            WHERE paid = false AND missing_account IS TRUE
+              AND (next_attempt_at IS NULL OR next_attempt_at <= NOW())
+            ORDER BY next_attempt_at ASC NULLS FIRST, created_at ASC
+            LIMIT 1 FOR UPDATE SKIP LOCKED
+         )
+       RETURNING id, wallet_address, amount_sol, name, reason, signature, signed_tx, blockhash, last_valid_block_height, attempts, account_waits`
+    );
+    if (!res.rows[0]) return null;
+    const r = res.rows[0];
+    r.amount_sol = parseFloat(r.amount_sol);
+    r.lane = 'slow';
+    return r;
+  }
   const res = await pool.query(
     `UPDATE failed_payouts SET attempts = attempts + 1, last_attempt_at = NOW()
        WHERE id = (
          SELECT id FROM failed_payouts
           WHERE paid = false AND attempts < $2
             AND (last_attempt_at IS NULL OR last_attempt_at < NOW() - make_interval(secs => $1))
+            ${features.payoutLanes ? 'AND missing_account IS NOT TRUE' : ''}
           ORDER BY created_at ASC
           LIMIT 1 FOR UPDATE SKIP LOCKED
        )
@@ -275,7 +463,34 @@ async function claimDuePayout(retrySeconds = 30, maxAttempts = 200) {
   if (!res.rows[0]) return null;
   const r = res.rows[0];
   r.amount_sol = parseFloat(r.amount_sol);
+  r.lane = 'normal';
   return r;
+}
+
+/* The drainer found no USDC account at the row's wallet (nothing was signed): move the row to the
+   slow lane, next try after 2, 4, 8, 16, 32, then every 60 minutes. The normal-lane attempt that
+   found it is given back, so waiting for an account never counts toward the 200-attempt cap. */
+async function deferPayoutNoAccount(id) {
+  if (!features.payoutLanes) return;
+  await pool.query(
+    `UPDATE failed_payouts
+        SET missing_account = true,
+            attempts = CASE WHEN missing_account IS TRUE THEN attempts ELSE GREATEST(attempts - 1, 0) END,
+            account_waits = COALESCE(account_waits, 0) + 1,
+            next_attempt_at = NOW() + make_interval(secs => LEAST(3600, 120 * POWER(2, LEAST(COALESCE(account_waits, 0), 5))))
+      WHERE id = $1 AND paid = false`,
+    [id]
+  );
+}
+
+// A slow-lane row whose account exists now but whose payout did not finish: back to the normal
+// lane and its normal 30 s cadence (a tx it built is recovered there, never built twice).
+async function returnPayoutToLane(id) {
+  if (!features.payoutLanes) return;
+  await pool.query(
+    `UPDATE failed_payouts SET missing_account = false, next_attempt_at = NULL WHERE id = $1 AND missing_account IS TRUE`,
+    [id]
+  );
 }
 
 // Persist the signed tx + signature the drainer just built for a payout, BEFORE it is sent, so
@@ -567,8 +782,10 @@ module.exports = {
   recordGameResult, recordAgarGameResult,
   recordWithdrawal,
   recordCollusionFlag, getRecentCollusionFlags,
-  markStakeSig,
+  markStakeSig, claimStakeSig, claimStakeSeat, refundStakeOwed, listUnsettledStakes,
   recordFailedPayout, getFailedPayouts, claimDuePayout, savePayoutSignature, markPayoutPaid,
+  deferPayoutNoAccount, returnPayoutToLane,
+  features, NO_USDC_ACCOUNT,
   recordEarnings,
   recordStake, getTopEarners,
   getProfile, getMyProfile, setAccountName, searchPlayerNames, getGlobalWinnings,

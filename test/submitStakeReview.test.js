@@ -130,5 +130,5 @@ test('a request naming a different wallet than the payer is minted to the payer,
   assert.ok(typeof r.json.entryToken === 'string' && r.json.entryToken.length > 0, 'a token exists for the stake');
   const src = require('fs').readFileSync(path.join(ROOT, 'server', 'index.js'), 'utf8');
   assert.doesNotMatch(src, /Stake was paid by a different wallet/, 'no path refuses after the claim');
-  assert.match(src, /entryStore\.mint\(\{ stake: rung, worth: rung, paid: worth, walletAddress: payer \}\)/, 'minted to the verified payer');
+  assert.match(src, /entryStore\.mint\(\{ stake: rung, worth: rung, paid: worth, walletAddress: payer,\s*stakeSig: rec\.durable \? sig : undefined \}\)/, 'minted to the verified payer');
 });

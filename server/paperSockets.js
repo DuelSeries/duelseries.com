@@ -23,7 +23,9 @@ const TEXT = {
   'join-timeout': 'Your connection did not answer in time. Your entry was refunded.',
   cooldown: 'Your last joins did not connect, so paid tables are paused for this wallet for a few minutes. Your entry was refunded.',
   emergency: 'This table closed because of a server problem. Your entry was refunded.',
-  killed: 'Your square was cut. The player who cut it took its money.'
+  killed: 'Your square was cut. The player who cut it took its money.',
+  unavailable: 'Could not confirm your entry right now. An entry that is never used is refunded within a few minutes.',
+  settled: 'This entry was already refunded.'
 };
 
 const TOKEN_MAX_LEN = 256; // a real token is a UUID; anything longer names no seat
@@ -48,10 +50,23 @@ module.exports = function createPaperSockets({
   consumePaidEntryAtStake,
   entryStore,
   payout,
+  ledger = null,
   paidEnabled = process.env.PAPER_PAID === '1'
 }) {
   function refuse(socket, why, extra) {
     socket.emit('pp:refused', Object.assign({ why, text: TEXT[why] || why, refunded: false }, extra || {}));
+  }
+
+  /* Pay back a paid entry the door took and did not seat. A real token's stake has a durable
+     row (entry.stakeSig, STATUS item 7a): the refund goes through that row to the owed-payout
+     lane, once, whatever restarts (the drainer sends it within seconds). A dev token has no row
+     and is paid back by Paper's own payout, as before. Either way: what landed, capped at the
+     rung. */
+  function refundEntry(entry, why, name) {
+    if (entry.stakeSig && ledger) {
+      return ledger.refund(entry.stakeSig, 'refund paper ' + why, entry.claimKey);
+    }
+    return payout.refund({ wallet: entry.walletAddress, name, micro: toMicro(entry.worth), paid: entry.paid, why });
   }
 
   // A refusal decided by the server after a paid buy-in: consume the token here, directly (no
@@ -61,7 +76,7 @@ module.exports = function createPaperSockets({
     if (stake > 0) {
       const r = entryStore.consumeAtStake(token, stake);
       if (r.ok && r.worth > 0 && r.walletAddress) {
-        payout.refund({ wallet: r.walletAddress, name, micro: toMicro(r.worth), paid: r.paid, why });
+        refundEntry(r, why, name);
         refunded = true;
       }
       // A refusal lost with a dropped link is told again when the page re-sends the token.
@@ -69,6 +84,10 @@ module.exports = function createPaperSockets({
     }
     refuse(socket, why, { refunded });
   }
+
+  // Durable joins whose stake claim is in flight, by sha256(token): a page that re-sends the same
+  // token on a new link meanwhile is answered once that claim has settled (step 3t).
+  const claiming = new Map();
 
   function remember(token, why, refunded) {
     const proof = proofOf(token);
@@ -122,6 +141,14 @@ module.exports = function createPaperSockets({
     if (proof) {
       // Step 4's guard first: a socket already playing never takes a second seat this way.
       if (socket._ppRoom && socket._ppRoom.hasLiveUnit(socket.id)) return;
+      // The first send is still claiming its stake row: answer this one once that has settled
+      // (the seat it made, or the refund it got), never with 'entry' for a token being spent.
+      if (claiming.has(proof)) {
+        claiming.get(proof).then(() => {
+          try { enter(socket, msg, stake, respawn); } catch (e) { console.error('[PAPER] re-sent join', e && e.stack ? e.stack : e); }
+        });
+        return;
+      }
       const seat = arenas.seatByProof(proof);
       if (seat) {
         if (!seat.room.resume(socket, seat, true)) return refuse(socket, 'expired');
@@ -147,6 +174,47 @@ module.exports = function createPaperSockets({
     if (!entry || !entry.ok || (stake > 0 && !(entry.worth > 0 && entry.walletAddress))) {
       return refuse(socket, 'entry');
     }
+    // 7d. a real token's stake row is claimed in the database BEFORE the seat (STATUS item 7a),
+    // so a restart's sweep can never refund a stake that is seated, and never both. The claim
+    // is a database round trip: the socket and the seat are looked at again after it.
+    if (stake > 0 && entry.stakeSig && ledger) {
+      const claim = ledger.claimSeat(entry).then((c) => {
+        if (c === 'error') {                        // nothing spent: the token goes back
+          if (entry.restore) entry.restore();
+          return refuse(socket, 'unavailable');
+        }
+        if (c !== 'ok') {                           // a sweep refunded it first: seat nothing
+          remember(token, 'settled', true);
+          return refuse(socket, 'settled', { refunded: true });
+        }
+        if (socket.disconnected === true) {         // gone while the claim was in flight
+          refundEntry(entry, 'join-lost', name);
+          return remember(token, 'join-lost', true);
+        }
+        if (socket._ppRoom && socket._ppRoom.hasLiveUnit(socket.id)) {   // step 4 again
+          refundEntry(entry, 'seat-failed', name);
+          remember(token, 'seat-failed', true);
+          return refuse(socket, 'seat-failed', { refunded: true });
+        }
+        const again = arenas.seatFor(stake, socket._ppRoom);             // step 6 again
+        if (!again) {
+          refundEntry(entry, 'full', name);
+          remember(token, 'full', true);
+          return refuse(socket, 'full', { refunded: true });
+        }
+        seatEntry(socket, token, stake, name, proof, entry, again);
+      }).catch((e) => console.error('[PAPER] durable join', e && e.stack ? e.stack : e));
+      if (proof) {
+        claiming.set(proof, claim);
+        claim.then(() => { if (claiming.get(proof) === claim) claiming.delete(proof); });
+      }
+      return;
+    }
+    seatEntry(socket, token, stake, name, proof, entry, seat);
+  }
+
+  // Steps 7c to 9, for a spent token (and for a free seat, which has none).
+  function seatEntry(socket, token, stake, name, proof, entry, seat) {
     // 7c. a wallet whose last paid joins were refunded before their first input (join-lost,
     // join-timeout) is paused for a while: an unconfirmed seat's loss is refunded but its win
     // is kept, so a script could otherwise repeat that 3 s free option on every buy-in. Only
@@ -154,7 +222,7 @@ module.exports = function createPaperSockets({
     // consume, and pays back what landed in full like every other server-decided refusal.
     if (stake > 0 && arenas.releaseCooldown && arenas.releaseCooldown(entry.walletAddress)) {
       console.warn('[PAPER] COOLDOWN ' + entry.walletAddress + ' ' + stake);
-      payout.refund({ wallet: entry.walletAddress, name, micro: toMicro(entry.worth), paid: entry.paid, why: 'cooldown' });
+      refundEntry(entry, 'cooldown', name);
       remember(token, 'cooldown', true);
       return refuse(socket, 'cooldown', { refunded: true });
     }
@@ -174,7 +242,7 @@ module.exports = function createPaperSockets({
       console.error('[PAPER] seat failed', seat.room.lobbyType, e && e.message);
       let refunded = false;
       if (stake > 0 && entry.worth > 0) {
-        payout.refund({ wallet: entry.walletAddress, name, micro, paid: entry.paid, why: 'seat-failed' });
+        refundEntry(entry, 'seat-failed', name);
         refunded = true;
         remember(token, 'seat-failed', true);
       }

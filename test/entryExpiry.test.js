@@ -120,7 +120,7 @@ test('dev tokens never reach the real escrow: Paper ones go to Paper\'s own refu
 test('index.js wires the expiry refund into the store and sweeps every minute', () => {
   const src = require('fs').readFileSync(require('path').join(__dirname, '../server/index.js'), 'utf8');
   assert.match(src, /makeEntryStore\(\{[^}]*onExpire: refundExpiredEntry/);
-  assert.match(src, /setInterval\(\(\) => entryStore\.sweep\(\), 60 \* 1000\)/);
+  assert.match(src, /setInterval\(\(\) => \{\s*entryStore\.sweep\(\);[^}]*\}, 60 \* 1000\)/);
   assert.match(src, /total \+= entryStore\.pending\(\{ backedOnly: true \}\)\.worth/, 'unspent tokens count as liability');
   assert.match(src, /ops\.drainStatus\(ALL_ROOMS\(\), entryStore\.pending\(\)\)/);
 });
