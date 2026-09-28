@@ -785,7 +785,7 @@ body.ingame .tkrun{animation-play-state:paused}
 }
 
 /* ── detail ─────────────────────────────────────────────────────────── */
-#detail,#allgames,#settings-screen,#events-screen{display:none}
+#detail,#allgames,#settings-screen,#events-screen,#shop-screen{display:none}
 .back{font-size:13px;color:var(--tx2);padding:26px 0 0;display:inline-block}
 .back:hover{color:var(--tx)}
 /* ── how to play ─────────────────────────────────────────────────────── */
@@ -2036,6 +2036,19 @@ body.scr-anim { overflow-x:hidden }
   <div class="head"><div><h2>Earnings over time</h2>
     <div class="sub">Their running total, from recorded payouts.</div></div></div>
   <div class="panel" id="p-chart"></div>
+</main>
+
+<!-- ══ SHOP ══ -->
+<!-- Empty on purpose (2026-09-28): Owen wants the tab in place before he
+     decides what goes in it. The old cosmetics shop was removed on 2026-08-13
+     for slither parity and is not coming back through here; this screen has no
+     items, no prices and no buy path, only the placeholder. -->
+<main id="shop-screen" class="wrap">
+  <div class="stub">
+    <h2>Shop</h2>
+    <div class="soontag">Coming soon</div>
+    <p>Nothing for sale yet. Check back later.</p>
+  </div>
 </main>
 
 <!-- Locker and Settings are both placeholders, but they need one element each:
@@ -3494,6 +3507,8 @@ const NAV=[
   p:'M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2'},
  {id:'social', t:'Social',  d:'Friends, challenges and the games they are in right now.',
   p:'M16 20v-1.5a3.5 3.5 0 0 0-3.5-3.5h-5A3.5 3.5 0 0 0 4 18.5V20M10 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7M20 20v-1.5a3.5 3.5 0 0 0-2.6-3.4M15.5 4.1a3.5 3.5 0 0 1 0 6.8'},
+ {id:'shop',   t:'Shop',    d:'Nothing for sale yet.',
+  p:'M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4zM3 6h18M16 10a4 4 0 0 1-8 0'},
  {id:'settings',t:'Settings',d:'Graphics, sound, region and account preferences.',
   p:'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2v.1a2 2 0 1 1-4 0v-.2a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0-1.2-2.9H3a2 2 0 1 1 0-4h.2a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3h.1A1.7 1.7 0 0 0 10.3 3v-.1a2 2 0 1 1 4 0V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 2-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1a1.7 1.7 0 0 0 1.6 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z'},
 ];
@@ -3526,7 +3541,8 @@ function drawNav(){
    showing underneath another. The player profile has no nav slot of its
    own: it is reached from the board and keeps Social lit while it is up. */
 const SCREENS=['home','allgames','detail','settings-screen',
-               'wallet-screen','events-screen','social-screen','player-screen'];
+               'wallet-screen','events-screen','social-screen','player-screen',
+               'shop-screen'];
 /* dir: +1 the new screen arrives from the right (you swiped forward), -1 from
    the left, 0 or omitted for no animation. Taps on the nav pass 0 on purpose:
    a tap already tells you what you pressed, and animating it makes the whole
@@ -3589,7 +3605,8 @@ function showScreen(id,dir){
    it away. Three calls, so swipe.js never has to know the screen ids or which
    module loads what. */
 const SCREEN_FOR={play:'home',wallet:'wallet-screen',events:'events-screen',
-                  social:'social-screen',settings:'settings-screen'};
+                  social:'social-screen',shop:'shop-screen',
+                  settings:'settings-screen'};
 window.V2_SCREEN_FOR=SCREEN_FOR;
 
 /* Put a tab's real content in place. Shared by the router and by the swipe,

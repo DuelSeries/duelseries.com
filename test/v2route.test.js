@@ -1505,3 +1505,24 @@ test('each playable game card carries a people count, and a padlocked one does n
   run(null);
   assert.ok(els.every(e => e.hidden), 'a failed poll hides every count');
 });
+
+test('the Shop tab is an empty placeholder, not the removed cosmetics shop', () => {
+  /* Added 2026-09-28 on Owen's ask: a Shop tab, empty for now. The cosmetics
+     shop was removed on 2026-08-13 for slither parity; this pins that the new
+     tab is routed like every other one and carries no buy path. */
+  const html = v2();
+  const nav = html.slice(html.indexOf('const NAV=['), html.indexOf('];', html.indexOf('const NAV=[')));
+  assert.ok(/id:'shop'/.test(nav), 'Shop is in the nav');
+  assert.ok(nav.indexOf("id:'shop'") < nav.indexOf("id:'settings'"), 'and sits before Settings');
+  assert.ok(/shop:'shop-screen'/.test(html), 'it maps to its own screen');
+  const sw = fs.readFileSync(path.join(ROOT, 'public/js/v2/swipe.js'), 'utf8');
+  assert.ok(/'social', 'shop', 'settings'/.test(sw), 'the swipe order matches the nav');
+  const i = html.indexOf('<main id="shop-screen"');
+  assert.ok(i > 0, 'the screen exists');
+  const screen = html.slice(i, html.indexOf('</main>', i));
+  assert.ok(/Coming soon/.test(screen), 'it says coming soon');
+  for (const bad of ['<button', 'onclick', '$', 'cosmetic', 'buy'])
+    assert.ok(!screen.toLowerCase().includes(bad.toLowerCase()), 'no ' + bad + ' in the placeholder');
+  for (const gone of ['COSMETIC_CATALOG', '/api/cosmetics/'])
+    assert.ok(!html.includes(gone), 'removed shop code stays removed: ' + gone);
+});
