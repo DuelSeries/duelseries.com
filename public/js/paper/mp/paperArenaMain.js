@@ -14,6 +14,8 @@
   var BEST_KEY = 'duelseries.paper.arena.best'; // the solo page keeps its own best
   var JOIN_RETRY_MIN_MS = 1100; // the server takes one pp:join per 1000 ms per socket
   var MAX_LAG_MS = 2000;
+  var ARROW_HALF_PX = 13; // half the touch arrow's 26 px box
+  var ARROW_GAP_PX = 14; // clear space between the square's corner and the arrow's tail
   var RESTAKE_WAIT_MS = 120000; // public/js/game.js requestRestake's safety window
   // The refused screen's own words per reason (server paperSockets.js TEXT, minus its refund
   // sentence): the refund line is shown only when the refusal says refunded (design 8.5).
@@ -256,15 +258,44 @@
     }
 
     var hud = P.Hud.create({ onLocalHold: updateCashButton, holdText: holdText });
+    // Touch steers through paperTouch.js (the snake game's anchored stick and heading arrow); the
+    // stock controller keeps the keyboard and mouse and is built blind to touches.
+    var controller = new P.InputController(P.Touch ? P.Touch.withoutTouch(view) : view);
     var game = P.Mirror.create({
       view: view,
-      controller: new P.InputController(view),
+      controller: controller,
       net: net,
       hud: hud,
       config: config,
       skinManager: skinManager,
       language: language.strings
     });
+    var touch = P.Touch ? P.Touch.create({
+      view: view,
+      controller: controller,
+      heading: function () {
+        return game.direction || null;
+      },
+      arrow: $('pp-arrow'),
+      ahead: arrowAhead,
+      lift: function () {
+        return (config.baseHeight || 0) * arrowPerUnit(); // the square is drawn on its lifted land
+      }
+    }) : null;
+    // The arrow sits just clear of the square, as the snake game's sits just ahead of the head.
+    // The camera scales the world with the screen's diagonal and zooms out as the land grows:
+    // CSS px per world unit is game.scale * diagonal / hypot(1366, 768) (getRenderContext's
+    // hudScale over devicePixelRatio, with the quality factor cancelled). The square is
+    // skin maxScale * trackWidth across, so its corner is 0.71 of that from its centre.
+    function arrowPerUnit() {
+      return (game.scale || 4.5) * Math.hypot(view.clientWidth, view.clientHeight) / Math.hypot(1366, 768);
+    }
+    function arrowAhead() {
+      var perUnit = arrowPerUnit();
+      var skin = game.player && game.player.skin;
+      var size = ((skin && skin.container && skin.container.maxScale) || 1) * (config.trackWidth || 8);
+      return size * 0.71 * perUnit + ARROW_HALF_PX + ARROW_GAP_PX;
+    }
     game.onApplied = function (entry, tick) {
       hud.onApplied(entry, tick, game);
     };
@@ -278,6 +309,7 @@
       if (!(view.clientWidth > 0 && view.clientHeight > 0)) return;
       try {
         baseRenderer(g);
+        if (touch) touch.drawArrow(page.phase === 'live' && !!game.player && !game.player.death);
       } catch (err) {
         if (renderFaults++ < 3 && root.console) root.console.error('[PAPER] render', err);
       }

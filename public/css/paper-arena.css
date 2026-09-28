@@ -91,6 +91,17 @@
 .pp-hint b { color: rgba(0, 0, 0, 0.6); }
 body.pp-touch .pp-hint { display: none; }
 
+/* Touch heading arrow (paperTouch.js). The snake game's arrow in the agar page's dark ink with a
+   white glow, since this floor is light. Transform order matters: the centring translate comes
+   FIRST so it applies in screen space, not in the rotated frame (see game.css #dir-arrow). */
+.pp-arrow {
+  position: fixed; top: 0; left: 0; z-index: 2;
+  color: rgba(18, 22, 38, 0.92); filter: drop-shadow(0 0 5px rgba(255, 255, 255, 0.95));
+  pointer-events: none; opacity: 0; transition: opacity 0.12s linear; will-change: transform;
+}
+.pp-arrow svg { display: block; }
+@media (hover: hover) and (pointer: fine) { .pp-arrow { display: none; } }
+
 /* Touch hold button: outside the canvas, so it never steers (the input listens on the canvas). */
 .pp-cash {
   position: absolute; left: 14px; bottom: 14px; z-index: 2;

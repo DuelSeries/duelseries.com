@@ -15,6 +15,15 @@
 
 <!-- Live play has no leave control (design 8.6): holding Q (or the button below) is the only way
      out while the square is alive. "Back to the lobby" lives on the end screens only. -->
+<!-- Touch heading arrow (paperTouch.js): the snake game's arrow, shown while a thumb steers. -->
+<div id="pp-arrow" class="pp-arrow" aria-hidden="true">
+  <svg viewBox="0 0 24 24" width="26" height="26">
+    <path d="M2 12 h13 M15 12 l-5 -5 M15 12 l-5 5" fill="none"
+          stroke="currentColor" stroke-width="2.5"
+          stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>
+</div>
+
 <div id="pp-hint" class="pp-hint" hidden>Hold <b>Q</b> to cash out</div>
 <button type="button" id="pp-cash" class="pp-cash" hidden aria-label="Hold to cash out">
   <svg viewBox="0 0 72 72" aria-hidden="true">
@@ -104,6 +113,7 @@
 <script src="/js/paper/mp/paperNet.js"></script>
 <script src="/js/paper/mp/paperMirror.js"></script>
 <script src="/js/paper/mp/paperHud.js"></script>
+<script src="/js/paper/mp/paperTouch.js"></script>
 <script src="/js/paper/mp/paperArenaMain.js"></script>
 </body>
 </html>
