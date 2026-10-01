@@ -546,11 +546,20 @@ function recordEntry(r, game) {
 
 // ─── Wallet API ───────────────────────────────────────────────────────────────
 
+/* ledger: whether this boot's stake-ledger migrations went through (db.ensureLedgerSchema). Two
+   booleans and nothing else, so the owner can confirm without server access that paid stakes are
+   durable across a restart and that owed payouts use the two lanes (STATUS item 7e). Read before
+   the RPC call so a Solana outage cannot hide it. */
+function ledgerFlags() {
+  return { durableStakes: db.features.durableStakes === true, payoutLanes: db.features.payoutLanes === true };
+}
+
 app.get('/wallet/debug', async (req, res) => {
+  const ledger = ledgerFlags();
   try {
     const sigs = await Wallet.getRecentSigs();
-    res.json({ escrowPubkey: Wallet.getEscrowPublicKey(), sigs });
-  } catch (e) { res.json({ error: e.message }); }
+    res.json({ escrowPubkey: Wallet.getEscrowPublicKey(), sigs, ledger });
+  } catch (e) { res.json({ error: e.message, ledger }); }
 });
 
 app.get('/wallet/info', (req, res) => {

@@ -140,6 +140,12 @@ test('at boot the orphaned stake is owed back once, and nothing else is', async 
     ['refunded', 'consumed', 'pending', null]);
 });
 
+test('/wallet/debug reports the ledger flags of this boot (two booleans, STATUS item 7e)', async () => {
+  const r = await call(port, 'GET', '/wallet/debug');
+  assert.equal(r.status, 200);
+  assert.deepStrictEqual(r.json.ledger, { durableStakes: true, payoutLanes: true });
+});
+
 test('submit-stake writes the durable row: the payer, what a refund pays, this region and this boot', async () => {
   await stake(1, { walletAddress: 'SomebodyElse' });
   const row = ledgerDb.stakes.get(lastSig());
