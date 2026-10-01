@@ -50,7 +50,10 @@ const MAX_STAKE = STAKE_TIERS[STAKE_TIERS.length - 1];
    uses from then on, never the request's. */
 const RUNG_EPS = 1e-9;
 function rungOf(v) {
-  if (typeof v === 'boolean' || v === null || v === undefined || v === '') return null;
+  /* A number or a string, nothing else. The value is a client's, and Number() on an object it
+     built can THROW ({"toString":1}), which inside a socket handler ended the whole process; an
+     array of one number ([0.1]) also used to name that rung. */
+  if ((typeof v !== 'number' && typeof v !== 'string') || v === '') return null;
   const n = Number(v);
   if (!Number.isFinite(n)) return null;
   const t = ALL_STAKES.find(r => Math.abs(r - n) <= RUNG_EPS);

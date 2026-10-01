@@ -1291,7 +1291,8 @@ test('an unrecognised lobbyType is logged rather than silently absorbed', () => 
      written as if it were hostile: capped in length whatever type arrives,
      escaped so a newline cannot forge a second log entry, and rate-limited so
      a stranger does not get to decide how much disk one core writes. */
-  assert.ok(/String\(lobbyType\)\.slice\(0, 40\)/.test(fn), 'the value is capped in length');
+  // Only a string is quoted (String() on a client-built object can throw); anything else is named by its type.
+  assert.ok(/typeof lobbyType === 'string' \? JSON\.stringify\(lobbyType\.slice\(0, 40\)\)/.test(fn), 'the value is capped in length');
   assert.ok(/JSON\.stringify\(/.test(fn), 'and escaped, so it cannot forge a log line');
   assert.ok(/_unknownLobbyAt/.test(fn) && /UNKNOWN_LOBBY_EVERY_MS/.test(fn),
     'the warning is rate-limited');

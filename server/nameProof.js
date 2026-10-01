@@ -47,12 +47,20 @@ function spend(sig, now) {
 
 /* Returns the wallet address this request proves it owns, or null.
    `now` is injectable so the time window can be tested without waiting. */
+/* One field of a client's request body, as text: a string, or a finite number written out, and
+   '' for anything else. String() or Number() on an object the client built can THROW
+   ({"toString":1}), and the callers run in async routes and socket handlers, where a throw
+   ended the whole process. Nothing honest sends anything but strings and a number here. */
+function field(body, k) {
+  const v = body && typeof body === 'object' ? body[k] : undefined;
+  return typeof v === 'string' ? v : (typeof v === 'number' && Number.isFinite(v) ? String(v) : '');
+}
 function verifyNameProof(body, now) {
   now = now || Date.now();
-  const wallet = String((body && body.wallet) || '').trim();
-  const sig    = String((body && body.sig) || '').trim();
-  const ts     = Number(body && body.ts);
-  const name   = String((body && body.name) || '');
+  const wallet = field(body, 'wallet').trim();
+  const sig    = field(body, 'sig').trim();
+  const ts     = Number(field(body, 'ts')) || NaN;
+  const name   = field(body, 'name');
   if (!wallet || !sig || !ts || !isFinite(ts)) return null;
   if (Math.abs(now - ts) > WINDOW_MS) return null;      // stale, or from the future
   try {

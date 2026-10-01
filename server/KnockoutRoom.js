@@ -238,7 +238,10 @@ class KnockoutRoom {
     const clean = [];
     for (const a of aims.slice(0, KO.PIECES_EACH * 2)) {
       if (!a || !mine.has(a.pieceId)) continue;          // not yours, or already off
-      const ax = Number(a.ax), ay = Number(a.ay);
+      // Numbers or numeric strings only: Number() on a client-built object can THROW
+      // ({"toString":1}), and a throw here ended the whole process mid-match.
+      const ax = typeof a.ax === 'number' ? a.ax : typeof a.ax === 'string' ? Number(a.ax) : NaN;
+      const ay = typeof a.ay === 'number' ? a.ay : typeof a.ay === 'string' ? Number(a.ay) : NaN;
       if (!Number.isFinite(ax) || !Number.isFinite(ay)) continue;
       const len = Math.hypot(ax, ay);
       if (len < 1) continue;

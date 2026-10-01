@@ -116,6 +116,10 @@ const WEAPONS = {
   railgun:      { name: 'Railgun',      cooldown: 1500, damage: 78, kind: 'beam', range: 1500, breaks: 1 },
   mines:        { name: 'Mines',        cooldown: 900,  damage: 70, kind: 'mine', radius: 105, arm: 900, life: 30 },
 };
+/* Own keys only. The weapon name is the client's: 'constructor' or '__proto__' found the Object
+   function or Object.prototype here, the tank kept it, and its first shot threw inside the tick,
+   which ended the whole process. */
+const isWeapon = (k) => typeof k === 'string' && Object.prototype.hasOwnProperty.call(WEAPONS, k);
 const WEAPON_KEYS = Object.keys(WEAPONS);
 
 /* Effects the client draws for a few frames and then forgets. A beam and a
@@ -390,7 +394,7 @@ class ShooterRoom {
     const t = {
       id, name: String(name || 'Player').slice(0, 16),
       bot: !!bot,
-      weapon: WEAPONS[weapon] ? weapon : 'cannon',
+      weapon: isWeapon(weapon) ? weapon : 'cannon',
       x: 0, y: 0, hull: 0, aim: 0, roll: 0,
       health: SH.HEALTH, maxHealth: SH.HEALTH,
       coins: 0, banked: 0, kills: 0, deaths: 0,
@@ -562,7 +566,7 @@ class ShooterRoom {
 
   setWeapon(id, key) {
     const t = this.tanks.get(id);
-    if (!t || !WEAPONS[key]) return false;
+    if (!t || !isWeapon(key)) return false;
     t.weapon = key;
     return true;
   }
@@ -787,7 +791,7 @@ class ShooterRoom {
   }
 
   fireFrom(t, angle, weaponKey) {
-    const w = WEAPONS[weaponKey] || WEAPONS.cannon;
+    const w = isWeapon(weaponKey) ? WEAPONS[weaponKey] : WEAPONS.cannon;
     /* Counted here rather than guessed on the client. The client cannot know
        a shot happened: a beam and a chain leave no projectile to watch, and a
        cooldown re-derived in the browser drifts. A counter it can diff is the

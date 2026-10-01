@@ -55,12 +55,20 @@ function spend(sig, now) {
 
 /* Returns the wallet that signed this action, or null. Does NOT decide whether
    that wallet is an owner — the caller holds the owner list. */
+/* One field of a client's request body, as text: a string, or a finite number written out, and
+   '' for anything else. String() or Number() on an object the client built can THROW
+   ({"toString":1}), and the callers run in async routes and socket handlers, where a throw
+   ended the whole process. Nothing honest sends anything but strings and a number here. */
+function field(body, k) {
+  const v = body && typeof body === 'object' ? body[k] : undefined;
+  return typeof v === 'string' ? v : (typeof v === 'number' && Number.isFinite(v) ? String(v) : '');
+}
 function walletForAction(body, now) {
   now = now || Date.now();
-  const wallet = String((body && body.wallet) || '').trim();
-  const sig    = String((body && body.sig) || '').trim();
-  const action = String((body && body.action) || '');
-  const ts     = Number(body && body.ts);
+  const wallet = field(body, 'wallet').trim();
+  const sig    = field(body, 'sig').trim();
+  const action = field(body, 'action');
+  const ts     = Number(field(body, 'ts')) || NaN;
   const args   = (body && body.args) || {};
   if (!wallet || !sig || !action || !ts || !isFinite(ts)) return null;
   if (Math.abs(now - ts) > WINDOW_MS) return null;

@@ -193,8 +193,8 @@ class TanksRoom {
     /* Clamped rather than rejected. A client sending 400 power is either broken
        or lying, and in both cases the sane answer is the strongest legal shot,
        not an error the player cannot understand. */
-    const a = clamp(Number(angleDeg), 0, 180);
-    const pw = clamp(Number(power), TANKS.POWER_MIN, TANKS.POWER_MAX);
+    const a = clamp(numberOf(angleDeg), 0, 180);
+    const pw = clamp(numberOf(power), TANKS.POWER_MIN, TANKS.POWER_MAX);
     me.angle = a; me.power = pw;
 
     const rad = a * Math.PI / 180;
@@ -357,6 +357,9 @@ class TanksRoom {
 
 /* ── small helpers ────────────────────────────────────────────────────────── */
 function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
+/* A client's number: a number, or a string read as one, and NaN for anything else. Number() on
+   an object the client built can THROW ({"toString":1}), which ended the whole process. */
+function numberOf(v) { return typeof v === 'number' ? v : typeof v === 'string' ? Number(v) : NaN; }
 function round1(v) { return Math.round(v * 10) / 10; }
 /* A tiny seeded generator, so a match can be replayed from its seed and so the
    terrain is not a different shape for each player. */

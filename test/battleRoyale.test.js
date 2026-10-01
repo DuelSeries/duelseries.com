@@ -683,7 +683,8 @@ test('spectating does not hand over every pellet in the arena', () => {
   const src = fs.readFileSync(
     path.join(__dirname, '..', 'server', 'index.js'), 'utf8');
 
-  const at = src.indexOf("socket.on('spectate:join'");
+  // Registered through on(), the shape guard every client message goes through.
+  const at = src.indexOf("  on('spectate:join',");
   assert.ok(at > 0, 'found the spectate join handler');
   const block = src.slice(at, at + 1600);
 

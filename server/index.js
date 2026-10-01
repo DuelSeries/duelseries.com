@@ -75,9 +75,27 @@ function socketRL(socket, key, minMs) {
 // cap length. Defense in depth — the client escapes names on render today, but names are stored,
 // used as leaderboard keys, and broadcast to every other player, so they must never carry markup
 // or control chars in the first place. Falls back to 'Player' if nothing usable remains.
+// A string or a number only: String() on a client-built object THROWS ({"toString":1} has no
+// callable toString), and inside a socket handler a throw ends the whole process.
 function sanitizeName(name) {
-  return (String(name == null ? '' : name).replace(/[<>]/g, '').trim().slice(0, 20)) || 'Player';
+  const s = typeof name === 'string' ? name : (typeof name === 'number' ? String(name) : '');
+  return (s.replace(/[<>]/g, '').trim().slice(0, 20)) || 'Player';
 }
+
+/* ─── What a socket message may be ───────────────────────────────────────────
+   Nothing or a plain object, and nothing else. Every handler below destructures its message,
+   and destructuring null throws (a default of {} covers undefined only). This process has no
+   uncaughtException handler, so ONE such throw from one hand-made client used to end every live
+   game on the box, paid ones included. The handlers are registered through on() (inside the
+   connection handler), which drops any other shape before the handler runs, so a dropped
+   message has changed nothing. 'disconnect' is not a client message (its argument is a reason
+   string) and stays on socket.on. Fields inside the object are still the handler's to check:
+   pinning each to its one type is done at the top of the handler that reads it. */
+function isSocketMsg(p) {
+  return p === undefined || (p !== null && typeof p === 'object' && !Array.isArray(p)
+    && !Buffer.isBuffer(p) && !ArrayBuffer.isView(p) && !(p instanceof ArrayBuffer));
+}
+const strOr = (v, dflt) => (typeof v === 'string' ? v : dflt);
 
 if (process.env.NODE_ENV === 'production' && !process.env.SESSION_SECRET) {
   console.error('FATAL: SESSION_SECRET env var is not set in production.');
@@ -295,7 +313,7 @@ function tokensFrom(req) {
   };
 }
 async function isOwnerToken(idToken) {
-  if (!idToken) return false;
+  if (!idToken || typeof idToken !== 'string') return false;   // the client's: a token is text
   const { wallet } = await walletFromIdToken(idToken, null);
   return !!wallet && OWNER_WALLETS.has(wallet);
 }
@@ -657,6 +675,19 @@ app.get('/api/stake-quote', entryFeeLimiter, async (req, res) => {
 // issue the entry token. This avoids the browser WebSocket the public RPC blocks.
 app.post('/api/submit-stake', entryFeeLimiter, express.json({ limit: '256kb' }), async (req, res) => {
   const { lobbyType, stake, signedTx, walletAddress } = req.body || {};
+  /* Each field pinned to its type before anything reads it, and refused here, before the
+     signed transaction is broadcast, so a refusal costs nobody anything. This is an async route
+     and Express 4 does not catch a rejection from one: a stake of {"toString":1} threw in
+     Number() below and ended the whole process, every live paid game with it. A walletAddress
+     of that shape got further, past the stake's one-time claim, and then threw in the log line
+     that names it, stranding a claimed stake with no token. An honest client sends strings and
+     a number, which all pass exactly as before. */
+  if ((stake !== undefined && typeof stake !== 'number' && typeof stake !== 'string')
+      || (lobbyType !== undefined && typeof lobbyType !== 'string')
+      || (signedTx !== undefined && signedTx !== null && typeof signedTx !== 'string')
+      || (walletAddress !== undefined && walletAddress !== null && typeof walletAddress !== 'string')) {
+    return res.status(400).json({ error: 'Malformed request' });
+  }
 
   /* Ladder path. The requested rung is only a floor passed to verifyStake; the
      token is minted against what actually landed in escrow, resolved down to
@@ -728,7 +759,9 @@ app.post('/api/submit-stake', entryFeeLimiter, express.json({ limit: '256kb' }),
     }
   }
 
-  const fee = LOBBY_FEES[lobbyType];
+  // Own keys only: 'constructor' used to find Object here and go on to verify and mint a token
+  // for a lobby that does not exist.
+  const fee = ownKey(LOBBY_FEES, lobbyType) ? LOBBY_FEES[lobbyType] : undefined;
   if (fee === undefined || fee === 0) return res.status(400).json({ error: 'Not a paid lobby' });
   if (!signedTx) return res.status(400).json({ error: 'Missing signed transaction' });
   try {
@@ -881,7 +914,7 @@ app.get('/api/stats/winnings', async (req, res) => {
 });
 
 app.get('/api/players/search', async (req, res) => {
-  const q = (req.query.q || '').trim();
+  const q = strOr(req.query.q, '').trim();   // ?q[]=a is an array: .trim() threw, process gone
   if (!q) return res.json([]);
   try {
     const names = await db.searchPlayerNames(q);
@@ -894,7 +927,7 @@ app.get('/api/players/search', async (req, res) => {
 app.get('/api/my-profile', async (req, res) => {
   // Identity is the Privy wallet now — the client passes its address. Stats/earnings are
   // recorded under the wallet (recordGameResult / recordEarnings), so this resolves them.
-  const wallet = (req.query.wallet || '').trim();
+  const wallet = strOr(req.query.wallet, '').trim();   // a string only: ?wallet[]=a threw
   if (!wallet) return res.status(401).json({ error: 'No wallet' });
   try {
     const profile = await db.getMyProfile(wallet);
@@ -1068,7 +1101,7 @@ app.post('/api/owner/do', async (req, res) => {
   if (!who && !(await isOwnerReq(req))) {
     return res.status(403).json({ error: 'Not an owner' });
   }
-  const action = String((req.body && req.body.action) || '');
+  const action = strOr(req.body && req.body.action, '');
   const args = (req.body && req.body.args) || {};
   const done = (note) => { ownerAuth.audit(action, args, who || 'token', true, note);
                            res.json({ ok: true, note, state: opsSnapshot() }); };
@@ -1264,7 +1297,7 @@ app.post('/api/owner/diagnose', async (req, res) => {
    /api/my-profile does, rather than requiring a token to look at something
    anybody can already look at in an explorer. */
 app.get('/api/my-transactions', async (req, res) => {
-  const wallet = (req.query.wallet || '').trim();
+  const wallet = strOr(req.query.wallet, '').trim();   // a string only: ?wallet[]=a threw
   if (!wallet) return res.status(400).json({ error: 'No wallet' });
   try {
     const rows = await Usdc.usdcHistory(wallet, 12);
@@ -1915,11 +1948,18 @@ ladder.get('snake', REGION, 0);
 // Withdrawing rooms nobody is in is scheduled further down, through
 // everyStaggered, along with every other periodic job.
 
+/* Own keys only: a client-sent 'constructor' used to resolve to Object (or to no room at all,
+   for a region) instead of the free room. Every real region and lobby type resolves as before.
+   The snake lookups below use it too: there, 'constructor' as a lobby type resolved to the
+   Object function as a ROOM, and '__proto__' as a region to a room that does not exist, and
+   either one crashed the process at the first room method called on it. */
+const ownKey = (o, k) => typeof k === 'string' && Object.prototype.hasOwnProperty.call(o, k);
+
 /* Which room a join lands in. A stake wins when present, because only the
    ladder client sends one; everything else is the original tier lookup,
    untouched. */
 function getRoomForJoin({ lobbyType, stake, region }) {
-  const rgn = (region && gameRooms[region]) ? region : REGION;
+  const rgn = ownKey(gameRooms, region) ? region : REGION;
   if (stake !== undefined && stake !== null && isStake(stake)) {
     // The ladder's own number: a room is never built from a request's 0.10499.
     return ladder.get('snake', rgn, rungOf(stake));
@@ -1934,8 +1974,8 @@ let _unknownLobbyAt = 0, _unknownLobbySkipped = 0;
 const UNKNOWN_LOBBY_EVERY_MS = 30000;
 
 function getRoomForType(lobbyType, region) {
-  const rgn = (region && gameRooms[region]) ? region : REGION;
-  const hit = gameRooms[rgn][lobbyType];
+  const rgn = ownKey(gameRooms, region) ? region : REGION;
+  const hit = ownKey(gameRooms[rgn], lobbyType) ? gameRooms[rgn][lobbyType] : null;
   /* THE CATCH-ALL IS LOUD NOW. Any lobbyType this server does not recognise
      lands in the snake fixed tier, and that tier is off the lobby board — so a
      client sending a stale or unknown name ends up alone in a room nothing
@@ -1946,7 +1986,8 @@ function getRoomForType(lobbyType, region) {
      as retiring the tier, not in this one. It just stops being invisible.
 
      THE VALUE COMES FROM THE CLIENT, so the line is written defensively:
-     String() then slice() caps the length whatever type arrives, and
+     only a string is quoted (anything else is named by its type, because
+     String() on a client-built object can throw), slice() caps the length, and
      JSON.stringify escapes the newlines that would otherwise let somebody
      forge a log entry. Rate-limited because the alternative is a stranger
      choosing how much disk this box writes — one core, and pm2 keeps the
@@ -1956,7 +1997,7 @@ function getRoomForType(lobbyType, region) {
     const now = Date.now();
     if (now - _unknownLobbyAt > UNKNOWN_LOBBY_EVERY_MS) {
       console.warn('[ROOM] unrecognised lobbyType '
-        + JSON.stringify(String(lobbyType).slice(0, 40))
+        + (typeof lobbyType === 'string' ? JSON.stringify(lobbyType.slice(0, 40)) : '(' + typeof lobbyType + ')')
         + ' in ' + rgn + ' — falling back to the ' + rgn + '_free tier'
         + (_unknownLobbySkipped ? ' (+' + _unknownLobbySkipped + ' more since)' : ''));
       _unknownLobbyAt = now;
@@ -1968,9 +2009,6 @@ function getRoomForType(lobbyType, region) {
   return hit || gameRooms[rgn].free;
 }
 
-/* Own keys only: a client-sent 'constructor' used to resolve to Object (or to no room at all,
-   for a region) instead of the free room. Every real region and lobby type resolves as before. */
-const ownKey = (o, k) => typeof k === 'string' && Object.prototype.hasOwnProperty.call(o, k);
 function getAgarRoomForType(lobbyType, region) {
   const rgn = ownKey(agarRooms, region) ? region : REGION;
   return (ownKey(agarRooms[rgn], lobbyType) && agarRooms[rgn][lobbyType]) || agarRooms[rgn].free;
@@ -2403,6 +2441,10 @@ function broadcastLobbyState() {
 io.on('connection', (socket) => {
   console.log(`[+] Connected: ${socket.id}`);
 
+  // Every client message goes through here: anything but nothing-or-a-plain-object is dropped
+  // before its handler runs (isSocketMsg, above). Only the first argument is passed on.
+  const on = (ev, fn) => socket.on(ev, (msg) => { if (isSocketMsg(msg)) fn(msg); });
+
   socket.emit(C.EVENTS.LOBBY_STATE, {
     playerCount:      totalInGame()     + (remoteStats.playerCount     || 0),
     lobbyCount:       lobbyConnections.size,
@@ -2413,21 +2455,35 @@ io.on('connection', (socket) => {
     region:           REGION,
   });
 
-  socket.on('lobby:join', ({ googleId } = {}) => {
+  on('lobby:join', ({ googleId } = {}) => {
     lobbyConnections.add(socket);
-    if (googleId) {
+    if (typeof googleId === 'string' && googleId) {
       socket._googleId = googleId;
       lobbySocketsByGoogleId.set(googleId, socket);
     }
     broadcastLobbyState();
   });
 
-  socket.on(C.EVENTS.PLAY, ({ name, walletAddress, googleId, color, lobbyType, stake, entryToken, region, reconnectKey } = {}) => {
+  on(C.EVENTS.PLAY, ({ name, walletAddress, googleId, color, lobbyType, stake, entryToken, region, reconnectKey } = {}) => {
     // Ignore duplicate PLAY events (e.g. from socket reconnect while alive)
     if (socket._room) {
       const existingSnake = socket._room.snakes.get(socket.id);
       if (existingSnake && existingSnake.alive) return;
     }
+    /* EVERY FIELD BELOW IS THE CLIENT'S, so each is pinned to the one type it may be before
+       anything reads it. Unpinned, one message took the whole process down (no
+       uncaughtException handler): region ['na'], {} or 1 passed the room lookup and then threw
+       in the owner notice's toUpperCase; region '__proto__' or 'constructor' found no room and
+       threw at addPlayer; a lobbyType, stake or name of {"toString":1} threw in the lookup
+       itself. The region is resolved ONCE, to a region this server hosts, and that one value is
+       used for the room and the notice alike (the notice used to name whatever was sent). A
+       real client sends strings and a number, which all pass through exactly as before. */
+    const rgn = ownKey(gameRooms, region) ? region : REGION;
+    lobbyType = strOr(lobbyType, undefined);
+    if (typeof stake !== 'number' && typeof stake !== 'string') stake = undefined;
+    googleId = strOr(googleId, undefined);
+    walletAddress = strOr(walletAddress, undefined);
+    reconnectKey = strOr(reconnectKey, undefined);
     const playerName = sanitizeName(name);
     // Identity = the wallet address the client sends as googleId (self-custody single login).
     const verifiedId = googleId || null;
@@ -2439,7 +2495,7 @@ io.on('connection', (socket) => {
        the redesigned lobby sends the former, so existing clients keep landing
        in exactly the rooms they always did. */
     const byStake = stake !== undefined && stake !== null && isStake(stake);
-    const room = getRoomForJoin({ lobbyType, stake, region: region || REGION });
+    const room = getRoomForJoin({ lobbyType, stake, region: rgn });
     /* Maintenance stops new games starting and says why. Refusing silently is
        what makes a real-money game look broken rather than busy, and a player
        who thinks it is broken does not come back. Anybody already playing is
@@ -2461,7 +2517,7 @@ io.on('connection', (socket) => {
     // One human-readable name for the room, used in logs and owner alerts.
     const roomLabel = byStake
       ? (Number(stake) === 0 ? 'free' : '$' + Number(stake).toFixed(2))
-      : ((lobbyType in LOBBY_FEES) ? lobbyType : 'free');
+      : (ownKey(LOBBY_FEES, lobbyType) ? lobbyType : 'free');
 
     // Reconnect: if we kept this player's snake alive after a recent drop, put them
     // back on it (and their staked worth) instead of charging/spawning a fresh one.
@@ -2488,7 +2544,7 @@ io.on('connection', (socket) => {
        token and not against the request. */
     const consumed = byStake
       ? consumePaidEntryAtStake(entryToken, Number(stake), 'snake')
-      : consumePaidEntry(entryToken, (lobbyType in LOBBY_FEES) ? lobbyType : 'free', 'snake');
+      : consumePaidEntry(entryToken, ownKey(LOBBY_FEES, lobbyType) ? lobbyType : 'free', 'snake');
     // A paid entry is seated only once its stake row is claimed (enterPaid, STATUS item 7a).
     enterPaid(socket, 'snake', consumed, (entry) => {
       // Server-verified identity from the paid token — overrides the client-claimed
@@ -2505,7 +2561,7 @@ io.on('connection', (socket) => {
       notify.pushOwner(
         `${playerName} joined the ${roomLabel} lobby` +
           (entry.worth ? ` for ${entry.worth} ${money.unit}` : ' (free)') +
-          ` in ${(region || REGION).toUpperCase()}`,
+          ` in ${rgn.toUpperCase()}`,
         { title: 'New player: slither.io', tags: 'video_game' }
       );
       lobbyConnections.delete(socket);
@@ -2525,7 +2581,7 @@ io.on('connection', (socket) => {
     if (socket._cashoutTimer) { clearTimeout(socket._cashoutTimer); socket._cashoutTimer = null; }
   }
 
-  socket.on('cashout:start', () => {
+  on('cashout:start', () => {
     /* Blocked by the MATCH, not by the room. Owen's call and the better rule:
        while the room is filling it is an ordinary game and there is no reason
        to take the control away. Once the circle starts closing you are playing
@@ -2556,7 +2612,7 @@ io.on('connection', (socket) => {
     socket.emit('cashout:started', { id: socket.id });   // echo to self for own ring
   });
 
-  socket.on('cashout:cancel', () => {
+  on('cashout:cancel', () => {
     const room = socket._room;
     if (!room) return;
     clearCashoutHold(room.snakes && room.snakes.get(socket.id));   // full speed again
@@ -2570,7 +2626,7 @@ io.on('connection', (socket) => {
   /* Kept so an older client that still drives this itself keeps working, but
      it grants nothing: the hold must have run, and the timer above will have
      paid out already in the normal case. */
-  socket.on('cashout', () => {
+  on('cashout', () => {
     if (!socketRL(socket, 'cashout', 1000)) return;
     // Same rule as the hold above: only while a match is actually running.
     if (socket._room && socket._room.isBattleRoyale && brClosed(socket._room)) return;
@@ -2650,13 +2706,13 @@ io.on('connection', (socket) => {
 
   // speedMult is no longer read from the client: the only thing it carried was
   // the cash-out slowdown, and the server times that itself now.
-  socket.on(C.EVENTS.INPUT, ({ angle, boost }) => {
+  on(C.EVENTS.INPUT, ({ angle, boost } = {}) => {
     if (typeof angle !== 'number' || !Number.isFinite(angle)) return;
     if (socket._room) socket._room.handleInput(socket.id, angle, !!boost);
   });
 
   // In-game chat — re-broadcast a player's message to everyone in their game room (incl. themselves).
-  socket.on(C.EVENTS.CHAT, ({ text } = {}) => {
+  on(C.EVENTS.CHAT, ({ text } = {}) => {
     const room = socket._room;
     if (!room) return;
     const player = room.players.get(socket.id);
@@ -2664,7 +2720,7 @@ io.on('connection', (socket) => {
     const now = Date.now();
     if (socket._lastChat && now - socket._lastChat < 600) return;   // simple anti-spam throttle
     socket._lastChat = now;
-    const msg = String(text || '').replace(/[<>]/g, '').slice(0, 120).trim();
+    const msg = strOr(text, '').replace(/[<>]/g, '').slice(0, 120).trim();
     if (!msg) return;
     const name = String(player.name || 'Player').slice(0, 24);
     socket.emit(C.EVENTS.CHAT, { name, text: msg, self: true });   // echo to sender (highlighted)
@@ -2673,7 +2729,7 @@ io.on('connection', (socket) => {
 
   // Client reports how far it can see (world units) for area-of-interest culling —
   // the snapshot broadcaster only sends each player snakes/food within this radius.
-  socket.on('view', ({ r, x, y } = {}) => {
+  on('view', ({ r, x, y } = {}) => {
     if (typeof r === 'number' && isFinite(r) && r > 0) socket._viewR = Math.min(Math.max(r, 200), 20000);
     /* Where the camera is looking, which is the only way to cull for somebody
        who has no snake to be centred on. Bounded to the world so a bad value
@@ -2682,7 +2738,7 @@ io.on('connection', (socket) => {
     if (typeof y === 'number' && isFinite(y)) socket._viewY = Math.max(-1e5, Math.min(1e5, y));
   });
 
-  socket.on('spectate:join:agar', ({ lobbyType, region } = {}) => {
+  on('spectate:join:agar', ({ lobbyType, region } = {}) => {
     const room = getAgarRoomForType(lobbyType || 'free', region || REGION);
     socket.join(room.roomName);
     socket._agarRoom = room;
@@ -2695,7 +2751,7 @@ io.on('connection', (socket) => {
     });
   });
 
-  socket.on('spectate:join', ({ lobbyType, stake, region } = {}) => {
+  on('spectate:join', ({ lobbyType, stake, region } = {}) => {
     // Watching costs nothing, so no token is consumed; it only has to resolve
     // to the same room the player would have joined.
     const room = getRoomForJoin({ lobbyType: lobbyType || 'free', stake, region: region || REGION });
@@ -2722,7 +2778,7 @@ io.on('connection', (socket) => {
     });
   });
 
-  socket.on(C.EVENTS.RESPAWN, ({ entryToken } = {}) => {
+  on(C.EVENTS.RESPAWN, ({ entryToken } = {}) => {
     if (!socket._room) return;
     const existing = socket._room.snakes.get(socket.id);
     if (existing && existing.alive) return; // block respawn while alive
@@ -2766,9 +2822,9 @@ io.on('connection', (socket) => {
     });
   });
 
-  socket.on('ping_check', () => socket.emit('pong_check'));
+  on('ping_check', () => socket.emit('pong_check'));
 
-  socket.on('admin:spawnbot', async ({ count, idToken } = {}) => {
+  on('admin:spawnbot', async ({ count, idToken } = {}) => {
     if (!(await isOwnerToken(idToken))) return;
     const n = Math.min(Math.max(1, parseInt(count) || 1), 10);
     const room = socket._room || gameRooms[REGION].free;
@@ -2802,8 +2858,14 @@ io.on('connection', (socket) => {
   });
 
   // ── Agar events ──────────────────────────────────────────────────────────
-  socket.on('cell:join', ({ name, color, lobbyType, googleId, region, entryToken } = {}) => {
-    const room = getAgarRoomForType(lobbyType, region || REGION);
+  on('cell:join', ({ name, color, lobbyType, googleId, region, entryToken } = {}) => {
+    /* Pinned to their types first, as in PLAY above: a region of ['na'], {} or 1 used to reach
+       the owner notice's toUpperCase on a free join and take the whole process down. One
+       region, a region this server hosts, is used for the room and the notice alike. */
+    const rgn = ownKey(agarRooms, region) ? region : REGION;
+    googleId = strOr(googleId, undefined);
+    color = typeof color === 'string' ? color.slice(0, 32) : null;
+    const room = getAgarRoomForType(lobbyType, rgn);
     const shortType = ownKey(LOBBY_FEES, lobbyType) ? lobbyType : 'free';
     /* Paid agar is closed (AGAR_PAID): refused first, before the token is looked at and before
        anything about this socket changes, so no stake is spent here and nothing is seated. */
@@ -2828,7 +2890,7 @@ io.on('connection', (socket) => {
       notify.pushOwner(
         `${sanitizeName(name)} joined the ${shortType} lobby` +
           (entryWorth ? ` for ${entryWorth} ${money.unit}` : ' (free)') +
-          ` in ${(region || REGION).toUpperCase()}`,
+          ` in ${rgn.toUpperCase()}`,
         { title: 'New player: agar.io', tags: 'video_game' }
       );
       lobbyConnections.delete(socket);
@@ -2838,7 +2900,7 @@ io.on('connection', (socket) => {
     });
   });
 
-  socket.on('cell:spawnbot', async ({ idToken } = {}) => {
+  on('cell:spawnbot', async ({ idToken } = {}) => {
     if (!(await isOwnerToken(idToken))) return;
     const room = socket._agarRoom || agarRooms[REGION].free;
 
@@ -2861,13 +2923,18 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('cell:input', ({ mouseX, mouseY } = {}) => {
+  on('cell:input', ({ mouseX, mouseY } = {}) => {
+    /* Finite numbers only. These are stored as the cell's target and subtracted from its
+       position every tick, so an object here broke the room's whole simulation, not just this
+       message: {"toString":1} throws inside the 60Hz loop, and anything else turns into NaN. */
+    if (typeof mouseX !== 'number' || !Number.isFinite(mouseX)) return;
+    if (typeof mouseY !== 'number' || !Number.isFinite(mouseY)) return;
     if (socket._agarRoom) socket._agarRoom.handleInput(socket.id, mouseX, mouseY);
   });
 
   // Client reports how far it can see (world units) so the agar broadcaster only sends each
   // player the entities within their view (area-of-interest culling).
-  socket.on('cell:view', ({ r } = {}) => {
+  on('cell:view', ({ r } = {}) => {
     if (typeof r === 'number' && isFinite(r) && r > 0) socket._agarViewR = Math.min(Math.max(r, 300), 12000);
   });
 
@@ -2886,7 +2953,7 @@ io.on('connection', (socket) => {
 
      Every refusal now says so. A control that refuses without a word is
      indistinguishable from a broken one, which is exactly how this survived. */
-  socket.on('br:start', ({ proof, force } = {}) => {
+  on('br:start', ({ proof, force } = {}) => {
     /* Even the rate limit says something. A silent drop here is the same
        failure as the silent auth refusal above: the button does nothing and
        nothing anywhere says why. */
@@ -2941,11 +3008,11 @@ io.on('connection', (socket) => {
      This replaces a check on `localStorage.duel_admin_token`, which the wallet
      widget writes for EVERY signed-in player. Every player who had ever logged
      in was being shown an owner control. */
-  socket.on('br:peek', ({ wallet } = {}) => {
+  on('br:peek', ({ wallet } = {}) => {
     const room = gameRooms[REGION] && gameRooms[REGION].br;
     if (!room) return;
     const st = room.publicState();
-    st.isOwner = !!wallet && OWNER_WALLETS.has(String(wallet));
+    st.isOwner = typeof wallet === 'string' && !!wallet && OWNER_WALLETS.has(wallet);
     socket.emit('br:state', st);
   });
 
@@ -2954,19 +3021,19 @@ io.on('connection', (socket) => {
      fire, and leave. Everything about what a shot DOES is decided in the room
      and sent back; nothing here trusts a number from the client beyond the two
      the player is entitled to choose. */
-  socket.on('tanks:queue', ({ name, wallet } = {}) => {
+  on('tanks:queue', ({ name, wallet } = {}) => {
     if (!socketRL(socket, 'tanksq', 1000)) return;
     if (ops.get().maintenance) { socket.emit('maintenance', ops.get()); return; }
-    tanksLobby.enqueue(socket, sanitizeName(name), wallet || socket._walletAddress || null);
+    tanksLobby.enqueue(socket, sanitizeName(name), strOr(wallet, null) || socket._walletAddress || null);
     socket.emit('tanks:queued', { waitingMs: tanksLobby.queuedFor(socket.id) || 0 });
   });
 
-  socket.on('tanks:unqueue', () => {
+  on('tanks:unqueue', () => {
     tanksLobby.dequeue(socket.id);
     socket.emit('tanks:unqueued', {});
   });
 
-  socket.on('tanks:fire', ({ angle, power } = {}) => {
+  on('tanks:fire', ({ angle, power } = {}) => {
     if (!socketRL(socket, 'tanksfire', 300)) return;
     const room = tanksLobby.roomOf(socket.id);
     if (!room) return;
@@ -2975,7 +3042,7 @@ io.on('connection', (socket) => {
     room.broadcast('tanks:shot', shot.result);
   });
 
-  socket.on('tanks:leave', () => tanksLobby.leave(socket.id));
+  on('tanks:leave', () => tanksLobby.leave(socket.id));
 
   /* ── Knockout ─────────────────────────────────────────────────────────────
      A duel on a shrinking disc. The client sends an arrow per piece and a
@@ -2984,7 +3051,7 @@ io.on('connection', (socket) => {
      clamped there rather than believed, so a patched client that sends a pull
      of ten thousand gets the same shot as a player who dragged to the edge of
      their screen. */
-  socket.on('ko:queue', ({ name, wallet, stake, entryToken } = {}) => {
+  on('ko:queue', ({ name, wallet, stake, entryToken } = {}) => {
     if (!socketRL(socket, 'koq', 1000)) return;
     if (ops.get().maintenance) { socket.emit('maintenance', ops.get()); return; }
 
@@ -2993,7 +3060,8 @@ io.on('connection', (socket) => {
        token; nothing the client says about what it paid is read. A seat with no
        valid token is a free seat, and a client asking for a paid table without
        one is refused rather than quietly seated for nothing. */
-    const wants = Number(stake) || 0;
+    // A number or a string only: Number() on a client-built object can throw.
+    const wants = (typeof stake === 'number' || typeof stake === 'string') ? Number(stake) || 0 : 0;
     const seat = (entry) => {
       let worth = 0, rung = 0, paid, payTo = null;
       if (entry) {
@@ -3007,7 +3075,7 @@ io.on('connection', (socket) => {
       /* A paid seat's prize or refund goes to the wallet that paid (from the token), never to
          a wallet the client names; a free seat pays nothing, so its name is only a label. */
       knockoutLobby.enqueue(socket, sanitizeName(name),
-        worth > 0 ? payTo : (wallet || socket._walletAddress || null), rung, worth, undefined, paid);
+        worth > 0 ? payTo : (strOr(wallet, null) || socket._walletAddress || null), rung, worth, undefined, paid);
       socket.emit('ko:queued', {
         waitingMs: knockoutLobby.queuedFor(socket.id) || 0,
         stake: rung, worth,
@@ -3023,7 +3091,7 @@ io.on('connection', (socket) => {
     });
   });
 
-  socket.on('ko:unqueue', () => {
+  on('ko:unqueue', () => {
     /* leave(), not dequeue(). dequeue only forgets the seat; on a PAID table the
        buy-in has already settled on-chain by the time somebody is standing in
        the queue, so dropping them without handing it back is taking their money
@@ -3031,7 +3099,7 @@ io.on('connection', (socket) => {
     knockoutLobby.leave(socket.id);
   });
 
-  socket.on('ko:aim', ({ aims } = {}) => {
+  on('ko:aim', ({ aims } = {}) => {
     if (!socketRL(socket, 'koaim', 120)) return;
     const room = knockoutLobby.roomOf(socket.id);
     if (!room) return;
@@ -3040,13 +3108,13 @@ io.on('connection', (socket) => {
     socket.emit('ko:aimed', { count: r.count });
   });
 
-  socket.on('ko:lock', () => {
+  on('ko:lock', () => {
     const room = knockoutLobby.roomOf(socket.id);
     if (!room) return;
     if (room.lockIn(socket.id)) room.broadcast('ko:ready', { ready: [...room.ready] });
   });
 
-  socket.on('ko:leave', () => knockoutLobby.leave(socket.id));
+  on('ko:leave', () => knockoutLobby.leave(socket.id));
 
   /* ── Battleship ───────────────────────────────────────────────────────────
      The client sends a fleet layout and, on its turn, one square. Everything
@@ -3054,11 +3122,12 @@ io.on('connection', (socket) => {
      won — is decided in BattleshipRoom and pushed back per player. The one
      thing that must never travel is the opponent's layout, which is why state
      is sent with viewFor rather than broadcast to the room. */
-  socket.on('bs:queue', ({ name, wallet, stake, entryToken } = {}) => {
+  on('bs:queue', ({ name, wallet, stake, entryToken } = {}) => {
     if (!socketRL(socket, 'bsq', 1000)) return;
     if (ops.get().maintenance) { socket.emit('maintenance', ops.get()); return; }
 
-    const wants = Number(stake) || 0;
+    // A number or a string only: Number() on a client-built object can throw.
+    const wants = (typeof stake === 'number' || typeof stake === 'string') ? Number(stake) || 0 : 0;
     const seat = (entry) => {
       let worth = 0, rung = 0, paid, payTo = null;
       if (entry) {
@@ -3071,7 +3140,7 @@ io.on('connection', (socket) => {
 
       /* A paid seat's prize or refund goes to the wallet that paid (from the token). */
       battleshipLobby.enqueue(socket, sanitizeName(name),
-        worth > 0 ? payTo : (wallet || socket._walletAddress || null), rung, worth, paid);
+        worth > 0 ? payTo : (strOr(wallet, null) || socket._walletAddress || null), rung, worth, paid);
       socket.emit('bs:queued', {
         waitingMs: battleshipLobby.queuedFor(socket.id) || 0,
         stake: rung, worth,
@@ -3085,9 +3154,9 @@ io.on('connection', (socket) => {
     });
   });
 
-  socket.on('bs:unqueue', () => battleshipLobby.leave(socket.id));
+  on('bs:unqueue', () => battleshipLobby.leave(socket.id));
 
-  socket.on('bs:place', ({ layout } = {}) => {
+  on('bs:place', ({ layout } = {}) => {
     if (!socketRL(socket, 'bsplace', 250)) return;
     const room = battleshipLobby.roomOf(socket.id);
     if (!room) return;
@@ -3096,7 +3165,7 @@ io.on('connection', (socket) => {
     socket.emit('bs:placed', {});
   });
 
-  socket.on('bs:fire', ({ cell } = {}) => {
+  on('bs:fire', ({ cell } = {}) => {
     if (!socketRL(socket, 'bsfire', 250)) return;
     const room = battleshipLobby.roomOf(socket.id);
     if (!room) return;
@@ -3104,21 +3173,21 @@ io.on('connection', (socket) => {
     if (!r.ok) { socket.emit('bs:refused', { why: r.why }); return; }
   });
 
-  socket.on('bs:leave', () => battleshipLobby.leave(socket.id));
+  on('bs:leave', () => battleshipLobby.leave(socket.id));
   /* ── Shooter ──────────────────────────────────────────────────────────────
      Free, solo, and server-simulated anyway. The client sends which keys are
      down and where it is aiming; it never says that it hit something, took a
      coin or cleared a level. There is no money in this mode today, and the
      day there is, none of this has to be rewritten. */
-  socket.on('sh:join', ({ name, weapon } = {}) => {
+  on('sh:join', ({ name, weapon } = {}) => {
     if (!socketRL(socket, 'shjoin', 1000)) return;
     if (ops.get().maintenance) { socket.emit('maintenance', ops.get()); return; }
     shooterRoom.removePlayer(socket.id);         // a second Play replaces the first
-    shooterRoom.addPlayer(socket, sanitizeName(name), String(weapon || ''));
+    shooterRoom.addPlayer(socket, sanitizeName(name), strOr(weapon, ''));
     socket.emit('sh:map', shooterRoom.mapPayload());
   });
 
-  socket.on('sh:input', (input) => {
+  on('sh:input', (input) => {
     if (!input || typeof input !== 'object') return;
     shooterRoom.setInput(socket.id, input);
   });
@@ -3126,21 +3195,21 @@ io.on('connection', (socket) => {
   /* Switching guns mid-round is free and instant. They are all free anyway —
      the choice is what you want to play, not what you can afford — so the only
      thing this has to refuse is a weapon that does not exist. */
-  socket.on('sh:weapon', ({ weapon } = {}) => {
+  on('sh:weapon', ({ weapon } = {}) => {
     if (!socketRL(socket, 'shweapon', 150)) return;
-    if (!shooterRoom.setWeapon(socket.id, String(weapon || ''))) {
+    if (!shooterRoom.setWeapon(socket.id, strOr(weapon, ''))) {
       socket.emit('sh:refused', { why: 'no such weapon' });
     }
   });
 
   /* Asked for by a dead player. Nothing else puts them back in the arena, so
      dying is a full stop rather than a two-second interruption. */
-  socket.on('sh:respawn', () => {
+  on('sh:respawn', () => {
     if (!socketRL(socket, 'shrespawn', 400)) return;
     shooterRoom.respawn(socket.id);
   });
 
-  socket.on('sh:leave', () => endShooter(socket.id));
+  on('sh:leave', () => endShooter(socket.id));
 
   /* ── Paper ─────────────────────────────────────────────────────────────────
      pp:join, pp:respawn, pp:in, pp:need, pp:leave, pp:ping. Every handler is
@@ -3148,12 +3217,12 @@ io.on('connection', (socket) => {
      of a paid seat comes from the one-time entry token only. */
   paper.attach(socket);
 
-  socket.on('cell:split', () => {
+  on('cell:split', () => {
     if (!socketRL(socket, 'split', 100)) return;
     if (socket._agarRoom) socket._agarRoom.handleSplit(socket.id);
   });
 
-  socket.on('cell:respawn', ({ entryToken } = {}) => {
+  on('cell:respawn', ({ entryToken } = {}) => {
     const room = socket._agarRoom;
     if (!room) return;
     // Paid respawns re-stake (same one-time token the snake game uses); free respawns carry none.
@@ -3179,15 +3248,15 @@ io.on('connection', (socket) => {
     });
   });
 
-  socket.on('cell:lock', () => {
+  on('cell:lock', () => {
     if (socket._agarRoom) socket._agarRoom.lockPlayer(socket.id);
   });
 
-  socket.on('cell:unlock', () => {
+  on('cell:unlock', () => {
     if (socket._agarRoom) socket._agarRoom.unlockPlayer(socket.id);
   });
 
-  socket.on('cell:cashout', async () => {
+  on('cell:cashout', async () => {
     if (!socketRL(socket, 'cell:cashout', 5000)) return;
     const room = socket._agarRoom;
     if (!room) return;
