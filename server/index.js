@@ -2738,8 +2738,20 @@ io.on('connection', (socket) => {
     if (typeof y === 'number' && isFinite(y)) socket._viewY = Math.max(-1e5, Math.min(1e5, y));
   });
 
+  /* WATCHING IS FOR A SOCKET WITH NO SEAT, in both spectate handlers below. Each one repoints
+     the socket's room, and disconnect only ever clears the room the socket points at, so a
+     player who sent a spectate stayed seated in the room they were playing in, with nothing
+     left to remove them: alive and unsteered for good, counted as a human in that room's
+     /api/live row (the row the no-push-while-paid rule reads), and in a paid snake room holding
+     its worth until somebody happened to kill it. An honest client never does this (it sends a
+     spectate only as the first message of a fresh socket, in watch-only mode), so a seated
+     socket is refused and nothing about its seat changes; no stake moves either way. A watcher
+     switching rooms leaves the one it was watching, or it would be sent both. */
   on('spectate:join:agar', ({ lobbyType, region } = {}) => {
+    const prev = socket._agarRoom;
+    if (prev && prev.players.has(socket.id)) return;   // seated: refused (above)
     const room = getAgarRoomForType(lobbyType || 'free', region || REGION);
+    if (prev && prev !== room) socket.leave(prev.roomName);
     socket.join(room.roomName);
     socket._agarRoom = room;
     socket._spectating = true;
@@ -2754,7 +2766,14 @@ io.on('connection', (socket) => {
   on('spectate:join', ({ lobbyType, stake, region } = {}) => {
     // Watching costs nothing, so no token is consumed; it only has to resolve
     // to the same room the player would have joined.
+    const prev = socket._room;
+    if (prev && prev.players.has(socket.id)) return;   // seated: refused (see spectate:join:agar)
     const room = getRoomForJoin({ lobbyType: lobbyType || 'free', stake, region: region || REGION });
+    if (prev && prev !== room) {
+      // Its interest-cell room belongs to the old room's broadcaster too (GameRoom.broadcastSnapshot).
+      socket.leave(prev.socketRoomName);
+      if (socket._cellRoom) { socket.leave(socket._cellRoom); socket._cellRoom = null; }
+    }
     socket.join(room.socketRoomName);
     socket._room = room;
     socket._spectating = true;

@@ -686,7 +686,8 @@ test('spectating does not hand over every pellet in the arena', () => {
   // Registered through on(), the shape guard every client message goes through.
   const at = src.indexOf("  on('spectate:join',");
   assert.ok(at > 0, 'found the spectate join handler');
-  const block = src.slice(at, at + 1600);
+  // The handler runs up to the next one registered.
+  const block = src.slice(at, src.indexOf('\n  on(', at + 1));
 
   assert.ok(/spectateOnly:\s*true/.test(block), 'it is the right handler');
   assert.ok(!/food:\s*room\.foodManager\.getAll\(\)/.test(block),
