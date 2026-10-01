@@ -1488,9 +1488,23 @@ function endShooter(socketId) { shooterRoom.removePlayer(socketId); }
    what landed on-chain, the hour sweep of floor money to the house. Every
    hook must be a function or the PaperRoom constructor throws HERE, at boot,
    rather than at the first paid cash-out (the free arena never pays one).
-   The paid rungs open only with PAPER_PAID=1. */
+   The paid rungs ($0.10 and $1.00) are ON by default since 2026-10-01 (STATUS item 7: e and f
+   closed). Production env lives only in the box's .env, which no deploy touches, so the default
+   is what the live server runs. PAPER_PAID=0 (or false, off, no) shuts them; 1 (true, on, yes)
+   or unset opens them; any other value shuts them and says so, so a typo fails closed. Tests
+   and scripts/dev-local.js set PAPER_PAID explicitly. Owner's rule with paid Paper on (7f):
+   nothing is pushed while /api/live shows a human in a paid room, since a push restarts the
+   server and money already seated is lost on a restart. */
 const { PaperArenas } = require('./paper/PaperArenas');
-const PAPER_PAID = process.env.PAPER_PAID === '1';
+function paperPaidSwitch(raw) {
+  const v = String(raw == null ? '' : raw).trim().toLowerCase();
+  if (v === '' || v === '1' || v === 'true' || v === 'on' || v === 'yes') return true;
+  if (v === '0' || v === 'false' || v === 'off' || v === 'no') return false;
+  console.error(`[PAPER] PAPER_PAID=${JSON.stringify(String(raw).slice(0, 20))} is not a switch value; paid rungs stay OFF`);
+  return false;
+}
+const PAPER_PAID = paperPaidSwitch(process.env.PAPER_PAID);
+console.log(`[PAPER] paid rungs ${PAPER_PAID ? 'on' : 'OFF'}`);
 /* Dev entry tokens pay with a fake withdraw, for Paper only: the global money
    module is untouched. The house side is faked too. An unbacked token's rake
    must never become a failed_payouts row that a real drainer later pays out

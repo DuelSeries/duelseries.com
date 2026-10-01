@@ -57,7 +57,7 @@ function boot(extra) {
   const env = { ...process.env, REGION: 'na', PORT: String(port),
                 SESSION_SECRET: 'test', MONEY_MODE: 'usdc', DATABASE_URL: '',
                 NTFY_DISABLED: '1', POSTHOG_DISABLED: '1',
-                PAPER_PAID: '', PAPER_DEV_TOKENS: '', ESCROW_PRIVATE_KEY: '', NODE_ENV: 'test',
+                PAPER_PAID: '0', PAPER_DEV_TOKENS: '', ESCROW_PRIVATE_KEY: '', NODE_ENV: 'test',
                 ...extra };
   const srv = spawn(process.execPath, [path.join(ROOT, 'server/index.js')], {
     cwd: ROOT, env, stdio: ['ignore', 'pipe', 'pipe'],
@@ -160,7 +160,7 @@ function requireClient(t) {
   catch (_) { t.skip('socket.io-client not installed'); return null; }
 }
 
-test('free Paper: a join is seated and frames flow; paid is closed without PAPER_PAID', { timeout: 90000 }, async (t) => {
+test('free Paper: a join is seated and frames flow; paid is closed with PAPER_PAID=0', { timeout: 90000 }, async (t) => {
   const io = requireClient(t);
   if (!io) return;
   const { srv, port, out } = boot({ ALLOW_TEST_OWNER: '1', TEST_OWNER_WALLET: ownerAddr });
@@ -174,7 +174,7 @@ test('free Paper: a join is seated and frames flow; paid is closed without PAPER
   // /api/live: the free rung only, and the snake board is still in front of it.
   const board = JSON.parse((await get(`http://localhost:${port}/api/live`)).body);
   const rows = paperRows(board);
-  assert.equal(rows.length, 1, 'one Paper row without PAPER_PAID');
+  assert.equal(rows.length, 1, 'one Paper row with PAPER_PAID=0');
   assert.equal(rows[0].stake, 0);
   assert.equal(rows[0].id, 'paper:na:s0');
   assert.equal(rows[0].capacity, MP.MAX_HUMANS);
@@ -237,6 +237,22 @@ test('PAPER_DEV_TOKENS=1 beside an escrow key, a database or in production refus
     assert.notEqual(code, 'timeout', 'the server exits instead of serving ' + JSON.stringify(extra));
     assert.notEqual(code, 0, 'with a failure code');
     assert.ok(out.stderr.includes('PAPER_DEV_TOKENS'), 'and says which switch\n' + out.stderr.slice(-800));
+  }
+});
+
+/* The switch-on (2026-10-01): production env is only the box's .env, so the paid rungs are ON
+   when PAPER_PAID is unset or empty, and a value that is not a switch value fails CLOSED. */
+test('PAPER_PAID unset opens the paid rungs; a value that is not a switch keeps them shut', { timeout: 60000 }, async (t) => {
+  for (const [value, stakes, line] of [['', [0, 0.1, 1], '[PAPER] paid rungs on'],
+                                       ['maybe', [0], '[PAPER] paid rungs OFF']]) {
+    const { srv, port, out } = boot({ PAPER_PAID: value });
+    t.after(() => { try { srv.kill('SIGKILL'); } catch (_) {} });
+    assert.ok(await waitForServer(port, srv), 'server came up\n' + out.stderr.slice(-1500));
+    const rows = paperRows(JSON.parse((await get(`http://localhost:${port}/api/live`)).body));
+    assert.deepEqual(rows.map(r => r.stake), stakes, 'Paper rows with PAPER_PAID=' + JSON.stringify(value));
+    assert.ok(out.stdout.includes(line), 'boot says ' + line + '\n' + out.stdout.slice(-800));
+    if (value === 'maybe') assert.ok(out.stderr.includes('is not a switch value'), 'and names the bad value');
+    try { srv.kill('SIGKILL'); } catch (_) {}
   }
 });
 
