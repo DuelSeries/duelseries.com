@@ -6,8 +6,9 @@
    - at boot, a stake that an earlier boot of this server verified and never seated is owed back
      once through the owed-payout lane, and nothing else is;
    - /api/submit-stake writes the durable row (payer, what a refund pays, region, this boot);
-   - a real token seated at Paper, snake, knockout and agar claims its row first ('consumed'),
-     and a Paper door refusal pays back through the row, once. */
+   - a real token seated at Paper, snake (ladder and tier) and knockout claims its row first
+     ('consumed'), a paid agar door refuses before the claim (AGAR_PAID off), and a Paper door
+     refusal pays back through the row, once. */
 const test = require('node:test');
 const assert = require('node:assert');
 const net = require('net');
@@ -176,7 +177,7 @@ test('a real token at Paper claims its row before the seat, and a refusal at the
   }
 });
 
-test('a real token at the snake, knockout and agar doors claims its row before seating', async () => {
+test('a real token at the snake and knockout doors claims its row before seating; paid agar refuses before the claim', async () => {
   const tok = await stake(0.1);
   const sig = lastSig();
   const c = await connect();
@@ -195,7 +196,9 @@ test('a real token at the snake, knockout and agar doors claims its row before s
   assert.strictEqual(ledgerDb.stakes.get(sigK).state, 'consumed');
   k.s.close();
 
-  // The old tier door (agar dime), through the tier submit path.
+  /* The old tier door (dime), through the tier submit path. Paid agar is closed (AGAR_PAID off,
+     test/agarPaidClosed.test.js), so the agar dime door refuses BEFORE the claim and the row
+     stays pending; the same token then claims its row at the snake dime door. */
   landed = 0.1;
   const r = await call(port, 'POST', '/api/submit-stake', { lobbyType: 'dime', signedTx: tx('agar-dime'), walletAddress: PAYER });
   assert.strictEqual(r.status, 200, r.text);
@@ -203,9 +206,11 @@ test('a real token at the snake, knockout and agar doors claims its row before s
   assert.strictEqual(ledgerDb.stakes.get(sigA).label, 'lobby dime');
   const a = await connect();
   a.s.emit('cell:join', { name: 'ag', lobbyType: 'dime', entryToken: r.json.entryToken, region: 'na' });
+  assert.ok(await until(() => a.has('cell:join:error')), JSON.stringify(a.got.map((g) => g[0])));
+  assert.strictEqual(ledgerDb.stakes.get(sigA).state, 'pending');
+  a.s.emit('play', { name: 'tier', lobbyType: 'dime', entryToken: r.json.entryToken, region: 'na' });
   await until(() => ledgerDb.stakes.get(sigA).state === 'consumed');
   assert.strictEqual(ledgerDb.stakes.get(sigA).state, 'consumed');
-  assert.ok(!a.has('cell:join:error'));
   a.s.close();
 
   // A token whose row a sweep refunded first is never seated anywhere.

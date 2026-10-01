@@ -469,7 +469,7 @@ function consumePaidEntry(entryToken, shortType, game) {
 }
 
 /* EVERY PAID DOOR BUT PAPER'S (paperSockets.js has its own, same rules): snake PLAY and RESPAWN,
-   agar cell:join and cell:respawn, ko:queue, bs:queue.
+   agar cell:join and cell:respawn (free only while AGAR_PAID is off), ko:queue, bs:queue.
 
    `entry` is what the consume returned (the token already left memory, one-time as before). A
    free, dev or non-durable entry is seated right here, synchronously, exactly as before. A
@@ -1968,9 +1968,47 @@ function getRoomForType(lobbyType, region) {
   return hit || gameRooms[rgn].free;
 }
 
+/* Own keys only: a client-sent 'constructor' used to resolve to Object (or to no room at all,
+   for a region) instead of the free room. Every real region and lobby type resolves as before. */
+const ownKey = (o, k) => typeof k === 'string' && Object.prototype.hasOwnProperty.call(o, k);
 function getAgarRoomForType(lobbyType, region) {
-  const rgn = (region && agarRooms[region]) ? region : REGION;
-  return agarRooms[rgn][lobbyType] || agarRooms[rgn].free;
+  const rgn = ownKey(agarRooms, region) ? region : REGION;
+  return (ownKey(agarRooms[rgn], lobbyType) && agarRooms[rgn][lobbyType]) || agarRooms[rgn].free;
+}
+
+/* ─── AGAR_PAID: the OLD agar.io game takes no money ─────────────────────────
+   Closed 2026-09-30. agar.io is being rebuilt from scratch (agario-reference/PLAN.md), and the
+   old game's money glue was never hardened: its cash-out hold is counted only in the browser, a
+   disconnect forfeits the stake with no record, and a paid agar seat is invisible to the
+   pre-deploy drain check (agario-reference/notes/current-agar.md, surprises 2, 3 and 6). The
+   lobby has shown only Free agar for a long time, yet the $0.10 and $1 agar rooms still seated a
+   real stake from a hand-made client through the old tier door.
+
+   So cell:join and cell:respawn refuse every paid agar seat, decided from the request and the
+   socket alone, BEFORE the entry token is looked at. The token is never spent: it still opens a
+   room of that price in a game that is open, or it expires unspent and the sweep refunds it
+   through its stake row (entryExpiry.js), like any token nobody used. /api/submit-stake cannot
+   be this gate: neither of its doors names a game (a tier or ladder token opens every game's
+   room at that price), so no request there is "for agar".
+
+   The dime and dollar rooms stay up and empty (the owner console, liveCounts and the tests read
+   them) and the old code stays for the redo to delete in its own order (current-agar.md
+   section 9). Paid agar comes back only as the NEW game's own switch, after a money review,
+   the way PAPER_PAID did. Do not flip this one. */
+const AGAR_PAID = false;
+const AGAR_PAID_CLOSED = 'Paid agar.io is closed while the game is rebuilt. Free agar.io is still open.';
+const isFreeAgarRoom = (room) => !!room && Object.keys(agarRooms).some((r) => agarRooms[r].free === room);
+/* Would this seat somebody for money? Its lobby type carries a fee, or it lands anywhere but a
+   free agar room. A missing or junk type lands in the free room for nothing, as it always has. */
+function agarSeatIsPaid(room, shortType) {
+  const fee = ownKey(LOBBY_FEES, shortType) ? Number(LOBBY_FEES[shortType]) || 0 : 0;
+  return fee > 0 || !isFreeAgarRoom(room);
+}
+function refuseClosedAgar(socket, door, room, shortType) {
+  socket.emit('cell:join:error', { message: AGAR_PAID_CLOSED, closed: true });
+  if (socketRL(socket, 'agar-paid-closed', 10000)) {
+    console.warn(`[AGAR] paid ${door} refused (AGAR_PAID off): ${(room && room.roomName) || 'no room'} ${String(shortType).slice(0, 16)}, token left unspent`);
+  }
 }
 
 const lobbySocketsByGoogleId = new Map();
@@ -2765,17 +2803,20 @@ io.on('connection', (socket) => {
 
   // ── Agar events ──────────────────────────────────────────────────────────
   socket.on('cell:join', ({ name, color, lobbyType, googleId, region, entryToken } = {}) => {
+    const room = getAgarRoomForType(lobbyType, region || REGION);
+    const shortType = ownKey(LOBBY_FEES, lobbyType) ? lobbyType : 'free';
+    /* Paid agar is closed (AGAR_PAID): refused first, before the token is looked at and before
+       anything about this socket changes, so no stake is spent here and nothing is seated. */
+    if (!AGAR_PAID && agarSeatIsPaid(room, shortType)) { refuseClosedAgar(socket, 'join', room, shortType); return; }
     // Identity = the wallet address the client sends as googleId (self-custody single login).
     const verifiedId = googleId || null;
     if (verifiedId) {
       socket._googleId = verifiedId;
       lobbySocketsByGoogleId.set(verifiedId, socket);
     }
-    const room = getAgarRoomForType(lobbyType, region || REGION);
     socket._agarRoom = room;
     // Verify the entry fee server-side (same one-time token the snake game uses) and
     // take the cell's worth from the server, never from the client.
-    const shortType = (lobbyType in LOBBY_FEES) ? lobbyType : 'free';
     socket._agarShortType = shortType; // remembered for the in-game re-stake on respawn
     const consumed = consumePaidEntry(entryToken, shortType, 'agar');
     enterPaid(socket, 'agar', consumed, (entry) => {
@@ -3117,6 +3158,10 @@ io.on('connection', (socket) => {
     if (!room) return;
     // Paid respawns re-stake (same one-time token the snake game uses); free respawns carry none.
     const shortType = socket._agarShortType || 'free';
+    /* Paid agar is closed (AGAR_PAID). cell:join can no longer put a socket in a paid room, but
+       spectate:join:agar can still point one at it, so the room is checked here too, before the
+       token is looked at. */
+    if (!AGAR_PAID && agarSeatIsPaid(room, shortType)) { refuseClosedAgar(socket, 'respawn', room, shortType); return; }
     const consumed = consumePaidEntry(entryToken, shortType, 'agar');
     enterPaid(socket, 'agar', consumed, (entry) => {
       // After a durable entry's claim: still in this room? respawnPlayer does nothing otherwise.
