@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#000000">
+<title>agar.io - DuelSeries</title>
+<link rel="stylesheet" href="/css/ag.css">
+</head>
+<body>
+<!-- The game canvas must stay the first canvas in the document. -->
+<canvas id="canvas"></canvas>
+
+<!-- Phone controls (CHOSEN): the same actions as Space and W. Hidden on mouse screens (ag.css). -->
+<div class="ag-pad" aria-label="Game controls">
+  <button type="button" id="ag-split" aria-label="Split">Split</button>
+  <button type="button" id="ag-eject" aria-label="Eject">Eject</button>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="/shared/agWire.js"></script>
+<script src="/js/ag/agMath.js"></script>
+<script src="/js/ag/agWorld.js"></script>
+<script src="/js/ag/agCamera.js"></script>
+<script src="/js/ag/agInput.js"></script>
+<script src="/js/ag/agRender.js"></script>
+<script src="/js/ag/agHud.js"></script>
+<script src="/js/ag/agScreens.js"></script>
+<script src="/js/ag/agSound.js"></script>
+<script src="/js/ag/agNet.js"></script>
+<script src="/js/ag/agMain.js"></script>
+</body>
+</html>
