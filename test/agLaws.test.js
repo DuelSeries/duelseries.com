@@ -48,7 +48,7 @@ test('the real table cannot start a room: assertLawsComplete names every UNKNOWN
 });
 
 test('shipped table: real statuses only, a source and unit on every entry, UNKNOWN holds null', () => {
-  const ok = new Set(['KNOWN', 'APPROVED', 'CHOSEN', 'UNKNOWN']);
+  const ok = new Set(['KNOWN', 'MEASURED', 'APPROVED', 'CHOSEN', 'UNKNOWN']);
   for (const id of Object.keys(L.LAWS)) {
     const e = L.LAWS[id];
     assert.strictEqual(e.id, id);
@@ -59,6 +59,8 @@ test('shipped table: real statuses only, a source and unit on every entry, UNKNO
     else assert.notStrictEqual(e.value, null, id);
     if (e.status === 'CHOSEN') assert.match(e.source, /CHOSEN/, id);
     if (e.status === 'APPROVED') assert.match(e.source, /approved by Owen/i, id);
+    // a MEASURED row names the recordings it came from (Owen's sessions on their FFA servers)
+    if (e.status === 'MEASURED') assert.match(e.source, /^MEASURED: .*agar-20261001-210803 \+ agar-20261001-222428/, id);
   }
   // One row per server law L1 to L39 (the main id is what the server uses).
   for (let i = 1; i <= 39; i++) assert.ok(L.LAWS['L' + i], 'L' + i + ' missing');
@@ -109,7 +111,7 @@ test('the tables are frozen', () => {
 
 test('statusCounts adds up', () => {
   const c = L.statusCounts(L.LAWS);
-  assert.strictEqual(c.KNOWN + c.APPROVED + c.CHOSEN + c.UNKNOWN + c.FIXTURE, Object.keys(L.LAWS).length);
+  assert.strictEqual(c.KNOWN + c.MEASURED + c.APPROVED + c.CHOSEN + c.UNKNOWN + c.FIXTURE, Object.keys(L.LAWS).length);
   assert.strictEqual(c.UNKNOWN, UNKNOWN_IDS.length);
   assert.strictEqual(c.FIXTURE, 0);
   assert.strictEqual(L.statusCounts(FIXTURE).FIXTURE, Object.keys(FIXTURE).length);
@@ -129,12 +131,12 @@ test('fixture: every entry FIXTURE, every UNKNOWN filled, the rest copied from t
   // Spot values the sim card leans on (brief 9.2 agSim).
   assert.strictEqual(FIXTURE.L8_CMP.value, '>=');
   assert.strictEqual(FIXTURE.L10.value.newCellMassFraction, 0.5);
-  assert.strictEqual(FIXTURE.L23.value, 1.15);
+  assert.strictEqual(FIXTURE.L23.value, L.LAWS.L23.value);   // MEASURED, copied from the real table
   assert.strictEqual(FIXTURE.L24.value.div, 3);
   assert.strictEqual(FIXTURE.L15.value.absorb, 1);
-  assert.strictEqual(FIXTURE.L2.value, 14142.135623730952);
+  assert.strictEqual(FIXTURE.L2.value, L.LAWS.L2.value);
   assert.strictEqual(FIXTURE.L39.value, 50);
-  assert.strictEqual(FIXTURE.L14.value, L.sizeOf(10));
+  assert.strictEqual(FIXTURE.L14.value, L.LAWS.L14.value);
   // Overrides make a fresh table and refuse ids that do not exist.
   const t = makeFixture({ L8_CMP: '>' });
   assert.strictEqual(t.L8_CMP.value, '>');

@@ -1021,6 +1021,9 @@ const ALL_ROOMS = () => {
      paid squares and its `floorWorth` the coins on its floor, so drainStatus
      counts both kinds of Paper money before a push. */
   if (typeof paperArenas !== 'undefined' && paperArenas) out.push(...paperArenas.all());
+  /* The new free agar.io rooms (only while AG_ENABLED opened them): the same
+     playerCount / botCount / botsAllowed / addBot / clearBots, no money. */
+  if (typeof agArenas !== 'undefined' && agArenas) out.push(...agArenas.all());
   return out;
 };
 
@@ -1035,6 +1038,8 @@ function roomLabel(r) {
     return 'Paper · ' + (r.stake === 0 ? 'Free' : '$' + Number(r.stake).toFixed(2))
       + (r.index > 0 ? ' #' + r.index : '');
   }
+  // The new agar.io rooms are `ag_na_s0#1`: always free, then which overflow room.
+  if (raw.startsWith('ag_')) return 'agar.io (new) · Free' + (r.index > 0 ? ' #' + r.index : '');
   const agar = raw.startsWith('agar');
   const type = raw.replace(/^agar_/, '').replace(/^(na|eu)_/, '');
   const game = r.isBattleRoyale ? 'slither.io' : agar ? 'agar.io' : 'slither.io';
@@ -1074,6 +1079,7 @@ function opsSnapshot() {
     game: r.isBattleRoyale ? 'battle royale'
         : r.lobbyType === 'tanks' ? 'Awesome Tanks'
         : String(r.lobbyType).startsWith('paper_') ? 'Paper'
+        : String(r.lobbyType).startsWith('ag_') ? 'agar.io (new)'
         : String(r.lobbyType).startsWith('agar') ? 'agar.io' : 'slither.io',
     players: r.playerCount !== undefined ? r.playerCount : (r.players ? r.players.size : 0),
     bots: r.botCount !== undefined ? r.botCount : 0,
@@ -1342,6 +1348,10 @@ app.get('/battleship', (_req, res) => res.sendFile(path.join(__dirname, '../publ
 app.get('/shooter', (_req, res) => res.sendFile(path.join(__dirname, '../public/shooter.html')));
 app.get('/paper', (_req, res) => res.sendFile(path.join(__dirname, '../public/paper.html')));
 app.get('/paper-arena', (_req, res) => res.sendFile(path.join(__dirname, '../public/paper-arena.html')));
+/* The new agar.io page is only ever served by /ag (below, 503 while the game
+   is closed). Without this, express.static would hand out public/ag.html at
+   /ag.html even with AG off: a dead page that cannot connect. */
+app.get('/ag.html', (_req, res) => res.redirect(302, '/ag'));
 
 app.use(express.static(path.join(__dirname, '../public')));
 app.use('/shared', express.static(path.join(__dirname, '../shared')));
@@ -1579,6 +1589,34 @@ const paper = require('./paperSockets')({
      through it to the owed-payout lane (STATUS item 7a). Dev tokens have no row. */
   ledger: stakeLedger,
   paidEnabled: PAPER_PAID,
+});
+
+/* ── agar.io redo (the free FFA copy, our own code: server/ag/) ──────────────
+   OFF unless AG_ENABLED says on (1, true, on, yes); anything else, unset
+   included, leaves it off, and a value that is not a switch says so. When on,
+   the rooms run on their own socket.io namespace, /ag, so the old agar pages
+   (cell:*) and every other game never see them, and /ag serves public/ag.html.
+   Free only: no stake, token or payout is read anywhere in server/ag.
+
+   The rooms refuse to open unless the law table passes assertShippable, so
+   with today's table (rows still UNKNOWN until Owen approves them) production
+   stays closed even with the switch on. AG_DEV_LAWS=<file> boots a local
+   server on another table (the test FIXTURE) to exercise the game; it is
+   refused in production (or with an escrow key or a DATABASE_URL set), where
+   the game then stays closed. Seats, watchers and connections per address
+   are capped in server/ag (agRoom, agSockets). Not on /api/live
+   or the lobby yet: that is the lobby swap. The switch and the gate live in
+   server/ag/agBoot.js (tested in test/agBoot.test.js). */
+const agBoot = require('./ag/agBoot').openAg({
+  env: process.env,
+  io,
+  region: REGION,
+  helpers: { socketRL, sanitizeName, ops },
+});
+const agArenas = agBoot.arenas;
+app.get('/ag', (_req, res) => {
+  if (!agArenas) return res.status(503).type('text/plain').send('agar.io is not open yet.');
+  res.sendFile(path.join(__dirname, '../public/ag.html'));
 });
 
 for (const rgn of [REGION]) {
@@ -2396,6 +2434,10 @@ everyStaggered(() => collusion.evaluate(), 30000, 37000, 'collusion');
    on any arena that has gone idle and stopped ticking. 29 mod 30 sits 4s from
    agar-lb (25) and 4s from solvency (3). */
 everyStaggered(() => paperArenas.sweep(Date.now()), 60000, 29000, 'paper-sweep');
+/* The new agar.io rooms (only while AG_ENABLED opened them): closes an empty
+   overflow room. 16.5 mod 30 sits in the widest free gap, 2.5s from lobby-sweep
+   (44, so 14) and 2.5s from lb-flush (19); stake-sweep already holds 22. */
+if (agArenas) everyStaggered(() => agArenas.sweep(Date.now()), 60000, 16500, 'ag-sweep');
 
 // ── Failed-payout drainer (NA only) ───────────────────────────────────────────
 // Retries payouts that failed (e.g. an RPC outage) so a player's winnings are never stranded.

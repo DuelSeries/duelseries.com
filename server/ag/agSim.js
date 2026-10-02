@@ -837,8 +837,17 @@ function createSim(opts) {
     return pid;
   }
 
+  // A player with cells loses them at the next step (queued like every command). A player with none (a watcher
+  // that never played, a dead player, a dead bot) has nothing in the world, so it goes at once together with any
+  // command it queued: an idle room that runs no step can then never pile up players or commands.
   function removePlayer(pid) {
-    if (!players.has(pid)) return false;
+    const p = players.get(pid);
+    if (!p) return false;
+    if (p.cells.length === 0) {
+      for (let i = queue.length - 1; i >= 0; i--) if (queue[i].pid === pid) queue.splice(i, 1);
+      players.delete(pid);
+      return true;
+    }
     queue.push({ t: 'leave', pid });
     return true;
   }

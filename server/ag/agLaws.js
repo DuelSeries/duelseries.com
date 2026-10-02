@@ -5,9 +5,13 @@
 // rows that are only partly known, the open behaviour rows (rounding, eat removal, leaderboard, spectate) and every
 // CHOSEN design number. Each entry is { id, name, value, unit, status, source }:
 //   KNOWN     read from their client or config (cited by spec section), exact
+//   MEASURED  read from Owen's own recorded play on their FFA servers (both sessions pooled, FFA connections only):
+//             the source names the spec row, the recordings, the 95 percent interval and the sample size; only rows
+//             whose whole value was measured (parity log, 2026-10-02 final table)
 //   APPROVED  an UNKNOWN that Owen approved; the source names the suggestion, the date and the parity-log line
 //   CHOSEN    our own design number, labelled as ours and waiting for Owen's yes
-//   UNKNOWN   not settled by their code; value is null and stays null until Owen approves a value
+//   UNKNOWN   not settled by their code or by play; value is null and stays null until Owen approves a value (the
+//             suggestions waiting for him are the parity log's final table, rows marked OPEN)
 // A room cannot start on an UNKNOWN: modules call assertLawsComplete(laws, ids) with the ids they read, and the
 // server boot calls assertShippable(LAWS). Tests use the FIXTURE table in test/agLawsFixture.js, which no shipped
 // file may import.
@@ -16,12 +20,13 @@
 
 const STATUS = Object.freeze({
   KNOWN: 'KNOWN',
+  MEASURED: 'MEASURED',
   APPROVED: 'APPROVED',
   CHOSEN: 'CHOSEN',
   UNKNOWN: 'UNKNOWN',
   FIXTURE: 'FIXTURE',
 });
-const SHIPPABLE = new Set([STATUS.KNOWN, STATUS.APPROVED, STATUS.CHOSEN]);
+const SHIPPABLE = new Set([STATUS.KNOWN, STATUS.MEASURED, STATUS.APPROVED, STATUS.CHOSEN]);
 const ALL_STATUS = new Set(Object.keys(STATUS));
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -52,6 +57,18 @@ function unknown(id, name, unit, source) {
   return law(id, name, STATUS.UNKNOWN, null, unit, source);
 }
 
+// MEASURED rows: Owen's two recorded sessions on their FFA servers, agar-20261001-210803 (its FFA connections only;
+// its other-type server is shown apart, never pooled) and agar-20261001-222428, pooled. Sizes on the wire are whole
+// numbers rounded down, so a wire size w is a true size from w up to w + 1.
+const REC = 'recordings agar-20261001-210803 + agar-20261001-222428 (FFA connections pooled)';
+function measured(id, name, value, unit, source) {
+  return law(id, name, STATUS.MEASURED, value, unit, 'MEASURED: ' + source + '; ' + REC);
+}
+
+// L1: the steadiest FFA server ticked 40.014 ms (interval 40.0138 to 40.0145, 8,556 updates; a second connection to
+// the same server 40.017); the other FFA servers ran 40.04 to 43.5 ms under load (slow ticks, never skipped ones).
+const TICK_MS = 40.014;
+
 const ENTRIES = [
   // KNOWN facts the whole server builds on.
   law('K_SIZE_UNIT', 'Size unit', STATUS.KNOWN, 'radius', 'world units; mass = size^2 / 100',
@@ -62,8 +79,11 @@ const ENTRIES = [
     'world units at zoom 1, divided by the client zoom z', 'protocol semantics 13; server laws F5; camera-input 6.2'),
 
   // The world.
-  unknown('L1', 'Tick length (world updates)', 'ms per tick', 'UNKNOWN: server laws L1 (PS-U5); UNKNOWNS row 1'),
-  unknown('L2', 'Full map side (square)', 'world units', 'UNKNOWN: server laws L2 (PS-U2); UNKNOWNS row 2'),
+  measured('L1', 'Tick length (world updates)', TICK_MS, 'ms per tick',
+    'server laws L1 (PS-U5): fastest FFA server 40.014 ms per update (40.0138 to 40.0145, n 8,556), every tick sent'),
+  measured('L2', 'Full map side (square)', 10000 * Math.SQRT2, 'world units',
+    'server laws L2 (PS-U2): 10000 x sqrt 2; the 11 FFA connections send it stretched up to 0.5 percent per axis, mean ' +
+    'side 14147.9 (95 percent 14129.9 to 14165.9, n 22 axes), and the one unstretched connection sent exactly this'),
   unknown('L3', 'Keeping cells inside the border', '{ radiusFactor, reflectBoost }: centre kept within ' +
     '[min + radiusFactor * size, max - radiusFactor * size] per axis', 'UNKNOWN: server laws L3; UNKNOWNS row 3'),
   unknown('L4', 'Server view range', '{ baseW, baseH, pad, ref, exp, minScale }: half width (baseW + pad) / s / 2, ' +
@@ -94,7 +114,9 @@ const ENTRIES = [
   // Mass.
   law('L14_CFG', 'Start value in the config', STATUS.KNOWN, 10, 'unit not stated by their config',
     'KNOWN: config baseMass (FFA) 10 (server laws L14)'),
-  unknown('L14', 'Start (spawn) size', 'size', 'UNKNOWN: server laws L14 unit (PS-U15); UNKNOWNS row 14'),
+  measured('L14', 'Start (spawn) size', 32, 'size',
+    'server laws L14 (PS-U15): every FFA life starts at wire size 32 (5 of 6; the sixth ate on arrival), true 32 to 33 ' +
+    '(mass 10.24 to 10.89, shown as 10); the first food eats keep it under 32.5'),
   unknown('L15', 'Mass gain when eating', '{ absorb }: new size = sqrt(R^2 + absorb * r^2)',
     'UNKNOWN: server laws L15; UNKNOWNS row 15'),
   unknown('L16', 'Mass decay', '{ rate, periodTicks }: mass * (1 - rate) every periodTicks, not below L18',
@@ -110,15 +132,17 @@ const ENTRIES = [
     'KNOWN: client eject gate (protocol semantics 12.1); not a server rule'),
   unknown('L19', 'Min size to eject used by the server', 'size',
     'UNKNOWN: server laws L19 (PS-U14); UNKNOWNS row 19'),
-  unknown('L20', 'Eject blob and loss', '{ blobSize, lossSize }: owner size^2 -= lossSize^2',
-    'UNKNOWN: server laws L20 (PS-U14); UNKNOWNS row 20'),
+  measured('L20', 'Eject blob and loss', { blobSize: 38, lossSize: 42.21 }, '{ blobSize, lossSize }: owner size^2 -= lossSize^2',
+    'server laws L20 (PS-U14): blob wire size 38 on 14 of 14 blobs (true 38 to 39); the cell loses size 42.21 in ' +
+    'quadrature (41.75 to 42.66, mass 17.8, n 14)'),
   unknown('L21', 'Eject launch, travel and spread', '{ velocity, decayDiv, spreadRad, fromEdge }',
     'UNKNOWN: server laws L21; UNKNOWNS row 21'),
   unknown('L22', 'Eject rate limit', '{ cooldownTicks }', 'UNKNOWN: server laws L22 (CCI-U5); UNKNOWNS row 22'),
 
   // Eating and viruses.
-  unknown('L23', 'Eat size ratio', 'radius ratio, bigger >= ratio * smaller',
-    'UNKNOWN: server laws L23 (PS-U17); UNKNOWNS row 23'),
+  measured('L23', 'Eat size ratio', 1.17, 'radius ratio, bigger >= ratio * smaller',
+    'server laws L23 (PS-U17): 1.17 (1.111 to 1.191 with wire rounding), smallest ratio that ate 1.162, largest deep ' +
+    'overlap that did not 1.150, 0 of 152 observations against'),
   unknown('L24', 'Eat overlap', '{ div }: eat when centre distance < R - r / div',
     'UNKNOWN: server laws L24; UNKNOWNS row 24'),
   unknown('L25', 'Virus size', '{ minSize, maxSize }', 'UNKNOWN: server laws L25 (PS-U8); UNKNOWNS row 25'),
@@ -128,11 +152,15 @@ const ENTRIES = [
     'UNKNOWN: server laws L28; UNKNOWNS row 28'),
   unknown('L29', 'Virus pop pieces', '{ rule, minPieceMass }', 'UNKNOWN: server laws L29; UNKNOWNS row 29'),
   unknown('L30', 'Who can eat a virus', 'radius ratio', 'UNKNOWN: server laws L30; UNKNOWNS row 30'),
-  unknown('L31', 'Virus colour', '[r, g, b]', 'UNKNOWN: server laws L31 (PS-U8); UNKNOWNS row 31'),
+  measured('L31', 'Virus colour', [51, 255, 51], '[r, g, b]',
+    'server laws L31 (PS-U8): colour bytes of 62 of 62 viruses, exact'),
 
   // Food.
   unknown('L32', 'Food size', '{ minSize, maxSize, grows }', 'UNKNOWN: server laws L32 (PS-U8); UNKNOWNS row 32'),
-  unknown('L33', 'Food colours', '{ rule, full, low }', 'UNKNOWN: server laws L33 (PS-U8); UNKNOWNS row 33'),
+  measured('L33', 'Food colours', { rule: 'oneFullOneLowOneRandom', full: 255, low: 7, thirdMin: 8, thirdMax: 254 },
+    '{ rule, full, low, thirdMin, thirdMax }',
+    'server laws L33 (PS-U8): 5,304 of 5,304 food colours have one channel 255, one 7 and the third 8 to 254, all six ' +
+    'channel orders about equally (the shape of their colour table, which is never shipped)'),
   unknown('L34', 'Food amount on the full map', '{ amount }', 'UNKNOWN: server laws L34; UNKNOWNS row 34'),
 
   // Players.
@@ -140,7 +168,9 @@ const ENTRIES = [
   law('L36_RULE', 'Shape of the player colour table', STATUS.KNOWN, { full: 255, low: 7, thirdMin: 8, thirdMax: 254 },
     'one channel full, one low, the third in [thirdMin, thirdMax]',
     'KNOWN: config Cell Color table shape (protocol semantics 12.1); the table itself is never shipped'),
-  unknown('L36', 'How the server picks player colours', '{ rule }', 'UNKNOWN: server laws L36 (PS-U8); UNKNOWNS row 36'),
+  measured('L36', 'How the server picks player colours', { rule: 'tableShape' }, '{ rule }',
+    'server laws L36 (PS-U8): 303 of 303 player colours of the L36_RULE shape, all six orders, a new colour every life ' +
+    '(6 colours in 6 lives)'),
   law('L37_CLIENT', 'Nickname cap in their name box', STATUS.KNOWN, 15, 'characters',
     'KNOWN: their name input maxlength 15 and config maxNicknameLen 15 (server laws L37)'),
   unknown('L37', 'Nickname cap on the server', 'characters (UTF-8 bytes on our wire)',
@@ -150,12 +180,17 @@ const ENTRIES = [
     'UNKNOWN: server laws L39 (Q16); UNKNOWNS row 39'),
 
   // Open behaviour rows (protocol and HUD unknowns, UNKNOWNS rows 40 to 43).
-  unknown('U_ROUND', 'Rounding of x, y, size on the wire', "'nearest' or another rule",
-    'UNKNOWN: U-round; UNKNOWNS row 40'),
-  unknown('U_EAT_REMOVE', 'When an eaten id is removed', "'sameBundle' or a later bundle",
-    'UNKNOWN: PS-U3 / CCI-U2; UNKNOWNS row 41'),
-  unknown('U_BOARD', 'Leaderboard rows and cadence', '{ rows, periodMs, ownRowWhenOutside }',
-    'UNKNOWN: PS-U11 / HUD-U2, U3; UNKNOWNS row 42'),
+  measured('U_ROUND', 'Rounding of x, y, size on the wire', 'trunc', "'nearest', 'floor' or 'trunc'",
+    'U-round, UNKNOWNS row 40: truncated toward zero; sizes rounded down (the server view box law leaves 7 of 2,345 ' +
+    'boxes unexplained with round-down, 81 with nearest), positions truncated (view box centre minus wire position fits ' +
+    'truncation on 99.9 percent of 2,062 coordinates, 448 of them negative)'),
+  measured('U_EAT_REMOVE', 'When an eaten id is removed', 'sameBundle', "'sameBundle' or a later bundle",
+    'PS-U3 / CCI-U2, UNKNOWNS row 41: removed in the same update on 2,457 of 2,457 eats; merges and virus feeds are ' +
+    'never in the eat list (plain removals)'),
+  measured('U_BOARD', 'Leaderboard rows and cadence', { rows: 200, periodMs: 25 * TICK_MS, ownRowWhenOutside: false },
+    '{ rows, periodMs, ownRowWhenOutside }',
+    'PS-U11 / HUD-U2, U3, UNKNOWNS row 42: op 53 with the whole room list up to 200 rows, every 25 updates (1,619 of ' +
+    '1,620 gaps, so periodMs is 25 ticks of L1), no extra own row with a rank (0 of 1,630 boards)'),
   unknown('U_SPECTATE', 'After-death view and spectate camera', '{ afterDeath, follow, zoom }',
     'UNKNOWN: PS-U9 / CCI-U7; UNKNOWNS row 43'),
 
@@ -298,7 +333,7 @@ function withValues(laws, patch) {
 }
 
 function statusCounts(laws) {
-  const c = { KNOWN: 0, APPROVED: 0, CHOSEN: 0, UNKNOWN: 0, FIXTURE: 0 };
+  const c = { KNOWN: 0, MEASURED: 0, APPROVED: 0, CHOSEN: 0, UNKNOWN: 0, FIXTURE: 0 };
   for (const e of entriesOf(laws)) if (Object.prototype.hasOwnProperty.call(c, e.status)) c[e.status]++;
   return c;
 }

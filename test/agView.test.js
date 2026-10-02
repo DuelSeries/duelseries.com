@@ -1,6 +1,7 @@
 'use strict';
 // Server view (build brief 9.1 and the 9.2 agView card; protocol semantics 2, 3.8, 13; server law L4), run on the
-// FIXTURE law table: L4 { baseW 1920, baseH 1080, pad 100, ref 64, exp 0.4, minScale 0.15 }, U_ROUND 'nearest',
+// FIXTURE law table: L4 { baseW 1920, baseH 1080, pad 100, ref 64, exp 0.4, minScale 0.15 }, U_ROUND 'trunc' (MEASURED,
+// copied from the real table: x, y and size truncated toward zero),
 // U_EAT_REMOVE 'sameBundle', L37 15. A small model of their client's stream rules (protocol semantics 3) checks
 // that what the client ends up holding is exactly the player's view, through the real wire bytes.
 const test = require('node:test');
@@ -66,7 +67,7 @@ test('a food pellet one unit past the view edge is not sent; one inside is sent 
   assert.deepStrictEqual(recs, [{ t: 'world', eats: [], cells: [], removed: [] }]);
 
   // A move that rounds to the same integers is not sent; a real move is sent without colour or name.
-  recs = v.build(frame([me, out, touch, food(22, 500.4, 199.6, 10.2)]));
+  recs = v.build(frame([me, out, touch, food(22, 500.4, 200.6, 10.2)]));
   assert.deepStrictEqual(worldOf(recs).cells, []);
   recs = v.build(frame([player(10, 1, 3, 0, 64), out, touch, food(22, 501, 200, 10)]));
   assert.deepStrictEqual(cellIn(recs, 22), { id: 22, x: 501, y: 200, size: 10, virus: false, food: true,
@@ -160,7 +161,7 @@ test('a merge passes through as an eat between two own cells, and the eaten own 
   const w = worldOf(recs);
   assert.deepStrictEqual(w.eats, [[10, 11]]);
   assert.deepStrictEqual(w.removed, [11]);
-  assert.strictEqual(cellIn(recs, 10).size, 71);
+  assert.strictEqual(cellIn(recs, 10).size, 70);     // 70.71 truncated (U_ROUND)
   assert.strictEqual(v.isAnnounced(11), false);
 });
 
@@ -550,7 +551,7 @@ test('a client following the stream holds exactly each player\'s view, tick afte
           Array.from(want.keys()).sort((a, b) => a - b), 'seed ' + seed + ' tick ' + tick + ' player ' + x.p);
         for (const [id, c] of want) {
           const n = x.c.nodes.get(id);
-          assert.deepStrictEqual([n.x, n.y, n.size], [Math.round(c.x) + 0, Math.round(c.y) + 0, Math.round(c.size)]);
+          assert.deepStrictEqual([n.x, n.y, n.size], [Math.trunc(c.x) + 0, Math.trunc(c.y) + 0, Math.trunc(c.size)]);   // U_ROUND 'trunc'
           assert.deepStrictEqual(n.rgb, c.rgb);
           assert.strictEqual(n.virus, c.kind === 'virus');
           assert.strictEqual(n.food, c.kind === 'food');

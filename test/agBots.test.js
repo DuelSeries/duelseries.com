@@ -23,7 +23,7 @@ function brain(seed, laws) {
 }
 
 test('the brain refuses to start on unapproved laws and names them', () => {
-  assert.throws(() => B.createBotBrain({ laws: LAWS, seed: 1 }), (e) => /L23/.test(e.message) && /L11/.test(e.message));
+  assert.throws(() => B.createBotBrain({ laws: LAWS, seed: 1 }), (e) => /L24/.test(e.message) && /L11/.test(e.message));
   assert.doesNotThrow(() => brain());
 });
 

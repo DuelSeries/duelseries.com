@@ -19,7 +19,7 @@ function cellsOf(sim, pid) {
 }
 
 test('refuses to start on UNKNOWN laws and names them', () => {
-  assert.throws(() => createSim({ laws: LAWS, seed: 1 }), (e) => /L1\b/.test(e.message) && /L5\b/.test(e.message));
+  assert.throws(() => createSim({ laws: LAWS, seed: 1 }), (e) => /L3\b/.test(e.message) && /L5\b/.test(e.message));
   assert.throws(() => createSim({ laws: withValues(FIXTURE, { L5: null }), seed: 1 }), /L5/);
   assert.throws(() => createSim({ laws: makeFixture({ L29: { rule: 'og', minPieceMass: 36 } }), seed: 1 }), /L29/);
   assert.throws(() => createSim({ laws: makeFixture({ U_EAT_REMOVE: 'later' }), seed: 1 }), /U_EAT_REMOVE/);
@@ -79,8 +79,10 @@ test('size 1000 split on 4 ticks gives 16 cells of 250; a 5th split leaves 16; s
 });
 
 test('eat rule: 115 eats 100 at 81.66 not 81.67; 114.9 never; areas add; eaten id eaten and removed same tick', () => {
-  function pair(bigSize, d) {
-    const sim = emptySim();
+  // The rule's mechanics with an explicit ratio of 1.15 (a test value; the real L23 is MEASURED 1.17, checked below)
+  const RATIO = makeFixture({ L23: 1.15 });
+  function pair(bigSize, d, laws) {
+    const sim = emptySim(laws || RATIO);
     const a = sim.addPlayer({});
     const b = sim.addPlayer({});
     const big = sim.debugPlace({ kind: 'player', owner: a, x: 0, y: 0, size: bigSize });
@@ -105,12 +107,19 @@ test('eat rule: 115 eats 100 at 81.66 not 81.67; 114.9 never; areas add; eaten i
     const never = pair(114.9, d);
     for (let i = 0; i < 5; i++) assert.deepStrictEqual(never.sim.step().eats, []);
   }
+
+  // The real ratio (L23 MEASURED 1.17, copied into the fixture): 117.1 eats 100 on top of it, 116.9 never.
+  assert.strictEqual(FIXTURE.L23.value, 1.17);
+  const big = pair(117.1, 0, FIXTURE);
+  assert.deepStrictEqual(big.sim.step().eats, [[big.big, big.small]]);
+  const short = pair(116.9, 0, FIXTURE);
+  for (let i = 0; i < 5; i++) assert.deepStrictEqual(short.sim.step().eats, []);
 });
 
 test('a merge is an eat between two cells of the same player, after the merge time', () => {
   const sim = emptySim();
   const a = sim.addPlayer({});
-  // Merge time at size 50 is max(30, 0.2 * 50) s = 750 ticks of 40 ms (fixture L12, L1); born long ago.
+  // Merge time at size 50 is max(30, 0.2 * 50) s = 750 ticks of L1 (fixture L12; L1 MEASURED 40.014 ms); born long ago.
   const big = sim.debugPlace({ kind: 'player', owner: a, x: 0, y: 0, size: 60, born: -2000 });
   const small = sim.debugPlace({ kind: 'player', owner: a, x: 10, y: 0, size: 50, born: -2000 });
   const ev = sim.step();
@@ -188,7 +197,8 @@ test('decay: mass * (1 - 0.002) every 25 ticks, never below the L18 floor', () =
   assert.strictEqual(sim.getCell(floor).size, Math.sqrt(10 * 100));
 });
 
-test('eject: blob of 36.06 from the edge, owner loses 42.43, 3-tick cooldown, blob is nobody\'s cell', () => {
+test('eject: blob of the L20 size from the edge, owner loses the L20 loss, 3-tick cooldown, blob is nobody\'s cell', () => {
+  const { blobSize, lossSize } = FIXTURE.L20.value;   // MEASURED: 38 and 42.21
   const sim = emptySim();
   const a = sim.addPlayer({});
   const id = sim.debugPlace({ kind: 'player', owner: a, x: 0, y: 0, size: 100 });
@@ -197,10 +207,10 @@ test('eject: blob of 36.06 from the edge, owner loses 42.43, 3-tick cooldown, bl
   const blobs = ev.added.map((x) => sim.getCell(x)).filter((c) => c && c.kind === 'ejected');
   assert.strictEqual(blobs.length, 1);
   const blob = blobs[0];
-  assert.strictEqual(blob.size, 36.06);
+  assert.strictEqual(blob.size, blobSize);
   assert.strictEqual(blob.owner, null);
   assert.strictEqual(blob.ejectedBy, a);
-  assert.strictEqual(sim.getCell(id).size, Math.sqrt(100 * 100 - 42.43 * 42.43));
+  assert.strictEqual(sim.getCell(id).size, Math.sqrt(100 * 100 - lossSize * lossSize));
   assert.ok(ev.newOwn.every(([, cid]) => cid !== blob.id));
   // Cooldown 3 ticks: ejects on the next two ticks are dropped, the third goes through.
   let made = 0;
@@ -288,7 +298,7 @@ test('spawn, own announcement, death by being eaten, respawn, leave', () => {
   assert.strictEqual(pid, a);
   assert.deepStrictEqual(ev.newOwn, [[a, id]]);
   const c = sim.getCell(id);
-  assert.strictEqual(c.size, Math.sqrt(10 * 100));
+  assert.strictEqual(c.size, FIXTURE.L14.value);   // MEASURED start size 32
   assert.strictEqual(c.name, 'Ann');
   assert.strictEqual(c.owner, a);
   // Colour by the L36_RULE shape: one 255, one 7, the third 8 to 254.
