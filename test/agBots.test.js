@@ -5,7 +5,7 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
 const B = require('../server/ag/agBots');
-const { LAWS } = require('../server/ag/agLaws');
+const { LAWS, withValues } = require('../server/ag/agLaws');
 const { createRng } = require('../server/ag/agRng');
 const { FIXTURE, makeFixture } = require('./agLawsFixture');
 
@@ -22,9 +22,11 @@ function brain(seed, laws) {
   return B.createBotBrain({ laws: laws || FIXTURE, seed: seed === undefined ? 7 : seed });
 }
 
-test('the brain refuses to start on unapproved laws and names them', () => {
-  assert.throws(() => B.createBotBrain({ laws: LAWS, seed: 1 }), (e) => /L24/.test(e.message) && /L11/.test(e.message));
+test('the brain refuses to start on missing laws and names them; the approved real table starts it', () => {
+  assert.throws(() => B.createBotBrain({ laws: withValues(FIXTURE, { L24: null, L11: null }), seed: 1 }),
+    (e) => /L24/.test(e.message) && /L11/.test(e.message));
   assert.doesNotThrow(() => brain());
+  assert.doesNotThrow(() => B.createBotBrain({ laws: LAWS, seed: 1 }));
 });
 
 test('a bot of size 100 flees a size-200 player 300 units east (negative x offset)', () => {
@@ -48,6 +50,19 @@ test('a bot of size 150 splits at a size-50 player inside its split reach', () =
   assert.ok(range * B.BOT_TUNING.SPLIT_REACH_FACTOR.value > 400);
   const out = brain().botThink(view([cell(1, ME, 0, 0, 150), cell(2, 'human', 400, 0, 50)]));
   assert.deepStrictEqual(out, { tx: 400, ty: 0, split: true, eject: false });
+});
+
+test('on the real table the split reach counts the measured L11 first step (the piece begins ahead of its parent)', () => {
+  const { velocity, decayDiv, firstStep } = LAWS.L11.value;
+  const piece = 150 * Math.sqrt(0.5);
+  const eatDist = piece - 50 / LAWS.L24.value.div;
+  // whole reach = firstStep + the rest of the boost after the first step: 98.42 + 733.5 x (1 - 1 / 9.737)
+  const reach = firstStep + velocity * (1 - 1 / decayDiv);
+  assert.ok(Math.abs(reach - 756.6) < 0.1, String(reach));
+  assert.ok(Math.abs(B.splitKillRange(150, 50, LAWS) - (reach + eatDist)) < 1e-9);
+  // without a firstStep (older tables, the fixture) the reach is the boost alone
+  const plain = withValues(LAWS, { L11: { velocity, sizeExp: 0, decayDiv } });
+  assert.ok(Math.abs(B.splitKillRange(150, 50, plain) - (velocity + eatDist)) < 1e-9);
 });
 
 test('no split when the prey is out of reach, the piece cannot eat it, or the cooldown runs', () => {
@@ -222,8 +237,10 @@ test('THE ONE RULE: bots only where botsAllowed(), filled to the room size', () 
   assert.deepStrictEqual(B.planBotFill({ botsAllowed: true, humans: 3, bots: 49 }, FIXTURE), { add: 0, remove: 2, want: 47 });
   assert.deepStrictEqual(B.planBotFill({ botsAllowed: true, humans: 60, bots: 5 }, FIXTURE), { add: 0, remove: 5, want: 0 });
   assert.deepStrictEqual(B.planBotFill({ botsAllowed: true, humans: NaN, bots: -4 }, FIXTURE), { add: 50, remove: 0, want: 50 });
-  // The real table has no room size yet (L39 UNKNOWN), so no room can fill bots on it.
-  assert.throws(() => B.planBotFill({ botsAllowed: true, humans: 1, bots: 0 }, LAWS), /L39/);
+  // The real table: Owen approved 54 players per room (L39, 2026-10-02). Without a room size nothing fills.
+  assert.deepStrictEqual(B.planBotFill({ botsAllowed: true, humans: 1, bots: 0 }, LAWS),
+    { add: 53, remove: 0, want: 53 });
+  assert.throws(() => B.planBotFill({ botsAllowed: true, humans: 1, bots: 0 }, withValues(LAWS, { L39: null })), /L39/);
   const n = B.botName(createRng(1));
   assert.ok(B.BOT_NAMES.includes(n));
 });

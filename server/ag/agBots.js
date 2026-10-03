@@ -113,10 +113,12 @@ function splitPieces(size, laws) {
 }
 
 // How far the launched piece's centre travels from the parent centre (L11: each tick moves 1/decayDiv of the
-// boost that is left, so the whole boost is the total travel).
+// boost that is left, so the whole boost is the travel; with a measured firstStep the piece also begins
+// (firstStep - boost / decayDiv) ahead of the parent centre, as agSim starts a Space split).
 function splitTravel(pieceSize, laws) {
   const b = laws.L11.value;
-  return b.velocity * Math.pow(pieceSize, b.sizeExp);
+  const boost = b.velocity * Math.pow(pieceSize, b.sizeExp);
+  return b.firstStep === undefined ? boost : boost + b.firstStep - boost / b.decayDiv;
 }
 
 // Farthest prey centre (from the parent centre) that a split of a cell of `size` can swallow, before the CHOSEN

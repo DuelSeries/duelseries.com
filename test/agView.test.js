@@ -299,9 +299,10 @@ test('creation refuses UNKNOWN or unsupported laws', () => {
     /K_VIEW_FLOOR/);
   assert.throws(() => V.createViewer(1, { laws: makeFixture({ L37: -1 }) }), /maxNameBytes/);
   assert.throws(() => V.createViewer(undefined, { laws: FIXTURE }), TypeError);
-  // The real table has L4 UNKNOWN, so the server cannot build a view on it.
+  // The real table (L4 approved 2026-10-02) builds a view; without L4 it cannot.
   const { LAWS } = require('../server/ag/agLaws');
-  assert.throws(() => V.createViewer(1, { laws: LAWS }), /L4/);
+  assert.doesNotThrow(() => V.createViewer(1, { laws: LAWS }));
+  assert.throws(() => V.createViewer(1, { laws: withValues(LAWS, { L4: null }) }), /L4/);
 });
 
 test('rounding follows U_ROUND', () => {
@@ -317,13 +318,52 @@ test('rounding follows U_ROUND', () => {
   assert.ok(Object.is(pick('nearest')[1][0], 0), 'no -0 on the wire');
 });
 
-test('names are capped at L37 bytes by the wire, and long names round-trip cut', () => {
-  const v = V.createViewer(1, { laws: FIXTURE });
-  const recs = v.build(frame([player(10, 2, 0, 0, 40, { name: 'abcdefghijklmnopqrstuvwxyz' })]));
+test('a name of L37 characters crosses the wire whole, whatever its UTF-8 length; past 4 x L37 bytes it is cut', () => {
+  // L37 is 15 characters (their server passed a 15-character name of 26 UTF-16 units); names are cut to 15 code
+  // points before the sim (agSockets), so the wire must carry any such name whole: 15 x 4 = 60 bytes.
+  assert.strictEqual(V.nameByteCap(FIXTURE.L37.value), 60);
+  const { LAWS } = require('../server/ag/agLaws');
+  assert.strictEqual(LAWS.L37.value, 15);
+  const sent = (name) => {
+    const v = V.createViewer(1, { laws: LAWS });
+    const recs = v.build(V.makeFrame({ border: BORDER, cells: [player(10, 2, 0, 0, 40, { name })] }, LAWS));
+    const back = agWire.decodeBundle(v.encode(recs));
+    return back.find((r) => r.t === 'world' && r.cells.length).cells[0].name;
+  };
+  for (const name of ['abcdefghijklmno', '\u0410\u043b\u0435\u043a\u0441\u0430\u043d\u0434\u0440\u041f\u0435\u0442\u0440\u043e\u0432',
+    '\u{1F600}'.repeat(15), '\u732b'.repeat(15)]) {
+    assert.strictEqual(Array.from(name).length, 15);
+    assert.strictEqual(sent(name), name, 'whole: ' + name);
+  }
+  // Longer than any L37 name (never reaches the view from a socket): cut at 60 bytes on a character boundary.
+  const long = sent('abcdefghij'.repeat(7));
+  assert.strictEqual(long, 'abcdefghij'.repeat(6));
+  assert.strictEqual(sent('\u{1F600}'.repeat(20)), '\u{1F600}'.repeat(15));
+});
+
+test('the real table truncates x, y and size toward zero on the wire (U_ROUND measured)', () => {
+  const { LAWS } = require('../server/ag/agLaws');
+  assert.strictEqual(LAWS.U_ROUND.value, 'trunc');
+  // Player 9's own cell sits at (-300.99, 2345.99), so the view is centred there; the food around it lies on both
+  // sides of x = 0.
+  const cells = [player(3, 9, -300.99, 2345.99, 32.999), food(1, -1200.7, 2300.3, 10.99), food(2, -0.9, 2000.9, 16.5),
+    food(4, 0.9, 2000.1, 10)];
+  const v = V.createViewer(9, { laws: LAWS });
+  const recs = v.build(V.makeFrame({ border: BORDER, cells }, LAWS));
   const back = agWire.decodeBundle(v.encode(recs));
-  const c = back.find((r) => r.t === 'world' && r.cells.length).cells[0];
-  assert.strictEqual(c.name, 'abcdefghijklmno');
-  assert.strictEqual(Buffer.byteLength(c.name), FIXTURE.L37.value);
+  const got = (id) => {
+    for (const r of back) {
+      if (r.t !== 'world') continue;
+      const c = r.cells.find((x) => x.id === id);
+      if (c) return [c.x, c.y, c.size];
+    }
+    return null;
+  };
+  assert.deepStrictEqual(got(3), [-300, 2345, 32]);
+  assert.deepStrictEqual(got(1), [-1200, 2300, 10]);
+  assert.deepStrictEqual(got(2), [0, 2000, 16]);
+  assert.ok(Object.is(got(2)[0], 0), 'no -0 on the wire');
+  assert.deepStrictEqual(got(4), [0, 2000, 10]);
 });
 
 test('sync sends every visible cell in full, so a client that drops unlisted nodes ends up right', () => {

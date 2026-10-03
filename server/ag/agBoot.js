@@ -4,14 +4,15 @@
 //
 //   AG_ENABLED   on only for 1, true, on, yes; unset or 0, false, off, no leaves it off; anything else is not
 //                a switch value, says so and leaves it off.
-//   AG_DEV_LAWS  a file whose LAWS (or FIXTURE) table replaces the real one, to run the game locally before Owen
-//                has approved every row. Refused, and the game then stays closed, wherever it could be the live
+//   AG_DEV_LAWS  a file whose LAWS (or FIXTURE) table replaces the real one, to run the game locally on another
+//                table (the test FIXTURE). Refused, and the game then stays closed, wherever it could be the live
 //                server: NODE_ENV production, or an ESCROW_PRIVATE_KEY or DATABASE_URL set (the same refusals as
 //                PAPER_DEV_TOKENS; the EC2 box runs under pm2 and the repo does not show it setting NODE_ENV).
 //
-// Without AG_DEV_LAWS the rooms run on server/ag/agLaws.js and refuse to open unless it passes assertShippable,
-// so production stays closed until Owen approves the open rows. Any failure leaves the game closed, never the
-// server down.
+// Without AG_DEV_LAWS the rooms run on server/ag/agLaws.js and refuse to open unless it passes assertShippable
+// and the sim has built every rule it names. Since 2026-10-02 it passes both (Owen approved every row, and the sim
+// builds L6 'linearRamp', L29 'equalPieces' and L32 'whileUneaten'), so AG_ENABLED alone opens the game. Any
+// failure leaves the game closed, never the server down.
 
 const path = require('path');
 

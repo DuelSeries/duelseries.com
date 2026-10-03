@@ -2,9 +2,10 @@
 // One free agar.io FFA room (build brief 6, 9.1, 9.3; Phase 3 of the plan): the sim (agSim), what each socket is
 // sent (agView over shared/agWire.js), the bots (agBots) and the clock. No money lives here: this build is free.
 //
-// The room refuses to open on a law table that is not shippable (assertShippable): until Owen approves every
-// UNKNOWN row, production cannot open one. Tests and the dev-only local boot pass shippableOnly: false with the
-// FIXTURE table, which still has to pass assertLawsComplete for every row the room, sim, view and bots read.
+// The room refuses to open on a law table that is not shippable (assertShippable), and the sim refuses an approved
+// rule it has not built yet, so production cannot open a room on a row that is not settled and built. Tests and the
+// dev-only local boot pass shippableOnly: false with the FIXTURE table, which still has to pass assertLawsComplete
+// for every row the room, sim, view and bots read.
 //
 // Clock: one sim step is exactly one tick of L1 milliseconds. The scheduler is Paper's: fixed steps against a
 // monotonic clock, every due step run on a wake (at most MAX_STEPS_PER_WAKE; a longer stall drops the rest of its
@@ -88,6 +89,11 @@ function readRoomLaws(laws) {
     fail('law U_BOARD periodMs must be a number above 0');
   }
   if (typeof board.ownRowWhenOutside !== 'boolean') fail('law U_BOARD ownRowWhenOutside must be true or false');
+  // U_BOARD was measured as every 25 world updates (periodMs is 25 ticks of L1): when periodMs is a whole number of
+  // ticks the board is counted in ticks, so floating point can never move one by a tick.
+  const perTicks = board.periodMs / tickMs;
+  const boardTicks = Math.round(perTicks);
+  const boardEvery = boardTicks >= 1 && Math.abs(perTicks - boardTicks) <= 1e-9 * boardTicks ? boardTicks : null;
   const spect = laws.U_SPECTATE.value;
   if (!spect || typeof spect !== 'object') fail('law U_SPECTATE must be { afterDeath, follow, zoom }');
   // The rules this file implements; any other approved rule must be built before a room can run on it.
@@ -95,7 +101,7 @@ function readRoomLaws(laws) {
   if (spect.follow !== 'top') fail("law U_SPECTATE follow '" + spect.follow + "' is not built");
   if (spect.zoom !== 'followedPlayer') fail("law U_SPECTATE zoom '" + spect.zoom + "' is not built");
   if (laws.LEAVE_RULE.value !== 'removeAtOnce') fail("law LEAVE_RULE '" + laws.LEAVE_RULE.value + "' is not built");
-  return { tickMs, cap, backlog, board, view: laws.L4.value };
+  return { tickMs, cap, backlog, board, boardEvery, view: laws.L4.value };
 }
 
 class AgRoom {
@@ -114,6 +120,7 @@ class AgRoom {
     this.watchCap = Math.floor(R.cap * WATCHERS_PER_SLOT);
     this.backlog = R.backlog;
     this.boardLaw = R.board;
+    this.boardEvery = R.boardEvery;
     this.viewLaw = R.view;
     this.stake = Number(stake) || 0;
     this.paid = this.stake > 0;
@@ -411,8 +418,10 @@ class AgRoom {
     return out;
   }
 
-  // U_BOARD cadence: a board goes out on the tick whose end crosses a multiple of periodMs of room time.
+  // U_BOARD cadence: a board goes out on every boardEvery-th tick when periodMs is a whole number of ticks (the real
+  // table: every 25), else on the tick whose end crosses a multiple of periodMs of room time.
   _boardDue(ticksDone) {
+    if (this.boardEvery !== null) return ticksDone > 0 && ticksDone % this.boardEvery === 0;
     const p = this.boardLaw.periodMs;
     return Math.floor((ticksDone * this.tickMs) / p) > Math.floor(((ticksDone - 1) * this.tickMs) / p);
   }

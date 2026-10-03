@@ -107,7 +107,11 @@ test('createMapState needs every map law and starts at the target', () => {
   assert.deepStrictEqual(M.createMapState(FIXTURE), { side: SMALL, belowMs: null });
   assert.throws(() => M.createMapState(withValues(FIXTURE, { L39: null })), /L39/);
   assert.throws(() => M.createMapState(withValues(FIXTURE, { L2: null })), /L2/);
-  assert.throws(() => M.createMapState(require('../server/ag/agLaws').LAWS), /L2.*L3.*L39|L39/);
+  // The real table (every row approved 2026-10-02): full side at its room size L39, smaller below it.
+  const { LAWS } = require('../server/ag/agLaws');
+  assert.deepStrictEqual(M.createMapState(LAWS, LAWS.L39.value), { side: LAWS.L2.value, belowMs: null });
+  assert.ok(M.createMapState(LAWS).side < LAWS.L2.value);
+  assert.throws(() => M.createMapState(withValues(LAWS, { L3: null, L39: null })), /L3.*L39/);
 });
 
 test('borderFor is a square centred on the origin', () => {

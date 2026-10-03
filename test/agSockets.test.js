@@ -8,6 +8,9 @@ const W = require('../shared/agWire');
 const { AgArenas } = require('../server/ag/agArenas');
 const { attachAgSockets, AG_RATE, AG_CONN, cleanName, clientIp } = require('../server/ag/agSockets');
 const { FIXTURE, makeFixture } = require('./agLawsFixture');
+const { LAWS } = require('../server/ag/agLaws');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const quiet = { error() {}, warn() {}, log() {} };
 const CAP = FIXTURE.L37.value;
@@ -100,11 +103,11 @@ test('ag:join: names through sanitizeName and the L37 cap; wrong shapes ignored'
   assert.strictEqual(j.seat.name, 'bOwen/b');
   j = join({ name: 'x'.repeat(40) });
   assert.strictEqual(j.seat.name, 'x'.repeat(CAP));
-  // sanitizeName keeps 20 UTF-16 units; a cut through a character drops the lone half.
+  // L37: CAP characters of any kind, not the shared sanitizeName's 20 UTF-16 units (that cut left 10 emoji).
   j = join({ name: '\u{1F600}'.repeat(30) });
-  assert.strictEqual(j.seat.name, '\u{1F600}'.repeat(10));
+  assert.strictEqual(j.seat.name, '\u{1F600}'.repeat(CAP));
   j = join({ name: 'a' + '\u{1F600}'.repeat(30) });
-  assert.strictEqual(j.seat.name, 'a' + '\u{1F600}'.repeat(9));
+  assert.strictEqual(j.seat.name, 'a' + '\u{1F600}'.repeat(CAP - 1));
   j = join({ name: '   ' });
   assert.strictEqual(j.seat.joined, true);
   assert.strictEqual(j.seat.name, '', 'a blank name stays blank (an unnamed cell)');
@@ -125,6 +128,42 @@ test('ag:join: names through sanitizeName and the L37 cap; wrong shapes ignored'
   const cell = s.got[0].filter((x) => x.t === 'world').flatMap((x) => x.cells).find((c) => c.id === id);
   assert.strictEqual(cell.name, 'Wired');
   assert.strictEqual(cleanName('a'.repeat(99), CAP, sanitizeName).length, CAP);
+});
+
+test('L37 on the real table: names keep 15 characters of any kind; the shared sanitizeName is unchanged for the other games', () => {
+  const cap = LAWS.L37.value;
+  assert.strictEqual(cap, 15);
+  assert.strictEqual(LAWS.L37.status, 'MEASURED');
+  const clean = (n) => cleanName(n, cap, sanitizeName);
+  const smile = '\u{1F600}';
+  // 15 emoji (30 UTF-16 units, 60 bytes) stay 15; 16 are cut to 15 (their server passed 15 characters of 26 units)
+  assert.strictEqual(clean(smile.repeat(15)), smile.repeat(15));
+  assert.strictEqual(clean(smile.repeat(16)), smile.repeat(15));
+  assert.strictEqual(Array.from(clean(smile.repeat(15))).length, 15);
+  // the recorded shape: 15 characters, 26 UTF-16 units (11 emoji among 4 letters)
+  const mixed = 'ab' + smile.repeat(11) + 'cd';
+  assert.strictEqual(mixed.length, 26);
+  assert.strictEqual(clean(mixed), mixed);
+  // Cyrillic and CJK
+  assert.strictEqual(clean('Ж'.repeat(20)), 'Ж'.repeat(15));
+  assert.strictEqual(clean('猫'.repeat(15)), '猫'.repeat(15));
+  // the helper's own rules still apply: markup brackets go, outer spaces go, inner spaces stay, blank stays blank
+  assert.strictEqual(clean('  <b>' + smile.repeat(14) + '</b>  '), 'b' + smile.repeat(14));
+  assert.strictEqual(clean('Big  Owen'), 'Big  Owen');
+  assert.strictEqual(clean('<>'), 'Player');
+  assert.strictEqual(clean('   '), '');
+  // a lone half of a character is dropped, never counted
+  assert.strictEqual(clean('\uD83D' + 'abc'), 'abc');
+  // if the shared helper ever changes a piece (a rule it gains later), agar follows the helper's result (cut at its
+  // 20 units: 'max' + 8 emoji + half of one, the x and the half dropped)
+  const stripsX = (n) => sanitizeName(n).replace(/x/g, '') || 'Player';
+  assert.strictEqual(cleanName('max' + smile.repeat(20), cap, stripsX), 'ma' + smile.repeat(8));
+  // The server's sanitizeName (shared by every game) still cuts at 20 UTF-16 units, as the copy above does.
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server', 'index.js'), 'utf8');
+  const m = /function sanitizeName\(name\) \{([\s\S]*?)\n\}/.exec(src);
+  assert.ok(m, 'server/index.js sanitizeName found');
+  assert.ok(m[1].includes(".replace(/[<>]/g, '').trim().slice(0, 20)) || 'Player'"), 'shared helper unchanged');
+  assert.strictEqual(sanitizeName(smile.repeat(15)), smile.repeat(10), 'the other games still get 20 units');
 });
 
 test('ag:target: integers only; wrong shapes and non-finite numbers never reach the sim', () => {
@@ -413,6 +452,7 @@ test('ag:join checks the rate limit before it cleans the name', () => {
   assert.strictEqual(a.roomOfSocket(s.id).seatOf(s.id).joined, false);
   allow = true;
   s.handlers['ag:join']({ name: big });
-  assert.strictEqual(cleaned, 1);
+  // one helper check per 9-character piece of the CAP-character name (L37 wrap in cleanName)
+  assert.strictEqual(cleaned, Math.ceil(CAP / 9));
   assert.strictEqual(a.roomOfSocket(s.id).seatOf(s.id).name, 'x'.repeat(CAP));
 });

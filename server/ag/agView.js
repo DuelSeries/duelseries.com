@@ -16,19 +16,22 @@
 //   - an own id is announced once, in the same bundle and before the world record that first carries the cell
 //     (T4: a cell is own only when announced AND then sent);
 //   - eats are sent only when the client knows both cells (it skips an eat with an unknown id, protocol semantics
-//     3.2), and every eaten id the client knows is removed in the same bundle (law U_EAT_REMOVE); merges are simply
-//     eats between two cells of one player and pass through the same way;
+//     3.2), and every eaten id the client knows is removed in the same bundle (law U_EAT_REMOVE); merges and virus
+//     feeds are not eats on their server (U_EAT_REMOVE, measured), so the sim lists them as plain removals and they
+//     reach the client that way;
 //   - a cell that left the view, or that the sim deleted, is removed; a removed id that comes back is a new node.
 //
-// Which cells are in view is server law L4 (UNKNOWN until Owen approves): a box centred on the plain average of
-// the player's cells, half width (baseW + pad) / s / 2 and half height (baseH + pad) / s / 2 with
+// Which cells are in view is server law L4 (approved 2026-10-02, measured on FFA): a box centred on the plain
+// average of the player's cells, half width (baseW + pad) / s / 2 and half height (baseH + pad) / s / 2 with
 // s = max(pow(min(ref / sum of own sizes, 1), exp), minScale). A cell is in view when its disc's bounding box
 // touches that box (any part of a cell can be on screen, protocol semantics 13), and the player's own cells are
 // always in view (the client camera and score are built from them). The approved L4 must cover the least area the
 // client can show (K_VIEW_FLOOR); creation refuses one that does not.
 //
 // The sim, not this file, decides colours, names, ids and positions; this file only rounds x, y and size to wire
-// integers with the approved rule (U_ROUND) and maps cell kinds to wire flags by the CHOSEN WIRE_FLAGS row.
+// integers with the measured rule (U_ROUND 'trunc': toward zero, so -10.7 is -10) and maps cell kinds to wire flags
+// by the CHOSEN WIRE_FLAGS row. Names are capped at L37 characters before they reach the sim (agSockets); the wire's
+// byte cap only has to carry such a name whole (nameByteCap).
 // No io, no timers, no randomness and no clock: the same frames always give the same bytes.
 
 const agWire = require('../../shared/agWire');
@@ -63,6 +66,13 @@ function roundRule(rule) {
     case 'trunc': return (v) => Math.trunc(v) + 0;
     default: throw new Error("agView: U_ROUND rule '" + rule + "' is not supported (nearest, floor or trunc)");
   }
+}
+
+// UTF-8 bytes the wire must allow so a name of L37 characters (code points, at most 4 bytes each) is never cut
+// further: L37 is a character cap (their server passed a 15-character name of 26 UTF-16 units, parity log L37).
+function nameByteCap(chars) {
+  if (typeof chars !== 'number' || !Number.isInteger(chars) || chars < 0) return chars;   // the wire refuses it
+  return 4 * chars;
 }
 
 function finite(v, what) {
@@ -298,7 +308,7 @@ function createViewer(playerId, opts) {
     throw new Error("agView: U_EAT_REMOVE '" + laws.U_EAT_REMOVE.value + "' is not supported; only 'sameBundle' " +
       'is built (a later-bundle rule needs its delay approved first)');
   }
-  const wireOpts = { maxNameBytes: laws.L37.value };
+  const wireOpts = { maxNameBytes: nameByteCap(laws.L37.value) };
   agWire.bundleSize([], wireOpts);          // validates the name cap now, not on the first tick
 
   const known = new Map();                  // id -> what the client holds (stateOf)
@@ -469,4 +479,5 @@ module.exports = {
   scaleFor,
   viewBoxFor,
   checkViewLaw,
+  nameByteCap,
 };

@@ -1,6 +1,7 @@
 'use strict';
-// Opening the agar.io rooms at boot (server/ag/agBoot.js): the AG_ENABLED switch, the law gate that keeps
-// production closed until Owen approves every row, and the dev-only AG_DEV_LAWS table refused in production.
+// Opening the agar.io rooms at boot (server/ag/agBoot.js): the AG_ENABLED switch, the law gate (the real
+// table, approved by Owen 2026-10-02, opens; anything not shippable stays closed), and the dev-only AG_DEV_LAWS
+// table refused in production.
 const test = require('node:test');
 const assert = require('node:assert');
 const path = require('node:path');
@@ -44,21 +45,21 @@ test('off by default: nothing opens and no namespace is made', () => {
   assert.deepStrictEqual(Object.keys(io.spaces), []);
 });
 
-test('on with the real table: the rooms stay closed until every row is approved', () => {
-  let shippable = true;
-  try { L.assertShippable(L.LAWS); } catch (e) { shippable = false; }
+test('on with the real table: every row approved and every rule built, so /ag opens', () => {
+  // Owen approved every row on 2026-10-02 and the sim builds the rules they name (L6 'linearRamp', L29
+  // 'equalPieces', L32 'whileUneaten'), so AG_ENABLED opens the game on the real table, production included.
+  assert.doesNotThrow(() => L.assertShippable(L.LAWS));
   const io = fakeIo();
   const log = logger();
   const r = openAg({ env: { AG_ENABLED: '1', NODE_ENV: 'production' }, io, helpers, log, autoTick: false });
-  if (shippable) {
-    assert.ok(r.arenas);
-    r.arenas.stop();
-    return;
-  }
-  assert.strictEqual(r.arenas, null);
-  assert.match(r.why, /not shippable/);
-  assert.match(log.lines.error.join('\n'), /stays closed/);
-  assert.deepStrictEqual(Object.keys(io.spaces), [], 'no namespace listens while closed');
+  assert.ok(r.arenas, r.why);
+  assert.strictEqual(r.why, null);
+  assert.strictEqual(r.arenas.laws, L.LAWS);
+  assert.ok(typeof io.spaces['/ag'].listeners.connection === 'function', 'sockets attach on the /ag namespace');
+  assert.match(log.lines.log.join('\n'), /rooms open on \/ag/);
+  assert.doesNotMatch(log.lines.log.join('\n'), /DEV law table/);
+  assert.strictEqual(log.lines.error.length, 0);
+  r.arenas.stop();
 });
 
 test('AG_DEV_LAWS opens on the dev table outside production and is refused in production', () => {

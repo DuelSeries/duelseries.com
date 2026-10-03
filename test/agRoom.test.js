@@ -39,12 +39,15 @@ function kinds(recs) {
 
 test('the room refuses a law table that is not shippable', () => {
   assert.throws(() => new AgRoom({ laws: FIXTURE, autoTick: false, log: quiet }), /not shippable.*FIXTURE/);
-  let shippable = true;
-  try { L.assertShippable(L.LAWS); } catch (e) { shippable = false; }
-  if (!shippable) {
-    // Today's real table still has UNKNOWN rows: production cannot open a room.
-    assert.throws(() => new AgRoom({ autoTick: false, log: quiet }), /not shippable/);
-  }
+  // The real table passes the gate (every row approved 2026-10-02) and the sim builds every rule it names, so a
+  // room opens on it; a rule name the sim does not build is still refused.
+  assert.doesNotThrow(() => L.assertShippable(L.LAWS));
+  const real = new AgRoom({ autoTick: false, log: quiet });
+  assert.strictEqual(real.laws, L.LAWS);
+  assert.strictEqual(real.tickOnce(), true);
+  real.stop();
+  assert.throws(() => new AgRoom({ laws: L.withValues(L.LAWS, { L29: { rule: 'halving', minPieceMass: 20 } }),
+    autoTick: false, log: quiet }), /L29 rule "halving" is not implemented/);
   // A table missing a row the room reads is refused even in tests.
   assert.throws(() => room({ laws: L.withValues(FIXTURE, { U_BOARD: null }) }), /U_BOARD/);
   assert.throws(() => room({ laws: makeFixture({ U_SPECTATE: { afterDeath: 'x', follow: 'top', zoom: 'followedPlayer' } }) }),
@@ -548,4 +551,35 @@ test('an emit or a build that throws starts the page over: clearAll, then the ow
     r.tickOnce();
     assert.ok(!s.last().some((x) => x.t === 'clearAll' || x.t === 'own'), where + ': once only');
   }
+});
+
+test('the real table sends the leaderboard on every 25th tick exactly (U_BOARD measured: every 25 updates)', () => {
+  assert.strictEqual(L.LAWS.U_BOARD.value.periodMs, 25 * L.LAWS.L1.value);
+  const r = new AgRoom({ autoTick: false, seed: 3, log: quiet });
+  assert.strictEqual(r.boardEvery, 25);
+  // Counted in whole ticks: no floating point drift, however long the room runs.
+  for (let t = 1; t <= 2000000; t++) {
+    if (r._boardDue(t) !== (t % 25 === 0)) assert.fail('board due at tick ' + t + ' is ' + r._boardDue(t));
+  }
+  const s = sock();
+  r.addSocket(s);
+  r.join(s.id, 'Me');
+  const boards = [];
+  for (let i = 0; i < 100; i++) {
+    r.tickOnce();
+    const b = s.last().find((x) => x.t === 'board');
+    if (b) {
+      boards.push(r.sim.tick());
+      // The whole room (up to 200 rows): every alive player of the L39 seats.
+      assert.strictEqual(b.rows.length, r._ranking().length);
+      assert.ok(b.rows.length > 40 && b.rows.length <= L.LAWS.L39.value, 'rows ' + b.rows.length);
+    }
+  }
+  assert.deepStrictEqual(boards, [25, 50, 75, 100]);
+  r.stop();
+  // A period that is not a whole number of ticks keeps the time rule.
+  const odd = room({ laws: makeFixture({ U_BOARD: { rows: 10, periodMs: 2.5 * TICK, ownRowWhenOutside: false } }) });
+  assert.strictEqual(odd.boardEvery, null);
+  assert.deepStrictEqual([1, 2, 3, 4, 5, 6].map((t) => odd._boardDue(t)), [false, false, true, false, true, false]);
+  odd.stop();
 });

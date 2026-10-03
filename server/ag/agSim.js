@@ -4,12 +4,18 @@
 //
 // Pure: no io, no timers, no Date, no Math.random. All randomness comes from one agRng stream seeded at creation,
 // and one step() is exactly one tick of L1 milliseconds. Every gameplay number is read from the law table passed in;
-// this file holds none of its own. Server laws their client does not reveal are UNKNOWN in server/ag/agLaws.js, so
-// createSim refuses to start until Owen has approved them (tests run on test/agLawsFixture.js).
+// this file holds none of its own. createSim refuses a table with any row it reads missing or UNKNOWN (tests run on
+// test/agLawsFixture.js).
 //
-// Where an approved row names a rule rather than a number (L6 'minDistSpeed', L29 'moii', ...), the rule is the shape
-// of the UNKNOWNS suggestion described in server laws section 3 for that row, written here as our own code. A rule
-// value this file does not implement throws at creation, so a new approval can never run on the wrong rule.
+// Where a row names a rule rather than a number, the rule is written here as our own code from the shape the row
+// describes: the approved and measured shapes of the real table (L6 'linearRamp', L29 'equalPieces', L32 grows
+// 'whileUneaten' with L32_GROW 'randomStep', parity log 2026-10-02) and the older UNKNOWNS suggestion shapes the test
+// FIXTURE still carries (L6 'minDistSpeed', L29 'moii', L32 grows true). A rule value this file does not implement
+// throws at creation, so a table can never run on the wrong rule.
+//
+// Order facts the recordings settle (parity log 2026-10-02): the own-cell push (L7) runs after the border step (L3),
+// so pressed pieces can sit past the edge until the next tick's border step; merges and virus feeds are plain removals,
+// never eat records (U_EAT_REMOVE).
 //
 // Rule details below that NO law row parameterises are marked "SIM CHOICE" in comments and listed in the build notes
 // for Owen (order of the phases inside a tick, tie-breaks, degenerate-direction guards). None of them is a tuning
@@ -28,7 +34,7 @@ const agMap = require('./agMap');
 const SIM_LAW_IDS = Object.freeze([
   'L1', 'L3', 'L5', 'L6', 'L7', 'L8', 'L8_CMP', 'L9', 'L9_CAP', 'L10', 'L11', 'L12', 'L13', 'L14', 'L15', 'L16',
   'L17', 'L18', 'L19', 'L20', 'L21', 'L22', 'L23', 'L24', 'L25', 'L26', 'L27', 'L28', 'L29', 'L30', 'L31', 'L32',
-  'L33', 'L34', 'L35', 'L36', 'L36_RULE', 'L38', 'U_EAT_REMOVE', 'PLAYER_COLOURS', 'LEAVE_RULE', 'Q_KEY',
+  'L32_GROW', 'L33', 'L34', 'L35', 'L36', 'L36_RULE', 'L38', 'U_EAT_REMOVE', 'PLAYER_COLOURS', 'LEAVE_RULE', 'Q_KEY',
 ].concat(agMap.MAP_LAW_IDS.filter((id) => id !== 'L3')));
 
 const TWO_32 = 4294967296;
@@ -63,7 +69,12 @@ function readLaws(laws) {
   L.reflect = v('L3').reflectBoost === true;
   const s5 = v('L5'); num('L5', s5.coef, 'coef'); num('L5', s5.exp, 'exp'); num('L5', s5.mult, 'mult');
   L.speedCoef = s5.coef; L.speedExp = s5.exp; L.speedMult = s5.mult;
-  rule('L6', v('L6').rule, ['minDistSpeed']);
+  const s6 = v('L6'); rule('L6', s6.rule, ['minDistSpeed', 'linearRamp']);
+  L.slowRule = s6.rule;
+  if (s6.rule === 'linearRamp') {
+    num('L6', s6.zoneSizes, 'zoneSizes'); need(s6.zoneSizes > 0, 'L6', 'zoneSizes must be above 0');
+    L.slowZone = s6.zoneSizes;
+  }
   const s7 = v('L7'); num('L7', s7.minAgeTicks, 'minAgeTicks'); rule('L7', s7.share, ['otherSizeSq']);
   L.pushMinAge = s7.minAgeTicks;
   L.splitMin = v('L8'); num('L8', L.splitMin, 'value');
@@ -77,6 +88,13 @@ function readLaws(laws) {
   const s11 = v('L11'); num('L11', s11.velocity, 'velocity'); num('L11', s11.sizeExp, 'sizeExp');
   num('L11', s11.decayDiv, 'decayDiv'); need(s11.decayDiv > 1, 'L11', 'decayDiv must be above 1');
   L.splitVel = s11.velocity; L.splitExp = s11.sizeExp; L.splitDiv = s11.decayDiv;
+  // firstStep (measured, Owen chose the recordings): how far ahead of its parent a piece split off by Space is after
+  // its first tick. Older tables have none: the piece then starts at the parent's centre.
+  L.splitFirst = s11.firstStep === undefined ? null : s11.firstStep;
+  if (L.splitFirst !== null) {
+    num('L11', L.splitFirst, 'firstStep');
+    need(L.splitFirst > 0, 'L11', 'firstStep must be above 0');
+  }
   const s12 = v('L12'); num('L12', s12.baseSec, 'baseSec'); num('L12', s12.perSizeSec, 'perSizeSec');
   L.mergeBaseSec = s12.baseSec; L.mergePerSizeSec = s12.perSizeSec;
   const s13 = v('L13'); rule('L13', s13.rule, ['eatOverlapNoRatio']); num('L13', s13.minAgeTicks, 'minAgeTicks');
@@ -94,7 +112,11 @@ function readLaws(laws) {
   const s21 = v('L21'); num('L21', s21.velocity, 'velocity'); num('L21', s21.decayDiv, 'decayDiv');
   num('L21', s21.spreadRad, 'spreadRad'); need(s21.decayDiv > 1, 'L21', 'decayDiv must be above 1');
   L.ejectVel = s21.velocity; L.ejectDiv = s21.decayDiv; L.ejectSpread = s21.spreadRad;
-  L.ejectFromEdge = s21.fromEdge === true;
+  // Where a blob starts, measured from the cell centre along its launch line: 'centre' (0), 'cellEdge' (the cell's
+  // size after the loss) or 'blobFarEdgeOnCellEdge' (that size minus the blob size: the blob's far edge on the cell's
+  // edge, recorded on 8 of 8 blobs). Older tables carry fromEdge (true = 'cellEdge', false = 'centre').
+  L.ejectStart = s21.start !== undefined ? s21.start : s21.fromEdge === true ? 'cellEdge' : 'centre';
+  rule('L21', L.ejectStart, ['centre', 'cellEdge', 'blobFarEdgeOnCellEdge']);
   L.ejectCooldown = v('L22').cooldownTicks; num('L22', L.ejectCooldown, 'cooldownTicks');
   L.eatRatio = v('L23'); num('L23', L.eatRatio, 'value');
   L.eatDiv = v('L24').div; num('L24', L.eatDiv, 'div'); need(L.eatDiv !== 0, 'L24', 'div must not be 0');
@@ -106,14 +128,30 @@ function readLaws(laws) {
   const s28 = v('L28'); num('L28', s28.velocity, 'velocity'); num('L28', s28.decayDiv, 'decayDiv');
   rule('L28', s28.direction, ['lastBlob']); need(s28.decayDiv > 1, 'L28', 'decayDiv must be above 1');
   L.shotVel = s28.velocity; L.shotDiv = s28.decayDiv; L.shotReset = s28.resetToMin === true;
-  const s29 = v('L29'); rule('L29', s29.rule, ['moii']); num('L29', s29.minPieceMass, 'minPieceMass');
-  L.popMinMass = s29.minPieceMass;
+  const s29 = v('L29'); rule('L29', s29.rule, ['moii', 'equalPieces']); num('L29', s29.minPieceMass, 'minPieceMass');
+  need(s29.minPieceMass > 0, 'L29', 'minPieceMass must be above 0');
+  L.popRule = s29.rule; L.popMinMass = s29.minPieceMass;
   L.virusEatRatio = v('L30'); num('L30', L.virusEatRatio, 'value');
   L.virusRgb = v('L31'); checkRgb('L31', L.virusRgb);
   const s32 = v('L32'); num('L32', s32.minSize, 'minSize'); num('L32', s32.maxSize, 'maxSize');
+  rule('L32', s32.grows, [true, false, 'whileUneaten']);
+  need(s32.minSize > 0 && s32.minSize <= s32.maxSize, 'L32', 'minSize must be above 0 and not above maxSize');
   L.foodMin = s32.minSize; L.foodMax = s32.maxSize; L.foodRandomSize = s32.grows === true;
+  L.foodGrows = s32.grows === 'whileUneaten';
+  const g32 = v('L32_GROW'); rule('L32_GROW', g32.rule, ['randomStep']);
+  if (L.foodGrows) {
+    num('L32_GROW', g32.chancePerTick, 'chancePerTick');
+    need(g32.chancePerTick > 0 && g32.chancePerTick < 1, 'L32_GROW', 'chancePerTick must be between 0 and 1');
+    num('L32_GROW', g32.stepSize, 'stepSize'); need(g32.stepSize > 0, 'L32_GROW', 'stepSize must be above 0');
+    // ln(1 - chance) for the geometric wait between steps (see scheduleGrowth).
+    L.growLogQ = Math.log1p(-g32.chancePerTick);
+    L.growStep = g32.stepSize;
+  }
   const s33 = v('L33'); rule('L33', s33.rule, ['oneFullOneLowOneRandom']);
   L.foodFull = s33.full; L.foodLow = s33.low; checkChannel('L33', s33.full); checkChannel('L33', s33.low);
+  checkChannel('L33', s33.thirdMin); checkChannel('L33', s33.thirdMax);
+  need(s33.thirdMin <= s33.thirdMax, 'L33', 'thirdMin must not exceed thirdMax');
+  L.foodThirdMin = s33.thirdMin; L.foodThirdSpan = s33.thirdMax - s33.thirdMin + 1;
   L.foodAmount = v('L34').amount; num('L34', L.foodAmount, 'amount');
   const s35 = v('L35'); num('L35', s35.ejectSpawnChance, 'ejectSpawnChance');
   L.ejectSpawnChance = s35.ejectSpawnChance;
@@ -185,6 +223,19 @@ function popPieces(mass, free, minMass) {
     }
   }
   if (out.length > free) out.length = free;
+  return out;
+}
+
+// Virus pop pieces, rule 'equalPieces' (server laws L29 as approved and measured: mass 325 with 15 free slots made 16
+// equal pieces of 20.3, recordings agar-20261001-210803 + agar-20261001-222428): the eating cell's mass (the virus
+// already in it) is shared into n = min(free + 1, floor(mass / minMass)) equal pieces, the eating cell keeping one.
+// Returns the masses of the n - 1 pieces that leave it (none when n is under 2).
+function equalPopPieces(mass, free, minMass) {
+  if (!(free > 0)) return [];
+  const n = Math.min(free + 1, Math.floor(mass / minMass));
+  if (!(n >= 2)) return [];
+  const out = new Array(n - 1);
+  for (let i = 0; i < n - 1; i++) out[i] = mass / n;
   return out;
 }
 
@@ -282,6 +333,8 @@ function createSim(opts) {
   const movers = new Map();    // non-player cells with boost left
   const players = new Map();   // pid -> player, join order
   const queue = [];            // commands, applied at the start of the next step in arrival order
+  const growQueue = new Map(); // L32 'whileUneaten': tick -> ids of the food due to grow on that tick
+  let inStep = false;
   const grid = createGrid();
   let gridDirty = true;
   // Mass bookkeeping (in mass units, size^2 / 100) so a soak can prove the accounting closes:
@@ -312,8 +365,9 @@ function createSim(opts) {
     return [vals[a[0]], vals[a[1]], vals[a[2]]];
   }
 
+  // L33: one channel full, one low, the third in [thirdMin, thirdMax], over the six channel orders.
   function foodColour() {
-    const third = rng.int(256);
+    const third = L.foodThirdMin + rng.int(L.foodThirdSpan);
     return arrange(L.foodFull, L.foodLow, third);
   }
 
@@ -392,22 +446,74 @@ function createSim(opts) {
     return false;
   }
 
-  function safePlace(pt, r) {
+  // A uniform point in the part of the map outside `inner` (a rectangle inside the border): the strip a growing map
+  // has gained since the last refill.
+  function stripPoint(inner) {
+    const b = border;
+    const w = b.maxX - b.minX;
+    const ih = inner.maxY - inner.minY;
+    const top = w * (inner.minY - b.minY);
+    const bottom = w * (b.maxY - inner.maxY);
+    const left = (inner.minX - b.minX) * ih;
+    const right = (b.maxX - inner.maxX) * ih;
+    let u = rng() * (top + bottom + left + right);
+    const r1 = rng();
+    const r2 = rng();
+    if ((u -= top) < 0) return { x: b.minX + w * r1, y: b.minY + (inner.minY - b.minY) * r2 };
+    if ((u -= bottom) < 0) return { x: b.minX + w * r1, y: inner.maxY + (b.maxY - inner.maxY) * r2 };
+    if ((u -= left) < 0) return { x: b.minX + (inner.minX - b.minX) * r1, y: inner.minY + ih * r2 };
+    return { x: inner.maxX + (b.maxX - inner.maxX) * r1, y: inner.minY + ih * r2 };
+  }
+
+  // where: the point generator (randomPoint, or a strip of a grown map); retries draw from the same place.
+  function safePlace(pt, r, where) {
+    const next = where || randomPoint;
     let p = pt;
-    for (let i = 0; i < L.safeTries && touchesPlayer(p.x, p.y, r); i++) p = randomPoint();
+    for (let i = 0; i < L.safeTries && touchesPlayer(p.x, p.y, r); i++) p = next();
     return p;
   }
 
-  function spawnFood() {
-    const pt = randomPoint();
+  function spawnFood(where) {
+    const pt = (where || randomPoint)();
     const size = L.foodRandomSize ? L.foodMin + (L.foodMax - L.foodMin) * rng() : L.foodMin;
     const c = addCell('food', pt.x, pt.y, size, foodColour(), null, '');
     ledger.created += massOf(size);
+    scheduleGrowth(c);
     return c;
   }
 
-  function spawnVirus() {
-    const pt = safePlace(randomPoint(), L.virusMin);
+  // L32 'whileUneaten' with L32_GROW 'randomStep': each tick an uneaten food under maxSize grows by stepSize with
+  // chance chancePerTick. Drawn as the geometric wait to its next step (the same law, one draw per step instead of
+  // one per food per tick): wait = 1 + floor(ln(1 - u) / ln(1 - chance)) ticks. A food made inside a step can first
+  // grow on the next one; one placed between steps (the first world, debugPlace) on the next step itself.
+  function scheduleGrowth(c) {
+    if (!L.foodGrows || !(c.size < L.foodMax)) return;
+    const wait = 1 + Math.floor(Math.log1p(-rng()) / L.growLogQ);
+    c.growAt = (inStep ? tick : tick - 1) + wait;
+    const due = growQueue.get(c.growAt);
+    if (due) due.push(c.id); else growQueue.set(c.growAt, [c.id]);
+  }
+
+  // Phase 5b (L32 'whileUneaten'): the food due this tick grows one step, never past maxSize; food eaten this tick is
+  // gone already (SIM CHOICE: growth after the eats).
+  function growFood() {
+    const due = growQueue.get(tick);
+    if (!due) return;
+    growQueue.delete(tick);
+    for (const id of due) {
+      const c = food.get(id);
+      if (!c || c.growAt !== tick) continue;
+      const before = massOf(c.size);
+      c.size = Math.min(c.size + L.growStep, L.foodMax);
+      ledger.created += massOf(c.size) - before;
+      gridDirty = true;
+      scheduleGrowth(c);
+    }
+  }
+
+  function spawnVirus(where) {
+    const next = where || randomPoint;
+    const pt = safePlace(next(), L.virusMin, next);
     const c = addCell('virus', pt.x, pt.y, L.virusMin, L.virusRgb.slice(), null, '');
     ledger.created += massOf(c.size);
     return c;
@@ -424,20 +530,58 @@ function createSim(opts) {
     return agMap.countForMap(humans, bots, laws);
   }
 
+  // While the map is still growing toward its side for n players, the food and virus counts follow the area it has
+  // reached (the targets are per area, server laws 4.2), so a fresh room is never filled to its full counts while its
+  // map is still small (LAW CHECK 2026-10-02, agario-reference/recordings/ours-vs-theirs.md: a fresh room grows from
+  // the MAP_N_MIN side to full in about 11 s while its bots spawn, and the full counts poured into the small map left
+  // 98 percent of the viruses in the inner quarter of the map, 84 percent still after 30 minutes).
   function targets() {
     if (fixedBorder) return { food: L.foodAmount, viruses: L.virusAmount, virusCap: L.virusCap };
     const n = mapCount();
+    const goal = agMap.targetSide(n, laws);
+    const reached = mapState.side < goal ? (mapState.side * mapState.side) / (goal * goal) : 1;
     return {
-      food: agMap.scaledTarget(L.foodAmount, n, laws),
-      viruses: agMap.scaledTarget(L.virusAmount, n, laws),
+      food: Math.floor(agMap.scaledTarget(L.foodAmount, n, laws) * reached),
+      viruses: Math.floor(agMap.scaledTarget(L.virusAmount, n, laws) * reached),
       virusCap: agMap.scaledTarget(L.virusCap, n, laws),
     };
   }
 
+  // The border the last refill filled, and the fraction of a cell each kind is owed in a grown strip (carried so a
+  // share under one per tick is not lost).
+  let filled = null;
+  const stripCarry = { food: 0, virus: 0 };
+
+  // Tops food and viruses up to their targets. When the map has grown since the last refill, the strip it gained gets
+  // its share of the targets first (target x strip area / map area), so a map that grows while it fills stays evenly
+  // covered; the rest (replacing what was eaten) lands anywhere on the map.
   function refill() {
     const t = targets();
-    if (refillFood) while (food.size < t.food) spawnFood();
-    if (refillViruses) while (viruses.size < t.viruses) spawnVirus();
+    let strip = null;
+    let share = 0;
+    if (filled && border.minX <= filled.minX && border.minY <= filled.minY && border.maxX >= filled.maxX &&
+        border.maxY >= filled.maxY) {
+      const before = (filled.maxX - filled.minX) * (filled.maxY - filled.minY);
+      const now = (border.maxX - border.minX) * (border.maxY - border.minY);
+      if (now > before) {
+        const inner = filled;
+        strip = () => stripPoint(inner);
+        share = 1 - before / now;
+      }
+    }
+    if (refillFood) fillKind(food, t.food, spawnFood, 'food', strip, share);
+    if (refillViruses) fillKind(viruses, t.viruses, spawnVirus, 'virus', strip, share);
+    filled = { minX: border.minX, minY: border.minY, maxX: border.maxX, maxY: border.maxY };
+  }
+
+  // The strip's share is owed until it is placed: a whole share can come due a tick before the floored target lets one
+  // more in, so it waits for the next placement instead of being dropped (dropping it sent about half of a growing
+  // map's viruses to random places, most of them in the middle). Owed shares are let go once the map stops growing.
+  function fillKind(have, target, spawnOne, kind, strip, share) {
+    if (!strip) { stripCarry[kind] = 0; } else stripCarry[kind] += target * share;
+    while (have.size < target) {
+      if (strip && stripCarry[kind] >= 1) { stripCarry[kind] -= 1; spawnOne(strip); } else spawnOne(randomPoint);
+    }
   }
 
   // Keeps a moving cell inside the border by the L3 rule and reflects its boost on the clamped axes.
@@ -484,15 +628,23 @@ function createSim(opts) {
     };
   }
 
-  // Splits childSq (a size^2) off a player cell toward angle; the child starts at the parent's centre with the L11
-  // boost. Refused when the parent would fall under L18 (the suggestion's rule shape). Returns the child or null.
-  function splitOff(p, parent, angleX, angleY, childSq) {
+  // Splits childSq (a size^2) off a player cell toward angle with the L11 boost. Refused when the parent would fall
+  // under L18 (the suggestion's rule shape). Returns the child or null.
+  // Where the child starts: a Space split (spaceSplit true) begins (L11 firstStep - its first boost step) ahead of the
+  // parent centre along its launch line, so after this tick's boost step it is firstStep ahead of its parent, as on
+  // the recorded single splits (both move the same normal step: same point, same size). Pop pieces and the L17
+  // max-size split start at the centre: pop pieces were recorded 7 to 52 units out after their first update, nowhere
+  // near the Space split's first step, and a max-size split was never recorded (SIM CHOICE, no number involved).
+  function splitOff(p, parent, angleX, angleY, childSq, spaceSplit) {
     const childSize = Math.sqrt(childSq);
     const parentSize = Math.sqrt(parent.size * parent.size - childSq);
     if (!(parentSize >= L.minSize)) return null;
     parent.size = parentSize;
-    const child = addCell('player', parent.x, parent.y, childSize, parent.rgb, p.pid, p.name);
-    setBoost(child, L.splitVel * Math.pow(childSize, L.splitExp), angleX, angleY, L.splitDiv);
+    const boost = L.splitVel * Math.pow(childSize, L.splitExp);
+    const ahead = spaceSplit === true && L.splitFirst !== null ? L.splitFirst - boost / L.splitDiv : 0;
+    const child = addCell('player', parent.x + angleX * ahead, parent.y + angleY * ahead, childSize, parent.rgb,
+      p.pid, p.name);
+    setBoost(child, boost, angleX, angleY, L.splitDiv);
     return child;
   }
 
@@ -514,7 +666,7 @@ function createSim(opts) {
       if (p.cells.length >= L.maxCells) continue; // L9 cap, extra splits ignored (L9_CAP)
       if (!canSplitSize(c.size)) continue;
       const dir = directionTo(p, c);
-      splitOff(p, c, dir.x, dir.y, c.size * c.size * L.splitFrac);
+      splitOff(p, c, dir.x, dir.y, c.size * c.size * L.splitFrac, true);
     }
   }
 
@@ -529,9 +681,15 @@ function createSim(opts) {
       const before = massOf(c.size);
       c.size = Math.sqrt(newSq);
       const dir = directionTo(p, c);
-      const x = L.ejectFromEdge ? c.x + dir.x * c.size : c.x;
-      const y = L.ejectFromEdge ? c.y + dir.y * c.size : c.y;
       const angle = Math.atan2(dir.y, dir.x) + (rng() * 2 * L.ejectSpread - L.ejectSpread);
+      // The start point lies on the blob's own launch line, so the blob's path runs straight out from the cell centre.
+      // On the 8 recorded blobs (angles up to 0.335 rad from the mouse) the first sighting minus the first boost step
+      // sat exactly that far out (mean residual 0.00 units, analysis/ours/l21start.js); a start on the mouse line
+      // would put the angled ones up to about 0.7 units short.
+      const from = L.ejectStart === 'cellEdge' ? c.size : L.ejectStart === 'blobFarEdgeOnCellEdge'
+        ? Math.max(0, c.size - L.blobSize) : 0;
+      const x = c.x + Math.cos(angle) * from;
+      const y = c.y + Math.sin(angle) * from;
       const blob = addCell('ejected', x, y, L.blobSize, c.rgb, null, '');
       blob.ejectedBy = p.pid;
       setBoost(blob, L.ejectVel, Math.cos(angle), Math.sin(angle), L.ejectDiv);
@@ -635,7 +793,10 @@ function createSim(opts) {
     }
   }
 
-  // L5 speed and L6 'minDistSpeed': each own cell moves straight at the target, min(distance, speed) per tick.
+  // L5 speed and the L6 slowdown: each own cell moves straight at the target, per tick
+  //   'linearRamp'    speed * min(1, distance / (zoneSizes * size)): full speed outside the zone, then a straight
+  //                   line down to 0 at the target (the approved row, measured on FFA)
+  //   'minDistSpeed'  min(distance, speed) (the FIXTURE suggestion)
   function moveToward(p, c) {
     const t = targetOf(p);
     if (t === null) return;
@@ -644,7 +805,14 @@ function createSim(opts) {
     const dist = Math.sqrt(dx * dx + dy * dy);
     if (dist === 0) return;
     const speed = L.speedCoef * Math.pow(c.size, L.speedExp) * L.speedMult;
-    const move = (speed < dist ? speed : dist) / dist;
+    let step;
+    if (L.slowRule === 'linearRamp') {
+      const zone = L.slowZone * c.size;
+      step = dist < zone ? (speed * dist) / zone : speed;
+    } else {
+      step = speed < dist ? speed : dist;
+    }
+    const move = step / dist;
     c.x += dx * move;
     c.y += dy * move;
   }
@@ -662,18 +830,21 @@ function createSim(opts) {
     splitOff(p, c, Math.cos(angle), Math.sin(angle), c.size * c.size * L.splitFrac);
   }
 
-  // Phase 4: players in join order: merge clocks, pushes, movement, boost, border, max size.
+  // Phase 4: players in join order: merge clocks, movement, boost, border, then the own-cell push, then max size.
+  // The push comes after the border step (measured, parity log L3 note: own pieces pressed together went up to 7.9
+  // units past the map edge and came back over the next ticks), so a pressed piece can end a tick outside its L3 box;
+  // the next tick's border step brings it back.
   function movePlayers() {
     for (const p of Array.from(players.values())) {
       if (p.cells.length === 0) continue;
       const cs = p.cells.slice();
       for (const c of cs) c.canMerge = age(c) >= mergeTicks(c.size);
-      if (cs.length > 1) pushOwn(cs);
       for (const c of cs) {
         moveToward(p, c);
         boostStep(c);
         keepInside(c);
       }
+      if (cs.length > 1) pushOwn(cs);
       for (const c of cs) capSize(p, c);
     }
     gridDirty = true;
@@ -707,9 +878,11 @@ function createSim(opts) {
     return P.size >= L.eatRatio * Q.size && overlaps(P, Q); // food and ejected blobs
   }
 
-  // Eat: an eat event, the L15 gain, the removal in the same tick (U_EAT_REMOVE 'sameBundle').
+  // Eat: the L15 gain and the removal in the same tick (U_EAT_REMOVE 'sameBundle'). An eat between two cells of one
+  // player is a merge, which their server sends as a plain removal, never an eat record (U_EAT_REMOVE, measured: 0 of
+  // the merges in the recordings were in the eat list), so only eats of another cell are listed.
   function eat(P, Q) {
-    ev.eats.push([P.id, Q.id]);
+    if (!(Q.kind === 'player' && Q.owner === P.owner)) ev.eats.push([P.id, Q.id]);
     const before = massOf(P.size) + massOf(Q.size);
     P.size = Math.sqrt(P.size * P.size + L.absorb * Q.size * Q.size);
     removeCell(Q, null);
@@ -721,7 +894,9 @@ function createSim(opts) {
     const p = players.get(P.owner);
     const free = L.maxCells - p.cells.length;
     if (free <= 0) return;
-    const pieces = popPieces(massOf(P.size), free, L.popMinMass);
+    const mass = massOf(P.size);
+    const pieces = L.popRule === 'equalPieces' ? equalPopPieces(mass, free, L.popMinMass)
+      : popPieces(mass, free, L.popMinMass);
     for (const m of pieces) {
       const angle = rng() * TAU;
       splitOff(p, P, Math.cos(angle), Math.sin(angle), m * 100);
@@ -753,7 +928,8 @@ function createSim(opts) {
         if (E.kind !== 'ejected' || E.dead) continue;
         if (viruses.size >= cap) break;
         if (!(V.size >= L.eatRatio * E.size && overlaps(V, E))) continue;
-        ev.eats.push([V.id, E.id]);
+        // A fed blob is a plain removal, never an eat record (U_EAT_REMOVE, measured: virus feeds are not in the
+        // eat list).
         const before = massOf(V.size) + massOf(E.size);
         V.size = Math.sqrt(V.size * V.size + E.size * E.size);
         removeCell(E, null);
@@ -795,11 +971,13 @@ function createSim(opts) {
     ev.tick = tick;
     const aliveBefore = new Set();
     for (const p of players.values()) if (p.cells.length) aliveBefore.add(p.pid);
+    inStep = true;
     applyCommands();
     moveBoosted();
     decay();
     movePlayers();
     eats();
+    if (L.foodGrows) growFood();
     for (const p of players.values()) {
       if (p.alive && p.cells.length === 0) {
         p.alive = false;
@@ -814,6 +992,7 @@ function createSim(opts) {
     freshGrid();
     ev.border = { minX: border.minX, minY: border.minY, maxX: border.maxX, maxY: border.maxY };
     tick++;
+    inStep = false;
     const out = ev;
     ev = newEvents();
     return out;
@@ -939,7 +1118,7 @@ function createSim(opts) {
     const cs = [];
     for (const c of cells.values()) {
       cs.push([c.id, c.kind, c.x, c.y, c.size, c.rgb[0], c.rgb[1], c.rgb[2], c.owner, c.ejectedBy, c.born, c.boost,
-        c.bdx, c.bdy, c.bdiv, c.canMerge]);
+        c.bdx, c.bdy, c.bdiv, c.canMerge, c.growAt === undefined ? null : c.growAt]);
     }
     const ps = [];
     for (const p of players.values()) {
@@ -984,6 +1163,7 @@ function createSim(opts) {
     if (isFiniteNumber(s.born)) c.born = s.born;
     if (s.boost) setBoost(c, s.boost.distance, s.boost.dx, s.boost.dy, s.boost.div);
     ledger.created += massOf(c.size);
+    if (kind === 'food') scheduleGrowth(c);
     return c.id;
   }
 
@@ -1017,4 +1197,4 @@ function createSim(opts) {
   };
 }
 
-module.exports = { createSim, SIM_LAW_IDS, popPieces };
+module.exports = { createSim, SIM_LAW_IDS, popPieces, equalPopPieces };

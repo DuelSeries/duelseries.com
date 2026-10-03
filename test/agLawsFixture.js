@@ -2,12 +2,13 @@
 // FIXTURE law table for agar.io server tests (build brief 7.1). TEST ONLY: no file under server/, shared/ or
 // public/ may import this (test/agLaws.test.js scans for it).
 //
-// Every UNKNOWN row of server/ag/agLaws.js is filled with the suggestion shown to Owen on UNKNOWNS.html (row number
-// in each source). Rows that are KNOWN, MEASURED (from Owen's recorded play, 2026-10-02) or CHOSEN are copied from
-// the real table, so their suggestions were removed here. Those suggestions come from MultiOgarII and Ogar, open-source fan servers, NOT from agar.io; they
-// are unapproved. Every entry here has status FIXTURE, including the rows copied from the real table, so a FIXTURE
-// table can never pass assertShippable. When Owen approves a row it turns APPROVED in agLaws.js and this file then
-// copies the approved value instead of its suggestion (the tests re-pin on it).
+// Fixed test numbers. The 32 rows Owen approved on 2026-10-02 (APPROVED in server/ag/agLaws.js, except L11, L21 and
+// L37, which are MEASURED since he chose the recordings for them) keep here the
+// suggestion shown on UNKNOWNS.html before that (row number in each source), so the sim, room, view and bot tests
+// stay pinned on numbers that do not move. Those suggestions come from MultiOgarII and Ogar, open-source fan servers,
+// NOT from agar.io, and most are NOT the approved values: a test that needs the approved value reads LAWS from
+// agLaws.js. Every other row (KNOWN, MEASURED or CHOSEN) is copied from the real table. Every entry here has status
+// FIXTURE, including the copied rows, so a FIXTURE table can never pass assertShippable.
 
 const { LAWS, STATUS, tableFrom, sizeOf } = require('../server/ag/agLaws');
 
@@ -15,7 +16,10 @@ const MOII = 'MultiOgarII';
 const OG = 'Ogar';
 
 function s(row, value, from) {
-  return { value, source: 'FIXTURE (test only, unapproved): UNKNOWNS row ' + row + ' suggestion; ' + from };
+  return {
+    value,
+    source: 'FIXTURE (test only): UNKNOWNS row ' + row + ' suggestion from before the 2026-10-02 approval; ' + from,
+  };
 }
 
 const SUGGESTIONS = {
@@ -60,9 +64,9 @@ function buildEntries(overrides) {
     const e = LAWS[id];
     let value = e.value;
     let source = 'FIXTURE copy of the real table (' + e.status + '): ' + e.source;
-    if (e.status === STATUS.UNKNOWN) {
-      const sug = SUGGESTIONS[id];
-      if (!sug) throw new Error('agLawsFixture: no suggestion for UNKNOWN law ' + id);
+    const sug = Object.prototype.hasOwnProperty.call(SUGGESTIONS, id) ? SUGGESTIONS[id] : null;
+    if (!sug && e.status === STATUS.UNKNOWN) throw new Error('agLawsFixture: no test number for UNKNOWN law ' + id);
+    if (sug) {
       value = sug.value;
       source = sug.source;
     }

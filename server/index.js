@@ -1598,9 +1598,10 @@ const paper = require('./paperSockets')({
    (cell:*) and every other game never see them, and /ag serves public/ag.html.
    Free only: no stake, token or payout is read anywhere in server/ag.
 
-   The rooms refuse to open unless the law table passes assertShippable, so
-   with today's table (rows still UNKNOWN until Owen approves them) production
-   stays closed even with the switch on. AG_DEV_LAWS=<file> boots a local
+   The rooms refuse to open unless the law table passes assertShippable and
+   the sim has built every rule it names. Today's table passes both (every
+   row approved by Owen 2026-10-02, every rule built), so the switch alone
+   decides, production included. AG_DEV_LAWS=<file> boots a local
    server on another table (the test FIXTURE) to exercise the game; it is
    refused in production (or with an escrow key or a DATABASE_URL set), where
    the game then stays closed. Seats, watchers and connections per address

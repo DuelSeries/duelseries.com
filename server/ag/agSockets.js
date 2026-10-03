@@ -5,9 +5,9 @@
 //
 // Every handler reads its payload only after checking its shape: a wrong shape is ignored, a number must be a
 // finite integer in the int32 range the client sends, a name must be a string. Every handler is wrapped so
-// nothing a client sends can throw out of socket.io (the server has no uncaughtException handler). Names go
-// through the server's sanitizeName and are cut to the law table's L37 cap (in characters here; the wire cuts
-// the bytes again with the same cap). Every event is rate limited per socket through the server's socketRL.
+// nothing a client sends can throw out of socket.io (the server has no uncaughtException handler). Names are
+// cleaned by the server's sanitizeName rules and cut to the law table's L37 cap in characters of any kind, never
+// by that helper's 20 UTF-16 unit cut (cleanName below; the wire allows 4 bytes a character, so it cuts nothing). Every event is rate limited per socket through the server's socketRL.
 //
 // attachAgSockets(io, arenas, helpers): io is the socket.io namespace the game runs on (the server passes
 // io.of('/ag')); every socket that connects there is seated as a watcher at once (the page must be sent world
@@ -113,12 +113,33 @@ function isInt32(v) {
   return typeof v === 'number' && Number.isInteger(v) && v >= INT32_MIN && v <= INT32_MAX;
 }
 
-// A name through sanitizeName, cut to `cap` characters (code points). Missing or blank stays empty: their
-// client shows an unnamed cell for an empty name, so nothing is made up for it. Not a string: null (ignored).
+// A name cleaned the way the server's sanitizeName cleans it, cut to `cap` characters (code points). Missing or
+// blank stays empty: their client shows an unnamed cell for an empty name, so nothing is made up for it. Not a
+// string: null (ignored).
+//
+// L37 (MEASURED; Owen chose the recordings, OWNER-ANSWERS 2026-10-02 later): a name keeps `cap` characters of any
+// kind (their server passed a 15-character name of 26 UTF-16 units). The shared sanitizeName also cuts every name at
+// 20 UTF-16 units, which leaves 10 emoji, and it stays as it is for the other games, so agar wraps it: the name gets
+// the helper's rules without its cut (no < or >, outer spaces trimmed, no lone half of a character) and is cut to
+// `cap` characters, then the helper must leave every HELPER_PIECE-character piece of it unchanged (a piece is at most
+// 18 UTF-16 units, inside its cut; a guard character each side keeps its trim off inner spaces). If the helper changes
+// any piece (a rule it gains later), its own result is used, cut to `cap` characters.
+const HELPER_PIECE = 9;
 function cleanName(raw, cap, sanitizeName) {
   if (raw === undefined) return '';
   if (typeof raw !== 'string') return null;
   if (!raw.trim()) return '';
+  const chars = [];
+  for (const ch of raw.replace(LONE_SURROGATE, '').replace(/[<>]/g, '').trim()) {
+    if (chars.length >= cap) break;
+    chars.push(ch);
+  }
+  let agrees = chars.length > 0;
+  for (let i = 0; agrees && i < chars.length; i += HELPER_PIECE) {
+    const piece = '.' + chars.slice(i, i + HELPER_PIECE).join('') + '.';
+    agrees = sanitizeName(piece) === piece;
+  }
+  if (agrees) return chars.join('');
   const s = sanitizeName(raw);
   if (typeof s !== 'string') return '';
   // sanitizeName cuts UTF-16 units, which can leave half of a character behind: drop any lone half.

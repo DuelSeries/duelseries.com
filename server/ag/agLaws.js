@@ -7,16 +7,19 @@
 //   KNOWN     read from their client or config (cited by spec section), exact
 //   MEASURED  read from Owen's own recorded play on their FFA servers (both sessions pooled, FFA connections only):
 //             the source names the spec row, the recordings, the 95 percent interval and the sample size; only rows
-//             whose whole value was measured (parity log, 2026-10-02 final table)
-//   APPROVED  an UNKNOWN that Owen approved; the source names the suggestion, the date and the parity-log line
+//             whose whole value was measured (parity log, 2026-10-02 final table), plus the three approval rows where
+//             Owen later chose the recordings over his approved value (L11, L21, L37; OWNER-ANSWERS 2026-10-02, later:
+//             their sources still name the approval row) and L32_GROW, which he accepted as measured
+//   APPROVED  a row play and code could not settle, with the value Owen approved; the source says "APPROVED by Owen
+//             2026-10-02", the approval row (1 to 32, the parity log's final table order) and where the approved
+//             suggestion came from (tags below)
 //   CHOSEN    our own design number, labelled as ours and waiting for Owen's yes
-//   UNKNOWN   not settled by their code or by play; value is null and stays null until Owen approves a value (the
-//             suggestions waiting for him are the parity log's final table, rows marked OPEN)
+//   UNKNOWN   not settled by their code or by play and not approved; value is null. Since 2026-10-02 no row is
+//             UNKNOWN (Owen approved all 32 open rows), but the status and its guards stay for any new row
 // A room cannot start on an UNKNOWN: modules call assertLawsComplete(laws, ids) with the ids they read, and the
-// server boot calls assertShippable(LAWS). Tests use the FIXTURE table in test/agLawsFixture.js, which no shipped
-// file may import.
-//
-// No candidate value for an UNKNOWN row lives in this file, on purpose.
+// server boot calls assertShippable(LAWS), which this table passes. A module that reads an approved rule it has not
+// built yet (a rule name it does not implement) still refuses at creation. Tests use the FIXTURE table in
+// test/agLawsFixture.js (fixed test numbers, never these), which no shipped file may import.
 
 const STATUS = Object.freeze({
   KNOWN: 'KNOWN',
@@ -53,10 +56,6 @@ function law(id, name, status, value, unit, source) {
   return { id, name, value, unit, status, source };
 }
 
-function unknown(id, name, unit, source) {
-  return law(id, name, STATUS.UNKNOWN, null, unit, source);
-}
-
 // MEASURED rows: Owen's two recorded sessions on their FFA servers, agar-20261001-210803 (its FFA connections only;
 // its other-type server is shown apart, never pooled) and agar-20261001-222428, pooled. Sizes on the wire are whole
 // numbers rounded down, so a wire size w is a true size from w up to w + 1.
@@ -65,9 +64,29 @@ function measured(id, name, value, unit, source) {
   return law(id, name, STATUS.MEASURED, value, unit, 'MEASURED: ' + source + '; ' + REC);
 }
 
+// APPROVED rows: Owen answered "approve all" to the 32 open rows on 2026-10-02 (29 stay APPROVED; for rows 9, 17 and
+// 29 he then chose what the recordings show, so L11, L21 and L37 are MEASURED). Each source names where the approved
+// suggestion came from:
+//   MEASURED    the pooled FFA recordings (FFA below), with the interval and the sample size
+//   OTHER TYPE  session 1's game-type-3 server (OTHER below): never pooled into an FFA row, only a suggestion source
+//   CLIENT      their client code or config, cited by spec section
+//   MOII        MultiOgarII, a fan-made server, UNVERIFIED
+//   CHOSEN      our own pick, shown to Owen as ours
+//   OWNER       Owen's own answer to a build question
+const OWEN = 'APPROVED by Owen 2026-10-02';
+const FFA = 'FFA recordings agar-20261001-210803 + agar-20261001-222428';
+const OTHER = 'OTHER TYPE (recording agar-20261001-210803, its type-3 server)';
+function approved(row, id, name, value, unit, from) {
+  return law(id, name, STATUS.APPROVED, value, unit, OWEN + ' (approval row ' + row + '); ' + from);
+}
+
 // L1: the steadiest FFA server ticked 40.014 ms (interval 40.0138 to 40.0145, 8,556 updates; a second connection to
 // the same server 40.017); the other FFA servers ran 40.04 to 43.5 ms under load (slow ticks, never skipped ones).
 const TICK_MS = 40.014;
+// L23 and L30: the measured player eat ratio, which Owen approved for viruses too.
+const EAT_RATIO = 1.17;
+// L19_CLIENT and L19: their client's eject sound gate, size^2 above this.
+const EJECT_GATE_SQ = 3612.5;
 
 const ENTRIES = [
   // KNOWN facts the whole server builds on.
@@ -84,32 +103,70 @@ const ENTRIES = [
   measured('L2', 'Full map side (square)', 10000 * Math.SQRT2, 'world units',
     'server laws L2 (PS-U2): 10000 x sqrt 2; the 11 FFA connections send it stretched up to 0.5 percent per axis, mean ' +
     'side 14147.9 (95 percent 14129.9 to 14165.9, n 22 axes), and the one unstretched connection sent exactly this'),
-  unknown('L3', 'Keeping cells inside the border', '{ radiusFactor, reflectBoost }: centre kept within ' +
-    '[min + radiusFactor * size, max - radiusFactor * size] per axis', 'UNKNOWN: server laws L3; UNKNOWNS row 3'),
-  unknown('L4', 'Server view range', '{ baseW, baseH, pad, ref, exp, minScale }: half width (baseW + pad) / s / 2, ' +
-    's = max(pow(min(ref / sum size, 1), exp), minScale)', 'UNKNOWN: server laws L4 (PS-U6); UNKNOWNS row 4'),
+  approved(1, 'L3', 'Keeping cells inside the border', { radiusFactor: 0.5, reflectBoost: false },
+    '{ radiusFactor, reflectBoost }: centre kept within [min + radiusFactor * size, max - radiusFactor * size] per axis',
+    'server laws L3. radiusFactor: MEASURED, ' + FFA + ', 0.462 to 0.522 (6 cells at sizes 39 to 109, 789 pinned ' +
+    'ticks; ' + OTHER + ' 0.417 to 0.583). reflectBoost: CHOSEN, no launched piece hit a wall in either session'),
+  approved(2, 'L4', 'Server view range', { baseW: 1920, baseH: 1080, pad: 100.6, ref: 64, exp: 0.4, minScale: 0.0417 },
+    '{ baseW, baseH, pad, ref, exp, minScale }: half width (baseW + pad) / s / 2, ' +
+    's = max(pow(min(ref / sum size, 1), exp), minScale)',
+    'server laws L4 (PS-U6). baseW, baseH: CLIENT, their view at zoom 1 (K_VIEW_FLOOR). pad: MEASURED, ' + FFA +
+    ', 102.0 +- 2.7 across, 100.4 +- 1.1 down (2,634 view boxes, 15,725 updates, own sizes adding up to 32 to 752). ' +
+    'ref, exp: MEASURED, exact. minScale: CHOSEN "no floor", the scale where the box already reaches past every map ' +
+    'edge (their client zoom has no floor either)'),
 
   // Movement.
-  unknown('L5', 'Speed vs size', '{ coef, exp, mult }: units per tick = coef * size^exp * mult',
-    'UNKNOWN: server laws L5 (PS-U17); UNKNOWNS row 5'),
-  unknown('L6', 'Slowdown near the cursor', '{ rule }', 'UNKNOWN: server laws L6; UNKNOWNS row 6'),
-  unknown('L7', 'Own-cell collisions', '{ minAgeTicks, share }', 'UNKNOWN: server laws L7; UNKNOWNS row 7'),
+  approved(3, 'L5', 'Speed vs size', { coef: 83.466, exp: -0.4468, mult: 1 },
+    '{ coef, exp, mult }: units per tick = coef * size^exp * mult',
+    'server laws L5 (PS-U17). MEASURED, ' + FFA + ': coef 82.80 to 85.60, exp -0.4519 to -0.4448 (6,701 ticks in ' +
+    '140 runs, sizes 32 to 150, worst size bin 0.14 percent off; ' + OTHER + ' 83.78 x size^-0.4476); the same ' +
+    'formula above size 150'),
+  approved(4, 'L6', 'Slowdown near the cursor', { rule: 'linearRamp', zoneSizes: 0.651 },
+    "{ rule, zoneSizes }: 'linearRamp' = full speed while the mouse is farther than zoneSizes * size from the centre, " +
+    "inside that the speed falls in a straight line to 0 at the mouse; 'minDistSpeed' = step min(distance, speed)",
+    'server laws L6. MEASURED, ' + FFA + ': zone 0.459 to 0.838 sizes (3,744 near-mouse ticks, 30 inside the ' +
+    'zone); beats the min(distance, speed) rule by 641 BIC'),
+  approved(5, 'L7', 'Own-cell collisions', { minAgeTicks: 13, share: 'otherSizeSq' },
+    "{ minAgeTicks, share }: 'otherSizeSq' = each piece moves by the other piece's size^2 share (the smaller moves more)",
+    'server laws L7. share: MEASURED, ' + FFA + ', best of three rules (error 0.035 against 0.045 and 0.094, 539 ' +
+    'push corrections; ' + OTHER + ' agrees on 2,759). minAgeTicks 13: MOII (UNVERIFIED)'),
 
   // Split and merge.
   law('L8', 'Min size to split', STATUS.KNOWN, 60, 'size (mass 36)',
     'KNOWN: config minMassToSplit (FFA) 60, a size (protocol semantics T9); client split gate agrees (PS 12.1)'),
-  unknown('L8_CMP', 'Split gate comparison at the min size', "'>=' or '>'",
-    'UNKNOWN: server laws L8 edge (PS-U13); UNKNOWNS row 8'),
+  approved(6, 'L8_CMP', 'Split gate comparison at the min size', '>=', "'>=' or '>'",
+    'server laws L8 edge (PS-U13). CLIENT: their split animation check is ">= 60" (PS 12.1); MEASURED, ' + FFA +
+    ': gate between 57.5 and 68 (4 splits, 8 presses that did nothing)'),
   law('L9', 'Max own cells', STATUS.KNOWN, 16, 'cells',
     'KNOWN: config maxPlayerCells (FFA) 16; client split gate agrees (PS 12.1)'),
-  unknown('L9_CAP', 'Behaviour at the cell cap', '{ extraSplits, popLimitedToFreeSlots }',
-    'UNKNOWN: server laws L9 edge; UNKNOWNS row 9'),
-  unknown('L10', 'Split mass division', '{ newCellMassFraction }', 'UNKNOWN: server laws L10; UNKNOWNS row 10'),
-  unknown('L11', 'Split launch and decay', '{ velocity, sizeExp, decayDiv }: boost = velocity * size^sizeExp, ' +
-    'each tick moves boost / decayDiv of what is left', 'UNKNOWN: server laws L11 (PS-U13); UNKNOWNS row 11'),
-  unknown('L12', 'Merge time', '{ baseSec, perSizeSec }: seconds = max(baseSec, perSizeSec * size)',
-    'UNKNOWN: server laws L12 (PS-U13); UNKNOWNS row 12'),
-  unknown('L13', 'Merge rule', '{ rule, minAgeTicks }', 'UNKNOWN: server laws L13; UNKNOWNS row 13'),
+  approved(7, 'L9_CAP', 'Behaviour at the cell cap', { extraSplits: 'ignored', popLimitedToFreeSlots: true },
+    '{ extraSplits, popLimitedToFreeSlots }',
+    'server laws L9 edge. ' + OTHER + ': Space at 16 cells did nothing 15 of 15 times; MEASURED, ' + FFA +
+    ': a virus pop with 15 free slots made exactly 15 new pieces (1 pop)'),
+  approved(8, 'L10', 'Split mass division', { newCellMassFraction: 0.5 }, '{ newCellMassFraction }',
+    'server laws L10. MEASURED, ' + FFA + ': 0.5 to 0.5 (4 splits, sizes 67 to 77; ' + OTHER + ' agrees on 5)'),
+  measured('L11', 'Split launch and decay', { velocity: 733.5, sizeExp: 0, decayDiv: 9.737, firstStep: 98.42 },
+    '{ velocity, sizeExp, decayDiv, firstStep }: boost = velocity * size^sizeExp, each tick moves boost / decayDiv of ' +
+    'what is left; a piece split off by Space is firstStep ahead of its parent after its first tick, so it begins ' +
+    '(firstStep - boost / decayDiv) ahead of the parent centre along its launch line and reaches that plus the boost',
+    'server laws L11 (PS-U13). Owen chose the recordings over his approved value (approval row 9; OWNER-ANSWERS ' +
+    '2026-10-02, later): the first step. firstStep: on the first update of a single split with the mouse far, the ' +
+    'piece sat 98.07 and 98.78 units ahead of its parent (2 single splits, sizes 47 and 54; 95 percent 93.91 to ' +
+    '102.94, analysis/ours/l11first.js), not the 75.33 of velocity / decayDiv: the piece begins 23.1 ahead (15.9 to ' +
+    '30.4) and reaches 756.5 in all (approved: 733.5). velocity, decayDiv: the L11 fit of the later steps, flight 695 ' +
+    'to 763, decay 9.49 to 10.00 (5 launches, sizes 43 to 54), unchanged. sizeExp 0 and the first step at every size: ' +
+    OTHER + ', 14 launches at sizes 43 to 83 show no size term (exponent -0.53 to 0.25) and 6 clean first steps sit ' +
+    'at 97.7 to 98.7 for sizes 43 to 117 (mean 98.11, 97.11 to 99.11). The one FFA two-cell split with a clean first ' +
+    'update came out at 83.1 (shown, not used: with more own cells their pushes reach the parent)'),
+  approved(10, 'L12', 'Merge time', { baseSec: 30, perSizeSec: 0.2 },
+    '{ baseSec, perSizeSec }: seconds = max(baseSec, perSizeSec * size)',
+    'server laws L12 (PS-U13). ' + OTHER + ': base 30.20 to 30.37 s, 0.1975 to 0.2011 s per size (9 timed merges, ' +
+    'counted in whole seconds there); MEASURED, ' + FFA + ': 2 timed merges at 30.07 s agree'),
+  approved(11, 'L13', 'Merge rule', { rule: 'eatOverlapNoRatio', minAgeTicks: 13 },
+    "{ rule, minAgeTicks }: 'eatOverlapNoRatio' = own pieces join once they overlap as deep as an eat (L24), no size " +
+    'ratio, never before minAgeTicks',
+    'server laws L13. rule: MEASURED, ' + FFA + ', merge threshold R - r / 2.68 to R - r / 3.17 holds the eat ' +
+    'overlap (7 merges, 0 against). minAgeTicks 13: MOII (UNVERIFIED)'),
 
   // Mass.
   law('L14_CFG', 'Start value in the config', STATUS.KNOWN, 10, 'unit not stated by their config',
@@ -117,54 +174,110 @@ const ENTRIES = [
   measured('L14', 'Start (spawn) size', 32, 'size',
     'server laws L14 (PS-U15): every FFA life starts at wire size 32 (5 of 6; the sixth ate on arrival), true 32 to 33 ' +
     '(mass 10.24 to 10.89, shown as 10); the first food eats keep it under 32.5'),
-  unknown('L15', 'Mass gain when eating', '{ absorb }: new size = sqrt(R^2 + absorb * r^2)',
-    'UNKNOWN: server laws L15; UNKNOWNS row 15'),
-  unknown('L16', 'Mass decay', '{ rate, periodTicks }: mass * (1 - rate) every periodTicks, not below L18',
-    'UNKNOWN: server laws L16 (PS-U17); UNKNOWNS row 16'),
-  unknown('L17', 'Max size of one cell', 'size', 'UNKNOWN: server laws L17; UNKNOWNS row 17'),
-  unknown('L18', 'Min size of a player cell (also the decay floor)', 'size',
-    'UNKNOWN: server laws L18; UNKNOWNS row 18'),
+  approved(12, 'L15', 'Mass gain when eating', { absorb: 1 }, '{ absorb }: new size = sqrt(R^2 + absorb * r^2)',
+    'server laws L15. MEASURED, ' + FFA + ': 0.941 to 1.049 (621 eats; ' + OTHER + ' 0.951 to 1.036)'),
+  approved(13, 'L16', 'Mass decay', { rate: 0.001994, periodTicks: 25 },
+    '{ rate, periodTicks }: mass * (1 - rate) every periodTicks, not below L18',
+    'server laws L16 (PS-U17). rate: ' + OTHER + ', 0.1987 to 0.1997 percent of mass a second (23 size steps, ' +
+    'sizes 42 to 179). One step every 25 updates (once a second): CHOSEN, once a second and every update look alike ' +
+    'at this rate'),
+  approved(14, 'L17', 'Max size of one cell', 1856, 'size',
+    'server laws L17. MEASURED bound, ' + FFA + ': a cell of size 1856 (mass 34,447) was seen, so the cap is at ' +
+    'least this; a fan server\'s lower cap is ruled out'),
+  approved(15, 'L18', 'Min size of a player cell (also the decay floor)', 32, 'size',
+    'server laws L18. MEASURED bound, ' + FFA + ': the start size (L14), also the smallest player cell seen ' +
+    '(6 spawns)'),
 
   // Eject.
   law('L19_CFG', 'Min size to eject in the config', STATUS.KNOWN, 56.56854249, 'size (mass 32)',
     'KNOWN: config minMassToShoot (FFA) 56.56854249, a size (protocol semantics T9)'),
-  law('L19_CLIENT', 'Client eject sound gate', STATUS.KNOWN, 3612.5, 'size^2 (sound when some own size^2 > this)',
+  law('L19_CLIENT', 'Client eject sound gate', STATUS.KNOWN, EJECT_GATE_SQ, 'size^2 (sound when some own size^2 > this)',
     'KNOWN: client eject gate (protocol semantics 12.1); not a server rule'),
-  unknown('L19', 'Min size to eject used by the server', 'size',
-    'UNKNOWN: server laws L19 (PS-U14); UNKNOWNS row 19'),
+  approved(16, 'L19', 'Min size to eject used by the server', Math.sqrt(EJECT_GATE_SQ), 'size',
+    'server laws L19 (PS-U14). CLIENT: their eject sound gate, size^2 > 3612.5 (L19_CLIENT, PS 12.1), size 60.104; ' +
+    'inside the MEASURED bracket, ' + FFA + ': ejects at 60 and up, blocked at 58 and under (14 blobs, 6 blocked ' +
+    'presses, 0 against); the config gate L19_CFG lies outside it'),
   measured('L20', 'Eject blob and loss', { blobSize: 38, lossSize: 42.21 }, '{ blobSize, lossSize }: owner size^2 -= lossSize^2',
     'server laws L20 (PS-U14): blob wire size 38 on 14 of 14 blobs (true 38 to 39); the cell loses size 42.21 in ' +
     'quadrature (41.75 to 42.66, mass 17.8, n 14)'),
-  unknown('L21', 'Eject launch, travel and spread', '{ velocity, decayDiv, spreadRad, fromEdge }',
-    'UNKNOWN: server laws L21; UNKNOWNS row 21'),
-  unknown('L22', 'Eject rate limit', '{ cooldownTicks }', 'UNKNOWN: server laws L22 (CCI-U5); UNKNOWNS row 22'),
+  measured('L21', 'Eject launch, travel and spread',
+    { velocity: 819.9, decayDiv: 10.235, spreadRad: 0.391, start: 'blobFarEdgeOnCellEdge' },
+    '{ velocity, decayDiv, spreadRad, start }: flight = velocity, each tick moves 1 / decayDiv of what is left, ' +
+    'up to spreadRad either side of the mouse; start = where the blob begins, from the cell centre along its launch ' +
+    "line: 'centre', 'cellEdge' (the size after the loss) or 'blobFarEdgeOnCellEdge' (that size minus the blob size)",
+    'server laws L21. START POINT: Owen chose the recordings over his approved "from the centre" (approval row 17; ' +
+    'OWNER-ANSWERS 2026-10-02, later): per blob the first sighting minus the first boost step sits (size after the ' +
+    'loss - blob size) from the centre, within 1 unit on 8 of 8 blobs (mean miss 0.00, largest 0.97, sizes after the ' +
+    'loss 44 to 59, analysis/ours/l21start.js); from the centre, our cells of about size 95 and up ate their own ' +
+    'blob on the eject tick (law check 2026-10-02). velocity, decayDiv: flight 816.5 to 823.3, decay 10.18 to 10.30 ' +
+    '(8 blob paths). spreadRad: the largest angle seen (0.335 rad) scaled up for 6 throws (0.32 to 0.59)'),
+  approved(18, 'L22', 'Eject rate limit', { cooldownTicks: 3 }, '{ cooldownTicks }',
+    'server laws L22 (CCI-U5). MOII 3 (UNVERIFIED), inside the MEASURED bound, ' + FFA + ': at most 5 updates ' +
+    '(3 quick blobs, 0 refused presses)'),
 
   // Eating and viruses.
-  measured('L23', 'Eat size ratio', 1.17, 'radius ratio, bigger >= ratio * smaller',
+  measured('L23', 'Eat size ratio', EAT_RATIO, 'radius ratio, bigger >= ratio * smaller',
     'server laws L23 (PS-U17): 1.17 (1.111 to 1.191 with wire rounding), smallest ratio that ate 1.162, largest deep ' +
     'overlap that did not 1.150, 0 of 152 observations against'),
-  unknown('L24', 'Eat overlap', '{ div }: eat when centre distance < R - r / div',
-    'UNKNOWN: server laws L24; UNKNOWNS row 24'),
-  unknown('L25', 'Virus size', '{ minSize, maxSize }', 'UNKNOWN: server laws L25 (PS-U8); UNKNOWNS row 25'),
-  unknown('L26', 'Virus count on the full map', '{ amount, max }', 'UNKNOWN: server laws L26; UNKNOWNS row 26'),
-  unknown('L27', 'Virus feeding until it shoots', '{ rule }', 'UNKNOWN: server laws L27; UNKNOWNS row 27'),
-  unknown('L28', 'Virus shot', '{ velocity, decayDiv, direction, resetToMin }',
-    'UNKNOWN: server laws L28; UNKNOWNS row 28'),
-  unknown('L29', 'Virus pop pieces', '{ rule, minPieceMass }', 'UNKNOWN: server laws L29; UNKNOWNS row 29'),
-  unknown('L30', 'Who can eat a virus', 'radius ratio', 'UNKNOWN: server laws L30; UNKNOWNS row 30'),
+  approved(19, 'L24', 'Eat overlap', { div: 3.04 }, '{ div }: eat when centre distance < R - r / div',
+    'server laws L24. MEASURED, ' + FFA + ': R - r / 2.84 to R - r / 3.27 (1,365 bracketed food eats; ' + OTHER +
+    ' R - r / 2.96)'),
+  approved(20, 'L25', 'Virus size', { minSize: 100, maxSize: sizeOf(200) },
+    '{ minSize, maxSize }: a new virus is minSize; a fed virus shoots past maxSize (here mass 200)',
+    'server laws L25 (PS-U8). minSize: MEASURED, ' + FFA + ', 60 of 62 new viruses. maxSize, mass 200: MOII ' +
+    '(UNVERIFIED), inside the MEASURED bracket (a fed virus shot between wire sizes 136 and 141.2, 1 shot)'),
+  approved(21, 'L26', 'Virus count on the full map', { amount: 51, max: 100 }, '{ amount, max }',
+    'server laws L26. amount: MEASURED, ' + FFA + ', rough, about 40 to 68 (62 viruses over 633 s). max: MOII ' +
+    '(UNVERIFIED)'),
+  approved(22, 'L27', 'Virus feeding until it shoots', { rule: 'area' },
+    "{ rule }: 'area' = each blob adds its whole mass (size^2 adds) and the virus shoots once it passes L25 maxSize",
+    'server laws L27. MEASURED, ' + FFA + ' and ' + OTHER + ': each feed adds 0.865 to 1.063 of a blob\'s mass, ' +
+    '7 feeds of size-38 blobs from 100 make it shoot (1 shot on each)'),
+  approved(23, 'L28', 'Virus shot', { velocity: 798.8, decayDiv: 10.206, direction: 'lastBlob', resetToMin: true },
+    '{ velocity, decayDiv, direction, resetToMin }',
+    'server laws L28. MEASURED, ' + FFA + ': flight 793.0 to 804.6, decay 10.10 to 10.32, along the last blob, the ' +
+    'fed virus back to minSize (1 shot; ' + OTHER + ' 792.3, 1 / 10.14)'),
+  approved(24, 'L29', 'Virus pop pieces', { rule: 'equalPieces', minPieceMass: 20 },
+    "{ rule, minPieceMass }: 'equalPieces' = equal pieces, as many as the free slots allow, each at least " +
+    "minPieceMass; 'moii' = the fan server's two-branch pop",
+    'server laws L29. equal pieces up to the free slots: MEASURED, ' + FFA + ', mass 325 into 16 equal pieces ' +
+    '(1 pop; ' + OTHER + ' mass 334 the same way). minPieceMass 20: CHOSEN, the top of the measured range 5 to 20'),
+  approved(25, 'L30', 'Who can eat a virus', EAT_RATIO, 'radius ratio',
+    'server laws L30. MEASURED, ' + FFA + ': the player eat ratio (L23), inside the virus bracket 1.15 to 1.33 ' +
+    '(2 virus eats, 2 deep overlaps without one)'),
   measured('L31', 'Virus colour', [51, 255, 51], '[r, g, b]',
     'server laws L31 (PS-U8): colour bytes of 62 of 62 viruses, exact'),
 
   // Food.
-  unknown('L32', 'Food size', '{ minSize, maxSize, grows }', 'UNKNOWN: server laws L32 (PS-U8); UNKNOWNS row 32'),
+  approved(26, 'L32', 'Food size', { minSize: 10, maxSize: 16, grows: 'whileUneaten' },
+    "{ minSize, maxSize, grows }: 'whileUneaten' = born at minSize, grows while uneaten up to maxSize; true = a " +
+    'random size in [minSize, maxSize] at birth (the fan server reading)',
+    'server laws L32 (PS-U8). minSize: MEASURED, ' + FFA + ', 622 of 628 food born in view at size 10. maxSize: ' +
+    'MEASURED bound, the biggest food seen on FFA. How fast food grows was not measured and is not part of the ' +
+    'approved value (it is L32_GROW, measured after the approval)'),
+  measured('L32_GROW', 'Food growth while uneaten', { rule: 'randomStep', chancePerTick: 5.38e-4, stepSize: 1 },
+    "{ rule, chancePerTick, stepSize }: 'randomStep' = every tick each uneaten food under L32 maxSize grows by " +
+    'stepSize with chance chancePerTick (about one step every 74 s)',
+    'server laws L32 (PS-U8), the growth rate the approved L32 whileUneaten rule needs, accepted as measured by Owen ' +
+    '(OWNER-ANSWERS 2026-10-02, later), measured 2026-10-02 with ' +
+    'analysis/laws/food.js: every food in view grew in steps of exactly 1 size (589 of 589), 589 steps in 1,094,783 ' +
+    'food-ticks below size 16, chance 5.38e-4 per tick (95 percent 4.95e-4 to 5.83e-4, 8 percent either side, ' +
+    'rougher than the other MEASURED rows); the same chance at every size (size 10: 445 in 775,649, 11: 108 in ' +
+    '224,978, 12: 29 in 67,028) and the steps spread over every update phase mod 25 (no once-a-second growth); ' +
+    OTHER + ' 4.70e-4 (4.18e-4 to 5.26e-4)'),
   measured('L33', 'Food colours', { rule: 'oneFullOneLowOneRandom', full: 255, low: 7, thirdMin: 8, thirdMax: 254 },
     '{ rule, full, low, thirdMin, thirdMax }',
     'server laws L33 (PS-U8): 5,304 of 5,304 food colours have one channel 255, one 7 and the third 8 to 254, all six ' +
     'channel orders about equally (the shape of their colour table, which is never shipped)'),
-  unknown('L34', 'Food amount on the full map', '{ amount }', 'UNKNOWN: server laws L34; UNKNOWNS row 34'),
+  approved(27, 'L34', 'Food amount on the full map', { amount: 2657 }, '{ amount }',
+    'server laws L34. MEASURED, ' + FFA + ', rough and low-biased (players eat the food near them): 2,326 to 2,975 ' +
+    '(633 s of view)'),
 
   // Players.
-  unknown('L35', 'Spawn position rule', '{ ejectSpawnChance }', 'UNKNOWN: server laws L35 (PS-U17); UNKNOWNS row 35'),
+  approved(28, 'L35', 'Spawn position rule', { ejectSpawnChance: 0 },
+    '{ ejectSpawnChance }: chance a new life starts out of a shot blob; otherwise anywhere at random',
+    'server laws L35 (PS-U17). MEASURED bound, ' + FFA + ': 0 of 6 spawns came from a blob (at most 0.39); the ' +
+    'spawn places pass the uniform test'),
   law('L36_RULE', 'Shape of the player colour table', STATUS.KNOWN, { full: 255, low: 7, thirdMin: 8, thirdMax: 254 },
     'one channel full, one low, the third in [thirdMin, thirdMax]',
     'KNOWN: config Cell Color table shape (protocol semantics 12.1); the table itself is never shipped'),
@@ -173,11 +286,19 @@ const ENTRIES = [
     '(6 colours in 6 lives)'),
   law('L37_CLIENT', 'Nickname cap in their name box', STATUS.KNOWN, 15, 'characters',
     'KNOWN: their name input maxlength 15 and config maxNicknameLen 15 (server laws L37)'),
-  unknown('L37', 'Nickname cap on the server', 'characters (UTF-8 bytes on our wire)',
-    'UNKNOWN: server laws L37 (PS-U16); UNKNOWNS row 37'),
-  unknown('L38', 'Cell id allocation', '{ start, step }', 'UNKNOWN: server laws L38 (PS-U7); UNKNOWNS row 38'),
-  unknown('L39', 'Players per room (also the map shrink N_FULL)', 'players',
-    'UNKNOWN: server laws L39 (Q16); UNKNOWNS row 39'),
+  measured('L37', 'Nickname cap on the server', 15,
+    'characters of any kind (code points: 15 emoji stay 15; our wire carries up to 4 x this in UTF-8 bytes)',
+    'server laws L37 (PS-U16). Owen chose the recordings over his approved value (approval row 29; OWNER-ANSWERS ' +
+    '2026-10-02, later): their server passed a name of 15 characters, 26 UTF-16 units, 52 UTF-8 bytes whole (recording ' +
+    'agar-20261001-210803, the longest of the 104 names seen on FFA), so the cap counts characters, not UTF-16 units or bytes. The ' +
+    'number 15: their name box maxlength 15 and config maxNicknameLen 15 (L37_CLIENT)'),
+  approved(30, 'L38', 'Cell id allocation', { start: 1, step: 1 }, '{ start, step }',
+    'server laws L38 (PS-U7). step: MEASURED, ' + FFA + ', 1 on every server (6,015 ids, 0 reused). start 1: ' +
+    'CHOSEN, our rooms start fresh'),
+  approved(31, 'L39', 'Players per room (also the map shrink N_FULL)', 54, 'players',
+    'server laws L39 (Q16). OWNER: Owen\'s Q16 answer, their typical room size (lowered if our load test says so); ' +
+    'MEASURED, ' + FFA + ': the median room on the leaderboard, quartiles 44 to 145 (1,630 boards over 10 ' +
+    'connections)'),
 
   // Open behaviour rows (protocol and HUD unknowns, UNKNOWNS rows 40 to 43).
   measured('U_ROUND', 'Rounding of x, y, size on the wire', 'trunc', "'nearest', 'floor' or 'trunc'",
@@ -191,8 +312,11 @@ const ENTRIES = [
     '{ rows, periodMs, ownRowWhenOutside }',
     'PS-U11 / HUD-U2, U3, UNKNOWNS row 42: op 53 with the whole room list up to 200 rows, every 25 updates (1,619 of ' +
     '1,620 gaps, so periodMs is 25 ticks of L1), no extra own row with a rank (0 of 1,630 boards)'),
-  unknown('U_SPECTATE', 'After-death view and spectate camera', '{ afterDeath, follow, zoom }',
-    'UNKNOWN: PS-U9 / CCI-U7; UNKNOWNS row 43'),
+  approved(32, 'U_SPECTATE', 'After-death view and spectate camera',
+    { afterDeath: 'stayWhereDied', follow: 'top', zoom: 'followedPlayer' }, '{ afterDeath, follow, zoom }',
+    'PS-U9 / CCI-U7. afterDeath: MEASURED, ' + FFA + ', the view stays where you died and world updates go on ' +
+    '(2 deaths; ' + OTHER + ' 3). follow, zoom: CHOSEN, the Spectate button follows the top player at their zoom ' +
+    '(never pressed while dead)'),
 
   // CHOSEN: map shrink (server laws 4; parity log C1 to C5; UNKNOWNS rows 45 to 48). FULL_SIDE is L2, N_FULL is L39.
   law('MAP_SHAPE', 'Map shape and centre', STATUS.CHOSEN, 'squareCentredOnOrigin', 'shape',

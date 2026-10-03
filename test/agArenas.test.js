@@ -36,9 +36,12 @@ function tickAll(a) {
 
 test('the directory refuses a law table that is not shippable', () => {
   assert.throws(() => new AgArenas({ laws: FIXTURE, autoTick: false, log: quiet }), /not shippable/);
-  let shippable = true;
-  try { L.assertShippable(L.LAWS); } catch (e) { shippable = false; }
-  if (!shippable) assert.throws(() => new AgArenas({ autoTick: false, log: quiet }), /not shippable/);
+  // The real table passes the gate (every row approved 2026-10-02) and the sim builds every rule it names: the
+  // directory opens its first room on it.
+  assert.doesNotThrow(() => L.assertShippable(L.LAWS));
+  const real = new AgArenas({ autoTick: false, log: quiet });
+  assert.strictEqual(real.all().length, 1);
+  real.stop();
 });
 
 test('one free rung, room 0 at boot, filled with bots', () => {

@@ -1,6 +1,8 @@
 'use strict';
-// agar.io soak (build brief 9.3 agSoak card), on the FIXTURE law table: one scripted human plus the room's bots
-// for 20,000 ticks. Every tick: no NaN; every centre inside the border by the L3 rule (food inside the border);
+// agar.io soak (build brief 9.3 agSoak card), on the FIXTURE law table and on the real (approved) table: one scripted
+// human plus the room's bots for 20,000 ticks each. Every tick: no NaN; every centre inside the border by the L3 rule
+// (food inside the border; a piece of a player with 2+ cells may end a tick less than its own size past its box,
+// since the own-cell push runs after the border step, measured);
 // the mass ledger closes (live mass = created minus every destroyed cause); no id is ever used twice; every eaten
 // id is removed in the same bundle (U_EAT_REMOVE 'sameBundle'); and the human's decoded stream stays consistent
 // with a client model (eats and removals name only cells it holds, and every own cell's id is announced before the
@@ -12,15 +14,16 @@ const assert = require('node:assert');
 const W = require('../shared/agWire');
 const { AgRoom } = require('../server/ag/agRoom');
 const { FIXTURE } = require('./agLawsFixture');
+const { LAWS } = require('../server/ag/agLaws');
 
 const TICKS = 20000;
 const quiet = { error() {}, warn() {}, log() {} };
 
-test('soak: 1 scripted human plus bots for 20,000 ticks keeps every invariant', { timeout: 600000 }, () => {
-  const room = new AgRoom({ laws: FIXTURE, shippableOnly: false, seed: 2026, autoTick: false, log: quiet });
+function soak(laws, label) {
+  const room = new AgRoom({ laws, shippableOnly: laws === LAWS, seed: 2026, autoTick: false, log: quiet });
   const sim = room.sim;
-  const k = FIXTURE.L3.value.radiusFactor;
-  const depth = FIXTURE.WIRE_BACKLOG.value;
+  const k = laws.L3.value.radiusFactor;
+  const depth = laws.WIRE_BACKLOG.value;
 
   // Capture each step's events.
   let ev = null;
@@ -33,7 +36,8 @@ test('soak: 1 scripted human plus bots for 20,000 ticks keeps every invariant', 
   // Client model of what the human's page holds.
   const known = new Set();
   const announced = new Set();
-  const counts = { eats: 0, merges: 0, deaths: 0, spawns: 0, splits: 0, ejects: 0, syncs: 0, cams: 0, boards: 0, clears: 0 };
+  const counts = { eats: 0, merges: 0, deaths: 0, spawns: 0, splits: 0, ejects: 0, syncs: 0, cams: 0, boards: 0, clears: 0,
+    maxPushOut: 0 };
   // own: the human's cell ids in the sim after this tick (the bundle was built from that state).
   let ownFirsts = 0;
   function applyBundle(buf, own) {
@@ -106,7 +110,8 @@ test('soak: 1 scripted human plus bots for 20,000 ticks keeps every invariant', 
     sock.conn.writeBuffer = t % 1000 >= 500 && t % 1000 < 503 ? new Array(depth + 1) : [];
 
     const ownerBefore = new Map();
-    sim.forEachCell((c) => ownerBefore.set(c.id, c.owner));
+    const sizeBefore = new Map();
+    sim.forEachCell((c) => { ownerBefore.set(c.id, c.owner); sizeBefore.set(c.id, c.size); });
     const sent = bundles.length;
     ev = null;
     assert.strictEqual(room.tickOnce(), true, 'tick ' + t);
@@ -116,11 +121,20 @@ test('soak: 1 scripted human plus bots for 20,000 ticks keeps every invariant', 
     const infoAfter = seatAfter ? sim.playerInfo(seatAfter.pid) : null;
     if (bundles.length > sent) applyBundle(bundles[bundles.length - 1], new Set(infoAfter ? infoAfter.cells : []));
 
-    // Sim events: every eaten id is removed this tick; no id ever comes back.
+    // Sim events: every eaten id is removed this tick; no id ever comes back; a merge is never an eat record
+    // (U_EAT_REMOVE, measured), only a removal of an own cell whose player still has cells.
     const removedNow = new Set(ev.removed);
+    const eatenNow = new Set();
     for (const [eater, eaten] of ev.eats) {
       assert.ok(removedNow.has(eaten));
-      if (ownerBefore.get(eater) !== null && ownerBefore.get(eater) === ownerBefore.get(eaten)) counts.merges++;
+      eatenNow.add(eaten);
+      assert.ok(!(ownerBefore.get(eater) !== null && ownerBefore.get(eater) === ownerBefore.get(eaten)), 'merge listed');
+    }
+    for (const id of ev.removed) {
+      const owner = ownerBefore.get(id);
+      if (!owner || eatenNow.has(id)) continue;
+      const p = sim.playerInfo(owner);
+      if (p && p.cells.length) counts.merges++;
     }
     for (const id of ev.added) {
       assert.ok(!seen.has(id), 'id reused ' + id + ' at tick ' + t);
@@ -129,9 +143,14 @@ test('soak: 1 scripted human plus bots for 20,000 ticks keeps every invariant', 
     counts.deaths += ev.died.filter((pid) => seat && pid === seat.pid).length;
 
     // World invariants. Every cell is kept inside its L3 box by the movement phase; a cell that then ate in the
-    // eat phase of the same tick has grown since, so until its next move it is only held to the border itself.
+    // eat phase of the same tick has grown since, so until its next move it is only held to the border itself (an own
+    // merge is such a growth too, but it is a plain removal, not an eat record (U_EAT_REMOVE), so a player cell that
+    // grew this tick counts as one that ate: player cells grow only by eating or merging); a
+    // piece of a player with 2+ cells may have been pushed by its own pieces after the border step (measured order),
+    // and then sits less than its own size past that.
     const b = ev.border;
     const ate = new Set(ev.eats.map((e) => e[0]));
+    sim.forEachCell((c) => { if (c.kind === 'player' && sizeBefore.has(c.id) && c.size > sizeBefore.get(c.id)) ate.add(c.id); });
     sim.forEachCell((c) => {
       if (!(Number.isFinite(c.x) && Number.isFinite(c.y) && Number.isFinite(c.size) && c.size > 0)) {
         assert.fail('bad cell ' + JSON.stringify([c.id, c.kind, c.x, c.y, c.size]) + ' at tick ' + t);
@@ -140,11 +159,17 @@ test('soak: 1 scripted human plus bots for 20,000 ticks keeps every invariant', 
         if (c.x < b.minX || c.x > b.maxX || c.y < b.minY || c.y > b.maxY) assert.fail('food outside at tick ' + t);
         return;
       }
-      const r = ate.has(c.id) ? 0 : k * c.size;
+      const pushed = c.kind === 'player' && sim.playerInfo(c.owner).cells.length > 1;
+      const r = (ate.has(c.id) ? 0 : k * c.size) - (pushed ? c.size : 0);
+      if (pushed) {
+        const out = Math.max(b.minX + k * c.size - c.x, c.x - (b.maxX - k * c.size), b.minY + k * c.size - c.y,
+          c.y - (b.maxY - k * c.size), 0);
+        if (out / c.size > counts.maxPushOut) counts.maxPushOut = out / c.size;
+      }
       const ex = b.maxX - b.minX < 2 * r;
       const ey = b.maxY - b.minY < 2 * r;
       if (!ex && (c.x < b.minX + r - 1e-9 || c.x > b.maxX - r + 1e-9)) assert.fail('x out of the L3 box at tick ' + t + ' ' + JSON.stringify([c.id, c.kind, c.owner, c.x, c.y, c.size, c.born, c.boost, b]));
-      if (!ey && (c.y < b.minY + r - 1e-9 || c.y > b.maxY - r + 1e-9)) assert.fail('y out of the L3 box at tick ' + t);
+      if (!ey && (c.y < b.minY + r - 1e-9 || c.y > b.maxY - r + 1e-9)) assert.fail('y out of the L3 box at tick ' + t + ' ' + JSON.stringify([c.id, c.kind, c.owner, c.x, c.y, c.size, c.born, c.boost, ate.has(c.id), pushed, b]));
     });
     {
       const l = sim.ledger();
@@ -153,19 +178,30 @@ test('soak: 1 scripted human plus bots for 20,000 ticks keeps every invariant', 
       assert.ok(Math.abs(live - (l.created - destroyed)) / live < 1e-9, 'ledger at tick ' + t);
     }
     const seatNow = room.seatOf(sock.id);
-    assert.strictEqual(room.botCount + (seatNow && seatNow.joined ? 1 : 0), FIXTURE.L39.value, 'bots fill the room at tick ' + t);
+    assert.strictEqual(room.botCount + (seatNow && seatNow.joined ? 1 : 0), laws.L39.value, 'bots fill the room at tick ' + t);
   }
 
   assert.strictEqual(room.failCount, 0);
   assert.strictEqual(room.stats.buildErrors, 0);
   assert.ok(counts.eats > 100, 'eats seen ' + counts.eats);
   assert.ok(counts.syncs >= 10, 'syncs after backlogs ' + counts.syncs);
-  assert.ok(counts.boards >= TICKS * FIXTURE.L1.value / FIXTURE.U_BOARD.value.periodMs - 40, 'boards ' + counts.boards);
+  assert.ok(counts.boards >= TICKS * laws.L1.value / laws.U_BOARD.value.periodMs - 40, 'boards ' + counts.boards);
+  assert.ok(counts.merges > 0, 'merges seen ' + counts.merges);
   assert.strictEqual(counts.clears, 1, 'one clearAll after the leave');
   assert.ok(ownFirsts >= counts.spawns, 'own cells checked on arrival ' + ownFirsts);
   assert.ok(room.stats.skipped >= 30);
   // Final world agrees with the client model for the human's own cells.
   const seat = room.seatOf(sock.id);
   for (const id of sim.playerInfo(seat.pid).cells) assert.ok(known.has(id) && announced.has(id), 'own cell ' + id + ' held');
-  console.log('soak counts ' + JSON.stringify(counts) + ' ticks ' + room.stats.ticks + ' bytes ' + room.stats.bytes);
+  console.log('soak (' + label + ') counts ' + JSON.stringify(counts) + ' ticks ' + room.stats.ticks + ' bytes ' +
+    room.stats.bytes);
+  room.stop();
+}
+
+test('soak: 1 scripted human plus bots for 20,000 ticks keeps every invariant (FIXTURE table)', { timeout: 600000 }, () => {
+  soak(FIXTURE, 'FIXTURE');
+});
+
+test('soak: the same 20,000 ticks on the real (approved) table', { timeout: 600000 }, () => {
+  soak(LAWS, 'real table');
 });
