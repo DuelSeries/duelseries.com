@@ -1592,8 +1592,9 @@ const paper = require('./paperSockets')({
 });
 
 /* ── agar.io redo (the free FFA copy, our own code: server/ag/) ──────────────
-   OFF unless AG_ENABLED says on (1, true, on, yes); anything else, unset
-   included, leaves it off, and a value that is not a switch says so. When on,
+   ON by default (since 2026-10-07); AG_ENABLED=0, false, off or no turns it
+   off, and any other value that is not a switch says so and fails closed.
+   Reached by direct URL only (not the lobby, not the ladder). When on,
    the rooms run on their own socket.io namespace, /ag, so the old agar pages
    (cell:*) and every other game never see them, and /ag serves public/ag.html.
    Free only: no stake, token or payout is read anywhere in server/ag.

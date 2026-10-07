@@ -2,8 +2,11 @@
 // Opening the agar.io rooms at server boot (server/index.js calls openAg once). Kept here so the switch and the
 // law gate are tested without booting the server.
 //
-//   AG_ENABLED   on only for 1, true, on, yes; unset or 0, false, off, no leaves it off; anything else is not
-//                a switch value, says so and leaves it off.
+//   AG_ENABLED   ON BY DEFAULT since 2026-10-07 (the real table is shippable, and production env lives only in the
+//                box's .env, so the default is what the live server runs). Unset, empty, 1, true, on, yes: on.
+//                0, false, off, no: off (the explicit off switch). Anything else is not a switch value: it says so
+//                and fails CLOSED (off). /ag is reached by direct URL only (not the lobby, not the ladder) and free
+//                only: server/ag reads no stake, token or payout.
 //   AG_DEV_LAWS  a file whose LAWS (or FIXTURE) table replaces the real one, to run the game locally on another
 //                table (the test FIXTURE). Refused, and the game then stays closed, wherever it could be the live
 //                server: NODE_ENV production, or an ESCROW_PRIVATE_KEY or DATABASE_URL set (the same refusals as
@@ -11,18 +14,17 @@
 //
 // Without AG_DEV_LAWS the rooms run on server/ag/agLaws.js and refuse to open unless it passes assertShippable
 // and the sim has built every rule it names. Since 2026-10-02 it passes both (Owen approved every row, and the sim
-// builds L6 'linearRamp', L29 'equalPieces' and L32 'whileUneaten'), so AG_ENABLED alone opens the game. Any
+// builds L6 'linearRamp', L29 'equalPieces' and L32 'whileUneaten'), so the game opens unless switched off. Any
 // failure leaves the game closed, never the server down.
 
 const path = require('path');
 
 function agSwitch(raw, log) {
   const v = String(raw == null ? '' : raw).trim().toLowerCase();
-  if (v === '1' || v === 'true' || v === 'on' || v === 'yes') return true;
-  if (v !== '' && v !== '0' && v !== 'false' && v !== 'off' && v !== 'no') {
-    (log || console).error('[AG] AG_ENABLED=' + JSON.stringify(String(raw).slice(0, 20)) +
-      ' is not a switch value; agar.io stays OFF');
-  }
+  if (v === '' || v === '1' || v === 'true' || v === 'on' || v === 'yes') return true;
+  if (v === '0' || v === 'false' || v === 'off' || v === 'no') return false;
+  (log || console).error('[AG] AG_ENABLED=' + JSON.stringify(String(raw).slice(0, 20)) +
+    ' is not a switch value; agar.io stays OFF (fails closed)');
   return false;
 }
 

@@ -29,20 +29,32 @@ function fakeIo() {
 
 const helpers = { socketRL: () => true, sanitizeName: (n) => String(n).slice(0, 20) || 'Player', ops: { get: () => ({}) } };
 
-test('AG_ENABLED is on only for an explicit yes', () => {
+test('AG_ENABLED is on by default, off only for an explicit no, and fails closed on anything else', () => {
   const log = logger();
-  for (const v of ['1', 'true', 'ON', ' yes ']) assert.strictEqual(agSwitch(v, log), true, v);
-  for (const v of [undefined, null, '', '0', 'false', 'off', 'no']) assert.strictEqual(agSwitch(v, log), false, String(v));
+  for (const v of [undefined, null, '', '  ', '1', 'true', 'ON', ' yes ']) assert.strictEqual(agSwitch(v, log), true, String(v));
+  for (const v of ['0', 'false', 'OFF', ' no ']) assert.strictEqual(agSwitch(v, log), false, v);
   assert.strictEqual(log.lines.error.length, 0);
-  assert.strictEqual(agSwitch('maybe', log), false);
-  assert.match(log.lines.error[0], /not a switch value/);
+  for (const v of ['maybe', '2', 'enabled']) assert.strictEqual(agSwitch(v, log), false, v);
+  assert.strictEqual(log.lines.error.length, 3);
+  assert.match(log.lines.error[0], /not a switch value.*fails closed/);
 });
 
-test('off by default: nothing opens and no namespace is made', () => {
+test('on by default: with no AG_ENABLED set, /ag opens on the real table, production included', () => {
   const io = fakeIo();
-  const r = openAg({ env: {}, io, helpers, log: logger(), autoTick: false });
-  assert.deepStrictEqual(r, { arenas: null, why: 'off' });
-  assert.deepStrictEqual(Object.keys(io.spaces), []);
+  const r = openAg({ env: { NODE_ENV: 'production' }, io, helpers, log: logger(), autoTick: false });
+  assert.ok(r.arenas, r.why);
+  assert.strictEqual(r.arenas.laws, L.LAWS);
+  assert.ok(typeof io.spaces['/ag'].listeners.connection === 'function');
+  r.arenas.stop();
+});
+
+test('the explicit off switch: nothing opens and no namespace is made', () => {
+  for (const v of ['0', 'false', 'off', 'no', 'bogus']) {
+    const io = fakeIo();
+    const r = openAg({ env: { AG_ENABLED: v }, io, helpers, log: logger(), autoTick: false });
+    assert.deepStrictEqual(r, { arenas: null, why: 'off' }, v);
+    assert.deepStrictEqual(Object.keys(io.spaces), [], v);
+  }
 });
 
 test('on with the real table: every row approved and every rule built, so /ag opens', () => {
