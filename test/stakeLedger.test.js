@@ -396,11 +396,18 @@ test('Paper: the same token re-sent on a new link while its claim is in flight i
 
 test('index.js: every paid door claims the stake row before seating, submit-stake writes it, boot sweeps it', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'server', 'index.js'), 'utf8');
-  for (const game of ['snake', 'agar', 'knockout', 'battleship']) {
+  for (const game of ['snake', 'knockout', 'battleship']) {
     assert.match(src, new RegExp(`enterPaid\\(socket, '${game}'`), game + ' goes through enterPaid');
   }
   assert.strictEqual((src.match(/enterPaid\(socket, 'snake'/g) || []).length, 2, 'snake PLAY and RESPAWN');
-  assert.strictEqual((src.match(/enterPaid\(socket, 'agar'/g) || []).length, 2, 'agar join and respawn');
+  /* agar.io has no paid door at all now: the old game's cell:join and cell:respawn went with it,
+     and the new game (server/ag) reads no token. No consume and no enterPaid names agar. */
+  assert.strictEqual((src.match(/enterPaid\(socket, 'agar'/g) || []).length, 0, 'no agar door');
+  assert.doesNotMatch(src, /consumePaidEntry\([^)]*'agar'\)/, 'no agar token is ever consumed');
+  const ag = ['agArenas.js', 'agBoot.js', 'agRoom.js', 'agSockets.js']
+    .map((f) => fs.readFileSync(path.join(__dirname, '..', 'server', 'ag', f), 'utf8')).join('\n');
+  assert.doesNotMatch(ag, /entryToken|consumePaidEntry|enterPaid|stakeLedger|money\.withdraw/,
+    'the new agar.io server reads no token and pays nothing');
   // No door reads a consumed entry's worth any more without enterPaid in between.
   assert.doesNotMatch(src, /const entry = consumePaidEntry/);
   assert.match(src, /stakeLedger\.claimSeat\(entry\)\.then/);

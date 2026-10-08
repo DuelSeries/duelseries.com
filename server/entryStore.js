@@ -8,7 +8,7 @@
    Why the token exists at all: the socket handshake session is empty, so the
    server cannot identify a player from socket auth. Instead /api/submit-stake
    verifies the on-chain stake landed, then mints an opaque one-time token
-   carrying the SERVER-recorded worth. PLAY / RESPAWN / cell:join consume it and
+   carrying the SERVER-recorded worth. PLAY / RESPAWN (and paid Paper) consume it and
    take worth from here, never from the client's claimed entrySol. A modified
    client can therefore neither forge a token nor inflate what it is worth,
    which is what closes the escrow-drain hole.

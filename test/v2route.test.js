@@ -48,7 +48,7 @@ test('the old lobby is gone, and nothing still reaches for it', () => {
   assert.ok(!fs.existsSync(path.join(ROOT, 'public/index.html')), 'index.html is gone');
   assert.ok(!fs.existsSync(path.join(ROOT, 'public/js/lobby.js')), 'lobby.js is gone');
   // A dangling reference would 404 at runtime rather than fail a build.
-  for (const p of ['public/v2.html', 'public/game.html', 'public/agar.html']) {
+  for (const p of ['public/v2.html', 'public/game.html', 'public/ag.html']) {
     const h = fs.readFileSync(path.join(ROOT, p), 'utf8');
     assert.ok(!/["'\/]js\/lobby\.js/.test(h), `${p} does not load lobby.js`);
   }
@@ -434,7 +434,7 @@ test('the game screen puts the action above the lobby list', () => {
 test('the brand mark is wired everywhere a browser asks for one', () => {
   // Tab, bookmark bar, iOS bookmark, installed app: four different requests,
   // and a missing one silently falls back to a blank page glyph.
-  for (const page of ['public/v2.html', 'public/game.html', 'public/agar.html']) {
+  for (const page of ['public/v2.html', 'public/game.html', 'public/ag.html']) {
     const h = fs.readFileSync(path.join(ROOT, page), 'utf8');
     assert.ok(h.includes('/img/favicon-32.png'), `${page} sets the tab icon`);
     assert.ok(h.includes('/img/apple-touch-icon.png'), `${page} sets the iOS icon`);
@@ -765,7 +765,7 @@ test('the spectate bar fits a phone, and both games get the same one', () => {
   // (0,1,1) beat (0,1,0) and the primary rendered as a ghost.
   assert.ok(/#spectate-bar #spectate-play-again {/.test(block),
     'the primary out-specifies the bar-wide button rule');
-  for (const f of ['public/css/game.css', 'public/css/agar.css']) {
+  for (const f of ['public/css/game.css', 'public/css/ag.css']) {
     assert.ok(!fs.readFileSync(path.join(ROOT, f), 'utf8').includes('#spectate-bar'),
       f + ' does not carry a second copy of the bar');
   }
@@ -1244,8 +1244,9 @@ test('an empty board never sends a laddered game to the fixed tier', () => {
   // The predicate is worthless if the catalogue does not carry the flag.
   assert.ok(/id:'snake'[^}]*ladder:1/.test(html), 'snake is marked as a ladder game');
   assert.ok(/window\.V2_HAS_LADDER=/.test(html), 'and the predicate is published');
-  /* agar really does have no rungs on /api/live — board.js adds its free room
-     client-side — so its tier fallback is correct and must not be flagged. */
+  /* agar really does have no rungs on /api/live — board.js pins its free row
+     client-side and the new game is Free only — so its free fallback is
+     correct and must not be flagged. */
   assert.ok(!/id:'agar'[^}]*ladder:1/.test(html), 'agar is not a ladder game');
 });
 
@@ -1268,10 +1269,22 @@ test('the owner console names the room players are actually in', () => {
   assert.ok(/'\$' \+ stake\.toFixed\(2\)/.test(fn), 'and a paid rung names its price');
 
   // The tier rooms say they are the old ones, so they cannot be mistaken for
-  // the live table again. agar's free room is NOT one of them.
+  // the live table again. The nightly event is NOT one of them.
   assert.ok(/old tier/.test(fn), 'the snake fixed tiers are marked as old');
-  assert.ok(/!agar && !r\.isBattleRoyale/.test(fn),
-    "and agar's own free room is not marked, because agar really uses it");
+  assert.ok(/const oldTier = !r\.isBattleRoyale;/.test(fn),
+    'and the nightly event is not marked, because it is on the lobby');
+
+  /* Run as written. The old agar.io rooms (agar_na_free and friends) are gone
+     with that game; the agar.io rooms now are server/ag's `ag_na_s0#N`, all
+     free, named as the game the lobby calls agar.io. */
+  const roomLabel = new Function(fn + '; return roomLabel;')();
+  assert.strictEqual(roomLabel({ lobbyType: 'ag_na_s0', index: 0 }), 'agar.io · Free');
+  assert.strictEqual(roomLabel({ lobbyType: 'ag_na_s0#2', index: 2 }), 'agar.io · Free #2');
+  assert.strictEqual(roomLabel({ lobbyType: 'na_s0' }), 'slither.io · Free');
+  assert.strictEqual(roomLabel({ lobbyType: 'na_s1' }), 'slither.io · $1.00');
+  assert.strictEqual(roomLabel({ lobbyType: 'na_free' }), 'slither.io · Free (old tier, off the board)');
+  assert.strictEqual(roomLabel({ lobbyType: 'na_br', isBattleRoyale: true }), 'slither.io · Battle royale');
+  assert.ok(!/agar_/.test(fn), 'nothing in it still parses the old agar room names');
 });
 
 test('an unrecognised lobbyType is logged rather than silently absorbed', () => {
@@ -1312,8 +1325,11 @@ test('Paper takes the widget path to its arena page, on every rung', () => {
   assert.ok(/const PAGES = \{[^}]*paper: '\/paper-arena'/.test(src), 'the widget source maps paper');
   const bundle = fs.readFileSync(path.join(ROOT, 'public/wallet/widget.js'), 'utf8');
   assert.ok(bundle.includes('paper-arena'), 'the built bundle names the arena page');
-  assert.ok(/\{agar:[`'"]\/agar\.html[`'"][^}]*paper:[`'"]\/paper-arena[`'"]/.test(bundle),
+  assert.ok(/\{agar:[`'"]\/ag[`'"][^}]*paper:[`'"]\/paper-arena[`'"]/.test(bundle),
     'and maps paper to it in the same page map, so the bundle is not stale');
+  // The same map sends agar.io to the new game, never the deleted page.
+  assert.ok(/const PAGES = \{ agar: '\/ag',/.test(src), 'the widget source maps agar to /ag');
+  assert.ok(!/agar\.html/.test(src) && !/agar\.html/.test(bundle), 'nothing in the widget names the old page');
 
   /* The lobby's own shortcut is for games with no money in them. Paper has
      money on two rungs and a fresh hand-off on all three, so it is not there. */
@@ -1499,6 +1515,89 @@ test('a paid Paper, Knockout or Battleship buy-in is staked on this origin even 
   s.win.V2Play.launch('snake', { stake: 0.1 });
   await assert.rejects(s.pending(), /no server here/);
   assert.deepEqual(s.fetched.filter(u => /stake-quote/.test(u)), ['https://eu.duelseries.com/api/stake-quote?stake=0.1']);
+});
+
+/* The lobby swap (agario-reference/PLAN.md Phase 5): the agar.io card opens the NEW game at /ag,
+   in the same frame the old one used (agar-frame), Free only, through the widget's real launch
+   code. The old page (/agar.html) is deleted. */
+test('from the lobby, Free agar.io opens /ag in the agar frame with no stake and no token', async () => {
+  const h = lobbyHarness([]);
+  await h.win.V2Board.load();
+  assert.ok(h.el('lob').innerHTML.includes('agar:free'), 'the pinned Free agar.io row is on the board');
+  h.win.V2Board.join('agar:free');                     // its Enter button
+  assert.deepEqual(plain(h.plays), [{ game: 'agar', sel: { lobbyType: 'free' } }],
+    'the lobby hands the widget the free room, never a stake');
+  await h.pending();
+  const ss = h.win.sessionStorage;
+  assert.equal(h.el('agar-frame').src, '/ag', 'the widget opens the new game');
+  assert.equal(h.el('agar-frame').style.display, 'block', 'in the agar frame, as the old game was');
+  assert.equal(h.el('game-frame').src, '', 'and not in the snake frame');
+  assert.equal(ss.getItem('lobbyType'), 'free');
+  assert.equal(ss.getItem('entryToken'), '', 'an empty token');
+  assert.equal(ss.getItem('stake'), null);
+  assert.equal(ss.getItem('playerName'), 'Tester', 'the lobby name the page puts in its name box');
+  assert.equal(ss.getItem('gameMode'), null, 'the old page\'s write-only flag is gone');
+  assert.ok(!h.fetched.some(u => /stake/.test(u)), 'Free asks for no quote and stakes nothing');
+
+  // From the detail screen with no board yet: agar has no ladder, so it opens on the free room.
+  const d = lobbyHarness(null);
+  await d.win.V2Board.load();
+  const row = v2().match(/\{id:'agar'[^\n]*/)[0];
+  d.win.V2_HAS_LADDER = id => id === 'agar' && /ladder:1/.test(row);
+  d.win.V2Detail = { game: 'agar', stake: 0 };
+  d.win.V2Play.playChosen();
+  assert.deepEqual(plain(d.plays), [{ game: 'agar', sel: { lobbyType: 'free' } }]);
+  await d.pending();
+  assert.equal(d.el('agar-frame').src, '/ag');
+});
+
+test('a paid agar.io launch is refused before any money is asked for, by the lobby and by the widget', async () => {
+  const h = lobbyHarness([]);
+  h.win.V2Play.launch('agar', { stake: 0.1 });
+  h.win.V2Play.launch('agar', { lobbyType: 'dime' });
+  assert.deepEqual(plain(h.plays), [], 'the widget is never asked');
+  assert.match(h.el('play-msg').textContent, /free to play/, 'and the player is told why');
+  // The widget refuses on its own too (a stale lobby, a console call), before any quote.
+  for (const sel of [{ stake: 1 }, { lobbyType: 'dollar' }]) {
+    await assert.rejects(h.win.stakeAndPlay('agar', sel, { address: 'WALLET1' },
+      () => { throw new Error('never signs'); }, () => {}, () => {}), /free to play/);
+  }
+  assert.ok(!h.fetched.some(u => /stake/.test(u)), 'nothing was quoted');
+  assert.equal(h.el('agar-frame').src, '', 'and nothing opened');
+});
+
+test('watching agar.io from the lobby opens /ag in the agar frame too', () => {
+  const h = lobbyHarness([]);
+  h.win.V2Play.spectate('agar');
+  assert.equal(h.el('agar-frame').src, '/ag');
+  assert.equal(h.el('agar-frame').style.display, 'block');
+  assert.equal(h.el('game-frame').src, '');
+  const s = lobbyHarness([]);
+  s.win.V2Play.spectate('snake', 'br');
+  assert.equal(s.el('game-frame').src, '/game.html', 'the snake game still watches in its own frame');
+  assert.equal(s.el('agar-frame').src, '');
+});
+
+test('the agar.io card paints the new game\'s look, not the old one\'s', () => {
+  const html = v2();
+  // The old game's floor and grid (read out of the deleted public/js/agar.js) are gone.
+  assert.ok(!html.includes('#f0f4ff') && !html.includes('rgba(99,102,241'), 'no old agar floor or grid');
+  assert.ok(!/agar\.js|agar\.html/.test(html), 'nothing on the lobby names the old files');
+  // The new game's own values (public/js/ag/agRender.js): floor, 50-unit grid, black lines at 0.2.
+  const render = fs.readFileSync(path.join(ROOT, 'public/js/ag/agRender.js'), 'utf8');
+  assert.ok(render.includes("var BG_LIGHT = 'rgb(242,251,255)'") && render.includes('var GRID = 50;'),
+    'the game still draws with the values the card copies');
+  assert.ok(html.includes("function agBg(){return 'rgb(242,251,255)'}"), 'the card floor is the game floor');
+  assert.ok(/const G=50\*agK\(\)/.test(html), 'the card grid is the game grid, to the card scale');
+  // The colour rule (laws L33/L36): one channel 255, one 7, the third 8 to 254, any order.
+  const src = html.slice(html.indexOf('function agRgb(){'), html.indexOf('function agCss('));
+  const agRgb = new Function(src + '; return agRgb;')();
+  for (let i = 0; i < 500; i++) {
+    const v = agRgb().slice().sort((a, b) => a - b);
+    assert.ok(v[0] === 7 && v[2] === 255 && v[1] >= 8 && v[1] <= 254, JSON.stringify(v));
+  }
+  // The skin row is hidden on agar.io: the server picks the colour, so a skin would do nothing.
+  assert.ok(/\{id:'agar'[^}]*nolook:1/.test(html), 'agar.io has no skin row');
 });
 
 test('each playable game card carries a people count, and a padlocked one does not', () => {

@@ -107,12 +107,18 @@ test('every periodic job is staggered and timed, none on a bare interval', () =>
   const fs = require('fs');
   const idx = fs.readFileSync(path.join(__dirname, '..', 'server/index.js'), 'utf8');
 
-  for (const label of ['solvency', 'payouts', 'lb-flush', 'agar-lb-flush',
-                       'lobby-sweep', 'collusion'])
+  for (const label of ['solvency', 'payouts', 'lb-flush', 'paper-sweep',
+                       'lobby-sweep', 'collusion', 'stake-sweep'])
     assert.ok(new RegExp(`'${label}'`).test(idx), `${label} runs through everyStaggered`);
 
+  /* The old agar.io game's high-score board went with that game (its flush job, its module and
+     its LOBBY_STATE field, which no lobby code read). Nothing may still schedule or require it. */
+  assert.ok(!/'agar-lb-flush'/.test(idx) && !/\bagarLb\b/.test(idx) && !/require\('\.\/agarLeaderboard'\)/.test(idx),
+    'the old agar high-score flush is gone');
+  assert.ok(!fs.existsSync(path.join(__dirname, '..', 'server/agarLeaderboard.js')), 'and so is its module');
+
   // No module may quietly schedule its own periodic work any more.
-  for (const f of ['server/leaderboard.js', 'server/agarLeaderboard.js', 'server/CollusionMonitor.js']) {
+  for (const f of ['server/leaderboard.js', 'server/CollusionMonitor.js']) {
     const src = fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
     assert.ok(!/setInterval/.test(src), `${f} does not schedule itself`);
   }

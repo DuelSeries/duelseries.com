@@ -7,13 +7,11 @@ const path       = require('path');
 const { rateLimit } = require('express-rate-limit');
 const C        = require('../shared/constants');
 const GameRoom = require('./GameRoom');
-const AgarRoom      = require('./AgarRoom');
 const { BattleRoyaleRoom, BR } = require('./BattleRoyaleRoom');
 const { TanksLobby } = require('./TanksLobby');   // the artillery duel
 const { KnockoutLobby } = require('./KnockoutLobby'); // the shrinking-disc duel
 const { BattleshipLobby } = require('./BattleshipLobby'); // the two-grid duel
 const { ShooterRoom, SH: SHOOTER } = require('./ShooterRoom'); // the top-down tank arena
-const agarLb        = require('./agarLeaderboard');
 const db     = require('./db');
 const collusion = require('./CollusionMonitor');
 const profiler = require('./profiler');
@@ -105,7 +103,6 @@ if (process.env.NODE_ENV === 'production' && !process.env.SESSION_SECRET) {
 Wallet.setDb(db);
 Wallet.seedUsedSignatures();
 allTimeLb.setDb(db);
-agarLb.setDb(db);
 
 const app    = express();
 const server = http.createServer(app);
@@ -372,19 +369,22 @@ app.get('/api/money-config', (req, res) => {
 });
 
 // ─── Cross-region stats: EU pushes to NA instantly on every change ────────────
-let remoteStats = { playerCount: 0, agarPlayerCount: 0, liveStakesSol: 0 };
+/* The old agar.io game's agarPlayerCount used to ride along here. Nothing ever read it (the lobby
+   cards count from /api/live), so it went with that game; an old EU server still sending it is
+   simply ignored. */
+let remoteStats = { playerCount: 0, liveStakesSol: 0 };
 const STATS_SECRET = process.env.SESSION_SECRET || 'duelseries-dev-secret';
 
 // Both servers expose their local counts (used by EU to self-report)
 app.get('/api/stats', (req, res) => {
-  res.json({ playerCount: totalInGame(), agarPlayerCount: totalAgarInGame() });
+  res.json({ playerCount: totalInGame() });
 });
 
 // NA server receives pushed stats from EU
 if (REGION === 'na') {
   app.post('/api/stats/push', express.json(), (req, res) => {
     if (req.headers['x-stats-secret'] !== STATS_SECRET) return res.sendStatus(403);
-    remoteStats = { playerCount: req.body.playerCount || 0, agarPlayerCount: req.body.agarPlayerCount || 0, liveStakesSol: req.body.liveStakesSol || 0 };
+    remoteStats = { playerCount: req.body.playerCount || 0, liveStakesSol: req.body.liveStakesSol || 0 };
     broadcastLobbyState();
     res.sendStatus(204);
   });
@@ -398,7 +398,7 @@ async function pushStatsToNA() {
     await fetch(NA_PUSH_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-stats-secret': STATS_SECRET },
-      body: JSON.stringify({ playerCount: totalInGame(), agarPlayerCount: totalAgarInGame(), liveStakesSol: sumLiveSelfCustodyStakes() }),
+      body: JSON.stringify({ playerCount: totalInGame(), liveStakesSol: sumLiveSelfCustodyStakes() }),
       signal: AbortSignal.timeout(3000),
     });
   } catch {}
@@ -415,7 +415,7 @@ const rpcLimiter = rateLimit({ windowMs: 10 * 1000, max: 100, standardHeaders: t
 const LOBBY_FEES = money.lobbyFees; // { free, dime, dollar } — the active money mode's fee table (keys validate lobby type)
 
 // Server-authorised paid-entry tokens. /api/submit-stake mints one after verifying the
-// player's on-chain stake landed in the escrow; PLAY / RESPAWN / cell:join verify + consume
+// player's on-chain stake landed in the escrow; PLAY / RESPAWN and the duel queues verify + consume
 // it and take the snake's cash worth from THIS server value — never from the client's
 // claimed entrySol (a modified client could otherwise inflate it and mint money on
 // cash-out). One-time use; carries the staker's wallet for the on-chain cash-out.
@@ -487,7 +487,8 @@ function consumePaidEntry(entryToken, shortType, game) {
 }
 
 /* EVERY PAID DOOR BUT PAPER'S (paperSockets.js has its own, same rules): snake PLAY and RESPAWN,
-   agar cell:join and cell:respawn (free only while AGAR_PAID is off), ko:queue, bs:queue.
+   ko:queue, bs:queue. agar.io has no paid door: the old game's cell:join and cell:respawn were
+   deleted with it, and the new one (server/ag, the /ag namespace) reads no token at all.
 
    `entry` is what the consume returned (the token already left memory, one-time as before). A
    free, dev or non-durable entry is seated right here, synchronously, exactly as before. A
@@ -1007,9 +1008,6 @@ const ALL_SNAKE_ROOMS = () => {
 };
 const ALL_ROOMS = () => {
   const out = ALL_SNAKE_ROOMS();
-  for (const rgn of Object.keys(agarRooms)) {
-    for (const k of Object.keys(agarRooms[rgn] || {})) out.push(agarRooms[rgn][k]);
-  }
   /* The tanks arena too. It is one room for the whole region rather than a
      ladder, and it answers to the same playerCount / botCount / addBot /
      clearBots the console already uses. Anything here that wants `.snakes`
@@ -1021,13 +1019,13 @@ const ALL_ROOMS = () => {
      paid squares and its `floorWorth` the coins on its floor, so drainStatus
      counts both kinds of Paper money before a push. */
   if (typeof paperArenas !== 'undefined' && paperArenas) out.push(...paperArenas.all());
-  /* The new free agar.io rooms (only while AG_ENABLED opened them): the same
+  /* The agar.io rooms (server/ag, only while AG_ENABLED opened them): the same
      playerCount / botCount / botsAllowed / addBot / clearBots, no money. */
   if (typeof agArenas !== 'undefined' && agArenas) out.push(...agArenas.all());
   return out;
 };
 
-/* A room's name in words, for the owner console. `na_free` and `agar_na_dime`
+/* A room's name in words, for the owner console. `na_free` and `ag_na_s0#1`
    are what the code calls them; nobody should have to translate that in their
    head while looking for the free slither table. */
 function roomLabel(r) {
@@ -1038,11 +1036,11 @@ function roomLabel(r) {
     return 'Paper · ' + (r.stake === 0 ? 'Free' : '$' + Number(r.stake).toFixed(2))
       + (r.index > 0 ? ' #' + r.index : '');
   }
-  // The new agar.io rooms are `ag_na_s0#1`: always free, then which overflow room.
-  if (raw.startsWith('ag_')) return 'agar.io (new) · Free' + (r.index > 0 ? ' #' + r.index : '');
-  const agar = raw.startsWith('agar');
-  const type = raw.replace(/^agar_/, '').replace(/^(na|eu)_/, '');
-  const game = r.isBattleRoyale ? 'slither.io' : agar ? 'agar.io' : 'slither.io';
+  // The agar.io rooms are `ag_na_s0#1`: always free, then which overflow room.
+  if (raw.startsWith('ag_')) return 'agar.io · Free' + (r.index > 0 ? ' #' + r.index : '');
+  // Everything left is the slither.io game: the fixed tiers, the nightly event and the ladder rungs.
+  const type = raw.replace(/^(na|eu)_/, '');
+  const game = 'slither.io';
 
   /* A LADDER RUNG NAMES ITS OWN PRICE. These rooms are called `na_s0` and
      `na_s0_1`, and this printed the raw id, so the one room every free snake
@@ -1059,9 +1057,9 @@ function roomLabel(r) {
 
   /* SAY WHICH ROOMS ARE THE OLD ONES. The snake fixed tiers pre-date the
      ladder and nothing on the lobby board points at them any more — they are
-     kept only as the fallback `getRoomForType` lands on. agar's free room is
-     NOT one of these: it is the room agar genuinely uses, so it is not marked. */
-  const oldTier = !agar && !r.isBattleRoyale;
+     kept only as the fallback `getRoomForType` lands on. The nightly event is
+     NOT one of these: it is on the lobby, so it is not marked. */
+  const oldTier = !r.isBattleRoyale;
   const tier = type === 'free'   ? (oldTier ? 'Free (old tier, off the board)' : 'Free')
              : type === 'br'     ? 'Battle royale'
              : type === 'dime'   ? '$0.10' + (oldTier ? ' (old tier, off the board)' : '')
@@ -1079,8 +1077,7 @@ function opsSnapshot() {
     game: r.isBattleRoyale ? 'battle royale'
         : r.lobbyType === 'tanks' ? 'Awesome Tanks'
         : String(r.lobbyType).startsWith('paper_') ? 'Paper'
-        : String(r.lobbyType).startsWith('ag_') ? 'agar.io (new)'
-        : String(r.lobbyType).startsWith('agar') ? 'agar.io' : 'slither.io',
+        : String(r.lobbyType).startsWith('ag_') ? 'agar.io' : 'slither.io',
     players: r.playerCount !== undefined ? r.playerCount : (r.players ? r.players.size : 0),
     bots: r.botCount !== undefined ? r.botCount : 0,
     /* Whether this room can hold bots AT ALL, asked of the room rather than
@@ -1352,6 +1349,11 @@ app.get('/paper-arena', (_req, res) => res.sendFile(path.join(__dirname, '../pub
    is closed). Without this, express.static would hand out public/ag.html at
    /ag.html even with AG off: a dead page that cannot connect. */
 app.get('/ag.html', (_req, res) => res.redirect(302, '/ag'));
+/* The old agar.io game's page was deleted when the lobby moved to the new one
+   (agario-reference/PLAN.md, Phase 6). A bookmark or an old link to it lands on
+   the new game instead of a 404. 302, not 301: a browser never caches it, so
+   the address stays free to mean something else later. */
+app.get(['/agar', '/agar.html'], (_req, res) => res.redirect(302, '/ag'));
 
 app.use(express.static(path.join(__dirname, '../public')));
 app.use('/shared', express.static(path.join(__dirname, '../shared')));
@@ -1359,9 +1361,8 @@ app.use('/shared', express.static(path.join(__dirname, '../shared')));
 // ─── Game rooms (one per region + lobby type) ────────────────────────────────
 const REGIONS = ['na', 'eu'];
 const gameRooms = {};
-const agarRooms = {};
 // Only host the rooms for THIS server's region. Building every region on every
-// server meant the NA box ran 6 snake rooms + 6 agar rooms — 12 loops at 60Hz on
+// server meant the NA box ran 6 snake rooms + 6 old agar rooms — 12 loops at 60Hz on
 // a single vCPU — half of them for a region whose server is stopped and which is
 // crossed out in the lobby, so nobody could reach them. That constant background
 // load is what kept ~2% of ticks running late even between the periodic spikes.
@@ -1591,12 +1592,15 @@ const paper = require('./paperSockets')({
   paidEnabled: PAPER_PAID,
 });
 
-/* ── agar.io redo (the free FFA copy, our own code: server/ag/) ──────────────
+/* ── agar.io (the free FFA copy, our own code: server/ag/) ───────────────────
    ON by default (since 2026-10-07); AG_ENABLED=0, false, off or no turns it
    off, and any other value that is not a switch says so and fails closed.
-   Reached by direct URL only (not the lobby, not the ladder). When on,
-   the rooms run on their own socket.io namespace, /ag, so the old agar pages
-   (cell:*) and every other game never see them, and /ag serves public/ag.html.
+   It is the lobby's agar.io card since the lobby swap (2026-10-07): the card
+   opens /ag in the lobby's agar frame, Free only, and its count and row come
+   from these rooms (liveExtras, liveGameCounts). Not on the stake ladder. The
+   rooms run on their own socket.io namespace, /ag, so no other game ever sees
+   them, and /ag serves public/ag.html. The old agar.io game (AgarRoom, the
+   cell:* events, agar.html) is deleted; /agar sends the browser here.
    Free only: no stake, token or payout is read anywhere in server/ag.
 
    The rooms refuse to open unless the law table passes assertShippable and
@@ -1606,8 +1610,7 @@ const paper = require('./paperSockets')({
    server on another table (the test FIXTURE) to exercise the game; it is
    refused in production (or with an escrow key or a DATABASE_URL set), where
    the game then stays closed. Seats, watchers and connections per address
-   are capped in server/ag (agRoom, agSockets). Not on /api/live
-   or the lobby yet: that is the lobby swap. The switch and the gate live in
+   are capped in server/ag (agRoom, agSockets). The switch and the gate live in
    server/ag/agBoot.js (tested in test/agBoot.test.js). */
 const agBoot = require('./ag/agBoot').openAg({
   env: process.env,
@@ -1616,8 +1619,22 @@ const agBoot = require('./ag/agBoot').openAg({
   helpers: { socketRL, sanitizeName, ops },
 });
 const agArenas = agBoot.arenas;
+/* Closed (switched off, or the law gate refused): the lobby card still opens
+   this address in its full-screen frame, so the answer is a page with a way
+   back (game:done, the message every game page sends), not bare text that
+   would leave the player stuck in the frame. */
+const AG_CLOSED_PAGE = '<!doctype html><html lang="en"><head><meta charset="utf-8">'
+  + '<meta name="viewport" content="width=device-width, initial-scale=1"><title>agar.io - DuelSeries</title></head>'
+  + '<body style="margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;'
+  + 'background:#100e0b;color:#f5f1e8;font:16px Arial,sans-serif;text-align:center">'
+  + '<div><p>agar.io is not open right now.</p>'
+  + '<button id="back" type="button" style="font:600 16px Arial,sans-serif;padding:10px 22px;border:0;'
+  + 'border-radius:8px;background:#f0a830;color:#100e0b;cursor:pointer">Back to the lobby</button></div>'
+  + '<script>document.getElementById("back").onclick=function(){'
+  + 'if(window.parent&&window.parent!==window){window.parent.postMessage("game:done","*")}'
+  + 'else{location.href="/"}};</script></body></html>';
 app.get('/ag', (_req, res) => {
-  if (!agArenas) return res.status(503).type('text/plain').send('agar.io is not open yet.');
+  if (!agArenas) return res.status(503).type('html').send(AG_CLOSED_PAGE);
   res.sendFile(path.join(__dirname, '../public/ag.html'));
 });
 
@@ -1683,16 +1700,10 @@ for (const rgn of [REGION]) {
       .catch(e => console.error(`[BR] winner cash-out failed for ${matchId}:`, e.message));
   };
 
-  agarRooms[rgn] = {
-    free:   new AgarRoom(io, `agar_${rgn}_free`),
-    dime:   new AgarRoom(io, `agar_${rgn}_dime`),
-    dollar: new AgarRoom(io, `agar_${rgn}_dollar`),
-  };
   Object.values(gameRooms[rgn]).forEach(r => r.start());
   tanksLobby.start();
   knockoutLobby.start();
   battleshipLobby.start();
-  Object.values(agarRooms[rgn]).forEach(r => r.start());
 }
 
 /* ─── The live board ──────────────────────────────────────────────────────────
@@ -1749,9 +1760,18 @@ function liveBoard() {
    put a blank rung on the control. */
 function liveExtras() {
   const out = [];
-  const agar = agarRooms[REGION] && agarRooms[REGION].free;
-  if (agar) out.push({ id: 'agar:free', game: 'agar', region: REGION,
-    players: agar.playerCount || 0, bots: agar.botCount || 0 });
+  /* agar.io: every room of the free rung (server/ag, overflow rooms included),
+     as the one row the lobby pins under the id it has always used. Players are
+     the humans who pressed Play (watchers on the menu are not playing), bots
+     every bot in those rooms: the same two numbers agArenas.boardRows() sums.
+     No row while the game is closed, so the card reads 0 rather than a guess. */
+  if (agArenas) {
+    let players = 0, bots = 0;
+    try {
+      for (const r of agArenas.boardRows()) { players += r.players || 0; bots += r.bots || 0; }
+    } catch (_) {}
+    out.push({ id: 'agar:free', game: 'agar', region: REGION, players, bots });
+  }
   if (typeof shooterRoom !== 'undefined' && shooterRoom) {
     /* WHAT YOU WILL FIND, not what is there with nobody looking.
 
@@ -1861,7 +1881,7 @@ function liveGameCounts() {
   for (const e of ladder.rooms.values()) if (e.game === 'snake') snakeRooms.push(e.room);
   return liveCounts({
     snakeRooms,
-    agarRooms: Object.values(agarRooms[REGION] || {}),
+    agar: agArenas,                 // every agar.io room (null while the game is closed)
     shooter: typeof shooterRoom !== 'undefined' ? shooterRoom : null,
     tanks: typeof tanksLobby !== 'undefined' ? tanksLobby : null,
     knockout: typeof knockoutLobby !== 'undefined' ? knockoutLobby : null,
@@ -2072,45 +2092,13 @@ function getRoomForType(lobbyType, region) {
   return hit || gameRooms[rgn].free;
 }
 
-function getAgarRoomForType(lobbyType, region) {
-  const rgn = ownKey(agarRooms, region) ? region : REGION;
-  return (ownKey(agarRooms[rgn], lobbyType) && agarRooms[rgn][lobbyType]) || agarRooms[rgn].free;
-}
-
-/* ─── AGAR_PAID: the OLD agar.io game takes no money ─────────────────────────
-   Closed 2026-09-30. agar.io is being rebuilt from scratch (agario-reference/PLAN.md), and the
-   old game's money glue was never hardened: its cash-out hold is counted only in the browser, a
-   disconnect forfeits the stake with no record, and a paid agar seat is invisible to the
-   pre-deploy drain check (agario-reference/notes/current-agar.md, surprises 2, 3 and 6). The
-   lobby has shown only Free agar for a long time, yet the $0.10 and $1 agar rooms still seated a
-   real stake from a hand-made client through the old tier door.
-
-   So cell:join and cell:respawn refuse every paid agar seat, decided from the request and the
-   socket alone, BEFORE the entry token is looked at. The token is never spent: it still opens a
-   room of that price in a game that is open, or it expires unspent and the sweep refunds it
-   through its stake row (entryExpiry.js), like any token nobody used. /api/submit-stake cannot
-   be this gate: neither of its doors names a game (a tier or ladder token opens every game's
-   room at that price), so no request there is "for agar".
-
-   The dime and dollar rooms stay up and empty (the owner console, liveCounts and the tests read
-   them) and the old code stays for the redo to delete in its own order (current-agar.md
-   section 9). Paid agar comes back only as the NEW game's own switch, after a money review,
-   the way PAPER_PAID did. Do not flip this one. */
-const AGAR_PAID = false;
-const AGAR_PAID_CLOSED = 'Paid agar.io is closed while the game is rebuilt. Free agar.io is still open.';
-const isFreeAgarRoom = (room) => !!room && Object.keys(agarRooms).some((r) => agarRooms[r].free === room);
-/* Would this seat somebody for money? Its lobby type carries a fee, or it lands anywhere but a
-   free agar room. A missing or junk type lands in the free room for nothing, as it always has. */
-function agarSeatIsPaid(room, shortType) {
-  const fee = ownKey(LOBBY_FEES, shortType) ? Number(LOBBY_FEES[shortType]) || 0 : 0;
-  return fee > 0 || !isFreeAgarRoom(room);
-}
-function refuseClosedAgar(socket, door, room, shortType) {
-  socket.emit('cell:join:error', { message: AGAR_PAID_CLOSED, closed: true });
-  if (socketRL(socket, 'agar-paid-closed', 10000)) {
-    console.warn(`[AGAR] paid ${door} refused (AGAR_PAID off): ${(room && room.roomName) || 'no room'} ${String(shortType).slice(0, 16)}, token left unspent`);
-  }
-}
+/* agar.io takes no money. The old game's paid gate (AGAR_PAID, closed 2026-09-30) went with the
+   old game itself: its cell:join and cell:respawn doors no longer exist, so no request reaches an
+   agar seat with a token, and the new game (server/ag, the /ag namespace) reads no stake, token
+   or payout anywhere. A tier or ladder token bought by hand "for agar" is just a token nobody
+   spent: it still opens a room of that price in a game that is open, or it expires unspent and
+   the sweep refunds it through its stake row (entryExpiry.js). Paid agar comes back only as the
+   new game's own switch, after a money review, the way PAPER_PAID did. */
 
 const lobbySocketsByGoogleId = new Map();
 const lobbyConnections = new Set();
@@ -2129,8 +2117,8 @@ collusion.init({
 // balances PLUS the live self-custody stakes currently sitting in escrow. Alerts the
 // owner + logs the moment it drifts short (would have caught the ledger>escrow gap).
 let _lastSolvency = null;
-// Total SOL the escrow currently owes: every live, paid stake still in play across both
-// games. Snake worth is already SOL; agar worth is CAD (converted). Paid play requires a
+// Total the escrow currently owes: every live, paid stake still in play across every
+// game, in the active unit (SOL or USDC). Paid play requires a
 // connected wallet, so any live entity carrying worth > 0 is a self-custody staker. This —
 // NOT the vestigial custodial `accounts.balance` — is the escrow's real liability.
 function sumLiveSelfCustodyStakes() {
@@ -2151,13 +2139,9 @@ function sumLiveSelfCustodyStakes() {
     for (const lt of Object.keys(gameRooms[rgn] || {})) {
       sumRoom(gameRooms[rgn][lt]);
     }
-    for (const lt of Object.keys(agarRooms[rgn] || {})) {
-      const room = agarRooms[rgn][lt];
-      for (const p of room.players.values()) {
-        if (p && p.alive && p.worth > 0) total += p.worth; // worth is in the active unit (SOL or USDC)
-      }
-    }
   }
+  /* agar.io adds nothing: its rooms (server/ag) are free only and hold no worth. The old agar
+     rooms' loop went with them; they had been closed to money since 2026-09-30. */
   /* Paper: each arena's whole bank, which is every live square (a seat in its
      disconnect grace included) PLUS floor money nobody has picked up yet, each
      dollar once. A coin swept to the house after the hour has left the bank,
@@ -2425,18 +2409,19 @@ everyStaggered(checkSolvency, 45000, 3000, 'solvency');
 checkSolvency();
 /* Offsets are chosen MOD 30s, because most of these repeat every 30s and a
    60s job still lands on a 30s slot. Reduced: solvency 3, collusion 7,
-   payouts 11, lobby-sweep 14, lb-flush 19, agar-lb 25, paper-sweep 29. No two share a second,
+   payouts 11, lobby-sweep 14, lb-flush 19, paper-sweep 29. No two share a second,
    and the tightest gap is 3s. Picking 41 for the sweep looked staggered and
-   was not: 41 mod 30 is 11, exactly where payouts already lands. */
+   was not: 41 mod 30 is 11, exactly where payouts already lands. The old agar.io
+   game's high-score flush (agar-lb, 25) went with that game: its board was sent
+   to every lobby socket and nothing ever read it. */
 everyStaggered(() => allTimeLb.flush(),    30000, 19000, 'lb-flush');
-everyStaggered(() => agarLb.flush(),       30000, 25000, 'agar-lb-flush');
 everyStaggered(() => ladder.sweep(),       60000, 44000, 'lobby-sweep');
 everyStaggered(() => collusion.evaluate(), 30000, 37000, 'collusion');
 /* Paper: deletes an empty overflow arena, and runs the hour sweep of floor money
    on any arena that has gone idle and stopped ticking. 29 mod 30 sits 4s from
-   agar-lb (25) and 4s from solvency (3). */
+   solvency (3) and 7s from stake-sweep (22). */
 everyStaggered(() => paperArenas.sweep(Date.now()), 60000, 29000, 'paper-sweep');
-/* The new agar.io rooms (only while AG_ENABLED opened them): closes an empty
+/* The agar.io rooms (only while AG_ENABLED opened them): closes an empty
    overflow room. 16.5 mod 30 sits in the widest free gap, 2.5s from lobby-sweep
    (44, so 14) and 2.5s from lb-flush (19); stake-sweep already holds 22. */
 if (agArenas) everyStaggered(() => agArenas.sweep(Date.now()), 60000, 16500, 'ag-sweep');
@@ -2486,19 +2471,14 @@ function totalInGame() {
     t + Object.values(gameRooms[rgn] || {}).reduce((s, r) => s + r.playerCount + r.botCount, 0), 0);
 }
 
-function totalAgarInGame() {
-  return REGIONS.reduce((t, rgn) =>
-    t + Object.values(agarRooms[rgn] || {}).reduce((s, r) => s + r.playerCount + r.botCount, 0), 0);
-}
-
+/* LOBBY_STATE used to carry the old agar.io game's agarPlayerCount, agarLobbyCount and
+   agarLeaderboard as well. No lobby code read any of them (the cards count from /api/live), so
+   they went with that game. */
 function broadcastLobbyState() {
   const state = {
     playerCount:      totalInGame()     + (remoteStats.playerCount     || 0),
     lobbyCount:       lobbyConnections.size,
     leaderboard:      allTimeLb.getTop(3),
-    agarPlayerCount:  totalAgarInGame() + (remoteStats.agarPlayerCount || 0),
-    agarLobbyCount:   lobbyConnections.size,
-    agarLeaderboard:  agarLb.getTop(3),
     region:           REGION,
   };
   for (const sock of lobbyConnections) sock.emit(C.EVENTS.LOBBY_STATE, state);
@@ -2516,9 +2496,6 @@ io.on('connection', (socket) => {
     playerCount:      totalInGame()     + (remoteStats.playerCount     || 0),
     lobbyCount:       lobbyConnections.size,
     leaderboard:      allTimeLb.getTop(3),
-    agarPlayerCount:  totalAgarInGame() + (remoteStats.agarPlayerCount || 0),
-    agarLobbyCount:   lobbyConnections.size,
-    agarLeaderboard:  agarLb.getTop(3),
     region:           REGION,
   });
 
@@ -2805,7 +2782,7 @@ io.on('connection', (socket) => {
     if (typeof y === 'number' && isFinite(y)) socket._viewY = Math.max(-1e5, Math.min(1e5, y));
   });
 
-  /* WATCHING IS FOR A SOCKET WITH NO SEAT, in both spectate handlers below. Each one repoints
+  /* WATCHING IS FOR A SOCKET WITH NO SEAT, in the spectate handler below. It repoints
      the socket's room, and disconnect only ever clears the room the socket points at, so a
      player who sent a spectate stayed seated in the room they were playing in, with nothing
      left to remove them: alive and unsteered for good, counted as a human in that room's
@@ -2813,28 +2790,14 @@ io.on('connection', (socket) => {
      its worth until somebody happened to kill it. An honest client never does this (it sends a
      spectate only as the first message of a fresh socket, in watch-only mode), so a seated
      socket is refused and nothing about its seat changes; no stake moves either way. A watcher
-     switching rooms leaves the one it was watching, or it would be sent both. */
-  on('spectate:join:agar', ({ lobbyType, region } = {}) => {
-    const prev = socket._agarRoom;
-    if (prev && prev.players.has(socket.id)) return;   // seated: refused (above)
-    const room = getAgarRoomForType(lobbyType || 'free', region || REGION);
-    if (prev && prev !== room) socket.leave(prev.roomName);
-    socket.join(room.roomName);
-    socket._agarRoom = room;
-    socket._spectating = true;
-    socket.emit('cell:joined', {
-      playerId:  socket.id,
-      worldSize: room.worldSize,
-      foods:     [...room.foods.values()],
-      players:   room._serializePlayers(),
-    });
-  });
-
+     switching rooms leaves the one it was watching, or it would be sent both. (The old agar.io
+     game had a second one, spectate:join:agar; it went with that game. The new agar.io keeps its
+     own watcher seats in server/ag.) */
   on('spectate:join', ({ lobbyType, stake, region } = {}) => {
     // Watching costs nothing, so no token is consumed; it only has to resolve
     // to the same room the player would have joined.
     const prev = socket._room;
-    if (prev && prev.players.has(socket.id)) return;   // seated: refused (see spectate:join:agar)
+    if (prev && prev.players.has(socket.id)) return;   // seated: refused (above)
     const room = getRoomForJoin({ lobbyType: lobbyType || 'free', stake, region: region || REGION });
     if (prev && prev !== room) {
       // Its interest-cell room belongs to the old room's broadcaster too (GameRoom.broadcastSnapshot).
@@ -2941,87 +2904,6 @@ io.on('connection', (socket) => {
     }
     socket.emit('admin:ack', { message: `Spawned ${spawned} paid bot(s) worth ${(feeAmt * spawned).toFixed(4)} ${money.unit}` });
     broadcastLobbyState();
-  });
-
-  // ── Agar events ──────────────────────────────────────────────────────────
-  on('cell:join', ({ name, color, lobbyType, googleId, region, entryToken } = {}) => {
-    /* Pinned to their types first, as in PLAY above: a region of ['na'], {} or 1 used to reach
-       the owner notice's toUpperCase on a free join and take the whole process down. One
-       region, a region this server hosts, is used for the room and the notice alike. */
-    const rgn = ownKey(agarRooms, region) ? region : REGION;
-    googleId = strOr(googleId, undefined);
-    color = typeof color === 'string' ? color.slice(0, 32) : null;
-    const room = getAgarRoomForType(lobbyType, rgn);
-    const shortType = ownKey(LOBBY_FEES, lobbyType) ? lobbyType : 'free';
-    /* Paid agar is closed (AGAR_PAID): refused first, before the token is looked at and before
-       anything about this socket changes, so no stake is spent here and nothing is seated. */
-    if (!AGAR_PAID && agarSeatIsPaid(room, shortType)) { refuseClosedAgar(socket, 'join', room, shortType); return; }
-    // Identity = the wallet address the client sends as googleId (self-custody single login).
-    const verifiedId = googleId || null;
-    if (verifiedId) {
-      socket._googleId = verifiedId;
-      lobbySocketsByGoogleId.set(verifiedId, socket);
-    }
-    socket._agarRoom = room;
-    // Verify the entry fee server-side (same one-time token the snake game uses) and
-    // take the cell's worth from the server, never from the client.
-    socket._agarShortType = shortType; // remembered for the in-game re-stake on respawn
-    const consumed = consumePaidEntry(entryToken, shortType, 'agar');
-    enterPaid(socket, 'agar', consumed, (entry) => {
-      if (entry.googleId) { socket._googleId = entry.googleId; lobbySocketsByGoogleId.set(entry.googleId, socket); }
-      if (entry.walletAddress) socket._walletAddress = entry.walletAddress; // self-custody cash-out target
-      const entryWorth = entry.worth; // worth from the verified stake token (native unit), same as the snake game
-
-      room.addPlayer(socket, sanitizeName(name), color, entryWorth, socket._googleId || null);
-      notify.pushOwner(
-        `${sanitizeName(name)} joined the ${shortType} lobby` +
-          (entryWorth ? ` for ${entryWorth} ${money.unit}` : ' (free)') +
-          ` in ${rgn.toUpperCase()}`,
-        { title: 'New player: agar.io', tags: 'video_game' }
-      );
-      lobbyConnections.delete(socket);
-      broadcastLobbyState();
-    }, (why) => {
-      socket.emit('cell:join:error', { message: ENTRY_REFUSED[why] || 'Entry fee not verified. Please return to lobby.' });
-    });
-  });
-
-  on('cell:spawnbot', async ({ idToken } = {}) => {
-    if (!(await isOwnerToken(idToken))) return;
-    const room = socket._agarRoom || agarRooms[REGION].free;
-
-    // Determine lobby type from room name (e.g. 'agar_dime' → 'dime')
-    const lobbyType = room.roomName.replace('agar_', '');
-    const feeAmt = money.feeFor(lobbyType);
-
-    if (feeAmt > 0) {
-      try {
-        await db.recordWithdrawal(OWNER_WALLET, null, feeAmt, 'paid_agar_bot_entry');
-        room.addPaidBot(feeAmt);
-        trackEarning({ source: 'bot_cost', game: 'agar', amountUsdc: -feeAmt, lobbyType, region: REGION });
-        broadcastLobbyState();
-      } catch (e) {
-        console.error('[AGAR BOT] Paid bot spawn failed:', e.message);
-      }
-    } else {
-      room.addBot();
-      broadcastLobbyState();
-    }
-  });
-
-  on('cell:input', ({ mouseX, mouseY } = {}) => {
-    /* Finite numbers only. These are stored as the cell's target and subtracted from its
-       position every tick, so an object here broke the room's whole simulation, not just this
-       message: {"toString":1} throws inside the 60Hz loop, and anything else turns into NaN. */
-    if (typeof mouseX !== 'number' || !Number.isFinite(mouseX)) return;
-    if (typeof mouseY !== 'number' || !Number.isFinite(mouseY)) return;
-    if (socket._agarRoom) socket._agarRoom.handleInput(socket.id, mouseX, mouseY);
-  });
-
-  // Client reports how far it can see (world units) so the agar broadcaster only sends each
-  // player the entities within their view (area-of-interest culling).
-  on('cell:view', ({ r } = {}) => {
-    if (typeof r === 'number' && isFinite(r) && r > 0) socket._agarViewR = Math.min(Math.max(r, 300), 12000);
   });
 
   /* Owner-only, verified by an ed25519 SIGNATURE from the owner wallet.
@@ -3303,95 +3185,6 @@ io.on('connection', (socket) => {
      of a paid seat comes from the one-time entry token only. */
   paper.attach(socket);
 
-  on('cell:split', () => {
-    if (!socketRL(socket, 'split', 100)) return;
-    if (socket._agarRoom) socket._agarRoom.handleSplit(socket.id);
-  });
-
-  on('cell:respawn', ({ entryToken } = {}) => {
-    const room = socket._agarRoom;
-    if (!room) return;
-    // Paid respawns re-stake (same one-time token the snake game uses); free respawns carry none.
-    const shortType = socket._agarShortType || 'free';
-    /* Paid agar is closed (AGAR_PAID). cell:join can no longer put a socket in a paid room, but
-       spectate:join:agar can still point one at it, so the room is checked here too, before the
-       token is looked at. */
-    if (!AGAR_PAID && agarSeatIsPaid(room, shortType)) { refuseClosedAgar(socket, 'respawn', room, shortType); return; }
-    const consumed = consumePaidEntry(entryToken, shortType, 'agar');
-    enterPaid(socket, 'agar', consumed, (entry) => {
-      // After a durable entry's claim: still in this room? respawnPlayer does nothing otherwise.
-      if (socket._agarRoom !== room || !room.players.has(socket.id)) return false;
-      if (entry.walletAddress) socket._walletAddress = entry.walletAddress;
-      room.respawnPlayer(socket.id, entry.worth);
-      const _rp = room.players.get(socket.id);
-      notify.pushOwner(
-        `${(_rp && _rp.name) || 'A player'} pressed play again in the ${shortType} lobby` +
-          (entry.worth ? ` for ${entry.worth} ${money.unit}` : ' (free)'),
-        { title: 'Player respawned: agar.io', tags: 'arrows_counterclockwise' }
-      );
-    }, (why) => {
-      socket.emit('cell:join:error', { message: ENTRY_REFUSED[why] || 'Entry fee not verified. Please return to lobby.' });
-    });
-  });
-
-  on('cell:lock', () => {
-    if (socket._agarRoom) socket._agarRoom.lockPlayer(socket.id);
-  });
-
-  on('cell:unlock', () => {
-    if (socket._agarRoom) socket._agarRoom.unlockPlayer(socket.id);
-  });
-
-  on('cell:cashout', async () => {
-    if (!socketRL(socket, 'cell:cashout', 5000)) return;
-    const room = socket._agarRoom;
-    if (!room) return;
-    const player = room.players.get(socket.id);
-    if (!player || !player.alive) return;
-
-    const worth = player.worth || 0; // in the active unit (SOL or USDC), same as the snake game
-    agarLb.record(socket._googleId || player.name, player.name, player.score);
-    room.cashoutPlayer(socket.id); // kills player, clears cells
-
-    const HOUSE_CUT    = 0.10;
-    const playerShare  = worth - worth * HOUSE_CUT; // 90% to the player, 10% house cut stays in escrow
-
-    // The 10% house cut: record it (ledger + PostHog) and sweep it out of escrow to the revenue wallet.
-    if (worth > 0) {
-      const rake = worth * HOUSE_CUT;
-      trackEarning({
-        source: 'game_rake', game: 'agar', amountUsdc: rake,
-        wallet: socket._walletAddress || null, name: player.name,
-        lobbyType: room.lobbyType || null, region: REGION,
-      });
-      sweepRake(rake, 'agar ' + (room.lobbyType || ''));
-    }
-
-    if (socket._walletAddress) {
-      socket.emit('cell:cashout:result', { newBalance: null, earnedCad: money.fiatValue(playerShare), earnedSol: playerShare, score: player.score, toWallet: true });
-      if (worth > 0) {
-        money.withdraw(socket._walletAddress, playerShare)
-          .then((sig) => {
-            console.log(`[AGAR CASHOUT] self-custody ${playerShare.toFixed(6)} ${money.unit} → ${socket._walletAddress.slice(0, 8)}… sig ${String(sig).slice(0, 12)}`);
-            // Earnings count only on actual payout. Both games feed ONE combined top-earners
-            // board (the shared total_earnings column).
-            db.recordEarnings(socket._walletAddress, player.name, playerShare, money.fiatValue(playerShare)).catch(() => {});
-            socket.emit('cell:cashout:paid', { sol: playerShare, sig });
-          })
-          .catch((e) => {
-            console.error(`[AGAR CASHOUT] CRITICAL: self-custody payout failed for ${socket._walletAddress} — owed ${playerShare.toFixed(6)} ${money.unit}: ${e.message}`);
-            db.recordFailedPayout(socket._walletAddress, playerShare, player.name, `agar ${room.roomName}: ${e.message}`, e.broadcast).catch(() => {});
-            socket.emit('cell:cashout:error', { message: 'Payout delayed — your winnings are recorded and will be sent. Contact support if they don\'t arrive.' });
-          });
-      }
-      return;
-    }
-
-    // No wallet here means a free/worthless player (paid play requires a connected wallet),
-    // so there's nothing to pay out.
-    socket.emit('cell:cashout:result', { newBalance: null, earnedCad: 0, score: player.score });
-  });
-
   socket.on('disconnect', async () => {
     /* Dropping out of a duel hands the other player the win, and takes this
        socket out of the queue if it never got into one. Without it a closed tab
@@ -3402,13 +3195,6 @@ io.on('connection', (socket) => {
     endShooter(socket.id);
     paper.drop(socket.id);                       // a Paper seat enters its 5 s grace
     console.log(`[-] Disconnected: ${socket.id}`);
-    if (socket._agarRoom) {
-      const agarPlayer = socket._agarRoom.players.get(socket.id);
-      if (agarPlayer && socket._googleId) {
-        db.recordAgarGameResult(socket._googleId, agarPlayer.score || 0).catch(() => {});
-      }
-      socket._agarRoom.removePlayer(socket.id);
-    }
     const room = socket._room;
     if (room) {
       const snake = room.snakes && room.snakes.get(socket.id);

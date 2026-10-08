@@ -59,8 +59,8 @@ const TIER_LABEL = { free: 'Play Free', dime: 'Stake & Play 10¢', dollar: 'Stak
 // by both stakeAndPlay and the in-game "Play Again" re-stake. Free lobbies stake nothing.
 // The lobby is served from the NA origin, but a paid stake must hit the SAME server the game
 // will connect to: the one-time entry token is minted in that server's memory and consumed
-// there on join. Which server that is depends on the game (stakeRoute.mjs): snake and agar
-// follow the lobby's region, Paper, Knockout and Battleship play on this origin.
+// there on join. Which server that is depends on the game (stakeRoute.mjs): snake follows the
+// lobby's region, Paper, Knockout, Battleship and agar.io play on this origin.
 function lobbyRegion() { try { return localStorage.getItem('duelseries_region') || 'na'; } catch (_) { return 'na'; } }
 function regionBase() { return SERVER_URLS[lobbyRegion()] || ''; } // cosmetics only
 // The region the running game page was launched with (same-origin frames share this tab's
@@ -193,6 +193,13 @@ async function buyCosmetic(itemId, wallet, signTransaction, onStatus) {
 }
 
 async function stakeAndPlay(game, sel, wallet, signTransaction, onStatus, onLaunch) {
+  /* agar.io is Free only: its page (/ag) reads no entry token, so a paid buy-in would be a stake
+     with no seat. Refused here, before any quote or wallet prompt, so nothing is ever sent. */
+  if (game === 'agar') {
+    const spec = stakeSpec(sel);
+    const free = spec.stake !== undefined && spec.stake !== null ? Number(spec.stake) === 0 : spec.lobbyType === 'free';
+    if (!free) throw new Error('agar.io is free to play. There is no paid table yet.');
+  }
   // One read of the lobby's region: the stake and the page's connection use the same answer.
   const route = stakeRoute(game, lobbyRegion());
   const staked = await stakeOnly(stakeSpec(sel), wallet, signTransaction, onStatus, route.base);
@@ -226,15 +233,17 @@ function launchStaked(game, sel, staked, wallet, onLaunch) {
   }
   sessionStorage.setItem('entryToken', entryToken);
   sessionStorage.setItem('entrySol', String(worth));
-  // The region the stake went to, for pages that follow it (snake, agar); a game that plays on
-  // this origin still gets the lobby's pick, which it does not use to connect.
+  // The region the stake went to, for pages that follow it (snake); a game that plays on this
+  // origin (Paper, Knockout, Battleship, agar.io) still gets the lobby's pick, which it does not
+  // use to connect.
   sessionStorage.setItem('region', staked.region || lobbyRegion());
   sessionStorage.setItem('snakeColor', localStorage.getItem('duelseries_skin_color') || '#14F195');
   sessionStorage.setItem('hatId', localStorage.getItem('duelseries_hat_id') || 'none');
   sessionStorage.setItem('boostId', localStorage.getItem('duelseries_boost_id') || 'default');
-  if (game === 'agar') sessionStorage.setItem('gameMode', 'cell'); else sessionStorage.removeItem('gameMode');
+  // gameMode was the old agar.io page's flag and nothing read it; cleared so a stale one goes.
+  sessionStorage.removeItem('gameMode');
   sessionStorage.removeItem('spectateOnly');
-  // Launch in the lobby's iframe (snake → game-frame/game.html, agar → agar-frame/agar.html);
+  // Launch in the lobby's iframe (snake → game-frame/game.html, agar → agar-frame and /ag);
   // the in-game Lobby button returns cleanly via the lobby's game:done handler.
   /* Which page this buy-in opens. Knockout is the first game here that has
      its own page AND takes money, so the map is by game rather than by a
@@ -245,7 +254,7 @@ function launchStaked(game, sel, staked, wallet, onLaunch) {
      launch writes a fresh hand-off. Without its entry a paid Paper token
      would fall through to /game.html and the snake client would spend it. */
   const isAgar = game === 'agar';
-  const PAGES = { agar: '/agar.html', knockout: '/knockout', battleship: '/battleship', snake: '/game.html',
+  const PAGES = { agar: '/ag', knockout: '/knockout', battleship: '/battleship', snake: '/game.html',
                   paper: '/paper-arena' };
   const frame = document.getElementById(isAgar ? 'agar-frame' : 'game-frame');
   const html = PAGES[game] || '/game.html';
@@ -406,6 +415,8 @@ function WalletPanel() {
       stake: async (req, hooks) => {
         const w = walletRef.current;
         if (!w) throw new Error('Wallet not ready. Return to the lobby.');
+        // agar.io is Free only (its page never asks); a request naming it stakes nothing.
+        if (req.game === 'agar') throw new Error('agar.io is free to play. There is no paid table yet.');
         const route = stakeRoute(req.game, pageRegion());
         const staked = await stakeOnly(req.sel, w, signRef.current, () => {}, route.base, hooks);
         // Return focus to the game after the wallet modal so keyboard works without a click.

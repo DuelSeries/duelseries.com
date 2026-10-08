@@ -2205,10 +2205,12 @@ const GAMES=[
     fact even when /api/live has told it nothing — see V2_HAS_LADDER below. */
  {id:'snake',name:'slither.io',c:['#15251c','#c080ff'],type:'p',real:1,ladder:1,
   d:'Grow by eating, cut other players off, and cash out before somebody cuts you off.'},
- /* Playable: the room, the client and the page have all existed for months,
-    the lobby was just still flagging it as unbuilt. It carries no rungs on the
-    board, so it opens at Free and only at Free. */
- {id:'agar',name:'agar.io',c:['#141f28','#65c8e8'],type:'p',
+ /* The agar.io redo (server/ag, page /ag), in the lobby since 2026-10-07; the
+    old agar.io game is deleted. Free only: it carries no rungs on the board,
+    so it opens at Free and only at Free, through the widget into agar-frame.
+    nolook:1 hides the skin row: the server picks a plain colour every life
+    (Owen's answer: plain colours at first), so a chosen skin would do nothing. */
+ {id:'agar',name:'agar.io',c:['#141f28','#65c8e8'],type:'p',nolook:1,
   d:'Absorb anything smaller than you, split to chase, and stay clear of anything bigger.'},
  /* Built, and free while it is new: no ladder, no lobby list, its own page,
     and none of the money path involved in it. `solo` is what says so. */
@@ -2489,21 +2491,56 @@ function mkWorld(cv){
       boostRatio:0,worth:0,_a:a,_tx:0,_ty:0,_t:0});
   }
   const cells=[];
-  if(cv.dataset.game==='agar'){
+  const agar=cv.dataset.game==='agar';
+  if(agar){
     snakes.length=0;
     const N=Math.max(3,Math.min(6,Math.round(w/70)));
-    for(let i=0;i<N;i++)
+    for(let i=0;i<N;i++){
+      const rgb=agRgb();
       cells.push({x:(Math.random()*1.5-0.75)*halfW,y:(Math.random()*1.5-0.75)*halfH,
-        r:(6+Math.random()*22)*(w<120?0.5:1),c:SKINS[i%SKINS.length],
+        r:(11+Math.random()*19)*(w<120?0.5:1),c:agCss(rgb),dk:agCss(agDark(rgb)),
         vx:(Math.random()-0.5)*0.5,vy:(Math.random()-0.5)*0.5});
+    }
   }
   const fn=Math.max(6,Math.round(w*h/2600));
   for(let i=0;i<fn;i++)
     food.push({id:FID++,x:(Math.random()*2-1)*halfW*1.1,y:(Math.random()*2-1)*halfH*1.1,
-      color:['#c080ff','#9099ff','#80d0d0','#80ff80','#eeee70','#ffa060','#ff9090','#ff4040','#e030e0']
+      /* agar.io's food is the game's own colour rule too, never the slither palette. */
+      color:agar?agCss(agRgb())
+        :['#c080ff','#9099ff','#80d0d0','#80ff80','#eeee70','#ffa060','#ff9090','#ff4040','#e030e0']
         [Math.floor(Math.random()*9)],
       size:0.5+Math.random()*0.4,dropped:false,isGolden:false});
-  return {snakes,cells,food,halfW,halfH,agar:cv.dataset.game==='agar',worldRadius:9999,leaderboard:[],mm:[]};
+  return {snakes,cells,food,halfW,halfH,agar,worldRadius:9999,leaderboard:[],mm:[]};
+}
+/* agar.io's look, for its card, its detail background and its row swatch: the
+   values the game itself draws with (public/js/ag/agRender.js and the colour
+   rule in server/ag/agSim.js), so the card shows the game you get.
+     floor  rgb(242,251,255), a 50-unit grid of black lines at 0.2
+     colour one channel 255, one 7, the third anywhere from 8 to 254, in any
+            order (laws L33 and L36), for cells and food alike
+     cell   a disc of its colour inside a rim of the same colour times 0.9,
+            5 units wide whatever the cell's size
+   agK() is card units per game unit: the card's cells stand for game cells from
+   about the start size (32) up, so the grid, the rim and the food keep the
+   game's proportions to them. All function declarations, so they exist before
+   anything on the page can paint. */
+function agK(){return 0.35}
+function agBg(){return 'rgb(242,251,255)'}
+function agRgb(){
+  const v=[255,7,8+Math.floor(Math.random()*247)];
+  for(let i=2;i>0;i--){const j=Math.floor(Math.random()*(i+1)), t=v[i]; v[i]=v[j]; v[j]=t}
+  return v;
+}
+function agCss(v){return 'rgb('+v[0]+','+v[1]+','+v[2]+')'}
+function agDark(v){return v.map(x=>Math.trunc(x*0.9))}
+/* The grid over [-L,L] x [-T,T] in card units, lines one screen pixel wide at scale s. */
+function agGrid(ctx,L,T,s){
+  const G=50*agK();
+  ctx.strokeStyle='rgba(0,0,0,'+(0.2*Math.min(1,s))+')'; ctx.lineWidth=1/s;
+  ctx.beginPath();
+  for(let x=-Math.ceil(L/G)*G;x<=L;x+=G){ctx.moveTo(x,-T);ctx.lineTo(x,T)}
+  for(let y=-Math.ceil(T/G)*G;y<=T;y+=G){ctx.moveTo(-L,y);ctx.lineTo(L,y)}
+  ctx.stroke();
 }
 /* Same movement rule the server uses: turn toward a target at a capped rate,
    step the head forward, then follow-the-leader down the body. */
@@ -2616,21 +2653,17 @@ function paintScene(cv,dt){
   if(R.snakeGL&&R.snakeGL.ok)R.snakeGL.ensureSize(w,h);
   if(R.foodGL&&R.foodGL.ok)R.foodGL.ensureSize(w,h);
   if(wd.agar){
-    /* agar.io does NOT use the hex background. Its own renderer paints
-       #f0f4ff with a 60-unit grid at rgba(99,102,241,.13) and its food is
-       plain filled discs, so that is what the card shows. Values read
-       straight out of public/js/agar.js. */
-    ctx.fillStyle='#f0f4ff'; ctx.fillRect(0,0,w,h);
+    /* agar.io does NOT use the hex background. Its floor, grid and food are
+       the game's own (agRgb and the notes above it): a pale floor, a fine
+       black grid, and plain discs of the game's colours. A pellet is its
+       size (10 to 16) plus the 5-unit rim, in its own colour. */
+    ctx.fillStyle=agBg(); ctx.fillRect(0,0,w,h);
     cam.apply(ctx,1);
-    const G=60, L=wd.halfW*1.3, T=wd.halfH*1.3;
-    ctx.strokeStyle='rgba(99,102,241,0.13)'; ctx.lineWidth=1/CAM;
-    ctx.beginPath();
-    for(let x=-Math.ceil(L/G)*G;x<=L;x+=G){ctx.moveTo(x,-T);ctx.lineTo(x,T)}
-    for(let y=-Math.ceil(T/G)*G;y<=T;y+=G){ctx.moveTo(-L,y);ctx.lineTo(L,y)}
-    ctx.stroke();
+    agGrid(ctx,wd.halfW*1.3,wd.halfH*1.3,CAM);
+    const K=agK();
     for(const f of wd.food){
       ctx.fillStyle=f.color; ctx.beginPath();
-      ctx.arc(f.x,f.y,C_.FOOD_RADIUS*f.size*1.6,0,6.284); ctx.fill();
+      ctx.arc(f.x,f.y,(15+15*(f.size-0.5))*K,0,6.284); ctx.fill();
     }
   }else{
     ctx.fillStyle='#070707'; ctx.fillRect(0,0,w,h);
@@ -2638,12 +2671,15 @@ function paintScene(cv,dt){
     cam.apply(ctx,1);
     R._drawFood(ctx,wd.food,cam);
   }
-  /* agar cells: a filled disc with a darker rim, which is what the cell game
-     draws. Same background and same food as above, so only the actors differ. */
-  for(const c of wd.cells){
-    ctx.fillStyle=c.c; ctx.beginPath(); ctx.arc(c.x,c.y,c.r,0,6.284); ctx.fill();
-    ctx.strokeStyle='rgba(0,0,0,.32)'; ctx.lineWidth=Math.max(1.5,c.r*.1);
-    ctx.beginPath(); ctx.arc(c.x,c.y,c.r-ctx.lineWidth/2,0,6.284); ctx.stroke();
+  /* agar cells, the way the game draws them: a disc of the colour times 0.9
+     out to the cell's size plus the 5-unit rim, then the cell's own colour
+     over it out to its size. */
+  if(wd.cells.length){
+    const rim=5*agK();
+    for(const c of wd.cells){
+      ctx.fillStyle=c.dk||c.c; ctx.beginPath(); ctx.arc(c.x,c.y,c.r+rim,0,6.284); ctx.fill();
+      ctx.fillStyle=c.c; ctx.beginPath(); ctx.arc(c.x,c.y,c.r,0,6.284); ctx.fill();
+    }
   }
   const useGL=R._glMode&&R.snakeGL&&R.snakeGL.ok;
   if(useGL)R.snakeGL.beginFrame();
@@ -2944,22 +2980,29 @@ function paintSwatch(cv){
   if(R.foodGL&&R.foodGL.ok)R.foodGL.ensureSize(w,h);
 
   if(game==='agar'){
-    ctx.fillStyle='#f0f4ff'; ctx.fillRect(0,0,w,h);
+    /* The game's look (see agRgb): a start-size cell, so its 5-unit rim and
+       the 50-unit grid are drawn to that cell's scale. One fixed colour of
+       the game's rule (one channel 7, one 255) so the row does not flicker
+       between paints. The name is white with a black edge, as in the game. */
+    ctx.fillStyle=agBg(); ctx.fillRect(0,0,w,h);
     cam.apply(ctx,1);
-    const G=60,L=w/S,T=h/S;
-    ctx.strokeStyle='rgba(99,102,241,0.13)'; ctx.lineWidth=1/S;
+    const r=h/S*0.62, cy=h/S*0.30, k=r/32;
+    const G=50*k, L=w/S, T=h/S;
+    ctx.strokeStyle='rgba(0,0,0,0.2)'; ctx.lineWidth=1/S;
     ctx.beginPath();
     for(let x=-Math.ceil(L/G)*G;x<=L;x+=G){ctx.moveTo(x,-T);ctx.lineTo(x,T)}
     for(let y=-Math.ceil(T/G)*G;y<=T;y+=G){ctx.moveTo(-L,y);ctx.lineTo(L,y)}
     ctx.stroke();
-    const r=h/S*0.62, cy=h/S*0.30;
-    ctx.fillStyle='#5aa8f0';
+    const rgb=[7,160,255];
+    ctx.fillStyle=agCss(agDark(rgb));
     ctx.beginPath(); ctx.arc(0,cy,r,0,6.284); ctx.fill();
-    ctx.strokeStyle='rgba(0,0,0,.30)'; ctx.lineWidth=r*0.10;
-    ctx.beginPath(); ctx.arc(0,cy,r-ctx.lineWidth/2,0,6.284); ctx.stroke();
-    ctx.fillStyle='#fff'; ctx.textAlign='center'; ctx.textBaseline='middle';
-    ctx.font='600 '+(r*0.42)+'px '+getComputedStyle(document.body).fontFamily;
-    ctx.fillText('you',0,cy);
+    ctx.fillStyle=agCss(rgb);
+    ctx.beginPath(); ctx.arc(0,cy,r-5*k,0,6.284); ctx.fill();
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.font='700 '+(r*0.42)+'px '+getComputedStyle(document.body).fontFamily;
+    ctx.lineWidth=Math.max(1,r*0.07); ctx.strokeStyle='#000'; ctx.lineJoin='round';
+    ctx.strokeText('you',0,cy);
+    ctx.fillStyle='#fff'; ctx.fillText('you',0,cy);
   }else{
     ctx.fillStyle='#070707'; ctx.fillRect(0,0,w,h);
     R.hexGrid.draw(ctx,cam,1);

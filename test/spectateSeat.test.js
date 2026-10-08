@@ -11,7 +11,12 @@
    This boots the REAL server as a child process (scripts/dev-local.js: in-memory database, every
    outbound call refused) and checks, through /api/live, that a seated socket's spectate is refused
    and its seat goes when it leaves, and that a watcher who switches rooms stops being sent the
-   room it left. */
+   room it left.
+
+   The old agar.io game (and spectate:join:agar) is deleted since the lobby swap. Its rows here are
+   now the new agar.io (server/ag, namespace /ag): a live player's ag:spectate is refused, its seat
+   goes with the socket, a watcher is sent the world without counting as playing, and a socket
+   that leaves is sent nothing more until it watches again. */
 const test = require('node:test');
 const assert = require('node:assert');
 const { spawn } = require('child_process');
@@ -84,11 +89,26 @@ function handled(s) {
   });
 }
 
-// Humans in every agar room: counts.agar is all three rooms' humans plus the free row's bots, from one response.
+/* agar.io is the new game (server/ag, namespace /ag): counts.agar is the humans who pressed Play
+   in every agar.io room plus the bots of its one row (agar:free), from one response. The old
+   game's spectate:join:agar and cell:* events went with it. */
 async function agarHumans() {
   const r = await live();
   const row = (r.extras || []).find((e) => e.id === 'agar:free');
-  return r.counts.agar - ((row && row.bots) || 0);
+  assert.ok(row, '/api/live carries the agar.io row');
+  assert.strictEqual(r.counts.agar, row.players + row.bots, 'the card is its row');
+  return row.players;
+}
+function agConnect() {
+  const { io } = require('socket.io-client');
+  const s = io(`http://127.0.0.1:${port}/ag`, { transports: ['websocket'], forceNew: true, reconnection: false, timeout: 5000 });
+  let n = 0;
+  s.on('ag:f', () => { n++; });
+  return new Promise((res, rej) => {
+    const bail = setTimeout(() => rej(new Error('/ag never connected')), 8000);
+    s.on('connect', () => { clearTimeout(bail); res({ s, frames: () => n }); });
+    s.on('connect_error', (e) => { clearTimeout(bail); rej(e); });
+  });
 }
 async function snakePlayers(id) {
   const r = await live();
@@ -96,19 +116,19 @@ async function snakePlayers(id) {
   return row ? row.players : 0;
 }
 
-test('a seated agar player who sends spectate:join:agar is refused, and their seat goes when they leave', async () => {
+test('a playing agar.io socket that asks to spectate is refused, and its seat goes when it leaves', async () => {
   const base = await agarHumans();
   for (let i = 0; i < 3; i++) {
-    const c = await connect();
-    c.s.emit('cell:join', { name: 'seat' + i, lobbyType: 'free', region: 'na' });
-    assert.ok(await until(() => c.has('cell:joined')), JSON.stringify(c.got.map((g) => g[0])));
-    c.s.emit('spectate:join:agar', { lobbyType: 'dime', region: 'na' });
-    assert.ok(await handled(c.s));
-    assert.strictEqual(c.count('cell:joined'), 1, 'the spectate was refused: no second room was sent');
-    assert.strictEqual(await agarHumans(), base + 1, 'one seat, in the free room');
+    const c = await agConnect();
+    c.s.emit('ag:join', { name: 'seat' + i });
+    assert.strictEqual(await until(async () => (await agarHumans()) === base + 1), true, 'round ' + i + ': seated');
+    await sleep(600);                            // past the spectate rate limit (agSockets AG_RATE)
+    c.s.emit('ag:spectate');
+    await sleep(200);
+    assert.strictEqual(await agarHumans(), base + 1, 'still one seat: a live player cannot become a watcher');
     c.s.close();
     assert.strictEqual(await until(async () => (await agarHumans()) === base), true,
-      'round ' + i + ': the seat went with the socket (it used to stay as a ghost)');
+      'round ' + i + ': the seat went with the socket');
   }
 });
 
@@ -130,9 +150,11 @@ test('a seated snake player who sends spectate:join is refused, and their seat g
 });
 
 test('a watch-only socket still gets its room, both games', async () => {
-  const a = await connect();
-  a.s.emit('spectate:join:agar', { lobbyType: 'free', region: 'na' });
-  assert.ok(await until(() => a.has('cell:joined')));
+  // agar.io: a socket on /ag is seated as a watcher at once and sent the world, without playing.
+  const base = await agarHumans();
+  const a = await agConnect();
+  assert.ok(await until(() => a.frames() > 2), 'the agar.io watcher is sent the world');
+  assert.strictEqual(await agarHumans(), base, 'and is not counted as playing');
   a.s.close();
   const b = await connect();
   b.s.emit('spectate:join', { stake: 0, region: 'na' });
@@ -141,25 +163,17 @@ test('a watch-only socket still gets its room, both games', async () => {
   b.s.close();
 });
 
-test('an agar watcher who switches rooms stops being sent the room it left', async () => {
-  const w = await connect();
-  w.s.emit('spectate:join:agar', { lobbyType: 'free', region: 'na' });
-  assert.ok(await until(() => w.has('cell:joined')));
-
-  // Control: while it watches the free room, a join there reaches it.
-  const p1 = await connect();
-  p1.s.emit('cell:join', { name: 'p1', lobbyType: 'free', region: 'na' });
-  assert.ok(await until(() => w.has('cell:playerJoined', (p) => p && p.id === p1.s.id)), 'the watcher sees the free room');
-
-  w.s.emit('spectate:join:agar', { lobbyType: 'dime', region: 'na' });
-  assert.ok(await until(() => w.count('cell:joined') === 2));
-  assert.ok(await handled(w.s));
-  const p2 = await connect();
-  p2.s.emit('cell:join', { name: 'p2', lobbyType: 'free', region: 'na' });
-  assert.ok(await until(() => p2.has('cell:joined')));
-  await sleep(300);
-  assert.ok(!w.has('cell:playerJoined', (p) => p && p.id === p2.s.id), 'the free room is no longer sent to it');
-  for (const c of [w, p1, p2]) c.s.close();
+test('an agar.io socket that leaves is sent nothing more until it watches again', async () => {
+  const w = await agConnect();
+  assert.ok(await until(() => w.frames() > 0), 'a fresh socket watches: it is sent the world');
+  w.s.emit('ag:leave');
+  await sleep(300);                              // whatever was already in flight lands
+  const after = w.frames();
+  await sleep(500);
+  assert.strictEqual(w.frames(), after, 'after ag:leave nothing more is sent');
+  w.s.emit('ag:spectate');
+  assert.ok(await until(() => w.frames() > after), 'ag:spectate seats it as a watcher again');
+  w.s.close();
 });
 
 test('a snake watcher who switches rooms stops being sent the room it left', async () => {

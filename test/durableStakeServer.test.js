@@ -7,7 +7,8 @@
      once through the owed-payout lane, and nothing else is;
    - /api/submit-stake writes the durable row (payer, what a refund pays, region, this boot);
    - a real token seated at Paper, snake (ladder and tier) and knockout claims its row first
-     ('consumed'), a paid agar door refuses before the claim (AGAR_PAID off), and a Paper door
+     ('consumed'), a token sent to agar.io (the old door is gone, the new game reads none) is never
+     touched, and a Paper door
      refusal pays back through the row, once. */
 const test = require('node:test');
 const assert = require('node:assert');
@@ -183,7 +184,7 @@ test('a real token at Paper claims its row before the seat, and a refusal at the
   }
 });
 
-test('a real token at the snake and knockout doors claims its row before seating; paid agar refuses before the claim', async () => {
+test('a real token at the snake and knockout doors claims its row before seating; agar.io never touches a token', async () => {
   const tok = await stake(0.1);
   const sig = lastSig();
   const c = await connect();
@@ -202,9 +203,10 @@ test('a real token at the snake and knockout doors claims its row before seating
   assert.strictEqual(ledgerDb.stakes.get(sigK).state, 'consumed');
   k.s.close();
 
-  /* The old tier door (dime), through the tier submit path. Paid agar is closed (AGAR_PAID off,
-     test/agarPaidClosed.test.js), so the agar dime door refuses BEFORE the claim and the row
-     stays pending; the same token then claims its row at the snake dime door. */
+  /* The old tier door (dime), through the tier submit path. agar.io has no paid door at all now:
+     the old game's cell:join is gone with it (test/agarSwap.test.js), and the new game on /ag
+     reads no token. So a dime token sent to either agar door is never touched and its row stays
+     pending; the same token then claims its row at the snake dime door. */
   landed = 0.1;
   const r = await call(port, 'POST', '/api/submit-stake', { lobbyType: 'dime', signedTx: tx('agar-dime'), walletAddress: PAYER });
   assert.strictEqual(r.status, 200, r.text);
@@ -212,8 +214,25 @@ test('a real token at the snake and knockout doors claims its row before seating
   assert.strictEqual(ledgerDb.stakes.get(sigA).label, 'lobby dime');
   const a = await connect();
   a.s.emit('cell:join', { name: 'ag', lobbyType: 'dime', entryToken: r.json.entryToken, region: 'na' });
-  assert.ok(await until(() => a.has('cell:join:error')), JSON.stringify(a.got.map((g) => g[0])));
+  a.s.emit('cell:respawn', { entryToken: r.json.entryToken });
+  const pong = new Promise((res) => { a.s.once('pong_check', () => res(true)); setTimeout(() => res(false), 4000); });
+  a.s.emit('ping_check');
+  assert.ok(await pong, 'the server handled both');
+  assert.ok(!a.has('cell:joined') && !a.has('cell:join:error'), 'the old agar door answers nothing: it is gone');
   assert.strictEqual(ledgerDb.stakes.get(sigA).state, 'pending');
+  const { io } = require('socket.io-client');
+  const g = io(`http://127.0.0.1:${port}/ag`, { transports: ['websocket'], forceNew: true, reconnection: false, timeout: 5000 });
+  try {
+    const frames = [];
+    g.on('ag:f', (b) => frames.push(b));
+    assert.ok(await until(() => g.connected), 'the new agar.io namespace is open');
+    g.emit('ag:join', { name: 'paid', entryToken: r.json.entryToken, stake: 0.1 });
+    const n = frames.length;
+    assert.ok(await until(() => frames.length > n + 3), 'seated and sent its world, free');
+  } finally {
+    g.close();
+  }
+  assert.strictEqual(ledgerDb.stakes.get(sigA).state, 'pending', 'the new agar.io never touched the token');
   a.s.emit('play', { name: 'tier', lobbyType: 'dime', entryToken: r.json.entryToken, region: 'na' });
   await until(() => ledgerDb.stakes.get(sigA).state === 'consumed');
   assert.strictEqual(ledgerDb.stakes.get(sigA).state, 'consumed');

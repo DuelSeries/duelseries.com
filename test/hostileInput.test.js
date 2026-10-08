@@ -13,7 +13,10 @@
    This boots the REAL server as a child process (scripts/dev-local.js: in-memory database, every
    outbound call refused), throws all of that at it, and asserts after every single message that
    the process is still up and answering. It also checks that the junk lands where an honest
-   value would: a free join with a junk region is seated in this server's own region. */
+   value would: a free join with a junk region is seated in this server's own region.
+
+   agar.io is the new game now (server/ag, its own socket.io namespace /ag): the old game's cell:*
+   events and spectate:join:agar are gone with it, so its junk pass runs on /ag below. */
 const test = require('node:test');
 const assert = require('node:assert');
 const { spawn } = require('child_process');
@@ -109,7 +112,6 @@ const TOP = { 'no message': undefined, 'null': null, 'number': 5, 'string': 'x',
 const SETUP = {
   none: async () => {},
   snake: async (c) => { c.s.emit('play', { name: 'h', lobbyType: 'free', region: 'na' }); await handled(c.s); },
-  agar: async (c) => { c.s.emit('cell:join', { name: 'h', lobbyType: 'free', region: 'na' }); await handled(c.s); },
   shooter: async (c) => { c.s.emit('sh:join', { name: 'h' }); await handled(c.s); },
 };
 // Every client message the server handles, the fields each one reads, and the state it is sent in.
@@ -120,16 +122,9 @@ const EVENTS = [
   ['input', ['angle', 'boost'], 'snake'],
   ['chat', ['text'], 'snake'],
   ['view', ['r', 'x', 'y'], 'none'],
-  ['spectate:join:agar', ['lobbyType', 'region'], 'agar'],
   ['spectate:join', ['lobbyType', 'stake', 'region'], 'snake'],
   ['respawn', ['entryToken'], 'snake'],
   ['admin:spawnbot', ['count', 'idToken'], 'none'],
-  ['cell:join', ['name', 'color', 'lobbyType', 'googleId', 'region', 'entryToken'], 'none'],
-  ['cell:spawnbot', ['idToken'], 'none'],
-  ['cell:input', ['mouseX', 'mouseY'], 'agar'],
-  ['cell:view', ['r'], 'none'],
-  ['cell:split', [], 'agar'], ['cell:respawn', ['entryToken'], 'agar'],
-  ['cell:lock', [], 'agar'], ['cell:unlock', [], 'agar'], ['cell:cashout', [], 'agar'],
   ['br:start', ['proof', 'force'], 'none'],
   ['br:peek', ['wallet'], 'none'],
   ['tanks:queue', ['name', 'wallet'], 'none'], ['tanks:unqueue', [], 'none'],
@@ -143,7 +138,7 @@ const EVENTS = [
   ['sh:weapon', ['weapon'], 'shooter'], ['sh:respawn', [], 'shooter'], ['sh:leave', [], 'shooter'],
   ['pp:join', ['stake', 'name', 'entryToken'], 'none'],
 ];
-const JOINS = new Set(['play', 'cell:join', 'spectate:join', 'spectate:join:agar']);
+const JOINS = new Set(['play', 'spectate:join']);
 
 test('no socket message of any shape, in any field, ends the process', { timeout: 240000 }, async () => {
   const cases = [];
@@ -188,16 +183,55 @@ test('no socket message of any shape, in any field, ends the process', { timeout
   assert.deepStrictEqual(thrown(), [], 'no handler threw');
 });
 
-test('a free join with a junk region is seated in this server\'s own region, both games', async () => {
-  for (const region of [['na'], {}, 1, '__proto__', 'constructor', { toString: 1 }]) {
-    const a = await connect();
-    a.s.emit('cell:join', { name: 'rgn', lobbyType: 'free', region });
-    await handled(a.s);
-    const joined = a.has('cell:joined');
-    a.s.close();
-    assert.ok(alive(), died());
-    assert.ok(joined, 'agar seated with region ' + JSON.stringify(region));
+/* agar.io (server/ag) on the real server: every message it handles, on its own namespace, in
+   every junk shape, each one spaced past that event's rate limit so the shape is really read.
+   Its handlers are guarded (agSockets guard), so a throw would be caught and logged as
+   '[AG] handler'; none may happen at all. A plain Play afterwards still seats. */
+test('no message of any shape on the agar.io namespace ends the process, and a plain Play still seats', { timeout: 120000 }, async () => {
+  const { AG_RATE } = require(path.join(ROOT, 'server', 'ag', 'agSockets.js'));
+  const { io } = require('socket.io-client');
+  const g = io(`http://127.0.0.1:${port}/ag`, { transports: ['websocket'], forceNew: true, reconnection: false, timeout: 5000 });
+  let frames = 0;
+  g.on('ag:f', () => { frames++; });
+  try {
+    await new Promise((res, rej) => {
+      const t = setTimeout(() => rej(new Error('/ag never connected' + (alive() ? '' : ': ' + died()))), 8000);
+      g.on('connect', () => { clearTimeout(t); res(); });
+      g.on('connect_error', (e) => { clearTimeout(t); rej(e); });
+    });
+    const AG = [['join', ['name']], ['spectate', []], ['target', ['x', 'y']], ['split', []], ['eject', []], ['q', []], ['leave', []]];
+    for (const [kind, fields] of AG) {
+      const ev = 'ag:' + kind, gap = AG_RATE[kind].value + 15;
+      const shapes = Object.values(TOP).map((m) => (m === undefined ? [] : [m]));
+      for (const f of fields) for (const v of Object.values(JUNK)) shapes.push([{ [f]: v }]);
+      for (const args of shapes) {
+        g.emit(ev, ...args);
+        await sleep(gap);
+      }
+      assert.ok(alive(), ev + ': ' + died());
+    }
+    g.emit('ag:leave');
+    await sleep(AG_RATE.join.value + 15);
+    const before = frames;
+    g.emit('ag:join', { name: 'rgn' });
+    for (let i = 0; i < 60 && frames < before + 5; i++) await sleep(50);
+    assert.ok(frames >= before + 5, 'a plain Play after all that is still sent its world');
+  } finally {
+    g.close();
+  }
+  const c = await connect();
+  try { assert.ok(await handled(c.s), 'the main namespace still answers'); } finally { c.s.close(); }
+  await sleep(200);
+  assert.ok(alive(), died());
+  assert.deepStrictEqual(thrown(), [], 'no handler threw');
+  assert.ok(!/\[AG\] handler/.test(out), 'no agar.io handler caught a throw either:\n' +
+    out.split('\n').filter((l) => /\[AG\] handler/.test(l)).slice(0, 4).join('\n'));
+});
 
+test('a free join with a junk region is seated in this server\'s own region', async () => {
+  /* The old agar.io game's cell:join used to be checked here too; it is gone with that game, and
+     the new one (above) takes no region at all. */
+  for (const region of [['na'], {}, 1, '__proto__', 'constructor', { toString: 1 }]) {
     const b = await connect();
     b.s.emit('play', { name: 'rgn', lobbyType: 'free', region });
     await handled(b.s);

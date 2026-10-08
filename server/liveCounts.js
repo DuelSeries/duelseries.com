@@ -25,8 +25,11 @@
 
    Each helper below knows where one kind of room keeps its humans, because
    they do not all keep them in the same place:
-     GameRoom (snake tiers, ladder rungs, the nightly event) and AgarRoom:
-       `players` is the sockets in the room; bots live elsewhere (snakes/bots).
+     GameRoom (snake tiers, ladder rungs, the nightly event):
+       `players` is the sockets in the room; bots live elsewhere (snakes).
+     agar.io (server/ag AgArenas) and Paper (PaperArenas): the registry counts
+       its own humans, humanTotal(). For agar.io that is everybody who pressed
+       Play, in every room; bots and watchers on the menu are not players.
      ShooterRoom: humans() counts the tanks that are not bots.
      Tanks, Knockout, Battleship: a queue of people waiting, plus rooms whose
        `players` map CAN hold a bot stand-in whose id starts with bot_. */
@@ -58,7 +61,7 @@ function duelLobby(lobby) {
 /* Everything is optional, so a game whose rooms are missing reports 0 rather
    than taking /api/live down with it.
      snakeRooms: every GameRoom of the snake game (fixed tiers, event, rungs)
-     agarRooms:  every AgarRoom
+     agar:       the agar.io AgArenas registry (server/ag), null while it is closed
      shooter:    the Awesome Tanks arena
      tanks, knockout, battleship: the duel lobbies
      paper:      the PaperArenas registry */
@@ -71,12 +74,15 @@ function liveCounts(src = {}) {
         : (src.shooter.playerCount || 0);
     }
   } catch (_) { shooter = 0; }
+  let agar = 0;
+  try { agar = src.agar && typeof src.agar.humanTotal === 'function' ? src.agar.humanTotal() : 0; }
+  catch (_) { agar = 0; }
   let paper = 0;
   try { paper = src.paper && typeof src.paper.humanTotal === 'function' ? src.paper.humanTotal() : 0; }
   catch (_) { paper = 0; }
   return {
     snake: sum(src.snakeRooms, socketsIn),
-    agar: sum(src.agarRooms, socketsIn),
+    agar,
     omgshooter: shooter,
     tanks: duelLobby(src.tanks),
     knockout: duelLobby(src.knockout),

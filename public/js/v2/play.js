@@ -255,6 +255,15 @@
       say('That lobby is not available right now. Refresh and try again.');
       return;
     }
+    /* agar.io is Free only. Its page (/ag) reads no entry token, so a paid
+       buy-in would be a stake with no seat. Nothing on the lobby offers one;
+       this is here for a stale handler or a console call, before any money
+       is asked for. */
+    if (game === 'agar' && ((hasStake && Number(sel.stake) !== 0)
+        || (!hasStake && sel.lobbyType !== 'free'))) {
+      say('agar.io is free to play. There is no paid table yet.');
+      return;
+    }
     if (!connected()) {
       say('Sign in first — your wallet is your account here.');
       if (window.duelWalletLogin) window.duelWalletLogin();
@@ -375,14 +384,18 @@
       if (lobbyType) sessionStorage.setItem('lobbyType', lobbyType);
       sessionStorage.removeItem('stake');
     } catch (_) {}
-    show(game === 'agar' ? '/agar.html' : '/game.html');
+    /* agar.io's page has its own Spectate button on its menu, so it opens on
+       that menu; the snake page reads spectateOnly. */
+    show(game === 'agar' ? '/ag' : '/game.html', game);
   }
 
   /* The nightly event is a battle royale in the `br` room. */
   function spectateEvent() { spectate('snake', 'br'); }
 
-  function show(src) {
-    const f = el(src.indexOf('agar') >= 0 ? 'agar-frame' : 'game-frame');
+  /* The frame is chosen by the game, not by looking for "agar" in the address:
+     agar.io's page is /ag now, which that test no longer matched. */
+  function show(src, game) {
+    const f = el(game === 'agar' ? 'agar-frame' : 'game-frame');
     if (!f) return;
     if (window._pauseLobbyAnims) window._pauseLobbyAnims();
     f.src = src;

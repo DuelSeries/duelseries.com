@@ -617,15 +617,8 @@ async function getRecentHouseRevenue(limit = 30) {
   }));
 }
 
-async function recordAgarGameResult(googleId, score) {
-  await pool.query(
-    `UPDATE accounts SET
-       agar_games_played = agar_games_played + 1,
-       agar_high_score   = GREATEST(agar_high_score, $2)
-     WHERE google_id = $1`,
-    [googleId, score]
-  );
-}
+/* recordAgarGameResult (the old agar.io game's games played and high score) went with that game.
+   Its three accounts columns stay, vestigial: a column is never dropped in a live push. */
 
 async function getGlobalWinnings() {
   const res = await pool.query(
@@ -790,7 +783,7 @@ async function getOwnedCosmetics(walletAddress) {
 
 module.exports = {
   init, pool,
-  recordGameResult, recordAgarGameResult,
+  recordGameResult,
   recordWithdrawal,
   recordCollusionFlag, getRecentCollusionFlags,
   markStakeSig, claimStakeSig, claimStakeSeat, refundStakeOwed, listUnsettledStakes,

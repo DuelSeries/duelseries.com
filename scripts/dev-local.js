@@ -86,8 +86,8 @@ require.cache[dotenvPath] = { id: dotenvPath, filename: dotenvPath, loaded: true
   } } };
 
 // ─── 3. In-memory database ─────────────────────────────────────────────────────
-// Every export of server/db.js, plus `pool.query` (leaderboard.js and
-// agarLeaderboard.js query the pool directly). Return shapes match db.js.
+// Every export of server/db.js, plus `pool.query` (leaderboard.js queries the
+// pool directly). Return shapes match db.js.
 const accounts     = new Map();   // id -> { name, totalEarnings, gamesPlayed, playTimeSeconds, nameHistory, createdAt }
 const houseRevenue = [];
 /* The stake rows and owed payouts (server/db.js STATUS items 7a and 7b), modelled statement for
@@ -109,7 +109,6 @@ const dbStub = {
   pool: { query: async () => ({ rows: [], rowCount: 0 }) },
   init: async () => {},
   recordGameResult: async (id, score, secs) => { const a = acct(id); a.gamesPlayed++; a.playTimeSeconds += secs || 0; },
-  recordAgarGameResult: async (id) => { acct(id).gamesPlayed++; },
   recordWithdrawal: async () => {},
   recordCollusionFlag: async () => {},
   getRecentCollusionFlags: async () => [],

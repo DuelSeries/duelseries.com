@@ -94,16 +94,17 @@
      about — and burying it behind the buy-in stepper made starting a game a
      three-tap job from the screen whose entire purpose is starting a game.
      It still shows its real count, so an empty one says so. */
-  /* agar.io runs on the fixed tiers, not on the buy-in ladder, so /api/live
-     carries no rung for it and there is nothing to pin. Its free room is added
-     here instead of on the server, deliberately: it is NOT put into LOBBIES,
+  /* agar.io is Free only and not on the buy-in ladder (its rooms are server/ag,
+     opened at /ag), so /api/live carries no rung for it and there is nothing to
+     pin. Its free room is added here, with its population from the server's
+     `agar:free` extra, deliberately: it is NOT put into LOBBIES,
      because refreshSteps reads that list to build the buy-in buttons and a row
      with no stake on it would put a blank rung on the control.
 
      stake null rather than 0 matters. enter() sends { stake } when there is
      one, and the server resolves a stake through the snake ladder — so a 0
      here would route an agar player into a snake room. With no stake it sends
-     { lobbyType }, which is the door agar actually uses. */
+     { lobbyType: 'free' }, which the widget opens with no stake at all. */
   /* Every free room that has to be reachable in one press, whether or not the
      server has a rung for it. agar.io, Awesome Tanks and Bowmasters all run on
      their own doors rather than on the snake buy-in ladder, so /api/live has
@@ -141,8 +142,8 @@
      side — so asking the lobby list what agar offers returns nothing, and the
      buy-in control ended up with a single Free button and no hint that the
      other tiers exist. This reports what is REALLY playable, and the control
-     draws the rest struck through. When agar's paid rooms do open, they will
-     appear on the server and light up here with no change to this code. */
+     draws the rest struck through. agar.io has no paid rooms (the new game is
+     Free only, and play.js refuses a paid agar launch), so Free is all it lists. */
   function playableStakes(game) {
     const out = new Set();
     LOBBIES.forEach(l => { if (l.game === game) out.add(Number(l.stake)); });

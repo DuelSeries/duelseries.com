@@ -18,10 +18,10 @@ test('every snake room is summed: tiers, the event and every rung', () => {
 
 test('bots are never counted, wherever a room keeps them', () => {
   const c = liveCounts({
-    // GameRoom/AgarRoom: bots live in snakes/bots, never in players.
+    // GameRoom: bots live in snakes, never in players.
     snakeRooms: [{ players: players('h1'), snakes: new Map([['b1', { isBot: true }], ['b2', { isBot: true }]]), botCount: 2 }],
-    agarRooms: [{ players: players('h1', 'h2'), bots: new Map([['x', { alive: true }]]), botCount: 1 },
-                { players: players('h3') }],
+    // agar.io (server/ag AgArenas): the registry counts the humans who pressed Play.
+    agar: { humanTotal: () => 3, botCount: 20 },
     shooter: { humans: () => 2, bots: () => 5, playerCount: 2, botCount: 5 },
     // Bowmasters puts a bot stand-in straight into a room's players map.
     tanks: { queue: [{ socket: { id: 'q1' } }], rooms: new Map([['r', { players: players('p1', 'bot_r') }]]) },
@@ -42,9 +42,36 @@ test('a real GameRoom with bots reports zero humans', () => {
 
 test('missing or broken rooms report 0 rather than throwing', () => {
   assert.deepStrictEqual(liveCounts(), { snake: 0, agar: 0, omgshooter: 0, tanks: 0, knockout: 0, battleship: 0, paper: 0 });
-  const c = liveCounts({ shooter: { humans() { throw new Error('x'); } }, paper: { humanTotal() { throw new Error('y'); } } });
+  const c = liveCounts({ shooter: { humans() { throw new Error('x'); } }, paper: { humanTotal() { throw new Error('y'); } },
+    agar: { humanTotal() { throw new Error('z'); } } });
   assert.strictEqual(c.omgshooter, 0);
   assert.strictEqual(c.paper, 0);
+  assert.strictEqual(c.agar, 0);
+  assert.strictEqual(liveCounts({ agar: null }).agar, 0, 'agar.io closed (AG off): 0, not a throw');
+});
+
+test('agar.io counts real rooms of the new game: Play pressed counts, a watcher on the menu and a bot do not', () => {
+  const { AgArenas } = require('../server/ag/agArenas');
+  const { FIXTURE } = require('./agLawsFixture');
+  const arenas = new AgArenas({ region: 'na', laws: FIXTURE, shippableOnly: false, autoTick: false, seed: 7,
+    log: { log() {}, warn() {}, error() {} } });
+  try {
+    const sock = (id) => ({ id, emit() {}, disconnect() {}, join() {}, leave() {} });
+    const a = sock('a'), b = sock('b');
+    assert.ok(arenas.connect(a) && arenas.connect(b), 'two sockets seated as watchers');
+    assert.strictEqual(liveCounts({ agar: arenas }).agar, 0, 'watchers on the menu are not playing');
+    assert.strictEqual(arenas.join(a, 'one'), 'ok');
+    assert.strictEqual(liveCounts({ agar: arenas }).agar, 1, 'the one who pressed Play is');
+    const rows = arenas.boardRows();
+    assert.strictEqual(rows.length, 1);
+    assert.strictEqual(rows[0].game, 'agar', 'the rows are the lobby card\'s game key');
+    // The card is the humans plus the bots of its row, the same rule as every other card.
+    assert.strictEqual(withBoardBots(liveCounts({ agar: arenas }), rows).agar, 1 + rows[0].bots);
+    arenas.disconnect('a');
+    assert.strictEqual(liveCounts({ agar: arenas }).agar, 0, 'and goes when they leave');
+  } finally {
+    arenas.stop();
+  }
 });
 
 test('/api/live carries the counts, from the rooms it already has, with no timer of its own', () => {
@@ -53,7 +80,13 @@ test('/api/live carries the counts, from the rooms it already has, with no timer
     '/api/live sends counts built from the same rows it sends');
   const fn = src.slice(src.indexOf('function liveGameCounts'), src.indexOf("app.get('/api/live'"));
   assert.ok(fn.includes("e.game === 'snake'") && fn.includes('gameRooms[REGION]'), 'snake counts tiers, the event and the rungs');
-  assert.ok(fn.includes('agarRooms[REGION]') && fn.includes('paper: paperArenas'), 'agar every tier, paper every rung');
+  assert.ok(fn.includes('agar: agArenas') && fn.includes('paper: paperArenas'), 'agar.io every room of the new game, paper every rung');
+  assert.ok(!fn.includes('agarRooms'), 'the old agar rooms are gone');
+  /* The agar.io row the card's bots come from is built from the same registry, under the id the
+     lobby pins (board.js PINNED 'agar:free'). */
+  const ex = src.slice(src.indexOf('function liveExtras'), src.indexOf('function liveBattleRoyale'));
+  assert.ok(/for \(const r of agArenas\.boardRows\(\)\)/.test(ex), 'the agar.io row sums the new rooms\' board rows');
+  assert.ok(ex.includes("id: 'agar:free', game: 'agar'"), 'under the id and game the lobby reads');
   assert.ok(!/setInterval|setTimeout/.test(fn), 'no polling loop of its own');
   const lib = fs.readFileSync(path.join(__dirname, '../server/liveCounts.js'), 'utf8');
   assert.ok(!/require\(/.test(lib), 'liveCounts depends on nothing, so it can expose nothing but counts');
@@ -81,10 +114,10 @@ test('the card adds the bots of its own rows, so it agrees with them', () => {
 });
 
 test('a human in a room that is not on the board still counts', () => {
-  // A paid agar room has no row; its player is still playing agar.io.
-  const c = withBoardBots(liveCounts({ agarRooms: [{ players: players('h1'), botCount: 20 }, { players: players('h2') }] }),
-    [{ game: 'agar', players: 1, bots: 20 }]);
-  assert.strictEqual(c.agar, 22);
+  // A snake fixed tier has no row; its player is still playing slither.io.
+  const c = withBoardBots(liveCounts({ snakeRooms: [{ players: players('h1'), botCount: 20 }, { players: players('h2') }] }),
+    [{ game: 'snake', players: 1, bots: 20 }]);
+  assert.strictEqual(c.snake, 22);
 });
 
 test('Bowmasters puts its bot stand-in under bots, so row total and card agree', () => {

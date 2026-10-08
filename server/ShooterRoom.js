@@ -594,7 +594,7 @@ class ShooterRoom {
   stop() { if (this.timer) { clearInterval(this.timer); this.timer = null; } }
 
   tick() {
-    /* An empty arena does not need 30Hz — the same rule GameRoom and AgarRoom
+    /* An empty arena does not need 30Hz — the same rule GameRoom and the agar.io room
        already follow, and this was the one room without it.
 
        So the tanks arena drove its bots, stepped every bullet, mine and
