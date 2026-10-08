@@ -376,13 +376,15 @@ class AgRoom {
     this.stats.ticks++;
   }
 
-  // Each bot sees every cell its brain could sense (agBots SENSE_*), in the sim's deterministic order.
+  // Each bot sees every cell its brain could sense (agBots SENSE_*), in the sim's deterministic order. A brain only
+  // re-decides every few ticks (its reaction time); in between the sim keeps its last target, so no view is built.
   _thinkBots() {
     if (!this.bots.size) return;
     const tick = this.sim.tick();
     const border = this.sim.border();
     const T = agBots.BOT_TUNING;
     for (const bot of this.bots.values()) {
+      if (!bot.brain.wantsThink(tick)) continue;
       const info = this.sim.playerInfo(bot.pid);
       if (!info || !info.cells.length) continue;
       let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity, biggest = 0;
