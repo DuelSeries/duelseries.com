@@ -107,7 +107,7 @@ function makeStorage() {
   return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), map: m };
 }
 
-// boot options: w, h, dpr, net (true = fake socket.io), cfg (extra boot config)
+// boot options: w, h, dpr, net (true = fake socket.io), fonts (a fake document.fonts), cfg (extra boot config)
 function bootPage(o) {
   o = o || {};
   const doc = makeDoc();
@@ -130,7 +130,9 @@ function bootPage(o) {
     removeEventListener(type, fn) { winListeners[type] = (winListeners[type] || []).filter((f) => f !== fn); },
     fire(type) { (winListeners[type] || []).slice().forEach((fn) => fn({ type })); }
   };
-  if (o.net) win.io = () => sock;
+  let ioCalls = 0;
+  if (o.net) win.io = () => { ioCalls++; return sock; };
+  if (o.fonts) doc.fonts = o.fonts;
   globalThis.document = doc;   // the renderer's scratch canvases come from the page's document
   const sound = LIB.agSound.createSound({ storage: null, createAudioContext: () => null });
   const cfg = Object.assign({ win, doc, canvas, sound, idlePass: false, net: !!o.net, engineNow: () => clock }, o.cfg || {});
@@ -155,7 +157,7 @@ function bootPage(o) {
     if (raf) raf(clock);
   }
   async function frames(n, ms) { for (let i = 0; i < n; i++) await frame(ms); }
-  return { doc, canvas, win, sock, session, sent, frame, frames, now: () => clock, mod: session.modules };
+  return { doc, canvas, win, sock, session, sent, frame, frames, now: () => clock, mod: session.modules, ioCalls: () => ioCalls };
 }
 
 const BORDER = { t: 'border', minX: -7071, minY: -7071, maxX: 7071, maxY: 7071, mode: 0 };
@@ -343,4 +345,94 @@ test('a collapsed 0x0 canvas draws and sends nothing, and the game resumes when 
   for (const s of p.sent) {
     if (s[0] === 'target') assert.ok(s[1].x > -7071 && s[1].y > -7071, 'not the corner: ' + JSON.stringify(s[1]));
   }
+});
+
+// ---- the Ubuntu face: connect wait and the self-hosted files ---------------------------------------------------
+// A fake document.fonts whose load() promise the test settles by hand.
+function fakeFonts() {
+  const f = { loaded: false, requests: [] };
+  f.check = () => f.loaded;
+  f.load = (spec) => {
+    f.requests.push(spec);
+    return new Promise((resolve, reject) => { f.resolve = () => { f.loaded = true; resolve([]); }; f.reject = reject; });
+  };
+  return f;
+}
+
+test('the socket opens when the Ubuntu face loads, once, and a Play pressed before then is sent after the hello', async () => {
+  const fonts = fakeFonts();
+  const p = bootPage({ net: true, fonts });
+  assert.deepStrictEqual(fonts.requests, ['700 100px Ubuntu']);
+  assert.strictEqual(p.ioCalls(), 0, 'no socket before the face');
+  p.session.play('me');
+  await p.frames(5);
+  assert.strictEqual(p.ioCalls(), 0);
+  fonts.resolve();
+  await p.frame();
+  assert.strictEqual(p.ioCalls(), 1, 'connects on the load');
+  await p.frame(3000);
+  assert.strictEqual(p.ioCalls(), 1, 'the wait timer does not connect again');
+  p.sock.connected = true;
+  p.sock.fire('connect');
+  assert.ok(!p.sent.some((s) => s[0] === 'play'), 'nothing sent before the world is ready');
+  p.sock.fire('ag:f', W.encodeBundle([{ t: 'hello' }, BORDER, { t: 'world', eats: [], cells: [], removed: [] }]));
+  assert.deepStrictEqual(p.sent.filter((s) => s[0] === 'play'), [['play', { name: 'me' }]], 'the queued Play goes out once the world is ready');
+  assert.strictEqual(p.session.state().menuState, 'PLAY');
+});
+
+test('the socket opens after 3000 ms when the face never loads; a failed load connects at once', async () => {
+  const slow = fakeFonts();
+  const p = bootPage({ net: true, fonts: slow });
+  await p.frame(2999);
+  assert.strictEqual(p.ioCalls(), 0, 'still waiting at 2999 ms');
+  await p.frame(1);
+  assert.strictEqual(p.ioCalls(), 1, 'connects at 3000 ms');
+  slow.resolve();
+  await p.frame();
+  assert.strictEqual(p.ioCalls(), 1, 'a late load does not connect again');
+
+  const bad = fakeFonts();
+  const q = bootPage({ net: true, fonts: bad });
+  bad.reject(new Error('blocked'));
+  await q.frame();
+  assert.strictEqual(q.ioCalls(), 1, 'an errored face connects right away');
+});
+
+test('no font API connects at boot; destroy before the face loads never connects', async () => {
+  const p = bootPage({ net: true });
+  assert.strictEqual(p.ioCalls(), 1);
+  const fonts = fakeFonts();
+  const q = bootPage({ net: true, fonts });
+  q.session.destroy();
+  fonts.resolve();
+  await q.frame(3000);
+  assert.strictEqual(q.ioCalls(), 0);
+});
+
+test('Ubuntu 700 is self-hosted: six subsets with relative urls, linked from ag.html only, before ag.css', () => {
+  const fs = require('fs');
+  const PUB = path.join(__dirname, '..', 'public');
+  const css = fs.readFileSync(path.join(PUB, 'fonts', 'ubuntu.css'), 'utf8');
+  const faces = css.split('@font-face').slice(1);
+  assert.strictEqual(faces.length, 6);
+  const subsets = ['cyrillic-ext', 'cyrillic', 'greek-ext', 'greek', 'latin-ext', 'latin'];
+  faces.forEach((face, i) => {
+    assert.match(face, /font-family: 'Ubuntu';/);
+    assert.match(face, /font-weight: 700;/);
+    assert.match(face, /unicode-range: U\+/);
+    assert.ok(face.includes('src: url(ubuntu-700-' + subsets[i] + '.woff2) format(\'woff2\');'), subsets[i]);
+    const file = fs.readFileSync(path.join(PUB, 'fonts', 'ubuntu-700-' + subsets[i] + '.woff2'));
+    assert.strictEqual(file.subarray(0, 4).toString('latin1'), 'wOF2', subsets[i] + ' is a woff2 file');
+    assert.strictEqual(file.readUInt32BE(8), file.length, subsets[i] + ' is complete');
+  });
+  assert.doesNotMatch(css, /https?:|font-display/);
+  assert.ok(fs.existsSync(path.join(PUB, 'fonts', 'UBUNTU-FONT-LICENCE.txt')));
+  const html = fs.readFileSync(path.join(PUB, 'ag.html'), 'utf8');
+  const link = html.indexOf('<link rel="stylesheet" href="/fonts/ubuntu.css">');
+  assert.ok(link > 0 && link < html.indexOf('<link rel="stylesheet" href="/css/ag.css">'));
+  assert.match(html, /<canvas id="canvas"><\/canvas>\s*(<!--[\s\S]*?-->\s*)?<div class="font-family">&nbsp;<\/div>/);
+  // The harness page declares its own Ubuntu face and then loads ag.css: a face or an import here would shadow it.
+  const agCss = fs.readFileSync(path.join(PUB, 'css', 'ag.css'), 'utf8');
+  assert.doesNotMatch(agCss, /@font-face|@import/);
+  assert.match(agCss, /\.font-family \{ font-family: 'Ubuntu'; \}/);
 });

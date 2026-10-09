@@ -14,6 +14,10 @@ html, body {
   touch-action: none;
 }
 
+/* The font preloader in ag.html: starts the Ubuntu download at parse time. The face itself is
+   declared in /fonts/ubuntu.css (linked from ag.html only). */
+.font-family { font-family: 'Ubuntu'; }
+
 #canvas {
   position: absolute;
   left: 0;

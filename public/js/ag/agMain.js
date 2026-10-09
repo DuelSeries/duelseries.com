@@ -41,6 +41,11 @@
   var IDLE_MIN_MS = 2;                        // the idle pass needs this much idle time
   var SECOND_MS = 1000;                       // the once-a-second tick
   var NICK_MAX = 15;                          // name box cap (build brief 7.2, L37 client half)
+  // The shipped page connects once the Ubuntu face has loaded, or after this long without it
+  // (CHOSEN, Owen 2026-10-08, PARITY-LOG). The reference page has no such wait; it only keeps
+  // canvas text off until the face is in, which fontsReady() below does here too.
+  var FONT_WAIT_MS = 3000;
+  var FONT_PROBE = '700 100px Ubuntu';
   // Canvas backing scale per quality setting (client-camera-input 7.1); "Retina" is the default
   // and uses the device pixel ratio read when the quality is applied.
   var QUALITY_SCALE = { High: 1, Medium: 0.9, Low: 0.75, VeryLow: 0.5 };
@@ -472,17 +477,37 @@
       stats.reset();
       hud.reset();
     }
+    // The socket opens once the Ubuntu face is loaded (so names measured from the first world
+    // message use the real face) or after FONT_WAIT_MS, whichever comes first, and only once.
+    // Play and Spectate pressed before then wait in `pending` until the world is ready: the reset
+    // on connect keeps them (CHOSEN, PARITY-LOG), the reset on disconnect still drops them.
     if (cfg.net !== false && A.agNet && typeof win.io === 'function') {
-      net = A.agNet.connect(win.io, applyMessage, {
-        url: cfg.url,
-        onConnect: function () { resetConnection(); },
-        onDisconnect: function () {
-          resetConnection();
-          input.setInGame(false);
-          sound.setInGame(false);
-          openMenu();
-        }
-      });
+      var connectNow = function () {
+        if (net || destroyed) return;
+        net = A.agNet.connect(win.io, applyMessage, {
+          url: cfg.url,
+          onConnect: function () {
+            var queued = { play: pending.play, spectate: pending.spectate };
+            resetConnection();
+            pending.play = queued.play;
+            pending.spectate = queued.spectate;
+          },
+          onDisconnect: function () {
+            resetConnection();
+            input.setInGame(false);
+            sound.setInGame(false);
+            openMenu();
+          }
+        });
+      };
+      var fontLoad = null;
+      try { fontLoad = doc.fonts && typeof doc.fonts.load === 'function' ? doc.fonts.load(FONT_PROBE) : null; } catch (e) { fontLoad = null; }
+      if (fontLoad && typeof fontLoad.then === 'function') {
+        fontLoad.then(connectNow, connectNow);
+        win.setTimeout(connectNow, FONT_WAIT_MS);
+      } else {
+        connectNow();
+      }
     }
 
     // ---- session ----------------------------------------------------------------------------

@@ -8,11 +8,17 @@
 <link rel="icon" type="image/png" sizes="32x32" href="/img/favicon-32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="/img/favicon-16.png">
 <link rel="apple-touch-icon" sizes="180x180" href="/img/apple-touch-icon.png">
+<!-- Ubuntu Bold, self-hosted (the same files Google Fonts serves for Ubuntu:700; Ubuntu Font Licence in /fonts).
+     Linked here only, never from ag.css: the parity harness declares its own Ubuntu face before ag.css. -->
+<link rel="stylesheet" href="/fonts/ubuntu.css">
 <link rel="stylesheet" href="/css/ag.css">
 </head>
 <body>
 <!-- The game canvas must stay the first canvas in the document. -->
 <canvas id="canvas"></canvas>
+<!-- Font preloader: text set in Ubuntu makes the browser fetch the face while the page parses
+     (a declared face alone is not fetched until something uses it). Hidden under the canvas. -->
+<div class="font-family">&nbsp;</div>
 
 <!-- Phone controls (CHOSEN): the same actions as Space and W. Hidden on mouse screens (ag.css). -->
 <div class="ag-pad" aria-label="Game controls">
