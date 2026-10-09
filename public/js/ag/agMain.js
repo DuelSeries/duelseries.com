@@ -251,7 +251,11 @@
     if (portraitAllowed && A.agPortrait) {
       var tabStore = null;
       try { tabStore = cfg.tabStorage !== undefined ? cfg.tabStorage : (win.sessionStorage || null); } catch (e) { tabStore = null; }
-      rotatePrompt = A.agPortrait.createRotatePrompt({ doc: doc, win: win, root: cfg.screensRoot || doc.body, storage: tabStore });
+      // pinchOk: a pinch that starts on the card while the lobby is zoomed is the browser's (P3).
+      rotatePrompt = A.agPortrait.createRotatePrompt({
+        doc: doc, win: win, root: cfg.screensRoot || doc.body, storage: tabStore,
+        pinchOk: agInput && agInput.lobbyZoomed ? function () { return agInput.lobbyZoomed(win); } : null
+      });
     }
     // Layout on or off: camera and HUD scale, the root class ag-portrait (ag.css lays the phone pad
     // out for it), and the card. The draw scale follows on the next frame, as after any resize.

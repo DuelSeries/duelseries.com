@@ -246,3 +246,91 @@ test('card style: the reference menu\'s plain look, no motion for reduced-motion
   const z = +/#ag-rotate\{[^}]*z-index:(\d+)/.exec(css)[1];
   assert.ok(z > 20, 'above the menu (#ag-menu z-index 20)');
 });
+
+// AFTER.md open item 3: a lobby pinched to 5x before the game opened must be pinchable back to 1 over the card too.
+// Chrome drops a whole pinch whose first touchstart was prevented (agInput, P3), so while pinchOk() holds the card
+// prevents no touchstart; a one-finger tap there is still eaten at its touchend (no click through the card).
+function touchEv(n, own) {
+  const e = { cancelable: true, touches: new Array(n).fill({}), prevented: 0, stopped: 0 };
+  if (own !== undefined) e.targetTouches = new Array(own).fill({});
+  e.preventDefault = () => { e.prevented++; };
+  e.stopPropagation = () => { e.stopped++; };
+  return e;
+}
+function cardWith(pinchOk) {
+  const doc = fakeDoc(), pr = P.createRotatePrompt({ doc, win: fakeWin(), storage: null, pinchOk });
+  pr.update(true);
+  const el = pr.el(), fire = (t, n, own) => { const e = touchEv(n, own); el.listeners[t].forEach((l) => l[0](e)); return e; };
+  return { el, fire };
+}
+
+test('card pinch: while the lobby is zoomed a pinch on the card is the browser\'s, a tap is still eaten', () => {
+  let zoomed = true;
+  const { el, fire } = cardWith(() => zoomed);
+  for (const t of ['touchstart', 'touchend', 'touchcancel']) assert.deepStrictEqual(el.listeners[t][0][1], { passive: false }, t);
+  // Pinch: first finger alone, then two, then lift one by one. Nothing is prevented; nothing propagates past the card.
+  let e = fire('touchstart', 1);
+  assert.deepStrictEqual([e.prevented, e.stopped], [0, 1], 'the first finger of a pinch arrives alone');
+  e = fire('touchstart', 2);
+  assert.deepStrictEqual([e.prevented, e.stopped], [0, 1]);
+  assert.strictEqual(fire('touchend', 1).prevented, 0, 'a pinch end is left alone');
+  assert.strictEqual(fire('touchend', 0).prevented, 0);
+  // Both fingers at once.
+  assert.strictEqual(fire('touchstart', 2).prevented, 0);
+  assert.strictEqual(fire('touchend', 0).prevented, 0);
+  // A one-finger tap: its touchstart is left alone (it might become a pinch), its touchend is prevented (no click).
+  assert.strictEqual(fire('touchstart', 1).prevented, 0);
+  assert.strictEqual(fire('touchend', 0).prevented, 1, 'the tap is eaten');
+  // A cancelled touch resets too.
+  fire('touchstart', 1);
+  assert.strictEqual(fire('touchcancel', 0).prevented, 1);
+  // Lobby back at 1: every touchstart on the card is eaten again, as before, and touchend is left alone.
+  zoomed = false;
+  e = fire('touchstart', 1);
+  assert.deepStrictEqual([e.prevented, e.stopped], [1, 1]);
+  assert.strictEqual(fire('touchstart', 2).prevented, 1, 'a second finger is eaten too');
+  assert.strictEqual(fire('touchend', 0).prevented, 0);
+});
+
+test('card pinch: the first finger decides for the whole touch; no pinchOk means always eaten', () => {
+  let zoomed = false;
+  const a = cardWith(() => zoomed);
+  a.fire('touchstart', 1);                       // starts eaten (lobby at 1)
+  zoomed = true;                                 // the lobby reports zoomed mid-touch
+  assert.strictEqual(a.fire('touchstart', 2).prevented, 1, 'still eaten: decided by the first finger');
+  a.fire('touchend', 0);
+  assert.strictEqual(a.fire('touchstart', 1).prevented, 0, 'the next touch decides again');
+  a.fire('touchend', 0);
+  // A finger already down elsewhere (the canvas) and the second lands on the card: decided at that touchstart.
+  assert.strictEqual(a.fire('touchstart', 2).prevented, 0);
+  a.fire('touchend', 0);
+  for (const opt of [undefined, null, 'yes']) {
+    const b = cardWith(opt);
+    assert.strictEqual(b.fire('touchstart', 1).prevented, 1, String(opt));
+    assert.strictEqual(b.fire('touchstart', 2).prevented, 1, String(opt));
+  }
+});
+
+test('card pinch: the card has no touch-action of its own, so it follows the page (none, or pinch-zoom when zoomed)', () => {
+  const rule = /#ag-rotate\{([^}]*)\}/.exec(P.PROMPT_CSS)[1];
+  assert.doesNotMatch(rule, /touch-action/);
+  assert.doesNotMatch(P.PROMPT_CSS, /#ag-rotate[^{]*\{[^}]*touch-action/, 'nor on anything inside it');
+  const css = require('fs').readFileSync(path.join(__dirname, '..', 'public', 'css', 'ag.css'), 'utf8');
+  assert.match(css, /html, body \{[^}]*touch-action: none;/, 'the page default the card inherits at 1');
+});
+
+test('card pinch: the card counts its own fingers (targetTouches); a finger elsewhere still makes a pinch', () => {
+  let zoomed = true;
+  const { fire } = cardWith(() => zoomed);
+  // One finger already on the canvas, the second lands on the card: a pinch, left alone.
+  assert.strictEqual(fire('touchstart', 2, 1).prevented, 0);
+  assert.strictEqual(fire('touchend', 1, 0).prevented, 0, 'the card finger lifts first: a pinch end, not a tap');
+  // The canvas finger is still down and the lobby is now at 1: the card's next finger decides afresh and is eaten.
+  zoomed = false;
+  assert.strictEqual(fire('touchstart', 2, 1).prevented, 1, 'no stale pinch state from the last touch');
+  fire('touchend', 1, 0);
+  // Back to zoomed: a lone tap on the card while a finger rests elsewhere is still a pinch (two on the screen).
+  zoomed = true;
+  assert.strictEqual(fire('touchstart', 2, 1).prevented, 0);
+  assert.strictEqual(fire('touchend', 1, 0).prevented, 0);
+});

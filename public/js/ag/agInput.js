@@ -27,6 +27,7 @@
 // allows pinch-zoom, no canvas touchstart is prevented (the first finger of a pinch arrives
 // alone) and a touch with two or more fingers on the canvas is left to the browser, so a
 // pinch-out brings the lobby back to 1. At 1 nothing changes: no zoom, every touch steers.
+// The turn-sideways card over the canvas (agPortrait) uses the same test, lobbyZoomed(win).
 (function (root) {
   'use strict';
   var A = root.DuelAgarLib = root.DuelAgarLib || {};
@@ -131,6 +132,14 @@
     }
   }
 
+  // Whether the top page is pinch-zoomed now (scale above LOBBY_ZOOMED_SCALE). Also read by the
+  // turn-sideways card (agPortrait pinchOk, wired by agMain), so a pinch that starts on the card
+  // is left to the browser the same way.
+  function lobbyZoomed(win) {
+    var vv = topViewport(win);
+    return !!vv && vv.scale > LOBBY_ZOOMED_SCALE;
+  }
+
   // The touch-action that lets a zoomed top page be pinched back: pinch-zoom where the browser
   // knows it, else auto (CHOSEN, PARITY-LOG 2026-10-09 P3).
   function pinchTouchAction(win) {
@@ -218,12 +227,8 @@
     // every resize of the top page's visual viewport (a pinch ends with one).
     var topVV = topViewport(win);
     var shownTouchAction = '';
-    function lobbyZoomed() {
-      var vv = topViewport(win);
-      return !!vv && vv.scale > LOBBY_ZOOMED_SCALE;
-    }
     function syncTouchAction() {
-      var v = lobbyZoomed() ? pinchTouchAction(win) : '';
+      var v = lobbyZoomed(win) ? pinchTouchAction(win) : '';
       if (v === shownTouchAction) return;
       shownTouchAction = v;
       var els = [doc && doc.documentElement, body];
@@ -246,7 +251,7 @@
     // one touchstart per new finger), so while zoomed no canvas touchstart is prevented at all,
     // as Chrome drops a whole pinch whose first touchstart was prevented (measured, headless).
     function lobbyPinch(e) {
-      return !!(e.touches && e.touches.length >= 2) && lobbyZoomed();
+      return !!(e.touches && e.touches.length >= 2) && lobbyZoomed(win);
     }
 
     // Phone stick on the canvas: the first finger down steers; other fingers are ignored.
@@ -256,7 +261,7 @@
       return null;
     }
     on(canvas, 'touchstart', function (e) {
-      var zoomedTop = lobbyZoomed();
+      var zoomedTop = lobbyZoomed(win);
       if (zoomedTop && e.touches && e.touches.length >= 2) return;
       // One finger while zoomed still starts the stick, it is just not prevented here; its
       // touchmove and touchend are, as at 1.
@@ -364,6 +369,7 @@
     ejectSoundDue: ejectSoundDue,
     MOUSE_SYNC_GAP_MS: MOUSE_SYNC_GAP_MS,
     LOBBY_ZOOMED_SCALE: LOBBY_ZOOMED_SCALE,
+    lobbyZoomed: lobbyZoomed,
     STICK_DEADZONE_PX: STICK_DEADZONE_PX,
     STICK_FOLLOW_R: STICK_FOLLOW_R
   };

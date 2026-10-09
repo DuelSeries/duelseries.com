@@ -31,8 +31,11 @@
   // The card's look (CHOSEN, PARITY-LOG 2026-10-09 P4): the reference menu's plain style, a white
   // card with radius 10 and dark grey text (#343434) over a dimmed game, the title in Ubuntu Bold
   // (the face the page already loads), the phone icon in the reference's button blue (#428bca).
+  // No touch-action of its own: it takes the page's (the effective value is the intersection with
+  // its ancestors), none from ag.css, or pinch-zoom on html and body while the lobby around the
+  // game is zoomed (agInput, FIX-PLAN P3), so a zoomed lobby can be pinched back over the card too.
   var PROMPT_CSS = [
-    '#ag-rotate{position:fixed;left:0;top:0;right:0;bottom:0;z-index:40;align-items:center;justify-content:center;background:rgba(0,0,0,0.5);touch-action:none;user-select:none;-webkit-user-select:none;}',
+    '#ag-rotate{position:fixed;left:0;top:0;right:0;bottom:0;z-index:40;align-items:center;justify-content:center;background:rgba(0,0,0,0.5);user-select:none;-webkit-user-select:none;}',
     '#ag-rotate .ag-rotate-card{box-sizing:border-box;width:260px;max-width:calc(100% - 32px);padding:20px 20px 18px;background:#fff;border-radius:10px;text-align:center;color:#343434;font-family:Arial,sans-serif;}',
     '#ag-rotate svg{display:block;width:64px;height:64px;margin:0 auto 10px;}',
     '#ag-rotate .ag-rotate-phone{transform-origin:32px 32px;animation:ag-rotate-turn 1.6s ease-in-out infinite;}',
@@ -52,7 +55,8 @@
     '</svg>';
 
   // opts: { doc, win, root (where the card goes; default body), storage (sessionStorage or null),
-  //         injectCss (default true) }
+  //         injectCss (default true), pinchOk() (bool: the lobby around the game is pinch-zoomed
+  //         now; agMain passes agInput.lobbyZoomed; default never) }
   // Returns { update(portrait), shown(), dispose(), el() }.
   function createRotatePrompt(opts) {
     opts = opts || {};
@@ -60,6 +64,7 @@
     var doc = opts.doc || win.document;
     var host = opts.root || (doc && doc.body);
     var storage = opts.storage || null;
+    var pinchOk = typeof opts.pinchOk === 'function' ? opts.pinchOk : function () { return false; };
     var seen = readSeen();
     var el = null;
     var timer = null;
@@ -89,9 +94,31 @@
       el.innerHTML = '<div class="ag-rotate-card">' + ICON + '<div class="ag-rotate-title">' + TEXT.title +
         '</div><div class="ag-rotate-sub">' + TEXT.sub + '</div></div>';
       // Taps on the card are eaten for its few seconds, so none reaches the menu or the game under it.
+      // Except a pinch while the lobby around the game is zoomed (AFTER.md open item 3): Chrome drops
+      // a whole pinch whose first touchstart was prevented (agInput, measured), so a touch that starts
+      // while pinchOk() holds is left to the browser and a pinch-out over the card brings the lobby
+      // back to 1, as over the canvas. Its one-finger tap is still eaten, at the touchend (no click,
+      // so none reaches the menu if the card goes mid-tap). The first finger decides for the whole
+      // touch: 'eat' (prevented, as before) or 'pinch' (left alone; 'multi' once two fingers are down).
       var eat = function (e) { if (e && e.cancelable && e.preventDefault) e.preventDefault(); if (e && e.stopPropagation) e.stopPropagation(); };
+      // The card's own fingers are targetTouches (the touches that started on it; touches where a
+      // browser has no targetTouches); a finger elsewhere still counts toward a pinch.
+      var touch = null;
+      var fingers = function (e, list, none) { var l = e && (list === 'all' ? e.touches : (e.targetTouches || e.touches)); return l ? l.length : none; };
+      var onTouchStart = function (e) {
+        if (touch === null || fingers(e, 'own', 1) <= 1) touch = pinchOk() ? 'pinch' : 'eat';
+        if (touch === 'eat') { eat(e); return; }
+        if (fingers(e, 'all', 1) >= 2) touch = 'multi';
+        if (e && e.stopPropagation) e.stopPropagation();
+      };
+      var onTouchEnd = function (e) {
+        if (touch === 'pinch' && e && e.cancelable && e.preventDefault) e.preventDefault();
+        if (fingers(e, 'own', 0) === 0) touch = null;
+      };
       if (typeof el.addEventListener === 'function') {
-        el.addEventListener('touchstart', eat, { passive: false });
+        el.addEventListener('touchstart', onTouchStart, { passive: false });
+        el.addEventListener('touchend', onTouchEnd, { passive: false });
+        el.addEventListener('touchcancel', onTouchEnd, { passive: false });
         el.addEventListener('pointerdown', eat);
       }
       host.appendChild(el);

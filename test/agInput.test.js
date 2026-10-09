@@ -450,3 +450,14 @@ test('clean room: no randomness and no D/W line citations in the shipped file', 
   assert.ok(!/Math\.random/.test(src));
   assert.ok(!/\b[DW]\s+\d{3,}/.test(src) && !/dcmp|\.wat\b|f_[a-z]{2}\b|mc\.js|start\.js/.test(src));
 });
+
+test('lobbyZoomed(win): the shared zoom test (agInput and the turn-sideways card), above 1.01, safe without a top page', () => {
+  assert.strictEqual(typeof I.lobbyZoomed, 'function');
+  const at = (scale) => I.lobbyZoomed({ top: { visualViewport: { scale } } });
+  assert.deepStrictEqual([at(1), at(1.01), at(1.011), at(5)], [false, false, true, true]);
+  assert.strictEqual(I.lobbyZoomed({}), false, 'no top page');
+  assert.strictEqual(I.lobbyZoomed({ top: {} }), false, 'no visualViewport');
+  const cross = {};
+  Object.defineProperty(cross, 'top', { get() { throw new Error('cross-origin'); } });
+  assert.strictEqual(I.lobbyZoomed(cross), false, 'a top page from another origin');
+});

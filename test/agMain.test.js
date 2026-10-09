@@ -160,6 +160,7 @@ function bootPage(o) {
   if (o.net) win.io = () => { ioCalls++; return sock; };
   if (o.fonts) doc.fonts = o.fonts;
   if (o.matchMedia) win.matchMedia = o.matchMedia;
+  if (o.top) win.top = o.top;
   globalThis.document = doc;   // the renderer's scratch canvases come from the page's document
   const sound = LIB.agSound.createSound({ storage: null, createAudioContext: () => null });
   const cfg = Object.assign({ win, doc, canvas, sound, idlePass: false, net: !!o.net, engineNow: () => clock }, o.cfg || {});
@@ -747,6 +748,18 @@ test('P4 portrait: an upright phone plays the turned layout on the whole canvas;
   await p.frames(2);
   assert.deepStrictEqual([cam.W, cam.H, cam.portrait], [1170, 2532, true]);
   assert.strictEqual(p.session.state().rotatePrompt, false, 'no card again in the session');
+});
+
+test('P4 portrait: a lobby zoomed before the game opened can be pinched back over the card (agInput.lobbyZoomed)', () => {
+  const vv = { scale: 5, addEventListener() {}, removeEventListener() {} };
+  const p = bootPage({ w: 390, h: 844, dpr: 3, cfg: PORTRAIT_CFG(), matchMedia: fakePointer(true).matchMedia, top: { visualViewport: vv } });
+  assert.strictEqual(p.session.state().rotatePrompt, true);
+  const card = p.doc.getElementById('ag-rotate');
+  const fire = (type, n) => { let k = 0; card.dispatch(type, { cancelable: true, touches: new Array(n).fill({}), preventDefault() { k++; }, stopPropagation() {} }); return k; };
+  assert.deepStrictEqual([fire('touchstart', 1), fire('touchstart', 2), fire('touchend', 1), fire('touchend', 0)], [0, 0, 0, 0], 'zoomed: the pinch is left to the browser');
+  vv.scale = 1;
+  assert.deepStrictEqual([fire('touchstart', 1), fire('touchend', 0)], [1, 0], 'at 1: the card eats the touch, as before');
+  p.session.destroy();
 });
 
 test('P4 portrait: the server is told (ag:portrait, one boolean) on the hello and on every change only', async () => {
