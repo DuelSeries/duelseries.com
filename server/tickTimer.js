@@ -122,13 +122,15 @@ class TickTimer {
     this._wakeLate = NaN;
     this._lastSend = NaN;               // the last step's send end in this run (NaN after idle)
     this._wakeSendEnd = NaN;
-    // Recent ticks (absolute ms): due, start, send end, end.
+    // Recent ticks (absolute ms): due, start, send end, end, and a break flag: 1 when the tick starts a new run
+    // (the first step after boot or after idle()), so report() never reads the idle time before it as a gap.
     const n = Math.max(1, Math.ceil((RING_SECONDS * 1000) / periodMs));
     this.ringSize = n;
     this.rDue = new Float64Array(n);
     this.rStart = new Float64Array(n);
     this.rSend = new Float64Array(n);
     this.rEnd = new Float64Array(n);
+    this.rBreak = new Uint8Array(n);
     this.rPos = 0;
     this.rLen = 0;
     // Recent wakes (absolute ms): start, lateness, steps run, wake-to-emit.
@@ -190,7 +192,8 @@ class TickTimer {
     this.steps++;
     addHist(this.tickHist, endMono - startMono);
     const sendEnd = Number.isFinite(sendEndMono) ? sendEndMono : endMono;
-    if (Number.isFinite(this._lastSend)) addHist(this.sendHist, sendEnd - this._lastSend);
+    const fresh = !Number.isFinite(this._lastSend);    // first step after boot or after idle(): starts a new run
+    if (!fresh) addHist(this.sendHist, sendEnd - this._lastSend);
     this._lastSend = sendEnd;
     this._wakeSendEnd = sendEnd;
     const i = this.rPos;
@@ -198,6 +201,7 @@ class TickTimer {
     this.rStart[i] = this._abs(startMono);
     this.rSend[i] = this._abs(sendEnd);
     this.rEnd[i] = this._abs(endMono);
+    this.rBreak[i] = fresh ? 1 : 0;
     this.rPos = (i + 1) % this.ringSize;
     if (this.rLen < this.ringSize) this.rLen++;
   }
@@ -237,12 +241,13 @@ class TickTimer {
 
   // The JSON row. recent: how many raw recent ticks to include ('all' for the whole ring).
   report({ recent = DEFAULT_RECENT } = {}) {
-    const ticks = { due: [], start: [], send: [], end: [] };
+    const ticks = { due: [], start: [], send: [], end: [], brk: [] };
     TickTimer._each(this.rPos, this.rLen, this.ringSize, (i) => {
       ticks.due.push(this.rDue[i]);
       ticks.start.push(this.rStart[i]);
       ticks.send.push(this.rSend[i]);
       ticks.end.push(this.rEnd[i]);
+      ticks.brk.push(this.rBreak[i]);
     });
     const tickMs = [];
     const stepLate = [];
@@ -251,11 +256,16 @@ class TickTimer {
     let band = 0;
     let over60 = 0;
     let over100 = 0;
+    let breaks = 0;         // idle gaps inside the window: left out of every interval, band and secs
+    let span = 0;           // ticking time in the window: the sum of the unbroken start gaps
     for (let k = 0; k < ticks.start.length; k++) {
       tickMs.push(ticks.end[k] - ticks.start[k]);
       if (Number.isFinite(ticks.due[k])) stepLate.push(ticks.start[k] - ticks.due[k]);
-      if (k > 0) {
+      if (k > 0 && ticks.brk[k]) {
+        breaks++;
+      } else if (k > 0) {
         startGap.push(ticks.start[k] - ticks.start[k - 1]);
+        span += ticks.start[k] - ticks.start[k - 1];
         const g = ticks.send[k] - ticks.send[k - 1];
         sendGap.push(g);
         if (g > BAND_LO_MS) over60++;
@@ -274,7 +284,6 @@ class TickTimer {
       if (this.wSteps[i] > 1) multi++;
     });
     const pct = (a, n) => (n ? r3((100 * a) / n) : null);
-    const span = ticks.start.length > 1 ? ticks.start[ticks.start.length - 1] - ticks.start[0] : 0;
     const late = [];
     TickTimer._each(this.lPos, this.lLen, LATE_LOG_CAP, (i) => {
       late.push({ at: r1(this.lAt[i]), ms: r1(this.lLate[i]), steps: this.lSteps[i] });
@@ -282,7 +291,9 @@ class TickTimer {
     const want = recent === 'all' ? ticks.start.length : Math.max(0, Math.min(ticks.start.length, Math.floor(+recent) || 0));
     const rows = [];
     for (let k = ticks.start.length - want; k < ticks.start.length; k++) {
-      rows.push({ due: r1(ticks.due[k]), start: r1(ticks.start[k]), sendEnd: r1(ticks.send[k]), end: r1(ticks.end[k]) });
+      const row = { due: r1(ticks.due[k]), start: r1(ticks.start[k]), sendEnd: r1(ticks.send[k]), end: r1(ticks.end[k]) };
+      if (ticks.brk[k]) row.newRun = true;   // the time before this tick was idle, not a send interval
+      rows.push(row);
     }
     return {
       periodMs: this.periodMs,
@@ -299,11 +310,13 @@ class TickTimer {
       droppedBacklog: this.droppedBacklog,
       droppedSteps: this.droppedSteps,
       droppedMs: r3(this.droppedMs),
-      // The last RING_SECONDS of ticks and wakes, exact (not bucketed).
+      // The last RING_SECONDS of ticks and wakes, exact (not bucketed). A tick that starts a new run (after boot or
+      // idle) adds no interval: secs is ticking time only, and idleBreaks counts the idle gaps left out.
       window: {
         ticks: ticks.start.length,
         wakes: wakesInRing,
         secs: r3(span / 1000),
+        idleBreaks: breaks,
         from: r1(ticks.start[0]),
         to: r1(ticks.start[ticks.start.length - 1]),
         tickMs: dist(tickMs),

@@ -71,8 +71,11 @@ test('lateness, steps per wake and step cost land in the plan buckets; dropped b
   assert.strictEqual(r.window.multiStepWakePct, 33.333);
   assert.strictEqual(r.window.sendInterval.over60Pct, 50);
   assert.strictEqual(r.window.sendInterval.band60to80Pct, 0);
-  // Recent ticks carry absolute ms.
-  assert.deepStrictEqual(r.recent[0], { due: WALL0 + 99.5, start: WALL0 + 100, sendEnd: WALL0 + 103, end: WALL0 + 103 });
+  // Recent ticks carry absolute ms; the first tick after boot starts a run.
+  assert.deepStrictEqual(r.recent[0], { due: WALL0 + 99.5, start: WALL0 + 100, sendEnd: WALL0 + 103, end: WALL0 + 103,
+    newRun: true });
+  assert.strictEqual(r.recent[1].newRun, undefined);
+  assert.strictEqual(r.window.idleBreaks, 0);
   assert.strictEqual(r.recent.length, 3);
 });
 
@@ -107,8 +110,72 @@ test('the ring keeps the last 60 s of ticks, oldest first, and idle breaks the s
   assert.strictEqual(r2.lateHist.n, 75, 'a wake with no due time records no lateness');
   assert.strictEqual(r2.recent.length, 1);
   assert.strictEqual(r2.recent[0].due, null);
+  assert.strictEqual(r2.recent[0].newRun, true, 'the first tick after the idle starts a run');
+  // The window (59 ticks 16..74 s, then the one at 500 s) leaves the 426 s idle gap out of every interval and secs.
+  assert.strictEqual(r2.window.ticks, 60);
+  assert.strictEqual(r2.window.idleBreaks, 1);
+  assert.strictEqual(r2.window.sendInterval.n, 58);
+  assert.strictEqual(r2.window.sendInterval.max, 1000);
+  assert.strictEqual(r2.window.tickInterval.n, 58);
+  assert.strictEqual(r2.window.tickInterval.max, 1000);
+  assert.strictEqual(r2.window.secs, 58);
   // The default read carries DEFAULT_RECENT raw ticks; percentiles always cover the whole ring.
   assert.strictEqual(tt.report().recent.length, TIMING.DEFAULT_RECENT);
+  // Once the break tick is the oldest in the ring, there is no gap before it to leave out.
+  for (let i = 1; i < 60; i++) {
+    t = 500000 + i * 1000;
+    tt.wakeBegin(t, t);
+    tt.step(t, t, t + 1, t + 1);
+    tt.wakeEnd(1);
+  }
+  const r3 = tt.report({ recent: 'all' });
+  assert.strictEqual(r3.recent[0].start, WALL0 + 500000);
+  assert.strictEqual(r3.window.idleBreaks, 0);
+  assert.strictEqual(r3.window.sendInterval.n, 59);
+  assert.strictEqual(r3.window.secs, 59);
+  assert.strictEqual(r3.recent.filter((x) => x.newRun).length, 1);
+});
+
+test('a room that idles and wakes again: the idle gap is never a send interval, a tick interval or window time', () => {
+  // The review repro: 20 ticks 40 ms apart, idle(), 20 more from t = 300000. Before the fix the window read the
+  // 299240 ms idle gap as a send interval (over100Pct 2.564) and secs 300.76.
+  let t = 0;
+  const tt = new TickTimer({ periodMs: 40, maxSteps: 4, clock: () => t, now: () => WALL0 + t });
+  const run = (t0) => {
+    for (let i = 0; i < 20; i++) {
+      t = t0 + i * 40;
+      tt.wakeBegin(t, t);
+      tt.step(t, t, t + 1, t + 1);
+      tt.wakeEnd(1);
+    }
+  };
+  run(0);
+  tt.idle();
+  run(300000);
+  const r = tt.report({ recent: 'all' });
+  assert.strictEqual(r.sendIntervalHist.n, 38);
+  assert.strictEqual(r.sendIntervalHist.maxMs, 40);
+  const w = r.window;
+  assert.strictEqual(w.ticks, 40);
+  assert.strictEqual(w.idleBreaks, 1);
+  assert.deepStrictEqual(w.sendInterval, { n: 38, mean: 40, p50: 40, p95: 40, p99: 40, max: 40,
+    over60Pct: 0, band60to80Pct: 0, over100Pct: 0 });
+  assert.strictEqual(w.tickInterval.n, 38);
+  assert.strictEqual(w.tickInterval.max, 40);
+  assert.strictEqual(w.secs, 1.52);
+  assert.deepStrictEqual(r.recent.map((x, k) => (x.newRun ? k : -1)).filter((k) => k >= 0), [0, 20]);
+  // A real stall inside a run still counts: a 130 ms gap with no idle is over 100.
+  t += 130;
+  tt.wakeBegin(t, t - 90);
+  tt.step(t - 90, t, t + 1, t + 1);
+  tt.wakeEnd(1);
+  const w2 = tt.report().window;
+  assert.strictEqual(w2.idleBreaks, 1);
+  assert.strictEqual(w2.sendInterval.n, 39);
+  assert.strictEqual(w2.sendInterval.max, 130);
+  assert.strictEqual(w2.sendInterval.over100Pct, 2.564);
+  assert.strictEqual(w2.tickInterval.max, 130);
+  assert.strictEqual(w2.secs, 1.65);
 });
 
 test('quantile matches the polish probes (linear interpolation)', () => {
