@@ -348,7 +348,10 @@
     // Frame start: the canvas size is read every frame; a change re-renders the board before
     // the frame clears (client-hud 5.1 "When it is re-rendered"). Call this where the frame
     // reads the canvas size, before clearRect.
-    hud.frameStart = function (W, H) {
+    // CH: the whole canvas height when the layout height H is shorter (the shipped page's ghost
+    // strip, Owen 2026-10-08); only the dim layer covers it. Omitted = H.
+    hud.frameStart = function (W, H, CH) {
+      hud.CH = CH === undefined ? H : CH;
       if (W === hud.W && H === hud.H) return false;
       hud.W = W;
       hud.H = H;
@@ -603,12 +606,14 @@
     }
     ctx.globalAlpha = hud.level * 0.5;
     ctx.fillStyle = 'rgb(0,0,0)';
-    ctx.fillRect(0, 0, W, H);
+    // The whole canvas, including rows below the layout height (hud.CH; the same value at parity).
+    ctx.fillRect(0, 0, W, hud.CH > H ? hud.CH : H);
     ctx.globalAlpha = 1;
   }
 
   // The start-up background, cover-fitted and centred (client-hud 5.6, fact 2.3). Our shipped
   // page passes no image (menu art is out of scope); the harness page passes its own stand-in.
+  // It fits the layout height H, like every other derived size, not the ghost strip below it.
   function imageReady(img) {
     return !!img && img.complete !== false && img.width > 0;
   }

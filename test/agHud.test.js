@@ -396,3 +396,29 @@ test('reset: alive, low-FPS counters, board and panels go back to their start va
   for (let i = 0; i < 6; i++) hud.everySecond(5);
   assert.strictEqual(hud.debug().slowVisible, true);
 });
+
+// Owen 2026-10-08, "size as if the strip were there": the shipped page's canvas is 2560 x 1398 at 1707 x 932 DPR 1.5,
+// but the HUD is laid out for the 2560 x 1263 canvas the reference has above its 90 px strip. Only the dim layer covers
+// the whole canvas; the score panel (anchored to the canvas bottom) stays where that 1263-high canvas puts it.
+test('ghost strip: HUD laid out on the layout height, dim layer over the whole canvas', () => {
+  const rec = makeRecorder(fakeMeasure);
+  const main = rec.createContext(2560, 1398);
+  const hud = H.createHud({ createContext: () => rec.createContext() });
+  hud.frameStart(2560, 1263, 1398);
+  hud.render(main, baseState({ highestMass: 123.9 }));
+  const m = mainCalls(rec, main).map((c) => c.slice(1));
+  assert.deepStrictEqual(m.find((c) => c[0] === 'fillRect'), ['fillRect', 0, 0, 2560, 1398]);
+  // q = min(1263 / 1080, 2560 / 1920) = 1.1694...: box height trunc(q * 34) = 39, box top 1263 - (15 + 39) = 1209.
+  const mv = m.find((c) => c[0] === 'moveTo');
+  assert.strictEqual(mv[2], 1209);
+  assert.strictEqual(hud.debug().H, 1263);
+  // Without a whole-canvas height (the parity harness), the dim layer is the layout height, as before.
+  const rec2 = makeRecorder(fakeMeasure);
+  const main2 = rec2.createContext(2560, 1263);
+  const hud2 = H.createHud({ createContext: () => rec2.createContext() });
+  hud2.frameStart(2560, 1263);
+  hud2.render(main2, baseState({ highestMass: 123.9 }));
+  const m2 = mainCalls(rec2, main2).map((c) => c.slice(1));
+  assert.deepStrictEqual(m2.find((c) => c[0] === 'fillRect'), ['fillRect', 0, 0, 2560, 1263]);
+  assert.deepStrictEqual(m2.filter((c) => c[0] !== 'fillRect'), m.filter((c) => c[0] !== 'fillRect'), 'every other HUD call is the same');
+});

@@ -44,7 +44,7 @@ test('the origin games\' pages connect to their own origin; snake to the region'
   assert.ok(read('public/js/game.js').includes("eu: '" + SERVER_URLS.eu + "'"), 'game.js uses the same EU server');
   /* agar.io (the lobby's card since the swap) is public/ag.html: a path-only namespace on its own
      origin, io('/ag'), never a region's server. The old region-following agar page is deleted. */
-  assert.match(read('public/ag.html'), /window\.DUEL_AGAR_CONFIG = \{ url: '\/ag' \};/);
+  assert.match(read('public/ag.html'), /window\.DUEL_AGAR_CONFIG = \{ url: '\/ag'(, [A-Za-z]+: [^,{}]+)* \};/);
   assert.match(read('public/js/ag/agNet.js'), /var socket = opts\.url \? io\(opts\.url, opts\.ioOptions \|\| \{\}\) : io\(opts\.ioOptions \|\| \{\}\);/);
   assert.ok(!fs.existsSync(path.join(ROOT, 'public/js/agar.js')), 'the old agar page script is gone');
 });

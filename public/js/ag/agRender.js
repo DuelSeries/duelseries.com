@@ -297,10 +297,14 @@
 
     // ---- membranes (section 5), frame step 9, with the PREVIOUS frame's view --------------
 
+    // view.below: canvas rows under the layout height (the shipped page's ghost strip, Owen
+    // 2026-10-08). Cells there are on screen, so the box reaches down over them too (CHOSEN,
+    // PARITY-LOG); with 0 (parity) the bottom edge is the reference's camY + trunc(H / 2) / s.
     function inView(n, view) {
       var hw = Math.trunc(view.W / 2) / view.s, hh = Math.trunc(view.H / 2) / view.s;
+      var hb = (Math.trunc(view.H / 2) + (view.below || 0)) / view.s;
       return !(f32(f32(n.x + n.size) + 40) < view.camX - hw || f32(f32(n.size + n.y) + 40) < view.camY - hh ||
-        f32(f32(n.x - n.size) - 40) > view.camX + hw || f32(f32(n.y - n.size) - 40) > view.camY + hh);
+        f32(f32(n.x - n.size) - 40) > view.camX + hw || f32(f32(n.y - n.size) - 40) > view.camY + hb);
     }
 
     function updateMembranes(world, view, settings, now) {
@@ -487,10 +491,13 @@
     function drawBackground(ctx, view, settings) {
       var st = normalizeSettings(settings);
       var W = view.W, H = view.H, s = view.s;
+      // The fills cover the whole canvas: the layout height plus any rows below it (view.below,
+      // 0 at parity, where FH is H). The grid offset still comes from the layout's centre.
+      var FH = H + (view.below || 0);
       if (st.acid) {
         ctx.fillStyle = st.dark ? BG_DARK : BG_LIGHT;
         ctx.globalAlpha = 0.05;
-        ctx.fillRect(0, 0, W, H);
+        ctx.fillRect(0, 0, W, FH);
         ctx.globalAlpha = 1;
         return;
       }
@@ -502,7 +509,7 @@
       ctx.save();
       ctx.translate(f32(f32(tx) - GRID), f32(f32(ty) - GRID));
       ctx.fillStyle = grid.pattern;
-      ctx.fillRect(0, 0, W / s + GRID, H / s + GRID);
+      ctx.fillRect(0, 0, W / s + GRID, FH / s + GRID);
       ctx.restore();
       ctx.restore();
     }

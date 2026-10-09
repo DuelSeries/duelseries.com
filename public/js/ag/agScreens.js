@@ -259,7 +259,8 @@
     ['VeryLow', 'Very low']
   ];
 
-  // Menu scale (client-hud 6.3): min(1, innerWidth/1600, innerHeight/800).
+  // Menu scale (client-hud 6.3): min(1, innerWidth/1600, h/800), h = the window height above the
+  // bottom strip (real or ghost; agMain passes it).
   function menuScale(w, h) {
     return Math.min(1, w / LAYOUT.menuFit.width, h / LAYOUT.menuFit.height);
   }
@@ -278,6 +279,9 @@
   var SCREENS_CSS = [
     '#ag-menu{position:fixed;left:50%;top:45%;transform:translate(-50%,-50%);z-index:20;font-family:Arial,sans-serif;color:#343434;}',
     '#ag-menu[hidden]{display:none;}',
+    // The reference menu box (client-hud 6.3): 985 x 600 at top 45%, the 325 px card at the top
+    // of its middle column, 330 = (985 - 325) / 2. Mouse screens only: phones keep the bare card.
+    '@media not all and (pointer: coarse){#ag-menu{width:985px;height:600px;box-sizing:border-box;padding:0 330px;}}',
     '#ag-card{position:relative;background-color:#fff;border-radius:10px;margin:5px 0;width:325px;height:302px;box-sizing:content-box;}',
     '#ag-card .ag-play-container{position:relative;padding:10px;}',
     '.ag-btn{display:inline-block;margin-bottom:0;font-size:15px;font-weight:bold;line-height:1.42857143;text-align:center;white-space:nowrap;vertical-align:middle;touch-action:manipulation;cursor:pointer;user-select:none;background-image:none;border:1px solid transparent;border-radius:4px;font-family:Arial,sans-serif;}',
@@ -467,6 +471,10 @@
     };
     api.hide = function () {
       menu.hidden = true;
+    };
+    // Menu box scale (client-hud 6.3), set by agMain on start-up, resize and quality changes.
+    api.setScale = function (k) {
+      menu.style.transform = 'translate(-50%, -50%)' + (k !== 1 ? ' scale(' + k + ')' : '');
     };
     api.setNick = function (name) { nick.value = String(name || '').slice(0, LAYOUT.nickMax); };
     api.setSettings = showSettings;

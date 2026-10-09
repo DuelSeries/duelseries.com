@@ -212,3 +212,15 @@ test('settings defaults are the reference defaults (names, colours on; mass, dar
   assert.deepStrictEqual(S.SETTING_BOXES.map((b) => b[0]), ['names', 'colors', 'showMass', 'dark']);
   assert.deepStrictEqual(S.QUALITY_OPTIONS.map((q) => q[0]), ['Retina', 'High', 'Medium', 'Low', 'VeryLow']);
 });
+
+test('menu box: the reference 985 x 600 box on mouse screens, scaled from the window above the strip', () => {
+  const lines = S.SCREENS_CSS.split('\n');
+  const rule = lines.find((r) => r.indexOf('@media not all and (pointer: coarse)') === 0);
+  assert.strictEqual(rule, '@media not all and (pointer: coarse){#ag-menu{width:985px;height:600px;box-sizing:border-box;padding:0 330px;}}');
+  assert.strictEqual(lines.indexOf(rule), lines.indexOf('#ag-menu[hidden]{display:none;}') + 1);
+  // menuScale on the window above the strip: 1266 x (626 - 90) gives 0.67, 801 x (601 - 90) 0.500625, 1920 x 990 1.
+  assert.strictEqual(S.menuScale(1266, 626 - 90), 0.67);
+  assert.strictEqual(S.menuScale(801, 601 - 90), 0.500625);
+  assert.strictEqual(S.menuScale(1920, 1080 - 90), 1);
+  assert.strictEqual(S.menuScale(1707, 932 - 90), 1);
+});

@@ -577,3 +577,47 @@ test('membranes: a node box far bigger than the map skips the buckets and the wo
   r.updateMembranes(lists, view, {}, 2000);
   assert.strictEqual(rng.count() - c0, 100);
 });
+
+// Owen 2026-10-08, "size as if the strip were there": view.below = canvas rows under the layout height. The grid fill
+// and the membrane box reach down over them; with below 0 (the parity harness) every number is the reference's.
+test('ghost strip: the grid fill covers the rows below the layout height, offsets unchanged', () => {
+  const { rec, r } = setup([]);
+  const ctx = rec.main.getContext();
+  const s = 1280 / 1920;
+  r.drawBackground(ctx, { W: 1280, H: 630, s, camX: 0, camY: 0, below: 90 }, {});
+  const tr = rec.log.find((c) => c[0] === 'main' && c[1] === 'translate');
+  assert.deepStrictEqual(tr.slice(2), [-40, -27.5]);
+  const fr = rec.log.find((c) => c[0] === 'main' && c[1] === 'fillRect');
+  assert.deepStrictEqual(fr.slice(2), [0, 0, 1970, 720 / s + 50]);
+  r.drawBackground(ctx, { W: 1280, H: 630, s, camX: 0, camY: 0, below: 0 }, {});
+  const fr0 = rec.log.filter((c) => c[0] === 'main' && c[1] === 'fillRect').pop();
+  assert.deepStrictEqual(fr0.slice(2), [0, 0, 1970, 995], 'below 0 is the golden frame');
+  r.drawBackground(ctx, { W: 1280, H: 630, s, camX: 0, camY: 0, below: 0 }, { acid: true });
+  const fa = rec.log.filter((c) => c[0] === 'main' && c[1] === 'fillRect').pop();
+  assert.deepStrictEqual(fa.slice(2), [0, 0, 1280, 630]);
+  r.drawBackground(ctx, { W: 1280, H: 630, s, camX: 0, camY: 0, below: 90 }, { acid: true });
+  const fb = rec.log.filter((c) => c[0] === 'main' && c[1] === 'fillRect').pop();
+  assert.deepStrictEqual(fb.slice(2), [0, 0, 1280, 720]);
+});
+
+test('ghost strip: a cell in the rows below the layout height wobbles; the top edge is unchanged', () => {
+  // 2560 x 1263 layout (1707 x 932 at DPR 1.5 above the strip), 135 more canvas rows below it, s = 2560 / 1920.
+  const s = 2560 / 1920;
+  const bottom = Math.trunc(1263 / 2) / s;               // 473.25: the reference's bottom edge of the box
+  const y = bottom + 40 + 100 + 30;                       // top edge 30 units past it (minus the 40 margin)
+  const view = { W: 2560, H: 1263, s, camX: 0, camY: 0, targetScale: s };
+  const low = node({ id: 1, x: 0, y, size: 100, rgb: [200, 7, 255] });
+  const high = node({ id: 2, x: 0, y: -y, size: 100, rgb: [200, 7, 255] });
+  const a = setup([low, high], { view });
+  const c0 = a.rng.count();
+  a.r.updateMembranes(a.lists, view, {}, 1000);
+  assert.strictEqual(a.rng.count() - c0, 0, 'at parity both are outside the box');
+  const low2 = node({ id: 1, x: 0, y, size: 100, rgb: [200, 7, 255] });
+  const high2 = node({ id: 2, x: 0, y: -y, size: 100, rgb: [200, 7, 255] });
+  const ghost = Object.assign({}, view, { below: 135 });
+  const b = setup([low2, high2], { view: ghost });
+  const c1 = b.rng.count();
+  b.r.updateMembranes(b.lists, ghost, {}, 1000);
+  assert.strictEqual(b.rng.count() - c1, low2.pts.length, 'only the cell in the extra rows wobbles');
+  assert.ok(low2.pts.length >= 30);
+});

@@ -90,6 +90,14 @@
     if (!canvas) throw new Error('agMain: no #canvas');
     var ctx = canvas.getContext('2d');
     var bannerPx = cfg.bannerPx | 0;          // 90 on the harness page (fact 2.2), 0 shipped
+    // Owen 2026-10-08 ("size as if the strip were there"): the shipped page draws on the whole
+    // window, but every size the reference derives from its canvas (draw scale, HUD scale,
+    // leaderboard, bottom panels, menu scale) comes from the canvas it would have above its
+    // 90 px ad strip, and the world uses the transform of that canvas. The extra rows at the
+    // bottom just show more map. 90 on the shipped page, 0 on the harness page (which has the
+    // real strip instead, bannerPx).
+    var ghostBannerPx = Math.max(0, cfg.ghostBannerPx | 0);
+    var layoutH = 0;                          // the ghost layout's canvas height, canvas px
     var quality = qualityName(cfg.quality || 'Retina');
     var settings = {
       names: true, showMass: false, colors: true, dark: false, acid: false,
@@ -209,13 +217,42 @@
     }
     // Both sides are written every time, even when unchanged (it resets the 2D context), as the
     // reference's canvas manager does on start-up, on resize and when the settings are applied.
+    // The products are written as they are: the canvas truncates them itself, as theirs does.
     function sizeCanvas() {
-      canvas.width = Math.trunc(win.innerWidth * canvasScale);
-      canvas.height = Math.trunc((win.innerHeight - bannerPx) * canvasScale);
+      canvas.width = win.innerWidth * canvasScale;
+      canvas.height = (win.innerHeight - bannerPx) * canvasScale;
+      // The height their canvas would get above the ghost strip, truncated the way the canvas
+      // truncates a written height. A window shorter than the strip gives 0, which draws
+      // nothing (CHOSEN, PARITY-LOG; their canvas would fall back to its default height).
+      layoutH = ghostBannerPx ? Math.max(0, Math.trunc((win.innerHeight - bannerPx - ghostBannerPx) * canvasScale)) : 0;
+      applyMenuScale();
+    }
+    // Canvas height every derived size uses: the real one, or the ghost layout's (never taller).
+    function layoutHeight(canvasH) {
+      return ghostBannerPx ? Math.min(layoutH, canvasH) : canvasH;
+    }
+    // Menu box scale (client-hud 6.3, the reference's menu fit) from the window above the strip,
+    // real or ghost. Phones keep scale 1 (CHOSEN, PARITY-LOG: the formula gives about 0.24 on a
+    // phone held upright). DOM only: no canvas call changes.
+    function coarsePointer() {
+      try { return !!(win.matchMedia && win.matchMedia('(pointer: coarse)').matches); } catch (e) { return false; }
+    }
+    function applyMenuScale() {
+      if (!screens || !(win.innerWidth > 0)) return;
+      screens.setScale(coarsePointer() ? 1 : agScreens.menuScale(win.innerWidth, win.innerHeight - bannerPx - ghostBannerPx));
     }
     if (doc.documentElement && doc.documentElement.style) doc.documentElement.style.setProperty('--ag-banner', bannerPx + 'px');
     applyQuality(quality);
     win.addEventListener('resize', sizeCanvas);
+    // A 2-in-1 can switch between mouse and touch without a resize.
+    var pointerQuery = null;
+    try { pointerQuery = win.matchMedia ? win.matchMedia('(pointer: coarse)') : null; } catch (e) { pointerQuery = null; }
+    function watchPointer(on) {
+      if (!pointerQuery) return;
+      if (typeof pointerQuery.addEventListener === 'function') pointerQuery[on ? 'addEventListener' : 'removeEventListener']('change', applyMenuScale);
+      else if (typeof pointerQuery.addListener === 'function') pointerQuery[on ? 'addListener' : 'removeListener'](applyMenuScale);
+    }
+    watchPointer(true);
 
     // ---- outbound ---------------------------------------------------------------------------
     var session = {};
@@ -378,8 +415,10 @@
     }
 
     // ---- views ------------------------------------------------------------------------------
+    // below: canvas rows under the layout height (the ghost strip's extra map), 0 at parity.
+    var below = 0;
     function view() {
-      return { W: cam.W, H: cam.H, s: cam.scale, camX: cam.x, camY: cam.y, targetScale: cam.targetScale() };
+      return { W: cam.W, H: cam.H, s: cam.scale, camX: cam.x, camY: cam.y, targetScale: cam.targetScale(), below: below };
     }
     var hudState = { mode: 0, state: 0, spectating: false, connected: false, ownCount: 0, fadeout: true,
       highestMass: 0, camX: 0, camY: 0, target: null };
@@ -389,14 +428,17 @@
       var ns = clockNs(perfNow());
       if (capMs > 0 && Math.trunc((ns - lastFrameNs) / 1e6) < capMs) return false;
       lastFrameNs = ns;
-      var W = canvas.width, H = canvas.height;
+      // H is the height every derived size uses (the canvas, or the ghost layout above the
+      // strip); CH is the whole canvas, which the clear, the grid and the dim layer cover.
+      var W = canvas.width, CH = canvas.height, H = layoutHeight(CH);
       // A collapsed canvas (0 wide or 0 high, e.g. a 0-size frame) draws and sends nothing: the
       // draw scale would become 0 and every target would land on the border corner. CHOSEN; the
       // reference goldens never have a 0-size canvas.
       if (W === 0 || H === 0) return false;
+      below = CH - H;
       cam.setCanvasSize(W, H);
-      hud.frameStart(W, H);
-      renderer.clearFrame(ctx, W, H, settings);
+      hud.frameStart(W, H, CH);
+      renderer.clearFrame(ctx, W, CH, settings);
       if (!cam.ready) return false;
       var now = perfNow();
       world.setNow(now);
@@ -549,6 +591,7 @@
       input.dispose();
       if (net) net.close();
       win.removeEventListener('resize', sizeCanvas);
+      watchPointer(false);
     };
     session.modules = { world: world, camera: cam, renderer: renderer, hud: hud, stats: stats, screens: screens, sound: sound, input: input };
 

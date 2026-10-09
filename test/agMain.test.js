@@ -7,6 +7,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const path = require('path');
+const fs = require('fs');
 
 const AG = path.join(__dirname, '..', 'public', 'js', 'ag');
 require('../shared/agWire.js');
@@ -30,6 +31,13 @@ function makeCtx(canvas, log) {
     },
     set(t, k, v) { props[k] = v; return true; }
   });
+}
+
+function idlDim(v, dflt) {
+  let n = Number(v);
+  if (!Number.isFinite(n)) n = 0;
+  n = ((Math.trunc(n) % 4294967296) + 4294967296) % 4294967296;
+  return n <= 2147483647 ? n : dflt;
 }
 
 function makeElement(doc, tag) {
@@ -63,8 +71,10 @@ function makeElement(doc, tag) {
   if (tag === 'canvas') {
     let w = 300, h = 150;
     el.cid = 'cv' + (doc._n++);
-    Object.defineProperty(el, 'width', { get() { return w; }, set(v) { doc.sizeWrites.push([el.cid, 'width', v]); w = v; } });
-    Object.defineProperty(el, 'height', { get() { return h; }, set(v) { doc.sizeWrites.push([el.cid, 'height', v]); h = v; } });
+    // A written size is kept as the browser keeps it: WebIDL unsigned long (truncated toward zero, modulo 2^32), and
+    // the canvas falls back to its default for a value past 2^31 - 1. The raw written value is logged.
+    Object.defineProperty(el, 'width', { get() { return w; }, set(v) { doc.sizeWrites.push([el.cid, 'width', v]); w = idlDim(v, 300); } });
+    Object.defineProperty(el, 'height', { get() { return h; }, set(v) { doc.sizeWrites.push([el.cid, 'height', v]); h = idlDim(v, 150); } });
     let ctx = null;
     el.getContext = () => (ctx = ctx || makeCtx(el, doc.calls));
   }
@@ -133,6 +143,7 @@ function bootPage(o) {
   let ioCalls = 0;
   if (o.net) win.io = () => { ioCalls++; return sock; };
   if (o.fonts) doc.fonts = o.fonts;
+  if (o.matchMedia) win.matchMedia = o.matchMedia;
   globalThis.document = doc;   // the renderer's scratch canvases come from the page's document
   const sound = LIB.agSound.createSound({ storage: null, createAudioContext: () => null });
   const cfg = Object.assign({ win, doc, canvas, sound, idlePass: false, net: !!o.net, engineNow: () => clock }, o.cfg || {});
@@ -435,4 +446,138 @@ test('Ubuntu 700 is self-hosted: six subsets with relative urls, linked from ag.
   const agCss = fs.readFileSync(path.join(PUB, 'css', 'ag.css'), 'utf8');
   assert.doesNotMatch(agCss, /@font-face|@import/);
   assert.match(agCss, /\.font-family \{ font-family: 'Ubuntu'; \}/);
+});
+
+// ---- canvas size, menu box scale and the ghost strip (FIX-PLAN V1, V2 with Owen's 2026-10-08 choice) ------------
+const mainWrites = (p) => p.doc.sizeWrites.filter((w) => w[0] === p.canvas.cid).map((w) => [w[1], w[2]]);
+const menuTransform = (p) => p.mod.screens.menu.style.transform;
+function resize(p, w, h) { p.win.innerWidth = w; p.win.innerHeight = h; p.win.fire('resize'); }
+// A matchMedia whose pointer kind the test switches; 'change' listeners run on a switch.
+function fakePointer(coarse) {
+  const listeners = [];
+  const mq = {
+    get matches() { return coarse; },
+    addEventListener(t, fn) { if (t === 'change') listeners.push(fn); },
+    removeEventListener(t, fn) { const i = listeners.indexOf(fn); if (i >= 0) listeners.splice(i, 1); }
+  };
+  return {
+    matchMedia: (q) => (q === '(pointer: coarse)' ? mq : { matches: false }),
+    set(c) { coarse = c; listeners.slice().forEach((fn) => fn({ matches: c })); },
+    listeners
+  };
+}
+
+test('the canvas size is written untruncated (the canvas truncates it, as the reference does)', () => {
+  const p = bootPage({ w: 1707, h: 932, dpr: 1.5, cfg: { bannerPx: 90 } });
+  assert.deepStrictEqual(mainWrites(p).slice(-2), [['width', 2560.5], ['height', 1263]]);
+  assert.deepStrictEqual([p.canvas.width, p.canvas.height], [2560, 1263]);
+  resize(p, 1266, 626);
+  assert.deepStrictEqual(mainWrites(p).slice(-2), [['width', 1899], ['height', 804]]);
+});
+
+test('menu box scale: min(1, w / 1600, (h - strip) / 800) on mouse screens, at start-up, on resize and on quality', () => {
+  const pt = fakePointer(false);
+  const p = bootPage({ w: 1707, h: 932, dpr: 1.5, cfg: { bannerPx: 90 }, matchMedia: pt.matchMedia });
+  assert.strictEqual(menuTransform(p), 'translate(-50%, -50%)', '1707 x 932: scale 1, no scale() part');
+  resize(p, 1266, 626);
+  assert.strictEqual(menuTransform(p), 'translate(-50%, -50%) scale(0.67)');
+  resize(p, 801, 601);
+  assert.strictEqual(menuTransform(p), 'translate(-50%, -50%) scale(0.500625)');
+  resize(p, 1920, 1080);
+  assert.strictEqual(menuTransform(p), 'translate(-50%, -50%)');
+  resize(p, 1280, 720);
+  p.mod.screens.menu.style.transform = '';
+  p.session.setSettings({ quality: 'Low' });
+  assert.strictEqual(menuTransform(p), 'translate(-50%, -50%) scale(0.7875)', 'a quality apply sets it again');
+});
+
+test('menu box scale: phones keep scale 1, and a pointer switch without a resize applies the right scale', () => {
+  const pt = fakePointer(true);
+  const p = bootPage({ w: 390, h: 844, dpr: 3, cfg: { ghostBannerPx: 90 }, matchMedia: pt.matchMedia });
+  assert.strictEqual(menuTransform(p), 'translate(-50%, -50%)', 'their formula would give about 0.24 here');
+  resize(p, 801, 601);
+  assert.strictEqual(menuTransform(p), 'translate(-50%, -50%)');
+  pt.set(false);
+  assert.strictEqual(menuTransform(p), 'translate(-50%, -50%) scale(0.500625)', 'mouse now: the ghost strip counts as theirs does');
+  pt.set(true);
+  assert.strictEqual(menuTransform(p), 'translate(-50%, -50%)');
+  p.session.destroy();
+  assert.strictEqual(pt.listeners.length, 0, 'destroy stops watching the pointer');
+});
+
+// Seeded Math.random (mulberry32, as the harness), so two pages draw the same membrane wobble.
+async function withSeed(fn) {
+  const orig = Math.random;
+  let seed = 7;
+  Math.random = () => {
+    seed = (seed + 0x6D2B79F5) | 0;
+    let t = seed;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  try { return await fn(); } finally { Math.random = orig; }
+}
+async function playedPage(cfg) {
+  const p = bootPage({ w: 1707, h: 932, dpr: 1.5, cfg });
+  await spawn(p, p.session.feed);
+  p.canvas.dispatch('mousemove', { clientX: 1200, clientY: 700 });
+  await p.frames(20);
+  return p;
+}
+
+test('ghost strip: the whole window is canvas, and every call matches the reference canvas above a 90 px strip', async () => {
+  const a = await withSeed(() => playedPage({ bannerPx: 90 }));       // their page: canvas above the strip
+  const b = await withSeed(() => playedPage({ ghostBannerPx: 90 }));  // ours: no strip, sized as if it were there
+  assert.deepStrictEqual([a.canvas.width, a.canvas.height], [2560, 1263]);
+  assert.deepStrictEqual([b.canvas.width, b.canvas.height], [2560, 1398]);
+  assert.deepStrictEqual([b.mod.camera.W, b.mod.camera.H], [2560, 1263], 'draw scale and mouse from the layout height');
+  assert.strictEqual(b.mod.camera.scale, a.mod.camera.scale);
+  assert.deepStrictEqual([b.mod.hud.W, b.mod.hud.H], [2560, 1263], 'HUD scale, board and bottom panels too');
+  assert.ok(a.sent.some((s) => s[0] === 'target'));
+  assert.deepStrictEqual(b.sent, a.sent, 'the same targets go to the server');
+  // Call for call (every canvas, the board and text canvases included): equal, except the three that now cover the
+  // whole 1398-high canvas: the clear, the grid fill and the dim layer.
+  const A = a.doc.calls, B = b.doc.calls;
+  assert.strictEqual(B.length, A.length);
+  const kinds = { clear: 0, grid: 0, dim: 0 };
+  for (let i = 0; i < A.length; i++) {
+    const x = A[i], y = B[i];
+    if (JSON.stringify(x) === JSON.stringify(y)) continue;
+    assert.strictEqual(y[0], b.canvas.cid, 'only the main canvas differs: ' + JSON.stringify([x, y]));
+    assert.strictEqual(y[1], x[1]);
+    const [ax, ay, aw, ah] = x[2], [bx, by, bw, bh] = y[2];
+    assert.deepStrictEqual([bx, by, bw], [ax, ay, aw]);
+    if (x[1] === 'clearRect' && ah === 1263 && bh === 1398) kinds.clear++;
+    else if (x[1] === 'fillRect' && aw === 2560 && ah === 1263 && bh === 1398) kinds.dim++;
+    else if (x[1] === 'fillRect' && Math.abs((bh - 50) / (ah - 50) - 1398 / 1263) < 1e-12) kinds.grid++;
+    else assert.fail('unexpected difference ' + JSON.stringify([x, y]));
+  }
+  assert.ok(kinds.clear > 10 && kinds.grid > 10 && kinds.dim > 10, JSON.stringify(kinds));
+  // The world transform is the 1263-high canvas's: centre (1280, 631), so the top 842 CSS px look like theirs.
+  assert.ok(B.some((c) => c[0] === b.canvas.cid && c[1] === 'translate' && c[2][0] === 1280 && c[2][1] === 631));
+});
+
+test('ghost strip: menu scale from the window above the strip; a window shorter than the strip draws nothing', async () => {
+  const p = bootPage({ w: 1266, h: 626, dpr: 1.5, cfg: { ghostBannerPx: 90 }, matchMedia: fakePointer(false).matchMedia });
+  assert.deepStrictEqual([p.canvas.width, p.canvas.height], [1899, 939]);
+  assert.strictEqual(menuTransform(p), 'translate(-50%, -50%) scale(0.67)', 'the same 0.67 as theirs at 1266 x 626');
+  await spawn(p, p.session.feed);
+  assert.deepStrictEqual([p.mod.camera.W, p.mod.camera.H], [1899, 804]);
+  resize(p, 1266, 80);
+  p.doc.calls.length = 0;
+  await p.frames(5);
+  assert.strictEqual(p.doc.calls.filter((c) => c[0] === p.canvas.cid).length, 0, 'layout height 0: nothing drawn');
+  resize(p, 1266, 626);
+  await p.frames(2);
+  assert.ok(p.doc.calls.some((c) => c[0] === p.canvas.cid), 'drawing resumes');
+});
+
+test('the shipped page sizes as if the 90 px strip were there; the canvas element still fills the window', () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'ag.html'), 'utf8');
+  assert.match(html, /window\.DUEL_AGAR_CONFIG = \{ url: '\/ag', ghostBannerPx: 90 \};/);
+  assert.doesNotMatch(html, /[{,] bannerPx:/, 'no real strip on the shipped page');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'css', 'ag.css'), 'utf8');
+  assert.match(css, /height: calc\(100% - var\(--ag-banner, 0px\)\);/);
+  assert.match(css, /@media \(max-width: 360px\) and \(pointer: coarse\)/);
 });

@@ -37,8 +37,10 @@
 <script src="/js/ag/agScreens.js"></script>
 <script src="/js/ag/agSound.js"></script>
 <script src="/js/ag/agNet.js"></script>
-<!-- Our server runs this game on its own socket.io namespace (server/ag/agSockets.js). -->
-<script>window.DUEL_AGAR_CONFIG = { url: '/ag' };</script>
+<!-- Our server runs this game on its own socket.io namespace (server/ag/agSockets.js). The canvas fills the
+     window, but the view, zoom, HUD and menu are sized as if the reference page's 90 px ad strip were at the
+     bottom (Owen 2026-10-08); the extra 90 px show more map. -->
+<script>window.DUEL_AGAR_CONFIG = { url: '/ag', ghostBannerPx: 90 };</script>
 <script src="/js/ag/agMain.js"></script>
 <!-- The lobby around the game (ours): a Lobby button inside the lobby's frame, and the lobby name in the name box. -->
 <script src="/js/ag/agLobby.js"></script>
