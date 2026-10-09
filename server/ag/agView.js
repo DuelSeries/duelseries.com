@@ -31,7 +31,9 @@
 // room hands it to build as extra.below and only the box bottom moves, by min(below, VIEW_BELOW cap) / s, so the
 // pad stays past every edge the page draws. A phone held upright plays the reference screen turned on its side
 // (Owen 2026-10-08) and reports it on ag:portrait; the room hands it to build as extra.portrait and the box turns
-// with it (baseH + pad across, baseW + pad down), the same area.
+// with it (baseH + pad across, baseW + pad down), the same area. Upright, below is ignored: the strip is the bottom
+// of the landscape page, an honest upright page reports 0, and adding it to the turned box would let a page that
+// sends both see further down than any honest page sees in any direction.
 //
 // The sim, not this file, decides colours, names, ids and positions; this file only rounds x, y and size to wire
 // integers with the measured rule (U_ROUND 'trunc': toward zero, so -10.7 is -10) and maps cell kinds to wire flags
@@ -117,11 +119,13 @@ function scaleFor(sumSize, v) {
 // on a page that draws none). Only the bottom edge moves, by below / s, the same scale the page draws them at.
 // portrait: the page plays the phone portrait layout (ag:portrait; ours, Owen 2026-10-08), the reference screen
 // turned on its side, so the box turns with it: baseH + pad across and baseW + pad down. The same L4 numbers, so
-// the area is the same as sideways and no orientation sees more than the other.
+// the area is the same as sideways and no orientation sees more than the other. below is ignored while portrait:
+// the honest portrait page draws no strip and reports 0, and the turned box plus below would reach
+// (baseW + pad) / 2 + below down (1190.3 at s = 1 on the real table), past the 1010.3 every honest page tops out at.
 function viewBoxFor(cx, cy, s, v, below, portrait) {
   const hw = ((portrait ? v.baseH : v.baseW) + v.pad) / s / 2;
   const hh = ((portrait ? v.baseW : v.baseH) + v.pad) / s / 2;
-  const down = below > 0 ? below / s : 0;
+  const down = !portrait && below > 0 ? below / s : 0;
   return { minX: cx - hw, minY: cy - hh, maxX: cx + hw, maxY: cy + hh + down, cx, cy, scale: s };
 }
 
@@ -558,9 +562,9 @@ function createViewer(playerId, opts) {
   //   board: leaderboard rows for this player (law U_BOARD is the room's), appended as a board record
   //   sync:  send a sync record instead of world (every visible cell in full; the client drops the rest)
   //   below: world units at zoom 1 the page draws under the reference view (its ag:view report, 0 when absent);
-  //          the box bottom moves down by min(below, VIEW_BELOW cap) / s
+  //          the box bottom moves down by min(below, VIEW_BELOW cap) / s; ignored while portrait (viewBoxFor)
   //   portrait: true while the page plays the phone portrait layout (its ag:portrait report, as the directory
-  //          settled it); the box is turned on its side, same area (viewBoxFor)
+  //          settled it); the box is turned on its side, same area, and below adds nothing (viewBoxFor)
   // Every bundle built must reach the client: to skip a tick for a backed-up socket, do not call build.
   function build(frame, extra) {
     if (!frame || frame[FRAME_MARK] !== true) throw new TypeError('agView: build needs a frame from makeFrame');

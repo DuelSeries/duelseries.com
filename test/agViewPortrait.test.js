@@ -3,8 +3,9 @@
 // screen turned on its side and says so on ag:portrait (one boolean, our own wire). This file follows it from the
 // socket handler through the directory and the room to the view box: the box is L4's turned on its side (the same
 // area, so no orientation sees more), only true or false is ever taken, the directory changes a socket's box
-// orientation at most once per PORTRAIT_GAP_MS and still ends on the last report, and nothing changes for a page
-// that never sends it. Run on the FIXTURE law table (L4 pad 100: half width 1010 and half height 590 at s = 1).
+// orientation at most once per PORTRAIT_GAP_MS and still ends on the last report, ag:view's rows below add nothing
+// to the turned box (so ag:portrait plus ag:view cannot see further than an honest page), and nothing changes for a
+// page that never sends it. Run on the FIXTURE law table (L4 pad 100: half width 1010 and half height 590 at s = 1).
 const test = require('node:test');
 const assert = require('node:assert');
 const V = require('../server/ag/agView');
@@ -49,9 +50,13 @@ test('viewBoxFor: portrait turns L4\'s box on its side, same area; false or abse
       const area = (b) => (b.maxX - b.minX) * (b.maxY - b.minY);
       assert.ok(Math.abs(area(p) - area(plain)) < 1e-6 * area(plain), 'the same area');
       assert.deepStrictEqual([p.cx, p.cy, p.scale], [10, 20, s]);
-      // below still moves only the bottom edge
-      const pb = V.viewBoxFor(10, 20, s, law, 102, true);
-      assert.deepStrictEqual(pb, Object.assign({}, p, { maxY: p.maxY + 102 / s }));
+      // below is ignored upright: the turned box with rows below is the plain turned box (an honest upright page
+      // reports 0; adding it would reach past every honest edge). Sideways it still moves only the bottom edge.
+      for (const below of [102, 180, 1e6]) {
+        assert.deepStrictEqual(V.viewBoxFor(10, 20, s, law, below, true), p, 'portrait ignores below ' + below);
+      }
+      const sb = V.viewBoxFor(10, 20, s, law, 102, false);
+      assert.deepStrictEqual(sb, Object.assign({}, plain, { maxY: plain.maxY + 102 / s }));
     }
   }
   // The real table at s = 1: 1180.6 across, 2020.6 down, so a 1080 x 1920 portrait view keeps the measured pad.
@@ -89,7 +94,7 @@ test('room: each seat\'s build gets its own orientation through portraitOf', () 
   r.addSocket(sock('a'));
   r.addSocket(sock('b'));
   r.tickOnce();
-  assert.deepStrictEqual(half(r.seatOf('a').viewer.box()), [HALF_H, HALF_W + 50], 'turned, plus its rows below');
+  assert.deepStrictEqual(half(r.seatOf('a').viewer.box()), [HALF_H, HALF_W], 'turned; its rows below add nothing');
   assert.deepStrictEqual(half(r.seatOf('b').viewer.box()), [HALF_W, HALF_H]);
   on.set('a', false);
   r.tickOnce();
@@ -153,6 +158,39 @@ test('ag:portrait: only true or false is taken; every other shape is ignored; no
   assert.deepStrictEqual(w.rl.filter((k) => /portrait/.test(k)), [], 'the directory limits it, socketRL never drops it');
   assert.strictEqual(w.a.portrait(42, true), false, 'a socket id is a string');
   assert.strictEqual(w.a.portrait(s.id, 'true'), false, 'the directory checks the boolean too');
+});
+
+test('ag:portrait plus ag:view below: the turned box keeps half height (baseW + pad) / 2 / s, in either order', () => {
+  const cap = L.LAWS.VIEW_BELOW.value.cap;
+  assert.strictEqual(cap, 180, 'the real VIEW_BELOW cap the cheat probe used');
+  // Portrait first, then the most rows below a page may report.
+  const w = world();
+  const s = sock(w);
+  s.fire('ag:portrait', true);
+  s.fire('ag:view', { below: cap });
+  assert.strictEqual(w.a.portraitOf(s.id), true);
+  assert.deepStrictEqual(boxHalf(w, s), [HALF_H, HALF_W], 'no rows below on the turned box');
+  // The rows below first, then portrait; and more than the cap changes nothing either.
+  const t = sock(w);
+  t.fire('ag:view', { below: 100000 });
+  t.fire('ag:portrait', true);
+  assert.deepStrictEqual(boxHalf(w, t), [HALF_H, HALF_W]);
+  // The same socket turned sideways gets its rows below back (once the gap is up), and only on the bottom edge.
+  w.advance(GAP);
+  s.fire('ag:portrait', false);
+  assert.deepStrictEqual(boxHalf(w, s), [HALF_W, HALF_H + cap]);
+  // No report mix reaches past the farthest edge an honest page has in any direction (HALF_W at s = 1).
+  for (const [p, b] of [[true, 0], [true, cap], [false, 0], [false, cap]]) {
+    const v = V.createViewer(7, { laws: FIXTURE });
+    v.build(frame([player(1, 7, 0, 0, 32)]), { portrait: p, below: b });
+    const box = v.box();
+    const far = Math.max(box.maxX - box.cx, box.cx - box.minX, box.maxY - box.cy, box.cy - box.minY);
+    assert.ok(far <= HALF_W, 'portrait ' + p + ' below ' + b + ': ' + far);
+  }
+  // On the real table the turned box is 1010.3 down at s = 1 with or without 180 below.
+  const realL4 = L.LAWS.L4.value;
+  const real = V.viewBoxFor(0, 0, 1, realL4, cap, true);
+  assert.ok(Math.abs(real.maxY - 1010.3) < 1e-9 && Math.abs(real.maxY - (realL4.baseW + realL4.pad) / 2) < 1e-9);
 });
 
 test('ag:portrait: at most one box orientation change per PORTRAIT_GAP_MS, and the last report always wins', () => {
