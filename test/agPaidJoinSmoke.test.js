@@ -114,7 +114,9 @@ test('AG_PAID unset, 0 or a typo: the paid rungs stay off and /api/live lists no
     t.after(() => { try { srv.kill('SIGKILL'); } catch (_) {} });
     const live = JSON.parse((await get(`http://localhost:${port}/api/live`)).body);
     assert.deepStrictEqual(agPaidRows(live), [], 'AG_PAID=' + JSON.stringify(value));
-    assert.ok(live.extras.some((e) => e.id === 'agar:free'), 'the free card row is still there');
+    assert.deepStrictEqual(live.lobbies.filter((l) => l.game === 'agar').map((l) => [l.id, l.stake, l.state]), [['ag:na:s0', 0, 'open']],
+      'the free rung is the only agar row (the lobby draws $0.10 and $1.00 struck through)');
+    assert.ok(!live.extras.some((e) => e.game === 'agar'), 'and agar is not in the extras any more');
     assert.ok(out.stdout.includes(line), 'boot says ' + line);
     if (value === 'maybe') assert.ok(out.stderr.includes('is not a switch value'), 'and names the bad value');
     try { srv.kill('SIGKILL'); } catch (_) {}
@@ -133,6 +135,12 @@ test('dev agar $0.10: hand-off, door, ready, hold Q 3 s, paid 90/10; away seat c
   assert.ok(out.stdout.includes('[AG] paid rungs on'), 'boot says the paid rungs are on');
   let live = JSON.parse((await get(`http://localhost:${port}/api/live`)).body);
   assert.deepStrictEqual(agPaidRows(live).map((r) => [r.id, r.players, r.state]), [['ag:na:s0.1', 0, 'open'], ['ag:na:s1', 0, 'open']]);
+  // The lobby's rungs (PAID-AGAR-DESIGN.md 5.7 and 7): every agar row in lobbies, the free one first, and the card is
+  // exactly those rows (humans plus bots), with nothing in the extras to count twice.
+  const agarRows = live.lobbies.filter((l) => l.game === 'agar');
+  assert.deepStrictEqual(agarRows.map((r) => r.id), ['ag:na:s0', 'ag:na:s0.1', 'ag:na:s1']);
+  assert.ok(!live.extras.some((e) => e.game === 'agar'), 'no agar extras row');
+  assert.strictEqual(live.counts.agar, agarRows.reduce((n, r) => n + (r.players || 0) + (r.bots || 0), 0), 'the card is its rows');
 
   const W1 = 'AgDevWa11et11111111111111111111111111111111';
   const mint = async (wallet, devGame) => {

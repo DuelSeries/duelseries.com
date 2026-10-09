@@ -206,3 +206,34 @@ test('a wallet prompt that never settles does not block the next game once the l
   await next;
   assert.deepStrictEqual(k.f.contentWindow.posted, [[{ type: 'duel:restake:done', entryToken: 'NEXT', nonce: 'n-9' }, ORIGIN]]);
 });
+
+/* Paid agar.io (PAID-AGAR-DESIGN.md 4 step 8 and 7): its end card's "Play again $0.10" posts
+   duel:restake { game: 'agar', stake, nonce } from the agar frame. The bridge serves it like Paper's,
+   answers only the agar frame's document, and a request naming agar from any other frame stakes nothing. */
+test('an agar.io Play again is staked and answered only in the agar frame', async () => {
+  const { createRestakeBridge } = await load();
+  const game = frame();
+  const agar = frame();
+  agar.contentWindow = win('agar-page');
+  const st = stakeDouble();
+  const bridge = createRestakeBridge({
+    origin: ORIGIN,
+    frames: (g) => (g === 'agar' ? agar : game),   // the widget's frameFor: agar-frame for agar, game-frame else
+    stake: st.fn,
+    relaunch: () => false,
+    log: () => {}
+  });
+  // Named agar, sent from the snake/Paper frame: not the agar frame's document, nothing staked.
+  await bridge.onMessage({ origin: ORIGIN, source: game.contentWindow, data: { type: 'duel:restake', game: 'agar', stake: 0.1, nonce: 'x' } });
+  assert.strictEqual(st.calls, 0, 'only the agar frame can ask for an agar round');
+  // From the agar frame: staked by its rung, answered there with its nonce.
+  const done = bridge.onMessage({ origin: ORIGIN, source: agar.contentWindow, data: { type: 'duel:restake', game: 'agar', stake: 0.1, nonce: 'a-1' } });
+  assert.strictEqual(st.calls, 1);
+  assert.deepStrictEqual([st.req.game, st.req.sel], ['agar', { stake: 0.1 }]);
+  st.sign();
+  st.submit('AGTOKEN');
+  st.land();
+  await done;
+  assert.deepStrictEqual(agar.contentWindow.posted, [[{ type: 'duel:restake:done', entryToken: 'AGTOKEN', nonce: 'a-1' }, ORIGIN]]);
+  assert.deepStrictEqual(game.contentWindow.posted, [], 'and nothing went to the other frame');
+});

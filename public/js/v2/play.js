@@ -255,13 +255,15 @@
       say('That lobby is not available right now. Refresh and try again.');
       return;
     }
-    /* agar.io is Free only. Its page (/ag) reads no entry token, so a paid
-       buy-in would be a stake with no seat. Nothing on the lobby offers one;
-       this is here for a stale handler or a console call, before any money
-       is asked for. */
-    if (game === 'agar' && ((hasStake && Number(sel.stake) !== 0)
-        || (!hasStake && sel.lobbyType !== 'free'))) {
-      say('agar.io is free to play. There is no paid table yet.');
+    /* agar.io has no tier rooms: its rooms are rungs (Free, $0.10, $1.00,
+       PAID-AGAR-DESIGN.md 7), so a tier name other than the free one names a
+       room that does not exist, and the widget would quote that tier's price
+       for it. Refused before any money is asked for. A paid rung goes on to
+       the widget like Paper's; whether it is open is the board's call (it
+       offers only the rows /api/live lists as open), and the paid door
+       refunds a stake that arrives while it is shut. */
+    if (game === 'agar' && !hasStake && sel.lobbyType !== 'free') {
+      say('That agar.io table does not exist. Pick a buy-in on the card.');
       return;
     }
     if (!connected()) {
@@ -281,10 +283,10 @@
 
        Everything else still goes through the widget exactly as before.
 
-       Paper is deliberately NOT on this list. Its arena is on the server and
-       all three rungs, Free included, go through the widget: stake 0 costs
-       nothing there (an empty token) and every launch writes the whole
-       hand-off the arena page reads, so a Free seat can never open on a
+       Paper and agar.io are deliberately NOT on this list. Their rooms are on
+       the server and all three rungs, Free included, go through the widget:
+       stake 0 costs nothing there (an empty token) and every launch writes
+       the whole hand-off the page reads, so a Free seat can never open on a
        token or a stake left over from an earlier paid one. */
     const OWN_PAGE = { tanks: '/tanks', omgshooter: '/shooter', knockout: '/knockout', battleship: '/battleship' };
     /* A PAID SEAT NEVER TAKES THIS SHORTCUT. The shortcut exists for games with
@@ -360,10 +362,10 @@
        So ask the catalogue which games are priced in rungs instead of asking
        how many rows happen to have loaded. Free IS a rung for those, and the
        server opens the stake-0 room at boot, so it is a valid door even when
-       the board has said nothing at all. A game with no ladder — agar, whose
-       rows are never on /api/live — still opens on the fixed free tier, which
-       is the room it actually uses. The !stake guard stays: neither branch can
-       reach a paid room, so neither can stake anything. */
+       the board has said nothing at all (agar.io and Paper are ladder games
+       too now). A game with no ladder still opens on the fixed free tier,
+       which is the room it actually uses. The !stake guard stays: neither
+       branch can reach a paid room, so neither can stake anything. */
     if (!rows.length && !stake) {
       const onLadder = typeof window.V2_HAS_LADDER === 'function'
         && window.V2_HAS_LADDER(game);

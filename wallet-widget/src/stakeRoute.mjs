@@ -8,8 +8,8 @@
 // public/js/battleship.js), and their lobby rows come from that origin's /api/live. Staking
 // them on regionBase() sent an EU-region player's money to the EU server and the join to the
 // origin server, which refused a token it had never seen: a stake with no seat.
-// agar.io (public/ag.html) connects to its own origin's /ag namespace too. It is Free only, so
-// nothing is staked for it today, but its route says where a stake would have to go.
+// agar.io (public/ag.html) connects to its own origin's /ag namespace too, so its paid rungs
+// ($0.10, $1.00; PAID-AGAR-DESIGN.md 7) are staked on this origin, where its paid door is.
 //
 // Plain ES module with no imports, so node tests load it as it ships (test/stakeRoute.test.js).
 

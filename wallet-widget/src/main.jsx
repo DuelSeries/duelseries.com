@@ -192,14 +192,19 @@ async function buyCosmetic(itemId, wallet, signTransaction, onStatus) {
   return r; // { ok, itemId, owned, free? }
 }
 
+/* agar.io's rooms are rungs (Free, $0.10, $1.00; PAID-AGAR-DESIGN.md 7), staked by amount like
+   Paper's. It has no tier rooms, so a paid tier name (dime, dollar) names a room that does not
+   exist: quoting it would take a stake no agar door could seat. Refused before any quote or wallet
+   prompt, for the lobby's launch and for an in-game Play again alike. */
+function refuseAgarTier(game, sel) {
+  if (game !== 'agar') return;
+  const spec = stakeSpec(sel);
+  const byStake = spec.stake !== undefined && spec.stake !== null;
+  if (!byStake && spec.lobbyType !== 'free') throw new Error('That agar.io table does not exist. Pick a buy-in on the card.');
+}
+
 async function stakeAndPlay(game, sel, wallet, signTransaction, onStatus, onLaunch) {
-  /* agar.io is Free only: its page (/ag) reads no entry token, so a paid buy-in would be a stake
-     with no seat. Refused here, before any quote or wallet prompt, so nothing is ever sent. */
-  if (game === 'agar') {
-    const spec = stakeSpec(sel);
-    const free = spec.stake !== undefined && spec.stake !== null ? Number(spec.stake) === 0 : spec.lobbyType === 'free';
-    if (!free) throw new Error('agar.io is free to play. There is no paid table yet.');
-  }
+  refuseAgarTier(game, sel);
   // One read of the lobby's region: the stake and the page's connection use the same answer.
   const route = stakeRoute(game, lobbyRegion());
   const staked = await stakeOnly(stakeSpec(sel), wallet, signTransaction, onStatus, route.base);
@@ -249,9 +254,9 @@ function launchStaked(game, sel, staked, wallet, onLaunch) {
      its own page AND takes money, so the map is by game rather than by a
      single isAgar flag. Its free seats never reach this function at all -
      the lobby opens those directly, because there is nothing to stake.
-     Paper is different: all three of its rungs come through here, Free
-     included (stake 0 short-circuits to an empty token above), so every
-     launch writes a fresh hand-off. Without its entry a paid Paper token
+     Paper and agar.io are different: all three of their rungs come through
+     here, Free included (stake 0 short-circuits to an empty token above), so
+     every launch writes a fresh hand-off. Without its entry a paid Paper token
      would fall through to /game.html and the snake client would spend it. */
   const isAgar = game === 'agar';
   const PAGES = { agar: '/ag', knockout: '/knockout', battleship: '/battleship', snake: '/game.html',
@@ -415,8 +420,8 @@ function WalletPanel() {
       stake: async (req, hooks) => {
         const w = walletRef.current;
         if (!w) throw new Error('Wallet not ready. Return to the lobby.');
-        // agar.io is Free only (its page never asks); a request naming it stakes nothing.
-        if (req.game === 'agar') throw new Error('agar.io is free to play. There is no paid table yet.');
+        // agar.io's Play again names its rung, like Paper's; a tier name stakes nothing.
+        refuseAgarTier(req.game, req.sel);
         const route = stakeRoute(req.game, pageRegion());
         const staked = await stakeOnly(req.sel, w, signRef.current, () => {}, route.base, hooks);
         // Return focus to the game after the wallet modal so keyboard works without a click.

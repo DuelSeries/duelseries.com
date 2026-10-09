@@ -2206,11 +2206,14 @@ const GAMES=[
  {id:'snake',name:'slither.io',c:['#15251c','#c080ff'],type:'p',real:1,ladder:1,
   d:'Grow by eating, cut other players off, and cash out before somebody cuts you off.'},
  /* The agar.io redo (server/ag, page /ag), in the lobby since 2026-10-07; the
-    old agar.io game is deleted. Free only: it carries no rungs on the board,
-    so it opens at Free and only at Free, through the widget into agar-frame.
+    old agar.io game is deleted. Its rooms are rungs of the same ladder as
+    slither.io and Paper.io (Free, $0.10, $1.00; PAID-AGAR-DESIGN.md 7), so it
+    is ladder:1 and every rung goes through the wallet widget into agar-frame.
+    A paid rung is offered only while /api/live lists it open (AG_PAID on and
+    the owner's off switch not thrown); otherwise it is drawn struck through.
     nolook:1 hides the skin row: the server picks a plain colour every life
     (Owen's answer: plain colours at first), so a chosen skin would do nothing. */
- {id:'agar',name:'agar.io',c:['#141f28','#65c8e8'],type:'p',nolook:1,
+ {id:'agar',name:'agar.io',c:['#141f28','#65c8e8'],type:'p',ladder:1,nolook:1,
   d:'Absorb anything smaller than you, split to chase, and stay clear of anything bigger.'},
  /* Built, and free while it is new: no ladder, no lobby list, its own page,
     and none of the money path involved in it. `solo` is what says so. */

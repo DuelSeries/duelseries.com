@@ -10,17 +10,19 @@
    Usdc.verifyUsdcStake), the same way test/durableStakeServer.test.js does it.
 
    It proves:
-   - agar.io takes no money anywhere: a real paid tier token sent to the old agar doors (cell:join,
+   - the old agar doors take no money: a real paid tier token sent to them (cell:join,
      cell:respawn, spectate:join:agar) gets no answer at all (the handlers are gone), its stake row
      stays 'pending' with nothing owed, and the same token still opens the snake room of that
      price; /api/submit-stake still refuses an agar room name before anything is broadcast;
-   - the lobby card's count and row come from the NEW rooms (server/ag): a Play on /ag is one
-     human on the agar:free row, a watcher on the menu is none, and the card is that row;
+   - the lobby card's count and rows come from the NEW rooms (server/ag): a Play on /ag is one
+     human on the free rung's row (ag:na:s0 in /api/live lobbies, PAID-AGAR-DESIGN.md 5.7), a
+     watcher on the menu is none, and the card is the sum of the agar rows;
    - /agar and /agar.html send the browser to /ag, the old page's files are gone (404), and /ag
      serves the new page with its lobby hook;
    - the old game's server code is gone from the tree, its DB columns stay (never dropped live);
    - public/js/ag/agLobby.js: inside the lobby frame the page gets a Lobby button (game:done) while
      its menu is open, and the name box starts with the lobby name; outside a frame, no button;
+     while a paid account is open the button is gone and the tab asks before closing (the exit trap);
    - switched off (AG_ENABLED=0), /ag answers a page with a way back and the card reads 0. */
 const test = require('node:test');
 const assert = require('node:assert');
@@ -143,10 +145,10 @@ async function tierToken(lobbyType, amount) {
   return { token: r.json.entryToken, sig };
 }
 
-// The agar.io row and the card, from one /api/live response.
+// The agar.io free rung's row and the card, from one /api/live response.
 async function agarLive() {
   const r = await call(port, 'GET', '/api/live');
-  const row = (r.json.extras || []).find((e) => e.id === 'agar:free');
+  const row = (r.json.lobbies || []).find((e) => e.id === 'ag:na:s0');
   return { row, card: r.json.counts && r.json.counts.agar, rows: (r.json.extras || []).concat(r.json.lobbies || []) };
 }
 
@@ -195,8 +197,10 @@ test('/api/submit-stake refuses an agar room name before anything is broadcast o
 
 test('the agar.io card and its row count the new rooms: a Play is one human, a watcher is none', async () => {
   const start = await agarLive();
-  assert.ok(start.row, '/api/live carries the agar:free row while agar.io is open');
+  assert.ok(start.row, '/api/live carries the free rung ag:na:s0 while agar.io is open');
   assert.strictEqual(start.row.game, 'agar');
+  assert.strictEqual(start.row.stake, 0, 'as a stake-0 rung, the row the lobby pins like Paper\'s');
+  assert.ok(!start.rows.some((r) => r.id === 'agar:free'), 'the old extras row is gone (its bots would count twice)');
   assert.strictEqual(start.card, start.row.players + start.row.bots, 'the card is its row (humans plus bots)');
   assert.ok(start.row.bots > 0, 'the free room is filled with bots');
   const base = start.row.players;
@@ -263,19 +267,26 @@ test('the old agar.io game is gone from the tree; what other games share stays',
   }
 });
 
-test('the new agar.io page asks for no money: no restake, no token, no stake', () => {
-  const dir = path.join(ROOT, 'public', 'js', 'ag');
-  const client = fs.readdirSync(dir).map((f) => fs.readFileSync(path.join(dir, f), 'utf8')).join('\n');
-  assert.ok(!/duel:restake|entryToken|entrySol|duelWalletSignAction/.test(client),
-    'the page never asks the lobby to stake and never reads a token');
-  /* And the widget refuses one anyway (a modified page could still post duel:restake for agar):
-     the bridge's stake step throws before any quote, so nothing is ever sent for agar. */
+test('the widget stakes agar.io by rung only: launch and Play again refuse a tier name before any quote', () => {
+  /* agar.io's rooms are rungs (Free, $0.10, $1.00; PAID-AGAR-DESIGN.md 7), so the widget no longer
+     refuses a paid agar buy-in; it refuses only a tier name (dime, dollar), which names no agar room
+     and would buy a stake no agar door can seat. Both the lobby's launch and the in-game Play again
+     (duel:restake through the bridge) run that check before stakeOnly, so nothing is quoted. */
   const src = read('wallet-widget/src/main.jsx');
+  assert.ok(!/agar\.io is free to play/.test(src), 'the old "Free only" refusals are gone');
+  const at = src.indexOf('async function stakeAndPlay(');
+  const launch = src.slice(at, src.indexOf('await stakeOnly(', at));
+  assert.ok(/refuseAgarTier\(game, sel\);/.test(launch), 'the launch checks before staking');
   const bridge = src.slice(src.indexOf('restakeRef.current = createRestakeBridge('));
   const stakeStep = bridge.slice(bridge.indexOf('stake: async (req, hooks) => {'), bridge.indexOf('await stakeOnly('));
-  assert.ok(/if \(req\.game === 'agar'\) throw new Error\(/.test(stakeStep), 'the restake bridge refuses agar before staking');
-  assert.ok(read('public/wallet/widget.js').split('agar.io is free to play').length - 1 >= 2,
-    'the built bundle carries both refusals (launch and restake)');
+  assert.ok(/refuseAgarTier\(req\.game, req\.sel\);/.test(stakeStep), 'and so does Play again');
+  const fn = src.slice(src.indexOf('function refuseAgarTier('), at);
+  assert.ok(/if \(game !== 'agar'\) return;/.test(fn) && /!byStake && spec\.lobbyType !== 'free'/.test(fn),
+    'only an agar tier other than free is refused; a rung (Free included) and every other game pass');
+  /* The deploy does not build (deploy.yml): the bundle that ships must carry the same code. */
+  const bundle = read('public/wallet/widget.js');
+  assert.ok(bundle.includes('That agar.io table does not exist'), 'the built bundle carries the tier refusal');
+  assert.ok(!bundle.includes('agar.io is free to play'), 'and not the old Free-only refusal');
 });
 
 /* public/js/ag/agLobby.js in a small fake page. */
@@ -382,7 +393,7 @@ test('agar.io switched off: /ag answers a page with a way back to the lobby, and
     assert.match(script[1], /postMessage\("game:done","\*"\)/, 'and sends the lobby the message every game sends');
     assert.strictEqual((await call(p2, 'GET', '/agar')).location, '/ag', '/agar still points at it');
     const live = (await call(p2, 'GET', '/api/live')).json;
-    assert.ok(!(live.extras || []).some((e) => e.game === 'agar'), 'no agar row while it is closed');
+    assert.ok(!(live.extras || []).concat(live.lobbies || []).some((e) => e.game === 'agar'), 'no agar row while it is closed');
     assert.strictEqual(live.counts.agar, 0, 'and the card reads 0');
   } finally {
     srv.kill();

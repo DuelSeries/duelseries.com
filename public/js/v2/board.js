@@ -20,7 +20,7 @@
    ever hold.
 
    The pinned free rows get their counts from /api/live's `extras`, which is
-   where the rooms that are not on the snake ladder report themselves. */
+   where the rooms that are not on the stake ladder report themselves. */
 
 (function () {
   const el = id => document.getElementById(id);
@@ -87,27 +87,23 @@
      buy-in control rather than in a list of places to join. Listing all nine
      rungs every time made the board look busy while the game was empty, which
      is the opposite of what it is for. */
-  const occupied = () => LOBBIES.filter(l => (l.players || 0) > 0);
+  /* Whether a row takes new players. A paid agar.io row stays listed under the
+     owner's off switch (agar:paid:off) so its seated players still count, but
+     says 'closed' (PAID-AGAR-DESIGN.md 7): those players finish and cash out,
+     and anybody new would only pay a stake the door has to refund. Every snake
+     and Paper row says 'open' (or says nothing), so this changes nothing for
+     them. */
+  const isOpen = l => l.state === undefined || l.state === null || l.state === 'open';
+  const occupied = () => LOBBIES.filter(l => (l.players || 0) > 0 && isOpen(l));
 
   /* The one exception: the free slither.io room is always listed, even empty.
      It is the "just let me play" button — nothing to stake, nothing to think
      about — and burying it behind the buy-in stepper made starting a game a
      three-tap job from the screen whose entire purpose is starting a game.
      It still shows its real count, so an empty one says so. */
-  /* agar.io is Free only and not on the buy-in ladder (its rooms are server/ag,
-     opened at /ag), so /api/live carries no rung for it and there is nothing to
-     pin. Its free room is added here, with its population from the server's
-     `agar:free` extra, deliberately: it is NOT put into LOBBIES,
-     because refreshSteps reads that list to build the buy-in buttons and a row
-     with no stake on it would put a blank rung on the control.
-
-     stake null rather than 0 matters. enter() sends { stake } when there is
-     one, and the server resolves a stake through the snake ladder — so a 0
-     here would route an agar player into a snake room. With no stake it sends
-     { lobbyType: 'free' }, which the widget opens with no stake at all. */
   /* Every free room that has to be reachable in one press, whether or not the
-     server has a rung for it. agar.io, Awesome Tanks and Bowmasters all run on
-     their own doors rather than on the snake buy-in ladder, so /api/live has
+     server has a rung for it. Awesome Tanks, Bowmasters and the two duels run
+     on their own doors rather than on the stake ladder, so /api/live has
      nothing to list for them and there is nothing to pin from the real board.
 
      stake null rather than 0, and this is the part that matters: enter() sends
@@ -119,8 +115,6 @@
      build the buy-in buttons, and a row carrying no stake would put a blank
      rung on the control. */
   const PINNED = [
-    { id: 'agar:free',       game: 'agar',       region: 'na',
-      stake: null, lobbyType: 'free', players: 0, state: 'open' },
     { id: 'omgshooter:free', game: 'omgshooter', region: 'na',
       stake: null, lobbyType: 'free', players: 0, state: 'open' },
     { id: 'tanks:free',      game: 'tanks',      region: 'na',
@@ -132,22 +126,20 @@
       stake: null, lobbyType: 'free', players: 0, state: 'open' },
     { id: 'battleship:free', game: 'battleship', region: 'na',
       stake: null, lobbyType: 'free', players: 0, state: 'open' },
-    /* Paper is not pinned here. Its arenas are on the server and /api/live
-       reports a row per rung, so its Free comes off the real board below. */
+    /* Paper and agar.io are not pinned here. Their rooms are on the server and
+       /api/live reports a row per rung (paper:na:s0, ag:na:s0, ...), so their
+       Free comes off the real board in rowsToShow. */
   ];
 
-  /* Which buy-ins a game can actually seat right now.
-
-     agar.io has no rungs on /api/live at all — its free room is added on this
-     side — so asking the lobby list what agar offers returns nothing, and the
-     buy-in control ended up with a single Free button and no hint that the
-     other tiers exist. This reports what is REALLY playable, and the control
-     draws the rest struck through. agar.io has no paid rooms (the new game is
-     Free only, and play.js refuses a paid agar launch), so Free is all it lists. */
+  /* Which buy-ins a game can actually seat right now: a rung counts only while
+     the server lists a room for it AND that room is open. The buy-in control
+     draws every other rung struck through. For agar.io that is how the paid
+     rungs stay shut while AG_PAID is off: the server lists only its free rung
+     (ag:na:s0) then, so $0.10 and $1.00 are drawn struck through, as Paper's
+     were before PAPER_PAID. */
   function playableStakes(game) {
     const out = new Set();
-    LOBBIES.forEach(l => { if (l.game === game) out.add(Number(l.stake)); });
-    if (game === 'agar') out.add(0);          // the free room this file adds itself
+    LOBBIES.forEach(l => { if (l.game === game && isOpen(l)) out.add(Number(l.stake)); });
     return out;
   }
 
@@ -155,7 +147,11 @@
     const rows = occupied();
     const free = LOBBIES.find(l => Number(l.stake) === 0 && l.game === 'snake');
     if (free && !rows.some(r => r.id === free.id)) rows.unshift(free);
-    LOBBIES.forEach(l => { if (l.game === 'paper' && Number(l.stake) === 0 && !rows.includes(l)) rows.push(l); });
+    /* Paper's and agar.io's free rungs are always listed, from the server's own
+       row (paper:na:s0, ag:na:s0), in that order: the order the pinned rows had. */
+    ['paper', 'agar'].forEach(g => LOBBIES.forEach(l => {
+      if (l.game === g && Number(l.stake) === 0 && !rows.includes(l)) rows.push(l);
+    }));
     PINNED.forEach(p => {
       if (rows.some(r => r.id === p.id)) return;
       /* The pinned row keeps its own id, stake and door — those are what make
@@ -185,7 +181,7 @@
 
   function join(id) {
     const l = PINNED.find(p => p.id === id) || LOBBIES.find(x => x.id === id);
-    if (!l) return;
+    if (!l || !isOpen(l)) return;
     if (window.V2Play) return window.V2Play.enter(l);
     alert('Entering a ' + money(l.stake) + ' lobby.');
   }

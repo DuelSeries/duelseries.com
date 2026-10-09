@@ -1643,8 +1643,11 @@ const paper = require('./paperSockets')({
    ON by default (since 2026-10-07); AG_ENABLED=0, false, off or no turns it
    off, and any other value that is not a switch says so and fails closed.
    It is the lobby's agar.io card since the lobby swap (2026-10-07): the card
-   opens /ag in the lobby's agar frame, Free only, and its count and row come
-   from these rooms (liveExtras, liveGameCounts). Not on the stake ladder. The
+   opens /ag in the lobby's agar frame, and its count and rows come from these
+   rooms (/api/live lobbies via agArenas.boardRows(), liveGameCounts). It is on
+   the stake ladder like Paper (Free, $0.10, $1.00; PAID-AGAR-DESIGN.md 7): the
+   lobby offers a paid rung only while /api/live lists it open, so with AG_PAID
+   off the card shows them struck through. The
    rooms run on their own socket.io namespace, /ag, so no other game ever sees
    them, and /ag serves public/ag.html. The old agar.io game (AgarRoom, the
    cell:* events, agar.html) is deleted; /agar sends the browser here.
@@ -1909,27 +1912,18 @@ function liveBoard() {
   // convergence is what stops the player base fragmenting across empty rooms.
   return out.sort((a, b) => b.players - a.players);
 }
-/* The free rooms that are NOT on the snake ladder: agar, the tank arena and
+/* The free rooms that are NOT on the stake ladder: the tank arena and
    Bowmasters. The lobby pins a row for each of them and had nothing to put in
-   the count, so all three read "0 playing" however busy they were.
+   the count, so both read "0 playing" however busy they were.
 
-   Kept out of `lobbies` on purpose. That list is the snake buy-in ladder and
-   the client builds its rung buttons from it; a row carrying no stake would
-   put a blank rung on the control. */
+   Kept out of `lobbies` on purpose. The lobby builds each game's rung buttons
+   from that list; a row carrying no stake would put a blank rung on the
+   control. agar.io is not here any more: its rooms are rungs now (Free, $0.10,
+   $1.00, PAID-AGAR-DESIGN.md 5.7 and 7), so its rows are in `lobbies` like
+   Paper's, and listing it here too would count its bots twice on the card
+   (withBoardBots adds the bots of lobbies and extras alike). */
 function liveExtras() {
   const out = [];
-  /* agar.io: every room of the free rung (server/ag, overflow rooms included),
-     as the one row the lobby pins under the id it has always used. Players are
-     the humans who pressed Play (watchers on the menu are not playing), bots
-     every bot in those rooms: the same two numbers agArenas.boardRows() sums.
-     No row while the game is closed, so the card reads 0 rather than a guess. */
-  if (agArenas) {
-    let players = 0, bots = 0;
-    try {
-      for (const r of agArenas.boardRows()) { players += r.players || 0; bots += r.bots || 0; }
-    } catch (_) {}
-    out.push({ id: 'agar:free', game: 'agar', region: REGION, players, bots });
-  }
   if (typeof shooterRoom !== 'undefined' && shooterRoom) {
     /* WHAT YOU WILL FIND, not what is there with nobody looking.
 
@@ -2053,12 +2047,14 @@ app.get('/api/live', (_req, res) => {
     /* The ladder ships with the board so the buy-in control offers exactly the
        rungs the server will accept. A client with its own copy is a client
        that can drift out of step and offer an amount that gets refused. */
-    /* Paid agar.io rows (only while AG_PAID built them): one per rung, players =
-       every open account (away ones too, so rule 4b sees parked money), parked,
-       no bots, and state 'closed' under the owner's off switch. The free agar
-       row stays in liveExtras (agar:free) until the lobby pins it from here. */
-    const agPaidRows = agArenas ? agArenas.boardRows().filter((r) => r.stake > 0) : [];
-    const lobbies = liveBoard().concat(paperArenas.boardRows(), agPaidRows);
+    /* agar.io's rows, one per rung (PAID-AGAR-DESIGN.md 5.7): the free rung
+       'ag:<region>:s0' (humans who pressed Play, and the bots), which the lobby
+       pins like Paper's, and the paid rungs only while AG_PAID built them, with
+       players = every open account (away ones too, so rule 4b sees parked
+       money), parked, no bots, and state 'closed' under the owner's off switch.
+       No agar row at all while the game is closed, so its card reads 0. */
+    const agRows = agArenas ? agArenas.boardRows() : [];
+    const lobbies = liveBoard().concat(paperArenas.boardRows(), agRows);
     const extras = liveExtras();
     /* Card counts: every human of the game plus the bots in its rows, from these
        same rows, so a card never reads 0 above a row saying 20 playing. */

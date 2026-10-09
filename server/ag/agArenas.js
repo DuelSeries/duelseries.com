@@ -1,7 +1,8 @@
 'use strict';
 // The agar.io room directory for this region (build brief 9.1, 9.3): one free rung, a player cap per room (law
 // L39), overflow rooms, the sweep of empty overflow rooms, and the lobby rows (boardRows, liveCount) in the shape
-// paperArenas gives them. Free only: there is no money anywhere in this file.
+// paperArenas gives them (every rung's row is in /api/live lobbies, where the lobby's agar.io card reads its Free,
+// $0.10 and $1.00). The free rung holds no money; the paid rungs (only while AG_PAID is on) are described below.
 //
 // Watchers and players: a socket that connects is seated at once as a watcher in the room a Play would land in
 // (its page must be sent world updates before it can ask to play), without opening an overflow room for someone

@@ -82,11 +82,14 @@ test('/api/live carries the counts, from the rooms it already has, with no timer
   assert.ok(fn.includes("e.game === 'snake'") && fn.includes('gameRooms[REGION]'), 'snake counts tiers, the event and the rungs');
   assert.ok(fn.includes('agar: agArenas') && fn.includes('paper: paperArenas'), 'agar.io every room of the new game, paper every rung');
   assert.ok(!fn.includes('agarRooms'), 'the old agar rooms are gone');
-  /* The agar.io row the card's bots come from is built from the same registry, under the id the
-     lobby pins (board.js PINNED 'agar:free'). */
+  /* The agar.io rows the card's bots come from are the registry's own board rows, one per rung, in
+     `lobbies` like Paper's (PAID-AGAR-DESIGN.md 5.7): the free rung ag:na:s0 is the row the lobby
+     pins. They are NOT also in liveExtras, where withBoardBots would add the same bots twice. */
+  assert.ok(/const agRows = agArenas \? agArenas\.boardRows\(\) : \[\];/.test(src)
+    && /const lobbies = liveBoard\(\)\.concat\(paperArenas\.boardRows\(\), agRows\);/.test(src),
+  'every agar.io rung row is in lobbies');
   const ex = src.slice(src.indexOf('function liveExtras'), src.indexOf('function liveBattleRoyale'));
-  assert.ok(/for \(const r of agArenas\.boardRows\(\)\)/.test(ex), 'the agar.io row sums the new rooms\' board rows');
-  assert.ok(ex.includes("id: 'agar:free', game: 'agar'"), 'under the id and game the lobby reads');
+  assert.ok(!/agArenas|game: 'agar'|agar:free/.test(ex), 'and none is in the extras');
   assert.ok(!/setInterval|setTimeout/.test(fn), 'no polling loop of its own');
   const lib = fs.readFileSync(path.join(__dirname, '../server/liveCounts.js'), 'utf8');
   assert.ok(!/require\(/.test(lib), 'liveCounts depends on nothing, so it can expose nothing but counts');

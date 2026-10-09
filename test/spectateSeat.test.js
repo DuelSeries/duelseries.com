@@ -90,11 +90,11 @@ function handled(s) {
 }
 
 /* agar.io is the new game (server/ag, namespace /ag): counts.agar is the humans who pressed Play
-   in every agar.io room plus the bots of its one row (agar:free), from one response. The old
+   in every agar.io room plus the bots of its rows (the free rung ag:na:s0 in lobbies), from one response. The old
    game's spectate:join:agar and cell:* events went with it. */
 async function agarHumans() {
   const r = await live();
-  const row = (r.extras || []).find((e) => e.id === 'agar:free');
+  const row = (r.lobbies || []).find((e) => e.id === 'ag:na:s0');
   assert.ok(row, '/api/live carries the agar.io row');
   assert.strictEqual(r.counts.agar, row.players + row.bots, 'the card is its row');
   return row.players;
