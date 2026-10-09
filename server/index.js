@@ -150,6 +150,8 @@ app.use((req, res, next) => {
       /* The boot refund (STATUS item 7a): every stake an earlier boot of this server verified and
          never seated or refunded is owed back now, once, through the owed-payout lane. */
       stakeLedger.sweep({ boot: true }).catch((e) => console.error('[STAKE] boot sweep', e.message));
+      /* Paid agar crash refunds and killed-process flags (server/ag/agJournal.js). */
+      replayAgJournal();
       return;
     } catch (e) {
       console.error(`[DB] Init attempt ${attempt}/8 failed: ${e.message}`);
@@ -1267,6 +1269,7 @@ app.post('/api/owner/do', async (req, res) => {
       return done('Paid agar.io closed to new players. Seated players finish.');
     case 'agar:paid:on':
       if (!agArenas || !agArenas.paidEnabled) return refuse('Paid agar.io is not on (AG_PAID)');
+      if (agArenas.stopping) return refuse('The server is restarting');
       agArenas.paidOpen = true;
       console.warn('[AG] owner console: paid door OPEN');
       return done('Paid agar.io open.');
@@ -1687,33 +1690,46 @@ const agPayout = require('./paperPayout').create({
   breachSource: 'agar_breach',
   tag: '[AG]',
 });
-/* A ledger breach, a zombie account, an emergency close, a refused share. The ntfy
-   topic is public, so the push carries the kind, the room and amounts only, never
-   a wallet; the owner's socket gets the same. Latched once per room per kind. */
-const _agAlerted = new Set();
-function agOwnerAlert(info) {
-  try {
-    const i = info || {};
-    const kind = String(i.kind || 'breach');
-    const room = String(i.lobbyType || '');
-    const key = room + '|' + kind;
-    if (_agAlerted.has(key)) return;
-    _agAlerted.add(key);
-    const safe = { kind, lobbyType: room };
-    for (const k of ['micro', 'accounts', 'totalMicro', 'inMicro', 'outMicro', 'ceiling', 'phase', 'was']) {
-      if (i[k] !== undefined && (typeof i[k] === 'number' || typeof i[k] === 'string')) safe[k] = i[k];
-    }
-    console.error('[AG] MONEY ALERT ' + JSON.stringify(safe));
+/* A ledger breach, a zombie account, an emergency close, a refused share, accounts
+   left open by a killed process (the journal replay). The ntfy topic is public, so
+   the push carries the kind, the room and amounts only, never a wallet; the owner's
+   socket gets the same. One alert per room per kind per 10 minutes, the next one
+   counting the ones held back (server/ag/agAlert.js). */
+const agOwnerAlert = require('./ag/agAlert').createAgOwnerAlert({
+  toOwner: (safe) => {
     const s = lobbySocketsByGoogleId.get(OWNER_WALLET);
     if (s) s.emit('admin:agar_alert', safe);
-    notify.pushOwner(`${kind} in ${room}: ${JSON.stringify(safe)}`, { title: 'agar.io money alert', priority: 'high' });
-  } catch (e) {
-    console.error('[AG] owner alert', e.message);
-  }
+  },
+  push: (text) => notify.pushOwner(text, { title: 'agar.io money alert', priority: 'high' }),
+});
+/* Agar money in flight (payouts, refunds, door claims), for the shutdown settle to
+   wait on (server/ag/agShutdown.js). */
+const agShutdown = require('./ag/agShutdown');
+const agInflight = agShutdown.createInflight();
+/* The paid agar money journal (server/ag/agJournal.js, Owen Q6): every paid
+   account's open and close, written synchronously to a local file, so a crash's
+   refunds reach the database at the next boot and a killed process's open
+   balances are flagged to Owen. Rotated here, before any account can open;
+   replayed once the database is up (the boot block at the top of this file).
+   A journal left by an earlier boot is replayed even with AG_PAID now off. */
+const agJournal = require('./ag/agJournal').createAgJournal({
+  file: process.env.AG_JOURNAL_PATH || undefined,
+  bootId: BOOT_ID,
+});
+{
+  const waiting = agJournal.rotate();
+  if (waiting.length) console.warn(`[AG] JOURNAL ${waiting.length} file(s) to replay once the database is up`);
+}
+function replayAgJournal() {
+  agJournal.replay({
+    writeOwedOnce: (r) => db.recordOwedOnce(r.key, r.wallet, r.micro / 1e6, r.name || 'Player', r.reason),
+    alert: agOwnerAlert,
+  }).then((s) => { if (s.owed) kickDrain(); })
+    .catch((e) => console.error('[AG] JOURNAL replay', e && e.message));
 }
 const agMoneyHooks = {
-  onCashout: agPayout.payCashout,
-  onRefund: agPayout.refund,
+  onCashout: (order) => agInflight.track(agPayout.payCashout(order)),
+  onRefund: (info) => agInflight.track(agPayout.refund(info)),
   /* One record per (victim life, eater) bucket, in Paper's units (dollars). */
   onTransfer: (t) => collusion.record(t.srcWallet, t.dstWallet, t.micro / 1e6, { lobbyType: t.lobbyType || t.label }),
   /* Eject-feeds stay in the room's own 24 h tally (owner snapshot); never a phone push. */
@@ -1722,12 +1738,14 @@ const agMoneyHooks = {
   /* The buy-in row, written on ag:ready (a seat refunded before it readied leaves no stake on the profile). */
   onStake: ({ wallet, worth }) => { recordEntry({ ok: true, worth, walletAddress: wallet }, 'agar'); },
   onHouse: agPayout.houseIncident,
+  journal: agJournal,
 };
 const agPaidDoorDeps = {
   /* The 'agar' door: a token scoped to another game (a Paper dev token) does not open it. */
   consumeAtStake: (token, stake) => entryStore.consumeAtStake(token, stake, 'agar'),
   ledger: stakeLedger,
   refund: agPayout.refund,
+  track: agInflight.track,
 };
 const agBoot = require('./ag/agBoot').openAg({
   env: process.env,
@@ -1742,18 +1760,21 @@ const AG_PAID_ON = !!agBoot.paid;
 /* Shutdown settle (design 5.9, Owen Q6; server/ag/agShutdown.js): a planned
    restart (pm2 sends SIGINT, then kills after its 1.6 s timeout) must not erase
    seated agar money, so every open agar balance is withdrawn from its room and
-   written as an owed REFUND row (100%, no rake: a restart is our fault) for the
-   drainer to pay after the restart, each also logged as one [AG] SHUTDOWN-OWED
-   line. Installed only while the paid rungs exist. Paper and the snake game are
-   not covered (follow-up, design 13). */
+   written as an owed REFUND row (100%, no rake: a restart is our fault, one row
+   per key, db.recordOwedOnce) for the drainer to pay after the restart, each
+   also journaled and logged as one [AG] SHUTDOWN-OWED line. The handler never
+   ends the process while the leaderboard also listens (production): pm2's kill
+   timeout does, exactly as before, so Paper and snake money in flight keeps its
+   whole window. Installed only while the paid rungs exist. */
 if (AG_PAID_ON) {
-  const agShutdown = require('./ag/agShutdown');
   agShutdown.installAgShutdown({
     arenas: agArenas,
-    writeRow: (r) => db.recordFailedPayout(r.wallet, r.micro / 1e6, r.name || 'Player', r.reason, null),
+    writeRow: (r) => db.recordOwedOnce(r.key, r.wallet, r.micro / 1e6, r.name || 'Player', r.reason),
+    inflight: agInflight,
   });
-  /* A hard crash leaves no time to write: every open balance is logged as one
-     [AG] CRASH-OWED line before Node's own crash handler runs (Owen Q6). */
+  /* A hard crash leaves no time to write: every open balance is closed into the
+     money journal (synchronous) and logged as one [AG] CRASH-OWED line before
+     Node's own crash handler runs; the next boot writes the owed rows (Owen Q6). */
   agShutdown.installAgCrashLog({ arenas: agArenas });
 }
 /* Closed (switched off, or the law gate refused): the lobby card still opens

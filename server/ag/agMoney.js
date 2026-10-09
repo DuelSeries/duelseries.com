@@ -167,7 +167,9 @@ class AgMoney {
       paid: Number.isFinite(paid) ? paid : undefined,
       proof: typeof proof === 'string' && proof ? proof : null,
       resumeKey: this.uuid(),
+      jid: this.uuid(),           // the money journal's id for this account (agJournal), never a credential
       state: 'unconfirmed',
+      readied: null,              // the socket whose ag:ready waits for a clear spot (confirm)
       confirmBy: this.now() + AG_MONEY.JOIN_CONFIRM_MS.value,
       holding: false, holdTicks: 0, lastHoldAt: 0,
       socketId: typeof socketId === 'string' ? socketId : null,
@@ -203,11 +205,35 @@ class AgMoney {
   }
 
   // ag:ready from the seat's own socket, with its cell on the map (design 3.4 confirm): the shield and the freeze go,
-  // and the buy-in row is written (onStake), once.
+  // and the buy-in row is written (onStake), once. Review fix (spawn camping): the spot is checked again first, since
+  // a bigger cell may have parked on the shielded newcomer; an unsafe spot moves the cell to a fresh clear point
+  // (findSpawnPoint's rule), and with no clear point anywhere the ready waits (retried after every step) until one
+  // appears or JOIN_CONFIRM_MS passes ('no-room', refunded in full like every unconfirmed exit).
   confirm(pid, socketId) {
     const acct = this.accounts.get(pid);
     if (!acct || acct.state !== 'unconfirmed' || acct.socketId === null || acct.socketId !== socketId) return false;
     if (!this.hasLiveCell(pid)) return false;
+    if (!this._clearToStart(acct)) {
+      acct.readied = socketId;
+      return false;
+    }
+    this._finishConfirm(acct);
+    return true;
+  }
+
+  // The newcomer's one cell is clear of every cell that could eat it, after moving it to a clear point if needed.
+  _clearToStart(acct) {
+    const clear = AG_MONEY.SPAWN_CLEAR.value;
+    if (this.sim.spawnClearOf(acct.pid, clear)) return true;
+    const pt = this.sim.findSpawnPoint(this.sim.startSize(), clear, AG_MONEY.SPAWN_TRIES.value);
+    if (!pt || !this.sim.relocate(acct.pid, pt)) return false;
+    this.log.warn('[AG] SPAWN moved at ready ' + this.label + ' pid ' + acct.pid + ' (a cell that could eat it was near)');
+    return this.sim.spawnClearOf(acct.pid, clear);
+  }
+
+  _finishConfirm(acct) {
+    const pid = acct.pid;
+    acct.readied = null;
     acct.state = 'live';
     acct.confirmBy = 0;
     this.shielded.delete(pid);
@@ -303,8 +329,11 @@ class AgMoney {
       const now = this.now();
       for (const acct of Array.from(this.accounts.values())) {
         if (!this.accounts.has(acct.pid)) continue;
-        if (acct.state === 'unconfirmed' && now >= acct.confirmBy) {
-          this.release(acct.pid, 'join-timeout');
+        const readied = acct.state === 'unconfirmed' && acct.readied !== null && acct.readied === acct.socketId;
+        if (readied && now < acct.confirmBy && this.hasLiveCell(acct.pid) && this._clearToStart(acct)) {
+          this._finishConfirm(acct);
+        } else if (acct.state === 'unconfirmed' && now >= acct.confirmBy) {
+          this.release(acct.pid, readied ? 'no-room' : 'join-timeout');
         } else if (acct.state === 'grace' && now >= acct.graceUntil) {
           acct.state = 'dormant';
           acct.dormantSince = now;
@@ -420,8 +449,7 @@ class AgMoney {
     if (!acct || acct.state !== 'unconfirmed') return false;
     const w = this.bank.withdraw(pid);
     const got = w ? w.micro : 0;
-    const back = Math.min(got, acct.deposit);
-    const extra = got - back;
+    const { back, extra } = this._unconfirmedSplit(acct, got);
     this.log.log('[AG] RELEASE ' + this.label + ' ' + why + ' refund=' + back + (extra > 0 ? ' extra=' + extra : ''));
     try {
       this._close(acct, 'released', { why, refunded: back > 0 });
@@ -434,12 +462,27 @@ class AgMoney {
             (e && e.message));
         }
       }
-      if (extra > 0) {
-        this._breach({ kind: 'release-extra', micro: extra });
-        this._toHouse(acct, extra, 'release-extra');
-      }
+      this._extraToHouse(acct, extra, 'release-extra');
     }
     return true;
+  }
+
+  // What an UNCONFIRMED seat gets back, the same on every path (release, emergency, shutdown, crash): its balance,
+  // never above its deposit (a shielded seat can neither eat nor be eaten, so `extra` above the deposit is a bug: it
+  // goes to the house with an alert, never to the player) and never above what landed on-chain (paid: SOL mode
+  // verified up to 5 percent under the rung; that part never reached the escrow, so it is nobody's money and is not
+  // booked anywhere; in USDC mode paid is at least the rung, server/index.js entryStore.mint).
+  _unconfirmedSplit(acct, got) {
+    const upToDeposit = Math.min(got, acct.deposit);
+    const extra = got - upToDeposit;
+    const landed = Number.isFinite(acct.paid) ? toMicro(acct.paid) : upToDeposit;
+    return { back: Math.max(0, Math.min(upToDeposit, landed)), extra };
+  }
+
+  _extraToHouse(acct, extra, kind) {
+    if (!(extra > 0)) return;
+    this._breach({ kind, micro: extra });
+    this._toHouse(acct, extra, kind);
   }
 
   // A frozen account after ZOMBIE_SETTLE_MS (design 3.4 step 5): the balance goes to the house under agar_breach,
@@ -491,6 +534,7 @@ class AgMoney {
     const prev = acct.socketId;
     if (acct.holding) this._stopHold(acct, false);
     acct.lastHoldAt = 0;
+    if (prev !== socketId) acct.readied = null;   // the new page readies for itself
     acct.socketId = socketId;
     if (acct.state === 'grace' || acct.state === 'dormant') {
       acct.state = 'live';
@@ -514,18 +558,20 @@ class AgMoney {
         const w = this.bank.withdraw(acct.pid);
         const got = w ? w.micro : 0;
         const unconfirmed = acct.state === 'unconfirmed';
-        this._close(acct, 'refunded', { why: 'emergency', refundedMicro: got });
+        const { back, extra } = unconfirmed ? this._unconfirmedSplit(acct, got) : { back: got, extra: 0 };
+        this._close(acct, 'refunded', { why: 'emergency', refundedMicro: back });
         accounts++;
-        micro += got;
-        if (got > 0) {
+        micro += back;
+        if (back > 0) {
           try {
-            this.hooks.onRefund({ wallet: acct.wallet, name: acct.name, micro: got,
+            this.hooks.onRefund({ wallet: acct.wallet, name: acct.name, micro: back,
               paid: unconfirmed ? acct.paid : undefined, why: 'emergency' });
           } catch (e) {
-            this.log.error('[AG] EMERGENCY CRITICAL refund hook threw, owed ' + got + ' micro to ' + acct.wallet + ': ' +
+            this.log.error('[AG] EMERGENCY CRITICAL refund hook threw, owed ' + back + ' micro to ' + acct.wallet + ': ' +
               (e && e.message));
           }
         }
+        this._extraToHouse(acct, extra, 'emergency-extra');
       } catch (e) {
         this.log.error('[AG] EMERGENCY settle of pid ' + acct.pid + ' failed, left open', e && e.message);
       }
@@ -535,22 +581,27 @@ class AgMoney {
     return { accounts, micro };
   }
 
-  // A planned restart (design 5.9 with Owen Q6): every open balance becomes an owed REFUND row for the drainer to pay
-  // after the restart, 100%, no rake. Withdraw happens before the row is handed back, so nothing is both paid and
-  // owed. An unconfirmed seat is bounded by what landed. Returns the rows for the caller to write.
-  shutdownSettle() {
+  // A planned restart ('shutdown', design 5.9 with Owen Q6) or a hard crash ('crash', Owen Q6): every open balance
+  // becomes an owed REFUND row for the drainer to pay after the restart, 100%, no rake. Withdraw happens before the
+  // row is handed back, so nothing is both paid and owed. An unconfirmed seat gets what _unconfirmedSplit gives. Each
+  // row carries `key` ('agowed:' + the account's journal id): the database takes one row per key (db.recordOwedOnce),
+  // and the money journal's close record carries the same key and amount, so a boot replay of a row the dying
+  // process may or may not have written can never owe it twice. Returns the rows for the caller to write.
+  shutdownSettle(why = 'shutdown') {
+    const kind = why === 'crash' ? 'crash' : 'shutdown';
     this._applyPending();
     const rows = [];
     for (const acct of Array.from(this.accounts.values())) {
       try {
         const w = this.bank.withdraw(acct.pid);
-        let got = w ? w.micro : 0;
-        if (acct.state === 'unconfirmed' && Number.isFinite(acct.paid)) got = Math.min(got, toMicro(acct.paid));
-        this._close(acct, 'refunded', { why: 'shutdown', refundedMicro: got });
-        if (got > 0) {
-          rows.push({ wallet: acct.wallet, name: acct.name, micro: got, reason: 'refund agar shutdown ' + this.label,
-            state: acct.state });
-        }
+        const got = w ? w.micro : 0;
+        const state = acct.state;
+        const { back, extra } = state === 'unconfirmed' ? this._unconfirmedSplit(acct, got) : { back: got, extra: 0 };
+        const key = 'agowed:' + acct.jid;
+        const reason = 'refund agar ' + kind + ' ' + this.label + ' ' + key;
+        this._close(acct, 'refunded', { why: kind, refundedMicro: back, key, reason });
+        if (back > 0) rows.push({ key, wallet: acct.wallet, name: acct.name, micro: back, reason, state });
+        this._extraToHouse(acct, extra, kind + '-extra');
       } catch (e) {
         this.log.error('[AG] SHUTDOWN settle of pid ' + acct.pid + ' failed', e && e.message);
       }

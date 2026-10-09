@@ -108,6 +108,19 @@ function createMemLedgerDb({ now = () => Date.now(), latency = null } = {}) {
     }
   }
 
+  /* db.recordOwedOnce: one owed row per key (the key rides stake_sig, whose unique index refuses a second). */
+  async function recordOwedOnce(key, wallet, amount, name, reason) {
+    await wait('recordOwedOnce');
+    const k = String(key || '');
+    if (!/^agowed:[0-9a-f-]{36}$/.test(k)) throw new Error('recordOwedOnce: bad key');
+    const why = String(reason || '').slice(0, 500);
+    if (!why.startsWith('refund') || !why.includes(k)) throw new Error('recordOwedOnce: the reason must start with refund and name the key');
+    if (payouts.some((p) => p.stake_sig === k)) return 'exists';
+    const row = newPayout(wallet, amount, name, why);
+    row.stake_sig = k;
+    return 'owed';
+  }
+
   const byAge = (a, b) => (a.created_at - b.created_at) || (a.seq - b.seq);
 
   async function claimDuePayout(retrySeconds = 30, maxAttempts = 200, lane = 'normal') {
@@ -175,7 +188,7 @@ function createMemLedgerDb({ now = () => Date.now(), latency = null } = {}) {
   return {
     stakes, payouts, seedStake,
     claimStakeSig, markStakeSig, claimStakeSeat, refundStakeOwed, listUnsettledStakes,
-    recordFailedPayout, claimDuePayout, deferPayoutNoAccount, returnPayoutToLane, migratePayoutLanes,
+    recordFailedPayout, recordOwedOnce, claimDuePayout, deferPayoutNoAccount, returnPayoutToLane, migratePayoutLanes,
     savePayoutSignature, markPayoutPaid, getFailedPayouts,
     features: { durableStakes: true, payoutLanes: true }, NO_USDC_ACCOUNT,
   };

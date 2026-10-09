@@ -15,6 +15,8 @@
 //      socket can never take two seats)
 //   4. resumeKey: reattach that account, or tell the remembered outcome (no token read; works while closed)
 //   5. a re-sent token: its unconfirmed seat, or its outcome; a token still being claimed waits for that claim
+//  5b. the server is going down (arenas.stopping, set by the shutdown settle): refused BEFORE the token is spent, so
+//      its stake row stays 'pending' and the next boot's sweep refunds it (stakeLedger), whatever the kill cuts off
 //   6. maintenance: consume and refund
 //   7. consume the one-time token at this rung for 'agar'; it must carry a worth above 0 and a wallet
 //   8. a real token's stake row is claimed (await) before the seat; 'error' puts the token back
@@ -26,6 +28,10 @@
 //  13. a room of the rung: addPaidHuman; 'no-room' -> one other room; else refund 'no-room'; full -> 'full'; a throw ->
 //      'seat-failed'. walletSeat is set inside this turn (onAccountOpen).
 //  14. ag:joined { resumeKey, stake, micro, ... }
+//  Steps 9 to 14 run inside one try: a throw anywhere after the token was spent (building a room, the wallet lookup,
+//  a resume, the cooldown) refunds once ('seat-failed'), unless the entry was already refunded or its money already
+//  sits in a seat (review fix). Every refund and every durable claim is handed to track(), so the shutdown settle can
+//  wait for money still in flight before the process ends (agShutdown).
 
 const crypto = require('crypto');
 const { rungOf } = require('../stakeRules');
@@ -50,6 +56,8 @@ const TEXT = Object.freeze({
   unavailable: 'Could not confirm your entry right now. An entry that is never used is refunded within a few minutes.',
   settled: 'This entry was already refunded.',
   'slow-down': 'One moment.',
+  restarting: 'DuelSeries is restarting. Your entry was not used and is refunded within a few minutes.',
+  crash: 'The server hit a problem. Your balance is refunded in full once it is back.',
 });
 
 const FIELD_MAX = 64;       // design 5.4 step 1: a real token and a resume key are UUIDs
@@ -80,7 +88,7 @@ function wantsPaid(msg) {
 // ledger: stakeLedger (claimSeat, refund) or null; refund(info): agPayout.refund for dev and non-durable tokens;
 // ops: { get() -> { maintenance } }; cleanName(raw) -> string | null; clientIp(socket); now: clock for the limiter
 function createAgPaidDoor({ arenas, consumeAtStake, ledger = null, refund, ops = null, cleanName, clientIp = null,
-  now = Date.now, log = console } = {}) {
+  now = Date.now, log = console, track = (p) => p } = {}) {
   if (!arenas) throw new Error('agPaidDoor: arenas is required');
   if (typeof consumeAtStake !== 'function') throw new Error('agPaidDoor: consumeAtStake must be a function');
   if (typeof refund !== 'function') throw new Error('agPaidDoor: refund must be a function');
@@ -103,8 +111,8 @@ function createAgPaidDoor({ arenas, consumeAtStake, ledger = null, refund, ops =
   // restarts), else through the agar payout (dev tokens: the fake withdraw). What landed, capped at the rung.
   function refundEntry(entry, why, name) {
     try {
-      if (entry.stakeSig && ledger) return ledger.refund(entry.stakeSig, 'refund agar ' + why, entry.claimKey);
-      return refund({ wallet: entry.walletAddress, name, micro: toMicro(entry.worth), paid: entry.paid, why });
+      if (entry.stakeSig && ledger) return track(ledger.refund(entry.stakeSig, 'refund agar ' + why, entry.claimKey));
+      return track(refund({ wallet: entry.walletAddress, name, micro: toMicro(entry.worth), paid: entry.paid, why }));
     } catch (e) {
       log.error('[AG] DOOR CRITICAL refund threw, owed ' + entry.worth + ' to ' + entry.walletAddress + ' (' + why +
         '): ' + (e && e.message));
@@ -201,6 +209,8 @@ function createAgPaidDoor({ arenas, consumeAtStake, ledger = null, refund, ops =
       if (was) return answerOutcome(socket, was);
     }
     if (!token) return refuse(socket, 'entry');
+    // 5b. going down: the token is not touched
+    if (arenas.stopping === true) return refuse(socket, 'restarting');
     // 6. maintenance
     if (ops && typeof ops.get === 'function') {
       const o = ops.get();
@@ -224,6 +234,7 @@ function createAgPaidDoor({ arenas, consumeAtStake, ledger = null, refund, ops =
         }
         seatEntry(socket, token, stake, name, proof, entry);
       }).catch((e) => log.error('[AG] durable paid join', e && e.stack ? e.stack : e));
+      track(claim);
       if (proof) {
         claiming.set(proof, claim);
         claim.then(() => { if (claiming.get(proof) === claim) claiming.delete(proof); });
@@ -233,25 +244,40 @@ function createAgPaidDoor({ arenas, consumeAtStake, ledger = null, refund, ops =
     seatEntry(socket, token, stake, name, proof, entry);
   }
 
-  function refundAndRefuse(socket, token, entry, why, name) {
+  // st: { settled } of one seatEntry: true once the entry is refunded or its money sits in a seat.
+  function refundAndRefuse(socket, token, entry, why, name, st) {
+    st.settled = true;
     refundEntry(entry, why, name);
     remember(token, why, true);
     refuse(socket, why, { refunded: true });
   }
 
-  // Steps 9 to 14, all in one synchronous turn.
+  // Steps 9 to 14, all in one synchronous turn, in one try (see the header).
   function seatEntry(socket, token, stake, name, proof, entry) {
+    const st = { settled: false };
+    try {
+      seatSteps(socket, token, stake, name, proof, entry, st);
+    } catch (e) {
+      log.error('[AG] paid seat threw after the token was spent' + (st.settled ? ' (already settled)' : ', refunding'),
+        e && e.stack ? e.stack : e);
+      if (!st.settled) refundAndRefuse(socket, token, entry, 'seat-failed', name, st);
+    }
+  }
+
+  function seatSteps(socket, token, stake, name, proof, entry, st) {
     // 9.
     if (socket.disconnected === true) {
+      st.settled = true;
       refundEntry(entry, 'join-lost', name);
       return remember(token, 'join-lost', true);
     }
-    if (arenas.paidRoomOf(socket.id)) return refundAndRefuse(socket, token, entry, 'seat-failed', name);
+    if (arenas.paidRoomOf(socket.id)) return refundAndRefuse(socket, token, entry, 'seat-failed', name, st);
     // 10. one seat per wallet: this token proves the wallet (minted only to the verified payer)
     const ws = arenas.walletSeatOf(entry.walletAddress);
     if (ws) {
       arenas._takeSocket(socket);
       const ok = ws.room.resumePaid(socket, ws.pid);
+      st.settled = true;
       refundEntry(entry, 'reattach', name);
       remember(token, 'reattach', true);
       if (ok) {
@@ -264,11 +290,11 @@ function createAgPaidDoor({ arenas, consumeAtStake, ledger = null, refund, ops =
       return refuse(socket, 'seat-failed', { refunded: true });
     }
     // 11. the door switch
-    if (!arenas.paidOpen) return refundAndRefuse(socket, token, entry, 'not-open', name);
+    if (!arenas.paidOpen) return refundAndRefuse(socket, token, entry, 'not-open', name, st);
     // 12. the release cooldown
     if (arenas.releaseCooldown(entry.walletAddress)) {
       log.warn('[AG] COOLDOWN ' + String(entry.walletAddress).slice(0, 8) + ' ' + stake);
-      return refundAndRefuse(socket, token, entry, 'cooldown', name);
+      return refundAndRefuse(socket, token, entry, 'cooldown', name, st);
     }
     // 13. a room and a safe spot
     const seatEntryInfo = {
@@ -276,7 +302,7 @@ function createAgPaidDoor({ arenas, consumeAtStake, ledger = null, refund, ops =
       ip: typeof clientIp === 'function' ? safeIp(socket) : '',
     };
     let room = arenas.seatFor(stake);
-    if (!room) return refundAndRefuse(socket, token, entry, 'full', name);
+    if (!room) return refundAndRefuse(socket, token, entry, 'full', name, st);
     let r;
     try {
       arenas._takeSocket(socket);
@@ -290,11 +316,12 @@ function createAgPaidDoor({ arenas, consumeAtStake, ledger = null, refund, ops =
       }
     } catch (e) {
       log.error('[AG] paid seat failed', room && room.lobbyType, e && e.message);
-      return refundAndRefuse(socket, token, entry, 'seat-failed', name);
+      return refundAndRefuse(socket, token, entry, 'seat-failed', name, st);
     }
-    if (r === 'no-room') return refundAndRefuse(socket, token, entry, 'no-room', name);
-    if (r === 'full' || r === 'stopped') return refundAndRefuse(socket, token, entry, 'full', name);
-    if (!r || typeof r !== 'object') return refundAndRefuse(socket, token, entry, 'seat-failed', name);
+    if (r === 'no-room') return refundAndRefuse(socket, token, entry, 'no-room', name, st);
+    if (r === 'full' || r === 'stopped') return refundAndRefuse(socket, token, entry, 'full', name, st);
+    if (!r || typeof r !== 'object') return refundAndRefuse(socket, token, entry, 'seat-failed', name, st);
+    st.settled = true;   // the money sits in the seat now
     // 14.
     seated(socket, room);
     try {

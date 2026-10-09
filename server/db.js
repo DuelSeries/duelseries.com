@@ -410,6 +410,38 @@ async function recordFailedPayout(walletAddress, amountSol, name, reason, broadc
   );
 }
 
+/* An owed refund row that must exist ONCE whoever writes it: a paid agar.io restart or crash refund
+   (Owen Q6), written by the dying process when it can and again by the next boot's journal replay
+   (server/ag/agJournal.js). key is 'agowed:' + a UUID, kept in the stake_sig column, whose unique
+   index (failed_payouts_stake_sig_uniq) makes the second insert a no-op; a real stake signature is
+   base58 and never holds ':', so the two kinds of key can never meet. Without that index (the
+   durable-stakes migration failed) the key is matched inside the reason instead. The reason must
+   begin with 'refund' so the drainer never counts the row as winnings. Resolves 'owed' or 'exists'. */
+async function recordOwedOnce(key, walletAddress, amountSol, name, reason) {
+  const k = String(key || '');
+  if (!/^agowed:[0-9a-f-]{36}$/.test(k)) throw new Error('recordOwedOnce: bad key');
+  const why = String(reason || '').slice(0, 500);
+  if (!why.startsWith('refund') || !why.includes(k)) throw new Error('recordOwedOnce: the reason must start with refund and name the key');
+  if (features.durableStakes) {
+    const r = await pool.query(
+      `INSERT INTO failed_payouts (wallet_address, amount_sol, name, reason, stake_sig)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (stake_sig) WHERE stake_sig IS NOT NULL DO NOTHING
+       RETURNING id`,
+      [walletAddress, amountSol, name || null, why, k]
+    );
+    return r.rowCount > 0 ? 'owed' : 'exists';
+  }
+  const r = await pool.query(
+    `INSERT INTO failed_payouts (wallet_address, amount_sol, name, reason)
+     SELECT $1, $2, $3, $4::text
+      WHERE NOT EXISTS (SELECT 1 FROM failed_payouts WHERE reason = $4::text)
+     RETURNING id`,
+    [walletAddress, amountSol, name || null, why]
+  );
+  return r.rowCount > 0 ? 'owed' : 'exists';
+}
+
 async function getFailedPayouts(limit = 200) {
   const res = await pool.query(
     `SELECT id, wallet_address, amount_sol, name, reason, paid, paid_sig, attempts, last_attempt_at, created_at
@@ -787,7 +819,7 @@ module.exports = {
   recordWithdrawal,
   recordCollusionFlag, getRecentCollusionFlags,
   markStakeSig, claimStakeSig, claimStakeSeat, refundStakeOwed, listUnsettledStakes,
-  recordFailedPayout, getFailedPayouts, claimDuePayout, savePayoutSignature, markPayoutPaid,
+  recordFailedPayout, recordOwedOnce, getFailedPayouts, claimDuePayout, savePayoutSignature, markPayoutPaid,
   deferPayoutNoAccount, returnPayoutToLane,
   features, NO_USDC_ACCOUNT,
   recordEarnings,

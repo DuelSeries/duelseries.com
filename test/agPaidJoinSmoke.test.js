@@ -17,6 +17,7 @@ const path = require('path');
 const http = require('http');
 const net = require('net');
 const fs = require('fs');
+const os = require('os');
 const { ed25519 } = require('@noble/curves/ed25519');
 const _bs58 = require('bs58');
 const bs58 = (_bs58 && _bs58.default) ? _bs58.default : _bs58;
@@ -50,9 +51,11 @@ const post = (url, obj) => new Promise((res, rej) => {
 
 async function boot(extra) {
   const port = await freePort();
+  // the paid money journal of this boot only, never the checkout's server/data
+  const journal = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'agsmoke-')), 'ag-money-journal.log');
   const env = { ...process.env, REGION: 'na', PORT: String(port), SESSION_SECRET: 'test', MONEY_MODE: 'usdc', DATABASE_URL: '',
     NTFY_DISABLED: '1', POSTHOG_DISABLED: '1', PAPER_PAID: '0', PAPER_DEV_TOKENS: '', ESCROW_PRIVATE_KEY: '', NODE_ENV: 'test',
-    AG_ENABLED: '1', AG_PAID: '', ...extra };
+    AG_ENABLED: '1', AG_PAID: '', AG_JOURNAL_PATH: journal, ...extra };
   for (const k of Object.keys(env)) if (env[k] === undefined) delete env[k];
   const srv = spawn(process.execPath, [path.join(ROOT, 'server/index.js')], { cwd: ROOT, env, stdio: ['ignore', 'pipe', 'pipe'] });
   const out = { stdout: '', stderr: '' };
@@ -60,7 +63,7 @@ async function boot(extra) {
   srv.stderr.on('data', (d) => { out.stderr += d.toString(); });
   for (let i = 0; i < 80; i++) {
     if (srv.exitCode !== null) break;
-    try { const r = await get(`http://localhost:${port}/api/live`); if (r.status === 200) return { srv, port, out }; } catch (_) {}
+    try { const r = await get(`http://localhost:${port}/api/live`); if (r.status === 200) return { srv, port, out, journal }; } catch (_) {}
     await new Promise((r) => setTimeout(r, 400));
   }
   try { srv.kill('SIGKILL'); } catch (_) {}
@@ -121,7 +124,7 @@ test('AG_PAID unset, 0 or a typo: the paid rungs stay off and /api/live lists no
 test('dev agar $0.10: hand-off, door, ready, hold Q 3 s, paid 90/10; away seat counted; drain refuses; off switch refunds', { timeout: 120000 }, async (t) => {
   const io = requireClient(t);
   if (!io) return;
-  const { srv, port, out } = await boot({ AG_PAID: '1', PAPER_DEV_TOKENS: '1', ALLOW_TEST_OWNER: '1', TEST_OWNER_WALLET: ownerAddr });
+  const { srv, port, out, journal } = await boot({ AG_PAID: '1', PAPER_DEV_TOKENS: '1', ALLOW_TEST_OWNER: '1', TEST_OWNER_WALLET: ownerAddr });
   const socks = [];
   t.after(() => {
     for (const s of socks) { try { s.close(); } catch (_) {} }
@@ -231,16 +234,26 @@ test('dev agar $0.10: hand-off, door, ready, hold Q 3 s, paid 90/10; away seat c
   assert.ok(/open/i.test(on.body), on.body);
   live = JSON.parse((await get(`http://localhost:${port}/api/live`)).body);
   assert.strictEqual(agPaidRows(live)[0].state, 'open');
+  // The money journal (review fix, Owen Q6): every seat's open and close, written by the real boot.
+  const recs = fs.readFileSync(journal, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  const opens = recs.filter((r) => r.t === 'open');
+  assert.deepStrictEqual(opens.map((r) => [r.wallet, r.micro, r.room]), [[W1, 100000, 'ag_na_s0_1'], [W2, 100000, 'ag_na_s0_1']]);
+  const closeOf = (r) => recs.find((x) => x.t === 'close' && x.jid === r.jid);
+  assert.strictEqual(closeOf(opens[0]).outcome, 'cashedout');
+  assert.strictEqual(closeOf(opens[1]), undefined, 'the away seat is still open');
   assert.ok(!/is not a function|TypeError|ReferenceError/.test(out.stderr), 'no wiring error\n' + out.stderr.slice(-800));
 });
 
 test('the agar owner alert never puts a wallet on ntfy, and solvency counts agar rooms', () => {
   const src = fs.readFileSync(path.join(ROOT, 'server', 'index.js'), 'utf8');
-  const fn = src.slice(src.indexOf('function agOwnerAlert'), src.indexOf('const agMoneyHooks'));
-  assert.ok(fn.length > 100, 'agOwnerAlert is there');
+  const al = fs.readFileSync(path.join(ROOT, 'server', 'ag', 'agAlert.js'), 'utf8');
+  const fn = al.slice(al.indexOf('function createAgOwnerAlert'));
+  assert.ok(fn.length > 100, 'createAgOwnerAlert is there');
+  assert.match(src, /const agOwnerAlert = require\('\.\/ag\/agAlert'\)\.createAgOwnerAlert\(/, 'the server uses it');
   assert.doesNotMatch(fn, /JSON\.stringify\(i\)|JSON\.stringify\(info\)/, 'never the raw info');
-  assert.match(fn, /for \(const k of \['micro', 'accounts', 'totalMicro', 'inMicro', 'outMicro', 'ceiling', 'phase', 'was'\]\)/,
+  assert.match(al, /const SAFE_KEYS = Object\.freeze\(\['micro', 'accounts', 'totalMicro', 'inMicro', 'outMicro', 'ceiling', 'phase', 'was'\]\)/,
     'only amounts and kinds are copied');
-  assert.doesNotMatch(fn, /i.(wallet|srcWallet|dstWallet)|['"](wallet|srcWallet|dstWallet)['"]/, 'no wallet field is ever read or copied');
+  assert.match(fn, /for \(const k of SAFE_KEYS\)/);
+  assert.doesNotMatch(fn, /\bi\.(wallet|srcWallet|dstWallet)\b|['"](wallet|srcWallet|dstWallet)['"]/, 'no wallet field is ever read or copied');
   assert.match(src, /if \(agArenas\) for \(const r of agArenas\.all\(\)\) total \+= r\.liveStakeTotal \? r\.liveStakeTotal\(\) : 0;/);
 });

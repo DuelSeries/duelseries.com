@@ -244,12 +244,23 @@ function attachAgSockets(io, arenas, helpers) {
   }
 
   // ag:hold { on: 1 | 0 } (Owen 2026-10-08 hold-Q cash-out, every room): 1 starts or refreshes the hold, 0 lets go.
+  // A release is never rate limited (a dropped release next to a key bounce could let a hold the player let go of run
+  // to completion), but a flood of releases is still bounded (review fix): a release reaches the room only when this
+  // socket's last hold message that got through was a press, so the room sees at most one release per accepted press,
+  // and an accepted press is limited to one per AG_RATE.hold. A release with no press before it is a no-op anyway.
+  const holdPressed = new WeakSet();
   function onHold(socket, msg) {
     if (!isPlainObject(msg)) return;
     const on = msg.on === 1 || msg.on === true;
     const off = msg.on === 0 || msg.on === false;
     if (!on && !off) return;
-    if (on && !limited(socket, 'hold')) return;
+    if (on) {
+      if (!limited(socket, 'hold')) return;
+      holdPressed.add(socket);
+    } else {
+      if (!holdPressed.has(socket)) return;
+      holdPressed.delete(socket);
+    }
     arenas.hold(socket.id, on);
   }
 

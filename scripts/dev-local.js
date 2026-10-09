@@ -73,6 +73,9 @@ Object.assign(process.env, {
   // fake withdraw. index.js refuses this pair beside an escrow key or in production.
   PAPER_PAID: '1',
   PAPER_DEV_TOKENS: '1',
+  // Paid agar.io's money journal (server/ag/agJournal.js) for this run only, never the checkout's server/data.
+  AG_JOURNAL_PATH: process.env.AG_JOURNAL_PATH ||
+    path.join(fs.mkdtempSync(path.join(require('os').tmpdir(), 'dslocal-')), 'ag-money-journal.log'),
 });
 
 // ─── 2. dotenv is a no-op here ─────────────────────────────────────────────────
@@ -118,6 +121,7 @@ const dbStub = {
   refundStakeOwed: ledgerDb.refundStakeOwed,
   listUnsettledStakes: ledgerDb.listUnsettledStakes,
   recordFailedPayout: ledgerDb.recordFailedPayout,
+  recordOwedOnce: ledgerDb.recordOwedOnce,
   getFailedPayouts: ledgerDb.getFailedPayouts,
   // The drainer sees nothing due, ever: there is no escrow here to pay from. Owed rows stay in
   // ledgerDb.payouts for a test to read.

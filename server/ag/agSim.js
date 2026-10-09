@@ -326,7 +326,8 @@ const byId = (a, b) => a.id - b.id;
 //            free room, which never holds Q in the parity streams, runs exactly as before.
 //   paid     paid rooms only (design 3.3): { shielded: Set, still: Set }, owned by the room's money controller. Adds
 //            the money facts to the step events (money, feeds), the shield (a shielded player eats nothing and
-//            nothing eats its cells), the still set above, findSpawnPoint and spawn(pid, name, at). The sim stays
+//            nothing eats its cells), the still set above, findSpawnPoint, spawnClearOf, relocate and
+//            spawn(pid, name, at). The sim stays
 //            money-free: it reports who ate whose cell and how big, never an amount. Absent in every free room.
 function createSim(opts) {
   const o = opts || {};
@@ -1169,6 +1170,41 @@ function createSim(opts) {
     return null;
   }
 
+  // Paid rooms only (review fix, spawn camping): is the one cell of `pid` still clear by findSpawnPoint's rule, with
+  // its own size, of every live cell of ANOTHER player that could eat it? A shielded newcomer is checked again when it
+  // readies, because a bigger cell may have parked on it while the shield was up.
+  function spawnClearOf(pid, clear) {
+    if (!paid) throw new Error('agSim: spawnClearOf is for paid rooms only');
+    const p = players.get(pid);
+    if (!p || p.cells.length !== 1) return false;
+    const me = p.cells[0];
+    for (const c of playerCells.values()) {
+      if (c.dead || c.owner === pid || c.size < L.eatRatio * me.size) continue;
+      const dx = c.x - me.x;
+      const dy = c.y - me.y;
+      const need = c.size + me.size + clear;
+      if (dx * dx + dy * dy < need * need) return false;
+    }
+    return true;
+  }
+
+  // Paid rooms only, between steps: moves the one cell of a shielded, still newcomer to `at` (a point from
+  // findSpawnPoint) and points its target there, so the player starts clear. False when the player has not exactly
+  // one cell. Never queued by a free room.
+  function relocate(pid, at) {
+    if (!paid) throw new Error('agSim: relocate is for paid rooms only');
+    if (inStep) throw new Error('agSim: relocate runs between steps only');
+    if (!at || !isFiniteNumber(at.x) || !isFiniteNumber(at.y)) throw new TypeError('agSim: relocate needs a finite point');
+    const p = players.get(pid);
+    if (!p || p.cells.length !== 1) return false;
+    const c = p.cells[0];
+    c.x = at.x;
+    c.y = at.y;
+    p.target = { x: at.x, y: at.y };
+    gridDirty = true;
+    return true;
+  }
+
   // The money facts no completed step has returned yet (design 3.3.6), for an emergency close or a shutdown while
   // steps keep throwing; they are cleared so nothing is applied twice.
   function takeMoneyEvents() {
@@ -1335,6 +1371,8 @@ function createSim(opts) {
     debugPlace,
     clearCells,
     findSpawnPoint,
+    spawnClearOf,
+    relocate,
     takeMoneyEvents,
     startSize: () => L.startSize,
     eatRatio: () => L.eatRatio,

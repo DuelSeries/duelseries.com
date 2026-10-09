@@ -65,13 +65,15 @@ test('one refund row per open account (live, unconfirmed, dormant, frozen), 100%
   assert.deepStrictEqual(rows.map((r) => r.wallet).sort(), ['W-away', 'W-frozen', 'W-live', 'W-unconf']);
   for (const r of rows) {
     assert.strictEqual(r.micro, 100000, 'the whole balance');
-    assert.strictEqual(r.reason, 'refund agar shutdown ' + w.room.lobbyType);
+    assert.match(r.key, /^agowed:[0-9a-f-]{36}$/, 'a unique key per row (db.recordOwedOnce)');
+    assert.strictEqual(r.reason, 'refund agar shutdown ' + w.room.lobbyType + ' ' + r.key);
     assert.ok(r.reason.startsWith('refund'), 'never booked as winnings');
   }
   assert.ok(!rows.some((r) => /rake/.test(r.reason)), 'no rake row on a restart (Owen Q6)');
   assert.strictEqual(lg.lines.filter((l) => l.startsWith('[AG] SHUTDOWN-OWED')).length, 4);
   assert.strictEqual(w.room.money.openCount(), 0, 'no account is both withdrawn and open');
   assert.strictEqual(w.room.money.bank.totalMicro(), 0);
+  assert.strictEqual(new Set(rows.map((r) => r.key)).size, 4, 'keys never repeat');
   assert.strictEqual(w.room.money.bank.ledger.outMicro, 400000);
   assert.strictEqual(w.arenas.paidOpen, false, 'the door is closed');
   assert.strictEqual(w.room.stopped, true);

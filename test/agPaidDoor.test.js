@@ -482,8 +482,13 @@ test('sweep never closes a paid room with accounts or money; a settling room sta
 test('agSockets: an auth.paid socket is never refused full; ag:leave is refused while a paid seat is open; ag:hold off is never rate limited', () => {
   const env = setup();
   let rlCalls = 0;
+  let holdsAllowed = 1;   // the limiter lets exactly one {on:1} through, then refuses
   const api = attachAgSockets(null, env.arenas, {
-    socketRL: (s, key) => { rlCalls++; return key !== 'aghold'; }, sanitizeName: (x) => String(x || ''), ops: env.ops,
+    socketRL: (s, key) => {
+      rlCalls++;
+      if (key !== 'aghold') return true;
+      return holdsAllowed-- > 0;
+    }, sanitizeName: (x) => String(x || ''), ops: env.ops,
     log: quiet, perIp: 1000,
     paidDoor: { consumeAtStake: (t, st) => env.store.consumeAtStake(t, st), ledger: null, refund: (x) => env.refunds.push(x) },
   });
@@ -512,13 +517,28 @@ test('agSockets: an auth.paid socket is never refused full; ag:leave is refused 
   p.fire('ag:ready');
   const acct = room.money.account(room.seatOf(p.id).pid);
   assert.strictEqual(acct.state, 'live');
-  acct.lastHoldAt = env.clock.t;
+  p.fire('ag:hold', { on: 1 });
+  assert.strictEqual(acct.lastHoldAt, env.clock.t, 'the press got through');
   const before = rlCalls;
   p.fire('ag:hold', { on: 0 });
   assert.strictEqual(rlCalls, before, 'a release is not rate limited');
   assert.strictEqual(acct.lastHoldAt, 0, 'and it lets go');
   p.fire('ag:hold', { on: 1 });
   assert.strictEqual(acct.lastHoldAt, 0, 'the limited {on:1} was dropped');
+  // a flood of releases (review fix): with no accepted press before it, a release never reaches the room
+  const realHold = env.arenas.hold.bind(env.arenas);
+  let roomCalls = 0;
+  env.arenas.hold = (id, on) => { roomCalls++; return realHold(id, on); };
+  for (let i = 0; i < 50; i++) p.fire('ag:hold', { on: 0 });
+  assert.strictEqual(roomCalls, 0, 'releases with no press before them are no-ops and are not passed on');
+  assert.strictEqual(rlCalls, before + 1, 'and none of them touched the limiter');
+  // a press that gets through is always followed by its release, however close behind
+  holdsAllowed = 1;
+  p.fire('ag:hold', { on: 1 });
+  p.fire('ag:hold', { on: 0 });
+  assert.strictEqual(roomCalls, 2, 'press and release both reached the room');
+  assert.strictEqual(acct.lastHoldAt, 0, 'the release won');
+  env.arenas.hold = realHold;
   p.fire('ag:hold', { on: 'yes' });
   p.fire('ag:hold', null);
 });

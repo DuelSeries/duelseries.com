@@ -96,6 +96,7 @@ class AgArenas {
     // Paid rungs (design 5.3).
     this.paidEnabled = paid === true;
     this.paidOpen = this.paidEnabled;
+    this.stopping = false;           // set once by shutdownSettle: the process is going down
     this.moneyHooks = moneyHooks;
     if (this.paidEnabled) {
       const need = ['onCashout', 'onRefund', 'onTransfer', 'onFeed', 'onBreach', 'onStake', 'onHouse'];
@@ -223,14 +224,28 @@ class AgArenas {
 
   // One open paid seat per wallet (Owen Q8): set here, inside the door's synchronous turn, and cleared only when the
   // account closes (or its room stops).
+  // The same test as walletSeatOf (_openSeat): an account stuck open in a stopped (settling) room does not hold the
+  // wallet's seat, so the door's step 10 and this check always agree (review fix).
   _accountOpened(room, acct) {
-    const had = this.walletSeat.get(acct.wallet);
-    if (had && had.room.money && had.room.money.account(had.pid)) {
+    if (this._openSeat(this.walletSeat.get(acct.wallet))) {
       throw new Error('AgArenas: wallet already holds an open paid seat');
     }
     this.walletSeat.set(acct.wallet, { room, pid: acct.pid });
     this.byKey.set(acct.resumeKey, { room, pid: acct.pid });
     if (acct.proof) this.byProof.set(acct.proof, { room, pid: acct.pid });
+    this._journal('open', acct, room);
+  }
+
+  // The money journal (agJournal, the optional hook moneyHooks.journal); a failed write never reaches a money path.
+  _journal(kind, acct, room, outcome, extra) {
+    const j = this.moneyHooks && this.moneyHooks.journal;
+    if (!j) return;
+    try {
+      if (kind === 'open') j.open(acct, room ? room.lobbyType : '');
+      else j.close(acct, outcome, extra, room ? room.lobbyType : '');
+    } catch (e) {
+      this.log.error('[AG] journal hook', e && e.message);
+    }
   }
 
   // The player readied: its token no longer names the seat (only its resume key does).
@@ -240,6 +255,7 @@ class AgArenas {
   }
 
   _accountClosed(room, acct, outcome, extra) {
+    this._journal('close', acct, room, outcome, extra);
     const w = this.walletSeat.get(acct.wallet);
     if (w && w.room === room && w.pid === acct.pid) this.walletSeat.delete(acct.wallet);
     const k = this.byKey.get(acct.resumeKey);
@@ -449,9 +465,12 @@ class AgArenas {
     return n;
   }
 
-  // A planned restart (design 5.9, Owen Q6): the door closes, every paid room stops ticking, and every open balance
-  // is withdrawn and handed back as an owed REFUND row for the caller to write. Rows only; nothing is sent here.
-  shutdownSettle() {
+  // A planned restart ('shutdown', design 5.9, Owen Q6) or a hard crash ('crash'): the door closes for good
+  // (stopping: the door now refuses before it spends a token, agPaidDoor), every paid room stops ticking, and every
+  // open balance is withdrawn and handed back as an owed REFUND row for the caller to write. Rows only; nothing is
+  // paid here.
+  shutdownSettle(why = 'shutdown') {
+    this.stopping = true;
     this.paidOpen = false;
     const rows = [];
     const rooms = this.paidRooms().concat(this.settling);
@@ -461,7 +480,7 @@ class AgArenas {
         room.stop();
       } catch (e) { /* stopping the clock is best effort */ }
       try {
-        rows.push(...room.money.shutdownSettle());
+        rows.push(...room.money.shutdownSettle(why));
       } catch (e) {
         this.log.error('[AG] SHUTDOWN settle threw', room.lobbyType, e && e.stack ? e.stack : e);
       }
