@@ -29,9 +29,10 @@ function target(extra) {
 
 function setup(opts) {
   opts = opts || {};
-  const body = target({ onmousewheel: null });
-  const doc = target({ body });
+  const body = target({ onmousewheel: null, style: {} });
+  const doc = target({ body, documentElement: { style: {} } });
   const win = target({ document: doc, navigator: { userAgent: opts.ua || 'Chrome' }, matchMedia: () => ({ matches: !!opts.coarse }) });
+  if (opts.prepare) opts.prepare(win);
   const canvas = target();
   const splitButton = target();
   const ejectButton = target();
@@ -296,6 +297,132 @@ test('Split and Eject buttons send the same actions as Space and W, one per pres
   t.ejectButton.fire('pointerdown');
   assert.strictEqual(t.splitButton.fire('touchstart').defaultPrevented, true, 'no emulated mouse or zoom');
   assert.deepStrictEqual(t.log, [['split'], ['eject'], ['eject']]);
+});
+
+test('P1: a button press acts only while canAct() is true, and is eaten either way', () => {
+  let ok = false;
+  const t = setup({ extra: { canAct: () => ok } });
+  assert.strictEqual(t.splitButton.fire('pointerdown').defaultPrevented, true);
+  assert.strictEqual(t.ejectButton.fire('pointerdown').defaultPrevented, true);
+  assert.strictEqual(t.splitButton.fire('touchstart').defaultPrevented, true, 'still no emulated mouse or zoom');
+  assert.deepStrictEqual(t.log, [], 'nothing acts while canAct() is false');
+  ok = true;
+  t.splitButton.fire('pointerdown');
+  t.ejectButton.fire('pointerdown');
+  t.ejectButton.fire('pointerdown');
+  assert.deepStrictEqual(t.log, [['split'], ['eject'], ['eject']]);
+  ok = false;
+  t.splitButton.fire('pointerdown');
+  assert.strictEqual(t.log.length, 3);
+});
+
+// P3: the lobby around the game frame, pinch-zoomed before the game opened.
+const pt = (id, x, y) => ({ identifier: id, clientX: x, clientY: y });
+function zoomedSetup(scale, extra) {
+  const vv = target({ scale });
+  const t = setup(Object.assign({ coarse: true, prepare: (w) => {
+    w.top = { visualViewport: vv };
+    w.CSS = { supports: (p, v) => p === 'touch-action' && v === 'pinch-zoom' };
+  } }, extra || {}));
+  return Object.assign(t, { vv });
+}
+
+test('P3: html and body allow pinch-zoom while the top page is zoomed, and go back to the style sheet at 1', () => {
+  assert.strictEqual(I.LOBBY_ZOOMED_SCALE, 1.01);
+  const t = zoomedSetup(5);
+  const root = t.doc.documentElement.style;
+  assert.strictEqual(root.touchAction, 'pinch-zoom', 'zoomed at start-up');
+  assert.strictEqual(t.body.style.touchAction, 'pinch-zoom');
+  assert.strictEqual(t.vv.count('resize'), 1, 'watches the top page');
+  t.vv.scale = 1;
+  t.vv.fire('resize');
+  assert.strictEqual(root.touchAction, '', 'back to touch-action: none from ag.css');
+  assert.strictEqual(t.body.style.touchAction, '');
+  t.vv.scale = 1.01;
+  t.vv.fire('resize');
+  assert.strictEqual(root.touchAction, '', '1.01 is not zoomed (strictly above)');
+  t.vv.scale = 1.02;
+  t.vv.fire('resize');
+  assert.strictEqual(root.touchAction, 'pinch-zoom');
+});
+
+test('P3: a browser without touch-action pinch-zoom gets auto while zoomed', () => {
+  const vv = target({ scale: 3 });
+  const t = setup({ prepare: (w) => { w.top = { visualViewport: vv }; } });
+  assert.strictEqual(t.doc.documentElement.style.touchAction, 'auto');
+  assert.strictEqual(t.body.style.touchAction, 'auto');
+});
+
+test('P3: while zoomed, two fingers are the browser\'s pinch (no preventDefault, no steering); one finger still steers', () => {
+  const t = zoomedSetup(5);
+  assert.strictEqual(t.canvas.fire('touchstart', { touches: [pt(1, 100, 100)], changedTouches: [pt(1, 100, 100)] }).defaultPrevented, false,
+    'the first finger of a pinch arrives alone: preventing it makes Chrome drop the whole pinch');
+  assert.strictEqual(t.ctl.state.touchId, 1, 'one finger still starts the stick');
+  const two = [pt(1, 100, 100), pt(2, 100, 300)];
+  assert.strictEqual(t.canvas.fire('touchstart', { touches: two, changedTouches: [pt(2, 100, 300)] }).defaultPrevented, false);
+  const mv = t.canvas.fire('touchmove', { touches: [pt(1, 100, 160), pt(2, 100, 240)], changedTouches: [pt(1, 100, 160), pt(2, 100, 240)] });
+  assert.strictEqual(mv.defaultPrevented, false);
+  assert.strictEqual(t.ctl.stickDir(), null, 'a pinch never steers');
+  const end = t.canvas.fire('touchend', { touches: [pt(2, 100, 240)], changedTouches: [pt(1, 100, 160)] });
+  assert.strictEqual(end.defaultPrevented, true, 'one finger left: prevented as before');
+  assert.strictEqual(t.ctl.state.touchId, null, 'the steering finger is released');
+  // Three fingers, the steering one lifts: left to the browser but still released.
+  assert.strictEqual(t.canvas.fire('touchstart', { touches: [pt(4, 50, 50)], changedTouches: [pt(4, 50, 50)] }).defaultPrevented, false);
+  const end3 = t.canvas.fire('touchend', { touches: [pt(5, 0, 0), pt(6, 0, 0)], changedTouches: [pt(4, 50, 50)] });
+  assert.strictEqual(end3.defaultPrevented, false);
+  assert.strictEqual(t.ctl.state.touchId, null);
+  // Back at 1: every touch is the stick's again and prevented.
+  t.vv.scale = 1;
+  t.vv.fire('resize');
+  assert.strictEqual(t.canvas.fire('touchstart', { touches: [pt(7, 300, 300)], changedTouches: [pt(7, 300, 300)] }).defaultPrevented, true);
+  assert.strictEqual(t.canvas.fire('touchstart', { touches: [pt(7, 300, 300), pt(8, 10, 10)], changedTouches: [pt(8, 10, 10)] }).defaultPrevented, true);
+  assert.strictEqual(t.canvas.fire('touchmove', { touches: [pt(7, 380, 300), pt(8, 10, 10)], changedTouches: [pt(7, 380, 300)] }).defaultPrevented, true);
+  assert.deepStrictEqual(t.ctl.stickDir(), { x: 1, y: 0 });
+});
+
+test('P3: while zoomed, one finger steers: its touchstart is left alone, its moves and its lift are prevented', () => {
+  const t = zoomedSetup(5);
+  assert.strictEqual(t.canvas.fire('touchstart', { touches: [pt(1, 200, 200)], changedTouches: [pt(1, 200, 200)] }).defaultPrevented, false);
+  assert.strictEqual(t.ctl.touchMode(), true);
+  const mv = t.canvas.fire('touchmove', { touches: [pt(1, 200, 280)], changedTouches: [pt(1, 200, 280)] });
+  assert.strictEqual(mv.defaultPrevented, true, 'a one-finger drag never pans the zoomed lobby');
+  assert.deepStrictEqual(t.ctl.stickDir(), { x: 0, y: 1 });
+  // The second finger lands after the first has moved: the pinch is the browser's, the direction is kept.
+  assert.strictEqual(t.canvas.fire('touchstart', { touches: [pt(1, 200, 280), pt(2, 200, 400)], changedTouches: [pt(2, 200, 400)] }).defaultPrevented, false);
+  assert.strictEqual(t.canvas.fire('touchmove', { touches: [pt(1, 200, 300), pt(2, 200, 380)], changedTouches: [pt(1, 200, 300), pt(2, 200, 380)] }).defaultPrevented, false);
+  assert.deepStrictEqual(t.ctl.stickDir(), { x: 0, y: 1 }, 'the pinch does not move the stick');
+  assert.strictEqual(t.canvas.fire('touchend', { touches: [], changedTouches: [pt(1, 200, 300), pt(2, 200, 380)] }).defaultPrevented, true,
+    'the last lift is prevented: no emulated mouse event');
+  assert.strictEqual(t.ctl.state.touchId, null);
+});
+
+test('P3: at 1 nothing is written and every touch is prevented, as before', () => {
+  const t = zoomedSetup(1);
+  assert.strictEqual(t.doc.documentElement.style.touchAction, undefined);
+  assert.strictEqual(t.body.style.touchAction, undefined);
+  assert.strictEqual(t.canvas.fire('touchstart', { touches: [pt(1, 300, 300)], changedTouches: [pt(1, 300, 300)] }).defaultPrevented, true);
+  assert.strictEqual(t.canvas.fire('touchstart', { touches: [pt(1, 300, 300), pt(2, 0, 0)], changedTouches: [pt(2, 0, 0)] }).defaultPrevented, true);
+});
+
+test('P3: a top page from another origin is never zoomed and never throws', () => {
+  const t = setup({ prepare: (w) => Object.defineProperty(w, 'top', { get() { throw new Error('SecurityError'); } }) });
+  assert.strictEqual(t.body.style.touchAction, undefined);
+  t.canvas.fire('touchstart', { touches: [pt(1, 300, 300)], changedTouches: [pt(1, 300, 300)] });
+  assert.strictEqual(t.canvas.fire('touchstart', { touches: [pt(1, 300, 300), pt(2, 0, 0)], changedTouches: [pt(2, 0, 0)] }).defaultPrevented, true);
+});
+
+test('P3: the top page listener comes off on pagehide and dispose, and back on pageshow', () => {
+  const t = zoomedSetup(5);
+  assert.strictEqual(t.vv.count('resize'), 1);
+  t.win.fire('pagehide');
+  assert.strictEqual(t.vv.count('resize'), 0);
+  t.vv.scale = 1;
+  t.win.fire('pageshow');
+  assert.strictEqual(t.vv.count('resize'), 1);
+  assert.strictEqual(t.body.style.touchAction, '', 'pageshow syncs at once');
+  t.ctl.dispose();
+  assert.strictEqual(t.vv.count('resize'), 0);
+  assert.strictEqual(t.win.count('pagehide') + t.win.count('pageshow'), 0);
 });
 
 test('sound cue gates: split needs 1 to 15 cells and a size above 60; eject needs size^2 above 3612.5', () => {

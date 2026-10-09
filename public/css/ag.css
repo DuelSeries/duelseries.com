@@ -29,7 +29,8 @@ html, body {
   cursor: default;
 }
 
-/* Phone controls (CHOSEN, Owen's Q7): Split and Eject buttons, shown on touch screens only. */
+/* Phone controls (CHOSEN, Owen's Q7): Split and Eject buttons, shown on touch screens only and only
+   while playing with own cells (agMain puts .ag-alive on the root element then; FIX-PLAN P1). */
 .ag-pad {
   position: absolute;
   right: 16px;
@@ -54,7 +55,7 @@ html, body {
 .ag-pad button:active { background: rgba(255, 255, 255, 0.25); }
 
 @media (pointer: coarse) {
-  .ag-pad { display: flex; }
+  .ag-alive .ag-pad { display: flex; }
 }
 
 /* The menu card stays usable on a phone: never wider than the screen minus the side gutters.

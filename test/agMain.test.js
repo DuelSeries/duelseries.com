@@ -81,10 +81,20 @@ function makeElement(doc, tag) {
   return el;
 }
 
+// classList on the root element (the phone pad class); toggle writes are counted.
+function fakeClassList() {
+  const set = new Set();
+  return {
+    writes: 0,
+    toggle(k, on) { this.writes++; const v = on === undefined ? !set.has(k) : !!on; if (v) set.add(k); else set.delete(k); return v; },
+    contains: (k) => set.has(k)
+  };
+}
+
 function makeDoc() {
   const doc = { _n: 0, calls: [], sizeWrites: [] };
   doc.createElement = (tag) => makeElement(doc, tag);
-  doc.documentElement = { style: { setProperty() {} } };
+  doc.documentElement = { style: { setProperty() {} }, classList: fakeClassList() };
   doc.head = makeElement(doc, 'head');
   doc.body = makeElement(doc, 'body');
   doc.addEventListener = () => {};
@@ -117,12 +127,16 @@ function makeStorage() {
   return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), map: m };
 }
 
-// boot options: w, h, dpr, net (true = fake socket.io), fonts (a fake document.fonts), cfg (extra boot config)
+// boot options: w, h, dpr, net (true = fake socket.io), fonts (a fake document.fonts), cfg (extra boot config),
+// pad (the page's Split / Eject buttons)
 function bootPage(o) {
   o = o || {};
   const doc = makeDoc();
   const canvas = doc.body.appendChild(makeElement(doc, 'canvas'));
   canvas.setAttribute('id', 'canvas');
+  if (o.pad) {
+    for (const id of ['ag-split', 'ag-eject']) doc.body.appendChild(makeElement(doc, 'button')).setAttribute('id', id);
+  }
   let clock = 1000;
   let timers = [];
   let raf = null;
@@ -259,6 +273,56 @@ test('a death while the Esc menu is open keeps HOME (no Match Results); a death 
     assert.strictEqual(st.capMs, Math.fround(1000 / 25), 'the menu cap either way');
     assert.strictEqual(st.highestMass, 0, 'the life was still counted and reset');
   }
+});
+
+test('P1: the phone pad shows and acts only while playing with own cells (not HOME, SPECTATE, Esc menu, GAMEOVER)', async () => {
+  const p = bootPage({ pad: true });
+  const feed = p.session.feed;
+  const cls = p.doc.documentElement.classList;
+  const split = p.doc.getElementById('ag-split'), eject = p.doc.getElementById('ag-eject');
+  const acts = () => p.sent.filter((s) => s[0] === 'split' || s[0] === 'eject').length;
+  async function check(label, shown) {
+    await p.frames(2);
+    assert.strictEqual(cls.contains('ag-alive'), shown, label + ': root class');
+    const before = acts();
+    split.dispatch('pointerdown', {});
+    eject.dispatch('pointerdown', {});
+    assert.strictEqual(acts() - before, shown ? 2 : 0, label + ': Split + Eject presses acted');
+  }
+  feed({ t: 'hello' });
+  feed(BORDER);
+  feed({ t: 'world', eats: [], cells: [], removed: [] });
+  await check('HOME', false);
+  p.session.spectate();
+  assert.strictEqual(p.session.state().menuState, 'SPECTATE');
+  await check('SPECTATE', false);
+  p.session.menu();
+  await check('Esc menu from spectate', false);
+  p.session.play('me');
+  await check('PLAY before the spawn', false);
+  feed({ t: 'own', id: 9 });
+  feed({ t: 'world', eats: [], cells: [cell({ id: 9 })], removed: [] });
+  assert.strictEqual(cls.contains('ag-alive'), true, 'the spawn writes the class at once');
+  await check('alive', true);
+  p.session.menu();
+  assert.strictEqual(cls.contains('ag-alive'), false, 'Esc writes it at once');
+  await check('Esc menu while alive', false);
+  p.session.play('me');
+  await check('back in play', true);
+  feed({ t: 'world', eats: [], cells: [], removed: [9] });
+  assert.strictEqual(cls.contains('ag-alive'), false, 'the death writes it at once');
+  await check('GAMEOVER', false);
+  assert.strictEqual(p.session.state().menuState, 'GAMEOVER');
+  assert.strictEqual(cls.writes, 4, 'written only on a change: spawn, Esc, Play, death');
+  p.session.destroy();
+  assert.strictEqual(cls.contains('ag-alive'), false);
+});
+
+test('P1: ag.css shows the phone pad only under .ag-alive, on touch screens', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'css', 'ag.css'), 'utf8');
+  assert.match(css, /\.ag-pad \{[^}]*display: none;/);
+  assert.match(css, /@media \(pointer: coarse\) \{\s*\.ag-alive \.ag-pad \{ display: flex; \}\s*\}/);
+  assert.strictEqual((css.match(/display: flex/g) || []).length, 1, 'no other rule shows the pad');
 });
 
 test('quality goes through one path: level, canvas scale and size together', async () => {

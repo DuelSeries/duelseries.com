@@ -316,15 +316,35 @@
       engineNow: cfg.engineNow,       // tests only; the page uses the input layer's default clock
       splitButton: cfg.splitButton || doc.getElementById('ag-split'),
       ejectButton: cfg.ejectButton || doc.getElementById('ag-eject'),
+      canAct: padLive,
       touchFirst: cfg.touchFirst
     });
     function edgePoint(ux, uy) { return cam.stickPoint(ownCells(), ux, uy); }
+
+    // Phone Split / Eject pad (ours, FIX-PLAN P1): shown and acting only while playing with own
+    // cells, never on the menu (Esc included), while spectating or on the death panel. The root
+    // element carries 'ag-alive' while that holds (ag.css shows the pad on touch screens only),
+    // written only when it changes; the frame loop compares every frame and the state changes
+    // below write at once. DOM only: no canvas call changes.
+    var padShown = false;
+    function padLive() { return menuState === 'PLAY' && ownCells().length > 0; }
+    function setPadClass(on) {
+      var root = doc.documentElement;
+      if (root && root.classList) root.classList.toggle('ag-alive', on);
+    }
+    function syncPad() {
+      var live = padLive();
+      if (live === padShown) return;
+      padShown = live;
+      setPadClass(live);
+    }
 
     // ---- game state and the FPS cap ---------------------------------------------------------
     // The reference menu applies a state change in a 0 ms timer and its watcher then sets the
     // cap in a microtask; the frame that runs the timer is still drawn under the old cap.
     function setMenuState(s) {
       menuState = s;
+      syncPad();
       win.setTimeout(function () {
         Promise.resolve().then(function () {
           capMs = (menuState === 'PLAY' || menuState === 'SPECTATE') ? -1 : capFor(MENU_FPS);
@@ -400,6 +420,7 @@
       if (gameState === 9) gameState = 3;   // a match-state rule of other modes; inert in FFA
       stats.spawn(p.now, p.node.rgb || [p.node.r, p.node.g, p.node.b]);
       hud.onSpawn();
+      syncPad();
     });
     world.on('eat', function (p) {
       var e = {
@@ -424,6 +445,7 @@
       var snap = stats.death(p.now, lastRows);
       input.setInGame(false);
       sound.setInGame(false);
+      syncPad();
       if (menuState === 'HOME') return;
       if (screens) screens.showStats(snap);
       setMenuState('GAMEOVER');
@@ -498,6 +520,7 @@
     function onAnimationFrame() {
       if (destroyed) return;
       win.requestAnimationFrame(onAnimationFrame);
+      syncPad();
       input.frame(edgePoint);
       gameFrame();
     }
@@ -609,6 +632,8 @@
     session.settings = function () { return shownSettings(); };
     session.destroy = function () {
       destroyed = true;
+      padShown = false;
+      setPadClass(false);
       input.dispose();
       if (net) net.close();
       win.removeEventListener('resize', sizeCanvas);

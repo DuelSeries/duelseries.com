@@ -17,8 +17,16 @@
 //     zoom(n): agCamera.wheel(n).
 //   opts: { win, doc, canvasScale() (canvas px per CSS px; default 1), engineNow() (integer
 //     ms; default new Date().getTime(), the clock the reference app layer uses), splitButton,
-//     ejectButton (elements; optional), touchFirst (bool; default: coarse primary pointer),
+//     ejectButton (elements; optional), canAct() (bool; a button press acts only while it is
+//     true; default always), touchFirst (bool; default: coarse primary pointer),
 //     firefox (bool; default: user agent test) }
+//
+// Escape from a zoomed lobby (ours, FIX-PLAN P3): the lobby page that frames this game can be
+// pinch-zoomed before the game opens, and this page's touch-action: none plus the stick's
+// preventDefault would then keep it zoomed for good. While the top page is zoomed, this page
+// allows pinch-zoom, no canvas touchstart is prevented (the first finger of a pinch arrives
+// alone) and a touch with two or more fingers on the canvas is left to the browser, so a
+// pinch-out brings the lobby back to 1. At 1 nothing changes: no zoom, every touch steers.
 (function (root) {
   'use strict';
   var A = root.DuelAgarLib = root.DuelAgarLib || {};
@@ -36,6 +44,9 @@
   var SPLIT_SOUND_MAX_CELLS = 15;
   var SPLIT_SOUND_MIN_SIZE = 60; // strictly above
   var EJECT_SOUND_MIN_SIZE_SQ = 3612.5; // strictly above, size squared as a double
+  // The top page counts as zoomed above this pinch scale (CHOSEN, PARITY-LOG 2026-10-09 P3: the
+  // threshold of the measured variant; a page at rest reports exactly 1).
+  var LOBBY_ZOOMED_SCALE = 1.01;
 
   // Wheel notches for one legacy wheel event, the reference's own rule: wheelDelta / -120, else
   // the Firefox detail, else 0 (spec 6.1). Up (positive wheelDelta) gives n < 0: zoom in.
@@ -108,6 +119,25 @@
     } catch (err) {
       return false;
     }
+  }
+
+  // The top page's visual viewport (the lobby's, when this page is its frame; this page's own when
+  // it is not), or null when a top page from another origin hides it.
+  function topViewport(win) {
+    try {
+      return (win.top && win.top.visualViewport) || null;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  // The touch-action that lets a zoomed top page be pinched back: pinch-zoom where the browser
+  // knows it, else auto (CHOSEN, PARITY-LOG 2026-10-09 P3).
+  function pinchTouchAction(win) {
+    try {
+      if (win.CSS && typeof win.CSS.supports === 'function' && win.CSS.supports('touch-action', 'pinch-zoom')) return 'pinch-zoom';
+    } catch (err) { /* fall through */ }
+    return 'auto';
   }
 
   function attachInput(canvas, sink, opts) {
@@ -183,6 +213,42 @@
       s.keysDown[e.keyCode] = false;
     }
 
+    // A zoomed top page (see the header): html and body allow pinch-zoom while it is zoomed and go
+    // back to the style sheet's none at 1. Written only on a change; checked at start-up and on
+    // every resize of the top page's visual viewport (a pinch ends with one).
+    var topVV = topViewport(win);
+    var shownTouchAction = '';
+    function lobbyZoomed() {
+      var vv = topViewport(win);
+      return !!vv && vv.scale > LOBBY_ZOOMED_SCALE;
+    }
+    function syncTouchAction() {
+      var v = lobbyZoomed() ? pinchTouchAction(win) : '';
+      if (v === shownTouchAction) return;
+      shownTouchAction = v;
+      var els = [doc && doc.documentElement, body];
+      for (var i = 0; i < els.length; i++) if (els[i] && els[i].style) els[i].style.touchAction = v;
+    }
+    // The listener sits on the top page, so it comes off when this page goes away (the lobby
+    // closing or reloading the frame) and back on if the page is shown again.
+    function watchTop(onOff) {
+      if (!topVV) return;
+      try {
+        topVV[onOff ? 'addEventListener' : 'removeEventListener']('resize', syncTouchAction);
+      } catch (err) { /* the top page is gone */ }
+    }
+    watchTop(true);
+    on(win, 'pagehide', function () { watchTop(false); });
+    on(win, 'pageshow', function () { watchTop(true); syncTouchAction(); });
+    syncTouchAction();
+    // Two or more fingers on the canvas while the top page is zoomed: the browser's pinch, never
+    // the stick and never a preventDefault. The first finger of a pinch arrives alone (Chrome sends
+    // one touchstart per new finger), so while zoomed no canvas touchstart is prevented at all,
+    // as Chrome drops a whole pinch whose first touchstart was prevented (measured, headless).
+    function lobbyPinch(e) {
+      return !!(e.touches && e.touches.length >= 2) && lobbyZoomed();
+    }
+
     // Phone stick on the canvas: the first finger down steers; other fingers are ignored.
     function findTouch(list, id) {
       if (!list) return null;
@@ -190,7 +256,11 @@
       return null;
     }
     on(canvas, 'touchstart', function (e) {
-      if (e.cancelable && e.preventDefault) e.preventDefault();
+      var zoomedTop = lobbyZoomed();
+      if (zoomedTop && e.touches && e.touches.length >= 2) return;
+      // One finger while zoomed still starts the stick, it is just not prevented here; its
+      // touchmove and touchend are, as at 1.
+      if (!zoomedTop && e.cancelable && e.preventDefault) e.preventDefault();
       s.touchMode = true;
       if (s.touchId !== null && e.touches && !findTouch(e.touches, s.touchId)) s.touchId = null;
       if (s.touchId !== null) return;
@@ -200,26 +270,31 @@
       stick.down(t.clientX, t.clientY);
     }, { passive: false });
     on(canvas, 'touchmove', function (e) {
+      if (lobbyPinch(e)) return;
       if (e.cancelable && e.preventDefault) e.preventDefault();
       if (s.touchId === null) return;
       var t = findTouch(e.changedTouches, s.touchId);
       if (t) stick.move(t.clientX, t.clientY);
     }, { passive: false });
+    // A lifted finger always releases the stick it was steering, pinch or not.
     function onTouchEnd(e) {
-      if (e.cancelable && e.preventDefault) e.preventDefault();
+      if (!lobbyPinch(e) && e.cancelable && e.preventDefault) e.preventDefault();
       if (s.touchId === null || !findTouch(e.changedTouches, s.touchId)) return;
       s.touchId = null; // the direction is kept: the cells carry on
     }
     on(canvas, 'touchend', onTouchEnd, { passive: false });
     on(canvas, 'touchcancel', onTouchEnd, { passive: false });
 
-    // Split and Eject buttons: one action per press, the same actions as Space and W.
+    // Split and Eject buttons: one action per press, the same actions as Space and W. A press while
+    // canAct() is false (agMain: not playing, or no own cells) does nothing, but it is still eaten,
+    // so it never becomes a mouse event, a zoom or steering.
+    var canAct = typeof opts.canAct === 'function' ? opts.canAct : function () { return true; };
     function wireButton(el, action) {
       if (!el) return;
       on(el, 'pointerdown', function (e) {
         if (e.preventDefault) e.preventDefault();
         if (e.stopPropagation) e.stopPropagation();
-        call(action);
+        if (canAct()) call(action);
       });
       // No emulated mouse events, no double-tap zoom, no steering from a button press.
       on(el, 'touchstart', function (e) {
@@ -274,6 +349,7 @@
         l[0].removeEventListener(l[1], l[2], l[3]);
       }
       listeners.length = 0;
+      watchTop(false);
       s.keysOn = false;
     };
     return ctl;
@@ -287,6 +363,7 @@
     splitSoundDue: splitSoundDue,
     ejectSoundDue: ejectSoundDue,
     MOUSE_SYNC_GAP_MS: MOUSE_SYNC_GAP_MS,
+    LOBBY_ZOOMED_SCALE: LOBBY_ZOOMED_SCALE,
     STICK_DEADZONE_PX: STICK_DEADZONE_PX,
     STICK_FOLLOW_R: STICK_FOLLOW_R
   };
