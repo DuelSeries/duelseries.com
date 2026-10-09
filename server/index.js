@@ -15,6 +15,7 @@ const { ShooterRoom, SH: SHOOTER } = require('./ShooterRoom'); // the top-down t
 const db     = require('./db');
 const collusion = require('./CollusionMonitor');
 const profiler = require('./profiler');
+const debugTick = require('./debugTick');
 const Wallet = require('./Wallet');
 const allTimeLb = require('./leaderboard');
 const prices = require('./prices');
@@ -2269,7 +2270,7 @@ app.get('/api/debug/client', (_req, res) => {
    inside the stall. See server/profiler.js. */
 app.get('/api/debug/profile', (_req, res) => res.json(profiler.report()));
 
-app.get('/api/debug/tick', (_req, res) => {
+app.get('/api/debug/tick', (req, res) => {
   const mem = process.memoryUsage();
   const out = {
     now: Date.now(), tickRate: C.TICK_RATE, upSec: Math.round(process.uptime()),
@@ -2286,35 +2287,22 @@ app.get('/api/debug/tick', (_req, res) => {
       totalMB: Math.round(mem.heapTotal / 1048576),
       rssMB: Math.round(mem.rss / 1048576),
     },
-    rooms: {},
+    /* Every room on this process (server/debugTick.js): the snake rooms
+       (fixed tiers, the battle royale and every ladder rung) with their
+       tick-lag and broadcast-gap logs, each stall with its absolute time; the
+       agar.io rooms with their full tick timing (wake lateness, steps per
+       wake, step cost, send intervals, dropped backlog, the last 60 s of
+       ticks); the Paper arenas and the tanks arena with their counts.
+       ?recent=N (or all) sets how many raw agar ticks each row carries. */
+    rooms: debugTick.roomRows({
+      snakeRooms: ALL_SNAKE_ROOMS(),
+      agRooms: agArenas ? agArenas.all() : [],
+      paperRooms: paperArenas ? paperArenas.all() : [],
+      shooterRooms: shooterRoom ? [shooterRoom] : [],
+      now: Date.now(),
+      recent: debugTick.parseRecent(req.query && req.query.recent),
+    }),
   };
-  for (const rgn of REGIONS) {
-    for (const type of ['free', 'dime', 'dollar']) {
-      const room = gameRooms[rgn] && gameRooms[rgn][type];
-      const lag = room && room._lag;
-      if (!lag || !lag.ticks) continue;
-      const bc = room._bc;
-      out.rooms[`${rgn}_${type}`] = {
-        ticks: lag.ticks,
-        lateTicks: lag.late,
-        latePct: +(100 * lag.late / lag.ticks).toFixed(3),
-        worstMs: Math.round(lag.worst),
-        worstAgoSec: lag.worstAt ? Math.round((Date.now() - lag.worstAt) / 1000) : null,
-        recent: lag.recent.map(r => ({ ms: r.ms, agoSec: Math.round((Date.now() - r.at) / 1000) })),
-        // Whether the SERVER failed to send, as opposed to the packet arriving
-        // late. The client sees 110-200ms snapshot gaps with no stall in the
-        // tab; if these match, it is ours, and if these stay near 33ms it is
-        // the network.
-        broadcast: bc ? {
-          sends: bc.count,
-          lateSends: bc.late,
-          worstMs: Math.round(bc.worst),
-          worstAgoSec: bc.worstAt ? Math.round((Date.now() - bc.worstAt) / 1000) : null,
-          recent: bc.recent.map(r => ({ ms: r.ms, agoSec: Math.round((Date.now() - r.at) / 1000) })),
-        } : null,
-      };
-    }
-  }
   res.json(out);
 });
 

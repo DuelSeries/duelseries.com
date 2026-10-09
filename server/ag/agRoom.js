@@ -34,6 +34,7 @@ const { createSim } = require('./agSim');
 const agView = require('./agView');
 const agBots = require('./agBots');
 const { createRng } = require('./agRng');
+const { TickTimer } = require('../tickTimer');
 
 const ROOM_LAW_IDS = Object.freeze([
   'L1', 'L4', 'L37', 'L39', 'U_BOARD', 'U_SPECTATE', 'WIRE_BACKLOG', 'LEAVE_RULE', 'BOT_FILL',
@@ -150,6 +151,13 @@ class AgRoom {
     this._botsPausedUntil = 0;  // the owner console's Clear keeps the fill off until then (wall clock)
     this.stats = { ticks: 0, bundles: 0, bytes: 0, skipped: 0, resyncs: 0, buildErrors: 0, emitErrors: 0,
       viewRestarts: 0 };
+    // Tick timing for GET /api/debug/tick (server/tickTimer.js): wake lateness, steps per wake, step cost, send
+    // times, dropped backlog. _dueAt is when the armed timer's step is due; _nextDue the step tickOnce runs next
+    // (NaN outside a wake); _sendEnd when the last step's bundles finished going out (all monotonic ms).
+    this.timing = new TickTimer({ periodMs: this.tickMs, maxSteps: MAX_STEPS_PER_WAKE, clock, now });
+    this._dueAt = NaN;
+    this._nextDue = NaN;
+    this._sendEnd = NaN;
     this.fillBots();
   }
 
@@ -352,16 +360,19 @@ class AgRoom {
 
   tickOnce() {
     if (this.stopped) return false;
+    const start = this.clock();
+    this._sendEnd = NaN;
     try {
       this._step();
-      this.failCount = 0;
-      return true;
     } catch (e) {
       this.failCount++;
       this.log.error('[AG] TICK threw', this.lobbyType, this.failCount, e && e.stack ? e.stack : e);
       if (this.failCount >= EMERGENCY_FAIL_TICKS) this.emergencyClose();
       return false;
     }
+    this.failCount = 0;
+    this.timing.step(this._nextDue, start, this._sendEnd, this.clock());
+    return true;
   }
 
   _step() {
@@ -373,6 +384,7 @@ class AgRoom {
     }
     this.fillBots();
     this._send(ev);
+    this._sendEnd = this.clock();
     this.stats.ticks++;
   }
 
@@ -567,9 +579,12 @@ class AgRoom {
     return Math.max(0, this.tickMs - this.acc - (this.clock() - this.last));
   }
 
-  // Timers are whole milliseconds: sleep to the first one at or after the due time.
+  // Timers are whole milliseconds: sleep to the first one at or after the due time. The due time itself is kept,
+  // so the wake can record how late the event loop let it run.
   _arm() {
-    this.timer = setTimeout(this._onWake, Math.max(1, Math.ceil(this._dueIn())));
+    const dueIn = this._dueIn();
+    this._dueAt = this.clock() + dueIn;
+    this.timer = setTimeout(this._onWake, Math.max(1, Math.ceil(dueIn)));
     if (this.timer && typeof this.timer.unref === 'function') this.timer.unref();
   }
 
@@ -578,25 +593,36 @@ class AgRoom {
       clearTimeout(this.timer);
       this.timer = null;
     }
+    this._dueAt = NaN;
+    this.timing.idle();
   }
 
   // Runs every step that is due; returns how many ran.
   wake() {
     const now = this.clock();
+    const firstDue = this.last + this.tickMs - this.acc;   // when the first of the steps below was due
     this.acc += now - this.last;
     this.last = now;
     let steps = Math.floor(this.acc / this.tickMs);
+    let dropped = 0;
     if (steps > MAX_STEPS_PER_WAKE) {
+      dropped = steps - MAX_STEPS_PER_WAKE;
       steps = MAX_STEPS_PER_WAKE;
       this.acc %= this.tickMs;     // extra backlog is dropped, never one long step
     } else {
       this.acc -= steps * this.tickMs;
     }
+    this.timing.wakeBegin(now, this._dueAt);
+    this._dueAt = NaN;
+    if (dropped) this.timing.dropped(dropped, dropped * this.tickMs);
     let ran = 0;
     while (steps-- > 0 && !this.stopped) {
+      this._nextDue = firstDue + ran * this.tickMs;
       this.tickOnce();
       ran++;
     }
+    this._nextDue = NaN;
+    this.timing.wakeEnd(ran);
     return ran;
   }
 

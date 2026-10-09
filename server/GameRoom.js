@@ -22,6 +22,13 @@ const GRID_CELL = 80;
    and a fine grid would mean thousands of empty lookups to answer it. */
 const BC_FOOD_CELL = 1000;
 
+/* How many recent late ticks and late broadcasts each room keeps for
+   /api/debug/tick, each with its absolute time (FIX-PLAN S1: "a cap of about
+   600"). At today's 4 to 5 late ticks a second that is about two minutes, long
+   enough to line a client recording up against; it was 40 and 30, which held
+   under ten seconds. */
+const STALL_LOG_CAP = 600;
+
 class GameRoom {
   constructor(io, lobbyType) {
     this.io = io;
@@ -411,7 +418,7 @@ class GameRoom {
           this._lag.late++;
           if (over > this._lag.worst) { this._lag.worst = over; this._lag.worstAt = nowT; }
           this._lag.recent.push({ ms: Math.round(over), at: nowT });
-          if (this._lag.recent.length > 40) this._lag.recent.shift();
+          if (this._lag.recent.length > STALL_LOG_CAP) this._lag.recent.shift();
           // Marks the profiler's current window as worth keeping. Tick lag knows
           // WHEN the thread died; only the profile knows what was running.
           profiler.noteStall(over);
@@ -837,7 +844,7 @@ class GameRoom {
         this._bc.late++;
         if (gap > this._bc.worst) { this._bc.worst = gap; this._bc.worstAt = t; }
         this._bc.recent.push({ ms: Math.round(gap), at: t });
-        if (this._bc.recent.length > 30) this._bc.recent.shift();
+        if (this._bc.recent.length > STALL_LOG_CAP) this._bc.recent.shift();
       }
     }
     this._lastBcAt = t;
