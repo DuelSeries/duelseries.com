@@ -37,6 +37,17 @@
   var TEXT_STROKE = 'rgb(0,0,0)';
   var MEASURE_FONT = '100px Ubuntu';
 
+  // Ours, never drawn at parity (every one is gated on a hold or on paid-room money, which the free room and the
+  // harness streams never have). CHOSEN values, logged in PARITY-LOG (2026-10-09 paid agar client).
+  // Hold ring (Owen 2026-10-08: "a ring fills around your cell", agar.io's plain style, no new art): one thin
+  // round-capped arc in the player's own colour, starting at 12 o'clock and running clockwise.
+  var HOLD_RING_PX = 6;       // CHOSEN stroke width, canvas px at HUD scale 1 (1920x1080), scaled like the HUD
+  var HOLD_RING_GAP_PX = 6;   // CHOSEN gap between the cell's outer edge and the ring, same units
+  var HOLD_RING_GREY = 'rgb(170,170,170)';  // colours off on a light map: the cell rim's own grey (drawNode dk)
+  // Paid rooms: a cell whose owner is away (disconnected, frozen or not yet confirmed; the server's ag:money away
+  // list) is drawn at this opacity, name and money line included.
+  var AWAY_ALPHA = 0.5;       // CHOSEN
+
   // agMath is looked up at call time (Paper wrapper rule); under node it is required once.
   var mathLib = null;
   function M() {
@@ -136,6 +147,10 @@
 
     var grid = { pattern: null, scale: 0, dark: false };
     var names = new Map();                      // name string -> { refs, levels[4] }
+    // Paid rooms only (setMoney, from ag:money): cell id -> its share in micro-USDC, and the away cell ids. Both
+    // null in the free room, where nothing below reads them.
+    var money = null;
+    var away = null;
     var frameCounter = 0;
     var membranesAllowed = true;                // allowed on the first frame (spec 1.2)
 
@@ -564,6 +579,9 @@
       interpolate(n, now);
       ctx.save();
       if (n.dying) ctx.globalAlpha = 1 - clamp01((now - n.updateTime) / INTERP_MS);
+      if (away !== null && away.has(n.id)) {
+        ctx.globalAlpha = (n.dying ? 1 - clamp01((now - n.updateTime) / INTERP_MS) : 1) * AWAY_ALPHA;
+      }
       ctx.lineWidth = 10;
       ctx.lineCap = 'round';
       ctx.lineJoin = n.virus ? 'miter' : 'round';
@@ -678,7 +696,10 @@
         }
       }
 
-      if (!showMass) return;
+      if (!showMass) {
+        if (money !== null) drawMoneyLine(ctx, n, x, y, ts, showName ? f32(wMass * 0.3 + y) : null, wMass, st);
+        return;
+      }
       var MT = n.massText || (n.massText = textObject(200, null));
       setText(MT, String(Math.trunc(Math.floor(f32(f32(size * size) / 100)))));
       var pad = MT.fs * 0.1 + MT.fs * 0.1;
@@ -696,6 +717,65 @@
       var wid = f32(z * mTexW); if (wid < 25) wid = 25;
       var top = showName ? f32(wMass * 0.3 + y) : f32(y + hgt * -0.5);
       ctx.drawImage(MT.canvas, 0, 0, MT.canvas.width, MT.canvas.height, f32(x + wid * -0.5), top, wid, hgt);
+      if (money !== null) drawMoneyLine(ctx, n, x, y, ts, f32(top + hgt), wMass, st);
+    }
+
+    // Paid rooms (design 6, "a money line under the name only for cells with a known value"): the cell's share as
+    // "$x.xx", in the mass text's own text style and size rule (the line above), under the name, or under the mass
+    // when the mass shows. top: where the line starts, or null for a cell with neither, where it is centred.
+    function drawMoneyLine(ctx, n, x, y, ts, top, wMass, st) {
+      var v = money.get(n.id);
+      if (v === undefined) return;
+      var VT = n.moneyText || (n.moneyText = textObject(200, null));
+      setText(VT, usd(v));
+      var pad = VT.fs * 0.1 + VT.fs * 0.1;
+      var vTexH = f32(Math.trunc(VT.scale * (VT.fs + Math.trunc(VT.fs * 0.4))));
+      var z = f32(f32(wMass / vTexH) * 0.5);
+      var hgt = f32(z * vTexH); if (hgt < 22) hgt = 22;
+      var vTexW = Math.trunc(VT.scale * ((pad + pad) + VT.m100 / 100 * VT.fs));
+      var px = f32(ts * hgt);
+      if (!(Math.abs(f32((n.lastMoneyPx || 0) - px)) <= 10)) {
+        if (VT.fs !== px) { VT.fs = px; VT.dirty = true; }
+        n.lastMoneyPx = px;
+      }
+      renderText(VT, st);
+      if (!VT.canvas) return;
+      var wid = f32(z * vTexW); if (wid < 25) wid = 25;
+      var at = top === null ? f32(y + hgt * -0.5) : top;
+      ctx.drawImage(VT.canvas, 0, 0, VT.canvas.width, VT.canvas.height, f32(x + wid * -0.5), at, wid, hgt);
+    }
+
+    // The hold ring (Owen 2026-10-08), drawn by agMain after the world while the server reports a hold: around the
+    // player's main cell n, progress 0..1 of the 3 s, in world coordinates with the world pass's transform. The
+    // stroke and gap are HUD-scaled canvas px turned into world units (divided by the draw scale), so the ring
+    // looks the same thickness at every zoom. Returns whether it drew.
+    function drawHoldRing(ctx, view, n, progress, settings) {
+      if (!n || !(progress > 0) || !(view.s > 0)) return false;
+      var st = normalizeSettings(settings);
+      var p = progress > 1 ? 1 : progress;
+      var k = Math.min(view.H / (view.portrait ? 1920 : 1080), view.W / (view.portrait ? 1080 : 1920));
+      var lw = (HOLD_RING_PX * k) / view.s;
+      var rim = ringWidth(!!n.highlight, view.s, view.W, view.H, view.portrait);
+      var rad = n.size + rim + (HOLD_RING_GAP_PX * k) / view.s + lw * 0.5;
+      var colour = st.noColors ? (st.dark ? TEXT_FILL : HOLD_RING_GREY) : rgbString(n.rgb || [255, 255, 255]);
+      ctx.save();
+      ctx.translate(Math.trunc(view.W / 2), Math.trunc(view.H / 2));
+      ctx.scale(view.s, view.s);
+      ctx.translate(-view.camX, -view.camY);
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, rad, -TAU / 4, -TAU / 4 + TAU * p, false);
+      ctx.lineWidth = lw;
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = colour;
+      ctx.stroke();
+      ctx.restore();
+      return true;
+    }
+
+    // ag:money (paid rooms): shares is a Map of cell id -> micro, awayIds a Set of cell ids; null clears either.
+    function setMoney(shares, awayIds) {
+      money = shares && typeof shares.get === 'function' ? shares : null;
+      away = awayIds && typeof awayIds.has === 'function' && awayIds.size > 0 ? awayIds : null;
     }
 
     // Party icon (8.1.1): a guest has no profile pictures, so the default icon, half size,
@@ -728,8 +808,15 @@
       drawWorld: drawWorld,
       renderWorld: renderWorld,
       nameEntry: function (name) { return names.get(name) || null; },
+      setMoney: setMoney,
+      drawHoldRing: drawHoldRing,
       get frameCounter() { return frameCounter; }
     };
+  }
+
+  // Micro-USDC as dollars with two decimals, Paper's display rule (public/js/paper/mp/paperArenaMain.js usd()).
+  function usd(micro) {
+    return '$' + (Math.max(0, Number(micro) || 0) / 1e6).toFixed(2);
   }
 
   var agRender = {
@@ -742,7 +829,11 @@
     ringWidth: ringWidth,
     gridOffset: gridOffset,
     rgbString: rgbString,
-    normalizeSettings: normalizeSettings
+    normalizeSettings: normalizeSettings,
+    usd: usd,
+    HOLD_RING_PX: HOLD_RING_PX,
+    HOLD_RING_GAP_PX: HOLD_RING_GAP_PX,
+    AWAY_ALPHA: AWAY_ALPHA
   };
   A.agRender = agRender;
   if (typeof module !== 'undefined' && module.exports) module.exports = agRender;

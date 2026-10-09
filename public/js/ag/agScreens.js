@@ -12,6 +12,10 @@
 
   var fround = Math.fround;
 
+  // The Match Results title (client-hud 6.3), and ours for a free-room cash-out (CHOSEN, PARITY-LOG 2026-10-09).
+  var STATS_TITLE = 'Match Results';
+  var CASHED_OUT_TITLE = 'Cashed Out';
+
   function ti(x) {
     return Math.abs(x) < 2147483648 ? (x | 0) : -2147483648;
   }
@@ -416,7 +420,7 @@
     // writes no canvas size through script.
     var stats = el('div', { id: 'ag-stats', hidden: '' });
     var h2 = el('h2');
-    var centre = el('center', null, 'Match Results');
+    var centre = el('center', null, STATS_TITLE);
     h2.appendChild(centre);
     stats.appendChild(h2);
     var graph = doc.getElementById('statsGraph');
@@ -460,9 +464,13 @@
       menu.hidden = false;
       focusNick();
     };
-    // GAMEOVER: the panel with this life's numbers.
-    api.showStats = function (snap) {
+    // GAMEOVER: the panel with this life's numbers. opts.title: our free-room cash-out (Owen 2026-10-08: the run
+    // ends with a results screen, no money) shows the same panel under CASHED_OUT_TITLE; a death keeps the
+    // reference's title.
+    api.showStats = function (snap, opts) {
       var v = statsValues(snap);
+      var title = opts && typeof opts.title === 'string' ? opts.title : STATS_TITLE;
+      if (centre.textContent !== title) centre.textContent = title;
       for (var k in valueEls) if (Object.prototype.hasOwnProperty.call(valueEls, k)) valueEls[k].textContent = v[k];
       api.state = 'GAMEOVER';
       namePanel.hidden = true;
@@ -502,7 +510,154 @@
     return api;
   }
 
+  // ---------------------------------------------------------------------------------------
+  // Paid end card (ours, PAID-AGAR-DESIGN 6 "#ag-paid-end"): a separate overlay built from the shared end card's
+  // classes (public/css/cashout.css co-*, linked from ag.html; the wrapper and its colours are in ag.css), never
+  // the parity-locked #ag-stats panel. Built on first use, so the free page's DOM never has it.
+  // ---------------------------------------------------------------------------------------
+
+  var HOUSE_CUT_PCT = 10;   // server/paperPayout.js: the house keeps floor(gross / 10), Owen's 90/10
+  var TX_URL = 'https://solscan.io/tx/';   // Paper's explorer link (public/js/paper/mp/paperArenaMain.js pp:paid)
+  var PAID_TEXT = {
+    cashedTitle: 'Cashed out',
+    deadTitle: 'Eaten',
+    closedTitle: 'Refunded',
+    sending: 'Sending to your wallet',
+    sent: 'Sent to your wallet. ',
+    view: 'View transaction',
+    delayed: 'Payout delayed. Your winnings are recorded and will be sent.',
+    closed: 'The room closed on our side, so your whole balance goes back to your wallet, no house cut.',
+    lobby: 'Back to lobby'
+  };
+
+  function usd(micro) {
+    return '$' + (Math.max(0, Number(micro) || 0) / 1e6).toFixed(2);
+  }
+
+  // opts: { doc, root (default body), onLobby() }
+  function createPaidEnd(opts) {
+    opts = opts || {};
+    var doc = opts.doc || root.document;
+    var host = opts.root || doc.body;
+    function el(tag, attrs, text) {
+      var e = doc.createElement(tag);
+      if (attrs) for (var k in attrs) if (Object.prototype.hasOwnProperty.call(attrs, k)) e.setAttribute(k, attrs[k]);
+      if (text != null) e.textContent = text;
+      return e;
+    }
+    var wrap = el('div', { id: 'ag-paid-end', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'ag-pe-title', hidden: '' });
+    var card = el('div', { 'class': 'co-card' });
+    var eyebrow = el('p', { 'class': 'co-eyebrow', id: 'ag-pe-title' }, '');
+    var amount = el('p', { 'class': 'co-amount', id: 'ag-pe-amount' }, '');
+    var sub = el('p', { 'class': 'co-sub', id: 'ag-pe-sub' }, '');
+    var ledger = el('dl', { 'class': 'co-ledger', id: 'ag-pe-ledger' });
+    function ledgerRow(label, cut, net) {
+      var row = el('div', { 'class': 'co-row' + (net ? ' co-net' : '') });
+      var dt = el('dt', null, label);
+      if (cut) dt.appendChild(el('i', null, HOUSE_CUT_PCT + '%'));
+      var dd = el('dd', null, '');
+      row.appendChild(dt);
+      row.appendChild(dd);
+      ledger.appendChild(row);
+      return dd;
+    }
+    var grossEl = ledgerRow('Cashed out', false, false);
+    var cutEl = ledgerRow('House cut ', true, false);
+    var netEl = ledgerRow('You receive', false, true);
+    var settle = el('p', { 'class': 'co-settle', id: 'ag-pe-settle', 'data-state': 'pending' });
+    settle.appendChild(el('span', { 'class': 'co-dot', 'aria-hidden': 'true' }));
+    var settleText = el('span', { id: 'co-settle-text' }, PAID_TEXT.sending);
+    settle.appendChild(settleText);
+    var tx = el('a', { id: 'ag-pe-tx', href: '#', target: '_blank', rel: 'noopener noreferrer', hidden: '' }, PAID_TEXT.view);
+    settle.appendChild(tx);
+    var btns = el('div', { 'class': 'co-btns' });
+    var lobbyBtn = el('button', { type: 'button', 'class': 'co-btn co-go', id: 'ag-pe-lobby' }, PAID_TEXT.lobby);
+    btns.appendChild(lobbyBtn);
+    var parts = [eyebrow, amount, sub, ledger, settle, btns];
+    for (var i = 0; i < parts.length; i++) card.appendChild(parts[i]);
+    wrap.appendChild(card);
+    host.appendChild(wrap);
+    lobbyBtn.addEventListener('click', function (e) {
+      if (e && e.preventDefault) e.preventDefault();
+      if (typeof opts.onLobby === 'function') opts.onLobby();
+    });
+
+    var api = { element: wrap, kind: '', state: '' };
+    function show(kind) {
+      api.kind = kind;
+      wrap.setAttribute('data-kind', kind);
+      wrap.hidden = false;
+    }
+    function setSettle(state, text) {
+      api.state = state;
+      settle.setAttribute('data-state', state);
+      settleText.textContent = text;
+    }
+    // ag:cashedout { grossMicro, cutMicro, netMicro }: display only, the server's own numbers.
+    api.showCashed = function (p) {
+      p = p || {};
+      var gross = Number(p.grossMicro) || 0, cut = Number(p.cutMicro) || 0;
+      var net = p.netMicro !== undefined ? Number(p.netMicro) || 0 : gross - cut;
+      eyebrow.textContent = PAID_TEXT.cashedTitle;
+      amount.textContent = usd(net);
+      sub.textContent = 'Cashed out ' + usd(gross) + ', you receive ' + usd(net) + ' (' + HOUSE_CUT_PCT + '% house)';
+      grossEl.textContent = usd(gross);
+      cutEl.textContent = '-' + usd(cut);
+      netEl.textContent = usd(net);
+      ledger.hidden = false;
+      tx.hidden = true;
+      settle.hidden = false;
+      setSettle('pending', PAID_TEXT.sending);
+      show('cashed');
+    };
+    // ag:dead { lostMicro, by }
+    api.showDead = function (p) {
+      p = p || {};
+      var by = typeof p.by === 'string' && p.by ? p.by : '';
+      eyebrow.textContent = PAID_TEXT.deadTitle;
+      amount.textContent = usd(p.lostMicro);
+      sub.textContent = 'You lost ' + usd(p.lostMicro) + (by ? ' to ' + by : '');
+      ledger.hidden = true;
+      settle.hidden = true;
+      show('dead');
+    };
+    // ag:closed { refundedMicro } (a room that stopped: Owen Q6, 100% back, no rake)
+    api.showClosed = function (p) {
+      p = p || {};
+      eyebrow.textContent = PAID_TEXT.closedTitle;
+      amount.textContent = usd(p.refundedMicro);
+      sub.textContent = PAID_TEXT.closed;
+      ledger.hidden = true;
+      settle.hidden = true;
+      show('closed');
+    };
+    // ag:paid { sig }: the payout landed; the link opens the explorer (network: a cluster other than mainnet).
+    api.paid = function (sig, network) {
+      if (typeof sig !== 'string' || !sig) return false;
+      var q = network && network !== 'mainnet-beta' ? '?cluster=' + encodeURIComponent(network) : '';
+      setSettle('done', PAID_TEXT.sent);
+      tx.setAttribute('href', TX_URL + encodeURIComponent(sig) + q);
+      tx.hidden = false;
+      settle.hidden = false;
+      return true;
+    };
+    // ag:payerror { message }: the payout is recorded as owed and the drainer sends it.
+    api.payError = function (message) {
+      setSettle('fail', typeof message === 'string' && message ? message : PAID_TEXT.delayed);
+      tx.hidden = true;
+      settle.hidden = false;
+    };
+    api.hide = function () { wrap.hidden = true; };
+    api.shown = function () { return !wrap.hidden; };
+    return api;
+  }
+
   var agScreens = {
+    STATS_TITLE: STATS_TITLE,
+    CASHED_OUT_TITLE: CASHED_OUT_TITLE,
+    PAID_TEXT: PAID_TEXT,
+    createPaidEnd: createPaidEnd,
+    usd: usd,
     cellScoreMass: cellScoreMass,
     boardPlace: boardPlace,
     createLifeStats: createLifeStats,

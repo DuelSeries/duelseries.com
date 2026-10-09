@@ -33,8 +33,9 @@ html, body {
    while playing with own cells (agMain puts .ag-alive on the root element then; FIX-PLAN P1). */
 .ag-pad {
   position: absolute;
-  right: 16px;
-  bottom: calc(16px + var(--ag-banner, 0px));
+  /* Inside the safe area (a notch or a home bar; the insets are 0 where there is none). */
+  right: calc(16px + env(safe-area-inset-right, 0px));
+  bottom: calc(16px + var(--ag-banner, 0px) + env(safe-area-inset-bottom, 0px));
   display: none;
   flex-direction: column;
   gap: 14px;
@@ -53,6 +54,9 @@ html, body {
   -webkit-user-select: none;
 }
 .ag-pad button:active { background: rgba(255, 255, 255, 0.25); }
+/* Cash out (Owen 2026-10-08): held, like Q; first in the column, furthest from the corner the thumb rests on, and
+   a smaller face so its two words fit the same 72 px button (CHOSEN, PARITY-LOG 2026-10-09). */
+.ag-pad #ag-cash { font-size: 13px; line-height: 1.1; }
 
 @media (pointer: coarse) {
   .ag-alive .ag-pad { display: flex; }
@@ -72,3 +76,25 @@ html, body {
 @media (max-width: 360px) and (pointer: coarse) {
   #ag-card { transform: scale(0.9); transform-origin: top center; }
 }
+
+/* Paid end card (agScreens.createPaidEnd, PAID-AGAR-DESIGN 6): the shared end card (cashout.css co-*) on the
+   lobby's tokens. The values are public/css/game.css #cashout-screen's (amber money) and, for a loss,
+   #death-screen's red figure. Built only in paid rooms; above the menu, the Lobby button and the sideways card. */
+#ag-paid-end {
+  --co-ink: #100e0b; --co-s2: #1f1b15; --co-s3: #282219;
+  --co-bone: #f5f1e8; --co-tx2: #a89c8a; --co-money: #f0a830; --co-live: #8ed081;
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  padding: 24px 16px;
+  background: rgba(10, 8, 6, 0.72);
+  color: var(--co-bone);
+  font-family: 'Archivo', ui-sans-serif, system-ui, 'Segoe UI', Arial, sans-serif;
+}
+#ag-paid-end[hidden],
+#ag-paid-end [hidden] { display: none; }
+#ag-paid-end[data-kind="dead"] { --co-money: #e0705f; }
+#ag-paid-end[data-kind="dead"] .co-eyebrow { color: var(--co-money); }

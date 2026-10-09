@@ -30,7 +30,8 @@
 // task later (a 0 ms timer), as the reference page's menu watcher does.
 //
 // Session API (build brief 6): window.duelAgar = { feed(msg), play(name), spectate(),
-// debugLists(), state(), onSend, config, on(event, fn), menu(), destroy() }.
+// debugLists(), state(), onSend, config, on(event, fn), menu(), destroy() }, plus ours: onServer(name, fn)
+// and sideEvent(name, payload) for the server side events (hold-Q cash-out and paid rooms).
 (function (root) {
   'use strict';
   var A = root.DuelAgarLib = root.DuelAgarLib || {};
@@ -54,6 +55,14 @@
   // Our page keeps the drawing settings between visits (CHOSEN; a per-viewer convenience).
   var SETTINGS_KEY = 'agSettings';
   var SETTING_FLAGS = ['names', 'colors', 'showMass', 'dark'];
+  // Hold-Q cash-out (ours, Owen 2026-10-08, every room). While Q or the phone Cash out button is held and the
+  // player is alive, the page sends ag:hold {on: 1} at once and again every HOLD_REPEAT_MS (the server drops a hold
+  // whose last message is older than 500 ms), and {on: 0} when it is let go. Movement locks here at once too: no
+  // target is sent and Split / Eject do nothing while held (the server refuses them as well). The ring fills from
+  // the server's own report (ag:holding), so it closes on the tick the server cashes out.
+  var HOLD_REPEAT_MS = 200;     // design 3.5 / 6: the page repeats ag:hold {on: 1} every 200 ms
+  var HOLD_TICK_MS = 40.014;    // the server tick the hold counts (server law L1); ag:joined's tickMs replaces it
+  var HOLD_TICKS = 75;          // held ticks to cash out (server AG_MONEY.HOLD_TICKS, Owen's 3 s); ag:holding's need replaces it
 
   function capFor(fps) { return fps > 0 ? Math.fround(1000 / fps) : -1; }
 
@@ -165,6 +174,16 @@
     var destroyed = false;
     var canvasScale = 1;
     var net = null;
+    // Hold-Q cash-out (see HOLD_REPEAT_MS). wanted: held here and sent; server: the server reports the hold running
+    // since `at` (page clock) for `need` ticks; gen: the repeat timer's generation (a new hold or a release stops
+    // the old timer).
+    var hold = { wanted: false, server: false, at: 0, need: HOLD_TICKS, gen: 0 };
+    var holdTickMs = HOLD_TICK_MS;
+    var cashedOutFree = false;  // ag:cashedout {free: true} came; the death that follows shows "Cashed Out"
+    // Paid room (ag:joined with a stake, ag:money, or the hand-off's cfg.paid): money on the HUD, the board and the
+    // cells, and the paid end card instead of the Match Results panel. Never set in the free room.
+    var paid = { on: cfg.paid === true, stake: 0, network: typeof cfg.network === 'string' ? cfg.network : '' };
+    var paidEnd = null;         // the paid end card (agScreens.createPaidEnd), built on first use
 
     // ---- modules ------------------------------------------------------------------------------
     var renderer = agRender.createRenderer({ partyIcon: cfg.partyIcon || null });
@@ -348,18 +367,21 @@
       mouse: function (x, y) { cam.setMouse(x, y); },
       zoom: function (n) { cam.wheel(n); },
       split: function () {
+        if (hold.wanted) return;      // locked while holding (Owen 2026-10-08)
         cam.sendTarget(sendTarget);   // flush the current target first
         send('split');
         var cue = agSound.splitCue(displayedSizes());
         if (cue) sound.playCue(cue);
       },
       eject: function () {
+        if (hold.wanted) return;
         cam.sendTarget(sendTarget);
         send('eject');
         var cue = agSound.ejectCue(displayedSizes());
         if (cue) sound.playCue(cue);
       },
       q: function () { send('q'); },
+      hold: function (on) { setHold(on); },
       menu: function () { openMenu(); }
     }, {
       win: win,
@@ -368,7 +390,9 @@
       engineNow: cfg.engineNow,       // tests only; the page uses the input layer's default clock
       splitButton: cfg.splitButton || doc.getElementById('ag-split'),
       ejectButton: cfg.ejectButton || doc.getElementById('ag-eject'),
+      cashButton: cfg.cashButton || doc.getElementById('ag-cash'),
       canAct: padLive,
+      canHold: padLive,
       touchFirst: cfg.touchFirst
     });
     function edgePoint(ux, uy) { return cam.stickPoint(ownCells(), ux, uy); }
@@ -386,9 +410,161 @@
     }
     function syncPad() {
       var live = padLive();
+      if (!live && hold.wanted) {
+        input.releaseHold();          // a player who cannot hold any more (menu, death) lets go of Q and the button
+        setHold(false);
+      }
       if (live === padShown) return;
       padShown = live;
       setPadClass(live);
+    }
+
+    // ---- hold-Q cash-out (see HOLD_REPEAT_MS) ---------------------------------------------------
+    // agInput reports the hold going on and off (Q and the Cash out button together). A hold starts only while the
+    // player is alive in play; it lasts until let go, until the player cannot hold any more (syncPad) or until the
+    // run ends (endHold).
+    function setHold(on) {
+      if (on) {
+        if (hold.wanted || !padLive()) return;
+        hold.wanted = true;
+        hold.server = false;
+        var gen = ++hold.gen;
+        send('hold', { on: true });
+        var repeat = function () {
+          if (destroyed || !hold.wanted || hold.gen !== gen) return;
+          if (!padLive()) { setHold(false); return; }
+          send('hold', { on: true });
+          win.setTimeout(repeat, HOLD_REPEAT_MS);
+        };
+        win.setTimeout(repeat, HOLD_REPEAT_MS);
+        return;
+      }
+      if (!hold.wanted) return;
+      hold.wanted = false;
+      hold.server = false;
+      hold.gen++;
+      send('hold', { on: false });
+    }
+    // The run ended (a cash-out or a paid end): the server already ended the hold, so nothing is sent; the keys and
+    // the button are let go so a still-held Q starts nothing.
+    function endHold() {
+      hold.wanted = false;
+      hold.server = false;
+      hold.gen++;
+      input.releaseHold();
+    }
+    // 0..1 of the hold: the server counts its first held tick when it reports the hold (ag:holding), then one per
+    // tick, and cashes out at `need`.
+    function holdProgress(now) {
+      if (!hold.wanted || !hold.server) return 0;
+      var p = (1 + (now - hold.at) / holdTickMs) / hold.need;
+      return p < 0 ? 0 : (p > 1 ? 1 : p);
+    }
+    function mainOwnCell(own) {
+      var best = null;
+      for (var i = 0; i < own.length; i++) if (!best || own[i].size > best.size) best = own[i];
+      return best;
+    }
+
+    // ---- server side events (agNet SIDE_EVENTS) ---------------------------------------------
+    var sideHandlers = {};
+    function wholePositive(v) {
+      return typeof v === 'number' && isFinite(v) && v >= 1 && Math.floor(v) === v ? v : 0;
+    }
+    function onSideEvent(name, payload) {
+      if (destroyed) return;
+      var p = payload && typeof payload === 'object' ? payload : {};
+      switch (name) {
+        case 'ag:holding':
+          if (p.on === 1 || p.on === true) {
+            hold.server = hold.wanted;
+            hold.at = perfNow();
+            hold.need = wholePositive(p.need) || HOLD_TICKS;
+          } else {
+            hold.server = false;
+          }
+          break;
+        case 'ag:cashedout':
+          endHold();
+          if (p.free === true) {
+            cashedOutFree = true;
+          } else {
+            paidEndCard().showCashed(p);
+            var net = Number(p.netMicro);
+            if (!isFinite(net)) net = (Number(p.grossMicro) || 0) - (Number(p.cutMicro) || 0);
+            if (typeof win.phEvent === 'function') {
+              try { win.phEvent('cashed_out', { game: 'agar', amount: net / 1e6, stake: paid.stake }); } catch (e) { /* analytics never breaks the game */ }
+            }
+          }
+          break;
+        case 'ag:joined':
+          if (Number(p.stake) > 0) {
+            paid.on = true;
+            paid.stake = Number(p.stake);
+          }
+          if (typeof p.tickMs === 'number' && p.tickMs > 0 && isFinite(p.tickMs)) holdTickMs = p.tickMs;
+          if (wholePositive(p.holdTicks)) hold.need = p.holdTicks;
+          break;
+        case 'ag:money':
+          paid.on = true;
+          applyMoney(p);
+          break;
+        case 'ag:dead':
+          endHold();
+          paidEndCard().showDead(p);
+          break;
+        case 'ag:closed':
+          endHold();
+          paidEndCard().showClosed(p);
+          break;
+        case 'ag:paid':
+          if (paidEnd) paidEnd.paid(p.sig, paid.network);
+          break;
+        case 'ag:payerror':
+          if (paidEnd) paidEnd.payError(p.message);
+          break;
+        default:
+          break;
+      }
+      var list = sideHandlers[name];
+      if (list) {
+        for (var i = 0; i < list.length; i++) {
+          try { list[i](p); } catch (e) { /* a hook never breaks the game */ }
+        }
+      }
+    }
+    // ag:money { me, rank, cells: [id, micro, ...], board: [[name, micro], ...], away: [id, ...] }: display only.
+    function applyMoney(p) {
+      var shares = new Map();
+      var c = Array.isArray(p.cells) ? p.cells : [];
+      for (var i = 0; i + 1 < c.length; i += 2) {
+        var v = c[i + 1];
+        if (typeof c[i] === 'number' && typeof v === 'number' && isFinite(v) && v >= 0) shares.set(c[i], v);
+      }
+      var gone = new Set();
+      var a = Array.isArray(p.away) ? p.away : [];
+      for (var j = 0; j < a.length; j++) if (typeof a[j] === 'number') gone.add(a[j]);
+      renderer.setMoney(shares, gone);
+      hud.setMoney(p);
+    }
+    function paidEndCard() {
+      if (!paidEnd) {
+        paidEnd = agScreens.createPaidEnd({ doc: doc, root: cfg.screensRoot || doc.body, onLobby: backToLobby });
+      }
+      return paidEnd;
+    }
+    // The card's button: the lobby's own way back (the 'game:done' message agLobby's Lobby button sends), or the
+    // hand-off's own handler; a page opened on its own just closes the card.
+    function backToLobby() {
+      if (typeof cfg.onLobby === 'function') { cfg.onLobby(); return; }
+      var framed = false;
+      try { framed = !!win.parent && win.parent !== win; } catch (e) { framed = true; }
+      if (framed) {
+        try { win.parent.postMessage('game:done', '*'); } catch (e) { /* the lobby is gone */ }
+        return;
+      }
+      if (paidEnd) paidEnd.hide();
+      openMenu();
     }
 
     // ---- game state and the FPS cap ---------------------------------------------------------
@@ -491,6 +667,8 @@
     // life's numbers are taken and reset; the panel shows them. A death while the Esc menu is
     // open keeps the menu as it is (the game-over state becomes HOME when the state was HOME),
     // so no panel replaces the name entry; the FPS cap is the menu's either way.
+    // Ours: after a free-room cash-out (Owen 2026-10-08) the same panel shows under the "Cashed Out" title; in a paid
+    // room the paid end card (ag:cashedout, ag:dead, ag:closed) shows instead of the panel (design 6).
     world.on('death', function (p) {
       agScreens.drawMassGraph(graphContext(), stats.history, stats.rgb);
       hud.onDeath();
@@ -498,8 +676,15 @@
       input.setInGame(false);
       sound.setInGame(false);
       syncPad();
+      var cashed = cashedOutFree;
+      cashedOutFree = false;
       if (menuState === 'HOME') return;
-      if (screens) screens.showStats(snap);
+      if (paid.on) {
+        if (screens) screens.hide();
+        setMenuState('GAMEOVER');
+        return;
+      }
+      if (screens) screens.showStats(snap, cashed ? { title: agScreens.CASHED_OUT_TITLE } : undefined);
       setMenuState('GAMEOVER');
     });
 
@@ -538,7 +723,7 @@
       world.setNow(now);
       var L = world.lists();
       renderer.sortMain(L.live);
-      cam.frameGate(now, sendTarget);
+      if (!hold.wanted) cam.frameGate(now, sendTarget);   // no target while holding (movement locked)
       renderer.beginFrame();
       renderer.updateMembranes(L, view(), settings, now);
       cam.clampWheel();
@@ -546,6 +731,10 @@
       for (var i = 0; i < L.own.length; i++) agWorld.interpolate(L.own[i], now);
       cam.stepCamera(L.own);
       renderer.renderWorld(ctx, L, view(), settings, now);
+      // Ours: the hold ring, only while a hold runs (never in the harness streams, which never hold Q).
+      if (hold.wanted && hold.server && L.own.length) {
+        renderer.drawHoldRing(ctx, view(), mainOwnCell(L.own), holdProgress(now), settings);
+      }
 
       var ws = world.state();
       hudState.mode = ws.mode;
@@ -615,6 +804,11 @@
       cam.reset();
       stats.reset();
       hud.reset();
+      // Ours: a hold never outlives its socket (the server ends it at the disconnect), and the money shown belongs
+      // to the old connection. The paid end card stays up: it is the player's receipt.
+      endHold();
+      cashedOutFree = false;
+      renderer.setMoney(null, null);
     }
     // The socket opens once the Ubuntu face is loaded (so names measured from the first world
     // message use the real face) or after FONT_WAIT_MS, whichever comes first, and only once.
@@ -625,6 +819,7 @@
         if (net || destroyed) return;
         net = A.agNet.connect(win.io, applyMessage, {
           url: cfg.url,
+          onEvent: onSideEvent,
           onConnect: function () {
             var queued = { play: pending.play, spectate: pending.spectate };
             resetConnection();
@@ -662,10 +857,19 @@
         border: ws.border, nick: nick, connected: connected, gameState: gameState, menuState: menuState,
         fadeout: fadeout, capMs: capMs, ownCount: ownCells().length, highestMass: stats.highestMass,
         camera: { x: cam.x, y: cam.y, scale: cam.scale, zoom: cam.zoom }, net: net ? net.stats : null,
-        portrait: portrait, rotatePrompt: rotatePrompt ? rotatePrompt.shown() : false
+        portrait: portrait, rotatePrompt: rotatePrompt ? rotatePrompt.shown() : false,
+        hold: { wanted: hold.wanted, server: hold.server, need: hold.need, progress: holdProgress(perfNow()) },
+        paid: paid.on, paidEnd: paidEnd ? paidEnd.kind : ''
       };
     };
     session.on = function (name, fn) { return world.on(name, fn); };
+    // Server side events (agNet SIDE_EVENTS): the page's own handling runs first, then these. sideEvent feeds one
+    // in as if the socket had sent it (tests, and a page without a socket).
+    session.onServer = function (name, fn) {
+      if (typeof fn !== 'function') return;
+      (sideHandlers[name] = sideHandlers[name] || []).push(fn);
+    };
+    session.sideEvent = onSideEvent;
     session.onSend = null;
     session.config = cfg;
     // Settings (build brief scope 3): quality goes through applyQuality (level, animations
@@ -686,6 +890,8 @@
     session.settings = function () { return shownSettings(); };
     session.destroy = function () {
       destroyed = true;
+      hold.wanted = false;
+      hold.gen++;
       padShown = false;
       setPadClass(false);
       input.dispose();

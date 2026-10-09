@@ -8,8 +8,14 @@
 // room): ag:join {name}, ag:spectate, ag:target {x, y} (integers), ag:split, ag:eject, ag:q,
 // ag:leave, ag:view {below} (a whole number, 0 or more: the map rows the page draws under the
 // reference view, world units at zoom 1; agMain sends it only when it changes), ag:portrait true|false
-// (the phone portrait layout is on; one boolean, sent only when it changes). Nothing is sent while the socket is down (a dropped target is simply not sent; the
+// (the phone portrait layout is on; one boolean, sent only when it changes), ag:hold {on: 1 | 0} (Owen's hold-Q
+// cash-out, every room, 2026-10-08: agMain repeats {on: 1} while Q or the phone Cash out button is held and sends
+// {on: 0} when it is let go). Nothing is sent while the socket is down (a dropped target is simply not sent; the
 // camera keeps its last-sent pair, as the reference's send does when its socket is closed).
+//
+// Side events in (plain socket.io events next to the binary bundle, never inside it): SIDE_EVENTS below, each
+// handed to opts.onEvent(name, payload). ag:holding and ag:cashedout reach every room (the hold ring and the
+// results screen); the rest are sent to paid seats only (ag:money, ag:joined, the payout and end events).
 //
 // A bad bundle (agWire returns an error record) keeps the records before it, drops the rest
 // and is counted and logged. The stream is a delta, so a lost record cannot be recovered by
@@ -32,8 +38,14 @@
     q: 'ag:q',
     leave: 'ag:leave',
     view: 'ag:view',
-    portrait: 'ag:portrait'
+    portrait: 'ag:portrait',
+    hold: 'ag:hold'
   };
+
+  // The server's side events the page listens to (server/ag/agRoom.js, agPaidDoor.js and the agar payout instance
+  // of server/paperPayout.js). Anything else on the socket is ignored.
+  var SIDE_EVENTS = ['ag:holding', 'ag:cashedout', 'ag:money', 'ag:joined', 'ag:dead', 'ag:closed', 'ag:paid',
+    'ag:payerror', 'ag:refused', 'ag:refunded', 'ag:replaced'];
 
   function wire() {
     var w = A.agWire;
@@ -89,6 +101,11 @@
       socket.on(EV.frame, handleBundle);
       socket.on('connect', function () { if (typeof opts.onConnect === 'function') opts.onConnect(); });
       socket.on('disconnect', function (reason) { if (typeof opts.onDisconnect === 'function') opts.onDisconnect(reason); });
+      if (typeof opts.onEvent === 'function') {
+        SIDE_EVENTS.forEach(function (name) {
+          socket.on(name, function (payload) { opts.onEvent(name, payload); });
+        });
+      }
     }
 
     function isUp() { return !!(socket && socket.connected); }
@@ -121,7 +138,9 @@
       },
       // One boolean, nothing else: the server never takes a size from the client.
       sendPortrait: function (on) { return emit(EV.portrait, on === true); },
-      // agMain's outbound kinds: play, spectate, target, split, eject, q, leave, view, portrait.
+      // 1 while held (repeated by agMain), 0 when let go; the server's own shape (server/ag/agSockets.js onHold).
+      sendHold: function (on) { return emit(EV.hold, { on: on === true ? 1 : 0 }); },
+      // agMain's outbound kinds: play, spectate, target, split, eject, q, leave, view, portrait, hold.
       send: function (kind, payload) {
         switch (kind) {
           case 'play': return api.sendJoin(payload && payload.name);
@@ -133,6 +152,7 @@
           case 'leave': return api.sendLeave();
           case 'view': return api.sendView(payload && payload.below);
           case 'portrait': return api.sendPortrait(!!(payload && payload.on));
+          case 'hold': return api.sendHold(!!(payload && payload.on));
           default: return false;
         }
       },
@@ -153,6 +173,6 @@
     return createNet(o);
   }
 
-  A.agNet = { EVENTS: EV, createNet: createNet, connect: connect };
+  A.agNet = { EVENTS: EV, SIDE_EVENTS: SIDE_EVENTS, createNet: createNet, connect: connect };
   if (typeof module !== 'undefined' && module.exports) module.exports = A.agNet;
 })(typeof window !== 'undefined' ? window : globalThis);

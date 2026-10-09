@@ -52,6 +52,18 @@
   var STATE_PLAY = 0;
   var STATE_SPECTATE = 8;
 
+  // Paid rooms only (ours, PAID-AGAR-DESIGN 6; never drawn in the free room, which never gets ag:money). CHOSEN,
+  // logged in PARITY-LOG (2026-10-09 paid agar client).
+  var MONEY_TEXT = 'Balance: ';     // CHOSEN label of the own-balance panel
+  var MONEY_PANEL_GAP = 8;          // CHOSEN gap above the score panel, HUD units (times the HUD scale)
+  var MONEY_ROW_GAP = 8;            // CHOSEN least gap between a board name and its amount, HUD units
+  var ELLIPSIS = '…';          // a cut name ends with it
+
+  // Micro-USDC as dollars with two decimals, Paper's display rule (public/js/paper/mp/paperArenaMain.js usd()).
+  function usd(micro) {
+    return '$' + (Math.max(0, Number(micro) || 0) / 1e6).toFixed(2);
+  }
+
   function hudMessage(mode, state, key) {
     if (mode !== 0) return '';
     if (key === 'score' && state === STATE_PLAY) return TEXT.score;
@@ -347,7 +359,10 @@
       arrowAlpha: 0,
       arrowHad: false,
       arrowLabel: null,
-      arrowLabelScale: 1
+      arrowLabelScale: 1,
+      // paid rooms (setMoney, from ag:money): { me, rank, board: [[name, micro], ...] } or null; its panel
+      money: null,
+      moneyPanel: null
     };
 
     // Frame start: the canvas size is read every frame; a change re-renders the board before
@@ -360,7 +375,7 @@
       if (W === hud.W && H === hud.H) return false;
       hud.W = W;
       hud.H = H;
-      renderBoard(hud);
+      boardFor(hud);
       return true;
     };
 
@@ -370,7 +385,7 @@
       on = !!on;
       if (on === hud.portrait) return;
       hud.portrait = on;
-      if (hud.W && hud.H) renderBoard(hud);
+      if (hud.W && hud.H) boardFor(hud);
     };
 
     // Leaderboard message (mirror { t: 'board', rows }): rows replace the list, an own row
@@ -385,7 +400,28 @@
         list.push({ name: name, me: me });
       }
       hud.lbEntries = list;
-      renderBoard(hud);
+      boardFor(hud);
+    };
+    // ag:money (paid rooms): the own balance and rank and the money board. The board cache is re-rendered from it at
+    // once (design 6: the paid board is drawn from ag:money alone, so names and amounts cannot drift). null goes
+    // back to the plain board.
+    hud.setMoney = function (m) {
+      if (!m || typeof m !== 'object') {
+        if (hud.money === null) return;
+        hud.money = null;
+        hud.moneyPanel = null;
+        renderBoard(hud);
+        return;
+      }
+      var board = [];
+      var rows = Array.isArray(m.board) ? m.board : [];
+      for (var i = 0; i < rows.length; i++) {
+        var r = rows[i];
+        if (!Array.isArray(r)) continue;
+        board.push([typeof r[0] === 'string' ? r[0] : '', Number(r[1]) || 0]);
+      }
+      hud.money = { me: Number(m.me) || 0, rank: (m.rank | 0) > 0 ? m.rank | 0 : 0, board: board };
+      renderMoneyBoard(hud);
     };
     hud.setLocalNick = function (nick) { hud.localNick = String(nick || ''); };
     hud.setNames = function (on) { hud.namesEnabled = !!on; };
@@ -400,7 +436,7 @@
     hud.onDeath = function () {
       hud.deathFlag = true;
       hud.alive = false;
-      renderBoard(hud);
+      boardFor(hud);
     };
 
     // Once per second (client-hud 5.4): `fps` frames drawn in the last second; defaults to the
@@ -444,6 +480,8 @@
       hud.hintPanel = null;
       hud.slowPanel = null;
       hud.rebootPanel = null;
+      hud.money = null;
+      hud.moneyPanel = null;
     };
 
     hud.render = function (ctx, s) { renderHud(ctx, s, hud); };
@@ -503,6 +541,74 @@
     c.fillText(text, lay.rowX, y);
   }
 
+  // The board cache for whichever board is in use: the money board once a paid room's ag:money has arrived, the
+  // plain (golden) board otherwise. The plain board's code is not touched.
+  function boardFor(hud) {
+    if (hud.money) renderMoneyBoard(hud);
+    else renderBoard(hud);
+  }
+
+  // The paid board (design 6 renderMoneyBoard): the same box, title and row rules as the plain board, rows by money
+  // from ag:money, "N. name" on the left and "$x.xx" on the right of the fixed 250-unit width, a name cut with an
+  // ellipsis where it would run into its amount. Own row in the plain board's own-row colour; an own rank past the
+  // top 10 is one extra row with that rank, as the plain board does.
+  function renderMoneyBoard(hud) {
+    if (!hud.fontsLoaded()) return;
+    var m = hud.money;
+    var list = m.board;
+    var count = list.length;
+    if (count === 0) { hud.lbHasContent = false; return; }
+    hud.lbHasContent = true;
+    var meAt = m.rank > 0 ? m.rank - 1 : -1;
+    var extra = meAt >= LB_ROWS ? 1 : 0;
+    var lay = layoutLeaderboard(hud.W, hud.H, count, extra, false, hud.portrait);
+    var c = hud.lbCtx;
+    c.canvas.width = lay.width;
+    c.canvas.height = lay.height;
+    c.scale(lay.scale, lay.scale);
+    c.globalAlpha = 0.4;
+    c.fillStyle = 'rgb(0,0,0)';
+    c.fillRect(0, 0, lay.innerW, lay.innerH);
+    c.globalAlpha = 1;
+    c.fillStyle = 'rgb(255,255,255)';
+    c.font = lay.titleFont + 'px Ubuntu';
+    var tw = c.measureText(TEXT.title).width;
+    c.fillText(TEXT.title, ti(idiv(lay.innerW, 2) + tw * -0.5), lay.titleY);
+    var row = 0;
+    for (var r = 0; r < count && r < LB_ROWS; r++) {
+      drawMoneyRow(hud, c, lay, list[r][0], list[r][1], r === meAt, row, r + 1);
+      row++;
+    }
+    if (extra) {
+      var mine = meAt < count ? list[meAt][0] : hud.localNick;
+      drawMoneyRow(hud, c, lay, mine, m.me, true, row, m.rank);
+    }
+  }
+
+  function drawMoneyRow(hud, c, lay, name, micro, me, row, position) {
+    var shown = name && hud.namesEnabled ? name : TEXT.unnamed;
+    var amount = usd(micro);
+    var y = lay.rowY(row);
+    c.fillStyle = me ? 'rgb(255,170,170)' : 'rgb(255,255,255)';
+    c.font = lay.rowFont + 'px Ubuntu';
+    var aw = c.measureText(amount).width;
+    var right = lay.innerW - lay.rowX;
+    var room = right - aw - ti(lay.q * MONEY_ROW_GAP) - lay.rowX;
+    c.fillText(fitRow(c, position + '. ', shown, room), lay.rowX, y);
+    c.fillText(amount, ti(right - aw), y);
+  }
+
+  // prefix + name, the name cut from the end (with an ellipsis) until the whole fits in room px.
+  function fitRow(c, prefix, name, room) {
+    var text = prefix + name;
+    if (c.measureText(text).width <= room) return text;
+    for (var n = name.length - 1; n > 0; n--) {
+      text = prefix + name.slice(0, n) + ELLIPSIS;
+      if (c.measureText(text).width <= room) return text;
+    }
+    return prefix + ELLIPSIS;
+  }
+
   // ---------------------------------------------------------------------------------------
   // The per-frame HUD (client-hud 3: order 1, 2, 4, 10, 11, 12, 13)
   // ---------------------------------------------------------------------------------------
@@ -550,6 +656,27 @@
         var w = ti(L.sc * (L.pad + L.pad + L.fs * L.w100 / 100));
         sp.draw(ctx, hud, sp.mx, sp.my, w, ti(q * sp.dh), false);
       }
+    }
+
+    // 2b. Paid rooms (ours, design 6 "own balance under the score"): the own balance in a panel made exactly like
+    // the score panel, stacked right above it (the score sits on the bottom margin, so nothing fits under it;
+    // CHOSEN). Only while playing with own cells, never in the free room (no ag:money there).
+    if (hud.money && !s.spectating && (s.ownCount | 0) > 0) {
+      var mtext = MONEY_TEXT + usd(hud.money.me);
+      if (!hud.moneyPanel) {
+        hud.moneyPanel = new Panel(15, 15, 150, 34, 6);
+        makePanelLine(hud.env, q, hud.moneyPanel, mtext, 24, WHITE, BLACK);
+      }
+      var mp = hud.moneyPanel;
+      var ML = mp.lines[0];
+      ML.setText(mtext);
+      var mfs = ti(q * ML.design);
+      if (ML.fs !== mfs) { ML.fs = mfs; ML.dirty = 1; }
+      var mhp = ML.fs * ML.o;
+      ML.pad = mhp + mhp;
+      var mw = ti(ML.sc * (ML.pad + ML.pad + ML.fs * ML.w100 / 100));
+      var mh = ti(q * mp.dh);
+      mp.draw(ctx, hud, mp.mx, mp.my + mh + ti(q * MONEY_PANEL_GAP), mw, mh, false);
     }
 
     // 4. Bottom message (spectate hint), not while the low-FPS warning is up.
@@ -767,6 +894,9 @@
     Panel: Panel,
     layoutLeaderboard: layoutLeaderboard,
     createHud: createHud,
+    usd: usd,
+    fitRow: fitRow,
+    MONEY_TEXT: MONEY_TEXT,
     renderHud: function (ctx, state) { return renderHud(ctx, state, state.hud); }
   };
   A.agHud = agHud;

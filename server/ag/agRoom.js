@@ -735,8 +735,10 @@ class AgRoom {
 
   // ag:money (design 6): the viewer's own balance and rank, each player cell it knows with its share of its owner's
   // money (floor shares in id order, the last cell of an owner takes the remainder, so the shares add up to the
-  // total), and the money board (top U_BOARD rows, name and micro). Display only; nothing here moves money.
-  _moneyPayload(seat, ranking, shares) {
+  // total), the money board (top U_BOARD rows, name and micro), and the known cells whose owner is away (not yet
+  // confirmed, disconnected, dormant or frozen: still and edible or shielded; the page draws them faded). Display
+  // only; nothing here moves money.
+  _moneyPayload(seat, ranking, shares, away) {
     const me = this.money.balance(seat.pid);
     let rank = 0;
     for (let i = 0; i < ranking.length; i++) {
@@ -746,13 +748,28 @@ class AgRoom {
       }
     }
     const cells = [];
+    const gone = [];
     for (const id of seat.viewer.knownIds()) {
       const v = shares.get(id);
       if (v !== undefined) cells.push(id, v);
+      if (away && away.has(id)) gone.push(id);
     }
     const board = [];
     for (let i = 0; i < ranking.length && i < this.boardLaw.rows; i++) board.push([ranking[i].name || '', ranking[i].micro]);
-    return { me, rank, cells, board };
+    return { me, rank, cells, board, away: gone };
+  }
+
+  // The cell ids of every open account that is not live: unconfirmed (shielded until ag:ready), grace and dormant
+  // (disconnected), frozen (the zombie backstop). Display only (ag:money away).
+  _awayCells() {
+    const out = new Set();
+    for (const acct of this.money.accounts.values()) {
+      if (acct.state === 'live') continue;
+      const info = this.sim.playerInfo(acct.pid);
+      if (!info) continue;
+      for (const id of info.cells) out.add(id);
+    }
+    return out;
   }
 
   // cell id -> its display share, for every player cell of an open account.
@@ -861,6 +878,7 @@ class AgRoom {
     // bundle went out, from the same ranking (a backed-up seat that skips its bundle skips its money too).
     const moneyDue = this.money !== null && boardDue;
     const shares = moneyDue ? this._cellShares() : null;
+    const away = moneyDue ? this._awayCells() : null;
     for (const seat of Array.from(this.seats.values())) {
       const socket = seat.socket;
       if (this._backedUp(socket)) {
@@ -909,7 +927,7 @@ class AgRoom {
       }
       this.stats.bundles++;
       this.stats.bytes += buf.length;
-      if (moneyDue) this._emit(socket, 'ag:money', this._moneyPayload(seat, ranking, shares));
+      if (moneyDue) this._emit(socket, 'ag:money', this._moneyPayload(seat, ranking, shares, away));
     }
   }
 

@@ -10,15 +10,16 @@
 // attachInput(canvas, sink, opts) wires the listeners and returns a controller. agMain calls
 // controller.frame(edgeFn) once per animation frame BEFORE the game frame (the reference copies
 // the mouse in its app layer's frame handler, which runs ahead of the game's own frame).
-//   sink: { mouse(x, y), split(), eject(), q(), menu(), zoom(n) }, every member optional.
+//   sink: { mouse(x, y), split(), eject(), q(), menu(), zoom(n), hold(on) }, every member optional.
 //     mouse gets canvas px (the game stores them as int32: agCamera.setMouse).
 //     split / eject: agMain flushes the target first (agCamera.sendTarget), then sends the
 //     action on every press with no client minimum, then checks the sound cue helpers below.
 //     zoom(n): agCamera.wheel(n).
 //   opts: { win, doc, canvasScale() (canvas px per CSS px; default 1), engineNow() (integer
 //     ms; default new Date().getTime(), the clock the reference app layer uses), splitButton,
-//     ejectButton (elements; optional), canAct() (bool; a button press acts only while it is
-//     true; default always), touchFirst (bool; default: coarse primary pointer),
+//     ejectButton, cashButton (elements; optional), canAct() (bool; a button press acts only while it is
+//     true; default always), canHold() (a Cash out press starts a hold only while true; default canAct),
+//     touchFirst (bool; default: coarse primary pointer),
 //     firefox (bool; default: user agent test) }
 //
 // Escape from a zoomed lobby (ours, FIX-PLAN P3): the lobby page that frames this game can be
@@ -28,6 +29,13 @@
 // alone) and a touch with two or more fingers on the canvas is left to the browser, so a
 // pinch-out brings the lobby back to 1. At 1 nothing changes: no zoom, every touch steers.
 // The turn-sideways card over the canvas (agPortrait) uses the same test, lobbyZoomed(win).
+//
+// Hold-Q cash-out (ours, Owen 2026-10-08, every room): Q held, or the phone Cash out button held, is one hold;
+// sink.hold(true) when the first of the two goes down and sink.hold(false) when the last one is let go, or at once
+// when the window loses focus or the page is hidden (a keyup or pointerup that never arrives must not keep a hold
+// alive). Q's press still calls sink.q() exactly as before; the release rule of the reference (spec 8.7: its
+// release sends nothing) is unchanged, only the hold hears the release. The button is opts.cashButton; a press
+// starts a hold only while opts.canHold() is true (agMain: playing with own cells), and it is eaten either way.
 (function (root) {
   'use strict';
   var A = root.DuelAgarLib = root.DuelAgarLib || {};
@@ -209,8 +217,10 @@
       s.keysDown[k] = true;
       if (k === KEY_SPLIT) call('split');
       else if (k === KEY_EJECT) call('eject');
-      else if (k === KEY_Q) call('q');
-      else if (k === KEY_ESC) {
+      else if (k === KEY_Q) {
+        call('q');
+        setHoldSource('key', true);
+      } else if (k === KEY_ESC) {
         if (e.preventDefault) e.preventDefault();
         call('menu');
       } else if (k === KEY_BACKSLASH) {
@@ -218,9 +228,31 @@
       }
     }
     function onKeyUp(e) {
-      // Releasing Q sends nothing: the reference's release check never matches (spec 8.7).
+      // Releasing Q sends nothing: the reference's release check never matches (spec 8.7). Only our hold hears it.
       s.keysDown[e.keyCode] = false;
+      if (e.keyCode === KEY_Q) setHoldSource('key', false);
     }
+
+    // The hold (see the header): two sources, one hold.
+    var hold = { key: false, button: false, on: false };
+    function setHoldSource(src, down) {
+      hold[src] = !!down;
+      var on = hold.key || hold.button;
+      if (on === hold.on) return;
+      hold.on = on;
+      call('hold', on);
+    }
+    function dropHold() {
+      hold.key = false;
+      hold.button = false;
+      if (!hold.on) return;
+      hold.on = false;
+      call('hold', false);
+    }
+    on(win, 'blur', dropHold);
+    on(doc, 'visibilitychange', function () {
+      if (doc.visibilityState && doc.visibilityState !== 'visible') dropHold();
+    });
 
     // A zoomed top page (see the header): html and body allow pinch-zoom while it is zoomed and go
     // back to the style sheet's none at 1. Written only on a change; checked at start-up and on
@@ -310,6 +342,30 @@
     wireButton(opts.splitButton, 'split');
     wireButton(opts.ejectButton, 'eject');
 
+    // The phone Cash out button: held, not pressed. wireButton fires once on pointerdown and has no release, so it
+    // cannot be reused (design 6 wireHoldButton). Every way a finger can leave the button lets the hold go.
+    var canHold = typeof opts.canHold === 'function' ? opts.canHold : canAct;
+    function wireHoldButton(el) {
+      if (!el) return;
+      on(el, 'pointerdown', function (e) {
+        if (e.preventDefault) e.preventDefault();
+        if (e.stopPropagation) e.stopPropagation();
+        if (canHold()) setHoldSource('button', true);
+      });
+      var up = function () { setHoldSource('button', false); };
+      on(el, 'pointerup', up);
+      on(el, 'pointercancel', up);
+      on(el, 'pointerleave', up);
+      on(el, 'touchstart', function (e) {
+        if (e.cancelable && e.preventDefault) e.preventDefault();
+        if (e.stopPropagation) e.stopPropagation();
+      }, { passive: false });
+      on(el, 'touchend', up);
+      on(el, 'touchcancel', up);
+      on(el, 'contextmenu', function (e) { if (e.preventDefault) e.preventDefault(); });
+    }
+    wireHoldButton(opts.cashButton);
+
     var ctl = {};
     ctl.setInGame = function (v) {
       s.inGame = !!v;
@@ -347,6 +403,12 @@
     ctl.touchMode = function () {
       return s.touchMode;
     };
+    // Whether Q or the Cash out button is held now; releaseHold() lets go of both (agMain: the player stopped being
+    // able to hold, e.g. the Esc menu or a death), with sink.hold(false) if a hold was on.
+    ctl.holding = function () {
+      return hold.on;
+    };
+    ctl.releaseHold = dropHold;
     ctl.state = s;
     ctl.dispose = function () {
       for (var i = 0; i < listeners.length; i++) {
