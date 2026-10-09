@@ -24,6 +24,9 @@
 //    grace, then frozen and auto cashed out, Owen Q5, or refunded by a restart, Owen Q6), so the page lets go
 //    DROP_MS after the drop unless it took the seat back first (a new ag:joined with a stake). A blip that resumes
 //    in time never shows the button, and a crashed server never leaves the page locked.
+// 4. The paid hand-off's own lock (agPaid.js, the 'paid:lock' hook): the same gate while an entry token is on its
+//    way to the door and while a Play again buy-in is with the lobby's wallet (Paper's lockLobby). agPaid lets go on
+//    every answer and after its own give-up timers, so it never leaves the page locked either.
 (function (root) {
   'use strict';
 
@@ -43,6 +46,11 @@
 
   // Money in the room: a paid account is open on this page (see 3 above).
   var moneyIn = false;
+  // The paid hand-off's own lock (agPaid through agMain's 'paid:lock' hook and session.paidLocked): an entry token on
+  // its way to the door, or a Play again buy-in with the lobby's wallet. A token in flight may already be money in a
+  // seat, and a buy-in answered after game:done would land in a blank frame, so the way out stays shut for both.
+  var pageLock = false;
+  function locked() { return moneyIn || pageLock; }
   var dropTimer = null;
   var sync = function () {};
   function clearDrop() {
@@ -65,12 +73,12 @@
   // The one way back to the lobby (the Lobby button and the paid end card's Back to lobby): never while money is in
   // the room.
   function goLobby() {
-    if (moneyIn) return;
+    if (locked()) return;
     try { root.parent.postMessage('game:done', '*'); } catch (err) { /* the lobby is gone; nothing to do */ }
   }
   // The browser shows its own "leave this site?" text; what a page asks it to say is ignored.
   function onBeforeUnload(e) {
-    if (!moneyIn) return undefined;
+    if (!locked()) return undefined;
     if (e && typeof e.preventDefault === 'function') e.preventDefault();
     if (e) e.returnValue = '';
     return '';
@@ -86,13 +94,22 @@
     page.onServer('ag:refused', function (p) { if (p && p.closed === true) setMoneyIn(false); });
     page.onServer('ag:replaced', function () { setMoneyIn(false); });
     page.onServer('disconnect', onDrop);
+    // The hand-off's lock: read once (agMain sets it at boot, before this script runs) and followed from then on.
+    pageLock = typeof page.paidLocked === 'function' && page.paidLocked() === true;
+    sync();
+    page.onServer('paid:lock', function (p) {
+      var on = !!(p && p.on === true);
+      if (on === pageLock) return;
+      pageLock = on;
+      sync();
+    });
     // The paid end card's Back to lobby (agMain backToLobby calls cfg.onLobby when it is set): the same gate. Framed
     // only; a page opened on its own keeps agMain's own handling (close the card, open the menu).
     var cfg = page.config;
     if (framed() && cfg && typeof cfg === 'object') {
       var own = typeof cfg.onLobby === 'function' ? cfg.onLobby : null;
       cfg.onLobby = function () {
-        if (moneyIn) return;
+        if (locked()) return;
         if (own) own(); else goLobby();
       };
     }
@@ -166,7 +183,7 @@
       var menu = doc.getElementById('ag-menu');
       var menuOpen = !!menu && !menu.hidden;
       var touch = !!(coarse && coarse.matches);
-      btn.classList.toggle('on', !moneyIn && (menuOpen || touch));
+      btn.classList.toggle('on', !locked() && (menuOpen || touch));
       var text = moneyIn && menuOpen ? (touch ? HINT_TOUCH : HINT_KEYS) : '';
       if (hint.textContent !== text) hint.textContent = text;
       hint.classList.toggle('on', text !== '');

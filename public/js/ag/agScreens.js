@@ -605,24 +605,43 @@
     settle.appendChild(settleText);
     var tx = el('a', { id: 'ag-pe-tx', href: '#', target: '_blank', rel: 'noopener noreferrer', hidden: '' }, PAID_TEXT.view);
     settle.appendChild(tx);
+    // A restake's error or wait line (agPaid: the lobby wallet's answer to Play again), hidden until it has text.
+    var errLine = el('p', { 'class': 'co-sub', id: 'ag-pe-error', role: 'status', hidden: '' }, '');
     var btns = el('div', { 'class': 'co-btns' });
+    // Play again (agPaid, framed paid pages only, after a death or a cash-out): a new buy-in through the lobby's
+    // wallet (duel:restake), shown by setAgain; every show below hides it again.
+    var againBtn = el('button', { type: 'button', 'class': 'co-btn co-go', id: 'ag-pe-again', hidden: '' }, 'Play again');
     var lobbyBtn = el('button', { type: 'button', 'class': 'co-btn co-go', id: 'ag-pe-lobby' }, PAID_TEXT.lobby);
+    btns.appendChild(againBtn);
     btns.appendChild(lobbyBtn);
-    var parts = [eyebrow, amount, sub, ledger, settle, btns];
+    var parts = [eyebrow, amount, sub, ledger, settle, errLine, btns];
     for (var i = 0; i < parts.length; i++) card.appendChild(parts[i]);
     wrap.appendChild(card);
     host.appendChild(wrap);
     lobbyBtn.addEventListener('click', function (e) {
       if (e && e.preventDefault) e.preventDefault();
+      if (lobbyBtn.disabled) return;
       if (typeof opts.onLobby === 'function') opts.onLobby();
     });
+    againBtn.addEventListener('click', function (e) {
+      if (e && e.preventDefault) e.preventDefault();
+      if (againBtn.disabled || againBtn.hidden) return;
+      if (typeof api.onAgain === 'function') api.onAgain();
+    });
 
-    var api = { element: wrap, kind: '', state: '' };
+    var api = { element: wrap, kind: '', state: '', onAgain: null };
     function show(kind, withAmount) {
       amount.hidden = withAmount === false;
       api.kind = kind;
       wrap.setAttribute('data-kind', kind);
       wrap.hidden = false;
+      errLine.hidden = true;
+      errLine.textContent = '';
+      againBtn.hidden = true;
+      againBtn.disabled = false;
+      lobbyBtn.hidden = false;
+      lobbyBtn.disabled = false;
+      lobbyBtn.className = 'co-btn co-go';
     }
     function setSettle(state, text) {
       api.state = state;
@@ -704,6 +723,49 @@
       setSettle('fail', typeof message === 'string' && message ? message : PAID_TEXT.delayed);
       tx.hidden = true;
       settle.hidden = false;
+    };
+    // The paid hand-off's own states (agPaid): a refusal or an ended seat (kind 'refused' or 'gone': a title, a plain
+    // line, an optional second line such as the refund, and Back to lobby), and the wait while joining or getting a
+    // seat back (kind 'wait': the pending dot and its line; Back to lobby only when opts.lobby says so, because a
+    // join in flight may already hold the player's money).
+    api.showMessage = function (kind, title, text, extra) {
+      eyebrow.textContent = title || '';
+      amount.textContent = '';
+      sub.textContent = text || '';
+      ledger.hidden = true;
+      tx.hidden = true;
+      settle.hidden = !extra;
+      if (extra) setSettle('info', extra);
+      show(kind === 'gone' ? 'gone' : 'refused', false);
+    };
+    api.showWait = function (title, text, o) {
+      eyebrow.textContent = title || '';
+      amount.textContent = '';
+      sub.textContent = '';
+      ledger.hidden = true;
+      tx.hidden = true;
+      settle.hidden = false;
+      setSettle('pending', text || '');
+      show('wait', false);
+      lobbyBtn.hidden = !(o && o.lobby === true);
+    };
+    // Play again: o = { text, disabled } shows it (Back to lobby turns into the quiet button beside it); null hides it.
+    api.setAgain = function (o) {
+      if (!o) {
+        againBtn.hidden = true;
+        lobbyBtn.className = 'co-btn co-go';
+        return;
+      }
+      againBtn.textContent = o.text || 'Play again';
+      againBtn.disabled = o.disabled === true;
+      againBtn.hidden = false;
+      lobbyBtn.className = 'co-btn co-ghost';
+    };
+    // Back to lobby shut while a Play again buy-in is with the lobby's wallet (Paper's lockLobby).
+    api.setLobbyLocked = function (locked) { lobbyBtn.disabled = locked === true; };
+    api.setError = function (text) {
+      errLine.textContent = text || '';
+      errLine.hidden = !text;
     };
     api.hide = function () { wrap.hidden = true; };
     api.shown = function () { return !wrap.hidden; };

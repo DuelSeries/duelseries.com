@@ -265,6 +265,11 @@ test('share-at-eat on split cells: one piece moves its size share, the last piec
   r.tickOnce();
   assert.strictEqual(r.money.account(b.pid), null);
   assert.strictEqual(r.money.balance(a.pid), 2000000);
+  // the end card's 'You lost' is the whole life (both pieces), not only the last eat (proof finding, agMoney:398)
+  const dead = b.s.of('ag:dead');
+  assert.strictEqual(dead.length, 1);
+  assert.strictEqual(dead[0].lostMicro, 1000000, 'lost every piece: the full 1,000,000, not the last piece ' + (1000000 - moved));
+  assert.strictEqual(dead[0].by, 'a');
   assert.ok(conserved(r));
 });
 

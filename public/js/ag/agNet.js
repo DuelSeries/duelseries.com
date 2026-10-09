@@ -10,7 +10,8 @@
 // reference view, world units at zoom 1; agMain sends it only when it changes), ag:portrait true|false
 // (the phone portrait layout is on; one boolean, sent only when it changes), ag:hold {on: 1 | 0} (Owen's hold-Q
 // cash-out, every room, 2026-10-08: agMain repeats {on: 1} while Q or the phone Cash out button is held and sends
-// {on: 0} when it is let go). Nothing is sent while the socket is down (a dropped target is simply not sent; the
+// {on: 0} when it is let go), and for a paid hand-off (agPaid.js) ag:join {name, stake, entryToken} or {name, stake,
+// resumeKey} and ag:ready (the page drew its own cell from the room). Nothing is sent while the socket is down (a dropped target is simply not sent; the
 // camera keeps its last-sent pair, as the reference's send does when its socket is closed).
 //
 // Side events in (plain socket.io events next to the binary bundle, never inside it): SIDE_EVENTS below, each
@@ -39,7 +40,8 @@
     leave: 'ag:leave',
     view: 'ag:view',
     portrait: 'ag:portrait',
-    hold: 'ag:hold'
+    hold: 'ag:hold',
+    ready: 'ag:ready'
   };
 
   // The server's side events the page listens to (server/ag/agRoom.js, agPaidDoor.js and the agar payout instance
@@ -140,7 +142,20 @@
       sendPortrait: function (on) { return emit(EV.portrait, on === true); },
       // 1 while held (repeated by agMain), 0 when let go; the server's own shape (server/ag/agSockets.js onHold).
       sendHold: function (on) { return emit(EV.hold, { on: on === true ? 1 : 0 }); },
-      // agMain's outbound kinds: play, spectate, target, split, eject, q, leave, view, portrait, hold.
+      // The paid door's join (server/ag/agPaidDoor.js step 1): the rung, the name, and exactly one of the one-time entry
+      // token or the seat's resume key (strings of at most 64). Nothing else: the server takes no money field from a page.
+      sendPaidJoin: function (msg) {
+        msg = msg || {};
+        var stake = Number(msg.stake);
+        if (!(stake > 0) || !isFinite(stake)) return false;
+        var out = { name: String(msg.name == null ? '' : msg.name), stake: stake };
+        if (typeof msg.entryToken === 'string' && msg.entryToken && msg.entryToken.length <= 64) out.entryToken = msg.entryToken;
+        else if (typeof msg.resumeKey === 'string' && msg.resumeKey && msg.resumeKey.length <= 64) out.resumeKey = msg.resumeKey;
+        else return false;
+        return emit(EV.join, out);
+      },
+      sendReady: function () { return emit(EV.ready); },
+      // agMain's outbound kinds: play, spectate, target, split, eject, q, leave, view, portrait, hold, paidJoin, ready.
       send: function (kind, payload) {
         switch (kind) {
           case 'play': return api.sendJoin(payload && payload.name);
@@ -153,8 +168,16 @@
           case 'view': return api.sendView(payload && payload.below);
           case 'portrait': return api.sendPortrait(!!(payload && payload.on));
           case 'hold': return api.sendHold(!!(payload && payload.on));
+          case 'paidJoin': return api.sendPaidJoin(payload);
+          case 'ready': return api.sendReady();
           default: return false;
         }
+      },
+      // Opens the socket again after the server closed it (socket.io never retries a server-side close): a paid Play
+      // again on a seatless socket the server let go of.
+      reconnect: function () {
+        if (socket && !socket.connected && typeof socket.connect === 'function') { socket.connect(); return true; }
+        return false;
       },
       close: function () { if (socket && typeof socket.close === 'function') socket.close(); }
     };

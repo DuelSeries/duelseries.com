@@ -41,11 +41,14 @@
 <script src="/js/ag/agSound.js"></script>
 <script src="/js/ag/agNet.js"></script>
 <script src="/js/ag/agPortrait.js"></script>
+<!-- The paid hand-off (ours): a stake from the lobby's wallet joins its paid room through the paid door, resumes the
+     seat after a reconnect or a reload, and buys Play again through the lobby's wallet. The free page never uses it. -->
+<script src="/js/ag/agPaid.js"></script>
 <!-- Our server runs this game on its own socket.io namespace (server/ag/agSockets.js). The canvas fills the
      window, but the view, zoom, HUD and menu are sized as if the reference page's 90 px ad strip were at the
      bottom (Owen 2026-10-08); the extra 90 px show more map. A phone held upright gets a "turn your phone sideways"
      card, then the reference layout turned on its side (portrait, Owen 2026-10-08, agPortrait.js). -->
-<script>window.DUEL_AGAR_CONFIG = { url: '/ag', ghostBannerPx: 90, portrait: true };</script>
+<script>window.DUEL_AGAR_CONFIG = { url: '/ag', ghostBannerPx: 90, portrait: true, handoff: true };</script>
 <script src="/js/ag/agMain.js"></script>
 <!-- The lobby around the game (ours): a Lobby button inside the lobby's frame, and the lobby name in the name box. -->
 <script src="/js/ag/agLobby.js"></script>

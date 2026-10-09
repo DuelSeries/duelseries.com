@@ -109,3 +109,32 @@ html, body {
 #ag-paid-end [hidden] { display: none; }
 #ag-paid-end[data-kind="dead"] { --co-money: #e0705f; }
 #ag-paid-end[data-kind="dead"] .co-eyebrow { color: var(--co-money); }
+/* The paid hand-off's states on the same card (agPaid): the wait while joining or getting a seat back, a refusal,
+   an ended seat; a still dot for a plain extra line, and the Play again error line. */
+#ag-paid-end[data-kind="refused"] .co-eyebrow,
+#ag-paid-end[data-kind="gone"] .co-eyebrow { color: var(--co-money); }
+#ag-paid-end .co-settle[data-state="info"] .co-dot { animation: none; }
+#ag-pe-error { margin-top: 12px; color: var(--co-tx2); }
+/* The paid hand-off's Esc hint and one-line notices (agPaid createChip): the Lobby chip's look, top centre, above
+   the game and below the paid card. */
+#ag-paid-hint {
+  position: fixed;
+  left: 50%;
+  top: 16px;
+  transform: translateX(-50%);
+  z-index: 40;
+  max-width: calc(100% - 32px);
+  box-sizing: border-box;
+  padding: 9px 14px;
+  border: 1px solid #d6cdbd;
+  border-radius: 8px;
+  background: #f5f1e8;
+  color: #100e0b;
+  font: 700 14px Arial, sans-serif;
+  letter-spacing: 0.02em;
+  text-align: center;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+#ag-paid-hint[hidden] { display: none; }

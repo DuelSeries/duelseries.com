@@ -7,7 +7,7 @@ const path = require('path');
 
 const AG = path.join(__dirname, '..', 'public', 'js', 'ag');
 require('../shared/agWire.js');
-for (const f of ['agMath', 'agWorld', 'agCamera', 'agInput', 'agRender', 'agHud', 'agScreens', 'agSound', 'agNet', 'agPortrait', 'agMain']) {
+for (const f of ['agMath', 'agWorld', 'agCamera', 'agInput', 'agRender', 'agHud', 'agScreens', 'agSound', 'agNet', 'agPortrait', 'agPaid', 'agMain']) {
   require(path.join(AG, f + '.js'));
 }
 const LIB = globalThis.DuelAgarLib;
@@ -113,6 +113,8 @@ function fakeSocket() {
     on(ev, fn) { (handlers[ev] = handlers[ev] || []).push(fn); },
     emit(ev, payload) { this.emitted.push([ev, payload]); },
     close() { this.connected = false; },
+    connects: 0,
+    connect() { this.connects++; },
     fire(ev, arg) { (handlers[ev] || []).forEach((fn) => fn(arg)); },
     listens(ev) { return (handlers[ev] || []).length; }
   };
@@ -146,7 +148,9 @@ function bootPage(o) {
   };
   if (o.parent) win.parent = o.parent;
   let ioCalls = 0;
-  if (o.net) win.io = () => { ioCalls++; return sock; };
+  const ioArgs = [];
+  if (o.net) win.io = (...a) => { ioCalls++; ioArgs.push(a); return sock; };
+  if (o.location) win.location = o.location;
   globalThis.document = doc;
   const sound = LIB.agSound.createSound({ storage: null, createAudioContext: () => null });
   const cfg = Object.assign({ win, doc, canvas, sound, idlePass: false, net: !!o.net, engineNow: () => clock }, o.cfg || {});
@@ -171,7 +175,7 @@ function bootPage(o) {
   }
   async function frames(n, ms) { for (let i = 0; i < n; i++) await frame(ms); }
   const key = (type, keyCode) => win.fire(type, { keyCode });
-  return { doc, canvas, win, sock, session, sent, frame, frames, key, now: () => clock, mod: session.modules, ioCalls: () => ioCalls };
+  return { doc, canvas, win, sock, session, sent, frame, frames, key, now: () => clock, mod: session.modules, ioCalls: () => ioCalls, ioArgs };
 }
 
 const BORDER = { t: 'border', minX: -7071, minY: -7071, maxX: 7071, maxY: 7071, mode: 0 };

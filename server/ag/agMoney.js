@@ -170,6 +170,7 @@ class AgMoney {
       jid: this.uuid(),           // the money journal's id for this account (agJournal), never a credential
       state: 'unconfirmed',
       readied: null,              // the socket whose ag:ready waits for a clear spot (confirm)
+      lostMicro: 0,               // what eats took from this life so far (display only: ag:dead's total)
       confirmBy: this.now() + AG_MONEY.JOIN_CONFIRM_MS.value,
       holding: false, holdTicks: 0, lastHoldAt: 0,
       socketId: typeof socketId === 'string' ? socketId : null,
@@ -386,7 +387,7 @@ class AgMoney {
   }
 
   // One eat of another player's cell: the victim's share moves to the eater; a last cell moves the rest and closes
-  // the victim. A refused transfer leaves both balances as they were (the bank reports it once).
+  // the victim (ag:dead carries the life's total loss, lostMicro). A refused transfer leaves both balances as they were (the bank reports it once).
   _applyFact(f) {
     if (!f || typeof f !== 'object') return;
     const victim = this.accounts.get(f.victim);
@@ -394,8 +395,11 @@ class AgMoney {
     const moved = this.bank.transferShare(f.victim, f.eater, f.eatenSq, f.victimSq, f.last === true,
       victim ? victim.life : null);
     if (moved < 0) return;
+    // The end card's 'You lost $X' is everything eats took from this life, not only the last eat (a split player
+    // eaten piece by piece lost every piece). Display only: no balance reads it.
+    if (victim) victim.lostMicro = (victim.lostMicro || 0) + moved;
     if (f.last === true && victim) {
-      this._close(victim, 'eaten', { lostMicro: moved, by: eater ? eater.name : '', byPid: f.eater });
+      this._close(victim, 'eaten', { lostMicro: victim.lostMicro, by: eater ? eater.name : '', byPid: f.eater });
     }
   }
 
