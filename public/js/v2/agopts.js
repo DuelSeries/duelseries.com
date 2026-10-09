@@ -102,6 +102,12 @@
       sel.appendChild(o);
     });
     sel.addEventListener('change', () => setQuality(sel.value));
+    /* The focus ring is for the keyboard. A browser counts a select as
+       keyboard-focused even after a mouse press, so the pill notes a pointer
+       press itself and the ring waits for a key (or the next Tab onto it). */
+    q.addEventListener('pointerdown', () => q.setAttribute('data-ptr', ''));
+    sel.addEventListener('keydown', () => q.removeAttribute('data-ptr'));
+    sel.addEventListener('blur', () => q.removeAttribute('data-ptr'));
     q.appendChild(k);
     q.appendChild(val);
     q.appendChild(sel);

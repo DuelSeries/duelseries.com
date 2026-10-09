@@ -30,10 +30,12 @@
 // 5. The free room in the lobby's frame (Owen 2026-10-09 midday: agMain's cfg.lobby, set by public/ag.html when its
 //    frame is the lobby's #agar-frame, and no paid hand-off): the page has no menu card, so this starts it at once,
 //    playing under the lobby name, or watching when the lobby's Spectate opened it (sessionStorage spectateOnly,
-//    the lobby's own watch flag, which public/js/v2/play.js sets and the wallet widget clears on every launch). The
-//    Lobby button then shows all the time except over the Match Results panel, which has its own Lobby button, so a
-//    mouse player and a watcher (no Esc menu any more) always have one way back. A paid hand-off keeps 1 to 4 as
-//    they are.
+//    the lobby's own watch flag, which public/js/v2/play.js sets and the wallet widget clears on every launch). On a
+//    phone held upright the play waits for the "turn your phone sideways" card to go (agPortrait, up to 3 s), the way
+//    the paid flow does (agPaid onFrame), so the cell never spawns under it. The Lobby button keeps the old rule for
+//    a player (a touch screen only; a mouse player leaves by holding Q, then the panel's Lobby), and also shows for a
+//    watcher and while the socket is down, the two times there is no other way back now that the Esc menu is gone.
+//    Never over the Match Results panel, which has its own Lobby button. A paid hand-off keeps 1 to 4 as they are.
 (function (root) {
   'use strict';
 
@@ -101,6 +103,7 @@
     page.onServer('ag:refused', function (p) { if (p && p.closed === true) setMoneyIn(false); });
     page.onServer('ag:replaced', function () { setMoneyIn(false); });
     page.onServer('disconnect', onDrop);
+    page.onServer('disconnect', onFreeDrop);
     // The hand-off's lock: read once (agMain sets it at boot, before this script runs) and followed from then on.
     pageLock = typeof page.paidLocked === 'function' && page.paidLocked() === true;
     sync();
@@ -143,22 +146,53 @@
     if (name) box.value = name;
   }
 
+  function pageState() {
+    var page = root.duelAgar;
+    try { return page && typeof page.state === 'function' ? page.state() : null; } catch (e) { return null; }
+  }
   // The free room inside the lobby's frame (see 5 above): agMain's lobby config, and no paid account on the page.
   function lobbyFree() {
     var page = root.duelAgar;
     if (!page || !page.config || page.config.lobby !== true || !framed()) return false;
-    var st = null;
-    try { st = typeof page.state === 'function' ? page.state() : null; } catch (e) { st = null; }
+    var st = pageState();
     return !!st && st.paid !== true && !st.handoff && !moneyIn && !pageLock;
   }
+  // How often the free start looks again while the rotate card is up, and how often a dropped free page looks for its
+  // socket to be back (both only while waiting; nothing runs otherwise).
+  var WAIT_MS = 100;
   function startFromLobby() {
     if (!lobbyFree()) return;
     var page = root.duelAgar;
     if (read(root.sessionStorage, 'spectateOnly') === 'true') {
+      // Watching starts at once: nothing can be lost behind the rotate card.
       if (typeof page.spectate === 'function') page.spectate();
+      sync();
       return;
     }
-    if (typeof page.play === 'function') page.play(lobbyName());
+    if (typeof page.play !== 'function') return;
+    var st = pageState();
+    if (st && st.rotatePrompt === true && typeof root.setTimeout === 'function') {
+      root.setTimeout(startFromLobby, WAIT_MS);
+      return;
+    }
+    page.play(lobbyName());
+    sync();
+  }
+  // The free page's socket is down (agMain rejoins it as it was once it is back): the Lobby button shows meanwhile,
+  // since a server that never answers again would otherwise leave a mouse player with no way out.
+  var dropped = false;
+  var backTimer = null;
+  function onFreeDrop() {
+    if (!lobbyFree()) return;
+    dropped = true;
+    sync();
+    if (backTimer !== null || typeof root.setTimeout !== 'function') return;
+    var look = function () {
+      var st = pageState();
+      if (st && st.connected === true) { backTimer = null; dropped = false; sync(); return; }
+      backTimer = root.setTimeout(look, WAIT_MS);
+    };
+    backTimer = root.setTimeout(look, WAIT_MS);
   }
 
   var CSS = [
@@ -208,8 +242,15 @@
       var menu = doc.getElementById('ag-menu');
       var menuOpen = !!menu && !menu.hidden;
       var touch = !!(coarse && coarse.matches);
-      // The lobby frame's free room (5 above): always, except over the Match Results panel and its own Lobby button.
-      var shown = lobbyFree() ? !menuOpen : (menuOpen || touch);
+      // The lobby frame's free room (5 above): a touch screen, a watcher, or a dropped socket; never over the Match
+      // Results panel and its own Lobby button.
+      var shown;
+      if (lobbyFree()) {
+        var st = pageState();
+        shown = !menuOpen && (touch || dropped || (!!st && st.menuState === 'SPECTATE'));
+      } else {
+        shown = menuOpen || touch;
+      }
       btn.classList.toggle('on', !locked() && shown);
       var text = moneyIn && menuOpen ? (touch ? HINT_TOUCH : HINT_KEYS) : '';
       if (hint.textContent !== text) hint.textContent = text;

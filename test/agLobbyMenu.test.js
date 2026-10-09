@@ -232,7 +232,8 @@ test('agMain lobby with a paid hand-off: its own flow, unchanged (no menu, Esc s
 // ---- agLobby: the start and the Lobby button -------------------------------------------------------------------
 
 const LOBBY_SRC = read('public/js/ag/agLobby.js');
-function lobbyPage({ lobby = true, paid = false, handoff = null, spectateOnly = false, framed = true, coarse = false } = {}) {
+function lobbyPage({ lobby = true, paid = false, handoff = null, spectateOnly = false, framed = true, coarse = false,
+  st = {} } = {}) {
   const els = {};
   function node(tag) {
     return { tagName: tag, id: '', hidden: false, textContent: '', innerHTML: '', children: [],
@@ -243,10 +244,14 @@ function lobbyPage({ lobby = true, paid = false, handoff = null, spectateOnly = 
   const menu = node('div'); menu.id = 'ag-menu'; menu.hidden = true; els['ag-menu'] = menu;
   const observers = [];
   const calls = [];
+  const hooks = {};
+  // st: the page state the test moves (menuState, connected, rotatePrompt); play and spectate move it as agMain does.
   const page = {
-    config: { lobby }, onServer() {}, paidLocked: () => false,
-    state: () => ({ paid, handoff }),
-    play: (n) => calls.push(['play', n]), spectate: () => calls.push(['spectate'])
+    config: { lobby }, paidLocked: () => false,
+    onServer(name, fn) { (hooks[name] = hooks[name] || []).push(fn); },
+    state: () => Object.assign({ paid, handoff, menuState: 'HOME', connected: true, rotatePrompt: false }, st),
+    play: (n) => { calls.push(['play', n]); st.menuState = 'PLAY'; },
+    spectate: () => { calls.push(['spectate']); st.menuState = 'SPECTATE'; }
   };
   const session = memStore(Object.assign({ playerName: 'OwenTheTopBoss77' }, spectateOnly ? { spectateOnly: 'true' } : {}));
   const win = {
@@ -261,8 +266,10 @@ function lobbyPage({ lobby = true, paid = false, handoff = null, spectateOnly = 
   win.window = win;
   vm.createContext(win);
   vm.runInContext(LOBBY_SRC, win, { filename: 'agLobby.js' });
-  return { calls, els, menu, notify: () => observers.forEach((fn) => fn()) };
+  return { calls, els, menu, st, notify: () => observers.forEach((fn) => fn()),
+    fire: (name, p) => (hooks[name] || []).forEach((fn) => fn(p)) };
 }
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 test('agLobby: the lobby frame\'s free room starts at once under the lobby name, or watching from the lobby\'s Spectate', () => {
   assert.deepStrictEqual(lobbyPage().calls, [['play', 'OwenTheTopBoss7']], 'the lobby name, cut to the 15 the game takes');
@@ -272,18 +279,47 @@ test('agLobby: the lobby frame\'s free room starts at once under the lobby name,
   assert.deepStrictEqual(lobbyPage({ framed: false }).calls, [], 'never outside a frame');
 });
 
-test('agLobby: in the lobby frame\'s free room the Lobby button is always there, except over the panel\'s own Lobby', () => {
-  for (const coarse of [false, true]) {
-    const h = lobbyPage({ coarse });
-    const btn = h.els['ag-lobby'];
-    assert.ok(btn.classList.contains('on'), 'shown while playing (coarse ' + coarse + ')');
-    h.menu.hidden = false;      // the Match Results panel
-    h.notify();
-    assert.ok(!btn.classList.contains('on'), 'hidden over the panel');
-    h.menu.hidden = true;
-    h.notify();
-    assert.ok(btn.classList.contains('on'));
-  }
+test('agLobby: on a phone held upright the free play waits for the rotate card; watching does not', async () => {
+  const h = lobbyPage({ st: { rotatePrompt: true } });
+  assert.deepStrictEqual(h.calls, [], 'no cell under the card');
+  await wait(250);
+  assert.deepStrictEqual(h.calls, [], 'still waiting while the card is up');
+  h.st.rotatePrompt = false;    // the card went (3 s, or the phone turned)
+  await wait(250);
+  assert.deepStrictEqual(h.calls, [['play', 'OwenTheTopBoss7']], 'plays once, as soon as the card is gone');
+  assert.deepStrictEqual(lobbyPage({ spectateOnly: true, st: { rotatePrompt: true } }).calls, [['spectate']]);
+});
+
+test('agLobby: in the lobby frame\'s free room the Lobby button keeps the old player rule, and shows for a watcher and a drop', async () => {
+  // A mouse player: hidden while playing (hold Q, then the panel's Lobby), as before the menu moved.
+  const mouse = lobbyPage();
+  const btn = mouse.els['ag-lobby'];
+  assert.deepStrictEqual(mouse.calls, [['play', 'OwenTheTopBoss7']]);
+  assert.ok(!btn.classList.contains('on'), 'not over a mouse player\'s game');
+  mouse.menu.hidden = false;    // the Match Results panel, which has its own Lobby
+  mouse.notify();
+  assert.ok(!btn.classList.contains('on'), 'hidden over the panel');
+  mouse.menu.hidden = true;     // Play again
+  mouse.notify();
+  assert.ok(!btn.classList.contains('on'));
+  // The socket drops: shown until it is back (agMain rejoins), so a server that never answers is not a dead end.
+  mouse.st.connected = false;
+  mouse.fire('disconnect', { reason: 'transport close' });
+  assert.ok(btn.classList.contains('on'), 'shown while the socket is down');
+  await wait(250);
+  assert.ok(btn.classList.contains('on'), 'still down');
+  mouse.st.connected = true;
+  await wait(250);
+  assert.ok(!btn.classList.contains('on'), 'gone again once the page is back in');
+  // A touch screen: shown while playing, as before; never over the panel.
+  const touch = lobbyPage({ coarse: true });
+  assert.ok(touch.els['ag-lobby'].classList.contains('on'), 'shown on a touch screen');
+  touch.menu.hidden = false;
+  touch.notify();
+  assert.ok(!touch.els['ag-lobby'].classList.contains('on'), 'hidden over the panel');
+  // A watcher (the lobby's Spectate): shown, with a mouse too, since Esc opens nothing now.
+  const watcher = lobbyPage({ spectateOnly: true });
+  assert.ok(watcher.els['ag-lobby'].classList.contains('on'), 'shown for a watcher');
   const direct = lobbyPage({ lobby: false });
   assert.ok(!direct.els['ag-lobby'].classList.contains('on'), 'elsewhere: only with the menu open or on a touch screen');
 });
