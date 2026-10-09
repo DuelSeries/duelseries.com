@@ -158,6 +158,10 @@ class AgRoom {
     this._dueAt = NaN;
     this._nextDue = NaN;
     this._sendEnd = NaN;
+    // Kept across ticks so a send allocates almost nothing for cells that did not change (S3, polish/FIX-PLAN.md):
+    // the frame cache (agView.createFrameCache) and the array the sim's cells are listed into.
+    this._frameCache = agView.createFrameCache();
+    this._frameCells = [];
     this.fillBots();
   }
 
@@ -495,9 +499,12 @@ class AgRoom {
   // gets a sync record once it drains.
   _send(ev) {
     if (!this.seats.size) return;
-    const cells = [];
-    this.sim.forEachCell((c) => cells.push(c));
-    const frame = agView.makeFrame({ border: ev.border, cells, eats: ev.eats, removed: ev.removed }, this.laws);
+    const cells = this._frameCells;
+    let n = 0;
+    this.sim.forEachCell((c) => { cells[n++] = c; });
+    while (cells.length > n) cells.pop();
+    const frame = agView.makeFrame({ border: ev.border, cells, eats: ev.eats, removed: ev.removed }, this.laws,
+      this._frameCache);
     const boardDue = this._boardDue(this.sim.tick());
     let ranking = null;
     let focus;

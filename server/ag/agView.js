@@ -52,6 +52,7 @@ const GRID_LIMIT = 1 << 21;     // index coordinates are clamped to +-this (keys
 const BIT = agWire.CELL_BIT;
 const KINDS = new Set(['player', 'food', 'virus', 'ejected']);
 const FRAME_MARK = Symbol('agView.frame');
+const CACHE_MARK = Symbol('agView.frameCache');
 const NO_CELLS = Object.freeze([]);
 
 let stampCounter = 0;           // query stamps; each build takes a fresh one (shared frames, sequential builds)
@@ -121,7 +122,30 @@ function cellsOf(cells) {
   throw new TypeError('agView: frame cells must be an array, a Map or an iterable');
 }
 
-function entryOf(c, round, wf) {
+// Which of the boolean flags a frame cell carries, as bits, so a cached entry can tell whether they changed.
+function sourceFlags(c) {
+  return (c.virus === true ? 1 : 0) | (c.food === true ? 2 : 0) | (c.ejected === true ? 4 : 0) |
+    (c.agitated === true ? 8 : 0) | (c.flag40 === true ? 16 : 0) | (c.party === true ? 32 : 0);
+}
+
+function gridIndex(v) {
+  const g = Math.floor(v / GRID);
+  return g < -GRID_LIMIT ? -GRID_LIMIT : g > GRID_LIMIT ? GRID_LIMIT : g;
+}
+
+// Small-integer keys while both index coordinates are inside +-16383 (CHOSEN packing, the same as agSim's grid:
+// at most 2^30 - 1, a small integer on every V8 build; index cells are GRID units wide, so that is
+// every cell edge within about 16.7 million units, far past the map), so the Map never stores a heap number. Past
+// that the old exact formula is used. The two can meet in theory (an index clamped to -GRID_LIMIT gives a small
+// value), and a shared key would only cost speed: query checks every entry against the box and stamps it once.
+function gridKey(gx, gy) {
+  if (gx > -16384 && gx < 16384 && gy > -16384 && gy < 16384) return (gx + 16384) * 32768 + (gy + 16384);
+  return (gx + GRID_LIMIT) * (4 * GRID_LIMIT) + (gy + GRID_LIMIT);
+}
+
+// Checks a frame cell and works out its entry. Without `into` it makes a new entry; with `into` (the cached entry of
+// the same id) it rewrites that entry in place, and only after every check has passed, so a throw leaves it whole.
+function entryOf(c, round, wf, into) {
   if (!c || typeof c !== 'object') throw new TypeError('agView: a frame cell is not an object');
   const id = checkId(c.id, 'cell id');
   const x = finite(c.x, 'cell ' + id + ' x');
@@ -139,7 +163,8 @@ function entryOf(c, round, wf) {
       throw new RangeError('agView: cell ' + id + ' colour channel ' + i + ' must be an integer 0 to 255');
     }
   }
-  const name = c.name === undefined || c.name === null ? '' : String(c.name);
+  const srcName = c.name;
+  const name = srcName === undefined || srcName === null ? '' : String(srcName);
   const virus = kind === 'virus' || c.virus === true;
   const food = kind === 'food' || c.food === true;
   const ejected = wf.ejectedOnBlobs === true && (kind === 'ejected' || c.ejected === true);
@@ -148,7 +173,8 @@ function entryOf(c, round, wf) {
   const party = wf.party === true && c.party === true;
   // Only player cells can be someone's own cells; an ejected blob may remember who shot it, but it is not theirs.
   const blob = kind === 'ejected' || c.ejected === true;
-  const owner = c.owner === undefined || c.owner === null || virus || food || blob ? null : c.owner;
+  const srcOwner = c.owner;
+  const owner = srcOwner === undefined || srcOwner === null || virus || food || blob ? null : srcOwner;
   let bits = 0;
   if (virus) bits |= BIT.virus;
   if (food) bits |= BIT.food;
@@ -156,69 +182,192 @@ function entryOf(c, round, wf) {
   if (agitated) bits |= BIT.agitated;
   if (flag40) bits |= BIT.flag40;
   if (party) bits |= BIT.party;
+  const r = rgb[0], g = rgb[1], b = rgb[2];
+  const srcFlags = sourceFlags(c);
+  const wx = round(x), wy = round(y), wsize = round(size);
+  const gx0 = gridIndex(x - size), gx1 = gridIndex(x + size);
+  const gy0 = gridIndex(y - size), gy1 = gridIndex(y + size);
+  if (into === undefined) {
+    // Fields a frame cache and a query read for every cell come first (fewer cache lines). Besides the wire values:
+    // gen and idx, the last frame the entry was in and its place in that frame's list; kind, srcOwner, srcName and
+    // srcFlags, what it was made from (the cache compares them to reuse it); gx0 to gy1, the index cells its disc's
+    // bounding box covers, and bucket, the one bucket when that is a single index cell.
+    return {
+      id, gen: 0, idx: 0, x, y, size, stamp: 0, bucket: null,
+      owner, kind, srcOwner, srcName, srcFlags, r, g, b,
+      wx, wy, wsize,
+      bits, virus, food, ejected, agitated, flag40, party,
+      name,
+      gx0, gx1, gy0, gy1,
+    };
+  }
+  into.x = x; into.y = y; into.size = size;
+  into.owner = owner;
+  into.wx = wx; into.wy = wy; into.wsize = wsize;
+  into.bits = bits; into.virus = virus; into.food = food; into.ejected = ejected;
+  into.agitated = agitated; into.flag40 = flag40; into.party = party;
+  into.r = r; into.g = g; into.b = b; into.name = name;
+  into.kind = kind; into.srcName = srcName; into.srcOwner = srcOwner; into.srcFlags = srcFlags;
+  into.gx0 = gx0; into.gx1 = gx1; into.gy0 = gy0; into.gy1 = gy1; into.bucket = null;
+  return into;
+}
+
+// True when a cached entry was made from exactly these source values, so entryOf would make the same entry now
+// (the cache checks the laws). Every value it compares was checked when the entry was made.
+function sameSource(e, c) {
+  if (c.x !== e.x || c.y !== e.y || c.size !== e.size || c.kind !== e.kind || c.owner !== e.srcOwner) return false;
+  const name = c.name;
+  if (name !== e.srcName || (typeof name !== 'string' && name !== undefined && name !== null)) return false;
+  const rgb = c.rgb;
+  if (!rgb || rgb.length !== 3 || rgb[0] !== e.r || rgb[1] !== e.g || rgb[2] !== e.b) return false;
+  return sourceFlags(c) === e.srcFlags;
+}
+
+// The one bucket an entry's box lies in, made if needed (most cells), or null when it covers several index cells.
+function bucketOf(e, grid) {
+  if (e.gx0 !== e.gx1 || e.gy0 !== e.gy1) return null;
+  const k = gridKey(e.gx0, e.gy0);
+  let bucket = grid.get(k);
+  if (bucket === undefined) { bucket = []; grid.set(k, bucket); }
+  return bucket;
+}
+
+// A frame cache (S3 of polish/FIX-PLAN.md, speed only): makeFrame(input, laws, cache) keeps the last frame's
+// entries and containers and reuses them, so a tick allocates almost nothing for cells that did not change. An
+// entry is reused when every source value it was made from is the same (x, y, size, kind, the flag booleans, rgb,
+// name, owner, under the same U_ROUND rule and WIRE_FLAGS object), rewritten in place when one changed, and dropped
+// when its id is not in the frame. Cells are matched to entries in the last frame's order first (the sim lists its
+// cells in creation order, so almost every cell is the next one), by id otherwise. The frame returned (with its
+// entries) is valid until the next makeFrame with the same cache: the room makes one per tick and is done with it
+// when the sends are. This is safe because viewers keep copies (stateOf), never entries, and query stamps only
+// grow, so a stamp an earlier build left on a reused entry never equals a later build's. Lists are emptied with
+// pop, which keeps their backing stores (length = 0 can release them). A makeFrame that throws empties the cache.
+function createFrameCache() {
   return {
-    id, x, y, size,
-    owner,
-    wx: round(x), wy: round(y), wsize: round(size),
-    bits, virus, food, ejected, agitated, flag40, party,
-    r: rgb[0], g: rgb[1], b: rgb[2], name,
-    stamp: 0,
+    [CACHE_MARK]: true,
+    laws: null,          // a frozen law table already checked (the check is skipped while it is the same one)
+    rule: null,          // U_ROUND rule and WIRE_FLAGS object the cached entries were made with
+    wf: null,
+    round: null,
+    gen: 0,              // frame counter; an entry's gen is the last frame it was in
+    byId: new Map(),     // id -> entry, exactly the frame's cells once makeFrame returns
+    byOwner: new Map(),  // owner -> that owner's entries (an empty list stays one frame, then goes)
+    grid: new Map(),     // index key -> entries (empty buckets are kept: entries point at theirs)
+    gridUsed: [],        // buckets filled by the last frame
+    list: [],            // the last frame's entries in input order
+    spare: [],           // the list before that, reused for the next frame
+    gone: [],            // entries of the last frame the matching passed over (they may have left)
+    big: [],
+    border: null,
+    frame: null,
   };
 }
 
-function gridIndex(v) {
-  const g = Math.floor(v / GRID);
-  return g < -GRID_LIMIT ? -GRID_LIMIT : g > GRID_LIMIT ? GRID_LIMIT : g;
+function emptyList(a) {
+  while (a.length !== 0) a.pop();
 }
 
-function gridKey(gx, gy) {
-  return (gx + GRID_LIMIT) * (4 * GRID_LIMIT) + (gy + GRID_LIMIT);
+function resetCache(cache) {
+  cache.byId.clear();
+  cache.byOwner.clear();
+  cache.grid.clear();
+  emptyList(cache.gridUsed);
+  emptyList(cache.list);
+  emptyList(cache.spare);
+  emptyList(cache.gone);
+  emptyList(cache.big);
+  cache.border = null;
 }
 
-// input: { border: { minX, minY, maxX, maxY }, cells, eats?: [[eaterId, eatenId]], removed?: [id] }
-//   cells: every live cell after the tick, each { id, x, y, size, owner? (player cells only), kind? ('player', 'food', 'virus',
-//          'ejected') or the booleans virus/food/ejected/agitated/flag40/party, rgb: [r, g, b], name? }
-//   eats: this tick's eats in sim order (merges included)
-//   removed: ids the sim deleted this tick; needed only to tell a reused id from the old cell (a deleted id that
-//          is absent from cells is found without it)
-function makeFrame(input, laws) {
-  assertLawsComplete(laws, FRAME_LAW_IDS);
-  const round = roundRule(laws.U_ROUND.value);
-  const wf = laws.WIRE_FLAGS.value;
-  if (!wf || typeof wf !== 'object') throw new TypeError('agView: WIRE_FLAGS must be an object');
-  if (!input || typeof input !== 'object') throw new TypeError('agView: makeFrame needs { border, cells }');
-  const bd = input.border;
-  if (!bd || typeof bd !== 'object') throw new TypeError('agView: frame border must be { minX, minY, maxX, maxY }');
-  const border = {
-    minX: finite(bd.minX, 'border minX'), minY: finite(bd.minY, 'border minY'),
-    maxX: finite(bd.maxX, 'border maxX'), maxY: finite(bd.maxY, 'border maxY'),
-  };
+// byOwner.forEach callback: an owner with no cells in the last frame is dropped, the others' lists are emptied.
+function resetOwner(list, owner, map) {
+  if (list.length === 0) map.delete(owner); else emptyList(list);
+}
 
-  const byId = new Map();
-  const byOwner = new Map();
-  const grid = new Map();
-  const big = [];
-  const list = [];
+// The cache-changing part of makeFrame (the laws, the input and the border are already checked).
+function fillFrame(cache, input, round, wf, border) {
+  const gen = ++cache.gen;
+  const byId = cache.byId;
+  const byOwner = cache.byOwner;
+  const grid = cache.grid;
+  const gridUsed = cache.gridUsed;
+  const prev = cache.list;
+  const list = cache.spare;
+  const big = cache.big;
+  const gone = cache.gone;
+  byOwner.forEach(resetOwner);
+  for (let i = 0; i < gridUsed.length; i++) emptyList(gridUsed[i]);
+  emptyList(gridUsed);
+
+  const prevLen = prev.length;
+  let j = 0;            // where the next cell is expected in the last frame's list
+  let n = 0;
+  let nBig = 0;
   for (const c of cellsOf(input.cells)) {
-    const e = entryOf(c, round, wf);
-    if (byId.has(e.id)) throw new Error('agView: cell id ' + e.id + ' appears twice in one frame');
-    byId.set(e.id, e);
-    list.push(e);
-    if (e.owner !== null) {
-      const mine = byOwner.get(e.owner);
-      if (mine) mine.push(e); else byOwner.set(e.owner, [e]);
+    let e;
+    if (c !== null && typeof c === 'object') {
+      e = j < prevLen ? prev[j] : undefined;
+      if (e !== undefined && e.id === c.id) {
+        j++;
+      } else {
+        e = byId.get(c.id);
+        if (e !== undefined && e.gen !== gen && e.idx >= j) {   // skip ids that left, never go back
+          for (let i = j; i < e.idx; i++) gone.push(prev[i]);
+          j = e.idx + 1;
+        }
+      }
     }
-    const gx0 = gridIndex(e.x - e.size), gx1 = gridIndex(e.x + e.size);
-    const gy0 = gridIndex(e.y - e.size), gy1 = gridIndex(e.y + e.size);
-    if ((gx1 - gx0 + 1) * (gy1 - gy0 + 1) > MAX_SPAN) { big.push(e); continue; }
+    if (e === undefined) {
+      e = entryOf(c, round, wf);
+      e.bucket = bucketOf(e, grid);
+      byId.set(e.id, e);
+    } else if (e.gen === gen) {
+      entryOf(c, round, wf);                           // a bad cell still reports its own fault first
+      throw new Error('agView: cell id ' + e.id + ' appears twice in one frame');
+    } else if (!sameSource(e, c)) {
+      entryOf(c, round, wf, e);
+      e.bucket = bucketOf(e, grid);
+    }
+    e.gen = gen;
+    e.idx = n;
+    list[n++] = e;
+    if (e.owner !== null) {
+      let mine = byOwner.get(e.owner);
+      if (mine === undefined) { mine = []; byOwner.set(e.owner, mine); }
+      mine.push(e);
+    }
+    const one = e.bucket;
+    if (one !== null) {
+      if (one.length === 0) gridUsed.push(one);
+      one.push(e);
+      continue;
+    }
+    const gx0 = e.gx0, gx1 = e.gx1, gy0 = e.gy0, gy1 = e.gy1;
+    if ((gx1 - gx0 + 1) * (gy1 - gy0 + 1) > MAX_SPAN) { big[nBig++] = e; continue; }
     for (let gx = gx0; gx <= gx1; gx++) {
       for (let gy = gy0; gy <= gy1; gy++) {
         const k = gridKey(gx, gy);
-        const bucket = grid.get(k);
-        if (bucket) bucket.push(e); else grid.set(k, [e]);
+        let bucket = grid.get(k);
+        if (bucket === undefined) { bucket = []; grid.set(k, bucket); }
+        if (bucket.length === 0) gridUsed.push(bucket);
+        bucket.push(e);
       }
     }
   }
+  while (list.length > n) list.pop();
+  while (big.length > nBig) big.pop();
+  // Ids of the last frame that are not in this one: every entry the matching did not take is in gone (passed over,
+  // or after the last one taken).
+  for (let i = j; i < prevLen; i++) gone.push(prev[i]);
+  if (byId.size !== n) {
+    for (let i = 0; i < gone.length; i++) {
+      const p = gone[i];
+      if (p.gen !== gen) byId.delete(p.id);
+    }
+  }
+  emptyList(gone);
+  cache.list = list;
+  cache.spare = prev;
 
   const eats = [];
   const rawEats = input.eats === undefined || input.eats === null ? NO_CELLS : input.eats;
@@ -233,7 +382,69 @@ function makeFrame(input, laws) {
   if (!Array.isArray(rawRemoved)) throw new TypeError('agView: frame removed must be an array of ids');
   for (const id of rawRemoved) removedIds.add(checkId(id, 'removed id'));
 
-  return { [FRAME_MARK]: true, border, byId, byOwner, list, grid, big, eats, removedIds };
+  cache.border = border;
+  let frame = cache.frame;
+  if (frame === null) {
+    frame = { [FRAME_MARK]: true, border, byId, byOwner, list, grid, gridCount: 0, big, eats, removedIds };
+    cache.frame = frame;
+  }
+  frame.border = border;
+  frame.list = list;
+  frame.gridCount = gridUsed.length;                   // non-empty buckets (query picks a scan or the index by it)
+  frame.eats = eats;
+  frame.removedIds = removedIds;
+  return frame;
+}
+
+// input: { border: { minX, minY, maxX, maxY }, cells, eats?: [[eaterId, eatenId]], removed?: [id] }
+//   cells: every live cell after the tick, each { id, x, y, size, owner? (player cells only), kind? ('player', 'food', 'virus',
+//          'ejected') or the booleans virus/food/ejected/agitated/flag40/party, rgb: [r, g, b], name? }
+//   eats: this tick's eats in sim order (merges included)
+//   removed: ids the sim deleted this tick; needed only to tell a reused id from the old cell (a deleted id that
+//          is absent from cells is found without it)
+// cache (optional): from createFrameCache, kept by the caller across ticks; without one every frame is new.
+function makeFrame(input, laws, cache) {
+  if (cache === undefined || cache === null) {
+    cache = createFrameCache();
+  } else if (cache[CACHE_MARK] !== true) {
+    throw new TypeError('agView: a frame cache must come from createFrameCache');
+  }
+  let round = cache.round;
+  if (cache.laws !== laws || laws === null) {
+    assertLawsComplete(laws, FRAME_LAW_IDS);
+    round = roundRule(laws.U_ROUND.value);
+    const wf0 = laws.WIRE_FLAGS.value;
+    if (!wf0 || typeof wf0 !== 'object') throw new TypeError('agView: WIRE_FLAGS must be an object');
+    // A frozen table with frozen rows (agLaws freezes its tables deeply) cannot change, so it is checked once.
+    const frozen = Object.isFrozen(laws) && Object.isFrozen(laws.U_ROUND) && Object.isFrozen(laws.WIRE_FLAGS) &&
+      Object.isFrozen(wf0);
+    cache.laws = frozen ? laws : null;
+    cache.round = round;
+  }
+  const rule = laws.U_ROUND.value;
+  const wf = laws.WIRE_FLAGS.value;
+  if (!input || typeof input !== 'object') throw new TypeError('agView: makeFrame needs { border, cells }');
+  const bd = input.border;
+  if (!bd || typeof bd !== 'object') throw new TypeError('agView: frame border must be { minX, minY, maxX, maxY }');
+  const minX = finite(bd.minX, 'border minX'), minY = finite(bd.minY, 'border minY');
+  const maxX = finite(bd.maxX, 'border maxX'), maxY = finite(bd.maxY, 'border maxY');
+  // A viewer keeps the border object it last sent, so a changed border is always a new object.
+  let border = cache.border;
+  if (border === null || !Object.is(border.minX, minX) || !Object.is(border.minY, minY) ||
+      !Object.is(border.maxX, maxX) || !Object.is(border.maxY, maxY)) {
+    border = { minX, minY, maxX, maxY };
+  }
+  if (cache.rule !== rule || cache.wf !== wf) {      // other laws: no cached entry can be trusted
+    resetCache(cache);
+    cache.rule = rule;
+    cache.wf = wf;
+  }
+  try {
+    return fillFrame(cache, input, round, wf, border);
+  } catch (err) {
+    resetCache(cache);
+    throw err;
+  }
 }
 
 function overlaps(e, box) {
@@ -246,7 +457,7 @@ function query(frame, box, stamp, out) {
   const gx0 = gridIndex(box.minX), gx1 = gridIndex(box.maxX);
   const gy0 = gridIndex(box.minY), gy1 = gridIndex(box.maxY);
   const span = (gx1 - gx0 + 1) * (gy1 - gy0 + 1);
-  if (span > frame.grid.size) {
+  if (span > frame.gridCount) {
     for (const e of frame.list) {
       if (e.stamp !== stamp && overlaps(e, box)) { e.stamp = stamp; out.push(e); }
     }
@@ -475,6 +686,7 @@ module.exports = {
   FRAME_LAW_IDS,
   FFA_MODE,
   makeFrame,
+  createFrameCache,
   createViewer,
   scaleFor,
   viewBoxFor,

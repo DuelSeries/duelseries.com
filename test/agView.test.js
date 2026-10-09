@@ -635,6 +635,74 @@ test('the spatial index gives the same records as a plain scan, and two runs giv
   assert.deepStrictEqual(ids, want);
 });
 
+// The frame cache (S3, speed only) must never change a byte: every tick, frames made through one cache give the same
+// bundles as fresh frames, while the toy world moves, eats, splits, merges, recolours, renames, reuses ids and shrinks
+// its border, and while the cell order is shuffled now and then (cells then match by id, not by order).
+test('a frame cache gives the same bundles as fresh frames, tick after tick (3 seeds, 3 viewers, 600 ticks)', () => {
+  for (const seed of [7, 8, 11]) {
+    const world = toyWorld(seed);
+    const rng = createRng(seed + 100);
+    const cache = V.createFrameCache();
+    const fresh = [1, 2, 3].map((p) => V.createViewer(p, { laws: FIXTURE }));
+    const cached = [1, 2, 3].map((p) => V.createViewer(p, { laws: FIXTURE }));
+    let last = null;
+    let shuffled = 0;
+    for (let tick = 0; tick < 600; tick++) {
+      const input = world.step();
+      if (tick % 37 === 5) {
+        for (let i = input.cells.length - 1; i > 0; i--) {
+          const k = rng.int(i + 1);
+          const t = input.cells[i]; input.cells[i] = input.cells[k]; input.cells[k] = t;
+        }
+        shuffled++;
+      }
+      const f0 = V.makeFrame(input, FIXTURE);
+      const f1 = V.makeFrame(input, FIXTURE, cache);
+      if (last) assert.strictEqual(f1, last, 'one frame object per cache');
+      last = f1;
+      assert.strictEqual(f1.byId.size, input.cells.length, 'the cached ids are exactly this frame\'s cells');
+      for (const c of input.cells) assert.strictEqual(f1.byId.get(c.id).wx, Math.trunc(c.x) + 0);
+      for (let i = 0; i < 3; i++) {
+        const dead = !input.cells.some((c) => c.kind === 'player' && c.owner === i + 1);
+        const extra = dead && tick % 3 === 0 ? { focus: { x: 100, y: -50, zoom: 0.6 } } : undefined;
+        const a = Buffer.from(fresh[i].bundle(f0, extra)).toString('hex');
+        const b = Buffer.from(cached[i].bundle(f1, extra)).toString('hex');
+        assert.strictEqual(b, a, 'seed ' + seed + ' tick ' + tick + ' viewer ' + (i + 1));
+      }
+    }
+    assert.ok(shuffled > 10);
+  }
+});
+
+test('a frame cache starts over after a frame that throws, and after a law change', () => {
+  const cache = V.createFrameCache();
+  const cells = [player(1, 7, 0, 0, 40), food(2, 100, 0), food(3, -150.5, 20), food(4, 300, -40)];
+  const fresh = V.createViewer(7, { laws: FIXTURE });
+  const cached = V.createViewer(7, { laws: FIXTURE });
+  const same = (input, laws) => {
+    const a = Buffer.from(fresh.bundle(V.makeFrame(input, laws))).toString('hex');
+    const b = Buffer.from(cached.bundle(V.makeFrame(input, laws, cache))).toString('hex');
+    assert.strictEqual(b, a);
+  };
+  same({ border: BORDER, cells }, FIXTURE);
+  // A duplicate id, then a bad cell after a reused one: both throw as without a cache, and the next frame is right.
+  assert.throws(() => V.makeFrame({ border: BORDER, cells: cells.concat([food(3, 5, 5)]) }, FIXTURE, cache), /appears twice/);
+  same({ border: BORDER, cells: cells.slice(1) }, FIXTURE);
+  const bad = cells.slice(0, 3).concat([Object.assign(food(4, 300, -40), { x: NaN })]);
+  assert.throws(() => V.makeFrame({ border: BORDER, cells: bad }, FIXTURE, cache), /x must be a finite number/);
+  assert.throws(() => V.makeFrame({ border: BORDER, cells: [food(2, 1, 1), food(2, 1, 1)] }, FIXTURE, cache),
+    /appears twice/);
+  cells[1].x += 3;
+  same({ border: BORDER, cells }, FIXTURE);
+  assert.strictEqual(V.makeFrame({ border: BORDER, cells }, FIXTURE, cache).byId.size, 4);
+  // Another rounding rule: the cached entries (made with trunc) are not reused.
+  const floorLaws = withValues(FIXTURE, { U_ROUND: 'floor' });
+  const f = V.makeFrame({ border: BORDER, cells }, floorLaws, cache);
+  assert.strictEqual(f.byId.get(3).wx, -151);
+  assert.strictEqual(V.makeFrame({ border: BORDER, cells }, FIXTURE, cache).byId.get(3).wx, -150);
+  assert.throws(() => V.makeFrame({ border: BORDER, cells }, FIXTURE, {}), /createFrameCache/);
+});
+
 test('hygiene: no reference citations, no fixture import, no randomness or clock in the shipped file', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'server', 'ag', 'agView.js'), 'utf8');
   assert.ok(!/\b[DW] \d{3,}/.test(src), 'no D/W line citations');

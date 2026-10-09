@@ -240,32 +240,52 @@ function equalPopPieces(mass, free, minMass) {
 }
 
 // Exact spatial index over cell centres, rebuilt when the world has changed.
+// Speed only (S2, polish/FIX-PLAN.md): once the buckets exist, a rebuild allocates nothing. Bucket arrays are kept
+// between rebuilds and emptied in place with pop (the ones filled last time are listed in `used`). pop keeps each
+// backing store; length = 0 can release it, which measured 0.69 MB allocated per tick in sim.step against 0.21 MB
+// with pop (2026-10-08, polish/build/S2S3-alloc). Keys are small integers while both bucket indexes are inside
+// +-16383 (CHOSEN packing, parity log 2026-10-08 S2/S3: at most 32767 * 32768 + 32767 = 2^30 - 1, a small integer
+// on every V8 build), so the Map never stores a heap number. The map is a square of side L2 centred on (0, 0), so
+// in-map bucket indexes stay within +-28 at BUCKET 256, and the second formula (the old one, for an index past
+// +-16383, which means a centre more than 4,194,304 units out) is never used in practice. That fallback is not
+// above every small key for every input (an index near -65536 gives a small value): the two formulas never meet
+// only because real indexes are tiny. Same buckets, same order inside each bucket (cell creation order), same
+// centresIn output as a fresh Map per rebuild.
 function createGrid() {
-  const buckets = new Map();
+  const buckets = new Map();   // key -> bucket array (kept, possibly empty)
+  const used = [];             // bucket arrays filled by the last rebuild
   let maxSize = 0;
-  let lo = { x: 0, y: 0 };
-  let hi = { x: -1, y: -1 };
-  const key = (bx, by) => (bx + 65536) * 131072 + (by + 65536);
+  const lo = { x: 0, y: 0 };
+  const hi = { x: -1, y: -1 };
+  const key = (bx, by) => (bx > -16384 && bx < 16384 && by > -16384 && by < 16384)
+    ? (bx + 16384) * 32768 + (by + 16384)
+    : (bx + 65536) * 131072 + (by + 65536);
   const idx = (v) => Math.floor(v / BUCKET);
   return {
     rebuild(cellMap) {
-      buckets.clear();
+      for (let i = 0; i < used.length; i++) {
+        const arr = used[i];
+        while (arr.length !== 0) arr.pop();
+      }
+      used.length = 0;
       maxSize = 0;
       let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
       for (const c of cellMap.values()) {
         const bx = idx(c.x);
         const by = idx(c.y);
         const k = key(bx, by);
-        const arr = buckets.get(k);
-        if (arr) arr.push(c); else buckets.set(k, [c]);
+        let arr = buckets.get(k);
+        if (arr === undefined) { arr = []; buckets.set(k, arr); }
+        if (arr.length === 0) used.push(arr);
+        arr.push(c);
         if (c.size > maxSize) maxSize = c.size;
         if (bx < x0) x0 = bx;
         if (bx > x1) x1 = bx;
         if (by < y0) y0 = by;
         if (by > y1) y1 = by;
       }
-      lo = { x: x0, y: y0 };
-      hi = { x: x1, y: y1 };
+      lo.x = x0; lo.y = y0;
+      hi.x = x1; hi.y = y1;
     },
     maxSize() {
       return maxSize;

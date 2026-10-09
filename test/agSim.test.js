@@ -560,6 +560,35 @@ test('forEachCellInRect returns exactly the cells whose box overlaps the rectang
   assert.deepStrictEqual(got.sort((a, b) => a - b), want.sort((a, b) => a - b));
 });
 
+// The grid keeps its bucket arrays between rebuilds (S2, speed only): after thousands of rebuilds with cells eaten,
+// born, moved and split, a rectangle query still returns exactly the plain scan, each cell once.
+test('forEachCellInRect stays exact over a long run (reused buckets, 2000 ticks, checked every 50)', () => {
+  const sim = createSim({ laws: FIXTURE, seed: 5 });
+  const drive = script(sim, 31, 12);
+  const r = createRng(9);
+  let checked = 0;
+  for (let t = 1; t <= 2000; t++) {
+    drive(t);
+    sim.step();
+    if (t % 50 !== 0) continue;
+    const b = sim.border();
+    for (let q = 0; q < 4; q++) {
+      const x0 = b.minX + (b.maxX - b.minX) * r(), y0 = b.minY + (b.maxY - b.minY) * r();
+      const x1 = x0 + 3000 * r(), y1 = y0 + 2000 * r();
+      const want = [];
+      sim.forEachCell((c) => {
+        if (c.x + c.size >= x0 && c.x - c.size <= x1 && c.y + c.size >= y0 && c.y - c.size <= y1) want.push(c.id);
+      });
+      const got = [];
+      sim.forEachCellInRect(x0, y0, x1, y1, (c) => got.push(c.id));
+      assert.strictEqual(new Set(got).size, got.length, 'no cell twice');
+      assert.deepStrictEqual(got.sort((a, c) => a - c), want.sort((a, c) => a - c), 'tick ' + t);
+      checked++;
+    }
+  }
+  assert.strictEqual(checked, 160);
+});
+
 test('the shipped sim holds no candidate number, no clock, no Math.random and no fixture import', () => {
   const fs = require('node:fs');
   const path = require('node:path');
