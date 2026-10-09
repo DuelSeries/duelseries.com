@@ -6,7 +6,8 @@
 //
 // Outbound events, all 'ag:*' (never 'cell:*', so the old agar pages cannot talk to the new
 // room): ag:join {name}, ag:spectate, ag:target {x, y} (integers), ag:split, ag:eject, ag:q,
-// ag:leave. Nothing is sent while the socket is down (a dropped target is simply not sent; the
+// ag:leave, ag:view {below} (a whole number, 0 or more: the map rows the page draws under the
+// reference view, world units at zoom 1; agMain sends it only when it changes). Nothing is sent while the socket is down (a dropped target is simply not sent; the
 // camera keeps its last-sent pair, as the reference's send does when its socket is closed).
 //
 // A bad bundle (agWire returns an error record) keeps the records before it, drops the rest
@@ -28,7 +29,8 @@
     split: 'ag:split',
     eject: 'ag:eject',
     q: 'ag:q',
-    leave: 'ag:leave'
+    leave: 'ag:leave',
+    view: 'ag:view'
   };
 
   function wire() {
@@ -110,7 +112,12 @@
       sendEject: function () { return emit(EV.eject); },
       sendQ: function () { return emit(EV.q); },
       sendLeave: function () { return emit(EV.leave); },
-      // agMain's outbound kinds: play, spectate, target, split, eject, q, leave.
+      sendView: function (below) {
+        var b = intOrNull(below);
+        if (b === null || b < 0) return false;
+        return emit(EV.view, { below: b });
+      },
+      // agMain's outbound kinds: play, spectate, target, split, eject, q, leave, view.
       send: function (kind, payload) {
         switch (kind) {
           case 'play': return api.sendJoin(payload && payload.name);
@@ -120,6 +127,7 @@
           case 'eject': return api.sendEject();
           case 'q': return api.sendQ();
           case 'leave': return api.sendLeave();
+          case 'view': return api.sendView(payload && payload.below);
           default: return false;
         }
       },

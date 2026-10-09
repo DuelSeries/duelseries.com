@@ -535,7 +535,11 @@ test('ghost strip: the whole window is canvas, and every call matches the refere
   assert.strictEqual(b.mod.camera.scale, a.mod.camera.scale);
   assert.deepStrictEqual([b.mod.hud.W, b.mod.hud.H], [2560, 1263], 'HUD scale, board and bottom panels too');
   assert.ok(a.sent.some((s) => s[0] === 'target'));
-  assert.deepStrictEqual(b.sent, a.sent, 'the same targets go to the server');
+  // Ours first tells the server how much map it draws under the reference view: 135 rows at draw scale 2560 / 1920
+  // is 101.25 world units at zoom 1, rounded up. Their page (and ours at parity) never sends it.
+  assert.deepStrictEqual(b.sent[0], ['view', { below: 102 }]);
+  assert.ok(!a.sent.some((s) => s[0] === 'view'), 'nothing extra at parity');
+  assert.deepStrictEqual(b.sent.slice(1), a.sent, 'the same targets go to the server');
   // Call for call (every canvas, the board and text canvases included): equal, except the three that now cover the
   // whole 1398-high canvas: the clear, the grid fill and the dim layer.
   const A = a.doc.calls, B = b.doc.calls;
@@ -571,6 +575,63 @@ test('ghost strip: menu scale from the window above the strip; a window shorter 
   resize(p, 1266, 626);
   await p.frames(2);
   assert.ok(p.doc.calls.some((c) => c[0] === p.canvas.cid), 'drawing resumes');
+});
+
+test('ghost strip: the page reports the map it draws under the reference view, and the server view box covers it', async () => {
+  const agView = require('../server/ag/agView');
+  const { LAWS } = require('../server/ag/agLaws');
+  const cap = LAWS.VIEW_BELOW.value.cap;
+  const views = (p) => p.sock.emitted.filter((e) => e[0] === 'ag:view');
+  const connect = (p) => { p.sock.connected = true; p.sock.fire('connect'); };
+  const hello = (p) => p.sock.fire('ag:f', W.encodeBundle([{ t: 'hello' }, BORDER]));
+  // The window sizes the review measured (box bottom row before the fix: 1418, 1321, 749 of 1398, 1398, 800).
+  for (const [w, h, dpr] of [[1707, 932, 1.5], [853, 932, 1.5], [1280, 720, 1], [1280, 800, 1], [1000, 1000, 1]]) {
+    const p = bootPage({ net: true, w, h, dpr, cfg: { ghostBannerPx: 90 } });
+    connect(p);
+    assert.deepStrictEqual(views(p), [], 'nothing before the hello');
+    hello(p);
+    await p.frames(4, 50);
+    const sent = views(p);
+    assert.strictEqual(sent.length, 1, w + 'x' + h);
+    const below = sent[0][1].below;
+    const cw = p.canvas.width, CH = p.canvas.height, H = Math.trunc((h - 90) * dpr);
+    assert.deepStrictEqual([p.mod.camera.W, p.mod.camera.H], [cw, H], 'the camera draws on that layout');
+    const f = LIB.agCamera.screenFactor(cw, H);
+    assert.ok(Number.isInteger(below) && below >= (CH - H) / f && below < (CH - H) / f + 1, 'rows / f, rounded up');
+    assert.ok(below <= cap, 'every window the review listed is under the VIEW_BELOW cap');
+    // The canvas row of the server box bottom when the camera sits on the server's view centre at wheel 1 (client
+    // zoom = s, draw scale s * f, world centre row trunc(H / 2)): past the last canvas row at every scale, by at
+    // least the slack L4 gives under the reference view (50.3 world units, less half a row of centre rounding).
+    for (const s of [1, 0.5, 0.2]) {
+      const row = (b) => Math.trunc(H / 2) + agView.viewBoxFor(0, 0, s, LAWS.L4.value, Math.min(b, cap)).maxY * s * f;
+      assert.ok((row(below) - CH) / f >= 50.3 - 0.5 / f - 1e-9, w + 'x' + h + ' s ' + s + ': ' + row(below) + ' of ' + CH);
+      if (w === 853) assert.ok(row(0) < CH - 70, 'without the report the bottom band is never sent');
+    }
+  }
+
+  // Sent again only when it changes, nothing while the socket is down, and again on the next hello.
+  const p = bootPage({ net: true, w: 1707, h: 932, dpr: 1.5, cfg: { ghostBannerPx: 90 } });
+  connect(p);
+  hello(p);
+  resize(p, 1707, 932);
+  resize(p, 1000, 1000);                  // 1500 x 1365 layout of 1500: 135 / (1365 / 1080) = 106.8
+  resize(p, 1000, 80);                    // layout height 0: nothing drawn, nothing more to send
+  assert.deepStrictEqual(views(p).map((e) => e[1].below), [102, 107, 0]);
+  p.sock.connected = false;
+  p.sock.fire('disconnect', 'transport close');
+  resize(p, 1707, 932);
+  assert.strictEqual(views(p).length, 3, 'nothing while disconnected');
+  connect(p);
+  hello(p);
+  assert.deepStrictEqual(views(p).map((e) => e[1].below), [102, 107, 0, 102]);
+
+  // At parity (the harness page, a real strip) the page never sends it.
+  const q = bootPage({ net: true, w: 1707, h: 932, dpr: 1.5, cfg: { bannerPx: 90 } });
+  connect(q);
+  hello(q);
+  await spawn(q, (rec) => q.sock.fire('ag:f', W.encodeBundle([rec])));
+  assert.deepStrictEqual(views(q), []);
+  assert.ok(!q.sent.some((s) => s[0] === 'view'));
 });
 
 test('the shipped page sizes as if the 90 px strip were there; the canvas element still fills the window', () => {

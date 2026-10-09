@@ -143,6 +143,7 @@
     // ---- state the reference keeps outside the world ----------------------------------------
     var nick = '';
     var connected = false;      // set by the server hello
+    var sentBelow = 0;          // the ghost rows last reported on this connection (ag:view)
     var gameState = 0;          // 0 play (and before), 8 spectate (client-hud 2.2)
     var fadeout = true;         // the dim layer's menu switch, on until the first Play
     var menuState = 'HOME';     // HOME, PLAY, SPECTATE, GAMEOVER
@@ -226,6 +227,25 @@
       // nothing (CHOSEN, PARITY-LOG; their canvas would fall back to its default height).
       layoutH = ghostBannerPx ? Math.max(0, Math.trunc((win.innerHeight - bannerPx - ghostBannerPx) * canvasScale)) : 0;
       applyMenuScale();
+      reportView();
+    }
+    // The map rows drawn under the ghost layout, in world units at zoom 1 (the layout's draw
+    // scale, client-camera-input 6.4), rounded up. The server only sends what lies in its view
+    // box (server law L4), which is built for the reference view, so the page tells it how much
+    // further down it draws (ag:view; the server adds it to the box bottom, capped by law
+    // VIEW_BELOW). Sent on the hello and on every change; 0 and never sent at parity (the
+    // harness page), so the outbound stream there is the reference's.
+    function ghostBelow() {
+      var W = canvas.width, CH = canvas.height, H = layoutHeight(CH);
+      if (!(W > 0) || !(H > 0) || !(CH > H)) return 0;
+      return Math.ceil((CH - H) / agCamera.screenFactor(W, H));
+    }
+    function reportView() {
+      if (!connected) return;
+      var n = ghostBelow();
+      if (n === sentBelow) return;
+      sentBelow = n;
+      send('view', { below: n });
     }
     // Canvas height every derived size uses: the real one, or the ghost layout's (never taller).
     function layoutHeight(canvasH) {
@@ -510,6 +530,7 @@
     // counters, board and panels, and the cached names of the nodes that are now gone.
     function resetConnection() {
       connected = false;
+      sentBelow = 0;            // a new socket starts at 0 on the server
       pending.play = false;
       pending.spectate = false;
       lastRows = null;

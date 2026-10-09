@@ -191,7 +191,7 @@ test('ag:target: integers only; wrong shapes and non-finite numbers never reach 
   assert.strictEqual(calls.length, 2);
 });
 
-test('every event is rate limited through socketRL with its own key', () => {
+test('every event but ag:view is rate limited through socketRL with its own key', () => {
   const w = world();
   const s = sock(w);
   s.fire('ag:join', { name: 'R' });
@@ -201,6 +201,7 @@ test('every event is rate limited through socketRL with its own key', () => {
   s.fire('ag:eject');
   s.fire('ag:q');
   s.fire('ag:leave');
+  s.fire('ag:view', { below: 102 });   // a state report, never dropped (agViewBelow.test.js)
   assert.deepStrictEqual(w.rl, [
     ['agjoin', AG_RATE.join.value], ['agspectate', AG_RATE.spectate.value], ['agtarget', AG_RATE.target.value],
     ['agsplit', AG_RATE.split.value], ['ageject', AG_RATE.eject.value], ['agq', AG_RATE.q.value],
@@ -313,7 +314,7 @@ test('10,000 random payloads never throw and never reach the sim with a bad valu
     if (/[<>]/.test(name)) return 'markup in a name';
     return null;
   });
-  const events = ['ag:join', 'ag:spectate', 'ag:target', 'ag:split', 'ag:eject', 'ag:q', 'ag:leave', 'ag:nope'];
+  const events = ['ag:join', 'ag:spectate', 'ag:target', 'ag:split', 'ag:eject', 'ag:q', 'ag:leave', 'ag:view', 'ag:nope'];
   const next = payloads(20261002);
   const socks = [sock(w), sock(w), sock(w)];
   const realError = console.error;
@@ -334,6 +335,7 @@ test('10,000 random payloads never throw and never reach the sim with a bad valu
   }
   assert.deepStrictEqual(bad, []);
   assert.deepStrictEqual(errors, []);
+  for (const v of w.a.viewBelow.values()) assert.ok(Number.isInteger(v) && v > 0 && v <= 2147483647, 'ag:view kept ' + v);
   for (const r of w.a.all()) {
     assert.strictEqual(r.failCount, 0);
     r.sim.forEachCell((c) => assert.ok(Number.isFinite(c.x) && Number.isFinite(c.y) && Number.isFinite(c.size)));

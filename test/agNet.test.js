@@ -134,9 +134,22 @@ test('send(kind, payload) maps agMain\'s kinds onto the events', () => {
   net.send('eject');
   net.send('q');
   net.send('leave');
+  net.send('view', { below: 102 });
   assert.strictEqual(net.send('nonsense'), false);
-  assert.deepStrictEqual(sock.emitted.map((e) => e[0]), ['ag:join', 'ag:spectate', 'ag:target', 'ag:split', 'ag:eject', 'ag:q', 'ag:leave']);
+  assert.deepStrictEqual(sock.emitted.map((e) => e[0]), ['ag:join', 'ag:spectate', 'ag:target', 'ag:split', 'ag:eject', 'ag:q', 'ag:leave', 'ag:view']);
   assert.deepStrictEqual(sock.emitted[2][1], { x: 1, y: 2 });
+  assert.deepStrictEqual(sock.emitted[7][1], { below: 102 });
+});
+
+test('ag:view sends a whole number, 0 or more, and nothing else', () => {
+  const sock = fakeSocket(true);
+  const net = N.createNet({ socket: sock });
+  for (const b of [-1, NaN, Infinity, '5', null, undefined, {}]) assert.strictEqual(net.sendView(b), false);
+  assert.strictEqual(sock.emitted.length, 0);
+  assert.strictEqual(net.sendView(0), true);
+  assert.strictEqual(net.sendView(101.9), true);
+  assert.deepStrictEqual(sock.emitted, [['ag:view', { below: 0 }], ['ag:view', { below: 101 }]]);
+  assert.strictEqual(N.EVENTS.view, 'ag:view');
 });
 
 test('nothing is sent while the socket is down', () => {

@@ -62,6 +62,7 @@ class AgArenas {
     this.rooms = [];                 // index order
     this.bySocket = new Map();       // socketId -> room
     this.cleared = new Set();        // socket ids whose page still holds a world from an earlier seat
+    this.viewBelow = new Map();      // socketId -> rows its page draws under the reference view (ag:view), > 0 only
     this.emptySince = new Map();     // room -> ms
     this._create(0);
   }
@@ -70,6 +71,7 @@ class AgArenas {
     const opts = {
       laws: this.laws, shippableOnly: this.shippableOnly, region: this.region, index,
       now: this.now, autoTick: this.autoTick, log: this.log,
+      viewBelowOf: (socketId) => this.viewBelow.get(socketId) || 0,
     };
     if (this.clock) opts.clock = this.clock;
     if (this.seed !== undefined && this.seed !== null) opts.seed = this.seed + index;
@@ -211,6 +213,17 @@ class AgArenas {
     return room ? room.q(socketId) : false;
   }
 
+  // ag:view: the rows the page draws under the reference view, in world units at zoom 1 (agSockets checks it is a
+  // whole number, 0 or more; the view caps it, law VIEW_BELOW). Kept per socket, seated or not, until it
+  // disconnects, so a move to another room or a Play after ag:leave keeps it; every room reads it through
+  // viewBelowOf when it builds that socket's view.
+  view(socketId, below) {
+    if (typeof socketId !== 'string') return false;
+    if (below > 0) this.viewBelow.set(socketId, below);
+    else this.viewBelow.delete(socketId);
+    return true;
+  }
+
   // ag:leave: the player and its cells go at once (LEAVE_RULE), the socket gets nothing more until it plays or
   // spectates again, and its next seat starts with clearAll.
   leave(socketId) {
@@ -228,6 +241,7 @@ class AgArenas {
     if (room) room.removeSocket(socketId);
     this.bySocket.delete(socketId);
     this.cleared.delete(socketId);
+    this.viewBelow.delete(socketId);
   }
 
   // Every 60 s from the server: an OVERFLOW room with no socket (not even a watcher) for SWEEP_IDLE_MS closes.

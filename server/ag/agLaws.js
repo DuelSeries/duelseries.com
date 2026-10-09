@@ -95,7 +95,8 @@ const ENTRIES = [
   law('K_WIRE_SIZE_MAX', 'Largest size the wire can carry', STATUS.KNOWN, 32767, 'size (i16 wire cap, not a game rule)',
     'protocol semantics 3.1; server laws F2'),
   law('K_VIEW_FLOOR', 'Least area the server must send around the camera', STATUS.KNOWN, { w: 1920, h: 1080 },
-    'world units at zoom 1, divided by the client zoom z', 'protocol semantics 13; server laws F5; camera-input 6.2'),
+    'world units at zoom 1, divided by the client zoom z; our page also draws the rows it reports on ag:view below ' +
+    'that (VIEW_BELOW), which the view adds to the box bottom', 'protocol semantics 13; server laws F5; camera-input 6.2'),
 
   // The world.
   measured('L1', 'Tick length (world updates)', TICK_MS, 'ms per tick',
@@ -109,7 +110,8 @@ const ENTRIES = [
     'ticks; ' + OTHER + ' 0.417 to 0.583). reflectBoost: CHOSEN, no launched piece hit a wall in either session'),
   approved(2, 'L4', 'Server view range', { baseW: 1920, baseH: 1080, pad: 100.6, ref: 64, exp: 0.4, minScale: 0.0417 },
     '{ baseW, baseH, pad, ref, exp, minScale }: half width (baseW + pad) / s / 2, ' +
-    's = max(pow(min(ref / sum size, 1), exp), minScale)',
+    's = max(pow(min(ref / sum size, 1), exp), minScale); the bottom edge alone also moves down by the rows the ' +
+    'page reports below the reference view, / s (VIEW_BELOW), so the pad stays past every edge the page draws',
     'server laws L4 (PS-U6). baseW, baseH: CLIENT, their view at zoom 1 (K_VIEW_FLOOR). pad: MEASURED, ' + FFA +
     ', 102.0 +- 2.7 across, 100.4 +- 1.1 down (2,634 view boxes, 15,725 updates, own sizes adding up to 32 to 752). ' +
     'ref, exp: MEASURED, exact. minScale: CHOSEN "no floor", the scale where the box already reaches past every map ' +
@@ -357,6 +359,15 @@ const ENTRIES = [
   law('WIRE_FLAGS', 'Which cell flags our server sets', STATUS.CHOSEN,
     { agitated: false, ejectedOnBlobs: true, flag40: false, party: false }, 'flags',
     'CHOSEN (PS-U4: our server sets ejected on blobs only)'),
+  // Owen 2026-10-08 ("size as if the strip were there"): our page sizes everything from the canvas their page would
+  // have above its 90 CSS px ad strip, draws on the whole window, and so shows extra map under their view. It reports
+  // those rows on ag:view (world units at zoom 1, whole, rounded up) and the view box bottom moves down by them / s.
+  law('VIEW_BELOW', 'Most extra view below the reference view a page may report', STATUS.CHOSEN, { cap: 180 },
+    '{ cap }: world units at zoom 1; the view box bottom moves down by min(reported, cap) / s',
+    'CHOSEN (V2 ghost strip, PARITY-LOG 2026-10-08): 180 = 90 / 0.5, the strip rows of a window whose layout factor ' +
+    'max(w / 1920, (h - 90) / 1080) is 0.5 (960 CSS px wide or 630 high), so every window that size or larger keeps ' +
+    'its whole pad below; a smaller one keeps the slack L4 gives under the reference view (at least 50.3 units) less ' +
+    'what it reports past the cap, and a page that reports more sees no further down than such a window'),
 ];
 
 function deepFreeze(v) {

@@ -111,8 +111,10 @@ class AgRoom {
   // stake: 0 in this build (money is out); kept so THE ONE RULE asks the room what it costs
   // clock: the monotonic clock the tick loop runs on; now: the wall clock (bot pause window)
   // autoTick: false in tests, which call wake() or tickOnce() themselves
+  // viewBelowOf(socketId): the rows that socket's page reports under the reference view (ag:view, world units at
+  // zoom 1), kept by the directory across rooms; every build hands it to the viewer (extra.below). Absent: 0
   constructor({ laws = LAWS, shippableOnly = true, stake = 0, region = 'na', index = 0, seed, clock = monotonicNow,
-    now = Date.now, autoTick = true, log = console } = {}) {
+    now = Date.now, autoTick = true, log = console, viewBelowOf = null } = {}) {
     if (shippableOnly) assertShippable(laws);
     const R = readRoomLaws(laws);
     this.laws = laws;
@@ -133,6 +135,7 @@ class AgRoom {
     this.now = now;
     this.autoTick = autoTick;
     this.log = log || console;
+    this.viewBelowOf = typeof viewBelowOf === 'function' ? viewBelowOf : null;
 
     const base = seed === undefined || seed === null ? crypto.randomInt(0, SEED_SPAN) : seed;
     this.rng = createRng(base);
@@ -526,6 +529,8 @@ class AgRoom {
       }
       const extra = {};
       if (boardDue) extra.board = this._rowsFor(ranking, seat);
+      const below = this.viewBelowOf ? this.viewBelowOf(seat.socketId) : 0;
+      if (below > 0) extra.below = below;
       if (seat.spectating && !this._alive(seat.pid)) {
         if (focus === undefined) focus = this._topFocus(ranking);
         if (focus) extra.focus = focus;

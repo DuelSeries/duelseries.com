@@ -26,7 +26,10 @@
 // s = max(pow(min(ref / sum of own sizes, 1), exp), minScale). A cell is in view when its disc's bounding box
 // touches that box (any part of a cell can be on screen, protocol semantics 13), and the player's own cells are
 // always in view (the client camera and score are built from them). The approved L4 must cover the least area the
-// client can show (K_VIEW_FLOOR); creation refuses one that does not.
+// client can show (K_VIEW_FLOOR); creation refuses one that does not. Our page draws more map under that view (Owen
+// 2026-10-08: sized as if their 90 px strip were there) and reports it on ag:view, in world units at zoom 1; the
+// room hands it to build as extra.below and only the box bottom moves, by min(below, VIEW_BELOW cap) / s, so the
+// pad stays past every edge the page draws.
 //
 // The sim, not this file, decides colours, names, ids and positions; this file only rounds x, y and size to wire
 // integers with the measured rule (U_ROUND 'trunc': toward zero, so -10.7 is -10) and maps cell kinds to wire flags
@@ -37,7 +40,8 @@
 const agWire = require('../../shared/agWire');
 const { assertLawsComplete } = require('./agLaws');
 
-const VIEW_LAW_IDS = Object.freeze(['K_VIEW_FLOOR', 'L4', 'L37', 'U_ROUND', 'U_EAT_REMOVE', 'WIRE_FLAGS']);
+const VIEW_LAW_IDS = Object.freeze(['K_VIEW_FLOOR', 'L4', 'L37', 'U_ROUND', 'U_EAT_REMOVE', 'WIRE_FLAGS',
+  'VIEW_BELOW']);
 const FRAME_LAW_IDS = Object.freeze(['U_ROUND', 'WIRE_FLAGS']);
 
 // Our wire's border mode for FFA (build brief section 8: mode 0 = FFA).
@@ -93,16 +97,27 @@ function checkViewLaw(v, floor) {
   return v;
 }
 
+// The VIEW_BELOW value shape (agLaws unit): { cap }, world units at zoom 1. Returns the cap.
+function checkBelowLaw(v) {
+  if (!v || typeof v !== 'object') throw new TypeError('agView: VIEW_BELOW must be { cap }');
+  finite(v.cap, 'VIEW_BELOW.cap');
+  if (v.cap < 0) throw new RangeError('agView: VIEW_BELOW cap must be 0 or more');
+  return v.cap;
+}
+
 // View scale s for a total own size (0 when the player has no cells, which gives s = 1 before any clamp).
 function scaleFor(sumSize, v) {
   const ratio = sumSize > 0 ? Math.min(v.ref / sumSize, 1) : 1;
   return Math.max(Math.pow(ratio, v.exp), v.minScale);
 }
 
-function viewBoxFor(cx, cy, s, v) {
+// below: world units at zoom 1 the page draws under the reference view (already capped by VIEW_BELOW; omitted or 0
+// on a page that draws none). Only the bottom edge moves, by below / s, the same scale the page draws them at.
+function viewBoxFor(cx, cy, s, v, below) {
   const hw = (v.baseW + v.pad) / s / 2;
   const hh = (v.baseH + v.pad) / s / 2;
-  return { minX: cx - hw, minY: cy - hh, maxX: cx + hw, maxY: cy + hh, cx, cy, scale: s };
+  const down = below > 0 ? below / s : 0;
+  return { minX: cx - hw, minY: cy - hh, maxX: cx + hw, maxY: cy + hh + down, cx, cy, scale: s };
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -519,6 +534,7 @@ function createViewer(playerId, opts) {
     throw new Error("agView: U_EAT_REMOVE '" + laws.U_EAT_REMOVE.value + "' is not supported; only 'sameBundle' " +
       'is built (a later-bundle rule needs its delay approved first)');
   }
+  const belowCap = checkBelowLaw(laws.VIEW_BELOW.value);
   const wireOpts = { maxNameBytes: nameByteCap(laws.L37.value) };
   agWire.bundleSize([], wireOpts);          // validates the name cap now, not on the first tick
 
@@ -536,9 +552,15 @@ function createViewer(playerId, opts) {
   //          it becomes the view centre and scale, and a cam record is sent with it every build it is given
   //   board: leaderboard rows for this player (law U_BOARD is the room's), appended as a board record
   //   sync:  send a sync record instead of world (every visible cell in full; the client drops the rest)
+  //   below: world units at zoom 1 the page draws under the reference view (its ag:view report, 0 when absent);
+  //          the box bottom moves down by min(below, VIEW_BELOW cap) / s
   // Every bundle built must reach the client: to skip a tick for a backed-up socket, do not call build.
   function build(frame, extra) {
     if (!frame || frame[FRAME_MARK] !== true) throw new TypeError('agView: build needs a frame from makeFrame');
+    const below = extra && extra.below !== undefined ? extra.below : 0;
+    if (typeof below !== 'number' || !Number.isFinite(below) || below < 0) {
+      throw new TypeError('agView: below must be a finite number of world units, 0 or more');
+    }
     const focus = extra && extra.focus;
     const board = extra && extra.board;
     const sync = !!(extra && extra.sync) || syncNext;
@@ -575,7 +597,7 @@ function createViewer(playerId, opts) {
       centre = { x: (frame.border.minX + frame.border.maxX) / 2, y: (frame.border.minY + frame.border.maxY) / 2,
         s: scaleFor(0, view) };
     }
-    box = viewBoxFor(centre.x, centre.y, centre.s, view);
+    box = viewBoxFor(centre.x, centre.y, centre.s, view, Math.min(below, belowCap));
 
     const stamp = ++stampCounter;
     const visible = [];
