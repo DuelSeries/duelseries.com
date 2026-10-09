@@ -1321,7 +1321,17 @@ app.get('/api/my-transactions', async (req, res) => {
   }
 });
 
-app.use((req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
+/* no-store everywhere, deliberately (public/sw.js says why: a stored copy is how
+   a phone shows yesterday's balance or an old staking client). One exception,
+   Owen's pick (2026-10-08): agar.io's client scripts are no-cache. The browser
+   may keep a copy but must ask before every use; express.static answers with
+   the ETag it already sends and a 304 when nothing changed, so a repeat visit
+   skips the download and can still never run a stale build. */
+const revalidate = (p) => p.startsWith('/js/ag/');
+app.use((req, res, next) => {
+  res.setHeader('Cache-Control', revalidate(req.path) ? 'no-cache' : 'no-store');
+  next();
+});
 
 /* The lobby. Declared BEFORE express.static, which would otherwise serve a
    file for '/' and win.

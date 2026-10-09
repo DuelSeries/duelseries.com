@@ -3039,17 +3039,27 @@ function repaintAll(){
    loop checks reduced-motion itself and leaves the scenes as still art. */
 const RM=matchMedia('(prefers-reduced-motion: reduce)');
 let _last=0;
-/* Declared above the loop, not beside the pause functions below it: the loop is
-   an IIFE that runs on this line, so a `let` after it is still in its temporal
+/* Declared above the loop, not beside the pause functions below it: the loop
+   first runs where it is written, so a `let` after it is still in its temporal
    dead zone when the first frame reads it, and the whole script dies there. */
 let _paused=false;
-/* Beside _paused and ABOVE the loop for the same reason it documents: the loop
-   is an IIFE that runs where it is written, so a let declared after it is still
-   in its temporal dead zone when the first frame reads it. */
+/* Whether a frame is queued for the loop. Beside _paused and ABOVE the loop for
+   the same reason it documents: the loop first runs on the line it is written,
+   so a let declared after it is still in its temporal dead zone then.
+   While a game is up the loop stops asking for frames altogether. It used to
+   re-arm every frame and return at once: 240 empty callbacks a second on a
+   240 Hz panel (measured headless here, 2026-10-08), all on the main thread
+   the game frame renders on. _resumeLobbyAnims re-arms it only while this is
+   false, so a second resume, or one that lands before the paused loop has run
+   once more, can never start a second loop beside the first. */
+let _rafOn=true;
 
-(function loop(t){
-  const dt=Math.min(3,(t-_last)/16.67||1); _last=t;
-  if(_paused){requestAnimationFrame(loop);return}   // the game owns the thread
+function lobbyLoop(t){
+  /* Math.max(0,...): the first frame after a resume can be stamped a hair
+     before the performance.now() the resume recorded, and a negative step
+     would run every scene backwards for a frame. It counts as a first frame. */
+  const dt=Math.min(3,Math.max(0,(t-_last)/16.67)||1); _last=t;
+  if(_paused){_rafOn=false;return}   // the game owns the thread: stop asking
   /* offsetParent is null for anything inside a hidden screen. Without this the
      game screen's backdrop kept simulating while you were on the home tab. */
   document.querySelectorAll('canvas[data-anim]').forEach(cv=>{if(!cv.offsetParent)return;try{
@@ -3067,8 +3077,9 @@ let _paused=false;
   document.querySelectorAll('canvas[data-look]').forEach(cv=>{
     if(cv.offsetParent)try{paintLook(cv)}catch(e){}
   });
-  requestAnimationFrame(loop);
-})(0);
+  requestAnimationFrame(lobbyLoop);
+}
+lobbyLoop(0);
 RM.addEventListener('change',repaintAll);
 
 /* ── pausing everything while the game is up ──────────────────────────────
@@ -3078,7 +3089,7 @@ RM.addEventListener('change',repaintAll);
    lobby's preview snake, not the netcode. So every moving thing here stops
    before the frame is shown and restarts when it closes. The live lobby
    publishes the same two globals; the widget and the game rely on them.
-   (_paused itself is declared above the frame loop, which reads it.) */
+   (_paused and _rafOn are declared above the frame loop, which reads them.) */
 window._pauseLobbyAnims=()=>{
   _paused=true;
   document.body.classList.add('ingame');      // freezes the ticker's CSS animation
@@ -3086,6 +3097,10 @@ window._pauseLobbyAnims=()=>{
 };
 window._resumeLobbyAnims=()=>{
   _paused=false;
+  /* The paused loop asked for no further frame, so this restarts it. Only when
+     it really stopped (see _rafOn): play.js can pause twice, and a resume can
+     come before the queued frame has noticed the pause. */
+  if(!_rafOn){_rafOn=true;_last=performance.now();requestAnimationFrame(lobbyLoop)}
   document.body.classList.remove('ingame');
   if(window.V2Board)V2Board.start();
   repaintAll();
@@ -3885,9 +3900,17 @@ drawNav();V2Wallet.render();drawRail();drawTicker();V2Board.start();
         style="display:none;position:fixed;inset:0;width:100%;height:100%;border:0;z-index:300;background:#000"></iframe>
 <!-- agar.io launches into its own frame. The widget has always looked up
      'agar-frame' by name for a cell game and this lobby never had one, so
-     pressing Play on agar.io found no frame and silently did nothing. -->
+     pressing Play on agar.io found no frame and silently did nothing.
+     The border is the phone's safe area (notch, rounded corners, home bar),
+     painted black, so the game and its buttons sit inside it instead of 16 px
+     from a notch that is 47 px deep. A border rather than an inset box: it is
+     part of the frame, so a tap in that strip still reaches the game and never
+     the lobby underneath. The insets are zero on a desktop, where this frame is
+     exactly the window. ag.css must not add env() offsets of its own: Chrome
+     reports the full insets inside the frame too, so they would count twice.
+     (agario-reference polish FIX-PLAN P2, finding PH3.) -->
 <iframe id="agar-frame" title="DuelSeries game" allow="autoplay; fullscreen"
-        style="display:none;position:fixed;inset:0;width:100%;height:100%;border:0;z-index:300;background:#000"></iframe>
+        style="display:none;position:fixed;inset:0;width:100%;height:100%;box-sizing:border-box;border-style:solid;border-color:#000;border-width:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px);z-index:300;background:#000"></iframe>
 
 <!-- Self-custody wallet widget (Privy embedded). React island; the lobby stays
      vanilla and only reads the globals it publishes. The node-global shims must

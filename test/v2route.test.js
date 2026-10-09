@@ -259,8 +259,103 @@ test('the lobby pauses its animations while the game is up', () => {
   assert.ok(html.includes('body.ingame .tkrun'), 'the ticker stops too');
   // _paused must be declared before the frame loop that reads it, or the whole
   // script dies in the temporal dead zone on the first frame.
-  assert.ok(html.indexOf('let _paused=false;') < html.indexOf('(function loop(t){'),
-    '_paused is declared above the loop');
+  const loopAt = html.indexOf('function lobbyLoop(t){');
+  assert.ok(loopAt > 0, 'the frame loop is where this test expects it');
+  assert.ok(html.indexOf('let _paused=false;') < loopAt, '_paused is declared above the loop');
+  assert.ok(html.indexOf('let _rafOn=true;') < loopAt, 'and so is _rafOn, which it also reads');
+});
+
+/* The frame loop and the two hooks, run for real in a sandbox: the slice of the
+   page from `let _last=0;` to the end of _resumeLobbyAnims, with a hand-cranked
+   requestAnimationFrame. FIX-PLAN S6: while a game is up the loop must stop
+   asking for frames (it used to re-arm 240 times a second and return), and a
+   resume must restart exactly one loop however the calls interleave. */
+function lobbyLoopSandbox() {
+  const html = v2();
+  const from = html.indexOf('let _last=0;');
+  const resumeAt = html.indexOf('window._resumeLobbyAnims=');
+  const to = html.indexOf('\n};', resumeAt) + 3;
+  assert.ok(from > 0 && resumeAt > from && to > resumeAt, 'the loop slice is where this test expects it');
+  const queue = [], dts = [];
+  const ctx = {
+    clock: 0, lookT: 0, queue, dts,
+    requestAnimationFrame: (f) => { queue.push(f); return queue.length; },
+    performance: { now: () => ctx.clock },
+    RM: { addEventListener() {} },
+    repaintAll() {},
+    paintScene(cv, dt) { dts.push(dt); },
+    paintLook() {},
+    document: {
+      body: { classList: { add() {}, remove() {}, contains() { return false; } } },
+      querySelectorAll: (sel) => (sel === 'canvas[data-anim]' ? [{ offsetParent: {} }] : []),
+    },
+    Math,
+  };
+  ctx.window = ctx;
+  vm.createContext(ctx);
+  vm.runInContext(html.slice(from, to), ctx);
+  // Run every frame that is queued now, stamped t.
+  const frame = (t) => { const due = queue.splice(0); due.forEach((f) => f(t)); return due.length; };
+  return { ctx, queue, dts, frame };
+}
+
+test('the lobby frame loop stops asking for frames while a game is up', () => {
+  const { ctx, queue, frame } = lobbyLoopSandbox();
+  assert.equal(queue.length, 1, 'the loop starts itself and queues one frame');
+  frame(16.7); frame(33.4);
+  assert.equal(queue.length, 1, 'and keeps exactly one queued while the lobby is showing');
+  ctx.window._pauseLobbyAnims();
+  assert.equal(frame(50), 1, 'the frame already queued still runs once');
+  assert.equal(queue.length, 0, 'but it queues no other: zero callbacks while the game is up');
+  ctx.window._pauseLobbyAnims();          // play.js can pause a second time
+  assert.equal(queue.length, 0, 'a second pause changes nothing');
+  ctx.clock = 5000;
+  ctx.window._resumeLobbyAnims();
+  assert.equal(queue.length, 1, 'closing the game restarts the loop');
+  ctx.window._resumeLobbyAnims();
+  assert.equal(queue.length, 1, 'a second resume does not start a second loop');
+  frame(5016.7); frame(5033.4);
+  assert.equal(queue.length, 1, 'and the lobby animates again, one loop');
+});
+
+test('a resume before the paused frame has run starts no second loop', () => {
+  const { ctx, queue, frame } = lobbyLoopSandbox();
+  ctx.window._pauseLobbyAnims();
+  ctx.window._resumeLobbyAnims();         // the queued frame has not seen the pause yet
+  assert.equal(queue.length, 1, 'still the one frame that was queued');
+  frame(16.7);
+  assert.equal(queue.length, 1, 'which carries on as the only loop');
+});
+
+test('the first frame after a resume never steps the scenes backwards', () => {
+  const { ctx, dts, frame } = lobbyLoopSandbox();
+  ctx.window._pauseLobbyAnims();
+  frame(100);                              // the loop stops here
+  ctx.clock = 2000;
+  ctx.window._resumeLobbyAnims();
+  dts.length = 0;
+  frame(1999.5);                           // stamped a hair before the resume
+  assert.deepEqual(dts, [1], 'counted as one ordinary frame, not a negative one');
+  frame(2016.2);
+  assert.ok(Math.abs(dts[1] - 1) < 0.01, 'and the next frame is one frame long');
+});
+
+test('agar.io frame keeps the game inside the phone safe area', () => {
+  /* FIX-PLAN P2 (PH3): the safe-area insets are a black border on the frame,
+     so the game's own 16 px button gaps are measured from the notch and the
+     home bar rather than from the glass, and a tap in the strip lands on the
+     frame. With zero insets (a desktop) the frame is the whole window. */
+  const html = v2();
+  const tag = html.slice(html.indexOf('<iframe id="agar-frame"'));
+  const style = tag.slice(tag.indexOf('style="') + 7, tag.indexOf('"', tag.indexOf('style="') + 7));
+  for (const want of ['position:fixed', 'inset:0', 'width:100%', 'height:100%', 'box-sizing:border-box',
+    'border-style:solid', 'border-color:#000',
+    'border-width:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px)']) {
+    assert.ok(style.includes(want), 'agar-frame style has ' + want);
+  }
+  assert.ok(!/border:0/.test(style), 'and no border:0 left to cancel it');
+  assert.ok(/<meta name="viewport"[^>]*viewport-fit=cover/.test(html),
+    'the page opts into the full screen, without which every inset reads 0');
 });
 
 test('the game iframe keeps the id the wallet widget looks up', () => {
@@ -405,6 +500,45 @@ test('the service worker exists and caches nothing', () => {
   assert.ok(/addEventListener\('fetch'/.test(sw), 'has a fetch handler, which is what Chrome checks');
   assert.ok(!/cache\.put|caches\.open/.test(sw), 'and never writes to a cache');
   assert.ok(/caches\.delete/.test(sw), 'and clears any cache a previous version left');
+});
+
+test('agar.io client scripts revalidate; everything else stays no-store', () => {
+  /* Owen's pick (2026-10-08): /js/ag is no-cache, so a repeat visit gets a 304
+     on the ETag express.static already sends, and never runs a stale build.
+     The rest of the site keeps no-store (see public/sw.js for why). */
+  const src = server();
+  assert.match(src, /const revalidate = \(p\) => p\.startsWith\('\/js\/ag\/'\);/, 'only /js/ag/ revalidates');
+  assert.match(src, /res\.setHeader\('Cache-Control', revalidate\(req\.path\) \? 'no-cache' : 'no-store'\)/,
+    'no-cache there, no-store for everything else');
+  assert.ok(src.indexOf("revalidate(req.path) ? 'no-cache'") < src.indexOf("app.use(express.static(path.join(__dirname, '../public')))"),
+    'set before express.static, which keeps a Cache-Control that is already there');
+});
+
+test('the service worker hands socket.io straight back to the browser', async () => {
+  /* FIX-PLAN S7: every game's long-polling went through this worker for
+     nothing. Run the real fetch listener against fake requests. */
+  const src = fs.readFileSync(path.join(ROOT, 'public/sw.js'), 'utf8');
+  const listeners = {};
+  const fetched = [];
+  const ctx = {
+    self: { addEventListener: (type, fn) => { listeners[type] = fn; }, skipWaiting() {}, clients: { claim: async () => {} } },
+    caches: { keys: async () => [], delete: async () => true },
+    fetch: (req) => { fetched.push(req.url); return Promise.resolve('net'); },
+    URL,
+  };
+  vm.createContext(ctx);
+  vm.runInContext(src, ctx);
+  const run = (url) => {
+    let answered = false;
+    listeners.fetch({ request: { url }, respondWith() { answered = true; } });
+    return answered;
+  };
+  assert.equal(run('https://duelseries.com/socket.io/?EIO=4&transport=polling&t=abc'), false, 'socket.io polling is left alone');
+  assert.equal(run('https://duelseries.com/ag-io/?EIO=4&transport=polling'), false, 'and so is agar.io\'s own path');
+  assert.equal(run('https://duelseries.com/socket.io/socket.io.js'), false, 'the client script too: same path, nothing to gain');
+  assert.equal(run('https://duelseries.com/js/ag/agMain.js'), true, 'everything else still goes through the handler');
+  assert.equal(run('https://duelseries.com/'), true, 'including the page, which Chrome needs for an installed app');
+  assert.match(src, /const SW_VERSION = \d+;/, 'carries a version, so an edit reaches phones holding the old worker');
 });
 
 test('the game screen puts the action above the lobby list', () => {
