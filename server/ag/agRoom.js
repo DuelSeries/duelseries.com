@@ -1,6 +1,15 @@
 'use strict';
-// One free agar.io FFA room (build brief 6, 9.1, 9.3; Phase 3 of the plan): the sim (agSim), what each socket is
-// sent (agView over shared/agWire.js), the bots (agBots) and the clock. No money lives here: this build is free.
+// One agar.io FFA room (build brief 6, 9.1, 9.3; Phase 3 of the plan): the sim (agSim), what each socket is sent
+// (agView over shared/agWire.js), the bots (agBots) and the clock. A FREE room (stake 0) holds no money. A PAID room
+// (stake > 0, PAID-AGAR-DESIGN.md 5.2) adds its money controller (agMoney); every paid branch below sits behind
+// `if (this.money)`, so the free room runs exactly as before.
+//
+// Hold-Q cash-out (Owen 2026-10-08, every room, free included): ag:hold from a live player locks its movement at once
+// (the sim's still set: no steering, split and eject refused), and after HOLD_TICKS held ticks with a live cell the run
+// ends. Free: the cells go (sim.clearCells) and the page is told ag:cashedout { free: true } (results screen, no
+// money). Paid: agMoney cashes the account out 90/10. Let go early and nothing happens; the player stays edible while
+// holding, and the eats of the completing tick run first, so death wins a same-tick tie. The parity streams never hold
+// Q, so none of this runs there.
 //
 // The room refuses to open on a law table that is not shippable (assertShippable), and the sim refuses an approved
 // rule it has not built yet, so production cannot open a room on a row that is not settled and built. Tests and the
@@ -35,6 +44,7 @@ const agView = require('./agView');
 const agBots = require('./agBots');
 const { createRng } = require('./agRng');
 const { TickTimer } = require('../tickTimer');
+const { AgMoney, AG_MONEY } = require('./agMoney');
 
 const ROOM_LAW_IDS = Object.freeze([
   'L1', 'L4', 'L37', 'L39', 'U_BOARD', 'U_SPECTATE', 'WIRE_BACKLOG', 'LEAVE_RULE', 'BOT_FILL',
@@ -115,8 +125,12 @@ class AgRoom {
   // zoom 1), kept by the directory across rooms; every build hands it to the viewer (extra.below). Absent: 0
   // portraitOf(socketId): true while that socket's page plays the phone portrait layout (ag:portrait, as the
   // directory settled it); every build hands it to the viewer (extra.portrait). Absent: false
+  // moneyHooks (paid rooms only, required there): agMoney's hooks, built by the directory (payout, collusion, the
+  // one-seat-per-wallet map, remembered outcomes). onSeatless(socket, room, outcome): the directory forgets a paid
+  // socket whose account just closed (death, cash-out, release, refund) or that another socket replaced.
   constructor({ laws = LAWS, shippableOnly = true, stake = 0, region = 'na', index = 0, seed, clock = monotonicNow,
-    now = Date.now, autoTick = true, log = console, viewBelowOf = null, portraitOf = null } = {}) {
+    now = Date.now, autoTick = true, log = console, viewBelowOf = null, portraitOf = null, moneyHooks = null,
+    onSeatless = null } = {}) {
     if (shippableOnly) assertShippable(laws);
     const R = readRoomLaws(laws);
     this.laws = laws;
@@ -142,7 +156,26 @@ class AgRoom {
 
     const base = seed === undefined || seed === null ? crypto.randomInt(0, SEED_SPAN) : seed;
     this.rng = createRng(base);
-    this.sim = createSim({ laws, seed: this.rng.int(SEED_SPAN) });
+    // The hold-Q freeze (every room) and, in a paid room, the shield (design 3.3): Sets the sim reads and the room
+    // (free hold) or agMoney (paid) writes. Both empty: the sim runs exactly as it did without them.
+    this.still = new Set();
+    this.shielded = null;
+    this.money = null;
+    this.onSeatless = typeof onSeatless === 'function' ? onSeatless : null;
+    this._holders = new Set();  // free rooms: seats with a hold message or a running hold
+    if (this.paid) {
+      if (!moneyHooks || typeof moneyHooks !== 'object') fail('a paid room needs its money hooks');
+      this.shielded = new Set();
+      this.sim = createSim({ laws, seed: this.rng.int(SEED_SPAN), paid: { shielded: this.shielded, still: this.still } });
+      this.money = new AgMoney({
+        sim: this.sim, stake: this.stake, label: this.lobbyType, hooks: moneyHooks, shielded: this.shielded,
+        still: this.still, now, log: this.log,
+        tell: (socketId, event, payload) => this._tell(socketId, event, payload),
+        onClosed: (acct, outcome, extra) => this._paidClosed(acct, outcome, extra),
+      });
+    } else {
+      this.sim = createSim({ laws, seed: this.rng.int(SEED_SPAN), still: this.still });
+    }
 
     this.seats = new Map();     // socketId -> seat
     this.bots = new Map();      // sim pid -> { pid, name, brain, manual }
@@ -183,8 +216,11 @@ class AgRoom {
     return this.isFree();
   }
 
-  // Humans who have joined (pressed Play at least once and not left). Watchers are not players.
+  // Humans who have joined (pressed Play at least once and not left). Watchers are not players. In a paid room:
+  // every open account, away (grace, dormant) and frozen ones included, so the L39 cap, the lobby row and rule 4b
+  // count parked money (design 5.2).
   get liveHumans() {
+    if (this.money) return this.money.openCount();
     let n = 0;
     for (const s of this.seats.values()) if (s.joined) n++;
     return n;
@@ -198,8 +234,10 @@ class AgRoom {
     return this.bots.size;
   }
 
-  // What ops.drainStatus reads: live humans, none of them holding money (this build is free).
+  // What ops.drainStatus reads: live humans; a free room's hold no money, a paid room's every open account with its
+  // real worth (agMoney.snakes).
   get snakes() {
+    if (this.money) return this.money.snakes;
     const m = new Map();
     for (const s of this.seats.values()) {
       if (!s.joined) continue;
@@ -208,17 +246,33 @@ class AgRoom {
     return m;
   }
 
+  // The solvency sum's share of this room, in dollars (0 in a free room), and floor money (none in agar).
+  liveStakeTotal() {
+    return this.money ? this.money.liveStakeTotal() : 0;
+  }
+
+  get floorWorth() {
+    return this.money ? this.money.floorWorth : undefined;
+  }
+
+  // Open paid accounts (0 in a free room): a room with any never idles, sweeps or stops ticking (design 5.2).
+  openAccounts() {
+    return this.money ? this.money.openCount() : 0;
+  }
+
   hasSpace() {
     return !this.stopped && this.liveHumans < this.cap;
   }
 
-  // Seated sockets that have not joined (on the menu before their first Play).
+  // Seated sockets that have not joined (on the menu before their first Play). A paid room has no watchers.
   get watcherCount() {
+    if (this.money) return 0;
     return this.seats.size - this.liveHumans;
   }
 
-  // A watcher seat is free (ROOM_TUNING WATCHERS_PER_SLOT).
+  // A watcher seat is free (ROOM_TUNING WATCHERS_PER_SLOT). Never in a paid room (no ghosting, design 8 #13).
   hasWatchSpace() {
+    if (this.money) return false;
     return !this.stopped && this.watcherCount < this.watchCap;
   }
 
@@ -290,36 +344,190 @@ class AgRoom {
   // needs a free player slot instead. Returns the seat, or null when the room is stopped or has no seat for it.
   addSocket(socket, opts) {
     if (this.stopped || !socket || typeof socket.id !== 'string') return null;
+    if (this.money) return null;   // a paid seat is made only by the door (addPaidHuman, resumePaid)
     const had = this.seats.get(socket.id);
     if (had) return had;
     if (opts && opts.forPlay ? !this.hasSpace() : !this.hasWatchSpace()) return null;
     const pid = this.sim.addPlayer({ name: '', bot: false });
+    const seat = this._newSeat(socket, pid, !!(opts && opts.clearFirst));
+    this._ensureTicking();
+    return seat;
+  }
+
+  _newSeat(socket, pid, clearFirst) {
     const seat = {
       socketId: socket.id, socket, pid, viewer: agView.createViewer(pid, { laws: this.laws }),
       joined: false, spectating: false, stalled: false, spawnQueued: false, name: '',
-      clearFirst: !!(opts && opts.clearFirst),
+      clearFirst: clearFirst === true,
+      holdAt: 0, holding: false, holdTicks: 0,   // the free room's hold-Q state (a paid seat's lives in agMoney)
     };
     this.seats.set(socket.id, seat);
-    this._ensureTicking();
     return seat;
   }
 
   // The socket goes (disconnect, ag:leave, a move to another room): its player and cells are removed at once
   // (LEAVE_RULE 'removeAtOnce': cells go at the next step; a player with none goes from the sim right away, so a
   // room with no seat left, which runs no step, keeps nothing of it). Returns the socket, or null.
+  // In a paid room a seat with an open account keeps its player: the account goes into its disconnect grace (an
+  // unconfirmed one is refunded at once), and the room keeps ticking while any account is open (design 5.2).
   removeSocket(socketId) {
     const seat = this.seats.get(socketId);
     if (!seat) return null;
     this.seats.delete(socketId);
-    this.sim.removePlayer(seat.pid);
-    if (!this.seats.size) this._goIdle();
+    const acct = this.money ? this.money.account(seat.pid) : null;
+    if (acct && acct.socketId === socketId) this.money.beginGrace(seat.pid);
+    else if (!acct) this.sim.removePlayer(seat.pid);
+    if (!this.seats.size && !this.openAccounts()) this._goIdle();
     return seat.socket;
+  }
+
+  // ---------------------------------------------------------------------------------------------------------
+  // Paid seats (design 5.2). Only the paid door (agPaidDoor) calls these.
+
+  // A bought seat: a spawn point clear of every cell that could eat it (design 3.3.5), the seat, the account
+  // (unconfirmed: shielded and still until ag:ready), the spawn. Returns the account, or 'stopped', 'full', 'seated'
+  // (this socket already sits here) or 'no-room' (no clear point), with nothing opened. Throws only after cleaning up
+  // (no seat, no player, no account), for the door to refund.
+  // entry: { name, micro, wallet, paid, proof, ip } (micro and wallet from the consumed token only)
+  addPaidHuman(socket, entry) {
+    if (!this.money) throw new Error('agRoom: addPaidHuman in a free room');
+    if (this.stopped) return 'stopped';
+    if (!socket || typeof socket.id !== 'string') throw new Error('agRoom: addPaidHuman needs a socket');
+    if (this.seats.has(socket.id)) return 'seated';
+    if (!this.hasSpace()) return 'full';
+    const e = entry || {};
+    const pt = this.sim.findSpawnPoint(this.sim.startSize(), AG_MONEY.SPAWN_CLEAR.value, AG_MONEY.SPAWN_TRIES.value);
+    if (!pt) return 'no-room';
+    const name = typeof e.name === 'string' ? e.name : '';
+    const pid = this.sim.addPlayer({ name, bot: false });
+    const seat = this._newSeat(socket, pid, true);
+    seat.joined = true;
+    seat.name = name;
+    let acct = null;
+    try {
+      acct = this.money.open({ pid, socketId: socket.id, wallet: e.wallet, name, micro: e.micro, paid: e.paid,
+        proof: e.proof, ip: e.ip });
+      if (!this.sim.spawn(pid, name, pt)) throw new Error('spawn refused');
+    } catch (err) {
+      if (acct && this.money.account(pid)) this.money.abort(pid);
+      if (this.seats.get(socket.id) === seat) this.seats.delete(socket.id);
+      this.sim.removePlayer(pid);
+      throw err;
+    }
+    this._ensureTicking();
+    return acct;
+  }
+
+  // A socket takes an open account back (design 3.4 resume): by its resume key, by the entry token of an unconfirmed
+  // seat (byToken), or by a new token from the same wallet. The socket that held it, if any, is told ag:replaced and
+  // loses its seat. A frozen account cannot be taken. The page is sent ag:joined { resumed: true } and a fresh view
+  // (clearAll first). True when the socket now holds the seat.
+  resumePaid(socket, pid, opts) {
+    if (!this.money || this.stopped || !socket || typeof socket.id !== 'string') return false;
+    const acct = this.money.account(pid);
+    if (!acct || acct.state === 'frozen') return false;
+    if (opts && opts.byToken && acct.state !== 'unconfirmed') return false;
+    if (this.seats.has(socket.id)) return false;    // this socket sits here already (the door drops that first)
+    const prev = acct.socketId;
+    if (prev && prev !== socket.id) {
+      const old = this.seats.get(prev);
+      if (old && old.pid === pid) {
+        this.seats.delete(prev);
+        this._emit(old.socket, 'ag:replaced', {});
+        if (this.onSeatless) this._safe(() => this.onSeatless(old.socket, this, 'replaced'));
+      }
+    }
+    if (this.money.resume(pid, socket.id) === false) return false;
+    const seat = this._newSeat(socket, pid, true);
+    seat.joined = true;
+    seat.name = acct.name;
+    this._ensureTicking();
+    this._emit(socket, 'ag:joined', this.joinedPayload(acct, true));
+    return true;
+  }
+
+  // What ag:joined carries (design 4 step 4): the resume key (the page keeps it in sessionStorage), the rung, the
+  // seat's money and the hold length the ring fills over.
+  joinedPayload(acct, resumed) {
+    return { stake: this.stake, micro: this.money.balance(acct.pid), resumeKey: acct.resumeKey, resumed: !!resumed,
+      confirmed: acct.state !== 'unconfirmed', holdTicks: AG_MONEY.HOLD_TICKS.value, tickMs: this.tickMs };
+  }
+
+  // ag:ready (design 3.4 confirm): the page drew a frame with its own cell; the shield and the freeze go.
+  ready(socketId) {
+    if (!this.money) return false;
+    const seat = this.seats.get(socketId);
+    if (!seat) return false;
+    return this.money.confirm(seat.pid, socketId);
+  }
+
+  // ag:hold { on } (Owen 2026-10-08). Free: a live joined player only; paid: agMoney decides (a confirmed live account
+  // with its socket attached and a live cell).
+  hold(socketId, on) {
+    const seat = this.seats.get(socketId);
+    if (!seat || !seat.joined) return false;
+    if (this.money) return this.money.setHold(seat.pid, socketId, on === true);
+    if (on === true) {
+      if (seat.spawnQueued || !this._alive(seat.pid)) return false;
+      seat.holdAt = this.now();
+      this._holders.add(seat);
+    } else {
+      seat.holdAt = 0;
+    }
+    return true;
+  }
+
+  // The seat of a paid account the controller just closed (agMoney onClosed): the page hears what happened, the
+  // seat goes (the socket is seatless now: the directory is told) and so does the sim player (a player with cells
+  // left goes at the next step, before any eat).
+  _paidClosed(acct, outcome, extra) {
+    const seat = acct.socketId ? this.seats.get(acct.socketId) : null;
+    if (seat && seat.pid === acct.pid) {
+      this.seats.delete(seat.socketId);
+      const x = extra || {};
+      if (outcome === 'eaten') this._emit(seat.socket, 'ag:dead', { lostMicro: x.lostMicro || 0, by: x.by || '' });
+      else if (outcome === 'released') {
+        this._emit(seat.socket, 'ag:refused', { why: x.why || 'released', refunded: !!x.refunded });
+      } else if (outcome === 'refunded') {
+        this._emit(seat.socket, 'ag:closed', { refundedMicro: x.refundedMicro || 0, why: x.why || 'emergency' });
+      } else if (outcome === 'frozen-settled') {
+        this._emit(seat.socket, 'ag:closed', { refundedMicro: 0, why: outcome });
+      }
+      // 'cashedout' and 'settled': the payout tells the page (ag:cashedout, then ag:paid or ag:payerror).
+      // 'aborted': the seat never opened (the door refuses and refunds it).
+      if (this.onSeatless && outcome !== 'aborted') this._safe(() => this.onSeatless(seat.socket, this, outcome));
+    }
+    this.sim.removePlayer(acct.pid);
+  }
+
+  _tell(socketId, event, payload) {
+    const seat = socketId ? this.seats.get(socketId) : null;
+    if (seat) this._emit(seat.socket, event, payload);
+  }
+
+  _emit(socket, event, payload) {
+    if (!socket || typeof socket.emit !== 'function') return;
+    try {
+      socket.emit(event, payload);
+    } catch (e) {
+      this.log.error('[AG] emit ' + event, e && e.message);
+    }
+  }
+
+  _safe(fn) {
+    try {
+      fn();
+    } catch (e) {
+      this.log.error('[AG] directory hook', e && e.stack ? e.stack : e);
+    }
   }
 
   // Play. 'ok' (spawn queued for the next step), 'alive' (already playing: nothing changes, so a repeated Play
   // can never rename a live player), 'full' (the room has no player slot), 'none' (no seat), 'stopped'.
+  // 'paid': a paid room never takes a Play (a paid seat is bought at the door; a dead seat is gone).
   join(socketId, name) {
     if (this.stopped) return 'stopped';
+    if (this.money) return 'paid';
     const seat = this.seats.get(socketId);
     if (!seat) return 'none';
     if (!seat.joined && this.liveHumans >= this.cap) return 'full';
@@ -335,28 +543,50 @@ class AgRoom {
 
   // Spectate (their op 1): only without live cells (a seated live player cannot spectate).
   spectate(socketId) {
+    if (this.money) return false;    // no spectate on a paid rung, a dead seat included (design 8 #13)
     const seat = this.seats.get(socketId);
     if (!seat || seat.spawnQueued || this._alive(seat.pid)) return false;
     seat.spectating = true;
     return true;
   }
 
-  // The mouse target in world units (integers, checked by agSockets).
+  // Paid inputs count only from a confirmed live account (targets before ag:ready are ignored, design 4 step 5).
+  _paidInputOk(seat) {
+    const acct = this.money.account(seat.pid);
+    return !!(acct && acct.state === 'live' && acct.socketId === seat.socketId);
+  }
+
+  // A held player is still and cannot split or eject (Owen 2026-10-08): free seats here, paid ones in agMoney.
+  _holdingNow(seat) {
+    if (this.money) {
+      const acct = this.money.account(seat.pid);
+      return !!(acct && acct.holding);
+    }
+    return seat.holding === true;
+  }
+
+  // The mouse target in world units (integers, checked by agSockets). Kept while holding (the sim skips steering), so
+  // a released hold carries on toward the mouse.
   target(socketId, x, y) {
     const seat = this.seats.get(socketId);
     if (!seat || !seat.joined) return false;
+    if (this.money && !this._paidInputOk(seat)) return false;
     return this.sim.setInput(seat.pid, { x, y });
   }
 
   split(socketId) {
     const seat = this.seats.get(socketId);
     if (!seat || !seat.joined) return false;
+    if (this.money && !this._paidInputOk(seat)) return false;
+    if (this._holdingNow(seat)) return false;
     return this.sim.split(seat.pid);
   }
 
   eject(socketId) {
     const seat = this.seats.get(socketId);
     if (!seat || !seat.joined) return false;
+    if (this.money && !this._paidInputOk(seat)) return false;
+    if (this._holdingNow(seat)) return false;
     return this.sim.eject(seat.pid);
   }
 
@@ -386,9 +616,14 @@ class AgRoom {
   }
 
   _step() {
+    if (this.money) this.money.holdTick();
+    else if (this._holders.size) this._holdTickFree();
     this._thinkBots();
     const ev = this.sim.step();
     for (const s of this.seats.values()) s.spawnQueued = false;
+    // Money after the step, in sim order (design 3.4); free holds after the eats too, so death wins a tie.
+    if (this.money) this.money.afterStep(ev);
+    else if (this._holders.size) this._holdDoneFree();
     for (const bot of this.bots.values()) {
       if (!this._alive(bot.pid)) this.sim.spawn(bot.pid, bot.name);   // a dead bot is back on the next step
     }
@@ -396,6 +631,56 @@ class AgRoom {
     this._send(ev);
     this._sendEnd = this.clock();
     this.stats.ticks++;
+  }
+
+  // Free hold-Q, before the step: a seat holds while it has a fresh hold message and a live cell; the first such tick
+  // locks its movement (the still set) and tells the page, every held tick counts. Anything else ends the hold with
+  // nothing done.
+  _holdTickFree() {
+    const now = this.now();
+    const stale = AG_MONEY.HOLD_INPUT_STALE_MS.value;
+    for (const seat of Array.from(this._holders)) {
+      const seated = this.seats.get(seat.socketId) === seat;
+      const want = seated && seat.holdAt > 0 && now - seat.holdAt <= stale && this._alive(seat.pid);
+      if (want) {
+        if (!seat.holding) {
+          seat.holding = true;
+          seat.holdTicks = 0;
+          this.still.add(seat.pid);
+          this._emit(seat.socket, 'ag:holding', { on: 1, need: AG_MONEY.HOLD_TICKS.value });
+        }
+        seat.holdTicks++;
+      } else {
+        this._endFreeHold(seat, seated);
+      }
+    }
+  }
+
+  _endFreeHold(seat, tellIt) {
+    const was = seat.holding;
+    seat.holding = false;
+    seat.holdTicks = 0;
+    seat.holdAt = 0;
+    this.still.delete(seat.pid);
+    this._holders.delete(seat);
+    if (was && tellIt) this._emit(seat.socket, 'ag:holding', { on: 0 });
+  }
+
+  // Free hold-Q, after the step: HOLD_TICKS held ticks with a live cell end the run (Owen 2026-10-08: the free room
+  // has no money, the page shows its results screen). The cells go at the next step, before anything can eat them.
+  _holdDoneFree() {
+    for (const seat of Array.from(this._holders)) {
+      if (!seat.holding || seat.holdTicks < AG_MONEY.HOLD_TICKS.value) continue;
+      const seated = this.seats.get(seat.socketId) === seat;
+      if (!seated || !this._alive(seat.pid)) {          // eaten in the completing tick: death wins
+        this._endFreeHold(seat, seated);
+        continue;
+      }
+      seat.holding = false;
+      this._endFreeHold(seat, false);
+      this.sim.clearCells(seat.pid);
+      this._emit(seat.socket, 'ag:cashedout', { free: true });
+    }
   }
 
   // Each bot sees every cell its brain could sense (agBots SENSE_*), in the sim's deterministic order. A brain only
@@ -432,13 +717,67 @@ class AgRoom {
     }
   }
 
-  // Alive players by score (mass), biggest first; equal scores in join order.
+  // Alive players by score (mass), biggest first; equal scores in join order. A paid room sorts by money first, then
+  // score (design 5.2).
   _ranking() {
     const out = [];
     this.sim.forEachPlayer((p) => {
       if (p.cells.length) out.push({ pid: p.pid, name: p.name, score: p.score });
     });
+    if (this.money) {
+      for (const r of out) r.micro = this.money.balance(r.pid);
+      out.sort((a, b) => b.micro - a.micro || b.score - a.score || a.pid - b.pid);
+      return out;
+    }
     out.sort((a, b) => b.score - a.score || a.pid - b.pid);
+    return out;
+  }
+
+  // ag:money (design 6): the viewer's own balance and rank, each player cell it knows with its share of its owner's
+  // money (floor shares in id order, the last cell of an owner takes the remainder, so the shares add up to the
+  // total), and the money board (top U_BOARD rows, name and micro). Display only; nothing here moves money.
+  _moneyPayload(seat, ranking, shares) {
+    const me = this.money.balance(seat.pid);
+    let rank = 0;
+    for (let i = 0; i < ranking.length; i++) {
+      if (ranking[i].pid === seat.pid) {
+        rank = i + 1;
+        break;
+      }
+    }
+    const cells = [];
+    for (const id of seat.viewer.knownIds()) {
+      const v = shares.get(id);
+      if (v !== undefined) cells.push(id, v);
+    }
+    const board = [];
+    for (let i = 0; i < ranking.length && i < this.boardLaw.rows; i++) board.push([ranking[i].name || '', ranking[i].micro]);
+    return { me, rank, cells, board };
+  }
+
+  // cell id -> its display share, for every player cell of an open account.
+  _cellShares() {
+    const out = new Map();
+    for (const acct of this.money.accounts.values()) {
+      const info = this.sim.playerInfo(acct.pid);
+      if (!info || !info.cells.length) continue;
+      const bal = this.money.balance(acct.pid);
+      const ids = info.cells.slice().sort((a, b) => a - b);
+      let sum = 0;
+      const sq = [];
+      for (const id of ids) {
+        const c = this.sim.getCell(id);
+        const s = c ? c.size * c.size : 0;
+        sq.push(s);
+        sum += s;
+      }
+      let given = 0;
+      for (let i = 0; i < ids.length; i++) {
+        const v = i === ids.length - 1 ? bal - given : sum > 0 ? Math.floor((bal * sq[i]) / sum) : 0;
+        out.set(ids[i], v);
+        given += v;
+      }
+    }
     return out;
   }
 
@@ -518,6 +857,10 @@ class AgRoom {
       if (seat.spectating && !ranking) ranking = this._ranking();
     }
     if (boardDue && !ranking) ranking = this._ranking();
+    // Paid rooms: ag:money on the board's cadence (every 25 ticks, U_BOARD), to a seat only right after its own
+    // bundle went out, from the same ranking (a backed-up seat that skips its bundle skips its money too).
+    const moneyDue = this.money !== null && boardDue;
+    const shares = moneyDue ? this._cellShares() : null;
     for (const seat of Array.from(this.seats.values())) {
       const socket = seat.socket;
       if (this._backedUp(socket)) {
@@ -566,6 +909,7 @@ class AgRoom {
       }
       this.stats.bundles++;
       this.stats.bytes += buf.length;
+      if (moneyDue) this._emit(socket, 'ag:money', this._moneyPayload(seat, ranking, shares));
     }
   }
 
@@ -646,17 +990,34 @@ class AgRoom {
     this.timer = null;
     if (this.stopped) return;
     this.wake();
-    if (!this.stopped && !this.timer && this.seats.size) this._arm();
+    // A paid room keeps ticking while any account is open, seated or not (grace and dormant timers, design 5.2).
+    if (!this.stopped && !this.timer && (this.seats.size || this.openAccounts())) this._arm();
   }
 
   // ---------------------------------------------------------------------------------------------------------
   // Closing.
 
   // EMERGENCY_FAIL_TICKS throwing ticks in a row: the room stops for good and hands its sockets to the
-  // directory, which opens a fresh room at this index and seats them there (free build: nothing is owed).
+  // directory, which opens a fresh room at this index and seats them there (a free room owes nothing). A paid room
+  // first refunds every open balance in full (Owen Q6: a crash is our fault; agMoney.emergencySettle), which tells
+  // each seated page ag:closed and makes its socket seatless; the directory keeps this room on its settling list
+  // while any account could not be settled.
   emergencyClose() {
     if (this.closed) return;
     this.closed = true;
+    if (this.money) {
+      try {
+        this.money.emergencySettle();
+      } catch (e) {
+        this.log.error('[AG] EMERGENCY settle threw', this.lobbyType, e && e.stack ? e.stack : e);
+      }
+      // A seat left without an account (none should be) is told and dropped too.
+      for (const seat of Array.from(this.seats.values())) {
+        this.seats.delete(seat.socketId);
+        this._emit(seat.socket, 'ag:closed', { refundedMicro: 0, why: 'emergency' });
+        if (this.onSeatless) this._safe(() => this.onSeatless(seat.socket, this, 'emergency'));
+      }
+    }
     const sockets = Array.from(this.seats.values()).map((s) => s.socket);
     this.log.error('[AG] EMERGENCY close', this.lobbyType, sockets.length + ' socket(s) moved');
     this.stop();

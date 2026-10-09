@@ -132,3 +132,20 @@ test('a request naming a different wallet than the payer is minted to the payer,
   assert.doesNotMatch(src, /Stake was paid by a different wallet/, 'no path refuses after the claim');
   assert.match(src, /entryStore\.mint\(\{ stake: rung, worth: rung, paid: worth, walletAddress: payer,\s*stakeSig: rec\.durable \? sig : undefined \}\)/, 'minted to the verified payer');
 });
+
+/* devGame (PAID-AGAR-DESIGN.md 5.7): the one game field submit-stake reads, and only to scope an unbacked DEV token
+   (PAPER_DEV_TOKENS). It is pinned before anything reads it: an object, a number or an unknown string is a 400, and
+   the process lives on (the route is async and Express 4 would not catch a throw). dev-local runs without
+   PAPER_DEV_TOKENS here, so a valid devGame is simply ignored on the real path. */
+test('devGame of an object, a number or an unknown string is refused with 400 before anything else, and nothing crashes', async () => {
+  for (const devGame of [{ toString: 1 }, 5, 'snake', '', ['agar'], null]) {
+    const r = await call(port, 'POST', '/api/submit-stake', { stake: 0.1, signedTx: tx('dg-' + JSON.stringify(devGame)), walletAddress: PAYER, devGame });
+    assert.strictEqual(r.status, 400, JSON.stringify(devGame) + ' ' + r.text);
+    assert.strictEqual(r.json && r.json.error, 'Malformed request');
+  }
+  const ok = await call(port, 'POST', '/api/submit-stake', { stake: 0.1, signedTx: tx('dg-agar'), walletAddress: PAYER, devGame: 'agar' });
+  assert.strictEqual(ok.status, 200, ok.text);
+  assert.strictEqual(ok.json.dev, undefined, 'no dev token without PAPER_DEV_TOKENS: the real path ran');
+  const live = await call(port, 'GET', '/api/live');
+  assert.strictEqual(live.status, 200, 'the server is still up');
+});

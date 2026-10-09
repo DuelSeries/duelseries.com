@@ -451,7 +451,7 @@ const refundExpiredEntry = require('./entryExpiry').createExpiryRefund({
   db,
   ledger: stakeLedger,
   devRefund: PAPER_DEV_TOKENS
-    ? (t) => paperPayout.refund({ wallet: t.walletAddress, name: 'Player', micro: Math.round(Number(t.worth) * 1e6), paid: t.paid, why: 'unspent' })
+    ? (t) => (t.onlyGame === 'agar' ? agPayout : paperPayout).refund({ wallet: t.walletAddress, name: 'Player', micro: Math.round(Number(t.worth) * 1e6), paid: t.paid, why: 'unspent' })
     : null,
 });
 
@@ -685,7 +685,7 @@ app.get('/api/stake-quote', entryFeeLimiter, async (req, res) => {
 // Submit a client-SIGNED stake (Privy signs only; we send + confirm over HTTP), then
 // issue the entry token. This avoids the browser WebSocket the public RPC blocks.
 app.post('/api/submit-stake', entryFeeLimiter, express.json({ limit: '256kb' }), async (req, res) => {
-  const { lobbyType, stake, signedTx, walletAddress } = req.body || {};
+  const { lobbyType, stake, signedTx, walletAddress, devGame } = req.body || {};
   /* Each field pinned to its type before anything reads it, and refused here, before the
      signed transaction is broadcast, so a refusal costs nobody anything. This is an async route
      and Express 4 does not catch a rejection from one: a stake of {"toString":1} threw in
@@ -696,7 +696,10 @@ app.post('/api/submit-stake', entryFeeLimiter, express.json({ limit: '256kb' }),
   if ((stake !== undefined && typeof stake !== 'number' && typeof stake !== 'string')
       || (lobbyType !== undefined && typeof lobbyType !== 'string')
       || (signedTx !== undefined && signedTx !== null && typeof signedTx !== 'string')
-      || (walletAddress !== undefined && walletAddress !== null && typeof walletAddress !== 'string')) {
+      || (walletAddress !== undefined && walletAddress !== null && typeof walletAddress !== 'string')
+      /* devGame names the game a DEV token is scoped to (PAPER_DEV_TOKENS only, PAID-AGAR-DESIGN.md 5.7):
+         absent, 'paper' or 'agar', nothing else, checked before anything reads it. */
+      || (devGame !== undefined && devGame !== 'paper' && devGame !== 'agar')) {
     return res.status(400).json({ error: 'Malformed request' });
   }
 
@@ -720,15 +723,17 @@ app.post('/api/submit-stake', entryFeeLimiter, express.json({ limit: '256kb' }),
        or in production). No chain and no signature to claim, but the token is
        minted through the same store at the rung, so the join order, the
        one-time consume and recordEntry all run exactly as for real money.
-       Scoped to Paper: only Paper pays it out through the fake withdraw, and
-       any other game would pay, refund or rake it through the real one. */
+       Scoped to Paper (or to paid agar.io with devGame 'agar'): only those two
+       pay it out through their fake withdraw, and any other game would pay,
+       refund or rake it through the real one. */
     if (!signedTx && PAPER_DEV_TOKENS) {
       if (typeof walletAddress !== 'string' || !walletAddress || walletAddress.length > 64) {
         return res.status(400).json({ error: 'Missing wallet address' });
       }
       const rung = tierFor(want);
-      const entryToken = entryStore.mint({ stake: rung, worth: rung, paid: rung, walletAddress, onlyGame: 'paper' });
-      console.warn(`[PAPER] DEV token ${rung} for ${walletAddress.slice(0, 8)}`);
+      const onlyGame = devGame === 'agar' ? 'agar' : 'paper';
+      const entryToken = entryStore.mint({ stake: rung, worth: rung, paid: rung, walletAddress, onlyGame });
+      console.warn(`[PAPER] DEV token ${rung} (${onlyGame}) for ${walletAddress.slice(0, 8)}`);
       return res.json({ ok: true, entryToken, worth: rung, stake: rung, paid: rung, dev: true });
     }
     if (!signedTx) return res.status(400).json({ error: 'Missing signed transaction' });
@@ -1021,7 +1026,10 @@ const ALL_ROOMS = () => {
      counts both kinds of Paper money before a push. */
   if (typeof paperArenas !== 'undefined' && paperArenas) out.push(...paperArenas.all());
   /* The agar.io rooms (server/ag, only while AG_ENABLED opened them): the same
-     playerCount / botCount / botsAllowed / addBot / clearBots, no money. */
+     playerCount / botCount / botsAllowed / addBot / clearBots. The free rung
+     holds no money; a paid room's `snakes` lists every open account with its
+     worth (away and frozen ones included) and settling rooms are in all(), so
+     drainStatus counts agar money before a push. */
   if (typeof agArenas !== 'undefined' && agArenas) out.push(...agArenas.all());
   return out;
 };
@@ -1037,8 +1045,11 @@ function roomLabel(r) {
     return 'Paper · ' + (r.stake === 0 ? 'Free' : '$' + Number(r.stake).toFixed(2))
       + (r.index > 0 ? ' #' + r.index : '');
   }
-  // The agar.io rooms are `ag_na_s0#1`: always free, then which overflow room.
-  if (raw.startsWith('ag_')) return 'agar.io · Free' + (r.index > 0 ? ' #' + r.index : '');
+  // The agar.io rooms are `ag_na_s0#1` / `ag_na_s0_1#2`: the rung, then which overflow room.
+  if (raw.startsWith('ag_')) {
+    return 'agar.io · ' + (Number(r.stake) > 0 ? '$' + Number(r.stake).toFixed(2) : 'Free')
+      + (r.index > 0 ? ' #' + r.index : '');
+  }
   // Everything left is the slither.io game: the fixed tiers, the nightly event and the ladder rungs.
   const type = raw.replace(/^(na|eu)_/, '');
   const game = 'slither.io';
@@ -1091,6 +1102,10 @@ function opsSnapshot() {
        an arena floor. It is memory only like a live stake but the drain does
        not count it, so this is where to look before a push. */
     floorWorth: r.floorWorth,
+    /* Paid agar.io only (PAID-AGAR-DESIGN.md 8.2): eject-feed pairs of the last
+       24 h (count, value, same address) and the seats that are away. */
+    feedFlags: r.money && typeof r.money.feedFlags === 'function' ? r.money.feedFlags() : undefined,
+    parked: r.money && typeof r.money.parkedCount === 'function' ? r.money.parkedCount() : undefined,
   }));
   return {
     now: Date.now(),
@@ -1232,11 +1247,29 @@ app.post('/api/owner/do', async (req, res) => {
     case 'maintenance:on':
       ops.set({ on: true, message: args.message, minutes: args.minutes });
       io.emit('maintenance', ops.get());
+      /* io.emit reaches the main namespace only; agar.io lives on /ag. */
+      if (agArenas) io.of('/ag').emit('maintenance', ops.get());
       return done('Maintenance on. New games refused.');
     case 'maintenance:off':
       ops.set({ on: false });
       io.emit('maintenance', ops.get());
+      if (agArenas) io.of('/ag').emit('maintenance', ops.get());
       return done('Maintenance off. The game is open.');
+
+    /* Paid agar.io's own instant door switch (PAID-AGAR-DESIGN.md 5.7): off,
+       every new paid join is refunded at the door ('not-open') and the rows say
+       closed, while seated players keep playing, resume and cash out. No
+       restart. On only reopens rungs that AG_PAID built at boot. */
+    case 'agar:paid:off':
+      if (!agArenas || !agArenas.paidEnabled) return refuse('Paid agar.io is not on (AG_PAID)');
+      agArenas.paidOpen = false;
+      console.warn('[AG] owner console: paid door CLOSED');
+      return done('Paid agar.io closed to new players. Seated players finish.');
+    case 'agar:paid:on':
+      if (!agArenas || !agArenas.paidEnabled) return refuse('Paid agar.io is not on (AG_PAID)');
+      agArenas.paidOpen = true;
+      console.warn('[AG] owner console: paid door OPEN');
+      return done('Paid agar.io open.');
     case 'maintenance:check': {
       /* Unsafe while any stake exists only in this process: a live paid seat,
          a Paper floor coin, or a paid entry token minted and not yet joined
@@ -1612,7 +1645,8 @@ const paper = require('./paperSockets')({
    rooms run on their own socket.io namespace, /ag, so no other game ever sees
    them, and /ag serves public/ag.html. The old agar.io game (AgarRoom, the
    cell:* events, agar.html) is deleted; /agar sends the browser here.
-   Free only: no stake, token or payout is read anywhere in server/ag.
+   Money: the paid rungs and their door exist only behind AG_PAID (see the
+   paid agar.io block below); the free rung reads no stake, token or payout.
 
    The rooms refuse to open unless the law table passes assertShippable and
    the sim has built every rule it names. Today's table passes both (every
@@ -1623,13 +1657,105 @@ const paper = require('./paperSockets')({
    the game then stays closed. Seats, watchers and connections per address
    are capped in server/ag (agRoom, agSockets). The switch and the gate live in
    server/ag/agBoot.js (tested in test/agBoot.test.js). */
+/* ── Paid agar.io (PAID-AGAR-DESIGN.md, Owen's answers 2026-10-08) ───────────
+   The paid rungs ($0.10, $1.00) exist only with AG_PAID on (server/ag/agBoot.js:
+   OFF unless set in Phase A; 1/true/on/yes on, 0/false/off/no off, anything else
+   off and logged, so a typo fails closed). Paper's machinery, reused: the stake
+   hand-off, the one-time entry token at the paid door (server/ag/agPaidDoor.js),
+   the durable stake row, an integer micro-USDC bank per room (server/ag/agBank.js),
+   the 90/10 cash-out through the parameterized payout below, the owed-payout
+   drainer, and the liability and drain sums. agar-specific: hold-Q 3 s cash-out
+   (every room), share-at-eat money on split cells, a dropped player frozen 3 min
+   then cashed out 90/10 to their wallet, one paid seat per wallet, and a crash
+   or restart refunds 100% of every open balance (Owen Q6). The instant off
+   switch is the owner console's agar:paid:off (new joins refunded at the door,
+   seated players finish); maintenance:on reaches /ag too. */
+const agPayout = require('./paperPayout').create({
+  money: PAPER_DEV_TOKENS ? paperDevMoney : money,
+  db,
+  trackEarning: PAPER_DEV_TOKENS
+    ? (e) => console.log(`[AG] DEV earning ${e.source} ${e.amountUsdc} (${e.lobbyType}) not recorded`)
+    : trackEarning,
+  sweepRake: PAPER_DEV_TOKENS
+    ? (amt, label) => console.log(`[AG] DEV rake ${amt} (${label}) not swept`)
+    : sweepRake,
+  io: io.of('/ag'),        // emitTo uses socket ids, which are per namespace
+  REGION,
+  game: 'agar',
+  prefix: 'ag',
+  floorSource: 'agar_floor',
+  breachSource: 'agar_breach',
+  tag: '[AG]',
+});
+/* A ledger breach, a zombie account, an emergency close, a refused share. The ntfy
+   topic is public, so the push carries the kind, the room and amounts only, never
+   a wallet; the owner's socket gets the same. Latched once per room per kind. */
+const _agAlerted = new Set();
+function agOwnerAlert(info) {
+  try {
+    const i = info || {};
+    const kind = String(i.kind || 'breach');
+    const room = String(i.lobbyType || '');
+    const key = room + '|' + kind;
+    if (_agAlerted.has(key)) return;
+    _agAlerted.add(key);
+    const safe = { kind, lobbyType: room };
+    for (const k of ['micro', 'accounts', 'totalMicro', 'inMicro', 'outMicro', 'ceiling', 'phase', 'was']) {
+      if (i[k] !== undefined && (typeof i[k] === 'number' || typeof i[k] === 'string')) safe[k] = i[k];
+    }
+    console.error('[AG] MONEY ALERT ' + JSON.stringify(safe));
+    const s = lobbySocketsByGoogleId.get(OWNER_WALLET);
+    if (s) s.emit('admin:agar_alert', safe);
+    notify.pushOwner(`${kind} in ${room}: ${JSON.stringify(safe)}`, { title: 'agar.io money alert', priority: 'high' });
+  } catch (e) {
+    console.error('[AG] owner alert', e.message);
+  }
+}
+const agMoneyHooks = {
+  onCashout: agPayout.payCashout,
+  onRefund: agPayout.refund,
+  /* One record per (victim life, eater) bucket, in Paper's units (dollars). */
+  onTransfer: (t) => collusion.record(t.srcWallet, t.dstWallet, t.micro / 1e6, { lobbyType: t.lobbyType || t.label }),
+  /* Eject-feeds stay in the room's own 24 h tally (owner snapshot); never a phone push. */
+  onFeed: () => {},
+  onBreach: agOwnerAlert,
+  /* The buy-in row, written on ag:ready (a seat refunded before it readied leaves no stake on the profile). */
+  onStake: ({ wallet, worth }) => { recordEntry({ ok: true, worth, walletAddress: wallet }, 'agar'); },
+  onHouse: agPayout.houseIncident,
+};
+const agPaidDoorDeps = {
+  /* The 'agar' door: a token scoped to another game (a Paper dev token) does not open it. */
+  consumeAtStake: (token, stake) => entryStore.consumeAtStake(token, stake, 'agar'),
+  ledger: stakeLedger,
+  refund: agPayout.refund,
+};
 const agBoot = require('./ag/agBoot').openAg({
   env: process.env,
   io,
   region: REGION,
   helpers: { socketRL, sanitizeName, ops },
+  money: { hooks: agMoneyHooks, door: agPaidDoorDeps },
 });
 const agArenas = agBoot.arenas;
+const AG_PAID_ON = !!agBoot.paid;
+
+/* Shutdown settle (design 5.9, Owen Q6; server/ag/agShutdown.js): a planned
+   restart (pm2 sends SIGINT, then kills after its 1.6 s timeout) must not erase
+   seated agar money, so every open agar balance is withdrawn from its room and
+   written as an owed REFUND row (100%, no rake: a restart is our fault) for the
+   drainer to pay after the restart, each also logged as one [AG] SHUTDOWN-OWED
+   line. Installed only while the paid rungs exist. Paper and the snake game are
+   not covered (follow-up, design 13). */
+if (AG_PAID_ON) {
+  const agShutdown = require('./ag/agShutdown');
+  agShutdown.installAgShutdown({
+    arenas: agArenas,
+    writeRow: (r) => db.recordFailedPayout(r.wallet, r.micro / 1e6, r.name || 'Player', r.reason, null),
+  });
+  /* A hard crash leaves no time to write: every open balance is logged as one
+     [AG] CRASH-OWED line before Node's own crash handler runs (Owen Q6). */
+  agShutdown.installAgCrashLog({ arenas: agArenas });
+}
 /* Closed (switched off, or the law gate refused): the lobby card still opens
    this address in its full-screen frame, so the answer is a page with a way
    back (game:done, the message every game page sends), not bare text that
@@ -1906,7 +2032,12 @@ app.get('/api/live', (_req, res) => {
     /* The ladder ships with the board so the buy-in control offers exactly the
        rungs the server will accept. A client with its own copy is a client
        that can drift out of step and offer an amount that gets refused. */
-    const lobbies = liveBoard().concat(paperArenas.boardRows());
+    /* Paid agar.io rows (only while AG_PAID built them): one per rung, players =
+       every open account (away ones too, so rule 4b sees parked money), parked,
+       no bots, and state 'closed' under the owner's off switch. The free agar
+       row stays in liveExtras (agar:free) until the lobby pins it from here. */
+    const agPaidRows = agArenas ? agArenas.boardRows().filter((r) => r.stake > 0) : [];
+    const lobbies = liveBoard().concat(paperArenas.boardRows(), agPaidRows);
     const extras = liveExtras();
     /* Card counts: every human of the game plus the bots in its rows, from these
        same rows, so a card never reads 0 above a row saying 20 playing. */
@@ -2103,13 +2234,12 @@ function getRoomForType(lobbyType, region) {
   return hit || gameRooms[rgn].free;
 }
 
-/* agar.io takes no money. The old game's paid gate (AGAR_PAID, closed 2026-09-30) went with the
-   old game itself: its cell:join and cell:respawn doors no longer exist, so no request reaches an
-   agar seat with a token, and the new game (server/ag, the /ag namespace) reads no stake, token
-   or payout anywhere. A tier or ladder token bought by hand "for agar" is just a token nobody
-   spent: it still opens a room of that price in a game that is open, or it expires unspent and
-   the sweep refunds it through its stake row (entryExpiry.js). Paid agar comes back only as the
-   new game's own switch, after a money review, the way PAPER_PAID did. */
+/* Paid agar.io. The old game's paid gate (AGAR_PAID, closed 2026-09-30) went with the old game:
+   its cell:join and cell:respawn doors no longer exist. The new game's only paid door is
+   server/ag/agPaidDoor.js on the /ag namespace (ag:join with an entryToken), consuming at the
+   'agar' door and seating only on the rungs AG_PAID built at boot (OFF in Phase A). A token that
+   reaches it while paid agar is off or closed is refunded at the door ('not-open'); a token
+   nobody spends expires and the sweep refunds it through its stake row (entryExpiry.js). */
 
 const lobbySocketsByGoogleId = new Map();
 const lobbyConnections = new Set();
@@ -2151,8 +2281,9 @@ function sumLiveSelfCustodyStakes() {
       sumRoom(gameRooms[rgn][lt]);
     }
   }
-  /* agar.io adds nothing: its rooms (server/ag) are free only and hold no worth. The old agar
-     rooms' loop went with them; they had been closed to money since 2026-09-30. */
+  /* Paid agar.io: each paid room's whole bank (every open account, away and
+     frozen ones included), settling rooms too (agArenas.all()); free rooms add 0. */
+  if (agArenas) for (const r of agArenas.all()) total += r.liveStakeTotal ? r.liveStakeTotal() : 0;
   /* Paper: each arena's whole bank, which is every live square (a seat in its
      disconnect grace included) PLUS floor money nobody has picked up yet, each
      dollar once. A coin swept to the house after the hour has left the bank,

@@ -1,6 +1,8 @@
 'use strict';
 // The agar.io socket handlers (build brief 6, 9.3): ag:join, ag:spectate, ag:target, ag:split, ag:eject, ag:q,
-// ag:leave, ag:view and ag:portrait in, one binary bundle per tick out on ag:f (sent by the room). The event prefix is ag:* only, so the
+// ag:leave, ag:view, ag:portrait, ag:hold (Owen's hold-Q cash-out, every room) and ag:ready (paid seats) in, one
+// binary bundle per tick out on ag:f (sent by the room); paid joins go to the paid door (agPaidDoor, design 5.4).
+// The event prefix is ag:* only, so the
 // old agar pages (cell:*) can never talk to these rooms.
 //
 // Every handler reads its payload only after checking its shape: a wrong shape is ignored, a number must be a
@@ -25,6 +27,7 @@
 
 const { assertLawsComplete } = require('./agLaws');
 const { refuse } = require('./agArenas');
+const { createAgPaidDoor, wantsPaid } = require('./agPaidDoor');
 
 // CHOSEN per-socket rate limits (ours): the least milliseconds between two events of one kind. Their server's
 // limits are not known (CCI-U5); these only stop floods. Split and eject stay fast enough for repeated presses
@@ -40,6 +43,11 @@ const AG_RATE = Object.freeze({
   eject: chosen(20, 'ag:eject'),
   q: chosen(100, 'ag:q (ignored in FFA)'),
   leave: chosen(500, 'ag:leave'),
+  // PAID-AGAR-DESIGN.md 5.5: ag:hold rate 50 ms; the page repeats {on:1} every 200 ms. Only {on:1} is limited: a
+  // release ({on:0}) is a state that only ends a hold, so it is never dropped (a dropped release could let a hold the
+  // player let go of run on until it went stale).
+  hold: chosen(50, 'ag:hold {on:1} (Owen 2026-10-08 hold-Q cash-out; design 5.5)'),
+  ready: chosen(250, 'ag:ready (paid seats: once per seat, repeats are harmless)'),
 });
 
 // CHOSEN connection cap (ours; no source: their server's limits are unknown, CCI-U5, and Paper has none). Enough
@@ -167,9 +175,21 @@ function attachAgSockets(io, arenas, helpers) {
     return socketRL(socket, 'ag' + kind, AG_RATE[kind].value);
   }
 
+  // The paid door (agPaidDoor, design 5.4): built here when the server hands its money dependencies in (h.paidDoor).
+  const door = h.paidDoor ? createAgPaidDoor(Object.assign({ arenas, cleanName: (raw) => cleanName(raw, nameCap,
+    sanitizeName), clientIp: ipOf, ops, log }, h.paidDoor)) : null;
+
   // The rate limit comes before the name is cleaned, so a dropped join never trims or scans a name.
+  // A paid payload (a stake above 0, an entryToken or a resumeKey) goes to the paid door FIRST, before the free
+  // join's rate limit and maintenance answer (the door has its own limiter and refunds under maintenance). Without a
+  // door (no money wired) a paid payload is refused, never seated free.
   function onJoin(socket, msg) {
     if (msg !== undefined && !isPlainObject(msg)) return;
+    if (msg !== undefined && wantsPaid(msg)) {
+      if (door) return door.join(socket, msg);
+      socket.emit('ag:refused', { why: 'not-open' });
+      return;
+    }
     if (!limited(socket, 'join')) return;
     const name = cleanName(msg === undefined ? undefined : msg.name, nameCap, sanitizeName);
     if (name === null) return;
@@ -213,9 +233,30 @@ function attachAgSockets(io, arenas, helpers) {
     arenas.q(socket.id);
   }
 
+  // A paid seat leaves alive only by cash-out (design 4 step 7).
   function onLeave(socket) {
     if (!limited(socket, 'leave')) return;
+    if (arenas.paidRoomOf && arenas.paidRoomOf(socket.id)) {
+      socket.emit('ag:refused', { why: 'cash-out-to-leave' });
+      return;
+    }
     arenas.leave(socket.id);
+  }
+
+  // ag:hold { on: 1 | 0 } (Owen 2026-10-08 hold-Q cash-out, every room): 1 starts or refreshes the hold, 0 lets go.
+  function onHold(socket, msg) {
+    if (!isPlainObject(msg)) return;
+    const on = msg.on === 1 || msg.on === true;
+    const off = msg.on === 0 || msg.on === false;
+    if (!on && !off) return;
+    if (on && !limited(socket, 'hold')) return;
+    arenas.hold(socket.id, on);
+  }
+
+  // ag:ready (paid seats): the page drew a frame with its own cell (design 4 step 5).
+  function onReady(socket) {
+    if (!limited(socket, 'ready')) return;
+    if (typeof arenas.ready === 'function') arenas.ready(socket.id);
   }
 
   // ag:view { below }: the world units (at zoom 1) the page draws under the reference view, a whole number, 0 or
@@ -261,12 +302,21 @@ function attachAgSockets(io, arenas, helpers) {
     socket.on('ag:leave', guard('ag:leave', () => onLeave(socket)));
     socket.on('ag:view', guard('ag:view', (msg) => onView(socket, msg)));
     socket.on('ag:portrait', guard('ag:portrait', (msg) => onPortrait(socket, msg)));
+    socket.on('ag:hold', guard('ag:hold', (msg) => onHold(socket, msg)));
+    socket.on('ag:ready', guard('ag:ready', () => onReady(socket)));
     socket.on('disconnect', guard('disconnect', () => {
       gate.remove(socket);
       drop(socket.id);
     }));
     guard('connect', () => {
       if (!gate.add(socket)) return refuse(socket, 'limit');
+      // A stake hand-off (auth { paid: 1 }) connects seatless: no watcher seat, so a full set of them can never
+      // close it; it has PAID_SEATLESS_MS to send its ag:join (design 5.5).
+      const hs = socket.handshake;
+      if (hs && hs.auth && hs.auth.paid === 1 && typeof arenas.connectPaid === 'function') {
+        arenas.connectPaid(socket);
+        return;
+      }
       if (!arenas.connect(socket)) refuse(socket, 'full');
     })();
   }
@@ -292,7 +342,7 @@ function attachAgSockets(io, arenas, helpers) {
   if (io && typeof io.use === 'function') io.use(admit);
   if (io && typeof io.on === 'function') io.on('connection', (socket) => attach(socket));
 
-  return { attach, drop, admit, gate, cleanName: (raw) => cleanName(raw, nameCap, sanitizeName) };
+  return { attach, drop, admit, gate, door, cleanName: (raw) => cleanName(raw, nameCap, sanitizeName) };
 }
 
 module.exports = { attachAgSockets, AG_RATE, AG_CONN, isPlainObject, isInt32, cleanName, clientIp };

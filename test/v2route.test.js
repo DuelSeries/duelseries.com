@@ -1475,7 +1475,8 @@ test('Paper takes the widget path to its arena page, on every rung', () => {
   /* The rows that light the rungs come from the server: /api/live appends the
      Paper directory's rows, which are game 'paper'. */
   const s = server();
-  assert.ok(/const lobbies = liveBoard\(\)\.concat\(paperArenas\.boardRows\(\)\);/.test(s) && /res\.json\(\{ lobbies,/.test(s),
+  // (paid agar.io's rows ride along after Paper's, only while AG_PAID built them: PAID-AGAR-DESIGN.md 5.7)
+  assert.ok(/const lobbies = liveBoard\(\)\.concat\(paperArenas\.boardRows\(\)(, agPaidRows)?\);/.test(s) && /res\.json\(\{ lobbies,/.test(s),
     '/api/live lists the Paper rows with the lobbies');
   const arenas = fs.readFileSync(path.join(ROOT, 'server/paper/PaperArenas.js'), 'utf8');
   const rows = arenas.slice(arenas.indexOf('boardRows()'), arenas.indexOf('get warming'));

@@ -46,8 +46,10 @@ function createExpiryRefund({ money, db, devRefund = null, ledger = null, log = 
       return Promise.resolve(null);
     }
     if (t.onlyGame) {
-      if (t.onlyGame === 'paper' && typeof devRefund === 'function') {
-        log.log(`[ENTRY] EXPIRED unspent dev token (${label}) -> Paper's own refund`);
+      /* Paper's and paid agar.io's dev tokens (PAID-AGAR-DESIGN.md 5.8): devRefund, which the server routes
+         to that game's own payout (the fake withdraw when PAPER_DEV_TOKENS is on). */
+      if ((t.onlyGame === 'paper' || t.onlyGame === 'agar') && typeof devRefund === 'function') {
+        log.log(`[ENTRY] EXPIRED unspent dev token (${label}) -> ${t.onlyGame === 'agar' ? "agar's" : "Paper's"} own refund`);
         return Promise.resolve().then(() => devRefund(t)).catch((e) => {
           log.error('[ENTRY] dev refund failed: ' + (e && e.message));
           return null;

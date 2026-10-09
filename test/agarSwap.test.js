@@ -184,11 +184,13 @@ test('/api/submit-stake refuses an agar room name before anything is broadcast o
   }
   assert.strictEqual(broadcasts, sent, 'nothing was broadcast');
   assert.strictEqual(ledgerDb.stakes.size, rows, 'no stake row was written');
-  // Neither door takes a game: a token is bought for a price, never "for agar".
+  // Neither door takes a game: a real token is bought for a price, never "for agar". The one game field is
+  // devGame (PAID-AGAR-DESIGN.md 5.7), read only on the PAPER_DEV_TOKENS branch to scope an unbacked dev token.
   const src = read('server/index.js');
   const head = src.match(/app\.post\('\/api\/submit-stake'[^\n]*\n\s*const \{([^}]*)\} = req\.body/);
   assert.ok(head, 'submit-stake destructures its body');
-  assert.deepStrictEqual(head[1].split(',').map((s) => s.trim()).sort(), ['lobbyType', 'signedTx', 'stake', 'walletAddress']);
+  assert.deepStrictEqual(head[1].split(',').map((s) => s.trim()).sort(), ['devGame', 'lobbyType', 'signedTx', 'stake', 'walletAddress']);
+  assert.match(src, /const onlyGame = devGame === 'agar' \? 'agar' : 'paper';/, 'devGame only scopes a dev token');
 });
 
 test('the agar.io card and its row count the new rooms: a Play is one human, a watcher is none', async () => {

@@ -400,14 +400,21 @@ test('index.js: every paid door claims the stake row before seating, submit-stak
     assert.match(src, new RegExp(`enterPaid\\(socket, '${game}'`), game + ' goes through enterPaid');
   }
   assert.strictEqual((src.match(/enterPaid\(socket, 'snake'/g) || []).length, 2, 'snake PLAY and RESPAWN');
-  /* agar.io has no paid door at all now: the old game's cell:join and cell:respawn went with it,
-     and the new game (server/ag) reads no token. No consume and no enterPaid names agar. */
-  assert.strictEqual((src.match(/enterPaid\(socket, 'agar'/g) || []).length, 0, 'no agar door');
-  assert.doesNotMatch(src, /consumePaidEntry\([^)]*'agar'\)/, 'no agar token is ever consumed');
-  const ag = ['agArenas.js', 'agBoot.js', 'agRoom.js', 'agSockets.js']
+  /* agar.io's old doors (cell:join, cell:respawn) went with the old game. Paid agar.io
+     (PAID-AGAR-DESIGN.md 5.4) has exactly one door, server/ag/agPaidDoor.js, which consumes at
+     the 'agar' door and claims the stake row BEFORE the seat, like Paper's. No enterPaid and no
+     consumePaidEntry names agar, and no other agar file reads a token or pays anything itself. */
+  assert.strictEqual((src.match(/enterPaid\(socket, 'agar'/g) || []).length, 0, 'no agar enterPaid door');
+  assert.doesNotMatch(src, /consumePaidEntry\([^)]*'agar'\)/, 'no agar token is consumed outside its door');
+  assert.match(src, /consumeAtStake: \(token, stake\) => entryStore\.consumeAtStake\(token, stake, 'agar'\)/,
+    "the agar door consumes at the 'agar' door");
+  const ag = ['agArenas.js', 'agBoot.js', 'agRoom.js', 'agSockets.js', 'agMoney.js', 'agBank.js']
     .map((f) => fs.readFileSync(path.join(__dirname, '..', 'server', 'ag', f), 'utf8')).join('\n');
-  assert.doesNotMatch(ag, /entryToken|consumePaidEntry|enterPaid|stakeLedger|money\.withdraw/,
-    'the new agar.io server reads no token and pays nothing');
+  assert.doesNotMatch(ag, /consumePaidEntry|consumeAtStake\(|enterPaid|stakeLedger|money\.withdraw/,
+    'no agar file but the door reads a token, and none pays anything itself');
+  const door = fs.readFileSync(path.join(__dirname, '..', 'server', 'ag', 'agPaidDoor.js'), 'utf8');
+  const claimAt = door.indexOf('ledger.claimSeat(entry)');
+  assert.ok(claimAt > 0 && claimAt < door.indexOf('addPaidHuman('), 'the agar door claims the stake row before the seat');
   // No door reads a consumed entry's worth any more without enterPaid in between.
   assert.doesNotMatch(src, /const entry = consumePaidEntry/);
   assert.match(src, /stakeLedger\.claimSeat\(entry\)\.then/);

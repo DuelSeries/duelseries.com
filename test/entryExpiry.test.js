@@ -160,3 +160,21 @@ test('drainStatus is unsafe while a paid entry token is minted and not yet joine
   assert.strictEqual(ops.drainStatus([], { count: 0, worth: 0 }).safe, true);
   assert.strictEqual(ops.drainStatus([]).safe, true);
 });
+
+test('paid agar.io dev tokens go to devRefund too (the server routes them to agar\'s own payout); never the real escrow', async () => {
+  const sent = [];
+  const dev = [];
+  const refund = createExpiryRefund({
+    money: { withdraw: async (w, a) => { sent.push([w, a]); return 'REAL'; } },
+    db: { recordFailedPayout: async () => {} },
+    devRefund: (t) => dev.push([t.onlyGame, t.walletAddress]),
+    log: quiet
+  });
+  await refund({ stake: 0.1, worth: 0.1, paid: 0.1, walletAddress: 'WAG', onlyGame: 'agar' });
+  await refund({ stake: 1, worth: 1, paid: 1, walletAddress: 'WPP', onlyGame: 'paper' });
+  await refund({ stake: 1, worth: 1, paid: 1, walletAddress: 'WSN', onlyGame: 'snake' });
+  assert.deepStrictEqual(dev, [['agar', 'WAG'], ['paper', 'WPP']]);
+  assert.deepStrictEqual(sent, []);
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'server', 'index.js'), 'utf8');
+  assert.match(src, /\(t\.onlyGame === 'agar' \? agPayout : paperPayout\)\.refund\(/, 'index.js routes agar dev expiries to agPayout');
+});

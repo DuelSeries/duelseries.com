@@ -180,7 +180,11 @@ test('THE ONE RULE: a free room fills bots to the room size, a paid room never h
   r.tickOnce();
   assert.strictEqual(r.botCount, CAP);
 
-  const paid = room({ stake: 0.1 });
+  // A paid room is built with its money hooks (PAID-AGAR-DESIGN.md 3.4: checked at construction, like PaperRoom's).
+  const noop = () => {};
+  const paid = room({ stake: 0.1, moneyHooks: { onCashout: noop, onTransfer: noop, onFeed: noop, onRefund: noop,
+    onBreach: noop, onStake: noop, onHouse: noop, onAccountOpen: noop, onAccountClosed: noop } });
+  assert.throws(() => room({ stake: 0.1 }), /money hooks/, 'a paid room refuses to open without them');
   assert.strictEqual(paid.isFree(), false);
   assert.strictEqual(paid.botsAllowed(), false);
   assert.strictEqual(paid.botCount, 0);

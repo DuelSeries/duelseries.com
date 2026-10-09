@@ -319,6 +319,15 @@ const byId = (a, b) => a.id - b.id;
 //   border   omitted: the map follows the CHOSEN shrink rule (agMap, server laws 4) from the live player count;
 //            { minX, minY, maxX, maxY }: a fixed border (tests, tools), food and virus targets at their full amounts
 //   food, viruses   false turns the refill of that kind off (tests that need an empty world); default true
+//   still    a Set of player ids, owned and updated by the room: Owen's hold-Q cash-out (OWNER-ANSWERS 2026-10-08,
+//            every agar room, free included). A held player's cells are not steered (moveToward is skipped; a piece
+//            still flying from a split finishes its boost, own pieces keep their L7 spacing and the border step runs,
+//            design 3.3.4) and its split and eject commands are refused. Empty (or absent): nothing changes, so the
+//            free room, which never holds Q in the parity streams, runs exactly as before.
+//   paid     paid rooms only (design 3.3): { shielded: Set, still: Set }, owned by the room's money controller. Adds
+//            the money facts to the step events (money, feeds), the shield (a shielded player eats nothing and
+//            nothing eats its cells), the still set above, findSpawnPoint and spawn(pid, name, at). The sim stays
+//            money-free: it reports who ate whose cell and how big, never an amount. Absent in every free room.
 function createSim(opts) {
   const o = opts || {};
   const laws = o.laws;
@@ -327,6 +336,16 @@ function createSim(opts) {
   const fixedBorder = o.border !== undefined && o.border !== null;
   const refillFood = o.food !== false;
   const refillViruses = o.viruses !== false;
+  const paid = o.paid && typeof o.paid === 'object' ? o.paid : null;
+  if (paid && !(paid.shielded instanceof Set && paid.still instanceof Set)) {
+    throw new TypeError('agSim: paid must be { shielded: Set, still: Set }');
+  }
+  if (o.still !== undefined && o.still !== null && !(o.still instanceof Set)) {
+    throw new TypeError('agSim: still must be a Set');
+  }
+  const still = paid ? paid.still : o.still instanceof Set ? o.still : null;
+  const shielded = paid ? paid.shielded : null;
+  const isStill = (pid) => still !== null && still.size > 0 && still.has(pid);
 
   let mapState = null;
   let border;
@@ -362,9 +381,17 @@ function createSim(opts) {
   const ledger = { created: 0, decay: 0, eject: 0, eat: 0, virus: 0, cap: 0, left: 0, trim: 0 };
   let ev = newEvents();
 
+  // The money facts (paid only, design 3.3.1) live here and nowhere else: nothing resets them at the start of a step,
+  // and ev is replaced only at the end of a step that completes, so a step that throws after eats() keeps its facts
+  // and the next completed step returns them together, in order.
   function newEvents() {
-    return { tick: 0, eats: [], removed: [], added: [], newOwn: [], spawned: [], died: [], border: null,
+    const e = { tick: 0, eats: [], removed: [], added: [], newOwn: [], spawned: [], died: [], border: null,
       borderChanged: false };
+    if (paid) {
+      e.money = [];
+      e.feeds = [];
+    }
+    return e;
   }
 
   function kindMap(kind) {
@@ -717,7 +744,9 @@ function createSim(opts) {
     }
   }
 
-  function doSpawn(p) {
+  // at: a paid spawn's point from findSpawnPoint (design 3.3.5), used instead of the L35 rule's point; the paid player
+  // starts at the L14 start size in its own colour, never on a blob. Free spawns never pass one.
+  function doSpawn(p, at) {
     if (p.cells.length > 0) return;
     let rgb = playerColour();
     let pt = randomPoint();
@@ -728,13 +757,13 @@ function createSim(opts) {
     const pick = Math.floor(rng() * blobs.length);
     const roll = rng();
     const blob = blobs.length ? blobs[pick] : null;
-    if (blob && roll <= L.ejectSpawnChance &&
+    if (!at && blob && roll <= L.ejectSpawnChance &&
         (L.stoppedBoost === null ? blob.boost === 0 : blob.boost < L.stoppedBoost)) {
       pt = { x: blob.x, y: blob.y };
       rgb = blob.rgb.slice();
       size = Math.max(size, blob.size * L.eatRatio);
     }
-    pt = safePlace(pt, size);
+    pt = at ? { x: at.x, y: at.y } : safePlace(pt, size);
     const c = addCell('player', pt.x, pt.y, size, rgb, p.pid, p.name);
     ledger.created += massOf(size);
     p.rgb = rgb;
@@ -757,10 +786,20 @@ function createSim(opts) {
       if (cmd.t === 'leave') doLeave(p);
       else if (cmd.t === 'spawn') {
         if (typeof cmd.name === 'string') p.name = cmd.name;
-        doSpawn(p);
-      } else if (cmd.t === 'split') doSplit(p);
-      else if (cmd.t === 'eject') doEject(p);
+        doSpawn(p, cmd.at);
+      } else if (cmd.t === 'split') {
+        if (!isStill(p.pid)) doSplit(p);       // refused while held (Owen 2026-10-08 cash-out)
+      } else if (cmd.t === 'eject') {
+        if (!isStill(p.pid)) doEject(p);
+      } else if (cmd.t === 'clear') doClear(p);
     }
+  }
+
+  // A finished hold-Q cash-out in a free room (Owen 2026-10-08: the run simply ends): the cells go like a leave, the
+  // player stays (a seat's player can press Play again), and the step reports it in died like any player whose
+  // cells are gone. Never queued by anything in the parity streams.
+  function doClear(p) {
+    for (const c of p.cells.slice()) removeCell(c, 'left');
   }
 
   // Phase 2: blobs and viruses that still carry a boost.
@@ -859,8 +898,9 @@ function createSim(opts) {
       if (p.cells.length === 0) continue;
       const cs = p.cells.slice();
       for (const c of cs) c.canMerge = age(c) >= mergeTicks(c.size);
+      const steer = !isStill(p.pid);
       for (const c of cs) {
-        moveToward(p, c);
+        if (steer) moveToward(p, c);
         boostStep(c);
         keepInside(c);
       }
@@ -883,6 +923,12 @@ function createSim(opts) {
 
   // Can player cell P eat cell Q right now (server laws L13, L23, L24, L30)?
   function playerCanEat(P, Q) {
+    // The paid shield (design 3.3.3): a shielded player eats nothing (not even food or viruses), and nothing eats a
+    // shielded cell. Virus feeds never go through here and cannot hurt a cell.
+    if (shielded !== null && shielded.size > 0) {
+      if (shielded.has(P.owner)) return false;
+      if (Q.kind === 'player' && shielded.has(Q.owner)) return false;
+    }
     if (Q.kind === 'player') {
       if (Q.owner === P.owner) {
         // Merge (L13): both past their merge time and both minAgeTicks old, no size ratio; the bigger cell eats,
@@ -903,10 +949,33 @@ function createSim(opts) {
   // the merges in the recordings were in the eat list), so only eats of another cell are listed.
   function eat(P, Q) {
     if (!(Q.kind === 'player' && Q.owner === P.owner)) ev.eats.push([P.id, Q.id]);
+    if (paid) moneyFact(P, Q);
     const before = massOf(P.size) + massOf(Q.size);
     P.size = Math.sqrt(P.size * P.size + L.absorb * Q.size * Q.size);
     removeCell(Q, null);
     ledger.eat += before - massOf(P.size);
+  }
+
+  // The money facts of one eat (design 3.3.2), pushed before the eaten cell is removed. Only a player cell eating
+  // ANOTHER player's cell moves money (own merges go through eat() too and are excluded); the victim's size^2 sum is
+  // over its live cells at this instant, the eaten one included, and last says it was the victim's only cell. An
+  // ejected blob eaten by someone other than its ejector is a feed (flagged, never money).
+  function moneyFact(P, Q) {
+    if (Q.kind === 'player' && Q.owner !== P.owner) {
+      const v = players.get(Q.owner);
+      let victimSq = 0;
+      let live = 0;
+      if (v) {
+        for (const c of v.cells) {
+          if (c.dead) continue;
+          victimSq += c.size * c.size;
+          live++;
+        }
+      }
+      ev.money.push({ eater: P.owner, victim: Q.owner, eatenSq: Q.size * Q.size, victimSq, last: live <= 1 });
+    } else if (Q.kind === 'ejected' && Q.ejectedBy && Q.ejectedBy !== P.owner) {
+      ev.feeds.push({ feeder: Q.ejectedBy, eater: P.owner, blobSq: Q.size * Q.size });
+    }
   }
 
   // L29 pop after a player cell eats a virus: pieces leave in random directions with the split boost.
@@ -1051,10 +1120,60 @@ function createSim(opts) {
     return true;
   }
 
-  function spawn(pid, name) {
+  // at (paid rooms only): a point from findSpawnPoint, both coordinates finite.
+  function spawn(pid, name, at) {
     if (!players.has(pid)) return false;
-    queue.push({ t: 'spawn', pid, name: typeof name === 'string' ? name : undefined });
+    const cmd = { t: 'spawn', pid, name: typeof name === 'string' ? name : undefined };
+    if (at !== undefined && at !== null) {
+      if (!paid) throw new Error('agSim: a spawn point is for paid rooms only');
+      if (!isFiniteNumber(at.x) || !isFiniteNumber(at.y)) throw new TypeError('agSim: spawn point must be finite');
+      cmd.at = { x: at.x, y: at.y };
+    }
+    queue.push(cmd);
     return true;
+  }
+
+  // The cells of a player go at the next step and the player stays (a free room's finished hold-Q cash-out).
+  function clearCells(pid) {
+    if (!players.has(pid)) return false;
+    queue.push({ t: 'clear', pid });
+    return true;
+  }
+
+  // Paid safe spawn (design 3.3.5): up to `tries` uniform points of the map; a point is clear when every live cell of
+  // a player that could eat a cell of `size` (L23 eatRatio) has its centre at least (its size + size + clear) away.
+  // Returns the first clear point, or null. Paid rooms only (the free room never draws these rng values).
+  function findSpawnPoint(size, clear, tries) {
+    if (!paid) throw new Error('agSim: findSpawnPoint is for paid rooms only');
+    if (!isFiniteNumber(size) || size <= 0 || !isFiniteNumber(clear) || clear < 0 || !Number.isInteger(tries) || tries < 1) {
+      throw new TypeError('agSim: findSpawnPoint needs a size above 0, a clearance of 0 or more and whole tries');
+    }
+    const eaters = [];
+    for (const c of playerCells.values()) {
+      if (!c.dead && c.size >= L.eatRatio * size) eaters.push(c);
+    }
+    for (let i = 0; i < tries; i++) {
+      const pt = randomPoint();
+      let ok = true;
+      for (const c of eaters) {
+        const dx = c.x - pt.x;
+        const dy = c.y - pt.y;
+        const need = c.size + size + clear;
+        if (dx * dx + dy * dy < need * need) {
+          ok = false;
+          break;
+        }
+      }
+      if (ok) return pt;
+    }
+    return null;
+  }
+
+  // The money facts no completed step has returned yet (design 3.3.6), for an emergency close or a shutdown while
+  // steps keep throwing; they are cleared so nothing is applied twice.
+  function takeMoneyEvents() {
+    if (!paid) return { money: [], feeds: [] };
+    return { money: ev.money.splice(0, ev.money.length), feeds: ev.feeds.splice(0, ev.feeds.length) };
   }
 
   function split(pid) {
@@ -1214,6 +1333,11 @@ function createSim(opts) {
     tick: () => tick,
     hasPlayer: (pid) => player(pid) !== null,
     debugPlace,
+    clearCells,
+    findSpawnPoint,
+    takeMoneyEvents,
+    startSize: () => L.startSize,
+    eatRatio: () => L.eatRatio,
   };
 }
 

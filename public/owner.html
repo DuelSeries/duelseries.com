@@ -203,6 +203,11 @@ input.num{width:70px;text-align:center}
         <div class="rlabel"><b>Open again</b><span>New games start immediately.</span></div>
         <button class="go" onclick="act('maintenance:off',{})">Open</button>
       </div>
+      <div class="row">
+        <div class="rlabel"><b>Paid agar.io</b><span>Close: new paid joins are refunded, seated players finish. Only while AG_PAID is on.</span></div>
+        <button class="warn" onclick="act('agar:paid:off',{})">Close</button>
+        <button class="go" onclick="act('agar:paid:on',{})">Open</button>
+      </div>
     </section>
 
     <!-- Announce. -->
@@ -389,6 +394,7 @@ function render(s) {
    hitting the wrong row. */
 const CONFIRM = {
   'maintenance:on': 'Close the game to new players?\n\nAnyone already playing carries on, but nobody new can start until you open it again.',
+  'agar:paid:off':  'Close paid agar.io to new players?\n\nNew paid joins are refunded; anyone already seated keeps playing and can cash out.',
   'br:stop':        'Stop the match that is running?\n\nNobody wins it and no prize is paid.',
   'bots:clear':     'Remove every bot from this room?',};
 async function act(action, args) {
