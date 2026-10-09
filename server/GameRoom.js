@@ -29,6 +29,14 @@ const BC_FOOD_CELL = 1000;
    under ten seconds. */
 const STALL_LOG_CAP = 600;
 
+/* Empties a reused working array and KEEPS its memory. `arr.length = 0`
+   looks like it does the same but makes V8 drop the backing store, so every
+   "reused" array below regrew from nothing on every call (see
+   SpatialGrid.clear for the measurement). Same contents afterwards. */
+function emptyKeep(arr) {
+  while (arr.length !== 0) arr.pop();
+}
+
 class GameRoom {
   constructor(io, lobbyType) {
     this.io = io;
@@ -630,7 +638,7 @@ class GameRoom {
        little objects here is exactly the steady allocation that shows up later
        as a collector pause nothing can be attributed to. */
     const hits = this._hits || (this._hits = []);
-    hits.length = 0;
+    emptyKeep(hits);
     for (const snake of allSnakes) {
       if (!snake.alive) continue;
       const hx = snake.head.x, hy = snake.head.y;
@@ -787,7 +795,7 @@ class GameRoom {
        zero and left ten players in the order the Map happened to yield. */
     const isPaid = !this.isFree();
     const alive = this._lbAlive || (this._lbAlive = []);
-    alive.length = 0;
+    emptyKeep(alive);
     for (const s of this.snakes.values()) if (s.alive) alive.push(s);
     alive.sort((a, b) => isPaid ? b.worth - a.worth : b.score - a.score);
     /* The OUTPUT is freshly allocated on purpose, unlike the working array
@@ -866,7 +874,7 @@ class GameRoom {
     const snakesSer = this._snakesSer || (this._snakesSer = []);
     const bounds    = this._bounds    || (this._bounds    = []);
     const mm        = [];   // referenced by meta, not copied — must be fresh
-    snakesSer.length = 0; bounds.length = 0;
+    emptyKeep(snakesSer); emptyKeep(bounds);
     for (const snake of this.snakes.values()) {
       if (!snake.alive) continue;
       const s = snake.serialize();
@@ -973,11 +981,11 @@ class GameRoom {
          finished copying before the next iteration starts. */
       const snakes = this._cellSnakes || (this._cellSnakes = []);
       const food   = this._cellFood   || (this._cellFood   = []);
-      snakes.length = 0; food.length = 0;
+      emptyKeep(snakes); emptyKeep(food);
       /* Distance to the cell centre, kept alongside so the list can be trimmed
          to the nearest few without a second pass over the bounds. */
       const near = this._cellNear || (this._cellNear = []);
-      near.length = 0;
+      emptyKeep(near);
       for (let i = 0; i < snakesSer.length; i++) {
         const b = bounds[i];
         if (Math.abs(b.cx - cx) <= halfW + b.br && Math.abs(b.cy - cy) <= halfH + b.br) {
@@ -1011,7 +1019,7 @@ class GameRoom {
            objects here is exactly the steady allocation the reuse above exists
            to avoid. */
         const pairs = this._cellPairs || (this._cellPairs = []);
-        pairs.length = 0;
+        emptyKeep(pairs);
         for (let k = 0; k < near.length; k += 2) pairs.push([near[k], near[k + 1]]);
         pairs.sort((a, b) => a[0] - b[0]);
         for (let k = 0; k < CAP; k++) snakes.push(snakesSer[pairs[k][1]]);

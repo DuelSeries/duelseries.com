@@ -78,3 +78,34 @@ test('multi-item cells and the 3x3 neighbourhood still behave', () => {
   assert.ok(found.includes('a') && found.includes('b') && found.includes('neighbour'));
   assert.ok(!found.includes('distant'));
 });
+
+/* Same array object is not enough: `arr.length = 0` keeps the object but makes
+   V8 drop its backing store, so every refill allocated again and clear() saved
+   nothing (S4, 2026-10-09: 1766 KB per watched tick in one 28-bot room, which
+   the box's small young generation turned into 18-19 collections a second).
+   This measures what a steady refill allocates with V8's sampling heap
+   profiler, counting objects that were already collected. The length = 0
+   version of clear() samples about 29 MB here and the pop version about
+   16 KB (measured 2026-10-09), so 2 MB separates the two with room to spare. */
+test('refilling a cleared grid allocates (almost) nothing', async () => {
+  const inspector = require('node:inspector');
+  const g = new SpatialGrid(80);
+  const fill = () => { for (let c = 0; c < 2000; c++) for (let k = 0; k < 5; k++) g.insert(c * 80 + 1, 1, k); };
+  for (let r = 0; r < 20; r++) { g.clear(); fill(); }             // warm up: every cell and store exists
+  const ses = new inspector.Session();
+  ses.connect();
+  const post = (m, p) => new Promise((res, rej) => ses.post(m, p || {}, (e, r) => (e ? rej(e) : res(r))));
+  try {
+    await post('HeapProfiler.enable');
+    await post('HeapProfiler.startSampling', { samplingInterval: 1024,
+      includeObjectsCollectedByMajorGC: true, includeObjectsCollectedByMinorGC: true });
+    for (let r = 0; r < 100; r++) { g.clear(); fill(); }
+    const { profile } = await post('HeapProfiler.stopSampling');
+    let bytes = 0;
+    const walk = (n) => { bytes += n.selfSize || 0; for (const c of n.children || []) walk(c); };
+    walk(profile.head);
+    assert.ok(bytes < 2 * 1048576, `100 refills of 2000 cells allocated ${(bytes / 1048576).toFixed(1)} MB: cell stores are being thrown away`);
+  } finally {
+    ses.disconnect();
+  }
+});

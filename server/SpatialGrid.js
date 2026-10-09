@@ -19,18 +19,32 @@ class SpatialGrid {
      threaded: a pause leaves all six rooms' timers due at once, and the
      catch-up burst is the stall players actually feel.
 
-     Truncating instead reuses each array's capacity, so a steady state
-     allocates nothing here at all. Cells that empty out are left behind as
-     empty arrays, which cost nothing to skip on lookup, and the key set is
-     bounded by the world size — but a world that shrinks would strand them, so
-     they are pruned occasionally rather than never. */
+     Emptied with pop, NOT with `arr.length = 0`. Setting length to 0 makes
+     V8 throw the array's backing store away (it resets the elements to the
+     empty store), so every cell regrew a fresh one on the next insert and the
+     reuse above never happened. Measured (S4, 2026-10-09,
+     agario-reference/polish/build/S4-loop): one 28-bot room allocated 1766 KB
+     per watched tick with length = 0 and 84 KB with pop; on the box, a model
+     of the live load (five snake rooms nobody is in, one agar room) went
+     from 17.6 collections and 58-63 ms of GC a second to 2.7 and 2.3-2.6 ms.
+     pop keeps the backing store, the same fix the agar grid already uses
+     (server/ag/agSim.js createGrid). Same items, same order: only the memory
+     behaviour changes.
+
+     Cells that empty out are left behind as empty arrays, which cost nothing
+     to skip on lookup, and the key set is bounded by the world size, but a
+     world that shrinks would strand them, so they are pruned occasionally
+     rather than never. */
   clear() {
     if (++this._sweeps >= 600) {          // ~10s at 60Hz
       this._sweeps = 0;
-      for (const [k, arr] of this.map) { if (arr.length === 0) this.map.delete(k); else arr.length = 0; }
+      for (const [k, arr] of this.map) {
+        if (arr.length === 0) this.map.delete(k);
+        else while (arr.length !== 0) arr.pop();
+      }
       return;
     }
-    for (const arr of this.map.values()) arr.length = 0;
+    for (const arr of this.map.values()) { while (arr.length !== 0) arr.pop(); }
   }
 
   // Pack cell coords into one number. The +8192 offset keeps both axes positive so
