@@ -12,8 +12,6 @@
      Linked here only, never from ag.css: the parity harness declares its own Ubuntu face before ag.css. -->
 <link rel="stylesheet" href="/fonts/ubuntu.css">
 <link rel="stylesheet" href="/css/ag.css">
-<!-- The shared end card (cashout.css co-* classes), used by the paid end screen only (agScreens.createPaidEnd). -->
-<link rel="stylesheet" href="/css/cashout.css">
 </head>
 <body>
 <!-- The game canvas must stay the first canvas in the document. -->
@@ -23,7 +21,8 @@
 <div class="font-family">&nbsp;</div>
 
 <!-- Phone controls (CHOSEN): the same actions as Space and W, and Cash out, held like Q (Owen 2026-10-08: hold
-     3 s to cash out, in every room). Hidden on mouse screens and shown only while alive (ag.css). -->
+     3 s to cash out, in every room). Hidden on mouse screens and shown only while alive (ag.css). The paid end
+     card's styles (cashout.css and its fonts) are added by agScreens.loadPaidStyles in a paid room only. -->
 <div class="ag-pad" aria-label="Game controls">
   <button type="button" id="ag-cash" aria-label="Hold to cash out">Cash out</button>
   <button type="button" id="ag-split" aria-label="Split">Split</button>

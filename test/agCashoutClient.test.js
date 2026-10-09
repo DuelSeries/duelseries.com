@@ -2,7 +2,7 @@
 // The agar.io page's hold-Q cash-out (Owen 2026-10-08, every room) and the paid-room display (PAID-AGAR-DESIGN 6):
 // the wire (agNet ag:hold and the side events), the input (Q and the phone Cash out button as one hold), the page
 // (repeat every 200 ms, movement locked, the ring in step with the server, the results screen after a cash-out, the
-// paid balance, board, cell shares, away cells and the paid end card), and the free page drawing exactly as before
+// paid balance, board, cell shares and the paid end card), and the free page drawing exactly as before
 // when nobody holds Q.
 const test = require('node:test');
 const assert = require('node:assert');
@@ -365,7 +365,7 @@ test('free page: hold events that do not apply leave every canvas call, size wri
 // ---- paid display -----------------------------------------------------------------------------------------------
 const MONEY = { me: 140000, rank: 1, cells: [9, 140000, 10, 60000], board: [['me', 140000], ['bob', 60000]], away: [10] };
 
-test('paid: balance over the score, the money board, each known cell\'s share under its name, away cells faded', async () => {
+test('paid: balance over the score, the money board, each known cell\'s share under its name, no faded cells', async () => {
   const p = bootPage();
   await spawn(p, p.session.feed);
   assert.strictEqual(p.session.state().paid, false);
@@ -380,8 +380,9 @@ test('paid: balance over the score, the money board, each known cell\'s share un
   assert.ok(texts.filter((t) => t === '$0.14').length >= 2, 'board amount and the own cell\'s share');
   assert.ok(texts.includes('$0.06'), 'the stranger\'s share');
   const main = p.doc.calls.filter((c) => c[0] === p.canvas.cid);
-  assert.ok(main.some((c) => c[1] === '=globalAlpha' && c[2][0] === LIB.agRender.AWAY_ALPHA), 'away cell at half opacity');
-  assert.strictEqual(LIB.agRender.AWAY_ALPHA, 0.5);
+  // a stray away field (the display list review removed: design 6 has no faded look) draws nothing faded
+  assert.ok(!main.some((c) => c[1] === '=globalAlpha' && c[2][0] === 0.5), 'no cell is faded');
+  assert.strictEqual(LIB.agRender.AWAY_ALPHA, undefined);
   // the own balance panel sits right above the score panel (both bottom-left)
   const boxes = main.filter((c) => c[1] === 'moveTo').map((c) => c[2][1]);
   assert.ok(boxes.length >= 2);
@@ -455,9 +456,80 @@ test('paid end card: a death says what was lost and to whom; a closed room says 
   assert.strictEqual(card.getAttribute('data-kind'), 'closed');
   assert.strictEqual(p.doc.getElementById('ag-pe-amount').textContent, '$0.25');
   assert.match(p.doc.getElementById('ag-pe-sub').textContent, /whole balance goes back to your wallet, no house cut/);
+  assert.strictEqual(p.doc.getElementById('ag-pe-amount').hidden, false);
   const q = bootPage();
   q.session.sideEvent('ag:dead', { lostMicro: 100000, by: '' });
   assert.strictEqual(q.doc.getElementById('ag-pe-sub').textContent, 'You lost $0.10');
+});
+
+test('paid end card: ag:closed is worded by its why; the frozen backstop and a zero amount are never called a refund', () => {
+  const T = LIB.agScreens.PAID_TEXT;
+  const p = bootPage();
+  const say = (msg) => {
+    p.session.sideEvent('ag:closed', msg);
+    const card = p.doc.getElementById('ag-paid-end');
+    return { kind: card.getAttribute('data-kind'), title: p.doc.getElementById('ag-pe-title').textContent,
+      amount: p.doc.getElementById('ag-pe-amount'), sub: p.doc.getElementById('ag-pe-sub').textContent };
+  };
+  let r = say({ refundedMicro: 1000000, why: 'shutdown' });
+  assert.deepStrictEqual([r.kind, r.title, r.amount.textContent, r.amount.hidden, r.sub], ['closed', 'Refunded', '$1.00', false, T.restart]);
+  r = say({ refundedMicro: 500000, why: 'crash' });
+  assert.strictEqual(r.sub, T.restart);
+  // agMoney.houseSettle: the balance went to the house (agar_breach) for a refund by hand, agRoom sends 0
+  r = say({ refundedMicro: 0, why: 'frozen-settled' });
+  assert.deepStrictEqual([r.kind, r.title, r.amount.hidden, r.sub], ['held', 'On hold', true, T.held]);
+  assert.ok(!/refund/i.test(r.title + r.sub));
+  // the emergency loop for a seat with no settled account, or nothing left: no $0.00 "refund"
+  r = say({ refundedMicro: 0, why: 'emergency' });
+  assert.deepStrictEqual([r.kind, r.title, r.amount.hidden, r.sub], ['closed', 'Room closed', true, T.closedEmpty]);
+  assert.ok(!r.sub.includes('$0.00'));
+  r = say({ refundedMicro: 250000, why: 'emergency' });
+  assert.deepStrictEqual([r.title, r.amount.textContent, r.amount.hidden, r.sub], ['Refunded', '$0.25', false, T.closed]);
+  // a death after a hidden figure shows its figure again
+  p.session.sideEvent('ag:closed', { refundedMicro: 0, why: 'frozen-settled' });
+  p.session.sideEvent('ag:dead', { lostMicro: 100000, by: 'bob' });
+  assert.strictEqual(p.doc.getElementById('ag-pe-amount').hidden, false);
+});
+
+test('paid end card: a resumed receipt is not counted again in analytics and does not wait on a payout message', async () => {
+  const p = bootPage();
+  const events = [];
+  p.win.phEvent = (name, props) => events.push([name, props]);
+  p.session.sideEvent('ag:joined', { stake: 0.1, micro: 100000 });
+  p.session.sideEvent('ag:cashedout', { grossMicro: 300000, cutMicro: 30000, netMicro: 270000, cashoutId: 'c9',
+    resumed: true, auto: true });
+  assert.deepStrictEqual(events, [], 'agPaidDoor answerOutcome repeats a cash-out already counted');
+  assert.strictEqual(p.doc.getElementById('ag-pe-title').textContent, 'Cashed out automatically');
+  assert.strictEqual(p.doc.getElementById('ag-pe-amount').textContent, '$0.27');
+  assert.strictEqual(p.doc.getElementById('co-settle-text').textContent, LIB.agScreens.PAID_TEXT.recorded);
+  p.session.sideEvent('ag:cashedout', { grossMicro: 300000, cutMicro: 30000, netMicro: 270000, cashoutId: 'c10' });
+  assert.deepStrictEqual(events, [['cashed_out', { game: 'agar', amount: 0.27, stake: 0.1 }]]);
+  assert.strictEqual(p.doc.getElementById('ag-pe-title').textContent, 'Cashed out');
+  assert.strictEqual(p.doc.getElementById('co-settle-text').textContent, LIB.agScreens.PAID_TEXT.sending);
+});
+
+test('the paid end card styles load only in a paid room: the free page head gets nothing, even with a hold', async () => {
+  const p = bootPage();
+  await spawn(p, p.session.feed);
+  p.key('keydown', 81);
+  p.session.sideEvent('ag:holding', { on: 1, need: 75 });
+  await p.frames(3);
+  p.key('keyup', 81);
+  p.session.sideEvent('ag:cashedout', { free: true });
+  assert.strictEqual(p.doc.getElementById('ag-pe-css'), null, 'free room: no cashout.css');
+  assert.strictEqual(p.doc.getElementById('ag-pe-fonts'), null, 'free room: no extra font request');
+  const q = bootPage();
+  q.session.sideEvent('ag:joined', { stake: 1, micro: 1000000 });
+  const css = q.doc.getElementById('ag-pe-css');
+  const fonts = q.doc.getElementById('ag-pe-fonts');
+  assert.ok(css && fonts, 'paid room: both links added');
+  assert.strictEqual(css.getAttribute('href'), '/css/cashout.css');
+  assert.strictEqual(css.getAttribute('rel'), 'stylesheet');
+  assert.match(fonts.getAttribute('href'), /^https:\/\/fonts\.googleapis\.com\/css2\?family=Archivo:/);
+  const before = q.doc.head.children.length;
+  q.session.sideEvent('ag:money', MONEY);
+  q.session.sideEvent('ag:joined', { stake: 1, micro: 1000000 });
+  assert.strictEqual(q.doc.head.children.length, before, 'added once');
 });
 
 // ---- the socket path ---------------------------------------------------------------------------------------------
@@ -589,15 +661,24 @@ test('Match Results keeps its title unless a cash-out asks; the paid card is bui
 });
 
 // ---- the page files -------------------------------------------------------------------------------------------------
-test('ag.html: the Cash out button leads the phone pad; the shared end card styles are linked; the pad keeps to the safe area', () => {
+test('ag.html: the pad holds Cash out, Split, Eject; the free head links no paid styles; Cash out sits beside Split', () => {
   const html = fs.readFileSync(path.join(ROOT, 'public', 'ag.html'), 'utf8');
   const pad = html.slice(html.indexOf('<div class="ag-pad"'), html.indexOf('</div>', html.indexOf('<div class="ag-pad"')));
   const ids = [...pad.matchAll(/id="([^"]+)"/g)].map((m) => m[1]);
   assert.deepStrictEqual(ids, ['ag-cash', 'ag-split', 'ag-eject']);
-  assert.ok(html.indexOf('/css/cashout.css') > html.indexOf('/css/ag.css'));
+  const head = html.slice(0, html.indexOf('</head>'));
+  assert.ok(!head.includes('cashout.css'), 'the free page head is as before: agScreens.loadPaidStyles adds it in paid rooms');
+  assert.ok(!/<link[^>]*fonts\.googleapis/.test(head));
   const css = fs.readFileSync(path.join(ROOT, 'public', 'css', 'ag.css'), 'utf8');
-  assert.match(css, /\.ag-pad \{[^}]*right: calc\(16px \+ env\(safe-area-inset-right, 0px\)\);/);
-  assert.match(css, /\.ag-pad \{[^}]*bottom: calc\(16px \+ var\(--ag-banner, 0px\) \+ env\(safe-area-inset-bottom, 0px\)\);/);
+  // the corner offsets are the pre-cash-out pad's (no viewport-fit=cover, so env(safe-area-inset-*) would be 0)
+  assert.match(css, /\.ag-pad \{[^}]*right: 16px;[^}]*bottom: calc\(16px \+ var\(--ag-banner, 0px\)\);/);
+  assert.ok(!css.includes('safe-area-inset'));
+  // landscape: Cash out LEFT of Split, Eject under Split, so the pad stays two buttons tall (clear of the board);
+  // portrait: Cash out above Split, so the bottom row stays two buttons wide
+  assert.match(css, /\.ag-pad \{[^}]*grid-template-columns: 72px 72px;[^}]*grid-template-areas: "cash split" "\. eject";/);
+  assert.match(css, /\.ag-portrait \.ag-pad \{ grid-template-areas: "cash \." "split eject"; \}/);
+  assert.match(css, /\.ag-pad \{[^}]*pointer-events: none;/);
+  assert.match(css, /\.ag-pad button \{\s*pointer-events: auto;/);
   assert.match(css, /#ag-paid-end\[hidden\],\s*#ag-paid-end \[hidden\] \{ display: none; \}/);
 });
 

@@ -44,9 +44,6 @@
   var HOLD_RING_PX = 6;       // CHOSEN stroke width, canvas px at HUD scale 1 (1920x1080), scaled like the HUD
   var HOLD_RING_GAP_PX = 6;   // CHOSEN gap between the cell's outer edge and the ring, same units
   var HOLD_RING_GREY = 'rgb(170,170,170)';  // colours off on a light map: the cell rim's own grey (drawNode dk)
-  // Paid rooms: a cell whose owner is away (disconnected, frozen or not yet confirmed; the server's ag:money away
-  // list) is drawn at this opacity, name and money line included.
-  var AWAY_ALPHA = 0.5;       // CHOSEN
 
   // agMath is looked up at call time (Paper wrapper rule); under node it is required once.
   var mathLib = null;
@@ -147,10 +144,9 @@
 
     var grid = { pattern: null, scale: 0, dark: false };
     var names = new Map();                      // name string -> { refs, levels[4] }
-    // Paid rooms only (setMoney, from ag:money): cell id -> its share in micro-USDC, and the away cell ids. Both
-    // null in the free room, where nothing below reads them.
+    // Paid rooms only (setMoney, from ag:money): cell id -> its share in micro-USDC. Null in the free room, where
+    // nothing below reads it.
     var money = null;
-    var away = null;
     var frameCounter = 0;
     var membranesAllowed = true;                // allowed on the first frame (spec 1.2)
 
@@ -579,9 +575,6 @@
       interpolate(n, now);
       ctx.save();
       if (n.dying) ctx.globalAlpha = 1 - clamp01((now - n.updateTime) / INTERP_MS);
-      if (away !== null && away.has(n.id)) {
-        ctx.globalAlpha = (n.dying ? 1 - clamp01((now - n.updateTime) / INTERP_MS) : 1) * AWAY_ALPHA;
-      }
       ctx.lineWidth = 10;
       ctx.lineCap = 'round';
       ctx.lineJoin = n.virus ? 'miter' : 'round';
@@ -772,10 +765,9 @@
       return true;
     }
 
-    // ag:money (paid rooms): shares is a Map of cell id -> micro, awayIds a Set of cell ids; null clears either.
-    function setMoney(shares, awayIds) {
+    // ag:money (paid rooms): shares is a Map of cell id -> micro; null clears it.
+    function setMoney(shares) {
       money = shares && typeof shares.get === 'function' ? shares : null;
-      away = awayIds && typeof awayIds.has === 'function' && awayIds.size > 0 ? awayIds : null;
     }
 
     // Party icon (8.1.1): a guest has no profile pictures, so the default icon, half size,
@@ -832,8 +824,7 @@
     normalizeSettings: normalizeSettings,
     usd: usd,
     HOLD_RING_PX: HOLD_RING_PX,
-    HOLD_RING_GAP_PX: HOLD_RING_GAP_PX,
-    AWAY_ALPHA: AWAY_ALPHA
+    HOLD_RING_GAP_PX: HOLD_RING_GAP_PX
   };
   A.agRender = agRender;
   if (typeof module !== 'undefined' && module.exports) module.exports = agRender;

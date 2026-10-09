@@ -324,8 +324,10 @@ test('P1: the phone pad shows and acts only while playing with own cells (not HO
 test('P1: ag.css shows the phone pad only under .ag-alive, on touch screens', () => {
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'css', 'ag.css'), 'utf8');
   assert.match(css, /\.ag-pad \{[^}]*display: none;/);
-  assert.match(css, /@media \(pointer: coarse\) \{\s*\.ag-alive \.ag-pad \{ display: flex; \}\s*\}/);
-  assert.strictEqual((css.match(/display: flex/g) || []).length, 1, 'no other rule shows the pad');
+  assert.match(css, /@media \(pointer: coarse\) \{\s*\.ag-alive \.ag-pad \{ display: grid; \}\s*\}/);
+  const shows = [...css.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+    .filter((m) => m[1].includes('.ag-pad') && /display:/.test(m[2])).map((m) => m[2].match(/display: ([a-z]+)/)[1]);
+  assert.deepStrictEqual(shows, ['none', 'grid'], 'no other rule shows the pad');
 });
 
 test('quality goes through one path: level, canvas scale and size together', async () => {

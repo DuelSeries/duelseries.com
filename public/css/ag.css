@@ -30,18 +30,28 @@ html, body {
 }
 
 /* Phone controls (CHOSEN, Owen's Q7): Split and Eject buttons, shown on touch screens only and only
-   while playing with own cells (agMain puts .ag-alive on the root element then; FIX-PLAN P1). */
+   while playing with own cells (agMain puts .ag-alive on the root element then; FIX-PLAN P1).
+   Cash out (Owen 2026-10-08: held like Q, in every room) sits LEFT of Split, not above it (CHOSEN, PARITY-LOG
+   2026-10-09 client-cashout finish): a third button on top of the column reached the bottom rows of the
+   leaderboard on short landscape phones (844x340 overlapped by 72x34 px), while beside Split the pad keeps the
+   two-button height, top at H - 174, clear of the board at every landscape phone size. The empty grid cell and the
+   gaps pass touches through to the canvas (pointer-events). */
 .ag-pad {
   position: absolute;
-  /* Inside the safe area (a notch or a home bar; the insets are 0 where there is none). */
-  right: calc(16px + env(safe-area-inset-right, 0px));
-  bottom: calc(16px + var(--ag-banner, 0px) + env(safe-area-inset-bottom, 0px));
+  right: 16px;
+  bottom: calc(16px + var(--ag-banner, 0px));
   display: none;
-  flex-direction: column;
+  grid-template-columns: 72px 72px;
+  grid-template-areas: "cash split" ". eject";
   gap: 14px;
   z-index: 5;
+  pointer-events: none;
 }
+.ag-pad #ag-cash { grid-area: cash; }
+.ag-pad #ag-split { grid-area: split; }
+.ag-pad #ag-eject { grid-area: eject; }
 .ag-pad button {
+  pointer-events: auto;
   width: 72px;
   height: 72px;
   border-radius: 50%;
@@ -54,21 +64,22 @@ html, body {
   -webkit-user-select: none;
 }
 .ag-pad button:active { background: rgba(255, 255, 255, 0.25); }
-/* Cash out (Owen 2026-10-08): held, like Q; first in the column, furthest from the corner the thumb rests on, and
-   a smaller face so its two words fit the same 72 px button (CHOSEN, PARITY-LOG 2026-10-09). */
+/* Cash out: furthest from the corner the thumb rests on (Eject stays nearest it), and a smaller face so its two
+   words fit the same 72 px button (CHOSEN, PARITY-LOG 2026-10-09). */
 .ag-pad #ag-cash { font-size: 13px; line-height: 1.1; }
 
 @media (pointer: coarse) {
-  .ag-alive .ag-pad { display: flex; }
+  .ag-alive .ag-pad { display: grid; }
 }
 
 /* Phone held upright (agMain puts .ag-portrait on the root element for the portrait layout,
    FIX-PLAN P4): the landscape pad turned with the screen, CHOSEN (PARITY-LOG 2026-10-09 P4). The
    column on the right edge becomes a row on the bottom edge, still in the bottom-right corner where
    the right thumb rests, Eject still nearest the corner and Split beside it; the left thumb keeps
-   the rest of the bottom for the stick. Layout only: whether the pad shows is the rule above. */
+   the rest of the bottom for the stick. Layout only: whether the pad shows is the rule above. Cash out turns
+   with it: above Split, so the bottom row stays two buttons (158 px) wide. */
 @media (pointer: coarse) {
-  .ag-portrait .ag-pad { flex-direction: row; }
+  .ag-portrait .ag-pad { grid-template-areas: "cash ." "split eject"; }
 }
 
 /* The menu card stays usable on a phone: never wider than the screen minus the side gutters.

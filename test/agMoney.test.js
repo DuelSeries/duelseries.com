@@ -591,32 +591,3 @@ test('a room with only away accounts keeps its clock: removeSocket does not idle
   r.tickOnce();
   assert.strictEqual(calls.cashout.length, 1, 'the away account settled');
 });
-
-test('ag:money away: the known cells of a disconnected or unconfirmed account (display only); live ones never', () => {
-  const w = world();
-  const { r } = w;
-  const a = join(w, 'a', { micro: 100000 });
-  const b = join(w, 'b', { micro: 100000 });
-  const ca = cellsOf(r, a.pid)[0];
-  const cb = cellsOf(r, b.pid)[0];
-  cb.x = ca.x + 300;                    // b sits in a's view, apart from it
-  cb.y = ca.y;
-  for (let i = 0; i < 30; i++) r.tickOnce();
-  let m = a.s.of('ag:money').pop();
-  assert.deepStrictEqual(m.away, [], 'everyone live: nothing away');
-  assert.ok(m.cells.includes(cb.id), 'a knows b\'s cell');
-  r.removeSocket(b.s.id);               // grace, then dormant: still and edible
-  for (let i = 0; i < 26; i++) r.tickOnce();
-  m = a.s.of('ag:money').pop();
-  assert.deepStrictEqual(m.away, [cb.id], 'b is away');
-  assert.ok(!m.away.includes(ca.id));
-  const c = join(w, 'c', { micro: 100000, ready: false });
-  r.tickOnce();                         // its cell spawns at the next step; no ag:ready is sent
-  const cc = cellsOf(r, c.pid)[0];
-  cc.x = ca.x - 300;
-  cc.y = ca.y;
-  for (let i = 0; i < 25; i++) r.tickOnce();
-  m = a.s.of('ag:money').pop();
-  assert.deepStrictEqual(m.away.slice().sort((x, y) => x - y), [cb.id, cc.id].sort((x, y) => x - y),
-    'an unconfirmed (shielded) seat is away too');
-});

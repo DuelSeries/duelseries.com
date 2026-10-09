@@ -492,7 +492,8 @@
             paidEndCard().showCashed(p);
             var net = Number(p.netMicro);
             if (!isFinite(net)) net = (Number(p.grossMicro) || 0) - (Number(p.cutMicro) || 0);
-            if (typeof win.phEvent === 'function') {
+            // a resumed receipt (agPaidDoor answerOutcome) repeats a cash-out already counted: never twice
+            if (p.resumed !== true && typeof win.phEvent === 'function') {
               try { win.phEvent('cashed_out', { game: 'agar', amount: net / 1e6, stake: paid.stake }); } catch (e) { /* analytics never breaks the game */ }
             }
           }
@@ -501,12 +502,14 @@
           if (Number(p.stake) > 0) {
             paid.on = true;
             paid.stake = Number(p.stake);
+            agScreens.loadPaidStyles(doc);
           }
           if (typeof p.tickMs === 'number' && p.tickMs > 0 && isFinite(p.tickMs)) holdTickMs = p.tickMs;
           if (wholePositive(p.holdTicks)) hold.need = p.holdTicks;
           break;
         case 'ag:money':
           paid.on = true;
+          agScreens.loadPaidStyles(doc);
           applyMoney(p);
           break;
         case 'ag:dead':
@@ -533,7 +536,7 @@
         }
       }
     }
-    // ag:money { me, rank, cells: [id, micro, ...], board: [[name, micro], ...], away: [id, ...] }: display only.
+    // ag:money { me, rank, cells: [id, micro, ...], board: [[name, micro], ...] }: display only.
     function applyMoney(p) {
       var shares = new Map();
       var c = Array.isArray(p.cells) ? p.cells : [];
@@ -541,10 +544,7 @@
         var v = c[i + 1];
         if (typeof c[i] === 'number' && typeof v === 'number' && isFinite(v) && v >= 0) shares.set(c[i], v);
       }
-      var gone = new Set();
-      var a = Array.isArray(p.away) ? p.away : [];
-      for (var j = 0; j < a.length; j++) if (typeof a[j] === 'number') gone.add(a[j]);
-      renderer.setMoney(shares, gone);
+      renderer.setMoney(shares);
       hud.setMoney(p);
     }
     function paidEndCard() {
@@ -808,7 +808,7 @@
       // to the old connection. The paid end card stays up: it is the player's receipt.
       endHold();
       cashedOutFree = false;
-      renderer.setMoney(null, null);
+      renderer.setMoney(null);
     }
     // The socket opens once the Ubuntu face is loaded (so names measured from the first world
     // message use the real face) or after FONT_WAIT_MS, whichever comes first, and only once.

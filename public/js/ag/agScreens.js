@@ -512,23 +512,57 @@
 
   // ---------------------------------------------------------------------------------------
   // Paid end card (ours, PAID-AGAR-DESIGN 6 "#ag-paid-end"): a separate overlay built from the shared end card's
-  // classes (public/css/cashout.css co-*, linked from ag.html; the wrapper and its colours are in ag.css), never
-  // the parity-locked #ag-stats panel. Built on first use, so the free page's DOM never has it.
+  // classes (public/css/cashout.css co-*; the wrapper and its colours are in ag.css), never the parity-locked
+  // #ag-stats panel. Built on first use, so the free page's DOM never has it. cashout.css and the card's fonts are
+  // added to the head by loadPaidStyles once a paid room starts (agMain, at ag:joined with a stake or ag:money), so
+  // the free page's head stays as it was and the card is styled by the time it shows.
   // ---------------------------------------------------------------------------------------
 
   var HOUSE_CUT_PCT = 10;   // server/paperPayout.js: the house keeps floor(gross / 10), Owen's 90/10
   var TX_URL = 'https://solscan.io/tx/';   // Paper's explorer link (public/js/paper/mp/paperArenaMain.js pp:paid)
+  var PAID_CSS_URL = '/css/cashout.css';
+  // The faces cashout.css names (Archivo, IBM Plex Mono): the same Google Fonts request as public/game.html, whose
+  // #cashout-screen uses the same card.
+  var PAID_FONT_URL = 'https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap';
+  // Texts CHOSEN (PARITY-LOG 2026-10-09 client-cashout), the figures are the server's own.
   var PAID_TEXT = {
     cashedTitle: 'Cashed out',
+    autoTitle: 'Cashed out automatically',
     deadTitle: 'Eaten',
     closedTitle: 'Refunded',
+    closedEmptyTitle: 'Room closed',
+    heldTitle: 'On hold',
     sending: 'Sending to your wallet',
+    recorded: 'Your payout is recorded and goes to your wallet.',
     sent: 'Sent to your wallet. ',
     view: 'View transaction',
     delayed: 'Payout delayed. Your winnings are recorded and will be sent.',
+    // ag:closed by its why (server/ag/agRoom.js _paidClosed, agMoney emergencySettle / shutdownSettle / houseSettle)
     closed: 'The room closed on our side, so your whole balance goes back to your wallet, no house cut.',
+    restart: 'The server is restarting, so your whole balance goes back to your wallet, no house cut, once it is back.',
+    closedEmpty: 'The room closed on our side. Any balance you had goes back to your wallet in full, no house cut.',
+    held: 'Something went wrong on our side. Your balance is held for review, to be paid back to your wallet by hand.',
     lobby: 'Back to lobby'
   };
+
+  // Adds cashout.css and its fonts to the head once (paid rooms only). Safe to call again; never throws.
+  function loadPaidStyles(doc) {
+    try {
+      doc = doc || root.document;
+      if (!doc || !doc.head || doc.getElementById('ag-pe-css')) return false;
+      var urls = [['ag-pe-css', PAID_CSS_URL], ['ag-pe-fonts', PAID_FONT_URL]];
+      for (var i = 0; i < urls.length; i++) {
+        var link = doc.createElement('link');
+        link.setAttribute('id', urls[i][0]);
+        link.setAttribute('rel', 'stylesheet');
+        link.setAttribute('href', urls[i][1]);
+        doc.head.appendChild(link);
+      }
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
 
   function usd(micro) {
     return '$' + (Math.max(0, Number(micro) || 0) / 1e6).toFixed(2);
@@ -539,6 +573,7 @@
     opts = opts || {};
     var doc = opts.doc || root.document;
     var host = opts.root || doc.body;
+    loadPaidStyles(doc);
     function el(tag, attrs, text) {
       var e = doc.createElement(tag);
       if (attrs) for (var k in attrs) if (Object.prototype.hasOwnProperty.call(attrs, k)) e.setAttribute(k, attrs[k]);
@@ -583,7 +618,8 @@
     });
 
     var api = { element: wrap, kind: '', state: '' };
-    function show(kind) {
+    function show(kind, withAmount) {
+      amount.hidden = withAmount === false;
       api.kind = kind;
       wrap.setAttribute('data-kind', kind);
       wrap.hidden = false;
@@ -593,12 +629,14 @@
       settle.setAttribute('data-state', state);
       settleText.textContent = text;
     }
-    // ag:cashedout { grossMicro, cutMicro, netMicro }: display only, the server's own numbers.
+    // ag:cashedout { grossMicro, cutMicro, netMicro, resumed?, auto? }: display only, the server's own numbers. A
+    // resumed receipt (agPaidDoor answerOutcome: the page asked again after the payout was ordered) gets no ag:paid
+    // later, so its line says the payout is recorded instead of waiting on one.
     api.showCashed = function (p) {
       p = p || {};
       var gross = Number(p.grossMicro) || 0, cut = Number(p.cutMicro) || 0;
       var net = p.netMicro !== undefined ? Number(p.netMicro) || 0 : gross - cut;
-      eyebrow.textContent = PAID_TEXT.cashedTitle;
+      eyebrow.textContent = p.auto === true ? PAID_TEXT.autoTitle : PAID_TEXT.cashedTitle;
       amount.textContent = usd(net);
       sub.textContent = 'Cashed out ' + usd(gross) + ', you receive ' + usd(net) + ' (' + HOUSE_CUT_PCT + '% house)';
       grossEl.textContent = usd(gross);
@@ -607,7 +645,7 @@
       ledger.hidden = false;
       tx.hidden = true;
       settle.hidden = false;
-      setSettle('pending', PAID_TEXT.sending);
+      setSettle('pending', p.resumed === true ? PAID_TEXT.recorded : PAID_TEXT.sending);
       show('cashed');
     };
     // ag:dead { lostMicro, by }
@@ -621,14 +659,34 @@
       settle.hidden = true;
       show('dead');
     };
-    // ag:closed { refundedMicro } (a room that stopped: Owen Q6, 100% back, no rake)
+    // ag:closed { refundedMicro, why }. 'emergency' (the room stopped), 'shutdown' and 'crash' (a restart: owed
+    // refund rows the drainer pays once the server is back): Owen Q6, 100% back, no rake. 'frozen-settled' (the
+    // zombie backstop, design 3.4 step 5): the balance went to the house as agar_breach for a refund by hand, so it
+    // is never called a refund here. A zero amount (nothing left, or a seat whose account is still settling) shows
+    // no figure.
     api.showClosed = function (p) {
       p = p || {};
-      eyebrow.textContent = PAID_TEXT.closedTitle;
-      amount.textContent = usd(p.refundedMicro);
-      sub.textContent = PAID_TEXT.closed;
+      var why = typeof p.why === 'string' ? p.why : '';
+      var micro = Math.max(0, Number(p.refundedMicro) || 0);
       ledger.hidden = true;
       settle.hidden = true;
+      if (why === 'frozen-settled') {
+        eyebrow.textContent = PAID_TEXT.heldTitle;
+        amount.textContent = '';
+        sub.textContent = PAID_TEXT.held;
+        show('held', false);
+        return;
+      }
+      if (micro <= 0) {
+        eyebrow.textContent = PAID_TEXT.closedEmptyTitle;
+        amount.textContent = '';
+        sub.textContent = PAID_TEXT.closedEmpty;
+        show('closed', false);
+        return;
+      }
+      eyebrow.textContent = PAID_TEXT.closedTitle;
+      amount.textContent = usd(micro);
+      sub.textContent = why === 'shutdown' || why === 'crash' ? PAID_TEXT.restart : PAID_TEXT.closed;
       show('closed');
     };
     // ag:paid { sig }: the payout landed; the link opens the explorer (network: a cluster other than mainnet).
@@ -656,6 +714,9 @@
     STATS_TITLE: STATS_TITLE,
     CASHED_OUT_TITLE: CASHED_OUT_TITLE,
     PAID_TEXT: PAID_TEXT,
+    PAID_CSS_URL: PAID_CSS_URL,
+    PAID_FONT_URL: PAID_FONT_URL,
+    loadPaidStyles: loadPaidStyles,
     createPaidEnd: createPaidEnd,
     usd: usd,
     cellScoreMass: cellScoreMass,
