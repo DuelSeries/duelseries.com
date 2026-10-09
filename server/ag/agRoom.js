@@ -113,8 +113,10 @@ class AgRoom {
   // autoTick: false in tests, which call wake() or tickOnce() themselves
   // viewBelowOf(socketId): the rows that socket's page reports under the reference view (ag:view, world units at
   // zoom 1), kept by the directory across rooms; every build hands it to the viewer (extra.below). Absent: 0
+  // portraitOf(socketId): true while that socket's page plays the phone portrait layout (ag:portrait, as the
+  // directory settled it); every build hands it to the viewer (extra.portrait). Absent: false
   constructor({ laws = LAWS, shippableOnly = true, stake = 0, region = 'na', index = 0, seed, clock = monotonicNow,
-    now = Date.now, autoTick = true, log = console, viewBelowOf = null } = {}) {
+    now = Date.now, autoTick = true, log = console, viewBelowOf = null, portraitOf = null } = {}) {
     if (shippableOnly) assertShippable(laws);
     const R = readRoomLaws(laws);
     this.laws = laws;
@@ -136,6 +138,7 @@ class AgRoom {
     this.autoTick = autoTick;
     this.log = log || console;
     this.viewBelowOf = typeof viewBelowOf === 'function' ? viewBelowOf : null;
+    this.portraitOf = typeof portraitOf === 'function' ? portraitOf : null;
 
     const base = seed === undefined || seed === null ? crypto.randomInt(0, SEED_SPAN) : seed;
     this.rng = createRng(base);
@@ -531,6 +534,7 @@ class AgRoom {
       if (boardDue) extra.board = this._rowsFor(ranking, seat);
       const below = this.viewBelowOf ? this.viewBelowOf(seat.socketId) : 0;
       if (below > 0) extra.below = below;
+      if (this.portraitOf && this.portraitOf(seat.socketId) === true) extra.portrait = true;
       if (seat.spectating && !this._alive(seat.pid)) {
         if (focus === undefined) focus = this._topFocus(ranking);
         if (focus) extra.focus = focus;

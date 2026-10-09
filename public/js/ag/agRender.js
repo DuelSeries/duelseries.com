@@ -78,10 +78,12 @@
   function darker(c) { return [Math.trunc(c[0] * 0.9), Math.trunc(c[1] * 0.9), Math.trunc(c[2] * 0.9)]; }
 
   // Ring width (section 6.3); note min(H/1080, W/1920) here, unlike the draw scale's max.
-  function ringWidth(highlighted, s, W, H) {
+  // portrait: the phone portrait layout turns the reference screen on its side (ours, FIX-PLAN P4;
+  // agCamera.screenFactor), min(H/1920, W/1080). Never set at parity.
+  function ringWidth(highlighted, s, W, H, portrait) {
     if (!highlighted) return 5;
     var r = 5 / s;
-    var cap = Math.trunc(Math.min(H / 1080, W / 1920) * 20);
+    var cap = Math.trunc(Math.min(H / (portrait ? 1920 : 1080), W / (portrait ? 1080 : 1920)) * 20);
     return r > cap ? cap : r;
   }
 
@@ -570,7 +572,7 @@
       var col = st.noColors ? [255, 255, 255] : rgb;
       var dk = st.noColors ? [170, 170, 170] : darker(rgb);
       var hi = !!n.highlight;
-      var r = ringWidth(hi, view.s, view.W, view.H);
+      var r = ringWidth(hi, view.s, view.W, view.H, view.portrait);
       var x = n.x, y = n.y, size = n.size;
 
       if (n.circle) {

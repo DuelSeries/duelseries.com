@@ -29,7 +29,9 @@
 // client can show (K_VIEW_FLOOR); creation refuses one that does not. Our page draws more map under that view (Owen
 // 2026-10-08: sized as if their 90 px strip were there) and reports it on ag:view, in world units at zoom 1; the
 // room hands it to build as extra.below and only the box bottom moves, by min(below, VIEW_BELOW cap) / s, so the
-// pad stays past every edge the page draws.
+// pad stays past every edge the page draws. A phone held upright plays the reference screen turned on its side
+// (Owen 2026-10-08) and reports it on ag:portrait; the room hands it to build as extra.portrait and the box turns
+// with it (baseH + pad across, baseW + pad down), the same area.
 //
 // The sim, not this file, decides colours, names, ids and positions; this file only rounds x, y and size to wire
 // integers with the measured rule (U_ROUND 'trunc': toward zero, so -10.7 is -10) and maps cell kinds to wire flags
@@ -113,9 +115,12 @@ function scaleFor(sumSize, v) {
 
 // below: world units at zoom 1 the page draws under the reference view (already capped by VIEW_BELOW; omitted or 0
 // on a page that draws none). Only the bottom edge moves, by below / s, the same scale the page draws them at.
-function viewBoxFor(cx, cy, s, v, below) {
-  const hw = (v.baseW + v.pad) / s / 2;
-  const hh = (v.baseH + v.pad) / s / 2;
+// portrait: the page plays the phone portrait layout (ag:portrait; ours, Owen 2026-10-08), the reference screen
+// turned on its side, so the box turns with it: baseH + pad across and baseW + pad down. The same L4 numbers, so
+// the area is the same as sideways and no orientation sees more than the other.
+function viewBoxFor(cx, cy, s, v, below, portrait) {
+  const hw = ((portrait ? v.baseH : v.baseW) + v.pad) / s / 2;
+  const hh = ((portrait ? v.baseW : v.baseH) + v.pad) / s / 2;
   const down = below > 0 ? below / s : 0;
   return { minX: cx - hw, minY: cy - hh, maxX: cx + hw, maxY: cy + hh + down, cx, cy, scale: s };
 }
@@ -554,6 +559,8 @@ function createViewer(playerId, opts) {
   //   sync:  send a sync record instead of world (every visible cell in full; the client drops the rest)
   //   below: world units at zoom 1 the page draws under the reference view (its ag:view report, 0 when absent);
   //          the box bottom moves down by min(below, VIEW_BELOW cap) / s
+  //   portrait: true while the page plays the phone portrait layout (its ag:portrait report, as the directory
+  //          settled it); the box is turned on its side, same area (viewBoxFor)
   // Every bundle built must reach the client: to skip a tick for a backed-up socket, do not call build.
   function build(frame, extra) {
     if (!frame || frame[FRAME_MARK] !== true) throw new TypeError('agView: build needs a frame from makeFrame');
@@ -561,6 +568,8 @@ function createViewer(playerId, opts) {
     if (typeof below !== 'number' || !Number.isFinite(below) || below < 0) {
       throw new TypeError('agView: below must be a finite number of world units, 0 or more');
     }
+    const portrait = extra && extra.portrait !== undefined ? extra.portrait : false;
+    if (typeof portrait !== 'boolean') throw new TypeError('agView: portrait must be true or false');
     const focus = extra && extra.focus;
     const board = extra && extra.board;
     const sync = !!(extra && extra.sync) || syncNext;
@@ -597,7 +606,7 @@ function createViewer(playerId, opts) {
       centre = { x: (frame.border.minX + frame.border.maxX) / 2, y: (frame.border.minY + frame.border.maxY) / 2,
         s: scaleFor(0, view) };
     }
-    box = viewBoxFor(centre.x, centre.y, centre.s, view, Math.min(below, belowCap));
+    box = viewBoxFor(centre.x, centre.y, centre.s, view, Math.min(below, belowCap), portrait);
 
     const stamp = ++stampCounter;
     const visible = [];

@@ -11,7 +11,8 @@ const fs = require('fs');
 
 const AG = path.join(__dirname, '..', 'public', 'js', 'ag');
 require('../shared/agWire.js');
-for (const f of ['agMath', 'agWorld', 'agCamera', 'agInput', 'agRender', 'agHud', 'agScreens', 'agSound', 'agNet', 'agMain']) {
+// agPortrait is loaded as the shipped page loads it; it does nothing unless a boot config sets portrait (the P4 tests).
+for (const f of ['agMath', 'agWorld', 'agCamera', 'agInput', 'agRender', 'agHud', 'agScreens', 'agSound', 'agNet', 'agPortrait', 'agMain']) {
   require(path.join(AG, f + '.js'));
 }
 const LIB = globalThis.DuelAgarLib;
@@ -63,6 +64,7 @@ function makeElement(doc, tag) {
     },
     getAttribute(k) { return Object.prototype.hasOwnProperty.call(this.attributes, k) ? this.attributes[k] : null; },
     appendChild(c) { this.children.push(c); c.parentNode = this; return c; },
+    removeChild(c) { this.children = this.children.filter((x) => x !== c); c.parentNode = null; return c; },
     addEventListener(type, fn) { (listeners[type] = listeners[type] || []).push(fn); },
     removeEventListener(type, fn) { listeners[type] = (listeners[type] || []).filter((f) => f !== fn); },
     dispatch(type, ev) { (listeners[type] || []).slice().forEach((fn) => fn(Object.assign({ type, preventDefault() {} }, ev))); },
@@ -700,9 +702,133 @@ test('ghost strip: the page reports the map it draws under the reference view, a
 
 test('the shipped page sizes as if the 90 px strip were there; the canvas element still fills the window', () => {
   const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'ag.html'), 'utf8');
-  assert.match(html, /window\.DUEL_AGAR_CONFIG = \{ url: '\/ag', ghostBannerPx: 90 \};/);
+  assert.match(html, /window\.DUEL_AGAR_CONFIG = \{ url: '\/ag', ghostBannerPx: 90, portrait: true \};/);
   assert.doesNotMatch(html, /[{,] bannerPx:/, 'no real strip on the shipped page');
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'css', 'ag.css'), 'utf8');
   assert.match(css, /height: calc\(100% - var\(--ag-banner, 0px\)\);/);
   assert.match(css, /@media \(max-width: 360px\) and \(pointer: coarse\)/);
+});
+
+// ---- phone portrait (FIX-PLAN P4, Owen's 2026-10-08 design) -----------------------------------------------------
+const PORTRAIT_CFG = (extra) => Object.assign({ ghostBannerPx: 90, portrait: true, tabStorage: makeStorage() }, extra || {});
+
+test('P4 portrait: an upright phone plays the turned layout on the whole canvas; the card shows once, for 3 s', async () => {
+  const pt = fakePointer(true);
+  const p = bootPage({ w: 390, h: 844, dpr: 3, cfg: PORTRAIT_CFG(), matchMedia: pt.matchMedia });
+  assert.deepStrictEqual([p.canvas.width, p.canvas.height], [1170, 2532]);
+  assert.strictEqual(p.session.state().portrait, true);
+  assert.strictEqual(p.session.state().rotatePrompt, true, 'the card is up at start-up');
+  assert.ok(p.doc.documentElement.classList.contains('ag-portrait'), 'ag.css lays the pad out for it');
+  await spawn(p, p.session.feed);
+  const cam = p.mod.camera, hud = p.mod.hud;
+  assert.deepStrictEqual([cam.W, cam.H, cam.portrait], [1170, 2532, true], 'the whole canvas, no ghost strip');
+  assert.strictEqual(cam.scale, cam.zoom * 1.31875, 'max(1170 / 1080, 2532 / 1920) = 1.31875');
+  const v = LIB.agCamera.visibleWorld(cam.W, cam.H, 1, true);
+  assert.ok(Math.abs(v.w - 887.2) < 0.01 && Math.abs(v.h - 1920) < 1e-9, 'wheel 1, zoom 1: ' + JSON.stringify(v));
+  assert.deepStrictEqual([hud.W, hud.H, hud.portrait], [1170, 2532, true]);
+  // The board is drawn at the turned HUD scale (q = 1170 / 1080): 19 px rows.
+  p.doc.calls.length = 0;
+  p.session.feed({ t: 'board', rows: [{ name: 'bob' }, { me: true }] });
+  const boardTexts = p.doc.calls.filter((c) => c[0] !== p.canvas.cid && c[1] === 'fillText');
+  assert.ok(boardTexts.length >= 3, 'title and two rows drawn');
+  assert.strictEqual(hud.lbCtx.font, '19px Ubuntu', 'the row font');
+  // The card goes after 3 s of page time (spawn ran about 167 ms of it).
+  await p.frames(28, 100);
+  assert.strictEqual(p.session.state().rotatePrompt, true, 'still up just before 3 s');
+  await p.frames(2, 100);
+  assert.strictEqual(p.session.state().rotatePrompt, false, 'gone after 3 s');
+  // Sideways: the exact reference layout (the ghost strip's 2532 x 900); upright again: straight to the layout.
+  resize(p, 844, 390);
+  await p.frames(2);
+  assert.deepStrictEqual([cam.W, cam.H, cam.portrait, hud.portrait], [2532, 900, false, false]);
+  assert.ok(!p.doc.documentElement.classList.contains('ag-portrait'));
+  assert.strictEqual(cam.scale, cam.zoom * (2532 / 1920));
+  resize(p, 390, 844);
+  await p.frames(2);
+  assert.deepStrictEqual([cam.W, cam.H, cam.portrait], [1170, 2532, true]);
+  assert.strictEqual(p.session.state().rotatePrompt, false, 'no card again in the session');
+});
+
+test('P4 portrait: the server is told (ag:portrait, one boolean) on the hello and on every change only', async () => {
+  const sent = (p) => p.sock.emitted.filter((e) => e[0] === 'ag:portrait' || e[0] === 'ag:view');
+  const connect = (p) => { p.sock.connected = true; p.sock.fire('connect'); };
+  const hello = (p) => p.sock.fire('ag:f', W.encodeBundle([{ t: 'hello' }, BORDER]));
+  const p = bootPage({ net: true, w: 390, h: 844, dpr: 3, cfg: PORTRAIT_CFG(), matchMedia: fakePointer(true).matchMedia });
+  connect(p);
+  assert.deepStrictEqual(sent(p), [], 'nothing before the hello');
+  hello(p);
+  assert.deepStrictEqual(sent(p), [['ag:portrait', true]], 'upright: no rows below, so no ag:view');
+  assert.deepStrictEqual(p.sent.filter((s) => s[0] === 'portrait'), [['portrait', { on: true }]]);
+  resize(p, 390, 844);
+  assert.strictEqual(sent(p).length, 1, 'no change, nothing sent');
+  // Sideways: the reference layout and its ghost rows, 270 rows / (2532 / 1920) = 204.7, rounded up.
+  resize(p, 844, 390);
+  assert.deepStrictEqual(sent(p).slice(1), [['ag:portrait', false], ['ag:view', { below: 205 }]]);
+  resize(p, 390, 844);
+  assert.deepStrictEqual(sent(p).slice(3), [['ag:portrait', true], ['ag:view', { below: 0 }]]);
+  p.sock.connected = false;
+  p.sock.fire('disconnect', 'transport close');
+  resize(p, 844, 390);
+  resize(p, 390, 844);
+  assert.strictEqual(sent(p).length, 5, 'nothing while disconnected');
+  connect(p);
+  hello(p);
+  assert.deepStrictEqual(sent(p).slice(5), [['ag:portrait', true]], 'a new socket starts sideways: told again');
+
+  // A phone that starts sideways, and a mouse screen upright (the harness phone config), never send it.
+  for (const [w, h, coarse] of [[844, 390, true], [390, 844, false]]) {
+    const q = bootPage({ net: true, w, h, dpr: 3, cfg: PORTRAIT_CFG(), matchMedia: fakePointer(coarse).matchMedia });
+    connect(q);
+    hello(q);
+    await spawn(q, (rec) => q.sock.fire('ag:f', W.encodeBundle([rec])));
+    const tag = w + 'x' + h + (coarse ? ' touch' : ' mouse');
+    assert.deepStrictEqual(sent(q).map((e) => e[0]), ['ag:view'], tag);
+    assert.strictEqual(q.session.state().rotatePrompt, false, tag);
+  }
+});
+
+test('P4 portrait: sideways, on a mouse screen and at parity the page is call for call the page without it', async () => {
+  async function played(w, h, coarse, cfg) {
+    const p = bootPage({ w, h, dpr: 3, cfg, matchMedia: fakePointer(coarse).matchMedia });
+    await spawn(p, p.session.feed);
+    p.canvas.dispatch('mousemove', { clientX: w * 0.7, clientY: h * 0.3 });
+    await p.frames(20);
+    resize(p, w + 1, h);
+    await p.frames(5);
+    return p;
+  }
+  for (const [w, h, coarse, base] of [[844, 390, true, { ghostBannerPx: 90 }], [390, 844, false, { ghostBannerPx: 90 }],
+    [390, 844, false, { bannerPx: 90 }], [1707, 932, false, { ghostBannerPx: 90 }]]) {
+    const a = await withSeed(() => played(w, h, coarse, base));
+    const b = await withSeed(() => played(w, h, coarse, Object.assign({}, base, { portrait: true, tabStorage: makeStorage() })));
+    const tag = w + 'x' + h + ' ' + JSON.stringify(base);
+    assert.strictEqual(b.session.state().portrait, false, tag);
+    assert.ok(a.doc.calls.length > 1000, tag);
+    assert.ok(JSON.stringify(b.doc.calls) === JSON.stringify(a.doc.calls), tag + ': canvas calls');
+    assert.deepStrictEqual(b.doc.sizeWrites, a.doc.sizeWrites, tag + ': size writes');
+    assert.deepStrictEqual(b.sent, a.sent, tag + ': outbound');
+    assert.strictEqual(b.doc.getElementById('ag-rotate'), null, tag + ': no card');
+  }
+});
+
+test('P4 portrait: a pointer switch turns the layout on or off without a resize; destroy removes the card', async () => {
+  const pt = fakePointer(true);
+  const p = bootPage({ w: 390, h: 844, dpr: 3, cfg: PORTRAIT_CFG(), matchMedia: pt.matchMedia });
+  assert.strictEqual(p.session.state().portrait, true);
+  assert.ok(p.doc.getElementById('ag-rotate'));
+  pt.set(false);
+  assert.strictEqual(p.session.state().portrait, false);
+  assert.deepStrictEqual([p.canvas.width, p.canvas.height], [1170, 2532], 'the canvas fills the window either way');
+  assert.strictEqual(p.session.state().rotatePrompt, false, 'a mouse screen gets no card');
+  await p.frames(2, 50);
+  assert.deepStrictEqual([p.mod.camera.W, p.mod.camera.H], [1170, 2262], 'the ghost layout again');
+  assert.notStrictEqual(menuTransform(p), 'translate(-50%, -50%)', 'mouse: the reference menu scale');
+  pt.set(true);
+  await p.frames(2, 50);
+  assert.deepStrictEqual([p.mod.camera.W, p.mod.camera.H, p.session.state().portrait], [1170, 2532, true]);
+  assert.strictEqual(menuTransform(p), 'translate(-50%, -50%)');
+  const card = p.doc.getElementById('ag-rotate');
+  p.session.destroy();
+  assert.strictEqual(card.parentNode, null);
+  assert.strictEqual(pt.listeners.length, 0);
 });

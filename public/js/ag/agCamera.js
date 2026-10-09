@@ -51,9 +51,13 @@
   }
 
   // max(W / 1920, H / 1080), both in canvas px (spec 6.4).
-  function screenFactor(W, H) {
-    var a = W / REF_W;
-    var b = H / REF_H;
+  // portrait (ours, Owen 2026-10-08, FIX-PLAN P4): a phone held upright plays the reference screen
+  // turned on its side, the same formula with the two sides swapped, max(W / 1080, H / 1920), so
+  // at zoom 1 the view is at most 1080 world units across and 1920 down. Never set at parity: the
+  // divisions are the reference's own when it is false.
+  function screenFactor(W, H, portrait) {
+    var a = W / (portrait ? REF_H : REF_W);
+    var b = H / (portrait ? REF_W : REF_H);
     return a > b ? a : b;
   }
 
@@ -63,9 +67,9 @@
     return Math.pow(q > 1 ? 1 : q, ZOOM_EXP);
   }
 
-  // World units visible across a W x H canvas at eased zoom z (spec 6.4).
-  function visibleWorld(W, H, z) {
-    var s = z * screenFactor(W, H);
+  // World units visible across a W x H canvas at eased zoom z (spec 6.4; portrait as above).
+  function visibleWorld(W, H, z, portrait) {
+    var s = z * screenFactor(W, H, portrait);
     return { w: W / s, h: H / s };
   }
 
@@ -86,6 +90,9 @@
       W: 0,
       H: 0,
       ready: false,
+      // The phone portrait layout (screenFactor above). A page layout, not connection state, so
+      // the reset below leaves it alone; agMain sets it.
+      portrait: false,
       // Border as stored (normalised min/max), all 0 until the first border message.
       minX: 0,
       minY: 0,
@@ -134,6 +141,12 @@
       cam.W = W;
       cam.H = H;
       return true;
+    };
+
+    // The phone portrait layout on or off (screenFactor). The draw scale follows on the next
+    // stepZoom, as it does after a canvas resize.
+    cam.setPortrait = function (on) {
+      cam.portrait = !!on;
     };
 
     // Screen centre of the world transform: integer halves (spec 5.5).
@@ -218,7 +231,7 @@
       } else {
         cam.zoom = (cam.zoom * 9 + t) / 10;
       }
-      cam.scale = cam.zoom * screenFactor(cam.W, cam.H);
+      cam.scale = cam.zoom * screenFactor(cam.W, cam.H, cam.portrait);
       return cam.scale;
     };
 
@@ -247,7 +260,7 @@
 
     // Draw scale of the zoom TARGET (spec 6.4), read by the cell renderer.
     cam.targetScale = function () {
-      return screenFactor(cam.W, cam.H) * cam.zoomTarget;
+      return screenFactor(cam.W, cam.H, cam.portrait) * cam.zoomTarget;
     };
 
     // Integer world target for a canvas-px mouse point (spec 8.2): camera plus the offset from the

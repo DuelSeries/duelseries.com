@@ -98,6 +98,15 @@
     // real strip instead, bannerPx).
     var ghostBannerPx = Math.max(0, cfg.ghostBannerPx | 0);
     var layoutH = 0;                          // the ghost layout's canvas height, canvas px
+    // Phone portrait (ours, Owen 2026-10-08, FIX-PLAN P4; the shipped page only: cfg.portrait). A
+    // touch screen held upright plays the reference screen turned on its side: the camera and the
+    // HUD use their formulas with the two sides swapped, on the whole canvas (no ghost strip: it
+    // belongs to the bottom of the landscape page; CHOSEN, PARITY-LOG 2026-10-09 P4), the server is
+    // told (ag:portrait) so it sends the turned view box of the same area, and the first time in a
+    // tab session a "turn your phone sideways" card shows for a few seconds (agPortrait). Sideways
+    // it is the exact reference layout. Off at parity: the harness page never sets cfg.portrait.
+    var portraitAllowed = cfg.portrait === true;
+    var portrait = false;                     // the portrait layout is in use
     var quality = qualityName(cfg.quality || 'Retina');
     var settings = {
       names: true, showMass: false, colors: true, dark: false, acid: false,
@@ -144,6 +153,7 @@
     var nick = '';
     var connected = false;      // set by the server hello
     var sentBelow = 0;          // the ghost rows last reported on this connection (ag:view)
+    var sentPortrait = false;   // the layout last reported on this connection (ag:portrait)
     var gameState = 0;          // 0 play (and before), 8 spectate (client-hud 2.2)
     var fadeout = true;         // the dim layer's menu switch, on until the first Play
     var menuState = 'HOME';     // HOME, PLAY, SPECTATE, GAMEOVER
@@ -220,14 +230,39 @@
     // reference's canvas manager does on start-up, on resize and when the settings are applied.
     // The products are written as they are: the canvas truncates them itself, as theirs does.
     function sizeCanvas() {
+      setPortrait(portraitNow());
       canvas.width = win.innerWidth * canvasScale;
       canvas.height = (win.innerHeight - bannerPx) * canvasScale;
       // The height their canvas would get above the ghost strip, truncated the way the canvas
       // truncates a written height. A window shorter than the strip gives 0, which draws
       // nothing (CHOSEN, PARITY-LOG; their canvas would fall back to its default height).
-      layoutH = ghostBannerPx ? Math.max(0, Math.trunc((win.innerHeight - bannerPx - ghostBannerPx) * canvasScale)) : 0;
+      // The portrait layout has no ghost strip.
+      layoutH = ghostBannerPx && !portrait ? Math.max(0, Math.trunc((win.innerHeight - bannerPx - ghostBannerPx) * canvasScale)) : 0;
       applyMenuScale();
       reportView();
+    }
+    // ---- phone portrait (see portraitAllowed above) -----------------------------------------
+    function portraitNow() {
+      return portraitAllowed && coarsePointer() && win.innerHeight > win.innerWidth;
+    }
+    // The card shows the first time the portrait layout applies in a tab session (agPortrait;
+    // the shipped page loads it). No agPortrait: the layout without the card.
+    var rotatePrompt = null;
+    if (portraitAllowed && A.agPortrait) {
+      var tabStore = null;
+      try { tabStore = cfg.tabStorage !== undefined ? cfg.tabStorage : (win.sessionStorage || null); } catch (e) { tabStore = null; }
+      rotatePrompt = A.agPortrait.createRotatePrompt({ doc: doc, win: win, root: cfg.screensRoot || doc.body, storage: tabStore });
+    }
+    // Layout on or off: camera and HUD scale, the root class ag-portrait (ag.css lays the phone pad
+    // out for it), and the card. The draw scale follows on the next frame, as after any resize.
+    function setPortrait(on) {
+      if (rotatePrompt) rotatePrompt.update(on);
+      if (on === portrait) return;
+      portrait = on;
+      cam.setPortrait(on);
+      hud.setPortrait(on);
+      var el = doc.documentElement;
+      if (el && el.classList) el.classList.toggle('ag-portrait', on);
     }
     // The map rows drawn under the ghost layout, in world units at zoom 1 (the layout's draw
     // scale, client-camera-input 6.4), rounded up. The server only sends what lies in its view
@@ -240,8 +275,15 @@
       if (!(W > 0) || !(H > 0) || !(CH > H)) return 0;
       return Math.ceil((CH - H) / agCamera.screenFactor(W, H));
     }
+    // The portrait layout goes on ag:portrait (one boolean, our own wire: their client never
+    // sends its screen), first, then the rows below. Sent on the hello and on every change only;
+    // never at parity or sideways, where it stays false, the server's default.
     function reportView() {
       if (!connected) return;
+      if (portrait !== sentPortrait) {
+        sentPortrait = portrait;
+        send('portrait', { on: portrait });
+      }
       var n = ghostBelow();
       if (n === sentBelow) return;
       sentBelow = n;
@@ -249,7 +291,7 @@
     }
     // Canvas height every derived size uses: the real one, or the ghost layout's (never taller).
     function layoutHeight(canvasH) {
-      return ghostBannerPx ? Math.min(layoutH, canvasH) : canvasH;
+      return ghostBannerPx && !portrait ? Math.min(layoutH, canvasH) : canvasH;
     }
     // Menu box scale (client-hud 6.3, the reference's menu fit) from the window above the strip,
     // real or ghost. Phones keep scale 1 (CHOSEN, PARITY-LOG: the formula gives about 0.24 on a
@@ -267,10 +309,16 @@
     // A 2-in-1 can switch between mouse and touch without a resize.
     var pointerQuery = null;
     try { pointerQuery = win.matchMedia ? win.matchMedia('(pointer: coarse)') : null; } catch (e) { pointerQuery = null; }
+    // A switch that turns the portrait layout on or off sizes the canvas again (its layout height
+    // changes); any other switch only sets the menu scale.
+    function onPointerChange() {
+      if (portraitNow() !== portrait) sizeCanvas();
+      else applyMenuScale();
+    }
     function watchPointer(on) {
       if (!pointerQuery) return;
-      if (typeof pointerQuery.addEventListener === 'function') pointerQuery[on ? 'addEventListener' : 'removeEventListener']('change', applyMenuScale);
-      else if (typeof pointerQuery.addListener === 'function') pointerQuery[on ? 'addListener' : 'removeListener'](applyMenuScale);
+      if (typeof pointerQuery.addEventListener === 'function') pointerQuery[on ? 'addEventListener' : 'removeEventListener']('change', onPointerChange);
+      else if (typeof pointerQuery.addListener === 'function') pointerQuery[on ? 'addListener' : 'removeListener'](onPointerChange);
     }
     watchPointer(true);
 
@@ -460,7 +508,7 @@
     // below: canvas rows under the layout height (the ghost strip's extra map), 0 at parity.
     var below = 0;
     function view() {
-      return { W: cam.W, H: cam.H, s: cam.scale, camX: cam.x, camY: cam.y, targetScale: cam.targetScale(), below: below };
+      return { W: cam.W, H: cam.H, s: cam.scale, camX: cam.x, camY: cam.y, targetScale: cam.targetScale(), below: below, portrait: portrait };
     }
     var hudState = { mode: 0, state: 0, spectating: false, connected: false, ownCount: 0, fadeout: true,
       highestMass: 0, camX: 0, camY: 0, target: null };
@@ -554,6 +602,7 @@
     function resetConnection() {
       connected = false;
       sentBelow = 0;            // a new socket starts at 0 on the server
+      sentPortrait = false;     // and sideways
       pending.play = false;
       pending.spectate = false;
       lastRows = null;
@@ -608,7 +657,8 @@
         now: ws.now, ready: ws.ready, alive: ws.alive, spectating: ws.spectating, mode: ws.mode,
         border: ws.border, nick: nick, connected: connected, gameState: gameState, menuState: menuState,
         fadeout: fadeout, capMs: capMs, ownCount: ownCells().length, highestMass: stats.highestMass,
-        camera: { x: cam.x, y: cam.y, scale: cam.scale, zoom: cam.zoom }, net: net ? net.stats : null
+        camera: { x: cam.x, y: cam.y, scale: cam.scale, zoom: cam.zoom }, net: net ? net.stats : null,
+        portrait: portrait, rotatePrompt: rotatePrompt ? rotatePrompt.shown() : false
       };
     };
     session.on = function (name, fn) { return world.on(name, fn); };
@@ -638,6 +688,7 @@
       if (net) net.close();
       win.removeEventListener('resize', sizeCanvas);
       watchPointer(false);
+      if (rotatePrompt) rotatePrompt.dispose();
     };
     session.modules = { world: world, camera: cam, renderer: renderer, hud: hud, stats: stats, screens: screens, sound: sound, input: input };
 

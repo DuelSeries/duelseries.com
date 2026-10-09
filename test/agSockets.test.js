@@ -314,7 +314,7 @@ test('10,000 random payloads never throw and never reach the sim with a bad valu
     if (/[<>]/.test(name)) return 'markup in a name';
     return null;
   });
-  const events = ['ag:join', 'ag:spectate', 'ag:target', 'ag:split', 'ag:eject', 'ag:q', 'ag:leave', 'ag:view', 'ag:nope'];
+  const events = ['ag:join', 'ag:spectate', 'ag:target', 'ag:split', 'ag:eject', 'ag:q', 'ag:leave', 'ag:view', 'ag:portrait', 'ag:nope'];
   const next = payloads(20261002);
   const socks = [sock(w), sock(w), sock(w)];
   const realError = console.error;
@@ -336,6 +336,7 @@ test('10,000 random payloads never throw and never reach the sim with a bad valu
   assert.deepStrictEqual(bad, []);
   assert.deepStrictEqual(errors, []);
   for (const v of w.a.viewBelow.values()) assert.ok(Number.isInteger(v) && v > 0 && v <= 2147483647, 'ag:view kept ' + v);
+  for (const v of w.a.portraitState.values()) assert.ok(typeof v.on === 'boolean' && typeof v.want === 'boolean', 'ag:portrait kept ' + JSON.stringify(v));
   for (const r of w.a.all()) {
     assert.strictEqual(r.failCount, 0);
     r.sim.forEachCell((c) => assert.ok(Number.isFinite(c.x) && Number.isFinite(c.y) && Number.isFinite(c.size)));

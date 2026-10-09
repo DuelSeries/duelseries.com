@@ -1,13 +1,14 @@
 'use strict';
 // The agar.io socket handlers (build brief 6, 9.3): ag:join, ag:spectate, ag:target, ag:split, ag:eject, ag:q,
-// ag:leave and ag:view in, one binary bundle per tick out on ag:f (sent by the room). The event prefix is ag:* only, so the
+// ag:leave, ag:view and ag:portrait in, one binary bundle per tick out on ag:f (sent by the room). The event prefix is ag:* only, so the
 // old agar pages (cell:*) can never talk to these rooms.
 //
 // Every handler reads its payload only after checking its shape: a wrong shape is ignored, a number must be a
 // finite integer in the int32 range the client sends, a name must be a string. Every handler is wrapped so
 // nothing a client sends can throw out of socket.io (the server has no uncaughtException handler). Names are
 // cleaned by the server's sanitizeName rules and cut to the law table's L37 cap in characters of any kind, never
-// by that helper's 20 UTF-16 unit cut (cleanName below; the wire allows 4 bytes a character, so it cuts nothing). Every event but ag:view is rate limited per socket through the server's socketRL (onView says why).
+// by that helper's 20 UTF-16 unit cut (cleanName below; the wire allows 4 bytes a character, so it cuts nothing). Every event but ag:view and ag:portrait is rate limited per socket through the server's socketRL (onView says why;
+// ag:portrait is rate limited by the directory instead, onPortrait).
 //
 // attachAgSockets(io, arenas, helpers): io is the socket.io namespace the game runs on (the server passes
 // io.of('/ag')); every socket that connects there is seated as a watcher at once (the page must be sent world
@@ -229,6 +230,16 @@ function attachAgSockets(io, arenas, helpers) {
     arenas.view(socket.id, below);
   }
 
+  // ag:portrait true|false: the page plays the phone portrait layout (ours, Owen 2026-10-08), so its view box is
+  // L4's turned on its side, the same area. One boolean and nothing else: no size ever comes from the client (their
+  // client never sends its screen). Anything but true or false is ignored. Like ag:view it is a state, so it is not
+  // dropped by socketRL; the directory rate limits the box instead (one orientation change per PORTRAIT_GAP_MS, the
+  // last report applied when the gap is up), so flipping fast cannot show a page both boxes.
+  function onPortrait(socket, msg) {
+    if (msg !== true && msg !== false) return;
+    arenas.portrait(socket.id, msg);
+  }
+
   function guard(name, fn) {
     return function () {
       try {
@@ -249,6 +260,7 @@ function attachAgSockets(io, arenas, helpers) {
     socket.on('ag:q', guard('ag:q', () => onQ(socket)));
     socket.on('ag:leave', guard('ag:leave', () => onLeave(socket)));
     socket.on('ag:view', guard('ag:view', (msg) => onView(socket, msg)));
+    socket.on('ag:portrait', guard('ag:portrait', (msg) => onPortrait(socket, msg)));
     socket.on('disconnect', guard('disconnect', () => {
       gate.remove(socket);
       drop(socket.id);

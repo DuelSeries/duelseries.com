@@ -7,7 +7,8 @@
 // Outbound events, all 'ag:*' (never 'cell:*', so the old agar pages cannot talk to the new
 // room): ag:join {name}, ag:spectate, ag:target {x, y} (integers), ag:split, ag:eject, ag:q,
 // ag:leave, ag:view {below} (a whole number, 0 or more: the map rows the page draws under the
-// reference view, world units at zoom 1; agMain sends it only when it changes). Nothing is sent while the socket is down (a dropped target is simply not sent; the
+// reference view, world units at zoom 1; agMain sends it only when it changes), ag:portrait true|false
+// (the phone portrait layout is on; one boolean, sent only when it changes). Nothing is sent while the socket is down (a dropped target is simply not sent; the
 // camera keeps its last-sent pair, as the reference's send does when its socket is closed).
 //
 // A bad bundle (agWire returns an error record) keeps the records before it, drops the rest
@@ -30,7 +31,8 @@
     eject: 'ag:eject',
     q: 'ag:q',
     leave: 'ag:leave',
-    view: 'ag:view'
+    view: 'ag:view',
+    portrait: 'ag:portrait'
   };
 
   function wire() {
@@ -117,7 +119,9 @@
         if (b === null || b < 0) return false;
         return emit(EV.view, { below: b });
       },
-      // agMain's outbound kinds: play, spectate, target, split, eject, q, leave, view.
+      // One boolean, nothing else: the server never takes a size from the client.
+      sendPortrait: function (on) { return emit(EV.portrait, on === true); },
+      // agMain's outbound kinds: play, spectate, target, split, eject, q, leave, view, portrait.
       send: function (kind, payload) {
         switch (kind) {
           case 'play': return api.sendJoin(payload && payload.name);
@@ -128,6 +132,7 @@
           case 'q': return api.sendQ();
           case 'leave': return api.sendLeave();
           case 'view': return api.sendView(payload && payload.below);
+          case 'portrait': return api.sendPortrait(!!(payload && payload.on));
           default: return false;
         }
       },

@@ -24,8 +24,11 @@
     return (a / b) | 0;
   }
   // HUD scale q = min(H/1080, W/1920) in canvas pixels (client-hud 1).
-  function hudScale(W, H) {
-    var a = H / 1080, b = W / 1920;
+  // portrait (ours, Owen 2026-10-08, FIX-PLAN P4): the phone portrait layout sizes the HUD from the
+  // reference screen turned on its side, min(H/1920, W/1080), the same turn the camera makes
+  // (agCamera.screenFactor). Never set at parity: the divisions are the reference's when false.
+  function hudScale(W, H, portrait) {
+    var a = H / (portrait ? 1920 : 1080), b = W / (portrait ? 1080 : 1920);
     return a < b ? a : b;
   }
   function rgb(c) {
@@ -210,7 +213,7 @@
   // the line scale v is 1.
   Panel.prototype.draw = function (ctx, hud, x, y, w, h, centred) {
     var W = hud.W, H = hud.H;
-    var q = hudScale(W, H);
+    var q = hudScale(W, H, hud.portrait);
     ctx.globalAlpha = 0.3;
     ctx.fillStyle = 'rgb(0,0,0)';
     var o = panelOrigin(this.align, W, H, x, y, w, h);
@@ -258,9 +261,10 @@
   var LB_EXTRAS = 5;
 
   // Pure layout numbers for a board of `count` entries with `extras` extra own rows.
-  // `wide` is the 300-unit board (mode 4 or a friends list), not used in FFA.
-  function layoutLeaderboard(W, H, count, extras, wide) {
-    var q = hudScale(W, H);
+  // `wide` is the 300-unit board (mode 4 or a friends list), not used in FFA. `portrait`: the
+  // phone portrait layout's HUD scale (hudScale).
+  function layoutLeaderboard(W, H, count, extras, wide, portrait) {
+    var q = hudScale(W, H, portrait);
     var uw = q * (wide ? 300 : 250);
     var p = ti(q * W) * 0.12;
     p = p < 1.2 ? p : 1.2;
@@ -308,6 +312,7 @@
     var hud = {
       W: 0,
       H: 0,
+      portrait: false,     // the phone portrait layout (hudScale); agMain sets it
       env: { createContext: createContext },
       fontsLoaded: function () {
         if (!fontsReady) fontsReady = !!fontsLoaded();
@@ -357,6 +362,15 @@
       hud.H = H;
       renderBoard(hud);
       return true;
+    };
+
+    // The phone portrait layout on or off (hudScale). A change re-renders the board at once, as a
+    // size change does; the panels read the scale every frame.
+    hud.setPortrait = function (on) {
+      on = !!on;
+      if (on === hud.portrait) return;
+      hud.portrait = on;
+      if (hud.W && hud.H) renderBoard(hud);
     };
 
     // Leaderboard message (mirror { t: 'board', rows }): rows replace the list, an own row
@@ -455,7 +469,7 @@
     for (var idx = LB_ROWS; idx < count && extras.length < LB_EXTRAS; idx++) {
       if (list[idx].me) extras.push(idx);
     }
-    var lay = layoutLeaderboard(hud.W, hud.H, count, extras.length, hud.mode === 4);
+    var lay = layoutLeaderboard(hud.W, hud.H, count, extras.length, hud.mode === 4, hud.portrait);
     var c = hud.lbCtx;
     c.canvas.width = lay.width;
     c.canvas.height = lay.height;
@@ -502,7 +516,7 @@
     var hud = hudArg || s.hud;
     if (!hud.W || !hud.H) { hud.W = ctx.canvas.width; hud.H = ctx.canvas.height; }
     var W = hud.W, H = hud.H;
-    var q = hudScale(W, H);
+    var q = hudScale(W, H, hud.portrait);
     var mode = s.mode | 0;
     var state = s.state | 0;
     hud.mode = mode;
@@ -643,7 +657,7 @@
     [1, 0]
   ];
   function drawArrow(ctx, hud, s, W, H) {
-    var q = hudScale(W, H);
+    var q = hudScale(W, H, hud.portrait);
     var A0 = hud.arrowAngle;
     var sinA = Math.sin(A0);
     var cosA = Math.cos(A0);

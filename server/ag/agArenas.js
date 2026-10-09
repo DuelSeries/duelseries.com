@@ -25,9 +25,14 @@ function chosen(value, note) {
 const ARENA_TUNING = Object.freeze({
   MAX_ROOMS: chosen(8, "Paper's MAX_ARENAS_PER_STAKE: rooms on the free rung at most, overflow rooms included"),
   SWEEP_IDLE_MS: chosen(300000, "Paper's ARENA_SWEEP_MS: an overflow room with no socket this long is closed"),
+  PORTRAIT_GAP_MS: chosen(1000, 'ag:portrait: least ms between two orientation changes of one socket\'s view box ' +
+    '(PARITY-LOG 2026-10-09 P4). A page that flips back sooner gets its last report applied once the gap is up, so ' +
+    'an honest page always ends on what it draws, and a flood of flips cannot show a page both boxes more than ' +
+    'once a second'),
 });
 const MAX_ROOMS = ARENA_TUNING.MAX_ROOMS.value;
 const SWEEP_IDLE_MS = ARENA_TUNING.SWEEP_IDLE_MS.value;
+const PORTRAIT_GAP_MS = ARENA_TUNING.PORTRAIT_GAP_MS.value;
 
 // A socket with no seat anywhere is told so and closed; it would otherwise stay connected with nothing sent.
 function refuse(socket, why) {
@@ -63,6 +68,7 @@ class AgArenas {
     this.bySocket = new Map();       // socketId -> room
     this.cleared = new Set();        // socket ids whose page still holds a world from an earlier seat
     this.viewBelow = new Map();      // socketId -> rows its page draws under the reference view (ag:view), > 0 only
+    this.portraitState = new Map();  // socketId -> { on, want, at } for sockets that ever reported portrait (ag:portrait)
     this.emptySince = new Map();     // room -> ms
     this._create(0);
   }
@@ -72,6 +78,7 @@ class AgArenas {
       laws: this.laws, shippableOnly: this.shippableOnly, region: this.region, index,
       now: this.now, autoTick: this.autoTick, log: this.log,
       viewBelowOf: (socketId) => this.viewBelow.get(socketId) || 0,
+      portraitOf: (socketId) => this.portraitOf(socketId),
     };
     if (this.clock) opts.clock = this.clock;
     if (this.seed !== undefined && this.seed !== null) opts.seed = this.seed + index;
@@ -224,6 +231,39 @@ class AgArenas {
     return true;
   }
 
+  // ag:portrait: the page plays the phone portrait layout (true) or the reference layout (false). One boolean,
+  // never a size: the view turns L4's own box (agView viewBoxFor). Kept per socket like ag:view. Rate limited
+  // here, not dropped: the box changes orientation at most once per PORTRAIT_GAP_MS, and a report that comes
+  // sooner waits and is applied when the gap is up (portraitOf), so the last report always wins.
+  portrait(socketId, on) {
+    if (typeof socketId !== 'string' || typeof on !== 'boolean') return false;
+    let st = this.portraitState.get(socketId);
+    if (!st) {
+      if (!on) return true;          // false is every socket's start: nothing to keep
+      st = { on: false, want: false, at: -Infinity };
+      this.portraitState.set(socketId, st);
+    }
+    st.want = on;
+    this._settlePortrait(st);
+    return true;
+  }
+
+  // What that socket's view box uses now (read by every room build).
+  portraitOf(socketId) {
+    const st = this.portraitState.get(socketId);
+    if (!st) return false;
+    if (st.want !== st.on) this._settlePortrait(st);
+    return st.on;
+  }
+
+  _settlePortrait(st) {
+    if (st.want === st.on) return;
+    const now = this.now();
+    if (now - st.at < PORTRAIT_GAP_MS) return;
+    st.on = st.want;
+    st.at = now;
+  }
+
   // ag:leave: the player and its cells go at once (LEAVE_RULE), the socket gets nothing more until it plays or
   // spectates again, and its next seat starts with clearAll.
   leave(socketId) {
@@ -242,6 +282,7 @@ class AgArenas {
     this.bySocket.delete(socketId);
     this.cleared.delete(socketId);
     this.viewBelow.delete(socketId);
+    this.portraitState.delete(socketId);
   }
 
   // Every 60 s from the server: an OVERFLOW room with no socket (not even a watcher) for SWEEP_IDLE_MS closes.

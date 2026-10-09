@@ -58,6 +58,15 @@ html, body {
   .ag-alive .ag-pad { display: flex; }
 }
 
+/* Phone held upright (agMain puts .ag-portrait on the root element for the portrait layout,
+   FIX-PLAN P4): the landscape pad turned with the screen, CHOSEN (PARITY-LOG 2026-10-09 P4). The
+   column on the right edge becomes a row on the bottom edge, still in the bottom-right corner where
+   the right thumb rests, Eject still nearest the corner and Split beside it; the left thumb keeps
+   the rest of the bottom for the stick. Layout only: whether the pad shows is the rule above. */
+@media (pointer: coarse) {
+  .ag-portrait .ag-pad { flex-direction: row; }
+}
+
 /* The menu card stays usable on a phone: never wider than the screen minus the side gutters.
    Touch screens only: on a mouse screen the whole menu box is already scaled by agMain. */
 @media (max-width: 360px) and (pointer: coarse) {
