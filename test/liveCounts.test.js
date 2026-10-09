@@ -84,10 +84,12 @@ test('/api/live carries the counts, from the rooms it already has, with no timer
   assert.ok(!fn.includes('agarRooms'), 'the old agar rooms are gone');
   /* The agar.io rows the card's bots come from are the registry's own board rows, one per rung, in
      `lobbies` like Paper's (PAID-AGAR-DESIGN.md 5.7): the free rung ag:na:s0 is the row the lobby
-     pins. They are NOT also in liveExtras, where withBoardBots would add the same bots twice. */
-  assert.ok(/const agRows = agArenas \? agArenas\.boardRows\(\) : \[\];/.test(src)
+     pins. They are NOT also in liveExtras, where withBoardBots would add the same bots twice. They are read in
+     their own try (lobby-rungs review fix): an agar fault keeps the other rows and says unknown: ['agar']. */
+  assert.ok(/if \(agArenas\) \{\s*try \{\s*agRows = agArenas\.boardRows\(\);/.test(src)
+    && /unknown\.push\('agar'\)/.test(src)
     && /const lobbies = liveBoard\(\)\.concat\(paperArenas\.boardRows\(\), agRows\);/.test(src),
-  'every agar.io rung row is in lobbies');
+  'every agar.io rung row is in lobbies, read in its own try');
   const ex = src.slice(src.indexOf('function liveExtras'), src.indexOf('function liveBattleRoyale'));
   assert.ok(!/agArenas|game: 'agar'|agar:free/.test(ex), 'and none is in the extras');
   assert.ok(!/setInterval|setTimeout/.test(fn), 'no polling loop of its own');

@@ -1477,7 +1477,8 @@ test('Paper takes the widget path to its arena page, on every rung', () => {
      Paper directory's rows, which are game 'paper'. */
   const s = server();
   // (agar.io's rows ride along after Paper's: its free rung, and its paid ones while AG_PAID built them, PAID-AGAR-DESIGN.md 5.7)
-  assert.ok(/const lobbies = liveBoard\(\)\.concat\(paperArenas\.boardRows\(\), agRows\);/.test(s) && /res\.json\(\{ lobbies,/.test(s),
+  assert.ok(/const lobbies = liveBoard\(\)\.concat\(paperArenas\.boardRows\(\), agRows\);/.test(s)
+    && /const out = \{ lobbies,/.test(s) && /res\.json\(out\);/.test(s),
     '/api/live lists the Paper rows with the lobbies');
   const arenas = fs.readFileSync(path.join(ROOT, 'server/paper/PaperArenas.js'), 'utf8');
   const rows = arenas.slice(arenas.indexOf('boardRows()'), arenas.indexOf('get warming'));
@@ -1757,6 +1758,50 @@ test('a paid agar.io rung goes to the widget to be staked on this origin, never 
   }
   assert.ok(!t.fetched.some(u => /stake/.test(u)), 'nothing was quoted');
   assert.equal(t.el('agar-frame').src, '', 'and nothing opened');
+});
+
+/* Review fix (lobby-rungs reviews): play.js asks the widget for a paid agar.io stake only while the board lists that
+   rung's room as open. With AG_PAID off (no paid row), under the owner's off switch (rows 'closed'), with no board at
+   all, or from a detail screen left open across the switch (playChosen goes through enter(), not join()), a console
+   call or stale handler gets a message and no wallet prompt. */
+test('a paid agar.io stake reaches the widget only while the board lists that rung open', async () => {
+  const tries = [
+    ['AG_PAID off', [AG_FREE]],
+    ['the owner\'s off switch', [AG_FREE, agPaidRow(0.1, 'closed', 2), agPaidRow(1, 'closed')]],
+    ['no board at all', null],
+  ];
+  for (const [why, rows] of tries) {
+    const h = lobbyHarness(rows);
+    await h.win.V2Board.load();
+    for (const stake of [0.1, 1]) {
+      h.win.V2Play.launch('agar', { stake });
+      h.win.V2Detail = { game: 'agar', stake };
+      h.win.V2Play.playChosen();
+    }
+    if (rows) for (const r of rows) if (r.stake > 0) h.win.V2Play.enter(r);
+    assert.deepEqual(plain(h.plays), [], why + ': the widget is never asked');
+    assert.match(h.el('play-msg').textContent, rows && rows.length > 1 ? /not open right now/ : /not open right now|No room/,
+      why + ': the player is told');
+    assert.ok(!h.fetched.some(u => /stake/.test(u)), why + ': nothing was quoted');
+  }
+  // Open: the same calls go through, and Free is never held back.
+  const ok = lobbyHarness([AG_FREE, agPaidRow(0.1), agPaidRow(1)]);
+  await ok.win.V2Board.load();
+  ok.win.V2Play.launch('agar', { stake: 1 });
+  assert.deepEqual(plain(ok.plays), [{ game: 'agar', sel: { stake: 1 } }], 'an open rung is staked as before');
+  const free = lobbyHarness([AG_FREE]);
+  await free.win.V2Board.load();
+  free.win.V2Play.launch('agar', { stake: 0 });
+  assert.deepEqual(plain(free.plays), [{ game: 'agar', sel: { stake: 0 } }], 'Free is not a paid stake');
+  // Paper keeps its own rule: no board check (its door refunds, as before this step).
+  const paper = lobbyHarness([]);
+  await paper.win.V2Board.load();
+  paper.win.V2Play.launch('paper', { stake: 0.1 });
+  assert.deepEqual(plain(paper.plays), [{ game: 'paper', sel: { stake: 0.1 } }], 'Paper unchanged');
+
+  // The detail screen's free-row count sums every row of the game, closed ones too (their players still play).
+  assert.match(v2(), /const playing=\(window\.V2Board\?V2Board\.lobbies:\[\]\)\.filter\(l=>l\.game===id\)/,
+    'the free row counts players in closed rows');
 });
 
 test('watching agar.io from the lobby opens /ag in the agar frame too', () => {

@@ -49,7 +49,8 @@ const post = (url, obj) => new Promise((res, rej) => {
   r.end(body);
 });
 
-async function boot(extra) {
+// preload: a test-only module node loads first (-r), e.g. a fault injector.
+async function boot(extra, preload) {
   const port = await freePort();
   // the paid money journal of this boot only, never the checkout's server/data
   const journal = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'agsmoke-')), 'ag-money-journal.log');
@@ -57,7 +58,8 @@ async function boot(extra) {
     NTFY_DISABLED: '1', POSTHOG_DISABLED: '1', PAPER_PAID: '0', PAPER_DEV_TOKENS: '', ESCROW_PRIVATE_KEY: '', NODE_ENV: 'test',
     AG_ENABLED: '1', AG_PAID: '', AG_JOURNAL_PATH: journal, ...extra };
   for (const k of Object.keys(env)) if (env[k] === undefined) delete env[k];
-  const srv = spawn(process.execPath, [path.join(ROOT, 'server/index.js')], { cwd: ROOT, env, stdio: ['ignore', 'pipe', 'pipe'] });
+  const args = (preload ? ['-r', preload] : []).concat(path.join(ROOT, 'server/index.js'));
+  const srv = spawn(process.execPath, args, { cwd: ROOT, env, stdio: ['ignore', 'pipe', 'pipe'] });
   const out = { stdout: '', stderr: '' };
   srv.stdout.on('data', (d) => { out.stdout += d.toString(); });
   srv.stderr.on('data', (d) => { out.stderr += d.toString(); });
@@ -121,6 +123,27 @@ test('AG_PAID unset, 0 or a typo: the paid rungs stay off and /api/live lists no
     if (value === 'maybe') assert.ok(out.stderr.includes('is not a switch value'), 'and names the bad value');
     try { srv.kill('SIGKILL'); } catch (_) {}
   }
+});
+
+/* Review fix (lobby-rungs money review): an agar fault no longer blanks every game's rows. The answer keeps snake's
+   and Paper's rows and says unknown: ['agar'], so deploy rule 4b (never push over a seated paid player) can read a
+   missing agar row as "cannot tell", not "nobody there". */
+test('/api/live with a broken agar directory keeps the other rows and says agar is unknown', { timeout: 60000 }, async (t) => {
+  const { srv, port, out } = await boot({ AG_PAID: '1' }, path.join(__dirname, 'agLiveFault.preload.js'));
+  t.after(() => { try { srv.kill('SIGKILL'); } catch (_) {} });
+  const live = JSON.parse((await get(`http://localhost:${port}/api/live`)).body);
+  assert.deepStrictEqual(live.unknown, ['agar'], 'the answer says the agar rows are unknown');
+  assert.ok(live.lobbies.some((l) => l.game === 'snake') && live.lobbies.some((l) => l.game === 'paper'),
+    'snake and Paper rows are still there');
+  assert.ok(!live.lobbies.some((l) => l.game === 'agar'), 'no agar row is invented');
+  assert.ok(out.stderr.includes('[LIVE] agar rows test fault'), 'and the fault is logged');
+  try { srv.kill('SIGKILL'); } catch (_) {}
+  // A healthy board carries no unknown field.
+  const ok = await boot({ AG_PAID: '' });
+  t.after(() => { try { ok.srv.kill('SIGKILL'); } catch (_) {} });
+  const fine = JSON.parse((await get(`http://localhost:${ok.port}/api/live`)).body);
+  assert.strictEqual(fine.unknown, undefined, 'healthy: no unknown field');
+  try { ok.srv.kill('SIGKILL'); } catch (_) {}
 });
 
 test('dev agar $0.10: hand-off, door, ready, hold Q 3 s, paid 90/10; away seat counted; drain refuses; off switch refunds', { timeout: 120000 }, async (t) => {

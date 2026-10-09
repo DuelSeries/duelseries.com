@@ -258,13 +258,32 @@
     /* agar.io has no tier rooms: its rooms are rungs (Free, $0.10, $1.00,
        PAID-AGAR-DESIGN.md 7), so a tier name other than the free one names a
        room that does not exist, and the widget would quote that tier's price
-       for it. Refused before any money is asked for. A paid rung goes on to
-       the widget like Paper's; whether it is open is the board's call (it
-       offers only the rows /api/live lists as open), and the paid door
-       refunds a stake that arrives while it is shut. */
+       for it. Refused before any money is asked for. */
     if (game === 'agar' && !hasStake && sel.lobbyType !== 'free') {
       say('That agar.io table does not exist. Pick a buy-in on the card.');
       return;
+    }
+    /* A paid agar.io rung goes on to the widget like Paper's, but only while
+       the board lists that rung's room as open (V2Board.playableStakes: a row
+       on /api/live whose state is missing or 'open'). With AG_PAID off the
+       server lists no paid agar row, and under the owner's agar:paid:off the
+       rows say 'closed', so a console call, a stale handler, or a detail screen
+       left open across the switch asks for no money for a room that cannot
+       seat it. No board yet (or it failed) is refused too: a paid seat is
+       never guessed. The paid door still refunds a stake that reaches it
+       while it is shut; this only stops the wallet prompt and the round trip.
+       Paper keeps its own rule (lobby-rungs review fix). */
+    if (game === 'agar' && hasStake && Number(sel.stake) > 0) {
+      let open = false;
+      try {
+        const want = Number(sel.stake);
+        open = !!(window.V2Board && typeof window.V2Board.playableStakes === 'function'
+          && Array.from(window.V2Board.playableStakes('agar')).some(s => Math.abs(s - want) < 1e-9));
+      } catch (_) { open = false; }
+      if (!open) {
+        say('That agar.io buy-in is not open right now. Pick one the card is offering.');
+        return;
+      }
     }
     if (!connected()) {
       say('Sign in first — your wallet is your account here.');

@@ -357,7 +357,8 @@ test('an unconfirmed seat: its socket going refunds at once; no ready in 5 s ref
   r.tickOnce();
   assert.strictEqual(r.money.account(b.pid), null);
   assert.strictEqual(calls.refund[1].why, 'join-timeout');
-  assert.deepStrictEqual(b.s.of('ag:refused')[0], { why: 'join-timeout', refunded: true });
+  assert.deepStrictEqual(b.s.of('ag:refused')[0], { why: 'join-timeout', refunded: true, closed: true },
+    'a released seat says it closed (the exit trap lets go on it)');
   assert.ok(conserved(r));
   assert.strictEqual(r.money.bank.totalMicro(), 0);
 });

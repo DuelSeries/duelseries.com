@@ -3372,7 +3372,11 @@ function open_(id){
      someone in them are listed, for the same reason as the home board: an
      empty rung is a buy-in you can pick, not a lobby you can join. */
   const mine=(window.V2Board?V2Board.occupied:[]).filter(l=>l.game===id);
-  const playing=mine.reduce((n,l)=>n+(l.players||0),0);
+  /* Counted over every row of the game, closed ones too: a paid agar.io row
+     under the owner's off switch says 'closed' and is not listed to join, but
+     the players still seated in it are still playing. */
+  const playing=(window.V2Board?V2Board.lobbies:[]).filter(l=>l.game===id)
+    .reduce((n,l)=>n+(l.players||0),0);
   /* `playing` is still summed here: it is what the free row's own count shows. */
   /* The free room is listed whether or not anybody is in it. It is the row
      that costs nothing to press, and burying it until somebody else happens to

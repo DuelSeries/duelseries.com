@@ -21,8 +21,9 @@ const vm = require('vm');
 const ROOT = path.join(__dirname, '..');
 const LOBBY_SRC = fs.readFileSync(path.join(ROOT, 'public/js/ag/agLobby.js'), 'utf8');
 
-// page: what root.duelAgar is (null for a page without one); framed: inside the lobby's frame.
-function fakePage({ framed = true, coarse = false, page } = {}) {
+// page: what root.duelAgar is (null for a page without one); framed: inside the lobby's frame; config: the fake
+// page's boot config (agMain's session.config), where agLobby gates the paid end card's Back to lobby.
+function fakePage({ framed = true, coarse = false, page, config } = {}) {
   const els = {};
   const posted = [];
   function node(tag) {
@@ -54,8 +55,14 @@ function fakePage({ framed = true, coarse = false, page } = {}) {
   };
   const store = { getItem: () => null };
   const hooks = {};
-  const fake = { onServer(name, fn) { (hooks[name] = hooks[name] || []).push(fn); } };
+  const fake = { onServer(name, fn) { (hooks[name] = hooks[name] || []).push(fn); }, config: config || {} };
+  // Virtual timers: advance(ms) runs what falls due.
+  let clock = 0;
+  let timers = [];
+  let nextId = 1;
   const win = {
+    setTimeout(fn, ms) { const id = nextId++; timers.push({ id, at: clock + (ms || 0), fn }); return id; },
+    clearTimeout(id) { timers = timers.filter((t) => t.id !== id); },
     document: doc,
     sessionStorage: store, localStorage: store,
     matchMedia: () => ({ matches: coarse, addEventListener() {} }),
@@ -74,8 +81,17 @@ function fakePage({ framed = true, coarse = false, page } = {}) {
     const rets = (winOn.beforeunload || []).map((fn) => fn(ev));
     return { asks: ev.prevented || ev.returnValue !== undefined || rets.some((r) => r !== undefined), ev };
   }
+  function advance(ms) {
+    clock += ms;
+    for (let guard = 0; guard < 100; guard++) {
+      const due = timers.filter((t) => t.at <= clock);
+      if (!due.length) return;
+      timers = timers.filter((t) => t.at > clock);
+      due.forEach((t) => t.fn());
+    }
+  }
   return {
-    win, els, posted, menu, notify, unload,
+    win, els, posted, menu, notify, unload, advance, pending: () => timers.length,
     server: (name, p) => (hooks[name] || []).forEach((fn) => fn(p)),
     btn: () => els['ag-lobby'],
     hint: () => els['ag-lobby-hint'],
@@ -179,4 +195,126 @@ test('the free page never locks: its own events leave the button and the tab alo
     assert.ok(p.shown(p.btn()), ev + ' leaves the button');
     assert.strictEqual(p.unload().asks, false, ev + ' leaves the tab');
   }
+});
+
+/* Review fixes (lobby-rungs review, BLOCKER): the lock follows the seat, not only the three closing events. A seat
+   released before ag:ready (agMoney release, join-timeout and the rest) is refunded and closed, and the server says
+   so with ag:refused { closed: true } (server/ag/agRoom.js _paidClosed); another tab taking the account over leaves
+   this one with ag:replaced (agRoom resumePaid). A refusal that leaves the account open ('cash-out-to-leave', a
+   refused second join) carries no closed flag and keeps the lock, and so does ag:refunded (reattach: the old account
+   is still open, on this socket). */
+test('a seat released before ready, or taken over by another tab, ends the lock; a refusal that leaves it open does not', () => {
+  const p = fakePage();
+  p.server('ag:joined', { stake: 0.1, micro: 100000, resumeKey: 'k1', confirmed: false });
+  for (const r of [{ why: 'cash-out-to-leave' }, { why: 'seat-failed', text: 'x', refunded: true },
+    { why: 'slow-down', retry: true }, { why: 'join-timeout', refunded: true }]) {
+    p.server('ag:refused', r);
+    assert.ok(!p.shown(p.btn()) && p.unload().asks, r.why + ' without closed: still locked');
+  }
+  p.server('ag:refunded', { why: 'reattach' });
+  assert.ok(!p.shown(p.btn()), 'a reattach refund keeps the lock (the account is still open here)');
+  p.server('ag:refused', { why: 'join-timeout', refunded: true, closed: true });
+  assert.ok(p.shown(p.btn()) && !p.shown(p.hint()), 'released and refunded: the button is back, the hint gone');
+  assert.strictEqual(p.unload().asks, false, 'and leaving asks nothing');
+  p.btn().click();
+  assert.deepStrictEqual(p.posted, [['game:done', '*']], 'a click goes back to the lobby');
+
+  const q = fakePage({ coarse: true });
+  q.server('ag:joined', { stake: 1 });
+  assert.strictEqual(q.hint().textContent, 'Hold Cash out to leave');
+  q.server('ag:replaced', {});
+  assert.ok(q.shown(q.btn()) && !q.shown(q.hint()) && !q.unload().asks, 'replaced: this tab holds nothing now');
+  q.server('ag:joined', { stake: 1, resumed: true });
+  assert.ok(!q.shown(q.btn()), 'taking it back locks again');
+});
+
+/* A dropped socket: the seat is the server's dropped seat (5 s grace, then frozen; Owen Q5 auto cash-out, or a
+   restart's refund, Owen Q6). The page lets go DROP_MS (DISCONNECT_GRACE_MS, 5000) after the drop unless it took the
+   seat back (ag:joined with a stake), so a blip that resumes never shows the button and a crash never locks it. */
+test('a dropped socket lets go after the server grace unless the page takes its seat back first', () => {
+  const p = fakePage();
+  p.server('disconnect', { reason: 'transport close' });
+  assert.strictEqual(p.pending(), 0, 'no money in: a drop starts nothing');
+
+  p.server('ag:joined', { stake: 0.1 });
+  p.server('disconnect', { reason: 'transport close' });
+  p.server('disconnect', { reason: 'transport close' });
+  assert.strictEqual(p.pending(), 1, 'one wait per drop');
+  p.advance(4999);
+  assert.ok(!p.shown(p.btn()) && p.unload().asks, 'inside the grace: still locked');
+  p.server('ag:joined', { stake: 0.1, resumed: true });
+  assert.strictEqual(p.pending(), 0, 'the seat taken back cancels the wait');
+  p.advance(60000);
+  assert.ok(!p.shown(p.btn()) && p.unload().asks, 'and the page stays locked on its seat');
+
+  p.server('disconnect', { reason: 'ping timeout' });
+  p.advance(5000);
+  assert.ok(p.shown(p.btn()) && !p.unload().asks, 'not taken back in 5 s: the page lets go');
+
+  // The server said it closed during the wait (a planned restart's refund, ag:closed): at once, nothing left over.
+  const r = fakePage();
+  r.server('ag:joined', { stake: 1 });
+  r.server('disconnect', {});
+  r.server('ag:closed', { why: 'shutdown', refundedMicro: 1000000 });
+  assert.ok(r.shown(r.btn()) && r.pending() === 0, 'closed: unlocked, no wait left');
+  r.server('ag:joined', { stake: 1 });
+  r.advance(60000);
+  assert.ok(!r.shown(r.btn()), 'a stale wait never unlocks a later seat');
+});
+
+test('the paid end card\'s Back to lobby goes through the same gate, framed only', () => {
+  const p = fakePage();
+  const cfg = p.win.duelAgar.config;
+  assert.strictEqual(typeof cfg.onLobby, 'function', 'framed: agLobby owns the card\'s way back');
+  cfg.onLobby();
+  assert.deepStrictEqual(p.posted, [['game:done', '*']], 'no money in: back to the lobby');
+  p.server('ag:joined', { stake: 0.1 });
+  cfg.onLobby();
+  assert.strictEqual(p.posted.length, 1, 'money in: refused');
+  p.server('ag:dead', { lostMicro: 100000 });
+  cfg.onLobby();
+  assert.strictEqual(p.posted.length, 2, 'after the death: allowed');
+
+  // A handler the page already had (a hand-off's) is kept and gated.
+  let own = 0;
+  const h = fakePage({ config: { onLobby: () => { own++; } } });
+  h.server('ag:joined', { stake: 1 });
+  h.win.duelAgar.config.onLobby();
+  assert.strictEqual(own, 0, 'gated while money is in');
+  h.server('ag:cashedout', { grossMicro: 1, cutMicro: 0, netMicro: 1 });
+  h.win.duelAgar.config.onLobby();
+  assert.deepStrictEqual([own, h.posted.length], [1, 0], 'then the page\'s own handler runs, not a second post');
+
+  const solo = fakePage({ framed: false });
+  assert.strictEqual(solo.win.duelAgar.config.onLobby, undefined, 'unframed: agMain keeps its own close-the-card');
+});
+
+test('the real page: the last run\'s card goes on a new paid seat, its button is gated, and a socket drop reaches the hooks', async () => {
+  const { bootPage } = require('./agFakePage.js');
+  const real = bootPage({ net: true, parent: { postMessage() {} } });
+  const p = fakePage({ page: real.session });
+  real.sock.connected = true;
+  real.sock.fire('connect');
+  real.session.sideEvent('ag:joined', { stake: 0.1, micro: 100000 });
+  real.session.sideEvent('ag:dead', { lostMicro: 100000, by: 'bob' });
+  const card = real.doc.getElementById('ag-paid-end');
+  assert.ok(card && !card.hidden, 'the death card is up');
+  assert.ok(p.shown(p.btn()), 'and the lock is off');
+
+  // Play again: a new paid seat on the same page. The old card goes, so its Back to lobby is not over the new run.
+  real.session.sideEvent('ag:joined', { stake: 0.1, micro: 100000 });
+  assert.ok(card.hidden, 'the last run\'s card is hidden on the new seat');
+  assert.ok(!p.shown(p.btn()) && p.unload().asks, 'locked');
+  real.doc.getElementById('ag-pe-lobby').dispatch('click');
+  assert.deepStrictEqual(p.posted, [], 'the card\'s Back to lobby posts nothing while money is in');
+
+  // The socket drops (agNet's disconnect, through agMain's onDisconnect): the hook hears it.
+  real.sock.connected = false;
+  real.sock.fire('disconnect', 'transport close');
+  assert.strictEqual(p.pending(), 1, 'the drop reached agLobby');
+  p.advance(5000);
+  assert.ok(p.shown(p.btn()) && !p.unload().asks, 'and the page let go after the grace');
+  real.doc.getElementById('ag-pe-lobby').dispatch('click');
+  assert.deepStrictEqual(p.posted, [['game:done', '*']], 'the gate is open again');
+  real.session.destroy();
 });

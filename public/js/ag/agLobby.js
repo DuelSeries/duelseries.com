@@ -13,10 +13,17 @@
 // 3. No walking out with money in the room (PAID-AGAR-DESIGN.md 4 step 7 and 6, the exit trap). game:done blanks
 //    the frame, which drops the socket, and a paid account left that way sits frozen and edible for 3 minutes before
 //    its automatic cash-out (Owen Q5). So from the moment this page has a paid account open (the server's ag:joined
-//    with a stake) until the server says it closed (ag:cashedout, ag:dead or ag:closed), the Lobby button is hidden
-//    and refuses a click, the menu shows how to leave instead ("Hold Q to cash out", or the Cash out button on a
-//    touch screen), and closing or reloading the tab asks first. The free room never sends ag:joined with a stake,
-//    so nothing here changes it.
+//    with a stake) until this page holds it no more, the Lobby button is hidden and refuses a click, the menu shows
+//    how to leave instead ("Hold Q to cash out", or the Cash out button on a touch screen), and closing or
+//    reloading the tab asks first. The paid end card's own Back to lobby goes through the same gate (agMain's
+//    backToLobby calls cfg.onLobby when it is set). The free room never sends ag:joined with a stake, so nothing
+//    here changes it. The page holds the account no more when the server says so: it closed (ag:cashedout, ag:dead,
+//    ag:closed), its seat was released and refunded before it was confirmed (ag:refused with closed: true,
+//    server/ag/agRoom.js _paidClosed), or another tab took it over (ag:replaced, agRoom resumePaid; that tab locks
+//    itself). And when its socket drops (agMain's 'disconnect' hook) the seat is the server's dropped seat (5 s
+//    grace, then frozen and auto cashed out, Owen Q5, or refunded by a restart, Owen Q6), so the page lets go
+//    DROP_MS after the drop unless it took the seat back first (a new ag:joined with a stake). A blip that resumes
+//    in time never shows the button, and a crashed server never leaves the page locked.
 (function (root) {
   'use strict';
 
@@ -29,14 +36,37 @@
   var HINT_KEYS = 'Hold Q to cash out';
   var HINT_TOUCH = 'Hold Cash out to leave';
 
+  // How long after a socket drop the page still holds the lock (see 3 above): DISCONNECT_GRACE_MS, the server's own
+  // grace for a dropped paid seat (PAID-AGAR-DESIGN.md 3.5, Paper's value). Using it for this page timer is CHOSEN
+  // (PARITY-LOG 2026-10-09 lobby-rungs review fixes).
+  var DROP_MS = 5000;
+
   // Money in the room: a paid account is open on this page (see 3 above).
   var moneyIn = false;
+  var dropTimer = null;
   var sync = function () {};
+  function clearDrop() {
+    if (dropTimer === null) return;
+    try { root.clearTimeout(dropTimer); } catch (e) { /* nothing to clear */ }
+    dropTimer = null;
+  }
   function setMoneyIn(on) {
     on = !!on;
+    clearDrop();
     if (moneyIn === on) return;
     moneyIn = on;
     sync();
+  }
+  function onDrop() {
+    if (!moneyIn || dropTimer !== null) return;
+    if (typeof root.setTimeout !== 'function') { setMoneyIn(false); return; }
+    dropTimer = root.setTimeout(function () { dropTimer = null; setMoneyIn(false); }, DROP_MS);
+  }
+  // The one way back to the lobby (the Lobby button and the paid end card's Back to lobby): never while money is in
+  // the room.
+  function goLobby() {
+    if (moneyIn) return;
+    try { root.parent.postMessage('game:done', '*'); } catch (err) { /* the lobby is gone; nothing to do */ }
   }
   // The browser shows its own "leave this site?" text; what a page asks it to say is ignored.
   function onBeforeUnload(e) {
@@ -52,6 +82,20 @@
     page.onServer('ag:cashedout', function (p) { if (!p || p.free !== true) setMoneyIn(false); });
     page.onServer('ag:dead', function () { setMoneyIn(false); });
     page.onServer('ag:closed', function () { setMoneyIn(false); });
+    // Only a refusal that says the seat closed: 'cash-out-to-leave' and a refused second join leave it open.
+    page.onServer('ag:refused', function (p) { if (p && p.closed === true) setMoneyIn(false); });
+    page.onServer('ag:replaced', function () { setMoneyIn(false); });
+    page.onServer('disconnect', onDrop);
+    // The paid end card's Back to lobby (agMain backToLobby calls cfg.onLobby when it is set): the same gate. Framed
+    // only; a page opened on its own keeps agMain's own handling (close the card, open the menu).
+    var cfg = page.config;
+    if (framed() && cfg && typeof cfg === 'object') {
+      var own = typeof cfg.onLobby === 'function' ? cfg.onLobby : null;
+      cfg.onLobby = function () {
+        if (moneyIn) return;
+        if (own) own(); else goLobby();
+      };
+    }
     if (typeof root.addEventListener === 'function') root.addEventListener('beforeunload', onBeforeUnload);
   }
 
@@ -107,8 +151,7 @@
       'stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Lobby';
     btn.addEventListener('click', function (e) {
       e.preventDefault();
-      if (moneyIn) return;   // hidden then too; this is the belt to that brace (3 above)
-      try { root.parent.postMessage('game:done', '*'); } catch (err) { /* the lobby is gone; nothing to do */ }
+      goLobby();   // refused while money is in the room; the button is hidden then too (3 above)
     });
     doc.body.appendChild(btn);
 

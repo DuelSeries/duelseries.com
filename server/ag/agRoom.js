@@ -487,7 +487,9 @@ class AgRoom {
       const x = extra || {};
       if (outcome === 'eaten') this._emit(seat.socket, 'ag:dead', { lostMicro: x.lostMicro || 0, by: x.by || '' });
       else if (outcome === 'released') {
-        this._emit(seat.socket, 'ag:refused', { why: x.why || 'released', refunded: !!x.refunded });
+        // closed: true says this refusal ended an account the page held (its exit trap lets go on it); a door
+        // refusal or 'cash-out-to-leave' never carries it (lobby-rungs review fix).
+        this._emit(seat.socket, 'ag:refused', { why: x.why || 'released', refunded: !!x.refunded, closed: true });
       } else if (outcome === 'refunded') {
         this._emit(seat.socket, 'ag:closed', { refundedMicro: x.refundedMicro || 0, why: x.why || 'emergency' });
       } else if (outcome === 'frozen-settled') {

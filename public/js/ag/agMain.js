@@ -503,6 +503,9 @@
             paid.on = true;
             paid.stake = Number(p.stake);
             agScreens.loadPaidStyles(doc);
+            // A new paid seat (Play again) clears the last run's end card: its Back to lobby must never sit on top
+            // of a run with money in it (lobby-rungs review fix; agLobby's exit trap gates that button too).
+            if (paidEnd) paidEnd.hide();
           }
           if (typeof p.tickMs === 'number' && p.tickMs > 0 && isFinite(p.tickMs)) holdTickMs = p.tickMs;
           if (wholePositive(p.holdTicks)) hold.need = p.holdTicks;
@@ -826,11 +829,14 @@
             pending.play = queued.play;
             pending.spectate = queued.spectate;
           },
-          onDisconnect: function () {
+          onDisconnect: function (reason) {
             resetConnection();
             input.setInGame(false);
             sound.setInGame(false);
             openMenu();
+            // Ours: the onServer hooks hear the drop too, as 'disconnect' (agLobby's exit trap: a paid seat this
+            // socket held is the server's dropped seat now). No draw and no send.
+            onSideEvent('disconnect', { reason: typeof reason === 'string' ? reason : '' });
           }
         });
       };
@@ -863,8 +869,8 @@
       };
     };
     session.on = function (name, fn) { return world.on(name, fn); };
-    // Server side events (agNet SIDE_EVENTS): the page's own handling runs first, then these. sideEvent feeds one
-    // in as if the socket had sent it (tests, and a page without a socket).
+    // Server side events (agNet SIDE_EVENTS), plus 'disconnect' when the socket drops: the page's own handling runs
+    // first, then these. sideEvent feeds one in as if the socket had sent it (tests, and a page without a socket).
     session.onServer = function (name, fn) {
       if (typeof fn !== 'function') return;
       (sideHandlers[name] = sideHandlers[name] || []).push(fn);

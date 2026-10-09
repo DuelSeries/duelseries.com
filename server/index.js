@@ -2052,17 +2052,33 @@ app.get('/api/live', (_req, res) => {
        pins like Paper's, and the paid rungs only while AG_PAID built them, with
        players = every open account (away ones too, so rule 4b sees parked
        money), parked, no bots, and state 'closed' under the owner's off switch.
-       No agar row at all while the game is closed, so its card reads 0. */
-    const agRows = agArenas ? agArenas.boardRows() : [];
+       No agar row at all while the game is closed, so its card reads 0.
+       Read in its own try (review fix): an agar fault must not blank snake's
+       and Paper's rows too. The answer then says `unknown: ['agar']`, and the
+       whole-board fault below says `unknown: ['all']`, so a pre-push check
+       (deploy rule 4b, never push over a seated paid player) reads a missing
+       row as "cannot tell", never as "nobody there". */
+    let agRows = [];
+    const unknown = [];
+    if (agArenas) {
+      try {
+        agRows = agArenas.boardRows();
+      } catch (e) {
+        console.error('[LIVE] agar rows', e.message);
+        unknown.push('agar');
+      }
+    }
     const lobbies = liveBoard().concat(paperArenas.boardRows(), agRows);
     const extras = liveExtras();
     /* Card counts: every human of the game plus the bots in its rows, from these
        same rows, so a card never reads 0 above a row saying 20 playing. */
-    res.json({ lobbies, stakes: ALL_STAKES, extras,
-               br: liveBattleRoyale(), counts: withBoardBots(liveGameCounts(), lobbies.concat(extras)) });
+    const out = { lobbies, stakes: ALL_STAKES, extras,
+                  br: liveBattleRoyale(), counts: withBoardBots(liveGameCounts(), lobbies.concat(extras)) };
+    if (unknown.length) out.unknown = unknown;
+    res.json(out);
   } catch (e) {
     console.error('[LIVE]', e.message);
-    res.json({ lobbies: [], stakes: ALL_STAKES, extras: [], br: null, counts: null });
+    res.json({ lobbies: [], stakes: ALL_STAKES, extras: [], br: null, counts: null, unknown: ['all'] });
   }
 });
 
