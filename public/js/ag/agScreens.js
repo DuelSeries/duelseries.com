@@ -326,22 +326,46 @@
     '#statsContinue{position:absolute;width:306px;bottom:15px;height:34px;left:0;right:0;}'
   ].join('\n');
 
+  // The page inside the DuelSeries lobby's agar frame (CHOSEN, Owen 2026-10-09 midday, OWNER-ANSWERS): there is no
+  // name entry (the lobby's agar.io screen holds the name, the buy-in, Spectate and the settings), and the Match
+  // Results panel ends with Play again and Lobby in place of Continue. Ours, added to the page only in that mode, so
+  // SCREENS_CSS and the panel the parity harness diffs stay as they are. The two buttons share Continue's slot
+  // (306 wide, 34 high, 15 from the bottom), 150 each with 6 between; Play again keeps Continue's primary look and
+  // Lobby is the plain button beside it.
+  var LOBBY_TEXT = { again: 'Play again', lobby: 'Lobby' };
+  var LOBBY_CSS = [
+    '#statsAgain,#statsLobby{position:absolute;bottom:15px;width:150px;height:34px;}',
+    '#statsAgain{left:0;}',
+    '#statsLobby{right:0;color:#333;background-color:#fff;border-color:#ccc;}',
+    '#statsLobby:hover{background-color:#e6e6e6;border-color:#adadad;}',
+    '#statsAgain:focus-visible,#statsLobby:focus-visible{outline:2px solid #100e0b;outline-offset:2px;}'
+  ].join('\n');
+
   // ---------------------------------------------------------------------------------------
   // DOM: the menu card with the name entry and the "Match Results" panel
   // ---------------------------------------------------------------------------------------
 
   // opts: { doc, root (where to append; default body), onPlay(name), onSpectate(), onContinue(),
   //         injectCss (default true), soundButton (an element to place on the name panel),
-  //         settings (values to show, see SETTINGS_DEFAULTS), onSettings({ key: value }) }
+  //         settings (values to show, see SETTINGS_DEFAULTS), onSettings({ key: value }),
+  //         lobby (the lobby frame's page: no name entry, Play again and Lobby on the panel; see LOBBY_CSS),
+  //         onAgain(), onLobby() (lobby only: the panel's two buttons) }
   function createScreens(opts) {
     opts = opts || {};
     var doc = opts.doc || root.document;
     var host = opts.root || doc.body;
+    var lobby = opts.lobby === true;
     if (opts.injectCss !== false && !doc.getElementById('ag-screens-css')) {
       var style = doc.createElement('style');
       style.id = 'ag-screens-css';
       style.textContent = SCREENS_CSS;
       (doc.head || host).appendChild(style);
+    }
+    if (lobby && opts.injectCss !== false && !doc.getElementById('ag-screens-lobby-css')) {
+      var lstyle = doc.createElement('style');
+      lstyle.id = 'ag-screens-lobby-css';
+      lstyle.textContent = LOBBY_CSS;
+      (doc.head || host).appendChild(lstyle);
     }
 
     function el(tag, attrs, text) {
@@ -357,46 +381,50 @@
     card.appendChild(pc);
     menu.appendChild(card);
 
-    // Name entry (HOME).
-    var namePanel = el('div', { id: 'ag-name' });
-    namePanel.appendChild(el('h2', null, 'agar.io'));
-    var nick = el('input', { id: 'ag-nick', type: 'text', maxlength: String(LAYOUT.nickMax), placeholder: 'Nick', autocomplete: 'off', spellcheck: 'false' });
-    namePanel.appendChild(nick);
-    var playBtn = el('button', { id: 'ag-play', type: 'button', 'class': 'ag-btn' }, 'Play');
-    namePanel.appendChild(playBtn);
-    var row = el('div', { 'class': 'ag-row' });
-    var specBtn = el('button', { id: 'ag-spectate', type: 'button', 'class': 'ag-btn' }, 'Spectate');
-    row.appendChild(specBtn);
-    if (opts.soundButton) row.appendChild(opts.soundButton);
-    namePanel.appendChild(row);
+    // Name entry (HOME). The lobby frame's page has none (see LOBBY_CSS): no name box, Play, Spectate, Sound or
+    // settings block, so the card only ever shows the Match Results panel there.
+    var namePanel = null, nick = null, playBtn = null, specBtn = null;
+    var boxes = {}, qSelect = null;
+    if (!lobby) {
+      namePanel = el('div', { id: 'ag-name' });
+      namePanel.appendChild(el('h2', null, 'agar.io'));
+      nick = el('input', { id: 'ag-nick', type: 'text', maxlength: String(LAYOUT.nickMax), placeholder: 'Nick', autocomplete: 'off', spellcheck: 'false' });
+      namePanel.appendChild(nick);
+      playBtn = el('button', { id: 'ag-play', type: 'button', 'class': 'ag-btn' }, 'Play');
+      namePanel.appendChild(playBtn);
+      var row = el('div', { 'class': 'ag-row' });
+      specBtn = el('button', { id: 'ag-spectate', type: 'button', 'class': 'ag-btn' }, 'Spectate');
+      row.appendChild(specBtn);
+      if (opts.soundButton) row.appendChild(opts.soundButton);
+      namePanel.appendChild(row);
 
-    // Settings that change the drawing (build brief scope 3). The page owns the values; this
-    // block shows them and reports each change through opts.onSettings({ key: value }).
-    var settingsBox = el('div', { id: 'ag-settings', role: 'group', 'aria-label': 'Settings' });
-    var boxes = {};
-    for (var si = 0; si < SETTING_BOXES.length; si++) {
-      var sb = SETTING_BOXES[si];
-      var lbl = el('label', { 'class': 'ag-opt' });
-      var cb = el('input', { type: 'checkbox', 'data-setting': sb[0] });
-      lbl.appendChild(cb);
-      lbl.appendChild(el('span', null, sb[1]));
-      settingsBox.appendChild(lbl);
-      boxes[sb[0]] = cb;
-      cb.addEventListener('change', settingChanged(sb[0], cb));
+      // Settings that change the drawing (build brief scope 3). The page owns the values; this
+      // block shows them and reports each change through opts.onSettings({ key: value }).
+      var settingsBox = el('div', { id: 'ag-settings', role: 'group', 'aria-label': 'Settings' });
+      for (var si = 0; si < SETTING_BOXES.length; si++) {
+        var sb = SETTING_BOXES[si];
+        var lbl = el('label', { 'class': 'ag-opt' });
+        var cb = el('input', { type: 'checkbox', 'data-setting': sb[0] });
+        lbl.appendChild(cb);
+        lbl.appendChild(el('span', null, sb[1]));
+        settingsBox.appendChild(lbl);
+        boxes[sb[0]] = cb;
+        cb.addEventListener('change', settingChanged(sb[0], cb));
+      }
+      var qLabel = el('label', { 'class': 'ag-opt ag-quality' });
+      qLabel.appendChild(el('span', null, 'Quality'));
+      qSelect = el('select', { 'data-setting': 'quality' });
+      for (var qi = 0; qi < QUALITY_OPTIONS.length; qi++) {
+        qSelect.appendChild(el('option', { value: QUALITY_OPTIONS[qi][0] }, QUALITY_OPTIONS[qi][1]));
+      }
+      qLabel.appendChild(qSelect);
+      settingsBox.appendChild(qLabel);
+      qSelect.addEventListener('change', function () {
+        if (opts.onSettings) opts.onSettings({ quality: qSelect.value });
+      });
+      namePanel.appendChild(settingsBox);
+      pc.appendChild(namePanel);
     }
-    var qLabel = el('label', { 'class': 'ag-opt ag-quality' });
-    qLabel.appendChild(el('span', null, 'Quality'));
-    var qSelect = el('select', { 'data-setting': 'quality' });
-    for (var qi = 0; qi < QUALITY_OPTIONS.length; qi++) {
-      qSelect.appendChild(el('option', { value: QUALITY_OPTIONS[qi][0] }, QUALITY_OPTIONS[qi][1]));
-    }
-    qLabel.appendChild(qSelect);
-    settingsBox.appendChild(qLabel);
-    qSelect.addEventListener('change', function () {
-      if (opts.onSettings) opts.onSettings({ quality: qSelect.value });
-    });
-    namePanel.appendChild(settingsBox);
-    pc.appendChild(namePanel);
 
     function settingChanged(key, box) {
       return function () {
@@ -411,7 +439,7 @@
       for (var key in boxes) {
         if (Object.prototype.hasOwnProperty.call(boxes, key) && typeof values[key] === 'boolean') boxes[key].checked = values[key];
       }
-      if (typeof values.quality === 'string') qSelect.value = values.quality;
+      if (qSelect && typeof values.quality === 'string') qSelect.value = values.quality;
     }
     showSettings(SETTINGS_DEFAULTS);
     if (opts.settings) showSettings(opts.settings);
@@ -439,8 +467,16 @@
       valueEls[b[0]] = val;
     }
     stats.appendChild(el('hr'));
-    var contBtn = el('button', { id: 'statsContinue', type: 'button', 'class': 'ag-btn ag-btn-primary' }, 'Continue');
-    stats.appendChild(contBtn);
+    var contBtn = null, againBtn = null, lobbyBtn = null;
+    if (lobby) {
+      againBtn = el('button', { id: 'statsAgain', type: 'button', 'class': 'ag-btn ag-btn-primary' }, LOBBY_TEXT.again);
+      lobbyBtn = el('button', { id: 'statsLobby', type: 'button', 'class': 'ag-btn' }, LOBBY_TEXT.lobby);
+      stats.appendChild(againBtn);
+      stats.appendChild(lobbyBtn);
+    } else {
+      contBtn = el('button', { id: 'statsContinue', type: 'button', 'class': 'ag-btn ag-btn-primary' }, 'Continue');
+      stats.appendChild(contBtn);
+    }
     pc.appendChild(stats);
     host.appendChild(menu);
 
@@ -450,16 +486,19 @@
       graph: graph,
       graphContext: function () { return graph.getContext('2d'); },
       isOpen: function () { return !menu.hidden; },
+      lobby: lobby,
       state: 'HOME'
     };
 
     function focusNick() {
+      if (!nick) return;
       try { nick.focus(); } catch (e) { /* focus can fail on hidden or detached nodes */ }
     }
-    // HOME: name entry and Play.
+    // HOME: name entry and Play. The lobby frame's page has no name entry, so HOME there is the card closed.
     api.showHome = function () {
       api.state = 'HOME';
       stats.hidden = true;
+      if (!namePanel) { menu.hidden = true; return; }
       namePanel.hidden = false;
       menu.hidden = false;
       focusNick();
@@ -473,7 +512,7 @@
       if (centre.textContent !== title) centre.textContent = title;
       for (var k in valueEls) if (Object.prototype.hasOwnProperty.call(valueEls, k)) valueEls[k].textContent = v[k];
       api.state = 'GAMEOVER';
-      namePanel.hidden = true;
+      if (namePanel) namePanel.hidden = true;
       stats.hidden = false;
       menu.hidden = false;
     };
@@ -484,7 +523,7 @@
     api.setScale = function (k) {
       menu.style.transform = 'translate(-50%, -50%)' + (k !== 1 ? ' scale(' + k + ')' : '');
     };
-    api.setNick = function (name) { nick.value = String(name || '').slice(0, LAYOUT.nickMax); };
+    api.setNick = function (name) { if (nick) nick.value = String(name || '').slice(0, LAYOUT.nickMax); };
     api.setSettings = showSettings;
     api.settingsControls = { boxes: boxes, quality: qSelect };
 
@@ -494,19 +533,35 @@
       api.hide();
       if (opts.onPlay) opts.onPlay(name);
     }
-    playBtn.addEventListener('click', play);
-    nick.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter' || e.keyCode === 13) { e.preventDefault(); play(); }
-    });
-    specBtn.addEventListener('click', function () {
-      api.state = 'SPECTATE';
-      api.hide();
-      if (opts.onSpectate) opts.onSpectate();
-    });
-    contBtn.addEventListener('click', function () {
-      api.showHome();
-      if (opts.onContinue) opts.onContinue();
-    });
+    if (!lobby) {
+      playBtn.addEventListener('click', play);
+      nick.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.keyCode === 13) { e.preventDefault(); play(); }
+      });
+      specBtn.addEventListener('click', function () {
+        api.state = 'SPECTATE';
+        api.hide();
+        if (opts.onSpectate) opts.onSpectate();
+      });
+      contBtn.addEventListener('click', function () {
+        api.showHome();
+        if (opts.onContinue) opts.onContinue();
+      });
+    } else {
+      // Play again: the page respawns at once under the same name and settings (agMain). Lobby: the page's way back
+      // (agMain backToLobby, which agLobby gates).
+      againBtn.addEventListener('click', function (e) {
+        if (e && e.preventDefault) e.preventDefault();
+        if (api.state !== 'GAMEOVER') return;
+        api.state = 'PLAY';
+        api.hide();
+        if (opts.onAgain) opts.onAgain();
+      });
+      lobbyBtn.addEventListener('click', function (e) {
+        if (e && e.preventDefault) e.preventDefault();
+        if (opts.onLobby) opts.onLobby();
+      });
+    }
     return api;
   }
 
@@ -795,6 +850,8 @@
     QUALITY_OPTIONS: QUALITY_OPTIONS,
     menuScale: menuScale,
     SCREENS_CSS: SCREENS_CSS,
+    LOBBY_CSS: LOBBY_CSS,
+    LOBBY_TEXT: LOBBY_TEXT,
     createScreens: createScreens
   };
   A.agScreens = agScreens;

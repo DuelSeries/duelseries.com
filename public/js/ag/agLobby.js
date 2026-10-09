@@ -27,6 +27,13 @@
 // 4. The paid hand-off's own lock (agPaid.js, the 'paid:lock' hook): the same gate while an entry token is on its
 //    way to the door and while a Play again buy-in is with the lobby's wallet (Paper's lockLobby). agPaid lets go on
 //    every answer and after its own give-up timers, so it never leaves the page locked either.
+// 5. The free room in the lobby's frame (Owen 2026-10-09 midday: agMain's cfg.lobby, set by public/ag.html when its
+//    frame is the lobby's #agar-frame, and no paid hand-off): the page has no menu card, so this starts it at once,
+//    playing under the lobby name, or watching when the lobby's Spectate opened it (sessionStorage spectateOnly,
+//    the lobby's own watch flag, which public/js/v2/play.js sets and the wallet widget clears on every launch). The
+//    Lobby button then shows all the time except over the Match Results panel, which has its own Lobby button, so a
+//    mouse player and a watcher (no Esc menu any more) always have one way back. A paid hand-off keeps 1 to 4 as
+//    they are.
 (function (root) {
   'use strict';
 
@@ -136,6 +143,24 @@
     if (name) box.value = name;
   }
 
+  // The free room inside the lobby's frame (see 5 above): agMain's lobby config, and no paid account on the page.
+  function lobbyFree() {
+    var page = root.duelAgar;
+    if (!page || !page.config || page.config.lobby !== true || !framed()) return false;
+    var st = null;
+    try { st = typeof page.state === 'function' ? page.state() : null; } catch (e) { st = null; }
+    return !!st && st.paid !== true && !st.handoff && !moneyIn && !pageLock;
+  }
+  function startFromLobby() {
+    if (!lobbyFree()) return;
+    var page = root.duelAgar;
+    if (read(root.sessionStorage, 'spectateOnly') === 'true') {
+      if (typeof page.spectate === 'function') page.spectate();
+      return;
+    }
+    if (typeof page.play === 'function') page.play(lobbyName());
+  }
+
   var CSS = [
     '#ag-lobby{position:fixed;left:16px;top:16px;z-index:30;display:none;align-items:center;gap:6px;',
     'box-sizing:border-box;height:36px;margin:0;padding:0 14px 0 10px;border:1px solid #d6cdbd;border-radius:8px;',
@@ -183,7 +208,9 @@
       var menu = doc.getElementById('ag-menu');
       var menuOpen = !!menu && !menu.hidden;
       var touch = !!(coarse && coarse.matches);
-      btn.classList.toggle('on', !locked() && (menuOpen || touch));
+      // The lobby frame's free room (5 above): always, except over the Match Results panel and its own Lobby button.
+      var shown = lobbyFree() ? !menuOpen : (menuOpen || touch);
+      btn.classList.toggle('on', !locked() && shown);
       var text = moneyIn && menuOpen ? (touch ? HINT_TOUCH : HINT_KEYS) : '';
       if (hint.textContent !== text) hint.textContent = text;
       hint.classList.toggle('on', text !== '');
@@ -204,6 +231,7 @@
     prefillNick();
     addLobbyButton();
     watchMoney();
+    startFromLobby();
   }
   if (doc.readyState === 'loading') doc.addEventListener('DOMContentLoaded', start);
   else start();

@@ -405,8 +405,10 @@
       if (lobbyType) sessionStorage.setItem('lobbyType', lobbyType);
       sessionStorage.removeItem('stake');
     } catch (_) {}
-    /* agar.io's page has its own Spectate button on its menu, so it opens on
-       that menu; the snake page reads spectateOnly. */
+    /* Both pages read spectateOnly. agar.io's has no menu card inside this
+       lobby any more (Owen 2026-10-09), so it is the flag that opens it
+       straight into watching (public/js/ag/agLobby.js); the widget clears it
+       on every launch, so a Play never lands as a watcher. */
     show(game === 'agar' ? '/ag' : '/game.html', game);
   }
 

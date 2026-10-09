@@ -170,6 +170,8 @@
     ejectCue: ejectCue,
     eatCues: eatCues,
     createSound: createSound,
+    // The stored on/off key ('1' on, anything else off), which the lobby's agar.io screen writes too.
+    STORE_KEY: STORE_KEY,
     // Module-level player (the card's API): playCue(name), setEnabled(bool).
     playCue: function (name) { return instance().playCue(name); },
     setEnabled: function (on) { return instance().setEnabled(on); },

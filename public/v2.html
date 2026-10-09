@@ -1097,6 +1097,41 @@ body.no-foot footer{display:none}
 .go{width:100%;background:var(--bone);color:var(--ink);font-size:15px;font-weight:650;
   padding:15px;border-radius:var(--r2);transition:.15s}
 .go:hover{transform:translateY(-1px)}
+/* Play and, on agar.io's Free rung only, Spectate beside it. The row is the
+   name row's shape: the wide control, then the small dark one. */
+.gorow{display:flex;gap:8px}
+.gorow .go{flex:1;min-width:0;width:auto}
+.spec{display:none;flex:none;align-items:center;gap:7px;padding:0 16px;
+  background:var(--s2);border-radius:var(--r2);color:var(--tx2);font-size:13.5px;
+  font-weight:650;transition:background .15s,color .15s}
+.spec:hover{background:var(--s3);color:var(--tx)}
+#detail.agar.agfree .spec{display:flex}
+/* ── agar.io's game settings ─────────────────────────────────────────────
+   The buy-in row's pills, three to a row so each sits under a rung: dark
+   when off, bone when on, with a dot that is a ring off and filled on, so the
+   state never rests on the fill alone. Quality is the one picker, a pill with
+   the native list under it (a phone gets its own wheel). */
+.agopts{display:none}
+#detail.agar .agopts{display:block}
+.agopts .sl{margin-top:20px}
+.agtg{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:10px}
+.agt{position:relative;display:flex;align-items:center;justify-content:center;gap:7px;
+  min-width:0;height:40px;padding:0 8px;background:var(--s2);border-radius:var(--r2);
+  font-size:13px;font-weight:650;color:var(--tx2);white-space:nowrap;
+  transition:background .15s,color .15s}
+.agt:hover{background:var(--s3);color:var(--tx)}
+.agt .agd{width:7px;height:7px;flex:none;border-radius:50%;
+  box-shadow:inset 0 0 0 1.5px var(--tx3)}
+.agt[aria-pressed="true"]{background:var(--bone);color:var(--ink)}
+.agt[aria-pressed="true"] .agd{background:var(--ink);box-shadow:none}
+.agq{flex-direction:column;gap:2px;line-height:1.1;cursor:pointer}
+.agq .agqk{font-size:10.5px;font-weight:600;color:var(--tx3)}
+.agq .agqv{font-size:13px;color:var(--tx)}
+/* Over the whole pill and invisible: the pill is what shows, the select is
+   what is pressed. 16px so a phone does not zoom in when it opens. */
+.agq select{position:absolute;inset:0;width:100%;height:100%;opacity:0;
+  font-size:16px;cursor:pointer;-webkit-appearance:none;appearance:none}
+.agq:focus-within{outline:2px solid var(--bone);outline-offset:3px}
 .fine{font-size:12px;color:var(--tx3);text-align:center;margin-top:13px;line-height:1.6}
 .tog{display:flex;gap:8px;margin-top:16px}
 .tg{flex:1;background:var(--s2);border-radius:var(--r2);padding:9px;font-size:12px;
@@ -1397,6 +1432,10 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
   .stakes .stk{font-size:15px;padding:12px 4px}
   .namerow{margin-bottom:10px}
   .go{padding:13px}
+  .spec{padding:0 14px;font-size:13px}
+  .agopts .sl{margin-top:12px}
+  .agtg{margin-top:8px}
+  .agt{height:38px;font-size:12.5px;padding:0 6px;gap:6px}
   .lookrow{margin-top:10px;padding:8px 12px 8px 8px}
   .lookrow canvas{height:32px}
   .lobwrap{margin-top:12px}
@@ -1901,7 +1940,20 @@ body.scr-anim { overflow-x:hidden }
           <path d="M12 3a9 9 0 1 0 9 9"/></svg>
       </button>
     </div>
-    <button class="go" onclick="startFromDetail()">Play</button>
+    <!-- Play shares its row with agar.io's Spectate, which shows on the Free
+         rung only: a paid table is watched from inside it, not from here. Off
+         Free the button is gone and Play takes the row back, so nothing under
+         it moves when the buy-in changes. -->
+    <div class="gorow">
+      <button class="go" onclick="startFromDetail()">Play</button>
+      <button type="button" class="spec" id="agspec" onclick="V2Play.spectate('agar')"
+              aria-label="Spectate the free agar.io room">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
+        Spectate
+      </button>
+    </div>
     <!-- Under the button, not above it. It sat between the stepper and the name
          field, where it is one to three lines depending on the amount — so
          every press of an arrow shoved the name field and the Play button up or
@@ -1913,6 +1965,15 @@ body.scr-anim { overflow-x:hidden }
          now, which is where somebody goes to be told how it works. -->
     <div class="fine" id="play-msg" hidden style="color:var(--money)"></div>
 
+    <!-- agar.io's own settings. The game used to open on its own menu card,
+         with a second name box, a second Play and these settings; the card is
+         gone (Owen 2026-10-09) and they live here, under Play, where they
+         cannot push the button down. Filled by public/js/v2/agopts.js, which writes the
+         same storage the game reads, so a change here is the game's setting. -->
+    <div class="agopts" role="group" aria-labelledby="agoptsl">
+      <div class="sl" id="agoptsl">Game settings</div>
+      <div class="agtg" id="agtg"></div>
+    </div>
 
     <!-- The whole row is the button. A label, a live preview of the skin and
          the action, rather than a panel with a button under it. -->
@@ -2169,6 +2230,7 @@ body.scr-anim { overflow-x:hidden }
 <script src="/js/v2/stats.js"></script>
 <script src="/js/v2/board.js"></script>
 <script src="/js/v2/play.js"></script>
+<script src="/js/v2/agopts.js"></script>
 <script src="/js/v2/mobile.js"></script>
 <script src="/js/v2/swipe.js"></script>
 <script>
@@ -3334,6 +3396,9 @@ function open_(id){
   det.classList.toggle('paidduel',!!cur.paid);
   det.classList.toggle('solo',!!cur.solo);
   det.classList.toggle('nolook',!!cur.nolook);
+  /* agar.io's settings and its Free-rung Spectate (the game has no menu card
+     of its own inside this lobby any more). */
+  det.classList.toggle('agar',cur.id==='agar');
   /* The stepper note describes a stake, and this table takes none. Leaving it
      there had the screen promising a $1.00 pot on a free game. */
   const dn=document.getElementById('dbnote');
@@ -3555,6 +3620,8 @@ function leaveQueue(){
 }
 
 function drawStake(){
+  /* agar.io's Spectate is for the Free rung only (it watches the free room). */
+  document.getElementById('detail').classList.toggle('agfree',STEPS[si]===0);
   document.getElementById('stakes').innerHTML=STEPS.map((s,i)=>{
     const off=STEPS_OFF.has(s);
     return `<button type="button" class="stk${i===si?' on':''}${s===0?' free':''}${off?' off':''}"

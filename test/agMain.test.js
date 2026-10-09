@@ -706,7 +706,9 @@ test('ghost strip: the page reports the map it draws under the reference view, a
 test('the shipped page sizes as if the 90 px strip were there; the canvas element still fills the window', () => {
   const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'ag.html'), 'utf8');
   // handoff: true turns on the paid hand-off (agPaid.js); the page plays free unless the lobby's wallet left a stake
-  assert.match(html, /window\.DUEL_AGAR_CONFIG = \{ url: '\/ag', ghostBannerPx: 90, portrait: true, handoff: true \};/);
+  // lobby: on only inside the lobby's #agar-frame (no menu card there, Owen 2026-10-09 midday); a direct visit keeps it
+  assert.match(html, /window\.DUEL_AGAR_CONFIG = \{ url: '\/ag', ghostBannerPx: 90, portrait: true, handoff: true, lobby: agInLobbyFrame \};/);
+  assert.match(html, /agInLobbyFrame = !!window\.frameElement && window\.frameElement\.id === 'agar-frame';/);
   const paidAt = html.indexOf('/js/ag/agPaid.js');
   assert.ok(paidAt > 0 && paidAt < html.indexOf('/js/ag/agMain.js'), 'agPaid loads before agMain');
   assert.doesNotMatch(html, /[{,] bannerPx:/, 'no real strip on the shipped page');

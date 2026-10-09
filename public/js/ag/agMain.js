@@ -116,6 +116,13 @@
     // it is the exact reference layout. Off at parity: the harness page never sets cfg.portrait.
     var portraitAllowed = cfg.portrait === true;
     var portrait = false;                     // the portrait layout is in use
+    // Inside the DuelSeries lobby's agar frame (ours, Owen 2026-10-09 midday; the shipped page only: cfg.lobby, which
+    // public/ag.html sets when its frame element is the lobby's #agar-frame). The lobby's agar.io screen holds the
+    // name, the buy-in, Spectate and the settings, so this page has no menu card: agLobby starts play (or spectate) at
+    // once, Esc does nothing in the free room, the Match Results panel ends with Play again and Lobby, a dropped
+    // socket rejoins as it was, and a settings change the lobby writes reaches a loaded page (the storage event).
+    // A paid hand-off keeps its own flow and card exactly. Off at parity and on a direct visit to /ag.
+    var lobbyMode = cfg.lobby === true;
     var quality = qualityName(cfg.quality || 'Retina');
     var settings = {
       names: true, showMass: false, colors: true, dark: false, acid: false,
@@ -222,12 +229,15 @@
         onPlay: function (name) { play(name); },
         onSpectate: function () { spectate(); },
         onContinue: function () { setMenuState('HOME'); },
-        soundButton: cfg.soundButton === false ? null : sound.createToggleButton(doc),
+        soundButton: cfg.soundButton === false || lobbyMode ? null : sound.createToggleButton(doc),
         injectCss: cfg.injectCss,
         settings: shownSettings(),
-        onSettings: function (change) { setSettings(change); }
+        onSettings: function (change) { setSettings(change); },
+        lobby: lobbyMode,
+        onAgain: function () { play(nick); },
+        onLobby: function () { backToLobby(); }
       });
-      screens.showHome();
+      if (lobbyMode) screens.hide(); else screens.showHome();
     }
     var graphFallback = null;
     function graphContext() {
@@ -401,6 +411,7 @@
       // how to leave instead (design 4 step 7)
       menu: function () {
         if (flow && flow.holdsMenu()) { flow.escape(); return; }
+        if (lobbyMode) return;        // the lobby frame's free room has no menu to open (Owen 2026-10-09 midday)
         openMenu();
       }
     }, {
@@ -686,6 +697,13 @@
       if (screens) screens.hide();
       setMenuState('SPECTATE');
     }
+    // The lobby frame's free page after a dropped socket (see lobbyMode): there is no menu to fall back to, so a player
+    // who was playing joins again under the same name and a watcher watches again, both once the new socket's world
+    // is ready (pending survives the reset on connect). The Match Results panel stays up as it was.
+    function rejoinAfterDrop() {
+      if (menuState === 'PLAY') play(nick);
+      else if (menuState === 'SPECTATE') spectate();
+    }
     // Esc: the menu opens over the running game, which is not paused.
     function openMenu() {
       fadeout = true;
@@ -956,8 +974,10 @@
             resetConnection();
             input.setInGame(false);
             sound.setInGame(false);
-            // A paid page keeps its card (the reconnect wait, or the receipt) instead of the menu.
-            if (!flow) openMenu();
+            // A paid page keeps its card (the reconnect wait, or the receipt) instead of the menu. The lobby frame's
+            // free page has no menu: it rejoins as it was once the socket is back (see rejoinAfterDrop).
+            if (!flow && lobbyMode) rejoinAfterDrop();
+            else if (!flow) openMenu();
             if (flow) flow.onDisconnect();
             // Ours: the onServer hooks hear the drop too, as 'disconnect' (agLobby's exit trap: a paid seat this
             // socket held is the server's dropped seat now). No draw and no send.
@@ -1009,7 +1029,8 @@
     // Settings (build brief scope 3): quality goes through applyQuality (level, animations
     // switch, canvas scale and size together); every other key is copied. The settings block on
     // the menu card calls this too, and is kept in step with it.
-    function setSettings(s) {
+    // fromStore: the values came from the storage itself (the lobby wrote them), so they are not written back.
+    function setSettings(s, fromStore) {
       if (!s || typeof s !== 'object') return;
       for (var k in s) {
         if (!Object.prototype.hasOwnProperty.call(s, k)) continue;
@@ -1017,11 +1038,33 @@
         else settings[k] = s[k];
       }
       hud.setNames(settings.names);
-      storeSettings();
+      if (fromStore !== true) storeSettings();
       if (screens) screens.setSettings(shownSettings());
     }
-    session.setSettings = setSettings;
+    session.setSettings = function (s) { setSettings(s); };
     session.settings = function () { return shownSettings(); };
+    // The lobby frame (see lobbyMode): the lobby's agar.io screen writes the same two keys this page reads at boot
+    // (SETTINGS_KEY, and agSound's STORE_KEY for Sound), and the browser tells every other page of the origin with a
+    // storage event, so a page already loaded takes a change at once, without a reload. Only what differs is applied
+    // (a quality change sizes the canvas again); nothing is written back.
+    function onStorage(e) {
+      if (!e || destroyed) return;
+      if (e.key === SETTINGS_KEY || e.key === null) {
+        var v = readStoredSettings(), change = {}, any = false;
+        for (var i = 0; i < SETTING_FLAGS.length; i++) {
+          var f = SETTING_FLAGS[i];
+          if (typeof v[f] === 'boolean' && v[f] !== !!settings[f]) { change[f] = v[f]; any = true; }
+        }
+        if (typeof v.quality === 'string' && qualityName(v.quality) !== quality) { change.quality = qualityName(v.quality); any = true; }
+        if (any) setSettings(change, true);
+      }
+      if ((e.key === agSound.STORE_KEY || e.key === null) && typeof sound.setEnabled === 'function') {
+        var on = e.key !== null && e.newValue === '1';   // a cleared storage is the default, off
+        if (typeof sound.isEnabled !== 'function' || sound.isEnabled() !== on) sound.setEnabled(on);
+      }
+    }
+    var watchStorage = lobbyMode && !!storage && typeof win.addEventListener === 'function';
+    if (watchStorage) win.addEventListener('storage', onStorage);
     session.destroy = function () {
       destroyed = true;
       hold.wanted = false;
@@ -1031,6 +1074,7 @@
       input.dispose();
       if (net) net.close();
       win.removeEventListener('resize', sizeCanvas);
+      if (watchStorage) win.removeEventListener('storage', onStorage);
       watchPointer(false);
       if (rotatePrompt) rotatePrompt.dispose();
     };
@@ -1043,7 +1087,8 @@
     return session;
   }
 
-  A.agMain = { boot: boot, clockNs: clockNs, capFor: capFor, CAP_START_MS: CAP_START_MS };
+  A.agMain = { boot: boot, clockNs: clockNs, capFor: capFor, CAP_START_MS: CAP_START_MS, SETTINGS_KEY: SETTINGS_KEY,
+    SETTING_FLAGS: SETTING_FLAGS };
   if (typeof module !== 'undefined' && module.exports) module.exports = A.agMain;
 
   // The shipped page boots itself once the document is parsed, keeping the drawing settings

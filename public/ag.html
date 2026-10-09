@@ -48,7 +48,14 @@
      window, but the view, zoom, HUD and menu are sized as if the reference page's 90 px ad strip were at the
      bottom (Owen 2026-10-08); the extra 90 px show more map. A phone held upright gets a "turn your phone sideways"
      card, then the reference layout turned on its side (portrait, Owen 2026-10-08, agPortrait.js). -->
-<script>window.DUEL_AGAR_CONFIG = { url: '/ag', ghostBannerPx: 90, portrait: true, handoff: true };</script>
+<!-- lobby: this page is the DuelSeries lobby's agar frame (its frame element is the lobby's #agar-frame, same origin
+     only; a cross-origin parent leaves frameElement null). It then has no menu card: the lobby's agar.io screen holds
+     the name, the buy-in, Spectate and the settings (Owen 2026-10-09 midday). A direct visit keeps the menu. -->
+<script>
+var agInLobbyFrame = false;
+try { agInLobbyFrame = !!window.frameElement && window.frameElement.id === 'agar-frame'; } catch (e) { agInLobbyFrame = false; }
+window.DUEL_AGAR_CONFIG = { url: '/ag', ghostBannerPx: 90, portrait: true, handoff: true, lobby: agInLobbyFrame };
+</script>
 <script src="/js/ag/agMain.js"></script>
 <!-- The lobby around the game (ours): a Lobby button inside the lobby's frame, and the lobby name in the name box. -->
 <script src="/js/ag/agLobby.js"></script>
