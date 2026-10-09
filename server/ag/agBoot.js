@@ -6,7 +6,8 @@
 //                box's .env, so the default is what the live server runs). Unset, empty, 1, true, on, yes: on.
 //                0, false, off, no: off (the explicit off switch). Anything else is not a switch value: it says so
 //                and fails CLOSED (off). The free room is the lobby's agar.io card; the paid rungs are behind AG_PAID
-//                below (off in Phase A), and their money flows only through the hooks the server passes in.
+//                below (on by default since 2026-10-09), and their money flows only through the hooks the server
+//                passes in.
 //   AG_DEV_LAWS  a file whose LAWS (or FIXTURE) table replaces the real one, to run the game locally on another
 //                table (the test FIXTURE). Refused, and the game then stays closed, wherever it could be the live
 //                server: NODE_ENV production, or an ESCROW_PRIVATE_KEY or DATABASE_URL set (the same refusals as
@@ -48,11 +49,14 @@ function loadAgLaws(env, log) {
   return { laws, dev: true };
 }
 
-// AG_PAID (PAID-AGAR-DESIGN.md 5.7, 10): the paid rungs ($0.10, $1.00). PHASE A: OFF unless set (the code default
-// flips only in Phase C, after the local proof and a money review). 1, true, on, yes: on. 0, false, off, no: off.
-// Anything else: off, and it says so (fails CLOSED). The paid rungs also need the money wiring (opts.money) and
-// AG_ENABLED; without either they stay off.
-const AG_PAID_DEFAULT = false;
+// AG_PAID (PAID-AGAR-DESIGN.md 5.7, 10): the paid rungs ($0.10, $1.00). ON BY DEFAULT since 2026-10-09 (Phase C,
+// Owen Q7: switched on once every test and the local money proof passed, the proof run through the real lobby and
+// /ag page; production env lives only in the box's .env, which no deploy touches, so the default is what the live
+// server runs, as fcadf0f did for Paper). Unset, empty, 1, true, on, yes: on. 0, false, off, no: off (the explicit
+// off switch, plus a restart). Anything else: off, and it says so (fails CLOSED). The instant off switch needs no
+// restart: the owner console's agar:paid:off (new joins refunded at the door, seated players finish). The paid rungs
+// also need the money wiring (opts.money) and AG_ENABLED; without either they stay off.
+const AG_PAID_DEFAULT = true;
 function agPaidSwitch(raw, log) {
   const v = String(raw == null ? '' : raw).trim().toLowerCase();
   if (v === '') return AG_PAID_DEFAULT;

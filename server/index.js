@@ -1665,8 +1665,9 @@ const paper = require('./paperSockets')({
    server/ag/agBoot.js (tested in test/agBoot.test.js). */
 /* ── Paid agar.io (PAID-AGAR-DESIGN.md, Owen's answers 2026-10-08) ───────────
    The paid rungs ($0.10, $1.00) exist only with AG_PAID on (server/ag/agBoot.js:
-   OFF unless set in Phase A; 1/true/on/yes on, 0/false/off/no off, anything else
-   off and logged, so a typo fails closed). Paper's machinery, reused: the stake
+   ON by default since 2026-10-09, unset/1/true/on/yes on, 0/false/off/no off,
+   anything else off and logged, so a typo fails closed; the instant off switch is
+   the owner console's agar:paid:off). Paper's machinery, reused: the stake
    hand-off, the one-time entry token at the paid door (server/ag/agPaidDoor.js),
    the durable stake row, an integer micro-USDC bank per room (server/ag/agBank.js),
    the 90/10 cash-out through the parameterized payout below, the owed-payout
@@ -2270,7 +2271,7 @@ function getRoomForType(lobbyType, region) {
 /* Paid agar.io. The old game's paid gate (AGAR_PAID, closed 2026-09-30) went with the old game:
    its cell:join and cell:respawn doors no longer exist. The new game's only paid door is
    server/ag/agPaidDoor.js on the /ag namespace (ag:join with an entryToken), consuming at the
-   'agar' door and seating only on the rungs AG_PAID built at boot (OFF in Phase A). A token that
+   'agar' door and seating only on the rungs AG_PAID built at boot (on by default). A token that
    reaches it while paid agar is off or closed is refunded at the door ('not-open'); a token
    nobody spends expires and the sweep refunds it through its stake row (entryExpiry.js). */
 

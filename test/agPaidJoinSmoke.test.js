@@ -1,7 +1,8 @@
 'use strict';
 /* Boots the real server and plays PAID agar.io on it with dev tokens (PAID-AGAR-DESIGN.md 5.7, checklist step 9).
    Every other paid-agar test drives the modules with fakes; only this one proves server/index.js wires them:
-   - AG_PAID unset, 0 and a typo keep the paid rungs off (fails closed) and /api/live lists no paid agar row;
+   - AG_PAID unset opens the paid rungs (on by default since 2026-10-09); 0 and a typo keep them off (fails closed)
+     and /api/live lists no paid agar row;
    - with AG_PAID=1 and PAPER_DEV_TOKENS=1 a dev agar token (devGame 'agar') buys a $0.10 seat through the paid door
      on /ag (auth.paid hand-off), the page readies, holds Q for 3 s and is paid 90/10 through the fake withdraw;
    - a Paper-scoped dev token does not open the agar door; a token is one-time;
@@ -110,8 +111,22 @@ const ownerProof = (action, args) => {
 const agPaidRows = (live) => live.lobbies.filter((l) => l.game === 'agar' && l.stake > 0);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-test('AG_PAID unset, 0 or a typo: the paid rungs stay off and /api/live lists no paid agar row', { timeout: 90000 }, async (t) => {
-  for (const [value, line] of [['', '[AG] paid rungs OFF'], ['0', '[AG] paid rungs OFF'], ['maybe', '[AG] paid rungs OFF']]) {
+/* Switch-on (2026-10-09, Phase C, the fcadf0f pattern): AG_PAID unset is ON, so production (whose env is only the box's
+   .env) runs the paid rungs; 0 is the explicit off switch and a typo still fails closed. */
+test('AG_PAID unset: the paid rungs are ON by default and /api/live lists Free, $0.10 and $1.00 open with no bots', { timeout: 60000 }, async (t) => {
+  const { srv, port, out } = await boot({ AG_PAID: undefined });
+  t.after(() => { try { srv.kill('SIGKILL'); } catch (_) {} });
+  const live = JSON.parse((await get(`http://localhost:${port}/api/live`)).body);
+  assert.deepStrictEqual(live.lobbies.filter((l) => l.game === 'agar').map((l) => [l.id, l.stake, l.state]),
+    [['ag:na:s0', 0, 'open'], ['ag:na:s0.1', 0.1, 'open'], ['ag:na:s1', 1, 'open']], 'every agar rung is listed open');
+  assert.ok(agPaidRows(live).every((l) => (l.players || 0) === 0 && (l.bots || 0) === 0), 'paid rows: nobody seated, never a bot');
+  assert.ok(out.stdout.includes('[AG] paid rungs on'), 'boot says [AG] paid rungs on');
+  assert.ok(!out.stderr.includes('is not a switch value'), 'no switch complaint for an unset value');
+  try { srv.kill('SIGKILL'); } catch (_) {}
+});
+
+test('AG_PAID 0 or a typo: the paid rungs stay off and /api/live lists no paid agar row', { timeout: 90000 }, async (t) => {
+  for (const [value, line] of [['0', '[AG] paid rungs OFF'], ['off', '[AG] paid rungs OFF'], ['maybe', '[AG] paid rungs OFF']]) {
     const { srv, port, out } = await boot({ AG_PAID: value });
     t.after(() => { try { srv.kill('SIGKILL'); } catch (_) {} });
     const live = JSON.parse((await get(`http://localhost:${port}/api/live`)).body);
