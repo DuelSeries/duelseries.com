@@ -3760,7 +3760,7 @@ function drawAcct(){
    free game still uses them. */
 function forgetIdentity(){
   try{['duel_admin_token','duel_id_token'].forEach(k=>localStorage.removeItem(k))}catch(_){}
-  try{['entryToken','entrySol','stake','walletAddress','googleId','playerName']
+  try{['entryToken','entrySol','stake','walletAddress','googleId','playerName','agResume']
         .forEach(k=>sessionStorage.removeItem(k))}catch(_){}
 }
 /* Privy's own logout() through the widget, the same path Sign in uses. The

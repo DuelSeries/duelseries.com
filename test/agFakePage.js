@@ -120,7 +120,8 @@ function fakeSocket() {
   };
 }
 
-// o: w, h, dpr, net (fake socket.io), pad (Split / Eject / Cash out buttons), cfg (extra boot config), parent
+// o: w, h, dpr, net (fake socket.io), pad (Split / Eject / Cash out buttons), cfg (extra boot config), parent,
+// location, matchMedia
 function bootPage(o) {
   o = o || {};
   const doc = makeDoc();
@@ -151,6 +152,7 @@ function bootPage(o) {
   const ioArgs = [];
   if (o.net) win.io = (...a) => { ioCalls++; ioArgs.push(a); return sock; };
   if (o.location) win.location = o.location;
+  if (o.matchMedia) win.matchMedia = o.matchMedia;
   globalThis.document = doc;
   const sound = LIB.agSound.createSound({ storage: null, createAudioContext: () => null });
   const cfg = Object.assign({ win, doc, canvas, sound, idlePass: false, net: !!o.net, engineNow: () => clock }, o.cfg || {});

@@ -397,7 +397,8 @@
       },
       q: function () { send('q'); },
       hold: function (on) { setHold(on); },
-      // Esc: the menu, except while a paid seat may hold money, where it shows how to leave (design 4 step 7)
+      // Esc: the menu, except on a paid hand-off page, which never shows it (design 6); while the seat plays Esc shows
+      // how to leave instead (design 4 step 7)
       menu: function () {
         if (flow && flow.holdsMenu()) { flow.escape(); return; }
         openMenu();
@@ -599,6 +600,15 @@
       if (screens) screens.hide();
       if (paidEnd) paidEnd.hide();
       setMenuState('PLAY');
+      // The payout link's cluster, asked once (Paper's pp:joined does the same; the page has no cfg.network).
+      if (!paid.network && !paid.networkAsked && typeof win.fetch === 'function') {
+        paid.networkAsked = true;
+        try {
+          win.fetch('/api/money-config').then(function (r) { return r.json(); }).then(function (c) {
+            if (c && typeof c.network === 'string' && c.network) paid.network = c.network;
+          }).catch(function () { /* mainnet links stay */ });
+        } catch (e) { /* mainnet links stay */ }
+      }
     }
     // The page's own events for the onServer hooks (agLobby): never the server's names, never fed to the flow.
     function pageEvent(name, payload) {
@@ -616,6 +626,12 @@
       try { framed = !!win.parent && win.parent !== win; } catch (e) { framed = true; }
       if (framed) {
         try { win.parent.postMessage('game:done', '*'); } catch (e) { /* the lobby is gone */ }
+        return;
+      }
+      // A paid hand-off opened on its own goes to the lobby page, as Paper's does (paperArenaMain.js onLobbyClick):
+      // never the free menu (design 6).
+      if (flow) {
+        try { win.location.href = '/'; } catch (e) { /* nowhere to go */ }
         return;
       }
       if (paidEnd) paidEnd.hide();
@@ -792,8 +808,9 @@
       if (hold.wanted && hold.server && L.own.length) {
         renderer.drawHoldRing(ctx, view(), mainOwnCell(L.own), holdProgress(now), settings);
       }
-      // A paid seat's own cell is on screen: ag:ready (agPaid, design 4 step 5: the cell is shielded until now).
-      if (flow) flow.onFrame(L.own.length);
+      // A paid seat's own cell is on screen: ag:ready (agPaid, design 4 step 5: the cell is shielded until now), but
+      // not while the phone's rotate card covers the game.
+      if (flow) flow.onFrame(L.own.length, !!(rotatePrompt && rotatePrompt.shown()));
 
       var ws = world.state();
       hudState.mode = ws.mode;
@@ -905,7 +922,12 @@
         origin: (win.location && win.location.origin) || '',
         phEvent: function (name, props) { if (typeof win.phEvent === 'function') win.phEvent(name, props); }
       });
-      if (typeof win.addEventListener === 'function') win.addEventListener('message', function (e) { flow.onMessage(e); });
+      if (typeof win.addEventListener === 'function') {
+        win.addEventListener('message', function (e) { flow.onMessage(e); });
+        // The resume key reaches sessionStorage only when the page goes (agPaid 4).
+        win.addEventListener('pagehide', function () { flow.onPageHide(); });
+        win.addEventListener('pageshow', function (e) { flow.onPageShow(e); });
+      }
       flow.start();
     }
 
@@ -915,7 +937,8 @@
     // on connect keeps them (CHOSEN, PARITY-LOG), the reset on disconnect still drops them.
     // A paid hand-off connects with auth { paid: 1 } (the server keeps it seatless, never a free watcher) and joins
     // through the paid door on every connect (agPaid).
-    if (cfg.net !== false && A.agNet && typeof win.io === 'function') {
+    // A hand-off that already ended at boot (a reload cut its token join off) needs no socket.
+    if (cfg.net !== false && A.agNet && typeof win.io === 'function' && !(flow && flow.offline())) {
       var connectNow = function () {
         if (net || destroyed) return;
         net = A.agNet.connect(win.io, applyMessage, {
@@ -934,7 +957,7 @@
             input.setInGame(false);
             sound.setInGame(false);
             // A paid page keeps its card (the reconnect wait, or the receipt) instead of the menu.
-            if (!flow || (!flow.holdsMenu() && !(paidEnd && paidEnd.shown()))) openMenu();
+            if (!flow) openMenu();
             if (flow) flow.onDisconnect();
             // Ours: the onServer hooks hear the drop too, as 'disconnect' (agLobby's exit trap: a paid seat this
             // socket held is the server's dropped seat now). No draw and no send.

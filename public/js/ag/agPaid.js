@@ -5,11 +5,13 @@
 //
 // 1. The hand-off. The lobby's wallet widget writes stake, entryToken and playerName to sessionStorage before it opens
 //    this page (wallet-widget/src/main.jsx launchStaked); they are read once at boot (Paper's readSession). A stake
-//    above 0 with a token is a paid seat to buy. The token is sent exactly once, in the first ag:join, and leaves
-//    sessionStorage for good at that moment; until the door answers (ag:joined or ag:refused) page memory keeps it,
-//    for the one case with no resume key yet: the link dropping before the answer, when the same token goes out once
-//    more on the next connection (the door gives back the seat that token bought, tells the refund it made, or seats
-//    it for the first time). Paper's rule, paperArenaMain.js joinToken.
+//    above 0 with a token is a paid seat to buy. The token leaves sessionStorage at boot, as Paper's start() takes it
+//    (page memory keeps it), and goes in the first ag:join. Until the door answers (ag:joined or ag:refused) page
+//    memory keeps it for the one case with no resume key yet: the link dropping before the answer, when the same token
+//    goes out again on every new connection until an answer comes (the door dedupes it by its proof: it gives back the
+//    seat that token bought, tells the refund it made, or seats it for the first time). Paper's rule,
+//    paperArenaMain.js joinToken. A token that never went out (no connection yet) is put back on pagehide, so a
+//    reload finds the hand-off as the lobby left it.
 // 2. The socket connects with auth { paid: 1 } (agNet passes ioOptions), so the server keeps it seatless instead of
 //    giving it a free watcher seat (server/ag/agSockets.js, agArenas.connectPaid), and the join goes to the paid door
 //    (server/ag/agPaidDoor.js) with { name, stake, entryToken }.
@@ -17,17 +19,26 @@
 //    and still until then (design 4 step 5), so a player whose page is not drawing yet (a hidden tab, a slow load)
 //    can never be eaten. No target, split, eject or hold goes out before it; the first target after it is fresh
 //    (agCamera's last-sent pair is reset), so the cell moves where the mouse is.
-// 4. The resume key. ag:joined carries the seat's resumeKey; the page keeps it in sessionStorage (design 4 step 4;
-//    Paper keeps its own in page memory only, so a reload here can also take the seat back: the dropped seat waits
+// 4. The resume key. ag:joined carries the seat's resumeKey; the page keeps it in page memory, as Paper does, and
+//    writes it to sessionStorage only on pagehide (a reload or a frame that navigates), taking it out again at the
+//    next boot (design 4 step 4, narrowed: a Duplicate tab or a session copy taken while the seat plays never holds
+//    it, and the resume is bearer-only on the server). So a reload can take the seat back too (the dropped seat waits
 //    5 s, then 3 minutes frozen and edible, Owen Q5). A reconnect or a reload sends ag:join { name, stake, resumeKey }
-//    (no token, nothing spent); the door gives the seat back, or answers with what became of it (the receipt of an
-//    automatic cash-out, the death, or the refusal). The key goes as soon as the seat ends.
+//    at the seat's own rung (no token, nothing spent); the door gives the seat back, or answers with what became of
+//    it (the receipt of an automatic cash-out, the death, or the refusal). The key goes as soon as the seat ends. A
+//    token join still unanswered at pagehide leaves only a mark, so the reloaded page says the join was cut off
+//    (Paper's refused screen in the same case) instead of opening the free page.
 // 5. Every door refusal and end state gets a plain message on the paid card and a clean way back to the lobby.
-// 6. Esc shows how to leave ("Hold Q to cash out") instead of the menu while money is in the room.
+// 6. Esc never opens the menu on a hand-off page (design 6: no menu, no Spectate); while the seat plays it shows how
+//    to leave ("Hold Q to cash out").
 // 7. Play again after a death or a cash-out buys a new seat through the lobby's wallet (duel:restake, answered by
 //    duel:restake:done with a fresh token, wallet-widget/src/restakeBridge.mjs); Back to lobby and the Lobby button
 //    are shut while that buy-in is with the wallet (Paper's lockLobby), so a token minted after the lobby cleared this
 //    frame can never land in a blank frame.
+//
+// 8. The exit lock (agLobby's 'paid:lock' hook) holds while any join is out (a token may already be money in a seat,
+//    a resume key is one), and while a dropped seat is reconnecting, until GIVE_UP_MS, when the card also offers
+//    Back to lobby; agLobby's own trap holds from ag:joined. So the Lobby chip and the card agree on when leaving opens.
 //
 // Tokens and resume keys never go into a URL, a log, analytics or the DOM: page memory and sessionStorage only, as
 // Paper does with its own. Nothing here decides money: every figure on the card is the server's.
@@ -35,7 +46,9 @@
   'use strict';
   var A = root.DuelAgarLib = root.DuelAgarLib || {};
 
-  var RESUME_KEY = 'agResume';      // sessionStorage: { k: the open seat's resume key, s: its rung }
+  // sessionStorage, written on pagehide only: { k: the open seat's resume key, s: its rung }, or { p: 1, s } for a
+  // token join that had no answer yet. Taken out again at boot.
+  var RESUME_KEY = 'agResume';
   var NAME_MAX = 15;                // the name box's own cap (agScreens LAYOUT.nickMax), as agLobby prefills it
   var FIELD_MAX = 64;               // the door's cap on a token or a key (agPaidDoor FIELD_MAX)
   var SLOW_RETRY_MS = 500;          // the door's slow-down answer asks for 500 ms (agPaidDoor retryMs)
@@ -65,14 +78,25 @@
     settled: ['Already refunded', 'This entry was already refunded.'],
     expired: ['Seat ended', 'That seat is no longer open.'],
     'join-lost': ['Connection dropped', 'The connection dropped while you were joining.'],
-    'join-timeout': ['Too slow to start', 'Your page did not answer in time.'],
-    'join-failed': ['Could not start you', 'Something went wrong while starting you.']
+    // A seat that never readied in time (agMoney release), or a seatless socket whose join was not seated within
+    // PAID_SEATLESS_MS (agArenas.connectPaid, for example a slow ledger claim): neither is the player's doing.
+    'join-timeout': ['Not started in time', 'Your game did not start in time.'],
+    'join-failed': ['Could not start you', 'Something went wrong while starting you.'],
+    // The connection cap (agSockets AG_CONN, per address: a shared campus network can reach it). Refused at connect,
+    // before the door ever sees the token.
+    limit: ['Too many connections', 'Too many games are open from your network right now.']
   };
   var TEXT = {
     refunded: 'Your entry was refunded to your wallet.',
     // An entry that never reached a seat is paid back by the server's expiry sweep (server/entryExpiry.js).
     unused: 'An entry that was never used goes back to your wallet automatically within a few minutes.',
-    restart: 'If the server restarted, your whole balance is refunded to your wallet, no house cut.',
+    // 'expired' covers a restart (refunded in full, Owen Q6), a seat that ended long ago, and a frozen seat with no
+    // cell (agMoney houseSettle 'zombie': booked for a manual look, agar_breach), so the line claims no more than that.
+    expired: 'If it still held money, that money goes back to your wallet (after a rare server fault, once it is ' +
+      'checked by hand).',
+    lostTitle: 'Connection dropped',
+    lost: 'The page reloaded while you were joining.',
+    lostLine: 'Your entry was not played, so it comes back to your wallet within a few minutes, no house cut.',
     joiningTitle: function (stake) { return 'Joining the ' + money(stake) + ' room'; },
     joining: 'Getting your seat ready',
     resumingTitle: 'Getting your seat back',
@@ -84,7 +108,10 @@
     replaced: 'This seat was taken over by a newer connection.',
     noAnswerTitle: 'No answer',
     noAnswer: 'The table did not answer.',
-    noAnswerSeat: 'Your seat, if you had one, waits 3 minutes. Reload this page to try again.',
+    // A new buy-in from the same wallet, at any rung, puts it back in a seat it still holds and refunds that entry
+    // (agPaidDoor step 10, reattach).
+    noAnswerSeat: 'Your seat, if you had one, waits 3 minutes. Join a paid agar.io table from the lobby to get back ' +
+      'into it; that new entry is refunded.',
     reattach: 'You already had a seat, so you are back in it. This new entry was refunded.',
     escKeys: 'Hold Q to cash out',
     escTouch: 'Hold Cash out to leave',
@@ -93,7 +120,9 @@
     againSlowLine: 'Your wallet has not answered yet. If you approved the stake, wait here: the round starts once it lands.',
     againFailed: 'Stake failed'
   };
-  var AUTO_REFUND = { restarting: true, entry: true, unavailable: true };
+  // Refusals whose entry comes back with no refund on the answer itself: the expiry sweep pays back a token never
+  // consumed, and a join cut off mid-claim is refunded 'join-lost' once the claim lands (agPaidDoor step 9).
+  var AUTO_REFUND = { restarting: true, entry: true, unavailable: true, 'join-timeout': true, limit: true };
 
   function money(stake) {
     var n = Number(stake);
@@ -111,20 +140,26 @@
   }
   function fieldOk(v) { return typeof v === 'string' && v.length > 0 && v.length <= FIELD_MAX; }
 
-  // The open seat's resume key and rung, or null.
+  // What the last unload left (pagehide): { key, stake } for an open seat, { lost: true, stake } for a token join that
+  // had no answer yet, or null.
   function readResume(store) {
     var raw = storageGet(store, RESUME_KEY);
     if (!raw) return null;
     var v = null;
     try { v = JSON.parse(raw); } catch (e) { v = null; }
-    if (!v || typeof v !== 'object' || !fieldOk(v.k)) return null;
+    if (!v || typeof v !== 'object') return null;
     var s = Number(v.s);
-    return { key: v.k, stake: isFinite(s) && s > 0 ? s : 0 };
+    var stake = isFinite(s) && s > 0 ? s : 0;
+    if (fieldOk(v.k)) return { key: v.k, stake: stake, lost: false };
+    if (v.p === 1 && stake > 0) return { key: null, stake: stake, lost: true };
+    return null;
   }
 
   // The lobby's hand-off, read once (Paper's readSession: the same sessionStorage keys the wallet writes). paid: a
-  // stake above 0 with an entry token to spend, or with the resume key of a seat at that same rung (a reload). A stake
-  // with neither (a hand-off already spent, or the Free rung's stake 0) is the free page.
+  // stake above 0 with an entry token to spend; or, with no token, what this page left at its last unload: an open
+  // seat's resume key (the reload resumes it at the seat's own rung, which a reattach can make differ from the stake
+  // the lobby wrote), or the mark of a token join cut off by the reload. A stake with none of these (a hand-off already
+  // spent, or the Free rung's stake 0) is the free page.
   function readHandoff(store, local) {
     var stakeN = Number(storageGet(store, 'stake'));
     var stake = isFinite(stakeN) && stakeN > 0 ? stakeN : 0;
@@ -132,9 +167,12 @@
     token = fieldOk(token) ? token : null;
     var name = String(storageGet(store, 'playerName') || storageGet(local, 'duelseries_playername') || '').trim()
       .slice(0, NAME_MAX);
-    var r = readResume(store);
-    var resumeKey = r && stake > 0 && Math.abs(r.stake - stake) < 1e-9 ? r.key : null;
-    return { paid: stake > 0 && !!(token || resumeKey), stake: stake, entryToken: token, resumeKey: resumeKey, name: name };
+    var r = !token && stake > 0 ? readResume(store) : null;
+    var resumeKey = r && r.key ? r.key : null;
+    var lost = !!(r && r.lost);
+    if (r && r.stake > 0) stake = r.stake;
+    return { paid: stake > 0 && !!(token || resumeKey || lost), stake: stake, entryToken: token, resumeKey: resumeKey,
+      lost: lost, name: name };
   }
 
   // A fresh id for one restake request, echoed back by the lobby's wallet with its answer (Paper's newNonce).
@@ -188,6 +226,7 @@
       name: h.name || '',
       token: h.entryToken || null,   // the hand-off's token, until the first join takes it
       resumeKey: h.entryToken ? null : (h.resumeKey || null),
+      lost: !h.entryToken && !h.resumeKey && h.lost === true,   // the last unload cut a token join off
       joinToken: null,        // a token join still waiting for its answer (page memory only)
       joinKey: null,          // a resume join still waiting for its answer
       conns: 0,               // connections made
@@ -208,14 +247,31 @@
     function card() { return o.card(); }
     function lock(on) { try { o.lock(!!on); } catch (e) { /* the lobby script is optional */ } }
 
-    function saveResume() {
-      if (st.resumeKey) storageSet(o.store, RESUME_KEY, JSON.stringify({ k: st.resumeKey, s: st.stake }));
-    }
+    // The key lives in page memory; sessionStorage holds it only between a pagehide and the next boot (see 4 above).
     function clearResume() {
       st.resumeKey = null;
       storageDel(o.store, RESUME_KEY);
     }
     function pending() { return !!(st.joinToken || st.joinKey); }
+
+    // ---- unload (agMain: pagehide and pageshow) ----
+    // pagehide: what a reload needs, nothing more. A token that never went out goes back where the lobby put it; an
+    // open seat's key (also while it reconnects or its resume join is out) is written with its rung; a token join with
+    // no answer yet leaves only a mark (its token stays in page memory and dies with it).
+    function onPageHide() {
+      if (st.token) { storageSet(o.store, 'entryToken', st.token); return; }
+      if (st.resumeKey && st.phase !== 'end') {
+        storageSet(o.store, RESUME_KEY, JSON.stringify({ k: st.resumeKey, s: st.stake }));
+        return;
+      }
+      if (st.joinToken) storageSet(o.store, RESUME_KEY, JSON.stringify({ p: 1, s: st.stake }));
+    }
+    // pageshow from the back/forward cache: this page is alive again with its memory, so the copies go.
+    function onPageShow(e) {
+      if (!e || e.persisted !== true) return;
+      if (st.token) storageDel(o.store, 'entryToken');
+      storageDel(o.store, RESUME_KEY);
+    }
 
     // ---- joining ----
     function showJoining() {
@@ -228,7 +284,9 @@
       st.joinToken = extra.entryToken || null;
       st.joinKey = st.joinToken ? null : (extra.resumeKey || null);
       st.phase = 'joining';
-      lock(!!st.joinToken);   // a token in flight may already be money: no walking out until it is answered
+      // A token in flight may already be money and a resume key is a seat with money in it: no walking out until the
+      // door answers (or JOIN_ANSWER_MS / GIVE_UP_MS give the way back).
+      lock(true);
       showJoining();
       emitJoin();
     }
@@ -244,7 +302,6 @@
         var t = st.token;
         st.token = null;
         sendJoin({ entryToken: t });
-        storageDel(o.store, 'entryToken');   // Paper: the token leaves sessionStorage with its one join
         return;
       }
       if (st.resumeKey) {
@@ -290,7 +347,7 @@
       var text = t ? t[1] : (typeof p.text === 'string' && p.text ? p.text : 'The table did not let you in.');
       var extra = '';
       if (p.refunded === true) extra = TEXT.refunded;
-      else if (why === 'expired') extra = TEXT.restart;
+      else if (why === 'expired') extra = TEXT.expired;
       else if (AUTO_REFUND[why]) extra = TEXT.unused;
       return { title: title, text: text, extra: extra };
     }
@@ -301,8 +358,8 @@
       cancel('giveUp');
       if (pending()) {
         // The link dropped between a join and its answer, so no resume key came: the same token (or key) goes out
-        // once more on this connection (see 1 in the header). Each answer clears it, so it is re-sent only while none
-        // has come.
+        // again on this connection, as on every new one until an answer comes (see 1 in the header; the door dedupes
+        // a token by its proof). Each answer clears it.
         showJoining();
         emitJoin();
         return;
@@ -316,9 +373,14 @@
       if (st.seated) {
         st.seated = false;
         st.phase = 'reconnecting';
+        // The seat still holds money: the page stays shut until the card offers the way back (agLobby's own trap lets
+        // go DROP_MS after a drop, so without this the Lobby chip would come back long before the card's button).
+        lock(true);
         card().showWait(TEXT.reconnectTitle, TEXT.resuming);
         later('giveUp', function () {
-          if (st.phase === 'reconnecting') card().showWait(TEXT.reconnectTitle, TEXT.reconnect, { lobby: true });
+          if (st.phase !== 'reconnecting') return;
+          lock(false);
+          card().showWait(TEXT.reconnectTitle, TEXT.reconnect, { lobby: true });
         }, GIVE_UP_MS);
         return;
       }
@@ -346,10 +408,7 @@
           st.spawned = false;
           st.readySent = false;
           st.needReady = p.confirmed !== true;
-          if (fieldOk(p.resumeKey)) {
-            st.resumeKey = p.resumeKey;
-            saveResume();
-          }
+          if (fieldOk(p.resumeKey)) st.resumeKey = p.resumeKey;   // page memory (see 4 above)
           lock(false);   // the seat is open: agLobby's own exit trap holds the page from here (ag:joined with a stake)
           o.enterPlay(p);
           if (p.resumed !== true && typeof o.phEvent === 'function') {
@@ -409,8 +468,11 @@
     function onSpawn() {
       if (st.phase === 'seated') st.spawned = true;
     }
-    function onFrame(ownCount) {
-      if (st.phase !== 'seated' || !st.spawned || !(ownCount > 0)) return;
+    // covered: the phone's "turn your phone sideways" card is over the game (agPortrait, up to PROMPT_MS 3 s, and it
+    // eats taps), so the player cannot act yet: the cell stays shielded and still until it goes (the door's
+    // JOIN_CONFIRM_MS 5 s still covers it, the card shows once per tab and never for longer).
+    function onFrame(ownCount, covered) {
+      if (st.phase !== 'seated' || !st.spawned || !(ownCount > 0) || covered === true) return;
       if (st.needReady && !st.readySent) {
         if (!o.send('ready')) return;   // the link is down: the resume brings a new ag:joined
         st.readySent = true;
@@ -457,13 +519,14 @@
       if (message) c.setError(message);
     }
     // The lobby's answer to duel:restake: only the parent frame, only this origin, only the request this page made
-    // (the nonce); the fresh token goes straight into ag:join and is never stored.
+    // (the nonce, always echoed by the lobby's bridge, wallet-widget/src/restakeBridge.mjs answer(); an answer without
+    // it is not ours); the fresh token goes straight into ag:join and is never stored.
     function onMessage(e) {
       var d = e && e.data;
       if (!d || typeof d !== 'object' || !st.restaking) return;
       if (e.source !== o.parent) return;
-      if (o.origin && e.origin && e.origin !== o.origin) return;
-      if (d.nonce !== undefined && d.nonce !== st.nonce) return;
+      if (!o.origin || e.origin !== o.origin) return;
+      if (typeof d.nonce !== 'string' || d.nonce !== st.nonce) return;
       if (d.type === 'duel:restake:done' && fieldOk(d.entryToken)) {
         st.restaking = false;
         cancel('restake');
@@ -475,8 +538,9 @@
       }
     }
 
-    // ---- Esc (agMain: in the paid context Esc never opens the menu while money may be in the room) ----
-    function holdsMenu() { return st.phase !== 'end'; }
+    // ---- Esc (agMain: a hand-off page never opens the menu, design 6; not even on an end card, whose way out is Back
+    // to lobby or Play again, as on Paper's end screens) ----
+    function holdsMenu() { return true; }
     function escape() {
       if (!o.chip) return;
       if (st.phase === 'live' || st.phase === 'seated') {
@@ -484,11 +548,19 @@
       }
     }
 
-    // Boot: the joining card at once (no menu, no Spectate), the exit lock while the hand-off's token is unspent, and
-    // the way back after GIVE_UP_MS if the server never answers the connection (the unspent token is refunded by the
-    // expiry sweep; a connection that comes later still joins).
+    // Boot: the token and any key leave sessionStorage (page memory keeps them; Paper's start() takes the token the
+    // same way), then the joining card at once (no menu, no Spectate), the exit lock while the hand-off's token is
+    // unspent or its seat is to be taken back, and the way back after GIVE_UP_MS if the server never answers the
+    // connection (the unspent token is refunded by the expiry sweep; a connection that comes later still joins). A
+    // reload that cut a token join off ends at once with that message and needs no socket (offline()).
     function start() {
-      lock(!!st.token);
+      storageDel(o.store, 'entryToken');
+      storageDel(o.store, RESUME_KEY);
+      if (st.lost) {
+        end('refused', TEXT.lostTitle, TEXT.lost, TEXT.lostLine);
+        return;
+      }
+      lock(!!(st.token || st.resumeKey));
       if (st.token) card().showWait(TEXT.joiningTitle(st.stake), TEXT.joining);
       else card().showWait(TEXT.resumingTitle, TEXT.resuming);
       later('giveUp', function () {
@@ -506,6 +578,9 @@
       onSpawn: onSpawn,
       onFrame: onFrame,
       onMessage: onMessage,
+      onPageHide: onPageHide,
+      onPageShow: onPageShow,
+      offline: function () { return st.phase === 'end'; },
       restake: restake,
       escape: escape,
       holdsMenu: holdsMenu,
@@ -525,6 +600,7 @@
     RESUME_KEY: RESUME_KEY,
     REFUSED: REFUSED,
     TEXT: TEXT,
+    AUTO_REFUND: AUTO_REFUND,
     JOIN_ANSWER_MS: JOIN_ANSWER_MS,
     GIVE_UP_MS: GIVE_UP_MS,
     RESTAKE_WAIT_MS: RESTAKE_WAIT_MS,
