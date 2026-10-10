@@ -2454,8 +2454,11 @@ function defaultStep(){
       if(openAt(free))return free;
     }
   }
-  const paid=STEPS.findIndex(v=>v>0&&!STEPS_OFF.has(v));
-  if(paid>=0)return paid;
+  /* A first visit opens on Free (Owen, 2026-10-10): the wallet signs without
+     a pop-up, so a pre-selected paid rung would charge a player who only
+     pressed Play. A paid rung is always picked on purpose. */
+  const free=STEPS.indexOf(0);
+  if(openAt(free))return free;
   const any=STEPS.findIndex(v=>!STEPS_OFF.has(v));
   return any>=0?any:0;
 }

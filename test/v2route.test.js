@@ -500,10 +500,10 @@ test('a remembered rung the ladder no longer has lands on Free, never on $0.50',
   // A live rung is still remembered, Free included.
   assert.equal(stepsHarness({ last: 1 }).pick('snake').stake, 1);
   assert.equal(stepsHarness({ last: 0 }).pick('snake').stake, 0);
-  // A first visit is unchanged: the lowest open paid rung (an open question for Owen).
-  assert.equal(stepsHarness({}).pick('snake').stake, 0.5);
-  // A live rung that is closed right now still falls to the lowest open one, as before.
-  assert.equal(stepsHarness({ last: 1, open: [0, 0.5] }).pick('snake').stake, 0.5);
+  // A first visit opens on Free (Owen, 2026-10-10): a paid rung is always picked on purpose.
+  assert.equal(stepsHarness({}).pick('snake').stake, 0);
+  // So does a remembered rung that is closed right now: never a paid rung the player did not pick.
+  assert.equal(stepsHarness({ last: 1, open: [0, 0.5] }).pick('snake').stake, 0);
   // If the ladder file did not load, the lobby offers Free and forgets nothing.
   const noFile = stepsHarness({ last: 1, ladder: false });
   assert.equal(noFile.pick('snake').stake, 0);
