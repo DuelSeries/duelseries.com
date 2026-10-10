@@ -1242,12 +1242,17 @@ test('the live dot beats only when somebody is really in there', () => {
   // A real blink, not the old fade to 72% that read as a steady light.
   const kf = html.match(/@keyframes lpulse\{[\s\S]*?\n\}/)[0];
   assert.ok(/opacity:\.3\d?\}/.test(kf), 'the dot dims well down at the middle of the beat');
-  /* A light that beats forever is exactly what "less motion" asks to be rid
-     of. There used to be a Motion switch in Settings stopping it as well; that
-     is gone, and the machine's own setting is the one that remains — which is
-     the one that belongs to the person rather than to this page. */
-  assert.ok(/prefers-reduced-motion:reduce\)\{\.lcount\.on \.ldot,\.gpc\.on \.ldot\{animation:none\}/.test(html),
-    'the system setting stops both');
+  /* Pulse for everyone (Owen, 2026-10-10): the system's reduce-motion setting
+     no longer stills these two dots. The blanket reduce rule would cut every
+     animation to one 0.01ms beat, so the dots re-state theirs inside a reduce
+     block, and nothing stops them there any more. There used to be a Motion
+     switch in Settings too; that is gone as well. */
+  assert.ok(!/\.lcount\.on \.ldot,\.gpc\.on \.ldot\{animation:none\}/.test(html),
+    'the system setting no longer stops either dot');
+  assert.ok(/@media\(prefers-reduced-motion:reduce\)\{\s*\.lcount\.on \.ldot,\.gpc\.on \.ldot\{animation-duration:1\.6s!important;animation-iteration-count:infinite!important\}/.test(html),
+    'under reduce motion both dots keep the full beat, past the blanket rule');
+  assert.ok(/\*,\*::before,\*::after\{animation-duration:\.01ms!important;animation-iteration-count:1!important/.test(html),
+    'and the blanket rule still stills everything else');
   assert.ok(!/nomotion/.test(html), 'and nothing is left of the switch');
 });
 
@@ -1965,4 +1970,32 @@ test('a locked game is padlocked like an unreleased one, and nothing on the lobb
   h.win.V2Board.join('omgshooter:free');
   assert.strictEqual(h.el('game-frame').src, '', 'no game page was opened');
   assert.deepStrictEqual(plain(h.plays), [], 'and nothing reached the widget');
+});
+
+/* Owen, 2026-10-10: the locked games keep their "In development" screen but
+   move off to the side, so the games that are open show first. Worked out at
+   load from the soon flag, so unlocking a game puts it back by itself. */
+test('every playable game is listed before any locked or unreleased one', () => {
+  const LOCK = require(path.join(ROOT, 'shared/lockedGames.js'));
+  const html = v2();
+  const a = html.indexOf('const GAMES=[');
+  const s = html.indexOf('GAMES.splice(0,GAMES.length,', a);
+  assert.ok(s > html.indexOf('delete g[k];', a), 'the order is worked out after the lock has set soon');
+  const b = html.indexOf(';', s);
+  const run = lock => new Function('window', 'DS_LOCKED',
+    html.slice(a, b + 1) + '\nreturn GAMES.map(g=>g.id);')({ DS_LOCKED: lock }, lock);
+
+  assert.deepStrictEqual(run(LOCK), [
+    'snake', 'agar', 'knockout', 'battleship', 'paper',
+    'omgshooter', 'tanks', 'rooftop', 'headsoccer', 'swim', 'maze', 'stumble',
+  ], 'playable in their own order, then locked and unreleased in theirs');
+
+  // Unlocked, both go straight back to their own place among the playable ones.
+  const none = { LOCKED_GAMES: [], isLocked: () => false };
+  assert.deepStrictEqual(run(none).slice(0, 7),
+    ['snake', 'agar', 'omgshooter', 'tanks', 'knockout', 'battleship', 'paper']);
+
+  // The rail and the full grid both draw from that order.
+  assert.ok(/order=GAMES\.slice\(\)/.test(html) && html.indexOf('order=GAMES.slice()') > s, 'the rail copies it after the sort');
+  assert.ok(/getElementById\('ggrid'\)\.innerHTML=GAMES\.map\(cardHTML\)/.test(html), 'the grid draws GAMES');
 });

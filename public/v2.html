@@ -469,9 +469,15 @@ body.ingame .tkrun{animation-play-state:paused}
   0%,100%{box-shadow:0 0 0 0 rgba(142,208,129,.6);opacity:1}
   50%    {box-shadow:0 0 0 4px rgba(142,208,129,0);opacity:.35}
 }
-/* Stopped by the system setting: a steady lit dot. A light that beats forever
-   is exactly what somebody who asked for less movement asked to be rid of. */
-@media(prefers-reduced-motion:reduce){.lcount.on .ldot,.gpc.on .ldot{animation:none}}
+/* Beating for everyone, the system setting included (Owen, 2026-10-10: "Pulse
+   for everyone"; his own Windows has animation effects off, and a still dot read
+   as nothing). The blanket reduce rule further up would otherwise cut it to one
+   0.01ms beat, so the beat is re-stated here, as the ticker does. Only these
+   two dots: every other reduce rule on the page stands. An empty room still has
+   no .on, so it still gets no beat, and the card's dot stays hidden at 0. */
+@media(prefers-reduced-motion:reduce){
+  .lcount.on .ldot,.gpc.on .ldot{animation-duration:1.6s!important;animation-iteration-count:infinite!important}
+}
 /* Read aloud, never drawn. */
 .vh{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
   clip:rect(0 0 0 0);white-space:nowrap;border:0}
@@ -2369,6 +2375,15 @@ const GAMES=[
   g.soon=1; g.locked=1;
   for(const k of ['built','duel','solo','freeOnly','paid','ladder'])delete g[k];
 });
+/* Playable games first (Owen, 2026-10-10: "shift them off to the side so that
+   the games that are actually open show up first"). Worked out here, at load
+   and after the lock above, from the soon flag alone, so nobody reorders the
+   list by hand: the playable games keep their order from the list above, the
+   locked and unreleased ones keep theirs behind them, and a game taken out of
+   shared/lockedGames.js goes straight back to its own place among the
+   playable ones. The rail and the full games grid both draw GAMES in this
+   order. */
+GAMES.splice(0,GAMES.length,...GAMES.filter(g=>!g.soon),...GAMES.filter(g=>g.soon));
 /* The lobby list is real now: V2Board polls /api/live. The hand-written rows
    that used to be here claimed player counts the server never had. */
 /* Buy-ins the board is actually offering, not a wishlist. The hardcoded
