@@ -210,3 +210,36 @@ test('maintenance refuses a paid quote and a submit before the broadcast; free s
   const ok = await call(port, 'POST', '/api/submit-stake', { stake: 0.5, signedTx: tx('after-maint'), walletAddress: PAYER });
   assert.strictEqual(ok.status, 200, 'and stakes open again once it is off: ' + ok.text);
 });
+
+/* Review finding (BACKLOG 2.1): under MONEY_MODE=sol, the documented rollback, verifyStake reports
+   SOL, and tierFor matched about 0.003 SOL against the $0.50 rung, found none, and answered 400 AFTER
+   the broadcast and before the stake row was written: money in escrow with no record. The ladder is
+   priced in dollars, so outside USDC mode its paid quote and submit are refused before anything is
+   broadcast. The mode is read per request, so flipping the live backend's field is the switch. */
+test('outside USDC mode a paid ladder quote and submit are refused before any broadcast; free still quotes', async () => {
+  const money = require(path.join(ROOT, 'server', 'money.js'));
+  const mode = money.mode;
+  money.mode = 'sol';
+  try {
+    const before = broadcasts;
+    for (const q of ['/api/stake-quote?stake=0.5', '/api/stake-quote?stake=1']) {
+      const r = await call(port, 'GET', q);
+      assert.strictEqual(r.status, 503, q + ' ' + r.text);
+      assert.ok(!r.json.units && !r.json.lamports && !r.json.escrowAta && !r.json.escrowAddress, 'no transfer target: ' + q);
+      assert.strictEqual(r.json.error, 'Paid buy-ins are not available right now. Free play still works.');
+    }
+    assert.strictEqual((await call(port, 'GET', '/api/stake-quote?stake=0')).status, 200, 'free still answers');
+    landed = 0.003;
+    for (const stake of [0.5, 1]) {
+      const r = await call(port, 'POST', '/api/submit-stake', { stake, signedTx: tx('sol-' + stake), walletAddress: PAYER });
+      assert.strictEqual(r.status, 503, stake + ' ' + r.text);
+      assert.ok(!r.json.entryToken, 'no token');
+    }
+    assert.strictEqual(broadcasts, before, 'nothing was broadcast, so nothing landed unrecorded');
+  } finally {
+    money.mode = mode;
+  }
+  landed = 0.5;
+  const ok = await call(port, 'POST', '/api/submit-stake', { stake: 0.5, signedTx: tx('back-to-usdc'), walletAddress: PAYER });
+  assert.strictEqual(ok.status, 200, 'and USDC mode stakes as before: ' + ok.text);
+});

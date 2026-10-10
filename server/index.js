@@ -664,6 +664,13 @@ function stakePaused() {
   const m = ops.get();
   return { error: 'Paid games are paused for maintenance. ' + (m.message || 'Back shortly.'), maintenance: true };
 }
+/* The ladder is priced in dollars, so it is staked in USDC only. Under MONEY_MODE=sol (the
+   documented rollback) verifyStake reports what landed in SOL, tierFor compared about 0.003 SOL
+   against the $0.50 rung, found none, and answered 400 AFTER the broadcast and before the stake
+   row was written: the money sat in escrow with no record and no refund. So every paid ladder
+   quote and submit is refused in any other mode, before a wallet prompt or a broadcast. */
+const LADDER_NEEDS_USDC = 'Paid buy-ins are not available right now. Free play still works.';
+const ladderPriced = () => money.mode === 'usdc';
 
 // ── Self-custody staking (Phase 1) ───────────────────────────────────────────
 // Quote how much SOL to stake for a paid lobby and where (the escrow), plus a fresh
@@ -680,6 +687,7 @@ app.get('/api/stake-quote', entryFeeLimiter, async (req, res) => {
     const stake = rungOf(Number(req.query.stake));
     if (stake === null) return res.status(400).json({ error: 'Not an amount' });
     if (stake === 0) return res.json({ stake: 0, escrowAddress: null, lamports: 0, feeSol: 0 });
+    if (!ladderPriced()) return res.status(503).json({ error: LADDER_NEEDS_USDC });
     if (ops.get().maintenance) return res.status(503).json(stakePaused());
     try {
       return res.json({ stake, ...(await money.stakeQuoteFor(stake)) });
@@ -759,6 +767,8 @@ app.post('/api/submit-stake', entryFeeLimiter, express.json({ limit: '256kb' }),
       return res.json({ ok: true, entryToken, worth: rung, stake: rung, paid: rung, dev: true });
     }
     if (!signedTx) return res.status(400).json({ error: 'Missing signed transaction' });
+    // USDC only, refused before the broadcast (ladderPriced). Dev tokens above touch no chain.
+    if (!ladderPriced()) return res.status(503).json({ error: LADDER_NEEDS_USDC });
     try {
       const sig = await Wallet.submitStake(Buffer.from(signedTx, 'base64'));
       const { payer, worth } = await money.verifyStake(sig, money.amountFor(want));

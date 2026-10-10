@@ -9,6 +9,11 @@ This runbook is the live mainnet cutover. It's fully reversible (one env flip).
   USDC token account (ATA) + USDC funding. Same wallet holds SOL (for gas) AND USDC (the float).
 - **USDC mint (mainnet):** `EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v` (Circle USDC).
 - **Lobby fees become USD:** dime = $0.10 USDC, dollar = $1.00 USDC.
+- **2026-10-10, BACKLOG 2.1:** the buy-ins are now the ladder Free / $0.50 / $1.00 in every game
+  (`shared/stakeLadder.js`). The dime tier and the $0.10 rung are retired: a quote or stake for either is
+  refused before any wallet prompt or broadcast. The $0.10 figures in this runbook are the record of the
+  cutover, not today's prices. The ladder is priced in USDC only: with `MONEY_MODE=sol` every paid ladder
+  stake is refused before the broadcast, so a SOL rollback leaves free play only.
 - The escrow needs SOL on the side: ~0.002 SOL per *first-time* winner (to create their USDC
   account on payout) + tx fees. Keep a few tenths of a SOL there.
 
@@ -31,13 +36,17 @@ This runbook is the live mainnet cutover. It's fully reversible (one env flip).
 5. **Verify:**
    - `curl https://duelseries.com/api/money-config` → `{"mode":"usdc","unit":"USDC", ...}`
    - `/api/admin/solvency` (owner) → escrow USDC balance shows your float.
-   - **Smoke test:** from a wallet holding a little USDC, stake a $0.10 lobby, play, cash out —
-     confirm the USDC moves and the payout lands.
+   - **Smoke test:** from a wallet holding a little USDC, stake a $0.50 lobby, play, cash out —
+     confirm the USDC moves and the payout lands (it was $0.10 at the cutover; that rung is retired).
 
 ## Rollback (instant)
 Set `MONEY_MODE=sol` (or remove the line) in both `.env`s + `pm2 restart`. The SOL escrow still
 holds its SOL; nothing about the SOL path changed. The USDC float just sits in the escrow ATA
 until you flip back.
+Since BACKLOG 2.1 (2026-10-10) a SOL rollback also closes every paid ladder buy-in ($0.50 and
+$1.00 in every game): the quote and the submit refuse them before any wallet prompt or broadcast,
+because the ladder is priced in dollars and a SOL payment cannot be matched to a rung. Free play
+and the old `dollar` tier still work.
 
 ## After cutover
 - Build the **"Add Funds" on-ramp modal** (Privy funding / MoonPay) so players can buy USDC with
