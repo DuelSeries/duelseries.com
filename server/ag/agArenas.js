@@ -2,7 +2,7 @@
 // The agar.io room directory for this region (build brief 9.1, 9.3): one free rung, a player cap per room (law
 // L39), overflow rooms, the sweep of empty overflow rooms, and the lobby rows (boardRows, liveCount) in the shape
 // paperArenas gives them (every rung's row is in /api/live lobbies, where the lobby's agar.io card reads its Free,
-// $0.10 and $1.00). The free rung holds no money; the paid rungs (only while AG_PAID is on) are described below.
+// $0.50 and $1.00). The free rung holds no money; the paid rungs (only while AG_PAID is on) are described below.
 //
 // Watchers and players: a socket that connects is seated at once as a watcher in the room a Play would land in
 // (its page must be sent world updates before it can ask to play), without opening an overflow room for someone
@@ -16,7 +16,7 @@
 //
 // The directory refuses to open on a law table assertShippable rejects, like the rooms it makes.
 //
-// PAID rungs (PAID-AGAR-DESIGN.md 5.3): $0.10 and $1.00 from server/stakeRules.js, built only when AG_PAID was on at
+// PAID rungs (PAID-AGAR-DESIGN.md 5.3): $0.50 and $1.00 from server/stakeRules.js, built only when AG_PAID was on at
 // boot (`paid`), each with its own rooms (MAX_ROOMS per rung, no bots, no watchers), plus Paper's reconnect maps
 // (resume key, entry-token proof), remembered outcomes, the release cooldown and one open paid seat per wallet
 // (walletSeat, Owen Q8: agar only). `paidOpen` is the runtime door switch (owner console agar:paid:off/on): closed,

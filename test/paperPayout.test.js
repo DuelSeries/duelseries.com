@@ -40,7 +40,7 @@ function quiet(t, calls) {
 let n = 0;
 function order(extra) {
   n++;
-  return Object.assign({ cashoutId: 'uuid-' + n, grossMicro: 100000, wallet: 'WALLET' + n, name: 'amy', label: 'dime', socketId: 'S' + n }, extra);
+  return Object.assign({ cashoutId: 'uuid-' + n, grossMicro: 100000, wallet: 'WALLET' + n, name: 'amy', label: 'paper_na_s0_5', socketId: 'S' + n }, extra);
 }
 
 test('the file never reads a socket property and has no forced path', () => {
@@ -62,8 +62,8 @@ test('90/10 in integers: 100000 -> 90000 + 10000, 300000 -> 270000 + 30000', asy
   assert.deepStrictEqual(calls.sweepRake.map(s => Math.round(s[0] * 1e6)), [10000, 30000, 9999]);
   assert.strictEqual(calls.trackEarning[0].source, 'game_rake');
   assert.strictEqual(calls.trackEarning[0].game, 'paper');
-  assert.strictEqual(calls.trackEarning[0].lobbyType, 'dime');
-  assert.strictEqual(calls.sweepRake[0][1], 'paper dime');
+  assert.strictEqual(calls.trackEarning[0].lobbyType, 'paper_na_s0_5');
+  assert.strictEqual(calls.sweepRake[0][1], 'paper paper_na_s0_5');
   const shown = calls.emits.filter(e => e[1] === 'pp:cashedout').map(e => e[2]);
   assert.deepStrictEqual(shown[0], { grossMicro: 100000, cutMicro: 10000, netMicro: 90000, cashoutId: shown[0].cashoutId });
   assert.strictEqual(calls.emits.filter(e => e[1] === 'pp:paid').length, 3);
@@ -113,8 +113,8 @@ test('two orders from same-label rooms each pay; the same order dispatched twice
   const { deps, calls } = fakes();
   quiet(t, calls);
   const pay = create(deps);
-  const a = order({ label: 'dime' });
-  const b = order({ label: 'dime' });
+  const a = order({ label: 'paper_na_s0_5' });
+  const b = order({ label: 'paper_na_s0_5' });
   await pay.payCashout(a);
   await pay.payCashout(b);
   assert.strictEqual(calls.withdraw.length, 2);
@@ -190,13 +190,13 @@ test('sweepFloor records paper_floor on the rake path, never earnings; a duplica
   const { deps, calls } = fakes();
   quiet(t, calls);
   const pay = create(deps);
-  const s = { sweepId: 'sw-1', micro: 250000, srcWallet: 'WS', srcName: 'sam', label: 'dime', pid: 7 };
+  const s = { sweepId: 'sw-1', micro: 250000, srcWallet: 'WS', srcName: 'sam', label: 'paper_na_s0_5', pid: 7 };
   assert.strictEqual(pay.sweepFloor(s), true);
-  assert.deepStrictEqual(calls.trackEarning, [{ source: 'paper_floor', game: 'paper', amountUsdc: 0.25, wallet: 'WS', name: 'sam', lobbyType: 'dime', region: 'na' }]);
-  assert.deepStrictEqual(calls.sweepRake, [[0.25, 'paper floor dime']]);
+  assert.deepStrictEqual(calls.trackEarning, [{ source: 'paper_floor', game: 'paper', amountUsdc: 0.25, wallet: 'WS', name: 'sam', lobbyType: 'paper_na_s0_5', region: 'na' }]);
+  assert.deepStrictEqual(calls.sweepRake, [[0.25, 'paper floor paper_na_s0_5']]);
   assert.strictEqual(calls.recordEarnings.length, 0);
   assert.strictEqual(calls.withdraw.length, 0, 'the sweep itself is the rake path, no player payout');
-  assert.ok(calls.log.some(l => l[1] === '[PAPER] SWEEP dime 7 250000 WS'));
+  assert.ok(calls.log.some(l => l[1] === '[PAPER] SWEEP paper_na_s0_5 7 250000 WS'));
   assert.strictEqual(pay.sweepFloor(s), false);
   assert.strictEqual(calls.trackEarning.length, 1);
   assert.strictEqual(calls.sweepRake.length, 1);

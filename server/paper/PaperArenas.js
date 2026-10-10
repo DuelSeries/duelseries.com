@@ -5,7 +5,9 @@
 const { PaperRoom } = require('./PaperRoom');
 const { MP } = require('./ArenaGame');
 
-const RUNGS = [0, 0.1, 1];
+// The ladder (free, $0.50, $1.00) from the one list every game reads (shared/stakeLadder.js via
+// stakeRules). Paper used to keep its own copy, which would have refused every $0.50 join as full.
+const RUNGS = require('../stakeRules').ALL_STAKES.slice();
 // What became of a paid join whose answer may never have reached the player (its link dropped
 // before pp:joined, or its refusal was lost): kept this long, at most this many, so a page that
 // asks again with its entry token or resumeKey hears the real outcome. Longer than an entry
@@ -25,7 +27,7 @@ function keyOf(stake) {
 }
 
 // The ladder's own number for a stake, or null. Arenas are built only from RUNGS, never from
-// a number a message carried (review finding: 0.10499 became the $0.10 arena's stake).
+// a number a message carried (review finding: 0.10499 became the then $0.10 arena's stake).
 function rungOf(stake) {
   const n = Number(stake);
   const r = RUNGS.find((x) => Math.abs(x - n) <= 1e-9);

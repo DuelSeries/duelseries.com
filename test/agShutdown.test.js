@@ -26,16 +26,16 @@ function arenasWithAccounts() {
   const arenas = new AgArenas({ laws: FIXTURE, shippableOnly: false, autoTick: false, seed: 5, log: quietLog(),
     paid: true, now: () => clock.t,
     moneyHooks: { onCashout: noop, onRefund: noop, onTransfer: noop, onFeed: noop, onBreach: noop, onStake: noop, onHouse: noop } });
-  const room = arenas.seatFor(0.1);
+  const room = arenas.seatFor(0.5);
   const seat = (name, micro) => {
     const s = sock(name);
     const acct = room.addPaidHuman(s, { name, micro, wallet: 'W-' + name, paid: micro / 1e6 });
     arenas._paidSeated(s, room);
     return { s, acct };
   };
-  const live = seat('live', 100000);
-  const away = seat('away', 100000);
-  const frozen = seat('frozen', 100000);
+  const live = seat('live', 500000);
+  const away = seat('away', 500000);
+  const frozen = seat('frozen', 500000);
   room.tickOnce();
   room.ready(live.s.id);
   room.ready(away.s.id);
@@ -45,7 +45,7 @@ function arenasWithAccounts() {
   clock.t += AG_MONEY.DISCONNECT_GRACE_MS.value;
   room.sim.clearCells(frozen.acct.pid);
   room.tickOnce();
-  const unconf = seat('unconf', 100000);   // opened after the clock moved, so its 5 s ready window is still open
+  const unconf = seat('unconf', 500000);   // opened after the clock moved, so its 5 s ready window is still open
   room.tickOnce();
   assert.strictEqual(away.acct.state, 'dormant');
   assert.strictEqual(frozen.acct.state, 'frozen');
@@ -64,7 +64,7 @@ test('one refund row per open account (live, unconfirmed, dormant, frozen), 100%
   assert.strictEqual(got.length, 4);
   assert.deepStrictEqual(rows.map((r) => r.wallet).sort(), ['W-away', 'W-frozen', 'W-live', 'W-unconf']);
   for (const r of rows) {
-    assert.strictEqual(r.micro, 100000, 'the whole balance');
+    assert.strictEqual(r.micro, 500000, 'the whole balance');
     assert.match(r.key, /^agowed:[0-9a-f-]{36}$/, 'a unique key per row (db.recordOwedOnce)');
     assert.strictEqual(r.reason, 'refund agar shutdown ' + w.room.lobbyType + ' ' + r.key);
     assert.ok(r.reason.startsWith('refund'), 'never booked as winnings');
@@ -74,7 +74,7 @@ test('one refund row per open account (live, unconfirmed, dormant, frozen), 100%
   assert.strictEqual(w.room.money.openCount(), 0, 'no account is both withdrawn and open');
   assert.strictEqual(w.room.money.bank.totalMicro(), 0);
   assert.strictEqual(new Set(rows.map((r) => r.key)).size, 4, 'keys never repeat');
-  assert.strictEqual(w.room.money.bank.ledger.outMicro, 400000);
+  assert.strictEqual(w.room.money.bank.ledger.outMicro, 2000000);
   assert.strictEqual(w.arenas.paidOpen, false, 'the door is closed');
   assert.strictEqual(w.room.stopped, true);
 });
@@ -128,7 +128,7 @@ test('a hard crash logs every open balance as a CRASH-OWED line before Node exit
   proc.emit('uncaughtExceptionMonitor', new Error('boom'));
   const owed = lg.lines.filter((l) => l.startsWith('[AG] CRASH-OWED'));
   assert.strictEqual(owed.length, 4);
-  assert.ok(owed.every((l) => / 100000 micro refund agar crash /.test(l)), owed.join(String.fromCharCode(10)));
+  assert.ok(owed.every((l) => / 500000 micro refund agar crash /.test(l)), owed.join(String.fromCharCode(10)));
   assert.strictEqual(w.room.money.openCount(), 0);
   // with an uncaughtException handler (the process would live on) nothing is touched
   const w2 = arenasWithAccounts();

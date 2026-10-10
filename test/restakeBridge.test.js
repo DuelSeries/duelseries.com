@@ -45,7 +45,7 @@ function stakeDouble() {
         s.submit = (token) => {
           if (!hooks.stillWanted()) { s.cancelled++; return reject(Object.assign(new Error('c'), { cancelled: true })); }
           s.submitted++;
-          s.land = () => resolve({ entryToken: token, worth: 0.1, stake: 0.1 });
+          s.land = () => resolve({ entryToken: token, worth: 0.5, stake: 0.5 });
           s.fail = (m) => reject(new Error(m));
         };
       };
@@ -71,7 +71,7 @@ async function kit() {
   const ask = (extra) => bridge.onMessage(Object.assign({
     origin: ORIGIN,
     source: f.contentWindow,
-    data: { type: 'duel:restake', game: 'paper', stake: 0.1, nonce: 'n-1' }
+    data: { type: 'duel:restake', game: 'paper', stake: 0.5, nonce: 'n-1' }
   }, extra || {}));
   const flush = () => new Promise((r) => setImmediate(r));
   return { bridge, cancelledError, f, st, relaunched, logs, ask, flush, setRelaunch: (v) => { relaunchOk = v; } };
@@ -81,7 +81,7 @@ test('the token goes back only to the document that asked, on this origin, with 
   const k = await kit();
   const done = k.ask();
   assert.strictEqual(k.st.calls, 1);
-  assert.deepStrictEqual(k.st.req.sel, { stake: 0.1 });
+  assert.deepStrictEqual(k.st.req.sel, { stake: 0.5 });
   k.st.sign();
   k.st.submit('TOKEN');
   k.st.land();
@@ -125,7 +125,7 @@ test('the frame is cleared after the money moved: the paid round opens instead o
   k.st.land();
   await done;
   assert.deepStrictEqual(k.f.contentWindow.posted, [], 'nothing posted into the blank frame');
-  assert.deepStrictEqual(k.relaunched, [['paper', { stake: 0.1 }, 'PAID']], 'the round it paid for opens');
+  assert.deepStrictEqual(k.relaunched, [['paper', { stake: 0.5 }, 'PAID']], 'the round it paid for opens');
 });
 
 test('another page loaded into the frame meanwhile gets nothing; a busy frame is reported, not overwritten', async () => {
@@ -145,7 +145,7 @@ test('another page loaded into the frame meanwhile gets nothing; a busy frame is
 test('a stake failure is told to the page that asked, while it is there; one request at a time', async () => {
   const k = await kit();
   const first = k.ask();
-  const second = k.ask({ data: { type: 'duel:restake', game: 'paper', stake: 0.1, nonce: 'n-2' } });
+  const second = k.ask({ data: { type: 'duel:restake', game: 'paper', stake: 0.5, nonce: 'n-2' } });
   await second;
   assert.deepStrictEqual(k.f.contentWindow.posted, [[{ type: 'duel:restake:error', message: 'A stake is already in progress.', nonce: 'n-2' }, ORIGIN]]);
   assert.strictEqual(k.st.calls, 1);
@@ -155,8 +155,8 @@ test('a stake failure is told to the page that asked, while it is there; one req
   await first;
   assert.deepStrictEqual(k.f.contentWindow.posted[1], [{ type: 'duel:restake:error', message: 'Insufficient funds', nonce: 'n-1' }, ORIGIN]);
   // Free again for the next one; a page with no nonce (the snake game) is answered without one.
-  const third = k.ask({ data: { type: 'duel:restake', game: 'snake', lobbyType: 'dime' } });
-  assert.deepStrictEqual(k.st.req.sel, { lobbyType: 'dime' });
+  const third = k.ask({ data: { type: 'duel:restake', game: 'snake', lobbyType: 'dollar' } });
+  assert.deepStrictEqual(k.st.req.sel, { lobbyType: 'dollar' });
   k.st.sign();
   k.st.submit('T3');
   k.st.land();
@@ -224,12 +224,12 @@ test('an agar.io Play again is staked and answered only in the agar frame', asyn
     log: () => {}
   });
   // Named agar, sent from the snake/Paper frame: not the agar frame's document, nothing staked.
-  await bridge.onMessage({ origin: ORIGIN, source: game.contentWindow, data: { type: 'duel:restake', game: 'agar', stake: 0.1, nonce: 'x' } });
+  await bridge.onMessage({ origin: ORIGIN, source: game.contentWindow, data: { type: 'duel:restake', game: 'agar', stake: 0.5, nonce: 'x' } });
   assert.strictEqual(st.calls, 0, 'only the agar frame can ask for an agar round');
   // From the agar frame: staked by its rung, answered there with its nonce.
-  const done = bridge.onMessage({ origin: ORIGIN, source: agar.contentWindow, data: { type: 'duel:restake', game: 'agar', stake: 0.1, nonce: 'a-1' } });
+  const done = bridge.onMessage({ origin: ORIGIN, source: agar.contentWindow, data: { type: 'duel:restake', game: 'agar', stake: 0.5, nonce: 'a-1' } });
   assert.strictEqual(st.calls, 1);
-  assert.deepStrictEqual([st.req.game, st.req.sel], ['agar', { stake: 0.1 }]);
+  assert.deepStrictEqual([st.req.game, st.req.sel], ['agar', { stake: 0.5 }]);
   st.sign();
   st.submit('AGTOKEN');
   st.land();

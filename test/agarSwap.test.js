@@ -78,7 +78,7 @@ function call(port, method, url, body) {
 
 const PAYER = 'AgarSwapPayer111111111111111111111111111';
 let port, ledgerDb;
-let landed = 0.1;
+let landed = 0.5;
 let broadcasts = 0;
 const tx = (s) => Buffer.from(s).toString('base64');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -155,7 +155,8 @@ async function agarLive() {
 const owedFor = (sig) => ledgerDb.payouts.filter((p) => p.stake_sig === sig);
 
 test('a paid token sent to the old agar doors gets no answer and is never touched; it still opens the snake room of that price', async () => {
-  for (const [type, amount] of [['dime', 0.1], ['dollar', 1]]) {
+  // The dollar tier only: the dime (0.10) was retired with its rung (BACKLOG 2.1) and cannot be bought.
+  for (const [type, amount] of [['dollar', 1]]) {
     const { token, sig } = await tierToken(type, amount);
     const a = await connect();
     a.s.emit('cell:join', { name: 'paid', lobbyType: type, entryToken: token, region: 'na', googleId: PAYER });
@@ -179,7 +180,8 @@ test('a paid token sent to the old agar doors gets no answer and is never touche
 test('/api/submit-stake refuses an agar room name before anything is broadcast or claimed', async () => {
   const sent = broadcasts;
   const rows = ledgerDb.stakes.size;
-  for (const lobbyType of ['agar_dime', 'agar_na_dollar', 'agar', 'ag_na_s0']) {
+  // 'dime' too: the old ten cent tier was retired (BACKLOG 2.1), so it names no paid lobby either.
+  for (const lobbyType of ['agar_dime', 'agar_na_dollar', 'agar', 'ag_na_s0', 'dime']) {
     const r = await call(port, 'POST', '/api/submit-stake', { lobbyType, signedTx: tx('agar-' + lobbyType), walletAddress: PAYER });
     assert.strictEqual(r.status, 400, lobbyType + ': ' + r.text);
     assert.match(r.json.error, /Not a paid lobby/);
@@ -268,8 +270,8 @@ test('the old agar.io game is gone from the tree; what other games share stays',
 });
 
 test('the widget stakes agar.io by rung only: launch and Play again refuse a tier name before any quote', () => {
-  /* agar.io's rooms are rungs (Free, $0.10, $1.00; PAID-AGAR-DESIGN.md 7), so the widget no longer
-     refuses a paid agar buy-in; it refuses only a tier name (dime, dollar), which names no agar room
+  /* agar.io's rooms are rungs (Free, $0.50, $1.00; PAID-AGAR-DESIGN.md 7), so the widget no longer
+     refuses a paid agar buy-in; it refuses only a tier name (dollar), which names no agar room
      and would buy a stake no agar door can seat. Both the lobby's launch and the in-game Play again
      (duel:restake through the bridge) run that check before stakeOnly, so nothing is quoted. */
   const src = read('wallet-widget/src/main.jsx');

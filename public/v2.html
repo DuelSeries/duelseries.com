@@ -2251,6 +2251,7 @@ body.scr-anim { overflow-x:hidden }
 
 <script src="/shared/constants.js"></script>
 <script src="/shared/lockedGames.js"></script>
+<script src="/shared/stakeLadder.js"></script>
 <script src="/js/HexGrid.js"></script>
 <script src="/js/Camera.js"></script>
 <script src="/js/SnakeGL.js"></script>
@@ -2302,7 +2303,7 @@ const GAMES=[
   d:'Grow by eating, cut other players off, and cash out before somebody cuts you off.'},
  /* The agar.io redo (server/ag, page /ag), in the lobby since 2026-10-07; the
     old agar.io game is deleted. Its rooms are rungs of the same ladder as
-    slither.io and Paper.io (Free, $0.10, $1.00; PAID-AGAR-DESIGN.md 7), so it
+    slither.io and Paper.io (Free, $0.50, $1.00; PAID-AGAR-DESIGN.md 7), so it
     is ladder:1 and every rung goes through the wallet widget into agar-frame.
     A paid rung is offered only while /api/live lists it open (AG_PAID on and
     the owner's off switch not thrown); otherwise it is drawn struck through.
@@ -2330,7 +2331,7 @@ const GAMES=[
   d:'Hide your fleet, then find theirs before they find yours.'},
 
  /* Built, and an arena on the server now: the rooms are rungs of the same
-    ladder as slither.io (Free, $0.10, $1.00), so it is ladder:1 and every rung
+    ladder as slither.io (Free, $0.50, $1.00), so it is ladder:1 and every rung
     goes through the wallet widget to /paper-arena. It is not paid:1 or duel:1,
     because it is dropped into rather than matched into. nolook:1 hides the
     snake skin row. It had a line of rules under Play; Owen asked for it gone
@@ -2391,9 +2392,12 @@ GAMES.splice(0,GAMES.length,...GAMES.filter(g=>!g.soon),...GAMES.filter(g=>g.soo
    then wonder why nothing happened. Recomputed from /api/live, so it widens on
    its own once lobbies can be opened at any amount. */
 let STEPS=[0];
-/* The buy-ins the product offers. Fixed, and the same for both games, because
-   it is what the product charges rather than what happens to be running. */
-const LADDER=[0,0.10,1];
+/* The buy-ins the product offers. Fixed, and the same for every game, because
+   it is what the product charges rather than what happens to be running. Read
+   from shared/stakeLadder.js, the one list the server reads too (Free, $0.50,
+   $1.00, BACKLOG 2.1). Free alone if that file failed to load: never a rung the
+   server has not priced. */
+const LADDER=((window.DS_LADDER&&window.DS_LADDER.LADDER)||[0]).slice();
 let STEPS_OFF=new Set();
 function refreshSteps(gameId){
   /* Every rung is drawn, and the ones this game cannot seat are struck through.
@@ -3605,15 +3609,17 @@ function goBack(){showScreen(_cameFrom);jumpToTop()}
    A ladder of set amounts rather than a box you type into.
 
    Both players put in the same, which is what makes an open-ended stake fair,
-   and set rungs make that agreement possible: two people can meet at 5 without
+   and set rungs make that agreement possible: two people can meet at $1 without
    either of them naming a number the other has to accept. It also means there
-   is no such thing as a typo here — no 500 where 5.00 was meant, which on a
+   is no such thing as a typo here, no 100 where 1.00 was meant, which on a
    real-money control is the mistake worth designing out.
 
    Free is a rung, because a duel you can try for nothing is how anybody finds
    out whether they like the game. */
-const DUEL_LADDER=[0,0.25,0.5,1,2,5,10,20];
-let duelStep=3;                       // opens at $1
+/* The same ladder as every other game (shared/stakeLadder.js, BACKLOG 2.1): the
+   coming duels offer what the product charges, not a ladder of their own. */
+const DUEL_LADDER=LADDER.slice();
+let duelStep=Math.max(0,DUEL_LADDER.indexOf(1));   // opens at $1
 function duelAmount(){ return DUEL_LADDER[duelStep]; }
 function stepDuel(dir){
   const next=duelStep+dir;
@@ -3629,7 +3635,7 @@ function drawDuelBet(){
   box.classList.toggle('free',amt===0);
   val.textContent=amt===0?'Free':amt.toFixed(2);
   /* Disabled at the ends rather than wrapping around. A stepper that jumps from
-     $20 back to free is one mis-tap from staking nothing when you meant twenty. */
+     $1 back to free is one mis-tap from staking nothing when you meant a dollar. */
   const down=document.getElementById('dbdown'), up=document.getElementById('dbup');
   if(down)down.disabled=duelStep===0;
   if(up)up.disabled=duelStep===DUEL_LADDER.length-1;

@@ -33,12 +33,12 @@ function seatIn(d, stake, preferred) {
 test('the 17th human opens an overflow arena', () => {
   const { d } = directory();
   const seats = [];
-  for (let i = 0; i < 16; i++) seats.push(seatIn(d, 0.1));
+  for (let i = 0; i < 16; i++) seats.push(seatIn(d, 0.5));
   assert.ok(seats.every(x => x && x.room.index === 0));
-  const next = seatIn(d, 0.1);
+  const next = seatIn(d, 0.5);
   assert.strictEqual(next.room.index, 1);
-  assert.strictEqual(next.room.lobbyType, 'paper_na_s0_1#1');
-  assert.strictEqual(d.all().filter(r => r.stake === 0.1).length, 2);
+  assert.strictEqual(next.room.lobbyType, 'paper_na_s0_5#1');
+  assert.strictEqual(d.all().filter(r => r.stake === 0.5).length, 2);
 });
 
 test('a room with no spawn spot is skipped; overflow with floor money is not swept and is picked first', () => {
@@ -63,8 +63,8 @@ test('a room with no spawn spot is skipped; overflow with floor money is not swe
 
 test('an empty overflow arena is swept, re-created at its index, and pays its first cash-out', () => {
   const { d, clock, calls } = directory();
-  for (let i = 0; i < 16; i++) seatIn(d, 0.1);
-  const over = seatIn(d, 0.1);
+  for (let i = 0; i < 16; i++) seatIn(d, 0.5);
+  const over = seatIn(d, 0.5);
   const old = over.room;
   const orderIds = new Set();
   // Cash it out, leave it empty, sweep it.
@@ -76,7 +76,7 @@ test('an empty overflow arena is swept, re-created at its index, and pays its fi
   assert.ok(old.stopped);
   assert.ok(!d.all().includes(old));
   // A respawn that prefers the swept arena lands in a live one.
-  const r = seatIn(d, 0.1, old);
+  const r = seatIn(d, 0.5, old);
   assert.ok(r && r.room !== old && !r.room.stopped);
   assert.strictEqual(r.room.index, 1, 'the index is reused');
   r.room.completeCashout(r.seat.unit);
@@ -86,16 +86,16 @@ test('an empty overflow arena is swept, re-created at its index, and pays its fi
 
 test('a stopped preferred room is skipped', () => {
   const { d } = directory();
-  const a = seatIn(d, 0.1);
+  const a = seatIn(d, 0.5);
   a.room.stop();
-  const b = seatIn(d, 0.1, a.room);
+  const b = seatIn(d, 0.5, a.room);
   assert.ok(b && b.room !== a.room);
 });
 
 test('seatByKey finds a seat in grace and forgets it once freed', () => {
   const { d } = directory();
-  const a = seatIn(d, 0.1);
-  seatIn(d, 0.1);
+  const a = seatIn(d, 0.5);
+  seatIn(d, 0.5);
   assert.ok(d.seatOfSocket(a.s.id) === a.seat);
   a.room.beginGrace(a.seat);
   assert.ok(d.seatByKey(a.seat.resumeKey) === a.seat);
@@ -110,8 +110,8 @@ test('seatByKey finds a seat in grace and forgets it once freed', () => {
 
 test('the 60 s sweep runs the hour sweep on a frozen room', () => {
   const { d, clock } = directory();
-  const a = seatIn(d, 0.1);
-  const b = seatIn(d, 0.1);
+  const a = seatIn(d, 0.5);
+  const b = seatIn(d, 0.5);
   a.room.game.kill(a.seat.unit, undefined, REASON.SELF_CROSS);
   b.room.removeHuman(b.seat.unit.id, REASON.LEAVE);
   assert.strictEqual(a.room.timer, null);
@@ -129,7 +129,7 @@ test('rows: free always, the paid rungs only with PAPER_PAID', () => {
   const { d } = directory({ paidEnabled: true });
   seatIn(d, 1);
   const on = d.boardRows();
-  assert.deepStrictEqual(on.map(r => r.stake), [0, 0.1, 1]);
+  assert.deepStrictEqual(on.map(r => r.stake), [0, 0.5, 1]);
   assert.strictEqual(on[2].players, 1);
   assert.strictEqual(on[2].bots, 0);
 });
@@ -139,7 +139,7 @@ test('humanTotal: every seated human on every rung, never a bot (the lobby card 
   assert.strictEqual(d.humanTotal(), 0);
   seatIn(d, 0);
   seatIn(d, 0);
-  seatIn(d, 0.1);
+  seatIn(d, 0.5);
   const last = seatIn(d, 1);
   assert.strictEqual(d.humanTotal(), 4);
   const free = d.all().find(r => r.stake === 0);

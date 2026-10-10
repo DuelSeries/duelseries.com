@@ -104,18 +104,18 @@ test('a no-token join at an off-rung stake is refused bad-stake and creates or r
   assert.deepStrictEqual(w.arenas.all().map(r => r.stake), before.map(b => b[0]));
 });
 
-test('honest $0.10 and $1 players after an off-rung probe get the exact rung, and Play again and a new link work', async () => {
+test('honest $0.50 and $1 players after an off-rung probe get the exact rung, and Play again and a new link work', async () => {
   const w = world();
   sock(w).fire('pp:join', { name: 'probe', stake: 0.10499 });
   sock(w).fire('pp:join', { name: 'probe', stake: 1.00499 });
-  for (const rung of [0.1, 1]) {
+  for (const rung of [0.5, 1]) {
     const a = sock(w);
     a.fire('pp:join', { name: 'hon', stake: rung, entryToken: w.mint(rung, rung, 'WH' + rung) });
     const j = a.last('pp:joined');
     assert.ok(j, 'seated at ' + rung);
     assert.strictEqual(j.stake, rung, 'pp:joined says the rung itself');
     const room = w.arenas.all().find(r => r.stake === rung && r.liveHumans > 0);
-    assert.strictEqual(room.lobbyType, 'paper_na_' + (rung === 1 ? 's1' : 's0_1'));
+    assert.strictEqual(room.lobbyType, 'paper_na_' + (rung === 1 ? 's1' : 's0_5'));
     steer(a);
     // Reconnect by resumeKey: the socket's stake is the rung, so a respawn token for it is taken.
     w.paper.drop(a.id);
@@ -148,7 +148,7 @@ test('a real token at a shut paid table is refunded what landed, once, and a re-
   assert.strictEqual(b.last('pp:refused').refunded, true);
   // No token at all: nothing to refund, nothing claimed.
   const c = sock(w);
-  c.fire('pp:join', { name: 'x', stake: 0.1 });
+  c.fire('pp:join', { name: 'x', stake: 0.5 });
   assert.deepStrictEqual([c.last('pp:refused').why, c.last('pp:refused').refunded], ['not-open', false]);
   await settle();
   assert.strictEqual(w.spy.withdraws.length, 1, 'refunded exactly once');
@@ -159,30 +159,30 @@ test('a real token at a shut paid table is refunded what landed, once, and a re-
 test('an emergency close refunds an unconfirmed paid seat in full (bounded by what landed) and says so', async () => {
   const w = world();
   const a = sock(w);
-  const tok = w.mint(0.1, 0.099, 'WANN');
-  a.fire('pp:join', { name: 'ann', stake: 0.1, entryToken: tok });
+  const tok = w.mint(0.5, 0.495, 'WANN');
+  a.fire('pp:join', { name: 'ann', stake: 0.5, entryToken: tok });
   const key = a.last('pp:joined').resumeKey;
   const b = sock(w);
-  b.fire('pp:join', { name: 'bob', stake: 0.1, entryToken: w.mint(0.1, 0.1, 'WBOB') });
+  b.fire('pp:join', { name: 'bob', stake: 0.5, entryToken: w.mint(0.5, 0.5, 'WBOB') });
   steer(b); // bob played: his seat is cashed out at 90/10 as design 5.9 says
-  const room = w.arenas.all().find(r => r.stake === 0.1 && r.liveHumans === 2);
+  const room = w.arenas.all().find(r => r.stake === 0.5 && r.liveHumans === 2);
   room.game.update = () => { throw new Error('boom'); };
   for (let i = 0; i < MP.EMERGENCY_FAIL_TICKS; i++) { w.clock.advance(MP.STEP_MS); room.tickOnce(); }
   assert.ok(room.closed && room.stopped);
-  assert.deepStrictEqual(w.spy.refunds.map(r => [r.wallet, r.micro, r.paid, r.why]), [['WANN', 100000, 0.099, 'emergency']]);
-  assert.deepStrictEqual(w.spy.cashouts.map(o => [o.wallet, o.grossMicro]), [['WBOB', 100000]], 'only the seat that played pays the cut');
-  assert.deepStrictEqual(w.spy.rake, [10000]);
+  assert.deepStrictEqual(w.spy.refunds.map(r => [r.wallet, r.micro, r.paid, r.why]), [['WANN', 500000, 0.495, 'emergency']]);
+  assert.deepStrictEqual(w.spy.cashouts.map(o => [o.wallet, o.grossMicro]), [['WBOB', 500000]], 'only the seat that played pays the cut');
+  assert.deepStrictEqual(w.spy.rake, [50000]);
   await settle();
-  assert.deepStrictEqual(w.spy.withdraws.sort(), [['WANN', 99000], ['WBOB', 90000]]);
+  assert.deepStrictEqual(w.spy.withdraws.sort(), [['WANN', 495000], ['WBOB', 450000]]);
   assert.ok(conserved(room));
   assert.ok(w.emits.some(e => e[0] === a.id && e[1] === 'pp:refused' && e[2].why === 'emergency' && e[2].refunded === true), 'the open socket is told');
   // The re-sent token and the resumeKey hear the truth: refunded, not "dropped where you stood".
   const c = sock(w);
-  c.fire('pp:join', { name: 'ann', stake: 0.1, entryToken: tok });
+  c.fire('pp:join', { name: 'ann', stake: 0.5, entryToken: tok });
   assert.deepStrictEqual([c.last('pp:refused').why, c.last('pp:refused').refunded], ['emergency', true]);
   assert.match(c.last('pp:refused').text, /refunded/);
   const d = sock(w);
-  d.fire('pp:join', { name: 'ann', stake: 0.1, resumeKey: key });
+  d.fire('pp:join', { name: 'ann', stake: 0.5, resumeKey: key });
   assert.deepStrictEqual([d.last('pp:refused').why, d.last('pp:refused').refunded], ['emergency', true]);
   assert.strictEqual(w.spy.refunds.length, 1, 'refunded once');
 });
@@ -192,21 +192,21 @@ test('an emergency close refunds an unconfirmed paid seat in full (bounded by wh
 test('a reconnect after the hold finished on a dead link is told it cashed out, with the real amounts', () => {
   const w = world();
   const a = sock(w);
-  a.fire('pp:join', { name: 'wal', stake: 0.1, entryToken: w.mint(0.1, 0.1, 'WAL1') });
+  a.fire('pp:join', { name: 'wal', stake: 0.5, entryToken: w.mint(0.5, 0.5, 'WAL1') });
   const key = a.last('pp:joined').resumeKey;
-  const room = w.arenas.all().find(r => r.stake === 0.1 && r.liveHumans > 0);
+  const room = w.arenas.all().find(r => r.stake === 0.5 && r.liveHumans > 0);
   let seq = 0;
   // Q held; the link dies in the last 500 ms but the inputs are still fresh, so the hold ends.
   for (let i = 0; i < MP.HOLD_TICKS - 25; i++) { steer(a, ++seq & 255, true); w.clock.advance(MP.STEP_MS); room.tickOnce(); }
   w.tick(room, 40);
-  assert.deepStrictEqual(w.spy.cashouts.map(o => [o.wallet, o.grossMicro]), [['WAL1', 100000]]);
+  assert.deepStrictEqual(w.spy.cashouts.map(o => [o.wallet, o.grossMicro]), [['WAL1', 500000]]);
   w.paper.drop(a.id);
   const b = sock(w);
-  b.fire('pp:join', { name: 'wal', stake: 0.1, resumeKey: key });
+  b.fire('pp:join', { name: 'wal', stake: 0.5, resumeKey: key });
   assert.strictEqual(b.last('pp:refused'), null, 'not told "expired"');
   const c = b.last('pp:cashedout');
   assert.ok(c, 'told it cashed out');
-  assert.deepStrictEqual([c.grossMicro, c.cutMicro, c.netMicro], [100000, 10000, 90000]);
+  assert.deepStrictEqual([c.grossMicro, c.cutMicro, c.netMicro], [500000, 50000, 450000]);
   assert.strictEqual(c.cashoutId, w.spy.cashouts[0].cashoutId);
   assert.strictEqual(w.spy.cashouts.length, 1, 'telling it pays nothing again');
 });
@@ -288,7 +288,7 @@ test('a server-caused refund (emergency close) or a kill before the first input 
   const w = world();
   for (let i = 0; i < RELEASE_MAX + 1; i++) {
     const s = sock(w);
-    s.fire('pp:join', { name: 'k', stake: 0.1, entryToken: w.mint(0.1, 0.1, 'WK') });
+    s.fire('pp:join', { name: 'k', stake: 0.5, entryToken: w.mint(0.5, 0.5, 'WK') });
     assert.ok(s.last('pp:joined'), 'seated after ' + i + ' kills');
     const seat = seatOf(w, 'WK');
     seat.room.game.kill(seat.unit, undefined, REASON.WALL);
@@ -312,7 +312,7 @@ test('the buy-in row is written once when a paid seat is first steered, never fo
   a.fire('pp:join', { name: 'lost', stake: 1, entryToken: w.mint(1, 1, 'WLOST') });
   w.paper.drop(a.id); // join-lost
   const b = sock(w);
-  b.fire('pp:join', { name: 'slow', stake: 0.1, entryToken: w.mint(0.1, 0.1, 'WSLOW') });
+  b.fire('pp:join', { name: 'slow', stake: 0.5, entryToken: w.mint(0.5, 0.5, 'WSLOW') });
   const room = w.arenas.all().find(r => r.seatOfSocket(b.id));
   w.tick(room, Math.ceil(MP.JOIN_CONFIRM_MS / MP.STEP_MS) + 2); // join-timeout
   assert.strictEqual(w.spy.refunds.length, 2);

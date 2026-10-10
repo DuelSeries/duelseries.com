@@ -247,15 +247,16 @@
     }
     const hasStake = sel && sel.stake !== undefined && sel.stake !== null;
     const hasTier = sel && !!sel.lobbyType;
-    /* Never dispatch without naming the room. The widget defaults a missing
-       lobbyType to 'dime', so an unnamed launch silently charges ten cents for
-       a room the player did not choose. Refuse instead: a room we cannot name
-       is a room we must not stake into. */
+    /* Never dispatch without naming the room. The widget used to default a
+       missing lobbyType to the old ten cent tier, so an unnamed launch charged
+       for a room the player did not choose (the widget refuses one now too,
+       BACKLOG 2.1). Refuse here first: a room we cannot name is a room we must
+       not stake into. */
     if (!hasStake && !hasTier) {
       say('That lobby is not available right now. Refresh and try again.');
       return;
     }
-    /* agar.io has no tier rooms: its rooms are rungs (Free, $0.10, $1.00,
+    /* agar.io has no tier rooms: its rooms are rungs (Free, $0.50, $1.00,
        PAID-AGAR-DESIGN.md 7), so a tier name other than the free one names a
        room that does not exist, and the widget would quote that tier's price
        for it. Refused before any money is asked for. */

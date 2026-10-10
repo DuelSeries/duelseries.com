@@ -80,7 +80,7 @@ function makeEntryStore({ ttlMs = 5 * 60 * 1000, fees = {}, isStake = null, onEx
 
     /* The any-amount counterpart of consume(). A token opens exactly the lobby
        whose stake equals what was paid for it, so a client that asks for a $50
-       room having paid $0.10 gets nothing: the amount is not its to choose.
+       room having paid $0.50 gets nothing: the amount is not its to choose.
        Stake 0 is free play and carries no worth, as with the free tier.
        `game` names the door; a scoped token refused at another game's door is
        left unspent, the same as one offered at the wrong rung. */

@@ -3,8 +3,10 @@
    server/index.js booted by scripts/dev-local.js (in-memory db, every outbound call refused) in
    this test's own process. Only the chain is stubbed: Wallet.submitStake (the broadcast) and
    Usdc.verifyUsdcStake (the landed amount and payer).
-   - An off-rung stake (0.10499) is neither quoted nor minted (it used to be quoted 104990 units
-     and then bought the $0.10 rung).
+   - An off-rung stake (0.50499) is neither quoted nor minted (0.10499 used to be quoted 104990
+     units and then bought the then $0.10 rung).
+   - The retired $0.10 rung (BACKLOG 2.1) and the retired dime tier are refused at the quote and
+     at the submit, before anything is broadcast; so is any stake while maintenance is on.
    - The verifier is asked for the exact rung, and a short payment is never rounded up to it.
    - A request naming another wallet than the on-chain payer is minted to the payer instead of
      refused after the signature was claimed (which stranded the stake with no token, no retry). */
@@ -59,6 +61,7 @@ const PAYER = 'PayerWa11et1111111111111111111111111111111';
 const OTHER = 'OtherWa11et111111111111111111111111111111';
 const verifyAsked = [];
 let landed = 1; // what the stubbed chain says landed in escrow
+let broadcasts = 0; // signed transfers the server sent to the chain
 
 test.before(async () => {
   port = await freePort();
@@ -73,7 +76,7 @@ test.before(async () => {
   const Wallet = require(path.join(ROOT, 'server', 'Wallet.js'));
   const Usdc = require(path.join(ROOT, 'server', 'Usdc.js'));
   let n = 0;
-  Wallet.submitStake = async () => 'sig-' + ++n;
+  Wallet.submitStake = async () => { broadcasts++; return 'sig-' + ++n; };
   Usdc.verifyUsdcStake = async (sig, min) => {
     verifyAsked.push(min);
     return { payer: PAYER, usdc: landed };
@@ -88,12 +91,12 @@ test.before(async () => {
 const tx = (s) => Buffer.from(s).toString('base64');
 
 test('an off-rung stake is refused at the quote and at the submit, and a rung is minted as the rung', async () => {
-  for (const stake of ['0.10499', '1.00499', '0.004', '0.105']) {
+  for (const stake of ['0.50499', '1.00499', '0.004', '0.505']) {
     const q = await call(port, 'GET', '/api/stake-quote?stake=' + stake);
     assert.strictEqual(q.status, 400, 'quote ' + stake);
     assert.match(q.json.error, /Buy-in must be one of/);
   }
-  for (const stake of [0.10499, 1.00499, 0.004]) {
+  for (const stake of [0.50499, 1.00499, 0.004]) {
     const r = await call(port, 'POST', '/api/submit-stake', { stake, signedTx: tx('off' + stake), walletAddress: PAYER });
     assert.strictEqual(r.status, 400, 'submit ' + stake);
     assert.match(r.json.error, /Buy-in must be one of/);
@@ -101,11 +104,11 @@ test('an off-rung stake is refused at the quote and at the submit, and a rung is
     const d = await call(port, 'POST', '/api/submit-stake', { stake, walletAddress: 'DevWallet' });
     assert.strictEqual(d.status, 400, 'dev submit ' + stake);
   }
-  landed = 0.1;
-  const ok = await call(port, 'POST', '/api/submit-stake', { stake: 0.1, signedTx: tx('rung-0.1'), walletAddress: PAYER });
+  landed = 0.5;
+  const ok = await call(port, 'POST', '/api/submit-stake', { stake: 0.5, signedTx: tx('rung-0.5'), walletAddress: PAYER });
   assert.strictEqual(ok.status, 200, ok.text);
-  assert.strictEqual(ok.json.stake, 0.1);
-  assert.strictEqual(ok.json.worth, 0.1);
+  assert.strictEqual(ok.json.stake, 0.5);
+  assert.strictEqual(ok.json.worth, 0.5);
 });
 
 test('the verifier is asked for the exact rung, and a short payment never buys the rung above it', async () => {
@@ -118,7 +121,7 @@ test('the verifier is asked for the exact rung, and a short payment never buys t
   landed = 0.995;
   const short = await call(port, 'POST', '/api/submit-stake', { stake: 1, signedTx: tx('short-1'), walletAddress: PAYER });
   assert.strictEqual(short.status, 200, short.text);
-  assert.strictEqual(short.json.stake, 0.1, '0.995 buys the $0.10 rung, never the $1 seat');
+  assert.strictEqual(short.json.stake, 0.5, '0.995 buys the $0.50 rung, never the $1 seat');
   assert.strictEqual(short.json.paid, 0.995);
 });
 
@@ -139,13 +142,71 @@ test('a request naming a different wallet than the payer is minted to the payer,
    PAPER_DEV_TOKENS here, so a valid devGame is simply ignored on the real path. */
 test('devGame of an object, a number or an unknown string is refused with 400 before anything else, and nothing crashes', async () => {
   for (const devGame of [{ toString: 1 }, 5, 'snake', '', ['agar'], null]) {
-    const r = await call(port, 'POST', '/api/submit-stake', { stake: 0.1, signedTx: tx('dg-' + JSON.stringify(devGame)), walletAddress: PAYER, devGame });
+    const r = await call(port, 'POST', '/api/submit-stake', { stake: 0.5, signedTx: tx('dg-' + JSON.stringify(devGame)), walletAddress: PAYER, devGame });
     assert.strictEqual(r.status, 400, JSON.stringify(devGame) + ' ' + r.text);
     assert.strictEqual(r.json && r.json.error, 'Malformed request');
   }
-  const ok = await call(port, 'POST', '/api/submit-stake', { stake: 0.1, signedTx: tx('dg-agar'), walletAddress: PAYER, devGame: 'agar' });
+  const ok = await call(port, 'POST', '/api/submit-stake', { stake: 0.5, signedTx: tx('dg-agar'), walletAddress: PAYER, devGame: 'agar' });
   assert.strictEqual(ok.status, 200, ok.text);
   assert.strictEqual(ok.json.dev, undefined, 'no dev token without PAPER_DEV_TOKENS: the real path ran');
   const live = await call(port, 'GET', '/api/live');
   assert.strictEqual(live.status, 200, 'the server is still up');
+});
+
+/* BACKLOG 2.1: the $0.10 rung and the dime tier are retired. A lobby page or a signed transfer left
+   over from before the deploy must be refused before the wallet prompt (the quote) or before the
+   broadcast (the submit), so nothing lands for it and nothing is minted. */
+test('the retired $0.10 rung and dime tier are refused at the quote and at the submit, before any broadcast', async () => {
+  for (const q of ['/api/stake-quote?stake=0.1', '/api/stake-quote?stake=0.10', '/api/stake-quote?lobbyType=dime']) {
+    const r = await call(port, 'GET', q);
+    assert.strictEqual(r.status, 400, q + ' ' + r.text);
+    assert.ok(!r.json.units && !r.json.escrowAta && !r.json.escrowAddress, 'no transfer target is handed out: ' + q);
+  }
+  assert.match((await call(port, 'GET', '/api/stake-quote?stake=0.1')).json.error, /^Buy-in must be one of \$0\.50, \$1$/);
+  assert.strictEqual((await call(port, 'GET', '/api/stake-quote?lobbyType=dime')).json.error, 'Unknown lobby');
+  const before = broadcasts;
+  landed = 0.1;
+  for (const body of [{ stake: 0.1 }, { stake: '0.10' }, { lobbyType: 'dime' }]) {
+    const r = await call(port, 'POST', '/api/submit-stake', Object.assign({ signedTx: tx('retired-' + JSON.stringify(body)), walletAddress: PAYER }, body));
+    assert.strictEqual(r.status, 400, JSON.stringify(body) + ' ' + r.text);
+    assert.ok(!r.json.entryToken, 'no token');
+  }
+  // The dev-token door too.
+  const d = await call(port, 'POST', '/api/submit-stake', { stake: 0.1, walletAddress: 'DevWallet' });
+  assert.strictEqual(d.status, 400);
+  assert.strictEqual(broadcasts, before, 'nothing was broadcast, so nothing landed');
+  // The new rung quotes exactly 500000 units, the transfer the widget signs.
+  const q5 = await call(port, 'GET', '/api/stake-quote?stake=0.5');
+  if (q5.status === 200) {
+    assert.strictEqual(q5.json.stake, 0.5);
+    if (q5.json.units !== undefined) assert.strictEqual(q5.json.units, '500000');
+  }
+});
+
+test('maintenance refuses a paid quote and a submit before the broadcast; free still quotes', async () => {
+  const ops = require(path.join(ROOT, 'server', 'ops.js'));
+  ops.set({ on: true, message: 'Deploying.' });
+  try {
+    const before = broadcasts;
+    for (const q of ['/api/stake-quote?stake=0.5', '/api/stake-quote?stake=1', '/api/stake-quote?lobbyType=dollar']) {
+      const r = await call(port, 'GET', q);
+      assert.strictEqual(r.status, 503, q + ' ' + r.text);
+      assert.strictEqual(r.json.maintenance, true);
+      assert.match(r.json.error, /^Paid games are paused for maintenance\. Deploying\.$/);
+    }
+    const free = await call(port, 'GET', '/api/stake-quote?stake=0');
+    assert.strictEqual(free.status, 200, 'free moves no money and still answers');
+    landed = 0.5;
+    for (const body of [{ stake: 0.5 }, { stake: 1 }, { lobbyType: 'dollar' }, { stake: 0.5, devGame: 'agar' }]) {
+      const r = await call(port, 'POST', '/api/submit-stake', Object.assign({ signedTx: tx('maint-' + JSON.stringify(body)), walletAddress: PAYER }, body));
+      assert.strictEqual(r.status, 503, JSON.stringify(body) + ' ' + r.text);
+      assert.ok(!r.json.entryToken);
+    }
+    assert.strictEqual(broadcasts, before, 'a transfer signed before maintenance is never sent');
+  } finally {
+    ops.set({ on: false });
+  }
+  landed = 0.5;
+  const ok = await call(port, 'POST', '/api/submit-stake', { stake: 0.5, signedTx: tx('after-maint'), walletAddress: PAYER });
+  assert.strictEqual(ok.status, 200, 'and stakes open again once it is off: ' + ok.text);
 });

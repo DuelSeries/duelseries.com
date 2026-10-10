@@ -64,15 +64,15 @@ test('seats are matched by buy-in, not by who is next in line', () => {
   /* Two seats that paid different amounts have no honest way to split a pot. */
   const { lob } = lobby();
   lob.enqueue(sock('A'), 'A', 'W1', 1, 1);
-  lob.enqueue(sock('B'), 'B', 'W2', 0.10, 0.10);
-  assert.strictEqual(lob.rooms.size, 0, 'a dollar does not play a dime');
+  lob.enqueue(sock('B'), 'B', 'W2', 0.50, 0.50);
+  assert.strictEqual(lob.rooms.size, 0, 'a dollar does not play fifty cents');
 
   lob.enqueue(sock('C'), 'C', 'W3', 1, 1);
   assert.strictEqual(lob.rooms.size, 1, 'but a dollar plays a dollar');
   const room = lob.roomOf('A');
   assert.ok(room.players.has('C'), 'matched with the one at the same rung');
   assert.strictEqual(room.pot(), 2, 'and the pot is both stakes');
-  assert.ok(lob.queue.some(e => e.socket.id === 'B'), 'the dime seat is still waiting');
+  assert.ok(lob.queue.some(e => e.socket.id === 'B'), 'the fifty cent seat is still waiting');
 });
 
 test('the winner is owed the pot, and it settles exactly once', () => {
@@ -148,10 +148,10 @@ test('a paid seat that nobody joins gets its money back', () => {
 test('backing out of a paid queue is a refund, not just a dequeue', () => {
   /* The stake settled on-chain before they were ever standing in the queue. */
   const { lob, refunds } = lobby();
-  lob.enqueue(sock('A'), 'Owen', 'W1', 0.10, 0.10);
+  lob.enqueue(sock('A'), 'Owen', 'W1', 0.50, 0.50);
   lob.leave('A');
   assert.strictEqual(refunds.length, 1);
-  assert.strictEqual(refunds[0].amount, 0.10);
+  assert.strictEqual(refunds[0].amount, 0.50);
 });
 
 test('a stake is only ever handed back once', () => {

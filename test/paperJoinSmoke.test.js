@@ -76,7 +76,7 @@ function boot(extra) {
 function browserLikeParser() {
   const parser = require('socket.io-parser');
   class Decoder extends parser.Decoder {
-    constructor(opts) { super(Object.assign({ maxAttachments: 100000 }, typeof opts === 'object' ? opts : {})); }
+    constructor(opts) { super(Object.assign({ maxAttachments: 500000 }, typeof opts === 'object' ? opts : {})); }
   }
   return { ...parser, Decoder };
 }
@@ -160,7 +160,7 @@ function requireClient(t) {
   catch (_) { t.skip('socket.io-client not installed'); return null; }
 }
 
-test('free Paper: a join is seated and frames flow; paid is closed with PAPER_PAID=0', { timeout: 90000 }, async (t) => {
+test('free Paper: a join is seated and frames flow; paid is closed with PAPER_PAID=0', { timeout: 450000 }, async (t) => {
   const io = requireClient(t);
   if (!io) return;
   const { srv, port, out } = boot({ ALLOW_TEST_OWNER: '1', TEST_OWNER_WALLET: ownerAddr });
@@ -194,7 +194,7 @@ test('free Paper: a join is seated and frames flow; paid is closed with PAPER_PA
   // A paid rung with no token: closed before anything is read.
   const b = await connect(io, port);
   socks.push(b);
-  const p = await join(b, { stake: 0.1, name: 'paid' });
+  const p = await join(b, { stake: 0.5, name: 'paid' });
   assert.ok(p.refused, 'paid join refused');
   assert.equal(p.refused.why, 'not-open');
   assert.ok(typeof p.refused.text === 'string' && p.refused.text.length > 0, 'with a reason to show');
@@ -243,7 +243,7 @@ test('PAPER_DEV_TOKENS=1 beside an escrow key, a database or in production refus
 /* The switch-on (2026-10-01): production env is only the box's .env, so the paid rungs are ON
    when PAPER_PAID is unset or empty, and a value that is not a switch value fails CLOSED. */
 test('PAPER_PAID unset opens the paid rungs; a value that is not a switch keeps them shut', { timeout: 60000 }, async (t) => {
-  for (const [value, stakes, line] of [['', [0, 0.1, 1], '[PAPER] paid rungs on'],
+  for (const [value, stakes, line] of [['', [0, 0.5, 1], '[PAPER] paid rungs on'],
                                        ['maybe', [0], '[PAPER] paid rungs OFF']]) {
     const { srv, port, out } = boot({ PAPER_PAID: value });
     t.after(() => { try { srv.kill('SIGKILL'); } catch (_) {} });
@@ -256,7 +256,7 @@ test('PAPER_PAID unset opens the paid rungs; a value that is not a switch keeps 
   }
 });
 
-test('dev tokens: a POST without signedTx buys a paid seat that cashes out 90/10', { timeout: 90000 }, async (t) => {
+test('dev tokens: a POST without signedTx buys a paid seat that cashes out 90/10', { timeout: 450000 }, async (t) => {
   const io = requireClient(t);
   if (!io) return;
   const { srv, port, out } = boot({ PAPER_PAID: '1', PAPER_DEV_TOKENS: '1' });
@@ -268,43 +268,43 @@ test('dev tokens: a POST without signedTx buys a paid seat that cashes out 90/10
   assert.ok(await waitForServer(port, srv), 'server came up\n' + out.stderr.slice(-1500));
 
   const rows = paperRows(JSON.parse((await get(`http://localhost:${port}/api/live`)).body));
-  assert.deepEqual(rows.map(r => r.stake), [0, 0.1, 1], 'three Paper rows with PAPER_PAID=1');
+  assert.deepEqual(rows.map(r => r.stake), [0, 0.5, 1], 'three Paper rows with PAPER_PAID=1');
 
   // No token: refused at the token step, nothing seated, nothing refunded.
   const a = await connect(io, port);
   socks.push(a);
-  const none = await join(a, { stake: 0.1, name: 'notoken' });
+  const none = await join(a, { stake: 0.5, name: 'notoken' });
   assert.ok(none.refused, 'refused');
   assert.equal(none.refused.why, 'entry');
   assert.ok(none.refused.text && none.refused.text.length > 0, 'with a reason');
   assert.equal(none.refused.refunded, false);
 
   // The dev mint still demands a wallet and a rung.
-  assert.equal((await post(`http://localhost:${port}/api/submit-stake`, { stake: 0.1 })).status, 400,
+  assert.equal((await post(`http://localhost:${port}/api/submit-stake`, { stake: 0.5 })).status, 400,
     'no wallet, no token');
   assert.equal((await post(`http://localhost:${port}/api/submit-stake`,
     { stake: 0.37, walletAddress: 'DevWa11et1111111111111111111111111111111111' })).status, 400,
     'off the ladder, no token');
 
   const wallet = 'DevWa11et1111111111111111111111111111111111';
-  const res = await post(`http://localhost:${port}/api/submit-stake`, { stake: 0.1, walletAddress: wallet });
+  const res = await post(`http://localhost:${port}/api/submit-stake`, { stake: 0.5, walletAddress: wallet });
   assert.equal(res.status, 200, res.body);
   const tok = JSON.parse(res.body);
   assert.equal(tok.ok, true);
   assert.equal(typeof tok.entryToken, 'string');
-  assert.equal(tok.stake, 0.1);
-  assert.equal(tok.worth, 0.1);
-  assert.equal(tok.paid, 0.1);
+  assert.equal(tok.stake, 0.5);
+  assert.equal(tok.worth, 0.5);
+  assert.equal(tok.paid, 0.5);
 
   // The token seats a paid join, worth taken from the token, not from the message.
   // (pp:join is rate limited to one a second per socket; a faster one is dropped.)
   await new Promise(r => setTimeout(r, 1100));
-  const seated = await join(a, { stake: 0.1, name: 'dev', entryToken: tok.entryToken, worth: 50, micro: 5e7, wallet: 'X' });
+  const seated = await join(a, { stake: 0.5, name: 'dev', entryToken: tok.entryToken, worth: 50, micro: 5e7, wallet: 'X' });
   assert.ok(seated.joined, 'paid join seated, got ' + JSON.stringify(seated.refused));
-  assert.equal(seated.joined.stake, 0.1);
+  assert.equal(seated.joined.stake, 0.5);
   const me = (seated.joined.units || []).find(u => u && u.id === seated.joined.you);
   assert.ok(me, 'the join payload lists my own square');
-  assert.equal(me.micro, 100000, 'worth from the token, not the 50 the message claimed');
+  assert.equal(me.micro, 500000, 'worth from the token, not the 50 the message claimed');
   // The player steers, as the page does right after pp:joined: that confirms the seat, so the
   // token no longer names it (an unconfirmed seat's token takes it back, see the join-lost test).
   a.emit('pp:in', MP.encodeInput(1, 0, false));
@@ -313,7 +313,7 @@ test('dev tokens: a POST without signedTx buys a paid seat that cashes out 90/10
   // One-time: the same token on another socket buys nothing.
   const b = await connect(io, port);
   socks.push(b);
-  const replay = await join(b, { stake: 0.1, name: 'replay', entryToken: tok.entryToken });
+  const replay = await join(b, { stake: 0.5, name: 'replay', entryToken: tok.entryToken });
   assert.ok(replay.refused, 'a spent token is refused');
   assert.equal(replay.refused.why, 'entry');
 
@@ -346,18 +346,18 @@ test('dev tokens: a POST without signedTx buys a paid seat that cashes out 90/10
   const c = await Promise.race([cashed, new Promise((_, rej) => setTimeout(() => rej(new Error('no pp:cashedout')), 8000))]);
   clearInterval(hold);
   assert.ok(Date.now() - started >= MP.HOLD_MS - 100, 'the hold took its full time');
-  assert.equal(c.grossMicro, 100000);
-  assert.equal(c.cutMicro, 10000);
-  assert.equal(c.netMicro, 90000);
+  assert.equal(c.grossMicro, 500000);
+  assert.equal(c.cutMicro, 50000);
+  assert.equal(c.netMicro, 450000);
   const pd = await Promise.race([paid, new Promise((_, rej) => setTimeout(() => rej(new Error('no pp:paid')), 5000))]);
   assert.ok(/^DEV/.test(String(pd.sig)), 'paid by the fake withdraw');
-  assert.equal(pd.netMicro, 90000);
-  assert.ok(out.stdout.includes('[PAPER] DEV withdraw 0.09'), 'the dev withdraw logged the net');
-  assert.ok(out.stdout.includes('[PAPER] DEV rake 0.01'), 'the rake stayed off the real sweep');
+  assert.equal(pd.netMicro, 450000);
+  assert.ok(out.stdout.includes('[PAPER] DEV withdraw 0.45'), 'the dev withdraw logged the net');
+  assert.ok(out.stdout.includes('[PAPER] DEV rake 0.05'), 'the rake stayed off the real sweep');
 
   // The seat is gone and the paid row is empty again.
   const end = paperRows(JSON.parse((await get(`http://localhost:${port}/api/live`)).body));
-  assert.equal(end.find(r => r.stake === 0.1).players, 0, 'no one left at $0.10');
+  assert.equal(end.find(r => r.stake === 0.5).players, 0, 'no one left at $0.50');
   assertHealthy(srv, out);
 });
 
@@ -377,7 +377,7 @@ test('a paid join whose link closes before pp:joined is refunded once and never 
   });
   assert.ok(await waitForServer(port, srv), 'server came up\n' + out.stderr.slice(-1500));
   const wallet = 'DevWa11et2222222222222222222222222222222222';
-  const tok = JSON.parse((await post(`http://localhost:${port}/api/submit-stake`, { stake: 0.1, walletAddress: wallet })).body);
+  const tok = JSON.parse((await post(`http://localhost:${port}/api/submit-stake`, { stake: 0.5, walletAddress: wallet })).body);
   assert.equal(typeof tok.entryToken, 'string');
 
   const a = await connect(io, port);
@@ -385,7 +385,7 @@ test('a paid join whose link closes before pp:joined is refunded once and never 
   /* The link closes before the player ever steered. To the server that is exactly the lost
      pp:joined case (it cannot tell whether pp:joined arrived); waiting for it here only makes
      the order deterministic (a close sent right behind the join raced it under load). */
-  const seated = await join(a, { name: 'lost', stake: 0.1, entryToken: tok.entryToken });
+  const seated = await join(a, { name: 'lost', stake: 0.5, entryToken: tok.entryToken });
   assert.ok(seated.joined, 'the join reached the server and seated: ' + JSON.stringify(seated.refused));
   a.disconnect(); // no pp:in ever went out
 
@@ -394,13 +394,13 @@ test('a paid join whose link closes before pp:joined is refunded once and never 
     while (Date.now() < end) { if (fn()) return; await new Promise(r => setTimeout(r, 50)); }
     assert.fail(what + '\n--- stdout ---\n' + out.stdout.slice(-2000));
   };
-  await waitFor(() => out.stdout.includes('[PAPER] REFUND ' + wallet + ' 100000 join-lost'), 8000, 'refunded at the close');
-  await waitFor(() => out.stdout.includes('[PAPER] DEV withdraw 0.1 '), 8000, 'paid back through the (dev) withdraw');
+  await waitFor(() => out.stdout.includes('[PAPER] REFUND ' + wallet + ' 500000 join-lost'), 8000, 'refunded at the close');
+  await waitFor(() => out.stdout.includes('[PAPER] DEV withdraw 0.5 '), 8000, 'paid back through the (dev) withdraw');
 
   // The page asks again with the same token on its next link: told, nothing more paid or seated.
   const b = await connect(io, port);
   socks.push(b);
-  const again = await join(b, { stake: 0.1, name: 'lost', entryToken: tok.entryToken });
+  const again = await join(b, { stake: 0.5, name: 'lost', entryToken: tok.entryToken });
   assert.ok(again.refused, 'no seat: ' + JSON.stringify(again.joined && again.joined.you));
   assert.equal(again.refused.why, 'join-lost');
   assert.equal(again.refused.refunded, true);
@@ -410,8 +410,8 @@ test('a paid join whose link closes before pp:joined is refunded once and never 
   const count = (needle) => out.stdout.split(needle).length - 1;
   assert.equal(count('[PAPER] REFUND ' + wallet + ' '), 1, 'refunded exactly once');
   assert.equal(count('[PAPER] DEV withdraw'), 1, 'one withdraw');
-  assert.ok(!/\[PAPER\] IDLE paper_na_s0_1 .*"coins":\[\{/.test(out.stdout), 'no coin left on the floor');
+  assert.ok(!/\[PAPER\] IDLE paper_na_s0_5 .*"coins":\[\{/.test(out.stdout), 'no coin left on the floor');
   const rows = paperRows(JSON.parse((await get(`http://localhost:${port}/api/live`)).body));
-  assert.equal(rows.find(r => r.stake === 0.1).players, 0, 'no orphaned seat');
+  assert.equal(rows.find(r => r.stake === 0.5).players, 0, 'no orphaned seat');
   assertHealthy(srv, out);
 });

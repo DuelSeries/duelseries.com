@@ -419,7 +419,7 @@ const entryFeeLimiter = rateLimit({ windowMs: 60 * 1000, max: 10, standardHeader
 const rpcLimiter = rateLimit({ windowMs: 10 * 1000, max: 100, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Slow down.' } });
 
 // ─── Entry fee ────────────────────────────────────────────────────────────────
-const LOBBY_FEES = money.lobbyFees; // { free, dime, dollar } — the active money mode's fee table (keys validate lobby type)
+const LOBBY_FEES = money.lobbyFees; // { free, br, dollar }: the active money mode's fee table (keys validate lobby type)
 
 // Server-authorised paid-entry tokens. /api/submit-stake mints one after verifying the
 // player's on-chain stake landed in the escrow; PLAY / RESPAWN and the duel queues verify + consume
@@ -430,7 +430,7 @@ const crypto = require('crypto');
 const { makeEntryStore } = require('./entryStore');
 const ENTRY_TOKEN_MAX_AGE_MS = 5 * 60 * 1000;
 
-// The stake ladder: free, 0.25, 0.50, 1, 2, 5, 10, 20, 100. A closed set, so an
+// The stake ladder: free, 0.50, 1 (shared/stakeLadder.js). A closed set, so an
 // amount is either on it or refused. See server/stakeRules.js.
 const { STAKE_TIERS, ALL_STAKES, MIN_STAKE, MAX_STAKE,
         isStake, rungOf, tierFor, stakeRangeError, refundBound } = require('./stakeRules');
@@ -653,6 +653,18 @@ app.post('/api/broadcast', walletWithdrawLimiter, express.json({ limit: '256kb' 
   }
 });
 
+/* Maintenance stops new STAKES, not only new joins (BACKLOG 2.1, map 4.8). Joins were already
+   refused while it was on, but a stake could still be quoted, signed and broadcast: it was
+   refunded at the refused join, yet the drain never settled while stakes kept landing, and a
+   broadcast cut short by the restart could land with no row and no token. So both the quote
+   and the submit refuse while maintenance is on, before any wallet prompt or broadcast: a
+   transfer signed just before it went on is never sent, and expires with nothing moved. Free
+   quotes still answer, since they move no money. */
+function stakePaused() {
+  const m = ops.get();
+  return { error: 'Paid games are paused for maintenance. ' + (m.message || 'Back shortly.'), maintenance: true };
+}
+
 // ── Self-custody staking (Phase 1) ───────────────────────────────────────────
 // Quote how much SOL to stake for a paid lobby and where (the escrow), plus a fresh
 // blockhash for the client to build the transfer. No custodial balance is touched.
@@ -664,10 +676,11 @@ app.get('/api/stake-quote', entryFeeLimiter, async (req, res) => {
     const bad = stakeRangeError(Number(req.query.stake));
     if (bad) return res.status(400).json({ error: bad });
     // Quoted at the ladder's own number, never the request's (review finding: 0.10499 was
-    // quoted as 104990 units and then bought the $0.10 rung).
+    // quoted as 104990 units and then bought the $0.10 rung, a rung at the time).
     const stake = rungOf(Number(req.query.stake));
     if (stake === null) return res.status(400).json({ error: 'Not an amount' });
     if (stake === 0) return res.json({ stake: 0, escrowAddress: null, lamports: 0, feeSol: 0 });
+    if (ops.get().maintenance) return res.status(503).json(stakePaused());
     try {
       return res.json({ stake, ...(await money.stakeQuoteFor(stake)) });
     } catch (e) {
@@ -679,6 +692,7 @@ app.get('/api/stake-quote', entryFeeLimiter, async (req, res) => {
   const fee = LOBBY_FEES[lobbyType];
   if (fee === undefined) return res.status(400).json({ error: 'Unknown lobby' });
   if (fee === 0) return res.json({ lobbyType, escrowAddress: null, lamports: 0, feeSol: 0 });
+  if (ops.get().maintenance) return res.status(503).json(stakePaused());
   try {
     // The quote shape is money-mode specific (SOL: escrowAddress/lamports/feeSol; USDC:
     // escrowAta/usdcMint/units/amountUsdc). The client builds the matching transfer.
@@ -708,6 +722,8 @@ app.post('/api/submit-stake', entryFeeLimiter, express.json({ limit: '256kb' }),
       || (devGame !== undefined && devGame !== 'paper' && devGame !== 'agar')) {
     return res.status(400).json({ error: 'Malformed request' });
   }
+  // No new stake while maintenance is on, refused before anything is broadcast (stakePaused).
+  if (ops.get().maintenance) return res.status(503).json(stakePaused());
 
   /* Ladder path. The requested rung is only a floor passed to verifyStake; the
      token is minted against what actually landed in escrow, resolved down to
@@ -1080,7 +1096,6 @@ function roomLabel(r) {
   const oldTier = !r.isBattleRoyale;
   const tier = type === 'free'   ? (oldTier ? 'Free (old tier, off the board)' : 'Free')
              : type === 'br'     ? 'Battle royale'
-             : type === 'dime'   ? '$0.10' + (oldTier ? ' (old tier, off the board)' : '')
              : type === 'dollar' ? '$1' + (oldTier ? ' (old tier, off the board)' : '')
              : type;
   return game + ' · ' + tier;
@@ -1560,7 +1575,7 @@ function endShooter(socketId) { if (shooterRoom) shooterRoom.removePlayer(socket
    what landed on-chain, the hour sweep of floor money to the house. Every
    hook must be a function or the PaperRoom constructor throws HERE, at boot,
    rather than at the first paid cash-out (the free arena never pays one).
-   The paid rungs ($0.10 and $1.00) are ON by default since 2026-10-01 (STATUS item 7: e and f
+   The paid rungs ($0.50 and $1.00) are ON by default since 2026-10-01 (STATUS item 7: e and f
    closed). Production env lives only in the box's .env, which no deploy touches, so the default
    is what the live server runs. PAPER_PAID=0 (or false, off, no) shuts them; 1 (true, on, yes)
    or unset opens them; any other value shuts them and says so, so a typo fails closed. Tests
@@ -1659,7 +1674,7 @@ const paper = require('./paperSockets')({
    It is the lobby's agar.io card since the lobby swap (2026-10-07): the card
    opens /ag in the lobby's agar frame, and its count and rows come from these
    rooms (/api/live lobbies via agArenas.boardRows(), liveGameCounts). It is on
-   the stake ladder like Paper (Free, $0.10, $1.00; PAID-AGAR-DESIGN.md 7): the
+   the stake ladder like Paper (Free, $0.50, $1.00; PAID-AGAR-DESIGN.md 7): the
    lobby offers a paid rung only while /api/live lists it open, so with AG_PAID
    off the card shows them struck through. The
    rooms run on their own socket.io namespace, /ag, so no other game ever sees
@@ -1678,7 +1693,7 @@ const paper = require('./paperSockets')({
    are capped in server/ag (agRoom, agSockets). The switch and the gate live in
    server/ag/agBoot.js (tested in test/agBoot.test.js). */
 /* ── Paid agar.io (PAID-AGAR-DESIGN.md, Owen's answers 2026-10-08) ───────────
-   The paid rungs ($0.10, $1.00) exist only with AG_PAID on (server/ag/agBoot.js:
+   The paid rungs ($0.50, $1.00) exist only with AG_PAID on (server/ag/agBoot.js:
    ON by default since 2026-10-09, unset/1/true/on/yes on, 0/false/off/no off,
    anything else off and logged, so a typo fails closed; the instant off switch is
    the owner console's agar:paid:off). Paper's machinery, reused: the stake
@@ -1817,7 +1832,9 @@ app.get('/ag', (_req, res) => {
 for (const rgn of [REGION]) {
   gameRooms[rgn] = {
     free:   new GameRoom(io, `${rgn}_free`),
-    dime:   new GameRoom(io, `${rgn}_dime`),
+    /* No dime room: the $0.10 tier was retired with the ten cent rung (BACKLOG 2.1). money.js no
+       longer prices it, so nothing can be staked or quoted for it, and a stale PLAY that names it
+       is refused at the door (isRetiredBuyIn). */
     dollar: new GameRoom(io, `${rgn}_dollar`),
     /* The nightly event. Its own room and its own lobby type, deliberately NOT
        on the buy-in ladder: entry is free and the prize comes from the house,
@@ -1838,7 +1855,7 @@ for (const rgn of [REGION]) {
      people ARE in looked quieter than the target. The battle royale room is
      deliberately not marked: it is free, it is on the lobby, and it needs a
      waiting room that looks alive. */
-  for (const t of ['free', 'dime', 'dollar']) gameRooms[rgn][t].fallbackOnly = true;
+  for (const t of ['free', 'dollar']) gameRooms[rgn][t].fallbackOnly = true;
   /* THE WINNER IS CASHED OUT WHERE THEY STAND, five seconds after the match is
      decided. The room owns the timing; it does not own the money, and this is
      the seam between the two.
@@ -1898,8 +1915,8 @@ for (const rgn of [REGION]) {
 function liveBoard() {
   /* The ladder only. The fixed tier rooms still exist and still serve
      index.html, but they are not on this board: listing both would show a $1
-     room twice under two different names, and would offer the $0.10 tier,
-     which is not a rung anyone can pick here.
+     room twice under two different names, and would offer the old fixed tiers,
+     which are not rungs anyone can pick here.
 
      Every rung is listed whether or not a room exists for it yet, because a
      rung with no room is precisely what a player needs to be able to open. A
@@ -1933,7 +1950,7 @@ function liveBoard() {
 
    Kept out of `lobbies` on purpose. The lobby builds each game's rung buttons
    from that list; a row carrying no stake would put a blank rung on the
-   control. agar.io is not here any more: its rooms are rungs now (Free, $0.10,
+   control. agar.io is not here any more: its rooms are rungs now (Free, $0.50,
    $1.00, PAID-AGAR-DESIGN.md 5.7 and 7), so its rows are in `lobbies` like
    Paper's, and listing it here too would count its bots twice on the card
    (withBoardBots adds the bots of lobbies and extras alike). */
@@ -2232,6 +2249,22 @@ ladder.get('snake', REGION, 0);
    either one crashed the process at the first room method called on it. */
 const ownKey = (o, k) => typeof k === 'string' && Object.prototype.hasOwnProperty.call(o, k);
 
+/* A snake join that names a buy-in the ladder does not offer (BACKLOG 2.1): a stake that is
+   not a rung (the retired $0.10 one, or any other number), or the retired 'dime' tier. Either
+   used to fall through to getRoomForType and seat the player FREE in the off-board free room:
+   money-safe, since no token exists for an off-ladder stake (entryStore mints rungs only) and
+   the dime has no price, but a player who paid before a deploy sat alone at worth 0 and was
+   never told. Refused instead, and told. Their stake was never spent: a pending stake row from
+   before the restart is refunded once by the boot sweep (stakeLedger), so a refusal here moves
+   no money. stake is a number or a string by here (PLAY pins it; spectate:join is checked the
+   same way); anything else names no stake. */
+const RETIRED_TIERS = new Set(['dime']);
+const RETIRED_BUYIN = 'That buy-in is no longer offered. Go back to the lobby and pick one.';
+function isRetiredBuyIn({ lobbyType, stake }) {
+  if ((typeof stake === 'number' || typeof stake === 'string') && !isStake(stake)) return true;
+  return typeof lobbyType === 'string' && RETIRED_TIERS.has(lobbyType);
+}
+
 /* Which room a join lands in. A stake wins when present, because only the
    ladder client sends one; everything else is the original tier lookup,
    untouched. */
@@ -2259,8 +2292,9 @@ function getRoomForType(lobbyType, region) {
      else routes to, and until now nothing anywhere said so.
 
      The behaviour is deliberately unchanged: this fallback is what keeps a bad
-     join from failing outright, and tightening it belongs in the same change
-     as retiring the tier, not in this one. It just stops being invisible.
+     join from failing outright. The one tier that was retired (dime, BACKLOG
+     2.1) never gets here: isRetiredBuyIn refuses it at the door first. It just
+     stops being invisible.
 
      THE VALUE COMES FROM THE CLIENT, so the line is written defensively:
      only a string is quoted (anything else is named by its type, because
@@ -2709,6 +2743,11 @@ io.on('connection', (socket) => {
     googleId = strOr(googleId, undefined);
     walletAddress = strOr(walletAddress, undefined);
     reconnectKey = strOr(reconnectKey, undefined);
+    /* A buy-in the ladder does not offer is refused, never seated (BACKLOG 2.1). */
+    if (isRetiredBuyIn({ lobbyType, stake })) {
+      socket.emit(C.EVENTS.ERROR, { message: RETIRED_BUYIN });
+      return;
+    }
     const playerName = sanitizeName(name);
     // Identity = the wallet address the client sends as googleId (self-custody single login).
     const verifiedId = googleId || null;
@@ -2979,6 +3018,11 @@ io.on('connection', (socket) => {
     // to the same room the player would have joined.
     const prev = socket._room;
     if (prev && prev.players.has(socket.id)) return;   // seated: refused (above)
+    // A retired rung has no room to watch either (BACKLOG 2.1); the same refusal as PLAY.
+    if (isRetiredBuyIn({ lobbyType, stake })) {
+      socket.emit(C.EVENTS.ERROR, { message: RETIRED_BUYIN });
+      return;
+    }
     const room = getRoomForJoin({ lobbyType: lobbyType || 'free', stake, region: region || REGION });
     if (prev && prev !== room) {
       // Its interest-cell room belongs to the old room's broadcaster too (GameRoom.broadcastSnapshot).

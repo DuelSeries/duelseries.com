@@ -2,7 +2,7 @@
 /* ─── The stake ladder ────────────────────────────────────────────────────────
    Buy-ins are a fixed set, not any amount:
 
-     free · 0.10 · 1
+     free · 0.50 · 1
 
    Cut from nine rungs to three. Nine gave the buy-in control a stepper and a
    row of dots to page through, and split what few players there are across
@@ -28,12 +28,12 @@
    refusing is the right answer, and the client cannot get there because it is
    quoted a tier before it signs anything. */
 
-/* Ten cents and a dollar, which is what Owen asked for and also what the
-   rooms have always been called: money.js has carried { dime: 0.10,
-   dollar: 1.00 } since before this ladder existed, and the ladder had drifted
-   to 0.50/2 beside it. Two tables disagreeing about what a rung costs is the
-   kind of thing that is fine until the day it is not. */
-const STAKE_TIERS = [0.10, 1];
+/* Fifty cents and a dollar (BACKLOG 2.1, Owen 2026-10-09): ten cents could not cover what a
+   paid room costs to run. The rungs live in ONE file, shared/stakeLadder.js, which the lobby
+   reads too, so the server and the buy-in buttons cannot drift apart. The old fixed tiers in
+   money.js (dime 0.10, dollar 1.00) used to sit beside this ladder as a second table; the
+   dime is gone with the ten cent rung. */
+const STAKE_TIERS = require('../shared/stakeLadder').PAID_RUNGS.slice();
 const FREE = 0;
 const ALL_STAKES = [FREE].concat(STAKE_TIERS);
 
@@ -42,7 +42,7 @@ const MAX_STAKE = STAKE_TIERS[STAKE_TIERS.length - 1];
 
 /* A stake names a rung only when it IS the rung, up to float noise (0.7 - 0.6 is
    0.09999999999999998, 2e-17 off). This used to round to cents, so 0.10499 named the
-   $0.10 rung and 0.004 the free one: a Paper join with no token and no money at 0.10499
+   $0.10 rung (a rung until BACKLOG 2.1) and 0.004 the free one: a Paper join with no token and no money at 0.10499
    opened the $0.10 arena with that number as its stake, and every honest player seated
    there was then quoted 0.10499 on Play again (review finding, night queue item 5). An
    honest client only ever sends a number the server gave it, so an exact match refuses
@@ -63,7 +63,7 @@ const isStake = v => rungOf(v) !== null;
 
 /* Money compared as whole micro-dollars (USDC has 6 decimals, so what landed is an exact
    count of them). Never rounded up to a rung: comparing rounded cents let 0.099 buy the
-   $0.10 rung and 0.995 the $1 rung, a seat worth more than was paid (review finding). */
+   then $0.10 rung and 0.995 the $1 rung, a seat worth more than was paid (review finding). */
 const micro = v => Math.round(Number(v) * 1e6);
 
 /* The largest tier this payment covers, or null if it covers none. */

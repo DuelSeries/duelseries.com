@@ -221,8 +221,8 @@ test('play delegates to the widget and never stakes on its own', () => {
 });
 
 test('a launch that does not name a room is refused, not defaulted', () => {
-  // The widget defaults a missing lobbyType to 'dime'. Dispatching without
-  // naming a room would silently charge ten cents for one nobody chose.
+  // The widget used to default a missing lobbyType to the ten cent tier, so dispatching
+  // without naming a room charged for one nobody chose. It refuses one now too (below).
   const src = fs.readFileSync(path.join(ROOT, 'public/js/v2/play.js'), 'utf8');
   assert.ok(/if \(!hasStake && !hasTier\)/.test(src), 'an unnamed room is checked for');
   const guard = src.indexOf('if (!hasStake && !hasTier)');
@@ -1288,7 +1288,7 @@ test('a duel names its own stake, and does not pretend to find an opponent', () 
 
   /* Paper used to be that example, and then a solo run against bots in the
      browser. It is an arena on the server now (docs/paper-multiplayer-design.md
-     section 10): its rooms are rungs of the ladder, Free, $0.10 and $1.00, so
+     section 10): its rooms are rungs of the ladder, Free, $0.50 and $1.00, so
      it is laddered like the snake game. It is dropped into rather than matched
      into, so it is never a duel, and never the paid:1 of a paid duel either. */
   const paper = html.match(/\{id:'paper'[^\n]*/)[0];
@@ -1314,10 +1314,18 @@ test('a duel names its own stake, and does not pretend to find an opponent', () 
      naming one the other has to accept — and there is no such thing as a typo
      on a ladder. No 500 where 5.00 was meant, which on a real-money control is
      precisely the mistake worth designing out. */
-  const ladder = html.match(/const DUEL_LADDER=\[([^\]]+)\]/);
-  assert.ok(ladder, 'the buy-ins are a fixed ladder');
-  assert.deepEqual(ladder[1].split(',').map(Number), [0, 0.25, 0.5, 1, 2, 5, 10, 20],
-    'and it is the rungs Owen asked for, in order');
+  /* BACKLOG 2.1 (Owen 2026-10-09): every game, the coming duels included, offers the one shared
+     ladder, Free / $0.50 / $1.00 (shared/stakeLadder.js). The $0.25 to $20 stepper is gone. */
+  assert.ok(/const DUEL_LADDER=LADDER\.slice\(\);/.test(html), 'the buy-ins are the shared ladder');
+  const shared = require(path.join(ROOT, 'shared/stakeLadder.js'));
+  const la = html.indexOf('const LADDER=');
+  const LADDER = new Function('window', html.slice(la, html.indexOf('\n', la)) + '\nreturn LADDER;')({ DS_LADDER: shared });
+  assert.deepEqual(LADDER, [0, 0.5, 1], 'and it is the rungs Owen asked for, in order');
+  const da = html.indexOf('let duelStep=');
+  const step = new Function('DUEL_LADDER', html.slice(da, html.indexOf(';', da) + 1) + '\nreturn duelStep;')(LADDER.slice());
+  assert.strictEqual(LADDER[step], 1, 'the stepper opens at $1');
+  assert.deepEqual(new Function('window', html.slice(la, html.indexOf('\n', la)) + '\nreturn LADDER;')({}), [0],
+    'Free alone if the ladder file did not load: never a rung the server has not priced');
   assert.ok(!/id="dbamt"[^>]*<input/.test(html) && !/input[^>]*id="dbamt"/.test(html),
     'the amount is not a text field any more');
 
@@ -1389,7 +1397,7 @@ test('an empty board never sends a laddered game to the fixed tier', () => {
   // The predicate is worthless if the catalogue does not carry the flag.
   assert.ok(/id:'snake'[^}]*ladder:1/.test(html), 'snake is marked as a ladder game');
   assert.ok(/window\.V2_HAS_LADDER=/.test(html), 'and the predicate is published');
-  /* agar.io's rooms are rungs now (Free, $0.10, $1.00; PAID-AGAR-DESIGN.md 7):
+  /* agar.io's rooms are rungs now (Free, $0.50, $1.00; PAID-AGAR-DESIGN.md 7):
      /api/live lists ag:na:s0 and, while AG_PAID is on, its paid rungs, so a
      cold start opens its stake-0 rung like Paper's. */
   assert.ok(/id:'agar'[^}]*ladder:1/.test(html), 'agar is a ladder game');
@@ -1637,10 +1645,10 @@ test('a cold start with no board still opens Free Paper on the stake-0 rung', as
 
 test('a paid Paper rung goes to the widget to be staked, never straight to a page', async () => {
   const h = lobbyHarness([]);
-  h.win.V2Play.launch('paper', { stake: 0.1 });
-  assert.deepEqual(plain(h.plays), [{ game: 'paper', sel: { stake: 0.1 } }]);
+  h.win.V2Play.launch('paper', { stake: 0.5 });
+  assert.deepEqual(plain(h.plays), [{ game: 'paper', sel: { stake: 0.5 } }]);
   await assert.rejects(h.pending(), /no server here/, 'the stub server refuses the quote');
-  assert.ok(h.fetched.includes('/api/stake-quote?stake=0.1'), 'the widget asked for the $0.10 quote');
+  assert.ok(h.fetched.includes('/api/stake-quote?stake=0.5'), 'the widget asked for the $0.50 quote');
   assert.equal(h.el('game-frame').src, '', 'and nothing opened without a stake');
 });
 
@@ -1652,17 +1660,17 @@ test('a paid Paper, Knockout or Battleship buy-in is staked on this origin even 
   for (const game of ['paper', 'knockout', 'battleship']) {
     const h = lobbyHarness([]);
     h.win.localStorage.setItem('duelseries_region', 'eu');
-    h.win.V2Play.launch(game, { stake: 0.1 });
+    h.win.V2Play.launch(game, { stake: 0.5 });
     await assert.rejects(h.pending(), /no server here/);
     const quotes = h.fetched.filter(u => /stake-quote/.test(u));
-    assert.deepEqual(quotes, ['/api/stake-quote?stake=0.1'], game + ' is quoted by the server its page joins');
+    assert.deepEqual(quotes, ['/api/stake-quote?stake=0.5'], game + ' is quoted by the server its page joins');
   }
   // The snake game's page follows the region, so its stake still does.
   const s = lobbyHarness([]);
   s.win.localStorage.setItem('duelseries_region', 'eu');
-  s.win.V2Play.launch('snake', { stake: 0.1 });
+  s.win.V2Play.launch('snake', { stake: 0.5 });
   await assert.rejects(s.pending(), /no server here/);
-  assert.deepEqual(s.fetched.filter(u => /stake-quote/.test(u)), ['https://eu.duelseries.com/api/stake-quote?stake=0.1']);
+  assert.deepEqual(s.fetched.filter(u => /stake-quote/.test(u)), ['https://eu.duelseries.com/api/stake-quote?stake=0.5']);
 });
 
 /* The lobby swap (agario-reference/PLAN.md Phase 5) and the rungs (PAID-AGAR-DESIGN.md 7): the agar.io card opens the
@@ -1709,36 +1717,36 @@ test('from the lobby, Free agar.io opens /ag in the agar frame on the stake-0 ru
 
 test('agar.io paid rungs are offered only while /api/live lists them open (AG_PAID off, or the owner\'s off switch)', async () => {
   const stakes = (h, g) => plain([...h.win.V2Board.playableStakes(g)]).sort((a, b) => a - b);
-  // AG_PAID off: the server lists only the free rung, so $0.10 and $1.00 are drawn struck through.
+  // AG_PAID off: the server lists only the free rung, so $0.50 and $1.00 are drawn struck through.
   const off = lobbyHarness([AG_FREE]);
   await off.win.V2Board.load();
   assert.deepEqual(stakes(off, 'agar'), [0], 'AG_PAID off: Free only');
   // On: all three rungs.
-  const on = lobbyHarness([AG_FREE, agPaidRow(0.1), agPaidRow(1, 'open', 3)]);
+  const on = lobbyHarness([AG_FREE, agPaidRow(0.5), agPaidRow(1, 'open', 3)]);
   await on.win.V2Board.load();
-  assert.deepEqual(stakes(on, 'agar'), [0, 0.1, 1], 'AG_PAID on: every rung');
+  assert.deepEqual(stakes(on, 'agar'), [0, 0.5, 1], 'AG_PAID on: every rung');
   assert.ok(on.el('lob').innerHTML.includes('ag:na:s1'), 'an occupied open paid room is listed to join');
   // agar:paid:off: the rows stay listed (their seated players finish), marked closed. Not offered, not listed as a
   // place to join, and a stale Enter on one asks the widget for nothing.
-  const shut = lobbyHarness([AG_FREE, agPaidRow(0.1, 'closed', 2), agPaidRow(1, 'closed')]);
+  const shut = lobbyHarness([AG_FREE, agPaidRow(0.5, 'closed', 2), agPaidRow(1, 'closed')]);
   await shut.win.V2Board.load();
   assert.deepEqual(stakes(shut, 'agar'), [0], 'switched off: Free only');
-  assert.ok(!shut.el('lob').innerHTML.includes('ag:na:s0.1'), 'the closed room with players is not on the board');
-  assert.ok(!shut.win.V2Board.occupied.some(l => l.id === 'ag:na:s0.1'), 'nor in the detail screen\'s open list');
-  shut.win.V2Board.join('ag:na:s0.1');
+  assert.ok(!shut.el('lob').innerHTML.includes('ag:na:s0.5'), 'the closed room with players is not on the board');
+  assert.ok(!shut.win.V2Board.occupied.some(l => l.id === 'ag:na:s0.5'), 'nor in the detail screen\'s open list');
+  shut.win.V2Board.join('ag:na:s0.5');
   assert.deepEqual(plain(shut.plays), [], 'a stale Enter is refused before the widget');
   // Snake and Paper are untouched by the state rule: their rows say 'open' (or nothing) and all of them count.
   const both = lobbyHarness([
     { id: 'na_s0', game: 'snake', region: 'na', stake: 0, players: 0, bots: 39, capacity: null, state: 'open' },
-    { id: 'na_s0.1', game: 'snake', region: 'na', stake: 0.1, players: 0, bots: 0, capacity: null },
+    { id: 'na_s0.5', game: 'snake', region: 'na', stake: 0.5, players: 0, bots: 0, capacity: null },
     { id: 'na_s1', game: 'snake', region: 'na', stake: 1, players: 2, bots: 0, capacity: null, state: 'open' },
     { id: 'paper:na:s0', game: 'paper', region: 'na', stake: 0, players: 0, bots: 15, capacity: 16, state: 'open' },
-    { id: 'paper:na:s0.1', game: 'paper', region: 'na', stake: 0.1, players: 0, bots: 0, capacity: 16, state: 'open' },
+    { id: 'paper:na:s0.5', game: 'paper', region: 'na', stake: 0.5, players: 0, bots: 0, capacity: 16, state: 'open' },
     { id: 'paper:na:s1', game: 'paper', region: 'na', stake: 1, players: 0, bots: 0, capacity: 16, state: 'open' },
   ]);
   await both.win.V2Board.load();
-  assert.deepEqual(stakes(both, 'snake'), [0, 0.1, 1], 'snake: every listed rung');
-  assert.deepEqual(stakes(both, 'paper'), [0, 0.1, 1], 'Paper: every listed rung');
+  assert.deepEqual(stakes(both, 'snake'), [0, 0.5, 1], 'snake: every listed rung');
+  assert.deepEqual(stakes(both, 'paper'), [0, 0.5, 1], 'Paper: every listed rung');
   assert.deepEqual(stakes(both, 'agar'), [], 'no agar row, no agar rung (the game is closed)');
   const lob = both.el('lob').innerHTML;
   assert.ok(lob.includes('na_s0') && lob.includes('na_s1') && lob.includes('paper:na:s0'),
@@ -1746,15 +1754,15 @@ test('agar.io paid rungs are offered only while /api/live lists them open (AG_PA
 });
 
 test('a paid agar.io rung goes to the widget to be staked on this origin, never straight to a page; a tier is refused', async () => {
-  const h = lobbyHarness([AG_FREE, agPaidRow(0.1), agPaidRow(1)]);
+  const h = lobbyHarness([AG_FREE, agPaidRow(0.5), agPaidRow(1)]);
   await h.win.V2Board.load();
   h.win.localStorage.setItem('duelseries_region', 'eu');   // agar.io's page joins this origin whatever the region
-  h.win.V2Detail = { game: 'agar', stake: 0.1 };
+  h.win.V2Detail = { game: 'agar', stake: 0.5 };
   h.win.V2Play.playChosen();
-  assert.deepEqual(plain(h.plays), [{ game: 'agar', sel: { stake: 0.1 } }], 'the lobby names the rung');
+  assert.deepEqual(plain(h.plays), [{ game: 'agar', sel: { stake: 0.5 } }], 'the lobby names the rung');
   await assert.rejects(h.pending(), /no server here/, 'the stub server refuses the quote');
-  assert.deepEqual(h.fetched.filter(u => /stake-quote/.test(u)), ['/api/stake-quote?stake=0.1'],
-    'the widget asked this origin for the $0.10 quote, where agar.io\'s paid door is');
+  assert.deepEqual(h.fetched.filter(u => /stake-quote/.test(u)), ['/api/stake-quote?stake=0.5'],
+    'the widget asked this origin for the $0.50 quote, where agar.io\'s paid door is');
   assert.equal(h.el('agar-frame').src, '', 'and nothing opened without a stake');
 
   // agar.io has no tier rooms: a tier name is refused by the lobby and by the widget, before any quote.
@@ -1777,13 +1785,13 @@ test('a paid agar.io rung goes to the widget to be staked on this origin, never 
 test('a paid agar.io stake reaches the widget only while the board lists that rung open', async () => {
   const tries = [
     ['AG_PAID off', [AG_FREE]],
-    ['the owner\'s off switch', [AG_FREE, agPaidRow(0.1, 'closed', 2), agPaidRow(1, 'closed')]],
+    ['the owner\'s off switch', [AG_FREE, agPaidRow(0.5, 'closed', 2), agPaidRow(1, 'closed')]],
     ['no board at all', null],
   ];
   for (const [why, rows] of tries) {
     const h = lobbyHarness(rows);
     await h.win.V2Board.load();
-    for (const stake of [0.1, 1]) {
+    for (const stake of [0.5, 1]) {
       h.win.V2Play.launch('agar', { stake });
       h.win.V2Detail = { game: 'agar', stake };
       h.win.V2Play.playChosen();
@@ -1795,7 +1803,7 @@ test('a paid agar.io stake reaches the widget only while the board lists that ru
     assert.ok(!h.fetched.some(u => /stake/.test(u)), why + ': nothing was quoted');
   }
   // Open: the same calls go through, and Free is never held back.
-  const ok = lobbyHarness([AG_FREE, agPaidRow(0.1), agPaidRow(1)]);
+  const ok = lobbyHarness([AG_FREE, agPaidRow(0.5), agPaidRow(1)]);
   await ok.win.V2Board.load();
   ok.win.V2Play.launch('agar', { stake: 1 });
   assert.deepEqual(plain(ok.plays), [{ game: 'agar', sel: { stake: 1 } }], 'an open rung is staked as before');
@@ -1806,8 +1814,8 @@ test('a paid agar.io stake reaches the widget only while the board lists that ru
   // Paper keeps its own rule: no board check (its door refunds, as before this step).
   const paper = lobbyHarness([]);
   await paper.win.V2Board.load();
-  paper.win.V2Play.launch('paper', { stake: 0.1 });
-  assert.deepEqual(plain(paper.plays), [{ game: 'paper', sel: { stake: 0.1 } }], 'Paper unchanged');
+  paper.win.V2Play.launch('paper', { stake: 0.5 });
+  assert.deepEqual(plain(paper.plays), [{ game: 'paper', sel: { stake: 0.5 } }], 'Paper unchanged');
 
   // The detail screen's free-row count sums every row of the game, closed ones too (their players still play).
   assert.match(v2(), /const playing=\(window\.V2Board\?V2Board\.lobbies:\[\]\)\.filter\(l=>l\.game===id\)/,
@@ -1998,4 +2006,23 @@ test('every playable game is listed before any locked or unreleased one', () => 
   // The rail and the full grid both draw from that order.
   assert.ok(/order=GAMES\.slice\(\)/.test(html) && html.indexOf('order=GAMES.slice()') > s, 'the rail copies it after the sort');
   assert.ok(/getElementById\('ggrid'\)\.innerHTML=GAMES\.map\(cardHTML\)/.test(html), 'the grid draws GAMES');
+});
+
+/* BACKLOG 2.1: the widget has no default room any more. It used to stake a duel:play that named no
+   room into the ten cent tier, which quoted and minted a real $0.10 entry. Now such an event is
+   refused before any quote or wallet prompt, and the retired dime is gone from its source and from
+   the built bundle the lobby loads. */
+test('the widget refuses a duel:play that names no room, before any quote', async () => {
+  const h = lobbyHarness([{ id: 'snake:na:s0', game: 'snake', region: 'na', stake: 0, players: 0, bots: 0, capacity: null, state: 'open' }]);
+  for (const detail of [{ game: 'snake' }, { game: 'paper', lobbyType: '' }, { game: 'snake', stake: null }]) {
+    h.win.dispatchEvent(new h.win.CustomEvent('duel:play', { detail }));
+    await assert.rejects(h.pending(), /That lobby is not available right now/, JSON.stringify(detail));
+  }
+  assert.deepStrictEqual(h.fetched.filter((u) => /stake-quote|submit-stake/.test(u)), [], 'nothing was quoted');
+  const src = fs.readFileSync(path.join(ROOT, 'wallet-widget/src/main.jsx'), 'utf8');
+  assert.ok(!/\|\| 'dime'/.test(src) && !/dime:/.test(src), 'no dime default and no dime label in the source');
+  const built = fs.readFileSync(path.join(ROOT, 'public/wallet/widget.js'), 'utf8');
+  assert.ok(!built.includes('lobbyType||`dime`') && !built.includes('lobbyType||"dime"') && !built.includes("lobbyType||'dime'"),
+    'the built widget the lobby loads has no dime default either (npm run build)');
+  assert.ok(built.includes('That lobby is not available right now. Refresh and try again.'), 'and it carries the refusal');
 });

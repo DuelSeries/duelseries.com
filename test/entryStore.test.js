@@ -7,7 +7,9 @@ const { test } = require('node:test');
 const assert = require('node:assert');
 const { makeEntryStore } = require('../server/entryStore');
 
-const FEES = { free: 0, dime: 0.10, dollar: 1.00 };
+// A fixture: a cheaper tier beside the dollar, so a dearer door can be tried. The server's own
+// table (money.js) has only free, br and dollar since the ten cent tier was retired.
+const FEES = { free: 0, cheap: 0.50, dollar: 1.00 };
 const store = (ttlMs = 60000) => makeEntryStore({ ttlMs, fees: FEES });
 
 test('a valid token yields the server-recorded worth', () => {
@@ -26,9 +28,9 @@ test('a token is one-time — a replay mints nothing', () => {
 });
 
 test('a token bought for one tier cannot open a dearer one', () => {
-  // The escrow-drain shape: pay 10c, claim the $1 room, cash out $1.
+  // The escrow-drain shape: pay 50c, claim the $1 room, cash out $1.
   const s = store();
-  const tok = s.mint({ lobbyType: 'dime', worth: 0.10, walletAddress: 'W1' });
+  const tok = s.mint({ lobbyType: 'cheap', worth: 0.50, walletAddress: 'W1' });
   assert.deepEqual(s.consume(tok, 'dollar'), { ok: false, worth: 0 });
 });
 
@@ -67,7 +69,7 @@ test('a free-lobby token cannot be spent on a paid lobby', () => {
 test('expired tokens are swept so the map stays bounded', () => {
   const s = store(-1);
   s.mint({ lobbyType: 'dollar', worth: 1, walletAddress: 'W1' });
-  s.mint({ lobbyType: 'dime', worth: 0.1, walletAddress: 'W2' });
+  s.mint({ lobbyType: 'cheap', worth: 0.5, walletAddress: 'W2' });
   assert.equal(s.size, 2);
   s.sweep();
   assert.equal(s.size, 0);
@@ -91,15 +93,15 @@ const amt = (ttlMs = 60000) => makeEntryStore({ ttlMs, fees: FEES, isStake });
 
 test('a token opens exactly the lobby it was paid for', () => {
   const s = amt();
-  const tok = s.mint({ stake: 0.10, worth: 0.10, walletAddress: 'W1' });
-  assert.deepEqual(s.consumeAtStake(tok, 0.10),
-    { ok: true, worth: 0.10, paid: undefined, googleId: undefined, walletAddress: 'W1' });
+  const tok = s.mint({ stake: 0.50, worth: 0.50, walletAddress: 'W1' });
+  assert.deepEqual(s.consumeAtStake(tok, 0.50),
+    { ok: true, worth: 0.50, paid: undefined, googleId: undefined, walletAddress: 'W1' });
 });
 
 test('paying a little and claiming a lot buys nothing', () => {
   // The whole point of the model: the amount is not the client's to choose.
   const s = amt();
-  const tok = s.mint({ stake: 0.10, worth: 0.10, walletAddress: 'W1' });
+  const tok = s.mint({ stake: 0.50, worth: 0.50, walletAddress: 'W1' });
   assert.deepEqual(s.consumeAtStake(tok, 50), { ok: false, worth: 0 });
   assert.deepEqual(s.consumeAtStake(tok, 1), { ok: false, worth: 0 },
     'not even one rung up');
@@ -141,42 +143,42 @@ test('a stake off the ladder cannot be minted at all', () => {
   const s = amt();
   // Amounts that WERE rungs before the ladder was cut to three are the
   // sharpest cases here: they are plausible, and they must now be refused.
-  for (const bad of [0.05, 0.25, 0.26, 0.50, 2, 3, 5, 37.42, 100, 250])
+  for (const bad of [0.05, 0.10, 0.25, 0.26, 2, 3, 5, 37.42, 100, 250])
     assert.throws(() => s.mint({ stake: bad, worth: bad }), /not on the ladder/, String(bad));
-  for (const good of [0.10, 1])
+  for (const good of [0.50, 1])
     assert.doesNotThrow(() => s.mint({ stake: good, worth: good }), String(good));
 });
 
 test('a tier token cannot be spent through the any-amount door unless it matches', () => {
   // Both flows share one store during the migration, so they must not launder
-  // into each other. A dime token is worth a dime, whichever door it uses.
+  // into each other. A cheap tier token is worth its price, whichever door it uses.
   const s = amt();
-  const tier = s.mint({ lobbyType: 'dime', worth: 0.10, walletAddress: 'W1' });
-  assert.deepEqual(s.consumeAtStake(tier, 0.10), { ok: false, worth: 0 },
+  const tier = s.mint({ lobbyType: 'cheap', worth: 0.50, walletAddress: 'W1' });
+  assert.deepEqual(s.consumeAtStake(tier, 0.50), { ok: false, worth: 0 },
     'a token with no recorded stake opens no priced lobby');
 });
 
 test('an any-amount token cannot be spent through the tier door', () => {
   const s = amt();
-  /* Sharper now that the ladder and the fee table agree: a dime token and the
-     dime door are the SAME money, and they still must not interchange, because
+  /* Sharper now that the ladder and the fee table agree: a cheap tier token and
+     the cheap door are the SAME money, and they still must not interchange, because
      what separates them is which flow minted the token and not the amount. */
-  const tok = s.mint({ stake: 0.10, worth: 0.10, walletAddress: 'W1' });
-  assert.deepEqual(s.consume(tok, 'dime'), { ok: false, worth: 0 });
+  const tok = s.mint({ stake: 0.50, worth: 0.50, walletAddress: 'W1' });
+  assert.deepEqual(s.consume(tok, 'cheap'), { ok: false, worth: 0 });
 });
 
 /* ─── what landed on-chain ───────────────────────────────────────────────────
-   The verifier accepts 99 percent of the rung, so 0.099 buys a $0.10 token. A
+   The verifier accepted 99 percent of the rung, so 0.495 bought a $0.50 token. A
    refund of a join the server refused has to be bounded by what landed, not
    by the rung, or every refused join mints the gap. The token carries it. */
 
 test('the amount that landed rides the token through the ladder door', () => {
   const s = amt();
-  const tok = s.mint({ stake: 0.10, worth: 0.10, paid: 0.099, walletAddress: 'W1' });
-  const r = s.consumeAtStake(tok, 0.10);
+  const tok = s.mint({ stake: 0.50, worth: 0.50, paid: 0.495, walletAddress: 'W1' });
+  const r = s.consumeAtStake(tok, 0.50);
   assert.equal(r.ok, true);
-  assert.equal(r.worth, 0.10, 'worth stays the rung');
-  assert.equal(r.paid, 0.099, 'paid is what landed');
+  assert.equal(r.worth, 0.50, 'worth stays the rung');
+  assert.equal(r.paid, 0.495, 'paid is what landed');
   assert.equal(r.walletAddress, 'W1');
 });
 
@@ -197,14 +199,14 @@ test('a token minted without paid reports it as undefined, never 0 or NaN', () =
   assert.equal(r.ok, true);
   assert.strictEqual(r.paid, undefined);
   const t = store();
-  const tier = t.mint({ lobbyType: 'dime', worth: 0.10, walletAddress: 'W1' });
-  assert.strictEqual(t.consume(tier, 'dime').paid, undefined);
+  const tier = t.mint({ lobbyType: 'cheap', worth: 0.50, walletAddress: 'W1' });
+  assert.strictEqual(t.consume(tier, 'cheap').paid, undefined);
 });
 
 test('paid comes from the mint only: a refused or spent token carries none', () => {
   const s = amt();
   const tok = s.mint({ stake: 1, worth: 1, paid: 1.5, walletAddress: 'W1' });
-  assert.strictEqual(s.consumeAtStake(tok, 0.10).paid, undefined, 'wrong rung');
+  assert.strictEqual(s.consumeAtStake(tok, 0.50).paid, undefined, 'wrong rung');
   assert.equal(s.consumeAtStake(tok, 1).paid, 1.5, 'the right rung still works after that');
   assert.strictEqual(s.consumeAtStake(tok, 1).paid, undefined, 'a replay carries nothing');
   assert.strictEqual(s.consumeAtStake(undefined, 0).paid, undefined, 'free play carries nothing');
@@ -229,10 +231,10 @@ test('a token scoped to one game opens that game only', () => {
 });
 
 test('a scoped token never opens the tier door', () => {
-  const s = makeEntryStore({ ttlMs: 60000, fees: FEES, isStake: (x) => [0.10, 1].includes(x) });
-  const tok = s.mint({ lobbyType: 'dime', stake: 0.10, worth: 0.10, walletAddress: 'W1', onlyGame: 'paper' });
-  assert.deepEqual(s.consume(tok, 'dime'), { ok: false, worth: 0 });
-  assert.equal(s.consumeAtStake(tok, 0.10, 'paper').ok, true, 'still good at its own door');
+  const s = makeEntryStore({ ttlMs: 60000, fees: FEES, isStake: (x) => [0.50, 1].includes(x) });
+  const tok = s.mint({ lobbyType: 'cheap', stake: 0.50, worth: 0.50, walletAddress: 'W1', onlyGame: 'paper' });
+  assert.deepEqual(s.consume(tok, 'cheap'), { ok: false, worth: 0 });
+  assert.equal(s.consumeAtStake(tok, 0.50, 'paper').ok, true, 'still good at its own door');
 });
 
 test('an unscoped token still opens every game, as before', () => {

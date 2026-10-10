@@ -75,41 +75,42 @@ function sock(w) {
 }
 
 function paidRoom(w) {
-  return w.arenas.all().find(r => r.stake === 0.1);
+  return w.arenas.all().find(r => r.stake === 0.5);
 }
 
 test('bad stake, not-open, duplicate, maintenance and full are all decided before the token is consumed', () => {
   const w = world();
-  for (const stake of ['abc', -1, 0.5]) {
+  // 0.1 is the retired rung (BACKLOG 2.1): refused like any other number off the ladder.
+  for (const stake of ['abc', -1, 0.1, 0.25]) {
     const s = sock(w);
-    s.fire('pp:join', { name: 'x', stake, entryToken: w.mint(0.1) });
+    s.fire('pp:join', { name: 'x', stake, entryToken: w.mint(0.5) });
     assert.strictEqual(s.last('pp:refused').why, 'bad-stake', String(stake));
   }
   const closed = world({ paidEnabled: false });
   const s0 = sock(closed);
-  s0.fire('pp:join', { name: 'x', stake: 0.1, entryToken: closed.mint(0.1) });
+  s0.fire('pp:join', { name: 'x', stake: 0.5, entryToken: closed.mint(0.5) });
   assert.strictEqual(s0.last('pp:refused').why, 'not-open');
   assert.strictEqual(closed.spy.consume.length, 0);
   // Duplicate: a seated socket sending pp:join again is dropped silently.
   const s1 = sock(w);
-  s1.fire('pp:join', { name: 'a', stake: 0.1, entryToken: w.mint(0.1) });
+  s1.fire('pp:join', { name: 'a', stake: 0.5, entryToken: w.mint(0.5) });
   assert.ok(s1.last('pp:joined'));
   const consumed = w.spy.consume.length;
-  s1.fire('pp:join', { name: 'a', stake: 0.1, entryToken: w.mint(0.1) });
+  s1.fire('pp:join', { name: 'a', stake: 0.5, entryToken: w.mint(0.5) });
   assert.strictEqual(w.spy.consume.length, consumed);
   assert.strictEqual(s1.got.filter(x => x[0] === 'pp:joined').length, 1);
-  assert.strictEqual(w.spy.consume.filter(c => c[1] !== 0.1).length, 0);
+  assert.strictEqual(w.spy.consume.filter(c => c[1] !== 0.5).length, 0);
   assert.strictEqual(w.spy.consume.length, 1, 'only the one real join consumed');
 });
 
 test('maintenance and full consume the token once through the refund path and pay what landed', () => {
   const m = world({ maintenance: true });
   const s = sock(m);
-  s.fire('pp:join', { name: 'mia', stake: 0.1, entryToken: m.mint(0.1, 0.1, 0.099, 'WM') });
+  s.fire('pp:join', { name: 'mia', stake: 0.5, entryToken: m.mint(0.5, 0.5, 0.495, 'WM') });
   assert.deepStrictEqual(s.last('pp:refused'), { why: 'maintenance', text: s.last('pp:refused').text, refunded: true });
   assert.strictEqual(m.spy.consume.length, 0, 'the main consume never ran');
   assert.strictEqual(m.spy.storeConsume.length, 1);
-  assert.deepStrictEqual(m.spy.refunds, [{ wallet: 'WM', name: 'mia', micro: 100000, paid: 0.099, why: 'maintenance' }]);
+  assert.deepStrictEqual(m.spy.refunds, [{ wallet: 'WM', name: 'mia', micro: 500000, paid: 0.495, why: 'maintenance' }]);
 
   const f = world();
   f.arenas.seatFor = () => null; // every table full
@@ -121,10 +122,10 @@ test('maintenance and full consume the token once through the refund path and pa
   assert.deepStrictEqual(f.spy.refunds.map(r => [r.wallet, r.micro, r.paid, r.why]), [['WF', 1000000, 1, 'full']]);
 });
 
-test('a bad token at 0.10 is refused visibly and never seated', () => {
+test('a bad token at 0.50 is refused visibly and never seated', () => {
   const w = world();
   const s = sock(w);
-  s.fire('pp:join', { name: 'b', stake: 0.1, entryToken: 'forged' });
+  s.fire('pp:join', { name: 'b', stake: 0.5, entryToken: 'forged' });
   assert.strictEqual(s.last('pp:refused').why, 'entry');
   assert.strictEqual(s.last('pp:refused').text, 'Entry fee not verified');
   assert.strictEqual(s.last('pp:joined'), null);
@@ -135,15 +136,15 @@ test('a bad token at 0.10 is refused visibly and never seated', () => {
 test('a spent token re-sent after death is refused with no refund and no seat', () => {
   const w = world();
   const s = sock(w);
-  const tok = w.mint(0.1);
-  s.fire('pp:join', { name: 'c', stake: 0.1, entryToken: tok });
+  const tok = w.mint(0.5);
+  s.fire('pp:join', { name: 'c', stake: 0.5, entryToken: tok });
   s.fire('pp:in', MP.encodeInput(1, 0, false)); // the player got pp:joined and steered
   const room = paidRoom(w);
   const unit = room.seatOfSocket(s.id).unit;
   room.game.kill(unit, undefined, REASON.SELF_CROSS);
   for (const ev of ['pp:join', 'pp:respawn']) {
     const before = room.liveHumans;
-    s.fire(ev, { name: 'c', stake: 0.1, entryToken: tok });
+    s.fire(ev, { name: 'c', stake: 0.5, entryToken: tok });
     assert.strictEqual(s.last('pp:refused').text, 'Entry fee not verified', ev);
     assert.strictEqual(room.liveHumans, before);
   }
@@ -154,29 +155,29 @@ test('a spent token re-sent after death is refused with no refund and no seat', 
 test('client wallet, worth and micro fields change nothing about the deposit', () => {
   const w = world();
   const s = sock(w);
-  s.fire('pp:join', { name: 'd', stake: 0.1, entryToken: w.mint(0.1, 0.1, 0.1, 'TOKENWALLET'), wallet: 'EVIL', worth: 500, micro: 9e9, paid: 99 });
+  s.fire('pp:join', { name: 'd', stake: 0.5, entryToken: w.mint(0.5, 0.5, 0.5, 'TOKENWALLET'), wallet: 'EVIL', worth: 500, micro: 9e9, paid: 99 });
   const room = paidRoom(w);
   const seat = room.seatOfSocket(s.id);
-  assert.strictEqual(room.bank.balance(seat.unit.id), 100000);
+  assert.strictEqual(room.bank.balance(seat.unit.id), 500000);
   assert.strictEqual(room.bank.accounts.get(seat.unit.id).wallet, 'TOKENWALLET');
   room.game.kill(seat.unit, undefined, REASON.SELF_CROSS);
-  s.fire('pp:respawn', { entryToken: w.mint(0.1, 0.1, 0.1, 'W2'), stake: 1, worth: 1000, micro: 1e9 });
+  s.fire('pp:respawn', { entryToken: w.mint(0.5, 0.5, 0.5, 'W2'), stake: 1, worth: 1000, micro: 1e9 });
   const again = room.seatOfSocket(s.id) || w.arenas.seatOfSocket(s.id);
   assert.ok(again, 'respawned');
-  assert.strictEqual(again.room.stake, 0.1, 'respawn uses the socket stake, not the message');
-  assert.strictEqual(again.room.bank.balance(again.unit.id), 100000);
+  assert.strictEqual(again.room.stake, 0.5, 'respawn uses the socket stake, not the message');
+  assert.strictEqual(again.room.bank.balance(again.unit.id), 500000);
 });
 
 test('a respawn with a stale room consumes once and seats in a listed arena, leaving the old io room', () => {
   const w = world();
   const s = sock(w);
-  s.fire('pp:join', { name: 'e', stake: 0.1, entryToken: w.mint(0.1) });
+  s.fire('pp:join', { name: 'e', stake: 0.5, entryToken: w.mint(0.5) });
   const old = paidRoom(w);
   old.game.kill(old.seatOfSocket(s.id).unit, undefined, REASON.SELF_CROSS);
   old.stop();
-  w.arenas.arenas['0.10'].splice(w.arenas.arenas['0.10'].indexOf(old), 1); // swept
+  w.arenas.arenas['0.50'].splice(w.arenas.arenas['0.50'].indexOf(old), 1); // swept
   const n = w.spy.consume.length;
-  s.fire('pp:respawn', { entryToken: w.mint(0.1) });
+  s.fire('pp:respawn', { entryToken: w.mint(0.5) });
   assert.strictEqual(w.spy.consume.length, n + 1);
   assert.ok(s._ppRoom && s._ppRoom !== old && !s._ppRoom.stopped);
   assert.ok(w.arenas.all().includes(s._ppRoom));
@@ -187,7 +188,7 @@ test('a respawn with a stale room consumes once and seats in a listed arena, lea
 test('a seat failure refunds exactly once, bounded by paid', (t) => {
   t.mock.method(console, 'error', () => {});
   const w = world();
-  const room = paidRoom(w) || w.arenas.seatFor(0.1).room;
+  const room = paidRoom(w) || w.arenas.seatFor(0.5).room;
   const units = room.game.units.length;
   const add = room.addHuman.bind(room);
   room.addHuman = (socket, spec) => {
@@ -196,22 +197,22 @@ test('a seat failure refunds exactly once, bounded by paid', (t) => {
     throw new Error('late failure after seating');
   };
   const s = sock(w);
-  s.fire('pp:join', { name: 'f', stake: 0.1, entryToken: w.mint(0.1, 0.1, 0.0995, 'WSF') });
+  s.fire('pp:join', { name: 'f', stake: 0.5, entryToken: w.mint(0.5, 0.5, 0.4975, 'WSF') });
   assert.strictEqual(s.last('pp:refused').why, 'seat-failed');
-  assert.deepStrictEqual(w.spy.refunds.map(r => [r.wallet, r.micro, r.paid, r.why]), [['WSF', 100000, 0.0995, 'seat-failed']]);
+  assert.deepStrictEqual(w.spy.refunds.map(r => [r.wallet, r.micro, r.paid, r.why]), [['WSF', 500000, 0.4975, 'seat-failed']]);
   void units;
 });
 
 test('addHuman throwing inside the room never leaves a unit or an open account', (t) => {
   t.mock.method(console, 'error', () => {});
   const w = world();
-  const found = w.arenas.seatFor(0.1);
+  const found = w.arenas.seatFor(0.5);
   const room = found.room;
   const units = room.game.units.length;
   const inBefore = room.bank.ledger.inMicro;
   room.joinedPayload = () => { throw new Error('payload broke'); };
   const s = sock(w);
-  s.fire('pp:join', { name: 'g', stake: 0.1, entryToken: w.mint(0.1, 0.1, 0.1, 'WG') });
+  s.fire('pp:join', { name: 'g', stake: 0.5, entryToken: w.mint(0.5, 0.5, 0.5, 'WG') });
   assert.strictEqual(s.last('pp:refused').why, 'seat-failed');
   assert.strictEqual(w.spy.refunds.length, 1);
   assert.strictEqual(room.game.units.length, units);
@@ -224,7 +225,7 @@ test('addHuman throwing inside the room never leaves a unit or an open account',
 test('reconnect: in time, too late, after a death in the grace, two sockets on one seat, a wrong key', () => {
   const w = world();
   const a = sock(w);
-  a.fire('pp:join', { name: 'r', stake: 0.1, entryToken: w.mint(0.1) });
+  a.fire('pp:join', { name: 'r', stake: 0.5, entryToken: w.mint(0.5) });
   a.fire('pp:in', MP.encodeInput(1, 0, false)); // the player got pp:joined and steered
   const key = a.last('pp:joined').resumeKey;
   const room = paidRoom(w);
@@ -232,41 +233,41 @@ test('reconnect: in time, too late, after a death in the grace, two sockets on o
   const consumed = w.spy.consume.length;
   w.paper.drop(a.id);
   const b = sock(w);
-  b.fire('pp:join', { name: 'r', stake: 0.1, resumeKey: key });
+  b.fire('pp:join', { name: 'r', stake: 0.5, resumeKey: key });
   const rj = b.last('pp:joined');
   assert.strictEqual(rj.resumed, true);
   assert.strictEqual(rj.you, unit.id);
-  assert.strictEqual(room.bank.balance(unit.id), 100000);
+  assert.strictEqual(room.bank.balance(unit.id), 500000);
   assert.strictEqual(w.spy.consume.length, consumed, 'no token on the reconnect path');
   // A second socket with the same key: the newer wins, the older is told and leaves.
   const c = sock(w);
   w.arenas.io = null;
   room._socketById = (id) => (id === b.id ? b : null);
-  c.fire('pp:join', { name: 'r', stake: 0.1, resumeKey: key });
+  c.fire('pp:join', { name: 'r', stake: 0.5, resumeKey: key });
   assert.ok(c.last('pp:joined').resumed);
   assert.ok(b.last('pp:replaced'));
   assert.ok(!b.rooms.has(room.ioRoom));
   // Wrong key.
   const d = sock(w);
-  d.fire('pp:join', { name: 'r', stake: 0.1, resumeKey: 'not-a-key' });
+  d.fire('pp:join', { name: 'r', stake: 0.5, resumeKey: 'not-a-key' });
   assert.strictEqual(d.last('pp:refused').why, 'expired');
   // Too late.
   w.paper.drop(c.id);
   w.clock.advance(MP.DISCONNECT_GRACE_MS + 50);
   room.tickOnce();
   const e = sock(w);
-  e.fire('pp:join', { name: 'r', stake: 0.1, resumeKey: key });
+  e.fire('pp:join', { name: 'r', stake: 0.5, resumeKey: key });
   assert.strictEqual(e.last('pp:refused').why, 'expired');
   // Die during the grace, then reconnect.
   const f = sock(w);
-  f.fire('pp:join', { name: 'q', stake: 0.1, entryToken: w.mint(0.1) });
+  f.fire('pp:join', { name: 'q', stake: 0.5, entryToken: w.mint(0.5) });
   f.fire('pp:in', MP.encodeInput(1, 0, false));
   const key2 = f.last('pp:joined').resumeKey;
   w.paper.drop(f.id);
   const fr = f._ppRoom;
   fr.game.kill(fr.seats.values().next().value.unit, undefined, REASON.SELF_CROSS);
   const g = sock(w);
-  g.fire('pp:join', { name: 'q', stake: 0.1, resumeKey: key2 });
+  g.fire('pp:join', { name: 'q', stake: 0.5, resumeKey: key2 });
   assert.strictEqual(g.last('pp:refused').why, 'expired');
   assert.strictEqual(w.spy.consume.length, consumed + 1, 'only f\'s real join consumed anything');
 });

@@ -49,10 +49,6 @@ function solanaAddress(user) {
   return null;
 }
 
-// Stake the entry fee from the embedded wallet into the escrow, verify it server-side,
-// then launch the game with the returned entry token. `onStatus` reports progress.
-const TIER_LABEL = { free: 'Play Free', dime: 'Stake & Play 10¢', dollar: 'Stake & Play $1' };
-
 // Stake the entry fee (paid lobbies) from the embedded wallet into the escrow, verify it
 // server-side, then launch the game. Free lobbies skip the stake entirely.
 // Stake the entry fee for a paid lobby and return the verified entry token (no launch). Used
@@ -69,7 +65,7 @@ function regionBase() { return SERVER_URLS[lobbyRegion()] || ''; } // cosmetics 
 function pageRegion() { try { return sessionStorage.getItem('region') || lobbyRegion(); } catch (_) { return lobbyRegion(); } }
 
 /* `sel` selects the room to buy into, in one of two forms:
-     'dime' | { lobbyType: 'dime' }   the original fixed tiers
+     'dollar' | { lobbyType: 'dollar' }   the original fixed tiers
      { stake: 2 }                     a rung of the stake ladder
    Both are supported while the two lobbies run side by side: index.html sends
    a tier, /v2 sends a rung. The request differs only in which parameter names
@@ -90,6 +86,10 @@ async function stakeOnly(sel, wallet, signTransaction, onStatus, base, hooks) {
   // Free costs nothing and needs no token, whichever way it was named.
   if (byStake ? Number(spec.stake) === 0 : spec.lobbyType === 'free') {
     return { entryToken: '', worth: 0 };
+  }
+  // A room nobody named is never staked into (no default room, BACKLOG 2.1).
+  if (!byStake && (typeof spec.lobbyType !== 'string' || !spec.lobbyType)) {
+    throw new Error('That lobby is not available right now. Refresh and try again.');
   }
   if (typeof base !== 'string') throw new Error('No server chosen for this stake');
   onStatus('Getting quote…');
@@ -192,8 +192,8 @@ async function buyCosmetic(itemId, wallet, signTransaction, onStatus) {
   return r; // { ok, itemId, owned, free? }
 }
 
-/* agar.io's rooms are rungs (Free, $0.10, $1.00; PAID-AGAR-DESIGN.md 7), staked by amount like
-   Paper's. It has no tier rooms, so a paid tier name (dime, dollar) names a room that does not
+/* agar.io's rooms are rungs (Free, $0.50, $1.00; PAID-AGAR-DESIGN.md 7), staked by amount like
+   Paper's. It has no tier rooms, so a paid tier name (dollar) names a room that does not
    exist: quoting it would take a stake no agar door could seat. Refused before any quote or wallet
    prompt, for the lobby's launch and for an in-game Play again alike. */
 function refuseAgarTier(game, sel) {
@@ -375,7 +375,7 @@ function WalletPanel() {
     return () => window.removeEventListener('message', onMsg);
   }, []);
 
-  // Follow the lobby's selected tier (Free / 10¢ / $1).
+  // Follow the lobby's selected tier.
   useEffect(() => {
     const onChange = (e) => setTier((e && e.detail) || 'free');
     window.addEventListener('duel:lobbychange', onChange);
@@ -387,14 +387,16 @@ function WalletPanel() {
     const onPlay = (e) => {
       const d = (e && e.detail) || {};
       const game = (d && typeof d === 'object') ? (d.game || 'snake') : 'snake';
-      /* A stake on the event wins, so the ladder lobby is served even though
-         the old default is still here for index.html. The 'dime' fallback is
-         deliberately NOT applied when a stake was given: defaulting a missing
-         room to a paid one is how a player gets charged for a room they did
-         not pick. */
+      /* A stake on the event wins. With no stake, the room is the lobbyType the
+         event names, and nothing else: there is no default room any more. This
+         used to fall back to the old ten cent tier, so an event naming no room
+         quoted and minted a real $0.10 entry for a room the player did not pick
+         (BACKLOG 2.1 retired that tier). An unnamed room now reaches stakeOnly
+         with no lobbyType and is refused there, before any quote or wallet
+         prompt. */
       const sel = (d && typeof d === 'object' && d.stake !== undefined && d.stake !== null)
         ? { stake: d.stake }
-        : { lobbyType: (d && typeof d === 'object') ? (d.lobbyType || 'dime') : d };
+        : { lobbyType: (d && typeof d === 'object') ? d.lobbyType : d };
       if (stakeRef.current) stakeRef.current(game, sel);
     };
     window.addEventListener('duel:play', onPlay);

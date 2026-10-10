@@ -32,7 +32,7 @@ function ledgerOn(db, bootId, region = 'na', extra = {}) {
 }
 
 // A stake as /api/submit-stake records it: the row (through the ledger) and the token.
-async function stakeOn(ledger, store, sig, { wallet = 'W-' + sig, rung = 0.1, paid = rung } = {}) {
+async function stakeOn(ledger, store, sig, { wallet = 'W-' + sig, rung = 0.5, paid = rung } = {}) {
   const rec = await ledger.record(sig, { wallet, amount: Math.min(rung, paid), label: 'stake ' + rung });
   assert.strictEqual(rec.claimed, true);
   assert.strictEqual(rec.durable, true);
@@ -94,7 +94,7 @@ test('a new boot leaves its own live tokens alone and refunds the dead boot\'s t
   await boot2.sweep({ boot: true });
   assert.deepStrictEqual(db.payouts.map((p) => p.stake_sig), ['OLD']);
   // The new token still joins: its row is pending and its door claim wins.
-  const e = store2.consumeAtStake(tokNew, 0.1, 'paper');
+  const e = store2.consumeAtStake(tokNew, 0.5, 'paper');
   assert.strictEqual(await boot2.claimSeat(e), 'ok');
   assert.strictEqual(db.stakes.get('NEW').state, 'consumed');
 });
@@ -108,7 +108,7 @@ test('a door racing a boot sweep: exactly one wins in every interleaving, never 
     const live = ledgerOn(db, 'old-boot');                    // the old process, still serving
     const tok = await stakeOn(live, store, 'S' + i, { wallet: 'W' });
     const next = ledgerOn(db, 'new-boot');                    // the new process starting up
-    const entry = store.consumeAtStake(tok, 0.1, 'snake');
+    const entry = store.consumeAtStake(tok, 0.5, 'snake');
     const [claim] = await Promise.all([live.claimSeat(entry), next.sweep({ boot: true })]);
     const owed = owedFor(db, 'S' + i).length;
     const state = db.stakes.get('S' + i).state;
@@ -123,7 +123,7 @@ test('a token spent just before a crash is not refunded at the next boot (its mo
   const store = makeEntryStore({ fees: {}, isStake });
   const boot1 = ledgerOn(db, 'boot-1');
   const tok = await stakeOn(boot1, store, 'P');
-  const entry = store.consumeAtStake(tok, 0.1, 'paper');
+  const entry = store.consumeAtStake(tok, 0.5, 'paper');
   assert.strictEqual(await boot1.claimSeat(entry), 'ok');
   // crash: boot1's memory is gone
   const boot2 = ledgerOn(db, 'boot-2');
@@ -172,11 +172,11 @@ test('a claim whose answer was lost after the row committed: the same token wins
   // 1. The door's claim committed but the answer was lost: the token goes back, and the next
   //    join with it wins (the same claimKey), so it is seated, not stranded as 'consumed'.
   const tok = await stakeOn(live, store, 'G1');
-  const e1 = store.consumeAtStake(tok, 0.1, 'paper');
+  const e1 = store.consumeAtStake(tok, 0.5, 'paper');
   assert.strictEqual(await flaky.claimSeat(e1), 'error');
   e1.restore();
   assert.strictEqual(db.stakes.get('G1').state, 'consumed');
-  const e2 = store.consumeAtStake(tok, 0.1, 'paper');
+  const e2 = store.consumeAtStake(tok, 0.5, 'paper');
   assert.strictEqual(e2.ok, true);
   assert.strictEqual(await live.claimSeat(e2), 'ok');
   // Nobody else can refund it: it is seated.
@@ -186,13 +186,13 @@ test('a claim whose answer was lost after the row committed: the same token wins
   // 2. Same lost answer, but the player never comes back: the token expires and its own refund
   //    (with its claimKey) gets it, once.
   const tok3 = await stakeOn(live, store, 'G2', { wallet: 'WG' });
-  const e3 = store.consumeAtStake(tok3, 0.1, 'paper');
+  const e3 = store.consumeAtStake(tok3, 0.5, 'paper');
   assert.strictEqual(await flaky.claimSeat(e3), 'error');
   e3.restore();
   t += 5 * MIN + 1;
   store.sweep();
   await settle();
-  assert.deepStrictEqual(owedFor(db, 'G2').map((p) => [p.wallet_address, p.amount_sol]), [['WG', 0.1]]);
+  assert.deepStrictEqual(owedFor(db, 'G2').map((p) => [p.wallet_address, p.amount_sol]), [['WG', 0.5]]);
   // 3. A different key (anybody but this token) can never take a consumed row.
   assert.strictEqual(await db.claimStakeSeat('G1', 'someone-else'), false);
   assert.strictEqual(await db.refundStakeOwed('G1', 'refund x', 'someone-else'), null);
@@ -205,7 +205,7 @@ test('a database error at the refund queues it; the retry pays once', async () =
     refundStakeOwed: async (...a) => { if (down) throw new Error('db down'); return db.refundStakeOwed(...a); },
   });
   const ledger = ledgerOn(shaky, 'boot-1');
-  await ledger.record('Q', { wallet: 'WQ', amount: 0.1, label: 'stake 0.1' });
+  await ledger.record('Q', { wallet: 'WQ', amount: 0.5, label: 'stake 0.5' });
   assert.strictEqual(await ledger.refund('Q', 'refund paper full'), 'queued');
   assert.strictEqual(ledger.queued, 1);
   assert.strictEqual(await ledger.retryQueued(), 1, 'still queued while the database is down');
@@ -218,7 +218,7 @@ test('a database error at the refund queues it; the retry pays once', async () =
 test('the owed row carries a refund reason (never earnings) and the unique index refuses a second row', async () => {
   const db = createMemLedgerDb();
   const ledger = ledgerOn(db, 'b');
-  await ledger.record('U', { wallet: 'WU', amount: 0.1 });
+  await ledger.record('U', { wallet: 'WU', amount: 0.5 });
   await ledger.refund('U', 'paper full');
   assert.match(db.payouts[0].reason, /^refund /);
   // Force the state back as a broken code path would: the index still refuses a second row.
@@ -232,12 +232,12 @@ test('without durable rows (old database or a stub) a stake works exactly as bef
   const used = new Set();
   const oldDb = { markStakeSig: async (s) => { if (used.has(s)) return false; used.add(s); return true; } };
   const ledger = ledgerOn(oldDb, 'b');
-  assert.deepStrictEqual(await ledger.record('O', { wallet: 'W', amount: 0.1 }), { claimed: true, durable: false });
-  assert.deepStrictEqual(await ledger.record('O', { wallet: 'W', amount: 0.1 }), { claimed: false, durable: false });
+  assert.deepStrictEqual(await ledger.record('O', { wallet: 'W', amount: 0.5 }), { claimed: true, durable: false });
+  assert.deepStrictEqual(await ledger.record('O', { wallet: 'W', amount: 0.5 }), { claimed: false, durable: false });
   const store = makeEntryStore({ fees: {}, isStake });
-  const tok = store.mint({ stake: 0.1, worth: 0.1, paid: 0.1, walletAddress: 'W' });
-  const r = store.consumeAtStake(tok, 0.1, 'snake');
-  assert.deepStrictEqual(r, { ok: true, worth: 0.1, paid: 0.1, googleId: undefined, walletAddress: 'W' });
+  const tok = store.mint({ stake: 0.5, worth: 0.5, paid: 0.5, walletAddress: 'W' });
+  const r = store.consumeAtStake(tok, 0.5, 'snake');
+  assert.deepStrictEqual(r, { ok: true, worth: 0.5, paid: 0.5, googleId: undefined, walletAddress: 'W' });
 });
 
 // ---- the Paper door ---------------------------------------------------------------------------
@@ -277,7 +277,7 @@ test('Paper: a real token\'s stake row is claimed before the seat exists, and no
   const w = paperWorld();
   const tok = await stakeOn(w.ledger, w.store, 'PJ', { wallet: 'WP' });
   const s = w.sock();
-  s.fire('pp:join', { name: 'pat', stake: 0.1, entryToken: tok });
+  s.fire('pp:join', { name: 'pat', stake: 0.5, entryToken: tok });
   assert.strictEqual(s.last('pp:joined'), null, 'not seated before the claim answered');
   assert.strictEqual(w.db.stakes.get('PJ').state, 'pending');
   await settle();
@@ -294,7 +294,7 @@ test('Paper: a stake a sweep refunded first is never seated, and is not paid a s
   const tok = await stakeOn(w.ledger, w.store, 'PS');
   await w.ledger.refund('PS', 'refund unspent entry (sweep)');
   const s = w.sock();
-  s.fire('pp:join', { name: 'sam', stake: 0.1, entryToken: tok });
+  s.fire('pp:join', { name: 'sam', stake: 0.5, entryToken: tok });
   await settle();
   assert.strictEqual(s.last('pp:joined'), null);
   assert.deepStrictEqual([s.last('pp:refused').why, s.last('pp:refused').refunded], ['settled', true]);
@@ -309,14 +309,14 @@ test('Paper: the database not answering seats nothing and gives the token back',
   }) });
   const tok = await stakeOn(w.ledger, w.store, 'PE');
   const s = w.sock();
-  s.fire('pp:join', { name: 'eve', stake: 0.1, entryToken: tok });
+  s.fire('pp:join', { name: 'eve', stake: 0.5, entryToken: tok });
   await settle();
   assert.strictEqual(s.last('pp:refused').why, 'unavailable');
   assert.strictEqual(w.db.stakes.get('PE').state, 'pending');
   assert.strictEqual(w.store.size, 1, 'the token is back, unspent');
   fail = false;
   const s2 = w.sock();
-  s2.fire('pp:join', { name: 'eve', stake: 0.1, entryToken: tok });
+  s2.fire('pp:join', { name: 'eve', stake: 0.5, entryToken: tok });
   await settle();
   assert.ok(s2.last('pp:joined'));
   assert.strictEqual(w.db.payouts.length, 0);
@@ -330,11 +330,11 @@ test('Paper: every refund of a real token goes through its row once (full after 
   let calls = 0;
   w.arenas.seatFor = (...a) => (++calls === 1 ? seatFor(...a) : null);
   const s = w.sock();
-  s.fire('pp:join', { name: 'fay', stake: 0.1, entryToken: tok });
+  s.fire('pp:join', { name: 'fay', stake: 0.5, entryToken: tok });
   await settle();
   assert.deepStrictEqual([s.last('pp:refused').why, s.last('pp:refused').refunded], ['full', true]);
   assert.deepStrictEqual(owedFor(w.db, 'PF').map((p) => [p.wallet_address, p.amount_sol, p.reason]),
-    [['WF', 0.1, 'refund paper full']]);
+    [['WF', 0.5, 'refund paper full']]);
   assert.strictEqual(w.db.stakes.get('PF').state, 'refunded');
   assert.strictEqual(s.last('pp:joined'), null);
 
@@ -342,7 +342,7 @@ test('Paper: every refund of a real token goes through its row once (full after 
   const w2 = paperWorld();
   const tok2 = await stakeOn(w2.ledger, w2.store, 'PG');
   const s2 = w2.sock();
-  s2.fire('pp:join', { name: 'gil', stake: 0.1, entryToken: tok2 });
+  s2.fire('pp:join', { name: 'gil', stake: 0.5, entryToken: tok2 });
   s2.disconnected = true;
   await settle();
   assert.strictEqual(s2.last('pp:joined'), null);
@@ -352,7 +352,7 @@ test('Paper: every refund of a real token goes through its row once (full after 
   const w3 = paperWorld({ maintenance: true });
   const tok3 = await stakeOn(w3.ledger, w3.store, 'PM');
   const s3 = w3.sock();
-  s3.fire('pp:join', { name: 'mo', stake: 0.1, entryToken: tok3 });
+  s3.fire('pp:join', { name: 'mo', stake: 0.5, entryToken: tok3 });
   await settle();
   assert.strictEqual(s3.last('pp:refused').why, 'maintenance');
   assert.deepStrictEqual(owedFor(w3.db, 'PM').map((p) => p.reason), ['refund paper maintenance']);
@@ -369,10 +369,10 @@ test('Paper: the same token re-sent on a new link while its claim is in flight i
   const w = paperWorld({ dbWrap: slow });
   const tok = await stakeOn(w.ledger, w.store, 'PR', { wallet: 'WR' });
   const s1 = w.sock();
-  s1.fire('pp:join', { name: 'ray', stake: 0.1, entryToken: tok });
+  s1.fire('pp:join', { name: 'ray', stake: 0.5, entryToken: tok });
   s1.disconnected = true;
   const s2 = w.sock();
-  s2.fire('pp:join', { name: 'ray', stake: 0.1, entryToken: tok });
+  s2.fire('pp:join', { name: 'ray', stake: 0.5, entryToken: tok });
   await settle(20);
   assert.deepStrictEqual([s2.last('pp:refused').why, s2.last('pp:refused').refunded], ['join-lost', true]);
   assert.deepStrictEqual(owedFor(w.db, 'PR').map((p) => p.reason), ['refund paper join-lost']);
@@ -381,9 +381,9 @@ test('Paper: the same token re-sent on a new link while its claim is in flight i
   const v = paperWorld({ dbWrap: slow });
   const tok2 = await stakeOn(v.ledger, v.store, 'PT');
   const a = v.sock();
-  a.fire('pp:join', { name: 'tia', stake: 0.1, entryToken: tok2 });
+  a.fire('pp:join', { name: 'tia', stake: 0.5, entryToken: tok2 });
   const b = v.sock();
-  b.fire('pp:join', { name: 'tia', stake: 0.1, entryToken: tok2 });
+  b.fire('pp:join', { name: 'tia', stake: 0.5, entryToken: tok2 });
   await settle(20);
   assert.ok(a.last('pp:joined'));
   assert.ok(b.last('pp:joined'), 'the re-send took the unconfirmed seat back');
@@ -440,4 +440,45 @@ test('db.js: the SQL keeps each one-time rule', () => {
   assert.match(list, /region = \$1::text AND boot_id IS DISTINCT FROM \$2::text/);
   assert.match(src, /CREATE UNIQUE INDEX IF NOT EXISTS failed_payouts_stake_sig_uniq ON failed_payouts \(stake_sig\) WHERE stake_sig IS NOT NULL/);
   assert.match(src, /await ensureLedgerSchema\(\);/);
+});
+
+/* BACKLOG 2.1 retired the $0.10 rung. Entry tokens live only in memory, so a $0.10 stake verified
+   by the old process and not yet seated has nothing left after the deploy but its durable row. The
+   new boot's sweep pays that row back exactly what it stored (0.10, or less if less landed),
+   once, and nothing at the new ladder can be minted or opened for it: never seated at $0.50, never
+   paid above its stake. A seated $0.10 row is not the sweep's (its money was in a snake or Paper
+   seat): that is why a deploy waits for no human in a paid room (ops.drainStatus). */
+test('the retired $0.10 rung: an old boot\'s pending $0.10 row is refunded 0.10 once by the new boot, and nothing opens it', async () => {
+  let t = 1e12;
+  const db = createMemLedgerDb({ now: () => t });
+  const old = ledgerOn(db, 'boot-before-2.1');
+  // The rows exactly as /api/submit-stake wrote them under the old ladder (label 'stake 0.1').
+  await stakeOn(old, null, 'DIME', { wallet: 'WD', rung: 0.1, paid: 0.1 });
+  await stakeOn(old, null, 'DIME-SHORT', { wallet: 'WS', rung: 0.1, paid: 0.099 });   // less landed
+  await stakeOn(old, null, 'DIME-SEATED', { wallet: 'WT', rung: 0.1, paid: 0.1 });
+  assert.strictEqual(await db.claimStakeSeat('DIME-SEATED', 'key-T'), true);
+  t += 1000;
+
+  // The deploy: new ladder, new boot, empty token store.
+  const store = makeEntryStore({ fees: require('../server/money').lobbyFees, isStake });
+  const boot = ledgerOn(db, 'boot-after-2.1');
+  const r = await boot.sweep({ boot: true });
+  assert.deepStrictEqual(r, { found: 2, owed: 2, ok: true });
+  assert.deepStrictEqual(db.payouts.map((p) => [p.stake_sig, p.wallet_address, p.amount_sol]).sort(),
+    [['DIME', 'WD', 0.1], ['DIME-SHORT', 'WS', 0.099]], 'what each row stored, never the new rung');
+  assert.ok(db.payouts.every((p) => /^refund unspent entry stake 0\.1 /.test(p.reason)));
+  assert.deepStrictEqual(['DIME', 'DIME-SHORT', 'DIME-SEATED'].map((s) => db.stakes.get(s).state), ['refunded', 'refunded', 'consumed']);
+  assert.strictEqual((await boot.sweep({ boot: true })).owed, 0, 'once');
+  t += 31 * MIN;
+  assert.strictEqual((await boot.sweep({ boot: false })).owed, 0, 'and the periodic sweep finds nothing more');
+
+  // Nothing at the new ladder takes a $0.10: no token is minted for it, no door opens for it, and a
+  // $0.50 door never opens for a token the old process held (it is gone with that process).
+  assert.throws(() => store.mint({ stake: 0.1, worth: 0.1, paid: 0.1, walletAddress: 'WD', stakeSig: 'DIME' }), /not on the ladder/);
+  assert.deepStrictEqual(store.consumeAtStake('any-old-token', 0.1, 'snake'), { ok: false, worth: 0 });
+  assert.deepStrictEqual(store.consumeAtStake('any-old-token', 0.5, 'paper'), { ok: false, worth: 0 });
+  // The old tier name is priced at nothing now: worth 0 at most (and the snake PLAY refuses it first).
+  assert.strictEqual(store.consume('any-old-token', 'dime').worth, 0);
+  // The row cannot be claimed into a seat after its refund either.
+  assert.strictEqual(await boot.claimSeat({ ok: true, stakeSig: 'DIME', claimKey: 'late' }), 'settled');
 });

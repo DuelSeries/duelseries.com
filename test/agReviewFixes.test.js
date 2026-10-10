@@ -57,11 +57,11 @@ function world(opts) {
   const rec = hooksRec(o.journal ? { journal: o.journal } : null);
   const arenas = new AgArenas({ laws: FIXTURE, shippableOnly: false, autoTick: false, seed: o.seed || 5, log: quiet,
     paid: true, now: () => clock.t, moneyHooks: rec.hooks });
-  const room = arenas.seatFor(0.1);
+  const room = arenas.seatFor(0.5);
   const seat = (name, micro, paid) => {
     const s = sock(name + '-' + ++sn);
-    const acct = room.addPaidHuman(s, { name, micro: micro || 100000, wallet: 'W-' + name,
-      paid: paid === undefined ? (micro || 100000) / 1e6 : paid });
+    const acct = room.addPaidHuman(s, { name, micro: micro || 500000, wallet: 'W-' + name,
+      paid: paid === undefined ? (micro || 500000) / 1e6 : paid });
     arenas._paidSeated(s, room);
     return { s, acct, pid: acct.pid };
   };
@@ -90,17 +90,17 @@ test('journal: shutdown and crash closes replay as owed rows once, a kill leaves
   const j = createAgJournal({ file, bootId: 'b1', log: quiet, now: () => t++ });
   const acct = (jid, wallet, deposit) => ({ jid, wallet, deposit, name: 'n' + jid });
   const key = (x) => 'agowed:' + x;
-  j.open(acct('a', 'WA', 100000), 'r1');
-  j.close(acct('a', 'WA', 100000), 'cashedout', { grossMicro: 150000 }, 'r1');
-  j.open(acct('b', 'WB', 100000), 'r1');
-  j.close(acct('b', 'WB', 100000), 'refunded', { why: 'shutdown', refundedMicro: 120000, key: key('b'),
+  j.open(acct('a', 'WA', 500000), 'r1');
+  j.close(acct('a', 'WA', 500000), 'cashedout', { grossMicro: 150000 }, 'r1');
+  j.open(acct('b', 'WB', 500000), 'r1');
+  j.close(acct('b', 'WB', 500000), 'refunded', { why: 'shutdown', refundedMicro: 120000, key: key('b'),
     reason: 'refund agar shutdown r1 ' + key('b') }, 'r1');
   j.open(acct('c', 'WC', 1000000), 'r2');                       // killed: never closed
-  j.open(acct('d', 'WD', 100000), 'r1');
-  j.close(acct('d', 'WD', 100000), 'refunded', { why: 'crash', refundedMicro: 80000, key: key('d'),
+  j.open(acct('d', 'WD', 500000), 'r1');
+  j.close(acct('d', 'WD', 500000), 'refunded', { why: 'crash', refundedMicro: 80000, key: key('d'),
     reason: 'refund agar crash r1 ' + key('d') }, 'r1');
-  j.open(acct('e', 'WE', 100000), 'r1');
-  j.close(acct('e', 'WE', 100000), 'refunded', { why: 'emergency', refundedMicro: 100000 }, 'r1');   // paid at once
+  j.open(acct('e', 'WE', 500000), 'r1');
+  j.close(acct('e', 'WE', 500000), 'refunded', { why: 'emergency', refundedMicro: 500000 }, 'r1');   // paid at once
   fs.appendFileSync(file, '{"t":"open","jid":"half');           // a line the kill cut in half
 
   const next = createAgJournal({ file, bootId: 'b2', log: quiet });
@@ -125,9 +125,9 @@ test('journal: shutdown and crash closes replay as owed rows once, a kill leaves
 test('journal: a database that is down keeps the file for the next boot, which writes the row once', async () => {
   const file = tmpFile();
   const j = createAgJournal({ file, bootId: 'b1', log: quiet });
-  const a = { jid: 'x', wallet: 'WX', deposit: 100000, name: 'x' };
+  const a = { jid: 'x', wallet: 'WX', deposit: 500000, name: 'x' };
   j.open(a, 'r');
-  j.close(a, 'refunded', { why: 'crash', refundedMicro: 100000, key: 'agowed:x', reason: 'refund agar crash r agowed:x' }, 'r');
+  j.close(a, 'refunded', { why: 'crash', refundedMicro: 500000, key: 'agowed:x', reason: 'refund agar crash r agowed:x' }, 'r');
   const b2 = createAgJournal({ file, bootId: 'b2', log: quiet });
   b2.rotate();
   const down = await b2.replay({ writeOwedOnce: () => Promise.reject(new Error('db down')) });
@@ -182,10 +182,10 @@ test('a hard crash journals every open balance; the next boot owes each once at 
   const s = await boot.replay({ writeOwedOnce: store.write });
   assert.deepStrictEqual([s.owed, s.unsettled], [3, 0]);
   const rows = Array.from(store.rows.values());
-  assert.deepStrictEqual(rows.map((r) => r.micro), [100000, 100000, 100000], '100%, no rake (Owen Q6)');
+  assert.deepStrictEqual(rows.map((r) => r.micro), [500000, 500000, 500000], '100%, no rake (Owen Q6)');
   assert.ok(rows.every((r) => r.reason.startsWith('refund agar crash ') && r.reason.endsWith(r.key)));
   assert.deepStrictEqual(rows.map((r) => r.wallet).sort(), ['W-a', 'W-b', 'W-c']);
-  assert.strictEqual(w.room.money.bank.ledger.outMicro, 300000, 'what left the bank is exactly what is owed');
+  assert.strictEqual(w.room.money.bank.ledger.outMicro, 1500000, 'what left the bank is exactly what is owed');
 });
 
 test('a planned restart writes its rows now, and the boot replay of the same journal owes nothing twice', async () => {
@@ -211,9 +211,9 @@ test('a kill that runs no code leaves the accounts open in the journal: the next
   boot.rotate();
   const alerts = [];
   const s = await boot.replay({ writeOwedOnce: () => Promise.resolve('owed'), alert: (a) => alerts.push(a) });
-  assert.deepStrictEqual([s.unsettled, s.unsettledMicro, s.owed], [3, 300000, 0], 'flagged, never paid blind');
+  assert.deepStrictEqual([s.unsettled, s.unsettledMicro, s.owed], [3, 1500000, 0], 'flagged, never paid blind');
   assert.strictEqual(lines.filter((l) => l.startsWith('[AG] UNSETTLED-AT-BOOT W-')).length, 3, 'wallets in the log only');
-  assert.deepStrictEqual(alerts, [{ kind: 'unsettled-at-boot', accounts: 3, totalMicro: 300000 }]);
+  assert.deepStrictEqual(alerts, [{ kind: 'unsettled-at-boot', accounts: 3, totalMicro: 1500000 }]);
 });
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -269,7 +269,7 @@ function tokenStore() {
   return {
     mint(o) {
       const t = 'tok-' + ++n + '-' + Math.random().toString(16).slice(2, 10);
-      tokens.set(t, Object.assign({ stake: 0.1, worth: 0.1, paid: 0.1, walletAddress: 'W1' }, o));
+      tokens.set(t, Object.assign({ stake: 0.5, worth: 0.5, paid: 0.5, walletAddress: 'W1' }, o));
       return t;
     },
     consumeAtStake(token, stake) {
@@ -298,7 +298,7 @@ function doorWorld(ledgerAnswer) {
     now: () => w.clock.t, track: (p) => { tracked.push(p); return p; } });
   const join = (s, msg) => {
     w.clock.t += 1000;
-    door.join(s, Object.assign({ stake: 0.1, name: 'n' }, msg));
+    door.join(s, Object.assign({ stake: 0.5, name: 'n' }, msg));
   };
   return Object.assign(w, { store, refunds, ledgerRefunds, tracked, door, join, release: () => release() });
 }
@@ -396,7 +396,7 @@ test('a cell parked on a shielded newcomer does not get it: ready moves it to a 
   assert.strictEqual(n.acct.state, 'live');
   for (let i = 0; i < 10; i++) w.room.tickOnce();
   assert.ok(w.room.money.account(n.pid), 'not eaten');
-  assert.strictEqual(w.room.money.balance(n.pid), 100000);
+  assert.strictEqual(w.room.money.balance(n.pid), 500000);
 });
 
 test('with no clear spot anywhere the ready waits; a spot that appears lets it start; none by the deadline refunds no-room', () => {
@@ -425,7 +425,7 @@ test('with no clear spot anywhere the ready waits; a spot that appears lets it s
   w2.clock.t += AG_MONEY.JOIN_CONFIRM_MS.value;
   w2.room.tickOnce();
   assert.strictEqual(w2.room.money.account(m.pid), null);
-  assert.deepStrictEqual(w2.calls.refund.map((r) => [r.why, r.micro]), [['no-room', 100000]]);
+  assert.deepStrictEqual(w2.calls.refund.map((r) => [r.why, r.micro]), [['no-room', 500000]]);
 });
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -437,21 +437,21 @@ test('an unconfirmed balance above its deposit goes to the house with an alert o
     const a = w.seat('a');
     w.room.tickOnce();
     w.room.ready(a.s.id);
-    const n = w.seat('n', 100000, 0.095);   // SOL mode: 95000 landed
+    const n = w.seat('n', 500000, 0.475);   // SOL mode: 475000 landed
     w.room.tickOnce();
-    // a bug moves 5000 into the shielded seat
+    // a bug moves 25000 into the shielded seat
     w.room.money.bank.transferShare(a.pid, n.pid, 1, 20, false, a.acct.life);
-    assert.strictEqual(w.room.money.balance(n.pid), 105000);
+    assert.strictEqual(w.room.money.balance(n.pid), 525000);
     let rows = [];
     if (pathName === 'release') w.room.money.release(n.pid, 'join-lost');
     else if (pathName === 'emergency') w.room.money.emergencySettle();
     else rows = w.room.money.shutdownSettle();
     const back = pathName === 'shutdown' ? rows.find((r) => r.wallet === 'W-n').micro
       : w.calls.refund.find((r) => r.wallet === 'W-n').micro;
-    assert.strictEqual(back, 95000, pathName + ': what landed, never more');
+    assert.strictEqual(back, 475000, pathName + ': what landed, never more');
     const house = w.calls.house.filter((h) => h.wallet === 'W-n');
-    assert.deepStrictEqual(house.map((h) => h.micro), [5000], pathName + ': the excess to the house');
-    assert.ok(w.calls.breach.some((b) => /-extra$/.test(b.kind) && b.micro === 5000), pathName + ': alerted');
+    assert.deepStrictEqual(house.map((h) => h.micro), [25000], pathName + ': the excess to the house');
+    assert.ok(w.calls.breach.some((b) => /-extra$/.test(b.kind) && b.micro === 25000), pathName + ': alerted');
   }
 });
 

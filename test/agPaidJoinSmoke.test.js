@@ -3,7 +3,7 @@
    Every other paid-agar test drives the modules with fakes; only this one proves server/index.js wires them:
    - AG_PAID unset opens the paid rungs (on by default since 2026-10-09); 0 and a typo keep them off (fails closed)
      and /api/live lists no paid agar row;
-   - with AG_PAID=1 and PAPER_DEV_TOKENS=1 a dev agar token (devGame 'agar') buys a $0.10 seat through the paid door
+   - with AG_PAID=1 and PAPER_DEV_TOKENS=1 a dev agar token (devGame 'agar') buys a $0.50 seat through the paid door
      on /ag (auth.paid hand-off), the page readies, holds Q for 3 s and is paid 90/10 through the fake withdraw;
    - a Paper-scoped dev token does not open the agar door; a token is one-time;
    - /api/live's paid row counts an away player (players and parked), the drain says do not restart while money is
@@ -113,26 +113,26 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /* Switch-on (2026-10-09, Phase C, the fcadf0f pattern): AG_PAID unset is ON, so production (whose env is only the box's
    .env) runs the paid rungs; 0 is the explicit off switch and a typo still fails closed. */
-test('AG_PAID unset: the paid rungs are ON by default and /api/live lists Free, $0.10 and $1.00 open with no bots', { timeout: 60000 }, async (t) => {
+test('AG_PAID unset: the paid rungs are ON by default and /api/live lists Free, $0.50 and $1.00 open with no bots', { timeout: 60000 }, async (t) => {
   const { srv, port, out } = await boot({ AG_PAID: undefined });
   t.after(() => { try { srv.kill('SIGKILL'); } catch (_) {} });
   const live = JSON.parse((await get(`http://localhost:${port}/api/live`)).body);
   assert.deepStrictEqual(live.lobbies.filter((l) => l.game === 'agar').map((l) => [l.id, l.stake, l.state]),
-    [['ag:na:s0', 0, 'open'], ['ag:na:s0.1', 0.1, 'open'], ['ag:na:s1', 1, 'open']], 'every agar rung is listed open');
+    [['ag:na:s0', 0, 'open'], ['ag:na:s0.5', 0.5, 'open'], ['ag:na:s1', 1, 'open']], 'every agar rung is listed open');
   assert.ok(agPaidRows(live).every((l) => (l.players || 0) === 0 && (l.bots || 0) === 0), 'paid rows: nobody seated, never a bot');
   assert.ok(out.stdout.includes('[AG] paid rungs on'), 'boot says [AG] paid rungs on');
   assert.ok(!out.stderr.includes('is not a switch value'), 'no switch complaint for an unset value');
   try { srv.kill('SIGKILL'); } catch (_) {}
 });
 
-test('AG_PAID 0 or a typo: the paid rungs stay off and /api/live lists no paid agar row', { timeout: 90000 }, async (t) => {
+test('AG_PAID 0 or a typo: the paid rungs stay off and /api/live lists no paid agar row', { timeout: 450000 }, async (t) => {
   for (const [value, line] of [['0', '[AG] paid rungs OFF'], ['off', '[AG] paid rungs OFF'], ['maybe', '[AG] paid rungs OFF']]) {
     const { srv, port, out } = await boot({ AG_PAID: value });
     t.after(() => { try { srv.kill('SIGKILL'); } catch (_) {} });
     const live = JSON.parse((await get(`http://localhost:${port}/api/live`)).body);
     assert.deepStrictEqual(agPaidRows(live), [], 'AG_PAID=' + JSON.stringify(value));
     assert.deepStrictEqual(live.lobbies.filter((l) => l.game === 'agar').map((l) => [l.id, l.stake, l.state]), [['ag:na:s0', 0, 'open']],
-      'the free rung is the only agar row (the lobby draws $0.10 and $1.00 struck through)');
+      'the free rung is the only agar row (the lobby draws $0.50 and $1.00 struck through)');
     assert.ok(!live.extras.some((e) => e.game === 'agar'), 'and agar is not in the extras any more');
     assert.ok(out.stdout.includes(line), 'boot says ' + line);
     if (value === 'maybe') assert.ok(out.stderr.includes('is not a switch value'), 'and names the bad value');
@@ -161,7 +161,7 @@ test('/api/live with a broken agar directory keeps the other rows and says agar 
   try { ok.srv.kill('SIGKILL'); } catch (_) {}
 });
 
-test('dev agar $0.10: hand-off, door, ready, hold Q 3 s, paid 90/10; away seat counted; drain refuses; off switch refunds', { timeout: 120000 }, async (t) => {
+test('dev agar $0.50: hand-off, door, ready, hold Q 3 s, paid 90/10; away seat counted; drain refuses; off switch refunds', { timeout: 120000 }, async (t) => {
   const io = requireClient(t);
   if (!io) return;
   const { srv, port, out, journal } = await boot({ AG_PAID: '1', PAPER_DEV_TOKENS: '1', ALLOW_TEST_OWNER: '1', TEST_OWNER_WALLET: ownerAddr });
@@ -172,17 +172,17 @@ test('dev agar $0.10: hand-off, door, ready, hold Q 3 s, paid 90/10; away seat c
   });
   assert.ok(out.stdout.includes('[AG] paid rungs on'), 'boot says the paid rungs are on');
   let live = JSON.parse((await get(`http://localhost:${port}/api/live`)).body);
-  assert.deepStrictEqual(agPaidRows(live).map((r) => [r.id, r.players, r.state]), [['ag:na:s0.1', 0, 'open'], ['ag:na:s1', 0, 'open']]);
+  assert.deepStrictEqual(agPaidRows(live).map((r) => [r.id, r.players, r.state]), [['ag:na:s0.5', 0, 'open'], ['ag:na:s1', 0, 'open']]);
   // The lobby's rungs (PAID-AGAR-DESIGN.md 5.7 and 7): every agar row in lobbies, the free one first, and the card is
   // exactly those rows (humans plus bots), with nothing in the extras to count twice.
   const agarRows = live.lobbies.filter((l) => l.game === 'agar');
-  assert.deepStrictEqual(agarRows.map((r) => r.id), ['ag:na:s0', 'ag:na:s0.1', 'ag:na:s1']);
+  assert.deepStrictEqual(agarRows.map((r) => r.id), ['ag:na:s0', 'ag:na:s0.5', 'ag:na:s1']);
   assert.ok(!live.extras.some((e) => e.game === 'agar'), 'no agar extras row');
   assert.strictEqual(live.counts.agar, agarRows.reduce((n, r) => n + (r.players || 0) + (r.bots || 0), 0), 'the card is its rows');
 
   const W1 = 'AgDevWa11et11111111111111111111111111111111';
   const mint = async (wallet, devGame) => {
-    const r = await post(`http://localhost:${port}/api/submit-stake`, { stake: 0.1, walletAddress: wallet, devGame });
+    const r = await post(`http://localhost:${port}/api/submit-stake`, { stake: 0.5, walletAddress: wallet, devGame });
     assert.strictEqual(r.status, 200, r.body);
     return JSON.parse(r.body).entryToken;
   };
@@ -191,7 +191,7 @@ test('dev agar $0.10: hand-off, door, ready, hold Q 3 s, paid 90/10; away seat c
   const a = await connect(io, port, true);
   socks.push(a);
   const paperTok = await mint(W1, undefined);
-  a.emit('ag:join', { stake: 0.1, entryToken: paperTok, name: 'pp' });
+  a.emit('ag:join', { stake: 0.5, entryToken: paperTok, name: 'pp' });
   const wrong = await first(a, ['ag:refused', 'ag:joined'], 5000);
   assert.strictEqual(wrong.ev, 'ag:refused');
   assert.strictEqual(wrong.m.why, 'entry');
@@ -199,10 +199,10 @@ test('dev agar $0.10: hand-off, door, ready, hold Q 3 s, paid 90/10; away seat c
   // An agar dev token buys the seat; worth and wallet from the token only.
   await sleep(300);
   const tok = await mint(W1, 'agar');
-  a.emit('ag:join', { stake: 0.1, entryToken: tok, name: 'dev', worth: 50, walletAddress: 'EVIL' });
+  a.emit('ag:join', { stake: 0.5, entryToken: tok, name: 'dev', worth: 50, walletAddress: 'EVIL' });
   const j = await first(a, ['ag:joined', 'ag:refused'], 5000);
   assert.strictEqual(j.ev, 'ag:joined', JSON.stringify(j.m));
-  assert.deepStrictEqual([j.m.stake, j.m.micro, j.m.resumed, j.m.confirmed, j.m.holdTicks], [0.1, 100000, false, false, 75]);
+  assert.deepStrictEqual([j.m.stake, j.m.micro, j.m.resumed, j.m.confirmed, j.m.holdTicks], [0.5, 500000, false, false, 75]);
   await first(a, ['ag:f'], 5000);
   await sleep(200);
   a.emit('ag:ready');
@@ -213,7 +213,7 @@ test('dev agar $0.10: hand-off, door, ready, hold Q 3 s, paid 90/10; away seat c
   // One-time: the same token on another socket buys nothing (and names no confirmed seat).
   const replay = await connect(io, port, true);
   socks.push(replay);
-  replay.emit('ag:join', { stake: 0.1, entryToken: tok, name: 'again' });
+  replay.emit('ag:join', { stake: 0.5, entryToken: tok, name: 'again' });
   const rp = await first(replay, ['ag:refused', 'ag:joined'], 5000);
   assert.strictEqual(rp.ev, 'ag:refused');
 
@@ -233,7 +233,7 @@ test('dev agar $0.10: hand-off, door, ready, hold Q 3 s, paid 90/10; away seat c
   const c = await first(a, ['ag:cashedout'], 6000);
   holding = false;
   clearInterval(rep);
-  assert.deepStrictEqual([c.m.grossMicro, c.m.cutMicro, c.m.netMicro], [100000, 10000, 90000]);
+  assert.deepStrictEqual([c.m.grossMicro, c.m.cutMicro, c.m.netMicro], [500000, 50000, 450000]);
   const paid = await first(a, ['ag:paid', 'ag:payerror'], 5000);
   assert.strictEqual(paid.ev, 'ag:paid');
   assert.match(String(paid.m.sig), /^DEV/, 'the fake withdraw');
@@ -243,7 +243,7 @@ test('dev agar $0.10: hand-off, door, ready, hold Q 3 s, paid 90/10; away seat c
   const W2 = 'AgDevWa11et22222222222222222222222222222222';
   const b = await connect(io, port, true);
   socks.push(b);
-  b.emit('ag:join', { stake: 0.1, entryToken: await mint(W2, 'agar'), name: 'away' });
+  b.emit('ag:join', { stake: 0.5, entryToken: await mint(W2, 'agar'), name: 'away' });
   assert.strictEqual((await first(b, ['ag:joined', 'ag:refused'], 5000)).ev, 'ag:joined');
   await first(b, ['ag:f'], 5000);
   await sleep(150);
@@ -256,9 +256,9 @@ test('dev agar $0.10: hand-off, door, ready, hold Q 3 s, paid 90/10; away seat c
   assert.deepStrictEqual([row.players, row.parked], [1, 1], 'an away player is still a player (rule 4b) and parked');
   const st = await post(`http://localhost:${port}/api/owner/state`, ownerProof('state', {}));
   const state = JSON.parse(st.body);
-  const agRoom = state.rooms.find((r) => r.id === 'ag_na_s0_1');
+  const agRoom = state.rooms.find((r) => r.id === 'ag_na_s0_5');
   assert.ok(agRoom, 'the paid room is in the owner view');
-  assert.strictEqual(agRoom.label, 'agar.io · $0.10');
+  assert.strictEqual(agRoom.label, 'agar.io · $0.50');
   assert.strictEqual(agRoom.parked, 1);
   assert.strictEqual(state.drain.safe, false, 'not safe to restart with money parked');
 
@@ -268,11 +268,11 @@ test('dev agar $0.10: hand-off, door, ready, hold Q 3 s, paid 90/10; away seat c
   const W3 = 'AgDevWa11et33333333333333333333333333333333';
   const d = await connect(io, port, true);
   socks.push(d);
-  d.emit('ag:join', { stake: 0.1, entryToken: await mint(W3, 'agar'), name: 'late' });
+  d.emit('ag:join', { stake: 0.5, entryToken: await mint(W3, 'agar'), name: 'late' });
   const nr = await first(d, ['ag:refused', 'ag:joined'], 5000);
   assert.deepStrictEqual([nr.ev, nr.m.why, nr.m.refunded], ['ag:refused', 'not-open', true]);
   await sleep(200);
-  assert.ok(/\[AG\] REFUND AgDevWa11et3+ 100000 not-open/.test(out.stdout), 'refunded through agar\'s payout\n' + out.stdout.slice(-600));
+  assert.ok(/\[AG\] REFUND AgDevWa11et3+ 500000 not-open/.test(out.stdout), 'refunded through agar\'s payout\n' + out.stdout.slice(-600));
   live = JSON.parse((await get(`http://localhost:${port}/api/live`)).body);
   assert.strictEqual(agPaidRows(live)[0].state, 'closed');
   assert.strictEqual(agPaidRows(live)[0].players, 1, 'the seated (away) player keeps the seat');
@@ -283,7 +283,7 @@ test('dev agar $0.10: hand-off, door, ready, hold Q 3 s, paid 90/10; away seat c
   // The money journal (review fix, Owen Q6): every seat's open and close, written by the real boot.
   const recs = fs.readFileSync(journal, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
   const opens = recs.filter((r) => r.t === 'open');
-  assert.deepStrictEqual(opens.map((r) => [r.wallet, r.micro, r.room]), [[W1, 100000, 'ag_na_s0_1'], [W2, 100000, 'ag_na_s0_1']]);
+  assert.deepStrictEqual(opens.map((r) => [r.wallet, r.micro, r.room]), [[W1, 500000, 'ag_na_s0_5'], [W2, 500000, 'ag_na_s0_5']]);
   const closeOf = (r) => recs.find((x) => x.t === 'close' && x.jid === r.jid);
   assert.strictEqual(closeOf(opens[0]).outcome, 'cashedout');
   assert.strictEqual(closeOf(opens[1]), undefined, 'the away seat is still open');

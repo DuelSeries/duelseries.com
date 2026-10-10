@@ -20,7 +20,12 @@ const MODE = (process.env.MONEY_MODE || 'usdc').toLowerCase();
    lobby' and the game never launched. At zero it takes the free path here and is
    refused outright by /api/submit-stake, which is exactly right: there is no
    such thing as staking into a battle royale. */
-const FEES = { free: 0, br: 0, dime: 0.10, dollar: 1.00 };
+/* dime (0.10) was retired with the ten cent rung (BACKLOG 2.1, Owen 2026-10-09): ten cents could
+   not cover what a paid room costs to run. Gone from this table, a quote for it answers 'Unknown
+   lobby' and a submit 'Not a paid lobby', both before any wallet prompt or broadcast. The
+   buy-ins every game offers are the ladder (shared/stakeLadder.js); dollar is the old $1 tier
+   room, kept as it was. */
+const FEES = { free: 0, br: 0, dollar: 1.00 };
 
 const solBackend = {
   mode: 'sol', unit: 'SOL', lobbyFees: FEES,

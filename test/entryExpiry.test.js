@@ -18,7 +18,7 @@ const quiet = { log() {}, warn() {}, error() {} };
 
 function clockStore(onExpire) {
   let t = 1e9;
-  const store = makeEntryStore({ ttlMs: TTL, fees: { free: 0, dime: 0.1, dollar: 1 }, isStake, onExpire, now: () => t });
+  const store = makeEntryStore({ ttlMs: TTL, fees: { free: 0, cheap: 0.5, dollar: 1 }, isStake, onExpire, now: () => t });
   return { store, advance: (ms) => { t += ms; } };
 }
 
@@ -26,18 +26,18 @@ test('an unspent paid token is handed to onExpire exactly once when it expires, 
   const got = [];
   const { store, advance } = clockStore((v) => got.push(v));
   const a = store.mint({ stake: 1, worth: 1, paid: 0.995, walletAddress: 'WA' });
-  const b = store.mint({ lobbyType: 'dime', worth: 0.1, walletAddress: 'WB' });
-  const used = store.mint({ stake: 0.1, worth: 0.1, paid: 0.1, walletAddress: 'WC' });
-  assert.strictEqual(store.consumeAtStake(used, 0.1).ok, true, 'a spent token is never refunded');
+  const b = store.mint({ lobbyType: 'cheap', worth: 0.5, walletAddress: 'WB' });
+  const used = store.mint({ stake: 0.5, worth: 0.5, paid: 0.5, walletAddress: 'WC' });
+  assert.strictEqual(store.consumeAtStake(used, 0.5).ok, true, 'a spent token is never refunded');
   assert.strictEqual(store.sweep(), 0);
   assert.deepStrictEqual(got, []);
   advance(TTL + 1);
   // A late join cannot spend it, and does not remove it either: only the sweep does.
   assert.strictEqual(store.consumeAtStake(a, 1).ok, false);
-  assert.strictEqual(store.consume(b, 'dime').ok, false);
+  assert.strictEqual(store.consume(b, 'cheap').ok, false);
   assert.strictEqual(store.size, 2);
   assert.strictEqual(store.sweep(), 2);
-  assert.deepStrictEqual(got.map(v => [v.walletAddress, v.worth, v.paid]).sort(), [['WA', 1, 0.995], ['WB', 0.1, undefined]]);
+  assert.deepStrictEqual(got.map(v => [v.walletAddress, v.worth, v.paid]).sort(), [['WA', 1, 0.995], ['WB', 0.5, undefined]]);
   assert.strictEqual(store.size, 0);
   store.sweep();
   assert.strictEqual(got.length, 2, 'handed over once');
@@ -60,14 +60,14 @@ test('a throwing expiry hook cannot stop the sweep or leave a token behind', () 
 test('pending() is every unspent token at what its refund would pay; backedOnly leaves out dev tokens', () => {
   const { store } = clockStore(null);
   store.mint({ stake: 1, worth: 1, paid: 0.995, walletAddress: 'WA' });
-  store.mint({ stake: 0.1, worth: 0.1, paid: 0.1, walletAddress: 'WB' });
+  store.mint({ stake: 0.5, worth: 0.5, paid: 0.5, walletAddress: 'WB' });
   store.mint({ stake: 1, worth: 1, paid: 1, walletAddress: 'WDEV', onlyGame: 'paper' });
   const all = store.pending();
   assert.strictEqual(all.count, 3);
-  assert.strictEqual(Math.round(all.worth * 1e6), 2095000);
+  assert.strictEqual(Math.round(all.worth * 1e6), 2495000);
   const real = store.pending({ backedOnly: true });
   assert.strictEqual(real.count, 2);
-  assert.strictEqual(Math.round(real.worth * 1e6), 1095000);
+  assert.strictEqual(Math.round(real.worth * 1e6), 1495000);
 });
 
 test('the expiry refund pays what landed (never the rung) to the token wallet, with no rake and no earnings', async () => {
@@ -79,9 +79,9 @@ test('the expiry refund pays what landed (never the rung) to the token wallet, w
     log: quiet
   });
   await refund({ stake: 1, worth: 1, paid: 0.995, walletAddress: 'WA' });
-  await refund({ lobbyType: 'dime', worth: 0.1, walletAddress: 'WB' }); // tier token: worth IS what landed
-  await refund({ stake: 0.1, worth: 0.1, paid: 0.25, walletAddress: 'WC' }); // an overpay: the rung, never more
-  assert.deepStrictEqual(sent, [['WA', 995000], ['WB', 100000], ['WC', 100000]]);
+  await refund({ lobbyType: 'cheap', worth: 0.5, walletAddress: 'WB' }); // tier token: worth IS what landed
+  await refund({ stake: 0.5, worth: 0.5, paid: 0.75, walletAddress: 'WC' }); // an overpay: the rung, never more
+  assert.deepStrictEqual(sent, [['WA', 995000], ['WB', 500000], ['WC', 500000]]);
   assert.deepStrictEqual(owed, []);
 });
 
@@ -170,7 +170,7 @@ test('paid agar.io dev tokens go to devRefund too (the server routes them to aga
     devRefund: (t) => dev.push([t.onlyGame, t.walletAddress]),
     log: quiet
   });
-  await refund({ stake: 0.1, worth: 0.1, paid: 0.1, walletAddress: 'WAG', onlyGame: 'agar' });
+  await refund({ stake: 0.5, worth: 0.5, paid: 0.5, walletAddress: 'WAG', onlyGame: 'agar' });
   await refund({ stake: 1, worth: 1, paid: 1, walletAddress: 'WPP', onlyGame: 'paper' });
   await refund({ stake: 1, worth: 1, paid: 1, walletAddress: 'WSN', onlyGame: 'snake' });
   assert.deepStrictEqual(dev, [['agar', 'WAG'], ['paper', 'WPP']]);

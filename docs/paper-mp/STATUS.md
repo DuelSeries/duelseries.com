@@ -339,3 +339,7 @@ Still open (defaults chosen by the design, none blocks the build): (5) an arena 
 - NEXT: the night queue (Paper lag, lobby items, paid tables through their own safeguards).
 - Pre-existing flaky tests (fail without any Paper change): `localBody.test.js` "the neck keeps its spacing" about 1 run
   in 3, and `cashoutHold.test.js` under CPU contention. Not touched.
+- 2026-10-10, BACKLOG 2.1 (Owen 2026-10-09): the ladder is Free / $0.50 / $1.00 in every game; $0.10 is retired. The
+  rungs now live in one file, shared/stakeLadder.js, which stakeRules, PaperArenas (its own copy is gone) and the lobby
+  read. Paper's paid arena is `paper:<rgn>:s0.5`, a fresh seat deposits 500000 micro and a cash-out pays 450000 + 50000.
+  The $0.10 figures above (90000 of 100000) are the record of that time, not the current rung.

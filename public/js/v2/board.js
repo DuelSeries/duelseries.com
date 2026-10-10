@@ -135,7 +135,7 @@
      the server lists a room for it AND that room is open. The buy-in control
      draws every other rung struck through. For agar.io that is how the paid
      rungs stay shut while AG_PAID is off: the server lists only its free rung
-     (ag:na:s0) then, so $0.10 and $1.00 are drawn struck through, as Paper's
+     (ag:na:s0) then, so $0.50 and $1.00 are drawn struck through, as Paper's
      were before PAPER_PAID. */
   function playableStakes(game) {
     const out = new Set();

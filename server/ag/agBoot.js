@@ -49,7 +49,7 @@ function loadAgLaws(env, log) {
   return { laws, dev: true };
 }
 
-// AG_PAID (PAID-AGAR-DESIGN.md 5.7, 10): the paid rungs ($0.10, $1.00). ON BY DEFAULT since 2026-10-09 (Phase C,
+// AG_PAID (PAID-AGAR-DESIGN.md 5.7, 10): the paid rungs ($0.50, $1.00). ON BY DEFAULT since 2026-10-09 (Phase C,
 // Owen Q7: switched on once every test and the local money proof passed, the proof run through the real lobby and
 // /ag page; production env lives only in the box's .env, which no deploy touches, so the default is what the live
 // server runs, as fcadf0f did for Paper). Unset, empty, 1, true, on, yes: on. 0, false, off, no: off (the explicit

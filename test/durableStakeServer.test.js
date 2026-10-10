@@ -59,7 +59,7 @@ function call(port, method, url, body) {
 
 const PAYER = 'DurablePayer111111111111111111111111111111';
 let port, ledgerDb, ops;
-let landed = 0.1;
+let landed = 0.5;
 const tx = (s) => Buffer.from(s).toString('base64');
 const until = async (fn, ms = 4000) => {
   const end = Date.now() + ms;
@@ -71,7 +71,9 @@ test.before(async () => {
   port = await freePort();
   process.env.DEV_LOCAL_PORT = String(port);
   process.env.DEV_LOCAL_SEED_STAKES = JSON.stringify([
-    // An earlier boot of this NA server verified this stake; its token died with that process.
+    // An earlier boot of this NA server verified this stake; its token died with that process. It is
+    // a $0.10 stake, the rung BACKLOG 2.1 retired: the new ladder never reads a row, so it is owed
+    // back exactly what it stored, 0.10, like any other (map 5a).
     { sig: 'orphan-sig', state: 'pending', wallet_address: 'OrphanWallet', refund_amount: 0.1, label: 'stake 0.1', region: 'na', boot_id: 'dead-boot' },
     // Seated before that restart: its money was in play, never refunded at boot.
     { sig: 'seated-sig', state: 'consumed', claim_key: 'k', wallet_address: 'SeatedWallet', refund_amount: 1, label: 'stake 1', region: 'na', boot_id: 'dead-boot' },
@@ -158,25 +160,25 @@ test('submit-stake writes the durable row: the payer, what a refund pays, this r
 });
 
 test('a real token at Paper claims its row before the seat, and a refusal at the door pays back through the row once', async () => {
-  const tok = await stake(0.1);
+  const tok = await stake(0.5);
   const sig = lastSig();
   const c = await connect();
-  c.s.emit('pp:join', { name: 'dur', stake: 0.1, entryToken: tok });
+  c.s.emit('pp:join', { name: 'dur', stake: 0.5, entryToken: tok });
   assert.ok(await until(() => c.has('pp:joined'), 6000), 'seated: ' + JSON.stringify(c.got.map((g) => g[0])));
   assert.strictEqual(ledgerDb.stakes.get(sig).state, 'consumed');
   assert.ok(ledgerDb.stakes.get(sig).claim_key);
   c.s.close();
 
-  const tok2 = await stake(0.1);
+  const tok2 = await stake(0.5);
   const sig2 = lastSig();
   ops.set({ on: true, message: 'test' });
   try {
     const c2 = await connect();
-    c2.s.emit('pp:join', { name: 'dur2', stake: 0.1, entryToken: tok2 });
+    c2.s.emit('pp:join', { name: 'dur2', stake: 0.5, entryToken: tok2 });
     const refused = await until(() => c2.has('pp:refused'));
     assert.deepStrictEqual([refused[1].why, refused[1].refunded], ['maintenance', true]);
     const owed = await until(() => ledgerDb.payouts.filter((p) => p.stake_sig === sig2).length === 1 && ledgerDb.payouts.filter((p) => p.stake_sig === sig2));
-    assert.deepStrictEqual(owed.map((p) => [p.wallet_address, p.amount_sol, p.reason]), [[PAYER, 0.1, 'refund paper maintenance']]);
+    assert.deepStrictEqual(owed.map((p) => [p.wallet_address, p.amount_sol, p.reason]), [[PAYER, 0.5, 'refund paper maintenance']]);
     assert.strictEqual(ledgerDb.stakes.get(sig2).state, 'refunded');
     c2.s.close();
   } finally {
@@ -185,35 +187,36 @@ test('a real token at Paper claims its row before the seat, and a refusal at the
 });
 
 test('a real token at the snake and knockout doors claims its row before seating; agar.io never touches a token', async () => {
-  const tok = await stake(0.1);
+  const tok = await stake(0.5);
   const sig = lastSig();
   const c = await connect();
-  c.s.emit('play', { name: 'snk', stake: 0.1, entryToken: tok, region: 'na' });
+  c.s.emit('play', { name: 'snk', stake: 0.5, entryToken: tok, region: 'na' });
   assert.ok(await until(() => c.has('game_joined'), 6000), 'snake joined: ' + JSON.stringify(c.got.map((g) => g[0])));
   assert.strictEqual(ledgerDb.stakes.get(sig).state, 'consumed');
   c.s.close();
 
-  const tokK = await stake(0.1);
+  const tokK = await stake(0.5);
   const sigK = lastSig();
   const k = await connect();
-  k.s.emit('ko:queue', { name: 'ko', stake: 0.1, entryToken: tokK });
+  k.s.emit('ko:queue', { name: 'ko', stake: 0.5, entryToken: tokK });
   const queued = await until(() => k.has('ko:queued'));
   assert.ok(queued, JSON.stringify(k.got.map((g) => g[0])));
-  assert.strictEqual(queued[1].worth, 0.1);
+  assert.strictEqual(queued[1].worth, 0.5);
   assert.strictEqual(ledgerDb.stakes.get(sigK).state, 'consumed');
   k.s.close();
 
-  /* The old tier door (dime), through the tier submit path. agar.io has no paid door at all now:
+  /* The old tier door (dollar), through the tier submit path. agar.io has no paid door at all now:
      the old game's cell:join is gone with it (test/agarSwap.test.js), and the new game on /ag
-     reads no token. So a dime token sent to either agar door is never touched and its row stays
-     pending; the same token then claims its row at the snake dime door. */
-  landed = 0.1;
-  const r = await call(port, 'POST', '/api/submit-stake', { lobbyType: 'dime', signedTx: tx('agar-dime'), walletAddress: PAYER });
+     reads no token. So a dollar tier token sent to either agar door is never touched and its row
+     stays pending; the same token then claims its row at the snake dollar door. (This used the dime
+     tier until BACKLOG 2.1 retired it.) */
+  landed = 1;
+  const r = await call(port, 'POST', '/api/submit-stake', { lobbyType: 'dollar', signedTx: tx('agar-dollar'), walletAddress: PAYER });
   assert.strictEqual(r.status, 200, r.text);
   const sigA = lastSig();
-  assert.strictEqual(ledgerDb.stakes.get(sigA).label, 'lobby dime');
+  assert.strictEqual(ledgerDb.stakes.get(sigA).label, 'lobby dollar');
   const a = await connect();
-  a.s.emit('cell:join', { name: 'ag', lobbyType: 'dime', entryToken: r.json.entryToken, region: 'na' });
+  a.s.emit('cell:join', { name: 'ag', lobbyType: 'dollar', entryToken: r.json.entryToken, region: 'na' });
   a.s.emit('cell:respawn', { entryToken: r.json.entryToken });
   const pong = new Promise((res) => { a.s.once('pong_check', () => res(true)); setTimeout(() => res(false), 4000); });
   a.s.emit('ping_check');
@@ -226,28 +229,75 @@ test('a real token at the snake and knockout doors claims its row before seating
     const frames = [];
     g.on('ag:f', (b) => frames.push(b));
     assert.ok(await until(() => g.connected), 'the new agar.io namespace is open');
-    g.emit('ag:join', { name: 'paid', entryToken: r.json.entryToken, stake: 0.1 });
+    g.emit('ag:join', { name: 'paid', entryToken: r.json.entryToken, stake: 1 });
     const n = frames.length;
     assert.ok(await until(() => frames.length > n + 3), 'seated and sent its world, free');
   } finally {
     g.close();
   }
   assert.strictEqual(ledgerDb.stakes.get(sigA).state, 'pending', 'the new agar.io never touched the token');
-  a.s.emit('play', { name: 'tier', lobbyType: 'dime', entryToken: r.json.entryToken, region: 'na' });
+  a.s.emit('play', { name: 'tier', lobbyType: 'dollar', entryToken: r.json.entryToken, region: 'na' });
   await until(() => ledgerDb.stakes.get(sigA).state === 'consumed');
   assert.strictEqual(ledgerDb.stakes.get(sigA).state, 'consumed');
   a.s.close();
 
   // A token whose row a sweep refunded first is never seated anywhere.
-  const tokR = await stake(0.1);
+  const tokR = await stake(0.5);
   const sigR = lastSig();
   await ledgerDb.refundStakeOwed(sigR, 'refund unspent entry (sweep)', null);
   const x = await connect();
-  x.s.emit('play', { name: 'late', stake: 0.1, entryToken: tokR, region: 'na' });
+  x.s.emit('play', { name: 'late', stake: 0.5, entryToken: tokR, region: 'na' });
   const err = await until(() => x.has('error'));
   assert.ok(err, JSON.stringify(x.got.map((g) => g[0])));
   assert.match(err[1].message, /already refunded/);
   assert.ok(!x.has('game_joined'));
   assert.strictEqual(ledgerDb.payouts.filter((p) => p.stake_sig === sigR).length, 1);
   x.s.close();
+});
+
+/* BACKLOG 2.1 retired the $0.10 rung. A page left open across the deploy still sends stake 0.1 (the
+   snake page re-sends its stake on every connect). It is refused at every door, never seated free,
+   never seated at $0.50, and a real token offered with it is left unspent for its own rung. */
+test('a retired $0.10 join is refused at the snake and Paper doors, and the token it carried is not spent', async () => {
+  const tok = await stake(0.5);
+  const sig = lastSig();
+
+  const c = await connect();
+  c.s.emit('play', { name: 'old', stake: 0.1, entryToken: tok, region: 'na' });
+  const err = await until(() => c.has('error'));
+  assert.ok(err, JSON.stringify(c.got.map((g) => g[0])));
+  assert.match(err[1].message, /no longer offered/);
+  c.s.emit('play', { name: 'old', lobbyType: 'dime', entryToken: tok, region: 'na' });
+  c.s.emit('spectate:join', { stake: 0.1, region: 'na' });
+  const pong = new Promise((res) => { c.s.once('pong_check', () => res(true)); setTimeout(() => res(false), 4000); });
+  c.s.emit('ping_check');
+  assert.ok(await pong);
+  assert.strictEqual(c.got.filter((g) => g[0] === 'error').length, 3, 'the dime tier and a $0.10 watch are refused too');
+  assert.ok(!c.has('game_joined'), 'not seated, not even free');
+  assert.strictEqual(ledgerDb.stakes.get(sig).state, 'pending', 'the token was not spent');
+  c.s.close();
+
+  const p = await connect();
+  p.s.emit('pp:join', { name: 'old', stake: 0.1, entryToken: tok });
+  const refused = await until(() => p.has('pp:refused'));
+  assert.ok(refused, JSON.stringify(p.got.map((g) => g[0])));
+  assert.strictEqual(refused[1].why, 'bad-stake');
+  assert.ok(!p.has('pp:joined'));
+  assert.strictEqual(ledgerDb.stakes.get(sig).state, 'pending', 'still unspent');
+  assert.strictEqual(ledgerDb.payouts.filter((x) => x.stake_sig === sig).length, 0, 'and nothing owed: it is still a live token');
+  p.s.close();
+
+  // The same token at its own rung seats exactly once, at $0.50.
+  const s = await connect();
+  s.s.emit('play', { name: 'new', stake: 0.5, entryToken: tok, region: 'na' });
+  assert.ok(await until(() => s.has('game_joined'), 6000), JSON.stringify(s.got.map((g) => g[0])));
+  assert.strictEqual(ledgerDb.stakes.get(sig).state, 'consumed');
+  s.s.close();
+
+  // The board lists the new rung for every ladder game, and never the old one.
+  const live = await call(port, 'GET', '/api/live');
+  const ids = live.json.lobbies.map((l) => l.id);
+  assert.ok(!live.json.lobbies.some((l) => Math.abs(Number(l.stake) - 0.1) < 1e-9), 'no $0.10 row: ' + ids.join(' '));
+  assert.ok(!ids.some((id) => /s0[._]1\b/.test(id)), ids.join(' '));
+  for (const want of ['paper:na:s0.5', 'snake:na:s0.5']) assert.ok(ids.includes(want), want + ' in ' + ids.join(' '));
 });

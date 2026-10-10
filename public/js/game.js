@@ -2849,3 +2849,7 @@ function hideGameMessage() {
 /* Sent by the owner console to everyone in a game. It was already being
    broadcast and nothing anywhere was listening for it. */
 socket.on('announce', (m) => showGameMessage(m && m.text));
+/* A join or Play again the server refused, with its reason: an entry it could not confirm, or a
+   buy-in that is no longer offered (a page left open across the deploy that retired $0.10).
+   The server always sent these and nothing here showed them, so a refused player just waited. */
+socket.on(CONSTANTS.EVENTS.ERROR, (m) => showGameMessage(m && m.message));

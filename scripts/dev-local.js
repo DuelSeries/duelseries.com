@@ -14,7 +14,7 @@
      Privy      unset, so token auth is disabled. index.js already tolerates
                 this and says so at boot.
      ntfy, PostHog, CoinGecko    disabled by env, and caught by the guard too.
-     Paper money   PAPER_PAID + PAPER_DEV_TOKENS: the $0.10 and $1 arenas open,
+     Paper money   PAPER_PAID + PAPER_DEV_TOKENS: the $0.50 and $1 arenas open,
                 entry tokens come from a POST with no chain behind it, and
                 cash-outs go through a fake withdraw that only logs.
 

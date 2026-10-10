@@ -366,7 +366,7 @@ test('the battle royale waiting room is NOT retired', () => {
 test('a paid room is still refused bots, retired or not', () => {
   // The money guard is a separate question from the seeding one and must not
   // have been weakened by adding the second.
-  const paid = room('na_dime');
+  const paid = room('na_dollar');
   paid.fallbackOnly = true;
   assert.equal(paid.botsAllowed(), false, 'a paid room allows no bots');
   assert.equal(paid.seedsBots(), false, 'and certainly seeds none');

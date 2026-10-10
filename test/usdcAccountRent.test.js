@@ -76,21 +76,22 @@ test('the USDC stake verifier asks for the exact rung, with no 1 percent toleran
   const real = Usdc.verifyUsdcStake;
   Usdc.verifyUsdcStake = async (sig, min) => { asked.push(min); return { payer: 'P', usdc: min }; };
   try {
-    await money.verifyStake('s1', money.amountFor(0.1));
+    await money.verifyStake('s1', money.amountFor(0.5));
     await money.verifyStake('s2', money.amountFor(1));
   } finally {
     Usdc.verifyUsdcStake = real;
   }
-  assert.deepStrictEqual(asked, [0.1, 1]);
-  assert.strictEqual(Usdc.toUnits(asked[0]), 100000n, 'what the quote asks the widget to sign');
+  assert.deepStrictEqual(asked, [0.5, 1]);
+  assert.strictEqual(Usdc.toUnits(asked[0]), 500000n, 'what the quote asks the widget to sign');
 });
 
 test('a payment is never rounded up to a rung it did not cover', () => {
-  assert.strictEqual(tierFor(0.099), 0, '99000 units do not buy the $0.10 seat');
-  assert.strictEqual(tierFor(0.099999), 0);
-  assert.strictEqual(tierFor(0.995), 0.1, '995000 units do not buy the $1 seat');
-  assert.strictEqual(tierFor(0.999999), 0.1);
-  assert.strictEqual(tierFor(0.1), 0.1);
+  assert.strictEqual(tierFor(0.495), 0, '495000 units do not buy the $0.50 seat');
+  assert.strictEqual(tierFor(0.499999), 0);
+  assert.strictEqual(tierFor(0.1), 0, '100000 units (the retired $0.10) buy no paid seat');
+  assert.strictEqual(tierFor(0.995), 0.5, '995000 units do not buy the $1 seat');
+  assert.strictEqual(tierFor(0.999999), 0.5);
+  assert.strictEqual(tierFor(0.5), 0.5);
   assert.strictEqual(tierFor(1), 1);
   assert.strictEqual(tierFor(1.04), 1);
 });

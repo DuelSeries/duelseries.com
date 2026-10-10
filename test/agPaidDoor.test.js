@@ -45,7 +45,7 @@ function tokenStore() {
     consumed,
     mint(o) {
       const t = 'tok-' + ++n + '-' + Math.random().toString(16).slice(2, 10);
-      tokens.set(t, Object.assign({ stake: 0.1, worth: 0.1, paid: 0.1, walletAddress: 'W1' }, o));
+      tokens.set(t, Object.assign({ stake: 0.5, worth: 0.5, paid: 0.5, walletAddress: 'W1' }, o));
       return t;
     },
     consumeAtStake(token, stake) {
@@ -104,7 +104,7 @@ function sock(id) {
 
 function joinPaid(env, socket, msg) {
   env.clock.t += 1000;   // past the door's own rate limit
-  env.door.join(socket, Object.assign({ stake: 0.1, name: 'n' }, msg));
+  env.door.join(socket, Object.assign({ stake: 0.5, name: 'n' }, msg));
 }
 
 function roomOf(env, socket) {
@@ -115,7 +115,7 @@ test('wantsPaid: a stake above 0, an entryToken or a resumeKey goes to the paid 
   assert.strictEqual(wantsPaid({ name: 'x' }), false);
   assert.strictEqual(wantsPaid({ stake: 0 }), false);
   assert.strictEqual(wantsPaid({ stake: '0' }), false);
-  assert.strictEqual(wantsPaid({ stake: 0.1 }), true);
+  assert.strictEqual(wantsPaid({ stake: 0.5 }), true);
   assert.strictEqual(wantsPaid({ stake: 0.10499 }), true, 'not a rung: the door refuses it (bad-stake)');
   assert.strictEqual(wantsPaid({ entryToken: 't' }), true);
   assert.strictEqual(wantsPaid({ resumeKey: 'k' }), true);
@@ -126,12 +126,12 @@ test('wantsPaid: a stake above 0, an entryToken or a resumeKey goes to the paid 
 test('paid rungs exist only with AG_PAID; rows keep the ag:<region>:s<stake> ids, count every open account, no bots', () => {
   const off = setup({ paid: false });
   assert.deepStrictEqual(off.arenas.boardRows().map((r) => r.stake), [0]);
-  assert.strictEqual(off.arenas.seatFor(0.1), null);
+  assert.strictEqual(off.arenas.seatFor(0.5), null);
   const env = setup();
   const rows = env.arenas.boardRows();
-  assert.deepStrictEqual(rows.map((r) => r.id), ['ag:na:s0', 'ag:na:s0.1', 'ag:na:s1']);
+  assert.deepStrictEqual(rows.map((r) => r.id), ['ag:na:s0', 'ag:na:s0.5', 'ag:na:s1']);
   const paid = rows[1];
-  assert.deepStrictEqual(paid, { id: 'ag:na:s0.1', game: 'agar', region: 'na', stake: 0.1, players: 0, parked: 0,
+  assert.deepStrictEqual(paid, { id: 'ag:na:s0.5', game: 'agar', region: 'na', stake: 0.5, players: 0, parked: 0,
     bots: 0, capacity: FIXTURE.L39.value, state: 'open' });
   const s = sock();
   joinPaid(env, s, { entryToken: env.store.mint({}) });
@@ -183,7 +183,7 @@ test('door order: bad stake and bad shapes are refused before any token is read'
   const env = setup();
   const s = sock();
   for (const msg of [{ stake: 0.10499, entryToken: 'x' }, { stake: 'abc', entryToken: 'x' }, { stake: {}, entryToken: 'x' },
-    { stake: 0.1, entryToken: 5 }, { stake: 0.1, entryToken: 'x'.repeat(65) }, { stake: 0.1, resumeKey: {} }]) {
+    { stake: 0.5, entryToken: 5 }, { stake: 0.5, entryToken: 'x'.repeat(65) }, { stake: 0.5, resumeKey: {} }]) {
     joinPaid(env, s, msg);
   }
   assert.deepStrictEqual(env.store.consumed, [], 'nothing consumed');
@@ -197,23 +197,23 @@ test('door order: bad stake and bad shapes are refused before any token is read'
 test('a dev token seats a player: worth and wallet come from the token only; ag:joined carries the resume key', () => {
   const env = setup();
   const s = sock();
-  const token = env.store.mint({ walletAddress: 'WREAL', worth: 0.1 });
+  const token = env.store.mint({ walletAddress: 'WREAL', worth: 0.5 });
   joinPaid(env, s, { entryToken: token, worth: 1000, walletAddress: 'WEVIL', micro: 1e9 });
   const room = roomOf(env, s);
   const seat = room.seatOf(s.id);
   const acct = room.money.account(seat.pid);
   assert.strictEqual(acct.wallet, 'WREAL');
-  assert.strictEqual(acct.deposit, 100000);
+  assert.strictEqual(acct.deposit, 500000);
   assert.strictEqual(acct.ip, '9.9.9.9');
   const j = s.last('ag:joined');
-  assert.deepStrictEqual([j.stake, j.micro, j.resumed, j.confirmed, j.holdTicks], [0.1, 100000, false, false, AG_MONEY.HOLD_TICKS.value]);
+  assert.deepStrictEqual([j.stake, j.micro, j.resumed, j.confirmed, j.holdTicks], [0.5, 500000, false, false, AG_MONEY.HOLD_TICKS.value]);
   assert.strictEqual(j.resumeKey, acct.resumeKey);
   assert.strictEqual(env.store.has(token), false, 'the token is spent');
   // a token is one-time: sending it again from a fresh socket takes back the UNCONFIRMED seat, deposits nothing
   const t = sock();
   joinPaid(env, t, { entryToken: token });
   assert.strictEqual(roomOf(env, t), room);
-  assert.strictEqual(room.money.bank.ledger.inMicro, 100000, 'nothing deposited twice');
+  assert.strictEqual(room.money.bank.ledger.inMicro, 500000, 'nothing deposited twice');
   assert.deepStrictEqual(s.of('ag:replaced'), [{}]);
 });
 
@@ -247,8 +247,8 @@ test('every server refusal after the token is spent refunds exactly once with a 
     const s = sock();
     joinPaid(env, s, { entryToken: env.store.mint({}) });
     assert.deepStrictEqual(env.refunds.map((r) => r.why), [why], why + ': one refund');
-    assert.strictEqual(env.refunds[0].micro, 100000);
-    assert.strictEqual(env.refunds[0].paid, 0.1);
+    assert.strictEqual(env.refunds[0].micro, 500000);
+    assert.strictEqual(env.refunds[0].paid, 0.5);
     assert.strictEqual(env.refunds[0].wallet, 'W1');
     assert.deepStrictEqual(s.last('ag:refused').why, why);
     assert.strictEqual(s.last('ag:refused').refunded, true);
@@ -284,7 +284,7 @@ test('maintenance: a paid join is consumed and refunded, and it gets there befor
   const p = sock();
   p.handshake.auth = { paid: 1 };
   api.attach(p);
-  p.fire('ag:join', { stake: 0.1, entryToken: store.mint({}), name: 'p' });
+  p.fire('ag:join', { stake: 0.5, entryToken: store.mint({}), name: 'p' });
   assert.deepStrictEqual(refunds.map((r) => r.why), ['maintenance'], 'refunded, never refused bare');
   assert.strictEqual(p.last('ag:refused').refunded, true);
 });
@@ -293,8 +293,8 @@ test('the door limiter answers slow-down (with retry), never a silent drop, and 
   const env = setup();
   const s = sock();
   const token = env.store.mint({});
-  env.door.join(s, { stake: 0.1, entryToken: env.store.mint({ walletAddress: 'WX' }) });
-  env.door.join(s, { stake: 0.1, entryToken: token });
+  env.door.join(s, { stake: 0.5, entryToken: env.store.mint({ walletAddress: 'WX' }) });
+  env.door.join(s, { stake: 0.5, entryToken: token });
   const r = s.last('ag:refused');
   assert.deepStrictEqual([r.why, r.retry], ['slow-down', true]);
   assert.ok(env.store.has(token), 'the limited join spent nothing');
@@ -315,7 +315,7 @@ test('one seat per wallet: a second token from the same wallet reattaches the ol
   assert.strictEqual(room.seatOf(b.id).pid, pid, 'the same seat, back');
   assert.deepStrictEqual(env.refunds.map((r) => r.why), ['reattach']);
   assert.strictEqual(room.money.openCount(), 1);
-  assert.strictEqual(room.money.bank.ledger.inMicro, 100000, 'the second stake never entered the room');
+  assert.strictEqual(room.money.bank.ledger.inMicro, 500000, 'the second stake never entered the room');
 });
 
 test('two tokens of one wallet raced through the durable path: one seat, one reattach refund', async () => {
@@ -379,7 +379,7 @@ test('resume by key: works while the door is closed; a gone seat answers its rea
   const u = sock();
   joinPaid(env, u, { resumeKey: key });
   const c = u.last('ag:cashedout');
-  assert.deepStrictEqual([c.grossMicro, c.cutMicro, c.netMicro, c.resumed], [100000, 10000, 90000, true]);
+  assert.deepStrictEqual([c.grossMicro, c.cutMicro, c.netMicro, c.resumed], [500000, 50000, 450000, true]);
   joinPaid(env, u, { resumeKey: 'no-such-key' });
   assert.strictEqual(u.last('ag:refused').why, 'expired');
   // outcomes are kept OUTCOME_TTL_MS
@@ -441,7 +441,7 @@ test('walletSeat is cleared on every exit: death, cash-out, release, auto settle
   const eroom = e.room;
   e.room.emergencyClose();
   assert.strictEqual(env.arenas.walletSeatOf('W-emerg'), null, 'emergency');
-  assert.ok(!env.arenas.rungs.get(0.1).includes(eroom), 'replaced at its index');
+  assert.ok(!env.arenas.rungs.get(0.5).includes(eroom), 'replaced at its index');
   assert.strictEqual(e.s.last('ag:closed').why, 'emergency');
   // stop
   const st = enter('W-stop');
@@ -455,11 +455,11 @@ test('sweep never closes a paid room with accounts or money; a settling room sta
   const s = sock();
   joinPaid(env, s, { entryToken: env.store.mint({ walletAddress: 'WS' }) });
   const room = roomOf(env, s);
-  const extra = env.arenas.seatFor(0.1, room);   // an empty overflow room
+  const extra = env.arenas.seatFor(0.5, room);   // an empty overflow room
   room.removeSocket(s.id);
   env.arenas.sweep(env.clock.t);
   env.arenas.sweep(env.clock.t + 10 * 60 * 1000);
-  const list = env.arenas.rungs.get(0.1);
+  const list = env.arenas.rungs.get(0.5);
   assert.ok(list.includes(room), 'the room with an account stays');
   if (extra.index > 0) assert.ok(!list.includes(extra), 'the empty overflow room went');
   // a room whose emergency settle left money: settling, counted by all(), retried by the sweep
@@ -503,7 +503,7 @@ test('agSockets: an auth.paid socket is never refused full; ag:leave is refused 
   api.attach(p);
   assert.deepStrictEqual(p.of('ag:refused'), [], 'the paid hand-off is not');
   env.clock.t += 1000;
-  p.fire('ag:join', { stake: 0.1, entryToken: env.store.mint({ walletAddress: 'WL' }), name: 'p' });
+  p.fire('ag:join', { stake: 0.5, entryToken: env.store.mint({ walletAddress: 'WL' }), name: 'p' });
   assert.ok(p.last('ag:joined'), 'seated by the door');
   p.fire('ag:leave');
   assert.deepStrictEqual(p.last('ag:refused'), { why: 'cash-out-to-leave' });
@@ -548,7 +548,7 @@ test('without the money wired, a paid payload is refused and never seated free',
   const api = attachAgSockets(null, env.arenas, { socketRL: () => true, sanitizeName: (x) => String(x || ''), log: quiet });
   const s = sock();
   api.attach(s);
-  s.fire('ag:join', { stake: 0.1, entryToken: 'x', name: 's' });
+  s.fire('ag:join', { stake: 0.5, entryToken: 'x', name: 's' });
   assert.deepStrictEqual(s.last('ag:refused'), { why: 'not-open' });
   const room = env.arenas.roomOfSocket(s.id);
   assert.strictEqual(room.seatOf(s.id).joined, false, 'not playing');

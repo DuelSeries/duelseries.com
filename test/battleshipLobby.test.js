@@ -58,8 +58,8 @@ test('a PAID table is never given a bot', () => {
 test('seats are matched by rung, not by who is next in line', () => {
   const { lob } = lobby();
   lob.enqueue(sock('A'), 'A', 'W1', 1, 1);
-  lob.enqueue(sock('B'), 'B', 'W2', 0.10, 0.10);
-  assert.strictEqual(lob.rooms.size, 0, 'a dollar does not play a dime');
+  lob.enqueue(sock('B'), 'B', 'W2', 0.50, 0.50);
+  assert.strictEqual(lob.rooms.size, 0, 'a dollar does not play fifty cents');
   lob.enqueue(sock('C'), 'C', 'W3', 1, 1);
   assert.strictEqual(lob.rooms.size, 1);
   assert.ok(lob.roomOf('A').players.has('C'));
