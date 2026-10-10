@@ -195,14 +195,20 @@ async function duel(game, pre) {
   const a = await connect(), b = await connect();
   // A stale $0.10 seat is refused, and the $0.50 token it carried is not spent.
   a.s.emit(game + ':queue', { name: 'a', stake: 0.1, entryToken: tokA });
-  assert.ok(await until(() => a.has(game + ':refused')), game + ' $0.10 refused');
+  const no = await until(() => a.has(game + ':refused'));
+  assert.ok(no && /no longer offered/.test(no[1].why), game + ' $0.10 refused as a retired buy-in');
   assert.ok(!a.has(game + ':queued'));
   await new Promise((r) => setTimeout(r, 1100));   // the queue's own rate limit
   a.s.emit(game + ':queue', { name: 'a', stake: 0.5, entryToken: tokA });
-  b.s.emit(game + ':queue', { name: 'b', stake: 0.5, entryToken: tokB });
+  // B names the rung with float noise inside the token's 1e-9 match. It is queued at the ladder's own
+  // 0.5, so it is matched with A (keyed by the client's number, it sat in a bucket of its own).
+  b.s.emit(game + ':queue', { name: 'b', stake: 0.5000000005, entryToken: tokB });
   const qa = await until(() => a.has(game + ':queued'));
   assert.ok(qa, JSON.stringify(a.got.map((g) => g[0])));
   assert.deepStrictEqual([qa[1].stake, qa[1].worth], [0.5, 0.5]);
+  const qb = await until(() => b.has(game + ':queued'));
+  assert.ok(qb, JSON.stringify(b.got.map((g) => g[0])));
+  assert.deepStrictEqual([qb[1].stake, qb[1].worth], [0.5, 0.5], 'queued at the rung itself, not the number sent');
   const started = game === 'ko' ? 'ko:start' : 'bs:state';
   assert.ok(await until(() => a.has(started) && b.has(started), 8000), 'matched: ' + JSON.stringify(a.got.map((g) => g[0])));
   // A walks out of the match: the table is B's. Pot 1.00, prize 0.90, rake 0.10.

@@ -922,8 +922,9 @@ body.no-foot footer{display:none}
 #detail.duel.freeonly .stakes,#detail.duel.freeonly .stakeoff,
 #detail.duel.freeonly .sl,#detail.duel.paidduel .sl{display:block}
 #detail.duel.freeonly .stakes,#detail.duel.paidduel .stakes{display:flex}
-/* The struck-through note belongs to a table with closed rungs. This one has
-   none, so it would be an empty line pushing the button down. */
+/* Its paid rungs are struck through until the lobby can start a paid duel,
+   and the note under Play (dbnote) already says so. A second line saying the
+   same would only push the button down. */
 #detail.duel.paidduel .stakeoff{display:none}
 /* The ladder, the open-lobby list and the snake skin all belong to an arena.
    A duel has no room to list, nobody is in it yet, and a duel game has no
@@ -2406,10 +2407,12 @@ function refreshSteps(gameId){
   STEPS=LADDER.slice();
   const g=G(gameId);
   if(g&&g.paid){
-    /* Every rung is real here. The board does not list a room per rung for a
-       duel - there is no room until two people are matched - so asking it
-       which stakes are playable would strike them all through. */
-    STEPS_OFF=new Set();
+    /* The server takes these buy-ins (ko:queue, bs:queue), but the lobby
+       cannot start a paid duel yet: startFromDetail opens every built duel at
+       Free. So the paid rungs are struck through, like Bowmasters', rather
+       than drawn live over a Play button that would seat a free bot table.
+       Open them here the day that launch passes the rung to the widget. */
+    STEPS_OFF=new Set(STEPS.filter(s=>s!==0));
   }else if(g&&g.freeOnly){
     /* Free is the only rung this game seats today. Everything else is drawn
        struck through, which says the product offers it and this table does not
@@ -2429,7 +2432,11 @@ function refreshSteps(gameId){
 }
 /* The buy-in you last played, so coming back tomorrow lands on the same one
    rather than making you set it again. Falls back to the lowest real buy-in
-   for a first visit, or if the remembered amount is no longer offered. */
+   for a first visit, or if the remembered rung is closed right now.
+   A remembered rung the ladder no longer has (the retired $0.10, BACKLOG 2.1)
+   lands on Free and is forgotten. The wallet signs a stake without a prompt,
+   so preselecting the next paid rung would charge five times what that player
+   ever chose with one habitual tap on Play. */
 const LAST_STAKE_KEY='duelseries_last_stake';
 function rememberStake(v){ try{localStorage.setItem(LAST_STAKE_KEY,String(v))}catch(_){} }
 function defaultStep(){
@@ -2439,6 +2446,13 @@ function defaultStep(){
   if(last!==null&&isFinite(last)){
     const i=STEPS.findIndex(v=>Math.abs(v-last)<1e-9);
     if(openAt(i))return i;        /* including 0: free is a real choice */
+    if(last>0&&!LADDER.some(v=>Math.abs(v-last)<1e-9)){
+      /* Forgotten only when the ladder file loaded. Without it LADDER is Free
+         alone, and a $1.00 player would lose their rung to a failed load. */
+      if(window.DS_LADDER){ try{localStorage.removeItem(LAST_STAKE_KEY)}catch(_){} }
+      const free=STEPS.indexOf(0);
+      if(openAt(free))return free;
+    }
   }
   const paid=STEPS.findIndex(v=>v>0&&!STEPS_OFF.has(v));
   if(paid>=0)return paid;
@@ -3471,12 +3485,11 @@ function open_(id){
     dn.textContent='Free while the game is new. Nothing staked, nothing paid out '
       +'— you are playing for the win.';
   }else if(dn&&cur.paid){
-    /* Said before they pay, not after. A paid duel cannot be seated against a
-       bot, so on a game this new the honest thing is to say it will wait and
-       what happens if nobody comes. */
-    dn.textContent='Free plays a bot straight away. A paid table waits for a real '
-      +'opponent at the same buy-in — winner takes both, minus the ten percent '
-      +'house cut. If nobody joins within a minute your buy-in is returned.';
+    /* Only Free can be started from here today (refreshSteps strikes the paid
+       rungs through), so the note says that rather than describing a paid
+       table nobody can reach yet. */
+    dn.textContent='Free plays a bot straight away. Paid tables are not open yet, '
+      +'so nothing is staked and nothing is paid out.';
   }
   det.classList.remove('queueing');
   if(cur.duel)drawDuelBet();
@@ -3643,7 +3656,10 @@ function drawDuelBet(){
   if(rungs)rungs.innerHTML=DUEL_LADDER.map((_,i)=>
     `<span class="dbrung${i===duelStep?' on':i<duelStep?' past':''}"></span>`).join('');
   const note=document.getElementById('dbnote');
-  if(cur&&cur.freeOnly)return;          // its note is set by open_, not by the ladder
+  /* A duel on the fixed ladder (free-only, or Knockout and Battleship) has its
+     note set by open_. The stepper is hidden there, and its "$1.00" line used
+     to overwrite that note under a Free selection. */
+  if(cur&&(cur.freeOnly||cur.paid))return;
   if(note)note.textContent=amt===0
     ? 'Nothing staked and nothing paid out. Play for the win.'
     : 'Your opponent puts in the same $'+amt.toFixed(2)+'. Winner takes both, minus the ten percent house cut.';

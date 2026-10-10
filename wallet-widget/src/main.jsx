@@ -66,7 +66,7 @@ function pageRegion() { try { return sessionStorage.getItem('region') || lobbyRe
 
 /* `sel` selects the room to buy into, in one of two forms:
      'dollar' | { lobbyType: 'dollar' }   the original fixed tiers
-     { stake: 2 }                     a rung of the stake ladder
+     { stake: 0.5 }                   a rung of the stake ladder
    Both are supported while the two lobbies run side by side: index.html sends
    a tier, /v2 sends a rung. The request differs only in which parameter names
    the room; everything about building, signing and submitting the transfer is

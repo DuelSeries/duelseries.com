@@ -469,6 +469,60 @@ test('the last buy-in played is remembered, including free', () => {
     'recorded at launch, not at selection');
 });
 
+/* The lobby's own refreshSteps and defaultStep, cut out of v2.html and run against a stub board.
+   BACKLOG 2.1 review: the wallet signs a stake without a prompt, so a remembered rung the ladder
+   no longer has (the retired $0.10) must land on Free, never on the next paid rung ($0.50). */
+function stepsHarness({ last, ladder = true, open = [0, 0.5, 1] } = {}) {
+  const html = v2();
+  const a = html.indexOf('let STEPS=[0];');
+  const b = html.indexOf('const G=id=>GAMES.find(x=>x.id===id);');
+  assert.ok(a > -1 && b > a, 'the ladder code is where this test cuts it');
+  const m = new Map(last === undefined ? [] : [['duelseries_last_stake', String(last)]]);
+  const win = {
+    GAMES: [{ id: 'snake', ladder: 1 }, { id: 'knockout', duel: 1, built: 1, paid: 1 },
+            { id: 'tanks', duel: 1, built: 1, freeOnly: 1 }],
+    localStorage: { getItem: k => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)),
+                    removeItem: k => m.delete(k) },
+    V2Board: { playableStakes: () => new Set(open) },
+  };
+  if (ladder) win.DS_LADDER = require(path.join(ROOT, 'shared/stakeLadder.js'));
+  win.window = win;
+  vm.createContext(win);
+  vm.runInContext(html.slice(a, b) + 'const G=id=>GAMES.find(x=>x.id===id);\n' +
+    'this.t={pick(id){refreshSteps(id);si=defaultStep();return {stake:STEPS[si],off:[...STEPS_OFF]};}};', win);
+  return { pick: id => JSON.parse(JSON.stringify(win.t.pick(id))), stored: () => m.get('duelseries_last_stake') };
+}
+
+test('a remembered rung the ladder no longer has lands on Free, never on $0.50', () => {
+  const dime = stepsHarness({ last: 0.1 });
+  assert.equal(dime.pick('snake').stake, 0, 'the retired $0.10 lands on Free');
+  assert.equal(dime.stored(), undefined, 'and is forgotten');
+  // A live rung is still remembered, Free included.
+  assert.equal(stepsHarness({ last: 1 }).pick('snake').stake, 1);
+  assert.equal(stepsHarness({ last: 0 }).pick('snake').stake, 0);
+  // A first visit is unchanged: the lowest open paid rung (an open question for Owen).
+  assert.equal(stepsHarness({}).pick('snake').stake, 0.5);
+  // A live rung that is closed right now still falls to the lowest open one, as before.
+  assert.equal(stepsHarness({ last: 1, open: [0, 0.5] }).pick('snake').stake, 0.5);
+  // If the ladder file did not load, the lobby offers Free and forgets nothing.
+  const noFile = stepsHarness({ last: 1, ladder: false });
+  assert.equal(noFile.pick('snake').stake, 0);
+  assert.equal(noFile.stored(), '1', 'a $1.00 player keeps their rung through a failed load');
+});
+
+test('Knockout and Battleship strike their paid rungs through until the lobby can start a paid duel', () => {
+  /* startFromDetail opens every built duel at Free. Drawing $0.50 live over that Play button
+     promised a paid table and seated a free bot one. */
+  assert.match(v2(), /if\(cur&&cur\.built&&\(cur\.duel\|\|cur\.solo\)\)\{V2Play\.launch\(cur\.id,\{lobbyType:'free'\}\);return\}/,
+    'if this changes, open the paid rungs in refreshSteps with it');
+  const ko = stepsHarness({ last: 0.5 }).pick('knockout');
+  assert.deepEqual(ko, { stake: 0, off: [0.5, 1] }, 'Free selected, $0.50 and $1.00 struck through');
+  assert.deepEqual(stepsHarness({}).pick('tanks'), { stake: 0, off: [0.5, 1] }, 'the same as Bowmasters');
+  assert.match(v2(), /Paid tables are not open yet/, 'and the note under Play says so');
+  // The hidden stepper's "$1.00" line must not overwrite that note (it did, under a Free selection).
+  assert.match(v2(), /if\(cur&&\(cur\.freeOnly\|\|cur\.paid\)\)return;/, 'drawDuelBet leaves a fixed-ladder duel\'s note alone');
+});
+
 test('the earnings chart is scrubbable and has labelled axes', () => {
   const src = fs.readFileSync(path.join(ROOT, 'public/js/v2/chart.js'), 'utf8');
   assert.ok(/pointerdown/.test(src) && /pointermove/.test(src), 'follows a finger');
@@ -1807,6 +1861,8 @@ test('a paid agar.io stake reaches the widget only while the board lists that ru
   await ok.win.V2Board.load();
   ok.win.V2Play.launch('agar', { stake: 1 });
   assert.deepEqual(plain(ok.plays), [{ game: 'agar', sel: { stake: 1 } }], 'an open rung is staked as before');
+  // Awaited, so the stub's refused quote cannot reject after the test has ended.
+  await assert.rejects(ok.pending(), /no server here/);
   const free = lobbyHarness([AG_FREE]);
   await free.win.V2Board.load();
   free.win.V2Play.launch('agar', { stake: 0 });
@@ -1816,6 +1872,7 @@ test('a paid agar.io stake reaches the widget only while the board lists that ru
   await paper.win.V2Board.load();
   paper.win.V2Play.launch('paper', { stake: 0.5 });
   assert.deepEqual(plain(paper.plays), [{ game: 'paper', sel: { stake: 0.5 } }], 'Paper unchanged');
+  await assert.rejects(paper.pending(), /no server here/);
 
   // The detail screen's free-row count sums every row of the game, closed ones too (their players still play).
   assert.match(v2(), /const playing=\(window\.V2Board\?V2Board\.lobbies:\[\]\)\.filter\(l=>l\.game===id\)/,

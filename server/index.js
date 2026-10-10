@@ -729,7 +729,7 @@ app.post('/api/submit-stake', entryFeeLimiter, express.json({ limit: '256kb' }),
      token is minted against what actually landed in escrow, resolved down to
      the largest rung that payment covers. So the room a player may enter is
      derived from what they really paid, never from what the request claimed:
-     ask for the $100 room having paid $0.25 and you get the $0.25 room.
+     ask for the $1.00 room having paid $0.50 and you get the $0.50 room.
 
      Snapping down rather than demanding an exact match matters because by this
      point the stake has settled on-chain. A small overpay must still buy the
@@ -1062,12 +1062,12 @@ const ALL_ROOMS = () => {
 function roomLabel(r) {
   const raw = String(r.lobbyType || '');
   if (raw === 'tanks') return 'Awesome Tanks';
-  // Paper arenas are `paper_na_s0_1#2`: the rung, then which overflow arena.
+  // Paper arenas are `paper_na_s0_5#2`: the rung, then which overflow arena.
   if (raw.startsWith('paper_')) {
     return 'Paper · ' + (r.stake === 0 ? 'Free' : '$' + Number(r.stake).toFixed(2))
       + (r.index > 0 ? ' #' + r.index : '');
   }
-  // The agar.io rooms are `ag_na_s0#1` / `ag_na_s0_1#2`: the rung, then which overflow room.
+  // The agar.io rooms are `ag_na_s0#1` / `ag_na_s0_5#2`: the rung, then which overflow room.
   if (raw.startsWith('ag_')) {
     return 'agar.io · ' + (Number(r.stake) > 0 ? '$' + Number(r.stake).toFixed(2) : 'Free')
       + (r.index > 0 ? ' #' + r.index : '');
@@ -1077,7 +1077,7 @@ function roomLabel(r) {
   const game = 'slither.io';
 
   /* A LADDER RUNG NAMES ITS OWN PRICE. These rooms are called `na_s0` and
-     `na_s0_1`, and this printed the raw id, so the one room every free snake
+     `na_s0_5`, and this printed the raw id, so the one room every free snake
      player is actually in came up as "slither.io · s0" — which reads like a
      debug artefact sitting underneath a row called "slither.io · Free" that
      nobody is routed to on purpose. Adding bots to the wrong one of those two
@@ -3066,7 +3066,7 @@ io.on('connection', (socket) => {
     /* Server-verified worth from the echoed entry token — the client's entrySol
        is ignored. A respawn re-buys the room the socket is ALREADY in, taken
        from socket._stake rather than from anything the client sends now, so a
-       player cannot die in the $0.25 room and respawn into the $20 one. */
+       player cannot die in the $0.50 room and respawn into the $1.00 one. */
     const onLadder = socket._stake !== null && socket._stake !== undefined;
     const roomLabel = onLadder
       ? (socket._stake === 0 ? 'free' : '$' + Number(socket._stake).toFixed(2))
@@ -3260,11 +3260,14 @@ io.on('connection', (socket) => {
        one is refused rather than quietly seated for nothing. */
     // A number or a string only: Number() on a client-built object can throw.
     const wants = (typeof stake === 'number' || typeof stake === 'string') ? Number(stake) || 0 : 0;
+    /* The ladder's own number, never the client's. The queue is keyed by the rung, so 0.5000000005
+       (inside the token's 1e-9 match) used to open a bucket of its own that never matched. */
+    const want = wants > 0 ? rungOf(wants) : 0;
     const seat = (entry) => {
       let worth = 0, rung = 0, paid, payTo = null;
       if (entry) {
         worth = entry.worth;
-        rung = wants;
+        rung = want;
         paid = entry.paid;               // what landed: bounds a refund (stakeRules.refundBound)
         payTo = entry.walletAddress || null;
         if (entry.walletAddress) socket._walletAddress = entry.walletAddress;
@@ -3283,8 +3286,10 @@ io.on('connection', (socket) => {
       });
     };
     if (!(wants > 0)) return seat(null);
+    // Off the ladder (the retired 0.1 too): refused before the token is touched, so it stays unspent.
+    if (!want) { socket.emit('ko:refused', { why: RETIRED_BUYIN }); return; }
     // A paid seat is queued only once its stake row is claimed (enterPaid, STATUS item 7a).
-    enterPaid(socket, 'knockout', consumePaidEntryAtStake(entryToken, wants, 'knockout'), seat, (why) => {
+    enterPaid(socket, 'knockout', consumePaidEntryAtStake(entryToken, want, 'knockout'), seat, (why) => {
       socket.emit('ko:refused', { why: ENTRY_REFUSED[why] || 'that buy-in was not paid for' });
     });
   });
@@ -3326,11 +3331,12 @@ io.on('connection', (socket) => {
 
     // A number or a string only: Number() on a client-built object can throw.
     const wants = (typeof stake === 'number' || typeof stake === 'string') ? Number(stake) || 0 : 0;
+    const want = wants > 0 ? rungOf(wants) : 0;   // the ladder's own number, as in ko:queue
     const seat = (entry) => {
       let worth = 0, rung = 0, paid, payTo = null;
       if (entry) {
         worth = entry.worth;
-        rung = wants;
+        rung = want;
         paid = entry.paid;               // what landed: bounds a refund (stakeRules.refundBound)
         payTo = entry.walletAddress || null;
         if (entry.walletAddress) socket._walletAddress = entry.walletAddress;
@@ -3346,8 +3352,9 @@ io.on('connection', (socket) => {
       });
     };
     if (!(wants > 0)) return seat(null);
+    if (!want) { socket.emit('bs:refused', { why: RETIRED_BUYIN }); return; }   // token left unspent
     // A paid seat is queued only once its stake row is claimed (enterPaid, STATUS item 7a).
-    enterPaid(socket, 'battleship', consumePaidEntryAtStake(entryToken, wants, 'battleship'), seat, (why) => {
+    enterPaid(socket, 'battleship', consumePaidEntryAtStake(entryToken, want, 'battleship'), seat, (why) => {
       socket.emit('bs:refused', { why: ENTRY_REFUSED[why] || 'that buy-in was not paid for' });
     });
   });
