@@ -1,0 +1,41 @@
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>DuelSeries</title>
+<meta name="viewport" content="minimal-ui, user-scalable=no, initial-scale=0.7, maximum-scale=0.7, width=device-width" />
+<link rel="stylesheet" type="text/css" href="/css/sl.css" />
+</head>
+<body style="background: #161c22;">
+<div id="nbg" style="position: fixed; left: 0px; top: 0px;">
+</div>
+<div id="login" data-sl="login" style="position: fixed; left: 0px; top: 0px; width: 100%; height: 100%; z-index: 20; margin-top: 64px;">
+  <div id="logo" style="margin-left: auto; margin-right: auto; text-align: center; width: 450px; height: 115px; margin-top: 50px;">
+   <div style="position: absolute; z-index: 999999;" id="logoih">
+   </div>
+  </div>
+  <div id="lastscore" data-sl="lastscore" style="margin-left: auto; margin-right: auto; text-align: center; margin-top: 44px; font-family: 'Lucida Sans Unicode', 'Lucida Grande', sans-serif; font-size: 15px; color: #FFFFFF;">
+   &nbsp;
+  </div>
+</div>
+<canvas data-sl="mc" width="850" height="700" class="nsi" style="position: fixed; left: 0px; top: 0px; z-index: 5; display: none; pointer-events: none;"></canvas>
+<div data-sl="lbh" class="nsi" style='position: fixed; right: 4px; top: 4px; text-align: center; width: 285px; height: 28px; color: #ffffff; font-family: Arial, "Helvetica Neue", Helvetica, sans-serif; font-size: 21px; font-weight: bold; overflow: hidden; opacity: 0.5; z-index: 7; display: none; cursor: default; transform: translateZ(0);'></div>
+<div data-sl="lbs" class="nsi" style='position: fixed; text-align: center; right: 4px; top: 32px; width: 50px; height: 800px; color: #ffffff; font-family: Arial, "Helvetica Neue", Helvetica, sans-serif; font-size: 12px; overflow: hidden; opacity: 0.7; z-index: 7; display: none; cursor: default; line-height: 150%; transform: translateZ(0);'></div>
+<div data-sl="lbn" class="nsi" style='position: fixed; text-align: left; white-space: nowrap; right: 64px; top: 32px; width: 180px; height: 800px; color: #ffffff; font-family: Arial, "Helvetica Neue", Helvetica, sans-serif; font-size: 12px; overflow: hidden; opacity: 0.7; z-index: 8; display: none; cursor: default; line-height: 150%; transform: translateZ(0);'></div>
+<div data-sl="lbp" class="nsi" style='position: fixed; text-align: right; right: 260px; top: 32px; width: 30px; height: 800px; color: #ffffff; font-family: Arial, "Helvetica Neue", Helvetica, sans-serif; font-size: 12px; overflow: hidden; opacity: 0.7; z-index: 9; display: none; cursor: default; line-height: 150%; transform: translateZ(0);'></div>
+<div data-sl="lbf" class="nsi" style='position: fixed; left: 8px; bottom: 4px; width: 280px; height: 37px; color: #ffffff; font-family: Arial, "Helvetica Neue", Helvetica, sans-serif; font-size: 12px; overflow: hidden; opacity: 0.5; z-index: 7; display: none; cursor: default; line-height: 150%; transform: translateZ(0);'></div>
+<div data-sl="vcm" class="nsi" style='position: fixed; left: 8px; top: 4px; width: 300px; height: 228px; color: #ffffff; font-family: Arial, "Helvetica Neue", Helvetica, sans-serif; font-size: 13px; overflow: hidden; word-wrap: break-word; opacity: 0.5; z-index: 7; display: none; cursor: default; transform: translateZ(0);'></div>
+<div data-sl="loch" class="nsi" style="position: fixed; right: 16px; bottom: 16px; width: 124px; height: 124px; z-index: 10; display: none;"><img data-sl="loc"><canvas data-sl="asmc"></canvas><canvas data-sl="asmc2"></canvas><div data-sl="sid_tf" class="nsi" style='position: absolute; left: 0px; top: 0px; width: 200px; height: 37px; color: rgb(255, 255, 255); font-family: Arial, "Helvetica Neue", Helvetica, sans-serif; font-size: 14px; overflow: hidden; opacity: 0.5; text-align: center; cursor: default; text-shadow: rgb(0, 0, 0) 0px 1px 8px; transform: translateZ(0px);'></div><img data-sl="myloc"></div>
+<script src="/socket.io/socket.io.js"></script>
+<script src="/shared/slCore.js"></script>
+<script src="/shared/slWire.js"></script>
+<script src="/js/sl/slApply.js"></script>
+<script src="/js/sl/slSprites.js"></script>
+<script src="/js/sl/slDrawWorld.js"></script>
+<script src="/js/sl/slDrawSnake.js"></script>
+<script src="/js/sl/slHud.js"></script>
+<script src="/js/sl/slLoop.js"></script>
+<script src="/js/sl/slPage.js"></script>
+<script src="/js/sl/slInput.js"></script>
+<script src="/js/sl/slNet.js"></script>
+<script src="/js/sl/slMain.js"></script>
+</body>
+</html>
