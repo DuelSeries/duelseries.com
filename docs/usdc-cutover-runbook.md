@@ -36,8 +36,8 @@ This runbook is the live mainnet cutover. It's fully reversible (one env flip).
 5. **Verify:**
    - `curl https://duelseries.com/api/money-config` → `{"mode":"usdc","unit":"USDC", ...}`
    - `/api/admin/solvency` (owner) → escrow USDC balance shows your float.
-   - **Smoke test:** from a wallet holding a little USDC, stake a $0.50 lobby, play, cash out —
-     confirm the USDC moves and the payout lands (it was $0.10 at the cutover; that rung is retired).
+   - **Smoke test:** from a wallet holding a little USDC, stake a $0.50 lobby, play, cash out,
+     and confirm the USDC moves and the payout lands (it was $0.10 at the cutover; that rung is retired).
 
 ## Rollback (instant)
 Set `MONEY_MODE=sol` (or remove the line) in both `.env`s + `pm2 restart`. The SOL escrow still
