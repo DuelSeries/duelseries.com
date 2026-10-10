@@ -154,6 +154,9 @@
     }));
     PINNED.forEach(p => {
       if (rows.some(r => r.id === p.id)) return;
+      /* A locked game (shared/lockedGames.js) has no room behind its row, so
+         it is not listed. Its pinned entry stays above for when it unlocks. */
+      if (window.DS_LOCKED && window.DS_LOCKED.isLocked(p.game)) return;
       /* The pinned row keeps its own id, stake and door — those are what make
          it work — and takes only its population from the server. */
       const live = EXTRAS.find(e => e.id === p.id);
@@ -182,6 +185,7 @@
   function join(id) {
     const l = PINNED.find(p => p.id === id) || LOBBIES.find(x => x.id === id);
     if (!l || !isOpen(l)) return;
+    if (window.DS_LOCKED && window.DS_LOCKED.isLocked(l.game)) return;
     if (window.V2Play) return window.V2Play.enter(l);
     alert('Entering a ' + money(l.stake) + ' lobby.');
   }

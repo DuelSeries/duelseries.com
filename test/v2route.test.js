@@ -1233,16 +1233,21 @@ test('the live dot beats only when somebody is really in there', () => {
   /* The dot is the whole signal: lit and moving means a room worth joining.
      An empty room must not pulse, or it means nothing at all. */
   const html = v2();
-  assert.ok(/\.lcount\.on \.ldot\{[^}]*animation:lpulse/.test(html),
-    'a lobby with players pulses');
+  /* One rule for the Open lobbies rows and the game cards' people count
+     (BACKLOG 1.3 and 1.4), so the two beat alike. */
+  assert.ok(/\.lcount\.on \.ldot,\.gpc\.on \.ldot\{[^}]*animation:lpulse/.test(html),
+    'a lobby with players pulses, and so does a card with players');
   assert.ok(!/\.ldot\{[^}]*animation/.test(html.match(/\.ldot\{[^}]*\}/)[0]),
     'and an empty one does not');
+  // A real blink, not the old fade to 72% that read as a steady light.
+  const kf = html.match(/@keyframes lpulse\{[\s\S]*?\n\}/)[0];
+  assert.ok(/opacity:\.3\d?\}/.test(kf), 'the dot dims well down at the middle of the beat');
   /* A light that beats forever is exactly what "less motion" asks to be rid
      of. There used to be a Motion switch in Settings stopping it as well; that
      is gone, and the machine's own setting is the one that remains — which is
      the one that belongs to the person rather than to this page. */
-  assert.ok(/prefers-reduced-motion:reduce\)\{\.lcount\.on \.ldot\{animation:none\}/.test(html),
-    'the system setting stops it');
+  assert.ok(/prefers-reduced-motion:reduce\)\{\.lcount\.on \.ldot,\.gpc\.on \.ldot\{animation:none\}/.test(html),
+    'the system setting stops both');
   assert.ok(!/nomotion/.test(html), 'and nothing is left of the switch');
 });
 
@@ -1852,8 +1857,11 @@ test('each playable game card carries a people count, and a padlocked one does n
   };
   // The slot: bottom left of the art, a person drawn as SVG (not an emoji), hidden until counted.
   assert.ok(/\.gpc\{position:absolute;left:6px;bottom:6px/.test(html), 'bottom left of the card image');
-  assert.ok(/\.gpc\{[^}]*background:rgba\(255,255,255,\.8\d\)[^}]*color:#000/.test(html),
-    'black person and number on a light pill, so it reads on dark art');
+  assert.ok(/\.gpc\{[^}]*background:rgba\(0,0,0,\.8\d\)[^}]*color:#fff/.test(html),
+    'white person and number on a black pill (BACKLOG 1.2), so it stands out on light art');
+  // The green dot beside the person exists only while somebody is playing.
+  assert.ok(/\.gpc \.ldot\{display:none/.test(html) && /\.gpc\.on \.ldot\{display:block\}/.test(html),
+    'no dot at 0, a dot once anyone is in');
   assert.ok(/const PERSON_SVG='<svg /.test(html), 'the person is inline SVG');
   const countHTML = new Function('PERSON_SVG', fnSrc('countHTML') + '; return countHTML;')('<svg></svg>');
   assert.ok(countHTML({ id: 'paper' }).includes('data-pc="paper"') && / hidden>/.test(countHTML({ id: 'paper' })));
@@ -1869,8 +1877,10 @@ test('each playable game card carries a people count, and a padlocked one does n
   // paintCounts, run: textContent only, and no number without the server's say-so.
   const paint = fnSrc('paintCounts');
   assert.ok(!/innerHTML/.test(paint), 'server data never goes through innerHTML');
-  const mk = (id) => { const b = { textContent: '' }; return { dataset: { pc: id }, hidden: true, attrs: {},
-    querySelector: () => b, setAttribute(k, v) { this.attrs[k] = v; }, b }; };
+  const mk = (id) => { const b = { textContent: '' }; const cls = new Set();
+    return { dataset: { pc: id }, hidden: true, attrs: {}, cls,
+      classList: { toggle(c, on) { if (on) cls.add(c); else cls.delete(c); } },
+      querySelector: () => b, setAttribute(k, v) { this.attrs[k] = v; }, b }; };
   const els = [mk('snake'), mk('agar'), mk('paper'), mk('tanks')];
   const document = { querySelectorAll: () => els };
   const run = (counts) => new Function('window', 'V2Board', 'document', paint + '; paintCounts();')(
@@ -1879,6 +1889,9 @@ test('each playable game card carries a people count, and a padlocked one does n
   assert.deepStrictEqual(els.map(e => [e.hidden, e.b.textContent]),
     [[false, '12'], [false, '0'], [true, ''], [true, '']], 'numbers shown, anything else hidden');
   assert.strictEqual(els[0].attrs['aria-label'], '12 playing now');
+  assert.ok(els[0].cls.has('on') && !els[1].cls.has('on'), 'the live dot is on at 12 and off at 0');
+  run({ snake: 0, agar: 3 });
+  assert.ok(!els[0].cls.has('on') && els[1].cls.has('on'), 'and the next poll switches it with the count');
   run(null);
   assert.ok(els.every(e => e.hidden), 'a failed poll hides every count');
 });
@@ -1902,4 +1915,54 @@ test('the Shop tab is an empty placeholder, not the removed cosmetics shop', () 
     assert.ok(!screen.toLowerCase().includes(bad.toLowerCase()), 'no ' + bad + ' in the placeholder');
   for (const gone of ['COSMETIC_CATALOG', '/api/cosmetics/'])
     assert.ok(!html.includes(gone), 'removed shop code stays removed: ' + gone);
+});
+
+/* BACKLOG 1.1 (Owen, 2026-10-09): Awesome Tanks and Bowmasters are locked, the
+   same padlock the unreleased games show, with their code kept. The list is
+   shared/lockedGames.js, read by the lobby and the server alike, so unlocking
+   is one line. The server half (no room, no rows, pages redirected) is checked
+   on the real server in joinSmoke.test.js. */
+test('a locked game is padlocked like an unreleased one, and nothing on the lobby plays it', async () => {
+  const LOCK = require(path.join(ROOT, 'shared/lockedGames.js'));
+  assert.deepStrictEqual([...LOCK.LOCKED_GAMES].sort(), ['omgshooter', 'tanks'], 'Awesome Tanks and Bowmasters');
+  assert.ok(LOCK.isLocked('tanks') && !LOCK.isLocked('snake') && !LOCK.isLocked('knockout'));
+
+  const html = v2();
+  const tag = html.indexOf('<script src="/shared/lockedGames.js"></script>');
+  assert.ok(tag > 0 && tag < html.indexOf('const GAMES=['), 'the lobby loads the list before its game registry');
+
+  // The registry and the lock, run as the page runs them.
+  const a = html.indexOf('const GAMES=[');
+  const b = html.indexOf('});', html.indexOf('delete g[k];', a));
+  assert.ok(a > 0 && b > a, 'the lock sits right after the registry');
+  const GAMES = new Function('window', 'DS_LOCKED',
+    html.slice(a, b + 3) + '\nreturn GAMES;')({ DS_LOCKED: LOCK }, LOCK);
+  const G = id => GAMES.find(g => g.id === id);
+  const isSoon = new Function('G', 'return ' + html.match(/window\.V2_IS_SOON=(id=>\{[^\n]*\});/)[1])(G);
+  for (const id of ['omgshooter', 'tanks']) {
+    const g = G(id);
+    assert.ok(g.soon && g.locked, id + ' shows the padlock');
+    for (const k of ['built', 'duel', 'solo', 'freeOnly', 'paid', 'ladder'])
+      assert.ok(!g[k], id + ' has no ' + k + ' flag left to put a Play button or queue on its screen');
+    assert.ok(isSoon(id), id + ' is refused by the play path');
+  }
+  // Nothing else moved.
+  assert.ok(!G('snake').soon && !isSoon('snake') && !isSoon('agar') && !isSoon('paper'));
+  assert.ok(G('knockout').built && G('knockout').duel && G('battleship').built, 'Knockout and Battleship stay');
+  // The source entries are kept as they were, for the day they unlock.
+  assert.ok(/\{id:'omgshooter'[^\n]*built:1,solo:1/.test(html) && /\{id:'tanks'[^\n]*duel:1,built:1,freeOnly:1/.test(html));
+
+  // Open lobbies: no pinned row for either, and Enter on a stale one does nothing.
+  const h = lobbyHarness([
+    { id: 'na_s0', game: 'snake', region: 'na', stake: 0, players: 0, bots: 0, capacity: null, state: 'open' },
+  ]);
+  h.win.DS_LOCKED = LOCK;
+  await h.win.V2Board.load();
+  const lob = h.el('lob').innerHTML;
+  assert.ok(!lob.includes('omgshooter:free') && !lob.includes('tanks:free'), 'neither is listed');
+  assert.ok(lob.includes('knockout:free') && lob.includes('battleship:free'), 'the other pinned rows are');
+  h.win.V2Board.join('tanks:free');
+  h.win.V2Board.join('omgshooter:free');
+  assert.strictEqual(h.el('game-frame').src, '', 'no game page was opened');
+  assert.deepStrictEqual(plain(h.plays), [], 'and nothing reached the widget');
 });

@@ -78,8 +78,26 @@ test('a player can join without killing the server', { timeout: 90000 }, async (
     .reduce((n, l) => n + (l.players || 0) + (l.bots || 0), 0);
   const before = JSON.parse((await get(`http://localhost:${PORT}/api/live`)).body);
   assert.ok(before.counts && typeof before.counts === 'object', '/api/live carries per-game counts');
-  for (const g of ['snake', 'agar', 'omgshooter', 'tanks', 'knockout', 'battleship', 'paper'])
+  const { LOCKED_GAMES } = require('../shared/lockedGames');
+  const GAMES = ['snake', 'agar', 'omgshooter', 'tanks', 'knockout', 'battleship', 'paper'];
+  for (const g of GAMES.filter(x => !LOCKED_GAMES.includes(x)))
     assert.strictEqual(before.counts[g], rowTotal(before, g), `${g} card matches its rows (${JSON.stringify(before.counts)})`);
+  /* A locked game (shared/lockedGames.js: Awesome Tanks and Bowmasters, BACKLOG
+     1.1) has no room on the server: no count, no row, and its page URLs send the
+     browser to the lobby rather than serving the game. */
+  for (const g of LOCKED_GAMES) {
+    assert.ok(!(g in before.counts), `${g} has no card count while locked`);
+    assert.ok(!before.lobbies.concat(before.extras || []).some(l => l.game === g), `${g} has no row while locked`);
+  }
+  const PAGES = { tanks: ['/tanks', '/tanks.html'], omgshooter: ['/shooter', '/shooter.html'] };
+  for (const g of LOCKED_GAMES) {
+    for (const url of PAGES[g] || []) {
+      const r = await new Promise((res, rej) => http.get(`http://localhost:${PORT}${url}`,
+        (x) => { x.resume(); res({ status: x.statusCode, location: x.headers.location }); }).on('error', rej));
+      assert.deepStrictEqual(r, { status: 302, location: '/' }, `${url} sends the browser to the lobby`);
+    }
+  }
+  assert.strictEqual((await get(`http://localhost:${PORT}/knockout`)).status, 200, 'an unlocked game page is still served');
 
   // Free play on the ladder: a stake of 0 needs no token, which is exactly the
   // path a player takes when they press Play on a free room.

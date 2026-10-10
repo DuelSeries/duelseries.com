@@ -321,16 +321,21 @@ h2{font-size:31px;font-weight:700;letter-spacing:-1.1px;line-height:1.1}
 .gart.noart{background:var(--s2)}
 /* Playing this game right now, every lobby added up (/api/live `counts`):
    every person, plus the bots its Open lobbies rows count, so the card and the
-   rows below it agree. A black person and number, as asked, so it sits on a
-   light pill: black straight on the dark paintings would vanish. Black on
-   84% white over the darkest art is above 12:1. Hidden until the server has
-   said, and for a game the server does not count. */
+   rows below it agree. A white person and number on a black pill (Owen,
+   2026-10-09; it was black on white), so it stands out on the lighter cards.
+   White on 86% black is above 13:1 even over pure white art; the hairline ring
+   is what keeps the pill's edge visible on the darkest paintings. Hidden until
+   the server has said, and for a game the server does not count. */
 .gpc{position:absolute;left:6px;bottom:6px;z-index:3;display:inline-flex;align-items:center;
-  gap:2px;padding:1px 6px 1px 4px;border-radius:999px;background:rgba(255,255,255,.84);
-  color:#000;font:700 10px/14px var(--fm);font-variant-numeric:tabular-nums;
-  box-shadow:0 1px 3px rgba(0,0,0,.35);pointer-events:none}
+  gap:2px;padding:1px 6px 1px 4px;border-radius:999px;background:rgba(0,0,0,.86);
+  color:#fff;font:700 10px/14px var(--fm);font-variant-numeric:tabular-nums;
+  box-shadow:0 1px 3px rgba(0,0,0,.35),inset 0 0 0 1px rgba(255,255,255,.16);pointer-events:none}
 .gpc[hidden]{display:none}
 .gpc svg{width:9px;height:9px;fill:currentColor;flex:none}
+/* The live dot, beside the person, only while somebody is playing (paintCounts
+   sets .on). Lit and beating by the same rule as the Open lobbies dot below. */
+.gpc .ldot{display:none;width:5px;height:5px;margin-right:2px}
+.gpc.on .ldot{display:block}
 .card.soon:hover .gart{filter:grayscale(.4) brightness(.72)}
 .card.soon .cap h3{color:var(--tx2)}
 /* Fixed caption height keeps every card the same height whatever the name
@@ -379,6 +384,7 @@ h2{font-size:31px;font-weight:700;letter-spacing:-1.1px;line-height:1.1}
     background-size:15px 15px}
   .gpc{left:4px;bottom:4px;font-size:9px;line-height:12px;padding:0 5px 0 3px}
   .gpc svg{width:8px;height:8px}
+  .gpc .ldot{width:4px;height:4px;margin-right:1px}
   /* Small and tucked into the very edge. There used to be a gradient scrim
      behind each one, which on a dark card read as a black band ruled down
      both sides of the row rather than as a fade. */
@@ -454,15 +460,18 @@ body.ingame .tkrun{animation-play-state:paused}
 .ldot{width:6px;height:6px;border-radius:50%;background:var(--s3);flex:0 0 auto}
 /* Lit AND beating, but only when the number is real. An empty room gets a dead
    grey dot and no movement, so the pulse means something: it is the difference
-   between a room you can join and a room that is just listed. */
-.lcount.on .ldot{background:var(--live);animation:lpulse 1.9s ease-in-out infinite}
+   between a room you can join and a room that is just listed. One rule for the
+   Open lobbies rows and the game cards' people count, so the two beat alike.
+   It used to fade only to 72%, which read as a steady light (Owen, 2026-10-09:
+   "should blink"); it now dims to 35% and back, still eased, never a hard flash. */
+.lcount.on .ldot,.gpc.on .ldot{background:var(--live);animation:lpulse 1.6s ease-in-out infinite}
 @keyframes lpulse{
-  0%,100%{box-shadow:0 0 0 0 rgba(142,208,129,.55);opacity:1}
-  50%    {box-shadow:0 0 0 5px rgba(142,208,129,0);opacity:.72}
+  0%,100%{box-shadow:0 0 0 0 rgba(142,208,129,.6);opacity:1}
+  50%    {box-shadow:0 0 0 4px rgba(142,208,129,0);opacity:.35}
 }
-/* Stopped by the system setting. A light that beats forever is exactly what
-   somebody who asked for less movement asked to be rid of. */
-@media(prefers-reduced-motion:reduce){.lcount.on .ldot{animation:none}}
+/* Stopped by the system setting: a steady lit dot. A light that beats forever
+   is exactly what somebody who asked for less movement asked to be rid of. */
+@media(prefers-reduced-motion:reduce){.lcount.on .ldot,.gpc.on .ldot{animation:none}}
 /* Read aloud, never drawn. */
 .vh{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
   clip:rect(0 0 0 0);white-space:nowrap;border:0}
@@ -2235,6 +2244,7 @@ body.scr-anim { overflow-x:hidden }
 </div></footer>
 
 <script src="/shared/constants.js"></script>
+<script src="/shared/lockedGames.js"></script>
 <script src="/js/HexGrid.js"></script>
 <script src="/js/Camera.js"></script>
 <script src="/js/SnakeGL.js"></script>
@@ -2346,6 +2356,19 @@ const GAMES=[
  {id:'stumble',name:'Stumble Guys',c:['#191d26','#7fb0e0'],type:'p',soon:1,
   d:'A crowd, an obstacle course, and physics that are on nobody’s side.'},
 ];
+/* Locked games (shared/lockedGames.js, the list the server reads too: today
+   Awesome Tanks and Bowmasters). Their entries above stay as they are; for this
+   page load each one is shown exactly like Stumble Guys: soon:1 greys the card,
+   puts the padlock on it and drops its people count, and its screen is the
+   "Not playable yet" panel. The flags that would put a Play button, a buy-in or
+   a queue on that screen are cleared, and V2_IS_SOON then refuses it in the
+   play path too. Unlocking is taking the id out of that list. */
+(window.DS_LOCKED?DS_LOCKED.LOCKED_GAMES:[]).forEach(id=>{
+  const g=GAMES.find(x=>x.id===id);
+  if(!g)return;
+  g.soon=1; g.locked=1;
+  for(const k of ['built','duel','solo','freeOnly','paid','ladder'])delete g[k];
+});
 /* The lobby list is real now: V2Board polls /api/live. The hand-written rows
    that used to be here claimed player counts the server never had. */
 /* Buy-ins the board is actually offering, not a wishlist. The hardcoded
@@ -3216,7 +3239,7 @@ window._resumeLobbyAnims=()=>{
 const PERSON_SVG='<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="4.6" r="3.1"/>'+
   '<path d="M2.2 15.4c0-3.6 2.6-6 5.8-6s5.8 2.4 5.8 6z"/></svg>';
 function countHTML(g){
-  return g.soon?'':`<span class="gpc" data-pc="${g.id}" hidden>${PERSON_SVG}<b></b></span>`;
+  return g.soon?'':`<span class="gpc" data-pc="${g.id}" hidden><span class="ldot" aria-hidden="true"></span>${PERSON_SVG}<b></b></span>`;
 }
 /* Fills every card's count from the last /api/live poll. textContent only: the
    number comes from the server. No counts (a failed poll, or a game the server
@@ -3229,6 +3252,9 @@ function paintCounts(){
     const n=Math.max(0,Math.floor(v));
     el.querySelector('b').textContent=String(n);
     el.setAttribute('aria-label',n+' playing now');
+    /* The green dot: shown and beating while anyone is in, gone at 0. Every
+       poll repaints, so it comes and goes with the count. */
+    el.classList.toggle('on',n>0);
     el.hidden=false;
   });
 }

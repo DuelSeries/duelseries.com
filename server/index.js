@@ -12,6 +12,10 @@ const { TanksLobby } = require('./TanksLobby');   // the artillery duel
 const { KnockoutLobby } = require('./KnockoutLobby'); // the shrinking-disc duel
 const { BattleshipLobby } = require('./BattleshipLobby'); // the two-grid duel
 const { ShooterRoom, SH: SHOOTER } = require('./ShooterRoom'); // the top-down tank arena
+/* Games switched off for now (Awesome Tanks, Bowmasters): no room, no socket
+   messages, no /api/live rows, pages sent to the lobby. The list is
+   shared/lockedGames.js, which the lobby reads too. */
+const { LOCKED_GAMES, isLocked } = require('../shared/lockedGames');
 const db     = require('./db');
 const collusion = require('./CollusionMonitor');
 const profiler = require('./profiler');
@@ -1386,10 +1390,17 @@ app.get('/v2', (_req, res) => res.sendFile(path.join(__dirname, '../public/v2.ht
    owner wallet signs for it, and every route behind it checks that server-side.
    Keeping the URL obscure would be the only protection it did NOT have. */
 app.get('/owner', (_req, res) => res.sendFile(path.join(__dirname, '../public/owner.html')));
-app.get('/tanks', (_req, res) => res.sendFile(path.join(__dirname, '../public/tanks.html')));
+/* A locked game's page (shared/lockedGames.js) sends the browser to the lobby,
+   by its short URL and by its file name alike: express.static below would
+   otherwise hand out tanks.html or shooter.html to anybody who typed it. 302,
+   like /agar, so no browser keeps the redirect once the game is unlocked. */
+const gamePage = (id, file) => (_req, res) => (isLocked(id)
+  ? res.redirect(302, '/')
+  : res.sendFile(path.join(__dirname, '../public/' + file)));
+app.get(['/tanks', '/tanks.html'], gamePage('tanks', 'tanks.html'));
 app.get('/knockout', (_req, res) => res.sendFile(path.join(__dirname, '../public/knockout.html')));
 app.get('/battleship', (_req, res) => res.sendFile(path.join(__dirname, '../public/battleship.html')));
-app.get('/shooter', (_req, res) => res.sendFile(path.join(__dirname, '../public/shooter.html')));
+app.get(['/shooter', '/shooter.html'], gamePage('omgshooter', 'shooter.html'));
 app.get('/paper', (_req, res) => res.sendFile(path.join(__dirname, '../public/paper.html')));
 app.get('/paper-arena', (_req, res) => res.sendFile(path.join(__dirname, '../public/paper-arena.html')));
 /* The new agar.io page is only ever served by /ag (below, 503 while the game
@@ -1418,7 +1429,9 @@ const gameRooms = {};
 /* One queue and its rooms, for the artillery duel. Free only while the mode is
    new: there is no stake to verify and nothing to pay out, so none of the money
    path is involved in it at all. */
-const tanksLobby = new TanksLobby(io);
+/* null while Bowmasters is locked (shared/lockedGames.js): every reader below
+   checks for that, so no queue, no bot stand-in and no timer exist for it. */
+const tanksLobby = isLocked('tanks') ? null : new TanksLobby(io);
 const knockoutLobby = new KnockoutLobby(io);
 
 /* ─── Paying out a Knockout table ─────────────────────────────────────────────
@@ -1537,8 +1550,9 @@ function koSend(wallet, amount, name, note) {
    The room starts itself when the first player arrives and stops itself when
    the last one leaves — an empty arena still ticks thirty times a second and
    still drives five bots around, for nobody. */
-const shooterRoom = new ShooterRoom(io, REGION);
-function endShooter(socketId) { shooterRoom.removePlayer(socketId); }
+/* null while Awesome Tanks is locked (shared/lockedGames.js). */
+const shooterRoom = isLocked('omgshooter') ? null : new ShooterRoom(io, REGION);
+function endShooter(socketId) { if (shooterRoom) shooterRoom.removePlayer(socketId); }
 
 /* ── Paper (the territory arena, docs/paper-multiplayer-design.md 6.4) ───────
    Arenas per rung for this region. Money in an arena lives in its bank and
@@ -1863,7 +1877,7 @@ for (const rgn of [REGION]) {
   };
 
   Object.values(gameRooms[rgn]).forEach(r => r.start());
-  tanksLobby.start();
+  if (tanksLobby) tanksLobby.start();
   knockoutLobby.start();
   battleshipLobby.start();
 }
@@ -2032,7 +2046,7 @@ function liveBattleRoyale() {
 function liveGameCounts() {
   const snakeRooms = Object.values(gameRooms[REGION] || {});
   for (const e of ladder.rooms.values()) if (e.game === 'snake') snakeRooms.push(e.room);
-  return liveCounts({
+  const counts = liveCounts({
     snakeRooms,
     agar: agArenas,                 // every agar.io room (null while the game is closed)
     shooter: typeof shooterRoom !== 'undefined' ? shooterRoom : null,
@@ -2041,6 +2055,10 @@ function liveGameCounts() {
     battleship: typeof battleshipLobby !== 'undefined' ? battleshipLobby : null,
     paper: paperArenas,
   });
+  /* A locked game has no room to count, and a 0 for it would still put it on
+     the board's books, so it is not listed at all. */
+  for (const id of LOCKED_GAMES) delete counts[id];
+  return counts;
 }
 
 app.get('/api/live', (_req, res) => {
@@ -3152,7 +3170,10 @@ io.on('connection', (socket) => {
      fire, and leave. Everything about what a shot DOES is decided in the room
      and sent back; nothing here trusts a number from the client beyond the two
      the player is entitled to choose. */
+  /* While Bowmasters is locked there is no lobby, and each of these returns
+     before doing anything (shared/lockedGames.js). */
   on('tanks:queue', ({ name, wallet } = {}) => {
+    if (!tanksLobby) return;
     if (!socketRL(socket, 'tanksq', 1000)) return;
     if (ops.get().maintenance) { socket.emit('maintenance', ops.get()); return; }
     tanksLobby.enqueue(socket, sanitizeName(name), strOr(wallet, null) || socket._walletAddress || null);
@@ -3160,11 +3181,13 @@ io.on('connection', (socket) => {
   });
 
   on('tanks:unqueue', () => {
+    if (!tanksLobby) return;
     tanksLobby.dequeue(socket.id);
     socket.emit('tanks:unqueued', {});
   });
 
   on('tanks:fire', ({ angle, power } = {}) => {
+    if (!tanksLobby) return;
     if (!socketRL(socket, 'tanksfire', 300)) return;
     const room = tanksLobby.roomOf(socket.id);
     if (!room) return;
@@ -3173,7 +3196,7 @@ io.on('connection', (socket) => {
     room.broadcast('tanks:shot', shot.result);
   });
 
-  on('tanks:leave', () => tanksLobby.leave(socket.id));
+  on('tanks:leave', () => { if (tanksLobby) tanksLobby.leave(socket.id); });
 
   /* ── Knockout ─────────────────────────────────────────────────────────────
      A duel on a shrinking disc. The client sends an arrow per piece and a
@@ -3310,7 +3333,10 @@ io.on('connection', (socket) => {
      down and where it is aiming; it never says that it hit something, took a
      coin or cleared a level. There is no money in this mode today, and the
      day there is, none of this has to be rewritten. */
+  /* While Awesome Tanks is locked there is no arena, and each of these returns
+     before doing anything (shared/lockedGames.js). */
   on('sh:join', ({ name, weapon } = {}) => {
+    if (!shooterRoom) return;
     if (!socketRL(socket, 'shjoin', 1000)) return;
     if (ops.get().maintenance) { socket.emit('maintenance', ops.get()); return; }
     shooterRoom.removePlayer(socket.id);         // a second Play replaces the first
@@ -3319,7 +3345,7 @@ io.on('connection', (socket) => {
   });
 
   on('sh:input', (input) => {
-    if (!input || typeof input !== 'object') return;
+    if (!shooterRoom || !input || typeof input !== 'object') return;
     shooterRoom.setInput(socket.id, input);
   });
 
@@ -3327,6 +3353,7 @@ io.on('connection', (socket) => {
      the choice is what you want to play, not what you can afford — so the only
      thing this has to refuse is a weapon that does not exist. */
   on('sh:weapon', ({ weapon } = {}) => {
+    if (!shooterRoom) return;
     if (!socketRL(socket, 'shweapon', 150)) return;
     if (!shooterRoom.setWeapon(socket.id, strOr(weapon, ''))) {
       socket.emit('sh:refused', { why: 'no such weapon' });
@@ -3336,6 +3363,7 @@ io.on('connection', (socket) => {
   /* Asked for by a dead player. Nothing else puts them back in the arena, so
      dying is a full stop rather than a two-second interruption. */
   on('sh:respawn', () => {
+    if (!shooterRoom) return;
     if (!socketRL(socket, 'shrespawn', 400)) return;
     shooterRoom.respawn(socket.id);
   });
@@ -3352,7 +3380,7 @@ io.on('connection', (socket) => {
     /* Dropping out of a duel hands the other player the win, and takes this
        socket out of the queue if it never got into one. Without it a closed tab
        leaves an opponent staring at a turn that will never come. */
-    tanksLobby.leave(socket.id);
+    if (tanksLobby) tanksLobby.leave(socket.id);
     knockoutLobby.leave(socket.id);
     battleshipLobby.leave(socket.id);
     endShooter(socket.id);
