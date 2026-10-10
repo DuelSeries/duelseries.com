@@ -1437,6 +1437,16 @@ app.get('/ag.html', (_req, res) => res.redirect(302, '/ag'));
    the new game instead of a 404. 302, not 301: a browser never caches it, so
    the address stays free to mean something else later. */
 app.get(['/agar', '/agar.html'], (_req, res) => res.redirect(302, '/ag'));
+/* The new slither.io client (public/sl.html) is only ever served by /sl, and
+   only while SL_ENABLED is on (OFF by default: its game server is not built
+   yet). Closed, /sl and every path express.static would resolve to the file
+   answer a 503 "not open yet" page (server/slRoutes.js says why an exact
+   /sl.html route is not enough). Must stay above express.static. */
+const slGate = require('./slRoutes');
+slGate.slRoutes(app, {
+  open: slGate.slSwitch(process.env.SL_ENABLED),
+  file: path.join(__dirname, '../public/sl.html'),
+});
 
 app.use(express.static(path.join(__dirname, '../public')));
 app.use('/shared', express.static(path.join(__dirname, '../shared')));
