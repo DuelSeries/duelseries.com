@@ -1065,6 +1065,7 @@ class SlRoom {
     // 6 holds that completed (a death of this step already took its snake out: the death wins)
     const done = this.holds.complete(sim, simMs);
     for (let i = 0; i < done.length; i++) this._cashOut(done[i], frame, simMs);
+    this._pruneFreed(simMs);
 
     // 7 clocks
     const c = this.clocks;
@@ -1110,7 +1111,7 @@ class SlRoom {
     const id = d.id;
     if (this.holds.holding(id)) this._ringAll(tick, id, 0);
     this.holds.drop(id);
-    this.freedAt.set(id, simMs);
+    this._freeId(id, simMs);
     const g = this._endOrphan(id);
     if (g && d.cause === 'kill') this.stats.glideDeaths++;
     const seat = this.bySnake.get(id);
@@ -1136,7 +1137,7 @@ class SlRoom {
     const len = slCore.scoreOf(this.scoreTables.fmlts, this.scoreTables.fpsls, s.pts.length, fam);
     this.sim.remove(id);
     this.stats.cashouts++;
-    this.freedAt.set(id, simMs);
+    this._freeId(id, simMs);
     frame.cashed.push({ id, code: this.R.cashCode });
     this._ringAll(frame.tick, id, 0);
     const seat = this.bySnake.get(id);
@@ -1268,6 +1269,24 @@ class SlRoom {
   _onKick(seat, reason) {
     this.stats.kicks++;
     this.unseat(seat, 'kick:' + reason);
+  }
+
+  // freedAt in time order: a re-freed id moves to the end, so _pruneFreed can stop at the first young entry.
+  _freeId(id, simMs) {
+    this.freedAt.delete(id);
+    this.freedAt.set(id, simMs);
+  }
+
+  // An entry at least C_ID_QUARANTINE_MS old blocks nothing (_idBlocked below deletes it on sight with the same test),
+  // so every step drops those from the front. Without this an entry stayed until its id came round again (up to
+  // 65535 entries, one per freed id; the 30 minute soak's heap bar, T8b). The bot driver appends with the current
+  // sim time too (slBots takeOut), so the order holds; an entry out of order only waits, it is never dropped early.
+  _pruneFreed(simMs) {
+    const q = this.R.quarantineMs;
+    for (const [id, at] of this.freedAt) {
+      if (simMs - at < q) break;
+      this.freedAt.delete(id);
+    }
   }
 
   // C_ID_QUARANTINE_MS: an id is reused only after this long and when no seat's delivered or queued records hold it

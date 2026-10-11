@@ -597,3 +597,56 @@ test('ring for a late viewer: a join next to a holding snake gets {hold on 1, ne
   room.seatOf(sockB).queue.flush(ft.clock());
   assert.deepStrictEqual(layer(sockB).slice(n).filter((m) => m.t === 'hold'), [{ t: 'hold', id: a.snakeId, on: 0 }]);
 });
+
+test('freedAt keeps only ids freed less than C_ID_QUARANTINE_MS ago, and blocks exactly as before (soak heap bar)', () => {
+  const { room } = makeRoom();
+  const Q = LAWS.C_ID_QUARANTINE_MS.value;
+  assert.strictEqual(room.R.quarantineMs, Q);
+  const EVERY = 10; // one bot snake killed every 10 steps
+  const steps = Math.ceil(3 * Q / P);
+  let killed = 0;
+  let maxSize = 0;
+  const freedSim = new Map(); // id -> sim ms of its last death, kept here for the whole run
+  for (let k = 0; k < steps; k++) {
+    if (k % EVERY === 0) {
+      const s = room.spawnSnake({ cv: 2, nick: 'b' + k, isBot: true });
+      room.sim.kill(s.id);
+      killed++;
+    }
+    room.tickOnce();
+    for (const [id, at] of room.freedAt) if (!freedSim.has(id) || freedSim.get(id) < at) freedSim.set(id, at);
+    maxSize = Math.max(maxSize, room.freedAt.size);
+    // every entry is younger than the quarantine, in time order
+    const now = room.sim.nowMs();
+    let last = -Infinity;
+    for (const at of room.freedAt.values()) {
+      assert.ok(now - at < Q, 'an entry ' + (now - at) + ' ms old');
+      assert.ok(at >= last, 'time order');
+      last = at;
+    }
+  }
+  assert.strictEqual(room.stats.deaths, killed);
+  const perQ = Math.ceil(Q / (EVERY * P));
+  assert.ok(maxSize <= perQ + 1, 'at most the ids freed in one quarantine: ' + maxSize + ' vs ' + perQ);
+  assert.ok(killed > 2 * maxSize, killed + ' freed, ' + maxSize + ' kept at most');
+  // the block itself is unchanged: an id freed under Q ago is blocked, one freed Q or more ago is not (nothing holds it)
+  const now = room.sim.nowMs();
+  let young = 0;
+  let old = 0;
+  for (const [id, at] of freedSim) {
+    if (room.sim.snake(id)) continue;
+    if (now - at < Q) {
+      young++;
+      assert.strictEqual(room._idBlocked(id), true, 'id ' + id + ' freed ' + (now - at) + ' ms ago');
+    } else {
+      old++;
+      assert.strictEqual(room.freedAt.has(id), false);
+      assert.strictEqual(room._idBlocked(id), false, 'id ' + id + ' freed ' + (now - at) + ' ms ago');
+    }
+  }
+  assert.ok(young > 0 && old > young, young + ' young, ' + old + ' old');
+  // a re-freed id moves to the end (the bot driver's direct set appends too)
+  const first = room.freedAt.keys().next().value;
+  room._freeId(first, now);
+  assert.strictEqual([...room.freedAt.keys()].pop(), first);
+});
