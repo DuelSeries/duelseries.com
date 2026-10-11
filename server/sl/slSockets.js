@@ -584,6 +584,17 @@ function attachSlSockets(nsp, arenas, helpers) {
     socket.on('sl:chat', guard('sl:chat', (msg) => onChat(socket, msg)));
     socket.on('sl:diag', guard('sl:diag', (msg) => onDiag(socket, msg)));
     socket.on('sl:leave', guard('sl:leave', () => onLeave(socket)));
+    // socket.io runs an event's handler on the next tick and drops it when the socket closed in between
+    // (node_modules/socket.io/dist/socket.js dispatch: 'ignore packet received after disconnection'). Their client
+    // ends a life with emit('sl:leave') then disconnect() (public/js/sl/slNet.js:181-182), and both packets arrive in
+    // one batch, so the leave handler never ran and the seat was PARKED as a drop: 646 parks in 1,923 lives with 36
+    // blips in a 16 minute soak (2026-10-11). onAny runs at once, before the DISCONNECT packet: the socket is marked
+    // and its disconnect is a leave. A close with no sl:leave (a blip, the layer dropping a resume attempt) still parks.
+    socket.onAny(guard('sl:leave.mark', (name) => {
+      if (name !== 'sl:leave') return;
+      const st = stateOf(socket);
+      if (st) st.leaving = true;
+    }));
     socket.on('disconnect', guard('disconnect', () => {
       const st = stateOf(socket);
       if (!st) {
@@ -594,7 +605,7 @@ function attachSlSockets(nsp, arenas, helpers) {
       states.delete(socket.id);
       st.open = false;
       // a socket the server ended itself leaves (never parked for a resume); any other drop may come back (T16b)
-      if (st.noResume) unseatCharged(socket, st, (onEnd) => arenas.leave(socket.id, onEnd));
+      if (st.noResume || st.leaving) unseatCharged(socket, st, (onEnd) => arenas.leave(socket.id, onEnd));
       else unseatCharged(socket, st, (onEnd) => arenas.disconnect(socket.id, onEnd));
       settle(socket, st);
     }));
@@ -612,6 +623,7 @@ function attachSlSockets(nsp, arenas, helpers) {
         open: true,
         gliding: false,
         noResume: false, // the server refused this socket itself: its disconnect is a leave (T16b)
+        leaving: false, // an sl:leave arrived: its disconnect is a leave even if socket.io dropped the handler
         meter: createInputMeter(L.input),
       });
     })();

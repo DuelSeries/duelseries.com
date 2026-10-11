@@ -27,15 +27,18 @@ function fakeRL(wall) {
   };
 }
 
-// A fake socket.io socket: bareSocket's emit and conn, plus incoming handlers (on / fire), a handshake, and a
-// disconnect that fires 'disconnect' once, as socket.io does.
+// A fake socket.io socket: bareSocket's emit and conn, plus incoming handlers (on / fire; onAny sees every incoming
+// event first, never 'disconnect', as socket.io does), a handshake, and a disconnect that fires 'disconnect' once.
 function fakeIoSocket(o) {
   const opt = o || {};
   const s = bareSocket();
   const handlers = new Map();
   s.handshake = { address: opt.ip || '10.0.0.1', headers: opt.headers || {}, auth: opt.auth };
+  const any = [];
   s.on = (ev, fn) => { handlers.set(ev, fn); return s; };
+  s.onAny = (fn) => { any.push(fn); return s; };
   s.fire = (ev, ...args) => {
+    if (ev !== 'disconnect' && ev !== 'disconnecting') for (const a of any) a(ev, ...args);
     const fn = handlers.get(ev);
     if (fn) fn(...args);
   };

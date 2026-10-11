@@ -457,3 +457,79 @@ test('a stopped room releases every glider charge (an emergency close never stra
   r.room().stop();
   assert.strictEqual(r.sockets.gate.count(ip), 0);
 });
+
+test('an sl:leave whose handler socket.io dropped (closed in the same batch) still makes the close a leave, not a park', () => {
+  const r = rig({ seed: 6 });
+  const room = r.room();
+  // socket.io: onAny runs at once, the handler on the next tick, dropped once the socket closed (the batch case)
+  const s = r.sock({ ip: '10.9.0.1' });
+  s.fire('sl:join', { nick: 'a' });
+  assert.strictEqual(room.seats.size, 1);
+  const h = s.handlers.get('sl:leave');
+  s.handlers.delete('sl:leave');
+  s.fire('sl:leave');
+  s.handlers.set('sl:leave', h);
+  assert.strictEqual(room.seats.size, 1, 'the handler did not run');
+  s.disconnect();
+  assert.strictEqual(room.stats.parks, 0, 'not parked');
+  assert.strictEqual(room.parked.size, 0);
+  assert.strictEqual(room.seats.size, 0);
+  // a close with no sl:leave is a drop: it parks (T16b)
+  const b = r.sock({ ip: '10.9.0.2' });
+  b.fire('sl:join', { nick: 'b' });
+  b.disconnect();
+  assert.strictEqual(room.stats.parks, 1, 'a drop parks');
+});
+
+test('real socket.io: their close (emit sl:leave, then disconnect) leaves; a bare disconnect parks', { timeout: 30000 }, async () => {
+  const http = require('http');
+  const path = require('path');
+  const { Server } = require('socket.io');
+  const { io: ioc } = require('socket.io-client');
+  const server = http.createServer();
+  const io = new Server(server, { pingInterval: 5000, pingTimeout: 10000 });
+  const quiet = { log() {}, warn() {}, error() {} };
+  const opened = require('../server/sl/slBoot').openSl({
+    env: { SL_ENABLED: '1', SL_DEV_LAWS: path.join(__dirname, 'slLawsFixture.js') }, io, region: 'na', seed: 3, log: quiet,
+    helpers: {
+      socketRL: (so, k, ms) => {
+        const now = Date.now();
+        if (!so._rl) so._rl = {};
+        if (so._rl[k] && now - so._rl[k] < ms) return false;
+        so._rl[k] = now;
+        return true;
+      },
+      ops: require('../server/ops'), notifyJoin() {}, paidLoad: () => ({ paidPlayers: 0, paid: [] }),
+    },
+  });
+  assert.ok(opened.arenas, 'the room opened: ' + opened.why);
+  await new Promise((res) => server.listen(0, '127.0.0.1', res));
+  const url = 'http://127.0.0.1:' + server.address().port + '/sl';
+  const room = opened.arenas.room();
+  const life = (transport, ip, withLeave) => new Promise((res, rej) => {
+    const c = ioc(url, { transports: [transport], forceNew: true, reconnection: false, extraHeaders: { 'x-forwarded-for': ip } });
+    c.on('connect', () => c.emit('sl:join', { nick: 'p' }));
+    c.once('sl:f', () => {
+      // public/js/sl/slNet.js:181-182
+      if (withLeave && c.connected) c.emit('sl:leave');
+      c.disconnect();
+      setTimeout(res, 300);
+    });
+    c.on('connect_error', rej);
+  });
+  try {
+    for (const transport of ['polling', 'websocket']) {
+      const p0 = room.stats.parks;
+      const l0 = room.stats.leaves;
+      await life(transport, '10.8.0.' + (transport === 'polling' ? 1 : 2), true);
+      assert.strictEqual(room.stats.parks - p0, 0, transport + ': their close is a leave, not a park');
+      assert.strictEqual(room.stats.leaves - l0, 1, transport);
+      await life(transport, '10.8.1.' + (transport === 'polling' ? 1 : 2), false);
+      assert.strictEqual(room.stats.parks - p0, 1, transport + ': a disconnect with no sl:leave parks (T16b)');
+    }
+  } finally {
+    opened.arenas.close();
+    io.close();
+    server.close();
+  }
+});
