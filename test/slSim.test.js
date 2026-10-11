@@ -159,12 +159,13 @@ test('slSim L14: turn per ms at sct 2, 100, 300 uses K 111 and the current sct',
   const want = { 2: 0.004125, 100: 0.00314655598165733, 300: 0.00163194677785894 };
   for (const sct of [2, 100, 300]) {
     const { sim, s } = sim1({ sct, ang: 0 });
-    sim.setInput(s.id, { type: 'angle', q: 125 }, 0); // wang byte floor(256 x 125 / 251) = 127: just under pi
+    // arrived as the window started (offset P): the whole update turns (a record turns from its arrival, TURNING.md)
+    sim.setInput(s.id, { type: 'angle', q: 125 }, P); // wang byte floor(256 x 125 / 251) = 127: just under pi
     tickWith(sim);
     assert.equal(s.dir, 2);
     near(s.ang / P, want[sct], 1e-15, 'rate at sct ' + sct);
     const neg = sim1({ sct, ang: 0 });
-    neg.sim.setInput(neg.s.id, { type: 'angle', q: 130 }, 0); // byte 132: just over pi, turns the other way
+    neg.sim.setInput(neg.s.id, { type: 'angle', q: 130 }, P); // byte 132: just over pi, turns the other way
     tickWith(neg.sim);
     assert.equal(neg.s.dir, 1);
     near(PI2 - neg.s.ang, want[sct] * P, 1e-12, 'rate down at sct ' + sct);
@@ -176,7 +177,7 @@ test('slSim L14: turn per ms at sct 2, 100, 300 uses K 111 and the current sct',
 
 test('slSim L14: the turn stops exactly on wang', () => {
   const { sim, s } = sim1({ ang: 0 });
-  sim.setInput(s.id, { type: 'angle', q: 3 }, 0); // byte 3: 0.0736 rad, under one update of turn (0.176 rad)
+  sim.setInput(s.id, { type: 'angle', q: 3 }, P); // byte 3: 0.0736 rad, under one update of turn (0.176 rad)
   tickWith(sim);
   assert.equal(s.ang, 3 * 2 * Math.PI / 256);
   assert.equal(s.turning, false);
@@ -189,7 +190,7 @@ test('slSim L15: all 251 direction bytes give wang = 2 pi floor(256 b / 251) / 2
   const seen = new Set();
   for (let b = 0; b <= 250; b++) {
     sim.setInput(s.id, { type: 'angle', q: b }, 0);
-    sim.applyInputs();
+    tickWith(sim);
     const byte = Math.floor(256 * b / 251);
     assert.equal(s.wang, byte * 2 * Math.PI / 256, 'byte ' + b);
     seen.add(byte);
@@ -204,17 +205,17 @@ test('slSim L15: all 251 direction bytes give wang = 2 pi floor(256 b / 251) / 2
 test('slSim L15: arrow ticks move wang at the client rate mamu v scang spang, newest angle wins', () => {
   const { sim, s } = sim1({ ang: 1 });
   sim.setInput(s.id, { type: 'turn', dir: 'right', v: 10 }, 0);
-  sim.applyInputs();
+  tickWith(sim);
   near(s.wang, 1 + 0.33, 1e-12, 'right 10 ticks at sct 2'); // 0.033 x 10 x scang(1) 1 x spang 1
   sim.setInput(s.id, { type: 'turn', dir: 'left', v: 4 }, 0);
   sim.setInput(s.id, { type: 'turn', dir: 'left', v: 6 }, 0);
-  sim.applyInputs();
+  tickWith(sim);
   near(s.wang, 1, 1e-12, 'left 4 + 6 ticks');
   // an angle drops the arrow ticks before it; ticks after it are added
   sim.setInput(s.id, { type: 'turn', dir: 'right', v: 50 }, 0);
   sim.setInput(s.id, { type: 'angle', q: 0 }, 0);
   sim.setInput(s.id, { type: 'turn', dir: 'right', v: 1 }, 0);
-  sim.applyInputs();
+  tickWith(sim);
   near(s.wang, 0.033, 1e-15, 'angle then one tick');
 });
 
@@ -249,7 +250,10 @@ test('slSim L16: the body is pulled BEFORE each new point (gaps 1 to 3 = msl, ga
 
 test('slSim L48.abs: the first point after spawn is on integers, later points are one msl step on the 16-bit angle', () => {
   const { sim, s } = sim1({ ang: 0.3 });
+  const x0 = s.pts[s.pts.length - 1].xx;
+  const y0 = s.pts[s.pts.length - 1].yy;
   let firstSeen = false;
+  let later = 0;
   for (let i = 0; i < 60; i++) {
     const before = s.pts[s.pts.length - 1];
     const bx = before.xx;
@@ -266,9 +270,13 @@ test('slSim L48.abs: the first point after spawn is on integers, later points ar
     const hp = slCore.headStep(bx, by, rec.iang, 42);
     assert.equal(rec.xx, hp[0]);
     assert.equal(rec.yy, hp[1]);
-    assert.equal(rec.iang, Math.round(s.ang * 65536 / PI2) & 65535);
+    // the point is where the head's path (the straight line from the spawn head at ang 0.3) reaches msl from the last
+    // point: back on that path after the rounded first point, within the 16-bit angle step (42 x pi / 65536)
+    const off = Math.abs(-(rec.xx - x0) * Math.sin(0.3) + (rec.yy - y0) * Math.cos(0.3));
+    assert.ok(off < 0.005, 'point ' + off + ' off the head path');
+    later++;
   }
-  assert.ok(firstSeen);
+  assert.ok(firstSeen && later >= 3);
 });
 
 // ------------------------------------------------------------------ L18, L19, L34

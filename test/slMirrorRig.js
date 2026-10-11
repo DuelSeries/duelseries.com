@@ -175,7 +175,7 @@ function runRig(opts) {
       m.set(s.id, {
         s, sct: s.pts.length, fam: s.fam, famSent: s.famSent, sp: s.sp, wang: s.wang, ang: s.ang,
         hx: slSnake.headX(s), hy: slSnake.headY(s), inserts: ins ? ins.length : 0,
-        pending: s.inAngle >= 0 || s.inTurn !== 0,
+        pending: s.inSteer.length > 0,
       });
     });
     return m;

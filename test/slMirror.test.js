@@ -387,10 +387,12 @@ function createChecker(laws) {
   return { install, onBundle, failures, shapes, count };
 }
 
-// Seeds 1, 2 and 4 (task T14b): the sim's boost timeline changed every random world, and in seed 3's new world the
-// snake the resync stall makes leave is hit by another snake 1.5 s into its 3 s glide, so the stall has no glide death
-// to cover (the client still equals the server there). Seed 4 runs the whole choreography.
-const SEEDS = process.env.SL_MIRROR_SEEDS ? process.env.SL_MIRROR_SEEDS.split(',').map(Number) : [1, 2, 4];
+// Seeds 1, 2 and 3. Any change to the sim reshuffles every random world: after T14b (boost timeline) seed 3's leaving
+// snake was hit 1.5 s into its 3 s glide, so seed 4 ran instead; after the TURNING task (steering per arrival, the
+// head on its own path) seed 4's leaving snake 71 is hit by the cash-out snake 81 at tick 1961, 1.2 s into its glide,
+// and seed 3 runs the whole choreography again (glide death 1722, cash-out 1721, resync 1769). In both the client still
+// equals the server; only the stall has no glide death to cover.
+const SEEDS = process.env.SL_MIRROR_SEEDS ? process.env.SL_MIRROR_SEEDS.split(',').map(Number) : [1, 2, 3];
 const TICKS = +process.env.SL_MIRROR_TICKS || 3000; // SL_MIRROR_TICKS: a shorter run while working on it
 // C_PENDING_CAP for the run (a FIXTURE test value; the real cap is sized by the T15 load test against a measured
 // resync bundle): small enough that the resync stall passes it in a few seconds, well above one resync bundle.

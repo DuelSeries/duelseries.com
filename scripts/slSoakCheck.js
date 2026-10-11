@@ -203,9 +203,9 @@ function createSoakCheck(laws) {
   }
 
   function checkFinite(s) {
-    if (!finite(s.fam) || !finite(s.ang) || !finite(s.wang) || !finite(s.sp) || !finite(s.d) || !finite(s.sc) ||
+    if (!finite(s.fam) || !finite(s.ang) || !finite(s.wang) || !finite(s.sp) || !finite(s.cx) || !finite(s.cy) || !finite(s.sc) ||
       !finite(s.hx) || !finite(s.hy)) {
-      fails.add('nan', 'snake ' + s.id + ' fam ' + s.fam + ' ang ' + s.ang + ' wang ' + s.wang + ' sp ' + s.sp + ' d ' + s.d);
+      fails.add('nan', 'snake ' + s.id + ' fam ' + s.fam + ' ang ' + s.ang + ' wang ' + s.wang + ' sp ' + s.sp + ' head ' + s.cx + ',' + s.cy);
       return;
     }
     const pts = s.pts;

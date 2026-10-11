@@ -42,8 +42,7 @@ function tickWith(sim) {
   return sim.step();
 }
 function headOf(s) {
-  const p = s.pts[s.pts.length - 1];
-  return [p.xx + Math.cos(s.ang) * s.d, p.yy + Math.sin(s.ang) * s.d];
+  return [s.cx, s.cy];
 }
 
 // ------------------------------------------------------------------ gate
@@ -492,9 +491,10 @@ test('slSim L31: eats every food inside the disc ahead of the head (centre sp (5
     // set (inputs apply before the update), the spawn speed; the eats land after the update
     sim.applyInputs();
     const [hx, hy] = headOf(s);
-    const t2 = { ang: s.ang, wang: s.wang };
+    // the update's records turn from their arrival (TURNING.md), the zone still takes the wang they give
+    const t2 = { ang: s.ang, wang: turn ? Math.PI / 2 : s.wang };
     assert.equal(t2.ang, 0);
-    if (turn) assert.equal(t2.wang, Math.PI / 2);
+    assert.equal(s.wang, 0, 'the record waits in the slot for the update');
     const dir = t2.ang + (t2.wang - t2.ang) / 2; // halfway between ang and wang
     const ahead = speed(2) * (5.98 + 2.26 * sc(2));
     const cx = hx + Math.cos(dir) * ahead;

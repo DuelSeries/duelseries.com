@@ -20,7 +20,8 @@
 //
 // The room drives one tick as SERVER-DESIGN 5.3 says:
 //   setInput(id, record, offsetMs)   on arrival, any time between ticks (merged into the snake's input slot)
-//   applyInputs()                     step 1: wang (L15), arrow (L15); the boost records wait for the update
+//   applyInputs()                     step 1: a held snake stores its steering (C_HOLD_STEER); the steering records
+//                                     (L15) and the boost records wait for the update, each at its arrival time
 //                                     (L22 and L23 in time order inside it, slSnake boostTimeline)
 //   setHold(id, mult | null, offset)  step 2: the sim side of slHold (steering lock, speed multiplier, release)
 //   step()                            steps 4, 5 and 7: every live snake updated once in a seeded order, eats,
@@ -366,9 +367,11 @@ function createSim(laws, opts) {
   }
 
   // One decoded input record (shared/slWire.js decodeInput) for snake id, offsetMs = ms from its arrival to the start
-  // of the tick that applies it (C_INPUT_OFFSET, SERVER-DESIGN 5.1). Merged per SERVER-DESIGN 5.2: the newest angle
-  // wins and drops the arrow ticks before it; arrow ticks after it are summed; boost on and off kept in arrival order
-  // with repeats collapsed. A ping is the room's (L47). Returns false when the snake is gone.
+  // of the tick that applies it (C_INPUT_OFFSET, SERVER-DESIGN 5.1). Steering (angle bytes, arrow ticks) is kept in
+  // arrival order with its offset and each takes effect at its own arrival time inside the update (slSnake queueSteer,
+  // travel; their server turns per ms from the arrival, recordings/TURNING.md); records of one arrival collapse (an
+  // angle replaces what came with it, arrow ticks add up). Boost on and off kept in arrival order with repeats
+  // collapsed. A ping is the room's (L47). Returns false when the snake is gone.
   function setInput(id, rec, offsetMs) {
     const s = byId.get(id);
     if (!s) return false;
@@ -377,12 +380,11 @@ function createSim(laws, opts) {
     if (typeof off !== 'number' || !Number.isFinite(off) || off < 0) throw new RangeError('slSim: offsetMs must be >= 0');
     if (rec.type === 'angle') {
       if (!Number.isInteger(rec.q) || rec.q < 0 || rec.q > K.maxAngle) throw new RangeError('slSim: angle byte out of range');
-      s.inAngle = rec.q;
-      s.inTurn = 0;
+      slSnake.queueSteer(K, s, 0, rec.q, off);
     } else if (rec.type === 'turn') {
       if (!Number.isInteger(rec.v) || rec.v < 0) throw new RangeError('slSim: turn ticks must be an integer >= 0');
-      if (rec.dir === 'left') s.inTurn -= rec.v;
-      else if (rec.dir === 'right') s.inTurn += rec.v;
+      if (rec.dir === 'left') slSnake.queueSteer(K, s, 1, -rec.v, off);
+      else if (rec.dir === 'right') slSnake.queueSteer(K, s, 1, rec.v, off);
       else throw new RangeError('slSim: turn dir must be left or right');
     } else if (rec.type === 'boost') {
       if (typeof rec.on !== 'boolean') throw new TypeError('slSim: boost on must be a boolean');
@@ -504,12 +506,15 @@ function createSim(laws, opts) {
   // records leave: judged where the update ends, every eat came one update early on the client's clock, and the law
   // check (task T14, analysis/laws/food.js L31zone on our recordings) put the zone centre 1.6 to 1.8 sp further ahead
   // than on Owen's slither.io recordings (10.03 x sp at sc 1 against their 8.235); taken at the start it is 8.45.
+  // The wang is the one this update's steering records give (the zone as T14 checked it, when the slot applied at the
+  // update start; the turn itself now runs from each record's arrival, slSnake travel).
+  const ezSteer = { ang: 0, wang: 0, dir: 1, turning: false };
   function eatFrom(s) {
     const e = s.ez;
     e.x = slSnake.headX(s);
     e.y = slSnake.headY(s);
     e.ang = s.ang;
-    e.wang = s.wang;
+    e.wang = slSnake.steerAt(K, s, K.P, ezSteer) >= 0 ? ezSteer.wang : s.wang;
     e.sp = s.sp;
     e.sct = s.pts.length;
   }
@@ -967,7 +972,8 @@ function createSim(laws, opts) {
       h = mix(h, s.boosting ? 1 : 0);
       h = mix(h, s.chargeMs);
       h = mix(h, s.chargeCount);
-      h = mix(h, s.d);
+      h = mix(h, s.cx);
+      h = mix(h, s.cy);
       h = mix(h, s.pts.length);
       for (const p of s.pts) {
         h = mix(h, p.xx);
@@ -1007,7 +1013,7 @@ function createSim(laws, opts) {
         if (!Number.isFinite(pts[i].xx) || !Number.isFinite(pts[i].yy)) problems.push('snake ' + s.id + ': non-finite point');
       }
       if (pts.length < K.minSct) problems.push('snake ' + s.id + ': fewer than ' + K.minSct + ' points');
-      for (const k of ['fam', 'ang', 'wang', 'sp', 'd']) if (!Number.isFinite(s[k])) problems.push('snake ' + s.id + ': ' + k + ' not finite');
+      for (const k of ['fam', 'ang', 'wang', 'sp', 'cx', 'cy']) if (!Number.isFinite(s[k])) problems.push('snake ' + s.id + ': ' + k + ' not finite');
     }
     let pts = 0;
     for (const s of live) pts += s.pts.length;

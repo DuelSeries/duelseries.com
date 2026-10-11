@@ -15,14 +15,18 @@
 //      and cost   (L22, L15), a hold's boost end (C_HOLD_BOOST) and the L23 charges: the first at each accepted
 //                 press, then one per L23 period on the snake's own clock started at the press (L23.period, L23.form,
 //                 L23.low, L23.edges); a drop per charge above L24.Td (L24.*); boostTimeline (task T14b)
-//   1 turn        ang toward wang, per ms, current sct (L14)
+//   1 turn rate   per ms toward wang, current sct, the speed before this update's step (L14)
 //   2 speed       base from the length at spawn or boost end (the ramp's landing), never on growth (L12); boost
 //                 ramp per update (L13.ramp), the first step a fraction by the input arrival offset (L13.first); times
 //                 the hold multiplier (Q15)
-//   4 travel      d += sp per ms over P (their client moves sp / 4 per 8 ms frame, SERVER-LAWS units)
-//   5 points      while d >= msl: pull the chain BEFORE adding the point (L16), the point one msl step along the
-//                 16-bit angle (slCore.headStep, the client's own arithmetic), absolute integers for the first point
-//                 after spawn (L48.abs), a grow keeps the tail when fam >= 1 (L18, L18.when), else the tail goes
+//   3 steer       every steering record of the window takes effect at its own arrival time inside it, ang turning
+//                 per ms between them (task TURNING, 2026-10-11, slither-reference/recordings/TURNING.md)
+//   4 travel      then the head moves sp (P / 8) / 4 straight along the ang the turn ended on (their client moves
+//                 sp / 4 per 8 ms frame, SERVER-LAWS units)
+//   5 points      where that move first reaches msl from the last point: pull the chain BEFORE adding the point (L16),
+//                 the point one msl step along the 16-bit angle of the chord to it (slCore.headStep, the client's own
+//                 arithmetic), absolute integers for the first point after spawn (L48.abs), a grow keeps the tail when
+//                 fam >= 1 (L18, L18.when), else the tail goes
 // Step 6 (eating, L31, L18, L34) and the collision test belong to the world half (slSim, task T6).
 //
 // The body is the client's point object shape ({xx, yy, smu, iang} plus slGrid's gs and gk), tail at index 0, so
@@ -330,11 +334,13 @@ function createSnake(K, id, o) {
     holdStartOff: -1,
     holdRelOff: -1,
     chargeCount: 0,
-    d: 0, // head travel since the last point, along ang
+    // the continuous head (headX, headY): it runs on the path of the turn, the points follow it (steps 3 to 5)
+    cx: o.x,
+    cy: o.y,
     absDone: false, // L48.abs: the first point after spawn has been added
-    // input slot for the next applyInputs (SERVER-DESIGN 5.2 merge rules)
-    inAngle: -1,
-    inTurn: 0,
+    // input slot for the next update (SERVER-DESIGN 5.2): steering records flat [kind (0 angle byte, 1 signed arrow
+    // ticks), value, offsetMs, ...] in arrival order (queueSteer), each applied at its own time in the window
+    inSteer: [],
     inBoost: [], // flat [on (1 or 0), offsetMs, ...] in arrival order, repeats collapsed
     // inputs stored while held with steering locked; the newest applies at release (SERVER-DESIGN 15.3)
     heldAngle: -1,
@@ -343,13 +349,14 @@ function createSnake(K, id, o) {
   };
 }
 
-// The server's continuous head: the last point plus d along ang (SERVER-DESIGN 7, snx and sny).
+// The server's head (SERVER-DESIGN 7, snx and sny): it runs on its own path (travel), the last point lies behind it on
+// that path, under msl away.
 function headX(s) {
-  return s.pts[s.pts.length - 1].xx + Math.cos(s.ang) * s.d;
+  return s.cx;
 }
 
 function headY(s) {
-  return s.pts[s.pts.length - 1].yy + Math.sin(s.ang) * s.d;
+  return s.cy;
 }
 
 // ------------------------------------------------------------------ inputs (applied at the tick start)
@@ -405,25 +412,62 @@ function boostOff(K, s, frac) {
   return true;
 }
 
-// Applies and clears the steering part of the snake's input slot. While held with steering locked, angle and arrow
-// inputs are stored and the newest applies at release. The boost records stay in the slot for the update's timeline
-// (boostTimeline, with the L23 charges in time order).
+// Steering records kept per update window; past it the oldest takes effect at once, at the window start (CHOSEN: a
+// bound for floods; their client sends at most 2 angle bytes (33 ms gate) and 1 arrow record (50 ms gate) per
+// 42.67 ms update, slInput.js).
+const STEER_MAX = 16;
+
+// Applies one steering record now: an angle byte (L15) or signed arrow ticks (L15, at length n and speed sp). s may be
+// a scratch {ang, wang, dir, turning} (steerAt).
+function applySteer(K, s, kind, value, n, sp) {
+  if (kind === 0) {
+    applyAngle(K, s, value);
+  } else if (value !== 0) {
+    const amount = arrowTurn(K, n, sp, value < 0 ? -value : value);
+    setWang(s, wrapAngle(value < 0 ? s.wang - amount : s.wang + amount));
+  }
+}
+
+// One steering record on arrival (slSim.setInput): kind 0 an angle byte q, kind 1 signed arrow ticks, offsetMs its
+// arrival offset (C_INPUT_OFFSET). Records of one arrival share the offset (one POST or WebSocket burst): an angle
+// replaces what came with it, arrow ticks of one arrival add up (L15 turn is additive).
+function queueSteer(K, s, kind, value, offsetMs) {
+  const q = s.inSteer;
+  if (kind === 0) {
+    while (q.length && q[q.length - 1] === offsetMs) q.length -= 3;
+  } else if (q.length && q[q.length - 1] === offsetMs && q[q.length - 3] === 1) {
+    q[q.length - 2] += value;
+    return;
+  }
+  q.push(kind, value, offsetMs);
+  if (q.length > 3 * STEER_MAX) {
+    applySteer(K, s, q[0], q[1], s.pts.length, s.sp);
+    q.splice(0, 3);
+  }
+}
+
+// Steering is locked (a hold start, a connection-blip glide): the records of this window never apply, as the lock set
+// at the update start overrode them before; then wang = the lock angle.
+function lockSteer(s, wang) {
+  s.inSteer.length = 0;
+  setWang(s, wang);
+}
+
+// The input slot at the update start. While held with steering locked, angle and arrow records are stored and the
+// newest applies at release. Otherwise the steering records stay in the slot for the update (travel applies each at
+// its own time) and the boost records for its timeline (boostTimeline, with the L23 charges in time order).
 function applyInputSlot(K, s) {
-  const lockSteer = s.holdMult !== null && K.holdSteerLocked;
-  if (s.inAngle >= 0) {
-    if (lockSteer) {
-      s.heldAngle = s.inAngle;
+  if (!(s.holdMult !== null && K.holdSteerLocked)) return;
+  const q = s.inSteer;
+  for (let i = 0; i < q.length; i += 3) {
+    if (q[i] === 0) {
+      s.heldAngle = q[i + 1];
       s.heldTurn = 0;
     } else {
-      applyAngle(K, s, s.inAngle);
+      s.heldTurn += q[i + 1];
     }
   }
-  if (s.inTurn !== 0) {
-    if (lockSteer) s.heldTurn += s.inTurn;
-    else applyTurn(K, s, s.inTurn);
-  }
-  s.inAngle = -1;
-  s.inTurn = 0;
+  q.length = 0;
 }
 
 // ------------------------------------------------------------------ hold (sim side of slHold, SERVER-DESIGN 15.3)
@@ -449,7 +493,7 @@ function setHold(K, s, mult, offsetMs) {
   const starting = s.holdMult === null;
   s.holdMult = mult;
   if (starting) {
-    if (K.holdSteerLocked) setWang(s, slQuant.rotAng(s.ang, K.angRound).v);
+    if (K.holdSteerLocked) lockSteer(s, slQuant.rotAng(s.ang, K.angRound).v);
     s.holdStartOff = offsetMs;
   }
   return starting;
@@ -465,24 +509,103 @@ function heldAt(s, offsetMs) {
 
 // ------------------------------------------------------------------ the update
 
-// Step 1, L14: turn by dir until wang is passed, then snap to it (the client's steer, slLoop.js:158-174).
-function steer(K, s, P) {
-  if (!s.turning) return false;
-  const step = turnStep(K, s.pts.length, s.sp, P);
-  if (s.dir === 1) {
-    s.ang = wrapAngle(s.ang - step);
-    if (angleGap(s.wang, s.ang) > 0) {
-      s.ang = s.wang;
-      s.turning = false;
-    }
-  } else {
-    s.ang = wrapAngle(s.ang + step);
-    if (angleGap(s.wang, s.ang) < 0) {
-      s.ang = s.wang;
-      s.turning = false;
-    }
+// L14 for T ms on the angle alone: ang moves toward wang at rate (rad per ms) and stops on it (the client's steer,
+// game.js:4788-4810, in continuous time). s may be a scratch {ang, wang, dir, turning} (steerAt). Returns the ms spent
+// turning (T when wang was not reached, 0 when not turning).
+function turnFor(s, T, rate) {
+  if (!s.turning || !(rate > 0)) return 0;
+  const reach = Math.abs(angleGap(s.wang, s.ang)) / rate;
+  if (reach <= T) {
+    s.ang = s.wang;
+    s.turning = false;
+    return reach;
   }
-  return true;
+  s.ang = wrapAngle(s.dir === 1 ? s.ang - rate * T : s.ang + rate * T);
+  return T;
+}
+
+// Steps 3 to 5 over the update window (the P ms before the update). 3: every steering record of the slot takes effect
+// at its arrival time (windowAt) and ang turns toward wang between them (turnFor; L14 is per ms, their server turns from
+// the input's arrival). 4: then the head moves v P straight along the ang the turn ended on (turn, then move, once per
+// update). 5: a point wherever that segment first reaches msl from the last point (exact, the quadratic root), one msl
+// step on the 16-bit angle of the chord to it; the head keeps what it ran past the point (L12 travel 1.0009).
+// Measured against Owen's slither.io recordings with their client's own prediction (the head reset to each new point,
+// ang set from each packet, game.js:4788-4860, 7860-7863): their new points sit 0.01 to 0.27 units inside the head the
+// client predicted (medians, hard turns, boost and normal); this order gives -0.02 to -0.06, a continuous arc -2.8 to
+// -3.4 (the client starts from the point with the ang of a head already past it), the old point along ang +17.
+// recordings/TURNING.md. The turn rate and the arrow amounts read the length and the speed before this update's step
+// (n0, sp0), as when the slot was applied at the update start. True when ang moved in this update (L48.rot).
+function travel(sim, s, P, sp0) {
+  const K = sim.K;
+  const n0 = s.pts.length;
+  const rate = turnStep(K, n0, sp0, 1);
+  const q = s.inSteer;
+  let t = 0;
+  let turned = false;
+  for (let i = 0; i < q.length; i += 3) {
+    const w = windowAt(q[i + 2], P);
+    if (w > t) {
+      if (turnFor(s, w - t, rate) > 0) turned = true;
+      t = w;
+    }
+    applySteer(K, s, q[i], q[i + 1], n0, sp0);
+  }
+  q.length = 0;
+  if (P > t && turnFor(s, P - t, rate) > 0) turned = true;
+  const len = s.sp * (P / 8) / 4; // their client: sp / 4 per 8 ms frame (game.js:4757, 4855-4860)
+  const ux = Math.cos(s.ang);
+  const uy = Math.sin(s.ang);
+  const msl2 = K.msl * K.msl;
+  let done = 0; // of len, up to the last point placed on this segment
+  for (;;) {
+    const last = s.pts[s.pts.length - 1];
+    const ex = s.cx + ux * len - last.xx;
+    const ey = s.cy + uy * len - last.yy;
+    if (ex * ex + ey * ey < msl2) break;
+    // the head at u along the segment: |(cx - last) + u (ux, uy)|^2 = msl^2, the root past done
+    const dx = s.cx - last.xx;
+    const dy = s.cy - last.yy;
+    const bb = dx * ux + dy * uy;
+    const cc = dx * dx + dy * dy - msl2;
+    let u = -bb + Math.sqrt(bb * bb - cc);
+    if (!(u > done)) u = done;
+    if (u > len) u = len;
+    const px = s.cx + ux * u;
+    const py = s.cy + uy * u;
+    addPoint(sim, s, slQuant.moveIang(Math.atan2(py - last.yy, px - last.xx)).raw);
+    done = u;
+    if (done >= len) break;
+  }
+  s.cx += ux * len;
+  s.cy += uy * len;
+  return turned;
+}
+
+// The steering the snake has at the newest record of its slot (the moment it arrived), angle only, exactly as travel
+// will run it: for the room's on-arrival echo (C_ECHO_NOW), whose ang must be the server's ang at that moment (L14 per
+// ms), not the ang of the last update (that echo threw the client back 0.06 rad on 62 percent of hard-turn echoes,
+// recordings/TURNING.md). Writes ang, wang, dir and turning into x; returns the wang byte to echo (L15 floor for an
+// angle byte, L48.angRound for arrow ticks), or -1 with no steering record.
+function steerAt(K, s, P, x) {
+  x.ang = s.ang;
+  x.wang = s.wang;
+  x.dir = s.dir;
+  x.turning = s.turning;
+  const q = s.inSteer;
+  if (!q.length) return -1;
+  const n0 = s.pts.length;
+  const rate = turnStep(K, n0, s.sp, 1);
+  let t = 0;
+  for (let i = 0; i < q.length; i += 3) {
+    const w = windowAt(q[i + 2], P);
+    if (w > t) {
+      turnFor(x, w - t, rate); // as travel
+      t = w;
+    }
+    applySteer(K, x, q[i], q[i + 1], n0, s.sp);
+  }
+  const k = q.length - 3;
+  return q[k] === 0 ? slQuant.wangFromInput(q[k + 1]).raw : slQuant.rotAng(x.wang, K.angRound).raw;
 }
 
 // Step 2, L12 and L13: one ramp step per update, (nsp3 - ssp) / N with ssp and N at the current sct (the fit in
@@ -641,12 +764,12 @@ function boostTimeline(sim, s, P) {
   s.holdRelOff = -1;
 }
 
-// Step 5, L16 and L48.abs: pull, then one msl step along the 16-bit angle from the last point.
-function addPoint(sim, s) {
+// Step 5, L16 and L48.abs: pull, then one msl step from the last point along the 16-bit angle iang (travel: the chord
+// from the last point to where the head's path reaches msl; slCore.headStep, the client's own arithmetic).
+function addPoint(sim, s, iang) {
   const K = sim.K;
   const pts = s.pts;
   const last = pts[pts.length - 1];
-  const iang = slQuant.moveIang(s.ang).raw;
   slCore.chainPull(pts, K.cst, K.smus, sim.grid.pullHook); // L16: BEFORE the new point
   const hp = slCore.headStep(last.xx, last.yy, iang, K.msl);
   let x = hp[0];
@@ -695,14 +818,11 @@ function updateSnake(sim, s, P) {
   rec.h = s.fam !== s.famSent;
   rec.hFam = s.fam;
   s.famSent = s.fam;
-  boostTimeline(sim, s, P); // 0b and 3: boost records, a hold's boost end and the L23 charges, in time order
-  rec.turning = steer(K, s, P); // 1
+  boostTimeline(sim, s, P); // 0b: boost records, a hold's boost end and the L23 charges, in time order
+  const sp0 = s.sp; // 1: the turn rate reads the speed before the step
   stepSpeed(K, s); // 2
-  s.d += s.sp * (P / 8) / 4; // 4: their client moves sp / 4 per 8 ms frame (slLoop.js:304, SERVER-LAWS units)
-  while (s.d >= K.msl) { // 5: at most one point per update at nsp3 (14 x 42.67 / 32 = 18.7 < msl)
-    addPoint(sim, s);
-    s.d -= K.msl;
-  }
+  // 3 to 5: turn, travel and the points on the way (at most one point per update at nsp3: 14 x 42.67 / 32 = 18.7 < msl)
+  rec.turning = travel(sim, s, P, sp0) || s.turning; // ang moved, or a record set a turn at the window end (L48.rot)
   rec.fam = s.fam;
   return rec;
 }
@@ -740,6 +860,10 @@ module.exports = {
   headX,
   headY,
   setWang,
+  applySteer,
+  queueSteer,
+  steerAt,
+  lockSteer,
   applyInputSlot,
   boostOn,
   boostOff,

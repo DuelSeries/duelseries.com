@@ -307,6 +307,7 @@ class SlRoom {
     this.timer = null;
     this.acc = 0;
     this.last = 0;
+    this.stepRealAt = 0; // clock time of the last wake that ran a step (when its records left: _steerOffsetNow)
     this.ticking = false;
     this.paused = false;
     this.stopped = false;
@@ -638,6 +639,17 @@ class SlRoom {
     return off > 0 ? (off < this.P ? off : Math.round(this.P)) : 0;
   }
 
+  // The arrival offset of a STEERING record (angle byte, arrow ticks): measured from when the last step actually ran,
+  // the moment its records left and the client set its ang from them, not from that step's due time. A wake late by L
+  // ms (Windows timers 15.6 ms, CPU load) otherwise made the echo jump the client forward rate x L and the next update
+  // throw it back as far (task TURNING, slither-reference/recordings/TURNING.md). Equal to _offsetNow when wakes are on
+  // time. Boost records keep _offsetNow (L13.first, L23 law-checked on it).
+  _steerOffsetNow() {
+    if (!this.ticking) return 0;
+    const off = Math.round(this.stepRealAt + this.P - this.clock());
+    return off > 0 ? (off < this.P ? off : Math.round(this.P)) : 0;
+  }
+
   // Sim time of something arriving now: the next step's sim time minus its offset.
   _arrivalSim(off) {
     return this.sim.nowMs() + this.P - off;
@@ -659,6 +671,7 @@ class SlRoom {
     const now = this.clock();
     const tick = this.sim.tick();
     const off = this._offsetNow();
+    const offSteer = this._steerOffsetNow();
     const s = seat.dead ? null : this.sim.snake(seat.snakeId);
     let steer = false;
     for (let i = 0; i < recs.length; i++) {
@@ -675,7 +688,7 @@ class SlRoom {
         this.stats.inputDrops++;
         continue;
       }
-      this.sim.setInput(seat.snakeId, r, off);
+      this.sim.setInput(seat.snakeId, r, r.type === 'angle' || r.type === 'turn' ? offSteer : off);
       if (r.type === 'angle' || r.type === 'turn') steer = true;
     }
     if (steer && s && s.holdMult === null) this._echo(seat, s);
@@ -683,30 +696,18 @@ class SlRoom {
     return true;
   }
 
-  // The own wanted-angle echo (SERVER-DESIGN 5.2 step 3): the wang and dir the next step's applyInputs will give, from
-  // the snake's merged slot, computed with slSnake's own setWang on a scratch copy.
+  // The own wanted-angle echo (SERVER-DESIGN 5.2 step 3): the ang, wang and dir the snake has at this input's arrival,
+  // from its slot, exactly as the next step will run it (slSnake.steerAt on a scratch copy).
   _echo(seat, s) {
     const x = this._scratch;
-    x.ang = s.ang;
-    x.wang = s.wang;
-    x.dir = s.dir;
-    x.turning = s.turning;
-    let raw = -1;
-    if (s.inAngle >= 0) {
-      const w = slQuant.wangFromInput(s.inAngle);
-      slSnake.setWang(x, w.v);
-      raw = w.raw;
-    }
-    if (s.inTurn !== 0) {
-      const amount = slSnake.arrowTurn(this.K, s.pts.length, s.sp, s.inTurn < 0 ? -s.inTurn : s.inTurn);
-      slSnake.setWang(x, slSnake.wrapAngle(s.inTurn < 0 ? x.wang - amount : x.wang + amount));
-      raw = slQuant.rotAng(x.wang, this.R.angRound).raw;
-    }
+    const raw = slSnake.steerAt(this.K, s, this.P, x);
     if (raw < 0) return;
     // L48.rot: the echo carries the snake's ang byte too (L48.angRound), as every own rotation record of their server
     // does: S1+S2 own records are dir+ang+wang (6404), dir+ang+wang+sp (1612), ang, sp or ang+sp, never dir+wang
-    // without ang; a dir+wang echo broke "ang whenever the snake is turning" on 16875 own records (task T14)
-    const ev = { type: 'snake_rot', id: s.id, dir: x.dir === 2 ? 2 : 1, ang: slQuant.rotAng(s.ang, this.R.angRound).v,
+    // without ang; a dir+wang echo broke "ang whenever the snake is turning" on 16875 own records (task T14). That ang
+    // is the one at the arrival (L14 per ms), not the last update's: a stale one threw the client back 0.06 rad on 62
+    // percent of hard-turn echoes (slither-reference/recordings/TURNING.md).
+    const ev = { type: 'snake_rot', id: s.id, dir: x.dir === 2 ? 2 : 1, ang: slQuant.rotAng(x.ang, this.R.angRound).v,
       wang: raw * PI2 / 256 };
     const bytes = encodeRecord(ev, true, this.R.pv);
     const echo = { tick: this.sim.tick(), bytes, dir: ev.dir, wangRaw: raw };
@@ -811,6 +812,7 @@ class SlRoom {
       this.ticking = true;
       this.last = this.clock();
       this.acc = 0;
+      this.stepRealAt = this.last;
     }
     if (!this.autoTick || this.timer || this._job) return;
     this._arm();
@@ -841,6 +843,7 @@ class SlRoom {
       this.ticking = true;
       this.last = now;
       this.acc = 0;
+      this.stepRealAt = now;
     }
     const firstDue = this.last + this.P - this.acc;
     this.acc += now - this.last;
@@ -856,6 +859,7 @@ class SlRoom {
     }
     this.timing.wakeBegin(now, this._dueAt);
     this._dueAt = NaN;
+    if (steps > 0) this.stepRealAt = now;
     if (dropped) {
       this.timing.dropped(dropped, dropped * this.P);
       this.stats.droppedSteps += dropped;
@@ -871,6 +875,7 @@ class SlRoom {
     if (this.stopped) return 0;
     if (this._job) this._finishJob();
     this.timing.wakeBegin(this.clock(), NaN);
+    this.stepRealAt = this.clock();
     this.stats.wakes++;
     this._startJob(1, NaN);
     if (this._job) this._finishJob();
@@ -1058,7 +1063,8 @@ class SlRoom {
       if (!s) continue;
       g.locked = true;
       g.endSim = tickSim + R.glideMs;
-      slSnake.setWang(s, slQuant.rotAng(s.ang, R.angRound).v);
+      // the steering records still waiting in its slot never apply (the glide is straight; test/slTurning.test.js)
+      slSnake.lockSteer(s, slQuant.rotAng(s.ang, R.angRound).v);
     }
 
     // 4-5 sim
