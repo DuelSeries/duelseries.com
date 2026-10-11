@@ -442,7 +442,7 @@ async function main() {
       mb(heapAt5 || 0) + ' MB to ' + mb(heapEnd) + ' MB (' + (100 * heapDelta).toFixed(1) + ' percent)'],
     ['bots in the room at every minute (the governor ' + (twin ? 'in shadow mode' : 'on') + ')', timeline.length > 0 && botsMinRow > 0 && botCount.count > 0,
       'bots per step mean ' + r1(botCount.sum / Math.max(1, botCount.count)) + ', max ' + botCount.max + '; fewest at a minute row ' +
-      botsMinRow + '; governor mult at the end ' + (judge ? r2(judge.mult()) : 'none') + ', ' + govLog.filter((g) => g.result === 'engaged').length + ' engagements'],
+      botsMinRow + '; governor mult at the end ' + (judge ? r2(judge.mult()) : 'none') + ', ' + (judge ? judge.stats().engagements : 0) + ' engagements'],
   ];
   const ok = bars.every((b) => b[1]);
   const summary = {
