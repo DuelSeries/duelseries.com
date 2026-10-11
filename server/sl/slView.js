@@ -418,6 +418,10 @@ function createView(laws, sim, opts) {
 
   // L10 raster: a pixel lit where a pulled body point of any snake lies, pixel = floor((size - 1) / 2 x (1 + (x - grd)
   // / flux)) with the current flux; a point mapping outside the image (a tail past a shrinking border) lights nothing.
+  // v: the image's V forms keyed by the image a seat held before it (minimapFor). WEAK keys (task T8b): with a Map the
+  // newest image reached the one before it, that one the one before it, and so on, so every image ever made stayed
+  // alive while any seat held the newest (T15 soak: heapUsed 26.3 MB at minute 5, 97.2 MB at minute 30). A V form
+  // never refers back to its key, so an image lives only while a seat holds it (seat.lastMap) or a tick record does.
   function raster(flux) {
     const N = V.mmSize;
     const half = (N - 1) / 2;
@@ -430,7 +434,7 @@ function createView(laws, sim, opts) {
         if (px >= 0 && px < N && py >= 0 && py < N) bits[py * N + px] = 1;
       }
     });
-    return { bits, m: null, v: new Map() };
+    return { bits, m: null, v: new WeakMap() };
   }
 
   // Cells of a bit image in their backward scan order (shared/slWire.js putCells: from (N - 1, N - 1), x going down).
@@ -1212,12 +1216,17 @@ function createView(laws, sim, opts) {
     return out;
   }
 
+  // A seat that left keeps nothing alive: its holds, prey, sectors and the minimap image it held (the room may keep the
+  // seat object a while after; task T8b).
   function leave(seat) {
     if (seat.left) return;
     seat.left = true;
     for (const id of Array.from(seat.holds.keys())) release(seat, id);
     seat.prey.clear();
     seat.kept.clear();
+    seat.dumped.clear();
+    seat.setList.length = 0;
+    seat.lastMap = null;
     const i = seats.indexOf(seat);
     if (i >= 0) seats.splice(i, 1);
   }
