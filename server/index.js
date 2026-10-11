@@ -1063,6 +1063,10 @@ const ALL_ROOMS = () => {
      worth (away and frozen ones included) and settling rooms are in all(), so
      drainStatus counts agar money before a push. */
   if (typeof agArenas !== 'undefined' && agArenas) out.push(...agArenas.all());
+  /* The new slither.io free room (server/sl, only while SL_ENABLED opened it):
+     the same playerCount / botCount / botsAllowed / addBot / clearBots; its
+     snakes carry worth 0, so drainStatus counts its players and never money. */
+  if (typeof slArenas !== 'undefined' && slArenas) out.push(...slArenas.all());
   return out;
 };
 
@@ -1077,6 +1081,8 @@ function roomLabel(r) {
     return 'Paper · ' + (r.stake === 0 ? 'Free' : '$' + Number(r.stake).toFixed(2))
       + (r.index > 0 ? ' #' + r.index : '');
   }
+  // The new slither.io free room (server/sl) is `sl_na_s0`: one room, free only.
+  if (raw.startsWith('sl_')) return 'slither.io (new) · Free';
   // The agar.io rooms are `ag_na_s0#1` / `ag_na_s0_5#2`: the rung, then which overflow room.
   if (raw.startsWith('ag_')) {
     return 'agar.io · ' + (Number(r.stake) > 0 ? '$' + Number(r.stake).toFixed(2) : 'Free')
@@ -1120,7 +1126,8 @@ function opsSnapshot() {
     game: r.isBattleRoyale ? 'battle royale'
         : r.lobbyType === 'tanks' ? 'Awesome Tanks'
         : String(r.lobbyType).startsWith('paper_') ? 'Paper'
-        : String(r.lobbyType).startsWith('ag_') ? 'agar.io' : 'slither.io',
+        : String(r.lobbyType).startsWith('ag_') ? 'agar.io'
+        : String(r.lobbyType).startsWith('sl_') ? 'slither.io (new)' : 'slither.io',
     players: r.playerCount !== undefined ? r.playerCount : (r.players ? r.players.size : 0),
     bots: r.botCount !== undefined ? r.botCount : 0,
     /* Whether this room can hold bots AT ALL, asked of the room rather than
@@ -1280,11 +1287,13 @@ app.post('/api/owner/do', async (req, res) => {
       io.emit('maintenance', ops.get());
       /* io.emit reaches the main namespace only; agar.io lives on /ag. */
       if (agArenas) io.of('/ag').emit('maintenance', ops.get());
+      if (slArenas) io.of('/sl').emit('maintenance', ops.get());
       return done('Maintenance on. New games refused.');
     case 'maintenance:off':
       ops.set({ on: false });
       io.emit('maintenance', ops.get());
       if (agArenas) io.of('/ag').emit('maintenance', ops.get());
+      if (slArenas) io.of('/sl').emit('maintenance', ops.get());
       return done('Maintenance off. The game is open.');
 
     /* Paid agar.io's own instant door switch (PAID-AGAR-DESIGN.md 5.7): off,
@@ -1302,6 +1311,19 @@ app.post('/api/owner/do', async (req, res) => {
       agArenas.paidOpen = true;
       console.warn('[AG] owner console: paid door OPEN');
       return done('Paid agar.io open.');
+    /* The new slither.io free room's door (SERVER-DESIGN 13 item 4, 16.2): off
+       refuses new joins (the page gets a 'closed' refusal), seated players
+       finish. In memory like agar's paid switch, so a restart reopens it. */
+    case 'sl:door:off':
+      if (!slArenas) return refuse('The new slither.io room is not open (SL_ENABLED)');
+      slArenas.door(false);
+      console.warn('[SL] owner console: door CLOSED');
+      return done('New slither.io closed to new players until the next restart; seated players finish. For a lasting close set SL_ENABLED=0.');
+    case 'sl:door:on':
+      if (!slArenas) return refuse('The new slither.io room is not open (SL_ENABLED)');
+      slArenas.door(true);
+      console.warn('[SL] owner console: door OPEN');
+      return done('New slither.io open.');
     case 'maintenance:check': {
       /* Unsafe while any stake exists only in this process: a live paid seat,
          a Paper floor coin, or a paid entry token minted and not yet joined
@@ -1318,6 +1340,7 @@ app.post('/api/owner/do', async (req, res) => {
       const text = String(args.text || '').slice(0, 200);
       if (!text) return refuse('Nothing to say');
       io.emit('announce', { text, at: Date.now() });
+      if (slArenas) io.of('/sl').emit('announce', { text, at: Date.now() });
       return done('Sent to everyone in a game');
     }
 
@@ -1442,6 +1465,42 @@ app.get(['/agar', '/agar.html'], (_req, res) => res.redirect(302, '/ag'));
    yet). Closed, /sl and every path express.static would resolve to the file
    answer a 503 "not open yet" page (server/slRoutes.js says why an exact
    /sl.html route is not enough). Must stay above express.static. */
+/* ── slither.io (new): the free room on /sl (server/sl, task T11) ────────────
+   OFF by default (SL_ENABLED, the same switch as the routes below); junk fails
+   closed. On, it opens only when the law table passes assertShippable (or on
+   the dev FIXTURE via SL_DEV_LAWS, refused in production, with an escrow key
+   or a DATABASE_URL), and then /sl serves public/sl.html with the layer tail
+   (server/sl/slBoot.js composePage); any refusal keeps /sl on the closed page
+   and logs why. ONE free room, its own socket.io namespace /sl, at most
+   C_SL_PER_IP (30) sockets per address. It holds no money: it gets no db and
+   no money module, only the one read function of the biggest cash-out box
+   (server/sl/slTopCashout.js), and its row is stake 0 with worth 0 snakes.
+   Hidden: its board row is NOT in /api/live until the Phase 6 swap
+   (SERVER-DESIGN 16.2), so the lobby still opens the old free snake room. The
+   owner console sees it (ALL_ROOMS, sl:door:off/on), maintenance and announce
+   reach /sl too. */
+const slBoot = require('./sl/slBoot');
+const slOpened = slBoot.openSl({
+  env: process.env,
+  io,
+  region: REGION,
+  helpers: {
+    socketRL,
+    ops,
+    /* SERVER-DESIGN 13 item 9: slSockets throttles (C_PUSH) before calling this. */
+    notifyJoin: (name) => notify.pushOwner(
+      `${name || 'A player'} joined slither.io (new) Free in ${REGION.toUpperCase()}`,
+      { title: 'New player: slither.io (new)', tags: 'video_game' }),
+    /* The bot governor's paid-seat input, once a second (SERVER-DESIGN 11). */
+    paidLoad: () => ({ paidPlayers: ops.drainStatus(ALL_ROOMS(), entryStore.pending()).paid, paid: [] }),
+  },
+  topCashout: process.env.DATABASE_URL
+    ? require('./sl/slTopCashout').makeTopCashoutRead((sql, params) => db.pool.query(sql, params))
+    : null,
+  excludeWallets: [...OWNER_WALLETS, REVENUE_WALLET],
+});
+const slArenas = slOpened.arenas;
+app.get('/sl', slBoot.slPageRoute(slOpened));
 const slGate = require('./slRoutes');
 slGate.slRoutes(app, {
   open: slGate.slSwitch(process.env.SL_ENABLED),
@@ -2660,6 +2719,10 @@ everyStaggered(() => paperArenas.sweep(Date.now()), 60000, 29000, 'paper-sweep')
    overflow room. 16.5 mod 30 sits in the widest free gap, 2.5s from lobby-sweep
    (44, so 14) and 2.5s from lb-flush (19); stake-sweep already holds 22. */
 if (agArenas) everyStaggered(() => agArenas.sweep(Date.now()), 60000, 16500, 'ag-sweep');
+/* The new slither.io free room (only while SL_ENABLED opened it): replaces a
+   room that closed itself. 26 mod 30 sits 3s from paper-sweep (29) and 4s from
+   stake-sweep (22). */
+if (slArenas) everyStaggered(() => slArenas.sweep(Date.now()), 60000, 26000, 'sl-sweep');
 
 // ── Failed-payout drainer (NA only) ───────────────────────────────────────────
 // Retries payouts that failed (e.g. an RPC outage) so a player's winnings are never stranded.
