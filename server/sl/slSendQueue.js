@@ -65,15 +65,22 @@
 // flush hands bytes to engine.io, and on a dead link the client never gets them, so the own records in them would be
 // gone and the client's own body would be wrong for the rest of the life. So every flushed bundle gets a sequence
 // number (sentSeq, one per sl:f) and its records the client must not miss (own records, echoes, pongs and removals:
-// the KEPT kinds of a resync) are RETAINED, plus the ids an OTHER record took off the client (prey_eaten), until the
-// client proves it got them. The proof costs nothing on the wire: their client keeps one ping in flight and pings again
-// only after the pong arrived (public/js/sl/slInput.js:257-265), so a ping arriving now proves the bundle that carried
-// the previous pong (and every bundle before it, the stream is ordered) was received. Retention is capped at
-// C_PENDING_CAP bytes (oldest first; a hidden tab stops pinging); a resume from before what was dropped is refused.
-// On resume(n) the retained records of every bundle after n go back to the FRONT of the queue (older than what queued
-// while detached), the ids the lost bundles took off are put back in the delivered set, a pong is added when the
+// the KEPT kinds of a resync) are RETAINED, plus every other record that took an id off the client (prey_eaten, so
+// every removal counts against the retention cap), until the client proves it got them. Beside them each bundle logs
+// what it CHANGED in the delivered set (an add of an id not held, a removal of an id held; an add of an id already
+// held, a food_add into a held sector for one, changes nothing) until the same proof or the same cap lets the bundle
+// go; it stays small: an id freshly added again was removed in between, and every removal is a retained record. The
+// proof costs nothing on the wire: their client keeps one ping in flight and pings again only after the pong arrived
+// (public/js/sl/slInput.js:257-265), so a ping arriving now proves the bundle that carried the previous pong (and
+// every bundle before it, the stream is ordered) was received. Retention is capped at C_PENDING_CAP bytes (oldest
+// first; a hidden tab stops pinging); a resume from before what was dropped is refused.
+// On resume(n) the changes of every bundle after n are undone, newest first, so the delivered set is again exactly what
+// the client holds after bundle n (verifier, 2026-10-11: undoing only the removals left every id a lost bundle ADDED
+// in the set, and the resync removed it from a client that never had it: 2 to 7 unknown snake removals per resume
+// with bots, 18 of 18 seeds; P1, and scripts/slLoad.js counts each as unknownSnake). The retained records of every
+// bundle after n go back to the FRONT of the queue (older than what queued while detached), a pong is added when the
 // client sent a ping the server never heard (p, at most one: one ping in flight), and the normal resync (9.3) runs:
-// every other record dropped, removals for what the client may hold, the room re-adds the view. The client's counter
+// every other record dropped, removals for what the client holds, the room re-adds the view. The client's counter
 // and sentSeq agree again (sentSeq = n: the lost bundles' records now ride in new ones).
 // Layer messages are not part of the counted stream (an sl:x may leave with no sl:f). The few a life must not miss
 // (the room's 'cashed', which titles the card) are queued with keep: they are retained with the sl:f they led, and a
@@ -304,6 +311,8 @@ function createSendQueue(laws, opts) {
   let keptHead = 0;
   let keptBytes = 0;
   let lostThrough = 0; // retained records of bundles up to this seq were dropped: a resume needs n >= it
+  const changes = []; // { seq, what, ref, op }: what each sent bundle changed in delivered, oldest first from changesHead
+  let changesHead = 0;
   const sticky = new WeakSet(); // layer messages queued with keep (see the header)
   let keptLayer = []; // { seq, msg }: the sticky messages that led a sent bundle, oldest first
 
@@ -470,8 +479,18 @@ function createSendQueue(laws, opts) {
         const it = items[i];
         recs[i] = it.bytes;
         if (it.kind === KIND.PONG) sentPong = true;
-        if (it.op === 1) setOf(it.what).add(it.ref);
-        else if (it.op === -1) setOf(it.what).delete(it.ref);
+        if (it.op !== 0) {
+          // logged only when it changed the set, so undoing the log in reverse restores it exactly (resume)
+          const set = setOf(it.what);
+          let changed;
+          if (it.op === 1) {
+            changed = !set.has(it.ref);
+            if (changed) set.add(it.ref);
+          } else {
+            changed = set.delete(it.ref);
+          }
+          if (changed) changes.push({ seq, what: it.what, ref: it.ref, op: it.op });
+        }
         // retained until a ping proves the client got this bundle (resume, see the header)
         if (KEPT.has(it.kind) || it.op === -1) {
           it.seq = seq;
@@ -509,6 +528,18 @@ function createSendQueue(laws, opts) {
     }
   }
 
+  // The client got every bundle up to seq, or a resume from before it is refused: its changes are never undone.
+  function dropChanges(seq) {
+    while (changesHead < changes.length && changes[changesHead].seq <= seq) changesHead++;
+    if (changesHead === changes.length) {
+      changes.length = 0;
+      changesHead = 0;
+    } else if (changesHead > 1024 && changesHead * 2 > changes.length) {
+      changes.splice(0, changesHead);
+      changesHead = 0;
+    }
+  }
+
   // Retention over C_PENDING_CAP bytes: the oldest go, and a resume from before them is refused.
   function trimKept() {
     while (keptBytes > Q.cap && keptHead < kept.length) {
@@ -518,6 +549,7 @@ function createSendQueue(laws, opts) {
       stats.retainDropped++;
     }
     compactKept();
+    dropChanges(lostThrough);
     if (keptLayer.length && keptLayer[0].seq <= lostThrough) keptLayer = keptLayer.filter((e) => e.seq > lostThrough);
   }
 
@@ -533,6 +565,7 @@ function createSendQueue(laws, opts) {
     } else {
       compactKept();
     }
+    dropChanges(seq);
     if (keptLayer.length && keptLayer[0].seq <= seq) keptLayer = keptLayer.filter((e) => e.seq > seq);
   }
 
@@ -574,14 +607,21 @@ function createSendQueue(laws, opts) {
   // room's 'back'). Returns the removal lists the resync queued, or null when n cannot resume.
   function resume(n, p, tick, nowMs, first) {
     if (!canResume(n)) return null;
+    // the delivered set back to what the client holds after bundle n: the lost bundles' changes undone, newest first
+    // (an id a lost bundle added is not held, one it took off still is), so the resync removes exactly what the client
+    // holds and keeps a replayed removal only for an id it holds
+    for (let i = changes.length - 1; i >= changesHead && changes[i].seq > n; i--) {
+      const c = changes[i];
+      if (c.op === 1) setOf(c.what).delete(c.ref);
+      else setOf(c.what).add(c.ref);
+    }
+    changes.length = 0;
+    changesHead = 0;
     const replay = [];
     let bytes = 0;
     for (let i = keptHead; i < kept.length; i++) {
       const it = kept[i];
       if (it.seq <= n) continue;
-      // what a lost bundle took off the client, the client still holds: back in the delivered set, so the resync keeps
-      // a replayed removal of it (and removes a prey a lost prey_eaten took) instead of reading it as never delivered
-      if (it.op === -1) setOf(it.what).add(it.ref);
       if (KEPT.has(it.kind)) {
         replay.push(it);
         bytes += it.bytes.length;
@@ -763,6 +803,8 @@ function createSendQueue(laws, opts) {
     keptHead = 0;
     keptBytes = 0;
     keptLayer = [];
+    changes.length = 0;
+    changesHead = 0;
   }
 
   bind();
@@ -834,6 +876,9 @@ function createSendQueue(laws, opts) {
     },
     get keptLayerLength() {
       return keptLayer.length;
+    },
+    get changesLength() {
+      return changes.length - changesHead;
     },
     get lostThrough() {
       return lostThrough;

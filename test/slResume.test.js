@@ -155,21 +155,40 @@ function home(room, id) {
   return { type: 'angle', q: Math.round(a / PI2 * 251) % 251 };
 }
 
-// What the client holds by the queue's own model (tagOf what/op on every applied record), against the queue.
+// What the client holds by the queue's own model (tagOf what/op on every applied record), against the queue. Strict
+// (verifier, 2026-10-11): a removal of a snake or prey the client does not hold, or a second add of one it holds, is
+// counted (P1; scripts/slLoad.js fails it as unknownSnake, unknownPrey, doubleSnake, doublePrey). Sectors are not:
+// their server removes a watched sector that never had food (L8.emptySector removeOnSweep, 696 of 10707 removals).
 function heldBy(c) {
   const sets = { 1: new Set(), 2: new Set(), 3: new Set() };
+  const bad = { unknown: { 1: 0, 3: 0 }, double: { 1: 0, 3: 0 }, samples: [] };
   for (const e of c.got) {
     const t = Q.tagOf(e, c.own);
-    if (t[1] && t[2] === 1) sets[t[1]].add(t[3]);
-    else if (t[1] && t[2] === -1) sets[t[1]].delete(t[3]);
+    if (!t[1]) continue;
+    if (t[2] === 1) {
+      if (t[1] !== 2 && sets[t[1]].has(t[3])) {
+        bad.double[t[1]]++;
+        if (bad.samples.length < 8) bad.samples.push('double ' + e.type + ' ' + t[3]);
+      }
+      sets[t[1]].add(t[3]);
+    } else if (t[2] === -1 && !sets[t[1]].delete(t[3]) && t[1] !== 2) {
+      bad.unknown[t[1]]++;
+      if (bad.samples.length < 8) bad.samples.push('unknown ' + e.type + ' ' + t[3]);
+    }
   }
+  sets.bad = bad;
   return sets;
+}
+function assertStrict(h) {
+  assert.deepStrictEqual(h.bad.unknown, { 1: 0, 3: 0 }, 'no removal of an id the client does not hold: ' + h.bad.samples);
+  assert.deepStrictEqual(h.bad.double, { 1: 0, 3: 0 }, 'no second add of an id the client holds: ' + h.bad.samples);
 }
 function assertNoGhosts(c) {
   c.receive(true);                                               // everything in flight lands
   const q = c.seat.queue;
   assert.strictEqual(q.length, 0, 'nothing queued');
   const h = heldBy(c);
+  assertStrict(h);
   const sorted = (s) => Array.from(s).sort((a, b) => a - b);
   assert.deepStrictEqual(sorted(h[1]), sorted(q.delivered.snakes), 'snakes: the client holds what was delivered');
   assert.deepStrictEqual(sorted(h[2]), sorted(q.delivered.sectors), 'sectors: the client holds what was delivered');
@@ -363,6 +382,61 @@ test('queue: a detached queue over the cap resyncs, never kicks; a sticky layer 
   assert.strictEqual(b[0].type, 'dead', 'the own death of the lost bundle first');
 });
 
+test('queue resume: what the lost bundles changed in the delivered set is undone exactly (an add never seen is not removed)', () => {
+  const { q, rec } = queueRig();
+  const add = (id) => ({ type: 'snake_add', id, ang: 0, wang: 0, sp: 1, fam: 0, cv: 3, snx: 100, sny: 100, nick: 'n',
+    raw: { pts: [{ x: 500, y: 500 }, { bx: 127, by: 127 }] } });
+  const rem = (id) => ({ type: 'snake_remove', id, kill: false });
+  const food = (sx) => ({ type: 'food_add', rapid: false, sectorFromLast: false, sx, sy: 1, rx: 3, ry: 4, cvFromLast: false, cv: 2, rad: 10 });
+  const sector = (sx) => ({ type: 'food_sector', sx, sy: 1, foods: [] });
+  const send = (evs) => {
+    for (const e of evs) q.push(1, e, rec(e));
+    q.flush(0);
+  };
+  send([add(5), add(9), add(11), sector(7), { type: 'prey_add', id: 3, cv: 1, xx: 700, yy: 700, rad: 5, dir: 1, wang: 0, ang: 0, sp: 5 }]);
+  //                                                             1: received (own 5, snakes 9 and 11, sector 7, prey 3)
+  send([add(10), rem(9), food(7), food(8), { type: 'prey_eaten', id: 3, eater: 11 }]); // 2: lost
+  send([rem(11), add(11), rem(10)]);                             // 3: lost (11 off and on again, 10 on and off)
+  assert.ok(q.changesLength > 0);
+  q.detach();
+  const s2 = bareSocket();
+  q.attach(s2);
+  const out = q.resume(1, 0, 4, 0, []);
+  assert.deepStrictEqual(out, { snakes: [], sectors: [7 * 256 + 1], preys: [3] },
+    'the client holds 9, 11, sector 7 and prey 3: 9 and 11 go in their replayed removals, the rest here; 10 and sector 8 it never had');
+  assert.strictEqual(q.changesLength, 0);
+  q.flush(0);
+  const b = W.decodeBundle(s2.emitted.find((e) => e.name === 'sl:f').data);
+  const removed = b.filter((e) => e.type === 'snake_remove').map((e) => e.id);
+  assert.deepStrictEqual(removed, [9, 11], 'each held snake removed once; the lost removal of 10 (never held) is dropped');
+  assert.deepStrictEqual(b.filter((e) => e.type === 'sector_remove').map((e) => e.sx), [7]);
+  assert.deepStrictEqual(b.filter((e) => e.type === 'prey_remove').map((e) => e.id), [3]);
+  assert.deepStrictEqual(Array.from(q.delivered.snakes).sort((a, b2) => a - b2), [5], 'only the own snake is held now');
+});
+
+test('queue: the change log is let go with its bundles (the proof of a ping, or the retention cap)', () => {
+  const { q, rec } = queueRig(4096);
+  const sector = (sx) => ({ type: 'food_sector', sx, sy: 1, foods: [] });
+  q.push(1, sector(1), rec(sector(1)));
+  q.pong(1, 0);
+  q.flush(0);
+  q.push(2, sector(2), rec(sector(2)));
+  q.push(2, sector(2), rec(sector(2)));                          // a second add of a held id changes nothing
+  q.flush(0);
+  assert.strictEqual(q.changesLength, 2);
+  q.pong(3, 10);                                                 // proves bundle 1
+  assert.strictEqual(q.changesLength, 1);
+  for (let i = 0; i < 3000; i++) {
+    const own = { type: 'kill_count', id: 5, count: i % 1000 };
+    q.push(4, own, rec(own));
+    q.push(4, sector(10 + (i % 150)), rec(sector(10 + (i % 150))));
+    q.push(4, { type: 'sector_remove', sx: 10 + (i % 150), sy: 1 }, rec({ type: 'sector_remove', sx: 10 + (i % 150), sy: 1 }));
+    q.flush(0);
+  }
+  assert.ok(q.lostThrough > 2);
+  assert.ok(q.changesLength <= 2 * (q.sentSeq - q.lostThrough), 'only the bundles a resume could still need: ' + q.changesLength);
+});
+
 // ------------------------------------------------------------------------------------------------- the room and sockets
 
 test('a seat gets its key (sl:x seat) on its own socket only; the window is the glide plus the dead seat limit', () => {
@@ -552,6 +626,52 @@ test('a resume the server had not seen the drop of: the new socket takes the sea
   d.run(300);
   assert.strictEqual(c.pongs, c.p, 'every ping got exactly one pong');
   assertNoGhosts(c);
+});
+
+// The verifier's attack (2026-10-11): with bots around, a bundle lost in a blip carries snake_adds of other snakes.
+// Before the change log, resume() undid only the lost removals, so the resync removed snakes the client never got:
+// 2 to 4 unknown snake removals per parked resume and 3 to 7 per takeover, on every seed.
+test('with bots: a resume after lost bundles never removes an id the client does not hold, parked or taken over', () => {
+  let lostAdds = 0;
+  for (const seed of [41, 42, 43]) {
+    for (const kind of ['parked', 'takeover']) {
+      const r = rig({ seed, bots: true });
+      const room = r.room();
+      const c = makeClient(r);
+      c.join('Owen');
+      const id = c.own;
+      const d = makeDriver(r, c);
+      const steer = (t) => {
+        if (Math.floor(t / 300) !== Math.floor((t - room.P) / 300) && !c.down && room.sim.snake(id)) c.input([home(room, id)]);
+      };
+      c.input([home(room, id)]);
+      d.run(4000, steer);
+      assert.ok(room.sim.count() > 5, 'bots are in the room: ' + room.sim.count());
+      c.blip(false);                                             // silent loss: the server still flushes to the old socket
+      d.run(kind === 'parked' ? 1000 : 2000, steer);
+      if (kind === 'parked') {
+        c.socks[0].disconnected = true;                          // then it sees the drop and parks the seat
+        c.socks[0].fire('disconnect', 'transport close');
+        assert.strictEqual(room.parked.size, 1);
+        d.run(500, steer);
+      }
+      for (const fr of frames(c.socks[0]).slice(c.sockN[0])) {
+        for (const e of W.decodeBundle(fr)) if (e.type === 'snake_add' && e.id !== id) lostAdds++;
+      }
+      const b = c.back();
+      const where = seed + ' ' + kind;
+      assert.strictEqual(refusal(b), null, where);
+      assert.ok(room.sim.snake(id), where + ': the snake is kept');
+      d.run(2000, steer);
+      c.quiet = true;
+      d.run(400);
+      c.receive(true);
+      assertStrict(heldBy(c));
+      assertNoGhosts(c);
+      assert.strictEqual(c.pongs, c.p, where + ': every ping got exactly one pong');
+    }
+  }
+  assert.ok(lostAdds >= 6, 'the lost bundles carried adds of other snakes: ' + lostAdds);
 });
 
 test('a lost back: the attempt socket dies before the client read it; the previous key brings the parked seat back', () => {
