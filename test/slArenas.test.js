@@ -6,12 +6,16 @@ const test = require('node:test');
 const assert = require('node:assert');
 const { rig, layerMsgs } = require('./slSockFakes');
 const { SlArenas, GOVERNOR_SAMPLE_MS } = require('../server/sl/slArenas');
-const { LAWS } = require('../server/sl/slLaws');
+const { LAWS, ENTRIES, tableFrom } = require('../server/sl/slLaws');
 const { makeFixture } = require('./slLawsFixture');
 const ops = require('../server/ops');
 
-test('the real table is refused while any row is not shippable (the room stays closed)', () => {
-  assert.throws(() => new SlArenas(LAWS, { autoTick: false }), /not shippable/);
+test('the real table opens the room (every row settled 2026-10-11); one row not shippable keeps it closed', () => {
+  const A = new SlArenas(LAWS, { autoTick: false, bots: false, log: { log() {}, warn() {}, error() {} } });
+  assert.strictEqual(A.all().length, 1);
+  A.close();
+  const open = tableFrom(ENTRIES.map((e) => (e.id === 'C_ROOM_CAP' ? Object.assign({}, e, { status: 'NEEDS_MORE', value: null }) : e)));
+  assert.throws(() => new SlArenas(open, { autoTick: false, bots: false }), /C_ROOM_CAP \(NEEDS_MORE/);
 });
 
 test('ONE free room; one board row sl:<region>:s0, game snake, stake 0, capacity null', () => {

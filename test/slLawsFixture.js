@@ -3,14 +3,15 @@
 // shared/, public/ or scripts/ may import this (test/slLaws.test.js scans for it).
 //
 // Every row of the real table (server/sl/slLaws.js) with status FIXTURE and the same value, so tests run the real
-// numbers as literal vectors, while a FIXTURE table can never pass assertShippable. The rows that have no value yet
-// (C_ROOM_CAP and C_HUMAN_CAP wait for the T15 load test) get fixed test numbers here, labelled as such.
+// numbers as literal vectors, while a FIXTURE table can never pass assertShippable. The two room caps get fixed test
+// numbers here, labelled as such: the real table holds 101 each (CHOSEN by Owen 2026-10-11 until the T15 load test),
+// and the tests were written against 200 so a cap never trips by accident; cap tests patch their own numbers.
 
 const { LAWS, STATUS, tableFrom } = require('../server/sl/slLaws');
 
 const TEST_ONLY = {
-  C_ROOM_CAP: { value: 200, why: 'test number; the real cap comes from the T15 load test' },
-  C_HUMAN_CAP: { value: 200, why: 'test number; the real cap comes from the T15 load test' },
+  C_ROOM_CAP: { value: 200, why: 'test number; the real cap is 101 until the T15 load test' },
+  C_HUMAN_CAP: { value: 200, why: 'test number; the real cap is 101 until the T15 load test' },
 };
 
 function fixtureEntries(patch) {

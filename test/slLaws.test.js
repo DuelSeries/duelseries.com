@@ -23,10 +23,10 @@ const OWN_ROWS = ['C_PHASES', 'C_ECHO_NOW', 'C_INPUT_OFFSET', 'C_PENDING_CAP', '
   'C_HOLD_BOOST', 'C_CASHOUT_CODE', 'C_DISCONNECT', 'C_LB_BOTS', 'C_KILLFEED', 'C_HIDDEN_STREAM', 'C_RESYNC_FADE',
   'C_TIMING_BARS', 'PICTURE_SKINS', 'C_SL_PER_IP', 'C_TOP_SINCE', 'C_TOP_EXCLUDE', 'C_TOP_LANDED'];
 
-// The rows that keep the shipped table closed today: PROPOSED rows Owen has not answered, and the caps the T15 load
-// test sets.
-const NOT_YET = ['C_TOP_EXCLUDE (PROPOSED)', 'C_TOP_LANDED (PROPOSED)', 'C_HIDDEN_STREAM (PROPOSED)',
-  'C_RESYNC_FADE (PROPOSED)', 'C_TIMING_BARS (PROPOSED)', 'C_ROOM_CAP (NEEDS_MORE)', 'C_HUMAN_CAP (NEEDS_MORE)'];
+// The five rows that were PROPOSED until Owen answered them in chat on 2026-10-11 (OWNER-ANSWERS.md:120-126), with the
+// OWNER-ANSWERS.md line of each answer.
+const ANSWERED_2026_10_11 = { C_TOP_EXCLUDE: 122, C_TOP_LANDED: 123, C_HIDDEN_STREAM: 124, C_RESYNC_FADE: 125,
+  C_TIMING_BARS: 126 };
 
 function withRow(id, change) {
   return L.ENTRIES.map((e) => (e.id === id ? Object.assign({}, e, change) : e));
@@ -57,10 +57,12 @@ test('statuses, sources and approvals: each source starts with its status, APPRO
     assert.ok(e.name.trim() && e.unit.trim(), id);
     assert.ok(!/—/.test(e.name + e.source + e.unit), id + ' has an em dash');
     if (e.status === 'APPROVED') {
-      const m = /^2026-10-10 OWNER-ANSWERS\.md:(\d+)$/.exec(e.approvedAt);
+      const m = /^(2026-10-1[01]) OWNER-ANSWERS\.md:(\d+)$/.exec(e.approvedAt);
       assert.ok(m, id + ' approvedAt ' + e.approvedAt);
-      assert.ok(Number(m[1]) >= 31 && Number(m[1]) <= 116, id + ' line');
-      assert.ok(e.source.startsWith('APPROVED by Owen 2026-10-10 (OWNER-ANSWERS.md:' + m[1] + ' '), id);
+      // 2026-10-10 answers sit on lines 31 to 116; the five 2026-10-11 answers on lines 122 to 126.
+      if (m[1] === '2026-10-10') assert.ok(Number(m[2]) >= 31 && Number(m[2]) <= 116, id + ' line');
+      else assert.strictEqual(Number(m[2]), ANSWERED_2026_10_11[id], id + ' line');
+      assert.ok(e.source.startsWith('APPROVED by Owen ' + m[1] + ' (OWNER-ANSWERS.md:' + m[2] + ' '), id);
     } else {
       assert.strictEqual(e.approvedAt, undefined, id);
       assert.match(e.source, head[e.status], id);
@@ -68,8 +70,8 @@ test('statuses, sources and approvals: each source starts with its status, APPRO
     if (e.status === 'NEEDS_MORE') assert.strictEqual(e.value, null, id);
     else assert.notStrictEqual(e.value, null, id);
   }
-  assert.deepStrictEqual(L.statusCounts(L.LAWS), { KNOWN: 8, MEASURED: 21, RULE: 28, APPROVED: 56, CHOSEN: 28,
-    PROPOSED: 5, SUGGESTED: 0, OPEN: 0, NEEDS_MORE: 2, FIXTURE: 0 });
+  assert.deepStrictEqual(L.statusCounts(L.LAWS), { KNOWN: 8, MEASURED: 21, RULE: 28, APPROVED: 61, CHOSEN: 30,
+    PROPOSED: 0, SUGGESTED: 0, OPEN: 0, NEEDS_MORE: 0, FIXTURE: 0 });
 });
 
 test('law values, literal vectors from SERVER-LAWS by id', () => {
@@ -283,20 +285,30 @@ test('skin drop colours: 35 measured skins, 22 more from the frozen client strip
   }
 });
 
-test('assertShippable on the shipped table names exactly the rows still open, and passes once they are settled', () => {
-  assert.deepStrictEqual(L.notShippable(L.LAWS), NOT_YET);
-  assert.throws(() => L.assertShippable(L.LAWS), (e) => NOT_YET.every((s) => e.message.includes(s)));
-  // Every law row L1 to L51 is shippable today.
-  const lawIds = IDS.filter((id) => /^L\d/.test(id));
-  assert.strictEqual(L.assertShippable(L.LAWS, lawIds), L.LAWS);
-  // Settle the open rows (as Owen and the load test would) and the whole table passes.
-  const settled = L.ENTRIES.map((e) => {
-    if (e.status === 'PROPOSED') return Object.assign({}, e, { status: 'APPROVED', approvedAt: '2026-10-10 OWNER-ANSWERS.md:999' });
-    if (e.status === 'NEEDS_MORE') return Object.assign({}, e, { status: 'CHOSEN', value: 200 });
-    return e;
-  });
-  const t = L.tableFrom(settled);
-  assert.strictEqual(L.assertShippable(t), t);
+test('assertShippable passes on the shipped table: Owen\'s five 2026-10-11 answers and the 101 caps; one open row closes it', () => {
+  assert.deepStrictEqual(L.notShippable(L.LAWS), []);
+  assert.strictEqual(L.assertShippable(L.LAWS), L.LAWS);
+  // The five rows Owen answered on 2026-10-11 (OWNER-ANSWERS.md:120-126), with the values he approved.
+  for (const id of Object.keys(ANSWERED_2026_10_11)) {
+    assert.strictEqual(L.LAWS[id].status, 'APPROVED', id);
+    assert.strictEqual(L.LAWS[id].approvedAt, '2026-10-11 OWNER-ANSWERS.md:' + ANSWERED_2026_10_11[id], id);
+  }
+  assert.deepStrictEqual(L.LAWS.C_TOP_EXCLUDE.value, []);
+  assert.deepStrictEqual(L.LAWS.C_TOP_LANDED.value, { windowS: 600, tolMicro: 10 });
+  assert.strictEqual(L.LAWS.C_HIDDEN_STREAM.value, 'full');
+  assert.strictEqual(L.LAWS.C_RESYNC_FADE.value, 'fadeIn');
+  assert.deepStrictEqual(L.LAWS.C_TIMING_BARS.value, { rule: 'ledgerPlusQuantBound', quantSdMs: 12.3 });
+  // The caps: 101 CHOSEN by Owen 2026-10-11 until the load test (OWNER-ANSWERS.md:136-139).
+  for (const id of ['C_ROOM_CAP', 'C_HUMAN_CAP']) {
+    assert.strictEqual(L.LAWS[id].status, 'CHOSEN', id);
+    assert.strictEqual(L.LAWS[id].value, 101, id);
+    assert.match(L.LAWS[id].source, /^CHOSEN: Owen 2026-10-11 \(OWNER-ANSWERS\.md:136-139 room capped at 101 snakes/, id);
+  }
+  // One unsettled row (a PROPOSED row, or a cap back to NEEDS_MORE before a load test) closes the room again.
+  const open = L.tableFrom(withRow('C_TIMING_BARS', { status: 'PROPOSED', approvedAt: undefined }).map((e) =>
+    (e.id === 'C_ROOM_CAP' ? Object.assign({}, e, { status: 'NEEDS_MORE', value: null }) : e)));
+  assert.deepStrictEqual(L.notShippable(open), ['C_TIMING_BARS (PROPOSED)', 'C_ROOM_CAP (NEEDS_MORE)']);
+  assert.throws(() => L.assertShippable(open), /C_TIMING_BARS \(PROPOSED\); C_ROOM_CAP \(NEEDS_MORE\)/);
 });
 
 test('assertShippable throws on OPEN, NEEDS_MORE, SUGGESTED, PROPOSED, FIXTURE and on APPROVED without approvedAt', () => {
@@ -323,7 +335,10 @@ test('assertShippable throws on OPEN, NEEDS_MORE, SUGGESTED, PROPOSED, FIXTURE a
 
 test('assertLawsComplete and lawValue name missing and empty rows; any status with a value passes', () => {
   assert.strictEqual(L.assertLawsComplete(L.LAWS, ['L7', 'L36']), L.LAWS);
-  assert.throws(() => L.assertLawsComplete(L.LAWS), /C_ROOM_CAP \(NEEDS_MORE, no value\); C_HUMAN_CAP/);
+  assert.strictEqual(L.assertLawsComplete(L.LAWS), L.LAWS);
+  const capsOpen = L.tableFrom(L.ENTRIES.map((e) => (e.id === 'C_ROOM_CAP' || e.id === 'C_HUMAN_CAP'
+    ? Object.assign({}, e, { status: 'NEEDS_MORE', value: null }) : e)));
+  assert.throws(() => L.assertLawsComplete(capsOpen), /C_ROOM_CAP \(NEEDS_MORE, no value\); C_HUMAN_CAP/);
   const t = L.withValues(L.LAWS, { L7: null });
   assert.throws(() => L.assertLawsComplete(t, ['L1', 'L7']), (e) => /L7 \(MEASURED, no value\)/.test(e.message) &&
     !/L1 /.test(e.message));

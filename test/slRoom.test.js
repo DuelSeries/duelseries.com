@@ -70,9 +70,12 @@ function makeRoomWith(patch) {
   return new SlRoom(makeFixture(patch), { seed: 1, view: fakeView(), autoTick: false, shippableOnly: false, prey: false });
 }
 
-test('the real table is refused while any row is not shippable (the room stays closed)', () => {
-  const { LAWS: REAL } = require('../server/sl/slLaws');
-  assert.throws(() => new SlRoom(REAL, { seed: 1, view: fakeView(), autoTick: false }), /not shippable/);
+test('the real table opens the room (every row settled 2026-10-11); a row not shippable refuses it', () => {
+  const { LAWS: REAL, tableFrom, ENTRIES } = require('../server/sl/slLaws');
+  const room = new SlRoom(REAL, { seed: 1, view: fakeView(), autoTick: false, prey: false });
+  room.stop();
+  const open = tableFrom(ENTRIES.map((e) => (e.id === 'C_HUMAN_CAP' ? Object.assign({}, e, { status: 'NEEDS_MORE', value: null }) : e)));
+  assert.throws(() => new SlRoom(open, { seed: 1, view: fakeView(), autoTick: false }), /not shippable: C_HUMAN_CAP \(NEEDS_MORE\)/);
 });
 
 test('scheduler on a fake clock: k due steps = k sim steps + ONE view collect and ONE flush; dropped ms counted', () => {

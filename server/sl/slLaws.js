@@ -11,7 +11,7 @@
 //   MEASURED    a number or hard rule that passed its acceptance bar on Owen's three recordings
 //   RULE        the form was found in the data with zero counter-examples and its parameters measured
 //   APPROVED    an OPEN, NEEDS_MORE, SUGGESTED or PROPOSED row Owen answered in chat; approvedAt names the
-//               OWNER-ANSWERS.md line (all on 2026-10-10)
+//               OWNER-ANSWERS.md line (2026-10-10, and the five C_* rows Owen answered on 2026-10-11)
 //   CHOSEN      ours, engineering only: a player cannot see it (caps, timers, cache sizes)
 //   PROPOSED    ours, but a player can see it: waits for Owen like an OPEN row
 //   SUGGESTED, OPEN, NEEDS_MORE   not settled; OPEN and NEEDS_MORE may hold no value yet
@@ -49,6 +49,8 @@ const MAY_BE_EMPTY = new Set([STATUS.OPEN, STATUS.NEEDS_MORE]);
 const SL = 'SERVER-LAWS ';
 const OA = 'OWNER-ANSWERS.md:';
 const DAY = '2026-10-10';
+// The five PROPOSED rows Owen answered (OWNER-ANSWERS.md:120-126) and the room caps he chose (OWNER-ANSWERS.md:136-139).
+const DAY2 = '2026-10-11';
 // Provenance of the T5 prey fit rows (the reference side's tool and its output; never read at run time).
 const PREY_FIT = 'the T5 fit: tools/t5-prey-fit.js, recordings/T5-prey-fit.txt';
 
@@ -67,19 +69,18 @@ function rule(id, name, value, unit, from) {
   return law(id, name, STATUS.RULE, value, unit, 'RULE FOUND: ' + SL + from);
 }
 // line: the OWNER-ANSWERS.md line of Owen's answer; what: his answer in short; from: where the value comes from.
-function approved(id, name, value, unit, line, what, from) {
+function approvedOn(day, id, name, value, unit, line, what, from) {
   return law(id, name, STATUS.APPROVED, value, unit,
-    'APPROVED by Owen ' + DAY + ' (' + OA + line + ' ' + what + '); ' + from, DAY + ' ' + OA + line);
+    'APPROVED by Owen ' + day + ' (' + OA + line + ' ' + what + '); ' + from, day + ' ' + OA + line);
+}
+function approved(id, name, value, unit, line, what, from) {
+  return approvedOn(DAY, id, name, value, unit, line, what, from);
 }
 function chosen(id, name, value, unit, from) {
   return law(id, name, STATUS.CHOSEN, value, unit, 'CHOSEN: ' + from);
 }
-function proposed(id, name, value, unit, from) {
-  return law(id, name, STATUS.PROPOSED, value, unit, 'PROPOSED (waits for Owen): ' + from);
-}
-function pending(id, name, unit, from) {
-  return law(id, name, STATUS.NEEDS_MORE, null, unit, 'NEEDS_MORE: ' + from);
-}
+// No row is PROPOSED or NEEDS_MORE since 2026-10-11 (Owen's five answers and the 101 caps); a new one would be built
+// with law(id, name, STATUS.PROPOSED, value, unit, 'PROPOSED (waits for Owen): ' + from) and keeps the room closed.
 
 // ---------------------------------------------------------------------------------------------------------------
 // Tables that are too long to sit inline.
@@ -478,19 +479,29 @@ const ENTRIES = [
   approved('C_TOP_AMOUNT', 'Biggest cash-out box shows the take-home amount, every game, event prizes not counted',
     { rule: 'takeHome', rakeShare: 0.1, mult: 9, games: 'all', eventPrize: false }, 'dollars per rake dollar', 101,
     'biggest cash-out box: take-home after the 10% cut, every game, not event prizes', 'SERVER-DESIGN 15.4'),
-  proposed('C_TOP_EXCLUDE', 'Biggest cash-out box leaves out these test wallets Owen names (the owner and revenue wallets always, passed in by index.js)',
-    [], 'wallets', 'SERVER-DESIGN 4.3, 15.4 (brief section 11 question 5; none named yet)'),
-  proposed('C_TOP_LANDED', 'Biggest cash-out box counts a rake row only when its payout landed: an earnings row of 9 x the rake within tolMicro, within windowS after it, and no failed payout in that window',
-    { windowS: 600, tolMicro: 10 }, 's; micro-USDC', 'SERVER-DESIGN 4.3, 15.4 (brief section 11 question 5; the T13 amount match)'),
-  proposed('C_HIDDEN_STREAM', 'A hidden tab keeps receiving the full stream (their behaviour)', 'full', 'mode',
-    'SERVER-DESIGN 4.3, 12.4'),
-  proposed('C_RESYNC_FADE', 'A resync re-adds snakes, which fade in from transparent on the client', 'fadeIn', 'mode',
-    'SERVER-DESIGN 4.3, 9.3'),
-  proposed('C_TIMING_BARS', 'Law check bars for the L23 period and the L13 first step: the sim ledger plus the tick quantization bound',
-    { rule: 'ledgerPlusQuantBound', quantSdMs: 12.3 }, 'ms', 'SERVER-DESIGN 4.3, 18.3 (sd about P / sqrt(12))'),
-  pending('C_ROOM_CAP', 'Room cap: largest passing load test count minus 25 percent', 'snakes',
-    'set by the T15 load test (SERVER-DESIGN 14.2 item 5)'),
-  pending('C_HUMAN_CAP', 'Human cap of the room', 'players', 'set by the T15 load test (SERVER-DESIGN 4.3, 14.2)'),
+  approvedOn(DAY2, 'C_TOP_EXCLUDE', 'Biggest cash-out box leaves out these test wallets Owen names (the owner and revenue wallets always, passed in by index.js)',
+    [], 'wallets', 122, 'C_TOP_EXCLUDE: none for now, only the owner and revenue wallets index.js always excludes',
+    'SERVER-DESIGN 4.3, 15.4 (brief section 11 question 5)'),
+  approvedOn(DAY2, 'C_TOP_LANDED', 'Biggest cash-out box counts a rake row only when its payout landed: an earnings row of 9 x the rake within tolMicro, within windowS after it, and no failed payout in that window',
+    { windowS: 600, tolMicro: 10 }, 's; micro-USDC', 123,
+    'C_TOP_LANDED: only landed payouts count, matched within 10 minutes, failed never count',
+    'SERVER-DESIGN 4.3, 15.4 (brief section 11 question 5; the T13 amount match)'),
+  approvedOn(DAY2, 'C_HIDDEN_STREAM', 'A hidden tab keeps receiving the full stream (their behaviour)', 'full', 'mode', 124,
+    'C_HIDDEN_STREAM: a hidden tab keeps receiving the full stream, like slither', 'SERVER-DESIGN 4.3, 12.4'),
+  approvedOn(DAY2, 'C_RESYNC_FADE', 'A resync re-adds snakes, which fade in from transparent on the client', 'fadeIn', 'mode', 125,
+    'C_RESYNC_FADE: after a reconnect the re-sent snakes fade in', 'SERVER-DESIGN 4.3, 9.3'),
+  approvedOn(DAY2, 'C_TIMING_BARS', 'Law check bars for the L23 period and the L13 first step: the sim ledger plus the tick quantization bound',
+    { rule: 'ledgerPlusQuantBound', quantSdMs: 12.3 }, 'ms', 126,
+    'C_TIMING_BARS: the law check allows the 43 ms tick wobble on the L23 period and L13 first step',
+    'SERVER-DESIGN 4.3, 18.3 (sd about P / sqrt(12))'),
+  // The two caps: Owen 2026-10-11 ~14:40 ET, room "capped at 101 snakes as CHOSEN until the load test after the
+  // 2026-10-15 reset" (OWNER-ANSWERS.md:136-139). The T15 load test replaces both (largest passing count minus 25 percent).
+  chosen('C_ROOM_CAP', 'Room cap: snakes in the room, players and bots (the load test later sets the largest passing count minus 25 percent)',
+    101, 'snakes', 'Owen ' + DAY2 + ' (' + OA + '136-139 room capped at 101 snakes as CHOSEN until the load test after ' +
+    'the 2026-10-15 reset); the T15 load test replaces it (SERVER-DESIGN 14.2 item 5)'),
+  chosen('C_HUMAN_CAP', 'Human cap of the room (the load test later sets it)', 101, 'players',
+    'Owen ' + DAY2 + ' (' + OA + '136-139 room capped at 101 snakes as CHOSEN until the load test after the ' +
+    '2026-10-15 reset; humans are snakes of that room, so the same 101); the T15 load test replaces it (SERVER-DESIGN 4.3, 14.2)'),
 
   // Bots, ours on Owen's answers
   approved('BOT_FILL', 'Bot count = max(0, the daily curve target - humans); real players replace bots',

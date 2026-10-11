@@ -81,12 +81,17 @@ test('dev laws: refused in production, with an escrow key or a DATABASE_URL; loa
   assert.throws(() => B.loadSlLaws({ SL_DEV_LAWS: path.join(__dirname, 'slNetFakes.js') }, QUIET), /exports no LAWS/);
 });
 
-test('the real table today: closed, and why names exactly the rows still waiting', () => {
-  const o = boot({ env: { SL_ENABLED: '1' } });
-  assert.strictEqual(o.arenas, null);
-  assert.strictEqual(o.page, null);
-  for (const id of ['C_TOP_EXCLUDE', 'C_TOP_LANDED', 'C_HIDDEN_STREAM', 'C_RESYNC_FADE', 'C_TIMING_BARS', 'C_ROOM_CAP',
-    'C_HUMAN_CAP']) assert.ok(o.why.includes(id), id);
+test('the real table (Owen\'s 2026-10-11 answers and the 101 caps): the room opens on it, with no dev table', () => {
+  const o = boot({ env: { SL_ENABLED: '1' }, io: fakeIo() });
+  assert.strictEqual(o.why, null, String(o.why));
+  assert.ok(o.arenas && o.page);
+  assert.strictEqual(o.dev, false);
+  o.arenas.close();
+  // One row back to PROPOSED closes it again and names the row.
+  const closed = boot({ env: { SL_ENABLED: '1' }, laws: shippableTable({ C_TIMING_BARS: { status: STATUS.PROPOSED } }) });
+  assert.strictEqual(closed.arenas, null);
+  assert.strictEqual(closed.page, null);
+  assert.match(closed.why, /C_TIMING_BARS \(PROPOSED\)/);
 });
 
 test('boot refused with a PROPOSED row, or an APPROVED row without approvedAt; open once every row is settled', () => {

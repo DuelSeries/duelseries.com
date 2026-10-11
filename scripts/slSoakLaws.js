@@ -4,10 +4,11 @@
 // ESCROW_PRIVATE_KEY or a DATABASE_URL).
 //
 // It is the shipped table (server/sl/slLaws.js LAWS) with three changes, each written in the row it changes:
-//   C_ROOM_CAP, C_HUMAN_CAP   NEEDS_MORE with no value in the shipped table: the load test sets them (SERVER-DESIGN
-//                             14.2 item 5), and the load test is not part of this run. The soak runs at the daily
-//                             curve's peak (BOT_MAX 101, shared/constants.js:317; OWNER-ANSWERS.md:71), so both caps
-//                             are that peak here: the room holds the most snakes the curve ever asks for.
+//   C_ROOM_CAP, C_HUMAN_CAP   the load test sets them (SERVER-DESIGN 14.2 item 5), and the load test is not part of
+//                             this run. The soak runs at the daily curve's peak (BOT_MAX 101, shared/constants.js:317;
+//                             OWNER-ANSWERS.md:71), so both caps are that peak here: the room holds the most snakes the
+//                             curve ever asks for. Since 2026-10-11 the shipped table holds the same 101 (CHOSEN by
+//                             Owen until the load test, OWNER-ANSWERS.md:136-139), so only the source text changes.
 //   the five SUGGESTED prey rows (server/sl/slPrey.js PREY_ROWS: L33.spont, L33.wander, L33.motion, L33.extra,
 //                             L32.remove) as APPROVED rows with their suggested values: Owen approved prey "as
 //                             measured" (OWNER-ANSWERS.md:85) and every open law with its suggested value on
