@@ -157,6 +157,60 @@ test('live: four wanderers and the probe on a local /sl, every bundle decoded, 0
   }
 });
 
+// The soak's blips never came back (verifier, 2026-10-11), so its 0 stream failures said nothing about a resume.
+test('live: resume blips, parked and taken over, come back inside the glide; the same client model stays strict-clean', { timeout: 60000 }, async () => {
+  const { Server } = require('socket.io');
+  const port = await freePort();
+  const server = http.createServer((req, res) => {
+    res.writeHead(404);
+    res.end();
+  });
+  const io = new Server(server, { pingInterval: 5000, pingTimeout: 10000 });
+  const quiet = { log() {}, warn() {}, error() {} };
+  const opened = require('../server/sl/slBoot').openSl({
+    env: { SL_ENABLED: '1', SL_DEV_LAWS: path.join(__dirname, 'slLawsFixture.js') }, io, region: 'na', seed: 5, log: quiet,
+    helpers: {
+      socketRL: (s, k, ms) => {
+        const now = Date.now();
+        if (!s._rl) s._rl = {};
+        if (s._rl[k] && now - s._rl[k] < ms) return false;
+        s._rl[k] = now;
+        return true;
+      },
+      ops: require('../server/ops'), notifyJoin() {}, paidLoad: () => ({ paidPlayers: 0, paid: [] }),
+    },
+  });
+  assert.ok(opened.arenas, 'the room opened: ' + opened.why);
+  await new Promise((r) => server.listen(port, '127.0.0.1', r));
+  try {
+    const run = createWanderers({ url: 'http://127.0.0.1:' + port, clients: 4, polling: 0.5, seed: 6,
+      resume: { share: 1, fromMs: 1500, spanMs: 1000, alternate: true } });
+    run.start();
+    await new Promise((r) => setTimeout(r, 9000));
+    run.stop();
+    const sum = run.summary();
+    const rs = sum.resume;
+    assert.deepStrictEqual(rs.fails, {}, 'no resume failed');
+    assert.ok(rs.started.parked >= 2 && rs.started.takeover >= 2, JSON.stringify(rs.started));
+    assert.deepStrictEqual(rs.back, rs.started, 'every resume blip came back');
+    assert.ok(rs.lives >= 4 && rs.bundles > 50, 'resumed lives ' + rs.lives + ', their bundles ' + rs.bundles);
+    assert.strictEqual(rs.failures, 0);
+    assert.deepStrictEqual(sum.samples, []);
+    assert.strictEqual(sum.failures, 0);
+    assert.ok(rs.awayMs.max < 3000, 'back inside the glide: ' + JSON.stringify(rs.awayMs));
+    assert.strictEqual(sum.kickTotal, 0, JSON.stringify(sum.kicks));
+    assert.strictEqual(sum.dropTotal, 0, JSON.stringify(sum.drops));
+    assert.strictEqual(sum.refusalTotal, 0, JSON.stringify(sum.refusals));
+    assert.ok(sum.layer.back >= 4, 'layer ' + JSON.stringify(sum.layer));
+    const st = opened.arenas.room().stats;
+    assert.ok(st.backs >= 4 && st.takeovers >= 2 && st.parks >= 2, 'room backs ' + st.backs + ', takeovers ' + st.takeovers + ', parks ' + st.parks);
+  } finally {
+    opened.arenas.close();
+    io.close();
+    server.close();
+  }
+});
+
 test('a long-polling wanderer keeps its HTTP connections (keep-alive, as a browser): no TCP connection per request', { timeout: 30000 }, async () => {
   // engine.io-client's node XHR opens one TCP connection per request unless given an agent; 15 wanderers that way
   // ran the soak out of loopback ports on Windows (thousands of 'transport error' drops, 2026-10-11).

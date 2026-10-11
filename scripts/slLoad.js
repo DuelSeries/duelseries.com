@@ -7,8 +7,16 @@
 // inside the border (a new wanted angle byte every 100 to 250 ms, only when the byte changes, toward the centre past
 // 0.6 of the border radius), pings once per pong at most every 250 ms (their slInput.js:257-265 gate), boosts in
 // bursts, and now and then holds Q (sl:hold, to a cash-out or let go early), chats, sends sl:diag, drops its
-// connection mid-life (a blip: the server's 3 s glide) or leaves, and some lives drive straight out into the border. After its own `dead` it closes 1.6 s later (their
-// death timing, OWNER-ANSWERS Q11) and plays again on a new socket.
+// connection mid-life (a blip: the server's 3 s glide) or leaves, and some lives drive straight out into the border.
+// After its own `dead` it closes 1.6 s later (their death timing, OWNER-ANSWERS Q11) and plays again on a new socket.
+//
+// Resume blips (task T16b; verifier, 2026-10-11: the soak's blips never came back, so its clean streams said nothing
+// about a resume). Some lives go deaf mid-life the way a dead link does: every bundle from then on is lost (not
+// applied, not counted) and nothing is sent. Either the socket is then dropped without sl:leave and the server parks
+// the seat ('parked'), or it is left open so the server never sees the drop ('takeover'); in both cases a new socket
+// sends sl:back {k, n, p} (k the key of the last sl:x seat or back, n the sl:f bundles applied this life, p the pings
+// sent this life) inside the 3 s glide, as public/js/slx/slxNet.js does, and the life goes on there with the SAME
+// client model, so a removal of a snake the client never got is an unknownSnake failure.
 //
 // Every bundle goes through createTracker, a client model of the decoded stream: init first and once, the own snake
 // first, every snake and prey id an event names must be held (added and not removed), no double add; foods by cell as
@@ -34,6 +42,7 @@ const PING_GAP_MS = 250; // their client pings at most every 250 ms, after the p
 const DEATH_CLOSE_MS = 1600; // their 1.6 s from the own death to the close (OWNER-ANSWERS Q11)
 const DIAG_EVERY_MS = 30000; // sl:diag well under its C_RATE.diag gate (10000 ms)
 const SAMPLE_CAP = 20;
+const RESUME_TRY_MS = 3000; // public/js/slx/slxNet.js RESUME_TRY_MS: an attempt not answered in this long failed
 
 // ---------------------------------------------------------------------------------------------------------------
 // The client's body arithmetic (public/js/sl/slApply.js), for the own head and for the soak mirror
@@ -346,7 +355,8 @@ function bump(m, k, n) {
 // ---------------------------------------------------------------------------------------------------------------
 // The wanderers
 
-// opts: { url, clients, polling (share 0..1 on long-polling, the rest WebSocket), seed, ipBase, nickBase, now }
+// opts: { url, clients, polling (share 0..1 on long-polling, the rest WebSocket), seed, ipBase, nickBase, now,
+//         resume: { share, fromMs, spanMs, alternate } }
 function createWanderers(opts) {
   const o = opts || {};
   const { io } = require('socket.io-client');
@@ -355,14 +365,19 @@ function createWanderers(opts) {
   const n = Number.isInteger(o.clients) && o.clients > 0 ? o.clients : 30;
   const pollShare = typeof o.polling === 'number' ? o.polling : 0.5;
   const ipBase = typeof o.ipBase === 'string' ? o.ipBase : '198.18.0.'; // RFC 2544 benchmark range
+  // resume blips: the share of lives, when in the life (from the join), and alternate (even wanderers park, odd take over)
+  const RS = Object.assign({ share: 0.15, fromMs: 3000, spanMs: 20000, alternate: false }, o.resume || {});
   const agg = {
     lives: 0, connects: 0, joins: 0, connectErrors: 0, deaths: 0, cashouts: 0, holds: 0, releases: 0, blips: 0,
     leaves: 0, chats: 0, diags: 0, refusals: {}, kicks: {}, drops: {}, serverClosed: {}, layer: {}, inputs: {}, fail: {}, samples: [],
     bundles: 0, bytes: 0, events: 0, byType: {},
+    resume: { started: { parked: 0, takeover: 0 }, back: { parked: 0, takeover: 0 }, fails: {}, lives: 0, failures: 0,
+      bundles: 0 },
   };
   const rtt = createHist(0.5, 2000);
   const gap = createHist(1, 10000);
   const lifeMs = createHist(1000, 600000);
+  const awayMs = createHist(50, 10000); // from going deaf to the server's 'back'
   let stopped = false;
   const all = [];
 
@@ -375,6 +390,11 @@ function createWanderers(opts) {
     for (const k of Object.keys(t.byType)) bump(agg.byType, k, t.byType[k]);
     for (const k of FAIL_KINDS) if (t.fail[k]) bump(agg.fail, k, t.fail[k]);
     for (const s of t.samples) if (agg.samples.length < SAMPLE_CAP) agg.samples.push(s);
+    if (t.resumed) {
+      agg.resume.lives++;
+      agg.resume.failures += t.failures();
+      agg.resume.bundles += t.st.bundles;
+    }
   }
 
   function makeOne(k) {
@@ -385,8 +405,21 @@ function createWanderers(opts) {
       joined: false, closing: false, life: 0, lifeStart: 0, plan: null, lastBundleAt: 0,
       pingOut: false, pingAt: 0, nextPingAt: 0, nextAngleAt: 0, nextTurnAt: 0, target: r() * PI2, lastQ: -1,
       boosting: false, boostUntil: 0, holding: false, holdEnd: 0, nextDiagAt: 0, deadAt: 0, reconnectTimer: null,
-      cashed: false, agent: null,
+      cashed: false, agent: null, n: 0, p: 0, key: null, deafAt: 0, oldSock: null, backSock: null, timers: [],
+      pingStale: false,
     };
+
+    function later(ms, fn) {
+      const h = setTimeout(() => {
+        w.timers = w.timers.filter((x) => x !== h);
+        if (!stopped) fn();
+      }, ms);
+      w.timers.push(h);
+    }
+    function clearLater() {
+      for (const h of w.timers) clearTimeout(h);
+      w.timers = [];
+    }
 
     function send(rec) {
       if (!w.sock || !w.sock.connected) return;
@@ -406,6 +439,9 @@ function createWanderers(opts) {
         blip: r() < 0.5,
         chatAt: r() < 0.3 ? t0 + 3000 + r() * 27000 : Infinity,
         runAt: r() < 0.1 ? t0 + 3000 + r() * 12000 : Infinity,
+        // a resume blip 15 percent of lives, half parked, half taken over (see the header; opts.resume for tests)
+        resumeAt: r() < RS.share ? t0 + RS.fromMs + r() * RS.spanMs : Infinity,
+        resumeKind: RS.alternate ? (k % 2 ? 'takeover' : 'parked') : r() < 0.5 ? 'parked' : 'takeover',
       };
     }
 
@@ -446,6 +482,13 @@ function createWanderers(opts) {
       w.pingOut = false;
       w.lastQ = -1;
       w.lastBundleAt = 0;
+      w.n = 0;
+      w.p = 0;
+      w.key = null;
+      w.deafAt = 0;
+      w.oldSock = null;
+      w.backSock = null;
+      w.pingStale = false;
       w.tr = createTracker();
       w.plan = plan();
       w.lifeStart = 0;
@@ -455,10 +498,7 @@ function createWanderers(opts) {
       // Windows (16,384 ephemeral ports), so new connects failed: 516 to 829 'transport error' drops in 2 to 3
       // minute soaks, on the server code before and after T16b alike (2026-10-11).
       if (w.transport === 'polling' && !w.agent) w.agent = new http.Agent({ keepAlive: true });
-      const s = io(url, {
-        transports: [w.transport], forceNew: true, reconnection: false, timeout: 10000,
-        extraHeaders: { 'x-forwarded-for': w.ip }, auth: { cv: w.cv }, agent: w.agent || false,
-      });
+      const s = open();
       w.sock = s;
       s.on('connect', () => {
         if (w.sock !== s) return;
@@ -472,12 +512,26 @@ function createWanderers(opts) {
         s.close();
         scheduleReconnect(2000);
       });
+      wire(s);
+      w.deadAt = 0;
+    }
+
+    function open() {
+      return io(url, {
+        transports: [w.transport], forceNew: true, reconnection: false, timeout: 10000,
+        extraHeaders: { 'x-forwarded-for': w.ip }, auth: { cv: w.cv }, agent: w.agent || false,
+      });
+    }
+
+    // The life's stream on socket s (the join socket, or a resume socket once the server said 'back').
+    function wire(s) {
       s.on('sl:f', (data) => {
         if (w.sock !== s) return;
         const u8 = toU8(data);
         const t = now();
         if (w.lastBundleAt) gap.add(t - w.lastBundleAt);
         w.lastBundleAt = t;
+        w.n++;
         const evs = w.tr.onBundle(u8);
         for (let i = 0; i < evs.length; i++) {
           const ev = evs[i];
@@ -490,7 +544,8 @@ function createWanderers(opts) {
             w.nextDiagAt = t + DIAG_EVERY_MS;
           } else if (ev.type === 'pong' && w.pingOut) {
             w.pingOut = false;
-            rtt.add(t - w.pingAt);
+            if (!w.pingStale) rtt.add(t - w.pingAt); // a ping from before a resume blip: its wait is not a round trip
+            w.pingStale = false;
             w.nextPingAt = Math.max(t, w.pingAt + PING_GAP_MS);
           } else if (ev.type === 'dead' && !w.deadAt) {
             w.deadAt = t;
@@ -499,10 +554,21 @@ function createWanderers(opts) {
         }
       });
       s.on('sl:x', (arr) => {
-        if (w.sock !== s || !Array.isArray(arr)) return;
+        if (!Array.isArray(arr)) return;
+        if (w.backSock === s) {
+          const back = arr.find((m) => m && m.t === 'back');
+          if (!back) {
+            const ref = arr.find((m) => m && m.t === 'refused');
+            if (ref) backFailed(s, 'refused ' + ref.why);
+            return;
+          }
+          resumed(s);
+        }
+        if (w.sock !== s) return;
         for (const m of arr) {
           if (!m || typeof m !== 'object') continue;
           bump(agg.layer, String(m.t));
+          if ((m.t === 'seat' || m.t === 'back') && typeof m.k === 'string') w.key = m.k;
           if (m.t === 'refused') {
             w.refused = true;
             bump(agg.refusals, String(m.why));
@@ -514,6 +580,10 @@ function createWanderers(opts) {
         }
       });
       s.on('disconnect', (reason) => {
+        if (w.backSock === s) {
+          backFailed(s, 'closed ' + reason);
+          return;
+        }
         if (w.sock !== s) return;
         if (!w.closing) {
           // after a refusal or the own end the server may close first; a server close of a live seat is a kick;
@@ -527,7 +597,80 @@ function createWanderers(opts) {
           scheduleReconnect(1000 + r() * 1000);
         }
       });
-      w.deadAt = 0;
+    }
+
+    // ---- a resume blip (see the header)
+    function startBlip(t) {
+      const kind = w.plan.resumeKind;
+      agg.resume.started[kind]++;
+      w.deafAt = t;
+      w.oldSock = w.sock;
+      w.sock = null; // deaf: the old socket's bundles are lost, nothing is sent
+      const old = w.oldSock;
+      if (kind === 'parked') {
+        const dropIn = 300 + r() * 700;
+        later(dropIn, () => {
+          if (old.connected) old.disconnect(); // no sl:leave: the server parks the seat
+        });
+        later(dropIn + 300 + r() * 1200, attemptBack);
+      } else {
+        later(1000 + r() * 1500, attemptBack); // the old socket stays open: the server has not seen the drop
+      }
+    }
+
+    function attemptBack() {
+      if (!w.deafAt || w.closing) return;
+      const ns = open();
+      w.backSock = ns;
+      ns.on('connect', () => {
+        if (w.backSock !== ns) return;
+        agg.connects++;
+        ns.emit('sl:back', { k: w.key, n: w.n, p: w.p });
+      });
+      ns.on('connect_error', () => backFailed(ns, 'connect_error'));
+      wire(ns);
+      later(RESUME_TRY_MS, () => {
+        if (w.backSock === ns) backFailed(ns, 'no answer in ' + RESUME_TRY_MS + ' ms');
+      });
+    }
+
+    // 'back' on the resume socket: the life goes on there, with the same client model.
+    function resumed(ns) {
+      agg.resume.back[w.plan.resumeKind]++;
+      awayMs.add(now() - w.deafAt);
+      w.backSock = null;
+      w.sock = ns;
+      w.deafAt = 0;
+      w.lastBundleAt = 0;
+      w.tr.resumed = true;
+      if (w.pingOut) w.pingStale = true;
+      const old = w.oldSock;
+      w.oldSock = null;
+      if (old && old.connected) later(2000, () => old.connected && old.disconnect());
+      // the layer sends the newest angle and boost again (slxNet resumed)
+      const recs = [];
+      if (w.lastQ >= 0) recs.push({ type: 'angle', q: w.lastQ });
+      if (w.boosting) recs.push({ type: 'boost', on: true });
+      if (recs.length) {
+        ns.emit('sl:i', W.encodeInput(recs));
+        for (const x of recs) bump(agg.inputs, x.type);
+      }
+    }
+
+    // A resume that did not come back (a refusal, a close, no answer): the life ends here; a new one starts.
+    function backFailed(ns, why) {
+      if (w.backSock !== ns) return;
+      bump(agg.resume.fails, why);
+      w.backSock = null;
+      w.deafAt = 0;
+      w.closing = true;
+      if (ns.connected) ns.disconnect();
+      const old = w.oldSock;
+      w.oldSock = null;
+      if (old && old.connected) old.disconnect();
+      if (w.lifeStart) lifeMs.add(now() - w.lifeStart);
+      fold(w.tr);
+      scheduleReconnect(500 + r() * 1000);
     }
 
     // One control step (every 50 ms).
@@ -544,7 +687,14 @@ function createWanderers(opts) {
       if (!w.pingOut && t >= w.nextPingAt) {
         w.pingOut = true;
         w.pingAt = t;
+        w.p++;
         send({ type: 'ping' });
+      }
+      // a resume blip (never while holding Q: the server ends a hold at a drop)
+      if (t >= w.plan.resumeAt && !w.holding && w.key) {
+        w.plan.resumeAt = Infinity;
+        startBlip(t);
+        return;
       }
       // leave or blip
       if (t >= w.plan.leaveAt) {
@@ -620,6 +770,10 @@ function createWanderers(opts) {
     w.connect = connect;
     w.stop = () => {
       clearTimeout(w.reconnectTimer);
+      clearLater();
+      for (const x of [w.backSock, w.oldSock]) if (x && x.connected) x.disconnect();
+      w.backSock = null;
+      w.oldSock = null;
       if (w.sock) {
         w.closing = true;
         if (w.lifeStart) lifeMs.add(now() - w.lifeStart);
@@ -668,6 +822,14 @@ function createWanderers(opts) {
       out.refusalTotal = Object.values(out.refusals).reduce((a, b) => a + b, 0);
       out.rttMs = rtt.json();
       out.gapMs = gap.json();
+      out.resume.awayMs = awayMs.json();
+      for (const t of live) {
+        if (!t.resumed) continue;
+        out.resume.lives++;
+        out.resume.failures += t.failures();
+        out.resume.bundles += t.st.bundles;
+      }
+      out.resume.failTotal = Object.values(out.resume.fails).reduce((a, b) => a + b, 0);
       out.lifeS = { n: lifeMs.count, mean: lifeMs.count ? +(lifeMs.sum / lifeMs.count / 1000).toFixed(1) : 0,
         p50: lifeMs.pct(0.5) / 1000, max: +(lifeMs.max / 1000).toFixed(1) };
       out.seated = all.filter((w) => w.joined && !w.closing).length;

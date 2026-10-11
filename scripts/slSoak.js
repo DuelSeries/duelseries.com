@@ -18,6 +18,9 @@
 //                    grows, 0 snake ghosts after every bundle, 0 food and prey ghosts about every 0.7 s), plus one
 //                    forced resync of a sampled seat a minute, whose bundle is measured against C_PENDING_CAP
 //   all wanderers    every bundle decoded (no wire_error, no kind-15 or off-grid number, no unknown id, foods by cell)
+//   resume blips     15 percent of lives go deaf (bundles lost) and come back with sl:back inside the glide, half
+//                    with the old socket dropped (parked), half with it left open (taken over); every one must come
+//                    back, and the resumed lives' streams go through the same strict client model (slLoad.js)
 //   timing           each wake's synchronous room time (its sim steps and seat slices, the harness's own time taken
 //                    out), each step's sim time, wake lateness, dropped steps, event-loop delay, CPU, GC
 //   heap             heapUsed after two forced full GCs at minute 5 and at the end (--expose-gc)
@@ -219,16 +222,17 @@ async function main() {
       }
     }
   };
-  // The governor's slice input (room.stats.maxSliceMs, written in _yield from the slice's start) without the harness's
-  // own time inside that slice (the step checks and the mirrors run synchronously in the room's slices): the same
-  // correction as the wake and step numbers. Only the recorded length changes; when the room yields does not.
+  // The governor's slice input (room.stats.maxSliceMs, written in _noteSlice from the slice's start, at a yield and at
+  // a wake's end) without the harness's own time inside that slice (the step checks and the mirrors run synchronously
+  // in the room's slices): the same correction as the wake and step numbers. Only the recorded length changes; when
+  // the room yields does not.
   let harnessAtSlice = 0;
   room._jobBody = function jobBody(job, sync) {
     harnessAtSlice = harnessMs();
     return proto._jobBody.call(this, job, sync);
   };
-  room._yield = function yieldSlice(sliceStart) {
-    return proto._yield.call(this, sliceStart + (harnessMs() - harnessAtSlice));
+  room._noteSlice = function noteSlice(sliceStart) {
+    return proto._noteSlice.call(this, sliceStart + (harnessMs() - harnessAtSlice));
   };
   room._simStep = function simStep(job) {
     const t0 = performance.now();
@@ -250,6 +254,8 @@ async function main() {
   // ---- the sampled seats' mirrors and the bundle sizes
   const joinBytes = createHist(64, 262144);
   const resyncBytes = createHist(64, 262144);
+  const backBytes = createHist(64, 262144); // the first bundle on a resume socket (replay, removals, re-adds)
+  let backSockets = 0;
   const resyncs = [];
   const mirrors = new Map(); // socket -> { m, resyncPending }
   let mirroredLives = 0;
@@ -268,6 +274,20 @@ async function main() {
       mirroredLives++;
       sock.on('disconnect', () => mirrors.delete(sock));
     }
+    // A resume socket (sl:back, task T16b) carries a life from its middle: a mirror built from a join cannot follow it
+    // (the old socket's mirror saw the bundles the client lost), so it is not mirrored; its client still checks every
+    // bundle. onAny runs as the packet arrives, before the room answers on this socket.
+    sock.onAny((ev) => {
+      if (ev !== 'sl:back' || !first) return;
+      first = false;
+      backSockets++;
+      sock._slBack = true;
+      if (entry) {
+        mirrors.delete(sock);
+        mirroredLives--;
+        entry = null;
+      }
+    });
     const emit = sock.emit;
     sock.emit = function tapped(name, data, ...rest) {
       if (name === 'sl:f') {
@@ -276,6 +296,9 @@ async function main() {
         if (first) {
           first = false;
           joinBytes.add(len);
+        } else if (sock._slBack === true) {
+          sock._slBack = false;
+          backBytes.add(len);
         }
         if (entry) {
           if (entry.resyncPending) {
@@ -424,11 +447,21 @@ async function main() {
   for (const k of Object.keys(kickWhy)) if (k !== 'dead') liveKicks += kickWhy[k];
   const heapDelta = heapAt5 ? (heapEnd - heapAt5) / heapAt5 : NaN;
   const botsMinRow = timeline.length ? Math.min(...timeline.map((r) => r.bots)) : 0;
+  const res = client.resume || { started: {}, back: {}, fails: {}, lives: 0, failures: -1, bundles: 0 };
+  const kinds = ['parked', 'takeover'];
   const bars = [
     ['every step checked', cs.steps === roomStats.steps && cs.steps > 0, cs.steps + ' of ' + roomStats.steps + ' steps'],
     ['0 server invariant failures', checkFails.total === 0, checkFails.total + ' ' + JSON.stringify(checkFails.by)],
     ['0 mirror failures (3 sampled seats)', mirrorFails.total === 0 && mirrorStats.moves > 0, mirrorFails.total + ' ' + JSON.stringify(mirrorFails.by)],
     ['0 client stream failures (every bundle of every wanderer)', client.failures === 0, client.failures + ' ' + JSON.stringify(client.fail)],
+    ['every resume blip came back inside the glide, parked and taken over', kinds.every((k) => res.back[k] > 0) &&
+      Object.keys(res.fails).length === 0,
+      'started ' + JSON.stringify(res.started) + ', back ' + JSON.stringify(res.back) + ' (a blip still away at the stop is neither), failed ' +
+      JSON.stringify(res.fails) + '; away ms ' + JSON.stringify(res.awayMs) + '; the room: ' + roomStats.parks + ' parks, ' +
+      roomStats.takeovers + ' takeovers, ' + roomStats.backs + ' backs (' + roomStats.backsDead + ' after the snake died), refused ' +
+      JSON.stringify(roomStats.backsRefused)],
+    ['0 stream failures on the resumed lives (no snake or prey removed or moved that the client never got)', res.lives > 0 &&
+      res.failures === 0, res.failures + ' in ' + res.lives + ' resumed lives (' + res.bundles + ' bundles)'],
     ['0 kicks of a live seat and 0 refusals', client.kickTotal === 0 && liveKicks === 0 && client.refusalTotal === 0,
       'the room kicked ' + JSON.stringify(kickWhy) + ' (dead: a dead seat with no ping for C_DEAD_SEAT_MS, the designed close); the wanderers saw kicks ' +
       JSON.stringify(client.kicks) + ', refusals ' + JSON.stringify(client.refusals)],
@@ -469,7 +502,8 @@ async function main() {
       adds: arenaStats.botDriver.adds, removes: arenaStats.botDriver.removes, blocked: arenaStats.botDriver.blocked,
       forced: arenaStats.botDriver.forced } : null,
     room: Object.assign({ kickWhy }, roomStats),
-    bundles: { joinBytes: joinBytes.json(), resyncBytes: resyncBytes.json(), resyncs: resyncs.length, pendingCap: PENDING_CAP },
+    bundles: { joinBytes: joinBytes.json(), resyncBytes: resyncBytes.json(), resyncs: resyncs.length, pendingCap: PENDING_CAP,
+      backBytes: backBytes.json(), backSockets },
     client, timeline, log: logLines.slice(0, 40),
     git: git0,
     machine: { node: process.version, platform: process.platform + ' ' + os.release(), cpu: os.cpus()[0].model, cores: os.cpus().length,
@@ -524,7 +558,7 @@ function report(s) {
   L.push('- Curve peak: the wall clock was shifted to ' + s.peakWall + ' (20:00 ET), where `botTarget` is ' + SOAK_PEAK + ' at every second of the run.');
   L.push('- Wanderers: ' + s.clients + ' (' + Math.round(s.polling * s.clients) + ' long-polling, the rest WebSocket), each from its own address; seed ' + s.seed + '.');
   L.push(s.governor.mode === 'shadow'
-    ? '- Bot governor: SHADOW mode (--governor shadow). The room governor never acts; a twin gets the same samples (loop delay p99 at 1 ms resolution above the process idle floor, and the room largest slice without the harness time) and is reported below.'
+    ? '- Bot governor: SHADOW mode (--governor shadow). The room governor never acts; a twin gets the same samples (loop delay p99 at 1 ms resolution above the process idle floor, and the room largest slice without the harness time) and is reported below. So this PASS is the server at the curve peak with the governor watching only: the real-governor configuration is NOT proven by it and stays unproven until the Linux load test.'
     : '- Bot governor: ON, the real one (slBoot 1 Hz sample: loop delay p99 at 1 ms resolution above the process idle floor, and the room largest slice without the harness time; commit f27a296). The soak only watches it (inputs and transitions below).');
   L.push('- Power: ' + s.machine.power.start + ' at the start, ' + s.machine.power.end + ' at the end (on battery this laptop runs its CPU at about 1.85 GHz).');
   L.push('- Wanderer HTTP: each long-polling wanderer keeps its connections open between requests (keep-alive, as a browser does).');
@@ -570,6 +604,7 @@ function report(s) {
   const m = s.mirror;
   L.push('- ' + m.lives + ' lives mirrored, ' + m.bundles + ' bundles, ' + m.moves + ' moves rebuilt with the client arithmetic: ' + m.exactMoves + ' exact (held since spawn), ' + m.offsetMoves + ' at a constant offset (largest ' + m.maxOffset + ', bar 0.25; drift at most ' + m.maxDrift + '), ' + m.grows + ' grow fams, ' + m.ghostChecks + ' snake ghost checks, ' + m.foodGhostChecks + ' food and prey ghost walks; ' + m.behindBundles + ' bundles went out between the slices of a wake before that seat had its turn (a long-polling GET flushes the queue on the transport ready event), the ghost checks skipped those.');
   L.push('- Forced resyncs (one a minute, the room\'s own branch): ' + s.bundles.resyncs + '; resync bundle bytes ' + JSON.stringify(s.bundles.resyncBytes) + '. Join bundle bytes ' + JSON.stringify(s.bundles.joinBytes) + '. C_PENDING_CAP is ' + s.bundles.pendingCap + ' bytes.');
+  L.push('- Resume sockets (sl:back) are not mirrored: ' + s.bundles.backSockets + ' of them; the first bundle on each (the replay, the removals, the re-adds) bytes ' + JSON.stringify(s.bundles.backBytes) + '.');
   L.push('');
   L.push('## The wanderers (client side)');
   L.push('');
@@ -577,6 +612,9 @@ function report(s) {
   L.push('- ' + c.bundles + ' bundles (' + mb(c.bytes) + ' MB, ' + c.events + ' events) decoded; failures ' + c.failures + ' ' + JSON.stringify(c.fail) + '; kicks ' + JSON.stringify(c.kicks) + '; dropped connections ' + JSON.stringify(c.drops) + ' (failed reconnects ' + c.connectErrors + '); refusals ' + JSON.stringify(c.refusals) + '; server closes after an end ' + JSON.stringify(c.serverClosed) + '.');
   L.push('- Pong round trip ms ' + JSON.stringify(c.rttMs) + '; gap between bundles ms ' + JSON.stringify(c.gapMs) + '; life seconds ' + JSON.stringify(c.lifeS) + '.');
   L.push('- Inputs sent: ' + JSON.stringify(c.inputs) + '; layer messages received: ' + JSON.stringify(c.layer) + '.');
+  const cr = c.resume || {};
+  L.push('- Resume blips (deaf from the blip on: every later bundle lost, nothing sent; parked: the old socket dropped 0.3 to 1 s later with no sl:leave, sl:back 0.3 to 1.5 s after that; taken over: the old socket left open, sl:back 1 to 2.5 s after the blip): started ' + JSON.stringify(cr.started) + ', back ' + JSON.stringify(cr.back) + ', failed ' + JSON.stringify(cr.fails) + '; away ms ' + JSON.stringify(cr.awayMs) + '; ' + cr.lives + ' resumed lives, ' + cr.bundles + ' bundles on them, ' + cr.failures + ' stream failures on them (the same strict client model as every bundle: init once, every snake and prey id held, no double add, foods by cell).');
+  L.push('- The room: ' + s.room.parks + ' parks, ' + s.room.takeovers + ' takeovers, ' + s.room.backs + ' backs (' + s.room.backsDead + ' after the snake died), refused ' + JSON.stringify(s.room.backsRefused) + '; ' + s.room.glides + ' glides, ' + s.room.glideDeaths + ' glide deaths.');
   L.push('');
   L.push('## Timeline (one row a minute)');
   L.push('');
