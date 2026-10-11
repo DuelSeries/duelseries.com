@@ -102,7 +102,10 @@ function createSoakCheck(laws) {
   // state at step 0, per snake id
   const pre = new Map(); // id -> { s, sct, fam, charges }
   const known = new Map(); // id -> snake object alive at the end of the last step
-  const freed = new Map(); // id -> sim ms it left
+  // id -> sim ms it left, in time order, only while that is under the quarantine (an older entry can fail nothing;
+  // keeping every id that ever left grew the soak's own heap by about 224 KB per 10 minutes, T8b)
+  const freed = new Map();
+  const everLeft = new Uint8Array(65536); // ids are u16 (slSim MAX_ID 65535): 1 while an id that left has not come back
   const preyRad = new Map(); // prey id -> rad
   let radius0 = 0;
   let food0 = 0;
@@ -117,9 +120,12 @@ function createSoakCheck(laws) {
   function noteNew(room, s, simMs, late) {
     st.newIds++;
     if (late) st.lateNewIds++;
+    if (everLeft[s.id]) {
+      st.reusedIds++;
+      everLeft[s.id] = 0;
+    }
     const at = freed.get(s.id);
     if (at !== undefined) {
-      st.reusedIds++;
       if (simMs - at < quarantine) fails.add('idReused', 'id ' + s.id + ' back after ' + (simMs - at) + ' ms of sim time');
       freed.delete(s.id);
     }
@@ -148,7 +154,13 @@ function createSoakCheck(laws) {
   }
 
   function noteGone(id, simMs) {
+    for (const [old, at] of freed) {
+      if (simMs - at < quarantine) break;
+      freed.delete(old);
+    }
+    freed.delete(id);
     freed.set(id, simMs);
+    everLeft[id] = 1;
     st.idsLeft++;
   }
 
@@ -394,7 +406,12 @@ function createSoakCheck(laws) {
     return o;
   }
 
-  return { beforeStep, afterStep, onSpawn, full, stats, fails, hookMs: () => st.hookMs };
+  // freedSize, freedOldest: the left-id book (tests: it holds only the last quarantine's ids)
+  const freedOldest = () => {
+    for (const at of freed.values()) return at;
+    return null;
+  };
+  return { beforeStep, afterStep, onSpawn, full, stats, fails, hookMs: () => st.hookMs, freedSize: () => freed.size, freedOldest };
 }
 
 // ---------------------------------------------------------------------------------------------------------------

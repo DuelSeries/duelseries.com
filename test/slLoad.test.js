@@ -156,3 +156,38 @@ test('live: four wanderers and the probe on a local /sl, every bundle decoded, 0
     server.close();
   }
 });
+
+test('a long-polling wanderer keeps its HTTP connections (keep-alive, as a browser): no TCP connection per request', { timeout: 30000 }, async () => {
+  // engine.io-client's node XHR opens one TCP connection per request unless given an agent; 15 wanderers that way
+  // ran the soak out of loopback ports on Windows (thousands of 'transport error' drops, 2026-10-11).
+  const { Server } = require('socket.io');
+  const port = await freePort();
+  const server = http.createServer();
+  let tcp = 0;
+  let requests = 0;
+  server.on('connection', () => { tcp++; });
+  const io = new Server(server, { pingInterval: 5000, pingTimeout: 10000 });
+  server.on('request', () => { requests++; }); // after engine.io's own handler (it takes over the earlier ones)
+  const timers = [];
+  io.of('/sl').on('connection', (sock) => {
+    // a message every 20 ms: each one answers the pending GET, so the client polls again at once
+    timers.push(setInterval(() => sock.emit('sl:x', []), 20));
+  });
+  await new Promise((r) => server.listen(port, '127.0.0.1', r));
+  try {
+    const run = createWanderers({ url: 'http://127.0.0.1:' + port, clients: 1, polling: 1, seed: 4 });
+    run.start();
+    await new Promise((r) => setTimeout(r, 2000));
+    run.stop();
+    const sum = run.summary();
+    assert.strictEqual(sum.polling, 1);
+    assert.strictEqual(sum.connects, 1, 'one life, connected once');
+    assert.strictEqual(sum.dropTotal, 0, JSON.stringify(sum.drops));
+    assert.ok(requests >= 40, requests + ' HTTP requests');
+    assert.ok(tcp <= 3, tcp + ' TCP connections for ' + requests + ' requests');
+  } finally {
+    for (const t of timers) clearInterval(t);
+    io.close();
+    server.close();
+  }
+});

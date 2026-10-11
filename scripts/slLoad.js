@@ -23,6 +23,7 @@
 // Forked with --ipc (scripts/slSoak.js): progress and the final report go to the parent; {cmd: 'stop'} ends the run.
 // Exit code 1 when any bundle failed.
 
+const http = require('http');
 const W = require('../shared/slWire.js');
 const core = require('../shared/slCore.js');
 const { scanBundle } = require('../server/sl/slRecordCache');
@@ -384,7 +385,7 @@ function createWanderers(opts) {
       joined: false, closing: false, life: 0, lifeStart: 0, plan: null, lastBundleAt: 0,
       pingOut: false, pingAt: 0, nextPingAt: 0, nextAngleAt: 0, nextTurnAt: 0, target: r() * PI2, lastQ: -1,
       boosting: false, boostUntil: 0, holding: false, holdEnd: 0, nextDiagAt: 0, deadAt: 0, reconnectTimer: null,
-      cashed: false,
+      cashed: false, agent: null,
     };
 
     function send(rec) {
@@ -448,9 +449,15 @@ function createWanderers(opts) {
       w.tr = createTracker();
       w.plan = plan();
       w.lifeStart = 0;
+      // A long-polling wanderer keeps its HTTP connections open between requests, as a browser does (HTTP/1.1
+      // keep-alive). engine.io-client's node XHR (xmlhttprequest-ssl) uses agent false by default: one TCP connection
+      // per GET and POST, each left in TIME_WAIT. 15 such wanderers held about 12,000 loopback TIME_WAIT entries on
+      // Windows (16,384 ephemeral ports), so new connects failed: 516 to 829 'transport error' drops in 2 to 3
+      // minute soaks, on the server code before and after T16b alike (2026-10-11).
+      if (w.transport === 'polling' && !w.agent) w.agent = new http.Agent({ keepAlive: true });
       const s = io(url, {
         transports: [w.transport], forceNew: true, reconnection: false, timeout: 10000,
-        extraHeaders: { 'x-forwarded-for': w.ip }, auth: { cv: w.cv },
+        extraHeaders: { 'x-forwarded-for': w.ip }, auth: { cv: w.cv }, agent: w.agent || false,
       });
       w.sock = s;
       s.on('connect', () => {
@@ -620,6 +627,7 @@ function createWanderers(opts) {
         w.sock.disconnect();
       }
       fold(w.tr);
+      if (w.agent) w.agent.destroy();
     };
     return w;
   }

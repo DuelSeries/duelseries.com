@@ -408,6 +408,30 @@ test('negative control: a reused id inside the quarantine is caught', () => {
   assert.ok(x.check.fails.by.idReused >= 1, JSON.stringify(x.check.fails.by));
 });
 
+test('the check keeps a left id only while its quarantine runs (its own heap) and still counts every reuse', () => {
+  const x = smallRoom(11);
+  hookRoom(x.room, { check: x.check });
+  const Q = x.laws.C_ID_QUARANTINE_MS.value;
+  const KILL_EVERY = 20;
+  const steps = Math.ceil(2.2 * Q / x.room.P);
+  let maxFreed = 0;
+  for (let i = 0; i < steps; i++) {
+    if (i % KILL_EVERY === 10) {
+      let v = 0;
+      x.room.sim.forEachSnake((s) => { if (!v) v = s.id; });
+      if (v) x.room.sim.kill(v);
+    }
+    x.step();
+    maxFreed = Math.max(maxFreed, x.check.freedSize());
+  }
+  const st = x.check.stats();
+  assert.strictEqual(x.check.fails.total(), 0, JSON.stringify(x.check.fails.samples));
+  assert.ok(st.idsLeft >= Math.floor(steps / KILL_EVERY), st.idsLeft + ' ids left');
+  assert.ok(st.idsLeft > 1.5 * maxFreed, st.idsLeft + ' ids left, the book held ' + maxFreed + ' at most');
+  const age = x.room.sim.nowMs() - x.check.freedOldest();
+  assert.ok(age < Q + KILL_EVERY * x.room.P, 'oldest entry ' + age + ' ms');
+});
+
 test('negative control: the mirror catches a moved point, a skipped move, a ghost and a wire error', () => {
   const laws = makeFixture();
   const inserts = { get: () => ({ n: 3, xs: Float64Array.from([0, 100, 142, 184].concat(new Array(1020).fill(0))),
