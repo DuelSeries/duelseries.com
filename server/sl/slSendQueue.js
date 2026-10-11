@@ -58,6 +58,26 @@
 // no GET is ever parked at a wake; a clock reset only at wakes kicked every healthy phone seat 15 s into its life
 // (real socket.io through a delay proxy: polling at 150 and 300 ms round trip, kicked 'stall' at 15.1 and 15.3 s).
 // A GET arriving is the client taking data, so it is proof of a live transport.
+//
+// Resume after a blip (task T16b, server/sl/slResume.js). A seat whose socket dropped is DETACHED, not closed: it keeps
+// queueing (the room still collects its view, so no own record of the glide is ever skipped), never flushes, never
+// stall-kicks, and over the cap it resyncs (never a cap kick: nobody is reading yet). Lost bundles are the problem: a
+// flush hands bytes to engine.io, and on a dead link the client never gets them, so the own records in them would be
+// gone and the client's own body would be wrong for the rest of the life. So every flushed bundle gets a sequence
+// number (sentSeq, one per sl:f) and its records the client must not miss (own records, echoes, pongs and removals:
+// the KEPT kinds of a resync) are RETAINED, plus the ids an OTHER record took off the client (prey_eaten), until the
+// client proves it got them. The proof costs nothing on the wire: their client keeps one ping in flight and pings again
+// only after the pong arrived (public/js/sl/slInput.js:257-265), so a ping arriving now proves the bundle that carried
+// the previous pong (and every bundle before it, the stream is ordered) was received. Retention is capped at
+// C_PENDING_CAP bytes (oldest first; a hidden tab stops pinging); a resume from before what was dropped is refused.
+// On resume(n) the retained records of every bundle after n go back to the FRONT of the queue (older than what queued
+// while detached), the ids the lost bundles took off are put back in the delivered set, a pong is added when the
+// client sent a ping the server never heard (p, at most one: one ping in flight), and the normal resync (9.3) runs:
+// every other record dropped, removals for what the client may hold, the room re-adds the view. The client's counter
+// and sentSeq agree again (sentSeq = n: the lost bundles' records now ride in new ones).
+// Layer messages are not part of the counted stream (an sl:x may leave with no sl:f). The few a life must not miss
+// (the room's 'cashed', which titles the card) are queued with keep: they are retained with the sl:f they led, and a
+// resume puts the ones of lost bundles back at the head of the next sl:x, right after the room's 'back'.
 
 const { bundleBytes, encodeRecord } = require('./slRecordCache');
 const { assertLawsComplete, STATUS } = require('./slLaws');
@@ -243,11 +263,12 @@ function transportReadyOf(socket) {
 function createSendQueue(laws, opts) {
   const Q = queueLaws(laws);
   const o = opts || {};
-  const socket = o.socket;
+  let socket = o.socket;
   if (!socket || typeof socket.emit !== 'function') throw new TypeError('slSendQueue: socket with emit is required');
   const stats = o.stats || {};
   for (const k of ['flushes', 'bundles', 'bytes', 'layerBatches', 'records', 'pongs', 'echoes', 'echoReplaced',
-    'latestReplaced', 'mapsToFull', 'resyncs', 'kicks', 'ackLateHolds', 'readyFlushes']) {
+    'latestReplaced', 'mapsToFull', 'resyncs', 'kicks', 'ackLateHolds', 'readyFlushes', 'detaches', 'resumes',
+    'replayed', 'pongsAdded', 'retainDropped']) {
     if (typeof stats[k] !== 'number') stats[k] = 0;
   }
   if (!stats.safe) stats.safe = { total: 0, byLabel: {}, last: null };
@@ -273,6 +294,18 @@ function createSendQueue(laws, opts) {
   let reportedRttP95 = NaN;
 
   const delivered = { snakes: new Set(), sectors: new Set(), preys: new Set() };
+
+  // resume (see the header): the bundles sent, the retained records (each item gets .seq), the proof by ping
+  let detached = false;
+  let sentSeq = 0; // sl:f bundles emitted for this seat, over every socket it had
+  let lastPongSeq = 0; // the newest bundle that carried a pong
+  let pingsHeard = 0;
+  const kept = []; // retained items, oldest first from keptHead
+  let keptHead = 0;
+  let keptBytes = 0;
+  let lostThrough = 0; // retained records of bundles up to this seq were dropped: a resume needs n >= it
+  const sticky = new WeakSet(); // layer messages queued with keep (see the header)
+  let keptLayer = []; // { seq, msg }: the sticky messages that led a sent bundle, oldest first
 
   function setOf(what) {
     return what === SNAKE ? delivered.snakes : what === SECTOR ? delivered.sectors : delivered.preys;
@@ -341,9 +374,12 @@ function createSendQueue(laws, opts) {
     return true;
   }
 
-  // A ping arrived (L47): its pong joins the queue now, in order with everything else.
+  // A ping arrived (L47): its pong joins the queue now, in order with everything else. The ping is also the client's
+  // proof it got the bundle of the previous pong (see the header): the records retained up to it are let go.
   function pong(tick, nowMs) {
     if (closed) return false;
+    pingsHeard++;
+    confirm(lastPongSeq);
     if (Number.isFinite(lastPingAt) && nowMs >= lastPingAt) {
       pingGaps[pingHead] = nowMs - lastPingAt;
       pingHead = (pingHead + 1) % pingGaps.length;
@@ -356,10 +392,11 @@ function createSendQueue(laws, opts) {
     return true;
   }
 
-  // A layer message (sl:x) of this tick.
-  function message(tick, msg) {
+  // A layer message (sl:x) of this tick. keep: retained like an own record until a ping proves it arrived (resume).
+  function message(tick, msg, keep) {
     if (closed) return false;
     layer.push(msg);
+    if (keep === true && msg !== null && typeof msg === 'object') sticky.add(msg);
     return true;
   }
 
@@ -426,6 +463,8 @@ function createSendQueue(laws, opts) {
     }
     let sentPong = false;
     if (items.length) {
+      const seq = ++sentSeq;
+      for (let i = 0; i < layer.length; i++) if (sticky.has(layer[i])) keptLayer.push({ seq, msg: layer[i] });
       const recs = new Array(items.length);
       for (let i = 0; i < items.length; i++) {
         const it = items[i];
@@ -433,7 +472,15 @@ function createSendQueue(laws, opts) {
         if (it.kind === KIND.PONG) sentPong = true;
         if (it.op === 1) setOf(it.what).add(it.ref);
         else if (it.op === -1) setOf(it.what).delete(it.ref);
+        // retained until a ping proves the client got this bundle (resume, see the header)
+        if (KEPT.has(it.kind) || it.op === -1) {
+          it.seq = seq;
+          kept.push(it);
+          keptBytes += it.bytes.length;
+        }
       }
+      if (sentPong) lastPongSeq = seq;
+      trimKept();
       const bundle = bundleBytes(recs);
       names.push(EV_FRAME);
       datas.push(bundle);
@@ -453,9 +500,126 @@ function createSendQueue(laws, opts) {
     return true;
   }
 
+  // ------------------------------------------------------------------ resume (task T16b, see the header)
+
+  function compactKept() {
+    if (keptHead > 1024 && keptHead * 2 > kept.length) {
+      kept.splice(0, keptHead);
+      keptHead = 0;
+    }
+  }
+
+  // Retention over C_PENDING_CAP bytes: the oldest go, and a resume from before them is refused.
+  function trimKept() {
+    while (keptBytes > Q.cap && keptHead < kept.length) {
+      const it = kept[keptHead++];
+      keptBytes -= it.bytes.length;
+      if (it.seq > lostThrough) lostThrough = it.seq;
+      stats.retainDropped++;
+    }
+    compactKept();
+    if (keptLayer.length && keptLayer[0].seq <= lostThrough) keptLayer = keptLayer.filter((e) => e.seq > lostThrough);
+  }
+
+  // The client got every bundle up to seq: let their retained records go.
+  function confirm(seq) {
+    while (keptHead < kept.length && kept[keptHead].seq <= seq) {
+      keptBytes -= kept[keptHead].bytes.length;
+      keptHead++;
+    }
+    if (keptHead === kept.length) {
+      kept.length = 0;
+      keptHead = 0;
+    } else {
+      compactKept();
+    }
+    if (keptLayer.length && keptLayer[0].seq <= seq) keptLayer = keptLayer.filter((e) => e.seq > seq);
+  }
+
+  // The seat's socket went: nothing is sent until attach(); the queue keeps filling.
+  function detach() {
+    if (closed || detached) return;
+    detached = true;
+    unbind();
+    socket = null;
+    notReadySince = NaN;
+    stats.detaches++;
+  }
+
+  // A new socket for the seat (a resume): the ack clocks start over, the tab counts as visible (slSockets starts every
+  // socket so), and the transport's 'ready' is bound to the new one.
+  function attach(sock) {
+    if (closed) return false;
+    if (!sock || typeof sock.emit !== 'function') throw new TypeError('slSendQueue: attach needs a socket with emit');
+    if (socket) unbind();
+    socket = sock;
+    detached = false;
+    hidden = false;
+    lastPongAt = NaN;
+    lastPingAt = NaN;
+    lastHeardAt = NaN;
+    notReadySince = NaN;
+    pingN = 0;
+    pingHead = 0;
+    bind();
+    return true;
+  }
+
+  // Can the stream continue for a client that got n bundles this life (its own count, never trusted beyond this)?
+  function canResume(n) {
+    return !closed && Number.isInteger(n) && n >= lostThrough && n <= sentSeq;
+  }
+
+  // The client got n bundles and sent p pings (see the header). first: layer messages that lead the next sl:x (the
+  // room's 'back'). Returns the removal lists the resync queued, or null when n cannot resume.
+  function resume(n, p, tick, nowMs, first) {
+    if (!canResume(n)) return null;
+    const replay = [];
+    let bytes = 0;
+    for (let i = keptHead; i < kept.length; i++) {
+      const it = kept[i];
+      if (it.seq <= n) continue;
+      // what a lost bundle took off the client, the client still holds: back in the delivered set, so the resync keeps
+      // a replayed removal of it (and removes a prey a lost prey_eaten took) instead of reading it as never delivered
+      if (it.op === -1) setOf(it.what).add(it.ref);
+      if (KEPT.has(it.kind)) {
+        replay.push(it);
+        bytes += it.bytes.length;
+      }
+    }
+    const again = [];
+    for (const e of keptLayer) if (e.seq > n) again.push(e.msg); // sticky layer messages of the lost bundles
+    keptLayer = [];
+    kept.length = 0;
+    keptHead = 0;
+    keptBytes = 0;
+    lostThrough = n;
+    sentSeq = n;
+    if (lastPongSeq > n) lastPongSeq = n;
+    if (replay.length) {
+      items.unshift(...replay);
+      queuedBytes += bytes;
+      if (echoAt >= 0) echoAt += replay.length;
+      for (const it of replay) if (it.kind === KIND.PONG) pongsQueued++;
+      stats.replayed += replay.length;
+    }
+    // a ping the client sent that never arrived (lost with the old socket): its pong, once (one ping in flight)
+    if (Number.isInteger(p) && p > pingsHeard) {
+      pingsHeard++;
+      add({ tick, kind: KIND.PONG, what: 0, op: 0, ref: 0, key: null, bytes: PONG_BYTES });
+      pongsQueued++;
+      stats.pongsAdded++;
+    }
+    const lead = Array.isArray(first) ? first.concat(again) : again;
+    if (lead.length) layer = lead.concat(layer); // again stays sticky: retained with the bundle it leads now
+    const out = resync(tick, nowMs);
+    stats.resumes++;
+    return out;
+  }
+
   // Called at each wake: the stall clock (transport not ready, never ackLate). Returns true when it kicked.
   function checkStall(nowMs) {
-    if (closed) return false;
+    if (closed || detached) return false; // a detached seat has no transport to wait on (resume)
     if (transportReady()) {
       notReadySince = NaN;
       return false;
@@ -475,7 +639,8 @@ function createSendQueue(laws, opts) {
   function checkCap(tick, nowMs) {
     if (closed) return 'kick';
     if (queuedBytes <= Q.cap) return 'ok';
-    if (nowMs - lastResyncAt < Q.resyncGapMs) {
+    // detached (resume): nobody reads yet, so the queue only sheds what a resync sheds, never a cap kick
+    if (!detached && nowMs - lastResyncAt < Q.resyncGapMs) {
       kick('cap');
       return 'kick';
     }
@@ -483,8 +648,15 @@ function createSendQueue(laws, opts) {
     return 'resync';
   }
 
-  // SERVER-DESIGN 9.3: keep own records, echoes, pongs and every removal; remove the union of what was delivered and
-  // what the dropped records added. Returns the removal lists it queued.
+  // SERVER-DESIGN 9.3: keep own records, echoes, pongs and the removals; then remove everything else the client holds.
+  // What it holds is followed through the kept records in queue order (task T8b, 2026-10-11): a dropped add never
+  // reaches the client, so it gets no removal; a kept removal settles its id, so it gets no second one; a kept removal
+  // of an id the client will not hold (its add was dropped with the rest) is dropped too. Their server never sends a
+  // removal of an id its client does not hold (P1; scripts/slLoad.js, the load-test bar, counts one as an unknown id).
+  // The union this replaces (delivered plus every id a dropped record added) sent one for every add a resync dropped
+  // and a second one for every kept removal: in-process 97 unknown snake and 20 unknown prey removals in 606 resyncs
+  // with records queued, and on every cap resync of a backed-up seat (test/slViewResync.test.js). Returns the removal
+  // lists it queued.
   function resync(tick, nowMs) {
     const gone = { snakes: new Set(delivered.snakes), sectors: new Set(delivered.sectors), preys: new Set(delivered.preys) };
     const keep = [];
@@ -492,18 +664,15 @@ function createSendQueue(laws, opts) {
     let bytes = 0;
     for (let i = 0; i < items.length; i++) {
       const it = items[i];
-      if (KEPT.has(it.kind)) {
-        if (it.kind === KIND.ECHO) echoKeep = keep.length;
-        keep.push(it);
-        bytes += it.bytes.length;
-        // a kept removal settles its id; a kept own add is the own snake
-        continue;
+      if (!KEPT.has(it.kind)) continue; // dropped: it never reaches the client
+      if (it.what) {
+        const held = it.what === SNAKE ? gone.snakes : it.what === SECTOR ? gone.sectors : gone.preys;
+        if (it.op === -1 && !held.delete(it.ref)) continue; // the client will not hold it: no removal
+        if (it.op === 1) held.add(it.ref); // a kept own add
       }
-      if (it.op === 1) {
-        if (it.what === SNAKE) gone.snakes.add(it.ref);
-        else if (it.what === SECTOR) gone.sectors.add(it.ref);
-        else if (it.what === PREY) gone.preys.add(it.ref);
-      }
+      if (it.kind === KIND.ECHO) echoKeep = keep.length;
+      keep.push(it);
+      bytes += it.bytes.length;
     }
     items.length = 0;
     for (const it of keep) items.push(it);
@@ -538,8 +707,9 @@ function createSendQueue(laws, opts) {
     items.length = 0;
     layer = [];
     queuedBytes = 0;
+    const sock = socket;
     safeCall(() => {
-      if (typeof socket.disconnect === 'function') socket.disconnect(true);
+      if (sock && typeof sock.disconnect === 'function') sock.disconnect(true);
     }, 'sl.kick', stats.safe, { log: o.log });
     if (typeof o.onKick === 'function') safeCall(() => o.onKick(reason), 'sl.onKick', stats.safe, { log: o.log });
   }
@@ -570,7 +740,7 @@ function createSendQueue(laws, opts) {
   }
 
   function bind() {
-    const conn = socket.conn;
+    const conn = socket && socket.conn;
     if (!conn) return;
     boundConn = conn;
     bindTransport(conn.transport);
@@ -589,6 +759,10 @@ function createSendQueue(laws, opts) {
     items.length = 0;
     layer = [];
     queuedBytes = 0;
+    kept.length = 0;
+    keptHead = 0;
+    keptBytes = 0;
+    keptLayer = [];
   }
 
   bind();
@@ -608,6 +782,11 @@ function createSendQueue(laws, opts) {
     resync,
     kick,
     close,
+    detach,
+    attach,
+    canResume,
+    resume,
+    confirm,
     setOwn(id) {
       ownId = Number.isInteger(id) ? id : 0;
     },
@@ -637,6 +816,30 @@ function createSendQueue(laws, opts) {
     },
     get closed() {
       return closed;
+    },
+    get detached() {
+      return detached;
+    },
+    get socket() {
+      return socket;
+    },
+    get sentSeq() {
+      return sentSeq;
+    },
+    get keptLength() {
+      return kept.length - keptHead;
+    },
+    get keptBytes() {
+      return keptBytes;
+    },
+    get keptLayerLength() {
+      return keptLayer.length;
+    },
+    get lostThrough() {
+      return lostThrough;
+    },
+    get pingsHeard() {
+      return pingsHeard;
     },
     get hidden() {
       return hidden;

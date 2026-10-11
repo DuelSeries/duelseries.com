@@ -17,7 +17,17 @@
 //   'maintenance'  the owner's maintenance switch is on (server/ops.js)
 //   'closed'       the door is off (owner console sl:door:off) or the room is closed
 //   'full'         the room refused a seat (C_HUMAN_CAP or C_ROOM_CAP; bots yield first)
-//   'flood'        sustained input abuse over the C_RATE_INPUT window
+//   'flood'        sustained input abuse over the C_RATE_INPUT window; or a resume over C_RESUME (per seat, or an
+//                  address that sent too many unusable keys)
+//   'gone'         sl:back named no life the room still holds (task T16b: ended, never issued, already used, or a
+//                  stream the room cannot continue)
+//   'taken'        to the OLD socket of a seat another socket took back with the current key (task T16b)
+//
+// Resume (task T16b, server/sl/slResume.js, slRoom resume): sl:back {k, n, p} INSTEAD of sl:join, once per socket,
+// from the layer's transport after a drop. k is the key the room gave that seat (exact UUID shape, else never looked
+// up), n and p whole numbers 0 to INT32_MAX. No maintenance or door check: it is the same life, not a new seat. A
+// socket the server itself ended (a refusal: flood, taken; or the queue's own kick) is never parked: its disconnect is
+// a leave, so its snake glides and dies as before.
 //
 // Input (C_RATE_INPUT, SERVER-DESIGN 12.2, finalize pass C3, C15, C42): NO burst limit. Records are merged per tick
 // (slSim.setInput), so a burst after a stall costs nothing; a socket is disconnected only on SUSTAINED abuse: over a
@@ -48,6 +58,7 @@ const { createRng, streamSeed } = require('./slRng');
 const { cleanNick } = require('./slNames');
 const { botSkins } = require('./slBots');
 const { safeCall, safeAsync, safeTimeout, createSafeStats, REAL_TIMERS } = require('./slSafe');
+const { resumeLaws, isKey, count, createBadKeyGate, WHY_GONE, WHY_TAKEN } = require('./slResume');
 
 const SOCK_LAW_IDS = Object.freeze(['C_SL_PER_IP', 'C_RATE', 'C_RATE_INPUT', 'C_CONN', 'C_PUSH', 'PICTURE_SKINS', 'L45']);
 // sl:join fields a free seat never takes (SERVER-DESIGN 12.2: agar refuses a paid payload with no door,
@@ -55,7 +66,7 @@ const SOCK_LAW_IDS = Object.freeze(['C_SL_PER_IP', 'C_RATE', 'C_RATE_INPUT', 'C_
 const MONEY_FIELDS = Object.freeze(['stake', 'entryToken', 'resumeKey']);
 // C_CONN badSkin modes built: 'random0to8' = one of the 9 plain colours 0 to 8 (their login, G:8963-8969).
 const BAD_SKIN_MODES = Object.freeze({ random0to8: 9 });
-const REFUSALS = Object.freeze(['limit', 'not-open', 'maintenance', 'closed', 'full', 'flood']);
+const REFUSALS = Object.freeze(['limit', 'not-open', 'maintenance', 'closed', 'full', 'flood', WHY_GONE, WHY_TAKEN]);
 // sl:diag fields (SERVER-DESIGN 12.2): whole or fractional counters, each a finite number from 0 to INT32_MAX; and
 // lastClose, one short enum the layer names (T17), kept only as up to L45 nameMax letters, digits, '_', '-' or ':'.
 const DIAG_NUMBERS = Object.freeze(['applyThrows', 'wireErrors', 'fps', 'lag', 'lagEntries', 'pongP95', 'maxGapMs',
@@ -99,6 +110,7 @@ function sockLaws(laws) {
     push: Object.freeze(Object.assign({}, push)),
     skins: new Set(botSkins(laws)),
     nameMax,
+    resume: resumeLaws(laws),
   });
 }
 
@@ -303,7 +315,8 @@ function attachSlSockets(nsp, arenas, helpers) {
   const safeStats = createSafeStats();
   const states = new Map(); // socket id -> per-socket state
   const stats = { connects: 0, joins: 0, refused: {}, guarded: 0, floods: 0, inputEmits: 0, inputBytes: 0,
-    inputRecords: 0, inputDropped: 0, pushes: 0, safe: safeStats };
+    inputRecords: 0, inputDropped: 0, pushes: 0, backs: 0, backsBad: 0, takeovers: 0, safe: safeStats };
+  const badKeys = createBadKeyGate(L.resume.badKeys, ipOf);
 
   function limited(socket, kind) {
     return socketRL(socket, 'sl' + kind, L.rate[kind]);
@@ -355,6 +368,49 @@ function attachSlSockets(nsp, arenas, helpers) {
     }
   }
 
+  // A refusal by the server itself on a socket that may hold a seat: its disconnect must never park the seat.
+  function kickOut(socket, st, why) {
+    if (st) st.noResume = true;
+    refuse(socket, why, stats);
+  }
+
+  // sl:back {k, n, p} (task T16b): the layer asks for its life back on this new socket. Once per socket, instead of
+  // sl:join. A bad shape or a key no life holds counts against the address (C_RESUME badKeys).
+  function onBack(socket, msg) {
+    const st = stateOf(socket);
+    if (!st || st.joined) return;
+    st.joined = true;
+    const t = now();
+    if (badKeys.blocked(socket, t)) return refuse(socket, 'flood', stats);
+    const k = isPlainObject(msg) ? field(msg, 'k') : undefined;
+    const n = isPlainObject(msg) ? count(field(msg, 'n')) : null;
+    const pv = isPlainObject(msg) ? field(msg, 'p') : undefined;
+    const p = pv === undefined ? 0 : count(pv);
+    const room = arenas && typeof arenas.room === 'function' ? arenas.room() : null;
+    let r = WHY_GONE;
+    if (isKey(k) && n !== null && p !== null && room && typeof room.resume === 'function') {
+      try {
+        r = room.resume(socket, k, n, p);
+      } catch (e) {
+        log.error('[SL] resume failed', e && e.stack ? e.stack : e);
+        r = WHY_GONE;
+      }
+    }
+    if (!r || typeof r !== 'object') {
+      if (r !== 'flood') {
+        stats.backsBad++;
+        badKeys.add(socket, t);
+      }
+      return refuse(socket, r === 'flood' ? 'flood' : WHY_GONE, stats);
+    }
+    stats.backs++;
+    const old = r.replaced;
+    if (old && old !== socket) {
+      stats.takeovers++;
+      kickOut(old, stateOf(old), WHY_TAKEN);
+    }
+  }
+
   // One emit into the window. Every sl:i emit counts at least ONE record (their client sends one record per emit), so
   // empty, undecodable or non-binary emits can never run unmetered (fixer pass, 2026-10-10: 500,000 empty binaries in
   // 10 s were never a flood). True when the socket was refused.
@@ -362,7 +418,7 @@ function attachSlSockets(nsp, arenas, helpers) {
     if (!st.meter.add(t, nRecs > 0 ? nRecs : 1, nBytes)) return false;
     stats.floods++;
     log.warn('[SL] input flood from ' + ipOf(socket) + ': ' + JSON.stringify(st.meter.sums()) + ' in the window');
-    refuse(socket, 'flood', stats);
+    kickOut(socket, st, 'flood');
     return true;
   }
 
@@ -521,6 +577,7 @@ function attachSlSockets(nsp, arenas, helpers) {
   // Handlers take only the first argument and never call an acknowledgement a client may have asked for.
   function attach(socket) {
     socket.on('sl:join', guard('sl:join', (msg) => onJoin(socket, msg)));
+    socket.on('sl:back', guard('sl:back', (msg) => onBack(socket, msg)));
     socket.on('sl:i', guard('sl:i', (data) => onInput(socket, data)));
     socket.on('sl:hold', guard('sl:hold', (msg) => onHold(socket, msg)));
     socket.on('sl:vis', guard('sl:vis', (msg) => onVis(socket, msg)));
@@ -536,7 +593,9 @@ function attachSlSockets(nsp, arenas, helpers) {
       stopVisPending(st);
       states.delete(socket.id);
       st.open = false;
-      unseatCharged(socket, st, (onEnd) => arenas.disconnect(socket.id, onEnd));
+      // a socket the server ended itself leaves (never parked for a resume); any other drop may come back (T16b)
+      if (st.noResume) unseatCharged(socket, st, (onEnd) => arenas.leave(socket.id, onEnd));
+      else unseatCharged(socket, st, (onEnd) => arenas.disconnect(socket.id, onEnd));
       settle(socket, st);
     }));
     guard('connect', () => {
@@ -552,6 +611,7 @@ function attachSlSockets(nsp, arenas, helpers) {
         charged: true, // gate.add counted this socket under its address
         open: true,
         gliding: false,
+        noResume: false, // the server refused this socket itself: its disconnect is a leave (T16b)
         meter: createInputMeter(L.input),
       });
     })();
@@ -576,7 +636,7 @@ function attachSlSockets(nsp, arenas, helpers) {
   if (nsp && typeof nsp.use === 'function') nsp.use(admit);
   if (nsp && typeof nsp.on === 'function') nsp.on('connection', (socket) => safeCall(() => attach(socket), 'sl.attach', safeStats, { log }));
 
-  return { attach, admit, gate, stats, laws: L, sockets: () => states.size };
+  return { attach, admit, gate, badKeys, stats, laws: L, sockets: () => states.size };
 }
 
 module.exports = {

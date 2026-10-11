@@ -54,6 +54,11 @@ const D_MEMBERS = { slx: null, S: null, play: null, stats: null, slNet: ['makeSo
   slLoop: ['hooks'], slInput: ['setAcceleration'], slMain: ['nick'] };
 const HOOKS = ['onMenuShow', 'onMenuFade', 'onMenuDone'];
 const LAYER_EVENTS = ['sl:x', 'sl:hold', 'sl:vis', 'sl:chat', 'sl:diag'];
+// slxNet.js alone is also the resumable transport (SERVER-DESIGN 9.6, through the DuelSlitherConfig.transport seam;
+// task T16b): after a blip it carries the life on its own socket, so it names sl:back and their sl:f, sl:i and sl:leave
+// there, and uses their wire for the held input and the resumed bundles.
+const NET_EVENTS = ['sl:back', 'sl:f', 'sl:i', 'sl:leave'];
+const NET_MEMBERS = { slWire: ['decodeBundle', 'encodeInput'] };
 
 test('the layer folder holds T16 base files at least, each one IIFE over root', () => {
   for (const f of ['slxNet.js', 'slxMain.js', 'slxDirect.js']) assert.ok(FILES.includes(f), f);
@@ -87,7 +92,8 @@ test('frozen members: only the 15.1 seams', () => {
     for (const m of s.matchAll(/\bD\.([A-Za-z_$][\w$]*)(?:\.([A-Za-z_$][\w$]*))?/g)) {
       assert.ok(Object.prototype.hasOwnProperty.call(D_MEMBERS, m[1]), f + ': D.' + m[1]);
       const only = D_MEMBERS[m[1]];
-      if (only && m[2]) assert.ok(only.includes(m[2]), f + ': D.' + m[1] + '.' + m[2]);
+      const net = f === 'slxNet.js' && NET_MEMBERS[m[1]] ? NET_MEMBERS[m[1]] : [];
+      if (only && m[2]) assert.ok(only.includes(m[2]) || net.includes(m[2]), f + ': D.' + m[1] + '.' + m[2]);
     }
     for (const m of s.matchAll(/\bS\.([A-Za-z_$][\w$]*)/g)) {
       assert.ok(READ_S.includes(m[1]) || WRITE_S.includes(m[1]) || PICTURE_S.includes(m[1]), f + ': S.' + m[1]);
@@ -116,7 +122,9 @@ test('globals: only DuelSlitherConfig and io are written; innerHTML only ever se
 
 test('socket events: the layer names only sl:x and its own four emits, never their sl:join, sl:i, sl:f or sl:leave', () => {
   for (const [f, s] of CODE) {
-    for (const m of s.matchAll(/'(sl:[\w:-]*)'/g)) assert.ok(LAYER_EVENTS.includes(m[1]), f + ': ' + m[1]);
+    for (const m of s.matchAll(/'(sl:[\w:-]*)'/g)) {
+      assert.ok(LAYER_EVENTS.includes(m[1]) || (f === 'slxNet.js' && NET_EVENTS.includes(m[1])), f + ': ' + m[1]);
+    }
   }
 });
 

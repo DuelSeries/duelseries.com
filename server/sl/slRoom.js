@@ -51,6 +51,18 @@
 // Owen's answers built here: Q15 and 14:45 hold Q (slHold); 17:00 no boosting while holding, vanish on completion,
 // others see the ring; Q10 (17:10) the snake glides straight about 3 s on a connection blip, then dies (C_DISCONNECT);
 // Q14 kill lines and chat kept (C_KILLFEED, C_CHAT); Q2 the leaderboard counts bots (C_LB_BOTS).
+//
+// RESUME (task T16b, Owen Q10 "while reconnecting"; server/sl/slResume.js). Every seat gets a server-issued key at
+// its join (sl:x {t: 'seat', k, ms}). A seat whose socket DROPS (reason 'disconnect', its queue not kicked, its snake
+// alive or dead less than C_DEAD_SEAT_MS noPingMs ago) is PARKED, not ended: it leaves `seats`, keeps its view and
+// its send queue (detached), and a live snake glides as an orphan exactly as before. Parked seats still run the seat
+// part every wake (the view collects, the queue fills, nothing is sent), so no own record of the glide is lost.
+// resume(socket, k, n, p) puts the seat on the new socket: the glide ends (no death), the queue replays what the lost
+// bundles carried and resyncs, the view re-adds the world, the key rotates (sl:x {t: 'back', k, ms} leads that
+// flush). A parked seat whose snake died stays parked C_DEAD_SEAT_MS noPingMs after the death so a late client still
+// gets its own death; then it is dropped. A resume with the current key of a seat that is still on a live socket (the
+// server has not seen the drop yet) takes it over and hands the old socket back to slSockets ('taken'). A leave, a
+// kick or a refusal is never parked.
 
 const { performance } = require('perf_hooks');
 const W = require('../../shared/slWire.js');
@@ -64,6 +76,7 @@ const { createRecordCache, encodeRecord } = require('./slRecordCache');
 const { createSendQueue, QUEUE_TABLE_IDS } = require('./slSendQueue');
 const { createHoldBook, HOLD_LAW_IDS } = require('./slHold');
 const { createSafeStats, safeCall, safeImmediate, safeTimeout, REAL_TIMERS } = require('./slSafe');
+const { resumeLaws, makeKey, createWindow, WHY_GONE } = require('./slResume');
 const { TickTimer } = require('../tickTimer');
 
 const PI2 = 2 * Math.PI;
@@ -173,6 +186,7 @@ function roomLaws(laws) {
     emergencyFails: fails,
     angRound,
     famRound,
+    resume: resumeLaws(laws),
   });
 }
 
@@ -274,6 +288,8 @@ class SlRoom {
     this.humans = new Set(); // snake ids of human snakes (seated or gliding)
     this.names = new Map(); // snake id -> nick (kill lines)
     this.orphans = new Map(); // snake id -> { locked, endSim } (C_DISCONNECT glide)
+    this.parked = new Set(); // seats whose socket dropped, waiting for a resume (task T16b)
+    this.keys = new Map(); // resume key -> seat (seated or parked)
     this.top = null; // the biggest cash-out box message (slTopCashout), sent to every seat at join
 
     this.cache = createRecordCache(R.pv);
@@ -283,6 +299,7 @@ class SlRoom {
       seats: 0, joins: 0, leaves: 0, glides: 0, glideDeaths: 0, cashouts: 0, deaths: 0, resyncs: 0, kicks: 0,
       echoes: 0, pongs: 0, inputs: 0, inputDrops: 0, holdsStarted: 0, holdsEnded: 0, killLines: 0, chats: 0,
       failedWakes: 0, pauses: 0, resumes: 0, diag: { applyThrows: 0, wireErrors: 0, reports: 0 },
+      parks: 0, backs: 0, backsDead: 0, takeovers: 0, parkedDropped: 0, backsRefused: { gone: 0, flood: 0 },
     };
 
     // scheduler (agar's drift-free one, server/ag/agRoom.js:932-1000)
@@ -401,7 +418,13 @@ class SlRoom {
       diag: null,
       view: null,
       queue: null,
+      key: makeKey(), // the resume key (slResume), rotated on every resume
+      prevKey: null, // the key the last resume used, good until the new socket is heard (see resume)
+      parked: false,
+      heldAtPark: false,
+      backs: createWindow(this.R.resume.perSeat.max, this.R.resume.perSeat.windowMs),
     };
+    this.keys.set(seat.key, seat);
     seat.queue = createSendQueue(this.laws, {
       socket,
       ownId: s.id,
@@ -419,6 +442,7 @@ class SlRoom {
     const tick = this.sim.tick();
     const events = seat.view.join({ tick, simMs: this.sim.nowMs(), flux: this.sim.flux(), frames: [], dead: false });
     this._pushEvents(seat, tick, events);
+    seat.queue.message(tick, this._keyMsg('seat', seat));
     if (this.top) seat.queue.message(tick, this.top);
     seat.queue.flush(this.clock());
     this._ensureTicking();
@@ -434,32 +458,160 @@ class SlRoom {
   // with its drops (Owen Q10, 17:10). Returns 'glide' when the seat's live snake now glides, true when a seat went
   // with no snake to glide, false when there was no seat. onEnd (optional): called once when that glide ends (death,
   // cash-out or the room stopping), so slSockets keeps the snake charged to its address until then.
+  // A transport drop ('disconnect') of a seat whose queue was not kicked is PARKED (resume, see the header) when its
+  // snake lives (the same glide, but the seat waits for its key) or died less than C_DEAD_SEAT_MS noPingMs ago (the
+  // bundle with its own death may be among the lost ones: a client back in time still gets its own death and card).
   unseat(socketOrId, reason, onEnd) {
     const seat = this.seatOf(socketOrId);
     if (!seat) return false;
-    seat.closed = true;
+    const s = this.sim.snake(seat.snakeId);
+    const recent = seat.dead && this.clock() - seat.deadAt <= this.R.deadNoPingMs;
+    const park = reason === 'disconnect' && !seat.queue.closed && !!seat.key && ((!!s && !seat.dead) || recent);
+    seat.closed = !park;
     this.seats.delete(seat.id);
-    this.bySnake.delete(seat.snakeId);
     if (seat.flushHandle) seat.flushHandle.stop();
     seat.flushHandle = null;
-    seat.queue.close();
-    if (typeof seat.view.leave === 'function') safeCall(() => seat.view.leave(), 'sl.view.leave', this.safeStats, this.safeOpts);
+    seat.pendingEcho = null;
+    if (park) {
+      seat.parked = true;
+      seat.socket = null;
+      seat.queue.detach();
+      this.parked.add(seat);
+      this.stats.parks++;
+    } else {
+      this.bySnake.delete(seat.snakeId);
+      this._dropKey(seat);
+      seat.queue.close();
+      if (typeof seat.view.leave === 'function') safeCall(() => seat.view.leave(), 'sl.view.leave', this.safeStats, this.safeOpts);
+    }
     this.stats.leaves++;
     this.stats.seats = this.seats.size;
-    const s = this.sim.snake(seat.snakeId);
     if (s) {
-      this.holds.release(seat.snakeId, 'disconnect');
-      // no input can come any more: the boost ends at the next step, steering locks at step 2
-      this.sim.setInput(seat.snakeId, { type: 'boost', on: false }, 0);
-      this.orphans.set(seat.snakeId, { locked: false, endSim: NaN, why: typeof reason === 'string' ? reason : 'leave',
-        onEnd: typeof onEnd === 'function' ? onEnd : null });
-      this.stats.glides++;
+      this._glide(seat, reason, onEnd);
       if (this.seats.size === 0) this.lastHumanAt = this.clock();
       return 'glide';
     }
     this.humans.delete(seat.snakeId);
     if (this.seats.size === 0) this.lastHumanAt = this.clock();
     return true;
+  }
+
+  // C_DISCONNECT: the seat's live snake glides straight glideMs, then dies (step 2 locks it, step 8 kills it).
+  _glide(seat, reason, onEnd) {
+    seat.heldAtPark = this.holds.holding(seat.snakeId);
+    this.holds.release(seat.snakeId, 'disconnect');
+    // no input can come any more: the boost ends at the next step, steering locks at step 2
+    this.sim.setInput(seat.snakeId, { type: 'boost', on: false }, 0);
+    this.orphans.set(seat.snakeId, { locked: false, endSim: NaN, why: typeof reason === 'string' ? reason : 'leave',
+      onEnd: typeof onEnd === 'function' ? onEnd : null });
+    this.stats.glides++;
+  }
+
+  _dropKey(seat) {
+    if (seat.key && this.keys.get(seat.key) === seat) this.keys.delete(seat.key);
+    seat.key = null;
+    this._dropPrevKey(seat);
+  }
+
+  _dropPrevKey(seat) {
+    if (seat.prevKey && this.keys.get(seat.prevKey) === seat) this.keys.delete(seat.prevKey);
+    seat.prevKey = null;
+  }
+
+  // The sl:x message that hands the seat its key: 'seat' at the join, 'back' at a resume. ms is how long after a drop
+  // the key can still bring the life back (the glide, then the dead seat's no-ping limit): the layer stops trying then.
+  _keyMsg(t, seat) {
+    return { t, k: seat.key, ms: this.R.glideMs + this.R.deadNoPingMs };
+  }
+
+  // A parked seat's wait is over (its snake died noPingMs ago, or the room stopped): the seat goes for good.
+  _dropParked(seat) {
+    if (!this.parked.delete(seat)) return;
+    seat.parked = false;
+    seat.closed = true;
+    if (this.bySnake.get(seat.snakeId) === seat) this.bySnake.delete(seat.snakeId);
+    this._dropKey(seat);
+    seat.queue.close();
+    if (typeof seat.view.leave === 'function') safeCall(() => seat.view.leave(), 'sl.view.leave', this.safeStats, this.safeOpts);
+    this.stats.parkedDropped++;
+  }
+
+  // sl:back (slSockets checked the shapes): socket asks for the seat of key, having got n bundles and sent p pings
+  // this life. Returns { seat, replaced } (replaced: the old socket when the seat was still on one, for slSockets to
+  // refuse 'taken'), or the refusal why: 'gone' (no seat holds that key, or n cannot continue its stream) or 'flood'
+  // (C_RESUME perSeat). Nothing the client sent is believed beyond choosing what to send again.
+  // The key: the seat's current one; or, while the seat is PARKED, the one its last resume used if the new socket was
+  // never heard from (prevKey): the 'back' that carried the new key leads one flush, and a socket that died before
+  // delivering it (the layer drops an attempt it has waited RESUME_TRY_MS on) would otherwise end the life with the
+  // client still holding the key the server had just replaced. The first upstream message on the new socket proves
+  // the client read 'back' (the layer sends nothing there before it), and the old key goes (_heard). A seat on a live
+  // socket takes only its current key, so two sockets presenting one key get one seat between them and the other is
+  // refused 'gone'.
+  resume(socket, key, n, p) {
+    if (!socket || typeof socket.id !== 'string') throw new TypeError('slRoom: resume needs a socket with an id');
+    if (this.stopped || this.closed) return this._backRefused(WHY_GONE);
+    const seat = typeof key === 'string' ? this.keys.get(key) : undefined;
+    if (!seat || seat.closed || (seat.key !== key && !(seat.parked && seat.prevKey === key)) || seat.socket === socket ||
+      this.seats.has(socket.id)) {
+      return this._backRefused(WHY_GONE);
+    }
+    const now = this.clock();
+    if (seat.backs.full(now)) return this._backRefused('flood');
+    if (this._job) this._finishJob(); // a sliced wake still running: its seat part first, as a new wake does
+    if (seat.closed || !seat.queue.canResume(n)) return this._backRefused(WHY_GONE);
+    let replaced = null;
+    if (seat.parked) {
+      this.parked.delete(seat);
+      seat.parked = false;
+      this._endOrphan(seat.snakeId); // the glide ends with no death; its owner releases the old socket's charge
+    } else {
+      // still on a socket: a drop the server has not seen yet, or a second tab with the key. The new socket wins.
+      replaced = seat.socket;
+      this.seats.delete(seat.id);
+      if (seat.flushHandle) seat.flushHandle.stop();
+      seat.flushHandle = null;
+      seat.pendingEcho = null;
+      if (this.sim.snake(seat.snakeId)) {
+        if (this.holds.holding(seat.snakeId)) seat.heldAtPark = true;
+        this.holds.release(seat.snakeId, 'disconnect');
+      }
+      seat.queue.detach();
+      this.stats.takeovers++;
+    }
+    seat.backs.add(now);
+    seat.id = socket.id;
+    seat.socket = socket;
+    seat.lastHeard = now;
+    seat.queue.attach(socket);
+    this.seats.set(socket.id, seat);
+    this.bySnake.set(seat.snakeId, seat);
+    this._dropKey(seat);
+    seat.key = makeKey();
+    seat.prevKey = key;
+    this.keys.set(seat.key, seat);
+    this.keys.set(key, seat);
+    const tick = this.sim.tick();
+    const first = [this._keyMsg('back', seat)];
+    if (seat.heldAtPark) first.push({ t: 'hold', id: seat.snakeId, on: 0 }); // the own ring the drop ended
+    seat.heldAtPark = false;
+    if (this.top) first.push(this.top);
+    seat.queue.resume(n, Number.isInteger(p) ? p : 0, tick, now, first);
+    this.stats.resyncs++;
+    seat.view.resync();
+    const again = seat.view.collect({ tick, simMs: this.sim.nowMs(), flux: this.sim.flux(), frames: [], dead: seat.dead });
+    this._pushEvents(seat, tick, again);
+    this.stats.backs++;
+    if (seat.dead) this.stats.backsDead++;
+    this.stats.seats = this.seats.size;
+    this.lastHumanAt = now;
+    this._ensureTicking();
+    seat.queue.flush(now);
+    return { seat, replaced };
+  }
+
+  _backRefused(why) {
+    this.stats.backsRefused[why] = (this.stats.backsRefused[why] || 0) + 1;
+    return why;
   }
 
   // An orphan's glide is over (its snake died, cashed out, or the room stopped): forget it and tell its owner once.
@@ -492,6 +644,7 @@ class SlRoom {
   }
 
   _heard(seat) {
+    if (seat.prevKey) this._dropPrevKey(seat); // the client read 'back' and holds the new key (resume)
     seat.lastHeard = this.clock();
     seat.queue.heard(seat.lastHeard); // ackLate reads a missing ping as a late downstream only while upstream flows
     if (!seat.dead) this.holds.heard(seat.snakeId, this._arrivalSim(this._offsetNow()));
@@ -500,7 +653,7 @@ class SlRoom {
   // sl:i: bytes of one input bundle (shared/slWire.js encodeInput); slSockets checked its size.
   onInput(socketOrSeat, bytes) {
     const seat = socketOrSeat && socketOrSeat.queue ? socketOrSeat : this.seatOf(socketOrSeat);
-    if (!seat || seat.closed) return false;
+    if (!seat || seat.closed || seat.parked) return false;
     this._heard(seat);
     const recs = W.decodeInput(bytes);
     const now = this.clock();
@@ -579,7 +732,7 @@ class SlRoom {
   // sl:hold {on}: a press starts a hold at the next step, a release ends it (SERVER-DESIGN 15.3).
   onHold(socketOrSeat, on) {
     const seat = socketOrSeat && socketOrSeat.queue ? socketOrSeat : this.seatOf(socketOrSeat);
-    if (!seat || seat.closed) return false;
+    if (!seat || seat.closed || seat.parked) return false;
     this._heard(seat);
     if (seat.dead || !this.sim.snake(seat.snakeId)) return false;
     if (on) return this.holds.press(seat.snakeId, this._arrivalSim(this._offsetNow()));
@@ -589,7 +742,7 @@ class SlRoom {
   // sl:vis {hidden}: the ackLate exemption, and a hidden tab ends a hold.
   onVis(socketOrSeat, hidden) {
     const seat = socketOrSeat && socketOrSeat.queue ? socketOrSeat : this.seatOf(socketOrSeat);
-    if (!seat || seat.closed) return false;
+    if (!seat || seat.closed || seat.parked) return false;
     this._heard(seat);
     seat.queue.setHidden(!!hidden);
     if (hidden && !seat.dead) this.holds.release(seat.snakeId, 'hidden');
@@ -599,7 +752,7 @@ class SlRoom {
   // sl:chat {text}: one line to every seat (C_CHAT; the rate is slSockets').
   onChat(socketOrSeat, text) {
     const seat = socketOrSeat && socketOrSeat.queue ? socketOrSeat : this.seatOf(socketOrSeat);
-    if (!seat || seat.closed) return false;
+    if (!seat || seat.closed || seat.parked) return false;
     this._heard(seat);
     const t = cleanChat(text, this.R);
     if (!t) return false;
@@ -611,7 +764,7 @@ class SlRoom {
   // sl:diag: the layer's counters (slSockets checked the shape).
   onDiag(socketOrSeat, d) {
     const seat = socketOrSeat && socketOrSeat.queue ? socketOrSeat : this.seatOf(socketOrSeat);
-    if (!seat || seat.closed || !d || typeof d !== 'object') return false;
+    if (!seat || seat.closed || seat.parked || !d || typeof d !== 'object') return false;
     this._heard(seat);
     seat.diag = d;
     this.stats.diag.reports++;
@@ -787,12 +940,16 @@ class SlRoom {
     }
     // seat part: once per wake, sliced
     if (job.ran === 0) return false;
-    if (!job.seatList) job.seatList = Array.from(this.seats.values());
+    if (!job.seatList) {
+      job.seatList = Array.from(this.seats.values());
+      for (const p of this.parked) job.seatList.push(p); // parked seats collect too (resume, see the header)
+    }
     const list = job.seatList;
     while (job.seatIdx < list.length) {
       const seat = list[job.seatIdx++];
-      if (seat.closed) continue;
-      this._seatPart(seat, job);
+      if (seat.closed || seat.wakeDone === job.serial) continue;
+      if (seat.parked) this._parkedPart(seat, job);
+      else this._seatPart(seat, job);
       if (!sync && job.seatIdx < list.length && this.clock() - sliceStart >= this.R.sliceMs) {
         this._yield(sliceStart);
         return true;
@@ -841,7 +998,7 @@ class SlRoom {
     const now = this.clock();
     if (this.seats.size > 0) this.lastHumanAt = now;
     if (!this.autoTick) return;
-    if (this.seats.size === 0 && this.orphans.size === 0 && now - this.lastHumanAt >= this.R.idleMs) {
+    if (this.seats.size === 0 && this.orphans.size === 0 && this.parked.size === 0 && now - this.lastHumanAt >= this.R.idleMs) {
       this._pause();
       return;
     }
@@ -966,6 +1123,7 @@ class SlRoom {
       this.stats.killLines++;
       const msg = { t: 'kill', killer: this.names.get(d.killer) || '', victim: this.names.get(id) || '' };
       for (const st of this.seats.values()) st.queue.message(tick, msg);
+      for (const st of this.parked) st.queue.message(tick, msg); // a parked seat back in time sees it (resume)
     }
   }
 
@@ -986,7 +1144,7 @@ class SlRoom {
       seat.dead = true;
       seat.cashed = true;
       seat.deadAt = this.clock();
-      seat.queue.message(frame.tick, { t: 'cashed', len });
+      seat.queue.message(frame.tick, { t: 'cashed', len }, true); // kept: a resume after lost bundles still says so
     }
     this._endOrphan(id);
     this.humans.delete(id);
@@ -1039,6 +1197,24 @@ class SlRoom {
     if (this._deadSeatDone(seat, t1)) return;
     seat.queue.flush(this.clock());
     this.stats.flushMs += this.clock() - t1;
+  }
+
+  // A parked seat's wake: its view collects and its queue fills exactly as a seated one (so the resume replays no
+  // gap), over the cap it sheds like a resync, nothing is flushed; noPingMs after its snake died it is dropped.
+  _parkedPart(seat, job) {
+    let frames = job.frames;
+    if (frames.length && frames[0].tick <= seat.joinTick) frames = frames.filter((f) => f.tick > seat.joinTick);
+    const tick = this.sim.tick();
+    const ctx = { tick, simMs: this.sim.nowMs(), flux: this.sim.flux(), frames, dead: seat.dead };
+    this._pushEvents(seat, tick, seat.view.collect(ctx));
+    seat.wakeDone = job.serial;
+    const now = this.clock();
+    if (seat.queue.checkCap(tick, now) === 'resync') {
+      this.stats.resyncs++;
+      seat.view.resync();
+      this._pushEvents(seat, tick, seat.view.collect({ tick, simMs: ctx.simMs, flux: ctx.flux, frames: [], dead: seat.dead }));
+    }
+    if (seat.dead && now - seat.deadAt > this.R.deadNoPingMs) this._dropParked(seat);
   }
 
   _pushEvents(seat, tick, events) {
@@ -1105,6 +1281,8 @@ class SlRoom {
     if (this.world && typeof this.world.idBlocked === 'function' && this.world.idBlocked(id)) return true;
     if (!this.seats) return false;
     for (const seat of this.seats.values()) if (seat.queue.holdsSnake(id)) return true;
+    // a parked client still holds what it was sent (resume): its ids stay blocked until it is back or dropped
+    if (this.parked) for (const seat of this.parked) if (seat.queue.holdsSnake(id)) return true;
     return false;
   }
 
@@ -1133,6 +1311,8 @@ class SlRoom {
     for (const seat of this.seats.values()) if (seat.flushHandle) seat.flushHandle.stop();
     // a stopped room never ends its glides: release every orphan's address charge now
     for (const id of Array.from(this.orphans.keys())) this._endOrphan(id);
+    // and nobody can come back to it: parked seats go, their keys with them
+    for (const seat of Array.from(this.parked)) this._dropParked(seat);
   }
 
   // C_EMERGENCY_FAIL_WAKES wakes in a row threw: the room stops for good and hands its sockets to slArenas
@@ -1153,6 +1333,7 @@ class SlRoom {
       seats: this.seats.size,
       snakes: this.sim.count(),
       orphans: this.orphans.size,
+      parked: this.parked.size,
       holds: this.holds.size(),
       paused: this.paused,
       tick: this.sim.tick(),

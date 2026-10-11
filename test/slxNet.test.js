@@ -5,8 +5,8 @@
 // and one scripted fake socket.io `io`. The same script runs twice: the frozen transport alone, and with
 // public/js/slx/slxNet.js loaded after it. Every call their client makes (resetGame, onSocketOpen, applyFrame,
 // applyClose) and every io call, socket listener and emit must be identical, except the handshake `auth` field and
-// the layer's extra sl:x listener. Then the layer's own parts: inert under a harness transport, auth, sl:x, the
-// observers, the ping clock, the emit allow list and sl:vis.
+// the layer's extra sl:x and disconnect listeners. Then the layer's own parts: inert under a harness transport, auth,
+// sl:x, the observers, the ping clock, the emit allow list, sl:vis, and the resume after a blip (task T16b).
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
@@ -31,6 +31,22 @@ function page(opts) {
   ctx.window = ctx;
   let clock = 1000;
   ctx.performance = { now: () => clock };
+  // page timers on the same clock (the resume's attempt and gap timers); run by setClock
+  const timers = [];
+  let tid = 0;
+  ctx.setTimeout = (fn, ms) => { const t = { id: ++tid, at: clock + (+ms || 0), fn }; timers.push(t); return t.id; };
+  ctx.clearTimeout = (id) => { const i = timers.findIndex((t) => t.id === id); if (i >= 0) timers.splice(i, 1); };
+  function setClock(v) {
+    for (;;) {
+      let best = null;
+      for (const t of timers) if (t.at <= v && (!best || t.at < best.at || (t.at === best.at && t.id < best.id))) best = t;
+      if (!best) break;
+      timers.splice(timers.indexOf(best), 1);
+      if (best.at > clock) clock = best.at;
+      best.fn();
+    }
+    clock = v;
+  }
   const docListeners = {};
   ctx.document = {
     hidden: false,
@@ -87,7 +103,7 @@ function page(opts) {
     return D.slWire.encodeBundle(events, PV);
   }
   if (o.layer) vm.runInContext(SLXNET, ctx, { filename: 'slxNet.js' });
-  return { ctx, D, S, log, socks, io, fireSock, bundle, docListeners, setClock: (v) => { clock = v; }, doc: ctx.document };
+  return { ctx, D, S, log, socks, io, fireSock, bundle, docListeners, setClock, now: () => clock, timers, doc: ctx.document };
 }
 
 // The scripted run: connect and frames, a server close, a connect_error, a client close while open, a close before
@@ -143,7 +159,9 @@ function record(p, stripLayer) {
     socks: p.socks.map((s) => {
       const opts = Object.assign({}, s.opts);
       if (stripLayer) delete opts.auth;
-      return { ns: s.ns, opts, on: stripLayer ? s.order.filter((ev) => ev !== 'sl:x') : s.order, emitted: s.emitted,
+      // the layer's own listeners come first on every /sl socket (slxNet sockSubs): sl:x and disconnect
+      const on = stripLayer && s.order[0] === 'sl:x' && s.order[1] === 'disconnect' ? s.order.slice(2) : s.order;
+      return { ns: s.ns, opts, on, emitted: s.emitted,
         disconnects: s.disconnects };
     }),
   });
@@ -161,9 +179,10 @@ test('the frozen transport alone and the tapped one give identical handler calls
   assert.strictEqual(frozen.socks.length, 6);
   assert.strictEqual(frozen.log.filter((x) => x[0] === 'applyClose').length, 2, 'a server close and a failed connect');
   assert.strictEqual(frozen.D.stats.wireErrors, 1);
-  // the only differences: each /sl socket got the layer's sl:x listener and an auth object
+  // the only differences: each /sl socket got the layer's sl:x and disconnect listeners (first) and an auth object
   for (const s of tapped.socks) {
     assert.deepStrictEqual(s.order.filter((ev) => ev === 'sl:x'), ['sl:x']);
+    assert.deepStrictEqual(s.order.slice(0, 2), ['sl:x', 'disconnect']);
     assert.strictEqual(JSON.stringify(s.opts.auth), '{}');
     assert.strictEqual(s.opts.forceNew, true);
     assert.strictEqual(s.opts.reconnection, false);
@@ -350,4 +369,204 @@ test('onSocket: a layer socket event on each /sl socket made after the call, rep
   fireSock(socks[1], 'announce', { text: 'hi' });
   assert.deepStrictEqual(seen, ['hi']);
   assert.deepStrictEqual(socks[1].order.filter((ev) => ev === 'announce' || ev === 'sl:x'), ['sl:x', 'announce']);
+});
+
+// ---- resume after a blip (task T16b)
+const KEY = '0f0e0d0c-0b0a-4908-8706-050403020100';
+const KEY2 = '1f0e0d0c-0b0a-4908-9706-050403020101';
+const KEY3 = '2f0e0d0c-0b0a-4908-a706-050403020102';
+
+// A life with its key: open, the join bundle's sl:x seat, the own add.
+function keyedLife(p, ms) {
+  const { D, socks, fireSock, bundle } = p;
+  D.slNet.connect();
+  const a = socks[socks.length - 1];
+  a.connected = true;
+  fireSock(a, 'connect');
+  fireSock(a, 'sl:x', [{ t: 'seat', k: KEY, ms: ms === undefined ? 8000 : ms }]);
+  fireSock(a, 'sl:f', bundle([ADD7]));
+  return a;
+}
+const closes = (p) => p.log.filter((x) => x[0] === 'applyClose').length;
+const names = (s) => s.emitted.map((e) => e[0]);
+
+test('resume: a transport drop holds their close; a new socket sends sl:back {k, n, p} first; back goes on with the same life', () => {
+  const p = page({ layer: true });
+  const { D, socks, fireSock, bundle, log } = p;
+  const seen = [];
+  for (const ev of ['open', 'resuming', 'resumed', 'close', 'x']) D.slx.on(ev, (m) => seen.push(ev + (ev === 'x' ? ':' + m.t : '')));
+  const a = keyedLife(p);
+  D.slNet.send({ type: 'ping' });
+  fireSock(a, 'sl:f', bundle([{ type: 'pong' }]));
+  D.slNet.send({ type: 'ping' });                               // in flight when the link goes
+  a.connected = false;
+  fireSock(a, 'disconnect', 'transport close');
+  assert.strictEqual(closes(p), 0, 'their close waits');
+  assert.strictEqual(D.slx.resuming(), true);
+  assert.strictEqual(D.slx.connected(), false);
+  assert.strictEqual(D.slx.send('sl:chat', { text: 'x' }), false, 'no layer emit while away');
+  assert.strictEqual(socks.length, 2, 'one attempt at once');
+  const b = socks[1];
+  assert.strictEqual(b.ns, '/sl');
+  assert.strictEqual(JSON.stringify(b.opts), '{"forceNew":true,"reconnection":false,"auth":{}}', 'their options, the layer auth');
+  // their client keeps sending while away: nothing leaves, the newest angle and boost are kept
+  D.slNet.send({ type: 'angle', q: 9 });
+  D.slNet.send({ type: 'boost', on: true });
+  D.slNet.send({ type: 'turn', dir: 'left', v: 3 });
+  D.slNet.send({ type: 'angle', q: 12 });
+  assert.deepStrictEqual(names(a), ['sl:join', 'sl:i', 'sl:i'], 'nothing on the dead socket');
+  b.connected = true;
+  fireSock(b, 'connect');
+  assert.deepStrictEqual(b.emitted, [['sl:back', { k: KEY, n: 2, p: 2 }]], 'sl:back first: 2 bundles got, 2 pings sent');
+  p.doc.hidden = true;
+  fireSock(b, 'sl:x', [{ t: 'back', k: KEY2, ms: 8000 }, { t: 'top', name: 'z', amount: 1 }]);
+  assert.strictEqual(D.slx.resuming(), false);
+  assert.strictEqual(D.slx.connected(), true);
+  assert.deepStrictEqual(names(b), ['sl:back', 'sl:i', 'sl:vis']);
+  assert.deepStrictEqual(b.emitted[1][1], Array.from(D.slWire.encodeInput([{ type: 'angle', q: 12 }, { type: 'boost', on: true }])),
+    'the newest angle and boost, once');
+  assert.deepStrictEqual(b.emitted[2][1], { hidden: 1 }, 'the new socket is told the tab is hidden');
+  fireSock(b, 'sl:f', bundle([{ type: 'pong' }, { type: 'kill_count', id: 7, count: 3 }]));
+  assert.deepStrictEqual(log[log.length - 1].slice(0, 2), ['applyFrame', 'pong,kill_count']);
+  D.slNet.send({ type: 'angle', q: 20 });
+  assert.deepStrictEqual(names(b).slice(-1), ['sl:i']);
+  assert.strictEqual(closes(p), 0);
+  assert.deepStrictEqual(seen, ['open', 'resuming', 'resumed', 'x:top'], 'no second open; the keys never reach observers');
+  // a second blip on the resumed socket: the newest key, every bundle of the life counted
+  b.connected = false;
+  fireSock(b, 'disconnect', 'ping timeout');
+  const c = socks[2];
+  c.connected = true;
+  fireSock(c, 'connect');
+  assert.deepStrictEqual(c.emitted[0], ['sl:back', { k: KEY2, n: 3, p: 2 }]);
+  fireSock(c, 'sl:x', [{ t: 'back', k: KEY3, ms: 8000 }]);
+  // their own close later: sl:leave on the resumed socket, then it closes
+  D.slNet.closeSocket();
+  assert.deepStrictEqual(names(c).slice(-1), ['sl:leave']);
+  assert.strictEqual(c.connected, false);
+  assert.strictEqual(closes(p), 0, 'their own close is not a close event');
+});
+
+test('resume attempts: a failed one is retried 500 ms later, an unanswered one dropped at 3 s; the window ends in their close, once', () => {
+  const p = page({ layer: true });
+  const { D, socks, fireSock } = p;
+  let info = null;
+  D.slx.on('close', (i) => { info = i; });
+  const a = keyedLife(p, 8000);
+  const t0 = p.now();
+  a.connected = false;
+  fireSock(a, 'disconnect', 'transport error');
+  fireSock(socks[1], 'connect_error', new Error('xhr poll error'));      // the network is still down
+  p.setClock(t0 + 499);
+  assert.strictEqual(socks.length, 2);
+  p.setClock(t0 + 500);
+  assert.strictEqual(socks.length, 3, 'the next attempt 500 ms later');
+  const s3 = socks[2];
+  s3.connected = true;
+  fireSock(s3, 'connect');                                                // connects, never answers
+  p.setClock(t0 + 3499);
+  assert.strictEqual(s3.disconnects, 0);
+  p.setClock(t0 + 3500);
+  assert.strictEqual(s3.disconnects, 1, 'dropped 3 s after it started');
+  assert.strictEqual(socks.length, 3);
+  p.setClock(t0 + 4000);
+  assert.strictEqual(socks.length, 4);
+  p.setClock(t0 + 7999);
+  assert.strictEqual(closes(p), 0);
+  p.setClock(t0 + 8000);
+  assert.strictEqual(closes(p), 1, 'the window (ms) is over: their close');
+  assert.strictEqual(JSON.stringify(info), '{"playing":true,"opened":true,"sawDead":false,"refused":null}');
+  p.setClock(t0 + 20000);
+  assert.strictEqual(closes(p), 1);
+  assert.strictEqual(socks.length, 5, 'no attempt after the close');
+});
+
+test('resume refused: the server says gone (or flood); their close runs at once with the refusal in the info', () => {
+  for (const why of ['gone', 'flood']) {
+    const p = page({ layer: true });
+    const { D, socks, fireSock } = p;
+    let info = null;
+    D.slx.on('close', (i) => { info = i; });
+    const a = keyedLife(p);
+    a.connected = false;
+    fireSock(a, 'disconnect', 'transport close');
+    const b = socks[1];
+    b.connected = true;
+    fireSock(b, 'connect');
+    fireSock(b, 'sl:x', [{ t: 'refused', why }]);
+    b.connected = false;
+    fireSock(b, 'disconnect', 'io server disconnect');
+    assert.strictEqual(closes(p), 1);
+    assert.strictEqual(info.refused, why);
+    assert.strictEqual(info.playing, true);
+    p.setClock(p.now() + 10000);
+    assert.strictEqual(socks.length, 2, 'no more attempts');
+  }
+});
+
+test('no resume: the server ended it, the own death was seen, a refusal came, no key, a bad key or window; their close at once', () => {
+  const cases = {
+    'server disconnect': (p, a) => {
+      a.connected = false;
+      p.fireSock(a, 'disconnect', 'io server disconnect');
+    },
+    'own death seen': (p, a) => {
+      p.fireSock(a, 'sl:f', p.bundle([{ type: 'dead', code: 0 }]));
+      a.connected = false;
+      p.fireSock(a, 'disconnect', 'transport close');
+    },
+    'refused taken': (p, a) => {
+      p.fireSock(a, 'sl:x', [{ t: 'refused', why: 'taken' }]);
+      a.connected = false;
+      p.fireSock(a, 'disconnect', 'transport close');
+    },
+  };
+  for (const name of Object.keys(cases)) {
+    const p = page({ layer: true });
+    const a = keyedLife(p);
+    cases[name](p, a);
+    assert.strictEqual(closes(p), 1, name);
+    assert.strictEqual(p.socks.length, 1, name + ': no attempt');
+  }
+  const seats = [null, { t: 'seat', k: KEY.toUpperCase(), ms: 8000 }, { t: 'seat', k: KEY, ms: 0 }, { t: 'seat', k: KEY, ms: 'x' },
+    { t: 'seat', k: { toString: () => KEY }, ms: 8000 }];
+  for (let i = 0; i < seats.length; i++) {
+    const p = page({ layer: true });
+    const { D, socks, fireSock, bundle } = p;
+    D.slNet.connect();
+    const a = socks[0];
+    a.connected = true;
+    fireSock(a, 'connect');
+    if (seats[i]) fireSock(a, 'sl:x', [seats[i]]);
+    fireSock(a, 'sl:f', bundle([ADD7]));
+    a.connected = false;
+    fireSock(a, 'disconnect', 'transport close');
+    assert.strictEqual(closes(p), 1, 'seat message ' + i);
+    assert.strictEqual(socks.length, 1);
+  }
+});
+
+test('their own close during a resume stops it: the attempt socket is let go, nothing else is tried, no close event', () => {
+  const p = page({ layer: true });
+  const { D, socks, fireSock } = p;
+  const a = keyedLife(p);
+  a.connected = false;
+  fireSock(a, 'disconnect', 'transport close');
+  const b = socks[1];
+  D.slNet.closeSocket();
+  assert.strictEqual(b.disconnects, 1);
+  b.connected = true;
+  fireSock(b, 'connect');
+  assert.deepStrictEqual(b.emitted, [], 'a late connect of the let-go attempt sends nothing');
+  p.setClock(p.now() + 20000);
+  assert.strictEqual(socks.length, 2);
+  assert.strictEqual(closes(p), 0);
+  // a new life after it starts clean (no key from the old one)
+  D.slNet.connect();
+  const c = socks[2];
+  c.connected = true;
+  fireSock(c, 'connect');
+  c.connected = false;
+  fireSock(c, 'disconnect', 'transport close');
+  assert.strictEqual(closes(p), 1, 'no key in this life: no resume');
 });
