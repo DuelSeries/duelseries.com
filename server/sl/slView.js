@@ -25,10 +25,12 @@
 // Each entry is { tick, type, ev, rec, own }: rec is the record bytes (slRecordCache); a bundle is bundleOf(entries).
 //
 // Order of one tick's records for one seat (SERVER-DESIGN 5.4 with the T0 per-snake order L48.order):
-//   per updated snake in the sim's processing order: h (fam, L48.hDefer), r (tail), rotation (L48.rot), move (L48.move,
+//   per updated snake in the sim's processing order: h (fam, L48.hDefer), its boost drops (L24: before its r, as
+//   their server sends them; to every seat watching the drop's sector), r (tail), rotation (L48.rot), move (L48.move,
 //   L48.abs); then the ends: deaths and cash-outs in order (own: dead code 0 then own removal code 1, L41; other
-//   holders: removal code 1 for a death, C_CASHOUT_CODE for a cash-out, L50); every food add of the tick (boost drops,
-//   death drops after the deaths, natural spawns; L25); prey moves and removals; eats last (food then prey per eater,
+//   holders: removal code 1 for a death, C_CASHOUT_CODE for a cash-out, L50); the other food adds of the tick (death
+//   drops after the deaths, natural spawns, a boost drop of a snake first seen this tick; L25); prey moves and
+//   removals; eats last (food then prey per eater,
 //   in processing order), so an eater the seat started holding in this assemble already exists when its eat applies;
 //   then leaderboard (L9), minimap (L10, stops once the own snake ended), flux (L11), kill_count (L40, own seat only).
 // A snake, sector or prey the seat starts holding in an assemble gets none of that assemble's other records for it
@@ -97,6 +99,15 @@ function form(id, v, keys, fixed) {
 }
 
 // Reads every number and form the view needs, once.
+// L11.slow: the slow border checks run on the half slots of the L9 leaderboard timer (RULE, SERVER-LAWS L11: 723 of
+// 723), so the clock is half the L9 period from the same start and the two never drift apart (task T14: a clock of its
+// own at 1504.31 ms drifted 0.11 ms per slot off the leaderboard grid, and 279 of 570 slow z of a 15 minute local run
+// left their slot). The measured period must agree with that (CHOSEN check bound 0.5 ms).
+function zSlowPeriod(slowMs, lbMs) {
+  if (Math.abs(slowMs - lbMs / 2) > 0.5) bad('L11.slow', 'is not half the L9 leaderboard period');
+  return lbMs / 2;
+}
+
 function viewLaws(laws) {
   assertLawsComplete(laws, VIEW_LAW_IDS);
   assertRulesBuilt(laws, VIEW_TABLE_IDS, VIEW_RULES_BUILT);
@@ -172,7 +183,7 @@ function viewLaws(laws) {
     lbRows: lb.rows,
     mmMs: pos(mm.periodMs, 'L10', 'periodMs'),
     mmSize: mm.size,
-    zSlowMs: pos(v('L11.slow'), 'L11.slow', 'period'),
+    zSlowMs: zSlowPeriod(pos(v('L11.slow'), 'L11.slow', 'period'), pos(lb.periodMs, 'L9', 'periodMs')),
     zFastMs: pos(v('L11.fast'), 'L11.fast', 'period'),
     zT: num(v('L11.T'), 'L11.T', 'distance'),
     famRound,
@@ -529,6 +540,20 @@ function createView(laws, sim, opts) {
       zFast: false,
       sweep: false,
     };
+    // L24 boost drops by snake: their server sends a snake's boost drop right after its h and before its r, rotation
+    // and move (S1+S2: 204 of 204 tail drops before the same snake's r in one message, 'h DROP' 54 and never 'DROP h';
+    // task T14). A drop whose snake has no update record here (first seen now) stays in the tick's food adds.
+    let dropsBy = null;
+    const drops = log.drops || [];
+    for (let i = 0; i < drops.length; i++) {
+      const d = drops[i];
+      if (!d.food) continue;
+      if (dropsBy === null) dropsBy = new Map();
+      let a = dropsBy.get(d.id);
+      if (!a) dropsBy.set(d.id, (a = []));
+      a.push(d.food);
+    }
+    let placed = null;
     let locks = null;
     if (f && Array.isArray(f.locks) && f.locks.length) {
       locks = new Map();
@@ -547,7 +572,12 @@ function createView(laws, sim, opts) {
         if (s && s.rec === rec) register(s);
         continue;
       }
-      const u = { id: rec.id, h: null, tails: null, rot: null, move: null, dir: 0, w8: 0, rotNoDw: null, rotDw: null };
+      const u = { id: rec.id, h: null, drops: null, tails: null, rot: null, move: null, dir: 0, w8: 0, rotNoDw: null, rotDw: null };
+      if (dropsBy !== null && dropsBy.has(rec.id)) {
+        u.drops = dropsBy.get(rec.id);
+        if (placed === null) placed = new Set();
+        for (let k = 0; k < u.drops.length; k++) placed.add(u.drops[k]);
+      }
       if (rec.h) u.h = { type: 'snake_fam', id: rec.id, fam: slQuant.fam24(rec.hFam, V.famRound).v };
       if (rec.tails.length) {
         u.tails = [];
@@ -559,6 +589,8 @@ function createView(laws, sim, opts) {
       if (rec.move) u.move = moveEvent(vs, rec);
       g.upd.push(u);
     }
+
+    if (placed !== null) g.foodAdds = g.foodAdds.filter((fd) => !placed.has(fd));
 
     // the ends: deaths in processing order (L41, L50; kill credit L40), then snakes the room took out with no death
     // record (a cash-out, C_CASHOUT_CODE; a leave)
@@ -1049,13 +1081,21 @@ function createView(laws, sim, opts) {
   function deliver(seat, out, g) {
     const stamp = seat.stamp;
     const t = g.tick;
-    // updates: h, r, rotation, move per held snake (not one added in this assemble)
+    // updates: h, the snake's boost drops (by kept sector, to every seat watching it, L24 order), r, rotation, move per
+    // held snake (not one added in this assemble)
     for (let i = 0; i < g.upd.length; i++) {
       const u = g.upd[i];
       const h = seat.holds.get(u.id);
-      if (!h || h.added === stamp) continue;
+      const held = !!h && h.added !== stamp;
+      if (held && u.h) push(out, t, u.h, false);
+      if (u.drops) {
+        for (let k = 0; k < u.drops.length; k++) {
+          const fd = u.drops[k];
+          if (sectorLive(seat, fd.si)) push(out, t, food.addEvent(fd), false);
+        }
+      }
+      if (!held) continue;
       const own = u.id === seat.ownId;
-      if (u.h) push(out, t, u.h, false);
       if (u.tails) for (let k = 0; k < u.tails.length; k++) push(out, t, u.tails[k], false);
       if (u.rot) {
         const ev = rotFor(seat, h, u, own);
@@ -1080,7 +1120,7 @@ function createView(laws, sim, opts) {
       }
       release(seat, d.id);
     }
-    // food adds (L25: natural f, drops b; the death drops follow the deaths), by kept sector
+    // the other food adds (L25: natural f, death drops b after the deaths), by kept sector
     for (let i = 0; i < g.foodAdds.length; i++) {
       const f = g.foodAdds[i];
       if (sectorLive(seat, f.si)) push(out, t, food.addEvent(f), false);

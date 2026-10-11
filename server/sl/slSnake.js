@@ -12,8 +12,9 @@
 // One update (SERVER-DESIGN 6.2, one L7 period P), in this order:
 //   0 fam record  the fam the stream has not carried yet goes first (L48.hDefer, L48.order)
 //   1 turn        ang toward wang, per ms, current sct (L14)
-//   2 speed       base from the length at spawn or boost end, never on growth (L12); boost ramp per update (L13.ramp),
-//                 the first step a fraction by the input arrival offset (L13.first); times the hold multiplier (Q15)
+//   2 speed       base from the length at spawn or boost end (the ramp's landing), never on growth (L12); boost
+//                 ramp per update (L13.ramp), the first step a fraction by the input arrival offset (L13.first); times
+//                 the hold multiplier (Q15)
 //   3 boost cost  the first charge at the accepted press, then one per L23 period on the snake's own clock started
 //                 at the press (L23.period, L23.form, L23.low, L23.edges); a drop per charge above L24.Td (L24.*)
 //   4 travel      d += sp per ms over P (their client moves sp / 4 per 8 ms frame, SERVER-LAWS units)
@@ -313,7 +314,8 @@ function createSnake(K, id, o) {
     wang: ang,
     dir: 1, // last turn direction for the wire (1 lowers ang, 2 raises it); CHOSEN 1 before any turn
     turning: false,
-    spBase: sp, // L12, set at spawn and at boost end only
+    spBase: sp, // L12, set at spawn and at boost end only (the boost ends when the ramp down lands)
+    rampDown: false, // L12, L13: ramping down after a boost; the landing speed follows the length until it lands
     spCore: sp, // L12 / L13 speed before the hold multiplier
     sp, // the speed the snake moves at and the wire carries
     holdMult: null, // null = not held; else the multiplier slHold computed for this update
@@ -388,11 +390,12 @@ function boostOn(K, s, offsetMs) {
   return true;
 }
 
-// A 254 (or a hold start, or the sct floor): the boost ends, the L12 base is set from the length now, and the next
-// ramp step down is frac of a full one.
+// A 254 (or a hold start, or the sct floor): the boost ends and the ramp goes down; the next ramp step down is frac
+// of a full one. The L12 base follows the length until the ramp lands (stepSpeed).
 function boostOff(K, s, frac) {
   if (!s.boosting) return false;
   s.boosting = false;
+  s.rampDown = true;
   s.spBase = speedBase(K, s.pts.length);
   s.rampFrac = frac;
   return true;
@@ -482,13 +485,21 @@ function stepSpeed(K, s) {
       s.spCore += (K.nsp3 - speedBase(K, sct)) / rampUp(K, sct) * s.rampFrac;
       if (s.spCore > K.nsp3) s.spCore = K.nsp3;
     }
-  } else if (s.spCore > s.spBase) {
-    s.spCore -= (K.nsp3 - speedBase(K, sct)) / (K.downRatio * rampUp(K, sct)) * s.rampFrac;
-    if (s.spCore < s.spBase) s.spCore = s.spBase;
-  } else if (s.spCore < s.spBase) {
-    // A boost that ended before any step up, at a length whose base is above the old one: land on the base (CHOSEN;
-    // no ramp up to a normal speed was ever measured).
-    s.spCore = s.spBase;
+  } else if (s.rampDown) {
+    // L12 and L13: the way down lands on the base at the length WHEN IT LANDS, so a snake that grows while ramping
+    // down lands on the new length's base (S1+S2+S3: 47 of 47 boost ends whose snake grew to another speed byte during
+    // the ramp landed on the landing length's base, 0 on the 254's; task T14). After the landing the base stays put
+    // while the snake grows (L12, never re-set on growth).
+    s.spBase = speedBase(K, sct);
+    if (s.spCore > s.spBase) {
+      s.spCore -= (K.nsp3 - s.spBase) / (K.downRatio * rampUp(K, sct)) * s.rampFrac;
+      if (s.spCore < s.spBase) s.spCore = s.spBase;
+    } else {
+      // A boost that ended before any step up, at a length whose base is above the old one: land on the base (CHOSEN;
+      // no ramp up to a normal speed was ever measured).
+      s.spCore = s.spBase;
+    }
+    if (s.spCore === s.spBase) s.rampDown = false;
   }
   s.rampFrac = 1;
   s.sp = s.holdMult === null ? s.spCore : s.spCore * s.holdMult;

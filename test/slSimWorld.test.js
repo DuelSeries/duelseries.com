@@ -488,17 +488,13 @@ test('slSim L31: eats every food inside the disc ahead of the head (centre sp (5
     const sim = createSim(FIXTURE, { seed: 4, border: true, food: true, fill: false });
     const s = sim.spawn({ x: C, y: C, ang: 0, cv: 3 });
     if (turn) sim.setInput(s.id, { type: 'angle', q: 63 }, 0); // wang = 2 pi floor(256 x 63 / 251) / 256 = pi / 2
-    // predict the head, ang and wang after one update from the L5, L12, L14 numbers T4 already pins: take them from
-    // a twin sim with no food
-    const twin = createSim(FIXTURE, { seed: 4 });
-    const t2 = twin.spawn({ x: C, y: C, ang: 0, cv: 3 });
-    if (turn) twin.setInput(t2.id, { type: 'angle', q: 63 }, 0);
-    tickWith(twin);
-    const [hx, hy] = headOf(t2);
-    if (turn) {
-      assert.equal(t2.wang, Math.PI / 2);
-      assert.ok(t2.ang > 0 && t2.ang < Math.PI / 2, 'still turning');
-    }
+    // the zone is taken from the snake as the update starts (task T14): the spawn head and ang 0, the wang the input
+    // set (inputs apply before the update), the spawn speed; the eats land after the update
+    sim.applyInputs();
+    const [hx, hy] = headOf(s);
+    const t2 = { ang: s.ang, wang: s.wang };
+    assert.equal(t2.ang, 0);
+    if (turn) assert.equal(t2.wang, Math.PI / 2);
     const dir = t2.ang + (t2.wang - t2.ang) / 2; // halfway between ang and wang
     const ahead = speed(2) * (5.98 + 2.26 * sc(2));
     const cx = hx + Math.cos(dir) * ahead;
@@ -516,7 +512,7 @@ test('slSim L31: eats every food inside the disc ahead of the head (centre sp (5
     }
     const want = foods.filter((f) => (f.x - cx) ** 2 + (f.y - cy) ** 2 <= R * R).map((f) => f.id).sort((a, b) => a - b);
     assert.ok(want.length > 5 && want.length < foods.length, 'some inside, some outside');
-    // the same foods with the centre along ang only would differ when turning
+    // the same foods with the centre along ang only would differ when turning (pi / 4 against 0)
     if (turn) {
       const ax = hx + Math.cos(t2.ang) * ahead;
       const ay = hy + Math.sin(t2.ang) * ahead;

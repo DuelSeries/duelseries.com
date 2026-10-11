@@ -14,7 +14,7 @@
 //   - L9: rank = 1 + the snakes ahead by (sct, fam), myPos = rank when in the top 10; after the own death myPos 0;
 //   - L10: the image the client holds equals a raster of every pulled body point at the current flux;
 //   - L11: after every slow slot the seat's last z equals the current integer flux.
-// Literals: L8.snake keepMs 4400; L9 period 3008.4, 10 rows; L10 size 136; L11.slow 1504.31; L7 42.67.
+// Literals: L8.snake keepMs 4400; L9 period 3008.4, 10 rows; L10 size 136; L11.slow on the L9 half slots 1504.2; L7 42.67.
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -25,7 +25,7 @@ const KEEP_MS = 4400; // L8.snake
 const P = 42.67; // L7
 const ROWS = 10; // L9
 const N = 136; // L10 size
-const SLOW = 1504.31; // L11.slow
+const SLOW = 1504.2; // L11.slow: the half slots of the L9 timer, 3008.4 / 2 (task T14)
 const C = 32550; // L1
 
 function rankOf(sim, id) {

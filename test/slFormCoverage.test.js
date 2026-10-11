@@ -114,7 +114,8 @@ test('every form our server emits (3 seeds x 3000 ticks, every seat) appears in 
   for (const k of Object.keys(EXEMPT)) assert.ok(ours.has(k), 'stale exemption, never emitted: ' + k);
   // the run reached the forms that matter (a wide stream, not a quiet one)
   assert.ok(ours.size >= 35, 'only ' + ours.size + ' forms emitted');
-  for (const k of ['snake_move = own iang+xx', 'snake_move N own iang', 'snake_move n other', 'snake_rot own dir+wang',
+  // the own echo is dir+ang+wang (their form 3 or 5; task T14: their own records never carry dir+wang without ang)
+  for (const k of ['snake_move = own iang+xx', 'snake_move N own iang', 'snake_move n other', 'snake_rot own dir+ang+wang',
     'snake_rot other dir+ang+wang+sp', 'snake_tail fam', 'snake_remove kill0', 'snake_remove kill1', 'dead 0',
     'kill_count', 'prey_add', 'prey_eaten', 'prey_remove', 'food_eat <', 'sector_remove', 'minimap M', 'leaderboard rows',
     'flux', 'pong']) {

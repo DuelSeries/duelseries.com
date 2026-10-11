@@ -106,7 +106,8 @@ test('scheduler on a fake clock: k due steps = k sim steps + ONE view collect an
 
 test('accumulator clocks fire on the first step at or after each due time and hit their mean period exactly', () => {
   const { room } = makeRoom();
-  const periods = { lb: 3008.4, mm: 2504.2, zSlow: 1504.31, zFast: 127.43, sweep: 503.91 }; // L9, L10, L11.slow, L11.fast, L8.sweep
+  // L9, L10, L11.slow (half slots of the L9 timer: 3008.4 / 2, task T14), L11.fast, L8.sweep
+  const periods = { lb: 3008.4, mm: 2504.2, zSlow: 1504.2, zFast: 127.43, sweep: 503.91 };
   const fires = { lb: [], mm: [], zSlow: [], zFast: [], sweep: [] };
   const last = {};
   for (const k of Object.keys(periods)) last[k] = 0;
@@ -160,7 +161,7 @@ test('one pong per ping, on arrival, with no tick in between; several POSTs of o
   assert.strictEqual(room.stats.pongs, 4);
 });
 
-test('own echo on arrival (dir and wang the next step applies); none while held; the stored byte applies at release', () => {
+test('own echo on arrival (dir, ang and the wang the next step applies); none while held; the stored byte applies at release', () => {
   const { ft, view, room } = makeRoom();
   const sock = bareSocket();
   const seat = room.seat(sock, { nick: 'a', cv: 1 });
@@ -170,9 +171,13 @@ test('own echo on arrival (dir and wang the next step applies); none while held;
   ft.runImmediates();
   let b = bundles(sock);
   const echo = b[b.length - 1].find((e) => e.type === 'snake_rot');
+  const s0 = room.sim.snake(seat.snakeId);
   assert.ok(echo && echo.own && (echo.dir === 1 || echo.dir === 2));
   assert.strictEqual(echo.wang, Math.floor(256 * 100 / 251) * PI2 / 256);
-  assert.strictEqual(Object.keys(echo).sort().join(','), 'dir,own,type,wang', 'their form E or 4: dir and wang');
+  // L48.rot: their own records always carry ang with dir and wang (S1+S2: never dir+wang alone; task T14); the ang
+  // byte is the snake's ang now, floored (L48.angRound)
+  assert.strictEqual(Object.keys(echo).sort().join(','), 'ang,dir,own,type,wang', 'their form 3 or 5: dir, ang and wang');
+  assert.strictEqual(echo.ang, Math.floor(s0.ang * 256 / PI2) * PI2 / 256);
   assert.strictEqual(view.stats.notes, 1, 'the view was told');
   const n = b.length;
   ft.advance(P);

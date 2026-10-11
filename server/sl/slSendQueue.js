@@ -117,6 +117,11 @@ function tagOf(ev, ownId) {
       return ev.id === ownId || ev.own === true ? [KIND.OWN, 0, 0, 0, null] : [KIND.OTHER, 0, 0, 0, null];
     case 'food_sector':
       return [KIND.ADD, SECTOR, 1, sectorKey(ev.sx, ev.sy), null];
+    case 'food_add':
+      // a food into a watched sector that never had a dump (L8.emptySector) puts that sector on the client too, so a
+      // resync must remove it before the view dumps it again (task T14: without this the client kept a second copy of
+      // every such food after a resync, seen as ghost foods in slMirror); dropped on a resync like any OTHER record
+      return [KIND.OTHER, SECTOR, 1, sectorKey(ev.sx, ev.sy), null];
     case 'sector_remove':
       return [KIND.REMOVE, SECTOR, -1, sectorKey(ev.sx, ev.sy), null];
     case 'prey_add':

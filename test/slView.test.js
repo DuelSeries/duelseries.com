@@ -5,7 +5,8 @@
 //   L1 grd 32550; L2 sector 300 (217 sectors per axis); L6 pv 19, realSid 0; L7 42.67
 //   L8.anchor continuous head + (48.2 + 7.66 sp) along ang (last point: 69.24 + 7.727 sp); L8.R2 13 (45 sectors) or
 //   20 (69 sectors), 20 iff own sct >= 92 at the recompute; L8.sweep 503.91; L8.linger 2700; L8.snake 4400
-//   L9 3008.4 ms, 10 rows; L10 2504.2 ms, 136 px, first full; L11 slow 1504.31, fast 127.43, T 2500
+//   L9 3008.4 ms, 10 rows; L10 2504.2 ms, 136 px, first full; L11 slow on the L9 half slots 1504.2 (the row's 1504.31
+//   agrees within 0.5 ms), fast 127.43, T 2500
 //   L17.famRound and L48.angRound floor; L48.rot refresh 205 ms; L50 died 1, left view 0; C_CASHOUT_CODE 0
 //   L20 spawn sp 5.79; border 2923 at 22 snakes or fewer (C_R_MIN, BUILD-DECISIONS T7)
 
@@ -116,7 +117,7 @@ test('slView laws: the values it reads (literals by law id) and the forms it ref
   assert.equal(V.lbRows, 10);
   assert.equal(V.mmMs, 2504.2);
   assert.equal(V.mmSize, 136);
-  assert.equal(V.zSlowMs, 1504.31);
+  assert.equal(V.zSlowMs, 1504.2); // 3008.4 / 2 (task T14)
   assert.equal(V.zFastMs, 127.43);
   assert.equal(V.zT, 2500);
   assert.equal(V.famRound, 'floor');
@@ -526,14 +527,14 @@ test('slView L11: the first check after the join sends z, then only an integer c
   const seats = [seatFor(view, centre.id), seatFor(view, edge.id)];
   const z = [[], []];
   let slowAfter = 0;
-  let due = 1504.31;
+  let due = 1504.2;
   for (let t = 0; t < 200; t++) {
     sim.setInput(centre.id, { type: 'turn', dir: 'left', v: 20 }, 0);
     sim.setInput(edge.id, { type: 'turn', dir: 'right', v: 20 }, 0);
     const es = wake(sim, view, seats, 1);
     const now = sim.nowMs();
     const slow = now >= due;
-    if (slow) while (due <= now) due += 1504.31;
+    if (slow) while (due <= now) due += 1504.2;
     for (let k = 0; k < 2; k++) {
       for (const ev of decode(es[k]).filter((x) => x.type === 'flux')) z[k].push({ v: ev.fluxGrd, t: sim.tick() });
       if (slow) {
@@ -547,7 +548,7 @@ test('slView L11: the first check after the join sends z, then only an integer c
     assert.ok(z[k].length > 0);
     for (let i = 1; i < z[k].length; i++) assert.notEqual(z[k][i].v, z[k][i - 1].v, 'z only on an integer change');
   }
-  // the first z of the centre seat comes at the first slow slot (tick 36: 36 x 42.67 >= 1504.31); the edge seat's
+  // the first z of the centre seat comes at the first slow slot (tick 36: 36 x 42.67 >= 1504.2); the edge seat's
   // at the first fast check (tick 3: 3 x 42.67 >= 127.43) and then with every change
   assert.equal(z[0][0].t, 36);
   assert.equal(z[1][0].t, 3);

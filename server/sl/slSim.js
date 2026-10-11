@@ -453,7 +453,8 @@ function createSim(laws, opts) {
   //
   // The tick (section 4) runs the world in three phases, so every snake that dies dies at the SAME instant, the end
   // of the update all snakes share (Owen, OWNER-ANSWERS.md:93: "head-on at the same instant: the bigger snake wins"):
-  //   A  each snake in the seeded order: its update (T4), its boost drops placed, then its eats (L31, L18, L34)
+  //   A  each snake in the seeded order: its eat zone taken where the update starts, its update (T4), its boost drops
+  //      placed, then its eats in that zone (L31, L18, L34; the eat's fam goes out at the next update, L48.hDefer)
   //   B  each snake: its L35 test point against every other snake's body as it stands after A (capsules between the
   //      pulled points and from the newest point to the head); L37 skips its own body; L38 the border
   //   C  L36: when two snakes would kill each other in the same update, only one dies: the smaller by L = sct + fam,
@@ -467,6 +468,7 @@ function createSim(laws, opts) {
     s.kills = 0; // L40: kills credited to this snake
     s.bornMs = nowMs; // L49
     s.sc = slSnake.speedSc(K, s.pts.length); // the client's size factor (SERVER-LAWS units, the L12 sc)
+    s.ez = { x: 0, y: 0, ang: 0, wang: 0, sp: 0, sct: 0 }; // L31: the state the eat zone is taken from
     s.hx = slSnake.headX(s);
     s.hy = slSnake.headY(s);
     s.tpx = s.hx + W.f1 * s.sc * Math.cos(s.ang); // the L35 test point of the last test (the sweep start)
@@ -492,15 +494,31 @@ function createSim(laws, opts) {
     slSnake.feedPrey(K, eater, p.rad);
   }
 
+  // The eat zone is taken from the snake as the update STARTS (head, ang, wang, sp, length), the moment the update's
+  // records leave: judged where the update ends, every eat came one update early on the client's clock, and the law
+  // check (task T14, analysis/laws/food.js L31zone on our recordings) put the zone centre 1.6 to 1.8 sp further ahead
+  // than on Owen's slither.io recordings (10.03 x sp at sc 1 against their 8.235); taken at the start it is 8.45.
+  function eatFrom(s) {
+    const e = s.ez;
+    e.x = slSnake.headX(s);
+    e.y = slSnake.headY(s);
+    e.ang = s.ang;
+    e.wang = s.wang;
+    e.sp = s.sp;
+    e.sct = s.pts.length;
+  }
+
   // Every food inside the disc ahead of the head: centre head + sp (k0 + k1 sc) along the direction halfway between
-  // ang and wang (the shortest way), radius r0 + r1 sc, every update. Foods one at a time (the L18 multiplier is
-  // recomputed after each), then prey (L34), the order their server sends the eats in (L48.order).
+  // ang and wang (the shortest way), radius r0 + r1 sc, every update, from the state eatFrom took. Foods one at a time
+  // (the L18 multiplier is recomputed after each), then prey (L34), the order their server sends the eats in
+  // (L48.order).
   function eatZone(s) {
-    const sc = slSnake.speedSc(K, s.pts.length);
-    const dir = s.ang + slSnake.angleGap(s.wang, s.ang) / 2;
-    const ahead = s.sp * (W.eatK0 + W.eatK1 * sc);
-    const cx = slSnake.headX(s) + Math.cos(dir) * ahead;
-    const cy = slSnake.headY(s) + Math.sin(dir) * ahead;
+    const e = s.ez;
+    const sc = slSnake.speedSc(K, e.sct);
+    const dir = e.ang + slSnake.angleGap(e.wang, e.ang) / 2;
+    const ahead = e.sp * (W.eatK0 + W.eatK1 * sc);
+    const cx = e.x + Math.cos(dir) * ahead;
+    const cy = e.y + Math.sin(dir) * ahead;
     const r = W.eatR0 + W.eatR1 * sc;
     eater = s;
     if (food) food.forEachInDisc(cx, cy, r, eatFood);
@@ -846,6 +864,7 @@ function createSim(laws, opts) {
       const s = order[i];
       s.ord = i;
       const d0 = log.drops.length;
+      if (food || preys) eatFrom(s);
       const rec = slSnake.updateSnake(sim, s, K.P);
       log.updates.push(rec);
       // body point sequence numbers (the capsule test finds a point's neighbours by them): the moves of this update

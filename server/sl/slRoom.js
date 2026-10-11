@@ -153,7 +153,7 @@ function roomLaws(laws) {
     lbMs: posNum(L9.periodMs, 'L9', 'periodMs'),
     lbRows: L9.rows,
     mmMs: posNum(L10.periodMs, 'L10', 'periodMs'),
-    zSlowMs: posNum(v('L11.slow'), 'L11.slow', 'period'),
+    zSlowMs: zSlowPeriod(posNum(v('L11.slow'), 'L11.slow', 'period'), posNum(L9.periodMs, 'L9', 'periodMs')),
     zFastMs: posNum(v('L11.fast'), 'L11.fast', 'period'),
     sweepMs: posNum(v('L8.sweep'), 'L8.sweep', 'period'),
     holdMs: posNum(v('C_HOLD_MS'), 'C_HOLD_MS', 'hold time'),
@@ -174,6 +174,15 @@ function roomLaws(laws) {
     angRound,
     famRound,
   });
+}
+
+// L11.slow: the slow border checks run on the half slots of the L9 leaderboard timer (RULE, SERVER-LAWS L11: 723 of
+// 723), so the clock is half the L9 period from the same start and the two never drift apart (task T14: a clock of its
+// own at 1504.31 ms drifted 0.11 ms per slot off the leaderboard grid, and 279 of 570 slow z of a 15 minute local run
+// left their slot). The measured period must agree with that (CHOSEN check bound 0.5 ms).
+function zSlowPeriod(slowMs, lbMs) {
+  if (Math.abs(slowMs - lbMs / 2) > 0.5) bad('L11.slow', 'is not half the L9 leaderboard period');
+  return lbMs / 2;
 }
 
 // A clock on sim time: it fires on the first step at or after its due time, then due += period (SERVER-DESIGN 5.1),
@@ -520,7 +529,11 @@ class SlRoom {
       raw = slQuant.rotAng(x.wang, this.R.angRound).raw;
     }
     if (raw < 0) return;
-    const ev = { type: 'snake_rot', id: s.id, dir: x.dir === 2 ? 2 : 1, wang: raw * PI2 / 256 };
+    // L48.rot: the echo carries the snake's ang byte too (L48.angRound), as every own rotation record of their server
+    // does: S1+S2 own records are dir+ang+wang (6404), dir+ang+wang+sp (1612), ang, sp or ang+sp, never dir+wang
+    // without ang; a dir+wang echo broke "ang whenever the snake is turning" on 16875 own records (task T14)
+    const ev = { type: 'snake_rot', id: s.id, dir: x.dir === 2 ? 2 : 1, ang: slQuant.rotAng(s.ang, this.R.angRound).v,
+      wang: raw * PI2 / 256 };
     const bytes = encodeRecord(ev, true, this.R.pv);
     const echo = { tick: this.sim.tick(), bytes, dir: ev.dir, wangRaw: raw };
     if (this._seatPending(seat)) {

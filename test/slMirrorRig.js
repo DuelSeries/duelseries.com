@@ -404,7 +404,11 @@ function runRig(opts) {
   const t0 = vt;
   function stallControl() {
     for (const s of stalls) {
-      if (!s.started && vt - t0 >= s.at && mirror.seat && !mirror.seat.closed) {
+      // a stall starts once its time came and the mirrored seat's snake is alive (task T14: a stall that began with the
+      // snake already dead re-seated the scripted seat, or let the frozen client's dead seat time out, and never
+      // reached the resync)
+      if (!s.started && vt - t0 >= s.at && mirror.seat && !mirror.seat.closed && room.sim.snake(mirror.seat.snakeId) &&
+        (!s.resync || heldOthers().length >= 3)) {
         s.started = true;
         s.startTick = room.sim.tick();
         stall = { until: vt + s.ms, held: [], spec: s };
@@ -414,9 +418,20 @@ function runRig(opts) {
     }
     if (stall) {
       const s = stall.spec;
-      const done = vt >= stall.until || (s.resync && out.resyncAt !== null && room.sim.tick() > out.resyncAtTick);
+      // a resync stall that ends without its resync is tried again 5 s later with fresh events: the mirrored snake
+      // died inside it (a stalled seat with a dead snake goes quiet: the scripted seat plays again, the frozen client's
+      // dead seat times out), or its corner of the map was too quiet to pass the cap in time (task T14: which snake
+      // dies when, and what is in view, moves with every sim change)
+      const dead = !(mirror.seat && !mirror.seat.closed && room.sim.snake(mirror.seat.snakeId));
+      const abort = s.resync && out.resyncAt === null && (dead || vt >= stall.until);
+      const done = abort || vt >= stall.until || (s.resync && out.resyncAt !== null && room.sim.tick() > out.resyncAtTick);
       if (done) {
-        s.done = true;
+        if (abort) {
+          s.started = false;
+          s.at = vt - t0 + 5000;
+          s.tries = (s.tries || 1) + 1;
+          out.stallEvents = [];
+        } else s.done = true;
         s.endTick = room.sim.tick();
         const held = stall.held;
         stall = null;
@@ -429,12 +444,29 @@ function runRig(opts) {
       }
     }
   }
-  // A leave, a death and a cash-out among the snakes the mirrored seat holds.
-  function resyncEvents(s) {
+  // A leave, a death and a cash-out among the snakes the mirrored seat holds. The leave (a 3 s straight glide) and the
+  // cash-out (a 3 s hold) go to the held snakes with the most room around their heads, so a collision inside those
+  // 3 s does not end them some other way (task T14: any change to the sim reshuffles which snakes are near what).
+  function clearance(w) {
+    const s0 = room.sim.snake(w.seat.snakeId);
+    const hx = slSnake.headX(s0), hy = slSnake.headY(s0);
+    let best = Infinity;
+    room.sim.forEachSnake((o) => {
+      if (o === s0) return;
+      for (const p of o.pts) best = Math.min(best, Math.hypot(p.xx - hx, p.yy - hy));
+    });
+    return best;
+  }
+  // the scripted seats whose live snake the mirrored seat holds (a resync stall needs three: a leave, a death, a cash-out)
+  function heldOthers() {
     const q = mirror.seat.queue;
-    const held = others.filter((w) => w && w.seat && !w.seat.closed && room.sim.snake(w.seat.snakeId) && q.holdsSnake(w.seat.snakeId));
-    const pick = (i) => held[i] || null;
-    const a = pick(0), b = pick(1), c = pick(2);
+    return others.filter((w) => w && w.seat && !w.seat.closed && room.sim.snake(w.seat.snakeId) && q.holdsSnake(w.seat.snakeId));
+  }
+  function resyncEvents(s) {
+    const held = heldOthers();
+    const room2 = held.map((w) => ({ w, d: clearance(w) })).sort((x, y) => y.d - x.d).map((x) => x.w);
+    const a = room2[0] || null, c = room2[1] || null;
+    const b = held.find((w) => w !== a && w !== c) || null;
     if (a) { out.stallEvents.push({ kind: 'leave', id: a.seat.snakeId, tick: room.sim.tick() }); room.unseat(a.sock, 'leave'); a.seat = null; }
     if (b) { out.stallEvents.push({ kind: 'death', id: b.seat.snakeId, tick: room.sim.tick() }); room.sim.kill(b.seat.snakeId); }
     if (c) { out.stallEvents.push({ kind: 'cashout', id: c.seat.snakeId, tick: room.sim.tick() }); room.onHold(c.seat, true); c.holding = true; }
