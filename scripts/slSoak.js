@@ -357,6 +357,7 @@ async function main() {
       heapMB: mb(process.memoryUsage().heapUsed), gov: r2(shadow.mult()),
       checkFails: check.fails.total(), mirrorFails: mfails.total(),
       clientFails: lastClient ? lastClient.failures : 0, kicks: lastClient ? lastClient.kickTotal : 0,
+      drops: lastClient ? lastClient.dropTotal : 0,
     };
     timeline.push(row);
     loopMin.reset();
@@ -399,14 +400,19 @@ async function main() {
 
   // ---- the bars
   const client = finalClient || { failures: -1, kickTotal: -1, refusalTotal: -1, fail: {}, samples: ['no client report'] };
+  let liveKicks = 0;
+  for (const k of Object.keys(kickWhy)) if (k !== 'dead') liveKicks += kickWhy[k];
   const heapDelta = heapAt5 ? (heapEnd - heapAt5) / heapAt5 : NaN;
   const bars = [
     ['every step checked', cs.steps === roomStats.steps && cs.steps > 0, cs.steps + ' of ' + roomStats.steps + ' steps'],
     ['0 server invariant failures', checkFails.total === 0, checkFails.total + ' ' + JSON.stringify(checkFails.by)],
     ['0 mirror failures (3 sampled seats)', mirrorFails.total === 0 && mirrorStats.moves > 0, mirrorFails.total + ' ' + JSON.stringify(mirrorFails.by)],
     ['0 client stream failures (every bundle of every wanderer)', client.failures === 0, client.failures + ' ' + JSON.stringify(client.fail)],
-    ['0 kicks and 0 refusals on a clean local link', client.kickTotal === 0 && client.refusalTotal === 0,
-      'kicks ' + JSON.stringify(client.kicks) + ', refusals ' + JSON.stringify(client.refusals)],
+    ['0 kicks of a live seat and 0 refusals', client.kickTotal === 0 && liveKicks === 0 && client.refusalTotal === 0,
+      'the room kicked ' + JSON.stringify(kickWhy) + ' (dead: a dead seat with no ping for C_DEAD_SEAT_MS, the designed close); the wanderers saw kicks ' +
+      JSON.stringify(client.kicks) + ', refusals ' + JSON.stringify(client.refusals)],
+    ['0 dropped connections on a clean local link', client.dropTotal === 0,
+      'drops ' + JSON.stringify(client.drops) + ', failed reconnects ' + client.connectErrors],
     ['0 failed wakes, 0 caught throws, the room never replaced', roomStats.failedWakes === 0 && arenaStats.replaced === 0 &&
       room.safeStats.total === 0 && arenaStats.safe.total === 0,
       'failedWakes ' + roomStats.failedWakes + ', replaced ' + arenaStats.replaced + ', room throws ' + room.safeStats.total +
@@ -529,16 +535,16 @@ function report(s) {
   L.push('## The wanderers (client side)');
   L.push('');
   L.push('- ' + c.lives + ' lives, ' + c.joins + ' joins, ' + c.deaths + ' deaths, ' + c.cashouts + ' cash-outs, ' + c.holds + ' holds (' + c.releases + ' let go), ' + c.blips + ' blips, ' + c.leaves + ' leaves, ' + c.chats + ' chats, ' + c.diags + ' diags.');
-  L.push('- ' + c.bundles + ' bundles (' + mb(c.bytes) + ' MB, ' + c.events + ' events) decoded; failures ' + c.failures + ' ' + JSON.stringify(c.fail) + '; kicks ' + JSON.stringify(c.kicks) + '; refusals ' + JSON.stringify(c.refusals) + '; server closes after an end ' + JSON.stringify(c.serverClosed) + '.');
+  L.push('- ' + c.bundles + ' bundles (' + mb(c.bytes) + ' MB, ' + c.events + ' events) decoded; failures ' + c.failures + ' ' + JSON.stringify(c.fail) + '; kicks ' + JSON.stringify(c.kicks) + '; dropped connections ' + JSON.stringify(c.drops) + ' (failed reconnects ' + c.connectErrors + '); refusals ' + JSON.stringify(c.refusals) + '; server closes after an end ' + JSON.stringify(c.serverClosed) + '.');
   L.push('- Pong round trip ms ' + JSON.stringify(c.rttMs) + '; gap between bundles ms ' + JSON.stringify(c.gapMs) + '; life seconds ' + JSON.stringify(c.lifeS) + '.');
   L.push('- Inputs sent: ' + JSON.stringify(c.inputs) + '; layer messages received: ' + JSON.stringify(c.layer) + '.');
   L.push('');
   L.push('## Timeline (one row a minute)');
   L.push('');
-  L.push('| min | snakes | humans | bots | food | prey | wake p99 | wake max | loop p99 | heap MB (no GC) | shadow governor | fails (check/mirror/client) | kicks |');
-  L.push('|---|---|---|---|---|---|---|---|---|---|---|---|---|');
+  L.push('| min | snakes | humans | bots | food | prey | wake p99 | wake max | loop p99 | heap MB (no GC) | shadow governor | fails (check/mirror/client) | kicks | drops |');
+  L.push('|---|---|---|---|---|---|---|---|---|---|---|---|---|---|');
   for (const r of s.timeline) {
-    L.push('| ' + r.minute + ' | ' + r.snakes + ' | ' + r.humans + ' | ' + r.bots + ' | ' + r.food + ' | ' + r.prey + ' | ' + r.wakeP99 + ' | ' + r.wakeMax + ' | ' + r.loopP99 + ' | ' + r.heapMB + ' | ' + r.gov + ' | ' + r.checkFails + '/' + r.mirrorFails + '/' + r.clientFails + ' | ' + r.kicks + ' |');
+    L.push('| ' + r.minute + ' | ' + r.snakes + ' | ' + r.humans + ' | ' + r.bots + ' | ' + r.food + ' | ' + r.prey + ' | ' + r.wakeP99 + ' | ' + r.wakeMax + ' | ' + r.loopP99 + ' | ' + r.heapMB + ' | ' + r.gov + ' | ' + r.checkFails + '/' + r.mirrorFails + '/' + r.clientFails + ' | ' + r.kicks + ' | ' + r.drops + ' |');
   }
   if (s.checkSamples.length || s.mirrorSamples.length || (c.samples && c.samples.length)) {
     L.push('');

@@ -356,7 +356,7 @@ function createWanderers(opts) {
   const ipBase = typeof o.ipBase === 'string' ? o.ipBase : '198.18.0.'; // RFC 2544 benchmark range
   const agg = {
     lives: 0, connects: 0, joins: 0, connectErrors: 0, deaths: 0, cashouts: 0, holds: 0, releases: 0, blips: 0,
-    leaves: 0, chats: 0, diags: 0, refusals: {}, kicks: {}, serverClosed: {}, layer: {}, inputs: {}, fail: {}, samples: [],
+    leaves: 0, chats: 0, diags: 0, refusals: {}, kicks: {}, drops: {}, serverClosed: {}, layer: {}, inputs: {}, fail: {}, samples: [],
     bundles: 0, bytes: 0, events: 0, byType: {},
   };
   const rtt = createHist(0.5, 2000);
@@ -509,9 +509,11 @@ function createWanderers(opts) {
       s.on('disconnect', (reason) => {
         if (w.sock !== s) return;
         if (!w.closing) {
-          // after a refusal or the own end the server may close first; anything else is a kick
+          // after a refusal or the own end the server may close first; a server close of a live seat is a kick;
+          // anything else (transport error, transport close, ping timeout) is a dropped connection
           if (w.refused || w.deadAt) bump(agg.serverClosed, String(reason));
-          else bump(agg.kicks, String(reason));
+          else if (reason === 'io server disconnect') bump(agg.kicks, String(reason));
+          else bump(agg.drops, String(reason));
           w.closing = true;
           if (w.lifeStart) lifeMs.add(now() - w.lifeStart);
           fold(w.tr);
@@ -654,6 +656,7 @@ function createWanderers(opts) {
       out.polling = all.filter((w) => w.transport === 'polling').length;
       out.failures = Object.values(out.fail).reduce((a, b) => a + b, 0);
       out.kickTotal = Object.values(out.kicks).reduce((a, b) => a + b, 0);
+      out.dropTotal = Object.values(out.drops).reduce((a, b) => a + b, 0);
       out.refusalTotal = Object.values(out.refusals).reduce((a, b) => a + b, 0);
       out.rttMs = rtt.json();
       out.gapMs = gap.json();

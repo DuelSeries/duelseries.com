@@ -145,6 +145,7 @@ test('live: four wanderers and the probe on a local /sl, every bundle decoded, 0
     assert.ok(sum.bundles > 200, 'bundles ' + sum.bundles);
     assert.ok((sum.byType.snake_move || 0) > 100 && (sum.byType.pong || 0) > 20, JSON.stringify(sum.byType));
     assert.strictEqual(sum.kickTotal, 0, JSON.stringify(sum.kicks));
+    assert.strictEqual(sum.dropTotal, 0, JSON.stringify(sum.drops));
     assert.strictEqual(sum.refusalTotal, 0, JSON.stringify(sum.refusals));
     assert.deepStrictEqual(ps.samples, []);
     assert.strictEqual(ps.failures, 0);

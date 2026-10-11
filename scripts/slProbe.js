@@ -39,7 +39,7 @@ async function main() {
   }
   const sum = await probe({ url, minutes: Number(arg('minutes', '10')), transport: arg('transport', 'polling') });
   console.log(JSON.stringify({ joins: sum.joins, lives: sum.lives, bundles: sum.bundles, bytes: sum.bytes,
-    failures: sum.failures, fail: sum.fail, samples: sum.samples, kicks: sum.kicks, refusals: sum.refusals,
+    failures: sum.failures, fail: sum.fail, samples: sum.samples, kicks: sum.kicks, drops: sum.drops, refusals: sum.refusals,
     rttMs: sum.rttMs, gapMs: sum.gapMs }, null, 2));
   const ok = sum.failures === 0 && sum.joins > 0;
   console.log((ok ? 'PASS' : 'FAIL') + ' ' + sum.bundles + ' bundles, ' + sum.failures + ' undecodable or inconsistent');
