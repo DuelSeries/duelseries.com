@@ -22,7 +22,10 @@
 //                    out), each step's sim time, wake lateness, dropped steps, event-loop delay, CPU, GC
 //   heap             heapUsed after two forced full GCs at minute 5 and at the end (--expose-gc)
 //
-// Usage: node scripts/slSoak.js [--minutes 30] [--clients 30] [--polling 0.5] [--seed 1] [--heap-at 5]
+// Usage: node scripts/slSoak.js [--minutes 30] [--clients 30] [--polling 0.5] [--seed 1] [--heap-at 5] [--governor real]
+//        --governor shadow: the room's governor never acts; a twin gets the same samples and is reported (a box whose
+//        CPU is throttled, on battery, cannot hold the curve peak with the real one; the soak's bars are about the
+//        server at the peak).
 //        [--out ../slither-reference/recordings/OURS-SOAK.md]
 // Exit code 1 when any bar fails.
 
@@ -43,6 +46,7 @@ const { botTarget } = require('../server/botPopulation');
 const { LAWS, SOAK_PEAK } = require('./slSoakLaws');
 const { createSoakCheck, createInsertLog, createSeatMirror, createFailures, hookRoom } = require('./slSoakCheck');
 const { createHist } = require('./slLoad');
+const { createBotGovernor } = require('../server/sl/slBots');
 
 function arg(name, def) {
   const i = process.argv.indexOf('--' + name);
@@ -54,6 +58,8 @@ const CLIENTS = Number(arg('clients', '30'));
 const POLLING = Number(arg('polling', '0.5'));
 const SEED = Number(arg('seed', '1'));
 const HEAP_AT_MIN = Number(arg('heap-at', '5'));
+const GOV_MODE = arg('governor', 'real');
+if (GOV_MODE !== 'real' && GOV_MODE !== 'shadow') throw new Error('slSoak: --governor is real or shadow');
 const OUT = arg('out', '');
 const MIRRORS = 3; // SERVER-BUILD-BRIEF 1.2: "mirror equal for 3 sampled seats"
 const FULL_EVERY_MS = 1000;
@@ -108,6 +114,7 @@ const mb = (b) => Math.round(b / 1048576 * 10) / 10;
 
 async function main() {
   const git0 = gitState(); // the code this process loads now
+  const power0 = powerState();
   const port = await freePort();
   const peakWall = findPeak(MINUTES);
   const realStart = Date.now();
@@ -140,20 +147,22 @@ async function main() {
   // room's largest slice; commit f27a296 made it fill on Windows, where the old raw p99 sat on the 15.6 ms timer
   // step). It is only watched here: its inputs and every transition are recorded, its result is returned unchanged.
   const gov = arenas.governor;
+  const twin = gov && GOV_MODE === 'shadow' ? createBotGovernor(LAWS) : null;
+  const judge = twin || gov; // the governor whose state is reported
   const govLog = [];
   const govIn = { loopMax: 0, sliceMax: 0, samples: 0 };
   if (gov) {
     const realSample = gov.sample;
     gov.sample = function watched(nowMs, inp) {
-      const r = realSample.call(this, nowMs, inp);
+      const r = twin ? twin.sample(nowMs, inp) : realSample.call(this, nowMs, inp);
       govIn.samples++;
       if (inp.loopP99Ms > govIn.loopMax) govIn.loopMax = inp.loopP99Ms;
       if (inp.sliceMaxMs > govIn.sliceMax) govIn.sliceMax = inp.sliceMaxMs;
       if (r && govLog.length < 40) {
         govLog.push({ atS: Math.round((Date.now() - realStart) / 1000), result: r, loopP99Ms: r2(inp.loopP99Ms),
-          sliceMaxMs: r2(inp.sliceMaxMs), mult: r2(gov.mult()) });
+          sliceMaxMs: r2(inp.sliceMaxMs), mult: r2(judge.mult()) });
       }
-      return r;
+      return twin ? null : r;
     };
   }
   await new Promise((resolve) => server.listen(port, '127.0.0.1', resolve));
@@ -363,7 +372,7 @@ async function main() {
       minute, snakes: room.sim.count(), humans: arenas.humanTotal(), bots: arenas.botTotal(),
       food: room.sim.grid.foodTotal(), prey: room.sim.preys ? room.sim.preys.stats().live : 0,
       wakeP99: r2(wakeMin.pct(0.99)), wakeMax: r2(wakeMin.max), loopP99: r1(loopMin.percentile(99) / 1e6),
-      heapMB: mb(process.memoryUsage().heapUsed), gov: gov ? r2(gov.mult()) : null,
+      heapMB: mb(process.memoryUsage().heapUsed), gov: judge ? r2(judge.mult()) : null,
       loopRaw: arenas.lastSample && arenas.lastSample.loopRawP99Ms !== null ? r1(arenas.lastSample.loopRawP99Ms) : null,
       loopFloor: arenas.lastSample && arenas.lastSample.loopFloorMs !== null ? r1(arenas.lastSample.loopFloorMs) : null,
       checkFails: check.fails.total(), mirrorFails: mfails.total(),
@@ -431,9 +440,9 @@ async function main() {
       ', arenas throws ' + arenaStats.safe.total],
     ['heap at the end within 10 percent of minute ' + HEAP_AT_MIN, Number.isFinite(heapDelta) && Math.abs(heapDelta) <= HEAP_BAR,
       mb(heapAt5 || 0) + ' MB to ' + mb(heapEnd) + ' MB (' + (100 * heapDelta).toFixed(1) + ' percent)'],
-    ['bots in the room at every minute (the real governor on)', timeline.length > 0 && botsMinRow > 0 && botCount.count > 0,
+    ['bots in the room at every minute (the governor ' + (twin ? 'in shadow mode' : 'on') + ')', timeline.length > 0 && botsMinRow > 0 && botCount.count > 0,
       'bots per step mean ' + r1(botCount.sum / Math.max(1, botCount.count)) + ', max ' + botCount.max + '; fewest at a minute row ' +
-      botsMinRow + '; governor mult at the end ' + (gov ? r2(gov.mult()) : 'none') + ', ' + govLog.filter((g) => g.result === 'engaged').length + ' engagements'],
+      botsMinRow + '; governor mult at the end ' + (judge ? r2(judge.mult()) : 'none') + ', ' + govLog.filter((g) => g.result === 'engaged').length + ' engagements'],
   ];
   const ok = bars.every((b) => b[1]);
   const summary = {
@@ -454,7 +463,7 @@ async function main() {
     snakes: { mean: r1(snakeCount.sum / Math.max(1, snakeCount.count)), min: snakeCount.pct(0), p50: snakeCount.pct(0.5),
       max: snakeCount.max, atPeakShare: r2(stepsAtPeak / Math.max(1, stepsSeen)) },
     bots: { mean: r1(botCount.sum / Math.max(1, botCount.count)), max: botCount.max },
-    governor: { stats: gov ? gov.stats() : null, mult: gov ? r2(gov.mult()) : null, last: arenas.lastSample,
+    governor: { mode: GOV_MODE, stats: judge ? judge.stats() : null, mult: judge ? r2(judge.mult()) : null, last: arenas.lastSample,
       inputs: { samples: govIn.samples, loopP99MaxMs: r2(govIn.loopMax), sliceMaxMs: r2(govIn.sliceMax) }, log: govLog },
     botDriver: arenaStats.botDriver ? {
       adds: arenaStats.botDriver.adds, removes: arenaStats.botDriver.removes, blocked: arenaStats.botDriver.blocked,
@@ -464,7 +473,7 @@ async function main() {
     client, timeline, log: logLines.slice(0, 40),
     git: git0,
     machine: { node: process.version, platform: process.platform + ' ' + os.release(), cpu: os.cpus()[0].model, cores: os.cpus().length,
-      memGB: Math.round(os.totalmem() / 1073741824) },
+      memGB: Math.round(os.totalmem() / 1073741824), power: { start: power0, end: powerState() } },
   };
   console.log(JSON.stringify(summary.bars, null, 1));
   if (OUT) {
@@ -473,6 +482,16 @@ async function main() {
   }
   fs.writeFileSync(path.join(os.tmpdir(), 'slSoak-last.json'), JSON.stringify(summary, null, 1));
   process.exit(ok ? 0 : 1);
+}
+
+// AC or battery (Windows; a laptop on battery throttles its CPU). Never fatal.
+function powerState() {
+  if (process.platform !== 'win32') return 'unknown';
+  const r = spawnSync('powershell', ['-NoProfile', '-Command',
+    '(Get-CimInstance -Namespace root/wmi -ClassName BatteryStatus -ErrorAction SilentlyContinue | Select-Object -First 1).PowerOnline'],
+  { encoding: 'utf8', timeout: 15000 });
+  const v = r.status === 0 ? String(r.stdout).trim() : '';
+  return v === 'True' ? 'AC' : v === 'False' ? 'battery' : 'unknown';
 }
 
 // The code the soak ran: HEAD and any uncommitted server/sl or shared file (other tasks work in the same tree).
@@ -504,7 +523,10 @@ function report(s) {
   L.push('- Law table: `scripts/slSoakLaws.js` = the shipped table, with C_ROOM_CAP and C_HUMAN_CAP set to the curve peak ' + SOAK_PEAK + ' (the load test sets the real ones), and the five SUGGESTED prey rows approved (Owen 2026-10-10), so prey ran.');
   L.push('- Curve peak: the wall clock was shifted to ' + s.peakWall + ' (20:00 ET), where `botTarget` is ' + SOAK_PEAK + ' at every second of the run.');
   L.push('- Wanderers: ' + s.clients + ' (' + Math.round(s.polling * s.clients) + ' long-polling, the rest WebSocket), each from its own address; seed ' + s.seed + '.');
-  L.push('- Bot governor: ON, the real one (slBoot 1 Hz sample: loop delay p99 at 1 ms resolution above the process idle floor, and the room largest slice; commit f27a296). The soak only watches it (inputs and transitions below).');
+  L.push(s.governor.mode === 'shadow'
+    ? '- Bot governor: SHADOW mode (--governor shadow). The room governor never acts; a twin gets the same samples (loop delay p99 at 1 ms resolution above the process idle floor, and the room largest slice without the harness time) and is reported below.'
+    : '- Bot governor: ON, the real one (slBoot 1 Hz sample: loop delay p99 at 1 ms resolution above the process idle floor, and the room largest slice without the harness time; commit f27a296). The soak only watches it (inputs and transitions below).');
+  L.push('- Power: ' + s.machine.power.start + ' at the start, ' + s.machine.power.end + ' at the end (on battery this laptop runs its CPU at about 1.85 GHz).');
   L.push('- Wanderer HTTP: each long-polling wanderer keeps its connections open between requests (keep-alive, as a browser does).');
   L.push('- Code: HEAD ' + s.git.head + (s.git.dirty.length ? ', with uncommitted changes from other tasks in ' + s.git.dirty.join('; ') : ', clean') + '.');
   L.push('- Length: ' + s.minutes + ' minutes (' + Math.round(s.wallMs / 1000) + ' s of wall time). L7 period P = ' + s.P + ' ms.');
@@ -536,7 +558,7 @@ function report(s) {
   L.push('## The room');
   L.push('');
   L.push('- Snakes per step: mean ' + s.snakes.mean + ', median ' + s.snakes.p50 + ', min ' + s.snakes.min + ', max ' + s.snakes.max + '; ' + (100 * s.snakes.atPeakShare).toFixed(1) + ' percent of steps at exactly ' + SOAK_PEAK + '. Bots mean ' + s.bots.mean + ', max ' + s.bots.max + '.');
-  L.push('- Governor (real, see Setup): ' + s.governor.inputs.samples + ' samples (largest loop p99 input above the floor ' + s.governor.inputs.loopP99MaxMs + ' ms, largest slice ' + s.governor.inputs.sliceMaxMs + ' ms); ended at mult ' + s.governor.mult + ', ' + JSON.stringify(s.governor.stats) + '; last sample ' + JSON.stringify(s.governor.last) + '; transitions ' + JSON.stringify(s.governor.log.slice(0, 12)) + '. Bot fill: ' + JSON.stringify(s.botDriver) + '.');
+  L.push('- Governor (' + (s.governor.mode === 'shadow' ? 'shadow twin' : 'real') + ', see Setup): ' + s.governor.inputs.samples + ' samples (largest loop p99 input above the floor ' + s.governor.inputs.loopP99MaxMs + ' ms, largest slice ' + s.governor.inputs.sliceMaxMs + ' ms); ended at mult ' + s.governor.mult + ', ' + JSON.stringify(s.governor.stats) + '; last sample ' + JSON.stringify(s.governor.last) + '; transitions ' + JSON.stringify(s.governor.log.slice(0, 12)) + '. Bot fill: ' + JSON.stringify(s.botDriver) + '.');
   const rs = s.room;
   L.push('- Room: ' + rs.steps + ' steps, ' + rs.joins + ' joins, ' + rs.leaves + ' leaves, ' + rs.deaths + ' deaths, ' + rs.cashouts + ' cash-outs, ' + rs.glides + ' glides (' + rs.glideDeaths + ' ended in death), ' + rs.resyncs + ' resyncs, ' + rs.kicks + ' kicks ' + JSON.stringify(rs.kickWhy) + ', ' + rs.killLines + ' kill lines, ' + rs.chats + ' chats, ' + rs.inputs + ' inputs, ' + rs.pongs + ' pongs, ' + rs.echoes + ' echoes.');
   const k = s.check;
