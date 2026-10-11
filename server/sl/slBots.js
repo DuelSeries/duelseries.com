@@ -33,7 +33,8 @@
 //   createBotFill(laws)  the pacer: at most one add or one retirement per BOT_GATES.changeMs; a bot is retired only
 //       when no seat holds it (BOT_GATES retire 'unseen'; pickRetiree).
 //   createBotGovernor(laws)  the process-wide load governor (C_GOV, SERVER-DESIGN 11) and admitBot (refuses while
-//       engaged and above C_ROOM_CAP); createLoopProbe(monitor, laws) the event-loop delay p99 over C_GOV.windowMs.
+//       engaged and above C_ROOM_CAP); createLoopProbe(monitor, laws, elu) the event-loop delay p99 over
+//       C_GOV.windowMs above this process's own idle floor.
 //   botSkins(laws), createNameBook(names), BOT_NAMES, PICTURE_SKIN_CVS, SKIN_MAX.
 //   createBotDriver(laws, opts)  the room's bot driver (slRoom opts.bots: beforeInputs, afterStep, add, clear, count,
 //       isBot): every part above wired to a room, as slRoom calls it each step.
@@ -60,6 +61,22 @@ const UINT32_SPAN = 4294967296;
 // percentile ("event-loop delay p99", SERVER-DESIGN 11).
 const NS_PER_MS = 1e6;
 const LOOP_PERCENTILE = 99;
+// The loop monitor's timer period: 1 ms, the finest monitorEventLoopDelay takes (resolution is in whole ms, Node docs).
+// Its histogram holds the time between the monitor's own timer callbacks, so an idle process reads its OS timer
+// period, not 0. Measured on Owen's Windows 11 box (Node 24.13.1, 2026-10-11): a bare idle process, p50 15.5 ms and
+// p99 16.4 to 16.5 ms (the 64 Hz system timer; resolution 10 reads the same); a 20 ms burn every 50 ms, p99 20.2 ms;
+// a 40 ms burn every 50 ms, p99 40.1 ms. A Linux box keeps 1 ms timers, so its idle reading sits near the resolution
+// (not measured here: no Linux on this box).
+const LOOP_RESOLUTION_MS = 1;
+// A calm stretch: the loop was busy under this share of it (perf_hooks eventLoopUtilization), so its p99 is the
+// timer's own granularity plus the process's background work, not an overload; createLoopProbe takes its idle floor
+// only from calm stretches. CHOSEN about midway between the busy shares measured on that box (2026-10-11, one-second
+// spans). The whole local server (scripts/dev-local.js: the old snake rooms, agar and Paper with their bots, plus the
+// sl room with 51 to 57 bots and one player) at rest: 0.04 to 0.09 (p99 16.2 to 19.6 ms) on a quiet machine, 0.10 to
+// 0.29 (p99 17.4 to 36.3 ms) while other node processes loaded it; the same server under a forced burn of 40 ms every
+// 50 ms: 0.655 to 0.864. A bare process: idle 0.002; a 20 ms burn every 50 ms 0.32; a 40 ms burn every 50 ms 0.64; a
+// setImmediate spin 1.0 (its p99 falls to 1 ms, so it must never be a floor).
+const LOOP_CALM_BUSY = 0.5;
 // The shipped skins are cv 0 to 65: plain colours 0 to 8, the frozen client's stripe lists cover skins 9 to 65
 // (public/js/sl/slSprites.js:628, last row 687) and every other cv draws as cv mod 9 (slSprites.js:837). The same 66
 // skins carry drop colour rows (slLaws SKIN_DROP, BUILD-DECISIONS T1).
@@ -934,34 +951,118 @@ function createBotGovernor(laws) {
   };
 }
 
-// Event-loop delay p99 over C_GOV.windowMs from a perf_hooks.monitorEventLoopDelay() histogram (enabled by the
-// caller): read(nowMs) is the larger of the last whole window's p99 and the current window's so far, in ms, so a stall
-// shows at the next read and counts for one whole window after it.
-function createLoopProbe(monitor, laws) {
+// Event-loop delay p99 over C_GOV.windowMs ABOVE THIS PROCESS'S OWN IDLE FLOOR, from a monitorEventLoopDelay histogram
+// at LOOP_RESOLUTION_MS (slBoot builds it, SlArenas.startTimers enables it) and the loop's busy share over the same
+// span (elu: perf_hooks performance.eventLoopUtilization by default; any () -> {idle, active} cumulative ms; one it
+// cannot read counts as busy). A span is CALM when the loop was busy under LOOP_CALM_BUSY of it. read(nowMs), once a
+// second:
+//   first  the first read starts the histogram afresh (the server's require-time boot stalls are not load) and the
+//          busy span with it, and answers 0;
+//   raw    the larger of the last whole window's p99 and the current window's so far, in ms, so a stall shows at the
+//          next read and counts for one whole window after it;
+//   floor  the p99 of this process at its quietest, like for like with raw: the lowest p99 of a whole calm window.
+//          Until the first whole calm window it is the lowest p99 of a calm read (the current window so far), and
+//          before any calm read it is LOOP_RESOLUTION_MS, which can only over-read (bots yield sooner), never
+//          under-read; until then every read that is not calm also starts the window afresh, so the stretch the first
+//          floor comes from never holds the boot's stalls. The first whole calm window replaces that early floor;
+//          after it the floor only ever falls, so an overload cannot lift it. On Windows it sits just over the 15.6 ms
+//          system tick the timer fires on (a bare process 16.5 ms; the local server, machine loaded, 17.1 to 25.9 ms),
+//          on Linux it is the 1 ms resolution plus the quietest background work of the process (the old engine's
+//          rooms tick on the same thread);
+//   read   max(0, raw - floor), and 0 until the histogram holds a sample (an empty one answers 511 ns for every
+//          percentile, Node 24, so its count decides when it has one).
+// So C_GOV.loopP99Ms 15 means "the loop ran 15 ms later than this process at its quietest" on both systems (an idle
+// Windows process reads raw p99 about 16.5 ms, which against the bare 15 ms bar kept every bot out). Windows' coarse
+// timer hides a stall shorter than its 15.6 ms tick, so there the bar is a raw p99 of about 31 ms (16.5 + 15); Linux
+// reads the lateness itself (above the process's quietest background work). stats() gives the numbers for the log and
+// the console (raw, floor, busy share).
+function createLoopProbe(monitor, laws, elu) {
   assertLawsComplete(laws, GOV_LAW_IDS);
   if (!monitor || typeof monitor.percentile !== 'function' || typeof monitor.reset !== 'function') {
     throw new TypeError('slBots: createLoopProbe needs a monitorEventLoopDelay histogram');
   }
+  const busyNow = elu === undefined ? defaultElu() : elu;
+  if (typeof busyNow !== 'function') throw new TypeError('slBots: createLoopProbe elu must be a function');
   const windowMs = posNum(laws.C_GOV.value.windowMs, 'C_GOV windowMs');
   let start = null;
+  let span = null;
   let lastP99 = 0;
+  let floor = Infinity;
+  let settled = false;
+  let raw = 0;
+  let excess = 0;
+  let busy = NaN;
+  let windows = 0;
+  let calmReads = 0;
   function p99() {
+    if (typeof monitor.count === 'number' && !(monitor.count > 0)) return 0;
     const v = monitor.percentile(LOOP_PERCENTILE) / NS_PER_MS;
     return okNum(v) && v > 0 ? v : 0;
   }
+  function snap() {
+    const e = busyNow();
+    return e && okNum(e.idle) && okNum(e.active) ? { idle: e.idle, active: e.active } : null;
+  }
+  // The loop's busy share since the window started, NaN when it cannot be read.
+  function busyShare() {
+    const e = snap();
+    if (!e || !span) return NaN;
+    const active = e.active - span.active;
+    const total = active + (e.idle - span.idle);
+    return total > 0 && active >= 0 ? active / total : NaN;
+  }
+  // The window so far: its p99 when it was calm, else 0.
+  function calmP99() {
+    const v = p99();
+    if (!(v > 0)) return 0;
+    busy = busyShare();
+    if (!(busy < LOOP_CALM_BUSY)) return 0;
+    calmReads++;
+    return v;
+  }
+  function startWindow(nowMs) {
+    monitor.reset();
+    start = nowMs;
+    span = snap();
+  }
+  const floorNow = () => (floor === Infinity ? LOOP_RESOLUTION_MS : floor);
   return {
     read(nowMs) {
       if (!okNum(nowMs)) throw new TypeError('slBots: nowMs must be a finite number');
-      if (start === null) start = nowMs;
+      if (start === null) {
+        startWindow(nowMs);
+        return 0;
+      }
       if (nowMs - start >= windowMs) {
+        const v = calmP99();
+        if (v > 0) {
+          floor = settled && floor < v ? floor : v;
+          settled = true;
+        }
         lastP99 = p99();
-        monitor.reset();
-        start = nowMs;
+        startWindow(nowMs);
+        windows++;
+      }
+      let calm = false;
+      if (!settled) {
+        const v = calmP99();
+        calm = v > 0;
+        if (calm && v < floor) floor = v;
       }
       const cur = p99();
-      return cur > lastP99 ? cur : lastP99;
+      raw = cur > lastP99 ? cur : lastP99;
+      excess = raw > floorNow() ? raw - floorNow() : 0;
+      if (!calm && floor === Infinity) startWindow(nowMs);
+      return excess;
     },
+    stats: () => ({ rawP99Ms: raw, floorMs: floorNow(), settled, loopP99Ms: excess, busy, windows, calmReads }),
   };
+}
+
+// perf_hooks' event-loop utilization: cumulative idle and active ms since the process started.
+function defaultElu() {
+  const { performance } = require('perf_hooks');
+  return () => performance.eventLoopUtilization();
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -1211,6 +1312,8 @@ module.exports = {
   createBotFill,
   createBotGovernor,
   createLoopProbe,
+  LOOP_RESOLUTION_MS,
+  LOOP_CALM_BUSY,
   DRIVER_LAW_IDS,
   createBotDriver,
 };

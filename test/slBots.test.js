@@ -15,6 +15,7 @@ const { createRng } = require('../server/sl/slRng');
 const W = require('../shared/slWire');
 const C = require('../shared/constants');
 const { FIXTURE, makeFixture } = require('./slLawsFixture');
+const { monitorEventLoopDelay } = require('perf_hooks');
 
 const SRC = path.join(__dirname, '../server/sl/slBots.js');
 const K = B.brainLaws(FIXTURE);
@@ -136,7 +137,7 @@ test('tuning: every number CHOSEN with a note; no other number, Math.random, Dat
 test('imports: only the law table, the streams and botTarget; never registerRoom; no money code', () => {
   const src = fs.readFileSync(SRC, 'utf8');
   const reqs = (src.match(/require\('([^']+)'\)/g) || []).map((s) => s.slice(9, -2));
-  assert.deepEqual(reqs, ['./slLaws', './slRng', '../botPopulation']);
+  assert.deepEqual(reqs, ['./slLaws', './slRng', '../botPopulation', 'perf_hooks']); // perf_hooks: the loop probe's busy share
   const code = src.replace(/\/\/.*$/gm, '');
   assert.ok(!/registerRoom|unregisterRoom/.test(code), 'the sl room never takes a share of the event bot budget (Q21)');
   assert.ok(!/money|wallet|escrow|stake|usdc|payout|\bdb\b/i.test(code), 'no money words in the code');
@@ -498,32 +499,232 @@ test('governor: addBot refused above the cap even when calm; cap null means none
   assert.deepEqual(g.admitBot({ snakes: 0, cap: 200 }), { ok: false, why: 'governor' });
 });
 
-test('loop probe: p99 in ms over a 30 s window, the last whole window kept until the next one ends', () => {
-  const mon = {
-    v: 0,
+// A fake monitorEventLoopDelay histogram (nanoseconds): hold(p99) says what the current window's p99 is, in ms;
+// reset() empties it, as the real one does. A fake event-loop utilization beside it: busy(share, ms) adds ms of loop
+// time, that share of it busy, to its cumulative idle and active time, as perf_hooks eventLoopUtilization counts them.
+function fakeLoop(p99Ms) {
+  return {
+    p99: p99Ms * 1e6,
     resets: 0,
-    percentile(p) {
-      assert.equal(p, 99);
-      return this.v;
+    get count() {
+      return this.p99 > 0 ? 100 : 0;
+    },
+    percentile(q) {
+      assert.equal(q, 99);
+      return this.p99;
     },
     reset() {
-      this.v = 0;
+      this.p99 = 0;
       this.resets++;
     },
+    hold(ms) {
+      this.p99 = ms * 1e6;
+    },
   };
-  const probe = B.createLoopProbe(mon, FIXTURE);
-  mon.v = 5e6;
-  assert.equal(probe.read(0), 5);
-  mon.v = 8e6;
-  assert.equal(probe.read(29999), 8);
-  assert.equal(probe.read(30000), 8);
-  assert.equal(mon.resets, 1);
-  mon.v = 2e6;
-  assert.equal(probe.read(45000), 8);
-  assert.equal(probe.read(60000), 2);
-  mon.v = NaN;
-  assert.equal(probe.read(61000), 2);
-  assert.throws(() => B.createLoopProbe({}, FIXTURE), /monitorEventLoopDelay/);
+}
+function fakeElu() {
+  const e = { idle: 0, active: 0 };
+  const f = () => e;
+  f.busy = (share, ms) => {
+    e.active += share * ms;
+    e.idle += (1 - share) * ms;
+  };
+  return f;
+}
+// The Windows idle loop measured on Owen's box (2026-10-11): a bare process p99 16.5 ms; the whole local server with
+// the sl room running, busy 0.04 to 0.09 of the time.
+const WIN_P99 = 16.5;
+const close = (a, b) => Math.abs(a - b) < 1e-9;
+
+test('loop probe: the first read starts afresh; then p99 over a 30 s window minus the idle floor (the quietest calm p99)', () => {
+  const mon = fakeLoop(90); // boot stalls, before the first read
+  const elu = fakeElu();
+  const probe = B.createLoopProbe(mon, FIXTURE, elu);
+  assert.equal(probe.read(0), 0, 'the first read');
+  assert.equal(mon.resets, 1, 'boot stalls are not game load');
+  assert.deepEqual(probe.stats(),
+    { rawP99Ms: 0, floorMs: 1, settled: false, loopP99Ms: 0, busy: NaN, windows: 0, calmReads: 0 });
+  mon.hold(WIN_P99);
+  elu.busy(0.05, 1000);
+  const quiet = probe.read(1000);
+  assert.equal(quiet, 0);
+  const st = probe.stats();
+  assert.deepEqual([st.rawP99Ms, st.floorMs, st.settled, st.loopP99Ms, st.windows, st.calmReads], [16.5, 16.5, false, 0, 0, 1]);
+  assert.ok(close(st.busy, 0.05), 'the busy share over the span: ' + st.busy);
+  assert.equal(B.createBotGovernor(FIXTURE).sample(0, calm({ loopP99Ms: WIN_P99 })), 'engaged', 'the old bare reading');
+  assert.equal(B.createBotGovernor(FIXTURE).sample(0, calm({ loopP99Ms: quiet })), null, 'above the floor');
+  mon.hold(40); // a 40 ms stall in a calm window: it never lifts the floor
+  elu.busy(0.05, 1000);
+  assert.equal(probe.read(2000), 23.5);
+  assert.equal(probe.stats().calmReads, 2);
+  mon.hold(45); // a busy stretch: not calm
+  elu.busy(0.9, 20000);
+  assert.equal(probe.read(3000), 28.5);
+  mon.hold(60);
+  assert.equal(probe.read(4000), 43.5);
+  assert.deepEqual([probe.stats().floorMs, probe.stats().calmReads], [16.5, 2]);
+  assert.equal(probe.read(30000), 43.5, 'the window ends (busy, so it sets no floor): its p99 is kept');
+  assert.equal(mon.resets, 2);
+  assert.deepEqual([probe.stats().windows, probe.stats().settled], [1, false]);
+  mon.hold(17);
+  elu.busy(0.05, 15000);
+  assert.equal(probe.read(45000), 43.5, 'the last whole window still counts');
+  assert.equal(probe.read(60000), 0, 'one quiet whole window later');
+  assert.deepEqual([probe.stats().floorMs, probe.stats().settled], [17, true], 'the whole calm window replaces the early floor');
+  mon.hold(16); // once settled, only whole windows move the floor
+  elu.busy(0.05, 1000);
+  assert.equal(probe.read(61000), 0);
+  assert.equal(probe.stats().floorMs, 17);
+  assert.equal(probe.read(90000), 0, 'a quieter whole window');
+  assert.equal(probe.stats().floorMs, 16);
+  mon.hold(NaN);
+  assert.equal(probe.read(91000), 0, 'no sample: the last whole window');
+  mon.hold(100);
+  elu.busy(0.05, 1000);
+  assert.equal(probe.read(92000), 84);
+  assert.equal(probe.read(120000), 84, 'a calm whole window with a long p99');
+  assert.equal(probe.stats().floorMs, 16, 'once settled the floor never rises');
+  assert.throws(() => B.createLoopProbe({}, FIXTURE, elu), /monitorEventLoopDelay/);
+  assert.throws(() => B.createLoopProbe(mon, FIXTURE, 'elu'), /elu/);
+  assert.throws(() => probe.read(NaN), /nowMs/);
+});
+
+test('loop probe: until a calm read the floor is the 1 ms resolution (over-reads, never under-reads); a busy second is dropped', () => {
+  const mon = fakeLoop(0);
+  const elu = fakeElu();
+  const probe = B.createLoopProbe(mon, FIXTURE, elu);
+  probe.read(0);
+  mon.hold(40); // the server still booting: the loop busy 90 percent of the second
+  elu.busy(0.9, 1000);
+  assert.equal(probe.read(1000), 39);
+  assert.equal(probe.stats().floorMs, B.LOOP_RESOLUTION_MS);
+  assert.equal(B.createBotGovernor(FIXTURE).sample(0, calm({ loopP99Ms: 39 })), 'engaged');
+  assert.equal(mon.resets, 2, 'not calm and no floor yet: the window starts afresh');
+  mon.hold(21.5); // the next second is calm on its own (0.12); with the busy one it would read 0.51
+  elu.busy(0.12, 1000);
+  assert.equal(probe.read(2000), 0);
+  assert.equal(probe.stats().floorMs, 21.5);
+  assert.ok(close(probe.stats().busy, 0.12));
+  assert.equal(mon.resets, 2);
+  mon.hold(45); // once there is a floor, a busy second no longer restarts the window
+  elu.busy(0.9, 1000);
+  assert.equal(probe.read(3000), 23.5);
+  assert.equal(mon.resets, 2);
+});
+
+test('loop probe: a span busy for LOOP_CALM_BUSY of its time or more, or with a busy share it cannot read, is never calm', () => {
+  for (const share of [B.LOOP_CALM_BUSY, 0.7, 1]) {
+    const mon = fakeLoop(0);
+    const elu = fakeElu();
+    const probe = B.createLoopProbe(mon, FIXTURE, elu);
+    probe.read(0);
+    mon.hold(20);
+    elu.busy(share, 1000);
+    assert.equal(probe.read(1000), 19, 'busy ' + share);
+    assert.equal(probe.stats().calmReads, 0);
+  }
+  for (const bad of [() => null, () => ({}), () => ({ idle: NaN, active: 1 }), () => ({ idle: 0, active: 0 })]) {
+    const mon = fakeLoop(0);
+    const probe = B.createLoopProbe(mon, FIXTURE, bad);
+    probe.read(0);
+    mon.hold(WIN_P99);
+    assert.equal(probe.read(1000), 15.5, 'unreadable busy share: no floor');
+    assert.equal(probe.stats().calmReads, 0);
+  }
+  assert.equal(B.LOOP_CALM_BUSY, 0.5);
+});
+
+test('loop probe: on a Linux-like 1 ms timer the reading is the lateness itself', () => {
+  const mon = fakeLoop(0);
+  const elu = fakeElu();
+  const probe = B.createLoopProbe(mon, FIXTURE, elu);
+  probe.read(0);
+  mon.hold(1.5);
+  elu.busy(0.1, 1000);
+  assert.equal(probe.read(1000), 0);
+  assert.equal(probe.stats().floorMs, 1.5);
+  mon.hold(17.5); // a 16 ms stall
+  elu.busy(0.1, 1000);
+  assert.equal(probe.read(2000), 16);
+  assert.equal(B.createBotGovernor(FIXTURE).sample(2000, calm({ loopP99Ms: 16 })), 'engaged');
+});
+
+test('loop probe on a real histogram and the real busy share: an empty histogram is no sample; boot uses 1 ms', () => {
+  assert.equal(B.LOOP_RESOLUTION_MS, 1);
+  const mon = monitorEventLoopDelay({ resolution: B.LOOP_RESOLUTION_MS });
+  assert.equal(mon.count, 0);
+  assert.equal(mon.percentile(99), 511, 'what an empty histogram answers (Node 24)');
+  const probe = B.createLoopProbe(mon, FIXTURE); // the default busy share: perf_hooks eventLoopUtilization
+  assert.equal(probe.read(0), 0);
+  assert.equal(probe.read(1000), 0);
+  assert.equal(probe.stats().calmReads, 0, 'no floor from an empty histogram');
+  const boot = fs.readFileSync(path.join(__dirname, '../server/sl/slBoot.js'), 'utf8');
+  assert.match(boot, /monitorEventLoopDelay\(\{ resolution: require\('\.\/slBots'\)\.LOOP_RESOLUTION_MS \}\)/);
+});
+
+test('governor on a fake timer: an idle Windows-like loop fills to the curve; a burn engages it and stops the fill', () => {
+  const { host } = makeHost(FIXTURE, 35, 1791615600000); // curve 34
+  const mon = fakeLoop(WIN_P99);
+  const elu = fakeElu();
+  const probe = B.createLoopProbe(mon, FIXTURE, elu);
+  const gov = B.createBotGovernor(FIXTURE);
+  const driver = B.createBotDriver(FIXTURE, { governor: gov });
+  const seen = [];
+  let burn = false;
+  let next = 0;
+  const sample = () => {
+    const t = host.sim.nowMs();
+    if (t < next) return;
+    next += 1000;
+    mon.hold(burn ? 45 : WIN_P99); // each second's histogram (the first read emptied it)
+    elu.busy(burn ? 0.7 : 0.05, 1000);
+    const r = gov.sample(t, calm({ loopP99Ms: probe.read(t) }));
+    if (r) seen.push(r);
+  };
+  let most = 0;
+  steps(driver, host, 180, () => {
+    sample();
+    most = Math.max(most, driver.count());
+  });
+  assert.equal(most, 34, 'the curve');
+  assert.deepEqual(seen, [], 'never engaged while idle');
+  assert.equal(gov.stats().samples, 8);
+  assert.equal(probe.stats().floorMs, WIN_P99);
+  burn = true; // a forced CPU burn: 45 ms stalls, the loop busy 70 percent of the time
+  const before = driver.count();
+  steps(driver, host, 30, sample);
+  assert.deepEqual(seen, ['engaged']);
+  assert.equal(gov.stats().why, 'loop');
+  assert.equal(probe.stats().floorMs, WIN_P99, 'the burn never became the floor');
+  assert.ok(driver.count() <= before, 'nothing added while engaged');
+  assert.equal(driver.add(host), null, 'addBot refused');
+});
+
+test('real monitor: a forced CPU burn engages the governor against this process own idle floor', async () => {
+  const mon = monitorEventLoopDelay({ resolution: B.LOOP_RESOLUTION_MS });
+  mon.enable();
+  try {
+    const probe = B.createLoopProbe(mon, FIXTURE);
+    const gov = B.createBotGovernor(FIXTURE);
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    probe.read(Date.now());
+    await sleep(1000);
+    const idleRead = probe.read(Date.now());
+    const idle = probe.stats();
+    assert.ok(idle.floorMs >= B.LOOP_RESOLUTION_MS, 'the floor: ' + JSON.stringify(idle));
+    for (let i = 0; i < 12; i++) {
+      const t = Date.now();
+      while (Date.now() - t < 60) { /* burn */ }
+      await sleep(1);
+    }
+    const loop = probe.read(Date.now());
+    const bar = FIXTURE.C_GOV.value.loopP99Ms;
+    assert.ok(loop > bar, 'burn ' + JSON.stringify(probe.stats()) + ' idle ' + JSON.stringify(idle) + ' ' + idleRead);
+    assert.ok(probe.stats().floorMs <= idle.floorMs, 'the burn never raised the floor');
+    assert.equal(gov.sample(0, calm({ loopP99Ms: loop })), 'engaged');
+  } finally {
+    mon.disable();
+  }
 });
 
 // ---------------------------------------------------------------------------------------------------------------

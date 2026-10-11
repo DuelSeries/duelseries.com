@@ -227,8 +227,10 @@ class SlArenas {
     if (this._room && this.top) this._room.setTop(this.top);
   }
 
-  // inp: { loopP99Ms, paidPlayers, paid: [{latePct, baselinePct}] }. The room's largest synchronous slice since the
-  // last sample is read and reset here (room.stats.maxSliceMs then means "since the last governor sample").
+  // inp: { loopP99Ms, paidPlayers, paid: [{latePct, baselinePct}], loopRawP99Ms?, loopFloorMs? }. loopP99Ms is the
+  // loop delay p99 above this process's idle floor (slBots createLoopProbe); the raw p99 and the floor ride along for
+  // the log and the console only. The room's largest synchronous slice since the last sample is read and reset here
+  // (room.stats.maxSliceMs then means "since the last governor sample").
   sampleLoad(nowMs, inp) {
     const i = inp || {};
     const paidPlayers = Number.isInteger(i.paidPlayers) && i.paidPlayers > 0 ? i.paidPlayers : 0;
@@ -244,15 +246,22 @@ class SlArenas {
     const loop = Number.isFinite(i.loopP99Ms) && i.loopP99Ms >= 0 ? i.loopP99Ms : 0;
     const paid = Array.isArray(i.paid) ? i.paid : [];
     const out = this.governor.sample(nowMs, { loopP99Ms: loop, sliceMaxMs: slice, paidPlayers, paid });
-    this.lastSample = { at: nowMs, loopP99Ms: loop, sliceMaxMs: slice, paidPlayers, result: out };
+    const rawLoop = Number.isFinite(i.loopRawP99Ms) ? i.loopRawP99Ms : null;
+    const floorLoop = Number.isFinite(i.loopFloorMs) ? i.loopFloorMs : null;
+    this.lastSample = { at: nowMs, loopP99Ms: loop, loopRawP99Ms: rawLoop, loopFloorMs: floorLoop, sliceMaxMs: slice,
+      paidPlayers, result: out };
     if (out === 'engaged' || out === 'recovered') {
-      this.log.warn('[SL] bot governor ' + out + ' (loop p99 ' + loop.toFixed(1) + ' ms, slice ' + slice.toFixed(1) +
-        ' ms, paid players ' + paidPlayers + ', mult ' + this.governor.mult().toFixed(3) + ')');
+      const seen = rawLoop !== null && floorLoop !== null
+        ? ' (raw ' + rawLoop.toFixed(1) + ' over an idle floor of ' + floorLoop.toFixed(1) + ')' : '';
+      this.log.warn('[SL] bot governor ' + out + ' (loop p99 ' + loop.toFixed(1) + ' ms' + seen + ', slice ' +
+        slice.toFixed(1) + ' ms, paid players ' + paidPlayers + ', mult ' + this.governor.mult().toFixed(3) + ')');
     }
     return out;
   }
 
-  // monitor: a perf_hooks.monitorEventLoopDelay() histogram (enabled here); paidLoad() -> {paidPlayers, paid};
+  // monitor: a perf_hooks.monitorEventLoopDelay histogram (resolution slBots LOOP_RESOLUTION_MS; enabled here);
+  // elu: optional () -> {idle, active} (tests; default perf_hooks eventLoopUtilization, slBots createLoopProbe);
+  // paidLoad() -> {paidPlayers, paid};
   // every: optional (fn, ms, label) -> {stop} (tests); default slSafe.safeEvery. now: wall ms (default Date.now).
   startTimers(o) {
     const opt = o || {};
@@ -261,20 +270,20 @@ class SlArenas {
     let probe = null;
     if (opt.monitor && this.governor) {
       if (typeof opt.monitor.enable === 'function') opt.monitor.enable();
-      probe = createLoopProbe(opt.monitor, this.laws);
+      probe = createLoopProbe(opt.monitor, this.laws, opt.elu);
     }
     const paidLoad = typeof opt.paidLoad === 'function' ? opt.paidLoad : null;
-    let first = true;
     const tick = () => {
       const t = now();
       const p = paidLoad ? paidLoad() : null;
-      // The histogram was enabled during the server's boot, whose require-time stalls are not game load: the first
-      // sample starts it afresh.
-      if (first && probe && typeof opt.monitor.reset === 'function') opt.monitor.reset();
-      const loop = probe && !first ? probe.read(t) : 0;
-      first = false;
+      // The probe's first read starts the histogram afresh (it was enabled during the server's boot, whose
+      // require-time stalls are not game load) and answers 0.
+      const loop = probe ? probe.read(t) : 0;
+      const ls = probe ? probe.stats() : null;
       this.sampleLoad(t, {
         loopP99Ms: loop,
+        loopRawP99Ms: ls ? ls.rawP99Ms : null,
+        loopFloorMs: ls ? ls.floorMs : null,
         paidPlayers: p && Number.isInteger(p.paidPlayers) ? p.paidPlayers : 0,
         paid: p && Array.isArray(p.paid) ? p.paid : [],
       });

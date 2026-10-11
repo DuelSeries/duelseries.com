@@ -113,7 +113,8 @@ function slPageRoute(opened) {
 // opts: { env, io (the socket.io server), region, helpers: { socketRL, ops, notifyJoin(name), paidLoad(),
 //   clientIp }, topCashout(since, exclude) (null: no box), excludeWallets (owner and revenue wallets), log,
 //   slHtml (tests; default public/sl.html), slxTail (tests; default SLX_TAIL), laws (tests; a table treated as the
-//   real one), autoTick, seed, clock, now, timers, bots, monitor (tests; default perf_hooks.monitorEventLoopDelay()),
+//   real one), autoTick, seed, clock, now, timers, bots, monitor (tests; default perf_hooks.monitorEventLoopDelay at
+//   slBots LOOP_RESOLUTION_MS, 1 ms),
 //   every (tests) }
 function openSl(opts) {
   const o = opts || {};
@@ -142,7 +143,9 @@ function openSl(opts) {
     const safeStats = createSafeStats();
     const every = typeof o.every === 'function' ? o.every : (fn, ms, label) => safeEvery(fn, ms, label, safeStats, { log });
     let monitor = o.monitor;
-    if (monitor === undefined) monitor = require('perf_hooks').monitorEventLoopDelay();
+    if (monitor === undefined) {
+      monitor = require('perf_hooks').monitorEventLoopDelay({ resolution: require('./slBots').LOOP_RESOLUTION_MS });
+    }
     arenas.startTimers({ monitor, paidLoad: helpers.paidLoad, every });
     startTop(arenas, o, log, every);
     log.log('[SL] slither.io (new) free room open on /sl' + (dev ? ' (DEV law table)' : ''));

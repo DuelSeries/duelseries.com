@@ -148,14 +148,15 @@ test('the governor sample: paid seats make the room yield; a loop stall engages 
   assert.strictEqual(A.governor.stats().engagements, 1);
 });
 
-test('startTimers: one sample every GOVERNOR_SAMPLE_MS; the first one starts the loop histogram afresh', () => {
+test('startTimers: one sample every GOVERNOR_SAMPLE_MS; the first one starts the loop histogram afresh; p99 over the floor', () => {
   const r = rig({ bots: true });
   let fn = null;
   let period = 0;
-  const hist = { p: 30e6, resets: 0, enabled: 0, percentile() { return this.p; }, reset() { this.resets++; },
+  const hist = { p: 16e6, resets: 0, enabled: 0, percentile() { return this.p; }, reset() { this.resets++; },
     enable() { this.enabled++; } };
+  const elu = { idle: 0, active: 0 }; // the loop's cumulative idle and busy ms (perf_hooks eventLoopUtilization)
   let paid = 0;
-  r.arenas.startTimers({ monitor: hist, now: () => r.wall.t, paidLoad: () => ({ paidPlayers: paid, paid: [] }),
+  r.arenas.startTimers({ monitor: hist, elu: () => elu, now: () => r.wall.t, paidLoad: () => ({ paidPlayers: paid, paid: [] }),
     every: (f, ms) => { fn = f; period = ms; return { stop() { fn = null; } }; } });
   assert.strictEqual(period, GOVERNOR_SAMPLE_MS);
   assert.strictEqual(GOVERNOR_SAMPLE_MS, 1000);
@@ -163,13 +164,38 @@ test('startTimers: one sample every GOVERNOR_SAMPLE_MS; the first one starts the
   fn();
   assert.strictEqual(hist.resets, 1, 'boot stalls are not game load');
   assert.strictEqual(r.arenas.lastSample.loopP99Ms, 0);
-  paid = 1;
   r.wall.t += 1000;
+  elu.idle += 990;
+  elu.active += 10;
   fn();
-  assert.strictEqual(r.arenas.lastSample.loopP99Ms, 30, 'the histogram p99 in ms');
+  assert.strictEqual(r.arenas.lastSample.loopFloorMs, 16, 'a calm second (busy 0.01): its p99 is the idle floor');
+  assert.strictEqual(r.arenas.lastSample.loopP99Ms, 0);
+  paid = 1;
+  hist.p = 20e6;
+  r.wall.t += 1000;
+  elu.idle += 990;
+  elu.active += 10;
+  fn();
+  assert.strictEqual(r.arenas.lastSample.loopP99Ms, 4, 'the histogram p99 over the idle floor, in ms');
+  assert.strictEqual(r.arenas.lastSample.loopRawP99Ms, 20);
+  assert.strictEqual(r.arenas.lastSample.loopFloorMs, 16);
   assert.strictEqual(r.arenas.room().paidBusy(), true);
   r.arenas.close();
   assert.strictEqual(fn, null, 'close stops the timer');
+  // The busy share reaches the probe: a loop busy most of the second is not calm, so no floor (1 ms resolution).
+  hist.p = 20e6;
+  const r2 = rig({ bots: true });
+  const busy = { idle: 0, active: 0 };
+  r2.arenas.startTimers({ monitor: hist, elu: () => busy, now: () => r2.wall.t,
+    every: (f2) => { fn = f2; return { stop() { fn = null; } }; } });
+  fn();
+  busy.idle += 300;
+  busy.active += 700;
+  r2.wall.t += 1000;
+  fn();
+  assert.strictEqual(r2.arenas.lastSample.loopFloorMs, 1);
+  assert.strictEqual(r2.arenas.lastSample.loopP99Ms, 19);
+  r2.arenas.close();
 });
 
 test('the owner console contract: lobbyType, counts, botsAllowed, addBot, clearBots', () => {
