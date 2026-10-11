@@ -11,12 +11,14 @@
 //
 // One update (SERVER-DESIGN 6.2, one L7 period P), in this order:
 //   0 fam record  the fam the stream has not carried yet goes first (L48.hDefer, L48.order)
+//   0b boost      in time order inside the update window (the P ms before it): the slot's 253 and 254 records
+//      and cost   (L22, L15), a hold's boost end (C_HOLD_BOOST) and the L23 charges: the first at each accepted
+//                 press, then one per L23 period on the snake's own clock started at the press (L23.period, L23.form,
+//                 L23.low, L23.edges); a drop per charge above L24.Td (L24.*); boostTimeline (task T14b)
 //   1 turn        ang toward wang, per ms, current sct (L14)
 //   2 speed       base from the length at spawn or boost end (the ramp's landing), never on growth (L12); boost
 //                 ramp per update (L13.ramp), the first step a fraction by the input arrival offset (L13.first); times
 //                 the hold multiplier (Q15)
-//   3 boost cost  the first charge at the accepted press, then one per L23 period on the snake's own clock started
-//                 at the press (L23.period, L23.form, L23.low, L23.edges); a drop per charge above L24.Td (L24.*)
 //   4 travel      d += sp per ms over P (their client moves sp / 4 per 8 ms frame, SERVER-LAWS units)
 //   5 points      while d >= msl: pull the chain BEFORE adding the point (L16), the point one msl step along the
 //                 16-bit angle (slCore.headStep, the client's own arithmetic), absolute integers for the first point
@@ -321,8 +323,12 @@ function createSnake(K, id, o) {
     holdMult: null, // null = not held; else the multiplier slHold computed for this update
     boosting: false,
     rampFrac: 1, // L13.first fraction of the next ramp step
-    chargeNow: false, // L23: the first charge at the accepted press, taken in the next update
-    chargeMs: 0, // ms on the snake's charge clock since the last charge
+    chargeMs: 0, // ms on the snake's charge clock since the last charge, at the end of the last update window
+    // the hold as this update's boost records saw it (boostTimeline): held at the end of the last update, and the
+    // offsets of a hold start or release since then (-1: none)
+    slotHeld: false,
+    holdStartOff: -1,
+    holdRelOff: -1,
     chargeCount: 0,
     d: 0, // head travel since the last point, along ang
     absDone: false, // L48.abs: the first point after spawn has been added
@@ -377,15 +383,13 @@ function applyTurn(K, s, ticks) {
 }
 
 // L22: a 253 starts the boost iff L = sct + fam > minL, decided at the press; refused while held when C_HOLD_BOOST
-// forbids it. The first L23 charge is due at the press (taken in the next update) and the charge clock starts at the
-// press, offsetMs before the update. The first L13 ramp step is the offset fraction (L13.first).
-function boostOn(K, s, offsetMs) {
+// forbids it (held: the hold as it stood when the press arrived, boostTimeline). The first L23 charge is at the press
+// (boostTimeline pays it) and the charge clock starts there. The first L13 ramp step is the offset fraction (L13.first).
+function boostOn(K, s, offsetMs, held) {
   if (s.boosting) return false;
-  if (s.holdMult !== null && !K.holdBoostAllow) return false;
+  if (held && !K.holdBoostAllow) return false;
   if (!(s.pts.length + s.fam > K.boostMinL)) return false;
   s.boosting = true;
-  s.chargeNow = true;
-  s.chargeMs = offsetMs;
   s.rampFrac = firstFraction(K, offsetMs);
   return true;
 }
@@ -401,8 +405,9 @@ function boostOff(K, s, frac) {
   return true;
 }
 
-// Applies and clears the snake's input slot. While held with steering locked, angle and arrow inputs are stored and
-// the newest applies at release; boost presses follow C_HOLD_BOOST.
+// Applies and clears the steering part of the snake's input slot. While held with steering locked, angle and arrow
+// inputs are stored and the newest applies at release. The boost records stay in the slot for the update's timeline
+// (boostTimeline, with the L23 charges in time order).
 function applyInputSlot(K, s) {
   const lockSteer = s.holdMult !== null && K.holdSteerLocked;
   if (s.inAngle >= 0) {
@@ -417,26 +422,23 @@ function applyInputSlot(K, s) {
     if (lockSteer) s.heldTurn += s.inTurn;
     else applyTurn(K, s, s.inTurn);
   }
-  const b = s.inBoost;
-  for (let i = 0; i < b.length; i += 2) {
-    if (b[i] === 1) boostOn(K, s, b[i + 1]);
-    else boostOff(K, s, firstFraction(K, b[i + 1]));
-  }
   s.inAngle = -1;
   s.inTurn = 0;
-  b.length = 0;
 }
 
 // ------------------------------------------------------------------ hold (sim side of slHold, SERVER-DESIGN 15.3)
 
 // mult a number in (0, 1]: the snake is held this update with that speed multiplier (slHold computes it from
 // C_HOLD_RAMP). The first such call locks steering (C_HOLD_STEER): wang = the current 8-bit ang byte (L48.angRound),
-// and ends a boost when C_HOLD_BOOST forbids boosting (as a 254 read offsetMs before the update).
-// mult null: release; the newest stored angle and arrow inputs apply now and the speed snaps back.
+// and ends a boost when C_HOLD_BOOST forbids boosting, as a 254 read offsetMs before the update: boostTimeline ends it
+// at that time, after the charges due before it.
+// mult null: release; the newest stored angle and arrow inputs apply now and the speed snaps back. Boost records of
+// this update that arrived at or before the release (offsetMs) were still held.
 function setHold(K, s, mult, offsetMs) {
   if (mult === null) {
     if (s.holdMult === null) return false;
     s.holdMult = null;
+    s.holdRelOff = offsetMs;
     if (s.heldAngle >= 0) applyAngle(K, s, s.heldAngle);
     if (s.heldTurn !== 0) applyTurn(K, s, s.heldTurn);
     s.heldAngle = -1;
@@ -448,9 +450,17 @@ function setHold(K, s, mult, offsetMs) {
   s.holdMult = mult;
   if (starting) {
     if (K.holdSteerLocked) setWang(s, slQuant.rotAng(s.ang, K.angRound).v);
-    if (!K.holdBoostAllow) boostOff(K, s, firstFraction(K, offsetMs));
+    s.holdStartOff = offsetMs;
   }
   return starting;
+}
+
+// Was the snake held (for C_HOLD_BOOST) when something arrived offsetMs before the update? Held at the end of the last
+// update and not yet released (a release at offset r frees what arrived after it, offset below r), or a hold that
+// started at or before it since then.
+function heldAt(s, offsetMs) {
+  if (s.slotHeld && !(s.holdRelOff >= 0 && offsetMs < s.holdRelOff)) return true;
+  return s.holdStartOff >= 0 && offsetMs <= s.holdStartOff;
 }
 
 // ------------------------------------------------------------------ the update
@@ -547,24 +557,88 @@ function charge(sim, s) {
   const cv = dropColour(K, s.cv, rng);
   const r = K.dropRadius * Math.sqrt(rng.next());
   const th = PI2 * rng.next();
-  const drop = { kind: 'boost', id: s.id, x: tx + r * Math.cos(th), y: ty + r * Math.sin(th), b: dropByte(K, c), cv };
+  // c: the charge mass the byte came from (for tools and tests: the L24 size rule is checked against it)
+  const drop = { kind: 'boost', id: s.id, x: tx + r * Math.cos(th), y: ty + r * Math.sin(th), b: dropByte(K, c), cv, c };
   sim.log.drops.push(drop);
   return drop;
 }
 
-// Step 3, L23: the first charge at the press, then one per period on the snake's own clock.
-function stepCharges(sim, s, P) {
-  if (s.chargeNow) {
-    s.chargeNow = false;
-    charge(sim, s);
-  }
-  if (!s.boosting) return;
-  s.chargeMs += P;
+// L23: pays every charge due on the snake's own clock between window times from and to (ms into the update window)
+// while it boosts, and moves the clock to `to` (s.chargeMs: ms since the last charge, at window time from).
+function payCharges(sim, s, from, to) {
   const period = sim.K.chargePeriod;
-  while (s.boosting && s.chargeMs >= period) {
-    s.chargeMs -= period;
+  let t = from;
+  while (s.boosting && s.chargeMs + (to - t) >= period) {
+    t += period - s.chargeMs;
+    s.chargeMs = 0;
     charge(sim, s);
+    if (sim.log.charges) sim.log.charges.push(s.id, t);
   }
+  if (s.boosting) s.chargeMs += to - t;
+}
+
+// Window time of something that arrived offsetMs before the update (the window is the P ms before it; the room's
+// whole-ms offsets reach round(P), clamped to the window start).
+function windowAt(offsetMs, P) {
+  const t = P - offsetMs;
+  return t > 0 ? (t < P ? t : P) : 0;
+}
+
+// A hold that started this update ends a boost (C_HOLD_BOOST) as a 254 read offsetMs before the update.
+function holdEnd(sim, s, at, offsetMs, P) {
+  const w = windowAt(offsetMs, P);
+  const t = w > at ? w : at;
+  payCharges(sim, s, at, t);
+  if (boostOff(sim.K, s, firstFraction(sim.K, offsetMs)) && sim.log.boosts) {
+    sim.log.boosts.push({ id: s.id, on: false, off: offsetMs, hold: true });
+  }
+  return t;
+}
+
+// Step 0b, L22 and L23 (task T14b): the update window is the P ms before the update; a boost record that arrived
+// offsetMs before the update sits at window time P - offsetMs. In time order: the slot's boost records (arrival
+// order), the boost end of a hold that started this update, and every L23 charge due inside the window on the snake's
+// own clock, a charge due at or before a record first. So a charge is paid only while boosting (none after a 254:
+// paying the window AFTER the update put 293 of 1,892 boost ends on seed 16 one charge past their 254), each accepted
+// 253 pays its first charge at once (a 253, 254, 253 inside one update: two runs, two charges) and a later press reads
+// L after the earlier charges (L22). The records go out with the update: 0 to P after their true time, as the room's
+// clocks (C_TIMING_BARS).
+function boostTimeline(sim, s, P) {
+  const K = sim.K;
+  const b = s.inBoost;
+  const log = sim.log.boosts;
+  let hs = K.holdBoostAllow ? -1 : s.holdStartOff;
+  let at = 0;
+  for (let i = 0; i < b.length; i += 2) {
+    const off = b[i + 1];
+    if (hs >= 0 && off < hs) {
+      at = holdEnd(sim, s, at, hs, P);
+      hs = -1;
+    }
+    const w = windowAt(off, P);
+    const t = w > at ? w : at; // read in arrival order: never before the record read last
+    payCharges(sim, s, at, t);
+    at = t;
+    if (b[i] === 1) {
+      if (s.boosting) continue; // a 253 while boosting is no press
+      const L = s.pts.length + s.fam;
+      const ok = boostOn(K, s, off, heldAt(s, off));
+      if (log) log.push({ id: s.id, on: true, off, ok, L, frac: s.rampFrac });
+      if (ok) {
+        s.chargeMs = 0;
+        charge(sim, s);
+        if (sim.log.charges) sim.log.charges.push(s.id, t);
+      }
+    } else if (boostOff(K, s, firstFraction(K, off)) && log) {
+      log.push({ id: s.id, on: false, off, hold: false });
+    }
+  }
+  if (hs >= 0) at = holdEnd(sim, s, at, hs, P);
+  payCharges(sim, s, at, P);
+  b.length = 0;
+  s.slotHeld = s.holdMult !== null;
+  s.holdStartOff = -1;
+  s.holdRelOff = -1;
 }
 
 // Step 5, L16 and L48.abs: pull, then one msl step along the 16-bit angle from the last point.
@@ -621,9 +695,9 @@ function updateSnake(sim, s, P) {
   rec.h = s.fam !== s.famSent;
   rec.hFam = s.fam;
   s.famSent = s.fam;
+  boostTimeline(sim, s, P); // 0b and 3: boost records, a hold's boost end and the L23 charges, in time order
   rec.turning = steer(K, s, P); // 1
   stepSpeed(K, s); // 2
-  stepCharges(sim, s, P); // 3
   s.d += s.sp * (P / 8) / 4; // 4: their client moves sp / 4 per 8 ms frame (slLoop.js:304, SERVER-LAWS units)
   while (s.d >= K.msl) { // 5: at most one point per update at nsp3 (14 x 42.67 / 32 = 18.7 < msl)
     addPoint(sim, s);

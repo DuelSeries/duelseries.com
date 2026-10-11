@@ -51,7 +51,29 @@ function hashTick(h, sim, log) {
 // The script: SLOTS snakes on the L42 rings; per live snake per tick an angle byte (10 percent), a boost press or
 // release (3 percent), arrow ticks (2 percent), a disconnect kill (0.05 percent), a leave (0.03 percent); slot 0 holds
 // Q every 400 ticks with the C_HOLD_RAMP shape, every other hold to the 3 s cash-out (removed), the others released
-// after 30 ticks; a dead or gone slot respawns with chance 5 percent per tick.
+// after 30 ticks; a dead or gone slot respawns with chance 5 percent per tick. Slot 1 steers its angle byte at the
+// nearest prey instead of a random one (task T14b: with random angles the 3 seeds ate 1 prey before the boost timeline
+// change and 0 after it, too thin for the coverage line below).
+// The L15 angle byte nearest the heading from the snake's head to the nearest prey (a random byte with no prey).
+function preyByte(sim, id, r) {
+  const s = sim.snake(id);
+  const hx = s.pts[s.pts.length - 1].xx;
+  const hy = s.pts[s.pts.length - 1].yy;
+  let best = null;
+  let bd = Infinity;
+  sim.preys.forEachPrey((p) => {
+    const d = (p.x - hx) * (p.x - hx) + (p.y - hy) * (p.y - hy);
+    if (d < bd) {
+      bd = d;
+      best = p;
+    }
+  });
+  if (!best) return r.int(251);
+  let a = Math.atan2(best.y - hy, best.x - hx);
+  if (a < 0) a += 2 * Math.PI;
+  return Math.round(a / (2 * Math.PI) * 251) % 251;
+}
+
 function run(seed, ticks) {
   const sim = createSim(FIXTURE, { seed, world: true });
   const r = createRng((seed * 2654435761) >>> 0);
@@ -70,7 +92,7 @@ function run(seed, ticks) {
       }
       const off = r.int(43);
       const u = r.next();
-      if (u < 0.1) sim.setInput(id, { type: 'angle', q: r.int(251) }, off);
+      if (u < 0.1) sim.setInput(id, { type: 'angle', q: i === 1 ? preyByte(sim, id, r) : r.int(251) }, off);
       else if (u < 0.13) sim.setInput(id, { type: 'boost', on: r.next() < 0.6 }, off);
       else if (u < 0.15) sim.setInput(id, { type: 'turn', dir: r.next() < 0.5 ? 'left' : 'right', v: 1 + r.int(30) }, off);
       else if (u < 0.1505) sim.kill(id);
@@ -144,8 +166,8 @@ test('slSimGolden: 3 seeds x 5000 ticks, hash per 100 ticks, equal to the cut', 
       }
     }
   }
-  // the script reaches every part of the world half (cut 2026-10-10: snake 66, border 105, kill 80, headOn 9 deaths;
-  // printed by the cut run)
+  // the script reaches every part of the world half (cut 2026-10-11, task T14b: snake 64, border 83, kill 84, headOn 10
+  // deaths, 18 prey eats; printed by the cut run)
   assert.ok(all.snake > 20 && all.border > 20 && all.kill > 5 && all.headOn > 0, JSON.stringify(all));
   assert.ok(all.eats > 5000 && all.boostDrops > 500 && all.preyMoves > 100 && all.preyEats > 0 && all.held > 100,
     JSON.stringify(all));

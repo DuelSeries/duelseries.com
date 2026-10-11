@@ -20,13 +20,19 @@
 //
 // The room drives one tick as SERVER-DESIGN 5.3 says:
 //   setInput(id, record, offsetMs)   on arrival, any time between ticks (merged into the snake's input slot)
-//   applyInputs()                     step 1: wang (L15), arrow (L15), boost on or refused (L22), boost off
+//   applyInputs()                     step 1: wang (L15), arrow (L15); the boost records wait for the update
+//                                     (L22 and L23 in time order inside it, slSnake boostTimeline)
 //   setHold(id, mult | null, offset)  step 2: the sim side of slHold (steering lock, speed multiplier, release)
 //   step()                            steps 4, 5 and 7: every live snake updated once in a seeded order, eats,
 //                                     collisions and deaths, then the food, prey and border clocks
 // step() returns the tick log (valid until the next step):
 //   updates  the update record of each updated snake in processing order (slSnake newRec)
-//   drops    the boost drops of the tick ({kind 'boost', id, x, y, b, cv, food}; food is the placed food or null)
+//   drops    the boost drops of the tick ({kind 'boost', id, x, y, b, cv, c, food}; c the charge mass, food the placed
+//            food or null)
+//   boosts   the boost records the updates read (slSnake boostTimeline, task T14b): a 253 while not boosting
+//            {id, on: true, off, ok, L (sct + fam at the press), frac (L13.first)}, and each boost a 254 or a hold
+//            start ended {id, on: false, off, hold}; a self-stop at the minimum length is not listed
+//   charges  every L23 charge of the tick, flat [id, window ms, ...]: its time is the tick's sim time - P + window ms
 //   deaths   one record per death in processing order: {id, cause 'snake' | 'border' | 'kill', killer (0 = none),
 //            headOn, x, y (the head), sct, fam, cv, drops [{x, y, b, cv, food}]}
 // plus, when on, food.tick (adds, eats) and preys.tick (adds, moves, removes, eats) of the same tick.
@@ -297,7 +303,7 @@ function createSim(laws, opts) {
   const order = []; // reused per tick: the seeded update order
   const victims = []; // reused per tick
   const pendingKills = []; // ids sim.kill() asked for; they die at the start of the next step
-  const log = { tick: 0, updates: [], drops: [], deaths: [] };
+  const log = { tick: 0, updates: [], drops: [], deaths: [], boosts: [], charges: [] };
   let tick = 0;
   let nowMs = startMs;
   let nextId = 1;
@@ -840,6 +846,8 @@ function createSim(laws, opts) {
     log.tick = tick;
     log.updates.length = 0;
     log.drops.length = 0;
+    log.boosts.length = 0;
+    log.charges.length = 0;
     log.deaths.length = 0;
     if (food) food.beginTick();
     if (preys) preys.beginTick();

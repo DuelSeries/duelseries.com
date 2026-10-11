@@ -365,6 +365,9 @@ test('slSim L22: boost starts iff L > 2.14, decided at the press', () => {
 
 // ------------------------------------------------------------------ L23
 
+// The update at time T pays what fell in its window, the P ms before T (task T14b): a press offset ms before the first
+// update is at T1 - offset, its k-th charge at T1 - offset + k x 155.2, paid by the update n whose window holds it, so
+// after n updates the count is 1 + floor((offset + (n - 1) x 42.67) / 155.2).
 test('slSim L23: the first charge at the press, then one per 155.2 ms on a clock started at the press offset', () => {
   const run = (offset, updates) => {
     const { sim, s } = sim1({ sct: 40, fam: 0.5 });
@@ -373,12 +376,86 @@ test('slSim L23: the first charge at the press, then one per 155.2 ms on a clock
     return s.chargeCount;
   };
   assert.equal(run(0, 1), 1);
-  assert.equal(run(0, 3), 1); // 0 + 3 x 42.67 = 128.01 < 155.2
-  assert.equal(run(30, 3), 2); // 30 + 128.01 = 158.01 >= 155.2
-  assert.equal(run(0, 4), 2);
-  assert.equal(run(0, 100), 28); // 1 + floor(4267 / 155.2)
-  assert.equal(run(40, 100), 28); // 1 + floor(4307 / 155.2)
-  assert.equal(run(30, 400), 111); // 1 + floor((30 + 17068) / 155.2) = 1 + 110
+  assert.equal(run(0, 4), 1); // 0 + 3 x 42.67 = 128.01 < 155.2
+  assert.equal(run(30, 3), 1); // 30 + 85.34 = 115.34 < 155.2
+  assert.equal(run(30, 4), 2); // 30 + 128.01 = 158.01 >= 155.2
+  assert.equal(run(0, 5), 2); // 170.68
+  assert.equal(run(0, 100), 28); // 1 + floor(4224.33 / 155.2)
+  assert.equal(run(40, 100), 28); // 1 + floor(4264.33 / 155.2)
+  assert.equal(run(30, 400), 110); // 1 + floor((30 + 17025.33) / 155.2) = 1 + 109
+});
+
+test('slSim L23: no charge after a 254: one due before its arrival is paid, one due after it is not', () => {
+  // press at T1 (offset 0); the second charge is due at T1 + 155.2, inside update 5's window (T1 + 128.01, T1 +
+  // 170.68], 27.19 ms into it
+  const end = (offset) => {
+    const { sim, s } = sim1({ sct: 40, fam: 0.5 });
+    sim.setInput(s.id, { type: 'boost', on: true }, 0);
+    for (let i = 0; i < 4; i++) tickWith(sim);
+    sim.setInput(s.id, { type: 'boost', on: false }, offset);
+    tickWith(sim);
+    assert.equal(s.boosting, false);
+    return s.chargeCount;
+  };
+  assert.equal(end(20), 1); // the 254 at 42.67 - 20 = 22.67 ms into the window: before the charge
+  assert.equal(end(10), 2); // at 32.67 ms: after it
+  assert.equal(end(16), 1); // 26.67 < 27.19
+  assert.equal(end(15), 2); // 27.67 > 27.19
+});
+
+// Task T14b (seed 16 law check): every accepted 253 starts a boost run with its own first charge and its own clock
+// (L22, L23), also when two boost records land inside ONE update slot.
+test('slSim L23: a 254 then a 253 in one update restart the clock at the 253, with a charge at that press', () => {
+  const { sim, s } = sim1({ sct: 40, fam: 0.5 });
+  sim.setInput(s.id, { type: 'boost', on: true }, 0);
+  for (let i = 0; i < 3; i++) tickWith(sim);
+  assert.equal(s.chargeCount, 1);
+  near(s.chargeMs, 2 * P, 1e-9, 'old clock'); // 85.34 from the press to the end of update 3
+  sim.setInput(s.id, { type: 'boost', on: false }, 30); // arrived 30 ms before the update
+  sim.setInput(s.id, { type: 'boost', on: true }, 10); // then 10 ms before it
+  tickWith(sim);
+  assert.equal(s.boosting, true);
+  assert.equal(s.chargeCount, 2); // the charge at the new press; the old run ended at the 254
+  near(s.chargeMs, 10, 1e-9, 'new clock from the 253'); // 10, not 85.34 + 42.67
+  // the next charge is due 155.2 after the 253: 10 + 4 x 42.67 = 180.68 >= 155.2, 10 + 3 x 42.67 = 138.01 is not
+  for (let i = 0; i < 3; i++) tickWith(sim);
+  assert.equal(s.chargeCount, 2);
+  tickWith(sim);
+  assert.equal(s.chargeCount, 3);
+  // a 253 while boosting (no 254 between) is no new press: the clock runs on
+  const ms = s.chargeMs;
+  sim.setInput(s.id, { type: 'boost', on: true }, 5);
+  tickWith(sim);
+  assert.equal(s.chargeCount, 3);
+  near(s.chargeMs, ms + P, 1e-9, 'clock kept');
+});
+
+test('slSim L23: a 253, a 254 and a 253 in one update are two presses with a charge each', () => {
+  const { sim, s } = sim1({ sct: 40, fam: 0.5 });
+  sim.setInput(s.id, { type: 'boost', on: true }, 40);
+  sim.setInput(s.id, { type: 'boost', on: false }, 25);
+  sim.setInput(s.id, { type: 'boost', on: true }, 5);
+  tickWith(sim);
+  assert.equal(s.boosting, true);
+  assert.equal(s.chargeCount, 2);
+  near(s.chargeMs, 5, 1e-9, 'clock from the last 253');
+  // a 253 then a 254 in one update: the press was accepted, so its charge is taken; the boost is over
+  const b = sim1({ sct: 40, fam: 0.5 });
+  b.sim.setInput(b.s.id, { type: 'boost', on: true }, 30);
+  b.sim.setInput(b.s.id, { type: 'boost', on: false }, 10);
+  tickWith(b.sim);
+  assert.equal(b.s.boosting, false);
+  assert.equal(b.s.chargeCount, 1);
+  // each first charge pays its own mass: at sct 2 fam falls by two draws in [0.07754, 0.08892] (L23) times the L18
+  // multiplier (1 - Lq / 430)^2.25, above 0.98 at L 2.5; one charge would be at most 0.08892
+  const c = sim1({ fam: 0.5 });
+  c.sim.setInput(c.s.id, { type: 'boost', on: true }, 40);
+  c.sim.setInput(c.s.id, { type: 'boost', on: false }, 25);
+  c.sim.setInput(c.s.id, { type: 'boost', on: true }, 5);
+  tickWith(c.sim);
+  assert.equal(c.s.chargeCount, 2);
+  const paid = 0.5 - c.s.fam;
+  assert.ok(paid > 2 * 0.07754 * 0.98 && paid <= 2 * 0.08892, 'two charges paid: ' + paid);
 });
 
 test('slSim L23: charge edges 0.07754 to 0.08892 at sct 2 to 6, the approved cubic above', () => {
@@ -492,12 +569,12 @@ test('slSim hold: steering locked to the current ang byte, inputs stored to rele
   sim.setInput(s.id, { type: 'boost', on: true }, 43);
   for (let i = 0; i < 5; i++) tickWith(sim);
   assert.equal(s.boosting, true);
-  sim.setHold(s.id, 0.7333, 21); // the hold start ends the boost like a 254 read 21 ms before the update
+  sim.setHold(s.id, 0.7333, 21); // the hold start ends the boost like a 254 read 21 ms before the next update
   assert.equal(s.wang, Math.floor(1.0 * 256 / PI2) * PI2 / 256); // L48.angRound floor
-  assert.equal(s.boosting, false);
+  assert.equal(s.boosting, true, 'the boost ends in the update, at the hold start time (task T14b)');
   const spCore = s.spCore;
   sim.setInput(s.id, { type: 'angle', q: 60 }, 0);
-  sim.setInput(s.id, { type: 'boost', on: true }, 0);
+  sim.setInput(s.id, { type: 'boost', on: true }, 0); // arrived after the hold start: refused
   tickWith(sim);
   assert.equal(s.boosting, false, 'no boosting while holding (C_HOLD_BOOST)');
   assert.equal(s.ang, s.wang, 'locked on the byte');
@@ -507,6 +584,28 @@ test('slSim hold: steering locked to the current ang byte, inputs stored to rele
   assert.equal(s.wang, Math.floor(256 * 60 / 251) * PI2 / 256, 'the stored angle applies at release');
   tickWith(sim);
   assert.equal(s.sp, s.spCore);
+});
+
+// Task T14b: the hold start is an event in the update's timeline (C_HOLD_BOOST), in the room's order (inputs, then the
+// hold step, then the update): a press that arrived before it starts a boost and pays its charge, then the hold ends it;
+// a press that arrived after it is refused.
+test('slSim hold: a hold that starts inside the update ends a boost at its own time, after an earlier press', () => {
+  const a = sim1({ sct: 10, fam: 0.5 });
+  a.sim.setInput(a.s.id, { type: 'boost', on: true }, 40);
+  a.sim.applyInputs();
+  a.sim.setHold(a.s.id, 0.9, 20);
+  a.sim.step();
+  assert.equal(a.s.chargeCount, 1, 'the press 40 ms before the update came before the hold (20 ms)');
+  assert.equal(a.s.boosting, false, 'the hold ended it');
+  const b = sim1({ sct: 10, fam: 0.5 });
+  b.sim.setInput(b.s.id, { type: 'boost', on: true }, 10);
+  b.sim.applyInputs();
+  b.sim.setHold(b.s.id, 0.9, 30);
+  b.sim.step();
+  assert.equal(b.s.chargeCount, 0, 'the press 10 ms before the update came after the hold (30 ms): refused');
+  assert.equal(b.s.boosting, false);
+  assert.equal(b.sim.log.boosts.length, 1);
+  assert.deepEqual([b.sim.log.boosts[0].on, b.sim.log.boosts[0].ok, b.sim.log.boosts[0].off], [true, false, 10]);
 });
 
 function scripted(seed) {
