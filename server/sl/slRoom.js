@@ -888,6 +888,7 @@ class SlRoom {
       seatList: null,
       seatIdx: 0,
       last: null, // [due, start, end] of the last step (its timing row is written when the sends end)
+      sliceStart: NaN, // when the running slice began (_jobBody), for its length at a yield or at the end
     };
     this._runJob(false);
   }
@@ -923,6 +924,7 @@ class SlRoom {
 
   _jobBody(job, sync) {
     const sliceStart = this.clock();
+    job.sliceStart = sliceStart;
     // sim part: the due steps back to back (catch-up steps yield between each other while a paid seat is occupied)
     while (job.ran < job.steps && !this.stopped) {
       const due = Number.isFinite(job.firstDue) ? job.firstDue + job.ran * this.P : NaN;
@@ -958,9 +960,16 @@ class SlRoom {
     return false;
   }
 
-  _yield(sliceStart) {
+  // One slice of synchronous room time ended (the governor's slice input, slArenas). Every slice: one that yields, and
+  // the last of each wake (_endJob), which a wake that never yields is all of (verifier, 2026-10-11: recorded only at
+  // a yield, the slice input read 0.0 ms in every local run, also during a 40 ms burn).
+  _noteSlice(sliceStart) {
     const d = this.clock() - sliceStart;
     if (d > this.stats.maxSliceMs) this.stats.maxSliceMs = d;
+  }
+
+  _yield(sliceStart) {
+    this._noteSlice(sliceStart);
     this.stats.slices++;
     this._jobHandle = safeImmediate(() => this._resumeJob(), 'sl.wake.slice', this.safeStats, this.safeOpts);
   }
@@ -968,6 +977,7 @@ class SlRoom {
   _endJob(job) {
     if (this._job !== job) return;
     this._job = null;
+    if (Number.isFinite(job.sliceStart)) this._noteSlice(job.sliceStart);
     const end = this.clock();
     if (job.last) this.timing.step(job.last[0], job.last[1], end, end);
     this.timing.wakeEnd(job.ran);

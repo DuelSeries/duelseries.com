@@ -600,15 +600,15 @@ test('loop probe: until a calm read the floor is the 1 ms resolution (over-reads
   assert.equal(probe.stats().floorMs, B.LOOP_RESOLUTION_MS);
   assert.equal(B.createBotGovernor(FIXTURE).sample(0, calm({ loopP99Ms: 39 })), 'engaged');
   assert.equal(mon.resets, 2, 'not calm and no floor yet: the window starts afresh');
-  mon.hold(21.5); // the next second is calm on its own (0.12); with the busy one it would read 0.51
+  mon.hold(19.5); // the next second is calm on its own (0.12); with the busy one it would read 0.51
   elu.busy(0.12, 1000);
   assert.equal(probe.read(2000), 0);
-  assert.equal(probe.stats().floorMs, 21.5);
+  assert.equal(probe.stats().floorMs, 19.5);
   assert.ok(close(probe.stats().busy, 0.12));
   assert.equal(mon.resets, 2);
   mon.hold(45); // once there is a floor, a busy second no longer restarts the window
   elu.busy(0.9, 1000);
-  assert.equal(probe.read(3000), 23.5);
+  assert.equal(probe.read(3000), 25.5);
   assert.equal(mon.resets, 2);
 });
 
@@ -632,6 +632,44 @@ test('loop probe: a span busy for LOOP_CALM_BUSY of its time or more, or with a 
     assert.equal(probe.stats().calmReads, 0);
   }
   assert.equal(B.LOOP_CALM_BUSY, 0.5);
+});
+
+// The verifier's case (2026-10-11): a process that boots straight into a loop blocked 40 ms in every 100 (busy 0.4,
+// under LOOP_CALM_BUSY) took a 40 ms floor and read 0 against the 15 ms bar for as long as the load lasted.
+test('loop probe: the floor is never above LOOP_FLOOR_MAX_MS, so a loaded boot still reads its load', () => {
+  assert.equal(B.LOOP_FLOOR_MAX_MS, 20);
+  const mon = fakeLoop(0);
+  const elu = fakeElu();
+  const probe = B.createLoopProbe(mon, FIXTURE, elu);
+  probe.read(0);
+  let read = 0;
+  for (let s = 1; s <= 120; s++) {
+    mon.hold(40);
+    elu.busy(0.4, 1000);
+    read = probe.read(s * 1000);
+    assert.ok(probe.stats().floorMs <= B.LOOP_FLOOR_MAX_MS, 'second ' + s + ': floor ' + probe.stats().floorMs);
+  }
+  assert.equal(probe.stats().settled, true, 'whole calm windows were taken');
+  assert.equal(probe.stats().floorMs, 20);
+  assert.equal(read, 20, '40 ms blocks read 20 above the floor');
+  assert.equal(B.createBotGovernor(FIXTURE).sample(0, calm({ loopP99Ms: read })), 'engaged');
+  for (let s = 121; s <= 240; s++) {
+    mon.hold(60);
+    elu.busy(0.48, 1000);
+    read = probe.read(s * 1000);
+  }
+  assert.equal(read, 40, '60 ms blocks read 40');
+  // a quiet floor under the cap is untouched (the measured Windows rest p99)
+  const q = fakeLoop(0);
+  const e2 = fakeElu();
+  const p2 = B.createLoopProbe(q, FIXTURE, e2);
+  p2.read(0);
+  for (let s = 1; s <= 31; s++) {
+    q.hold(WIN_P99);
+    e2.busy(0.05, 1000);
+    p2.read(s * 1000);
+  }
+  assert.deepEqual([p2.stats().floorMs, p2.stats().settled], [WIN_P99, true]);
 });
 
 test('loop probe: on a Linux-like 1 ms timer the reading is the lateness itself', () => {

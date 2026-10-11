@@ -650,3 +650,54 @@ test('freedAt keeps only ids freed less than C_ID_QUARANTINE_MS ago, and blocks 
   room._freeId(first, now);
   assert.strictEqual([...room.freedAt.keys()].pop(), first);
 });
+
+// The governor's slice input (slArenas reads room.stats.maxSliceMs once a second). It was written only at a yield, so
+// a wake that never yields (one seat, no paid seat) never recorded its length: the input read 0.0 ms in every local
+// run, also during a 40 ms burn (FLAG f27a296; verifier, 2026-10-11).
+test('every slice is recorded for the governor: a wake that never yields, and the last slice of one that does', () => {
+  const { ft, room } = makeRoom();
+  const proto = Object.getPrototypeOf(room);
+  let stepCost = 0;
+  room._simStep = function simStep(job) {
+    proto._simStep.call(this, job);
+    ft.advance(stepCost);                                        // the step took this long on the room's clock
+  };
+  room.seat(bareSocket(), { nick: 'Owen', cv: 3 });
+  ft.advance(P);
+  room.wake();
+  room.stats.maxSliceMs = 0;
+  stepCost = 13;
+  ft.advance(2.5 * P);
+  assert.strictEqual(room.wake(), 2);
+  assert.strictEqual(room.stats.slices, 0, 'one seat: the wake never yielded');
+  assert.ok(Math.abs(room.stats.maxSliceMs - 26) < 1e-9, 'the whole wake is one slice: ' + room.stats.maxSliceMs);
+  // the sync finish of a job (a new wake while one is sliced, tickOnce, stop) is a slice too: the same _endJob
+  room.stats.maxSliceMs = 0;
+  stepCost = 0;
+  ft.advance(P);
+  room.wake();
+  assert.ok(room.stats.maxSliceMs < 1e-9, 'a wake that took no time on the clock: ' + room.stats.maxSliceMs);
+  // three seats whose parts cost 1, 6 and 20 ms: the wake yields after the second (7 ms, over C_FLUSH_SLICE_MS 6) and
+  // its last slice is the third seat's 20 ms
+  room.seat(bareSocket(), { nick: 'Two', cv: 3 });
+  room.seat(bareSocket(), { nick: 'Three', cv: 3 });
+  const costs = [1, 6, 20];
+  let k = 0;
+  room._seatPart = function seatPart(seat, job) {
+    proto._seatPart.call(this, seat, job);
+    ft.advance(costs[k++ % 3]);
+  };
+  ft.advance(P);
+  room.wake();
+  ft.runImmediates();
+  room.stats.maxSliceMs = 0;
+  room.stats.slices = 0;
+  k = 0;
+  ft.advance(P);
+  room.wake();
+  assert.strictEqual(room.stats.slices, 1, 'it yielded once');
+  assert.ok(Math.abs(room.stats.maxSliceMs - 7) < 1e-9, 'the first slice: ' + room.stats.maxSliceMs);
+  ft.runImmediates();
+  assert.strictEqual(room._job, null, 'the wake ended');
+  assert.ok(Math.abs(room.stats.maxSliceMs - 20) < 1e-9, 'the last slice: ' + room.stats.maxSliceMs);
+});

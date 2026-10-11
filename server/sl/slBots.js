@@ -77,6 +77,16 @@ const LOOP_RESOLUTION_MS = 1;
 // 50 ms: 0.655 to 0.864. A bare process: idle 0.002; a 20 ms burn every 50 ms 0.32; a 40 ms burn every 50 ms 0.64; a
 // setImmediate spin 1.0 (its p99 falls to 1 ms, so it must never be a floor).
 const LOOP_CALM_BUSY = 0.5;
+// The highest idle floor createLoopProbe ever takes. The floor exists to take out the OS timer's granularity (Windows'
+// 64 Hz tick, 15.625 ms) and a quiet process's background work, never load: measured on Owen's box (2026-10-11) a bare
+// idle process read p99 16.4 to 16.5 ms, the whole local server at rest on a quiet machine 16.2 to 19.6 ms, and the
+// governor proof run's floor was 20.0 ms. A calm share alone cannot tell that from load: a loop blocked 40 ms in
+// every 100 is busy only 0.4, under LOOP_CALM_BUSY, and a process that boots straight into it took a 40 ms floor and
+// read 0 against the 15 ms bar for as long as the load lasted (verifier, 2026-10-11). CHOSEN: 20 ms, the highest
+// floor measured at rest; a p99 above it is load on either system (Linux keeps 1 ms timers, so its floor sits far
+// below and this never binds there). On a box loaded by other processes (rest floors 17.1 to 25.9 ms measured) the
+// governor reads up to about 6 ms more than before, still under the bar.
+const LOOP_FLOOR_MAX_MS = 20;
 // The shipped skins are cv 0 to 65: plain colours 0 to 8, the frozen client's stripe lists cover skins 9 to 65
 // (public/js/sl/slSprites.js:628, last row 687) and every other cv draws as cv mod 9 (slSprites.js:837). The same 66
 // skins carry drop colour rows (slLaws SKIN_DROP, BUILD-DECISIONS T1).
@@ -965,8 +975,10 @@ function createBotGovernor(laws) {
 //          before any calm read it is LOOP_RESOLUTION_MS, which can only over-read (bots yield sooner), never
 //          under-read; until then every read that is not calm also starts the window afresh, so the stretch the first
 //          floor comes from never holds the boot's stalls. The first whole calm window replaces that early floor;
-//          after it the floor only ever falls, so an overload cannot lift it. On Windows it sits just over the 15.6 ms
-//          system tick the timer fires on (a bare process 16.5 ms; the local server, machine loaded, 17.1 to 25.9 ms),
+//          after it the floor only ever falls, so an overload cannot lift it. It is never above LOOP_FLOOR_MAX_MS (a
+//          calm share alone does not tell a timer tick from a loop blocked under half the time). On Windows it sits
+//          just over the 15.6 ms system tick the timer fires on (a bare process 16.5 ms; the local server, machine
+//          loaded, 17.1 to 25.9 ms, so 20 there),
 //          on Linux it is the 1 ms resolution plus the quietest background work of the process (the old engine's
 //          rooms tick on the same thread);
 //   read   max(0, raw - floor), and 0 until the histogram holds a sample (an empty one answers 511 ns for every
@@ -1036,7 +1048,8 @@ function createLoopProbe(monitor, laws, elu) {
       if (nowMs - start >= windowMs) {
         const v = calmP99();
         if (v > 0) {
-          floor = settled && floor < v ? floor : v;
+          const w = v < LOOP_FLOOR_MAX_MS ? v : LOOP_FLOOR_MAX_MS;
+          floor = settled && floor < w ? floor : w;
           settled = true;
         }
         lastP99 = p99();
@@ -1047,7 +1060,7 @@ function createLoopProbe(monitor, laws, elu) {
       if (!settled) {
         const v = calmP99();
         calm = v > 0;
-        if (calm && v < floor) floor = v;
+        if (calm && v < floor) floor = v < LOOP_FLOOR_MAX_MS ? v : LOOP_FLOOR_MAX_MS;
       }
       const cur = p99();
       raw = cur > lastP99 ? cur : lastP99;
@@ -1314,6 +1327,7 @@ module.exports = {
   createLoopProbe,
   LOOP_RESOLUTION_MS,
   LOOP_CALM_BUSY,
+  LOOP_FLOOR_MAX_MS,
   DRIVER_LAW_IDS,
   createBotDriver,
 };
