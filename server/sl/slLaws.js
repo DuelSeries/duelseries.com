@@ -49,6 +49,8 @@ const MAY_BE_EMPTY = new Set([STATUS.OPEN, STATUS.NEEDS_MORE]);
 const SL = 'SERVER-LAWS ';
 const OA = 'OWNER-ANSWERS.md:';
 const DAY = '2026-10-10';
+// Provenance of the T5 prey fit rows (the reference side's tool and its output; never read at run time).
+const PREY_FIT = 'the T5 fit: tools/t5-prey-fit.js, recordings/T5-prey-fit.txt';
 
 function law(id, name, status, value, unit, source, approvedAt) {
   const e = { id, name, status, value, unit, source };
@@ -327,10 +329,58 @@ const ENTRIES = [
     'Q8 prey: as measured', SL + 'L32 (SUGGESTED; 14 spawns, 204 adds)'),
   measured('L33.period', 'Prey update period, each prey on its own phase', { periodMs: 337.75, phase: 'perPrey' }, 'ms',
     'L33 ([337.36, 338.13]; plus 6.7 percent off-cycle extra updates, rule not found)'),
-  approved('L33.flee', 'Prey flee: within dist of a head, wanted angle away from the nearest head plus a random offset up to offsetMax; speed levels rest, mid, flee; turning with mamu2',
+  approved('L33.flee', 'Prey flee: within dist of a head, wanted angle away from the nearest head plus a random offset up to offsetMax; restSp at rest; turning with mamu2 (the built speeds of a fleeing and an outward prey are L33.fleeSp and L33.outward; midSp and fleeSp here are the measured levels they replace)',
     { rule: 'preyFlee', dist: 300, offsetMax: 0.25, restSp: 3.8, midSp: [6.06, 6.4], fleeSp: 11, turn: 'mamu2' },
     'world units; rad; speed units', 85, 'Q8 prey: as measured',
     SL + 'L33 (SUGGESTED; the ramp between speed levels is not given there)'),
+  // The T5 fit's prey rows (task T5, server/sl/slPrey.js PREY_ROWS, copied here by the fixer pass of 2026-10-10 so the
+  // shipped table carries them and prey ships; a test keeps both copies equal). The five SUGGESTED ones are APPROVED
+  // under Owen's prey answer "as measured" (Q8) and his approval of every open law with its suggested value.
+  rule('L33.form', 'Prey update record: every j carries dir, ang and wang; sp only when it changed since the prey last j',
+    { always: ['dir', 'ang', 'wang'], sp: 'onChange' }, 'form',
+    'L33 (T5 fit L33.form: 3808 j, 2799 dir+ang+wang, 1009 with sp; 987 carry a new sp, the other 22 repeat it in the ' +
+    'first j after a prey_add; 0 counter-examples; ' + PREY_FIT + ')'),
+  rule('L33.outward', 'Prey outward run: wang exactly away from the map centre (grd, grd), at this speed',
+    { sp: 6.06, from: 'centre' }, 'speed units',
+    'L33 (T5 fit L33.outward: 866 of 866 updates holding sp 6.06 head away from (grd, grd) within 0.02 rad, the wire ' +
+    'grid; the 6.06 level of L33.flee midSp; ' + PREY_FIT + ')'),
+  measured('L33.fleeSp', 'Prey flee speed: a + b x the chasing snake current speed, rounded to the 0.001 wire step',
+    { a: 2.736829476, b: 0.590012180, step: 0.001 }, 'speed units',
+    'L33 (T5 fit L33.fleeSp: fixed by 6.153 at a chaser of 5.79, L20, and 10.997 at a boosting chaser of 14, nsp3; 96 ' +
+    'of 98 plateau speeds inside the chaser wire interval, |residual| p50 0.009; replaces L33.flee midSp and fleeSp for ' +
+    'fleeing prey; ' + PREY_FIT + ')'),
+  measured('L33.afterFlee', 'When a flee ends: the prey runs outward with this chance, else rests', { pOutward: 0.326 },
+    'probability', 'L33 (T5 fit L33.afterFlee: 79 outward of 242 flee ends; outward goes back to rest 4 of 792 updates; ' +
+    PREY_FIT + ')'),
+  approved('L33.spont', 'A resting prey turns outward with no threat with this chance per update, first at firstSp then thenSp',
+    { perUpdate: 0.0045, firstSp: 11, thenSp: 6.06 }, 'probability; speed units', 85, 'Q8 prey: as measured',
+    SL + 'L33 (SUGGESTED by the T5 fit L33.afterFlee: 7 of 1550 rest updates turn outward with no flee; speeds 11.0 x3, ' +
+    '3.8 x3, 6.06 x1; 21 outward updates at 11.0 in all, each followed by 6.06; n is small; ' + PREY_FIT + ')'),
+  approved('L33.wander', 'Resting prey: wang moves by a step drawn from this histogram at each update (bin centre plus a uniform point inside the bin)',
+    {
+      binWidth: 0.02,
+      centres: [-0.30, -0.28, -0.26, -0.24, -0.22, -0.20, -0.18, -0.16, -0.14, -0.12, -0.10, -0.08, -0.06, -0.04, -0.02,
+        0, 0.02, 0.04, 0.06, 0.08, 0.10, 0.12, 0.14, 0.16, 0.18, 0.20, 0.22, 0.24, 0.26, 0.28, 0.30],
+      counts: [5, 8, 2, 9, 4, 8, 16, 18, 26, 22, 44, 71, 70, 109, 167, 226, 173, 87, 51, 58, 39, 21, 24, 20, 19, 15, 4, 5,
+        3, 1, 3],
+    }, 'rad', 85, 'Q8 prey: as measured',
+    SL + 'L33 (SUGGESTED by the T5 fit L33.wander: 1328 of 1355 rest steps within 0.31 rad, this histogram; p5 -0.17, ' +
+    'p95 0.161; their steps are serially correlated, lag-1 0.235, which independent draws do not reproduce; rule not ' +
+    'found; ' + PREY_FIT + ')'),
+  approved('L33.motion', 'Prey motion between updates: the client prediction model (turn mamu2 per 8 ms toward wang, move sp / 32 per ms)',
+    { model: 'client' }, 'model', 85, 'Q8 prey: as measured',
+    SL + 'L33 (SUGGESTED by the T5 fit L33.motion: their per-update displacement per axis is a multiple of 16 wire units ' +
+    'of 3 within 1 on 2419 of 3491 updates: their server moves prey in 48-unit steps, not as their client predicts; ' +
+    'rule not found; the client model is the L33 text "turning uses mamu2 like the client"; ' + PREY_FIT + ')'),
+  approved('L33.extra', 'Prey off-cycle updates per regular update', { perUpdate: 0 }, 'probability', 85,
+    'Q8 prey: as measured',
+    SL + 'L33 (SUGGESTED by the T5 fit L33.extra: 145 of 3610 gaps under 300 ms, in every mode, not tied to a speed or ' +
+    'mode change; L33.period "plus 6.7 percent off-cycle extra updates, rule not found"; ' + PREY_FIT + ')'),
+  approved('L32.remove', 'A prey whose position passes the border is removed (prey_remove to every holder)',
+    { atBorder: true }, 'flag', 85, 'Q8 prey: as measured',
+    SL + 'L32 (SUGGESTED by the T5 fit L32.remove: 0 of 157 uneaten removals had the prey inside the watched area: no ' +
+    'prey ever vanished in view; standing 0.0098 prey per watched sector, a mean stay of 0.51 min at the L32 rate; the ' +
+    'outward run ends at the border; what happens there is not in the data; ' + PREY_FIT + ')'),
   rule('L34', 'Prey value: fam += Kp rad^2 x mult (L18 mult before the eat), applied once at the eat',
     { rule: 'preyGain', Kp: 0.0958111 }, 'fam per rad^2', 'L34 (rad 6 at sct 3 and 7 give 3.4492013 both)'),
 
@@ -412,14 +462,14 @@ const ENTRIES = [
   approved('C_DISCONNECT', 'A live snake whose socket drops glides straight this long, then dies',
     { rule: 'glideThenDie', glideMs: 3000 }, 'ms', 108, 'Q10 connection blips: glide 3 s from the start, then dies if not back',
     'SERVER-DESIGN 4.3, 9.6'),
-  approved('C_SL_PER_IP', 'Sockets per internet address on /sl', 30, 'sockets', 110, 'Q11 players per internet address: 30',
+  approved('C_SL_PER_IP', 'Sockets per internet address on /sl, a gliding snake counted until its glide ends', 30, 'sockets', 110, 'Q11 players per internet address: 30',
     'SERVER-DESIGN 4.3, 12.2'),
   approved('C_LB_BOTS', 'Leaderboard rank and snake count include bots', true, 'flag', 32,
     'Q2 bots: no label, the screen as busy as a real server',
     SL + 'L9 (CHOSEN there: the wire never says) and section M item 2 (N counts players and bots, the same count the leaderboard sends)'),
   approved('C_KILLFEED', 'Kill line only when the killer exists and a human is involved', { rule: 'humanInvolved' }, 'rule', 44,
     'Q14 old extras: keep all, kill messages included', 'SERVER-DESIGN 4.3 (the old rule, server/GameRoom.js:753)'),
-  approved('PICTURE_SKINS', 'Picture skins switch: off until Owen has reviewed each image; on only through a row naming the reviewed files',
+  approved('PICTURE_SKINS', 'Picture skins switch: off until Owen has reviewed each image; one switch for all 12, on only when reviewed names every one of the 12 files (slBots refuses anything else)',
     { on: false, reviewed: [] }, 'switch', 102, 'picture skins: included with one off switch, reviewed before go-live',
     'SERVER-DESIGN 4.3, 15.5'),
   approved('C_TOP_SINCE', 'Biggest cash-out box counts cash-outs since the USDC cutover, which is all-time: every rake row is later',

@@ -41,8 +41,11 @@
       'border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:8px 10px;box-sizing:content-box;' +
       'backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);display:none;}',
     '.slx-chat-msgs{display:flex;flex-direction:column;align-items:flex-start;gap:1px;height:144px;overflow-y:auto;' +
-      'overflow-x:hidden;margin-bottom:6px;pointer-events:auto;scrollbar-width:thin;' +
+      'overflow-x:hidden;margin-bottom:6px;pointer-events:none;scrollbar-width:thin;' +
       'scrollbar-color:rgba(255,255,255,.25) transparent;}',
+    // the lines take the pointer only while typing (fixer pass, 2026-10-10): with the input closed a press, a right
+    // click or a wheel over the box reaches their game as anywhere else (Q9 computers exactly theirs)
+    '.slx-chat-typing .slx-chat-msgs{pointer-events:auto;}',
     '.slx-chat-msgs::-webkit-scrollbar{width:5px;}',
     '.slx-chat-msgs::-webkit-scrollbar-thumb{background:rgba(255,255,255,.22);border-radius:3px;}',
     '.slx-chat-msgs::-webkit-scrollbar-track{background:transparent;}',
@@ -114,6 +117,7 @@
 
   function openChat() {
     typing = true;
+    box.className = 'slx-chat slx-chat-typing';
     input.className = 'slx-chat-input slx-chat-open';
     hint.style.display = 'none';
     input.value = '';
@@ -127,6 +131,7 @@
   function closeChat() {
     if (!typing) return;
     typing = false;
+    box.className = 'slx-chat';
     input.className = 'slx-chat-input';
     hint.style.display = '';
     if (doc.activeElement === input) {

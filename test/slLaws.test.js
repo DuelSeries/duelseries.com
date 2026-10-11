@@ -45,7 +45,7 @@ test('every law L1 to L51 has a row, and every SERVER-DESIGN 4.3 own row is pres
     const m = /^L(\d+)(\.|$)/.exec(id);
     if (m) assert.ok(Number(m[1]) >= 1 && Number(m[1]) <= 51, id);
   }
-  assert.strictEqual(IDS.length, 139);
+  assert.strictEqual(IDS.length, 148); // 139 + the nine T5 prey rows (fixer pass, 2026-10-10)
 });
 
 test('statuses, sources and approvals: each source starts with its status, APPROVED rows cite Owen\'s line', () => {
@@ -68,7 +68,7 @@ test('statuses, sources and approvals: each source starts with its status, APPRO
     if (e.status === 'NEEDS_MORE') assert.strictEqual(e.value, null, id);
     else assert.notStrictEqual(e.value, null, id);
   }
-  assert.deepStrictEqual(L.statusCounts(L.LAWS), { KNOWN: 8, MEASURED: 19, RULE: 26, APPROVED: 51, CHOSEN: 28,
+  assert.deepStrictEqual(L.statusCounts(L.LAWS), { KNOWN: 8, MEASURED: 21, RULE: 28, APPROVED: 56, CHOSEN: 28,
     PROPOSED: 5, SUGGESTED: 0, OPEN: 0, NEEDS_MORE: 2, FIXTURE: 0 });
 });
 

@@ -52,22 +52,31 @@ test('prey laws: the FIXTURE rows and the T5 rows, literally', () => {
     'L33.wander', 'L33.motion', 'L33.extra', 'L32.remove']);
 });
 
-test('shippable: the five SUGGESTED T5 rows keep prey closed until Owen answers; the law table wins by id', () => {
-  assert.deepStrictEqual(Pr.preyNotShippable(LAWS), ['L33.spont (SUGGESTED)', 'L33.wander (SUGGESTED)',
-    'L33.motion (SUGGESTED)', 'L33.extra (SUGGESTED)', 'L32.remove (SUGGESTED)']);
-  assert.throws(() => Pr.assertPreyShippable(LAWS), /L33\.spont/);
+// Fixer pass (2026-10-10): the nine T5 rows now live in slLaws.js (the five SUGGESTED ones APPROVED under Owen's Q8
+// "prey as measured", OWNER-ANSWERS.md:85), so the shipped table ships prey; slPrey's PREY_ROWS stay as the fallback
+// copy and must equal the table.
+test('shippable: the shipped table carries the nine T5 prey rows (prey ships); both copies agree; the table wins by id', () => {
+  assert.deepStrictEqual(Pr.preyNotShippable(LAWS), []);
+  assert.doesNotThrow(() => Pr.assertPreyShippable(LAWS));
+  const SUGGESTED_FIVE = ['L33.spont', 'L33.wander', 'L33.motion', 'L33.extra', 'L32.remove'];
   for (const id of Pr.PREY_ROW_IDS) {
     const r = Pr.PREY_ROWS[id];
     assert.ok([STATUS.RULE, STATUS.MEASURED, STATUS.SUGGESTED].includes(r.status), id);
     assert.ok(/T5-prey-fit/.test(r.source), id + ' cites the fit');
+    assert.ok(LAWS[id], id + ' is in the shipped table');
+    assert.strictEqual(JSON.stringify(LAWS[id].value), JSON.stringify(r.value), id + ' value equals PREY_ROWS');
+    assert.strictEqual(LAWS[id].status, SUGGESTED_FIVE.includes(id) ? STATUS.APPROVED : r.status, id);
+    assert.ok(/T5-prey-fit/.test(LAWS[id].source), id + ' table row cites the fit');
   }
-  // a table that carries the five rows APPROVED (as T1 would after Owen's answer) is shippable, and its values win
-  const extra = ['L33.spont', 'L33.wander', 'L33.motion', 'L33.extra', 'L32.remove'].map((id) => {
-    const r = Pr.PREY_ROWS[id];
-    const value = id === 'L33.spont' ? { perUpdate: 0.001, firstSp: 11, thenSp: 6.06 } : r.value;
-    return { id, name: r.name, status: STATUS.APPROVED, value, unit: r.unit, source: 'test', approvedAt: '2026-10-10 test' };
-  });
-  const t = tableFrom(Object.keys(LAWS).map((id) => LAWS[id]).concat(extra));
+  for (const id of SUGGESTED_FIVE) assert.strictEqual(LAWS[id].approvedAt, '2026-10-10 OWNER-ANSWERS.md:85', id);
+  // a table whose five rows are back to SUGGESTED keeps prey closed, and a changed value in the table wins
+  const back = tableFrom(Object.keys(LAWS).map((id) => (SUGGESTED_FIVE.includes(id)
+    ? { id, name: LAWS[id].name, status: STATUS.SUGGESTED, value: LAWS[id].value, unit: LAWS[id].unit, source: 'SUGGESTED: test' }
+    : LAWS[id])));
+  assert.deepStrictEqual(Pr.preyNotShippable(back), ['L33.spont (SUGGESTED)', 'L33.wander (SUGGESTED)',
+    'L33.motion (SUGGESTED)', 'L33.extra (SUGGESTED)', 'L32.remove (SUGGESTED)']);
+  const t = tableFrom(Object.keys(LAWS).map((id) => (id === 'L33.spont'
+    ? Object.assign({}, LAWS[id], { value: { perUpdate: 0.001, firstSp: 11, thenSp: 6.06 } }) : LAWS[id])));
   assert.deepStrictEqual(Pr.preyNotShippable(t), []);
   assert.strictEqual(Pr.preyLaws(t).spontP, 0.001);
 });

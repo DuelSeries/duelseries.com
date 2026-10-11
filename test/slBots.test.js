@@ -534,7 +534,18 @@ test('skins: uniform over the shipped 0 to 65; the 12 picture skins only with th
   assert.equal(off.length, 54);
   assert.ok(off.includes(0) && off.includes(65) && !off.includes(66));
   for (const cv of B.PICTURE_SKIN_CVS) assert.ok(!off.includes(cv), 'picture skin ' + cv + ' while off');
-  const on = B.botSkins(makeFixture({ PICTURE_SKINS: { on: true, reviewed: [] } }));
+  // fixer pass (2026-10-10): one switch for all 12, so on needs every file reviewed; anything else is refused
+  const ALL = ['kwk6.png', 'jmou3.png', 'pewd.png', 'sest5.png', 'play.png', 'bonkers2.png', 'leaf.png', 'swiss.png',
+    'moldova.png', 'vietnam.png', 'argentina.png', 'mov2.png'];
+  assert.deepEqual(Array.from(B.PICTURE_FILES), ALL);
+  const skinsJs = fs.readFileSync(path.join(__dirname, '../public/js/slx/slxSkins.js'), 'utf8');
+  assert.deepEqual([...skinsJs.matchAll(/\['\w+', '([\w.]+\.png)', (?:true|false)\]/g)].map((m) => m[1]), ALL, 'the layer loads the same 12 files');
+  assert.throws(() => B.botSkins(makeFixture({ PICTURE_SKINS: { on: true, reviewed: [] } })), /not every picture file is reviewed/);
+  assert.throws(() => B.botSkins(makeFixture({ PICTURE_SKINS: { on: true, reviewed: ALL.slice(1) } })), /kwk6.png/);
+  assert.throws(() => B.botSkins(makeFixture({ PICTURE_SKINS: { on: false, reviewed: ['x.png'] } })), /not one of the 12/);
+  assert.throws(() => B.botSkins(makeFixture({ PICTURE_SKINS: { on: false } })), /reviewed list/);
+  assert.equal(B.botSkins(makeFixture({ PICTURE_SKINS: { on: false, reviewed: ALL.slice(0, 3) } })).length, 54, 'a partial review keeps it off');
+  const on = B.botSkins(makeFixture({ PICTURE_SKINS: { on: true, reviewed: ALL } }));
   assert.equal(on.length, 66);
   // the frozen client names the same 12 picture skins and the same last skin
   const spr = fs.readFileSync(path.join(__dirname, '../public/js/sl/slSprites.js'), 'utf8');

@@ -79,10 +79,13 @@
     if (!isQ(e) || e.repeat || typing(e)) return;
     press('key');
   });
-  doc.addEventListener('keyup', function (e) {
+  // The Q release is heard on the window in the CAPTURE phase (fixer pass, 2026-10-10): a text box that stops its key
+  // events (the chat input T opens, slxChat; slxMain guard typing) would otherwise swallow it, and the hold would run
+  // on to a cash-out with Q already let go. A Q keyup that ends no key hold does nothing.
+  root.addEventListener('keyup', function (e) {
     if (!isQ(e)) return;
     release('key');
-  });
+  }, true);
   root.addEventListener('blur', function () { release('blur'); });
   doc.addEventListener('visibilitychange', function () {
     if (doc.hidden === true || doc.visibilityState === 'hidden') release('hidden');
@@ -131,8 +134,8 @@
     bs.cursor = 'pointer';
     bs.transition = 'background 0.1s, transform 0.1s';
     // A layer control never reaches their window handlers (SERVER-DESIGN 15.1 rules): mousedown would boost
-    // (slInput.js:148, 205), mouseup ends a boost (:207), touches steer (:203-206).
-    var stops = ['mousedown', 'mouseup', 'touchmove'];
+    // (slInput.js:148, 205), touches steer (:203-206). mouseup goes on: it only ends a boost (:207; fixer pass).
+    var stops = ['mousedown', 'touchmove'];
     for (var i = 0; i < stops.length; i++) button.addEventListener(stops[i], stop);
     button.addEventListener('contextmenu', function (e) {
       e.stopPropagation();
@@ -167,7 +170,10 @@
     if (m.on === 1 || m.on === true) {
       var need = m.need;
       if (typeof need !== 'number' || !(need > 0) || need === Infinity) return;
-      rings[id] = { t0: slx.now(), need: need };
+      // elapsed: a snake that came into view mid-hold arrives with the time it has held (server slRoom._ringOnView)
+      var el = m.elapsed;
+      var done = typeof el === 'number' && el > 0 && el !== Infinity ? (el < need ? el : need) : 0;
+      rings[id] = { t0: slx.now() - done, need: need };
     } else if (m.on === 0 || m.on === false) {
       delete rings[id];
     }

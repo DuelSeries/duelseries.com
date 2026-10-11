@@ -58,6 +58,7 @@ test('tagOf: kinds and what each record adds or removes (literal vectors)', () =
   assert.deepStrictEqual(SQ.tagOf({ type: 'sector_remove', sx: 3, sy: 4 }, 5), [K.REMOVE, 2, -1, 772, null]);
   assert.deepStrictEqual(SQ.tagOf({ type: 'prey_add', id: 70 }, 5), [K.ADD, 3, 1, 70, null]);
   assert.deepStrictEqual(SQ.tagOf({ type: 'prey_remove', id: 70 }, 5), [K.REMOVE, 3, -1, 70, null]);
+  assert.deepStrictEqual(SQ.tagOf({ type: 'prey_eaten', id: 70, eater: 9 }, 5), [K.OTHER, 3, -1, 70, null]);
   assert.deepStrictEqual(SQ.tagOf({ type: 'leaderboard' }, 5), [K.LATEST, 0, 0, 0, 'l']);
   assert.deepStrictEqual(SQ.tagOf({ type: 'flux' }, 5), [K.LATEST, 0, 0, 0, 'z']);
   assert.deepStrictEqual(SQ.tagOf({ type: 'minimap' }, 5), [K.MAP, 0, 0, 0, null]);
@@ -250,9 +251,11 @@ test('fake WebSocket with late pong acks: ackLate holds data in the queue and ne
     assert.strictEqual(q.flush(now), true);
   }
   const lastPong = now;
-  // the downstream now hides 3 s in the kernel buffer: no ping comes back for 3 s, ticks keep coming
+  // the downstream now hides 3 s in the kernel buffer: no ping comes back for 3 s, ticks keep coming, and the player's
+  // inputs keep arriving (the upstream is healthy, only the pong is late)
   let held = 0;
   for (now = lastPong + P; now < lastPong + 3000; now += P) {
+    q.heard(now);
     pushEv(q, 2, otherRot(9));
     if (!q.flush(now)) held++;
     assert.strictEqual(q.checkStall(now), false, 'the transport is ready: never a stall kick');
@@ -273,6 +276,47 @@ test('fake WebSocket with late pong acks: ackLate holds data in the queue and ne
   // a hidden tab stops pinging: never late while hidden
   q.setHidden(true);
   assert.strictEqual(q.ackLate(now + 10000), false);
+});
+
+// Fixer pass (2026-10-10): a late UPSTREAM (a lost segment holds every upstream byte behind it) must not hold a
+// healthy downstream. Pings every 250 ms on a fast link; then one ping and every input behind it land 600 ms late.
+test('ackLate: an upstream-only delay (ping and inputs late together) holds nothing; inputs that keep coming without the ping do', () => {
+  let now = 0;
+  const sock = fakeSocket('websocket', () => now);
+  const q = SQ.createSendQueue(LAWS, { socket: sock, ownId: 5, clock: () => now });
+  for (let k = 0; k < 8; k++) {
+    now = k * 250;
+    q.heard(now);
+    q.pong(1, now);
+    assert.strictEqual(q.flush(now), true);
+  }
+  const lastPong = now;
+  // the next ping would land at lastPong + 250; it and every input sent after lastPong land at lastPong + 850 instead
+  let sent = 0;
+  for (now = lastPong + P; now < lastPong + 850; now += P) {
+    pushEv(q, 2, otherRot(9));
+    if (q.flush(now)) sent++;
+  }
+  assert.strictEqual(q.stats.ackLateHolds, 0, 'nothing held while only the upstream is late');
+  assert.ok(sent >= 19, 'every tick left: ' + sent);
+  assert.strictEqual(q.ackLate(lastPong + 849), false);
+  now = lastPong + 850;
+  q.heard(now);
+  q.pong(3, now);
+  assert.strictEqual(q.flush(now), true);
+  // the same silence, but an input lands after the deadline while the ping does not: the client never got the pong
+  const pong2 = now;
+  q.heard(pong2 + 650);
+  assert.strictEqual(q.ackLate(pong2 + 650), true, 'upstream flows, ping missing: the downstream is late');
+  pushEv(q, 4, otherRot(9));
+  assert.strictEqual(q.flush(pong2 + 650), false);
+  assert.strictEqual(q.stats.ackLateHolds, 1);
+  // an input that came before the deadline proves nothing
+  const q2 = SQ.createSendQueue(LAWS, { socket: fakeSocket('websocket', () => now), ownId: 5, clock: () => now });
+  q2.pong(1, 0);
+  q2.flush(0);
+  q2.heard(500);
+  assert.strictEqual(q2.ackLate(5000), false, 'only an arrival after the 600 ms limit counts');
 });
 
 // A client mirror of the own wanted angle: their client overwrites o.wang on every own rotation record with a wang
@@ -377,6 +421,29 @@ test('resync with a queued leave and a death: zero ghosts; a second cap hit with
   assert.strictEqual(q.closed, true);
 });
 
+// Fixer pass (2026-10-10, T15's finding): an eaten prey leaves the client, so a resync after its delivered prey_eaten
+// sends no prey_remove for it; a prey_eaten the resync dropped (never delivered) still gets its prey_remove.
+test('resync after a delivered prey_eaten: no prey_remove for that prey; an undelivered prey_eaten keeps it', () => {
+  let now = 0;
+  const sock = fakeSocket('polling', () => now);
+  const q = SQ.createSendQueue(LAWS, { socket: sock, ownId: 5, clock: () => now });
+  pushEv(q, 1, preyEv(70));
+  pushEv(q, 1, preyEv(71));
+  pushEv(q, 1, preyEv(72));
+  sock.conn.transport.park();
+  assert.deepStrictEqual(Array.from(q.delivered.preys).sort((a, b) => a - b), [70, 71, 72]);
+  pushEv(q, 2, { type: 'prey_eaten', id: 70, eater: 9 });
+  sock.conn.transport.park();
+  assert.deepStrictEqual(Array.from(q.delivered.preys).sort((a, b) => a - b), [71, 72], 'delivery took 70 out');
+  pushEv(q, 3, { type: 'prey_eaten', id: 71, eater: 9 }); // queued, then dropped by the resync
+  const out = q.resync(3, now);
+  assert.deepStrictEqual(out.preys, [71, 72]);
+  sock.conn.transport.park();
+  const last = frames(sock).pop();
+  assert.deepStrictEqual(last.filter((e) => e.type === 'prey_remove').map((e) => e.id), [71, 72]);
+  assert.strictEqual(last.filter((e) => e.type === 'prey_eaten').length, 0, 'the dropped eat never left');
+});
+
 test('a cap hit after C_RESYNC_GAP_MS resyncs again; a minimap replaced while queued goes full; latest values coalesce', () => {
   const L = makeFixture({ C_PENDING_CAP: 300 });
   let now = 0;
@@ -421,6 +488,61 @@ test('stall kick: the transport not ready for longer than C_STALL_KICK_MS (15000
   assert.strictEqual(q.checkStall(31000), false);
   assert.strictEqual(q.checkStall(31001), true);
   assert.strictEqual(sock.disconnected, true);
+});
+
+// Fixer pass (2026-10-10): a healthy long-polling seat whose round trip is above one tick. Each GET comes back R ms
+// after the response that used the previous one; the queue's own 'ready' listener answers it at once (a tick's records
+// are always queued), so no GET is ever parked at a wake. Wakes every P push records and run checkStall, as slRoom's
+// seat part does. stopAt: the client stops polling from then on (the GETs never come back).
+function pollingStallRun(R, runMs, stopAt) {
+  let now = 0;
+  const sock = fakeSocket('polling', () => now);
+  const t = sock.conn.transport;
+  const q = SQ.createSendQueue(LAWS, { socket: sock, ownId: 5, clock: () => now });
+  const events = [];
+  const at = (time, kind) => events.push([time, kind]);
+  t.on('sent', () => at(now + R, 'get'));
+  at(R / 2, 'get');
+  for (let k = 1; k * P <= runMs; k++) at(k * P, 'tick');
+  let kickedAt = NaN;
+  let parkedAtWake = 0;
+  let tick = 0;
+  while (events.length) {
+    events.sort((a, b) => a[0] - b[0] || (a[1] < b[1] ? -1 : 1));
+    const [time, kind] = events.shift();
+    now = time;
+    if (kind === 'get') {
+      if (now < stopAt) t.park();
+    } else {
+      tick++;
+      pushEv(q, tick, rotEv(5, tick % 256, true), true);
+      if (q.transportReady()) parkedAtWake++;
+      if (q.checkStall(now)) {
+        kickedAt = now;
+        break;
+      }
+      q.flush(now);
+    }
+  }
+  return { kickedAt, parkedAtWake, kicks: q.stats.kicks, disconnected: sock.disconnected, bundles: frames(sock).length };
+}
+
+test('stall kick: a healthy polling seat at a 150 or 300 ms round trip is never kicked in 60 s (GETs never parked at a wake)', () => {
+  for (const R of [150, 300]) {
+    const r = pollingStallRun(R, 60000, Infinity);
+    assert.strictEqual(r.parkedAtWake, 0, 'R ' + R + ': the case under test (no GET parked at any wake)');
+    assert.strictEqual(r.kicks, 0, 'R ' + R + ': kicked at ' + r.kickedAt);
+    assert.strictEqual(r.disconnected, false);
+    assert.ok(r.bundles > 60000 / (R + P) * 0.9, 'R ' + R + ': bundles kept flowing: ' + r.bundles);
+  }
+});
+
+test('stall kick: the same seat whose GETs stop is kicked about C_STALL_KICK_MS (15000) later', () => {
+  const r = pollingStallRun(300, 60000, 20000);
+  assert.strictEqual(r.kicks, 1);
+  assert.strictEqual(r.disconnected, true);
+  // the last GET lands before 20000 + 300; the first wake after it starts the clock; the kick is the first wake past 15000
+  assert.ok(r.kickedAt > 20000 + 15000 - 300 && r.kickedAt <= 20000 + 300 + 15000 + 2 * P, 'kicked at ' + r.kickedAt);
 });
 
 test('upgrade: the ready listener moves to the new transport', () => {

@@ -215,3 +215,38 @@ test('openSl never throws: a namespace that throws keeps the game closed and say
   assert.strictEqual(o.why, 'no namespace');
   assert.ok(r.said.some((m) => /stays closed: no namespace/.test(m)));
 });
+
+// Fixer pass (2026-10-10): server/index.js requires slBoot at top level with no try, and slLaws builds (and validates)
+// the table at load. A malformed law row must keep only /sl closed, never stop the server. Run in a child process whose
+// loader makes slLaws (and slPrey) throw at load, as a bad row edit would.
+test('a law table that throws at load: requiring slBoot still works; SL_ENABLED unset stays off, on fails closed', () => {
+  const { spawnSync } = require('child_process');
+  const bootPath = path.join(__dirname, '..', 'server', 'sl', 'slBoot.js');
+  const code = [
+    "const Module = require('module');",
+    'const orig = Module._load;',
+    'Module._load = function (req, parent, isMain) {',
+    "  if (req === './slLaws' || req === './slPrey') throw new Error('slLaws: C_X has no unit');",
+    '  return orig.apply(this, arguments);',
+    '};',
+    'const quiet = { log() {}, warn() {}, error() {} };',
+    'const B = require(' + JSON.stringify(bootPath) + ');',
+    'const off = B.openSl({ env: {}, log: quiet });',
+    "const on = B.openSl({ env: { SL_ENABLED: '1' }, log: quiet });",
+    'let next = 0;',
+    'B.slPageRoute(off)({}, {}, () => { next++; });',
+    'let status = 0;',
+    'const res = { set() { return res; }, status(s) { status = s; return res; }, type() { return res; }, send() { return res; } };',
+    'B.slPageRoute(on)({}, res, () => { next += 10; });',
+    'console.log(JSON.stringify({ off: off.why, offArenas: off.arenas, on: on.why, onArenas: on.arenas, next, status }));',
+  ].join('\n');
+  const r = spawnSync(process.execPath, ['-e', code], { encoding: 'utf8', timeout: 30000 });
+  assert.strictEqual(r.status, 0, 'the process survives: ' + r.stderr);
+  const out = JSON.parse(r.stdout.trim().split('\n').pop());
+  assert.strictEqual(out.off, 'off');
+  assert.strictEqual(out.offArenas, null);
+  assert.strictEqual(out.next, 1, 'switch off: the T-1 route answers');
+  assert.strictEqual(out.on, 'slLaws: C_X has no unit', 'switch on: the boot refused with the reason');
+  assert.strictEqual(out.onArenas, null);
+  assert.strictEqual(out.status, 503, 'switch on and refused: the closed page');
+});

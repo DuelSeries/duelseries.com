@@ -27,8 +27,8 @@
 // Rates (C_RATE, CHOSEN; per socket through the server's socketRL): join, leave, chat, diag as given. sl:hold and
 // sl:vis are states, so (agar's rule for a hold release, server/ag/agSockets.js:247) only their "on" side is limited:
 // {on: 1} at most once per C_RATE.hold, and a release reaches the room only when the last accepted message of that
-// socket was a press; the same for {hidden: 1} and {hidden: 0} with C_RATE.vis. A flood of either is bounded and a
-// release is never lost.
+// socket was a press; the same for {hidden: 1} and {hidden: 0} with C_RATE.vis, except that a limited {hidden: 1} waits
+// as pending until its window ends (onVis). A flood of either is bounded and a release is never lost.
 //
 // Handshake (C_CONN): auth.cv a whole number in the shipped skin set (slBots.botSkins: cv 0 to 65, the picture skins
 // only while PICTURE_SKINS is on) is the seat's skin; anything else, or none, is a random plain colour 0 to 8 as their
@@ -47,7 +47,7 @@ const { assertLawsComplete } = require('./slLaws');
 const { createRng, streamSeed } = require('./slRng');
 const { cleanNick } = require('./slNames');
 const { botSkins } = require('./slBots');
-const { safeCall, safeAsync, createSafeStats } = require('./slSafe');
+const { safeCall, safeAsync, safeTimeout, createSafeStats, REAL_TIMERS } = require('./slSafe');
 
 const SOCK_LAW_IDS = Object.freeze(['C_SL_PER_IP', 'C_RATE', 'C_RATE_INPUT', 'C_CONN', 'C_PUSH', 'PICTURE_SKINS', 'L45']);
 // sl:join fields a free seat never takes (SERVER-DESIGN 12.2: agar refuses a paid payload with no door,
@@ -292,6 +292,7 @@ function attachSlSockets(nsp, arenas, helpers) {
   const ops = h.ops || null;
   const log = h.log || console;
   const now = typeof h.now === 'function' ? h.now : Date.now;
+  const timers = h.timers || REAL_TIMERS; // the pending sl:vis timer (tests pass fake timers)
   const notifyJoin = typeof h.notifyJoin === 'function' ? h.notifyJoin : null;
   const ipOf = typeof h.clientIp === 'function' ? h.clientIp : clientIp;
   const L = sockLaws(arenas.laws);
@@ -354,6 +355,17 @@ function attachSlSockets(nsp, arenas, helpers) {
     }
   }
 
+  // One emit into the window. Every sl:i emit counts at least ONE record (their client sends one record per emit), so
+  // empty, undecodable or non-binary emits can never run unmetered (fixer pass, 2026-10-10: 500,000 empty binaries in
+  // 10 s were never a flood). True when the socket was refused.
+  function meterInput(socket, st, t, nRecs, nBytes) {
+    if (!st.meter.add(t, nRecs > 0 ? nRecs : 1, nBytes)) return false;
+    stats.floods++;
+    log.warn('[SL] input flood from ' + ipOf(socket) + ': ' + JSON.stringify(st.meter.sums()) + ' in the window');
+    refuse(socket, 'flood', stats);
+    return true;
+  }
+
   // sl:i: one input bundle. Size checked; every emit counts toward the window; never thinned.
   function onInput(socket, data) {
     const st = stateOf(socket);
@@ -362,6 +374,7 @@ function attachSlSockets(nsp, arenas, helpers) {
     const t = now();
     if (!b) {
       stats.inputDropped++;
+      meterInput(socket, st, t, 0, 0);
       return;
     }
     stats.inputEmits++;
@@ -376,11 +389,7 @@ function attachSlSockets(nsp, arenas, helpers) {
       }
       stats.inputRecords += nRecs;
     }
-    if (st.meter.add(t, nRecs, b.length)) {
-      stats.floods++;
-      log.warn('[SL] input flood from ' + ipOf(socket) + ': ' + JSON.stringify(st.meter.sums()) + ' in the window');
-      return refuse(socket, 'flood', stats);
-    }
+    if (meterInput(socket, st, t, nRecs, b.length)) return;
     if (!ok || nRecs === 0) {
       stats.inputDropped++;
       return;
@@ -403,19 +412,51 @@ function attachSlSockets(nsp, arenas, helpers) {
     arenas.hold(socket.id, on);
   }
 
+  // sl:vis is a STATE (fixer pass, 2026-10-10): the layer sends it once per change and never again (slxNet sendVis), so
+  // a {hidden: 1} inside C_RATE.vis of the last applied one is kept PENDING and applied when the window ends, never
+  // dropped; a {hidden: 0} that arrives first cancels it (the newest state wins). Dropping it left the server sure a
+  // hidden tab was visible after a quick hidden, visible, hidden flick.
+  function stopVisPending(st) {
+    if (st.visTimer) st.visTimer.stop();
+    st.visTimer = null;
+    st.visPending = false;
+  }
+
+  function applyHidden(socket, st) {
+    if (!limited(socket, 'vis')) {
+      st.visPending = true;
+      if (!st.visTimer) {
+        st.visTimer = safeTimeout(() => {
+          st.visTimer = null;
+          if (!st.visPending || stateOf(socket) !== st) return;
+          st.visPending = false;
+          if (!st.hidden) applyHidden(socket, st);
+        }, L.rate.vis, 'sl.vis.pending', safeStats, { log, timers });
+      }
+      return;
+    }
+    stopVisPending(st);
+    st.hidden = true;
+    arenas.vis(socket.id, true);
+  }
+
   function onVis(socket, msg) {
     const st = stateOf(socket);
     if (!st || !isPlainObject(msg)) return;
     const hidden = flag(field(msg, 'hidden'));
     if (hidden === null) return;
     if (hidden) {
-      if (!limited(socket, 'vis')) return;
-      st.hidden = true;
-    } else {
-      if (!st.hidden) return;
-      st.hidden = false;
+      if (st.hidden) return; // already hidden: nothing changes
+      applyHidden(socket, st);
+      return;
     }
-    arenas.vis(socket.id, hidden);
+    if (st.visPending) {
+      stopVisPending(st); // the hidden never applied: the server already counts the tab visible
+      return;
+    }
+    if (!st.hidden) return;
+    st.hidden = false;
+    arenas.vis(socket.id, false);
   }
 
   function onChat(socket, msg) {
@@ -436,10 +477,32 @@ function attachSlSockets(nsp, arenas, helpers) {
     arenas.diag(socket.id, d);
   }
 
+  // C_SL_PER_IP counts live snakes, not only open sockets (fixer pass, 2026-10-10): a seat's snake that glides after a
+  // leave or a disconnect (C_DISCONNECT) stays charged to its address until the glide ends, so join-then-close cycles
+  // from one address never hold more than C_SL_PER_IP sockets plus gliding snakes.
+  function settle(socket, st) {
+    if (st.charged && !st.open && !st.gliding) {
+      st.charged = false;
+      gate.remove(socket);
+    }
+  }
+
+  // Unseats through call(onEnd); returns nothing. The charge is held while the room says the snake glides.
+  function unseatCharged(socket, st, call) {
+    const was = st.gliding;
+    st.gliding = true;
+    const r = call(() => {
+      st.gliding = false;
+      settle(socket, st);
+    });
+    if (r !== 'glide') st.gliding = was;
+  }
+
   function onLeave(socket) {
-    if (!stateOf(socket)) return;
+    const st = stateOf(socket);
+    if (!st) return;
     if (!limited(socket, 'leave')) return;
-    arenas.leave(socket.id);
+    unseatCharged(socket, st, (onEnd) => arenas.leave(socket.id, onEnd));
   }
 
   function guard(name, fn) {
@@ -465,8 +528,16 @@ function attachSlSockets(nsp, arenas, helpers) {
     socket.on('sl:diag', guard('sl:diag', (msg) => onDiag(socket, msg)));
     socket.on('sl:leave', guard('sl:leave', () => onLeave(socket)));
     socket.on('disconnect', guard('disconnect', () => {
-      gate.remove(socket);
-      if (states.delete(socket.id)) arenas.disconnect(socket.id);
+      const st = stateOf(socket);
+      if (!st) {
+        gate.remove(socket);
+        return;
+      }
+      stopVisPending(st);
+      states.delete(socket.id);
+      st.open = false;
+      unseatCharged(socket, st, (onEnd) => arenas.disconnect(socket.id, onEnd));
+      settle(socket, st);
     }));
     guard('connect', () => {
       stats.connects++;
@@ -476,6 +547,11 @@ function attachSlSockets(nsp, arenas, helpers) {
         joined: false,
         holdPressed: false,
         hidden: false,
+        visPending: false,
+        visTimer: null,
+        charged: true, // gate.add counted this socket under its address
+        open: true,
+        gliding: false,
         meter: createInputMeter(L.input),
       });
     })();

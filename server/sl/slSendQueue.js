@@ -31,6 +31,14 @@
 // pong left more than max(minMs, pingMult x the median ping interval) ago" means the downstream is late. It holds data
 // here (where it coalesces); it never counts toward the stall kick, and it is off while the layer says the tab is
 // hidden (a hidden tab stops pinging, slLoop.js:632-637).
+// One more condition (fixer pass, 2026-10-10): some other upstream message (an input, hold, vis, chat or diag; the
+// room calls heard()) arrived MORE than that limit after the last pong left. A lost upstream segment holds back every
+// upstream byte behind it (TCP head of line; polling sends one POST at a time), so a late ping alone cannot tell a
+// late downstream from a late upstream, and holding on upstream loss froze a healthy downstream (real socket.io on
+// WebSocket, 300 ms round trip, 2 percent of upstream writes 600 ms late: bundle gap max 935 ms against 222 ms for the
+// same seat with ackLate off). A message that arrives after the deadline while the ping does not was sent after a
+// healthy client would have pinged, so the client has not had the pong: the downstream is late. With no other
+// upstream traffic (a still mouse) nothing is held, and transport.writable, the cap and the resync still apply.
 //
 // Coalescing (9.2): latest-value records (leaderboard, flux) are replaced in place; a minimap whose older queued
 // minimap never left is sent as its full form (the view passes the M bytes as alt), since a V against an image the
@@ -43,7 +51,13 @@
 // second cap hit inside it is a stall kick.
 //
 // Stall kick: the TRANSPORT not ready (writable false or writeBuffer not empty; never ackLate) for longer than
-// C_STALL_KICK_MS: socket.disconnect(true).
+// C_STALL_KICK_MS: socket.disconnect(true). The clock starts at the first wake that finds it not ready and resets
+// whenever the transport is seen ready: at a wake, at a flush that sends, AND at its 'ready' event (fixer pass,
+// 2026-10-10). On polling the transport is ready only while a GET is parked, and the queue's own 'ready' listener
+// answers each GET the moment it lands (the queue holds that tick's own records), so with a round trip above one tick
+// no GET is ever parked at a wake; a clock reset only at wakes kicked every healthy phone seat 15 s into its life
+// (real socket.io through a delay proxy: polling at 150 and 300 ms round trip, kicked 'stall' at 15.1 and 15.3 s).
+// A GET arriving is the client taking data, so it is proof of a live transport.
 
 const { bundleBytes, encodeRecord } = require('./slRecordCache');
 const { assertLawsComplete, STATUS } = require('./slLaws');
@@ -128,6 +142,11 @@ function tagOf(ev, ownId) {
       return [KIND.ADD, PREY, 1, ev.id, null];
     case 'prey_remove':
       return [KIND.REMOVE, PREY, -1, ev.id, null];
+    case 'prey_eaten':
+      // the client drops an eaten prey (slApply.js:1156-1164), so delivery takes it out of the delivered set and a later
+      // resync never sends prey_remove for it (task T15 found 4 in a 30 minute run; their server never sends that). Kept
+      // OTHER: a resync may drop it, and the resync then removes the prey itself.
+      return [KIND.OTHER, PREY, -1, ev.id, null];
     case 'leaderboard':
       return [KIND.LATEST, 0, 0, 0, 'l'];
     case 'flux':
@@ -244,6 +263,7 @@ function createSendQueue(laws, opts) {
   let hidden = false;
   let lastPongAt = NaN;
   let lastPingAt = NaN;
+  let lastHeardAt = NaN; // the newest upstream arrival of any kind (heard)
   let notReadySince = NaN;
   let lastResyncAt = -Infinity;
   const pingGaps = new Float64Array(Q.pingWindow);
@@ -369,7 +389,14 @@ function createSendQueue(laws, opts) {
     if (Number.isFinite(lastPingAt) && lastPingAt > lastPongAt) return false;
     const med = medianPingGap();
     const lim = Number.isFinite(med) && Q.ackPingMult * med > Q.ackMinMs ? Q.ackPingMult * med : Q.ackMinMs;
+    // the upstream still flows after the deadline (see the header): only then is the missing ping a late downstream
+    if (!(Number.isFinite(lastHeardAt) && lastHeardAt - lastPongAt > lim)) return false;
     return nowMs - lastPongAt > lim;
+  }
+
+  // Any upstream message of the seat arrived now (the room's _heard: inputs, pings, hold, vis, chat, diag).
+  function heard(nowMs) {
+    if (typeof nowMs === 'number' && Number.isFinite(nowMs)) lastHeardAt = nowMs;
   }
 
   function transportReady() {
@@ -385,6 +412,7 @@ function createSendQueue(laws, opts) {
     if (closed) return false;
     if (!items.length && !layer.length) return false;
     if (!transportReady()) return false;
+    notReadySince = NaN;
     if (ackLate(nowMs)) {
       stats.ackLateHolds++;
       return false;
@@ -522,6 +550,7 @@ function createSendQueue(laws, opts) {
   let boundConn = null;
   const onReady = () => {
     if (closed) return;
+    notReadySince = NaN; // a GET landed (polling) or a write completed (WebSocket): the transport takes data
     safeCall(() => {
       if (flush(nowFn())) stats.readyFlushes++;
     }, 'sl.flush.ready', stats.safe, { log: o.log });
@@ -586,6 +615,7 @@ function createSendQueue(laws, opts) {
       hidden = !!h;
     },
     reportRtt,
+    heard,
     rttP95,
     medianPingGap,
     holdsSnake(id) {

@@ -101,14 +101,15 @@
   }
 
   // ---- layer controls: a click or tap on one never reaches their window handlers (15.1 rules): mousedown would
-  // boost (public/js/sl/slInput.js:148, 205), mouseup ends a boost (:207), touches steer (:203-206), keys reach their
-  // document.onkeydown (:208). opts.activate(e) runs on click, and on a tap that ends on the element (touchstart's
+  // boost (public/js/sl/slInput.js:148, 205), touches steer (:203-206), keys reach their document.onkeydown (:208).
+  // mouseup is let through (fixer pass, 2026-10-10): their window listener only ends a boost (:166-168, 207), and
+  // stopping it left a boost on when the mouse was let go over a layer element (their release ends it anywhere). opts.activate(e) runs on click, and on a tap that ends on the element (touchstart's
   // default is prevented, so no click follows). opts.typing: a text box keeps its touch default (focus, caret) and
   // its key events stop here.
   function guard(el, opts) {
     var o = opts || {};
     var stop = function (e) { e.stopPropagation(); };
-    var types = ['mousedown', 'mouseup', 'contextmenu', 'touchmove', 'touchend', 'touchcancel'];
+    var types = ['mousedown', 'contextmenu', 'touchmove', 'touchend', 'touchcancel'];
     for (var i = 0; i < types.length; i++) el.addEventListener(types[i], stop);
     var touched = false;
     el.addEventListener('touchstart', function (e) {

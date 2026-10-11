@@ -553,3 +553,47 @@ test('no money: the T9 files require no money or database module', () => {
     assert.ok(!/Math\.random/.test(src), f + ' uses Math.random');
   }
 });
+
+// Fixer pass (2026-10-10): others see the cash-out ring while it holds (Owen 17:00). A seat that picks the holding
+// snake up after the hold started gets the ring with the time already held; when its view drops the snake it gets the
+// ring's end. Real slView, so the adds and removals are the real ones.
+test('ring for a late viewer: a join next to a holding snake gets {hold on 1, need, elapsed}; a view removal ends it', () => {
+  const ft = fakeTimers(1000);
+  const room = new SlRoom(LAWS, { seed: 9, clock: ft.clock, timers: ft.timers, autoTick: false, shippableOnly: false,
+    prey: false, now: () => 1.7e12, log: { log() {}, warn() {}, error() {} } });
+  const sockA = bareSocket();
+  const a = room.seat(sockA, { nick: 'a', cv: 1 });
+  aimHome(room, a, ft, false);
+  room.onHold(a, 1);
+  for (let k = 0; k < 24; k++) { // about 1 s of hold, pinging like their client (the safety net needs upstream)
+    if (k % 6 === 0) room.onInput(a, ping());
+    ft.advance(P);
+    room.wake();
+  }
+  assert.ok(room.holds.holding(a.snakeId), 'A holds');
+  const heldNow = room.holds.heldMs(a.snakeId, room.sim.nowMs());
+  assert.ok(heldNow > 900 && heldNow < 1100, 'held ' + heldNow);
+  // B spawns 600 units from A's head (inside its first view)
+  const sa = room.sim.snake(a.snakeId);
+  const hx = sa.pts[sa.pts.length - 1].xx;
+  const hy = sa.pts[sa.pts.length - 1].yy;
+  const spawn = room.sim.spawn;
+  room.sim.spawn = (o) => spawn(Object.assign({}, o, { x: hx + 600, y: hy, ang: 0 }));
+  const sockB = bareSocket();
+  const b = room.seat(sockB, { nick: 'b', cv: 2 });
+  room.sim.spawn = spawn;
+  const addA = bundles(sockB).flat().find((e) => e.type === 'snake_add' && e.id === a.snakeId);
+  assert.ok(addA, 'B was sent A');
+  const rings = layer(sockB).filter((m) => m.t === 'hold');
+  assert.strictEqual(rings.length, 1);
+  assert.deepStrictEqual(Object.keys(rings[0]).sort(), ['elapsed', 'id', 'need', 'on', 't']);
+  assert.deepStrictEqual([rings[0].id, rings[0].on, rings[0].need], [a.snakeId, 1, 3000]);
+  assert.strictEqual(rings[0].elapsed, Math.round(heldNow), 'the time A has held');
+  // a seat that does not hold A gets nothing; the own seat gets no elapsed message for itself
+  assert.strictEqual(layer(sockA).filter((m) => m.t === 'hold' && m.elapsed !== undefined).length, 0);
+  // B's view drops A (the hook on a removal): the ring ends for B only
+  const n = layer(sockB).length;
+  room._pushEvents(b, room.sim.tick(), [{ type: 'snake_remove', id: a.snakeId, kill: false }]);
+  room.seatOf(sockB).queue.flush(ft.clock());
+  assert.deepStrictEqual(layer(sockB).slice(n).filter((m) => m.t === 'hold'), [{ t: 'hold', id: a.snakeId, on: 0 }]);
+});

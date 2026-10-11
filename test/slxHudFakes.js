@@ -9,7 +9,7 @@
 //   S            a plain object standing for DuelSlither.S (the fields the HUD files read)
 //   slx          a fake layer bus with the API slxNet and slxMain give the later layer files
 //                (public/js/slx/slxNet.js header): active, on, fire, send, onSocket, connected, now, guard, toLobby,
-//                lobbyName. guard copies slxMain's stops (mousedown, mouseup, contextmenu, touches; keys for a text box;
+//                lobbyName. guard copies slxMain's stops (mousedown, contextmenu, touches; keys for a text box;
 //                activate on click). Socket listeners added with onSocket run through socketEvent(name, data).
 //   load(file)   runs a public/js/slx file in the context
 const fs = require('fs');
@@ -208,7 +208,8 @@ function makePage(opts) {
   function guard(el, g) {
     const opts = g || {};
     const stop = (e) => e.stopPropagation();
-    for (const t of ['mousedown', 'mouseup', 'contextmenu', 'touchmove', 'touchend', 'touchcancel']) el.addEventListener(t, stop);
+    // slxMain's list (mouseup goes on since the fixer pass of 2026-10-10)
+    for (const t of ['mousedown', 'contextmenu', 'touchmove', 'touchend', 'touchcancel']) el.addEventListener(t, stop);
     el.addEventListener('touchstart', (e) => { e.stopPropagation(); if (!opts.typing) e.preventDefault(); }, { passive: false });
     if (typeof opts.activate === 'function') el.addEventListener('click', (e) => { e.stopPropagation(); opts.activate(e); });
     if (opts.typing) for (const t of ['keydown', 'keyup', 'keypress']) el.addEventListener(t, stop);

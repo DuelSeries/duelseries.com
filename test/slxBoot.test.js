@@ -206,10 +206,13 @@ test('the name box: Enter plays; keys, mouse and touch stop at the box (their ha
   assert.deepStrictEqual([enter.stopped, enter.prevented], [true, true]);
   assert.deepStrictEqual(p.plays, ['Typed']);
   assert.strictEqual(name.blurred, 1);
-  for (const t of ['mousedown', 'mouseup', 'contextmenu', 'touchmove', 'touchend', 'touchcancel']) {
+  for (const t of ['mousedown', 'contextmenu', 'touchmove', 'touchend', 'touchcancel']) {
     assert.strictEqual(name.fire(t).stopped, true, 'name ' + t);
     assert.strictEqual(play.fire(t).stopped, true, 'play ' + t);
   }
+  // mouseup goes on to their window listener, which only ends a boost (fixer pass, 2026-10-10)
+  assert.strictEqual(name.fire('mouseup').stopped, false, 'name mouseup');
+  assert.strictEqual(play.fire('mouseup').stopped, false, 'play mouseup');
   const tsName = name.fire('touchstart');
   assert.deepStrictEqual([tsName.stopped, tsName.prevented], [true, false], 'a tap still focuses the box');
   assert.strictEqual(name.listeners.touchstart[0].o.passive, false);

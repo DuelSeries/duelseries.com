@@ -26,9 +26,10 @@
 const fs = require('fs');
 const path = require('path');
 const { slSwitch, CLOSED_PAGE } = require('../slRoutes');
-const { assertShippable, assertRulesBuilt } = require('./slLaws');
-const { preyNotShippable } = require('./slPrey');
 const { createSafeStats, safeEvery } = require('./slSafe');
+// slLaws and slPrey (which builds the law table at load, and throws on a malformed row) are required INSIDE openSl's
+// try, after the switch check (fixer pass, 2026-10-10): server/index.js requires this file at top level with no try,
+// so a bad law row edit must never stop the whole server (paid snake, agar, Paper) at boot, switch on or off.
 
 const PUBLIC_DIR = path.join(__dirname, '..', '..', 'public');
 // SERVER-DESIGN 3.2, in that table's order.
@@ -121,6 +122,8 @@ function openSl(opts) {
   if (!slSwitch(env.SL_ENABLED, log)) return { arenas: null, page: null, why: 'off', dev: false };
   let arenas = null;
   try {
+    const { assertShippable, assertRulesBuilt } = require('./slLaws');
+    const { preyNotShippable } = require('./slPrey');
     // o.laws (tests only): a table treated exactly as the real one (assertShippable applies).
     const { laws, dev } = o.laws ? { laws: o.laws, dev: false } : loadSlLaws(env, log);
     if (!dev) assertShippable(laws);

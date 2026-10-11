@@ -242,6 +242,26 @@ test('hold Q: one press per hold, no repeat, keyup releases; not while dead or t
   assert.deepStrictEqual(P.sends, [], 'not connected');
 });
 
+// Fixer pass (2026-10-10): hold Q, press T (the chat input opens and takes the focus; slxMain's guard stops its key
+// events), let go of Q there: the hold must still end (a capture listener on the window hears it first).
+test('hold Q: a Q release inside a text box that stops its keys (the chat input) still ends the hold', () => {
+  const P = makePage();
+  P.load();
+  P.live();
+  const body = P.mc.parentNode;
+  const input = body.appendChild(new P.Node('input'));
+  for (const t of ['keydown', 'keyup', 'keypress']) input.addEventListener(t, (e) => e.stopPropagation());
+  P.key('keydown', 81);
+  assert.deepStrictEqual(P.sends, ['sl:hold {"on":1}']);
+  const up = P.dispatch(input, 'keyup', { keyCode: 81, which: 81 });
+  assert.strictEqual(up.stopped, true, 'the box stopped it, as the chat input does');
+  assert.deepStrictEqual(P.sends, ['sl:hold {"on":1}', 'sl:hold {"on":0}']);
+  assert.strictEqual(P.D.slx.hold.held(), false);
+  // typing q in the box never starts a hold (keydown stays on the document, bubble phase)
+  P.dispatch(input, 'keydown', { keyCode: 81, which: 81 });
+  assert.strictEqual(P.sends.length, 2);
+});
+
 test('hold Q: blur, hidden, own death, close and the frame check each release once', () => {
   const ends = {
     blur: (P) => P.dispatch(P.win, 'blur', {}),
@@ -338,9 +358,10 @@ test('phone hold button: only on phones, shown while alive, touch press and rele
   assert.strictEqual(e2.stopped, true);
   assert.deepStrictEqual(P.sends, ['sl:hold {"on":1}', 'sl:hold {"on":0}']);
   assert.strictEqual(b.style.transform, 'translateX(-50%)');
-  for (const type of ['mousedown', 'mouseup', 'contextmenu']) {
+  for (const type of ['mousedown', 'contextmenu']) {
     assert.strictEqual(P.dispatch(b, type, {}).stopped, true, type + ' stops at the button');
   }
+  assert.strictEqual(P.dispatch(b, 'mouseup', {}).stopped, false, 'mouseup goes on: their release only ends a boost');
   assert.strictEqual(P.S.slither.wmd, false, 'no boost from the button');
   P.touch(b, 'touchstart', [[4, 500, 760]], [[4, 500, 760]]);
   P.touch(b, 'touchcancel', [[4, 500, 760]], []);
@@ -351,6 +372,26 @@ test('phone hold button: only on phones, shown while alive, touch press and rele
 });
 
 // ---------------------------------------------------------------------------------------------------------- rings
+
+// Fixer pass (2026-10-10): a snake that comes into view mid-hold arrives with elapsed (the server's held time), so its
+// ring starts part filled; a junk elapsed counts as 0 and an elapsed past need draws full.
+test('rings: an elapsed in the hold message starts the arc part filled (a snake picked up mid-hold)', () => {
+  const P = makePage();
+  P.load();
+  P.live();
+  const ring = ofLayer(P, 'slx-ring');
+  P.fire('x:hold', { t: 'hold', id: 5, on: 1, need: 3000, elapsed: 1500 }); // t0 = 1000 - 1500
+  P.step();                                                                  // now 1016: 1516 of 3000
+  const arcs = ring.ctx.calls.filter((c) => c[0] === 'arc');
+  near(arcs[1][5], -Math.PI / 2 + PI2 * 1516 / 3000, 'arc from where the hold already is');
+  for (const [el, want] of [['x', 16], [-50, 16], [NaN, 16], [99999, 3000]]) {
+    P.fire('x:hold', { t: 'hold', id: 5, on: 1, need: 3000, elapsed: el });
+    ring.ctx.calls = [];
+    P.step();
+    const a2 = ring.ctx.calls.filter((c) => c[0] === 'arc');
+    near(a2[1][5], -Math.PI / 2 + PI2 * Math.min(1, want / 3000), 'elapsed ' + el);
+  }
+});
 
 test('rings: sl:x hold draws the old ring at the snake head, filling over need; on 0, unknown ids and junk draw none', () => {
   for (const mobile of [false, true]) {

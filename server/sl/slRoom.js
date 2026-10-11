@@ -364,9 +364,12 @@ class SlRoom {
   // Seats (SERVER-DESIGN 12.4: one socket per life, a seat at sl:join)
 
   // null when a seat can be given, else the refusal reason.
+  // A gliding orphan is a live human snake, so it counts toward both caps until its glide ends (fixer pass,
+  // 2026-10-10: join-then-close cycles from one address kept 773 live snakes against a cap of 20).
   refusal() {
     if (this.stopped || this.closed) return 'closed';
-    if (this.seats.size >= this.R.humanCap || this.seats.size >= this.R.roomCap) return 'full';
+    const humans = this.seats.size + this.orphans.size;
+    if (humans >= this.R.humanCap || humans >= this.R.roomCap) return 'full';
     return null;
   }
 
@@ -428,8 +431,10 @@ class SlRoom {
   }
 
   // The socket went (disconnect, sl:leave, kick). A live snake glides straight for C_DISCONNECT glideMs, then dies
-  // with its drops (Owen Q10, 17:10). Returns true when a seat went.
-  unseat(socketOrId, reason) {
+  // with its drops (Owen Q10, 17:10). Returns 'glide' when the seat's live snake now glides, true when a seat went
+  // with no snake to glide, false when there was no seat. onEnd (optional): called once when that glide ends (death,
+  // cash-out or the room stopping), so slSockets keeps the snake charged to its address until then.
+  unseat(socketOrId, reason, onEnd) {
     const seat = this.seatOf(socketOrId);
     if (!seat) return false;
     seat.closed = true;
@@ -446,13 +451,28 @@ class SlRoom {
       this.holds.release(seat.snakeId, 'disconnect');
       // no input can come any more: the boost ends at the next step, steering locks at step 2
       this.sim.setInput(seat.snakeId, { type: 'boost', on: false }, 0);
-      this.orphans.set(seat.snakeId, { locked: false, endSim: NaN, why: typeof reason === 'string' ? reason : 'leave' });
+      this.orphans.set(seat.snakeId, { locked: false, endSim: NaN, why: typeof reason === 'string' ? reason : 'leave',
+        onEnd: typeof onEnd === 'function' ? onEnd : null });
       this.stats.glides++;
-    } else {
-      this.humans.delete(seat.snakeId);
+      if (this.seats.size === 0) this.lastHumanAt = this.clock();
+      return 'glide';
     }
+    this.humans.delete(seat.snakeId);
     if (this.seats.size === 0) this.lastHumanAt = this.clock();
     return true;
+  }
+
+  // An orphan's glide is over (its snake died, cashed out, or the room stopped): forget it and tell its owner once.
+  _endOrphan(id) {
+    const g = this.orphans.get(id);
+    if (!g) return null;
+    this.orphans.delete(id);
+    if (g.onEnd) {
+      const f = g.onEnd;
+      g.onEnd = null;
+      safeCall(f, 'sl.orphan.end', this.safeStats, this.safeOpts);
+    }
+    return g;
   }
 
   // ---------------------------------------------------------------------------------------------------------------
@@ -473,6 +493,7 @@ class SlRoom {
 
   _heard(seat) {
     seat.lastHeard = this.clock();
+    seat.queue.heard(seat.lastHeard); // ackLate reads a missing ping as a late downstream only while upstream flows
     if (!seat.dead) this.holds.heard(seat.snakeId, this._arrivalSim(this._offsetNow()));
   }
 
@@ -933,11 +954,8 @@ class SlRoom {
     if (this.holds.holding(id)) this._ringAll(tick, id, 0);
     this.holds.drop(id);
     this.freedAt.set(id, simMs);
-    const g = this.orphans.get(id);
-    if (g) {
-      this.orphans.delete(id);
-      if (d.cause === 'kill') this.stats.glideDeaths++;
-    }
+    const g = this._endOrphan(id);
+    if (g && d.cause === 'kill') this.stats.glideDeaths++;
     const seat = this.bySnake.get(id);
     if (seat) {
       seat.dead = true;
@@ -970,7 +988,7 @@ class SlRoom {
       seat.deadAt = this.clock();
       seat.queue.message(frame.tick, { t: 'cashed', len });
     }
-    this.orphans.delete(id);
+    this._endOrphan(id);
     this.humans.delete(id);
     this.names.delete(id);
   }
@@ -1040,6 +1058,22 @@ class SlRoom {
       let alt;
       if (ev.type === 'minimap' && ev.full) alt = this.cache.recordBytes(ev.full);
       seat.queue.push(tick, ev, bytes, alt);
+      if (ev.type === 'snake_add' || ev.type === 'snake_remove') this._ringOnView(seat, tick, ev);
+    }
+  }
+
+  // Others see the cash-out ring while it holds (Owen 17:00, C_HOLD_RING): a seat that picks up a holding snake after
+  // its hold started gets the ring with the time already held (elapsed), and a seat whose view drops a holding snake
+  // gets the ring's end, so a stale ring never shows when it comes back (fixer pass, 2026-10-10). The sl:x batch leaves
+  // before the sl:f of the same flush, so the ring is known when the add lands.
+  _ringOnView(seat, tick, ev) {
+    if (ev.id === seat.snakeId || !this.holds.H.ringOthers || !this.holds.holding(ev.id)) return;
+    if (ev.type === 'snake_add') {
+      const held = Math.round(this.holds.heldMs(ev.id, this.sim.nowMs()));
+      seat.queue.message(tick, { t: 'hold', id: ev.id, on: 1, need: this.R.holdMs,
+        elapsed: held < 0 ? 0 : (held > this.R.holdMs ? this.R.holdMs : held) });
+    } else {
+      seat.queue.message(tick, { t: 'hold', id: ev.id, on: 0 });
     }
   }
 
@@ -1097,6 +1131,8 @@ class SlRoom {
     this.ticking = false;
     this.timing.idle();
     for (const seat of this.seats.values()) if (seat.flushHandle) seat.flushHandle.stop();
+    // a stopped room never ends its glides: release every orphan's address charge now
+    for (const id of Array.from(this.orphans.keys())) this._endOrphan(id);
   }
 
   // C_EMERGENCY_FAIL_WAKES wakes in a row threw: the room stops for good and hands its sockets to slArenas

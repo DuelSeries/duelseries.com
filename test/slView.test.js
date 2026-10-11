@@ -327,6 +327,32 @@ test('slView L8.sweep and L8.linger: a sector out of the set goes at the first 5
   noProblems(seats);
 });
 
+// Fixer pass (2026-10-10): their server sends no sector removal after the own `dead` (S1+S2+S3: 31 deaths, sockets
+// open 3619 to 6966 ms after it, 0 removals); the kept set freezes with the anchor.
+test('slView L8.sweep after the own end: no sector_remove after the own dead, though sectors were lingering', () => {
+  const { sim, view } = world({ sim: { food: true, seed: 5 } });
+  const s = sim.spawn({ x: 30000, y: C + 10, ang: 0, cv: 2 });
+  const seats = [seatFor(view, s.id)];
+  let lingering = 0;
+  for (let t = 0; t < 400; t++) {
+    if (t === 150) {
+      const m = view.mirror(seats[0].seat);
+      lingering = m.kept.filter((si) => !m.set.includes(si)).length;
+      sim.kill(s.id);
+    }
+    wake(sim, view, seats, 1);
+  }
+  assert.ok(lingering > 0, 'sectors were lingering at the death: ' + lingering);
+  const all = seats[0].bundles.flatMap((e) => decode(e));
+  const at = all.findIndex((x) => x.type === 'dead');
+  assert.ok(at > 0, 'the own dead went out');
+  assert.ok(all.slice(0, at).some((x) => x.type === 'sector_remove'), 'the sweep ran while alive');
+  assert.equal(all.slice(at).filter((x) => x.type === 'sector_remove').length, 0, 'no sector removal after the own dead');
+  const m = view.mirror(seats[0].seat);
+  assert.ok(m.kept.length >= lingering, 'the kept set stays frozen');
+  noProblems(seats);
+});
+
 test('slView L8.snake: a snake with no pulled point in a kept sector is removed (code 0) at 4400 ms, not before', () => {
   const { sim, view } = world({ sim: { seed: 9 } });
   const a = sim.spawn({ x: C, y: C, ang: 0, cv: 1 });

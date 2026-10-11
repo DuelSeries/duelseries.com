@@ -1002,8 +1002,11 @@ function createView(laws, sim, opts) {
       const asi = anchorSector(s);
       if (asi !== seat.anchor) recompute(seat, s.pts.length, asi, now);
     }
-    // the sweep (L8.sweep, L8.linger; L8.emptySector removeOnSweep): a sector out of the set this long goes
-    if (sweepAt !== null) {
+    // the sweep (L8.sweep, L8.linger; L8.emptySector removeOnSweep): a sector out of the set this long goes. Never after
+    // the own end (fixer pass, 2026-10-10): their server sends no sector removal after the own `dead` (S1+S2+S3: 31
+    // deaths, sockets open 3619 to 6966 ms after it, 0 removals, while moves, food and snake adds keep coming); ours
+    // swept on (223 of 223 deaths, 3819 removals). The kept set stays frozen, so snake retention still runs against it.
+    if (sweepAt !== null && !seat.gone) {
       st.sweeps++;
       for (const [si, e] of seat.kept) {
         if (e.inSet || sweepAt - e.outSince < V.lingerMs) continue;

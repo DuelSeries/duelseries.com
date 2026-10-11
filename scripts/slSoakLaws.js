@@ -11,8 +11,8 @@
 //   the five SUGGESTED prey rows (server/sl/slPrey.js PREY_ROWS: L33.spont, L33.wander, L33.motion, L33.extra,
 //                             L32.remove) as APPROVED rows with their suggested values: Owen approved prey "as
 //                             measured" (OWNER-ANSWERS.md:85) and every open law with its suggested value on
-//                             2026-10-10, so the soak runs prey as it will ship (the shipped table still keeps prey
-//                             off until those rows are copied into slLaws.js).
+//                             2026-10-10, so the soak runs prey as it will ship. Since the fixer pass of 2026-10-10
+//                             the shipped table carries all nine prey rows (APPROVED), so this loop adds nothing.
 // Every other row, value and status is the shipped one.
 
 const { ENTRIES, STATUS, tableFrom } = require('../server/sl/slLaws');

@@ -105,6 +105,15 @@ for (const seed of [1, 2, 3]) {
     const one = Buffer.from(W.encodeInput([{ type: 'angle', q: 1 }]));
     for (let i = 0; i < 3000 && !f.disconnected; i++) f.fire('sl:i', one);
     assert.strictEqual(f.disconnected, true, 'a flood is disconnected');
+    // fixer pass (2026-10-10): empty binaries and non-binary emits carry no record but still count one each
+    for (const junk of [Buffer.alloc(0), 'x', 7]) {
+      const e = r.sock({ ip: '10.9.9.8' });
+      e.fire('sl:join', { nick: 'empty' });
+      let n = 0;
+      for (; n < 500000 && !e.disconnected; n++) e.fire('sl:i', junk);
+      assert.strictEqual(e.disconnected, true, 'an empty or non-binary sl:i flood is disconnected: ' + JSON.stringify(junk));
+      assert.ok(n <= 2221, 'refused at the C_RATE_INPUT record bound (2220 per 10 s), after ' + n);
+    }
     for (let i = 0; i < 40; i++) r.room().tickOnce();
     r.ft.runImmediates();
     checkSim(r.room());

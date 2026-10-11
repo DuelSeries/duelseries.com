@@ -135,12 +135,14 @@ class SlArenas {
     return room.refusal() || 'full';
   }
 
-  leave(socketId) {
-    return this._room ? this._room.unseat(socketId, 'leave') : false;
+  // onEnd: called once when the seat's gliding snake ends (slRoom.unseat returns 'glide'); slSockets keeps that snake
+  // charged to its address until then.
+  leave(socketId, onEnd) {
+    return this._room ? this._room.unseat(socketId, 'leave', onEnd) : false;
   }
 
-  disconnect(socketId) {
-    return this._room ? this._room.unseat(socketId, 'disconnect') : false;
+  disconnect(socketId, onEnd) {
+    return this._room ? this._room.unseat(socketId, 'disconnect', onEnd) : false;
   }
 
   input(socketId, bytes) {

@@ -188,7 +188,9 @@ test('slxCard: Play again under the last Play name, once; Lobby to the lobby fra
   assert.deepStrictEqual(P.lobbyPosts, ['game:done']);
   P.dispatch(P.slx.card.element, 'contextmenu', {});
   assert.strictEqual(boosts, 0, 'no mousedown reached their window.onmousedown');
-  assert.strictEqual(ups, 0, 'no mouseup reached their window listener');
+  // fixer pass (2026-10-10): the mouseup goes on to their window listener (it only ends a boost), so a boost let go
+  // over a layer element ends as in their game
+  assert.strictEqual(ups, 1, 'the one mouseup reached their window listener');
   // a direct visit (no lobby frame): Lobby opens the lobby page
   const Q = page('slxCard.js', { framed: false });
   Q.slx.fire('close', { playing: false, opened: true, sawDead: false, refused: 'full' });
@@ -296,6 +298,28 @@ test('slxChat: T opens, typing never reaches their keys, Enter sends, Esc closes
   M.raf(1);
   M.dispatch(M.doc.body, 'keydown', { key: 't', keyCode: 84 });
   assert.strictEqual(M.slx.chat.typing(), false);
+});
+
+// Fixer pass (2026-10-10): a boost let go over the chat lines ends (their window mouseup, slInput.js:207, hears it),
+// and the lines take the pointer only while the input is open (pointer-events by the box's typing class).
+test('slxChat: a mouseup over the lines reaches their window listener; the lines take the pointer only while typing', () => {
+  const P = page('slxChat.js', { S: { playing: true } });
+  const chat = P.slx.chat;
+  let ups = 0;
+  P.win.addEventListener('mouseup', () => ups++);
+  P.raf(1);
+  const msgs = chat.element.children[0];
+  assert.strictEqual(msgs.className, 'slx-chat-msgs');
+  P.dispatch(msgs, 'mouseup', { button: 0 });
+  assert.strictEqual(ups, 1, 'their release ends the boost');
+  assert.strictEqual(chat.element.className, 'slx-chat', 'closed: the lines let the pointer through');
+  P.dispatch(P.doc.body, 'keydown', { key: 't', keyCode: 84 });
+  assert.strictEqual(chat.element.className, 'slx-chat slx-chat-typing');
+  P.dispatch(chat.input, 'keydown', { key: 'Escape', keyCode: 27 });
+  assert.strictEqual(chat.element.className, 'slx-chat');
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'js', 'slx', 'slxChat.js'), 'utf8');
+  assert.ok(/\.slx-chat-msgs\{[^}]*pointer-events:none/.test(src), 'the lines default to pointer-events none');
+  assert.ok(src.includes('.slx-chat-typing .slx-chat-msgs{pointer-events:auto;}'));
 });
 
 test('slxChat: lines, own lines, kill lines (the old format), 50 kept, text only', () => {

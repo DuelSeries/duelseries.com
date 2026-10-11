@@ -266,6 +266,46 @@ test('vis: hidden at most every C_RATE.vis; a return to visible after an accepte
   assert.deepStrictEqual(calls, [true, false, true]);
 });
 
+// Fixer pass (2026-10-10): sl:vis is a state the layer sends once per change, so a quick hidden, visible, hidden
+// flick inside C_RATE.vis (250) must still end hidden; a visible that comes before the window ends cancels it.
+test('vis: hidden, visible, hidden within 100 ms and then nothing ends hidden; a later visible cancels a pending hidden', () => {
+  const { fakeTimers } = require('./slNetFakes');
+  const vt = fakeTimers(0);
+  const r = rig({ helpers: { timers: vt.timers } });
+  const s = r.sock();
+  s.fire('sl:join', { nick: 'v' });
+  const calls = [];
+  r.arenas.vis = (id, hidden) => { calls.push(hidden); return true; };
+  s.fire('sl:vis', { hidden: 1 });
+  r.wall.t += 50;
+  s.fire('sl:vis', { hidden: 0 });
+  r.wall.t += 50;
+  s.fire('sl:vis', { hidden: 1 });
+  assert.deepStrictEqual(calls, [true, false], 'the second hidden waits');
+  r.wall.t += 250;
+  vt.run(250);
+  assert.deepStrictEqual(calls, [true, false, true], 'the room ends on hidden');
+  // a pending hidden that a visible overtakes never applies
+  s.fire('sl:vis', { hidden: 0 });
+  r.wall.t += 10;
+  s.fire('sl:vis', { hidden: 1 });
+  r.wall.t += 10;
+  s.fire('sl:vis', { hidden: 0 });
+  r.wall.t += 300;
+  vt.run(300);
+  assert.deepStrictEqual(calls, [true, false, true, false], 'visible stays');
+  // a disconnect stops a pending hidden
+  s.fire('sl:vis', { hidden: 1 });
+  s.fire('sl:vis', { hidden: 0 });
+  s.fire('sl:vis', { hidden: 1 });
+  assert.strictEqual(vt.pending(), 1);
+  s.disconnect();
+  assert.strictEqual(vt.pending(), 0, 'the pending timer stopped');
+  r.wall.t += 300;
+  vt.run(300);
+  assert.deepStrictEqual(calls, [true, false, true, false, true, false]);
+});
+
 test('chat: joined seats only, a string, at most every C_RATE.chat; diag: only the known fields, checked', () => {
   const r = rig();
   const a = r.sock();
@@ -348,4 +388,72 @@ test('a thrown join (the room could not seat) is a closed refusal, never a hangi
   s.fire('sl:join', { nick: 'x' });
   refusedWith(s, 'closed');
   assert.strictEqual(r.sockets.stats.guarded, 0, 'handled, not a guard catch');
+});
+
+// Fixer pass (2026-10-10): a gliding snake (C_DISCONNECT, 3000 ms) is a live human snake. Join-then-close cycles kept
+// hundreds of them in the sim against a cap of 20 (the caps counted seats only) and freed their address at once.
+function cycle(r, ip, nick) {
+  const s = r.sock({ ip });
+  s.fire('sl:join', { nick });
+  const refused = layerMsgs(s).find((m) => m.t === 'refused');
+  s.disconnect();
+  return refused ? refused.why : 'joined';
+}
+
+test('caps: 400 join-and-close cycles never hold more than C_HUMAN_CAP live human snakes (gliders count)', () => {
+  const r = rig({ seed: 5, patch: { C_ROOM_CAP: 20, C_HUMAN_CAP: 20 } });
+  const room = r.room();
+  const seen = { joined: 0, full: 0 };
+  let peak = 0;
+  for (let i = 0; i < 400; i++) {
+    const why = cycle(r, '10.1.' + (i >> 8) + '.' + (i & 255), 'c' + i);
+    if (why === 'joined') seen.joined++;
+    else if (why === 'full') seen.full++;
+    else assert.fail('refused ' + why);
+    if (room.sim.count() > peak) peak = room.sim.count();
+    assert.ok(room.seats.size + room.orphans.size <= 20);
+    r.wall.t += 2;
+    if (i % 8 === 7) room.tickOnce(); // the room keeps ticking: glides run out after 3000 ms
+  }
+  assert.ok(peak <= 20, 'peak live snakes ' + peak);
+  assert.ok(seen.full > 0 && seen.joined > 20, JSON.stringify(seen));
+});
+
+test('per address: a gliding snake stays charged to its address until the glide ends (30 per address = 30 live snakes)', () => {
+  const r = rig({ seed: 6 });
+  const room = r.room();
+  const ip = '10.9.9.9';
+  const got = [];
+  for (let i = 0; i < 40; i++) got.push(cycle(r, ip, 'g' + i));
+  assert.deepStrictEqual(got.slice(0, 30), Array(30).fill('joined'));
+  assert.deepStrictEqual(got.slice(30), Array(10).fill('limit'), 'the 31st connection while 30 snakes glide');
+  assert.strictEqual(room.orphans.size, 30);
+  assert.strictEqual(r.sockets.gate.count(ip), 30);
+  // sl:leave then close: the glide keeps the charge after the socket closed, too
+  for (let t = 0; t < 80; t++) room.tickOnce(); // 80 x 42.67 ms > 3000 ms glide: every glider dies
+  assert.strictEqual(room.orphans.size, 0);
+  assert.strictEqual(r.sockets.gate.count(ip), 0, 'every charge released at its glide end');
+  const s = r.sock({ ip });
+  s.fire('sl:join', { nick: 'leaver' });
+  r.wall.t += 1000;
+  s.fire('sl:leave');
+  assert.strictEqual(room.orphans.size, 1);
+  s.disconnect();
+  assert.strictEqual(r.sockets.gate.count(ip), 1, 'the leave glide holds the charge after the close');
+  for (let t = 0; t < 80; t++) room.tickOnce();
+  assert.strictEqual(r.sockets.gate.count(ip), 0);
+  // a socket that never joined frees its address at once
+  const idle = r.sock({ ip });
+  assert.strictEqual(r.sockets.gate.count(ip), 1);
+  idle.disconnect();
+  assert.strictEqual(r.sockets.gate.count(ip), 0);
+});
+
+test('a stopped room releases every glider charge (an emergency close never strands an address)', () => {
+  const r = rig({ seed: 7 });
+  const ip = '10.8.8.8';
+  for (let i = 0; i < 5; i++) cycle(r, ip, 'e' + i);
+  assert.strictEqual(r.sockets.gate.count(ip), 5);
+  r.room().stop();
+  assert.strictEqual(r.sockets.gate.count(ip), 0);
 });

@@ -67,6 +67,12 @@ const SKIN_MAX = 65;
 // The 12 picture skins: their client fills these canvases from PNG art, ours leaves them blank
 // (public/js/sl/slSprites.js:409-424: "skins 37, 39-42, 45-49, 59, 62"). Bots use them only while PICTURE_SKINS is on.
 const PICTURE_SKIN_CVS = Object.freeze([37, 39, 40, 41, 42, 45, 46, 47, 48, 49, 59, 62]);
+// The 12 picture image files (SERVER-DESIGN 15.5; public/js/slx/slxSkins.js PICTURES loads exactly these). The
+// PICTURE_SKINS switch is ONE switch for all of them (Owen 17:00: one off switch), so it goes on only when its
+// reviewed list names every file (fixer pass, 2026-10-10: on with a short or empty list handed out all 12 skins and
+// made the page ask for all 12 files, reviewed or not). No cv-to-file mapping is guessed.
+const PICTURE_FILES = Object.freeze(['kwk6.png', 'jmou3.png', 'pewd.png', 'sest5.png', 'play.png', 'bonkers2.png',
+  'leaf.png', 'swiss.png', 'moldova.png', 'vietnam.png', 'argentina.png', 'mov2.png']);
 // Ordinary names (CHOSEN content, Q2 "normal names", no label). The old engine's list is the start
 // (server/Bot.js:12-21) without 'ieatbots' (it says bot) and 'slitherio_pro' (the brand, legal line 4); the rest are
 // ours. Every one passes their name rules (slNames.cleanNick: ASCII 32 to 127, 24 characters, no 7-digit run); a test
@@ -685,6 +691,15 @@ function botSkins(laws) {
   assertLawsComplete(laws, SKIN_LAW_IDS);
   const sw = laws.PICTURE_SKINS.value;
   if (!sw || typeof sw.on !== 'boolean') throw new Error('slBots: PICTURE_SKINS must be {on: boolean, ...}');
+  const reviewed = Array.isArray(sw.reviewed) ? sw.reviewed : null;
+  if (!reviewed) throw new Error('slBots: PICTURE_SKINS must carry a reviewed list');
+  for (const f of reviewed) {
+    if (!PICTURE_FILES.includes(f)) throw new Error('slBots: PICTURE_SKINS reviewed names ' + JSON.stringify(f) + ', not one of the 12 picture files');
+  }
+  if (sw.on) {
+    const missing = PICTURE_FILES.filter((f) => !reviewed.includes(f));
+    if (missing.length) throw new Error('slBots: PICTURE_SKINS is on but not every picture file is reviewed: ' + missing.join(', '));
+  }
   const out = [];
   for (let cv = 0; cv <= SKIN_MAX; cv++) if (sw.on || !PICTURE_SKIN_CVS.includes(cv)) out.push(cv);
   return Object.freeze(out);
@@ -1175,6 +1190,7 @@ module.exports = {
   BOT_NAMES,
   PERSONALITIES,
   PICTURE_SKIN_CVS,
+  PICTURE_FILES,
   SKIN_MAX,
   BRAIN_LAW_IDS,
   FILL_LAW_IDS,
