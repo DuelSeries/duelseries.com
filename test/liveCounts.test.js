@@ -88,13 +88,26 @@ test('/api/live carries the counts, from the rooms it already has, with no timer
      their own try (lobby-rungs review fix): an agar fault keeps the other rows and says unknown: ['agar']. */
   assert.ok(/if \(agArenas\) \{\s*try \{\s*agRows = agArenas\.boardRows\(\);/.test(src)
     && /unknown\.push\('agar'\)/.test(src)
-    && /const lobbies = liveBoard\(\)\.concat\(paperArenas\.boardRows\(\), agRows\);/.test(src),
+    && /const lobbies = liveBoard\(\{ skipFree: slRows\.length > 0 \}\)\s*\.concat\(slRows, paperArenas\.boardRows\(\), agRows\);/.test(src),
   'every agar.io rung row is in lobbies, read in its own try');
+  /* The new slither.io free room (Phase 6 swap, SERVER-DESIGN 16.2): its row is read in its own try BEFORE
+     liveBoard, which leaves the old free rung out only when that same answer carries the new row, and its
+     humans count as snake players. */
+  assert.ok(/if \(slArenas\) \{\s*try \{\s*slRows = slArenas\.boardRows\(\);/.test(src)
+    && /unknown\.push\('sl'\)/.test(src), 'the sl row is read in its own try');
+  assert.ok(fn.includes('sl: slArenas'), 'the sl humans reach the snake count');
   const ex = src.slice(src.indexOf('function liveExtras'), src.indexOf('function liveBattleRoyale'));
   assert.ok(!/agArenas|game: 'agar'|agar:free/.test(ex), 'and none is in the extras');
   assert.ok(!/setInterval|setTimeout/.test(fn), 'no polling loop of its own');
   const lib = fs.readFileSync(path.join(__dirname, '../server/liveCounts.js'), 'utf8');
   assert.ok(!/require\(/.test(lib), 'liveCounts depends on nothing, so it can expose nothing but counts');
+});
+
+test('the new slither.io room humans count as snake players, and a fault there counts 0', () => {
+  const base = liveCounts({ snakeRooms: [] }).snake;
+  assert.strictEqual(liveCounts({ snakeRooms: [], sl: { humanTotal: () => 3 } }).snake, base + 3);
+  assert.strictEqual(liveCounts({ snakeRooms: [], sl: { humanTotal: () => { throw new Error('x'); } } }).snake, base);
+  assert.strictEqual(liveCounts({ snakeRooms: [], sl: null }).snake, base);
 });
 
 test('the card adds the bots of its own rows, so it agrees with them', () => {

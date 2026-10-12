@@ -189,11 +189,20 @@ test('per address: C_SL_PER_IP sockets, then the handshake is refused { why: lim
   }
 });
 
-test('hidden: /api/live lists no sl: row (the board row waits for the Phase 6 swap)', async () => {
-  const r = await get(port, '/api/live');
-  const j = JSON.parse(r.body);
+// The Phase 6 swap (SERVER-DESIGN 16.2): the lobby's Free snake row is the new room's, the old free rung is off the
+// board, and the paid snake rungs are untouched.
+async function liveRows() {
+  const j = JSON.parse((await get(port, '/api/live')).body);
   assert.ok(Array.isArray(j.lobbies));
-  assert.strictEqual(j.lobbies.filter((x) => String(x.id).startsWith('sl:')).length, 0);
+  return j.lobbies.filter((x) => x.game === 'snake');
+}
+
+test('swap: /api/live lists the sl: row as the ONLY Free snake row; the paid snake rungs stay', async () => {
+  const snake = await liveRows();
+  const free = snake.filter((x) => Number(x.stake) === 0);
+  assert.deepStrictEqual(free.map((x) => x.id), ['sl:na:s0']);
+  assert.strictEqual(free[0].state, 'open');
+  assert.ok(snake.some((x) => Number(x.stake) > 0 && String(x.id).startsWith('snake:')), 'paid rungs on the old engine');
 });
 
 // ─── The owner console (SERVER-DESIGN 13 items 4, 5) ──────────────────────────────────────────────────────────────
@@ -251,7 +260,10 @@ test('owner console: the room is listed by name, the door closes and reopens it,
   assert.deepStrictEqual(refused.x, [{ t: 'refused', why: 'closed' }]);
   assert.strictEqual(refused.closed, true);
   assert.strictEqual(refused.frames, 0);
+  // The rollback without a restart: door off hands the old free rung its board row back on the next /api/live.
+  assert.deepStrictEqual((await liveRows()).filter((x) => Number(x.stake) === 0).map((x) => x.id), ['snake:na:s0']);
   assert.strictEqual((await ownerDo('sl:door:on', {})).status, 200);
+  assert.deepStrictEqual((await liveRows()).filter((x) => Number(x.stake) === 0).map((x) => x.id), ['sl:na:s0']);
   const back = await tryJoin('10.78.0.2');
   assert.ok(back.frames > 0, 'open again, no restart');
 

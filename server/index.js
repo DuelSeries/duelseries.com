@@ -1475,10 +1475,12 @@ app.get(['/agar', '/agar.html'], (_req, res) => res.redirect(302, '/ag'));
    C_SL_PER_IP (30) sockets per address. It holds no money: it gets no db and
    no money module, only the one read function of the biggest cash-out box
    (server/sl/slTopCashout.js), and its row is stake 0 with worth 0 snakes.
-   Hidden: its board row is NOT in /api/live until the Phase 6 swap
-   (SERVER-DESIGN 16.2), so the lobby still opens the old free snake room. The
-   owner console sees it (ALL_ROOMS, sl:door:off/on), maintenance and announce
-   reach /sl too. */
+   It IS the lobby's free snake now (the Phase 6 swap, SERVER-DESIGN 16.2):
+   while slFreeLive() its row is the snake Free row on /api/live, liveBoard()
+   leaves out the old free rung, and that rung stops seeding bots but stays
+   reachable as the fallback. sl:door:off is the rollback without a restart.
+   The owner console sees it (ALL_ROOMS, sl:door:off/on), maintenance and
+   announce reach /sl too. */
 const slBoot = require('./sl/slBoot');
 const slOpened = slBoot.openSl({
   env: process.env,
@@ -1500,6 +1502,10 @@ const slOpened = slBoot.openSl({
   excludeWallets: [...OWNER_WALLETS, REVENUE_WALLET],
 });
 const slArenas = slOpened.arenas;
+/* The one swap predicate (SERVER-DESIGN 16.2): the new room is open, its door
+   is open and its last board row was made. Read on every call, never cached,
+   so sl:door:off hands the old free rung its row and its bots back at once. */
+function slFreeLive() { return !!(slArenas && slArenas.isLive()); }
 app.get('/sl', slBoot.slPageRoute(slOpened));
 const slGate = require('./slRoutes');
 slGate.slRoutes(app, {
@@ -1991,7 +1997,7 @@ for (const rgn of [REGION]) {
 
    Bot-seeded rooms mean `players` is never the whole story — a room with only
    bots still shows as joinable, which is the point: the board is never empty. */
-function liveBoard() {
+function liveBoard(opts = {}) {
   /* The ladder only. The fixed tier rooms still exist and still serve
      index.html, but they are not on this board: listing both would show a $1
      room twice under two different names, and would offer the old fixed tiers,
@@ -2004,7 +2010,10 @@ function liveBoard() {
   const live = new Map(ladder.list()
     .filter(l => l.game === 'snake')
     .map(l => [l.stake, l]));
-  const out = ALL_STAKES.map(rung => {
+  /* The old free rung leaves the board while the new slither.io room has a
+     row in the SAME /api/live answer (opts.skipFree), so the lobby never lists
+     two Free snake rooms and never lists none. */
+  const out = ALL_STAKES.filter(rung => !(opts.skipFree && rung === 0)).map(rung => {
     const hit = live.get(rung);
     return {
       id: `snake:${REGION}:s${rung}`,
@@ -2145,6 +2154,7 @@ function liveGameCounts() {
   const counts = liveCounts({
     snakeRooms,
     agar: agArenas,                 // every agar.io room (null while the game is closed)
+    sl: slArenas,                   // the new slither.io free room (null while SL_ENABLED is off)
     shooter: typeof shooterRoom !== 'undefined' ? shooterRoom : null,
     tanks: typeof tanksLobby !== 'undefined' ? tanksLobby : null,
     knockout: typeof knockoutLobby !== 'undefined' ? knockoutLobby : null,
@@ -2183,7 +2193,20 @@ app.get('/api/live', (_req, res) => {
         unknown.push('agar');
       }
     }
-    const lobbies = liveBoard().concat(paperArenas.boardRows(), agRows);
+    /* The new slither.io free room's row (server/sl), in its own try like
+       agar's. Made BEFORE liveBoard so the old free rung is left out only when
+       this very answer carries the new row. */
+    let slRows = [];
+    if (slArenas) {
+      try {
+        slRows = slArenas.boardRows();
+      } catch (e) {
+        console.error('[LIVE] sl rows', e.message);
+        unknown.push('sl');
+      }
+    }
+    const lobbies = liveBoard({ skipFree: slRows.length > 0 })
+      .concat(slRows, paperArenas.boardRows(), agRows);
     const extras = liveExtras();
     /* Card counts: every human of the game plus the bots in its rows, from these
        same rows, so a card never reads 0 above a row saying 20 playing. */
@@ -2305,6 +2328,14 @@ const ladder = new LobbyRegistry({
        know whether this room is free asks the room, rather than trying to
        read a price out of its name. */
     r.stake = Number(stake);
+    /* The old free rung drains while the new slither.io room is the lobby's
+       Free (SERVER-DESIGN 16.2): no new bots, nobody thrown out, still
+       reachable from a stale tab. A getter, so the event takes the whole bot
+       budget (Owen Q21) and sl:door:off brings these bots back without a
+       restart. */
+    if (game === 'snake' && r.stake === 0) {
+      Object.defineProperty(r, 'fallbackOnly', { get: slFreeLive, configurable: true, enumerable: true });
+    }
     return r;
   },
 });

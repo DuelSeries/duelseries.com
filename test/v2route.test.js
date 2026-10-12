@@ -1549,7 +1549,7 @@ test('Paper takes the widget path to its arena page, on every rung', () => {
      Paper directory's rows, which are game 'paper'. */
   const s = server();
   // (agar.io's rows ride along after Paper's: its free rung, and its paid ones while AG_PAID built them, PAID-AGAR-DESIGN.md 5.7)
-  assert.ok(/const lobbies = liveBoard\(\)\.concat\(paperArenas\.boardRows\(\), agRows\);/.test(s)
+  assert.ok(/const lobbies = liveBoard\(\{ skipFree: slRows\.length > 0 \}\)\s*\.concat\(slRows, paperArenas\.boardRows\(\), agRows\);/.test(s)
     && /const out = \{ lobbies,/.test(s) && /res\.json\(out\);/.test(s),
     '/api/live lists the Paper rows with the lobbies');
   const arenas = fs.readFileSync(path.join(ROOT, 'server/paper/PaperArenas.js'), 'utf8');

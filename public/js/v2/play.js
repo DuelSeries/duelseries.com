@@ -315,7 +315,14 @@
        Knockout is the first game that is on both sides of this line, so the
        test is the amount rather than the game. */
     const staking = hasStake && Number(sel.stake) > 0;
-    if (OWN_PAGE[game] && !staking) {
+    /* slither.io's Free is the new engine on its own page, /sl (SERVER-DESIGN
+       16.2, Phase 6), whenever the board's free snake row is the new room's
+       ('sl:' id). With no board yet (a cold start) /sl is still the most likely
+       open room; if it is shut, its closed page sends the player back to a
+       board that lists the old free room again. Paid snake never comes here. */
+    const page = (game === 'snake' && hasStake && Number(sel.stake) === 0 && slFree())
+      ? '/sl' : OWN_PAGE[game];
+    if (page && !staking) {
       /* Remember Free as well. defaultStep() already treats 0 as a real rung
          ("including 0: free is a real choice"), but nothing ever WROTE it —
          this path returned before the remember below — so playing a free table
@@ -326,7 +333,7 @@
       const frame = document.getElementById('game-frame');
       if (!frame) { say('That game could not be opened. Refresh and try again.'); return; }
       if (window.phEvent) window.phEvent('game_started', { game: game, lobbyType: 'free' });
-      frame.src = OWN_PAGE[game];
+      frame.src = page;
       frame.style.display = 'block';
       document.body.classList.add('playing');
       return;
@@ -342,6 +349,15 @@
        this only says which room. Exactly one of stake and lobbyType is sent, so
        the server never has to guess which the player meant. */
     window.dispatchEvent(new CustomEvent('duel:play', { detail: detail }));
+  }
+
+  /* Is the lobby's free snake the new slither.io room? Yes when the board's
+     stake 0 snake row has an 'sl:' id, and when there is no board at all. */
+  function slFree() {
+    const rows = (window.V2Board && window.V2Board.lobbies) || [];
+    const free = rows.filter(l => l && l.game === 'snake' && Number(l.stake) === 0);
+    if (!free.length) return true;
+    return free.some(l => String(l.id || '').indexOf('sl:') === 0);
   }
 
   /* From a board row. The row names its own room, so nothing is guessed. */
