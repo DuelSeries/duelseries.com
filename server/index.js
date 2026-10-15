@@ -1949,6 +1949,17 @@ const slPaidBoot = require('./slPaid/slPaidBoot');
 /* The cash-out card's status (GET /api/sl/cashout/:cid): pending when the order
    goes out, then sent or delayed (an owed failed_payouts row the drainer pays). */
 const slCashoutStatus = slPaidBoot.createCashoutStatus();
+/* The owed lane (design 7.4): an emergency or orphan refund of 100% of the
+   current balance, one failed_payouts row per key (in dollars), then the
+   drainer. The room already closed the journal with this row's key. A write the
+   database refuses is kept and written again on the slpaid-sweep tick below
+   until it lands (review T5-R3), so a mid-run close never waits for the next
+   boot; that boot's replay stays the backstop, once per key. */
+const slOwedLane = slPaidBoot.createOwedLane({
+  write: (row) => db.recordOwedOnce(row.key, row.wallet, row.micro / 1e6, row.name || 'Player', row.reason),
+  kick: kickDrain,
+  track: agInflight.track,
+});
 const slMoneyHooks = {
   onCashout: (order) => {
     slCashoutStatus.set(order.cashoutId, 'pending');
@@ -1957,11 +1968,7 @@ const slMoneyHooks = {
       return sig;
     }));
   },
-  /* The owed lane (design 7.4): an emergency or orphan refund of 100% of the
-     current balance. The room already closed the journal with this row's key, so
-     a write that fails here is written by the next boot's replay, once per key. */
-  onOwed: (row) => agInflight.track(
-    db.recordOwedOnce(row.key, row.wallet, row.micro / 1e6, row.name || 'Player', row.reason).then(kickDrain)),
+  onOwed: slOwedLane.onOwed,
   onFloor: slPayout.sweepFloor,
   onHouse: slPayout.houseIncident,
   onBreach: agOwnerAlert,
@@ -2926,9 +2933,14 @@ if (agArenas) everyStaggered(() => agArenas.sweep(Date.now()), 60000, 16500, 'ag
 if (slArenas) everyStaggered(() => slArenas.sweep(Date.now()), 60000, 26000, 'sl-sweep');
 /* Paid snake on the sl engine (only while openSlPaid built it): a paid room
    empty for FLOOR_SWEEP_MS books its floor gold to the house and retires, and a
-   settling room is retried (PAID-SL-DESIGN.md 7.5). 9 mod 30 sits 2s from
+   settling room is retried (PAID-SL-DESIGN.md 7.5), and so is an owed row the
+   database refused (slOwedLane, review T5-R3). 9 mod 30 sits 2s from
    collusion (7) and from payouts (11). */
-if (slPaid) everyStaggered(() => slPaid.sweep(Date.now()), 60000, 9000, 'slpaid-sweep');
+if (slPaid) everyStaggered(() => {
+  const owed = slOwedLane.retry();
+  slPaid.sweep(Date.now());
+  return owed;
+}, 60000, 9000, 'slpaid-sweep');
 
 // ── Failed-payout drainer (NA only) ───────────────────────────────────────────
 // Retries payouts that failed (e.g. an RPC outage) so a player's winnings are never stranded.

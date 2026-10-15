@@ -29,6 +29,9 @@
 //                                    order goes out, then 'sent' or 'delayed'; keyed by the cash-out id only (a
 //                                    lowercase uuid, no wallet), STATUS_TTL_MS each, at most STATUS_MAX
 //   isCashoutId(cid)                 the lowercase uuid test the route answers 404 to before it reads the map
+//   createOwedLane(opts)             slMoney's onOwed (design 7.4): an emergency or orphan refund's row written once per
+//                                    key, and a refused write kept and written again by retry() on the slpaid-sweep
+//                                    tick until it lands (review T5-R3)
 
 const { SlPaidArenas } = require('./slPaidArenas');
 const { createSlPaidDoor } = require('./slPaidDoor');
@@ -102,6 +105,53 @@ function createCashoutStatus({ ttlMs = STATUS_TTL_MS, max = STATUS_MAX, now = Da
     return e ? e.state : null;
   }
   return { set, get, size: () => map.size };
+}
+
+// The owed lane's live write (design 7.4). An emergency or orphan close happens mid-run: the room already closed the
+// journal with the row's key, so a write the database refuses would otherwise wait for the next boot's replay, which can
+// be days away. Such a row is kept here and written again on every retry() (the slpaid-sweep tick) until it answers
+// owed or exists; recordOwedOnce takes one row per key, so a retry never pays twice, and the replay stays the backstop
+// for a process that dies first. onOwed still rejects on a refused write, so slMoney logs OWED CRITICAL and alerts.
+//   write(row)  -> promise of 'owed' or 'exists' (the server: db.recordOwedOnce, in dollars)
+//   kick()      the drainer, once per row written
+//   track(p)    -> p (agInflight.track: a SIGINT waits for a write in flight)
+// -> { onOwed(row), retry() -> promise of the rows still kept, pending() }
+function createOwedLane({ write, kick = () => {}, track = (p) => p, log = console } = {}) {
+  if (typeof write !== 'function') throw new Error('createOwedLane: write must be a function');
+  const kept = new Map(); // key -> { row, busy }
+  function attempt(row) {
+    return Promise.resolve().then(() => write(row)).then((answer) => {
+      kept.delete(row.key);
+      try {
+        kick();
+      } catch (e) {
+        log.error('[SLP] OWED drainer kick: ' + (e && e.message));
+      }
+      return answer;
+    });
+  }
+  function onOwed(row) {
+    return track(attempt(row).catch((e) => {
+      if (!kept.has(row.key)) kept.set(row.key, { row, busy: false });
+      log.error('[SLP] OWED row ' + row.key + ' kept for a retry on the sweep tick (' + row.micro + ' micro)');
+      throw e;
+    }));
+  }
+  function retry() {
+    const runs = [];
+    for (const k of Array.from(kept.values())) {
+      if (k.busy) continue;
+      k.busy = true;
+      runs.push(track(attempt(k.row)).then((answer) => {
+        log.log('[SLP] OWED row ' + k.row.key + ' written on retry (' + answer + ', ' + k.row.micro + ' micro)');
+      }, (e) => {
+        k.busy = false;
+        log.error('[SLP] OWED row ' + k.row.key + ' retry failed, kept (' + k.row.micro + ' micro): ' + (e && e.message));
+      }));
+    }
+    return Promise.all(runs).then(() => kept.size);
+  }
+  return { onOwed, retry, pending: () => kept.size };
 }
 
 // The last resort (nothing paid could be built): a paid socket is routed here, never to the free room, and its join is
@@ -208,4 +258,4 @@ function openSlPaid(opts) {
 }
 
 module.exports = { slPaidSwitch, SL_PAID_DEFAULT, openSlPaid, composePaidShutdown, createCashoutStatus, isCashoutId,
-  STATUS_MAX };
+  STATUS_MAX, createOwedLane };

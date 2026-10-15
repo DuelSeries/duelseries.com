@@ -6,7 +6,9 @@
 //   SLP_SMOKE_BOARD_FAULT=1     the paid sl directory's boardRows throws (/api/live's own try: unknown ['slpaid'])
 //   SLP_SMOKE_TRIGGER=<dir>     polled every 100 ms: a file 'sigint' there emits SIGINT once (the shutdown settle; the
 //                               process lives on, the leaderboard listens too), a file 'crash' throws an uncaught
-//                               exception (the crash settle, then the process dies)
+//                               exception (the crash settle, then the process dies),
+//                               and a file 'stepfault' holding a paid room's lobbyType makes that room's next sim
+//                               step throw once (the room's emergency close, design 7.4; review T5-R1)
 const fs = require('fs');
 const path = require('path');
 
@@ -21,13 +23,42 @@ if (process.env.SLP_SMOKE_BOARD_FAULT === '1') {
   SlPaidArenas.prototype.boardRows = function () { throw new Error('test fault: sl paid rows'); };
 }
 
+// The next _paidStep of the room labelled lobbyType runs a sim.step that throws before it moves anything, once.
+// Required here, after the boot: server/sl/slRoom.js is then the module the server loaded.
+function armStepFault(lobbyType) {
+  const { SlRoom } = require('../server/sl/slRoom');
+  const paidStep = SlRoom.prototype._paidStep;
+  let armed = true;
+  SlRoom.prototype._paidStep = function () {
+    if (armed && this.lobbyType === lobbyType) {
+      armed = false;
+      const sim = this.sim;
+      const step = sim.step;
+      sim.step = function () {
+        sim.step = step;
+        throw new Error('test fault: sl paid step');
+      };
+    }
+    return paidStep.call(this);
+  };
+}
+
 if (process.env.SLP_SMOKE_TRIGGER) {
   const dir = process.env.SLP_SMOKE_TRIGGER;
   let signalled = false;
+  let faulted = false;
   const t = setInterval(() => {
     if (!signalled && fs.existsSync(path.join(dir, 'sigint'))) {
       signalled = true;
       process.emit('SIGINT');
+    }
+    if (!faulted && fs.existsSync(path.join(dir, 'stepfault'))) {
+      // armed once it holds a name (the poll may see the file before its text)
+      const lobbyType = fs.readFileSync(path.join(dir, 'stepfault'), 'utf8').trim();
+      if (lobbyType) {
+        faulted = true;
+        armStepFault(lobbyType);
+      }
     }
     if (fs.existsSync(path.join(dir, 'crash'))) {
       clearInterval(t);

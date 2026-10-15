@@ -8,13 +8,14 @@
 //   - the rungs fail to build: the off directory; the door fails to build: a helper that refuses not-open with the token
 //     untouched (its expiry refunds it), never the free room
 //   - the cash-out status map: lowercase uuids only, pending then sent or delayed, a TTL and a cap
+//   - the owed lane: a refused owed write is kept and written again on the sweep tick until it lands, once per key
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { rig, layerMsgs } = require('./slSockFakes');
 const { moneySpy, fakeLedger, fakePayout } = require('./slPaidFakes');
 const { makeEntryStore } = require('../server/entryStore');
 const { isStake } = require('../server/stakeRules');
-const { slPaidSwitch, SL_PAID_DEFAULT, openSlPaid, createCashoutStatus, isCashoutId, STATUS_MAX } =
+const { slPaidSwitch, SL_PAID_DEFAULT, openSlPaid, createCashoutStatus, isCashoutId, STATUS_MAX, createOwedLane } =
   require('../server/slPaid/slPaidBoot');
 const { STATUS_TTL_MS } = require('../server/slPaid/slPaidConst');
 
@@ -159,4 +160,119 @@ test('the cash-out status: lowercase uuids only, pending then sent or delayed, a
   assert.equal(st.get(id(4)), null, 'gone after the TTL');
   assert.equal(st.size(), 0);
   assert.equal(STATUS_MAX, 5000);
+});
+
+// The owed lane's live write (design 7.4, review T5-R3): db.recordOwedOnce's rule, one row per key; down: every write
+// is refused (the database blipped); lost: the next write lands and still rejects (its answer never came back).
+function owedDb() {
+  const rows = new Map();
+  const d = { rows, down: false, lost: false, calls: 0 };
+  d.write = async (row) => {
+    d.calls++;
+    if (d.down) throw new Error('db down');
+    const had = rows.has(row.key);
+    if (!had) rows.set(row.key, row);
+    if (d.lost) {
+      d.lost = false;
+      throw new Error('answer lost');
+    }
+    return had ? 'exists' : 'owed';
+  };
+  return d;
+}
+const owedKey = (n) => 'agowed:abcdef00-0000-4000-8000-00000000000' + n;
+const owedRow = (n, micro) => ({ key: owedKey(n), wallet: 'W' + n, name: 'p' + n, micro,
+  reason: 'refund slither emergency sl_na_s0_5 ' + owedKey(n) });
+
+test('the owed lane: a written row kicks the drainer once and leaves nothing to retry', async () => {
+  const db = owedDb();
+  let kicks = 0;
+  const tracked = [];
+  const lane = createOwedLane({ write: db.write, kick: () => { kicks++; }, track: (p) => { tracked.push(p); return p; },
+    log: lines() });
+  assert.equal(await lane.onOwed(owedRow(1, 500000)), 'owed');
+  assert.deepEqual([kicks, lane.pending(), tracked.length], [1, 0, 1], 'one kick, nothing kept, the write tracked');
+  assert.equal(await lane.retry(), 0);
+  assert.equal(db.calls, 1, 'a retry writes nothing');
+  assert.throws(() => createOwedLane({}), /write must be a function/);
+});
+
+test('the owed lane: a refused write is kept and written again on each tick until it lands, once per key', async () => {
+  const db = owedDb();
+  const lg = lines();
+  let kicks = 0;
+  const tracked = [];
+  const lane = createOwedLane({ write: db.write, kick: () => { kicks++; }, track: (p) => { tracked.push(p); return p; },
+    log: lg });
+  db.down = true;
+  // still rejects, so slMoney's safeAsync logs OWED CRITICAL and alerts as before; the row is kept
+  await assert.rejects(lane.onOwed(owedRow(1, 500000)), /db down/);
+  await assert.rejects(lane.onOwed(owedRow(2, 1250000)), /db down/);
+  assert.deepEqual([lane.pending(), kicks, db.rows.size], [2, 0, 0]);
+  assert.equal(lg.out.filter((l) => /^\[SLP\] OWED row agowed:\S+ kept for a retry on the sweep tick/.test(l)).length, 2);
+  // the database is still down at the next tick: both kept, each named
+  assert.equal(await lane.retry(), 2);
+  assert.equal(lg.out.filter((l) => /^\[SLP\] OWED row agowed:\S+ retry failed, kept \(\d+ micro\): db down$/.test(l)).length, 2);
+  // it is back: each row written once, the drainer kicked for each
+  db.down = false;
+  assert.equal(await lane.retry(), 0);
+  assert.deepEqual([...db.rows.keys()], [owedKey(1), owedKey(2)]);
+  assert.deepEqual([db.rows.get(owedKey(2)).micro, db.rows.get(owedKey(2)).wallet], [1250000, 'W2']);
+  assert.equal(kicks, 2);
+  assert.ok(lg.out.includes('[SLP] OWED row ' + owedKey(1) + ' written on retry (owed, 500000 micro)'));
+  assert.equal(await lane.retry(), 0, 'nothing left');
+  assert.equal(db.calls, 6);
+  assert.equal(tracked.length, 6, 'every attempt is tracked (a SIGINT waits for it)');
+});
+
+test('the owed lane: a write whose answer was lost replays as exists; a tick never overlaps a write in flight', async () => {
+  const db = owedDb();
+  const lg = lines();
+  let kicks = 0;
+  const lane = createOwedLane({ write: db.write, kick: () => { kicks++; }, log: lg });
+  db.lost = true;
+  await assert.rejects(lane.onOwed(owedRow(3, 500000)), /answer lost/);
+  assert.deepEqual([lane.pending(), db.rows.size], [1, 1], 'kept although the row landed');
+  assert.equal(await lane.retry(), 0);
+  assert.deepEqual([db.rows.size, kicks], [1, 1], 'exists: still one row, and done');
+  assert.ok(lg.out.includes('[SLP] OWED row ' + owedKey(3) + ' written on retry (exists, 500000 micro)'));
+  // a slow database: two ticks while the retry is in flight start one write
+  let release;
+  const slow = { calls: 0 };
+  const lane2 = createOwedLane({
+    write: (row) => {
+      slow.calls++;
+      if (slow.calls === 1) return Promise.reject(new Error('db down'));
+      return new Promise((r) => { release = () => r('owed'); });
+    },
+    log: lines(),
+  });
+  await assert.rejects(lane2.onOwed(owedRow(4, 500000)), /db down/);
+  const a = lane2.retry();
+  const b = lane2.retry();
+  assert.equal(await b, 1, 'the second tick skips the row in flight and still counts it');
+  assert.equal(slow.calls, 2, 'one retry write in flight');
+  release();
+  assert.equal(await a, 0);
+  assert.equal(lane2.pending(), 0);
+  // a drainer kick that throws never puts a written row back
+  const db3 = owedDb();
+  const lane3 = createOwedLane({ write: db3.write, kick: () => { throw new Error('kick'); }, log: lines() });
+  assert.equal(await lane3.onOwed(owedRow(5, 500000)), 'owed');
+  assert.equal(lane3.pending(), 0);
+});
+
+/* server/index.js wires the lane (T5-R3; read from the source and run here on a fake database, as entryExpiry does for
+   devRefund): recordOwedOnce's argument order with the micro in dollars, the drainer kick, agInflight, slMoney's onOwed,
+   and the slpaid-sweep tick retrying it. test/slPaidJoinSmoke.test.js runs it live (T5-R1). */
+test('server/index.js: the owed lane writes dollars in recordOwedOnce\'s order, kicks the drainer, retries on the tick', () => {
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'server', 'index.js'), 'utf8');
+  const m = /const slOwedLane = slPaidBoot\.createOwedLane\(\{\n\s*write: (\(row\) => [^\n]+),\n\s*kick: kickDrain,\n\s*track: agInflight\.track,\n\}\);/.exec(src);
+  assert.ok(m, 'index.js builds the owed lane');
+  const got = [];
+  const write = new Function('db', 'return ' + m[1])({ recordOwedOnce: (...a) => { got.push(a); return Promise.resolve('owed'); } });
+  write({ key: owedKey(1), wallet: 'WOWED', name: '', micro: 1250000, reason: 'refund slither orphan sl_na_s1 ' + owedKey(1) });
+  assert.deepEqual(got, [[owedKey(1), 'WOWED', 1.25, 'Player', 'refund slither orphan sl_na_s1 ' + owedKey(1)]]);
+  assert.match(src, /\n\s*onOwed: slOwedLane\.onOwed,\n\s*onFloor: slPayout\.sweepFloor,\n\s*onHouse: slPayout\.houseIncident,\n/);
+  assert.match(src, /everyStaggered\(\(\) => \{\n[^}]*slOwedLane\.retry\(\)[^}]*\}, 60000, 9000, 'slpaid-sweep'\);/);
 });
