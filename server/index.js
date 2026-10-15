@@ -401,7 +401,11 @@ app.get('/api/money-config', (req, res) => {
    cards count from /api/live), so it went with that game; an old EU server still sending it is
    simply ignored. */
 let remoteStats = { playerCount: 0, liveStakesSol: 0 };
-const STATS_SECRET = process.env.SESSION_SECRET || 'duelseries-dev-secret';
+/* No public fallback secret on a deployed server (server/statsPush.js, security review 2026-10-15):
+   without SESSION_SECRET there, NA refuses every push and EU sends none. */
+const statsPush = require('./statsPush');
+const STATS_SECRET = statsPush.statsSecret(process.env);
+if (!STATS_SECRET) console.error('[STATS] CRITICAL SESSION_SECRET is not set: the EU stats push is refused here and never sent');
 
 // Both servers expose their local counts (used by EU to self-report)
 app.get('/api/stats', (req, res) => {
@@ -411,8 +415,8 @@ app.get('/api/stats', (req, res) => {
 // NA server receives pushed stats from EU
 if (REGION === 'na') {
   app.post('/api/stats/push', express.json(), (req, res) => {
-    if (req.headers['x-stats-secret'] !== STATS_SECRET) return res.sendStatus(403);
-    remoteStats = { playerCount: req.body.playerCount || 0, liveStakesSol: req.body.liveStakesSol || 0 };
+    if (!statsPush.secretOk(STATS_SECRET, req.headers['x-stats-secret'])) return res.sendStatus(403);
+    remoteStats = statsPush.readStatsPush(req.body);
     broadcastLobbyState();
     res.sendStatus(204);
   });
@@ -421,7 +425,7 @@ if (REGION === 'na') {
 // EU server pushes its counts to NA whenever broadcastLobbyState runs
 const NA_PUSH_URL = 'https://duelseries.com/api/stats/push';
 async function pushStatsToNA() {
-  if (REGION !== 'eu') return;
+  if (REGION !== 'eu' || !STATS_SECRET) return;
   try {
     await fetch(NA_PUSH_URL, {
       method: 'POST',
@@ -446,6 +450,10 @@ const sigLimiter = rateLimit({ windowMs: 60 * 1000, max: 30, standardHeaders: tr
 /* /api/debug/client stays open (it is how a browser reports a stall), so it gets its own cap:
    diag.js posts every 20 s, so 6 a minute per address is double that. */
 const clientReportLimiter = rateLimit({ windowMs: 60 * 1000, max: 6, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Slow down.' } });
+// /api/my-transactions costs two provider calls (one of them a batch of up to 36) per wallet it
+// has not answered in the last 30 s. The wallet screen asks once when it opens, so 30 a minute
+// per IP is far above any person and far below a loop (security review 2026-10-15).
+const txHistoryLimiter = rateLimit({ windowMs: 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Slow down.' } });
 
 // ─── Entry fee ────────────────────────────────────────────────────────────────
 const LOBBY_FEES = money.lobbyFees; // { free, br, dollar }: the active money mode's fee table (keys validate lobby type)
@@ -476,11 +484,41 @@ const { STAKE_TIERS, ALL_STAKES, MIN_STAKE, MAX_STAKE,
    earlier boot of this server verified but never seated or refunded is refunded once. BOOT_ID
    names this process's rows, so the boot sweep leaves this boot's live tokens alone. */
 const BOOT_ID = crypto.randomUUID();
+/* Stake signatures this process is broadcasting or verifying right now (/api/submit-stake). The
+   pending-verify sweep leaves them to their request, and while the database has no ledger
+   columns this set alone refuses a second submit of the same bytes while the first is in flight. */
+const stakeInFlight = new Set();
+/* A stake that landed while its submit-stake request did not finish (security review 2026-10-15,
+   finding 3) is owed what landed, capped at what it was for, exactly as a token's refund would
+   be: the rung it covers for a ladder stake ('stake <rung>'), what landed for a tier stake. It is
+   never minted late. A verify that says it paid short, failed, or did not pay the escrow is owed
+   nothing (as at the request); any other error (the RPC, a lagging node) is asked again later. */
+async function owedForLateStake(row) {
+  const expected = Number(row.refund_amount);
+  if (!(expected > 0)) return { reject: 'no amount on record' };
+  let v;
+  try {
+    v = await money.verifyStake(row.sig, expected);
+  } catch (e) {
+    const m = String((e && e.message) || e);
+    if (/too small|did not pay the escrow|failed on-chain/i.test(m)) return { reject: m };
+    throw e;
+  }
+  const ladder = String(row.label || '').startsWith('stake ');
+  const amount = ladder ? refundBound(tierFor(v.worth) || 0, v.worth) : refundBound(v.worth);
+  return { payer: v.payer, amount };
+}
 const stakeLedger = require('./stakeLedger').createStakeLedger({
   db,
   region: REGION,
   bootId: BOOT_ID,
   kickDrain: () => kickDrain(),
+  chain: {
+    status: (sig) => Wallet.stakeSigStatus(sig),
+    blockhashValid: (blockhash) => Wallet.blockhashValid(blockhash),
+    owed: (row) => owedForLateStake(row),
+  },
+  inFlight: (sig) => stakeInFlight.has(sig),
 });
 
 const refundExpiredEntry = require('./entryExpiry').createExpiryRefund({
@@ -654,12 +692,15 @@ app.get('/api/sol-balance', rpcLimiter, async (req, res) => {
 
 // Browser → server Solana RPC proxy: the frontend's wallet SDK makes its RPC calls here
 // so they go through our server's RPC instead of a public endpoint that blocks browser
-// origins (403). Same-origin, so no CORS.
+// origins (403). Same-origin, so no CORS. Not an open relay to our paid key (Wallet.forwardRpc,
+// security review 2026-10-15): one request per call and only the wallet SDK's methods, else 400.
 app.post('/api/rpc', rpcLimiter, async (req, res) => {
+  const bad = Wallet.rpcRequestError(req.body);
+  if (bad) return res.status(400).json({ error: bad });
   try {
     res.type('application/json').send(await Wallet.forwardRpc(req.body));
   } catch (e) {
-    res.status(502).json({ error: e.message });
+    res.status(e && e.status === 400 ? 400 : 502).json({ error: e.message });
   }
 });
 
@@ -704,6 +745,29 @@ function stakePaused() {
    quote and submit is refused in any other mode, before a wallet prompt or a broadcast. */
 const LADDER_NEEDS_USDC = 'Paid buy-ins are not available right now. Free play still works.';
 const ladderPriced = () => money.mode === 'usdc';
+
+/* The pending-verify claim, made BEFORE a client-signed stake is broadcast (security review
+   2026-10-15, findings 3 and 5; server/stakeLedger.js). Wallet.submitStake reads the signature,
+   the fee payer and the blockhash off the signed bytes and awaits this first; a throw here means
+   nothing is sent. The row it writes ('verifying', keyed by the signature) refuses a second
+   submit of the same bytes before it reaches the chain, so whoever saw the bytes after we sent
+   them cannot take the stake's token, and if this request then fails (a status read that throws,
+   the confirm timeout, a lagging node, a restart) the stake sweep finds the row and refunds what
+   landed to the payer the chain shows. `expected` is what the verify needs to see land, `label`
+   names the rung or tier ('stake <rung>' or 'lobby <type>'). pre.sig marks this request's own
+   entry in stakeInFlight (removed when the request ends); pre.durable says the row was written,
+   so the claim after the verify is that row's. */
+const STAKE_SETTLED_LATE = 'This stake took too long to confirm. It was not used, and it is being refunded to your wallet.';
+function preclaimStake(expected, label, pre) {
+  return async (info) => {
+    if (stakeInFlight.has(info.signature)) throw new Error('Stake already used');
+    stakeInFlight.add(info.signature);
+    pre.sig = info.signature;
+    const c = await stakeLedger.preclaim(info.signature, { wallet: info.payer, amount: expected, label, blockhash: info.blockhash });
+    if (!c.claimed) throw new Error('Stake already used');
+    pre.durable = c.durable;
+  };
+}
 
 // ── Self-custody staking (Phase 1) ───────────────────────────────────────────
 // Quote how much SOL to stake for a paid lobby and where (the escrow), plus a fresh
@@ -806,16 +870,20 @@ app.post('/api/submit-stake', entryFeeLimiter, express.json({ limit: '256kb' }),
     if (!signedTx) return res.status(400).json({ error: 'Missing signed transaction' });
     // USDC only, refused before the broadcast (ladderPriced). Dev tokens above touch no chain.
     if (!ladderPriced()) return res.status(503).json({ error: LADDER_NEEDS_USDC });
+    const pre = { sig: null, durable: false };
     try {
-      const sig = await Wallet.submitStake(Buffer.from(signedTx, 'base64'));
+      // The pending-verify row is written before the bytes are broadcast (preclaimStake).
+      const sig = await Wallet.submitStake(Buffer.from(signedTx, 'base64'),
+        { beforeSend: preclaimStake(money.amountFor(want), 'stake ' + want, pre) });
       const { payer, worth } = await money.verifyStake(sig, money.amountFor(want));
       const rung = tierFor(worth);
       if (!rung) return res.status(400).json({ error: 'Payment did not cover any buy-in' });
-      // Atomic one-time claim AFTER verify, as in the tier path below. The same INSERT writes
+      // Atomic one-time claim AFTER verify, as in the tier path below. The same statement writes
       // the stake's durable row (who is owed, what a refund pays: what landed, capped at the
       // rung), so a restart before the join refunds it instead of losing it (STATUS item 7a).
-      const rec = await stakeLedger.record(sig, { wallet: payer, amount: refundBound(rung, worth), label: 'stake ' + rung });
-      if (!rec.claimed) return res.status(400).json({ error: 'Stake already used' });
+      // With a pending-verify row it is that row's 'verifying' -> 'pending'.
+      const rec = await stakeLedger.record(sig, { wallet: payer, amount: refundBound(rung, worth), label: 'stake ' + rung, preclaimed: pre.durable });
+      if (!rec.claimed) return res.status(400).json({ error: pre.durable ? STAKE_SETTLED_LATE : 'Stake already used' });
       /* worth is the rung, not the raw payment: everyone in a room has to be
          worth the same on entry or the eat-and-take rule stops being symmetric.
          Any excess over the rung stays in escrow. */
@@ -841,6 +909,8 @@ app.post('/api/submit-stake', entryFeeLimiter, express.json({ limit: '256kb' }),
       return res.json({ ok: true, entryToken, worth: rung, stake: rung, paid: worth });
     } catch (e) {
       return res.status(400).json({ error: e.message });
+    } finally {
+      if (pre.sig) stakeInFlight.delete(pre.sig);
     }
   }
 
@@ -849,15 +919,18 @@ app.post('/api/submit-stake', entryFeeLimiter, express.json({ limit: '256kb' }),
   const fee = ownKey(LOBBY_FEES, lobbyType) ? LOBBY_FEES[lobbyType] : undefined;
   if (fee === undefined || fee === 0) return res.status(400).json({ error: 'Not a paid lobby' });
   if (!signedTx) return res.status(400).json({ error: 'Missing signed transaction' });
+  const pre = { sig: null, durable: false };
   try {
-    const sig = await Wallet.submitStake(Buffer.from(signedTx, 'base64')); // broadcast (works for any signed tx)
+    // Broadcast (works for any signed tx), after the pending-verify row is written (preclaimStake).
+    const sig = await Wallet.submitStake(Buffer.from(signedTx, 'base64'),
+      { beforeSend: preclaimStake(money.feeFor(lobbyType), 'lobby ' + lobbyType, pre) });
     // Verify the stake landed in escrow and read the SERVER-recorded worth (SOL or USDC, per mode).
     const { payer, worth } = await money.verifyStake(sig, money.feeFor(lobbyType));
     // Atomic one-time claim AFTER verify — closes the double-mint race (two concurrent
     // requests with the same sig can't both pass) without burning a valid sig on a transient
     // verify failure. If it returns false, another request already consumed this stake.
-    const rec = await stakeLedger.record(sig, { wallet: payer, amount: refundBound(worth), label: 'lobby ' + lobbyType });
-    if (!rec.claimed) return res.status(400).json({ error: 'Stake already used' });
+    const rec = await stakeLedger.record(sig, { wallet: payer, amount: refundBound(worth), label: 'lobby ' + lobbyType, preclaimed: pre.durable });
+    if (!rec.claimed) return res.status(400).json({ error: pre.durable ? STAKE_SETTLED_LATE : 'Stake already used' });
     // Same rule as the ladder path above: pay out to who actually paid, and a
     // request naming someone else is logged, never left holding a claimed stake.
     if (walletAddress && walletAddress !== payer) {
@@ -867,6 +940,8 @@ app.post('/api/submit-stake', entryFeeLimiter, express.json({ limit: '256kb' }),
     res.json({ ok: true, entryToken, worth, worthSol: worth }); // worthSol kept for current client back-compat
   } catch (e) {
     res.status(400).json({ error: e.message });
+  } finally {
+    if (pre.sig) stakeInFlight.delete(pre.sig);
   }
 });
 
@@ -1479,13 +1554,36 @@ app.post('/api/owner/diagnose', sigLimiter, async (req, res) => {
    it is the chain — so this takes the address as a query param the way
    /api/my-profile does, rather than requiring a token to look at something
    anybody can already look at in an explorer. */
-app.get('/api/my-transactions', async (req, res) => {
+/* Each answer costs our paid RPC two calls (one a batch of up to 36), and the route is public, so
+   (security review 2026-10-15): a per-IP limiter, a wallet must look like a Solana address before
+   anything is asked of the chain, and one answer per wallet is shared for 30 s (concurrent asks
+   for the same wallet share one lookup). Only successful answers are kept. */
+const TX_HISTORY_TTL_MS = 30 * 1000;
+const TX_HISTORY_MAX = 2000;
+const txHistoryCache = new Map();   // wallet -> { at, rows } or { at, pending }
+function txHistoryFor(wallet) {
+  const now = Date.now();
+  const hit = txHistoryCache.get(wallet);
+  if (hit && (hit.pending || now - hit.at < TX_HISTORY_TTL_MS)) return hit.pending || Promise.resolve(hit.rows);
+  if (txHistoryCache.size >= TX_HISTORY_MAX) {
+    for (const [k, v] of txHistoryCache) {
+      if (!v.pending && now - v.at >= TX_HISTORY_TTL_MS) txHistoryCache.delete(k);
+    }
+    if (txHistoryCache.size >= TX_HISTORY_MAX) txHistoryCache.delete(txHistoryCache.keys().next().value);
+  }
+  const pending = Usdc.usdcHistory(wallet, 12).then(
+    (rows) => { txHistoryCache.set(wallet, { at: Date.now(), rows }); return rows; },
+    (e) => { txHistoryCache.delete(wallet); throw e; });
+  txHistoryCache.set(wallet, { at: now, pending });
+  return pending;
+}
+app.get('/api/my-transactions', txHistoryLimiter, async (req, res) => {
   const wallet = strOr(req.query.wallet, '').trim();   // a string only: ?wallet[]=a threw
   if (!wallet) return res.status(400).json({ error: 'No wallet' });
   // A key's size and alphabet before new PublicKey() decodes it (quadratic: server/b58Caps.js).
   if (!isWalletString(wallet)) return res.status(400).json({ error: 'Invalid wallet' });
   try {
-    const rows = await Usdc.usdcHistory(wallet, 12);
+    const rows = await txHistoryFor(wallet);
     res.json({ transactions: rows });
   } catch (e) {
     console.error('[MY-TX]', e.message);
@@ -3041,6 +3139,10 @@ const payoutDrainer = require('./payoutDrainer').createPayoutDrainer({
   money,
   noAccountCode: Usdc.RECIPIENT_NO_USDC_ACCOUNT,
 });
+/* One drain at a time (security review 2026-10-15, "drainer double pay"): this tick and kickDrain
+   below both land here, and a call made while a drain is running merges into one follow-up run
+   instead of starting a second drain beside it (payoutDrainer.drain), whose 30 s claim lease a
+   slow build could outlast. The signature save is a compare-and-set too (db.savePayoutSignature). */
 function drainPayouts() {
   return payoutDrainer.drain();
 }

@@ -10,7 +10,12 @@
    refundStakeOwed    WITH s AS (UPDATE ... 'refunded' WHERE pending, or consumed by this key)
                       INSERT INTO failed_payouts ... ; failed_payouts.stake_sig is UNIQUE
    listUnsettledStakes  SELECT ... WHERE state = 'pending' AND (own region, other boot) OR stale
+   claimStakeVerify   INSERT ... 'verifying' ON CONFLICT DO NOTHING (before the broadcast)
+   confirmStakeVerify UPDATE ... 'pending' WHERE state = 'verifying'
+   closeStakeVerify   UPDATE ... 'expired' | 'failed' | 'rejected' WHERE state = 'verifying'
+   listStakeVerifies  SELECT ... WHERE state = 'verifying' AND (old enough OR own region, other boot)
    claimDuePayout     the two lanes; deferPayoutNoAccount, returnPayoutToLane, markPayoutPaid
+   savePayoutSignature UPDATE ... WHERE id = $1 AND paid = false AND signature IS NOT DISTINCT FROM $6
    migratePayoutLanes the boot-time UPDATE at the end of PAYOUT_LANE_DDL
 
    `latency(name)` (optional) returns how many turns of the event loop a call waits before it
@@ -86,6 +91,53 @@ function createMemLedgerDb({ now = () => Date.now(), latency = null } = {}) {
       .slice(0, limit)
       .map((r) => ({ sig: r.sig, wallet_address: r.wallet_address, refund_amount: Number(r.refund_amount),
                      label: r.label, region: r.region, boot_id: r.boot_id, created_at: r.created_at }));
+  }
+
+  async function claimStakeVerify(sig, meta) {
+    await wait('claimStakeVerify');
+    if (stakes.has(sig)) return { claimed: false, durable: false };
+    const m = meta || {};
+    const min = Number(m.amount);
+    seedStake({ sig, state: 'verifying', wallet_address: typeof m.wallet === 'string' && m.wallet ? m.wallet : null,
+                refund_amount: Number.isFinite(min) && min > 0 ? min : null, label: String(m.label || '').slice(0, 100),
+                region: m.region || null, boot_id: m.bootId || null,
+                blockhash: typeof m.blockhash === 'string' && m.blockhash ? m.blockhash : null });
+    return { claimed: true, durable: true };
+  }
+
+  async function confirmStakeVerify(sig, meta) {
+    await wait('confirmStakeVerify');
+    const r = stakes.get(sig);
+    if (!r || r.state !== 'verifying') return { claimed: false, durable: false };
+    const m = meta || {};
+    const amount = Number(m.amount);
+    if (typeof m.wallet === 'string' && m.wallet && Number.isFinite(amount) && amount > 0) {
+      Object.assign(r, { state: 'pending', wallet_address: m.wallet, refund_amount: amount, label: String(m.label || '').slice(0, 100) });
+      return { claimed: true, durable: true };
+    }
+    r.state = null;
+    return { claimed: true, durable: false };
+  }
+
+  async function closeStakeVerify(sig, outcome) {
+    await wait('closeStakeVerify');
+    const r = stakes.get(sig);
+    if (!r || r.state !== 'verifying') return false;
+    r.state = ['expired', 'failed', 'rejected'].includes(outcome) ? outcome : 'expired';
+    r.settled_at = now();
+    return true;
+  }
+
+  async function listStakeVerifies({ region = null, bootId = null, olderThanSeconds = 120, limit = 50 } = {}) {
+    await wait('listStakeVerifies');
+    const cutoff = now() - olderThanSeconds * 1000;
+    return [...stakes.values()]
+      .filter((r) => r.state === 'verifying'
+        && (r.created_at < cutoff || (region !== null && r.region === region && r.boot_id !== bootId)))
+      .sort((a, b) => a.created_at - b.created_at)
+      .slice(0, limit)
+      .map((r) => ({ sig: r.sig, wallet_address: r.wallet_address, refund_amount: r.refund_amount == null ? null : Number(r.refund_amount),
+                     label: r.label, region: r.region, boot_id: r.boot_id, blockhash: r.blockhash || null, created_at: r.created_at }));
   }
 
   function newPayout(wallet, amount, name, reason) {
@@ -170,10 +222,14 @@ function createMemLedgerDb({ now = () => Date.now(), latency = null } = {}) {
     if (r) { r.missing_account = false; r.next_attempt_at = null; r.attempts = 0; r.account_waits = Math.max(r.account_waits || 0, 1); }
   }
 
-  async function savePayoutSignature(id, b) {
-    const r = payouts.find((p) => p.id === id);
-    if (r) Object.assign(r, { signature: b.signature || null, signed_tx: b.signedTx || null, blockhash: b.blockhash || null,
-                              last_valid_block_height: b.lastValidBlockHeight || null });
+  // The compare-and-set: only an unpaid row that still holds prevSignature (null: never had a tx).
+  async function savePayoutSignature(id, b, prevSignature) {
+    await wait('savePayoutSignature');
+    const r = payouts.find((p) => p.id === id && !p.paid);
+    if (!r || (r.signature || null) !== (prevSignature || null)) return false;
+    Object.assign(r, { signature: b.signature || null, signed_tx: b.signedTx || null, blockhash: b.blockhash || null,
+                       last_valid_block_height: b.lastValidBlockHeight || null });
+    return true;
   }
 
   async function markPayoutPaid(id, sig) {
@@ -188,6 +244,7 @@ function createMemLedgerDb({ now = () => Date.now(), latency = null } = {}) {
   return {
     stakes, payouts, seedStake,
     claimStakeSig, markStakeSig, claimStakeSeat, refundStakeOwed, listUnsettledStakes,
+    claimStakeVerify, confirmStakeVerify, closeStakeVerify, listStakeVerifies,
     recordFailedPayout, recordOwedOnce, claimDuePayout, deferPayoutNoAccount, returnPayoutToLane, migratePayoutLanes,
     savePayoutSignature, markPayoutPaid, getFailedPayouts,
     features: { durableStakes: true, payoutLanes: true }, NO_USDC_ACCOUNT,

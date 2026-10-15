@@ -28,18 +28,55 @@
    What a door claim means: the row is 'consumed' before the seat exists, and seating follows in
    the same turn. A crash after that point is a crash with a seated player, the same as any seated
    player at a crash; the boot refund never touches it, so it can never pay a stake that was
-   played. Dependencies are injected, so the tests run it against a model of the database. */
+   played. Dependencies are injected, so the tests run it against a model of the database.
 
-function createStakeLedger({ db, region, bootId, log = console, kickDrain = () => {}, staleMs = 30 * 60 * 1000 }) {
+   Before any of that, the pending-verify claim (security review 2026-10-15, findings 3 and 5):
+
+     (nothing) --submit-stake, BEFORE it broadcasts the signed bytes--> verifying
+     verifying --that request verified the stake (record)-------------> pending
+     verifying --the sweep: it landed and nobody verified it----------> pending --refund--> refunded
+     verifying --the sweep: never landed (blockhash expired), failed,
+                 or paid less than it was for-------------------------> expired | failed | rejected
+
+   The request used to broadcast first and write the row only after verifying, so a stake that
+   landed after the request had already failed (a status read that threw, the confirm timeout, a
+   lagging node, a restart mid-request on every deploy) had no row, no token and no refund; and
+   whoever posted a stake's bytes first was minted its token. Now the row exists, keyed by the
+   signature read from the bytes, before anything is sent: a second submit of the same bytes is
+   refused unsent, and a stake whose request did not finish is refunded by the sweep to the payer
+   the chain shows, never minted late. The request and the sweep settle a row through the same
+   conditional UPDATE (state = 'verifying'), so exactly one of them wins. */
+
+function createStakeLedger({ db, region, bootId, log = console, kickDrain = () => {}, staleMs = 30 * 60 * 1000,
+                             chain = null, inFlight = () => false, verifyAfterMs = 2 * 60 * 1000, now = () => Date.now() }) {
   // Refunds the database could not take yet (it was unreachable), retried by retryQueued().
   const retry = new Map();   // sig -> { sig, reason, claimKey }
   let bootSwept = false;
 
+  /* /api/submit-stake, BEFORE it broadcasts: the pending-verify row. info is read from the signed
+     bytes (Wallet.stakeTxInfo): wallet = the fee payer, blockhash; amount is the least the verify
+     must see land, label names the rung or tier. Returns { claimed, durable }: claimed false means
+     this signature has a row already (nothing may be sent); durable false (old database, or a
+     stub) means nothing was written and record() makes the old claim after the verify. */
+  async function preclaim(sig, { wallet, amount, label, blockhash } = {}) {
+    if (typeof db.claimStakeVerify !== 'function') return { claimed: true, durable: false };
+    const r = await db.claimStakeVerify(sig, { wallet, amount, label, region, bootId, blockhash });
+    const claimed = !!(r && r.claimed);
+    return { claimed, durable: claimed && !!r.durable };
+  }
+
   /* /api/submit-stake, after the stake is verified. amount is what a refund pays (what landed,
      capped at the rung). Returns { claimed, durable }: claimed false means the signature was
      used already; durable false (old database, or a stub) means the token works exactly as it
-     did before this change, memory only. */
-  async function record(sig, { wallet, amount, label } = {}) {
+     did before this change, memory only. preclaimed: this request wrote the pending-verify row
+     (preclaim durable), so the claim is that row's 'verifying' -> 'pending'; false only if the
+     sweep settled it first. */
+  async function record(sig, { wallet, amount, label, preclaimed = false } = {}) {
+    if (preclaimed && typeof db.confirmStakeVerify === 'function') {
+      const r = await db.confirmStakeVerify(sig, { wallet, amount, label });
+      const claimed = !!(r && r.claimed);
+      return { claimed, durable: claimed && !!r.durable };
+    }
     if (typeof db.claimStakeSig !== 'function') {
       return { claimed: !!(await db.markStakeSig(sig)), durable: false };
     }
@@ -109,10 +146,83 @@ function createStakeLedger({ db, region, bootId, log = console, kickDrain = () =
     if (own) bootSwept = true;
     await retryQueued();
     if (rows.length) log.warn(`[STAKE] ${boot ? 'boot' : 'periodic'} sweep: ${rows.length} unspent stake(s), ${owed} refund(s) owed`);
-    return { found: rows.length, owed, ok: true };
+    const out = { found: rows.length, owed, ok: true };
+    if (chain) out.verify = await sweepVerifying();
+    return out;
   }
 
-  return { record, claimSeat, refund, retryQueued, sweep, get queued() { return retry.size; }, bootId, region };
+  /* The pending-verify sweep, run with every sweep (at boot and every 5 minutes) when a chain is
+     given. It looks at 'verifying' rows older than verifyAfterMs (their request has given up) and
+     at rows an earlier boot of this region's server wrote (their request died with it), skipping
+     any this process is still working on (inFlight). chain: { status(sig) -> 'landed' | 'failed' |
+     null, blockhashValid(blockhash) -> boolean, owed(row) -> { payer, amount } or { reject } }.
+     A chain read that throws leaves the row for the next sweep. Never rejects. */
+  async function sweepVerifying() {
+    const out = { found: 0, owed: 0, closed: 0, waiting: 0, ok: true };
+    if (!chain || typeof db.listStakeVerifies !== 'function') return out;
+    let rows;
+    try {
+      rows = await db.listStakeVerifies({ region, bootId, olderThanSeconds: Math.round(verifyAfterMs / 1000), limit: 50 });
+    } catch (e) {
+      log.error('[STAKE] pending-verify sweep could not read the rows: ' + (e && e.message));
+      return { ...out, ok: false };
+    }
+    out.found = rows.length;
+    for (const r of rows) {
+      if (inFlight(r.sig)) { out.waiting++; continue; }
+      let res;
+      try {
+        res = await settleVerifying(r);
+      } catch (e) {
+        res = 'waiting';
+        log.warn(`[STAKE] pending-verify ${String(r.sig).slice(0, 12)} not settled yet: ${e && e.message}`);
+      }
+      if (res === 'owed') out.owed++;
+      else if (res === 'closed') out.closed++;
+      else if (res === 'waiting') out.waiting++;
+    }
+    if (rows.length) log.warn(`[STAKE] pending-verify sweep: ${rows.length} row(s), ${out.owed} refund(s) owed, ${out.closed} closed, ${out.waiting} waiting`);
+    return out;
+  }
+
+  async function settleVerifying(r) {
+    const tag = String(r.sig).slice(0, 12);
+    const status = await chain.status(r.sig);
+    if (status === 'failed') {
+      return (await db.closeStakeVerify(r.sig, 'failed')) ? 'closed' : 'settled';
+    }
+    if (status === 'landed') {
+      // What the chain says landed, to whom; a refund pays that, capped at what it was for.
+      const o = await chain.owed(r);
+      const amount = o ? Number(o.amount) : 0;
+      if (!o || o.reject || typeof o.payer !== 'string' || !o.payer || !(amount > 0)) {
+        log.warn(`[STAKE] pending-verify ${tag} landed but nothing is owed (${(o && o.reject) || 'no amount'}): closed`);
+        return (await db.closeStakeVerify(r.sig, 'rejected')) ? 'closed' : 'settled';
+      }
+      if (r.wallet_address && r.wallet_address !== o.payer) {
+        log.error(`[STAKE] pending-verify ${tag}: the bytes named payer ${String(r.wallet_address).slice(0, 8)} but the chain shows ${o.payer.slice(0, 8)}; refunding the chain's payer`);
+      }
+      // Same UPDATE the request's own record() makes: if the request got there first, it minted.
+      const c = await db.confirmStakeVerify(r.sig, { wallet: o.payer, amount, label: r.label });
+      if (!c || !c.claimed || !c.durable) return 'settled';
+      const why = `refund ${r.label || 'stake'} that landed after its submit failed (no token was minted)`;
+      const res = await refund(r.sig, why, null);
+      return (res === 'owed' || res === 'queued') ? 'owed' : 'settled';
+    }
+    // Not seen on the chain. Closed only once it can never land: its blockhash has expired (asked
+    // of the finalized bank) and a second look still does not find it.
+    if (!r.blockhash) {
+      const created = new Date(r.created_at).getTime();
+      if (!(Number.isFinite(created) && now() - created > 15 * 60 * 1000)) return 'waiting';
+    } else if (await chain.blockhashValid(r.blockhash)) {
+      return 'waiting';
+    }
+    if ((await chain.status(r.sig)) !== null) return 'waiting';   // landed meanwhile: the next sweep
+    return (await db.closeStakeVerify(r.sig, 'expired')) ? 'closed' : 'settled';
+  }
+
+  return { preclaim, record, claimSeat, refund, retryQueued, sweep, sweepVerifying,
+           get queued() { return retry.size; }, bootId, region };
 }
 
 module.exports = { createStakeLedger };

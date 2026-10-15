@@ -290,9 +290,21 @@ async function confirmSig(signature, lastValidBlockHeight, tries = 30) {
   return false;
 }
 
+/* onFreshTx answered false: the row no longer held the signature this attempt was claimed with,
+   so another attempt saved (and sends) its own transaction for it. Nothing is sent by this one.
+   The drainer (server/payoutDrainer.js SUPERSEDED) knows this code. */
+const PAYOUT_SUPERSEDED = 'payout-superseded';
+function superseded() {
+  const e = new Error('another attempt saved its own transaction for this payout first; nothing sent');
+  e.code = PAYOUT_SUPERSEDED;
+  return e;
+}
+
 // Idempotent USDC payout for the drainer — identical guarantees to Wallet.attemptPayout: only
 // ever re-broadcasts the SAME signed bytes (can't double-pay), builds a fresh tx only once the
-// old one provably expired, and persists a fresh tx BEFORE sending via onFreshTx.
+// old one provably expired, and persists a fresh tx BEFORE sending via onFreshTx. onFreshTx is
+// a compare-and-set (db.savePayoutSignature): when it answers false the fresh tx is dropped
+// unsent, so two overlapping attempts on one row can never both send a transaction.
 async function attemptPayout(row, onFreshTx) {
   if (row.signature) {
     const landed = await signatureLanded(row.signature);
@@ -308,7 +320,8 @@ async function attemptPayout(row, onFreshTx) {
     }
   }
   const built = await buildSignedUsdcPayout(row.wallet_address, row.amount_sol);
-  await onFreshTx({ signature: built.signature, signedTx: built.signedTx, blockhash: built.blockhash, lastValidBlockHeight: built.lastValidBlockHeight });
+  const saved = await onFreshTx({ signature: built.signature, signedTx: built.signedTx, blockhash: built.blockhash, lastValidBlockHeight: built.lastValidBlockHeight });
+  if (saved === false) throw superseded();
   await withRetry(() => connection.sendRawTransaction(built.raw, { skipPreflight: false }), 6);
   const ok = await confirmSig(built.signature, built.lastValidBlockHeight);
   return ok ? { paid: true, sig: built.signature } : { paid: false };
@@ -320,5 +333,5 @@ module.exports = {
   usdcBalanceOf, escrowUsdcBalance, verifyUsdcStake, verifyUsdcCredit, stakeDeltaUnits, ataFor,
   usdcHistory,
   buildSignedUsdcPayout, withdrawUsdc, attemptPayout, getLatestBlockhash,
-  RECIPIENT_NO_USDC_ACCOUNT, allowAccountRentFor,
+  RECIPIENT_NO_USDC_ACCOUNT, allowAccountRentFor, PAYOUT_SUPERSEDED,
 };

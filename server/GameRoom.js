@@ -330,6 +330,17 @@ class GameRoom {
       return null;
     }
 
+    /* The payout wallet and the identity ride the socket (index.js sets them from the consumed
+       entry token), and a reconnect is a NEW socket that consumed no token. Without these the
+       held snake had no payout wallet: a cash-out zeroed its worth, swept the rake and paid
+       nothing (security review 2026-10-15). Copied as they were, never taken from the new
+       socket, so the payout still goes only to the wallet that paid for this snake. */
+    const oldSocket = player.socket;
+    if (oldSocket && oldSocket !== newSocket) {
+      newSocket._walletAddress = oldSocket._walletAddress;
+      if (oldSocket._googleId !== undefined) newSocket._googleId = oldSocket._googleId;
+    }
+
     this.snakes.delete(oldId);
     this.players.delete(oldId);
     snake.id = newSocket.id;
