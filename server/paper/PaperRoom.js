@@ -173,7 +173,7 @@ class PaperRoom {
   // (proof = its sha256), and if its socket closes, or JOIN_CONFIRM_MS pass with no input, the
   // buy-in is refunded instead of the square being left to fly with nobody steering and its
   // money dropping on the floor (STATUS "BEFORE PAPER_PAID IS SWITCHED ON" item 2).
-  addHuman(socket, { name, micro, wallet, spot, proof, paid }) {
+  addHuman(socket, { name, micro, wallet, spot, proof, paid, stakeSig }) {
     const game = this.game;
     game._enter();
     if (this.stopped) throw new Error('stopped');
@@ -198,7 +198,12 @@ class PaperRoom {
         deposit: micro,
         confirmed: !this.paid,
         confirmBy: this.paid ? this.now() + MP.JOIN_CONFIRM_MS : 0,
-        released: false
+        released: false,
+        // The money journal's id for a paid seat's account (its owed key at a restart or crash is 'agowed:' + jid),
+        // never a credential; and the stake row behind it, named in the journal for a hand reconcile.
+        jid: this.paid ? crypto.randomUUID() : null,
+        stakeSig: this.paid && typeof stakeSig === 'string' && stakeSig ? stakeSig : null,
+        exit: null // { outcome, why, ... }: how the account closed, for its one journal close (directory._seatFreed)
       };
       this.seats.set(unit.id, seat);
       this.bySocket.set(socket.id, seat);
@@ -212,7 +217,10 @@ class PaperRoom {
       return seat;
     } catch (e) {
       if (this.bank.isOpen(unit.id)) this.bank.withdraw(unit.id); // the caller's refund pays it
-      if (seat) this._forgetSeat(seat);
+      if (seat) {
+        seat.exit = { outcome: 'aborted', why: 'seat-failed' };
+        this._forgetSeat(seat);
+      }
       game.removeHuman(unit.id, REASON.FORCED_EXIT);
       throw e;
     }
@@ -323,6 +331,7 @@ class PaperRoom {
       this.bank.drop(u.id, 0, 0, this.now()); // closes the emptied account
     }
     const refunded = !!(w && w.micro > 0);
+    seat.exit = { outcome: 'released', why };
     if (this.directory) this.directory._rememberRelease(seat, why, refunded);
     // The wallet is logged so a wallet that keeps doing this shows up (review finding: the
     // unconfirmed seat is a free option; PaperArenas pauses a wallet after RELEASE_MAX).
@@ -412,6 +421,11 @@ class PaperRoom {
 
   onDeath(victim, killer, reason, at) {
     const seat = victim.isHuman ? this.seats.get(victim.id) : null;
+    if (seat && !seat.exit) {
+      seat.exit = reason === REASON.CASHOUT ? { outcome: 'cashedout', why: 'hold' }
+        : reason === REASON.FORCED_EXIT ? { outcome: 'removed', why: 'forced' }
+          : { outcome: killer && killer.isHuman ? 'killed' : 'dropped', why: 'reason-' + reason };
+    }
     if (reason === REASON.CASHOUT || reason === REASON.FORCED_EXIT) {
       this.pending.push(['k', victim.id, 0, reason, 0, 0]);
       if (seat) this._forgetSeat(seat);
@@ -742,6 +756,7 @@ class PaperRoom {
       if (socketId) this.bySocket.delete(socketId);
       const refunded = !!(back && back.micro > 0);
       const cashoutId = w && w.micro > 0 ? crypto.randomUUID() : null;
+      seat.exit = { outcome: 'emergency', why: 'emergency' }; // paid out below through the hooks, not owed
       if (this.directory) {
         if (unconfirmed) this.directory._rememberRelease(seat, 'emergency', refunded);
         else if (cashoutId && this.paid) this.directory.rememberOutcome('k:' + seat.resumeKey, 'cashedout', false, { grossMicro: w.micro, cashoutId });
@@ -792,6 +807,129 @@ class PaperRoom {
     }
     this.stop();
     if (this.onClosed) this.onClosed(this);
+  }
+
+  // ---------------------------------------------------------------------------------------
+  // Restart and crash (security review item a; Owen Q6 as paid agar and paid snake)
+  // ---------------------------------------------------------------------------------------
+
+  // What a paid seat is owed at a restart or a crash: its CURRENT balance, 100%, no rake. An
+  // UNCONFIRMED seat never played: the buy-in part of its balance is bounded by what landed
+  // on-chain (seat.paid), as on every other exit before a first input (releaseUnconfirmed,
+  // emergencyClose, paperPayout.refund); anything it won meanwhile is its own.
+  _shutdownOwed(seat, gross) {
+    if (!(gross > 0)) return 0;
+    if (seat.confirmed || !Number.isFinite(seat.paid)) return gross;
+    const buyIn = Math.min(gross, seat.deposit);
+    const landed = Math.max(0, Math.round(seat.paid * 1e6));
+    return gross - buyIn + Math.min(buyIn, landed);
+  }
+
+  // A planned restart ('shutdown', pm2's SIGINT) or a crash ('crash', uncaughtExceptionMonitor).
+  // All synchronous: the arena stops ticking, then each paid seat's account is withdrawn FIRST
+  // (so nothing can be both paid and owed), closed in the money journal 'refunded' with its owed
+  // row (key 'agowed:' + jid, the same key agar and paid snake use, one row per key in
+  // db.recordOwedOnce), and the row handed back; floor coins become one journaled floor record
+  // the next boot books to the house (paper_floor), as paid snake's floor gold is. Nothing is
+  // paid and nothing is written to the database here. -> rows [{ key, wallet, name, micro, reason }]
+  shutdownSettle(why = 'shutdown') {
+    const kind = why === 'crash' ? 'crash' : 'shutdown';
+    this.closed = true; // the emergency latch: nothing settles this arena a second time
+    this.stop();
+    if (!this.paid) return [];
+    const rows = [];
+    for (const seat of Array.from(this.seats.values())) {
+      try {
+        const row = this._shutdownSeat(seat, kind);
+        if (row) rows.push(row);
+      } catch (e) {
+        console.error('[PAPER] SHUTDOWN settle of unit ' + seat.unit.id + ' (' + (seat.jid || '-') + ', ' +
+          this.bank.balance(seat.unit.id) + ' micro) failed, left open (' + this.lobbyType + '): ' + (e && e.message));
+      }
+    }
+    // An account with no seat should not exist (every account is a seat's); if one does, it is owed too.
+    for (const id of this.bank.openIds()) {
+      try {
+        const a = this.bank.accounts.get(id);
+        const ghost = { room: this, unit: { id }, jid: crypto.randomUUID(), wallet: a.wallet, name: a.name,
+          deposit: a.micro, confirmed: true, socketId: null, resumeKey: '', exit: null };
+        const row = this._shutdownSeat(ghost, kind);
+        if (row) rows.push(row);
+      } catch (e) {
+        console.error('[PAPER] SHUTDOWN settle of account ' + id + ' failed (' + this.lobbyType + '): ' + (e && e.message));
+      }
+    }
+    try {
+      this._shutdownFloor(kind);
+    } catch (e) {
+      console.error('[PAPER] SHUTDOWN floor not booked (' + this.lobbyType + '): ' + (e && e.message));
+    }
+    return rows;
+  }
+
+  _shutdownSeat(seat, kind) {
+    const id = seat.unit.id;
+    const w = this.bank.isOpen(id) ? this.bank.withdraw(id) : null;
+    const gross = w ? w.micro : 0;
+    const micro = this._shutdownOwed(seat, gross);
+    if (!seat.jid) seat.jid = crypto.randomUUID();
+    const key = 'agowed:' + seat.jid;
+    const reason = 'refund paper ' + kind + ' ' + this.lobbyType + ' ' + key;
+    seat.exit = { outcome: 'refunded', why: kind, key, refundedMicro: micro, reason };
+    if (!seat.confirmed) seat.released = true; // _seatFreed must not remember it as 'expired'
+    const socketId = seat.socketId;
+    if (this.seats.get(id) === seat) this.seats.delete(id);
+    if (socketId && this.bySocket.get(socketId) === seat) this.bySocket.delete(socketId);
+    if (this.directory) this.directory._seatFreed(seat); // the journal close carrying the owed row
+    if (gross > micro) {
+      console.error('[PAPER] SHUTDOWN ' + this.lobbyType + ' ' + (gross - micro) + ' micro of an unconfirmed buy-in ' +
+        'never landed on-chain: not owed, not booked (' + key + ')');
+    }
+    if (micro > 0 && !seat.wallet) {
+      console.error('[PAPER] SHUTDOWN CRITICAL ' + micro + ' micro owed with no wallet (' + key + ', ' + this.lobbyType +
+        '): pay by hand');
+      return null;
+    }
+    if (kind === 'shutdown' && socketId) this._tellRestart(socketId, micro > 0);
+    return micro > 0 ? { key, wallet: seat.wallet, name: seat.name || '', micro, reason } : null;
+  }
+
+  _tellRestart(socketId, refunded) {
+    try {
+      if (this.io) {
+        this.io.to(socketId).emit('pp:refused', { why: 'restarting', refunded,
+          text: 'DuelSeries is restarting. Your balance is refunded to your wallet.' });
+      }
+    } catch (e) {
+      console.error('[PAPER] SHUTDOWN tell', e && e.message);
+    }
+  }
+
+  // Every floor coin leaves the arena to the house: one journal floor record per arena, its micro
+  // per source wallet, booked once by the next boot's replay. A record the journal cannot take is
+  // logged with its amount: the money stays in escrow, unbooked (what every restart did before).
+  _shutdownFloor(kind) {
+    const bySource = new Map();
+    let micro = 0;
+    for (const p of this.bank.pickups()) {
+      const s = this.bank.sweepPickup(p.pid);
+      if (!s || !(s.micro > 0)) continue;
+      micro += s.micro;
+      const k = s.srcWallet || '';
+      const e = bySource.get(k) || { srcWallet: s.srcWallet || null, srcName: s.srcName || '', micro: 0 };
+      e.micro += s.micro;
+      bySource.set(k, e);
+    }
+    if (!(micro > 0)) return null;
+    const rec = { key: 'ppfloor:' + crypto.randomUUID(), room: this.lobbyType, why: kind, micro,
+      bySource: Array.from(bySource.values()) };
+    console.error('[PAPER] SHUTDOWN-FLOOR ' + micro + ' ' + this.lobbyType + ' ' + rec.key);
+    const ok = !!(this.directory && typeof this.directory._journalFloor === 'function' && this.directory._journalFloor(rec));
+    if (!ok) {
+      console.error('[PAPER] JOURNAL CRITICAL floor ' + rec.key + ' of ' + micro + ' micro not written (' +
+        this.lobbyType + '): it stays in escrow, unbooked');
+    }
+    return rec;
   }
 
   stop() {

@@ -58,6 +58,11 @@ function boot(extra) {
                 SESSION_SECRET: 'test', MONEY_MODE: 'usdc', DATABASE_URL: '',
                 NTFY_DISABLED: '1', POSTHOG_DISABLED: '1',
                 PAPER_PAID: '0', PAPER_DEV_TOKENS: '', ESCROW_PRIVATE_KEY: '', NODE_ENV: 'test',
+                /* Paid Paper seats are journaled since security review item a: this boot's money
+                   journal (and its switch files) live in a temp dir, never the checkout's server/data,
+                   whose next real boot would replay them. */
+                AG_JOURNAL_PATH: path.join(require('fs').mkdtempSync(path.join(require('os').tmpdir(), 'ppsmoke-')),
+                  'ag-money-journal.log'),
                 ...extra };
   const srv = spawn(process.execPath, [path.join(ROOT, 'server/index.js')], {
     cwd: ROOT, env, stdio: ['ignore', 'pipe', 'pipe'],

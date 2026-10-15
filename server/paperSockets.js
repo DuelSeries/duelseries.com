@@ -13,6 +13,7 @@ const { MP } = require('./paper/loadPaperLib');
 const TEXT = {
   'bad-stake': 'That table does not exist.',
   'not-open': 'Paid Paper tables are not open yet.',
+  restarting: 'DuelSeries is restarting. Try again in a minute.',
   maintenance: 'DuelSeries is updating. Your entry was refunded.',
   full: 'Every Paper table at this stake is full. Your entry was refunded.',
   entry: 'Entry fee not verified',
@@ -162,6 +163,12 @@ module.exports = function createPaperSockets({
     }
     // 4. already playing on this socket: a buggy or hostile duplicate, dropped silently
     if (socket._ppRoom && socket._ppRoom.hasLiveUnit(socket.id)) return;
+    // 4s. the server is going down (the shutdown settle ran): refused BEFORE the token is spent, so its stake row
+    // stays pending and the next boot's sweep refunds it (nobody new is seated during a restart)
+    if (stake > 0 && arenas.stopping === true) return refuse(socket, 'restarting');
+    // 4o. the owner's paper:paid:off (kept across restarts): a NEW paid join is refunded at the door; a seated player
+    // still resumes above (3r, 3t) and cashes out
+    if (stake > 0 && arenas.paidOpen === false) return refuseAndRefund(socket, token, stake, 'not-open', name);
     // 5. maintenance
     if (ops.get().maintenance) return refuseAndRefund(socket, token, stake, 'maintenance', name);
     // the free arena's boot warm-up (no token at stake, the client retries by itself)
@@ -190,6 +197,12 @@ module.exports = function createPaperSockets({
         if (socket.disconnected === true) {         // gone while the claim was in flight
           refundEntry(entry, 'join-lost', name);
           return remember(token, 'join-lost', true);
+        }
+        if (arenas.stopping === true || arenas.paidOpen === false) {   // steps 4s and 4o again
+          const why = arenas.stopping === true ? 'restarting' : 'not-open';
+          refundEntry(entry, why, name);
+          remember(token, why, true);
+          return refuse(socket, why, { refunded: true });
         }
         if (socket._ppRoom && socket._ppRoom.hasLiveUnit(socket.id)) {   // step 4 again
           refundEntry(entry, 'seat-failed', name);
@@ -236,7 +249,8 @@ module.exports = function createPaperSockets({
         wallet: stake > 0 ? entry.walletAddress : null,
         spot: seat.spot,
         proof,
-        paid: stake > 0 ? entry.paid : undefined
+        paid: stake > 0 ? entry.paid : undefined,
+        stakeSig: stake > 0 && entry.stakeSig ? entry.stakeSig : undefined
       });
     } catch (e) {
       console.error('[PAPER] seat failed', seat.room.lobbyType, e && e.message);

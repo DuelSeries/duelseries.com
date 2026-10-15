@@ -219,11 +219,17 @@ test('open rollback: a seated wallet throws before the journal is written; nothi
   assert.equal(m2.openCount(), 0);
   assert.equal(s2.of('journal.close').length, 0);
   i1(m2);
-  // a journal that only answers false (the door's step-8 record stands): the seat opens and the line is logged
+  // a journal that only answers false: refused like a throw (security review item d: a door-only open is refunded at
+  // boot as never seated, so a seated account must have its own open record), rolled back, the line logged
   const s3 = spy({ journalOpen: () => false });
   const m3 = money(s3);
-  assert.ok(m3.open(9, entry(3)));
-  assert.ok(m3.lines.some((l) => new RegExp('JOURNAL open of ' + jidOf(3) + ' not rewritten').test(l)));
+  assert.throws(() => m3.open(9, entry(3)), /did not write/);
+  assert.deepEqual(s3.calls.map((c) => c[0]), ['onAccountOpen', 'journal.open', 'onAccountClosed']);
+  assert.equal(s3.of('onAccountClosed')[0][2], 'aborted');
+  assert.equal(m3.openCount(), 0);
+  assert.equal(m3.bank.isOpen(9), false);
+  assert.ok(m3.lines.some((l) => new RegExp('JOURNAL open of ' + jidOf(3) + ' not written').test(l)));
+  i1(m3);
 });
 
 test('abort: the deposit out, the seat forgotten, no journal close (the door writes it with its refund); refused when settled', () => {

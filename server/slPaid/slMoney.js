@@ -188,8 +188,9 @@ class SlMoney {
 
   // entry: { jid, micro, wallet, name, paid, stakeSig } from the door (micro from the consumed token only). Checks
   // first, then the deposit, then onAccountOpen (walletSeat, which throws when the wallet is seated) BEFORE the
-  // journal's open record (the door wrote one for the same jid at its step 8, so a false here leaves that one). A
-  // throw rolls the deposit back and closes the record as aborted (the door refunds the token), then rethrows.
+  // journal's open record (it replaces the door's step-8 record for the same jid). A throw, or an open the journal did
+  // not write (false), rolls the deposit back and closes the record as aborted (the door refunds the token), then
+  // throws.
   open(snakeId, entry) {
     if (this.stopped) throw new Error('SlMoney.open: the room is settled');
     if (this.tainted) throw new Error('SlMoney.open: the room is tainted');
@@ -221,8 +222,12 @@ class SlMoney {
     try {
       this.hooks.onAccountOpen(acct);
       seated = true;
+      // Not written: the seat is refused like a throw (rolled back, the door refunds 'seat-failed'). The door's own
+      // record would otherwise stand as this jid's last open, and the boot replay refunds a door-only open's stake row
+      // as never seated (security review item d): a seated account must always have its own open record.
       if (this.hooks.journal.open(acct, this.label) === false) {
-        this.log.error('[SLP] JOURNAL open of ' + acct.jid + ' not rewritten (' + this.label + '); the door\'s record stands');
+        this.log.error('[SLP] JOURNAL open of ' + acct.jid + ' not written (' + this.label + '); the seat is refused');
+        throw new Error('SlMoney.open: the journal did not write the account\'s open record');
       }
     } catch (err) {
       this._rollback(acct, seated);

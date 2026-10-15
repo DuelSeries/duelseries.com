@@ -70,7 +70,8 @@ function agPaidSwitch(raw, log) {
 // -> { arenas, why, paid? }: arenas null when the game is off or closed, why says which; paid (open only): the paid
 // rungs exist.
 // opts: { env, io (the socket.io server), region, helpers: { socketRL, sanitizeName, ops }, log, autoTick,
-//   money: { hooks (agMoney's payout hooks, see AgArenas), door: { consumeAtStake, ledger, refund } } }
+//   money: { hooks (agMoney's payout hooks, see AgArenas), door: { consumeAtStake, ledger, refund } },
+//   paidSwitch: slPaidBoot.createPaidSwitchStore's store for agar:paid:off (a saved close opens the door shut) }
 function openAg(opts) {
   const o = opts || {};
   const env = o.env || process.env;
@@ -84,6 +85,22 @@ function openAg(opts) {
     const paid = agPaidSwitch(env.AG_PAID, log) && !!(m && m.hooks && m.door);
     const arenas = new AgArenas({ region: o.region || 'na', laws, shippableOnly: !dev, log,
       autoTick: o.autoTick !== false, paid, moneyHooks: paid ? m.hooks : null });
+    // The owner's agar:paid:off outlives a restart (security review item b, as sl:paid:off does): a close saved
+    // before this boot opens the paid rungs with their door shut until agar:paid:on. A switch that cannot be read
+    // fails CLOSED.
+    if (paid && o.paidSwitch && typeof o.paidSwitch.closedAtBoot === 'function') {
+      let c = { closed: true, why: 'threw' };
+      try {
+        c = o.paidSwitch.closedAtBoot();
+      } catch (e) {
+        log.error('[AG] CRITICAL paid switch read threw, the paid door starts CLOSED: ' + (e && e.message));
+      }
+      if (c.closed) {
+        arenas.paidOpen = false;
+        log.warn('[AG] paid door CLOSED at boot (' + c.why + '): the owner\'s agar:paid:off outlived the restart; ' +
+          'new paid joins are refunded until agar:paid:on');
+      }
+    }
     const helpers = Object.assign({ log }, o.helpers);
     // The door is attached whenever the money is wired, paid rungs on or not: with them off it refunds every token it
     // is handed ('not-open') rather than leaving it to expire.
