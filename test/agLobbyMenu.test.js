@@ -396,16 +396,22 @@ test('lobby settings: the pills show the defaults, a press writes the game\'s sh
   assert.strictEqual(h.els.agqv.textContent, 'Retina');
 });
 
-test('the lobby\'s agar.io screen: the settings block, Spectate on Free only beside Play, and the script', () => {
+test('the lobby\'s agar.io screen: settings behind Customize, Spectate on Free only beside Play, and the script', () => {
   const html = read('public/v2.html');
-  assert.match(html, /<div class="gorow">\s*<button class="go" onclick="startFromDetail\(\)">Play<\/button>/, 'Play is the same button');
+  assert.match(html, /<div class="gorow">\s*<button type="button" class="go" id="gobtn" onclick="startFromDetail\(\)">/, 'Play is the same button');
   assert.match(html, /<button type="button" class="spec" id="agspec" onclick="V2Play\.spectate\('agar'\)"/);
-  assert.match(html, /<div class="agopts" role="group" aria-labelledby="agoptsl">\s*<div class="sl" id="agoptsl">Game settings<\/div>\s*<div class="agtg" id="agtg"><\/div>/);
+  // BACKLOG 2.2 (Owen 2026-10-15): the settings left the play column for agar.io's Customize chooser, with no caption.
+  const veil = html.slice(html.indexOf('<div id="lookveil"'), html.indexOf('<div class="ap-save-row">'));
+  assert.match(veil, /<div class="agopts" role="group" aria-label="agar\.io settings">\s*<div class="agtg" id="agtg"><\/div>/);
+  assert.ok(!html.includes('Game settings'), 'no caption over them');
+  const col = html.slice(html.indexOf('<div class="gcol">'), html.indexOf('<!-- ══ WALLET ══ -->'));
+  assert.ok(!col.includes('id="agtg"'), 'and nothing of them is left in the play column');
+  assert.match(html, /const hasSettings=g=>!!\(g&&g\.id==='agar'\);/);
+  assert.match(html, /classList\.toggle\('agset',hasSettings\(cur\)\);/, 'its Customize shows them');
   assert.match(html, /<script src="\/js\/v2\/play\.js"><\/script>\s*<script src="\/js\/v2\/agopts\.js"><\/script>/);
-  assert.match(html, /det\.classList\.toggle\('agar',cur\.id==='agar'\);/, 'only the agar.io screen shows them');
+  assert.match(html, /det\.classList\.toggle\('agar',cur\.id==='agar'\);/, 'only the agar.io screen shows Spectate');
   assert.match(html, /function drawStake\(\)\{\s*\/\*[^*]*\*\/\s*document\.getElementById\('detail'\)\.classList\.toggle\('agfree',STEPS\[si\]===0\);/,
     'Spectate follows the chosen rung');
-  assert.match(html, /\.agopts\{display:none\}\s*#detail\.agar \.agopts\{display:block\}/);
   assert.match(html, /\.spec\{display:none;/);
   assert.match(html, /#detail\.agar\.agfree \.spec\{display:flex\}/);
   // The lobby's own pills: the buy-in row's surface, radius and selected colours.

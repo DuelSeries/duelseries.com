@@ -374,18 +374,18 @@ h2{font-size:31px;font-weight:700;letter-spacing:-1.1px;line-height:1.1}
   /* Four card widths: three whole cards with a half of the next showing past
      each edge, so the row reads as something you can push rather than as a
      list that happens to end at the screen. */
-  .track{--per:4}
-  /* A ~97px card fits the name and one fact, not two. The room count is the
-     one that goes: how many people are in there beats how many empty tables. */
-  :root{--gap:9px; --capH:46px}
-  :root{--capH:30px}
-  .cap h3{font-size:11.5px}
-  /* The card is ~80px wide here, so the badge scales with it. */
-  .card.soon .art::after{width:32px;height:32px;margin:-16px 0 0 -16px;
-    background-size:15px 15px}
-  .gpc{left:4px;bottom:4px;font-size:9px;line-height:12px;padding:0 5px 0 3px}
-  .gpc svg{width:8px;height:8px}
-  .gpc .ldot{width:4px;height:4px;margin-right:1px}
+  /* Three card widths (Owen 2026-10-15: bigger cards on a phone): two whole
+     cards with a half of the next showing past each edge. Four put an 80px
+     card on a 375px screen, too small to read the painting or the name. */
+  .track{--per:3}
+  :root{--gap:10px; --capH:22px; --capGap:8px}
+  .cap h3{font-size:13px}
+  /* The card is ~110px wide here, so the badge scales with it. */
+  .card.soon .art::after{width:38px;height:38px;margin:-19px 0 0 -19px;
+    background-size:17px 17px}
+  .gpc{left:5px;bottom:5px;font-size:10px;line-height:13px;padding:1px 6px 1px 4px}
+  .gpc svg{width:9px;height:9px}
+  .gpc .ldot{width:5px;height:5px;margin-right:1px}
   /* Small and tucked into the very edge. There used to be a gradient scrim
      behind each one, which on a dark card read as a black band ruled down
      both sides of the row rather than as a fade. */
@@ -888,11 +888,10 @@ body.no-foot footer{display:none}
   justify-content:center}
 #detail .back{position:relative;z-index:2;margin-left:24px}
 #dname{font-size:34px;font-weight:650;letter-spacing:-1px;margin-top:18px}
-/* The count that used to sit under the game's name has moved onto the lobby
-   row itself, where the thing being counted actually is. */
-.sl{font-size:12.5px;color:var(--tx3);text-align:center;margin-top:26px}
-/* One button per buy-in, all of them visible. */
-.stakes{display:flex;gap:8px;margin:14px 0 16px}
+/* One button per buy-in, all of them visible, on every game (BACKLOG 2.2).
+   No caption over the row: three amounts under a game's name say what they
+   are without one. */
+.stakes{display:flex;gap:8px;margin:22px 0 16px}
 .stk{flex:1;background:var(--s2);border:none;border-radius:var(--r2);
   padding:14px 6px;font-family:var(--fm);font-size:16px;font-weight:650;
   color:var(--tx2);cursor:pointer;transition:background .15s,color .15s}
@@ -900,149 +899,28 @@ body.no-foot footer{display:none}
 .stk.on{background:var(--money);color:var(--ink)}
 .stk.free.on{background:var(--bone)}
 /* A rung that exists but cannot be sat at. Struck through and dimmed rather
-   than hidden, because hiding it says the product does not offer it. */
+   than hidden, because hiding it says the product does not offer it. The
+   strike is the whole message: the line of small print that used to repeat
+   it under the row is gone (Owen 2026-10-15). */
 .stk.off{background:transparent;border:1px dashed var(--s3);color:var(--tx3);
   text-decoration:line-through;cursor:not-allowed}
 .stk.off:hover{background:transparent;color:var(--tx3)}
-.stakeoff{font-size:11.5px;color:var(--tx3);text-align:center;margin:-8px 0 14px}
-
-/* ── naming your own stake ───────────────────────────────────────────────
-   The amount IS the control, so it is set at the size of the thing it stands
-   for — in the same mono every other figure on this product uses. */
-.duelbet{display:none}
-#detail.duel .duelbet{display:block}
-/* A built duel plays for nothing while the mode is new, so it shows the real
-   ladder with the paid rungs struck through rather than a stepper that implies
-   a stake it cannot take. */
-/* A table with a fixed ladder has no use for the open-ended stepper, and
-   showing both meant two buy-in controls on one screen disagreeing about which
-   one you were actually choosing. The stepper is still here, and still the
-   right control for a duel where you name your own stake - there just is not
-   one of those today. */
-#detail.duel.freeonly .duelbet,#detail.duel.paidduel .duelbet{display:none}
-#detail.duel.freeonly .stakes,#detail.duel.freeonly .stakeoff,
-#detail.duel.freeonly .sl,#detail.duel.paidduel .sl{display:block}
-#detail.duel.freeonly .stakes,#detail.duel.paidduel .stakes{display:flex}
-/* Its paid rungs are struck through until the lobby can start a paid duel,
-   and the note under Play (dbnote) already says so. A second line saying the
-   same would only push the button down. */
-#detail.duel.paidduel .stakeoff{display:none}
-/* The ladder and the open-lobby list belong to an arena. A duel has no room
-   to list and nobody is in it yet, so showing either is furniture from
-   another game. The Customize bar stays: every game has one (BACKLOG 3.1). */
-#detail.duel .stakes,#detail.duel .stakeoff,#detail.duel .sl,
-#detail.duel .lobwrap{display:none}
-/* ── a solo run ────────────────────────────────────────────────────────────
-   Nobody to be matched with and no room to join, so there is no buy-in and no
-   lobby list: one player, one arena, one button. Showing an empty lobby list
-   here would say the game has rooms that are quiet, when what it has is no
-   rooms at all. */
-#detail.solo .sl,#detail.solo .stakes,#detail.solo .stakeoff,
-#detail.solo .duelbet,#detail.solo .lobwrap,
-#detail.solo .queued{display:none}
-#detail.solo .dbnote{display:block}
 /* ── a game with nothing to customize yet ─────────────────────────────────
    Every game gets the Customize bar (BACKLOG 3.1). One with nothing to change
    yet shows the bar quiet and shut: the game's own picture instead of a
-   preview, a line saying so, no chevron, and it does not open. */
+   preview, no chevron, and it does not open. */
 #detail.nolook .lookrow{cursor:default;background:rgba(23,20,15,.6)}
 #detail.nolook .lookrow:hover{background:rgba(23,20,15,.6)}
 #detail.nolook .lookrow canvas,#detail.nolook .lookrow .lka{display:none}
 #detail.nolook .lookrow .lkimg{display:block}
 #detail.nolook .lookrow .lkt b{color:var(--tx2)}
-/* The amount is the control, so it gets the size — and the arrows sit either
-   side of it where a thumb already is, rather than stacked above and below
-   where one of them is always the wrong distance away. */
-.dbrow{display:flex;align-items:center;gap:12px;
-  background:var(--s2);border:1px solid var(--s3);border-radius:var(--r2);
-  padding:12px 14px;margin-top:6px}
-/* The pair, stacked and touching, so they read as one control. */
-.dbsteps{flex:0 0 auto;display:flex;flex-direction:column;gap:4px}
-.dbstep{width:44px;height:30px;display:grid;place-items:center;
-  background:var(--s1);border:1px solid var(--s3);border-radius:8px;
-  color:var(--tx);cursor:pointer;transition:background .14s,color .14s,opacity .14s}
-.dbstep:hover:not(:disabled){background:var(--s3)}
-.dbstep:disabled{opacity:.28;cursor:default}
-.dbstep:focus-visible{outline:2px solid var(--money);outline-offset:2px}
-/* The number takes the room the arrows gave back, and is left-aligned so it
-   does not slide about as it changes width.
-
-   FIXED HEIGHT. 'Free' is set in the sans face at 26px and the amounts in mono
-   at 32px, so without this the row is ten pixels shorter at one end of the
-   ladder — and everything below it, the name field and the button, jumped by
-   ten pixels every time the amount crossed that boundary. */
-.dbval{flex:1;min-width:0;height:40px;display:flex;align-items:center;
-  gap:3px;padding-left:4px}
-.dbcur{font-family:var(--fm);font-size:22px;font-weight:600;color:var(--tx3)}
-/* Tabular figures, or every step nudges the number sideways. */
-.dbamt{font-family:var(--fm);font-variant-numeric:tabular-nums;font-size:32px;
-  font-weight:600;color:var(--tx);line-height:1.1}
-/* Free is a word, not an amount, so it is set as one. */
-.duelbet.free .dbcur{display:none}
-.duelbet.free .dbamt{font-family:var(--f);font-size:26px;letter-spacing:-.5px}
-
-.dbrungs{display:flex;align-items:center;justify-content:center;gap:7px;margin-top:12px}
-.dbrung{width:6px;height:6px;border-radius:50%;background:var(--s3);
-  transition:background .14s,transform .14s}
-.dbrung.on{background:var(--money);transform:scale(1.5)}
-.dbrung.past{background:var(--tx3)}
-/* Fine print at the foot of the column, with the room for two lines RESERVED.
-
-   Moving it below the button was not enough on its own: this column is
-   vertically centred, so a note that grows from one line to two still pushes
-   everything above it up by half the difference — ten pixels, right under the
-   thumb about to press Play. Holding the space means the ladder can say
-   whatever it needs to at any rung and nothing else on the screen moves. */
-.dbnote{display:none;margin:14px 0 0;font-size:11.5px;line-height:1.65;
-  color:var(--tx3);text-align:center;min-height:38px}
-#detail.duel .dbnote{display:block}
-#detail.queueing .dbnote{display:none}
-
-/* ── waiting for somebody ───────────────────────────────────────────────── */
-.queued{display:none;align-items:center;gap:14px;margin-top:18px;
-  background:var(--s1);border:1px solid var(--s2);border-radius:var(--r3);
-  padding:16px 18px;text-align:left}
-#detail.queueing .queued{display:flex}
-#detail.queueing .duelbet,#detail.queueing .go,
-#detail.queueing .namerow,#detail.queueing .lobwrap{display:none}
-.qspin{width:20px;height:20px;flex:0 0 auto;border-radius:50%;
-  border:2px solid var(--s3);border-top-color:var(--money);
-  animation:qspin .8s linear infinite}
-@keyframes qspin{to{transform:rotate(360deg)}}
-@media(prefers-reduced-motion:reduce){.qspin{animation:none}}
-.qtext{flex:1;min-width:0}
-.qtext b{display:block;font-size:14.5px;font-weight:600}
-.qtext span{display:block;font-size:12px;color:var(--tx3);margin-top:2px}
-.qcancel{background:none;border:1px solid var(--s3);border-radius:var(--r2);
-  color:var(--tx2);padding:8px 14px;font-family:inherit;font-size:12.5px;
-  font-weight:600;cursor:pointer}
-.qcancel:hover{color:var(--tx);border-color:#3a3126}
 
 /* ── a game you can look at but not play ─────────────────────────────────
-   One class on the screen swaps the whole column. Hiding the controls is not
-   cosmetic: a buy-in, a name field and a Play button on a game that cannot be
-   started are four separate promises the product cannot keep. */
-.soonwrap{display:none}
-#detail.soon .sl,#detail.soon #stakes,
-#detail.soon #stakeoff,#detail.soon .namerow,#detail.soon .go,
-#detail.soon #play-msg,#detail.soon .lookrow,#detail.soon .lobwrap{display:none}
-#detail.soon .soonwrap{display:block}
-.soontag{display:inline-block;margin-top:16px;font-family:var(--fm);font-size:11px;
-  font-weight:600;letter-spacing:.15em;text-transform:uppercase;color:var(--tx2);
-  background:var(--s2);border:1px solid var(--s3);border-radius:var(--rf);
-  padding:5px 13px}
-.soondesc{margin:20px auto 0;max-width:360px;font-size:15.5px;line-height:1.65;
-  color:var(--tx)}
-/* Shaped like Play and deliberately not one: same footprint, no affordance. */
-.soonbtn{margin:26px auto 0;max-width:360px;border:1px dashed var(--s3);
-  border-radius:var(--r2);padding:15px;font-size:15px;font-weight:650;
-  color:var(--tx3);cursor:not-allowed;user-select:none}
-.soonfoot{margin:16px auto 0;max-width:340px;font-size:12px;line-height:1.7;
-  color:var(--tx3)}
-@media(max-width:520px){
-  .soondesc{margin-top:16px;font-size:14.5px}
-  .soonbtn{margin-top:20px;padding:14px}
-}
+   The same column as every other game (BACKLOG 2.2): what stays locked is
+   what would start it. The buy-ins are shown and shut, Play carries a padlock
+   and does nothing, and the free row's Enter is disabled with it. */
+#detail.soon .stakes{opacity:.5;pointer-events:none}
+#detail.soon .lobwrap .enter{opacity:.4;pointer-events:none}
 .stp{display:flex;align-items:center;justify-content:center;gap:14px;margin:14px 0 4px}
 .sb{width:42px;height:42px;border-radius:50%;background:var(--s3);color:var(--tx2);
   font-size:19px;display:grid;place-items:center;transition:.15s}
@@ -1116,9 +994,33 @@ body.no-foot footer{display:none}
   outline:none;margin-bottom:10px;text-align:center}
 .pname::placeholder{color:var(--tx3)}
 .pname:focus{background:#0a0908}
-.go{width:100%;background:var(--bone);color:var(--ink);font-size:15px;font-weight:650;
-  padding:15px;border-radius:var(--r2);transition:.15s}
+/* Play. White on Free; gold on a paid rung, the colour every amount of money
+   on this product already is (the rungs, the winners ticker, the paid snake's
+   coins), so the button you are about to stake real money with cannot be
+   mistaken for the free one. The light runs top to bottom like a struck
+   coin, with one soft glow under it and a single sheen across it the moment
+   a paid rung is picked, which is the change being acknowledged, not decoration. */
+.go{position:relative;overflow:hidden;width:100%;display:flex;align-items:center;
+  justify-content:center;gap:8px;background:var(--bone);color:var(--ink);font-size:15px;
+  font-weight:650;padding:15px;border-radius:var(--r2);
+  transition:background .2s,color .2s,box-shadow .2s,transform .15s}
 .go:hover{transform:translateY(-1px)}
+.go .golock{display:none;flex:none}
+.go.paid{background:linear-gradient(180deg,#ffd98a 0%,#f5b545 46%,#e0941f 100%);
+  color:#271703;font-weight:700;
+  box-shadow:inset 0 1px 0 rgba(255,240,205,.75),inset 0 -1px 0 rgba(120,66,0,.35),
+    0 8px 24px -8px rgba(240,168,48,.75)}
+.go.paid:hover{box-shadow:inset 0 1px 0 rgba(255,240,205,.8),inset 0 -1px 0 rgba(120,66,0,.35),
+    0 10px 30px -8px rgba(240,168,48,.95)}
+.go.paid::after{content:"";position:absolute;top:0;bottom:0;left:-60%;width:45%;
+  background:linear-gradient(100deg,transparent,rgba(255,255,255,.55),transparent);
+  transform:skewX(-18deg);animation:gosheen .75s cubic-bezier(.3,.6,.3,1) .05s 1 both}
+@keyframes gosheen{from{left:-60%}to{left:120%}}
+@media(prefers-reduced-motion:reduce){.go.paid::after{animation:none;display:none}}
+/* Locked: a game that is not open yet keeps the button, shut, with a padlock. */
+.go.lock,.go.lock:hover{background:var(--s2);color:var(--tx3);box-shadow:none;
+  transform:none;cursor:not-allowed}
+.go.lock .golock{display:block}
 /* Play and, on agar.io's Free rung only, Spectate beside it. Spectate is
    exactly one rung wide (the rungs are three to the row with 8px gaps), so it
    sits in the $1.00 column with the settings under it and Play spans the
@@ -1138,9 +1040,18 @@ body.no-foot footer{display:none}
    state never rests on the fill alone. Quality is the one picker, a pill with
    the native list under it (a phone gets its own wheel). */
 .agopts{display:none}
-#detail.agar .agopts{display:block}
-.agopts .sl{margin-top:20px}
-.agtg{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:14px}
+/* On agar.io's Customize the settings sit in a band just above Save, and the
+   skin list gives up that much of its height so nothing overlaps. Every piece
+   of the chooser is positioned absolutely (see .ap-reel), so this is too. */
+.apscreen.agset .agopts{display:block;position:absolute;left:50%;transform:translateX(-50%);
+  width:min(420px,calc(100% - 32px));bottom:160px;z-index:54}
+.apscreen.agset .ap-reel{bottom:270px}
+.apscreen.agset .ap-arrow{top:calc(50% - 94px)}
+@media(max-width:520px){
+  .apscreen.agset .agopts{bottom:calc(156px + env(safe-area-inset-bottom))}
+  .apscreen.agset .ap-reel{bottom:calc(256px + env(safe-area-inset-bottom))}
+}
+.agtg{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
 .agt{position:relative;display:flex;align-items:center;justify-content:center;gap:7px;
   min-width:0;height:40px;padding:0 8px;background:var(--s2);border-radius:var(--r2);
   font-size:13px;font-weight:650;color:var(--tx2);white-space:nowrap;
@@ -1202,8 +1113,7 @@ body.no-foot footer{display:none}
 
 /* Open lobbies, reduced to a strip at the foot of the screen. It was a headed
    section with its own subtitle taking the left half of the page. */
-.lobwrap{margin-top:26px;text-align:left}
-.lobhd{font-size:12.5px;color:var(--tx3);margin-bottom:8px;text-align:center}
+.lobwrap{margin-top:16px;text-align:left}
 /* The board row was built for a full-width page and this column is 430px, so
    the Enter button fell off the end of it. The region and the buy-in are both
    dropped here: there is one region, and the row IS the free one. */
@@ -1214,7 +1124,7 @@ body.no-foot footer{display:none}
 .lobwrap .lr .lname{font-size:13.5px}
 .lobwrap .lr .lcount{font-size:12.5px;white-space:nowrap}
 .lobwrap .lr .enter{flex:none;padding:7px 16px;font-size:12.5px}
-.lobhd span{color:var(--tx2)}
+.lobwrap .lr .enter:disabled{cursor:not-allowed}
 
 /* ── change appearance ──────────────────────────────────────────────────
    Copied from public/css/lobby.css so this screen is the one the game
@@ -1472,23 +1382,24 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
   #detail .back{margin-left:16px;padding:12px 0 0}
   #dname{margin-top:4px;font-size:23px}
   .howbtn{margin-top:10px;padding:7px 13px;font-size:12.5px}
-  .sl{margin-top:12px}
-  .stakes{margin:8px 0 10px}
+  .stakes{margin:14px 0 10px}
   .stakes .stk{font-size:15px;padding:12px 4px}
   .namerow{margin-bottom:10px}
   .go{padding:13px}
   .spec{font-size:13px}
-  .agopts .sl{margin-top:12px}
-  .agtg{margin-top:8px}
   .agt{height:42px;font-size:12.5px;padding:0 6px;gap:6px}
   .lookrow{margin-top:10px;padding:8px 12px 8px 8px}
   .lookrow canvas{height:32px}
-  .lobwrap{margin-top:12px}
-  .lobhd{margin-bottom:4px}
+  .lobwrap{margin-top:10px}
   .lobwrap .lr{padding:8px 12px}
 
   h2{font-size:25px;letter-spacing:-.8px}
-  .head{margin:36px 0 16px}
+  /* Tighter on a phone (Owen 2026-10-15: the gaps under the header and
+     above Games). The first heading on a screen sits just under the header;
+     the ones further down keep enough air to start a new section. */
+  .head{margin:24px 0 12px}
+  main.wrap>.head:first-child{margin-top:14px}
+  .tickerwrap{margin-top:12px}
   .tiles{grid-template-columns:1fr 1fr;gap:10px}
   .tile{padding:15px 16px}
   .tile .v{font-size:25px}
@@ -1899,57 +1810,14 @@ body.scr-anim { overflow-x:hidden }
   <a class="back" href="#" onclick="goBack();return false">&#8592; &nbsp;Back</a>
   <div class="gcol">
     <h1 id="dname"></h1>
-    <!-- The description used to sit here as a paragraph everybody reads once
-         and then reads past forever. It is behind a button now: there when it
-         is wanted, gone when it is not. -->
-
-    <!-- What an unbuilt game shows instead of the whole play column. The
-         description finally earns its place here: for a game you cannot start,
-         what it IS is the only thing worth saying. -->
-    <div class="soonwrap">
-      <div class="soontag">In development</div>
-      <p class="soondesc" id="dsoon"></p>
-      <div class="soonbtn" role="note">Not playable yet</div>
-      <p class="soonfoot">Every game on DuelSeries pays out the same way. This one
-        opens when it is finished and worth staking on.</p>
-    </div>
-
-    <div class="sl">Your buy-in</div>
+    <!-- ONE LAYOUT FOR EVERY GAME (BACKLOG 2.2, Owen 2026-10-15): the three
+         buy-ins, the name, Play, Customize and the open lobbies, in that
+         order, on every game including the ones not built yet. No captions
+         over or under any of it ("I don't want any of those little words.
+         They just take up a lot of room."): a rung that cannot be sat at is
+         struck through, a game that cannot be played has a locked Play, and
+         neither needs a sentence to say so. -->
     <div class="stakes" id="stakes"></div>
-    <div class="stakeoff" id="stakeoff"></div>
-
-    <!-- A duel has no ladder: you name the stake and wait for somebody to take
-         it. Both players put in the same amount, which is the only rule that
-         makes an open-ended stake fair. -->
-    <div class="duelbet" id="duelbet">
-      <div class="dbrow">
-        <div class="dbval">
-          <span class="dbcur" id="dbcur">$</span>
-          <span class="dbamt" id="dbamt" aria-live="polite">1.00</span>
-        </div>
-        <!-- Both arrows together, up above down, so the pair reads as one
-             control for one value. Split either side of the number they read as
-             two separate buttons that happen to be near a figure. -->
-        <div class="dbsteps">
-          <button type="button" class="dbstep" id="dbup" onclick="stepDuel(1)"
-                  aria-label="Raise the buy-in">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
-                 stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M18 15l-6-6-6 6"/></svg>
-          </button>
-          <button type="button" class="dbstep" id="dbdown" onclick="stepDuel(-1)"
-                  aria-label="Lower the buy-in">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
-                 stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M6 9l6 6 6-6"/></svg>
-          </button>
-        </div>
-      </div>
-      <!-- Where you are on the ladder. Eight rungs is few enough to show all of
-           them, and seeing that the next press is 2 and not 1.25 is the thing a
-           bare number cannot tell you. -->
-      <div class="dbrungs" id="dbrungs" aria-hidden="true"></div>
-    </div>
     <!-- The name is stored under the live lobby's key, so switching between
          the two does not ask for it twice, and it is saved to the account so
          it is the same name on every device you sign in from. -->
@@ -1988,9 +1856,18 @@ body.scr-anim { overflow-x:hidden }
     <!-- Play shares its row with agar.io's Spectate, which shows on the Free
          rung only: a paid table is watched from inside it, not from here. Off
          Free the button is gone and Play takes the row back, so nothing under
-         it moves when the buy-in changes. -->
+         it moves when the buy-in changes.
+         Play is white on Free and gold on a paid rung (drawStake sets .paid),
+         so a money game never starts from a button that looks like a free one.
+         On a game that is not open yet it is locked: a padlock, and it does
+         nothing (V2_IS_SOON refuses it in the play path as well). -->
     <div class="gorow">
-      <button class="go" onclick="startFromDetail()">Play</button>
+      <button type="button" class="go" id="gobtn" onclick="startFromDetail()">
+        <svg class="golock" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
+             stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>
+        <span id="golabel">Play</span>
+      </button>
       <button type="button" class="spec" id="agspec" onclick="V2Play.spectate('agar')"
               aria-label="Spectate the free agar.io room">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
@@ -1999,31 +1876,13 @@ body.scr-anim { overflow-x:hidden }
         Spectate
       </button>
     </div>
-    <!-- Under the button, not above it. It sat between the stepper and the name
-         field, where it is one to three lines depending on the amount — so
-         every press of an arrow shoved the name field and the Play button up or
-         down under the thumb about to hit them. Down here it can say whatever
-         it needs to and nothing above it moves. -->
-    <p class="dbnote" id="dbnote"></p>
-    <!-- The line that used to sit here said either "Free play. Nothing staked,
-         nothing paid out" or the house-cut sentence. Both are in How to play
-         now, which is where somebody goes to be told how it works. -->
     <div class="fine" id="play-msg" hidden style="color:var(--money)"></div>
-
-    <!-- agar.io's own settings. The game used to open on its own menu card,
-         with a second name box, a second Play and these settings; the card is
-         gone (Owen 2026-10-09) and they live here, under Play, where they
-         cannot push the button down. Filled by public/js/v2/agopts.js, which writes the
-         same storage the game reads, so a change here is the game's setting. -->
-    <div class="agopts" role="group" aria-labelledby="agoptsl">
-      <div class="sl" id="agoptsl">Game settings</div>
-      <div class="agtg" id="agtg"></div>
-    </div>
 
     <!-- Customize (BACKLOG 3.1, Owen's name for it). The whole row is the
          button: a live preview of what you are wearing, the label and a
-         chevron. In a game with nothing to change yet it is the game's own
-         picture and a line saying so, and the button is disabled. -->
+         chevron. agar.io's game settings sit in its chooser (.agset). In a game
+         with nothing to change yet it is the game's own picture and the
+         button is disabled. -->
     <button type="button" class="lookrow" id="lookrow" onclick="openLook()">
       <canvas id="skmini" data-look="mini" width="560" height="150"></canvas>
       <img class="lkimg" id="lkimg" alt="">
@@ -2033,19 +1892,7 @@ body.scr-anim { overflow-x:hidden }
         <path d="M9 6l6 6-6 6"/></svg>
     </button>
 
-    <!-- Waiting for somebody to take the same stake. Shown in place of the
-         lobby list, because a duel has no lobby to list. -->
-    <div class="queued" id="queued">
-      <div class="qspin" aria-hidden="true"></div>
-      <div class="qtext">
-        <b id="qmain">Waiting for an opponent</b>
-        <span id="qsub">Looking for someone at $1.00</span>
-      </div>
-      <button type="button" class="qcancel" onclick="leaveQueue()">Cancel</button>
-    </div>
-
     <div class="lobwrap">
-      <div class="lobhd">Open lobbies <span id="dsub2"></span></div>
       <div class="lob" id="dlob"></div>
     </div>
   </div>
@@ -2238,6 +2085,15 @@ body.scr-anim { overflow-x:hidden }
     </button>
   </div>
   <div class="ap-hint">Scroll to change skin</div>
+  <!-- agar.io's game settings, on its chooser only (.agset). They sat in the
+       play column under Play, which made agar.io the one game with a different
+       layout; they live in its Customize now (Owen 2026-10-15). Filled by
+       public/js/v2/agopts.js, which writes the same storage the game reads, so
+       a change here is the game's setting the moment it is made: neither Save
+       nor Back is needed for it. -->
+  <div class="agopts" role="group" aria-label="agar.io settings">
+    <div class="agtg" id="agtg"></div>
+  </div>
   <div class="ap-save-row">
     <button class="ap-save-btn" onclick="closeLook(true)"><span>&nbsp;Save&nbsp;</span></button>
     <div class="ap-name num" id="lookname"></div>
@@ -2307,9 +2163,8 @@ body.scr-anim { overflow-x:hidden }
    These are not. A duel against nobody is not a game, so there is no lobby to
    list — you wait for somebody to take the same buy-in.
 
-   The ones still marked soon:1 have nothing behind them, and the screen says
-   so. The layout is real, with a working buy-in control and a working queue, so
-   the shape can be judged before any of it is wired to a server.
+   The ones still marked soon:1 have nothing behind them. Their screen is every
+   other game's screen (BACKLOG 2.2) with Play shut behind a padlock.
 
    ROCK PAPER SCISSORS WAS REMOVED, deliberately and not as a placeholder. Every
    other game here is decided by something the player does better than their
@@ -2390,9 +2245,9 @@ const GAMES=[
 /* Locked games (shared/lockedGames.js, the list the server reads too: today
    Awesome Tanks and Bowmasters). Their entries above stay as they are; for this
    page load each one is shown exactly like Stumble Guys: soon:1 greys the card,
-   puts the padlock on it and drops its people count, and its screen is the
-   "Not playable yet" panel. The flags that would put a Play button, a buy-in or
-   a queue on that screen are cleared, and V2_IS_SOON then refuses it in the
+   puts the padlock on it and drops its people count, and its screen has Play
+   shut behind a padlock. The flags that would open Play or a paid rung on
+   that screen are cleared, and V2_IS_SOON then refuses it in the
    play path too. Unlocking is taking the id out of that list. */
 (window.DS_LOCKED?DS_LOCKED.LOCKED_GAMES:[]).forEach(id=>{
   const g=GAMES.find(x=>x.id===id);
@@ -2436,10 +2291,12 @@ function refreshSteps(gameId){
        than drawn live over a Play button that would seat a free bot table.
        Open them here the day that launch passes the rung to the widget. */
     STEPS_OFF=new Set(STEPS.filter(s=>s!==0));
-  }else if(g&&g.freeOnly){
+  }else if(g&&(g.freeOnly||g.solo||g.soon)){
     /* Free is the only rung this game seats today. Everything else is drawn
        struck through, which says the product offers it and this table does not
-       yet — quieter and more honest than hiding it. */
+       yet — quieter and more honest than hiding it. A game that is not open
+       yet (soon, or locked) shows the same three rungs on the same rule, so
+       its screen is every other game's screen with Play shut (BACKLOG 2.2). */
     STEPS_OFF=new Set(STEPS.filter(s=>s!==0));
   }else{
   const open=(window.V2Board&&V2Board.playableStakes)?V2Board.playableStakes(gameId):null;
@@ -2484,6 +2341,20 @@ function defaultStep(){
   if(openAt(free))return free;
   const any=STEPS.findIndex(v=>!STEPS_OFF.has(v));
   return any>=0?any:0;
+}
+/* The rung pressed on each game during this visit, so flipping through the
+   games (a swipe on the game screen) and coming back finds the one you chose
+   there. Only ever a rung the player pressed on that SAME game, and only while
+   it is still open: a choice is never carried from one game to the next, so a
+   swipe can never land on a paid rung nobody picked for that game. */
+const PICKED={};
+function stepFor(id){
+  const v=PICKED[id];
+  if(v!==undefined){
+    const i=STEPS.findIndex(s=>Math.abs(s-v)<1e-9);
+    if(i>=0&&!STEPS_OFF.has(STEPS[i]))return i;
+  }
+  return defaultStep();
 }
 let si=3, cur=null, order=GAMES.slice();
 
@@ -2970,6 +2841,8 @@ function paintLook(cv){
 let lookIx=0;
 /* The Customize bar for the game on screen: what you are wearing in a game
    with a look, a plain line and a shut button in one without (BACKLOG 3.1). */
+/* agar.io has settings rather than a skin (agopts.js); its bar opens them. */
+const hasSettings=g=>!!(g&&g.id==='agar');
 function drawSkins(){
   const look=hasLook(cur);
   const row=document.getElementById('lookrow'), img=document.getElementById('lkimg');
@@ -2979,14 +2852,18 @@ function drawSkins(){
     else if(img.getAttribute('src')!=='/img/games/'+cur.id+'.png')img.src='/img/games/'+cur.id+'.png';
   }
   const s=skin();
-  document.getElementById('skname').textContent=!look
-    ?'Nothing to change in '+(cur?cur.name:'this game')+' yet'
+  /* slither.io: the skin you are wearing. Another game with a look: the name
+     of its free look. A game with nothing to change yet: nothing at all, the
+     line that said so is gone with the other small print (Owen 2026-10-15). */
+  document.getElementById('skname').textContent=!look?''
     :!cur.look?V2Shop.defaultName(cur.id)
     :s?s.name:'Random colour';
 }
 function openLook(){
   if(!hasLook(cur))return;
   LK=lookList(cur);
+  /* agar.io's game settings ride along at the foot of its chooser. */
+  document.getElementById('lookveil').classList.toggle('agset',hasSettings(cur));
   /* Always reopens on the skin actually being worn, which is also what makes
      Back safe: browsing moves lookIx, and only Save writes it to skinId. */
   lookIx=cur.look?Math.max(0,LK.findIndex(s=>s.id===skinId)):0;
@@ -3476,11 +3353,13 @@ function drawTicker(){
 function open_(id){
   const from=SCREENS.map(s=>document.getElementById(s))
                     .find(el=>el&&getComputedStyle(el).display!=='none');
-  _cameFrom=(from&&from.id==='allgames')?'allgames':'home';
+  /* Flipping from one game's screen to the next (swipe.js) keeps the screen
+     it was first reached from, so Back still returns there. */
+  if(!(from&&from.id==='detail'))_cameFrom=(from&&from.id==='allgames')?'allgames':'home';
   cur=G(id);
   /* Steps first: the default buy-in has to be chosen from what the board is
      actually offering, not from a fixed amount that may not exist. */
-  refreshSteps(id); si=defaultStep();
+  refreshSteps(id); si=stepFor(id);
   showScreen('detail');
   /* Which backdrop this game gets. 'bg' is the generic moving-snakes world;
      mkWorld's own 'snake' branch is a composed STILL for the card, which is
@@ -3491,47 +3370,19 @@ function open_(id){
      so the button was a control in the middle of the screen earning nothing.
      agar.io keeps it, because splitting and cashing out are not common
      knowledge in the way "eat things, avoid heads" is. */
-  /* Everything below this point fills controls that an unbuilt game does not
-     show. It still runs — the code path is the same one — but the column it
-     writes into is hidden, so nothing here has to know about it twice. */
   const det=document.getElementById('detail');
-  /* A duel is soon:1 too — nothing behind it is built — but it shows the real
-     screen rather than the locked panel, because the whole point is to see the
-     layout. What it does NOT do is pretend to find you an opponent. */
-  det.classList.toggle('duel',!!cur.duel);
-  det.classList.toggle('soon',!!cur.soon && !cur.duel);
-  /* A duel that is BUILT shows the fixed ladder with only Free open, rather
-     than the open-ended stepper: you cannot name your own stake at a table
-     that does not take one yet. */
-  det.classList.toggle('freeonly',!!cur.freeOnly);
-  /* A duel that TAKES a buy-in shows the same fixed ladder as a free-only one,
-     with every rung live. Same panel, different rungs open. */
-  det.classList.toggle('paidduel',!!cur.paid);
-  det.classList.toggle('solo',!!cur.solo);
+  /* ONE LAYOUT FOR EVERY GAME (BACKLOG 2.2). Every game fills the same
+     column: the three buy-ins, the name, Play, Customize, the open lobbies.
+     What differs is only what is open. A game that cannot be played yet
+     (soon, or locked in shared/lockedGames.js) keeps the column and has its
+     Play shut; the duel stepper, the pretend queue and the separate locked
+     panel are gone with it. */
+  const locked=!!(cur.soon&&!cur.built);
+  det.classList.toggle('soon',locked);
   det.classList.toggle('nolook',!hasLook(cur));
-  /* agar.io's settings and its Free-rung Spectate (the game has no menu card
-     of its own inside this lobby any more). */
+  /* agar.io's Free-rung Spectate (the game has no menu card of its own inside
+     this lobby any more). */
   det.classList.toggle('agar',cur.id==='agar');
-  /* The stepper note describes a stake, and this table takes none. Leaving it
-     there had the screen promising a $1.00 pot on a free game. */
-  const dn=document.getElementById('dbnote');
-  if(dn&&cur.solo){
-    dn.textContent=cur.soloNote||'Free, and on your own. No stake, no opponent and nothing paid '
-      +'out — you are playing for the next level.';
-  }else if(dn&&cur.freeOnly){
-    dn.textContent='Free while the game is new. Nothing staked, nothing paid out '
-      +'— you are playing for the win.';
-  }else if(dn&&cur.paid){
-    /* Only Free can be started from here today (refreshSteps strikes the paid
-       rungs through), so the note says that rather than describing a paid
-       table nobody can reach yet. */
-    dn.textContent='Free plays a bot straight away. Paid tables are not open yet, '
-      +'so nothing is staked and nothing is paid out.';
-  }
-  det.classList.remove('queueing');
-  if(cur.duel)drawDuelBet();
-  const sd=document.getElementById('dsoon');
-  if(sd)sd.textContent=cur.d||'';
   const dart=document.getElementById('dart'), still=document.getElementById('dartstill');
   const live=cur.id==='snake'?'bg':cur.id==='agar'?'agar':null;
   dart.dataset.game=live||'bg';
@@ -3541,9 +3392,14 @@ function open_(id){
   still.style.backgroundImage=cur.noart?'none':"url('/img/games/"+cur.id+"-wide.png')";
   SCENES.delete(dart);
   document.getElementById('dname').textContent=cur.name;
-  /* Play is the wrong word for a game that has to find you somebody first. */
-  const goBtn=document.querySelector('#detail .go');
-  if(goBtn)goBtn.textContent=(cur.duel&&!cur.built)?'Find an opponent':'Play';
+  /* Play, or shut with a padlock on a game that is not open yet. */
+  const goBtn=document.getElementById('gobtn');
+  if(goBtn){
+    goBtn.classList.toggle('lock',locked);
+    goBtn.disabled=locked;
+    goBtn.setAttribute('aria-disabled',locked?'true':'false');
+    document.getElementById('golabel').textContent=locked?'Coming soon':'Play';
+  }
   /* Both figures come off the live board, so the detail screen and the card
      that led here cannot disagree about how busy a game is. Only rooms with
      someone in them are listed, for the same reason as the home board: an
@@ -3552,12 +3408,22 @@ function open_(id){
   /* Counted over every row of the game, closed ones too: a paid agar.io row
      under the owner's off switch says 'closed' and is not listed to join, but
      the players still seated in it are still playing. */
-  const playing=(window.V2Board?V2Board.lobbies:[]).filter(l=>l.game===id)
-    .reduce((n,l)=>n+(l.players||0),0);
-  /* `playing` is still summed here: it is what the free row's own count shows. */
+  /* A game on its own door (a built duel or solo run) has no ladder rows on
+     the board, so its free row counts what its card counts. */
+  const door=!!(cur.built&&(cur.duel||cur.solo));
+  const playing=door?Number(((window.V2Board&&V2Board.counts)||{})[id])||0
+    :(window.V2Board?V2Board.lobbies:[]).filter(l=>l.game===id)
+      .reduce((n,l)=>n+(l.players||0),0);
   /* The free room is listed whether or not anybody is in it. It is the row
      that costs nothing to press, and burying it until somebody else happens to
-     be playing is the cold start this screen exists to avoid. */
+     be playing is the cold start this screen exists to avoid.
+     Enter goes through the same door Play does: by stake on a ladder game
+     (Free IS a rung, so this lands in the same room as Play at Free), by
+     lobbyType on a game with its own door (a stake there would be resolved
+     through the snake ladder), and nowhere on a game that is not open. */
+  const enter=locked?'disabled aria-disabled="true"'
+    :door?`onclick="V2Play.launch('${cur.id}',{lobbyType:'free'})"`
+    :`onclick="V2Play.launch('${cur.id}',{stake:0})"`;
   const freeRow=`<div class="lr">
      <div class="lswatch">${art(cur)}</div>
      <div class="lmid"><span class="lname">${cur.name}</span>
@@ -3572,7 +3438,7 @@ function open_(id){
           rung; this button sent {lobbyType:'free'} and landed in the tier — so
           two buttons on one screen, both saying Free, put players in two
           different rooms, and each made the other look empty. Free IS a rung. -->
-     <button class="enter" onclick="V2Play.launch('${cur.id}',{stake:0})">Enter</button>
+     <button class="enter" ${enter}>Enter</button>
    </div>`;
   document.getElementById('dlob').innerHTML=freeRow+(mine.length
     ?mine.filter(l=>Number(l.stake)!==0).map(l=>`<div class="lr">
@@ -3586,7 +3452,6 @@ function open_(id){
          playing</span>
        <button class="enter" onclick="V2Board.join('${l.id}')">Enter</button>
      </div>`).join(''):'');
-  document.getElementById('dsub2').textContent=mine.length?mine.length+' open':'';
   document.getElementById('dlob').classList.add('short');
   drawStake(); drawSkins(); repaintAll(); jumpToTop();
 }
@@ -3636,17 +3501,16 @@ function showAllGames(){
 /* Detail is reachable from the rail and from the grid, so its back link has to
    return to whichever one was used rather than always to home. */
 let _cameFrom='home';
-/* One button, two jobs, decided by the game rather than by the caller: an arena
-   you drop into, or a duel you queue for. */
+/* One button, decided by the game rather than by the caller: a game on its own
+   door, or an arena you drop into. */
 function startFromDetail(){
-  /* Three cases, and they are genuinely different: a built duel launches its
-     own page, an unbuilt one shows the queue it WILL use, and an arena joins a
-     room that already exists. */
+  /* A game that is not open yet: Play is shut (and disabled); this is the
+     belt to that brace. */
+  if(!cur||(cur.soon&&!cur.built))return;
   /* A built duel and a solo run both open their own page at Free, and both
-     name the room rather than letting the buy-in ladder pick one: neither of
-     them has a ladder on screen to read a choice from. */
-  if(cur&&cur.built&&(cur.duel||cur.solo)){V2Play.launch(cur.id,{lobbyType:'free'});return}
-  if(cur&&cur.duel){joinQueue();return}
+     name the room rather than letting the buy-in ladder pick one: Free is the
+     only rung either has open (refreshSteps strikes the rest through). */
+  if(cur.built&&(cur.duel||cur.solo)){V2Play.launch(cur.id,{lobbyType:'free'});return}
   V2Play.playChosen();
 }
 
@@ -3655,115 +3519,44 @@ function goBack(){showScreen(_cameFrom);jumpToTop()}
 /* Every buy-in on screen at once. With nine rungs this had to be a stepper
    with a row of dots, which meant paging through amounts to find out what was
    even offered. Three fit, so the control IS the list. */
-/* ── choosing what a duel is worth ───────────────────────────────────────
-   A ladder of set amounts rather than a box you type into.
-
-   Both players put in the same, which is what makes an open-ended stake fair,
-   and set rungs make that agreement possible: two people can meet at $1 without
-   either of them naming a number the other has to accept. It also means there
-   is no such thing as a typo here, no 100 where 1.00 was meant, which on a
-   real-money control is the mistake worth designing out.
-
-   Free is a rung, because a duel you can try for nothing is how anybody finds
-   out whether they like the game. */
-/* The same ladder as every other game (shared/stakeLadder.js, BACKLOG 2.1): the
-   coming duels offer what the product charges, not a ladder of their own. */
-const DUEL_LADDER=LADDER.slice();
-let duelStep=Math.max(0,DUEL_LADDER.indexOf(1));   // opens at $1
-function duelAmount(){ return DUEL_LADDER[duelStep]; }
-function stepDuel(dir){
-  const next=duelStep+dir;
-  if(next<0||next>=DUEL_LADDER.length)return;
-  duelStep=next;
-  drawDuelBet();
-}
-function drawDuelBet(){
-  const amt=duelAmount();
-  const box=document.getElementById('duelbet');
-  const val=document.getElementById('dbamt');
-  if(!box||!val)return;
-  box.classList.toggle('free',amt===0);
-  val.textContent=amt===0?'Free':amt.toFixed(2);
-  /* Disabled at the ends rather than wrapping around. A stepper that jumps from
-     $1 back to free is one mis-tap from staking nothing when you meant a dollar. */
-  const down=document.getElementById('dbdown'), up=document.getElementById('dbup');
-  if(down)down.disabled=duelStep===0;
-  if(up)up.disabled=duelStep===DUEL_LADDER.length-1;
-  const rungs=document.getElementById('dbrungs');
-  if(rungs)rungs.innerHTML=DUEL_LADDER.map((_,i)=>
-    `<span class="dbrung${i===duelStep?' on':i<duelStep?' past':''}"></span>`).join('');
-  const note=document.getElementById('dbnote');
-  /* A duel on the fixed ladder (free-only, or Knockout and Battleship) has its
-     note set by open_. The stepper is hidden there, and its "$1.00" line used
-     to overwrite that note under a Free selection. */
-  if(cur&&(cur.freeOnly||cur.paid))return;
-  if(note)note.textContent=amt===0
-    ? 'Nothing staked and nothing paid out. Play for the win.'
-    : 'Your opponent puts in the same $'+amt.toFixed(2)+'. Winner takes both, minus the ten percent house cut.';
-}
-/* Up and down work on the keyboard too, once either arrow has focus. */
-document.addEventListener('keydown',e=>{
-  const t=e.target; if(!t||(t.id!=='dbup'&&t.id!=='dbdown'))return;
-  if(e.key==='ArrowUp'||e.key==='ArrowRight'){e.preventDefault();stepDuel(1)}
-  if(e.key==='ArrowDown'||e.key==='ArrowLeft'){e.preventDefault();stepDuel(-1)}
-});
-
-/* Joining the queue. This is the honest half of the preview: the control, the
-   waiting state and the cancel are all real, and nothing pretends an opponent
-   is coming, because none of these games exists on the server yet. */
-function joinQueue(){
-  /* No range check: every rung on the ladder is a valid buy-in by construction,
-     which is the point of having a ladder instead of a text field. */
-  const amt=duelAmount();
-  document.getElementById('qsub').textContent=
-    'Looking for someone at '+(amt===0?'a free table':'$'+amt.toFixed(2));
-  document.getElementById('qmain').textContent='Waiting for an opponent';
-  document.getElementById('detail').classList.add('queueing');
-  /* Said out loud rather than left to be discovered by waiting. A queue that
-     can never match is a spinner that spins forever, and letting somebody sit
-     in front of it is worse than telling them. */
-  clearTimeout(window._qNote);
-  window._qNote=setTimeout(()=>{
-    const m=document.getElementById('qmain');
-    if(!m||!document.getElementById('detail').classList.contains('queueing'))return;
-    m.textContent='Nobody to match you with yet';
-    document.getElementById('qsub').textContent=
-      cur.name+' is still being built. This is the queue it will use.';
-  },4000);
-}
-function leaveQueue(){
-  clearTimeout(window._qNote);
-  document.getElementById('detail').classList.remove('queueing');
-}
-
 function drawStake(){
   /* agar.io's Spectate is for the Free rung only (it watches the free room). */
   document.getElementById('detail').classList.toggle('agfree',STEPS[si]===0);
+  /* A rung that cannot be sat at says so by being struck through and
+     disabled; the sentence under the row that repeated it is gone with the
+     rest of the small print (Owen 2026-10-15). */
   document.getElementById('stakes').innerHTML=STEPS.map((s,i)=>{
     const off=STEPS_OFF.has(s);
     return `<button type="button" class="stk${i===si?' on':''}${s===0?' free':''}${off?' off':''}"
-       ${off?'disabled aria-disabled="true" title="Not open yet"':''}
+       ${off?'disabled aria-disabled="true"':''}
        onclick="pickStake(${i})">${cash(s)}</button>`;
   }).join('');
-  /* Said once, under the row, rather than repeated on each dead button. */
-  const note=document.getElementById('stakeoff');
-  if(note){
-    const shut=STEPS.filter(s=>STEPS_OFF.has(s)).map(cash);
-    note.textContent=shut.length?shut.join(' and ')+(shut.length>1?' tables are':' tables are')+' not open yet.':'';
-    /* '', not 'block'. An inline display beats every selector, so hardcoding
-       block here punched this note straight through the rule that hides the
-       whole play column on a game you cannot play. */
-    note.style.display=shut.length?'':'none';
-  }
+  /* Play turns gold on a paid rung: the money look, on the button that
+     stakes it. Never on a game that is not open (its Play is shut). */
+  const go=document.getElementById('gobtn');
+  if(go)go.classList.toggle('paid',Number(STEPS[si])>0&&!(cur&&cur.soon&&!cur.built));
 }
 function pickStake(i){
   const s=STEPS[i];
   if(STEPS_OFF.has(s))return;      // the button is disabled; this is the belt to that brace
-  si=Math.max(0,Math.min(STEPS.length-1,i));drawStake();
+  si=Math.max(0,Math.min(STEPS.length-1,i));
+  if(cur)PICKED[cur.id]=STEPS[si];  /* this game's pick, for coming back to it */
+  drawStake();
 }
 function cancel(){veil.classList.remove('on')}
 /* What the play module reads to know which room was chosen. */
-window.V2Detail={get game(){return cur?cur.id:'snake'},get stake(){return STEPS[si]}};
+/* The next (dir 1) or previous (dir -1) game's screen, in the order the rail
+   and the games grid draw them, wrapping at both ends as the rail does. Called
+   by the swipe on the game screen (swipe.js). Each game opens on its own rung:
+   the one picked on it this visit, else its usual default (stepFor). */
+function flipGame(dir){
+  if(!cur||!GAMES.length)return null;
+  const i=Math.max(0,GAMES.findIndex(g=>g.id===cur.id));
+  const n=GAMES[(i+(dir>0?1:-1)+GAMES.length)%GAMES.length];
+  open_(n.id);
+  return n.id;
+}
+window.V2Detail={get game(){return cur?cur.id:'snake'},get stake(){return STEPS[si]},flip:flipGame};
 /* The one list that knows which games are built, so the play path can refuse
    an unbuilt one without keeping a second copy of that fact. */
 window.V2_IS_SOON=id=>{const g=G(id);return !!(g&&g.soon&&!g.built)};

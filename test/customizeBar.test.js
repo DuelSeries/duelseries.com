@@ -35,26 +35,34 @@ test('the first nine old colours are cv 0 to 8 in order, so the old-engine fallb
   assert.deepStrictEqual(colours.slice(0, 9), sp.ccs.slice(0, 9));
 });
 
-test('every built game shows the bar; only an unbuilt one hides it', () => {
+test('every game shows the bar, built or not (BACKLOG 2.2: one layout for every game)', () => {
   const html = v2();
-  for (const kind of ['duel', 'solo', 'nolook']) {
-    const rules = html.match(new RegExp('#detail\\.' + kind + ' [^{]*\\{display:none\\}', 'g')) || [];
-    for (const r of rules) {
-      assert.ok(!/\.lookrow(?![\w-])/.test(r.replace(/\.lookrow \.l\w+|\.lookrow canvas/g, '')),
-        kind + ' must not hide the bar: ' + r);
-    }
+  // Nothing on the game screen hides the bar any more: an unbuilt game keeps the whole column with Play shut.
+  const hides = html.match(/#detail\.[\w.]+ [^{]*\{display:none\}/g) || [];
+  for (const r of hides) {
+    assert.ok(!/\.lookrow(?![\w-])/.test(r.replace(/\.lookrow \.l\w+|\.lookrow canvas/g, '')),
+      'nothing hides the bar: ' + r);
   }
-  assert.ok(/#detail\.soon [^{]*\.lookrow[^{]*\{display:none\}/.test(html), 'an unbuilt game has no play column at all');
   // Only the snake SAVES a skin (look:1). Since 2026-10-15 every other built
   // game opens the same chooser too, with its free look and its Shop skins
-  // locked (Owen's ask); a game with no Shop skins still says so and stays shut.
+  // locked (Owen's ask); a game with no Shop skins stays shut, with no sentence.
   const games = [...html.matchAll(/\{id:'(\w+)'[^}]*\}/g)];
   const withLook = games.filter((m) => /\blook:1/.test(m[0])).map((m) => m[1]);
   assert.deepStrictEqual(withLook, ['snake']);
   assert.ok(html.includes('const hasLook=g=>!!(g&&(g.look||(window.V2Shop&&V2Shop.game(g.id))));'),
     'a game has a chooser if it saves a skin or the Shop has skins for it');
-  assert.ok(html.includes("'Nothing to change in '+(cur?cur.name:'this game')+' yet'"), 'the shut bar says so');
-  assert.ok(/function openLook\(\)\{\s*if\(!hasLook\(cur\)\)return;/.test(html), 'and does not open');
+  assert.ok(/function openLook\(\)\{\s*if\(!hasLook\(cur\)\)return;/.test(html), 'and does not open otherwise');
+  assert.ok(html.includes("det.classList.toggle('nolook',!hasLook(cur));"), 'the shut bar is a class');
+  // Owen 2026-10-15: no small print. The shut bar no longer says there is nothing to change.
+  assert.ok(!html.includes('Nothing to change in'), 'the shut bar carries no sentence');
+  // agar.io's game settings ride in its chooser, not in the play column (BACKLOG 2.2).
+  assert.ok(html.includes("document.getElementById('lookveil').classList.toggle('agset',hasSettings(cur));"),
+    'agar.io\'s chooser carries its settings');
+  const veil = html.slice(html.indexOf('<div id="lookveil"'), html.indexOf('<div class="ap-save-row">'));
+  assert.ok(veil.includes('<div class="agtg" id="agtg"></div>'), 'inside the chooser');
+  assert.ok(html.includes('.agopts{display:none}') && html.includes('.apscreen.agset .agopts{display:block;'),
+    'shown on agar.io\'s only');
+  assert.ok(html.includes('.apscreen.agset .ap-reel{bottom:270px}'), 'and the skin list makes room for them');
   // A locked Shop skin can be looked at, never saved, and only slither stores anything.
   const close = html.slice(html.indexOf('function closeLook'), html.indexOf('function closeLook') + 400);
   assert.ok(close.includes('if(save&&s&&s.locked)return;'), 'Save on a locked skin does nothing');

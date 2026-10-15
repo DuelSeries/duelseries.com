@@ -514,14 +514,41 @@ test('a remembered rung the ladder no longer has lands on Free, never on $0.50',
 test('Knockout and Battleship strike their paid rungs through until the lobby can start a paid duel', () => {
   /* startFromDetail opens every built duel at Free. Drawing $0.50 live over that Play button
      promised a paid table and seated a free bot one. */
-  assert.match(v2(), /if\(cur&&cur\.built&&\(cur\.duel\|\|cur\.solo\)\)\{V2Play\.launch\(cur\.id,\{lobbyType:'free'\}\);return\}/,
+  assert.match(v2(), /if\(cur\.built&&\(cur\.duel\|\|cur\.solo\)\)\{V2Play\.launch\(cur\.id,\{lobbyType:'free'\}\);return\}/,
     'if this changes, open the paid rungs in refreshSteps with it');
   const ko = stepsHarness({ last: 0.5 }).pick('knockout');
   assert.deepEqual(ko, { stake: 0, off: [0.5, 1] }, 'Free selected, $0.50 and $1.00 struck through');
   assert.deepEqual(stepsHarness({}).pick('tanks'), { stake: 0, off: [0.5, 1] }, 'the same as Bowmasters');
-  assert.match(v2(), /Paid tables are not open yet/, 'and the note under Play says so');
-  // The hidden stepper's "$1.00" line must not overwrite that note (it did, under a Free selection).
-  assert.match(v2(), /if\(cur&&\(cur\.freeOnly\|\|cur\.paid\)\)return;/, 'drawDuelBet leaves a fixed-ladder duel\'s note alone');
+  // Owen 2026-10-15: no small print. The struck rungs say it; the note under Play is gone.
+  assert.ok(!/Paid tables are not open yet/.test(v2()), 'no note under Play');
+  assert.ok(!/not open yet\.'/.test(v2()) && !/title="Not open yet"/.test(v2()), 'and no line or tooltip under the rungs');
+});
+
+test('each game keeps the rung picked on it, and a swipe never carries a paid rung to another game', () => {
+  /* The swipe on the game screen flips between games (swipe.js -> V2Detail.flip -> open_). A rung pressed
+     on one game is remembered for THAT game only, while it is open; another game opens on its own default. */
+  const html = v2();
+  assert.match(html, /refreshSteps\(id\); si=stepFor\(id\);/, 'open_ asks for the game\'s own rung');
+  assert.match(html, /if\(cur\)PICKED\[cur\.id\]=STEPS\[si\];/, 'pickStake records the pick per game');
+  const a = html.indexOf('let STEPS=[0];');
+  const b = html.indexOf('const G=id=>GAMES.find(x=>x.id===id);');
+  const win = {
+    GAMES: [{ id: 'snake', ladder: 1 }, { id: 'paper', ladder: 1 }, { id: 'knockout', duel: 1, built: 1, paid: 1 }],
+    localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
+    V2Board: { playableStakes: () => new Set([0, 0.5, 1]) },
+    DS_LADDER: require(path.join(ROOT, 'shared/stakeLadder.js')),
+  };
+  win.window = win;
+  vm.createContext(win);
+  vm.runInContext(html.slice(a, b) + 'const G=id=>GAMES.find(x=>x.id===id);\n' +
+    'this.t={open(id){refreshSteps(id);si=stepFor(id);return STEPS[si];},' +
+    'pick(id,v){refreshSteps(id);PICKED[id]=v;}};', win);
+  win.t.pick('snake', 0.5);
+  assert.equal(win.t.open('paper'), 0, 'the next game opens on Free, not on the $0.50 picked elsewhere');
+  assert.equal(win.t.open('knockout'), 0, 'a game with its paid rungs shut opens on Free');
+  assert.equal(win.t.open('snake'), 0.5, 'and coming back finds the $0.50 picked on this game');
+  win.t.pick('knockout', 1);                // a rung that is struck through here
+  assert.equal(win.t.open('knockout'), 0, 'a pick on a shut rung never opens it');
 });
 
 test('the earnings chart is scrubbable and has labelled axes', () => {
@@ -1253,23 +1280,64 @@ test('an unbuilt game can be opened and looked at, and still cannot be played', 
   assert.ok(/class="card\$\{g\.soon\?' soon':''\}"[\s\S]{0,60}onclick="open_/.test(html),
     'every card opens its game, built or not');
 
-  /* Hiding the play column is not cosmetic. A buy-in, a name field and a Play
-     button on a game that cannot start are promises the product cannot keep. */
-  const hides = html.match(/#detail\.soon [^{]*\{display:none\}/);
-  assert.ok(hides, 'the locked screen hides the play column');
-  for (const part of ['.go', '#stakes', '.namerow', '.lookrow', '.lobwrap']) {
-    assert.ok(hides[0].includes(part), 'it hides ' + part);
-  }
-  assert.ok(html.includes('#detail.soon .soonwrap{display:block}'),
-    'and shows what it can say instead');
-
-  /* An inline display beats every selector, so a hardcoded block here punched
-     the buy-in note straight through that rule. It happened; this pins it. */
-  assert.ok(!/note\.style\.display=shut\.length\?'block'/.test(html),
-    'the buy-in note lets the stylesheet decide whether it shows');
+  /* BACKLOG 2.2 (Owen 2026-10-15): one layout for every game, the unbuilt ones
+     included. The column is the same; what cannot be pressed is shut. Play is
+     locked with a padlock and disabled, the buy-ins are shut, and the free
+     row's Enter is disabled, so nothing on the screen can start the game. */
+  assert.ok(!html.includes('soonwrap') && !html.includes('Not playable yet'), 'no separate locked panel');
+  assert.ok(!/#detail\.soon [^{]*\{display:none\}/.test(html), 'nothing in the column is hidden for it');
+  assert.match(html, /const locked=!!\(cur\.soon&&!cur\.built\);\s*det\.classList\.toggle\('soon',locked\);/);
+  assert.match(html, /goBtn\.classList\.toggle\('lock',locked\);\s*goBtn\.disabled=locked;/, 'Play is shut');
+  assert.match(html, /const enter=locked\?'disabled aria-disabled="true"'/, 'so is the free row\'s Enter');
+  assert.match(html, /#detail\.soon \.stakes\{opacity:\.5;pointer-events:none\}/, 'and the buy-ins');
+  assert.match(html, /function startFromDetail\(\)\{[^}]*if\(!cur\|\|\(cur\.soon&&!cur\.built\)\)return;/,
+    'and Play refuses it even if it were pressed');
+  // An unbuilt game offers only Free, struck through above it, like a built free-only one.
+  assert.match(html, /\}else if\(g&&\(g\.freeOnly\|\|g\.solo\|\|g\.soon\)\)\{/);
 
   // The last gate: presentation is not a security boundary.
   assert.ok(html.includes('window.V2_IS_SOON'), 'the play path can ask what is built');
+});
+
+test('one layout for every game: rungs, name, Play, Customize, open lobbies, and no small print', () => {
+  /* BACKLOG 2.2 and Owen 2026-10-15: "I don't want any of those little words.
+     They just take up a lot of room." The column is the same five things in the
+     same order for every game, with no caption over or under any of them. */
+  const html = v2();
+  const col = html.slice(html.indexOf('<div class="gcol">'), html.indexOf('<!-- ══ WALLET ══ -->'));
+  const at = s => { const i = col.indexOf(s); assert.ok(i > -1, 'the column has ' + s); return i; };
+  const order = ['id="dname"', 'id="stakes"', 'class="namerow"', 'class="gorow"', 'id="lookrow"', 'class="lobwrap"']
+    .map(at);
+  assert.deepEqual(order, order.slice().sort((x, y) => x - y), 'in this order');
+  for (const words of ['Your buy-in', 'Open lobbies', 'Game settings', 'Free plays a bot', 'Paid lobbies',
+                       'Not open yet', 'Not playable yet', 'In development']) {
+    assert.ok(!col.includes(words), 'no "' + words + '" in the column');
+  }
+  for (const gone of ['class="sl"', 'id="stakeoff"', 'id="dbnote"', 'id="duelbet"', 'class="queued"',
+                      'class="lobhd"', 'class="soonwrap"', 'class="agopts"']) {
+    assert.ok(!col.includes(gone), gone + ' is gone from the column');
+  }
+  // Nothing on the screen is shown or hidden per kind of game any more.
+  assert.ok(!/#detail\.(duel|solo|freeonly|paidduel|queueing)\b/.test(html), 'no per-kind layout rules');
+  // Play is white on Free and gold on a paid rung.
+  assert.match(html, /\.go\{[^}]*background:var\(--bone\)/, 'white on Free');
+  assert.match(html, /\.go\.paid\{background:linear-gradient/, 'gold on a paid rung');
+  assert.match(html, /go\.classList\.toggle\('paid',Number\(STEPS\[si\]\)>0&&/, 'set by the chosen rung');
+});
+
+test('the game screen swipes to the next and previous game, and leaves taps and scrolling alone', () => {
+  const html = v2();
+  assert.match(html, /window\.V2Detail=\{[^\n]*flip:flipGame\};/, 'the lobby exposes the flip');
+  assert.match(html, /const n=GAMES\[\(i\+\(dir>0\?1:-1\)\+GAMES\.length\)%GAMES\.length\];/, 'in rail order, wrapping');
+  const sw = fs.readFileSync(path.join(ROOT, 'public/js/v2/swipe.js'), 'utf8');
+  assert.match(sw, /if \(visible\(el\('detail'\)\)\) \{\s*if \(!gBegin\(src\)\)/, 'a sideways drag on the game screen flips');
+  // Claimed only after CLAIM_PX of mostly-sideways travel, so a tap or a vertical drag is never taken.
+  const claim = sw.indexOf("if (visible(el('detail')))");
+  assert.ok(sw.lastIndexOf('if (Math.abs(dx) < CLAIM_PX) return;', claim) > -1 &&
+            sw.lastIndexOf('if (Math.abs(dx) < Math.abs(dy) * CLAIM_RATIO) { tracking = false; return; }', claim) > -1,
+    'after the tap and vertical checks');
+  assert.match(sw, /if \(src && name && src === name && !name\.readOnly\) return false;/, 'the open name field keeps its drag');
+  assert.match(sw, /anyVeil\(\)\) return false;/, 'and nothing flips under a sheet');
 });
 
 test('How to play is off the games and on the event', () => {
@@ -1311,18 +1379,17 @@ test('the live dot beats only when somebody is really in there', () => {
   assert.ok(!/nomotion/.test(html), 'and nothing is left of the switch');
 });
 
-test('a duel names its own stake, and does not pretend to find an opponent', () => {
-  /* A duel against nobody is not a game. These are matched INTO rather than
-     dropped into, so there is no lobby to list — you wait for somebody to take
-     the same buy-in.
-
-     These ones are still unbuilt. The layout is real so it can be judged; the
-     queue is real so it can be seen; and it says outright that nobody can be
-     matched yet, rather than spinning forever at somebody. */
+test('a duel shows the same screen as every other game, on the one shared ladder', () => {
+  /* A duel is matched INTO rather than dropped into. The unbuilt ones used to
+     carry their own screen (a $0.25 to $20 stepper, then a three-rung one, and
+     a queue that could never match). BACKLOG 2.2 (Owen 2026-10-15): every game,
+     duels and unbuilt ones included, has the same column: Free / $0.50 / $1.00,
+     the name, Play, Customize and the open lobbies. An unbuilt one has its
+     Play shut. */
   const html = v2();
 
   for (const id of ['rooftop', 'headsoccer', 'swim', 'maze']) {
-    const m = html.match(new RegExp("\{id:'" + id + "'[^\n]*"));
+    const m = html.match(new RegExp("\\{id:'" + id + "'[^\\n]*"));
     assert.ok(m, id + ' is in the game list');
     assert.ok(/duel:1/.test(m[0]), id + ' is a duel');
     assert.ok(/soon:1/.test(m[0]), id + ' is still unbuilt, and still says so');
@@ -1336,64 +1403,40 @@ test('a duel names its own stake, and does not pretend to find an opponent', () 
   assert.ok(!/soon:1/.test(tanks), 'and no longer says it is unbuilt');
   assert.ok(/freeOnly:1/.test(tanks), 'and seats only the free rung for now');
 
-  // A game that is NOT a duel must keep the locked screen.
   const stumble = html.match(/\{id:'stumble'[^\n]*/)[0];
-  assert.ok(/soon:1/.test(stumble) && !/duel:1/.test(stumble),
-    'stumble is unbuilt but not a duel, so it keeps the locked panel');
+  assert.ok(/soon:1/.test(stumble) && !/duel:1/.test(stumble), 'stumble is unbuilt but not a duel');
 
-  /* Paper used to be that example, and then a solo run against bots in the
-     browser. It is an arena on the server now (docs/paper-multiplayer-design.md
-     section 10): its rooms are rungs of the ladder, Free, $0.50 and $1.00, so
-     it is laddered like the snake game. It is dropped into rather than matched
-     into, so it is never a duel, and never the paid:1 of a paid duel either. */
+  /* Paper used to be a solo run against bots in the browser. It is an arena on
+     the server now (docs/paper-multiplayer-design.md section 10): its rooms are
+     rungs of the ladder, Free, $0.50 and $1.00, so it is laddered like the snake
+     game. It is dropped into rather than matched into, so it is never a duel,
+     and never the paid:1 of a paid duel either. */
   const paper = html.match(/\{id:'paper'[^\n]*/)[0];
-  assert.ok(/built:1/.test(paper) && /ladder:1/.test(paper),
-    'paper.io is a built game priced in rungs');
+  assert.ok(/built:1/.test(paper) && /ladder:1/.test(paper), 'paper.io is a built game priced in rungs');
   assert.ok(!/solo:1/.test(paper), 'and no longer a solo run with its own free page');
   assert.ok(!/soon:1/.test(paper), 'and does not say it is unbuilt');
   assert.ok(!/duel:1/.test(paper), 'and is not a duel');
   assert.ok(!/paid:1/.test(paper), 'and not a paid duel either');
 
-  /* The arena furniture has to be gone. A ladder, an open-lobby list and a
-     snake skin on a one-on-one duel screen are all borrowed from a different
-     game. */
-  const hide = html.match(/#detail\.duel [^{]*\{display:none\}/);
-  assert.ok(hide, 'a duel hides what belongs to an arena');
-  for (const part of ['.stakes', '.lobwrap']) {
-    assert.ok(hide[0].includes(part), 'it hides ' + part);
+  // No duel-only furniture: the stepper, the pretend queue and the rules that hid the ladder are gone.
+  assert.ok(!/#detail\.duel\b/.test(html), 'a duel hides nothing');
+  for (const gone of ['id="duelbet"', 'id="dbamt"', 'function stepDuel', 'function joinQueue',
+                      'Nobody to match you with yet', 'Find an opponent']) {
+    assert.ok(!html.includes(gone), gone + ' is gone');
   }
-  // Every game gets the Customize bar, duels included (BACKLOG 3.1).
-  assert.ok(!hide[0].includes('.lookrow'), 'but not the Customize bar');
 
-  /* The stake is a LADDER of set rungs, not a box you type into.
-
-     Set amounts are what let two people meet at the same number without either
-     naming one the other has to accept — and there is no such thing as a typo
-     on a ladder. No 500 where 5.00 was meant, which on a real-money control is
-     precisely the mistake worth designing out. */
-  /* BACKLOG 2.1 (Owen 2026-10-09): every game, the coming duels included, offers the one shared
-     ladder, Free / $0.50 / $1.00 (shared/stakeLadder.js). The $0.25 to $20 stepper is gone. */
-  assert.ok(/const DUEL_LADDER=LADDER\.slice\(\);/.test(html), 'the buy-ins are the shared ladder');
+  /* The stake is a LADDER of set rungs, not a box you type into. Set amounts
+     are what let two people meet at the same number without either naming one
+     the other has to accept, and there is no such thing as a typo on a ladder.
+     BACKLOG 2.1 (Owen 2026-10-09): every game offers the one shared ladder,
+     Free / $0.50 / $1.00 (shared/stakeLadder.js). */
   const shared = require(path.join(ROOT, 'shared/stakeLadder.js'));
   const la = html.indexOf('const LADDER=');
   const LADDER = new Function('window', html.slice(la, html.indexOf('\n', la)) + '\nreturn LADDER;')({ DS_LADDER: shared });
   assert.deepEqual(LADDER, [0, 0.5, 1], 'and it is the rungs Owen asked for, in order');
-  const da = html.indexOf('let duelStep=');
-  const step = new Function('DUEL_LADDER', html.slice(da, html.indexOf(';', da) + 1) + '\nreturn duelStep;')(LADDER.slice());
-  assert.strictEqual(LADDER[step], 1, 'the stepper opens at $1');
   assert.deepEqual(new Function('window', html.slice(la, html.indexOf('\n', la)) + '\nreturn LADDER;')({}), [0],
     'Free alone if the ladder file did not load: never a rung the server has not priced');
-  assert.ok(!/id="dbamt"[^>]*<input/.test(html) && !/input[^>]*id="dbamt"/.test(html),
-    'the amount is not a text field any more');
-
-  /* Disabled at the ends rather than wrapping. A stepper that rolls from $20
-     round to free is one mis-tap from staking nothing when you meant twenty. */
-  assert.ok(/down\.disabled=duelStep===0/.test(html), 'it stops at the bottom');
-  assert.ok(/up\.disabled=duelStep===DUEL_LADDER\.length-1/.test(html), 'and at the top');
-
-  // The honesty: the queue says what it cannot do.
-  assert.ok(/Nobody to match you with yet/.test(html),
-    'the queue admits nobody can be matched yet');
+  assert.ok(!/<input[^>]*id="stakes"/.test(html), 'the amount is not a text field');
 });
 
 test('the two duels that take a buy-in are built and offer real rungs', () => {
@@ -1814,7 +1857,7 @@ test('a paid agar.io stake reaches the widget only while the board lists that ru
   await assert.rejects(paper.pending(), /no server here/);
 
   // The detail screen's free-row count sums every row of the game, closed ones too (their players still play).
-  assert.match(v2(), /const playing=\(window\.V2Board\?V2Board\.lobbies:\[\]\)\.filter\(l=>l\.game===id\)/,
+  assert.match(v2(), /const playing=door\?[^\n]*\n\s*:\(window\.V2Board\?V2Board\.lobbies:\[\]\)\.filter\(l=>l\.game===id\)/,
     'the free row counts players in closed rows');
 });
 

@@ -35,13 +35,13 @@ test('one ladder file: the server, Paper and the lobby all read shared/stakeLadd
   assert.ok(/const RUNGS = require\('\.\.\/stakeRules'\)\.ALL_STAKES/.test(pa), 'and does not hard-code them');
   const sr = fs.readFileSync(path.join(ROOT, 'server/stakeRules.js'), 'utf8');
   assert.ok(/const STAKE_TIERS = require\('\.\.\/shared\/stakeLadder'\)\.PAID_RUNGS/.test(sr));
-  // The lobby loads the same file and draws every game's buttons, and the duel stepper, from it.
+  // The lobby loads the same file and draws every game's buttons from it (one row for every game, BACKLOG 2.2).
   const html = fs.readFileSync(path.join(ROOT, 'public/v2.html'), 'utf8');
   assert.ok(html.includes('<script src="/shared/stakeLadder.js"></script>'), 'the lobby loads the ladder');
   assert.ok(html.indexOf('/shared/stakeLadder.js') < html.indexOf('const LADDER='), 'before the code that reads it');
   assert.ok(/const LADDER=\(\(window\.DS_LADDER&&window\.DS_LADDER\.LADDER\)\|\|\[0\]\)\.slice\(\);/.test(html),
     'LADDER is the shared list, or Free alone if it did not load');
-  assert.ok(/const DUEL_LADDER=LADDER\.slice\(\);/.test(html), 'the duel stepper is the same ladder');
+  assert.ok(!/DUEL_LADDER/.test(html), 'no second ladder: the duel stepper is gone and duels draw the same rungs');
   assert.ok(!/const (DUEL_)?LADDER=\[/.test(html), 'no hard-coded ladder is left in the lobby');
   // Run in a window: the browser global lands where the lobby reads it.
   const win = {};
