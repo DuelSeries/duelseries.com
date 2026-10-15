@@ -83,6 +83,19 @@ function uuid() {
   return '00000000-0000-4000-8000-' + String(uuidN).padStart(12, '0');
 }
 
+// A journal id as the door makes it (crypto.randomUUID), so every owed key below is one db.recordOwedOnce takes.
+const OWED_KEY = /^agowed:[0-9a-f-]{36}$/; // db.js recordOwedOnce
+function jidOf(n) {
+  return 'a0000000-0000-4000-8000-' + String(n).padStart(12, '0');
+}
+
+// The owed row of seat n (entry(n)) as every refund lane builds it.
+function owed(n, micro, why) {
+  const key = 'agowed:' + jidOf(n);
+  assert.match(key, OWED_KEY);
+  return { key, wallet: 'W' + n, name: 'p' + n, micro, reason: 'refund slither ' + why + ' ' + LABEL + ' ' + key };
+}
+
 function money(s, extra) {
   const log = quietLog();
   let t = 1000;
@@ -94,7 +107,7 @@ function money(s, extra) {
 }
 
 function entry(n, micro) {
-  return { jid: 'jid-' + n, micro: micro === undefined ? STAKE : micro, wallet: 'W' + n, name: 'p' + n, paid: 0.5 };
+  return { jid: jidOf(n), micro: micro === undefined ? STAKE : micro, wallet: 'W' + n, name: 'p' + n, paid: 0.5 };
 }
 
 function i1(m) {
@@ -154,10 +167,10 @@ test('open: checks first; onAccountOpen (walletSeat) before the journal; the rec
   const m = money(s);
   const a = m.open(7, entry(1));
   assert.ok(Object.isFrozen(a));
-  assert.deepEqual([a.snakeId, a.jid, a.wallet, a.name, a.deposit, a.paid, a.stakeSig], [7, 'jid-1', 'W1', 'p1', STAKE, 0.5, null]);
+  assert.deepEqual([a.snakeId, a.jid, a.wallet, a.name, a.deposit, a.paid, a.stakeSig], [7, jidOf(1), 'W1', 'p1', STAKE, 0.5, null]);
   assert.deepEqual(s.calls.map((c) => c[0]), ['onAccountOpen', 'journal.open']);
   assert.equal(m.account(7), a);
-  assert.equal(m.account('jid-1'), a);
+  assert.equal(m.account(jidOf(1)), a);
   assert.equal(m.worthOf(7), STAKE);
   assert.equal(m.worthOf(8), null);
   i1(m);
@@ -165,7 +178,10 @@ test('open: checks first; onAccountOpen (walletSeat) before the journal; the rec
   for (const [id, e, re] of [[0, entry(2), /snake id/], [1.5, entry(2), /snake id/], [8, entry(2, 0), /micro/],
     [8, entry(2, 1.5), /micro/], [8, entry(2, NaN), /micro/], [8, entry(2, 2 ** 53), /micro/],
     [8, Object.assign(entry(2), { wallet: '' }), /wallet/], [8, Object.assign(entry(2), { jid: undefined }), /jid/],
-    [7, entry(2), /already open/], [8, Object.assign(entry(2), { jid: 'jid-1' }), /already open/]]) {
+    // a jid whose owed key db.recordOwedOnce would refuse: every refund lane of the seat would fail
+    [8, Object.assign(entry(2), { jid: 'jid-2' }), /jid/], [8, Object.assign(entry(2), { jid: jidOf(2).toUpperCase() }), /jid/],
+    [8, Object.assign(entry(2), { jid: 'x' + jidOf(2) }), /jid/], [8, Object.assign(entry(2), { jid: jidOf(2) + '\n' }), /jid/],
+    [7, entry(2), /already open/], [8, Object.assign(entry(2), { jid: jidOf(1) }), /already open/]]) {
     assert.throws(() => m.open(id, e), re);
   }
   assert.equal(JSON.stringify(m.bank.totals()), before, 'a refused open changes nothing');
@@ -198,7 +214,7 @@ test('open rollback: a seated wallet throws before the journal is written; nothi
   const s3 = spy({ journalOpen: () => false });
   const m3 = money(s3);
   assert.ok(m3.open(9, entry(3)));
-  assert.ok(m3.lines.some((l) => /JOURNAL open of jid-3 not rewritten/.test(l)));
+  assert.ok(m3.lines.some((l) => new RegExp('JOURNAL open of ' + jidOf(3) + ' not rewritten').test(l)));
 });
 
 test('abort: the deposit out, the seat forgotten, no journal close (the door writes it with its refund); refused when settled', () => {
@@ -249,7 +265,7 @@ test('M1 before M2: a glide-kill pellet is eaten the step it drops; M2 before M3
   assert.equal(m.bank.pelletCount(), 3 + 4);
   assert.equal(m.bank.floorMicro(), 300000 + 700000);
   for (const q of d2) assert.equal(m.bank.pellet(q.food).micro, 175000);
-  assert.deepEqual(s.of('journal.close').map((c) => [c[1], c[2]]), [['jid-1', 'died'], ['jid-2', 'died']]);
+  assert.deepEqual(s.of('journal.close').map((c) => [c[1], c[2]]), [[jidOf(1), 'died'], [jidOf(2), 'died']]);
   const closes = s.journal.records.filter((x) => x.t === 'close');
   assert.equal(closes[0].why, 'kill');
   assert.equal(closes[1].why, 'snake');
@@ -423,10 +439,7 @@ test('shutdown and crash: rows of 100% of the grown balance, keyed closes, the f
     const { m } = grown(s);
     s.calls.length = 0;
     const rows = m.shutdownSettle(why);
-    assert.deepEqual(rows, [
-      { key: 'agowed:jid-1', wallet: 'W1', name: 'p1', micro: 750000, reason: 'refund slither ' + why + ' ' + LABEL + ' agowed:jid-1' },
-      { key: 'agowed:jid-2', wallet: 'W2', name: 'p2', micro: STAKE, reason: 'refund slither ' + why + ' ' + LABEL + ' agowed:jid-2' },
-    ]);
+    assert.deepEqual(rows, [owed(1, 750000, why), owed(2, STAKE, why)]);
     const closes = s.journal.records.filter((x) => x.t === 'close' && x.outcome === 'refunded');
     assert.deepEqual(closes.map((c) => [c.jid, c.why, c.key, c.refundedMicro, c.reason]), rows.map((r) =>
       [r.key.slice(7), why, r.key, r.micro, r.reason]));
@@ -453,17 +466,16 @@ test('emergency: every account through the owed lane (keyed close, then onOwed o
   const r = m.emergencySettle('emergency');
   assert.equal(r.accounts, 2);
   assert.equal(r.micro, 1250000);
-  const owed = s.of('onOwed').map((c) => c[1]);
-  assert.deepEqual(owed, [
-    { key: 'agowed:jid-1', wallet: 'W1', name: 'p1', micro: 750000, reason: 'refund slither emergency ' + LABEL + ' agowed:jid-1' },
-    { key: 'agowed:jid-2', wallet: 'W2', name: 'p2', micro: STAKE, reason: 'refund slither emergency ' + LABEL + ' agowed:jid-2' },
-  ]);
+  const rows = s.of('onOwed').map((c) => c[1]);
+  assert.deepEqual(rows, [owed(1, 750000, 'emergency'), owed(2, STAKE, 'emergency')]);
+  assert.deepEqual(r.rows, rows);
+  assert.deepEqual(r.left, [], 'nothing left open');
   // the close with its key comes before its row
   const order = s.calls.filter((c) => c[0] === 'journal.close' || c[0] === 'onOwed').map((c) => c[0]);
   assert.deepEqual(order, ['journal.close', 'onOwed', 'journal.close', 'onOwed']);
   const closes = s.journal.records.filter((x) => x.t === 'close' && x.outcome === 'refunded');
   assert.deepEqual(closes.map((c) => [c.outcome, c.why, c.key, c.refundedMicro]),
-    [['refunded', 'emergency', 'agowed:jid-1', 750000], ['refunded', 'emergency', 'agowed:jid-2', STAKE]]);
+    [['refunded', 'emergency', 'agowed:' + jidOf(1), 750000], ['refunded', 'emergency', 'agowed:' + jidOf(2), STAKE]]);
   const floor = s.of('onFloor').map((c) => c[1]);
   assert.equal(floor.length, 1);
   assert.deepEqual([floor[0].micro, floor[0].srcWallet, floor[0].srcName, floor[0].label, floor[0].pid], [250000, 'W3', 'p3', LABEL, 'emergency']);
@@ -473,6 +485,52 @@ test('emergency: every account through the owed lane (keyed close, then onOwed o
   assert.equal(m.bank.house.swept, 250000);
   assert.equal(m.stopped, true);
   i1(m);
+});
+
+test('emergency: any caller label still closes as an owed why, so the journal keeps the key for the replay', () => {
+  const s = spy();
+  const { m } = grown(s);
+  const r = m.emergencySettle('retry');
+  assert.deepEqual(r.rows, [owed(1, 750000, 'emergency'), owed(2, STAKE, 'emergency')]);
+  const closes = s.journal.records.filter((x) => x.t === 'close' && x.outcome === 'refunded');
+  assert.deepEqual(closes.map((c) => [c.why, c.key]), [['emergency', 'agowed:' + jidOf(1)], ['emergency', 'agowed:' + jidOf(2)]]);
+  assert.equal(s.of('onFloor')[0][1].pid, 'emergency');
+  const alert = s.of('onBreach').find((c) => c[1].kind === 'emergency')[1];
+  assert.equal(alert.why, 'retry', 'the caller label rides in the alert only');
+});
+
+test('emergency and shutdown: an account the bank refuses is reported left open with its balance; a retry settles it', () => {
+  const s = spy();
+  const { m } = grown(s);
+  // a double fault: account 1 inflated by one micro, so the ceiling refuses every out move in the room
+  const good = m.bank.accounts.get(1);
+  m.bank.accounts.set(1, Object.assign({}, good, { micro: good.micro + 1 }));
+  s.calls.length = 0;
+  let r = m.emergencySettle('emergency');
+  assert.deepEqual([r.accounts, r.micro, r.rows, r.floor, r.left], [0, 0, [], null, [1, 2]]);
+  assert.equal(m.stopped, true);
+  assert.equal(m.openCount(), 2, 'still open, so the drain and the solvency sum still count them');
+  assert.equal(m.liveStakeTotal() > 0, true);
+  assert.equal(s.of('onOwed').length, 0);
+  assert.equal(s.of('journal.close').length, 0);
+  assert.ok(m.lines.some((l) => l.includes('EMERGENCY settle of snake 1 (' + jidOf(1) + ', 750001 micro) failed, left open')));
+  assert.equal(s.of('onBreach').find((c) => c[1].kind === 'emergency')[1].left, 2);
+  // the cause fixed, the sweep's retry settles both, once each
+  m.bank.accounts.set(1, good);
+  r = m.emergencySettle('emergency');
+  assert.deepEqual(r.left, []);
+  assert.deepEqual(r.rows, [owed(1, 750000, 'emergency'), owed(2, STAKE, 'emergency')]);
+  assert.equal(r.floor.micro, 250000);
+  assert.equal(s.of('onOwed').length, 2);
+  i1(m);
+  // shutdown: the rows stay an array; the left-open line names the jid and the balance the deposit record lacks
+  const s2 = spy();
+  const g2 = grown(s2).m;
+  const a1 = g2.bank.accounts.get(1);
+  g2.bank.accounts.set(1, Object.assign({}, a1, { micro: a1.micro + 1 }));
+  assert.deepEqual(g2.shutdownSettle('shutdown'), []);
+  assert.equal(g2.openCount(), 2);
+  assert.ok(g2.lines.some((l) => l.includes('SHUTDOWN settle of snake 1 (' + jidOf(1) + ', 750001 micro) failed, left open')));
 });
 
 // A paid room as the checker and the orphan scan read it, around a fake sim.
@@ -514,17 +572,47 @@ test('orphan (I4): an account whose snake is gone is refunded through the owed l
   room.humans.delete(1);
   s.calls.length = 0;
   r = m.endStep();
-  assert.deepEqual(r.orphans, [{ key: 'agowed:jid-1', wallet: 'W1', name: 'p1', micro: 750000,
-    reason: 'refund slither orphan ' + LABEL + ' agowed:jid-1' }]);
+  assert.deepEqual(r.orphans, [owed(1, 750000, 'orphan')]);
   assert.deepEqual(r.violations, [], 'refunded before the checker looked');
   assert.deepEqual(s.calls.filter((c) => c[0] === 'journal.close' || c[0] === 'onOwed').map((c) => c[0]), ['journal.close', 'onOwed']);
   assert.equal(s.of('onOwed')[0][1].micro, 750000);
   const close = s.journal.records.filter((x) => x.t === 'close').pop();
-  assert.deepEqual([close.jid, close.outcome, close.why, close.key, close.refundedMicro], ['jid-1', 'refunded', 'orphan', 'agowed:jid-1', 750000]);
+  assert.deepEqual([close.jid, close.outcome, close.why, close.key, close.refundedMicro], [jidOf(1), 'refunded', 'orphan', 'agowed:' + jidOf(1), 750000]);
   assert.equal(s.of('onBreach').filter((c) => c[1].kind === 'I4').length, 1);
   m.endStep();
   assert.equal(s.of('onOwed').length, 1, 'once');
   assert.equal(m.openCount(), 1);
+  i1(m);
+});
+
+test('C-6: a throw after cashOut (sim.remove) and the emergency close that follows pay the cashed snake nothing more', () => {
+  const s = spy();
+  const m = money(s);
+  const room = fakeRoom(m);
+  m.attach(room, { onClosed: () => { throw new Error('the room threw'); } });
+  for (const n of [7, 8]) {
+    m.open(n, entry(n));
+    room.sim.snakes.set(n, { id: n });
+    room.humans.add(n);
+  }
+  const o = m.cashOut(7, 'sock-7');
+  assert.equal(o.gross, STAKE);
+  // sim.remove(7) threw before the snake left: the end of the step sees a live snake with no account, refunds nothing
+  let e = m.endStep();
+  assert.deepEqual(e.orphans, []);
+  assert.deepEqual(e.violations.map((v) => v.kind), ['I13']);
+  // then it is gone: still no orphan for it
+  room.sim.snakes.delete(7);
+  room.humans.delete(7);
+  e = m.endStep();
+  assert.deepEqual(e.orphans, []);
+  // the failed wake closes the room: owed rows for the OTHER account only
+  const r = m.emergencySettle('emergency');
+  assert.deepEqual(r.rows, [owed(8, STAKE, 'emergency')]);
+  assert.equal(s.of('onCashout').length, 1);
+  assert.deepEqual(s.of('onOwed').map((c) => c[1].key), ['agowed:' + jidOf(8)]);
+  assert.deepEqual(s.journal.records.filter((x) => x.t === 'close' && x.jid === jidOf(7)).map((x) => x.outcome), ['cashedout']);
+  assert.deepEqual([m.bank.ledger.outCash, m.bank.ledger.outRefund], [STAKE, STAKE]);
   i1(m);
 });
 
@@ -596,6 +684,23 @@ test('collusion: one record per (source, eater) pair per bucket, flushed at its 
     [['W3', 'W1', 250000], ['W3', 'W2', 125000], ['W3', 'W2', 125000]]);
 });
 
+test('collusion: the idle retire flushes a bucket too young for the step end (no step runs after the pause)', () => {
+  const s = spy();
+  const m = money(s);
+  m.open(1, entry(1));
+  m.open(2, entry(2));
+  const d = drops(2);
+  step(m, 1, [{ id: 2, cause: 'snake', drops: d }], []);
+  step(m, 2, [], [{ food: d[0].food, eater: 1 }]);
+  m.cashOut(1, 'sock-1');
+  m.clock.add(COLLUSION_BUCKET_MS - 1);
+  m.endStep();
+  assert.equal(s.of('onTransfer').length, 0, 'the last step before the pause: one ms too young');
+  assert.equal(m.sweepFloor('idle').micro, 250000);
+  assert.deepEqual(s.of('onTransfer').map((c) => c[1]), [{ srcWallet: 'W2', dstWallet: 'W1', micro: 250000, label: LABEL,
+    lobbyType: LABEL }]);
+});
+
 test('the console getters answer in dollars: snakes, floorWorth, liveStakeTotal', () => {
   const s = spy();
   const { m } = grown(s);
@@ -621,7 +726,7 @@ test('a real paid sim: 3000 steps of up to 12 paid snakes, the full checker ever
   const seat = () => {
     const sn = sim.spawn({ cv: r.int(66), sct: r.next() < 0.3 ? 100 + r.int(200) : undefined });
     life++;
-    m.open(sn.id, { jid: 'life-' + life, micro: r.next() < 0.5 ? 500000 : 1000000, wallet: 'W' + life, name: 'n' + life });
+    m.open(sn.id, { jid: jidOf(1000 + life), micro: r.next() < 0.5 ? 500000 : 1000000, wallet: 'W' + life, name: 'n' + life });
     s.walletSeat.get('W' + life).room = room;
     room.humans.add(sn.id);
     return sn.id;

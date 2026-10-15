@@ -56,6 +56,9 @@ const COLLUSION_BUCKET_MS = 60000;
 const TAINT_KINDS = Object.freeze(['I1', 'I10', 'I13']);
 
 const OWED_PREFIX = 'agowed:'; // db.recordOwedOnce takes this key form as it is (design 7.2)
+// The jid the door mints (crypto.randomUUID): db.recordOwedOnce refuses any 'agowed:' key whose tail is not this, so
+// a seat with another jid could never be refunded through the owed lane (db.js recordOwedOnce).
+const JID_RE = /^[0-9a-f-]{36}$/;
 
 // A hook that may answer with a promise: a throw or a rejection is logged, never rethrown into a money path.
 function safeAsync(fn, onFail) {
@@ -189,7 +192,9 @@ class SlMoney {
     const e = entry || {};
     if (!isMicro(e.micro) || e.micro < 1) throw new Error('SlMoney.open: micro must be a whole number above 0');
     if (typeof e.wallet !== 'string' || !e.wallet) throw new Error('SlMoney.open: a paid seat needs a wallet');
-    if (typeof e.jid !== 'string' || !e.jid) throw new Error('SlMoney.open: a paid seat needs a jid');
+    if (typeof e.jid !== 'string' || !JID_RE.test(e.jid)) {
+      throw new Error('SlMoney.open: a paid seat needs a jid that is a lowercase uuid (its owed key agowed:<jid>)');
+    }
     if (this.accounts.has(snakeId) || this.bank.isOpen(snakeId)) {
       throw new Error('SlMoney.open: account ' + snakeId + ' is already open');
     }
@@ -392,32 +397,42 @@ class SlMoney {
   }
 
   // An emergency close (design 7.4: one failing paid wake): every account through the owed lane, then the floor to
-  // the house through onFloor, one sweep per source wallet. An account whose refund throws stays open (the
-  // directory keeps the room on its settling list). -> { accounts, micro, rows, floor }
+  // the house through onFloor, one sweep per source wallet. It never throws: an account whose refund throws stays
+  // open and comes back in left (its snake ids), and the directory keeps the room on its settling list while left is
+  // not empty or the bank is not (counted by drain and solvency, retried by the sweep). The journal why is always
+  // 'emergency', an owed why, so the close keeps its key for the replay (agJournal OWED_WHYS); the caller's label
+  // rides in the alert only. -> { accounts, micro, rows, floor, left }
   emergencySettle(why = 'emergency') {
-    const w = String(why || 'emergency');
     this.stopped = true;
     const rows = [];
     let micro = 0;
     for (const acct of Array.from(this.accounts.values())) {
       try {
-        const row = this._refundOwed(acct, w);
+        const row = this._refundOwed(acct, 'emergency');
         rows.push(row);
         micro += row.micro;
       } catch (e) {
-        this.log.error('[SLP] EMERGENCY settle of snake ' + acct.snakeId + ' failed, left open (' + this.label + '): ' +
-          (e && e.message));
+        this._leftOpen('EMERGENCY', acct, e);
       }
     }
     let floor = null;
     try {
-      floor = this._sweep(w);
+      floor = this._sweep('emergency');
     } catch (e) {
       this.log.error('[SLP] EMERGENCY floor sweep failed, left on the floor (' + this.label + '): ' + (e && e.message));
     }
     this._phase('collusion', () => this._flushBuckets(true));
-    this._alert('emergency', { accounts: rows.length, micro });
-    return { accounts: rows.length, micro, rows, floor };
+    const left = Array.from(this.accounts.keys());
+    this._alert('emergency', { accounts: rows.length, micro, left: left.length, why: String(why || 'emergency') });
+    return { accounts: rows.length, micro, rows, floor, left };
+  }
+
+  // A settle that could not close an account: it stays open with its CURRENT balance, which this line names (the
+  // journal's open record, all UNSETTLED-AT-BOOT can show, has only the deposit).
+  _leftOpen(what, acct, e) {
+    const micro = this.bank.balance(acct.snakeId);
+    this.log.error('[SLP] ' + what + ' settle of snake ' + acct.snakeId + ' (' + acct.jid + ', ' + micro + ' micro) failed, ' +
+      'left open (' + this.label + '): ' + (e && e.message));
   }
 
   // A planned restart ('shutdown') or a crash ('crash'), design 7.2: every account withdrawn, closed 'refunded' in
@@ -437,8 +452,7 @@ class SlMoney {
         this._close(acct, 'refunded', { why: kind, key, refundedMicro: micro, reason });
         if (micro > 0) rows.push({ key, wallet: acct.wallet, name: acct.name, micro, reason });
       } catch (e) {
-        this.log.error('[SLP] SHUTDOWN settle of snake ' + acct.snakeId + ' failed, left open (' + this.label + '): ' +
-          (e && e.message));
+        this._leftOpen('SHUTDOWN', acct, e);
       }
     }
     try {
@@ -452,10 +466,12 @@ class SlMoney {
   }
 
   // The idle retire (design 7.5): the floor to the house through onFloor, one sweep per source wallet with its exact
-  // micro and a unique sweepId. Refused (null) while any account is open: that gold can still be eaten.
-  // -> { micro, count, sweeps }
+  // micro and a unique sweepId. Refused (null) while any account is open: that gold can still be eaten. Every
+  // collusion bucket is flushed first, as the settles do: the room paused with no step after it, so a bucket too young
+  // for the last endStep would be lost with the room. -> { micro, count, sweeps }
   sweepFloor(why = 'idle') {
     if (this.accounts.size > 0) return null;
+    this._phase('collusion', () => this._flushBuckets(true));
     return this._sweep(String(why || 'idle'));
   }
 
