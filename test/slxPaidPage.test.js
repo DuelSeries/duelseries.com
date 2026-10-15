@@ -13,8 +13,9 @@
 //
 // Part B is the vm check of the gold rule through the FROZEN client (test/slVmPage.js, the gate's page): a food_add
 // made by slFood.drop(..., 68, ...) (the C_PAID_CASH_BYTE) is encoded on our wire, applied by their slApply, and comes
-// out with sz >= 13.6 (byte 67 and the natural 47 below it), and on a paid page slxPaid's canvas draws a gold glint
-// at that food's drawn position and at no food under 13.6.
+// out with sz >= 13.6 (byte 67 and the natural 47 below it), and on a paid page slxPaid's canvas draws gold at that
+// food's drawn position and at no food under 13.6 (here without slxCoin.js: the plain gold disc; the coin itself is
+// test/slxCoin.test.js and the coin test of Part A).
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
@@ -42,15 +43,21 @@ function storeOf(init) {
   };
 }
 
-// A canvas context that records every call and property write (the gold, the labels).
+// A canvas context that records every call and property write (the gold, the coins' atlas, the labels).
 class Ctx {
   constructor(cv) { this.canvas = cv; this.calls = []; this.p = {}; }
+  getTransform() { return { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }; }
 }
 for (const m of ['save', 'restore', 'beginPath', 'arc', 'stroke', 'clearRect', 'setTransform', 'moveTo', 'lineTo',
-  'fillText', 'strokeText', 'fillRect', 'drawImage']) {
+  'fillText', 'strokeText', 'fillRect', 'drawImage', 'fill', 'rect', 'clip', 'translate', 'scale', 'ellipse',
+  'bezierCurveTo', 'quadraticCurveTo', 'closePath']) {
   Ctx.prototype[m] = function () { this.calls.push([m].concat([].slice.call(arguments))); };
 }
-for (const k of ['strokeStyle', 'fillStyle', 'lineWidth', 'globalAlpha', 'font', 'textAlign', 'textBaseline']) {
+for (const m of ['createLinearGradient', 'createRadialGradient', 'createConicGradient']) {
+  Ctx.prototype[m] = function () { this.calls.push([m]); return { addColorStop() {} }; };
+}
+for (const k of ['strokeStyle', 'fillStyle', 'lineWidth', 'globalAlpha', 'font', 'textAlign', 'textBaseline', 'lineCap',
+  'lineJoin', 'globalCompositeOperation']) {
   Object.defineProperty(Ctx.prototype, k, {
     get() { return this.p[k]; },
     set(v) { this.calls.push(['set ' + k, v]); this.p[k] = v; }
@@ -309,21 +316,105 @@ test('no nonce: the free page; a stale token and stake are never sent, slxPaid m
   assert.strictEqual(P.session.getItem('slxPaidCut'), null, 'no reload mark from a free page');
 });
 
-test('gold: a glint only for sz >= 13.6, at the food\'s drawn position, faded with it; labels over paid heads', () => {
+// The cash foods of the gold tests: two cash (one popping in), two under the line, one past foods_c.
+function cashFoods(S) {
+  S.foods = [
+    { id: 4101, xx: 640, yy: 470, sz: 13.6, rx: 640, ry: 470, rad: 1, fr: 1, gfr: 0 },      // byte 68: cash
+    { id: 4102, xx: 560, yy: 430, sz: 16.2, rx: 560, ry: 430, rad: 0.5, fr: 0.5, gfr: 13 * Math.PI },   // byte 81, popping in
+    { id: 4103, sz: 13.4, rx: 620, ry: 460, rad: 1, fr: 1, gfr: 0 },     // byte 67
+    { id: 4104, sz: 10.8, rx: 610, ry: 440, rad: 1, fr: 1, gfr: 0 },     // byte 54, the biggest boost drop
+    { id: 4105, sz: 9.4, rx: 600, ry: 430, rad: 1, fr: 1, gfr: 0 },      // byte 47, the biggest natural food
+    { id: 4106, sz: 13.6, rx: 99999, ry: 470, rad: 1, fr: 1, gfr: 0 }    // cash far off screen
+  ];
+  S.foods_c = 5;                                                       // the sixth is past foods_c: not live
+}
+
+test('gold: a turning coin (slxCoin.js) on each cash pellet only, centred on its drawn dot, as big as it, faded with it', () => {
+  const P = paidPage({ files: LAYER.concat(['slxCoin.js']) });
+  seat(P, { v: 530000 });
+  const S = P.S;
+  const coin = P.D.slx.coin;
+  assert.ok(coin, 'slx.coin');
+  cashFoods(S);
+  P.raf(1);
+  const cv = cashCanvas(P);
+  const calls = lastFrame(cv);
+  const imgs = calls.filter((c) => c[0] === 'drawImage');
+  assert.strictEqual(imgs.length, 2, 'two coins, nothing under 13.6, nothing off screen');
+  assert.strictEqual(calls.filter((c) => c[0] === 'arc' && c[3] > 5).length, 0, 'no plain disc: both coins came from the atlas');
+  const k = S.gsc * S.csc;
+  const st = coin.stats();
+  assert.strictEqual(st.buckets.length, 1, 'the popping-in coin borrows the size of the grown coin, it makes no atlas of its own');
+  assert.strictEqual(st.broken, false);
+  const bk = st.buckets[0];
+  const want = [[sx(S, 640), sy(S, 470), 13.6 * 0.95 * k], [sx(S, 560), sy(S, 430), 16.2 * 0.95 * k * 0.5]];
+  imgs.forEach((c, i) => {
+    const [, img, , , sw, sh, dx, dy, dw, dh] = c;
+    assert.strictEqual(img.tagName, 'CANVAS', 'from the atlas canvas');
+    assert.deepStrictEqual([sw, sh], [bk.cell, bk.cell]);
+    assert.ok(Math.abs(dx + dw / 2 - want[i][0]) < 1e-9 && Math.abs(dy + dh / 2 - want[i][1]) < 1e-9, 'centred on the dot ' + i);
+    assert.ok(Math.abs(dw / sw * bk.br - want[i][2]) < 1e-9, 'coin radius = the dot radius ' + i);
+  });
+  const alphas = calls.filter((c) => c[0] === 'set globalAlpha').map((c) => c[1]);
+  assert.ok(alphas.includes(1) && alphas.includes(0.5), 'faded with their fr');
+  // it turns: a quarter turn later every coin shows another atlas cell
+  const cells0 = imgs.map((c) => c[2] + ',' + c[3]);
+  P.raf(1, coin.SPIN_MS / 4);
+  const cells1 = lastFrame(cv).filter((c) => c[0] === 'drawImage').map((c) => c[2] + ',' + c[3]);
+  assert.strictEqual(cells1.length, 2);
+  assert.ok(cells1.every((c, i) => c !== cells0[i]), 'a new spin frame for each coin');
+  assert.notStrictEqual(cells0[0], cells0[1], 'the two coins are not in step');
+  assert.strictEqual(P.D.slx.errors, 0);
+});
+
+test('gold under snakes: a live body over the coins erases them along its length; a far snake erases nothing; an eaten coin fades out', () => {
+  const P = paidPage({ files: LAYER.concat(['slxCoin.js']) });
+  seat(P, { v: 530000 });
+  const S = P.S;
+  cashFoods(S);
+  const near = { id: 21, xx: 660, yy: 470, fx: 0, fy: 0, sc: 1.2, alive_amt: 1, dead_amt: 0.25,
+    pts: [{ xx: 600, yy: 470, fx: 0, fy: 0 }, { xx: 630, yy: 472, fx: 0, fy: 0 }] };
+  const far = { id: 22, xx: 5000, yy: 5000, fx: 0, fy: 0, sc: 1, alive_amt: 1, dead_amt: 0, pts: [{ xx: 5040, yy: 5000 }] };
+  S.slithers = [near, far];
+  P.raf(1);
+  const cv = cashCanvas(P);
+  const k = S.gsc * S.csc;
+  let calls = lastFrame(cv);
+  const cut = calls.findIndex((c) => c[0] === 'set globalCompositeOperation' && c[1] === 'destination-out');
+  assert.ok(cut > calls.findIndex((c) => c[0] === 'drawImage'), 'the coins first, then the cut');
+  const after = calls.slice(cut);
+  assert.deepStrictEqual(after.filter((c) => c[0] === 'moveTo').map((c) => c.slice(1)), [[sx(S, 660), sy(S, 470)]], 'only the near snake, from its head');
+  assert.deepStrictEqual(after.filter((c) => c[0] === 'lineTo').map((c) => c.slice(1)),
+    [[sx(S, 630), sy(S, 472)], [sx(S, 600), sy(S, 470)]], 'down its body to the tail');
+  assert.ok(after.some((c) => c[0] === 'set lineWidth' && Math.abs(c[1] - 29 * 1.2 * k) < 1e-9), 'as wide as the body');
+  assert.ok(after.some((c) => c[0] === 'set globalAlpha' && c[1] === 0.75), 'faded as the body is');
+  assert.ok(after.some((c) => c[0] === 'stroke'));
+  // nobody near the money: no cut
+  S.slithers = [far];
+  P.raf(1);
+  calls = lastFrame(cv);
+  assert.ok(!calls.some((c) => c[0] === 'set globalCompositeOperation' && c[1] === 'destination-out'), 'no cut with no body near');
+  // eaten: a fifth of the way to the mouth the coin is at half alpha; at half way it is gone
+  S.slithers = [];
+  S.foods[0].eaten = true;
+  S.foods[0].eaten_fr = 0.2;
+  P.raf(1);
+  calls = lastFrame(cv);
+  assert.strictEqual(calls.filter((c) => c[0] === 'drawImage').length, 2);
+  assert.ok(calls.some((c) => c[0] === 'set globalAlpha' && Math.abs(c[1] - 0.5) < 1e-12), 'half faded');
+  S.foods[0].eaten_fr = 0.5;
+  P.raf(1);
+  assert.strictEqual(lastFrame(cv).filter((c) => c[0] === 'drawImage').length, 1, 'the eaten coin is gone, the other stays');
+  assert.strictEqual(P.D.slx.errors, 0);
+});
+
+test('gold without the coin file: a plain gold disc only for sz >= 13.6, at the food\'s drawn position, faded with it; labels over paid heads', () => {
   const P = paidPage();
   seat(P, { v: 530000 });
   const S = P.S;
   P.sock().fire('sl:f', [{ type: 'snake_add', id: 7, xx: 700, yy: 380, sc: 1.5 }, { type: 'snake_add', id: 9, xx: 520, yy: 420 }]);
   P.sock().fire('sl:x', [{ t: 'w', id: 7, v: 1250000 }]);
-  S.foods = [
-    { sz: 13.6, rx: 640, ry: 470, rad: 1, fr: 1, gfr: 0 },           // byte 68: cash
-    { sz: 16.2, rx: 560, ry: 430, rad: 0.5, fr: 0.5, gfr: 13 * Math.PI },   // byte 81, popping in
-    { sz: 13.4, rx: 620, ry: 460, rad: 1, fr: 1, gfr: 0 },           // byte 67
-    { sz: 10.8, rx: 610, ry: 440, rad: 1, fr: 1, gfr: 0 },           // byte 54, the biggest boost drop
-    { sz: 9.4, rx: 600, ry: 430, rad: 1, fr: 1, gfr: 0 },            // byte 47, the biggest natural food
-    { sz: 13.6, rx: 99999, ry: 470, rad: 1, fr: 1, gfr: 0 }          // cash far off screen
-  ];
-  S.foods_c = 5;                                                       // the sixth is past foods_c: not live
+  cashFoods(S);
   P.raf(1);
   const cv = cashCanvas(P);
   assert.ok(cv, 'the slx-cash canvas');
@@ -333,11 +424,12 @@ test('gold: a glint only for sz >= 13.6, at the food\'s drawn position, faded wi
   assert.strictEqual(arcs.length, 2, 'two cash pellets drawn, nothing under 13.6');
   const k = S.gsc * S.csc;
   assert.deepStrictEqual(arcs.map((a) => [a[1], a[2]]), [[sx(S, 640), sy(S, 470)], [sx(S, 560), sy(S, 430)]]);
-  assert.ok(Math.abs(arcs[0][3] - 13.6 * 0.95 * k) < 1e-9, 'rings the drawn dot');
+  assert.ok(Math.abs(arcs[0][3] - 13.6 * 0.95 * k) < 1e-9, 'covers the drawn dot');
   assert.ok(Math.abs(arcs[1][3] - 16.2 * 0.95 * k * 0.5) < 1e-9, 'scaled by their pop-in rad');
-  assert.ok(calls.some((c) => c[0] === 'set strokeStyle' && c[1] === GOLD), 'gold #FFD700');
+  assert.ok(calls.some((c) => c[0] === 'set fillStyle' && c[1] === GOLD), 'gold #FFD700');
+  assert.strictEqual(calls.filter((c) => c[0] === 'drawImage').length, 0, 'no coin without slxCoin.js');
   const alphas = calls.filter((c) => c[0] === 'set globalAlpha').map((c) => c[1]);
-  assert.ok(alphas.includes(0.5 * (0.55 + 0.45 * (0.5 + 0.5 * Math.cos(Math.PI)))), 'faded with fr and their shimmer');
+  assert.ok(alphas.includes(0.5) && alphas.includes(1), 'faded with their fr');
   // labels: own and the other paid head, none for a snake with no worth
   const texts = calls.filter((c) => c[0] === 'fillText');
   assert.deepStrictEqual(texts.map((c) => c[1]), ['$0.53', '$1.25']);
@@ -783,7 +875,7 @@ test('frozen slApply: a food_add of slFood.drop(..., 68, ...) arrives with sz >=
   assert.deepStrictEqual(r.socks[0].opts.auth, {}, 'and a free handshake');
 });
 
-test('frozen client + slxPaid: the gold glint sits on the cash food\'s drawn position, on no food under 13.6', () => {
+test('frozen client + slxPaid: the gold sits on the cash food\'s drawn position, on no food under 13.6', () => {
   const r = runGold(Object.assign({}, LAUNCH), [[68, 40, -30], [67, -60, 20], [47, 30, 50]]);
   assert.deepStrictEqual(r.socks[0].opts.auth, { paid: 1, stake: 0.5, entryToken: TOKEN });
   assert.strictEqual(r.store.getItem('entryToken'), null);
@@ -792,7 +884,7 @@ test('frozen client + slxPaid: the gold glint sits on the cash food\'s drawn pos
   const arcs = [];
   const c = cv.getContext('2d');
   const arc0 = c.arc;
-  c.arc = function (x, y, rr) { arcs.push({ frame: r.P.frame, x, y, r: rr, style: c.strokeStyle }); return arc0.apply(this, arguments); };
+  c.arc = function (x, y, rr) { arcs.push({ frame: r.P.frame, x, y, r: rr, style: c.fillStyle }); return arc0.apply(this, arguments); };
   for (let i = 0; i < 30; i++) r.P.step();
   const S = r.D.S;
   const k = S.gsc * S.csc;
@@ -802,20 +894,20 @@ test('frozen client + slxPaid: the gold glint sits on the cash food\'s drawn pos
   const want = { x: Math.floor(S.ww / 2 - S.mww / 2) + S.mww / 2 + (f68.rx - S.view_xx) * k,
     y: Math.floor(S.hh / 2 - S.mhh / 2) + S.mhh / 2 + (f68.ry - S.view_yy) * k };
   const mine = last.filter((a) => Math.abs(a.x - want.x) < 1e-6 && Math.abs(a.y - want.y) < 1e-6);
-  assert.strictEqual(mine.length, 1, 'one glint on the cash food');
+  assert.strictEqual(mine.length, 1, 'one gold disc on the cash food');
   assert.strictEqual(mine[0].style, GOLD);
   assert.ok(Math.abs(mine[0].r - 13.6 * 0.95 * k * f68.rad) < 1e-9);
-  // every glint of the frame is on a food at or over 13.6 that their client holds
+  // all the gold of the frame is on foods at or over 13.6 that their client holds
   const cash = [];
   for (let i = 0; i < S.foods_c; i++) if (S.foods[i].sz >= 13.6) cash.push(S.foods[i]);
   for (const a of last) {
     assert.ok(cash.some((f) => Math.abs(a.x - (Math.floor(S.ww / 2 - S.mww / 2) + S.mww / 2 + (f.rx - S.view_xx) * k)) < 1e-6),
-      'a glint with no cash food under it at ' + a.x);
+      'gold with no cash food under it at ' + a.x);
   }
   for (const ev of r.injected.slice(1)) {
     const f = foodById(S, ev);
     const x = Math.floor(S.ww / 2 - S.mww / 2) + S.mww / 2 + (f.rx - S.view_xx) * k;
-    assert.ok(!last.some((a) => Math.abs(a.x - x) < 1e-6), 'no glint on sz ' + f.sz);
+    assert.ok(!last.some((a) => Math.abs(a.x - x) < 1e-6), 'no gold on sz ' + f.sz);
   }
   assert.deepStrictEqual(r.P.errors, []);
   assert.strictEqual(r.D.slx.errors, 0);
