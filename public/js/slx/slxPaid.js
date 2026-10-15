@@ -123,7 +123,12 @@
       return 'The connection dropped. Your snake glided on for 3 seconds, then ' +
         (v > 0 ? 'its ' + dollars(v) : 'its money') + ' dropped as gold unless the page came back in time.';
     },
-    joinLost: 'The connection dropped while you were joining. If your entry was taken, it is refunded automatically.',
+    // The page cannot tell these apart (review CLIENT-3): a restart that caught the snake mid-resume refunds it in
+    // full, and a seat whose first message never arrived holds the money like any seat.
+    leftRestart: 'If DuelSeries was restarting at that moment, it goes back to your wallet in full instead.',
+    joinLost: 'The connection dropped while you were joining.',
+    joinLostMoney: 'If your entry never reached a room, it is refunded automatically. If it did, your snake was left ' +
+      'like any lost connection: after 3 seconds its money dropped as gold.',
     refunded: function (v) { return 'Your ' + dollars(v) + ' entry was refunded to your wallet.'; },
     closedRefund: function (v) { return 'Your ' + dollars(v) + ' goes back to your wallet in full, no house cut.'; },
     cashedNoOrder: 'Your cash-out is being checked. It reaches your wallet once confirmed.',
@@ -310,8 +315,8 @@
     }
     if (l.lost) return withAgain({ lines: [TEXT.lost(l.lost.v)] });
     if (st.token) return null;                   // the token never went out: the card's own Try again sends it
-    if (st.room) return withAgain({ lines: [TEXT.left(ownWorth())] });
-    return withAgain({ lines: [TEXT.joinLost] });
+    if (st.room) return withAgain({ lines: [TEXT.left(ownWorth()), TEXT.leftRestart] });
+    return withAgain({ lines: [TEXT.joinLost, TEXT.joinLostMoney] });
   }
   slx.cardLines = cardLines;
 

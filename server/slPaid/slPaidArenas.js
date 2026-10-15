@@ -25,8 +25,10 @@
 //   seatFor(stake, exclude)  a room with space (the door's step 11); hasSpace(stake) the same without opening one
 //   walletSeatOf(wallet), hasAccount(jid), labelOf(stake, index), setPaidOpen(on)
 //   boardRows()      one row per rung for /api/live: players = open accounts (live, gliding or parked, each once),
-//                    parked = gliding accounts, bots 0, capacity C_PAID_HUMAN_CAP x rooms; 'closed' under the switch
-//                    or while stopping, and then listed only while it still holds an account (rule 4b never blind)
+//                    parked = gliding accounts, bots 0, capacity C_PAID_HUMAN_CAP x rooms; 'closed' under the switch,
+//                    while stopping, or while no room of the rung can seat anyone (hasSpace false), and then listed only
+//                    while it still holds an account (rule 4b never blind); a room that cannot be counted is counted by
+//                    its seats and marks its row unknown (the count is a floor, not the truth)
 //   all()            every rung room plus settling; humanTotal() the open accounts of the live rooms
 //   maxSliceMs()     the largest synchronous slice of any paid room since the last call, read and reset (the free
 //                    directory's extraLoad: the bot governor sees paid tick cost, D2-m9)
@@ -333,16 +335,38 @@ class SlPaidArenas {
   boardRows() {
     if (!this.paidEnabled) return [];
     const rows = [];
-    const open = this.paidOpen && !this.stopping;
+    const on = this.paidOpen && !this.stopping;
     for (const [stake, list] of this.rungs) {
       let players = 0;
       let parked = 0;
+      let unknown = 0;
       for (const r of list.concat(this.settling.filter((x) => this.stakeOf(x) === stake))) {
-        players += r.money.openCount();
-        for (const id of r.orphans.keys()) if (r.money.account(id)) parked++;
+        // one room that cannot be read never hides the others (review OPS-2): it counts its seats and orphans, and
+        // the row says unknown, which /api/live reports as unknown ['slpaid'] (rule 4b: cannot tell, never "nobody")
+        try {
+          players += r.money.openCount();
+          for (const id of r.orphans.keys()) if (r.money.account(id)) parked++;
+        } catch (e) {
+          unknown++;
+          try {
+            players += r.seats.size + r.orphans.size;
+          } catch (_) { /* nothing more to count */ }
+          this.log.error('[SLP] board row: room ' + r.lobbyType + ' could not be counted: ' + (e && e.message));
+        }
       }
-      if (!open && players === 0) continue;
-      rows.push({
+      // a rung where no room can seat anyone (every room full, tainted or settled) is not open (review LOBBY-1): the
+      // same /api/live answer then lists the old engine's row for this stake, so the lobby stops taking stakes the
+      // door would refuse 'full'
+      let space = false;
+      try {
+        space = this.hasSpace(stake);
+      } catch (e) {
+        unknown++;
+        this.log.error('[SLP] board row: rung ' + stake + ' space unknown: ' + (e && e.message));
+      }
+      const open = on && space;
+      if (!open && players === 0 && !unknown) continue;
+      const row = {
         id: 'sl:' + this.region + ':s' + stake,
         game: 'snake',
         region: this.region,
@@ -352,7 +376,9 @@ class SlPaidArenas {
         bots: 0,
         capacity: this.cap * list.length,
         state: open ? 'open' : 'closed',
-      });
+      };
+      if (unknown) row.unknown = unknown;
+      rows.push(row);
     }
     return rows;
   }

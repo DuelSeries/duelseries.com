@@ -9,7 +9,9 @@
 // row; the free /sl branch clears entryToken, entrySol, stake, slPaidLaunch and slxPaidCut before the page loads, so a
 // stale token plus a Free click is a free page; the widget honours engine 'sl' for a paid snake rung only, stakes it
 // on this origin and opens /sl in #game-frame with a fresh one-shot nonce; switched off, the old row plays with no
-// engine; the nightly event is still watched on /game.html in the br room.
+// engine; the nightly event is still watched on /game.html in the br room; a reload of the whole tab brings the lobby
+// back, which says once that the paid snake was left and takes the /sl page's reload mark (review CLIENT-1); and
+// leaving the lobby asks first while its frame holds a paid snake with money in (review CLIENT-2).
 const test = require('node:test');
 const assert = require('node:assert');
 const { lobbyHarness } = require('./v2LobbyHarness.js');
@@ -242,4 +244,81 @@ test('spectateEvent still opens /game.html in the br room; an engine sl launch n
   }
   assert.deepStrictEqual(opened, ['/sl', '/sl']);
   assert.ok(!opened.includes('/game.html'));
+});
+
+// A lobby page event the way the browser hands it to a beforeunload listener.
+function leaving() {
+  return { type: 'beforeunload', prevented: false, returnValue: undefined, preventDefault() { this.prevented = true; } };
+}
+
+test('a reload or reopen of the whole tab: the lobby says the paid snake was left, once, and takes the mark (CLIENT-1)', () => {
+  const told = [];
+  const lobby = (mark) => {
+    const h = lobbyHarness([SL_FREE, SL(0.5)]);
+    told.length = 0;
+    h.el('toasts').appendChild = (t) => { told.push(t.textContent); };
+    h.win.document.createElement = () => ({ className: '', textContent: '', classList: { add() {}, remove() {} }, remove() {} });
+    if (mark !== null) h.win.sessionStorage.setItem('slxPaidCut', mark);
+    return h;
+  };
+  // What the /sl page wrote on its way out with money in: the real slxPaid.js, seated, then pagehide.
+  const page = makePage({ win: { sessionStorage: lobbyHarness([]).win.sessionStorage } });
+  const ss = page.win.sessionStorage;
+  ss.setItem('slPaidLaunch', 'n0nce');
+  ss.setItem('entryToken', 'TOK-LEFT');
+  ss.setItem('stake', '0.5');
+  page.load('slxPaid.js');
+  page.slx.fire('open');
+  page.slx.fire('x:room', { t: 'room', stake: 0.5, cut: 10 });
+  for (const l of page.win.listeners.slice()) if (l.type === 'pagehide') l.fn({ type: 'pagehide', persisted: false });
+  assert.strictEqual(ss.getItem('slxPaidCut'), '1', 'the page marked a paid snake left');
+
+  const h = lobby('1');
+  assert.strictEqual(h.win.V2Play.paidLeftNotice(), true);
+  assert.deepStrictEqual(told, ['Your paid snake was left when the page closed. Like any lost connection, it glided for ' +
+    '3 seconds, then its money dropped as gold. If it never reached a room, your entry is refunded automatically.']);
+  assert.strictEqual(h.win.sessionStorage.getItem('slxPaidCut'), null, 'the mark is taken');
+  assert.strictEqual(h.win.V2Play.paidLeftNotice(), false, 'said once');
+  assert.deepStrictEqual(told.length, 1);
+
+  const u = lobby('2');
+  assert.strictEqual(u.win.V2Play.paidLeftNotice(), true);
+  assert.deepStrictEqual(told, ['The page closed before your paid game started. An entry that was never used goes back ' +
+    'to your wallet automatically within a few minutes.']);
+  assert.strictEqual(u.win.sessionStorage.getItem('slxPaidCut'), null);
+
+  const n = lobby(null);
+  assert.strictEqual(n.win.V2Play.paidLeftNotice(), false, 'no mark, no notice');
+  assert.deepStrictEqual(told, []);
+});
+
+test('leaving the lobby asks first while the frame holds a paid snake with money in, from the top page (CLIENT-2)', () => {
+  const h = lobbyHarness([SL_FREE, SL(0.5)]);
+  const frame = h.el('game-frame');
+  const ask = () => { const e = leaving(); h.win.dispatchEvent(e); return [e.prevented, e.returnValue]; };
+  assert.deepStrictEqual(ask(), [false, undefined], 'no game: leaving is free');
+  // The real slxPaid.js as the frame's page: a paid launch, its socket open (the token went out), then seated.
+  const page = makePage({ win: { sessionStorage: h.win.sessionStorage } });
+  const ss = h.win.sessionStorage;
+  ss.setItem('slPaidLaunch', 'n0nce');
+  ss.setItem('entryToken', 'TOK-TRAP');
+  ss.setItem('stake', '0.5');
+  page.load('slxPaid.js');
+  frame.contentWindow = page.win;
+  frame.style.display = 'block';
+  frame.src = '/sl';
+  assert.deepStrictEqual(ask(), [false, undefined], 'the token not sent yet: nothing in the room');
+  page.slx.fire('open');
+  assert.deepStrictEqual(ask(), [true, ''], 'joining: the lobby page asks');
+  page.slx.fire('x:room', { t: 'room', stake: 0.5, cut: 10 });
+  assert.strictEqual(h.win.V2Play.paidFrameLocked(), true);
+  assert.deepStrictEqual(ask(), [true, ''], 'seated with money in: the lobby page asks');
+  frame.style.display = 'none';
+  assert.deepStrictEqual(ask(), [false, undefined], 'a hidden frame holds no game');
+  frame.style.display = 'block';
+  page.slx.fire('x:lost', { t: 'lost', v: 500000 });
+  assert.deepStrictEqual(ask(), [false, undefined], 'the money left the room: leaving is free again');
+  // A frame the lobby cannot read (another origin, or gone) never blocks leaving.
+  Object.defineProperty(frame, 'contentWindow', { get() { throw new Error('cross-origin'); } });
+  assert.deepStrictEqual(ask(), [false, undefined]);
 });

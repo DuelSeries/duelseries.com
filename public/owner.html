@@ -212,7 +212,7 @@ input.num{width:70px;text-align:center}
         <button class="go" onclick="act('agar:paid:on',{})">Open</button>
       </div>
       <div class="row">
-        <div class="rlabel"><b>Paid snake (new engine)</b><span>Close: new paid joins are refunded and paid snake opens the old game; seated players finish. Only while SL_PAID is on.</span></div>
+        <div class="rlabel"><b>Paid snake (new engine) <span id="slPaidNow"></span></b><span>Close: new paid joins are refunded and paid snake opens the old game; seated players finish. A close stays closed across restarts and deploys until Open. Only while SL_PAID is on.</span></div>
         <button class="warn" onclick="act('sl:paid:off',{})">Close</button>
         <button class="go" onclick="act('sl:paid:on',{})">Open</button>
       </div>
@@ -351,6 +351,13 @@ function render(s) {
   $('nWorth').textContent = d.paidWorth.toFixed(2);
   $('nBots').textContent = s.rooms.reduce((n, r) => n + (r.bots || 0), 0);
 
+  /* Paid snake on the new engine: whether its door is open right now, so a
+     close (it outlives restarts) is never left on by accident. */
+  const sp = s.slPaid;
+  $('slPaidNow').textContent = !sp ? '' : !sp.enabled ? '· not built (SL_PAID off)'
+    : sp.stopping ? '· restarting' : sp.open ? '· now open'
+    : '· now CLOSED' + (sp.saved ? ', kept across restarts' : '');
+
   const br = s.battleRoyale;
   if (br) {
     const running = br.state === 'running';
@@ -403,7 +410,7 @@ function render(s) {
 const CONFIRM = {
   'maintenance:on': 'Close the game to new players?\n\nAnyone already playing carries on, but nobody new can start until you open it again.',
   'agar:paid:off':  'Close paid agar.io to new players?\n\nNew paid joins are refunded; anyone already seated keeps playing and can cash out.',
-  'sl:paid:off':    'Close paid snake on the new engine?\n\nNew paid joins are refunded and paid snake opens the old game; anyone already seated keeps playing and can cash out.',
+  'sl:paid:off':    'Close paid snake on the new engine?\n\nNew paid joins are refunded and paid snake opens the old game; anyone already seated keeps playing and can cash out. It stays closed across restarts and deploys until you press Open.',
   'br:stop':        'Stop the match that is running?\n\nNobody wins it and no prize is paid.',
   'bots:clear':     'Remove every bot from this room?',};
 async function act(action, args) {

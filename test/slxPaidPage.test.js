@@ -431,15 +431,17 @@ test('cards: lost, closed, refused (with and without a refund), a drop with mone
   st = X.D.slx.card.state();
   assert.strictEqual(st.title, 'Connection lost');
   assert.deepStrictEqual(plain(st.lines), ['The connection dropped. Your snake glided on for 3 seconds, then its $0.64 dropped as ' +
-    'gold unless the page came back in time.']);
+    'gold unless the page came back in time.', 'If DuelSeries was restarting at that moment, it goes back to your ' +
+    'wallet in full instead.'], 'a restart that caught the resume refunded it: the card does not claim gold (CLIENT-3)');
   assert.strictEqual(st.again, 'Play again $0.50');
 
   const J = paidPage();
   J.sock().connect();
   J.sock().drop('transport close');           // no key yet: their close at once
   st = J.D.slx.card.state();
-  assert.deepStrictEqual(plain(st.lines), ['The connection dropped while you were joining. If your entry was taken, it is ' +
-    'refunded automatically.']);
+  assert.deepStrictEqual(plain(st.lines), ['The connection dropped while you were joining.', 'If your entry never ' +
+    'reached a room, it is refunded automatically. If it did, your snake was left like any lost connection: after 3 ' +
+    'seconds its money dropped as gold.'], 'a seat whose first message never came holds money: no promised refund (CLIENT-3)');
 });
 
 test('cashed: gross, the house 10%, you receive, then GET /api/sl/cashout/:cid every 2 s until sent', async () => {

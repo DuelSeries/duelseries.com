@@ -1170,6 +1170,10 @@ function opsSnapshot() {
     maintenance: ops.get(),
     drain: ops.drainStatus(ALL_ROOMS(), entryStore.pending()),
     battleRoyale: br ? br.publicState() : null,
+    /* Paid snake on the new engine's door, for the owner page's readout: built
+       (SL_PAID), open (sl:paid:off/on), saved (a close that outlives a restart). */
+    slPaid: slPaid ? { enabled: !!slPaid.paidEnabled, open: !!slPaid.paidOpen, stopping: !!slPaid.stopping,
+                       saved: slPaidSwitch.saved() } : null,
     rooms,
     audit: ownerAuth.auditLog.slice(0, 25),
   };
@@ -1348,19 +1352,28 @@ app.post('/api/owner/do', async (req, res) => {
        answer lists the old engine's paid rows open, so the next paid snake opens
        the old game; seated sl players finish and cash out. No restart. On
        reopens only rungs that SL_PAID built at boot, never while the shutdown
-       settle runs. */
-    case 'sl:paid:off':
+       settle runs. The close is saved (slPaidSwitch), so a restart or a deploy
+       keeps it closed until sl:paid:on; a save that fails says so, and then
+       only SL_PAID=0 in .env lasts. */
+    case 'sl:paid:off': {
       if (!slPaid || !slPaid.paidEnabled) return refuse('Paid snake on the new engine is not on (SL_PAID)');
       slPaid.setPaidOpen(false);
-      console.warn('[SLP] owner console: paid door CLOSED');
-      return done('Paid snake on the new engine closed to new players; paid snake opens the old game. Seated players finish.');
+      const kept = slPaidSwitch.save(false);
+      console.warn('[SLP] owner console: paid door CLOSED' + (kept.ok ? ' (saved)' : ' (NOT saved: ' + kept.why + ')'));
+      return done('Paid snake on the new engine closed to new players; paid snake opens the old game. Seated players finish. ' +
+        (kept.ok ? 'It stays closed across restarts and deploys until you press Open.'
+          : 'The close could not be saved (' + kept.why + '), so it lasts only until the next restart; for a lasting ' +
+            'close set SL_PAID=0 in .env.'));
+    }
     case 'sl:paid:on': {
       if (!slPaid || !slPaid.paidEnabled) return refuse('Paid snake on the new engine is not on (SL_PAID)');
       if (slPaid.stopping) return refuse('The server is restarting');
       const r = slPaid.setPaidOpen(true);
       if (!r.ok) return refuse('Paid snake on the new engine stays closed (' + r.why + ')');
-      console.warn('[SLP] owner console: paid door OPEN');
-      return done('Paid snake on the new engine open.');
+      const kept = slPaidSwitch.save(true);
+      console.warn('[SLP] owner console: paid door OPEN' + (kept.ok ? '' : ' (the saved close NOT cleared: ' + kept.why + ')'));
+      return done('Paid snake on the new engine open.' + (kept.ok ? ''
+        : ' The saved close could not be cleared (' + kept.why + '), so the next restart opens it closed again.'));
     }
     case 'maintenance:check': {
       /* Unsafe while any stake exists only in this process: a live paid seat,
@@ -1879,6 +1892,14 @@ const agJournal = require('./ag/agJournal').createAgJournal({
 function replayAgJournal() {
   agJournal.replay({
     writeOwedOnce: (r) => db.recordOwedOnce(r.key, r.wallet, r.micro / 1e6, r.name || 'Player', r.reason),
+    /* Paid snake's floor gold left at a restart or crash (Owen 2026-10-14: the
+       house keeps it as slither floor income): one sweep per source wallet on
+       the idle retire's own path (slither_floor, then the rake sweep). The
+       journal calls this at most once per record (its booked marker). */
+    bookFloor: (rec) => {
+      rec.bySource.forEach((s, i) => slPayout.sweepFloor({ sweepId: rec.key + ':' + i, micro: s.micro,
+        srcWallet: s.srcWallet, srcName: s.srcName, label: rec.room, pid: rec.why || 'restart' }));
+    },
     alert: agOwnerAlert,
   }).then((s) => { if (s.owed) kickDrain(); })
     .catch((e) => console.error('[AG] JOURNAL replay', e && e.message));
@@ -1961,10 +1982,16 @@ const slOwedLane = slPaidBoot.createOwedLane({
   track: agInflight.track,
 });
 const slMoneyHooks = {
+  /* The room closed the journal 'cashedout' with this order before it came
+     here; the payout record below says the payout answered (sent, or failed
+     with its failed_payouts row for the drainer). A process that dies first
+     leaves the close without one, and the next boot flags it to Owen as
+     CASHOUT-UNCONFIRMED-AT-BOOT with the wallet, net and cashoutId. */
   onCashout: (order) => {
     slCashoutStatus.set(order.cashoutId, 'pending');
     return agInflight.track(slPayout.payCashout(order).then((sig) => {
       slCashoutStatus.set(order.cashoutId, sig ? 'sent' : 'delayed');
+      agJournal.payout(order.jid, order.cashoutId, sig ? 'sent' : 'failed', order.label);
       return sig;
     }));
   },
@@ -1976,6 +2003,12 @@ const slMoneyHooks = {
   onTransfer: (t) => collusion.record(t.srcWallet, t.dstWallet, t.micro / 1e6, { lobbyType: t.lobbyType || t.label }),
   journal: agJournal,
 };
+/* The owner's sl:paid:off outlives a restart (review OPS-1): a close is a file
+   beside the money journal (server/data/, gitignored, kept by the deploy's
+   reset), read once here; sl:paid:on removes it. SL_PAID_SWITCH_PATH moves it. */
+const slPaidSwitch = slPaidBoot.createPaidSwitchStore({
+  file: process.env.SL_PAID_SWITCH_PATH || path.join(path.dirname(agJournal.file), 'sl-paid-switch.json'),
+});
 const slPaidOpened = slPaidBoot.openSlPaid({
   env: process.env,
   sockets: slOpened.sockets,
@@ -1983,6 +2016,7 @@ const slPaidOpened = slPaidBoot.openSlPaid({
   shippableOnly: !slOpened.dev,
   region: REGION,
   hooks: slMoneyHooks,
+  paidSwitch: slPaidSwitch,
   door: {
     /* The 'slither' door: a token scoped to another game (a Paper or agar dev token) does not open it. */
     consumeAtStake: (token, stake) => entryStore.consumeAtStake(token, stake, 'slither'),
@@ -2372,6 +2406,9 @@ app.get('/api/live', (_req, res) => {
         const rows = slPaid.boardRows();
         if (!Array.isArray(rows)) throw new Error('boardRows is not a list');
         slPaidRows = rows;
+        /* A room it could not count is still listed, counted by its seats,
+           and the answer says it cannot tell (rule 4b). */
+        if (rows.some(r => r && r.unknown)) unknown.push('slpaid');
       } catch (e) {
         console.error('[LIVE] sl paid rows', e.message);
         unknown.push('slpaid');

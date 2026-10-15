@@ -39,11 +39,14 @@ function code(src) {
 const CODE = RAW.map(([f, s]) => [f, code(s)]);
 
 // SERVER-DESIGN 15.1: what the layer may read and write on S. Read-only beyond the 15.1 list, because the design
-// needs them: slithers (15.3 rings: a ring is drawn only while that snake exists in their list), lagging (12.2:
-// sl:diag reports lag-mode entries), and foods with foods_c (PAID-SL-DESIGN 9, the gold rule: slxPaid draws a glint on
-// every food whose sz is at least 13.6, their client's rad byte / 5, slApply.js newFood).
+// needs them: slithers (15.3 rings: a ring is drawn only while that snake exists in their list) and lagging (12.2:
+// sl:diag reports lag-mode entries).
 const READ_S = ['slither', 'dead_mtm', 'playing', 'connected', 'view_xx', 'view_yy', 'gsc', 'csc', 'mww', 'mhh', 'ww', 'hh',
-  'is_mobile', 'lastscore', 'vcm', 'slithers', 'lagging', 'foods', 'foods_c'];
+  'is_mobile', 'lastscore', 'vcm', 'slithers', 'lagging'];
+// slxPaid.js alone also reads their food store, foods with foods_c (PAID-SL-DESIGN 9, the gold rule: a glint on every
+// food whose sz is at least 13.6, their client's rad byte / 5, slApply.js newFood). Any other layer file that walked
+// it would add a per-frame cost to the free page, so the carve-out is this one file (review ENG-3).
+const PAID_READ_S = ['foods', 'foods_c'];
 const WRITE_S = ['render_mode', 'xm', 'ym'];
 // The 12 blank picture canvases (public/js/sl/slSprites.js:411-424), drawn into once each (Q3, T18).
 const PICTURE_S = ['kwkbulb', 'jmou', 'pwdbulb', 'sest', 'playbulb', 'bonkbulb', 'leafbulb', 'swissbulb', 'moldovabulb',
@@ -97,7 +100,8 @@ test('frozen members: only the 15.1 seams', () => {
       if (only && m[2]) assert.ok(only.includes(m[2]) || net.includes(m[2]), f + ': D.' + m[1] + '.' + m[2]);
     }
     for (const m of s.matchAll(/\bS\.([A-Za-z_$][\w$]*)/g)) {
-      assert.ok(READ_S.includes(m[1]) || WRITE_S.includes(m[1]) || PICTURE_S.includes(m[1]), f + ': S.' + m[1]);
+      assert.ok(READ_S.includes(m[1]) || WRITE_S.includes(m[1]) || PICTURE_S.includes(m[1]) ||
+        (f === 'slxPaid.js' && PAID_READ_S.includes(m[1])), f + ': S.' + m[1]);
     }
     for (const m of s.matchAll(/\bS\.([A-Za-z_$][\w$]*)\s*=(?!=)/g)) assert.ok(WRITE_S.includes(m[1]), f + ': writes S.' + m[1]);
     for (const m of s.matchAll(/\bslither\.([A-Za-z_$][\w$]*)/g)) assert.ok(SLITHER_FIELDS.includes(m[1]), f + ': slither.' + m[1]);

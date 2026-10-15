@@ -41,6 +41,12 @@ function spy(opts) {
       this.records.push(Object.assign({ t: 'close', jid: acct.jid, outcome, room }, extra));
       return true;
     },
+    floor(rec) {
+      calls.push(['journal.floor', rec.key]);
+      if (o.journalFloor) return o.journalFloor(rec);
+      this.records.push(Object.assign({ t: 'floor' }, rec));
+      return true;
+    },
   };
   const hook = (name) => (...args) => {
     calls.push([name].concat(args));
@@ -409,13 +415,16 @@ test('cash-out: withdraw first, 90/10 in integers, journal close, one CASHOUT-OR
     const orders = s.of('onCashout');
     assert.equal(orders.length, 1);
     assert.deepEqual(orders[0][1], { cashoutId: o.cid, socketId: 'sock-1', wallet: 'W1', name: 'p1', grossMicro: micro,
-      stake: 0.5, label: LABEL });
+      stake: 0.5, label: LABEL, jid: jidOf(1) });
     assert.equal(o.order, orders[0][1]);
+    // the order line names the journal id and the wallet too: a payout in flight at a kill can be matched by hand
+    // to the player it is owed to (review MS-2)
     assert.equal(m.lines.filter((l) => l.startsWith('log [SLP] CASHOUT-ORDER ')).length, 1);
-    assert.ok(m.lines.includes('log [SLP] CASHOUT-ORDER ' + o.cid + ' ' + micro + ' ' + LABEL));
+    assert.ok(m.lines.includes('log [SLP] CASHOUT-ORDER ' + o.cid + ' ' + micro + ' ' + LABEL + ' journal ' + jidOf(1) +
+      ' wallet W1'));
     const close = s.journal.records.find((x) => x.t === 'close');
-    assert.deepEqual([close.outcome, close.grossMicro, close.cutMicro, close.netMicro, close.cashoutId, close.key],
-      ['cashedout', micro, cut, net, o.cid, undefined]);
+    assert.deepEqual([close.outcome, close.grossMicro, close.cutMicro, close.netMicro, close.cashoutId, close.key,
+      close.awaitPayout], ['cashedout', micro, cut, net, o.cid, undefined, true]);
     assert.equal(m.bank.ledger.outCash, micro);
     // a throw the room makes after cashOut cannot bring a second order: the account is gone
     assert.equal(m.cashOut(7, 'sock-1'), null);
@@ -507,6 +516,13 @@ test('shutdown and crash: rows of 100% of the grown balance, keyed closes, the f
     for (const h of ['onOwed', 'onCashout', 'onFloor', 'onHouse']) assert.equal(s.of(h).length, 0, h);
     assert.equal(m.bank.house.abandoned, 250000);
     assert.ok(m.lines.includes('error [SLP] SHUTDOWN-FLOOR 250000 ' + LABEL));
+    // Owen's answer of 2026-10-14: the house keeps it as slither floor income, so it is journaled for the next boot to
+    // book (review MS-1): one record, the exact micro per source wallet
+    const floors = s.journal.records.filter((x) => x.t === 'floor');
+    assert.equal(floors.length, 1);
+    assert.match(floors[0].key, /^slfloor:[0-9a-f-]{36}$/);
+    assert.deepEqual([floors[0].room, floors[0].why, floors[0].micro, floors[0].bySource],
+      [LABEL, why, 250000, [{ srcWallet: 'W3', srcName: 'p3', micro: 250000 }]]);
     assert.equal(m.stopped, true);
     assert.equal(m.openCount(), 0);
     assert.equal(s.walletSeat.size, 0);
@@ -518,6 +534,15 @@ test('shutdown and crash: rows of 100% of the grown balance, keyed closes, the f
   const m = money(s);
   m.open(1, entry(1));
   assert.match(m.shutdownSettle('SIGTERM')[0].reason, /^refund slither shutdown /);
+  assert.equal(s.journal.records.filter((x) => x.t === 'floor').length, 0, 'no floor, no floor record');
+  // a journal that cannot take the record: logged CRITICAL with the amount, the settle goes on
+  for (const journalFloor of [() => false, () => { throw new Error('disk full'); }]) {
+    const s2 = spy({ journalFloor });
+    const { m: m2 } = grown(s2);
+    assert.equal(m2.shutdownSettle('shutdown').length, 2, 'the rows still come back');
+    assert.ok(m2.lines.some((l) => /^error \[SLP\] JOURNAL CRITICAL floor slfloor:\S+ of 250000 micro not written/.test(l)));
+    i1(m2);
+  }
 });
 
 test('emergency: every account through the owed lane (keyed close, then onOwed once, grown), the floor swept per source', () => {

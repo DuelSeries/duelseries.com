@@ -187,6 +187,14 @@ test('live: resume blips, parked and taken over, come back inside the glide; the
       resume: { share: 1, fromMs: 1500, spanMs: 1000, alternate: true } });
     run.start();
     await new Promise((r) => setTimeout(r, 9000));
+    // A later life's blip can still be on its way back when the 9 s close (a full suite's load moves the lives later):
+    // it is neither back nor failed yet. Wait for it, at most 8 s more, so the counts below hold finished blips only.
+    const settleBy = Date.now() + 8000;
+    for (;;) {
+      const now = run.summary().resume;
+      if (require('util').isDeepStrictEqual(now.back, now.started) || Date.now() > settleBy) break;
+      await new Promise((r) => setTimeout(r, 100));
+    }
     run.stop();
     const sum = run.summary();
     const rs = sum.resume;

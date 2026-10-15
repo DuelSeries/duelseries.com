@@ -26,7 +26,8 @@
 //                          every step, full every checkEvery steps), alerts, taint on I1, I10 and I13
 //
 // Hooks (all required, checked at construction; design 8, 7.4). There is no onRefund: only the door refunds a token.
-//   onCashout(order)          { cashoutId, socketId, wallet, name, grossMicro, stake, label }: slPayout.payCashout
+//   onCashout(order)          { cashoutId, socketId, wallet, name, grossMicro, stake, label, jid }: slPayout.payCashout,
+//                             then the journal's payout record
 //   onOwed(row)               { key 'agowed:<jid>', wallet, name, micro, reason }: db.recordOwedOnce, then the drainer
 //   onFloor(sweep)            { sweepId, micro, srcWallet, srcName, label, pid }: slPayout.sweepFloor (slither_floor)
 //   onHouse(incident)         { id, micro, wallet, name, label, why }: slPayout.houseIncident (slither_breach)
@@ -36,7 +37,8 @@
 //   onAccountOpen(acct)       the directory seats the wallet (walletSeat); throws when the wallet is already seated,
 //                             BEFORE the journal is written
 //   onAccountClosed(acct, outcome, extra)   the directory forgets the seat
-//   journal                   { open(acct, room), close(acct, outcome, extra, room) }: the shared agJournal
+//   journal                   { open(acct, room), close(acct, outcome, extra, room), floor(rec) }: the shared agJournal
+//                             (floor: the shutdown's abandoned gold, booked by the next boot's replay)
 
 const crypto = require('crypto');
 const { SlBank, isMicro } = require('./slBank');
@@ -384,15 +386,19 @@ class SlMoney {
     const cut = Math.floor(gross / HOUSE_CUT_DIV);
     const net = gross - cut;
     const order = { cashoutId, socketId: typeof socketId === 'string' ? socketId : null,
-      wallet: w.acct.wallet, name: w.acct.name || '', grossMicro: gross, stake: this.stake, label: this.label };
+      wallet: w.acct.wallet, name: w.acct.name || '', grossMicro: gross, stake: this.stake, label: this.label,
+      jid: acct.jid };
     try {
+      // awaitPayout: the server writes a payout record when the payout answers (index.js onCashout); a close left
+      // without one at the next boot is flagged CASHOUT-UNCONFIRMED-AT-BOOT (agJournal)
       this._close(acct, 'cashedout', { why: 'cashout', grossMicro: gross, cutMicro: cut, netMicro: net,
-        cashoutId: order.cashoutId });
+        cashoutId: order.cashoutId, awaitPayout: true });
     } finally {
       // the order line in its own try: a logger that throws must not keep the order from going out (the journal
-      // close above carries the cashoutId and the gross for a hand reconcile)
+      // close above carries the cashoutId, the gross and the net, and its open the wallet, for a hand reconcile)
       try {
-        this.log.log('[SLP] CASHOUT-ORDER ' + order.cashoutId + ' ' + gross + ' ' + this.label);
+        this.log.log('[SLP] CASHOUT-ORDER ' + order.cashoutId + ' ' + gross + ' ' + this.label + ' journal ' + acct.jid +
+          ' wallet ' + order.wallet);
       } catch (_) { /* nothing left to log it with */ }
       safeAsync(() => this.hooks.onCashout(order), (e) => {
         this._alert('cashout-order', { micro: gross });
@@ -468,7 +474,9 @@ class SlMoney {
   // A planned restart ('shutdown') or a crash ('crash'), design 7.2: every account withdrawn, closed 'refunded' in
   // the journal with its owed row (100% of the current balance, no rake), and the rows handed back for the caller to
   // write (installAgShutdown; the crash path leaves them to the journal replay). The floor is booked to the house as
-  // abandoned and logged: no on-chain move and no database write in the exit window (the money stays in escrow).
+  // abandoned, logged, and journaled as one floor record with its micro per source wallet (Owen, 2026-10-14: the house
+  // keeps it as slither floor income): no on-chain move and no database write in the exit window, the next boot's
+  // replay books it once (slither_floor and the rake sweep, agJournal).
   shutdownSettle(why = 'shutdown') {
     const kind = why === 'crash' ? 'crash' : 'shutdown';
     this.stopped = true;
@@ -485,14 +493,34 @@ class SlMoney {
         this._leftOpen('SHUTDOWN', acct, e);
       }
     }
+    let f = null;
     try {
-      const f = this.bank.takeFloor('abandoned');
+      f = this.bank.takeFloor('abandoned');
       if (f.micro > 0) this.log.error('[SLP] SHUTDOWN-FLOOR ' + f.micro + ' ' + this.label);
     } catch (e) {
       this.log.error('[SLP] SHUTDOWN floor not booked (' + this.label + '): ' + (e && e.message));
     }
+    if (f && f.micro > 0) this._journalFloor(f, kind);
     this._phase('collusion', () => this._flushBuckets(true));
     return rows;
+  }
+
+  // The abandoned floor's journal record (agJournal floor): one key, the room, the why and each source wallet's micro.
+  // A record the journal cannot take is logged CRITICAL with the amount: the money is still in escrow, unbooked.
+  _journalFloor(f, why) {
+    let key = '?';
+    try {
+      key = 'slfloor:' + this.uuid();
+      const j = this.hooks.journal;
+      const rec = { key, room: this.label, why, micro: f.micro,
+        bySource: f.bySource.map((s) => ({ srcWallet: s.srcWallet, srcName: s.srcName, micro: s.micro })) };
+      if (typeof j.floor !== 'function' || j.floor(rec) === false) throw new Error('the journal took no floor record');
+    } catch (e) {
+      try {
+        this.log.error('[SLP] JOURNAL CRITICAL floor ' + key + ' of ' + f.micro + ' micro not written (' + this.label +
+          '), left in escrow unbooked: ' + (e && e.message));
+      } catch (_) { /* dying anyway */ }
+    }
   }
 
   // The idle retire (design 7.5): the floor to the house through onFloor, one sweep per source wallet with its exact

@@ -16,7 +16,8 @@ const { rig, layerMsgs } = require('./slSockFakes');
 const { moneySpy, fakeLedger, fakePayout } = require('./slPaidFakes');
 const { makeEntryStore } = require('../server/entryStore');
 const { isStake } = require('../server/stakeRules');
-const { slPaidSwitch, SL_PAID_DEFAULT, openSlPaid, createCashoutStatus, isCashoutId, STATUS_MAX, createOwedLane } =
+const { slPaidSwitch, SL_PAID_DEFAULT, openSlPaid, createCashoutStatus, isCashoutId, STATUS_MAX, createOwedLane,
+  createPaidSwitchStore } =
   require('../server/slPaid/slPaidBoot');
 const { STATUS_TTL_MS } = require('../server/slPaid/slPaidConst');
 
@@ -278,4 +279,52 @@ test('server/index.js: the owed lane writes dollars in recordOwedOnce\'s order, 
   assert.deepEqual(got, [[owedKey(1), 'WOWED', 1.25, 'Player', 'refund slither orphan sl_na_s1 ' + owedKey(1)]]);
   assert.match(src, /\n\s*onOwed: slOwedLane\.onOwed,\n\s*onFloor: slPayout\.sweepFloor,\n\s*onHouse: slPayout\.houseIncident,\n/);
   assert.match(src, /everyStaggered\(\(\) => \{\n[^}]*slOwedLane\.retry\(\)[^}]*\}, 60000, 9000, 'slpaid-sweep'\);/);
+});
+
+// Review OPS-1: the owner's sl:paid:off outlives a restart. A file beside the money journal holds the close; the boot
+// opens the rungs CLOSED while it is there (unreadable or not a switch: closed too); sl:paid:on removes it.
+test('the paid switch store: a saved close opens the rungs closed at the next boot; open removes it; a bad file fails closed', () => {
+  const fs = require('fs');
+  const os = require('os');
+  const path = require('path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'slpswitch-'));
+  const file = path.join(dir, 'data', 'sl-paid-switch.json');
+  const lg = lines();
+  const st = createPaidSwitchStore({ file, log: lg, now: () => Date.parse('2026-10-15T12:00:00.000Z') });
+  assert.throws(() => createPaidSwitchStore({}), /file is required/);
+  assert.deepEqual([st.saved(), st.closedAtBoot()], [false, { closed: false, why: null }], 'no file: the code default');
+  assert.deepEqual(st.save(false), { ok: true, why: null });
+  assert.equal(st.saved(), true);
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { open: false, at: '2026-10-15T12:00:00.000Z' });
+  assert.deepEqual(st.closedAtBoot(), { closed: true, why: 'owner' });
+  // a boot with it: the rungs built, the door shut, the rows gone (so /api/live opens the old rows), as after sl:paid:off
+  const x = opened({ SL_PAID: '1' }, (o) => { o.paidSwitch = st; });
+  assert.equal(x.got.paid, true);
+  assert.deepEqual([x.got.arenas.paidEnabled, x.got.arenas.paidOpen], [true, false]);
+  assert.deepEqual(x.got.arenas.boardRows(), []);
+  assert.ok(x.lg.out.some((l) => /paid door CLOSED at boot \(owner\): the owner's sl:paid:off outlived the restart/.test(l)));
+  const s = x.join(x.mint('WSAVED'));
+  assert.deepEqual(refusalOf(s), { t: 'refused', why: 'not-open', refunded: 500000 });
+  // open removes it; a second open is fine; the next boot is the code default
+  assert.deepEqual(st.save(true), { ok: true, why: null });
+  assert.deepEqual(st.save(true), { ok: true, why: null });
+  assert.deepEqual([st.saved(), st.closedAtBoot()], [false, { closed: false, why: null }]);
+  assert.equal(opened({ SL_PAID: '1' }, (o) => { o.paidSwitch = st; }).got.arenas.paidOpen, true);
+  // a file that is not a switch, one that cannot be read, a store that throws: closed, and said
+  fs.writeFileSync(file, 'garbage');
+  assert.deepEqual(st.closedAtBoot(), { closed: true, why: 'unreadable' });
+  fs.writeFileSync(file, JSON.stringify({ open: true }));
+  assert.deepEqual(st.closedAtBoot(), { closed: true, why: 'unreadable' }, 'only a close is ever written');
+  const broken = createPaidSwitchStore({ file, log: lg, fsx: Object.assign({}, fs, { readFileSync() { throw new Error('EIO'); } }) });
+  assert.deepEqual(broken.closedAtBoot(), { closed: true, why: 'unreadable' });
+  assert.ok(lg.out.some((l) => /paid switch file unreadable, paid snake on the new engine starts CLOSED: EIO/.test(l)));
+  const y = opened({ SL_PAID: '1' }, (o) => { o.paidSwitch = { closedAtBoot() { throw new Error('boom'); } }; });
+  assert.equal(y.got.arenas.paidOpen, false);
+  // a save that cannot write says why (the owner text then says it lasts only until the restart)
+  const ro = createPaidSwitchStore({ file, log: lg, fsx: Object.assign({}, fs, { writeFileSync() { throw new Error('EROFS'); } }) });
+  assert.deepEqual(ro.save(false), { ok: false, why: 'EROFS' });
+  // SL_PAID off: the store is never asked
+  let asked = 0;
+  opened({ SL_PAID: '0' }, (o) => { o.paidSwitch = { closedAtBoot() { asked++; return { closed: true, why: 'owner' }; } }; });
+  assert.equal(asked, 0);
 });

@@ -3,7 +3,8 @@
 // controllers on spy hooks, seated through the real slSockets and the paid door (test/slPaidFakes.js).
 //   - rooms: lazy, labelled, fullest with space first, at most ROOMS_PER_RUNG, a crypto seed, the paid overrides
 //   - rows: players = open accounts (live, gliding or parked, each once), parked = gliding accounts; closed under the
-//     switch and listed only while an account is open; settling rooms summed; no rungs, no rows
+//     switch and listed only while an account is open; settling rooms summed; no rungs, no rows; closed while no room of
+//     the rung can seat anyone (review LOBBY-1); a room that cannot be counted marks its row unknown (review OPS-2)
 //   - roomOf follows a resume (the seat scan), roomForKey finds a parked seat's key
 //   - walletSeat: set at the open, cleared at every close, agrees with every bank (I9 across rooms)
 //   - idle retire: the floor to the house once per source wallet with its exact micro and a unique sweepId, I1 holds, a
@@ -125,6 +126,54 @@ test('rows: players = open accounts (gliding and parked once each), parked = gli
   assert.equal(r.paid.boardRows().length, 2);
   // no rungs: no rows
   assert.deepEqual(paidRig({ paid: false }).paid.boardRows(), []);
+});
+
+// Review LOBBY-1: a rung whose rooms are all full or tainted keeps no open row, so the same /api/live answer hands the
+// stake back to the old engine instead of taking stakes the door refuses 'full' (each refunded only by the expiry sweep).
+test('rows: a rung where no room can seat anyone (full, or tainted) says closed while it holds money, open again with space', () => {
+  const r = paidRig({ rig: { patch: { C_PAID_HUMAN_CAP: 1 } } });
+  const socks = [];
+  for (let i = 0; i < ROOMS_PER_RUNG; i++) socks.push(r.join(r.mint({})));
+  r.step(2);
+  const rows = () => r.paid.boardRows().map((x) => [x.id, x.state, x.players]);
+  assert.equal(r.paid.hasSpace(0.5), false, 'every room at its cap');
+  assert.deepEqual(rows(), [['sl:na:s0.5', 'closed', ROOMS_PER_RUNG], ['sl:na:s1', 'open', 0]]);
+  // a seat leaves and its snake dies: a room with space, the row opens
+  socks[0].fire('sl:leave');
+  socks[0].disconnect();
+  untilGlidesEnd(r);
+  assert.equal(r.paid.hasSpace(0.5), true);
+  assert.deepEqual(rows(), [['sl:na:s0.5', 'open', ROOMS_PER_RUNG - 1], ['sl:na:s1', 'open', 0]]);
+  // every room tainted by a checker alert (design 8: no new seat in it): closed again while they hold accounts
+  for (const room of r.paid.rungs.get(0.5)) room.money.tainted = true;
+  assert.equal(r.paid.hasSpace(0.5), false);
+  assert.deepEqual(rows(), [['sl:na:s0.5', 'closed', ROOMS_PER_RUNG - 1], ['sl:na:s1', 'open', 0]]);
+  // and once nobody is left in them, not listed at all (the old row alone plays $0.50)
+  for (const sk of socks.slice(1)) {
+    sk.fire('sl:leave');
+    sk.disconnect();
+  }
+  untilGlidesEnd(r);
+  assert.deepEqual(rows(), [['sl:na:s1', 'open', 0]]);
+});
+
+// Review OPS-2: a room whose money cannot be read must not hide the others from /api/live (rule 4b reads players).
+test('rows: a room that cannot be counted is counted by its seats and marks its row unknown; the others as ever', () => {
+  const r = paidRig();
+  r.join(r.mint({}));
+  r.join(r.mint({}));
+  r.join(r.mint({ stake: 1, worth: 1, paid: 1 }), { auth: { stake: 1 } });
+  r.step(2);
+  const room = r.paid.rungs.get(0.5)[0];
+  room.money.openCount = () => { throw new Error('a controller in a bad state'); };
+  const lines = [];
+  r.paid.log = { log() {}, warn() {}, error: (l) => lines.push(l) };
+  assert.deepEqual(r.paid.boardRows().map((x) => [x.id, x.state, x.players, x.unknown]),
+    [['sl:na:s0.5', 'open', 2, 1], ['sl:na:s1', 'open', 1, undefined]]);
+  assert.ok(lines.some((l) => /board row: room sl_na_s0_5 could not be counted: a controller in a bad state/.test(l)));
+  // closed by the switch: the unknown row is still listed (never read as "nobody there")
+  r.paid.setPaidOpen(false);
+  assert.deepEqual(r.paid.boardRows().map((x) => [x.id, x.state, x.unknown]), [['sl:na:s0.5', 'closed', 1], ['sl:na:s1', 'closed', undefined]]);
 });
 
 test('roomOf follows a resume; roomForKey finds a parked seat; nothing routes to a stopped room', () => {

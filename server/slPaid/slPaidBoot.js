@@ -33,7 +33,10 @@
 //   createOwedLane(opts)             slMoney's onOwed (design 7.4): an emergency or orphan refund's row written once per
 //                                    key, and a refused write kept and written again by retry() on the slpaid-sweep
 //                                    tick until it lands (review T5-R3)
+//   createPaidSwitchStore(opts)      the owner's sl:paid:off kept on disk across restarts (openSlPaid's paidSwitch)
 
+const fs = require('fs');
+const path = require('path');
 const { SlPaidArenas } = require('./slPaidArenas');
 const { createSlPaidDoor } = require('./slPaidDoor');
 const { STATUS_TTL_MS } = require('./slPaidConst');
@@ -155,6 +158,55 @@ function createOwedLane({ write, kick = () => {}, track = (p) => p, log = consol
   return { onOwed, retry, pending: () => kept.size };
 }
 
+// The owner's sl:paid:off kept across restarts (review OPS-1). In memory alone, a close Owen made after a payout bug
+// was undone by the next deploy's restart (SL_PAID is on by default), with nothing on the owner page saying so. The
+// close is a small file beside the money journal (server/data/ is gitignored and survives the deploy's reset), read
+// once at boot by openSlPaid; sl:paid:on removes it. A file that cannot be read fails CLOSED. No file is the code
+// default (SL_PAID decides).
+//   file   the switch file;  fsx  fs (tests)
+// -> { closedAtBoot() -> { closed, why }, save(open) -> { ok, why }, saved() -> true while a close is on disk }
+function createPaidSwitchStore({ file, fsx = fs, log = console, now = Date.now } = {}) {
+  if (typeof file !== 'string' || !file) throw new Error('createPaidSwitchStore: file is required');
+  function saved() {
+    try {
+      return fsx.existsSync(file);
+    } catch (e) {
+      return true;
+    }
+  }
+  function closedAtBoot() {
+    let text = null;
+    try {
+      if (!fsx.existsSync(file)) return { closed: false, why: null };
+      text = fsx.readFileSync(file, 'utf8');
+    } catch (e) {
+      log.error('[SLP] CRITICAL paid switch file unreadable, paid snake on the new engine starts CLOSED: ' + (e && e.message));
+      return { closed: true, why: 'unreadable' };
+    }
+    try {
+      const j = JSON.parse(text);
+      if (j && j.open === false) return { closed: true, why: 'owner' };
+    } catch (e) { /* not ours: closed, below */ }
+    log.error('[SLP] CRITICAL paid switch file is not a switch, paid snake on the new engine starts CLOSED (' + file + ')');
+    return { closed: true, why: 'unreadable' };
+  }
+  function save(open) {
+    try {
+      if (open) {
+        if (fsx.existsSync(file)) fsx.unlinkSync(file);
+      } else {
+        fsx.mkdirSync(path.dirname(file), { recursive: true });
+        fsx.writeFileSync(file, JSON.stringify({ open: false, at: new Date(now()).toISOString() }) + '\n');
+      }
+      return { ok: true, why: null };
+    } catch (e) {
+      log.error('[SLP] CRITICAL paid switch not saved (' + (open ? 'open' : 'closed') + '): ' + (e && e.message));
+      return { ok: false, why: (e && e.message) || 'write failed' };
+    }
+  }
+  return { closedAtBoot, save, saved, file };
+}
+
 // The last resort (nothing paid could be built): a paid socket is routed here, never to the free room, and its join is
 // refused 'not-open' with its token untouched.
 function refusingHelper() {
@@ -184,6 +236,7 @@ function refusingHelper() {
 //   door      the door's server deps: consumeAtStake(token, stake), ledger, slPayout, journal, ops, recordEntry, alert,
 //             track
 //   arenas    tests only: more SlPaidArenas options (clock, timers, autoTick, seed, checkEvery, ...)
+//   paidSwitch  createPaidSwitchStore's store: a close saved before this boot opens the rungs CLOSED (sl:paid:on reopens)
 //   log
 // -> { arenas, door, paid, why }: arenas and door null when nothing was built (why says which); paid: the rungs exist.
 function openSlPaid(opts) {
@@ -255,8 +308,22 @@ function openSlPaid(opts) {
   if (!door) arenas = null;
   log.log('[SLP] paid snake on the new engine ' + (paid ? 'on' : 'OFF') +
     (paid ? ' (/sl paid rungs $0.50 and $1)' : ' (paid /sl joins are refunded not-open)'));
+  // the owner's close outlives the restart: the rungs are built, their door is shut, as after sl:paid:off
+  if (paid && o.paidSwitch && typeof o.paidSwitch.closedAtBoot === 'function') {
+    let c = { closed: true, why: 'threw' };
+    try {
+      c = o.paidSwitch.closedAtBoot();
+    } catch (e) {
+      log.error('[SLP] CRITICAL paid switch read threw, the paid door starts CLOSED: ' + (e && e.message));
+    }
+    if (c.closed) {
+      arenas.setPaidOpen(false);
+      log.warn('[SLP] paid door CLOSED at boot (' + c.why + '): the owner\'s sl:paid:off outlived the restart; ' +
+        'paid snake opens the old game until sl:paid:on');
+    }
+  }
   return { arenas, door, paid, why: paid ? null : why };
 }
 
 module.exports = { slPaidSwitch, SL_PAID_DEFAULT, openSlPaid, composePaidShutdown, createCashoutStatus, isCashoutId,
-  STATUS_MAX, createOwedLane };
+  STATUS_MAX, createOwedLane, createPaidSwitchStore };

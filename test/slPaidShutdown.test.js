@@ -14,6 +14,11 @@
 //     whose write landed replays as exists (critic C-5)
 //   - agar's own emergency closes carry no key, so with 'emergency' and 'orphan' in OWED_WHYS they still replay to zero
 //     owed rows, the same summary as before the edit
+//   - floor gold at a crash is journaled as one floor record and the next boot books it once (its booked marker in the
+//     file first), never twice when the file is kept for a failed owed row; a build that cannot book it keeps the file
+//     (review MS-1)
+//   - a paid snake cash-out with no payout record is flagged CASHOUT-UNCONFIRMED-AT-BOOT with its wallet, net and
+//     cashoutId, never paid blind; agar's cash-out closes are as before (review MS-2)
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
@@ -369,4 +374,140 @@ test('agar\'s own emergency closes carry no key: they replay to zero owed rows, 
   const recs = records(j.file);
   assert.deepEqual(Object.keys(recs[0]).sort(), ['at', 'boot', 'jid', 'micro', 'room', 't', 'wallet'], 'no stakeSig on an agar open');
   assert.equal(recs[1].key, undefined);
+});
+
+// Review MS-1 (Owen's answer of 2026-10-14: floor gold left at a restart or crash is the house's, booked as slither
+// floor income). The settle journals it as one floor record; the next boot books it through bookFloor once per key.
+const FLOOR_KEY = 'slfloor:f0000000-0000-4000-8000-000000000001';
+function floorRec(over) {
+  return Object.assign({ key: FLOOR_KEY, room: 'sl_na_s0_5', why: 'crash', micro: 750000,
+    bySource: [{ srcWallet: 'W-f1', srcName: 'f1', micro: 500000 }, { srcWallet: 'W-f2', srcName: 'f2', micro: 250000 }] },
+  over);
+}
+
+test('a floor record is booked once, after the owed rows of its file landed, marked in the file first; a kept file never books it twice (MS-1)', async () => {
+  const file = tmpFile();
+  const journal = createAgJournal({ file, bootId: 'b1', log: quiet() });
+  // the crash that wrote it, through the real settle: the sl seat's owed close and the floor of a death beside it
+  const store = owedStore();
+  const sl = slWorld(journal, store);
+  seat(sl, ['W-sl0']);
+  sl.step(2);
+  const room = sl.paid.rooms()[0];
+  // the floor, as a death leaves it (slBank split), then the crash settle
+  room.money.bank.deposit(99, 750000, { wallet: 'W-dead', name: 'dead', jid: 'd0000000-0000-4000-8000-000000000001' });
+  room.money.bank.split(99, [{ id: 1 }, { id: 2 }, { id: 3 }], [250000, 250000, 250000]);
+  const proc = fakeProc();
+  installAgCrashLog({ arenas: composePaidShutdown([sl.paid], quiet()), log: quiet(), proc });
+  proc.emit('uncaughtExceptionMonitor', new Error('boom'));
+  const floors = records(file).filter((x) => x.t === 'floor');
+  assert.equal(floors.length, 1, 'the crash journaled the floor');
+  assert.deepEqual([floors[0].room, floors[0].why, floors[0].micro, floors[0].bySource],
+    ['sl_na_s0_5', 'crash', 750000, [{ srcWallet: 'W-dead', srcName: 'dead', micro: 750000 }]]);
+  assert.equal(room.money.bank.house.abandoned, 750000);
+  assert.deepEqual(sl.of('onFloor'), [], 'nothing booked in the dying process');
+
+  // a second floor record in the same file whose sources do not add up (it can never be booked, so the file stays)
+  assert.equal(journal.floor(floorRec({ key: 'slfloor:f0000000-0000-4000-8000-0000000000ff', micro: 750001 })), true);
+
+  // boot 2: the owed write fails (the database is down): no house income from the file either, it waits, kept
+  const owedKey = records(file).find((x) => x.t === 'close').key;
+  store.failKeys.add(owedKey);
+  const booked = [];
+  const lg2 = quiet();
+  const b2 = createAgJournal({ file, bootId: 'b2', log: lg2 });
+  const waiting = b2.rotate();
+  const s2 = await b2.replay({ writeOwedOnce: store.write, bookFloor: (r) => booked.push(r) });
+  assert.deepEqual(s2, { files: 1, owed: 0, existed: 0, failed: 3, unsettled: 0, unsettledMicro: 0 });
+  assert.deepEqual(booked, [], 'nothing booked while a player\'s refund is still owed');
+  assert.equal(lg2.lines.filter((l) => /waits for the owed rows of its file/.test(l)).length, 2);
+  assert.ok(fs.existsSync(waiting[0]), 'kept for the failed owed row');
+
+  // boot 3: the owed row lands; the crash's floor is booked, its marker written first; the bad record keeps the file
+  store.failKeys.clear();
+  const s3 = await createAgJournal({ file, bootId: 'b3', log: quiet() }).replay({ writeOwedOnce: store.write,
+    bookFloor: (r) => booked.push(r) });
+  assert.deepEqual(s3, { files: 1, owed: 1, existed: 0, failed: 1, unsettled: 0, unsettledMicro: 0, floors: 1,
+    floorMicro: 750000 });
+  assert.deepEqual(booked.map((r) => [r.key, r.micro, r.bySource]), [[floors[0].key, 750000, floors[0].bySource]]);
+  assert.deepEqual(records(waiting[0]).filter((x) => x.t === 'booked').map((x) => x.key), [floors[0].key],
+    'the booked marker is in the file');
+  assert.ok(fs.existsSync(waiting[0]), 'kept for the record that does not add up');
+
+  // boot 4: the same kept file again: the owed row exists, the booked floor is NOT booked a second time
+  const s4 = await createAgJournal({ file, bootId: 'b4', log: quiet() }).replay({ writeOwedOnce: store.write,
+    bookFloor: (r) => booked.push(r) });
+  assert.deepEqual(s4, { files: 1, owed: 0, existed: 1, failed: 1, unsettled: 0, unsettledMicro: 0 });
+  assert.equal(booked.length, 1, 'booked once in all');
+});
+
+test('a floor record a build cannot book keeps its file: no bookFloor, a marker that will not write, sources that do not add up (MS-1)', async () => {
+  const cases = [
+    ['no bookFloor', floorRec(), null, /not booked: this build books no paid snake floor; the file is kept/],
+    ['the marker refused', floorRec(), 'marker', /floor slfloor:\S+ not booked, its marker could not be written/],
+    ['sources off by one', floorRec({ micro: 750001 }), null, /does not add up \(sources 750000\): not booked/],
+  ];
+  for (const [name, rec, fail, line] of cases) {
+    const file = tmpFile();
+    const j = createAgJournal({ file, bootId: 'b1', log: quiet() });
+    assert.equal(j.floor(rec), true, name + ': written');
+    const lg = quiet();
+    const fsx = Object.assign({}, fs, {
+      appendFileSync(p, d) { if (fail === 'marker' && /\.replay$/.test(p)) throw new Error('read-only'); return fs.appendFileSync(p, d); },
+    });
+    const b = createAgJournal({ file, bootId: 'b2', log: lg, fsx });
+    const waiting = b.rotate();
+    const booked = [];
+    const s = await b.replay({ writeOwedOnce: () => Promise.resolve('owed'),
+      bookFloor: name === 'no bookFloor' ? undefined : (r) => booked.push(r) });
+    assert.deepEqual([s.failed, s.floors, booked.length], [1, undefined, 0], name);
+    assert.ok(fs.existsSync(waiting[0]), name + ': the file is kept for a build that can book it');
+    assert.ok(lg.lines.some((l) => line.test(l)), name + ': ' + lg.lines.join(' | '));
+  }
+  // a record that is not a floor record is refused at the write
+  const j = createAgJournal({ file: tmpFile(), log: quiet() });
+  for (const bad of [floorRec({ key: 'agowed:x' }), floorRec({ micro: 0 }), floorRec({ micro: 1.5 }), floorRec({ bySource: null })]) {
+    assert.equal(j.floor(bad), false);
+  }
+  assert.deepEqual(records(j.file), []);
+});
+
+// Review MS-2: a paid snake cash-out's close carries its order and a promise of a payout record; one left without it
+// (the process died while the payout was in flight) is flagged to Owen with the wallet, net and cashoutId at boot.
+test('a cash-out with no payout record is flagged CASHOUT-UNCONFIRMED-AT-BOOT, never paid blind; agar\'s cash-out closes are as before (MS-2)', async () => {
+  const file = tmpFile();
+  const j = createAgJournal({ file, bootId: 'b1', log: quiet() });
+  const CID1 = 'c1000000-0000-4000-8000-000000000001';
+  const CID2 = 'c2000000-0000-4000-8000-000000000002';
+  const a1 = { jid: 'a1000000-0000-4000-8000-000000000001', wallet: 'W-cash1', deposit: 500000 };
+  const a2 = { jid: 'a2000000-0000-4000-8000-000000000002', wallet: 'W-cash2', deposit: 500000 };
+  const ag = { jid: 'ag-1', wallet: 'W-ag', deposit: 500000 };
+  for (const a of [a1, a2]) j.open(a, 'sl_na_s0_5');
+  j.open(ag, 'ag_na_s0_5');
+  j.close(a1, 'cashedout', { why: 'cashout', grossMicro: 818180, cutMicro: 81818, netMicro: 736362, cashoutId: CID1,
+    awaitPayout: true }, 'sl_na_s0_5');
+  j.close(a2, 'cashedout', { why: 'cashout', grossMicro: 500000, cutMicro: 50000, netMicro: 450000, cashoutId: CID2,
+    awaitPayout: true }, 'sl_na_s0_5');
+  assert.equal(j.payout(a2.jid, CID2, 'sent', 'sl_na_s0_5'), true);
+  assert.equal(j.payout(a2.jid, CID2, 'maybe', 'sl_na_s0_5'), false, 'sent or failed only');
+  // agar's own cash-out close (agMoney.js: grossMicro and cashoutId, no awaitPayout): the record it always wrote
+  j.close(ag, 'cashedout', { grossMicro: 500000, cashoutId: 'ag-cid' }, 'ag_na_s0_5');
+  const recs = records(file);
+  const c1 = recs.find((x) => x.t === 'close' && x.jid === a1.jid);
+  assert.deepEqual([c1.cashoutId, c1.grossMicro, c1.netMicro, c1.awaitPayout], [CID1, 818180, 736362, 1]);
+  const cag = recs.find((x) => x.t === 'close' && x.jid === 'ag-1');
+  assert.deepEqual(Object.keys(cag).sort(), ['at', 'jid', 'outcome', 'room', 't', 'why'], 'agar\'s close as before');
+  const lg = quiet();
+  const alerts = [];
+  const store = owedStore();
+  const b = createAgJournal({ file, bootId: 'b2', log: lg });
+  b.rotate();
+  const s = await b.replay({ writeOwedOnce: store.write, alert: (x) => alerts.push(x) });
+  assert.deepEqual(s, { files: 1, owed: 0, existed: 0, failed: 0, unsettled: 0, unsettledMicro: 0, unconfirmed: 1,
+    unconfirmedMicro: 736362 });
+  assert.deepEqual(lg.lines.filter((l) => l.startsWith('[AG] CASHOUT-UNCONFIRMED-AT-BOOT')), ['[AG] CASHOUT-UNCONFIRMED-AT-BOOT ' +
+    'W-cash1 net 736362 micro gross 818180 cashout ' + CID1 + ' room sl_na_s0_5 journal ' + a1.jid + ' (the server stopped ' +
+    'while this payout was in flight; look for the transfer on chain before paying by hand)']);
+  assert.deepEqual(alerts, [{ kind: 'cashout-unconfirmed-at-boot', accounts: 1, totalMicro: 736362 }]);
+  assert.equal(store.rows.size, 0, 'flagged, never written as owed');
 });

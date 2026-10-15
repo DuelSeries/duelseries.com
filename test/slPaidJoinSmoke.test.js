@@ -10,6 +10,8 @@
      paid game" and "0.5 USDC"
    - sl:paid:off with a seated player: the next paid join is refunded not-open once; the same answer has the sl row
      closed (players 1) and the old rows open; the seated player still cashes out 90/10; then the sl row is gone
+   - the close is saved beside the journal and the next boot opens the rungs closed until sl:paid:on (review OPS-1,
+     also with a switch file that is not a switch: closed)
    - sl:paid:on: the sl row is open again and the empty old rows are gone; refused while stopping (a SIGINT) and when
      SL_PAID did not build the rungs, naming why
    - sl:door:off: free joins refused closed, a paid join still seated (C-1)
@@ -21,7 +23,8 @@
      never seated in the free room
    - SL_ENABLED=0 with SL_PAID=1: no sl row of any kind, the old rows open, the boot says why (C-4)
    - a broken paid directory: unknown ['slpaid'], no sl paid row, the old rows open
-   - a crash of boot 1 journals the seat; boot 2 (scripts/dev-local.js, its in-memory database) writes the owed row
+   - a crash of boot 1 journals the seat and the floor gold beside it; boot 2 (scripts/dev-local.js, its in-memory
+     database) writes the owed row and books the floor to the house once as slither floor income (review MS-1)
    - on scripts/dev-local.js (review T5-R1, T5-R2): one throwing sim step closes a $0.50 room, its seat's owed row is
      written in dollars with its key and its floor is swept once per source wallet; a SIGINT with a $1 seat writes that
      seat's row through the installed handler; boot 2 replays both keyed closes
@@ -169,17 +172,26 @@ async function mint(port, wallet, stake) {
 
 // One /sl socket. A paid one (token) sends { paid: 1, stake, entryToken }; it steers its own snake toward the map
 // centre (grd, grd) from its first snake_add (snx, sny), so it never meets the border while the test needs it alive,
-// and sends an input every 200 ms (the hold's safety net needs upstream).
+// and sends an input every 200 ms (the hold's safety net needs upstream). It pings as their client does
+// (public/js/sl/slInput.js:257-265): one ping in flight, the next once its pong came back and PING_GAP_MS after the
+// last. The first version pinged only until its snake showed up: under a full suite's load one of those pings could
+// land after the seat, and a client that got a pong and then only steered looks to the send queue like a late
+// downstream (ackLate, C_ACK_LATE_MS), so nothing more was flushed to it, the kept {t: 'cashed'} included (review
+// ENG-1). gone: why the socket closed, for the assertion messages.
+const PING_GAP_MS = 250;
+const PING_LOST_MS = 2000; // a ping sent before the seat existed is never answered: ping again after this long
 function slSocket(io, port, auth, nick) {
   const s = io(`http://localhost:${port}/sl`, { transports: ['websocket'], forceNew: true, reconnection: false, timeout: 5000,
     auth });
-  const h = { s, nick, items: [], grd: null, own: null, q: null, beat: null };
+  const h = { s, nick, items: [], grd: null, own: null, q: null, beat: null, pingOut: false, pingAt: 0, gone: null };
+  s.on('disconnect', (why) => { h.gone = String(why); });
   s.on('sl:x', (list) => { for (const it of Array.isArray(list) ? list : []) h.items.push(it); });
   s.on('sl:f', (data) => {
     let evs = [];
     try { evs = W.decodeBundle(data instanceof Uint8Array ? data : new Uint8Array(data)); } catch (_) { return; }
     for (const ev of evs) {
-      if (ev.type === 'init') h.grd = ev.grd;
+      if (ev.type === 'pong') h.pingOut = false;
+      else if (ev.type === 'init') h.grd = ev.grd;
       else if (ev.type === 'snake_add' && !h.own && ev.nick === nick && h.grd !== null) {
         h.own = ev;
         const th = Math.atan2(h.grd - ev.sny, h.grd - ev.snx);
@@ -190,10 +202,19 @@ function slSocket(io, port, auth, nick) {
   });
   h.beat = setInterval(() => {
     if (!s.connected) return;
-    try { s.emit('sl:i', W.encodeInput([h.q === null ? { type: 'ping' } : { type: 'angle', q: h.q }])); } catch (_) {}
+    const recs = h.q === null ? [] : [{ type: 'angle', q: h.q }];
+    const now = Date.now();
+    if (now - h.pingAt >= (h.pingOut ? PING_LOST_MS : PING_GAP_MS)) {
+      recs.push({ type: 'ping' });
+      h.pingOut = true;
+      h.pingAt = now;
+    }
+    if (!recs.length) return;
+    try { s.emit('sl:i', W.encodeInput(recs)); } catch (_) {}
   }, 200);
   h.close = () => { clearInterval(h.beat); try { s.close(); } catch (_) {} };
-  h.item = (pred, ms) => until(() => h.items.find(pred), ms || 6000);
+  h.item = (pred, ms) => until(() => h.items.find(pred), ms || 15000);
+  h.seen = () => 'socket ' + (h.gone ? 'closed (' + h.gone + ')' : 'open') + ', last items ' + JSON.stringify(h.items.slice(-4));
   return new Promise((res, rej) => {
     const bail = setTimeout(() => rej(new Error('socket never connected')), 10000);
     s.on('connect', () => { clearTimeout(bail); res(h); });
@@ -235,7 +256,7 @@ test('SL_PAID=1, dev tokens: the whole lever matrix on one boot, each step readi
   const W1 = 'SlDevWa11et11111111111111111111111111111111';
   const p1 = await paidJoin(io, port, await mint(port, W1), 'payone', socks);
   assert.deepStrictEqual(p1.first, { t: 'room', stake: 0.5, cut: 10 });
-  await until(() => p1.h.q !== null, 4000);
+  await until(() => p1.h.q !== null, 15000);
   lb = board(await live(port), 'seated');
   assert.deepStrictEqual(slPaidRows(lb), [['sl:na:s0.5', 'open', 1], ['sl:na:s1', 'open', 0]]);
   assert.strictEqual(lb.counts.snake >= 1, true, 'the card counts the paid seat');
@@ -256,25 +277,33 @@ test('SL_PAID=1, dev tokens: the whole lever matrix on one boot, each step readi
   const off = await ownerDo(port, 'sl:paid:off');
   assert.strictEqual(off.status, 200, off.body);
   assert.match(off.text, /closed/i);
+  // the close outlives a restart (review OPS-1): saved beside the journal, said in the answer, shown on the owner page
+  const switchFile = path.join(b.dir, 'sl-paid-switch.json');
+  assert.ok(fs.existsSync(switchFile), 'the close is saved');
+  assert.match(off.text, /stays closed across restarts and deploys until you press Open/);
+  assert.deepStrictEqual(JSON.parse(off.body).state.slPaid, { enabled: true, open: false, stopping: false, saved: true });
   const W2 = 'SlDevWa11et22222222222222222222222222222222';
   const p2 = await paidJoin(io, port, await mint(port, W2), 'paytwo', socks);
   assert.deepStrictEqual(p2.first, { t: 'refused', why: 'not-open', refunded: 500000 });
-  await until(() => out.stdout.includes('[SLP] REFUND sent 500000 micro -> ' + W2.slice(0, 8)), 4000);
+  await until(() => out.stdout.includes('[SLP] REFUND sent 500000 micro -> ' + W2.slice(0, 8)), 15000);
   assert.strictEqual(count(out.stdout, new RegExp('\\[SLP\\] REFUND ' + W2 + ' 500000 not-open', 'g')), 1, 'refunded once');
   lb = board(await live(port), 'switched off');
   assert.deepStrictEqual(slPaidRows(lb), [['sl:na:s0.5', 'closed', 1]], 'listed closed while its account is open');
   assert.deepStrictEqual(oldPaidRows(lb), [['snake:na:s0.5', 'open'], ['snake:na:s1', 'open']]);
 
-  // The seated player still holds Q and is paid 90/10.
+  // The seated player still holds Q and is paid 90/10. The server's own order line first (the money moved), then the
+  // seat's kept message; a full suite's load slows both, so the waits are long and a miss says what the socket saw.
   p1.h.s.emit('sl:hold', { on: 1 });
-  const cashed = await p1.h.item((x) => x.t === 'cashed' || x.t === 'lost', 8000);
-  assert.ok(cashed, 'the hold finished');
+  const ordered = await until(() => out.stdout.includes('[SLP] CASHOUT-ORDER '), 30000, 100);
+  assert.ok(ordered, 'the hold reached the cash-out order: ' + p1.h.seen() + '\n' + out.stderr.slice(-800));
+  const cashed = await p1.h.item((x) => x.t === 'cashed' || x.t === 'lost', 20000);
+  assert.ok(cashed, 'the hold finished: ' + p1.h.seen());
   assert.deepStrictEqual([cashed.t, cashed.gross, cashed.cut, cashed.net], ['cashed', 500000, 50000, 450000]);
   assert.match(cashed.cid, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
   const sent = await until(async () => {
     const r = await get(`http://localhost:${port}/api/sl/cashout/${cashed.cid}`);
     return r.status === 200 && JSON.parse(r.body).state === 'sent' ? r : null;
-  }, 5000, 200);
+  }, 15000, 200);
   assert.ok(sent, 'GET /api/sl/cashout/:cid says sent');
   assert.strictEqual((await get(`http://localhost:${port}/api/sl/cashout/${cashed.cid.toUpperCase()}`)).status, 404, 'not lowercase');
   assert.strictEqual((await get(`http://localhost:${port}/api/sl/cashout/not-a-uuid`)).status, 404);
@@ -290,6 +319,8 @@ test('SL_PAID=1, dev tokens: the whole lever matrix on one boot, each step readi
   // sl:paid:on: the sl rows are open again and the empty old rows are gone.
   const on = await ownerDo(port, 'sl:paid:on');
   assert.strictEqual(on.status, 200, on.body);
+  assert.ok(!fs.existsSync(switchFile), 'the saved close is gone');
+  assert.deepStrictEqual(JSON.parse(on.body).state.slPaid, { enabled: true, open: true, stopping: false, saved: false });
   lb = board(await live(port), 'switched on');
   assert.deepStrictEqual(slPaidRows(lb), [['sl:na:s0.5', 'open', 0], ['sl:na:s1', 'open', 0]]);
   assert.deepStrictEqual(oldPaidRows(lb), []);
@@ -314,7 +345,7 @@ test('SL_PAID=1, dev tokens: the whole lever matrix on one boot, each step readi
   assert.strictEqual((await ownerDo(port, 'maintenance:on', { message: 'smoke' })).status, 200);
   const p4 = await paidJoin(io, port, tok4, 'payfour', socks);
   assert.deepStrictEqual(p4.first, { t: 'refused', why: 'maintenance', refunded: 500000 });
-  await until(() => out.stdout.includes('[SLP] REFUND sent 500000 micro -> ' + W4.slice(0, 8)), 4000);
+  await until(() => out.stdout.includes('[SLP] REFUND sent 500000 micro -> ' + W4.slice(0, 8)), 15000);
   assert.strictEqual(count(out.stdout, new RegExp('\\[SLP\\] REFUND ' + W4 + ' 500000 maintenance', 'g')), 1);
   chk = await ownerDo(port, 'maintenance:check');
   assert.match(chk.text, /1 player is still in a paid game/);
@@ -324,7 +355,7 @@ test('SL_PAID=1, dev tokens: the whole lever matrix on one boot, each step readi
   assert.strictEqual((await ownerDo(port, 'maintenance:off')).status, 200);
 
   // A dropped seat glides: players and parked count it (rule 4b), then it dies and its gold lies on the floor.
-  await until(() => p3.h.q !== null, 4000);
+  await until(() => p3.h.q !== null, 15000);
   p3.h.close();
   const parked = await until(async () => {
     const x = await live(port);
@@ -338,7 +369,7 @@ test('SL_PAID=1, dev tokens: the whole lever matrix on one boot, each step readi
     const x = await live(port);
     const row = x.lobbies.find((l) => l.id === 'sl:na:s0.5');
     return row && row.players === 0 ? x : null;
-  }, 9000, 250);
+  }, 20000, 250);
   assert.ok(dead, 'the glide ended in a death');
   board(dead, 'gold on the floor');
   chk = await ownerDo(port, 'maintenance:check');
@@ -350,7 +381,7 @@ test('SL_PAID=1, dev tokens: the whole lever matrix on one boot, each step readi
 
   // A SIGINT (the shutdown settle): stopping. sl:paid:on is refused naming why; the sl rows are gone, the old rows open.
   fs.writeFileSync(path.join(b.dir, 'sigint'), '');
-  assert.ok(await until(() => out.stderr.includes('[SLP] SHUTDOWN-FLOOR '), 5000), 'the floor is booked at the shutdown\n' +
+  assert.ok(await until(() => out.stderr.includes('[SLP] SHUTDOWN-FLOOR '), 15000), 'the floor is booked at the shutdown\n' +
     out.stderr.slice(-800));
   const again = await ownerDo(port, 'sl:paid:on');
   assert.notStrictEqual(again.status, 200);
@@ -367,7 +398,57 @@ test('SL_PAID=1, dev tokens: the whole lever matrix on one boot, each step readi
     .map((x) => x.outcome);
   assert.deepStrictEqual(closeOf(W1), ['cashedout']);
   assert.deepStrictEqual(closeOf(W3), ['died']);
+  // the cash-out's close carries its order and the payout's answer follows it (review MS-2): a close with no payout
+  // record at the next boot is flagged CASHOUT-UNCONFIRMED-AT-BOOT
+  const jid1 = opens.find((o) => o.wallet === W1).jid;
+  const cashClose = recs.find((x) => x.t === 'close' && x.jid === jid1);
+  assert.deepStrictEqual([cashClose.cashoutId, cashClose.grossMicro, cashClose.netMicro, cashClose.awaitPayout],
+    [cashed.cid, 500000, 450000, 1]);
+  assert.deepStrictEqual(recs.filter((x) => x.t === 'payout').map((x) => [x.jid, x.cashoutId, x.state, x.room]),
+    [[jid1, cashed.cid, 'sent', 'sl_na_s0_5']]);
+  assert.ok(out.stdout.includes('[SLP] CASHOUT-ORDER ' + cashed.cid + ' 500000 sl_na_s0_5 journal ' + jid1 + ' wallet ' + W1));
+  // the gold W3 left on the floor at the SIGINT is journaled for the next boot to book (review MS-1)
+  const floors = recs.filter((x) => x.t === 'floor');
+  assert.deepStrictEqual(floors.map((x) => [x.room, x.why, x.micro, x.bySource.map((s) => s.srcWallet)]),
+    [['sl_na_s0_5', 'shutdown', Math.round(floor * 1e6), [W3]]]);
   assert.ok(!/is not a function|TypeError|ReferenceError/.test(out.stderr), 'no wiring error\n' + out.stderr.slice(-800));
+});
+
+/* Review OPS-1: the owner's sl:paid:off is saved beside the money journal, so the boot after it (a deploy's restart)
+   opens the rungs CLOSED: no sl paid row, the old rows open, a paid /sl join refunded not-open, the owner page saying
+   so; sl:paid:on reopens and forgets it. A switch file that is not a switch fails closed too. */
+test('a saved sl:paid:off outlives the restart: the next boot opens the paid rungs closed until sl:paid:on', { timeout: 120000 }, async (t) => {
+  const io = requireClient(t);
+  if (!io) return;
+  for (const [what, text] of [['saved close', '{"open":false,"at":"2026-10-15T00:00:00.000Z"}\n'], ['not a switch', 'garbage']]) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'slpswitch-'));
+    const switchFile = path.join(dir, 'sl-paid-switch.json');
+    fs.writeFileSync(switchFile, text);
+    const { srv, port, out } = await boot({ SL_PAID: '1' }, { journal: path.join(dir, 'ag-money-journal.log') });
+    const socks = [];
+    t.after(() => {
+      for (const h of socks) h.close();
+      try { srv.kill('SIGKILL'); } catch (_) {}
+    });
+    assert.ok(out.stdout.includes('[SLP] paid snake on the new engine on'), what + ': the rungs are built');
+    assert.ok(out.stderr.includes('[SLP] paid door CLOSED at boot (' + (what === 'saved close' ? 'owner' : 'unreadable') +
+      ')'), what + ': the boot says why\n' + out.stderr.slice(-800));
+    let lb = board(await live(port), what);
+    assert.deepStrictEqual(slPaidRows(lb), [], what + ': no sl paid row');
+    assert.deepStrictEqual(oldPaidRows(lb), [['snake:na:s0.5', 'open'], ['snake:na:s1', 'open']], what);
+    const st = JSON.parse((await post(`http://localhost:${port}/api/owner/state`, ownerProof('state', {}))).body);
+    assert.deepStrictEqual(st.slPaid, { enabled: true, open: false, stopping: false, saved: true }, what);
+    const W = 'SlDevWa11etSaved' + (what === 'saved close' ? 'A' : 'B') + '11111111111111111111111111';
+    const p = await paidJoin(io, port, await mint(port, W), 'savedpay', socks);
+    assert.deepStrictEqual(p.first, { t: 'refused', why: 'not-open', refunded: 500000 }, what);
+    const on = await ownerDo(port, 'sl:paid:on');
+    assert.strictEqual(on.status, 200, on.body);
+    assert.ok(!fs.existsSync(switchFile), what + ': sl:paid:on forgets the close');
+    lb = board(await live(port), what + ' reopened');
+    assert.deepStrictEqual(slPaidRows(lb), [['sl:na:s0.5', 'open', 0], ['sl:na:s1', 'open', 0]], what);
+    for (const h of socks) h.close();
+    try { srv.kill('SIGKILL'); } catch (_) {}
+  }
 });
 
 /* The switch-on (T9): production env is only the box's .env, so the paid rungs are ON when SL_PAID is unset or
@@ -417,7 +498,7 @@ test('SL_PAID 0 or a typo: no sl paid row, the old rows open, a paid socket refu
     const W = 'SlDevWa11etOff' + String(value).replace(/\W/g, '') + '1111111111111111111111111';
     const p = await paidJoin(io, port, await mint(port, W), 'offpay', socks);
     assert.deepStrictEqual(p.first, { t: 'refused', why: 'not-open', refunded: 500000 }, name);
-    await until(() => out.stdout.includes('[SLP] REFUND sent 500000 micro -> ' + W.slice(0, 8)), 4000);
+    await until(() => out.stdout.includes('[SLP] REFUND sent 500000 micro -> ' + W.slice(0, 8)), 15000);
     assert.strictEqual(count(out.stdout, new RegExp('\\[SLP\\] REFUND ' + W + ' 500000 not-open', 'g')), 1, name + ': once');
     lb = board(await live(port), name + ' after the refusal');
     assert.strictEqual(lb.lobbies.find((l) => l.id === 'sl:na:s0').players, 0, name + ': never seated in the free room');
@@ -456,7 +537,7 @@ test('a broken paid directory: /api/live says unknown slpaid, lists no sl paid r
   assert.ok(out.stderr.includes('[LIVE] sl paid rows test fault'), 'and the fault is logged');
 });
 
-test('a crash of boot 1 journals the seated balance; boot 2 replays it into one owed row', { timeout: 120000 }, async (t) => {
+test('a crash of boot 1 journals the seated balance and the floor gold; boot 2 owes the row and books the floor once', { timeout: 120000 }, async (t) => {
   const io = requireClient(t);
   if (!io) return;
   const one = await boot({ SL_PAID: '1' });
@@ -468,12 +549,30 @@ test('a crash of boot 1 journals the seated balance; boot 2 replays it into one 
   const WC = 'SlDevWa11etCrash111111111111111111111111111';
   const p = await paidJoin(io, one.port, await mint(one.port, WC), 'crashme', socks);
   assert.deepStrictEqual(p.first, { t: 'room', stake: 0.5, cut: 10 });
+  // F's whole $0.50 lies on the same floor as gold at the crash: seated, dropped, glided, died.
+  const WF = 'SlDevWa11etCrashFloor1111111111111111111111';
+  const pf = await paidJoin(io, one.port, await mint(one.port, WF), 'crashfloor', socks);
+  assert.deepStrictEqual(pf.first, { t: 'room', stake: 0.5, cut: 10 });
+  await until(() => pf.h.q !== null, 15000);
+  pf.h.close();
+  const died = await until(async () => {
+    const row = (await live(one.port)).lobbies.find((l) => l.id === 'sl:na:s0.5');
+    return row && row.players === 1 ? row : null;
+  }, 20000, 250);
+  assert.ok(died, 'F glided and died, its gold on the floor');
   fs.writeFileSync(path.join(one.dir, 'crash'), '');
   assert.ok(await until(() => one.srv.exitCode !== null, 10000), 'boot 1 died');
   assert.match(one.out.stderr, new RegExp('\\[AG\\] CRASH-OWED ' + WC + ' 500000 micro refund slither crash sl_na_s0_5 agowed:'));
   const recs = fs.readFileSync(one.journal, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
-  const close = recs.find((r) => r.t === 'close');
+  const close = recs.find((r) => r.t === 'close' && r.outcome === 'refunded');
   assert.deepStrictEqual([close.outcome, close.why, close.wallet, close.micro], ['refunded', 'crash', WC, 500000]);
+  // Owen's answer of 2026-10-14 (review MS-1): floor gold at a crash is the house's, so it is journaled, not only logged.
+  assert.match(one.out.stderr, /\[SLP\] SHUTDOWN-FLOOR 500000 sl_na_s0_5/);
+  const floors = recs.filter((r) => r.t === 'floor');
+  assert.strictEqual(floors.length, 1, 'one floor record');
+  assert.match(floors[0].key, /^slfloor:[0-9a-f-]{36}$/);
+  assert.deepStrictEqual([floors[0].room, floors[0].why, floors[0].micro, floors[0].bySource],
+    ['sl_na_s0_5', 'crash', 500000, [{ srcWallet: WF, srcName: 'crashfloor', micro: 500000 }]]);
   for (const h of socks) h.close();
   // boot 2: scripts/dev-local.js (the in-memory database, every outbound call refused) on the same journal path
   const two = await boot({ SL_PAID: '', SL_ENABLED: '' }, { script: 'scripts/dev-local.js', preload: false, journal: one.journal });
@@ -481,10 +580,20 @@ test('a crash of boot 1 journals the seated balance; boot 2 replays it into one 
   const done = await until(() => /\[AG\] JOURNAL replay \{[^\n]*\}/.exec(two.out.stdout), 15000, 200);
   assert.ok(done, 'the boot replayed the journal\n' + two.out.stdout.slice(-1500));
   const sum = JSON.parse(done[0].slice('[AG] JOURNAL replay '.length));
-  assert.deepStrictEqual([sum.files, sum.owed, sum.existed, sum.failed, sum.unsettled], [1, 1, 0, 0, 0]);
+  assert.deepStrictEqual([sum.files, sum.owed, sum.existed, sum.failed, sum.unsettled, sum.floors, sum.floorMicro],
+    [1, 1, 0, 0, 0, 1, 500000]);
   assert.ok(two.out.stderr.includes('[AG] JOURNAL owed ' + WC + ' 500000 micro ' + close.reason), 'the owed row\n' +
     two.out.stderr.slice(-800));
-  assert.ok(fs.readdirSync(path.dirname(one.journal)).some((n) => n.endsWith('.done')), 'the replay file is done');
+  // the floor booked once as slither floor income, through slPayout.sweepFloor (its rake sweep only logs here)
+  assert.strictEqual(count(two.out.stdout, new RegExp('\\[SLP\\] SWEEP sl_na_s0_5 crash 500000 ' + WF, 'g')), 1,
+    'one sweep for the one source wallet\n' + two.out.stdout.slice(-800));
+  assert.strictEqual(count(two.out.stdout, /\[SLP\] DEV earning slither_floor 0\.5 \(sl_na_s0_5\) not recorded/g), 1);
+  const dir = path.dirname(one.journal);
+  const doneFile = fs.readdirSync(dir).find((n) => n.endsWith('.done'));
+  assert.ok(doneFile, 'the replay file is done');
+  const marks = fs.readFileSync(path.join(dir, doneFile), 'utf8').trim().split('\n').map((l) => JSON.parse(l))
+    .filter((r) => r.t === 'booked');
+  assert.deepStrictEqual(marks.map((r) => r.key), [floors[0].key], 'marked booked in the file before it was booked');
 });
 
 // The owed rows in dev-local's in-memory database (scripts/memLedgerDb.js keeps the key in stake_sig), through the
@@ -516,12 +625,12 @@ test('dev-local, SL_PAID=1: an emergency close and a SIGINT with a seat write th
   const WB = 'SlDevWa11etFloor11111111111111111111111111';
   const pb = await paidJoin(io, port, await mint(port, WB), 'payfloor', socks);
   assert.deepStrictEqual(pb.first, { t: 'room', stake: 0.5, cut: 10 });
-  await until(() => pb.h.q !== null, 4000);
+  await until(() => pb.h.q !== null, 15000);
   pb.h.close();
   const dead = await until(async () => {
     const row = (await live(port)).lobbies.find((l) => l.id === 'sl:na:s0.5');
     return row && row.players === 0 ? row : null;
-  }, 12000, 250);
+  }, 20000, 250);
   assert.ok(dead, 'the dropped seat died');
 
   // A seated in the same $0.50 room, D in the $1 room.
@@ -531,12 +640,12 @@ test('dev-local, SL_PAID=1: an emergency close and a SIGINT with a seat write th
   const WD = 'SlDevWa11etStop111111111111111111111111111';
   const pd = await paidJoin(io, port, await mint(port, WD, 1), 'paystop', socks, 1);
   assert.deepStrictEqual(pd.first, { t: 'room', stake: 1, cut: 10 });
-  await until(() => pa.h.q !== null && pd.h.q !== null, 4000);
+  await until(() => pa.h.q !== null && pd.h.q !== null, 15000);
 
   // One throwing sim step in the $0.50 room: A refunded 100% of the current balance through the owed lane, the floor
   // swept to the house through slPayout.sweepFloor once per source wallet.
   fs.writeFileSync(path.join(one.dir, 'stepfault'), 'sl_na_s0_5');
-  const closedA = await pa.h.item((x) => x.t === 'closed', 6000);
+  const closedA = await pa.h.item((x) => x.t === 'closed', 15000);
   assert.ok(closedA, 'the seat is told closed\n' + out.stderr.slice(-800));
   assert.strictEqual(closedA.why, 'emergency');
   const RA = closedA.refunded;

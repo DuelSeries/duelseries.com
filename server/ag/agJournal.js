@@ -8,7 +8,14 @@
 //                                   carry none, so agar's records are as before)
 //   close  when it closes          { t, jid, outcome, why, room, at } and, for a refund whose why is an owed why
 //                                   (OWED_WHYS) and that carries a key, the owed row itself: { key, wallet, name,
-//                                   micro, reason }
+//                                   micro, reason }; for a paid snake's cash-out (its close says awaitPayout) the
+//                                   order too: { cashoutId, grossMicro, netMicro, awaitPayout: 1 }
+//   payout when that cash-out's    { t, jid, cashoutId, state ('sent', or 'failed': its failed_payouts row was
+//          payout answered          written for the drainer), room, at }
+//   floor  paid snake's floor gold { t, key ('slfloor:<uuid>'), room, why ('shutdown' or 'crash'), micro, bySource:
+//          at a restart or crash    [{ srcWallet, srcName, micro }], boot, at }: Owen's answer of 2026-10-14 (the house
+//                                   keeps it, booked as slither floor income), with no time to book it in the exit window
+//   booked written into a REPLAY file by the replay, just before it books that file's floor record: { t, key, at }
 //
 // At the next boot the file is renamed out of the way at once (rotate), then, once the database is up (replay):
 //   - every owed close (a shutdown or crash; for paid snake also an emergency or orphan refund, written by the room
@@ -18,10 +25,25 @@
 //   - every account opened with no close at all (the process was killed: SIGKILL, out of memory, the box stopped) is
 //     flagged UNSETTLED to Owen with its wallet and deposit (and its stakeSig when the open had one) in the server log,
 //     never paid automatically: its balance at the kill is not known, and it may have been eaten by a player who has
-//     since cashed out.
-// A replay file whose owed rows all went through is renamed to .done (kept for Owen); one that did not stays and is
-// replayed at the next boot. The journal never throws into a money path: a failed write is logged and the money
-// moves on exactly as before.
+//     since cashed out;
+//   - every floor record is booked to the house once through bookFloor (the server: slPayout.sweepFloor per source
+//     wallet, slither_floor plus the rake sweep), once the file's owed rows all went through (a database that refused
+//     a player's refund books no house income from that file either). The replay first writes a booked record for its
+//     key into the replay file itself, so a file kept for another reason never books the same floor twice; a marker it
+//     cannot write books nothing and keeps the file;
+//   - every paid snake cash-out whose close awaited a payout record and has none (the process died while its payout
+//     was in flight: the transfer may or may not have gone out) is flagged CASHOUT-UNCONFIRMED-AT-BOOT to Owen with
+//     its wallet, net, gross and cashoutId, never paid automatically.
+// A replay file whose owed rows all went through and whose floors are booked is renamed to .done (kept for Owen); one
+// that did not stays and is replayed at the next boot. The summary's keys for floors and unconfirmed cash-outs appear
+// only when they count something, so agar's summary is as before. The journal never throws into a money path: a
+// failed write is logged and the money moves on exactly as before.
+//
+// REVERT NOTE (PAID-SL-DESIGN.md 10, the Revert lever): a build that predates paid snake knows none of the emergency,
+// orphan, floor or payout records. Rolling paid snake back while a .replay file holds any of them would drop those
+// refunds and that floor income without a word, so either keep THIS file when reverting the feature commits (agar's
+// records and replay output are the same with it; a build that books no floor keeps such a file and says so), or first
+// boot this build once with the database up and check that every ag-money-journal.log.*.replay was renamed to .done.
 //
 // CHOSEN (PARITY-LOG): the file is server/data/ag-money-journal.log (server/data/ is gitignored, and the deploy's
 // `git reset --hard` keeps untracked files), or AG_JOURNAL_PATH; it is rotated at every boot (each record is about
@@ -34,6 +56,9 @@ const DEFAULT_FILE = path.join(__dirname, '..', 'data', 'ag-money-journal.log');
 // The refund whys a keyed close carries an owed row for. 'emergency' and 'orphan' are paid snake's owed lane (server/
 // slPaid/slMoney.js _refundOwed); a close needs a key too, and agar's emergency close passes none.
 const OWED_WHYS = Object.freeze(['shutdown', 'crash', 'emergency', 'orphan']);
+const FLOOR_KEY_RE = /^slfloor:[0-9a-f-]{36}$/;
+const PAYOUT_STATES = Object.freeze(['sent', 'failed']);
+const isMicro = (v) => Number.isSafeInteger(v) && v > 0;
 
 function createAgJournal({ file = DEFAULT_FILE, bootId = '', log = console, now = Date.now, fsx = fs } = {}) {
   const dir = path.dirname(file);
@@ -76,7 +101,34 @@ function createAgJournal({ file = DEFAULT_FILE, bootId = '', log = console, now 
       rec.micro = Number.isSafeInteger(x.refundedMicro) ? x.refundedMicro : 0;
       rec.reason = String(x.reason || ('refund agar ' + x.why + ' ' + x.key));
     }
+    // a paid snake's cash-out: the order a hand reconcile needs, and the promise of a payout record (agar's cash-out
+    // closes ask for none, so they are as before)
+    if (outcome === 'cashedout' && x.awaitPayout === true && typeof x.cashoutId === 'string') {
+      rec.cashoutId = x.cashoutId;
+      rec.grossMicro = Number.isSafeInteger(x.grossMicro) ? x.grossMicro : 0;
+      rec.netMicro = Number.isSafeInteger(x.netMicro) ? x.netMicro : 0;
+      rec.awaitPayout = 1;
+    }
     return append(rec);
+  }
+
+  // A paid snake cash-out's payout answered (state 'sent', or 'failed' once its failed_payouts row was written).
+  function payout(jid, cashoutId, state, room) {
+    if (typeof jid !== 'string' || !jid || typeof cashoutId !== 'string' || !PAYOUT_STATES.includes(state)) return false;
+    return append({ t: 'payout', jid, cashoutId, state, room: String(room || ''), at: now() });
+  }
+
+  // Paid snake's floor gold at a planned restart or a crash: { key, room, why, micro, bySource }, the sources adding
+  // up to micro. Written synchronously like every record; the next boot's replay books it to the house once.
+  function floor(rec) {
+    const r = rec || {};
+    if (typeof r.key !== 'string' || !FLOOR_KEY_RE.test(r.key) || !isMicro(r.micro) || !Array.isArray(r.bySource)) {
+      return false;
+    }
+    const bySource = r.bySource.map((s) => ({ srcWallet: s && s.srcWallet != null ? String(s.srcWallet) : null,
+      srcName: String((s && s.srcName) || ''), micro: s ? s.micro : 0 }));
+    return append({ t: 'floor', key: r.key, room: String(r.room || ''), why: String(r.why || ''), micro: r.micro,
+      bySource, boot: bootId, at: now() });
   }
 
   function replayFiles() {
@@ -102,7 +154,9 @@ function createAgJournal({ file = DEFAULT_FILE, bootId = '', log = console, now 
   }
 
   function parse(text) {
-    const accounts = new Map();   // jid -> { open, close }
+    const accounts = new Map();   // jid -> { open, close, payout }
+    const floors = new Map();     // key -> the floor record
+    const booked = new Set();     // floor keys an earlier replay of this file already booked
     let bad = 0;
     for (const line of String(text).split('\n')) {
       if (!line.trim()) continue;
@@ -113,19 +167,63 @@ function createAgJournal({ file = DEFAULT_FILE, bootId = '', log = console, now 
         bad++;   // a line the kill cut in half
         continue;
       }
-      if (!r || typeof r.jid !== 'string') continue;
-      const a = accounts.get(r.jid) || { open: null, close: null };
+      if (!r) continue;
+      if (r.t === 'floor' && typeof r.key === 'string') {
+        if (!floors.has(r.key)) floors.set(r.key, r);
+        continue;
+      }
+      if (r.t === 'booked' && typeof r.key === 'string') {
+        booked.add(r.key);
+        continue;
+      }
+      if (typeof r.jid !== 'string') continue;
+      const a = accounts.get(r.jid) || { open: null, close: null, payout: null };
       if (r.t === 'open') a.open = r;
       else if (r.t === 'close') a.close = r;
+      else if (r.t === 'payout') a.payout = r;
       accounts.set(r.jid, a);
     }
-    return { accounts, bad };
+    return { accounts, floors, booked, bad };
   }
 
-  // writeOwedOnce({ key, wallet, name, micro, reason }) -> promise of 'owed' | 'exists'; alert(info): the owner push
-  // (no wallets); returns a summary.
-  async function replay({ writeOwedOnce, alert = () => {} } = {}) {
+  // One floor record of replay file f to the house: the booked marker into f FIRST (a file replayed again, kept for a
+  // failed owed row, then skips this key), then bookFloor. false keeps the file for the next boot (nothing booked).
+  function bookFloorOnce(f, rec, bookFloor) {
+    const sum = Array.isArray(rec.bySource) ? rec.bySource.reduce((t, s) => t + (s && isMicro(s.micro) ? s.micro : 0), 0) : 0;
+    if (!FLOOR_KEY_RE.test(rec.key) || !isMicro(rec.micro) || sum !== rec.micro) {
+      log.error('[AG] JOURNAL CRITICAL floor record ' + rec.key + ' of ' + rec.micro + ' micro (' + rec.room + ') does not ' +
+        'add up (sources ' + sum + '): not booked, the file is kept for Owen');
+      return false;
+    }
+    if (typeof bookFloor !== 'function') {
+      log.error('[AG] JOURNAL floor ' + rec.micro + ' micro ' + rec.room + ' ' + rec.key + ' not booked: this build books ' +
+        'no paid snake floor; the file is kept');
+      return false;
+    }
+    try {
+      fsx.appendFileSync(f, JSON.stringify({ t: 'booked', key: rec.key, at: now() }) + '\n');
+    } catch (e) {
+      log.error('[AG] JOURNAL CRITICAL floor ' + rec.key + ' not booked, its marker could not be written (kept for the ' +
+        'next boot): ' + (e && e.message));
+      return false;
+    }
+    try {
+      bookFloor(rec);
+      log.warn('[AG] JOURNAL floor ' + rec.micro + ' micro ' + rec.room + ' ' + rec.key + ' booked to the house (' +
+        rec.why + ')');
+    } catch (e) {
+      // marked booked already: never tried again, so never booked twice; Owen books it by hand from this line
+      log.error('[AG] JOURNAL CRITICAL floor ' + rec.micro + ' micro ' + rec.room + ' ' + rec.key + ' marked booked but ' +
+        'its booking threw, book it by hand: ' + (e && e.message));
+    }
+    return true;
+  }
+
+  // writeOwedOnce({ key, wallet, name, micro, reason }) -> promise of 'owed' | 'exists'; bookFloor(rec): a floor record
+  // to the house, synchronous, called at most once per key; alert(info): the owner push (no wallets); returns a summary.
+  async function replay({ writeOwedOnce, bookFloor, alert = () => {} } = {}) {
     const out = { files: 0, owed: 0, existed: 0, failed: 0, unsettled: 0, unsettledMicro: 0 };
+    const more = { floors: 0, floorMicro: 0, unconfirmed: 0, unconfirmedMicro: 0 };
     for (const f of replayFiles()) {
       out.files++;
       let text = '';
@@ -136,7 +234,7 @@ function createAgJournal({ file = DEFAULT_FILE, bootId = '', log = console, now 
         out.failed++;
         continue;
       }
-      const { accounts, bad } = parse(text);
+      const { accounts, floors, booked, bad } = parse(text);
       if (bad) log.warn('[AG] JOURNAL ' + path.basename(f) + ': ' + bad + ' unreadable line(s) skipped');
       let failed = 0;
       for (const a of accounts.values()) {
@@ -164,6 +262,27 @@ function createAgJournal({ file = DEFAULT_FILE, bootId = '', log = console, now 
           log.error('[AG] UNSETTLED-AT-BOOT ' + a.open.wallet + ' deposit ' + a.open.micro + ' micro room ' +
             a.open.room + ' journal ' + a.open.jid + sig +
             ' (the server was killed with this paid balance open; pay by hand)');
+        } else if (c && c.outcome === 'cashedout' && c.awaitPayout === 1 && !a.payout) {
+          const net = Number.isSafeInteger(c.netMicro) ? c.netMicro : 0;
+          more.unconfirmed++;
+          more.unconfirmedMicro += net;
+          log.error('[AG] CASHOUT-UNCONFIRMED-AT-BOOT ' + (a.open ? a.open.wallet : '?') + ' net ' + net + ' micro gross ' +
+            c.grossMicro + ' cashout ' + c.cashoutId + ' room ' + c.room + ' journal ' + c.jid +
+            ' (the server stopped while this payout was in flight; look for the transfer on chain before paying by hand)');
+        }
+      }
+      // the floor after the file's owed rows went through: a database that refused a player's refund this boot books
+      // no house income from the same file either (the file is kept, and both go at the next boot)
+      for (const rec of floors.values()) {
+        if (booked.has(rec.key)) continue;
+        if (failed) {
+          failed++;
+          log.warn('[AG] JOURNAL floor ' + rec.micro + ' micro ' + rec.room + ' ' + rec.key + ' waits for the owed rows of its file');
+        } else if (bookFloorOnce(f, rec, bookFloor)) {
+          more.floors++;
+          more.floorMicro += rec.micro;
+        } else {
+          failed++;
         }
       }
       out.failed += failed;
@@ -182,11 +301,19 @@ function createAgJournal({ file = DEFAULT_FILE, bootId = '', log = console, now 
         log.error('[AG] JOURNAL alert', e && e.message);
       }
     }
+    if (more.unconfirmed) {
+      try {
+        alert({ kind: 'cashout-unconfirmed-at-boot', accounts: more.unconfirmed, totalMicro: more.unconfirmedMicro });
+      } catch (e) {
+        log.error('[AG] JOURNAL alert', e && e.message);
+      }
+    }
+    for (const k of Object.keys(more)) if (more[k]) out[k] = more[k];
     if (out.files) log.log('[AG] JOURNAL replay ' + JSON.stringify(out));
     return out;
   }
 
-  return { open, close, rotate, replay, replayFiles, file };
+  return { open, close, payout, floor, rotate, replay, replayFiles, file };
 }
 
 module.exports = { createAgJournal, DEFAULT_FILE };

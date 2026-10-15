@@ -532,6 +532,54 @@
     if (window.duelWalletRefresh) window.duelWalletRefresh();
   });
 
+  /* A paid snake left by a page that closed (PAID-SL-DESIGN.md 9, the reload
+     mark). The /sl page writes slxPaidCut to this tab's sessionStorage on its
+     way out with money in ('1') or with an entry it never sent ('2'), but it
+     reads the mark back only when the frame alone reloads. A reload or reopen of
+     the whole tab lands HERE, with no /sl page in the frame, so the lobby says
+     it once and takes the mark (review CLIENT-1). */
+  const CUT_KEY = 'slxPaidCut';
+  const CUT_TEXT = {
+    '1': 'Your paid snake was left when the page closed. Like any lost connection, it glided for 3 seconds, then ' +
+         'its money dropped as gold. If it never reached a room, your entry is refunded automatically.',
+    '2': 'The page closed before your paid game started. An entry that was never used goes back to your wallet ' +
+         'automatically within a few minutes.',
+  };
+  function paidLeftNotice() {
+    let mark = null;
+    try {
+      mark = sessionStorage.getItem(CUT_KEY);
+      sessionStorage.removeItem(CUT_KEY);
+    } catch (_) { return false; }
+    if (mark === null) return false;
+    toast(CUT_TEXT[mark === '2' ? '2' : '1']);
+    return true;
+  }
+
+  /* Leaving asks first while the frame holds a paid snake with money in (design
+     9, the exit trap; review CLIENT-2). The /sl page asks too. Chrome (measured
+     in the page proof) shows that ask once the tab has had any real click or
+     key, the Play click on this page included; a browser that counts only input
+     in the frame that asks would stay silent for a player who steers with the
+     mouse alone, so this page asks as well. With no real input at all no
+     browser asks, and the reload mark above says it on the lobby instead. Read
+     from the same-origin frame at the moment of leaving, never kept. */
+  function paidFrameLocked() {
+    const f = el('game-frame');
+    if (!f || f.style.display !== 'block') return false;
+    try {
+      const w = f.contentWindow;
+      const p = w && w.DuelSlither && w.DuelSlither.slx && w.DuelSlither.slx.paid;
+      return !!(p && p.on === true && typeof p.state === 'function' && p.state().locked === true);
+    } catch (_) { return false; }
+  }
+  window.addEventListener('beforeunload', e => {
+    if (!paidFrameLocked()) return undefined;
+    e.preventDefault();
+    e.returnValue = '';
+    return '';
+  });
+
   /* The widget shows the frame itself once a stake settles, so the lobby has to
      notice that rather than assume it did the showing. */
   const seen = new MutationObserver(() => {
@@ -542,6 +590,7 @@
       if (f) seen.observe(f, { attributes: true, attributeFilter: ['style', 'src'] }); });
     const input = el('play-name');
     if (input && !input.value) input.value = savedName();
+    paidLeftNotice();
   });
 
   window.V2Play = { enter: enter, playChosen: playChosen, spectate: spectate,
@@ -549,6 +598,7 @@
                     launch: launch, savedName: savedName, cleanName: cleanName,
                     nameAction: nameAction, nameEdit: nameEdit, pullName: pullName,
                     toast: toast, toastOk: toastOk,
+                    paidLeftNotice: paidLeftNotice, paidFrameLocked: paidFrameLocked,
                     pushName: pushName,
                     nameWhy: r => WHY[r] || ('Could not save your name (' + r + ').') };
 
