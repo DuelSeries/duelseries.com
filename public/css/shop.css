@@ -39,11 +39,14 @@
   .sh-nm{font-size:14px}
 }
 
-/* Customize in every game: the Shop's skins sit in the chooser locked, with
-   their price, and Save turns into a dead Unlock button on one of them. */
-.ap-slot{position:relative}
+/* Customize in every game: the Shop's skins sit in the chooser locked, after
+   every free one, with their price, and Save turns into a dead Unlock button
+   on one of them. In the middle the screen-wide lock in v2.html (.ap-scrim,
+   .ap-seal) takes over from the small chip, which the reel fades out there.
+   (The slot is placed by v2.html's reel; nothing here may set its position.) */
 .ap-slot.locked canvas{filter:saturate(.5) brightness(.8)}
 .ap-slot.locked.mid canvas{filter:none}
+.ap-lock:empty{display:none}
 .ap-lock{position:absolute;right:0;top:50%;transform:translateY(-50%);display:inline-flex;align-items:center;gap:6px;
   padding:6px 11px;border-radius:var(--rf);background:rgba(16,14,11,.88);color:var(--money);
   font:600 14px var(--fm);font-variant-numeric:tabular-nums;pointer-events:none}

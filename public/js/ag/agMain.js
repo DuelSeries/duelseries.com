@@ -933,12 +933,20 @@
     // A paid hand-off connects with auth { paid: 1 } (the server keeps it seatless, never a free watcher) and joins
     // through the paid door on every connect (agPaid).
     // A hand-off that already ended at boot (a reload cut its token join off) needs no socket.
+    // The free skin picked in the lobby's Customize (shared/agSkins.js, stored under duel.ag.skin) rides the same
+    // handshake as auth.skin; the server takes only a listed id and deals a colour as before for anything else.
+    // Cosmetic only: no money path reads it.
+    var auth = flow ? { paid: 1 } : {};
+    try {
+      var skinId = win.localStorage ? win.localStorage.getItem('duel.ag.skin') : null;
+      if (typeof skinId === 'string' && skinId && skinId.length <= 32) auth.skin = skinId;
+    } catch (e) { /* storage blocked: a dealt colour */ }
     if (cfg.net !== false && A.agNet && typeof win.io === 'function' && !(flow && flow.offline())) {
       var connectNow = function () {
         if (net || destroyed) return;
         net = A.agNet.connect(win.io, applyMessage, {
           url: cfg.url,
-          ioOptions: flow ? { auth: { paid: 1 } } : undefined,
+          ioOptions: flow || auth.skin ? { auth: auth } : undefined,
           onEvent: onSideEvent,
           onConnect: function () {
             var queued = { play: pending.play, spectate: pending.spectate };

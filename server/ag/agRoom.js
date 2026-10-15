@@ -45,6 +45,15 @@ const agBots = require('./agBots');
 const { createRng } = require('./agRng');
 const { TickTimer } = require('../tickTimer');
 const { AgMoney, AG_MONEY } = require('./agMoney');
+const agSkins = require('../../shared/agSkins');
+
+// The free skin a page asked for in its handshake (auth.skin, public/js/ag/agMain.js), as a colour from
+// shared/agSkins.js, or null (a dealt colour every life, as before). Only a listed id counts. Cosmetic: no money
+// path reads it.
+function skinOf(socket) {
+  const auth = socket && socket.handshake && socket.handshake.auth;
+  return auth ? agSkins.rgbOf(auth.skin) : null;
+}
 
 const ROOM_LAW_IDS = Object.freeze([
   'L1', 'L4', 'L37', 'L39', 'U_BOARD', 'U_SPECTATE', 'WIRE_BACKLOG', 'LEAVE_RULE', 'BOT_FILL',
@@ -348,7 +357,7 @@ class AgRoom {
     const had = this.seats.get(socket.id);
     if (had) return had;
     if (opts && opts.forPlay ? !this.hasSpace() : !this.hasWatchSpace()) return null;
-    const pid = this.sim.addPlayer({ name: '', bot: false });
+    const pid = this.sim.addPlayer({ name: '', bot: false, skin: skinOf(socket) });
     const seat = this._newSeat(socket, pid, !!(opts && opts.clearFirst));
     this._ensureTicking();
     return seat;
@@ -399,7 +408,7 @@ class AgRoom {
     const pt = this.sim.findSpawnPoint(this.sim.startSize(), AG_MONEY.SPAWN_CLEAR.value, AG_MONEY.SPAWN_TRIES.value);
     if (!pt) return 'no-room';
     const name = typeof e.name === 'string' ? e.name : '';
-    const pid = this.sim.addPlayer({ name, bot: false });
+    const pid = this.sim.addPlayer({ name, bot: false, skin: skinOf(socket) });
     const seat = this._newSeat(socket, pid, true);
     seat.joined = true;
     seat.name = name;

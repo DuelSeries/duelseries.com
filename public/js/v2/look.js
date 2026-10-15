@@ -4,8 +4,8 @@
    them: public/js/sl/slSprites.js is loaded READ-ONLY before this file (it
    touches nothing at load), its setSkin gives a skin's stripe list and eye
    colours, and its buildSprites gives the 48px body discs every colour is
-   stamped with in play. What is simplified is the path (a still wave, not a
-   steered body) and the extras: no antenna, no boost glow.
+   stamped with in play. The motion is slither's own Change Skin screen (see
+   paint below); what is left out is the extras: no antenna, no boost glow.
 
    The skin list is the server's: cv 0 to 65 less the twelve picture skins,
    which stay off until Owen has looked at their files (server/sl/slBots.js
@@ -13,7 +13,9 @@
    plain colour by server/sl/slSockets.js skinOf, so nothing here can pick a
    skin the game would refuse.
 
-   Exposes window.V2Look = {skins, name(cv), paint(canvas, cv, cfg, t)}. */
+   Exposes window.V2Look = {skins, name(cv), paint(canvas, cv, cfg, t)}, t in
+   seconds and cfg {lenFrac, hFrac}: the most of the canvas width the whole
+   body may take, and the most of its height the swing may take. */
 (function (root) {
   'use strict';
   var SS = root.DuelSlither && root.DuelSlither.slSprites;
@@ -53,10 +55,24 @@
     return looks[key];
   }
 
-  /* Body circles sit about half a radius apart, as they do at a starting
-     size in play (slDrawSnake layCircles: six circles per 42-unit point at
-     sep 6, against a 14.5 radius). That is what sets how wide a stripe is. */
-  var GAP = 0.48;
+  /* slither's own Change Skin screen, read from their client
+     (slither-reference/beautified/game.js): csk.onclick builds 27 points 10
+     units apart with the head on the right, angle 0, and the frame loop's
+     choosing_skin branch sets every point's y each frame to
+       cos(j/4 + fr/19) * 15 * (1 - j/27)
+     with j counted from the TAIL and fr their frame clock (fr += vfr, vfr =
+     ms/8). So the tail swings 15 units, the head almost none, and the wave
+     runs head to tail at 6.58 radians a second. The snake itself never moves
+     or turns while choosing (the steering loop is skipped), so its eye angle
+     stays 0, straight ahead, and its pupils stay pushed forward by rex 1.66
+     (set in csk.onclick; the loop that would ease them is skipped too).
+     Circles: mct = 6 / (qsm * sep / 6) per point gap at their chooser sep
+     18.25 and qsm 1, so 1.973 circles per 10 units, against a 14.5 radius. */
+  var PTS = 27, GAP_U = 10, SWING = 15, RAD = 14.5, REX = 1.66;
+  var MCT = 6 / (18.25 / 6);
+  var LEN = (PTS - 1) * GAP_U;          // head centre to tail centre, 260
+  var RING = RAD * 52 / 32;             // komc, the outline, drawn at lsz*52/32
+  var MS_PER_FR = 8, FR_PER_RAD = 19;
 
   function paint(cv, skinCv, cfg, t) {
     if (!SS) return;
@@ -69,24 +85,26 @@
     var o = look(skinCv);
     var own = all[o.cv];
     var stripes = o.rbcs;
-    var r = cfg.radiusFrac != null ? w * cfg.radiusFrac : Math.min(w * 0.068, h * 0.13);
-    var spanX = w * cfg.spanFrac, amp = h * cfg.ampFrac;
-    var n = Math.max(8, Math.round(2 * spanX / (GAP * r)));
-    /* Head on the right at u=0, the wave travelling down to the tail, the
-       amplitude growing toward the tail: the old preview's swim, unchanged. */
+    /* Their shape at whatever size fits: k canvas pixels per slither unit. */
+    var lenFrac = cfg && cfg.lenFrac || 0.9, hFrac = cfg && cfg.hFrac || 0.9;
+    var k = Math.min(w * lenFrac / (LEN + 2 * RING), h * hFrac / (2 * (SWING + RING)));
+    var r = RAD * k;
+    var hx = w / 2 + LEN * k / 2, cy = h / 2;
+    var ph = (t || 0) * 1000 / MS_PER_FR / FR_PER_RAD;
+    var n = Math.floor((PTS - 1) * MCT) + 1;
     var xs = new Array(n), ys = new Array(n), an = new Array(n);
     for (var i = 0; i < n; i++) {
-      var u = i / (n - 1);
-      xs[i] = w / 2 + spanX * (1 - u * 2);
-      ys[i] = h / 2 + Math.sin(u * Math.PI * 1.4 - t * 2) * amp * (0.3 + u * 0.7);
+      var j = (PTS - 1) - i / MCT;                  // fractional point index, tail = 0
+      xs[i] = hx - (PTS - 1 - j) * GAP_U * k;
+      ys[i] = cy + Math.cos(j / 4 + ph) * SWING * (1 - j / PTS) * k;
     }
     for (i = 0; i < n; i++) {
-      var j = i === 0 ? 1 : i;                      // each circle faces the one ahead of it
-      an[i] = Math.atan2(ys[j - 1] - ys[j], xs[j - 1] - xs[j]);
+      var a = i === 0 ? 1 : i;                      // each circle faces the one ahead of it
+      an[i] = Math.atan2(ys[a - 1] - ys[a], xs[a - 1] - xs[a]);
     }
     /* The dark outline ring under the whole body, then the body tail first so
        the head lands on top (slDrawSnake drawCircleBody passes B and C). */
-    var ring = sprites.komc, ringR = r * 52 / 32;
+    var ring = sprites.komc, ringR = RING * k;
     if (ring) for (i = n - 1; i >= 0; i--) ctx.drawImage(ring, xs[i] - ringR, ys[i] - ringR, ringR * 2, ringR * 2);
     var frames = own.kmcs.length, pingPong = own.klp;
     for (i = n - 1; i >= 0; i--) {
@@ -99,18 +117,15 @@
       ctx.drawImage(set.kmcs[f] || set.kmcs[0], -r, -r, r * 2, r * 2);
       ctx.restore();
     }
-    /* Their eyes at a starting size: a white then a pupil each side, sized in
-       the skin's own units against a 14.5 radius (slDrawSnake drawEyes). */
-    var k = r / 14.5, face = an[0];
+    /* Their eyes (drawEyes): a white then a pupil each side, sized in the
+       skin's own units, facing angle 0 with the pupil a further rex forward. */
     for (var side = -1; side <= 1; side += 2) {
-      var sa = face + side * Math.PI / 2;
-      var ex = xs[0] + Math.cos(face) * o.ed * k + Math.cos(sa) * (o.esp + 0.5) * k;
-      var ey = ys[0] + Math.sin(face) * o.ed * k + Math.sin(sa) * (o.esp + 0.5) * k;
+      var ex = xs[0] + o.ed * k, ey = ys[0] + side * (o.esp + 0.5) * k;
       ctx.globalAlpha = o.eca;
       ctx.fillStyle = o.ec;
       ctx.beginPath(); ctx.arc(ex, ey, o.er * k, 0, Math.PI * 2); ctx.fill();
-      ex = xs[0] + Math.cos(face) * (o.ed + 0.5) * k + Math.cos(sa) * o.esp * k;
-      ey = ys[0] + Math.sin(face) * (o.ed + 0.5) * k + Math.sin(sa) * o.esp * k;
+      ex = xs[0] + (o.ed + 0.5 + REX) * k;
+      ey = ys[0] + side * o.esp * k;
       ctx.globalAlpha = o.ppa;
       ctx.fillStyle = o.ppc;
       ctx.beginPath(); ctx.arc(ex, ey, o.pr * k, 0, Math.PI * 2); ctx.fill();

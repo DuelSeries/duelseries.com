@@ -27,8 +27,15 @@
      Bowmasters     public/js/tanks.js drawTank: the trapezium hull and the
                     round-capped barrel in one body colour.
 
+   In Customize (bare) every piece moves in its own game's way, off a clock
+   in seconds: agar's cell breathes and coasts, Paper.io's head runs a loop
+   and claims it, the Knockout piece is flicked into the other, the ship
+   rides a swell, the Awesome Tanks hull turns under a hunting turret, and
+   the Bowmasters tank aims and fires.
+
    Exposes window.V2Shop = {games, game(id), price(g, k), tier(p), tiers,
-   paint(canvas, gameId, skinId, t, big), animated(gameId)}. */
+   paint(canvas, gameId, skinId, t, big, bare), paintWith(canvas, gameId,
+   look, t, big, bare), animated(gameId)}. */
 (function (root) {
   'use strict';
   var PR = root.DS_SHOP_PRICES;
@@ -135,8 +142,10 @@
   GAMES.forEach(function (g) { BY[g.id] = g; g.by = {}; g.skins.forEach(function (k) { g.by[k.id] = k; }); });
 
   /* ── slither.io ───────────────────────────────────────────────────────── */
-  var SL_CARD = { spanFrac: 0.3, ampFrac: 0.12, radiusFrac: null };
-  var SL_BIG = { spanFrac: 0.3, ampFrac: 0.08, radiusFrac: 0.05 };
+  /* look.js draws slither's own chooser snake; these say only how much of
+     the box it may fill. */
+  var SL_CARD = { lenFrac: 0.82, hFrac: 0.8 };
+  var SL_BIG = { lenFrac: 0.7, hFrac: 0.8 };
   function paintSnake(cv, k, t, big) {
     if (!root.V2Look) return;
     root.V2Look.paint(cv, k.runs, big ? SL_BIG : SL_CARD, t);
@@ -189,10 +198,24 @@
         break;
     }
   }
+  /* agar's membrane (agRender.js wobble): past the small-cell case a cell is a
+     ring of points whose radii breathe, and the ring turns at now/10000, 0.1
+     radians a second. The preview keeps that look with three slow sines per
+     point instead of their random walk, which needs a running world. */
+  function membrane(ctx, x, y, R, t) {
+    var n = 48;
+    ctx.beginPath();
+    for (var i = 0; i <= n; i++) {
+      var a = i / n * 6.2832 + t * 0.1;
+      var rr = R * (1 + 0.012 * Math.sin(a * 5 + t * 2.3) + 0.008 * Math.sin(a * 3 - t * 1.5) + 0.005 * Math.sin(a * 9 + t * 3.1));
+      if (i) ctx.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); else ctx.moveTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr);
+    }
+    ctx.closePath();
+  }
   function paintAgar(cv, k, t, big, bare) {
     var ctx = cv.getContext('2d'), w = cv.width, h = cv.height;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    if (bare) ctx.clearRect(0, 0, w, h);
+    if (bare) { ctx.clearRect(0, 0, w, h); paintAgarCell(ctx, k, t, w, h); return; }
     else {
     ctx.fillStyle = 'rgb(242,251,255)';                   // agRender BG_LIGHT
     ctx.fillRect(0, 0, w, h);
@@ -214,6 +237,21 @@
     ctx.beginPath(); ctx.arc(x, y, R, 0, 6.2832); ctx.fill();
     if (!k.art) return;
     ctx.save(); ctx.beginPath(); ctx.arc(x, y, R, 0, 6.2832); ctx.clip();
+    agarDesign(ctx, k, x, y, R);
+    ctx.restore();
+  }
+  /* Customize's cell: the membrane, drifting on a slow loop the way a cell
+     coasts after the mouse, its rim at 0.9 of the colour as in play. */
+  function paintAgarCell(ctx, k, t, w, h) {
+    var R = Math.min(w, h) * 0.34;
+    var x = w / 2 + Math.sin(t * 0.8) * R * 0.14, y = h / 2 + Math.sin(t * 1.15) * R * 0.07;
+    var col = colOf(k, t), c = hexRgb(col), ring = Math.max(2, R * 0.07);
+    ctx.fillStyle = rgbHex([Math.trunc(c[0] * 0.9), Math.trunc(c[1] * 0.9), Math.trunc(c[2] * 0.9)]);
+    membrane(ctx, x, y, R + ring, t); ctx.fill();
+    ctx.fillStyle = col;
+    membrane(ctx, x, y, R, t); ctx.fill();
+    if (!k.art) return;
+    ctx.save(); membrane(ctx, x, y, R, t); ctx.clip();
     agarDesign(ctx, k, x, y, R);
     ctx.restore();
   }
@@ -264,17 +302,36 @@
     ctx.fillStyle = back; ctx.fillRect(x0, y0, s, s);
     ctx.fillStyle = main; ctx.fillRect(x0, y0 - 2 * u, s, s);
     paperPattern(ctx, k, x0, y0 - 2 * u, s, k.art === 'stars' ? '#ffffff' : back);
-    /* The trail out of it, main at 0.6, trackWidth wide with round caps. */
-    var hx = x0 + s + u * 11, hy = y0 + s * 0.3;
-    ctx.globalAlpha = 0.6; ctx.strokeStyle = main; ctx.lineWidth = 8 * u; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-    ctx.beginPath(); ctx.moveTo(x0 + s - 4 * u, y0 + s * 0.78); ctx.lineTo(x0 + s + 6 * u, y0 + s * 0.78);
-    ctx.lineTo(hx, hy + 6 * u); ctx.lineTo(hx, hy); ctx.stroke(); ctx.globalAlpha = 1;
+    /* The game in one loop: the head leaves its land, runs a box out and back,
+       and the box it drew becomes land, then it starts again. The trail is
+       main at 0.6, trackWidth wide with round caps. */
+    var ty = y0 - 2 * u, P = [[x0 + s - 3 * u, ty + s * 0.74], [x0 + s + 9 * u, ty + s * 0.74],
+      [x0 + s + 9 * u, ty + s * 0.16], [x0 + s - 3 * u, ty + s * 0.16]];
+    var seg = [12 * u, s * 0.58, 12 * u], total = seg[0] + seg[1] + seg[2];
+    var CYCLE = 3.2, RUN = 0.78, ph = (t % CYCLE) / CYCLE;
+    var run = Math.min(1, ph / RUN), d = run * total, i = 0;
+    while (i < 2 && d > seg[i]) { d -= seg[i]; i++; }
+    var f = Math.min(1, d / seg[i]);
+    var hx = P[i][0] + (P[i + 1][0] - P[i][0]) * f, hy = P[i][1] + (P[i + 1][1] - P[i][1]) * f;
+    if (ph >= RUN) {
+      /* Captured: the box is land now, side and top like the rest. */
+      var bx = x0 + s - 0.5 * u, bw = 9 * u + 4 * u, byy = ty + s * 0.16 - 4 * u, bh = s * 0.58 + 8 * u;
+      ctx.globalAlpha = Math.min(1, (ph - RUN) / 0.06);
+      ctx.fillStyle = back; ctx.fillRect(bx, byy + 2 * u, bw, bh);
+      ctx.fillStyle = main; ctx.fillRect(bx, byy, bw, bh);
+      ctx.globalAlpha = 1;
+    } else {
+      ctx.globalAlpha = 0.6; ctx.strokeStyle = main; ctx.lineWidth = 8 * u; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      ctx.beginPath(); ctx.moveTo(P[0][0], P[0][1]);
+      for (var q = 1; q <= i; q++) ctx.lineTo(P[q][0], P[q][1]);
+      ctx.lineTo(hx, hy); ctx.stroke(); ctx.globalAlpha = 1;
+    }
     /* The head: the nick square, then the back square with its main centre,
        lifted baseHeight, 8 units across. */
-    var hs = 8 * u, bob = Math.sin(t * 3) * 0.6 * u;
-    ctx.fillStyle = nick; ctx.fillRect(hx - hs / 2, hy - hs / 2 + bob, hs, hs);
-    ctx.fillStyle = back; ctx.fillRect(hx - hs / 2, hy - hs / 2 - 2 * u + bob, hs, hs);
-    ctx.fillStyle = main; ctx.fillRect(hx - hs * 0.4, hy - hs * 0.4 - 2 * u + bob, hs * 0.8, hs * 0.8);
+    var hs = 8 * u;
+    ctx.fillStyle = nick; ctx.fillRect(hx - hs / 2, hy - hs / 2 + 2 * u, hs, hs);
+    ctx.fillStyle = back; ctx.fillRect(hx - hs / 2, hy - hs / 2, hs, hs);
+    ctx.fillStyle = main; ctx.fillRect(hx - hs * 0.4, hy - hs * 0.4, hs * 0.8, hs * 0.8);
   }
 
   /* ── Knockout ─────────────────────────────────────────────────────────── */
@@ -304,10 +361,17 @@
     var ctx = cv.getContext('2d'), w = cv.width, h = cv.height;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     if (bare) {
+      /* A flick and a hit, on a loop: the left piece slides in, stops dead on
+         the right one and knocks it on, and both drift back to start. */
       ctx.clearRect(0, 0, w, h);
-      var br = Math.min(h * 0.3, w * 0.16);
-      knockoutPiece(ctx, k, w / 2 - br * 1.3, h / 2, br);
-      knockoutPiece(ctx, k, w / 2 + br * 1.3, h / 2, br);
+      var br = Math.min(h * 0.3, w * 0.16), c = w / 2;
+      var ph = (t % 2.6) / 2.6, ease = function (v) { return v * v * (3 - 2 * v); };
+      var aX0 = c - 2 * br, bX0 = c + 0.9 * br, hitA = bX0 - 2 * br, ax = aX0, bx = bX0;
+      if (ph < 0.3) ax = aX0 + (hitA - aX0) * Math.pow(ph / 0.3, 1.6);
+      else if (ph < 0.72) { var g = (ph - 0.3) / 0.42; ax = hitA - br * 0.12 * Math.sin(Math.PI * g); bx = bX0 + br * (1 - Math.pow(1 - g, 3)); }
+      else { var e = ease((ph - 0.72) / 0.28); ax = hitA + (aX0 - hitA) * e; bx = bX0 + br * (1 - e); }
+      knockoutPiece(ctx, k, ax, h / 2, br);
+      knockoutPiece(ctx, k, bx, h / 2, br);
       return;
     }
     ctx.fillStyle = '#0b0907'; ctx.fillRect(0, 0, w, h);
@@ -344,13 +408,19 @@
     for (var y = y0 - cell * 3; y < h; y += cell) { ctx.moveTo(0, Math.round(y) + 0.5); ctx.lineTo(w, Math.round(y) + 0.5); }
     ctx.stroke();
     }
-    if (k.native) { BA.drawShip(ctx, 'battleship', 4, x0, y0, cell, true, 0.95); return; }
+    /* Customize's ship rides a swell: a slow rise and fall and a little roll. */
+    if (bare) {
+      ctx.translate(w / 2, h / 2 + Math.sin(t * 1.6) * cell * 0.07);
+      ctx.rotate(Math.sin(t * 1.1) * 0.035);
+      ctx.translate(-w / 2, -h / 2);
+    }
+    if (k.native) { BA.drawShip(ctx, 'battleship', 4, x0, y0, cell, true, 0.95); ctx.setTransform(1, 0, 0, 1, 0, 0); return; }
     /* drawShip reads BattleshipArt.HULL as it draws: swap the skin in for the
        call, then put the game's own colours straight back. */
     var H = BA.HULL, keep = {}, mine = hullFor(k), key;
     for (key in mine) { keep[key] = H[key]; H[key] = mine[key]; }
     try { BA.drawShip(ctx, 'battleship', 4, x0, y0, cell, true, 0.95); }
-    finally { for (key in keep) H[key] = keep[key]; }
+    finally { for (key in keep) H[key] = keep[key]; ctx.setTransform(1, 0, 0, 1, 0, 0); }
   }
 
   /* ── Awesome Tanks ────────────────────────────────────────────────────── */
@@ -369,8 +439,10 @@
     else { ctx.fillStyle = '#1d2016'; ctx.fillRect(0, 0, w, h); }
     var team = k.team || 'shop:' + k.id;
     if (!SA.TEAMS[team]) SA.TEAMS[team] = teamFor(k);
+    /* The hull swings round slowly while the turret hunts faster on top of it. */
+    var hull = -0.35 + (bare ? Math.sin(t * 0.6) * 0.5 : 0);
     SA.drawTank(ctx, { x: w / 2, y: h / 2, size: Math.min(w, h) * (bare ? 0.7 : 0.5), team: team,
-      hull: -0.35, turret: -0.35 + Math.sin(t * 0.8) * 0.6 });
+      hull: hull, turret: hull + Math.sin(t * (bare ? 1.7 : 0.8)) * (bare ? 0.8 : 0.6) });
   }
 
   /* ── Bowmasters ───────────────────────────────────────────────────────── */
@@ -389,11 +461,21 @@
     ctx.quadraticCurveTo(w * 0.5, gy - h * 0.05, w, gy + h * 0.03); ctx.lineTo(w, h); ctx.lineTo(0, h); ctx.fill();
     }
     var k2 = Math.min(w, h) / (bare ? 42 : 70), tw = 34 * k2, th = 16 * k2, gx = w / 2, base = gy;
-    var rad = (40 + Math.sin(t * 0.9) * 12) * Math.PI / 180;
+    var rad = (40 + Math.sin(t * (bare ? 1.8 : 0.9)) * (bare ? 16 : 12)) * Math.PI / 180;
+    /* Customize's tank fires every 1.4 seconds: it kicks back and a puff
+       leaves the muzzle. */
+    var kick = 0;
+    if (bare) { var ph = (t % 1.4) / 1.4; kick = ph < 0.22 ? 1 - ph / 0.22 : 0; gx -= kick * 2.6 * k2; }
     ctx.save(); ctx.globalAlpha = k.alpha || 1;
     ctx.strokeStyle = k.gun || k.col; ctx.lineWidth = Math.max(2.4, 3.5 * k2); ctx.lineCap = 'round';
+    var mx = gx + Math.cos(rad) * tw * 0.85, my = base - th * 0.55 - Math.sin(rad) * tw * 0.85;
     ctx.beginPath(); ctx.moveTo(gx, base - th * 0.55);
-    ctx.lineTo(gx + Math.cos(rad) * tw * 0.85, base - th * 0.55 - Math.sin(rad) * tw * 0.85); ctx.stroke();
+    ctx.lineTo(mx, my); ctx.stroke();
+    if (kick > 0) {
+      ctx.globalAlpha = (k.alpha || 1) * kick * 0.7; ctx.fillStyle = '#f4f1ea';
+      ctx.beginPath(); ctx.arc(mx + Math.cos(rad) * k2 * 3, my - Math.sin(rad) * k2 * 3, k2 * (2.5 + (1 - kick) * 3.5), 0, 6.2832); ctx.fill();
+      ctx.globalAlpha = k.alpha || 1;
+    }
     ctx.fillStyle = k.col; ctx.beginPath();
     ctx.moveTo(gx - tw / 2, base); ctx.lineTo(gx + tw / 2, base); ctx.lineTo(gx + tw * 0.34, base - th); ctx.lineTo(gx - tw * 0.34, base - th);
     ctx.closePath(); ctx.fill(); ctx.restore();
@@ -412,6 +494,13 @@
     if (!k || !fn || !cv.width || !cv.height) return;
     fn(cv, k, t || 0, !!big, !!bare);
   }
+  /* A look that is not one of the Shop's skins, drawn the same way: agar.io's
+     free colours (shared/agSkins.js) as { col }. */
+  function paintWith(cv, gameId, k, t, big, bare) {
+    var fn = PAINT[gameId];
+    if (!k || !fn || !cv.width || !cv.height) return;
+    fn(cv, k, t || 0, !!big, !!bare);
+  }
 
   root.V2Shop = {
     games: GAMES,
@@ -423,5 +512,6 @@
     defaultName: function (id) { return BY[id] && BY[id].def ? BY[id].def.name : ''; },
     format: function (p) { return PR ? PR.format(p) : ''; },
     paint: paint,
+    paintWith: paintWith,
   };
 })(typeof window !== 'undefined' ? window : globalThis);

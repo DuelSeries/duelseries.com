@@ -765,6 +765,9 @@ function createSim(opts) {
       size = Math.max(size, blob.size * L.eatRatio);
     }
     pt = at ? { x: at.x, y: at.y } : safePlace(pt, size);
+    // A chosen free skin (shared/agSkins.js) wins over the dealt colour and a blob's. Applied AFTER every draw
+    // above, so a skin never moves the rng: the same seed and inputs give the same world, skin or not.
+    if (p.skin) rgb = p.skin.slice();
     const c = addCell('player', pt.x, pt.y, size, rgb, p.pid, p.name);
     ledger.created += massOf(size);
     p.rgb = rgb;
@@ -1096,12 +1099,17 @@ function createSim(opts) {
     return p || null;
   }
 
+  function isSkinRgb(v) {
+    return Array.isArray(v) && v.length === 3 && v.every((x) => Number.isInteger(x) && x >= 0 && x <= 255);
+  }
+
+  // info.skin: a free skin's [r, g, b] (the room takes it from shared/agSkins.js, never from a page), worn every life.
   function addPlayer(info) {
     const i = info || {};
     const pid = nextPid++;
     players.set(pid, {
       pid, name: typeof i.name === 'string' ? i.name : '', bot: i.bot === true, alive: false,
-      cells: [], target: null, lastEject: null, rgb: null,
+      cells: [], target: null, lastEject: null, rgb: null, skin: isSkinRgb(i.skin) ? i.skin.slice() : null,
     });
     return pid;
   }

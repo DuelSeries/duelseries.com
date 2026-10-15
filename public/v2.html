@@ -1102,14 +1102,13 @@ body.no-foot footer{display:none}
   padding:8px 18px;border-radius:9px;font-size:.88rem;font-weight:600;cursor:pointer}
 .ap-back-btn:hover{border-color:var(--money);color:var(--money)}
 .ap-title{font-size:1.25rem;font-weight:900;color:var(--tx);letter-spacing:3px}
-/* pointer-events:none, and the header sits above it. This box is inset:0, so
-   it covered the whole screen INCLUDING the header, and every tap on Back went
-   into the canvas instead. Save escaped it only by living in a higher layer,
-   which is why Save was the only way out of this screen. */
-.ap-preview-wrap{position:absolute;inset:0;padding:0;display:block;pointer-events:none}
-.ap-canvas{width:100%;height:100%;max-height:none;display:block;background:transparent}
+/* Every finger on this screen belongs to the reel (see the reel code): no
+   page scroll, no pull to refresh, no text selection mid-drag. */
+#lookveil{touch-action:none;-webkit-user-select:none;user-select:none}
+/* Above the scrim, so the arrows stay bright when a locked skin darkens the
+   screen around them. */
 .ap-selector{position:absolute;inset:0;display:block;padding:0;max-width:none;
-  pointer-events:none;z-index:52}
+  pointer-events:none;z-index:54}
 .ap-arrow{position:absolute;top:calc(50% - 44px);width:87px;height:88px;padding:0;
   border:none;background:none;border-radius:0;cursor:pointer;opacity:.7;
   pointer-events:auto;transition:opacity .12s;-webkit-tap-highlight-color:transparent}
@@ -1137,53 +1136,51 @@ body.no-foot footer{display:none}
 .ap-save-btn:active{transform:translateX(-50%);opacity:.85}
 .ap-name{position:absolute;left:50%;top:auto;bottom:56px;transform:translateX(-50%);
   font-size:13px;color:var(--tx3);white-space:nowrap}
-/* The reel replaces the single big preview on a phone. Each slot is sized by
-   WIDTH, because every fraction in the preview painter is a fraction of canvas
-   width — so a narrower slot draws a smaller snake for free, no second config
-   per size. Nothing in here is tappable; the drag is read on the screen. */
-/* The picker at every width, phone and desktop alike. It used to be phones
-   only, with desktop keeping a single big preview and two arrows — so the
-   arrows changed the picture in place instead of moving along a list, which
-   is the one thing the arrows are for.
-
-   A scroll container, so a finger drives it directly and the browser supplies
-   the momentum and the snapping. The end padding is what lets the first and
-   last skin reach the middle, and it is measured, not guessed. */
+/* The picker at every width, phone and desktop alike: a column of skins with
+   the chosen one in the middle. NOT a scroll box any more. The slots sit
+   stacked at the middle and the reel code moves each one with a transform,
+   so a fling of any speed never reflows, never rewinds and never waits on
+   the browser's own scrolling. The fade at both ends is the mask. */
 .ap-reel{display:block;position:absolute;left:0;right:0;z-index:51;
-  top:96px;bottom:170px;padding:0 24px;overflow-y:auto;
-  scroll-snap-type:y mandatory;overscroll-behavior-y:contain;
-  -webkit-overflow-scrolling:touch;scrollbar-width:none;
+  top:96px;bottom:170px;overflow:hidden;
   -webkit-mask-image:linear-gradient(#0000,#000 24%,#000 76%,#0000);
           mask-image:linear-gradient(#0000,#000 24%,#000 76%,#0000)}
-.ap-reel::-webkit-scrollbar{display:none}
-/* Scrollable at every width. It was briefly arrows-only on desktop, on the
-   argument that two controls for one job is one too many; in the hand it
-   turned out the wheel and the arrows read as the same gesture at different
-   speeds, so both stay. */
 /* Fixed box, fixed canvas. The size you see is a transform, set per frame
-   from how far the slot is from the middle — NOT a class swapped at a
-   threshold. Swapping classes meant a fast flick changed a few sizes and
-   landed, so most of the skins you flew past never grew at all; scaling
-   continuously means every one of them swells and shrinks as it goes by,
-   however fast the scroll. Transform and opacity only, so nothing reflows and
-   no canvas is resized mid-gesture. */
-/* Capped and centred. Left to fill a 1440px screen the snakes were drawn a
-   metre long and the arrows sat on top of them. */
-.ap-slot{height:104px;max-width:420px;margin:0 auto;
+   from how far the slot is from the middle, so every skin you fly past swells
+   and shrinks as it goes by, however fast the fling. Capped and centred: left
+   to fill a 1440px screen the snakes were drawn a metre long and the arrows
+   sat on top of them. */
+.ap-slot{position:absolute;top:calc(50% - 52px);height:104px;
+  left:max(24px,calc(50% - 210px));right:max(24px,calc(50% - 210px));
   display:flex;align-items:center;justify-content:center;
-  scroll-snap-align:center;transform-origin:50% 50%;will-change:transform,opacity}
+  transform-origin:50% 50%;will-change:transform,opacity}
 .ap-slot canvas{display:block;width:100%;height:104px}
-.ap-preview-wrap{display:none}          /* the single big preview it replaces */
+/* The locked look. The scrim darkens the whole screen behind the header, the
+   arrows and Save; the seal sits dead centre over the skin in the middle. */
+.ap-scrim{position:absolute;inset:0;z-index:52;pointer-events:none;opacity:0;
+  background:rgba(8,7,5,.6)}
+.ap-lockfx{position:absolute;left:0;right:0;top:96px;bottom:170px;z-index:53;
+  display:flex;align-items:center;justify-content:center;pointer-events:none;opacity:0}
+/* See-through on purpose: the skin stays visible behind it, darkened, so you
+   can still see what you would be buying. An opaque disc hid a whole agar.io
+   cell or Knockout piece. */
+.ap-seal{width:124px;height:124px;border-radius:50%;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
+  background:radial-gradient(closest-side,rgba(10,8,6,.5),rgba(10,8,6,.3) 72%,rgba(10,8,6,.12));
+  border:1.5px solid rgba(240,168,48,.7)}
+.ap-seal svg{width:38px;height:38px;stroke:var(--bone);filter:drop-shadow(0 1px 4px rgba(0,0,0,.9))}
+.ap-seal b{font-size:27px;font-weight:800;line-height:1;color:var(--money);
+  font-variant-numeric:tabular-nums;letter-spacing:-.01em;text-shadow:0 1px 6px rgba(0,0,0,.95)}
 @media(max-width:520px){
-  .ap-preview-wrap{display:none}
-  .ap-reel{top:calc(70px + env(safe-area-inset-top));
+  .ap-reel,.ap-lockfx{top:calc(70px + env(safe-area-inset-top));
     bottom:calc(146px + env(safe-area-inset-bottom))}
+  .ap-seal{width:108px;height:108px}
+  .ap-seal svg{width:32px;height:32px}
+  .ap-seal b{font-size:24px}
   .ap-hint{display:block}
 }
-/* Shown only where the arrows are not, because a gesture with nothing on
+/* Phones only: there the arrows are gone, and a gesture with nothing on
    screen to suggest it is a gesture nobody finds. */
-/* Phones only, because desktop cannot scroll this and the arrows say what they
-   do without being told. */
 .ap-hint{display:none;position:absolute;left:50%;top:calc(64px + env(safe-area-inset-top));
   transform:translateX(-50%);font-size:12px;color:var(--tx3);white-space:nowrap;
   pointer-events:none;z-index:54}
@@ -2031,10 +2028,23 @@ body.scr-anim { overflow-x:hidden }
     <button class="ap-back-btn" onclick="closeLook(false)">&#8592; Back</button>
     <span class="ap-title">CUSTOMIZE</span>
   </div>
-  <div class="ap-preview-wrap"><canvas id="skbig" data-look="big" class="ap-canvas"></canvas></div>
-  <!-- Phones only. One snake alone gives a drag nothing to aim at; seeing the
-       two either side is what makes it read as a list you are moving through. -->
+  <!-- The list of skins, at every width. One snake alone gives a drag nothing
+       to aim at; seeing the ones either side is what makes it read as a list
+       you are moving through. Its slots are placed by the reel code, not by a
+       scroll box. -->
   <div class="ap-reel" id="ap-reel" aria-hidden="true"></div>
+  <!-- A locked skin in the middle: the screen darkens and the padlock and
+       price sit dead centre over it. Both fade with how near the middle the
+       paid skins are (lockShow). -->
+  <div class="ap-scrim" id="ap-scrim" aria-hidden="true"></div>
+  <div class="ap-lockfx" id="ap-lockfx" aria-hidden="true">
+    <div class="ap-seal">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="4.5" y="10.5" width="15" height="10.5" rx="2.2"/><path d="M8 10.5V7.6a4 4 0 0 1 8 0v2.9"/>
+        <path d="M12 14.6v2.4"/></svg>
+      <b id="ap-lockprice" class="num"></b>
+    </div>
+  </div>
   <div class="ap-selector">
     <button class="ap-arrow" id="ap-prev" onclick="cycleLook(-1)" aria-label="Previous skin">
       <img src="/img/skin-prev.png" width="87" height="88" alt="" draggable="false">
@@ -2091,6 +2101,7 @@ body.scr-anim { overflow-x:hidden }
 <!-- The Shop: prices (the one file Owen edits), Battleship's ship art (a pure
      drawing module, nothing runs at load), the skins, then the tab. -->
 <script src="/shared/shopPrices.js"></script>
+<script src="/shared/agSkins.js"></script>
 <script src="/js/battleshipArt.js"></script>
 <script src="/js/v2/shopArt.js"></script>
 <script src="/js/v2/shop.js"></script>
@@ -2717,23 +2728,39 @@ try{skinId=String(localStorage.getItem(SL_SKIN_KEY)||'').trim()}catch(_){}
 if(!LOOKS.some(s=>s.id===skinId))skinId='';        /* unknown or stale: random */
 const skin=()=>LOOKS.find(s=>s.id===skinId)||null;
 /* Customize in every game (Owen, 2026-10-15): slither's chooser, arrows and
-   phone scroll included, listing what you can wear free and, mixed in, that
-   game's Shop skins, locked with their price. LOOK ONLY: a locked skin cannot
-   be saved, and in a game other than slither.io nothing is saved at all (the
-   game keeps dealing its own look, as it does today). The skins and prices
-   are V2Shop's: public/js/v2/shopArt.js and shared/shopPrices.js. */
-const SHOP_EVERY=7;   /* slither.io: one locked skin after every seven free ones */
+   phone scroll included, listing what you can wear free and then, all in one
+   run after them, that game's Shop skins, locked with their price. Grouped,
+   not mixed in (Owen, later the same day): scattered, you "randomly came
+   across" a paid one. LOOK ONLY: a locked skin cannot be saved. The skins and
+   prices are V2Shop's: public/js/v2/shopArt.js and shared/shopPrices.js.
+
+   Two games keep what you pick. slither.io stores a skin number for /sl (see
+   above). agar.io stores one of its free colours (shared/agSkins.js) under
+   duel.ag.skin, which /ag sends in its handshake (public/js/ag/agMain.js) and
+   the server checks against the same list (server/ag/agRoom.js skinOf).
+   Every other game keeps dealing its own look, as it does today. */
 const hasLook=g=>!!(g&&(g.look||(window.V2Shop&&V2Shop.game(g.id))));
+const AGS=window.DS_AG_SKINS;
+const AG_LOOKS=(AGS?AGS.SKINS:[]).map(s=>({id:'ag:'+s.id,game:'agar',ag:s,name:s.name,col:AGS.hex(s)}));
+let agSkinId='';
+try{agSkinId=String(localStorage.getItem(AGS?AGS.KEY:'')||'').trim()}catch(_){}
+if(!AG_LOOKS.some(s=>s.ag.id===agSkinId))agSkinId='';   /* unknown or stale: a dealt colour */
+/* What a game keeps: how to read the skin being worn, and how to store a new
+   one (null is the game's free look: a random colour in both). */
+const SAVED={
+  snake:{worn:()=>skin(),put:s=>{if(!s)return;skinId=s.id;storeSkin()}},
+  agar:{worn:()=>AG_LOOKS.find(s=>s.ag.id===agSkinId)||null,
+    put:s=>{agSkinId=s&&s.ag?s.ag.id:'';
+      try{if(agSkinId)localStorage.setItem(AGS.KEY,agSkinId);else localStorage.removeItem(AGS.KEY)}catch(_){}}},
+};
+const wornIn=g=>g&&SAVED[g.id]?SAVED[g.id].worn():null;
 function lookList(g){
   const S=window.V2Shop, sg=S&&S.game(g.id);
   const locked=sg?sg.skins.map(k=>({id:'shop:'+k.id,game:g.id,shop:k,name:k.name,locked:1,price:S.price(g.id,k.id)})):[];
-  if(g.look){
-    const out=[];let j=0;
-    LOOKS.forEach((l,i)=>{out.push(l);if((i+1)%SHOP_EVERY===0&&j<locked.length)out.push(locked[j++])});
-    while(j<locked.length)out.push(locked[j++]);
-    return out;
-  }
-  return [{id:'default',game:g.id,name:S.defaultName(g.id)}].concat(locked);
+  /* Every free skin first, then every paid one: one run of each. */
+  const free=g.look?LOOKS
+    :[{id:'default',game:g.id,name:S.defaultName(g.id)}].concat(g.id==='agar'?AG_LOOKS:[]);
+  return free.concat(locked);
 }
 let LK=[];   /* what the open chooser lists, from lookList */
 function storeSkin(){
@@ -2745,47 +2772,47 @@ function storeSkin(){
       localStorage.setItem('duelseries_skin_color',AVATAR_LOOKS[s.cv].color)}}catch(_){}
 }
 
-/* The live lobby's slither-in-place wave, same formula: head on the right at
-   u=0, tail on the left at u=1, and the wave travels down the body as t
-   advances. Amplitude ramps from 0.3 to 1.0 along the body so the head barely
-   moves and the tail whips, which is what sells it as swimming rather than
-   sliding. Written in world units so the game's own renderer draws it, and
-   spaced at SNAKE_SEGMENT_SPACING so the stamped body has no gaps. */
+/* The preview clock, in seconds. The snake's swim is slither's own Change
+   Skin screen at slither's own speed (public/js/v2/look.js has the formula
+   and where each number comes from); every other game's piece moves in its
+   own style off the same clock (public/js/v2/shopArt.js). */
 let lookT=0;
-/* drawAnimSnake's options from lobby.js, unchanged. The appearance figures
-   were measured off slither's own chooser at a 911px viewport using their
-   87px arrows as the ruler, so they are not free parameters: body about
-   25.6% of the width long and radius about 1.25% of it. The lobby box uses
-   that file's other call, spanFrac .19 / ampFrac .13 with the default
-   radius rule. */
-/* Every fraction here is of the canvas WIDTH, which is why the big preview
-   collapsed on a phone: 0.0125 of 375px is a four-pixel snake. bigph is the
-   same picture solved for a narrow screen instead of a wide one. */
+/* How much of its box the snake may fill. Only the size is ours; the shape
+   and the motion are slither's. In the 420px desktop slot this lands about
+   a pixel under slither's own chooser snake on a 1440x900 screen (radius
+   14.5 units at their chooser zoom 1.3, on a canvas sized to an 1800 unit
+   diagonal, capped at 1500 wide, then scaled to the window: 18.1px against
+   our 17.1). */
 const LOOK_CFG={
-  mini: {N:80,spanFrac:0.19, ampFrac:0.13,  radiusFrac:null},
-  big:  {N:80,spanFrac:0.128,ampFrac:0.022, radiusFrac:0.0125},
-  bigph:{N:80,spanFrac:0.34, ampFrac:0.055, radiusFrac:0.055},
-  reel: {N:80,spanFrac:0.30, ampFrac:0.05,  radiusFrac:0.05},
+  mini:{lenFrac:0.92,hFrac:0.92},
+  reel:{lenFrac:0.86,hFrac:0.9},
 };
-const PHONE_MQ=matchMedia('(max-width:520px)');
 /* Drawn by look.js from slither's own body sprites. With nothing chosen the
    box walks through the nine plain colours, because that is what you get. */
 function paintLook(cv){
   if(!window.V2Look)return;
-  fit(cv);
+  fitLook(cv);
   const key=cv.dataset.look;
-  /* The reel holds every skin three times over (162 canvases); only the few
-     in or next to the scrollport are worth drawing each frame. */
-  if(key==='reel'){const sl=cv.parentNode,r=sl&&sl.parentNode;
-    if(r&&(sl.offsetTop+SLOT_H<r.scrollTop-SLOT_H||sl.offsetTop>r.scrollTop+r.clientHeight+SLOT_H))return}
-  const cfg=LOOK_CFG[(key==='big'&&PHONE_MQ.matches)?'bigph':key]||LOOK_CFG.mini;
+  const cfg=LOOK_CFG[key]||LOOK_CFG.mini;
+  const s=cv.dataset.skin?LK.find(l=>l.id===cv.dataset.skin):wornIn(cur);
   /* Any game but slither.io: its own piece, drawn alone, from shopArt. */
-  if(key==='mini'&&cur&&!cur.look){if(window.V2Shop)V2Shop.paint(cv,cur.id,'default',lookT,false,true);return}
-  const s=cv.dataset.skin?LK.find(l=>l.id===cv.dataset.skin)
-         :key==='big'?LK[lookIx]:skin();
-  if(s&&s.game&&s.game!=='snake'){V2Shop.paint(cv,s.game,s.shop?s.shop.id:'default',lookT,false,true);return}
+  if(key==='mini'&&cur&&!cur.look){
+    if(window.V2Shop){if(s&&s.ag)V2Shop.paintWith(cv,cur.id,{col:s.col},lookT,false,true);
+      else V2Shop.paint(cv,cur.id,'default',lookT,false,true)}
+    return}
+  if(s&&s.game&&s.game!=='snake'){
+    if(s.ag)V2Shop.paintWith(cv,s.game,{col:s.col},lookT,false,true);
+    else V2Shop.paint(cv,s.game,s.shop?s.shop.id:'default',lookT,false,true);
+    return}
   /* slither.io: a free skin by number, a Shop skin by its stripe runs. */
-  window.V2Look.paint(cv,s?(s.shop?s.shop.runs:s.cv):Math.floor(lookT/2)%9,cfg,lookT);
+  window.V2Look.paint(cv,s?(s.shop?s.shop.runs:s.cv):Math.floor(lookT/1.5)%9,cfg,lookT);
+}
+/* fit(), at the screen's pixel density: the chooser's snake is the point of
+   the screen, and at one pixel per CSS pixel a phone draws it soft. */
+function fitLook(cv){
+  const d=Math.min(2,window.devicePixelRatio||1);
+  const w=Math.round(cv.clientWidth*d), h=Math.round(cv.clientHeight*d);
+  if(w&&h&&(cv.width!==w||cv.height!==h)){cv.width=w;cv.height=h}
 }
 
 let lookIx=0;
@@ -2799,142 +2826,229 @@ function drawSkins(){
     if(cur.noart)img.removeAttribute('src');
     else if(img.getAttribute('src')!=='/img/games/'+cur.id+'.png')img.src='/img/games/'+cur.id+'.png';
   }
-  const s=skin();
-  /* slither.io: the skin you are wearing. Another game with a look: the name
-     of its free look. A game with nothing to change yet: nothing at all, the
-     line that said so is gone with the other small print (Owen 2026-10-15). */
+  const s=wornIn(cur);
+  /* What you are wearing: the skin you picked, else the game's free look. A
+     game with nothing to change yet: nothing at all, the line that said so is
+     gone with the other small print (Owen 2026-10-15). */
   document.getElementById('skname').textContent=!look?''
-    :!cur.look?V2Shop.defaultName(cur.id)
-    :s?s.name:'Random colour';
+    :s?s.name
+    :cur.look?'Random colour':V2Shop.defaultName(cur.id);
 }
 function openLook(){
   if(!hasLook(cur))return;
   LK=lookList(cur);
   /* Always reopens on the skin actually being worn, which is also what makes
-     Back safe: browsing moves lookIx, and only Save writes it to skinId. */
-  lookIx=cur.look?Math.max(0,LK.findIndex(s=>s.id===skinId)):0;
-  /* Shown BEFORE the reel is built. buildReel measures the scrollport to work
-     out its end padding, and a display:none box measures zero. */
+     Back safe: browsing moves lookIx, and only Save stores it. */
+  const w=wornIn(cur);
+  lookIx=w?Math.max(0,LK.findIndex(s=>s.id===w.id)):0;
+  /* Shown BEFORE the reel is built: it measures its box, and a display:none
+     box measures zero. */
   document.getElementById('lookveil').classList.add('on');
   buildReel(); lookMeta();
 }
-/* Five slots, built once and then only re-pointed. Rebuilding the markup on
-   every step would throw away and recreate five canvases mid-drag; swapping
-   data-skin lets the paint loop pick the change up on its next frame. */
-/* Every skin is a slot in a real scroll container, rather than five slots
-   repainted in place. Repainting looked like the snake in front of you
-   changing colour; scrolling looks like moving along a list, because it is
-   one. The browser supplies the momentum and the snapping.
 
-   Slot height is FIXED and only the canvas inside it changes size, so nothing
-   reflows under the scroller mid-gesture — a growing slot would move the snap
-   points you are currently travelling between. */
-/* The list is laid out three times over and the scroll is rewound by exactly
-   one copy whenever it drifts into an outer one. That is what makes it
-   endless: the rewind lands on identical pixels, so scrolling past the last
-   skin continues into the first with nothing to see. Same trick as the game
-   rail on the home screen. */
-const REEL_COPIES=3, SLOT_H=104;
-function buildReel(){
-  const r=document.getElementById('ap-reel'); if(!r)return;
-  const one=LK.map(s=>
-    '<div class="ap-slot'+(s.locked?' locked':'')+'"><canvas data-look="reel" data-skin="'+s.id+'"></canvas>'+
-    (s.locked?'<span class="ap-lock">'+LOCK_SVG+V2Shop.format(s.price)+'</span>':'')+'</div>'
-  ).join('');
-  r.innerHTML=one.repeat(REEL_COPIES);
-  /* Half a scrollport, less half a slot, at each end. Measured off the box
-     rather than written as a vh guess, because the box is not the whole
-     screen — and it is measured after the screen is shown, since a hidden box
-     measures zero. */
-  const pad=Math.max(0,(r.clientHeight-SLOT_H)/2);
-  r.style.paddingTop=pad+'px'; r.style.paddingBottom=pad+'px';
-  reelTo(lookIx+LK.length,false);      /* open inside the middle copy */
-  markReel();
-}
-const copyH=()=>LK.length*SLOT_H;
+/* ── the reel ──────────────────────────────────────────────────────────────
+   Our own scroller, not the browser's (Owen 2026-10-15: momentum like the
+   slither.io app, no jank, no jumps). The old reel was a native scroll box
+   holding the list three times over, rewound by one copy mid-fling to stay
+   endless; iOS answers a scroll position set mid-fling by dropping the fling,
+   and snapping behaved differently on every phone, which is where the jumps
+   and the stops came from. Here the list is a number, REEL.pos, counted in
+   skins: the skin dead centre is LK[round(pos) mod n], so the list is
+   endless with nothing to rewind, and a handful of slots are reused as they
+   leave the screen. A slot is re-pointed and repainted in the same frame it
+   moves (reelStep runs inside the lobby's frame loop, just before the paint),
+   so no frame ever shows a slot in its new place with its old skin.
+
+   How far a flick carries is UIScrollView's, the scroller under every
+   iPhone list: a released finger keeps its speed and loses it at the
+   "normal" deceleration rate, 0.998 of it per millisecond, which carries it
+   speed / -ln(0.998) further. That end is rounded to the nearest skin before
+   the glide starts, and the glide eases out to rest exactly there, leaving
+   at the finger's own speed: a flick always stops ON a skin, never stopping
+   and then sliding into place. An ease-out rather than their exponential so
+   it really stops: the exponential's last pixel takes seconds, and that
+   creep read as the list never quite settling. The wheel follows its
+   target at their "fast" rate, 0.99 per millisecond, the one paging views
+   use. */
+const SLOT_H=104;
+const DECEL_NORMAL=0.998, DECEL_FAST=0.99;           /* per millisecond */
+const LN_NORMAL=-Math.log(DECEL_NORMAL), LN_FAST=-Math.log(DECEL_FAST);
+const FLICK_MAX=6/SLOT_H;    /* skins per ms: 6 px/ms, so one bad touch sample cannot throw the list */
+/* The glide is to - d*(1 - t/T)^3: it leaves at 3d/T and arrives at rest. A
+   release with no speed toward its skin (a tap, a finger that stopped, the
+   arrows) settles in SETTLE_MS; no glide takes longer than GLIDE_MAX_MS. */
+const EASE_P=3, SETTLE_MS=260, GLIDE_MAX_MS=2600;
+const REEL={on:false,pos:0,mode:'idle',slots:[],
+  from:0,to:0,T:SETTLE_MS,t0:0,               /* the glide */
+  y0:0,p0:0,samples:[],moved:0,pid:null,       /* the drag */
+  wheelTo:0,wheelAt:0,wt:0,                    /* the wheel */
+  lockK:0,price:''};
 const LOCK_SVG='<svg viewBox="0 0 24 24" fill="none" stroke-width="2.4" stroke-linecap="round" aria-hidden="true">'+
   '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>';
-/* Rewound DURING the scroll, not after it settles. Waiting for the scroll to
-   stop meant a finger that kept going ran off the end of the three copies and
-   hit a hard stop, then jumped once the wait expired — which is the pause
-   that made the list feel like it was loading. The rewind is one copy exactly,
-   so it lands on identical pixels and there is nothing to see.
-
-   The one case that must NOT be interrupted is a programmatic smooth scroll
-   from the arrows: that one is travelling to an absolute position, so moving
-   the ground under it sends it somewhere else. */
-let _reelSmooth=0;
-function reelWrap(){
-  const r=document.getElementById('ap-reel'), L=copyH(); if(!r||!L)return;
-  if(Date.now()<_reelSmooth)return;
-  const prev=r.style.scrollBehavior; r.style.scrollBehavior='auto';
-  if(r.scrollTop<L*0.5)r.scrollTop+=L;
-  else if(r.scrollTop>L*1.5)r.scrollTop-=L;
-  r.style.scrollBehavior=prev;
+const modN=(m,n)=>((m%n)+n)%n;
+function buildReel(){
+  const r=document.getElementById('ap-reel'); if(!r)return;
+  /* Enough slots to cover the box with one to spare each end, odd so the
+     middle one is the centre. */
+  const half=Math.ceil(r.clientHeight/2/SLOT_H)+1, P=half*2+1;
+  r.innerHTML=Array.from({length:P},()=>
+    '<div class="ap-slot"><canvas data-look="reel"></canvas><span class="ap-lock"></span></div>').join('');
+  REEL.slots=Array.from(r.children,el=>({el,cv:el.firstChild,chip:el.lastChild,ix:-1,mid:false,k:-1}));
+  REEL.pos=lookIx; REEL.mode='idle'; REEL.on=true; REEL.lockK=-1; REEL.price='';
+  reelLayout();
 }
-/* Centres slot i. Not scrollIntoView: that scrolls every scrollable ancestor
-   too, and this one sits inside the lobby's own scrolling screen. */
-function reelTo(i,smooth){
-  const r=document.getElementById('ap-reel'), s=r&&r.children[i]; if(!s)return;
-  if(smooth)_reelSmooth=Date.now()+420;    /* hands off until it lands */
-  const prev=r.style.scrollBehavior;
-  r.style.scrollBehavior=smooth?'smooth':'auto';
-  r.scrollTop=s.offsetTop-(r.clientHeight-s.offsetHeight)/2;
-  r.style.scrollBehavior=prev;
+/* Glide from where the list is now to skin `to`, leaving at speed v (skins
+   per ms, signed) when v is a real flick toward it: T = 3d/v keeps the
+   finger's speed. A flick is one that would carry half a skin or more. */
+function reelGlide(to,v){
+  const d=to-REEL.pos;
+  let T=SETTLE_MS;
+  if(d&&v&&Math.sign(v)===Math.sign(d)&&Math.abs(v/LN_NORMAL)>=0.5)
+    T=Math.min(GLIDE_MAX_MS,Math.max(SETTLE_MS,EASE_P*d/v));
+  REEL.from=REEL.pos; REEL.to=to; REEL.T=T; REEL.t0=performance.now(); REEL.mode='glide';
 }
-/* Whichever slot is nearest the middle IS the selection. Reading it from the
-   scroll position rather than counting gestures means a flick that carries
-   past three skins selects the one it actually stopped on. */
-const SMALL=0.60;      /* every skin that is not the one in the middle */
-function markReel(){
-  const r=document.getElementById('ap-reel'); if(!r||!r.children.length)return;
-  const mid=r.scrollTop+r.clientHeight/2;
-  let best=0,bd=Infinity;
-  for(let i=0;i<r.children.length;i++){
-    const el=r.children[i];
-    /* Distance from the middle, in slots. k is 1 dead centre and 0 a whole
-       slot away, so a skin grows to full as it passes and is back to the
-       queue size by the time the next one arrives. */
-    const dist=Math.abs(el.offsetTop+el.offsetHeight/2-mid)/SLOT_H;
-    const k=Math.max(0,1-Math.min(1,dist));
-    el.style.transform='scale('+(SMALL+(1-SMALL)*k).toFixed(3)+')';
-    el.style.opacity=(0.34+0.66*k).toFixed(3);
-    if(dist<bd){bd=dist;best=i}
+/* Where a release at speed v comes to rest: its natural end at the normal
+   rate, rounded to a skin. */
+const reelAim=v=>Math.round(REEL.pos+v/LN_NORMAL);
+/* Speed over the last 80ms of the drag. A finger that stopped before it let
+   go has no samples left in that window, so it does not fling. */
+function dragSpeed(now){
+  const S=REEL.samples.filter(s=>now-s.t<=80);
+  if(S.length<2)return 0;
+  const a=S[0],b=S[S.length-1],dt=b.t-a.t;
+  if(dt<8)return 0;
+  const v=(b.p-a.p)/dt;
+  return Math.max(-FLICK_MAX,Math.min(FLICK_MAX,v));
+}
+function reelStep(now){
+  if(!REEL.on)return;
+  if(!document.getElementById('lookveil').classList.contains('on')){REEL.on=false;return}
+  if(REEL.mode==='glide'){
+    const u=Math.min(1,Math.max(0,(now-REEL.t0)/REEL.T));
+    REEL.pos=REEL.to-(REEL.to-REEL.from)*Math.pow(1-u,EASE_P);
+    if(u>=1){REEL.pos=REEL.to;REEL.mode='idle'}
+  }else if(REEL.mode==='wheel'){
+    /* The wheel sets a target and the list follows it at the fast rate, so a
+       notch glides one skin and a hard spin glides many and eases out. Once
+       the wheel has been still a moment, the target is rounded to a skin. */
+    const dt=Math.min(50,now-(REEL.wt||now)); REEL.wt=now;
+    REEL.pos+=(REEL.wheelTo-REEL.pos)*(1-Math.exp(-LN_FAST*dt));
+    if(now-REEL.wheelAt>140){const to=Math.round(REEL.wheelTo);REEL.wt=0;reelGlide(to,0)}
   }
-  /* The one in the middle shows in full colour even when locked. */
-  for(let i=0;i<r.children.length;i++)r.children[i].classList.toggle('mid',i===best);
-  /* best is a slot in one of three identical copies; the skin it stands for
-     is that position within a single copy. */
-  const ix=((best%LK.length)+LK.length)%LK.length;
+  reelLayout();
+}
+const SMALL=0.60;      /* every skin that is not the one in the middle */
+function reelLayout(){
+  const n=LK.length, P=REEL.slots.length; if(!n||!P)return;
+  const pos=REEL.pos, base=Math.round(pos), lo=base-(P-1)/2;
+  let lockK=0,lockBest=-1,lockPrice='';
+  for(let q=0;q<P;q++){
+    const sl=REEL.slots[q];
+    const m=lo+modN(q-lo,P);                    /* the one absolute place this slot holds */
+    const ix=modN(m,n), s=LK[ix];
+    if(sl.ix!==ix){
+      sl.ix=ix; sl.cv.dataset.skin=s.id;
+      sl.el.classList.toggle('locked',!!s.locked);
+      sl.chip.innerHTML=s.locked?LOCK_SVG+V2Shop.format(s.price):'';
+      sl.k=-1;
+    }
+    /* Distance from the middle, in skins: k is 1 dead centre and 0 a whole
+       skin away, so a skin grows to full as it passes, however fast. */
+    const dist=Math.abs(m-pos), k=Math.max(0,1-Math.min(1,dist));
+    sl.el.style.transform='translate3d(0,'+((m-pos)*SLOT_H).toFixed(2)+'px,0) scale('+(SMALL+(1-SMALL)*k).toFixed(4)+')';
+    if(sl.k!==k){
+      sl.el.style.opacity=(0.34+0.66*k).toFixed(3);
+      if(s.locked)sl.chip.style.opacity=(1-k).toFixed(3);   /* the big lock takes over in the middle */
+      sl.k=k;
+    }
+    const mid=k>0.5;
+    if(sl.mid!==mid){sl.mid=mid;sl.el.classList.toggle('mid',mid)}
+    if(s.locked){lockK+=k;if(k>lockBest){lockBest=k;lockPrice=V2Shop.format(s.price)}}
+  }
+  lockShow(Math.min(1,lockK),lockPrice);
+  const ix=modN(base,n);
   if(ix!==lookIx){lookIx=ix;lookMeta()}
 }
+/* The locked look (Owen 2026-10-15): with a locked skin in the middle the
+   whole screen darkens and a padlock and the price sit dead centre, so there
+   is no mistaking it for one you can play. How dark follows how near the
+   middle the paid skins are, so it fades in and out at the edge of the paid
+   run and holds steady inside it. */
+function lockShow(k,price){
+  k=Math.round(k*1000)/1000;          /* written only when it changes, and exactly 1 at rest */
+  if(k!==REEL.lockK){
+    REEL.lockK=k;
+    const fx=document.getElementById('ap-lockfx'), sc=document.getElementById('ap-scrim');
+    if(sc)sc.style.opacity=k.toFixed(3);
+    if(fx){fx.style.opacity=k.toFixed(3);fx.style.transform='scale('+(0.92+0.08*k).toFixed(4)+')'}
+  }
+  if(price&&price!==REEL.price){
+    REEL.price=price;
+    const p=document.getElementById('ap-lockprice'); if(p)p.textContent=price;
+  }
+}
+/* Input. A finger or a mouse drags the list anywhere on the screen; the
+   buttons keep their clicks. touch-action:none on the screen hands every
+   finger to this code, so the page never scrolls or bounces underneath. */
 (function(){
-  const r=document.getElementById('ap-reel'); if(!r)return;
-  let tick=false;
-  r.addEventListener('scroll',()=>{
-    if(tick)return; tick=true;
-    requestAnimationFrame(()=>{tick=false;reelWrap();markReel()});
-  },{passive:true});
-  /* A wheel notch is about 100px and a slot is 104, so left to the browser one
-     turn of the wheel plus its momentum carried two skins past. The wheel is
-     taken over instead: one notch, one skin, whatever the notch is worth.
-     Touch is untouched — this event does not fire for a finger. */
-  let wheelAt=0;
-  r.addEventListener('wheel',e=>{
+  const veil=document.getElementById('lookveil'), r=document.getElementById('ap-reel'); if(!veil||!r)return;
+  const onButton=e=>e.target&&e.target.closest&&e.target.closest('button');
+  veil.addEventListener('pointerdown',e=>{
+    if(!REEL.on||onButton(e)||(e.pointerType==='mouse'&&e.button!==0))return;
+    REEL.pid=e.pointerId; REEL.mode='drag';
+    REEL.y0=e.clientY; REEL.p0=REEL.pos; REEL.moved=0;
+    REEL.samples=[{t:e.timeStamp||performance.now(),p:REEL.pos}];
+    try{veil.setPointerCapture(e.pointerId)}catch(_){}
+  });
+  veil.addEventListener('pointermove',e=>{
+    if(REEL.mode!=='drag'||e.pointerId!==REEL.pid)return;
+    const dy=e.clientY-REEL.y0;
+    REEL.moved=Math.max(REEL.moved,Math.abs(dy));
+    REEL.pos=REEL.p0-dy/SLOT_H;
+    const t=e.timeStamp||performance.now();
+    REEL.samples.push({t,p:REEL.pos});
+    if(REEL.samples.length>12)REEL.samples.shift();
+  });
+  const up=(e,cancel)=>{
+    if(REEL.mode!=='drag'||e.pointerId!==REEL.pid)return;
+    REEL.pid=null;
+    const now=e.timeStamp||performance.now();
+    /* A tap on a skin above or below the middle brings it to the middle;
+       a tap anywhere else just settles the list where it is. */
+    if(!cancel&&REEL.moved<6){
+      const box=r.getBoundingClientRect(), off=(e.clientY-(box.top+box.height/2))/SLOT_H;
+      const inBox=e.clientY>=box.top&&e.clientY<=box.bottom;
+      reelGlide(Math.round(REEL.pos+(inBox&&Math.abs(off)>0.5?off:0)),0);
+      return;
+    }
+    const v=cancel?0:dragSpeed(now);
+    reelGlide(reelAim(v),v);
+  };
+  veil.addEventListener('pointerup',e=>up(e,false));
+  veil.addEventListener('pointercancel',e=>up(e,true));
+  /* The mouse wheel and a trackpad. deltaMode 1 is lines (Firefox, three to
+     a notch) and 2 is pages. */
+  veil.addEventListener('wheel',e=>{
+    if(!REEL.on)return;
     e.preventDefault();
-    const now=Date.now();
-    if(now-wheelAt<180)return;          // a trackpad sends a burst; take the first
-    wheelAt=now;
-    cycleLook(e.deltaY>0?1:-1);
+    const px=e.deltaY*(e.deltaMode===1?SLOT_H/3:e.deltaMode===2?r.clientHeight:1);
+    if(REEL.mode!=='wheel'){REEL.wheelTo=REEL.mode==='glide'?REEL.to:REEL.pos;REEL.mode='wheel';REEL.wt=0}
+    REEL.wheelTo+=px/SLOT_H;
+    REEL.wheelAt=performance.now();
   },{passive:false});
+  /* The keyboard: the arrow keys step one skin. */
+  document.addEventListener('keydown',e=>{
+    if(!REEL.on||!veil.classList.contains('on'))return;
+    const d={ArrowUp:-1,ArrowLeft:-1,ArrowDown:1,ArrowRight:1}[e.key];
+    if(d){e.preventDefault();cycleLook(d)}
+  });
 })();
-/* The desktop arrows. They move the same selection, and scroll the reel with
-   it so the two never disagree about which skin is showing. */
+/* The desktop arrows, one skin each way, from wherever a glide was heading. */
 function cycleLook(d){
-  lookIx=(lookIx+d+LK.length)%LK.length;
-  reelTo(lookIx+LK.length,true);
-  markReel();
-  lookMeta();
+  if(!REEL.on)return;
+  const from=REEL.mode==='glide'?REEL.to:Math.round(REEL.pos);
+  reelGlide(from+d,0);
 }
 function lookMeta(){
   const s=LK[lookIx]; if(!s)return;
@@ -2942,7 +3056,7 @@ function lookMeta(){
      Unlock button: buying is a later job. */
   document.getElementById('lookname').textContent=s.locked
     ?s.name+', coming soon'
-    :((s.cv!=null&&s.cv<9)||s.id==='default'?s.name+'  ':'')+(lookIx+1)+' / '+LK.length;   /* a striped skin's name IS its number */
+    :((s.cv!=null&&s.cv<9)||s.id==='default'||s.ag?s.name+'  ':'')+(lookIx+1)+' / '+LK.length;   /* a striped skin's name IS its number */
   const btn=document.querySelector('#lookveil .ap-save-btn');
   if(btn){btn.disabled=!!s.locked;
     btn.firstChild.innerHTML=s.locked?'&nbsp;Unlock '+V2Shop.format(s.price)+'&nbsp;':'&nbsp;Save&nbsp;'}
@@ -2952,11 +3066,11 @@ function lookMeta(){
 function closeLook(save){
   const s=LK[lookIx];
   if(save&&s&&s.locked)return;      /* nothing to save until buying works */
-  if(save&&cur&&cur.look&&s){
-    skinId=s.id;
-    storeSkin();          /* the skin number /sl sends at connect */
+  if(save&&cur&&SAVED[cur.id]&&s){
+    SAVED[cur.id].put(s.id==='default'?null:s);   /* /sl's skin number, /ag's colour */
   }
   if(save)drawSkins();
+  REEL.on=false; REEL.mode='idle';
   document.getElementById('lookveil').classList.remove('on');
 }
 
@@ -3070,8 +3184,14 @@ function lobbyLoop(t){
   }catch(e){}});
   /* The appearance snake is the point of the box, so like the ticker it keeps
      swimming under reduced motion. Only paint boxes that are actually on
-     screen: offsetParent is null for anything inside a hidden screen. */
-  lookT+=0.022*dt;
+     screen: offsetParent is null for anything inside a hidden screen.
+     The chooser's reel moves first, in the same frame, so every slot is
+     painted with the skin it now holds. performance.now(), not the frame's
+     own stamp: a glide starts at an input event's now, and a frame stamped a
+     hair before it would run the glide backwards for a frame. */
+  const nowMs=performance.now();
+  lookT=nowMs/1000;
+  try{reelStep(nowMs)}catch(e){}
   document.querySelectorAll('canvas[data-look]').forEach(cv=>{
     if(cv.offsetParent)try{paintLook(cv)}catch(e){}
   });
