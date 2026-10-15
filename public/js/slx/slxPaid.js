@@ -21,8 +21,10 @@
 //    says { paid: 1, stake } and goes to the paid room by its key, and a paid page is never seated free: a paid
 //    socket with no token is refused 'entry' by the door.
 // 3. Drawing. One .slx-cash canvas between their game canvas (z-index 5) and their HUD (7), with slxHold's camera
-//    math (slxHold.js screenX, screenY): a gold #FFD700 glint on every cash pellet and $x.xx in #14F195 over every
-//    paid head. The gold rule (design 9): a food is cash iff its rad byte is at least C_PAID_CASH_BYTE 68, and their
+//    math (slxHold.js screenX, screenY): a turning gold coin (slxCoin.js, Owen's pick 2026-10-15) on every cash pellet,
+//    a plain #FFD700 disc while no coin frame is ready, and $x.xx in #14F195 over every paid head. Their client draws
+//    food under the snakes but this canvas is above theirs, so the coins are cut away under every live body and head,
+//    and a coin being eaten fades out at the start of its flight to the mouth. The gold rule (design 9): a food is cash iff its rad byte is at least C_PAID_CASH_BYTE 68, and their
 //    client keeps rad byte / 5 as the food's sz (slApply.js newFood), so cash is sz >= 13.6; in a paid room every
 //    death drop is cash and nothing else reaches it (test/slPaidBytes.test.js). Worths come in sl:x {t: 'w', id, v}
 //    (server/sl/slRoom.js _worthAll, _worthOnView), the own one with its delta d: a "+$0.01" pop rises over the own
@@ -74,14 +76,19 @@
   var POP_MAX = 6;
   var CID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;   // slPaidBoot isCashoutId
   var GOLD = '#FFD700';
+  var GOLD_EDGE = '#8C5A00';
   var GREEN = '#14F195';
   var CASH_Z = '6';                              // between their game canvas (5) and their HUD (7), as slxHold's rings
   var PI2 = 2 * Math.PI;
   // Head radius in world units: their body is 29 x sc wide (slxHold HEAD_HALF).
   var HEAD_HALF = 29 / 2;
-  // CHOSEN: a glint rings the pellet's drawn dot (their core sprite is about 0.8 sz wide at zoom 1, slApply newFood
-  // sizeIndex over the 17 sprites), and the label sits this many px above the head.
-  var GLINT_R = 0.95;
+  // CHOSEN: the coin's radius covers the pellet's drawn dot (their core sprite is about 0.8 sz wide at zoom 1, slApply
+  // newFood sizeIndex over the 17 sprites), so its colour shows only as the glow round the coin; and the label sits this
+  // many px above the head.
+  var COIN_R = 0.95;
+  // CHOSEN: an eaten coin's alpha falls by this per unit of their eaten_fr (0 to 1 over 41 frames), so it is gone 40% into
+  // the flight, before the dot reaches the mouth.
+  var EATEN_FADE = 2.5;
   var LABEL_GAP = 10;
 
   // Plain words for every door answer (server/slPaid/slPaidDoor.js WHYS) and the free room's connect refusal 'limit'
@@ -695,44 +702,101 @@
     return !!(S.slither && S.connected && S.dead_mtm == -1);
   }
 
-  // A gold ring round the pellet's drawn dot and a small turning sparkle, on their shimmer (slDrawWorld pulseOf).
+  // A gold coin on every cash pellet (slxCoin.js), as big as the pellet's drawn dot, faded and popping in with it, each
+  // on its own spin phase; a plain gold disc where no coin frame is ready yet or the browser cannot draw one. Then the
+  // snakes over them cut them away (underSnakes).
   function drawGold(k) {
     var list = S.foods;
     var n = S.foods_c;
     if (!list || !(n > 0)) return 0;
+    var coin = slx.coin && typeof slx.coin.blit === 'function' ? slx.coin : null;
+    var t = slx.now();
+    if (coin) coin.beginFrame();
     var count = 0;
-    ctx.strokeStyle = GOLD;
+    var x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
     for (var i = 0; i < n; i++) {
       var fo = list[i];
       if (!fo || !(fo.sz >= CASH_SZ)) continue;
-      var r = fo.sz * GLINT_R * k * (fo.rad > 0 ? fo.rad : 0);
+      var r = fo.sz * COIN_R * k * (fo.rad > 0 ? fo.rad : 0);
       if (!(r >= 0.5)) continue;
       var x = screenX(fo.rx);
       var y = screenY(fo.ry);
-      if (x < -r || y < -r || x > cw + r || y > ch + r) continue;
-      var g = typeof fo.gfr === 'number' ? fo.gfr : 0;
-      var pulse = 0.5 + 0.5 * Math.cos(g / 13);
-      var fr = fo.fr >= 0 && fo.fr <= 1 ? fo.fr : 1;
-      ctx.globalAlpha = fr * (0.55 + 0.45 * pulse);
-      ctx.lineWidth = Math.max(1.5, r * 0.18);
-      ctx.beginPath();
-      ctx.arc(x, y, r, 0, PI2);
-      ctx.stroke();
-      var a = g / 20;
-      var s = r * (0.45 + 0.35 * pulse);
-      var ca = Math.cos(a) * s;
-      var sa = Math.sin(a) * s;
-      ctx.lineWidth = Math.max(1, r * 0.12);
-      ctx.beginPath();
-      ctx.moveTo(x - ca, y - sa);
-      ctx.lineTo(x + ca, y + sa);
-      ctx.moveTo(x + sa, y - ca);
-      ctx.lineTo(x - sa, y + ca);
-      ctx.stroke();
+      var m = r * 1.3;                           // the edge band and the twinkle reach past r
+      if (x < -m || y < -m || x > cw + m || y > ch + m) continue;
+      var a = fo.fr >= 0 && fo.fr <= 1 ? fo.fr : 1;
+      // eaten (their slLoop stepFoods): the dot flies into the eater's mouth, under its head; the coin is gone early on
+      if (fo.eaten) a *= Math.max(0, 1 - EATEN_FADE * (fo.eaten_fr > 0 ? fo.eaten_fr : 0));
+      if (!(a > 0)) continue;
+      var ph = phaseOf(fo);
+      ctx.globalAlpha = a;
+      if (!coin || !coin.blit(ctx, x, y, r, cdpr, t, ph, fo.rad >= 1)) disc(x, y, r);
+      if (coin && !fo.eaten) coin.sparkle(ctx, x, y, r, t, ph);
+      if (x - m < x0) x0 = x - m;
+      if (y - m < y0) y0 = y - m;
+      if (x + m > x1) x1 = x + m;
+      if (y + m > y1) y1 = y + m;
       count++;
     }
     ctx.globalAlpha = 1;
+    if (count) underSnakes(k, x0, y0, x1, y1);
     return count;
+  }
+  // Their client draws food before the snakes (slDrawWorld redraw rows 10 and 11, the bodies rows 16 and 17), so a
+  // body hides the pellets under it; this canvas is above theirs, so every live snake that reaches the coins' box
+  // (x0, y0, x1, y1) erases them along its body: head to tail as one round line as wide as the body (29 sc, slxHold
+  // HEAD_HALF), faded as the body is (alive_amt, dead_amt).
+  function underSnakes(k, x0, y0, x1, y1) {
+    var list = S.slithers;
+    if (!list || !list.length) return;
+    var on = false;
+    for (var i = 0; i < list.length; i++) {
+      var o = list[i];
+      var pts = o && !o.dead ? o.pts : null;
+      if (!pts || !pts.length) continue;
+      var vis = (o.alive_amt >= 0 ? o.alive_amt : 1) * (1 - (o.dead_amt > 0 ? o.dead_amt : 0));
+      if (!(vis > 0)) continue;
+      var hx = o.xx + (o.fx || 0), hy = o.yy + (o.fy || 0);
+      var wx0 = hx, wy0 = hy, wx1 = hx, wy1 = hy;
+      for (var j = 0; j < pts.length; j++) {
+        var px = pts[j].xx + (pts[j].fx || 0), py = pts[j].yy + (pts[j].fy || 0);
+        if (px < wx0) wx0 = px; else if (px > wx1) wx1 = px;
+        if (py < wy0) wy0 = py; else if (py > wy1) wy1 = py;
+      }
+      var w = 2 * HEAD_HALF * (o.sc > 0 ? o.sc : 1) * k;
+      if (screenX(wx1) + w < x0 || screenY(wy1) + w < y0 || screenX(wx0) - w > x1 || screenY(wy0) - w > y1) continue;
+      if (!on) {
+        on = true;
+        ctx.save();
+        ctx.globalCompositeOperation = 'destination-out';
+        ctx.strokeStyle = '#000';
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+      }
+      ctx.globalAlpha = vis > 1 ? 1 : vis;
+      ctx.lineWidth = w;
+      ctx.beginPath();
+      ctx.moveTo(screenX(hx), screenY(hy));
+      for (j = pts.length - 1; j >= 0; j--) ctx.lineTo(screenX(pts[j].xx + (pts[j].fx || 0)), screenY(pts[j].yy + (pts[j].fy || 0)));
+      ctx.stroke();
+    }
+    if (on) ctx.restore();
+  }
+  function disc(x, y, r) {
+    ctx.fillStyle = GOLD;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, PI2);
+    ctx.fill();
+    ctx.lineWidth = Math.max(1, r * 0.1);
+    ctx.strokeStyle = GOLD_EDGE;
+    ctx.stroke();
+  }
+  // A pellet's fixed spin phase, 0..1: from its id (their newFood f.id), else its spawn point, so the coins do not turn
+  // in step.
+  function phaseOf(fo) {
+    var v = typeof fo.id === 'number' ? fo.id | 0 : ((+fo.xx || 0) * 31 + (+fo.yy || 0) * 17) | 0;
+    v = Math.imul(v ^ (v >>> 16), 0x45d9f3b);
+    v = Math.imul(v ^ (v >>> 16), 0x45d9f3b);
+    return ((v ^ (v >>> 16)) >>> 0) / 4294967296;
   }
 
   function label(text, x, y, size, colour) {
