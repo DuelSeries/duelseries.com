@@ -11,16 +11,20 @@
 //   K           checkLaws(laws); default checkLaws(room.laws)
 //   step        the step tallies for I8; default bank.step (reset by bank.beginStep before each step's facts)
 //   walletSeat  the directory's Map wallet -> { room, snakeId }; with it (full only) I9 is checked for this room
+// Run it after a step's facts are applied and before the next sim step: I8 reads that step's eats and deaths from
+// the sim itself (sim.food.tick.eats, sim.lastLog().deaths), so they are the facts the controller was handed.
 //
 //   cheap  I1   acc + floor + outCash + outRefund + outHouse == in, every counter a safe integer >= 0
-//          I8   this step: credited + suspended == taken off the floor by eats; placed == dead micro - unplaced
+//          I8   this step's facts were all applied: no food the sim ate is still a pellet, no snake that died still
+//               has an account (a skipped fact shows the same step, not 23 steps later as I5 or I4); and the bank's
+//               own tallies agree: credited + suspended == taken off the floor; placed == dead micro - unplaced
 //          I10  sim.count() <= C_PAID_HUMAN_CAP (so the border radius never moves, design 1)
 //   full   I2   the running sums equal the sums recomputed from the maps; house kinds add up to outHouse
 //          I3   every account micro >= its deposit and > 0 (a live paid snake never loses money)
 //          I4   every open account's snake is alive in the sim (production: refunded 100% through the owed lane)
 //          I5   every pellet's food is on the grid (sim.food.get(id) === food), not natural, rad byte >= C_PAID_CASH_BYTE
 //          I6   every food with rad byte >= C_PAID_CASH_BYTE is a pellet (no gold without cash)
-//          I7   every pellet holds >= 1 micro and lies inside flux - C_PAID_DROP_INSET (plus one food cell, below)
+//          I7   every pellet holds >= 1 micro and lies inside flux - C_PAID_DROP_INSET (plus two food cells, below)
 //          I9   walletSeat agrees with this room's accounts
 //          I13  every live human snake has an account (the inverse of I4)
 // Ledger-wide helpers for the soak and the proof: checkWalletSeats (I9 across rooms, one account per wallet),
@@ -32,8 +36,14 @@ const { assertLawsComplete } = require('../sl/slLaws');
 
 const CHECK_LAW_IDS = Object.freeze(['L1', 'L2.size', 'C_PAID_HUMAN_CAP', 'C_PAID_DROP_INSET', 'C_PAID_CASH_BYTE']);
 // A food sits at the corner of its cell (slGrid foodX floors the position into one of 256 cells per sector side),
-// so a drop pulled onto the flux - inset circle can sit up to one cell diagonal past it. I7 allows exactly that.
+// which is under one cell diagonal from the drop, and a drop whose cell is taken goes to the nearest free cell
+// (C_DROP_CELL, slFood freeCell), first the ring of eight around it: one more cell diagonal at most. So a drop pulled
+// onto the flux - inset circle can sit up to two cell diagonals past it (3.31 units; 3.19 measured around the whole
+// circle with the four sides taken), and I7 allows exactly that. A drop pushed farther (its whole 3 x 3 block, or
+// every cell of the block inside its sector, already taken) is reported: legit placement, but gold piled up at the
+// border.
 const CELLS_PER_SECTOR = 256;
+const SLACK_CELLS = 2;
 // Pellet and food walks (I5, I6, I7) list at most this many violations of a kind, then one { more } entry, so a
 // broken room cannot make a list of thousands every check. Account-level kinds are bounded by the accounts.
 const PER_KIND_MAX = 32;
@@ -60,7 +70,8 @@ function checkLaws(laws) {
   if (typeof grd !== 'number' || !(grd > 0) || typeof sector !== 'number' || !(sector > 0)) {
     throw new Error('slCheck: L1 and L2.size must be positive');
   }
-  const K = Object.freeze({ cashByte, inset, humanCap, grd, slack: (sector / CELLS_PER_SECTOR) * Math.SQRT2 });
+  const slack = SLACK_CELLS * (sector / CELLS_PER_SECTOR) * Math.SQRT2;
+  const K = Object.freeze({ cashByte, inset, humanCap, grd, slack });
   lawCache.set(laws, K);
   return K;
 }
@@ -102,7 +113,7 @@ function checkI1(bank, s) {
   if (notMicro.length > 0 || sum !== parts.in) s.push('I1', Object.assign({ sum, notMicro }, parts));
 }
 
-// I8: the step's facts moved exactly what they took.
+// I8, the bank's own tallies: the step's facts moved exactly what they took.
 function checkI8(st, s) {
   const keys = ['taken', 'credited', 'suspended', 'dead', 'splitIn', 'unplaced'];
   const notMicro = keys.filter((k) => !isMicro(st[k]));
@@ -115,6 +126,30 @@ function checkI8(st, s) {
   }
   if (st.splitIn !== st.dead - st.unplaced) {
     s.push('I8', { why: 'deaths', dead: st.dead, splitIn: st.splitIn, unplaced: st.unplaced });
+  }
+}
+
+// I8, the facts: the sim's own record of this step against the bank, so a fact the controller skipped (a throw in
+// its loop, a missed list) shows now. An eaten food that is still a pellet keeps its eater's micro on a food that is
+// gone; a dead snake that still has an account keeps its micro off the floor. A sim with no such record is reported.
+function checkI8Facts(bank, sim, s) {
+  const eats = sim.food && sim.food.tick ? sim.food.tick.eats : null;
+  if (!Array.isArray(eats)) {
+    s.push('check', { why: 'no eats' });
+  } else {
+    for (const e of eats) {
+      const p = e && e.food ? bank.floor.get(e.food) : undefined;
+      if (p) s.capped('I8', { why: 'eaten-pellet', id: e.food.id, eater: e.eater, micro: p.micro });
+    }
+  }
+  const log = typeof sim.lastLog === 'function' ? sim.lastLog() : null;
+  if (!log || !Array.isArray(log.deaths)) {
+    s.push('check', { why: 'no step log' });
+  } else {
+    for (const d of log.deaths) {
+      const a = d ? bank.accounts.get(d.id) : undefined;
+      if (a) s.push('I8', { why: 'dead-account', snakeId: d.id, jid: a.jid || null, micro: a.micro });
+    }
   }
 }
 
@@ -190,6 +225,7 @@ function checkRoom(room, opts) {
     if (!sim) {
       s.push('check', { why: 'no sim' });
     } else {
+      checkI8Facts(bank, sim, s);
       const n = sim.count();
       if (!(n <= K.humanCap)) s.push('I10', { count: n, cap: K.humanCap });
       if (o.full) checkFull(room, bank, sim, K, o, s);

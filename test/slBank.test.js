@@ -1,6 +1,7 @@
 'use strict';
 // SlBank (PAID-SL-DESIGN.md 8, 11.1 slBank; task T1): every operation is all-or-nothing; NaN, -1, 1.5 and 2^53 are
-// refused before anything changes; withdraw is capped at the room total; and
+// refused before anything changes; accounts and pellets are frozen; every out move is refused at the ceiling while
+// the room holds more than the ledger says, so an inflated account is never paid another player's money; and
 //     acc + floor + outCash + outRefund + outHouse == in       (I1)
 // holds after every operation, valid or refused, across a long seeded run.
 const test = require('node:test');
@@ -43,6 +44,16 @@ function state(b) {
 
 function food(id, b = 70) {
   return { id, x: 0, y: 0, b, nat: false };
+}
+
+// A corrupted account or pellet, written straight into the bank's maps past the freeze (what a bug inside the bank, or
+// code reaching into its maps, would leave).
+function setAcct(b, id, patch) {
+  b.accounts.set(id, Object.assign({}, b.accounts.get(id), patch));
+}
+
+function setPellet(b, f, patch) {
+  b.floor.set(f, Object.assign({}, b.floor.get(f), patch));
 }
 
 test('deposit opens one account per snake id with the deposit kept, and the books close', () => {
@@ -192,13 +203,13 @@ test('credit refuses a corrupted pellet or eater before anything changes', () =>
   const f = food(1);
   b.split(1, [f], [100]);
   for (const bad of [NaN, 1.5, -1, 0]) {
-    b.floor.get(f).micro = bad;
+    setPellet(b, f, { micro: bad });
     const before = state(b);
     assert.throws(() => b.credit(f, 2), /the pellet holds/);
     assert.strictEqual(state(b), before);
   }
-  b.floor.get(f).micro = 100;
-  b.account(2).micro = NaN;
+  setPellet(b, f, { micro: 100 });
+  setAcct(b, 2, { micro: NaN });
   const before = state(b);
   assert.throws(() => b.credit(f, 2), /account 2 holds NaN/);
   assert.strictEqual(state(b), before);
@@ -226,23 +237,79 @@ test('withdraw: cash or refund, the account closes, the counter of its kind move
   assertBooks(b, 'withdraw');
 });
 
-test('withdraw is capped at the room total: an inflated account pays only what the room holds, reported once', () => {
+test('accounts and pellets are frozen: nothing the bank hands out can change the money; a credit swaps the eater', () => {
+  const { b } = rig();
+  const a = b.deposit(1, 500000, { wallet: 'A', jid: 'j1' });
+  b.deposit(2, 500000, { wallet: 'B', jid: 'j2' });
+  const f = [food(1), food(2)];
+  const r = b.split(2, f, [250000, 250000]);
+  const before = state(b);
+  assert.throws(() => { a.micro = 5000000; }, TypeError);
+  assert.throws(() => { b.account(1).micro = 5000000; }, TypeError);
+  assert.throws(() => { b.account(1).deposit = 1; }, TypeError);
+  assert.throws(() => { r.acct.micro = 1; }, TypeError);
+  assert.throws(() => { b.pellet(f[0]).micro = 5000000; }, TypeError);
+  assert.throws(() => { b.floor.get(f[1]).srcWallet = 'X'; }, TypeError);
+  assert.strictEqual(state(b), before);
+  assert.strictEqual(b.credit(f[0], 1), 250000);
+  const now = b.account(1);
+  assert.notStrictEqual(now, a, 'a new account in the eater\'s place');
+  assert.ok(Object.isFrozen(now));
+  assert.deepStrictEqual(now, { wallet: 'A', jid: 'j1', snakeId: 1, micro: 750000, deposit: 500000 });
+  assert.strictEqual(a.micro, 500000, 'a kept object is a stale copy, never the money');
+  assertBooks(b, 'frozen');
+});
+
+test('the ceiling: while an account is inflated every out move is refused, so B keeps its 500000; told every time', () => {
   const { b, breaches } = rig();
   b.deposit(1, 500000, { wallet: 'A' });
   b.deposit(2, 500000, { wallet: 'B' });
-  b.account(1).micro = 5000000; // a bug elsewhere inflated it
-  b.sums.acc += 4500000;
-  const w = b.withdraw(1, 'cash');
-  assert.strictEqual(w.micro, 1000000, 'never more than in - out');
-  assert.strictEqual(b.ledger.outCash, 1000000);
-  assert.strictEqual(breaches.length, 1);
-  assert.strictEqual(breaches[0].why, 'ceiling');
-  assert.strictEqual(breaches[0].ceiling, 1000000);
-  // the room is now empty by the ledger: the other account's withdraw books 0, and the breach is not repeated
-  assert.strictEqual(b.withdraw(2, 'refund').micro, 0);
-  assert.strictEqual(b.ledger.outRefund, 0);
-  assert.strictEqual(breaches.length, 1);
-  assert.ok(b.outMicro() <= b.ledger.in, 'the room never pays out more than came in');
+  b.deposit(3, 100, { wallet: 'C' });
+  const f = food(1);
+  b.split(3, [f], [100]);
+  setAcct(b, 1, { micro: 5000000 }); // a bug inflated A
+  b.sums.acc += 4500000; // and the running sum followed it
+  const before = state(b);
+  assert.throws(() => b.withdraw(1, 'cash'), /slBank\.withdraw: the ceiling/);
+  assert.strictEqual(state(b), before, 'A is not paid: nothing changed, nothing booked');
+  assert.deepStrictEqual(breaches[0], { kind: 'bank', inMicro: 1000100, outMicro: 0, why: 'ceiling', op: 'withdraw', id: 1,
+    micro: 5000000, held: 5500100, ceiling: 1000100 });
+  // B's own 500000 fits, but the room cannot tell which account is wrong: nothing leaves while it holds too much
+  assert.throws(() => b.withdraw(2, 'refund'), /slBank\.withdraw: the ceiling/);
+  assert.throws(() => b.takeFloor('swept'), /slBank\.takeFloor: the ceiling/);
+  assert.throws(() => b.toSuspense(f), /slBank\.toSuspense: the ceiling/);
+  assert.throws(() => b.split(2, [], []), /slBank\.split: the ceiling/);
+  assert.strictEqual(state(b), before);
+  assert.deepStrictEqual(breaches.map((x) => x.op), ['withdraw', 'withdraw', 'takeFloor', 'toSuspense', 'split'],
+    'every refusal is told, not once per bank');
+  assert.strictEqual(b.balance(2), 500000);
+  // the running sum need not follow: the walk is what the ceiling reads
+  b.sums.acc -= 4500000;
+  assert.throws(() => b.withdraw(2, 'cash'), /the ceiling/);
+  // a pellet or an account that is not a whole number blocks every out move the same way
+  setAcct(b, 1, { micro: 500000 });
+  setPellet(b, f, { micro: NaN });
+  assert.throws(() => b.withdraw(2, 'cash'), /the ceiling/);
+  setPellet(b, f, { micro: 100 });
+  // put right, every account and the pellet leave at exactly what they hold
+  assertBooks(b, 'restored');
+  assert.strictEqual(b.withdraw(1, 'cash').micro, 500000);
+  assert.strictEqual(b.withdraw(2, 'refund').micro, 500000);
+  assert.strictEqual(b.takeFloor('swept').micro, 100);
+  assert.deepStrictEqual(b.ledger, { in: 1000100, outCash: 500000, outRefund: 500000, outHouse: 100 });
+  assert.strictEqual(breaches.length, 7);
+  assertBooks(b, 'paid out');
+});
+
+test('the ceiling binds on too much, never on too little: an account short of its micro still pays what it holds', () => {
+  const { b, breaches } = rig();
+  b.deposit(1, 500000, { wallet: 'A' });
+  b.deposit(2, 500000, { wallet: 'B' });
+  setAcct(b, 1, { micro: 400000 }); // 100000 went missing: nobody can be paid another's money by paying A less
+  assert.strictEqual(b.withdraw(2, 'cash').micro, 500000);
+  assert.strictEqual(b.withdraw(1, 'cash').micro, 400000);
+  assert.strictEqual(b.roomMicro(), 100000, 'the missing micro stays on the ledger for the checker (I1, I2)');
+  assert.strictEqual(breaches.length, 0);
 });
 
 test('withdraw refuses an account that is not a whole number of micro (NaN never pays a room out)', () => {
@@ -250,7 +317,7 @@ test('withdraw refuses an account that is not a whole number of micro (NaN never
   b.deposit(1, 500000, { wallet: 'A' });
   b.deposit(2, 500000, { wallet: 'B' });
   for (const bad of [NaN, Infinity, -1, 1.5, 2 ** 53]) {
-    b.account(1).micro = bad;
+    setAcct(b, 1, { micro: bad });
     const before = state(b);
     assert.throws(() => b.withdraw(1, 'cash'), /account 1 holds/);
     assert.strictEqual(state(b), before, 'nothing changed for ' + String(bad));
@@ -294,7 +361,7 @@ test('takeFloor refuses a corrupted pellet before taking any', () => {
   b.deposit(1, 100, { wallet: 'A' });
   const f = [food(1), food(2)];
   b.split(1, f, [50, 50]);
-  b.floor.get(f[1]).micro = NaN;
+  setPellet(b, f[1], { micro: NaN });
   const before = state(b);
   assert.throws(() => b.takeFloor('swept'), /a pellet holds NaN/);
   assert.strictEqual(state(b), before);

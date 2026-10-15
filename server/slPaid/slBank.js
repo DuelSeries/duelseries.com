@@ -8,7 +8,10 @@
 //             one per live paid snake; the account is the snake's whole worth
 //   floor     Map food OBJECT -> { micro, srcWallet, srcName, srcJid }, one per cash pellet on the grid
 // The floor is keyed by the food object the sim made, never its cell id: a cell freed by an eat can be taken again by a
-// later drop in the same step (slFood.js freeCell), and object identity never collides.
+// later drop in the same step (slFood.js freeCell), and object identity never collides. Every account and pellet is
+// frozen, so no object the bank hands out can change the money: a credit puts a new account in the eater's place
+// (read balances through account() or balance(), never a kept object), and the controller keeps its own per-snake
+// state in its own map.
 //
 // Counters: ledger { in, outCash, outRefund, outHouse } only ever grow; house { swept, abandoned, breach } splits
 // outHouse by why; sums { acc, floor } are the running totals the checker recomputes (I2). EVERY operation keeps
@@ -27,9 +30,12 @@
 //                                                                      (shutdown and crash: logged, stays in escrow)
 //   toSuspense(food)           floor -> outHouse breach                a pellet eaten by a snake with no account
 //
-// The ceiling (MONEY INVARIANT 3): nothing leaves beyond in - out, the room's total by the ledger, so a corrupted
-// account can never pay out other players' money. When it binds, onBreach is told (once per why) and only the
-// ceiling leaves. While I1 holds it never binds.
+// The ceiling (MONEY INVARIANT 3), checked by every out move before it changes anything: money leaves only while it
+// fits in in - out, the room's total by the ledger, AND the room's accounts and pellets, walked, hold no more than
+// that. A move whose own micro fits is still refused while anything else is inflated: the room cannot tell which
+// account is wrong, and paying any of them while the room holds more than the ledger says could hand one player
+// another's money. So it is refused like a bad argument (nothing changed, the money stays in the room and in escrow)
+// and onBreach is told every time; agAlert's rate limit dedupes the push. While I1 and I2 hold it never binds.
 
 function isMicro(v) {
   return Number.isSafeInteger(v) && v >= 0;
@@ -51,38 +57,51 @@ function newStep() {
 
 const HOUSE_KINDS = Object.freeze(['swept', 'abandoned', 'breach']);
 
-// The one place an out counter moves. Callers have already taken `micro` (a checked whole number) out of an account
-// or the floor in the same operation. Returns what was booked: micro, or the ceiling when it binds.
-function bookOut(bank, kind, micro, op, id) {
+// What the room's accounts and pellets hold, walked (not the running sums); NaN when any of them is not a whole number
+// of micro, so a corrupted one never passes the ceiling.
+function heldMicro(bank) {
+  let held = 0;
+  for (const a of bank.accounts.values()) held = isMicro(a.micro) ? held + a.micro : NaN;
+  for (const p of bank.floor.values()) held = isMicro(p.micro) ? held + p.micro : NaN;
+  return held;
+}
+
+// The ceiling (header), before an out move changes anything: `micro` is what it will take out of an account or the
+// floor, which still hold it. Refuses, and tells onBreach, when the room holds more than the ledger says.
+function checkCeiling(bank, op, id, micro) {
   const room = bank.roomMicro();
-  let out = micro;
-  if (!(micro <= room)) {
-    out = isMicro(room) ? room : 0;
-    bank._breach({ why: 'ceiling', op, id, micro, ceiling: room });
-  }
+  const held = heldMicro(bank);
+  if (isMicro(room) && isMicro(held) && held <= room && micro <= room) return;
+  bank._breach({ why: 'ceiling', op, id, micro, held, ceiling: room });
+  refuse(op, 'the ceiling: ' + micro + ' out while the accounts and floor hold ' + String(held) + ' and the ledger ' +
+    String(room));
+}
+
+// The one place an out counter moves, after checkCeiling passed for the same micro in the same operation, which has
+// already taken it out of an account or the floor.
+function bookOut(bank, kind, micro) {
   const l = bank.ledger;
-  if (kind === 'cash') l.outCash += out;
-  else if (kind === 'refund') l.outRefund += out;
+  if (kind === 'cash') l.outCash += micro;
+  else if (kind === 'refund') l.outRefund += micro;
   else {
-    bank.house[kind] += out;
-    l.outHouse += out;
+    bank.house[kind] += micro;
+    l.outHouse += micro;
   }
-  return out;
 }
 
 class SlBank {
-  // onBreach(info): the ceiling bound (once per why). onTransfer({ srcWallet, dstWallet, micro, srcJid, eater, kind }):
-  // after each credit, for the collusion buckets. Both are guarded: a throwing hook never undoes a move.
+  // onBreach(info): an out move was refused at the ceiling (every time). onTransfer({ srcWallet, dstWallet, micro,
+  // srcJid, eater, kind }): after each credit, for the collusion buckets. Both are guarded: a throwing hook never
+  // undoes a move or a refusal.
   constructor({ onBreach, onTransfer } = {}) {
     this.onBreach = typeof onBreach === 'function' ? onBreach : () => {};
     this.onTransfer = typeof onTransfer === 'function' ? onTransfer : () => {};
-    this.accounts = new Map(); // snake id -> account (open only)
-    this.floor = new Map(); // food object -> pellet, in placement order
+    this.accounts = new Map(); // snake id -> account (open only, frozen)
+    this.floor = new Map(); // food object -> pellet (frozen), in placement order
     this.ledger = { in: 0, outCash: 0, outRefund: 0, outHouse: 0 };
     this.house = { swept: 0, abandoned: 0, breach: 0 }; // outHouse by why
     this.sums = { acc: 0, floor: 0 };
     this.step = newStep();
-    this.reported = new Set(); // breach whys already reported
   }
 
   // ---------------------------------------------------------------------------------------------------------------
@@ -168,7 +187,8 @@ class SlBank {
   // Moves. Each checks first and throws with nothing changed; then changes everything it says or nothing.
 
   // A paid snake's account opens with the worth of its consumed token. info: what the controller keeps on the account
-  // (wallet, name, jid, ...); snakeId, micro and deposit are the bank's own and always win. Returns the account.
+  // (wallet, name, jid, ...); snakeId, micro and deposit are the bank's own and always win. Returns the account
+  // (frozen).
   deposit(snakeId, micro, info) {
     if (!isSnakeId(snakeId)) refuse('deposit', 'bad snake id ' + String(snakeId));
     if (!isMicro(micro) || micro < 1) refuse('deposit', 'micro must be a whole number >= 1, got ' + String(micro));
@@ -179,7 +199,7 @@ class SlBank {
     const nextIn = this.ledger.in + micro;
     const nextAcc = this.sums.acc + micro;
     if (!isMicro(nextIn) || !isMicro(nextAcc)) refuse('deposit', 'the room total would leave the safe integers');
-    const acct = Object.assign({}, info || null, { snakeId, micro, deposit: micro });
+    const acct = Object.freeze(Object.assign({}, info || null, { snakeId, micro, deposit: micro }));
     this.accounts.set(snakeId, acct);
     this.ledger.in = nextIn;
     this.sums.acc = nextAcc;
@@ -210,23 +230,25 @@ class SlBank {
     }
     if (foods.length > 0 && sum !== M) refuse('split', 'shares sum to ' + sum + ', the account holds ' + M);
     const unplaced = foods.length === 0 ? M : 0;
+    if (unplaced > 0) checkCeiling(this, 'split', snakeId, unplaced);
     this.accounts.delete(snakeId);
     this.sums.acc -= M;
     const src = { srcWallet: acct.wallet || null, srcName: acct.name || '', srcJid: acct.jid || null };
     for (let i = 0; i < foods.length; i++) {
-      this.floor.set(foods[i], { micro: shares[i], srcWallet: src.srcWallet, srcName: src.srcName, srcJid: src.srcJid });
+      this.floor.set(foods[i], Object.freeze({ micro: shares[i], srcWallet: src.srcWallet, srcName: src.srcName,
+        srcJid: src.srcJid }));
     }
     this.sums.floor += sum;
-    if (unplaced > 0) bookOut(this, 'breach', unplaced, 'split', snakeId);
+    if (unplaced > 0) bookOut(this, 'breach', unplaced);
     this.step.dead += M;
     this.step.splitIn += sum;
     this.step.unplaced += unplaced;
     return { micro: M, placed: sum, unplaced, pellets: foods.length, acct };
   }
 
-  // An eat: the pellet's micro moves to the eater's account, once (the pellet is deleted). 0 when the food is not a
-  // pellet (natural food, a boost crumb, a replayed eat); -1 when it is but the eater has no account, and nothing
-  // moves (the controller sends that pellet to toSuspense).
+  // An eat: the pellet's micro moves to the eater's account, once (the pellet is deleted; a new frozen account takes
+  // the eater's place). 0 when the food is not a pellet (natural food, a boost crumb, a replayed eat); -1 when it is
+  // but the eater has no account, and nothing moves (the controller sends that pellet to toSuspense).
   credit(food, eaterId) {
     const pel = this.floor.get(food);
     if (!pel) return 0;
@@ -240,7 +262,7 @@ class SlBank {
     if (!isMicro(next)) refuse('credit', 'account ' + eaterId + ' would leave the safe integers');
     this.floor.delete(food);
     this.sums.floor -= m;
-    to.micro = next;
+    this.accounts.set(eaterId, Object.freeze(Object.assign({}, to, { micro: next })));
     this.sums.acc += m;
     this.step.taken += m;
     this.step.credited += next - before;
@@ -253,22 +275,24 @@ class SlBank {
 
   // The one way an account's money leaves the room to a player: kind 'cash' (a cash-out, the whole account is the
   // gross; the payout splits 90/10) or 'refund' (shutdown, crash, emergency, orphan: 100% of the current balance, no
-  // rake). The account closes. null when it is not open. -> { micro (what was booked), acct }
+  // rake). The account closes. null when it is not open. Refused at the ceiling (header). -> { micro, acct }
   withdraw(snakeId, kind) {
     if (kind !== 'cash' && kind !== 'refund') refuse('withdraw', 'kind must be cash or refund, got ' + String(kind));
     const acct = this.accounts.get(snakeId);
     if (!acct) return null;
     const m = acct.micro;
     if (!isMicro(m)) refuse('withdraw', 'account ' + snakeId + ' holds ' + String(m));
+    checkCeiling(this, 'withdraw', snakeId, m);
     this.accounts.delete(snakeId);
     this.sums.acc -= m;
-    const micro = bookOut(this, kind, m, 'withdraw', snakeId);
-    return { micro, acct };
+    bookOut(this, kind, m);
+    return { micro: m, acct };
   }
 
   // Every pellet leaves to the house: kind 'swept' (idle retire, emergency close: the controller sends each source's
   // micro through sweepFloor) or 'abandoned' (shutdown and crash: booked and logged, the money stays in escrow).
-  // -> { micro (booked), count, bySource: [{ srcWallet, srcName, micro, count }] in first-drop order }
+  // Refused at the ceiling (header), so bySource always adds up to the micro booked.
+  // -> { micro, count, bySource: [{ srcWallet, srcName, micro, count }] in first-drop order }
   takeFloor(kind) {
     if (kind !== 'swept' && kind !== 'abandoned') refuse('takeFloor', 'kind must be swept or abandoned, got ' + String(kind));
     let total = 0;
@@ -287,32 +311,32 @@ class SlBank {
     }
     if (!isMicro(total)) refuse('takeFloor', 'the floor total leaves the safe integers');
     const count = this.floor.size;
+    if (count > 0) checkCeiling(this, 'takeFloor', kind, total);
     this.floor.clear();
     this.sums.floor -= total;
-    const micro = count > 0 ? bookOut(this, kind, total, 'takeFloor', kind) : 0;
-    return { micro, count, bySource: Array.from(by.values()) };
+    if (count > 0) bookOut(this, kind, total);
+    return { micro: total, count, bySource: Array.from(by.values()) };
   }
 
   // A pellet eaten by a snake with no account (impossible with no bots in a paid room): it goes to the house as a
-  // breach, never lost, never credited. 0 when the food is not a pellet. -> the micro booked
+  // breach, never lost, never credited. 0 when the food is not a pellet. Refused at the ceiling (header). -> the micro
   toSuspense(food) {
     const pel = this.floor.get(food);
     if (!pel) return 0;
     const m = pel.micro;
     if (!isMicro(m) || m < 1) refuse('toSuspense', 'the pellet holds ' + String(m));
+    checkCeiling(this, 'toSuspense', food.id, m);
     this.floor.delete(food);
     this.sums.floor -= m;
     this.step.taken += m;
     this.step.suspended += m;
-    return bookOut(this, 'breach', m, 'toSuspense', food.id);
+    bookOut(this, 'breach', m);
+    return m;
   }
 
   // ---------------------------------------------------------------------------------------------------------------
 
   _breach(info) {
-    const why = info && info.why ? info.why : 'ledger';
-    if (this.reported.has(why)) return;
-    this.reported.add(why);
     try {
       this.onBreach(Object.assign({ kind: 'bank', inMicro: this.ledger.in, outMicro: this.outMicro() }, info));
     } catch (e) { /* refusing is what protects the money */ }
