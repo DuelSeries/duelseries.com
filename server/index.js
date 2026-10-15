@@ -1073,6 +1073,17 @@ app.get('/api/stats/winnings', async (req, res) => {
   }
 });
 
+/* The lobby's "Players have cashed out $X" strip (server/earnings). Read only,
+   one cached read a minute; the off switch is server/earnings/config.js SHOW,
+   or the owner console's earnings:off. */
+const earnings = require('./earnings').createEarnings({
+  query: process.env.DATABASE_URL ? (sql, params) => db.pool.query(sql, params) : null,
+  excludeWallets: [...OWNER_WALLETS, REVENUE_WALLET],
+  previewExclude: [REVENUE_WALLET],
+  switchFile: process.env.EARNINGS_SWITCH_PATH || path.join(__dirname, 'data', 'earnings-switch.json'),
+});
+earnings.route(app);
+
 app.get('/api/players/search', async (req, res) => {
   const q = strOr(req.query.q, '').trim();   // ?q[]=a is an array: .trim() threw, process gone
   if (!q) return res.json([]);
@@ -1289,6 +1300,7 @@ function opsSnapshot() {
                          saved: agPaidSwitch.saved() } : null,
     paperPaid: paperArenas ? { enabled: !!paperArenas.paidEnabled, open: !!paperArenas.paidOpen,
                                stopping: !!paperArenas.stopping, saved: paperPaidSwitch.saved() } : null,
+    earnings: earnings.stats(),
     rooms,
     audit: ownerAuth.auditLog.slice(0, 25),
   };
@@ -1445,6 +1457,18 @@ app.post('/api/owner/do', sigLimiter, async (req, res) => {
       if (agArenas) io.of('/ag').emit('maintenance', ops.get());
       if (slArenas) io.of('/sl').emit('maintenance', ops.get());
       return done('Maintenance on. New games refused.');
+    /* The lobby's cashed-out strip (server/earnings): hide or show it, saved
+       across restarts and deploys. Display only, no money is touched. */
+    case 'earnings:off': {
+      const kept = earnings.setHidden(true);
+      return done('Earnings strip hidden.' + (kept.ok ? ' It stays hidden across restarts until you press Show.'
+        : ' Not saved (' + kept.why + '), so a restart shows it again.'));
+    }
+    case 'earnings:on': {
+      const kept = earnings.setHidden(false);
+      return done((earnings.shown() ? 'Earnings strip shown.' : 'Console hide cleared, but SHOW is false in server/earnings/config.js.')
+        + (kept.ok ? '' : ' Not saved (' + kept.why + ').'));
+    }
     case 'maintenance:off':
       ops.set({ on: false });
       io.emit('maintenance', ops.get());

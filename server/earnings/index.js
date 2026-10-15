@@ -1,0 +1,278 @@
+'use strict';
+/* The lobby's "Players have cashed out $X" strip and its top-10 board, server side.
+
+   Read only. This file writes nothing to the database and requires no money
+   module: it gets one query function and reads house_revenue the same way the
+   biggest-cash-out box does (server/sl/slTopCashout.js), so what counts is the
+   same rule in both places:
+   - one game_rake row per paid payout, every game; take-home = 9 x the rake;
+   - only a payout that LANDED (a matching earnings_history row within the
+     window and no failed_payouts row), since the cutover to USDC;
+   - never the owner wallets, the revenue wallet, or any test wallet in
+     C_TOP_EXCLUDE. Bots have no wallet and never produce a rake row.
+   Nothing is ever invented, padded or seeded. No real cash-outs means no strip.
+
+   One database read per REFRESH_MS at most, however many lobbies are open: a
+   request after the cache goes stale starts ONE refresh and is answered from
+   the last good value (only the very first request waits for a read).
+
+   Names: the player's display name, or a short wallet (C5cn...H3m9) when they
+   never set one. A full wallet address never leaves this file.
+
+   Preview: /api/earnings?preview=1 is the same read with the owner's own
+   cash-outs let in (the revenue wallet still never counts), so Owen can see
+   the strip filled before real players have cashed out. Only the viewer who
+   asks for it sees it; the plain endpoint never includes the owner. */
+
+const fs = require('fs');
+const path = require('path');
+const CONFIG = require('./config');
+const { TOP_ROWS } = require('../sl/slTopCashout');
+
+const SINCE = TOP_ROWS.C_TOP_SINCE.value;
+const LANDED = TOP_ROWS.C_TOP_LANDED.value;
+const TAKE_HOME_PER_RAKE = 9;
+const TOP_N = 10;
+const WEEK_DAYS = 7;
+const NAME_MAX = 24;
+
+/* $1 since, $2 excluded wallets, $3 landed window (s), $4 amount tolerance (USDC), $5 time zone.
+   The WHERE clause is TOP_SQL's, clause for clause. One row per player, game and local day. */
+const EARNINGS_SQL = `SELECT h.player_wallet AS wallet,
+       COALESCE(h.game, '') AS game,
+       ((now() AT TIME ZONE $5)::date - (h.created_at AT TIME ZONE $5)::date)::int AS age,
+       count(*)::int AS n,
+       sum(h.amount_usdc)::text AS rake,
+       max(h.amount_usdc)::text AS best_rake,
+       max(a.name) AS name
+  FROM house_revenue h
+  LEFT JOIN accounts a ON a.google_id = h.player_wallet
+ WHERE h.source = 'game_rake'
+   AND h.amount_usdc > 0
+   AND h.created_at >= $1::timestamptz
+   AND h.player_wallet IS NOT NULL
+   AND h.player_wallet <> ALL ($2::text[])
+   AND EXISTS (SELECT 1 FROM earnings_history e
+                WHERE e.google_id = h.player_wallet
+                  AND e.created_at >= h.created_at
+                  AND e.created_at <= h.created_at + make_interval(secs => $3)
+                  AND abs(e.amount - 9 * h.amount_usdc) <= $4::numeric)
+   AND NOT EXISTS (SELECT 1 FROM failed_payouts f
+                    WHERE f.wallet_address = h.player_wallet
+                      AND f.created_at >= h.created_at
+                      AND f.created_at <= h.created_at + make_interval(secs => $3))
+ GROUP BY 1, 2, 3`;
+
+function earningsParams(exclude, timeZone) {
+  return [SINCE, exclude.slice(), LANDED.windowS, LANDED.tolMicro / 1e6, timeZone];
+}
+
+const GAME_LABELS = Object.freeze({
+  slither: 'slither.io', snake: 'slither.io', agar: 'agar.io', ag: 'agar.io', paper: 'Paper.io',
+  knockout: 'Knockout', battleship: 'Battleship', tanks: 'Awesome Tanks', shooter: 'OMG Shooter',
+});
+function gameLabel(g) {
+  const k = String(g || '').toLowerCase();
+  if (GAME_LABELS[k]) return GAME_LABELS[k];
+  return k ? k.charAt(0).toUpperCase() + k.slice(1) : '';
+}
+
+function shortWallet(w) {
+  const s = String(w || '');
+  return s.length > 10 ? s.slice(0, 4) + '…' + s.slice(-4) : 'Player';
+}
+
+// The display name, or a short wallet. 'Player' is the payers' own fallback, so it means "no name set".
+function displayName(name, wallet) {
+  const n = String(name == null ? '' : name).replace(/[\u0000-\u001f\u007f]/g, '').trim();
+  if (!n || n.toLowerCase() === 'player') return shortWallet(wallet);
+  return n.length > NAME_MAX ? n.slice(0, NAME_MAX) : n;
+}
+
+function toMicro(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.round(n * 1e6) : NaN;
+}
+// Take-home dollars for a summed rake in micro-USDC: 9 x rake, to the cent.
+function takeHome(micro) {
+  return Math.round((micro * TAKE_HOME_PER_RAKE) / 1e4) / 100;
+}
+
+/* Rows from EARNINGS_SQL to the public answer. Pure, so the tests drive it directly.
+   Returns null for a row set that cannot be trusted (the caller keeps its last value). */
+function summarize(rows) {
+  if (!Array.isArray(rows)) return null;
+  const mk = () => ({ micro: 0, n: 0, players: new Map() });
+  const P = { today: mk(), week: mk(), all: mk() };
+  let best = null;   // { micro, game } the biggest single cash-out today
+  for (const r of rows) {
+    if (!r || typeof r.wallet !== 'string' || !r.wallet) return null;
+    const micro = toMicro(r.rake);
+    const n = Number(r.n);
+    const age = Number(r.age);
+    if (!(micro > 0) || !(n > 0) || !Number.isFinite(age)) return null;
+    const into = [P.all];
+    if (age <= 0) into.push(P.today);
+    if (age < WEEK_DAYS) into.push(P.week);
+    for (const p of into) {
+      p.micro += micro;
+      p.n += n;
+      let pl = p.players.get(r.wallet);
+      if (!pl) { pl = { wallet: r.wallet, name: r.name, micro: 0, n: 0, games: new Map() }; p.players.set(r.wallet, pl); }
+      pl.micro += micro;
+      pl.n += n;
+      if (r.name) pl.name = r.name;
+      pl.games.set(r.game, (pl.games.get(r.game) || 0) + micro);
+    }
+    if (age <= 0) {
+      const b = toMicro(r.best_rake);
+      if (b > 0 && (!best || b > best.micro)) best = { micro: b, game: r.game };
+    }
+  }
+  const board = (p) => ({
+    total: takeHome(p.micro),
+    count: p.n,
+    top: [...p.players.values()]
+      .sort((a, b) => (b.micro - a.micro) || (b.n - a.n) || (a.wallet < b.wallet ? -1 : 1))
+      .slice(0, TOP_N)
+      .map((pl) => {
+        let g = '', gm = -1;
+        for (const [k, m] of pl.games) if (m > gm) { g = k; gm = m; }
+        return { name: displayName(pl.name, pl.wallet), game: gameLabel(g), amount: takeHome(pl.micro), n: pl.n };
+      }),
+  });
+  return {
+    total: takeHome(P.all.micro),
+    count: P.all.n,
+    bestToday: best ? { amount: takeHome(best.micro), game: gameLabel(best.game) } : null,
+    periods: { today: board(P.today), week: board(P.week), all: board(P.all) },
+  };
+}
+
+/* The owner console's hide, kept in a small file so it outlives a restart and a
+   deploy (server/data/ is gitignored and kept by the deploy). Present = hidden.
+   A file that exists but cannot be read counts as hidden. */
+function createHideSwitch({ file, fsx = fs, log = console } = {}) {
+  let hidden = false;
+  try {
+    if (file && fsx.existsSync(file)) { fsx.readFileSync(file, 'utf8'); hidden = true; }
+  } catch (e) {
+    hidden = true;
+    log.error('[EARN] hide switch file unreadable, the strip starts hidden: ' + (e && e.message));
+  }
+  return {
+    hidden: () => hidden,
+    set(h) {
+      hidden = !!h;
+      if (!file) return { ok: false, why: 'no file' };
+      try {
+        if (hidden) {
+          fsx.mkdirSync(path.dirname(file), { recursive: true });
+          fsx.writeFileSync(file, JSON.stringify({ hidden: true, at: new Date().toISOString() }) + '\n');
+        } else if (fsx.existsSync(file)) {
+          fsx.unlinkSync(file);
+        }
+        return { ok: true };
+      } catch (e) {
+        return { ok: false, why: (e && e.message) || 'write failed' };
+      }
+    },
+  };
+}
+
+/* query(sql, params) -> Promise<{rows}>, or null with no database (then the strip never shows).
+   excludeWallets: the owner wallets AND the revenue wallet (required).
+   previewExclude: what the preview still leaves out (the revenue wallet, at least). */
+function createEarnings({ query, excludeWallets, previewExclude, switchFile = null, config = CONFIG,
+  now = Date.now, log = console, fsx = fs } = {}) {
+  const list = (ws) => {
+    const out = [];
+    for (const w of ws || []) if (typeof w === 'string' && w && !out.includes(w)) out.push(w);
+    for (const w of TOP_ROWS.C_TOP_EXCLUDE.value) if (!out.includes(w)) out.push(w);
+    return out;
+  };
+  const exclude = list(excludeWallets);
+  const pExclude = list(previewExclude);
+  if (typeof query === 'function' && (exclude.length < 2 || pExclude.length < 1)) {
+    throw new Error('earnings: excludeWallets must name the owner and revenue wallets, previewExclude the revenue wallet');
+  }
+  for (const w of pExclude) {
+    if (!exclude.includes(w)) throw new Error('earnings: previewExclude must be a subset of excludeWallets');
+  }
+  const sw = createHideSwitch({ file: switchFile, fsx, log });
+  const stats = { reads: 0, fails: 0 };
+
+  function cache(ex) {
+    let value = null, at = 0, inFlight = null;
+    function refresh() {
+      if (inFlight) return inFlight;
+      inFlight = (async () => {
+        try {
+          const res = await query(EARNINGS_SQL, earningsParams(ex, config.TIME_ZONE));
+          const v = summarize(res && res.rows);
+          if (!v) { stats.fails++; log.warn('[EARN] unusable rows, keeping the last value'); return value; }
+          stats.reads++;
+          value = v;
+          at = now();
+          return value;
+        } catch (e) {
+          stats.fails++;
+          at = now();   // a failing database is retried once per period, not once per request
+          log.warn('[EARN] read failed, keeping the last value: ' + (e && e.message));
+          return value;
+        }
+      })().finally(() => { inFlight = null; });
+      return inFlight;
+    }
+    return async function get() {
+      if (at === 0) return refresh();
+      if (now() - at >= config.REFRESH_MS) refresh();
+      return value;
+    };
+  }
+  const pub = typeof query === 'function' ? cache(exclude) : null;
+  const pre = typeof query === 'function' ? cache(pExclude) : null;
+
+  const OFF = Object.freeze({ on: false });
+  function shown() { return !!config.SHOW && !sw.hidden(); }
+
+  // The public answer: {on:false}, or {on:true, preview, total, count, bestToday, periods}.
+  async function answer(preview) {
+    if (!shown() || !pub) return OFF;
+    const v = await (preview ? pre : pub)();
+    if (!v) return OFF;
+    if (!preview && !(v.total > 0 && v.total >= (Number(config.MIN_TOTAL_USD) || 0))) return OFF;
+    if (preview && !(v.total > 0)) return OFF;
+    return { on: true, preview: !!preview, ...v };
+  }
+
+  function route(app) {
+    app.get('/api/earnings', async (req, res) => {
+      res.set('Cache-Control', 'no-store');
+      try {
+        res.json(await answer(req.query && req.query.preview === '1'));
+      } catch (e) {
+        res.json(OFF);
+      }
+    });
+  }
+
+  return {
+    answer,
+    route,
+    hidden: () => sw.hidden(),
+    shown,
+    setHidden: (h) => sw.set(h),
+    stats: () => ({ reads: stats.reads, fails: stats.fails, shown: shown(), configShow: !!config.SHOW }),
+  };
+}
+
+module.exports = {
+  createEarnings,
+  summarize,
+  displayName,
+  shortWallet,
+  gameLabel,
+  EARNINGS_SQL,
+  earningsParams,
+};

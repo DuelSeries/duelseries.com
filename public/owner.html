@@ -247,6 +247,11 @@ input.num{width:70px;text-align:center}
         <button class="warn" onclick="act('sl:paid:off',{})">Close</button>
         <button class="go" onclick="act('sl:paid:on',{})">Open</button>
       </div>
+      <div class="row">
+        <div class="rlabel"><b>Lobby earnings strip <span id="earnNow"></span></b><span>"Players have cashed out $X" and its top 10. Hide takes it off every lobby within a minute and stays hidden across restarts until Show.</span></div>
+        <button class="warn" onclick="act('earnings:off',{})">Hide</button>
+        <button class="go" onclick="act('earnings:on',{})">Show</button>
+      </div>
     </section>
 
     <!-- Announce. -->
@@ -420,6 +425,9 @@ function render(s) {
   $('slPaidNow').textContent = doorNow(s.slPaid, 'SL_PAID');
   $('agPaidNow').textContent = doorNow(s.agPaid, 'AG_PAID');
   $('paperPaidNow').textContent = doorNow(s.paperPaid, 'PAPER_PAID');
+  const ea = s.earnings;
+  $('earnNow').textContent = !ea ? '' : !ea.configShow ? '· off in config.js'
+    : ea.shown ? '· showing (once real players have cashed out)' : '· HIDDEN';
 
   const br = s.battleRoyale;
   if (br) {
