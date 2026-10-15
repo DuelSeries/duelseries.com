@@ -51,6 +51,8 @@ const OA = 'OWNER-ANSWERS.md:';
 const DAY = '2026-10-10';
 // The five PROPOSED rows Owen answered (OWNER-ANSWERS.md:120-126) and the room caps he chose (OWNER-ANSWERS.md:136-139).
 const DAY2 = '2026-10-11';
+// Owen's paid swap answers (OWNER-ANSWERS.md:141-149: the $0.50 and $1 snake move to this engine).
+const DAY3 = '2026-10-12';
 // Provenance of the T5 prey fit rows (the reference side's tool and its output; never read at run time).
 const PREY_FIT = 'the T5 fit: tools/t5-prey-fit.js, recordings/T5-prey-fit.txt';
 
@@ -554,6 +556,22 @@ const ENTRIES = [
   chosen('C_SEND_6', 'Send the version answer record', false, 'flag', 'SERVER-DESIGN 8.4 (their client only counts it)'),
   chosen('C_DROP_CELL', 'A drop whose food cell is taken goes to the nearest free cell of that sector', 'nearestFreeInSector',
     'mode', 'SERVER-DESIGN 6.4'),
+
+  // Paid rooms, ours: the $0.50 and $1 snake on this engine (PAID-SL-DESIGN 1, 4). Only the paid rooms read these
+  // rows (server/slPaid hands the values in); the free room never does, and L39.count itself is unchanged.
+  chosen('C_PAID_HUMAN_CAP', 'Paid room cap: snakes in one paid room, all of them players (no bots); equal to C_R_MIN so the border never moves',
+    22, 'players', 'PAID-SL-DESIGN 1 (the border target is clamped below at the C_R_MIN 22-snake radius, so with at most ' +
+    '22 live snakes it stays 2923 and a pellet placed inside stays inside; must equal C_R_MIN.snakes)'),
+  chosen('C_PAID_DROP_INSET', 'Paid death drops land at least this far inside the border: a drop farther out is pulled onto that circle',
+    40, 'world units', 'PAID-SL-DESIGN 4 (an eat disc reaches past the head farther than the L35 test point: centre ' +
+    '5.98 + 2.26 sc and radius 17.8 + 17.96 sc against 14.5 sc, so a pellet at flux - 40 is reachable at any sc)'),
+  chosen('C_PAID_CASH_BYTE', 'In a paid room every food with a rad byte at or above this carries cash; only death drops reach it',
+    68, 'rad byte', 'PAID-SL-DESIGN 4, 5 (the lowest L39.rad death drop byte; natural food, L27 15 to 47, and boost ' +
+    'drops, L24.size, stay below it)'),
+  approvedOn(DAY3, 'C_PAID_BORDER_DROPS', 'A paid snake that dies at the border drops its body like any other death, and its worth splits over those drops',
+    { border: 'asBody' }, 'mode', 145, 'death money: same as the current paid snake, its worth splits across the food it drops',
+    'PAID-SL-DESIGN 4 (the old paid snake drops its worth on a border death, server/GameRoom.js:544-548; the free ' +
+    'room keeps L39.count border 0)'),
 ];
 
 // ---------------------------------------------------------------------------------------------------------------

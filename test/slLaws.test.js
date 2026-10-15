@@ -28,6 +28,11 @@ const OWN_ROWS = ['C_PHASES', 'C_ECHO_NOW', 'C_INPUT_OFFSET', 'C_PENDING_CAP', '
 const ANSWERED_2026_10_11 = { C_TOP_EXCLUDE: 122, C_TOP_LANDED: 123, C_HIDDEN_STREAM: 124, C_RESYNC_FADE: 125,
   C_TIMING_BARS: 126 };
 
+// The paid swap rows (PAID-SL-DESIGN 4): three CHOSEN, and the border drop row from Owen's answer of 2026-10-12
+// (OWNER-ANSWERS.md:145, death money "same as the current paid snake").
+const PAID_ROWS = ['C_PAID_HUMAN_CAP', 'C_PAID_DROP_INSET', 'C_PAID_CASH_BYTE', 'C_PAID_BORDER_DROPS'];
+const ANSWERED_2026_10_12 = { C_PAID_BORDER_DROPS: 145 };
+
 function withRow(id, change) {
   return L.ENTRIES.map((e) => (e.id === id ? Object.assign({}, e, change) : e));
 }
@@ -45,7 +50,9 @@ test('every law L1 to L51 has a row, and every SERVER-DESIGN 4.3 own row is pres
     const m = /^L(\d+)(\.|$)/.exec(id);
     if (m) assert.ok(Number(m[1]) >= 1 && Number(m[1]) <= 51, id);
   }
-  assert.strictEqual(IDS.length, 148); // 139 + the nine T5 prey rows (fixer pass, 2026-10-10)
+  for (const id of PAID_ROWS) assert.ok(L.LAWS[id] && L.LAWS[id].status && L.LAWS[id].source, id + ' missing');
+  // 139 + the nine T5 prey rows (fixer pass, 2026-10-10) + the four paid rows (PAID-SL-DESIGN 4, 2026-10-14)
+  assert.strictEqual(IDS.length, 152);
 });
 
 test('statuses, sources and approvals: each source starts with its status, APPROVED rows cite Owen\'s line', () => {
@@ -57,11 +64,13 @@ test('statuses, sources and approvals: each source starts with its status, APPRO
     assert.ok(e.name.trim() && e.unit.trim(), id);
     assert.ok(!/—/.test(e.name + e.source + e.unit), id + ' has an em dash');
     if (e.status === 'APPROVED') {
-      const m = /^(2026-10-1[01]) OWNER-ANSWERS\.md:(\d+)$/.exec(e.approvedAt);
+      const m = /^(2026-10-1[012]) OWNER-ANSWERS\.md:(\d+)$/.exec(e.approvedAt);
       assert.ok(m, id + ' approvedAt ' + e.approvedAt);
-      // 2026-10-10 answers sit on lines 31 to 116; the five 2026-10-11 answers on lines 122 to 126.
+      // 2026-10-10 answers sit on lines 31 to 116; the five 2026-10-11 answers on lines 122 to 126; the paid swap
+      // answer of 2026-10-12 on line 145.
       if (m[1] === '2026-10-10') assert.ok(Number(m[2]) >= 31 && Number(m[2]) <= 116, id + ' line');
-      else assert.strictEqual(Number(m[2]), ANSWERED_2026_10_11[id], id + ' line');
+      else if (m[1] === '2026-10-11') assert.strictEqual(Number(m[2]), ANSWERED_2026_10_11[id], id + ' line');
+      else assert.strictEqual(Number(m[2]), ANSWERED_2026_10_12[id], id + ' line');
       assert.ok(e.source.startsWith('APPROVED by Owen ' + m[1] + ' (OWNER-ANSWERS.md:' + m[2] + ' '), id);
     } else {
       assert.strictEqual(e.approvedAt, undefined, id);
@@ -70,7 +79,7 @@ test('statuses, sources and approvals: each source starts with its status, APPRO
     if (e.status === 'NEEDS_MORE') assert.strictEqual(e.value, null, id);
     else assert.notStrictEqual(e.value, null, id);
   }
-  assert.deepStrictEqual(L.statusCounts(L.LAWS), { KNOWN: 8, MEASURED: 21, RULE: 28, APPROVED: 61, CHOSEN: 30,
+  assert.deepStrictEqual(L.statusCounts(L.LAWS), { KNOWN: 8, MEASURED: 21, RULE: 28, APPROVED: 62, CHOSEN: 33,
     PROPOSED: 0, SUGGESTED: 0, OPEN: 0, NEEDS_MORE: 0, FIXTURE: 0 });
 });
 
@@ -152,6 +161,48 @@ test("Owen's answers win: head-on, view retention, hold, disconnect, address cap
   assert.deepStrictEqual(L.LAWS.C_TOP_AMOUNT.value, { rule: 'takeHome', rakeShare: 0.1, mult: 9, games: 'all', eventPrize: false });
   assert.deepStrictEqual(L.LAWS.BOT_KINDS.value.personalities, ['casual', 'hunter', 'shy']);
   assert.strictEqual(L.LAWS.BOT_KINDS.value.label, false);
+});
+
+test('paid rows: the cap is the C_R_MIN snake count, the cash byte is the lowest death drop byte, border deaths drop', () => {
+  // C_PAID_HUMAN_CAP must equal C_R_MIN.snakes: at that many snakes or fewer the border target is its floor (2923),
+  // so a paid room's border never moves and a pellet placed inside stays inside (PAID-SL-DESIGN 1).
+  assert.strictEqual(L.LAWS.C_PAID_HUMAN_CAP.value, 22);
+  assert.strictEqual(L.LAWS.C_PAID_HUMAN_CAP.value, L.LAWS.C_R_MIN.value.snakes);
+  assert.strictEqual(Math.round(Math.sqrt(L.LAWS.C_PAID_HUMAN_CAP.value * L.LAWS.L51.value / Math.PI)), 2923);
+  // C_PAID_CASH_BYTE is the lowest death drop rad byte: the smallest byte of the L39.rad table, and the smallest
+  // slSim's own interpolation gives at any length a snake can reach (L3 mscps, plus the one point the last grow adds).
+  const rad = L.LAWS['L39.rad'].value;
+  assert.strictEqual(L.LAWS.C_PAID_CASH_BYTE.value, 68);
+  assert.strictEqual(L.LAWS.C_PAID_CASH_BYTE.value, Math.min(rad.below, rad.above, ...rad.points.map((p) => p[1])));
+  const { deathRadByte, worldLaws } = require('../server/sl/slSim');
+  const W = worldLaws(L.LAWS);
+  let low = Infinity;
+  for (let sct = 2; sct <= L.LAWS.L3.value + 1; sct++) low = Math.min(low, deathRadByte(W, sct));
+  assert.strictEqual(low, L.LAWS.C_PAID_CASH_BYTE.value);
+  // Nothing else reaches it: natural food tops out at L27 base + ceil(span) - 1 (47), and a boost drop at the largest
+  // L23 charge edge of any reachable length (54); the full sweep of every charge is slPaidBytes.
+  const nat = L.LAWS.L27.value;
+  assert.strictEqual(nat.base + Math.ceil(nat.span) - 1, 47);
+  const e = L.LAWS['L23.edges'].value;
+  const size = L.LAWS['L24.size'].value;
+  let hi = L.LAWS['L23.low'].value.hi;
+  for (let sct = e.fromSct; sct <= L.LAWS.L3.value + 1; sct++) {
+    const s = sct - e.fromSct;
+    hi = Math.max(hi, e.hi[0] + e.hi[1] * s * s + e.hi[2] * s * s * s);
+  }
+  assert.strictEqual(Math.round(size.alpha * Math.sqrt(hi) + size.beta), 54);
+  assert.ok(47 < L.LAWS.C_PAID_CASH_BYTE.value && 54 < L.LAWS.C_PAID_CASH_BYTE.value);
+  // Border deaths drop in a paid room (Owen's answer 1); the free room's own row still drops nothing there.
+  assert.deepStrictEqual(L.LAWS.C_PAID_BORDER_DROPS.value, { border: 'asBody' });
+  assert.deepStrictEqual(L.LAWS['L39.count'].value, { rule: 'deathDrops', perPoint: 2, extra: 1, border: 0 });
+  assert.strictEqual(L.LAWS.C_PAID_DROP_INSET.value, 40);
+  for (const id of ['C_PAID_HUMAN_CAP', 'C_PAID_DROP_INSET', 'C_PAID_CASH_BYTE']) {
+    assert.strictEqual(L.LAWS[id].status, 'CHOSEN', id);
+    assert.match(L.LAWS[id].source, /^CHOSEN: PAID-SL-DESIGN [14]/, id);
+  }
+  assert.strictEqual(L.LAWS.C_PAID_BORDER_DROPS.status, 'APPROVED');
+  assert.strictEqual(L.LAWS.C_PAID_BORDER_DROPS.approvedAt, '2026-10-12 OWNER-ANSWERS.md:145');
+  assert.deepStrictEqual(L.notShippable(L.LAWS, PAID_ROWS), []);
 });
 
 test('reference check T0 rows: fam floor, ang byte floor, the measured record order, grow on the regular move', () => {
