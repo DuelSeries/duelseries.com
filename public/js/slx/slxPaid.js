@@ -26,7 +26,7 @@
 //    food under the snakes but this canvas is above theirs, so what is drawn here is cut away under every live body and
 //    head. Two looks (CASH_LOOK, Owen 2026-10-15; slx.paid.look() switches them live): 'gold', their own pellet in gold
 //    (its core and glow sprites swapped for their recipe, slDrawWorld buildFoodSprites, made here in gold) that slowly
-//    breathes, the breath drawn here;
+//    breathes, with a small dark $ in its middle (Owen's pick B4), the breath and the $ drawn here;
 //    'coin', the coin, with their own pellet under it made invisible (sprites swapped for blank canvases of the same
 //    sizes). Either way where it is, how it moves, fades and is eaten (sucked into the mouth) all stay theirs. The gold rule (design 9): a food is cash iff its rad byte is at least C_PAID_CASH_BYTE 68, and their
 //    client keeps rad byte / 5 as the food's sz (slApply.js newFood), so cash is sz >= 13.6; in a paid room every
@@ -735,7 +735,10 @@
       if (!(a > 0)) continue;
       var ph = phaseOf(fo);
       ctx.globalAlpha = a;
-      if (gold) breathe(fo, gold, x, y, a, t, ph);
+      if (gold) {
+        breathe(fo, gold, x, y, a, t, ph);
+        dollar(fo, gold, x, y, t, ph);
+      }
       else if (!coin || !coin.blit(ctx, x, y, r, cdpr, t, ph, fo.rad >= 1)) disc(x, y, r);
       if (coin && !fo.eaten) coin.sparkle(ctx, x, y, r, t, ph);
       if (x - m < x0) x0 = x - m;
@@ -851,8 +854,53 @@
   // brighter, and their two glows stronger, swelling and settling every BREATH_MS (at rest nothing is added). Placed as
   // their foodCores and foodGlows place them (slDrawWorld: sprite size x rad on their canvas, x csc on screen; the glows
   // pushed out from the screen centre, alphas from the distance).
+  function breathOf(t, ph) {
+    return 0.5 - 0.5 * Math.cos(((t / BREATH_MS + ph) % 1) * PI2);
+  }
+  // CHOSEN (Owen's pick B4, 2026-10-15): a small dark $ in the middle of every gold pellet, as big as their core and
+  // breathing with it, so the money never reads as a yellow snake's food. It shrinks with their rad as the pellet pops in
+  // or is eaten (gone under 4 px); a grown one is never under 9 px. One sprite per device pixel size, made once.
+  var glyphs = {};
+  var nGlyphs = 0;
+  function dollar(fo, gold, x, y, t, ph) {
+    var rad = fo.rad > 0 ? fo.rad : 0;
+    var size = gold.fws[fo.cv2] * rad * S.csc / 2 * (1 + 0.2 * breathOf(t, ph)) * 1.45;
+    if (rad >= 1 && size < 9) size = 9;
+    if (!(size >= 4)) return;
+    var g = glyph(Math.round(size * cdpr));
+    if (!g) return;
+    var w = g.width / cdpr;
+    ctx.drawImage(g, x - w / 2, y - w / 2 + size * 0.04, w, w);
+  }
+  function glyph(px) {
+    if (has.call(glyphs, px)) return glyphs[px];
+    if (nGlyphs >= 96) {
+      glyphs = {};
+      nGlyphs = 0;
+    }
+    var g = null;
+    try {
+      var cv = doc.createElement('canvas');
+      cv.width = cv.height = Math.ceil(px * 1.3) + 2;
+      var c = cv.getContext('2d');
+      c.font = 'bold ' + px + 'px Arial, "Helvetica Neue", Helvetica, sans-serif';
+      c.textAlign = 'center';
+      c.textBaseline = 'middle';
+      c.lineWidth = Math.max(1, px * 0.12);
+      c.strokeStyle = 'rgba(255, 240, 170, 0.8)';
+      c.strokeText('$', cv.width / 2, cv.height / 2);
+      c.fillStyle = 'rgba(110, 58, 0, 0.95)';
+      c.fillText('$', cv.width / 2, cv.height / 2);
+      g = cv;
+    } catch (e) {
+      g = null;
+    }
+    glyphs[px] = g;
+    nGlyphs++;
+    return g;
+  }
   function breathe(fo, gold, x, y, a, t, ph) {
-    var b = 0.5 - 0.5 * Math.cos(((t / BREATH_MS + ph) % 1) * PI2);
+    var b = breathOf(t, ph);
     if (!(b > 0.02)) return;
     var rad = fo.rad > 0 ? fo.rad : 0, k = S.csc;
     var pulse = 0.5 + 0.5 * Math.cos((fo.gfr || 0) / 13);

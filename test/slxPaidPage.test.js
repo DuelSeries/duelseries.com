@@ -471,19 +471,30 @@ test('gold look (the default): their pellet turns gold (same sprites sizes, thei
   assert.strictEqual(JSON.stringify([cash, food], (k, v) => (/fi$/.test(k) ? undefined : v)), before, 'nothing else changes');
   const cv = cashCanvas(P);
   assert.strictEqual(P.D.slx.coin.stats().made, 0, 'no coin in the gold look');
-  // the breath: at rest nothing is added; at the top a bigger, lighter core and both glows over it
+  // the breath: at rest only the $ (Owen's pick B4); at the top a bigger, lighter core and both glows, then the $
   const ph = (() => { let v = cash.id | 0; v = Math.imul(v ^ (v >>> 16), 0x45d9f3b); v = Math.imul(v ^ (v >>> 16), 0x45d9f3b); return ((v ^ (v >>> 16)) >>> 0) / 4294967296; })();
   const at = (b) => { const u = Math.acos(1 - 2 * b) / (2 * Math.PI); return ((u - ph) % 1 + 1) % 1 * 1200; };
   const base = Math.ceil(P.clock.now / 1200) * 1200 + 2400;
   P.raf(1, base + at(0) - P.clock.now);
-  assert.strictEqual(lastFrame(cv).filter((c) => c[0] === 'drawImage').length, 0, 'at rest: their gold pellet alone');
+  const rest = lastFrame(cv).filter((c) => c[0] === 'drawImage');
+  assert.strictEqual(rest.length, 1, 'at rest: their gold pellet and the $');
+  const sign = rest[0][1];
+  assert.ok(sign.ctx.calls.some((c) => c[0] === 'fillText' && c[1] === '$'), 'a $ sprite');
+  assert.ok(sign.ctx.calls.some((c) => c[0] === 'set fillStyle' && /^rgba\(110, 58, 0/.test(c[1])), 'dark amber');
+  const k = S.gsc * S.csc;
+  const px = Math.max(9, 11 * S.csc / 2 * 1.45);
+  assert.strictEqual(sign.width, Math.ceil(Math.round(px) * 1.3) + 2);
+  assert.ok(Math.abs(rest[0][2] + rest[0][4] / 2 - sx(S, 640)) < 1e-9, 'centred on the pellet');
+  assert.ok(Math.abs(rest[0][3] + rest[0][5] / 2 - (sy(S, 470) + px * 0.04)) < 1e-9);
+  assert.ok(k > 0);
   P.raf(1, base + 1200 + at(1) - P.clock.now);
   const top = lastFrame(cv).filter((c) => c[0] === 'drawImage');
-  assert.strictEqual(top.length, 3, 'core and two glows');
+  assert.strictEqual(top.length, 4, 'core, two glows and the $');
   assert.strictEqual(top[0][1], cash.fi, 'the gold core');
   assert.ok(Math.abs(top[0][4] - 11 * 1.2 * S.csc) < 1e-6, 'a fifth bigger at the top of the breath');
   assert.strictEqual(top[1][1], cash.gfi);
   assert.strictEqual(top[2][1], cash.g2fi);
+  assert.ok(top[3][1].ctx.calls.some((c) => c[0] === 'fillText' && c[1] === '$'), 'the $ last, over the breath');
   assert.ok(lastFrame(cv).some((c) => c[0] === 'set globalCompositeOperation' && c[1] === 'lighter'));
   // to the coin: all four blank, their shadow too; back to gold: their shadow again
   P.D.slx.paid.look('coin');
