@@ -926,24 +926,29 @@ body.no-foot footer{display:none}
    and the note under Play (dbnote) already says so. A second line saying the
    same would only push the button down. */
 #detail.duel.paidduel .stakeoff{display:none}
-/* The ladder, the open-lobby list and the snake skin all belong to an arena.
-   A duel has no room to list, nobody is in it yet, and a duel game has no
-   snake to dress — showing any of them is furniture from another game. */
+/* The ladder and the open-lobby list belong to an arena. A duel has no room
+   to list and nobody is in it yet, so showing either is furniture from
+   another game. The Customize bar stays: every game has one (BACKLOG 3.1). */
 #detail.duel .stakes,#detail.duel .stakeoff,#detail.duel .sl,
-#detail.duel .lobwrap,#detail.duel .lookrow{display:none}
+#detail.duel .lobwrap{display:none}
 /* ── a solo run ────────────────────────────────────────────────────────────
-   Nobody to be matched with and no room to join, so there is no buy-in, no
-   lobby list and no skin to pick: one player, one arena, one button. Showing
-   an empty lobby list here would say the game has rooms that are quiet, when
-   what it has is no rooms at all. */
+   Nobody to be matched with and no room to join, so there is no buy-in and no
+   lobby list: one player, one arena, one button. Showing an empty lobby list
+   here would say the game has rooms that are quiet, when what it has is no
+   rooms at all. */
 #detail.solo .sl,#detail.solo .stakes,#detail.solo .stakeoff,
-#detail.solo .duelbet,#detail.solo .lobwrap,#detail.solo .lookrow,
+#detail.solo .duelbet,#detail.solo .lobwrap,
 #detail.solo .queued{display:none}
 #detail.solo .dbnote{display:block}
-/* ── an arena with no snake in it ──────────────────────────────────────────
-   Paper has the ladder and the lobby list of an arena, but the skin row
-   dresses a snake, and a game of squares has none to dress. */
-#detail.nolook .lookrow{display:none}
+/* ── a game with nothing to customize yet ─────────────────────────────────
+   Every game gets the Customize bar (BACKLOG 3.1). One with nothing to change
+   yet shows the bar quiet and shut: the game's own picture instead of a
+   preview, a line saying so, no chevron, and it does not open. */
+#detail.nolook .lookrow{cursor:default;background:rgba(23,20,15,.6)}
+#detail.nolook .lookrow:hover{background:rgba(23,20,15,.6)}
+#detail.nolook .lookrow canvas,#detail.nolook .lookrow .lka{display:none}
+#detail.nolook .lookrow .lkimg{display:block}
+#detail.nolook .lookrow .lkt b{color:var(--tx2)}
 /* The amount is the control, so it gets the size — and the arrows sit either
    side of it where a thumb already is, rather than stacked above and below
    where one of them is always the wrong distance away. */
@@ -1185,8 +1190,14 @@ body.no-foot footer{display:none}
 .lookrow:hover{background:rgba(40,34,25,.85)}
 .lookrow canvas{width:104px;height:36px;display:block;flex:none;border-radius:var(--r2)}
 .lookstage canvas{display:block;width:100%;height:auto}
-.lookrow .lkn{flex:1;font-size:13px;color:var(--tx);font-weight:600}
-.lookrow .lka{font-size:12.5px;color:var(--tx3);font-weight:600}
+/* Customize on top, what you are wearing under it, a chevron to say it opens. */
+.lookrow .lkt{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.lookrow .lkt b{font-size:13.5px;color:var(--tx);font-weight:650}
+.lookrow .lkn{font-size:12px;color:var(--tx2);font-weight:500}
+.lookrow .lka{flex:none;color:var(--tx3)}
+.lookrow .lkimg{display:none;width:52px;height:36px;flex:none;border-radius:var(--r2);
+  object-fit:cover;opacity:.55}
+.lookrow:focus-visible{outline:2px solid var(--money);outline-offset:2px}
 
 /* Open lobbies, reduced to a strip at the foot of the screen. It was a headed
    section with its own subtitle taking the left half of the page. */
@@ -2008,12 +2019,17 @@ body.scr-anim { overflow-x:hidden }
       <div class="agtg" id="agtg"></div>
     </div>
 
-    <!-- The whole row is the button. A label, a live preview of the skin and
-         the action, rather than a panel with a button under it. -->
-    <button class="lookrow" onclick="openLook()">
+    <!-- Customize (BACKLOG 3.1, Owen's name for it). The whole row is the
+         button: a live preview of what you are wearing, the label and a
+         chevron. In a game with nothing to change yet it is the game's own
+         picture and a line saying so, and the button is disabled. -->
+    <button type="button" class="lookrow" id="lookrow" onclick="openLook()">
       <canvas id="skmini" data-look="mini" width="560" height="150"></canvas>
-      <span class="lkn" id="skname"></span>
-      <span class="lka">Change</span>
+      <img class="lkimg" id="lkimg" alt="">
+      <span class="lkt"><b>Customize</b><span class="lkn" id="skname"></span></span>
+      <svg class="lka" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+           stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M9 6l6 6-6 6"/></svg>
     </button>
 
     <!-- Waiting for somebody to take the same stake. Shown in place of the
@@ -2268,6 +2284,10 @@ body.scr-anim { overflow-x:hidden }
 <script src="/js/v2/agopts.js"></script>
 <script src="/js/v2/mobile.js"></script>
 <script src="/js/v2/swipe.js"></script>
+<!-- slither's own skin tables and body sprites, read-only (the frozen client
+     file, unchanged), then the Customize preview drawn from them. -->
+<script src="/js/sl/slSprites.js"></script>
+<script src="/js/v2/look.js"></script>
 <script>
 /* Flat geometric artwork, one scene per game. Drawn rather than iconed:
    emoji or a generic icon set is what makes a games page look unmade. */
@@ -2300,7 +2320,10 @@ const GAMES=[
  /* `ladder:1` means this game's rooms are RUNGS, priced by stake, and that its
     Free is the stake-0 rung rather than a fixed tier. The play path needs that
     fact even when /api/live has told it nothing — see V2_HAS_LADDER below. */
- {id:'snake',name:'slither.io',c:['#15251c','#c080ff'],type:'p',real:1,ladder:1,
+ /* look:1 is the only game with something to customize today: the snake's
+    skin, stored for /sl (BACKLOG 3.1). Every other game shows the Customize
+    bar shut, saying there is nothing to change yet. */
+ {id:'snake',name:'slither.io',c:['#15251c','#c080ff'],type:'p',real:1,ladder:1,look:1,
   d:'Grow by eating, cut other players off, and cash out before somebody cuts you off.'},
  /* The agar.io redo (server/ag, page /ag), in the lobby since 2026-10-07; the
     old agar.io game is deleted. Its rooms are rungs of the same ladder as
@@ -2308,9 +2331,9 @@ const GAMES=[
     is ladder:1 and every rung goes through the wallet widget into agar-frame.
     A paid rung is offered only while /api/live lists it open (AG_PAID on and
     the owner's off switch not thrown); otherwise it is drawn struck through.
-    nolook:1 hides the skin row: the server picks a plain colour every life
-    (Owen's answer: plain colours at first), so a chosen skin would do nothing. */
- {id:'agar',name:'agar.io',c:['#141f28','#65c8e8'],type:'p',ladder:1,nolook:1,
+    No look:1: the server picks a plain colour every life (Owen's answer:
+    plain colours at first), so its Customize bar says nothing to change yet. */
+ {id:'agar',name:'agar.io',c:['#141f28','#65c8e8'],type:'p',ladder:1,
   d:'Absorb anything smaller than you, split to chase, and stay clear of anything bigger.'},
  /* Built, and free while it is new: no ladder, no lobby list, its own page,
     and none of the money path involved in it. `solo` is what says so. */
@@ -2334,10 +2357,10 @@ const GAMES=[
  /* Built, and an arena on the server now: the rooms are rungs of the same
     ladder as slither.io (Free, $0.50, $1.00), so it is ladder:1 and every rung
     goes through the wallet widget to /paper-arena. It is not paid:1 or duel:1,
-    because it is dropped into rather than matched into. nolook:1 hides the
-    snake skin row. It had a line of rules under Play; Owen asked for it gone
-    (2026-09-28), and with it the only use of the per-game rules line. */
- {id:'paper',name:'Paper.io',c:['#1e1826','#a887d6'],type:'p',built:1,ladder:1,nolook:1,
+    because it is dropped into rather than matched into. It had a line of
+    rules under Play; Owen asked for it gone (2026-09-28), and with it the
+    only use of the per-game rules line. */
+ {id:'paper',name:'Paper.io',c:['#1e1826','#a887d6'],type:'p',built:1,ladder:1,
   d:'Claim ground by looping back home without anyone crossing your trail.'},
  /* Placeholders so these are not forgotten. soon:1 greys the card and takes it
     out of the tab order, so none of them is reachable or clickable — the slot
@@ -2834,12 +2857,12 @@ const SCENES=new Map();
 function scene(cv){ let s=SCENES.get(cv); if(!s){s=mkWorld(cv);SCENES.set(cv,s)} return s }
 
 /* ── skin preview ────────────────────────────────────────────────────────
-   The same eighteen skins the live lobby ships, copied verbatim including
-   the ids, because the id is what gets stored. Every colour is a slither
-   palette entry, which the server enforces, so nothing here can be equipped
-   that the game would reject. The storage key is the live lobby's too, so
-   picking a skin on either screen agrees with the other. */
-const LOOKS=[
+   The old engine's eighteen colours. No longer what Customize offers (that is
+   slither's own skin list, below); kept because social.js derives player
+   avatar colours from them (window.V2_LOOKS), and because the first nine are
+   cv 0 to 8 in the same order, which is how a plain skin still reaches the
+   old /game.html snake if a Free click ever falls back to it. */
+const AVATAR_LOOKS=[
   {id:'purple',    name:'Purple',     color:'#c080ff'},
   {id:'periwinkle',name:'Periwinkle', color:'#9099ff'},
   {id:'teal',      name:'Teal',       color:'#80d0d0'},
@@ -2859,26 +2882,27 @@ const LOOKS=[
   {id:'galaxy',    name:'Galaxy',     color:'#6828aa'},
   {id:'shadow',    name:'Shadow',     color:'#505050'},
 ];
-const SKIN_KEY='duelseries_skin_id';
-/* TWO keys, and both are load-bearing. The id is what this screen equips; the
-   COLOUR is what actually reaches the snake — the wallet widget reads
-   duelseries_skin_color into sessionStorage.snakeColor, and game.js reads that
-   and sends it with PLAY. The old lobby wrote both. This one only wrote the
-   id, so from the redesign until 2026-08-19 the appearance screen equipped a
-   skin that never left the lobby: every snake in the game used the fallback
-   colour no matter what you picked. */
-const SKIN_COLOR_KEY='duelseries_skin_color';
-let skinId=localStorage.getItem(SKIN_KEY)||'coral';
-if(!LOOKS.some(s=>s.id===skinId))skinId='coral';   /* a stale id falls back */
-const skin=()=>LOOKS.find(s=>s.id===skinId)||LOOKS[0];
+/* What Customize offers for slither.io: slither's own skins, the ones the
+   /sl server accepts (public/js/v2/look.js). The choice is stored as the skin
+   number under duel.sl.skin, which /sl sends in its handshake
+   (public/js/slx/slxMain.js skin()) and the server checks against the skins
+   it ships (server/sl/slSockets.js skinOf). Cosmetic only: nothing on a money
+   path reads it. Nothing stored means the server deals a random plain colour
+   every life, as slither does, and the bar says so. */
+const SL_SKIN_KEY='duel.sl.skin';
+const LOOKS=(window.V2Look?window.V2Look.skins:[]).map(cv=>({id:String(cv),cv,name:window.V2Look.name(cv)}));
+let skinId='';
+try{skinId=String(localStorage.getItem(SL_SKIN_KEY)||'').trim()}catch(_){}
+if(!LOOKS.some(s=>s.id===skinId))skinId='';        /* unknown or stale: random */
+const skin=()=>LOOKS.find(s=>s.id===skinId)||null;
 function storeSkin(){
-  try{localStorage.setItem(SKIN_KEY,skinId);
-      localStorage.setItem(SKIN_COLOR_KEY,skin().color)}catch(_){}
+  const s=skin(); if(!s)return;
+  try{localStorage.setItem(SL_SKIN_KEY,s.id);
+    /* The old engine's two keys, for the fallback only: a plain skin is the
+       same colour there, a striped one has no equivalent and leaves them be. */
+    if(s.cv<9){localStorage.setItem('duelseries_skin_id',AVATAR_LOOKS[s.cv].id);
+      localStorage.setItem('duelseries_skin_color',AVATAR_LOOKS[s.cv].color)}}catch(_){}
 }
-/* Repair on load as well as on save, so anyone who equipped a skin while the
-   colour was not being written gets it applied without having to go back in
-   and pick it again. */
-storeSkin();
 
 /* The live lobby's slither-in-place wave, same formula: head on the right at
    u=0, tail on the left at u=1, and the wave travels down the body as t
@@ -2903,70 +2927,40 @@ const LOOK_CFG={
   reel: {N:80,spanFrac:0.30, ampFrac:0.05,  radiusFrac:0.05},
 };
 const PHONE_MQ=matchMedia('(max-width:520px)');
+/* Drawn by look.js from slither's own body sprites. With nothing chosen the
+   box walks through the nine plain colours, because that is what you get. */
 function paintLook(cv){
-  if(!R)return;
+  if(!window.V2Look)return;
   fit(cv);
   const key=cv.dataset.look;
+  /* The reel holds every skin three times over (162 canvases); only the few
+     in or next to the scrollport are worth drawing each frame. */
+  if(key==='reel'){const sl=cv.parentNode,r=sl&&sl.parentNode;
+    if(r&&(sl.offsetTop+SLOT_H<r.scrollTop-SLOT_H||sl.offsetTop>r.scrollTop+r.clientHeight+SLOT_H))return}
   const cfg=LOOK_CFG[(key==='big'&&PHONE_MQ.matches)?'bigph':key]||LOOK_CFG.mini;
-  const w=cv.width,h=cv.height,N=cfg.N;
-  R.canvas=cv; R.ctx=cv.getContext('2d');
-  R._canvasW=w; R._canvasH=h; R._dpr=1;
-  const ctx=R.ctx, cam=R.camera;
-  /* Those fractions are screen-space, but the renderer works in world units
-     and takes the body radius from the segment count. So solve for the
-     camera scale that lands the on-screen thickness the reference asks for,
-     then express the points in world units through it. Same picture, drawn
-     by the game's own body renderer. */
-  const growth=Math.min(6,1+(N-C_.SNAKE_MIN_SEGMENTS*2)/C_.SNAKE_SC_SEGS);
-  const worldR=C_.SNAKE_HEAD_RADIUS*growth;
-  const wantR=cfg.radiusFrac!=null?w*cfg.radiusFrac:Math.min(w*0.068,h*0.13);
-  const S=wantR/worldR;
-  const spanX=w*cfg.spanFrac, amp=h*cfg.ampFrac;
-  const segs=new Array(N*2);
-  for(let i=0;i<N;i++){
-    const u=i/(N-1);                                   /* 0 head, 1 tail */
-    segs[i*2]  = (spanX*(1-u*2))/S;
-    segs[i*2+1]= (Math.sin(u*Math.PI*1.4-lookT*2)*amp*(0.3+u*0.7))/S;
-  }
-  cam.scale=cam.targetScale=cam._scaleMid=S;
-  cam._w=w; cam._h=h; cam.worldX=cam.worldY=0; cam.x=w/2; cam.y=h/2;
-  ctx.setTransform(1,0,0,1,0,0);
-  ctx.clearRect(0,0,w,h);                 /* plain box, as in the live lobby */
-  if(R.snakeGL&&R.snakeGL.ok)R.snakeGL.ensureSize(w,h);
-  cam.apply(ctx,1);
-  /* The chooser previews the skin being browsed; the lobby box always shows
-     what is actually equipped. */
-  /* data-skin lets a canvas draw a skin that is not the equipped one, which
-     is what the locker grid needs: eighteen previews on one screen, each its
-     own colour. Without it every tile drew whatever was currently equipped. */
-  const col=(cv.dataset.skin?(LOOKS.find(s=>s.id===cv.dataset.skin)||LOOKS[0])
-            :cv.dataset.look==='big'?LOOKS[lookIx]:skin()).color;
-  /* agar.io is cells, so its skin preview is a cell. Drawing a snake to pick
-     the colour of a circle shows you the colour but not the thing. Same two
-     marks the game uses: a filled disc and a dark rim at low opacity. */
-  if(cur&&cur.id==='agar'){
-    ctx.setTransform(1,0,0,1,0,0);
-    ctx.clearRect(0,0,w,h);
-    const R0=Math.min(w*0.26,h*0.40);
-    ctx.beginPath(); ctx.arc(w/2,h/2,R0,0,6.283);
-    ctx.fillStyle=col; ctx.fill();
-    ctx.lineWidth=Math.max(2,R0*0.07); ctx.strokeStyle='#0a0b0d';
-    ctx.globalAlpha=0.22; ctx.stroke(); ctx.globalAlpha=1;
-    return;
-  }
-  const s=mkSnake('look',col,segs,0);                  /* worth 0, no label */
-  const useGL=R._glMode&&R.snakeGL&&R.snakeGL.ok;
-  if(useGL)R.snakeGL.beginFrame();
-  R._drawSnakeBody(ctx,s,false);
-  if(useGL){ R.snakeGL.endFrame(); ctx.setTransform(1,0,0,1,0,0);
-    R.snakeGL.compositeTo(ctx); cam.apply(ctx,1); }
-  R._drawSnakeOverlay(ctx,s,false);
-  cam.reset(ctx,1);
+  const s=cv.dataset.skin?LOOKS.find(l=>l.id===cv.dataset.skin)
+         :key==='big'?LOOKS[lookIx]:skin();
+  window.V2Look.paint(cv,s?s.cv:Math.floor(lookT/2)%9,cfg,lookT);
 }
 
 let lookIx=0;
-function drawSkins(){ document.getElementById('skname').textContent=skin().name; }
+/* The Customize bar for the game on screen: what you are wearing in a game
+   with a look, a plain line and a shut button in one without (BACKLOG 3.1). */
+function drawSkins(){
+  const look=!!(cur&&cur.look&&LOOKS.length);
+  const row=document.getElementById('lookrow'), img=document.getElementById('lkimg');
+  if(row)row.disabled=!look;
+  if(img&&!look&&cur){
+    if(cur.noart)img.removeAttribute('src');
+    else if(img.getAttribute('src')!=='/img/games/'+cur.id+'.png')img.src='/img/games/'+cur.id+'.png';
+  }
+  const s=skin();
+  document.getElementById('skname').textContent=!look
+    ?'Nothing to change in '+(cur?cur.name:'this game')+' yet'
+    :s?s.name:'Random colour';
+}
 function openLook(){
+  if(!(cur&&cur.look&&LOOKS.length))return;
   /* Always reopens on the skin actually being worn, which is also what makes
      Back safe: browsing moves lookIx, and only Save writes it to skinId. */
   lookIx=Math.max(0,LOOKS.findIndex(s=>s.id===skinId));
@@ -3090,14 +3084,14 @@ function cycleLook(d){
 }
 function lookMeta(){
   document.getElementById('lookname').textContent=
-    LOOKS[lookIx].name+'  '+(lookIx+1)+' / '+LOOKS.length;
+    (LOOKS[lookIx].cv<9?LOOKS[lookIx].name+'  ':'')+(lookIx+1)+' / '+LOOKS.length;   /* a striped skin's name IS its number */
 }
 /* Save commits what you were browsing; Back closes without changing the
    equipped skin. There is no cancel button, matching the live screen. */
 function closeLook(save){
   if(save){
     skinId=LOOKS[lookIx].id;
-    storeSkin();          /* id AND colour: the colour is what reaches the game */
+    storeSkin();          /* the skin number /sl sends at connect */
     drawSkins();
   }
   document.getElementById('lookveil').classList.remove('on');
@@ -3474,7 +3468,7 @@ function open_(id){
      with every rung live. Same panel, different rungs open. */
   det.classList.toggle('paidduel',!!cur.paid);
   det.classList.toggle('solo',!!cur.solo);
-  det.classList.toggle('nolook',!!cur.nolook);
+  det.classList.toggle('nolook',!cur.look);
   /* agar.io's settings and its Free-rung Spectate (the game has no menu card
      of its own inside this lobby any more). */
   det.classList.toggle('agar',cur.id==='agar');
@@ -4017,7 +4011,7 @@ window.commitScreen=commitScreen;
 /* The extracted modules need these two: the router, and the palette they
    derive player avatar colours from. */
 window.showScreen=showScreen;
-window.V2_LOOKS=LOOKS;
+window.V2_LOOKS=AVATAR_LOOKS;
 function go(id,dir){
   route=id; drawNav();
   const sid=SCREEN_FOR[id]; if(!sid)return;

@@ -90,25 +90,26 @@ test('search is debounced and cancels the previous request', () => {
 });
 
 test('equipping a skin actually changes the snake', () => {
-  /* Two keys, and the COLOUR is the one that reaches the game: the wallet
-     widget reads duelseries_skin_color into sessionStorage.snakeColor, and
-     game.js reads that and sends it with PLAY. The id alone never leaves the
-     lobby.
-
-     The old lobby wrote both. The redesign wrote only the id, so from the
-     migration until 2026-08-19 the appearance screen equipped a skin that had
-     no effect on the game: every snake used the fallback colour whatever you
-     picked. Verified in the browser at the time — equipping Galaxy stored the
-     id and the game still resolved to its own default. */
+  /* The snake is /sl now (BACKLOG 3.1): the skin number goes under
+     duel.sl.skin, which /sl sends in its handshake. Before 3.1 the lobby only
+     wrote the old engine's keys, so the /sl snake was always a random plain
+     colour whatever you picked. The old keys are still written for a plain
+     skin, because a Free click with no /sl room falls back to /game.html, and
+     there the COLOUR is what reaches the game (the 2026-08-19 lesson: the id
+     alone never leaves the lobby). */
   const html = v2();
-  assert.ok(html.includes('duelseries_skin_id'), 'the lobby stores the id');
-  assert.ok(html.includes('duelseries_skin_color'), 'and the colour');
-  // Written together, so one can never be updated without the other.
-  assert.ok(/function storeSkin\(\)\{[\s\S]{0,220}SKIN_KEY,skinId[\s\S]{0,160}SKIN_COLOR_KEY/.test(html),
-    'both are written by one function');
-  assert.ok(/storeSkin\(\);/.test(html), 'which also runs on load, repairing a missing colour');
+  const store = html.slice(html.indexOf('function storeSkin()'), html.indexOf('function storeSkin()') + 600);
+  assert.ok(html.includes("const SL_SKIN_KEY='duel.sl.skin'"), 'the lobby stores the /sl skin number');
+  assert.ok(/setItem\(SL_SKIN_KEY,s\.id\)/.test(store), 'storeSkin writes it');
+  assert.ok(/duelseries_skin_id/.test(store) && /duelseries_skin_color/.test(store),
+    'and, for a plain skin, both old keys for the /game.html fallback');
   const save = html.slice(html.indexOf('function closeLook'), html.indexOf('function closeLook') + 400);
   assert.ok(/storeSkin\(\)/.test(save), 'and Save goes through it');
+
+  // The /sl end of the contract: the page reads that key and sends it at every connect.
+  const main = fs.readFileSync(path.join(ROOT, 'public/js/slx/slxMain.js'), 'utf8');
+  assert.ok(main.includes("var SKIN_KEY = 'duel.sl.skin';"), '/sl reads the same key');
+  assert.ok(/slx\.auth = function[\s\S]{0,120}cv: cv/.test(main), 'and puts it in the handshake as cv');
 
   // The far end of the contract: whoever consumes it must read that key.
   const widget = fs.readFileSync(path.join(ROOT, 'wallet-widget/src/main.jsx'), 'utf8');
@@ -1358,9 +1359,11 @@ test('a duel names its own stake, and does not pretend to find an opponent', () 
      game. */
   const hide = html.match(/#detail\.duel [^{]*\{display:none\}/);
   assert.ok(hide, 'a duel hides what belongs to an arena');
-  for (const part of ['.stakes', '.lobwrap', '.lookrow']) {
+  for (const part of ['.stakes', '.lobwrap']) {
     assert.ok(hide[0].includes(part), 'it hides ' + part);
   }
+  // Every game gets the Customize bar, duels included (BACKLOG 3.1).
+  assert.ok(!hide[0].includes('.lookrow'), 'but not the Customize bar');
 
   /* The stake is a LADDER of set rungs, not a box you type into.
 
@@ -1565,9 +1568,10 @@ test('Paper takes the widget path to its arena page, on every rung', () => {
 test('the Paper detail screen shows no rules line and no snake skin', () => {
   const html = v2();
   const paper = html.match(/\{id:'paper'[^\n]*/)[0];
-  assert.ok(/nolook:1/.test(paper), 'Paper has no snake to dress');
-  assert.ok(html.includes('#detail.nolook .lookrow{display:none}'), 'so the skin row is hidden');
-  assert.ok(html.includes("det.classList.toggle('nolook',!!cur.nolook)"), 'by a class the game sets');
+  assert.ok(!/look:1/.test(paper), 'Paper has no snake to dress');
+  // BACKLOG 3.1: the bar is still there, shut, saying so; it is not hidden.
+  assert.ok(!html.includes('#detail.nolook .lookrow{display:none}'), 'so its Customize bar is shut, not hidden');
+  assert.ok(html.includes("det.classList.toggle('nolook',!cur.look)"), 'by a class the game sets');
   // Owen asked (2026-09-28) for the rules line under Paper's Play to go, and it
   // was the only game carrying one, so the whole per-game rules line went too.
   assert.ok(!html.includes('Kill a player, take their money'), 'the rules sentence is gone');
@@ -1844,8 +1848,8 @@ test('the agar.io card paints the new game\'s look, not the old one\'s', () => {
     const v = agRgb().slice().sort((a, b) => a - b);
     assert.ok(v[0] === 7 && v[2] === 255 && v[1] >= 8 && v[1] <= 254, JSON.stringify(v));
   }
-  // The skin row is hidden on agar.io: the server picks the colour, so a skin would do nothing.
-  assert.ok(/\{id:'agar'[^}]*nolook:1/.test(html), 'agar.io has no skin row');
+  // Nothing to customize on agar.io yet: the server picks the colour, so a skin would do nothing.
+  assert.ok(!/\{id:'agar'[^}]*look:1/.test(html), 'agar.io has nothing to customize yet');
 });
 
 test('each playable game card carries a people count, and a padlocked one does not', () => {
