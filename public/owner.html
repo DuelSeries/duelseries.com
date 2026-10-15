@@ -103,6 +103,18 @@ input.num{width:70px;text-align:center}
 .log .yes{color:var(--live)}
 .empty{color:var(--tx3);font-family:var(--f);font-size:13px}
 
+/* Live alerts: newest first, the kind in the alarm colour, the facts in mono. */
+.alertstate{margin-left:8px;letter-spacing:.04em;text-transform:none;font-weight:500}
+.alertstate.on{color:var(--live)}
+.alertstate.off{color:var(--bad)}
+.alerts{padding:2px 0 16px;max-height:240px;overflow:auto}
+.alerts .a{padding:9px 0;border-top:1px solid var(--s2)}
+.alerts .a:first-child{border-top:none}
+.alerts .a b{color:var(--bad);font-size:13px;font-weight:600}
+.alerts .a .t{color:var(--tx3);font-family:var(--fm);font-size:11.5px;margin-left:8px}
+.alerts .a div{font-family:var(--fm);font-size:12px;color:var(--tx2);margin-top:2px;overflow-wrap:anywhere}
+.alerts .empty{display:block;padding:4px 0 2px}
+
 /* The result of the last thing pressed, in place, so it is read where it was
    caused rather than in a corner. */
 /* Whether it worked is carried by the whole border and a matching tint, not by
@@ -164,6 +176,14 @@ input.num{width:70px;text-align:center}
         <div class="vnum"><b id="nWorth">–</b><span>USDC live</span></div>
         <div class="vnum"><b id="nBots">–</b><span>bots</span></div>
       </div>
+    </section>
+
+    <!-- Live money alerts. Pushed by the server the moment it sees them
+         (escrow short, collusion, a Paper or agar ledger breach), so this sits
+         next to the verdict rather than under the log. -->
+    <section class="group">
+      <div class="ghead">Live alerts <span class="alertstate" id="alertState">connecting</span></div>
+      <div class="alerts" id="alerts"><span class="empty">None since this page opened.</span></div>
     </section>
 
     <!-- Battle royale. -->
@@ -240,6 +260,8 @@ input.num{width:70px;text-align:center}
 
 <div id="say" role="status" aria-live="polite"></div>
 
+<script src="/socket.io/socket.io.js"></script>
+<script src="/js/ownerAlerts.js"></script>
 <script>
 /* Two globals from the wallet widget do everything here: one says who is signed
    in, the other signs an action with their key. Owner auth needs nothing else —
@@ -329,7 +351,34 @@ async function refresh() {
     }
     $('gate').hidden = true; $('panel').hidden = false;
     render(r.body);
+    startAlerts();
   } finally { refreshing = false; }
+}
+
+/* The server's live money alerts. It sends them only to a socket that signed
+   'owner:alerts' with the owner wallet (public/js/ownerAlerts.js signs on every
+   connect, silently, with signed() above), so this starts once the server has
+   accepted a signed read, and never twice. */
+let alertSocket = null;
+const alertList = [];
+function startAlerts() {
+  if (alertSocket || typeof window.io !== 'function' || !window.OwnerAlerts) return;
+  const label = { listening: ['on', 'listening'], unsigned: ['off', 'not signed, reload'], offline: ['off', 'reconnecting'] };
+  alertSocket = OwnerAlerts.connectOwnerAlerts({ io, sign: signed,
+    onState: st => {
+      const [cls, text] = label[st] || ['off', st];
+      $('alertState').className = 'alertstate ' + cls;
+      $('alertState').textContent = text;
+    },
+    onAlert: a => {
+      alertList.unshift(a);
+      alertList.length = Math.min(alertList.length, 30);
+      $('alerts').innerHTML = alertList.map(a =>
+        '<div class="a"><b>' + esc(a.title) + '</b><span class="t">'
+        + new Date(a.at).toLocaleTimeString() + '</span><div>' + esc(a.text) + '</div></div>').join('');
+      say(a.title + ': ' + a.text, true);
+    },
+  });
 }
 
 function render(s) {

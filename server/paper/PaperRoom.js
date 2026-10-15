@@ -173,7 +173,9 @@ class PaperRoom {
   // (proof = its sha256), and if its socket closes, or JOIN_CONFIRM_MS pass with no input, the
   // buy-in is refunded instead of the square being left to fly with nobody steering and its
   // money dropping on the floor (STATUS "BEFORE PAPER_PAID IS SWITCHED ON" item 2).
-  addHuman(socket, { name, micro, wallet, spot, proof, paid, stakeSig }) {
+  // jid: the door's journal id when the door wrote an open for this join before its stake claim (paperSockets); the
+  // seat's own open then replaces that record, and must be written or the seat is refused (PaperArenas._journalOpen).
+  addHuman(socket, { name, micro, wallet, spot, proof, paid, stakeSig, jid }) {
     const game = this.game;
     game._enter();
     if (this.stopped) throw new Error('stopped');
@@ -201,7 +203,8 @@ class PaperRoom {
         released: false,
         // The money journal's id for a paid seat's account (its owed key at a restart or crash is 'agowed:' + jid),
         // never a credential; and the stake row behind it, named in the journal for a hand reconcile.
-        jid: this.paid ? crypto.randomUUID() : null,
+        jid: this.paid ? (typeof jid === 'string' && jid ? jid : crypto.randomUUID()) : null,
+        door: this.paid && typeof jid === 'string' && !!jid, // the door journaled this jid first (see above)
         stakeSig: this.paid && typeof stakeSig === 'string' && stakeSig ? stakeSig : null,
         exit: null // { outcome, why, ... }: how the account closed, for its one journal close (directory._seatFreed)
       };

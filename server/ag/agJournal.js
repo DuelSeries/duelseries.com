@@ -30,7 +30,8 @@
 //     that is still the jid's last open, with no close, is a stake the door took and never seated (the seat's own
 //     open replaces it, and slMoney refuses a seat whose open it could not write). Its stake row is refunded through
 //     refundStake (the server: stakeLedger.refund with the token's claimKey), a conditional update that pays at most
-//     once whatever else refunded it ('settled' then); a refund the database did not take keeps the file;
+//     once whatever else refunded it ('settled' then); a refund the database did not take keeps the file. Paid Paper's
+//     door (paperSockets) writes the same record before its own claim, and its seat (PaperArenas) replaces it the same way;
 //   - every floor record is booked to the house once through bookFloor (the server: slPayout.sweepFloor per source
 //     wallet, slither_floor plus the rake sweep), once the file's owed rows all went through (a database that refused
 //     a player's refund books no house income from that file either). The replay first writes a booked record for its
@@ -235,7 +236,8 @@ function createAgJournal({ file = DEFAULT_FILE, bootId = '', log = console, now 
   // A paid snake door's open with no close and no seat open after it: refunded through its stake row, once (see the
   // header). -> true when the file can be marked done for this record ('owed' or 'settled'), false to keep the file.
   async function refundDoorOnce(o, refundStake, more) {
-    const reason = 'refund slither restart before seat ' + (o.room || '') + ' journal ' + o.jid;
+    const game = String(o.room || '').startsWith('paper_') ? 'paper' : 'slither';   // a Paper door's room is paper_*
+    const reason = 'refund ' + game + ' restart before seat ' + (o.room || '') + ' journal ' + o.jid;
     let r;
     try {
       r = await refundStake(o.stakeSig, reason, o.claimKey);

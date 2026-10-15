@@ -193,16 +193,24 @@ class PaperArenas {
   }
 
   // The money journal (agJournal): a paid seat's account open, and its one close. A failed write is logged by the
-  // journal itself and never reaches a money path (as agar's: server/ag/agArenas.js _journal).
+  // journal itself and never reaches a money path (as agar's: server/ag/agArenas.js _journal), with one exception: a
+  // seat whose door journaled its jid first (seat.door) THROWS when its own open is not written, so the room refuses
+  // it (addHuman rolls back, the door refunds 'seat-failed'). Otherwise the door's record would stand as the jid's last
+  // open and the boot replay would refund the stake of a seated account (as slMoney.open for paid snake).
   _journalOpen(seat) {
     const j = this.journal;
     if (!j || !seat || !seat.jid || !seat.room || !seat.room.paid) return;
+    let ok = false;
     try {
       const acct = { jid: seat.jid, wallet: seat.wallet, deposit: seat.deposit, name: seat.name };
       if (seat.stakeSig) acct.stakeSig = seat.stakeSig;
-      j.open(acct, seat.room.lobbyType);
+      ok = j.open(acct, seat.room.lobbyType) !== false;
     } catch (e) {
       console.error('[PAPER] journal open', e && e.message);
+    }
+    if (!ok && seat.door) {
+      console.error('[PAPER] JOURNAL open of ' + seat.jid + ' not written (' + seat.room.lobbyType + '); the seat is refused');
+      throw new Error('PaperArenas: the journal did not write the seat open record');
     }
   }
 
@@ -222,8 +230,11 @@ class PaperArenas {
   _journalClose(seat) {
     const j = this.journal;
     if (!j || !seat || !seat.jid || seat.journalClosed || !seat.room || !seat.room.paid) return;
-    seat.journalClosed = true;
     const x = seat.exit || { outcome: 'closed', why: '' };
+    // a door seat that never seated (addHuman rolled it back): the door refunds it and closes the jid once that refund
+    // answered, so a crash before then still finds the jid open
+    if (seat.door && x.outcome === 'aborted') return;
+    seat.journalClosed = true;
     try {
       j.close({ jid: seat.jid, wallet: seat.wallet, deposit: seat.deposit, name: seat.name }, x.outcome, x,
         seat.room.lobbyType);

@@ -183,6 +183,26 @@ test('every response carries the frame, sniffing and referrer headers; HSTS only
   assert.match(src, /app\.use\(securityHeaders\)/, 'server/index.js mounts it');
 });
 
+test('HSTS reaches duelseries.com behind an nginx that sends no X-Forwarded-Proto (req.secure is false there)', async () => {
+  const app = express();
+  app.set('trust proxy', TRUST_PROXY);
+  app.use(securityHeaders);
+  app.get('/', (req, res) => res.json({ secure: req.secure }));
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise((r) => server.once('listening', r));
+  try {
+    const port = server.address().port;
+    for (const host of ['duelseries.com', 'DuelSeries.com:443', 'eu.duelseries.com', 'www.duelseries.com']) {
+      assert.strictEqual((await get(port, { Host: host }))['strict-transport-security'], 'max-age=15552000', host);
+    }
+    for (const host of ['localhost:3000', '127.0.0.1', 'notduelseries.com', 'duelseries.com.evil.test', 'evil.test']) {
+      assert.strictEqual((await get(port, { Host: host }))['strict-transport-security'], undefined, host);
+    }
+  } finally {
+    server.close();
+  }
+});
+
 // ── 4. the lobby's postMessage listeners ─────────────────────────────────────────────────────────────────────────
 
 test('duel:signaction is answered only for the game frame on our own origin', async () => {

@@ -52,6 +52,9 @@ module.exports = function createPaperSockets({
   entryStore,
   payout,
   ledger = null,
+  // the shared money journal (agJournal), the arenas' own by default: a durable paid join writes its door record there
+  // before the stake claim (step 7j)
+  journal = arenas && arenas.journal ? arenas.journal : null,
   paidEnabled = process.env.PAPER_PAID === '1'
 }) {
   function refuse(socket, why, extra) {
@@ -68,6 +71,50 @@ module.exports = function createPaperSockets({
       return ledger.refund(entry.stakeSig, 'refund paper ' + why, entry.claimKey);
     }
     return payout.refund({ wallet: entry.walletAddress, name, micro: toMicro(entry.worth), paid: entry.paid, why });
+  }
+
+  /* The door's journal record for a durable paid join (the Paper analog of security review item d): written BEFORE
+     the stake claim, with door, the stakeSig and the token's claimKey (the only key that can refund a consumed row).
+     A restart after the claim and before the seat leaves it the jid's last open with no close, and the boot replay
+     (agJournal) refunds that stake row once through stakeLedger.refund. The seat's own open (PaperArenas, same jid)
+     replaces it, so a seated account is never touched. -> { jid, label, acct } when written, null when there is no
+     journal, false when the write failed (the door then spends nothing). */
+  function openDoor(entry, name, seat) {
+    if (!journal || typeof journal.open !== 'function') return null;
+    const jid = crypto.randomUUID();
+    const door = { jid, label: seat.room.lobbyType,
+      acct: { jid, wallet: entry.walletAddress, deposit: toMicro(entry.worth), name } };
+    try {
+      const rec = Object.assign({ stakeSig: entry.stakeSig, door: true, claimKey: entry.claimKey }, door.acct);
+      if (journal.open(rec, door.label) === true) return door;
+    } catch (e) {
+      console.error('[PAPER] DOOR journal open threw', e && e.message);
+    }
+    console.error('[PAPER] DOOR journal open not written (' + door.label + '); the join spends nothing');
+    return false;
+  }
+
+  // The door's record closed: at once when nothing was claimed, else once the refund lane answered 'owed' or
+  // 'settled' (landed). A refund the database did not take yet leaves the record open, so the next boot's replay asks
+  // the same conditional refund again (paid at most once) instead of a crash stranding the stake.
+  function closeDoor(door, why, refund) {
+    if (!door) return;
+    const close = () => {
+      try {
+        journal.close(door.acct, 'refused', { why, reason: 'refund paper ' + why }, door.label);
+      } catch (e) {
+        console.error('[PAPER] DOOR journal close', e && e.message);
+      }
+    };
+    if (refund === undefined) return close();
+    Promise.resolve(refund).then((r) => { if (r === 'owed' || r === 'settled') close(); }, () => {});
+  }
+
+  // refundEntry after the door's record was written: the record closes once that refund landed.
+  function refundDoor(door, entry, why, name) {
+    const r = refundEntry(entry, why, name);
+    if (door) closeDoor(door, why, r);
+    return r;
   }
 
   // A refusal decided by the server after a paid buy-in: consume the token here, directly (no
@@ -185,37 +232,46 @@ module.exports = function createPaperSockets({
     // so a restart's sweep can never refund a stake that is seated, and never both. The claim
     // is a database round trip: the socket and the seat are looked at again after it.
     if (stake > 0 && entry.stakeSig && ledger) {
+      // 7j. the door's journal record, before the claim. Not written: nothing is spent (the token goes back, its
+      // stake row stays pending for the sweep), since a claim with no record would leave a restart nothing to find.
+      const door = openDoor(entry, name, seat);
+      if (door === false) {
+        if (entry.restore) entry.restore();
+        return refuse(socket, 'unavailable');
+      }
       const claim = ledger.claimSeat(entry).then((c) => {
         if (c === 'error') {                        // nothing spent: the token goes back
           if (entry.restore) entry.restore();
+          closeDoor(door, 'unavailable');
           return refuse(socket, 'unavailable');
         }
         if (c !== 'ok') {                           // a sweep refunded it first: seat nothing
+          closeDoor(door, 'settled');
           remember(token, 'settled', true);
           return refuse(socket, 'settled', { refunded: true });
         }
         if (socket.disconnected === true) {         // gone while the claim was in flight
-          refundEntry(entry, 'join-lost', name);
+          refundDoor(door, entry, 'join-lost', name);
           return remember(token, 'join-lost', true);
         }
         if (arenas.stopping === true || arenas.paidOpen === false) {   // steps 4s and 4o again
           const why = arenas.stopping === true ? 'restarting' : 'not-open';
-          refundEntry(entry, why, name);
+          refundDoor(door, entry, why, name);
           remember(token, why, true);
           return refuse(socket, why, { refunded: true });
         }
         if (socket._ppRoom && socket._ppRoom.hasLiveUnit(socket.id)) {   // step 4 again
-          refundEntry(entry, 'seat-failed', name);
+          refundDoor(door, entry, 'seat-failed', name);
           remember(token, 'seat-failed', true);
           return refuse(socket, 'seat-failed', { refunded: true });
         }
         const again = arenas.seatFor(stake, socket._ppRoom);             // step 6 again
         if (!again) {
-          refundEntry(entry, 'full', name);
+          refundDoor(door, entry, 'full', name);
           remember(token, 'full', true);
           return refuse(socket, 'full', { refunded: true });
         }
-        seatEntry(socket, token, stake, name, proof, entry, again);
+        seatEntry(socket, token, stake, name, proof, entry, again, door);
       }).catch((e) => console.error('[PAPER] durable join', e && e.stack ? e.stack : e));
       if (proof) {
         claiming.set(proof, claim);
@@ -226,8 +282,9 @@ module.exports = function createPaperSockets({
     seatEntry(socket, token, stake, name, proof, entry, seat);
   }
 
-  // Steps 7c to 9, for a spent token (and for a free seat, which has none).
-  function seatEntry(socket, token, stake, name, proof, entry, seat) {
+  // Steps 7c to 9, for a spent token (and for a free seat, which has none). door: the durable join's journal record
+  // (7j), whose jid the seat takes, or null.
+  function seatEntry(socket, token, stake, name, proof, entry, seat, door = null) {
     // 7c. a wallet whose last paid joins were refunded before their first input (join-lost,
     // join-timeout) is paused for a while: an unconfirmed seat's loss is refunded but its win
     // is kept, so a script could otherwise repeat that 3 s free option on every buy-in. Only
@@ -235,7 +292,7 @@ module.exports = function createPaperSockets({
     // consume, and pays back what landed in full like every other server-decided refusal.
     if (stake > 0 && arenas.releaseCooldown && arenas.releaseCooldown(entry.walletAddress)) {
       console.warn('[PAPER] COOLDOWN ' + entry.walletAddress + ' ' + stake);
-      refundEntry(entry, 'cooldown', name);
+      refundDoor(door, entry, 'cooldown', name);
       remember(token, 'cooldown', true);
       return refuse(socket, 'cooldown', { refunded: true });
     }
@@ -250,13 +307,14 @@ module.exports = function createPaperSockets({
         spot: seat.spot,
         proof,
         paid: stake > 0 ? entry.paid : undefined,
-        stakeSig: stake > 0 && entry.stakeSig ? entry.stakeSig : undefined
+        stakeSig: stake > 0 && entry.stakeSig ? entry.stakeSig : undefined,
+        jid: door ? door.jid : undefined
       });
     } catch (e) {
       console.error('[PAPER] seat failed', seat.room.lobbyType, e && e.message);
       let refunded = false;
       if (stake > 0 && entry.worth > 0) {
-        refundEntry(entry, 'seat-failed', name);
+        refundDoor(door, entry, 'seat-failed', name);
         refunded = true;
         remember(token, 'seat-failed', true);
       }
