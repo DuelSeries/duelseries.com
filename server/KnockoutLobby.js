@@ -67,12 +67,37 @@ function pullForTravel(dist) {
 }
 const BOT_NAMES = ['Sergeant Bot', 'Bishop', 'Cinder', 'Tally', 'Nine'];
 
+/* How many people can watch one match. Each watcher is one more copy of every
+   message the match sends, so a number has to exist; fifty is far more than
+   this game will see and far fewer than would cost anything. */
+const WATCH_CAP = 50;
+
+/* The match id a watcher names as the one they are moving on from. Only ever a
+   short string; it is looked up, never trusted, and anything else is ignored. */
+const watchAfter = (v) => (typeof v === 'string' && v.length > 0 && v.length <= 40 ? v : null);
+
+/* The number on the end of a room id ('ko_12' is 12), which is the order the
+   rooms were made in. Used to step to the NEXT match even when the one being
+   left has already been swept away and is no longer there to be found. */
+const seqOf = (id) => {
+  const m = /(\d+)$/.exec(String(id || ''));
+  return m ? Number(m[1]) : NaN;
+};
+
+function send(socket, ev, payload) {
+  try { if (socket && typeof socket.emit === 'function') socket.emit(ev, payload); } catch (_) {}
+}
+
 class KnockoutLobby {
   constructor(io) {
     this.io = io;
     this.queue = [];              // [{ socket, name, wallet, since }]
     this.rooms = new Map();       // roomId -> KnockoutRoom
     this.bySocket = new Map();    // socketId -> roomId
+    /* socketId -> { socket, roomId, channel }. Somebody watching a match, who
+       is in neither of the two above and in no room's players. See watch(). */
+    this.watchers = new Map();
+    this.liveKey = '';            // which matches were running, for telling watchers
     this.timer = null;
   }
 
@@ -97,6 +122,9 @@ class KnockoutLobby {
   /* paid: what landed on-chain for this seat (the entry token's paid), which bounds a refund. */
   enqueue(socket, name, wallet, stake, worth, now, paid) {
     this.dequeue(socket.id);
+    /* Watching and queueing are one or the other. Somebody who was watching
+       and pressed Play stops watching first, so the two never overlap. */
+    this.unwatch(socket.id);
     this.queue.push({
       socket, name, wallet, since: typeof now === 'number' ? now : Date.now(),
       stake: Number(stake) > 0 ? Number(stake) : 0,
@@ -111,7 +139,10 @@ class KnockoutLobby {
       const freed = this.rescueFromBot(mine);
       if (freed) {
         this.dequeue(socket.id);
-        this.makeMatch([freed, mine], false, now);
+        const room = this.makeMatch([freed, mine], false, now);
+        /* Anybody who was watching the bot match was watching that person,
+           and the person is here now, so the watchers come too. */
+        this.moveWatchers(freed.fromRoom, room);
       }
     }
     return this.queue.some(e => e.socket.id === socket.id);
@@ -179,6 +210,7 @@ class KnockoutLobby {
       room.tick(t);
       if (room.state === 'over') this.sweep(room);
     }
+    this.tickWatchers();
   }
 
   /* SOMEBODY WAITING BEATS A BOT, EVEN A LITTLE LATE.
@@ -213,8 +245,10 @@ class KnockoutLobby {
       }
       console.log('[KO] pairing ' + seat.name + ' with ' + entry.name
         + ' instead of a bot');
+      /* fromRoom says which match this was, so its watchers can follow the
+         person into the new one (moveWatchers). */
       return { socket: seat.socket, name: seat.name, wallet: seat.wallet,
-               since: Date.now(), stake: 0, worth: 0 };
+               since: Date.now(), stake: 0, worth: 0, fromRoom: room.id };
     }
     return null;
   }
@@ -278,6 +312,7 @@ class KnockoutLobby {
   }
 
   leave(socketId) {
+    this.unwatch(socketId);
     const room = this.roomOf(socketId);
     /* Backing out of a PAID queue is a refund, not just a dequeue. The stake
        has already settled on-chain by the time they are standing in it. */
@@ -299,7 +334,146 @@ class KnockoutLobby {
     for (const [sid, rid] of [...this.bySocket]) {
       if (rid === room.id) this.bySocket.delete(sid);
     }
+    this.dropWatchers(room);
     this.rooms.delete(room.id);
+  }
+
+  /* ── watching ─────────────────────────────────────────────────────────────
+     Somebody with no seat looking at a match that is already being played.
+
+     READ-ONLY, AND KEPT APART. A watcher is never in the queue, never in a
+     room's players and never in bySocket, so nothing that counts people or
+     moves money can see one: the live counts read the queue and the players,
+     and a payout or a refund reads the players and the queue entries. A watcher
+     is not in the players' socket.io room either. They are in a room of their
+     own (room.watchRoomName) that the match writes to explicitly, in a form
+     with every socket id swapped for a seat (KnockoutRoom.forWatchers). And a
+     watcher is never told anything a player is not: the board, who has locked
+     in, and the arrows only once the turn has closed. */
+
+  /* The matches somebody could watch right now, oldest first. */
+  runningRooms() {
+    return [...this.rooms.values()].filter(r => r.state !== 'waiting' && r.state !== 'over');
+  }
+
+  /* Which match to show, best first. Moving on from `after`: the next one made
+     after it, round to the start again, and `after` itself last of all so a
+     Next with only one match running stays where it is. Arriving fresh: the
+     one furthest in, because that is the one with the most going on. Either
+     way a match already settling goes to the back, since it is three seconds
+     from its result card and watching it is watching it end. */
+  watchOrder(live, after) {
+    let order;
+    const n = seqOf(after);
+    if (after && Number.isFinite(n)) {
+      const others = live.filter(r => r.id !== after);
+      const later = others.filter(r => seqOf(r.id) > n);
+      const earlier = others.filter(r => !(seqOf(r.id) > n));
+      order = later.concat(earlier, live.filter(r => r.id === after));
+    } else {
+      const rank = (r) => (r.state === 'countdown' ? 0 : 1) * 1000 + (r.turn || 0);
+      order = live.slice().sort((a, b) => rank(b) - rank(a));
+    }
+    return order.filter(r => r.state !== 'settling').concat(order.filter(r => r.state === 'settling'));
+  }
+
+  /* What the page shows about the match it is on: who, the stake, how far in,
+     and where it sits among the matches running (for Next match). */
+  matchCard(room, live) {
+    const list = live || this.runningRooms();
+    return {
+      id: room.id, names: room.sideNames(), stake: room.stake, pot: room.pot(), turn: room.turn,
+      index: list.indexOf(room) + 1, count: list.length,
+    };
+  }
+
+  /* Watch a running match. Answers on 'ko:watching', always, with one of:
+       { match, state }   watching it (state is KnockoutRoom.watchSnapshot)
+       { none: true }     nothing is running
+       { full: true }     everything running already has WATCH_CAP watchers
+       { refused: true }  this socket is queued or seated, and is a player */
+  watch(socket, opts) {
+    if (!socket || typeof socket.id !== 'string') return { ok: false, why: 'no socket' };
+    const id = socket.id;
+    if (this.bySocket.has(id) || this.queue.some(e => e.socket.id === id)) {
+      send(socket, 'ko:watching', { refused: true, why: 'You are in a match already.' });
+      return { ok: false, why: 'seated' };
+    }
+    const after = watchAfter(opts && opts.after);
+    this.unwatch(id);
+    const live = this.runningRooms();
+    if (!live.length) { send(socket, 'ko:watching', { none: true }); return { ok: false, why: 'none' }; }
+    const room = this.watchOrder(live, after).find(r => (r.watchers || 0) < WATCH_CAP);
+    if (!room) { send(socket, 'ko:watching', { full: true }); return { ok: false, why: 'full' }; }
+    this.attachWatcher(socket, room, live);
+    return { ok: true, roomId: room.id };
+  }
+
+  attachWatcher(socket, room, live) {
+    this.watchers.set(socket.id, { socket, roomId: room.id, channel: room.watchRoomName });
+    room.watchers = (room.watchers || 0) + 1;
+    try { if (typeof socket.join === 'function') socket.join(room.watchRoomName); } catch (_) {}
+    send(socket, 'ko:watching', { match: this.matchCard(room, live), state: room.watchSnapshot() });
+  }
+
+  /* Stop watching. Safe to call for anybody, watching or not. */
+  unwatch(socketId) {
+    const w = this.watchers.get(socketId);
+    if (!w) return false;
+    this.watchers.delete(socketId);
+    const room = this.rooms.get(w.roomId);
+    if (room && room.watchers > 0) room.watchers--;
+    try { if (w.socket && typeof w.socket.leave === 'function') w.socket.leave(w.channel); } catch (_) {}
+    return true;
+  }
+
+  /* A bot match dissolved so its human could play a person (rescueFromBot):
+     its watchers go to the new match, told with a fresh 'ko:watching'. */
+  moveWatchers(fromId, room) {
+    if (!fromId || !room) return;
+    let live = null;
+    for (const [sid, w] of [...this.watchers]) {
+      if (w.roomId !== fromId) continue;
+      this.unwatch(sid);
+      if ((room.watchers || 0) >= WATCH_CAP) { send(w.socket, 'ko:ended', { id: fromId }); continue; }
+      if (!live) live = this.runningRooms();
+      this.attachWatcher(w.socket, room, live);
+    }
+  }
+
+  /* A room going away. Its watchers were sent ko:over by the room if it
+     finished; if it went any other way they are told it ended, so the page is
+     never left looking at a match that is not there. Then they are let go, and
+     the page asks for the next one. */
+  dropWatchers(room) {
+    for (const [sid, w] of [...this.watchers]) {
+      if (w.roomId !== room.id) continue;
+      if (room.state !== 'over') send(w.socket, 'ko:ended', { id: room.id });
+      this.unwatch(sid);
+    }
+  }
+
+  /* Every tick: anybody watching a room that is no longer in the map (however
+     it went) is told and let go, and when the set of running matches changes
+     each watched match is told where it now sits, so Next match is only on
+     offer when there is a next match. */
+  tickWatchers() {
+    if (!this.watchers.size) { this.liveKey = ''; return; }
+    for (const [sid, w] of [...this.watchers]) {
+      if (this.rooms.has(w.roomId)) continue;
+      send(w.socket, 'ko:ended', { id: w.roomId });
+      this.unwatch(sid);
+    }
+    const live = this.runningRooms();
+    const key = live.map(r => r.id).join(',');
+    if (key === this.liveKey) return;
+    this.liveKey = key;
+    for (const r of live) {
+      if (!(r.watchers > 0) || !this.io || !this.io.to) continue;
+      try {
+        this.io.to(r.watchRoomName).emit('ko:matches', { index: live.indexOf(r) + 1, count: live.length });
+      } catch (_) {}
+    }
   }
 
   /* ── the opponent ───────────────────────────────────────────────────────── */
@@ -415,5 +589,6 @@ class KnockoutLobby {
 /* Hung off the class as well as exported, so a caller that already has the
    class does not need a second import just to say how long a paid seat waits. */
 KnockoutLobby.PAID_WAIT_MS = PAID_WAIT_MS;
+KnockoutLobby.WATCH_CAP = WATCH_CAP;
 
-module.exports = { KnockoutLobby, BOT_AFTER_MS, PAID_WAIT_MS };
+module.exports = { KnockoutLobby, BOT_AFTER_MS, PAID_WAIT_MS, WATCH_CAP };

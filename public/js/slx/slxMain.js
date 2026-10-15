@@ -71,6 +71,10 @@
     // the battle royale's fields (slxBr, loaded before this file, on an event page only)
     var b = typeof slx.brAuth === 'function' ? slx.brAuth() : null;
     if (b && typeof b === 'object') for (var j in b) if (Object.prototype.hasOwnProperty.call(b, j)) a[j] = b[j];
+    // the free room's watcher fields (slxWatch, loaded before this file, on a lobby Spectate page only; it stays out of
+    // a paid page and the event's, so these never join theirs)
+    var w = typeof slx.watchAuth === 'function' ? slx.watchAuth() : null;
+    if (w && typeof w === 'object') for (var q in w) if (Object.prototype.hasOwnProperty.call(w, q)) a[q] = w[q];
     return a;
   };
 
@@ -176,7 +180,8 @@
   // Inside the lobby's frame: Play at once under the lobby name (their Play, public/js/sl/slMain.js:94-101), unless
   // slxPaid holds the page (paidHold: a paid snake cut off by a reload, or a paid launch it could not read). Such a
   // page shows its notice on the results card and never plays free.
-  // The battle royale's page (slxBr) plays itself: it asks the lobby's wallet for the prize proof first.
+  // The battle royale's page (slxBr) plays itself: it asks the lobby's wallet for the prize proof first. A Spectate page
+  // (slxWatch) plays the same way as a free one: its handshake makes the socket a watcher.
   if (slx.inLobby && !(typeof slx.paidHold === 'function' && slx.paidHold() === true)) {
     if (!(typeof slx.brLaunch === 'function' && slx.brLaunch(lobbyName()) === true)) D.play(lobbyName());
   }

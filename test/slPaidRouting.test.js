@@ -156,20 +156,20 @@ test('maintenance: a paid join is consumed and refunded once; a free join is ref
   assert.deepEqual(r.payout.refunds.map((x) => [x.wallet, x.why, x.micro]), [['WM', 'maintenance', 500000]]);
   assert.equal(r.store.consumeAtStake(token, 0.5, 'slither').ok, false, 'consumed');
   assert.equal(s.disconnected, true);
-  // a free socket under maintenance (the helper attached): refused, and only auth.paid and auth.cv were read
+  // a free socket under maintenance (the helper attached): refused, and only auth.paid, auth.cv and auth.watch were read
   const spy = spyAuth({ cv: 4, entryToken: r.mint({}), stake: 0.5, paid: 0 });
   const f = r.sock({ auth: spy.auth });
   f.fire('sl:join', { nick: 'free' });
   assert.equal(refusal(f).why, 'maintenance');
-  assert.deepEqual(Array.from(spy.touched).sort(), ['cv', 'paid']);
+  assert.deepEqual(Array.from(spy.touched).sort(), ['cv', 'paid', 'watch']);
   assert.equal(r.payout.refunds.length, 1, 'still one refund');
-  // maintenance off: the same kind of free socket is seated free, still reading only paid and cv
+  // maintenance off: the same kind of free socket is seated free, still reading only paid, cv and watch
   r.ops.maintenance = false;
   const spy2 = spyAuth({ cv: 4, entryToken: r.mint({}), stake: 0.5 });
   const g = r.sock({ auth: spy2.auth });
   g.fire('sl:join', { nick: 'free' });
   assert.ok(r.room().seatOf(g.id), 'a free seat');
-  assert.deepEqual(Array.from(spy2.touched).sort(), ['cv', 'paid']);
+  assert.deepEqual(Array.from(spy2.touched).sort(), ['cv', 'paid', 'watch']);
 });
 
 test('a paid socket never reaches the free room, and a free socket never reaches a paid room', () => {

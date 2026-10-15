@@ -69,6 +69,15 @@
 // main namespace's socketIdentity check; anything else is no wallet), or, when auth.watch is 1, a watcher of a living
 // snake (auth.follow, a snake id, preferred). Its refusals add 'match' (a match is under way) and 'nobody' (nothing
 // alive to watch).
+//
+// Watching the free room (the lobby's Spectate on slither.io's Free rung, public/js/slx/slxWatch.js): a socket that is
+// neither paid nor the event's and whose handshake says watch 1 is a watcher (slArenas.watch, slRoom seatWatch), never
+// a seat: its sl:join (after the same money, rate, maintenance and door checks) follows the leader, or the snake
+// ranked after auth.after (a snake id 1 to 65535, else ignored) when the layer's Next asked. A watch handshake that
+// also carries a money field (WATCH_REFUSED) is refused 'not-open' at its sl:join; a handshake that names br keeps the
+// route it had before. A watcher has no life to resume (sl:back is refused 'gone'), pushes no join, and every other
+// call of its socket reaches the room, which answers only its pings. Refusals: 'closed', 'full' (C_HUMAN_CAP
+// watchers), 'nobody'.
 
 const W = require('../../shared/slWire.js');
 const { assertLawsComplete } = require('./slLaws');
@@ -83,6 +92,8 @@ const SOCK_LAW_IDS = Object.freeze(['C_SL_PER_IP', 'C_RATE', 'C_RATE_INPUT', 'C_
 // sl:join fields a free seat never takes (SERVER-DESIGN 12.2: agar refuses a paid payload with no door,
 // server/ag/agSockets.js:186). Only their presence is checked, never their value.
 const MONEY_FIELDS = Object.freeze(['stake', 'entryToken', 'resumeKey']);
+// Handshake fields a free watcher never carries (watchOf): any one of them with watch 1 is refused, never watched.
+const WATCH_REFUSED = Object.freeze(['paid', 'idProof'].concat(MONEY_FIELDS));
 // C_CONN badSkin modes built: 'random0to8' = one of the 9 plain colours 0 to 8 (their login, G:8963-8969).
 const BAD_SKIN_MODES = Object.freeze({ random0to8: 9 });
 const REFUSALS = Object.freeze(['limit', 'not-open', 'maintenance', 'closed', 'full', 'flood', WHY_GONE, WHY_TAKEN,
@@ -326,7 +337,7 @@ function attachSlSockets(nsp, arenas, helpers) {
   const safeStats = createSafeStats();
   const states = new Map(); // socket id -> per-socket state
   const stats = { connects: 0, joins: 0, refused: {}, guarded: 0, floods: 0, inputEmits: 0, inputBytes: 0,
-    inputRecords: 0, inputDropped: 0, pushes: 0, backs: 0, backsBad: 0, takeovers: 0, paidJoins: 0,
+    inputRecords: 0, inputDropped: 0, pushes: 0, backs: 0, backsBad: 0, takeovers: 0, paidJoins: 0, watches: 0,
     safe: safeStats };
   const badKeys = createBadKeyGate(L.resume.badKeys, ipOf);
   let paid = null; // setPaid: { arenas: the paid directory, door: the paid door }
@@ -371,6 +382,18 @@ function attachSlSockets(nsp, arenas, helpers) {
       proof: isPlainObject(p) ? p : null };
   }
 
+  // A free watcher (see the header): auth.watch 1 with no br field. Returns { after, money } or null; read only for a
+  // socket that is neither paid nor the event's.
+  function watchOf(socket) {
+    const hs = socket.handshake;
+    const auth = hs && isPlainObject(hs.auth) ? hs.auth : null;
+    if (!auth || field(auth, 'watch') !== 1 || hasOwn(auth, 'br')) return null;
+    const a = field(auth, 'after');
+    let money = false;
+    for (const k of WATCH_REFUSED) if (hasOwn(auth, k)) money = true;
+    return { after: Number.isInteger(a) && a > 0 && a < 65536 ? a : null, money };
+  }
+
   // Only with a helper attached: auth.paid 1 (an own data property, never a getter).
   function paidOf(socket) {
     if (!paid) return false;
@@ -405,6 +428,7 @@ function attachSlSockets(nsp, arenas, helpers) {
     if (msg !== undefined) {
       for (const k of MONEY_FIELDS) if (hasOwn(msg, k)) return refuse(socket, 'not-open', stats);
     }
+    if (st.watch && st.watch.money) return refuse(socket, 'not-open', stats); // a watcher never carries money
     if (!limited(socket, 'join')) return;
     const raw = msg === undefined ? '' : field(msg, 'nick');
     const nick = cleanNick(typeof raw === 'string' ? raw : '', arenas.laws);
@@ -423,6 +447,7 @@ function attachSlSockets(nsp, arenas, helpers) {
     try {
       if (st.br && st.br.watch) r = st.dir.watch(socket, { follow: st.br.follow });
       else if (st.br) r = st.dir.join(socket, { nick, cv: st.cv, wallet: identifyOf(st.br.proof) });
+      else if (st.watch) r = arenas.watch(socket, { after: st.watch.after });
       else r = arenas.join(socket, { nick, cv: st.cv });
     } catch (e) {
       // a seat that could not be made is a closed door for this socket, never a socket left hanging
@@ -431,7 +456,8 @@ function attachSlSockets(nsp, arenas, helpers) {
     }
     if (r !== true) return refuse(socket, REFUSALS.includes(r) ? r : 'closed', stats);
     stats.joins++;
-    if (st.br && st.br.watch) return; // a watcher is nobody joining
+    if (st.watch) stats.watches++;
+    if (st.watch || (st.br && st.br.watch)) return; // a watcher is nobody joining
     if (notifyJoin && pushGate.allow(nick, now())) {
       stats.pushes++;
       const where = st.br ? 'br' : 'free';
@@ -462,6 +488,7 @@ function attachSlSockets(nsp, arenas, helpers) {
     const st = stateOf(socket);
     if (!st || st.joined) return;
     st.joined = true;
+    if (st.watch) return refuse(socket, WHY_GONE, stats); // a free watcher's socket never becomes a player's life
     const t = now();
     if (badKeys.blocked(socket, t)) return refuse(socket, 'flood', stats);
     const k = isPlainObject(msg) ? field(msg, 'k') : undefined;
@@ -698,9 +725,11 @@ function attachSlSockets(nsp, arenas, helpers) {
       if (!gate.add(socket)) return refuse(socket, 'limit', stats);
       const pd = paidOf(socket) ? paid : null;
       const bd = pd ? null : brOf(socket);
+      const wd = pd || bd ? null : watchOf(socket);
       states.set(socket.id, {
         paid: !!pd, // auth.paid 1 with the helper attached: this socket's seat lives in the paid directory
         br: bd, // auth.br 1 with the battle royale's helper attached: { watch, follow, proof }, else null
+        watch: wd, // a free watcher's handshake: { after, money }, else null (never with paid or br)
         dir: pd ? pd.arenas : bd ? br.arenas : arenas, // where every call of this socket's seat goes
         door: pd ? pd.door : null,
         cv: skinOf(socket),
@@ -749,6 +778,7 @@ module.exports = {
   SL_RATE,
   SL_CONN,
   MONEY_FIELDS,
+  WATCH_REFUSED,
   REFUSALS,
   isPlainObject,
   field,

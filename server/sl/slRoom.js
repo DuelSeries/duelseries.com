@@ -381,7 +381,7 @@ class SlRoom {
     };
 
     this.seats = new Map(); // socket id -> seat
-    this.watchers = new Map(); // socket id -> watcher seat (the battle royale's spectators, seatWatch)
+    this.watchers = new Map(); // socket id -> watcher seat (the battle royale's and the free room's, seatWatch)
     this.bySnake = new Map(); // own snake id -> seat
     this.humans = new Set(); // snake ids of human snakes (seated or gliding)
     this.names = new Map(); // snake id -> nick (kill lines)
@@ -574,7 +574,8 @@ class SlRoom {
   }
 
   // ---------------------------------------------------------------------------------------------------------------
-  // Watchers (the battle royale only, Owen 2026-10-15 "build spectate too")
+  // Watchers (the battle royale's, Owen 2026-10-15 "build spectate too"; and the free room's, the lobby's Spectate on
+  // slither.io's Free rung, public/js/slx/slxWatch.js). Never a paid room's.
   //
   // A watcher is a seat with no snake: its view follows a living snake AS ITS OWN (createSeatView ownId), so their
   // client's camera, minimap and length line follow it exactly as for a player. It never steers, holds, chats or
@@ -582,6 +583,11 @@ class SlRoom {
   // pongs (their client's lag check waits on them); it gets the kill lines and every sl:x to all. When the followed
   // snake ends, their client plays its own death and closes the socket (one socket per life), and the layer
   // (public/js/slx/slxBr.js) opens a watcher on the next survivor. No resume key: a dropped watcher just ends.
+  // The free room follows the leader instead (_leaderAfter), bots included: Owen plays one person among bots, so a
+  // persons-first rule would mostly show nothing new. The layer's Next is a new life with info.after, the id it
+  // watched last: the next snake down the board from it.
+  // A watcher keeps the room awake (lastHumanAt, _afterWake): a paused room would show it frozen snakes. That costs
+  // what one seated player costs, and watchers are capped as seats are (the directories' watch, C_HUMAN_CAP).
 
   // The snake to follow: the living person asked for (follow, a snake id), else the longest living person, else the
   // longest living snake. null when the arena is empty.
@@ -602,14 +608,37 @@ class SlRoom {
     return pick(true) || pick(false);
   }
 
-  // socket: the socket.io socket; info: { follow } (optional snake id). Returns the watcher, or null (no battle
-  // royale, the room closed, or nothing alive to watch).
+  // The free room's snake to follow: the one ranked right after `after` (a snake id) among every living snake in the
+  // leaderboard's order (_board: length, then fam, then id), wrapping to the top; the leader when `after` is not
+  // alive or not given. null when the room is empty.
+  _leaderAfter(after) {
+    const order = [];
+    this.sim.forEachSnake((s) => { order.push(s); });
+    if (!order.length) return null;
+    order.sort((a, b) => (b.pts.length - a.pts.length) || (b.fam - a.fam) || (a.id - b.id));
+    if (Number.isInteger(after)) {
+      for (let i = 0; i < order.length; i++) if (order[i].id === after) return order[(i + 1) % order.length];
+    }
+    return order[0];
+  }
+
+  // socket: the socket.io socket; info: { follow } in the battle royale, { after } in the free room (optional snake
+  // ids). Returns the watcher, or null (a paid room, the room closed, or nothing alive to watch).
   seatWatch(socket, info) {
     if (!socket || typeof socket.id !== 'string') throw new TypeError('slRoom: seatWatch needs a socket with an id');
-    if (!this.br || this.stopped || this.closed) return null;
+    if (this.money) return null; // a paid room is never watched
+    if (this.stopped || this.closed) return null;
     if (this.watchers.has(socket.id)) return this.watchers.get(socket.id);
-    const target = this._watchTarget(info && info.follow);
-    if (!target) return null;
+    const target = this.br ? this._watchTarget(info && info.follow) : this._leaderAfter(info && info.after);
+    if (!target) {
+      // A free room nobody woke yet has no bots (they fill as it ticks): the ask wakes it for C_IDLE_PAUSE_MS and the
+      // layer asks again in a few seconds; its idle pause ends it as before when nobody stays.
+      if (!this.br) {
+        this.lastHumanAt = this.clock();
+        this._ensureTicking();
+      }
+      return null;
+    }
     const seat = {
       id: socket.id,
       socket,
@@ -651,7 +680,7 @@ class SlRoom {
     const events = seat.view.join({ tick, simMs: this.sim.nowMs(), flux: this.sim.flux(), frames: [], dead: false });
     this._pushEvents(seat, tick, events);
     seat.queue.message(tick, { t: 'watch', id: target.id, name: target.nick });
-    seat.queue.message(tick, this.br.joinMsg());
+    if (this.br) seat.queue.message(tick, this.br.joinMsg());
     if (this.top) seat.queue.message(tick, this.top);
     seat.queue.flush(this.clock());
     this._ensureTicking();
@@ -1288,7 +1317,7 @@ class SlRoom {
       if (this.money) this._safe(() => this._worthAll(), 'sl.paid.worth');
       job.seatList = Array.from(this.seats.values());
       for (const p of this.parked) job.seatList.push(p); // parked seats collect too (resume, see the header)
-      for (const w of this.watchers.values()) job.seatList.push(w); // the battle royale's watchers
+      for (const w of this.watchers.values()) job.seatList.push(w); // the watchers (seatWatch)
     }
     const list = job.seatList;
     while (job.seatIdx < list.length) {
@@ -1874,7 +1903,7 @@ class SlRoom {
   emergencyClose() {
     if (this.closed) return;
     this.closed = true;
-    // the battle royale's watchers too: stop() only closes their queues, and a socket left open on a dead room freezes
+    // the watchers too: stop() only closes their queues, and a socket left open on a dead room freezes
     const sockets = Array.from(this.seats.values()).concat(Array.from(this.watchers.values())).map((s) => s.socket);
     this.log.error('[SL] EMERGENCY close', this.lobbyType, sockets.length + ' socket(s)');
     if (this.money) {

@@ -9,6 +9,7 @@ const crypto = require('crypto');
 const { toMicro, HOUSE_CUT_DIV } = require('./paperPayout');
 const { rungOf } = require('./stakeRules');
 const { MP } = require('./paper/loadPaperLib');
+const { WATCHERS_MAX } = require('./paper/PaperRoom');
 
 const TEXT = {
   'bad-stake': 'That table does not exist.',
@@ -27,6 +28,15 @@ const TEXT = {
   killed: 'Your square was cut. The player who cut it took its money.',
   unavailable: 'Could not confirm your entry right now. An entry that is never used is refunded within a few minutes.',
   settled: 'This entry was already refunded.'
+};
+
+// pp:watch's answers when there is nothing to show: pp:watching { none: true, why, text }. The page shows its own
+// words and asks again by itself.
+const WATCH_TEXT = {
+  'bad-stake': 'Only the free table can be watched.',
+  seated: 'You are playing at a table already.',
+  nobody: 'Nobody is playing right now.',
+  full: 'Too many people are watching this table right now.'
 };
 
 const TOKEN_MAX_LEN = 256; // a real token is a UUID; anything longer names no seat
@@ -163,6 +173,7 @@ module.exports = function createPaperSockets({
     if (!respawn && msg.resumeKey !== undefined) {
       const key = String(msg.resumeKey);
       const seat = arenas.seatByKey(key);
+      unwatch(socket); // a seat taken back on this socket ends any watch on it
       if (!seat || !seat.room.resume(socket, seat)) {
         // What really became of the seat while the link was down: refunded before its first
         // input, cashed out (the hold finished and the money went to the wallet), or cut by
@@ -199,6 +210,7 @@ module.exports = function createPaperSockets({
       }
       const seat = arenas.seatByProof(proof);
       if (seat) {
+        unwatch(socket);
         if (!seat.room.resume(socket, seat, true)) return refuse(socket, 'expired');
         if (socket._ppRoom && socket._ppRoom !== seat.room) socket.leave(socket._ppRoom.ioRoom);
         socket._ppRoom = seat.room;
@@ -296,7 +308,9 @@ module.exports = function createPaperSockets({
       remember(token, 'cooldown', true);
       return refuse(socket, 'cooldown', { refunded: true });
     }
-    // 8. seat; any throw refunds what landed and leaves no unit behind (addHuman cleans up)
+    // 8. seat; any throw refunds what landed and leaves no unit behind (addHuman cleans up). A watch that began on
+    // this socket while a durable join's claim was in flight ends here: a socket is a seat or a watcher, never both.
+    unwatch(socket);
     if (socket._ppRoom && socket._ppRoom !== seat.room) socket.leave(socket._ppRoom.ioRoom);
     const micro = stake > 0 ? toMicro(entry.worth) : 0;
     try {
@@ -325,17 +339,69 @@ module.exports = function createPaperSockets({
     socket._ppStake = stake;
   }
 
+  // A watching socket never joins or respawns: dropped silently BEFORE anything is read (the page opens a fresh
+  // page to play; a socket that wants a seat sends pp:leave first).
   function onJoin(socket, msg) {
     if (!isObject(msg)) return;
+    if (socket._ppWatch) return;
     if (!socketRL(socket, 'ppjoin', 1000)) return;
     enter(socket, msg, Number(msg.stake), false);
   }
 
   function onRespawn(socket, msg) {
     if (!isObject(msg)) return;
+    if (socket._ppWatch) return;
     if (!socketRL(socket, 'ppjoin', 1000)) return;
     if (typeof socket._ppStake !== 'number') return refuse(socket, 'bad-stake');
     enter(socket, msg, socket._ppStake, true);
+  }
+
+  // ---------------------------------------------------------------------------------------
+  // Spectate (the lobby's Free rung only). A watcher is read-only: it never takes a seat, never counts as a
+  // player, never touches money, a token, a resumeKey, the journal or the directory's seat maps. Its arena lives
+  // on socket._ppWatch, never _ppRoom, so pp:in and the join's own guards never see it as a player.
+  // ---------------------------------------------------------------------------------------
+
+  function watchRefuse(socket, why) {
+    socket.emit('pp:watching', { none: true, why, text: WATCH_TEXT[why] || why });
+  }
+
+  function unwatch(socket) {
+    const room = socket._ppWatch;
+    if (!room) return;
+    socket._ppWatch = null;
+    room.removeWatcher(socket.id);
+  }
+
+  // pp:watch { stake: 0, after?: unit id }: the busiest free arena's whole state, then its frames and bundles.
+  // after: follow the square ranked right after that one (the leader otherwise). Sent again it moves the watch
+  // (to a busier arena if there is one), never doubles it.
+  function onWatch(socket, msg) {
+    if (!isObject(msg)) return;
+    if (!socketRL(socket, 'ppwatch', 1000)) return;
+    const stake = typeof msg.stake === 'number' ? rungOf(msg.stake) : null;
+    if (stake === null || !isStake(stake) || stake !== 0) return watchRefuse(socket, 'bad-stake');
+    if (socket._ppRoom && socket._ppRoom.hasLiveUnit(socket.id)) return watchRefuse(socket, 'seated');
+    const after = Number.isInteger(msg.after) && msg.after > 0 ? msg.after : 0;
+    // A dead player's socket still sits in its arena's io room: it leaves it, as pp:leave does.
+    if (socket._ppRoom) {
+      socket.leave(socket._ppRoom.ioRoom);
+      socket._ppRoom = null;
+    }
+    const room = arenas.watchFor(0);
+    if (!room) {
+      unwatch(socket);
+      return watchRefuse(socket, 'nobody');
+    }
+    if (socket._ppWatch !== room) {
+      unwatch(socket);
+      if (room.watchers.size >= WATCHERS_MAX) return watchRefuse(socket, 'full');
+    }
+    if (!room.addWatcher(socket, after)) {
+      unwatch(socket);
+      return watchRefuse(socket, 'nobody');
+    }
+    socket._ppWatch = room;
   }
 
   // One input integer, or an array of them (every tick one client frame predicted, in order;
@@ -346,9 +412,10 @@ module.exports = function createPaperSockets({
     room.setInput(socket.id, n);
   }
 
+  // A watcher resyncs like a player: the same geometry reply, the same rate limits.
   function onNeed(socket, msg) {
     if (!isObject(msg)) return;
-    const room = socket._ppRoom;
+    const room = socket._ppRoom || socket._ppWatch;
     if (!room) return;
     const id = Number.isInteger(msg.id) && msg.id > 0 ? msg.id : 0;
     if (!socketRL(socket, 'ppneed' + id, id ? 250 : 2000)) return;
@@ -356,6 +423,7 @@ module.exports = function createPaperSockets({
   }
 
   function onLeave(socket) {
+    unwatch(socket);
     const room = socket._ppRoom;
     if (!room) return;
     const seat = room.seatOfSocket(socket.id);
@@ -387,11 +455,17 @@ module.exports = function createPaperSockets({
     socket.on('pp:need', guard('pp:need', (msg) => onNeed(socket, msg)));
     socket.on('pp:leave', guard('pp:leave', () => onLeave(socket)));
     socket.on('pp:ping', guard('pp:ping', (msg) => onPing(socket, msg)));
+    socket.on('pp:watch', guard('pp:watch', (msg) => onWatch(socket, msg)));
   }
 
   // io 'disconnect': the seat enters its grace (design 5.7). The socket object is gone, so the
-  // directory's socket map finds the seat.
+  // directory's socket map finds the seat. A watcher just leaves its arena's watcher list.
   function drop(socketId) {
+    try {
+      if (typeof arenas.watcherGone === 'function') arenas.watcherGone(socketId);
+    } catch (e) {
+      console.error('[PAPER] drop watcher', e && e.stack ? e.stack : e);
+    }
     try {
       const seat = arenas.seatOfSocket(socketId);
       if (seat) seat.room.beginGrace(seat);
@@ -400,5 +474,5 @@ module.exports = function createPaperSockets({
     }
   }
 
-  return { attach, drop, TEXT };
+  return { attach, drop, TEXT, WATCH_TEXT };
 };

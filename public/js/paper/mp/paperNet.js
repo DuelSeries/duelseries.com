@@ -2,9 +2,10 @@
 // page owns the socket handlers, the server clock estimate (an offset EMA), the adaptive jitter
 // buffer, the frame buffer the other squares are interpolated from, the reliable event timeline
 // (an entry applies when renderTick reaches its bundle tick; entries naming the local square
-// apply on receipt), the resync safety net (pp:need) and the reconnect by resumeKey. The socket
-// is injected, so node tests drive it with a double. State goes to a sink (the mirror game,
-// paperMirror.js) through applyJoined(payload), applyEntry(entry, tick) and onFrame(frame).
+// apply on receipt), the resync safety net (pp:need) and the reconnect by resumeKey. Watch mode
+// (pp:watch, the lobby's Spectate) takes the same stream with no seat. The socket is injected,
+// so node tests drive it with a double. State goes to a sink (the mirror game, paperMirror.js)
+// through applyJoined(payload) or applyWatching(payload), applyEntry(entry, tick) and onFrame(frame).
 // Needs paperWire at CALL time; loads standalone under require.
 (function (root, factory) {
   'use strict';
@@ -147,9 +148,15 @@
     // sent in that gap would be accepted and then shut out the fresh stream (seq 0 again) for
     // up to 127 ticks, the square driving straight on its last angle (5.7).
     this.resuming = false;
+    // Watch mode (the lobby's Spectate): read-only, no seat and no `you`. watching: this page asked to watch
+    // (pp:watch); watchOn: a pp:watching state arrived, so frames and bundles apply; _watchAsked: a pp:watch
+    // went out on this link (or waits in socket.io's buffer for the next one), so a connect does not send another.
+    this.watching = false;
+    this.watchOn = false;
+    this._watchAsked = false;
     this.lastPingAt = -Infinity;
     this.rtt = null;
-    this.stats = { frames: 0, badFrames: 0, bundles: 0, needs: 0, joins: 0, drainWaits: 0 };
+    this.stats = { frames: 0, badFrames: 0, bundles: 0, needs: 0, joins: 0, watches: 0, drainWaits: 0 };
     // Volatile sends waiting for the transport (see _flushOut): the inputs of this frame, and
     // when the ping fell due (null: none waiting).
     this._outIn = [];
@@ -192,6 +199,7 @@
       });
     }
     on('pp:joined', this.onJoined);
+    on('pp:watching', this.onWatching);
     on('pp:s', this.onFrame);
     on('pp:ev', this.onBundle);
     on('pp:geo', this.onBundle);
@@ -203,7 +211,7 @@
     on('disconnect', this.onDisconnect);
   };
 
-  // Page hooks: 'joined', 'connect', 'disconnect', 'pong' and every pp: seat event by its name.
+  // Page hooks: 'joined', 'watching', 'connect', 'disconnect', 'pong' and every pp: seat event by its name.
   ArenaNet.prototype.on = function (name, fn) {
     (this.hooks[name] = this.hooks[name] || []).push(fn);
     return this;
@@ -245,12 +253,29 @@
     this.socket.emit('pp:respawn', msg);
   };
 
-  // Deliberate exit, no grace (5.7); only from end screens.
+  // Deliberate exit, no grace (5.7); only from end screens. It also ends a watch.
   ArenaNet.prototype.leave = function () {
     this.seated = false;
     this.resuming = false;
     this.resumeKey = null;
+    this.watching = false;
+    this.watchOn = false;
+    this._watchAsked = false;
     this.socket.emit('pp:leave');
+  };
+
+  // Watch mode: { stake: 0, after?: unit id } and nothing else (no name, no token, no resumeKey). Only the free
+  // rung can be watched. Asked again by the page while nothing is shown, and by onConnect after a drop.
+  ArenaNet.prototype.watch = function (opts) {
+    opts = opts || {};
+    this.watching = true;
+    this.seated = false;
+    this.resuming = false;
+    this.resumeKey = null;
+    var msg = { stake: 0 };
+    if (opts.after > 0) msg.after = opts.after | 0;
+    this._watchAsked = true;
+    this.socket.emit('pp:watch', msg);
   };
 
   ArenaNet.prototype._volatile = function (ev, payload) {
@@ -357,11 +382,15 @@
   // ---------------------------------------------------------------------------------------
 
   // A reconnect takes the same seat back by its resumeKey (5.7): no token, nothing consumed.
+  // A watch is asked again on the new link (no resumeKey: a watcher has nothing to take back), unless
+  // the page's own ask is already waiting in socket.io's buffer for this connection.
   ArenaNet.prototype.onConnect = function () {
     this.connected = true;
     if (this.seated && this.resumeKey) {
       this.resuming = true;
       this.socket.emit('pp:join', { name: this.name, stake: this.stake, resumeKey: this.resumeKey });
+    } else if (this.watching && !this._watchAsked) {
+      this.watch();
     }
     this._hook('connect');
   };
@@ -372,6 +401,8 @@
     this._outPing = null;
     this._drainOn = null;
     if (this.seated) this.resuming = true;
+    this.watchOn = false; // the server forgot this watcher with its socket
+    this._watchAsked = false;
     this._hook('disconnect', reason);
   };
 
@@ -404,18 +435,46 @@
     this.resumeKey = p.resumeKey || null;
     this.seated = true;
     this.resuming = false;
+    this.watching = false;
+    this.watchOn = false;
     if (typeof p.stake === 'number') this.stake = p.stake;
+    this._takeState(p);
+    if (this.sink) this.sink.applyJoined(p);
+    this._hook('joined', p);
+  };
+
+  // The state part of pp:joined and pp:watching: the stream's time base and what has been received.
+  ArenaNet.prototype._takeState = function (p) {
     this.joinTick = p.tick >>> 0;
     this._clockSample(this.joinTick, this.now());
     var units = Array.isArray(p.units) ? p.units : [];
     var trails = Array.isArray(p.trails) ? p.trails : [];
     for (var i = 0; i < units.length; i++) {
       var u = units[i];
+      if (!u || typeof u !== 'object') continue;
       var n = blobCount(trails[i]);
       this.recv.set(u.id, { ver: u.ver & 0xFFFF, epoch: u.epoch & 255, count: n > 0 ? n : 0 });
     }
-    if (this.sink) this.sink.applyJoined(p);
-    this._hook('joined', p);
+  };
+
+  // Watch mode's answer: the arena's whole state (pp:joined's, with no you and no resumeKey, plus `follow`, the
+  // square to look at), or { none: true, why } when there is nothing to watch (nobody playing, the table closed or
+  // full). Only to a page that asked and has no seat. From the state on, frames and bundles apply exactly as for a
+  // player, except that no entry is ever about `you` (there is none), so nothing applies on receipt.
+  ArenaNet.prototype.onWatching = function (p) {
+    if (!p || typeof p !== 'object' || !this.watching || this.seated || this.you) return;
+    if (p.none) {
+      this.watchOn = false;
+      this._hook('watching', p);
+      return;
+    }
+    this._resetStream();
+    this.stats.watches++;
+    this.stake = 0;
+    this._takeState(p);
+    this.watchOn = true;
+    if (this.sink && typeof this.sink.applyWatching === 'function') this.sink.applyWatching(p);
+    this._hook('watching', p);
   };
 
   ArenaNet.prototype._clockSample = function (tick, arrival) {
@@ -437,7 +496,7 @@
   };
 
   ArenaNet.prototype.onFrame = function (buf) {
-    if (!this.you) return;
+    if (!this.you && !this.watchOn) return;
     var MP = mp();
     var frame;
     try {
@@ -462,14 +521,15 @@
 
   // pp:ev bundles and pp:geo replies share the shape { tick, ev: [...] }.
   ArenaNet.prototype.onBundle = function (msg) {
-    if (!this.you || !msg || typeof msg !== 'object' || !Array.isArray(msg.ev)) return;
+    if ((!this.you && !this.watchOn) || !msg || typeof msg !== 'object' || !Array.isArray(msg.ev)) return;
     var tick = msg.tick >>> 0;
     this.stats.bundles++;
     for (var i = 0; i < msg.ev.length; i++) {
       var e = msg.ev[i];
       if (!Array.isArray(e) || typeof e[0] !== 'string') continue;
       this._note(e, tick);
-      if (this.sink && subjectOf(e) === this.you) this._applyNow(e, tick);
+      // A watcher has no square of its own (you is 0, and 'p+' names nobody, 0): everything waits for renderTick.
+      if (this.sink && this.you && subjectOf(e) === this.you) this._applyNow(e, tick);
       else this.timeline.push(tick, e);
     }
   };

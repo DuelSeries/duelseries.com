@@ -50,6 +50,9 @@
 //     'menuShow', 'menuFade' (fr), 'menuDone'   their menu hooks (slLoop.hooks), relayed by slxMain
 //   send(name, payload) -> bool   a layer emit on the live /sl socket (allow list above)
 //   onSocket(name, fn)    one more socket event for the layer (attached to each /sl socket made after the call)
+//   endLife() -> bool     ends the current life from this page as a dropped connection would (slxWatch's Next):
+//                         sl:leave, then the live /sl socket closes; their own transport sees its socket's disconnect,
+//                         so their close runs as for any drop, and no resume is tried (this page's own disconnect)
 //   connected() -> bool   the current /sl socket is live (false while a resume runs)
 //   resuming() -> bool    a resume is running
 //   rtt                   the last ping round trip in ms (-1 before the first)
@@ -134,6 +137,21 @@
     if (!has.call(LAYER_EMITS, name) || !live()) return false;
     try {
       sock.emit(name, payload);
+      return true;
+    } catch (e) {
+      slx.errors++;
+      return false;
+    }
+  }
+
+  // Their transport is never asked to close (its close detaches it first, so their close would never run): the socket
+  // goes, and its disconnect reaches their transport and the tap as a drop does (header, endLife).
+  function endLife() {
+    if (!live()) return false;
+    var s = sock;
+    try {
+      s.emit('sl:leave');
+      s.disconnect();
       return true;
     } catch (e) {
       slx.errors++;
@@ -510,6 +528,7 @@
   slx.fire = fire;
   slx.send = send;
   slx.onSocket = onSocket;
+  slx.endLife = endLife;
   slx.connected = live;
   slx.resuming = function () { return !!(curRec && curRec.re); };
   slx.now = now;

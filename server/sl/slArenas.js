@@ -24,6 +24,8 @@
 //   startTimers({monitor, paidLoad, every})  the 1 Hz governor sample through slSafe.safeEvery
 //   stats(), close()
 //   join, leave, disconnect, input, hold, vis, chat, diag   slSockets' calls, by socket id
+//   watch(socket, {after})  a watcher (the lobby's Spectate): true or 'closed' / 'full' / 'nobody'. Never a seat, so
+//                    never in humanTotal, boardRows or the bot fill
 //
 // An emergency-closed room (C_EMERGENCY_FAIL_WAKES wakes in a row threw, slRoom.emergencyClose) is replaced by a fresh
 // one at once; its sockets are disconnected, so their clients run their own close path (one socket per life,
@@ -147,6 +149,16 @@ class SlArenas {
     return room.refusal() || 'full';
   }
 
+  // A watcher (slSockets: a free socket whose handshake says watch 1; slRoom seatWatch): info { after }, the snake id
+  // watched last (the layer's Next). true, or 'closed', 'full' (as many watchers as C_HUMAN_CAP: each costs a view and
+  // a send queue like a seat, and the players' cap never counts them) or 'nobody' (nothing alive to watch).
+  watch(socket, info) {
+    if (!this.isOpen()) return 'closed';
+    const room = this._room;
+    if (room.watchers.size >= room.R.humanCap) return 'full';
+    return room.seatWatch(socket, info) ? true : 'nobody';
+  }
+
   // onEnd: called once when the seat's gliding snake ends (slRoom.unseat returns 'glide'); slSockets keeps that snake
   // charged to its address until then.
   leave(socketId, onEnd) {
@@ -228,7 +240,9 @@ class SlArenas {
     if (this.closed) return { replaced: false };
     const r = this._room;
     if (!r || r.closed) {
-      this._replace(r, r ? Array.from(r.seats.values()).map((s) => s.socket) : []);
+      // its watchers' sockets go too (emergencyClose hands both): a socket left open on a dead room freezes
+      const seated = r ? Array.from(r.seats.values()).concat(r.watchers ? Array.from(r.watchers.values()) : []) : [];
+      this._replace(r, seated.map((s) => s.socket));
       return { replaced: true, at: now };
     }
     return { replaced: false, at: now };

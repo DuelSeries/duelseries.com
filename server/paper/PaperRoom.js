@@ -16,6 +16,7 @@ const TRIM_ON = true;
 
 const REQUIRED_HOOKS = ['onCashout', 'onTransfer', 'onRefund', 'onSweep', 'onBreach'];
 const IN_RATE_MAX = 120; // pp:in per second per seat; more are ignored (6.2)
+const WATCHERS_MAX = 50; // read-only spectators per arena (the lobby's Spectate); one more is told 'full'
 let roomSeq = 0; // makes every arena's socket.io room name unique for the process
 const monotonicNow = () => performance.now();
 
@@ -55,6 +56,9 @@ class PaperRoom {
     this.pending = [];
     this.seats = new Map(); // unitId -> seat
     this.bySocket = new Map(); // socketId -> seat
+    // socketId -> socket: read-only spectators. Never a seat: no unit, no bank account, no directory entry, never
+    // counted (liveHumans, playerCount, /api/live), and never a reason to tick (only seats arm the clock).
+    this.watchers = new Map();
     this.idleLogged = false;
     this.onClosed = null;
 
@@ -246,6 +250,82 @@ class PaperRoom {
       rings: w.rings,
       trails: w.trails
     };
+  }
+
+  // ---------------------------------------------------------------------------------------
+  // Watchers (the lobby's Spectate, free arenas only): read-only members of the io room
+  // ---------------------------------------------------------------------------------------
+
+  // The same order as resume(): the members already here hear what is pending, then the watcher joins the io room
+  // and gets the whole state at once. From then on it gets the same pp:s and pp:ev as every player, and nothing
+  // else: no unit, no input, no money, no resumeKey. -> false when this arena takes no watcher (stopped, warming,
+  // paid, full); the caller answers for it.
+  addWatcher(socket, after) {
+    if (this.stopped || this.warming || this.paid || !socket || !socket.id) return false;
+    if (!this.watchers.has(socket.id) && this.watchers.size >= WATCHERS_MAX) return false;
+    this._flushPending(); // to the members already here, never to the watcher
+    this.watchers.set(socket.id, socket);
+    socket.join(this.ioRoom);
+    socket.emit('pp:watching', MP.packBin(this.watchPayload(after)));
+    return true;
+  }
+
+  // pp:joined's state fields, minus you and resumeKey, plus the square to follow.
+  watchPayload(after) {
+    const w = this.wire.joinPayload();
+    return {
+      arenaId: this.lobbyType,
+      stake: this.stake,
+      tick: w.tick,
+      radius: w.radius,
+      targetRadius: w.targetRadius,
+      holdTicks: MP.HOLD_TICKS,
+      follow: this.followFor(after),
+      units: w.units,
+      pickups: this.bank.pickups().map((p) => ({ pid: p.pid, x: p.x, y: p.y, micro: p.micro })),
+      rings: w.rings,
+      trails: w.trails
+    };
+  }
+
+  // The square a watcher follows: the one ranked right after `after` by land (players and bots alike, wrapping
+  // round), or the leader when `after` names nobody here. 0 when the arena is empty.
+  followFor(after) {
+    const live = this.game.units.filter((u) => !u.death)
+      .sort((a, b) => b.base.square - a.base.square || a.id - b.id);
+    if (!live.length) return 0;
+    const i = Number.isInteger(after) && after > 0 ? live.findIndex((u) => u.id === after) : -1;
+    return live[i >= 0 ? (i + 1) % live.length : 0].id;
+  }
+
+  removeWatcher(socketId) {
+    const s = this.watchers.get(socketId);
+    if (!s) return false;
+    this.watchers.delete(socketId);
+    try {
+      s.leave(this.ioRoom);
+    } catch (e) {
+      console.error('[PAPER] watcher leave', e && e.message);
+    }
+    if (s._ppWatch === this) s._ppWatch = null;
+    return true;
+  }
+
+  // Every watcher is told and let go: the arena stopped (swept, closed, restarting) or its last seat left, so
+  // nothing here moves any more and no watcher sits in a dead io room. The page asks again (pp:watch) and lands on
+  // a table that has a player, or hears 'nobody'.
+  _dropWatchers(why) {
+    if (!this.watchers.size) return;
+    for (const [id, s] of Array.from(this.watchers)) {
+      this.watchers.delete(id);
+      try {
+        s.leave(this.ioRoom);
+        if (s._ppWatch === this) s._ppWatch = null;
+        s.emit('pp:watching', { none: true, why });
+      } catch (e) {
+        console.error('[PAPER] watcher drop', e && e.message);
+      }
+    }
   }
 
   // Disconnect (design 5.7): the hold is cancelled, the square keeps moving on its last angle.
@@ -667,6 +747,7 @@ class PaperRoom {
     }
     if (this._inTick) this._idleFlush = true;
     else this._snapshot();
+    this._dropWatchers('nobody'); // a clock that stopped shows them nothing; watchers never restart it
     if (this.paid && !this.idleLogged && this.bank.totalMicro() > 0) {
       this.idleLogged = true;
       const accounts = this.bank.openIds().map((id) => {
@@ -942,6 +1023,7 @@ class PaperRoom {
       clearTimeout(this.timer);
       this.timer = null;
     }
+    this._dropWatchers('closed'); // swept, emergency-closed or settled: its io room is dead from here on
     try {
       this.game.stop();
     } catch (e) {
@@ -972,4 +1054,4 @@ class PaperRoom {
   }
 }
 
-module.exports = { PaperRoom, TRIM_ON, stakeLabel };
+module.exports = { PaperRoom, TRIM_ON, stakeLabel, WATCHERS_MAX };

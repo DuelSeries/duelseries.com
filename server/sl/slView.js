@@ -1233,7 +1233,9 @@ function createView(laws, sim, opts) {
         const r = g.lb.rankOf.get(seat.ownId);
         if (r !== undefined) {
           rank = r;
-          myPos = r <= g.lb.topN ? r : 0;
+          // A watcher's row is never "mine": their client writes its own nick into the myPos row, which for a
+          // watcher is the viewer's name (or blank) over the watched snake's. myPos 0 keeps the snake's own name.
+          myPos = r <= g.lb.topN && seat.watch !== true ? r : 0;
         }
       }
       pushLb(out, t, g.lb, myPos, rank);

@@ -3,7 +3,9 @@
 // the net layer to the page's socket, and owns the DOM around the canvas: the connecting and
 // warming layer, the reconnect veil, the four end screens (refused, dead, cashed out,
 // disconnected), the Q key and the touch hold button, and the analytics. The live game has NO
-// leave control: "Back to the lobby" is on the end screens only.
+// leave control: "Back to the lobby" is on the end screens only. Watch mode (the lobby's Spectate,
+// sessionStorage dsWatch = 'paper') never joins: it watches the busiest free table read-only,
+// with a Lobby button, the followed square's name and Next.
 // Test-only: ?lag=N delays every socket event by N ms each way (so ?lag=50 is a 100 ms round
 // trip); off by default.
 (function (root) {
@@ -17,6 +19,15 @@
   var ARROW_HALF_PX = 13; // half the touch arrow's 26 px box
   var ARROW_GAP_PX = 14; // clear space between the square's corner and the arrow's tail
   var RESTAKE_WAIT_MS = 120000; // public/js/game.js requestRestake's safety window
+  var WATCH_RETRY_MS = 3000; // watch mode: nothing to watch (or no answer yet), ask again this often
+  // Watch mode's waiting words per pp:watching { none: true, why } (server paperSockets.js WATCH_TEXT).
+  var WATCH_TEXT = {
+    nobody: 'Nobody is playing right now',
+    closed: 'Nobody is playing right now',
+    full: 'Too many people are watching right now',
+    'bad-stake': 'This table cannot be watched',
+    seated: 'You are playing at a table already'
+  };
   // The refused screen's own words per reason (server paperSockets.js TEXT, minus its refund
   // sentence): the refund line is shown only when the refusal says refunded (design 8.5).
   var REFUSED_TEXT = {
@@ -81,6 +92,16 @@
       walletAddress: storageGet('sessionStorage', 'walletAddress') || null,
       region: storageGet('sessionStorage', 'region') || null
     };
+  }
+
+  // The lobby's Spectate on Paper's Free rung (public/js/v2/play.js) writes dsWatch = 'paper' (and removes stake
+  // and entryToken) before it opens this page. Read once and removed at boot, whatever it says.
+  function readWatch() {
+    var v = storageGet('sessionStorage', 'dsWatch');
+    try {
+      root.sessionStorage.removeItem('dsWatch');
+    } catch (_) {}
+    return v === 'paper';
   }
 
   // A fresh id for one restake request, echoed back by the lobby's wallet with its answer.
@@ -148,6 +169,12 @@
     }
     var MP = P.MP;
     var session = readSession();
+    // Watch mode is free and read-only: no stake, and no entry token ever leaves this page.
+    var watchMode = readWatch();
+    if (watchMode) {
+      session.stake = 0;
+      session.entryToken = null;
+    }
     var paidStake = session.stake > 0;
     var framed = isFramed();
 
@@ -188,7 +215,12 @@
       hint: $('pp-hint'),
       cash: $('pp-cash'),
       cashFill: $('pp-cash-fill'),
-      cashLabel: $('pp-cash-label')
+      cashLabel: $('pp-cash-label'),
+      watch: $('pp-watch'),
+      watchLobby: $('pp-watch-lobby'),
+      watchBar: $('pp-watch-bar'),
+      watchName: $('pp-watch-name'),
+      watchNext: $('pp-watch-next')
     };
     var END_SCREENS = [el.refused, el.dead, el.cashed, el.gone];
     var RING_C = 2 * Math.PI * 32;
@@ -198,7 +230,10 @@
     }
 
     var page = {
-      phase: 'connecting', // connecting | live | ending | end
+      phase: 'connecting', // connecting | live | ending | end | watch
+      // Watch mode: watch is set once at boot (cleared by Lobby); watchLive while a table's state is shown.
+      watch: watchMode,
+      watchLive: false,
       stake: session.stake,
       screen: null,
       joinedSocketId: null,
@@ -335,7 +370,7 @@
       }
     };
     var best = loadBest();
-    game.best = best || undefined;
+    game.best = watchMode ? undefined : best || undefined; // a watcher's own best is not the followed square's
 
     // ---- screens ----
     function setLive(live) {
@@ -799,13 +834,119 @@
         'its money dropped where your square stood.');
     });
 
+    // ---- watch mode (the lobby's Spectate) ----
+    // Read-only: pp:watch instead of pp:join, never live, no Play, cash-out or hold control. The mirror follows
+    // one square (game.follow / followNext); the page shows Lobby, the followed name and Next.
+
+    // The stock HUD's sizes in CSS px (paperGame.js getRenderContext over devicePixelRatio; the render quality
+    // cancels out): Lobby goes under the top-left score stack (score bar, BEST line, kills pill), the name and
+    // Next go bottom left, clear of the minimap; nothing covers the leaderboard (top right).
+    function layoutWatch() {
+      if (!page.watch) return;
+      var w = view.clientWidth;
+      var h = view.clientHeight;
+      if (!(w > 0 && h > 0)) return;
+      var s = Math.hypot(w, h) / Math.hypot(1366, 768);
+      var font = P.Hud.calcMult(w, h, 20, 30) * s;
+      // padding 16, bar 1.5 font, back 4, the BEST line (font + padding / 2), the kills pill (4 + 1.5 font)
+      if (el.watchLobby) el.watchLobby.style.top = Math.round(28 * s + 4 * font + 12) + 'px';
+      var mini = w / P.Hud.calcMult(w, h, 8, 3) + 16 * s; // the minimap and its padding, bottom right
+      if (el.watchBar) el.watchBar.style.maxWidth = Math.max(120, Math.floor(w - mini - 36)) + 'px';
+    }
+
+    function followedName(u) {
+      return (u && u.name) || (language.strings && language.strings.defaultPlayerName) || 'Player';
+    }
+
+    // The name and Next show only while a table is shown and a square is followed.
+    function setFollowed(u) {
+      if (el.watchName) el.watchName.textContent = u ? followedName(u) : '';
+      show(el.watchBar, !!u && page.watchLive);
+    }
+
+    function watchWait(text, sub) {
+      page.watchLive = false;
+      page.phase = 'connecting';
+      show(el.watchBar, false);
+      showConnecting(text, sub);
+    }
+
+    // Asks again every WATCH_RETRY_MS until a table's state is shown. While the link is down nothing is asked
+    // (the net asks by itself on the next connection), so no pile of asks waits in socket.io's buffer.
+    function armWatch() {
+      later('watch', function () {
+        if (!page.watch || page.watchLive) return;
+        if (socket.connected === false) return armWatch();
+        askWatch();
+      }, WATCH_RETRY_MS);
+    }
+
+    function askWatch() {
+      net.watch();
+      armWatch();
+    }
+
+    function onWatchNext(evt) {
+      if (evt && evt.preventDefault) evt.preventDefault();
+      if (!page.watch || !page.watchLive || typeof game.followNext !== 'function') return;
+      game.followNext();
+    }
+
+    // net.leave() (pp:leave ends the watch on the server) and the existing way back (game:done, or '/').
+    function onWatchLobby(evt) {
+      page.watch = false;
+      page.watchLive = false;
+      cancel('watch');
+      onLobbyClick(evt);
+    }
+
+    if (watchMode) {
+      show(el.watch, true);
+      show(el.watchBar, false);
+      if (el.watchLobby) el.watchLobby.addEventListener('click', onWatchLobby);
+      if (el.watchNext) el.watchNext.addEventListener('click', onWatchNext);
+      root.addEventListener('resize', layoutWatch);
+      layoutWatch();
+      game.onFollow = function (u) {
+        setFollowed(u);
+      };
+
+      net.on('watching', function (p) {
+        if (!page.watch) return;
+        if (!p || p.none) {
+          var text = (p && Object.prototype.hasOwnProperty.call(WATCH_TEXT, p.why) && WATCH_TEXT[p.why]) || WATCH_TEXT.nobody;
+          watchWait(text, 'Checking again every few seconds');
+          if (!page.timers.watch) armWatch();
+          return;
+        }
+        cancel('watch');
+        hud.reset();
+        page.watchLive = true;
+        page.phase = 'watch';
+        showOnly(null);
+        layoutWatch();
+        setFollowed(game.player || null);
+      });
+
+      // The server forgot this watcher with its socket; the net asks again on the next connection.
+      net.on('disconnect', function () {
+        if (!page.watch) return;
+        watchWait('Reconnecting...', 'Getting the table back');
+        armWatch();
+      });
+    }
+
     // ---- start ----
-    showConnecting('Connecting', 'Finding you a table');
+    showConnecting('Connecting', watchMode ? 'Finding a table to watch' : 'Finding you a table');
     var started = false;
     function start() {
       if (started) return;
       started = true;
       game.loop();
+      if (watchMode) {
+        askWatch(); // no pp:join, no token, no name
+        return;
+      }
       // One pp:join with the entry token, then the token leaves sessionStorage for good: a
       // reconnect proves the seat with its resumeKey (design 5.7). Until pp:joined or
       // pp:refused answers, page memory keeps it (page.joinToken) for the one case with no
@@ -824,9 +965,21 @@
       hud: hud,
       socket: socket,
       page: page,
-      session: { name: session.name, stake: session.stake, region: session.region, paid: paidStake },
+      session: { name: session.name, stake: session.stake, region: session.region, paid: paidStake, watch: watchMode },
       lagMs: lagMs,
-      setHold: setHold
+      setHold: setHold,
+      // Watch mode, for checks: what the page shows now.
+      watchState: function () {
+        var u = page.watch ? game.player : null;
+        return {
+          watching: !!page.watch,
+          live: !!page.watchLive,
+          followId: u ? u.id : 0,
+          followName: u ? followedName(u) : '',
+          followDead: !!(u && u.death)
+        };
+      },
+      next: onWatchNext
     };
     P.arena = api;
     return api;

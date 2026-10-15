@@ -4065,6 +4065,22 @@ io.on('connection', (socket) => {
 
   on('ko:leave', () => knockoutLobby.leave(socket.id));
 
+  /* WATCHING A MATCH, from the lobby's Spectate. Read-only: the lobby never
+     seats, queues or counts a watcher, refuses one that is queued or seated,
+     and sends them the match with every socket id swapped for a seat. `after`
+     is the match being watched now, so Next match moves on from it; anything
+     but a short string is ignored rather than read. */
+  on('ko:watch', (msg) => {
+    try {
+      if (!socketRL(socket, 'kowatch', 500)) return;
+      const after = msg && typeof msg.after === 'string' && msg.after.length <= 40 ? msg.after : null;
+      knockoutLobby.watch(socket, { after });
+    } catch (e) { console.error('[KO] watch failed:', e.message); }
+  });
+  on('ko:unwatch', () => {
+    try { knockoutLobby.unwatch(socket.id); } catch (e) { console.error('[KO] unwatch failed:', e.message); }
+  });
+
   /* ── Battleship ───────────────────────────────────────────────────────────
      The client sends a fleet layout and, on its turn, one square. Everything
      else — whether that square holds a ship, whose turn it is next, and who has
@@ -4125,6 +4141,19 @@ io.on('connection', (socket) => {
   });
 
   on('bs:leave', () => battleshipLobby.leave(socket.id));
+
+  /* Watching, the same as Knockout's. A watcher is sent spectatorView, which is
+     both boards as shots and sunk ships only, and never viewFor. */
+  on('bs:watch', (msg) => {
+    try {
+      if (!socketRL(socket, 'bswatch', 500)) return;
+      const after = msg && typeof msg.after === 'string' && msg.after.length <= 40 ? msg.after : null;
+      battleshipLobby.watch(socket, { after });
+    } catch (e) { console.error('[BS] watch failed:', e.message); }
+  });
+  on('bs:unwatch', () => {
+    try { battleshipLobby.unwatch(socket.id); } catch (e) { console.error('[BS] unwatch failed:', e.message); }
+  });
   /* ── Shooter ──────────────────────────────────────────────────────────────
      Free, solo, and server-simulated anyway. The client sends which keys are
      down and where it is aiming; it never says that it hit something, took a
@@ -4180,6 +4209,8 @@ io.on('connection', (socket) => {
     if (tanksLobby) tanksLobby.leave(socket.id);
     knockoutLobby.leave(socket.id);
     battleshipLobby.leave(socket.id);
+    knockoutLobby.unwatch(socket.id);            // a watcher holds no seat, only a place on the list
+    battleshipLobby.unwatch(socket.id);
     endShooter(socket.id);
     paper.drop(socket.id);                       // a Paper seat enters its 5 s grace
     console.log(`[-] Disconnected: ${socket.id}`);

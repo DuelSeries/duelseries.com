@@ -380,7 +380,7 @@
         // Cash-out rings: every holding square from its frame; the own square from the local lock.
         for (var r = 0; r < game.units.length; r++) {
           var ru = game.units[r];
-          if (ru === game.player) continue;
+          if (ru === game.player && ru._local) continue; // a followed square (watch mode) rings from its frame
           if (!ru.holding) continue;
           if (!inView(ru.position.x, ru.position.y, trackWidth * 4)) continue;
           drawRing(ctx, ru.position, trackWidth * RING_GAP, ru.hold, false, scale, hudScale, dpr, t);

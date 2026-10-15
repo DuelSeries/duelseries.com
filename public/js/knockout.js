@@ -82,6 +82,31 @@ const myEntryToken = (() => {
   try { return sessionStorage.getItem('entryToken') || null; } catch (_) { return null; }
 })();
 
+/* WATCHING, NOT PLAYING. The lobby's Spectate writes 'dsWatch' with the game to
+   watch just before it opens this page. Read once and removed at once, so the
+   next Play from the lobby is a Play; and honoured only when it names this
+   game, so a mark meant for another game cannot turn this one into a viewer.
+
+   In watch mode this page is read-only: it never queues, never aims and never
+   locks, and connecting asks for a match to watch instead of a seat. The
+   server sends the match by SEAT rather than by socket id, and the page dresses
+   that up as the shape it already draws, with seat 0 standing in for "me" so
+   seat 0 is bone and seat 1 red, exactly the pair a player sees. Nothing
+   grabbable comes of it: pieceAt refuses everything while watching. */
+const WATCH = (() => {
+  try {
+    const v = sessionStorage.getItem('dsWatch');
+    if (v !== null) sessionStorage.removeItem('dsWatch');
+    return v === 'knockout';
+  } catch (_) { return false; }
+})();
+const WATCH_NEXT_MS = 3000;   // the pause before moving on, and between retries
+const seatId = (side) => 's' + side;
+let watchMatch = null;        // the match card: { id, names, stake, pot, turn, index, count }
+let watchLastId = null;       // the match we were last on, for "the next one after it"
+let watchTimer = 0;
+let watchReady = [];          // which seats have locked in this turn, as seatIds
+
 /* ── the transform ─────────────────────────────────────────────────────────
    One scale, one centre, recomputed on resize. The disc is fitted with room
    around it so a piece sailing off the edge is still visible while it goes,
@@ -366,7 +391,7 @@ function paintClock() {
   if (st.state !== 'aiming') { num.textContent = '—'; lbl.textContent = ''; return; }
   const left = Math.max(0, Math.ceil((phaseEndsAt - Date.now()) / 1000));
   num.textContent = String(left);
-  lbl.textContent = locked ? 'Locked' : 'Aim';
+  lbl.textContent = WATCH ? 'Aiming' : locked ? 'Locked' : 'Aim';
   box.classList.toggle('urgent', left <= 5 && !locked);
   box.classList.toggle('locked', locked);
 }
@@ -376,6 +401,7 @@ function paintClock() {
    Pointer events so a mouse, a finger and a pen are all the same code. */
 
 function pieceAt(wx, wy) {
+  if (WATCH) return null;                       // a watcher moves nothing
   if (!st || st.state !== 'aiming' || tape || locked) return null;
   /* A generous radius: on a phone the piece is a small target and the penalty
      for missing it is losing the turn you were halfway through aiming. */
@@ -436,7 +462,7 @@ function sendAims() {
 }
 
 $('lock').addEventListener('click', () => {
-  if (locked || !st || st.state !== 'aiming') return;
+  if (WATCH || locked || !st || st.state !== 'aiming') return;
   locked = true;
   socket.emit('ko:lock');
   paintBar();
@@ -445,6 +471,7 @@ $('lock').addEventListener('click', () => {
 function paintBar() {
   const lock = $('lock'), hint = $('hint'), their = $('theirState');
   if (!st) return;
+  if (WATCH) { paintWatchBar(); return; }
   const alive = st.pieces.filter(p => p.owner === me && p.alive);
   const aimed = alive.filter(p => aims.has(p.id)).length;
 
@@ -484,7 +511,8 @@ function paintPips() {
   }
   const you = st.players.find(p => p.id === me);
   const them = st.players.find(p => p.id !== me);
-  if (you) $('youName').textContent = 'You';
+  /* Watching, both sides are somebody else, so both get their names. */
+  if (you) $('youName').textContent = WATCH ? (you.name || 'Player') : 'You';
   if (them) $('themName').textContent = them.name || 'Opponent';
 }
 
@@ -502,6 +530,7 @@ function apply(state) {
   if (!prev && state.prevArenaR) drawR = state.prevArenaR;
   phaseEndsAt = Date.now() + (state.phaseMs || 0);
   theirReady = (state.ready || []).some(id => id !== me);
+  if (WATCH) watchReady = (state.ready || []).slice();
   $('top').hidden = false;
   $('bar').hidden = false;
   $('wait').hidden = true;
@@ -509,7 +538,11 @@ function apply(state) {
   paintBar();
 }
 
+/* Every connect, the first and every reconnect after it: a seat, or in watch
+   mode a match to watch. The server forgets a watcher whose socket dropped, so
+   a reconnect asks again rather than assuming it is still on the list. */
 socket.on('connect', () => {
+  if (WATCH) { me = seatId(0); watch(null); return; }
   me = socket.id;
   queue();
 });
@@ -535,26 +568,30 @@ function queue() {
   try { sessionStorage.removeItem('entryToken'); } catch (_) {}
 }
 
-socket.on('ko:start', (state) => {
-  me = socket.id;
+socket.on('ko:start', (raw) => {
+  const state = WATCH ? fromWatch(raw) : raw;
+  me = WATCH ? seatId(0) : socket.id;
   aims.clear(); drag = null; locked = false; tape = null;
   reveal = null; ringFall.clear(); drawR = 0;
   apply(state);
   runCountdown(state.phaseMs || 3000);
 });
 
-socket.on('ko:turn', (state) => {
+socket.on('ko:turn', (raw) => {
   aims.clear(); drag = null; locked = false; tape = null;
   reveal = null;
-  apply(state);
+  apply(WATCH ? fromWatch(raw) : raw);
 });
 
-socket.on('ko:ready', ({ ready }) => {
+socket.on('ko:ready', ({ ready } = {}) => {
+  if (WATCH) { watchReady = (ready || []).map(seatId); paintBar(); return; }
   theirReady = (ready || []).some(id => id !== me);
   paintBar();
 });
 
-socket.on('ko:resolve', (msg) => {
+socket.on('ko:resolve', (raw) => {
+  const msg = WATCH ? fromWatchResolve(raw) : raw;
+  if (WATCH) watchReady = [];
   /* Both arrows first, held still, THEN the tape. The state already describes
      the board after everything has happened, so it is taken now but the tape is
      what is drawn from — applying the state alone would snap every piece to its
@@ -587,6 +624,7 @@ socket.on('ko:settling', () => {
 });
 
 socket.on('ko:over', (m) => {
+  if (WATCH) { watchOver(m || {}); return; }
   if (overShown) return;
   overShown = true;
   const won = m.winnerId ? m.winnerId === me : null;
@@ -637,7 +675,8 @@ function runCountdown(ms) {
 
 /* ── leaving ───────────────────────────────────────────────────────────── */
 function toLobby() {
-  socket.emit('ko:leave');
+  clearTimeout(watchTimer);
+  socket.emit(WATCH ? 'ko:unwatch' : 'ko:leave');
   /* The lobby hosts this in an iframe and listens for exactly this, same as the
      other games. Falls back to a normal navigation when opened directly. */
   if (window.parent && window.parent !== window) window.parent.postMessage('game:done', '*');
@@ -646,6 +685,8 @@ function toLobby() {
 $('waitCancel').addEventListener('click', toLobby);
 $('lobbyBtn').addEventListener('click', toLobby);
 $('againBtn').addEventListener('click', () => {
+  /* Watching, the second button on the result card is the next match. */
+  if (WATCH) { watch(watchLastId); return; }
   socket.emit('ko:leave');
   $('over').hidden = true;
   $('top').hidden = true;
@@ -653,4 +694,203 @@ $('againBtn').addEventListener('click', () => {
   queue();
 });
 
-window.addEventListener('beforeunload', () => socket.emit('ko:leave'));
+window.addEventListener('beforeunload', () => socket.emit(WATCH ? 'ko:unwatch' : 'ko:leave'));
+
+/* ── watching ──────────────────────────────────────────────────────────────
+   The server sends a watcher the same moments a player gets, with `side` where
+   a player's messages have a socket id. These turn that back into the shape
+   the rest of this file draws, with seatId(side) standing in for the id. */
+function fromWatch(s) {
+  if (!s) return s;
+  return Object.assign({}, s, {
+    players: (s.players || []).map(p => Object.assign({}, p, { id: seatId(p.side) })),
+    pieces: (s.pieces || []).map(p => Object.assign({}, p, { owner: seatId(p.side) })),
+    ready: (s.ready || []).map(seatId),
+  });
+}
+function fromWatchReveal(list) {
+  return (list || []).map(a => Object.assign({}, a, { owner: seatId(a.side) }));
+}
+function fromWatchResolve(m) {
+  return Object.assign({}, m, { state: fromWatch(m && m.state), reveal: fromWatchReveal(m && m.reveal) });
+}
+
+const seatName = (id) => {
+  const p = st && (st.players || []).find(q => q.id === id);
+  return (p && p.name) || 'Player';
+};
+
+/* Ask for a match. `after` is the one being left, so the server moves on from
+   it rather than handing the same one back. */
+function watch(after) {
+  clearTimeout(watchTimer);
+  socket.emit('ko:watch', after ? { after } : {});
+  publishWatch(watchMatch ? 'watching' : 'searching');
+}
+
+function showWatchWait(main, sub) {
+  $('over').hidden = true;
+  $('wait').hidden = false;
+  $('waitMain').textContent = main;
+  $('waitSub').textContent = sub;
+}
+
+function nextSoon() {
+  clearTimeout(watchTimer);
+  watchTimer = setTimeout(() => watch(watchLastId), WATCH_NEXT_MS);
+}
+
+/* What the page is doing, for a headless check to read without a screenshot. */
+function publishWatch(mode) {
+  try {
+    window.__watch = {
+      game: 'knockout', mode,
+      matchId: watchMatch ? watchMatch.id : null,
+      names: watchMatch ? watchMatch.names.slice() : [],
+      index: watchMatch ? watchMatch.index : 0,
+      count: watchMatch ? watchMatch.count : 0,
+      stake: watchMatch ? watchMatch.stake : 0,
+      state: st ? st.state : null,
+    };
+  } catch (_) {}
+}
+
+function paintWatch() {
+  const m = watchMatch;
+  $('watchTag').hidden = !m;
+  if (m) {
+    const n = m.names || [];
+    $('watchLabel').textContent = 'Watching ' + (n[0] || 'Player') + ' vs ' + (n[1] || 'Player');
+    $('watchMeta').textContent = (m.stake > 0 ? '$' + Number(m.stake).toFixed(2) + ' table' : 'Free table')
+      + (m.count > 1 ? ' · match ' + m.index + ' of ' + m.count : '');
+  }
+  $('watchNext').hidden = false;
+  $('watchNext').disabled = !m || !(m.count > 1);
+  $('watchLobby').hidden = false;
+  $('lock').hidden = true;
+  publishWatch(m ? 'watching' : 'searching');
+}
+
+/* The bar while watching: what is happening, in words, since there is
+   nothing to do. Who has locked in is the one thing worth saying mid-turn. */
+function paintWatchBar() {
+  const hint = $('hint');
+  $('theirState').textContent = '';
+  const n = watchReady.length;
+  hint.textContent = reveal ? 'Both moves are in'
+    : st.state === 'aiming' && !tape
+      ? (n >= 2 ? 'Both locked in' : n === 1 ? seatName(watchReady[0]) + ' is locked in' : 'Both are aiming')
+    : st.state === 'settling' ? ''
+    : tape || st.state === 'resolving' ? 'Watching it play out'
+    : st.state === 'countdown' ? 'Starting' : '';
+}
+
+socket.on('ko:watching', (m) => {
+  if (!WATCH || !m) return;
+  clearTimeout(watchTimer);
+  if (!m.match || !m.state) {
+    /* Nothing to show yet. Ask again in a moment rather than leaving a page
+       that can only ever say no. */
+    watchMatch = null;
+    $('top').hidden = true; $('bar').hidden = true; $('watchTag').hidden = true;
+    st = null; tape = null; reveal = null;
+    showWatchWait(
+      m.full ? 'Every match is full of watchers' : m.refused ? 'You are in a match' : 'Nobody is playing right now',
+      'Checking again every few seconds.');
+    publishWatch(m.full ? 'full' : m.refused ? 'refused' : 'none');
+    nextSoon();
+    return;
+  }
+
+  /* A match, possibly part way through a turn. Start from a clean board. */
+  watchMatch = m.match;
+  watchLastId = m.match.id;
+  overShown = false;
+  $('over').hidden = true;
+  aims.clear(); drag = null; locked = false; tape = null; reveal = null;
+  ringFall.clear(); drawR = 0; st = null; watchReady = [];
+  const state = fromWatch(m.state);
+  if (state.state === 'resolving') state.ringOut = [];
+  apply(state);
+
+  clearInterval(countTimer);
+  $('count').hidden = true;
+  if (state.state === 'countdown') runCountdown(state.phaseMs || 3000);
+
+  /* Arriving during a reveal or a tape: join it where it is. */
+  const r = m.state.resolve;
+  if (r && state.state === 'resolving' && Array.isArray(r.frames)) {
+    const elapsed = Math.max(0, Number(r.elapsedMs) || 0);
+    const holdMs = r.revealMs || 2000;
+    tape = { order: r.order || [], frames: r.frames, out: r.out || [], arenaR: r.arenaR };
+    tapeAt = 0;
+    if (elapsed < holdMs && r.reveal && r.reveal.length) {
+      reveal = fromWatchReveal(r.reveal);
+      revealUntil = performance.now() + (holdMs - elapsed);
+      tapeStartedAt = 0;
+    } else {
+      reveal = null;
+      tapeStartedAt = performance.now() - (elapsed - holdMs);
+    }
+  }
+  paintWatch();
+  paintBar();
+});
+
+/* Where this match now sits among the ones running. Next match is on offer
+   only when there is a next match. */
+socket.on('ko:matches', ({ index, count } = {}) => {
+  if (!WATCH || !watchMatch) return;
+  if (Number.isFinite(index)) watchMatch.index = index;
+  if (Number.isFinite(count)) watchMatch.count = count;
+  paintWatch();
+});
+
+/* The match went away without a result (the two of them were paired off
+   elsewhere, or it simply stopped). Said, then on to the next. */
+socket.on('ko:ended', ({ id } = {}) => {
+  if (!WATCH || overShown) return;
+  if (watchMatch && id && id !== watchMatch.id) return;
+  overShown = true;
+  $('overEyebrow').textContent = 'Match over';
+  $('overWho').textContent = 'That match ended';
+  $('overWho').className = 'overWho';
+  $('overWhy').textContent = 'Finding the next one.';
+  $('over').hidden = false;
+  $('bar').hidden = true;
+  publishWatch('ended');
+  nextSoon();
+});
+
+function watchOver(m) {
+  if (overShown) return;
+  overShown = true;
+  const names = watchMatch ? watchMatch.names : [];
+  const loser = m.winnerSide === 0 ? names[1] : m.winnerSide === 1 ? names[0] : null;
+  $('overEyebrow').textContent = 'Match over';
+  const who = $('overWho');
+  who.textContent = m.winner ? m.winner + ' wins' : 'Nobody won it';
+  who.className = 'overWho' + (m.winner ? ' won' : '');
+  $('overWhy').textContent =
+    (m.why === 'opponent left' ? (loser || 'A player') + ' left the match.'
+    : m.why === 'everyone went off' ? 'Both sides went off on the same turn.'
+    : 'Last one standing after ' + (m.turn || 0) + (m.turn === 1 ? ' turn.' : ' turns.'))
+    + ' Next match in a few seconds.';
+  $('over').hidden = false;
+  $('bar').hidden = true;
+  publishWatch('over');
+  nextSoon();
+}
+
+if (WATCH) {
+  document.body.classList.add('watching');
+  $('waitMain').textContent = 'Finding a match to watch';
+  $('waitSub').textContent = 'Watching only. You are not playing.';
+  $('againBtn').textContent = 'Next match';
+  $('watchNext').hidden = false;
+  $('watchLobby').hidden = false;
+  $('lock').hidden = true;
+  $('watchNext').addEventListener('click', () => { if (watchMatch) watch(watchMatch.id); });
+  $('watchLobby').addEventListener('click', toLobby);
+  publishWatch('searching');
+}

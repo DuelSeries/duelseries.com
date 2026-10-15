@@ -23,6 +23,10 @@
   var U32_MAX = 4294967295; // frame money saturates here; the exact value rides ['m']
   var VIEW_DIAGONAL = Math.sqrt(1366 * 1366 + 768 * 768); // the stock visionRange line
   var SAME_POINT = 1e-9;
+  // Watch mode: how long the camera stays on a followed square that died before it moves on to the leader (the
+  // page's enemyKillDelay and selfKillDelay, the stock glide to the killer, when the config has none).
+  var FOLLOW_AFTER_KILL_MS = 2000;
+  var FOLLOW_AFTER_DEATH_MS = 1000;
 
   function lib() {
     var P = root.DuelPaperLib;
@@ -226,14 +230,16 @@
         this.hold = 0;
         this.pushed = false;
         this._local = false;
+        this._followed = false; // watch mode: the square the camera follows (never _local)
         this._stable = null;
         this._stableHeld = null;
         this._stableWire = null;
       }
 
-      // Only the page's own square (8.1): the stock "Kill" and "+x.xx%" labels need it.
+      // Only the page's own square (8.1): the stock "Kill" and "+x.xx%" labels need it. A watcher sees them over
+      // the square it follows.
       get isPlayer() {
-        return this._local === true;
+        return this._local === true || this._followed === true;
       }
 
       // new P.Polygon(points); calcPath(). Never committed.
@@ -343,6 +349,12 @@
         this._frameBudget = null;
         this._crumbAcc = 0;
         this._predHomeSince = null;
+        // Watch mode (applyWatching): `player` is the FOLLOWED square, for the camera, the zoom, the leaderboard and
+        // the minimap only. It is never _local, so nothing predicts, reconciles or sends for it.
+        this.watching = false;
+        this.followId = 0;
+        this.onFollow = null; // (unit or null) whenever the followed square changes
+        this._followDeadMs = 0;
       }
 
       attachNet(net) {
@@ -366,7 +378,7 @@
 
       // Q (or the touch button), from the page.
       setHold(down) {
-        this.predictor.setHold(!!down);
+        this.predictor.setHold(!!down && !this.watching); // a watcher holds nothing
       }
 
       // -------------------------------------------------------------------------------------
@@ -445,6 +457,7 @@
         this.particles = [];
         this.predictAcc = 0;
         this._predHomeSince = null;
+        this._followDeadMs = 0;
         this.topListChanged = true;
       }
 
@@ -487,6 +500,7 @@
 
       applyJoined(p) {
         this._clear();
+        this.watching = false;
         this.you = p.you | 0;
         this.stake = Number(p.stake) || 0;
         this.paid = this.stake > 0;
@@ -545,6 +559,86 @@
           this._sentSinceReset = 0;
           this._streamAcked = false;
         }
+      }
+
+      // -------------------------------------------------------------------------------------
+      // Watch mode (the lobby's Spectate): pp:watching's state, applied as pp:joined's with no own square, then
+      // a square to follow. The square followed before a reconnect is kept when it is still there; else the
+      // server's pick (`follow`), else the leader.
+      // -------------------------------------------------------------------------------------
+
+      applyWatching(p) {
+        var keep = this.followId;
+        this.applyJoined(Object.assign({}, p, { you: 0 }));
+        this.watching = true;
+        this.followId = 0;
+        if (!(keep > 0 && this.follow(keep)) && !(p.follow > 0 && this.follow(p.follow))) this.followNext();
+      }
+
+      // The live squares by score, as the stock leaderboard ranks them (_cosmetic's sort).
+      ranked() {
+        return this.units.filter(function (u) { return !u.death; }).sort(function (a, b) {
+          return b.schemes && a.schemes ? b.schemes.scores() - a.schemes.scores() : 0;
+        });
+      }
+
+      // The followed square stands in for `player` (camera, zoom, leaderboard, minimap) and is never _local, so
+      // no predictor, reconcile or input path ever touches it. Watch mode only: a seated page keeps its own.
+      follow(id) {
+        if (!this.watching) return false;
+        var u = this.byId.get(id);
+        if (!u || u.death) return false;
+        var was = this.player;
+        if (was && was !== u) was._followed = false;
+        u._followed = true;
+        this.player = u;
+        this.followId = u.id;
+        this._followDeadMs = 0;
+        this.topListChanged = true;
+        if (was !== u && this.onFollow) this.onFollow(u);
+        return true;
+      }
+
+      // The square ranked right after the followed one (wrapping round), or the leader when the followed one is
+      // gone or dead. -> the unit now followed, or null when the arena is empty.
+      followNext() {
+        if (!this.watching) return null;
+        var list = this.ranked();
+        if (!list.length) {
+          this._unfollow();
+          return null;
+        }
+        var i = this.player && !this.player.death ? list.indexOf(this.player) : -1;
+        var next = list[i >= 0 ? (i + 1) % list.length : 0];
+        this.follow(next.id);
+        return next;
+      }
+
+      _unfollow() {
+        var was = this.player;
+        if (!was) return;
+        was._followed = false;
+        this.player = null;
+        this.followId = 0;
+        this._followDeadMs = 0;
+        this.topListChanged = true;
+        if (this.onFollow) this.onFollow(null);
+      }
+
+      // Once per update while watching: a followed square that died keeps the camera for the stock glide to its
+      // killer (followKiller), then the leader is followed; with nobody followed, the leader as soon as there is one.
+      _watchStep(dtMs) {
+        var u = this.player;
+        if (u && !u.death) return;
+        if (u) {
+          var c = this.config;
+          var wait = u.killer ? (c.enemyKillDelay > 0 ? c.enemyKillDelay : FOLLOW_AFTER_KILL_MS)
+            : (c.selfKillDelay > 0 ? c.selfKillDelay : FOLLOW_AFTER_DEATH_MS);
+          this._followDeadMs += dtMs;
+          if (this._followDeadMs < wait) return;
+        }
+        if (this.units.length) this.followNext();
+        else if (u) this._unfollow();
       }
 
       // -------------------------------------------------------------------------------------
@@ -701,7 +795,7 @@
         var u = this.byId.get(id);
         if (!u || typeof x !== 'number' || typeof y !== 'number') return false;
         u.position = new P.Vec2(x, y);
-        if (u === this.player) {
+        if (u === this.player && u._local) {
           var pr = this.predictor;
           pr.state = { x: x, y: y, dir: pr.state.dir };
           pr.offset = { x: 0, y: 0, ms: 0 };
@@ -724,7 +818,7 @@
         this.shrinking = frame.shrinking;
         this.paid = frame.paid;
         var me = this.player;
-        if (!me || me.death) return;
+        if (!me || me.death || !me._local) return; // a followed square is placed like any remote one
         var rec = frame.byId.get(me.id);
         if (!rec) return;
         me.wire = rec;
@@ -797,6 +891,7 @@
         this._placeRemotes(br);
         this._placeLocal(dtMs, now);
         this._cosmetic(dtMs);
+        if (this.watching) this._watchStep(dtMs);
         this.cycle++;
         return true;
       }
@@ -812,7 +907,7 @@
         var net = this.net;
         // No prediction while a resume is in flight: nothing could be sent (paperNet gates
         // pp:in), and the resume's pp:joined resets the predictor anyway.
-        if (!me || me.death || !net || !net.seated || net.resuming) {
+        if (!me || me.death || !me._local || !net || !net.seated || net.resuming) {
           this.predictAcc = 0;
           return;
         }
@@ -946,7 +1041,7 @@
       // own base + the drawn position (8.2).
       _placeLocal(dtMs, now) {
         var me = this.player;
-        if (!me || me.death) return;
+        if (!me || me.death || !me._local) return;
         var pr = this.predictor;
         var newest = this.net ? this.net.newest() : null;
         var rec = newest ? newest.byId.get(me.id) : null;

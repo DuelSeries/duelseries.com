@@ -137,6 +137,10 @@ const EVENTS = [
   ['sh:input', ['up', 'down', 'left', 'right', 'fire', 'aim', 'angle'], 'shooter'],
   ['sh:weapon', ['weapon'], 'shooter'], ['sh:respawn', [], 'shooter'], ['sh:leave', [], 'shooter'],
   ['pp:join', ['stake', 'name', 'entryToken'], 'none'],
+  // Spectate in every game (2026-10-15).
+  ['pp:watch', ['stake', 'after'], 'none'],
+  ['ko:watch', ['after'], 'none'], ['ko:unwatch', [], 'none'],
+  ['bs:watch', ['after'], 'none'], ['bs:unwatch', [], 'none'],
 ];
 const JOINS = new Set(['play', 'spectate:join']);
 

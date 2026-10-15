@@ -33,6 +33,16 @@
   <span id="pp-cash-label">CASH<br>OUT</span>
 </button>
 
+<!-- Watch mode (the lobby's Spectate, paperArenaMain.js): the way back, the followed square and Next. Shown only
+     when the page was opened to watch; it never joins, so there is no Play, cash-out or hold control. -->
+<div id="pp-watch" class="pp-watch" hidden>
+  <button type="button" id="pp-watch-lobby" class="pp-watch-btn pp-watch-lobby">Lobby</button>
+  <div id="pp-watch-bar" class="pp-watch-bar" hidden>
+    <span id="pp-watch-label" class="pp-watch-label">Watching <b id="pp-watch-name"></b></span>
+    <button type="button" id="pp-watch-next" class="pp-watch-btn">Next</button>
+  </div>
+</div>
+
 <div id="pp-connecting" class="pp-layer pp-soft">
   <div id="pp-connecting-text">Connecting</div>
   <small id="pp-connecting-sub">Finding you a table</small>

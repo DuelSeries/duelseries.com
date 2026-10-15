@@ -213,6 +213,16 @@ class BattleshipRoom {
     this.stake = 0;
     this.worth = new Map();
     this.settled = false;
+
+    /* WATCHERS. Not players, never in `players`, and never sent viewFor: a
+       view is built for the person whose fleet it is, and the one thing in it
+       that matters is that fleet. A watcher gets spectatorView instead, built
+       from what both players can already see, in a socket.io room of its own
+       that this writes to explicitly. The lobby owns who is watching; this
+       only keeps the count, so a match nobody watches builds nothing for them. */
+    this.watchRoomName = 'bsw_' + this.id;
+    this.watchers = 0;
+    this.seats = [];          // side -> { id, name }, kept after somebody leaves
   }
 
   addPlayer(socket, name, wallet, worth, paid) {
@@ -222,8 +232,22 @@ class BattleshipRoom {
                                   paid: Number(paid) > 0 ? Number(paid) : undefined });
     this.boards.set(socket.id, new Board());
     this.worth.set(socket.id, Number(worth) > 0 ? Number(worth) : 0);
+    this.seats[side] = { id: socket.id, name: name || 'Player' };
     if (socket.join) socket.join(this.socketRoomName);
     return true;
+  }
+
+  /* Which seat a socket id sat in, or null. What a watcher is told instead of
+     the id. Seat 0 is drawn first (left, or on top), seat 1 second. */
+  sideOf(socketId) {
+    for (let s = 0; s < this.seats.length; s++) {
+      if (this.seats[s] && this.seats[s].id === socketId) return s;
+    }
+    return null;
+  }
+
+  sideNames() {
+    return [0, 1].map(s => (this.seats[s] && this.seats[s].name) || 'Player');
   }
 
   removePlayer(socketId) {
@@ -413,6 +437,32 @@ class BattleshipRoom {
         });
       } catch (_) {}
     }
+
+    /* The watchers' result, and their first sight of either fleet. Same moment
+       and same fleets as the players get, by seat instead of by socket. */
+    if (this.watchers > 0 && this.io && this.io.to) {
+      try {
+        const sides = this.sideNames();
+        const winnerSide = winnerId ? this.sideOf(winnerId) : null;
+        this.io.to(this.watchRoomName).emit('bs:over', {
+          winner: winnerSide !== null ? sides[winnerSide] : null,
+          winnerSide,
+          why: this.overWhy,
+          shots: [0, 1].map(s => this.shotLog.filter(l => this.sideOf(l.by) === s).length),
+          stake: this.stake, pot: this.pot(),
+          reveal: [0, 1].map(s => {
+            const seat = this.seats[s];
+            const board = seat ? this.boards.get(seat.id) : null;
+            return {
+              side: s, name: sides[s],
+              ships: (board ? board.ships : []).map(sh => ({
+                key: sh.key, name: sh.name, cells: sh.cells.slice(), horiz: sh.horiz, x: sh.x, y: sh.y, sunk: sh.sunk,
+              })),
+            };
+          }),
+        });
+      } catch (e) { console.error('[BS] watcher result failed:', e.message); }
+    }
   }
 
   /* ── what each player is allowed to see ─────────────────────────────────
@@ -469,6 +519,59 @@ class BattleshipRoom {
     for (const [id, p] of this.players) {
       try { p.socket.emit('bs:state', this.viewFor(id)); } catch (_) {}
     }
+    if (this.watchers > 0 && this.io && this.io.to) {
+      try { this.io.to(this.watchRoomName).emit('bs:state', this.spectatorView()); }
+      catch (e) { console.error('[BS] watcher send failed:', e.message); }
+    }
+  }
+
+  /* ── what a watcher is allowed to see ───────────────────────────────────
+     Only what is already public between the two players, for both boards at
+     once: every shot and whether it hit, every ship that has been SUNK, how
+     many squares each side has left, who has laid a fleet, and whose shot it
+     is as a seat. Written field by field from the boards, never from viewFor,
+     because viewFor's first field is somebody's whole fleet. An unsunk ship
+     has no path into this: no list here is built from `ships` except the
+     sunk filter, and a hit mark is a square the shooter already knows. */
+  spectatorView() {
+    const boardOf = (s) => (this.seats[s] ? this.boards.get(this.seats[s].id) : null);
+    const names = this.sideNames();
+    const last = this.lastShot;
+    return {
+      id: this.id,
+      state: this.state,
+      phaseMs: Math.max(0, this.phaseEndsAt - Date.now()),
+      placeMs: BS.PLACE_MS,
+      turnMs: BS.TURN_MS,
+      grid: GRID,
+      fleet: FLEET.map(s => ({ key: s.key, name: s.name, len: s.len })),
+      players: [0, 1].map(s => {
+        const b = boardOf(s);
+        return { side: s, name: names[s], placed: !!(b && b.placed) };
+      }),
+      /* Only once the shooting has started, same as the players: who goes
+         first is a coin tossed at the countdown and shown when play opens. */
+      turn: this.state === 'playing' ? this.sideOf(this.turn) : null,
+      /* boards[s] is seat s's own waters: the shots fired AT it, and its
+         ships the other side has sunk. */
+      boards: [0, 1].map(s => {
+        const b = boardOf(s);
+        return {
+          side: s,
+          shots: b ? [...b.shotsAt.entries()].map(([c, v]) => ({ cell: c, hit: v === 'hit' })) : [],
+          sunk: b ? b.ships.filter(sh => sh.sunk).map(sh => ({
+            key: sh.key, name: sh.name, len: sh.len, cells: sh.cells.slice(), horiz: sh.horiz, x: sh.x, y: sh.y,
+          })) : [],
+          squaresLeft: b ? b.squaresLeft() : BS.SHIP_SQUARES,
+        };
+      }),
+      lastShot: last ? {
+        side: this.sideOf(last.by), cell: last.cell, hit: !!last.hit,
+        sunk: last.sunk ? { key: last.sunk.key, name: last.sunk.name } : null,
+      } : null,
+      stake: this.stake,
+      pot: this.pot(),
+    };
   }
 }
 

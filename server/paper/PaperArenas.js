@@ -126,6 +126,27 @@ class PaperArenas {
     return null;
   }
 
+  // The arena a watcher is sent to (the lobby's Spectate, the free rung only): the open free arena with the most
+  // live players, the lowest index on a tie. A pure query: never seatFor, never a new arena, and null when no free
+  // arena has a player (an arena ticks only while someone is seated, and watchers alone must never cost a tick).
+  watchFor(stake) {
+    if (rungOf(stake) !== 0) return null;
+    let best = null;
+    for (const r of this.arenas[keyOf(0)]) {
+      if (r.stopped || r.warming || !(r.liveHumans > 0)) continue;
+      if (!best || r.liveHumans > best.liveHumans || (r.liveHumans === best.liveHumans && r.index < best.index)) best = r;
+    }
+    return best;
+  }
+
+  // io 'disconnect' of a watcher: out of whichever arena it watched (the socket object is gone, so every arena is
+  // asked; there are at most a few dozen).
+  watcherGone(socketId) {
+    let n = 0;
+    for (const room of this.all()) if (typeof room.removeWatcher === 'function' && room.removeWatcher(socketId)) n++;
+    return n > 0;
+  }
+
   seatByKey(resumeKey) {
     const seat = this.byKey.get(resumeKey);
     return seat && !seat.room.stopped && !seat.unit.death ? seat : null;

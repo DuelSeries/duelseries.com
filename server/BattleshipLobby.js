@@ -38,12 +38,28 @@ const BOT_PLACE_MS = 2500;        // nor lay its fleet out the moment the match 
 
 const BOT_NAMES = ['Commodore Bot', 'Halsey', 'Nimitz', 'Rickover', 'Hopper'];
 
+/* Watching, the same rules as the Knockout lobby: a cap per match, a short
+   string for the match being moved on from, and the number on the end of a
+   room id as the order the matches were made in. */
+const WATCH_CAP = 50;
+const watchAfter = (v) => (typeof v === 'string' && v.length > 0 && v.length <= 40 ? v : null);
+const seqOf = (id) => {
+  const m = /(\d+)$/.exec(String(id || ''));
+  return m ? Number(m[1]) : NaN;
+};
+function send(socket, ev, payload) {
+  try { if (socket && typeof socket.emit === 'function') socket.emit(ev, payload); } catch (_) {}
+}
+
 class BattleshipLobby {
   constructor(io) {
     this.io = io;
     this.queue = [];
     this.rooms = new Map();
     this.bySocket = new Map();
+    /* socketId -> { socket, roomId, channel }: watching, not playing. See watch(). */
+    this.watchers = new Map();
+    this.liveKey = '';
     this.timer = null;
   }
 
@@ -58,6 +74,7 @@ class BattleshipLobby {
   /* paid: what landed on-chain for this seat (the entry token's paid), which bounds a refund. */
   enqueue(socket, name, wallet, stake, worth, paid) {
     this.dequeue(socket.id);
+    this.unwatch(socket.id);          // watching and queueing are one or the other
     this.queue.push({
       socket, name, wallet, since: Date.now(),
       stake: Number(stake) > 0 ? Number(stake) : 0,
@@ -72,7 +89,8 @@ class BattleshipLobby {
       const freed = this.rescueFromBot(mine);
       if (freed) {
         this.dequeue(socket.id);
-        this.makeMatch([freed, mine]);
+        const room = this.makeMatch([freed, mine]);
+        this.moveWatchers(freed.fromRoom, room);    // the bot match's watchers follow the person
       }
     }
     return this.queue.some(e => e.socket.id === socket.id);
@@ -131,6 +149,7 @@ class BattleshipLobby {
       room.tick(t);
       if (room.state === 'over') this.sweep(room);
     }
+    this.tickWatchers();
   }
 
   /* SOMEBODY WAITING BEATS A BOT, EVEN A LITTLE LATE.
@@ -165,7 +184,7 @@ class BattleshipLobby {
       console.log('[BS] pairing ' + seat.name + ' with ' + entry.name
         + ' instead of a bot');
       return { socket: seat.socket, name: seat.name, wallet: seat.wallet,
-               since: Date.now(), stake: 0, worth: 0 };
+               since: Date.now(), stake: 0, worth: 0, fromRoom: room.id };
     }
     return null;
   }
@@ -214,6 +233,7 @@ class BattleshipLobby {
   }
 
   leave(socketId) {
+    this.unwatch(socketId);
     const room = this.roomOf(socketId);
     const waiting = this.queue.find(e => e.socket.id === socketId);
     if (waiting) this.refund(waiting, 'left the queue');
@@ -228,7 +248,129 @@ class BattleshipLobby {
     const humans = [...room.players.keys()].filter(id => !String(id).startsWith('bot_'));
     if (humans.length && room.state !== 'over') return;
     for (const [sid, rid] of [...this.bySocket]) if (rid === room.id) this.bySocket.delete(sid);
+    this.dropWatchers(room);
     this.rooms.delete(room.id);
+  }
+
+  /* ── watching ─────────────────────────────────────────────────────────────
+     Somebody with no seat looking at a match already under way. The same
+     arrangement as the Knockout lobby, for the same reasons, and here it
+     matters more: this game is ONE secret, and a watcher is a third person who
+     must learn it no sooner than the players do.
+
+     A watcher is never in the queue, a room's players or bySocket, so nothing
+     that counts people or moves money can see one. They are in a socket.io room
+     of their own (room.watchRoomName), sent BattleshipRoom.spectatorView and
+     never viewFor: both boards as shots and sunk ships only, and both fleets in
+     full only in the result, when the players get them too. */
+
+  runningRooms() {
+    return [...this.rooms.values()].filter(r => r.state !== 'waiting' && r.state !== 'over');
+  }
+
+  /* Best first. Moving on from `after`: the next match made after it, round to
+     the start, and `after` itself last so a Next with one match running stays
+     put. Arriving fresh: the one furthest in. A match already settling goes to
+     the back either way: it is three seconds from its result. */
+  watchOrder(live, after) {
+    let order;
+    const n = seqOf(after);
+    if (after && Number.isFinite(n)) {
+      const others = live.filter(r => r.id !== after);
+      const later = others.filter(r => seqOf(r.id) > n);
+      const earlier = others.filter(r => !(seqOf(r.id) > n));
+      order = later.concat(earlier, live.filter(r => r.id === after));
+    } else {
+      const stage = { placing: 0, countdown: 1, playing: 2, settling: 2 };
+      const rank = (r) => (stage[r.state] || 0) * 1000 + (r.shotLog ? r.shotLog.length : 0);
+      order = live.slice().sort((a, b) => rank(b) - rank(a));
+    }
+    return order.filter(r => r.state !== 'settling').concat(order.filter(r => r.state === 'settling'));
+  }
+
+  matchCard(room, live) {
+    const list = live || this.runningRooms();
+    return {
+      id: room.id, names: room.sideNames(), stake: room.stake, pot: room.pot(),
+      turn: room.state === 'playing' ? room.sideOf(room.turn) : null,
+      index: list.indexOf(room) + 1, count: list.length,
+    };
+  }
+
+  /* Watch a running match. Answers on 'bs:watching', always, with one of
+     { match, state } (state is spectatorView), { none: true }, { full: true },
+     or { refused: true } for a socket that is queued or seated. */
+  watch(socket, opts) {
+    if (!socket || typeof socket.id !== 'string') return { ok: false, why: 'no socket' };
+    const id = socket.id;
+    if (this.bySocket.has(id) || this.queue.some(e => e.socket.id === id)) {
+      send(socket, 'bs:watching', { refused: true, why: 'You are in a match already.' });
+      return { ok: false, why: 'seated' };
+    }
+    const after = watchAfter(opts && opts.after);
+    this.unwatch(id);
+    const live = this.runningRooms();
+    if (!live.length) { send(socket, 'bs:watching', { none: true }); return { ok: false, why: 'none' }; }
+    const room = this.watchOrder(live, after).find(r => (r.watchers || 0) < WATCH_CAP);
+    if (!room) { send(socket, 'bs:watching', { full: true }); return { ok: false, why: 'full' }; }
+    this.attachWatcher(socket, room, live);
+    return { ok: true, roomId: room.id };
+  }
+
+  attachWatcher(socket, room, live) {
+    this.watchers.set(socket.id, { socket, roomId: room.id, channel: room.watchRoomName });
+    room.watchers = (room.watchers || 0) + 1;
+    try { if (typeof socket.join === 'function') socket.join(room.watchRoomName); } catch (_) {}
+    send(socket, 'bs:watching', { match: this.matchCard(room, live), state: room.spectatorView() });
+  }
+
+  unwatch(socketId) {
+    const w = this.watchers.get(socketId);
+    if (!w) return false;
+    this.watchers.delete(socketId);
+    const room = this.rooms.get(w.roomId);
+    if (room && room.watchers > 0) room.watchers--;
+    try { if (w.socket && typeof w.socket.leave === 'function') w.socket.leave(w.channel); } catch (_) {}
+    return true;
+  }
+
+  moveWatchers(fromId, room) {
+    if (!fromId || !room) return;
+    let live = null;
+    for (const [sid, w] of [...this.watchers]) {
+      if (w.roomId !== fromId) continue;
+      this.unwatch(sid);
+      if ((room.watchers || 0) >= WATCH_CAP) { send(w.socket, 'bs:ended', { id: fromId }); continue; }
+      if (!live) live = this.runningRooms();
+      this.attachWatcher(w.socket, room, live);
+    }
+  }
+
+  dropWatchers(room) {
+    for (const [sid, w] of [...this.watchers]) {
+      if (w.roomId !== room.id) continue;
+      if (room.state !== 'over') send(w.socket, 'bs:ended', { id: room.id });
+      this.unwatch(sid);
+    }
+  }
+
+  tickWatchers() {
+    if (!this.watchers.size) { this.liveKey = ''; return; }
+    for (const [sid, w] of [...this.watchers]) {
+      if (this.rooms.has(w.roomId)) continue;
+      send(w.socket, 'bs:ended', { id: w.roomId });
+      this.unwatch(sid);
+    }
+    const live = this.runningRooms();
+    const key = live.map(r => r.id).join(',');
+    if (key === this.liveKey) return;
+    this.liveKey = key;
+    for (const r of live) {
+      if (!(r.watchers > 0) || !this.io || !this.io.to) continue;
+      try {
+        this.io.to(r.watchRoomName).emit('bs:matches', { index: live.indexOf(r) + 1, count: live.length });
+      } catch (_) {}
+    }
   }
 
   /* ── the opponent ───────────────────────────────────────────────────────── */
@@ -355,5 +497,6 @@ function cellAt(x, y) {
 }
 
 BattleshipLobby.PAID_WAIT_MS = PAID_WAIT_MS;
+BattleshipLobby.WATCH_CAP = WATCH_CAP;
 
-module.exports = { BattleshipLobby, BOT_AFTER_MS, PAID_WAIT_MS, cellAt };
+module.exports = { BattleshipLobby, BOT_AFTER_MS, PAID_WAIT_MS, WATCH_CAP, cellAt };

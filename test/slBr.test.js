@@ -421,6 +421,20 @@ test('a watcher on the real view gets the followed snake as its own (init, own a
   assert.ok(room.sim.snake(me.id));
 });
 
+test("a watcher's leaderboard never marks a row as its own (their client would write the viewer's nick over it)", () => {
+  const { ft, room } = makeBr({ realView: true });
+  human(room, 'Owen', 'W1');
+  run(ft, room, 400);
+  const ws = bareSocket();
+  room.seatWatch(ws, {});
+  run(ft, room, 3000);
+  const lbs = [];
+  for (const e of ws.emitted) if (e.name === 'sl:f') for (const r of W.decodeBundle(e.data)) if (r.type === 'leaderboard') lbs.push(r);
+  assert.ok(lbs.length > 0 && lbs.some((l) => l.rows.length > 0), 'leaderboards with rows went out');
+  for (const l of lbs) assert.strictEqual(l.myPos, 0);
+  assert.ok(lbs.some((l) => l.rank >= 1), "the watched snake's rank still goes (their rank line)");
+});
+
 test('msUntilNextStart counts to the next 8:05 pm Eastern', () => {
   const ms = msUntilNextStart(Date.UTC(2026, 9, 16, 23, 0)); // 19:00 EDT
   assert.strictEqual(ms, 65 * 60 * 1000);

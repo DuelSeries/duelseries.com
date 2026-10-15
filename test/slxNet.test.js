@@ -333,6 +333,36 @@ test('layer emits: only sl:hold, sl:vis, sl:chat, sl:diag, only on the live curr
   assert.deepStrictEqual(s.emitted.map((e) => e[0]), ['sl:join', 'sl:hold', 'sl:vis', 'sl:chat', 'sl:diag', 'sl:leave']);
 });
 
+// slxWatch's Next: the page ends its own life; their transport sees its socket's disconnect, so their close runs once
+// (applyClose) exactly as for a drop, and nothing is resumed (this page's own disconnect, even with a key held).
+test('endLife: sl:leave then the socket closes; their close runs once, the close info says no refusal, no resume', () => {
+  const p = page({ layer: true });
+  const { D, S, socks, fireSock, log, bundle } = p;
+  const slx = D.slx;
+  const closes = [];
+  slx.on('close', (i) => closes.push(i));
+  assert.strictEqual(slx.endLife(), false, 'no socket yet');
+  D.slNet.connect();
+  const s = socks[0];
+  assert.strictEqual(slx.endLife(), false, 'not connected yet');
+  s.connected = true;
+  fireSock(s, 'connect');
+  fireSock(s, 'sl:x', [{ t: 'seat', k: '0f8fad5b-d9cb-469f-a165-70867728950e', ms: 5000 }]);
+  fireSock(s, 'sl:f', bundle([ADD7]));
+  assert.strictEqual(S.playing, true);
+  const n = socks.length;
+  assert.strictEqual(slx.endLife(), true);
+  assert.deepStrictEqual(s.emitted.map((e) => e[0]), ['sl:join', 'sl:leave']);
+  assert.strictEqual(s.connected, false);
+  assert.deepStrictEqual(log.filter((e) => e[0] === 'applyClose'), [['applyClose', true]], 'their close, once, mid-life');
+  assert.strictEqual(closes.length, 1);
+  assert.strictEqual(closes[0].refused, null);
+  assert.strictEqual(closes[0].sawDead, false);
+  assert.strictEqual(slx.resuming(), false);
+  assert.strictEqual(socks.length, n, 'no resume socket was made');
+  assert.strictEqual(slx.endLife(), false, 'nothing left to end');
+});
+
 test('sl:vis: on visibility changes only, once per change; a hidden tab says so right after its join', () => {
   const p = page({ layer: true });
   const { D, socks, fireSock, doc, docListeners } = p;

@@ -124,3 +124,38 @@ body.pp-touch .pp-cash { display: flex; }
   .pp-cash { display: flex; }
   .pp-hint { display: none; }
 }
+
+/* ---- Watch mode (the lobby's Spectate) ------------------------------------------------------ */
+
+/* Lobby top left under the stock score stack, the followed name and Next bottom left: the page sets
+   Lobby's top and the bar's max width from the stock HUD's own sizes (paperArenaMain.js layoutWatch),
+   so neither covers the leaderboard (top right) or the minimap (bottom right). Above every layer, so
+   the way back stays there while the page waits for a table. Same dark glass as the hold button. */
+.pp-watch[hidden], .pp-watch-bar[hidden] { display: none; }
+.pp-watch-lobby { position: absolute; left: 12px; top: 120px; z-index: 5; }
+.pp-watch-bar {
+  position: absolute; left: 12px; bottom: 12px; z-index: 5;
+  display: flex; align-items: center; gap: 8px; max-width: calc(100% - 24px);
+}
+.pp-watch-btn, .pp-watch-label {
+  box-sizing: border-box; height: 40px; border-radius: 10px;
+  background: rgba(0, 0, 0, 0.35); color: #fff; font: inherit; font-size: 16px; line-height: 40px;
+  user-select: none; -webkit-user-select: none;
+}
+.pp-watch-btn {
+  flex: none; border: 0; padding: 0 16px; cursor: pointer;
+  touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+}
+.pp-watch-btn:hover { background: rgba(0, 0, 0, 0.5); }
+.pp-watch-btn:active { background: rgba(0, 0, 0, 0.55); }
+.pp-watch-btn:focus-visible { outline: 2px solid #9fe7c9; outline-offset: 2px; }
+.pp-watch-label {
+  min-width: 0; padding: 0 12px; pointer-events: none;
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+}
+.pp-watch-label b { font-weight: 700; }
+/* A phone: the minimap leaves too little room beside Next for the name, so the name sits on its own line above it. */
+@media (max-width: 520px) {
+  .pp-watch-bar { flex-direction: column; align-items: flex-start; gap: 6px; }
+  .pp-watch-label { max-width: 100%; }
+}

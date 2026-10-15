@@ -44,6 +44,36 @@ const myEntryToken = (() => {
   try { return sessionStorage.getItem('entryToken') || null; } catch (_) { return null; }
 })();
 
+/* WATCHING, NOT PLAYING. The lobby's Spectate writes 'dsWatch' with the game to
+   watch just before it opens this page. Read once and removed at once, so the
+   next Play is a Play, and honoured only when it names this game.
+
+   In watch mode this page never queues, places or fires: connecting asks for a
+   match to watch, and what comes back is the server's spectatorView, which is
+   both boards as shots and sunk ships only, by seat. Seat 0's waters go on the
+   first board (#theirs, left or on top) and seat 1's on the second (#mine),
+   so the boards read in the same order as the names in the strip. */
+const WATCH = (() => {
+  try {
+    const v = sessionStorage.getItem('dsWatch');
+    if (v !== null) sessionStorage.removeItem('dsWatch');
+    return v === 'battleship';
+  } catch (_) { return false; }
+})();
+const WATCH_NEXT_MS = 3000;   // the pause before moving on, and between retries
+let watchMatch = null;        // the match card: { id, names, stake, pot, turn, index, count }
+let watchLastId = null;
+let watchTimer = 0;
+const watchCanvas = (side) => (side === 0 ? $('theirs') : $('mine'));
+const watchWrap = (side) => (side === 0 ? $('wrapTheirs') : $('wrapMine'));
+const watchName = (side) => {
+  const p = st && (st.players || []).find(q => q.side === side);
+  return (p && p.name) || (watchMatch && watchMatch.names[side]) || 'Player';
+};
+const watchBoard = (side) => ((st && st.boards) || [])[side] || { shots: [], sunk: [], squaresLeft: 17 };
+/* A name short enough for the clock label in the middle of the strip. */
+const shortName = (n) => (n.length > 10 ? n.slice(0, 9) + '…' : n);
+
 /* ── geometry ──────────────────────────────────────────────────────────────
    Both charts are square, drawn at whatever CSS size the layout gives them,
    with a gutter along the top and left for the letters and numbers. One cell
@@ -202,6 +232,19 @@ function shipLen(s) {
 
 function paint() {
   if (!st) return;
+  if (WATCH) {
+    /* Each seat's own waters: the shots fired at it, and its ships the other
+       side has sunk. There is nothing else in a watcher's view to draw. */
+    for (const side of [0, 1]) {
+      const b = watchBoard(side);
+      drawBoard(watchCanvas(side), {
+        ships: (b.sunk || []).map(s => Object.assign({ sunk: true }, s)),
+        marks: b.shots || [],
+        aim: null,
+      });
+    }
+    return;
+  }
   const placing = st.state === 'placing';
 
   /* My chart: my fleet, plus every shot they have taken at me. */
@@ -353,6 +396,7 @@ function startDrag(key, spec, x, y, el, fromBoard) {
 }
 
 $('tray').addEventListener('pointerdown', (e) => {
+  if (WATCH) return;
   const el = e.target.closest('.trayShip');
   if (!el || !st || st.state !== 'placing') return;
   const key = el.dataset.key;
@@ -369,7 +413,7 @@ $('tray').addEventListener('pointerdown', (e) => {
 /* A ship already on the water: a drag lifts it, a tap turns it. */
 let boardPress = null;
 $('mine').addEventListener('pointerdown', (e) => {
-  if (!st || st.state !== 'placing') return;
+  if (WATCH || !st || st.state !== 'placing') return;
   const sq = squareAt($('mine'), e.clientX, e.clientY);
 
   /* Something in hand? This press is the drop. */
@@ -488,13 +532,13 @@ function turnShip() {
 
 window.addEventListener('keydown', (e) => {
   if (e.key !== 'r' && e.key !== 'R') return;
-  if (!st || st.state !== 'placing') return;
+  if (WATCH || !st || st.state !== 'placing') return;
   e.preventDefault();
   turnShip();
 });
 
 $('mine').addEventListener('contextmenu', (e) => {
-  if (!st || st.state !== 'placing') return;
+  if (WATCH || !st || st.state !== 'placing') return;
   e.preventDefault();
   turnShip();
 });
@@ -510,14 +554,14 @@ $('rotFab').addEventListener('pointerdown', (e) => {
 
 /* On screen only while there is something to turn. */
 function paintRotFab() {
-  const show = !!st && st.state === 'placing'
+  const show = !WATCH && !!st && st.state === 'placing'
     && (dragging !== null || layout.size < (st.fleet || []).length);
   $('rotFab').hidden = !show;
 }
 
 /* Nobody should have to place five ships by hand who does not want to. */
 $('auto').addEventListener('click', () => {
-  if (!st || st.state !== 'placing') return;
+  if (WATCH || !st || st.state !== 'placing') return;
   if (dragging) { if (dragging.el) dragging.el.classList.remove('dragging'); dragging = null; hideGhost(); }
   layout = randomLayout();
   buildTray();
@@ -561,7 +605,7 @@ function randomLayout() {
    starts when it is pressed — or when the minute runs out, which the server
    handles by laying out whatever is missing. */
 function maybeSubmit() {
-  if (!st || st.state !== 'placing') return;
+  if (WATCH || !st || st.state !== 'placing') return;
   const total = (st.fleet || []).length;
   const done = layout.size === total;
   const btn = $('confirm');
@@ -577,7 +621,7 @@ function maybeSubmit() {
 let sentFleet = false;
 
 $('confirm').addEventListener('click', () => {
-  if (!st || st.state !== 'placing' || sentFleet) return;
+  if (WATCH || !st || st.state !== 'placing' || sentFleet) return;
   if (layout.size !== (st.fleet || []).length) return;
   sentFleet = true;
   socket.emit('bs:place', {
@@ -631,7 +675,7 @@ function hideGhost() { if (ghost) ghost.style.display = 'none'; }
    square lined up during the other player's turn is fired by a single tap once
    the turn comes round — which is what the Confirm button used to be for. */
 function fireAt(cell) {
-  if (cell === null || !st || !st.yourTurn) return false;
+  if (WATCH || cell === null || !st || !st.yourTurn) return false;
   socket.emit('bs:fire', { cell });
   aimed = null;
   paint();
@@ -639,6 +683,7 @@ function fireAt(cell) {
 }
 
 function aimOrFire(cell) {
+  if (WATCH) return;                            // a watcher aims at nothing
   if (!st || (st.state !== 'playing' && st.state !== 'countdown')) return;
   if ((st.myShots || []).some(m => m.cell === cell)) return;   // already been there
   if (aimed === cell && st.yourTurn) { fireAt(cell); return; }
@@ -654,7 +699,7 @@ $('theirs').addEventListener('click', (e) => {
 /* dblclick as well, so a quick double on a fresh square fires without waiting
    for the two separate clicks to be noticed. */
 $('theirs').addEventListener('dblclick', (e) => {
-  if (!st || !st.yourTurn) return;
+  if (WATCH || !st || !st.yourTurn) return;
   const sq = squareAt($('theirs'), e.clientX, e.clientY);
   if (!sq) return;
   if ((st.myShots || []).some(m => m.cell === sq.cell)) return;
@@ -677,6 +722,22 @@ function paintBar() {}
 function paintLive() {
   const mine = $('wrapMine'), theirs = $('wrapTheirs');
   const playing = st && st.state === 'playing';
+  if (WATCH) {
+    /* The ring goes round the board being fired at, which is the other seat's.
+       Amber on both, since neither is the watcher's own. */
+    const shooter = playing ? st.turn : null;
+    const target = shooter === 0 ? 1 : shooter === 1 ? 0 : null;
+    for (const side of [0, 1]) {
+      const w = watchWrap(side);
+      w.classList.toggle('live', target === side);
+      w.classList.toggle('mine', false);
+      w.classList.toggle('theirs', true);
+    }
+    const clock = $('clockNum').parentElement;
+    clock.classList.toggle('mine', shooter === 0);
+    clock.classList.toggle('theirs', shooter === 1);
+    return;
+  }
   mine.classList.toggle('live', !!(playing && !st.yourTurn));
   mine.classList.toggle('mine', true);
   theirs.classList.toggle('live', !!(playing && st.yourTurn));
@@ -704,6 +765,21 @@ function callTurn(yours) {
 
 function paintTop() {
   if (!st) return;
+  if (WATCH) {
+    /* Seat 0 on the left of the strip and on the first board, seat 1 on the
+       right (in the opponent's red) and on the second. */
+    $('youName').textContent = watchName(0);
+    $('themName').textContent = watchName(1);
+    $('foeTitle').textContent = watchName(0) + "'s waters";
+    $('myTitle').textContent = watchName(1) + "'s waters";
+    $('foeTitle').classList.remove('them');
+    $('myTitle').classList.add('them');
+    $('youBar').setAttribute('aria-label', watchName(0) + "'s fleet");
+    $('themBar').setAttribute('aria-label', watchName(1) + "'s fleet");
+    ticks($('youBar'), watchBoard(0).squaresLeft);
+    ticks($('themBar'), watchBoard(1).squaresLeft);
+    return;
+  }
   $('youName').textContent = st.you ? st.you.name : 'You';
   $('themName').textContent = st.them ? st.them.name : 'Opponent';
   $('myTitle').textContent = (st.you ? st.you.name : 'You') + ' · your waters';
@@ -724,8 +800,11 @@ function ticks(box, left) {
 function paintClock() {
   if (!st) return;
   const num = $('clockNum'), lbl = $('clockLbl'), box = num.parentElement;
-  if (st.state === 'placing') { lbl.textContent = 'Place'; }
-  else if (st.state === 'playing') { lbl.textContent = st.yourTurn ? 'Your shot' : 'Their shot'; }
+  if (st.state === 'placing') { lbl.textContent = WATCH ? 'Placing' : 'Place'; }
+  else if (st.state === 'playing') {
+    lbl.textContent = WATCH ? shortName(watchName(st.turn)) + ' to fire'
+      : st.yourTurn ? 'Your shot' : 'Their shot';
+  }
   else if (st.state === 'countdown') { lbl.textContent = 'Ready'; }
   else { lbl.textContent = ''; num.textContent = '—'; box.classList.remove('urgent'); return; }
   const left = Math.max(0, Math.ceil((phaseEndsAt - Date.now()) / 1000));
@@ -738,7 +817,9 @@ setInterval(paintClock, 250);
 
 /* ── the server ────────────────────────────────────────────────────────── */
 
-socket.on('connect', () => queue());
+/* Every connect, the first and every reconnect: a seat, or in watch mode a
+   match to watch (the server forgets a watcher whose socket dropped). */
+socket.on('connect', () => (WATCH ? watch(null) : queue()));
 
 function queue() {
   overShown = false;
@@ -792,6 +873,7 @@ function soundFor(view) {
 }
 
 socket.on('bs:state', (view) => {
+  if (WATCH) { watchState(view); return; }
   const first = !st;
   const wasPlacing = st && st.state === 'placing';
   soundFor(view);
@@ -856,6 +938,7 @@ socket.on('bs:unqueued', ({ refunded, why } = {}) => {
 });
 
 socket.on('bs:over', (m) => {
+  if (WATCH) { watchOver(m || {}); return; }
   if (overShown) return;
   overShown = true;
   $('overEyebrow').textContent = m.won === true ? 'Victory' : m.won === false ? 'Defeated' : 'Match over';
@@ -869,7 +952,10 @@ socket.on('bs:over', (m) => {
      where everything actually was, which is the thing everybody wants after a
      game of guessing. */
   if (Array.isArray(m.reveal) && st) {
-    const mine = m.reveal.find(r => r.name === (st.you && st.you.name));
+    /* By socket id first: two players who both kept the default name used to
+       get each other's fleets drawn on the wrong boards. */
+    const mine = m.reveal.find(r => r.id === socket.id)
+      || m.reveal.find(r => r.name === (st.you && st.you.name));
     const theirs = m.reveal.find(r => r !== mine);
     if (theirs) {
       drawBoard($('theirs'), {
@@ -903,13 +989,16 @@ function runCountdown(ms) {
 
 /* ── leaving ───────────────────────────────────────────────────────────── */
 function toLobby() {
-  socket.emit('bs:leave');
+  clearTimeout(watchTimer);
+  socket.emit(WATCH ? 'bs:unwatch' : 'bs:leave');
   if (window.parent && window.parent !== window) window.parent.postMessage('game:done', '*');
   else location.href = '/';
 }
 $('waitCancel').addEventListener('click', toLobby);
 $('lobbyBtn').addEventListener('click', toLobby);
 $('againBtn').addEventListener('click', () => {
+  /* Watching, the second button on the result card is the next match. */
+  if (WATCH) { watch(watchLastId); return; }
   socket.emit('bs:leave');
   $('over').hidden = true;
   $('top').hidden = true;
@@ -949,7 +1038,8 @@ function fitBoards() {
   /* 10 for the gap between them, 6 top padding, and 8 of slack so a rounding
      error lands on the safe side of the fold rather than the wrong one. */
   /* The fleet sits UNDER the board now, so it takes height rather than width. */
-  const dock = $('dock');
+  /* Watching, the watch bar sits where the fleet would and takes its height. */
+  const dock = WATCH ? $('watchBar') : $('dock');
   const dockH = (dock && !dock.hidden) ? dock.offsetHeight + 12 : 0;
   const railW = 0;
   /* HOW MANY BOARDS ARE ACTUALLY ON SCREEN, which is not always two. While
@@ -975,8 +1065,198 @@ function fitBoards() {
 
 window.addEventListener('resize', () => {
   fitRail();
-  if (st && st.state === 'placing') buildTray();
+  if (!WATCH && st && st.state === 'placing') buildTray();
   fitBoards();
   paint();
 });
-window.addEventListener('beforeunload', () => socket.emit('bs:leave'));
+window.addEventListener('beforeunload', () => socket.emit(WATCH ? 'bs:unwatch' : 'bs:leave'));
+
+/* ── watching ──────────────────────────────────────────────────────────────
+   Somebody else's match. Everything below draws from spectatorView, by seat,
+   and nothing here sends anything but bs:watch and bs:unwatch. */
+
+/* Ask for a match. `after` is the one being left, so the server moves on from
+   it rather than handing the same one back. */
+function watch(after) {
+  clearTimeout(watchTimer);
+  socket.emit('bs:watch', after ? { after } : {});
+  publishWatch(watchMatch ? 'watching' : 'searching');
+}
+
+function nextSoon() {
+  clearTimeout(watchTimer);
+  watchTimer = setTimeout(() => watch(watchLastId), WATCH_NEXT_MS);
+}
+
+/* What the page is doing, for a headless check to read without a screenshot. */
+function publishWatch(mode) {
+  try {
+    window.__watch = {
+      game: 'battleship', mode,
+      matchId: watchMatch ? watchMatch.id : null,
+      names: watchMatch ? watchMatch.names.slice() : [],
+      index: watchMatch ? watchMatch.index : 0,
+      count: watchMatch ? watchMatch.count : 0,
+      stake: watchMatch ? watchMatch.stake : 0,
+      state: st ? st.state : null,
+    };
+  } catch (_) {}
+}
+
+/* What just happened, in words, under the boards. */
+function watchStatusText() {
+  if (!st) return '';
+  const placed = (st.players || []).filter(p => p.placed).map(p => p.name);
+  if (st.state === 'placing') {
+    return placed.length >= 2 ? 'Both fleets are placed'
+      : placed.length === 1 ? placed[0] + ' has placed a fleet'
+      : 'Both are placing their fleets';
+  }
+  if (st.state === 'countdown') return 'Starting';
+  const ls = st.lastShot;
+  const said = ls && ls.side !== null && ls.side !== undefined
+    ? watchName(ls.side) + ' fired at ' + name(ls.cell) + '. '
+      + (ls.sunk ? 'Sunk the ' + ls.sunk.name + '.' : ls.hit ? 'Hit.' : 'Miss.')
+    : '';
+  if (st.state === 'settling') return said || 'Fleet sunk';
+  if (st.state === 'playing') return said || watchName(st.turn) + ' fires first';
+  return said;
+}
+
+function paintWatch() {
+  const m = watchMatch;
+  if (m) {
+    const n = m.names || [];
+    $('watchLabel').textContent = 'Watching ' + (n[0] || 'Player') + ' vs ' + (n[1] || 'Player');
+    $('watchMeta').textContent = (m.stake > 0 ? '$' + Number(m.stake).toFixed(2) + ' table' : 'Free table')
+      + (m.count > 1 ? ' · ' + m.index + ' of ' + m.count : '');
+  }
+  $('watchStatus').textContent = watchStatusText();
+  $('watchNext').disabled = !m || !(m.count > 1);
+  publishWatch(m ? 'watching' : 'searching');
+}
+
+/* One sound per shot, the same three a player hears. A late arrival's first
+   view is not a shot. */
+let _wShots = 0, _wSunk = 0;
+function watchSound(view) {
+  const S = window.BattleshipSound;
+  const boards = (view && view.boards) || [];
+  const shots = boards.reduce((n, b) => n + ((b && b.shots) || []).length, 0);
+  const sunk = boards.reduce((n, b) => n + ((b && b.sunk) || []).length, 0);
+  const had = _wShots, hadSunk = _wSunk;
+  _wShots = shots; _wSunk = sunk;
+  if (!S || !st || shots - had !== 1) return;
+  if (sunk > hadSunk) { S.sunk(); return; }
+  (view.lastShot && view.lastShot.hit) ? S.hit() : S.miss();
+}
+
+function watchState(view) {
+  if (!view || (watchMatch && view.id !== watchMatch.id)) return;   // a straggler from the last match
+  const was = st && st.state;
+  watchSound(view);
+  st = view;
+  phaseEndsAt = Date.now() + (view.phaseMs || 0);
+
+  $('wait').hidden = true;
+  $('top').hidden = false;
+  $('stage').hidden = false;
+  $('dock').hidden = true;
+  $('watchBar').hidden = false;
+  document.body.classList.toggle('firing', view.state === 'playing' || view.state === 'settling');
+  if (view.state === 'countdown' && was !== 'countdown') runCountdown(view.phaseMs || 3000);
+
+  paintTop();
+  paintLive();
+  paintClock();
+  paintWatch();
+  fitBoards();
+  fitBoards();
+  paint();
+}
+
+socket.on('bs:watching', (m) => {
+  if (!WATCH || !m) return;
+  clearTimeout(watchTimer);
+  if (!m.match || !m.state) {
+    /* Nothing to show yet. Ask again in a moment. */
+    watchMatch = null;
+    st = null;
+    $('top').hidden = true; $('stage').hidden = true; $('over').hidden = true;
+    $('wait').hidden = false;
+    $('waitMain').textContent = m.full ? 'Every match is full of watchers'
+      : m.refused ? 'You are in a match' : 'Nobody is playing right now';
+    $('waitSub').textContent = 'Checking again every few seconds.';
+    publishWatch(m.full ? 'full' : m.refused ? 'refused' : 'none');
+    nextSoon();
+    return;
+  }
+  watchMatch = m.match;
+  watchLastId = m.match.id;
+  overShown = false;
+  $('over').hidden = true;
+  clearInterval(countTimer);
+  $('count').hidden = true;
+  st = null;
+  _wShots = 0; _wSunk = 0;
+  watchState(m.state);
+});
+
+socket.on('bs:matches', ({ index, count } = {}) => {
+  if (!WATCH || !watchMatch) return;
+  if (Number.isFinite(index)) watchMatch.index = index;
+  if (Number.isFinite(count)) watchMatch.count = count;
+  paintWatch();
+});
+
+/* The match went away without a result. Said, then on to the next. */
+socket.on('bs:ended', ({ id } = {}) => {
+  if (!WATCH || overShown) return;
+  if (watchMatch && id && id !== watchMatch.id) return;
+  overShown = true;
+  $('overEyebrow').textContent = 'Match over';
+  $('overWho').textContent = 'That match ended';
+  $('overWho').className = 'overWho';
+  $('overWhy').textContent = 'Finding the next one.';
+  $('over').hidden = false;
+  publishWatch('ended');
+  nextSoon();
+});
+
+function watchOver(m) {
+  if (overShown) return;
+  overShown = true;
+  const side = m.winnerSide === 0 || m.winnerSide === 1 ? m.winnerSide : null;
+  $('overEyebrow').textContent = 'Match over';
+  const who = $('overWho');
+  who.textContent = m.winner ? m.winner + ' wins' : 'Nobody won it';
+  who.className = 'overWho' + (m.winner ? ' won' : '');
+  const shots = side !== null && Array.isArray(m.shots) ? (m.shots[side] || 0) : 0;
+  $('overWhy').textContent =
+    (m.why === 'opponent left' ? (side !== null ? watchName(1 - side) : 'A player') + ' left the match.'
+      : 'Fleet sunk in ' + shots + ' shots.') + ' Next match in a few seconds.';
+
+  /* Both fleets, now that it is over: the same reveal the players get. */
+  if (Array.isArray(m.reveal) && st) {
+    for (const r of m.reveal) {
+      if (!r || (r.side !== 0 && r.side !== 1)) continue;
+      drawBoard(watchCanvas(r.side), {
+        ships: (r.ships || []).map(s => Object.assign({ len: (s.cells || []).length }, s)),
+        marks: watchBoard(r.side).shots || [], aim: null,
+      });
+    }
+  }
+  $('over').hidden = false;
+  publishWatch('over');
+  nextSoon();
+}
+
+if (WATCH) {
+  document.body.classList.add('watching');
+  $('waitMain').textContent = 'Finding a match to watch';
+  $('waitSub').textContent = 'Watching only. You are not playing.';
+  $('againBtn').textContent = 'Next match';
+  $('watchNext').addEventListener('click', () => { if (watchMatch) watch(watchMatch.id); });
+  $('watchLobby').addEventListener('click', toLobby);
+  publishWatch('searching');
+}

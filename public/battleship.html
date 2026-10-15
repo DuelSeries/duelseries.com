@@ -68,6 +68,19 @@
     </div>
     <div class="railhd"><span id="railMsg">5 to place</span></div>
   </section>
+
+  <!-- Watching somebody else's match (the lobby's Spectate): whose it is, what
+       just happened, and the way on or out. Where the fleet sits while placing,
+       because a watcher has no fleet. Seat 0's waters are the first board
+       (left, or on top) and seat 1's the second. -->
+  <section id="watchBar" hidden>
+    <div class="watchHd"><b id="watchLabel">Watching</b><span id="watchMeta"></span></div>
+    <div class="railhd"><span id="watchStatus"></span></div>
+    <div class="dockbtns">
+      <button type="button" id="watchNext" class="mini" disabled>Next match</button>
+      <button type="button" id="watchLobby" class="mini">Lobby</button>
+    </div>
+  </section>
 </div>
 
 

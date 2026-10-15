@@ -29,8 +29,9 @@
 // it is needed, and a throw in one is counted (slx.errors) and ignored:
 //   slx.cardLines(kind) -> null, or { title, lines, again }: a title in place of the card's own, lines under it (each a
 //     string, or { text, cls } with one more slx- class; text only, never markup), and Play again: false leaves it off
-//     the card, a string is its label, { text, disabled } its label and state. Read when the card shows and on
-//     refresh() (the cash-out status coming in).
+//     the card, a string is its label, { text, disabled } its label and state; length: false leaves the length line
+//     off (a watcher's card: the length was not theirs). Read when the card shows and on refresh() (the cash-out status
+//     coming in).
 //   slx.beforeAgain(go) -> true when the layer takes Play again over (a paid page buys a new entry first, then calls
 //     go(), which starts the play as the button does and answers whether it did).
 //   slx.beforeLobby() -> true when the layer keeps the page here (its exit trap: money is still in the room).
@@ -232,7 +233,7 @@
     starting = false;
     extra = hookLines(kind);
     render();
-    if (n === null || n === undefined) {
+    if (n === null || n === undefined || (extra && extra.length === false)) {
       line.style.display = 'none';
       num.textContent = '';
     } else {

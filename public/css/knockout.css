@@ -195,6 +195,46 @@ html, body {
 .overBtns .go { background: var(--rim); border-color: var(--rim); color: var(--ink); }
 .overBtns .go:hover { background: #f6b845; border-color: #f6b845; }
 
+/* ── watching ──────────────────────────────────────────────────────────────
+   Somebody else's match, from the lobby's Spectate. The strip and the disc are
+   the same; what changes is that nothing on screen is yours to move. Both
+   sides keep their own colour (seat 0 bone, seat 1 red, the same pair a player
+   sees), a tag under the strip says whose match it is, and the Lock button
+   gives way to Next match and Lobby. */
+#watchTag {
+  position: fixed; left: 50%; transform: translateX(-50%); z-index: 10;
+  top: calc(64px + env(safe-area-inset-top));
+  max-width: calc(100vw - 32px); text-align: center; pointer-events: none;
+}
+#watchTag[hidden] { display: none; }
+#watchLabel {
+  display: block; font-size: 13px; font-weight: 650; color: var(--tx);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+#watchMeta {
+  display: block; margin-top: 3px; font-family: var(--fm); font-size: 9.5px;
+  letter-spacing: 0.12em; text-transform: uppercase; color: var(--tx3);
+}
+.watchBtn {
+  font-family: inherit; font-size: 13.5px; font-weight: 600; white-space: nowrap;
+  border-radius: 10px; padding: 11px 14px; cursor: pointer;
+  border: 1px solid var(--s3); background: transparent; color: var(--tx);
+  transition: background 0.15s, border-color 0.15s;
+}
+.watchBtn:hover:not(:disabled) { background: var(--s2); border-color: #3a3126; }
+.watchBtn:disabled { color: var(--tx3); cursor: default; opacity: 0.6; }
+.watchBtn[hidden] { display: none; }
+body.watching #lock, body.watching #theirState { display: none; }
+@media (max-width: 420px) {
+  .watchBtn { font-size: 12.5px; padding: 10px 11px; }
+  body.watching #bar { gap: 8px; }
+}
+/* A phone on its side has no height to spare above the disc. */
+@media (max-height: 480px) {
+  #watchTag { top: calc(54px + env(safe-area-inset-top)); }
+  #watchMeta { display: none; }
+}
+
 /* THE SPINNER SPINS. Under reduced motion as well.
 
    Twice now: first it was frozen solid by a blanket "animation: none", then it

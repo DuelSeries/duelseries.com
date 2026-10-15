@@ -229,6 +229,38 @@ canvas { width: 100%; height: auto; display: block; border-radius: 10px; }
   #stage { gap: 6px; }
 }
 
+/* ── watching ──────────────────────────────────────────────────────────────
+   Somebody else's match. Both boards are on screen from the start, placing
+   included, and always in seat order whatever the screen: seat 0 first (left,
+   or on top), seat 1 second, the same order as the names in the strip. Neither
+   board takes a pointer, and the bar where the fleet would be says whose match
+   it is and offers the next one. */
+body.watching #wrapTheirs { order: 1; }
+body.watching #wrapMine   { order: 2; }
+body.watching #mine, body.watching #theirs { cursor: default; }
+#watchBar {
+  width: 100%; max-width: 560px;
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+}
+#watchBar[hidden] { display: none; }
+#watchNext:disabled { color: var(--tx3); cursor: default; opacity: 0.6; }
+.watchHd {
+  display: flex; align-items: baseline; justify-content: center; gap: 10px;
+  max-width: 100%; min-width: 0;
+}
+#watchLabel {
+  font-size: 13px; font-weight: 650; color: var(--tx);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
+}
+#watchMeta {
+  flex: 0 0 auto; font-family: var(--fm); font-size: 9.5px; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--tx3); white-space: nowrap;
+}
+@media (max-width: 760px) {
+  #watchBar { gap: 6px; }
+  #watchLabel { font-size: 12px; }
+}
+
 /* ── the countdown ─────────────────────────────────────────────────────── */
 #count {
   position: fixed; inset: 0; z-index: 18;

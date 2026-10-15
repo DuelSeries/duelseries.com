@@ -148,6 +148,21 @@ class KnockoutRoom {
     this.aims = new Map();    // socketId -> [{ pieceId, ax, ay }]
     this.ready = new Set();   // who has locked in this turn
     this.lastResolve = null;
+    this.resolvedAt = 0;      // when that tape went out, so a late watcher can join it part way
+
+    /* WATCHERS, who are not players and are never in `players`.
+
+       They get a socket.io room of their own, written to explicitly by
+       broadcast() below in a form with every socket id swapped for a seat. Never
+       the players' room: a watcher in there would be sent whatever the next
+       person to add a broadcast thought only players could see. The lobby owns
+       who is watching; this only keeps the count, so a room nobody is watching
+       spends nothing on them. */
+    this.watchRoomName = 'kow_' + this.id;
+    this.watchers = 0;
+    /* Seat -> who sat there. Kept after somebody leaves, because the last
+       messages of a match (the result) still name the seat they had. */
+    this.seats = [];
   }
 
   /* ── seats ──────────────────────────────────────────────────────────────── */
@@ -158,8 +173,23 @@ class KnockoutRoom {
     this.players.set(socket.id, { socket, name: name || 'Player', wallet: wallet || null, side,
                                   paid: Number(paid) > 0 ? Number(paid) : undefined });
     this.worth.set(socket.id, Number(worth) > 0 ? Number(worth) : 0);
+    this.seats[side] = { id: socket.id, name: name || 'Player' };
     if (socket.join) socket.join(this.socketRoomName);
     return true;
+  }
+
+  /* Which seat a socket id sat in, or null. What a watcher is told instead of
+     the id. */
+  sideOf(socketId) {
+    for (let s = 0; s < this.seats.length; s++) {
+      if (this.seats[s] && this.seats[s].id === socketId) return s;
+    }
+    return null;
+  }
+
+  /* The two names, seat 0 first. */
+  sideNames() {
+    return [0, 1].map(s => (this.seats[s] && this.seats[s].name) || 'Player');
   }
 
   /* Everything staked on this table. The winner's prize and a draw's refunds
@@ -359,6 +389,7 @@ class KnockoutRoom {
 
     const tape = this.simulate();
     this.lastResolve = tape;
+    this.resolvedAt = t;
     this.state = 'resolving';
     /* The reveal, then the tape, then a beat to read the result, so the next
        aiming phase never opens over a moving board. */
@@ -615,6 +646,100 @@ class KnockoutRoom {
 
   broadcast(event, payload) {
     if (this.io && this.io.to) this.io.to(this.socketRoomName).emit(event, payload);
+    /* And the same moment to anybody watching, in their own room and their own
+       form. Built from the payload the players were just sent, so a watcher can
+       never be shown a different match from the one being played; and only
+       events on the list in forWatchers go at all, so a new broadcast reaches a
+       watcher when somebody decides it should and not before. */
+    if (this.watchers > 0 && this.io && this.io.to) {
+      try {
+        const out = this.forWatchers(event, payload);
+        if (out) this.io.to(this.watchRoomName).emit(event, out);
+      } catch (e) { console.error('[KO] watcher send failed:', e.message); }
+    }
+  }
+
+  /* ── what a watcher is told ─────────────────────────────────────────────
+     Exactly what both players can already see, with every socket id swapped
+     for the seat it sat in (0 is the bottom of the disc, 1 the top). Each field
+     is copied by name rather than passed through, so a field added to a
+     player message later is not on its way to watchers until it is added here.
+     Never an aim before the turn has closed: publicState() carries none, and
+     the arrows only ever come from ko:resolve, the same as for the players. */
+  watchState(ps) {
+    const side = (id) => this.sideOf(id);
+    return {
+      id: ps.id,
+      state: ps.state,
+      turn: ps.turn,
+      arenaR: ps.arenaR,
+      pieceR: ps.pieceR,
+      maxPull: ps.maxPull,
+      phaseMs: ps.phaseMs,
+      aimMs: ps.aimMs,
+      players: (ps.players || []).map(p => ({ side: p.side, name: p.name, left: p.left })),
+      pieces: (ps.pieces || []).map(p => ({ id: p.id, side: side(p.owner), x: p.x, y: p.y, alive: p.alive })),
+      ready: (ps.ready || []).map(side).filter(s => s !== null),
+      stake: ps.stake,
+      pot: ps.pot,
+      prevArenaR: ps.prevArenaR,
+      ringOut: (ps.ringOut || []).slice(),
+    };
+  }
+
+  watchReveal(list) {
+    return (list || []).map(a => ({ pieceId: a.pieceId, side: this.sideOf(a.owner), ax: a.ax, ay: a.ay }));
+  }
+
+  /* The player broadcast, turned into the watcher one. Anything not named here
+     is not sent to watchers at all. */
+  forWatchers(event, p) {
+    if (!p) return null;
+    switch (event) {
+      case 'ko:start':
+      case 'ko:turn':
+        return this.watchState(p);
+      case 'ko:resolve':
+        return {
+          state: p.state ? this.watchState(p.state) : null,
+          reveal: this.watchReveal(p.reveal),
+          revealMs: p.revealMs,
+          order: p.order, frames: p.frames, out: p.out, arenaR: p.arenaR,
+        };
+      case 'ko:ready':
+        return { ready: (p.ready || []).map(id => this.sideOf(id)).filter(s => s !== null) };
+      case 'ko:settling':
+        return { holdMs: p.holdMs };
+      case 'ko:over':
+        return {
+          winner: p.winner || null,
+          winnerSide: p.winnerId ? this.sideOf(p.winnerId) : null,
+          why: p.why, turn: p.turn, stake: p.stake, pot: p.pot,
+        };
+      default:
+        return null;
+    }
+  }
+
+  /* Everything a watcher needs to draw this match the moment they arrive, which
+     may be half way through a turn. While a tape is playing (or the winner is
+     sitting on the board) the tape and both arrows come too, with how far in it
+     already is, so a late arrival joins the playback rather than a frozen
+     board. While anybody is aiming there is no tape and no arrow in here: the
+     aims of a turn still open are the mode, and lastResolve then is only the
+     previous turn. */
+  watchSnapshot(now) {
+    const state = this.watchState(this.publicState());
+    if ((this.state === 'resolving' || this.state === 'settling') && this.lastResolve) {
+      const tape = this.lastResolve;
+      state.resolve = {
+        reveal: this.watchReveal(this.revealAims()),
+        revealMs: KO.REVEAL_MS,
+        order: tape.order, frames: tape.frames, out: tape.out, arenaR: tape.arenaR,
+        elapsedMs: Math.max(0, nowOr(now) - (this.resolvedAt || 0)),
+      };
+    }
+    return state;
   }
 }
 

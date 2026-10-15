@@ -7,7 +7,7 @@
 //   - a 300-char emoji name seats an asciized name and no wake fails (D1-M1: no raw name reaches the wire)
 //   - another seat's key: a free socket cannot resume a paid seat, a paid socket cannot resume a free one
 //   - a hold flood presses once and pays once
-//   - auth.paid other than the number 1 is a free socket; a free socket with the helper reads only auth.paid and cv
+//   - auth.paid other than the number 1 is a free socket; a free socket with the helper reads only auth.paid, cv and watch (the free room's Spectate)
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const W = require('../shared/slWire.js');
@@ -168,7 +168,7 @@ test('a hold flood presses once and pays once', () => {
   assert.equal(room.money.bank.ledger.outCash, 500000);
 });
 
-test('auth.paid other than the number 1 is a free socket; a free socket reads only auth.paid and auth.cv', () => {
+test('auth.paid other than the number 1 is a free socket; a free socket reads only auth.paid, auth.cv and auth.watch', () => {
   const r = paidRig();
   for (const paidV of ['1', true, 2, [1], { valueOf: () => 1 }]) {
     const token = r.mint({});
@@ -190,7 +190,7 @@ test('auth.paid other than the number 1 is a free socket; a free socket reads on
   f.fire('sl:join', { nick: 'f' });
   f.fire('sl:hold', { on: 1 });
   f.fire('sl:leave');
-  assert.deepEqual(Array.from(touched).sort(), ['cv', 'paid']);
+  assert.deepEqual(Array.from(touched).sort(), ['cv', 'paid', 'watch']);
   // without the helper nothing but cv is read (slNoMoney's own test pins the rest)
   const plain = require('./slSockFakes').rig();
   const t2 = new Set();
@@ -201,5 +201,5 @@ test('auth.paid other than the number 1 is a free socket; a free socket reads on
   const q = plain.sock({ auth: a2 });
   q.fire('sl:join', { nick: 'q' });
   assert.ok(plain.room().seatOf(q.id), 'no helper: a paid page is a free seat (its token unspent, it expires into a refund)');
-  assert.deepEqual(Array.from(t2), ['cv']);
+  assert.deepEqual(Array.from(t2).sort(), ['cv', 'watch'], 'the skin, and whether it only watches');
 });
