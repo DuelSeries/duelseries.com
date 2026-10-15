@@ -1,8 +1,10 @@
 'use strict';
 // The Phase 6 swap on the lobby side (SERVER-DESIGN 16.2, launch path C35): the lobby's Free snake opens the new
 // slither.io page /sl through the own-page branch (no wallet widget, no duel:play), whenever the board's free snake row
-// is the new room's 'sl:' row, and also on a cold start with no board. Paid snake, and a board that lists the old free
-// rung (sl:door:off), still go through the widget to the old engine. Runs the real public/js/v2/play.js in a vm.
+// is the new room's 'sl:' row, and also on a cold start with no board. A board that lists the old free rung
+// (sl:door:off) still goes through the widget to the old engine; paid snake always goes through the widget (to the new
+// engine's /sl with engine 'sl' when its open row is an 'sl:' row, PAID-SL-DESIGN 2). Runs the real
+// public/js/v2/play.js in a vm.
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -17,14 +19,15 @@ function page(lobbies) {
   const mk = (id) => (els[id] = els[id] || { id, value: '', style: {}, hidden: true, textContent: '', focus() {} });
   ['game-frame', 'agar-frame', 'play-msg'].forEach(mk);
   mk('play-name').value = 'Owen123';
-  const store = () => { const m = {}; return { getItem: (k) => (k in m ? m[k] : null), setItem: (k, v) => { m[k] = String(v); } }; };
-  const sent = { events: [], ph: [] };
+  const store = () => { const m = {}; return { getItem: (k) => (k in m ? m[k] : null), setItem: (k, v) => { m[k] = String(v); },
+    removeItem: (k) => { delete m[k]; } }; };
+  const sent = { events: [], details: [], ph: [] };
   const win = {
     duelWallet: { authenticated: true, address: 'TestWallet1111' },
     V2Board: lobbies === null ? undefined : { lobbies, load() {} },
     V2_HAS_LADDER: () => true,
     phEvent: (name, d) => sent.ph.push([name, d]),
-    dispatchEvent: (e) => sent.events.push(e.type),
+    dispatchEvent: (e) => { sent.events.push(e.type); sent.details.push(e.detail); },
     addEventListener() {},
     location: { origin: 'http://localhost' },
   };
@@ -76,11 +79,24 @@ test('a board that lists the old free rung (sl:door:off rollback) goes to the ol
   assert.deepStrictEqual(p.sent.events, ['duel:play']);
 });
 
-test('paid snake never takes the /sl shortcut', () => {
+// Rewritten for paid snake on the new engine (PAID-SL-DESIGN 2 and 11.2, task T7). It said only "paid snake never takes
+// the /sl shortcut", and with an old $0.50 row on the board that is still so. Now the board can list the new engine's
+// paid row ('sl:na:s0.5') instead, and a paid sl buy-in DOES open /sl, but through the widget (duel:play with engine
+// 'sl': stake, token, nonce, then /sl), never through the own-page shortcut, which opens a page with no stake taken. The
+// engine comes from the board's open row at the stake: the old row plays with none.
+const SL_PAID = { id: 'sl:na:s0.5', game: 'snake', stake: 0.5, state: 'open' };
+
+test('paid snake never takes the /sl shortcut: an open sl: row goes to the widget with engine sl, an old row without', () => {
   const p = page([SL_ROW, PAID]);
   p.play.enter(PAID);
   assert.strictEqual(p.frame.src, undefined);
   assert.deepStrictEqual(p.sent.events, ['duel:play']);
+  assert.strictEqual(JSON.stringify(p.sent.details), JSON.stringify([{ game: 'snake', stake: 0.5 }]), 'the old engine: no engine named');
+  const s = page([SL_ROW, SL_PAID]);
+  s.play.enter(SL_PAID);
+  assert.strictEqual(s.frame.src, undefined, 'no own page: the widget stakes first');
+  assert.deepStrictEqual(s.sent.events, ['duel:play']);
+  assert.strictEqual(JSON.stringify(s.sent.details), JSON.stringify([{ game: 'snake', stake: 0.5, engine: 'sl' }]));
 });
 
 // The one carve-out (PAID-SL-DESIGN 9, 11.2): slxPaid.js IS the paid page's hand-off. It reads the lobby's entry token,

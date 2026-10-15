@@ -286,6 +286,25 @@
         return;
       }
     }
+    /* A paid slither.io rung is seated by one of two engines while the swap
+       is live (PAID-SL-DESIGN.md 2): the new one's paid rooms ('sl:' rows) or
+       the old one's ('snake:' rows). Which one is the board's call, made here
+       from the board itself and never from the row this was handed:
+       playChosen takes the FIRST row at the stake, and an old room still
+       finishing its players is listed 'closed' ahead of the open sl row
+       (/api/live puts liveBoard's rows first). One snake row per paid stake
+       is open in any one answer (critic C-3), by board.js's own isOpen rule.
+       With none (no board yet, a failed poll, or that rung shut) the wallet
+       is never asked, as for agar.io above. */
+    let engine = null;
+    if (game === 'snake' && hasStake && Number(sel.stake) > 0) {
+      const row = openSnakeRow(Number(sel.stake));
+      if (!row) {
+        say('That slither.io buy-in is not open right now. Pick one the card is offering.');
+        return;
+      }
+      if (String(row.id || '').indexOf('sl:') === 0) engine = 'sl';
+    }
     if (!connected()) {
       say('Sign in first — your wallet is your account here.');
       if (window.duelWalletLogin) window.duelWalletLogin();
@@ -330,6 +349,17 @@
          you left off. */
       if (hasStake && window.rememberStake) window.rememberStake(Number(sel.stake));
       try { sessionStorage.setItem('playerName', name); } catch (_) {}
+      /* A Free /sl page is never a paid one. /sl reads the paid hand-off
+         from this tab's sessionStorage (public/js/slx/slxPaid.js), and a paid
+         launch whose page never loaded, or an old-engine one, leaves a token,
+         a stake and maybe the one-shot slPaidLaunch mark behind; a reload
+         mark (slxPaidCut) would hold the free page too. All of it goes before
+         the page loads, so a stale token plus a Free click is a free page. */
+      if (page === '/sl') {
+        for (const k of ['entryToken', 'entrySol', 'stake', 'slPaidLaunch', 'slxPaidCut']) {
+          try { sessionStorage.removeItem(k); } catch (_) {}
+        }
+      }
       const frame = document.getElementById('game-frame');
       if (!frame) { say('That game could not be opened. Refresh and try again.'); return; }
       if (window.phEvent) window.phEvent('game_started', { game: game, lobbyType: 'free' });
@@ -341,6 +371,9 @@
     const detail = hasStake
       ? { game: game, stake: Number(sel.stake) }
       : { game: game, lobbyType: sel.lobbyType };
+    /* The widget stakes an 'sl' rung on this origin and opens /sl with it;
+       with no engine named it opens the old /game.html exactly as before. */
+    if (engine) detail.engine = engine;
     /* Remembered at launch, not at selection, so the buy-in that comes back
        tomorrow is one actually played rather than one idly scrolled past. */
     if (hasStake && window.rememberStake) window.rememberStake(Number(sel.stake));
@@ -358,6 +391,14 @@
     const free = rows.filter(l => l && l.game === 'snake' && Number(l.stake) === 0);
     if (!free.length) return true;
     return free.some(l => String(l.id || '').indexOf('sl:') === 0);
+  }
+
+  /* The snake row that takes new players at this paid stake, or null. Open
+     is board.js's rule (isOpen): a missing state counts as open. */
+  function openSnakeRow(stake) {
+    const rows = (window.V2Board && window.V2Board.lobbies) || [];
+    const open = l => l.state === undefined || l.state === null || l.state === 'open';
+    return rows.find(l => l && l.game === 'snake' && Math.abs(Number(l.stake) - stake) < 1e-9 && open(l)) || null;
   }
 
   /* From a board row. The row names its own room, so nothing is guessed. */

@@ -57,9 +57,15 @@ export function createRestakeBridge({ frames, origin, stake, relaunch, log }) {
     if (!frame || !e.source || e.source !== frame.contentWindow) return;
     watch(frame);
     const stakeOk = d.stake !== undefined && d.stake !== null;
+    const game = typeof d.game === 'string' ? d.game : 'snake';
+    const sel = stakeOk ? { stake: Number(d.stake) } : { lobbyType: typeof d.lobbyType === 'string' ? d.lobbyType : '' };
+    // The new slither.io engine's paid page (/sl, PAID-SL-DESIGN.md 2) names its engine: the round is staked where
+    // that page's door is and answered in that page, and a round paid for after it went opens /sl again, never the
+    // old /game.html. Honoured for a snake rung only; any other game or value keeps its own path.
+    if (game === 'snake' && stakeOk && d.engine === 'sl') sel.engine = 'sl';
     const req = {
-      game: typeof d.game === 'string' ? d.game : 'snake',
-      sel: stakeOk ? { stake: Number(d.stake) } : { lobbyType: typeof d.lobbyType === 'string' ? d.lobbyType : '' },
+      game,
+      sel,
       frame,
       source: e.source,
       loads: loads.get(frame),

@@ -237,3 +237,62 @@ test('an agar.io Play again is staked and answered only in the agar frame', asyn
   assert.deepStrictEqual(agar.contentWindow.posted, [[{ type: 'duel:restake:done', entryToken: 'AGTOKEN', nonce: 'a-1' }, ORIGIN]]);
   assert.deepStrictEqual(game.contentWindow.posted, [], 'and nothing went to the other frame');
 });
+
+/* Paid snake on the new engine (PAID-SL-DESIGN.md 2, task T7): the /sl page's end card posts
+   duel:restake { game: 'snake', engine: 'sl', stake, nonce } (public/js/slx/slxPaid.js). The bridge keeps the engine on
+   the rung, so the widget stakes it on this origin and answers it in that page; if the page went after the money moved,
+   the round it paid for opens /sl again through launchStaked, never the old /game.html. Snake rungs only: engine 'sl'
+   on another game, on a tier, or any other value is dropped. */
+test('an /sl Play again keeps engine sl on its rung, is answered in that page, and relaunches /sl', async () => {
+  const k = await kit();
+  const done = k.ask({ data: { type: 'duel:restake', game: 'snake', engine: 'sl', stake: 0.5, nonce: 's-1' } });
+  assert.deepStrictEqual([k.st.req.game, k.st.req.sel], ['snake', { stake: 0.5, engine: 'sl' }]);
+  k.st.sign();
+  k.st.submit('SLTOKEN');
+  k.st.land();
+  await done;
+  assert.deepStrictEqual(k.f.contentWindow.posted, [[{ type: 'duel:restake:done', entryToken: 'SLTOKEN', nonce: 's-1' }, ORIGIN]],
+    'answered in the page that asked');
+  assert.strictEqual(k.relaunched.length, 0);
+  // Gone after the money moved: the relaunch gets the rung WITH its engine (main.jsx opens /sl from it).
+  const late = k.ask({ data: { type: 'duel:restake', game: 'snake', engine: 'sl', stake: 1, nonce: 's-2' } });
+  k.st.sign();
+  k.st.submit('SLLATE');
+  k.bridge.onGameDone();
+  k.f.clear();
+  k.st.land();
+  await late;
+  assert.deepStrictEqual(k.relaunched, [['snake', { stake: 1, engine: 'sl' }, 'SLLATE']]);
+  assert.strictEqual(k.f.contentWindow.posted.length, 1, 'nothing posted into the blank frame');
+  // Not a snake rung, or not 'sl': the engine is dropped.
+  const drops = [
+    [{ game: 'paper', engine: 'sl', stake: 0.5 }, { stake: 0.5 }],
+    [{ game: 'snake', engine: 'sl', lobbyType: 'dollar' }, { lobbyType: 'dollar' }],
+    [{ game: 'snake', engine: 'SL', stake: 0.5 }, { stake: 0.5 }],
+    [{ game: 'snake', engine: ['sl'], stake: 0.5 }, { stake: 0.5 }],
+    [{ game: 'snake', stake: 0.5 }, { stake: 0.5 }]
+  ];
+  for (const [d, sel] of drops) {
+    k.f.style.display = 'block';
+    k.f.navigate();
+    const p = k.ask({ data: Object.assign({ type: 'duel:restake', nonce: 'x' }, d) });
+    assert.deepStrictEqual(k.st.req.sel, sel, JSON.stringify(d));
+    k.st.sign();
+    k.st.submit('T');
+    k.st.land();
+    await p;
+  }
+});
+
+test('the widget routes an sl Play again by its engine, and its relaunch opens /sl, never /game.html', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'wallet-widget/src/main.jsx'), 'utf8');
+  const bridge = src.slice(src.indexOf('restakeRef.current = createRestakeBridge('));
+  assert.match(bridge, /stakeRoute\(req\.game, pageRegion\(\), engineOf\(req\.game, req\.sel\)\)/);
+  const launch = src.slice(src.indexOf('function launchStaked('), src.indexOf('// Self-custody Cash Out'));
+  assert.ok(launch.includes("const sl = engineOf(game, sel) === 'sl';"));
+  assert.ok(launch.includes("if (sl) sessionStorage.setItem('slPaidLaunch', launchNonce());"));
+  assert.ok(launch.includes("else sessionStorage.removeItem('slPaidLaunch');"));
+  assert.ok(launch.includes("const html = sl ? '/sl' : (PAGES[game] || '/game.html');"));
+  const bundle = fs.readFileSync(path.join(ROOT, 'public/wallet/widget.js'), 'utf8');
+  assert.ok(bundle.includes('slPaidLaunch'), 'the built widget carries it');
+});

@@ -59,11 +59,36 @@ test('the widget stakes through stakeRoute on every path, and the bundle carries
   assert.ok(!/regionBase\(\)/.test(stakeOnly), 'stakeOnly no longer picks its own server');
   assert.match(stakeOnly, /async function stakeOnly\(sel, wallet, signTransaction, onStatus, base, hooks\)/);
   const play = src.slice(src.indexOf('async function stakeAndPlay('), src.indexOf('function launchStaked('));
-  assert.match(play, /stakeRoute\(game, lobbyRegion\(\)\)/);
+  assert.match(play, /stakeRoute\(game, lobbyRegion\(\), engineOf\(game, sel\)\)/);
   assert.ok(play.includes('await stakeOnly(stakeSpec(sel), wallet, signTransaction, onStatus, route.base);'));
   const bridge = src.slice(src.indexOf('restakeRef.current = createRestakeBridge('));
-  assert.match(bridge, /stakeRoute\(req\.game, pageRegion\(\)\)/);
+  assert.match(bridge, /stakeRoute\(req\.game, pageRegion\(\), engineOf\(req\.game, req\.sel\)\)/);
   assert.match(bridge, /stakeOnly\(req\.sel, w, signRef\.current, \(\) => \{\}, route\.base, hooks\)/);
   const bundle = read('public/wallet/widget.js');
   assert.ok(bundle.includes('paper:!0,knockout:!0,battleship:!0,agar:!0'), 'the built widget has the origin games');
+});
+
+/* Paid snake on the new engine (PAID-SL-DESIGN.md 2, task T7): /sl joins this origin's /sl namespace and its rows come
+   from this origin's /api/live, so an engine 'sl' buy-in is staked here whatever region the lobby picked. Snake only:
+   the old snake page (no engine, or any other value) still follows the region, and engine 'sl' changes no other game. */
+test('engine sl stakes snake on this origin; any other engine value or game is its own route', async () => {
+  const { stakeRoute, SERVER_URLS } = await load();
+  for (const region of ['na', 'eu', null, 'mars']) {
+    assert.deepStrictEqual(stakeRoute('snake', region, 'sl'), { base: '', region: null }, 'sl ' + region);
+  }
+  for (const engine of [undefined, null, 'old', 'SL', 'sl ', 1, { toString: () => 'sl' }]) {
+    assert.deepStrictEqual(stakeRoute('snake', 'eu', engine), { base: SERVER_URLS.eu, region: 'eu' }, String(engine));
+  }
+  assert.deepStrictEqual(stakeRoute(undefined, 'eu', 'sl'), { base: SERVER_URLS.eu, region: 'eu' }, 'snake by name only');
+  for (const game of ['paper', 'knockout', 'battleship', 'agar']) {
+    assert.deepStrictEqual(stakeRoute(game, 'eu', 'sl'), { base: '', region: null }, game);
+  }
+  assert.match(read('public/js/sl/slNet.js'), /root\.io\('\/sl', \{ forceNew: true, reconnection: false \}\)/,
+    'the /sl page joins its own origin');
+  const src = read('wallet-widget/src/main.jsx');
+  const fn = src.slice(src.indexOf('function engineOf('), src.indexOf('function launchNonce('));
+  assert.ok(/game === 'snake' && spec\.engine === 'sl' && byStake && Number\(spec\.stake\) > 0 \? 'sl' : null/.test(fn),
+    'the widget names the engine only for a paid snake rung');
+  const bundle = read('public/wallet/widget.js');
+  assert.ok(bundle.includes('slPaidLaunch') && /[`'"]\/sl[`'"]/.test(bundle), 'the built widget opens /sl with the launch mark');
 });

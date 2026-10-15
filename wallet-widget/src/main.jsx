@@ -56,7 +56,8 @@ function solanaAddress(user) {
 // The lobby is served from the NA origin, but a paid stake must hit the SAME server the game
 // will connect to: the one-time entry token is minted in that server's memory and consumed
 // there on join. Which server that is depends on the game (stakeRoute.mjs): snake follows the
-// lobby's region, Paper, Knockout, Battleship and agar.io play on this origin.
+// lobby's region, Paper, Knockout, Battleship, agar.io and paid snake on the new engine (/sl)
+// play on this origin.
 function lobbyRegion() { try { return localStorage.getItem('duelseries_region') || 'na'; } catch (_) { return 'na'; } }
 function regionBase() { return SERVER_URLS[lobbyRegion()] || ''; } // cosmetics only
 // The region the running game page was launched with (same-origin frames share this tab's
@@ -203,10 +204,29 @@ function refuseAgarTier(game, sel) {
   if (!byStake && spec.lobbyType !== 'free') throw new Error('That agar.io table does not exist. Pick a buy-in on the card.');
 }
 
+/* Paid snake runs on two engines while the swap is live (PAID-SL-DESIGN.md 2). The lobby names the new one with
+   engine: 'sl' when the board's open row at that stake is an 'sl:' row; the stake then goes to this origin, where the
+   new engine's paid door is, and the round opens /sl. Honoured only for a paid snake rung: any other game, a tier,
+   Free, or any other value is the old path exactly (/game.html on the region's server). */
+function engineOf(game, sel) {
+  const spec = stakeSpec(sel);
+  const byStake = spec.stake !== undefined && spec.stake !== null;
+  return game === 'snake' && spec.engine === 'sl' && byStake && Number(spec.stake) > 0 ? 'sl' : null;
+}
+
+/* The one-shot mark of a paid /sl launch (slPaidLaunch). public/js/slx/slxPaid.js reads the hand-off as money only
+   when it is there, and removes it with the token at boot, so a token left behind by an old-engine launch (or a
+   launch whose page never loaded) is never spent by a later /sl page. A marker, not a secret. */
+function launchNonce() {
+  const b = new Uint8Array(12);
+  try { crypto.getRandomValues(b); } catch (_) { for (let i = 0; i < b.length; i++) b[i] = Math.floor(Math.random() * 256); }
+  return Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
+}
+
 async function stakeAndPlay(game, sel, wallet, signTransaction, onStatus, onLaunch) {
   refuseAgarTier(game, sel);
   // One read of the lobby's region: the stake and the page's connection use the same answer.
-  const route = stakeRoute(game, lobbyRegion());
+  const route = stakeRoute(game, lobbyRegion(), engineOf(game, sel));
   const staked = await stakeOnly(stakeSpec(sel), wallet, signTransaction, onStatus, route.base);
   onStatus('Joining…');
   launchStaked(game, sel, Object.assign({}, staked, { region: route.region }), wallet, onLaunch);
@@ -238,9 +258,14 @@ function launchStaked(game, sel, staked, wallet, onLaunch) {
   }
   sessionStorage.setItem('entryToken', entryToken);
   sessionStorage.setItem('entrySol', String(worth));
+  // Written fresh for an /sl round, before the page loads; cleared for every other launch, so no
+  // mark ever sits beside a token the new engine was not bought for.
+  const sl = engineOf(game, sel) === 'sl';
+  if (sl) sessionStorage.setItem('slPaidLaunch', launchNonce());
+  else sessionStorage.removeItem('slPaidLaunch');
   // The region the stake went to, for pages that follow it (snake); a game that plays on this
-  // origin (Paper, Knockout, Battleship, agar.io) still gets the lobby's pick, which it does not
-  // use to connect.
+  // origin (Paper, Knockout, Battleship, agar.io, /sl) still gets the lobby's pick, which it does
+  // not use to connect.
   sessionStorage.setItem('region', staked.region || lobbyRegion());
   sessionStorage.setItem('snakeColor', localStorage.getItem('duelseries_skin_color') || '#14F195');
   sessionStorage.setItem('hatId', localStorage.getItem('duelseries_hat_id') || 'none');
@@ -257,12 +282,13 @@ function launchStaked(game, sel, staked, wallet, onLaunch) {
      Paper and agar.io are different: all three of their rungs come through
      here, Free included (stake 0 short-circuits to an empty token above), so
      every launch writes a fresh hand-off. Without its entry a paid Paper token
-     would fall through to /game.html and the snake client would spend it. */
+     would fall through to /game.html and the snake client would spend it.
+     A paid snake round on the new engine opens /sl in the snake frame (engineOf above). */
   const isAgar = game === 'agar';
   const PAGES = { agar: '/ag', knockout: '/knockout', battleship: '/battleship', snake: '/game.html',
                   paper: '/paper-arena' };
   const frame = document.getElementById(isAgar ? 'agar-frame' : 'game-frame');
-  const html = PAGES[game] || '/game.html';
+  const html = sl ? '/sl' : (PAGES[game] || '/game.html');
   if (frame) {
     if (window._pauseLobbyAnims) window._pauseLobbyAnims();
     onLaunch();
@@ -397,6 +423,8 @@ function WalletPanel() {
       const sel = (d && typeof d === 'object' && d.stake !== undefined && d.stake !== null)
         ? { stake: d.stake }
         : { lobbyType: (d && typeof d === 'object') ? d.lobbyType : d };
+      // The engine rides with the rung it was picked for, snake only (engineOf decides the rest).
+      if (game === 'snake' && sel.stake !== undefined && d.engine === 'sl') sel.engine = 'sl';
       if (stakeRef.current) stakeRef.current(game, sel);
     };
     window.addEventListener('duel:play', onPlay);
@@ -424,7 +452,9 @@ function WalletPanel() {
         if (!w) throw new Error('Wallet not ready. Return to the lobby.');
         // agar.io's Play again names its rung, like Paper's; a tier name stakes nothing.
         refuseAgarTier(req.game, req.sel);
-        const route = stakeRoute(req.game, pageRegion());
+        // An /sl page's Play again (engine 'sl') is staked on this origin and answered in that page; if the page
+        // went after the money moved, relaunch below opens /sl again through launchStaked, never /game.html.
+        const route = stakeRoute(req.game, pageRegion(), engineOf(req.game, req.sel));
         const staked = await stakeOnly(req.sel, w, signRef.current, () => {}, route.base, hooks);
         // Return focus to the game after the wallet modal so keyboard works without a click.
         const f = frameFor(req.game);
