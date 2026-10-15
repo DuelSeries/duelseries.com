@@ -63,6 +63,23 @@
 // gets its own death; then it is dropped. A resume with the current key of a seat that is still on a live socket (the
 // server has not seen the drop yet) takes it over and hands the old socket back to slSockets ('taken'). A leave, a
 // kick or a refusal is never parked.
+//
+// PAID (slither-reference/paid/PAID-SL-DESIGN.md 1, 3.3, 5, 6, 7, 9; task T3). A paid room is this room built with
+// opts.money, the money controller of server/slPaid/slMoney.js, which the server builds and hands in: no server/sl
+// file requires anything under server/slPaid (critic C-2, test/slNoMoney.test.js), and this file holds no money of
+// its own. Every paid line sits behind `if (this.money)` (or a paid-only method), so a room without opts.money is the
+// free room to the byte (the goldens). With money:
+//   - R.humanCap is min(C_HUMAN_CAP, C_PAID_HUMAN_CAP, opts.humanCap) and R.emergencyFails is 1; no bots; the sim drops
+//     on a border death and pulls drops inside flux - C_PAID_DROP_INSET (paidDrops, from the law rows)
+//   - seatPaid opens the account LAST (design 3.3): a seat holds an open account or leaves no trace of itself
+//   - the sim step runs in a try whose finally applies the step's money facts (sim.lastLog() and the food pass's
+//     eats; M1 to M3), the completed holds cash out money first (M4), then money.endStep (M5: collusion, orphans, the
+//     checker); a step that throws closes the room at once with 100% refunds through the owed lane (emergencyClose)
+//   - sl:x items: {t:'room'} and the own {t:'w'} at the seat and the resume, {t:'w'} once per wake to the own seat and
+//     the seats holding a changed snake and with every add of a paid snake, kept {t:'lost'}, {t:'cashed'} with the
+//     90/10 numbers, kept {t:'closed'} (design 9)
+//   - stop() never settles money (it alerts on a bank that still holds some); halt() stops only the clock, for the
+//     planned restart after the directory settled the money; the idle pause waits for every account to close
 
 const { performance } = require('perf_hooks');
 const W = require('../../shared/slWire.js');
@@ -218,6 +235,58 @@ function fireClock(c, simMs) {
   return true;
 }
 
+// A paid room (PAID-SL-DESIGN 1, 3.3, 4). What the room calls on opts.money (server/slPaid/slMoney.js), checked once.
+const MONEY_METHODS = Object.freeze(['attach', 'open', 'abort', 'applyFacts', 'cashOut', 'endStep', 'emergencySettle',
+  'openCount', 'worthOf', 'takeChanged', 'account', 'liveStakeTotal']);
+// The paid law rows the room reads (C_PAID_CASH_BYTE is the checker's, slCheck).
+const PAID_LAW_IDS = Object.freeze(['C_PAID_HUMAN_CAP', 'C_PAID_DROP_INSET', 'C_PAID_BORDER_DROPS', 'C_R_MIN']);
+// {t:'room', stake, cut}: the house cut in percent, the 10 of the 90/10 split the controller pays (slMoney cashOut).
+const PAID_CUT_PCT = 10;
+
+// The paid room's overrides: R with the paid cap and one failing wake to close, the sim's paidDrops, the lobbyType.
+// The cap never passes C_R_MIN snakes: the border target is clamped below at that count, so with no bots the radius
+// stays put and a pellet placed inside stays inside (design 1; MONEY INVARIANT 6).
+function paidRoom(laws, R, o) {
+  const m = o.money;
+  for (const k of MONEY_METHODS) {
+    if (typeof m[k] !== 'function') throw new TypeError('slRoom: opts.money needs ' + k + ' (slPaid/slMoney.js)');
+  }
+  if (o.bots) throw new Error('slRoom: a paid room keeps no bots (BRIEF answer 4)');
+  assertLawsComplete(laws, PAID_LAW_IDS);
+  const cap = laws.C_PAID_HUMAN_CAP.value;
+  if (!Number.isInteger(cap) || cap < 1) bad('C_PAID_HUMAN_CAP', 'must be a whole number >= 1');
+  const rMin = laws.C_R_MIN.value;
+  if (!rMin || !Number.isInteger(rMin.snakes) || cap > rMin.snakes) {
+    bad('C_PAID_HUMAN_CAP', 'is above C_R_MIN snakes (the border would move)');
+  }
+  let humanCap = Math.min(R.humanCap, cap);
+  if (o.humanCap !== undefined) {
+    if (!Number.isInteger(o.humanCap) || o.humanCap < 1) throw new TypeError('slRoom: opts.humanCap must be an integer >= 1');
+    humanCap = Math.min(humanCap, o.humanCap);
+  }
+  // a paid sim that threw half way is never stepped again (design 5): its first failing wake closes the room
+  if (o.emergencyFails !== undefined && o.emergencyFails !== 1) {
+    throw new Error('slRoom: a paid room closes on its first failing wake (emergencyFails 1)');
+  }
+  const bd = laws.C_PAID_BORDER_DROPS.value;
+  if (!bd || bd.border !== 'asBody' || Object.keys(bd).length !== 1) {
+    bad('C_PAID_BORDER_DROPS', 'is not {border: asBody} (the only form built)');
+  }
+  const lobbyType = typeof o.lobbyType === 'string' && o.lobbyType ? o.lobbyType : m.label;
+  if (typeof lobbyType !== 'string' || !lobbyType.startsWith('sl_')) {
+    throw new Error('slRoom: a paid room needs a lobbyType sl_...');
+  }
+  if (m.label !== undefined && m.label !== lobbyType) {
+    throw new Error('slRoom: the money controller is labelled ' + m.label + ', the room ' + lobbyType +
+      ' (the journal keys records by it)');
+  }
+  return {
+    R: Object.freeze(Object.assign({}, R, { humanCap, emergencyFails: 1 })),
+    paidDrops: { border: true, inset: laws.C_PAID_DROP_INSET.value },
+    lobbyType,
+  };
+}
+
 function cleanChat(text, R) {
   let s = typeof text === 'string' ? text : '';
   for (const ch of R.chatStrip) s = s.split(ch).join('');
@@ -240,11 +309,18 @@ class SlRoom {
   //   prey          true or false (default: on only when every prey row is shippable, BUILD-DECISIONS T5)
   //   paidBusy      () -> true while a paid seat is occupied (ops.drainStatus): catch-up sim steps then yield
   //   log           { log, warn, error }
+  // A paid room (PAID; the header) also takes:
+  //   money         the room's money controller (server/slPaid/slMoney.js createSlMoney), attached here
+  //   lobbyType     'sl_na_s0_5', 'sl_na_s0_5#1', 'sl_na_s1', ... (default money.label; the two must agree)
+  //   humanCap      a cap below C_PAID_HUMAN_CAP (optional)
+  //   emergencyFails  1 or absent (a paid room closes on its first failing wake)
   constructor(laws, opts) {
     const o = opts || {};
     if (o.shippableOnly !== false) assertShippable(laws);
     this.laws = laws;
-    const R = roomLaws(laws);
+    this.money = o.money || null;
+    const paid = this.money ? paidRoom(laws, roomLaws(laws), o) : null;
+    const R = paid ? paid.R : roomLaws(laws);
     this.R = R;
     this.P = R.P;
     this.log = o.log || console;
@@ -252,7 +328,7 @@ class SlRoom {
     this.clock = typeof o.clock === 'function' ? o.clock : (() => performance.now());
     this.now = typeof o.now === 'function' ? o.now : Date.now;
     this.region = typeof o.region === 'string' && o.region ? o.region : 'na';
-    this.lobbyType = 'sl_' + this.region + '_s0';
+    this.lobbyType = paid ? paid.lobbyType : 'sl_' + this.region + '_s0';
     this.autoTick = o.autoTick !== false;
     this.paidBusy = typeof o.paidBusy === 'function' ? o.paidBusy : null;
     this.safeStats = createSafeStats();
@@ -268,7 +344,9 @@ class SlRoom {
     const seed = typeof o.seed === 'number' && Number.isFinite(o.seed) ? o.seed : (this.now() % 2147483647);
     const prey = o.prey !== undefined ? o.prey === true : preyNotShippable(laws).length === 0;
     this.freedAt = new Map(); // snake id -> sim ms it left the sim (C_ID_QUARANTINE_MS)
-    this.sim = createSim(laws, { seed, world: true, prey, idBlocked: (id) => this._idBlocked(id) });
+    const simOpts = { seed, world: true, prey, idBlocked: (id) => this._idBlocked(id) };
+    if (paid) simOpts.paidDrops = paid.paidDrops;
+    this.sim = createSim(laws, simOpts);
     this.K = slSnake.snakeLaws(laws);
     this.world = viewFactory.createWorld(laws, this.sim);
     this.holds = createHoldBook(laws);
@@ -320,13 +398,18 @@ class SlRoom {
     this.lastHumanAt = this.clock();
     this._onTimer = () => this._timerWake();
     this._scratch = { ang: 0, wang: 0, dir: 1, turning: false };
+    if (this.money) {
+      this.settled = null; // the emergencySettle answer ({ left: the ids it could not close, ... }), for the directory
+      this.money.attach(this, { onClosed: (acct, outcome, x) => this._paidClosed(acct, outcome, x) });
+    }
   }
 
   // ---------------------------------------------------------------------------------------------------------------
   // The owner console contract (server/index.js:1202-1263; SERVER-DESIGN 3.1, 12.1). A free room: no stake, no worth.
+  // A paid room hands snakes, liveStakeTotal and floorWorth to its controller (in dollars, design 7.5) and has no bots.
 
   botsAllowed() {
-    return true;
+    return !this.money;
   }
 
   get playerCount() {
@@ -337,8 +420,9 @@ class SlRoom {
     return this.bots && typeof this.bots.count === 'function' ? this.bots.count() : 0;
   }
 
-  // What ops.drainStatus reads: every human seat and every bot, never worth.
+  // What ops.drainStatus reads: every human seat and every bot, never worth. A paid room: every open account.
   get snakes() {
+    if (this.money) return this.money.snakes;
     const m = new Map();
     for (const seat of this.seats.values()) {
       m.set('sl' + seat.snakeId, { alive: !!this.sim.snake(seat.snakeId), isBot: false, worth: 0 });
@@ -351,15 +435,16 @@ class SlRoom {
   }
 
   liveStakeTotal() {
-    return 0;
+    return this.money ? this.money.liveStakeTotal() : 0;
   }
 
   get floorWorth() {
-    return undefined;
+    return this.money ? this.money.floorWorth : undefined;
   }
 
-  // One bot by hand. Refused above C_ROOM_CAP, and without a bot driver (slBots, task T12).
+  // One bot by hand. Refused above C_ROOM_CAP, without a bot driver (slBots, task T12), and in a paid room.
   addBot() {
+    if (this.money) return null;
     if (this.stopped || !this.bots || typeof this.bots.add !== 'function') return null;
     if (this.sim.count() >= this.R.roomCap) return null;
     return this.bots.add(this) || null;
@@ -395,11 +480,25 @@ class SlRoom {
   // (refusal() says why).
   seat(socket, info) {
     if (!socket || typeof socket.id !== 'string') throw new TypeError('slRoom: seat needs a socket with an id');
+    if (this.money) throw new Error('slRoom: a paid room seats only through seatPaid (an account per snake)');
     if (this.seats.has(socket.id)) return this.seats.get(socket.id);
     if (this.refusal()) return null;
+    const built = { s: null, seat: null };
+    this._buildSeat(socket, info, built);
+    const seat = built.seat;
+    seat.queue.flush(this.clock());
+    this._ensureTicking();
+    return seat;
+  }
+
+  // The seat itself: the snake, the seat object and its key, queue and view, the join bundle, the key message and the
+  // biggest cash-out box, all queued, nothing flushed. built.s and built.seat are set as soon as each exists, so
+  // seatPaid can undo a build that threw half way.
+  _buildSeat(socket, info, built) {
     const inf = info || {};
     const cv = Number.isInteger(inf.cv) && inf.cv >= 0 ? inf.cv : 0;
     const s = this.spawnSnake({ nick: inf.nick, cv, isBot: false });
+    built.s = s;
     const seat = {
       id: socket.id,
       socket,
@@ -425,6 +524,7 @@ class SlRoom {
       heldAtPark: false,
       backs: createWindow(this.R.resume.perSeat.max, this.R.resume.perSeat.windowMs),
     };
+    built.seat = seat;
     this.keys.set(seat.key, seat);
     seat.queue = createSendQueue(this.laws, {
       socket,
@@ -445,9 +545,100 @@ class SlRoom {
     this._pushEvents(seat, tick, events);
     seat.queue.message(tick, this._keyMsg('seat', seat));
     if (this.top) seat.queue.message(tick, this.top);
-    seat.queue.flush(this.clock());
-    this._ensureTicking();
-    return seat;
+  }
+
+  // A paid seat (PAID-SL-DESIGN 3.3; the door, server/slPaid/slPaidDoor.js, consumed the token). entry: { jid, micro,
+  // wallet, paid, name, stakeSig }, micro from the consumed token only. The account opens LAST, so a seat either holds
+  // an open account or leaves no trace of itself, and the door refunds the token exactly when no account exists
+  // (MONEY INVARIANT 7; D1-C1, D2-C1):
+  //   A  the seat is built as seat() builds it, with no flush and no ticking; a throw undoes it and is rethrown
+  //   B  money.open (its own throw rolls its deposit back); a throw undoes the seat and is rethrown
+  //   C  the commit, every call in safeCall: {t:'room'} and the own {t:'w'}, the flush, the ticking. Anything between
+  //      B and C that throws anyway aborts the account (money.abort: the deposit leaves as a refund in the bank's
+  //      books, the door refunds the token), undoes the seat and is rethrown.
+  // Returns the account, or null when the room refuses (full, closed, settled or tainted: the door tries the next).
+  seatPaid(socket, info, entry) {
+    if (!this.money) throw new Error('slRoom: seatPaid needs a paid room (opts.money)');
+    if (!socket || typeof socket.id !== 'string') throw new TypeError('slRoom: seatPaid needs a socket with an id');
+    if (this.seats.has(socket.id)) throw new Error('slRoom: socket ' + socket.id + ' already holds a seat here');
+    if (this.refusal() || this.money.stopped || this.money.tainted) return null;
+    const built = { s: null, seat: null };
+    try {
+      this._buildSeat(socket, info, built);
+    } catch (e) {
+      this._undoSeat(built);
+      throw e;
+    }
+    const id = built.s.id;
+    let acct;
+    try {
+      acct = this.money.open(id, entry);
+    } catch (e) {
+      this._undoSeat(built);
+      throw e;
+    }
+    const seat = built.seat;
+    try {
+      const tick = this.sim.tick();
+      const room = this._roomMsg();
+      const w = this._worthMsg(id);
+      this._safe(() => seat.queue.message(tick, room, true), 'sl.paid.room');
+      if (w) this._safe(() => seat.queue.message(tick, w), 'sl.paid.w');
+      this._safe(() => seat.queue.flush(this.clock()), 'sl.paid.flush');
+      this._safe(() => this._ensureTicking(), 'sl.paid.tick');
+    } catch (e) {
+      this.log.error('[SLP] SEAT threw after the account opened, aborted (' + this.lobbyType + '): ' +
+        (e && e.message));
+      try {
+        this.money.abort(id);
+      } catch (e2) {
+        // the bank refused the withdraw: the account stays open, the door sees it and refunds nothing, and the
+        // controller's orphan check refunds it through the owed lane once its snake is gone (the undo below)
+        this.log.error('[SLP] SEAT CRITICAL abort of snake ' + id + ' refused (' + this.lobbyType + '): ' +
+          (e2 && e2.message));
+      }
+      this._undoSeat(built);
+      throw e;
+    }
+    return acct;
+  }
+
+  // seatPaid's undo: everything the build made goes, each part in its own try, so one failing part never keeps the
+  // others (the snake, the human mark and name, the seat maps and its key, the view, the queue). Nothing was sent.
+  _undoSeat(built) {
+    const s = built.s;
+    const seat = built.seat;
+    const parts = [];
+    if (s) {
+      parts.push(() => this.sim.remove(s.id));
+      parts.push(() => this.humans.delete(s.id));
+      parts.push(() => this.names.delete(s.id));
+    }
+    if (seat) {
+      seat.closed = true;
+      parts.push(() => { if (this.seats.get(seat.id) === seat) this.seats.delete(seat.id); });
+      parts.push(() => { if (this.bySnake.get(seat.snakeId) === seat) this.bySnake.delete(seat.snakeId); });
+      parts.push(() => this._dropKey(seat));
+      parts.push(() => { if (seat.view && typeof seat.view.leave === 'function') seat.view.leave(); });
+      parts.push(() => { if (seat.queue) seat.queue.close(); });
+    }
+    for (const f of parts) this._safe(f, 'sl.paid.undo');
+    this.stats.seats = this.seats.size;
+  }
+
+  _roomMsg() {
+    return { t: 'room', stake: this.money.stake, cut: PAID_CUT_PCT };
+  }
+
+  // safeCall with the room's stats and log (the paid lines: a throw is counted by label and logged, never rethrown)
+  _safe(fn, label) {
+    return safeCall(fn, label, this.safeStats, this.safeOpts);
+  }
+
+  // The {t:'w'} of a paid snake (micro), or null when it has no account.
+  _worthMsg(id) {
+    const v = this.money.worthOf(id);
+    return v === null || v === undefined ? null : { t: 'w', id, v };
   }
 
   seatOf(socketOrId) {
@@ -596,6 +787,12 @@ class SlRoom {
     if (seat.heldAtPark) first.push({ t: 'hold', id: seat.snakeId, on: 0 }); // the own ring the drop ended
     seat.heldAtPark = false;
     if (this.top) first.push(this.top);
+    if (this.money) {
+      // a paid seat: the room and its own worth again (design 3.3 Resume); a snake that died meanwhile has none
+      first.push(this._roomMsg());
+      const w = this._worthMsg(seat.snakeId);
+      if (w) first.push(w);
+    }
     seat.queue.resume(n, Number.isInteger(p) ? p : 0, tick, now, first);
     this.stats.resyncs++;
     seat.view.resync();
@@ -948,6 +1145,7 @@ class SlRoom {
     // seat part: once per wake, sliced
     if (job.ran === 0) return false;
     if (!job.seatList) {
+      if (this.money) this._safe(() => this._worthAll(), 'sl.paid.worth');
       job.seatList = Array.from(this.seats.values());
       for (const p of this.parked) job.seatList.push(p); // parked seats collect too (resume, see the header)
     }
@@ -1013,7 +1211,9 @@ class SlRoom {
     const now = this.clock();
     if (this.seats.size > 0) this.lastHumanAt = now;
     if (!this.autoTick) return;
-    if (this.seats.size === 0 && this.orphans.size === 0 && this.parked.size === 0 && now - this.lastHumanAt >= this.R.idleMs) {
+    // a paid room never pauses with money in a snake (MONEY INVARIANT 10)
+    if (this.seats.size === 0 && this.orphans.size === 0 && this.parked.size === 0 &&
+      (!this.money || this.money.openCount() === 0) && now - this.lastHumanAt >= this.R.idleMs) {
       this._pause();
       return;
     }
@@ -1067,8 +1267,8 @@ class SlRoom {
       slSnake.lockSteer(s, slQuant.rotAng(s.ang, R.angRound).v);
     }
 
-    // 4-5 sim
-    const log = sim.step();
+    // 4-5 sim (a paid room applies the step's money facts around it, _paidStep)
+    const log = this.money ? this._paidStep() : sim.step();
     frame.log = log;
     const simMs = sim.nowMs();
     for (let i = 0; i < log.deaths.length; i++) this._onDeath(log.deaths[i], frame.tick, simMs);
@@ -1078,9 +1278,11 @@ class SlRoom {
       this.names.delete(log.deaths[i].id);
     }
 
-    // 6 holds that completed (a death of this step already took its snake out: the death wins)
+    // 6 holds that completed (a death of this step already took its snake out: the death wins); a paid cash-out is
+    // money first (M4), then the step's money end (M5: collusion, orphans, the checker), before the next sim step
     const done = this.holds.complete(sim, simMs);
     for (let i = 0; i < done.length; i++) this._cashOut(done[i], frame, simMs);
+    if (this.money) this.money.endStep();
     this._pruneFreed(simMs);
 
     // 7 clocks
@@ -1106,6 +1308,36 @@ class SlRoom {
     frame.log = null; // valid only during the step
     job.frames.push(frame);
     this.stats.steps++;
+  }
+
+  // A paid room's sim step (PAID-SL-DESIGN 5): the step's money facts are applied in a finally, from sim.lastLog() and
+  // the food pass's eats (slMoney.applyFacts: M1 the kill deaths, M2 the eats, M3 the other deaths, each fact in its
+  // own try), so a step that throws half way still moves what it did. On that path every logged death then leaves
+  // humans and names, each in its own try so nothing here hides the step's own throw, and the throw goes on to
+  // _wakeFailed, which closes the room at once (R.emergencyFails 1: a paid sim that threw half way never steps again).
+  // On the normal path a throw of applyFacts itself fails the wake the same way, and _onDeath and the names loop run
+  // as in the free room.
+  _paidStep() {
+    const sim = this.sim;
+    let ok = false;
+    try {
+      const log = sim.step();
+      ok = true;
+      return log;
+    } finally {
+      const facts = () => this.money.applyFacts(sim.lastLog(), sim.food ? sim.food.tick.eats : null);
+      if (ok) {
+        facts();
+      } else {
+        this._safe(facts, 'sl.paid.facts');
+        const deaths = this._safe(() => sim.lastLog().deaths, 'sl.paid.deaths') || [];
+        for (let i = 0; i < deaths.length; i++) {
+          const id = deaths[i] && deaths[i].id;
+          this._safe(() => this.humans.delete(id), 'sl.paid.humans');
+          this._safe(() => this.names.delete(id), 'sl.paid.names');
+        }
+      }
+    }
   }
 
   _rttOf(snakeId) {
@@ -1149,8 +1381,54 @@ class SlRoom {
   _cashOut(id, frame, simMs) {
     const s = this.sim.snake(id);
     if (!s) return;
+    if (this.money) {
+      this._paidCashOut(s, frame, simMs);
+      return;
+    }
+    this._cashedOut(id, frame, simMs, { t: 'cashed', len: this._lenOf(s) });
+  }
+
+  _lenOf(s) {
     const fam = slQuant.fam24(s.fam, this.R.famRound).v;
-    const len = slCore.scoreOf(this.scoreTables.fmlts, this.scoreTables.fpsls, s.pts.length, fam);
+    return slCore.scoreOf(this.scoreTables.fmlts, this.scoreTables.fpsls, s.pts.length, fam);
+  }
+
+  // A paid cash-out (PAID-SL-DESIGN 6), money FIRST: money.cashOut withdraws the account, closes its journal record
+  // and dispatches the 90/10 payout order before it returns (critic C-6). A refusal before the withdraw throws there:
+  // the snake keeps playing (its hold lock and ring end; the controller logged and alerted). Only then does the snake
+  // leave the sim and the own seat get {t:'cashed', len, gross, cut, net, cid}; a throw in that part is logged
+  // CRITICAL with an alert and goes on to _wakeFailed (the emergency close), and the payout is already on its way.
+  _paidCashOut(s, frame, simMs) {
+    const id = s.id;
+    const seat = this.bySnake.get(id);
+    let o;
+    try {
+      o = this.money.cashOut(id, seat && seat.socket ? seat.id : null);
+    } catch (e) {
+      if (this.money.account(id)) {
+        this._safe(() => this.sim.setHold(id, null, 0), 'sl.paid.unlock');
+        this._ringAll(frame.tick, id, 0);
+        return;
+      }
+      // not refused: the account is gone, so the order went out; the snake must leave like any cash-out
+      this.log.error('[SLP] CASHOUT threw after the withdraw (' + this.lobbyType + '): ' + (e && e.message));
+    }
+    const msg = o ? { t: 'cashed', len: this._lenOf(s), gross: o.gross, cut: o.cut, net: o.net, cid: o.cid } :
+      { t: 'cashed', len: this._lenOf(s) };
+    try {
+      this._cashedOut(id, frame, simMs, msg);
+    } catch (e) {
+      this.log.error('[SLP] CASHOUT CRITICAL snake ' + id + ' paid (' + (o ? o.cid : 'no order') + ') but its removal ' +
+        'threw (' + this.lobbyType + '): ' + (e && e.message));
+      if (typeof this.money._alert === 'function') {
+        this._safe(() => this.money._alert('cashout-removal', { snakeId: id }), 'sl.paid.alert');
+      }
+      throw e;
+    }
+  }
+
+  // The snake of a completed hold leaves (no food), others are told C_CASHOUT_CODE, the own seat gets msg (kept).
+  _cashedOut(id, frame, simMs, msg) {
     this.sim.remove(id);
     this.stats.cashouts++;
     this._freeId(id, simMs);
@@ -1161,7 +1439,7 @@ class SlRoom {
       seat.dead = true;
       seat.cashed = true;
       seat.deadAt = this.clock();
-      seat.queue.message(frame.tick, { t: 'cashed', len }, true); // kept: a resume after lost bundles still says so
+      seat.queue.message(frame.tick, msg, true); // kept: a resume after lost bundles still says so
     }
     this._endOrphan(id);
     this.humans.delete(id);
@@ -1251,7 +1529,57 @@ class SlRoom {
       let alt;
       if (ev.type === 'minimap' && ev.full) alt = this.cache.recordBytes(ev.full);
       seat.queue.push(tick, ev, bytes, alt);
-      if (ev.type === 'snake_add' || ev.type === 'snake_remove') this._ringOnView(seat, tick, ev);
+      if (ev.type === 'snake_add' || ev.type === 'snake_remove') {
+        this._ringOnView(seat, tick, ev);
+        if (this.money && ev.type === 'snake_add') this._safe(() => this._worthOnView(seat, tick, ev), 'sl.paid.worth');
+      }
+    }
+  }
+
+  // A seat that picks up a paid snake gets its worth with the add (design 9: the $ over each paid head). The own
+  // snake's comes with the seat's commit, the resume and the wake's _worthAll.
+  _worthOnView(seat, tick, ev) {
+    if (ev.id === seat.snakeId) return;
+    const w = this._worthMsg(ev.id);
+    if (w) seat.queue.message(tick, w);
+  }
+
+  // {t:'w'} once per wake for every paid snake whose worth changed (design 9), before the seat part: to its own seat
+  // with its delta d, and to every seat whose client holds the snake (delivered or a queued add) without it. A seat
+  // that picks the snake up in this wake's collect gets it from _worthOnView. Parked seats get theirs at the resume.
+  _worthAll() {
+    const changed = this.money.takeChanged();
+    if (!changed.length) return;
+    const tick = this.sim.tick();
+    for (const seat of this.seats.values()) {
+      if (seat.closed) continue;
+      for (let i = 0; i < changed.length; i++) {
+        const c = changed[i];
+        if (c.id === seat.snakeId) seat.queue.message(tick, { t: 'w', id: c.id, v: c.v, d: c.d });
+        else if (seat.queue.holdsSnake(c.id)) seat.queue.message(tick, { t: 'w', id: c.id, v: c.v });
+      }
+    }
+  }
+
+  // The controller closed an account (slMoney onClosed; never for 'aborted', whose seat seatPaid undoes itself). The
+  // own seat, seated or parked, hears it with a kept message (a resume after lost bundles still says so):
+  //   died       {t:'lost', v}: the whole worth is gold on the floor now (design 4). Sent from the death fact itself,
+  //              so it reaches the seat on a step that threw too.
+  //   refunded   {t:'closed', why, refunded} (shutdown, crash, emergency, orphan: 100% of the current worth, micro),
+  //              flushed at once while the room is being settled (the process may exit next), else on the next turn
+  //   cashedout  _paidCashOut sends {t:'cashed'} with the numbers
+  _paidClosed(acct, outcome, x) {
+    const seat = this.bySnake.get(acct.snakeId);
+    if (!seat || seat.closed) return;
+    const e = x || {};
+    const tick = this.sim.tick();
+    if (outcome === 'died') {
+      seat.queue.message(tick, { t: 'lost', v: e.lostMicro }, true);
+    } else if (outcome === 'refunded') {
+      seat.queue.message(tick, { t: 'closed', why: e.why, refunded: e.refundedMicro }, true);
+      if (seat.parked) return;
+      if (this.money.stopped) this._safe(() => seat.queue.flush(this.clock()), 'sl.paid.flush');
+      else this._scheduleFlush(seat);
     }
   }
 
@@ -1329,8 +1657,28 @@ class SlRoom {
     this._ensureTicking();
   }
 
+  // A paid room: stop() never settles money (design 7.2). Its caller settles first (emergencyClose, the directory's
+  // shutdownSettle or idle retire); a bank that still holds money is left to that caller, logged CRITICAL and alerted.
   stop() {
     if (this.stopped) return;
+    if (this.money) this._stopCheck();
+    this._stopClock();
+    for (const seat of this.seats.values()) if (seat.flushHandle) seat.flushHandle.stop();
+    // a stopped room never ends its glides: release every orphan's address charge now
+    for (const id of Array.from(this.orphans.keys())) this._endOrphan(id);
+    // and nobody can come back to it: parked seats go, their keys with them
+    for (const seat of Array.from(this.parked)) this._dropParked(seat);
+  }
+
+  // The planned restart of a paid room (PAID-SL-DESIGN 7.2 step 4): the directory settled its money first
+  // (money.shutdownSettle), so only the clock stops and no step runs in the exit window. Seats, glides and parked
+  // seats stay as they are.
+  halt() {
+    if (this.stopped) return;
+    this._stopClock();
+  }
+
+  _stopClock() {
     this.stopped = true;
     if (this._jobHandle) {
       this._jobHandle.stop();
@@ -1343,25 +1691,48 @@ class SlRoom {
     }
     this.ticking = false;
     this.timing.idle();
-    for (const seat of this.seats.values()) if (seat.flushHandle) seat.flushHandle.stop();
-    // a stopped room never ends its glides: release every orphan's address charge now
-    for (const id of Array.from(this.orphans.keys())) this._endOrphan(id);
-    // and nobody can come back to it: parked seats go, their keys with them
-    for (const seat of Array.from(this.parked)) this._dropParked(seat);
+  }
+
+  _stopCheck() {
+    this._safe(() => {
+      const open = this.money.openCount();
+      const micro = this.money.bank && typeof this.money.bank.totalMicro === 'function' ?
+        this.money.bank.totalMicro() : Math.round(this.money.liveStakeTotal() * 1e6);
+      if (open === 0 && micro === 0) return;
+      this.log.error('[SLP] STOP CRITICAL ' + this.lobbyType + ' stopped with ' + open + ' open account(s) and ' +
+        micro + ' micro in its bank; not settled here, left to its caller');
+      if (typeof this.money._alert === 'function') this.money._alert('stop-with-money', { accounts: open, micro });
+    }, 'sl.paid.stop');
   }
 
   // C_EMERGENCY_FAIL_WAKES wakes in a row threw: the room stops for good and hands its sockets to slArenas
-  // (onClosed), which opens a fresh one. A free room owes nobody anything.
+  // (onClosed), which opens a fresh one. A free room owes nobody anything. A paid room (its first failing wake)
+  // settles BEFORE it stops (design 7.4): every account refunded 100% of its current worth through the owed lane,
+  // the floor swept to the house, each seat told {t:'closed'} (_paidClosed); the answer stays on this.settled, whose
+  // left lists any account the settle could not close (the directory keeps the room on its settling list then).
   emergencyClose() {
     if (this.closed) return;
     this.closed = true;
     const sockets = Array.from(this.seats.values()).map((s) => s.socket);
     this.log.error('[SL] EMERGENCY close', this.lobbyType, sockets.length + ' socket(s)');
+    if (this.money) {
+      try {
+        this.settled = this.money.emergencySettle('emergency');
+      } catch (e) {
+        this.log.error('[SLP] EMERGENCY settle threw (' + this.lobbyType + '): ' + (e && e.stack ? e.stack : e));
+      }
+    }
     this.stop();
     if (typeof this.onClosed === 'function') safeCall(() => this.onClosed(this, sockets), 'sl.onClosed', this.safeStats, this.safeOpts);
   }
 
   report() {
+    const r = this._report();
+    if (this.money && typeof this.money.totals === 'function') r.money = this.money.totals();
+    return r;
+  }
+
+  _report() {
     const q = this.qstats;
     return {
       lobbyType: this.lobbyType,
