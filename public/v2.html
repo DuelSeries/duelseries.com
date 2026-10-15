@@ -28,6 +28,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/shop.css">
 <style>
 /* ─────────────────────────────────────────────────────────────────────────
    Lobby v2. Mock data, real interactions.
@@ -2183,17 +2184,10 @@ body.scr-anim { overflow-x:hidden }
 </main>
 
 <!-- ══ SHOP ══ -->
-<!-- Empty on purpose (2026-09-28): Owen wants the tab in place before he
-     decides what goes in it. The old cosmetics shop was removed on 2026-08-13
-     for slither parity and is not coming back through here; this screen has no
-     items, no prices and no buy path, only the placeholder. -->
-<main id="shop-screen" class="wrap">
-  <div class="stub">
-    <h2>Shop</h2>
-    <div class="soontag">Coming soon</div>
-    <p>Nothing for sale yet. Check back later.</p>
-  </div>
-</main>
+<!-- Skins for every game, priced, nothing for sale (Owen, 2026-10-15). Drawn by
+     public/js/v2/shop.js; the skins are public/js/v2/shopArt.js and the prices
+     shared/shopPrices.js. Every Buy button is disabled: no purchase path yet. -->
+<main id="shop-screen" class="wrap"><div id="shop"></div></main>
 
 <!-- Locker and Settings are both placeholders, but they need one element each:
      a single shared stub is the same node on both sides of a swipe, so the
@@ -2288,6 +2282,12 @@ body.scr-anim { overflow-x:hidden }
      file, unchanged), then the Customize preview drawn from them. -->
 <script src="/js/sl/slSprites.js"></script>
 <script src="/js/v2/look.js"></script>
+<!-- The Shop: prices (the one file Owen edits), Battleship's ship art (a pure
+     drawing module, nothing runs at load), the skins, then the tab. -->
+<script src="/shared/shopPrices.js"></script>
+<script src="/js/battleshipArt.js"></script>
+<script src="/js/v2/shopArt.js"></script>
+<script src="/js/v2/shop.js"></script>
 <script>
 /* Flat geometric artwork, one scene per game. Drawn rather than iconed:
    emoji or a generic icon set is what makes a games page look unmade. */
@@ -3750,7 +3750,7 @@ const NAV=[
   p:'M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2'},
  {id:'social', t:'Social',  d:'Friends, challenges and the games they are in right now.',
   p:'M16 20v-1.5a3.5 3.5 0 0 0-3.5-3.5h-5A3.5 3.5 0 0 0 4 18.5V20M10 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7M20 20v-1.5a3.5 3.5 0 0 0-2.6-3.4M15.5 4.1a3.5 3.5 0 0 1 0 6.8'},
- {id:'shop',   t:'Shop',    d:'Nothing for sale yet.',
+ {id:'shop',   t:'Shop',    d:'Skins for every game.',
   p:'M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4zM3 6h18M16 10a4 4 0 0 1-8 0'},
  {id:'settings',t:'Settings',d:'Graphics, sound, region and account preferences.',
   p:'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2v.1a2 2 0 1 1-4 0v-.2a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0-1.2-2.9H3a2 2 0 1 1 0-4h.2a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3h.1A1.7 1.7 0 0 0 10.3 3v-.1a2 2 0 1 1 4 0V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 2-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1a1.7 1.7 0 0 0 1.6 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z'},
@@ -3860,6 +3860,7 @@ function fillScreen(tab){
   if(tab==='wallet')V2Wallet.render();
   else if(tab==='social')V2Social.load();
   else if(tab==='settings')drawSettings();
+  else if(tab==='shop'&&window.V2ShopTab)V2ShopTab.render();
   /* Asked on arrival, not on the interval's own schedule. The page only polls
      while its screen is up, so opening the tab used to show a row of dashes
      until the first tick landed.

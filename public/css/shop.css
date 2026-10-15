@@ -1,0 +1,76 @@
+/* The Shop tab (public/js/v2/shop.js). Lobby tokens only (v2.html :root):
+   surfaces carry the depth, bone carries the selection, amber carries money,
+   and every other colour lives in the game previews. Everything is prefixed
+   sh- so nothing here can restyle another screen. */
+#shop{padding-bottom:64px}
+#shop .head{flex-wrap:wrap;gap:14px}
+
+/* The layout switch, while Owen picks between the three. */
+.sh-lay{display:inline-flex;background:var(--s1);border-radius:var(--rf);padding:3px}
+.sh-lay button{padding:7px 13px;border-radius:var(--rf);font-size:13px;font-weight:600;color:var(--tx2)}
+.sh-lay button.on{background:var(--s3);color:var(--tx)}
+
+.sh-chips{display:flex;gap:8px;overflow-x:auto;padding:2px 0 16px;scrollbar-width:none}
+.sh-chips::-webkit-scrollbar{display:none}
+.sh-chip{flex:none;padding:9px 15px;border-radius:var(--rf);background:var(--s1);color:var(--tx2);
+  font-size:14px;font-weight:600;white-space:nowrap}
+.sh-chip:hover{color:var(--tx)}
+.sh-chip.on{background:var(--bone);color:var(--ink)}
+.sh-n{font-size:11.5px;opacity:.6;margin-left:7px}
+.sh-note{font-size:13.5px;color:var(--tx3);margin:-4px 0 14px}
+
+/* A skin: its preview, then name, rarity, price and the dead Buy button. */
+.sh-card{background:var(--s1);border-radius:16px;overflow:hidden;display:flex;flex-direction:column}
+.sh-cv{display:block;width:100%;aspect-ratio:5/4}
+.sh-cv[data-g="snake"]{background:#0e1622 url(/hexbg.jpg) 0 0/180px}
+.sh-meta{padding:11px 13px 13px;display:flex;flex-direction:column;gap:3px}
+.sh-nm{font-weight:650;font-size:15px}
+.sh-ln{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.sh-rar{font-size:12px;color:var(--tx3);display:inline-flex;align-items:center;gap:6px}
+.sh-pips{display:inline-flex;gap:2px}
+.sh-pips i{width:4px;height:9px;border-radius:1px;background:var(--s3)}
+.sh-pips i.on{background:var(--tx2)}
+.sh-price{font-size:15px;font-weight:600;color:var(--money)}
+.sh-buy{margin-top:8px;padding:9px 0;width:100%;border-radius:var(--r2);background:var(--s2);
+  color:var(--tx3);font-size:13px;font-weight:600}
+.sh-buy:disabled{cursor:default}
+
+/* A: one game at a time */
+.sh-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:16px}
+
+/* B: a shelf per game */
+.sh-shelf{margin-bottom:26px}
+.sh-sh{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px}
+.sh-sh h3{font-size:19px;font-weight:700;letter-spacing:-.3px}
+.sh-sh span{font-size:12.5px;color:var(--tx3)}
+.sh-rail{display:flex;gap:14px;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;padding-bottom:2px}
+.sh-rail::-webkit-scrollbar{display:none}
+.sh-rail .sh-card{flex:none;width:210px;scroll-snap-align:start}
+
+/* C: showcase */
+.sh-cwrap{display:grid;grid-template-columns:1.35fr 1fr;gap:20px;align-items:start}
+.sh-show{background:var(--s1);border-radius:var(--r3);overflow:hidden}
+.sh-show .sh-cv{aspect-ratio:16/11}
+.sh-show .sh-meta{padding:16px 18px 18px;gap:5px}
+.sh-show .sh-nm{font-size:22px}
+.sh-show .sh-price{font-size:20px}
+.sh-show .sh-buy{padding:12px 0;font-size:14px}
+.sh-for{font-size:12.5px;color:var(--tx3)}
+.sh-tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.sh-tile{background:var(--s1);border-radius:12px;overflow:hidden;text-align:left;
+  box-shadow:inset 0 0 0 2px transparent;display:flex;flex-direction:column}
+.sh-tile .sh-cv{aspect-ratio:1}
+.sh-tile.on{box-shadow:0 0 0 2px var(--bone)}
+.sh-tp{font-size:12px;font-weight:600;color:var(--money);padding:6px 8px 0}
+.sh-tn{font-size:12px;color:var(--tx2);padding:0 8px 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+@media(max-width:760px){
+  #shop .head{margin-top:28px}
+  .sh-grid{grid-template-columns:repeat(2,1fr);gap:12px}
+  .sh-rail .sh-card{width:156px}
+  .sh-meta{padding:10px 11px 12px}
+  .sh-nm{font-size:14px}
+  .sh-cwrap{grid-template-columns:1fr;gap:14px}
+  .sh-tiles{gap:8px}
+  .sh-lay button{padding:7px 11px;font-size:12.5px}
+}

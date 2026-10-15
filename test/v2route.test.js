@@ -1905,10 +1905,12 @@ test('each playable game card carries a people count, and a padlocked one does n
   assert.ok(els.every(e => e.hidden), 'a failed poll hides every count');
 });
 
-test('the Shop tab is an empty placeholder, not the removed cosmetics shop', () => {
-  /* Added 2026-09-28 on Owen's ask: a Shop tab, empty for now. The cosmetics
-     shop was removed on 2026-08-13 for slither parity; this pins that the new
-     tab is routed like every other one and carries no buy path. */
+test('the Shop tab shows priced skins for every game and sells nothing', () => {
+  /* The tab came in empty on 2026-09-28; on 2026-10-15 Owen asked for skins
+     for every game, priced, with buying left for later. This pins that it is
+     still routed like every other tab and that it carries no buy path: the
+     only Buy control is a disabled button, and nothing on it talks to the
+     server. The skins and prices themselves are checked in shop.test.js. */
   const html = v2();
   const nav = html.slice(html.indexOf('const NAV=['), html.indexOf('];', html.indexOf('const NAV=[')));
   assert.ok(/id:'shop'/.test(nav), 'Shop is in the nav');
@@ -1916,12 +1918,18 @@ test('the Shop tab is an empty placeholder, not the removed cosmetics shop', () 
   assert.ok(/shop:'shop-screen'/.test(html), 'it maps to its own screen');
   const sw = fs.readFileSync(path.join(ROOT, 'public/js/v2/swipe.js'), 'utf8');
   assert.ok(/'social', 'shop', 'settings'/.test(sw), 'the swipe order matches the nav');
-  const i = html.indexOf('<main id="shop-screen"');
-  assert.ok(i > 0, 'the screen exists');
-  const screen = html.slice(i, html.indexOf('</main>', i));
-  assert.ok(/Coming soon/.test(screen), 'it says coming soon');
-  for (const bad of ['<button', 'onclick', '$', 'cosmetic', 'buy'])
-    assert.ok(!screen.toLowerCase().includes(bad.toLowerCase()), 'no ' + bad + ' in the placeholder');
+  assert.ok(html.includes('<main id="shop-screen" class="wrap"><div id="shop"></div></main>'), 'the screen is a mount for shop.js');
+  assert.ok(html.includes("tab==='shop'&&window.V2ShopTab)V2ShopTab.render()"), 'opening the tab draws it');
+  for (const src of ['/shared/shopPrices.js', '/js/battleshipArt.js', '/js/v2/shopArt.js', '/js/v2/shop.js', '/css/shop.css'])
+    assert.ok(html.includes(src), 'the lobby loads ' + src);
+  const tab = fs.readFileSync(path.join(ROOT, 'public/js/v2/shop.js'), 'utf8');
+  const art = fs.readFileSync(path.join(ROOT, 'public/js/v2/shopArt.js'), 'utf8');
+  const buys = tab.match(/<button class="sh-buy"[^>]*>/g) || [];
+  assert.ok(buys.length === 1 && / disabled>$/.test(buys[0]), 'one Buy button, and it is disabled');
+  assert.ok(tab.includes(buys[0] + 'Coming soon</button>'), 'and says Coming soon');
+  for (const src of [tab, art])
+    for (const bad of ['fetch(', 'XMLHttpRequest', 'io(', '/api/', 'socket', 'privy', 'sendTransaction', 'V2Wallet'])
+      assert.ok(!src.toLowerCase().includes(bad.toLowerCase()), 'the shop has no ' + bad);
   for (const gone of ['COSMETIC_CATALOG', '/api/cosmetics/'])
     assert.ok(!html.includes(gone), 'removed shop code stays removed: ' + gone);
 });

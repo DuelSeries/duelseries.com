@@ -34,9 +34,23 @@
     if (!sprites) { sprites = {}; SS.buildSprites(sprites, { document: root.document, nsr: false }); }
     return sprites.per_color_imgs;
   }
+  /* A skin is a cv number, or (for the Shop's skins) a list of [count, colour]
+     stripe runs: slither's own custom-skin bytes (setSkin's `ca`, bytes 8 on
+     are count, colour pairs, only its allowed colours count). */
   function look(cv) {
-    if (!looks[cv]) { var o = { xx: 0, yy: 0 }; SS.setSkin(o, cv); looks[cv] = o; }
-    return looks[cv];
+    var runs = Array.isArray(cv);                 // a cv can also arrive as a string, from data-skin
+    var key = runs ? JSON.stringify(cv) : cv;
+    if (!looks[key]) {
+      var o = { xx: 0, yy: 0 };
+      if (!runs) SS.setSkin(o, cv);
+      else {
+        var ca = [0, 0, 0, 0, 0, 0, 0, 0];
+        for (var i = 0; i < cv.length; i++) ca.push(cv[i][0], cv[i][1]);
+        SS.setSkin(o, 0, ca);
+      }
+      looks[key] = o;
+    }
+    return looks[key];
   }
 
   /* Body circles sit about half a radius apart, as they do at a starting
