@@ -13,8 +13,7 @@ const renderer = new Renderer(canvas);
 
 // Player info from lobby
 const playerName    = sessionStorage.getItem('playerName')    || 'Player';
-const walletAddress = sessionStorage.getItem('walletAddress') || null;
-const googleId      = sessionStorage.getItem('googleId')      || null;
+const walletAddress = sessionStorage.getItem('walletAddress') || null;   // display and analytics only: the server trusts a proof (walletProof below)
 if (window.phIdentify && walletAddress) window.phIdentify(walletAddress); // link in-game analytics to this player
 /* Two ways a room can be named. The old lobby sets lobbyType; the redesigned
    one sets stake, a rung of the ladder. The widget clears whichever it did not
@@ -125,12 +124,37 @@ const reconnectKey = (window.crypto && crypto.randomUUID)
 // palette colour, so a stale value can't put a non-slither snake in play.
 const snakeColor = sessionStorage.getItem('snakeColor') || localStorage.getItem('duelseries_skin_color') || '#c080ff';
 
+/* Proof that this player holds the wallet (security review item e, 2026-10-15). The
+   server no longer believes a wallet a client merely names: stats, the all-time
+   leaderboard and the Battle Royale prize go only to a wallet the connection PROVED
+   (a paid entry token's payer, or this signature). The lobby's wallet widget signs
+   it silently (duelWalletSignAction, the signer the owner page uses), once per
+   connection, fresh inside the server's 2-minute window. No wallet, no widget, or a
+   signer slower than IDPROOF_WAIT_MS: PLAY goes out without one, so play is never
+   held up; the server then simply records no stats for this connection. */
+const IDPROOF_WAIT_MS = 2000;
+function walletProof() {
+  let signer = null;
+  try {
+    const host = (window.parent && window.parent !== window) ? window.parent : window;
+    signer = host.duelWalletSignAction;
+  } catch (e) { signer = null; }   // a parent on another origin: no signer
+  if (typeof signer !== 'function' || !walletAddress) return Promise.resolve(null);
+  return Promise.race([
+    Promise.resolve().then(() => signer('play:identify', {})).catch(() => null),
+    new Promise((resolve) => setTimeout(() => resolve(null), IDPROOF_WAIT_MS)),
+  ]);
+}
+
 socket.on('connect', () => {
   try { console.log('[net] transport:', socket.io.engine.transport.name); } catch (e) {}
   if (spectateOnly) {
     socket.emit('spectate:join', { lobbyType, stake, region: selectedRegion });
   } else {
-    socket.emit(CONSTANTS.EVENTS.PLAY, { name: playerName, walletAddress, googleId, color: snakeColor, lobbyType, stake, entryToken, region: selectedRegion, reconnectKey });
+    walletProof().then((idProof) => {
+      if (!socket.connected) return;   // dropped while signing: the next connect sends its own
+      socket.emit(CONSTANTS.EVENTS.PLAY, { name: playerName, color: snakeColor, lobbyType, stake, entryToken, region: selectedRegion, reconnectKey, idProof: idProof || undefined });
+    });
   }
 });
 

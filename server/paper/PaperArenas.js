@@ -35,12 +35,22 @@ function rungOf(stake) {
 }
 
 class PaperArenas {
-  constructor({ region = 'na', io = null, hooks, now = Date.now, paidEnabled = process.env.PAPER_PAID === '1', autoTick = true, warm = true, makeRoom } = {}) {
+  // journal: the paid money journal (server/ag/agJournal.js, shared with paid agar and paid snake), or null. Every paid
+  // seat's account is opened and closed in it, and a shutdown or crash closes each one 'refunded' with its owed row,
+  // so the next boot's replay writes the refunds a dying process could not (security review item a).
+  constructor({ region = 'na', io = null, hooks, now = Date.now, paidEnabled = process.env.PAPER_PAID === '1', autoTick = true, warm = true, makeRoom, journal = null } = {}) {
     this.region = region;
     this.io = io;
     this.hooks = hooks;
     this.now = now;
     this.paidEnabled = !!paidEnabled;
+    // The owner's runtime door switch (paper:paid:off / paper:paid:on, kept across restarts by the server's switch
+    // file): closed, every NEW paid join is refunded at the door ('not-open'); seated players keep playing, resume
+    // and cash out. stopping: set once by shutdownSettle, the process is going down (the door refuses before it
+    // spends a token, and nothing new is seated).
+    this.paidOpen = this.paidEnabled;
+    this.stopping = false;
+    this.journal = journal;
     this.autoTick = autoTick;
     this.makeRoom = makeRoom || ((opts) => new PaperRoom(opts));
     this.arenas = {};
@@ -94,6 +104,7 @@ class PaperArenas {
   seatFor(stake, preferred) {
     const rung = rungOf(stake);
     if (rung === null) return null;
+    if (rung > 0 && this.stopping) return null; // settled for a restart: nothing paid is seated (or created) now
     const list = this.arenas[keyOf(rung)];
     if (!list) return null;
     if (preferred && list.includes(preferred) && !preferred.stopped && preferred.liveHumans < MP.MAX_HUMANS) {
@@ -178,6 +189,47 @@ class PaperArenas {
     this.byKey.set(seat.resumeKey, seat);
     if (seat.socketId) this.bySocket.set(seat.socketId, seat);
     if (seat.proof && !seat.confirmed) this.byProof.set(seat.proof, seat);
+    this._journalOpen(seat);
+  }
+
+  // The money journal (agJournal): a paid seat's account open, and its one close. A failed write is logged by the
+  // journal itself and never reaches a money path (as agar's: server/ag/agArenas.js _journal).
+  _journalOpen(seat) {
+    const j = this.journal;
+    if (!j || !seat || !seat.jid || !seat.room || !seat.room.paid) return;
+    try {
+      const acct = { jid: seat.jid, wallet: seat.wallet, deposit: seat.deposit, name: seat.name };
+      if (seat.stakeSig) acct.stakeSig = seat.stakeSig;
+      j.open(acct, seat.room.lobbyType);
+    } catch (e) {
+      console.error('[PAPER] journal open', e && e.message);
+    }
+  }
+
+  // An arena's floor coins at a restart or crash (PaperRoom._shutdownFloor): true when the journal took the record.
+  _journalFloor(rec) {
+    const j = this.journal;
+    if (!j || typeof j.floor !== 'function') return false;
+    try {
+      return j.floor(rec) !== false;
+    } catch (e) {
+      console.error('[PAPER] journal floor', e && e.message);
+      return false;
+    }
+  }
+
+  // seat.exit: { outcome, why, key?, refundedMicro?, reason? }, set by the room as the seat leaves. Once per seat.
+  _journalClose(seat) {
+    const j = this.journal;
+    if (!j || !seat || !seat.jid || seat.journalClosed || !seat.room || !seat.room.paid) return;
+    seat.journalClosed = true;
+    const x = seat.exit || { outcome: 'closed', why: '' };
+    try {
+      j.close({ jid: seat.jid, wallet: seat.wallet, deposit: seat.deposit, name: seat.name }, x.outcome, x,
+        seat.room.lobbyType);
+    } catch (e) {
+      console.error('[PAPER] journal close', e && e.message);
+    }
   }
 
   // The player steered (or came back with its resumeKey): the token no longer names the seat.
@@ -208,6 +260,7 @@ class PaperArenas {
   }
 
   _seatFreed(seat) {
+    this._journalClose(seat);
     if (this.byKey.get(seat.resumeKey) === seat) this.byKey.delete(seat.resumeKey);
     for (const [sid, s] of this.bySocket) if (s === seat) this.bySocket.delete(sid);
     if (seat.proof && this.byProof.get(seat.proof) === seat) {
@@ -222,6 +275,35 @@ class PaperArenas {
     const out = [];
     for (const k of Object.keys(this.arenas)) out.push(...this.arenas[k]);
     return out;
+  }
+
+  // A planned restart ('shutdown') or a crash ('crash'), as paid agar and paid snake (Owen Q6, security review item a):
+  // the door shuts for good (stopping), every paid arena stops ticking, and every open paid account is withdrawn and
+  // closed in the journal 'refunded' with its owed row: 100% of the CURRENT balance, no rake (an unconfirmed seat's
+  // buy-in part bounded by what landed, PaperRoom._shutdownOwed). The rows come back for the caller to write
+  // (installAgShutdown: db.recordOwedOnce, one row per key; the crash path leaves them to the journal replay).
+  // Floor coins go to the house as one journaled floor record per arena, booked once by the replay. Rows only:
+  // nothing is paid here, nothing waits.
+  shutdownSettle(why = 'shutdown') {
+    this.stopping = true;
+    this.paidOpen = false;
+    const rows = [];
+    for (const room of this.all()) {
+      if (!room.paid) continue;
+      try {
+        rows.push(...room.shutdownSettle(why));
+      } catch (e) {
+        console.error('[PAPER] SHUTDOWN settle threw', room.lobbyType, e && e.stack ? e.stack : e);
+      }
+    }
+    return rows;
+  }
+
+  // Open paid accounts across every arena (the shutdown's count and the owner page).
+  paidOpenCount() {
+    let n = 0;
+    for (const room of this.all()) if (room.paid) n += room.bank.openIds().length;
+    return n;
   }
 
   // Every 60 s: (1) an empty OVERFLOW arena with nothing on its floor for ARENA_SWEEP_MS goes;
@@ -267,7 +349,9 @@ class PaperArenas {
         players,
         bots: stake > 0 ? 0 : players > 0 ? bots : MP.FREE_BOTS_IDLE,
         capacity: MP.MAX_HUMANS,
-        state: 'open'
+        // a paid rung under paper:paid:off (or a restart) stays listed, its seated players counted, but closed: the
+        // lobby draws it struck through and asks for no money (board.js isOpen / playableStakes)
+        state: stake > 0 && (!this.paidOpen || this.stopping) ? 'closed' : 'open'
       });
     }
     return rows;

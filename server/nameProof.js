@@ -56,17 +56,23 @@ function field(body, k) {
   return typeof v === 'string' ? v : (typeof v === 'number' && Number.isFinite(v) ? String(v) : '');
 }
 function verifyNameProof(body, now) {
+  const name = field(body, 'name');
+  return verifySigned(body, (wallet, ts) => nameMessage(wallet, name, ts), now);
+}
+
+/* The one check both proofs share: the wallet's own ed25519 signature over the message msgOf(wallet, ts),
+   inside the window, spent once. Returns the wallet, or null. */
+function verifySigned(body, msgOf, now) {
   now = now || Date.now();
   const wallet = field(body, 'wallet').trim();
   const sig    = field(body, 'sig').trim();
   const ts     = Number(field(body, 'ts')) || NaN;
-  const name   = field(body, 'name');
   if (!wallet || !sig || !ts || !isFinite(ts)) return null;
   if (Math.abs(now - ts) > WINDOW_MS) return null;      // stale, or from the future
   try {
     const pub = bs58.decode(wallet);
     if (pub.length !== 32) return null;                 // not an ed25519 public key
-    const msg = new TextEncoder().encode(nameMessage(wallet, name, ts));
+    const msg = new TextEncoder().encode(msgOf(wallet, ts));
     if (!ed25519.verify(bs58.decode(sig), msg, pub)) return null;
   } catch (_) { return null; }
   // Verified BEFORE it is spent, so a bad signature cannot burn a good one.
@@ -74,4 +80,20 @@ function verifyNameProof(body, now) {
   return wallet;
 }
 
-module.exports = { nameMessage, verifyNameProof, WINDOW_MS };
+/* ─── Proving a game connection belongs to the wallet it names (security review item e) ──
+   The main namespace's PLAY and lobby:join used to take `googleId` (the wallet) as the client
+   said it, so anyone could write another wallet's stats, rename its all-time leaderboard entry,
+   or register as the owner wallet for the owner's live alerts. A socket now carries a wallet
+   only with proof: the paid entry token's verified payer, or this signature, checked once per
+   socket (one-time, 2-minute window, like the name proof). The message names the wallet and the
+   moment and says what it is for, so a name-change signature can never stand in for it. */
+function identityMessage(wallet, ts) {
+  return 'DuelSeries: play as this wallet\n'
+       + 'wallet: ' + wallet + '\n'
+       + 'at: ' + ts;
+}
+function verifyIdentityProof(body, now) {
+  return verifySigned(body, identityMessage, now);
+}
+
+module.exports = { nameMessage, verifyNameProof, identityMessage, verifyIdentityProof, WINDOW_MS };

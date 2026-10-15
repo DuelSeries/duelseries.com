@@ -18,7 +18,8 @@
 //   6  maintenance: consume, then refund 'maintenance'; the switch off (or SL_PAID never built the rungs): consume,
 //      then refund 'not-open'                                                                       spent, refunded
 //   7  consumeAtStake(token, stake, 'slither'): ok, worth above 0 and a wallet, else 'entry'. Worth only from the token.
-//   8  jid = uuid; journal.open({ jid, wallet, deposit, stakeSig }, label) BEFORE the claim (D2-m2). An open the journal
+//   8  jid = uuid; journal.open({ jid, wallet, deposit, stakeSig, door, claimKey }, label) BEFORE the claim (D2-m2; door
+//      and claimKey let the boot replay refund a stake the door claimed but never seated, review item d). An open the journal
 //      did not write (false or a throw) refunds 'unavailable' with no claim, and alerts once per 10 minutes: a seat
 //      with no journal record would leave nothing for a crash or a kill to find (critic C-7)
 //   9  only with entry.stakeSig and a ledger: ledger.claimSeat(entry) (tracked). 'error' (or a rejection): the token
@@ -224,7 +225,14 @@ function createSlPaidDoor({ arenas, consumeAtStake, ledger = null, slPayout, jou
   function openJournal(ctx, entry) {
     try {
       const rec = { jid: ctx.jid, wallet: entry.walletAddress, deposit: ctx.micro, name: ctx.name };
-      if (entry.stakeSig) rec.stakeSig = entry.stakeSig;
+      if (entry.stakeSig) {
+        rec.stakeSig = entry.stakeSig;
+        // the door's own record (security review item d): a restart after the claim and before the seat leaves this
+        // open with no close and no seat open after it, and the boot replay refunds the stake row with this claimKey
+        // (the only key that can refund a consumed row), once
+        rec.door = true;
+        if (typeof entry.claimKey === 'string' && entry.claimKey) rec.claimKey = entry.claimKey;
+      }
       return journal.open(rec, ctx.label) === true;
     } catch (e) {
       say('[SLP] DOOR journal open threw: ' + (e && e.message));

@@ -1174,6 +1174,12 @@ function opsSnapshot() {
        (SL_PAID), open (sl:paid:off/on), saved (a close that outlives a restart). */
     slPaid: slPaid ? { enabled: !!slPaid.paidEnabled, open: !!slPaid.paidOpen, stopping: !!slPaid.stopping,
                        saved: slPaidSwitch.saved() } : null,
+    /* The same readout for paid agar.io and paid Paper (agar:paid:off/on,
+       paper:paid:off/on; both saved across restarts, security review item b). */
+    agPaid: agArenas ? { enabled: !!agArenas.paidEnabled, open: !!agArenas.paidOpen, stopping: !!agArenas.stopping,
+                         saved: agPaidSwitch.saved() } : null,
+    paperPaid: paperArenas ? { enabled: !!paperArenas.paidEnabled, open: !!paperArenas.paidOpen,
+                               stopping: !!paperArenas.stopping, saved: paperPaidSwitch.saved() } : null,
     rooms,
     audit: ownerAuth.auditLog.slice(0, 25),
   };
@@ -1321,18 +1327,52 @@ app.post('/api/owner/do', async (req, res) => {
     /* Paid agar.io's own instant door switch (PAID-AGAR-DESIGN.md 5.7): off,
        every new paid join is refunded at the door ('not-open') and the rows say
        closed, while seated players keep playing, resume and cash out. No
-       restart. On only reopens rungs that AG_PAID built at boot. */
-    case 'agar:paid:off':
+       restart. On only reopens rungs that AG_PAID built at boot. The close is
+       saved (agPaidSwitch, security review item b: it used to live in memory
+       only, so the next deploy reopened it), so it lasts until agar:paid:on. */
+    case 'agar:paid:off': {
       if (!agArenas || !agArenas.paidEnabled) return refuse('Paid agar.io is not on (AG_PAID)');
       agArenas.paidOpen = false;
-      console.warn('[AG] owner console: paid door CLOSED');
-      return done('Paid agar.io closed to new players. Seated players finish.');
-    case 'agar:paid:on':
+      const kept = agPaidSwitch.save(false);
+      console.warn('[AG] owner console: paid door CLOSED' + (kept.ok ? ' (saved)' : ' (NOT saved: ' + kept.why + ')'));
+      return done('Paid agar.io closed to new players. Seated players finish. ' +
+        (kept.ok ? 'It stays closed across restarts and deploys until you press Open.'
+          : 'The close could not be saved (' + kept.why + '), so it lasts only until the next restart; for a lasting ' +
+            'close set AG_PAID=0 in .env.'));
+    }
+    case 'agar:paid:on': {
       if (!agArenas || !agArenas.paidEnabled) return refuse('Paid agar.io is not on (AG_PAID)');
       if (agArenas.stopping) return refuse('The server is restarting');
       agArenas.paidOpen = true;
-      console.warn('[AG] owner console: paid door OPEN');
-      return done('Paid agar.io open.');
+      const kept = agPaidSwitch.save(true);
+      console.warn('[AG] owner console: paid door OPEN' + (kept.ok ? '' : ' (the saved close NOT cleared: ' + kept.why + ')'));
+      return done('Paid agar.io open.' + (kept.ok ? ''
+        : ' The saved close could not be cleared (' + kept.why + '), so the next restart opens it closed again.'));
+    }
+    /* Paid Paper's instant door switch (security review item b), the same
+       contract as agar's above: off, every NEW paid Paper join is refunded at the
+       door ('not-open') and the paid rows say closed, while seated players keep
+       playing, resume and cash out; saved, so it outlives a restart until
+       paper:paid:on. On only reopens rungs that PAPER_PAID built at boot. */
+    case 'paper:paid:off': {
+      if (!paperArenas || !paperArenas.paidEnabled) return refuse('Paid Paper is not on (PAPER_PAID)');
+      paperArenas.paidOpen = false;
+      const kept = paperPaidSwitch.save(false);
+      console.warn('[PAPER] owner console: paid door CLOSED' + (kept.ok ? ' (saved)' : ' (NOT saved: ' + kept.why + ')'));
+      return done('Paid Paper closed to new players. Seated players finish. ' +
+        (kept.ok ? 'It stays closed across restarts and deploys until you press Open.'
+          : 'The close could not be saved (' + kept.why + '), so it lasts only until the next restart; for a lasting ' +
+            'close set PAPER_PAID=0 in .env.'));
+    }
+    case 'paper:paid:on': {
+      if (!paperArenas || !paperArenas.paidEnabled) return refuse('Paid Paper is not on (PAPER_PAID)');
+      if (paperArenas.stopping) return refuse('The server is restarting');
+      paperArenas.paidOpen = true;
+      const kept = paperPaidSwitch.save(true);
+      console.warn('[PAPER] owner console: paid door OPEN' + (kept.ok ? '' : ' (the saved close NOT cleared: ' + kept.why + ')'));
+      return done('Paid Paper open.' + (kept.ok ? ''
+        : ' The saved close could not be cleared (' + kept.why + '), so the next restart opens it closed again.'));
+    }
     /* The new slither.io free room's door (SERVER-DESIGN 13 item 4, 16.2): off
        refuses new joins (the page gets a 'closed' refusal), seated players
        finish. In memory like agar's paid switch, so a restart reopens it. */
@@ -1716,17 +1756,53 @@ function endShooter(socketId) { if (shooterRoom) shooterRoom.removePlayer(socket
    is what the live server runs. PAPER_PAID=0 (or false, off, no) shuts them; 1 (true, on, yes)
    or unset opens them; any other value shuts them and says so, so a typo fails closed. Tests
    and scripts/dev-local.js set PAPER_PAID explicitly. Owner's rule with paid Paper on (7f):
-   nothing is pushed while /api/live shows a human in a paid room, since a push restarts the
-   server and money already seated is lost on a restart. */
+   nothing is pushed while /api/live shows a human in a paid room. Since security review item
+   a a restart or a crash no longer loses seated Paper money (every balance is refunded 100%
+   through the owed lane, as paid agar's and snake's: paidShutdownDirs below), but a push still
+   ends every seated game. The instant off switch is the owner console's paper:paid:off. */
+/* Paid money in flight (payouts, refunds, door claims) of paid agar, paid snake and
+   paid Paper, for the shutdown settle to wait on (server/ag/agShutdown.js). */
+const agShutdown = require('./ag/agShutdown');
+const agInflight = agShutdown.createInflight();
+/* The paid money journal (server/ag/agJournal.js, Owen Q6), shared by paid agar,
+   paid snake and paid Paper (records told apart by room): every paid account's
+   open and close, written synchronously to a local file, so a crash's refunds
+   reach the database at the next boot and a killed process's open balances are
+   flagged to Owen. Rotated here, before any account can open; replayed once the
+   database is up (the boot block at the top of this file). A journal left by an
+   earlier boot is replayed even with AG_PAID now off. */
+const agJournal = require('./ag/agJournal').createAgJournal({
+  file: process.env.AG_JOURNAL_PATH || undefined,
+  bootId: BOOT_ID,
+});
+{
+  const waiting = agJournal.rotate();
+  if (waiting.length) console.warn(`[AG] JOURNAL ${waiting.length} file(s) to replay once the database is up`);
+}
+/* The owner's paid switches outlive a restart (review OPS-1 for sl:paid:off,
+   security review item b for agar:paid:off and paper:paid:off): a close is a small
+   file beside the money journal (server/data/, gitignored, kept by the deploy's
+   reset), read once at boot; the matching :on removes it. A file that cannot be
+   read fails CLOSED. *_PAID_SWITCH_PATH moves each one. */
+const { createPaidSwitchStore } = require('./slPaid/slPaidBoot');
+const agPaidSwitch = createPaidSwitchStore({
+  file: process.env.AG_PAID_SWITCH_PATH || path.join(path.dirname(agJournal.file), 'ag-paid-switch.json'),
+  tag: '[AG]', what: 'paid agar.io',
+});
+const paperPaidSwitch = createPaidSwitchStore({
+  file: process.env.PAPER_PAID_SWITCH_PATH || path.join(path.dirname(agJournal.file), 'paper-paid-switch.json'),
+  tag: '[PAPER]', what: 'paid Paper',
+});
+
 const { PaperArenas } = require('./paper/PaperArenas');
-function paperPaidSwitch(raw) {
+function paperPaidSwitchValue(raw) {
   const v = String(raw == null ? '' : raw).trim().toLowerCase();
   if (v === '' || v === '1' || v === 'true' || v === 'on' || v === 'yes') return true;
   if (v === '0' || v === 'false' || v === 'off' || v === 'no') return false;
   console.error(`[PAPER] PAPER_PAID=${JSON.stringify(String(raw).slice(0, 20))} is not a switch value; paid rungs stay OFF`);
   return false;
 }
-const PAPER_PAID = paperPaidSwitch(process.env.PAPER_PAID);
+const PAPER_PAID = paperPaidSwitchValue(process.env.PAPER_PAID);
 console.log(`[PAPER] paid rungs ${PAPER_PAID ? 'on' : 'OFF'}`);
 /* Dev entry tokens pay with a fake withdraw, for Paper only: the global money
    module is untouched. The house side is faked too. An unbacked token's rake
@@ -1771,10 +1847,16 @@ const paperArenas = new PaperArenas({
   region: REGION,
   io,
   paidEnabled: PAPER_PAID,
+  /* Every paid seat's account opened and closed in the shared money journal, so a
+     restart's or crash's owed rows reach the database at the next boot (security
+     review item a; the settle itself is installed with paid agar's and snake's,
+     paidShutdownDirs below). */
+  journal: agJournal,
   hooks: {
-    onCashout: paperPayout.payCashout,
+    /* Tracked, so a shutdown waits for a Paper payout in flight like agar's and snake's. */
+    onCashout: (order) => agInflight.track(paperPayout.payCashout(order)),
     onTransfer: (t) => collusion.record(t.srcWallet, t.dstWallet, t.micro / 1e6, { lobbyType: t.label }),
-    onRefund: paperPayout.refund,
+    onRefund: (info) => agInflight.track(paperPayout.refund(info)),
     onSweep: paperPayout.sweepFloor,
     onBreach: paperOwnerAlert,
     /* The buy-in row, written when a paid seat is first steered rather than
@@ -1803,6 +1885,19 @@ const paper = require('./paperSockets')({
   ledger: stakeLedger,
   paidEnabled: PAPER_PAID,
 });
+/* The owner's paper:paid:off outlives a restart (security review item b): a close
+   saved before this boot opens the paid rungs with their door shut until
+   paper:paid:on (new paid joins refunded 'not-open', seated players finish). */
+if (PAPER_PAID) {
+  let c = { closed: true, why: 'threw' };
+  try { c = paperPaidSwitch.closedAtBoot(); }
+  catch (e) { console.error('[PAPER] CRITICAL paid switch read threw, the paid door starts CLOSED:', e && e.message); }
+  if (c.closed) {
+    paperArenas.paidOpen = false;
+    console.warn(`[PAPER] paid door CLOSED at boot (${c.why}): the owner's paper:paid:off outlived the restart; ` +
+      'new paid joins are refunded until paper:paid:on');
+  }
+}
 
 /* ── agar.io (the free FFA copy, our own code: server/ag/) ───────────────────
    ON by default (since 2026-10-07); AG_ENABLED=0, false, off or no turns it
@@ -1871,24 +1966,8 @@ const agOwnerAlert = require('./ag/agAlert').createAgOwnerAlert({
   },
   push: (text) => notify.pushOwner(text, { title: 'agar.io money alert', priority: 'high' }),
 });
-/* Agar money in flight (payouts, refunds, door claims), for the shutdown settle to
-   wait on (server/ag/agShutdown.js). */
-const agShutdown = require('./ag/agShutdown');
-const agInflight = agShutdown.createInflight();
-/* The paid agar money journal (server/ag/agJournal.js, Owen Q6): every paid
-   account's open and close, written synchronously to a local file, so a crash's
-   refunds reach the database at the next boot and a killed process's open
-   balances are flagged to Owen. Rotated here, before any account can open;
-   replayed once the database is up (the boot block at the top of this file).
-   A journal left by an earlier boot is replayed even with AG_PAID now off. */
-const agJournal = require('./ag/agJournal').createAgJournal({
-  file: process.env.AG_JOURNAL_PATH || undefined,
-  bootId: BOOT_ID,
-});
-{
-  const waiting = agJournal.rotate();
-  if (waiting.length) console.warn(`[AG] JOURNAL ${waiting.length} file(s) to replay once the database is up`);
-}
+/* agShutdown, agInflight and agJournal are built above the Paper block (paid Paper
+   shares them since security review item a). */
 function replayAgJournal() {
   agJournal.replay({
     writeOwedOnce: (r) => db.recordOwedOnce(r.key, r.wallet, r.micro / 1e6, r.name || 'Player', r.reason),
@@ -1896,10 +1975,19 @@ function replayAgJournal() {
        house keeps it as slither floor income): one sweep per source wallet on
        the idle retire's own path (slither_floor, then the rake sweep). The
        journal calls this at most once per record (its booked marker). */
+    /* Paid Paper's floor coins at a restart or crash ('ppfloor:' keys, security
+       review item a) go the same way on Paper's own path (paper_floor), as its
+       hourly sweep sends an uncollected coin to the house. */
     bookFloor: (rec) => {
-      rec.bySource.forEach((s, i) => slPayout.sweepFloor({ sweepId: rec.key + ':' + i, micro: s.micro,
+      const payout = String(rec.key).startsWith('ppfloor:') ? paperPayout : slPayout;
+      rec.bySource.forEach((s, i) => payout.sweepFloor({ sweepId: rec.key + ':' + i, micro: s.micro,
         srcWallet: s.srcWallet, srcName: s.srcName, label: rec.room, pid: rec.why || 'restart' }));
     },
+    /* A paid snake door's journal open with no close and no seat after it (the
+       server stopped after the door claimed the stake, before the seat): its stake
+       row is refunded with the token's claimKey, a conditional update that pays at
+       most once (security review item d). */
+    refundStake: (sig, reason, claimKey) => stakeLedger.refund(sig, reason, claimKey),
     alert: agOwnerAlert,
   }).then((s) => { if (s.owed) kickDrain(); })
     .catch((e) => console.error('[AG] JOURNAL replay', e && e.message));
@@ -1930,6 +2018,8 @@ const agBoot = require('./ag/agBoot').openAg({
   region: REGION,
   helpers: { socketRL, sanitizeName, ops },
   money: { hooks: agMoneyHooks, door: agPaidDoorDeps },
+  /* A saved agar:paid:off opens the paid door shut (security review item b). */
+  paidSwitch: agPaidSwitch,
 });
 const agArenas = agBoot.arenas;
 const AG_PAID_ON = !!agBoot.paid;
@@ -2047,17 +2137,19 @@ app.get('/api/sl/cashout/:cid', (req, res) => {
 
 /* Shutdown settle (design 5.9, Owen Q6; server/ag/agShutdown.js): a planned
    restart (pm2 sends SIGINT, then kills after its 1.6 s timeout) must not erase
-   seated paid money, so every open paid agar AND paid snake balance is withdrawn
-   from its room and written as an owed REFUND row (100%, no rake: a restart is
-   our fault, one row per key, db.recordOwedOnce) for the drainer to pay after
-   the restart, each also journaled and logged as one [AG] SHUTDOWN-OWED line.
-   The handler never ends the process while the leaderboard also listens
-   (production): pm2's kill timeout does, exactly as before, so Paper and old
-   snake money in flight keeps its whole window. ONE handler for both games
-   (PAID-SL-DESIGN.md 7.1): each directory settles in its own try, so a throw in
-   one never keeps the other's rows from the journal, and the one wait covers the
-   money of both in flight (agInflight). Installed while either directory exists. */
-const paidShutdownDirs = [AG_PAID_ON ? agArenas : null, slPaid];
+   seated paid money, so every open paid agar, paid snake AND paid Paper balance
+   (Paper since security review item a: before it, every restart or crash lost
+   every seated Paper balance) is withdrawn from its room and written as an owed
+   REFUND row (100%, no rake: a restart is our fault, one row per key,
+   db.recordOwedOnce) for the drainer to pay after the restart, each also
+   journaled and logged as one [AG] SHUTDOWN-OWED line. The handler never ends
+   the process while the leaderboard also listens (production): pm2's kill
+   timeout does, exactly as before, so old snake money in flight keeps its whole
+   window. ONE handler for every game (PAID-SL-DESIGN.md 7.1): each directory
+   settles in its own try, so a throw in one never keeps the others' rows from the
+   journal, and the one wait covers the money of all of them in flight
+   (agInflight). Installed while any paid directory exists. */
+const paidShutdownDirs = [AG_PAID_ON ? agArenas : null, slPaid, PAPER_PAID ? paperArenas : null];
 if (paidShutdownDirs.some(Boolean)) {
   const paidAll = slPaidBoot.composePaidShutdown(paidShutdownDirs);
   agShutdown.installAgShutdown({
@@ -2478,8 +2570,16 @@ async function payBattleRoyaleWinner(room) {
   }
   if (_brPaid.has(matchId)) return;          // a reconnect or a double event must not pay twice
   _brPaid.add(matchId);
+  /* w.wallet is the wallet the winner's socket PROVED (a paid token's payer, or a wallet
+     signature checked once per socket), never the walletAddress a client claims in PLAY
+     (security review, finder-4: the prize went to whatever wallet the client named). A winner
+     with no proven wallet is not paid automatically: Owen is told, to settle it by hand. */
   if (!w.wallet) {
-    console.warn(`[BR] ${matchId} won by ${w.name} but they have no wallet — nothing paid`);
+    console.warn(`[BR] ${matchId} won by ${w.name} but they have no proven wallet — nothing paid (settle by hand)`);
+    try {
+      notify.pushOwner(`${w.name} won ${matchId} with no proven wallet: the ${BR_PRIZE_USDC} USDC prize was not paid. Settle it by hand.`,
+        { title: 'Battle Royale prize unpaid', priority: 'high' });
+    } catch (_) {}
     return;
   }
   try {
@@ -2647,8 +2747,20 @@ function getRoomForType(lobbyType, region) {
    reaches it while paid agar is off or closed is refunded at the door ('not-open'); a token
    nobody spends expires and the sweep refunds it through its stake row (entryExpiry.js). */
 
+/* Holds ONE entry at most: the owner's alert socket, under OWNER_WALLET, put there only by an
+   owner signature (socketIdentity.ownerAlerts, security review item e). Every owner alert
+   looks it up by OWNER_WALLET. */
 const lobbySocketsByGoogleId = new Map();
 const lobbyConnections = new Set();
+/* A socket's wallet comes only from proof: a paid entry token's verified payer, or a wallet
+   signature checked once per socket. A claimed googleId binds nothing (security review item e). */
+const socketIdentity = require('./socketIdentity').createSocketIdentity({
+  verifyIdentityProof: (p) => nameProof.verifyIdentityProof(p),
+  walletForAction: (p) => ownerAuth.walletForAction(p),
+  isOwner: (w) => OWNER_WALLETS.has(w),
+  alertKey: OWNER_WALLET,
+  ownerSockets: lobbySocketsByGoogleId,
+});
 
 // Collusion monitor: persist flags to the DB and push a live alert to the owner's socket.
 collusion.init({
@@ -3052,16 +3164,21 @@ io.on('connection', (socket) => {
     region:           REGION,
   });
 
-  on('lobby:join', ({ googleId } = {}) => {
+  /* A googleId sent here binds nothing (security review item e): the socket's wallet comes
+     from idProof ({ wallet, ts, sig } over nameProof.identityMessage, checked once per socket),
+     and the owner's live alerts only from ownerProof (an owner signature over the action
+     'owner:alerts', ownerAuth). Without them the socket is an anonymous lobby watcher. */
+  on('lobby:join', ({ idProof, ownerProof } = {}) => {
     lobbyConnections.add(socket);
-    if (typeof googleId === 'string' && googleId) {
-      socket._googleId = googleId;
-      lobbySocketsByGoogleId.set(googleId, socket);
-    }
+    socketIdentity.fromProof(socket, idProof);
+    socketIdentity.ownerAlerts(socket, ownerProof);
     broadcastLobbyState();
   });
 
-  on(C.EVENTS.PLAY, ({ name, walletAddress, googleId, color, lobbyType, stake, entryToken, region, reconnectKey } = {}) => {
+  /* walletAddress and googleId are the client's claims and are NOT used for identity or for
+     any payout (security review items e and 5): the socket's wallet comes from idProof (or a
+     paid token's payer, in enterPaid below), and the room is told only that proven wallet. */
+  on(C.EVENTS.PLAY, ({ name, color, lobbyType, stake, entryToken, region, reconnectKey, idProof } = {}) => {
     // Ignore duplicate PLAY events (e.g. from socket reconnect while alive)
     if (socket._room) {
       const existingSnake = socket._room.snakes.get(socket.id);
@@ -3078,8 +3195,6 @@ io.on('connection', (socket) => {
     const rgn = ownKey(gameRooms, region) ? region : REGION;
     lobbyType = strOr(lobbyType, undefined);
     if (typeof stake !== 'number' && typeof stake !== 'string') stake = undefined;
-    googleId = strOr(googleId, undefined);
-    walletAddress = strOr(walletAddress, undefined);
     reconnectKey = strOr(reconnectKey, undefined);
     /* A buy-in the ladder does not offer is refused, never seated (BACKLOG 2.1). */
     if (isRetiredBuyIn({ lobbyType, stake })) {
@@ -3087,12 +3202,9 @@ io.on('connection', (socket) => {
       return;
     }
     const playerName = sanitizeName(name);
-    // Identity = the wallet address the client sends as googleId (self-custody single login).
-    const verifiedId = googleId || null;
-    if (verifiedId) {
-      socket._googleId = verifiedId;
-      lobbySocketsByGoogleId.set(verifiedId, socket);
-    }
+    // Identity = the wallet the socket PROVED (security review item e): a signature checked once
+    // per socket here, or a paid token's verified payer below. A claimed googleId is ignored.
+    socketIdentity.fromProof(socket, idProof);
     /* A stake names a rung of the ladder, a lobbyType names a fixed tier. Only
        the redesigned lobby sends the former, so existing clients keep landing
        in exactly the rooms they always did. */
@@ -3149,17 +3261,19 @@ io.on('connection', (socket) => {
       : consumePaidEntry(entryToken, ownKey(LOBBY_FEES, lobbyType) ? lobbyType : 'free', 'snake');
     // A paid entry is seated only once its stake row is claimed (enterPaid, STATUS item 7a).
     enterPaid(socket, 'snake', consumed, (entry) => {
-      // Server-verified identity from the paid token — overrides the client-claimed
-      // googleId so cash-out credits the account that actually paid.
-      if (entry.googleId) {
-        socket._googleId = entry.googleId;
-        lobbySocketsByGoogleId.set(entry.googleId, socket);
+      // Server-verified identity from the paid token: the on-chain payer the stake came from
+      // (the token never carried a googleId, so the old override here never ran).
+      if (entry.walletAddress) {
+        socket._walletAddress = entry.walletAddress; // self-custody cash-out target
+        socketIdentity.fromEntry(socket, entry);
       }
-      if (entry.walletAddress) socket._walletAddress = entry.walletAddress; // self-custody cash-out target
       socket._room = room;
       socket._joinTime = Date.now();
       console.log(`[>] ${playerName} joins ${roomLabel} lobby (worth: ${entry.worth} ${money.unit})`);
-      room.addPlayer(socket, playerName, walletAddress || null, color || null, entry.worth);
+      /* The wallet the room pays (the Battle Royale prize, BattleRoyaleRoom winner): the
+         verified payer, else the wallet this socket proved, else none. Never the client's
+         walletAddress (finder-4: the free BR prize went to whatever wallet the client named). */
+      room.addPlayer(socket, playerName, entry.walletAddress || socketIdentity.proven(socket) || null, color || null, entry.worth);
       notify.pushOwner(
         `${playerName} joined the ${roomLabel} lobby` +
           (entry.worth ? ` for ${entry.worth} ${money.unit}` : ' (free)') +
@@ -3420,8 +3534,10 @@ io.on('connection', (socket) => {
       if (socket._room !== room || !room.players.has(socket.id)) return false;
       const live = room.snakes.get(socket.id);
       if (live && live.alive) return false;
-      if (entry.googleId) socket._googleId = entry.googleId;
-      if (entry.walletAddress) socket._walletAddress = entry.walletAddress;
+      if (entry.walletAddress) {
+        socket._walletAddress = entry.walletAddress;
+        socketIdentity.fromEntry(socket, entry); // the verified payer (security review item e)
+      }
       room.respawnPlayer(socket.id, entry.worth);
       const _rs = room.snakes.get(socket.id);
       notify.pushOwner(
@@ -3801,7 +3917,7 @@ io.on('connection', (socket) => {
         room.removePlayer(socket.id);
       }
     }
-    if (socket._googleId) lobbySocketsByGoogleId.delete(socket._googleId);
+    socketIdentity.forget(socket);   // only this socket's own owner-alert registration, if it had one
     lobbyConnections.delete(socket);
     broadcastLobbyState();
   });

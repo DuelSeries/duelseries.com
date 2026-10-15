@@ -164,8 +164,11 @@ function createOwedLane({ write, kick = () => {}, track = (p) => p, log = consol
 // once at boot by openSlPaid; sl:paid:on removes it. A file that cannot be read fails CLOSED. No file is the code
 // default (SL_PAID decides).
 //   file   the switch file;  fsx  fs (tests)
+//   tag, what   the log's tag and the game's name (security review item b: paid agar's agar:paid:off and paid Paper's
+//               paper:paid:off are kept the same way, each in its own file; the defaults are paid snake's own words)
 // -> { closedAtBoot() -> { closed, why }, save(open) -> { ok, why }, saved() -> true while a close is on disk }
-function createPaidSwitchStore({ file, fsx = fs, log = console, now = Date.now } = {}) {
+function createPaidSwitchStore({ file, fsx = fs, log = console, now = Date.now, tag = '[SLP]',
+  what = 'paid snake on the new engine' } = {}) {
   if (typeof file !== 'string' || !file) throw new Error('createPaidSwitchStore: file is required');
   function saved() {
     try {
@@ -180,14 +183,14 @@ function createPaidSwitchStore({ file, fsx = fs, log = console, now = Date.now }
       if (!fsx.existsSync(file)) return { closed: false, why: null };
       text = fsx.readFileSync(file, 'utf8');
     } catch (e) {
-      log.error('[SLP] CRITICAL paid switch file unreadable, paid snake on the new engine starts CLOSED: ' + (e && e.message));
+      log.error(tag + ' CRITICAL paid switch file unreadable, ' + what + ' starts CLOSED: ' + (e && e.message));
       return { closed: true, why: 'unreadable' };
     }
     try {
       const j = JSON.parse(text);
       if (j && j.open === false) return { closed: true, why: 'owner' };
     } catch (e) { /* not ours: closed, below */ }
-    log.error('[SLP] CRITICAL paid switch file is not a switch, paid snake on the new engine starts CLOSED (' + file + ')');
+    log.error(tag + ' CRITICAL paid switch file is not a switch, ' + what + ' starts CLOSED (' + file + ')');
     return { closed: true, why: 'unreadable' };
   }
   function save(open) {
@@ -200,7 +203,7 @@ function createPaidSwitchStore({ file, fsx = fs, log = console, now = Date.now }
       }
       return { ok: true, why: null };
     } catch (e) {
-      log.error('[SLP] CRITICAL paid switch not saved (' + (open ? 'open' : 'closed') + '): ' + (e && e.message));
+      log.error(tag + ' CRITICAL paid switch not saved (' + (open ? 'open' : 'closed') + '): ' + (e && e.message));
       return { ok: false, why: (e && e.message) || 'write failed' };
     }
   }

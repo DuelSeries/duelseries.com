@@ -14,7 +14,8 @@
 //          payout answered          written for the drainer), room, at }
 //   floor  paid snake's floor gold { t, key ('slfloor:<uuid>'), room, why ('shutdown' or 'crash'), micro, bySource:
 //          at a restart or crash    [{ srcWallet, srcName, micro }], boot, at }: Owen's answer of 2026-10-14 (the house
-//                                   keeps it, booked as slither floor income), with no time to book it in the exit window
+//                                   keeps it, booked as slither floor income), with no time to book it in the exit window;
+//                                   paid Paper's floor coins the same way, keyed 'ppfloor:<uuid>' (booked as paper floor)
 //   booked written into a REPLAY file by the replay, just before it books that file's floor record: { t, key, at }
 //
 // At the next boot the file is renamed out of the way at once (rotate), then, once the database is up (replay):
@@ -25,7 +26,11 @@
 //   - every account opened with no close at all (the process was killed: SIGKILL, out of memory, the box stopped) is
 //     flagged UNSETTLED to Owen with its wallet and deposit (and its stakeSig when the open had one) in the server log,
 //     never paid automatically: its balance at the kill is not known, and it may have been eaten by a player who has
-//     since cashed out;
+//     since cashed out. One exception (security review item d): a paid snake DOOR's open (door, stakeSig, claimKey)
+//     that is still the jid's last open, with no close, is a stake the door took and never seated (the seat's own
+//     open replaces it, and slMoney refuses a seat whose open it could not write). Its stake row is refunded through
+//     refundStake (the server: stakeLedger.refund with the token's claimKey), a conditional update that pays at most
+//     once whatever else refunded it ('settled' then); a refund the database did not take keeps the file;
 //   - every floor record is booked to the house once through bookFloor (the server: slPayout.sweepFloor per source
 //     wallet, slither_floor plus the rake sweep), once the file's owed rows all went through (a database that refused
 //     a player's refund books no house income from that file either). The replay first writes a booked record for its
@@ -56,7 +61,8 @@ const DEFAULT_FILE = path.join(__dirname, '..', 'data', 'ag-money-journal.log');
 // The refund whys a keyed close carries an owed row for. 'emergency' and 'orphan' are paid snake's owed lane (server/
 // slPaid/slMoney.js _refundOwed); a close needs a key too, and agar's emergency close passes none.
 const OWED_WHYS = Object.freeze(['shutdown', 'crash', 'emergency', 'orphan']);
-const FLOOR_KEY_RE = /^slfloor:[0-9a-f-]{36}$/;
+// slfloor: paid snake's floor gold; ppfloor: paid Paper's floor coins (its shutdown and crash settle, PaperRoom)
+const FLOOR_KEY_RE = /^(slfloor|ppfloor):[0-9a-f-]{36}$/;
 const PAYOUT_STATES = Object.freeze(['sent', 'failed']);
 const isMicro = (v) => Number.isSafeInteger(v) && v > 0;
 
@@ -86,6 +92,13 @@ function createAgJournal({ file = DEFAULT_FILE, bootId = '', log = console, now 
     const rec = { t: 'open', jid: acct.jid, wallet: acct.wallet, micro: acct.deposit, room: String(room || ''),
       boot: bootId, at: now() };
     if (typeof acct.stakeSig === 'string' && acct.stakeSig) rec.stakeSig = acct.stakeSig;
+    // A paid snake door's own open (written before its stake claim, before any seat): door, and the token's claimKey,
+    // so a replay that finds this record still the jid's last open, with no close, can refund that stake row once
+    // (refundStake below). The seat's own open (slMoney) replaces it for the same jid and carries neither.
+    if (acct.door === true && rec.stakeSig) {
+      rec.door = true;
+      if (typeof acct.claimKey === 'string' && acct.claimKey) rec.claimKey = acct.claimKey;
+    }
     return append(rec);
   }
 
@@ -219,11 +232,41 @@ function createAgJournal({ file = DEFAULT_FILE, bootId = '', log = console, now 
     return true;
   }
 
+  // A paid snake door's open with no close and no seat open after it: refunded through its stake row, once (see the
+  // header). -> true when the file can be marked done for this record ('owed' or 'settled'), false to keep the file.
+  async function refundDoorOnce(o, refundStake, more) {
+    const reason = 'refund slither restart before seat ' + (o.room || '') + ' journal ' + o.jid;
+    let r;
+    try {
+      r = await refundStake(o.stakeSig, reason, o.claimKey);
+    } catch (e) {
+      r = 'error: ' + (e && e.message);
+    }
+    if (r === 'owed') {
+      more.doorRefunds++;
+      more.doorRefundMicro += Number.isSafeInteger(o.micro) ? o.micro : 0;
+      log.warn('[AG] JOURNAL door refund owed ' + o.wallet + ' deposit ' + o.micro + ' micro room ' + o.room + ' journal ' +
+        o.jid + ' stakeSig ' + o.stakeSig + ' (the server stopped after the door took the stake, before the seat)');
+      return true;
+    }
+    if (r === 'settled') {
+      more.doorSettled++;
+      log.log('[AG] JOURNAL door ' + o.jid + ' stakeSig ' + o.stakeSig + ' already settled (refunded before), nothing owed');
+      return true;
+    }
+    log.error('[AG] JOURNAL CRITICAL door refund of ' + o.wallet + ' deposit ' + o.micro + ' micro journal ' + o.jid +
+      ' stakeSig ' + o.stakeSig + ' not recorded yet (' + r + '); kept for the next boot');
+    return false;
+  }
+
   // writeOwedOnce({ key, wallet, name, micro, reason }) -> promise of 'owed' | 'exists'; bookFloor(rec): a floor record
-  // to the house, synchronous, called at most once per key; alert(info): the owner push (no wallets); returns a summary.
-  async function replay({ writeOwedOnce, bookFloor, alert = () => {} } = {}) {
+  // to the house, synchronous, called at most once per key; refundStake(sig, reason, claimKey) -> promise of 'owed' |
+  // 'settled' | 'queued' (stakeLedger.refund; without it a door's open is only flagged, as before); alert(info): the
+  // owner push (no wallets); returns a summary.
+  async function replay({ writeOwedOnce, bookFloor, refundStake = null, alert = () => {} } = {}) {
     const out = { files: 0, owed: 0, existed: 0, failed: 0, unsettled: 0, unsettledMicro: 0 };
-    const more = { floors: 0, floorMicro: 0, unconfirmed: 0, unconfirmedMicro: 0 };
+    const more = { floors: 0, floorMicro: 0, unconfirmed: 0, unconfirmedMicro: 0, doorRefunds: 0, doorRefundMicro: 0,
+      doorSettled: 0 };
     for (const f of replayFiles()) {
       out.files++;
       let text = '';
@@ -254,6 +297,9 @@ function createAgJournal({ file = DEFAULT_FILE, bootId = '', log = console, now 
             log.error('[AG] JOURNAL CRITICAL owed row not written yet (kept for the next boot) ' + row.wallet + ' ' +
               row.micro + ' micro ' + row.reason + ': ' + (e && e.message));
           }
+        } else if (a.open && !c && a.open.door === true && typeof a.open.stakeSig === 'string' && a.open.stakeSig &&
+            typeof a.open.claimKey === 'string' && a.open.claimKey && typeof refundStake === 'function') {
+          if (!(await refundDoorOnce(a.open, refundStake, more))) failed++;
         } else if (a.open && !c) {
           out.unsettled++;
           out.unsettledMicro += Number.isSafeInteger(a.open.micro) ? a.open.micro : 0;
