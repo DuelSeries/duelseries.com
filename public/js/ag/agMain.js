@@ -52,8 +52,10 @@
   var QUALITY_SCALE = { High: 1, Medium: 0.9, Low: 0.75, VeryLow: 0.5 };
   var QUALITY_LEVEL = { Retina: 0, High: 1, Medium: 2, Low: 3, VeryLow: 4 };
   var QUALITY_NAMES = ['Retina', 'High', 'Medium', 'Low', 'VeryLow'];
-  // Our page keeps the drawing settings between visits (CHOSEN; a per-viewer convenience).
-  var SETTINGS_KEY = 'agSettings';
+  // The drawing flags. Their values are HARD-WIRED to the reference defaults below (names on, colours on, show mass
+  // off, dark off, quality Retina): Owen 2026-10-15 removed every agar.io setting ("just get rid of all the settings,
+  // I don't need any of them"), so nothing on any page changes them and nothing is stored or read back. Only the
+  // parity harness page still passes its own (cfg.settings, and session.setSettings for its quality checks).
   var SETTING_FLAGS = ['names', 'colors', 'showMass', 'dark'];
   // Hold-Q cash-out (ours, Owen 2026-10-08, every room). While Q or the phone Cash out button is held and the
   // player is alive, the page sends ag:hold {on: 1} at once and again every HOLD_REPEAT_MS (the server drops a hold
@@ -118,9 +120,9 @@
     var portrait = false;                     // the portrait layout is in use
     // Inside the DuelSeries lobby's agar frame (ours, Owen 2026-10-09 midday; the shipped page only: cfg.lobby, which
     // public/ag.html sets when its frame element is the lobby's #agar-frame). The lobby's agar.io screen holds the
-    // name, the buy-in, Spectate and the settings, so this page has no menu card: agLobby starts play (or spectate) at
+    // name, the buy-in and Spectate, so this page has no menu card: agLobby starts play (or spectate) at
     // once, Esc does nothing in the free room, the Match Results panel ends with Play again and Lobby, a dropped
-    // socket rejoins as it was, and a settings change the lobby writes reaches a loaded page (the storage event).
+    // socket rejoins as it was.
     // A paid hand-off keeps its own flow and card exactly. Off at parity and on a direct visit to /ag.
     var lobbyMode = cfg.lobby === true;
     var quality = qualityName(cfg.quality || 'Retina');
@@ -128,16 +130,7 @@
       names: true, showMass: false, colors: true, dark: false, acid: false,
       quality: QUALITY_LEVEL[quality], showAnimations: true, fontReady: fontsReady
     };
-    // Stored settings (our shipped page only: cfg.persistSettings), then the page's own.
-    var storage = null;
-    if (cfg.persistSettings) {
-      try { storage = cfg.storage || win.localStorage || null; } catch (e) { storage = null; }
-    }
-    var stored = readStoredSettings();
-    for (var fi = 0; fi < SETTING_FLAGS.length; fi++) {
-      if (typeof stored[SETTING_FLAGS[fi]] === 'boolean') settings[SETTING_FLAGS[fi]] = stored[SETTING_FLAGS[fi]];
-    }
-    if (typeof stored.quality === 'string') quality = qualityName(stored.quality);
+    // The parity harness page's own values; the shipped page has none (see SETTING_FLAGS).
     if (cfg.settings) {
       for (var sk in cfg.settings) {
         if (!Object.prototype.hasOwnProperty.call(cfg.settings, sk)) continue;
@@ -146,19 +139,6 @@
       }
     }
 
-    function readStoredSettings() {
-      if (!storage) return {};
-      try {
-        var v = JSON.parse(storage.getItem(SETTINGS_KEY) || '{}');
-        return v && typeof v === 'object' ? v : {};
-      } catch (e) { return {}; }
-    }
-    function storeSettings() {
-      if (!storage) return;
-      var v = { quality: quality };
-      for (var i = 0; i < SETTING_FLAGS.length; i++) v[SETTING_FLAGS[i]] = !!settings[SETTING_FLAGS[i]];
-      try { storage.setItem(SETTINGS_KEY, JSON.stringify(v)); } catch (e) { /* private window or full storage */ }
-    }
     function shownSettings() {
       var v = { quality: quality };
       for (var i = 0; i < SETTING_FLAGS.length; i++) v[SETTING_FLAGS[i]] = !!settings[SETTING_FLAGS[i]];
@@ -229,10 +209,7 @@
         onPlay: function (name) { play(name); },
         onSpectate: function () { spectate(); },
         onContinue: function () { setMenuState('HOME'); },
-        soundButton: cfg.soundButton === false || lobbyMode ? null : sound.createToggleButton(doc),
         injectCss: cfg.injectCss,
-        settings: shownSettings(),
-        onSettings: function (change) { setSettings(change); },
         lobby: lobbyMode,
         onAgain: function () { play(nick); },
         onLobby: function () { backToLobby(); }
@@ -1026,11 +1003,10 @@
     session.sideEvent = onSideEvent;
     session.onSend = null;
     session.config = cfg;
-    // Settings (build brief scope 3): quality goes through applyQuality (level, animations
-    // switch, canvas scale and size together); every other key is copied. The settings block on
-    // the menu card calls this too, and is kept in step with it.
-    // fromStore: the values came from the storage itself (the lobby wrote them), so they are not written back.
-    function setSettings(s, fromStore) {
+    // The parity harness's own values (build brief scope 3): quality goes through applyQuality (level, animations
+    // switch, canvas scale and size together); every other key is copied. No page a player sees calls this: there
+    // are no settings to change (see SETTING_FLAGS), and nothing is stored.
+    function setSettings(s) {
       if (!s || typeof s !== 'object') return;
       for (var k in s) {
         if (!Object.prototype.hasOwnProperty.call(s, k)) continue;
@@ -1038,33 +1014,9 @@
         else settings[k] = s[k];
       }
       hud.setNames(settings.names);
-      if (fromStore !== true) storeSettings();
-      if (screens) screens.setSettings(shownSettings());
     }
     session.setSettings = function (s) { setSettings(s); };
     session.settings = function () { return shownSettings(); };
-    // The lobby frame (see lobbyMode): the lobby's agar.io screen writes the same two keys this page reads at boot
-    // (SETTINGS_KEY, and agSound's STORE_KEY for Sound), and the browser tells every other page of the origin with a
-    // storage event, so a page already loaded takes a change at once, without a reload. Only what differs is applied
-    // (a quality change sizes the canvas again); nothing is written back.
-    function onStorage(e) {
-      if (!e || destroyed) return;
-      if (e.key === SETTINGS_KEY || e.key === null) {
-        var v = readStoredSettings(), change = {}, any = false;
-        for (var i = 0; i < SETTING_FLAGS.length; i++) {
-          var f = SETTING_FLAGS[i];
-          if (typeof v[f] === 'boolean' && v[f] !== !!settings[f]) { change[f] = v[f]; any = true; }
-        }
-        if (typeof v.quality === 'string' && qualityName(v.quality) !== quality) { change.quality = qualityName(v.quality); any = true; }
-        if (any) setSettings(change, true);
-      }
-      if ((e.key === agSound.STORE_KEY || e.key === null) && typeof sound.setEnabled === 'function') {
-        var on = e.key !== null && e.newValue === '1';   // a cleared storage is the default, off
-        if (typeof sound.isEnabled !== 'function' || sound.isEnabled() !== on) sound.setEnabled(on);
-      }
-    }
-    var watchStorage = lobbyMode && !!storage && typeof win.addEventListener === 'function';
-    if (watchStorage) win.addEventListener('storage', onStorage);
     session.destroy = function () {
       destroyed = true;
       hold.wanted = false;
@@ -1074,7 +1026,6 @@
       input.dispose();
       if (net) net.close();
       win.removeEventListener('resize', sizeCanvas);
-      if (watchStorage) win.removeEventListener('storage', onStorage);
       watchPointer(false);
       if (rotatePrompt) rotatePrompt.dispose();
     };
@@ -1087,16 +1038,14 @@
     return session;
   }
 
-  A.agMain = { boot: boot, clockNs: clockNs, capFor: capFor, CAP_START_MS: CAP_START_MS, SETTINGS_KEY: SETTINGS_KEY,
-    SETTING_FLAGS: SETTING_FLAGS };
+  A.agMain = { boot: boot, clockNs: clockNs, capFor: capFor, CAP_START_MS: CAP_START_MS, SETTING_FLAGS: SETTING_FLAGS };
   if (typeof module !== 'undefined' && module.exports) module.exports = A.agMain;
 
-  // The shipped page boots itself once the document is parsed, keeping the drawing settings
-  // between visits. A page that wants its own timing (the parity harness) sets
-  // window.DUEL_AGAR_MANUAL_BOOT before loading this file and boots with its own config.
+  // The shipped page boots itself once the document is parsed. A page that wants its own timing (the parity
+  // harness) sets window.DUEL_AGAR_MANUAL_BOOT before loading this file and boots with its own config.
   if (root.document && !root.DUEL_AGAR_MANUAL_BOOT && typeof module === 'undefined') {
     var start = function () {
-      var c = { persistSettings: true }, given = root.DUEL_AGAR_CONFIG || {};
+      var c = {}, given = root.DUEL_AGAR_CONFIG || {};
       for (var k in given) if (Object.prototype.hasOwnProperty.call(given, k)) c[k] = given[k];
       boot(c);
     };

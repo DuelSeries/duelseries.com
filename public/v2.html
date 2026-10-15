@@ -1034,52 +1034,10 @@ body.no-foot footer{display:none}
 .spec svg{flex:none}
 .spec:hover{background:var(--s3);color:var(--tx)}
 #detail.agar.agfree .spec{display:flex}
-/* ── agar.io's game settings ─────────────────────────────────────────────
-   The buy-in row's pills, three to a row so each sits under a rung: dark
-   when off, bone when on, with a dot that is a ring off and filled on, so the
-   state never rests on the fill alone. Quality is the one picker, a pill with
-   the native list under it (a phone gets its own wheel). */
-.agopts{display:none}
-/* On agar.io's Customize the settings sit in a band just above Save, and the
-   skin list gives up that much of its height so nothing overlaps. Every piece
-   of the chooser is positioned absolutely (see .ap-reel), so this is too. */
-.apscreen.agset .agopts{display:block;position:absolute;left:50%;transform:translateX(-50%);
-  width:min(420px,calc(100% - 32px));bottom:160px;z-index:54}
-.apscreen.agset .ap-reel{bottom:270px}
-.apscreen.agset .ap-arrow{top:calc(50% - 94px)}
-@media(max-width:520px){
-  .apscreen.agset .agopts{bottom:calc(156px + env(safe-area-inset-bottom))}
-  .apscreen.agset .ap-reel{bottom:calc(256px + env(safe-area-inset-bottom))}
-}
-.agtg{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
-.agt{position:relative;display:flex;align-items:center;justify-content:center;gap:7px;
-  min-width:0;height:40px;padding:0 8px;background:var(--s2);border-radius:var(--r2);
-  font-size:13px;font-weight:650;color:var(--tx2);white-space:nowrap;
-  transition:background .15s,color .15s}
-.agt:hover{background:var(--s3);color:var(--tx)}
-.agt .agd{width:7px;height:7px;flex:none;border-radius:50%;
-  box-shadow:inset 0 0 0 1.5px var(--tx3)}
-.agt[aria-pressed="true"]{background:var(--bone);color:var(--ink)}
-.agt[aria-pressed="true"] .agd{background:var(--ink);box-shadow:none}
-.agq{flex-direction:column;gap:2px;line-height:1.1;cursor:pointer}
-.agq .agqk{font-size:10.5px;font-weight:600;color:var(--tx2)}
-.agq .agqv{font-size:13px;color:var(--tx)}
-/* The chevron says it opens a list, where the switches have their dot. */
-.agq .agqv::after{content:"";display:inline-block;width:5px;height:5px;margin-left:6px;
-  border-right:1.5px solid var(--tx2);border-bottom:1.5px solid var(--tx2);
-  transform:translateY(-3px) rotate(45deg)}
-/* Over the whole pill and invisible: the pill is what shows, the select is
-   what is pressed. 16px so a phone does not zoom in when it opens. */
-.agq select{position:absolute;inset:0;width:100%;height:100%;opacity:0;
-  font-size:16px;cursor:pointer;-webkit-appearance:none;appearance:none}
-/* The keyboard's ring only: a mouse or finger pick leaves no ring that reads
-   as "selected" (agopts.js marks a pointer press with data-ptr until a key). */
-.agq:focus-within:not([data-ptr]){outline:2px solid var(--bone);outline-offset:3px}
 /* The narrowest phones (320 to 360 px): a rung is about 90 px there, so the
    words keep a little air on each side. Two classes deep so the phone block
    further down does not undo it. */
 @media(max-width:360px){
-  .agtg .agt{padding:0 4px;gap:5px;font-size:12px}
   .gorow .spec{gap:5px;padding:0 4px;font-size:12.5px}
 }
 .fine{font-size:12px;color:var(--tx3);text-align:center;margin-top:13px;line-height:1.6}
@@ -1387,7 +1345,6 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
   .namerow{margin-bottom:10px}
   .go{padding:13px}
   .spec{font-size:13px}
-  .agt{height:42px;font-size:12.5px;padding:0 6px;gap:6px}
   .lookrow{margin-top:10px;padding:8px 12px 8px 8px}
   .lookrow canvas{height:32px}
   .lobwrap{margin-top:10px}
@@ -1880,7 +1837,7 @@ body.scr-anim { overflow-x:hidden }
 
     <!-- Customize (BACKLOG 3.1, Owen's name for it). The whole row is the
          button: a live preview of what you are wearing, the label and a
-         chevron. agar.io's game settings sit in its chooser (.agset). In a game
+         chevron. In a game
          with nothing to change yet it is the game's own picture and the
          button is disabled. -->
     <button type="button" class="lookrow" id="lookrow" onclick="openLook()">
@@ -2085,15 +2042,6 @@ body.scr-anim { overflow-x:hidden }
     </button>
   </div>
   <div class="ap-hint">Scroll to change skin</div>
-  <!-- agar.io's game settings, on its chooser only (.agset). They sat in the
-       play column under Play, which made agar.io the one game with a different
-       layout; they live in its Customize now (Owen 2026-10-15). Filled by
-       public/js/v2/agopts.js, which writes the same storage the game reads, so
-       a change here is the game's setting the moment it is made: neither Save
-       nor Back is needed for it. -->
-  <div class="agopts" role="group" aria-label="agar.io settings">
-    <div class="agtg" id="agtg"></div>
-  </div>
   <div class="ap-save-row">
     <button class="ap-save-btn" onclick="closeLook(true)"><span>&nbsp;Save&nbsp;</span></button>
     <div class="ap-name num" id="lookname"></div>
@@ -2131,7 +2079,6 @@ body.scr-anim { overflow-x:hidden }
 <script src="/js/v2/stats.js"></script>
 <script src="/js/v2/board.js"></script>
 <script src="/js/v2/play.js"></script>
-<script src="/js/v2/agopts.js"></script>
 <script src="/js/v2/mobile.js"></script>
 <script src="/js/v2/swipe.js"></script>
 <!-- slither's own skin tables and body sprites, read-only (the frozen client
@@ -2841,8 +2788,6 @@ function paintLook(cv){
 let lookIx=0;
 /* The Customize bar for the game on screen: what you are wearing in a game
    with a look, a plain line and a shut button in one without (BACKLOG 3.1). */
-/* agar.io has settings rather than a skin (agopts.js); its bar opens them. */
-const hasSettings=g=>!!(g&&g.id==='agar');
 function drawSkins(){
   const look=hasLook(cur);
   const row=document.getElementById('lookrow'), img=document.getElementById('lkimg');
@@ -2862,8 +2807,6 @@ function drawSkins(){
 function openLook(){
   if(!hasLook(cur))return;
   LK=lookList(cur);
-  /* agar.io's game settings ride along at the foot of its chooser. */
-  document.getElementById('lookveil').classList.toggle('agset',hasSettings(cur));
   /* Always reopens on the skin actually being worn, which is also what makes
      Back safe: browsing moves lookIx, and only Save writes it to skinId. */
   lookIx=cur.look?Math.max(0,LK.findIndex(s=>s.id===skinId)):0;

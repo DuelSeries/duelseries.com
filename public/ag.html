@@ -50,7 +50,7 @@
      card, then the reference layout turned on its side (portrait, Owen 2026-10-08, agPortrait.js). -->
 <!-- lobby: this page is the DuelSeries lobby's agar frame (its frame element is the lobby's #agar-frame, same origin
      only; a cross-origin parent leaves frameElement null). It then has no menu card: the lobby's agar.io screen holds
-     the name, the buy-in, Spectate and the settings (Owen 2026-10-09 midday). A direct visit keeps the menu. -->
+     the name, the buy-in and Spectate (Owen 2026-10-09 midday). A direct visit keeps the menu. -->
 <script>
 var agInLobbyFrame = false;
 try { agInLobbyFrame = !!window.frameElement && window.frameElement.id === 'agar-frame'; } catch (e) { agInLobbyFrame = false; }

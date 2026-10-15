@@ -365,39 +365,27 @@ test('a resize reuses the stored scale; the pixel ratio is read again only when 
   assert.deepStrictEqual([p.canvas.width, p.canvas.height], [2000, 1440]);
 });
 
-test('the settings block on the menu card shows the defaults and changes the drawing settings', () => {
+test('no settings anywhere (Owen 2026-10-15): no block or Sound button on the card, old stored values ignored, nothing written', () => {
   const p = bootPage({ w: 1280, h: 720 });
-  const c = p.mod.screens.settingsControls;
-  assert.deepStrictEqual(
-    [c.boxes.names.checked, c.boxes.colors.checked, c.boxes.showMass.checked, c.boxes.dark.checked, c.quality.value],
-    [true, true, false, false, 'Retina']);
-  c.boxes.showMass.checked = true;
-  c.boxes.showMass.dispatch('change');
-  c.boxes.names.checked = false;
-  c.boxes.names.dispatch('change');
-  assert.deepStrictEqual(p.session.settings(), { quality: 'Retina', names: false, colors: true, showMass: true, dark: false });
-  assert.strictEqual(p.mod.hud.namesEnabled, false, 'names off reaches the HUD (the board hides)');
-  c.quality.value = 'Low';
-  c.quality.dispatch('change');
-  assert.deepStrictEqual([p.canvas.width, p.canvas.height], [960, 540]);
-  p.session.setSettings({ dark: true });
-  assert.strictEqual(c.boxes.dark.checked, true, 'the block follows changes made elsewhere');
-});
-
-test('settings are kept between visits only on our page (persistSettings), never on a page that boots itself', () => {
+  assert.strictEqual(p.doc.getElementById('ag-settings'), null, 'no settings block on the card');
+  assert.strictEqual(p.doc.getElementById('ag-sound'), null, 'no Sound button');
+  assert.strictEqual(p.mod.screens.settingsControls, undefined);
+  assert.deepStrictEqual(p.session.settings(), { quality: 'Retina', names: true, colors: true, showMass: false, dark: false },
+    'the hard-wired values: names and colours on, show mass and dark off, Retina');
+  assert.strictEqual(p.mod.sound.isEnabled(), true, 'sound always on');
+  // A player who had changed them before keeps nothing of it: the old keys are not read, and nothing is written.
   const storage = makeStorage();
-  const a = bootPage({ cfg: { persistSettings: true, storage } });
-  a.session.setSettings({ dark: true, quality: 'Low' });
-  assert.deepStrictEqual(JSON.parse(storage.getItem('agSettings')),
-    { quality: 'Low', names: true, colors: true, showMass: false, dark: true });
-  const b = bootPage({ cfg: { persistSettings: true, storage } });
-  assert.deepStrictEqual(b.session.settings(), { quality: 'Low', names: true, colors: true, showMass: false, dark: true });
-  assert.deepStrictEqual([b.canvas.width, b.canvas.height], [960, 540]);
-  const c = bootPage({ cfg: { storage } });   // the parity harness boots like this: defaults, storage untouched
-  assert.deepStrictEqual(c.session.settings(), { quality: 'Retina', names: true, colors: true, showMass: false, dark: false });
-  storage.setItem('agSettings', '{not json');
-  const d = bootPage({ cfg: { persistSettings: true, storage } });
-  assert.strictEqual(d.session.settings().quality, 'Retina', 'a broken stored value falls back to the defaults');
+  storage.setItem('agSettings', JSON.stringify({ quality: 'Low', names: false, colors: false, showMass: true, dark: true }));
+  storage.setItem('agSoundOn', '0');
+  const q = bootPage({ cfg: { persistSettings: true, storage, lobby: true }, parent: { postMessage() {} } });
+  assert.deepStrictEqual(q.session.settings(), { quality: 'Retina', names: true, colors: true, showMass: false, dark: false });
+  assert.deepStrictEqual([q.canvas.width, q.canvas.height], [1280, 720]);
+  q.win.fire('storage');
+  assert.deepStrictEqual(q.session.settings().dark, false, 'no storage listener either');
+  assert.deepStrictEqual([...storage.map.keys()].sort(), ['agSettings', 'agSoundOn'], 'nothing new written');
+  assert.strictEqual(storage.getItem('agSettings'), JSON.stringify({ quality: 'Low', names: false, colors: false, showMass: true, dark: true }));
+  const src = require('fs').readFileSync(path.join(__dirname, '..', 'public', 'js', 'ag', 'agMain.js'), 'utf8');
+  assert.ok(!/agSettings|agSoundOn|persistSettings|STORE_KEY|'storage'/.test(src), 'agMain reads no stored setting');
 });
 
 test('a collapsed 0x0 canvas draws and sends nothing, and the game resumes when it has a size again', async () => {

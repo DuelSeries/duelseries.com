@@ -3,7 +3,7 @@
 // and the build brief (facts 2.7, 2.19, 2.21; scope section 3). The graph is canvas, drawn into
 // #statsGraph (350 x 170) at the moment of death; its call order is part of the parity contract
 // (build brief 1.1), so do not reorder canvas calls. The card and the "Match Results" panel
-// follow client-hud 6.3; the name entry and the settings block on the card are ours, in the
+// follow client-hud 6.3; the name entry on the card is ours (no settings block since 2026-10-15), in the
 // DuelSeries look (client-hud 8: "our lobby styles may replace the menu shell").
 // Loads in the browser (DuelAgarLib.agScreens) and under node (the pure parts).
 (function (root) {
@@ -246,22 +246,11 @@
     menuFit: { width: 1600, height: 800 }
   };
 
-  // The drawing settings (build brief scope 3) and their defaults, which are the reference's:
-  // names on, colours on, show mass off, dark off, quality "Retina". The labels are ours.
+  // The drawing values every agar.io page uses, which are the reference's defaults: names on,
+  // colours on, show mass off, dark off, quality "Retina". HARD-WIRED (Owen 2026-10-15: "just get
+  // rid of all the settings, I don't need any of them"): there is no settings block any more, on
+  // this card or in the lobby, and nothing stored can change them (agMain).
   var SETTINGS_DEFAULTS = { names: true, colors: true, showMass: false, dark: false, quality: 'Retina' };
-  var SETTING_BOXES = [
-    ['names', 'Names'],
-    ['colors', 'Colours'],
-    ['showMass', 'Show mass'],
-    ['dark', 'Dark theme']
-  ];
-  var QUALITY_OPTIONS = [
-    ['Retina', 'Retina'],
-    ['High', 'High'],
-    ['Medium', 'Medium'],
-    ['Low', 'Low'],
-    ['VeryLow', 'Very low']
-  ];
 
   // Menu scale (client-hud 6.3): min(1, innerWidth/1600, h/800), h = the window height above the
   // bottom strip (real or ghost; agMain passes it).
@@ -275,11 +264,12 @@
   //   margin 5px 0, padding 10), the button base the Continue button uses, and every rule from
   //   #ag-stats down. The death-panel DOM diff checks these; do not restyle them.
   // - CHOSEN, ours (client-hud 8: our lobby styles may replace the menu shell): the name entry,
-  //   its buttons and the settings block (#ag-name and everything in it), in the DuelSeries
+  //   and its buttons (#ag-name and everything in it), in the DuelSeries
   //   colours: ink #100e0b, bone #f5f1e8, line #d6cdbd, label #6f6556 and the product's amber
   //   #f0a830 on Play only. No colour or size of the reference's own menu is used there.
-  //   The name entry fits the card's fixed 280 px: title 40, name 40, Play 8 + 40,
-  //   Spectate / Sound 8 + 32, settings 10 + 3 rows of 28 + 2 gaps of 6 = 274.
+  //   The name entry is centred in the card's fixed 280 px: title 40, name 40, Play 8 + 40,
+  //   Spectate 8 + 32 = 168. The settings block and the Sound button that filled the rest are
+  //   gone (Owen 2026-10-15).
   var SCREENS_CSS = [
     '#ag-menu{position:fixed;left:50%;top:45%;transform:translate(-50%,-50%);z-index:20;font-family:Arial,sans-serif;color:#343434;}',
     '#ag-menu[hidden]{display:none;}',
@@ -291,7 +281,7 @@
     '.ag-btn{display:inline-block;margin-bottom:0;font-size:15px;font-weight:bold;line-height:1.42857143;text-align:center;white-space:nowrap;vertical-align:middle;touch-action:manipulation;cursor:pointer;user-select:none;background-image:none;border:1px solid transparent;border-radius:4px;font-family:Arial,sans-serif;}',
     '.ag-btn-primary{color:#fff;background-color:#428bca;border-color:#357ebd;height:35px;}',
     // ---- ours (CHOSEN) ----
-    '#ag-name{position:relative;height:280px;text-align:center;color:#100e0b;font-family:"Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif;}',
+    '#ag-name{position:relative;height:280px;box-sizing:border-box;padding-top:52px;text-align:center;color:#100e0b;font-family:"Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif;}',
     '#ag-name h2{margin:2px 0 8px;font-size:28px;line-height:30px;font-weight:800;letter-spacing:-0.02em;}',
     '#ag-nick{display:block;box-sizing:border-box;width:100%;height:40px;margin:0;padding:0 12px;border:1px solid #d6cdbd;border-radius:8px;background:#f5f1e8;color:#100e0b;font-family:inherit;font-size:16px;font-weight:600;}',
     '#ag-nick::placeholder{color:#6f6556;font-weight:400;}',
@@ -301,17 +291,9 @@
     '#ag-play:hover{background:#f4b955;}',
     '#ag-play:active{transform:translateY(1px);}',
     '#ag-name .ag-row{display:flex;gap:8px;margin-top:8px;}',
-    '#ag-spectate,#ag-sound{display:block;flex:1 1 0;box-sizing:border-box;width:auto;min-width:0;height:32px;margin:0;padding:0 8px;border:1px solid #d6cdbd;background:#fff;color:#100e0b;font-size:14px;font-weight:600;}',
-    '#ag-spectate:hover,#ag-sound:hover{background:#f5f1e8;}',
-    '#ag-name button:focus-visible,#ag-name select:focus-visible,#ag-name input[type=checkbox]:focus-visible{outline:2px solid #100e0b;outline-offset:2px;}',
-    '#ag-settings{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:10px;text-align:left;}',
-    '#ag-settings .ag-opt{display:flex;align-items:center;gap:7px;box-sizing:border-box;height:28px;margin:0;padding:0 10px;border-radius:8px;background:#f5f1e8;color:#100e0b;font-size:13px;font-weight:600;cursor:pointer;user-select:none;-webkit-user-select:none;}',
-    '#ag-settings .ag-opt input{margin:0;width:15px;height:15px;accent-color:#100e0b;cursor:pointer;}',
-    '#ag-settings .ag-opt:has(input:checked){background:#100e0b;color:#f5f1e8;}',
-    '#ag-settings .ag-opt:has(input:checked) input{accent-color:#f0a830;}',
-    '#ag-settings .ag-quality{grid-column:1 / -1;justify-content:space-between;cursor:default;}',
-    '#ag-settings .ag-quality span{color:#6f6556;}',
-    '#ag-settings select{height:22px;padding:0 4px;border:1px solid #d6cdbd;border-radius:6px;background:#fff;color:#100e0b;font-family:inherit;font-size:13px;font-weight:600;}',
+    '#ag-spectate{display:block;flex:1 1 0;box-sizing:border-box;width:auto;min-width:0;height:32px;margin:0;padding:0 8px;border:1px solid #d6cdbd;background:#fff;color:#100e0b;font-size:14px;font-weight:600;}',
+    '#ag-spectate:hover{background:#f5f1e8;}',
+    '#ag-name button:focus-visible{outline:2px solid #100e0b;outline-offset:2px;}',
     // ---- the Match Results panel (client-hud 6.3) ----
     '#ag-stats{display:inline-block;position:relative;width:306px;height:300px;overflow:hidden;}',
     '#ag-stats[hidden]{display:none;}',
@@ -327,7 +309,7 @@
   ].join('\n');
 
   // The page inside the DuelSeries lobby's agar frame (CHOSEN, Owen 2026-10-09 midday, OWNER-ANSWERS): there is no
-  // name entry (the lobby's agar.io screen holds the name, the buy-in, Spectate and the settings), and the Match
+  // name entry (the lobby's agar.io screen holds the name, the buy-in and Spectate), and the Match
   // Results panel ends with Play again and Lobby in place of Continue. Ours, added to the page only in that mode, so
   // SCREENS_CSS and the panel the parity harness diffs stay as they are. The two buttons share Continue's slot
   // (306 wide, 34 high, 15 from the bottom), 150 each with 6 between; Play again keeps Continue's primary look and
@@ -346,8 +328,7 @@
   // ---------------------------------------------------------------------------------------
 
   // opts: { doc, root (where to append; default body), onPlay(name), onSpectate(), onContinue(),
-  //         injectCss (default true), soundButton (an element to place on the name panel),
-  //         settings (values to show, see SETTINGS_DEFAULTS), onSettings({ key: value }),
+  //         injectCss (default true),
   //         lobby (the lobby frame's page: no name entry, Play again and Lobby on the panel; see LOBBY_CSS),
   //         onAgain(), onLobby() (lobby only: the panel's two buttons) }
   function createScreens(opts) {
@@ -381,10 +362,10 @@
     card.appendChild(pc);
     menu.appendChild(card);
 
-    // Name entry (HOME). The lobby frame's page has none (see LOBBY_CSS): no name box, Play, Spectate, Sound or
-    // settings block, so the card only ever shows the Match Results panel there.
+    // Name entry (HOME). The lobby frame's page has none (see LOBBY_CSS): no name box, Play or Spectate, so the
+    // card only ever shows the Match Results panel there. No settings and no Sound button anywhere (Owen
+    // 2026-10-15): the drawing values are SETTINGS_DEFAULTS and sound is always on.
     var namePanel = null, nick = null, playBtn = null, specBtn = null;
-    var boxes = {}, qSelect = null;
     if (!lobby) {
       namePanel = el('div', { id: 'ag-name' });
       namePanel.appendChild(el('h2', null, 'agar.io'));
@@ -395,54 +376,10 @@
       var row = el('div', { 'class': 'ag-row' });
       specBtn = el('button', { id: 'ag-spectate', type: 'button', 'class': 'ag-btn' }, 'Spectate');
       row.appendChild(specBtn);
-      if (opts.soundButton) row.appendChild(opts.soundButton);
       namePanel.appendChild(row);
 
-      // Settings that change the drawing (build brief scope 3). The page owns the values; this
-      // block shows them and reports each change through opts.onSettings({ key: value }).
-      var settingsBox = el('div', { id: 'ag-settings', role: 'group', 'aria-label': 'Settings' });
-      for (var si = 0; si < SETTING_BOXES.length; si++) {
-        var sb = SETTING_BOXES[si];
-        var lbl = el('label', { 'class': 'ag-opt' });
-        var cb = el('input', { type: 'checkbox', 'data-setting': sb[0] });
-        lbl.appendChild(cb);
-        lbl.appendChild(el('span', null, sb[1]));
-        settingsBox.appendChild(lbl);
-        boxes[sb[0]] = cb;
-        cb.addEventListener('change', settingChanged(sb[0], cb));
-      }
-      var qLabel = el('label', { 'class': 'ag-opt ag-quality' });
-      qLabel.appendChild(el('span', null, 'Quality'));
-      qSelect = el('select', { 'data-setting': 'quality' });
-      for (var qi = 0; qi < QUALITY_OPTIONS.length; qi++) {
-        qSelect.appendChild(el('option', { value: QUALITY_OPTIONS[qi][0] }, QUALITY_OPTIONS[qi][1]));
-      }
-      qLabel.appendChild(qSelect);
-      settingsBox.appendChild(qLabel);
-      qSelect.addEventListener('change', function () {
-        if (opts.onSettings) opts.onSettings({ quality: qSelect.value });
-      });
-      namePanel.appendChild(settingsBox);
       pc.appendChild(namePanel);
     }
-
-    function settingChanged(key, box) {
-      return function () {
-        var change = {};
-        change[key] = !!box.checked;
-        if (opts.onSettings) opts.onSettings(change);
-      };
-    }
-    // Show the page's values: { names, colors, showMass, dark: booleans, quality: a name }.
-    function showSettings(values) {
-      values = values || {};
-      for (var key in boxes) {
-        if (Object.prototype.hasOwnProperty.call(boxes, key) && typeof values[key] === 'boolean') boxes[key].checked = values[key];
-      }
-      if (qSelect && typeof values.quality === 'string') qSelect.value = values.quality;
-    }
-    showSettings(SETTINGS_DEFAULTS);
-    if (opts.settings) showSettings(opts.settings);
 
     // Match Results (GAMEOVER). #statsGraph keeps its width/height as attributes so creating it
     // writes no canvas size through script.
@@ -524,8 +461,6 @@
       menu.style.transform = 'translate(-50%, -50%)' + (k !== 1 ? ' scale(' + k + ')' : '');
     };
     api.setNick = function (name) { if (nick) nick.value = String(name || '').slice(0, LAYOUT.nickMax); };
-    api.setSettings = showSettings;
-    api.settingsControls = { boxes: boxes, quality: qSelect };
 
     function play() {
       var name = String(nick.value || '').slice(0, LAYOUT.nickMax);
@@ -846,8 +781,6 @@
     STAT_BOXES: STAT_BOXES,
     LAYOUT: LAYOUT,
     SETTINGS_DEFAULTS: SETTINGS_DEFAULTS,
-    SETTING_BOXES: SETTING_BOXES,
-    QUALITY_OPTIONS: QUALITY_OPTIONS,
     menuScale: menuScale,
     SCREENS_CSS: SCREENS_CSS,
     LOBBY_CSS: LOBBY_CSS,

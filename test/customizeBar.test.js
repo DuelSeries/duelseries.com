@@ -55,14 +55,9 @@ test('every game shows the bar, built or not (BACKLOG 2.2: one layout for every 
   assert.ok(html.includes("det.classList.toggle('nolook',!hasLook(cur));"), 'the shut bar is a class');
   // Owen 2026-10-15: no small print. The shut bar no longer says there is nothing to change.
   assert.ok(!html.includes('Nothing to change in'), 'the shut bar carries no sentence');
-  // agar.io's game settings ride in its chooser, not in the play column (BACKLOG 2.2).
-  assert.ok(html.includes("document.getElementById('lookveil').classList.toggle('agset',hasSettings(cur));"),
-    'agar.io\'s chooser carries its settings');
+  // agar.io's Customize is the same chooser as every other game's: its settings are gone (Owen 2026-10-15).
   const veil = html.slice(html.indexOf('<div id="lookveil"'), html.indexOf('<div class="ap-save-row">'));
-  assert.ok(veil.includes('<div class="agtg" id="agtg"></div>'), 'inside the chooser');
-  assert.ok(html.includes('.agopts{display:none}') && html.includes('.apscreen.agset .agopts{display:block;'),
-    'shown on agar.io\'s only');
-  assert.ok(html.includes('.apscreen.agset .ap-reel{bottom:270px}'), 'and the skin list makes room for them');
+  assert.ok(!veil.includes('agtg') && !html.includes('agset'), 'no settings band in the chooser');
   // A locked Shop skin can be looked at, never saved, and only slither stores anything.
   const close = html.slice(html.indexOf('function closeLook'), html.indexOf('function closeLook') + 400);
   assert.ok(close.includes('if(save&&s&&s.locked)return;'), 'Save on a locked skin does nothing');

@@ -1,6 +1,7 @@
 // In-game sounds for the agar.io redo: OUR OWN short WebAudio tones played at the reference
-// client's cue points, OFF by default with an on/off button (build brief fact 2.13, Q41; the
-// sounds themselves and the toggle are CHOSEN). The cue gates are the reference rules
+// client's cue points, ALWAYS ON (Owen 2026-10-15: every agar.io setting is gone, sound is
+// hard-wired on; it was off by default with an on/off button, build brief fact 2.13, Q41; the
+// sounds themselves are CHOSEN). The cue gates are the reference rules
 // (protocol-semantics 3.2 "Sounds", client-camera-input 8.5 and 8.6); the tones are ours.
 // Loads in the browser (DuelAgarLib.agSound) and under node (the cue logic; no audio there).
 (function (root) {
@@ -62,23 +63,14 @@
     splitBecauseVirus: { type: 'sawtooth', f0: 180, f1: 60, dur: 0.25, gain: 0.3 }
   };
   var MASTER = 0.15;
-  var STORE_KEY = 'agSoundOn';
 
-  // A sound player. env: { createAudioContext() (default: window AudioContext), storage
-  // (default: localStorage, read and written inside try/catch) }.
+  // A sound player, always on. env: { createAudioContext() (default: window AudioContext) }.
+  // Nothing is read from or written to storage: there is no on/off any more.
   function createSound(env) {
     env = env || {};
     var ac = null;
-    var enabled = false;
     var inGame = false;
     var played = [];
-    var storage = env.storage;
-    if (storage === undefined) {
-      try { storage = root.localStorage; } catch (e) { storage = null; }
-    }
-    try {
-      if (storage && storage.getItem(STORE_KEY) === '1') enabled = true;
-    } catch (e) { /* private window or blocked storage: stay off */ }
 
     function makeContext() {
       if (env.createAudioContext) return env.createAudioContext();
@@ -115,10 +107,10 @@
     }
 
     var api = {
-      // Play one cue; dropped when sounds are off or the player is not in a game (the
-      // reference drops in-game sounds the same way).
+      // Play one cue; dropped when the player is not in a game (the reference drops in-game
+      // sounds the same way).
       playCue: function (name) {
-        if (!enabled || !inGame) return false;
+        if (!inGame) return false;
         var spec = TONES[name];
         if (!spec) return false;
         played.push(name);
@@ -128,31 +120,12 @@
       playCues: function (names) {
         for (var i = 0; i < (names ? names.length : 0); i++) api.playCue(names[i]);
       },
-      setEnabled: function (on) {
-        enabled = !!on;
-        try { if (storage) storage.setItem(STORE_KEY, enabled ? '1' : '0'); } catch (e) { /* ignore */ }
-        if (enabled) audio();   // a click on the toggle is a user gesture: unlock audio now
-        return enabled;
-      },
-      isEnabled: function () { return enabled; },
-      setInGame: function (on) { inGame = !!on; },
+      isEnabled: function () { return true; },
+      // Entering a game starts (or resumes) the audio context: it follows the Play press that
+      // led here, so the first cue is not the one that has to wake it.
+      setInGame: function (on) { inGame = !!on; if (inGame) audio(); },
       isInGame: function () { return inGame; },
-      played: function () { return played.slice(); },
-      // An on/off button (CHOSEN). Place it anywhere; it keeps its own label in sync.
-      createToggleButton: function (doc) {
-        var d = doc || root.document;
-        var b = d.createElement('button');
-        b.type = 'button';
-        b.id = 'ag-sound';
-        b.className = 'ag-btn';
-        function label() {
-          b.textContent = enabled ? 'Sound: on' : 'Sound: off';
-          b.setAttribute('aria-pressed', enabled ? 'true' : 'false');
-        }
-        b.addEventListener('click', function () { api.setEnabled(!enabled); label(); });
-        label();
-        return b;
-      }
+      played: function () { return played.slice(); }
     };
     return api;
   }
@@ -170,11 +143,8 @@
     ejectCue: ejectCue,
     eatCues: eatCues,
     createSound: createSound,
-    // The stored on/off key ('1' on, anything else off), which the lobby's agar.io screen writes too.
-    STORE_KEY: STORE_KEY,
-    // Module-level player (the card's API): playCue(name), setEnabled(bool).
+    // Module-level player: playCue(name).
     playCue: function (name) { return instance().playCue(name); },
-    setEnabled: function (on) { return instance().setEnabled(on); },
     isEnabled: function () { return instance().isEnabled(); },
     setInGame: function (on) { return instance().setInGame(on); },
     instance: instance

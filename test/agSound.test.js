@@ -1,5 +1,5 @@
 'use strict';
-// agSound (build brief fact 2.13, Q41): our own tones at the reference cue points, off by default.
+// agSound (build brief fact 2.13, Q41): our own tones at the reference cue points, always on since 2026-10-15.
 const test = require('node:test');
 const assert = require('node:assert');
 const path = require('path');
@@ -21,11 +21,6 @@ function fakeAudio() {
   };
   return { ac, log };
 }
-function memStore() {
-  const m = {};
-  return { getItem: (k) => (k in m ? m[k] : null), setItem: (k, v) => { m[k] = String(v); }, m };
-}
-
 test('split cue: 1 to 15 own cells and some displayed size strictly above 60', () => {
   assert.strictEqual(S.splitCue([]), null);
   assert.strictEqual(S.splitCue([60]), null);
@@ -70,36 +65,31 @@ test('eat cues match the reference moments of the full stream', () => {
   assert.deepStrictEqual(e({ eaterOwn: true, eatenOwn: true, ejected: true }), ['eatOwnCell']);
 });
 
-test('off by default; playing needs enabled AND in game', () => {
+test('always on (Owen 2026-10-15): playing needs only a game in progress', () => {
   const { ac, log } = fakeAudio();
-  const s = S.createSound({ createAudioContext: () => ac, storage: memStore() });
-  assert.strictEqual(s.isEnabled(), false);
-  s.setInGame(true);
-  assert.strictEqual(s.playCue('split'), false);
-  assert.strictEqual(log.length, 0);
-  s.setEnabled(true);
-  s.setInGame(false);
-  assert.strictEqual(s.playCue('split'), false);
+  const s = S.createSound({ createAudioContext: () => ac });
+  assert.strictEqual(s.isEnabled(), true);
+  assert.strictEqual(s.playCue('split'), false, 'not in a game: dropped, as the reference drops it');
+  assert.strictEqual(log.filter((x) => x[0] === 'start').length, 0);
   s.setInGame(true);
   assert.strictEqual(s.playCue('split'), true);
   assert.strictEqual(s.playCue('nope'), false);
   assert.ok(log.some((x) => x[0] === 'start'));
   assert.ok(log.some((x) => x[0] === 'freq' && x[1] === 'set' && x[2] === S.TONES.split.f0));
   assert.deepStrictEqual(s.played(), ['split']);
+  s.setInGame(false);
+  assert.strictEqual(s.playCue('split'), false);
 });
 
-test('every cue has a tone; the choice persists through storage, and broken storage is harmless', () => {
+test('every cue has a tone; there is no toggle and nothing is stored', () => {
   for (const c of S.CUES) assert.ok(S.TONES[c], c);
-  const store = memStore();
-  const a = S.createSound({ createAudioContext: () => fakeAudio().ac, storage: store });
-  a.setEnabled(true);
-  assert.strictEqual(store.m.agSoundOn, '1');
-  const b = S.createSound({ createAudioContext: () => fakeAudio().ac, storage: store });
-  assert.strictEqual(b.isEnabled(), true);
-  const bad = { getItem() { throw new Error('blocked'); }, setItem() { throw new Error('blocked'); } };
-  const c = S.createSound({ createAudioContext: () => null, storage: bad });
-  assert.strictEqual(c.isEnabled(), false);
-  assert.strictEqual(c.setEnabled(true), true);
+  const s = S.createSound({ createAudioContext: () => fakeAudio().ac });
+  assert.strictEqual(s.setEnabled, undefined, 'no way to turn it off');
+  assert.strictEqual(s.createToggleButton, undefined, 'no Sound button');
+  assert.strictEqual(S.STORE_KEY, undefined, 'no stored on/off key');
+  const src = require('fs').readFileSync(path.join(__dirname, '..', 'public', 'js', 'ag', 'agSound.js'), 'utf8');
+  assert.ok(!/localStorage|agSoundOn|getItem|setItem/.test(src), 'agSound never touches storage');
+  const c = S.createSound({ createAudioContext: () => null });
   c.setInGame(true);
   assert.strictEqual(c.playCue('shoot'), false);   // no audio context available: silent, no throw
 });

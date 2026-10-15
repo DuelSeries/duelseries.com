@@ -207,10 +207,12 @@ test('the name entry carries none of the reference menu look; the panel facts st
   assert.match(rule('.ag-btn-primary'), /background-color:#428bca;border-color:#357ebd/);
 });
 
-test('settings defaults are the reference defaults (names, colours on; mass, dark off; Retina)', () => {
+test('the drawing values are the reference defaults, hard-wired: no settings block, no Sound button', () => {
   assert.deepStrictEqual(S.SETTINGS_DEFAULTS, { names: true, colors: true, showMass: false, dark: false, quality: 'Retina' });
-  assert.deepStrictEqual(S.SETTING_BOXES.map((b) => b[0]), ['names', 'colors', 'showMass', 'dark']);
-  assert.deepStrictEqual(S.QUALITY_OPTIONS.map((q) => q[0]), ['Retina', 'High', 'Medium', 'Low', 'VeryLow']);
+  // Owen 2026-10-15: "just get rid of all the settings". Nothing on the card offers to change them.
+  assert.strictEqual(S.SETTING_BOXES, undefined);
+  assert.strictEqual(S.QUALITY_OPTIONS, undefined);
+  assert.doesNotMatch(S.SCREENS_CSS, /#ag-settings|#ag-sound/);
 });
 
 test('menu box: the reference 985 x 600 box on mouse screens, scaled from the window above the strip', () => {

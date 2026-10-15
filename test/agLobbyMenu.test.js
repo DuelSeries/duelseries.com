@@ -4,9 +4,10 @@
    Inside the lobby's agar frame (public/ag.html sets cfg.lobby when its frame element is #agar-frame) the page has
    no menu card: agLobby starts play under the lobby name (or watching, when the lobby's Spectate opened it), Esc
    does nothing in the free room, the Match Results panel ends with Play again and Lobby, and a dropped socket joins
-   again as it was. The card's settings live on the lobby's agar.io screen (public/js/v2/agopts.js), which writes the
-   same two storage keys the page reads, and a loaded page takes a change from the storage event. A direct visit to
-   /ag and the parity harness keep the old menu exactly; a paid hand-off keeps its own flow. */
+   again as it was. There are no agar.io settings anywhere since 2026-10-15 (Owen: "just get rid of all the
+   settings"): not on the lobby, not on the card, nothing stored; sound is always on and the drawing values are the
+   reference defaults. A direct visit to /ag and the parity harness keep the old menu otherwise; a paid hand-off keeps
+   its own flow. */
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
@@ -39,7 +40,7 @@ test('agScreens: the lobby card has no name entry, and its panel ends with Play 
   const s = agScreens.createScreens({ doc, root: doc.body, lobby: true,
     onAgain: () => calls.push('again'), onLobby: () => calls.push('lobby'), onPlay: () => calls.push('play') });
   const all = ids(doc.body);
-  for (const gone of ['ag-name', 'ag-nick', 'ag-play', 'ag-spectate', 'ag-sound', 'ag-settings', 'statsContinue']) {
+  for (const gone of ['ag-name', 'ag-nick', 'ag-play', 'ag-spectate', 'statsContinue']) {
     assert.ok(!all.includes(gone), gone + ' is not on the lobby card');
   }
   assert.ok(all.includes('statsAgain') && all.includes('statsLobby'), 'Play again and Lobby are');
@@ -57,14 +58,14 @@ test('agScreens: the lobby card has no name entry, and its panel ends with Play 
   assert.strictEqual(s.menu.hidden, true, 'the panel closes on Play again');
   doc.getElementById('statsLobby').dispatch('click');
   assert.deepStrictEqual(calls, ['again', 'lobby']);
-  s.setNick('x'); s.setSettings({ dark: true });   // no name box or settings block: both are no-ops
+  s.setNick('x');   // no name box: a no-op
 });
 
-test('agScreens: the card everywhere else is built exactly as before (parity DOM, no lobby stylesheet)', () => {
+test('agScreens: the card everywhere else: name, Play, Spectate and the panel; no Sound or settings (no lobby stylesheet)', () => {
   const doc = makeDoc();
-  agScreens.createScreens({ doc, root: doc.body, soundButton: LIB.agSound.createSound({ storage: null }).createToggleButton(doc) });
-  assert.deepStrictEqual(ids(doc.body), ['ag-menu', 'ag-card', 'ag-name', 'ag-nick', 'ag-play', 'ag-spectate', 'ag-sound',
-    'ag-settings', 'ag-stats', 'statsGraph', 'statsContinue']);
+  agScreens.createScreens({ doc, root: doc.body });
+  assert.deepStrictEqual(ids(doc.body), ['ag-menu', 'ag-card', 'ag-name', 'ag-nick', 'ag-play', 'ag-spectate',
+    'ag-stats', 'statsGraph', 'statsContinue']);
   assert.strictEqual(doc.getElementById('ag-screens-lobby-css'), null);
   assert.ok(!agScreens.SCREENS_CSS.includes('statsAgain'), 'the parity stylesheet carries none of it');
 });
@@ -169,31 +170,27 @@ test('agMain lobby: a dropped socket joins again as it was (play under the same 
   w.session.destroy();
 });
 
-test('agMain lobby: a settings write from the lobby reaches the loaded page at once and is not written back', async () => {
-  const storage = countingStore();
+test('agMain lobby: the old settings keys change nothing, before boot or after it, and nothing is written', async () => {
+  const storage = countingStore({ agSettings: JSON.stringify({ quality: 'Low', names: false, colors: false, showMass: true, dark: true }),
+    agSoundOn: '0' });
   const p = bootPage({ cfg: { lobby: true, persistSettings: true, storage }, parent: { postMessage() {} } });
   await spawn(p, p.session.feed);
+  const fixed = { quality: 'Retina', names: true, colors: true, showMass: false, dark: false };
+  assert.deepStrictEqual(p.session.settings(), fixed, 'hard-wired: names and colours on, mass and dark off, Retina');
+  assert.strictEqual(p.mod.sound.isEnabled(), true, 'sound always on');
   const W0 = [p.canvas.width, p.canvas.height];
-  storage.setItem('agSettings', JSON.stringify({ quality: 'Low', names: false, colors: true, showMass: true, dark: true }));
-  const writes = storage.writes;
   p.win.fire('storage', { key: 'agSettings' });
-  assert.deepStrictEqual(p.session.settings(), { quality: 'Low', names: false, colors: true, showMass: true, dark: true });
-  assert.deepStrictEqual([p.canvas.width, p.canvas.height], [W0[0] * 0.75, W0[1] * 0.75], 'the quality sized the canvas');
-  assert.strictEqual(storage.writes, writes, 'nothing written back');
-  // Sound: the game's own key, from the event's new value.
-  assert.strictEqual(p.mod.sound.isEnabled(), false);
-  p.win.fire('storage', { key: 'agSoundOn', newValue: '1' });
-  assert.strictEqual(p.mod.sound.isEnabled(), true);
   p.win.fire('storage', { key: 'agSoundOn', newValue: '0' });
-  assert.strictEqual(p.mod.sound.isEnabled(), false);
-  p.win.fire('storage', { key: 'somethingElse', newValue: '1' });
-  assert.deepStrictEqual(p.session.settings().quality, 'Low');
+  assert.deepStrictEqual(p.session.settings(), fixed);
+  assert.deepStrictEqual([p.canvas.width, p.canvas.height], W0, 'the canvas is not resized');
+  assert.strictEqual(p.mod.sound.isEnabled(), true);
+  assert.strictEqual(storage.writes, 0, 'nothing written');
   p.session.destroy();
 });
 
 test('agMain everywhere else: the card at boot, Esc opens it, Continue on the panel, no storage listener', async () => {
   const storage = memStore();
-  const p = bootPage({ cfg: { persistSettings: true, storage } });
+  const p = bootPage({ cfg: { storage } });
   assert.strictEqual(p.doc.getElementById('ag-menu').hidden, false, 'the name entry at boot');
   await spawn(p, p.session.feed);
   p.key('keydown', 27);
@@ -202,7 +199,7 @@ test('agMain everywhere else: the card at boot, Esc opens it, Continue on the pa
   p.key('keyup', 27);
   storage.setItem('agSettings', JSON.stringify({ quality: 'Low', names: true, colors: true, showMass: false, dark: true }));
   p.win.fire('storage', { key: 'agSettings' });
-  assert.strictEqual(p.session.settings().dark, false, 'a direct visit does not follow the storage live');
+  assert.strictEqual(p.session.settings().dark, false, 'a direct visit does not follow the storage either');
   assert.ok(p.doc.getElementById('statsContinue'));
   assert.strictEqual(p.doc.getElementById('statsAgain'), null);
   p.session.destroy();
@@ -326,97 +323,25 @@ test('agLobby: in the lobby frame\'s free room the Lobby button keeps the old pl
 
 // ---- the lobby's agar.io screen --------------------------------------------------------------------------------
 
-function optsPage(local) {
-  const els = {};
-  function node(tag) {
-    const n = { tagName: tag.toUpperCase(), id: '', className: '', textContent: '', value: '', children: [], attrs: {}, l: {},
-      setAttribute(k, v) { this.attrs[k] = String(v); if (k === 'id') { this.id = String(v); els[this.id] = this; } },
-      getAttribute(k) { return Object.prototype.hasOwnProperty.call(this.attrs, k) ? this.attrs[k] : null; },
-      appendChild(c) { this.children.push(c); if (c.id) els[c.id] = c; return c; },
-      addEventListener(t, fn) { (this.l[t] = this.l[t] || []).push(fn); },
-      fire(t) { (this.l[t] || []).forEach((fn) => fn({})); } };
-    return new Proxy(n, { set(t, k, v) { t[k] = v; if (k === 'id' && v) els[v] = t; return true; } });
-  }
-  const box = node('div'); box.id = 'agtg';
-  const winOn = {};
-  const win = {
-    localStorage: local,
-    document: { readyState: 'complete', getElementById: (id) => els[id] || null, createElement: node,
-      createTextNode: (t) => ({ textContent: t, children: [] }), addEventListener() {} },
-    addEventListener(t, fn) { (winOn[t] = winOn[t] || []).push(fn); },
-  };
-  win.window = win;
-  vm.createContext(win);
-  vm.runInContext(read('public/js/v2/agopts.js'), win, { filename: 'agopts.js' });
-  const pills = () => box.children.filter((c) => c.getAttribute('data-opt'));
-  return { win, box, els, pills, storage: (e) => (winOn.storage || []).forEach((fn) => fn(e)) };
-}
-
-test('lobby settings: the same options, labels, defaults and storage keys as the game\'s own card', () => {
-  const o = JSON.parse(JSON.stringify(optsPage(memStore()).win.V2AgOpts));
-  assert.deepStrictEqual(o.DEFAULTS, agScreens.SETTINGS_DEFAULTS);
-  assert.deepStrictEqual(o.FLAGS, agScreens.SETTING_BOXES);
-  assert.deepStrictEqual(o.QUALITY, agScreens.QUALITY_OPTIONS);
-  assert.strictEqual(o.SETTINGS_KEY, LIB.agMain.SETTINGS_KEY);
-  assert.strictEqual(o.SOUND_KEY, LIB.agSound.STORE_KEY);
-  assert.deepStrictEqual([...LIB.agMain.SETTING_FLAGS], agScreens.SETTING_BOXES.map((b) => b[0]));
-});
-
-test('lobby settings: the pills show the defaults, a press writes the game\'s shape, and the game boots on it', () => {
-  const local = memStore();
-  const h = optsPage(local);
-  const pills = h.pills();
-  assert.deepStrictEqual(pills.map((b) => b.getAttribute('data-opt')), ['sound', 'names', 'colors', 'showMass', 'dark']);
-  assert.deepStrictEqual(pills.map((b) => b.getAttribute('aria-pressed')), ['false', 'true', 'true', 'false', 'false'], 'defaults');
-  assert.strictEqual(h.els.agqv.textContent, 'Retina');
-  assert.strictEqual(local.getItem('agSettings'), null, 'nothing is written until something is pressed');
-  pills[3].fire('click');       // Show mass on
-  pills[4].fire('click');       // Dark theme on
-  pills[0].fire('click');       // Sound on
-  h.els.agq.value = 'VeryLow';
-  h.els.agq.fire('change');
-  assert.deepStrictEqual(JSON.parse(local.getItem('agSettings')),
-    { quality: 'VeryLow', names: true, colors: true, showMass: true, dark: true }, 'agMain\'s storeSettings shape');
-  assert.strictEqual(local.getItem('agSoundOn'), '1');
-  assert.deepStrictEqual(h.pills().map((b) => b.getAttribute('aria-pressed')), ['true', 'true', 'true', 'true', 'true']);
-  assert.strictEqual(h.els.agqv.textContent, 'Very low');
-  // The game page boots on exactly these.
-  const g = bootPage({ cfg: { lobby: true, persistSettings: true, storage: local } });
-  assert.deepStrictEqual(g.session.settings(), { quality: 'VeryLow', names: true, colors: true, showMass: true, dark: true });
-  assert.strictEqual(LIB.agSound.createSound({ storage: local, createAudioContext: () => null }).isEnabled(), true);
-  g.session.destroy();
-  // And follows a write made elsewhere (the game's own card on a direct visit).
-  local.setItem('agSettings', JSON.stringify({ quality: 'High', names: false, colors: true, showMass: false, dark: false }));
-  h.storage({ key: 'agSettings' });
-  assert.deepStrictEqual(h.pills().map((b) => b.getAttribute('aria-pressed')), ['true', 'false', 'true', 'false', 'false']);
-  assert.strictEqual(h.els.agqv.textContent, 'High');
-  // A broken stored value is read as the defaults, the way agMain reads it.
-  local.setItem('agSettings', '{not json');
-  h.storage({ key: 'agSettings' });
-  assert.strictEqual(h.els.agqv.textContent, 'Retina');
-});
-
-test('the lobby\'s agar.io screen: settings behind Customize, Spectate on Free only beside Play, and the script', () => {
+test('the lobby\'s agar.io screen: no settings anywhere, Spectate on Free only beside Play', () => {
   const html = read('public/v2.html');
   assert.match(html, /<div class="gorow">\s*<button type="button" class="go" id="gobtn" onclick="startFromDetail\(\)">/, 'Play is the same button');
   assert.match(html, /<button type="button" class="spec" id="agspec" onclick="V2Play\.spectate\('agar'\)"/);
-  // BACKLOG 2.2 (Owen 2026-10-15): the settings left the play column for agar.io's Customize chooser, with no caption.
-  const veil = html.slice(html.indexOf('<div id="lookveil"'), html.indexOf('<div class="ap-save-row">'));
-  assert.match(veil, /<div class="agopts" role="group" aria-label="agar\.io settings">\s*<div class="agtg" id="agtg"><\/div>/);
-  assert.ok(!html.includes('Game settings'), 'no caption over them');
-  const col = html.slice(html.indexOf('<div class="gcol">'), html.indexOf('<!-- ══ WALLET ══ -->'));
-  assert.ok(!col.includes('id="agtg"'), 'and nothing of them is left in the play column');
-  assert.match(html, /const hasSettings=g=>!!\(g&&g\.id==='agar'\);/);
-  assert.match(html, /classList\.toggle\('agset',hasSettings\(cur\)\);/, 'its Customize shows them');
-  assert.match(html, /<script src="\/js\/v2\/play\.js"><\/script>\s*<script src="\/js\/v2\/agopts\.js"><\/script>/);
+  // Owen 2026-10-15: "just get rid of all the settings, I don't need any of them". Not in the play column, not in
+  // Customize, no script, no stored keys.
+  assert.ok(!fs.existsSync(path.join(ROOT, 'public/js/v2/agopts.js')), 'agopts.js is gone');
+  for (const gone of ['agopts', 'id="agtg"', 'agset', 'hasSettings', 'Game settings', 'agSettings', 'agSoundOn', '.agt{']) {
+    assert.ok(!html.includes(gone), gone + ' is not in the lobby');
+  }
   assert.match(html, /det\.classList\.toggle\('agar',cur\.id==='agar'\);/, 'only the agar.io screen shows Spectate');
   assert.match(html, /function drawStake\(\)\{\s*\/\*[^*]*\*\/\s*document\.getElementById\('detail'\)\.classList\.toggle\('agfree',STEPS\[si\]===0\);/,
     'Spectate follows the chosen rung');
   assert.match(html, /\.spec\{display:none;/);
   assert.match(html, /#detail\.agar\.agfree \.spec\{display:flex\}/);
-  // The lobby's own pills: the buy-in row's surface, radius and selected colours.
-  assert.match(html, /\.agt\{[^}]*background:var\(--s2\);border-radius:var\(--r2\);/);
-  assert.match(html, /\.agt\[aria-pressed="true"\]\{background:var\(--bone\);color:var\(--ink\)\}/);
+  // No other page offers them either: the /ag card and the game's own code read and write nothing.
+  for (const f of ['public/js/ag/agMain.js', 'public/js/ag/agSound.js', 'public/js/ag/agScreens.js', 'public/ag.html']) {
+    assert.ok(!/agSettings|agSoundOn|ag-settings|ag-sound\b|createToggleButton/.test(read(f)), f + ' has no settings');
+  }
 });
 
 test('the lobby\'s Spectate opens /ag in the agar frame with the watch flag the page reads', () => {
