@@ -7,7 +7,8 @@
 //   - roomOf follows a resume (the seat scan), roomForKey finds a parked seat's key
 //   - walletSeat: set at the open, cleared at every close, agrees with every bank (I9 across rooms)
 //   - idle retire: the floor to the house once per source wallet with its exact micro and a unique sweepId, I1 holds, a
-//     second sweep books nothing, a room with an account (or a gliding snake) is never retired
+//     second sweep books nothing, a room with an account (or a gliding snake) is never retired, and a whole paid life
+//     between two sweeps starts the empty clock again
 //   - an emergency close: the room leaves its rung, its sockets are let go; one whose settle left an account open stays
 //     on settling (all(), rows, the dollars) until the sweep's retry pays it through the owed lane
 //   - shutdownSettle: every room's money rows first (100% of the current balance), then its clock stops; the dollars
@@ -213,6 +214,35 @@ test('idle retire: the floor to the house once per source wallet, I1 holds, neve
   const d = r.join(r.mint({ walletAddress: 'WD' }));
   assert.equal(r.paid.roomOf(d.id).lobbyType, 'sl_na_s0_5');
   assert.notEqual(r.paid.roomOf(d.id), room);
+});
+
+test('idle retire: a whole paid life between two sweeps starts the empty clock again (FLOOR_SWEEP_MS of real emptiness)', () => {
+  const r = paidRig();
+  const a = r.join(r.mint({ walletAddress: 'WA' }));
+  const room = r.paid.roomOf(a.id);
+  r.step(2);
+  a.fire('sl:leave');
+  a.disconnect();
+  untilGlidesEnd(r);
+  const t0 = r.wall.t;
+  assert.equal(r.paid.sweep(t0).retired, 0, 'first seen empty');
+  assert.equal(r.paid.sweep(t0 + FLOOR_SWEEP_MS - 60000).retired, 0);
+  // B joins the same room, plays, leaves and dies, all between two samples: no sweep ever sees the room busy
+  const b = r.join(r.mint({ walletAddress: 'WB' }));
+  assert.equal(r.paid.roomOf(b.id), room, 'the empty room takes the next join');
+  r.step(2);
+  b.fire('sl:leave');
+  b.disconnect();
+  untilGlidesEnd(r);
+  assert.equal(room.money.openCount(), 0);
+  assert.equal(room.money.bank.floorMicro(), 1000000, 'B\'s stake is gold on the floor too');
+  assert.equal(r.paid.sweep(t0 + FLOOR_SWEEP_MS).retired, 0, 'B\'s gold is not the house\'s seconds after it dropped');
+  assert.deepEqual(r.money.of('onFloor'), []);
+  assert.equal(r.paid.sweep(t0 + 2 * FLOOR_SWEEP_MS - 1).retired, 0, 'empty since that sample, not yet');
+  assert.equal(r.paid.sweep(t0 + 2 * FLOOR_SWEEP_MS).retired, 1, 'FLOOR_SWEEP_MS of emptiness after the last life');
+  assert.deepEqual(r.money.of('onFloor').map((f) => [f.srcWallet, f.micro]).sort(), [['WA', 500000], ['WB', 500000]]);
+  assert.equal(room.stopped, true);
+  i1(room);
 });
 
 test('an emergency close: the room leaves its rung; a settle that left an account stays on settling until paid', () => {

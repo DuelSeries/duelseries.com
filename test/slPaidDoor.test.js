@@ -7,17 +7,22 @@
 //     restarting, full; a socket already seated is silent
 //   - a dev token (no stakeSig) seats with no claim; worth and wallet come from the token only
 //   - a real token: the journal open, then the claim, then the seat; a refusal after the claim is ONE ledger.refund
-//     with 'refund slither <why>' and the claimKey, never slPayout.refund; 'error' puts the token back, refunds nothing
+//     with 'refund slither <why>' and the token's own claimKey (never the jid), never slPayout.refund; 'error' puts the
+//     token back, refunds nothing
 //   - one-seat, join-lost, restarting and not-open after the claim, full and seat-failed after the spend: one refund each
-//   - a seat that threw with its account still open (the bank refused its own refund) is never refunded by the door
+//   - a seat that threw with its account still open (the bank refused its own refund) is never refunded by the door:
+//     the real hasAccount finds the jid in a live room or a settling one, and the room's owed lane pays it once
 //   - an open the journal did not write refunds 'unavailable' once, with no claim and no seat, and alerts once
 //   - the journal: open before the claim, closed 'refused' once the refund lane answered; a refund the database did not
-//     take yet leaves it open for the boot check
+//     take yet leaves it open for the boot check and is asked again every DOOR_RECHECK_MS until it lands, then closed;
+//     a refund that answers settled after the door's own claim refunded nothing: CRITICAL, alerted, left open
+//   - a logger that throws: every spent token is still refunded, and nothing the door tracks rejects
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { paidRig, jidLike } = require('./slPaidFakes');
 const { layerMsgs } = require('./slSockFakes');
 const { createSlPaidDoor, paidRung, WHYS } = require('../server/slPaid/slPaidDoor');
+const { DOOR_RECHECK_MS } = require('../server/slPaid/slPaidConst');
 
 function refusals(s) {
   return layerMsgs(s).filter((m) => m.t === 'refused');
@@ -47,6 +52,8 @@ test('the door needs its deps', () => {
   for (const k of ['arenas', 'consumeAtStake', 'slPayout', 'journal']) {
     assert.throws(() => createSlPaidDoor(Object.assign({}, base, { [k]: null })), /slPaidDoor/);
   }
+  // a logger with no error line would throw between a spent token and its refund
+  assert.throws(() => createSlPaidDoor(Object.assign({}, base, { log: { log() {} } })), /slPaidDoor: log/);
 });
 
 test('order: entry, bad-stake, slow-down, restarting and full are decided before the token is touched', () => {
@@ -147,7 +154,11 @@ test('a refusal after the claim: ONE ledger.refund with refund slither <why> and
     assert.equal(r.ledger.refunds.length, 1, why + ': one refund');
     assert.equal(r.ledger.refunds[0].sig, 'SIG-' + why);
     assert.equal(r.ledger.refunds[0].reason, 'refund slither ' + why);
-    assert.match(r.ledger.refunds[0].claimKey, jidLike, why + ': the token\'s own claimKey');
+    // the token's own claimKey, exactly: any other key (the journal jid is a uuid too) matches no consumed row, and the
+    // database answers settled with nothing refunded
+    assert.equal(typeof r.consumed[0].claimKey, 'string');
+    assert.equal(r.ledger.refunds[0].claimKey, r.consumed[0].claimKey, why + ': the token\'s own claimKey');
+    assert.notEqual(r.ledger.refunds[0].claimKey, r.money.records[0].jid, why + ': never the journal jid');
     assert.deepEqual(r.payout.refunds, [], why + ': never the payout');
     if (why !== 'join-lost') assert.deepEqual(lastRefusal(s), { t: 'refused', why, refunded: 500000 });
     assert.equal(seated(r, s), null);
@@ -273,7 +284,7 @@ test('maintenance and the switch: the token is consumed and refunded once, befor
     assert.deepEqual(lastRefusal(real), { t: 'refused', why, refunded: 500000 });
     assert.deepEqual(r.payout.refunds.map((q) => [q.wallet, q.why]), [['WM', why]]);
     assert.deepEqual(r.ledger.refunds.map((q) => [q.sig, q.reason]), [['SIG-M', 'refund slither ' + why]]);
-    assert.match(r.ledger.refunds[0].claimKey, jidLike);
+    assert.equal(r.ledger.refunds[0].claimKey, r.consumed[1].claimKey, 'the token\'s own claimKey');
     assert.deepEqual(r.ledger.claims, []);
     assert.deepEqual(r.money.records, []);
     assert.equal(r.consumed.length, 2);
@@ -338,7 +349,122 @@ test('a seat that throws: refunded seat-failed once, unless an account still hol
   assert.deepEqual(r.payout.refunds.map((q) => q.why), ['seat-failed', 'full']);
 });
 
-test('a refund the database did not take yet leaves the journal open (flagged at boot), and says so', async () => {
+test('an abort the bank refused: the real hasAccount finds the jid (live or settling), no door refund, the room pays once', async () => {
+  for (const where of ['live', 'settling']) {
+    const r = paidRig();
+    const real = r.paid.seatFor.bind(r.paid);
+    let room = null;
+    let restore = null;
+    r.paid.seatFor = (st, ex) => {
+      room = real(st, ex);
+      const bank = room.money.bank;
+      const withdraw = bank.withdraw.bind(bank);
+      restore = () => { bank.withdraw = withdraw; };
+      const roomMsg = room._roomMsg.bind(room);
+      room._roomMsg = () => {
+        room._roomMsg = roomMsg;
+        throw new Error('injected after open');
+      };
+      // the abort's withdraw is refused once ('live'), or every withdraw until the test lets go ('settling')
+      bank.withdraw = (id, kind) => {
+        if (where === 'live') restore();
+        throw new Error('injected refusal of ' + kind);
+      };
+      if (where === 'settling') {
+        const seatPaid = room.seatPaid.bind(room);
+        // the room closes itself before the door looks: its settle cannot pay, so it moves to settling
+        room.seatPaid = (...a) => {
+          try {
+            return seatPaid(...a);
+          } catch (e) {
+            room.emergencyClose();
+            throw e;
+          }
+        };
+      }
+      return room;
+    };
+    const s = r.join(r.mint({ walletAddress: 'WH', stakeSig: 'SIG-H' }));
+    await r.settle();
+    const jid = r.money.records[0].jid;
+    assert.deepEqual(lastRefusal(s), { t: 'refused', why: 'seat-failed', refunded: 0 }, where);
+    assert.deepEqual(r.ledger.refunds, [], where + ': no stake row refund');
+    assert.deepEqual(r.payout.refunds, [], where + ': no payout refund');
+    assert.equal(r.paid.hasAccount(jid), true, where);
+    assert.equal(room.money.account(jid).jid, jid, where + ': the account still open holds the door\'s jid');
+    if (where === 'settling') {
+      assert.deepEqual(r.paid.settling, [room], 'off its rung, on settling');
+      assert.equal(r.paid.rooms().includes(room), false);
+      restore();
+      r.paid.sweep(r.wall.t);
+    } else {
+      r.step(5);
+    }
+    // the room's own lane pays it once: never both refunds, never neither
+    const key = 'agowed:' + jid;
+    const owed = r.money.of('onOwed');
+    assert.deepEqual(owed.map((o) => [o.key, o.micro]), [[key, 500000]], where);
+    const lane = where === 'live' ? 'orphan' : 'emergency';
+    assert.ok(owed[0].reason.startsWith('refund slither ' + lane + ' sl_na_s0_5'), where + ': ' + owed[0].reason);
+    assert.deepEqual(r.money.records.filter((x) => x.t === 'close').map((x) => [x.jid, x.outcome, x.why]),
+      [[jid, 'refunded', lane]], where + ': one close, the room\'s');
+    assert.equal(r.paid.hasAccount(jid), false, where);
+    assert.equal(r.paid.walletSeat.size, 0, where);
+    assert.deepEqual(r.ledger.refunds, [], where);
+  }
+});
+
+test('a logger that throws never keeps a spent token from its refund, and the claim chain never rejects', async () => {
+  const log = { log() {}, warn() {}, error() { throw new Error('logger down'); } };
+  const r = paidRig({ door: { log } });
+  // a dev token whose journal open was not written
+  r.money.flags.journalOpenFails = 1;
+  const s = r.join(r.mint({ walletAddress: 'WK' }));
+  await r.settle();
+  assert.deepEqual(lastRefusal(s), { t: 'refused', why: 'unavailable', refunded: 500000 });
+  assert.deepEqual(r.payout.refunds.map((q) => [q.wallet, q.why]), [['WK', 'unavailable']]);
+  // a real token whose seat throws after the claim: one stake row refund, its journal closed
+  r.paid.seatFor = () => { throw new Error('injected seatFor'); };
+  const t = r.join(r.mint({ walletAddress: 'WT', stakeSig: 'SIG-T' }));
+  await r.settle();
+  assert.deepEqual(r.ledger.refunds.map((q) => [q.sig, q.reason]), [['SIG-T', 'refund slither seat-failed']]);
+  assert.deepEqual(lastRefusal(t), { t: 'refused', why: 'seat-failed', refunded: 500000 });
+  assert.deepEqual(r.money.records.filter((x) => x.t === 'close').map((x) => [x.outcome, x.why]),
+    [['refused', 'seat-failed']]);
+  // a refund lane that throws and one that is not recorded yet log too
+  r.ledger.refundAnswer = 'queued';
+  r.join(r.mint({ walletAddress: 'WU', stakeSig: 'SIG-U' }));
+  await r.settle();
+  const out = await Promise.allSettled(r.tracked);
+  assert.deepEqual(out.filter((x) => x.status === 'rejected').map((x) => x.reason && x.reason.message), [],
+    'nothing the door tracks rejects (an unhandled rejection takes the server down)');
+});
+
+test('a refund answering settled after the door\'s own claim refunded nothing: CRITICAL, alerted, left open', async () => {
+  const lines = [];
+  const log = { log() {}, warn() {}, error: (...a) => lines.push(a.join(' ')) };
+  const r = paidRig({ log });
+  r.ledger.refundAnswer = 'settled';
+  r.paid.seatFor = () => null;
+  const s = r.join(r.mint({ walletAddress: 'WZ', stakeSig: 'SIG-Z' }));
+  await r.settle();
+  assert.deepEqual(r.ledger.claims, ['SIG-Z']);
+  assert.deepEqual(lastRefusal(s), { t: 'refused', why: 'full', refunded: 500000 });
+  assert.deepEqual(r.money.records.map((x) => x.t), ['open'], 'left open: the boot check flags it with its stakeSig');
+  assert.ok(lines.some((l) => /DOOR CRITICAL refund of 500000 micro \(full\) answered settled after this door claimed/.test(l) &&
+    /nothing was refunded/.test(l)));
+  assert.deepEqual(r.alerts.map((a) => [a.kind, a.lobbyType, a.micro]), [['door-refund', 'sl_na_s0_5', 500000]]);
+  r.ft.run(10 * DOOR_RECHECK_MS);
+  await r.settle();
+  assert.equal(r.ledger.refunds.length, 1, 'never asked again: nothing says it will land');
+  // before any claim (the switch off) settled means a sweep refunded the row first: no journal, no alert
+  r.paid.setPaidOpen(false);
+  r.join(r.mint({ walletAddress: 'WY', stakeSig: 'SIG-Y' }));
+  await r.settle();
+  assert.equal(r.alerts.length, 1);
+});
+
+test('a refund the database did not take yet leaves the journal open, asked again until it lands, then closed once', async () => {
   const lines = [];
   const log = { log() {}, warn() {}, error: (...a) => lines.push(a.join(' ')) };
   const r = paidRig({ log });
@@ -347,13 +473,45 @@ test('a refund the database did not take yet leaves the journal open (flagged at
   const s = r.join(r.mint({ walletAddress: 'WQ', stakeSig: 'SIG-Q' }));
   await r.settle();
   assert.equal(lastRefusal(s).why, 'full');
-  assert.deepEqual(r.money.records.map((x) => x.t), ['open'], 'no close: the boot check sees the open');
+  assert.deepEqual(r.money.records.map((x) => x.t), ['open'], 'no close: a crash now is flagged at boot');
   assert.ok(lines.some((l) => /not recorded yet \(queued\)/.test(l) && /left open for the boot check/.test(l)));
-  // answered (owed) later on another join: closed once
-  r.ledger.refundAnswer = 'owed';
+  // still not taken at the next ask: still open
+  r.ft.run(DOOR_RECHECK_MS - 1);
+  await r.settle();
+  assert.equal(r.ledger.refunds.length, 1, 'not before DOOR_RECHECK_MS');
+  r.ft.run(1);
+  await r.settle();
+  assert.equal(r.ledger.refunds.length, 2, 'asked again');
+  assert.deepEqual(r.money.records.map((x) => x.t), ['open']);
+  // the ledger's own retry landed it: the next ask answers settled, and the jid closes refused, once
+  r.ledger.refundAnswer = 'settled';
+  r.ft.run(DOOR_RECHECK_MS);
+  await r.settle();
+  const key = r.consumed[0].claimKey;
+  assert.deepEqual(r.ledger.refunds.map((q) => [q.sig, q.reason, q.claimKey]),
+    [0, 1, 2].map(() => ['SIG-Q', 'refund slither full', key]), 'the same refund each time (one conditional update)');
+  assert.deepEqual(r.money.records.map((x) => [x.t, x.outcome || null, x.why || null]),
+    [['open', null, null], ['close', 'refused', 'full']]);
+  assert.deepEqual(r.alerts, [], 'settled after a queued ask is the refund landing, not the CRITICAL case');
+  r.ft.run(10 * DOOR_RECHECK_MS);
+  await r.settle();
+  assert.equal(r.ledger.refunds.length, 3, 'nothing more is asked');
+  // an ask that writes the owed row itself closes it too
+  r.ledger.refundAnswer = 'queued';
   r.join(r.mint({ walletAddress: 'WQ2', stakeSig: 'SIG-Q2' }));
   await r.settle();
-  assert.deepEqual(r.money.records.map((x) => x.t), ['open', 'open', 'close']);
+  r.ledger.refundAnswer = 'owed';
+  r.ft.run(DOOR_RECHECK_MS);
+  await r.settle();
+  assert.deepEqual(r.money.records.map((x) => x.t), ['open', 'close', 'open', 'close']);
+  // answered owed at once: closed at once, never asked again
+  r.join(r.mint({ walletAddress: 'WQ3', stakeSig: 'SIG-Q3' }));
+  await r.settle();
+  assert.deepEqual(r.money.records.map((x) => x.t), ['open', 'close', 'open', 'close', 'open', 'close']);
+  const n = r.ledger.refunds.length;
+  r.ft.run(10 * DOOR_RECHECK_MS);
+  await r.settle();
+  assert.equal(r.ledger.refunds.length, n);
 });
 
 test('every refund reason starts refund slither; every journal record of the door is an sl_ room', async () => {

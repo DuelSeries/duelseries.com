@@ -24,6 +24,12 @@ module.exports = Object.freeze({
   // agar's FIELD_MAX, server/ag/agPaidDoor.js:63: a real token is a UUID).
   FIELD_MAX: 64,
 
+  // A door refund through the stake row that the database did not take yet ('queued') is asked again this often, and
+  // the jid's journal record closes once it answers owed or settled: the ledger's own retry (stakeLedger retryQueued,
+  // the 5 minute sweep) tells nobody when it lands, and an open left behind is flagged UNSETTLED-AT-BOOT. The same
+  // 60 s as the paid sweep (design 7.5). Asking again is safe: a refund is one conditional update, so one ask wins.
+  DOOR_RECHECK_MS: 60000,
+
   // The full checker (slCheck.checkRoom with full) runs every this many sim steps in production: 23 x the L7 step of
   // 42.67 ms is 981 ms, about once a second (design 8). The cheap checks run every step; tests, the soak and the
   // proof run the full one every step too.

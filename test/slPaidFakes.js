@@ -5,8 +5,9 @@
 //                   clock and wall) plus the paid directory (SlPaidArenas: the real SlRoom and slMoney on spy hooks,
 //                   checkEvery 1, no auto tick), a REAL entry store (makeEntryStore: one-time tokens, onlyGame scopes,
 //                   restore), a fake stake ledger, a fake slither payout, a recording journal, and the paid door,
-//                   attached with sockets.setPaid. Returns the rig plus { paid, door, store, ledger, payout, money
-//                   (the hook spy), journal, mint(o), paidSock(token, o), join(token, o), step(k), settle() }.
+//                   attached with sockets.setPaid (on the rig's fake timers). Returns the rig plus { paid, door, store,
+//                   consumed (every consume, with the token's claimKey), ledger, payout, money (the hook spy), journal,
+//                   mint(o), paidSock(token, o), join(token, o), step(k), settle() }.
 //   jidLike         a lowercase uuid (slMoney refuses any other jid)
 
 const { rig, QUIET } = require('./slSockFakes');
@@ -98,8 +99,9 @@ function paidRig(opts) {
   const door = createSlPaidDoor(Object.assign({
     arenas: paid,
     consumeAtStake: (t, s, g) => {
-      consumed.push({ token: t, stake: s, game: g });
-      return store.consumeAtStake(t, s, g);
+      const e = store.consumeAtStake(t, s, g);
+      consumed.push({ token: t, stake: s, game: g, claimKey: e && e.claimKey });
+      return e;
     },
     ledger: o.noLedger ? null : ledger,
     slPayout: payout,
@@ -110,6 +112,7 @@ function paidRig(opts) {
     now: () => r.wall.t,
     log,
     track: (p) => tracked.push(p),
+    timers: r.ft.timers,
   }, o.door || {}));
   r.sockets.setPaid({ arenas: paid, door });
   let wallets = 0;

@@ -31,9 +31,10 @@
 //   maxSliceMs()     the largest synchronous slice of any paid room since the last call, read and reset (the free
 //                    directory's extraLoad: the bot governor sees paid tick cost, D2-m9)
 //   sweep(now)       every 60 s: a room with no account, seat, orphan or parked seat for FLOOR_SWEEP_MS books its floor
-//                    to the house (money.sweepFloor, one sweep per source wallet) and retires; a settling room is
-//                    retried (emergencySettle while an account is open, else sweepFloor) and dropped once empty.
-//                    Nothing runs while stopping (no money moves in the exit window).
+//                    to the house (money.sweepFloor, one sweep per source wallet) and retires (an account opened or
+//                    closed since a sample restarts the clock, so a life between two samples is never missed); a
+//                    settling room is retried (emergencySettle while an account is open, else sweepFloor) and dropped
+//                    once empty. Nothing runs while stopping (no money moves in the exit window).
 //   shutdownSettle(why)  a planned restart or a crash (design 7.2): stopping, then for each room the money rows FIRST
 //                    (money.shutdownSettle: 100% of every current balance, journaled, the floor booked abandoned), then
 //                    room.halt() (the clock only). Returns the rows for the caller to write.
@@ -92,7 +93,8 @@ class SlPaidArenas {
     this.settling = [];
     this.walletSeat = new Map(); // wallet -> { room, snakeId }
     this.place = new WeakMap(); // room -> { stake, index }
-    this.emptySince = new Map(); // room -> wall ms it was first seen empty by the sweep
+    this.emptySince = new Map(); // room -> { at: wall ms the sweep first saw it empty, act: its activity then }
+    this.activity = new WeakMap(); // room -> accounts opened and closed in it so far (_touch)
     this.created = 0;
     this.retired = 0;
     this.closedRooms = 0;
@@ -177,11 +179,19 @@ class SlPaidArenas {
   _accountOpened(room, acct) {
     if (this.walletSeat.has(acct.wallet)) throw new Error('SlPaidArenas: wallet already holds an open paid snake');
     this.walletSeat.set(acct.wallet, { room, snakeId: acct.snakeId });
+    this._touch(room);
   }
 
   _accountClosed(room, acct) {
     const w = this.walletSeat.get(acct.wallet);
     if (w && w.room === room && w.snakeId === acct.snakeId) this.walletSeat.delete(acct.wallet);
+    this._touch(room);
+  }
+
+  // Every seat, orphan and parked seat of a paid room holds an account opened after the sweep's last sample or still
+  // open at it, so a count of opens and closes tells the sweep of a whole life that fell between two samples.
+  _touch(room) {
+    if (room) this.activity.set(room, (this.activity.get(room) || 0) + 1);
   }
 
   // The room closed itself (emergencyClose, after its money settled): it leaves its rung, so the next join opens a
@@ -382,8 +392,12 @@ class SlPaidArenas {
           this.emptySince.delete(room);
           continue;
         }
-        if (!this.emptySince.has(room)) this.emptySince.set(room, now);
-        if (now - this.emptySince.get(room) >= FLOOR_SWEEP_MS && this._retire(room, list)) out.retired++;
+        // empty since the first sample that saw it so with no account opened or closed after it: a paid life that
+        // began and ended between two samples starts the clock again (design 7.5: FLOOR_SWEEP_MS of real emptiness)
+        const act = this.activity.get(room) || 0;
+        const e = this.emptySince.get(room);
+        if (!e || e.act !== act) this.emptySince.set(room, { at: now, act });
+        else if (now - e.at >= FLOOR_SWEEP_MS && this._retire(room, list)) out.retired++;
       }
     }
     for (const room of this.settling.slice()) {
