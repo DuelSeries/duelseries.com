@@ -174,6 +174,17 @@ header{position:sticky;top:0;z-index:50;background:rgba(16,14,11,.82);
 .setgrid .tg.out:disabled{opacity:.6;cursor:default}
 .acct{font-size:13px;color:var(--tx2);line-height:1.7;word-break:break-all}
 .acct b{display:block;color:var(--tx);font-weight:600;margin-bottom:2px}
+.setgrid .sh.setgap{margin-bottom:14px}
+#set-name-msg:empty{margin:0}   /* no message, no gap under the field */
+/* Rows, not buttons: each one leaves for a page, so it reads as a list with
+   a chevron, the way a phone's own settings do. */
+.slink{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  min-height:46px;padding:0 4px;font-size:14px;font-weight:550;color:var(--tx2);
+  box-shadow:inset 0 -1px 0 var(--s2);transition:color .13s}
+.slink:last-child{box-shadow:none}
+.slink:hover{color:var(--tx)}
+.slink::after{content:'';width:7px;height:7px;flex:none;margin-right:3px;
+  border:solid currentColor;border-width:2px 2px 0 0;transform:rotate(45deg);opacity:.55}
 /* Room between the address (or "Not signed in.") and the button under it, so
    the red Sign out does not sit glued to the wallet text on a phone. */
 #set-acct .tog{margin-top:10px}
@@ -226,12 +237,17 @@ header{position:sticky;top:0;z-index:50;background:rgba(16,14,11,.82);
 .winput{width:100%;background:var(--bg);border:none;border-radius:var(--r2);padding:11px;
   color:var(--tx);font-family:inherit;font-size:13.5px;outline:none}
 .winput::placeholder{color:var(--tx3)}
-.waddr{display:flex;align-items:center;gap:9px;background:var(--bg);
-  border-radius:var(--r2);padding:11px 12px;cursor:pointer;transition:.14s}
-.waddr:hover{background:#0a0908}
-.waddr code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11.5px;
-  color:var(--tx2);flex:1;word-break:break-all;line-height:1.5}
-.waddr .cp{font-size:11px;color:var(--tx3);font-weight:600;white-space:nowrap}
+/* The player's address: one line, first and last four, and a real Copy
+   button (wallet.js addrRow). It used to print all 44 characters, which
+   wrapped onto a second line on every phone. */
+.waddr{display:flex;align-items:center;gap:10px;background:var(--bg);
+  border-radius:var(--r2);padding:6px 6px 6px 14px;min-height:48px}
+.waddr code{font-family:var(--fm);font-size:15px;font-weight:500;letter-spacing:.2px;
+  color:var(--tx);flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.waddr .cp{display:inline-flex;align-items:center;gap:7px;flex:0 0 auto;
+  font-size:13px;font-weight:600;color:var(--tx);background:var(--s2);
+  border-radius:calc(var(--r2) - 2px);padding:0 14px;height:36px;transition:background .14s,color .14s}
+.waddr .cp:hover{background:var(--s3)}
 .waddr.done .cp{color:var(--live)}
 .wgo{width:100%;background:var(--bone);color:var(--ink);font-weight:650;font-size:14px;
   padding:12px;border-radius:var(--r2);margin-top:12px;transition:.15s}
@@ -568,7 +584,9 @@ body.ingame .tkrun{animation-play-state:paused}
 .pnet .k{font-size:12px;color:var(--tx3)}
 .pnet .v{font-size:31px;font-weight:600;color:var(--money);letter-spacing:-1.2px}
 @media(max-width:620px){
-  .prow{grid-template-columns:26px 34px 1fr 92px;gap:10px}
+  /* Three columns: the 34px one was the avatar disc's, and with the disc gone
+     it held the NAME, so every amount sat a column short of the right edge. */
+  .prow{grid-template-columns:26px 1fr 92px;gap:10px}
   .prow .gp{display:none}
   .phead{flex-wrap:wrap}
 }
@@ -578,9 +596,7 @@ body.ingame .tkrun{animation-play-state:paused}
    it. It sits on the page at the size of the number it is, with the two things
    you came here to do underneath. */
 .wbal{text-align:center;padding:16px 0 30px}
-.wbal .blab{font-size:12.5px;color:var(--tx3);letter-spacing:.2px}
-.wbal .bnum{font-size:56px;line-height:1.05;margin-top:6px;letter-spacing:-2.5px}
-.wunit{font-size:12.5px;color:var(--tx3);margin-top:6px}
+.wbal .bnum{font-size:56px;line-height:1.05;letter-spacing:-2.5px}
 .wacts{display:flex;gap:9px;justify-content:center;margin-top:22px;flex-wrap:wrap}
 /* flex:none, because .btn carries flex:1 for the button rows it was written
    for and here they would each take a third of the page. */
@@ -602,17 +618,20 @@ body.ingame .tkrun{animation-play-state:paused}
   font-size:14px;font-weight:700;flex:none}
 .txi.in{background:rgba(142,208,129,.14);color:var(--live)}
 .txi.out{background:rgba(240,168,48,.14);color:var(--money)}
+/* What it was over when, stacked, so the date survives a phone's width: with
+   every game entry and payout listed, a row without its date says nothing. */
+.txw{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0}
 .txn{font-size:13.5px;font-weight:600;color:var(--tx)}
-.txd{font-size:12.5px;color:var(--tx3);margin-left:auto}
+.txd{font-size:12px;color:var(--tx3)}
 .txa{font-size:13.5px;font-weight:650;min-width:88px;text-align:right}
 .txa.in{color:var(--live)}
 .txa.out{color:var(--tx2)}
 .txl .none{padding:18px 4px;font-size:13px;color:var(--tx3)}
+.txmore{display:block;width:100%;margin-top:10px}
 @media(max-width:520px){
   .wbal .bnum{font-size:44px}
   .wacts .btn{min-width:0;flex:1}
   .wacts .wref{flex:none}
-  .txd{display:none}          /* the direction and the amount are the row */
 }
 
 .wgrid{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
@@ -693,16 +712,26 @@ body.ingame .tkrun{animation-play-state:paused}
 .podium::after{content:"";grid-column:1/-1;height:1px;background:var(--s3)}
 
 .evfoot{max-width:430px;margin:0 auto;text-align:center}
-.evgo{width:100%;margin-top:20px;background:var(--bone);color:var(--ink);
-  border:none;border-radius:var(--r2);padding:15px;cursor:pointer;
-  font-family:inherit;font-size:15px;font-weight:650;transition:opacity .15s}
+/* A card, not a bar: the slither.io art on the left says which game the
+   battle royale is before a word is read. */
+.evgo{display:flex;align-items:center;gap:14px;width:100%;margin-top:20px;
+  background:var(--bone);color:var(--ink);text-align:left;
+  border:none;border-radius:var(--r3);padding:10px 18px 10px 10px;cursor:pointer;
+  font-family:inherit;transition:opacity .15s}
 .evgo:hover{opacity:.88}
+.evart{width:60px;height:60px;border-radius:12px;object-fit:cover;flex:none;
+  transition:filter .15s,opacity .15s}
+.evgot{display:flex;flex-direction:column;gap:3px;min-width:0}
+.evgot b{font-size:16px;font-weight:650;letter-spacing:-.2px}
+.evgot small{font-size:13px;font-weight:600;color:rgba(16,14,11,.58)}
 /* The shut door. Still legible — a disabled control people cannot read is a
    control they assume is broken — but plainly not pressable: no pointer, no
    hover lift, and the bone fill drops back to a surface tone so it stops
    reading as the thing to do next. */
 .evgo:disabled{background:var(--s2);color:var(--tx3);cursor:not-allowed}
 .evgo:disabled:hover{opacity:1}
+.evgo:disabled .evgot small{color:var(--tx3)}
+.evgo:disabled .evart{filter:grayscale(1);opacity:.45}
 .evhow{display:inline-flex;align-items:center;gap:7px;margin-top:14px;
   background:none;border:none;cursor:pointer;font-family:inherit;
   font-size:13px;font-weight:600;color:var(--tx3);padding:6px 8px;
@@ -727,6 +756,7 @@ body.ingame .tkrun{animation-play-state:paused}
 .tr .r{text-align:right}
 .tr .neg{color:var(--tx2)}
 .tr .pos{color:var(--money)}
+.tbl.pays .tr{grid-template-columns:1fr auto}   /* a date and an amount, nothing else */
 .tag{display:inline-block;font-size:11px;padding:3px 8px;border-radius:var(--r1);
   background:var(--s2);color:var(--tx2)}
 
@@ -1614,8 +1644,9 @@ body.scr-anim { overflow-x:hidden }
       join.disabled = !BR.joinable;
       /* Three states, not two. A finished match is also not joinable — the
          circle is still tiny and the room has not reopened — but saying "match
-         in progress" over a podium with a winner on it is simply wrong. */
-      join.textContent = BR.joinable ? 'Join the Battle Royale'
+         in progress" over a podium with a winner on it is simply wrong.
+         Into the label only: the button also holds the slither.io art. */
+      (document.getElementById('ev-join-t')||join).textContent = BR.joinable ? 'Join the Battle Royale'
                        : BR.state==='over' ? 'The next match opens shortly'
                        : 'Match in progress';
       join.title = BR.joinable ? ''
@@ -1686,18 +1717,16 @@ body.scr-anim { overflow-x:hidden }
 <!-- Deposit and Withdraw each get the whole screen. They were a pair of
      buttons that swapped a panel out from under the balance, which gave the
      one irreversible thing on the site less room than the how-to-play blurb. -->
-<div id="depveil" class="howveil" role="dialog" aria-modal="true" aria-label="Add funds">
+<!-- Named Deposit, like the button that opens it. The address row is filled
+     by wallet.js openDep (short form and a Copy button, as on the Wallet tab). -->
+<div id="depveil" class="howveil" role="dialog" aria-modal="true" aria-label="Deposit">
   <div class="howcard mcard">
-    <div class="howtop"><h2>Add funds</h2>
+    <div class="howtop"><h2>Deposit</h2>
       <button type="button" class="howx" onclick="V2Wallet.closeDep()" aria-label="Close">&#10005;</button>
     </div>
-    <p class="msub">Send USDC to your DuelSeries wallet. It arrives in this
-       balance as soon as the transfer settles.</p>
-    <div class="plab">Your wallet address</div>
-    <div class="waddr" id="dep-addr" onclick="V2Wallet.copy('dep-addr')">
-      <code id="dep-addr-code"></code><span class="cp">Copy</span></div>
-    <p class="note mwarn">USDC on Solana only. Another token, or the right
-      token on another network, cannot be recovered.</p>
+    <div class="plab">Deposit address</div>
+    <div id="dep-addr-slot"></div>
+    <p class="note mwarn">USDC on Solana only. Anything else is unrecoverable.</p>
     <button type="button" class="btn pri mgo" onclick="V2Wallet.fund()">
       Show QR code and payment options</button>
   </div>
@@ -1856,8 +1885,7 @@ body.scr-anim { overflow-x:hidden }
 
 <!-- ══ WALLET ══ -->
 <main id="wallet-screen" class="wrap">
-  <div class="head"><div><h2>Wallet</h2>
-    <div class="sub">Your USDC, on Solana. Deposits and withdrawals settle on-chain.</div></div></div>
+  <div class="head"><div><h2>Wallet</h2></div></div>
 
   <!-- Filled by public/js/v2/wallet.js. -->
   <div id="w-body"></div>
@@ -1877,8 +1905,8 @@ body.scr-anim { overflow-x:hidden }
 <!-- ══ EVENTS ══ -->
 <!-- Nothing in it yet, and it says so rather than showing an empty frame. -->
 <main id="events-screen" class="wrap">
-  <div class="head"><div><h2>Events</h2>
-    <div class="sub">Every night at 8. First place takes $20.</div></div></div>
+  <!-- No subtitle: the hour is in the hero and the $20 is on the podium. -->
+  <div class="head"><div><h2>Events</h2></div></div>
 
   <!-- The countdown is the hero because it is the only thing this page has to
        tell you: whether to be here now. The prizes are why, but the clock is the
@@ -1886,7 +1914,10 @@ body.scr-anim { overflow-x:hidden }
        tote board rather than a poster with a widget on it. -->
   <section class="evhero" id="evhero">
     <div class="evtag" id="ev-tag">Tonight</div>
-    <h3 class="evname">Nightly Top Three</h3>
+    <!-- Battle Royale, the name the Join button and How it works use. "Nightly
+         Top Three" was a second name for the same match, and only first place
+         is paid. -->
+    <h3 class="evname">Battle Royale</h3>
     <p class="evline" id="ev-line">Starts in</p>
     <div class="evclock" role="timer" aria-live="off">
       <div class="evu"><b id="ev-h">--</b><span>hrs</span></div>
@@ -1895,7 +1926,7 @@ body.scr-anim { overflow-x:hidden }
       <i aria-hidden="true">:</i>
       <div class="evu"><b id="ev-s">--</b><span>sec</span></div>
     </div>
-    <p class="evwhen">8:00 to 9:00 PM Eastern, every day of the week</p>
+    <p class="evwhen">Every night, 8 to 9 PM Eastern</p>
     <!-- ALWAYS HERE, because the point of it is somebody who has never seen one.
          It used to appear only while a match was running, which meant the one
          person it exists for — a new player wondering what a battle royale even
@@ -1904,10 +1935,9 @@ body.scr-anim { overflow-x:hidden }
          to say which of the two you are about to get. -->
     <button type="button" class="btn pri evwatch" id="ev-watch"
             onclick="V2Play.spectateEvent()">Spectate</button>
-    <!-- The door is shut once the circle starts closing. The server already
-         refuses a late join; this is so the refusal is not a surprise. -->
-    <p class="evlock" id="ev-lock" hidden>The doors are shut for this match.
-       You can watch it, and the next one opens when it ends.</p>
+    <!-- The shut-door note that sat here said what the Join button already
+         says ("Match in progress", dimmed), so it went. tick() still finds
+         #ev-lock missing and carries on. -->
   </section>
 
   <!-- Tallest in the middle. The plinth heights ARE the ranking, so the shape
@@ -1933,7 +1963,13 @@ body.scr-anim { overflow-x:hidden }
   </section>
 
   <div class="evfoot">
-    <button type="button" class="evgo" id="ev-join" onclick="V2Play.launch('snake',{lobbyType:'br'})">Join the Battle Royale</button>
+    <!-- The slither.io card's own art on the button, so nobody has to read the
+         rules to learn which game this is (Owen, 2026-10-15). tick() writes the
+         state into #ev-join-t only, so the art survives every state change. -->
+    <button type="button" class="evgo" id="ev-join" onclick="V2Play.launch('snake',{lobbyType:'br'})">
+      <img class="evart" src="/img/games/snake.png" alt="" draggable="false">
+      <span class="evgot"><b id="ev-join-t">Join the Battle Royale</b><small>slither.io</small></span>
+    </button>
     <!-- The rules were one sentence pretending to be all of them. They live
          behind this now, where there is room to say the whole thing. -->
     <button type="button" class="evhow" onclick="openEventHow()">
@@ -1947,12 +1983,9 @@ body.scr-anim { overflow-x:hidden }
 
 <!-- ══ SOCIAL ══ -->
 <main id="social-screen" class="wrap">
-  <div class="head"><div><h2>Players</h2>
-    <div class="sub" id="soc-sub"></div></div></div>
-
-  <div class="head"><div><h2>Top earners</h2>
-    <div class="sub">All time, net of the house cut. Pick anyone to see their profile.</div></div>
-  </div>
+  <!-- One heading. "Players" sat over "Top earners" with nothing between them,
+       and both carried a line of explanation nobody needed (Owen, 2026-10-15). -->
+  <div class="head"><div><h2>Top earners</h2></div></div>
   <label class="search">
     <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4.2-4.2"/></svg>
     <input id="soc-q" type="search" placeholder="Search players by name"
@@ -1981,9 +2014,9 @@ body.scr-anim { overflow-x:hidden }
     <div class="pnet"><div class="k">Total earnings</div><div class="v num" id="p-net"></div></div>
   </div>
   <div class="tiles" id="p-tiles" style="margin-top:26px"></div>
-  <div class="head"><div><h2>Earnings over time</h2>
-    <div class="sub">Their running total, from recorded payouts.</div></div></div>
-  <div class="panel" id="p-chart"></div>
+  <div class="head"><div><h2>Earnings</h2></div></div>
+  <!-- chartbox, like the Wallet tab's: the same graph needs the same box. -->
+  <div class="panel chartbox" id="p-chart"></div>
 </main>
 
 <!-- ══ SHOP ══ -->
@@ -2003,19 +2036,26 @@ body.scr-anim { overflow-x:hidden }
   <div class="setgrid">
     <div class="panel">
       <h3 class="sh">Player name</h3>
-      <p class="sd">Letters and numbers, up to sixteen. This is the name above
-         your snake and on the winners board.</p>
+      <p class="sd">Letters and numbers, up to 16.</p>
       <input class="pname" id="set-name" maxlength="16" autocomplete="off"
              placeholder="Your name" aria-label="Your player name">
       <div class="sd" id="set-name-msg" aria-live="polite"></div>
     </div>
 
     <div class="panel">
-      <h3 class="sh">Account</h3>
-      <p class="sd">Your wallet is your account here. There is nothing else to
-         sign in to and nothing else to remember.</p>
+      <h3 class="sh setgap">Account</h3>
       <div id="set-acct"></div>
     </div>
+
+    <!-- The pages a real-money site owes its players, one tap from Settings.
+         They were dead "#" links in a footer that phones never show. -->
+    <nav class="panel setlinks" aria-label="About DuelSeries">
+      <h3 class="sh setgap">About</h3>
+      <a class="slink" href="/terms.html">Terms of service</a>
+      <a class="slink" href="/privacy.html">Privacy policy</a>
+      <a class="slink" href="/responsible-play.html">Responsible play</a>
+      <a class="slink" id="set-contact" href="mailto:playduelseries@gmail.com">Contact</a>
+    </nav>
   </div>
 </main>
 
@@ -2071,9 +2111,10 @@ body.scr-anim { overflow-x:hidden }
 <footer><div class="wrap ft">
   <span>&copy; 2026 DuelSeries</span>
   <span class="sp"></span>
-  <a href="#" onclick="return false">Privacy policy</a>
-  <a href="#" onclick="return false">Terms of service</a>
-  <a href="#" onclick="return false">Contact</a>
+  <a href="/terms.html">Terms of service</a>
+  <a href="/privacy.html">Privacy policy</a>
+  <a href="/responsible-play.html">Responsible play</a>
+  <a href="mailto:playduelseries@gmail.com">Contact</a>
 </div></footer>
 
 <script src="/shared/constants.js"></script>
@@ -3791,8 +3832,10 @@ function drawSettings(){
 function drawAcct(){
   const w=window.duelWallet||{};
   const box=document.getElementById('set-acct'); if(!box)return;
-  box.innerHTML=(w.authenticated&&w.address)
-    ? `<div class="acct"><b>Wallet</b>${w.address}</div>
+  /* The address in the one form it has everywhere (wallet.js addrRow): the
+     first and last four on one line, with Copy. */
+  box.innerHTML=(w.authenticated&&w.address&&window.V2Wallet&&V2Wallet.addrRow)
+    ? `${V2Wallet.addrRow('set-addr',w.address)}
        <div class="tog"><button type="button" class="tg out" id="set-signout" onclick="signOut(this)">Sign out</button></div>`
     : `<div class="acct">Not signed in.</div>
        <div class="tog"><button type="button" class="tg" onclick="window.duelWalletLogin&&window.duelWalletLogin()">Sign in</button></div>`;

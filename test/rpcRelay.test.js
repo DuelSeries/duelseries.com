@@ -172,7 +172,7 @@ test('forwardRpc: the provider gets 10 s, and a reply over 2 MB is dropped, not 
 test('/api/my-transactions: a wallet must be an address, one answer per wallet is shared for 30 s, and the route is rate limited', async () => {
   const real = Usdc.usdcHistory;
   const asked = [];
-  Usdc.usdcHistory = async (w) => { asked.push(w); return [{ signature: 's', at: 1, usdc: 1, direction: 'in' }]; };
+  Usdc.usdcHistory = async (w, o) => { asked.push(w + (o && o.before ? '@' + o.before : '')); return { rows: [{ signature: 's', at: 1, usdc: 1, direction: 'in' }], next: null }; };
   try {
     let r = await call('GET', '/api/my-transactions?wallet=not-a-wallet', undefined, { ip: '10.7.3.1' });
     assert.strictEqual(r.status, 400);
@@ -187,6 +187,14 @@ test('/api/my-transactions: a wallet must be an address, one answer per wallet i
     r = await call('GET', '/api/my-transactions?wallet=' + W, undefined, { ip: '10.7.3.4' });
     assert.strictEqual(r.status, 200);
     assert.deepStrictEqual(asked, [W], 'one chain lookup for three asks within 30 s');
+    assert.strictEqual(r.json.next, null);
+    // The page cursor is a transaction signature or nothing: junk is refused before the chain.
+    r = await call('GET', '/api/my-transactions?wallet=' + W + '&before=not-a-signature', undefined, { ip: '10.7.3.5' });
+    assert.strictEqual(r.status, 400);
+    const SIG = '5SS5uftmp1SGmvGbrPW6MegkchXKLD6KAohS9JvtM8Bi6z4uEsch9wBTYMpkTRdnKiRAUVed9nqc37jyzLfVWigh';
+    r = await call('GET', '/api/my-transactions?wallet=' + W + '&before=' + SIG, undefined, { ip: '10.7.3.6' });
+    assert.strictEqual(r.status, 200);
+    assert.deepStrictEqual(asked, [W, W + '@' + SIG], 'a later page is its own lookup');
     // One IP looping over wallets: the limiter stops it.
     const statuses = [];
     const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZ';

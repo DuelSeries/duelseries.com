@@ -875,7 +875,7 @@ async function getMyProfile(googleId) {
 
 async function getProfile(name) {
   const accRes = await pool.query(
-    `SELECT google_id, name, total_earnings, games_played, play_time_seconds
+    `SELECT google_id, name, total_earnings, games_played, play_time_seconds, created_at
      FROM accounts WHERE LOWER(name) = LOWER($1)`,
     [name]
   );
@@ -885,7 +885,12 @@ async function getProfile(name) {
 
   const mapRows = rows => rows.map(r => ({ period: r.period, total: parseFloat(r.total) }));
 
-  const [week, month, sixMonth, allTime] = await Promise.all([
+  /* games + joinedAt are getMyProfile's own rows, so the lobby draws a player's
+     profile with the exact graph their Wallet tab shows (Owen, 2026-10-15). The
+     bucketed series stay for the old snake client's profile (public/js/game.js). */
+  const [games, week, month, sixMonth, allTime] = await Promise.all([
+    pool.query(`SELECT amount, created_at FROM earnings_history
+      WHERE google_id=$1 ORDER BY created_at ASC`, [gid]),
     pool.query(`SELECT DATE_TRUNC('day', created_at) AS period, SUM(amount) AS total
       FROM earnings_history WHERE google_id=$1 AND created_at >= NOW()-INTERVAL '7 days'
       GROUP BY period ORDER BY period ASC`, [gid]),
@@ -905,6 +910,8 @@ async function getProfile(name) {
     totalEarnings: parseFloat(row.total_earnings || 0),
     gamesPlayed: parseInt(row.games_played || 0),
     playTimeSeconds: parseInt(row.play_time_seconds || 0),
+    joinedAt: row.created_at,
+    games: games.rows.map(r => ({ amount: parseFloat(r.amount), at: r.created_at })),
     history: {
       week: mapRows(week.rows),
       month: mapRows(month.rows),

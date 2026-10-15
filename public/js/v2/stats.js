@@ -50,6 +50,9 @@
       const r = await fetch('/api/my-profile?wallet=' + encodeURIComponent(a));
       p = await r.json();
     } catch (_) {
+      // Shown, not left inside the hidden section, so a failed read is never a blank.
+      const box = el('w-earn'); if (box) box.hidden = false;
+      el('s-sub').textContent = '';
       el('s-body').innerHTML = '<div class="panel"><p class="note">Could not reach ' +
         'the server. Check your connection and try again.</p></div>';
       return;
@@ -60,41 +63,26 @@
 
     const box = el('w-earn'); if (box) box.hidden = false;
     el('s-sub').innerHTML = p.gamesPlayed
-      ? '<span class="num">' + p.gamesPlayed + '</span> games played.'
-      : 'No games played yet.';
+      ? '<span class="num">' + p.gamesPlayed + '</span> games played'
+      : '';
 
     if (!cashouts) {
-      el('s-body').innerHTML = '<div class="panel"><p class="note">No cash-outs yet. ' +
-        'Leave a game ahead and it shows up here.</p></div>';
+      el('s-body').innerHTML = '<div class="panel"><p class="note">No cash-outs yet.</p></div>';
       return;
     }
 
-    let run = 0;
-    const pts = games.map(g => ({ d: g.at, cum: (run += Number(g.amount) || 0) }));
-    /* Carried to today at the total it reached, so the line ends where you are
-       standing rather than at the last time you happened to win. A year
-       without a cash-out is a year of flat line, which is true and is worth
-       seeing. */
-    const lastAt = Date.parse(pts[pts.length - 1].d);
-    if (!isNaN(lastAt) && Date.now() > lastAt + 60000)
-      pts.push({ d: new Date().toISOString(), cum: run });
-
-    /* The chart leads. It carries its own heading in the page title above it,
-       so it opens the screen rather than sitting under a row of boxes.
-       Ten rows, not twenty: this is a glance at recent payouts, and a list long
-       enough to scroll stops being a glance. */
+    /* The chart leads, then the last ten payouts: a glance, not a ledger. The
+       graph is the shared one (chart.js V2EarningsChart), so a player's profile
+       draws exactly this line from exactly these rows. */
     el('s-body').innerHTML =
-      '<div class="panel chartbox">' + window.V2Chart(pts, money, p.joinedAt) + '</div>' +
-      '<div class="head"><div><h2>Recent payouts</h2>' +
-        '<div class="sub">Newest first.</div></div></div>' +
-      '<div class="tbl">' +
-        '<div class="tr hd"><span>Date</span><span>Result</span><span class="r">Paid out</span></div>' +
+      '<div class="panel chartbox" id="s-chart"></div>' +
+      '<div class="head"><div><h2>Recent payouts</h2></div></div>' +
+      '<div class="tbl pays">' +
         games.slice().reverse().slice(0, 10).map(g =>
           '<div class="tr"><span class="num">' + when(g.at) + '</span>' +
-          '<span><span class="tag">Cashed out</span></span>' +
           '<span class="r num pos">' + money(g.amount) + '</span></div>').join('') +
       '</div>';
-    if (window.V2ChartWire) window.V2ChartWire(el('s-body').querySelector('.chartbox'), money);
+    window.V2EarningsChart(el('s-chart'), games, p.joinedAt, money);
   }
 
   window.addEventListener('duelwallet:change', () => {

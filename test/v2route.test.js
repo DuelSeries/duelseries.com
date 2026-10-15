@@ -174,13 +174,21 @@ test('buy-ins are recorded at the single point every paid entry passes', () => {
   assert.ok(!/await db\.recordStake/.test(src), 'and is never awaited');
 });
 
-test('the profile series are read from where the server actually puts them', () => {
-  // getProfile nests week/month/sixMonth/allTime under `history`. Reading them
-  // flat silently yields no chart at all, which is exactly what happened.
-  const src = fs.readFileSync(path.join(ROOT, 'public/js/v2/social.js'), 'utf8');
-  assert.ok(/p\.history/.test(src), 'social.js reads p.history');
+test('a profile draws the Wallet tab\'s exact earnings graph, from the same rows', () => {
+  // Owen, 2026-10-15: the profile charted monthly sums from p.history, so the
+  // same player's line differed between their profile and their Wallet tab.
+  // Both now call ONE function with every cash-out and the account's open date.
+  const social = fs.readFileSync(path.join(ROOT, 'public/js/v2/social.js'), 'utf8');
+  const stats = fs.readFileSync(path.join(ROOT, 'public/js/v2/stats.js'), 'utf8');
+  assert.ok(/V2EarningsChart\(box, games, p\.joinedAt, money\)/.test(social), 'the profile uses the shared chart');
+  assert.ok(/V2EarningsChart\(el\('s-chart'\), games, p\.joinedAt, money\)/.test(stats), 'and so does the wallet');
+  assert.ok(!/p\.history/.test(social), 'no monthly buckets left in the lobby profile');
   const db = fs.readFileSync(path.join(ROOT, 'server/db.js'), 'utf8');
-  assert.ok(/history: \{/.test(db), 'and the server really does nest them');
+  const prof = db.slice(db.indexOf('async function getProfile('), db.indexOf('// ─── Cosmetics'));
+  assert.ok(/games: games\.rows\.map/.test(prof) && /joinedAt: row\.created_at/.test(prof),
+    'getProfile returns the cash-out rows and the open date');
+  assert.ok(/history: \{/.test(prof), 'and keeps the series the old snake client reads');
+  assert.ok(/class="panel chartbox" id="p-chart"/.test(v2()), 'in the same box as the wallet\'s');
 });
 
 test('no invented game history survives in the shell', () => {
@@ -1239,7 +1247,9 @@ test('the nightly event states its prizes and reads the match, not a clock', () 
      clock could never express. */
   assert.ok(/in progress/i.test(html), 'it can say a match is in progress');
   assert.ok(/still alive/i.test(html), 'and how many are left in it');
-  assert.ok(html.includes('id="ev-lock"'),
+  /* The shut door is said by the Join button itself, dimmed and relabelled
+     (2026-10-15: a separate note under the hero repeated it word for word). */
+  assert.ok(/join\.disabled = !BR\.joinable/.test(html) && /'Match in progress'/.test(html),
     'and that the doors are shut once a match is running');
 
   /* One prize now: first place takes $20, second and third take the placing.

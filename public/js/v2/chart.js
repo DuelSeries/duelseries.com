@@ -244,6 +244,29 @@ function fmtAxis(t, longSpan) {
     svg.addEventListener('pointerleave', e => { if (!dragging) hide(e); });
   }
 
+  /* The earnings graph, ONE implementation for the Wallet tab and a player's
+     profile (Owen, 2026-10-15: the profile must be the exact graph the wallet
+     shows). games is every cash-out [{ amount, at }] oldest first, joinedAt
+     when the account was opened. The profile used to draw monthly sums
+     instead, which stepped once a month and stopped at the last payout, so the
+     same player's line looked different on the two screens. */
+  function earnings(box, games, joinedAt, money) {
+    if (!box) return;
+    let run = 0;
+    const pts = (games || []).map(g => ({ d: g.at, cum: (run += Number(g.amount) || 0) }));
+    if (!pts.length) { box.innerHTML = ''; return; }
+    /* Carried to today at the total it reached, so the line ends where you are
+       standing rather than at the last time you happened to win. A year
+       without a cash-out is a year of flat line, which is true and is worth
+       seeing. */
+    const lastAt = Date.parse(pts[pts.length - 1].d);
+    if (!isNaN(lastAt) && Date.now() > lastAt + 60000)
+      pts.push({ d: new Date().toISOString(), cum: run });
+    box.innerHTML = V2Chart(pts, money, joinedAt);
+    wire(box, money);
+  }
+
   window.V2Chart = V2Chart;
   window.V2ChartWire = wire;
+  window.V2EarningsChart = earnings;
 })();

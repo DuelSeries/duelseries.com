@@ -10,13 +10,12 @@
                                     NOTE: names only, so opening a result costs a
                                     second request for the profile itself
      GET /api/profile/:name      -> { name, totalEarnings, gamesPlayed,
-                                      playTimeSeconds,
-                                      history: { week[], month[], sixMonth[],
-                                                 allTime[] } }
-                                    each series is [{ period, total }].
-                                    NOTE the series are nested under `history`,
-                                    not top level; reading them flat silently
-                                    yields no chart at all.
+                                      playTimeSeconds, joinedAt,
+                                      games: [{ amount, at }], … }
+                                    games is every cash-out, the same rows
+                                    /api/my-profile gives the Wallet tab. (The
+                                    bucketed series also in the answer are for
+                                    the old snake client, not this screen.)
      GET /api/stats/winnings     -> { totalCad }  a fiat sum already; do not
                                     re-multiply, only label it by money mode
      GET /api/money-config       -> { mode, unit, … }
@@ -67,18 +66,13 @@
     catch (_) { BOARD = []; }
     if (!Array.isArray(BOARD)) BOARD = [];
 
-    el('soc-sub').textContent = BOARD.length
-      ? 'Everyone who has finished a game ahead.'
-      : 'No winners yet. The first cash-out lands here.';
-
     /* The one figure worth stating site-wide, and it belongs under the board
        rather than over it: it is the total of the rows above. "Players in
        profit" went with it — the board already IS that list, so the count was
        a tile restating its own length. */
     el('soc-tiles').innerHTML =
-      '<div class="tile"><div class="k">Total player earnings</div>' +
-      '<div class="v num">' + (winnings == null ? '—' : money(winnings)) + '</div>' +
-      '<div class="f">paid out to players, all time</div></div>';
+      '<div class="tile"><div class="k">Paid out to players</div>' +
+      '<div class="v num">' + (winnings == null ? '—' : money(winnings)) + '</div></div>';
 
     drawBoard();
   }
@@ -157,38 +151,32 @@
     el('p-av').textContent = initials(p.name);
     el('p-name').textContent = p.name;
     const rank = (BOARD.find(b => b.name === p.name) || {}).rank;
-    el('p-sub').innerHTML = rank
-      ? 'Rank <span class="num">' + rank + '</span> on the earnings board'
-      : 'Not on the earnings board';
+    el('p-sub').innerHTML = rank ? 'Rank <span class="num">' + rank + '</span>' : '';
     el('p-net').textContent = money(p.totalEarnings);
     el('p-tiles').innerHTML = [
-      ['Games played', String(p.gamesPlayed || 0), 'all time'],
-      ['Time played', playTime(p.playTimeSeconds), 'in game'],
+      ['Games played', String(p.gamesPlayed || 0)],
+      ['Time played', playTime(p.playTimeSeconds)],
     ].map(t => '<div class="tile"><div class="k">' + t[0] + '</div>' +
-               '<div class="v num">' + t[1] + '</div>' +
-               '<div class="f">' + t[2] + '</div></div>').join('');
+               '<div class="v num">' + t[1] + '</div></div>').join('');
     drawEarnings(p);
     window.showScreen('player-screen');
     scrollTo(0, 0);
   }
 
-  /* The server returns earnings bucketed by period, which is exactly the shape
-     the running-total chart wants. Empty means a player with no recorded
-     payouts, which says so rather than drawing a flat line at zero. */
+  /* The Wallet tab's graph, drawn by the same function from the same rows
+     (every cash-out, from the day the account opened, carried to today). It
+     used to chart the monthly sums from the server, which stepped once a month
+     and stopped at the last payout, so one player's line looked different on
+     the two screens. Empty means no recorded payouts, which says so rather
+     than drawing a flat line at zero. */
   function drawEarnings(p) {
-    const h = p.history || {};
-    const series = (h.allTime && h.allTime.length ? h.allTime
-                 : h.sixMonth && h.sixMonth.length ? h.sixMonth
-                 : h.month) || [];
     const box = el('p-chart');
-    if (!series.length) {
-      box.innerHTML = '<div class="none2">No payouts recorded yet.</div>';
+    const games = Array.isArray(p.games) ? p.games : [];
+    if (!games.length) {
+      box.innerHTML = '<div class="none2">No payouts yet.</div>';
       return;
     }
-    let run = 0;
-    const pts = series.map(s => ({ d: s.period, cum: (run += Number(s.total) || 0) }));
-    box.innerHTML = window.V2Chart(pts, money);
-    if (window.V2ChartWire) window.V2ChartWire(box, money);
+    window.V2EarningsChart(box, games, p.joinedAt, money);
   }
 
   window.V2Social = { load: load, drawBoard: drawBoard, search: search, openPlayer: openPlayer };

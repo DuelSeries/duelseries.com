@@ -158,36 +158,115 @@ function ataFor(ownerAddress) { return getAssociatedTokenAddressSync(USDC_MINT, 
    stake verifier trusts is what produces it. A tx that nets to zero for this
    owner is not their transaction and is dropped.
 
-   Signatures are fetched for the token account, then the transactions are
-   pulled in ONE batched call rather than one per signature. */
-async function usdcHistory(ownerAddress, limit = 12) {
+   Signatures are fetched for the token account a page at a time (newest
+   first, `before` the last one shown), then each transaction is read on its
+   own. They used to come in ONE JSON-RPC batch of up to 36, and the Helius
+   plan answers every batch with 429 (measured on the server 2026-10-15: the
+   signatures came back in 163 ms, the batch was refused five times running,
+   while the same 20 reads sent one by one, even all at once, all landed). A
+   retry resends the same batch, so the wallet screen never loaded a single
+   row. A confirmed transaction never changes, so a row read once is kept and
+   a returning wallet only pays for what is new. */
+const HISTORY_PAGE_MAX = 50;
+const HISTORY_READS_AT_ONCE = 4;
+const HISTORY_ROWS_MAX = 20000;
+const _historyRows = new Map();        // owner + ':' + signature -> row, or null (not this owner's money)
+/* At most HISTORY_READS_AT_ONCE history reads in flight across EVERY wallet, so two people paging
+   at once cannot double the burst: these reads share the key's rate limit with stake verifies
+   and payouts, which must never be the ones left waiting. */
+let _historyInFlight = 0;
+const _historyQueue = [];
+const HISTORY_QUEUE_MAX = 600;          // ~30 s of reads waiting; past it a page fails fast (502)
+async function historyGate(fn) {
+  if (_historyInFlight >= HISTORY_READS_AT_ONCE) {
+    if (_historyQueue.length >= HISTORY_QUEUE_MAX) throw new Error('history reads busy');
+    await new Promise(r => _historyQueue.push(r));
+  }
+  _historyInFlight++;
+  try { return await fn(); } finally {
+    _historyInFlight--;
+    const next = _historyQueue.shift();
+    if (next) next();
+  }
+}
+
+// Who was on the other side of `owner`'s change: the holder of the same mint whose balance
+// moved the opposite way by the most. null when the tx shows nobody (a mint or a burn).
+function counterpartyOf(meta, owner, mint) {
+  const amt = (arr, who) => {
+    const b = (arr || []).find(x => x && x.owner === who && x.mint === mint);
+    return BigInt(b ? b.uiTokenAmount.amount : '0');
+  };
+  const own = amt(meta.postTokenBalances, owner) - amt(meta.preTokenBalances, owner);
+  const others = new Set();
+  for (const b of (meta.preTokenBalances || []).concat(meta.postTokenBalances || [])) {
+    if (b && b.mint === mint && b.owner && b.owner !== owner) others.add(b.owner);
+  }
+  let best = null, bestAmt = 0n;
+  for (const who of others) {
+    const d = amt(meta.postTokenBalances, who) - amt(meta.preTokenBalances, who);
+    const opposite = own > 0n ? -d : d;
+    if (opposite > bestAmt) { best = who; bestAmt = opposite; }
+  }
+  return best;
+}
+
+async function historyRow(owner, sig, escrow) {
+  const key = owner + ':' + sig.signature;
+  if (_historyRows.has(key)) return _historyRows.get(key);
+  const tx = await historyGate(() => withRetry(() => connection.getTransaction(sig.signature,
+    { commitment: 'confirmed', maxSupportedTransactionVersion: 0 })));
+  if (!tx) return null;                 // not visible yet: asked again next time, never kept
+  let row = null;
+  if (tx.meta && !tx.meta.err) {
+    const mint = USDC_MINT.toString();
+    const delta = stakeDeltaUnits(tx.meta, owner, mint);
+    if (delta !== 0n) {
+      row = {
+        signature: sig.signature,
+        at: (sig.blockTime ? sig.blockTime * 1000 : (tx.blockTime ? tx.blockTime * 1000 : null)),
+        usdc: toUsdc(delta < 0n ? -delta : delta),
+        direction: delta > 0n ? 'in' : 'out',
+        // A stake goes to the escrow and a payout comes from it; anything else is the player's own.
+        game: !!escrow && counterpartyOf(tx.meta, owner, mint) === escrow,
+      };
+    }
+  }
+  if (_historyRows.size >= HISTORY_ROWS_MAX) _historyRows.delete(_historyRows.keys().next().value);
+  _historyRows.set(key, row);
+  return row;
+}
+
+// { rows, next }: up to `limit` signatures' worth of rows, newest first; `next` is the cursor
+// for the page after (pass it back as `before`), null once the wallet's history is exhausted.
+async function usdcHistory(ownerAddress, opts) {
   const owner = String(ownerAddress);
+  const o = opts || {};
+  const limit = Math.max(1, Math.min(HISTORY_PAGE_MAX, Number(o.limit) || 25));
   const ata = new PublicKey(ataFor(owner));
-  let sigs;
-  try {
-    sigs = await withRetry(() => connection.getSignaturesForAddress(ata, { limit: Math.min(50, limit * 3) }));
-  } catch (e) {
-    if (ataNotFound(e)) return [];      // never held USDC: no account, no history
-    throw e;
+  let escrow = null;
+  try { escrow = escrowPubkey().toString(); } catch (_) { /* no escrow key here: no game labels */ }
+  const rows = [];
+  let before = o.before || undefined;
+  // A page can hold only failed or zero-change transactions; read on, a few pages at most, so
+  // "show more" never answers with nothing while there is more to show.
+  for (let pages = 0; pages < 3; pages++) {
+    let sigs;
+    try {
+      sigs = await withRetry(() => connection.getSignaturesForAddress(ata, { limit, before }));
+    } catch (e) {
+      if (ataNotFound(e)) return { rows: [], next: null };   // never held USDC: no account, no history
+      throw e;
+    }
+    sigs = sigs || [];
+    const ok = sigs.filter(s => s && !s.err);
+    const got = await Promise.all(ok.map(s => historyRow(owner, s, escrow)));
+    for (const r of got) if (r) rows.push(r);
+    if (sigs.length < limit) return { rows, next: null };
+    before = sigs[sigs.length - 1].signature;
+    if (rows.length) break;
   }
-  const ok = (sigs || []).filter(s => s && !s.err).slice(0, Math.min(50, limit * 3));
-  if (!ok.length) return [];
-  const txs = await withRetry(() => connection.getParsedTransactions(
-    ok.map(s => s.signature), { commitment: 'confirmed', maxSupportedTransactionVersion: 0 }));
-  const out = [];
-  for (let i = 0; i < ok.length && out.length < limit; i++) {
-    const tx = txs && txs[i];
-    if (!tx || !tx.meta || tx.meta.err) continue;
-    const delta = stakeDeltaUnits(tx.meta, owner, USDC_MINT.toString());
-    if (delta === 0n) continue;
-    out.push({
-      signature: ok[i].signature,
-      at: (ok[i].blockTime ? ok[i].blockTime * 1000 : null),
-      usdc: toUsdc(delta < 0n ? -delta : delta),
-      direction: delta > 0n ? 'in' : 'out',
-    });
-  }
-  return out;
+  return { rows, next: before || null };
 }
 
 /* Escrow never pays the rent for a player's USDC account (review finding, night queue item 5).

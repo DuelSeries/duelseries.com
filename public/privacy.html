@@ -1,230 +1,81 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Privacy Policy — DuelSeries</title>
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: 'Segoe UI', Arial, sans-serif;
-      background: #f9f9f9;
-      color: #1a1a1a;
-      line-height: 1.7;
-      padding: 40px 20px 80px;
-    }
-    .doc-wrap {
-      max-width: 820px;
-      margin: 0 auto;
-      background: #fff;
-      border-radius: 10px;
-      box-shadow: 0 2px 20px rgba(0,0,0,0.08);
-      padding: 52px 60px;
-    }
-    .doc-brand { font-size: 1rem; font-weight: 800; letter-spacing: 0.1em; color: #14F195; margin-bottom: 24px; display: flex; align-items: center; gap: 8px; }
-    .doc-brand span { color: #111; }
-    h1 { font-size: 1.9rem; font-weight: 800; color: #111; margin-bottom: 6px; }
-    .doc-meta { font-size: 0.82rem; color: #888; margin-bottom: 32px; }
-    .doc-meta span { display: block; }
-    h2 { font-size: 1.15rem; font-weight: 700; color: #111; margin: 28px 0 10px; border-bottom: 2px solid #f0f0f0; padding-bottom: 6px; }
-    h3 { font-size: 1rem; font-weight: 700; color: #222; margin: 20px 0 8px; }
-    p { margin-bottom: 14px; font-size: 0.92rem; }
-    ul, ol { margin: 10px 0 14px 24px; font-size: 0.92rem; }
-    li { margin-bottom: 6px; }
-    .caps { text-transform: uppercase; font-weight: 600; font-size: 0.88rem; }
-    .info-box {
-      background: #fffbe6;
-      border-left: 4px solid #f59e0b;
-      border-radius: 6px;
-      padding: 16px 20px;
-      margin: 20px 0;
-      font-size: 0.9rem;
-    }
-    .blockchain-box {
-      background: #f0fdf4;
-      border: 1px solid #14F195;
-      border-radius: 8px;
-      padding: 20px 24px;
-      margin: 20px 0;
-      font-size: 0.9rem;
-    }
-    .blockchain-box strong { display: block; margin-bottom: 8px; font-size: 1rem; color: #111; }
-    .blockchain-box ul { margin-left: 18px; }
-    hr.divider { border: none; border-top: 1px solid #eee; margin: 36px 0; }
-    a { color: #14F195; }
-    @media (max-width: 600px) { .doc-wrap { padding: 28px 20px; } h1 { font-size: 1.4rem; } }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#100e0b">
+<meta name="robots" content="noindex">
+<title>Privacy policy · DuelSeries</title>
+<link rel="icon" type="image/png" sizes="32x32" href="/img/favicon-32.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;650;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/legal.css">
 </head>
 <body>
-<div class="doc-wrap">
-  <div class="doc-brand">DUEL<span>SERIES</span></div>
-  <h1>Privacy Policy</h1>
-  <div class="doc-meta">
-    <span>Effective Date: June 6, 2025</span>
-    <span>Last Updated: June 6, 2025</span>
-  </div>
+<!-- DRAFT, written 2026-10-15 to replace another company's privacy policy that
+     had been copied here. What it says the site collects was read off the code
+     that day (server/db.js accounts and history tables, the Privy widget,
+     public/js/posthog-init.js, the localStorage keys in public/v2.html). The
+     highlighted [brackets] wait for a lawyer's review, which this needs. -->
+<div class="doc">
+  <header class="top">
+    <a class="brand" href="/">Duel<span>Series</span></a>
+    <a class="home" href="/">Back to games</a>
+  </header>
 
-  <h2>Introduction</h2>
-  <p>DamnBruh Labs ("Company" or "We") takes your privacy seriously and is committed to protecting it through our compliance with this policy.</p>
-  <p>The Company develops and publishes software games and offers entry into various lobbies to the players of such games (each a "Player" and together "Players"). This policy covers all information collected in a game using damnbruh.com's software, including:</p>
-  <ol type="i">
-    <li>leaderboards that publish Player scores in a given game category or multi-game category ("Leaderboards");</li>
-    <li>match-making between real players which may or may not include leaderboard functionality ("Match-Making");</li>
-    <li>real-cash prize lobbies and other real-cash prize games, including, in certain cases offering of leaderboards, match-making, and the creation and development of real-cash entry prize structures for each lobby or game with a prize ("Real Cash Tournaments").</li>
-  </ol>
-  <p>This policy describes:</p>
+  <h1>Privacy policy</h1>
+  <p class="meta">Draft, last updated October 15, 2026</p>
+
+  <div class="draft"><b>Draft.</b> This policy has not been reviewed by a lawyer and is
+    not final. Highlighted parts are still to be confirmed.</div>
+
+  <h2>What we keep</h2>
   <ul>
-    <li>The types of information we may collect or that you may provide when you register with, access, use, or transact with our website.</li>
-    <li>Our practices for collecting, using, maintaining, protecting, and disclosing that information.</li>
-  </ul>
-  <p>This policy covers information we collect from our website and in electronic communications sent through or in connection with any of the foregoing. This policy does <strong>not</strong> apply to information that you provide to or is collected by any third party. Third parties have their own privacy policies, which we encourage you to read before providing information on or through them.</p>
-  <p>Please read this policy carefully to understand our policies and practices regarding your information and how we will treat it. If you do not agree with our policies and practices, do not register with, or use a Company website. By downloading, registering with, or using the Website, you agree to this Privacy Policy. This policy may change from time to time (see Changes to Our Privacy Policy). Your continued use of the Company Website after we revise this policy means you accept those changes, so please check the policy periodically for updates.</p>
-
-  <div class="info-box">
-    <strong>Public Nature of Blockchain Data:</strong> All transactions and data associated with your interactions on our Website, including but not limited to wallet addresses, transaction records, in-game asset ownership, and other relevant activities, are recorded on the blockchain. This data is inherently public, transparent, and immutable, meaning it is permanently stored and viewable by anyone on the blockchain network.
-  </div>
-
-  <h2>Blockchain Integration and Data Transparency</h2>
-  <p>Our Website operates on a blockchain network, which fundamentally affects how information is recorded and accessed. By using our Website, you acknowledge and understand the following regarding blockchain technology and your data:</p>
-
-  <div class="blockchain-box">
-    <strong>Key Blockchain Privacy Considerations</strong>
-    <ul>
-      <li><strong>Wallet Address as Public Identifier:</strong> Your blockchain wallet address, which you use to interact with our Website, serves as a public identifier for your activities within our ecosystem. While this address may not directly reveal your real-world identity, it can be linked to your on-chain activities.</li>
-      <li><strong>Data Immutability:</strong> Once transactions and data are recorded on the blockchain, they cannot be altered or deleted. This ensures the integrity and transparency of all activities within our Website.</li>
-      <li><strong>Company's Limited Control Over Blockchain Data:</strong> While we are committed to protecting the personal information we collect and manage off-chain as described in the rest of this Privacy Policy, we do not control and are not responsible for the information that is recorded and made public on the blockchain itself. The nature of blockchain technology dictates this inherent transparency.</li>
-      <li><strong>Your Responsibility:</strong> You are responsible for understanding the public nature of blockchain data and for managing your wallet and on-chain activities with this in mind. Consider the implications of linking your wallet address to other online activities or personal information.</li>
-    </ul>
-  </div>
-
-  <h2>Age Limits</h2>
-  <p>Users under 18 years of age may not use our Website. We do not knowingly collect personal information from anyone under the age of 18. If you know of a user under the age of 18 using our website please contact us immediately at <a href="mailto:playdamnbruh@gmail.com">playdamnbruh@gmail.com</a>.</p>
-
-  <h2>Information We Collect and How We Collect It</h2>
-  <p>We collect information from and about users of the Website:</p>
-  <ul>
-    <li>Directly from you when you provide it to us.</li>
-    <li>Automatically when you use the Website.</li>
-    <li>Automatically when you execute transactions on the Website.</li>
-    <li>Automatically when you communicate through the Website.</li>
-    <li>Your responses to surveys that we might ask you to complete for research purposes.</li>
-    <li>Details of transactions you carry out through the Website and details related to the fulfillment of your transaction.</li>
-    <li>Automatically when you allow various permissions.</li>
-    <li>On our websites using cookies — for more information see our Cookie Policy.</li>
+    <li><strong>Your wallet address</strong>, which is your account.</li>
+    <li><strong>The player name</strong> you choose, and names you used before it.</li>
+    <li><strong>Your game record:</strong> games played, time played, buy-ins, cash-outs
+      and earnings.</li>
+    <li><strong>Technical details</strong> such as your IP address and browser, which our
+      servers see on every request and use for security and to limit abuse.</li>
   </ul>
 
-  <h3>A. Information You Provide to Us</h3>
-  <p>When you download, register with, or use the Website, we may ask you to provide information:</p>
-  <ul>
-    <li>By which you may be personally identified, such as name, email address, telephone number, and birthdate.</li>
-    <li>Information submitted by you that may allow you to be personally identified, such as a user-selected image, a username, and information that you communicate to the Company within the Website (for example when you report a problem within the Website using the customer support email).</li>
-    <li>That is about you but individually does not identify you, such as Website input data (e.g., the buttons you press when interacting with the Website), score data, and mathematical skill rankings based on your score data.</li>
-    <li>When placing orders through the Website you may be required to provide financial information including credit or debit card information, address, or bank account information.</li>
-  </ul>
+  <h2>Signing in</h2>
+  <p>Privy runs sign-in and creates your wallet. When you sign in with Google or an email
+    address, Privy handles those details under its own privacy policy.</p>
 
-  <h3>B. Automatic Information Collection and Tracking</h3>
-  <p>When you download, access, and use the Website, it may use technology to automatically collect:</p>
-  <ul>
-    <li><strong>Usage Details.</strong> When you access and use the Website, we may automatically collect certain details of your access to and use of the Website, including traffic data, location data, logs of any category of collected data identified in this Privacy Policy, communication data, the resources that you access and use on or through the Company Websites, images of the Company Websites output during use, results and outputs from Website use, account balances, gameplay score history, and a profile of score or skill level developed from gameplay data.</li>
-    <li><strong>Device Information.</strong> We may collect information about your device and internet connection including the IP address, the unique device identifier, operating system, browser type, and network information.</li>
-    <li><strong>Stored Information and Files.</strong> The Website also may access metadata and other information associated with other files stored on your device that you provide access to. This includes, for example, photographs which you select for upload as a user image.</li>
-    <li><strong>Location Information.</strong> This Website does collect and log real-time information about the location of your device to limit certain games and tournament types to jurisdictions in which such games and tournaments are authorized.</li>
-    <li><strong>Cookies.</strong> Cookies are small text files placed on your device that allow us to improve our services, analyze traffic, and enhance your overall user experience. You may opt-out of the use of cookies — for more information see our Cookie Policy.</li>
-  </ul>
+  <h2>Analytics</h2>
+  <p>Some game pages use PostHog to show us how the site is used, including recordings of
+    sessions with anything you type hidden.</p>
 
-  <h3>C. Third-Party Information Collection</h3>
-  <p>When you use the Company Websites, certain third parties may use automatic information collection technologies to collect information about you or your device. Third parties that are contracted with by the Company for the provision of services related to the Website ("Integrated Third Parties") may, or we may share data with them, including:</p>
-  <ul>
-    <li>Payment processors.</li>
-    <li>In-Website communication providers.</li>
-    <li>Device authentication providers.</li>
-    <li>Customer identity authentication providers.</li>
-  </ul>
-  <p>Information provided to Integrated Third Parties should not be used for any other purpose outside of fulfilling their service to the Company. If you believe that your information is or has been used by any Integrated Third Parties, please contact <a href="mailto:playdamnbruh@gmail.com">playdamnbruh@gmail.com</a>.</p>
+  <h2>What is public</h2>
+  <p>Your player name, earnings, games played, time played and rank appear on the
+    leaderboard and on your profile. Everything sent to or from your wallet is recorded on
+    the Solana network, which anyone can read.</p>
 
-  <h2>How We Use Your Information</h2>
-  <p>We use information that we collect about you or that you provide to us, including any personal information, to:</p>
-  <ul>
-    <li>Track your score and prize outcomes.</li>
-    <li>Develop and create prize structures.</li>
-    <li>Display advertisements to you within the Website, including in certain cases advertisements based on your personal information.</li>
-    <li>Provide you with the Website features.</li>
-    <li>Give you notices about your account, including expiration and renewal notices.</li>
-    <li>Contact you regarding any Website issues. (Please note that you will never be requested to provide your account credentials to the Company — you should not share your account information with anyone. If you have issues with account access contact <a href="mailto:playdamnbruh@gmail.com">playdamnbruh@gmail.com</a>.)</li>
-    <li>Carry out our obligations and enforce our rights arising from the Terms of Use, including related to withdrawal or deposits from the Account Website.</li>
-    <li>Notify you when Website updates are available and of changes to any products or services we offer or provide through it.</li>
-    <li>Confirm your identity.</li>
-    <li>Fulfill any other purpose for which you provide it.</li>
-    <li>Provide a personalized experience, for example use of skill-based matchmaking in tournaments.</li>
-    <li>Employ anti-cheating and anti-fraud algorithms and features.</li>
-    <li>Track the performance of the Website, improve the Company Websites and company practices.</li>
-  </ul>
-  <p>The usage information we collect helps us to improve our Company Websites and to deliver a better and more personalized experience by enabling us to:</p>
-  <ul>
-    <li>Estimate our audience size and usage patterns.</li>
-    <li>Store information about your preferences, allowing us to customize our Website according to your individual interests or skill level.</li>
-    <li>Recognize you when you use the Company Websites.</li>
-    <li>Maintain compliance, financial, tax, and other legally required records.</li>
-    <li>Improve Website performance.</li>
-  </ul>
-  <p>We use location information we collect to ensure that you are in a jurisdiction where the use of the Website is authorized or to assist in the confirmation of your identity, and for no other purposes.</p>
+  <h2>On your device</h2>
+  <p>Your browser stores your player name, your skin and a few display preferences so they
+    are there next time. Clearing your browser's site data removes them.</p>
 
-  <h2>Disclosure of Your Information</h2>
-  <p>We may disclose: (i) aggregated information about our users in a de-identified form, (ii) information that does not identify any individual or device, and (iii) posted information without restriction.</p>
-  <p>In addition, we may disclose personal information that we collect or you provide:</p>
-  <ul>
-    <li>To contractors, service providers, and other third parties we use to support our business, such as the Integrated Third Parties, who are bound by contractual obligations to keep personal information disclosed to them confidential and use it only for the purposes for which it is disclosed to them.</li>
-    <li>To a buyer or other successor in the event of a merger, divestiture, restructuring, reorganization, dissolution, or other sale or transfer of some or all of the Company's assets, whether as a going concern or as part of bankruptcy, liquidation, or similar proceeding, in which personal information held by the Company about our users is among the assets transferred.</li>
-    <li>To fulfill the purpose for which you provide it. For example, if you upload an image as your user image it will become posted and publicly associated with your Website account.</li>
-    <li>For any other purpose disclosed by us when you provide the information.</li>
-    <li>With your consent.</li>
-    <li>To comply with any court order, law, or legal process, including to respond to any government or regulatory request.</li>
-    <li>To comply with service provider obligations, including payment processor and compliance requirements.</li>
-    <li>To enforce our rights arising from any contracts entered into between you and us, including any Website Terms of Use.</li>
-    <li>To execute deposits, withdrawals, and any other in-Website transactions.</li>
-    <li>If we believe disclosure is necessary or appropriate to protect the rights, property, or safety of the Company, our customers, or others. This includes exchanging information with other companies and organizations for the purposes of fraud protection, anti-cheating, and credit risk reduction.</li>
-    <li>With marketing firms, unless you have opted out of the sharing of your personal data (see Opt Out of Selling or Sharing of Information below).</li>
-  </ul>
-  <p>The Company does not currently sell any information.</p>
+  <h2>Who else handles it</h2>
+  <p>Only the services that run the site: Privy (sign-in and wallets), Amazon Web Services
+    (our servers), Helius (our connection to the Solana network) and PostHog (analytics).
+    We do not sell your information.</p>
 
-  <h2>Your Rights Relating to Your Information</h2>
-  <p>Subject to the limitations and exceptions in applicable law, including but not limited to exceptions related to required retention of data for tax or financial purposes, for anti-fraud and anti-cheating purposes, and for system functioning, you have the following rights related to your information:</p>
-  <ul>
-    <li><strong>Right to Withdraw Consent.</strong> You have the right to withdraw your consent for marketing communications (by following the opt-out instructions on such communications), and for the sale or sharing of your personal information by following the Opt Out of Sale or Sharing of Information instructions. You may exercise these rights at any time.</li>
-    <li><strong>Right to Confirm the Processing of Your Information.</strong> You have the right to confirm with the Company whether we are processing your personal information, and the categories of personal information that we collect and use about you.</li>
-    <li><strong>Right to Access Your Personal Information.</strong> You have the right to access the personal information we have collected from you; unless otherwise required by law you may only make this request for access once per year. The delivery of the personal information made under this section will be provided in its native format, for example, CSV, TXT, or a PDF extract.</li>
-    <li><strong>Right to Correct Your Personal Information.</strong> You have the right to correct errors in the personal information we store.</li>
-    <li><strong>Right to Deletion.</strong> You have the right to delete your personal information subject to certain legal exceptions. If you make a request to delete your personal information we will delete or deidentify all information that is not subject to an exception. If you delete your posted data from the Website, copies of your posted data may remain viewable in cached and archived pages, or might have been copied or stored by other Website users.</li>
-    <li><strong>Right to Request a Transfer of Your Information.</strong> You have the right to request a transfer of your information; however, please note that the information we collect and store is generally unique to the Website, and as a result there is no guaranty and the Company makes no representation that a transferee will be able to make use of the information we provide, which will be in the formats described in the "Right to Access Your Personal Information" section above.</li>
-    <li><strong>Right to Opt Out of Targeted Advertising.</strong> At this time the Company does not engage in targeted advertising and as a result the default is that you are opted out of any future targeted advertising absent a change in this Privacy Policy and your consent to such advertising.</li>
-    <li><strong>Right to Opt Out of the Sale of Your Personal Information.</strong> You have the right to opt out of the sale of your personal information. To exercise this right please follow the Opt Out of Sale or Sharing of Information instructions.</li>
-    <li><strong>Right to Opt Out of the Sharing of Your Personal Information.</strong> You have the right to opt out of the sharing of your personal information. To exercise this right please follow the Opt Out of Sale or Sharing of Information instructions.</li>
-  </ul>
-  <p>To exercise your rights you may contact customer support in the Website or email <a href="mailto:playdamnbruh@gmail.com">playdamnbruh@gmail.com</a>. If you choose to exercise any of your rights by email you will be required to verify your identity using the Company's then-in-effect identity verification process as outlined in the Company Terms of Use prior to any account information being provided to you or changes made to your personal information handling.</p>
+  <h2>How long we keep it</h2>
+  <p><mark class="todo">[retention period]</mark></p>
 
-  <h2>Third Party Use of Your Information</h2>
-  <p>We do not control third parties' collection or use of your information (where we are not providing it to such third parties) to serve interest-based advertising. However, these third parties may provide you with ways to choose not to have your information collected or used in this way. You can opt out of receiving targeted ads from members of the Network Advertising Initiative ("NAI") on the NAI's website.</p>
+  <h2>Your choices</h2>
+  <p>You can change your player name in Settings and sign out at any time. To ask what we
+    hold about you, or to have it deleted, write to
+    <a href="mailto:playduelseries@gmail.com">playduelseries@gmail.com</a>.
+    Records on the Solana network cannot be deleted by anyone.</p>
 
-  <h2>Additional Rights for Users in Specific Locations</h2>
-  <p>Residents in certain states, such as California, or who are located in a European Common Economic Zone country or the United Kingdom may have additional personal information rights and choices. Applicable country and state consumer privacy laws may provide their residents with additional rights regarding our use of their personal information.</p>
-  <p>Legally required notices: This website may sell or share your sensitive personal data. Please contact us to exercise your opt-out rights.</p>
-
-  <h2>Data Security</h2>
-  <p>We have implemented measures designed to secure your personal information from accidental loss and from unauthorized access, use, alteration, and disclosure. For example, any deposit or withdrawal transactions will be encrypted using SSL technology.</p>
-  <p>The safety and security of your information also depends on you. Where we have given you (or you have chosen) a password for access to certain parts of the Company Websites, this password can allow access to the account you hold with the Company Websites and allow the person with such a password to withdraw available funds from your account. You are responsible for choosing a strong password, regularly changing it, and keeping this password confidential. We ask you not to share your password with anyone.</p>
-  <p>Unfortunately, the transmission of information via the internet is not completely secure. Although we do our best to protect your personal information, we cannot guarantee the security of your personal information transmitted to or through our Websites. Any transmission of personal information is at your own risk. We are not responsible for circumvention of any privacy settings or security measures we provide.</p>
-
-  <h2>Changes to Our Privacy Policy</h2>
-  <p>We may update our privacy policy from time to time. If we make material changes to how we treat our users' personal information, we will post the new privacy policy on this page. The date the privacy policy was last revised is identified at the top of the page. You are responsible for periodically visiting this privacy policy to check for any changes. The Company may log you out of the Website in order to require your review and agreement to this Privacy Policy; please review this Privacy Policy and associated documents each time you login for any changes.</p>
-
-  <h2>Contact Information</h2>
-  <p>To ask questions or comment about this privacy policy and our privacy practices, contact us at <a href="mailto:playduelseries@gmail.com">playduelseries@gmail.com</a>. To register a complaint or concern, please provide the full details of your complaint and an email and contact phone number to <a href="mailto:playduelseries@gmail.com">playduelseries@gmail.com</a>.</p>
-
-  <h2>Governing Law and Dispute Resolution</h2>
-  <p>This Privacy Policy arises under the Company's Terms of Use and any dispute between you and the Company related to this Privacy Policy shall be governed by the arbitration provisions contained in the Terms of Use and the law applicable to such disputes as contained therein, except to the extent an alternative choice of law is required under applicable law.</p>
-
-  <hr class="divider">
-  <p style="font-size:0.8rem;color:#aaa;text-align:center;">© 2025 DamnBruh Labs. All rights reserved. | <a href="mailto:playduelseries@gmail.com" style="color:#14F195;">playduelseries@gmail.com</a></p>
+  <nav class="links" aria-label="Legal">
+    <a href="/terms.html">Terms of service</a>
+    <a href="/privacy.html" aria-current="page">Privacy policy</a>
+    <a href="/responsible-play.html">Responsible play</a>
+  </nav>
 </div>
 </body>
 </html>

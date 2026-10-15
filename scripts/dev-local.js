@@ -148,7 +148,8 @@ const dbStub = {
   getMyProfile: async (id) => { const a = accounts.get(id); return a ? { ...profileOf(a), nameHistory: a.nameHistory,
     joinedAt: a.createdAt, games: [], stakes: [], totalStaked: 0, stakesTracked: false } : null; },
   getProfile: async (name) => { const a = [...accounts.values()].find(x => x.name.toLowerCase() === String(name).toLowerCase());
-    return a ? { ...profileOf(a), history: { week: [], month: [], sixMonth: [], allTime: [] } } : null; },
+    return a ? { ...profileOf(a), joinedAt: a.createdAt, games: [],
+      history: { week: [], month: [], sixMonth: [], allTime: [] } } : null; },
   addCosmetic: async () => {},
   getOwnedCosmetics: async () => [],
   recordHouseRevenue: async (row) => { houseRevenue.push({ ...row, created_at: new Date() }); },

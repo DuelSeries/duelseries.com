@@ -450,7 +450,7 @@ const sigLimiter = rateLimit({ windowMs: 60 * 1000, max: 30, standardHeaders: tr
 /* /api/debug/client stays open (it is how a browser reports a stall), so it gets its own cap:
    diag.js posts every 20 s, so 6 a minute per address is double that. */
 const clientReportLimiter = rateLimit({ windowMs: 60 * 1000, max: 6, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Slow down.' } });
-// /api/my-transactions costs two provider calls (one of them a batch of up to 36) per wallet it
+// /api/my-transactions costs a signature read plus one read per new transaction (a page is 20) per page it
 // has not answered in the last 30 s. The wallet screen asks once when it opens, so 30 a minute
 // per IP is far above any person and far below a loop (security review 2026-10-15).
 const txHistoryLimiter = rateLimit({ windowMs: 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Slow down.' } });
@@ -1640,37 +1640,45 @@ app.post('/api/owner/diagnose', sigLimiter, async (req, res) => {
    it is the chain — so this takes the address as a query param the way
    /api/my-profile does, rather than requiring a token to look at something
    anybody can already look at in an explorer. */
-/* Each answer costs our paid RPC two calls (one a batch of up to 36), and the route is public, so
+/* Each new page costs our paid RPC a signature read and up to 20 transaction reads (a read is kept
+   for good once made), and the route is public, so
    (security review 2026-10-15): a per-IP limiter, a wallet must look like a Solana address before
    anything is asked of the chain, and one answer per wallet is shared for 30 s (concurrent asks
    for the same wallet share one lookup). Only successful answers are kept. */
 const TX_HISTORY_TTL_MS = 30 * 1000;
 const TX_HISTORY_MAX = 2000;
-const txHistoryCache = new Map();   // wallet -> { at, rows } or { at, pending }
-function txHistoryFor(wallet) {
+const txHistoryCache = new Map();   // wallet + page cursor -> { at, page } or { at, pending }
+const TX_PAGE = 20;
+function txHistoryFor(wallet, before) {
   const now = Date.now();
-  const hit = txHistoryCache.get(wallet);
-  if (hit && (hit.pending || now - hit.at < TX_HISTORY_TTL_MS)) return hit.pending || Promise.resolve(hit.rows);
+  const key = wallet + ':' + (before || '');
+  const hit = txHistoryCache.get(key);
+  if (hit && (hit.pending || now - hit.at < TX_HISTORY_TTL_MS)) return hit.pending || Promise.resolve(hit.page);
   if (txHistoryCache.size >= TX_HISTORY_MAX) {
     for (const [k, v] of txHistoryCache) {
       if (!v.pending && now - v.at >= TX_HISTORY_TTL_MS) txHistoryCache.delete(k);
     }
     if (txHistoryCache.size >= TX_HISTORY_MAX) txHistoryCache.delete(txHistoryCache.keys().next().value);
   }
-  const pending = Usdc.usdcHistory(wallet, 12).then(
-    (rows) => { txHistoryCache.set(wallet, { at: Date.now(), rows }); return rows; },
-    (e) => { txHistoryCache.delete(wallet); throw e; });
-  txHistoryCache.set(wallet, { at: now, pending });
+  const pending = Usdc.usdcHistory(wallet, { limit: TX_PAGE, before }).then(
+    (page) => { txHistoryCache.set(key, { at: Date.now(), page }); return page; },
+    (e) => { txHistoryCache.delete(key); throw e; });
+  txHistoryCache.set(key, { at: now, pending });
   return pending;
 }
+// A transaction signature: 64 bytes of base58, so 64 to 88 characters of its alphabet.
+const isTxSignature = (s) => /^[1-9A-HJ-NP-Za-km-z]{64,88}$/.test(s);
 app.get('/api/my-transactions', txHistoryLimiter, async (req, res) => {
   const wallet = strOr(req.query.wallet, '').trim();   // a string only: ?wallet[]=a threw
   if (!wallet) return res.status(400).json({ error: 'No wallet' });
   // A key's size and alphabet before new PublicKey() decodes it (quadratic: server/b58Caps.js).
   if (!isWalletString(wallet)) return res.status(400).json({ error: 'Invalid wallet' });
+  // The page cursor: the last signature the screen already shows. Absent is the newest page.
+  const before = strOr(req.query.before, '').trim();
+  if (before && !isTxSignature(before)) return res.status(400).json({ error: 'Invalid cursor' });
   try {
-    const rows = await txHistoryFor(wallet);
-    res.json({ transactions: rows });
+    const page = await txHistoryFor(wallet, before || undefined);
+    res.json({ transactions: page.rows, next: page.next });
   } catch (e) {
     console.error('[MY-TX]', e.message);
     res.status(502).json({ error: 'Could not reach the chain' });
