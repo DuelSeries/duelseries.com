@@ -109,7 +109,9 @@ function slPageRoute(opened) {
   };
 }
 
-// -> { arenas, page, why, dev }: arenas and page null when the game is off ('off') or closed (why says which).
+// -> { arenas, page, why, dev, sockets }: arenas, page and sockets null when the game is off ('off') or closed (why says
+// which). sockets is attachSlSockets' handle: the server attaches the paid helper through its setPaid (PAID-SL-DESIGN
+// 3.1, task T4), so this file names nothing paid.
 // opts: { env, io (the socket.io server), region, helpers: { socketRL, ops, notifyJoin(name), paidLoad(),
 //   clientIp }, topCashout(since, exclude) (null: no box), excludeWallets (owner and revenue wallets), log,
 //   slHtml (tests; default public/sl.html), slxTail (tests; default SLX_TAIL), laws (tests; a table treated as the
@@ -120,7 +122,7 @@ function openSl(opts) {
   const o = opts || {};
   const env = o.env || process.env;
   const log = o.log || console;
-  if (!slSwitch(env.SL_ENABLED, log)) return { arenas: null, page: null, why: 'off', dev: false };
+  if (!slSwitch(env.SL_ENABLED, log)) return { arenas: null, page: null, why: 'off', dev: false, sockets: null };
   let arenas = null;
   try {
     const { assertShippable, assertRulesBuilt } = require('./slLaws');
@@ -139,7 +141,7 @@ function openSl(opts) {
     for (const k of ['autoTick', 'seed', 'clock', 'now', 'timers']) if (o[k] !== undefined) ao[k] = o[k];
     arenas = new SlArenas(laws, ao);
     const helpers = Object.assign({ log }, o.helpers);
-    attachSlSockets(o.io ? o.io.of('/sl') : null, arenas, helpers);
+    const sockets = attachSlSockets(o.io ? o.io.of('/sl') : null, arenas, helpers);
     const safeStats = createSafeStats();
     const every = typeof o.every === 'function' ? o.every : (fn, ms, label) => safeEvery(fn, ms, label, safeStats, { log });
     let monitor = o.monitor;
@@ -149,13 +151,13 @@ function openSl(opts) {
     arenas.startTimers({ monitor, paidLoad: helpers.paidLoad, every });
     startTop(arenas, o, log, every);
     log.log('[SL] slither.io (new) free room open on /sl' + (dev ? ' (DEV law table)' : ''));
-    return { arenas, page, why: null, dev };
+    return { arenas, page, why: null, dev, sockets };
   } catch (e) {
     if (arenas) {
       try { arenas.close(); } catch (_) { /* closing is best effort */ }
     }
     log.error('[SL] slither.io (new) stays closed: ' + (e && e.message));
-    return { arenas: null, page: null, why: (e && e.message) || 'refused', dev: false };
+    return { arenas: null, page: null, why: (e && e.message) || 'refused', dev: false, sockets: null };
   }
 }
 

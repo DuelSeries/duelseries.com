@@ -51,6 +51,16 @@
 // attachSlSockets(nsp, arenas, helpers): nsp is io.of('/sl') (null: attach sockets by hand, tests). arenas is
 // slArenas (join, leave, disconnect, input, hold, vis, chat, diag, isOpen, laws). helpers: { socketRL (required),
 // ops, notifyJoin(name), clientIp(socket), now() wall ms for the input window, seed, log }.
+//
+// Paid (PAID-SL-DESIGN.md 3.1; task T4): the returned handle's setPaid({ arenas, door }) attaches the paid directory
+// and its door, which the server builds (no server/sl file requires anything under server/slPaid: critic C-2,
+// slNoMoney). Only while a helper is attached is auth.paid read, once at connect: a socket whose auth.paid is 1 is a
+// paid socket, and every call of its seat (leave, disconnect, input, hold, vis, chat, diag) goes to the paid directory
+// (st.dir) instead of the free one. Its sl:join, after the money-field refusal and the join rate limit, goes to the paid
+// door with the name already cleaned (D1-M1), ABOVE the free room's maintenance answer and its door check: the paid
+// door spends and refunds under maintenance itself, and sl:door:off (the free room's lever) never refuses a paid page
+// with its token unspent (critic C-1). A paid sl:back looks its key up in the paid rooms only (roomForKey). A free
+// socket with a helper attached still reads only auth.paid and auth.cv.
 
 const W = require('../../shared/slWire.js');
 const { assertLawsComplete } = require('./slLaws');
@@ -315,8 +325,32 @@ function attachSlSockets(nsp, arenas, helpers) {
   const safeStats = createSafeStats();
   const states = new Map(); // socket id -> per-socket state
   const stats = { connects: 0, joins: 0, refused: {}, guarded: 0, floods: 0, inputEmits: 0, inputBytes: 0,
-    inputRecords: 0, inputDropped: 0, pushes: 0, backs: 0, backsBad: 0, takeovers: 0, safe: safeStats };
+    inputRecords: 0, inputDropped: 0, pushes: 0, backs: 0, backsBad: 0, takeovers: 0, paidJoins: 0,
+    safe: safeStats };
   const badKeys = createBadKeyGate(L.resume.badKeys, ipOf);
+  let paid = null; // setPaid: { arenas: the paid directory, door: the paid door }
+
+  // The paid helper (see the header). A socket that connected before it keeps the route it was given.
+  function setPaid(helper) {
+    const p = helper || null;
+    if (p) {
+      const a = p.arenas;
+      for (const k of ['leave', 'disconnect', 'input', 'hold', 'vis', 'chat', 'diag', 'roomForKey']) {
+        if (!a || typeof a[k] !== 'function') throw new TypeError('slSockets: setPaid needs arenas.' + k);
+      }
+      if (!p.door || typeof p.door.join !== 'function') throw new TypeError('slSockets: setPaid needs door.join');
+    }
+    paid = p ? { arenas: p.arenas, door: p.door } : null;
+    return !!paid;
+  }
+
+  // Only with a helper attached: auth.paid 1 (an own data property, never a getter).
+  function paidOf(socket) {
+    if (!paid) return false;
+    const hs = socket.handshake;
+    const auth = hs && isPlainObject(hs.auth) ? hs.auth : null;
+    return !!auth && field(auth, 'paid') === 1;
+  }
 
   function limited(socket, kind) {
     return socketRL(socket, 'sl' + kind, L.rate[kind]);
@@ -335,7 +369,8 @@ function attachSlSockets(nsp, arenas, helpers) {
     return skinRng.int(L.badSkinCount);
   }
 
-  // sl:join {nick}: once per socket; a money field refused before anything else is read.
+  // sl:join {nick}: once per socket; a money field refused before anything else is read. A paid socket goes to the
+  // paid door above the free room's maintenance and door checks (see the header).
   function onJoin(socket, msg) {
     const st = stateOf(socket);
     if (!st || st.joined) return;
@@ -344,13 +379,18 @@ function attachSlSockets(nsp, arenas, helpers) {
       for (const k of MONEY_FIELDS) if (hasOwn(msg, k)) return refuse(socket, 'not-open', stats);
     }
     if (!limited(socket, 'join')) return;
+    const raw = msg === undefined ? '' : field(msg, 'nick');
+    const nick = cleanNick(typeof raw === 'string' ? raw : '', arenas.laws);
+    if (st.paid) {
+      st.joined = true;
+      stats.paidJoins++;
+      return st.door.join(socket, { nick, cv: st.cv });
+    }
     if (ops && typeof ops.get === 'function') {
       const o = ops.get();
       if (o && o.maintenance) return refuse(socket, 'maintenance', stats);
     }
     if (!arenas.isOpen()) return refuse(socket, 'closed', stats);
-    const raw = msg === undefined ? '' : field(msg, 'nick');
-    const nick = cleanNick(typeof raw === 'string' ? raw : '', arenas.laws);
     st.joined = true;
     let r;
     try {
@@ -386,7 +426,9 @@ function attachSlSockets(nsp, arenas, helpers) {
     const n = isPlainObject(msg) ? count(field(msg, 'n')) : null;
     const pv = isPlainObject(msg) ? field(msg, 'p') : undefined;
     const p = pv === undefined ? 0 : count(pv);
-    const room = arenas && typeof arenas.room === 'function' ? arenas.room() : null;
+    // a paid socket's key is looked up in the paid rooms only (the seat scan follows every resume, design 3.1)
+    const room = st.paid ? (isKey(k) ? st.dir.roomForKey(k) : null)
+      : (arenas && typeof arenas.room === 'function' ? arenas.room() : null);
     let r = WHY_GONE;
     if (isKey(k) && n !== null && p !== null && room && typeof room.resume === 'function') {
       try {
@@ -450,7 +492,7 @@ function attachSlSockets(nsp, arenas, helpers) {
       stats.inputDropped++;
       return;
     }
-    arenas.input(socket.id, b);
+    st.dir.input(socket.id, b);
   }
 
   function onHold(socket, msg) {
@@ -465,7 +507,7 @@ function attachSlSockets(nsp, arenas, helpers) {
       if (!st.holdPressed) return;
       st.holdPressed = false;
     }
-    arenas.hold(socket.id, on);
+    st.dir.hold(socket.id, on);
   }
 
   // sl:vis is a STATE (fixer pass, 2026-10-10): the layer sends it once per change and never again (slxNet sendVis), so
@@ -493,7 +535,7 @@ function attachSlSockets(nsp, arenas, helpers) {
     }
     stopVisPending(st);
     st.hidden = true;
-    arenas.vis(socket.id, true);
+    st.dir.vis(socket.id, true);
   }
 
   function onVis(socket, msg) {
@@ -512,7 +554,7 @@ function attachSlSockets(nsp, arenas, helpers) {
     }
     if (!st.hidden) return;
     st.hidden = false;
-    arenas.vis(socket.id, false);
+    st.dir.vis(socket.id, false);
   }
 
   function onChat(socket, msg) {
@@ -521,7 +563,7 @@ function attachSlSockets(nsp, arenas, helpers) {
     const text = field(msg, 'text');
     if (typeof text !== 'string') return;
     if (!limited(socket, 'chat')) return;
-    arenas.chat(socket.id, text);
+    st.dir.chat(socket.id, text);
   }
 
   function onDiag(socket, msg) {
@@ -530,7 +572,7 @@ function attachSlSockets(nsp, arenas, helpers) {
     const d = cleanDiag(msg, L.nameMax);
     if (!d) return;
     if (!limited(socket, 'diag')) return;
-    arenas.diag(socket.id, d);
+    st.dir.diag(socket.id, d);
   }
 
   // C_SL_PER_IP counts live snakes, not only open sockets (fixer pass, 2026-10-10): a seat's snake that glides after a
@@ -558,7 +600,7 @@ function attachSlSockets(nsp, arenas, helpers) {
     const st = stateOf(socket);
     if (!st) return;
     if (!limited(socket, 'leave')) return;
-    unseatCharged(socket, st, (onEnd) => arenas.leave(socket.id, onEnd));
+    unseatCharged(socket, st, (onEnd) => st.dir.leave(socket.id, onEnd));
   }
 
   function guard(name, fn) {
@@ -605,14 +647,18 @@ function attachSlSockets(nsp, arenas, helpers) {
       states.delete(socket.id);
       st.open = false;
       // a socket the server ended itself leaves (never parked for a resume); any other drop may come back (T16b)
-      if (st.noResume || st.leaving) unseatCharged(socket, st, (onEnd) => arenas.leave(socket.id, onEnd));
-      else unseatCharged(socket, st, (onEnd) => arenas.disconnect(socket.id, onEnd));
+      if (st.noResume || st.leaving) unseatCharged(socket, st, (onEnd) => st.dir.leave(socket.id, onEnd));
+      else unseatCharged(socket, st, (onEnd) => st.dir.disconnect(socket.id, onEnd));
       settle(socket, st);
     }));
     guard('connect', () => {
       stats.connects++;
       if (!gate.add(socket)) return refuse(socket, 'limit', stats);
+      const pd = paidOf(socket) ? paid : null;
       states.set(socket.id, {
+        paid: !!pd, // auth.paid 1 with the helper attached: this socket's seat lives in the paid directory
+        dir: pd ? pd.arenas : arenas, // where every call of this socket's seat goes
+        door: pd ? pd.door : null,
         cv: skinOf(socket),
         joined: false,
         holdPressed: false,
@@ -648,7 +694,8 @@ function attachSlSockets(nsp, arenas, helpers) {
   if (nsp && typeof nsp.use === 'function') nsp.use(admit);
   if (nsp && typeof nsp.on === 'function') nsp.on('connection', (socket) => safeCall(() => attach(socket), 'sl.attach', safeStats, { log }));
 
-  return { attach, admit, gate, badKeys, stats, laws: L, sockets: () => states.size };
+  return { attach, admit, gate, badKeys, stats, laws: L, sockets: () => states.size, setPaid,
+    paid: () => !!paid };
 }
 
 module.exports = {

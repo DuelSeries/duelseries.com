@@ -18,6 +18,9 @@
 //   setTop(msg)      the biggest cash-out box message (slTopCashout), kept for a replacement room too
 //   sampleLoad(nowMs, inp)  the bot governor's once-a-second sample (SERVER-DESIGN 11, 13 item 8); also caches
 //                    "a paid seat is occupied" for the room's catch-up yield (slRoom opts.paidBusy)
+//   setExtraLoad(fn)  fn() -> the largest slice of the PAID sl rooms since the last sample (slPaidArenas.maxSliceMs,
+//                    set by the server; PAID-SL-DESIGN 1, D2-m9): the governor sees the larger of the two, so paid
+//                    tick cost on the one core holds the bots back too
 //   startTimers({monitor, paidLoad, every})  the 1 Hz governor sample through slSafe.safeEvery
 //   stats(), close()
 //   join, leave, disconnect, input, hold, vis, chat, diag   slSockets' calls, by socket id
@@ -41,6 +44,7 @@ class SlArenas {
   //   bots           false: no bot driver (tests); default on
   //   seed, clock, now, timers, autoTick, view, log   handed to the room (see slRoom); seed + n for the n-th room
   //   makeRoom       (opts) -> room (tests)
+  //   extraLoad      () -> ms, as setExtraLoad
   constructor(laws, opts) {
     const o = opts || {};
     this.shippableOnly = o.shippableOnly !== false;
@@ -64,6 +68,8 @@ class SlArenas {
     this.timers = [];
     this.lastSample = null;
     this.maxSliceEverMs = 0;
+    this.extraLoad = null;
+    this.setExtraLoad(o.extraLoad);
     this.driver = null;
     this._room = this._create();
   }
@@ -227,6 +233,12 @@ class SlArenas {
     if (this._room && this.top) this._room.setTop(this.top);
   }
 
+  // The paid rooms' slice reader (see the header); anything but a function clears it.
+  setExtraLoad(fn) {
+    this.extraLoad = typeof fn === 'function' ? fn : null;
+    return !!this.extraLoad;
+  }
+
   // inp: { loopP99Ms, paidPlayers, paid: [{latePct, baselinePct}], loopRawP99Ms?, loopFloorMs? }. loopP99Ms is the
   // loop delay p99 above this process's idle floor (slBots createLoopProbe); the raw p99 and the floor ride along for
   // the log and the console only. The room's largest synchronous slice since the last sample is read and reset here
@@ -242,6 +254,13 @@ class SlArenas {
       if (slice > this.maxSliceEverMs) this.maxSliceEverMs = slice;
       r.stats.maxSliceMs = 0;
     }
+    // the paid rooms' slice since the last sample (read and reset by its reader); a fault reads as 0
+    let extra = 0;
+    if (this.extraLoad) {
+      const x = safeCall(this.extraLoad, 'sl.extraLoad', this.safeStats, { log: this.log });
+      if (Number.isFinite(x) && x > 0) extra = x;
+    }
+    if (extra > slice) slice = extra;
     if (!this.governor) return null;
     const loop = Number.isFinite(i.loopP99Ms) && i.loopP99Ms >= 0 ? i.loopP99Ms : 0;
     const paid = Array.isArray(i.paid) ? i.paid : [];
@@ -249,7 +268,7 @@ class SlArenas {
     const rawLoop = Number.isFinite(i.loopRawP99Ms) ? i.loopRawP99Ms : null;
     const floorLoop = Number.isFinite(i.loopFloorMs) ? i.loopFloorMs : null;
     this.lastSample = { at: nowMs, loopP99Ms: loop, loopRawP99Ms: rawLoop, loopFloorMs: floorLoop, sliceMaxMs: slice,
-      paidPlayers, result: out };
+      paidSliceMs: extra, paidPlayers, result: out };
     if (out === 'engaged' || out === 'recovered') {
       const seen = rawLoop !== null && floorLoop !== null
         ? ' (raw ' + rawLoop.toFixed(1) + ' over an idle floor of ' + floorLoop.toFixed(1) + ')' : '';

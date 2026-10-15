@@ -2,12 +2,14 @@
 // slSockets (SERVER-DESIGN 12.1, 12.2, 13 item 9, 18.1; task T11): join once, the money door, every refusal then a
 // disconnect, the per-address cap, the input size cap and its window (a stall burst is merged, never a disconnect;
 // sustained abuse is), the hold and visibility states, chat, diag, the handshake skin and the owner push throttle.
+// Paid task T4: with setPaid, a paid handshake goes to the paid door and the paid directory.
 const test = require('node:test');
 const assert = require('node:assert');
 const W = require('../shared/slWire.js');
 const { rig, layerMsgs, frozenGateTrace, fakeIoSocket } = require('./slSockFakes');
 const S = require('../server/sl/slSockets');
 const { LAWS } = require('../server/sl/slLaws');
+const { cleanNick } = require('../server/sl/slNames');
 
 const enc = (recs) => W.encodeInput(recs);
 const angle = (q) => ({ type: 'angle', q });
@@ -379,6 +381,78 @@ test('owner push: at most one per name per 10 minutes and 6 per 10 minutes in to
   assert.strictEqual(g.allow('a', 0), true);
   assert.strictEqual(g.allow('a', 599999), false);
   assert.strictEqual(g.allow('a', 600000), true);
+});
+
+// Paid task T4 (PAID-SL-DESIGN 3.1): the delegation exists only with a helper attached; slPaidRouting and
+// slPaidHostile run it with the real paid directory and door.
+test('paid delegation only with setPaid: auth.paid 1 sends the join to the door and every seat call to the paid directory', () => {
+  const r = rig();
+  const calls = [];
+  const dir = {};
+  for (const k of ['leave', 'disconnect', 'input', 'hold', 'vis', 'chat', 'diag']) {
+    dir[k] = (id) => {
+      calls.push([k, id]);
+      return false;
+    };
+  }
+  dir.roomForKey = (k) => {
+    calls.push(['roomForKey', k]);
+    return null;
+  };
+  const joins = [];
+  const door = { join: (s, info) => joins.push([s.id, info]) };
+  assert.throws(() => r.sockets.setPaid({ arenas: {}, door }), /setPaid needs arenas.leave/);
+  assert.throws(() => r.sockets.setPaid({ arenas: dir, door: null }), /setPaid needs door.join/);
+  assert.strictEqual(r.sockets.paid(), false);
+  // a paid page that connected before the helper keeps the free route (its token is never read)
+  const early = r.sock({ auth: { paid: 1, cv: 5, entryToken: 't', stake: 0.5 } });
+  assert.strictEqual(r.sockets.setPaid({ arenas: dir, door }), true);
+  early.fire('sl:join', { nick: 'e' });
+  assert.ok(r.room().seatOf(early.id), 'a free seat');
+  // a paid socket: the cleaned name and its skin go to the door, nothing to the free room
+  const p = r.sock({ auth: { paid: 1, cv: 5 } });
+  p.fire('sl:join', { nick: 'Owené 1' });
+  assert.deepStrictEqual(joins, [[p.id, { nick: cleanNick('Owené 1', r.laws), cv: 5 }]]);
+  assert.strictEqual(r.room().seatOf(p.id), null);
+  r.wall.t += 1000;
+  p.fire('sl:join', { nick: 'again' });
+  assert.strictEqual(joins.length, 1, 'once per socket');
+  p.fire('sl:i', enc([angle(3)]));
+  p.fire('sl:hold', { on: 1 });
+  p.fire('sl:hold', { on: 0 });
+  p.fire('sl:vis', { hidden: 1 });
+  p.fire('sl:chat', { text: 'x' });
+  p.fire('sl:diag', { fps: 60 });
+  p.fire('sl:leave');
+  p.disconnect();
+  assert.deepStrictEqual(calls.map((c) => c[0]), ['input', 'hold', 'hold', 'vis', 'chat', 'diag', 'leave', 'leave']);
+  assert.ok(calls.every((c) => c[1] === p.id));
+  // a paid sl:back looks its key up in the paid rooms only
+  const q = r.sock({ auth: { paid: 1 } });
+  const k = '00000000-0000-4000-8000-000000000000';
+  const n0 = calls.length;
+  q.fire('sl:back', { k, n: 0, p: 0 });
+  assert.deepStrictEqual(calls.slice(n0), [['roomForKey', k], ['disconnect', q.id]], 'then its refused socket closes');
+  assert.deepStrictEqual(q.emitted[q.emitted.length - 1].data, [{ t: 'refused', why: 'gone' }]);
+  // maintenance and the free door off never stop a paid join (the door decides, critic C-1); money fields still do
+  r.ops.maintenance = true;
+  r.arenas.door(false);
+  const m = r.sock({ auth: { paid: 1 } });
+  m.fire('sl:join', { nick: 'm' });
+  assert.strictEqual(joins.length, 2);
+  const mf = r.sock({ auth: { paid: 1 } });
+  mf.fire('sl:join', { nick: 'x', entryToken: 'e' });
+  refusedWith(mf, 'not-open');
+  assert.strictEqual(joins.length, 2);
+  assert.strictEqual(r.sockets.stats.paidJoins, 2);
+  // detached: a new paid page is a free socket again
+  r.ops.maintenance = false;
+  r.arenas.door(true);
+  assert.strictEqual(r.sockets.setPaid(null), false);
+  const after = r.sock({ auth: { paid: 1 } });
+  after.fire('sl:join', { nick: 'a' });
+  assert.ok(r.room().seatOf(after.id));
+  assert.strictEqual(joins.length, 2);
 });
 
 test('a thrown join (the room could not seat) is a closed refusal, never a hanging socket', () => {

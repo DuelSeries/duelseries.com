@@ -1,7 +1,7 @@
 'use strict';
 // slArenas (SERVER-DESIGN 12.1, 13 items 4, 8, 16.2; task T11): ONE free room, one board row sl:<region>:s0 with stake
 // 0, the door, isLive() both ways, no worth anywhere, the emergency replacement, the governor sample, the console
-// contract.
+// contract. Paid task T4 (PAID-SL-DESIGN 1, D2-m9): extraLoad, the paid rooms' slice in the governor's sample.
 const test = require('node:test');
 const assert = require('node:assert');
 const { rig, layerMsgs } = require('./slSockFakes');
@@ -150,6 +150,39 @@ test('the governor sample: paid seats make the room yield; a loop stall engages 
   assert.strictEqual(room.addBot(), null, 'refused while engaged');
   assert.strictEqual(A.sampleLoad(4000, { loopP99Ms: 1, paidPlayers: 0, paid: [] }), 'recovered');
   assert.strictEqual(A.governor.stats().engagements, 1);
+});
+
+test('extraLoad: the paid rooms\' slice reaches the governor; the larger of the two counts; a fault reads as 0', () => {
+  const r = rig({ bots: true });
+  const A = r.arenas;
+  const room = A.room();
+  let paidSlice = 0;
+  assert.strictEqual(A.setExtraLoad(() => paidSlice), true);
+  room.stats.maxSliceMs = 2;
+  paidSlice = 30;
+  assert.strictEqual(A.sampleLoad(1000, { loopP99Ms: 1, paidPlayers: 0, paid: [] }), 'engaged', 'a 30 ms paid slice engages it');
+  assert.strictEqual(A.governor.stats().engagements, 1);
+  assert.strictEqual(A.lastSample.sliceMaxMs, 30);
+  assert.strictEqual(A.lastSample.paidSliceMs, 30);
+  assert.strictEqual(A.maxSliceEverMs, 2, 'the free room\'s own maximum stays its own');
+  paidSlice = 0;
+  room.stats.maxSliceMs = 1;
+  assert.strictEqual(A.sampleLoad(2000, { loopP99Ms: 1, paidPlayers: 0, paid: [] }), 'recovered');
+  assert.strictEqual(A.lastSample.sliceMaxMs, 1, 'the free slice when it is the larger');
+  for (const bad of [() => { throw new Error('boom'); }, () => NaN, () => -5, () => 'x', () => Infinity]) {
+    A.setExtraLoad(bad);
+    room.stats.maxSliceMs = 1;
+    assert.doesNotThrow(() => A.sampleLoad(3000, { loopP99Ms: 1, paidPlayers: 0, paid: [] }));
+    assert.strictEqual(A.lastSample.paidSliceMs, 0);
+    assert.strictEqual(A.lastSample.sliceMaxMs, 1);
+  }
+  assert.strictEqual(A.setExtraLoad(null), false, 'anything but a function clears it');
+  assert.strictEqual(A.extraLoad, null);
+  // the option at construction, and a directory without bots still reads (and resets) it
+  let reads = 0;
+  const B = rig({ arenas: { extraLoad: () => { reads++; return 4; } } }).arenas;
+  assert.strictEqual(B.sampleLoad(1000, { loopP99Ms: 0, paidPlayers: 0, paid: [] }), null);
+  assert.strictEqual(reads, 1);
 });
 
 test('startTimers: one sample every GOVERNOR_SAMPLE_MS; the first one starts the loop histogram afresh; p99 over the floor', () => {
