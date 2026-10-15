@@ -363,6 +363,17 @@
       const frame = document.getElementById('game-frame');
       if (!frame) { say('That game could not be opened. Refresh and try again.'); return; }
       if (window.phEvent) window.phEvent('game_started', { game: game, lobbyType: 'free' });
+      /* The keyboard goes to the game: the frame takes the focus once it loads (and again a moment later), as the
+         widget's launch does (wallet-widget/src/main.jsx), else Space and Q land on this page's Play button under
+         the frame and never reach the game. The button lets go of the focus now, so Space cannot press it again. */
+      if (typeof frame.addEventListener === 'function') {
+        frame.addEventListener('load', () => {
+          const take = () => { try { frame.contentWindow.focus(); } catch (_) {} };
+          take();
+          setTimeout(take, 150);
+        }, { once: true });
+      }
+      try { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); } catch (_) {}
       frame.src = page;
       frame.style.display = 'block';
       document.body.classList.add('playing');

@@ -16,7 +16,9 @@ const SRC = fs.readFileSync(path.join(__dirname, '../public/js/v2/play.js'), 'ut
 
 function page(lobbies) {
   const els = {};
-  const mk = (id) => (els[id] = els[id] || { id, value: '', style: {}, hidden: true, textContent: '', focus() {} });
+  const mk = (id) => (els[id] = els[id] || { id, value: '', style: {}, hidden: true, textContent: '', focus() {},
+    on: {}, addEventListener(t, fn, o) { (this.on[t] = this.on[t] || []).push([fn, o]); },
+    contentWindow: { focused: 0, focus() { this.focused++; } } });
   ['game-frame', 'agar-frame', 'play-msg'].forEach(mk);
   mk('play-name').value = 'Owen123';
   const store = () => { const m = {}; return { getItem: (k) => (k in m ? m[k] : null), setItem: (k, v) => { m[k] = String(v); },
@@ -63,6 +65,19 @@ test('Free snake with the sl: row on the board opens /sl, never the wallet widge
   assert.strictEqual(p.frame.style.display, 'block');
   assert.deepStrictEqual(p.sent.events, [], 'no duel:play, so no money code is reached');
   assert.strictEqual(JSON.stringify(p.sent.ph), JSON.stringify([['game_started', { game: 'snake', lobbyType: 'free' }]]), 'PostHog snake numbers stay one game');
+});
+
+test('Free snake hands the keyboard to the game: the frame takes the focus once it loads, and again a moment later', async () => {
+  const p = page([SL_ROW, PAID]);
+  p.play.enter(SL_ROW);
+  const loads = p.frame.on.load || [];
+  assert.strictEqual(loads.length, 1, 'one load listener');
+  assert.strictEqual(loads[0][1].once, true, 'once');
+  assert.strictEqual(p.frame.contentWindow.focused, 0, 'not before the page loads');
+  loads[0][0]();
+  assert.strictEqual(p.frame.contentWindow.focused, 1, 'on load');
+  await new Promise((r) => setTimeout(r, 200));
+  assert.strictEqual(p.frame.contentWindow.focused, 2, 'and again 150 ms later');
 });
 
 test('a cold start with no board yet opens /sl for Free snake too (C39)', () => {

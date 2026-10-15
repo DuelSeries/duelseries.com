@@ -79,6 +79,12 @@ function page(opts) {
   const parent = { postMessage: (m, origin) => posted.push([m, origin]) };
   ctx.parent = o.framed ? parent : ctx;
   ctx.frameElement = o.frameId ? { id: o.frameId } : null;
+  const focus = { calls: 0, has: !!o.hasFocus, listeners: [] };
+  if (o.focus) {
+    ctx.focus = () => { focus.calls++; focus.has = true; };
+    ctx.addEventListener = (type, fn, capture) => focus.listeners.push([type, fn, capture]);
+    ctx.document.hasFocus = () => focus.has;
+  }
   ctx.io = function () { throw new Error('no socket in this test'); };
   ctx.DuelSlitherConfig = o.transport ? { transport: o.transport } : {};
   const S = { is_mobile: !!o.mobile, render_mode: o.mobile ? 1 : 2, playing: false, slither: null };
@@ -98,7 +104,7 @@ function page(opts) {
   };
   vm.createContext(ctx);
   for (const [f, src] of SRC) vm.runInContext(src, ctx, { filename: f });
-  return { ctx, D: ctx.DuelSlither, S, login, made, posted, plays, hooks, ownHooks, hookCalls, parent };
+  return { ctx, D: ctx.DuelSlither, S, login, made, posted, plays, hooks, ownHooks, hookCalls, parent, focus };
 }
 
 test('menu hooks: relayed to layer observers and their own still run', () => {
@@ -139,6 +145,24 @@ test('the lobby frame: Play at once under the lobby name, no name box', () => {
   assert.deepStrictEqual(p.posted, [['game:done', 'https://duelseries.com']]);
   const q = page({ framed: true, frameId: 'game-frame', local: { duelseries_playername: ' Kept ' } });
   assert.deepStrictEqual(q.plays, ['Kept'], 'the name the lobby keeps when the hand-off has none');
+});
+
+test('the lobby frame takes the keyboard: focus at boot, and a press while it lacks the focus takes it back first', () => {
+  const p = page({ framed: true, frameId: 'game-frame', focus: true, session: { playerName: 'Owen' } });
+  assert.strictEqual(p.focus.calls, 1, 'focused at boot');
+  const down = p.focus.listeners.filter((l) => l[0] === 'mousedown');
+  assert.strictEqual(down.length, 1);
+  assert.strictEqual(down[0][2], true, 'capture: before their window.onmousedown, which prevents the default');
+  down[0][1]({});
+  assert.strictEqual(p.focus.calls, 1, 'already focused: nothing');
+  p.focus.has = false;
+  down[0][1]({});
+  assert.strictEqual(p.focus.calls, 2, 'the focus went back to the lobby: the press takes it');
+  assert.deepStrictEqual(p.plays, ['Owen']);
+  // not in the lobby's frame: no focus taken, no listener
+  const q = page({ framed: true, frameId: 'other', focus: true });
+  assert.strictEqual(q.focus.calls, 0);
+  assert.strictEqual(q.focus.listeners.filter((l) => l[0] === 'mousedown').length, 0);
 });
 
 test('another frame or no frame: the name box, no auto Play; game:done only inside a frame', () => {

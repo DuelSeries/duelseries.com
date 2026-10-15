@@ -150,6 +150,26 @@
   slx.toLobby = toLobby;
   slx.guard = guard;
 
+  // The keyboard in the lobby's frame (Owen, 2026-10-15: Space and Q sometimes dead after joining). The lobby shows this
+  // frame over its own Play button, which keeps the focus, so no key reaches their document.onkeydown (boost,
+  // public/js/sl/slInput.js:208) or our Q (slxHold.js); and a click in the game does not move it, because their
+  // window.onmousedown prevents the default once a snake exists (slInput.js:148-156). So the frame takes the focus as it
+  // boots, and any press in it while it lacks the focus takes it back, in the capture phase, before their handler.
+  if (slx.inLobby) {
+    try {
+      root.focus();
+    } catch (e) { /* nothing to take: the press below does it */ }
+    if (typeof root.addEventListener === 'function') {
+      root.addEventListener('mousedown', function () {
+        var d = root.document;
+        if (!d || typeof d.hasFocus !== 'function' || d.hasFocus()) return;
+        try {
+          root.focus();
+        } catch (e) { /* nothing to take */ }
+      }, true);
+    }
+  }
+
   // Inside the lobby's frame: Play at once under the lobby name (their Play, public/js/sl/slMain.js:94-101), unless
   // slxPaid holds the page (paidHold: a paid snake cut off by a reload, or a paid launch it could not read). Such a
   // page shows its notice on the results card and never plays free.
