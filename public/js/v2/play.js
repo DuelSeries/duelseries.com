@@ -494,12 +494,19 @@
      Privy token on the auth route that ownerAuth.js documents as broken. The
      signature never leaves the wallet's own approval flow, and the server is
      what decides whether the wallet that signed is an owner. */
+  /* Only the game frame may ask, and only from our own origin: any other window
+     holding a reference to the lobby (an opener, a page that frames it) could
+     otherwise have the wallet sign an owner action without a prompt. The answer
+     goes to our own origin only, so a frame that navigated elsewhere never gets it. */
   window.addEventListener('message', async e => {
     const d = e.data;
     if (!d || d.type !== 'duel:signaction') return;
     const frame = el('game-frame');
+    const origin = window.location && window.location.origin;
+    if (!frame || !frame.contentWindow || e.source !== frame.contentWindow) return;
+    if (!origin || e.origin !== origin) return;
     const reply = (msg) => {
-      if (frame && frame.contentWindow) frame.contentWindow.postMessage(msg, '*');
+      if (frame.contentWindow) frame.contentWindow.postMessage(msg, origin);
     };
     if (typeof window.duelWalletSignAction !== 'function') {
       reply({ type: 'duel:signaction:error', id: d.id,
@@ -526,6 +533,10 @@
      animations restart. */
   window.addEventListener('message', e => {
     if (e.data !== 'game:done') return;
+    // From one of our game frames, on our own origin: nobody else closes the game.
+    const origin = window.location && window.location.origin;
+    if (!origin || e.origin !== origin) return;
+    if (!FRAMES.some(id => { const f = el(id); return !!f && !!f.contentWindow && e.source === f.contentWindow; })) return;
     FRAMES.forEach(id => { const f = el(id); if (f) { f.style.display = 'none'; f.src = ''; } });
     if (window._resumeLobbyAnims) window._resumeLobbyAnims();
     if (window.V2Board) window.V2Board.load();

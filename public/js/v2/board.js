@@ -26,7 +26,8 @@
   const el = id => document.getElementById(id);
   const money = n => Number(n) === 0 ? 'Free' : '$' + Number(n).toFixed(2);
   const esc = s => String(s == null ? '' : s)
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
   let LOBBIES = [];
   let EXTRAS = [];

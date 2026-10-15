@@ -2,7 +2,7 @@
 // slNames (SERVER-DESIGN 12.3, 18.1; task T11): cleanNick equals what the FROZEN client itself sends in sl:join, its
 // openNick (public/js/sl/slNet.js) then gdnm (public/js/sl/slApply.js), on 50,000 seeded fuzz names, plus the design's
 // literal vectors. The frozen files are run unchanged in a vm: slNet.connect with a stand-in transport, so their own
-// onOpen applies openNick and gdnm and hands the name to transport.join.
+// onOpen applies openNick and gdnm and hands the name to transport.join. cleanNick then strips < > " ' & (ours).
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
@@ -55,7 +55,8 @@ test('the design vectors (SERVER-DESIGN 18.1)', () => {
   assert.strictEqual(cleanNick('a\u0001b'), 'a b', 'below 32 becomes a space');
   assert.strictEqual(cleanNick('a\u007fb'), 'a\u007fb', '127 itself is kept');
   assert.strictEqual(cleanNick('😀'), '  ', 'an emoji is two units, two spaces');
-  assert.strictEqual(cleanNick('<b>x</b>'), '<b>x</b>', 'no markup filter: their client escapes on draw');
+  assert.strictEqual(cleanNick('<b>x</b>'), 'bx/b', 'markup characters stripped: a paid name reaches accounts.name');
+  assert.strictEqual(cleanNick(`O'Neil & "Co"`), 'ONeil  Co', 'quotes and & too');
   assert.strictEqual(nameMax(LAWS), 24, 'L45 nameMax');
 });
 
@@ -89,7 +90,9 @@ test('cleanNick equals the frozen openNick then gdnm on 50,000 fuzz names', () =
         s += pool[rng.int(pool.length)];
       }
     }
-    const want = frozen(s);
+    // Their client's name, minus the markup characters cleanNick strips last (security review 2026-10-15).
+    const f = frozen(s);
+    const want = typeof f === 'string' ? f.replace(/[<>"'&]/g, '') : f;
     const got = cleanNick(s);
     if (got !== want) assert.fail('name ' + JSON.stringify(s) + ': frozen ' + JSON.stringify(want) + ', ours ' + JSON.stringify(got));
     same++;

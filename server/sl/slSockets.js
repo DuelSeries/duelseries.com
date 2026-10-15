@@ -66,6 +66,7 @@ const W = require('../../shared/slWire.js');
 const { assertLawsComplete } = require('./slLaws');
 const { createRng, streamSeed } = require('./slRng');
 const { cleanNick } = require('./slNames');
+const { socketClientIp } = require('../clientAddr');
 const { botSkins } = require('./slBots');
 const { safeCall, safeAsync, safeTimeout, createSafeStats, REAL_TIMERS } = require('./slSafe');
 const { resumeLaws, isKey, count, createBadKeyGate, WHY_GONE, WHY_TAKEN } = require('./slResume');
@@ -188,20 +189,11 @@ function cleanDiag(msg, nameMax) {
 // ---------------------------------------------------------------------------------------------------------------
 // Addresses (agar's, server/ag/agSockets.js:59-112, copied: requiring agSockets would load agar's paid door)
 
-// The client address under 'trust proxy' 1: the last X-Forwarded-For entry when the header is there, else the
-// socket's own address.
+// The client address (server/clientAddr.js, the same rule as express's 'trust proxy'): the last X-Forwarded-For
+// entry ONLY when the socket's own peer is loopback or private (nginx), else the peer itself, so a client that
+// reaches the port directly cannot pick a fresh address per connection.
 function clientIp(socket) {
-  const hs = socket && socket.handshake;
-  if (!hs) return '';
-  const xff = hs.headers && hs.headers['x-forwarded-for'];
-  let ip = '';
-  if (typeof xff === 'string' && xff) {
-    const at = xff.lastIndexOf(',');
-    ip = xff.slice(at + 1).trim();
-  }
-  if (!ip) ip = typeof hs.address === 'string' ? hs.address : '';
-  if (ip.startsWith('::ffff:')) ip = ip.slice(7);
-  return ip;
+  return socketClientIp(socket);
 }
 
 // Open sockets per address.

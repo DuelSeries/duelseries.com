@@ -27,7 +27,8 @@
   const connected = () => !!(w().authenticated && w().address);
   const money = n => '$' + (Number(n) || 0).toFixed(2);
   const esc = s => String(s == null ? '' : s)
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
   function shortAddr(a) {
     return !a ? '' : a.length <= 16 ? a : a.slice(0, 6) + '…' + a.slice(-6);
