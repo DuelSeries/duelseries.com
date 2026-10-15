@@ -6,7 +6,7 @@
 // numbers as literal vectors, while a FIXTURE table can never pass assertShippable. The two room caps get fixed test
 // numbers here, labelled as such: the real table holds 101 each (CHOSEN by Owen 2026-10-11 until the T15 load test),
 // and the tests were written against 200 so a cap never trips by accident; cap tests patch their own numbers. The
-// four paid room rows (C_PAID_HUMAN_CAP 22, C_PAID_DROP_INSET 40, C_PAID_CASH_BYTE 68, C_PAID_BORDER_DROPS) are copied
+// four paid room rows (C_PAID_HUMAN_CAP 22, C_PAID_DROP_INSET 60, C_PAID_CASH_BYTE 68, C_PAID_BORDER_DROPS) are copied
 // with their real values like every other row: the paid tests run the real cap, inset and cash byte.
 
 const { LAWS, STATUS, tableFrom } = require('../server/sl/slLaws');

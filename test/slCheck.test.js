@@ -97,7 +97,7 @@ const full = (w) => C.checkRoom(w.room, { full: true, walletSeat: w.walletSeat }
 test('checkLaws reads the four paid numbers from the real table (cached per table); a missing or bad row is refused', () => {
   const K = C.checkLaws(L.LAWS);
   assert.strictEqual(K.cashByte, 68);
-  assert.strictEqual(K.inset, 40);
+  assert.strictEqual(K.inset, 60);
   assert.strictEqual(K.humanCap, 22);
   assert.strictEqual(K.grd, 32550);
   assert.ok(Math.abs(K.slack - 2 * (300 / 256) * Math.SQRT2) < 1e-12, 'two food cell diagonals');

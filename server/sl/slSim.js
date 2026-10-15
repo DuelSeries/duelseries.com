@@ -16,6 +16,11 @@
 //   fill      the L26 initial food fill at creation (default: on when food is on)
 //   world     true: shorthand for border, food, prey and fill on (each can still be turned off by name)
 //   idBlocked (id) -> true for ids the room still quarantines (C_ID_QUARANTINE_MS)
+//   paidDrops a paid room only (PAID-SL-DESIGN 4): { border, inset }. border true: a border death drops its body like
+//             any other death (C_PAID_BORDER_DROPS); inset: every death drop farther than flux - inset from (grd, grd)
+//             is pulled onto that circle after its draws, then off a taken food cell inward (C_PAID_DROP_INSET,
+//             paidPlace; no extra draw). Needs the border. Absent (the free room): the two changed lines are the free
+//             code, so the free goldens stay as they are.
 // The bare sim (no options) is the snake engine with collisions between snakes, which is what the T4 tests run.
 //
 // The room drives one tick as SERVER-DESIGN 5.3 says:
@@ -36,7 +41,9 @@
 //   charges  every L23 charge of the tick, flat [id, window ms, ...]: its time is the tick's sim time - P + window ms
 //   deaths   one record per death in processing order: {id, cause 'snake' | 'border' | 'kill', killer (0 = none),
 //            headOn, x, y (the head), sct, fam, cv, drops [{x, y, b, cv, food}]}
-// plus, when on, food.tick (adds, eats) and preys.tick (adds, moves, removes, eats) of the same tick.
+// plus, when on, food.tick (adds, eats) and preys.tick (adds, moves, removes, eats) of the same tick. lastLog() is the
+// same log object, also after a step that threw half way: it then holds the facts of that step up to the throw (the
+// paid room applies them before it closes, PAID-SL-DESIGN 5).
 //
 // Sections:
 //   1. laws the sim reads
@@ -271,6 +278,19 @@ function segSegDist2(p0x, p0y, p1x, p1y, ax, ay, bx, by) {
   return qx * qx + qy * qy;
 }
 
+// opts.paidDrops (paid rooms only, PAID-SL-DESIGN 4): null when absent, else a frozen { border, inset }. The room hands
+// in the C_PAID_BORDER_DROPS and C_PAID_DROP_INSET values, so this file reads no paid row itself.
+function paidDropsOf(pd, hasBorder) {
+  if (pd === undefined || pd === null) return null;
+  if (typeof pd !== 'object' || Array.isArray(pd)) throw new TypeError('slSim: paidDrops must be { border, inset }');
+  if (typeof pd.border !== 'boolean') throw new TypeError('slSim: paidDrops.border must be a boolean');
+  if (typeof pd.inset !== 'number' || !Number.isFinite(pd.inset) || pd.inset < 0) {
+    throw new RangeError('slSim: paidDrops.inset must be a finite number >= 0');
+  }
+  if (!hasBorder) throw new Error('slSim: paidDrops needs the border (the drop clamp reads the flux)');
+  return Object.freeze({ border: pd.border, inset: pd.inset });
+}
+
 function createSim(laws, opts) {
   const o = opts || {};
   if (typeof o.seed !== 'number' || !Number.isFinite(o.seed)) throw new TypeError('slSim: seed must be a finite number');
@@ -298,6 +318,7 @@ function createSim(laws, opts) {
   if ((hasFood || hasPrey) && !hasBorder) throw new Error('slSim: food and prey need the border (their passes read the flux)');
   const doFill = o.fill === undefined ? hasFood : o.fill === true;
   if (doFill && !hasFood) throw new Error('slSim: fill needs the food store');
+  const PD = paidDropsOf(o.paidDrops, hasBorder); // null in the free room
 
   const live = []; // live snakes in spawn order
   const byId = new Map();
@@ -714,23 +735,62 @@ function createSim(laws, opts) {
     return best;
   }
 
+  // A paid drop's place (PD only; PAID-SL-DESIGN 4 and the T1 review's note on I7), from (x, y) after its draws:
+  // farther than lim = flux - inset from (grd, grd), it is pulled onto that circle; then, when its food cell is taken,
+  // it walks inward along its radius one cell width at a time to the first free cell. C_DROP_CELL alone would send it
+  // to the nearest free cell, outward as often as inward, and gold pulled onto one circle piles up past it (measured
+  // on a border-heavy run: 360 to 650 of about 55000 drops more than two cell diagonals past it, up to 9.5 units).
+  // So a paid food lies at the corner of a free cell that holds a point inside the circle, under one cell diagonal
+  // past it (the checker's I7). No draw. A ray with no free cell down to the centre keeps the pulled place, and
+  // C_DROP_CELL decides. Writes paidAt.
+  const paidAt = [0, 0];
+  function paidPlace(x, y, lim) {
+    let ox = x - grd;
+    let oy = y - grd;
+    let dd = Math.sqrt(ox * ox + oy * oy);
+    if (dd > lim) {
+      ox *= lim / dd;
+      oy *= lim / dd;
+      dd = lim;
+    }
+    paidAt[0] = grd + ox;
+    paidAt[1] = grd + oy;
+    if (!food || !(dd > 0) || !grid.foodHas(grid.foodIdAt(paidAt[0], paidAt[1]))) return;
+    for (let rj = dd - grid.cellSize; rj > 0; rj -= grid.cellSize) {
+      const wx = grd + ox * (rj / dd);
+      const wy = grd + oy * (rj / dd);
+      if (!grid.foodHas(grid.foodIdAt(wx, wy))) {
+        paidAt[0] = wx;
+        paidAt[1] = wy;
+        return;
+      }
+    }
+  }
+
   // L39 drops of a death: perPoint at uniform places along each body point's stretch of the pulled body toward the
   // head (the newest point's stretch ends at the head), then atHead at the head; each moved by a uniform point in a
   // disc of radius r0 + r1 (sc - 1). Rad byte by L39.rad, colour by L39.colour.skin. Draws per drop, on the 'death'
   // stream: the place along the stretch (body drops only), the disc radius, the disc angle, then the colour (a
-  // weighted skin only).
+  // weighted skin only). A paid room (PD) then moves each drop by paidPlace, after the draws, so the stream is the
+  // free room's draw for draw.
   function deathDrops(s, hx, hy, out) {
     const pts = s.pts;
     const n = pts.length;
     const b = deathRadByte(W, n);
     const R = W.placeR0 + W.placeR1 * (slSnake.speedSc(K, n) - 1);
     const r = wrng.death;
+    const lim = PD !== null ? Math.max(0, border.radius() - PD.inset) : 0;
     const put = (x, y) => {
       const d = R * Math.sqrt(r.next());
       const th = PI2 * r.next();
       const cv = slSnake.dropColour(W.skinK, s.cv, r);
-      const dx = x + d * Math.cos(th);
-      const dy = y + d * Math.sin(th);
+      let dx = x + d * Math.cos(th);
+      let dy = y + d * Math.sin(th);
+      if (PD !== null) {
+        paidPlace(dx, dy, lim);
+        dx = paidAt[0];
+        dy = paidAt[1];
+      }
       out.push({ x: dx, y: dy, b, cv, food: food ? food.drop(dx, dy, b, cv) : null });
     };
     for (let i = 0; i < n; i++) {
@@ -746,14 +806,15 @@ function createSim(laws, opts) {
     for (let k = 0; k < W.atHead; k++) put(hx, hy);
   }
 
-  // One death: the record, the drops (none at the border, L39.count border 0), the kill credit (L40), out of the
-  // world. cause 'snake' (killer given), 'border' or 'kill' (sim.kill: a disconnect after its glide, C_DISCONNECT).
+  // One death: the record, the drops (none at the border, L39.count border 0, except in a paid room with
+  // paidDrops.border, C_PAID_BORDER_DROPS), the kill credit (L40), out of the world. cause 'snake' (killer given),
+  // 'border' or 'kill' (sim.kill: a disconnect after its glide, C_DISCONNECT).
   function die(s, cause, killer) {
     const hx = slSnake.headX(s);
     const hy = slSnake.headY(s);
     const d = { id: s.id, cause, killer: killer ? killer.id : 0, headOn: s.headOn, x: hx, y: hy, sct: s.pts.length,
       fam: s.fam, cv: s.cv, drops: [] };
-    if (cause !== 'border') deathDrops(s, hx, hy, d.drops);
+    if (cause !== 'border' || (PD !== null && PD.border)) deathDrops(s, hx, hy, d.drops);
     if (killer) killer.kills++;
     log.deaths.push(d);
     takeOut(s);
@@ -1042,6 +1103,8 @@ function createSim(laws, opts) {
     count: () => live.length,
     tick: () => tick,
     nowMs: () => nowMs,
+    // the last step's log, the object step() returns (also after a step that threw; digest never reads it)
+    lastLog: () => log,
     digest,
     check,
   });

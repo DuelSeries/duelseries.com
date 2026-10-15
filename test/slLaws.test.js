@@ -195,7 +195,7 @@ test('paid rows: the cap is the C_R_MIN snake count, the cash byte is the lowest
   // Border deaths drop in a paid room (Owen's answer 1); the free room's own row still drops nothing there.
   assert.deepStrictEqual(L.LAWS.C_PAID_BORDER_DROPS.value, { border: 'asBody' });
   assert.deepStrictEqual(L.LAWS['L39.count'].value, { rule: 'deathDrops', perPoint: 2, extra: 1, border: 0 });
-  assert.strictEqual(L.LAWS.C_PAID_DROP_INSET.value, 40);
+  assert.strictEqual(L.LAWS.C_PAID_DROP_INSET.value, 60); // raised from 40 by T2 (test/slPaidSim.test.js reachability)
   for (const id of ['C_PAID_HUMAN_CAP', 'C_PAID_DROP_INSET', 'C_PAID_CASH_BYTE']) {
     assert.strictEqual(L.LAWS[id].status, 'CHOSEN', id);
     assert.match(L.LAWS[id].source, /^CHOSEN: PAID-SL-DESIGN [14]/, id);

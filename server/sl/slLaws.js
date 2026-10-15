@@ -563,8 +563,11 @@ const ENTRIES = [
     22, 'players', 'PAID-SL-DESIGN 1 (the border target is clamped below at the C_R_MIN 22-snake radius, so with at most ' +
     '22 live snakes it stays 2923 and a pellet placed inside stays inside; must equal C_R_MIN.snakes)'),
   chosen('C_PAID_DROP_INSET', 'Paid death drops land at least this far inside the border: a drop farther out is pulled onto that circle',
-    40, 'world units', 'PAID-SL-DESIGN 4 (an eat disc reaches past the head farther than the L35 test point: centre ' +
-    '5.98 + 2.26 sc and radius 17.8 + 17.96 sc against 14.5 sc, so a pellet at flux - 40 is reachable at any sc)'),
+    60, 'world units', 'PAID-SL-DESIGN 4, raised from its 40 by the T2 reachability run (test/slPaidSim.test.js): an eat ' +
+    'disc reaches past the head farther than the L35 test point, so a pellet at flux - 40 is eaten head on with the ' +
+    'test point 186 units inside at the 430 cap (sc 5.04), but the cap snake then turns too wide to come back from it ' +
+    '(a border death in 16 of 360 approaches at 0 to 80 degrees off radial); at flux - 60 none dies and the closest ' +
+    'pass keeps 14.6 units, two cell diagonals of placement included'),
   chosen('C_PAID_CASH_BYTE', 'In a paid room every food with a rad byte at or above this carries cash; only death drops reach it',
     68, 'rad byte', 'PAID-SL-DESIGN 4, 5 (the lowest L39.rad death drop byte; natural food, L27 15 to 47, and boost ' +
     'drops, L24.size, stay below it)'),
