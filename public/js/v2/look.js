@@ -89,7 +89,10 @@
     var lenFrac = cfg && cfg.lenFrac || 0.9, hFrac = cfg && cfg.hFrac || 0.9;
     var k = Math.min(w * lenFrac / (LEN + 2 * RING), h * hFrac / (2 * (SWING + RING)));
     var r = RAD * k;
-    var hx = w / 2 + LEN * k / 2, cy = h / 2;
+    /* cfg.headX pins the head's centre at that fraction of the width, for a
+       box that shows the front of a snake bigger than the box (lenFrac over
+       1), the tail running off the left. Unset, the whole body is centred. */
+    var hx = cfg && cfg.headX ? w * cfg.headX : w / 2 + LEN * k / 2, cy = h / 2;
     var ph = (t || 0) * 1000 / MS_PER_FR / FR_PER_RAD;
     var n = Math.floor((PTS - 1) * MCT) + 1;
     var xs = new Array(n), ys = new Array(n), an = new Array(n);

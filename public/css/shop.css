@@ -3,6 +3,7 @@
    and every other colour lives in the game previews. Everything is prefixed
    sh- so nothing here can restyle another screen. */
 #shop{padding-bottom:64px}
+@media(max-width:760px){#shop{padding-bottom:30px}}   /* the phone's other tabs end at 30 */
 
 .sh-chips{display:flex;gap:8px;overflow-x:auto;padding:2px 0 16px;scrollbar-width:none}
 .sh-chips::-webkit-scrollbar{display:none}
@@ -10,8 +11,7 @@
   font-size:14px;font-weight:600;white-space:nowrap}
 .sh-chip:hover{color:var(--tx)}
 .sh-chip.on{background:var(--bone);color:var(--ink)}
-.sh-n{font-size:11.5px;opacity:.6;margin-left:7px}
-.sh-note{font-size:13.5px;color:var(--tx3);margin:-4px 0 14px}
+.sh-note{font-size:13.5px;line-height:1.5;color:var(--tx3);margin:-4px 0 14px}
 
 /* A skin: its preview, then name, rarity, price and the dead Buy button. */
 .sh-card{background:var(--s1);border-radius:16px;overflow:hidden;display:flex;flex-direction:column}
@@ -31,9 +31,11 @@
 
 /* One game at a time: that game's skins in a grid. */
 .sh-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:16px}
+/* Eight skins a game: four to a row on any screen wide enough, so they land as
+   two full rows instead of six and an orphaned two. */
+@media(min-width:900px){.sh-grid{grid-template-columns:repeat(4,1fr)}}
 
 @media(max-width:760px){
-  #shop .head{margin-top:28px}
   .sh-grid{grid-template-columns:repeat(2,1fr);gap:12px}
   .sh-meta{padding:10px 11px 12px}
   .sh-nm{font-size:14px}

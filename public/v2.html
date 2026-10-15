@@ -118,8 +118,6 @@ header{position:sticky;top:0;z-index:50;background:rgba(16,14,11,.82);
 .dep{background:var(--bone);color:var(--ink);font-weight:600;font-size:13.5px;
   padding:9px 17px;border-radius:var(--r2);transition:.15s}
 .dep:hover{transform:translateY(-1px)}
-.av{width:32px;height:32px;border-radius:50%;background:var(--s3);
-  display:grid;place-items:center;font-size:12px;font-weight:600;color:var(--tx2)}
 
 /* ── section nav ────────────────────────────────────────────────────── */
 .nav{display:flex;gap:2px;background:var(--s1);padding:4px;border-radius:var(--r2)}
@@ -163,31 +161,34 @@ header{position:sticky;top:0;z-index:50;background:rgba(16,14,11,.82);
   grid-template-columns:repeat(auto-fit,minmax(300px,1fr));align-items:start}
 .sh{font-size:15px;font-weight:650}
 .sd{font-size:13px;color:var(--tx3);line-height:1.6;margin:6px 0 14px}
-.setgrid .tog{margin-top:0}
-.setgrid .tg{cursor:pointer;border:none;font-family:inherit;color:var(--tx2)}
-.setgrid .tg.on{background:var(--bone);color:var(--ink);font-weight:650}
-/* Sign out: the one destructive control on the page, so it is the one red
-   one. Same shape as every other .tg; the red is the lobby's existing error
-   red (the toast cross, a taken name). */
-.setgrid .tg.out{background:#e0705f;color:var(--ink);font-weight:650}
-.setgrid .tg.out:hover{background:#ea8676}
-.setgrid .tg.out:disabled{opacity:.6;cursor:default}
-.acct{font-size:13px;color:var(--tx2);line-height:1.7;word-break:break-all}
-.acct b{display:block;color:var(--tx);font-weight:600;margin-bottom:2px}
+/* Account: the address row, then a full-width button at the lobby's own
+   button size (.btn). Sign out is the one destructive control on the page, so
+   it is the one red one: the lobby's existing error red (the toast cross, a
+   taken name). */
+.acctbtn{display:block;width:100%;padding:13px}
+#set-acct .waddr+.acctbtn{margin-top:10px}
+.acctbtn.out{background:#e0705f;color:var(--ink);font-weight:650}
+.acctbtn.out:hover{background:#ea8676}
+.acctbtn.out:disabled{opacity:.6;cursor:default}
 .setgrid .sh.setgap{margin-bottom:14px}
-#set-name-msg:empty{margin:0}   /* no message, no gap under the field */
+/* Even panel bottoms: the field ends where the padding starts, and a message
+   brings its own gap only when there is one. */
+#set-name{margin-bottom:0}
+#set-name-msg{margin:10px 0 0}
+#set-name-msg:empty{margin:0}
+/* A taken or refused name in the same red the game screen uses for it, and a
+   saved one in the live green, so the outcome reads before the words do. */
+#set-name-msg[data-state="bad"]{color:#e0705f}
+#set-name-msg[data-state="ok"]{color:var(--live)}
 /* Rows, not buttons: each one leaves for a page, so it reads as a list with
    a chevron, the way a phone's own settings do. */
 .slink{display:flex;align-items:center;justify-content:space-between;gap:12px;
-  min-height:46px;padding:0 4px;font-size:14px;font-weight:550;color:var(--tx2);
+  min-height:46px;padding:0;font-size:14px;font-weight:550;color:var(--tx2);
   box-shadow:inset 0 -1px 0 var(--s2);transition:color .13s}
 .slink:last-child{box-shadow:none}
 .slink:hover{color:var(--tx)}
 .slink::after{content:'';width:7px;height:7px;flex:none;margin-right:3px;
   border:solid currentColor;border-width:2px 2px 0 0;transform:rotate(45deg);opacity:.55}
-/* Room between the address (or "Not signed in.") and the button under it, so
-   the red Sign out does not sit glued to the wallet text on a phone. */
-#set-acct .tog{margin-top:10px}
 @media(max-width:520px){.setgrid{grid-template-columns:1fr;padding-bottom:30px}}
 
 /* ── placeholder screens ────────────────────────────────────────────── */
@@ -205,6 +206,8 @@ header{position:sticky;top:0;z-index:50;background:rgba(16,14,11,.82);
   background:var(--s1);border-radius:var(--r2);padding:7px 15px;line-height:1.25}
 .balbox .k{font-size:10.5px;color:var(--tx3)}
 .balbox .v{font-size:15px;font-weight:600;color:var(--tx)}
+/* Signed out there is no balance, so no box saying "Balance —". */
+body.signedout .balbox{display:none}
 .wbtn{display:flex;align-items:center;gap:8px;background:var(--s2);color:var(--tx);
   font-weight:650;font-size:13.5px;padding:10px 16px;border-radius:var(--r2);transition:.15s}
 .wbtn:hover{background:var(--s3);transform:translateY(-1px)}
@@ -244,7 +247,7 @@ header{position:sticky;top:0;z-index:50;background:rgba(16,14,11,.82);
   border-radius:var(--r2);padding:6px 6px 6px 14px;min-height:48px}
 .waddr code{font-family:var(--fm);font-size:15px;font-weight:500;letter-spacing:.2px;
   color:var(--tx);flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.waddr .cp{display:inline-flex;align-items:center;gap:7px;flex:0 0 auto;
+.waddr .cp{display:inline-flex;align-items:center;justify-content:center;gap:7px;flex:0 0 auto;min-width:96px;
   font-size:13px;font-weight:600;color:var(--tx);background:var(--s2);
   border-radius:calc(var(--r2) - 2px);padding:0 14px;height:36px;transition:background .14s,color .14s}
 .waddr .cp:hover{background:var(--s3)}
@@ -774,12 +777,14 @@ body.ingame .tkrun{animation-play-state:paused}
    hover on a phone and a per-point hit area is not findable with a thumb. */
 /* ── cash-out form ──────────────────────────────────────────────────── */
 .cashout{margin-top:16px}
-.fld{width:100%;background:var(--bg);border:none;border-radius:var(--r2);
-  padding:12px 14px;color:var(--tx);font-family:inherit;font-size:14px;
+/* Both fields one height (the mono amount sat 2px shorter), and a ring on
+   focus, as on the name fields. */
+.fld{width:100%;height:46px;background:var(--bg);border:none;border-radius:var(--r2);
+  padding:0 14px;color:var(--tx);font-family:inherit;font-size:14px;
   outline:none;margin-bottom:9px}
 .fld.num{font-family:var(--fm)}
 .fld::placeholder{color:var(--tx3)}
-.fld:focus{background:#0a0908}
+.fld:focus{background:#0a0908;box-shadow:inset 0 0 0 1.5px var(--tx3)}
 .amtrow{display:flex;gap:8px;margin-bottom:9px}
 .amtrow .fld{margin:0;flex:1;min-width:0}
 .maxbtn{background:var(--s2);border:none;border-radius:var(--r2);padding:0 18px;
@@ -788,6 +793,14 @@ body.ingame .tkrun{animation-play-state:paused}
 .maxbtn:hover{background:var(--bone);color:var(--ink)}
 .cashout .note{margin:0 0 14px}
 .cashout code{font-family:var(--fm);color:var(--tx)}
+/* One line held for the message, so an error appearing does not shove the
+   buttons down under your thumb; a refusal in the error red. */
+#co-msg{min-height:1.6em}
+#co-msg[data-state="bad"]{color:#e0705f}
+/* The whole destination on the confirm step, broken anywhere, in the money
+   mono: it is read character by character. */
+.cashout .cofull{display:block;margin:-6px 0 14px;padding:12px 14px;border-radius:var(--r2);
+  background:var(--bg);font-size:13.5px;line-height:1.55;word-break:break-all;color:var(--tx)}
 
 .chartbox{position:relative}
 .chartbox svg.v2chart{display:block;width:100%;height:auto;
@@ -851,12 +864,18 @@ body.ingame .tkrun{animation-play-state:paused}
   align-items:center;justify-content:center;padding:24px;
   background:rgba(6,5,4,.72);backdrop-filter:blur(6px)}
 .howveil.on{display:flex}
+/* Scrolls inside itself when the screen is shorter than the card (a phone on
+   its side), so the title, the close button and the last button stay
+   reachable instead of falling off the top and bottom. */
 .howcard{width:100%;max-width:420px;background:var(--s1);
-  border-radius:var(--r3);padding:24px 24px 20px;text-align:left}
+  border-radius:var(--r3);padding:24px 24px 20px;text-align:left;
+  max-height:100%;overflow-y:auto;overscroll-behavior:contain}
 .howtop{display:flex;align-items:center;margin-bottom:16px}
 .howtop h2{flex:1;font-size:21px;font-weight:650;letter-spacing:-.4px}
+/* 40px to tap, the glyph unchanged: it was a 24x23 target. */
 .howx{background:none;border:none;color:var(--tx3);font-size:15px;
-  cursor:pointer;padding:4px 6px;line-height:1}
+  cursor:pointer;width:40px;height:40px;margin:-10px -12px -10px 0;
+  display:grid;place-items:center;line-height:1;border-radius:var(--r2)}
 .howx:hover{color:var(--tx)}
 .howsteps{list-style:none;margin:0 0 20px;padding:0;counter-reset:hw}
 .howsteps li{counter-increment:hw;display:grid;
@@ -966,7 +985,7 @@ body.no-foot footer{display:none}
 .namerow .pname{margin:0;flex:1;min-width:0;text-align:left}
 /* A locked field should not look like a box waiting for typing. */
 .pname[readonly]{color:var(--tx2);cursor:default}
-.pname[readonly]:focus{background:var(--bg)}
+.pname[readonly]:focus{background:var(--bg);box-shadow:none}
 /* One square button, one icon showing at a time. */
 .nameact{width:46px;flex:none;background:var(--s2);border:none;
   border-radius:var(--r2);color:var(--tx2);cursor:pointer;
@@ -1023,18 +1042,35 @@ body.no-foot footer{display:none}
   padding:12px 14px;color:var(--tx);font-family:inherit;font-size:14px;
   outline:none;margin-bottom:10px;text-align:center}
 .pname::placeholder{color:var(--tx3)}
-.pname:focus{background:#0a0908}
+.pname:focus{background:#0a0908;box-shadow:inset 0 0 0 1.5px var(--tx3)}   /* a ring, so typing has somewhere to be */
 /* Play. White on Free; gold on a paid rung, the colour every amount of money
    on this product already is (the rungs, the winners ticker, the paid snake's
    coins), so the button you are about to stake real money with cannot be
    mistaken for the free one. The light runs top to bottom like a struck
    coin, with one soft glow under it and a single sheen across it the moment
    a paid rung is picked, which is the change being acknowledged, not decoration. */
+/* Free gets the same make as the gold one, in white (Owen, 2026-10-15): the
+   light runs top to bottom, a bright top edge and a dark bottom one, a soft
+   glow under it, and the sheen when the rung is picked. Only the metal
+   differs, so the two read as one button in two finishes. */
 .go{position:relative;overflow:hidden;width:100%;display:flex;align-items:center;
-  justify-content:center;gap:8px;background:var(--bone);color:var(--ink);font-size:15px;
+  justify-content:center;gap:8px;color:var(--ink);font-size:15px;
   font-weight:650;padding:15px;border-radius:var(--r2);
+  background:linear-gradient(180deg,#ffffff 0%,#f4f1ea 48%,#dcd4c5 100%);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(70,58,40,.3),
+    0 8px 24px -8px rgba(244,241,234,.38);
   transition:background .2s,color .2s,box-shadow .2s,transform .15s}
-.go:hover{transform:translateY(-1px)}
+.go:hover{transform:translateY(-1px);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(70,58,40,.3),
+    0 10px 30px -8px rgba(244,241,234,.55)}
+/* Its own keyframes name, so moving between Free and a paid rung restarts
+   the sheen both ways (an unchanged animation never replays). */
+.go::after{content:"";position:absolute;top:0;bottom:0;left:-60%;width:45%;
+  background:linear-gradient(100deg,transparent,rgba(255,255,255,.7),transparent);
+  transform:skewX(-18deg);animation:gosheenw .75s cubic-bezier(.3,.6,.3,1) .05s 1 both;
+  pointer-events:none}
+@keyframes gosheenw{from{left:-60%}to{left:120%}}
+@media(prefers-reduced-motion:reduce){.go::after{animation:none;display:none}}
 .go .golock{display:none;flex:none}
 .go.paid{background:linear-gradient(180deg,#ffd98a 0%,#f5b545 46%,#e0941f 100%);
   color:#271703;font-weight:700;
@@ -1050,6 +1086,7 @@ body.no-foot footer{display:none}
 /* Locked: a game that is not open yet keeps the button, shut, with a padlock. */
 .go.lock,.go.lock:hover{background:var(--s2);color:var(--tx3);box-shadow:none;
   transform:none;cursor:not-allowed}
+.go.lock::after{display:none}
 .go.lock .golock{display:block}
 /* Play and, on every game's Free rung, Spectate beside it (agar.io had it
    first; Owen 2026-10-15: "in every single game"). Spectate is exactly one
@@ -1092,7 +1129,11 @@ body.no-foot footer{display:none}
   padding:10px 14px 10px 10px;cursor:pointer;text-align:left;
   backdrop-filter:blur(8px);transition:background .15s}
 .lookrow:hover{background:rgba(40,34,25,.85)}
-.lookrow canvas{width:104px;height:36px;display:block;flex:none;border-radius:var(--r2)}
+.lookrow canvas{width:150px;height:56px;display:block;flex:none;border-radius:var(--r2)}
+/* The snake's body runs off the left edge (LOOK_CFG.mini), so it fades out
+   rather than stopping at a hard cut. Other games' pieces fit whole. */
+.lookrow.snk canvas{-webkit-mask-image:linear-gradient(90deg,transparent,#000 34%);
+  mask-image:linear-gradient(90deg,transparent,#000 34%)}
 .lookstage canvas{display:block;width:100%;height:auto}
 /* Customize on top, what you are wearing under it, a chevron to say it opens. */
 .lookrow .lkt{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
@@ -1189,28 +1230,37 @@ body.no-foot footer{display:none}
   display:flex;align-items:center;justify-content:center;
   transform-origin:50% 50%;will-change:transform,opacity}
 .ap-slot canvas{display:block;width:100%;height:104px}
-/* The locked look. The scrim darkens the whole screen behind the header, the
-   arrows and Save; the seal sits dead centre over the skin in the middle. */
+/* The locked look, as a display case (Owen, 2026-10-15: the padlock and price
+   sat dead centre ON the skin, so you could not see what you would be
+   buying). Nothing covers the skin now. The scrim dims everything around the
+   middle slot and leaves a clear window over it, a thin gold case frames the
+   skin, and the padlock and price sit on the case's bottom edge, in the gap
+   under the skin. The reel's centre is 37px above the screen's (its box runs
+   96px down from the top and stops 170px short of the bottom). */
 .ap-scrim{position:absolute;inset:0;z-index:52;pointer-events:none;opacity:0;
-  background:rgba(8,7,5,.6)}
+  background:rgba(8,7,5,.62);
+  -webkit-mask-image:radial-gradient(min(330px,64vw) 96px at 50% calc(50% - 37px),transparent 72%,#000 100%);
+          mask-image:radial-gradient(min(330px,64vw) 96px at 50% calc(50% - 37px),transparent 72%,#000 100%)}
 .ap-lockfx{position:absolute;left:0;right:0;top:96px;bottom:170px;z-index:53;
   display:flex;align-items:center;justify-content:center;pointer-events:none;opacity:0}
-/* See-through on purpose: the skin stays visible behind it, darkened, so you
-   can still see what you would be buying. An opaque disc hid a whole agar.io
-   cell or Knockout piece. */
-.ap-seal{width:124px;height:124px;border-radius:50%;
-  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
-  background:radial-gradient(closest-side,rgba(10,8,6,.5),rgba(10,8,6,.3) 72%,rgba(10,8,6,.12));
-  border:1.5px solid rgba(240,168,48,.7)}
-.ap-seal svg{width:38px;height:38px;stroke:var(--bone);filter:drop-shadow(0 1px 4px rgba(0,0,0,.9))}
-.ap-seal b{font-size:27px;font-weight:800;line-height:1;color:var(--money);
-  font-variant-numeric:tabular-nums;letter-spacing:-.01em;text-shadow:0 1px 6px rgba(0,0,0,.95)}
+.ap-case{position:relative;width:min(452px,calc(100% - 28px));height:122px;
+  border-radius:24px;border:1.5px solid rgba(240,168,48,.62);
+  box-shadow:0 0 34px -6px rgba(240,168,48,.22),inset 0 0 26px -10px rgba(240,168,48,.3)}
+.ap-seal{position:absolute;left:50%;bottom:0;transform:translate(-50%,50%);
+  display:inline-flex;align-items:center;gap:8px;white-space:nowrap;
+  padding:7px 15px 7px 12px;border-radius:var(--rf);
+  background:#17140f;border:1.5px solid rgba(240,168,48,.62);
+  box-shadow:0 6px 18px rgba(0,0,0,.55)}
+.ap-seal svg{width:17px;height:17px;flex:none;stroke:var(--bone)}
+.ap-seal b{font-size:18px;font-weight:700;line-height:1;color:var(--money);
+  font-variant-numeric:tabular-nums;letter-spacing:-.01em}
 @media(max-width:520px){
   .ap-reel,.ap-lockfx{top:calc(70px + env(safe-area-inset-top));
     bottom:calc(146px + env(safe-area-inset-bottom))}
-  .ap-seal{width:108px;height:108px}
-  .ap-seal svg{width:32px;height:32px}
-  .ap-seal b{font-size:24px}
+  /* The phone's reel box is 70px from the top and 146px from the bottom. */
+  .ap-scrim{-webkit-mask-image:radial-gradient(64vw 92px at 50% calc(50% - 38px),transparent 72%,#000 100%);
+                    mask-image:radial-gradient(64vw 92px at 50% calc(50% - 38px),transparent 72%,#000 100%)}
+  .ap-case{height:116px;border-radius:20px}
   .ap-hint{display:block}
 }
 /* Phones only: there the arrows are gone, and a gesture with nothing on
@@ -1306,7 +1356,10 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
   .balbox .v{font-size:14px}
   .wbtn{padding:9px 12px;font-size:12.5px}
   .wbtn span{display:none}       /* icon only: the label is what overflowed */
-  .av{display:none}
+  /* Signed out there is no balance beside it, so "Sign in" fits and says
+     what the button does. */
+  body.signedout .wbtn{margin-left:auto}
+  body.signedout .wbtn span{display:inline}
 
   /* Navigation moves to the bottom, where a thumb actually reaches. Solid
      rather than translucent for the containing-block reason above: this one
@@ -1376,8 +1429,8 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
   .namerow{margin-bottom:10px}
   .go{padding:13px}
   .spec{font-size:13px}
-  .lookrow{margin-top:10px;padding:8px 12px 8px 8px}
-  .lookrow canvas{height:32px}
+  .lookrow{margin-top:10px;padding:6px 12px 6px 6px}
+  .lookrow canvas{width:136px;height:52px}
   .lobwrap{margin-top:10px}
   .lobwrap .lr{padding:8px 12px}
 
@@ -1483,11 +1536,12 @@ body.scr-anim { overflow-x:hidden }
   <div class="balbox"><span class="k">Balance</span><span class="v num" id="hdr-balance">—</span></div>
   <!-- One wallet surface. The dropdown that used to hang here was a second
        place to do money in, with its own tabs and its own idea of the balance. -->
-  <button class="wbtn" id="wbtn" onclick="go('wallet')">
+  <button class="wbtn" id="wbtn" onclick="V2Wallet.headerTap()">
     <svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2H5a2 2 0 0 1-2-2m14 6h.01"/></svg>
     <span>Wallet</span>
   </button>
-  <div class="av">OK</div>
+  <!-- The prototype's avatar disc, which said "OK" to every visitor, is gone:
+       there is no avatar to show and nothing it opened. -->
 </div></header>
 
 <!-- Outside the header on purpose. The header carries a backdrop-filter, which
@@ -1732,7 +1786,7 @@ body.scr-anim { overflow-x:hidden }
     <div id="dep-addr-slot"></div>
     <p class="note mwarn">USDC on Solana only. Anything else is unrecoverable.</p>
     <button type="button" class="btn pri mgo" onclick="V2Wallet.fund()">
-      Show QR code and payment options</button>
+      QR code and other ways to pay</button>
   </div>
 </div>
 
@@ -2039,10 +2093,10 @@ body.scr-anim { overflow-x:hidden }
   <div class="head"><div><h2>Settings</h2></div></div>
   <div class="setgrid">
     <div class="panel">
-      <h3 class="sh">Player name</h3>
-      <p class="sd">Letters and numbers, up to 16.</p>
+      <h3 class="sh setgap">Player name</h3>
+      <!-- The rule lives in the empty field rather than on a line of its own. -->
       <input class="pname" id="set-name" maxlength="16" autocomplete="off"
-             placeholder="Your name" aria-label="Your player name">
+             placeholder="Letters and numbers, up to 16" aria-label="Your player name">
       <div class="sd" id="set-name-msg" aria-live="polite"></div>
     </div>
 
@@ -2077,17 +2131,18 @@ body.scr-anim { overflow-x:hidden }
        you are moving through. Its slots are placed by the reel code, not by a
        scroll box. -->
   <div class="ap-reel" id="ap-reel" aria-hidden="true"></div>
-  <!-- A locked skin in the middle: the screen darkens and the padlock and
-       price sit dead centre over it. Both fade with how near the middle the
-       paid skins are (lockShow). -->
+  <!-- A locked skin in the middle: everything round it darkens, a gold case
+       frames it, and the padlock and price sit on the case's bottom edge, so
+       nothing covers the skin. Both fade with how near the middle the paid
+       skins are (lockShow). -->
   <div class="ap-scrim" id="ap-scrim" aria-hidden="true"></div>
   <div class="ap-lockfx" id="ap-lockfx" aria-hidden="true">
-    <div class="ap-seal">
+    <div class="ap-case"><div class="ap-seal">
       <svg viewBox="0 0 24 24" fill="none" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
         <rect x="4.5" y="10.5" width="15" height="10.5" rx="2.2"/><path d="M8 10.5V7.6a4 4 0 0 1 8 0v2.9"/>
         <path d="M12 14.6v2.4"/></svg>
       <b id="ap-lockprice" class="num"></b>
-    </div>
+    </div></div>
   </div>
   <div class="ap-selector">
     <button class="ap-arrow" id="ap-prev" onclick="cycleLook(-1)" aria-label="Previous skin">
@@ -2404,6 +2459,15 @@ const G=id=>GAMES.find(x=>x.id===id);
    screen. Several contexts sharing one offscreen GL canvas at different
    sizes is what produced the coloured bands. */
 const CAM=0.95;                       /* world units -> card px */
+/* The game screen's full-screen backdrop (data-half) is drawn at CAM on a
+   ~1300px-wide PC screen. A phone's is a third as wide at the same scale, so
+   one snake filled it and it read as zoomed right in (Owen, 2026-10-15). It
+   zooms out with the screen's width instead, so a phone frames about as much
+   of the world as a PC does. Cards keep CAM. */
+function camOf(cv){
+  if(!cv.dataset.half)return CAM;
+  return CAM*Math.max(0.5,Math.min(1,(cv.clientWidth||1100)/1100));
+}
 const SKINS=['#c080ff','#80ff80','#ffa060','#65c8e8','#ff4040','#eeee70',
              '#9099ff','#e030e0','#ff9090'];
 const C_=(typeof CONSTANTS!=='undefined')?CONSTANTS:{SNAKE_SEGMENT_SPACING:3,
@@ -2515,9 +2579,12 @@ let FID=1;
 function mkWorld(cv){
   if(cv.dataset.game==='snake')return stillSnakeWorld();
   const w=cv.width,h=cv.height;
-  const halfW=w/(2*CAM), halfH=h/(2*CAM);          /* world units on screen */
+  /* z under 1 is a zoomed-out backdrop (camOf): counts go by the world on
+     screen, not by pixels, so a phone's wider view is as busy as a PC's. */
+  const S=camOf(cv), z=S/CAM;
+  const halfW=w/(2*S), halfH=h/(2*S);              /* world units on screen */
   const snakes=[],food=[];
-  const n=Math.max(1,Math.min(4,Math.round(w/110)));
+  const n=Math.max(1,Math.min(4,Math.round(w/z/110)));
   for(let i=0;i<n;i++){
     const len=30+Math.floor(Math.random()*26);
     const a=Math.random()*6.283;
@@ -2535,7 +2602,7 @@ function mkWorld(cv){
   const agar=cv.dataset.game==='agar';
   if(agar){
     snakes.length=0;
-    const N=Math.max(3,Math.min(6,Math.round(w/70)));
+    const N=Math.max(3,Math.min(6,Math.round(w/z/70)));
     for(let i=0;i<N;i++){
       const rgb=agRgb();
       cells.push({x:(Math.random()*1.5-0.75)*halfW,y:(Math.random()*1.5-0.75)*halfH,
@@ -2543,7 +2610,7 @@ function mkWorld(cv){
         vx:(Math.random()-0.5)*0.5,vy:(Math.random()-0.5)*0.5});
     }
   }
-  const fn=Math.max(6,Math.round(w*h/2600));
+  const fn=Math.max(6,Math.round(w*h/2600/(z*z)));
   for(let i=0;i<fn;i++)
     food.push({id:FID++,x:(Math.random()*2-1)*halfW*1.1,y:(Math.random()*2-1)*halfH*1.1,
       /* agar.io's food is the game's own colour rule too, never the slither palette. */
@@ -2551,7 +2618,7 @@ function mkWorld(cv){
         :['#c080ff','#9099ff','#80d0d0','#80ff80','#eeee70','#ffa060','#ff9090','#ff4040','#e030e0']
         [Math.floor(Math.random()*9)],
       size:0.5+Math.random()*0.4,dropped:false,isGolden:false});
-  return {snakes,cells,food,halfW,halfH,agar,worldRadius:9999,leaderboard:[],mm:[]};
+  return {snakes,cells,food,halfW,halfH,agar,cam:S,worldRadius:9999,leaderboard:[],mm:[]};
 }
 /* agar.io's look, for its card, its detail background and its row swatch: the
    values the game itself draws with (public/js/ag/agRender.js and the colour
@@ -2685,7 +2752,7 @@ function paintScene(cv,dt){
   /* A still is a composition, so it has to frame the same way at any size.
      Contain-fit its world box instead of using the fixed CAM, or the card
      and the detail hero show different amounts of it. */
-  const S=wd.still?Math.min(w/(2*wd.halfW),h/(2*wd.halfH)):CAM;
+  const S=wd.still?Math.min(w/(2*wd.halfW),h/(2*wd.halfH)):(wd.cam||CAM);
   cam.scale=cam.targetScale=S; cam._scaleMid=S;
   cam._w=w; cam._h=h; cam.worldX=cam.worldY=0;
   cam.x=w/2; cam.y=h/2;
@@ -2700,7 +2767,7 @@ function paintScene(cv,dt){
        size (10 to 16) plus the 5-unit rim, in its own colour. */
     ctx.fillStyle=agBg(); ctx.fillRect(0,0,w,h);
     cam.apply(ctx,1);
-    agGrid(ctx,wd.halfW*1.3,wd.halfH*1.3,CAM);
+    agGrid(ctx,wd.halfW*1.3,wd.halfH*1.3,wd.cam||CAM);
     const K=agK();
     for(const f of wd.food){
       ctx.fillStyle=f.color; ctx.beginPath();
@@ -2828,8 +2895,12 @@ let lookT=0;
    14.5 units at their chooser zoom 1.3, on a canvas sized to an 1800 unit
    diagonal, capped at 1500 wide, then scaled to the window: 18.1px against
    our 17.1). */
+/* mini: the Customize bar. Owen (2026-10-15) could not tell the whole snake
+   squeezed into a 104x36 strip was a snake ("the purple thing"), so the bar
+   shows its FRONT, big: head and eyes pinned on the right, the body running
+   off the left edge under a fade (.lookrow canvas mask). */
 const LOOK_CFG={
-  mini:{lenFrac:0.92,hFrac:0.92},
+  mini:{lenFrac:1.6,hFrac:0.96,headX:0.86},
   reel:{lenFrac:0.86,hFrac:0.9},
 };
 /* Drawn by look.js from slither's own body sprites. With nothing chosen the
@@ -2866,7 +2937,7 @@ let lookIx=0;
 function drawSkins(){
   const look=hasLook(cur);
   const row=document.getElementById('lookrow'), img=document.getElementById('lkimg');
-  if(row)row.disabled=!look;
+  if(row){row.disabled=!look;row.classList.toggle('snk',!!(cur&&cur.look))}
   if(img&&!look&&cur){
     if(cur.noart)img.removeAttribute('src');
     else if(img.getAttribute('src')!=='/img/games/'+cur.id+'.png')img.src='/img/games/'+cur.id+'.png';
@@ -3581,7 +3652,18 @@ function openHow(title,steps){
   document.getElementById('howsteps').innerHTML=(steps||[]).map(s=>
     '<li><div><b>'+s[0]+'</b><span>'+s[1]+'</span></div></li>').join('');
   document.getElementById('howveil').classList.add('on');
+  sheetFocus.open('howveil');
 }
+/* Keyboard focus for the sheets (How to play, Deposit, Withdraw): opening
+   one moves focus to its close button, so Tab starts inside it and not on
+   the page behind; closing it hands focus back to whatever opened it. The
+   close button, never a field: a focused field raises a phone's keyboard. */
+const sheetFocus={back:null,
+  open(id){this.back=document.activeElement;
+    const x=document.querySelector('#'+id+' .howx');if(x)x.focus({preventScroll:true})},
+  close(){const b=this.back;this.back=null;
+    if(b&&b.focus&&document.contains(b))b.focus({preventScroll:true})}};
+window.sheetFocus=sheetFocus;
 /* Written to be added to. Owen fills these in as the format settles. */
 function openEventHow(){
   openHow('Battle Royale',[
@@ -3591,7 +3673,7 @@ function openEventHow(){
     ['Last one alive takes $20','Paid straight to your wallet. The circle keeps shrinking until one snake is left. Out early? Watch the rest of the match.'],
   ]);
 }
-function closeHow(){document.getElementById('howveil').classList.remove('on')}
+function closeHow(){document.getElementById('howveil').classList.remove('on');sheetFocus.close()}
 
 /* ── choosing a weapon ────────────────────────────────────────────────────
    Ten guns, all free, drawn by the same module the game draws them with, so
@@ -3766,7 +3848,7 @@ function showScreen(id,dir){
   if(!dir||!prev||prev===next||!next||reduce){
     SCREENS.forEach(s=>{const el=document.getElementById(s); if(el)el.style.display='none'});
     if(next)next.style.display='block';
-    document.body.classList.toggle('no-foot',id==='detail');
+    document.body.classList.toggle('no-foot',id==='detail'||id==='settings-screen');
     return;
   }
 
@@ -3851,11 +3933,13 @@ function drawAcct(){
   const box=document.getElementById('set-acct'); if(!box)return;
   /* The address in the one form it has everywhere (wallet.js addrRow): the
      first and last four on one line, with Copy. */
+  /* Real buttons at the lobby's button size: Sign in in the primary bone,
+     Sign out in the one red. They were 32px toggles, and a grey Sign in read
+     as switched off. No "Not signed in." over the button: it says so. */
   box.innerHTML=(w.authenticated&&w.address&&window.V2Wallet&&V2Wallet.addrRow)
     ? `${V2Wallet.addrRow('set-addr',w.address)}
-       <div class="tog"><button type="button" class="tg out" id="set-signout" onclick="signOut(this)">Sign out</button></div>`
-    : `<div class="acct">Not signed in.</div>
-       <div class="tog"><button type="button" class="tg" onclick="window.duelWalletLogin&&window.duelWalletLogin()">Sign in</button></div>`;
+       <button type="button" class="btn acctbtn out" id="set-signout" onclick="signOut(this)">Sign out</button>`
+    : `<button type="button" class="btn pri acctbtn" onclick="window.duelWalletLogin&&window.duelWalletLogin()">Sign in</button>`;
 }
 /* Everything this browser holds that says who you are or what you paid for.
    The widget already drops the two token copies when Privy reports signed
@@ -3899,8 +3983,9 @@ document.addEventListener('input',e=>{
   e.target.value=v;
   try{localStorage.setItem('duelseries_playername',v)}catch(_){}
   const live=document.getElementById('play-name'); if(live)live.value=v;
-  document.getElementById('set-name-msg').textContent=
-    v.length>=3?'':'At least three characters to play.';
+  const m=document.getElementById('set-name-msg');
+  m.textContent=v.length>=3?'':'At least three characters to play.';
+  m.dataset.state=v.length>=3?'':'bad';
 });
 /* Committed on blur, not on every keystroke: this field writes to the ACCOUNT
    now, and a name is only free or taken once you have finished typing it.
@@ -3910,13 +3995,12 @@ document.addEventListener('blur',async e=>{
   if(e.target.id!=='set-name')return;
   const v=String(e.target.value||'').replace(/[^a-zA-Z0-9]/g,'').slice(0,16);
   const msg=document.getElementById('set-name-msg');
-  if(v.length<3){if(msg)msg.textContent='At least three characters to play.';return}
+  if(v.length<3){if(msg){msg.textContent='At least three characters to play.';msg.dataset.state='bad'}return}
   /* pushName returns true or a reason; V2Play.nameWhy turns the reason into the
      same sentence the game screen shows, so the two fields cannot disagree about
      what just happened. */
   const res=await V2Play.pushName(v);
-  if(msg)msg.textContent=res===true?'Saved. This is your name on every device.'
-    :V2Play.nameWhy(res);
+  if(msg){msg.textContent=res===true?'Saved.':V2Play.nameWhy(res);msg.dataset.state=res===true?'ok':'bad'}
 },true);
 
 /* Show a tab's screen and load its data without changing the route. */
@@ -3940,7 +4024,7 @@ function commitScreen(tab){
   route=tab; drawNav();
   /* Swipes land here rather than in showScreen, so the footer rule has to be
      applied on this path too or it only ever holds for taps. */
-  document.body.classList.toggle('no-foot',id==='detail');
+  document.body.classList.toggle('no-foot',id==='detail'||id==='settings-screen');
   SCREENS.forEach(s=>{const el=document.getElementById(s);
                       if(el&&s!==id)el.style.display='none'});
   /* No scroll reset here. A drag already did it at the START of its settle,
@@ -3987,15 +4071,27 @@ function go(id,dir){
 
 /* Escape closes the appearance dialog without saving, which is what a modal
    is expected to do. */
+/* The Deposit and Withdraw sheets close the same two ways as How to play
+   (they look the same and used to ignore both). Closing Withdraw is its
+   Cancel: nothing has been sent until "Send it". */
+const isOn=id=>document.getElementById(id).classList.contains('on');
 document.addEventListener('keydown',e=>{
   if(e.key!=='Escape')return;
-  if(document.getElementById('howveil').classList.contains('on'))return closeHow();
-  if(document.getElementById('lookveil').classList.contains('on'))closeLook(false);
+  if(isOn('howveil'))return closeHow();
+  if(isOn('depveil'))return V2Wallet.closeDep();
+  if(isOn('wdrveil'))return V2Wallet.cancelCash();
+  if(isOn('lookveil'))closeLook(false);
 });
 /* Clicking the darkened area outside the card closes it, which is what a
    dimmed backdrop looks like it should do. */
 document.getElementById('howveil').addEventListener('click',e=>{
   if(e.target.id==='howveil')closeHow();
+});
+document.getElementById('depveil').addEventListener('click',e=>{
+  if(e.target.id==='depveil')V2Wallet.closeDep();
+});
+document.getElementById('wdrveil').addEventListener('click',e=>{
+  if(e.target.id==='wdrveil')V2Wallet.cancelCash();
 });
 
 /* The tournament countdown is gone with the card it counted down. It ticked

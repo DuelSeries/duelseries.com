@@ -57,8 +57,17 @@ function fmtAxis(t, longSpan) {
     const vals = all.map(p => p.cum);
     const hi = Math.max.apply(null, vals.concat([0]));
     const lo = Math.min.apply(null, vals.concat([0]));
-    const pad = Math.max((hi - lo) * 0.14, 0.5);
-    const top = hi + pad, bot = lo - pad;
+    /* The money axis on round steps (1, 2, 2.5 or 5 times a power of ten),
+       starting AT zero when the total never goes below it. It used to pad
+       both ends by 14% and label five evenly cut values with the cents
+       chopped off, so an always-positive total sat over a "-$1" line and the
+       labels read $23, $16, $10, $3 (2026-10-15 audit). */
+    const raw = Math.max((hi - lo) / 5, 0.25);
+    const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+    const step = [1, 2, 2.5, 5, 10].map(m => m * mag).find(s => s >= raw);
+    const bot = lo >= 0 ? 0 : Math.floor(lo / step) * step;
+    const top = Math.max(bot + step, Math.ceil((hi + step * 0.25) / step) * step);
+    const cents = step < 1 || step % 1 !== 0;
     /* Placed by DATE, not by position in the list. Spacing the points evenly
        drew a year of nothing and an afternoon of three cash-outs at the same
        width, so the shape of the line said nothing about when anything
@@ -70,16 +79,19 @@ function fmtAxis(t, longSpan) {
     const Y = v => PT + ih * (top - v) / (top - bot);
     const zy = Y(0);
 
-    // Money up the side.
+    /* Money up the side, one label per step. Bigger in the phone's narrower
+       viewBox, which draws everything at about 0.83 scale: 12 there was 9px. */
+    const FS = narrow ? 14.5 : 12;
     let ticks = '';
-    for (let i = 0; i <= 4; i++) {
-      const v = bot + (top - bot) * i / 4, y = Y(v).toFixed(1);
+    for (let v = bot; v <= top + step / 1000; v += step) {
+      const y = Y(v).toFixed(1), a = Math.abs(v) < step / 1000 ? 0 : v;
+      const label = money(Math.abs(a));
       ticks += '<line x1="' + PL + '" x2="' + (W - PR) + '" y1="' + y + '" y2="' + y +
                '" stroke="var(--s2)" stroke-width="1"/>' +
-               '<text x="' + (PL - 10) + '" y="' + (Y(v) + 4).toFixed(1) +
-               '" text-anchor="end" font-size="12" fill="var(--tx3)" ' +
-               'font-family="var(--fm)">' + (v < 0 ? '-' : '') +
-               money(Math.abs(v)).replace(/\.\d\d$/, '') + '</text>';
+               '<text x="' + (PL - 10) + '" y="' + (Y(v) + FS / 3).toFixed(1) +
+               '" text-anchor="end" font-size="' + FS + '" fill="var(--tx3)" ' +
+               'font-family="var(--fm)">' + (a < 0 ? '−' : '') +
+               (cents ? label : label.replace(/\.\d\d$/, '')) + '</text>';
     }
 
     /* Dates along the bottom. At most five, evenly spaced, so they never
@@ -94,7 +106,7 @@ function fmtAxis(t, longSpan) {
       const x = PL + iw * frac;
       const anchor = k === 0 ? 'start' : k === want - 1 ? 'end' : 'middle';
       dates += '<text x="' + x.toFixed(1) + '" y="' + (H - 22) +
-               '" text-anchor="' + anchor + '" font-size="12" fill="var(--tx3)">' +
+               '" text-anchor="' + anchor + '" font-size="' + FS + '" fill="var(--tx3)">' +
                fmtAxis(t0 + (t1 - t0) * frac, t1 - t0 > 300 * 864e5) + '</text>';
     }
 

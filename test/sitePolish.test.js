@@ -74,3 +74,30 @@ test('the battle royale shows it is the slither.io game, and its state survives 
   assert.ok(/getElementById\('ev-join-t'\)\|\|join\)\.textContent/.test(html), 'tick writes the label, not the button');
   assert.ok(/<h3 class="evname">Battle Royale<\/h3>/.test(html), 'one name for the event');
 });
+
+test('the Customize bar shows a big snake, and the phone backdrop zooms out like a PC\'s', () => {
+  const html = v2();
+  assert.ok(/mini:\{lenFrac:1\.6,hFrac:0\.96,headX:0\.86\}/.test(html), 'the front of the snake, big');
+  assert.ok(/cfg && cfg\.headX \? w \* cfg\.headX/.test(read('public/js/v2/look.js')), 'look.js can pin the head');
+  assert.ok(/function camOf\(cv\)/.test(html) && /const S=camOf\(cv\), z=S\/CAM;/.test(html), 'the backdrop scale follows the width');
+  assert.ok(/\(wd\.cam\|\|CAM\)/.test(html), 'and the painter draws at the world\'s own scale');
+});
+
+test('Free Play wears the paid button\'s make in white', () => {
+  const css = v2().match(/\.go\{position:relative[^}]*\}/)[0];
+  assert.ok(/linear-gradient\(180deg,#ffffff/.test(css), 'a top-lit white');
+  assert.ok(/inset 0 1px 0/.test(css) && /0 8px 24px -8px/.test(css), 'the same edges and glow as gold');
+  assert.ok(/@keyframes gosheenw/.test(v2()), 'and its own sheen');
+});
+
+test('a locked skin is framed, not covered: the price sits under it and the dim leaves it clear', () => {
+  /* Owen, 2026-10-15: the padlock and price sat dead centre on the paid skin,
+     so he could not see what he would be buying. */
+  const html = v2();
+  assert.ok(/<div class="ap-case"><div class="ap-seal">/.test(html), 'the seal lives on the case');
+  const seal = html.match(/\.ap-seal\{[^}]*\}/)[0];
+  assert.ok(/bottom:0;transform:translate\(-50%,50%\)/.test(seal), 'on its bottom edge, below the skin');
+  const scrim = html.match(/\.ap-scrim\{[^}]*\}/)[0].replace(/\s+/g, '');
+  assert.ok(/mask-image:radial-gradient\(.*transparent72%,#000100%\)/.test(scrim),
+    'the dim has a clear window over the middle skin');
+});

@@ -1332,7 +1332,8 @@ test('one layout for every game: rungs, name, Play, Customize, open lobbies, and
   // Nothing on the screen is shown or hidden per kind of game any more.
   assert.ok(!/#detail\.(duel|solo|freeonly|paidduel|queueing)\b/.test(html), 'no per-kind layout rules');
   // Play is white on Free and gold on a paid rung.
-  assert.match(html, /\.go\{[^}]*background:var\(--bone\)/, 'white on Free');
+  // White on Free: a top-lit white, the gold button's make (2026-10-15).
+  assert.match(html, /\.go\{[^}]*background:linear-gradient\(180deg,#ffffff/, 'white on Free');
   assert.match(html, /\.go\.paid\{background:linear-gradient/, 'gold on a paid rung');
   assert.match(html, /go\.classList\.toggle\('paid',Number\(STEPS\[si\]\)>0&&/, 'set by the chosen rung');
 });

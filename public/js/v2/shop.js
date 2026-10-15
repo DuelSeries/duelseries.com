@@ -45,12 +45,14 @@
   function chips() {
     return '<div class="sh-chips" role="tablist" aria-label="Game">' + S.games.map(function (g) {
       var on = g.id === gameId;
+      /* No skin count: every game has the same eight, so the number on each
+         chip said nothing (2026-10-15). */
       return '<button class="sh-chip' + (on ? ' on' : '') + '" role="tab" aria-selected="' + on + '" data-game="' + g.id + '">' +
-        esc(g.name) + '<span class="sh-n num">' + g.skins.length + '</span></button>';
+        esc(g.name) + '</button>';
     }).join('') + '</div>';
   }
   function lockNote(g) {
-    return locked(g) ? '<p class="sh-note">' + esc(g.name) + ' is not playable yet. Its skins are here for when it is.</p>' : '';
+    return locked(g) ? '<p class="sh-note">' + esc(g.name) + ' is not playable yet.</p>' : '';
   }
   function bodyA() {
     var g = S.game(gameId);
@@ -60,10 +62,20 @@
   function draw() {
     host = root.document.getElementById('shop');
     if (!host) return;
-    host.innerHTML =
-      '<div class="head"><div><h2>Shop</h2><div class="sub">Skins for every game. Nothing is for sale yet.</div></div></div>' +
-      bodyA();
+    /* The chip row keeps where it was scrolled to across a redraw, then
+       brings the picked chip into view: rebuilding it put the row back at
+       the start, so the chip just picked slid off the screen. */
+    var old = host.querySelector('.sh-chips'), keep = old ? old.scrollLeft : 0;
+    /* No subtitle: every Buy button already says Coming soon. */
+    host.innerHTML = '<div class="head"><div><h2>Shop</h2></div></div>' + bodyA();
     host.onclick = onClick;
+    var row = host.querySelector('.sh-chips');
+    if (row) {
+      row.scrollLeft = keep;
+      var on = row.querySelector('.sh-chip.on');
+      if (on && (on.offsetLeft < row.scrollLeft || on.offsetLeft + on.offsetWidth > row.scrollLeft + row.clientWidth))
+        row.scrollLeft = on.offsetLeft - (row.clientWidth - on.offsetWidth) / 2;
+    }
     collect();
   }
   function onClick(e) {

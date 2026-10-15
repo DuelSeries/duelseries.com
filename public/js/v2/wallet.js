@@ -26,6 +26,11 @@
   let cashing = false, pending = null;
   const connected = () => !!(w().authenticated && w().address);
   const money = n => '$' + (Number(n) || 0).toFixed(2);
+  /* A balance is shown, and Max fills it, rounded DOWN to the cent. toFixed
+     rounds up, so $3.216 read as $3.22 and Max filled an amount the form then
+     refused as more than you have. */
+  const cents = n => Math.floor((Number(n) || 0) * 100 + 1e-6) / 100;
+  const balMoney = n => money(cents(n));
   const esc = s => String(s == null ? '' : s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
@@ -53,11 +58,23 @@
   function renderHeader() {
     const v = el('hdr-balance');
     if (!v) return;
-    v.textContent = connected() ? money(w().balance) : '—';
+    v.textContent = connected() ? balMoney(w().balance) : '—';
     /* Target the label span, not lastChild: the button's last node is the
        whitespace after the span, so writing to it appends a second label. */
     const label = document.querySelector('#wbtn span');
-    if (label) label.textContent = connected() ? 'Wallet' : 'Sign in';
+    /* Signed out (known, not merely not loaded yet): the header drops the
+       empty balance box and says Sign in, on a phone too, where it was a lone
+       dash beside an unlabelled icon. While the wallet is still starting it
+       says Wallet, so a signed-in player never sees a Sign in flash by. */
+    const out = !!w().ready && !connected();
+    if (label) label.textContent = out ? 'Sign in' : 'Wallet';
+    document.body.classList.toggle('signedout', out);
+  }
+  /* The header button signs you in when you are signed out, instead of
+     opening a Wallet tab whose only content is a second Sign in button. */
+  function headerTap() {
+    if (w().ready && !connected()) return login();
+    if (window.go) window.go('wallet');
   }
 
   /* light: a balance tick from the widget. The screen is already drawn for
@@ -84,7 +101,7 @@
       return;
     }
     if (light === true && drawnFor === w().address && el('w-bal')) {
-      el('w-bal').textContent = money(w().balance);
+      el('w-bal').textContent = balMoney(w().balance);
       return;
     }
 
@@ -100,7 +117,7 @@
          2026-10-15): the big number on the Wallet tab is the balance, and the
          deposit panel right below already says what it is held in. */
       '<div class="wbal">' +
-        '<div class="bnum num" id="w-bal">' + money(bal) + '</div>' +
+        '<div class="bnum num" id="w-bal">' + balMoney(bal) + '</div>' +
         /* The form lives in its own sheet now, so this row never swaps out. */
         ('<div class="wacts">' +
             '<button class="btn pri" onclick="V2Wallet.openDep()">Deposit</button>' +
@@ -143,13 +160,15 @@
   function txRow(t) {
     const inb = t.direction === 'in';
     const name = t.game ? (inb ? 'Game payout' : 'Game entry') : (inb ? 'Deposit' : 'Withdrawal');
+    /* A real minus sign, the arrow kept from screen readers, and the link
+       says where it goes: each row opens the transaction on Solscan. */
     return '<a class="tx" href="https://solscan.io/tx/' + esc(t.signature) + '" ' +
-      'target="_blank" rel="noopener noreferrer">' +
-      '<span class="txi ' + (inb ? 'in' : 'out') + '">' + (inb ? '↓' : '↑') + '</span>' +
+      'target="_blank" rel="noopener noreferrer" title="View on Solscan">' +
+      '<span class="txi ' + (inb ? 'in' : 'out') + '" aria-hidden="true">' + (inb ? '↓' : '↑') + '</span>' +
       '<span class="txw"><span class="txn">' + name + '</span>' +
         '<span class="txd">' + when(t.at) + '</span></span>' +
       '<span class="txa num ' + (inb ? 'in' : 'out') + '">' +
-        (inb ? '+' : '-') + money(t.usdc) + '</span></a>';
+        (inb ? '+' : '−') + money(t.usdc) + '</span></a>';
   }
   async function fetchTx(a, before) {
     try {
@@ -168,7 +187,7 @@
     const box = el('w-tx');
     if (!box || txFor !== a) return;          // screen changed under us
     if (!page) {
-      box.innerHTML = '<div class="none">Could not reach the chain. Try refresh.</div>';
+      box.innerHTML = '<div class="none">Could not load transactions. Tap refresh to try again.</div>';
       return;
     }
     if (!page.transactions.length) {
@@ -188,7 +207,7 @@
     txBusy = false;
     if (a !== txFor || !more) return;
     more.disabled = false;
-    if (!page) { more.textContent = 'Could not load. Try again'; return; }
+    if (!page) { more.textContent = 'Could not load. Tap to try again.'; return; }
     el('w-tx').insertAdjacentHTML('beforeend', page.transactions.map(txRow).join(''));
     txNext = page.next || null;
     more.textContent = 'Show more';
@@ -205,6 +224,8 @@
   async function refresh() {
     const b = el('w-refresh'); if (b) b.classList.add('spin');
     try { if (window.duelWalletRefresh) await window.duelWalletRefresh(); } catch (_) {}
+    // The earnings under it too: it was the one section refresh left as it was.
+    if (window.V2Stats) window.V2Stats.load();
     await loadTx();
     if (b) setTimeout(() => b.classList.remove('spin'), 300);
   }
@@ -217,8 +238,12 @@
     if (pending) {
       return '<div class="cashout">' +
         '<div class="plab">Confirm</div>' +
-        '<p class="note">Send <b>' + money(pending.amt) + '</b> to <code>' +
-          esc(shortAddr(pending.to)) + '</code>. On-chain transfers cannot be reversed.</p>' +
+        /* The destination in FULL here, the one place it has to be checked:
+           a look-alike address can share its first and last characters with
+           the real one, which is exactly what a shortened form shows. */
+        '<p class="note">Send <b>' + money(pending.amt) + '</b> to</p>' +
+        '<code class="cofull">' + esc(pending.to) + '</code>' +
+        '<p class="note">On-chain transfers cannot be reversed.</p>' +
         '<div class="brow">' +
           '<button class="btn pri" onclick="V2Wallet.confirmCash()">Send it</button>' +
           '<button class="btn sec" onclick="V2Wallet.backCash()">Back</button>' +
@@ -226,13 +251,16 @@
     }
     return '<div class="cashout">' +
       '<div class="mfig"><div class="k">Available to withdraw</div>' +
-        '<div class="v num">' + money(bal) + '</div></div>' +
+        '<div class="v num">' + balMoney(bal) + '</div></div>' +
       '<p class="msub">Check the address. Transfers cannot be reversed.</p>' +
+      /* Enter in either field does what the Withdraw button does. */
       '<input class="fld" id="co-to" placeholder="Solana address" autocomplete="off" ' +
-        'spellcheck="false" aria-label="Destination Solana address">' +
+        'spellcheck="false" aria-label="Destination Solana address" ' +
+        'onkeydown="if(event.key===\'Enter\')V2Wallet.submitCash()">' +
       '<div class="amtrow">' +
         '<input class="fld num" id="co-amt" inputmode="decimal" placeholder="0.00" ' +
-          'autocomplete="off" aria-label="Amount in USDC">' +
+          'autocomplete="off" aria-label="Amount in USDC" ' +
+          'onkeydown="if(event.key===\'Enter\')V2Wallet.submitCash()">' +
         '<button type="button" class="maxbtn" onclick="V2Wallet.max()">Max</button>' +
       '</div>' +
       /* Empty until there is something to say: the available figure is
@@ -273,8 +301,13 @@
     const slot = el('dep-addr-slot');
     if (slot) slot.innerHTML = addrRow('dep-addr', w().address || '');
     el('depveil').classList.add('on');
+    if (window.sheetFocus) window.sheetFocus.open('depveil');
   }
-  function closeDep() { el('depveil').classList.remove('on'); }
+  function closeDep() {
+    if (!el('depveil').classList.contains('on')) return;
+    el('depveil').classList.remove('on');
+    if (window.sheetFocus) window.sheetFocus.close();
+  }
 
   function cashOut() {
     if (!connected()) return login();
@@ -283,35 +316,53 @@
     cashing = true; pending = null;
     drawCash();
     el('wdrveil').classList.add('on');
-    /* No focus on open (Owen, 2026-10-15). Focusing the address field threw
-       the phone keyboard over the sheet before anybody had read it; the
-       keyboard comes up when they tap a field, which is when they want it. */
+    /* No field is focused on open (Owen, 2026-10-15). Focusing the address
+       field threw the phone keyboard over the sheet before anybody had read
+       it; the keyboard comes up when they tap a field, which is when they want
+       it. Focus goes to the close button instead (sheetFocus), which raises
+       nothing. */
+    if (window.sheetFocus) window.sheetFocus.open('wdrveil');
   }
   function drawCash() {
     const b = el('wdr-body'); if (b) b.innerHTML = cashForm(Number(w().balance) || 0);
   }
   function cancelCash() {
     cashing = false; pending = null;
+    if (!el('wdrveil').classList.contains('on')) return;
     el('wdrveil').classList.remove('on');
+    if (window.sheetFocus) window.sheetFocus.close();
   }
   function backCash() { pending = null; drawCash(); }
   function max() {
     const a = el('co-amt');
     // Filled, not focused: a tap on Max should not raise the keyboard either.
-    if (a) a.value = (Number(w().balance) || 0).toFixed(2);
+    if (a) a.value = cents(w().balance).toFixed(2);
   }
-  function say(msg) { const m = el('co-msg'); if (m) m.textContent = msg; else note(msg); }
+  // A refusal in the form reads as one: the error red, not the hint grey.
+  function say(msg) {
+    const m = el('co-msg');
+    if (!m) return note(msg);
+    m.textContent = msg; m.dataset.state = msg ? 'bad' : '';
+  }
 
   /* Checked here as well as in the widget, so a bad amount is answered in the
      form instead of by a rejected transaction. The widget stays the authority
-     on what actually sends; this only catches the obvious cases early. */
+     on what actually sends; this only catches the obvious cases early: a
+     destination that is not a Solana address at all, or is this wallet's own,
+     and an amount in more than cents, which the confirm step could only show
+     rounded. A comma is read as the decimal point. */
+  const SOL_ADDR = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
   function submitCash() {
     const bal = Number(w().balance) || 0;
     const to = ((el('co-to') || {}).value || '').trim();
-    const amt = Number(((el('co-amt') || {}).value || '').trim());
+    const raw = ((el('co-amt') || {}).value || '').trim().replace(',', '.');
+    const amt = Number(raw);
     if (!to) return say('Paste the Solana address to send to.');
-    if (!isFinite(amt) || amt <= 0) return say('Enter an amount to withdraw.');
-    if (amt > bal) return say('That is more than the ' + money(bal) + ' you have.');
+    if (!SOL_ADDR.test(to)) return say('That is not a Solana address.');
+    if (to === w().address) return say('That is this wallet\'s own address.');
+    if (!raw || !isFinite(amt) || amt <= 0) return say('Enter an amount to withdraw.');
+    if (/\.\d{3,}$/.test(raw)) return say('Use dollars and cents, two decimal places at most.');
+    if (amt > bal) return say('That is more than the ' + balMoney(bal) + ' you have.');
     pending = { to: to, amt: amt };
     drawCash();
   }
@@ -322,7 +373,7 @@
     el('wdrveil').classList.remove('on');
     render();
     window.duelWalletSend(p.amt, p.to)
-      .then(() => { note('Sent.'); if (window.duelWalletRefresh) window.duelWalletRefresh(); })
+      .then(() => { note('Sent.', true); if (window.duelWalletRefresh) window.duelWalletRefresh(); })
       .catch(e => note('Send failed: ' + (e && e.message ? e.message : 'try again.')));
   }
 
@@ -336,7 +387,18 @@
     const a = w().address || '';
     const done = (ok) => {
       box.classList.toggle('done', ok);
-      if (lbl) lbl.textContent = ok ? 'Copied' : 'Copy failed';
+      if (lbl) lbl.textContent = ok ? 'Copied' : 'Select';
+      /* Refused (an old browser, a blocked clipboard): the row shows the whole
+         address, selected, so a long-press or Ctrl+C still gets it. */
+      if (!ok) {
+        const code = box.querySelector('code');
+        if (code) {
+          code.textContent = a; code.style.whiteSpace = 'normal'; code.style.wordBreak = 'break-all';
+          try { const r = document.createRange(); r.selectNodeContents(code);
+                const s = getSelection(); s.removeAllRanges(); s.addRange(r); } catch (_) {}
+        }
+        return;
+      }
       clearTimeout(box._t);
       box._t = setTimeout(() => { box.classList.remove('done'); if (lbl) lbl.textContent = 'Copy'; }, 1400);
     };
@@ -344,7 +406,13 @@
     catch (_) { done(false); }
   }
 
-  function note(msg) { alert(msg); }
+  /* The lobby's own toast (play.js), not a browser alert box that stops the
+     page and looks like a different product; the alert stays only as the
+     fallback for a page where play.js never loaded. */
+  function note(msg, good) {
+    if (window.V2Play && window.V2Play.toast) return window.V2Play.toast(msg, !!good);
+    alert(msg);
+  }
 
   /* Only the header follows a balance change while the form is open: a full
      re-render mid-typing would throw away the address being pasted into it. */
@@ -367,5 +435,5 @@
                       refresh: refresh, more: more, openDep: openDep, closeDep: closeDep,
                       cashOut: cashOut, cancelCash: cancelCash, backCash: backCash,
                       max: max, submitCash: submitCash, confirmCash: confirmCash,
-                      addrRow: addrRow };
+                      addrRow: addrRow, headerTap: headerTap };
 })();

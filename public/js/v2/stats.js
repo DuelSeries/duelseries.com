@@ -45,16 +45,19 @@
     const a = addr();
     if (!a) return signedOut();
 
+    /* A server error (500) answers JSON too, so the status is checked: it used
+       to fall through as an empty profile and read "No cash-outs yet". */
     let p;
     try {
       const r = await fetch('/api/my-profile?wallet=' + encodeURIComponent(a));
+      if (!r.ok) throw new Error('HTTP ' + r.status);
       p = await r.json();
     } catch (_) {
       // Shown, not left inside the hidden section, so a failed read is never a blank.
       const box = el('w-earn'); if (box) box.hidden = false;
       el('s-sub').textContent = '';
-      el('s-body').innerHTML = '<div class="panel"><p class="note">Could not reach ' +
-        'the server. Check your connection and try again.</p></div>';
+      el('s-body').innerHTML = '<div class="panel"><p class="note">Could not load ' +
+        'earnings. Tap refresh to try again.</p></div>';
       return;
     }
 
