@@ -45,12 +45,22 @@ test('every built game shows the bar; only an unbuilt one hides it', () => {
     }
   }
   assert.ok(/#detail\.soon [^{]*\.lookrow[^{]*\{display:none\}/.test(html), 'an unbuilt game has no play column at all');
-  // Only the snake has something to change today; every other game says so.
+  // Only the snake SAVES a skin (look:1). Since 2026-10-15 every other built
+  // game opens the same chooser too, with its free look and its Shop skins
+  // locked (Owen's ask); a game with no Shop skins still says so and stays shut.
   const games = [...html.matchAll(/\{id:'(\w+)'[^}]*\}/g)];
   const withLook = games.filter((m) => /\blook:1/.test(m[0])).map((m) => m[1]);
   assert.deepStrictEqual(withLook, ['snake']);
+  assert.ok(html.includes('const hasLook=g=>!!(g&&(g.look||(window.V2Shop&&V2Shop.game(g.id))));'),
+    'a game has a chooser if it saves a skin or the Shop has skins for it');
   assert.ok(html.includes("'Nothing to change in '+(cur?cur.name:'this game')+' yet'"), 'the shut bar says so');
-  assert.ok(/function openLook\(\)\{\s*if\(!\(cur&&cur\.look&&LOOKS\.length\)\)return;/.test(html), 'and does not open');
+  assert.ok(/function openLook\(\)\{\s*if\(!hasLook\(cur\)\)return;/.test(html), 'and does not open');
+  // A locked Shop skin can be looked at, never saved, and only slither stores anything.
+  const close = html.slice(html.indexOf('function closeLook'), html.indexOf('function closeLook') + 400);
+  assert.ok(close.includes('if(save&&s&&s.locked)return;'), 'Save on a locked skin does nothing');
+  assert.ok(close.includes('if(save&&cur&&cur.look&&s){'), 'and only a game with look:1 stores a skin');
+  const meta = html.slice(html.indexOf('function lookMeta'), html.indexOf('function lookMeta') + 700);
+  assert.ok(meta.includes('btn.disabled=!!s.locked'), 'the Save button is disabled on a locked skin');
 });
 
 test('the bar is called Customize and the lobby loads the frozen skin file read-only', () => {

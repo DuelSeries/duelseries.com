@@ -3,12 +3,6 @@
    and every other colour lives in the game previews. Everything is prefixed
    sh- so nothing here can restyle another screen. */
 #shop{padding-bottom:64px}
-#shop .head{flex-wrap:wrap;gap:14px}
-
-/* The layout switch, while Owen picks between the three. */
-.sh-lay{display:inline-flex;background:var(--s1);border-radius:var(--rf);padding:3px}
-.sh-lay button{padding:7px 13px;border-radius:var(--rf);font-size:13px;font-weight:600;color:var(--tx2)}
-.sh-lay button.on{background:var(--s3);color:var(--tx)}
 
 .sh-chips{display:flex;gap:8px;overflow-x:auto;padding:2px 0 16px;scrollbar-width:none}
 .sh-chips::-webkit-scrollbar{display:none}
@@ -35,42 +29,25 @@
   color:var(--tx3);font-size:13px;font-weight:600}
 .sh-buy:disabled{cursor:default}
 
-/* A: one game at a time */
+/* One game at a time: that game's skins in a grid. */
 .sh-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:16px}
-
-/* B: a shelf per game */
-.sh-shelf{margin-bottom:26px}
-.sh-sh{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px}
-.sh-sh h3{font-size:19px;font-weight:700;letter-spacing:-.3px}
-.sh-sh span{font-size:12.5px;color:var(--tx3)}
-.sh-rail{display:flex;gap:14px;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;padding-bottom:2px}
-.sh-rail::-webkit-scrollbar{display:none}
-.sh-rail .sh-card{flex:none;width:210px;scroll-snap-align:start}
-
-/* C: showcase */
-.sh-cwrap{display:grid;grid-template-columns:1.35fr 1fr;gap:20px;align-items:start}
-.sh-show{background:var(--s1);border-radius:var(--r3);overflow:hidden}
-.sh-show .sh-cv{aspect-ratio:16/11}
-.sh-show .sh-meta{padding:16px 18px 18px;gap:5px}
-.sh-show .sh-nm{font-size:22px}
-.sh-show .sh-price{font-size:20px}
-.sh-show .sh-buy{padding:12px 0;font-size:14px}
-.sh-for{font-size:12.5px;color:var(--tx3)}
-.sh-tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
-.sh-tile{background:var(--s1);border-radius:12px;overflow:hidden;text-align:left;
-  box-shadow:inset 0 0 0 2px transparent;display:flex;flex-direction:column}
-.sh-tile .sh-cv{aspect-ratio:1}
-.sh-tile.on{box-shadow:0 0 0 2px var(--bone)}
-.sh-tp{font-size:12px;font-weight:600;color:var(--money);padding:6px 8px 0}
-.sh-tn{font-size:12px;color:var(--tx2);padding:0 8px 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
 @media(max-width:760px){
   #shop .head{margin-top:28px}
   .sh-grid{grid-template-columns:repeat(2,1fr);gap:12px}
-  .sh-rail .sh-card{width:156px}
   .sh-meta{padding:10px 11px 12px}
   .sh-nm{font-size:14px}
-  .sh-cwrap{grid-template-columns:1fr;gap:14px}
-  .sh-tiles{gap:8px}
-  .sh-lay button{padding:7px 11px;font-size:12.5px}
 }
+
+/* Customize in every game: the Shop's skins sit in the chooser locked, with
+   their price, and Save turns into a dead Unlock button on one of them. */
+.ap-slot{position:relative}
+.ap-slot.locked canvas{filter:saturate(.5) brightness(.8)}
+.ap-slot.locked.mid canvas{filter:none}
+.ap-lock{position:absolute;right:0;top:50%;transform:translateY(-50%);display:inline-flex;align-items:center;gap:6px;
+  padding:6px 11px;border-radius:var(--rf);background:rgba(16,14,11,.88);color:var(--money);
+  font:600 14px var(--fm);font-variant-numeric:tabular-nums;pointer-events:none}
+.ap-lock svg{width:13px;height:13px;stroke:var(--tx2)}
+#lookveil .ap-save-btn:disabled{cursor:default;opacity:1;color:#d8cfc0;
+  background-image:linear-gradient(to bottom,#5a5249,#4a433b 50%,#3b352f)}
+#lookveil .ap-save-btn:disabled::before{opacity:0}

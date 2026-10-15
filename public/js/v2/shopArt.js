@@ -46,6 +46,8 @@
     var o = [[v, t, p], [q, v, p], [p, v, t], [p, q, v], [t, p, v], [v, p, q]][i % 6];
     return rgbHex([o[0] * 255, o[1] * 255, o[2] * 255]);
   }
+  /* A free look that changes every life shows its colours in turn. */
+  function colOf(k, t) { return k.cols ? k.cols[Math.floor(t / 1.6) % k.cols.length] : k.col; }
   function mix(a, b, f) { var x = hexRgb(a), y = hexRgb(b); return rgbHex([0, 1, 2].map(function (i) { return x[i] + (y[i] - x[i]) * f; })); }
 
   /* ── the skins ──────────────────────────────────────────────────────────
@@ -62,7 +64,11 @@
       { id: 'royal',     name: 'Royal',      runs: [[3, 21], [2, 12], [1, 17]] },
       { id: 'rainbow',   name: 'Rainbow',    runs: [[1, 7], [1, 5], [1, 4], [1, 3], [1, 23], [1, 14], [1, 17]] },
     ] },
-    { id: 'agar', name: 'agar.io', bg: 'rgb(242,251,255)', skins: [
+    { id: 'agar', name: 'agar.io', bg: 'rgb(242,251,255)',
+      /* The server deals a colour every life (one channel 255, one 7, the third
+         anything between; server/ag/agSim.js playerColour), so the free look
+         walks through a few of those. */
+      def: { name: 'Random colour', cols: ['#ff4007', '#07ff8a', '#5a07ff', '#ffd407', '#07c4ff', '#ff07a8'] }, skins: [
       { id: 'twoface',    name: 'Two Face',   col: '#3fa9f5', art: 'split',    alt: '#ff5a5f' },
       { id: 'bullseye', name: 'Bullseye',   col: '#ff4040', art: 'rings',    alt: '#ffffff' },
       { id: 'melon',    name: 'Melon',      col: '#5cc95c', art: 'melon',    alt: '#2e8b3a' },
@@ -72,7 +78,9 @@
       { id: 'galaxy',   name: 'Galaxy',     col: '#1d1846', art: 'stars',    alt: '#b49cff' },
       { id: 'sunburst',      name: 'Sunburst',   col: '#ffc21a', art: 'rays',     alt: '#ff8a00' },
     ] },
-    { id: 'paper', name: 'Paper.io', bg: '#e7fff4', skins: [
+    { id: 'paper', name: 'Paper.io', bg: '#e7fff4',
+      /* The arena hands out a free colour from its palette (paperSkins.js). */
+      def: { name: 'Random colour', cols: ['#3b7dd8', '#f77f00', '#1a936f', '#ff3377', '#8874a3', '#fcbf49'] }, skins: [
       { id: 'mint',      name: 'Mint',      col: '#3ee8b0', art: 'checks' },
       { id: 'ice',       name: 'Ice',       col: '#9fdcff', art: 'stripes' },
       { id: 'bubblegum', name: 'Bubblegum', col: '#ff77aa', art: 'dots' },
@@ -82,7 +90,7 @@
       { id: 'midnight',  name: 'Midnight',  col: '#2b3a8c', art: 'stars' },
       { id: 'gold',      name: 'Gold',      col: '#f2b632', art: 'diamonds' },
     ] },
-    { id: 'knockout', name: 'Knockout', bg: '#0b0907', skins: [
+    { id: 'knockout', name: 'Knockout', bg: '#0b0907', def: { name: 'Default', col: '#f4f1ea' }, skins: [
       { id: 'copper',   name: 'Copper',   col: '#c8743c' },
       { id: 'jade',     name: 'Jade',     col: '#4fb886' },
       { id: 'ice',      name: 'Ice',      col: '#bfe6f5' },
@@ -92,7 +100,7 @@
       { id: 'marble',   name: 'Marble',   col: '#ece8e1', art: 'veins', alt: '#9b938a' },
       { id: 'gold',     name: 'Gold',     col: '#f0b83a', art: 'gloss' },
     ] },
-    { id: 'battleship', name: 'Battleship', bg: '#0a1622', skins: [
+    { id: 'battleship', name: 'Battleship', bg: '#0a1622', def: { name: 'Default', native: true }, skins: [
       { id: 'navy',    name: 'Navy',    col: '#4a6496' },
       { id: 'arctic',  name: 'Arctic',  col: '#c9d3df' },
       { id: 'desert',  name: 'Desert',  col: '#b79c6c' },
@@ -102,7 +110,7 @@
       { id: 'jungle',    name: 'Jungle',  col: '#5f7a3f', deck: '#3d4f2a' },
       { id: 'gold',    name: 'Gold',    col: '#d4a93c', glass: '#fff1b8' },
     ] },
-    { id: 'omgshooter', name: 'Awesome Tanks', bg: '#1d2016', skins: [
+    { id: 'omgshooter', name: 'Awesome Tanks', bg: '#1d2016', def: { name: 'Default', team: 'you' }, skins: [
       { id: 'desert',  name: 'Desert',  rim: '#e0c27a', core: '#4a3a16', panel: '#a8894a' },
       { id: 'arctic',  name: 'Arctic',  rim: '#e8f0f6', core: '#2c3a46', panel: '#9fb4c4' },
       { id: 'navy',    name: 'Navy',    rim: '#5c8de8', core: '#0c1a3a', panel: '#2c4f96' },
@@ -112,7 +120,7 @@
       { id: 'crimson', name: 'Crimson', rim: '#ff3a5a', core: '#3a0010', panel: '#a01830' },
       { id: 'gold',    name: 'Gold',    rim: '#ffd23a', core: '#4a3200', panel: '#c08a10' },
     ] },
-    { id: 'tanks', name: 'Bowmasters', bg: '#14110d', skins: [
+    { id: 'tanks', name: 'Bowmasters', bg: '#14110d', def: { name: 'Default', col: '#f4f1ea' }, skins: [
       { id: 'jade',    name: 'Jade',    col: '#4fb886' },
       { id: 'sky',     name: 'Sky',     col: '#7fd4f5' },
       { id: 'copper',  name: 'Copper',  col: '#c8743c' },
@@ -181,9 +189,11 @@
         break;
     }
   }
-  function paintAgar(cv, k, t, big) {
+  function paintAgar(cv, k, t, big, bare) {
     var ctx = cv.getContext('2d'), w = cv.width, h = cv.height;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
+    if (bare) ctx.clearRect(0, 0, w, h);
+    else {
     ctx.fillStyle = 'rgb(242,251,255)';                   // agRender BG_LIGHT
     ctx.fillRect(0, 0, w, h);
     /* The 50-unit grid at agar's 0.2 alpha black, about 3 squares across. */
@@ -193,13 +203,16 @@
     for (var gx = (w / 2) % step; gx < w; gx += step) { ctx.moveTo(Math.round(gx) + 0.5, 0); ctx.lineTo(Math.round(gx) + 0.5, h); }
     for (var gy = (h / 2) % step; gy < h; gy += step) { ctx.moveTo(0, Math.round(gy) + 0.5); ctx.lineTo(w, Math.round(gy) + 0.5); }
     ctx.stroke(); ctx.globalAlpha = 1;
-    var x = w / 2, y = h / 2, R = Math.min(w, h) * (big ? 0.34 : 0.33);
+    }
+    var x = w / 2, y = h / 2, R = Math.min(w, h) * (bare ? 0.38 : big ? 0.34 : 0.33);
+    var col = colOf(k, t);
     var ring = Math.max(2, R * 0.07);                     // rim 5 at a cell of ~70
-    var c = hexRgb(k.col);
+    var c = hexRgb(col);
     ctx.fillStyle = rgbHex([Math.trunc(c[0] * 0.9), Math.trunc(c[1] * 0.9), Math.trunc(c[2] * 0.9)]);
     ctx.beginPath(); ctx.arc(x, y, R + ring, 0, 6.2832); ctx.fill();
-    ctx.fillStyle = k.col;
+    ctx.fillStyle = col;
     ctx.beginPath(); ctx.arc(x, y, R, 0, 6.2832); ctx.fill();
+    if (!k.art) return;
     ctx.save(); ctx.beginPath(); ctx.arc(x, y, R, 0, 6.2832); ctx.clip();
     agarDesign(ctx, k, x, y, R);
     ctx.restore();
@@ -239,13 +252,14 @@
         break;
     }
   }
-  function paintPaper(cv, k, t, big) {
+  function paintPaper(cv, k, t, big, bare) {
     var ctx = cv.getContext('2d'), w = cv.width, h = cv.height;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = '#e7fff4'; ctx.fillRect(0, 0, w, h);   // paper-arena.css body
-    var main = k.col, back = hsvScale(main, 0.75), nick = hsvScale(main, 0.5);
-    var u = Math.min(w, h) / 30;                          // world units: trackWidth 8, baseHeight 2
-    var s = u * 15, x0 = w * 0.18, y0 = (h - s) / 2;
+    if (bare) ctx.clearRect(0, 0, w, h);
+    else { ctx.fillStyle = '#e7fff4'; ctx.fillRect(0, 0, w, h); }   // paper-arena.css body
+    var main = colOf(k, t), back = hsvScale(main, 0.75), nick = hsvScale(main, 0.5);
+    var u = bare ? Math.min(w / 30, h / 22) : Math.min(w, h) / 30;   // world units: trackWidth 8, baseHeight 2
+    var s = u * 15, x0 = (w - 30 * u) / 2, y0 = (h - s) / 2 + u;
     /* Territory: its side in `back`, then the top lifted baseHeight. */
     ctx.fillStyle = back; ctx.fillRect(x0, y0, s, s);
     ctx.fillStyle = main; ctx.fillRect(x0, y0 - 2 * u, s, s);
@@ -286,9 +300,16 @@
     ctx.beginPath(); ctx.arc(x, y - pr * 0.12, pr * 0.58, 0, 6.2832);
     ctx.fillStyle = 'rgba(0,0,0,0.13)'; ctx.fill();
   }
-  function paintKnockout(cv, k, t, big) {
+  function paintKnockout(cv, k, t, big, bare) {
     var ctx = cv.getContext('2d'), w = cv.width, h = cv.height;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
+    if (bare) {
+      ctx.clearRect(0, 0, w, h);
+      var br = Math.min(h * 0.3, w * 0.16);
+      knockoutPiece(ctx, k, w / 2 - br * 1.3, h / 2, br);
+      knockoutPiece(ctx, k, w / 2 + br * 1.3, h / 2, br);
+      return;
+    }
     ctx.fillStyle = '#0b0907'; ctx.fillRect(0, 0, w, h);
     /* Close in on the disc: the piece is what is for sale, so the field runs
        off the edges rather than shrinking the piece to fit it. */
@@ -310,16 +331,20 @@
       trim: mix(k.col, '#000000', 0.65), glass: k.glass || '#9fd0e8',
     };
   }
-  function paintBattleship(cv, k, t, big) {
+  function paintBattleship(cv, k, t, big, bare) {
     var BA = root.BattleshipArt; if (!BA) return;
     var ctx = cv.getContext('2d'), w = cv.width, h = cv.height;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
+    var cell = bare ? Math.min(w / 4.6, h * 0.42) : w / 4.5, x0 = (w - cell * 4) / 2, y0 = (h - cell) / 2;
+    if (bare) ctx.clearRect(0, 0, w, h);
+    else {
     ctx.fillStyle = '#0a1622'; ctx.fillRect(0, 0, w, h);   // battleship.js water
-    var cell = w / 4.5, x0 = (w - cell * 4) / 2, y0 = (h - cell) / 2;
     ctx.strokeStyle = '#1d3348'; ctx.lineWidth = 1; ctx.beginPath();
     for (var x = x0 - cell * 2; x < w; x += cell) { ctx.moveTo(Math.round(x) + 0.5, 0); ctx.lineTo(Math.round(x) + 0.5, h); }
     for (var y = y0 - cell * 3; y < h; y += cell) { ctx.moveTo(0, Math.round(y) + 0.5); ctx.lineTo(w, Math.round(y) + 0.5); }
     ctx.stroke();
+    }
+    if (k.native) { BA.drawShip(ctx, 'battleship', 4, x0, y0, cell, true, 0.95); return; }
     /* drawShip reads BattleshipArt.HULL as it draws: swap the skin in for the
        call, then put the game's own colours straight back. */
     var H = BA.HULL, keep = {}, mine = hullFor(k), key;
@@ -336,30 +361,34 @@
       track: mix(k.core, '#000000', 0.5), line: '#000000',
     };
   }
-  function paintShooter(cv, k, t, big) {
+  function paintShooter(cv, k, t, big, bare) {
     var SA = root.ShooterArt; if (!SA) return;
     var ctx = cv.getContext('2d'), w = cv.width, h = cv.height;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = '#1d2016'; ctx.fillRect(0, 0, w, h);
-    var team = 'shop:' + k.id;
+    if (bare) ctx.clearRect(0, 0, w, h);
+    else { ctx.fillStyle = '#1d2016'; ctx.fillRect(0, 0, w, h); }
+    var team = k.team || 'shop:' + k.id;
     if (!SA.TEAMS[team]) SA.TEAMS[team] = teamFor(k);
-    SA.drawTank(ctx, { x: w / 2, y: h / 2, size: Math.min(w, h) * 0.5, team: team,
+    SA.drawTank(ctx, { x: w / 2, y: h / 2, size: Math.min(w, h) * (bare ? 0.7 : 0.5), team: team,
       hull: -0.35, turret: -0.35 + Math.sin(t * 0.8) * 0.6 });
   }
 
   /* ── Bowmasters ───────────────────────────────────────────────────────── */
-  function paintTanks(cv, k, t, big) {
+  function paintTanks(cv, k, t, big, bare) {
     var ctx = cv.getContext('2d'), w = cv.width, h = cv.height;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
+    var gy = h * 0.7;
+    if (bare) { ctx.clearRect(0, 0, w, h); gy = h * 0.8; }
+    else {
     var g = ctx.createLinearGradient(0, 0, 0, h);         // tanks.js sky
     g.addColorStop(0, '#14110d'); g.addColorStop(0.62, '#241a12'); g.addColorStop(1, '#3a2a18');
     ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
-    var gy = h * 0.7;
     var gg = ctx.createLinearGradient(0, gy, 0, h);        // tanks.js ground
     gg.addColorStop(0, '#191309'); gg.addColorStop(1, '#0c0906');
     ctx.fillStyle = gg; ctx.beginPath(); ctx.moveTo(0, gy + h * 0.04);
     ctx.quadraticCurveTo(w * 0.5, gy - h * 0.05, w, gy + h * 0.03); ctx.lineTo(w, h); ctx.lineTo(0, h); ctx.fill();
-    var k2 = Math.min(w, h) / 70, tw = 34 * k2, th = 16 * k2, gx = w / 2, base = gy;
+    }
+    var k2 = Math.min(w, h) / (bare ? 42 : 70), tw = 34 * k2, th = 16 * k2, gx = w / 2, base = gy;
     var rad = (40 + Math.sin(t * 0.9) * 12) * Math.PI / 180;
     ctx.save(); ctx.globalAlpha = k.alpha || 1;
     ctx.strokeStyle = k.gun || k.col; ctx.lineWidth = Math.max(2.4, 3.5 * k2); ctx.lineCap = 'round';
@@ -376,10 +405,12 @@
      page of forty-odd canvases off the frame budget. */
   var MOVES = { snake: 1, paper: 1, omgshooter: 1, tanks: 1 };
 
-  function paint(cv, gameId, skinId, t, big) {
-    var g = BY[gameId], k = g && g.by[skinId], fn = PAINT[gameId];
+  /* skinId 'default' is the game's free look (each game's `def`). bare draws
+     the piece alone on a clear canvas, for Customize's dark chooser. */
+  function paint(cv, gameId, skinId, t, big, bare) {
+    var g = BY[gameId], k = g && (skinId === 'default' ? g.def : g.by[skinId]), fn = PAINT[gameId];
     if (!k || !fn || !cv.width || !cv.height) return;
-    fn(cv, k, t || 0, !!big);
+    fn(cv, k, t || 0, !!big, !!bare);
   }
 
   root.V2Shop = {
@@ -389,6 +420,8 @@
     tier: function (p) { return PR ? PR.tier(p) : null; },
     tiers: PR ? PR.TIERS : [],
     animated: function (id) { return !!MOVES[id]; },
+    defaultName: function (id) { return BY[id] && BY[id].def ? BY[id].def.name : ''; },
+    format: function (p) { return PR ? PR.format(p) : ''; },
     paint: paint,
   };
 })(typeof window !== 'undefined' ? window : globalThis);

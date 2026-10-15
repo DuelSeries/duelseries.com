@@ -2895,6 +2895,26 @@ let skinId='';
 try{skinId=String(localStorage.getItem(SL_SKIN_KEY)||'').trim()}catch(_){}
 if(!LOOKS.some(s=>s.id===skinId))skinId='';        /* unknown or stale: random */
 const skin=()=>LOOKS.find(s=>s.id===skinId)||null;
+/* Customize in every game (Owen, 2026-10-15): slither's chooser, arrows and
+   phone scroll included, listing what you can wear free and, mixed in, that
+   game's Shop skins, locked with their price. LOOK ONLY: a locked skin cannot
+   be saved, and in a game other than slither.io nothing is saved at all (the
+   game keeps dealing its own look, as it does today). The skins and prices
+   are V2Shop's: public/js/v2/shopArt.js and shared/shopPrices.js. */
+const SHOP_EVERY=7;   /* slither.io: one locked skin after every seven free ones */
+const hasLook=g=>!!(g&&(g.look||(window.V2Shop&&V2Shop.game(g.id))));
+function lookList(g){
+  const S=window.V2Shop, sg=S&&S.game(g.id);
+  const locked=sg?sg.skins.map(k=>({id:'shop:'+k.id,game:g.id,shop:k,name:k.name,locked:1,price:S.price(g.id,k.id)})):[];
+  if(g.look){
+    const out=[];let j=0;
+    LOOKS.forEach((l,i)=>{out.push(l);if((i+1)%SHOP_EVERY===0&&j<locked.length)out.push(locked[j++])});
+    while(j<locked.length)out.push(locked[j++]);
+    return out;
+  }
+  return [{id:'default',game:g.id,name:S.defaultName(g.id)}].concat(locked);
+}
+let LK=[];   /* what the open chooser lists, from lookList */
 function storeSkin(){
   const s=skin(); if(!s)return;
   try{localStorage.setItem(SL_SKIN_KEY,s.id);
@@ -2938,16 +2958,20 @@ function paintLook(cv){
   if(key==='reel'){const sl=cv.parentNode,r=sl&&sl.parentNode;
     if(r&&(sl.offsetTop+SLOT_H<r.scrollTop-SLOT_H||sl.offsetTop>r.scrollTop+r.clientHeight+SLOT_H))return}
   const cfg=LOOK_CFG[(key==='big'&&PHONE_MQ.matches)?'bigph':key]||LOOK_CFG.mini;
-  const s=cv.dataset.skin?LOOKS.find(l=>l.id===cv.dataset.skin)
-         :key==='big'?LOOKS[lookIx]:skin();
-  window.V2Look.paint(cv,s?s.cv:Math.floor(lookT/2)%9,cfg,lookT);
+  /* Any game but slither.io: its own piece, drawn alone, from shopArt. */
+  if(key==='mini'&&cur&&!cur.look){if(window.V2Shop)V2Shop.paint(cv,cur.id,'default',lookT,false,true);return}
+  const s=cv.dataset.skin?LK.find(l=>l.id===cv.dataset.skin)
+         :key==='big'?LK[lookIx]:skin();
+  if(s&&s.game&&s.game!=='snake'){V2Shop.paint(cv,s.game,s.shop?s.shop.id:'default',lookT,false,true);return}
+  /* slither.io: a free skin by number, a Shop skin by its stripe runs. */
+  window.V2Look.paint(cv,s?(s.shop?s.shop.runs:s.cv):Math.floor(lookT/2)%9,cfg,lookT);
 }
 
 let lookIx=0;
 /* The Customize bar for the game on screen: what you are wearing in a game
    with a look, a plain line and a shut button in one without (BACKLOG 3.1). */
 function drawSkins(){
-  const look=!!(cur&&cur.look&&LOOKS.length);
+  const look=hasLook(cur);
   const row=document.getElementById('lookrow'), img=document.getElementById('lkimg');
   if(row)row.disabled=!look;
   if(img&&!look&&cur){
@@ -2957,13 +2981,15 @@ function drawSkins(){
   const s=skin();
   document.getElementById('skname').textContent=!look
     ?'Nothing to change in '+(cur?cur.name:'this game')+' yet'
+    :!cur.look?V2Shop.defaultName(cur.id)
     :s?s.name:'Random colour';
 }
 function openLook(){
-  if(!(cur&&cur.look&&LOOKS.length))return;
+  if(!hasLook(cur))return;
+  LK=lookList(cur);
   /* Always reopens on the skin actually being worn, which is also what makes
      Back safe: browsing moves lookIx, and only Save writes it to skinId. */
-  lookIx=Math.max(0,LOOKS.findIndex(s=>s.id===skinId));
+  lookIx=cur.look?Math.max(0,LK.findIndex(s=>s.id===skinId)):0;
   /* Shown BEFORE the reel is built. buildReel measures the scrollport to work
      out its end padding, and a display:none box measures zero. */
   document.getElementById('lookveil').classList.add('on');
@@ -2988,8 +3014,9 @@ function openLook(){
 const REEL_COPIES=3, SLOT_H=104;
 function buildReel(){
   const r=document.getElementById('ap-reel'); if(!r)return;
-  const one=LOOKS.map(s=>
-    '<div class="ap-slot"><canvas data-look="reel" data-skin="'+s.id+'"></canvas></div>'
+  const one=LK.map(s=>
+    '<div class="ap-slot'+(s.locked?' locked':'')+'"><canvas data-look="reel" data-skin="'+s.id+'"></canvas>'+
+    (s.locked?'<span class="ap-lock">'+LOCK_SVG+V2Shop.format(s.price)+'</span>':'')+'</div>'
   ).join('');
   r.innerHTML=one.repeat(REEL_COPIES);
   /* Half a scrollport, less half a slot, at each end. Measured off the box
@@ -2998,10 +3025,12 @@ function buildReel(){
      measures zero. */
   const pad=Math.max(0,(r.clientHeight-SLOT_H)/2);
   r.style.paddingTop=pad+'px'; r.style.paddingBottom=pad+'px';
-  reelTo(lookIx+LOOKS.length,false);      /* open inside the middle copy */
+  reelTo(lookIx+LK.length,false);      /* open inside the middle copy */
   markReel();
 }
-const copyH=()=>LOOKS.length*SLOT_H;
+const copyH=()=>LK.length*SLOT_H;
+const LOCK_SVG='<svg viewBox="0 0 24 24" fill="none" stroke-width="2.4" stroke-linecap="round" aria-hidden="true">'+
+  '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>';
 /* Rewound DURING the scroll, not after it settles. Waiting for the scroll to
    stop meant a finger that kept going ran off the end of the three copies and
    hit a hard stop, then jumped once the wait expired — which is the pause
@@ -3049,9 +3078,11 @@ function markReel(){
     el.style.opacity=(0.34+0.66*k).toFixed(3);
     if(dist<bd){bd=dist;best=i}
   }
+  /* The one in the middle shows in full colour even when locked. */
+  for(let i=0;i<r.children.length;i++)r.children[i].classList.toggle('mid',i===best);
   /* best is a slot in one of three identical copies; the skin it stands for
      is that position within a single copy. */
-  const ix=((best%LOOKS.length)+LOOKS.length)%LOOKS.length;
+  const ix=((best%LK.length)+LK.length)%LK.length;
   if(ix!==lookIx){lookIx=ix;lookMeta()}
 }
 (function(){
@@ -3077,23 +3108,32 @@ function markReel(){
 /* The desktop arrows. They move the same selection, and scroll the reel with
    it so the two never disagree about which skin is showing. */
 function cycleLook(d){
-  lookIx=(lookIx+d+LOOKS.length)%LOOKS.length;
-  reelTo(lookIx+LOOKS.length,true);
+  lookIx=(lookIx+d+LK.length)%LK.length;
+  reelTo(lookIx+LK.length,true);
   markReel();
   lookMeta();
 }
 function lookMeta(){
-  document.getElementById('lookname').textContent=
-    (LOOKS[lookIx].cv<9?LOOKS[lookIx].name+'  ':'')+(lookIx+1)+' / '+LOOKS.length;   /* a striped skin's name IS its number */
+  const s=LK[lookIx]; if(!s)return;
+  /* A locked skin shows its name and price, and Save turns into a dead
+     Unlock button: buying is a later job. */
+  document.getElementById('lookname').textContent=s.locked
+    ?s.name+', coming soon'
+    :((s.cv!=null&&s.cv<9)||s.id==='default'?s.name+'  ':'')+(lookIx+1)+' / '+LK.length;   /* a striped skin's name IS its number */
+  const btn=document.querySelector('#lookveil .ap-save-btn');
+  if(btn){btn.disabled=!!s.locked;
+    btn.firstChild.innerHTML=s.locked?'&nbsp;Unlock '+V2Shop.format(s.price)+'&nbsp;':'&nbsp;Save&nbsp;'}
 }
 /* Save commits what you were browsing; Back closes without changing the
    equipped skin. There is no cancel button, matching the live screen. */
 function closeLook(save){
-  if(save){
-    skinId=LOOKS[lookIx].id;
+  const s=LK[lookIx];
+  if(save&&s&&s.locked)return;      /* nothing to save until buying works */
+  if(save&&cur&&cur.look&&s){
+    skinId=s.id;
     storeSkin();          /* the skin number /sl sends at connect */
-    drawSkins();
   }
+  if(save)drawSkins();
   document.getElementById('lookveil').classList.remove('on');
 }
 
@@ -3468,7 +3508,7 @@ function open_(id){
      with every rung live. Same panel, different rungs open. */
   det.classList.toggle('paidduel',!!cur.paid);
   det.classList.toggle('solo',!!cur.solo);
-  det.classList.toggle('nolook',!cur.look);
+  det.classList.toggle('nolook',!hasLook(cur));
   /* agar.io's settings and its Free-rung Spectate (the game has no menu card
      of its own inside this lobby any more). */
   det.classList.toggle('agar',cur.id==='agar');

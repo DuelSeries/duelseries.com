@@ -6,12 +6,8 @@
    The skins and their previews are public/js/v2/shopArt.js (window.V2Shop).
    Prices are shared/shopPrices.js, the one file Owen edits.
 
-   Owen asked for all three layouts from the mockups so he can pick one in the
-   real lobby. The switch at the top of the screen is that choice, remembered
-   on this device; once he has picked, the other two and the switch go.
-     A  one game at a time: game chips, then that game's skins in a grid
-     B  every game on one page: a sideways shelf per game
-     C  showcase: one big live preview of the tapped skin, tiles under it
+   One game at a time: game chips along the top, then that game's skins in a
+   grid. Owen picked this one of the three mockup layouts (2026-10-15).
 
    Exposes window.V2ShopTab = {render()}; the lobby calls render() from
    fillScreen('shop'), before the screen is shown. */
@@ -19,23 +15,9 @@
   'use strict';
   var S = root.V2Shop;
   var LOCK = root.DS_LOCKED;
-  var KEY = 'shop:layout';
-  var LAYOUTS = [['a', 'One game'], ['b', 'All games'], ['c', 'Showcase']];
-
-  function read(k) { try { return root.localStorage.getItem(k); } catch (e) { return null; } }
-  function write(k, v) { try { root.localStorage.setItem(k, v); } catch (e) { /* private mode */ } }
-
-  var layout = read(KEY);
-  if (!LAYOUTS.some(function (l) { return l[0] === layout; })) layout = 'a';
   var gameId = S.games[0].id;
-  var pickId = null;
 
-  /* Whole dollars show as $1, anything with cents as $1.50, so a price Owen
-     sets with cents still reads right. */
-  function money(p) {
-    if (p == null) return '';
-    return '$' + (Math.round(p * 100) % 100 === 0 ? String(Math.round(p)) : p.toFixed(2));
-  }
+  function money(p) { return S.format(p); }
   function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
   function locked(g) { return !!(LOCK && LOCK.isLocked(g.id)); }
 
@@ -50,8 +32,8 @@
      it has no handler. Buying is a later job. */
   var BUY = '<button class="sh-buy" type="button" disabled>Coming soon</button>';
 
-  function cv(g, k, big) {
-    return '<canvas class="sh-cv" data-g="' + g.id + '" data-k="' + k.id + '"' + (big ? ' data-big="1"' : '') +
+  function cv(g, k) {
+    return '<canvas class="sh-cv" data-g="' + g.id + '" data-k="' + k.id + '"' +
       ' role="img" aria-label="' + esc(k.name + ', ' + g.name + ' skin') + '"></canvas>';
   }
   function card(g, k) {
@@ -70,56 +52,24 @@
   function lockNote(g) {
     return locked(g) ? '<p class="sh-note">' + esc(g.name) + ' is not playable yet. Its skins are here for when it is.</p>' : '';
   }
-  function switcher() {
-    return '<div class="sh-lay" role="radiogroup" aria-label="Shop layout">' + LAYOUTS.map(function (l) {
-      var on = l[0] === layout;
-      return '<button class="' + (on ? 'on' : '') + '" role="radio" aria-checked="' + on + '" data-layout="' + l[0] + '">' + l[1] + '</button>';
-    }).join('') + '</div>';
-  }
-
   function bodyA() {
     var g = S.game(gameId);
     return chips() + lockNote(g) + '<div class="sh-grid">' + g.skins.map(function (k) { return card(g, k); }).join('') + '</div>';
   }
-  function bodyB() {
-    return S.games.map(function (g) {
-      return '<section class="sh-shelf"><div class="sh-sh"><h3>' + esc(g.name) + '</h3>' +
-        '<span class="num">' + (locked(g) ? 'Not playable yet' : g.skins.length + ' skins') + '</span></div>' +
-        '<div class="sh-rail">' + g.skins.map(function (k) { return card(g, k); }).join('') + '</div></section>';
-    }).join('');
-  }
-  function bodyC() {
-    var g = S.game(gameId);
-    var k = g.by[pickId] || g.skins[0];
-    var show = '<div class="sh-show">' + cv(g, k, true) + '<div class="sh-meta">' +
-      '<div class="sh-ln"><span class="sh-nm">' + esc(k.name) + '</span><span class="sh-price num">' + money(S.price(g.id, k.id)) + '</span></div>' +
-      '<div class="sh-ln">' + rarity(g, k) + '<span class="sh-for">' + esc(g.name) + '</span></div>' + BUY + '</div></div>';
-    var tiles = '<div class="sh-tiles">' + g.skins.map(function (s) {
-      var on = s.id === k.id;
-      return '<button class="sh-tile' + (on ? ' on' : '') + '" aria-pressed="' + on + '" data-skin="' + s.id + '">' + cv(g, s) +
-        '<span class="sh-tp num">' + money(S.price(g.id, s.id)) + '</span><span class="sh-tn">' + esc(s.name) + '</span></button>';
-    }).join('') + '</div>';
-    return chips() + lockNote(g) + '<div class="sh-cwrap">' + show + tiles + '</div>';
-  }
-
   var host = null;
   function draw() {
     host = root.document.getElementById('shop');
     if (!host) return;
-    host.className = 'sh-' + layout;
     host.innerHTML =
-      '<div class="head"><div><h2>Shop</h2><div class="sub">Skins for every game. Nothing is for sale yet.</div></div>' +
-      '<span class="sp"></span>' + switcher() + '</div>' +
-      (layout === 'b' ? bodyB() : layout === 'c' ? bodyC() : bodyA());
+      '<div class="head"><div><h2>Shop</h2><div class="sub">Skins for every game. Nothing is for sale yet.</div></div></div>' +
+      bodyA();
     host.onclick = onClick;
     collect();
   }
   function onClick(e) {
     var t = e.target.closest('button');
     if (!t || t.disabled) return;
-    if (t.dataset.layout) { layout = t.dataset.layout; write(KEY, layout); draw(); }
-    else if (t.dataset.game) { gameId = t.dataset.game; pickId = null; draw(); }
-    else if (t.dataset.skin) { pickId = t.dataset.skin; draw(); }
+    if (t.dataset.game) { gameId = t.dataset.game; draw(); }
   }
 
   /* ── painting ───────────────────────────────────────────────────────────
@@ -166,7 +116,7 @@
         var r = c.getBoundingClientRect();
         if (r.bottom < 0 || r.top > vh || r.right < 0 || r.left > vw) continue;
       }
-      S.paint(c, c.dataset.g, c.dataset.k, t, !!c.dataset.big);
+      S.paint(c, c.dataset.g, c.dataset.k, t, false);
     }
   }
   function render() {

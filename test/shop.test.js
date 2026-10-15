@@ -98,8 +98,11 @@ test('every preview draws without throwing, and Battleship gets its own colours 
   const hull = JSON.stringify(box.BattleshipArt.HULL);
   for (const g of S.games) {
     if (g.id === 'snake') continue;                   // drawn by V2Look over slither's sprites, checked in the browser
-    for (const k of g.skins) S.paint(fakeCanvas(), g.id, k.id, 1.5, false);
+    for (const k of g.skins) { S.paint(fakeCanvas(), g.id, k.id, 1.5, false); S.paint(fakeCanvas(), g.id, k.id, 1.5, false, true); }
     S.paint(fakeCanvas(), g.id, g.skins[0].id, 0, true);
+    /* Customize's free look for the game, drawn alone in the chooser. */
+    assert.ok(S.defaultName(g.id), g.id + ' has a free look with a name');
+    S.paint(fakeCanvas(), g.id, 'default', 3.3, false, true);
   }
   assert.strictEqual(JSON.stringify(box.BattleshipArt.HULL), hull, 'the game\'s HULL is unchanged after the shop drew');
   assert.ok(box.ShooterArt.TEAMS.you && box.ShooterArt.TEAMS.foe, 'the shooter\'s own teams are untouched');

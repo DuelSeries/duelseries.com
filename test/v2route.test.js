@@ -1571,7 +1571,7 @@ test('the Paper detail screen shows no rules line and no snake skin', () => {
   assert.ok(!/look:1/.test(paper), 'Paper has no snake to dress');
   // BACKLOG 3.1: the bar is still there, shut, saying so; it is not hidden.
   assert.ok(!html.includes('#detail.nolook .lookrow{display:none}'), 'so its Customize bar is shut, not hidden');
-  assert.ok(html.includes("det.classList.toggle('nolook',!cur.look)"), 'by a class the game sets');
+  assert.ok(html.includes("det.classList.toggle('nolook',!hasLook(cur))"), 'by a class the game sets');
   // Owen asked (2026-09-28) for the rules line under Paper's Play to go, and it
   // was the only game carrying one, so the whole per-game rules line went too.
   assert.ok(!html.includes('Kill a player, take their money'), 'the rules sentence is gone');

@@ -117,7 +117,13 @@
     return t;
   }
 
-  var api = { PRICES: PRICES, TIERS: TIERS, price: price, tier: tier };
+  /* Whole dollars show as $3, anything with cents as $1.50. */
+  function format(p) {
+    if (p == null) return '';
+    return '$' + (Math.round(p * 100) % 100 === 0 ? String(Math.round(p)) : p.toFixed(2));
+  }
+
+  var api = { PRICES: PRICES, TIERS: TIERS, price: price, tier: tier, format: format };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (root) root.DS_SHOP_PRICES = api;
 })(typeof window !== 'undefined' ? window : null);
