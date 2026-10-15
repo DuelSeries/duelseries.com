@@ -83,11 +83,24 @@ test('paid snake never takes the /sl shortcut', () => {
   assert.deepStrictEqual(p.sent.events, ['duel:play']);
 });
 
-test('the slx layer never touches the money hand-off', () => {
+// The one carve-out (PAID-SL-DESIGN 9, 11.2): slxPaid.js IS the paid page's hand-off. It reads the lobby's entry token,
+// stake and one-shot nonce once at boot (and removes them), and buys Play again through duel:restake. Every other
+// layer file still names no money message or token; slxPaid.js itself never signs, never plays through the widget and
+// never writes a token back to storage.
+const PAID_FILE = 'slxPaid.js';
+
+test('the slx layer never touches the money hand-off, slxPaid.js aside', () => {
   const dir = path.join(__dirname, '../public/js/slx');
-  for (const f of fs.readdirSync(dir).filter((x) => x.endsWith('.js'))) {
+  const files = fs.readdirSync(dir).filter((x) => x.endsWith('.js'));
+  assert.ok(files.includes(PAID_FILE));
+  for (const f of files) {
+    if (f === PAID_FILE) continue;
     const s = fs.readFileSync(path.join(dir, f), 'utf8');
     assert.ok(!/duel:restake|duel:signaction|entryToken|entrySol/.test(s), f + ' names no money message or token');
     assert.ok(!/sessionStorage[^\n]*['"]stake['"]/.test(s), f + ' reads no stake from sessionStorage');
   }
+  const paid = fs.readFileSync(path.join(dir, PAID_FILE), 'utf8');
+  assert.ok(!/duel:signaction|duel:play\b/.test(paid), PAID_FILE + ' never signs and never launches through the widget');
+  assert.ok(!/setItem\([^)]*(?:entryToken|stake|slPaidLaunch)/.test(paid), PAID_FILE + ' never writes the hand-off back');
+  assert.ok(!/\b(?:console|log)\.\w+\([^)]*token/i.test(paid), PAID_FILE + ' never logs the token');
 });

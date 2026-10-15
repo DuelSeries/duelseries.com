@@ -13,6 +13,9 @@
 //   death     the own `dead` ('ownDead'), unless this socket cashed out
 //   kill      the own kill_count rose ('ownKills'; their server sends the killer's total, slView L40)
 //   cash-out  sl:x {t: 'cashed'} (the server sends it before the own `dead`, server/sl/slRoom.js _cashOut)
+//   money     a paid room's own sl:x {t: 'w', d} with d > 0, the own snake ate gold (PAID-SL-DESIGN 9; only the own
+//             seat's worth message carries d, server/sl/slRoom.js _worthAll): the old money chime, which the old game
+//             played on each 'ate_dropped_food' (game.js:157-177, 238). A free room never sends it.
 (function (root) {
   'use strict';
   var D = root.DuelSlither;
@@ -146,6 +149,30 @@
     } catch (e) { /* audio not supported */ }
   }
 
+  // Four quick rising triangle notes, A5 to A6 (game.js:157-177).
+  function playMoney() {
+    if (muted()) return;
+    var ac = getAudioCtx();
+    if (!ac) return;
+    try {
+      var notes = [[880, 0], [1100, 0.07], [1320, 0.13], [1760, 0.19]];
+      for (var i = 0; i < notes.length; i++) {
+        var osc = ac.createOscillator();
+        var gain = ac.createGain();
+        osc.connect(gain);
+        gain.connect(ac.destination);
+        osc.type = 'triangle';
+        osc.frequency.value = notes[i][0];
+        var t = ac.currentTime + notes[i][1];
+        gain.gain.setValueAtTime(0, t);
+        gain.gain.linearRampToValueAtTime(0.25, t + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.28);
+        osc.start(t);
+        osc.stop(t + 0.28);
+      }
+    } catch (e) { /* audio not supported */ }
+  }
+
   // The shared fanfare (game.js:231-236).
   function playCashout() {
     if (muted()) return;
@@ -191,11 +218,19 @@
     played.cashout++;
     playCashout();
   });
+  var money = 0;
+  slx.on('x:w', function (m) {
+    if (!m || typeof m.d !== 'number' || !(m.d > 0)) return;
+    money++;
+    playMoney();
+  });
 
   slx.sound = {
     // For tests and the console: how many times each sound was asked for.
     played: function () {
       return { join: played.join, death: played.death, kill: played.kill, cashout: played.cashout };
-    }
+    },
+    // The money chime's count, apart so played() keeps its shape for a free room.
+    money: function () { return money; }
   };
 })(typeof window !== 'undefined' ? window : globalThis);

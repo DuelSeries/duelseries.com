@@ -7,7 +7,10 @@
 // Checks: menu hooks relayed and still chained; render_mode 2 on phones only; the skin cv for the handshake; the
 // lobby frame plays at once under the lobby name and shows no panel; a direct visit gets the name box and Play, which
 // calls their Play, says Starting, and comes back on the menu or a close before any life; key, mouse and touch events
-// on the panel never reach their handlers; game:done only inside a frame; inert under a harness transport.
+// on the panel never reach their handlers; game:done only inside a frame; inert under a harness transport. With
+// slxPaid.js between slxNet and slxMain, as the composed page loads it (PAID-SL-DESIGN 9): a paid hand-off's fields go
+// into the same handshake as the cv, and a page slxPaid holds never auto-plays (the paid page itself is
+// test/slxPaidPage.test.js).
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
@@ -15,12 +18,13 @@ const path = require('path');
 const vm = require('vm');
 
 const ROOT = path.join(__dirname, '..');
-const FILES = ['slxNet.js', 'slxMain.js', 'slxDirect.js'];
+const FILES = ['slxNet.js', 'slxPaid.js', 'slxMain.js', 'slxDirect.js'];
 const SRC = FILES.map((f) => [f, fs.readFileSync(path.join(ROOT, 'public/js/slx', f), 'utf8')]);
 
 function store(init) {
   const m = Object.assign({}, init || {});
-  return { getItem: (k) => (Object.prototype.hasOwnProperty.call(m, k) ? m[k] : null), setItem: (k, v) => { m[k] = String(v); } };
+  return { getItem: (k) => (Object.prototype.hasOwnProperty.call(m, k) ? m[k] : null), setItem: (k, v) => { m[k] = String(v); },
+    removeItem: (k) => { delete m[k]; }, keys: () => Object.keys(m).sort() };
 }
 
 class El {
@@ -238,4 +242,45 @@ test('inert under a harness transport: no panel, no Play, hooks and render_mode 
   assert.strictEqual(p.S.render_mode, 1);
   assert.strictEqual(p.hooks.onMenuShow, p.ownHooks.onMenuShow);
   assert.strictEqual(p.made.length, 0);
+});
+
+// ------------------------------------------------------------------------------------------------- the paid hand-off
+
+const LAUNCH = { slPaidLaunch: 'n0nce', entryToken: 'tok-123', entrySol: '0.5', stake: '0.5', playerName: 'Owen' };
+
+test('paid hand-off: the token, stake and paid flag join the cv in one handshake; the four keys are gone; Play at once', () => {
+  const p = page({ framed: true, frameId: 'game-frame', session: LAUNCH, local: { 'duel.sl.skin': '12' } });
+  assert.deepStrictEqual(p.plays, ['Owen'], 'the lobby frame plays the paid page as the free one');
+  assert.strictEqual(JSON.stringify(p.D.slx.auth()), '{"cv":12,"paid":1,"stake":0.5,"entryToken":"tok-123"}');
+  assert.deepStrictEqual(p.ctx.sessionStorage.keys(), ['playerName'], 'slPaidLaunch, entryToken, entrySol and stake removed');
+  assert.strictEqual(p.D.slx.paidHold(), false);
+  assert.strictEqual(p.D.slx.paid.on, true);
+  assert.strictEqual(JSON.stringify(p.D.slx.paid.state()).includes('tok-123'), false, 'the state never holds the token');
+});
+
+test('no nonce: the free page, a stale token and stake left alone and never sent', () => {
+  const p = page({ framed: true, frameId: 'game-frame', session: { entryToken: 'stale', stake: '1', playerName: 'Owen' },
+    local: { 'duel.sl.skin': '3' } });
+  assert.deepStrictEqual(p.plays, ['Owen']);
+  assert.strictEqual(JSON.stringify(p.D.slx.auth()), '{"cv":3}');
+  assert.strictEqual(p.D.slx.paidAuth(), null);
+  assert.deepStrictEqual(p.ctx.sessionStorage.keys(), ['entryToken', 'playerName', 'stake']);
+  assert.strictEqual(p.D.slx.paid.on, false);
+  assert.strictEqual(p.D.slx.cardLines, undefined, 'no card hook on a free page');
+});
+
+test('a page slxPaid holds never auto-plays: the reload mark, or a nonce with no usable token or stake', () => {
+  const cases = [
+    ['reload mark', { slxPaidCut: '1', playerName: 'Owen' }],
+    ['bad stake', { slPaidLaunch: 'n', entryToken: 'tok', stake: '0.25', playerName: 'Owen' }],
+    ['no token', { slPaidLaunch: 'n', stake: '0.5', playerName: 'Owen' }],
+    ['long token', { slPaidLaunch: 'n', entryToken: 'x'.repeat(65), stake: '1', playerName: 'Owen' }]
+  ];
+  for (const [name, session] of cases) {
+    const p = page({ framed: true, frameId: 'game-frame', session });
+    assert.deepStrictEqual(p.plays, [], name + ': no free Play');
+    assert.strictEqual(p.D.slx.paidHold(), true, name);
+    assert.strictEqual(p.D.slx.paidAuth(), null, name + ': nothing paid in the handshake');
+    assert.deepStrictEqual(p.ctx.sessionStorage.keys(), ['playerName'], name + ': the mark and the launch keys taken out');
+  }
 });

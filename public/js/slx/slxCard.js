@@ -23,6 +23,18 @@
 // direct-visit box); their loop connects only once their fade ended (slLoop.js:612), so the button says "Starting"
 // until the card goes. Lobby posts game:done to the lobby frame (slx.toLobby); a direct visit opens the lobby page.
 // A click or tap on the card never reaches their boost or steering (slx.guard).
+//
+// The paid layer's hooks (PAID-SL-DESIGN 9; slxPaid.js, loaded before this file, sets them on a paid page and on a page
+// that only shows a paid notice; a free page sets none, and the card is exactly as above). Each is read at the moment
+// it is needed, and a throw in one is counted (slx.errors) and ignored:
+//   slx.cardLines(kind) -> null, or { title, lines, again }: a title in place of the card's own, lines under it (each a
+//     string, or { text, cls } with one more slx- class; text only, never markup), and Play again: false leaves it off
+//     the card, a string is its label, { text, disabled } its label and state. Read when the card shows and on
+//     refresh() (the cash-out status coming in).
+//   slx.beforeAgain(go) -> true when the layer takes Play again over (a paid page buys a new entry first, then calls
+//     go(), which starts the play as the button does and answers whether it did).
+//   slx.beforeLobby() -> true when the layer keeps the page here (its exit trap: money is still in the room).
+// slx.card.notice(kind) shows the card with no life behind it (the paid notices at boot), titled by cardLines(kind).
 (function (root) {
   'use strict';
   var D = root.DuelSlither;
@@ -61,6 +73,9 @@
     '.slx-card-title{margin:10px 0 8px;font-size:24px;line-height:28px;font-weight:bold;color:#343434;}',
     '.slx-card-line{margin:0 0 16px;font-size:15px;line-height:20px;color:#444;}',
     '.slx-card-line b{color:#000;}',
+    // the paid layer's lines (cardLines above): a step smaller than the length line, between it and the buttons
+    '.slx-card-notes{margin:-4px 0 14px;}',
+    '.slx-card-note{margin:0 0 6px;font-size:14px;line-height:19px;color:#444;}',
     '.slx-card-btns{display:flex;justify-content:space-between;}',
     '.slx-card-btn{box-sizing:border-box;width:150px;height:34px;margin:0;padding:0;border:1px solid transparent;' +
       'border-radius:4px;font:bold 15px Arial,"Helvetica Neue",Helvetica,sans-serif;cursor:pointer;' +
@@ -104,6 +119,9 @@
   box.appendChild(line);
   box.appendChild(btns);
   card.appendChild(box);
+  var notes = null;                              // the hook's lines, made the first time it gives any
+  var extra = null;                              // the hook's answer for the card on screen
+  var againHidden = false;
   card.style.display = 'none';
   doc.body.appendChild(card);
 
@@ -136,15 +154,82 @@
 
   function setStarting(on) {
     starting = on;
-    again.disabled = on;
-    again.textContent = on ? BTN.starting : lifeCard ? BTN.again : BTN.retry;
+    againLook();
+  }
+
+  // Play again in the card's own words, or as the paid layer's answer says (left off, a label, a state).
+  function againLook() {
+    var a = extra ? extra.again : undefined;
+    var hide = a === false && !starting;
+    if (hide !== againHidden) {
+      againHidden = hide;
+      again.style.display = hide ? 'none' : '';
+      btns.style.justifyContent = hide ? 'center' : '';
+    }
+    if (starting) {
+      again.disabled = true;
+      again.textContent = BTN.starting;
+      return;
+    }
+    var o = a && typeof a === 'object' ? a : null;
+    var label = typeof a === 'string' ? a : o && typeof o.text === 'string' ? o.text : '';
+    again.disabled = !!(o && o.disabled === true);
+    again.textContent = label || (lifeCard ? BTN.again : BTN.retry);
+  }
+
+  function hookLines(kind) {
+    if (typeof slx.cardLines !== 'function') return null;
+    try {
+      var x = slx.cardLines(kind);
+      return x && typeof x === 'object' ? x : null;
+    } catch (e) {
+      slx.errors++;
+      return null;
+    }
+  }
+
+  // The title, the hook's lines and Play again for the card on screen.
+  function render() {
+    var t = extra && typeof extra.title === 'string' ? extra.title : '';
+    title.textContent = t || TITLE[shown] || TITLE.lost;
+    var list = extra && Array.isArray(extra.lines) ? extra.lines : [];
+    if (list.length && !notes) {
+      notes = el('div', 'slx-card-notes');
+      box.appendChild(notes);
+      box.appendChild(btns);                     // the buttons stay last
+    }
+    if (notes) {
+      notes.textContent = '';
+      var n = 0;
+      for (var i = 0; i < list.length; i++) {
+        var item = list[i];
+        var text = typeof item === 'string' ? item : item && typeof item.text === 'string' ? item.text : '';
+        if (!text) continue;
+        var cls = item && typeof item.cls === 'string' && /^slx-[a-z][\w-]*$/.test(item.cls) ? ' ' + item.cls : '';
+        notes.appendChild(el('p', 'slx-card-note' + cls, text));
+        n++;
+      }
+      notes.style.display = n ? '' : 'none';
+    }
+    againLook();
+  }
+
+  // The hook's lines on the card now, as text (tests and the console).
+  function noteTexts() {
+    var out = [];
+    if (!notes || notes.style.display === 'none') return out;
+    var list = notes.children || [];
+    for (var i = 0; i < list.length; i++) out.push(list[i].textContent);
+    return out;
   }
 
   // kind: a TITLE key. n: the length, or null for a card with no length line. ended: a life ended (else a refusal).
   function show(kind, n, opacity, ended) {
     shown = kind;
     lifeCard = !!ended;
-    title.textContent = TITLE[kind] || TITLE.lost;
+    starting = false;
+    extra = hookLines(kind);
+    render();
     if (n === null || n === undefined) {
       line.style.display = 'none';
       num.textContent = '';
@@ -152,7 +237,6 @@
       line.style.display = '';
       num.textContent = String(n);
     }
-    setStarting(false);
     card.style.opacity = String(opacity);
     card.style.display = 'block';
   }
@@ -163,13 +247,45 @@
     card.style.display = 'none';
   }
 
-  function playAgain() {
-    if (!shown || starting) return;
+  // The hook's answer again, for the card on screen (slxPaid: the cash-out status, a buy-in's progress).
+  function refresh() {
+    if (!shown) return;
+    extra = hookLines(shown);
+    render();
+  }
+
+  function start() {
+    if (!shown || starting) return false;
     setStarting(true);
     D.play(nick());
+    return true;
+  }
+
+  function playAgain() {
+    if (!shown || starting) return;
+    if (typeof slx.beforeAgain === 'function') {
+      var took = false;
+      try {
+        took = slx.beforeAgain(start) === true;
+      } catch (e) {
+        slx.errors++;
+        return;
+      }
+      if (took) return;
+    }
+    start();
   }
 
   function toLobby() {
+    if (typeof slx.beforeLobby === 'function') {
+      var kept = false;
+      try {
+        kept = slx.beforeLobby() === true;
+      } catch (e) {
+        slx.errors++;
+      }
+      if (kept) return;
+    }
     if (typeof slx.toLobby === 'function' && slx.toLobby()) return;
     try {
       root.location.assign('/');
@@ -236,11 +352,16 @@
         title: shown ? title.textContent : '',
         length: shown && line.style.display !== 'none' ? num.textContent : '',
         again: again.textContent,
+        againShown: !againHidden,
+        againDisabled: !!again.disabled,
+        lines: shown ? noteTexts() : [],
         opacity: card.style.opacity
       };
     },
     playAgain: playAgain,
     toLobby: toLobby,
-    hide: hide
+    hide: hide,
+    refresh: refresh,
+    notice: function (kind) { show(String(kind || ''), null, 1, false); }
   };
 })(typeof window !== 'undefined' ? window : globalThis);

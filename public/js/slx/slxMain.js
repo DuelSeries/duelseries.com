@@ -16,7 +16,7 @@
 // 4. The lobby hand-off: inside the lobby's game frame (public/js/v2/play.js OWN_PAGE opens game pages in
 //    #game-frame and writes the name to sessionStorage 'playerName' first) the page plays at once under the lobby
 //    name, as agar's lobby frame does (public/js/ag/agLobby.js startFromLobby). Outside it, slxDirect shows a name
-//    box and Play.
+//    box and Play. A paid page (slxPaid, PAID-SL-DESIGN 9) plays the same way; a page slxPaid holds does not.
 //
 // Adds to DuelSlither.slx: framed, inLobby, lobbyName(), toLobby(), skin(), guard(el, opts).
 (function (root) {
@@ -61,9 +61,14 @@
     return Number.isSafeInteger(n) ? n : null;
   }
   slx.skin = skin;
+  // Plus the paid hand-off's fields when slxPaid (loaded before this file) has any (PAID-SL-DESIGN 9): its paidAuth
+  // answer goes into the handshake of every /sl socket, a free page gets none and sends the cv alone, as before.
   slx.auth = function () {
     var cv = skin();
-    return cv === null ? {} : { cv: cv };
+    var a = cv === null ? {} : { cv: cv };
+    var p = typeof slx.paidAuth === 'function' ? slx.paidAuth() : null;
+    if (p && typeof p === 'object') for (var k in p) if (Object.prototype.hasOwnProperty.call(p, k)) a[k] = p[k];
+    return a;
   };
 
   // ---- 4. the lobby hand-off
@@ -145,6 +150,8 @@
   slx.toLobby = toLobby;
   slx.guard = guard;
 
-  // Inside the lobby's frame: Play at once under the lobby name (their Play, public/js/sl/slMain.js:94-101).
-  if (slx.inLobby) D.play(lobbyName());
+  // Inside the lobby's frame: Play at once under the lobby name (their Play, public/js/sl/slMain.js:94-101), unless
+  // slxPaid holds the page (paidHold: a paid snake cut off by a reload, or a paid launch it could not read). Such a
+  // page shows its notice on the results card and never plays free.
+  if (slx.inLobby && !(typeof slx.paidHold === 'function' && slx.paidHold() === true)) D.play(lobbyName());
 })(typeof window !== 'undefined' ? window : globalThis);

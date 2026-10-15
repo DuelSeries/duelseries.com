@@ -13,12 +13,15 @@ const HTML = fs.readFileSync(path.join(ROOT, 'public/sl.html'), 'utf8');
 const scripts = (html) => [...html.matchAll(/<script src="([^"]+)"><\/script>/g)].map((m) => m[1]);
 const links = (html) => [...html.matchAll(/<link rel="stylesheet" type="text\/css" href="([^"]+)" \/>/g)].map((m) => m[1]);
 
-test('SLX_TAIL: the slx.css link first, then slxNet, slxMain, slxDirect, every one a file under public/', () => {
+// slxPaid.js goes right after slxNet.js (PAID-SL-DESIGN 9): slxMain merges its handshake fields and asks it before the
+// lobby's auto Play, so it must have run first.
+test('SLX_TAIL: the slx.css link first, then slxNet, slxPaid, slxMain, slxDirect, every one a file under public/', () => {
   const tail = B.SLX_TAIL;
   assert.ok(tail.startsWith('<link rel="stylesheet" type="text/css" href="/css/slx.css" />\n'));
   assert.deepStrictEqual(links(tail), ['/css/slx.css']);
   const list = scripts(tail);
-  assert.deepStrictEqual(list.slice(0, 3), ['/js/slx/slxNet.js', '/js/slx/slxMain.js', '/js/slx/slxDirect.js']);
+  assert.deepStrictEqual(list.slice(0, 4), ['/js/slx/slxNet.js', '/js/slx/slxPaid.js', '/js/slx/slxMain.js',
+    '/js/slx/slxDirect.js']);
   for (const src of links(tail).concat(list)) assert.ok(fs.existsSync(path.join(ROOT, 'public', src)), src);
   for (const src of list) assert.ok(/^\/js\/slx\/slx[A-Z]\w*\.js$/.test(src), src);
   assert.strictEqual(tail, B.slxTail(B.PUBLIC_DIR));

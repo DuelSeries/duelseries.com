@@ -39,10 +39,11 @@ function code(src) {
 const CODE = RAW.map(([f, s]) => [f, code(s)]);
 
 // SERVER-DESIGN 15.1: what the layer may read and write on S. Read-only beyond the 15.1 list, because the design
-// needs them: slithers (15.3 rings: a ring is drawn only while that snake exists in their list) and lagging (12.2:
-// sl:diag reports lag-mode entries).
+// needs them: slithers (15.3 rings: a ring is drawn only while that snake exists in their list), lagging (12.2:
+// sl:diag reports lag-mode entries), and foods with foods_c (PAID-SL-DESIGN 9, the gold rule: slxPaid draws a glint on
+// every food whose sz is at least 13.6, their client's rad byte / 5, slApply.js newFood).
 const READ_S = ['slither', 'dead_mtm', 'playing', 'connected', 'view_xx', 'view_yy', 'gsc', 'csc', 'mww', 'mhh', 'ww', 'hh',
-  'is_mobile', 'lastscore', 'vcm', 'slithers', 'lagging'];
+  'is_mobile', 'lastscore', 'vcm', 'slithers', 'lagging', 'foods', 'foods_c'];
 const WRITE_S = ['render_mode', 'xm', 'ym'];
 // The 12 blank picture canvases (public/js/sl/slSprites.js:411-424), drawn into once each (Q3, T18).
 const PICTURE_S = ['kwkbulb', 'jmou', 'pwdbulb', 'sest', 'playbulb', 'bonkbulb', 'leafbulb', 'swissbulb', 'moldovabulb',
@@ -128,11 +129,22 @@ test('socket events: the layer names only sl:x and its own four emits, never the
   }
 });
 
-test('no money: posts only game:done, never reads an entry token, a stake or the paid hand-off', () => {
+// slxPaid.js is the one file that IS the paid hand-off (PAID-SL-DESIGN 9; the same carve-out as test/slLobbySwap.test.js):
+// it reads the lobby's token, stake and nonce at boot and posts one message, duel:restake, for Play again. It is held
+// to that instead: no other post, never a signature, a widget launch, a resume key, the escrow or Privy.
+const PAID_FILE = 'slxPaid.js';
+
+test('no money: posts only game:done, never reads an entry token, a stake or the paid hand-off (slxPaid.js aside)', () => {
   for (const [f, s] of CODE) {
+    if (f === PAID_FILE) continue;
     for (const m of s.matchAll(/postMessage\(\s*([^,)]+)/g)) assert.strictEqual(m[1].trim(), '\'game:done\'', f + ': posts ' + m[1]);
     assert.ok(!/entryToken|entrySol|\bstake\b|resumeKey|duel:restake|duel:signaction|duel:play|wallet|escrow|privy/i.test(s), f + ': money word');
   }
+  const paid = CODE.find(([f]) => f === PAID_FILE);
+  assert.ok(paid, PAID_FILE + ' is in the layer');
+  const posts = [...paid[1].matchAll(/postMessage\(\s*([^,)]+)/g)].map((m) => m[1].trim());
+  assert.deepStrictEqual(posts, ['{ type: \'duel:restake\''], PAID_FILE + ' posts duel:restake only');
+  assert.ok(!/resumeKey|duel:signaction|duel:play\b|escrow|privy/i.test(paid[1]), PAID_FILE + ': money word');
 });
 
 test('slx.css: every selector is an .slx-* class (their page is quirks mode and theirs alone)', () => {
