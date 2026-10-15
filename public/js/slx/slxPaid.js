@@ -23,10 +23,12 @@
 // 3. Drawing. One .slx-cash canvas between their game canvas (z-index 5) and their HUD (7), with slxHold's camera
 //    math (slxHold.js screenX, screenY): a turning gold coin (slxCoin.js, Owen's pick 2026-10-15) on every cash pellet,
 //    a plain #FFD700 disc while no coin frame is ready, and $x.xx in #14F195 over every paid head. Their client draws
-//    food under the snakes but this canvas is above theirs, so the coins are cut away under every live body and head,
-//    and a coin being eaten fades out at the start of its flight to the mouth. Their own pellet under a coin (in the
-//    dead snake's colour) is made invisible: its sprites become blank canvases of the same sizes, so only the coin
-//    shows while where it is, how it moves, fades and is eaten all stay theirs (Owen, 2026-10-15). The gold rule (design 9): a food is cash iff its rad byte is at least C_PAID_CASH_BYTE 68, and their
+//    food under the snakes but this canvas is above theirs, so what is drawn here is cut away under every live body and
+//    head. Two looks (CASH_LOOK, Owen 2026-10-15; slx.paid.look() switches them live): 'gold', their own pellet in gold
+//    (its core and glow sprites swapped for their recipe, slDrawWorld buildFoodSprites, made here in gold) that slowly
+//    breathes, the breath drawn here;
+//    'coin', the coin, with their own pellet under it made invisible (sprites swapped for blank canvases of the same
+//    sizes). Either way where it is, how it moves, fades and is eaten (sucked into the mouth) all stay theirs. The gold rule (design 9): a food is cash iff its rad byte is at least C_PAID_CASH_BYTE 68, and their
 //    client keeps rad byte / 5 as the food's sz (slApply.js newFood), so cash is sz >= 13.6; in a paid room every
 //    death drop is cash and nothing else reaches it (test/slPaidBytes.test.js). Worths come in sl:x {t: 'w', id, v}
 //    (server/sl/slRoom.js _worthAll, _worthOnView), the own one with its delta d: a "+$0.01" pop rises over the own
@@ -88,9 +90,10 @@
   // newFood sizeIndex over the 17 sprites), so its colour shows only as the glow round the coin; and the label sits this
   // many px above the head.
   var COIN_R = 0.95;
-  // CHOSEN: an eaten coin's alpha falls by this per unit of their eaten_fr (0 to 1 over 41 frames), so it is gone 40% into
-  // the flight, before the dot reaches the mouth.
-  var EATEN_FADE = 2.5;
+  // CHOSEN (Owen 2026-10-15): the cash look, 'gold' (their pellet in gold, breathing) or 'coin' (slxCoin.js).
+  var CASH_LOOK = 'gold';
+  var GOLD_RGB = [255, 196, 0];                  // CHOSEN: the gold of the pellet (the reviewed G3 of the looks page)
+  var BREATH_MS = 1200;                          // CHOSEN: one breath
   var LABEL_GAP = 10;
 
   // Plain words for every door answer (server/slPaid/slPaidDoor.js WHYS) and the free room's connect refusal 'limit'
@@ -704,14 +707,16 @@
     return !!(S.slither && S.connected && S.dead_mtm == -1);
   }
 
-  // A gold coin on every cash pellet (slxCoin.js), as big as the pellet's drawn dot, faded and popping in with it, each
-  // on its own spin phase; a plain gold disc where no coin frame is ready yet or the browser cannot draw one. Then the
-  // snakes over them cut them away (underSnakes).
+  // Every cash pellet in the chosen look, faded and popping in with it, each on its own phase: 'gold' breathes over
+  // their gold pellet; 'coin' is a gold coin as big as the pellet's drawn dot (a plain gold disc where no coin frame is
+  // ready yet or the browser cannot draw one). An eaten one follows their flight into the mouth, shrinking with their
+  // rad, and the snakes over them cut them away (underSnakes), the eater's head last of all.
   function drawGold(k) {
     var list = S.foods;
     var n = S.foods_c;
     if (!list || !(n > 0)) return 0;
-    var coin = slx.coin && typeof slx.coin.blit === 'function' ? slx.coin : null;
+    var gold = look === 'gold' ? goldSet() : null;
+    var coin = !gold && slx.coin && typeof slx.coin.blit === 'function' ? slx.coin : null;
     var t = slx.now();
     if (coin) coin.beginFrame();
     var count = 0;
@@ -719,7 +724,7 @@
     for (var i = 0; i < n; i++) {
       var fo = list[i];
       if (!fo || !(fo.sz >= CASH_SZ)) continue;
-      hidePellet(fo);
+      dress(fo, gold);
       var r = fo.sz * COIN_R * k * (fo.rad > 0 ? fo.rad : 0);
       if (!(r >= 0.5)) continue;
       var x = screenX(fo.rx);
@@ -727,12 +732,11 @@
       var m = r * 1.3;                           // the edge band and the twinkle reach past r
       if (x < -m || y < -m || x > cw + m || y > ch + m) continue;
       var a = fo.fr >= 0 && fo.fr <= 1 ? fo.fr : 1;
-      // eaten (their slLoop stepFoods): the dot flies into the eater's mouth, under its head; the coin is gone early on
-      if (fo.eaten) a *= Math.max(0, 1 - EATEN_FADE * (fo.eaten_fr > 0 ? fo.eaten_fr : 0));
       if (!(a > 0)) continue;
       var ph = phaseOf(fo);
       ctx.globalAlpha = a;
-      if (!coin || !coin.blit(ctx, x, y, r, cdpr, t, ph, fo.rad >= 1)) disc(x, y, r);
+      if (gold) breathe(fo, gold, x, y, a, t, ph);
+      else if (!coin || !coin.blit(ctx, x, y, r, cdpr, t, ph, fo.rad >= 1)) disc(x, y, r);
       if (coin && !fo.eaten) coin.sparkle(ctx, x, y, r, t, ph);
       if (x - m < x0) x0 = x - m;
       if (y - m < y0) y0 = y - m;
@@ -785,9 +789,96 @@
     if (on) ctx.restore();
   }
   // Their client draws every food in four passes from the sprites newFood copied onto it (slApply copyTier: the core
-  // fi, the shadow ofi, the glows gfi and g2fi, each with its size fields). A cash food's four sprites are swapped for
-  // transparent canvases of the very same sizes, once (newFood is the only place they are set): their passes still
-  // run on it exactly as before and draw nothing, and nothing else of the food changes.
+  // fi, the shadow ofi, the glows gfi and g2fi, each with its size fields; newFood is the only place they are set).
+  // A cash food's sprites are swapped: in the 'gold' look its core and two glows for the gold set's at the food's own
+  // size indices (cv2, gcv, g2cv: their recipe, so the very same sizes) and its shadow kept (theirs is black whatever
+  // the colour); in the 'coin' look all four for transparent canvases of the very same sizes. Their passes still run on
+  // it exactly as before; nothing else of the food changes. Its own shadow is kept aside, so a switch back restores it.
+  var goldSprites = null;
+  function goldSet() {
+    if (goldSprites) return goldSprites;
+    if (!doc || typeof doc.createElement !== 'function') return null;
+    var o = { imgs: [], fws: [], gimgs: [], gfws: [] };
+    var rgb = 'rgba(' + GOLD_RGB[0] + ', ' + GOLD_RGB[1] + ', ' + GOLD_RGB[2] + ', ';
+    try {
+      // their food sprites (slDrawWorld buildFoodSprites, game.js:3788-3840): 17 sizes, step from 2.8 by += 1, a core
+      // (solid to .99, then a .2 rim) and a glow (the full colour to nothing over step x 4)
+      for (var step = 2.8; step <= 18.8; step += 1) {
+        var side = Math.ceil(2 * (step * .65));
+        o.imgs.push(radial(side, 0, side / 2, [[0, rgb + '1)'], [.99, rgb + .2 + ')'], [1, rgb + '0)']]));
+        o.fws.push(side);
+        side = Math.ceil(step * 8 + 6);
+        o.gimgs.push(radial(side, 1, step * 4, [[0, rgb + '1)'], [1, rgb + '0)']]));
+        o.gfws.push(side);
+      }
+    } catch (e) {
+      return null;
+    }
+    goldSprites = o;
+    return o;
+  }
+  function radial(side, r0, r1, stops) {
+    var cv = doc.createElement('canvas');
+    cv.width = cv.height = side;
+    var g = cv.getContext('2d');
+    var gr = g.createRadialGradient(side / 2, side / 2, r0, side / 2, side / 2, r1);
+    for (var i = 0; i < stops.length; i++) gr.addColorStop(stops[i][0], stops[i][1]);
+    g.fillStyle = gr;
+    g.fillRect(0, 0, side, side);
+    return cv;
+  }
+  var shadows = typeof root.WeakMap === 'function' ? new root.WeakMap() : null;
+  function dress(fo, gold) {
+    if (!doc || typeof doc.createElement !== 'function') return;
+    var c = gold ? gold.imgs[fo.cv2] : null;
+    // a food the gold set does not fit (never seen: same recipe, same sizes) keeps its own look
+    if (gold && !(c && gold.fws[fo.cv2] === fo.fw && gold.gimgs[fo.gcv] && gold.gimgs[fo.g2cv])) return;
+    if (gold ? fo.fi === c : fo.fi === blanks[Math.ceil(fo.fw)]) return;
+    if (shadows && !shadows.has(fo)) shadows.set(fo, fo.ofi);
+    if (gold) {
+      fo.fi = c;
+      fo.gfi = gold.gimgs[fo.gcv];
+      fo.g2fi = gold.gimgs[fo.g2cv];
+      if (shadows) fo.ofi = shadows.get(fo);
+      return;
+    }
+    fo.fi = blank(fo.fw);
+    fo.ofi = blank(fo.ofw);
+    fo.gfi = blank(fo.gfw);
+    fo.g2fi = blank(fo.g2fw);
+  }
+  // The breath over their gold pellet (css px, at its drawn centre x, y, alpha a): the same core a little bigger and
+  // brighter, and their two glows stronger, swelling and settling every BREATH_MS (at rest nothing is added). Placed as
+  // their foodCores and foodGlows place them (slDrawWorld: sprite size x rad on their canvas, x csc on screen; the glows
+  // pushed out from the screen centre, alphas from the distance).
+  function breathe(fo, gold, x, y, a, t, ph) {
+    var b = 0.5 - 0.5 * Math.cos(((t / BREATH_MS + ph) % 1) * PI2);
+    if (!(b > 0.02)) return;
+    var rad = fo.rad > 0 ? fo.rad : 0, k = S.csc;
+    var pulse = 0.5 + 0.5 * Math.cos((fo.gfr || 0) / 13);
+    var c = gold.imgs[fo.cv2];
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    if (c) {
+      var w = gold.fws[fo.cv2] * rad * k * (1 + 0.2 * b);
+      ctx.globalAlpha = a * b * (0.45 + 0.4 * pulse);
+      ctx.drawImage(c, x - w / 2, y - w / 2, w, w);
+    }
+    var dx = fo.rx - S.view_xx, dy = fo.ry - S.view_yy, d2 = dx * dx + dy * dy;
+    glow(gold, fo.gcv, x, y, dx, dy, 1 + 0.06 * rad, 0.005 + 0.09 * (1 - d2 / (86E3 + d2)), rad, k, a * b * 0.9);
+    glow(gold, fo.g2cv, x, y, dx, dy, 1 + 0.32 * rad, 0.085 * (1 - d2 / (16500 + d2)), rad, k, a * b * 0.9);
+    ctx.restore();
+  }
+  function glow(gold, j, x, y, dx, dy, push, al, rad, k, f) {
+    var img = gold.gimgs[j];
+    if (!img) return;
+    if (rad !== 1) al *= Math.pow(rad, 0.25);
+    var gw = gold.gfws[j] * rad * k;
+    var gx = x + dx * (push - 1) * S.gsc * k - gw / 2, gy = y + dy * (push - 1) * S.gsc * k - gw / 2;
+    ctx.globalAlpha = al * f;
+    ctx.drawImage(img, gx, gy, gw, gw);
+  }
+  var look = CASH_LOOK;
   var blanks = {};
   function blank(side) {
     var s = side > 0 ? Math.ceil(side) : 1;
@@ -799,13 +890,6 @@
       blanks[s] = b;
     }
     return b;
-  }
-  function hidePellet(fo) {
-    if (fo.fi === blanks[Math.ceil(fo.fw)] || !doc || typeof doc.createElement !== 'function') return;
-    fo.fi = blank(fo.fw);
-    fo.ofi = blank(fo.ofw);
-    fo.gfi = blank(fo.gfw);
-    fo.g2fi = blank(fo.g2fw);
   }
   function disc(x, y, r) {
     ctx.fillStyle = GOLD;
@@ -914,6 +998,11 @@
   slx.paid = {
     on: true,
     stake: function () { return st.stake; },
+    // The cash look, 'gold' or 'coin' (CASH_LOOK); with an argument, switches to it from the next frame.
+    look: function (v) {
+      if (v === 'gold' || v === 'coin') look = v;
+      return look;
+    },
     // For tests and the console: the page's paid state, never the token itself.
     state: function () {
       var w = {};

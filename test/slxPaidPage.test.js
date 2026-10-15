@@ -331,6 +331,7 @@ function cashFoods(S) {
 
 test('gold: a turning coin (slxCoin.js) on each cash pellet only, centred on its drawn dot, as big as it, faded with it', () => {
   const P = paidPage({ files: LAYER.concat(['slxCoin.js']) });
+  assert.strictEqual(P.D.slx.paid.look('coin'), 'coin');
   seat(P, { v: 530000 });
   const S = P.S;
   const coin = P.D.slx.coin;
@@ -367,8 +368,9 @@ test('gold: a turning coin (slxCoin.js) on each cash pellet only, centred on its
   assert.strictEqual(P.D.slx.errors, 0);
 });
 
-test('gold under snakes: a live body over the coins erases them along its length; a far snake erases nothing; an eaten coin fades out', () => {
+test('gold under snakes: a live body over the coins erases them along its length; a far snake erases nothing; an eaten coin is sucked in', () => {
   const P = paidPage({ files: LAYER.concat(['slxCoin.js']) });
+  P.D.slx.paid.look('coin');
   seat(P, { v: 530000 });
   const S = P.S;
   cashFoods(S);
@@ -394,22 +396,23 @@ test('gold under snakes: a live body over the coins erases them along its length
   P.raf(1);
   calls = lastFrame(cv);
   assert.ok(!calls.some((c) => c[0] === 'set globalCompositeOperation' && c[1] === 'destination-out'), 'no cut with no body near');
-  // eaten: a fifth of the way to the mouth the coin is at half alpha; at half way it is gone
+  // eaten: the coin goes with their dot into the mouth, as big as their shrinking rad, not faded (the head hides it)
   S.slithers = [];
   S.foods[0].eaten = true;
-  S.foods[0].eaten_fr = 0.2;
+  S.foods[0].eaten_fr = 0.5;
+  S.foods[0].rad = 0.4;
   P.raf(1);
   calls = lastFrame(cv);
-  assert.strictEqual(calls.filter((c) => c[0] === 'drawImage').length, 2);
-  assert.ok(calls.some((c) => c[0] === 'set globalAlpha' && Math.abs(c[1] - 0.5) < 1e-12), 'half faded');
-  S.foods[0].eaten_fr = 0.5;
-  P.raf(1);
-  assert.strictEqual(lastFrame(cv).filter((c) => c[0] === 'drawImage').length, 1, 'the eaten coin is gone, the other stays');
+  const eaten = calls.filter((c) => c[0] === 'drawImage');
+  assert.strictEqual(eaten.length, 2, 'the eaten coin is still drawn');
+  assert.ok(Math.abs(eaten[0][8] / eaten[0][4] * coinBr(P) - 13.6 * 0.95 * S.gsc * S.csc * 0.4) < 1e-9, 'shrunk with rad');
+  assert.ok(calls.filter((c) => c[0] === 'set globalAlpha').every((c) => c[1] === 1 || c[1] === 0.5), 'not faded beyond fr');
   assert.strictEqual(P.D.slx.errors, 0);
 });
 
 test('gold: their own pellet under a coin goes blank (same sprite sizes), nothing else of any food changes', () => {
   const P = paidPage({ files: LAYER.concat(['slxCoin.js']) });
+  P.D.slx.paid.look('coin');
   seat(P, { v: 530000 });
   const S = P.S;
   const sprite = (side) => { const c = P.doc.createElement('canvas'); c.width = side; c.height = side; c.tag = 'theirs'; return c; };
@@ -437,8 +440,67 @@ test('gold: their own pellet under a coin goes blank (same sprite sizes), nothin
   assert.strictEqual(P.D.slx.errors, 0);
 });
 
+// The bucket radius of the one coin atlas (for coin sizes).
+function coinBr(P) { return P.D.slx.coin.stats().buckets[0].br; }
+
+test('gold look (the default): their pellet turns gold (same sprites sizes, their shadow), breathes, and a switch to the coin and back is clean', () => {
+  const P = paidPage({ files: LAYER.concat(['slxCoin.js']) });
+  assert.strictEqual(P.D.slx.paid.look(), 'gold');
+  seat(P, { v: 530000 });
+  const S = P.S;
+  const sprite = (side) => { const c = P.doc.createElement('canvas'); c.width = side; c.height = side; c.tag = 'theirs'; return c; };
+  // their recipe's sizes at cv2 5 (step 7.8), gcv 6 (8.8) and g2cv 12 (14.8)
+  const tiers = () => ({ cv2: 5, gcv: 6, g2cv: 12, fi: sprite(11), fw: 11, ofi: sprite(33), ofw: 33, gfi: sprite(77), gfw: 77,
+    g2fi: sprite(125), g2fw: 125 });
+  const cash = Object.assign({ id: 4301, xx: 640, yy: 470, sz: 13.6, rx: 640, ry: 470, rad: 1, fr: 1, gfr: 3, cv: 5 }, tiers());
+  const food = Object.assign({ id: 4302, xx: 600, yy: 430, sz: 9.4, rx: 600, ry: 430, rad: 1, fr: 1, gfr: 3, cv: 5 }, tiers());
+  const before = JSON.stringify([cash, food], (k, v) => (/fi$/.test(k) ? undefined : v));
+  const theirs = { fi: cash.fi, ofi: cash.ofi, gfi: cash.gfi, g2fi: cash.g2fi };
+  const keep = { fi: food.fi, ofi: food.ofi, gfi: food.gfi, g2fi: food.g2fi };
+  S.foods = [cash, food];
+  S.foods_c = 2;
+  P.raf(1);
+  for (const [img, side] of [['fi', 11], ['gfi', 77], ['g2fi', 125]]) {
+    assert.notStrictEqual(cash[img], theirs[img], img + ' is gold now');
+    assert.strictEqual(cash[img].width, side, img + ' keeps its size');
+    assert.ok(cash[img].ctx.calls.some((c) => c[0] === 'createRadialGradient'), img + ' painted with their gradient');
+    assert.ok(cash[img].ctx.calls.some((c) => c[0] === 'set fillStyle'), img);
+  }
+  assert.strictEqual(cash.ofi, theirs.ofi, 'their shadow (black whatever the colour)');
+  for (const k of ['fi', 'ofi', 'gfi', 'g2fi']) assert.strictEqual(food[k], keep[k], 'a normal food keeps its ' + k);
+  assert.strictEqual(JSON.stringify([cash, food], (k, v) => (/fi$/.test(k) ? undefined : v)), before, 'nothing else changes');
+  const cv = cashCanvas(P);
+  assert.strictEqual(P.D.slx.coin.stats().made, 0, 'no coin in the gold look');
+  // the breath: at rest nothing is added; at the top a bigger, lighter core and both glows over it
+  const ph = (() => { let v = cash.id | 0; v = Math.imul(v ^ (v >>> 16), 0x45d9f3b); v = Math.imul(v ^ (v >>> 16), 0x45d9f3b); return ((v ^ (v >>> 16)) >>> 0) / 4294967296; })();
+  const at = (b) => { const u = Math.acos(1 - 2 * b) / (2 * Math.PI); return ((u - ph) % 1 + 1) % 1 * 1200; };
+  const base = Math.ceil(P.clock.now / 1200) * 1200 + 2400;
+  P.raf(1, base + at(0) - P.clock.now);
+  assert.strictEqual(lastFrame(cv).filter((c) => c[0] === 'drawImage').length, 0, 'at rest: their gold pellet alone');
+  P.raf(1, base + 1200 + at(1) - P.clock.now);
+  const top = lastFrame(cv).filter((c) => c[0] === 'drawImage');
+  assert.strictEqual(top.length, 3, 'core and two glows');
+  assert.strictEqual(top[0][1], cash.fi, 'the gold core');
+  assert.ok(Math.abs(top[0][4] - 11 * 1.2 * S.csc) < 1e-6, 'a fifth bigger at the top of the breath');
+  assert.strictEqual(top[1][1], cash.gfi);
+  assert.strictEqual(top[2][1], cash.g2fi);
+  assert.ok(lastFrame(cv).some((c) => c[0] === 'set globalCompositeOperation' && c[1] === 'lighter'));
+  // to the coin: all four blank, their shadow too; back to gold: their shadow again
+  P.D.slx.paid.look('coin');
+  P.raf(1);
+  for (const k of ['fi', 'ofi', 'gfi', 'g2fi']) assert.notStrictEqual(cash[k].tag, 'theirs', k + ' blank');
+  assert.strictEqual(cash.ofi.width, 33);
+  P.D.slx.paid.look('gold');
+  P.raf(1);
+  assert.strictEqual(cash.ofi, theirs.ofi, 'their shadow is back');
+  assert.strictEqual(cash.fi.width, 11);
+  assert.strictEqual(P.D.slx.paid.look('nonsense'), 'gold', 'only the two looks');
+  assert.strictEqual(P.D.slx.errors, 0);
+});
+
 test('gold without the coin file: a plain gold disc only for sz >= 13.6, at the food\'s drawn position, faded with it; labels over paid heads', () => {
   const P = paidPage();
+  P.D.slx.paid.look('coin');
   seat(P, { v: 530000 });
   const S = P.S;
   P.sock().fire('sl:f', [{ type: 'snake_add', id: 7, xx: 700, yy: 380, sc: 1.5 }, { type: 'snake_add', id: 9, xx: 520, yy: 420 }]);
@@ -910,6 +972,26 @@ test('frozen client + slxPaid: the gold sits on the cash food\'s drawn position,
   assert.strictEqual(r.store.getItem('entryToken'), null);
   const cv = r.P.els.find((e) => e.className === 'slx-cash');
   assert.ok(cv, 'the slx-cash canvas on a paid page');
+  // the gold look (the default): their pellet in gold, their shadow, every other food its own
+  for (let i = 0; i < 30; i++) r.P.step();
+  {
+    const S0 = r.D.S;
+    const g68 = foodById(S0, r.injected[0]);
+    const own = (fo) => S0.per_color_imgs[fo.cv];
+    for (const [img, list, w] of [['fi', 'imgs', 'fw'], ['gfi', 'gimgs', 'gfw'], ['g2fi', 'gimgs', 'g2fw']]) {
+      assert.ok(!own(g68)[list].includes(g68[img]), 'gold ' + img);
+      assert.strictEqual(g68[img].width, g68[w], 'gold ' + img + ' of their size');
+    }
+    assert.ok(own(g68).oimgs.includes(g68.ofi), 'their shadow');
+    for (const ev of r.injected.slice(1)) {
+      const fo = foodById(S0, ev);
+      for (const [img, list] of [['fi', 'imgs'], ['ofi', 'oimgs'], ['gfi', 'gimgs'], ['g2fi', 'gimgs']]) {
+        assert.ok(own(fo)[list].includes(fo[img]), 'sz ' + fo.sz + ' keeps its own ' + img);
+      }
+    }
+  }
+  // the coin look (here without slxCoin.js: the plain disc)
+  r.D.slx.paid.look('coin');
   const arcs = [];
   const c = cv.getContext('2d');
   const arc0 = c.arc;
