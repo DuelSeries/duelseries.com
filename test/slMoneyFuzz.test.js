@@ -1,15 +1,18 @@
 'use strict';
 // slMoneyFuzz (PAID-SL-DESIGN.md 11.1 slMoneyFuzz; task T3): the money of real paid sl rooms (server/sl/slRoom.js with
 // opts.money = server/slPaid/slMoney.js, the real sim, view and send queue, the FIXTURE table) under a scripted crowd
-// of 2 to 22 paid snakes, 3 seeds x 20000 steps: steering (often at another paid snake), boosting, border dives, holds
-// kept to the cash-out or let go early, connection drops that come back (sl:back) or glide out and die, leaves, and
-// new seats as the door makes them (its journal open first, a refusal refunded once). Injected throws:
+// of 2 to 22 paid snakes, 4 seeds x 20000 steps (the last with prey on, as production builds paid rooms): steering
+// (often at another paid snake), boosting, border dives, holds kept to the cash-out or let go early, connection drops
+// that come back (sl:back) or glide out and die, leaves, and new seats as the door makes them (its journal open first,
+// a refusal refunded once). Injected throws:
 //   - in sim.step after Phase A (the food pass, step 7): the room closes at once (emergencyFails 1), every account
 //     refunded 100% of its grown balance through the owed lane, the floor swept to the house; the harness then opens a
 //     fresh room, the directory's part
 //   - in a fact: the eat of a cash pellet throws right after it is logged (mid Phase A), so the finally credits it and
 //     the room closes as above; and the death fact's own hooks throw (the journal close, the directory's
-//     onAccountClosed), which the controller swallows with the fact complete
+//     onAccountClosed), which the controller swallows with the fact complete. A fact the bank itself refuses (split,
+//     credit) leaves the sim and the money apart, which the checker reports by design, so it is not part of a
+//     0-violation run: slPaidRoom pins that case in a live room
 //   - in a hook: onCashout throwing or rejecting, onTransfer, onFloor and onBreach throwing, onOwed rejecting
 // Checked: the full checker every step (money.endStep, checkEvery 1) finds nothing in any room; I9 across the rooms
 // after every wake; every emergency row is the account's balance at the close, and the closed room's bank is empty;
@@ -165,7 +168,7 @@ function run(seed, total, opts) {
     money = createSlMoney({ stake, label: LABEL, hooks, now: ft.clock, uuid: () => uuidOf('00000000', ++uuidN),
       log: quiet, checkEvery: 1, walletSeat, laws: LAWS });
     room = new SlRoom(LAWS, { money, lobbyType: LABEL, humanCap: 22, seed: 1 + r.int(2147483646), clock: ft.clock,
-      timers: ft.timers, autoTick: false, shippableOnly: false, prey: false, now: () => 1.7e12, log: quiet });
+      timers: ft.timers, autoTick: false, shippableOnly: false, prey: o.prey === true, now: () => 1.7e12, log: quiet });
     ref.room = room;
     // the full checker's answer of every step, kept
     const endStep = money.endStep.bind(money);
@@ -398,14 +401,14 @@ function books(out) {
     house: t.outHouse, live: t.live, cashNet: s.net, rake: s.rake });
 }
 
-// seed -> its rung
-const SEEDS = [[71, 0.5], [72, 1], [73, 0.5]];
+// seed -> its rung, and prey on for the last (the directory builds paid rooms with prey as the free room has it)
+const SEEDS = [[71, 0.5], [72, 1], [73, 0.5], [74, 0.5, true]];
 const first = new Map();
 
-for (const [seed, stake] of SEEDS) {
-  test('seed ' + seed + ' ($' + stake + '): ' + STEPS + ' steps of 2 to 22 paid snakes with injected throws; the full ' +
-    'checker every step finds nothing and the books close', () => {
-    const out = run(seed, STEPS, { simThrows: true, hookThrows: true, stake });
+for (const [seed, stake, prey] of SEEDS) {
+  test('seed ' + seed + ' ($' + stake + (prey ? ', prey on' : '') + '): ' + STEPS + ' steps of 2 to 22 paid snakes ' +
+    'with injected throws; the full checker every step finds nothing and the books close', () => {
+    const out = run(seed, STEPS, { simThrows: true, hookThrows: true, stake, prey });
     first.set(seed, out.trace);
     assert.deepEqual(out.violations.slice(0, 5), [], out.violations.length + ' checker violation(s)');
     assert.deepEqual(out.seen.breaches.filter((b) => !HOOK_ALERTS.has(b.kind)).slice(0, 5), [], 'no breach alert');
@@ -420,8 +423,13 @@ for (const [seed, stake] of SEEDS) {
     seen.deaths = closes('died');
     seen.transfers = of('transfer');
     seen.rooms = out.rooms.length;
+    // prey: spawned and eaten by paid snakes (growth only, no money), across every room of the run
+    const preys = out.rooms.map((x) => (x.sim.preys ? x.sim.preys.stats() : { spawned: 0, eaten: 0 }));
+    seen.preySpawned = preys.reduce((t, x) => t + x.spawned, 0);
+    seen.preyEaten = preys.reduce((t, x) => t + x.eaten, 0);
     const msg = JSON.stringify(Object.assign({}, seen, { breaches: seen.breaches.length }));
     if (process.env.SL_FUZZ_SEEN) console.log(seed, msg);
+    assert.equal(seen.preySpawned > 0, prey === true, msg);
     assert.ok(seen.cashouts >= 20 && seen.deaths >= 100 && seen.transfers >= 50, msg);
     assert.ok(seen.drops >= 20 && seen.resumes >= 3 && seen.leaves >= 5 && seen.holdsLetGo >= 3, msg);
     assert.ok(seen.stepThrows + seen.eatThrows >= 2 && seen.emergencyRows >= 2 && seen.hookThrows >= 20, msg);

@@ -88,12 +88,15 @@ class SlMoney {
       }
     }
     if (!Number.isInteger(checkEvery) || checkEvery < 1) throw new Error('SlMoney: checkEvery must be an integer >= 1');
+    // a logger missing a line it needs would throw inside a money path (a cash-out logs its order line)
+    const lg = log || console;
+    if (typeof lg.log !== 'function' || typeof lg.error !== 'function') throw new Error('SlMoney: log needs log and error');
     this.stake = Number(stake);
     this.label = String(label || '');
     this.hooks = h;
     this.now = now;
     this.uuid = uuid;
-    this.log = log || console;
+    this.log = lg;
     this.checkEvery = checkEvery;
     this.walletSeat = walletSeat instanceof Map ? walletSeat : null;
     this.laws = laws;
@@ -106,7 +109,7 @@ class SlMoney {
     this.lastTick = null;
     this.steps = 0;
     this.stopped = false; // settled (shutdown, crash, emergency): nothing opens again
-    this.tainted = false; // I1, I10 or I13 seen: no new seat (design 8)
+    this.tainted = false; // I1, I10 or I13 seen, or a seat refund refused: no new seat (design 8)
     this.closedCount = Object.create(null); // outcome -> n (owner view, tests)
     this.lastViolations = [];
     this.bank = new SlBank({
@@ -228,12 +231,18 @@ class SlMoney {
 
   // The seat failed after open (design 3.3, between B and C): the deposit leaves as a refund in the bank's books (the
   // door refunds the token, once, and writes the jid's one journal close), the directory forgets the seat. false when
-  // there is no such account. A withdraw refused at the ceiling leaves the account open (the door then refunds
-  // nothing; I4 refunds it through the owed lane once its snake is gone) and throws.
+  // there is no such account. A withdraw refused (the ceiling) leaves the account open and throws: the door then
+  // refunds nothing, the room keeps ticking so I4 retries it through the owed lane once its snake is gone, and
+  // _refundRefused below has already logged it CRITICAL, alerted and tainted the room.
   abort(snakeId) {
     const acct = this.accounts.get(snakeId);
     if (!acct) return false;
-    this.bank.withdraw(snakeId, 'refund');
+    try {
+      this.bank.withdraw(snakeId, 'refund');
+    } catch (e) {
+      this._refundRefused('abort', acct, e);
+      throw e;
+    }
     this._close(acct, 'aborted', { why: 'aborted' }, true);
     return true;
   }
@@ -243,10 +252,24 @@ class SlMoney {
       this.bank.withdraw(acct.snakeId, 'refund');
     } catch (e) {
       // the account stays open, and the door sees it and refunds nothing (see abort)
-      this.log.error('[SLP] OPEN CRITICAL rollback of ' + acct.jid + ' refused, left open: ' + (e && e.message));
+      this._refundRefused('rollback', acct, e);
       return;
     }
     this._close(acct, 'aborted', { why: 'open-failed' }, seated);
+  }
+
+  // A seat that failed after its deposit and whose refund the bank refused: the account stays open with no seat, so
+  // the door refunds nothing and only I4 (or the owner by hand, from this line) can pay it back. The room takes no
+  // new seat: its bank just refused to give money back.
+  _refundRefused(what, acct, e) {
+    const micro = this.bank.balance(acct.snakeId);
+    this.log.error('[SLP] SEAT CRITICAL ' + what + ' refund of snake ' + acct.snakeId + ' (' + acct.jid + ', ' + micro +
+      ' micro) refused, left open (' + this.label + '): ' + (e && e.message));
+    this._alert('seat-refund-refused', { snakeId: acct.snakeId, jid: acct.jid, micro, why: what });
+    if (!this.tainted) {
+      this.tainted = true;
+      this.log.error('[SLP] TAINTED ' + this.label + ' by a refused seat refund: no new seat opens here');
+    }
   }
 
   // ---------------------------------------------------------------------------------------------------------------
@@ -339,19 +362,22 @@ class SlMoney {
   // A finished hold (design 6): the bank withdraw FIRST (a refused one throws with nothing changed, and the snake
   // keeps playing), then the 90/10 integers, the journal close, one [SLP] CASHOUT-ORDER line, and the order
   // dispatched through onCashout before this returns, so nothing the room does after it can strand a withdrawn
-  // account unpaid (critic C-6). null when the snake has no account (a death this step won).
+  // account unpaid (critic C-6). Any throw before the withdraw is logged CRITICAL and alerted here, the room only
+  // keeps the snake playing. null when the snake has no account (a death this step won).
   // -> { cid, gross, cut, net, order }
   cashOut(snakeId, socketId) {
     const acct = this.accounts.get(snakeId);
     if (!acct) return null;
-    const cashoutId = this.uuid(); // before the withdraw: nothing between it and the dispatch can throw
+    let cashoutId;
     let w;
     try {
+      cashoutId = this.uuid(); // before the withdraw: after it nothing may throw ahead of the dispatch
       w = this.bank.withdraw(snakeId, 'cash');
+      if (!w) throw new Error('the bank holds no account ' + snakeId);
     } catch (e) {
+      this._alert('cashout-refused', { snakeId });
       this.log.error('[SLP] CASHOUT CRITICAL refused for snake ' + snakeId + ' (' + this.label + '), it keeps playing: ' +
         (e && e.message));
-      this._alert('cashout-refused', { snakeId });
       throw e;
     }
     const gross = w.micro;
@@ -363,11 +389,15 @@ class SlMoney {
       this._close(acct, 'cashedout', { why: 'cashout', grossMicro: gross, cutMicro: cut, netMicro: net,
         cashoutId: order.cashoutId });
     } finally {
-      this.log.log('[SLP] CASHOUT-ORDER ' + order.cashoutId + ' ' + gross + ' ' + this.label);
+      // the order line in its own try: a logger that throws must not keep the order from going out (the journal
+      // close above carries the cashoutId and the gross for a hand reconcile)
+      try {
+        this.log.log('[SLP] CASHOUT-ORDER ' + order.cashoutId + ' ' + gross + ' ' + this.label);
+      } catch (_) { /* nothing left to log it with */ }
       safeAsync(() => this.hooks.onCashout(order), (e) => {
+        this._alert('cashout-order', { micro: gross });
         this.log.error('[SLP] CASHOUT CRITICAL order ' + order.cashoutId + ' failed, owed ' + gross + ' micro gross (' +
           this.label + '): ' + (e && e.message));
-        this._alert('cashout-order', { micro: gross });
       });
     }
     return { cid: order.cashoutId, gross, cut, net, order };

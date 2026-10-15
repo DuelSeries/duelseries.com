@@ -13,6 +13,12 @@
 //   - a step that throws closes the room at once: the step's facts applied (a kill death in it), every open
 //     account refunded 100% of its GROWN balance (one ate gold first) through the owed lane, the floor swept to the house
 //   - a throw in sim.remove right after a paid cash-out: exactly one payout order, owed rows for the other accounts only
+//   - a seat whose own refund the bank refuses stays open: the door refunds nothing, the room ticks and taints, and
+//     I4 pays it once through the owed lane (never both, never neither)
+//   - cashOut throwing before the withdraw is alerted and the snake plays on; after it, alerted as unconfirmed with
+//     its gross; a logger that throws on the order line still pays once; a throw in the cashed length is CRITICAL
+//   - a fact the bank refuses (split, credit) in a live room: who is paid and what the checker reports
+//   - a paid room needs its seed (no wall-clock fallback)
 //   - stop() never settles (it alerts); halt() stops the clock only
 
 const test = require('node:test');
@@ -122,16 +128,17 @@ function makePaid(o) {
   const s = spy();
   const log = quiet();
   const ft = fakeTimers(1000);
-  const money = createSlMoney({ stake: 0.5, label: LABEL, hooks: s.hooks, now: ft.clock, log,
+  const money = createSlMoney({ stake: 0.5, label: LABEL, hooks: s.hooks, now: ft.clock, log: opts.moneyLog || log,
     uuid: () => '00000000-0000-4000-8000-' + String(++uuidN).padStart(12, '0'), checkEvery: 1, laws: LAWS });
   const room = new SlRoom(opts.laws || LAWS, Object.assign({ money, lobbyType: LABEL, humanCap: 22, seed: opts.seed || 7,
     view: viewWith(s.flags), clock: ft.clock, timers: ft.timers, autoTick: false, shippableOnly: false, prey: false,
     now: () => 1.7e12, log }, opts.room));
   const refunds = [];
   // The door's part around seatPaid (design 3.2 steps 11 and 12): a refusal or a throw refunds the token once, and a
-  // throw refunds only when no account holds the jid (seatPaid guarantees there is none).
-  function door(n, micro) {
-    const sock = bareSocket();
+  // throw refunds only when no account holds the jid (seatPaid guarantees there is none, unless the bank refused the
+  // account's own refund: then the owed lane pays it, never both). sock: a socket a case planted a fault on.
+  function door(n, micro, sock0) {
+    const sock = sock0 || bareSocket();
     const jid = jidOf(n);
     const m = micro === undefined ? STAKE : micro;
     let acct = null;
@@ -200,6 +207,11 @@ test('a paid room: the cap folds into R (22, or lower), one failing wake closes 
   assert.throws(() => makePaid({ room: { bots: { add() {} } } }), /no bots/);
   assert.throws(() => makePaid({ room: { lobbyType: 'sl_na_s1' } }), /labelled/);
   assert.throws(() => makePaid({ laws: makeFixture({ C_PAID_HUMAN_CAP: 23 }) }), /C_R_MIN/);
+  // no wall-clock seed for a paid room (design 1, D2-m4): the directory must pass its crypto one
+  for (const seed of [undefined, 0, -3, 1.5, '7', NaN, 2 ** 53]) {
+    assert.throws(() => makePaid({ room: { seed } }), /needs its seed/, String(seed));
+  }
+  assert.equal(makePaid({ seed: 2147483646 }).room.sim.count(), 0);
   const s = spy();
   const half = createSlMoney({ stake: 0.5, label: LABEL, hooks: s.hooks });
   half.takeChanged = undefined;
@@ -270,10 +282,11 @@ test('C1: a throw at each line of the build, or in money.open, leaves no account
     const sock = bareSocket();
     plant(ctx, sock);
     const jid = jidOf(2);
-    assert.throws(() => room.seatPaid(sock, { nick: 'p2', cv: 2 }, { jid, micro: STAKE, wallet: 'W2', name: 'p2' }),
-      /injected|socket with emit/, name);
+    // through the door's rule (refund iff no account holds the jid), so the count below is the door's, not the test's
+    const r = ctx.door(2, STAKE, sock);
+    assert.match(r.threw && r.threw.message, /injected|socket with emit/, name);
+    assert.equal(r.acct, null, name);
     assert.equal(money.account(jid), null, name + ': no account');
-    if (!money.account(jid)) refunds.push({ jid, micro: STAKE, why: 'seat-failed' });
     assert.deepEqual(census(room), before, name + ': nothing of the seat is left');
     assert.equal(room.seatOf(sock), null, name);
     assert.deepEqual(refunds, [{ jid, micro: STAKE, why: 'seat-failed' }], name + ': exactly one refund, the door\'s');
@@ -292,6 +305,7 @@ test('C1: a throw at each line of the build, or in money.open, leaves no account
     // the room still seats and steps
     const next = ctx.door(3);
     assert.ok(next.acct, name + ': the next seat opens');
+    assert.equal(refunds.length, 1, name + ': and refunds nothing');
     ctx.step(5);
     assert.ok(room.sim.snake(first.seat.snakeId) && room.sim.snake(next.seat.snakeId), name);
     assert.deepEqual(money.lastViolations, [], name);
@@ -308,11 +322,13 @@ test('C1: a throw after the account opened aborts it (refund booked, seat forgot
     money.worthOf = worth;
     throw new Error('injected after open');
   };
-  const sock = bareSocket();
   const jid = jidOf(2);
-  assert.throws(() => room.seatPaid(sock, { nick: 'p2', cv: 2 }, { jid, micro: STAKE, wallet: 'W2', name: 'p2' }), /after open/);
+  const r = ctx.door(2);
+  assert.match(r.threw && r.threw.message, /after open/);
+  assert.equal(r.acct, null);
   assert.equal(money.account(jid), null);
-  refunds.push({ jid, micro: STAKE, why: 'seat-failed' });
+  assert.deepEqual(refunds, [{ jid, micro: STAKE, why: 'seat-failed' }], 'exactly one refund, the door\'s');
+  const sock = r.sock;
   assert.deepEqual(census(room), before);
   assert.deepEqual(s.of('onAccountClosed').map((c) => [c[1], c[2]]), [[jid, 'aborted']]);
   assert.equal(s.walletSeat.has('W2'), false);
@@ -321,6 +337,51 @@ test('C1: a throw after the account opened aborts it (refund booked, seat forgot
   assert.equal(sock.emitted.length, 0, 'nothing was sent to the aborted seat');
   assert.ok(ctx.log.lines.some((l) => /SEAT threw after the account opened/.test(l)));
   i1(money);
+});
+
+test('C1: a seat whose refund the bank refuses (abort or open\'s rollback) stays open: the door refunds nothing, the room ticks, I4 pays it once', () => {
+  for (const path of ['abort', 'rollback']) {
+    // the first seat of an auto-ticking room: its clock starts only at the commit (C), which never came
+    const ctx = makePaid({ room: { autoTick: true } });
+    const { room, money, s, refunds } = ctx;
+    if (path === 'abort') {
+      const worth = money.worthOf;
+      money.worthOf = () => {
+        money.worthOf = worth;
+        throw new Error('injected after open');
+      };
+    } else {
+      s.flags.open = true;
+    }
+    const withdraw = money.bank.withdraw.bind(money.bank);
+    money.bank.withdraw = (id, kind) => {
+      money.bank.withdraw = withdraw;
+      throw new Error('injected refusal of ' + kind);
+    };
+    const r = ctx.door(1);
+    assert.match(r.threw && r.threw.message, /injected/, path);
+    assert.equal(money.bank.withdraw, withdraw, path + ': the refund was refused');
+    assert.ok(money.account(r.jid), path + ': the account stays open');
+    assert.equal(room.sim.count(), 0, path + ': the seat is undone');
+    assert.deepEqual(refunds, [], path + ': the door refunds nothing (an account holds the jid)');
+    assert.equal(room.ticking, true, path + ': the clock runs so I4 can pay it');
+    assert.equal(money.tainted, true, path + ': no new seat in this room');
+    assert.ok(s.of('onBreach').some((c) => c[1].kind === 'seat-refund-refused' && c[1].jid === r.jid &&
+      c[1].micro === STAKE && c[1].why === path), path);
+    assert.equal(ctx.door(2).acct, null, path + ': tainted, the next seat is refused');
+    assert.deepEqual(refunds, [{ jid: jidOf(2), micro: STAKE, why: 'full' }], path);
+    ctx.ft.run(5 * P);
+    // the orphan check refunds it through the owed lane, once: never both refunds, never neither
+    const key = 'agowed:' + r.jid;
+    assert.deepEqual(s.of('onOwed').map((c) => [c[1].key, c[1].micro]), [[key, STAKE]], path);
+    assert.ok(s.of('onOwed')[0][1].reason.startsWith('refund slither orphan ' + LABEL), path);
+    assert.deepEqual(s.records.filter((x) => x.t === 'close').map((x) => [x.jid, x.outcome, x.why, x.key]),
+      [[r.jid, 'refunded', 'orphan', key]], path);
+    assert.equal(money.openCount(), 0, path);
+    assert.deepEqual([money.bank.ledger.in, money.bank.ledger.outRefund], [STAKE, STAKE], path);
+    i1(money);
+    room.halt();
+  }
 });
 
 // ------------------------------------------------------------------ cap, bots, pause
@@ -627,6 +688,200 @@ test('a refused cash-out keeps the snake playing: its hold ends, no order, the a
   assert.ok(!paidMsgs(a.sock).some((m) => m.t === 'cashed'));
   ctx.step(5);
   assert.deepEqual(money.lastViolations, []);
+});
+
+// Holds seat a's snake until cashOut has run (or the wake threw); -> the wake's throw, if any.
+function holdToCashOut(ctx, a, done) {
+  ctx.room.onHold(a.seat, true);
+  for (let k = 0; k < 200 && !done(); k++) {
+    ctx.room.onHold(a.seat, true);
+    ctx.ft.advance(P);
+    try {
+      ctx.room.wake();
+    } catch (e) {
+      return e;
+    }
+    ctx.ft.runImmediates();
+  }
+  return null;
+}
+
+test('cash-out: a throw before the withdraw (the cashout id) is CRITICAL and alerted, the snake plays on; a logger that throws on the order line still pays', () => {
+  const ctx = makePaid();
+  const { room, money, s } = ctx;
+  const a = ctx.door(1);
+  const A = a.seat.snakeId;
+  const uuid = money.uuid;
+  money.uuid = () => {
+    money.uuid = uuid;
+    throw new Error('injected uuid');
+  };
+  assert.equal(holdToCashOut(ctx, a, () => money.uuid === uuid), null);
+  assert.equal(money.uuid, uuid, 'cashOut ran');
+  assert.ok(room.sim.snake(A) && money.worthOf(A) === STAKE, 'it keeps playing, the account untouched');
+  assert.equal(s.of('onCashout').length, 0);
+  assert.ok(s.of('onBreach').some((c) => c[1].kind === 'cashout-refused' && c[1].snakeId === A));
+  assert.ok(ctx.log.lines.some((l) => /CASHOUT CRITICAL refused for snake .* it keeps playing: injected uuid/.test(l)));
+  // the money's logger throws on every line it writes with log(): the withdrawn account is still paid, once
+  const ctx2 = makePaid({ moneyLog: { log() { throw new Error('stdout gone'); }, warn() {}, error() {} } });
+  const b = ctx2.door(1);
+  assert.equal(holdToCashOut(ctx2, b, () => ctx2.money.openCount() === 0), null);
+  const orders = ctx2.s.of('onCashout').map((c) => c[1]);
+  assert.deepEqual(orders.map((o) => [o.grossMicro, o.wallet]), [[STAKE, 'W1']], 'exactly one payout order');
+  assert.deepEqual(paidMsgs(b.sock).filter((m) => m.t === 'cashed'),
+    [{ t: 'cashed', len: paidMsgs(b.sock).find((m) => m.t === 'cashed').len, gross: STAKE, cut: 50000, net: 450000,
+      cid: orders[0].cashoutId }]);
+  assert.equal(ctx2.room.sim.snake(b.seat.snakeId), null);
+  i1(ctx2.money);
+});
+
+test('cash-out: cashOut throwing after the withdraw is alerted as unconfirmed with its gross (the snake leaves); a throw in the length is CRITICAL', () => {
+  // cashOut withdrew, closed and dispatched, then threw: the room cannot know the order went out, so it alerts
+  const ctx = makePaid();
+  const { room, money, s } = ctx;
+  const a = ctx.door(1);
+  const A = a.seat.snakeId;
+  const cash = money.cashOut.bind(money);
+  money.cashOut = (...args) => {
+    money.cashOut = cash;
+    cash(...args);
+    throw new Error('injected after the withdraw');
+  };
+  assert.equal(holdToCashOut(ctx, a, () => money.cashOut === cash), null);
+  assert.equal(money.account(A), null);
+  assert.equal(room.sim.snake(A), null, 'it leaves like any cash-out');
+  assert.deepEqual(paidMsgs(a.sock).filter((m) => m.t === 'cashed').map((m) => Object.keys(m).sort()), [['len', 't']]);
+  assert.ok(ctx.log.lines.some((l) => new RegExp('CASHOUT CRITICAL snake ' + A + ' withdrawn \\(500000 micro\\) but ' +
+    'cashOut threw, its order is unconfirmed').test(l)));
+  assert.deepEqual(s.of('onBreach').map((c) => c[1]).filter((b) => b.kind === 'cashout-unconfirmed'),
+    [{ snakeId: A, micro: STAKE, kind: 'cashout-unconfirmed', lobbyType: LABEL }]);
+  assert.equal(s.of('onCashout').length, 1);
+  i1(money);
+  // the length of the cashed message throws after the withdraw: CRITICAL with the order's id, alerted, the room closes
+  const ctx2 = makePaid();
+  const b = ctx2.door(1);
+  ctx2.door(2);
+  const len = ctx2.room._lenOf;
+  ctx2.room._lenOf = () => {
+    ctx2.room._lenOf = len;
+    throw new Error('injected length');
+  };
+  const threw = holdToCashOut(ctx2, b, () => false);
+  assert.match(threw && threw.message, /injected length/);
+  assert.equal(ctx2.room.closed, true);
+  const orders = ctx2.s.of('onCashout').map((c) => c[1]);
+  assert.equal(orders.length, 1, 'exactly one payout order');
+  assert.ok(ctx2.log.lines.some((l) => l.includes('CASHOUT CRITICAL snake ' + b.seat.snakeId + ' paid (' +
+    orders[0].cashoutId + ') but its removal threw')));
+  assert.ok(ctx2.s.of('onBreach').some((c) => c[1].kind === 'cashout-removal'));
+  assert.deepEqual(ctx2.s.of('onOwed').map((c) => [c[1].key, c[1].micro]), [['agowed:' + jidOf(2), STAKE]]);
+  i1(ctx2.money);
+});
+
+// ------------------------------------------------------------------ a fact the bank refuses (design 5)
+
+// Steers seat's snake straight out from the centre.
+function dive(room, seat) {
+  const [hx, hy] = head(room, seat.snakeId);
+  room.onInput(seat, angle(byteOf(Math.atan2(hy - GRD, hx - GRD))));
+}
+
+test('a fact the bank refuses in a live room: a failed split is paid back 100% as an orphan (I6 for its cashless gold), a failed credit strands one pellet (I8 that step, I5 from then on)', () => {
+  // the split of B's border death throws: B's account outlives its snake, I4 refunds it through the owed lane the same
+  // step (so I8 never sees it), nobody else gains, and B's drops are gold foods with no pellet behind them (I6)
+  {
+    const ctx = makePaid({ seed: 5 });
+    const { room, money, s } = ctx;
+    const a = ctx.door(1);
+    const b = ctx.door(2);
+    const split = money.bank.split;
+    money.bank.split = () => {
+      money.bank.split = split;
+      throw new Error('injected split');
+    };
+    const kinds = new Map();
+    const tally = () => {
+      for (const v of money.lastViolations) kinds.set(v.kind, (kinds.get(v.kind) || 0) + 1);
+      i1(money);
+    };
+    let k = 0;
+    while (money.account(b.jid) && k++ < 3000) {
+      dive(room, b.seat);
+      steerTo(room, a.seat, GRD, GRD);
+      ctx.step();
+      tally();
+    }
+    assert.equal(money.bank.split, split, 'the split threw');
+    assert.equal(room.sim.snake(b.seat.snakeId), null, 'B died');
+    for (let j = 0; j < 30; j++) {
+      steerTo(room, a.seat, GRD, GRD);
+      ctx.step();
+      tally();
+    }
+    assert.deepEqual(Array.from(kinds.keys()), ['I6'], JSON.stringify(Array.from(kinds)));
+    const key = 'agowed:' + b.jid;
+    assert.deepEqual(s.of('onOwed').map((c) => [c[1].key, c[1].micro]), [[key, STAKE]], 'exactly one owed row, B\'s');
+    assert.ok(s.of('onOwed')[0][1].reason.startsWith('refund slither orphan ' + LABEL));
+    assert.deepEqual(s.records.filter((x) => x.t === 'close').map((x) => [x.jid, x.outcome, x.why]), [[b.jid, 'refunded', 'orphan']]);
+    const alerts = s.of('onBreach').map((c) => c[1].kind);
+    assert.equal(alerts.filter((x) => x === 'fact').length, 1);
+    assert.equal(alerts.filter((x) => x === 'I4').length, 1);
+    assert.deepEqual([money.worthOf(a.seat.snakeId), money.bank.floorMicro()], [STAKE, 0], 'A gained nothing, no cash on the floor');
+    assert.equal(money.tainted, false);
+  }
+  // the first credit of B's gold throws: the sim ate the food, the bank kept the pellet; I8 that step, and I5 every
+  // step for the stranded pellet (its micro waits on the floor for the sweep), and every other eat still credits
+  {
+    const ctx = makePaid({ seed: 5 });
+    const { room, money, s } = ctx;
+    const a = ctx.door(1);
+    const b = ctx.door(2);
+    let k = 0;
+    while (money.account(b.jid) && k++ < 3000) {
+      dive(room, b.seat);
+      steerTo(room, a.seat, GRD, GRD);
+      ctx.step();
+    }
+    assert.equal(money.bank.floorMicro(), STAKE, 'B died, its 500000 is gold');
+    const credit = money.bank.credit;
+    money.bank.credit = function (f, id) {
+      if (!this.floor.has(f)) return credit.call(this, f, id);
+      money.bank.credit = credit;
+      throw new Error('injected credit');
+    };
+    const kinds = [];
+    let after = -1;
+    for (let j = 0; j < 3000 && (after < 0 || j - after < 30); j++) {
+      let best = null;
+      let bd = Infinity;
+      const [hx, hy] = head(room, a.seat.snakeId);
+      for (const f of money.bank.floor.keys()) {
+        if (room.sim.food.get(f.id) !== f) continue;
+        const dd = Math.hypot(f.x - hx, f.y - hy);
+        if (dd < bd) {
+          bd = dd;
+          best = f;
+        }
+      }
+      if (best) steerTo(room, a.seat, best.x, best.y);
+      else steerTo(room, a.seat, GRD, GRD);
+      ctx.step();
+      if (after < 0 && money.bank.credit === credit) after = j;
+      if (after >= 0) kinds.push(money.lastViolations.map((v) => v.kind));
+      i1(money);
+    }
+    assert.ok(after >= 0, 'the credit threw');
+    assert.deepEqual(kinds[0].slice().sort(), ['I5', 'I8'], 'the step of the failed eat');
+    for (const ks of kinds.slice(1)) assert.deepEqual(ks, ['I5'], 'the stranded pellet, every step after');
+    const stranded = Array.from(money.bank.floor).filter(([f]) => room.sim.food.get(f.id) !== f);
+    assert.equal(stranded.length, 1, 'one pellet whose food is gone');
+    assert.ok(stranded[0][1].micro > 0);
+    assert.equal(money.worthOf(a.seat.snakeId) + money.bank.floorMicro(), 2 * STAKE, 'nothing left the room');
+    assert.ok(money.worthOf(a.seat.snakeId) > STAKE, 'the other eats still credit');
+    assert.equal(s.of('onBreach').filter((c) => c[1].kind === 'fact').length, 1);
+    assert.equal(s.of('onOwed').length, 0);
+    assert.equal(money.tainted, false);
+  }
 });
 
 // ------------------------------------------------------------------ stop, halt

@@ -252,6 +252,11 @@ function paidRoom(laws, R, o) {
     if (typeof m[k] !== 'function') throw new TypeError('slRoom: opts.money needs ' + k + ' (slPaid/slMoney.js)');
   }
   if (o.bots) throw new Error('slRoom: a paid room keeps no bots (BRIEF answer 4)');
+  // the seed drives the spawn ring, the same-step order and the drops: a paid room never falls back to the wall
+  // clock's (design 1, D2-m4), the directory draws it with crypto.randomInt
+  if (!Number.isSafeInteger(o.seed) || o.seed < 1) {
+    throw new Error('slRoom: a paid room needs its seed, a whole number >= 1 (crypto.randomInt)');
+  }
   assertLawsComplete(laws, PAID_LAW_IDS);
   const cap = laws.C_PAID_HUMAN_CAP.value;
   if (!Number.isInteger(cap) || cap < 1) bad('C_PAID_HUMAN_CAP', 'must be a whole number >= 1');
@@ -297,7 +302,7 @@ function cleanChat(text, R) {
 
 class SlRoom {
   // laws: the law table. opts:
-  //   seed          the room seed (default: from the wall clock; tests pass one)
+  //   seed          the room seed (default: from the wall clock; tests pass one; a paid room requires it)
   //   view          the seat view factory (the contract above); default require('./slView')
   //   bots          optional bot driver { beforeInputs(room, tickSimMs), afterStep(room, log, simMs), add(room),
   //                 clear(room), count(), isBot(id) } (slBots; task T12)
@@ -575,6 +580,7 @@ class SlRoom {
       acct = this.money.open(id, entry);
     } catch (e) {
       this._undoSeat(built);
+      this._keepRefundAlive(entry);
       throw e;
     }
     const seat = built.seat;
@@ -592,15 +598,27 @@ class SlRoom {
       try {
         this.money.abort(id);
       } catch (e2) {
-        // the bank refused the withdraw: the account stays open, the door sees it and refunds nothing, and the
-        // controller's orphan check refunds it through the owed lane once its snake is gone (the undo below)
+        // the bank refused the withdraw: the account stays open and the door sees it and refunds nothing; the
+        // controller logged it CRITICAL with its jid and micro, alerted and tainted the room (no new seat)
         this.log.error('[SLP] SEAT CRITICAL abort of snake ' + id + ' refused (' + this.lobbyType + '): ' +
           (e2 && e2.message));
       }
       this._undoSeat(built);
+      this._keepRefundAlive(entry);
       throw e;
     }
     return acct;
+  }
+
+  // A seat undone while its account stayed open (the bank refused the rollback or the abort): its snake is gone, so
+  // the controller's orphan check (I4, every step end) is what refunds it through the owed lane, and only a ticking
+  // room has step ends. The first seat of a room had not started the clock yet (C comes last), and the idle pause
+  // waits for every account to close, so the clock runs until I4 settles it or a restart's settle does.
+  _keepRefundAlive(entry) {
+    const jid = entry && entry.jid;
+    if (typeof jid === 'string' && this._safe(() => this.money.account(jid), 'sl.paid.account')) {
+      this._safe(() => this._ensureTicking(), 'sl.paid.tick');
+    }
   }
 
   // seatPaid's undo: everything the build made goes, each part in its own try, so one failing part never keeps the
@@ -1395,13 +1413,16 @@ class SlRoom {
 
   // A paid cash-out (PAID-SL-DESIGN 6), money FIRST: money.cashOut withdraws the account, closes its journal record
   // and dispatches the 90/10 payout order before it returns (critic C-6). A refusal before the withdraw throws there:
-  // the snake keeps playing (its hold lock and ring end; the controller logged and alerted). Only then does the snake
-  // leave the sim and the own seat get {t:'cashed', len, gross, cut, net, cid}; a throw in that part is logged
-  // CRITICAL with an alert and goes on to _wakeFailed (the emergency close), and the payout is already on its way.
+  // the snake keeps playing (its hold lock and ring end; the controller logged CRITICAL and alerted). A throw with the
+  // account gone is not proof the order went out: it is logged CRITICAL and alerted with the gross for the owner to
+  // reconcile by hand (the journal close holds the cashoutId), and the snake leaves. Only then does the snake leave
+  // the sim and the own seat get {t:'cashed', len, gross, cut, net, cid}; a throw in that part (its length included)
+  // is logged CRITICAL with an alert and goes on to _wakeFailed (the emergency close), the payout already on its way.
   _paidCashOut(s, frame, simMs) {
     const id = s.id;
     const seat = this.bySnake.get(id);
-    let o;
+    const gross = this._safe(() => this.money.worthOf(id), 'sl.paid.worth');
+    let o = null;
     try {
       o = this.money.cashOut(id, seat && seat.socket ? seat.id : null);
     } catch (e) {
@@ -1410,21 +1431,25 @@ class SlRoom {
         this._ringAll(frame.tick, id, 0);
         return;
       }
-      // not refused: the account is gone, so the order went out; the snake must leave like any cash-out
-      this.log.error('[SLP] CASHOUT threw after the withdraw (' + this.lobbyType + '): ' + (e && e.message));
+      this.log.error('[SLP] CASHOUT CRITICAL snake ' + id + ' withdrawn (' + gross + ' micro) but cashOut threw, its ' +
+        'order is unconfirmed (' + this.lobbyType + '): ' + (e && e.message));
+      this._paidAlert('cashout-unconfirmed', { snakeId: id, micro: gross });
     }
-    const msg = o ? { t: 'cashed', len: this._lenOf(s), gross: o.gross, cut: o.cut, net: o.net, cid: o.cid } :
-      { t: 'cashed', len: this._lenOf(s) };
     try {
+      const len = this._lenOf(s);
+      const msg = o ? { t: 'cashed', len, gross: o.gross, cut: o.cut, net: o.net, cid: o.cid } : { t: 'cashed', len };
       this._cashedOut(id, frame, simMs, msg);
     } catch (e) {
       this.log.error('[SLP] CASHOUT CRITICAL snake ' + id + ' paid (' + (o ? o.cid : 'no order') + ') but its removal ' +
         'threw (' + this.lobbyType + '): ' + (e && e.message));
-      if (typeof this.money._alert === 'function') {
-        this._safe(() => this.money._alert('cashout-removal', { snakeId: id }), 'sl.paid.alert');
-      }
+      this._paidAlert('cashout-removal', { snakeId: id });
       throw e;
     }
+  }
+
+  // A room alert through the controller's (wallets stripped, one per room per kind per 10 min); never throws.
+  _paidAlert(kind, info) {
+    if (typeof this.money._alert === 'function') this._safe(() => this.money._alert(kind, info), 'sl.paid.alert');
   }
 
   // The snake of a completed hold leaves (no food), others are told C_CASHOUT_CODE, the own seat gets msg (kept).

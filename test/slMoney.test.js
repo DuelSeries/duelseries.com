@@ -144,6 +144,9 @@ test('the hooks are all required; there is no refund hook', () => {
   assert.throws(() => createSlMoney({ stake: 0.5, hooks: Object.assign({}, s.hooks, { journal: { open() {} } }) }), /journal/);
   assert.throws(() => createSlMoney({ stake: 0, hooks: s.hooks }), /stake/);
   assert.throws(() => createSlMoney({ stake: 0.5, hooks: s.hooks, checkEvery: 0 }), /checkEvery/);
+  // a logger missing a line a money path writes is refused here, not found inside a cash-out
+  assert.throws(() => createSlMoney({ stake: 0.5, hooks: s.hooks, log: { error() {}, warn() {} } }), /log needs log and error/);
+  assert.throws(() => createSlMoney({ stake: 0.5, hooks: s.hooks, log: { log() {}, warn() {} } }), /log needs log and error/);
   assert.ok(createSlMoney({ stake: 1, hooks: s.hooks }) instanceof SlMoney);
   assert.equal(HOUSE_CUT_DIV, 10);
 });
@@ -234,6 +237,34 @@ test('abort: the deposit out, the seat forgotten, no journal close (the door wri
   i1(m);
   m.shutdownSettle('shutdown');
   assert.throws(() => m.open(8, entry(2)), /settled/);
+});
+
+test('a seat refund the bank refuses (abort, or open\'s rollback): left open, CRITICAL with its jid and micro, alerted, the room tainted', () => {
+  // abort: an inflated account makes the ceiling refuse the refund withdraw
+  const s = spy();
+  const m = money(s);
+  m.open(7, entry(1));
+  m.bank.accounts.set(7, Object.assign({}, m.bank.accounts.get(7), { micro: STAKE * 3 }));
+  assert.throws(() => m.abort(7), /ceiling/);
+  assert.ok(m.account(7) && m.bank.isOpen(7), 'the account stays open (the door refunds nothing)');
+  assert.ok(m.lines.some((l) => l.includes('SEAT CRITICAL abort refund of snake 7 (' + jidOf(1) + ', ' + STAKE * 3 +
+    ' micro) refused, left open')));
+  assert.deepEqual(s.of('onBreach').map((c) => c[1]).filter((b) => b.kind === 'seat-refund-refused'),
+    [{ snakeId: 7, jid: jidOf(1), micro: STAKE * 3, why: 'abort', kind: 'seat-refund-refused', lobbyType: LABEL }]);
+  assert.equal(m.tainted, true);
+  assert.throws(() => m.open(8, entry(2)), /tainted/, 'no new seat in a room whose bank refused a refund');
+  // open's rollback: the wallet is seated, and the ceiling refuses the rollback while account 7 is inflated
+  const s2 = spy();
+  const m2 = money(s2);
+  m2.open(7, entry(1));
+  m2.bank.accounts.set(7, Object.assign({}, m2.bank.accounts.get(7), { micro: STAKE * 3 }));
+  assert.throws(() => m2.open(8, Object.assign(entry(2), { wallet: 'W1' })), /already seated/);
+  assert.ok(m2.account(8) && m2.bank.isOpen(8), 'left open with its deposit');
+  assert.ok(m2.lines.some((l) => l.includes('SEAT CRITICAL rollback refund of snake 8 (' + jidOf(2) + ', ' + STAKE +
+    ' micro) refused, left open')));
+  assert.ok(s2.of('onBreach').some((c) => c[1].kind === 'seat-refund-refused' && c[1].why === 'rollback' &&
+    c[1].jid === jidOf(2) && c[1].micro === STAKE));
+  assert.equal(m2.tainted, true);
 });
 
 // ------------------------------------------------------------------ the facts
@@ -414,6 +445,36 @@ test('cash-out: a hook that throws or rejects is logged, never rethrown; a refus
   m3.bank.accounts.set(7, Object.assign({}, m3.bank.accounts.get(7), { micro: STAKE * 3 }));
   assert.throws(() => m3.cashOut(7), /ceiling/);
   assert.ok(m3.account(7));
+  assert.equal(s3.of('onCashout').length, 0);
+  assert.ok(s3.of('onBreach').some((c) => c[1].kind === 'cashout-refused'));
+});
+
+test('cash-out: a logger that throws on the order line still sends the order once; a throw before the withdraw is CRITICAL and alerted', () => {
+  // the order line is the last thing before the dispatch: a throwing logger must not strand the withdrawn account
+  const s = spy();
+  const m = money(s, { log: { log() { throw new Error('stdout gone'); }, warn() {}, error() {} } });
+  m.open(7, entry(1));
+  const o = m.cashOut(7, 'sock-1');
+  assert.deepEqual(s.of('onCashout').map((c) => [c[1].cashoutId, c[1].grossMicro]), [[o.cid, STAKE]]);
+  assert.deepEqual(s.journal.records.filter((x) => x.t === 'close').map((x) => [x.outcome, x.cashoutId]), [['cashedout', o.cid]]);
+  assert.equal(m.account(7), null);
+  i1(m);
+  // the cashout id is drawn before the withdraw: its throw changes nothing and is alerted like a refused withdraw
+  const s2 = spy();
+  const m2 = money(s2, { uuid: () => { throw new Error('no entropy'); } });
+  m2.open(7, entry(1));
+  assert.throws(() => m2.cashOut(7), /no entropy/);
+  assert.ok(m2.account(7) && m2.bank.isOpen(7));
+  assert.equal(m2.worthOf(7), STAKE);
+  assert.equal(s2.of('onCashout').length, 0);
+  assert.ok(s2.of('onBreach').some((c) => c[1].kind === 'cashout-refused' && c[1].snakeId === 7));
+  assert.ok(m2.lines.some((l) => /CASHOUT CRITICAL refused for snake 7 .*it keeps playing: no entropy/.test(l)));
+  // a record with no bank account behind it (a mirror broken elsewhere) is refused the same way, nothing paid
+  const s3 = spy();
+  const m3 = money(s3);
+  m3.open(7, entry(1));
+  m3.bank.withdraw(7, 'refund');
+  assert.throws(() => m3.cashOut(7), /no account 7/);
   assert.equal(s3.of('onCashout').length, 0);
   assert.ok(s3.of('onBreach').some((c) => c[1].kind === 'cashout-refused'));
 });
