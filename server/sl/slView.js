@@ -5,9 +5,10 @@
 // forms, and keeps per seat a mirror of what that client holds (SERVER-DESIGN 8.1).
 //
 // The room's contract (server/sl/slRoom.js, "THE SEAT VIEW CONTRACT"):
-//   createWorld(laws, sim) -> world                      once per room; world.afterStep(frame) after every sim step
+//   createWorld(laws, sim, opts) -> world                once per room; world.afterStep(frame) after every sim step
 //                                                       (frame = { tick, log, clocks, board, locks, ... }: the room
-//                                                       runs the L8 sweep, L9, L10 and L11 clocks and the L9 order)
+//                                                       runs the L8 sweep, L9, L10 and L11 clocks and the L9 order);
+//                                                       opts.eatThenRefill (paid rooms, refillsOf)
 //   createSeatView(laws, { sim, world, ownId }) -> v    one per seat; v.join(ctx) -> events (the join bundle),
 //                                                       v.collect(ctx) -> events once per wake, v.noteOwnRot({ dir,
 //                                                       wangRaw }) after an own echo, v.resync() (forget all but the
@@ -250,6 +251,9 @@ function createView(laws, sim, opts) {
   const food = sim.food || null;
   const preys = sim.preys || null;
   const roomMode = o.room === true;
+  // Paid rooms only (createWorld opts.eatThenRefill, slRoom): see refillsOf. Off, every record goes out exactly as
+  // the free room's always has (its goldens).
+  const eatThenRefill = o.eatThenRefill === true;
   const cache = createRecordCache(V.pv);
   const OFF_S = offsetsFor(V.r2Small);
   const OFF_L = offsetsFor(V.r2Large);
@@ -645,6 +649,7 @@ function createView(laws, sim, opts) {
     }
     for (; fi < fe.length; fi++) g.eats.push({ food: fe[fi].food, prey: 0, ev: fe[fi].ev });
     for (; pi < pe.length; pi++) g.eats.push({ food: null, prey: pe[pi].id, ev: pe[pi].ev });
+    if (eatThenRefill && food && g.eats.length > 0 && food.tick.adds.length > 0) g.refill = refillsOf(food.tick.adds, g.eats);
 
     // the clocks: the room's (room mode) or the view's own
     const c = f && f.clocks ? f.clocks : null;
@@ -1085,9 +1090,67 @@ function createView(laws, sim, opts) {
     return out;
   }
 
+  // A cell eaten and filled again in one step (eatThenRefill). A step's adds go out before its eats (L25, the module
+  // header), and their client applies an eat to the NEWEST food of that id (slApply.js:1110-1121): the add of the new
+  // food would sit beside the eaten one, then the eat would take the new one, leaving a ghost of the eaten food on
+  // screen and the new one (in a paid room, gold) invisible. Found by the paid soak's client model (a doubleFood
+  // burst, 2026-10-15): a dense gold pile is where a drop's nearest free cell is the one just eaten. One food per
+  // cell (slFood), so a cell's foods in a step form a chain: the food it held before the step, then each add, each
+  // eaten before the next one was placed. -> null, or { before: Map add -> the g.eats entry of the food its cell
+  // held before it, added: Set of this step's adds }.
+  function refillsOf(adds, eats) {
+    let eatenIn = null; // cell id -> foods eaten there this step
+    const eatOf = new Map(); // eaten food -> its g.eats entry
+    for (let i = 0; i < eats.length; i++) {
+      const f = eats[i].food;
+      if (!f) continue;
+      eatOf.set(f, eats[i]);
+      if (eatenIn === null) eatenIn = new Map();
+      const l = eatenIn.get(f.id);
+      if (l) l.push(f);
+      else eatenIn.set(f.id, [f]);
+    }
+    if (eatenIn === null) return null;
+    let out = null;
+    let added = null;
+    const last = new Map(); // cell id -> this step's latest add there
+    for (let i = 0; i < adds.length; i++) {
+      const fd = adds[i];
+      const eaten = eatenIn.get(fd.id);
+      if (!eaten) continue;
+      if (added === null) added = new Set(adds);
+      let prev = last.get(fd.id);
+      if (prev === undefined) prev = eaten.find((x) => !added.has(x)); // the food the cell held before the step
+      last.set(fd.id, fd);
+      const e = prev ? eatOf.get(prev) : undefined;
+      if (e === undefined) continue;
+      if (out === null) out = { before: new Map(), added };
+      out.before.set(fd, e);
+    }
+    return out;
+  }
+
+  // With refills (rf: this seat's records of g already sent): an add goes after the eat of the food its cell held
+  // before it, and an eat after its own food's add when that food was added in the same step. Each record once.
+  function addRefill(seat, out, g, rf, fd) {
+    if (rf.adds.has(fd)) return;
+    rf.adds.add(fd);
+    const e = g.refill.before.get(fd);
+    if (e !== undefined) eatRefill(seat, out, g, rf, e);
+    if (sectorLive(seat, fd.si)) push(out, g.tick, food.addEvent(fd), false);
+  }
+
+  function eatRefill(seat, out, g, rf, e) {
+    if (rf.eats.has(e)) return;
+    rf.eats.add(e);
+    if (g.refill.added.has(e.food)) addRefill(seat, out, g, rf, e.food);
+    if (sectorLive(seat, e.food.si)) push(out, g.tick, e.ev, false);
+  }
+
   function deliver(seat, out, g) {
     const stamp = seat.stamp;
     const t = g.tick;
+    const rf = g.refill ? { adds: new Set(), eats: new Set() } : null;
     // updates: h, the snake's boost drops (by kept sector, to every seat watching it, L24 order), r, rotation, move per
     // held snake (not one added in this assemble)
     for (let i = 0; i < g.upd.length; i++) {
@@ -1098,7 +1161,8 @@ function createView(laws, sim, opts) {
       if (u.drops) {
         for (let k = 0; k < u.drops.length; k++) {
           const fd = u.drops[k];
-          if (sectorLive(seat, fd.si)) push(out, t, food.addEvent(fd), false);
+          if (rf !== null) addRefill(seat, out, g, rf, fd);
+          else if (sectorLive(seat, fd.si)) push(out, t, food.addEvent(fd), false);
         }
       }
       if (!held) continue;
@@ -1130,7 +1194,8 @@ function createView(laws, sim, opts) {
     // the other food adds (L25: natural f, death drops b after the deaths), by kept sector
     for (let i = 0; i < g.foodAdds.length; i++) {
       const f = g.foodAdds[i];
-      if (sectorLive(seat, f.si)) push(out, t, food.addEvent(f), false);
+      if (rf !== null) addRefill(seat, out, g, rf, f);
+      else if (sectorLive(seat, f.si)) push(out, t, food.addEvent(f), false);
     }
     // prey updates and removals (L33, L32.remove) to the seats holding the prey
     for (let i = 0; i < g.preyMoves.length; i++) {
@@ -1149,7 +1214,8 @@ function createView(laws, sim, opts) {
     for (let i = 0; i < g.eats.length; i++) {
       const e = g.eats[i];
       if (e.food) {
-        if (sectorLive(seat, e.food.si)) push(out, t, e.ev, false);
+        if (rf !== null) eatRefill(seat, out, g, rf, e);
+        else if (sectorLive(seat, e.food.si)) push(out, t, e.ev, false);
       } else if (seat.prey.has(e.prey)) {
         push(out, t, e.ev, false);
         seat.prey.delete(e.prey);
@@ -1267,6 +1333,7 @@ function createView(laws, sim, opts) {
     V,
     laws,
     sim,
+    eatThenRefill,
     join,
     tick,
     assemble,
@@ -1291,8 +1358,9 @@ function createView(laws, sim, opts) {
 // ------------------------------------------------------------------ the room's contract (server/sl/slRoom.js)
 
 // One per room: the view in room mode (the room's clocks, L9 order and hold locks come with each step's frame).
-function createWorld(laws, sim) {
-  const view = createView(laws, sim, { room: true });
+// opts.eatThenRefill: a paid room's (refillsOf in createView); the free room passes no opts.
+function createWorld(laws, sim, opts) {
+  const view = createView(laws, sim, { room: true, eatThenRefill: !!(opts && opts.eatThenRefill === true) });
   return {
     view,
     afterStep(frame) {

@@ -27,7 +27,7 @@
 // setImmediate, so every record of one POST leaves in one bundle.
 //
 // THE SEAT VIEW CONTRACT. The room does not decide what a seat is sent; slView does (task T8). The room calls:
-//   opts.view.createWorld(laws, sim) -> world                    once per room
+//   opts.view.createWorld(laws, sim) -> world                    once per room (a paid room adds { eatThenRefill: true })
 //   world.afterStep(frame)                                        once per sim step, right after it, while sim.log
 //                                                                 (frame.log) is valid: the shared records of the step
 //   world.idBlocked(id)                                           (optional) true while a seat may still hold id
@@ -353,7 +353,11 @@ class SlRoom {
     if (paid) simOpts.paidDrops = paid.paidDrops;
     this.sim = createSim(laws, simOpts);
     this.K = slSnake.snakeLaws(laws);
-    this.world = viewFactory.createWorld(laws, this.sim);
+    // a paid room's view sends the eat of a cell's food before the add that fills the cell again in the same step
+    // (slView refillsOf: a gold pile, found by the paid soak); the free room's stream stays as its goldens pin it
+    this.world = paid
+      ? viewFactory.createWorld(laws, this.sim, { eatThenRefill: true })
+      : viewFactory.createWorld(laws, this.sim);
     this.holds = createHoldBook(laws);
     this.scoreTables = slCore.buildScoreTables(R.mscps);
 
