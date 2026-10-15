@@ -1,7 +1,8 @@
 const {
   Connection, PublicKey, Keypair,
-  Transaction, SystemProgram, LAMPORTS_PER_SOL,
+  Transaction, SystemProgram, LAMPORTS_PER_SOL, VersionedTransaction,
 } = require('@solana/web3.js');
+const { ed25519 } = require('@noble/curves/ed25519');
 // bs58 to compute a tx's signature string BEFORE broadcasting it. v6 is ESM-first and exposes
 // its API under `.default` in CJS, so unwrap defensively (works whichever shape ships).
 const _bs58 = require('bs58');
@@ -145,6 +146,9 @@ async function withdraw(toAddress, amountSol) {
 //   • only once that tx has provably expired without landing does it build a FRESH one.
 // onFreshTx(broadcast) is awaited the instant a new tx is built — BEFORE it's sent — so the
 // signature is saved first and a crash mid-send can never strand an un-tracked transfer.
+// onFreshTx is a compare-and-set (db.savePayoutSignature): when it answers false another attempt
+// saved its own tx for this row first, and this fresh one is dropped unsent (Usdc.js has the same).
+const PAYOUT_SUPERSEDED = 'payout-superseded';
 async function attemptPayout(row, onFreshTx) {
   if (row.signature) {
     const landed = await signatureLanded(row.signature);
@@ -162,7 +166,12 @@ async function attemptPayout(row, onFreshTx) {
     // landed === false (errored on-chain) → build fresh
   }
   const built = await buildSignedPayout(row.wallet_address, row.amount_sol);
-  await onFreshTx({ signature: built.signature, signedTx: built.signedTx, blockhash: built.blockhash, lastValidBlockHeight: built.lastValidBlockHeight });
+  const saved = await onFreshTx({ signature: built.signature, signedTx: built.signedTx, blockhash: built.blockhash, lastValidBlockHeight: built.lastValidBlockHeight });
+  if (saved === false) {
+    const e = new Error('another attempt saved its own transaction for this payout first; nothing sent');
+    e.code = PAYOUT_SUPERSEDED;
+    throw e;
+  }
   await withRetry(() => connection.sendRawTransaction(built.raw, { skipPreflight: false }), 6);
   const ok = await confirmSig(built.signature, built.lastValidBlockHeight);
   return ok ? { paid: true, sig: built.signature } : { paid: false };
@@ -199,24 +208,143 @@ async function getLatestBlockhash() {
   return { blockhash, lastValidBlockHeight };
 }
 
-// Forward a JSON-RPC request to the server's Solana RPC so the BROWSER can make RPC calls
-// via our backend instead of hitting a public RPC that 403s browser origins.
+/* Forward a JSON-RPC request to the server's Solana RPC so the BROWSER can make RPC calls via our
+   backend instead of hitting a public RPC that 403s browser origins.
+
+   It relays to our PAID provider key, from an unauthenticated route, so it is not an open relay
+   (security review 2026-10-15, "open Helius relay"): one request per call (a JSON-RPC batch array
+   is refused: one 100 kB body used to fan out into hundreds of billed calls), and only the methods
+   the wallet widget's Privy SDK (@solana/kit, wallet-widget/src/main.jsx) actually calls, plus a
+   few cheap reads of the same kind. Read off the built widget (public/wallet/widget.js): balances
+   and token accounts (getBalance, getTokenAccountsByOwner, getAccountInfo, getMultipleAccounts),
+   building and sending a transfer (getLatestBlockhash, getFeeForMessage, simulateTransaction,
+   sendTransaction, getGenesisHash), confirming it (getSignatureStatuses, getEpochInfo,
+   getBlockHeight, getSlot, getTransaction). The widget sends no batches. Anything that enumerates
+   the chain or returns blocks (getProgramAccounts, getBlock, getBlocks, getSignaturesForAddress,
+   getLargestAccounts, getSupply, ...) is refused. The forwarded body is rebuilt from the four
+   JSON-RPC fields, the provider gets 10 s, and a reply over 2 MB is dropped rather than held in
+   memory. */
+const RPC_RELAY_METHODS = new Set([
+  'getAccountInfo', 'getBalance', 'getBlockHeight', 'getEpochInfo', 'getFeeForMessage',
+  'getGenesisHash', 'getHealth', 'getLatestBlockhash', 'getMinimumBalanceForRentExemption',
+  'getMultipleAccounts', 'getRecentPrioritizationFees', 'getSignatureStatuses', 'getSlot',
+  'getTokenAccountBalance', 'getTokenAccountsByOwner', 'getTokenSupply', 'getTransaction',
+  'getVersion', 'isBlockhashValid', 'sendTransaction', 'simulateTransaction',
+]);
+const RPC_RELAY_TIMEOUT_MS = 10_000;
+const RPC_RELAY_MAX_BYTES = 2 * 1024 * 1024;
+
+// null when `body` may be relayed, otherwise why not (the route answers 400 with it).
+function rpcRequestError(body) {
+  if (Array.isArray(body)) return 'Batch requests are not supported';
+  if (!body || typeof body !== 'object' || Buffer.isBuffer(body)) return 'Not a JSON-RPC request';
+  if (typeof body.method !== 'string' || !RPC_RELAY_METHODS.has(body.method)) return 'RPC method not allowed';
+  if (body.params !== undefined && !Array.isArray(body.params)) return 'Not a JSON-RPC request';
+  const id = body.id;
+  if (id !== undefined && id !== null && typeof id !== 'number' && !(typeof id === 'string' && id.length <= 64)) {
+    return 'Not a JSON-RPC request';
+  }
+  return null;
+}
+
+function relayError(message, status) {
+  const e = new Error(message);
+  e.status = status;
+  return e;
+}
+
 async function forwardRpc(body) {
+  const bad = rpcRequestError(body);
+  if (bad) throw relayError(bad, 400);
+  const payload = { jsonrpc: '2.0', id: body.id === undefined ? null : body.id, method: body.method };
+  if (body.params !== undefined) payload.params = body.params;
   const r = await fetch(RPC_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(RPC_RELAY_TIMEOUT_MS),
   });
-  return await r.text();
+  const declared = Number(r.headers && typeof r.headers.get === 'function' ? r.headers.get('content-length') : NaN);
+  if (Number.isFinite(declared) && declared > RPC_RELAY_MAX_BYTES) {
+    try { if (r.body && typeof r.body.cancel === 'function') await r.body.cancel(); } catch (_) {}
+    throw relayError('RPC reply too large', 502);
+  }
+  if (!r.body || typeof r.body.getReader !== 'function') {
+    const text = await r.text();
+    if (Buffer.byteLength(text) > RPC_RELAY_MAX_BYTES) throw relayError('RPC reply too large', 502);
+    return text;
+  }
+  // Read it in chunks and stop at the cap, so a huge reply is never buffered whole.
+  const reader = r.body.getReader();
+  const chunks = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > RPC_RELAY_MAX_BYTES) {
+      try { await reader.cancel(); } catch (_) {}
+      throw relayError('RPC reply too large', 502);
+    }
+    chunks.push(Buffer.from(value.buffer, value.byteOffset, value.byteLength));
+  }
+  return Buffer.concat(chunks, total).toString('utf8');
 }
 
-// Submit a client-signed stake transaction and wait for it to confirm via HTTP polling
-// (no WebSocket — browsers can't reach the public RPC's WSS). Returns the signature.
-async function submitStake(rawTx) {
+/* What a client-signed stake transaction says about itself, read from its own bytes before
+   anything is sent (security review 2026-10-15, findings 3 and 5): its signature (the tx id, the
+   fee payer's signature, which is exactly what sendRawTransaction returns), its fee payer (the
+   wallet a stake is owed to; the verifier reads the same key off the landed tx) and its
+   blockhash (the tx can land only while that is valid). The fee payer's signature over the
+   message is checked here, so only bytes the payer really signed can ever claim a stake row.
+   Throws on anything that is not such a transaction. */
+function stakeTxInfo(raw) {
+  const bytes = Buffer.isBuffer(raw) ? raw : Buffer.from(raw || []);
+  let tx;
+  try { tx = VersionedTransaction.deserialize(bytes); } catch (_) { throw new Error('Not a signed transaction'); }
+  const n = tx.signatures.length;
+  const sig = tx.signatures[0];
+  const keys = tx.message.staticAccountKeys;
+  if (!n || !sig || sig.length !== 64 || !keys || !keys.length) throw new Error('Not a signed transaction');
+  // The signed message is everything after the compact-u16 signature count and the signatures.
+  const message = bytes.subarray((n < 0x80 ? 1 : n < 0x4000 ? 2 : 3) + 64 * n);
+  // Strict (RFC 8032) like the chain's own check, so a re-encoded copy of a real signature, which
+  // the chain would refuse anyway, is refused here too.
+  let ok = false;
+  try { ok = ed25519.verify(sig, message, keys[0].toBytes(), { zip215: false }); } catch (_) { ok = false; }
+  if (!ok) throw new Error('Stake transaction is not signed by its payer');
+  return { signature: bs58.encode(sig), payer: keys[0].toBase58(), blockhash: tx.message.recentBlockhash };
+}
+
+/* Submit a client-signed transaction and wait for it to confirm via HTTP polling (no WebSocket;
+   browsers can't reach the public RPC's WSS). Returns the signature.
+
+   opts.beforeSend(info) (the stake route): awaited with stakeTxInfo(rawTx) BEFORE anything is
+   sent. The route records the stake's pending-verify row there, keyed by the signature, so a
+   second submit of the same bytes is refused before it reaches the chain and a stake that lands
+   after this request has failed is still found and refunded (stakeLedger.sweep). If it throws,
+   nothing is sent. /api/broadcast passes no opts and is unchanged.
+
+   A read that fails while polling is not a failed transaction: the poll keeps going, bounded by
+   40 looks and 45 s, instead of reporting a stake that may still land as failed. */
+async function submitStake(rawTx, opts) {
+  const beforeSend = opts && typeof opts.beforeSend === 'function' ? opts.beforeSend : null;
+  let info = null;
+  if (beforeSend) {
+    info = stakeTxInfo(rawTx);
+    await beforeSend(info);
+  }
   const sig = await connection.sendRawTransaction(rawTx, { skipPreflight: false, maxRetries: 5 });
-  for (let i = 0; i < 40; i++) {
-    const st = await connection.getSignatureStatus(sig);
-    const v = st && st.value;
+  if (info && sig !== info.signature) throw new Error('Stake signature mismatch');
+  const deadline = Date.now() + 45_000;
+  for (let i = 0; i < 40 && Date.now() < deadline; i++) {
+    let v = null;
+    try {
+      const st = await connection.getSignatureStatus(sig);
+      v = st && st.value;
+    } catch (_) {
+      v = null;                 // a failed read, not a failed transaction: look again
+    }
     if (v) {
       if (v.err) throw new Error('Stake transaction failed on-chain');
       if (v.confirmationStatus === 'confirmed' || v.confirmationStatus === 'finalized') return sig;
@@ -224,6 +352,25 @@ async function submitStake(rawTx) {
     await new Promise((r) => setTimeout(r, 800));
   }
   throw new Error('Stake not confirmed in time — please try again');
+}
+
+/* For the pending-verify sweep (stakeLedger): what the chain says about a stake signature.
+   'landed' (confirmed, no error), 'failed' (landed with an error: nothing moved but the fee), or
+   null (not seen yet, or only processed). History is searched, so an old landing is found. */
+async function stakeSigStatus(signature) {
+  const st = await withRetry(() => connection.getSignatureStatus(signature, { searchTransactionHistory: true }));
+  const v = st && st.value;
+  if (!v) return null;
+  if (v.err) return 'failed';
+  return (v.confirmationStatus === 'confirmed' || v.confirmationStatus === 'finalized') ? 'landed' : null;
+}
+
+/* Whether a transaction with this blockhash can still land. Asked at 'finalized': a blockhash too
+   old even for the finalized bank is too old for every later bank, so false means expired (the
+   sweep only asks about rows minutes old, long after a fresh blockhash is finalized). */
+async function blockhashValid(blockhash) {
+  const r = await withRetry(() => connection.isBlockhashValid(blockhash, { commitment: 'finalized' }));
+  return !!(r && r.value);
 }
 
 async function getAddressBalance(address) {
@@ -262,4 +409,6 @@ async function getRecentSigs() {
   }));
 }
 
-module.exports = { getEscrowPublicKey, getRecentSigs, withdraw, attemptPayout, getEscrowBalance, getAddressBalance, getEscrowDiagnostics, verifyStakeTransfer, getLatestBlockhash, forwardRpc, submitStake, NETWORK, setDb, seedUsedSignatures };
+module.exports = { getEscrowPublicKey, getRecentSigs, withdraw, attemptPayout, getEscrowBalance, getAddressBalance, getEscrowDiagnostics, verifyStakeTransfer, getLatestBlockhash, forwardRpc, submitStake, NETWORK, setDb, seedUsedSignatures,
+                   rpcRequestError, RPC_RELAY_METHODS, RPC_RELAY_MAX_BYTES, stakeTxInfo, stakeSigStatus, blockhashValid,
+                   PAYOUT_SUPERSEDED, connection };

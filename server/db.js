@@ -196,6 +196,13 @@ const DURABLE_STAKE_DDL = [
   // A second, independent guard: at most one owed refund row per stake, whatever the code does.
   `ALTER TABLE failed_payouts ADD COLUMN IF NOT EXISTS stake_sig TEXT`,
   `CREATE UNIQUE INDEX IF NOT EXISTS failed_payouts_stake_sig_uniq ON failed_payouts (stake_sig) WHERE stake_sig IS NOT NULL`,
+  // The pending-verify claim (security review 2026-10-15, findings 3 and 5): /api/submit-stake
+  // writes the row as 'verifying' BEFORE it broadcasts the signed stake, keyed by the signature
+  // read from the bytes, with the fee payer and the tx's blockhash. A second submit of the same
+  // bytes is refused before anything is sent, and a stake that lands after its request failed is
+  // found by the sweep: refunded to the payer if it landed, closed once its blockhash expired.
+  `ALTER TABLE used_stake_sigs ADD COLUMN IF NOT EXISTS blockhash TEXT`,
+  `CREATE INDEX IF NOT EXISTS idx_uss_verifying ON used_stake_sigs (created_at) WHERE state = 'verifying'`,
 ];
 
 const PAYOUT_LANE_DDL = [
@@ -382,6 +389,106 @@ async function listUnsettledStakes({ region = null, bootId = null, staleSeconds 
   return r.rows.map(x => ({ ...x, refund_amount: parseFloat(x.refund_amount) }));
 }
 
+/* ─── The pending-verify claim (security review 2026-10-15, findings 3 and 5) ──────────────────
+   /api/submit-stake used to broadcast first and write the stake's row only after verifying it,
+   so a stake that landed after the request had already failed (a status read that threw, the
+   40-poll timeout, a lagging node, a restart mid-request: every deploy) had no row, no token and
+   no refund. And whoever posted a stake's bytes first was minted its token. Now the row is
+   written BEFORE the broadcast, keyed by the signature read from the signed bytes:
+
+     verifying --the request verified it (confirmStakeVerify)----------> pending   (as before)
+     verifying --the sweep: it landed, nobody verified it (same UPDATE)-> pending -> refunded
+     verifying --the sweep: it never landed, or failed, or paid short---> expired | failed | rejected
+
+   Every arrow is one conditional UPDATE on state = 'verifying', so the request and the sweep
+   (on any server) can never both settle a row. A 'verifying' row is invisible to every door,
+   refund and sweep that came before (they all read state = 'pending' or 'consumed'). */
+
+/* Before the broadcast. meta: { wallet (the tx's fee payer), amount (the least the verifier must
+   see land: the rung or the tier fee, in the money unit), label, region, bootId, blockhash }.
+   Only the payer's own client holds the bytes until our server sends them, so the first submit
+   owns the row, and a second submit of the same bytes (a replay, or someone who saw them on the
+   network before they confirmed) is refused before anything is sent. Returns { claimed,
+   durable }: without the ledger columns nothing is written (claimed true, durable false) and the
+   caller keeps its in-memory guard and the old claim after verify. */
+async function claimStakeVerify(sig, meta) {
+  if (!features.durableStakes) return { claimed: true, durable: false };
+  const m = meta || {};
+  const min = Number(m.amount);
+  try {
+    const r = await pool.query(
+      `INSERT INTO used_stake_sigs (sig, state, wallet_address, refund_amount, label, region, boot_id, blockhash)
+       VALUES ($1, 'verifying', $2, $3, $4, $5, $6, $7)
+       ON CONFLICT DO NOTHING RETURNING sig`,
+      [sig, typeof m.wallet === 'string' && m.wallet ? m.wallet : null, Number.isFinite(min) && min > 0 ? min : null,
+       String(m.label || '').slice(0, 100), m.region || null, m.bootId || null,
+       typeof m.blockhash === 'string' && m.blockhash ? m.blockhash : null]
+    );
+    return { claimed: r.rowCount > 0, durable: r.rowCount > 0 };
+  } catch (e) {
+    if (!(e && e.code === '42703')) throw e;           // undefined_column: the migration is missing
+    features.durableStakes = false;
+    console.error('[DB] CRITICAL used_stake_sigs has no ledger columns; stakes are not durable until the next boot');
+    return { claimed: true, durable: false };
+  }
+}
+
+/* The stake was verified: 'verifying' -> 'pending' with the verified payer and what a refund pays,
+   the same record claimStakeSig writes, which every door and sweep already knows. The request
+   calls it after its verify, the sweep after its own; whichever comes second gets claimed false.
+   Without a usable record the row becomes a plain one-time claim (state NULL, never refunded),
+   exactly what claimStakeSig writes then. */
+async function confirmStakeVerify(sig, meta) {
+  const m = meta || {};
+  const amount = Number(m.amount);
+  if (typeof m.wallet === 'string' && m.wallet && Number.isFinite(amount) && amount > 0) {
+    const r = await pool.query(
+      `UPDATE used_stake_sigs SET state = 'pending', wallet_address = $2, refund_amount = $3, label = $4
+        WHERE sig = $1 AND state = 'verifying'
+        RETURNING sig`,
+      [sig, m.wallet, amount, String(m.label || '').slice(0, 100)]
+    );
+    return { claimed: r.rowCount > 0, durable: r.rowCount > 0 };
+  }
+  const r = await pool.query(
+    `UPDATE used_stake_sigs SET state = NULL WHERE sig = $1 AND state = 'verifying' RETURNING sig`,
+    [sig]
+  );
+  return { claimed: r.rowCount > 0, durable: false };
+}
+
+/* The sweep found the stake never landed (its blockhash expired), or landed with an error, or paid
+   less than it was for: nothing is owed and the row is closed. Same conditional rule. */
+const VERIFY_CLOSED = ['expired', 'failed', 'rejected'];
+async function closeStakeVerify(sig, outcome) {
+  const state = VERIFY_CLOSED.includes(outcome) ? outcome : 'expired';
+  const r = await pool.query(
+    `UPDATE used_stake_sigs SET state = $2, settled_at = NOW()
+      WHERE sig = $1 AND state = 'verifying'
+      RETURNING sig`,
+    [sig, state]
+  );
+  return r.rowCount > 0;
+}
+
+/* 'verifying' rows the sweep may look at: older than olderThanSeconds (the request that wrote it
+   has long given up), or written by an earlier boot of this region's server (that request died
+   with the process). Oldest first. */
+async function listStakeVerifies({ region = null, bootId = null, olderThanSeconds = 120, limit = 50 } = {}) {
+  if (!features.durableStakes) return [];
+  const r = await pool.query(
+    `SELECT sig, wallet_address, refund_amount, label, region, boot_id, blockhash, created_at
+       FROM used_stake_sigs
+      WHERE state = 'verifying'
+        AND (created_at < NOW() - make_interval(secs => $3)
+             OR ($1::text IS NOT NULL AND region = $1::text AND boot_id IS DISTINCT FROM $2::text))
+      ORDER BY created_at ASC
+      LIMIT $4`,
+    [region, bootId, Number(olderThanSeconds), limit]
+  );
+  return r.rows.map(x => ({ ...x, refund_amount: x.refund_amount == null ? null : parseFloat(x.refund_amount) }));
+}
+
 // A self-custody cash-out that ultimately failed on-chain (e.g. an RPC outage). Recorded
 // durably so the owed SOL is never silently lost — the owner reconciles + pays it out manually
 // via /api/admin/failed-payouts. No auto-retry, because blindly re-sending could double-pay if
@@ -538,11 +645,19 @@ async function returnPayoutToLane(id) {
 
 // Persist the signed tx + signature the drainer just built for a payout, BEFORE it is sent, so
 // a crash mid-send is still recoverable (the same bytes can only ever land once).
-async function savePayoutSignature(id, b) {
-  await pool.query(
-    `UPDATE failed_payouts SET signature = $2, signed_tx = $3, blockhash = $4, last_valid_block_height = $5 WHERE id = $1`,
-    [id, b.signature || null, b.signedTx || null, b.blockhash || null, b.lastValidBlockHeight || null]
+/* A compare-and-set (security review 2026-10-15, "drainer double pay"): saved only while the row
+   is unpaid and still holds prevSignature, the signature it was claimed with (NULL for a row that
+   never had a tx). Two attempts that claimed one row (the normal lane's claim is a 30 s lease, and
+   a build can outlast it while the RPC rate limits) each built their own tx; the second save used
+   to overwrite the first and both were sent. Now the second save updates nothing, answers false,
+   and attemptPayout sends nothing. */
+async function savePayoutSignature(id, b, prevSignature) {
+  const r = await pool.query(
+    `UPDATE failed_payouts SET signature = $2, signed_tx = $3, blockhash = $4, last_valid_block_height = $5
+      WHERE id = $1 AND paid = false AND signature IS NOT DISTINCT FROM $6::text`,
+    [id, b.signature || null, b.signedTx || null, b.blockhash || null, b.lastValidBlockHeight || null, prevSignature || null]
   );
+  return r.rowCount > 0;
 }
 
 async function markPayoutPaid(id, paidSig) {
@@ -819,6 +934,7 @@ module.exports = {
   recordWithdrawal,
   recordCollusionFlag, getRecentCollusionFlags,
   markStakeSig, claimStakeSig, claimStakeSeat, refundStakeOwed, listUnsettledStakes,
+  claimStakeVerify, confirmStakeVerify, closeStakeVerify, listStakeVerifies,
   recordFailedPayout, recordOwedOnce, getFailedPayouts, claimDuePayout, savePayoutSignature, markPayoutPaid,
   deferPayoutNoAccount, returnPayoutToLane,
   features, NO_USDC_ACCOUNT,
