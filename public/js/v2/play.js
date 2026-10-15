@@ -237,6 +237,9 @@
      for one of the old fixed tiers. */
   function launch(game, sel) {
     if (inGame()) return;
+    /* A Play is never a watch: a watch mark left by a page that never booted
+       goes before anything else (spectate below). */
+    try { sessionStorage.removeItem('dsWatch'); } catch (_) {}
     /* The last gate, not the only one: an unbuilt game hides its Play button
        and its buy-ins. This is here because those are presentation, and a room
        that does not exist must not be stakeable through a stale handler, a
@@ -483,9 +486,36 @@
     say('No room at that buy-in. Pick one the board is offering.');
   }
 
+  /* Watching a free room, in every game (Owen 2026-10-15). Nothing here can
+     seat anybody or stake anything: no token, no stake, and every money key a
+     page could read is taken out first.
+
+     The games on the new pages read one mark, WATCH_KEY = the game's id. Each
+     page takes it out as it boots (so a reload, or the next Play, is a plain
+     page) and goes into watching only when the mark names it; launch() takes
+     it out too, before any Play, so a mark left by a page that never loaded
+     cannot turn a Play into watching. agar.io and the old snake engine keep
+     their own flag, spectateOnly, which their pages already read. */
+  const WATCH_KEY = 'dsWatch';
+  const WATCH_PAGE = { snake: '/sl', paper: '/paper-arena', knockout: '/knockout', battleship: '/battleship' };
+  const MONEY_KEYS = ['entryToken', 'entrySol', 'stake', 'slPaidLaunch', 'slxPaidCut', 'slBr', 'spectateOnly'];
   function spectate(game, lobbyType) {
     if (inGame()) return;
+    if (window.V2_IS_SOON && window.V2_IS_SOON(game)) return;
+    /* The free snake room on the new engine (/sl), unless the board says the
+       free room is still the old one; the event has its own path below. */
+    const page = game === 'snake' && (lobbyType || !slFree()) ? null : WATCH_PAGE[game];
+    if (page) {
+      try {
+        for (const k of MONEY_KEYS) sessionStorage.removeItem(k);
+        sessionStorage.setItem(WATCH_KEY, game);
+        sessionStorage.setItem('region', region());
+      } catch (_) {}
+      show(page, game);
+      return;
+    }
     try {
+      sessionStorage.removeItem(WATCH_KEY);
       sessionStorage.setItem('spectateOnly', 'true');
       sessionStorage.setItem('region', region());
       /* Which ROOM to watch. Without this the viewer lands in whatever free
@@ -512,7 +542,7 @@
     /* On the new engine: /sl as a watcher of the event (public/js/slx/slxBr.js). */
     if (inGame()) return;
     try {
-      for (const k of ['entryToken', 'entrySol', 'stake', 'slPaidLaunch', 'slxPaidCut', 'spectateOnly']) sessionStorage.removeItem(k);
+      for (const k of ['entryToken', 'entrySol', 'stake', 'slPaidLaunch', 'slxPaidCut', 'spectateOnly', WATCH_KEY]) sessionStorage.removeItem(k);
       sessionStorage.setItem('slBr', 'watch');
     } catch (_) {}
     show('/sl', 'snake');

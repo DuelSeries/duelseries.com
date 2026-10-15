@@ -1051,10 +1051,13 @@ body.no-foot footer{display:none}
 .go.lock,.go.lock:hover{background:var(--s2);color:var(--tx3);box-shadow:none;
   transform:none;cursor:not-allowed}
 .go.lock .golock{display:block}
-/* Play and, on agar.io's Free rung only, Spectate beside it. Spectate is
-   exactly one rung wide (the rungs are three to the row with 8px gaps), so it
-   sits in the $1.00 column with the settings under it and Play spans the
-   other two. */
+/* Play and, on every game's Free rung, Spectate beside it (agar.io had it
+   first; Owen 2026-10-15: "in every single game"). Spectate is exactly one
+   rung wide (the rungs are three to the row with 8px gaps), so it sits in the
+   $1.00 column and Play spans the other two. A paid room is watched from
+   nowhere: a watcher sees the whole map and could tell a friend at a money
+   table where everybody is, so off Free the button goes and Play takes the
+   row back. On a game that is not open yet it stays, shut, like Play. */
 .gorow{display:flex;gap:8px}
 .gorow .go{flex:1;min-width:0;width:auto}
 .spec{display:none;flex:0 0 calc((100% - 16px) / 3);min-width:0;align-items:center;
@@ -1063,7 +1066,8 @@ body.no-foot footer{display:none}
   font-weight:650;transition:background .15s,color .15s}
 .spec svg{flex:none}
 .spec:hover{background:var(--s3);color:var(--tx)}
-#detail.agar.agfree .spec{display:flex}
+#detail.freerung .spec{display:flex}
+.spec:disabled,.spec:disabled:hover{background:var(--s2);color:var(--tx3);cursor:not-allowed}
 /* The narrowest phones (320 to 360 px): a rung is about 90 px there, so the
    words keep a little air on each side. Two classes deep so the phone block
    further down does not undo it. */
@@ -1838,10 +1842,10 @@ body.scr-anim { overflow-x:hidden }
           <path d="M12 3a9 9 0 1 0 9 9"/></svg>
       </button>
     </div>
-    <!-- Play shares its row with agar.io's Spectate, which shows on the Free
-         rung only: a paid table is watched from inside it, not from here. Off
-         Free the button is gone and Play takes the row back, so nothing under
-         it moves when the buy-in changes.
+    <!-- Play shares its row with Spectate, in every game, on the Free rung
+         only: a paid table is never watched from here. Off Free the button is
+         gone and Play takes the row back, so nothing under it moves when the
+         buy-in changes. On a game that is not open yet Spectate is shut too.
          Play is white on Free and gold on a paid rung (drawStake sets .paid),
          so a money game never starts from a button that looks like a free one.
          On a game that is not open yet it is locked: a padlock, and it does
@@ -1853,8 +1857,8 @@ body.scr-anim { overflow-x:hidden }
           <rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>
         <span id="golabel">Play</span>
       </button>
-      <button type="button" class="spec" id="agspec" onclick="V2Play.spectate('agar')"
-              aria-label="Spectate the free agar.io room">
+      <button type="button" class="spec" id="specbtn" onclick="spectateFromDetail()"
+              aria-label="Spectate the free room">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
              stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
@@ -3487,9 +3491,14 @@ function open_(id){
   const locked=!!(cur.soon&&!cur.built);
   det.classList.toggle('soon',locked);
   det.classList.toggle('nolook',!hasLook(cur));
-  /* agar.io's Free-rung Spectate (the game has no menu card of its own inside
-     this lobby any more). */
-  det.classList.toggle('agar',cur.id==='agar');
+  /* Spectate, on the Free rung of every game (drawStake shows it there): shut
+     like Play on a game that is not open yet. */
+  const specBtn=document.getElementById('specbtn');
+  if(specBtn){
+    specBtn.disabled=locked;
+    specBtn.setAttribute('aria-disabled',locked?'true':'false');
+    specBtn.setAttribute('aria-label',locked?'Spectate, not open yet':'Spectate the free '+cur.name+' room');
+  }
   const dart=document.getElementById('dart'), still=document.getElementById('dartstill');
   const live=cur.id==='snake'?'bg':cur.id==='agar'?'agar':null;
   dart.dataset.game=live||'bg';
@@ -3620,6 +3629,14 @@ function startFromDetail(){
   if(cur.built&&(cur.duel||cur.solo)){V2Play.launch(cur.id,{lobbyType:'free'});return}
   V2Play.playChosen();
 }
+/* Spectate: the free room of this game, watched (public/js/v2/play.js
+   spectate picks the page and the watch mark). Never on a paid rung (the
+   button is hidden there) and never on a game that is not open (disabled). */
+function spectateFromDetail(){
+  if(!cur||(cur.soon&&!cur.built))return;
+  if(Number(STEPS[si])!==0)return;
+  V2Play.spectate(cur.id);
+}
 
 function goBack(){showScreen(_cameFrom);jumpToTop()}
 
@@ -3627,8 +3644,8 @@ function goBack(){showScreen(_cameFrom);jumpToTop()}
    with a row of dots, which meant paging through amounts to find out what was
    even offered. Three fit, so the control IS the list. */
 function drawStake(){
-  /* agar.io's Spectate is for the Free rung only (it watches the free room). */
-  document.getElementById('detail').classList.toggle('agfree',STEPS[si]===0);
+  /* Spectate is for the Free rung only (it watches the free room). */
+  document.getElementById('detail').classList.toggle('freerung',STEPS[si]===0);
   /* A rung that cannot be sat at says so by being struck through and
      disabled; the sentence under the row that repeated it is gone with the
      rest of the small print (Owen 2026-10-15). */

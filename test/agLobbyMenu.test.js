@@ -315,18 +315,19 @@ test('agLobby: in the lobby frame\'s free room the Lobby button keeps the old pl
 test('the lobby\'s agar.io screen: no settings anywhere, Spectate on Free only beside Play', () => {
   const html = read('public/v2.html');
   assert.match(html, /<div class="gorow">\s*<button type="button" class="go" id="gobtn" onclick="startFromDetail\(\)">/, 'Play is the same button');
-  assert.match(html, /<button type="button" class="spec" id="agspec" onclick="V2Play\.spectate\('agar'\)"/);
+  assert.match(html, /<button type="button" class="spec" id="specbtn" onclick="spectateFromDetail\(\)"/);
   // Owen 2026-10-15: "just get rid of all the settings, I don't need any of them". Not in the play column, not in
   // Customize, no script, no stored keys.
   assert.ok(!fs.existsSync(path.join(ROOT, 'public/js/v2/agopts.js')), 'agopts.js is gone');
   for (const gone of ['agopts', 'id="agtg"', 'agset', 'hasSettings', 'Game settings', 'agSettings', 'agSoundOn', '.agt{']) {
     assert.ok(!html.includes(gone), gone + ' is not in the lobby');
   }
-  assert.match(html, /det\.classList\.toggle\('agar',cur\.id==='agar'\);/, 'only the agar.io screen shows Spectate');
-  assert.match(html, /function drawStake\(\)\{\s*\/\*[^*]*\*\/\s*document\.getElementById\('detail'\)\.classList\.toggle\('agfree',STEPS\[si\]===0\);/,
+  // Every game's screen has it now (Owen 2026-10-15), on the Free rung only, shut on a game that is not open.
+  assert.match(html, /function drawStake\(\)\{\s*\/\*[^*]*\*\/\s*document\.getElementById\('detail'\)\.classList\.toggle\('freerung',STEPS\[si\]===0\);/,
     'Spectate follows the chosen rung');
   assert.match(html, /\.spec\{display:none;/);
-  assert.match(html, /#detail\.agar\.agfree \.spec\{display:flex\}/);
+  assert.match(html, /#detail\.freerung \.spec\{display:flex\}/);
+  assert.match(html, /specBtn\.disabled=locked;/);
   // No other page offers them either: the /ag card and the game's own code read and write nothing.
   for (const f of ['public/js/ag/agMain.js', 'public/js/ag/agSound.js', 'public/js/ag/agScreens.js', 'public/ag.html']) {
     assert.ok(!/agSettings|agSoundOn|ag-settings|ag-sound\b|createToggleButton/.test(read(f)), f + ' has no settings');
