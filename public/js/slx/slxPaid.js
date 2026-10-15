@@ -24,7 +24,9 @@
 //    math (slxHold.js screenX, screenY): a turning gold coin (slxCoin.js, Owen's pick 2026-10-15) on every cash pellet,
 //    a plain #FFD700 disc while no coin frame is ready, and $x.xx in #14F195 over every paid head. Their client draws
 //    food under the snakes but this canvas is above theirs, so the coins are cut away under every live body and head,
-//    and a coin being eaten fades out at the start of its flight to the mouth. The gold rule (design 9): a food is cash iff its rad byte is at least C_PAID_CASH_BYTE 68, and their
+//    and a coin being eaten fades out at the start of its flight to the mouth. Their own pellet under a coin (in the
+//    dead snake's colour) is made invisible: its sprites become blank canvases of the same sizes, so only the coin
+//    shows while where it is, how it moves, fades and is eaten all stay theirs (Owen, 2026-10-15). The gold rule (design 9): a food is cash iff its rad byte is at least C_PAID_CASH_BYTE 68, and their
 //    client keeps rad byte / 5 as the food's sz (slApply.js newFood), so cash is sz >= 13.6; in a paid room every
 //    death drop is cash and nothing else reaches it (test/slPaidBytes.test.js). Worths come in sl:x {t: 'w', id, v}
 //    (server/sl/slRoom.js _worthAll, _worthOnView), the own one with its delta d: a "+$0.01" pop rises over the own
@@ -717,6 +719,7 @@
     for (var i = 0; i < n; i++) {
       var fo = list[i];
       if (!fo || !(fo.sz >= CASH_SZ)) continue;
+      hidePellet(fo);
       var r = fo.sz * COIN_R * k * (fo.rad > 0 ? fo.rad : 0);
       if (!(r >= 0.5)) continue;
       var x = screenX(fo.rx);
@@ -780,6 +783,29 @@
       ctx.stroke();
     }
     if (on) ctx.restore();
+  }
+  // Their client draws every food in four passes from the sprites newFood copied onto it (slApply copyTier: the core
+  // fi, the shadow ofi, the glows gfi and g2fi, each with its size fields). A cash food's four sprites are swapped for
+  // transparent canvases of the very same sizes, once (newFood is the only place they are set): their passes still
+  // run on it exactly as before and draw nothing, and nothing else of the food changes.
+  var blanks = {};
+  function blank(side) {
+    var s = side > 0 ? Math.ceil(side) : 1;
+    var b = blanks[s];
+    if (!b) {
+      b = doc.createElement('canvas');
+      b.width = s;
+      b.height = s;
+      blanks[s] = b;
+    }
+    return b;
+  }
+  function hidePellet(fo) {
+    if (fo.fi === blanks[Math.ceil(fo.fw)] || !doc || typeof doc.createElement !== 'function') return;
+    fo.fi = blank(fo.fw);
+    fo.ofi = blank(fo.ofw);
+    fo.gfi = blank(fo.gfw);
+    fo.g2fi = blank(fo.g2fw);
   }
   function disc(x, y, r) {
     ctx.fillStyle = GOLD;

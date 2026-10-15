@@ -408,6 +408,35 @@ test('gold under snakes: a live body over the coins erases them along its length
   assert.strictEqual(P.D.slx.errors, 0);
 });
 
+test('gold: their own pellet under a coin goes blank (same sprite sizes), nothing else of any food changes', () => {
+  const P = paidPage({ files: LAYER.concat(['slxCoin.js']) });
+  seat(P, { v: 530000 });
+  const S = P.S;
+  const sprite = (side) => { const c = P.doc.createElement('canvas'); c.width = side; c.height = side; c.tag = 'theirs'; return c; };
+  const tiers = () => ({ fi: sprite(12), fw: 12, ofi: sprite(31), ofw: 31, gfi: sprite(102), gfw: 102, g2fi: sprite(157), g2fw: 157 });
+  const cash = Object.assign({ id: 4201, xx: 640, yy: 470, sz: 13.6, rx: 640, ry: 470, rad: 1, fr: 0.7, gfr: 3, cv: 5 }, tiers());
+  const food = Object.assign({ id: 4202, xx: 600, yy: 430, sz: 9.4, rx: 600, ry: 430, rad: 1, fr: 1, gfr: 3, cv: 5 }, tiers());
+  const before = JSON.stringify([cash, food], (k, v) => (/fi$/.test(k) ? undefined : v));
+  const keep = { fi: food.fi, ofi: food.ofi, gfi: food.gfi, g2fi: food.g2fi };
+  S.foods = [cash, food];
+  S.foods_c = 2;
+  P.raf(1);
+  for (const [img, side] of [['fi', 12], ['ofi', 31], ['gfi', 102], ['g2fi', 157]]) {
+    assert.strictEqual(cash[img].tagName, 'CANVAS');
+    assert.notStrictEqual(cash[img].tag, 'theirs', img + ' swapped');
+    assert.deepStrictEqual([cash[img].width, cash[img].height], [side, side], img + ' keeps its size');
+    assert.strictEqual(food[img], keep[img], 'a normal food keeps its ' + img);
+  }
+  assert.strictEqual(JSON.stringify([cash, food], (k, v) => (/fi$/.test(k) ? undefined : v)), before,
+    'position, size, fade, shimmer and colour untouched');
+  assert.strictEqual(cash.fi.getContext('2d').calls.length, 0, 'the blank is never drawn on');
+  // once only: the next frames keep the same blanks
+  const blanks = [cash.fi, cash.ofi, cash.gfi, cash.g2fi];
+  P.raf(3);
+  assert.deepStrictEqual([cash.fi, cash.ofi, cash.gfi, cash.g2fi], blanks);
+  assert.strictEqual(P.D.slx.errors, 0);
+});
+
 test('gold without the coin file: a plain gold disc only for sz >= 13.6, at the food\'s drawn position, faded with it; labels over paid heads', () => {
   const P = paidPage();
   seat(P, { v: 530000 });
@@ -908,6 +937,16 @@ test('frozen client + slxPaid: the gold sits on the cash food\'s drawn position,
     const f = foodById(S, ev);
     const x = Math.floor(S.ww / 2 - S.mww / 2) + S.mww / 2 + (f.rx - S.view_xx) * k;
     assert.ok(!last.some((a) => Math.abs(a.x - x) < 1e-6), 'no gold on sz ' + f.sz);
+  }
+  // their own pellet under the gold draws nothing: its four sprites are blanks of their sizes; the others keep theirs
+  const set = (fo) => S.per_color_imgs[fo.cv];
+  for (const [img, list, w] of [['fi', 'imgs', 'fw'], ['ofi', 'oimgs', 'ofw'], ['gfi', 'gimgs', 'gfw'], ['g2fi', 'gimgs', 'g2fw']]) {
+    assert.ok(!set(f68)[list].includes(f68[img]), 'the cash food\'s ' + img + ' is not one of their sprites');
+    assert.strictEqual(f68[img].width, f68[w], img + ' keeps its size');
+    for (const ev of r.injected.slice(1)) {
+      const fo = foodById(S, ev);
+      assert.ok(set(fo)[list].includes(fo[img]), 'sz ' + fo.sz + ' keeps its own ' + img);
+    }
   }
   assert.deepStrictEqual(r.P.errors, []);
   assert.strictEqual(r.D.slx.errors, 0);
