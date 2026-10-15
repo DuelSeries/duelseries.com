@@ -242,11 +242,11 @@ function lobbyPage({ lobby = true, paid = false, handoff = null, spectateOnly = 
   const observers = [];
   const calls = [];
   const hooks = {};
-  // st: the page state the test moves (menuState, connected, rotatePrompt); play and spectate move it as agMain does.
+  // st: the page state the test moves (menuState, connected); play and spectate move it as agMain does.
   const page = {
     config: { lobby }, paidLocked: () => false,
     onServer(name, fn) { (hooks[name] = hooks[name] || []).push(fn); },
-    state: () => Object.assign({ paid, handoff, menuState: 'HOME', connected: true, rotatePrompt: false }, st),
+    state: () => Object.assign({ paid, handoff, menuState: 'HOME', connected: true }, st),
     play: (n) => { calls.push(['play', n]); st.menuState = 'PLAY'; },
     spectate: () => { calls.push(['spectate']); st.menuState = 'SPECTATE'; }
   };
@@ -274,17 +274,6 @@ test('agLobby: the lobby frame\'s free room starts at once under the lobby name,
   assert.deepStrictEqual(lobbyPage({ lobby: false }).calls, [], 'a direct visit waits on its menu');
   assert.deepStrictEqual(lobbyPage({ paid: true, handoff: { state: 'joining' } }).calls, [], 'a paid hand-off runs its own flow');
   assert.deepStrictEqual(lobbyPage({ framed: false }).calls, [], 'never outside a frame');
-});
-
-test('agLobby: on a phone held upright the free play waits for the rotate card; watching does not', async () => {
-  const h = lobbyPage({ st: { rotatePrompt: true } });
-  assert.deepStrictEqual(h.calls, [], 'no cell under the card');
-  await wait(250);
-  assert.deepStrictEqual(h.calls, [], 'still waiting while the card is up');
-  h.st.rotatePrompt = false;    // the card went (3 s, or the phone turned)
-  await wait(250);
-  assert.deepStrictEqual(h.calls, [['play', 'OwenTheTopBoss7']], 'plays once, as soon as the card is gone');
-  assert.deepStrictEqual(lobbyPage({ spectateOnly: true, st: { rotatePrompt: true } }).calls, [['spectate']]);
 });
 
 test('agLobby: in the lobby frame\'s free room the Lobby button keeps the old player rule, and shows for a watcher and a drop', async () => {

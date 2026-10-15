@@ -15,7 +15,7 @@
    - every refusal and end state: a plain message, the refund line from the answer, the resume key gone, the way back
      open; slow-down retries with the same token; no answer at all gives the way back after JOIN_ANSWER_MS
    - Play again through duel:restake with Back to lobby locked, the Esc hint (and never the menu, not even on an end
-     card), the phone Cash out button, ag:ready held while the rotate card covers the game
+     card), the phone Cash out button
    - the exit lock: every join out, and a dropped seat until the card offers the way back
    - the free page is untouched: no auth, no paid join, the menu as before, and the same draw calls and sends with
      the shipped config (handoff: true) as without it */
@@ -520,23 +520,6 @@ test('the exit lock follows the seat: shut while a dropped seat reconnects, open
   connect(p);
   await p.frame(P.JOIN_ANSWER_MS + 10);
   assert.deepStrictEqual([p.session.paidLocked(), card(p).title, card(p).extra], [false, 'No answer', P.TEXT.noAnswerSeat]);
-});
-
-test('ag:ready waits while the phone rotate card covers the game, then goes once it is gone', async () => {
-  const mq = { matches: true, addEventListener() {}, removeEventListener() {} };
-  const store = memStore(HANDOFF);
-  const q = bootPage({ net: true, w: 390, h: 844, parent: fakeParent(), location: { origin: 'http://localhost' },
-    matchMedia: (s) => (s === '(pointer: coarse)' ? mq : { matches: false }),
-    cfg: { url: '/ag', handoff: true, portrait: true, tabStorage: store } });
-  q.store = store;
-  assert.strictEqual(q.session.state().rotatePrompt, true, 'the card is up at start-up');
-  await live(q);
-  assert.deepStrictEqual(emits(q, 'ag:ready'), [], 'no ready while the card covers the game');
-  assert.strictEqual(flow(q).phase, 'seated', 'still shielded and still');
-  await q.frames(30, 100);
-  assert.strictEqual(q.session.state().rotatePrompt, false);
-  assert.strictEqual(emits(q, 'ag:ready').length, 1, 'ready once the card is gone');
-  assert.strictEqual(flow(q).phase, 'live');
 });
 
 test('a hand-off page opened on its own: Back to lobby goes to the lobby page, never the free menu', async () => {

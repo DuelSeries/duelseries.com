@@ -30,9 +30,7 @@
 // 5. The free room in the lobby's frame (Owen 2026-10-09 midday: agMain's cfg.lobby, set by public/ag.html when its
 //    frame is the lobby's #agar-frame, and no paid hand-off): the page has no menu card, so this starts it at once,
 //    playing under the lobby name, or watching when the lobby's Spectate opened it (sessionStorage spectateOnly,
-//    the lobby's own watch flag, which public/js/v2/play.js sets and the wallet widget clears on every launch). On a
-//    phone held upright the play waits for the "turn your phone sideways" card to go (agPortrait, up to 3 s), the way
-//    the paid flow does (agPaid onFrame), so the cell never spawns under it. The Lobby button keeps the old rule for
+//    the lobby's own watch flag, which public/js/v2/play.js sets and the wallet widget clears on every launch). The Lobby button keeps the old rule for
 //    a player (a touch screen only; a mouse player leaves by holding Q, then the panel's Lobby), and also shows for a
 //    watcher and while the socket is down, the two times there is no other way back now that the Esc menu is gone.
 //    Never over the Match Results panel, which has its own Lobby button. A paid hand-off keeps 1 to 4 as they are.
@@ -157,24 +155,17 @@
     var st = pageState();
     return !!st && st.paid !== true && !st.handoff && !moneyIn && !pageLock;
   }
-  // How often the free start looks again while the rotate card is up, and how often a dropped free page looks for its
-  // socket to be back (both only while waiting; nothing runs otherwise).
+  // How often a dropped free page looks for its socket to be back (only while waiting; nothing runs otherwise).
   var WAIT_MS = 100;
   function startFromLobby() {
     if (!lobbyFree()) return;
     var page = root.duelAgar;
     if (read(root.sessionStorage, 'spectateOnly') === 'true') {
-      // Watching starts at once: nothing can be lost behind the rotate card.
       if (typeof page.spectate === 'function') page.spectate();
       sync();
       return;
     }
     if (typeof page.play !== 'function') return;
-    var st = pageState();
-    if (st && st.rotatePrompt === true && typeof root.setTimeout === 'function') {
-      root.setTimeout(startFromLobby, WAIT_MS);
-      return;
-    }
     page.play(lobbyName());
     sync();
   }

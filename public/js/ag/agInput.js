@@ -28,7 +28,6 @@
 // allows pinch-zoom, no canvas touchstart is prevented (the first finger of a pinch arrives
 // alone) and a touch with two or more fingers on the canvas is left to the browser, so a
 // pinch-out brings the lobby back to 1. At 1 nothing changes: no zoom, every touch steers.
-// The turn-sideways card over the canvas (agPortrait) uses the same test, lobbyZoomed(win).
 //
 // Hold-Q cash-out (ours, Owen 2026-10-08, every room): Q held, or the phone Cash out button held, is one hold;
 // sink.hold(true) when the first of the two goes down and sink.hold(false) when the last one is let go, or at once
@@ -140,9 +139,7 @@
     }
   }
 
-  // Whether the top page is pinch-zoomed now (scale above LOBBY_ZOOMED_SCALE). Also read by the
-  // turn-sideways card (agPortrait pinchOk, wired by agMain), so a pinch that starts on the card
-  // is left to the browser the same way.
+  // Whether the top page is pinch-zoomed now (scale above LOBBY_ZOOMED_SCALE).
   function lobbyZoomed(win) {
     var vv = topViewport(win);
     return !!vv && vv.scale > LOBBY_ZOOMED_SCALE;

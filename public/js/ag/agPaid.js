@@ -468,11 +468,8 @@
     function onSpawn() {
       if (st.phase === 'seated') st.spawned = true;
     }
-    // covered: the phone's "turn your phone sideways" card is over the game (agPortrait, up to PROMPT_MS 3 s, and it
-    // eats taps), so the player cannot act yet: the cell stays shielded and still until it goes (the door's
-    // JOIN_CONFIRM_MS 5 s still covers it, the card shows once per tab and never for longer).
-    function onFrame(ownCount, covered) {
-      if (st.phase !== 'seated' || !st.spawned || !(ownCount > 0) || covered === true) return;
+    function onFrame(ownCount) {
+      if (st.phase !== 'seated' || !st.spawned || !(ownCount > 0)) return;
       if (st.needReady && !st.readySent) {
         if (!o.send('ready')) return;   // the link is down: the resume brings a new ag:joined
         st.readySent = true;

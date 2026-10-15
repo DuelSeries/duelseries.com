@@ -708,12 +708,12 @@ test('the shipped page sizes as if the 90 px strip were there; the canvas elemen
 // ---- phone portrait (FIX-PLAN P4, Owen's 2026-10-08 design) -----------------------------------------------------
 const PORTRAIT_CFG = (extra) => Object.assign({ ghostBannerPx: 90, portrait: true, tabStorage: makeStorage() }, extra || {});
 
-test('P4 portrait: an upright phone plays the turned layout on the whole canvas; the card shows once, for 3 s', async () => {
+test('P4 portrait: an upright phone plays the turned layout on the whole canvas, with no turn-sideways card', async () => {
   const pt = fakePointer(true);
   const p = bootPage({ w: 390, h: 844, dpr: 3, cfg: PORTRAIT_CFG(), matchMedia: pt.matchMedia });
   assert.deepStrictEqual([p.canvas.width, p.canvas.height], [1170, 2532]);
   assert.strictEqual(p.session.state().portrait, true);
-  assert.strictEqual(p.session.state().rotatePrompt, true, 'the card is up at start-up');
+  assert.strictEqual(p.doc.getElementById('ag-rotate'), null, 'no turn-sideways card (Owen 2026-10-15)');
   assert.ok(p.doc.documentElement.classList.contains('ag-portrait'), 'ag.css lays the pad out for it');
   await spawn(p, p.session.feed);
   const cam = p.mod.camera, hud = p.mod.hud;
@@ -728,11 +728,6 @@ test('P4 portrait: an upright phone plays the turned layout on the whole canvas;
   const boardTexts = p.doc.calls.filter((c) => c[0] !== p.canvas.cid && c[1] === 'fillText');
   assert.ok(boardTexts.length >= 3, 'title and two rows drawn');
   assert.strictEqual(hud.lbCtx.font, '19px Ubuntu', 'the row font');
-  // The card goes after 3 s of page time (spawn ran about 167 ms of it).
-  await p.frames(28, 100);
-  assert.strictEqual(p.session.state().rotatePrompt, true, 'still up just before 3 s');
-  await p.frames(2, 100);
-  assert.strictEqual(p.session.state().rotatePrompt, false, 'gone after 3 s');
   // Sideways: the exact reference layout (the ghost strip's 2532 x 900); upright again: straight to the layout.
   resize(p, 844, 390);
   await p.frames(2);
@@ -742,19 +737,7 @@ test('P4 portrait: an upright phone plays the turned layout on the whole canvas;
   resize(p, 390, 844);
   await p.frames(2);
   assert.deepStrictEqual([cam.W, cam.H, cam.portrait], [1170, 2532, true]);
-  assert.strictEqual(p.session.state().rotatePrompt, false, 'no card again in the session');
-});
-
-test('P4 portrait: a lobby zoomed before the game opened can be pinched back over the card (agInput.lobbyZoomed)', () => {
-  const vv = { scale: 5, addEventListener() {}, removeEventListener() {} };
-  const p = bootPage({ w: 390, h: 844, dpr: 3, cfg: PORTRAIT_CFG(), matchMedia: fakePointer(true).matchMedia, top: { visualViewport: vv } });
-  assert.strictEqual(p.session.state().rotatePrompt, true);
-  const card = p.doc.getElementById('ag-rotate');
-  const fire = (type, n) => { let k = 0; card.dispatch(type, { cancelable: true, touches: new Array(n).fill({}), preventDefault() { k++; }, stopPropagation() {} }); return k; };
-  assert.deepStrictEqual([fire('touchstart', 1), fire('touchstart', 2), fire('touchend', 1), fire('touchend', 0)], [0, 0, 0, 0], 'zoomed: the pinch is left to the browser');
-  vv.scale = 1;
-  assert.deepStrictEqual([fire('touchstart', 1), fire('touchend', 0)], [1, 0], 'at 1: the card eats the touch, as before');
-  p.session.destroy();
+  assert.strictEqual(p.doc.getElementById('ag-rotate'), null, 'still no card');
 });
 
 test('P4 portrait: the server is told (ag:portrait, one boolean) on the hello and on every change only', async () => {
@@ -791,7 +774,7 @@ test('P4 portrait: the server is told (ag:portrait, one boolean) on the hello an
     await spawn(q, (rec) => q.sock.fire('ag:f', W.encodeBundle([rec])));
     const tag = w + 'x' + h + (coarse ? ' touch' : ' mouse');
     assert.deepStrictEqual(sent(q).map((e) => e[0]), ['ag:view'], tag);
-    assert.strictEqual(q.session.state().rotatePrompt, false, tag);
+    assert.strictEqual(q.doc.getElementById('ag-rotate'), null, tag);
   }
 });
 
@@ -819,15 +802,14 @@ test('P4 portrait: sideways, on a mouse screen and at parity the page is call fo
   }
 });
 
-test('P4 portrait: a pointer switch turns the layout on or off without a resize; destroy removes the card', async () => {
+test('P4 portrait: a pointer switch turns the layout on or off without a resize; never a card', async () => {
   const pt = fakePointer(true);
   const p = bootPage({ w: 390, h: 844, dpr: 3, cfg: PORTRAIT_CFG(), matchMedia: pt.matchMedia });
   assert.strictEqual(p.session.state().portrait, true);
-  assert.ok(p.doc.getElementById('ag-rotate'));
+  assert.strictEqual(p.doc.getElementById('ag-rotate'), null);
   pt.set(false);
   assert.strictEqual(p.session.state().portrait, false);
   assert.deepStrictEqual([p.canvas.width, p.canvas.height], [1170, 2532], 'the canvas fills the window either way');
-  assert.strictEqual(p.session.state().rotatePrompt, false, 'a mouse screen gets no card');
   await p.frames(2, 50);
   assert.deepStrictEqual([p.mod.camera.W, p.mod.camera.H], [1170, 2262], 'the ghost layout again');
   assert.notStrictEqual(menuTransform(p), 'translate(-50%, -50%)', 'mouse: the reference menu scale');
@@ -835,8 +817,7 @@ test('P4 portrait: a pointer switch turns the layout on or off without a resize;
   await p.frames(2, 50);
   assert.deepStrictEqual([p.mod.camera.W, p.mod.camera.H, p.session.state().portrait], [1170, 2532, true]);
   assert.strictEqual(menuTransform(p), 'translate(-50%, -50%)');
-  const card = p.doc.getElementById('ag-rotate');
+  assert.strictEqual(p.doc.getElementById('ag-rotate'), null);
   p.session.destroy();
-  assert.strictEqual(card.parentNode, null);
   assert.strictEqual(pt.listeners.length, 0);
 });

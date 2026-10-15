@@ -113,8 +113,8 @@
     // touch screen held upright plays the reference screen turned on its side: the camera and the
     // HUD use their formulas with the two sides swapped, on the whole canvas (no ghost strip: it
     // belongs to the bottom of the landscape page; CHOSEN, PARITY-LOG 2026-10-09 P4), the server is
-    // told (ag:portrait) so it sends the turned view box of the same area, and the first time in a
-    // tab session a "turn your phone sideways" card shows for a few seconds (agPortrait). Sideways
+    // told (ag:portrait) so it sends the turned view box of the same area. There is no "turn your
+    // phone sideways" card (Owen 2026-10-15: the game plays the way the phone is held). Sideways
     // it is the exact reference layout. Off at parity: the harness page never sets cfg.portrait.
     var portraitAllowed = cfg.portrait === true;
     var portrait = false;                     // the portrait layout is in use
@@ -264,22 +264,9 @@
     function portraitNow() {
       return portraitAllowed && coarsePointer() && win.innerHeight > win.innerWidth;
     }
-    // The card shows the first time the portrait layout applies in a tab session (agPortrait;
-    // the shipped page loads it). No agPortrait: the layout without the card.
-    var rotatePrompt = null;
-    if (portraitAllowed && A.agPortrait) {
-      var tabStore = null;
-      try { tabStore = cfg.tabStorage !== undefined ? cfg.tabStorage : (win.sessionStorage || null); } catch (e) { tabStore = null; }
-      // pinchOk: a pinch that starts on the card while the lobby is zoomed is the browser's (P3).
-      rotatePrompt = A.agPortrait.createRotatePrompt({
-        doc: doc, win: win, root: cfg.screensRoot || doc.body, storage: tabStore,
-        pinchOk: agInput && agInput.lobbyZoomed ? function () { return agInput.lobbyZoomed(win); } : null
-      });
-    }
-    // Layout on or off: camera and HUD scale, the root class ag-portrait (ag.css lays the phone pad
-    // out for it), and the card. The draw scale follows on the next frame, as after any resize.
+    // Layout on or off: camera and HUD scale, and the root class ag-portrait (ag.css lays the phone
+    // pad out for it). The draw scale follows on the next frame, as after any resize.
     function setPortrait(on) {
-      if (rotatePrompt) rotatePrompt.update(on);
       if (on === portrait) return;
       portrait = on;
       cam.setPortrait(on);
@@ -803,9 +790,8 @@
       if (hold.wanted && hold.server && L.own.length) {
         renderer.drawHoldRing(ctx, view(), mainOwnCell(L.own), holdProgress(now), settings);
       }
-      // A paid seat's own cell is on screen: ag:ready (agPaid, design 4 step 5: the cell is shielded until now), but
-      // not while the phone's rotate card covers the game.
-      if (flow) flow.onFrame(L.own.length, !!(rotatePrompt && rotatePrompt.shown()));
+      // A paid seat's own cell is on screen: ag:ready (agPaid, design 4 step 5: the cell is shielded until now).
+      if (flow) flow.onFrame(L.own.length);
 
       var ws = world.state();
       hudState.mode = ws.mode;
@@ -993,7 +979,7 @@
         border: ws.border, nick: nick, connected: connected, gameState: gameState, menuState: menuState,
         fadeout: fadeout, capMs: capMs, ownCount: ownCells().length, highestMass: stats.highestMass,
         camera: { x: cam.x, y: cam.y, scale: cam.scale, zoom: cam.zoom }, net: net ? net.stats : null,
-        portrait: portrait, rotatePrompt: rotatePrompt ? rotatePrompt.shown() : false,
+        portrait: portrait,
         hold: { wanted: hold.wanted, server: hold.server, need: hold.need, progress: holdProgress(perfNow()) },
         paid: paid.on, paidEnd: paidEnd ? paidEnd.kind : '', handoff: flow ? flow.state() : null
       };
@@ -1035,7 +1021,6 @@
       if (net) net.close();
       win.removeEventListener('resize', sizeCanvas);
       watchPointer(false);
-      if (rotatePrompt) rotatePrompt.dispose();
     };
     session.modules = { world: world, camera: cam, renderer: renderer, hud: hud, stats: stats, screens: screens, sound: sound, input: input };
 
