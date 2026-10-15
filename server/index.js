@@ -1916,8 +1916,8 @@ const AG_PAID_ON = !!agBoot.paid;
 /* ── Paid snake on the sl engine (PAID-SL-DESIGN.md, Owen's answers 2026-10-12
    and 2026-10-14) ───────────────────────────────────────────────────────────────
    The $0.50 and $1 snake rungs on the new engine (server/slPaid), behind SL_PAID
-   (server/slPaid/slPaidBoot.js: OFF by default until the switch-on commit;
-   unset/0/false/off/no off, 1/true/on/yes on, anything else off and logged) and
+   (server/slPaid/slPaidBoot.js: ON by default since the switch-on commit;
+   unset/empty/1/true/on/yes on, 0/false/off/no off, anything else off and logged) and
    only while /sl itself opened (SL_ENABLED). Wired here, after the agar block,
    because it shares agar's money journal (one file, one rotation, one replay;
    records told apart by room), agInflight and the owner alert. Worth comes only

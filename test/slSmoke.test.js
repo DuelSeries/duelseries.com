@@ -202,7 +202,12 @@ test('swap: /api/live lists the sl: row as the ONLY Free snake row; the paid sna
   const free = snake.filter((x) => Number(x.stake) === 0);
   assert.deepStrictEqual(free.map((x) => x.id), ['sl:na:s0']);
   assert.strictEqual(free[0].state, 'open');
-  assert.ok(snake.some((x) => Number(x.stake) > 0 && String(x.id).startsWith('snake:')), 'paid rungs on the old engine');
+  // The paid rungs stay listed, one open snake row per paid stake: the new engine's sl: rows since the paid switch-on
+  // (PAID-SL-DESIGN.md 2, BUILD-TASKS T9; before it, the old engine's snake: rows).
+  for (const stake of [0.5, 1]) {
+    const open = snake.filter((x) => Math.abs(Number(x.stake) - stake) < 1e-9 && x.state !== 'closed');
+    assert.strictEqual(open.length, 1, 'one open paid snake row at $' + stake + ': ' + JSON.stringify(snake.map((x) => [x.id, x.state])));
+  }
 });
 
 // ─── The owner console (SERVER-DESIGN 13 items 4, 5) ──────────────────────────────────────────────────────────────

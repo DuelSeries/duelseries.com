@@ -2,9 +2,10 @@
 // Opening paid snake on the sl engine at boot (server/slPaid/slPaidBoot.js; PAID-SL-DESIGN.md 2, 6 and 10; task T5),
 // without booting the server (test/slPaidJoinSmoke.test.js does that). The real free SlArenas and slSockets (slSockFakes
 // rig), a real entry store, the real paid directory and door:
-//   - SL_PAID: OFF by default, agar's parser (a typo fails closed and says so)
+//   - SL_PAID: ON by default since the switch-on commit (T9), agar's parser (a typo fails closed and says so)
 //   - no sockets (SL_ENABLED off or refused): nothing is built and nothing attached (critic C-4)
-//   - on: the rungs and the door, attached; off: no rungs, and a paid page is refunded not-open once, never seated free
+//   - on (unset too): the rungs and the door, attached; off: no rungs, and a paid page is refunded not-open once,
+//     never seated free
 //   - the rungs fail to build: the off directory; the door fails to build: a helper that refuses not-open with the token
 //     untouched (its expiry refunds it), never the free room
 //   - the cash-out status map: lowercase uuids only, pending then sent or delayed, a TTL and a cap
@@ -53,10 +54,10 @@ function opened(env, patch) {
 
 const refusalOf = (s) => layerMsgs(s).find((m) => m.t === 'refused') || null;
 
-test('SL_PAID is off by default; agar\'s parser, a typo fails closed and says so', () => {
-  assert.equal(SL_PAID_DEFAULT, false, 'off in every build commit until the switch-on commit');
+test('SL_PAID is on by default; agar\'s parser, a typo fails closed and says so', () => {
+  assert.equal(SL_PAID_DEFAULT, true, 'on since the switch-on commit (BUILD-TASKS T9)');
   const lg = lines();
-  for (const v of [undefined, null, '', '  ']) assert.equal(slPaidSwitch(v, lg), false, JSON.stringify(v));
+  for (const v of [undefined, null, '', '  ']) assert.equal(slPaidSwitch(v, lg), true, JSON.stringify(v));
   for (const v of ['1', 'true', 'on', 'yes', ' ON ', 'Yes']) assert.equal(slPaidSwitch(v, lg), true, v);
   for (const v of ['0', 'false', 'off', 'no', 'OFF']) assert.equal(slPaidSwitch(v, lg), false, v);
   assert.deepEqual(lg.out, [], 'no complaint for a switch value');
@@ -76,22 +77,24 @@ test('no /sl sockets: nothing is built or attached, and the boot says why', () =
   assert.ok(quiet.out.some((l) => /not built/.test(l) && !/SL_PAID ignored/.test(l)), 'SL_PAID unset: not named');
 });
 
-test('SL_PAID on: the rungs and the door are built and attached; a paid page is seated in the paid room', () => {
-  const x = opened({ SL_PAID: '1' });
-  assert.equal(x.got.paid, true);
-  assert.equal(x.got.why, null);
-  assert.ok(x.got.arenas.paidEnabled && x.got.arenas.paidOpen);
-  assert.equal(x.r.sockets.paid(), true);
-  assert.deepEqual(x.got.arenas.boardRows().map((row) => [row.id, row.state]), [['sl:na:s0.5', 'open'], ['sl:na:s1', 'open']]);
-  const s = x.join(x.mint('WON'));
-  assert.equal(refusalOf(s), null);
-  assert.ok(x.got.arenas.roomOf(s.id), 'seated paid');
-  assert.equal(x.r.room().seats.size, 0, 'never in the free room');
-  assert.ok(x.lg.out.some((l) => l === '[SLP] paid snake on the new engine on (/sl paid rungs $0.50 and $1)'));
+test('SL_PAID on (1, or unset: the default): the rungs and the door are attached; a paid page is seated paid', () => {
+  for (const v of ['1', undefined]) {
+    const x = opened({ SL_PAID: v });
+    assert.equal(x.got.paid, true, String(v));
+    assert.equal(x.got.why, null);
+    assert.ok(x.got.arenas.paidEnabled && x.got.arenas.paidOpen);
+    assert.equal(x.r.sockets.paid(), true);
+    assert.deepEqual(x.got.arenas.boardRows().map((row) => [row.id, row.state]), [['sl:na:s0.5', 'open'], ['sl:na:s1', 'open']]);
+    const s = x.join(x.mint('WON'));
+    assert.equal(refusalOf(s), null);
+    assert.ok(x.got.arenas.roomOf(s.id), 'seated paid');
+    assert.equal(x.r.room().seats.size, 0, 'never in the free room');
+    assert.ok(x.lg.out.some((l) => l === '[SLP] paid snake on the new engine on (/sl paid rungs $0.50 and $1)'));
+  }
 });
 
-test('SL_PAID off (unset, 0 or a typo): no rungs, a paid page is refunded not-open once and never seated free', () => {
-  for (const v of [undefined, '0', 'nope']) {
+test('SL_PAID off (0 or a typo): no rungs, a paid page is refunded not-open once and never seated free', () => {
+  for (const v of ['0', 'nope']) {
     const x = opened({ SL_PAID: v });
     assert.equal(x.got.paid, false, String(v));
     assert.equal(x.got.arenas.paidEnabled, false);

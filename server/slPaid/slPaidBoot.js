@@ -5,9 +5,10 @@
 // the owner alert exist there; D2-M3). No server/sl file requires this one (critic C-2, slNoMoney): the free room's
 // sockets get the paid directory and door through their setPaid.
 //
-//   SL_PAID   OFF BY DEFAULT in every build commit (design 10: the switch-on commit flips SL_PAID_DEFAULT only after
-//             every test and the local proof pass). Unset or empty: the default. 1, true, on, yes: on. 0, false, off,
-//             no: off. Anything else is not a switch value: it says so and fails CLOSED (off). agar's parser
+//   SL_PAID   ON BY DEFAULT since the switch-on commit (design 10; BUILD-TASKS T9: flipped once every test, the T8
+//             gate and the local page proof passed). Production env is only the box's .env, so this default is what
+//             the live server runs. Unset or empty: the default. 1, true, on, yes: on. 0, false, off, no: off.
+//             Anything else is not a switch value: it says so and fails CLOSED (off). agar's parser
 //             (server/ag/agBoot.js agPaidSwitch), copied.
 //
 // openSlPaid builds NOTHING when slBoot.openSl gave no sockets (SL_ENABLED off, or the free room refused to open,
@@ -37,7 +38,7 @@ const { SlPaidArenas } = require('./slPaidArenas');
 const { createSlPaidDoor } = require('./slPaidDoor');
 const { STATUS_TTL_MS } = require('./slPaidConst');
 
-const SL_PAID_DEFAULT = false;
+const SL_PAID_DEFAULT = true;
 // design 6: the status map holds at most this many cash-outs (the oldest goes first)
 const STATUS_MAX = 5000;
 const CID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;

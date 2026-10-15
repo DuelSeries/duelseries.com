@@ -15,8 +15,10 @@
    - sl:door:off: free joins refused closed, a paid join still seated (C-1)
    - maintenance:on: a paid join consumes and refunds maintenance; maintenance:check names the seated money
    - a dropped seat glides: players and parked count it; then its gold on the floor keeps the drain unsafe
-   - SL_PAID unset, 0 and a typo: no sl paid row, the old rows open, a slither dev-token paid socket refunded not-open
-     once and never seated in the free room
+   - SL_PAID unset or empty (on by default since the switch-on commit, T9): the sl paid rows open, no old paid row, a
+     slither dev-token paid socket seated in the paid room
+   - SL_PAID 0 and a typo: no sl paid row, the old rows open, a slither dev-token paid socket refunded not-open once and
+     never seated in the free room
    - SL_ENABLED=0 with SL_PAID=1: no sl row of any kind, the old rows open, the boot says why (C-4)
    - a broken paid directory: unknown ['slpaid'], no sl paid row, the old rows open
    - a crash of boot 1 journals the seat; boot 2 (scripts/dev-local.js, its in-memory database) writes the owed row
@@ -368,10 +370,37 @@ test('SL_PAID=1, dev tokens: the whole lever matrix on one boot, each step readi
   assert.ok(!/is not a function|TypeError|ReferenceError/.test(out.stderr), 'no wiring error\n' + out.stderr.slice(-800));
 });
 
-test('SL_PAID unset, 0 or a typo: no sl paid row, the old rows open, a paid socket refunded not-open once, never seated free', { timeout: 240000 }, async (t) => {
+/* The switch-on (T9): production env is only the box's .env, so the paid rungs are ON when SL_PAID is unset or
+   empty (the agar and Paper pattern). */
+test('SL_PAID unset or empty opens the paid rungs: the sl rows open, no old paid row, a paid socket seated paid', { timeout: 120000 }, async (t) => {
   const io = requireClient(t);
   if (!io) return;
-  for (const value of [undefined, '0', 'maybe']) {
+  for (const value of [undefined, '']) {
+    const { srv, port, out } = await boot({ SL_PAID: value });
+    const socks = [];
+    t.after(() => {
+      for (const h of socks) h.close();
+      try { srv.kill('SIGKILL'); } catch (_) {}
+    });
+    const name = 'SL_PAID=' + JSON.stringify(value);
+    assert.ok(out.stdout.includes('[SLP] paid snake on the new engine on (/sl paid rungs $0.50 and $1)'), name + ': boot says on');
+    assert.ok(!out.stderr.includes('is not a switch value'), name + ': no complaint');
+    const lb = board(await live(port), name);
+    assert.deepStrictEqual(slPaidRows(lb), [['sl:na:s0.5', 'open', 0], ['sl:na:s1', 'open', 0]], name);
+    assert.deepStrictEqual(oldPaidRows(lb), [], name + ': no old paid row while the sl rows are open and the old rooms empty');
+    const W = 'SlDevWa11etOn' + (value === undefined ? 'Unset' : 'Empty') + '1111111111111111111111111';
+    const p = await paidJoin(io, port, await mint(port, W), 'onpay', socks);
+    assert.deepStrictEqual(p.first, { t: 'room', stake: 0.5, cut: 10 }, name);
+    assert.deepStrictEqual(slPaidRows(board(await live(port), name + ' seated'))[0], ['sl:na:s0.5', 'open', 1], name + ': seated paid');
+    for (const h of socks) h.close();
+    try { srv.kill('SIGKILL'); } catch (_) {}
+  }
+});
+
+test('SL_PAID 0 or a typo: no sl paid row, the old rows open, a paid socket refunded not-open once, never seated free', { timeout: 240000 }, async (t) => {
+  const io = requireClient(t);
+  if (!io) return;
+  for (const value of ['0', 'maybe']) {
     const { srv, port, out } = await boot({ SL_PAID: value });
     const socks = [];
     t.after(() => {
