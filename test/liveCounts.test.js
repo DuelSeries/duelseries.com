@@ -88,7 +88,7 @@ test('/api/live carries the counts, from the rooms it already has, with no timer
      their own try (lobby-rungs review fix): an agar fault keeps the other rows and says unknown: ['agar']. */
   assert.ok(/if \(agArenas\) \{\s*try \{\s*agRows = agArenas\.boardRows\(\);/.test(src)
     && /unknown\.push\('agar'\)/.test(src)
-    && /const lobbies = liveBoard\(\{ skipFree: slRows\.length > 0 \}\)\s*\.concat\(slRows, paperArenas\.boardRows\(\), agRows\);/.test(src),
+    && /const lobbies = liveBoard\(\{ skipFree: slRows\.length > 0, slRungs \}\)\s*\.concat\(slRows, slPaidRows, paperArenas\.boardRows\(\), agRows\);/.test(src),
   'every agar.io rung row is in lobbies, read in its own try');
   /* The new slither.io free room (Phase 6 swap, SERVER-DESIGN 16.2): its row is read in its own try BEFORE
      liveBoard, which leaves the old free rung out only when that same answer carries the new row, and its
@@ -96,6 +96,11 @@ test('/api/live carries the counts, from the rooms it already has, with no timer
   assert.ok(/if \(slArenas\) \{\s*try \{\s*slRows = slArenas\.boardRows\(\);/.test(src)
     && /unknown\.push\('sl'\)/.test(src), 'the sl row is read in its own try');
   assert.ok(fn.includes('sl: slArenas'), 'the sl humans reach the snake count');
+  /* Paid snake on the sl engine (PAID-SL-DESIGN.md 2, task T5): its rows are read in their own try too (a fault says
+     unknown: ['slpaid']), and its open accounts reach the snake count. */
+  assert.ok(/if \(slPaid\) \{\s*try \{\s*const rows = slPaid\.boardRows\(\);/.test(src)
+    && /unknown\.push\('slpaid'\)/.test(src), 'the paid sl rows are read in their own try');
+  assert.ok(/^\s*slPaid,/m.test(fn), 'the paid sl accounts reach the snake count');
   const ex = src.slice(src.indexOf('function liveExtras'), src.indexOf('function liveBattleRoyale'));
   assert.ok(!/agArenas|game: 'agar'|agar:free/.test(ex), 'and none is in the extras');
   assert.ok(!/setInterval|setTimeout/.test(fn), 'no polling loop of its own');
@@ -108,6 +113,29 @@ test('the new slither.io room humans count as snake players, and a fault there c
   assert.strictEqual(liveCounts({ snakeRooms: [], sl: { humanTotal: () => 3 } }).snake, base + 3);
   assert.strictEqual(liveCounts({ snakeRooms: [], sl: { humanTotal: () => { throw new Error('x'); } } }).snake, base);
   assert.strictEqual(liveCounts({ snakeRooms: [], sl: null }).snake, base);
+});
+
+/* PAID-SL-DESIGN.md 2 (D2-m3), task T5: paid snake on the sl engine counts its OPEN ACCOUNTS as snake players, each
+   once, a gliding parked seat included (rule 4b), on top of the old rooms and the free sl room. */
+test('paid snake on the sl engine: every open account is a snake player, once, a parked one too; a fault counts 0', () => {
+  const sl = { humanTotal: () => 2 };
+  const base = liveCounts({ snakeRooms: [], sl }).snake;
+  assert.strictEqual(liveCounts({ snakeRooms: [], sl, slPaid: { humanTotal: () => 3 } }).snake, base + 3);
+  assert.strictEqual(liveCounts({ snakeRooms: [], sl, slPaid: { humanTotal: () => { throw new Error('x'); } } }).snake, base);
+  assert.strictEqual(liveCounts({ snakeRooms: [], sl, slPaid: null }).snake, base);
+  const { paidRig } = require('./slPaidFakes');
+  const r = paidRig();
+  const a = r.join(r.mint({ walletAddress: 'WA' }));
+  r.join(r.mint({ walletAddress: 'WB' }));
+  r.step(3);
+  assert.strictEqual(liveCounts({ slPaid: r.paid }).snake, 2, 'two seated paid snakes');
+  a.disconnected = true;
+  a.fire('disconnect', 'transport close');
+  assert.strictEqual(r.paid.rooms()[0].parked.size, 1, 'A is parked and its snake glides');
+  assert.strictEqual(liveCounts({ slPaid: r.paid }).snake, 2, 'the parked account still counts, once');
+  const row = r.paid.boardRows().find((x) => x.stake === 0.5);
+  assert.deepStrictEqual([row.players, row.parked], [2, 1], 'and agrees with its row');
+  assert.strictEqual(withBoardBots(liveCounts({ slPaid: r.paid }), r.paid.boardRows()).snake, 2, 'a paid row adds no bots');
 });
 
 test('the card adds the bots of its own rows, so it agrees with them', () => {

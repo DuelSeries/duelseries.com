@@ -56,8 +56,9 @@ function set({ on, message, minutes }) {
    `rooms` is every room object with a snakes map on it. `pending` is the paid
    entry tokens minted but not yet spent ({ count, worth }): each is a stake that
    landed in escrow and exists only in this process until its join, so a restart
-   loses it. Paper floor coins (a room's floorWorth) are the same: memory only,
-   nobody's seat, gone on a restart. Both make it unsafe (review findings). */
+   loses it. Paper floor coins and paid snake's floor gold (a room's floorWorth,
+   in dollars) are the same: memory only, nobody's seat, gone on a restart. Both
+   make it unsafe (review findings; PAID-SL-DESIGN.md 7.5). */
 function drainStatus(rooms, pending) {
   let playing = 0, paid = 0, paidWorth = 0, floorWorth = 0;
   for (const room of rooms) {
@@ -76,7 +77,7 @@ function drainStatus(rooms, pending) {
   /* Free players can be dropped without owing anybody anything; a paid one
      is holding a stake that only exists while their snake does. */
   if (paid) why.push(paid + ' player' + (paid === 1 ? ' is' : 's are') + ' still in a paid game');
-  if (floorWorth > 0) why.push(Math.round(floorWorth * 1e6) / 1e6 + ' USDC on Paper floors');
+  if (floorWorth > 0) why.push(Math.round(floorWorth * 1e6) / 1e6 + ' USDC on paid floors');
   if (pendingCount) why.push(pendingCount + ' paid entr' + (pendingCount === 1 ? 'y has' : 'ies have') + ' not joined yet');
   return {
     playing,

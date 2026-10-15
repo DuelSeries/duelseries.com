@@ -3,16 +3,22 @@
 // open balance). A database write needs time a dying process does not have, so every paid account's life is also
 // written, synchronously, to a local append-only file (one JSON line per record):
 //
-//   open   when an account opens   { t, jid, wallet, micro (the deposit), room, boot, at }
-//   close  when it closes          { t, jid, outcome, why, room, at } and, for a 'shutdown' or 'crash' refund, the
-//                                   owed row itself: { key, wallet, name, micro, reason }
+//   open   when an account opens   { t, jid, wallet, micro (the deposit), room, boot, at } and, when the account
+//                                   has one, stakeSig (a paid snake on the sl engine, server/slPaid; agar accounts
+//                                   carry none, so agar's records are as before)
+//   close  when it closes          { t, jid, outcome, why, room, at } and, for a refund whose why is an owed why
+//                                   (OWED_WHYS) and that carries a key, the owed row itself: { key, wallet, name,
+//                                   micro, reason }
 //
 // At the next boot the file is renamed out of the way at once (rotate), then, once the database is up (replay):
-//   - every shutdown or crash close is written as an owed refund row through writeOwedOnce, keyed by its `key`, so a
-//     row the dying process did write is never owed twice (db.recordOwedOnce takes one row per key);
+//   - every owed close (a shutdown or crash; for paid snake also an emergency or orphan refund, written by the room
+//     before its own owed row, PAID-SL-DESIGN 7.4) is written as an owed refund row through writeOwedOnce, keyed by
+//     its `key`, so a row the dying process did write is never owed twice (db.recordOwedOnce takes one row per key).
+//     Agar's own emergency closes carry no key (agMoney emergencySettle refunds at once), so they are never replayed;
 //   - every account opened with no close at all (the process was killed: SIGKILL, out of memory, the box stopped) is
-//     flagged UNSETTLED to Owen with its wallet and deposit in the server log, never paid automatically: its balance
-//     at the kill is not known, and it may have been eaten by a player who has since cashed out.
+//     flagged UNSETTLED to Owen with its wallet and deposit (and its stakeSig when the open had one) in the server log,
+//     never paid automatically: its balance at the kill is not known, and it may have been eaten by a player who has
+//     since cashed out.
 // A replay file whose owed rows all went through is renamed to .done (kept for Owen); one that did not stays and is
 // replayed at the next boot. The journal never throws into a money path: a failed write is logged and the money
 // moves on exactly as before.
@@ -25,7 +31,9 @@ const fs = require('fs');
 const path = require('path');
 
 const DEFAULT_FILE = path.join(__dirname, '..', 'data', 'ag-money-journal.log');
-const OWED_WHYS = Object.freeze(['shutdown', 'crash']);
+// The refund whys a keyed close carries an owed row for. 'emergency' and 'orphan' are paid snake's owed lane (server/
+// slPaid/slMoney.js _refundOwed); a close needs a key too, and agar's emergency close passes none.
+const OWED_WHYS = Object.freeze(['shutdown', 'crash', 'emergency', 'orphan']);
 
 function createAgJournal({ file = DEFAULT_FILE, bootId = '', log = console, now = Date.now, fsx = fs } = {}) {
   const dir = path.dirname(file);
@@ -50,8 +58,10 @@ function createAgJournal({ file = DEFAULT_FILE, bootId = '', log = console, now 
 
   function open(acct, room) {
     if (!acct || !acct.jid) return false;
-    return append({ t: 'open', jid: acct.jid, wallet: acct.wallet, micro: acct.deposit, room: String(room || ''),
-      boot: bootId, at: now() });
+    const rec = { t: 'open', jid: acct.jid, wallet: acct.wallet, micro: acct.deposit, room: String(room || ''),
+      boot: bootId, at: now() };
+    if (typeof acct.stakeSig === 'string' && acct.stakeSig) rec.stakeSig = acct.stakeSig;
+    return append(rec);
   }
 
   function close(acct, outcome, extra, room) {
@@ -149,8 +159,11 @@ function createAgJournal({ file = DEFAULT_FILE, bootId = '', log = console, now 
         } else if (a.open && !c) {
           out.unsettled++;
           out.unsettledMicro += Number.isSafeInteger(a.open.micro) ? a.open.micro : 0;
+          // a paid snake's open names its stake row: Owen pays only if that row is consumed and no owed row names it
+          const sig = typeof a.open.stakeSig === 'string' && a.open.stakeSig ? ' stakeSig ' + a.open.stakeSig : '';
           log.error('[AG] UNSETTLED-AT-BOOT ' + a.open.wallet + ' deposit ' + a.open.micro + ' micro room ' +
-            a.open.room + ' journal ' + a.open.jid + ' (the server was killed with this paid balance open; pay by hand)');
+            a.open.room + ' journal ' + a.open.jid + sig +
+            ' (the server was killed with this paid balance open; pay by hand)');
         }
       }
       out.failed += failed;

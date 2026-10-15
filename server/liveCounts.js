@@ -64,6 +64,9 @@ function duelLobby(lobby) {
      agar:       the agar.io AgArenas registry (server/ag), null while it is closed
      sl:         the new slither.io free room (server/sl SlArenas), null while it is
                  closed; its humans count as snake players
+     slPaid:     paid snake on the new engine (server/slPaid SlPaidArenas), null
+                 while it is not built; its open accounts (live, gliding or parked,
+                 each once) count as snake players (PAID-SL-DESIGN.md 2, D2-m3)
      shooter:    the Awesome Tanks arena
      tanks, knockout, battleship: the duel lobbies
      paper:      the PaperArenas registry */
@@ -85,8 +88,11 @@ function liveCounts(src = {}) {
   let sl = 0;
   try { sl = src.sl && typeof src.sl.humanTotal === 'function' ? src.sl.humanTotal() : 0; }
   catch (_) { sl = 0; }
+  let slPaid = 0;
+  try { slPaid = src.slPaid && typeof src.slPaid.humanTotal === 'function' ? src.slPaid.humanTotal() : 0; }
+  catch (_) { slPaid = 0; }
   return {
-    snake: sum(src.snakeRooms, socketsIn) + sl,
+    snake: sum(src.snakeRooms, socketsIn) + sl + slPaid,
     agar,
     omgshooter: shooter,
     tanks: duelLobby(src.tanks),

@@ -147,7 +147,8 @@ test('drainStatus is unsafe while a coin lies on a Paper floor with nobody seate
   assert.strictEqual(d.paid, 0);
   assert.strictEqual(d.safe, false, 'the coin is memory only; a restart would lose it');
   assert.strictEqual(d.floorWorth, 1);
-  assert.match(d.reason, /1 USDC on Paper floors/);
+  // 'paid floors' since paid snake's gold counts too (PAID-SL-DESIGN.md 7.5, the ops wording)
+  assert.match(d.reason, /1 USDC on paid floors/);
   room.stop();
 });
 
@@ -176,5 +177,43 @@ test('paid agar.io dev tokens go to devRefund too (the server routes them to aga
   assert.deepStrictEqual(dev, [['agar', 'WAG'], ['paper', 'WPP']]);
   assert.deepStrictEqual(sent, []);
   const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'server', 'index.js'), 'utf8');
-  assert.match(src, /\(t\.onlyGame === 'agar' \? agPayout : paperPayout\)\.refund\(/, 'index.js routes agar dev expiries to agPayout');
+  assert.match(src, /t\.onlyGame === 'agar' \? agPayout : paperPayout\)\.refund\(/, 'index.js routes agar dev expiries to agPayout');
+});
+
+/* PAID-SL-DESIGN.md 11.1 (critic C-10), task T5: paid snake on the sl engine mints dev tokens scoped 'slither'. One
+   that expires unspent is refunded ONCE through server/index.js's own devRefund (read from the source and run here on
+   fake payouts) to slPayout: never dropped, never booked under Paper's or agar's payout, never the real escrow. */
+function serverDevRefund(payouts) {
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'server', 'index.js'), 'utf8');
+  const m = /devRefund: PAPER_DEV_TOKENS\s*\?\s*(\(t\) => [^\n]+)\n\s*: null,/.exec(src);
+  assert.ok(m, 'index.js has its devRefund route');
+  return new Function('slPayout', 'agPayout', 'paperPayout', 'return ' + m[1])(payouts.sl, payouts.ag, payouts.pp);
+}
+
+test('an unspent slither dev token is refunded once, through devRefund, to slPayout', async () => {
+  const fake = (name, calls) => ({ refund: (x) => { calls.push([name, x]); return Promise.resolve('DEV-' + name); } });
+  const calls = [];
+  const sent = [];
+  const devRefund = serverDevRefund({ sl: fake('sl', calls), ag: fake('ag', calls), pp: fake('pp', calls) });
+  const refund = createExpiryRefund({
+    money: { withdraw: async (w, a) => { sent.push([w, a]); return 'REAL'; } },
+    db: { recordFailedPayout: async () => { throw new Error('never owed: it went through slPayout'); } },
+    devRefund,
+    log: quiet
+  });
+  const got = [];
+  const { store, advance } = clockStore((t) => got.push(refund(t)));
+  const tok = store.mint({ stake: 0.5, worth: 0.5, paid: 0.5, walletAddress: 'WSL', onlyGame: 'slither' });
+  assert.strictEqual(store.consumeAtStake(tok, 0.5, 'agar').ok, false, 'no other door opens it');
+  advance(TTL + 1);
+  assert.strictEqual(store.sweep(), 1);
+  assert.strictEqual(store.sweep(), 0, 'handed over once');
+  assert.deepStrictEqual(await Promise.all(got), ['DEV-sl']);
+  assert.deepStrictEqual(calls, [['sl', { wallet: 'WSL', name: 'Player', micro: 500000, paid: 0.5, why: 'unspent' }]]);
+  assert.deepStrictEqual(sent, [], 'nothing from the real money module');
+  // the same route still sends agar's and Paper's to their own payouts
+  calls.length = 0;
+  await devRefund({ walletAddress: 'WAG', worth: 1, paid: 1, onlyGame: 'agar' });
+  await devRefund({ walletAddress: 'WPP', worth: 1, paid: 1, onlyGame: 'paper' });
+  assert.deepStrictEqual(calls.map((c) => [c[0], c[1].wallet, c[1].micro]), [['ag', 'WAG', 1000000], ['pp', 'WPP', 1000000]]);
 });

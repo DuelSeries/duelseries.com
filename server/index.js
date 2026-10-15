@@ -439,7 +439,9 @@ const { STAKE_TIERS, ALL_STAKES, MIN_STAKE, MAX_STAKE,
    it is refunded, once, what landed, to the verified payer (server/entryExpiry.js,
    review finding). Paper's dev tokens go back through Paper's own payout, which is
    the fake withdraw in dev; paperPayout is defined further down and only read when
-   a sweep runs, long after boot. */
+   a sweep runs, long after boot. Paid agar.io's and paid snake's on the sl engine
+   ('slither', PAID-SL-DESIGN.md 11.1, critic C-10) go back through their own
+   payouts the same way (agPayout, slPayout, both defined further down). */
 /* Every verified stake has a durable row (server/stakeLedger.js, STATUS item 7a): a door claims
    it before seating, a refund claims it with its owed payout row, and at boot every stake an
    earlier boot of this server verified but never seated or refunded is refunded once. BOOT_ID
@@ -457,7 +459,7 @@ const refundExpiredEntry = require('./entryExpiry').createExpiryRefund({
   db,
   ledger: stakeLedger,
   devRefund: PAPER_DEV_TOKENS
-    ? (t) => (t.onlyGame === 'agar' ? agPayout : paperPayout).refund({ wallet: t.walletAddress, name: 'Player', micro: Math.round(Number(t.worth) * 1e6), paid: t.paid, why: 'unspent' })
+    ? (t) => (t.onlyGame === 'slither' ? slPayout : t.onlyGame === 'agar' ? agPayout : paperPayout).refund({ wallet: t.walletAddress, name: 'Player', micro: Math.round(Number(t.worth) * 1e6), paid: t.paid, why: 'unspent' })
     : null,
 });
 
@@ -726,8 +728,9 @@ app.post('/api/submit-stake', entryFeeLimiter, express.json({ limit: '256kb' }),
       || (signedTx !== undefined && signedTx !== null && typeof signedTx !== 'string')
       || (walletAddress !== undefined && walletAddress !== null && typeof walletAddress !== 'string')
       /* devGame names the game a DEV token is scoped to (PAPER_DEV_TOKENS only, PAID-AGAR-DESIGN.md 5.7):
-         absent, 'paper' or 'agar', nothing else, checked before anything reads it. */
-      || (devGame !== undefined && devGame !== 'paper' && devGame !== 'agar')) {
+         absent, 'paper', 'agar' or 'slither' (paid snake on the sl engine, PAID-SL-DESIGN.md 6), nothing
+         else, checked before anything reads it. */
+      || (devGame !== undefined && devGame !== 'paper' && devGame !== 'agar' && devGame !== 'slither')) {
     return res.status(400).json({ error: 'Malformed request' });
   }
   // No new stake while maintenance is on, refused before anything is broadcast (stakePaused).
@@ -753,17 +756,20 @@ app.post('/api/submit-stake', entryFeeLimiter, express.json({ limit: '256kb' }),
        or in production). No chain and no signature to claim, but the token is
        minted through the same store at the rung, so the join order, the
        one-time consume and recordEntry all run exactly as for real money.
-       Scoped to Paper (or to paid agar.io with devGame 'agar'): only those two
-       pay it out through their fake withdraw, and any other game would pay,
-       refund or rake it through the real one. */
+       Scoped to Paper (or to paid agar.io with devGame 'agar', or to paid
+       snake on the sl engine with devGame 'slither'): only those three pay it
+       out through their fake withdraw, and any other game would pay, refund or
+       rake it through the real one. */
     if (!signedTx && PAPER_DEV_TOKENS) {
       if (typeof walletAddress !== 'string' || !walletAddress || walletAddress.length > 64) {
         return res.status(400).json({ error: 'Missing wallet address' });
       }
       const rung = tierFor(want);
       const onlyGame = devGame === 'agar' ? 'agar' : 'paper';
-      const entryToken = entryStore.mint({ stake: rung, worth: rung, paid: rung, walletAddress, onlyGame });
-      console.warn(`[PAPER] DEV token ${rung} (${onlyGame}) for ${walletAddress.slice(0, 8)}`);
+      // the sl door's scope (slPaidDoor GAME): opened by no other door, refunded by slPayout when it expires
+      const scope = devGame === 'slither' ? 'slither' : onlyGame;
+      const entryToken = entryStore.mint({ stake: rung, worth: rung, paid: rung, walletAddress, onlyGame: scope });
+      console.warn(`[PAPER] DEV token ${rung} (${scope}) for ${walletAddress.slice(0, 8)}`);
       return res.json({ ok: true, entryToken, worth: rung, stake: rung, paid: rung, dev: true });
     }
     if (!signedTx) return res.status(400).json({ error: 'Missing signed transaction' });
@@ -1067,6 +1073,12 @@ const ALL_ROOMS = () => {
      the same playerCount / botCount / botsAllowed / addBot / clearBots; its
      snakes carry worth 0, so drainStatus counts its players and never money. */
   if (typeof slArenas !== 'undefined' && slArenas) out.push(...slArenas.all());
+  /* Paid snake on the sl engine (server/slPaid, only while openSlPaid built
+     it): every paid room, settling ones included. A room's `snakes` lists every
+     open account (live, gliding or parked) with its worth and its `floorWorth`
+     the gold on its floor, both in dollars (PAID-SL-DESIGN.md 7.5), so
+     drainStatus counts paid snake money before a push; it takes no bots. */
+  if (typeof slPaid !== 'undefined' && slPaid) out.push(...slPaid.all());
   return out;
 };
 
@@ -1081,8 +1093,14 @@ function roomLabel(r) {
     return 'Paper · ' + (r.stake === 0 ? 'Free' : '$' + Number(r.stake).toFixed(2))
       + (r.index > 0 ? ' #' + r.index : '');
   }
-  // The new slither.io free room (server/sl) is `sl_na_s0`: one room, free only.
-  if (raw.startsWith('sl_')) return 'slither.io (new) · Free';
+  /* The new slither.io free room (server/sl) is `sl_na_s0`; the paid rooms
+     (server/slPaid) are `sl_na_s0_5#1` / `sl_na_s1`: the rung, then which room. */
+  if (raw.startsWith('sl_')) {
+    const m = /^sl_[a-z]+_s(\d+(?:_\d+)?)(?:#(\d+))?$/.exec(raw);
+    const stake = m ? Number(m[1].replace('_', '.')) : 0;
+    return 'slither.io (new) · ' + (stake > 0 ? '$' + stake.toFixed(2) : 'Free')
+      + (m && m[2] ? ' #' + m[2] : '');
+  }
   // The agar.io rooms are `ag_na_s0#1` / `ag_na_s0_5#2`: the rung, then which overflow room.
   if (raw.startsWith('ag_')) {
     return 'agar.io · ' + (Number(r.stake) > 0 ? '$' + Number(r.stake).toFixed(2) : 'Free')
@@ -1324,6 +1342,26 @@ app.post('/api/owner/do', async (req, res) => {
       slArenas.door(true);
       console.warn('[SL] owner console: door OPEN');
       return done('New slither.io open.');
+    /* Paid snake on the sl engine's instant switch (PAID-SL-DESIGN.md 10): off,
+       every new paid join at /sl is refunded at the door ('not-open'), the sl
+       rows say closed (listed while an account is open) and the SAME /api/live
+       answer lists the old engine's paid rows open, so the next paid snake opens
+       the old game; seated sl players finish and cash out. No restart. On
+       reopens only rungs that SL_PAID built at boot, never while the shutdown
+       settle runs. */
+    case 'sl:paid:off':
+      if (!slPaid || !slPaid.paidEnabled) return refuse('Paid snake on the new engine is not on (SL_PAID)');
+      slPaid.setPaidOpen(false);
+      console.warn('[SLP] owner console: paid door CLOSED');
+      return done('Paid snake on the new engine closed to new players; paid snake opens the old game. Seated players finish.');
+    case 'sl:paid:on': {
+      if (!slPaid || !slPaid.paidEnabled) return refuse('Paid snake on the new engine is not on (SL_PAID)');
+      if (slPaid.stopping) return refuse('The server is restarting');
+      const r = slPaid.setPaidOpen(true);
+      if (!r.ok) return refuse('Paid snake on the new engine stays closed (' + r.why + ')');
+      console.warn('[SLP] owner console: paid door OPEN');
+      return done('Paid snake on the new engine open.');
+    }
     case 'maintenance:check': {
       /* Unsafe while any stake exists only in this process: a live paid seat,
          a Paper floor coin, or a paid entry token minted and not yet joined
@@ -1875,25 +1913,121 @@ const agBoot = require('./ag/agBoot').openAg({
 const agArenas = agBoot.arenas;
 const AG_PAID_ON = !!agBoot.paid;
 
+/* ── Paid snake on the sl engine (PAID-SL-DESIGN.md, Owen's answers 2026-10-12
+   and 2026-10-14) ───────────────────────────────────────────────────────────────
+   The $0.50 and $1 snake rungs on the new engine (server/slPaid), behind SL_PAID
+   (server/slPaid/slPaidBoot.js: OFF by default until the switch-on commit;
+   unset/0/false/off/no off, 1/true/on/yes on, anything else off and logged) and
+   only while /sl itself opened (SL_ENABLED). Wired here, after the agar block,
+   because it shares agar's money journal (one file, one rotation, one replay;
+   records told apart by room), agInflight and the owner alert. Worth comes only
+   from the token the paid door consumes ('slither' scope); a death splits the
+   snake's worth over the gold it drops, an eat moves a pellet's share, a hold-Q
+   cash-out pays 90/10 through slPayout below, and a restart, crash, room
+   emergency or orphan refunds 100% of the current balance through the owed lane.
+   The instant off switch is the owner console's sl:paid:off. */
+/* Built even with SL_PAID off: an unspent 'slither' dev token is refunded through
+   it when it expires (devRefund above). */
+const slPayout = require('./paperPayout').create({
+  money: PAPER_DEV_TOKENS ? paperDevMoney : money,
+  db,
+  trackEarning: PAPER_DEV_TOKENS
+    ? (e) => console.log(`[SLP] DEV earning ${e.source} ${e.amountUsdc} (${e.lobbyType}) not recorded`)
+    : trackEarning,
+  sweepRake: PAPER_DEV_TOKENS
+    ? (amt, label) => console.log(`[SLP] DEV rake ${amt} (${label}) not swept`)
+    : sweepRake,
+  io: null,                // the frozen client closes its socket after a cash-out: the card polls the status below
+  REGION,
+  game: 'slither',
+  prefix: 'sl',
+  floorSource: 'slither_floor',
+  breachSource: 'slither_breach',
+  tag: '[SLP]',
+});
+const slPaidBoot = require('./slPaid/slPaidBoot');
+/* The cash-out card's status (GET /api/sl/cashout/:cid): pending when the order
+   goes out, then sent or delayed (an owed failed_payouts row the drainer pays). */
+const slCashoutStatus = slPaidBoot.createCashoutStatus();
+const slMoneyHooks = {
+  onCashout: (order) => {
+    slCashoutStatus.set(order.cashoutId, 'pending');
+    return agInflight.track(slPayout.payCashout(order).then((sig) => {
+      slCashoutStatus.set(order.cashoutId, sig ? 'sent' : 'delayed');
+      return sig;
+    }));
+  },
+  /* The owed lane (design 7.4): an emergency or orphan refund of 100% of the
+     current balance. The room already closed the journal with this row's key, so
+     a write that fails here is written by the next boot's replay, once per key. */
+  onOwed: (row) => agInflight.track(
+    db.recordOwedOnce(row.key, row.wallet, row.micro / 1e6, row.name || 'Player', row.reason).then(kickDrain)),
+  onFloor: slPayout.sweepFloor,
+  onHouse: slPayout.houseIncident,
+  onBreach: agOwnerAlert,
+  /* One record per (source wallet, eater wallet) pair per minute, in dollars. */
+  onTransfer: (t) => collusion.record(t.srcWallet, t.dstWallet, t.micro / 1e6, { lobbyType: t.lobbyType || t.label }),
+  journal: agJournal,
+};
+const slPaidOpened = slPaidBoot.openSlPaid({
+  env: process.env,
+  sockets: slOpened.sockets,
+  laws: slArenas ? slArenas.laws : null,
+  shippableOnly: !slOpened.dev,
+  region: REGION,
+  hooks: slMoneyHooks,
+  door: {
+    /* The 'slither' door: a token scoped to another game (a Paper or agar dev token) does not open it. */
+    consumeAtStake: (token, stake) => entryStore.consumeAtStake(token, stake, 'slither'),
+    ledger: stakeLedger,
+    slPayout,
+    journal: agJournal,
+    ops,
+    /* The buy-in row, written once the seat holds the money (the old snake's label). */
+    recordEntry: (entry, label) => recordEntry(entry, label),
+    alert: agOwnerAlert,
+    track: agInflight.track,
+  },
+});
+/* The paid directory, or null when /sl is not open (no sl rows on /api/live, the
+   old engine's paid rows stay open: critic C-4). With SL_PAID off it exists with
+   no rungs, so a paid /sl page is refunded 'not-open' and never seated free. */
+const slPaid = slPaidOpened.arenas;
+/* The free room's bot governor also sees the paid rooms' tick cost (D2-m9). */
+if (slArenas && slPaid) slArenas.setExtraLoad(() => slPaid.maxSliceMs());
+/* The cash-out card's status poll. The id is the order's uuid: a cid that is
+   not a lowercase uuid is a 404 before the map is read, and so is an unknown one. */
+app.get('/api/sl/cashout/:cid', (req, res) => {
+  const cid = String(req.params.cid || '');
+  const state = slPaidBoot.isCashoutId(cid) ? slCashoutStatus.get(cid) : null;
+  if (!state) return res.status(404).json({ error: 'Not found' });
+  res.json({ state });
+});
+
 /* Shutdown settle (design 5.9, Owen Q6; server/ag/agShutdown.js): a planned
    restart (pm2 sends SIGINT, then kills after its 1.6 s timeout) must not erase
-   seated agar money, so every open agar balance is withdrawn from its room and
-   written as an owed REFUND row (100%, no rake: a restart is our fault, one row
-   per key, db.recordOwedOnce) for the drainer to pay after the restart, each
-   also journaled and logged as one [AG] SHUTDOWN-OWED line. The handler never
-   ends the process while the leaderboard also listens (production): pm2's kill
-   timeout does, exactly as before, so Paper and snake money in flight keeps its
-   whole window. Installed only while the paid rungs exist. */
-if (AG_PAID_ON) {
+   seated paid money, so every open paid agar AND paid snake balance is withdrawn
+   from its room and written as an owed REFUND row (100%, no rake: a restart is
+   our fault, one row per key, db.recordOwedOnce) for the drainer to pay after
+   the restart, each also journaled and logged as one [AG] SHUTDOWN-OWED line.
+   The handler never ends the process while the leaderboard also listens
+   (production): pm2's kill timeout does, exactly as before, so Paper and old
+   snake money in flight keeps its whole window. ONE handler for both games
+   (PAID-SL-DESIGN.md 7.1): each directory settles in its own try, so a throw in
+   one never keeps the other's rows from the journal, and the one wait covers the
+   money of both in flight (agInflight). Installed while either directory exists. */
+const paidShutdownDirs = [AG_PAID_ON ? agArenas : null, slPaid];
+if (paidShutdownDirs.some(Boolean)) {
+  const paidAll = slPaidBoot.composePaidShutdown(paidShutdownDirs);
   agShutdown.installAgShutdown({
-    arenas: agArenas,
+    arenas: paidAll,
     writeRow: (r) => db.recordOwedOnce(r.key, r.wallet, r.micro / 1e6, r.name || 'Player', r.reason),
     inflight: agInflight,
   });
   /* A hard crash leaves no time to write: every open balance is closed into the
      money journal (synchronous) and logged as one [AG] CRASH-OWED line before
      Node's own crash handler runs; the next boot writes the owed rows (Owen Q6). */
-  agShutdown.installAgCrashLog({ arenas: agArenas });
+  agShutdown.installAgCrashLog({ arenas: paidAll });
 }
 /* Closed (switched off, or the law gate refused): the lobby card still opens
    this address in its full-screen frame, so the answer is a page with a way
@@ -2013,9 +2147,20 @@ function liveBoard(opts = {}) {
   /* The old free rung leaves the board while the new slither.io room has a
      row in the SAME /api/live answer (opts.skipFree), so the lobby never lists
      two Free snake rooms and never lists none. */
-  const out = ALL_STAKES.filter(rung => !(opts.skipFree && rung === 0)).map(rung => {
+  /* opts.slRungs: the paid stakes whose sl row (paid snake on the new engine,
+     server/slPaid) is OPEN in the SAME /api/live answer. Each paid stake then
+     has exactly one open snake row (PAID-SL-DESIGN.md 2, critic C-3): the old
+     row of such a stake is left out while its room is empty, and listed closed
+     while it still has players (rule 4b never goes blind). With the sl row
+     closed or absent the old rows are exactly as before. */
+  const slOpen = (rung) => (opts.slRungs || []).some(s => Math.abs(s - rung) <= 1e-9);
+  const out = [];
+  for (const rung of ALL_STAKES) {
+    if (opts.skipFree && rung === 0) continue;
     const hit = live.get(rung);
-    return {
+    const handed = rung > 0 && slOpen(rung);
+    if (handed && !(hit && hit.players > 0)) continue;
+    out.push({
       id: `snake:${REGION}:s${rung}`,
       game: 'snake', region: REGION,
       stake: rung,
@@ -2025,9 +2170,9 @@ function liveBoard(opts = {}) {
          grows with the crowd rather than filling up, so there is nothing to
          be "7 of" and the prototype's /30 was invented. */
       capacity: null,
-      state: 'open',
-    };
-  });
+      state: handed ? 'closed' : 'open',
+    });
+  }
   // Busiest first: players converge on rooms that already have people, and that
   // convergence is what stops the player base fragmenting across empty rooms.
   return out.sort((a, b) => b.players - a.players);
@@ -2155,6 +2300,7 @@ function liveGameCounts() {
     snakeRooms,
     agar: agArenas,                 // every agar.io room (null while the game is closed)
     sl: slArenas,                   // the new slither.io free room (null while SL_ENABLED is off)
+    slPaid,                         // paid snake on the sl engine: its open accounts (null while not built)
     shooter: typeof shooterRoom !== 'undefined' ? shooterRoom : null,
     tanks: typeof tanksLobby !== 'undefined' ? tanksLobby : null,
     knockout: typeof knockoutLobby !== 'undefined' ? knockoutLobby : null,
@@ -2205,8 +2351,28 @@ app.get('/api/live', (_req, res) => {
         unknown.push('sl');
       }
     }
-    const lobbies = liveBoard({ skipFree: slRows.length > 0 })
-      .concat(slRows, paperArenas.boardRows(), agRows);
+    /* Paid snake on the sl engine (server/slPaid, only while openSlPaid built
+       it): one row per rung, players = every open account (gliding and parked
+       ones too, rule 4b), state 'closed' under sl:paid:off or while the shutdown
+       settles and then listed only while an account is open. Read in its own
+       try BEFORE liveBoard: a fault says unknown: ['slpaid'] and lists no sl row,
+       so the old rows stay open. Each paid stake whose sl row is open in THIS
+       answer is handed to it (slRungs), so every paid stake has exactly one open
+       snake row in every state (PAID-SL-DESIGN.md 2, critic C-3). */
+    let slPaidRows = [];
+    if (slPaid) {
+      try {
+        const rows = slPaid.boardRows();
+        if (!Array.isArray(rows)) throw new Error('boardRows is not a list');
+        slPaidRows = rows;
+      } catch (e) {
+        console.error('[LIVE] sl paid rows', e.message);
+        unknown.push('slpaid');
+      }
+    }
+    const slRungs = slPaidRows.filter(r => r && r.state === 'open').map(r => r.stake);
+    const lobbies = liveBoard({ skipFree: slRows.length > 0, slRungs })
+      .concat(slRows, slPaidRows, paperArenas.boardRows(), agRows);
     const extras = liveExtras();
     /* Card counts: every human of the game plus the bots in its rows, from these
        same rows, so a card never reads 0 above a row saying 20 playing. */
@@ -2485,6 +2651,10 @@ function sumLiveSelfCustodyStakes() {
      dollar once. A coin swept to the house after the hour has left the bank,
      so the liability drops by exactly what the paper_floor ledger row says. */
   for (const r of paperArenas.all()) total += r.liveStakeTotal();
+  /* Paid snake on the sl engine: each paid room's whole bank in dollars, every
+     open account (live, gliding or parked) plus the gold on its floor, settling
+     rooms too (slPaid.all(); PAID-SL-DESIGN.md 7.5). */
+  if (slPaid) for (const r of slPaid.all()) total += r.liveStakeTotal();
   /* Paid entry tokens minted and not yet spent: the stake is in escrow and is
      owed to somebody, as a seat or as the refund its expiry pays. Dev tokens
      have no chain behind them and are left out. */
@@ -2754,6 +2924,11 @@ if (agArenas) everyStaggered(() => agArenas.sweep(Date.now()), 60000, 16500, 'ag
    room that closed itself. 26 mod 30 sits 3s from paper-sweep (29) and 4s from
    stake-sweep (22). */
 if (slArenas) everyStaggered(() => slArenas.sweep(Date.now()), 60000, 26000, 'sl-sweep');
+/* Paid snake on the sl engine (only while openSlPaid built it): a paid room
+   empty for FLOOR_SWEEP_MS books its floor gold to the house and retires, and a
+   settling room is retried (PAID-SL-DESIGN.md 7.5). 9 mod 30 sits 2s from
+   collusion (7) and from payouts (11). */
+if (slPaid) everyStaggered(() => slPaid.sweep(Date.now()), 60000, 9000, 'slpaid-sweep');
 
 // ── Failed-payout drainer (NA only) ───────────────────────────────────────────
 // Retries payouts that failed (e.g. an RPC outage) so a player's winnings are never stranded.

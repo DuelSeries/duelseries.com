@@ -17,8 +17,9 @@
    later and never counts it as winnings.
 
    Scoped dev tokens (onlyGame) have no chain behind them and must never be
-   paid from the real escrow: Paper's go through Paper's own payout (the fake
-   withdraw when PAPER_DEV_TOKENS is on), anything else is logged and dropped.
+   paid from the real escrow: Paper's, paid agar.io's and paid snake's on the
+   sl engine ('slither') go through that game's own payout (the fake withdraw
+   when PAPER_DEV_TOKENS is on), anything else is logged and dropped.
 
    A token whose stake has a durable row (t.stakeSig, STATUS item 7a) is refunded through that
    row instead (stakeLedger.refund): the row turns 'refunded' and the owed row is written in one
@@ -29,6 +30,9 @@
 
    Every dependency is injected, so the tests run it with fakes. */
 const { refundBound } = require('./stakeRules');
+
+// The dev scopes devRefund takes, each to its own game's payout (server/index.js routes them).
+const DEV_REFUND_GAMES = Object.freeze({ paper: "Paper's", agar: "agar's", slither: "paid snake's" });
 
 function createExpiryRefund({ money, db, devRefund = null, ledger = null, log = console }) {
   return function refundExpired(t) {
@@ -46,10 +50,13 @@ function createExpiryRefund({ money, db, devRefund = null, ledger = null, log = 
       return Promise.resolve(null);
     }
     if (t.onlyGame) {
-      /* Paper's and paid agar.io's dev tokens (PAID-AGAR-DESIGN.md 5.8): devRefund, which the server routes
-         to that game's own payout (the fake withdraw when PAPER_DEV_TOKENS is on). */
-      if ((t.onlyGame === 'paper' || t.onlyGame === 'agar') && typeof devRefund === 'function') {
-        log.log(`[ENTRY] EXPIRED unspent dev token (${label}) -> ${t.onlyGame === 'agar' ? "agar's" : "Paper's"} own refund`);
+      /* Paper's, paid agar.io's (PAID-AGAR-DESIGN.md 5.8) and paid snake's (PAID-SL-DESIGN.md 11.1, critic
+         C-10) dev tokens: devRefund, which the server routes to that game's own payout (the fake withdraw when
+         PAPER_DEV_TOKENS is on). */
+      const whose = Object.prototype.hasOwnProperty.call(DEV_REFUND_GAMES, t.onlyGame)
+        ? DEV_REFUND_GAMES[t.onlyGame] : null;
+      if (whose && typeof devRefund === 'function') {
+        log.log(`[ENTRY] EXPIRED unspent dev token (${label}) -> ${whose} own refund`);
         return Promise.resolve().then(() => devRefund(t)).catch((e) => {
           log.error('[ENTRY] dev refund failed: ' + (e && e.message));
           return null;

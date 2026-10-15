@@ -9,7 +9,10 @@
    - a real token seated at Paper, snake (ladder and tier) and knockout claims its row first
      ('consumed'), a token sent to agar.io (the old door is gone, the new game reads none) is never
      touched, and a Paper door
-     refusal pays back through the row, once. */
+     refusal pays back through the row, once;
+   - paid snake on the sl engine (SL_ENABLED and SL_PAID on for this boot, PAID-SL-DESIGN.md 3.2 steps
+     8 to 11, task T5): the slither door claims the row before the seat, and a refusal after the claim
+     ('one-seat') pays back through the row, once. */
 const test = require('node:test');
 const assert = require('node:assert');
 const net = require('net');
@@ -70,6 +73,9 @@ const until = async (fn, ms = 4000) => {
 test.before(async () => {
   port = await freePort();
   process.env.DEV_LOCAL_PORT = String(port);
+  // paid snake on the sl engine, for its door's claim (this process only: every test file has its own)
+  process.env.SL_ENABLED = '1';
+  process.env.SL_PAID = '1';
   process.env.DEV_LOCAL_SEED_STAKES = JSON.stringify([
     // An earlier boot of this NA server verified this stake; its token died with that process. It is
     // a $0.10 stake, the rung BACKLOG 2.1 retired: the new ladder never reads a row, so it is owed
@@ -299,5 +305,93 @@ test('a retired $0.10 join is refused at the snake and Paper doors, and the toke
   const ids = live.json.lobbies.map((l) => l.id);
   assert.ok(!live.json.lobbies.some((l) => Math.abs(Number(l.stake) - 0.1) < 1e-9), 'no $0.10 row: ' + ids.join(' '));
   assert.ok(!ids.some((id) => /s0[._]1\b/.test(id)), ids.join(' '));
-  for (const want of ['paper:na:s0.5', 'snake:na:s0.5']) assert.ok(ids.includes(want), want + ' in ' + ids.join(' '));
+  assert.ok(ids.includes('paper:na:s0.5'), 'paper:na:s0.5 in ' + ids.join(' '));
+  /* The snake $0.50 rung is one OPEN row: the old engine's, or (this boot has SL_PAID on) the new engine's, which
+     takes the old row's place while that room is empty (PAID-SL-DESIGN.md 2, critic C-3). */
+  const snake = live.json.lobbies.filter((l) => l.game === 'snake' && l.stake === 0.5 && l.state !== 'closed');
+  assert.deepStrictEqual(snake.map((l) => l.id).filter((id) => id === 'snake:na:s0.5' || id === 'sl:na:s0.5').length, 1,
+    'one open snake $0.50 row: ' + ids.join(' '));
+});
+
+// A /sl socket. Once seated it steers its own snake toward the map centre (grd, grd) from its first snake_add, so a
+// spawn on the outer ring heading out never meets the border while the test still needs it alive.
+function slConnect(auth, nick) {
+  const { io } = require('socket.io-client');
+  const W = require(path.join(ROOT, 'shared', 'slWire.js'));
+  const s = io(`http://127.0.0.1:${port}/sl`, { transports: ['websocket'], forceNew: true, reconnection: false, timeout: 5000,
+    auth });
+  const items = [];
+  let grd = null;
+  let q = null;
+  s.on('sl:x', (list) => { for (const it of Array.isArray(list) ? list : []) items.push(it); });
+  s.on('sl:f', (data) => {
+    let evs = [];
+    try { evs = W.decodeBundle(data instanceof Uint8Array ? data : new Uint8Array(data)); } catch (_) { return; }
+    for (const ev of evs) {
+      if (ev.type === 'init') grd = ev.grd;
+      else if (ev.type === 'snake_add' && q === null && grd !== null && ev.nick === nick) {
+        const th = Math.atan2(grd - ev.sny, grd - ev.snx);
+        q = Math.round((((th % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)) / (2 * Math.PI) * 251) % 251;
+      }
+    }
+  });
+  const beat = setInterval(() => {
+    if (s.connected && q !== null) s.emit('sl:i', W.encodeInput([{ type: 'angle', q }]));
+  }, 200);
+  s.on('disconnect', () => clearInterval(beat));
+  return new Promise((res, rej) => {
+    const bail = setTimeout(() => rej(new Error('socket never connected')), 8000);
+    s.on('connect', () => { clearTimeout(bail); res({ s, items, item: (t) => items.find((x) => x.t === t) }); });
+    s.on('connect_error', (e) => { clearTimeout(bail); rej(e); });
+  });
+}
+
+test('a real token at the slither door claims its row before the seat; a refusal after the claim pays back through the row once', async () => {
+  const tok = await stake(0.5);
+  const sig = lastSig();
+  const a = await slConnect({ paid: 1, stake: 0.5, entryToken: tok, cv: 1 }, 'dursl');
+  a.s.emit('sl:join', { nick: 'dursl' });
+  const room = await until(() => a.item('room') || a.item('refused'), 6000);
+  assert.deepStrictEqual(room, { t: 'room', stake: 0.5, cut: 10 }, JSON.stringify(a.items));
+  assert.strictEqual(ledgerDb.stakes.get(sig).state, 'consumed', 'claimed before the seat');
+  assert.ok(ledgerDb.stakes.get(sig).claim_key);
+  assert.strictEqual(ledgerDb.payouts.filter((p) => p.stake_sig === sig).length, 0);
+
+  // The same payer again while seated: claimed, then refused 'one-seat' (Owen: one paid snake per wallet) and paid
+  // back through its own row, once, never through the payout's fake withdraw.
+  const tok2 = await stake(0.5);
+  const sig2 = lastSig();
+  const b = await slConnect({ paid: 1, stake: 0.5, entryToken: tok2, cv: 1 }, 'dursl2');
+  b.s.emit('sl:join', { nick: 'dursl2' });
+  const refused = await until(() => b.item('refused') || b.item('room'), 6000);
+  assert.deepStrictEqual(refused, { t: 'refused', why: 'one-seat', refunded: 500000 });
+  const owed = await until(() => ledgerDb.payouts.filter((p) => p.stake_sig === sig2).length === 1 &&
+    ledgerDb.payouts.filter((p) => p.stake_sig === sig2));
+  assert.deepStrictEqual(owed.map((p) => [p.wallet_address, p.amount_sol, p.reason]), [[PAYER, 0.5, 'refund slither one-seat']]);
+  assert.strictEqual(ledgerDb.stakes.get(sig2).state, 'refunded');
+  await new Promise((r) => setTimeout(r, 200));
+  assert.strictEqual(ledgerDb.payouts.filter((p) => p.stake_sig === sig2).length, 1, 'once');
+  assert.strictEqual(ledgerDb.stakes.get(sig).state, 'consumed', 'the seated stake is untouched');
+
+  /* The old engine's $0.50 room with a player in it while the sl row is open (a stale page, BRIEF answer 4): its row is
+     listed CLOSED with its players, so rule 4b still sees them, and the sl row stays the one open snake $0.50 row. */
+  const tokOld = await stake(0.5);
+  const c = await connect();
+  c.s.emit('play', { name: 'stale', stake: 0.5, entryToken: tokOld, region: 'na' });
+  assert.ok(await until(() => c.has('game_joined'), 6000), JSON.stringify(c.got.map((g) => g[0])));
+  let board = null;
+  for (let i = 0; i < 40 && !board; i++) {
+    const r = await call(port, 'GET', '/api/live');
+    const old = r.json.lobbies.find((l) => l.id === 'snake:na:s0.5');
+    if (old && old.players > 0) board = r.json;
+    else await new Promise((res) => setTimeout(res, 100));
+  }
+  assert.ok(board, 'the old room\'s row is listed while it has a player');
+  const at = (s) => board.lobbies.filter((l) => l.game === 'snake' && l.stake === s);
+  assert.deepStrictEqual(at(0.5).map((l) => [l.id, l.state, l.players]).sort(),
+    [['sl:na:s0.5', 'open', 1], ['snake:na:s0.5', 'closed', 1]]);
+  for (const s of [0.5, 1]) assert.strictEqual(at(s).filter((l) => l.state !== 'closed').length, 1, 'one open row at $' + s);
+  c.s.close();
+  a.s.close();
+  b.s.close();
 });
