@@ -140,6 +140,7 @@
      The lobby forwards it down; this accepts it. Same-origin only. */
   window.addEventListener('message', (e) => {
     if (e.origin !== window.location.origin) return;
+    if (e.source !== window.parent) return;
     if (e.data && e.data.type === 'diag:mark') mark();
   });
 

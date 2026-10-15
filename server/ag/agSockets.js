@@ -21,11 +21,13 @@
 // connection handler counts again, since handshakes in flight together all pass the middleware before any of
 // them is counted. A handshake refused by the middleware fails with { why: 'limit' }; a connection past the cap,
 // or one no room has a watcher seat for, gets 'ag:refused' and is closed. The address is read the way express
-// reads req.ip under the server's 'trust proxy' 1: the last X-Forwarded-For entry when the header is there, else
-// the socket's own address (helpers.clientIp replaces it). An IPv6 client can hold many addresses; each counts
-// on its own, and the watcher seats per room still bound what they cost.
+// reads req.ip under the server's 'trust proxy' setting (server/clientAddr.js): the last X-Forwarded-For entry
+// only when the socket's peer is loopback or private (nginx), else the peer itself (helpers.clientIp replaces
+// it). An IPv6 client can hold many addresses; each counts on its own, and the watcher seats per room still
+// bound what they cost.
 
 const { assertLawsComplete } = require('./agLaws');
+const { socketClientIp } = require('../clientAddr');
 const { refuse } = require('./agArenas');
 const { createAgPaidDoor, wantsPaid } = require('./agPaidDoor');
 
@@ -57,19 +59,9 @@ const AG_CONN = Object.freeze({
   PER_IP: chosen(10, 'sockets one address may hold on /ag at once, watchers and players together'),
 });
 
-// The client address under 'trust proxy' 1 (see the header).
+// The client address (server/clientAddr.js, the same rule as express's 'trust proxy'; see the header).
 function clientIp(socket) {
-  const hs = socket && socket.handshake;
-  if (!hs) return '';
-  const xff = hs.headers && hs.headers['x-forwarded-for'];
-  let ip = '';
-  if (typeof xff === 'string' && xff) {
-    const at = xff.lastIndexOf(',');
-    ip = xff.slice(at + 1).trim();
-  }
-  if (!ip) ip = typeof hs.address === 'string' ? hs.address : '';
-  if (ip.startsWith('::ffff:')) ip = ip.slice(7);
-  return ip;
+  return socketClientIp(socket);
 }
 
 // Open sockets per address.

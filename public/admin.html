@@ -97,7 +97,7 @@ async function load() {
     let earn = null;
     if (earnRes && earnRes.ok) { try { earn = await earnRes.json(); } catch (_) {} }
     if (earn && !earn.error) {
-      const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+      const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
       const usd = (v) => '$' + (Number(v) || 0).toFixed(2);
       const bySrc = {}; (earn.bySource || []).forEach(s => { bySrc[s.source] = s; });
       const rake = bySrc.game_rake ? bySrc.game_rake.total : 0;

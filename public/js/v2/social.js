@@ -33,7 +33,7 @@
   const money = n => (MODE === 'usdc' ? '$' : 'C$') + (Number(n) || 0).toFixed(2);
   const esc = s => String(s == null ? '' : s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   const initials = n => esc(String(n).replace(/[^a-z0-9]/gi, '').slice(0, 2).toUpperCase());
   const el = id => document.getElementById(id);
 

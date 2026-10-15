@@ -29,6 +29,9 @@ const notify = require('./notify'); // owner phone pushes (ntfy) — e.g. new-pl
 const analytics = require('./analytics'); // server-side PostHog capture (money events)
 const nameProof = require('./nameProof'); // a wallet signing for its own name change
 const ownerAuth = require('./ownerAuth'); // the owner wallet signing for an owner action
+const { isWalletString } = require('./b58Caps');     // a client address is a key's size before any decode
+const { TRUST_PROXY } = require('./clientAddr');     // X-Forwarded-For only from nginx (loopback / private)
+const { securityHeaders } = require('./securityHeaders');
 const ops       = require('./ops');       // maintenance mode
 const { liveCounts, withBoardBots } = require('./liveCounts'); // per-game totals, for the lobby cards
 
@@ -121,13 +124,31 @@ const io     = new Server(server, {
   },
   pingInterval: 5000,   // heartbeat every 5s (default 25s) — keeps mobile WiFi radio awake
   pingTimeout:  10000,  // declare dead after 10s of no response (default 20s)
+  /* The largest message one client may send (default 1 MB). Every honest client
+     message in every game is a small object, well under 2 KB (the biggest are the
+     sl:diag stats, a join with its entry token, Battleship's ship placement), so
+     64 KB is over 30x headroom. A 1 MB message was enough to hand a handler a
+     megabyte string, which is what made the quadratic base58 decode a 20-minute
+     stall. The served socket.io client reads this limit from the handshake and
+     splits a polling batch to fit under it. */
+  maxHttpBufferSize: 64 * 1024,
 });
 
-// Prevent Render 502s — match their load balancer keep-alive timeout
+// Keep idle connections from nginx open longer than its upstream keep-alive, so a reused one is never cut mid-request.
 server.keepAliveTimeout = 120000;
 server.headersTimeout   = 121000;
 
-app.set('trust proxy', 1); // Render runs behind a proxy
+/* nginx on this box terminates TLS and proxies to us, so X-Forwarded-For is believed
+   only when the peer is loopback or a private address (nginx), never from a client
+   that reached port 3000 directly. With the old hop count (1) a direct client could
+   set X-Forwarded-For to anything and dodge every req.ip rate limit. The socket
+   per-address caps use the same rule (server/clientAddr.js). */
+app.set('trust proxy', TRUST_PROXY);
+
+/* frame-ancestors / X-Frame-Options / nosniff / Referrer-Policy on everything, HSTS on
+   https (server/securityHeaders.js). The games are same-origin frames of the lobby, so
+   they still load. */
+app.use(securityHeaders);
 
 // CORS for the HTTP API. Paid play must stake against the REGIONAL game server (e.g.
 // eu.duelseries.com) so the one-time entry token is minted on the same server that consumes
@@ -417,6 +438,14 @@ const entryFeeLimiter = rateLimit({ windowMs: 60 * 1000, max: 10, standardHeader
 // RPC/relay endpoints proxy to our paid Helius node — cap per-IP abuse without breaking the
 // wallet's normal burst of calls. Generous to tolerate shared IPs / NAT.
 const rpcLimiter = rateLimit({ windowMs: 10 * 1000, max: 100, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Slow down.' } });
+/* Every route that verifies a wallet signature or an owner token (/api/my-name, /api/owner/*,
+   /admin/finance, /api/admin/*, the owner-gated debug reads). Signature checks are local
+   arithmetic but not free, and none of these is called often by an honest browser: the owner
+   console refreshes every 15 s, a rename is one click. 30 a minute per address. */
+const sigLimiter = rateLimit({ windowMs: 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Slow down.' } });
+/* /api/debug/client stays open (it is how a browser reports a stall), so it gets its own cap:
+   diag.js posts every 20 s, so 6 a minute per address is double that. */
+const clientReportLimiter = rateLimit({ windowMs: 60 * 1000, max: 6, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Slow down.' } });
 
 // ─── Entry fee ────────────────────────────────────────────────────────────────
 const LOBBY_FEES = money.lobbyFees; // { free, br, dollar }: the active money mode's fee table (keys validate lobby type)
@@ -588,7 +617,7 @@ app.get('/wallet/info', (req, res) => {
 // `accounts.balance` + the `withdrawals` table are now vestigial.
 
 // ─── Admin finance dashboard ──────────────────────────────────────────────────
-app.get('/admin/finance', async (req, res) => {
+app.get('/admin/finance', sigLimiter, async (req, res) => {
   if (!(await isOwnerReq(req))) return res.status(403).json({ error: 'Forbidden' });
   try {
     const escrowBalance = await money.escrowBalance();
@@ -613,6 +642,8 @@ app.get('/healthz', (req, res) => res.sendStatus(200));
 app.get('/api/sol-balance', rpcLimiter, async (req, res) => {
   const { address } = req.query;
   if (!address) return res.status(400).json({ error: 'address required' });
+  // A key's size and alphabet before new PublicKey() decodes it (quadratic: server/b58Caps.js).
+  if (!isWalletString(address)) return res.status(400).json({ error: 'Invalid address' });
   try {
     const sol = await money.balanceOf(address); // native unit (SOL or USDC); `sol` field kept for client back-compat
     res.json({ address, sol, balance: sol, unit: money.unit });
@@ -849,7 +880,7 @@ app.post('/api/submit-stake', entryFeeLimiter, express.json({ limit: '256kb' }),
 // attack surface. The silent-sign flow uses /api/submit-stake exclusively.)
 
 // Owner-only: review collusion flags (persisted) + the current live suspicious pairs.
-app.get('/api/admin/collusion', async (req, res) => {
+app.get('/api/admin/collusion', sigLimiter, async (req, res) => {
   if (!(await isOwnerReq(req))) return res.status(403).json({ error: 'Forbidden' });
   try {
     const flags = await db.getRecentCollusionFlags(100);
@@ -861,7 +892,7 @@ app.get('/api/admin/collusion', async (req, res) => {
 
 // Owner-only: where deposited SOL actually is (withdraw wallet vs sweep destination vs
 // your own Privy deposit wallet). Pinpoints "balance credited but escrow empty".
-app.get('/api/admin/escrow', async (req, res) => {
+app.get('/api/admin/escrow', sigLimiter, async (req, res) => {
   if (!(await isOwnerReq(req))) return res.status(403).json({ error: 'Forbidden' });
   try {
     const diag = await Wallet.getEscrowDiagnostics();
@@ -872,7 +903,7 @@ app.get('/api/admin/escrow', async (req, res) => {
 });
 
 // Owner-only: live solvency snapshot (escrow vs custodial ledger + live self-custody stakes).
-app.get('/api/admin/solvency', async (req, res) => {
+app.get('/api/admin/solvency', sigLimiter, async (req, res) => {
   if (!(await isOwnerReq(req))) return res.status(403).json({ error: 'Forbidden' });
   await checkSolvency();
   res.json(_lastSolvency || { error: 'no data yet' });
@@ -881,7 +912,7 @@ app.get('/api/admin/solvency', async (req, res) => {
 // Owner-only: cash-out payouts that failed on-chain (e.g. an RPC outage) and are owed but
 // unpaid. Lets the owner see who's owed what and pay it out manually until an automatic
 // drainer exists. `paid` rows are kept for the audit trail.
-app.get('/api/admin/failed-payouts', async (req, res) => {
+app.get('/api/admin/failed-payouts', sigLimiter, async (req, res) => {
   if (!(await isOwnerReq(req))) return res.status(403).json({ error: 'Forbidden' });
   try {
     res.json(await db.getFailedPayouts(200));
@@ -891,7 +922,7 @@ app.get('/api/admin/failed-payouts', async (req, res) => {
 });
 
 // Owner earnings: total house take (game rake + cosmetic sales) with a live feed.
-app.get('/api/admin/earnings', async (req, res) => {
+app.get('/api/admin/earnings', sigLimiter, async (req, res) => {
   if (!(await isOwnerReq(req))) return res.status(403).json({ error: 'Forbidden' });
   try {
     const [summary, recent, daily] = await Promise.all([
@@ -999,7 +1030,7 @@ app.get('/api/my-profile', async (req, res) => {
    body-supplied wallet would let anyone rename anyone: /api/my-profile already
    trusts a query wallet, but that only reads, and a write has to be the
    account it claims to be. */
-app.post('/api/my-name', async (req, res) => {
+app.post('/api/my-name', sigLimiter, async (req, res) => {
   /* The wallet's own signature first, because it depends on nothing that can be
      misconfigured or throttled. The token stays as the fallback so older clients
      and anything already working keep working. */
@@ -1179,12 +1210,12 @@ function opsSnapshot() {
   };
 }
 
-app.post('/api/owner/state', async (req, res) => {
+app.post('/api/owner/state', sigLimiter, async (req, res) => {
   if (!(await isOwnerReq(req))) return res.status(403).json({ error: 'Not an owner' });
   res.json(opsSnapshot());
 });
 
-app.post('/api/owner/do', async (req, res) => {
+app.post('/api/owner/do', sigLimiter, async (req, res) => {
   const who = ownerFromSignature(req.body);
   if (!who && !(await isOwnerReq(req))) {
     return res.status(403).json({ error: 'Not an owner' });
@@ -1408,7 +1439,7 @@ app.post('/api/owner/do', async (req, res) => {
    that control the server, to anyone who asked, which is a map for somebody
    deciding what to attack. The signature path does not depend on Privy, so it
    still works in exactly the case this exists for. */
-app.post('/api/owner/diagnose', async (req, res) => {
+app.post('/api/owner/diagnose', sigLimiter, async (req, res) => {
   /* Verified ONCE and the answer kept. A signature is good for a single use, so
      checking the gate and then checking it again inside the handler burns it on
      the way in and reports the caller as a forgery. */
@@ -1451,6 +1482,8 @@ app.post('/api/owner/diagnose', async (req, res) => {
 app.get('/api/my-transactions', async (req, res) => {
   const wallet = strOr(req.query.wallet, '').trim();   // a string only: ?wallet[]=a threw
   if (!wallet) return res.status(400).json({ error: 'No wallet' });
+  // A key's size and alphabet before new PublicKey() decodes it (quadratic: server/b58Caps.js).
+  if (!isWalletString(wallet)) return res.status(400).json({ error: 'Invalid wallet' });
   try {
     const rows = await Usdc.usdcHistory(wallet, 12);
     res.json({ transactions: rows });
@@ -1977,7 +2010,7 @@ const slCashoutStatus = slPaidBoot.createCashoutStatus();
    until it lands (review T5-R3), so a mid-run close never waits for the next
    boot; that boot's replay stays the backstop, once per key. */
 const slOwedLane = slPaidBoot.createOwedLane({
-  write: (row) => db.recordOwedOnce(row.key, row.wallet, row.micro / 1e6, row.name || 'Player', row.reason),
+  write: (row) => db.recordOwedOnce(row.key, row.wallet, row.micro / 1e6, String(row.name || '').replace(/[<>"'&]/g, '') || 'Player', row.reason),
   kick: kickDrain,
   track: agInflight.track,
 });
@@ -1989,7 +2022,11 @@ const slMoneyHooks = {
      CASHOUT-UNCONFIRMED-AT-BOOT with the wallet, net and cashoutId. */
   onCashout: (order) => {
     slCashoutStatus.set(order.cashoutId, 'pending');
-    return agInflight.track(slPayout.payCashout(order).then((sig) => {
+    /* The name lands in accounts.name (recordEarnings), which every public board reads, so
+       it goes in with no markup characters at all. cleanNick already strips them at the
+       join; this is the same rule at the database's door. */
+    const dbOrder = { ...order, name: String(order.name || '').replace(/[<>"'&]/g, '') };
+    return agInflight.track(slPayout.payCashout(dbOrder).then((sig) => {
       slCashoutStatus.set(order.cashoutId, sig ? 'sent' : 'delayed');
       agJournal.payout(order.jid, order.cashoutId, sig ? 'sent' : 'failed', order.label);
       return sig;
@@ -2802,14 +2839,19 @@ try {
 
    This exists because three fixes were reasoned from server code toward a
    symptom only the player can see, and all three missed. */
+/* Writing stays open (it is how a browser reports a stall) but bounded: 64 KB a report, a plain
+   object only, 6 a minute per address, the newest 30 kept. Reading is the owner's only: the
+   reports carry user agents and perf internals, and nothing outside the owner reads them. */
 const _clientReports = [];
-app.post('/api/debug/client', express.json({ limit: '64kb' }), (req, res) => {
-  const b = req.body || {};
-  _clientReports.push({ at: Date.now(), ip: null, ...b });
+app.post('/api/debug/client', clientReportLimiter, express.json({ limit: '64kb' }), (req, res) => {
+  const b = req.body;
+  if (!b || typeof b !== 'object' || Array.isArray(b)) return res.status(400).json({ error: 'Bad report' });
+  _clientReports.push({ ...b, at: Date.now(), ip: null });
   if (_clientReports.length > 30) _clientReports.shift();
   res.json({ ok: true });
 });
-app.get('/api/debug/client', (_req, res) => {
+app.get('/api/debug/client', sigLimiter, async (req, res) => {
+  if (!(await isOwnerReq(req))) return res.status(403).json({ error: 'Forbidden' });
   res.json({
     now: Date.now(),
     reports: _clientReports.map(r => ({ ...r, agoSec: Math.round((Date.now() - r.at) / 1000) })),
@@ -2818,8 +2860,16 @@ app.get('/api/debug/client', (_req, res) => {
 
 /* The one instrument that can NAME the blocker. Tick lag says the thread died
    and the job timers say it was no job, so what remains is a stack trace from
-   inside the stall. See server/profiler.js. */
-app.get('/api/debug/profile', (_req, res) => res.json(profiler.report()));
+   inside the stall. See server/profiler.js. Owner only: it is stack traces of this process. */
+app.get('/api/debug/profile', sigLimiter, async (req, res) => {
+  if (!(await isOwnerReq(req))) return res.status(403).json({ error: 'Forbidden' });
+  res.json(profiler.report());
+});
+
+/* /api/debug/tick below and /wallet/debug above stay unauthenticated on purpose:
+   scripts/loadtest.js reads /api/debug/tick with no credentials for its server-tick columns,
+   and test/durableStakeServer.test.js reads /wallet/debug's ledger flags the same way (the
+   owner's no-login check that paid stakes are durable). Neither carries a secret. */
 
 app.get('/api/debug/tick', (req, res) => {
   const mem = process.memoryUsage();

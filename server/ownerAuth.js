@@ -29,6 +29,7 @@ const _bs58 = require('bs58');
 // bs58 v6 is ESM-first: a plain require gives { default }, and reaching straight
 // for .decode gets undefined. Same unwrap Wallet.js and Usdc.js use.
 const bs58 = (_bs58 && _bs58.default) ? _bs58.default : _bs58;
+const { isWalletString, isSigString } = require('./b58Caps');
 
 const WINDOW_MS = 2 * 60 * 1000;
 
@@ -71,6 +72,9 @@ function walletForAction(body, now) {
   const ts     = Number(field(body, 'ts')) || NaN;
   const args   = (body && body.args) || {};
   if (!wallet || !sig || !action || !ts || !isFinite(ts)) return null;
+  // Before ANY decode: base58 decode is quadratic, and a 100 KB string held the whole
+  // server for ~20 s (server/b58Caps.js). A key is at most 44 chars, a signature 88.
+  if (!isWalletString(wallet) || !isSigString(sig)) return null;
   if (Math.abs(now - ts) > WINDOW_MS) return null;
   try {
     const pub = bs58.decode(wallet);

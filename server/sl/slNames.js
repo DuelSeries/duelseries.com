@@ -7,10 +7,11 @@
 // their game.js:8951-8961), then sends it only when gdnm passes (slNet.js:84-90, gdnm at public/js/sl/slApply.js:
 // 355-370, their game.js:1744-1783). The server applies the same rules to whatever arrives, so a hand-made client
 // gets nothing their client could not have sent. No swear filter, never the old sanitizeName (server/index.js:79).
+// One rule of ours on top (security review 2026-10-15): the result loses < > " ' & (MARKUP below).
 // test/slNames.test.js runs the frozen openNick and gdnm in a vm against cleanNick on 50,000 fuzz names.
 //
 // Names reach pages only through their client's own escaping and the layer's textContent; the owner console and the
-// phone push escape them (SERVER-DESIGN 12.3).
+// phone push escape them (SERVER-DESIGN 12.3). A paid name also reaches accounts.name, hence MARKUP.
 //
 // BOT_NAMES is slBots' list (one copy, BUILD-DECISIONS T12); every one passes cleanNick unchanged (tested).
 
@@ -68,6 +69,13 @@ function nameMax(laws) {
 
 const DEFAULT_MAX = nameMax(LAWS);
 
+// Characters a name never keeps (ours, not their client's: security review 2026-10-15). Their client escapes a
+// name on draw, but a paid snake's name is written to accounts.name (the cash-out's recordEarnings), which the
+// lobby's boards and profiles read, and a name holding markup or a quote is one missed escape, or one quoted
+// attribute, away from running on the lobby origin. Stripped LAST, from what their rules left, so the name is
+// exactly their client's own name minus these characters.
+const MARKUP = /[<>"'&]/g;
+
 // The name a seat gets. raw: what sl:join carried (a string; a number is turned into its text as their String(raw)
 // would; anything else is an empty name, never a call to an object's toString). laws: optional table (default the
 // real one).
@@ -77,7 +85,7 @@ function cleanNick(raw, laws) {
   s = asciize(s);
   if (s.length > max) s = s.substr(0, max);
   if (s.toLowerCase() === OPEN_CODE) s = '';
-  return gdnm(s) ? s : '';
+  return gdnm(s) ? s.replace(MARKUP, '') : '';
 }
 
 module.exports = { NAME_LAW_IDS, asciize, gdnm, nameMax, cleanNick, BOT_NAMES };

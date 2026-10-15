@@ -1188,7 +1188,8 @@ function brRunCountdown(msLeft) {
 }
 
 function escapeHtml(v) {
-  return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 /* THE WINNING PRIZE, and who it belongs to. Module scope on purpose: brApply
@@ -1601,13 +1602,15 @@ document.getElementById('pod-lobby').addEventListener('click', () => {
         resolve(val);
       };
       const onMsg = (e) => {
+        // Only the lobby (our parent) on our own origin answers.
+        if (e.source !== window.parent || e.origin !== window.location.origin) return;
         const d = e.data;
         if (!d || d.id !== id) return;
         if (d.type === 'duel:signaction:done') finish(d.proof || null);
         else if (d.type === 'duel:signaction:error') { brSay(d.message); finish(null); }
       };
       window.addEventListener('message', onMsg);
-      window.parent.postMessage({ type: 'duel:signaction', id, action, args: args || {} }, '*');
+      window.parent.postMessage({ type: 'duel:signaction', id, action, args: args || {} }, window.location.origin);
       setTimeout(() => finish(null), 15000);
     });
   }
@@ -2064,6 +2067,8 @@ function requestRestake(game) {
     let settled = false;
     const finish = (val) => { if (settled) return; settled = true; window.removeEventListener('message', onMsg); resolve(val); };
     const onMsg = (e) => {
+      // Only the lobby (our parent) on our own origin answers.
+      if (e.source !== window.parent || e.origin !== window.location.origin) return;
       const d = e.data;
       if (!d || (d.type !== 'duel:restake:done' && d.type !== 'duel:restake:error')) return;
       if (d.type === 'duel:restake:error') { if (d.message) alert(d.message); finish(null); }
@@ -2113,7 +2118,8 @@ document.getElementById('btn-lobby').addEventListener('click', () => {
   const closeBtn = document.getElementById('modal-alltime-close');
 
   function escHtmlLocal(s) {
-    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
   }
 
   // Event delegation — works regardless of when items are rendered
@@ -2298,8 +2304,10 @@ function updateHUD(snap) {
   }
 }
 
+// Quotes too: names land inside quoted attributes (data-player-name="...").
 function escHtml(s) {
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
 // Leaderboard — updated from snapshot (60Hz max), not render loop
