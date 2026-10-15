@@ -68,6 +68,9 @@
     var a = cv === null ? {} : { cv: cv };
     var p = typeof slx.paidAuth === 'function' ? slx.paidAuth() : null;
     if (p && typeof p === 'object') for (var k in p) if (Object.prototype.hasOwnProperty.call(p, k)) a[k] = p[k];
+    // the battle royale's fields (slxBr, loaded before this file, on an event page only)
+    var b = typeof slx.brAuth === 'function' ? slx.brAuth() : null;
+    if (b && typeof b === 'object') for (var j in b) if (Object.prototype.hasOwnProperty.call(b, j)) a[j] = b[j];
     return a;
   };
 
@@ -173,5 +176,8 @@
   // Inside the lobby's frame: Play at once under the lobby name (their Play, public/js/sl/slMain.js:94-101), unless
   // slxPaid holds the page (paidHold: a paid snake cut off by a reload, or a paid launch it could not read). Such a
   // page shows its notice on the results card and never plays free.
-  if (slx.inLobby && !(typeof slx.paidHold === 'function' && slx.paidHold() === true)) D.play(lobbyName());
+  // The battle royale's page (slxBr) plays itself: it asks the lobby's wallet for the prize proof first.
+  if (slx.inLobby && !(typeof slx.paidHold === 'function' && slx.paidHold() === true)) {
+    if (!(typeof slx.brLaunch === 'function' && slx.brLaunch(lobbyName()) === true)) D.play(lobbyName());
+  }
 })(typeof window !== 'undefined' ? window : globalThis);

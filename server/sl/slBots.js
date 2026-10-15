@@ -314,6 +314,8 @@ function createBotSense(sim) {
   return Object.freeze({
     grd,
     flux: () => sim.flux(),
+    // the battle royale's circle { x, y, r } or null (slSim opts.zone); a free room has none
+    zone: () => (typeof sim.zoneNow === 'function' ? sim.zoneNow() : null),
     snake: (id) => sim.snake(id),
     forEachSnake: (fn) => sim.forEachSnake(fn),
     forEachPointNear: (x, y, r, fn) => grid.forEachPointInBox(x - r, y - r, x + r, y + r, fn),
@@ -616,10 +618,12 @@ function createBotBrain(seed, personality, laws) {
     near.clear();
     fleeX = 0;
     fleeY = 0;
-    const R = sense.flux();
+    // the battle royale's circle when there is one, else the map's border round (grd, grd)
+    const z = sense.zone ? sense.zone() : null;
+    const R = z ? z.r : sense.flux();
     if (!okNum(R) || R <= 0) throw new Error('slBots: the bots need the border (sense.flux() > 0)');
-    const cx = sense.grd;
-    const cy = sense.grd;
+    const cx = z ? z.x : sense.grd;
+    const cy = z ? z.y : sense.grd;
     borderCx = cx;
     borderCy = cy;
     borderR2 = (R - T.BORDER_MARGIN) * (R - T.BORDER_MARGIN);
@@ -1097,7 +1101,8 @@ function defaultElu() {
 //   room._botsPausedUntil            wall ms; the owner console's bots:clear window (server/index.js:1241): no
 //                                    automatic adds until then
 // opts: { governor (createBotGovernor; its mult lowers the target, and while engaged nothing is added), now (wall ms
-// function, when the room has none), onRecord(id, rec, offsetMs, tickMs) (tools and tests watch the records) }.
+// function, when the room has none), onRecord(id, rec, offsetMs, tickMs) (tools and tests watch the records),
+// holdFill(room) (the battle royale only: true while a match runs, so the fill neither adds nor retires) }.
 // Bots added by hand through add(room) return their record; the console marks it manual (server/index.js:1258) and
 // the automatic fill then neither counts nor retires it.
 const DRIVER_LAW_IDS = Object.freeze(['L2.size', 'L8.R2', 'C_ROOM_CAP']);
@@ -1113,6 +1118,7 @@ function createBotDriver(laws, opts) {
   const cap = capRow === null || capRow === undefined ? null : count(capRow, 'C_ROOM_CAP');
   const governor = o.governor || null;
   const onRecord = typeof o.onRecord === 'function' ? o.onRecord : null;
+  const holdFill = typeof o.holdFill === 'function' ? o.holdFill : null;
   const fill = createBotFill(laws);
   const names = createNameBook();
   const recs = new Map(); // snake id -> {id, nick, personality, cv, manual, brain}
@@ -1238,6 +1244,12 @@ function createBotDriver(laws, opts) {
     for (const rec of recs.values()) {
       if (rec.manual) manual++;
       else auto.push(r.sim.snake(rec.id));
+    }
+    // the battle royale's match (opts.holdFill() true): the bots in the arena stay as they are, none added or retired
+    if (holdFill !== null && holdFill(r) === true) {
+      auto.length = 0;
+      room = null;
+      return;
     }
     const wall = wallNow(r);
     const humans = Number.isInteger(r.playerCount) && r.playerCount > 0 ? r.playerCount : 0;

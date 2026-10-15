@@ -195,6 +195,12 @@ input.num{width:70px;text-align:center}
         <button id="brForce" onclick="act('br:start',{force:true})">Start alone</button>
         <button class="warn" id="brStop" onclick="act('br:stop',{})">Stop</button>
       </div>
+      <!-- Which engine runs the event (server/slBr). Saved across restarts and deploys. -->
+      <div class="row">
+        <div class="rlabel"><b>Engine</b><span id="brEngine">—</span></div>
+        <button id="brEngNew" onclick="act('br:engine:sl',{})">New engine</button>
+        <button class="warn" id="brEngOld" onclick="act('br:engine:old',{})">Old engine</button>
+      </div>
     </section>
 
     <!-- Bots. One row per room that can actually hold them, with the buttons
@@ -427,6 +433,10 @@ function render(s) {
     $('brStart').disabled = running || !br.canStart;
     $('brForce').disabled = running || br.players < 1;
     $('brStop').disabled = !running;
+    const onNew = br.engine === 'sl';
+    $('brEngine').textContent = onNew ? 'New slither.io engine (same as Free)' : 'Old engine';
+    $('brEngNew').disabled = onNew || br.state !== 'waiting';
+    $('brEngOld').disabled = !onNew || br.state !== 'waiting';
   }
 
   /* Rebuilt from the live snapshot every time, because the counts on it are
@@ -468,6 +478,7 @@ const CONFIRM = {
   'maintenance:on': 'Close the game to new players?\n\nAnyone already playing carries on, but nobody new can start until you open it again.',
   'agar:paid:off':  'Close paid agar.io to new players?\n\nNew paid joins are refunded; anyone already seated keeps playing and can cash out. It stays closed across restarts and deploys until you press Open.',
   'paper:paid:off': 'Close paid Paper to new players?\n\nNew paid joins are refunded; anyone already seated keeps playing and can cash out. It stays closed across restarts and deploys until you press Open.',
+  'br:engine:old':  'Send the battle royale back to the old engine?\n\nThe Events tab opens the old game from now on. It stays there across restarts and deploys until you press New engine.',
   'sl:paid:off':    'Close paid snake on the new engine?\n\nNew paid joins are refunded and paid snake opens the old game; anyone already seated keeps playing and can cash out. It stays closed across restarts and deploys until you press Open.',
   'br:stop':        'Stop the match that is running?\n\nNobody wins it and no prize is paid.',
   'bots:clear':     'Remove every bot from this room?',};

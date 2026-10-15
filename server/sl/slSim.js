@@ -21,6 +21,12 @@
 //             is pulled onto that circle after its draws, then off a taken food cell inward (C_PAID_DROP_INSET,
 //             paidPlace; no extra draw). Needs the border. Absent (the free room): the two changed lines are the free
 //             code, so the free goldens stay as they are.
+//   makeBorder the battle royale only (server/slBr): (laws, { nowMs, count }) -> a border driver of slBorder's shape
+//             (radius, target, due, tick, stats), used instead of createBorder. Absent: createBorder, as before.
+//   zone      the battle royale only (server/slBr/brZone.js): an object whose get() is null (no zone: the border kill
+//             is the free one) or { x, y, r } in world units, the circle a head must stay inside. While it is set the
+//             border kill is against that circle, natural food spawns only inside it (its draws are spent either way,
+//             slFood accept) and the bots steer by it (slBots createBotSense). Needs the border. Absent: none of it.
 // The bare sim (no options) is the snake engine with collisions between snakes, which is what the T4 tests run.
 //
 // The room drives one tick as SERVER-DESIGN 5.3 says:
@@ -291,6 +297,14 @@ function paidDropsOf(pd, hasBorder) {
   return Object.freeze({ border: pd.border, inset: pd.inset });
 }
 
+// true when (x, y) is inside the battle royale's circle z, or there is no circle (opts.zone).
+function inZone(z, x, y) {
+  if (!z) return true;
+  const dx = x - z.x;
+  const dy = y - z.y;
+  return dx * dx + dy * dy <= z.r * z.r;
+}
+
 function createSim(laws, opts) {
   const o = opts || {};
   if (typeof o.seed !== 'number' || !Number.isFinite(o.seed)) throw new TypeError('slSim: seed must be a finite number');
@@ -330,9 +344,16 @@ function createSim(laws, opts) {
   let nowMs = startMs;
   let nextId = 1;
 
-  const border = hasBorder ? createBorder(laws, { nowMs: startMs, count: 0 }) : null;
-  const food = hasFood ? createFood(laws, { grid, rng: rng.food, startMs }) : null;
-  const preys = hasPrey ? createPrey(laws, { rng: rng.prey, startMs }) : null;
+  const zone = o.zone || null;
+  if (zone && (typeof zone.get !== 'function' || !hasBorder)) throw new Error('slSim: zone needs get() and the border');
+  if (o.makeBorder !== undefined && typeof o.makeBorder !== 'function') throw new TypeError('slSim: makeBorder must be a function');
+  const border = hasBorder ? (o.makeBorder || createBorder)(laws, { nowMs: startMs, count: 0 }) : null;
+  const foodOpts = { grid, rng: rng.food, startMs };
+  if (zone) foodOpts.accept = (x, y) => inZone(zone.get(), x, y);
+  const food = hasFood ? createFood(laws, foodOpts) : null;
+  const preyOpts = { rng: rng.prey, startMs };
+  if (zone) preyOpts.accept = foodOpts.accept; // prey outside the battle royale's circle would be bait that kills
+  const preys = hasPrey ? createPrey(laws, preyOpts) : null;
   if (doFill) food.fill(border.radius());
 
   const sim = { K, W, grid, rng, wrng, log };
@@ -660,6 +681,14 @@ function createSim(laws, opts) {
       const by = v.hy + W.borderF1 * v.sc * s - grd;
       const lim = border.radius() + W.borderM;
       v.outB = bx * bx + by * by > lim * lim;
+      // the battle royale's circle: the same point, against the zone's centre and radius (no L38 margin: the event's
+      // wall is instant death at the line the players are shown)
+      const z = zone ? zone.get() : null;
+      if (z && !v.outB) {
+        const zx = bx + grd - z.x;
+        const zy = by + grd - z.y;
+        v.outB = zx * zx + zy * zy > z.r * z.r;
+      }
     }
   }
 
@@ -1100,6 +1129,8 @@ function createSim(laws, opts) {
     preys,
     border,
     flux: () => (border ? border.radius() : null),
+    // the battle royale's circle ({ x, y, r }) or null (opts.zone)
+    zoneNow: () => (zone ? zone.get() : null),
     count: () => live.length,
     tick: () => tick,
     nowMs: () => nowMs,

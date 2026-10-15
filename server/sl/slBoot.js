@@ -34,7 +34,7 @@ const { createSafeStats, safeEvery } = require('./slSafe');
 const PUBLIC_DIR = path.join(__dirname, '..', '..', 'public');
 // SERVER-DESIGN 3.2, in that table's order, with slxPaid.js right after slxNet.js (PAID-SL-DESIGN 9): slxMain merges
 // its handshake fields and asks it before the lobby's auto Play, and slxCard reads its hooks.
-const SLX_FILES = Object.freeze(['slxNet.js', 'slxPaid.js', 'slxMain.js', 'slxDirect.js', 'slxCard.js', 'slxTop.js',
+const SLX_FILES = Object.freeze(['slxNet.js', 'slxPaid.js', 'slxBr.js', 'slxMain.js', 'slxDirect.js', 'slxCard.js', 'slxTop.js',
   'slxChat.js', 'slxStats.js', 'slxSound.js', 'slxHold.js', 'slxTouch.js', 'slxSkins.js', 'slxCoin.js']);
 const SLX_CSS = 'slx.css';
 

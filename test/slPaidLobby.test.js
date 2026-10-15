@@ -246,6 +246,34 @@ test('spectateEvent still opens /game.html in the br room; an engine sl launch n
   assert.ok(!opened.includes('/game.html'));
 });
 
+// The battle royale on the sl engine (server/slBr): the Events tab's /api/live says engine 'sl', so Join and Watch open
+// /sl with the event mark, never /game.html; before the tab has heard, both wait and ask again.
+test('the event on the sl engine: Join and Watch open /sl with the slBr mark; an unknown engine waits', async () => {
+  const h = lobbyHarness([SL_FREE, SL(0.5), SL(1)]);
+  await h.win.V2Board.load();
+  let pulls = 0;
+  let engine = null;
+  h.win.V2Event = { engine: () => engine, pull: () => { pulls++; } };
+  h.win.V2Play.spectateEvent();
+  assert.strictEqual(h.el('game-frame').src || '', '', 'nothing opens before the engine is known');
+  assert.strictEqual(pulls, 1, 'it asks again');
+  engine = 'sl';
+  h.win.V2Play.spectateEvent();
+  assert.strictEqual(h.el('game-frame').src, '/sl');
+  assert.strictEqual(h.win.sessionStorage.getItem('slBr'), 'watch');
+
+  const g = lobbyHarness([SL_FREE, SL(0.5), SL(1)]);
+  await g.win.V2Board.load();
+  g.win.V2Event = { engine: () => 'sl', pull: () => {} };
+  g.win.localStorage.setItem('duelseries_playername', 'Tester');
+  g.win.sessionStorage.setItem('entryToken', 'STALE');
+  g.win.V2Play.launch('snake', { lobbyType: 'br' });
+  assert.strictEqual(g.el('game-frame').src, '/sl');
+  assert.strictEqual(g.win.sessionStorage.getItem('slBr'), 'play');
+  assert.strictEqual(g.win.sessionStorage.getItem('entryToken'), null, 'no money hand-off rides along');
+  assert.strictEqual(g.plays.length, 0, 'the widget is never asked');
+});
+
 // A lobby page event the way the browser hands it to a beforeunload listener.
 function leaving() {
   return { type: 'beforeunload', prevented: false, returnValue: undefined, preventDefault() { this.prevented = true; } };

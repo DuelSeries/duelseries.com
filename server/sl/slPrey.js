@@ -231,6 +231,9 @@ function createPrey(laws, opts) {
   if (typeof rng !== 'function' || typeof rng.next !== 'function') throw new TypeError('slPrey: needs a seeded rng stream');
   const startMs = o.startMs === undefined ? 0 : o.startMs;
   if (typeof startMs !== 'number' || !Number.isFinite(startMs)) throw new TypeError('slPrey: startMs must be a finite number');
+  // the battle royale only (slSim opts.zone): (x, y) -> false refuses a spawn there AFTER its draws (the stream is the
+  // same with or without it) and takes out a prey that is there, as the border does. Absent: as before.
+  const accept = typeof o.accept === 'function' ? o.accept : null;
 
   const SS = K.sectorSize;
   const mapMax = 2 * K.grd; // the map square (L1) a prey can never leave
@@ -336,7 +339,7 @@ function createPrey(laws, opts) {
         if (!(rng.next() < chance)) continue;
         const x = x0 + rng.next() * SS;
         const y = y0 + rng.next() * SS;
-        if ((x - c) * (x - c) + (y - c) * (y - c) > r2) {
+        if ((x - c) * (x - c) + (y - c) * (y - c) > r2 || (accept !== null && !accept(x, y))) {
           st.outside++;
           continue;
         }
@@ -478,7 +481,8 @@ function createPrey(laws, opts) {
       if (dt > 0) move(p, dt);
       const dx = p.x - c;
       const dy = p.y - c;
-      if ((K.removeAtBorder && dx * dx + dy * dy > r2) || p.x < 0 || p.y < 0 || p.x >= mapMax || p.y >= mapMax) {
+      if ((K.removeAtBorder && dx * dx + dy * dy > r2) || (accept !== null && !accept(p.x, p.y)) ||
+        p.x < 0 || p.y < 0 || p.x >= mapMax || p.y >= mapMax) {
         removeOne(p);
         continue;
       }

@@ -150,8 +150,9 @@ test('slxTail: the layer files present, in the SERVER-DESIGN 3.2 order, then any
     fs.rmSync(dir, { recursive: true, force: true });
   }
   assert.strictEqual(B.SLX_TAIL, B.slxTail(B.PUBLIC_DIR), 'SLX_TAIL is built from the repo at load');
-  // slxPaid right after slxNet (PAID-SL-DESIGN 9): slxMain merges its handshake fields and asks it before auto Play
-  assert.deepStrictEqual(B.SLX_FILES.slice(0, 4), ['slxNet.js', 'slxPaid.js', 'slxMain.js', 'slxDirect.js']);
+  // slxPaid right after slxNet (PAID-SL-DESIGN 9) and slxBr after it (the battle royale, server/slBr): slxMain merges
+  // their handshake fields and asks them before auto Play
+  assert.deepStrictEqual(B.SLX_FILES.slice(0, 5), ['slxNet.js', 'slxPaid.js', 'slxBr.js', 'slxMain.js', 'slxDirect.js']);
 });
 
 function fakeRes() {

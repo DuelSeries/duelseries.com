@@ -112,6 +112,9 @@ function createFood(laws, opts) {
   if (typeof rng !== 'function' || typeof rng.next !== 'function') throw new TypeError('slFood: needs a seeded rng stream');
   const startMs = o.startMs === undefined ? 0 : o.startMs;
   if (typeof startMs !== 'number' || !Number.isFinite(startMs)) throw new TypeError('slFood: startMs must be a finite number');
+  // the battle royale only (slSim opts.zone): (x, y) -> false refuses a natural food there AFTER its draws, so the
+  // stream is the same with or without it. Absent: every cell inside flux, as before.
+  const accept = typeof o.accept === 'function' ? o.accept : null;
 
   const SS = K.sectorSize;
   const CELL = SS / CELLS;
@@ -245,7 +248,9 @@ function createFood(laws, opts) {
     const ry = rng.int(CELLS);
     const b = radByteDraw();
     const cv = colourDraw();
-    if (!inside(sx * SS + rx * CELL, sy * SS + ry * CELL, flux)) {
+    const fx = sx * SS + rx * CELL;
+    const fy = sy * SS + ry * CELL;
+    if (!inside(fx, fy, flux) || (accept !== null && !accept(fx, fy))) {
       st.outside++;
       return null;
     }

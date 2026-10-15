@@ -45,6 +45,9 @@ class SlArenas {
   //   seed, clock, now, timers, autoTick, view, log   handed to the room (see slRoom); seed + n for the n-th room
   //   makeRoom       (opts) -> room (tests)
   //   extraLoad      () -> ms, as setExtraLoad
+  //   governor       a governor to share (the battle royale's directory takes the free room's); default its own
+  //   botOpts        more createBotDriver options (the battle royale's holdFill)
+  //   paidBusy       () -> "a paid seat is occupied" for the room's catch-up yield; default this directory's sample
   constructor(laws, opts) {
     const o = opts || {};
     this.shippableOnly = o.shippableOnly !== false;
@@ -56,7 +59,8 @@ class SlArenas {
     this.opts = o;
     this.withBots = o.bots !== false;
     this.makeRoom = typeof o.makeRoom === 'function' ? o.makeRoom : ((ro) => new SlRoom(laws, ro));
-    this.governor = this.withBots ? createBotGovernor(laws) : null;
+    // the battle royale's directory shares the free room's governor (one core, one bot budget: server/slBr)
+    this.governor = this.withBots ? (o.governor || createBotGovernor(laws)) : null;
     this.doorOpen = true;
     this.closed = false;
     this.lastBoardOk = true;
@@ -76,13 +80,15 @@ class SlArenas {
 
   _create() {
     const o = this.opts;
-    const driver = this.withBots ? createBotDriver(this.laws, { governor: this.governor, now: o.now }) : null;
+    const driver = this.withBots
+      ? createBotDriver(this.laws, Object.assign({ governor: this.governor, now: o.now }, o.botOpts)) : null;
     const ro = {
       region: this.region,
       shippableOnly: this.shippableOnly,
       log: this.log,
       bots: driver,
-      paidBusy: () => this.paidBusyNow,
+      // the battle royale's directory passes the free one's (it runs no governor timer of its own)
+      paidBusy: typeof o.paidBusy === 'function' ? o.paidBusy : () => this.paidBusyNow,
     };
     for (const k of ['clock', 'now', 'timers', 'autoTick', 'view', 'prey']) if (o[k] !== undefined) ro[k] = o[k];
     if (typeof o.seed === 'number' && Number.isFinite(o.seed)) ro.seed = o.seed + this.rooms;

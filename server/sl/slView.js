@@ -890,11 +890,15 @@ function createView(laws, sim, opts) {
   // The join bundle (SERVER-DESIGN 5.4, C18): init (L6 forms, the current integer flux), the own snake_add (their
   // client takes the first snake_add after init as its own), then the whole spawn set (L8.adds spawnSet whole) as the
   // view walks it. No leaderboard, no minimap, no z: those wait for the room clocks.
-  function join(ownId) {
+  // watch: the battle royale's watcher (slRoom seatWatch), a second view of a snake that already has its player's seat
+  function join(ownId, watch) {
     const s = sim.snake(ownId);
     if (!s) throw new Error('slView: join needs a live own snake (spawn it first)');
-    for (const t of seats) if (!t.left && t.ownId === ownId && !t.gone) throw new Error('slView: snake ' + ownId + ' already has a seat');
+    if (watch !== true) {
+      for (const t of seats) if (!t.left && t.ownId === ownId && !t.gone && !t.watch) throw new Error('slView: snake ' + ownId + ' already has a seat');
+    }
     const seat = seatOf(ownId);
+    if (watch === true) seat.watch = true;
     seat.stamp = ++assembleStamp;
     const out = [];
     const vs = register(s);
@@ -1394,7 +1398,7 @@ function createSeatView(laws, opts) {
     },
     join() {
       if (seat) throw new Error('slView: join once per seat view');
-      const j = view.join(ownId);
+      const j = view.join(ownId, o.watch === true);
       seat = j.seat;
       return eventsOf(j.entries);
     },

@@ -339,7 +339,17 @@
        ('sl:' id). With no board yet (a cold start) /sl is still the most likely
        open room; if it is shut, its closed page sends the player back to a
        board that lists the old free room again. Paid snake never comes here. */
-    const page = (game === 'snake' && hasStake && Number(sel.stake) === 0 && slFree())
+    /* The nightly battle royale runs on the same engine as Free whenever /api/live says so (br.engine 'sl', the
+       owner's br:engine switch): /sl with the event mark (public/js/slx/slxBr.js). Otherwise the old /game.html
+       through the widget, as before. */
+    /* Before the Events tab's first /api/live answer the engine is unknown: ask again rather than guess the old one. */
+    if (game === 'snake' && !hasStake && sel && sel.lobbyType === 'br' && brEngine() === null) {
+      say('One moment, loading the event.');
+      if (window.V2Event && typeof window.V2Event.pull === 'function') window.V2Event.pull(true);
+      return;
+    }
+    const brPage = game === 'snake' && !hasStake && sel && sel.lobbyType === 'br' && brOnSl();
+    const page = brPage || (game === 'snake' && hasStake && Number(sel.stake) === 0 && slFree())
       ? '/sl' : OWN_PAGE[game];
     if (page && !staking) {
       /* Remember Free as well. defaultStep() already treats 0 as a real rung
@@ -356,13 +366,14 @@
          mark (slxPaidCut) would hold the free page too. All of it goes before
          the page loads, so a stale token plus a Free click is a free page. */
       if (page === '/sl') {
-        for (const k of ['entryToken', 'entrySol', 'stake', 'slPaidLaunch', 'slxPaidCut']) {
+        for (const k of ['entryToken', 'entrySol', 'stake', 'slPaidLaunch', 'slxPaidCut', 'slBr']) {
           try { sessionStorage.removeItem(k); } catch (_) {}
         }
+        if (brPage) { try { sessionStorage.setItem('slBr', 'play'); } catch (_) {} }
       }
       const frame = document.getElementById('game-frame');
       if (!frame) { say('That game could not be opened. Refresh and try again.'); return; }
-      if (window.phEvent) window.phEvent('game_started', { game: game, lobbyType: 'free' });
+      if (window.phEvent) window.phEvent('game_started', { game: game, lobbyType: brPage ? 'br' : 'free' });
       /* The keyboard goes to the game: the frame takes the focus once it loads (and again a moment later), as the
          widget's launch does (wallet-widget/src/main.jsx), else Space and Q land on this page's Play button under
          the frame and never reach the game. The button lets go of the focus now, so Space cannot press it again. */
@@ -394,6 +405,15 @@
        the server never has to guess which the player meant. */
     window.dispatchEvent(new CustomEvent('duel:play', { detail: detail }));
   }
+
+  /* Does the nightly event run on the new engine? The Events tab's last /api/live says (br.engine). */
+  /* 'sl', 'old', or null while the Events tab has not heard yet. A page with no Events tab script is the old path,
+     as before this engine existed. */
+  function brEngine() {
+    if (!window.V2Event || typeof window.V2Event.engine !== 'function') return 'old';
+    return window.V2Event.engine();
+  }
+  function brOnSl() { return brEngine() === 'sl'; }
 
   /* Is the lobby's free snake the new slither.io room? Yes when the board's
      stake 0 snake row has an 'sl:' id, and when there is no board at all. */
@@ -482,7 +502,21 @@
   }
 
   /* The nightly event is a battle royale in the `br` room. */
-  function spectateEvent() { spectate('snake', 'br'); }
+  function spectateEvent() {
+    if (brEngine() === null) {
+      say('One moment, loading the event.');
+      if (window.V2Event && typeof window.V2Event.pull === 'function') window.V2Event.pull(true);
+      return;
+    }
+    if (!brOnSl()) { spectate('snake', 'br'); return; }
+    /* On the new engine: /sl as a watcher of the event (public/js/slx/slxBr.js). */
+    if (inGame()) return;
+    try {
+      for (const k of ['entryToken', 'entrySol', 'stake', 'slPaidLaunch', 'slxPaidCut', 'spectateOnly']) sessionStorage.removeItem(k);
+      sessionStorage.setItem('slBr', 'watch');
+    } catch (_) {}
+    show('/sl', 'snake');
+  }
 
   /* The frame is chosen by the game, not by looking for "agar" in the address:
      agar.io's page is /ag now, which that test no longer matched. */

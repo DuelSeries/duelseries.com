@@ -61,6 +61,14 @@
 // door spends and refunds under maintenance itself, and sl:door:off (the free room's lever) never refuses a paid page
 // with its token unspent (critic C-1). A paid sl:back looks its key up in the paid rooms only (roomForKey). A free
 // socket with a helper attached still reads only auth.paid and auth.cv.
+//
+// Battle royale (server/slBr; Owen 2026-10-15): setBr({ arenas, identify }) attaches the event's directory
+// (slBrArena). Only while it is attached is auth.br read, once at connect: a socket whose auth.br is 1 (and not paid)
+// is an event socket and every call of its seat goes to the event's directory. Its sl:join seats a player there with
+// the wallet identify(auth.idProof) proved (the prize's wallet: a one-time signature by the player's own wallet, the
+// main namespace's socketIdentity check; anything else is no wallet), or, when auth.watch is 1, a watcher of a living
+// snake (auth.follow, a snake id, preferred). Its refusals add 'match' (a match is under way) and 'nobody' (nothing
+// alive to watch).
 
 const W = require('../../shared/slWire.js');
 const { assertLawsComplete } = require('./slLaws');
@@ -77,7 +85,8 @@ const SOCK_LAW_IDS = Object.freeze(['C_SL_PER_IP', 'C_RATE', 'C_RATE_INPUT', 'C_
 const MONEY_FIELDS = Object.freeze(['stake', 'entryToken', 'resumeKey']);
 // C_CONN badSkin modes built: 'random0to8' = one of the 9 plain colours 0 to 8 (their login, G:8963-8969).
 const BAD_SKIN_MODES = Object.freeze({ random0to8: 9 });
-const REFUSALS = Object.freeze(['limit', 'not-open', 'maintenance', 'closed', 'full', 'flood', WHY_GONE, WHY_TAKEN]);
+const REFUSALS = Object.freeze(['limit', 'not-open', 'maintenance', 'closed', 'full', 'flood', WHY_GONE, WHY_TAKEN,
+  'match', 'nobody']);
 // sl:diag fields (SERVER-DESIGN 12.2): whole or fractional counters, each a finite number from 0 to INT32_MAX; and
 // lastClose, one short enum the layer names (T17), kept only as up to L45 nameMax letters, digits, '_', '-' or ':'.
 const DIAG_NUMBERS = Object.freeze(['applyThrows', 'wireErrors', 'fps', 'lag', 'lagEntries', 'pongP95', 'maxGapMs',
@@ -321,6 +330,7 @@ function attachSlSockets(nsp, arenas, helpers) {
     safe: safeStats };
   const badKeys = createBadKeyGate(L.resume.badKeys, ipOf);
   let paid = null; // setPaid: { arenas: the paid directory, door: the paid door }
+  let br = null; // setBr: { arenas: the battle royale's directory, identify(proof) -> wallet | null }
 
   // The paid helper (see the header). A socket that connected before it keeps the route it was given.
   function setPaid(helper) {
@@ -334,6 +344,31 @@ function attachSlSockets(nsp, arenas, helpers) {
     }
     paid = p ? { arenas: p.arenas, door: p.door } : null;
     return !!paid;
+  }
+
+  // The battle royale's helper (see the header). A socket that connected before it keeps the route it was given.
+  function setBr(helper) {
+    const b = helper || null;
+    if (b) {
+      const a = b.arenas;
+      for (const k of ['join', 'watch', 'leave', 'disconnect', 'input', 'hold', 'vis', 'chat', 'diag', 'room', 'isOpen']) {
+        if (!a || typeof a[k] !== 'function') throw new TypeError('slSockets: setBr needs arenas.' + k);
+      }
+    }
+    br = b ? { arenas: b.arenas, identify: typeof b.identify === 'function' ? b.identify : null } : null;
+    return !!br;
+  }
+
+  // Only with the helper attached: auth.br 1. Returns { watch, follow, proof } or null.
+  function brOf(socket) {
+    if (!br) return null;
+    const hs = socket.handshake;
+    const auth = hs && isPlainObject(hs.auth) ? hs.auth : null;
+    if (!auth || field(auth, 'br') !== 1) return null;
+    const f = field(auth, 'follow');
+    const p = field(auth, 'idProof');
+    return { watch: field(auth, 'watch') === 1, follow: Number.isInteger(f) && f > 0 && f < 65536 ? f : null,
+      proof: isPlainObject(p) ? p : null };
   }
 
   // Only with a helper attached: auth.paid 1 (an own data property, never a getter).
@@ -382,11 +417,13 @@ function attachSlSockets(nsp, arenas, helpers) {
       const o = ops.get();
       if (o && o.maintenance) return refuse(socket, 'maintenance', stats);
     }
-    if (!arenas.isOpen()) return refuse(socket, 'closed', stats);
+    if (!st.dir.isOpen()) return refuse(socket, 'closed', stats);
     st.joined = true;
     let r;
     try {
-      r = arenas.join(socket, { nick, cv: st.cv });
+      if (st.br && st.br.watch) r = st.dir.watch(socket, { follow: st.br.follow });
+      else if (st.br) r = st.dir.join(socket, { nick, cv: st.cv, wallet: identifyOf(st.br.proof) });
+      else r = arenas.join(socket, { nick, cv: st.cv });
     } catch (e) {
       // a seat that could not be made is a closed door for this socket, never a socket left hanging
       log.error('[SL] join failed', e && e.stack ? e.stack : e);
@@ -394,9 +431,22 @@ function attachSlSockets(nsp, arenas, helpers) {
     }
     if (r !== true) return refuse(socket, REFUSALS.includes(r) ? r : 'closed', stats);
     stats.joins++;
+    if (st.br && st.br.watch) return; // a watcher is nobody joining
     if (notifyJoin && pushGate.allow(nick, now())) {
       stats.pushes++;
-      safeAsync(() => notifyJoin(nick), 'sl.notifyJoin', safeStats, { log });
+      const where = st.br ? 'br' : 'free';
+      safeAsync(() => notifyJoin(nick, where), 'sl.notifyJoin', safeStats, { log });
+    }
+  }
+
+  // The wallet a battle royale player's one-time proof names, or null (no proof, a bad one, or no checker).
+  function identifyOf(proof) {
+    if (!proof || !br || !br.identify) return null;
+    try {
+      const w = br.identify(proof);
+      return typeof w === 'string' && w ? w : null;
+    } catch (e) {
+      return null;
     }
   }
 
@@ -420,7 +470,7 @@ function attachSlSockets(nsp, arenas, helpers) {
     const p = pv === undefined ? 0 : count(pv);
     // a paid socket's key is looked up in the paid rooms only (the seat scan follows every resume, design 3.1)
     const room = st.paid ? (isKey(k) ? st.dir.roomForKey(k) : null)
-      : (arenas && typeof arenas.room === 'function' ? arenas.room() : null);
+      : (st.dir && typeof st.dir.room === 'function' ? st.dir.room() : null);
     let r = WHY_GONE;
     if (isKey(k) && n !== null && p !== null && room && typeof room.resume === 'function') {
       try {
@@ -647,9 +697,11 @@ function attachSlSockets(nsp, arenas, helpers) {
       stats.connects++;
       if (!gate.add(socket)) return refuse(socket, 'limit', stats);
       const pd = paidOf(socket) ? paid : null;
+      const bd = pd ? null : brOf(socket);
       states.set(socket.id, {
         paid: !!pd, // auth.paid 1 with the helper attached: this socket's seat lives in the paid directory
-        dir: pd ? pd.arenas : arenas, // where every call of this socket's seat goes
+        br: bd, // auth.br 1 with the battle royale's helper attached: { watch, follow, proof }, else null
+        dir: pd ? pd.arenas : bd ? br.arenas : arenas, // where every call of this socket's seat goes
         door: pd ? pd.door : null,
         cv: skinOf(socket),
         joined: false,
@@ -687,7 +739,7 @@ function attachSlSockets(nsp, arenas, helpers) {
   if (nsp && typeof nsp.on === 'function') nsp.on('connection', (socket) => safeCall(() => attach(socket), 'sl.attach', safeStats, { log }));
 
   return { attach, admit, gate, badKeys, stats, laws: L, sockets: () => states.size, setPaid,
-    paid: () => !!paid };
+    paid: () => !!paid, setBr, br: () => !!br };
 }
 
 module.exports = {

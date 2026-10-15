@@ -21,9 +21,9 @@ const LAYER = [...B.SLX_TAIL.matchAll(/<script src="\/js\/slx\/([^"]+)"><\/scrip
 const LAYER_SRC = LAYER.map((f) => [f, fs.readFileSync(path.join(V.ROOT, f), 'utf8')]);
 const SCRIPTS = V.SRC.concat(LAYER_SRC);
 
-test('the layer of the composed page: slxNet first, then slxPaid, slxMain and slxDirect, every file on disk', () => {
-  assert.deepStrictEqual(LAYER.slice(0, 4), ['public/js/slx/slxNet.js', 'public/js/slx/slxPaid.js',
-    'public/js/slx/slxMain.js', 'public/js/slx/slxDirect.js']);
+test('the layer of the composed page: slxNet first, then slxPaid, slxBr, slxMain and slxDirect, every file on disk', () => {
+  assert.deepStrictEqual(LAYER.slice(0, 5), ['public/js/slx/slxNet.js', 'public/js/slx/slxPaid.js',
+    'public/js/slx/slxBr.js', 'public/js/slx/slxMain.js', 'public/js/slx/slxDirect.js']);
   const onDisk = fs.readdirSync(path.join(V.ROOT, 'public/js/slx')).filter((f) => f.endsWith('.js'));
   assert.strictEqual(LAYER.length, onDisk.length, 'every layer file is in the tail');
   assert.strictEqual(SCRIPTS.length, V.SRC.length + LAYER.length);

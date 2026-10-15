@@ -47,6 +47,9 @@ const READ_S = ['slither', 'dead_mtm', 'playing', 'connected', 'view_xx', 'view_
 // food whose sz is at least 13.6, their client's rad byte / 5, slApply.js newFood). Any other layer file that walked
 // it would add a per-frame cost to the free page, so the carve-out is this one file (review ENG-3).
 const PAID_READ_S = ['foods', 'foods_c'];
+// slxBr.js alone reads their minimap geometry, the way their own dot is placed (slHud.js oefDot), to draw the battle
+// royale's circle on it: read only, and only on an event page.
+const BR_READ_S = ['myloc', 'mmrad', 'flux_grd', 'grd'];
 const WRITE_S = ['render_mode', 'xm', 'ym'];
 // The 12 blank picture canvases (public/js/sl/slSprites.js:411-424), drawn into once each (Q3, T18).
 const PICTURE_S = ['kwkbulb', 'jmou', 'pwdbulb', 'sest', 'playbulb', 'bonkbulb', 'leafbulb', 'swissbulb', 'moldovabulb',
@@ -101,7 +104,8 @@ test('frozen members: only the 15.1 seams', () => {
     }
     for (const m of s.matchAll(/\bS\.([A-Za-z_$][\w$]*)/g)) {
       assert.ok(READ_S.includes(m[1]) || WRITE_S.includes(m[1]) || PICTURE_S.includes(m[1]) ||
-        (f === 'slxPaid.js' && PAID_READ_S.includes(m[1])), f + ': S.' + m[1]);
+        (f === 'slxPaid.js' && PAID_READ_S.includes(m[1])) || (f === 'slxBr.js' && BR_READ_S.includes(m[1])),
+        f + ': S.' + m[1]);
     }
     for (const m of s.matchAll(/\bS\.([A-Za-z_$][\w$]*)\s*=(?!=)/g)) assert.ok(WRITE_S.includes(m[1]), f + ': writes S.' + m[1]);
     for (const m of s.matchAll(/\bslither\.([A-Za-z_$][\w$]*)/g)) assert.ok(SLITHER_FIELDS.includes(m[1]), f + ': slither.' + m[1]);
@@ -138,9 +142,22 @@ test('socket events: the layer names only sl:x and its own four emits, never the
 // to that instead: no other post, never a signature, a widget launch, a resume key, the escrow or Privy.
 const PAID_FILE = 'slxPaid.js';
 
+// The battle royale's page (server/slBr) signs two things through the lobby's bridge and nothing else: the player's
+// own identity for the prize (play:identify) and the owner's Start match (br:start, checked at /api/owner/do).
+const BR_FILE = 'slxBr.js';
+test('the battle royale layer posts only duel:signaction, signs only play:identify and br:start, and holds no money', () => {
+  const br = CODE.find(([f]) => f === BR_FILE);
+  assert.ok(br, BR_FILE + ' is in the layer');
+  const posts = [...br[1].matchAll(/postMessage\(\s*([^,)]+)/g)].map((m) => m[1].trim());
+  assert.deepStrictEqual(posts, ['{ type: \'duel:signaction\''], BR_FILE + ' posts duel:signaction only');
+  const signs = [...br[1].matchAll(/\bsign\('([^']+)'/g)].map((m) => m[1]).sort();
+  assert.deepStrictEqual([...new Set(signs)], ['br:start', 'play:identify']);
+  assert.ok(!/entryToken|entrySol|\bstake\b|resumeKey|duel:restake|duel:play|escrow|privy/i.test(br[1]), BR_FILE + ': money word');
+});
+
 test('no money: posts only game:done, never reads an entry token, a stake or the paid hand-off (slxPaid.js aside)', () => {
   for (const [f, s] of CODE) {
-    if (f === PAID_FILE) continue;
+    if (f === PAID_FILE || f === BR_FILE) continue;
     for (const m of s.matchAll(/postMessage\(\s*([^,)]+)/g)) assert.strictEqual(m[1].trim(), '\'game:done\'', f + ': posts ' + m[1]);
     assert.ok(!/entryToken|entrySol|\bstake\b|resumeKey|duel:restake|duel:signaction|duel:play|wallet|escrow|privy/i.test(s), f + ': money word');
   }

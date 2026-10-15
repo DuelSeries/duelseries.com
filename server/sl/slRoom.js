@@ -333,7 +333,9 @@ class SlRoom {
     this.clock = typeof o.clock === 'function' ? o.clock : (() => performance.now());
     this.now = typeof o.now === 'function' ? o.now : Date.now;
     this.region = typeof o.region === 'string' && o.region ? o.region : 'na';
-    this.lobbyType = paid ? paid.lobbyType : 'sl_' + this.region + '_s0';
+    this.lobbyType = paid ? paid.lobbyType
+      : o.br ? (typeof o.lobbyType === 'string' && o.lobbyType ? o.lobbyType : 'sl_' + this.region + '_br')
+        : 'sl_' + this.region + '_s0';
     this.autoTick = o.autoTick !== false;
     this.paidBusy = typeof o.paidBusy === 'function' ? o.paidBusy : null;
     this.safeStats = createSafeStats();
@@ -351,6 +353,14 @@ class SlRoom {
     this.freedAt = new Map(); // snake id -> sim ms it left the sim (C_ID_QUARANTINE_MS)
     const simOpts = { seed, world: true, prey, idBlocked: (id) => this._idBlocked(id) };
     if (paid) simOpts.paidDrops = paid.paidDrops;
+    // the battle royale (server/slBr/brMatch.js): its circle and its holdable border; never with money
+    this.br = o.br || null;
+    if (this.br && this.money) throw new Error('slRoom: a battle royale room holds no money');
+    if (this.br) this.isBattleRoyale = true; // the owner console's label
+    if (this.br) {
+      simOpts.zone = this.br.zone;
+      simOpts.makeBorder = this.br.makeBorder;
+    }
     this.sim = createSim(laws, simOpts);
     this.K = slSnake.snakeLaws(laws);
     // a paid room's view sends the eat of a cell's food before the add that fills the cell again in the same step
@@ -371,6 +381,7 @@ class SlRoom {
     };
 
     this.seats = new Map(); // socket id -> seat
+    this.watchers = new Map(); // socket id -> watcher seat (the battle royale's spectators, seatWatch)
     this.bySnake = new Map(); // own snake id -> seat
     this.humans = new Set(); // snake ids of human snakes (seated or gliding)
     this.names = new Map(); // snake id -> nick (kill lines)
@@ -411,6 +422,7 @@ class SlRoom {
       this.settled = null; // the emergencySettle answer ({ left: the ids it could not close, ... }), for the directory
       this.money.attach(this, { onClosed: (acct, outcome, x) => this._paidClosed(acct, outcome, x) });
     }
+    if (this.br) this.br.attach(this);
   }
 
   // ---------------------------------------------------------------------------------------------------------------
@@ -480,6 +492,7 @@ class SlRoom {
   // 2026-10-10: join-then-close cycles from one address kept 773 live snakes against a cap of 20).
   refusal() {
     if (this.stopped || this.closed) return 'closed';
+    if (this.br && !this.br.acceptingPlayers()) return 'match'; // a battle royale match is under way
     const humans = this.seats.size + this.orphans.size;
     if (humans >= this.R.humanCap || humans >= this.R.roomCap) return 'full';
     return null;
@@ -554,6 +567,105 @@ class SlRoom {
     this._pushEvents(seat, tick, events);
     seat.queue.message(tick, this._keyMsg('seat', seat));
     if (this.top) seat.queue.message(tick, this.top);
+    if (this.br) {
+      this.br.noteSeat(s.id, { wallet: inf.wallet, nick: s.nick });
+      seat.queue.message(tick, this.br.joinMsg(s.id));
+    }
+  }
+
+  // ---------------------------------------------------------------------------------------------------------------
+  // Watchers (the battle royale only, Owen 2026-10-15 "build spectate too")
+  //
+  // A watcher is a seat with no snake: its view follows a living snake AS ITS OWN (createSeatView ownId), so their
+  // client's camera, minimap and length line follow it exactly as for a player. It never steers, holds, chats or
+  // counts as a player (playerCount, the caps, the bot fill and /api/live read seats only); its pings get their
+  // pongs (their client's lag check waits on them); it gets the kill lines and every sl:x to all. When the followed
+  // snake ends, their client plays its own death and closes the socket (one socket per life), and the layer
+  // (public/js/slx/slxBr.js) opens a watcher on the next survivor. No resume key: a dropped watcher just ends.
+
+  // The snake to follow: the living person asked for (follow, a snake id), else the longest living person, else the
+  // longest living snake. null when the arena is empty.
+  _watchTarget(follow) {
+    const pick = (humansOnly) => {
+      let best = null;
+      let bestLen = -1;
+      this.sim.forEachSnake((s) => {
+        if (humansOnly && !this.humans.has(s.id)) return;
+        if (s.pts.length > bestLen) {
+          best = s;
+          bestLen = s.pts.length;
+        }
+      });
+      return best;
+    };
+    if (Number.isInteger(follow) && this.humans.has(follow) && this.sim.snake(follow)) return this.sim.snake(follow);
+    return pick(true) || pick(false);
+  }
+
+  // socket: the socket.io socket; info: { follow } (optional snake id). Returns the watcher, or null (no battle
+  // royale, the room closed, or nothing alive to watch).
+  seatWatch(socket, info) {
+    if (!socket || typeof socket.id !== 'string') throw new TypeError('slRoom: seatWatch needs a socket with an id');
+    if (!this.br || this.stopped || this.closed) return null;
+    if (this.watchers.has(socket.id)) return this.watchers.get(socket.id);
+    const target = this._watchTarget(info && info.follow);
+    if (!target) return null;
+    const seat = {
+      id: socket.id,
+      socket,
+      watch: true,
+      snakeId: target.id,
+      nick: '',
+      cv: 0,
+      dead: false,
+      deadAt: NaN,
+      cashed: false,
+      closed: false,
+      joinTick: this.sim.tick(),
+      lastPingAt: NaN,
+      lastHeard: this.clock(),
+      flushHandle: null,
+      pendingEcho: null,
+      wakeDone: -1,
+      diag: null,
+      view: null,
+      queue: null,
+      key: null,
+      prevKey: null,
+      parked: false,
+      heldAtPark: false,
+    };
+    seat.queue = createSendQueue(this.laws, {
+      socket,
+      ownId: target.id,
+      clock: this.clock,
+      stats: this.qstats,
+      log: this.log,
+      onKick: (reason) => this._onKick(seat, reason),
+    });
+    seat.view = this.viewFactory.createSeatView(this.laws, { sim: this.sim, world: this.world, ownId: target.id,
+      watch: true });
+    this.watchers.set(socket.id, seat);
+    this.stats.watchers = (this.stats.watchers || 0) + 1;
+    const tick = this.sim.tick();
+    const events = seat.view.join({ tick, simMs: this.sim.nowMs(), flux: this.sim.flux(), frames: [], dead: false });
+    this._pushEvents(seat, tick, events);
+    seat.queue.message(tick, { t: 'watch', id: target.id, name: target.nick });
+    seat.queue.message(tick, this.br.joinMsg());
+    if (this.top) seat.queue.message(tick, this.top);
+    seat.queue.flush(this.clock());
+    this._ensureTicking();
+    return seat;
+  }
+
+  _unwatch(seat) {
+    if (!this.watchers.delete(seat.id)) return false;
+    seat.closed = true;
+    if (seat.flushHandle) seat.flushHandle.stop();
+    seat.flushHandle = null;
+    seat.queue.close();
+    if (typeof seat.view.leave === 'function') safeCall(() => seat.view.leave(), 'sl.view.leave', this.safeStats, this.safeOpts);
+    return true;
   }
 
   // A paid seat (PAID-SL-DESIGN 3.3; the door, server/slPaid/slPaidDoor.js, consumed the token). entry: { jid, micro,
@@ -665,7 +777,7 @@ class SlRoom {
 
   seatOf(socketOrId) {
     const id = typeof socketOrId === 'string' ? socketOrId : socketOrId && socketOrId.id;
-    return id ? this.seats.get(id) || null : null;
+    return id ? this.seats.get(id) || this.watchers.get(id) || null : null;
   }
 
   // The socket went (disconnect, sl:leave, kick). A live snake glides straight for C_DISCONNECT glideMs, then dies
@@ -678,6 +790,7 @@ class SlRoom {
   unseat(socketOrId, reason, onEnd) {
     const seat = this.seatOf(socketOrId);
     if (!seat) return false;
+    if (seat.watch) return this._unwatch(seat); // a watcher has no snake: it just ends
     const s = this.sim.snake(seat.snakeId);
     const recent = seat.dead && this.clock() - seat.deadAt <= this.R.deadNoPingMs;
     const park = reason === 'disconnect' && !seat.queue.closed && !!seat.key && ((!!s && !seat.dead) || recent);
@@ -878,7 +991,7 @@ class SlRoom {
     if (seat.prevKey) this._dropPrevKey(seat); // the client read 'back' and holds the new key (resume)
     seat.lastHeard = this.clock();
     seat.queue.heard(seat.lastHeard); // ackLate reads a missing ping as a late downstream only while upstream flows
-    if (!seat.dead) this.holds.heard(seat.snakeId, this._arrivalSim(this._offsetNow()));
+    if (!seat.dead && !seat.watch) this.holds.heard(seat.snakeId, this._arrivalSim(this._offsetNow()));
   }
 
   // sl:i: bytes of one input bundle (shared/slWire.js encodeInput); slSockets checked its size.
@@ -891,7 +1004,7 @@ class SlRoom {
     const tick = this.sim.tick();
     const off = this._offsetNow();
     const offSteer = this._steerOffsetNow();
-    const s = seat.dead ? null : this.sim.snake(seat.snakeId);
+    const s = seat.dead || seat.watch ? null : this.sim.snake(seat.snakeId); // a watcher's pings only
     let steer = false;
     for (let i = 0; i < recs.length; i++) {
       const r = recs[i];
@@ -954,7 +1067,8 @@ class SlRoom {
     const seat = socketOrSeat && socketOrSeat.queue ? socketOrSeat : this.seatOf(socketOrSeat);
     if (!seat || seat.closed || seat.parked) return false;
     this._heard(seat);
-    if (seat.dead || !this.sim.snake(seat.snakeId)) return false;
+    if (seat.watch || seat.dead || !this.sim.snake(seat.snakeId)) return false;
+    if (on && this.br && !this.br.allowsHold()) return false; // no leaving while the match is fought
     if (on) return this.holds.press(seat.snakeId, this._arrivalSim(this._offsetNow()));
     return this.holds.release(seat.snakeId, 'release');
   }
@@ -965,14 +1079,14 @@ class SlRoom {
     if (!seat || seat.closed || seat.parked) return false;
     this._heard(seat);
     seat.queue.setHidden(!!hidden);
-    if (hidden && !seat.dead) this.holds.release(seat.snakeId, 'hidden');
+    if (hidden && !seat.dead && !seat.watch) this.holds.release(seat.snakeId, 'hidden');
     return true;
   }
 
   // sl:chat {text}: one line to every seat (C_CHAT; the rate is slSockets').
   onChat(socketOrSeat, text) {
     const seat = socketOrSeat && socketOrSeat.queue ? socketOrSeat : this.seatOf(socketOrSeat);
-    if (!seat || seat.closed || seat.parked) return false;
+    if (!seat || seat.closed || seat.parked || seat.watch) return false;
     this._heard(seat);
     const t = cleanChat(text, this.R);
     if (!t) return false;
@@ -1003,6 +1117,10 @@ class SlRoom {
   _messageAll(msg) {
     const tick = this.sim.tick();
     for (const seat of this.seats.values()) {
+      seat.queue.message(tick, msg);
+      this._scheduleFlush(seat);
+    }
+    for (const seat of this.watchers.values()) {
       seat.queue.message(tick, msg);
       this._scheduleFlush(seat);
     }
@@ -1170,6 +1288,7 @@ class SlRoom {
       if (this.money) this._safe(() => this._worthAll(), 'sl.paid.worth');
       job.seatList = Array.from(this.seats.values());
       for (const p of this.parked) job.seatList.push(p); // parked seats collect too (resume, see the header)
+      for (const w of this.watchers.values()) job.seatList.push(w); // the battle royale's watchers
     }
     const list = job.seatList;
     while (job.seatIdx < list.length) {
@@ -1231,11 +1350,12 @@ class SlRoom {
   _afterWake() {
     if (this.stopped) return;
     const now = this.clock();
-    if (this.seats.size > 0) this.lastHumanAt = now;
+    if (this.seats.size > 0 || this.watchers.size > 0) this.lastHumanAt = now;
     if (!this.autoTick) return;
     // a paid room never pauses with money in a snake (MONEY INVARIANT 10)
     if (this.seats.size === 0 && this.orphans.size === 0 && this.parked.size === 0 &&
-      (!this.money || this.money.openCount() === 0) && now - this.lastHumanAt >= this.R.idleMs) {
+      (!this.money || this.money.openCount() === 0) && (!this.br || this.br.canPause()) &&
+      now - this.lastHumanAt >= this.R.idleMs) {
       this._pause();
       return;
     }
@@ -1294,6 +1414,8 @@ class SlRoom {
     frame.log = log;
     const simMs = sim.nowMs();
     for (let i = 0; i < log.deaths.length; i++) this._onDeath(log.deaths[i], frame.tick, simMs);
+    // the battle royale's match reads who fell (still marked human) and moves its clock, circle and ending
+    if (this.br) this.br.afterDeaths(frame, log.deaths, simMs);
     // names and the human mark go only after every death of the step (a killer may die in the same step)
     for (let i = 0; i < log.deaths.length; i++) {
       this.humans.delete(log.deaths[i].id);
@@ -1374,6 +1496,9 @@ class SlRoom {
     for (const seat of this.seats.values()) {
       if (seat.snakeId === id || (others && seat.queue.holdsSnake(id))) seat.queue.message(tick, msg);
     }
+    for (const seat of this.watchers.values()) {
+      if (seat.snakeId === id || (others && seat.queue.holdsSnake(id))) seat.queue.message(tick, msg);
+    }
   }
 
   _onDeath(d, tick, simMs) {
@@ -1394,6 +1519,7 @@ class SlRoom {
       this.stats.killLines++;
       const msg = { t: 'kill', killer: this.names.get(d.killer) || '', victim: this.names.get(id) || '' };
       for (const st of this.seats.values()) st.queue.message(tick, msg);
+      for (const st of this.watchers.values()) st.queue.message(tick, msg);
       for (const st of this.parked) st.queue.message(tick, msg); // a parked seat back in time sees it (resume)
     }
   }
@@ -1498,6 +1624,10 @@ class SlRoom {
     let frames = job.frames;
     if (frames.length && frames[0].tick <= seat.joinTick) frames = frames.filter((f) => f.tick > seat.joinTick);
     const tick = this.sim.tick();
+    if (seat.watch && !seat.dead && !this.sim.snake(seat.snakeId)) {
+      seat.dead = true; // the followed snake ended: their client runs its death, the layer watches the next
+      seat.deadAt = this.clock();
+    }
     const ctx = { tick, simMs: this.sim.nowMs(), flux: this.sim.flux(), frames, dead: seat.dead };
     const events = seat.view.collect(ctx);
     this._pushEvents(seat, tick, events);
@@ -1673,6 +1803,7 @@ class SlRoom {
     if (this.world && typeof this.world.idBlocked === 'function' && this.world.idBlocked(id)) return true;
     if (!this.seats) return false;
     for (const seat of this.seats.values()) if (seat.queue.holdsSnake(id)) return true;
+    if (this.watchers) for (const seat of this.watchers.values()) if (seat.queue.holdsSnake(id)) return true;
     // a parked client still holds what it was sent (resume): its ids stay blocked until it is back or dropped
     if (this.parked) for (const seat of this.parked) if (seat.queue.holdsSnake(id)) return true;
     return false;
@@ -1693,6 +1824,7 @@ class SlRoom {
     if (this.money) this._stopCheck();
     this._stopClock();
     for (const seat of this.seats.values()) if (seat.flushHandle) seat.flushHandle.stop();
+    for (const seat of Array.from(this.watchers.values())) this._unwatch(seat);
     // a stopped room never ends its glides: release every orphan's address charge now
     for (const id of Array.from(this.orphans.keys())) this._endOrphan(id);
     // and nobody can come back to it: parked seats go, their keys with them
@@ -1742,7 +1874,8 @@ class SlRoom {
   emergencyClose() {
     if (this.closed) return;
     this.closed = true;
-    const sockets = Array.from(this.seats.values()).map((s) => s.socket);
+    // the battle royale's watchers too: stop() only closes their queues, and a socket left open on a dead room freezes
+    const sockets = Array.from(this.seats.values()).concat(Array.from(this.watchers.values())).map((s) => s.socket);
     this.log.error('[SL] EMERGENCY close', this.lobbyType, sockets.length + ' socket(s)');
     if (this.money) {
       try {

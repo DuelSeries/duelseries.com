@@ -1675,7 +1675,9 @@ body.scr-anim { overflow-x:hidden }
     });
   }
 
+  /* engine(): which engine runs the event ('sl' or 'old', /api/live br.engine), read by play.js to open /sl or /game.html. */
   window.V2Event={tick:tick, podium:podium, pull:pull,
+                  engine:function(){ return BR&&BR.engine?BR.engine:null },
                   get state(){ return BR }};
   pull(true);
   setInterval(function(){ pull(false) }, 3000);
@@ -3413,9 +3415,9 @@ function openHow(title,steps){
 function openEventHow(){
   openHow('Battle Royale',[
     ['Get in before it starts','Free to enter, nothing staked. Once a match begins the room is shut, so be in it beforehand.'],
-    ['The wall closes in','Two minutes of the border closing, then the circle keeps moving for two more. Touch the wall and you are out — there is no warning and no way back.'],
+    ['The wall closes in','A white circle shows where the wall goes next, then the wall closes to it, ring after ring, each one smaller. Touch the wall and you are out, with no way back.'],
     ['No cashing out','You play for the placing, not for what your snake is worth. There is nothing to bank and nothing to lose.'],
-    ['Last one alive takes $20','Paid straight to your wallet. If two are left when the clock runs out, the circle keeps closing until one is not.'],
+    ['Last one alive takes $20','Paid straight to your wallet. The circle keeps shrinking until one snake is left. Out early? Watch the rest of the match.'],
   ]);
 }
 function closeHow(){document.getElementById('howveil').classList.remove('on')}

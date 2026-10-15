@@ -1179,6 +1179,8 @@ const ALL_ROOMS = () => {
      the same playerCount / botCount / botsAllowed / addBot / clearBots; its
      snakes carry worth 0, so drainStatus counts its players and never money. */
   if (typeof slArenas !== 'undefined' && slArenas) out.push(...slArenas.all());
+  /* The battle royale's room on the sl engine (server/slBr): free, no money. */
+  if (typeof slBr !== 'undefined' && slBr) out.push(...slBr.all());
   /* Paid snake on the sl engine (server/slPaid, only while openSlPaid built
      it): every paid room, settling ones included. A room's `snakes` lists every
      open account (live, gliding or parked) with its worth and its `floorWorth`
@@ -1202,6 +1204,7 @@ function roomLabel(r) {
   /* The new slither.io free room (server/sl) is `sl_na_s0`; the paid rooms
      (server/slPaid) are `sl_na_s0_5#1` / `sl_na_s1`: the rung, then which room. */
   if (raw.startsWith('sl_')) {
+    if (r.isBattleRoyale) return 'slither.io (new) · Battle royale';
     const m = /^sl_[a-z]+_s(\d+(?:_\d+)?)(?:#(\d+))?$/.exec(raw);
     const stake = m ? Number(m[1].replace('_', '.')) : 0;
     return 'slither.io (new) · ' + (stake > 0 ? '$' + stake.toFixed(2) : 'Free')
@@ -1244,7 +1247,7 @@ function roomLabel(r) {
 /* What the console shows. Readable by an owner only: it carries live player
    counts and staked worth, which is nobody else's business. */
 function opsSnapshot() {
-  const br = gameRooms[REGION] && gameRooms[REGION].br;
+  const br = activeBr();
   const rooms = ALL_ROOMS().map(r => ({
     id: r.lobbyType,
     game: r.isBattleRoyale ? 'battle royale'
@@ -1275,7 +1278,7 @@ function opsSnapshot() {
     uptimeSec: Math.round(process.uptime()),
     maintenance: ops.get(),
     drain: ops.drainStatus(ALL_ROOMS(), entryStore.pending()),
-    battleRoyale: br ? br.publicState() : null,
+    battleRoyale: br ? Object.assign(br.publicState(), { engine: brOnSl() ? 'sl' : 'old' }) : null,
     /* Paid snake on the new engine's door, for the owner page's readout: built
        (SL_PAID), open (sl:paid:off/on), saved (a close that outlives a restart). */
     slPaid: slPaid ? { enabled: !!slPaid.paidEnabled, open: !!slPaid.paidOpen, stopping: !!slPaid.stopping,
@@ -1308,7 +1311,7 @@ app.post('/api/owner/do', sigLimiter, async (req, res) => {
   const refuse = (why) => { ownerAuth.audit(action, args, who || 'token', false, why);
                             res.status(409).json({ error: why, state: opsSnapshot() }); };
 
-  const br = gameRooms[REGION] && gameRooms[REGION].br;
+  const br = activeBr();
 
   switch (action) {
     /* Start the nightly match. `force` is for testing it alone: the two-player
@@ -1335,6 +1338,25 @@ app.post('/api/owner/do', sigLimiter, async (req, res) => {
       }
       br.abandon();
       return done('Match stopped, no prize paid');
+    }
+    /* Which engine runs the event (server/slBr). Saved, so it lasts across a
+       restart or a deploy. Refused while a match is under way on the current
+       one: that match finishes where it started. */
+    case 'br:engine:old':
+    case 'br:engine:sl': {
+      const toNew = action === 'br:engine:sl';
+      if (toNew && !slBr) return refuse('The new slither.io room is not open (SL_ENABLED)');
+      if (br && br.state !== 'waiting') return refuse('A match is under way; stop it or let it finish first');
+      const left = br && typeof br.humanLiving === 'function' ? br.humanLiving() : 0;
+      brOnNew = toNew;
+      if (toNew) slBr.startRoom(); // filled before anybody arrives, as at boot
+      const kept = brEngineSwitch.save(toNew);
+      console.warn('[BR] owner console: battle royale on the ' + (toNew ? 'NEW' : 'OLD') + ' engine' +
+        (kept.ok ? ' (saved)' : ' (NOT saved: ' + kept.why + ')'));
+      return done('The battle royale now runs on the ' + (toNew ? 'new slither.io engine' : 'old engine') + '. ' +
+        (left ? left + ' player(s) still in the other engine\'s room keep playing there; the next match starts here. ' : '') +
+        (kept.ok ? 'It stays there across restarts and deploys.'
+          : 'This could not be saved (' + kept.why + '), so it lasts only until the next restart.'));
     }
 
     /* Bots, per room and reversible. The old control could only add, could only
@@ -1712,9 +1734,9 @@ const slOpened = slBoot.openSl({
     socketRL,
     ops,
     /* SERVER-DESIGN 13 item 9: slSockets throttles (C_PUSH) before calling this. */
-    notifyJoin: (name) => notify.pushOwner(
-      `${name || 'A player'} joined slither.io (new) Free in ${REGION.toUpperCase()}`,
-      { title: 'New player: slither.io (new)', tags: 'video_game' }),
+    notifyJoin: (name, where) => notify.pushOwner(
+      `${name || 'A player'} joined ${where === 'br' ? 'the Battle Royale' : 'slither.io (new) Free'} in ${REGION.toUpperCase()}`,
+      { title: where === 'br' ? 'New player: Battle Royale' : 'New player: slither.io (new)', tags: 'video_game' }),
     /* The bot governor's paid-seat input, once a second (SERVER-DESIGN 11). */
     paidLoad: () => ({ paidPlayers: ops.drainStatus(ALL_ROOMS(), entryStore.pending()).paid, paid: [] }),
   },
@@ -2259,8 +2281,62 @@ const slPaidOpened = slPaidBoot.openSlPaid({
    old engine's paid rows stay open: critic C-4). With SL_PAID off it exists with
    no rungs, so a paid /sl page is refunded 'not-open' and never seated free. */
 const slPaid = slPaidOpened.arenas;
-/* The free room's bot governor also sees the paid rooms' tick cost (D2-m9). */
-if (slArenas && slPaid) slArenas.setExtraLoad(() => slPaid.maxSliceMs());
+/* ── The nightly battle royale on the sl engine (server/slBr; Owen 2026-10-15) ──
+   The event plays like the free /sl room (the same snakes, bots, food, client
+   and Customize skin) with its own rules on top: the wandering circle, the
+   joining window, spectate, the podium and the $20 prize. One room, built
+   beside the free one and sharing its bot governor (one core, one budget).
+
+   br:engine:old (owner console) sends the event back to the old engine at once
+   and is SAVED like sl:paid:off, so a restart or a deploy keeps it there until
+   br:engine:sl; a switch file that cannot be read keeps the old engine (the
+   safe side). activeBr() is the one place that answers "which room is the
+   event": the schedule, the prize, the owner buttons, /api/live and the console
+   all read it. */
+const { SlBrArena } = require('./slBr/slBrArena');
+const brEngineSwitch = slPaidBoot.createPaidSwitchStore({
+  file: process.env.BR_ENGINE_SWITCH_PATH || path.join(path.dirname(agJournal.file), 'br-engine-old.json'),
+  tag: '[BR]', what: 'the battle royale on the new engine',
+});
+let brOnNew = !brEngineSwitch.closedAtBoot().closed;
+const slBr = slArenas ? new SlBrArena(slArenas.laws, {
+  region: REGION,
+  shippableOnly: slArenas.shippableOnly,
+  governor: slArenas.governor,
+  isOwner: (w) => OWNER_WALLETS.has(w),
+  /* Paid once per match id by payBattleRoyaleWinner (its _brPaid latch); the
+     10 s event timer below is the backstop. The winner's wallet is the one
+     their socket proved at the join (slSockets setBr identify), never claimed. */
+  onDecided: (m) => { payBattleRoyaleWinner(m).catch(e => console.error('[BR]', e.message)); },
+  /* The free directory's "a paid seat is occupied" sample: this one runs no
+     governor timer, and its catch-up steps yield to busy paid rooms the same way. */
+  paidBusy: () => !!slArenas.paidBusyNow,
+}) : null;
+/* Filled from boot like the old room, so 8:05 never starts in an empty arena. */
+if (slBr && brOnNew) slBr.startRoom();
+if (slBr && slOpened.sockets) {
+  slOpened.sockets.setBr({
+    arenas: slBr,
+    /* The same one-time proofs the main namespace accepts (socketIdentity):
+       the widget's silent play:identify signature by the player's own wallet. */
+    identify: (p) => (p && p.action === 'play:identify'
+      ? ownerAuth.walletForAction(p) : nameProof.verifyIdentityProof(p)),
+  });
+}
+function brOnSl() { return !!(slBr && brOnNew); }
+function activeBr() {
+  if (brOnSl()) return slBr.match;
+  return (gameRooms[REGION] && gameRooms[REGION].br) || null;
+}
+/* The free room's biggest cash-out box shows in the event's room too. */
+if (slArenas && slBr) {
+  const freeSetTop = slArenas.setTop.bind(slArenas);
+  slArenas.setTop = (msg) => { freeSetTop(msg); slBr.setTop(msg); };
+}
+/* The free room's bot governor also sees the paid rooms' and the event's tick cost (D2-m9). */
+if (slArenas && (slPaid || slBr)) {
+  slArenas.setExtraLoad(() => Math.max(slPaid ? slPaid.maxSliceMs() : 0, slBr ? slBr.maxSliceMs() : 0));
+}
 /* The cash-out card's status poll. The id is the order's uuid: a cid that is
    not a lowercase uuid is a 404 before the map is read, and so is an unknown one. */
 app.get('/api/sl/cashout/:cid', (req, res) => {
@@ -2343,6 +2419,9 @@ for (const rgn of [REGION]) {
      deliberately not marked: it is free, it is on the lobby, and it needs a
      waiting room that looks alive. */
   for (const t of ['free', 'dollar']) gameRooms[rgn][t].fallbackOnly = true;
+  /* While the event runs on the sl engine the old room is only the fallback:
+     it stops drawing bots (read on every call, so br:engine:old gives them back). */
+  Object.defineProperty(gameRooms[rgn].br, 'fallbackOnly', { get: () => brOnSl(), configurable: true, enumerable: true });
   /* THE WINNER IS CASHED OUT WHERE THEY STAND, five seconds after the match is
      decided. The room owns the timing; it does not own the money, and this is
      the seam between the two.
@@ -2530,11 +2609,13 @@ function liveExtras() {
    lobby and the server cannot disagree about whether you may come in. It is a
    courtesy for the UI: the rule is enforced on join, where it already is. */
 function liveBattleRoyale() {
-  const room = gameRooms[REGION] && gameRooms[REGION].br;
+  const room = activeBr();
   if (!room) return null;
   const st = room.publicState();
   const { hour, minute } = easternNow();
   return {
+    /* Which engine runs it: 'sl' opens /sl (the lobby's play.js), 'old' /game.html. */
+    engine: brOnSl() ? 'sl' : 'old',
     state: st.state,
     alive: st.alive,
     players: st.players,
@@ -2546,6 +2627,9 @@ function liveBattleRoyale() {
     countdownMs: st.countdownMs,
     winner: st.winner,
     podium: st.podium,
+    /* The page's between-lives poll (public/js/slx/slxBr.js) shows these. */
+    prize: st.prize,
+    soloRun: !!st.soloRun,
     joinable: room.acceptingPlayers(),
     /* The wall clock, from the box that runs the schedule. Eastern hour and
        minute rather than a UTC offset, for the daylight-saving reason written
@@ -2567,7 +2651,8 @@ function liveGameCounts() {
   const counts = liveCounts({
     snakeRooms,
     agar: agArenas,                 // every agar.io room (null while the game is closed)
-    sl: slArenas,                   // the new slither.io free room (null while SL_ENABLED is off)
+    /* the new slither.io free room and the event's room on the same engine (null while SL_ENABLED is off) */
+    sl: slArenas ? { humanTotal: () => slArenas.humanTotal() + (slBr ? slBr.humanTotal() : 0) } : null,
     slPaid,                         // paid snake on the sl engine: its open accounts (null while not built)
     shooter: typeof shooterRoom !== 'undefined' ? shooterRoom : null,
     tanks: typeof tanksLobby !== 'undefined' ? tanksLobby : null,
@@ -2696,6 +2781,11 @@ async function payBattleRoyaleWinner(room) {
   const w = room && room.winner;
   const matchId = room && room.matchId;
   if (!w || !matchId) return;
+  if (_brPaid.has(matchId)) return;          // a reconnect or a double event must not pay twice
+  /* Settled from here on, whatever happens below: the event timer's backstop
+     reads a winner until the next match starts, and a solo run or a winner
+     with no wallet must be logged and pushed once, not every ten seconds. */
+  _brPaid.add(matchId);
   /* Outlasting nobody is not winning. A solo run exists so the mode can be
      tested at all, and paying $20 out of escrow for being alone in a room is
      escrow paying somebody to test the game. */
@@ -2703,8 +2793,18 @@ async function payBattleRoyaleWinner(room) {
     console.log(`[BR] ${matchId} was a solo test run — no prize paid`);
     return;
   }
-  if (_brPaid.has(matchId)) return;          // a reconnect or a double event must not pay twice
-  _brPaid.add(matchId);
+  /* A real match (two or more seats) whose players proved fewer than two
+     different wallets (the new engine's match, server/slBr/brMatch.js). One
+     person in two tabs must not farm the prize, and a real player whose
+     wallet could not sign is not paid automatically either: Owen decides. */
+  if (room.prizeHeld) {
+    console.warn(`[BR] ${matchId} won by ${w.name}, ${room.startedWith} players but ${room.startedPeople} proven wallet(s): prize held`);
+    try {
+      notify.pushOwner(`${w.name} won ${matchId}: ${room.startedWith} players, only ${room.startedPeople} proven wallet(s). The ${BR_PRIZE_USDC} USDC prize was not paid. Settle it by hand if it was a real match.`,
+        { title: 'Battle Royale prize held', priority: 'high' });
+    } catch (_) {}
+    return;
+  }
   /* w.wallet is the wallet the winner's socket PROVED (a paid token's payer, or a wallet
      signature checked once per socket), never the walletAddress a client claims in PLAY
      (security review, finder-4: the prize went to whatever wallet the client named). A winner
@@ -2745,11 +2845,19 @@ async function payBattleRoyaleWinner(room) {
    for minutes and the payout only has to be prompt, not instant. */
 let _brLastAutoDay = null;
 setInterval(() => {
-  const room = gameRooms[REGION] && gameRooms[REGION].br;
+  const room = activeBr();
   if (!room) return;
 
-  if (room.state === 'over' && room.winner && !_brPaid.has(room.matchId)) {
-    payBattleRoyaleWinner(room).catch(e => console.error('[BR]', e.message));
+  /* Not only while 'over': that lasts five seconds and this runs every ten, so
+     a winner decided between two runs was never paid (found moving the event
+     to the sl engine, 2026-10-15). The winner stays set until the next start
+     or a stop, and _brPaid keys it to the match, so this pays once. Both
+     engines' rooms, not just the active one: an engine switch in the seconds
+     after a decision must not strand that winner's prize. */
+  for (const r of [gameRooms[REGION] && gameRooms[REGION].br, slBr && slBr.match]) {
+    if (r && r.winner && r.matchId && !_brPaid.has(r.matchId)) {
+      payBattleRoyaleWinner(r).catch(e => console.error('[BR]', e.message));
+    }
   }
 
   const { hour, minute, day } = easternNow();
@@ -3760,7 +3868,7 @@ io.on('connection', (socket) => {
       socket.emit('br:error', { message: 'Give it a second, then try again.' });
       return;
     }
-    const room = gameRooms[REGION] && gameRooms[REGION].br;
+    const room = activeBr();
     if (!room) { socket.emit('br:error', { message: 'No battle royale room' }); return; }
     if (!ownerFromSignature(proof)) {
       socket.emit('br:error', { message: 'That did not come from the owner wallet.' });
@@ -3808,7 +3916,7 @@ io.on('connection', (socket) => {
      widget writes for EVERY signed-in player. Every player who had ever logged
      in was being shown an owner control. */
   on('br:peek', ({ wallet } = {}) => {
-    const room = gameRooms[REGION] && gameRooms[REGION].br;
+    const room = activeBr();
     if (!room) return;
     const st = room.publicState();
     st.isOwner = typeof wallet === 'string' && !!wallet && OWNER_WALLETS.has(wallet);

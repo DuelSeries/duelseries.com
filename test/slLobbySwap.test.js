@@ -127,7 +127,9 @@ test('the slx layer never touches the money hand-off, slxPaid.js aside', () => {
   for (const f of files) {
     if (f === PAID_FILE) continue;
     const s = fs.readFileSync(path.join(dir, f), 'utf8');
-    assert.ok(!/duel:restake|duel:signaction|entryToken|entrySol/.test(s), f + ' names no money message or token');
+    // the battle royale's page signs its identity and the owner's start through the bridge (test/slxSurface.test.js)
+    const re = f === 'slxBr.js' ? /duel:restake|entryToken|entrySol/ : /duel:restake|duel:signaction|entryToken|entrySol/;
+    assert.ok(!re.test(s), f + ' names no money message or token');
     assert.ok(!/sessionStorage[^\n]*['"]stake['"]/.test(s), f + ' reads no stake from sessionStorage');
   }
   const paid = fs.readFileSync(path.join(dir, PAID_FILE), 'utf8');

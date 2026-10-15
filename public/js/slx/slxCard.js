@@ -55,7 +55,9 @@
     closed: 'Closed',
     'not-open': 'Closed',
     limit: 'Too many players on this network',
-    flood: 'Connection lost'
+    flood: 'Connection lost',
+    match: 'Match under way',
+    nobody: 'Nothing to watch'
   };
   var LENGTH_WORDS = 'Your final length was ';
   var BTN = { again: 'Play again', retry: 'Try again', starting: 'Starting', lobby: 'Lobby' };

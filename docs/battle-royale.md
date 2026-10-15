@@ -38,6 +38,32 @@ border locally, however tempting that is for responsiveness.
 That removes almost all of the unfairness. What is left is honest: the wall
 moved and you were too slow.
 
+## On the sl engine (2026-10-15)
+
+Owen: "the battle royale should have the same everything that the free lobby
+does." The event now runs on the free /sl room's engine (the same snakes, bots,
+food, client and Customize skin), with its own rules on top. Owen's picks: keep
+the wandering circle, build spectate, go live with an off switch, first event
+the next day.
+
+| Piece | Where |
+|---|---|
+| The rings (the old `updateZone`/`_nextRing`, on sim time) | `server/slBr/brZone.js` |
+| The match (waiting, countdown, running, over, reopening; winner, podium, solo run) | `server/slBr/brMatch.js` |
+| The map edge, held where the match began | `server/slBr/brBorder.js` (slSim `makeBorder`) |
+| One event room beside the free one, sharing its bot governor | `server/slBr/slBrArena.js` |
+| Kill, food and bots against the circle | slSim `zone`, slFood `accept`, slBots `sense.zone` |
+| Watchers (spectate) | slRoom `seatWatch`, slView `join(ownId, watch)` |
+| Routing (`auth.br`, `auth.watch`, the prize wallet from `auth.idProof`) | slSockets `setBr` |
+| The page: circle, HUD, count, cards, watching | `public/js/slx/slxBr.js` |
+| The switch, the schedule, the prize, /api/live `br.engine`, the console | `server/index.js` `activeBr()` |
+
+The frozen client draws the map edge only round the map centre, so the wandering
+circle is drawn on an slx overlay and the native edge is held at the arena's
+size while a match runs. The owner console's `br:engine:old` sends the event
+back to the old engine at once and is saved across restarts (`br:engine:sl`
+brings it back); a switch file that cannot be read keeps the old engine.
+
 ## What already exists (most of it)
 
 The pleasant surprise is how little of this is new. The slither world is already
