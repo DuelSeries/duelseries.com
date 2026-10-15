@@ -90,7 +90,9 @@ test.before(async () => {
     // Left by an earlier boot of this NA server, whose requests died with it (a deploy mid-stake).
     { sig: 'late-landed', state: 'verifying', wallet_address: LATE_PAYER, refund_amount: 0.5, label: 'stake 0.5', region: 'na', boot_id: 'dead-boot', blockhash: 'bh-1' },
     { sig: 'late-tier', state: 'verifying', wallet_address: LATE_PAYER, refund_amount: 1, label: 'lobby dollar', region: 'na', boot_id: 'dead-boot', blockhash: 'bh-1' },
-    { sig: 'never-landed', state: 'verifying', wallet_address: LATE_PAYER, refund_amount: 1, label: 'stake 1', region: 'na', boot_id: 'dead-boot', blockhash: 'bh-expired' },
+    { sig: 'never-landed', state: 'verifying', wallet_address: LATE_PAYER, refund_amount: 1, label: 'stake 1', region: 'na', boot_id: 'dead-boot', blockhash: 'bh-expired', created_at: Date.now() - 10 * 60 * 1000 },
+    // Broadcast seconds before the restart: its blockhash may read invalid at 'finalized' and the chain may not show it yet, but it can still land.
+    { sig: 'just-broadcast', state: 'verifying', wallet_address: LATE_PAYER, refund_amount: 1, label: 'stake 1', region: 'na', boot_id: 'dead-boot', blockhash: 'bh-expired' },
     { sig: 'still-young', state: 'verifying', wallet_address: LATE_PAYER, refund_amount: 1, label: 'stake 1', region: 'na', boot_id: 'dead-boot', blockhash: 'bh-valid' },
     { sig: 'failed-tx', state: 'verifying', wallet_address: LATE_PAYER, refund_amount: 1, label: 'stake 1', region: 'na', boot_id: 'dead-boot', blockhash: 'bh-1' },
     { sig: 'paid-short', state: 'verifying', wallet_address: LATE_PAYER, refund_amount: 1, label: 'stake 1', region: 'na', boot_id: 'dead-boot', blockhash: 'bh-1' },
@@ -144,6 +146,7 @@ test('boot: the rows an earlier boot left are settled as the chain says; a lande
   assert.strictEqual(state('late-tier'), 'refunded');
   assert.strictEqual(state('never-landed'), 'expired', 'its blockhash expired and the chain never saw it');
   assert.strictEqual(state('still-young'), 'verifying', 'its blockhash is still valid: it may land yet');
+  assert.strictEqual(state('just-broadcast'), 'verifying', 'under 3 minutes old: never closed as expired, however the blockhash reads');
   assert.strictEqual(state('failed-tx'), 'failed');
   assert.strictEqual(state('paid-short'), 'rejected', 'paid less than it was for: owed nothing, as at the request');
   assert.strictEqual(state('eu-fresh'), 'verifying', 'another region\'s fresh row is left to its server');

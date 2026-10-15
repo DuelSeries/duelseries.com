@@ -210,7 +210,11 @@ function createStakeLedger({ db, region, bootId, log = console, kickDrain = () =
       return (res === 'owed' || res === 'queued') ? 'owed' : 'settled';
     }
     // Not seen on the chain. Closed only once it can never land: its blockhash has expired (asked
-    // of the finalized bank) and a second look still does not find it.
+    // of the finalized bank) and a second look still does not find it. Never before it is 3 minutes
+    // old: a row an earlier boot left seconds after its broadcast can still be settling, and a
+    // blockhash younger than the finalized root reads as invalid there.
+    const age = now() - new Date(r.created_at).getTime();
+    if (!(Number.isFinite(age) && age >= Math.max(verifyAfterMs, 3 * 60 * 1000))) return 'waiting';
     if (!r.blockhash) {
       const created = new Date(r.created_at).getTime();
       if (!(Number.isFinite(created) && now() - created > 15 * 60 * 1000)) return 'waiting';

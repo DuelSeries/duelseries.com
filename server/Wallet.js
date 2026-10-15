@@ -356,13 +356,14 @@ async function submitStake(rawTx, opts) {
 
 /* For the pending-verify sweep (stakeLedger): what the chain says about a stake signature.
    'landed' (confirmed, no error), 'failed' (landed with an error: nothing moved but the fee), or
-   null (not seen yet, or only processed). History is searched, so an old landing is found. */
+   'seen' (processed only, still settling: never expire it), or null (not seen yet). History is searched, so an old landing is found. */
 async function stakeSigStatus(signature) {
   const st = await withRetry(() => connection.getSignatureStatus(signature, { searchTransactionHistory: true }));
   const v = st && st.value;
   if (!v) return null;
   if (v.err) return 'failed';
-  return (v.confirmationStatus === 'confirmed' || v.confirmationStatus === 'finalized') ? 'landed' : null;
+  // 'seen': on the chain at 'processed' only. Not landed yet, but not gone either: never expire it.
+  return (v.confirmationStatus === 'confirmed' || v.confirmationStatus === 'finalized') ? 'landed' : 'seen';
 }
 
 /* Whether a transaction with this blockhash can still land. Asked at 'finalized': a blockhash too

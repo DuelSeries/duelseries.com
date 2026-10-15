@@ -146,12 +146,17 @@ function walletProof() {
   ]);
 }
 
+// A reconnect sends PLAY at once: the server's reattach carries the proven wallet over from the
+// old socket, and any wait here would come out of its 8 s reconnect grace.
+let playSentOnce = false;
 socket.on('connect', () => {
   try { console.log('[net] transport:', socket.io.engine.transport.name); } catch (e) {}
   if (spectateOnly) {
     socket.emit('spectate:join', { lobbyType, stake, region: selectedRegion });
   } else {
-    walletProof().then((idProof) => {
+    const proof = playSentOnce ? Promise.resolve(null) : walletProof();
+    playSentOnce = true;
+    proof.then((idProof) => {
       if (!socket.connected) return;   // dropped while signing: the next connect sends its own
       socket.emit(CONSTANTS.EVENTS.PLAY, { name: playerName, color: snakeColor, lobbyType, stake, entryToken, region: selectedRegion, reconnectKey, idProof: idProof || undefined });
     });

@@ -301,3 +301,17 @@ test('index.js: both submit-stake paths claim before the broadcast, settle the s
   // /api/broadcast relays a player's own cash-out and stays a plain broadcast.
   assert.match(src, /app\.post\('\/api\/broadcast'[\s\S]{0,400}Wallet\.submitStake\(Buffer\.from\(signedTx, 'base64'\)\);/);
 });
+
+test('a row under 3 minutes old, or one the chain has seen at processed, is never closed as expired', async () => {
+  const h = harness({ statusOf: { YOUNG: null, SEEN: 'seen' }, valid: {} });
+  await pre(h, 'YOUNG');
+  h.advance(1 * MIN);
+  let out = (await h.ledger.sweep({ boot: true })).verify;
+  assert.strictEqual(h.db.stakes.get('YOUNG').state, 'verifying', 'a restart seconds after the broadcast must not expire it');
+  await pre(h, 'SEEN');
+  h.advance(10 * MIN);
+  out = (await h.ledger.sweep({ boot: false })).verify;
+  assert.strictEqual(h.db.stakes.get('SEEN').state, 'verifying', 'processed but not confirmed: still settling');
+  assert.strictEqual(h.db.stakes.get('YOUNG').state, 'expired', 'old enough, blockhash gone, never seen: closed');
+  assert.strictEqual(h.db.payouts.length, 0);
+});
