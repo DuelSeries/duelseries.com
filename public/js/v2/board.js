@@ -179,17 +179,14 @@
     if (!box) return;
     if (failing && !loadedOnce) {
       box.innerHTML = '<div class="none">Could not load lobbies. Trying again…</div>';
-      box.classList.add('short');
       return;
     }
     const rows = rowsToShow();
     if (!rows.length) {
       box.innerHTML = '<div class="none">Nobody playing yet.</div>';
-      box.classList.add('short');
       return;
     }
     box.innerHTML = rows.map(rowHTML).join('');
-    box.classList.toggle('short', rows.length <= 3);
     if (window.repaintAll) window.repaintAll();
     // The game cards' people counts are refreshed by load(), not here: draw()
     // returns early when this list is not on the page, and the cards still are.

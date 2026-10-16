@@ -1,47 +1,87 @@
 {
-  "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
+  "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). Optional pictures: image (the big one, {src, alt}) and gallery (up to 4 small ones, same shape); src is a file in public/updates/ (/updates/name.webp), alt says what the picture shows. The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
   "posts": [
     {
       "id": "2026-10-16-clip-recorder",
       "date": "2026-10-16",
       "tag": "new",
       "title": "Press P to save a clip",
-      "body": "On a PC, every game keeps the last 30 seconds. Press P and they save as a video in your Downloads, with the game sound, ready to post. After a cash-out or a battle royale win the game offers to save one for you.\n\nPost it on X, YouTube or TikTok and send the link in the Clips tab to get it on the wall."
+      "body": "On a PC, every game keeps the last 30 seconds. Press P and they save as a video in your Downloads, with the game sound, ready to post. After a cash-out or a battle royale win the game offers to save one for you.\n\nPost it on X, YouTube or TikTok and send the link in the Clips tab to get it on the wall.",
+      "image": {
+        "src": "/updates/clips-tab.webp",
+        "alt": "The Clips tab: player clips on the wall and the top clippers beside them"
+      }
     },
     {
       "id": "2026-10-16-leaderboards",
       "date": "2026-10-16",
       "tag": "new",
       "title": "Social is now Leaderboards",
-      "body": "The top 3 live, the full top 10, and a search box for any player to see their games and win rate."
+      "body": "The top 3 live, the full top 10, and a search box for any player to see their games and win rate.",
+      "image": {
+        "src": "/updates/leaderboards.webp",
+        "alt": "The Leaderboards tab with the live top 3 and player search"
+      },
+      "gallery": [
+        {
+          "src": "/updates/phone-board.webp",
+          "alt": "Leaderboards on a phone"
+        }
+      ]
     },
     {
       "id": "2026-10-16-skins",
       "date": "2026-10-16",
       "tag": "new",
       "title": "Skins you can unlock",
-      "body": "Open Customize under Play and unlock a skin. You wear it in every game straight away."
+      "body": "Open Customize under Play and unlock a skin. You wear it in every game straight away.",
+      "image": {
+        "src": "/updates/candy-cane.webp",
+        "alt": "The Candy Cane skin in Customize"
+      }
     },
     {
       "id": "2026-10-16-count-up",
       "date": "2026-10-16",
       "tag": "new",
       "title": "Figures that count up",
-      "body": "Your wallet balance, the leaderboards and the battle royale podium count up when you open them."
+      "body": "Your wallet balance, the leaderboards and the battle royale podium count up when you open them.",
+      "image": {
+        "src": "/updates/count-up.webp",
+        "alt": "Leaderboard figures counting up as the tab opens"
+      }
     },
     {
       "id": "2026-10-16-end-screen",
       "date": "2026-10-16",
       "tag": "new",
       "title": "One end screen for every game",
-      "body": "Cash out, get knocked out or finish a match and every game now shows the same clear card and leaderboard."
+      "body": "Cash out, get knocked out or finish a match and every game now shows the same clear card and leaderboard.",
+      "image": {
+        "src": "/updates/end-screen.webp",
+        "alt": "The new cash-out card"
+      }
     },
     {
       "id": "2026-10-16-phone-swipes",
       "date": "2026-10-16",
       "tag": "fix",
       "title": "Smoother swipes on phones",
-      "body": "Swiping between tabs and between games is smoother, even on slower phones."
+      "body": "Swiping between tabs and between games is smoother, even on slower phones.",
+      "image": {
+        "src": "/updates/phone-swipes.webp",
+        "alt": "Home, a game and Leaderboards on a phone"
+      },
+      "gallery": [
+        {
+          "src": "/updates/phone-home.webp",
+          "alt": "Home on a phone"
+        },
+        {
+          "src": "/updates/phone-game.webp",
+          "alt": "A game screen on a phone"
+        }
+      ]
     }
   ]
 }

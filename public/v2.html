@@ -496,25 +496,11 @@ body.ingame>.howveil,body.ingame>.meveil,body.ingame>.apscreen,body.ingame>.bshe
 }
 
 /* ── lobby list ─────────────────────────────────────────────────────── */
-/* Three rows are visible at rest. Hover and scroll to run through the rest
-   without the page moving underneath you (overscroll-behavior contains the
-   scroll chain once the list hits its end). */
-/* NO FADE ACROSS THE BOTTOM. It was a mask that took the last 26px of the
-   scroller down to transparent to hint there was more below — except a mask
-   does not know whether there IS more, so it faded the last row out even when
-   you had scrolled all the way to it. Owen: "the very last one is just cut
-   off... there is like a rectangle that goes across the screen." That was the
-   fade, permanently eating the row he had scrolled down to read.
-
-   A scrollbar already says there is more. */
-.lob{display:flex;flex-direction:column;max-height:207px;overflow-y:auto;
-  overscroll-behavior:contain;scrollbar-width:thin;
-  scrollbar-color:var(--s3) transparent;
-  padding-bottom:2px}
-.lob::-webkit-scrollbar{width:6px}
-.lob::-webkit-scrollbar-thumb{background:var(--s3);border-radius:var(--r1)}
-.lob::-webkit-scrollbar-track{background:transparent}
-.lob.short{max-height:none}
+/* EVERY OPEN LOBBY SHOWS (Owen 2026-10-16: "make it so that they all load, I
+   don't have to scroll through them anymore"). It was a 207px box, three rows
+   and a scrollbar for the rest; now it grows and the page is the only scroller,
+   on PC and on a phone alike. */
+.lob{display:flex;flex-direction:column;padding-bottom:2px}
 .lr{display:flex;align-items:center;gap:16px;padding:17px 0;   /* edges line up with the heading and buttons above */
   border-bottom:1px solid var(--s2);transition:.14s}
 .lr:hover{background:var(--s1);padding-left:12px;padding-right:12px;
@@ -1243,6 +1229,33 @@ body.ingame>.howveil,body.ingame>.meveil,body.ingame>.apscreen,body.ingame>.bshe
 .uph{font-size:17px;font-weight:650;letter-spacing:-.3px;line-height:1.3;margin-top:8px}
 .upb{color:var(--tx2);font-size:14.5px;line-height:1.6;margin-top:6px;max-width:60ch}
 .upnone{color:var(--tx2);font-size:14.5px;margin-left:-120px}
+/* Pictures in a post: the big one under the title, small ones under the
+   words, each opening large in the viewer (.upveil, built by updates.js). */
+.uphero,.upthumb{display:block;padding:0;border:1px solid var(--s2);background:var(--s1);
+  cursor:zoom-in;overflow:hidden;transition:border-color .15s}
+.uphero:hover,.upthumb:hover{border-color:var(--tx3)}
+.uphero:focus-visible,.upthumb:focus-visible{outline:2px solid var(--tx);outline-offset:2px}
+.uphero{width:100%;max-width:560px;aspect-ratio:16/10;margin-top:12px;border-radius:var(--r2)}
+.uphero img{display:block;width:100%;height:100%;object-fit:cover;object-position:center top}
+.upgal{display:flex;gap:8px;margin-top:12px}
+.upthumb{height:64px;border-radius:var(--r1)}
+.upthumb img{display:block;height:100%;width:auto;max-width:160px;object-fit:cover;object-position:center top}
+.upveil{position:fixed;inset:0;z-index:210;display:none;align-items:center;justify-content:center;
+  padding:48px 88px;background:rgba(6,5,4,.86);backdrop-filter:blur(6px)}
+.upveil.on{display:flex}
+.upfig{display:flex;flex-direction:column;align-items:center;gap:12px;max-width:100%;max-height:100%;margin:0}
+.upfig img{display:block;max-width:100%;max-height:calc(100vh - 140px);border-radius:var(--r2);
+  box-shadow:0 24px 70px rgba(0,0,0,.5)}
+.upfig figcaption{color:var(--tx2);font-size:14px;text-align:center;max-width:60ch}
+.upfig figcaption:empty{display:none}
+.upnav,.upx{position:absolute;display:flex;align-items:center;justify-content:center;
+  width:44px;height:44px;border-radius:50%;border:none;background:var(--s2);color:var(--tx);
+  font-size:22px;cursor:pointer;transition:background .15s}
+.upnav:hover,.upx:hover{background:var(--s3)}
+.upnav{top:50%;margin-top:-22px;display:none}
+.upveil.many .upnav{display:flex}
+.upnav.prev{left:24px}.upnav.next{right:24px}
+.upx{top:20px;right:24px;font-size:15px}
 
 .back{font-size:13px;color:var(--tx2);padding:26px 0 0;display:inline-block}
 .back:hover{color:var(--tx)}
@@ -1872,18 +1885,6 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
   .gcol{padding:6px 16px 12px;max-width:none;min-height:calc(100vh - 145px);
         min-height:calc(100svh - 145px - env(safe-area-inset-top) - env(safe-area-inset-bottom))}
 
-  /* ONE SCROLLER ON A PHONE. The open-lobbies list is its own scroll box on
-     desktop (three rows, scroll for the rest). On a phone that box sits at the
-     bottom of a screen that ALSO scrolls, with overscroll-behavior:contain on
-     it, and Chrome on Android applies contain strictly: a swipe that starts on
-     the list scrolls the list to its last row and then stops dead, never
-     handing the rest of the swipe to the page. The list is most of the lower
-     half of the screen, so that is where the thumb lands, and the page stays
-     short of its bottom with the last game's row cut off by the edge. iOS
-     Safari chains a swipe on a finished list differently, the likeliest reason
-     only the Android phone showed it. Here the list just grows and the page is
-     the only thing that scrolls. */
-  #lob{max-height:none;overflow:visible}
   #detail .backrow{padding:0 14px}   /* the logo's 14px */
   #detail .back{padding:12px 0 0}
   #dname{margin-top:4px;font-size:23px}

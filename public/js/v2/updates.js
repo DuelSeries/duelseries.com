@@ -7,7 +7,12 @@
    A red dot on the tab until the player opens it, and a filled stop on the
    line for each post they have not seen. "Seen" is the newest post's id in this
    browser's storage; a first visit counts the last three days as new. PC only,
-   like Clips (the .pconly rules in v2.html), so a phone never fetches it. */
+   like Clips (the .pconly rules in v2.html), so a phone never fetches it.
+
+   Pictures (Owen 2026-10-16: "make it more interesting instead of just
+   words"): a post may carry one big picture (image) and a few small ones
+   (gallery), files under public/updates/. Any of them opens large in a
+   viewer; with more than one, the arrows step through that post's pictures. */
 (function () {
   const $ = (id) => document.getElementById(id);
   const SEEN_KEY = 'dsUpdatesSeen';
@@ -31,6 +36,14 @@
   const seen = () => { try { return localStorage.getItem(SEEN_KEY) || ''; } catch (_) { return ''; } };
 
   const DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
+  // Only our own files: a typo in the JSON can never point a post at another site.
+  const SRC = /^\/updates\/[a-z0-9][a-z0-9-]*\.(webp|png|jpe?g)$/;
+  const GALLERY_MAX = 4;
+  const pic = (x) => {
+    const o = typeof x === 'string' ? { src: x } : x;
+    return o && typeof o.src === 'string' && SRC.test(o.src) ? { src: o.src, alt: typeof o.alt === 'string' ? o.alt : '' } : null;
+  };
+  const pics = (p) => [pic(p.image)].concat((Array.isArray(p.gallery) ? p.gallery : []).slice(0, GALLERY_MAX).map(pic)).filter(Boolean);
   function clean(list) {
     return (Array.isArray(list) ? list : []).filter(p => p && typeof p.id === 'string' && DATE.test(p.date || '')
       && typeof p.title === 'string' && p.title.trim())
@@ -87,10 +100,79 @@
       const t = TAG[p.tag] ? p.tag : 'new';
       a.appendChild(el('span', 'uptag t-' + t, TAG[t]));
       a.appendChild(el('h3', 'uph', p.title));
+      const all = pics(p);
+      const hero = pic(p.image);
+      if (hero) a.appendChild(thumb(hero, 'uphero', all, 0));
       String(p.body || '').split(/\n\s*\n/).map(s => s.trim()).filter(Boolean)
         .forEach(par => a.appendChild(el('p', 'upb', par)));
+      const rest = all.slice(hero ? 1 : 0);
+      if (rest.length) {
+        const g = el('div', 'upgal');
+        rest.forEach((x, i) => g.appendChild(thumb(x, 'upthumb', all, i + (hero ? 1 : 0))));
+        a.appendChild(g);
+      }
       list.appendChild(a);
     });
+  }
+
+  function thumb(x, cls, all, i) {
+    const b = el('button', cls);
+    b.type = 'button';
+    b.setAttribute('aria-label', 'Open picture' + (x.alt ? ': ' + x.alt : ''));
+    const im = el('img');
+    im.src = x.src; im.alt = x.alt; im.loading = 'lazy'; im.decoding = 'async'; im.draggable = false;
+    b.appendChild(im);
+    b.addEventListener('click', () => view(all, i, b));
+    return b;
+  }
+
+  /* The viewer: one picture large, its words under it, arrows when the post has more. */
+  let veil = null, shown = [], at = 0, back = null;
+  function viewer() {
+    if (veil) return veil;
+    veil = el('div', 'upveil');
+    veil.setAttribute('role', 'dialog'); veil.setAttribute('aria-modal', 'true'); veil.setAttribute('aria-label', 'Picture');
+    veil.innerHTML = '<figure class="upfig"><img alt=""><figcaption></figcaption></figure>' +
+      '<button type="button" class="upnav prev" aria-label="Previous picture">&#8249;</button>' +
+      '<button type="button" class="upnav next" aria-label="Next picture">&#8250;</button>' +
+      '<button type="button" class="upx" aria-label="Close">&#10005;</button>';
+    veil.addEventListener('click', (e) => { if (e.target === veil || e.target.classList.contains('upfig')) close(); });
+    veil.querySelector('.upx').addEventListener('click', close);
+    veil.querySelector('.prev').addEventListener('click', () => step(-1));
+    veil.querySelector('.next').addEventListener('click', () => step(1));
+    document.addEventListener('keydown', (e) => {
+      if (!veil.classList.contains('on')) return;
+      if (e.key === 'Escape') close();
+      else if (e.key === 'ArrowLeft') step(-1);
+      else if (e.key === 'ArrowRight') step(1);
+      else return;
+      e.preventDefault(); e.stopPropagation();
+    }, true);
+    document.body.appendChild(veil);
+    return veil;
+  }
+  function paint() {
+    const x = shown[at];
+    const im = veil.querySelector('img');
+    im.src = x.src; im.alt = x.alt;
+    veil.querySelector('figcaption').textContent = x.alt;
+    veil.classList.toggle('many', shown.length > 1);
+  }
+  function view(all, i, from) {
+    viewer();
+    shown = all; at = i; back = from;
+    paint();
+    veil.classList.add('on');
+    veil.querySelector('.upx').focus();
+  }
+  function step(d) {
+    if (shown.length < 2) return;
+    at = (at + d + shown.length) % shown.length;
+    paint();
+  }
+  function close() {
+    veil.classList.remove('on');
+    if (back && back.isConnected) back.focus();
   }
 
   // Opening the tab: draw what is new as new, then remember it as seen, so the dot goes but the marks stay this visit.
