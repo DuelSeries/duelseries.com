@@ -611,6 +611,17 @@ body.ingame .tkrun{animation-play-state:paused}
 .wacts .btn{flex:0 0 auto;min-width:150px}
 /* Square: it is an icon, not a word. */
 .wacts .wref{min-width:0;width:44px;padding:0;display:grid;place-items:center}
+/* The SOL under the dollars, quiet, with Convert beside it when there is
+   some to convert (Owen, 2026-10-15). A fixed height, so the buttons under it
+   do not jump when the figure arrives. */
+.wsol{display:flex;align-items:center;justify-content:center;gap:10px;min-height:30px;
+  margin-top:6px;font-size:14px;color:var(--tx2)}
+.wsol .num{font-family:var(--fm)}
+.wcv{background:var(--s2);border:none;border-radius:var(--rf);padding:6px 13px;
+  font-family:inherit;font-size:12.5px;font-weight:650;color:var(--money);cursor:pointer;
+  transition:background .15s,color .15s}
+.wcv:hover{background:var(--money);color:var(--ink)}
+.wcv:focus-visible{outline:2px solid var(--money);outline-offset:2px}
 .wref.spin svg{animation:wspin .5s linear}
 @keyframes wspin{to{transform:rotate(360deg)}}
 /* One centred column for the whole Wallet tab on a big screen (Owen,
@@ -837,6 +848,25 @@ body.ingame .tkrun{animation-play-state:paused}
    mono: it is read character by character. */
 .cashout .cofull{display:block;margin:-6px 0 14px;padding:12px 14px;border-radius:var(--r2);
   background:var(--bg);font-size:13.5px;line-height:1.55;word-break:break-all;color:var(--tx)}
+/* Send as USDC or SOL: two choices, one of them on, the words themselves the
+   control (Owen, 2026-10-15). */
+.payas{display:flex;align-items:center;gap:6px;margin:-4px 0 12px}
+.payas .k{font-size:13px;color:var(--tx3);margin-right:4px}
+.payas .pa{background:var(--s2);border:none;border-radius:var(--rf);padding:7px 15px;
+  font-family:inherit;font-size:13px;font-weight:650;color:var(--tx2);cursor:pointer;
+  transition:background .15s,color .15s}
+.payas .pa:hover{background:var(--s3)}
+.payas .pa.on{background:var(--bone);color:var(--ink)}
+.payas .pa:focus-visible{outline:2px solid var(--bone);outline-offset:2px}
+.cashout .pahint{margin:-4px 0 12px;font-size:12.5px}
+/* The Convert sheet's three figures: what is converted, the floor, what stays. */
+.cvfacts{list-style:none;margin:0 0 14px;padding:0}
+.cvfacts li{display:flex;justify-content:space-between;gap:12px;padding:9px 0;font-size:13.5px;
+  color:var(--tx2);border-top:1px solid var(--s2)}
+.cvfacts li:first-child{border-top:none}
+.cvfacts b{font-family:var(--fm);font-weight:600;color:var(--tx)}
+#cv-msg[data-state="bad"]{color:#e0705f}
+.cashout .btn[disabled]{opacity:.55;cursor:default}
 
 .chartbox{position:relative}
 .chartbox svg.v2chart{display:block;width:100%;height:auto;
@@ -1892,6 +1922,18 @@ body.scr-anim { overflow-x:hidden }
       <button type="button" class="howx" onclick="V2Wallet.cancelCash()" aria-label="Close">&#10005;</button>
     </div>
     <div id="wdr-body"></div>
+  </div>
+</div>
+
+<!-- Convert to USDC: the wallet's SOL (a card top-up, a send from an exchange)
+     into dollars, at a price shown before anything is signed (Owen 2026-10-15,
+     "Accept both, play in USDC"). -->
+<div id="cvveil" class="howveil" role="dialog" aria-modal="true" aria-label="Convert to USDC">
+  <div class="howcard mcard">
+    <div class="howtop"><h2>Convert to USDC</h2>
+      <button type="button" class="howx" onclick="V2Wallet.cancelConvert()" aria-label="Close">&#10005;</button>
+    </div>
+    <div id="cv-body"></div>
   </div>
 </div>
 
@@ -4217,6 +4259,7 @@ document.addEventListener('keydown',e=>{
   if(e.key!=='Escape')return;
   if(isOn('howveil'))return closeHow();
   if(isOn('wdrveil'))return V2Wallet.cancelCash();
+  if(isOn('cvveil'))return V2Wallet.cancelConvert();
   if(isOn('lookveil'))closeLook(false);
 });
 /* Clicking the darkened area outside the card closes it, which is what a
@@ -4226,6 +4269,9 @@ document.getElementById('howveil').addEventListener('click',e=>{
 });
 document.getElementById('wdrveil').addEventListener('click',e=>{
   if(e.target.id==='wdrveil')V2Wallet.cancelCash();
+});
+document.getElementById('cvveil').addEventListener('click',e=>{
+  if(e.target.id==='cvveil')V2Wallet.cancelConvert();
 });
 
 /* The tournament countdown is gone with the card it counted down. It ticked

@@ -30,6 +30,7 @@ const analytics = require('./analytics'); // server-side PostHog capture (money 
 const nameProof = require('./nameProof'); // a wallet signing for its own name change
 const ownerAuth = require('./ownerAuth'); // the owner wallet signing for an owner action
 const { isWalletString } = require('./b58Caps');     // a client address is a key's size before any decode
+const Swap = require('./swap');                      // SOL <-> USDC in the player's own wallet
 const { TRUST_PROXY } = require('./clientAddr');     // X-Forwarded-For only from nginx (loopback / private)
 const { securityHeaders } = require('./securityHeaders');
 const ops       = require('./ops');       // maintenance mode
@@ -395,7 +396,10 @@ app.get('/api/prices', (req, res) => {
 app.get('/api/money-config', (req, res) => {
   // network lets the client build an explorer link that points at the cluster the
   // payout actually happened on, instead of guessing mainnet.
-  res.json({ mode: money.mode, unit: money.unit, usdcMint: money.usdcMint || null, decimals: money.decimals || 6, network: process.env.SOLANA_NETWORK || 'mainnet-beta' });
+  res.json({ mode: money.mode, unit: money.unit, usdcMint: money.usdcMint || null, decimals: money.decimals || 6, network: process.env.SOLANA_NETWORK || 'mainnet-beta',
+             // SOL <-> USDC in the player's own wallet (server/swap.js): what the Wallet tab offers.
+             swap: money.mode === 'usdc', solReserve: Swap.RULES.RESERVE_LAMPORTS / 1e9,
+             minConvertSol: Swap.RULES.MIN_SOL_IN / 1e9, minWithdrawSolUsd: Swap.RULES.MIN_USDC_IN / 1e6 });
 });
 
 // ─── Cross-region stats: EU pushes to NA instantly on every change ────────────
@@ -688,7 +692,12 @@ app.get('/api/sol-balance', rpcLimiter, async (req, res) => {
   if (!isWalletString(address)) return res.status(400).json({ error: 'Invalid address' });
   try {
     const sol = await money.balanceOf(address); // native unit (SOL or USDC); `sol` field kept for client back-compat
-    res.json({ address, sol, balance: sol, unit: money.unit });
+    /* The SOL beside the dollars (Owen, 2026-10-15: "Accept both, play in USDC"): card top-ups and
+       exchange sends arrive as SOL, and the Wallet tab shows it under the balance with Convert. */
+    // A failed SOL read never costs the dollar balance: it is shown as unknown instead.
+    let solNative = null;
+    if (money.mode === 'usdc') { try { solNative = await Wallet.getAddressBalance(address); } catch (_) { solNative = null; } }
+    res.json({ address, sol, balance: sol, unit: money.unit, solNative });
   } catch (e) {
     res.status(400).json({ error: e.message });
   }
@@ -729,6 +738,42 @@ app.post('/api/broadcast', walletWithdrawLimiter, express.json({ limit: '256kb' 
   } catch (e) {
     res.status(400).json({ error: e.message });
   }
+});
+
+/* SOL <-> USDC in the player's own wallet (server/swap.js): the one-tap Convert to USDC, and
+   Withdraw as SOL. Jupiter builds the transaction, the server checks it (the order, then a
+   simulation read as balances) before the player is asked to sign, and execute sends only the
+   message that passed, signed by the player, once. No escrow, stake or payout is involved, and
+   nothing here signs anything: the player's wallet does. USDC mode only. */
+const swap = Swap.createSwap({
+  chain: Swap.chainFromConnection(Wallet.connection),
+  jupiter: Swap.createJupiter({ apiKey: process.env.JUP_API_KEY || '' }),
+  usdcMint: () => money.usdcMint,
+  log: (m) => console.log('[SWAP] ' + m),
+});
+const swapQuoteLimiter = rateLimit({ windowMs: 60 * 1000, max: 12, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Slow down.' } });
+const swapExecLimiter = rateLimit({ windowMs: 60 * 1000, max: 6, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Slow down.' } });
+const SWAP_OFF = 'Converting is not available right now.';
+function swapFail(res, e, what) {
+  if (e && e.publicMessage) return res.status(400).json({ error: e.publicMessage, signature: e.signature || undefined });
+  console.warn('[SWAP] ' + what + ' error: ' + (e && e.message));
+  res.status(502).json({ error: what === 'execute'
+    ? 'This is still confirming. Check your balance in a minute before trying again.'
+    : 'Could not get a price. Try again.' });
+}
+app.get('/api/swap/quote', swapQuoteLimiter, async (req, res) => {
+  if (money.mode !== 'usdc') return res.status(400).json({ error: SWAP_OFF });
+  try {
+    res.json(await swap.quote({ wallet: strOr(req.query.wallet, ''), dir: strOr(req.query.dir, ''),
+                                amount: strOr(req.query.amount, ''), receiver: strOr(req.query.receiver, '') || null }));
+  } catch (e) { swapFail(res, e, 'quote'); }
+});
+app.post('/api/swap/execute', swapExecLimiter, express.json({ limit: '16kb' }), async (req, res) => {
+  if (money.mode !== 'usdc') return res.status(400).json({ error: SWAP_OFF });
+  const b = req.body || {};
+  try {
+    res.json(await swap.execute({ requestId: strOr(b.requestId, ''), signedTransaction: strOr(b.signedTransaction, '') }));
+  } catch (e) { swapFail(res, e, 'execute'); }
 });
 
 /* Maintenance stops new STAKES, not only new joins (BACKLOG 2.1, map 4.8). Joins were already

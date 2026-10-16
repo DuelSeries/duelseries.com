@@ -5,12 +5,14 @@
    so there is exactly one implementation of funding and sending in the product
    and this lobby cannot drift from the live one:
 
-     window.duelWallet          { ready, authenticated, address, balance, unit }
+     window.duelWallet          { ready, authenticated, address, balance, unit, sol, swap }
      'duelwallet:change'        fired on any of the above changing
      window.duelWalletLogin()   opens the Privy login
-     window.duelWalletFund(n)   Privy funding flow, resolves or rejects
+     window.duelWalletFund()    Privy funding flow (Pay with card, Receive funds)
      window.duelWalletSend(a,t) send `a` to address `t`
      window.duelWalletRefresh() re-read the on-chain balance
+     window.duelWalletSwapQuote(dir, amount, receiver)  a checked price, nothing signed
+     window.duelWalletSwapRun(quote)                    sign and send a confirmed price
 
    Nothing here signs, quotes or verifies anything. If a call is missing the
    widget has not mounted yet, and the screen says so rather than pretending
@@ -24,7 +26,33 @@
      because a balance refresh re-renders the panel and would otherwise throw
      away whatever was half-typed into it. */
   let cashing = false, pending = null;
+  /* How the withdrawal is paid: 'usdc' sends the dollars as they are, 'sol' converts them on the
+     way out (server/swap.js) and the address receives SOL. */
+  let payAs = 'usdc';
   const connected = () => !!(w().authenticated && w().address);
+  /* SOL beside the dollars (Owen, 2026-10-15: "Accept both, play in USDC"). Card top-ups and
+     exchange sends land as SOL; everything but the reserve kept for network fees can become
+     USDC with one tap. Lamports, so the amount sent is exact. */
+  const swapOn = () => !!(w().swap && window.duelWalletSwapQuote && window.duelWalletSwapRun);
+  const solLamports = () => Math.max(0, Math.round((Number(w().sol) || 0) * 1e9));
+  function convertible() {
+    const s = w().swap; if (!s) return 0;
+    const n = solLamports() - Math.round((Number(s.solReserve) || 0) * 1e9);
+    return n >= Math.round((Number(s.minConvertSol) || 0) * 1e9) ? n : 0;
+  }
+  const solTxt = lamports => (Number(lamports) / 1e9).toFixed(4) + ' SOL';
+  const usdTxt = units => money(Number(units) / 1e6);
+  // A floor ("at least") rounds down, so the figure shown is never more than what arrives.
+  const usdFloor = units => balMoney(Number(units) / 1e6);
+  const solFloor = lamports => (Math.floor(Number(lamports) / 1e5) / 1e4).toFixed(4) + ' SOL';
+  /* The small line under the balance: the SOL in the wallet, and Convert to USDC when there is
+     any to convert. Hidden while the SOL figure is unknown (SOL money mode, or not read yet). */
+  function solLine() {
+    if (w().sol == null || !w().swap) return '';
+    const c = convertible();
+    return '<span class="num">' + solTxt(solLamports()) + '</span>' +
+      (c && swapOn() ? '<button type="button" class="wcv" onclick="V2Wallet.convert()">Convert to USDC</button>' : '');
+  }
   // Thousands separated, so $1,234.56 never reads as $1234.56.
   const money = n => '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   /* A balance is shown, and Max fills it, rounded DOWN to the cent. toFixed
@@ -112,6 +140,7 @@
     }
     if (light === true && drawnFor === w().address && el('w-bal')) {
       el('w-bal').textContent = balMoney(w().balance);
+      const s = el('w-sol'); if (s) s.innerHTML = solLine();
       return;
     }
 
@@ -128,6 +157,9 @@
          address panel right below already says what it is held in. */
       '<div class="wbal">' +
         '<div class="bnum num" id="w-bal">' + balMoney(bal) + '</div>' +
+        /* The SOL under the dollars, small, like the DamnBruh wallet's "$1.03 / 0.0098 SOL"
+           (Owen, 2026-10-15), with the one tap that turns it into dollars. */
+        '<div class="wsol" id="w-sol">' + solLine() + '</div>' +
         /* The form lives in its own sheet now, so this row never swaps out. */
         ('<div class="wacts">' +
             '<button class="btn pri" onclick="V2Wallet.fund()">Add funds</button>' +
@@ -148,7 +180,9 @@
         /* The one sentence kept. The rest of the copy on this screen was
            explanation; this is the only line whose absence can cost somebody
            their money. */
-        '<p class="note">USDC on Solana only. Anything else is unrecoverable.</p>' +
+        /* SOL too since card top-ups arrive as SOL (Owen, 2026-10-15); it becomes
+           USDC with Convert above. */
+        '<p class="note">SOL or USDC on Solana only. Anything else is unrecoverable.</p>' +
       '</div>' +
       '<div class="head"><div><h2>Transactions</h2></div></div>' +
       /* Five rows tall, the rest a scroll away inside the card, and the next
@@ -385,6 +419,25 @@
      styled, cannot show the balance while you type an amount against it, and
      on a phone each one covers the whole screen. */
   function cashForm(bal) {
+    if (pending && pending.as === 'sol') {
+      /* Withdraw as SOL: the dollars are converted on the way out, so the
+         confirm step shows the SOL the address gets, from a price checked on
+         the server, and the floor it cannot fall under. */
+      const q = pending.quote;
+      return '<div class="cashout">' +
+        (q
+          ? '<p class="note">Send <b>' + money(pending.amt) + '</b> as about <b>' + solTxt(q.outAmount) + '</b> to</p>'
+          : '<p class="note">Send <b>' + money(pending.amt) + '</b> as SOL to</p>') +
+        '<code class="cofull">' + esc(pending.to) + '</code>' +
+        (q
+          ? '<p class="note">At least ' + solFloor(q.minOut) + ' arrives if the price moves. On-chain transfers cannot be reversed.</p>'
+          : '<p class="note" aria-live="polite">Getting a price…</p>') +
+        '<div class="brow">' +
+          '<button class="btn pri" onclick="V2Wallet.confirmCash()"' + (q && !pending.busy ? '' : ' disabled') + '>' +
+            (pending.busy ? 'Sending…' : 'Send it') + '</button>' +
+          '<button class="btn sec" onclick="V2Wallet.backCash()"' + (pending.busy ? ' disabled' : '') + '>Back</button>' +
+        '</div></div>';
+    }
     if (pending) {
       /* No "Confirm" label over it: the sentence and its "Send it" say so. */
       return '<div class="cashout">' +
@@ -399,19 +452,35 @@
           '<button class="btn sec" onclick="V2Wallet.backCash()">Back</button>' +
         '</div></div>';
     }
+    if (!swapOn()) payAs = 'usdc';
+    /* Send as USDC or SOL (Owen, 2026-10-15). The amount stays in dollars
+       either way; SOL is converted from it as it is sent. */
+    const asRow = swapOn()
+      ? '<div class="payas" role="radiogroup" aria-label="Send as">' +
+          '<span class="k">Send as</span>' +
+          ['usdc', 'sol'].map(v => '<button type="button" role="radio" aria-checked="' + (payAs === v) + '"' +
+            ' class="pa' + (payAs === v ? ' on' : '') + '" onclick="V2Wallet.setPayAs(\'' + v + '\')">' +
+            (v === 'usdc' ? 'USDC' : 'SOL') + '</button>').join('') +
+        '</div>' +
+        (payAs === 'sol'
+          ? '<p class="note pahint">Converted from your USDC as it is sent. ' +
+              money((w().swap && w().swap.minWithdrawSolUsd) || 1) + ' or more.</p>'
+          : '')
+      : '';
     /* The balance alone (the sheet is titled Withdraw), and the can't-be-
        reversed warning once, on the confirm step where it is read before
        sending, rather than on both steps (2026-10-15 audit). */
     return '<div class="cashout">' +
       '<div class="mfig">' +
         '<div class="v num">' + balMoney(bal) + '</div></div>' +
+      asRow +
       /* Enter in either field does what the Withdraw button does. */
       '<input class="fld" id="co-to" placeholder="Solana address" autocomplete="off" ' +
         'spellcheck="false" aria-label="Destination Solana address" ' +
         'onkeydown="if(event.key===\'Enter\')V2Wallet.submitCash()">' +
       '<div class="amtrow">' +
         '<input class="fld num" id="co-amt" inputmode="decimal" placeholder="0.00" ' +
-          'autocomplete="off" aria-label="Amount in USDC" ' +
+          'autocomplete="off" aria-label="Amount in US dollars" ' +
           'onkeydown="if(event.key===\'Enter\')V2Wallet.submitCash()">' +
         '<button type="button" class="maxbtn" onclick="V2Wallet.max()">Max</button>' +
       '</div>' +
@@ -433,10 +502,10 @@
     if (!window.duelWalletFund) return note('Your wallet is still starting. Try again in a moment.');
     /* The widget owns the funding flow; a rejection here is the user closing
        it or the provider refusing, not something to swallow silently. */
-    /* Ten. Twenty was a number nobody chose, and it is the figure Privy prints
-       at the top of its own screen, so it reads as a price rather than a
-       starting point. */
-    window.duelWalletFund(10).catch(e => {
+    /* Privy's sheet, Pay with card and Receive funds (Owen, 2026-10-15, like
+       playpulp.io). A card buys SOL, which Convert to USDC turns into dollars;
+       the amount is chosen on MoonPay's own screen, in the player's currency. */
+    window.duelWalletFund().catch(e => {
       const why = e && e.message ? e.message : 'Try again.';
       if (window.DSToast) window.DSToast.show({ kind: 'err', title: 'Add funds did not open', detail: why });
       else note('Add funds did not open: ' + why);
@@ -468,12 +537,20 @@
     const b = el('wdr-body'); if (b) b.innerHTML = cashForm(Number(w().balance) || 0);
   }
   function cancelCash() {
+    if (pending && pending.busy) return;   // a withdrawal as SOL is being sent
     cashing = false; pending = null;
     if (!el('wdrveil').classList.contains('on')) return;
     el('wdrveil').classList.remove('on');
     if (window.sheetFocus) window.sheetFocus.close();
   }
-  function backCash() { pending = null; drawCash(); }
+  function backCash() {
+    if (pending && pending.busy) return;
+    const p = pending;
+    pending = null; drawCash();
+    // Back to the form with what was typed still in it.
+    if (p && el('co-to')) el('co-to').value = p.to;
+    if (p && el('co-amt')) el('co-amt').value = String(p.amt);
+  }
   function max() {
     const a = el('co-amt');
     // Filled, not focused: a tap on Max should not raise the keyboard either.
@@ -504,11 +581,35 @@
     if (!raw || !isFinite(amt) || amt <= 0) return say('Enter an amount to withdraw.');
     if (/\.\d{3,}$/.test(raw)) return say('Use dollars and cents, two decimal places at most.');
     if (amt > bal) return say('That is more than the ' + balMoney(bal) + ' you have.');
+    if (payAs === 'sol' && swapOn()) {
+      const least = Number((w().swap && w().swap.minWithdrawSolUsd) || 1);
+      if (amt < least) return say('The smallest withdrawal as SOL is ' + money(least) + '.');
+      pending = { to: to, amt: amt, as: 'sol', quote: null };
+      drawCash();
+      return priceSol(pending);
+    }
     pending = { to: to, amt: amt };
     drawCash();
   }
+  /* A checked price for this withdrawal. The pending object is the ticket:
+     an answer for one the player has since left (Back, Cancel, a new amount)
+     is dropped. */
+  function priceSol(p) {
+    p.quote = null;
+    return window.duelWalletSwapQuote('toSol', Math.round(p.amt * 1e6), p.to).then(q => {
+      if (pending !== p) return;
+      p.quote = q; drawCash();
+    }, e => {
+      if (pending !== p) return;
+      pending = null; drawCash();
+      say(e && e.message ? e.message : 'Could not get a price. Try again.');
+    });
+  }
+  // A price is used only while there are a few seconds left on it.
+  const fresh = q => !!q && Date.now() < Number(q.expiresAt || 0) - 4000;
   function confirmCash() {
     if (!pending) return;
+    if (pending.as === 'sol') return confirmSol();
     const p = pending;
     pending = null; cashing = false;
     el('wdrveil').classList.remove('on');
@@ -535,6 +636,145 @@
         const why = e && e.message ? e.message : 'Try again.';
         tell({ kind: 'err', title: 'Withdraw failed', amount: '', detail: why, code: '' }, 'Send failed: ' + why);
       });
+  }
+  function confirmSol() {
+    const p = pending;
+    if (!p.quote || p.busy) return;
+    // Gone stale while it was read: a new price, shown, and a second tap to send at it.
+    if (!fresh(p.quote)) { const asked = priceSol(p); drawCash(); return asked; }
+    p.busy = true; drawCash();
+    window.duelWalletSwapRun(p.quote).then(r => {
+      if (pending === p) { pending = null; cashing = false; }
+      el('wdrveil').classList.remove('on');
+      if (window.sheetFocus) window.sheetFocus.close();
+      render();
+      const got = r && r.outAmount ? solTxt(r.outAmount) : 'SOL';
+      // The same words as a USDC withdraw's card, with what the address got.
+      tell({ kind: 'ok', title: 'Withdraw confirmed', amount: got, detail: 'to', code: ownShort(p.to) },
+           'Sent ' + got + '.', true);
+    }, e => {
+      if (pending !== p) return;
+      pending = null; drawCash();
+      say(e && e.message ? e.message : 'The withdrawal did not go through. Check your balance before trying again.');
+    });
+  }
+  /* Keeps what was typed when the form is drawn again for a new choice. */
+  function setPayAs(v) {
+    if (v !== 'usdc' && v !== 'sol') return;
+    const to = (el('co-to') || {}).value || '', amt = (el('co-amt') || {}).value || '';
+    payAs = v; drawCash();
+    if (el('co-to')) el('co-to').value = to;
+    if (el('co-amt')) el('co-amt').value = amt;
+  }
+
+  /* ── Convert to USDC ──────────────────────────────────────────────────
+     Everything but the reserve, in one tap, at a price the player sees first:
+     about what arrives, the floor it cannot fall under, what stays behind for
+     network fees. Nothing is signed until Convert is tapped on that price;
+     an old price is replaced and shown again rather than used. */
+  let cv = null;           // { q, err, busy } while the sheet is open
+  function convert() {
+    if (!connected()) return login();
+    if (!swapOn()) return note('Your wallet is still starting. Try again in a moment.');
+    if (!convertible()) return note('There is no SOL to convert. ' +
+      solTxt(Math.round(((w().swap && w().swap.solReserve) || 0) * 1e9)) + ' stays in your wallet for network fees.');
+    cv = {};
+    drawConvert();
+    el('cvveil').classList.add('on');
+    if (window.sheetFocus) window.sheetFocus.open('cvveil');
+    return priceConvert(cv);
+  }
+  function priceConvert(c) {
+    c.q = null; c.err = null; drawConvert();
+    return window.duelWalletSwapQuote('toUsdc', convertible()).then(q => {
+      if (cv !== c) return;
+      c.q = q; drawConvert();
+    }, e => {
+      if (cv !== c) return;
+      c.err = e && e.message ? e.message : 'Could not get a price. Try again.'; drawConvert();
+    });
+  }
+  function drawConvert() {
+    const b = el('cv-body'); if (!b || !cv) return;
+    const reserve = Math.round(((w().swap && w().swap.solReserve) || 0) * 1e9);
+    if (cv.err) {
+      b.innerHTML = '<div class="cashout"><p class="note" data-state="bad" id="cv-msg">' + esc(cv.err) + '</p>' +
+        '<div class="brow"><button class="btn pri" onclick="V2Wallet.convertAgain()">Try again</button>' +
+        '<button class="btn sec" onclick="V2Wallet.cancelConvert()">Cancel</button></div></div>';
+      return;
+    }
+    const q = cv.q;
+    b.innerHTML = '<div class="cashout">' +
+      '<div class="mfig"><div class="k">You get about</div>' +
+        '<div class="v num">' + (q ? usdTxt(q.outAmount) : '…') + '</div></div>' +
+      '<ul class="cvfacts">' +
+        '<li><span>From</span><b class="num">' + (q ? solTxt(q.inAmount) : solTxt(convertible())) + '</b></li>' +
+        '<li><span>At least</span><b class="num">' + (q ? usdFloor(q.minOut) : '…') + '</b></li>' +
+        '<li><span>Kept for network fees</span><b class="num">' + solTxt(reserve) + '</b></li>' +
+      '</ul>' +
+      '<p class="note" aria-live="polite">' + (q
+        ? 'The price can move a little before it lands. If it would pay less than the at-least figure, nothing is converted.'
+        : 'Getting a price…') + '</p>' +
+      '<div class="brow">' +
+        '<button class="btn pri" onclick="V2Wallet.confirmConvert()"' + (q && !cv.busy ? '' : ' disabled') + '>' +
+          (cv.busy ? 'Converting…' : 'Convert') + '</button>' +
+        '<button class="btn sec" onclick="V2Wallet.cancelConvert()"' + (cv.busy ? ' disabled' : '') + '>Cancel</button>' +
+      '</div></div>';
+  }
+  function confirmConvert() {
+    const c = cv;
+    if (!c || !c.q || c.busy) return;
+    if (!fresh(c.q)) return priceConvert(c);
+    c.busy = true; drawConvert();
+    // The dollars arriving are this card's news; the toast system's "Funds added" stays quiet for them.
+    let unexpect = () => {};
+    try { if (window.DSToast && window.DSToast.expectRise) unexpect = window.DSToast.expectRise(Number(c.q.outAmount) / 1e6); } catch (_) {}
+    window.duelWalletSwapRun(c.q).then(r => {
+      if (cv === c) closeConvert();
+      const inSol = solTxt((r && r.inAmount) || c.q.inAmount);
+      const got = usdTxt((r && r.outAmount) || c.q.outAmount);
+      tell({ kind: 'money', title: 'Converted', amount: '+' + got + ' USDC', detail: 'from ' + inSol },
+           'Converted ' + inSol + ' to ' + got + ' USDC.', true);
+      seenConv = convertible();
+      if (onScreen()) { loadTx(); loadMoves(); }
+    }, e => {
+      try { unexpect(); } catch (_) {}
+      if (cv !== c) return;
+      c.busy = false; c.q = null;
+      c.err = e && e.message ? e.message : 'The conversion did not go through. Check your balance before trying again.';
+      drawConvert();
+    });
+  }
+  function convertAgain() { if (cv) priceConvert(cv); }
+  function closeConvert() {
+    cv = null;
+    const v = el('cvveil');
+    if (!v || !v.classList.contains('on')) return;
+    v.classList.remove('on');
+    if (window.sheetFocus) window.sheetFocus.close();
+  }
+  // Cancel, the close button, Escape, the backdrop: never while it is sending.
+  function cancelConvert() { if (cv && cv.busy) return; closeConvert(); }
+
+  /* The lobby's toast (toasts.js, DSToast) where it is loaded, else the plain one. */
+  function tell(o, plain, good) {
+    if (window.DSToast && typeof window.DSToast.show === 'function') return window.DSToast.show(o);
+    note(plain, good);
+  }
+  /* SOL that arrives while the page is open (a card purchase landing, a send
+     from an exchange) is pointed out once, with where to convert it. Not on
+     page load: SOL already sitting there shows on the Wallet tab. */
+  let seenConv = null;
+  function watchSol() {
+    if (!connected() || w().sol == null || !w().swap) return;
+    const c = convertible();
+    const step = Math.round((Number(w().swap.minConvertSol) || 0) * 1e9);
+    if (seenConv !== null && c > seenConv + step) {
+      tell({ kind: 'money', title: 'SOL arrived', amount: solTxt(c),
+             detail: 'Convert it to USDC on your Wallet tab to play with it.' },
+           'SOL arrived. Convert it to USDC on your Wallet tab to play with it.', true);
+    }
+    seenConv = c;
   }
 
 
@@ -592,7 +832,8 @@
     return !!s && getComputedStyle(s).display !== 'none';
   };
   window.addEventListener('duelwallet:change', () => {
-    if (!connected()) { cashing = false; pending = null; }
+    watchSol();
+    if (!connected()) { cashing = false; pending = null; seenConv = null; if (cv && !cv.busy) closeConvert(); }
     if (cashing) return renderHeader();
     if (!onScreen()) { drawnFor = null; return renderHeader(); }
     render(true);
@@ -601,6 +842,8 @@
                       refresh: refresh, more: more, txScroll: txScroll, mvScroll: mvScroll,
                       copyPeer: copyPeer,
                       cashOut: cashOut, cancelCash: cancelCash, backCash: backCash,
-                      max: max, submitCash: submitCash, confirmCash: confirmCash,
+                      max: max, submitCash: submitCash, confirmCash: confirmCash, setPayAs: setPayAs,
+                      convert: convert, confirmConvert: confirmConvert, convertAgain: convertAgain,
+                      cancelConvert: cancelConvert,
                       addrRow: addrRow, headerTap: headerTap };
 })();

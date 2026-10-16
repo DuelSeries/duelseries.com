@@ -4,7 +4,7 @@ import { PrivyProvider, usePrivy, useLogin, useIdentityToken } from '@privy-io/r
 import { useWallets as useSolanaWallets, useSignTransaction, useSignMessage, useFundWallet } from '@privy-io/react-auth/solana';
 import { createSolanaRpc, createSolanaRpcSubscriptions } from '@solana/kit';
 import bs58 from 'bs58';
-import { PublicKey, SystemProgram, Transaction } from '@solana/web3.js';
+import { PublicKey, SystemProgram, Transaction, VersionedTransaction } from '@solana/web3.js';
 import { getAssociatedTokenAddressSync, createTransferCheckedInstruction, createAssociatedTokenAccountIdempotentInstruction } from '@solana/spl-token';
 import { SERVER_URLS, stakeRoute } from './stakeRoute.mjs';
 import { createRestakeBridge, cancelledError } from './restakeBridge.mjs';
@@ -29,12 +29,48 @@ const APP_ID = 'cmpnepg0100f20cl10wdig1fr';
 const RPC_HTTP = (typeof window !== 'undefined' ? window.location.origin : '') + '/api/rpc';
 const RPC_WSS = 'wss://api.mainnet-beta.solana.com';
 
-async function fetchSolBalance(address) {
+/* The balance (USDC under MONEY_MODE=usdc) and, beside it, the wallet's SOL: card top-ups and
+   exchange sends arrive as SOL, and the Wallet tab shows it with Convert to USDC. */
+async function fetchBalances(address) {
   try {
     const r = await fetch('/api/sol-balance?address=' + encodeURIComponent(address));
     const j = await r.json();
-    return typeof j.sol === 'number' ? j.sol : null;
-  } catch { return null; }
+    return { balance: typeof j.sol === 'number' ? j.sol : null,
+             sol: typeof j.solNative === 'number' ? j.solNative : null };
+  } catch { return { balance: null, sol: null }; }
+}
+
+/* SOL <-> USDC in this wallet (server/swap.js; Owen 2026-10-15, "Accept both, play in USDC").
+   The server asks Jupiter for the transaction and checks it, the order and a simulation read as
+   balances, before it is handed here; the player sees the price and taps to confirm; then this
+   wallet signs exactly those bytes and the server sends them once. Nothing is signed without that
+   tap, and the server refuses any bytes that are not the ones it checked. */
+async function swapQuote(address, dir, amount, receiver) {
+  const qs = new URLSearchParams({ wallet: address, dir, amount: String(amount) });
+  if (receiver) qs.set('receiver', receiver);
+  const r = await fetch('/api/swap/quote?' + qs.toString());
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || !j || j.error || !j.requestId) throw new Error((j && j.error) || 'Could not get a price. Try again.');
+  return j;
+}
+async function swapRun(q, wallet, signTransaction) {
+  if (!q || typeof q.transaction !== 'string' || !q.requestId) throw new Error('That price is not valid. Get a new one.');
+  if (Date.now() > Number(q.expiresAt || 0)) throw new Error('That price expired. Nothing was converted. Get a new one.');
+  const bytes = Uint8Array.from(atob(q.transaction), (c) => c.charCodeAt(0));
+  // The wallet must be one of the transaction's signers (the server checked this too).
+  const vtx = VersionedTransaction.deserialize(bytes);
+  const signers = vtx.message.staticAccountKeys.slice(0, vtx.message.header.numRequiredSignatures).map((k) => k.toBase58());
+  if (!signers.includes(wallet.address)) throw new Error('That conversion is not for your wallet.');
+  // The player already confirmed this exact price on our sheet; a second Privy screen would repeat it.
+  const { signedTransaction } = await signTransaction({ transaction: bytes, wallet, options: { uiOptions: { showWalletUIs: false } } });
+  const r = await fetch('/api/swap/execute', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ requestId: q.requestId, signedTransaction: Buffer.from(signedTransaction).toString('base64') }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || !j || !j.ok) throw new Error((j && j.error) || 'The conversion did not go through. Check your balance before trying again.');
+  return j;
 }
 
 const short = (a) => (a ? a.slice(0, 4) + '…' + a.slice(-4) : '');
@@ -361,6 +397,7 @@ function WalletPanel() {
   const { signMessage } = useSignMessage();
   const { fundWallet } = useFundWallet();
   const [balance, setBalance] = useState(null);
+  const [sol, setSol] = useState(null);    // the wallet's SOL beside a USDC balance (null in SOL mode)
   const [unit, setUnit] = useState('SOL'); // balance unit label (SOL or USDC), from /api/money-config
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
@@ -374,20 +411,24 @@ function WalletPanel() {
   const address = (wallet && wallet.address) || solanaAddress(user);
 
   useEffect(() => {
-    if (!address) { setBalance(null); return; }
+    if (!address) { setBalance(null); setSol(null); return; }
     let live = true;
-    const tick = () => fetchSolBalance(address).then((b) => { if (live) setBalance(b); });
+    const tick = () => fetchBalances(address).then((b) => { if (live) { setBalance(b.balance); setSol(b.sol); } });
     tick();
     const id = setInterval(tick, 15000);
     return () => { live = false; clearInterval(id); };
   }, [address]);
 
-  useEffect(() => { moneyConfig().then((c) => setUnit(c.unit || 'SOL')).catch(() => {}); }, []);
+  const [swapCfg, setSwapCfg] = useState(null);
+  useEffect(() => { moneyConfig().then((c) => {
+    setUnit(c.unit || 'SOL');
+    if (c.swap) setSwapCfg({ solReserve: c.solReserve, minConvertSol: c.minConvertSol, minWithdrawSolUsd: c.minWithdrawSolUsd });
+  }).catch(() => {}); }, []);
 
   useEffect(() => {
-    window.duelWallet = { ready, authenticated, address, balance, unit };
+    window.duelWallet = { ready, authenticated, address, balance, unit, sol, swap: swapCfg };
     window.dispatchEvent(new CustomEvent('duelwallet:change', { detail: window.duelWallet }));
-  }, [ready, authenticated, address, balance, unit]);
+  }, [ready, authenticated, address, balance, unit, sol, swapCfg]);
 
   // Hide the widget while the game iframe covers the screen; re-show on return to lobby.
   useEffect(() => {
@@ -532,9 +573,9 @@ function WalletPanel() {
     window.duelWalletLogout = () => logout();
     window.duelWalletRefresh = async () => {
       if (!address) return null;
-      const b = await fetchSolBalance(address);
-      setBalance(b);
-      return b;
+      const b = await fetchBalances(address);
+      setBalance(b.balance); setSol(b.sol);
+      return b.balance;
     };
     window.duelWalletSend = async (amount, toAddress) => {
       if (!wallet) return Promise.reject(new Error('Wallet not ready — try again in a moment.'));
@@ -543,12 +584,39 @@ function WalletPanel() {
         ? sendUsdc(toAddress, amount, cfg.usdcMint, cfg.decimals, wallet, signTransaction)
         : sendSol(toAddress, amount, wallet, signTransaction);
     };
-    // Add Funds — opens Privy's branded funding flow. defaultFundingMethod 'manual' lands the user
-    // straight on the "Receive USDC on Solana" deposit screen (QR + address). (Card/exchange methods
-    // only appear if their providers are enabled in the Privy dashboard.)
-    window.duelWalletFund = (amountUsd) => {
+    /* Add funds: Privy's own funding sheet, "Add funds to your DuelSeries wallet", with Pay with
+       card and Receive funds (Owen, 2026-10-15, like playpulp.io). The asset is SOL because MoonPay
+       sells SOL to Canada and does not sell USDC on Solana there ("Coming soon to your region");
+       the SOL then becomes USDC with one tap on the Wallet tab (swapQuote / swapRun). Receive
+       funds shows this same address, which takes SOL and USDC alike. Which rows the sheet shows
+       is the Privy dashboard's (Onramps: MoonPay on, SVM); the amount is MoonPay's starting
+       figure in SOL, and the player changes it there in their own currency. */
+    window.duelWalletFund = () => {
       if (!address) return Promise.reject(new Error('Connect your wallet first.'));
-      return fundWallet({ address, options: { chain: 'solana:mainnet', asset: 'USDC', amount: String(amountUsd || 20), defaultFundingMethod: 'manual' } });
+      return fundWallet({ address, options: {
+        chain: 'solana:mainnet', asset: 'native-currency', amount: '0.25',
+        card: { preferredProvider: 'moonpay' },
+        uiConfig: {
+          landing: { title: 'Add funds to your DuelSeries wallet' },
+          receiveFundsTitle: 'Receive SOL or USDC',
+          receiveFundsSubtitle: 'Send SOL or USDC on Solana to this address. SOL turns into USDC with one tap on your Wallet tab.',
+        },
+      } });
+    };
+    /* A checked price for converting this wallet's SOL to USDC (dir 'toUsdc', amount in
+       lamports), or its USDC to SOL paid to an outside address (dir 'toSol', amount in USDC
+       units, receiver). Resolves the quote; nothing is signed. */
+    window.duelWalletSwapQuote = (dir, amount, receiver) => {
+      if (!address) return Promise.reject(new Error('Connect your wallet first.'));
+      return swapQuote(address, dir, amount, receiver);
+    };
+    /* Signs and sends a quote the player has just confirmed. Resolves { ok, signature, inAmount,
+       outAmount }, then reads the balances again. */
+    window.duelWalletSwapRun = async (q) => {
+      if (!wallet) throw new Error('Wallet not ready — try again in a moment.');
+      const r = await swapRun(q, wallet, signTransaction);
+      fetchBalances(wallet.address).then((b) => { setBalance(b.balance); setSol(b.sol); }).catch(() => {});
+      return r;
     };
     // Buy a cosmetic with USDC (owner gets it free). Resolves { ok, owned, free? }.
     window.duelWalletBuyCosmetic = (itemId, onStatus) => {

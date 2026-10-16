@@ -226,6 +226,15 @@
      rise is money that was added. A fall says nothing: every fall this page
      causes (a stake, a withdraw) has its own card already. */
   let seen = { addr: null, bal: null };
+  /* A rise this page caused itself and already has a card for (Convert to
+     USDC says "Converted"): the next rises, up to that much, within a minute,
+     say nothing more. Returns a cancel for a conversion that did not happen. */
+  let expected = 0, expectedUntil = 0;
+  function expectRise(n) {
+    const v = Number(n) > 0 ? Number(n) : 0;
+    expected += v; expectedUntil = Date.now() + 60000;
+    return () => { expected = Math.max(0, expected - v); };
+  }
   window.addEventListener('duelwallet:change', () => {
     const w = window.duelWallet || {};
     const addr = w.authenticated && w.address ? w.address : null;
@@ -236,7 +245,11 @@
     const before = seen.bal;
     seen.bal = bal;
     if (before === null) return;
-    const up = bal - before;
+    let up = bal - before;
+    if (expected > 0 && Date.now() < expectedUntil && up > 0) {
+      const covered = Math.min(up, expected);
+      expected -= covered; up -= covered;
+    }
     if (up < (unitOf() === 'SOL' ? 0.0005 : 0.005)) return;
     if (Date.now() < payoutUntil) {
       show({ kind: 'money', title: 'Payout received', amount: amount(up, true), detail: 'from your game', game: true });
@@ -260,7 +273,7 @@
 
   const shortAddr = a => !a ? '' : a.length <= 12 ? a : a.slice(0, 4) + '…' + a.slice(-4);
 
-  window.DSToast = { show: show, line: line, amount: amount, short: shortAddr };
+  window.DSToast = { show: show, line: line, amount: amount, short: shortAddr, expectRise: expectRise };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', watchFrames);
   else watchFrames();
 })();
