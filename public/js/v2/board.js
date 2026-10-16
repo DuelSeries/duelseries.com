@@ -222,6 +222,5 @@
   window.V2Board = { load: load, draw: draw, join: join, start: start, stop: stop,
                      playableStakes: playableStakes,
                      get lobbies() { return LOBBIES; },
-                     get counts() { return COUNTS; },
-                     get occupied() { return occupied(); } };
+                     get counts() { return COUNTS; } };
 })();

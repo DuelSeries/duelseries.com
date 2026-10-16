@@ -1,13 +1,12 @@
 /* Lobby tab swipes on a slow phone (2026-10-16). At 4x CPU every tab swipe
    dropped frames in the one it claimed the drag in: the screen coming in was
    built from nothing there (style, layout and paint of a display:none screen,
-   plus every first-time font and text set-up the first time), and the Shop
-   threw its painted previews away and repainted them on every visit.
+   plus every first-time font and text set-up the first time).
 
    Now each tab's screen is laid out once in idle time after load (warmed), the
-   Play screen waits built off to the side while Wallet is up (parked), the
-   Shop keeps its cards when nothing about them changed, and its previews sit
-   out the claim frame. The timing was measured in Chrome with real touch
+   Play screen waits built off to the side while Wallet is up (parked). (The
+   Shop tab and its card tests went with the tab on 2026-10-16.) The timing
+   was measured in Chrome with real touch
    events; these check the plumbing that keeps it that way. */
 const { test } = require('node:test');
 const assert = require('node:assert');
@@ -52,7 +51,7 @@ test('after load each tab screen is warmed once, nearest first, one per idle mom
     box.runIdle();
     order.push(box.warmed.slice(-1)[0]);
   }
-  assert.deepStrictEqual(box.warmed, ['wallet', 'events', 'social', 'shop', 'settings'], 'every other tab once, nearest first');
+  assert.deepStrictEqual(box.warmed, ['wallet', 'events', 'social', 'settings'], 'every other tab once, nearest first');
   assert.strictEqual(box.parks, 1, 'and then it asks for the park (the page decides whether there is one)');
 });
 
@@ -181,77 +180,7 @@ test('the warm-up is phones only, one layout, never painted', () => {
   const on = fn.indexOf("classList.add('scr-warm')"), lay = fn.indexOf('void el.offsetHeight'), off = fn.indexOf("classList.remove('scr-warm')");
   assert.ok(on > 0 && on < lay && lay < off, 'on for one forced layout, off again in the same task');
   assert.ok(/\.scr-warm \{ display:block !important; visibility:hidden !important/.test(h), 'and invisible while it is on');
-  assert.ok(/V2ShopTab\.render\(\)/.test(fn), 'the Shop is filled first: its cards need no network');
-});
-
-/* The Shop in a sandbox whose host remembers its markup like a real element. */
-function shopPage() {
-  const box = { console, raf: [], paints: [], builds: 0, clock: 0, devicePixelRatio: 2, innerWidth: 375, innerHeight: 812 };
-  box.window = box;
-  box.performance = { now: () => box.clock };
-  box.requestAnimationFrame = (fn) => box.raf.push(fn);
-  const cvs = Array.from({ length: 8 }, (_, i) => ({
-    dataset: { g: 'snake', k: 'k' + i }, clientWidth: 168, clientHeight: 134, width: 336, height: 268,
-    getBoundingClientRect: () => ({ top: 200, bottom: 334, left: 20, right: 188 }),
-  }));
-  let markup = '';
-  const host = { get firstChild() { return markup ? {} : null; }, set innerHTML(v) { markup = v; box.builds++; },
-                 querySelector: () => null, querySelectorAll: () => cvs };
-  box.document = { hidden: false, getElementById: (id) => (id === 'shop' ? host : id === 'shop-screen' ? { getClientRects: () => [1] } : null) };
-  box.V2Shop = {
-    games: [{ id: 'snake', name: 'Slither.io', skins: cvs.map((c, i) => ({ id: 'k' + i, name: 'K' + i })) },
-            { id: 'agar', name: 'Agar.io', skins: [] }],
-    game(id) { return this.games.find((g) => g.id === id); },
-    price: () => 100, format: () => '$1', animated: () => true,
-    paint: (c) => { box.paints.push(c); },
-  };
-  vm.createContext(box);
-  run(box, 'public/js/v2/shop.js');
-  box.frame = (ts) => { const q = box.raf.splice(0); q.forEach((f) => f(ts)); };
-  box.host = host;
-  return box;
-}
-
-test('the Shop keeps its painted cards when nothing about them changed', () => {
-  const box = shopPage();
-  box.V2ShopTab.render();
-  assert.strictEqual(box.builds, 1);
-  let ts = 1000;
-  for (let f = 0; f < 10; f++) box.frame(ts += 16.7);
-  box.V2ShopTab.render();                                    // the next swipe or tap into the Shop
-  assert.strictEqual(box.builds, 1, 'the same markup is not rebuilt, so its previews keep their pixels');
-  box.paints.length = 0;
-  box.frame(ts += 16.7);
-  assert.ok(box.paints.length <= 8, 'and nothing is waiting to be painted from blank');
-});
-
-test('the Shop\'s previews sit out the frame a tab swipe claims its drag in', () => {
-  const box = shopPage();
-  box.V2ShopTab.render();
-  let ts = 1000;
-  for (let f = 0; f < 10; f++) box.frame(ts += 16.7);
-  box.paints.length = 0;
-  box.V2Swipe = { claimedAt: ts + 20 };                     // the touch that claimed it, handled in this frame
-  box.frame(ts += 16.7);
-  assert.strictEqual(box.paints.length, 0, 'nothing painted in the claim frame');
-  box.frame(ts += 16.7); box.frame(ts += 16.7);
-  assert.ok(box.paints.length > 0, 'and they carry on from the next');
-});
-
-test('the moving previews get a few milliseconds a frame, at least one, and whoever waited goes first', () => {
-  const box = shopPage();
-  box.V2Shop.paint = (c) => { box.paints.push(c); box.clock += 2; };   // a slow phone: 2 ms a preview
-  box.V2ShopTab.render();
-  let ts = 1000;
-  for (let f = 0; f < 12; f++) box.frame(ts += 16.7);                    // every card up, sized
-  box.paints.length = 0;
-  box.frame(ts += 40);                                                  // a tick: all eight are due
-  assert.ok(box.paints.length >= 1 && box.paints.length <= 3, 'a few, not all eight in one frame: ' + box.paints.length);
-  const first = box.paints.slice();
-  box.frame(ts += 16.7); box.frame(ts += 16.7);
-  assert.ok(box.paints.length >= 8, 'the rest follow over the next frames');
-  assert.strictEqual(new Set(box.paints.slice(0, 8)).size, 8, 'and nobody is painted twice before everyone has had a turn');
-  assert.deepStrictEqual(box.paints.slice(0, first.length), first);
+  assert.ok(!/V2ShopTab/.test(fn), 'no Shop to fill any more');
 });
 
 test('a swipe opens the incoming screen\'s money count-up just after the claim, not inside it', () => {

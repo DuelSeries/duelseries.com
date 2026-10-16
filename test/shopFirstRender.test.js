@@ -1,8 +1,9 @@
 /* The first swipe into the Shop (2026-10-16): it froze for about a quarter
    of a second at its start, because the first snake preview built slither's
    body sprites (slSprites.js buildSprites, 347 frames pixel by pixel) right
-   there on the main thread. They are built by public/js/v2/lookWorker.js now,
-   and the Shop paints new cards a few milliseconds a frame.
+   there on the main thread. They are built by public/js/v2/lookWorker.js now.
+   (The Shop tab itself is gone since 2026-10-16; the worker still keeps the
+   Customize chooser's first snake preview off the main thread.)
 
    That the worker's frames are the page's own build byte for byte, and that
    the swipe no longer stalls, was measured in Chrome with real touch events;
@@ -154,42 +155,4 @@ test('the worker builds onto plain canvases, the ones that match the page byte f
   assert.ok(code.includes("importScripts('/js/sl/slSprites.js')"), 'the same frozen file the game uses');
   assert.ok(!/willReadFrequently/.test(code), 'willReadFrequently changed 347 of the 348 sprites');
   assert.ok(code.includes('nsr: false'), 'the same option look.js always passed');
-});
-
-/* The Shop with one game of eight animated previews, a clock that only moves
-   when a preview is painted (5 ms each), and frames run by hand. */
-function shopPage() {
-  const box = { console, raf: [], paints: [], clock: 0, devicePixelRatio: 2, innerWidth: 375, innerHeight: 812 };
-  box.window = box; box.globalThis = box;
-  box.performance = { now: () => box.clock };
-  box.requestAnimationFrame = (fn) => box.raf.push(fn);
-  const cvs = Array.from({ length: 8 }, (_, i) => ({
-    dataset: { g: 'snake', k: 'k' + i }, clientWidth: 168, clientHeight: 134, width: 300, height: 150,
-    getBoundingClientRect: () => ({ top: 200, bottom: 334, left: 20, right: 188 }),
-  }));
-  const host = { set innerHTML(v) {}, querySelector: () => null, querySelectorAll: () => cvs };
-  box.document = { hidden: false, getElementById: (id) => (id === 'shop' ? host : id === 'shop-screen' ? { getClientRects: () => [1] } : null) };
-  box.V2Shop = {
-    games: [{ id: 'snake', name: 'Slither.io', skins: cvs.map((c, i) => ({ id: 'k' + i, name: 'K' + i })) }],
-    game(id) { return this.games.find((g) => g.id === id); },
-    price: () => 100, format: () => '$1', animated: () => true,
-    paint: (c) => { box.paints.push(c); box.clock += 5; },
-  };
-  vm.createContext(box);
-  run(box, 'public/js/v2/shop.js');
-  box.frame = (ts) => { const q = box.raf.splice(0); q.forEach((f) => f(ts)); };
-  return { box, cvs };
-}
-
-test('the Shop paints new cards a few milliseconds a frame, at least one a frame, until all are up', () => {
-  const { box, cvs } = shopPage();
-  box.V2ShopTab.render();
-  box.frame(1000);
-  assert.strictEqual(box.paints.length, 1, 'the first frame of the swipe paints one card, not eight');
-  let ts = 1000;
-  for (let f = 0; f < 8; f++) box.frame(ts += 16.7);
-  for (const c of cvs) {
-    assert.ok(box.paints.includes(c), c.dataset.k + ' painted');
-    assert.strictEqual(c.width, 336, c.dataset.k + ' sized to the screen first');
-  }
 });

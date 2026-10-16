@@ -637,7 +637,7 @@ test('the service worker hands socket.io straight back to the browser', async ()
   assert.match(src, /const SW_VERSION = \d+;/, 'carries a version, so an edit reaches phones holding the old worker');
 });
 
-test('the game screen puts the action above the lobby list', () => {
+test('the game screen: name, buy-in, Play, and no lobby list under them', () => {
   /* Collapsed naively, the two-column hero used to stack the whole left column
      first, which put an empty lobby list between the artwork and the Play
      button and pushed the only action on the screen below the fold. It was
@@ -655,10 +655,11 @@ test('the game screen puts the action above the lobby list', () => {
   /* The button routes through startFromDetail now: one control that either
      drops you into an arena or queues you for a duel, decided by the game. */
   const play  = at('startFromDetail()');
-  const lob   = at('id="dlob"');
-  assert.ok(buyIn < name, 'the buy-in comes before the name field');
-  assert.ok(name < play, 'and the name before the button that needs it');
-  assert.ok(play < lob, 'and Play before the lobby list, never under it');
+  /* Owen 2026-10-16: the name over the buy-ins, so the buy-in sits right on
+     the Play it decides, and the open-lobbies list under Customize is gone. */
+  assert.ok(name < buyIn, 'the name field comes before the buy-in');
+  assert.ok(buyIn < play, 'and the buy-in right before the button it sets');
+  assert.ok(!screen.includes('id="dlob"') && !screen.includes('lobwrap'), 'no open-lobbies list on the game screen');
 });
 
 test('the brand mark is wired everywhere a browser asks for one', () => {
@@ -1328,17 +1329,17 @@ test('an unbuilt game can be opened and looked at, and still cannot be played', 
 
   /* BACKLOG 2.2 (Owen 2026-10-15): one layout for every game, the unbuilt ones
      included. The column is the same; what cannot be pressed is shut. Play is
-     locked with a padlock and disabled, the buy-ins are shut, and the free
-     row's Enter is disabled, so nothing on the screen can start the game. */
+     locked with a padlock and disabled and the buy-ins are shut, so nothing
+     on the screen can start the game. */
   assert.ok(!html.includes('soonwrap') && !html.includes('Not playable yet'), 'no separate locked panel');
   /* Owen, 2026-10-15: a shut game shows only what it is: the art, its name, the
-     three prices and a padlocked Coming soon. Exactly these four go. */
-  assert.ok(html.includes('#detail.soon .namerow,#detail.soon .lookrow,#detail.soon .lobwrap,#detail.soon .spec{display:none}'),
-    'the name field, Customize, the lobby row and Spectate are hidden for it');
+     three prices and a padlocked Coming soon. Exactly these three go (the
+     lobby row that went with them left every game, 2026-10-16). */
+  assert.ok(html.includes('#detail.soon .namerow,#detail.soon .lookrow,#detail.soon .spec{display:none}'),
+    'the name field, Customize and Spectate are hidden for it');
   assert.ok(!/#detail\.soon [^{]*(\.stakes|\.gorow|\.go|#dname)[^{]*\{display:none\}/.test(html), 'and nothing else');
   assert.match(html, /const locked=!!\(cur\.soon&&!cur\.built\);\s*det\.classList\.toggle\('soon',locked\);/);
   assert.match(html, /goBtn\.classList\.toggle\('lock',locked\);\s*goBtn\.disabled=locked;/, 'Play is shut');
-  assert.match(html, /const enter=locked\?'disabled aria-disabled="true"'/, 'so is the free row\'s Enter');
   assert.match(html, /#detail\.soon \.stakes\{opacity:\.5;pointer-events:none\}/, 'and the buy-ins');
   assert.match(html, /function startFromDetail\(\)\{[^}]*if\(!cur\|\|\(cur\.soon&&!cur\.built\)\)return;/,
     'and Play refuses it even if it were pressed');
@@ -1349,14 +1350,15 @@ test('an unbuilt game can be opened and looked at, and still cannot be played', 
   assert.ok(html.includes('window.V2_IS_SOON'), 'the play path can ask what is built');
 });
 
-test('one layout for every game: rungs, name, Play, Customize, open lobbies, and no small print', () => {
+test('one layout for every game: name, rungs, Play, Customize, and no small print', () => {
   /* BACKLOG 2.2 and Owen 2026-10-15: "I don't want any of those little words.
-     They just take up a lot of room." The column is the same five things in the
-     same order for every game, with no caption over or under any of them. */
+     They just take up a lot of room." The column is the same things in the
+     same order for every game, with no caption over or under any of them.
+     Owen 2026-10-16: the name over the rungs, and no open-lobbies list. */
   const html = v2();
   const col = html.slice(html.indexOf('<div class="gcol">'), html.indexOf('<!-- ══ WALLET ══ -->'));
   const at = s => { const i = col.indexOf(s); assert.ok(i > -1, 'the column has ' + s); return i; };
-  const order = ['id="dname"', 'id="stakes"', 'class="namerow"', 'class="gorow"', 'id="lookrow"', 'class="lobwrap"']
+  const order = ['id="dname"', 'class="namerow"', 'id="stakes"', 'class="gorow"', 'id="lookrow"']
     .map(at);
   assert.deepEqual(order, order.slice().sort((x, y) => x - y), 'in this order');
   for (const words of ['Your buy-in', 'Open lobbies', 'Game settings', 'Free plays a bot', 'Paid lobbies',
@@ -1364,7 +1366,7 @@ test('one layout for every game: rungs, name, Play, Customize, open lobbies, and
     assert.ok(!col.includes(words), 'no "' + words + '" in the column');
   }
   for (const gone of ['class="sl"', 'id="stakeoff"', 'id="dbnote"', 'id="duelbet"', 'class="queued"',
-                      'class="lobhd"', 'class="soonwrap"', 'class="agopts"']) {
+                      'class="lobhd"', 'class="soonwrap"', 'class="agopts"', 'class="lobwrap"', 'id="dlob"']) {
     assert.ok(!col.includes(gone), gone + ' is gone from the column');
   }
   // Nothing on the screen is shown or hidden per kind of game any more.
@@ -1488,9 +1490,9 @@ test('a duel shows the same screen as every other game, on the one shared ladder
   /* A duel is matched INTO rather than dropped into. The unbuilt ones used to
      carry their own screen (a $0.25 to $20 stepper, then a three-rung one, and
      a queue that could never match). BACKLOG 2.2 (Owen 2026-10-15): every game,
-     duels and unbuilt ones included, has the same column: Free / $0.50 / $1.00,
-     the name, Play, Customize and the open lobbies. An unbuilt one has its
-     Play shut. */
+     duels and unbuilt ones included, has the same column: the name,
+     Free / $0.50 / $1.00, Play and Customize. An unbuilt one has its Play
+     shut. */
   const html = v2();
 
   for (const id of ['rooftop', 'headsoccer', 'swim', 'maze']) {
@@ -1873,7 +1875,6 @@ test('agar.io paid rungs are offered only while /api/live lists them open (AG_PA
   await shut.win.V2Board.load();
   assert.deepEqual(stakes(shut, 'agar'), [0], 'switched off: Free only');
   assert.ok(!shut.el('lob').innerHTML.includes('ag:na:s0.5'), 'the closed room with players is not on the board');
-  assert.ok(!shut.win.V2Board.occupied.some(l => l.id === 'ag:na:s0.5'), 'nor in the detail screen\'s open list');
   shut.win.V2Board.join('ag:na:s0.5');
   assert.deepEqual(plain(shut.plays), [], 'a stale Enter is refused before the widget');
   // Snake and Paper are untouched by the state rule: their rows say 'open' (or nothing) and all of them count.
@@ -1960,13 +1961,6 @@ test('a paid agar.io stake reaches the widget only while the board lists that ru
   paper.win.V2Play.launch('paper', { stake: 0.5 });
   assert.deepEqual(plain(paper.plays), [{ game: 'paper', sel: { stake: 0.5 } }], 'Paper unchanged');
   await assert.rejects(paper.pending(), /no server here/);
-
-  // The detail screen's free-row count is the card's own count (/api/live counts, bots included,
-  // 2026-10-15: the card said 54 and this row said 0); without counts it sums every row of the
-  // game, closed ones too (their players still play).
-  assert.match(v2(), /const cnt=\(\(window\.V2Board&&V2Board\.counts\)\|\|\{\}\)\[id\];/, 'the card\'s count first');
-  assert.match(v2(), /:door\?0:\(window\.V2Board\?V2Board\.lobbies:\[\]\)\.filter\(l=>l\.game===id\)/,
-    'the free row counts players in closed rows');
 });
 
 test('watching agar.io from the lobby opens /ag in the agar frame too', () => {
@@ -2056,32 +2050,31 @@ test('each playable game card carries a people count, and a padlocked one does n
   assert.ok(els.every(e => e.hidden), 'a failed poll hides every count');
 });
 
-test('the Shop tab shows priced skins for every game and sells nothing', () => {
-  /* The tab came in empty on 2026-09-28; on 2026-10-15 Owen asked for skins
-     for every game, priced, with buying left for later. This pins that it is
-     still routed like every other tab and that it carries no buy path: the
-     only Buy control is a disabled button, and nothing on it talks to the
-     server. The skins and prices themselves are checked in shop.test.js. */
+test('the Shop tab is gone: skins are bought in Customize, and an old Shop route lands on Home', () => {
+  /* The tab came in empty on 2026-09-28 and showed priced skins from
+     2026-10-15. On 2026-10-16 Owen agreed to drop it: a skin is bought where it
+     is worn, in Customize, so a second place listing the same skins was one
+     tab too many. The skins and prices stay (shop.test.js), and so do the
+     locked skins in the chooser. */
   const html = v2();
   const nav = html.slice(html.indexOf('const NAV=['), html.indexOf('];', html.indexOf('const NAV=[')));
-  assert.ok(/id:'shop'/.test(nav), 'Shop is in the nav');
-  assert.ok(nav.indexOf("id:'shop'") < nav.indexOf("id:'settings'"), 'and sits before Settings');
-  assert.ok(/shop:'shop-screen'/.test(html), 'it maps to its own screen');
+  assert.ok(!/id:'shop'/.test(nav), 'no Shop in the nav');
+  assert.deepEqual([...nav.matchAll(/\{id:'(\w+)'/g)].map(m => m[1]), ['play', 'wallet', 'events', 'social', 'clips', 'updates', 'settings']);
+  assert.ok(!/shop-screen|id="shop"|V2ShopTab|tab==='shop'/.test(html), 'no Shop screen, mount or route');
   const sw = fs.readFileSync(path.join(ROOT, 'public/js/v2/swipe.js'), 'utf8');
-  assert.ok(/'social', 'shop', 'settings'/.test(sw), 'the swipe order matches the nav');
-  assert.ok(html.includes('<main id="shop-screen" class="wrap"><div id="shop"></div></main>'), 'the screen is a mount for shop.js');
-  assert.ok(html.includes("tab==='shop'&&window.V2ShopTab)V2ShopTab.render()"), 'opening the tab draws it');
-  for (const src of ['/shared/shopPrices.js', '/js/battleshipArt.js', '/js/v2/shopArt.js', '/js/v2/shop.js', '/css/shop.css'])
-    assert.ok(html.includes(src), 'the lobby loads ' + src);
-  const tab = fs.readFileSync(path.join(ROOT, 'public/js/v2/shop.js'), 'utf8');
+  assert.ok(sw.includes("const TABS = ['play', 'wallet', 'events', 'social', 'settings'];"), 'the swipe order matches the nav');
+  assert.ok(!sw.includes('shop-screen'), 'and the swipe knows no Shop screen');
+  // A stale go('shop') (an old page, a cached handler) is sent Home, never to a nav with nothing lit.
+  assert.match(html, /function go\(id,dir\)\{[\s\S]{0,400}if\(!SCREEN_FOR\[id\]\)id='play';[^;]{0,40};?\s*route=id;/);
+  for (const src of ['/shared/shopPrices.js', '/js/battleshipArt.js', '/js/v2/shopArt.js'])
+    assert.ok(html.includes(src), 'Customize still loads ' + src);
+  for (const src of ['/js/v2/shop.js', '/css/shop.css']) {
+    assert.ok(!html.includes(src), 'the lobby no longer loads ' + src);
+    assert.ok(!fs.existsSync(path.join(ROOT, 'public', src)), src + ' is deleted');
+  }
   const art = fs.readFileSync(path.join(ROOT, 'public/js/v2/shopArt.js'), 'utf8');
-  /* No Buy control at all since 2026-10-15 (Owen: a card is the skin, its
-     name and its price); one "Coming soon" under the heading says it. */
-  assert.ok(!/sh-buy|<button[^>]*>Buy/i.test(tab), 'no Buy button anywhere');
-  assert.ok(tab.includes('<h2>Shop</h2><div class="sub">Coming soon</div>'), 'one Coming soon for the Shop');
-  for (const src of [tab, art])
-    for (const bad of ['fetch(', 'XMLHttpRequest', 'io(', '/api/', 'socket', 'privy', 'sendTransaction', 'V2Wallet'])
-      assert.ok(!src.toLowerCase().includes(bad.toLowerCase()), 'the shop has no ' + bad);
+  for (const bad of ['fetch(', 'XMLHttpRequest', 'io(', '/api/', 'socket', 'privy', 'sendTransaction', 'V2Wallet'])
+    assert.ok(!art.toLowerCase().includes(bad.toLowerCase()), 'the skin art has no ' + bad);
   for (const gone of ['COSMETIC_CATALOG', '/api/cosmetics/'])
     assert.ok(!html.includes(gone), 'removed shop code stays removed: ' + gone);
 });

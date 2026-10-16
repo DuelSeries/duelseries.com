@@ -36,7 +36,6 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400..700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/css/shop.css">
 <style>
 /* ─────────────────────────────────────────────────────────────────────────
    Lobby v2. Mock data, real interactions.
@@ -1076,7 +1075,7 @@ body.ingame .tkrun{animation-play-state:paused}
 }
 
 /* ── detail ─────────────────────────────────────────────────────────── */
-#detail,#allgames,#settings-screen,#events-screen,#shop-screen,#clips-screen,#updates-screen{display:none}
+#detail,#allgames,#settings-screen,#events-screen,#clips-screen,#updates-screen{display:none}
 /* ── Clips and Updates (Owen 2026-10-16): PC only ─────────────────────────────
    Both tabs exist only on a PC. Under 761px, or on a touch-only screen (a phone
    held sideways gets the sidebar layout too), their nav buttons and screens are
@@ -1279,9 +1278,10 @@ body.no-foot footer{display:none}
 #detail .backrow{position:relative;z-index:2}
 #dname{font-size:34px;font-weight:650;letter-spacing:-1px;margin-top:18px}
 /* One button per buy-in, all of them visible, on every game (BACKLOG 2.2).
-   No caption over the row: three amounts under a game's name say what they
-   are without one. */
-.stakes{display:flex;gap:8px;margin:22px 0 16px}
+   No caption over the row: three amounts over Play say what they are without
+   one. Under the name field and close over Play (Owen 2026-10-16): the rung
+   and the button it sets read as one control, the name as the one before it. */
+.stakes{display:flex;gap:8px;margin:0 0 10px}
 .stk{flex:1;background:var(--s2);border:1px solid transparent;border-radius:var(--r2);   /* the same 1px as a struck rung's dashed border, so rows never change height */
   padding:14px 6px;font-family:var(--fm);font-size:16px;font-weight:650;
   color:var(--tx2);cursor:pointer;transition:background .15s,color .15s}
@@ -1307,10 +1307,9 @@ body.no-foot footer{display:none}
 
 /* ── a game you can look at but not play ─────────────────────────────────
    The same column as every other game (BACKLOG 2.2): what stays locked is
-   what would start it. The buy-ins are shown and shut, Play carries a padlock
-   and does nothing, and the free row's Enter is disabled with it. */
+   what would start it. The buy-ins are shown and shut and Play carries a
+   padlock and does nothing. */
 #detail.soon .stakes{opacity:.5;pointer-events:none}
-#detail.soon .lobwrap .enter{opacity:.4;pointer-events:none}
 .stp{display:flex;align-items:center;justify-content:center;gap:14px;margin:14px 0 4px}
 .sb{width:42px;height:42px;border-radius:50%;background:var(--s3);color:var(--tx2);
   font-size:19px;display:grid;place-items:center;transition:.15s}
@@ -1322,7 +1321,7 @@ body.no-foot footer{display:none}
 .dots{display:flex;justify-content:center;gap:5px;margin-bottom:20px}
 .dt{width:5px;height:5px;border-radius:50%;background:var(--s3);transition:.2s}
 .dt.on{background:var(--money);transform:scale(1.4)}
-.namerow{display:flex;gap:8px;margin-bottom:14px}
+.namerow{display:flex;gap:8px;margin:22px 0 14px}
 .namerow .pname{margin:0;flex:1;min-width:0;text-align:left}
 /* A locked field should not look like a box waiting for typing. */
 .pname[readonly]{color:var(--tx2);cursor:default}
@@ -1481,9 +1480,11 @@ body.no-foot footer{display:none}
 .spec:disabled,.spec:disabled:hover{background:var(--s2);color:var(--tx3);cursor:not-allowed}
 /* A game that is not open yet shows only what it is (Owen, 2026-10-15): the
    art, its name, the three prices and a padlocked Coming soon. The name
-   field, Spectate, Customize and the "0 playing" row are for a game you can
-   play, so they go rather than sitting there shut. */
-#detail.soon .namerow,#detail.soon .lookrow,#detail.soon .lobwrap,#detail.soon .spec{display:none}
+   field, Spectate and Customize are for a game you can play, so they go
+   rather than sitting there shut. With no name field over them the buy-ins
+   take its place under the title. */
+#detail.soon .stakes{margin-top:22px}
+#detail.soon .namerow,#detail.soon .lookrow,#detail.soon .spec{display:none}
 /* The narrowest phones (320 to 360 px): a rung is about 90 px there, so the
    words keep a little air on each side. Two classes deep so the phone block
    further down does not undo it. */
@@ -1522,21 +1523,6 @@ body.no-foot footer{display:none}
   object-fit:cover;opacity:.55}
 .lookrow:focus-visible{outline:2px solid var(--money);outline-offset:2px}
 
-/* Open lobbies, reduced to a strip at the foot of the screen. It was a headed
-   section with its own subtitle taking the left half of the page. */
-.lobwrap{margin-top:16px;text-align:left}
-/* The board row was built for a full-width page and this column is 430px, so
-   the Enter button fell off the end of it. The region and the buy-in are both
-   dropped here: there is one region, and the row IS the free one. */
-.lobwrap .lr{padding:10px 0;gap:10px}
-/* The sub-line stays: it is the buy-in, and a paid room listed here looked
-   exactly like the free one without it (2026-10-15 audit). The region is
-   left off every row while NA is the only one. */
-.lobwrap .lr .lname{font-size:13.5px}
-.lobwrap .lr .lname.lpaid{color:var(--money)}   /* a paid table in the money colour, as on the rungs */
-.lobwrap .lr .lcount{font-size:12.5px;white-space:nowrap}
-.lobwrap .lr .enter{flex:none;padding:7px 16px;font-size:12.5px}
-.lobwrap .lr .enter:disabled{cursor:not-allowed}
 
 /* ── change appearance ──────────────────────────────────────────────────
    Copied from public/css/lobby.css so this screen is the one the game
@@ -1850,15 +1836,14 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
   #detail .back{padding:12px 0 0}
   #dname{margin-top:4px;font-size:23px}
   .howbtn{margin-top:10px;padding:7px 13px;font-size:12.5px}
-  .stakes{margin:14px 0 10px}
+  .stakes{margin:0 0 8px}
+  #detail.soon .stakes{margin-top:14px}
   .stakes .stk{font-size:15px;padding:12px 4px}
-  .namerow{margin-bottom:10px}
+  .namerow{margin:14px 0 10px}
   .go{padding:13px}
   .spec{font-size:13px}
   .lookrow{margin-top:10px;padding:6px 12px 6px 6px}
   .lookrow canvas{width:136px;height:52px}
-  .lobwrap{margin-top:10px}
-  .lobwrap .lr{padding:8px 12px}
 
   h2{font-size:25px;letter-spacing:-.8px}
   /* Tighter on a phone (Owen 2026-10-15: the gaps under the header and
@@ -2358,14 +2343,16 @@ body.scr-anim { overflow-x:hidden }
   <div class="wrap backrow"><a class="back" href="#" onclick="goBack();return false">&#8592; &nbsp;Back</a></div>
   <div class="gcol">
     <h1 id="dname"></h1>
-    <!-- ONE LAYOUT FOR EVERY GAME (BACKLOG 2.2, Owen 2026-10-15): the three
-         buy-ins, the name, Play, Customize and the open lobbies, in that
-         order, on every game including the ones not built yet. No captions
+    <!-- ONE LAYOUT FOR EVERY GAME (BACKLOG 2.2, Owen 2026-10-15): the name,
+         the three buy-ins, Play and Customize, in that order, on every game
+         including the ones not built yet. The name sits over the buy-ins
+         (Owen 2026-10-16), so the buy-in sits right on top of the Play it
+         decides; the open-lobbies list that used to close the column is gone
+         (Play and Spectate already reach every room it listed). No captions
          over or under any of it ("I don't want any of those little words.
          They just take up a lot of room."): a rung that cannot be sat at is
          struck through, a game that cannot be played has a locked Play, and
          neither needs a sentence to say so. -->
-    <div class="stakes" id="stakes"></div>
     <!-- The name is stored under the live lobby's key, so switching between
          the two does not ask for it twice, and it is saved to the account so
          it is the same name on every device you sign in from. -->
@@ -2401,6 +2388,7 @@ body.scr-anim { overflow-x:hidden }
           <path d="M12 3a9 9 0 1 0 9 9"/></svg>
       </button>
     </div>
+    <div class="stakes" id="stakes"></div>
     <!-- Play shares its row with Spectate, in every game, on the Free rung
          only: a paid table is never watched from here. Off Free the button is
          gone and Play takes the row back, so nothing under it moves when the
@@ -2439,10 +2427,6 @@ body.scr-anim { overflow-x:hidden }
            stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M9 6l6 6-6 6"/></svg>
     </button>
-
-    <div class="lobwrap">
-      <div class="lob" id="dlob"></div>
-    </div>
   </div>
 </main>
 
@@ -2581,12 +2565,6 @@ body.scr-anim { overflow-x:hidden }
   <!-- chartbox, like the Wallet tab's: the same graph needs the same box. -->
   <div class="panel chartbox" id="p-chart"></div>
 </main>
-
-<!-- ══ SHOP ══ -->
-<!-- Skins for every game, priced, nothing for sale (Owen, 2026-10-15). Drawn by
-     public/js/v2/shop.js; the skins are public/js/v2/shopArt.js and the prices
-     shared/shopPrices.js. Every Buy button is disabled: no purchase path yet. -->
-<main id="shop-screen" class="wrap"><div id="shop"></div></main>
 
 <!-- Locker and Settings are both placeholders, but they need one element each:
      a single shared stub is the same node on both sides of a swipe, so the
@@ -2767,14 +2745,15 @@ body.scr-anim { overflow-x:hidden }
      file, unchanged), then the Customize preview drawn from them. -->
 <script src="/js/sl/slSprites.js"></script>
 <script src="/js/v2/look.js"></script>
-<!-- The Shop: prices (the one file Owen edits), Battleship's ship art (a pure
-     drawing module, nothing runs at load), the skins, then the tab. -->
+<!-- The skins Customize sells: prices (the one file Owen edits), Battleship's
+     ship art (a pure drawing module, nothing runs at load), then the skins.
+     The Shop tab that also showed them is gone (Owen 2026-10-16): a skin is
+     bought where it is worn, in Customize. -->
 <script src="/shared/shopPrices.js"></script>
 <script src="/shared/agSkins.js"></script>
 <script src="/shared/shopSkins.js"></script>
 <script src="/js/battleshipArt.js"></script>
 <script src="/js/v2/shopArt.js"></script>
-<script src="/js/v2/shop.js"></script>
 <!-- Buying a paid skin from Customize, and the pass the games check before wearing it (docs/skin-purchases.md). -->
 <script src="/js/v2/skinBuy.js"></script>
 <script>
@@ -4303,7 +4282,7 @@ function open_(id){
      knowledge in the way "eat things, avoid heads" is. */
   const det=document.getElementById('detail');
   /* ONE LAYOUT FOR EVERY GAME (BACKLOG 2.2). Every game fills the same
-     column: the three buy-ins, the name, Play, Customize, the open lobbies.
+     column: the name, the three buy-ins, Play, Customize.
      What differs is only what is open. A game that cannot be played yet
      (soon, or locked in shared/lockedGames.js) keeps the column and has its
      Play shut; the duel stepper, the pretend queue and the separate locked
@@ -4336,66 +4315,6 @@ function open_(id){
     goBtn.setAttribute('aria-disabled',locked?'true':'false');
     document.getElementById('golabel').textContent=locked?'Coming soon':'Play';
   }
-  /* Both figures come off the live board, so the detail screen and the card
-     that led here cannot disagree about how busy a game is. Only rooms with
-     someone in them are listed, for the same reason as the home board: an
-     empty rung is a buy-in you can pick, not a lobby you can join. */
-  const mine=(window.V2Board?V2Board.occupied:[]).filter(l=>l.game===id);
-  /* Counted over every row of the game, closed ones too: a paid agar.io row
-     under the owner's off switch says 'closed' and is not listed to join, but
-     the players still seated in it are still playing. */
-  /* A game on its own door (a built duel or solo run) has no ladder rows on
-     the board, so its free row counts what its card counts. */
-  /* Every game now counts what its card counts (/api/live counts, the same
-     number the card and the home row show). Summing the rows' players instead
-     left out the bots the card includes: agar.io's card said 54 and this
-     screen said 0 (2026-10-15 audit). The row sum stays as the fallback for a
-     poll that brought no counts. */
-  const door=!!(cur.built&&(cur.duel||cur.solo));
-  const cnt=((window.V2Board&&V2Board.counts)||{})[id];
-  const playing=typeof cnt==='number'&&Number.isFinite(cnt)?Math.max(0,Math.floor(cnt))
-    :door?0:(window.V2Board?V2Board.lobbies:[]).filter(l=>l.game===id)
-      .reduce((n,l)=>n+(l.players||0),0);
-  /* The free room is listed whether or not anybody is in it. It is the row
-     that costs nothing to press, and burying it until somebody else happens to
-     be playing is the cold start this screen exists to avoid.
-     Enter goes through the same door Play does: by stake on a ladder game
-     (Free IS a rung, so this lands in the same room as Play at Free), by
-     lobbyType on a game with its own door (a stake there would be resolved
-     through the snake ladder), and nowhere on a game that is not open. */
-  const enter=locked?'disabled aria-disabled="true"'
-    :door?`onclick="V2Play.launch('${cur.id}',{lobbyType:'free'})"`
-    :`onclick="V2Play.launch('${cur.id}',{stake:0})"`;
-  /* Each row is named by its buy-in, not by the game's name again: the name
-     is the title right above, and paid rows read exactly like the free one
-     (2026-10-15 audit). */
-  const freeRow=`<div class="lr">
-     <div class="lswatch">${art(cur)}</div>
-     <div class="lmid"><span class="lname num">Free</span></div>
-     <span class="sp" style="flex:1"></span>
-     <span class="lcount${playing>0?' on':''}">
-       <span class="ldot" aria-hidden="true"></span><span class="num">${playing}</span>
-       playing</span>
-     <!-- BY STAKE, not by tier name. There are two free snake rooms on this
-          server: the ladder's free rung (na_s0) and a fixed tier from before
-          the ladder existed (na_free). Play sends {stake:0} and lands in the
-          rung; this button sent {lobbyType:'free'} and landed in the tier — so
-          two buttons on one screen, both saying Free, put players in two
-          different rooms, and each made the other look empty. Free IS a rung. -->
-     <button class="enter" ${enter}>Enter</button>
-   </div>`;
-  document.getElementById('dlob').innerHTML=freeRow+(mine.length
-    ?mine.filter(l=>Number(l.stake)!==0).map(l=>`<div class="lr">
-       <div class="lswatch">${art(cur)}</div>
-       <div class="lmid"><span class="lname num lpaid">${cash(l.stake)}</span>${String(l.region).toLowerCase()==='na'?''
-         :`<span class="lsub">${String(l.region).toUpperCase()}</span>`}</div>
-       <span class="sp" style="flex:1"></span>
-       <span class="lcount${l.players>0?' on':''}">
-         <span class="ldot" aria-hidden="true"></span><span class="num">${l.players}</span>
-         playing</span>
-       <button class="enter" onclick="V2Board.join('${l.id}')">Enter</button>
-     </div>`).join(''):'');
-  document.getElementById('dlob').classList.add('short');
   drawStake(); drawSkins(); repaintAll(); jumpToTop();
 }
 /* Step three is the only one that changes: an arena you grow in and a match
@@ -4582,8 +4501,6 @@ const NAV=[
     router, the swipe order and old links keep working. */
  {id:'social', t:'Leaderboards', d:'Top earners, player search and player profiles.',
   p:'M16 20v-1.5a3.5 3.5 0 0 0-3.5-3.5h-5A3.5 3.5 0 0 0 4 18.5V20M10 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7M20 20v-1.5a3.5 3.5 0 0 0-2.6-3.4M15.5 4.1a3.5 3.5 0 0 1 0 6.8'},
- {id:'shop',   t:'Shop',    d:'Skins for every game.',
-  p:'M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4zM3 6h18M16 10a4 4 0 0 1-8 0'},
  {id:'clips',  t:'Clips',   d:'Player clips from X, YouTube and TikTok.', pc:1,
   dot:()=>!!(window.V2Clips&&V2Clips.dot()),
   p:'M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zM10 9.2v5.6l4.6-2.8z'},
@@ -4623,7 +4540,7 @@ function drawNav(){
    own: it is reached from the board and keeps Social lit while it is up. */
 const SCREENS=['home','allgames','detail','settings-screen',
                'wallet-screen','events-screen','social-screen','player-screen',
-               'shop-screen','clips-screen','updates-screen'];
+               'clips-screen','updates-screen'];
 /* dir: +1 the new screen arrives from the right (you swiped forward), -1 from
    the left, 0 or omitted for no animation. Taps on the nav pass 0 on purpose:
    a tap already tells you what you pressed, and animating it makes the whole
@@ -4689,8 +4606,7 @@ function showScreen(id,dir){
    it away. Three calls, so swipe.js never has to know the screen ids or which
    module loads what. */
 const SCREEN_FOR={play:'home',wallet:'wallet-screen',events:'events-screen',
-                  social:'social-screen',shop:'shop-screen',
-                  settings:'settings-screen',clips:'clips-screen',updates:'updates-screen'};
+                  social:'social-screen',settings:'settings-screen',clips:'clips-screen',updates:'updates-screen'};
 window.V2_SCREEN_FOR=SCREEN_FOR;
 
 /* Put a tab's real content in place. Shared by the router and by the swipe,
@@ -4701,7 +4617,6 @@ function fillScreen(tab){
   if(tab==='wallet')V2Wallet.render();
   else if(tab==='social')V2Social.load();
   else if(tab==='settings')drawSettings();
-  else if(tab==='shop'&&window.V2ShopTab)V2ShopTab.render();
   else if(tab==='clips'&&window.V2Clips)V2Clips.render();
   else if(tab==='updates'&&window.V2Updates)V2Updates.render();
   /* Asked on arrival, not on the interval's own schedule. The page only polls
@@ -4832,16 +4747,14 @@ function prepareScreen(tab){
    a moment moves nothing else. In the desktop flow it would push the page
    about, and a desktop has no touch to swipe with anyway. The class is on for
    one forced layout and off again in the same task, so nothing is painted and
-   no other code ever sees it showing. The Shop is filled first because its
-   cards are built by render(), which needs no network; the others keep what
-   they have and are filled for real when a swipe brings them in.
+   no other code ever sees it showing. Each keeps what it has and is filled
+   for real when a swipe brings it in.
    swipe.js decides when (after load, one screen per idle moment). */
 function warmScreen(tab){
   const id=SCREEN_FOR[tab]; if(!id||tab===route)return;
   const el=document.getElementById(id); if(!el)return;
   const cs=getComputedStyle(el);
   if(cs.display!=='none'||cs.position!=='fixed')return;
-  if(tab==='shop'&&window.V2ShopTab)V2ShopTab.render();
   el.classList.add('scr-warm');
   void el.offsetHeight;                 // the layout is the whole point; do not remove
   el.classList.remove('scr-warm');
@@ -4961,8 +4874,11 @@ const PHONEISH=matchMedia('(max-width:760px),(hover:none) and (pointer:coarse)')
 PHONEISH.addEventListener('change',e=>{if(e.matches&&PC_ONLY.has(route))go('play')});
 function go(id,dir){
   if(PC_ONLY.has(id)&&PHONEISH.matches)id='play';
+  /* A tab that no longer exists (the Shop, 2026-10-16) lands on Home rather
+     than on a nav with nothing lit and the last screen still up. */
+  if(!SCREEN_FOR[id])id='play';
   route=id; drawNav();
-  const sid=SCREEN_FOR[id]; if(!sid)return;
+  const sid=SCREEN_FOR[id];
   fillScreen(id);
   showScreen(sid,dir);
   jumpToTop();

@@ -14,7 +14,7 @@ test('nav: Clips and Updates sit just above Settings, both marked PC only', () =
   const html = read('public/v2.html');
   const nav = html.slice(html.indexOf('const NAV=['), html.indexOf('];', html.indexOf('const NAV=[')));
   const ids = [...nav.matchAll(/\{id:'([a-z]+)'/g)].map(m => m[1]);
-  assert.deepStrictEqual(ids, ['play', 'wallet', 'events', 'social', 'shop', 'clips', 'updates', 'settings']);
+  assert.deepStrictEqual(ids, ['play', 'wallet', 'events', 'social', 'clips', 'updates', 'settings']);   // no Shop since 2026-10-16
   assert.match(nav, /\{id:'clips',[^}]*pc:1/);
   assert.match(nav, /\{id:'updates',[^}]*pc:1/);
   assert.match(html, /\$\{n\.pc\?' pconly':''\}/, 'drawNav marks them');
@@ -33,12 +33,12 @@ test('PC only: hidden on a narrow or touch-only screen, and the router sends a s
 
 test('the phone keeps its tab bar and swipe order', () => {
   const swipe = read('public/js/v2/swipe.js');
-  assert.match(swipe, /const TABS = \['play', 'wallet', 'events', 'social', 'shop', 'settings'\];/);
+  assert.match(swipe, /const TABS = \['play', 'wallet', 'events', 'social', 'settings'\];/);
 });
 
 test('the router knows both screens, and each fills itself on arrival', () => {
   const html = read('public/v2.html');
-  assert.match(html, /'shop-screen','clips-screen','updates-screen'\];/);
+  assert.match(html, /'player-screen',\s*'clips-screen','updates-screen'\];/);
   assert.match(html, /clips:'clips-screen',updates:'updates-screen'\}/);
   assert.match(html, /else if\(tab==='clips'&&window\.V2Clips\)V2Clips\.render\(\);/);
   assert.match(html, /else if\(tab==='updates'&&window\.V2Updates\)V2Updates\.render\(\);/);
@@ -85,7 +85,7 @@ test('Social is shown as Leaderboards, but keeps its id so the router, swipe ord
   assert.match(html, /\{id:'social', t:'Leaderboards',/);
   assert.ok(!/t:'Social'/.test(html), 'no tab is labelled Social any more');
   assert.match(html, /social:'social-screen'/, 'the route id is unchanged');
-  assert.match(read('public/js/v2/swipe.js'), /'events', 'social', 'shop'/);
+  assert.match(read('public/js/v2/swipe.js'), /'events', 'social', 'settings'/);
   assert.ok(!/"[^"]*\bSocial\b[^"]*"/.test(JSON.stringify(JSON.parse(read('public/updates.json')).posts.map(p => p.body))),
     'no update tells players to open Social');
 });
