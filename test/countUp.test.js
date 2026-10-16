@@ -79,7 +79,7 @@ test('countUp: ONLY the podium, the leaderboards and the wallet balances count u
   assert.strictEqual(marks(js('wallet.js')), 1, 'Wallet: the balance only, not the history rows');
   assert.strictEqual(marks(js('social.js')), 1, 'Social: Global player winnings only, not search results');
   assert.strictEqual(marks(js('leaders.js')), 1);
-  for (const f of ['earnings.js', 'board.js', 'shop.js', 'toasts.js'])
+  for (const f of ['earnings.js', 'board.js', 'toasts.js'])   // shop.js went with the Shop tab (2026-10-16)
     assert.strictEqual(marks(js(f)), 0, f + ' stays static');
   assert.ok(!/DSCount/.test(js('earnings.js')), 'the strip and top cash-outs are static');
   assert.ok(!/function countUp|counted/.test(js('earnings.js')), 'and the strip has no counter of its own');
