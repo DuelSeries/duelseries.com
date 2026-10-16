@@ -25,16 +25,13 @@
   if (!S || !doc) return;
 
   var KEY_Q = 81;                                // keyCode of Q
-  var PI2 = 2 * Math.PI;
   // Head radius in world units: their body is 29 x sc wide (public/js/sl/slDrawSnake.js:188, game.js:5422).
   var HEAD_HALF = 29 / 2;
-  // The old game's ring around a cashing-out head (public/js/Renderer.js:1113-1138): radius 1.75 head radii, line
-  // 0.28 head radii, a faint full track, then the green arc from the top, glowing 1.2 head radii except on phones.
+  // The ring around a cashing-out head keeps the old game's size (public/js/Renderer.js:1113-1138): radius 1.75 head
+  // radii, line 0.28 head radii. Its look is every game's one ring, DSEnd.ring (public/js/shared/dsEnd.js, Owen's
+  // "Three Count", 2026-10-16: three gold seconds, no green), with no glow on phones.
   var RING_R = 1.75;
   var RING_LW = 0.28;
-  var RING_GLOW = 1.2;
-  var RING_TRACK = 'rgba(255,255,255,0.15)';
-  var RING_COLOUR = '#14F195';
   // Between their game canvas (z-index 5) and their HUD (7), public/sl.html:18-24.
   var RING_Z = '6';
 
@@ -245,25 +242,8 @@
       var x = screenX(o.xx + (o.fx || 0));
       var y = screenY(o.yy + (o.fy || 0));
       var p = Math.min(Math.max((t - r.t0) / r.need, 0), 1);
-      ctx.save();
-      ctx.lineCap = 'round';
-      ctx.beginPath();
-      ctx.arc(x, y, hr * RING_R, 0, PI2);
-      ctx.strokeStyle = RING_TRACK;
-      ctx.lineWidth = hr * RING_LW;
-      ctx.stroke();
-      if (p > 0) {
-        if (!S.is_mobile) {
-          ctx.shadowColor = RING_COLOUR;
-          ctx.shadowBlur = hr * RING_GLOW;
-        }
-        ctx.beginPath();
-        ctx.arc(x, y, hr * RING_R, -Math.PI / 2, -Math.PI / 2 + p * PI2);
-        ctx.strokeStyle = RING_COLOUR;
-        ctx.lineWidth = hr * RING_LW;
-        ctx.stroke();
-      }
-      ctx.restore();
+      if (!root.DSEnd || typeof root.DSEnd.ring !== 'function') continue;   // slBoot loads dsEnd.js before the layer
+      root.DSEnd.ring(ctx, x, y, hr * RING_R, p, t, { lw: hr * RING_LW, mobile: !!S.is_mobile, since: t - r.t0 - r.need });
       drawn = true;
     }
   }

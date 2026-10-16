@@ -828,7 +828,9 @@
       renderer.renderWorld(ctx, L, view(), settings, now);
       // Ours: the hold ring, only while a hold runs (never in the harness streams, which never hold Q).
       if (hold.wanted && hold.server && L.own.length) {
-        renderer.drawHoldRing(ctx, view(), mainOwnCell(L.own), holdProgress(now), settings);
+        // drawn as every game's ring (DSEnd.ring, Owen's gold "Three Count"); no glow on a touch screen
+        renderer.drawHoldRing(ctx, view(), mainOwnCell(L.own), holdProgress(now), settings,
+          DSE && typeof DSE.ring === 'function' ? { draw: DSE.ring, now: now, mobile: coarsePointer() } : null);
       }
       // A paid seat's own cell is on screen: ag:ready (agPaid, design 4 step 5: the cell is shielded until now).
       if (flow) flow.onFrame(L.own.length);

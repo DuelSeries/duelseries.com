@@ -452,9 +452,22 @@
     ctx.restore();
   }
 
-  // A track circle and the filled arc from 12 o'clock; waiting (the lock set, no frame has
+  // Every game's ring (DSEnd.ring, public/js/shared/dsEnd.js, loaded by paper-arena.html: Owen's gold "Three Count",
+  // 2026-10-16), drawn in canvas px at the same centre, radius and stroke, its waiting state included. Without it
+  // (a page with no dsEnd.js) a track circle and the filled arc from 12 o'clock; waiting (the lock set, no frame has
   // confirmed the server's hold yet) is a turning dashed circle.
+  var COARSE = (function () {
+    try { return !!(root.matchMedia && root.matchMedia('(pointer: coarse)').matches); } catch (e) { return false; }
+  })();
   function drawRing(ctx, pos, radius, fraction, waiting, viewScale, hudScale, dpr, t) {
+    if (root.DSEnd && typeof root.DSEnd.ring === 'function') {
+      ctx.save();
+      ctx.translate(pos.x, pos.y);
+      ctx.scale(1 / viewScale, 1 / viewScale);
+      root.DSEnd.ring(ctx, 0, 0, radius * viewScale, fraction, t, { lw: (5 * hudScale) / dpr, waiting: !!waiting, mobile: COARSE });
+      ctx.restore();
+      return;
+    }
     var lw = (5 * hudScale) / dpr / viewScale;
     ctx.save();
     ctx.lineCap = 'round';

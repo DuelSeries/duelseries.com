@@ -46,7 +46,10 @@ function makeElement(doc, tag) {
     attributes: {},
     style: { setProperty() {} },
     hidden: false,
-    textContent: '',
+    // like a real node: its own text plus its children's (the end card's figure is text and a small $ span)
+    _text: '',
+    get textContent() { return this._text + this.children.map((c) => c.textContent).join(''); },
+    set textContent(v) { this._text = String(v); this.children = []; },
     value: '',
     checked: false,
     id: '',

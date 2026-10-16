@@ -16,6 +16,7 @@ const FILES = ['slxHold.js', 'slxTouch.js', 'slxSkins.js'];
 const src = (f) => fs.readFileSync(path.join(SLX, f), 'utf8');
 const SL_INPUT = fs.readFileSync(path.join(ROOT, 'public', 'js', 'sl', 'slInput.js'), 'utf8');
 const SL_SPRITES = fs.readFileSync(path.join(ROOT, 'public', 'js', 'sl', 'slSprites.js'), 'utf8');
+const DSEND = fs.readFileSync(path.join(ROOT, 'public', 'js', 'shared', 'dsEnd.js'), 'utf8');
 const PI2 = 2 * Math.PI;
 
 // ------------------------------------------------------------------------------------------------- the fake page
@@ -38,7 +39,7 @@ function makePage(o) {
   class Ctx {
     constructor(cv) { this.canvas = cv; this.calls = []; this.p = {}; }
   }
-  for (const m of ['save', 'restore', 'beginPath', 'arc', 'stroke', 'clearRect', 'setTransform', 'drawImage', 'fillRect']) {
+  for (const m of ['save', 'restore', 'beginPath', 'arc', 'moveTo', 'stroke', 'fill', 'clearRect', 'setTransform', 'drawImage', 'fillRect']) {
     Ctx.prototype[m] = function () { this.calls.push([m].concat([].slice.call(arguments))); };
   }
   for (const k of ['lineCap', 'strokeStyle', 'lineWidth', 'shadowColor', 'shadowBlur', 'fillStyle', 'globalAlpha']) {
@@ -105,6 +106,8 @@ function makePage(o) {
   win.Math = Object.create(Math);
   win.Math.random = () => { throw new Error('Math.random in the layer'); };
   vm.createContext(win);
+  // the shared end screens and ring, which slBoot loads before the layer (server/sl/slBoot.js SHARED_UI)
+  vm.runInContext(DSEND, win, { filename: 'dsEnd.js' });
 
   // their state, the fields the controls read (BUILD-BRIEF 10.2)
   const S = {
@@ -382,18 +385,26 @@ test('rings: an elapsed in the hold message starts the arc part filled (a snake 
   const ring = ofLayer(P, 'slx-ring');
   P.fire('x:hold', { t: 'hold', id: 5, on: 1, need: 3000, elapsed: 1500 }); // t0 = 1000 - 1500
   P.step();                                                                  // now 1016: 1516 of 3000
-  const arcs = ring.ctx.calls.filter((c) => c[0] === 'arc');
-  near(arcs[1][5], -Math.PI / 2 + PI2 * 1516 / 3000, 'arc from where the hold already is');
+  // the gold's end on the shared ring (dsEnd.js ring): three seconds, each trimmed by the gap, filled clockwise
+  const R = 22.8375, gap = 4 / R, SEG = PI2 / 3;
+  const goldEnd = (p) => {
+    const k = p * 3, last = Math.min(2, Math.floor(k)), q = k - last;
+    const a0 = -Math.PI / 2 + last * SEG + gap / 2, a1 = -Math.PI / 2 + (last + 1) * SEG - gap / 2;
+    return a0 + (a1 - a0) * q;
+  };
+  const ends = (calls) => calls.filter((c) => c[0] === 'arc' && Math.abs(c[3] - R) < 1e-9).map((c) => c[5]);
+  assert.ok(ends(ring.ctx.calls).some((e) => Math.abs(e - goldEnd(1516 / 3000)) < 1e-9), 'arc from where the hold already is');
   for (const [el, want] of [['x', 16], [-50, 16], [NaN, 16], [99999, 3000]]) {
     P.fire('x:hold', { t: 'hold', id: 5, on: 1, need: 3000, elapsed: el });
     ring.ctx.calls = [];
     P.step();
-    const a2 = ring.ctx.calls.filter((c) => c[0] === 'arc');
-    near(a2[1][5], -Math.PI / 2 + PI2 * Math.min(1, want / 3000), 'elapsed ' + el);
+    // a full hold: all three seconds gold, the gaps already closing (16 ms past full)
+    const hit = want >= 3000 ? (e) => e >= goldEnd(1) - 1e-9 : (e) => Math.abs(e - goldEnd(want / 3000)) < 1e-9;
+    assert.ok(ends(ring.ctx.calls).some(hit), 'elapsed ' + el);
   }
 });
 
-test('rings: sl:x hold draws the old ring at the snake head, filling over need; on 0, unknown ids and junk draw none', () => {
+test('rings: sl:x hold draws the shared gold ring at the snake head, filling over need; on 0, unknown ids and junk draw none', () => {
   for (const mobile of [false, true]) {
     const P = makePage({ mobile });
     P.load();
@@ -407,27 +418,32 @@ test('rings: sl:x hold draws the old ring at the snake head, filling over need; 
     P.now = 2484;
     P.step();                                                           // now 2500: half way
     const calls = ring.ctx.calls;
-    const arcs = calls.filter((c) => c[0] === 'arc');
-    assert.strictEqual(arcs.length, 2, 'track and arc');
     // head (600, 450), view (500, 400), gsc 0.9, csc 1, 1000 x 800: (590, 445); head radius 14.5 x 0.9 = 13.05
-    near(arcs[0][1], 590, 'x');
-    near(arcs[0][2], 445, 'y');
-    near(arcs[0][3], 22.8375, 'ring radius 1.75 head radii');
-    near(arcs[0][4], 0, 'track start');
-    near(arcs[0][5], PI2, 'track end');
-    near(arcs[1][4], -Math.PI / 2, 'arc from the top');
-    near(arcs[1][5], Math.PI / 2, 'half filled');
+    const R = 22.8375;                                                  // 1.75 head radii
+    const arcs = calls.filter((c) => c[0] === 'arc');
+    assert.ok(arcs.length >= 5, 'three seconds of track, the gold, the spark');
+    const onRing = arcs.filter((a) => Math.abs(a[3] - R) < 1e-9);
+    for (const a of onRing) { near(a[1], 590, 'x'); near(a[2], 445, 'y'); }
+    const SEG = PI2 / 3;
+    const gap = 4 / R;                                                  // the 4 px gap beats 0.85 x the 3.654 line
+    near(onRing[0][4], -Math.PI / 2 + gap / 2, 'the first second starts at the top, past the gap');
+    near(onRing[2][5], -Math.PI / 2 + PI2 - gap / 2, 'the track\'s third second ends at the top');
+    assert.ok(onRing.some((a) => Math.abs(a[5] - Math.PI / 2) < 1e-9), 'half filled: the gold ends half way round');
     const widths = calls.filter((c) => c[0] === 'set lineWidth').map((c) => c[1]);
-    near(widths[0], 3.654, 'line 0.28 head radii');
-    assert.deepStrictEqual(calls.filter((c) => c[0] === 'set strokeStyle').map((c) => c[1]), ['rgba(255,255,255,0.15)', '#14F195']);
-    const blur = calls.filter((c) => c[0] === 'set shadowBlur').map((c) => c[1]);
+    assert.ok(widths.some((w) => Math.abs(w - 3.654) < 1e-9), 'line 0.28 head radii');
+    const strokes = calls.filter((c) => c[0] === 'set strokeStyle').map((c) => c[1]);
+    assert.ok(strokes.includes('#f5b335'), 'gold');
+    assert.ok(!strokes.concat(calls.filter((c) => c[0] === 'set fillStyle').map((c) => c[1])).some((s) => /14f195/i.test(s)),
+      'never the old green');
+    const blur = calls.filter((c) => c[0] === 'set shadowBlur').map((c) => c[1]).filter((b) => b > 0);
     if (mobile) assert.deepStrictEqual(blur, [], 'no glow on phones');
-    else near(blur[0], 15.66, 'glow 1.2 head radii');
+    else near(blur[0], 3.654 * 1.6, 'a gold glow');
 
     P.now = 9000;
     ring.ctx.calls = [];
     P.step();
-    near(ring.ctx.calls.filter((c) => c[0] === 'arc')[1][5], 1.5 * Math.PI, 'full at need and after');
+    const full = ring.ctx.calls.filter((c) => c[0] === 'arc' && Math.abs(c[3] - R) < 1e-9);
+    assert.ok(full.some((a) => Math.abs(a[4]) < 1e-9 && Math.abs(a[5] - PI2) < 1e-9), 'full at need and after: one closed ring');
 
     P.fire('x:hold', { t: 'hold', id: 5, on: 0 });
     ring.ctx.calls = [];

@@ -254,19 +254,20 @@ test('ring: only while the server reports the hold and Q is down, round the bigg
   assert.ok(last.progress > 0.98 && last.progress < 1, 'one tick short of full: ' + last.progress);
   await p.frames(2, 40.014);
   assert.strictEqual(rings[rings.length - 1].progress, 1, 'full at need ticks');
-  // the drawing: one arc from 12 o'clock, clockwise, in the player's colour, a thin HUD-scaled stroke
+  // the drawing: every game's gold ring (dsEnd.js DSEnd.ring, Owen's "Three Count"), in screen px around the cell at
+  // the old radius and HUD-scaled stroke, with the bronze edge of a light map; full, it is one closed ring
   const calls = p.doc.calls.filter((c) => c[0] === p.canvas.cid);
-  const arc = calls.filter((c) => c[1] === 'arc' && c[2][3] === -TAU / 4).pop();
-  assert.ok(arc, 'the ring arc');
   const s = p.session.state().camera.scale;
   const k = Math.min(720 / 1080, 1280 / 1920);
   const lw = (LIB.agRender.HOLD_RING_PX * k) / s;
-  const i = calls.lastIndexOf(arc);
-  const after = calls.slice(i, i + 6).map((c) => c[1] + (c[1].startsWith('=') ? ':' + c[2][0] : ''));
-  assert.deepStrictEqual(after, ['arc', '=lineWidth:' + lw, '=lineCap:round', '=strokeStyle:rgb(255,7,100)', 'stroke', 'restore']);
-  assert.ok(Math.abs(arc[2][2] - (200 + 5 + (LIB.agRender.HOLD_RING_GAP_PX * k) / s + lw / 2)) < 1e-6, 'radius');
-  assert.ok(Math.abs(arc[2][4] - (-TAU / 4 + TAU)) < 1e-9, 'a full circle at the end');
-  assert.strictEqual(arc[2][5], false, 'clockwise');
+  const R = (200 + 5 + (LIB.agRender.HOLD_RING_GAP_PX * k) / s + lw / 2) * s;
+  const arcs = calls.filter((c) => c[1] === 'arc' && Math.abs(c[2][2] - R) < 1e-6);
+  assert.ok(arcs.length, 'the ring at the old radius, in screen px');
+  assert.ok(arcs.some((c) => Math.abs(c[2][3]) < 1e-9 && Math.abs(c[2][4] - TAU) < 1e-9), 'a closed ring at the end');
+  const sets = (k2) => calls.filter((c) => c[1] === '=' + k2).map((c) => c[2][0]);
+  assert.ok(sets('strokeStyle').includes('#f5b335'), 'gold');
+  assert.ok(sets('strokeStyle').includes('rgba(64,38,6,0.72)'), 'the bronze edge on the light map');
+  assert.ok(sets('lineWidth').some((w) => Math.abs(w - LIB.agRender.HOLD_RING_PX * k) < 1e-9), 'the HUD-scaled stroke');
   const n = rings.length;
   p.key('keyup', 81);
   await p.frames(3);

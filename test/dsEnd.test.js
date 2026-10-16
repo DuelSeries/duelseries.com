@@ -65,7 +65,8 @@ test('a paid cash-out card shows the server numbers it was given, the net row la
   const btns = byClass(card, 'dse-btn');
   assert.strictEqual(btns.length, 2);
   assert.match(btns[0].className, /pri/);
-  assert.match(btns[1].className, /solo/);
+  assert.match(btns[0].className, /w4/);   // Play takes two thirds of the row beside Lobby
+  assert.match(btns[1].className, /w2/);
   btns[0].click(); btns[1].click();
   assert.deepStrictEqual(clicks, ['again', 'lobby']);
   const a = all(card, (x) => x.tagName === 'A')[0];

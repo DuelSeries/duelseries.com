@@ -49,7 +49,11 @@ function makeEl(id, tag) {
   const props = {};
   const el = {
     id, tagName: String(tag || 'div').toUpperCase(),
-    hidden: false, disabled: false, textContent: '', className: '',
+    hidden: false, disabled: false, className: '',
+    // like a real node: its own text plus its children's (the end card's figure is text and a small $ span)
+    _text: '',
+    get textContent() { return this._text + this.children.map((c) => c.textContent || '').join(''); },
+    set textContent(v) { this._text = String(v); this.children = []; },
     children: [], dataset: {}, attributes: {}, parentNode: null,
     width: 300, height: 300, clientWidth: 300, offsetHeight: 20, offsetWidth: 300,
     style: { setProperty(k, v) { props[k] = v; }, getPropertyValue(k) { return props[k] || ''; } },

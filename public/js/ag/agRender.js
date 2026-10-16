@@ -755,7 +755,10 @@
     // player's main cell n, progress 0..1 of the 3 s, in world coordinates with the world pass's transform. The
     // stroke and gap are HUD-scaled canvas px turned into world units (divided by the draw scale), so the ring
     // looks the same thickness at every zoom. Returns whether it drew.
-    function drawHoldRing(ctx, view, n, progress, settings) {
+    // ring { draw, now, mobile }: every game's ring (DSEnd.ring from public/js/shared/dsEnd.js, Owen's gold "Three
+    // Count", 2026-10-16), drawn in screen px at the same centre, radius and stroke; the light map gets its bronze
+    // edge. Without it (a page with no dsEnd.js, the parity harness) the old arc in the player's colour.
+    function drawHoldRing(ctx, view, n, progress, settings, ring) {
       if (!n || !(progress > 0) || !(view.s > 0)) return false;
       var st = normalizeSettings(settings);
       var p = progress > 1 ? 1 : progress;
@@ -763,6 +766,11 @@
       var lw = (HOLD_RING_PX * k) / view.s;
       var rim = ringWidth(!!n.highlight, view.s, view.W, view.H, view.portrait);
       var rad = n.size + rim + (HOLD_RING_GAP_PX * k) / view.s + lw * 0.5;
+      if (ring && typeof ring.draw === 'function') {
+        ring.draw(ctx, Math.trunc(view.W / 2) + (n.x - view.camX) * view.s, Math.trunc(view.H / 2) + (n.y - view.camY) * view.s,
+          rad * view.s, p, ring.now, { lw: HOLD_RING_PX * k, light: !st.dark, mobile: !!ring.mobile });
+        return true;
+      }
       var colour = st.noColors ? (st.dark ? TEXT_FILL : HOLD_RING_GREY) : rgbString(n.rgb || [255, 255, 255]);
       ctx.save();
       ctx.translate(Math.trunc(view.W / 2), Math.trunc(view.H / 2));
