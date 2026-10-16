@@ -117,10 +117,14 @@ test('slxCard: death card (the shared card) at their menu show, N from their las
   assert.strictEqual(card.element, null);
   assert.strictEqual(E.shown(), false);
   assert.strictEqual(cardEl(P), null, 'off the page');
-  // a phone: their page is laid out at 0.7 (sl.html:4), so the card is drawn back up by 1 / 0.7
-  const M = page('slxCard.js', { S: { is_mobile: true } });
+  // a phone on a page of its own: their page is laid out at 0.7 (sl.html:4), so the card is drawn back up by 1 / 0.7
+  const M = page('slxCard.js', { S: { is_mobile: true }, framed: false });
   M.slx.fire('close', { playing: false, opened: true, sawDead: false, refused: 'full' });
   assert.strictEqual(M.slx.card.element.style.zoom, String(1 / 0.7));
+  // a phone in the lobby's game frame: a frame ignores the viewport line, the page is at 1, nothing is drawn up
+  const F = page('slxCard.js', { S: { is_mobile: true } });
+  F.slx.fire('close', { playing: false, opened: true, sawDead: false, refused: 'full' });
+  assert.ok(!F.slx.card.element.style.zoom, 'no zoom in the frame');
 });
 
 test('slxCard: Killed by NAME from the kill feed naming this snake; another victim or a late line does not count', () => {
@@ -481,8 +485,8 @@ test('slxStats: ping in the old format and colours, FPS over 500 ms, shown while
 });
 
 // Their HUD boxes as sl.html gives them (sl.html:20-26), on the fake page, after the shared end screens.
-function hudPage(win, S) {
-  const P = makePage({ win, S });
+function hudPage(win, S, more) {
+  const P = makePage(Object.assign({ win, S }, more || {}));
   const box = (style) => { const e = new P.El(P.doc, 'div'); Object.assign(e.style, style); P.doc.body.appendChild(e); return e; };
   P.S.lbh = box({ right: '4px', top: '4px', width: '285px', height: '28px', transform: 'translateZ(0)' });
   P.S.lbs = box({ right: '4px', top: '32px', width: '50px', height: '800px', transform: 'translateZ(0)' });
@@ -625,10 +629,17 @@ test('slxHud: own row pinned when outside the top; top 5 on a phone, 10 on a com
   theirBoard(P, TEN.slice(0, 2), 0);
   P.raf(1);
   assert.deepStrictEqual(ourRows(P), ['1|Ann|9,120', '2|Bob|8,001']);
-  // a phone (their is_mobile): the top 5, drawn back up from their 0.7 page; the own row at 7 is pinned from theirs
-  const M = hudPage({ innerWidth: 535, innerHeight: 1159 }, { is_mobile: true, playing: true });
+  // a phone (their is_mobile) on a page of its own: the top 5, drawn back up from their 0.7 page; the own row at 7
+  // is pinned from theirs
+  const M = hudPage({ innerWidth: 535, innerHeight: 1159 }, { is_mobile: true, playing: true }, { framed: false });
   assert.strictEqual(M.slx.hud.phone(), true);
   assert.strictEqual(M.find('dsb')[0].style.zoom, String(1 / 0.7));
+  assert.strictEqual(M.slx.hud.zoom(), 1 / 0.7);
+  // the same phone in the lobby's game frame (a frame ignores the viewport line): the page is at 1, dsEnd's phone size
+  const F = hudPage({ innerWidth: 375, innerHeight: 812 }, { is_mobile: true, playing: true });
+  assert.strictEqual(F.slx.hud.phone(), true);
+  assert.ok(!F.find('dsb')[0].style.zoom, 'no zoom in the frame');
+  assert.strictEqual(F.slx.hud.zoom(), 1);
   const seventh = TEN.slice();
   seventh.splice(2, 1);
   seventh.splice(6, 0, ['Owen', 3200]);
@@ -698,6 +709,21 @@ test('slxBr: every event line in one block at the top centre, in the slot slxHud
   assert.deepStrictEqual([head.textContent, sub.textContent], ['Battle Royale', '48 players · next match in 1h 2m 3s']);
   assert.strictEqual(hud.style.top, '110px', 'the slot');
   assert.ok(!/slx-br-now/.test(hud.className));
+  // it comes in with the game (their menu fades out, the game in), never over their menu while the wallet signs
+  assert.ok(!/slx-br-in/.test(hud.className), 'not over their menu before the first life');
+  P.S.playing = true;
+  P.raf(1);
+  assert.ok(/slx-br-in/.test(hud.className), 'in with the game');
+  // the bigger phone sizes only on a page laid out at 0.7 (zoom > 1); in the lobby's frame a phone keeps the plain ones
+  P.slx.hud.phone = () => true;
+  P.slx.hud.zoom = () => 1;
+  P.raf(1);
+  assert.ok(!/slx-br-phone/.test(hud.className), 'a phone in the lobby frame');
+  P.slx.hud.zoom = () => 1 / 0.7;
+  P.raf(1);
+  assert.ok(/slx-br-phone/.test(hud.className), 'a phone page of its own');
+  P.slx.hud.phone = () => false;
+  P.raf(1);
   br({ state: 'countdown', phase: 'countdown', alive: 12, countdownMs: 7000, prize: 20 });
   assert.deepStrictEqual([head.textContent, sub.textContent], ['Starting in 7', '12 players · last snake alive wins $20']);
   assert.ok(/slx-br-now/.test(hud.className), 'the count is the big moment');

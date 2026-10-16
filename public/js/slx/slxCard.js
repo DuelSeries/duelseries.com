@@ -71,8 +71,9 @@
   var SERVER_DROP = 'io server disconnect';
   var NO_RANK = 999999999;                       // their best_rank before any leaderboard (slApply.js:146)
   // Their page is laid out at 0.7 on a phone (sl.html:4 initial-scale 0.7, honoured where their is_mobile is): the
-  // card is drawn back up to the size it has on every other game's page.
-  var ZOOM = S.is_mobile ? 1 / 0.7 : 1;
+  // card is drawn back up to the size it has on every other game's page. Only on a page of its own: a frame ignores
+  // the viewport line, so in the lobby's game frame (slxMain's slx.framed) the page is at 1 and the card already is.
+  var ZOOM = S.is_mobile && slx.framed !== true ? 1 / 0.7 : 1;
   var Z = 30;                                    // above their login layer (z-index 20)
   // Their last-score line stays in the page (the length is read from it) but is not shown: the card says it.
   if (S.lastscore && S.lastscore.style) S.lastscore.style.visibility = 'hidden';

@@ -342,7 +342,10 @@
     '.slx-br-hud{position:fixed;top:' + TOP_PX + 'px;left:50%;transform:translateX(-50%);z-index:8;' +
       'box-sizing:border-box;width:max-content;max-width:calc(100vw - 24px);padding:5px 14px 6px;border-radius:12px;' +
       'background:rgba(0,0,0,.42);text-align:center;color:#fff;font:13px ' + FONT + ';' +
-      'text-shadow:0 1px 3px rgba(0,0,0,.9);pointer-events:none;-webkit-user-select:none;user-select:none;}',
+      'text-shadow:0 1px 3px rgba(0,0,0,.9);pointer-events:none;-webkit-user-select:none;user-select:none;' +
+      'opacity:0;transition:opacity .5s ease-out;}',
+    '.slx-br-hud.slx-br-in{opacity:1;}',
+    '@media (prefers-reduced-motion:reduce){.slx-br-hud{transition:none;}}',
     '.slx-br-head{font-weight:bold;font-size:16px;line-height:20px;white-space:nowrap;}',
     '.slx-br-now .slx-br-head{font-size:24px;line-height:29px;}',
     '.slx-br-sub{margin-top:1px;line-height:17px;opacity:.92;}',
@@ -350,7 +353,8 @@
       'color:#06231a;font:bold 14px ' + FONT + ';text-shadow:none;cursor:pointer;pointer-events:auto;}',
     '.slx-br-lobby{position:fixed;top:10px;left:10px;z-index:9;display:none;padding:6px 14px;border:1px solid #ccc;' +
       'border-radius:4px;background:#fff;color:#333;font:bold 13px ' + FONT + ';cursor:pointer;}',
-    // a phone, either way up (slx.hud.phone(): their page is laid out at 0.7 there, so no media query can tell)
+    // a phone page laid out at 0.7, either way up (slx.hud.phone() and zoom() > 1; no media query can tell). In the
+    // lobby's game frame the page is at 1 (a frame ignores the viewport line), so the plain sizes are a phone's there.
     '.slx-br-phone.slx-br-hud{max-width:calc(100vw - 16px);padding:4px 12px 5px;font-size:15px;}',
     '.slx-br-phone .slx-br-head{font-size:18px;line-height:22px;}',
     '.slx-br-phone.slx-br-now .slx-br-head{font-size:26px;line-height:31px;}',
@@ -446,14 +450,22 @@
     return { head: head, sub: sub, now: moment && (typeof slx.connected !== 'function' || slx.connected()) };
   }
 
+  // The block comes in with the game, as the board does (their menu fades out, the game in), never on top of their
+  // menu while the lobby's wallet signs: from the first life, or once the sign wait (10 s) is over whatever happened.
+  var bootAt = now();
+  var LATE_MS = 10500;
+  var cameIn = false;
+
   function hudPaint() {
     if (!hud || !st) return;
+    if (!cameIn && (S.playing || now() - bootAt > LATE_MS)) cameIn = true;
     var t = hudText();
     if (hudHead.textContent !== t.head) hudHead.textContent = t.head;
     if (hudSub.textContent !== t.sub) hudSub.textContent = t.sub;
     var hs = slx.hud;
-    var cls = 'slx-br-hud slx-br-ui' + (t.now ? ' slx-br-now' : '') +
-      (hs && typeof hs.phone === 'function' && hs.phone() ? ' slx-br-phone' : '');
+    var big = hs && typeof hs.phone === 'function' && hs.phone() && !(typeof hs.zoom === 'function' && hs.zoom() === 1);
+    var cls = 'slx-br-hud slx-br-ui' + (t.now ? ' slx-br-now' : '') + (big ? ' slx-br-phone' : '') +
+      (cameIn ? ' slx-br-in' : '');
     if (hud.className !== cls) hud.className = cls;
     var sd = owner && st.state === 'waiting' && mode === 'play' ? 'block' : 'none';
     if (startBtn && startBtn.style.display !== sd) startBtn.style.display = sd;

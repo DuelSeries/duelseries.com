@@ -19,7 +19,8 @@
 //    else dsEnd's rows (10 on a computer, 5 on a window as narrow as a phone).
 //    A phone is their is_mobile (a user agent that says Mobile, slMain.js:59) or a window whose short side is at
 //    most PHONE_SIDE. Their page is laid out at 0.7 on a phone (sl.html:4, initial-scale 0.7, where is_mobile holds),
-//    so the board is drawn back up by 1/0.7 there to the size it has in every other game.
+//    so the board is drawn back up by 1/0.7 there to the size it has in every other game. Not in the lobby's game
+//    frame: a frame ignores the viewport line, so the page there is at 1 already (slx.hud.zoom() says which).
 // 3. The ping and FPS line (slxStats) sits under their minimap's disc, centred on it: their holder (loch) is the disc
 //    plus a 12 px margin on every side (slHud.js setMinimapSize, fitMapCanvas), placed by its inline right, bottom and
 //    width, so the line follows a new minimap size.
@@ -27,7 +28,7 @@
 //    leaderboard nor the text of their top left box (vcm): beside them when there is room, else just under the board.
 //    The battle royale's block (slxBr.js) sits there.
 //
-// Adds to DuelSlither.slx: hud { phone(), topSlot(w), board(), rows() }.
+// Adds to DuelSlither.slx: hud { phone(), zoom(), topSlot(w), board(), rows() }.
 (function (root) {
   'use strict';
   var D = root.DuelSlither;
@@ -60,7 +61,10 @@
   var phone = null;                // unknown until the first frame
   var vw = -1;
   var vh = -1;
-  var ours = E.board({ zoom: S.is_mobile ? 1 / 0.7 : 1, z: 10 });
+  // Drawn back up from their 0.7 page only where the page really is at 0.7: a frame ignores sl.html's viewport line,
+  // so in the lobby's game frame (slxMain's slx.framed) a phone's page is at 1 and the board is dsEnd's phone size.
+  var ZOOM = S.is_mobile && slx.framed !== true ? 1 / 0.7 : 1;
+  var ours = E.board({ zoom: ZOOM, z: 10 });
   ours.hide();
   var rows = [];                   // what ours shows: { name, value, me }
   var me = null;
@@ -237,6 +241,7 @@
 
   slx.hud = {
     phone: function () { return phone === true; },
+    zoom: function () { return ZOOM; },
     topSlot: topSlot,
     board: board,
     rows: function () { return { rows: rows.slice(), me: me }; }

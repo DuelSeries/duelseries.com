@@ -883,7 +883,9 @@ body.ingame>.howveil,body.ingame>.meveil,body.ingame>.apscreen,body.ingame>.bshe
 .evclock.live .evsec{display:none}
 .evclock.live #ev-c1{visibility:hidden}
 
-.evbar{display:grid;grid-template-columns:auto 1fr;gap:8px;margin-top:22px}
+/* Join on the left and Spectate on the right, as Play and Spectate sit on
+   every game's card (Owen, 2026-10-16: "just like the rest of the games"). */
+.evbar{display:grid;grid-template-columns:1fr auto;gap:8px;margin-top:22px}
 .evbtn{display:flex;align-items:center;gap:12px;min-width:0;min-height:58px;border:none;
   border-radius:14px;padding:9px 16px 9px 9px;text-align:left;cursor:pointer;font-family:inherit;
   transition:transform .15s,background .15s,color .15s}
@@ -896,8 +898,20 @@ body.ingame>.howveil,body.ingame>.meveil,body.ingame>.apscreen,body.ingame>.bshe
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .evt small:empty{display:none}
 /* The slither.io art on Join says which game this is before a word is read
-   (Owen, 2026-10-15). */
-.evgo{background:var(--bone);color:var(--ink)}
+   (Owen, 2026-10-15). The make is Play's on a game card (.go, Free): the
+   white metal, the glow under it, and the one sheen across it each time the
+   screen comes up (Owen, 2026-10-16: the same little animation as the other
+   games). The sheen is its own pseudo-element, so the art and words stay put. */
+.evgo{position:relative;overflow:hidden;color:var(--ink);
+  background:linear-gradient(180deg,#ffffff 0%,#f4f1ea 48%,#dcd4c5 100%);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(70,58,40,.3),
+    0 8px 24px -8px rgba(244,241,234,.38)}
+.evgo::after{content:"";position:absolute;top:0;bottom:0;left:-60%;width:45%;
+  background:linear-gradient(100deg,transparent,rgba(255,255,255,.7),transparent);
+  transform:skewX(-18deg);animation:gosheenw .75s cubic-bezier(.3,.6,.3,1) .05s 1 both;
+  pointer-events:none}
+.evgo:disabled::after{display:none}
+@media(prefers-reduced-motion:reduce){.evgo::after{animation:none;display:none}}
 .evart{width:40px;height:40px;border-radius:10px;object-fit:cover;flex:none;
   transition:filter .15s,opacity .15s}
 /* The last ten minutes: Join breathes. Nothing else on the screen does. */
@@ -908,8 +922,9 @@ body.ingame>.howveil,body.ingame>.meveil,body.ingame>.apscreen,body.ingame>.bshe
   cursor:not-allowed;animation:none}
 .evgo:disabled:hover{transform:none}
 .evgo:disabled .evart{filter:grayscale(1);opacity:.4}
-.evwatch{background:var(--s2);color:var(--tx);padding-left:10px}
-.evwatch:hover{background:var(--s3)}
+/* Spectate in the colours it has beside Play on every game's card (.spec). */
+.evwatch{background:var(--s2);color:var(--tx2);padding-left:10px}
+.evwatch:hover{background:var(--s3);color:var(--tx)}
 .evico{width:40px;height:40px;display:grid;place-items:center;flex:none}
 .evico svg{width:21px;height:21px}
 /* A match on: watching is the thing you can do, so Spectate takes the colour. */
@@ -2608,14 +2623,14 @@ body.scr-anim { overflow-x:hidden }
          a word is read); tick() writes its words into #ev-join-t and
          #ev-join-s only, so the art survives every state. -->
     <div class="evbar" id="ev-bar">
+      <button type="button" class="evbtn evgo" id="ev-join" onclick="V2Play.launch('snake',{lobbyType:'br'})">
+        <img class="evart" src="/img/games/snake.png" alt="Slither.io" draggable="false">
+        <span class="evt"><b id="ev-join-t">Join</b><small id="ev-join-s">Free entry</small></span>
+      </button>
       <button type="button" class="evbtn evwatch" id="ev-watch" onclick="V2Play.spectateEvent()" style="visibility:hidden">
         <span class="evico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></span>
         <span class="evt"><b id="ev-watch-t">Spectate</b><small id="ev-watch-s"></small></span>
-      </button>
-      <button type="button" class="evbtn evgo" id="ev-join" onclick="V2Play.launch('snake',{lobbyType:'br'})">
-        <img class="evart" src="/img/games/snake.png" alt="Slither.io" draggable="false">
-        <span class="evt"><b id="ev-join-t">Join</b><small id="ev-join-s">Free entry</small></span>
       </button>
     </div>
   </div>
