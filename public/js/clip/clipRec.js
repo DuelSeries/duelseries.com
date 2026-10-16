@@ -23,6 +23,14 @@
    when the player switched it off (localStorage dsClipsOn = '0'), and on a PC
    that dropped frames while recording (tested once a week, dsClipPerf).
 
+   It never costs the game a frame (Owen 2026-10-16, "pretty laggy"). Measured
+   on his 240 Hz PC with slither in the lobby frame: on an idle PC recording is
+   free, but on a busy one (other DuelSeries tabs sharing Chrome's GPU, test
+   servers) it took the game from 85 to 75 fps with 60% more late frames. So it
+   steps aside: nothing at all (no picture, no sound, no encoding) while its tab
+   is hidden or nobody has touched the game for 45 s, as in a tab left open in
+   another window, and no picture while the game's own frames run late.
+
    Loaded as <script src="/js/clip/clipRec.js" data-game="slither"> after
    mp4mux.js. window.DSClip = { on, save(), offer(why) }. */
 (function () {
@@ -31,9 +39,10 @@
   const DOT = (SCRIPT && SCRIPT.dataset.dot) || 'tl';      // where the red dot sits: top left, or bottom left (bl)
   const KEEP_US = 30e6;          // what a clip holds
   const FPS = 30;
-  const KEY_EVERY = FPS;         // a key frame each second, so a clip starts at most 1 s early
+  const KEY_US = 1e6;            // a key frame each second of time, so a clip starts at most 1 s early
   const MAX_W = 1920, MAX_H = 1080;
   const OFFER_MS = 8000;
+  const IDLE_MS = 45000;         // no key, click or mouse move for this long: nobody is playing this tab
   const LS_ON = 'dsClipsOn', LS_MIC = 'dsClipsMic', LS_PERF = 'dsClipPerf';
   const PERF_PASS_MS = 7 * 864e5, PERF_FAIL_MS = 864e5;
 
@@ -78,7 +87,7 @@
   let vEnc = null, aEnc = null, vDesc = null, aDesc = null, aRate = 48000;
   let vChunks = [], aChunks = [];
   let mirror = null, mctx = null, W = 0, H = 0;
-  let T0 = performance.now(), frameNo = 0, lastCap = 0, running = false, failed = false;
+  let T0 = performance.now(), frameNo = 0, lastKey = 0, lastCap = 0, running = false, failed = false;
   let layers = [], layersAt = 0;
   const usNow = () => Math.round((performance.now() - T0) * 1000);
 
@@ -114,7 +123,7 @@
       .filter(c => c !== mirror && visible(c))
       .map((c, i) => ({ c, z: zOf(c), i }))
       .sort((a, b) => a.z - b.z || a.i - b.i)
-      .map(x => { const o = Number(getComputedStyle(x.c).opacity); return { c: x.c, o: Number.isFinite(o) ? o : 1 }; });
+      .map(x => { const o = Number(getComputedStyle(x.c).opacity); return { c: x.c, o: Number.isFinite(o) ? o : 1, r: x.c.getBoundingClientRect() }; });
     layersAt = performance.now();
   }
   let bg = '#000';
@@ -128,8 +137,9 @@
     mctx.globalAlpha = 1;
     mctx.fillStyle = bg;
     mctx.fillRect(0, 0, W, H);
-    for (const { c, o } of layers) {
-      const r = c.getBoundingClientRect();
+    // Where each canvas sits is read once a second (findLayers), not per frame: a read here would force a layout of
+    // the game's HUD 30 times a second.
+    for (const { c, o, r } of layers) {
       mctx.globalAlpha = o;
       try { mctx.drawImage(c, r.left * kx, r.top * ky, r.width * kx, r.height * ky); } catch (_) {}
     }
@@ -213,6 +223,9 @@
           const data = new Uint8Array(chunk.byteLength);
           chunk.copyTo(data);
           aChunks.push({ data, ts: chunk.timestamp });
+          // prune() trims the sound with the picture; this bounds it while there is no picture (a late stretch).
+          const old = chunk.timestamp - KEEP_US - 2e6;
+          if (aChunks[0].ts < old) { let j = 0; while (j < aChunks.length && aChunks[j].ts < old) j++; aChunks.splice(0, j); }
         },
         error: () => { aEnc = null; aChunks = []; },
       });
@@ -220,7 +233,8 @@
       const reader = new MediaStreamTrackProcessor({ track: mixDest.stream.getAudioTracks()[0] }).readable.getReader();
       pumpAudio(reader);
       // The mixer only runs once the page has had a gesture; games get one at the first key or click.
-      const wake = () => { if (mixer && mixer.state === 'suspended') mixer.resume().catch(() => {}); };
+      const wake = () => { if (mixer && mixer.state === 'suspended' && !asleep) mixer.resume().catch(() => {}); };
+      if (asleep) mixer.suspend().catch(() => {});
       wake();
       ['keydown', 'pointerdown'].forEach(t => addEventListener(t, wake, { capture: true, passive: true }));
     } catch (_) { aEnc = null; }
@@ -234,7 +248,7 @@
       try { r = await reader.read(); } catch (_) { return; }
       if (r.done || !running && failed) { if (r.value) r.value.close(); return; }
       const ad = r.value;
-      if (!aEnc || !running) { ad.close(); continue; }
+      if (!aEnc || !running || asleep) { ad.close(); continue; }
       const n = ad.numberOfFrames, ch = Math.min(2, ad.numberOfChannels);
       const durUs = (n / ad.sampleRate) * 1e6;
       const arrive = usNow() - durUs;
@@ -276,7 +290,9 @@
     if (!running) return;
     requestAnimationFrame(tick);
     sampleFps(now);
-    if (!capturing || now - lastCap < 1000 / FPS - 3) return;
+    pace(now);
+    if (!asleep && now - lastInput > IDLE_MS) doze();
+    if (asleep || now < lateUntil || !capturing || now - lastCap < 1000 / FPS - 3) return;
     lastCap = now;
     if (vEnc.encodeQueueSize > 4) { slow++; if (slow > FPS * 3) stop('the encoder cannot keep up', true); return; }
     slow = 0;
@@ -285,18 +301,63 @@
     composite();
     let f;
     try {
-      f = new VideoFrame(mirror, { timestamp: usNow() });
-      vEnc.encode(f, { keyFrame: frameNo % KEY_EVERY === 0 });
+      const ts = usNow();
+      // By time, not by frame count: a stretch with no picture (the game came first) must not stretch the key frames.
+      const key = frameNo === 0 || ts - lastKey >= KEY_US - 20000;
+      if (key) lastKey = ts;
+      f = new VideoFrame(mirror, { timestamp: ts });
+      vEnc.encode(f, { keyFrame: key });
       frameNo++;
     } catch (_) { /* a frame lost */ }
     if (f) f.close();
   }
   let capturing = false, slow = 0;
 
-  // A gap (hidden tab) would be one frame lasting minutes: start the buffer again instead.
+  /* ── the game first ────────────────────────────────────────────────────── */
+  /* The game's own pace: each second's median frame time; the best of the last 10 s is the screen's pace (240 Hz,
+     60 Hz, whatever this window is on). A frame is late when it is a stutter you can see: over 1.5x that pace and
+     over 20 ms (at 240 Hz one missed refresh is 8 ms and still smooth). A second with over 5% of its frames late
+     means the PC is short of time, and the picture stops for 2 s, then 4, 8, up to 16 s while it stays short (calm
+     again for 10 s resets it). The clip holds a still frame over that stretch; the sound keeps going. */
+  let paceMed = [], gaps = [], secAt = 0, lastNow = 0, lateUntil = 0, lateBack = 2000, yields = 0;
+  function pace(now) {
+    if (lastNow) gaps.push(now - lastNow);
+    lastNow = now;
+    if (now - secAt < 1000) return;
+    secAt = now;
+    const g = gaps.sort((a, b) => a - b);
+    gaps = [];
+    if (g.length < 5) return;
+    paceMed.push(g[g.length >> 1]);
+    if (paceMed.length > 10) paceMed.shift();
+    const lim = Math.max(Math.min.apply(null, paceMed) * 1.5, 20);
+    let late = 0;
+    for (const x of g) if (x > lim) late++;
+    if (paceMed.length >= 2 && late > g.length * 0.05) { lateUntil = now + lateBack; lateBack = Math.min(16000, lateBack * 2); yields++; }
+    else if (now > lateUntil + 10000) lateBack = 2000;
+  }
+
+  /* Asleep: no picture, no sound, no encoding. While the tab is hidden (a gap would be one frame lasting minutes)
+     and after IDLE_MS with no input. Waking starts the buffer again. */
+  let asleep = false, lastInput = performance.now();
+  function doze() {
+    if (asleep) return;
+    asleep = true;
+    if (mixer && mixer.state === 'running') mixer.suspend().catch(() => {});
+  }
+  function rouse() {
+    if (!asleep || !running || document.hidden) return;
+    asleep = false;
+    vChunks = []; aChunks = []; frameNo = 0;
+    lastNow = 0; gaps = []; secAt = performance.now();
+    if (mixer && mixer.state === 'suspended') mixer.resume().catch(() => {});
+  }
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden && running) { vChunks = []; aChunks = []; frameNo = 0; }
+    if (document.hidden) doze();
+    else if (performance.now() - lastInput < IDLE_MS) rouse();
   });
+  const touched = () => { lastInput = performance.now(); if (asleep) rouse(); };
+  ['pointermove', 'pointerdown', 'keydown', 'wheel'].forEach(t => addEventListener(t, touched, { capture: true, passive: true }));
 
   /* ── does recording cost this PC frames? (once a week) ─────────────────── */
   let fpsStamps = [];
@@ -371,7 +432,7 @@
   }
   DSClip.save = save;
   // For a console check: what is being recorded right now.
-  DSClip.stats = () => ({ on: running, capturing, size: W + 'x' + H, layers: layers.length,
+  DSClip.stats = () => ({ on: running, capturing, asleep, late: performance.now() < lateUntil, yields, size: W + 'x' + H, layers: layers.length,
     seconds: vChunks.length > 1 ? Math.round((vChunks[vChunks.length - 1].ts - vChunks[0].ts) / 1e5) / 10 : 0,
     audio: !!aEnc && aChunks.length > 0, mixer: mixer ? mixer.state : 'none', hooked, mb: Math.round(vChunks.concat(aChunks).reduce((n, c) => n + c.data.length, 0) / 1e5) / 10 });
 
@@ -530,6 +591,7 @@
     if (!(await startVideo())) return;
     running = true;
     DSClip.on = true;
+    if (document.hidden) doze();
     dot(true);
     requestAnimationFrame(tick);
     startAudio();

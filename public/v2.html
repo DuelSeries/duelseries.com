@@ -472,6 +472,12 @@ h2{font-size:31px;font-weight:700;letter-spacing:-1.1px;line-height:1.1}
 .tkrun{display:flex;width:max-content;animation:tk 52s linear infinite}
 /* Stopped only while the game is up, so it is not repainting behind it. */
 body.ingame .tkrun{animation-play-state:paused}
+/* Nothing of the lobby is painted under a game. The frame (z 300, opaque) covers it all, yet the header's backdrop
+   blur was still recomposited under every game frame: on a busy PC slither ran 109 fps with 35 late frames in 4 s,
+   160 fps with 1 with these hidden (Owen 2026-10-16, "pretty laggy"). Visibility, not display, so nothing is laid
+   out again on the way back. What sits above the frame stays: the toasts and the wallet widget. */
+body.ingame>header,body.ingame>nav,body.ingame>main,body.ingame>footer,
+body.ingame>.howveil,body.ingame>.meveil,body.ingame>.apscreen,body.ingame>.bsheet{visibility:hidden}
 @keyframes tk{to{transform:translateX(-50%)}}
 .tki{display:inline-flex;align-items:center;gap:8px;padding:9px 22px;
   font-size:13px;white-space:nowrap}
