@@ -156,7 +156,7 @@
          2026-10-15): the big number on the Wallet tab is the balance, and the
          address panel right below already says what it is held in. */
       '<div class="wbal">' +
-        '<div class="bnum num" id="w-bal">' + balMoney(bal) + '</div>' +
+        '<div class="bnum num" id="w-bal" data-cu>' + balMoney(bal) + '</div>' +
         /* The SOL under the dollars, small, like the DamnBruh wallet's "$1.03 / 0.0098 SOL"
            (Owen, 2026-10-15), with the one tap that turns it into dollars. */
         '<div class="wsol" id="w-sol">' + solLine() + '</div>' +
@@ -225,7 +225,7 @@
       '<span class="txi ' + (inb ? 'in' : 'out') + '" aria-hidden="true">' + (inb ? '↓' : '↑') + '</span>' +
       '<span class="txw"><span class="txn">' + name + '</span>' +
         '<span class="txd">' + when(t.at) + '</span></span>' +
-      '<span class="txa num ' + (inb ? 'in' : 'out') + '">' +
+      '<span class="txa num ' + (inb ? 'in' : 'out') + '" data-cu="tx-' + esc(t.signature) + '">' +
         (inb ? '+' : '−') + money(t.usdc) + '</span></a>';
   }
   async function fetchTx(a, before) {
@@ -356,7 +356,8 @@
         '<span class="txw"><span class="txn">' + esc(p.name) + '</span>' +
           '<span class="txd">' + whenAt(t.at) + (p.extra ? ', ' + esc(p.extra) : '') + '</span></span></a>' +
       '<span class="mvr">' +
-        '<span class="txa num ' + (inb ? 'in' : 'out') + '">' + esc(p.amt) + '</span>' +
+        '<span class="txa num ' + (inb ? 'in' : 'out') + '" data-cu="mv-' + esc(t.signature) + '">' +
+          esc(p.amt) + '</span>' +
         (peer
           ? '<span class="mvp">' + (inb ? 'from ' : 'to ') +
               '<code title="' + esc(peer) + '">' + esc(ownShort(peer)) + '</code>' +

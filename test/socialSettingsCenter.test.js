@@ -24,7 +24,7 @@ test('Global player winnings: the label, LIVE and the figure all sit on the pane
   const up = rule(html, '.win-up');
   assert.ok(/left:100%/.test(up) && !/right:18px/.test(up), 'the +$X hangs off the figure, not the panel corner');
   const js = read('public/js/v2/social.js');
-  assert.ok(/<span class="win-vw"><span class="win-v num"><\/span><span class="win-up num"[^>]*><\/span><\/span>/.test(js),
+  assert.ok(/<span class="win-vw"><span class="win-v num"[^>]*><\/span><span class="win-up num"[^>]*><\/span><\/span>/.test(js),
     'and the +$X is drawn inside the figure\'s box');
 });
 

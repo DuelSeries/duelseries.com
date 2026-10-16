@@ -1962,7 +1962,7 @@ body.scr-anim { overflow-x:hidden }
   <div class="sp"></div>
   <!-- Signed out this reads "—", not $0.00: a real zero balance and having no
        wallet at all are very different things to tell someone about money. -->
-  <div class="balbox"><span class="v num" id="hdr-balance" aria-label="Balance">—</span></div>
+  <div class="balbox"><span class="v num" id="hdr-balance" data-cu aria-label="Balance">—</span></div>
   <!-- One wallet surface. The dropdown that used to hang here was a second
        place to do money in, with its own tabs and its own idea of the balance. -->
   <button class="wbtn" id="wbtn" onclick="V2Wallet.headerTap()">
@@ -2398,7 +2398,7 @@ body.scr-anim { overflow-x:hidden }
         <svg class="golock" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
              stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>
-        <span id="golabel">Play</span>
+        <span id="golabel" data-cu>Play</span>
       </button>
       <button type="button" class="spec" id="specbtn" onclick="spectateFromDetail()"
               aria-label="Spectate">
@@ -2463,7 +2463,7 @@ body.scr-anim { overflow-x:hidden }
        top 3 the rest of the day, so it is never three question marks all day
        (Owen, 2026-10-16). Names go in by textContent: they are player input. -->
   <section class="evstage" id="evhero" aria-label="Battle Royale podium">
-    <div class="evcap"><span id="ev-pcap">Tonight</span><span class="evstd" id="ev-std">$20 to 1st</span></div>
+    <div class="evcap"><span id="ev-pcap">Tonight</span><span class="evstd" id="ev-std" data-cu>$20 to 1st</span></div>
     <div class="podium">
       <div class="plinth p2 empty">
         <div class="pmedal" aria-hidden="true">?</div>
@@ -2473,7 +2473,7 @@ body.scr-anim { overflow-x:hidden }
       <div class="plinth p1 empty">
         <div class="pmedal" aria-hidden="true">?</div>
         <div class="pwho" id="ev-1st"></div>
-        <div class="pblock"><span class="pmoney">$20</span></div>
+        <div class="pblock"><span class="pmoney" data-cu="ev-prize">$20</span></div>
       </div>
       <div class="plinth p3 empty">
         <div class="pmedal" aria-hidden="true">?</div>
@@ -2558,7 +2558,7 @@ body.scr-anim { overflow-x:hidden }
     <div class="sp"></div>
     <!-- accounts.total_earnings accumulates winnings only, so this is a
          cumulative total, not a net of buy-ins. Label it as what it is. -->
-    <div class="pnet"><div class="k">Total earnings</div><div class="v num" id="p-net"></div></div>
+    <div class="pnet"><div class="k">Total earnings</div><div class="v num" id="p-net" data-cu></div></div>
   </div>
   <div class="tiles" id="p-tiles" style="margin-top:26px"></div>
   <div class="head"><div><h2>Earnings</h2></div></div>
@@ -2731,6 +2731,7 @@ body.scr-anim { overflow-x:hidden }
 <script src="/js/FoodGL.js"></script>
 <script src="/js/shooterArt.js"></script>
 <script src="/js/Renderer.js"></script>
+<script src="/js/v2/countUp.js"></script>
 <script src="/js/v2/toasts.js"></script>
 <script src="/js/v2/chart.js"></script>
 <script src="/js/v2/socialPreview.js"></script>
@@ -4054,6 +4055,9 @@ window._resumeLobbyAnims=()=>{
   document.body.classList.remove('ingame');
   if(window.V2Board)V2Board.start();
   repaintAll();
+  /* Back from a game is the lobby opening again: the balance and the screen's
+     money count up from $0, then roll to anything the game changed. */
+  if(window.DSCount)DSCount.open(document.body);
 };
 
 /* HexGrid paints a flat blue-grey gap colour and skips the hex tile entirely
@@ -4362,7 +4366,7 @@ function open_(id){
   document.getElementById('dlob').innerHTML=freeRow+(mine.length
     ?mine.filter(l=>Number(l.stake)!==0).map(l=>`<div class="lr">
        <div class="lswatch">${art(cur)}</div>
-       <div class="lmid"><span class="lname num lpaid">${cash(l.stake)}</span>${String(l.region).toLowerCase()==='na'?''
+       <div class="lmid"><span class="lname num lpaid" data-cu="dlob-${Number(l.stake)}">${cash(l.stake)}</span>${String(l.region).toLowerCase()==='na'?''
          :`<span class="lsub">${String(l.region).toUpperCase()}</span>`}</div>
        <span class="sp" style="flex:1"></span>
        <span class="lcount${l.players>0?' on':''}">
@@ -4488,7 +4492,7 @@ function drawStake(){
     const off=STEPS_OFF.has(s);
     return `<button type="button" class="stk${i===si?' on':''}${s===0?' free':''}${off?' off':''}"
        ${off?'disabled aria-disabled="true"':''}
-       onclick="pickStake(${i})">${cash(s)}</button>`;
+       onclick="pickStake(${i})" data-cu="stk-${s}">${cash(s)}</button>`;
   }).join('');
   /* Play turns gold on a paid rung: the money look, on the button that
      stakes it. Never on a game that is not open (its Play is shut). */
@@ -4618,6 +4622,9 @@ function showScreen(id,dir){
                     .find(el=>el&&getComputedStyle(el).display!=='none');
   const next=document.getElementById(id);
   const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+  /* A screen that was not up counts its money up from $0 (countUp.js). Queued,
+     so it runs once the screen below is actually showing. */
+  if(next&&next!==prev&&window.DSCount)DSCount.open(next);
 
   if(!dir||!prev||prev===next||!next||reduce){
     SCREENS.forEach(s=>{const el=document.getElementById(s); if(el)el.style.display='none'});
@@ -4783,6 +4790,8 @@ function prepareScreen(tab){
   const el=document.getElementById(id); if(!el)return null;
   fillScreen(tab);
   el.style.display='block';
+  // Dragged in by a swipe: its money counts up as it arrives, as on a tap.
+  if(window.DSCount)DSCount.open(el);
   return el;
 }
 /* The drag finished on the new screen: make it the route and drop the rest.

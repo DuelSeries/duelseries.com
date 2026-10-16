@@ -80,7 +80,7 @@
            open, "NA" on every row said nothing (2026-10-15 audit). */
         '<span class="lsub">' + (String(l.region).toLowerCase() === 'na' ? ''
           : esc(String(l.region).toUpperCase()) + '<i></i>') +
-          '<b class="lstake num">' + money(l.stake) + '</b></span>' +
+          '<b class="lstake num" data-cu="lob-' + esc(l.id) + '">' + money(l.stake) + '</b></span>' +
       '</div>' +
       '<span class="sp" style="flex:1"></span>' +
       '<span class="lcount' + live + '">' +

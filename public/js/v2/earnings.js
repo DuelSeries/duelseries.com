@@ -20,7 +20,6 @@
 
   var data = null;       // last {on:true,...} answer, or null
   var strip = null, board = null, sheet = null, cols = null;
-  var counted = false;
   var boardTab = null, sheetTab = null;
 
   var css = '' +
@@ -107,7 +106,7 @@
       return '<div class="earn-row"><span class="rk num">' + (i + 1) + '</span>' +
         '<span class="nm">' + esc(r.name) + '<span class="gm">' + esc(r.game) +
         (r.n > 1 ? ', ' + r.n + ' cash-outs' : '') + '</span></span>' +
-        '<span class="am num">' + money(r.amount) + '</span></div>';
+        '<span class="am num" data-cu="earn-' + tab + '-' + i + '">' + money(r.amount) + '</span></div>';
     }).join('');
     return '<span class="earn-grab"></span>' +
       '<h3>Top cash-outs' + (d.preview ? ' <span class="earn-tag">Preview</span>' : '') +
@@ -117,7 +116,7 @@
           t[1] + '</button>';
       }).join('') + '</div>' +
       (p.top.length
-        ? '<div class="earn-ptot"><b class="num">' + money(p.total) + '</b> cashed out by players ' +
+        ? '<div class="earn-ptot"><b class="num" data-cu="earn-' + tab + '-tot">' + money(p.total) + '</b> cashed out by players ' +
             PERIOD_WORD[tab] + '</div>' + rows
         : '<div class="earn-empty">No cash-outs ' + (tab === 'today' ? 'yet today' : tab === 'week' ? 'yet this week' : 'yet') +
             '</div>') +
@@ -152,6 +151,7 @@
     sheet.innerHTML = '<div class="earn-sheet earn-card" role="dialog" aria-modal="true" aria-label="Top cash-outs"></div>';
     document.body.appendChild(sheet);
     drawSheet();
+    if (window.DSCount) window.DSCount.open(sheet);    // its figures count up as it opens
     wireTabs(sheet, function (t) { sheetTab = t; drawSheet(); var x = sheet.querySelector('.earn-x'); if (x) x.focus(); });
     sheet.addEventListener('click', function (e) {
       if (e.target === sheet || (e.target.closest && e.target.closest('.earn-x'))) closeSheet();
@@ -177,17 +177,6 @@
   }
   function onKey(e) { if (e.key === 'Escape') closeSheet(); }
 
-  function countUp(el, to) {
-    if (counted || matchMedia('(prefers-reduced-motion: reduce)').matches) { el.textContent = money(to); counted = true; return; }
-    counted = true;
-    var t0 = performance.now(), D = 1300;
-    (function f(t) {
-      var k = Math.min(1, (t - t0) / D), e = 1 - Math.pow(1 - k, 3);
-      el.textContent = money(to * e);
-      if (k < 1) requestAnimationFrame(f);
-    })(t0);
-  }
-
   function drawStrip() {
     var home = document.getElementById('home');
     if (!home) return;
@@ -200,13 +189,14 @@
     }
     var b = data.bestToday;
     strip.setAttribute('aria-label', 'Players have cashed out ' + money(data.total) + '. Show top cash-outs');
-    strip.innerHTML = '<span>Players have cashed out</span><span class="earn-big num">' +
-      (counted ? money(data.total) : '$0.00') + '</span>' +
+    /* The total fills up from $0 each time the Play screen opens and rolls
+       on a rise, by the lobby's shared count-up (countUp.js), not its own. */
+    strip.innerHTML = '<span>Players have cashed out</span><span class="earn-big num" data-cu="earn-total">' +
+      money(data.total) + '</span>' +
       '<span class="earn-r">' + (b
-        ? '<span class="earn-best">Biggest today <b class="num">' + money(b.amount) + '</b> on ' + esc(b.game) + '</span>'
+        ? '<span class="earn-best">Biggest today <b class="num" data-cu="earn-best">' + money(b.amount) + '</b> on ' + esc(b.game) + '</span>'
         : '<span class="earn-best">See top cash-outs</span>') +
       '<span class="earn-chev" aria-hidden="true">&rsaquo;</span></span>';
-    countUp(strip.querySelector('.earn-big'), data.total);
   }
 
   /* PC: the board sits beside Open lobbies. That heading and the list are moved

@@ -1269,7 +1269,7 @@ test('the nightly event states its prizes and reads the match, not a clock', () 
   /* One prize now: first place takes $20, second and third take the placing.
      The page must not imply otherwise anywhere, which is a thing prose gets
      wrong long after the number is fixed. */
-  assert.ok(html.includes('<span class="pmoney">$20</span>'), 'first place is paid $20');
+  assert.ok(/<span class="pmoney"[^>]*>\$20<\/span>/.test(html), 'first place is paid $20');
   assert.ok(!/$10|$5/.test(html.slice(html.indexOf('class="podium"'),
     html.indexOf('class="evfoot"'))), 'and nothing else on the podium is');
   assert.ok(!/top three share the pot/i.test(html),
@@ -2202,7 +2202,9 @@ test('Social shows Global player winnings: real players only, the lobby strip\'s
   // Live: asked while Social is on screen, from the server's memory; a rise counts up and shows the difference.
   assert.ok(/const WIN_POLL_MS = 1\d000;/.test(code), 'asked every 10 to 19 s');
   assert.ok(/if \(socialOnScreen\(\)\) pullWin\(\)/.test(code), 'only while Social is on screen');
-  assert.ok(/countTo\(v, from, to, \d+\)/.test(code) && /classList\.add\('rise'\)/.test(code), 'a rise counts up with a +$X');
+  // The climb is the lobby's shared count-up (countUp.js); a drop is a correction, shown as is.
+  assert.ok(/data-cu="soc-win" data-cu-rise/.test(code) && /glow\(v, from, to\)/.test(code) &&
+            /classList\.add\('rise'\)/.test(code), 'a rise counts up with a +$X');
   assert.ok(/if \(to < from\) \{[^}]*textContent = usd\(to\)/.test(code), 'a correction down is shown plainly');
   assert.ok(/V2Earnings\.pull\(\)/.test(code), 'and the strip is asked to read the same number again');
   // $0.00 is the figure, not an empty state; only the off switch (or no answer) hides it.

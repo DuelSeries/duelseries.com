@@ -95,19 +95,15 @@
       !document.body.classList.contains('ingame');
   }
 
-  /* From `from` to `to` in `ms`, easing out, so a cash-out reads as the
-     figure climbing rather than a digit swapping. Run for everyone: it is a
-     number changing, and Owen's own PC has animation effects off. */
-  function countTo(v, from, to, ms) {
-    const run = ++winAnim, t0 = performance.now();
+  /* The climb itself is the lobby's shared one (countUp.js): from $0 when
+     the tab opens, a roll from the old total on a rise, so a cash-out reads as
+     the figure climbing rather than a digit swapping. This only lights the
+     figure while it climbs. */
+  function glow(v, from, to) {
+    const run = ++winAnim;
     v.classList.add('hit');
-    (function f(t) {
-      if (run !== winAnim) return;
-      const k = Math.min(1, (t - t0) / ms), e = 1 - Math.pow(1 - k, 3);
-      v.textContent = usd(from + (to - from) * e);
-      if (k < 1) requestAnimationFrame(f);
-      else { v.textContent = usd(to); setTimeout(() => { if (run === winAnim) v.classList.remove('hit'); }, 350); }
-    })(t0);
+    setTimeout(() => { if (run === winAnim) v.classList.remove('hit'); },
+      (window.DSCount ? window.DSCount.ms(from, to) : 0) + 350);
   }
 
   function drawWin(d) {
@@ -120,20 +116,22 @@
       box.innerHTML = '<div class="win-top"><span class="win-k">Global player winnings' +
         (d.preview ? '<span class="win-tag">Preview</span>' : '') + '</span>' +
         '<span class="win-live"><i aria-hidden="true"></i>LIVE</span></div>' +
-        '<span class="win-vw"><span class="win-v num"></span><span class="win-up num" aria-hidden="true"></span></span>';
+        '<span class="win-vw"><span class="win-v num" data-cu="soc-win" data-cu-rise></span><span class="win-up num" aria-hidden="true"></span></span>';
     }
     box.hidden = false;
     const v = box.querySelector('.win-v'), up = box.querySelector('.win-up');
     const to = Math.round(d.total * 100) / 100, from = win;
     win = to;
     v.setAttribute('aria-label', usd(to));
-    if (from == null) {                         // first answer: climb from zero once
-      if (to > 0) countTo(v, 0, to, 1100); else v.textContent = usd(0);
+    if (from == null) {                         // first answer: climbs from zero
+      if (to > 0) { v.textContent = usd(to); glow(v, 0, to); } else v.textContent = usd(0);
       return;
     }
     if (to === from) return;
-    if (to < from) { winAnim++; v.textContent = usd(to); return; }   // a correction, never dressed up
-    countTo(v, from, to, 900);
+    // A correction, never dressed up: data-cu-rise shows a drop as it is.
+    if (to < from) { winAnim++; v.classList.remove('hit'); v.textContent = usd(to); return; }
+    v.textContent = usd(to);
+    glow(v, from, to);
     up.textContent = '+' + usd(Math.round((to - from) * 100) / 100);
     up.classList.remove('rise'); void up.offsetWidth; up.classList.add('rise');
     /* The lobby strip shows this same total: have it read again now, rather
@@ -175,7 +173,7 @@
       '<span class="rk num">' + (rank == null ? '' : rank) + '</span>' +
       '<span class="nm">' + esc(name) + '</span>' +
       '<span class="gp num"></span>' +
-      '<span class="er num">' + (amt == null ? '' : money(amt)) + '</span>' +
+      '<span class="er num" data-cu="q-' + esc(name) + '">' + (amt == null ? '' : money(amt)) + '</span>' +
       '</button>';
   }
 

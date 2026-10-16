@@ -102,7 +102,7 @@
     return '<button type="button" class="lbrow" data-name="' + esc(r.name) + '">' +
       '<span class="rk">' + r.rank + '</span>' +
       '<span class="nm">' + esc(r.name) + (sub ? '<span class="gm">' + esc(sub) + '</span>' : '') + '</span>' +
-      '<span class="am">' + money(r.amount) + '</span></button>';
+      '<span class="am" data-cu="lb-' + esc(r.name) + '">' + money(r.amount) + '</span></button>';
   }
 
   // The heading's marks: LIVE (grey while the last read failed) and Preview.
@@ -190,6 +190,7 @@
     sheet.innerHTML = '<div class="lb-sheet" role="dialog" aria-modal="true" aria-label="Top earners"></div>';
     document.body.appendChild(sheet);
     drawSheet();
+    if (window.DSCount) window.DSCount.open(sheet);    // its figures count up as it opens
     sheet.addEventListener('click', e => {
       const row = e.target.closest && e.target.closest('.lbrow');
       if (row) { const n = row.getAttribute('data-name'); closeSheet(true); open(n); return; }
