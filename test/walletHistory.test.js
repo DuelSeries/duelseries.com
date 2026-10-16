@@ -5,7 +5,11 @@
    answers every batch with 429, so every retry failed the same way (measured on the server
    2026-10-15). Now each transaction is its own read, a page at a time with a cursor so the whole
    history can be walked, at most four reads in flight across every wallet, a row read once is
-   kept, and a transfer to or from the escrow is marked as a game. */
+   kept, and a transfer to or from the escrow is marked as a game.
+
+   The Wallet tab's "Add funds and Withdrawals" (Usdc.usdcTransfers, Owen 2026-10-15) is the same
+   rows less every transfer with the house (the escrow and the revenue wallet), each with the
+   other side's address, read newest first with a bounded number of new reads per ask. */
 const test = require('node:test');
 const assert = require('node:assert');
 const { Keypair } = require('@solana/web3.js');
@@ -33,16 +37,34 @@ for (let i = 0; i < 45; i++) {
   chain.push({ sig: { signature: sig, blockTime: 1_800_000_000 - i * 60, err: i === 11 ? { x: 1 } : null }, meta });
 }
 
+// A second wallet with a longer history: 130 transactions, newest first. One in five is a game
+// (the escrow), one in five went to or came from the house's revenue wallet, one failed; the rest
+// are the player's own money with somebody else.
+const OWNER_B = Keypair.generate().publicKey.toString();
+const REVENUE = Keypair.generate().publicKey.toString();
+const FRIENDS = [Keypair.generate().publicKey.toString(), Keypair.generate().publicKey.toString()];
+const chainB = [];
+for (let i = 0; i < 130; i++) {
+  const other = i % 5 === 0 ? escrow.publicKey.toString() : i % 5 === 1 ? REVENUE : FRIENDS[i % 2];
+  const inbound = i % 3 !== 0;
+  chainB.push({ sig: { signature: 'bsig' + String(i).padStart(3, '0'), blockTime: 1_800_000_000 - i * 60, err: i === 17 ? { x: 1 } : null },
+    meta: { err: null,
+      preTokenBalances: [bal(OWNER_B, 50_000_000), bal(other, 50_000_000)],
+      postTokenBalances: [bal(OWNER_B, inbound ? 52_000_000 : 48_000_000), bal(other, inbound ? 48_000_000 : 52_000_000)] } });
+}
+const chains = { [Usdc.ataFor(OWNER_B)]: chainB };
+
 let reads = 0, inFlight = 0, peak = 0, batches = 0;
-Usdc.connection.getSignaturesForAddress = async (_ata, { limit, before }) => {
-  const from = before ? chain.findIndex(c => c.sig.signature === before) + 1 : 0;
-  return chain.slice(from, from + limit).map(c => c.sig);
+Usdc.connection.getSignaturesForAddress = async (ata, { limit, before }) => {
+  const list = chains[ata.toString()] || chain;
+  const from = before ? list.findIndex(c => c.sig.signature === before) + 1 : 0;
+  return list.slice(from, from + limit).map(c => c.sig);
 };
 Usdc.connection.getTransaction = async (sig) => {
   reads++; inFlight++; peak = Math.max(peak, inFlight);
   await new Promise(r => setTimeout(r, 5));
   inFlight--;
-  const c = chain.find(x => x.sig.signature === sig);
+  const c = chain.find(x => x.sig.signature === sig) || chainB.find(x => x.sig.signature === sig);
   return { blockTime: c.sig.blockTime, meta: c.meta };
 };
 Usdc.connection.getParsedTransactions = async () => { batches++; throw new Error('429 Too Many Requests'); };
@@ -63,7 +85,9 @@ test('the whole history walks page by page with single reads, never a batch', as
   assert.deepStrictEqual(seen.map(r => r.signature), chain.filter((c, i) => i !== 7 && i !== 11).map(c => c.sig.signature));
   assert.ok(peak <= 4, 'at most four reads in flight, saw ' + peak);
   const r0 = seen[0];
-  assert.deepStrictEqual(r0, { signature: 'sig000', at: 1_800_000_000_000, usdc: 1.5, direction: 'in', game: true });
+  assert.deepStrictEqual(r0, { signature: 'sig000', at: 1_800_000_000_000, usdc: 1.5, direction: 'in', game: true,
+    peer: escrow.publicKey.toString() });
+  assert.strictEqual(seen[1].peer, STRANGER, 'each row names the other side');
   assert.strictEqual(seen[1].game, false);
   assert.strictEqual(seen[1].direction, 'out');
 });
@@ -80,4 +104,66 @@ test('two wallets paging at once still keep four reads in flight in total', asyn
   const other = Keypair.generate().publicKey.toString();
   await Promise.all([Usdc.usdcHistory(other, { limit: 20 }), Usdc.usdcHistory(STRANGER, { limit: 20 })]);
   assert.ok(peak <= 4, 'peak ' + peak);
+});
+
+test('Add funds and Withdrawals: every transfer but the house\'s, newest first, a bounded number of new reads an ask', async () => {
+  Usdc.markHouseAddress(REVENUE);
+  const okB = chainB.filter((c, i) => i !== 17);
+  const mine = okB.filter(c => {
+    const i = chainB.indexOf(c);
+    return i % 5 !== 0 && i % 5 !== 1;
+  });
+  // The transaction list and the add funds list open together: they share every read.
+  const r0 = reads;
+  const [hist, first] = await Promise.all([Usdc.usdcHistory(OWNER_B, { limit: 20 }), Usdc.usdcTransfers(OWNER_B)]);
+  assert.strictEqual(reads - r0, 60, 'sixty new reads in the first ask, the twenty the list wanted among them');
+  assert.strictEqual(hist.rows.length, 19, 'the list page: twenty signatures less the failed one');
+  assert.strictEqual(first.complete, false, 'it says it stopped short');
+  const firstSigs = okB.slice(0, 60).map(c => c.sig.signature);
+  assert.deepStrictEqual(first.rows.map(r => r.signature),
+    mine.filter(c => firstSigs.includes(c.sig.signature)).map(c => c.sig.signature),
+    'everything newer than where it stopped, no gap');
+  // The next asks read on from there, and the last one says it has it all.
+  let page = first, asks = 1;
+  while (!page.complete && asks < 5) { page = await Usdc.usdcTransfers(OWNER_B); asks++; }
+  assert.strictEqual(page.complete, true);
+  assert.strictEqual(asks, 3, '129 transactions at sixty new reads an ask');
+  assert.deepStrictEqual(page.rows.map(r => r.signature), mine.map(c => c.sig.signature), 'newest first, all of them');
+  for (const r of page.rows) {
+    assert.ok(FRIENDS.includes(r.peer), 'never the escrow or the revenue wallet: ' + r.peer);
+    assert.deepStrictEqual(Object.keys(r).sort(), ['at', 'direction', 'peer', 'signature', 'usdc']);
+    assert.strictEqual(r.usdc, 2);
+  }
+  assert.strictEqual(page.rows[0].direction, 'in');
+  assert.strictEqual(page.rows.find(r => r.signature === 'bsig003').direction, 'out');
+  // Asked again, it is all kept: no reads at all.
+  const r1 = reads;
+  const again = await Usdc.usdcTransfers(OWNER_B);
+  assert.strictEqual(reads, r1);
+  assert.strictEqual(again.rows.length, mine.length);
+  assert.strictEqual(batches, 0, 'never a batch');
+  assert.ok(peak <= 4, 'four reads in flight at most, saw ' + peak);
+});
+
+test('Add funds and Withdrawals: a wallet with no history is an empty, complete answer', async () => {
+  const none = await Usdc.usdcTransfers(Keypair.generate().publicKey.toString());
+  assert.deepStrictEqual(none, { rows: [], complete: true });
+});
+
+test('Add funds and Withdrawals: an answer holds the newest 200 transfers at most', async () => {
+  const whale = Keypair.generate().publicKey.toString();
+  const long = [];
+  for (let i = 0; i < 260; i++) {
+    long.push({ sig: { signature: 'wsig' + String(i).padStart(3, '0'), blockTime: 1_800_000_000 - i, err: null },
+      meta: { err: null, preTokenBalances: [bal(whale, 9_000_000), bal(STRANGER, 9_000_000)],
+        postTokenBalances: [bal(whale, 10_000_000), bal(STRANGER, 8_000_000)] } });
+  }
+  chains[Usdc.ataFor(whale)] = long;
+  chainB.push(...long);   // so the stubbed getTransaction finds them
+  let page = { complete: false }, asks = 0;
+  while (!page.complete && asks < 10) { page = await Usdc.usdcTransfers(whale); asks++; }
+  assert.strictEqual(Usdc.TRANSFER_ROWS_MAX, 200);
+  assert.strictEqual(page.rows.length, 200);
+  assert.strictEqual(page.rows[0].signature, 'wsig000');
+  assert.strictEqual(page.rows[199].signature, 'wsig199', 'the newest 200, in order');
 });

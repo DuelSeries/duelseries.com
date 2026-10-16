@@ -47,19 +47,25 @@ test('the player\'s own address is shown short, on one line, with a Copy button,
   const w = read('public/js/v2/wallet.js');
   assert.ok(/a\.slice\(0, 4\) \+ '…' \+ a\.slice\(-4\)/.test(w), 'first and last four');
   assert.ok(/addrRow\('w-addr', addr\)/.test(w), 'the Wallet tab');
-  // Deposit opens the payment options straight away: no second sheet repeating the address.
-  assert.ok(/onclick="V2Wallet\.fund\(\)">Deposit<\/button>/.test(w) && !/depveil/.test(v2()), 'no Deposit sheet');
+  // Add funds opens the payment options straight away: no second sheet repeating the address.
+  assert.ok(/onclick="V2Wallet\.fund\(\)">Add funds<\/button>/.test(w) && !/depveil/.test(v2()), 'no Add funds sheet');
   assert.ok(/V2Wallet\.addrRow\('set-addr'/.test(v2()), 'and Settings');
   assert.ok(!/<code>' \+ esc\(addr\) \+ '<\/code>/.test(w), 'the full address is never printed');
   const css = v2().match(/\.waddr code\{[^}]*\}/)[0];
   assert.ok(/white-space:nowrap/.test(css), 'one line');
 });
 
-test('the wallet history pages with Show more and names game money as games', () => {
+test('the wallet history scrolls inside its card and asks for the next page near the end', () => {
   const w = read('public/js/v2/wallet.js');
   assert.ok(/'&before=' \+ encodeURIComponent\(before\)/.test(w), 'asks for the next page by cursor');
-  assert.ok(/id="w-more"/.test(w) && /more: more/.test(w), 'a Show more button');
+  assert.ok(!/id="w-more"/.test(w) && !/Show more/.test(w), 'no Show more button');
+  assert.ok(/id="w-tx" onscroll="V2Wallet\.txScroll\(\)"/.test(w), 'the scroll asks');
   assert.ok(/'Game payout' : 'Game entry'/.test(w), 'escrow transfers are named as games');
+  // Five rows tall: every row one height, the card five of them.
+  const css = v2();
+  const rowH = +css.match(/\.txl\.sc \.tx\{height:(\d+)px/)[1];
+  assert.strictEqual(+css.match(/\.txl\.sc\{max-height:(\d+)px/)[1], 5 * rowH);
+  assert.ok(new RegExp('const ROW_H = ' + rowH + ';').test(w), 'the script knows the row height');
 });
 
 test('a balance tick never redraws the wallet screen, and the hidden screen asks the chain for nothing', () => {

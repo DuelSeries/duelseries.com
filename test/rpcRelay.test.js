@@ -204,7 +204,47 @@ test('/api/my-transactions: a wallet must be an address, one answer per wallet i
     }
     assert.ok(statuses.slice(0, 30).every((s) => s === 200), statuses.join(','));
     assert.strictEqual(statuses[30], 429);
+    // The add funds list counts against the same limit: same reads, same screen.
+    r = await call('GET', '/api/my-transfers?wallet=' + W, undefined, { ip: '10.7.4.1' });
+    assert.strictEqual(r.status, 429);
   } finally {
     Usdc.usdcHistory = real;
+  }
+});
+
+test('/api/my-transfers: a wallet must be an address, a complete answer is shared for 30 s, one that stopped short is not kept', async () => {
+  const real = Usdc.usdcTransfers;
+  const asked = [];
+  let complete = false;
+  const row = { signature: 's', at: 1, usdc: 1, direction: 'in', peer: 'Bv1nRbcm1zZ8y6aWvzt4gBBZW2fFy1E3fC2CqgGFhb9A' };
+  Usdc.usdcTransfers = async (w) => { asked.push(w); return { rows: [row], complete }; };
+  try {
+    let r = await call('GET', '/api/my-transfers?wallet=not-a-wallet', undefined, { ip: '10.7.5.1' });
+    assert.strictEqual(r.status, 400);
+    r = await call('GET', '/api/my-transfers', undefined, { ip: '10.7.5.1' });
+    assert.strictEqual(r.status, 400);
+    assert.strictEqual(asked.length, 0, 'nothing asked of the chain');
+    const W = '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU';
+    r = await call('GET', '/api/my-transfers?wallet=' + W, undefined, { ip: '10.7.5.2' });
+    assert.strictEqual(r.status, 200);
+    assert.deepStrictEqual(r.json, { transfers: [row], complete: false });
+    r = await call('GET', '/api/my-transfers?wallet=' + W, undefined, { ip: '10.7.5.3' });
+    assert.deepStrictEqual(asked, [W, W], 'stopped short: the next ask reads on');
+    complete = true;
+    r = await call('GET', '/api/my-transfers?wallet=' + W, undefined, { ip: '10.7.5.4' });
+    assert.strictEqual(r.json.complete, true);
+    const [a, b] = await Promise.all([
+      call('GET', '/api/my-transfers?wallet=' + W, undefined, { ip: '10.7.5.5' }),
+      call('GET', '/api/my-transfers?wallet=' + W, undefined, { ip: '10.7.5.6' })]);
+    assert.strictEqual(a.status, 200);
+    assert.strictEqual(b.status, 200);
+    assert.deepStrictEqual(asked, [W, W, W], 'complete: kept, and the next two asks share it');
+    // A chain failure is a 502, and nothing is kept.
+    Usdc.usdcTransfers = async () => { throw new Error('429 Too Many Requests'); };
+    const W2 = 'Bv1nRbcm1zZ8y6aWvzt4gBBZW2fFy1E3fC2CqgGFhb9A';
+    r = await call('GET', '/api/my-transfers?wallet=' + W2, undefined, { ip: '10.7.5.7' });
+    assert.strictEqual(r.status, 502);
+  } finally {
+    Usdc.usdcTransfers = real;
   }
 });

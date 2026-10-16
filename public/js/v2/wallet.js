@@ -55,6 +55,11 @@
         'aria-label="Copy wallet address">' + COPY_ICON + '<span>Copy</span></button></div>';
   }
 
+  function clearMoves() {
+    mvGen++; clearTimeout(mvTimer);
+    const mv = el('w-moves'); if (mv) mv.innerHTML = '';
+  }
+
   /* The header readout. Signed out shows a dash, never $0.00. */
   function renderHeader() {
     const v = el('hdr-balance');
@@ -91,12 +96,14 @@
 
     if (!w().ready) {
       drawnFor = null;
+      clearMoves();
       body.innerHTML = '<div class="panel"><p class="note">Starting your wallet…</p></div>';
       return;
     }
     if (!connected()) {
       drawnFor = null;
       const earn = el('w-earn'); if (earn) earn.hidden = true;
+      clearMoves();
       body.innerHTML =
         '<div class="panel">' +
         '<div class="brow"><button class="btn pri" onclick="V2Wallet.login()">Sign in</button></div>' +
@@ -111,19 +118,19 @@
     const addr = w().address;
     const bal = Number(w().balance) || 0;
     body.innerHTML =
-      /* The balance leads, at the size of the thing it is. Deposit and
+      /* The balance leads, at the size of the thing it is. Add funds and
          Withdraw sit under it because they are what you came to do, and
          Refresh is beside them rather than hidden, because an on-chain
          balance can be a few seconds behind and the only honest answer to
          "is it there yet" is a button that asks again. */
       /* No "Available" over it and no "USDC on Solana" under it (Owen,
          2026-10-15): the big number on the Wallet tab is the balance, and the
-         deposit panel right below already says what it is held in. */
+         address panel right below already says what it is held in. */
       '<div class="wbal">' +
         '<div class="bnum num" id="w-bal">' + balMoney(bal) + '</div>' +
         /* The form lives in its own sheet now, so this row never swaps out. */
         ('<div class="wacts">' +
-            '<button class="btn pri" onclick="V2Wallet.fund()">Deposit</button>' +
+            '<button class="btn pri" onclick="V2Wallet.fund()">Add funds</button>' +
             '<button class="btn sec" onclick="V2Wallet.cashOut()">Withdraw</button>' +
             '<button class="btn sec wref" id="w-refresh" onclick="V2Wallet.refresh()" ' +
               'aria-label="Refresh balance" title="Refresh balance">' +
@@ -134,7 +141,9 @@
           '</div>') +
       '</div>' +
       '<div class="panel wdep">' +
-        '<div class="plab">Deposit address</div>' +
+        /* "Add funds", not "Deposit", everywhere (Owen, 2026-10-15); this is the
+           address the money is sent to, so it is named as what it is. */
+        '<div class="plab">Your wallet address</div>' +
         addrRow('w-addr', addr) +
         /* The one sentence kept. The rest of the copy on this screen was
            explanation; this is the only line whose absence can cost somebody
@@ -142,11 +151,14 @@
         '<p class="note">USDC on Solana only. Anything else is unrecoverable.</p>' +
       '</div>' +
       '<div class="head"><div><h2>Transactions</h2></div></div>' +
-      '<div class="txl" id="w-tx"><div class="none">Loading…</div></div>' +
-      '<button type="button" class="btn sec txmore" id="w-more" hidden ' +
-        'onclick="V2Wallet.more()">Show more</button>';
+      /* Five rows tall, the rest a scroll away inside the card, and the next
+         page asked for as the scroll nears the end (Owen, 2026-10-15). A Show
+         more button under a list that long was a page of buttons to tap. */
+      '<div class="txcard"><div class="txl sc" id="w-tx" onscroll="V2Wallet.txScroll()">' +
+        '<div class="none">Loading…</div></div></div>';
     drawnFor = addr;
     loadTx();
+    loadMoves();
     /* The earnings chart and the payout list, which used to be their own tab. */
     if (window.V2Stats) window.V2Stats.load();
   }
@@ -156,13 +168,20 @@
      deposits/withdrawals tables are vestigial from the custodial system.
 
      Every one of them, a page at a time: the server answers 20 and a cursor,
-     and Show more asks for the next 20 until the cursor runs out. A stake
+     and scrolling near the end of the card asks for the next 20 until the
+     cursor runs out. A stake
      goes to the game escrow and a payout comes back from it, so those are
      named as games rather than as a deposit and a withdrawal they are not. */
   let txFor = null, txNext = null, txBusy = false;
+  /* Which load of the list is current. Refresh starts a new one while a page
+     of the old one may still be on its way; that page is dropped instead of
+     being appended to the new list as duplicates. */
+  let txGen = 0;
   function txRow(t) {
     const inb = t.direction === 'in';
-    const name = t.game ? (inb ? 'Game payout' : 'Game entry') : (inb ? 'Deposit' : 'Withdrawal');
+    /* The player's own money is named by the button that moves it (Owen,
+       2026-10-15): Add funds and Withdraw, the same words as on the buttons. */
+    const name = t.game ? (inb ? 'Game payout' : 'Game entry') : (inb ? 'Add funds' : 'Withdraw');
     /* A real minus sign, the arrow kept from screen readers, and the link
        says where it goes: each row opens the transaction on Solscan. */
     return '<a class="tx" href="https://solscan.io/tx/' + esc(t.signature) + '" ' +
@@ -184,37 +203,68 @@
   async function loadTx() {
     const a = w().address; if (!a) return;
     txFor = a; txNext = null; txBusy = true;
-    const more = el('w-more'); if (more) more.hidden = true;
+    const gen = ++txGen;
     const page = await fetchTx(a);
+    if (gen !== txGen) return;                // a newer load owns the list now
     txBusy = false;
     const box = el('w-tx');
     if (!box || txFor !== a) return;          // screen changed under us
     if (!page) {
       box.innerHTML = '<div class="none">Could not load transactions. Tap refresh to try again.</div>';
-      return;
+      return edge(box);
     }
     if (!page.transactions.length) {
       box.innerHTML = '<div class="none">No transactions yet.</div>';
-      return;
+      return edge(box);
     }
+    box.scrollTop = 0;
     box.innerHTML = page.transactions.map(txRow).join('');
     txNext = page.next || null;
-    if (more) more.hidden = !txNext;
+    fill();
   }
+  /* The next page, at the end of the list. A row at the bottom says it is
+     coming, and a failed page leaves a row to tap that asks again, so a
+     dropped request never ends the list early without saying so. */
   async function more() {
-    const a = w().address, more = el('w-more');
-    if (!a || a !== txFor || !txNext || txBusy) return;
+    const a = w().address, box = el('w-tx');
+    if (!a || a !== txFor || !txNext || txBusy || !box) return;
     txBusy = true;
-    if (more) { more.disabled = true; more.textContent = 'Loading…'; }
+    const gen = txGen;
+    const old = box.querySelector('.txtail'); if (old) old.remove();
+    box.insertAdjacentHTML('beforeend', '<div class="none txtail">Loading…</div>');
     const page = await fetchTx(a, txNext);
+    if (gen !== txGen) return;                // refreshed meanwhile: not this list's page
     txBusy = false;
-    if (a !== txFor || !more) return;
-    more.disabled = false;
-    if (!page) { more.textContent = 'Could not load. Tap to try again.'; return; }
-    el('w-tx').insertAdjacentHTML('beforeend', page.transactions.map(txRow).join(''));
+    if (a !== txFor || el('w-tx') !== box) return;
+    const tail = box.querySelector('.txtail'); if (tail) tail.remove();
+    if (!page) {
+      box.insertAdjacentHTML('beforeend', '<button type="button" class="none txtail txretry" ' +
+        'onclick="V2Wallet.more()">Could not load more. Tap to try again.</button>');
+      return edge(box);
+    }
+    box.insertAdjacentHTML('beforeend', page.transactions.map(txRow).join(''));
     txNext = page.next || null;
-    more.textContent = 'Show more';
-    more.hidden = !txNext;
+    fill();
+  }
+  /* A page can be short (failed and empty transactions are left out), so a
+     list that does not reach the bottom of its card yet asks for the next
+     page itself: there would be no scroll to ask with. */
+  function fill() {
+    const box = el('w-tx'); if (!box) return;
+    edge(box);
+    if (txNext && box.scrollHeight - box.clientHeight < ROW_H) more();
+  }
+  const ROW_H = 62;   // one row, as .txl.sc .tx sets it
+  function txScroll() {
+    const box = el('w-tx'); if (!box) return;
+    edge(box);
+    // Two rows from the end, so the next page is usually there before the end is.
+    if (txNext && !txBusy && box.scrollTop + box.clientHeight >= box.scrollHeight - 2 * ROW_H) more();
+  }
+  /* The fade over the last row says there is more below, and goes once there
+     is not, so the end of the list never looks cut off. */
+  function edge(box) {
+    box.classList.toggle('more', box.scrollTop + box.clientHeight < box.scrollHeight - 4);
   }
   const when = ms => {
     if (!ms) return '';
@@ -223,12 +273,108 @@
     return d.toLocaleDateString('en-US', d.getFullYear() === new Date().getFullYear()
       ? { month: 'short', day: 'numeric' } : { month: 'short', day: 'numeric', year: 'numeric' });
   };
+  // The date and the time, for money the player moved themselves.
+  const whenAt = ms => {
+    if (!ms) return '';
+    const d = new Date(ms);
+    return d.toLocaleString('en-US', d.getFullYear() === new Date().getFullYear()
+      ? { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }
+      : { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+  };
+
+  /* Add funds and Withdrawals, in place of the old "Recent payouts" (Owen,
+     2026-10-15): the money the player moved in and out themselves, each with
+     the other wallet's address, short, and a button that copies all of it.
+     The server reads it off the chain and leaves out every transfer with the
+     house (server/Usdc.js usdcTransfers). A long history is read a part at a
+     time; while the answer says it stopped short, what it found shows and the
+     screen asks again, and the server carries on from there. */
+  let mvGen = 0, mvTimer = null;   // the current load, as txGen
+  function moveRow(t) {
+    const inb = t.direction === 'in';
+    const peer = typeof t.peer === 'string' && SOL_ADDR.test(t.peer) ? t.peer : '';
+    return '<div class="tx mv">' +
+      '<a class="mvl" href="https://solscan.io/tx/' + esc(t.signature) + '" ' +
+        'target="_blank" rel="noopener noreferrer" title="View on Solscan">' +
+        '<span class="txi ' + (inb ? 'in' : 'out') + '" aria-hidden="true">' + (inb ? '↓' : '↑') + '</span>' +
+        '<span class="txw"><span class="txn">' + (inb ? 'Add funds' : 'Withdraw') + '</span>' +
+          '<span class="txd">' + whenAt(t.at) + '</span></span></a>' +
+      '<span class="mvr">' +
+        '<span class="txa num ' + (inb ? 'in' : 'out') + '">' + (inb ? '+' : '−') + money(t.usdc) + '</span>' +
+        (peer
+          ? '<span class="mvp">' + (inb ? 'from ' : 'to ') +
+              '<code title="' + esc(peer) + '">' + esc(ownShort(peer)) + '</code>' +
+              '<button type="button" class="mcp" data-a="' + esc(peer) + '" ' +
+                'onclick="V2Wallet.copyPeer(this)" aria-label="Copy the ' +
+                (inb ? 'sender' : 'recipient') + ' address">' + COPY_ICON + '</button></span>'
+          : '') +
+      '</span></div>';
+  }
+  async function loadMoves(again, gen) {
+    const a = w().address; if (!a) return;
+    if (!again) { clearTimeout(mvTimer); gen = ++mvGen; again = 0; }
+    const sec = el('w-moves'); if (!sec) return;
+    if (!again) {
+      sec.innerHTML = '<div class="head"><div><h2>Add funds and Withdrawals</h2></div></div>' +
+        '<div class="txcard"><div class="txl sc" id="w-mv" onscroll="V2Wallet.mvScroll()">' +
+          '<div class="none">Loading…</div></div></div>';
+    }
+    let page = null;
+    try {
+      const r = await fetch('/api/my-transfers?wallet=' + encodeURIComponent(a));
+      const j = await r.json();
+      if (r.ok && Array.isArray(j.transfers)) page = j;
+    } catch (_) {}
+    const box = el('w-mv');
+    if (!box || gen !== mvGen || w().address !== a) return;   // a newer load, or another wallet
+    if (!page) {
+      // What an earlier part found stays; the row under it says the rest did not come.
+      const kept = box.querySelector('.mv');
+      const tail = '<div class="none txtail">Could not load ' + (kept ? 'the rest' : 'these') +
+        '. Tap refresh to try again.</div>';
+      if (kept) { const t = box.querySelector('.txtail'); if (t) t.remove(); box.insertAdjacentHTML('beforeend', tail); }
+      else box.innerHTML = tail;
+      return edge(box);
+    }
+    const rows = page.transfers.map(moveRow).join('');
+    const going = !page.complete && again < 40;
+    const top = box.scrollTop;
+    box.innerHTML = rows + (going ? '<div class="none txtail">Looking further back…</div>'
+      : rows ? '' : '<div class="none">Nothing added or withdrawn yet.</div>');
+    box.scrollTop = top;                       // a part arriving never jumps the list
+    edge(box);
+    if (going) mvTimer = setTimeout(() => { if (gen === mvGen) loadMoves(again + 1, gen); }, 600);
+  }
+  function mvScroll() { const b = el('w-mv'); if (b) edge(b); }
+  /* Copies the other wallet's whole address. Where the clipboard refuses, the
+     row shows it in full, selected, as the player's own address row does. */
+  function copyPeer(btn) {
+    const a = btn && btn.getAttribute('data-a'); if (!a) return;
+    const box = btn.parentNode;
+    const done = (ok) => {
+      if (!ok) {
+        const code = box.querySelector('code');
+        if (code) {
+          code.textContent = a; box.classList.add('full');
+          try { const r = document.createRange(); r.selectNodeContents(code);
+                const s = getSelection(); s.removeAllRanges(); s.addRange(r); } catch (_) {}
+        }
+        return;
+      }
+      box.classList.add('done');
+      clearTimeout(btn._t);
+      btn._t = setTimeout(() => box.classList.remove('done'), 1400);
+    };
+    try { navigator.clipboard.writeText(a).then(() => done(true), () => done(false)); }
+    catch (_) { done(false); }
+  }
   /* Asks the chain again for both numbers, and says it is doing it. */
   async function refresh() {
     const b = el('w-refresh'); if (b) b.classList.add('spin');
     try { if (window.duelWalletRefresh) await window.duelWalletRefresh(); } catch (_) {}
     // The earnings under it too: it was the one section refresh left as it was.
     if (window.V2Stats) window.V2Stats.load();
+    loadMoves();
     await loadTx();
     if (b) setTimeout(() => b.classList.remove('spin'), 300);
   }
@@ -296,7 +442,7 @@
   /* Cash out sends from the player's own wallet to an address they give us.
      The amount and destination are theirs; this screen only collects them and
      hands both to the widget, which owns every part of the money. */
-  /* Deposit opens the QR code and the card and exchange options straight
+  /* Add funds opens the QR code and the card and exchange options straight
      away (fund, above). It used to open our own sheet first, which repeated
      the address and warning already on the Wallet tab (Owen, 2026-10-15). */
 
@@ -423,7 +569,8 @@
     render(true);
   });
   window.V2Wallet = { render: render, login: login, fund: fund, copy: copy,
-                      refresh: refresh, more: more,
+                      refresh: refresh, more: more, txScroll: txScroll, mvScroll: mvScroll,
+                      copyPeer: copyPeer,
                       cashOut: cashOut, cancelCash: cancelCash, backCash: backCash,
                       max: max, submitCash: submitCash, confirmCash: confirmCash,
                       addrRow: addrRow, headerTap: headerTap };

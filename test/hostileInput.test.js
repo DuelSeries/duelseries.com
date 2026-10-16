@@ -278,6 +278,7 @@ test('no HTTP request of any shape ends the process', { timeout: 120000 }, async
   for (const url of ['/api/players/search?q[]=a&q[]=b', '/api/players/search?q[a]=1',
                      '/api/my-profile?wallet[]=a', '/api/my-profile?wallet[a]=1',
                      '/api/my-transactions?wallet[]=a', '/api/my-transactions?wallet[a]=1',
+                     '/api/my-transfers?wallet[]=a', '/api/my-transfers?wallet[a]=1',
                      '/api/stake-quote?stake[]=1', '/api/stake-quote?lobbyType[]=dime', '/api/stake-quote?lobbyType=constructor']) {
     const r = await call('GET', url);
     assert.ok(alive(), `GET ${url}: ${died()}`);

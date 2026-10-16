@@ -50,6 +50,8 @@ const REVENUE_WALLET = '24tf4BRDWvnAjFhpPxKczZSnWdUjKkVbXAc8x7Yj4Fff';
 /* The one address escrow may open a USDC account for (Usdc.js: escrow never pays a
    player's account rent). Needed only if the revenue wallet's account were ever closed. */
 money.allowAccountRentFor(REVENUE_WALLET);
+// Money to or from it is the house's, so a player's wallet history never lists it as their own.
+Usdc.markHouseAddress(REVENUE_WALLET);
 
 // Move a rake cut out of the escrow to the revenue wallet. Best-effort + non-blocking: the player's
 // payout already happened, so a failed sweep is queued to the failed-payout drainer (retried
@@ -453,6 +455,8 @@ const clientReportLimiter = rateLimit({ windowMs: 60 * 1000, max: 6, standardHea
 // /api/my-transactions costs a signature read plus one read per new transaction (a page is 20) per page it
 // has not answered in the last 30 s. The wallet screen asks once when it opens, so 30 a minute
 // per IP is far above any person and far below a loop (security review 2026-10-15).
+// /api/my-transfers shares this one count (the same reads, the same screen): at most 60 new reads an
+// ask, and the screen asks again only while the answer says it stopped short.
 const txHistoryLimiter = rateLimit({ windowMs: 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Slow down.' } });
 
 // ─── Entry fee ────────────────────────────────────────────────────────────────
@@ -1680,6 +1684,45 @@ function txHistoryFor(wallet, before) {
 }
 // A transaction signature: 64 bytes of base58, so 64 to 88 characters of its alphabet.
 const isTxSignature = (s) => /^[1-9A-HJ-NP-Za-km-z]{64,88}$/.test(s);
+/* The Wallet tab's "Add funds and Withdrawals": the wallet's USDC transfers whose other side is
+   not the house, each with that other side's address (Usdc.usdcTransfers). Public on the chain
+   like the list above, so it takes the address the same way and with the same checks. A complete
+   answer is shared for 30 s; one that stopped short is not kept, so the next ask reads on. At
+   most 500 wallets' answers are kept (each is 200 rows at most, Usdc.TRANSFER_ROWS_MAX). */
+const TX_TRANSFERS_MAX = 500;
+const txTransfersCache = new Map();  // wallet -> { at, page } or { at, pending }
+function txTransfersFor(wallet) {
+  const now = Date.now();
+  const hit = txTransfersCache.get(wallet);
+  if (hit && (hit.pending || now - hit.at < TX_HISTORY_TTL_MS)) return hit.pending || Promise.resolve(hit.page);
+  if (txTransfersCache.size >= TX_TRANSFERS_MAX) {
+    for (const [k, v] of txTransfersCache) {
+      if (!v.pending && now - v.at >= TX_HISTORY_TTL_MS) txTransfersCache.delete(k);
+    }
+    if (txTransfersCache.size >= TX_TRANSFERS_MAX) txTransfersCache.delete(txTransfersCache.keys().next().value);
+  }
+  const pending = Usdc.usdcTransfers(wallet).then(
+    (page) => {
+      if (page.complete) txTransfersCache.set(wallet, { at: Date.now(), page });
+      else txTransfersCache.delete(wallet);
+      return page;
+    },
+    (e) => { txTransfersCache.delete(wallet); throw e; });
+  txTransfersCache.set(wallet, { at: now, pending });
+  return pending;
+}
+app.get('/api/my-transfers', txHistoryLimiter, async (req, res) => {
+  const wallet = strOr(req.query.wallet, '').trim();
+  if (!wallet) return res.status(400).json({ error: 'No wallet' });
+  if (!isWalletString(wallet)) return res.status(400).json({ error: 'Invalid wallet' });
+  try {
+    const page = await txTransfersFor(wallet);
+    res.json({ transfers: page.rows, complete: page.complete });
+  } catch (e) {
+    console.error('[MY-TRANSFERS]', e.message);
+    res.status(502).json({ error: 'Could not reach the chain' });
+  }
+});
 app.get('/api/my-transactions', txHistoryLimiter, async (req, res) => {
   const wallet = strOr(req.query.wallet, '').trim();   // a string only: ?wallet[]=a threw
   if (!wallet) return res.status(400).json({ error: 'No wallet' });

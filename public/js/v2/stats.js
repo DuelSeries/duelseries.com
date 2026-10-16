@@ -65,10 +65,11 @@
       return;
     }
 
-    /* The graph alone. The "Recent payouts" list under it went (Owen,
-       2026-10-15): every payout is already a "Game payout" row in Transactions
-       above it. The graph is the shared one (chart.js V2EarningsChart), so a
-       player's profile draws exactly this line from exactly these rows. */
+    /* The chart, and nothing under it: the list that was here, Recent payouts,
+       is Add funds and Withdrawals now, the money the player moved themselves
+       (Owen, 2026-10-15; wallet.js loadMoves). Every payout is still a row of
+       Transactions. The graph is the shared one (chart.js V2EarningsChart), so
+       a player's profile draws exactly this line from exactly these rows. */
     el('s-body').innerHTML = '<div class="panel chartbox" id="s-chart"></div>';
     window.V2EarningsChart(el('s-chart'), games, p.joinedAt, money);
   }

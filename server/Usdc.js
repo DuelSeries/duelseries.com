@@ -211,9 +211,31 @@ function counterpartyOf(meta, owner, mint) {
   return best;
 }
 
-async function historyRow(owner, sig, escrow) {
+/* The house's own wallets besides the escrow (index.js names the revenue wallet, which the old
+   cosmetics shop was paid into). Money to or from any of them is game money, not the player's
+   own add funds or withdrawal. */
+const _houseAddrs = new Set();
+function markHouseAddress(address) { if (address) _houseAddrs.add(String(address)); }
+/* The escrow's address for labels only. Without the private key (a local server, a test) the
+   public one from the environment still names game money; with neither, nothing is a game. */
+function historyEscrow() {
+  try { return escrowPubkey().toString(); } catch (_) { return process.env.ESCROW_PUBLIC_KEY || null; }
+}
+
+/* One read per transaction, ever: two asks for the same one at once (the transaction list and
+   the add funds list open together) share the read instead of making it twice. */
+const _historyReading = new Map();
+function historyRow(owner, sig, escrow) {
   const key = owner + ':' + sig.signature;
-  if (_historyRows.has(key)) return _historyRows.get(key);
+  if (_historyRows.has(key)) return Promise.resolve(_historyRows.get(key));
+  if (_historyReading.has(key)) return _historyReading.get(key);
+  const p = readHistoryRow(owner, sig, escrow, key);
+  _historyReading.set(key, p);
+  const done = () => _historyReading.delete(key);
+  p.then(done, done);
+  return p;
+}
+async function readHistoryRow(owner, sig, escrow, key) {
   const tx = await historyGate(() => withRetry(() => connection.getTransaction(sig.signature,
     { commitment: 'confirmed', maxSupportedTransactionVersion: 0 })));
   if (!tx) return null;                 // not visible yet: asked again next time, never kept
@@ -222,13 +244,16 @@ async function historyRow(owner, sig, escrow) {
     const mint = USDC_MINT.toString();
     const delta = stakeDeltaUnits(tx.meta, owner, mint);
     if (delta !== 0n) {
+      // Who sent it (money in) or got it (money out). Public on the chain, like the rest of the row.
+      const peer = counterpartyOf(tx.meta, owner, mint);
       row = {
         signature: sig.signature,
         at: (sig.blockTime ? sig.blockTime * 1000 : (tx.blockTime ? tx.blockTime * 1000 : null)),
         usdc: toUsdc(delta < 0n ? -delta : delta),
         direction: delta > 0n ? 'in' : 'out',
         // A stake goes to the escrow and a payout comes from it; anything else is the player's own.
-        game: !!escrow && counterpartyOf(tx.meta, owner, mint) === escrow,
+        game: !!peer && (peer === escrow || _houseAddrs.has(peer)),
+        peer,
       };
     }
   }
@@ -244,8 +269,7 @@ async function usdcHistory(ownerAddress, opts) {
   const o = opts || {};
   const limit = Math.max(1, Math.min(HISTORY_PAGE_MAX, Number(o.limit) || 25));
   const ata = new PublicKey(ataFor(owner));
-  let escrow = null;
-  try { escrow = escrowPubkey().toString(); } catch (_) { /* no escrow key here: no game labels */ }
+  const escrow = historyEscrow();
   const rows = [];
   let before = o.before || undefined;
   // A page can hold only failed or zero-change transactions; read on, a few pages at most, so
@@ -267,6 +291,66 @@ async function usdcHistory(ownerAddress, opts) {
     if (rows.length) break;
   }
   return { rows, next: before || null };
+}
+
+/* The player's own money in and out (the Wallet tab's "Add funds and Withdrawals"): every USDC
+   transfer whose other side is not the house. These are a few rows among many games, so paging
+   the history 20 at a time could show an empty page for a long while; this walks the wallet's
+   signatures (one cheap read per 1000) and reads the transactions newest first, through the same
+   kept rows, gate and single reads as usdcHistory.
+
+   At most `reads` transactions not read before are read per ask, so one ask costs a bounded
+   amount however long the wallet's history is. When it stops short the answer says so
+   (complete: false) and holds every transfer newer than where it stopped, never one with a gap
+   above it; the next ask starts over from the newest, where everything is already kept, and
+   reads on. Rows are newest first: { signature, at, usdc, direction, peer }. The newest 200 at
+   most (a player's own transfers, years of them): every answer is kept in memory a while, so a
+   wallet with thousands of transfers (an exchange's, asked for on purpose) must not be able to
+   make one answer that size. */
+const TRANSFER_SIGS_MAX = 5000;
+const TRANSFER_READS_PER_ASK = 60;
+const TRANSFER_ROWS_MAX = 200;
+async function usdcTransfers(ownerAddress, opts) {
+  const owner = String(ownerAddress);
+  const o = opts || {};
+  const budget = Math.max(1, Math.min(TRANSFER_READS_PER_ASK, Number(o.reads) || TRANSFER_READS_PER_ASK));
+  const ata = new PublicKey(ataFor(owner));
+  const escrow = historyEscrow();
+  const sigs = [];
+  let before;
+  for (;;) {
+    let page;
+    try {
+      page = await withRetry(() => connection.getSignaturesForAddress(ata, { limit: 1000, before }));
+    } catch (e) {
+      if (ataNotFound(e)) return { rows: [], complete: true };
+      throw e;
+    }
+    page = page || [];
+    sigs.push(...page);
+    if (page.length < 1000 || sigs.length >= TRANSFER_SIGS_MAX) break;
+    before = page[page.length - 1].signature;
+  }
+  const ok = sigs.slice(0, TRANSFER_SIGS_MAX).filter(s => s && !s.err);
+  const rows = [];
+  let i = 0, fresh = 0;
+  while (i < ok.length) {
+    const chunk = [];
+    while (i < ok.length && chunk.length < 20) {
+      if (!_historyRows.has(owner + ':' + ok[i].signature)) {
+        if (fresh >= budget) break;
+        fresh++;
+      }
+      chunk.push(ok[i++]);
+    }
+    if (!chunk.length) break;
+    const got = await Promise.all(chunk.map(s => historyRow(owner, s, escrow)));
+    for (const r of got) {
+      if (r && !r.game) rows.push({ signature: r.signature, at: r.at, usdc: r.usdc, direction: r.direction, peer: r.peer || null });
+    }
+    if (rows.length >= TRANSFER_ROWS_MAX) return { rows: rows.slice(0, TRANSFER_ROWS_MAX), complete: true };
+  }
+  return { rows, complete: i >= ok.length };
 }
 
 /* Escrow never pays the rent for a player's USDC account (review finding, night queue item 5).
@@ -410,7 +494,7 @@ module.exports = {
   connection, NETWORK, USDC_MINT, USDC_DECIMALS, toUnits, toUsdc, withRetry, ataNotFound,
   escrowKeypair, escrowPubkey, escrowAta, stakeTargets,
   usdcBalanceOf, escrowUsdcBalance, verifyUsdcStake, verifyUsdcCredit, stakeDeltaUnits, ataFor,
-  usdcHistory,
+  usdcHistory, usdcTransfers, markHouseAddress, TRANSFER_ROWS_MAX,
   buildSignedUsdcPayout, withdrawUsdc, attemptPayout, getLatestBlockhash,
   RECIPIENT_NO_USDC_ACCOUNT, allowAccountRentFor, PAYOUT_SUPERSEDED,
 };
