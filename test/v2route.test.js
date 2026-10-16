@@ -1058,7 +1058,7 @@ test('every tab owns its own screen node, so a swipe between neighbours has two 
   const sw = fs.readFileSync(path.join(ROOT, 'public/js/v2/swipe.js'), 'utf8');
   /* Clips and Updates are PC only (Owen 2026-10-16): a phone never shows them,
      so the swipe, which is the phone's, leaves them out on purpose. */
-  const PC_ONLY = ['clips-screen', 'updates-screen'];
+  const PC_ONLY = ['clips-screen', 'updates-screen', 'join-screen'];
   for (const id of ids) {
     if (PC_ONLY.includes(id)) assert.ok(!sw.includes("'" + id + "'"), id + ' is not in the phone swipe');
     else assert.ok(sw.includes("'" + id + "'"), 'the swipe knows ' + id);
@@ -2081,7 +2081,7 @@ test('the Shop tab is gone: skins are bought in Customize, and an old Shop route
   const html = v2();
   const nav = html.slice(html.indexOf('const NAV=['), html.indexOf('];', html.indexOf('const NAV=[')));
   assert.ok(!/id:'shop'/.test(nav), 'no Shop in the nav');
-  assert.deepEqual([...nav.matchAll(/\{id:'(\w+)'/g)].map(m => m[1]), ['play', 'wallet', 'events', 'social', 'clips', 'updates', 'settings']);
+  assert.deepEqual([...nav.matchAll(/\{id:'(\w+)'/g)].map(m => m[1]), ['play', 'wallet', 'events', 'social', 'clips', 'updates', 'join', 'settings']);
   assert.ok(!/shop-screen|id="shop"|V2ShopTab|tab==='shop'/.test(html), 'no Shop screen, mount or route');
   const sw = fs.readFileSync(path.join(ROOT, 'public/js/v2/swipe.js'), 'utf8');
   assert.ok(sw.includes("const TABS = ['play', 'wallet', 'events', 'social', 'settings'];"), 'the swipe order matches the nav');

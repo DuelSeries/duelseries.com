@@ -1,0 +1,121 @@
+/* ─── Join us tab (public/js/v2/join.js), Owen's look 2 "Links", 2026-10-16 ────
+   One centred column, like a link page: a hand of DuelSeries games fanned over
+   the title, the Discord and the Whop clip team as two equal big rows, the
+   three socials as circles, then four small actions and the newest update.
+   Everything sits under #join-screen so no lobby class is touched. Brand colour
+   lives only inside the brand marks, the way game colour lives only in the game
+   art; the chrome stays the lobby's warm ink, bone and amber. PC only, like
+   Clips and Updates. */
+#join-screen{display:none}
+@media(max-width:760px),(hover:none) and (pointer:coarse){#join-screen{display:none!important}}
+
+#join-screen .jn{max-width:520px;margin:0 auto;padding:40px 0 96px;text-align:center}
+
+/* The hand of games. The middle card stands up straight; the others lean out
+   from one pivot below the hand, and the app icon sits over the bottom edge. */
+#join-screen .jn-fan{position:relative;height:178px;width:380px;max-width:100%;margin:0 auto}
+#join-screen .jn-fan img{position:absolute;left:50%;bottom:40px;width:80px;aspect-ratio:2/3;object-fit:cover;
+  border-radius:12px;background:var(--s2);transform-origin:50% 120%;
+  box-shadow:0 12px 28px rgba(0,0,0,.55),0 0 0 2px rgba(16,14,11,.9);
+  transform:translateX(calc(-50% + var(--f) * 60px)) translateY(var(--y)) rotate(calc(var(--f) * 9deg))}
+#join-screen .jn-fan .jn-c0{--f:0;--y:-22px;z-index:5}
+#join-screen .jn-fan .jn-c1{--f:-1;--y:-10px;z-index:4}
+#join-screen .jn-fan .jn-c2{--f:1;--y:-10px;z-index:4}
+#join-screen .jn-fan .jn-c3{--f:-2;--y:2px;z-index:3}
+#join-screen .jn-fan .jn-c4{--f:2;--y:2px;z-index:3}
+#join-screen .jn-fan .jn-icon{left:50%;bottom:0;width:84px;height:84px;aspect-ratio:auto;border-radius:24px;z-index:9;
+  transform:translateX(-50%);box-shadow:0 16px 34px rgba(0,0,0,.6),0 0 0 4px var(--bg)}
+
+#join-screen h2{margin-top:30px;font-size:36px;letter-spacing:-1.3px}
+#join-screen .jn-sub{color:var(--tx2);font-size:15px;line-height:1.5;margin:10px auto 0;max-width:40ch;text-wrap:pretty}
+
+/* Discord and the clip team: equal weight, one row each. */
+#join-screen .jn-big{display:flex;flex-direction:column;gap:12px;margin-top:30px}
+#join-screen .jn-lb{display:flex;align-items:center;gap:16px;text-align:left;min-height:84px;padding:12px 18px 12px 12px;
+  border-radius:var(--r3);background:var(--s1);transition:transform .2s cubic-bezier(.4,0,.2,1),background .15s}
+#join-screen a.jn-lb:hover{transform:translateY(-2px);background:var(--s2)}
+#join-screen .jn-m{width:60px;height:60px;border-radius:14px;flex:none;position:relative;overflow:hidden}
+#join-screen .jn-t{flex:1;min-width:0}
+#join-screen .jn-t b{display:block;font-size:17px;font-weight:700;letter-spacing:-.35px}
+#join-screen .jn-t span{display:block;font-size:13.5px;color:var(--tx2);margin-top:3px;line-height:1.4}
+#join-screen .jn-go{width:20px;height:20px;color:var(--tx3);flex:none}
+#join-screen a.jn-lb:hover .jn-go{color:var(--tx)}
+#join-screen .jn-soon{flex:none;font-size:12.5px;font-weight:650;color:var(--tx3);background:var(--s2);
+  padding:5px 10px;border-radius:var(--rf);white-space:nowrap}
+#join-screen .soon .jn-m{filter:saturate(.35) brightness(.65)}
+
+/* The brand marks, drawn here rather than shipped as images. */
+#join-screen .jn-dc{background:radial-gradient(130% 120% at 30% 0,#6b77ff 0,#5865f2 42%,#4752c4 100%)}
+/* A few slither food pellets round the edge: the DuelSeries side of the Discord mark. */
+#join-screen .jn-dc::before{content:"";position:absolute;left:0;top:0;width:3px;height:3px;border-radius:50%;
+  box-shadow:9px 8px 0 .5px #ffd84a,48px 9px 0 0 #7cf2ff,7px 46px 0 0 #ff7ad9,50px 49px 0 .5px #a4ff7a,29px 53px 0 0 rgba(255,255,255,.9),54px 28px 0 0 #ff9d4a}
+#join-screen .jn-dc svg{position:absolute;left:50%;top:50%;width:32px;height:32px;transform:translate(-50%,-50%);fill:#fff;
+  filter:drop-shadow(0 4px 8px rgba(20,18,90,.45))}
+#join-screen .jn-wh{background:radial-gradient(130% 120% at 70% 0,#ff7a45 0,#fa4616 45%,#d93a0e 100%)}
+#join-screen .jn-phone{position:absolute;left:50%;top:50%;height:46px;aspect-ratio:9/16;overflow:hidden;border-radius:5px;background:#1a1240;
+  transform:translate(-50%,-50%) rotate(-6deg);box-shadow:0 4px 10px rgba(80,14,0,.4),0 0 0 2px rgba(255,255,255,.92)}
+#join-screen .jn-phone img{display:block;width:100%;height:100%;object-fit:cover}
+
+/* The socials: three circles, each in its own brand's colours. */
+#join-screen .jn-soc{display:flex;justify-content:center;gap:14px;margin-top:24px}
+#join-screen .jn-sc{width:58px;height:58px;border-radius:50%;display:grid;place-items:center;position:relative;
+  transition:transform .2s cubic-bezier(.4,0,.2,1)}
+#join-screen a.jn-sc:hover{transform:translateY(-2px)}
+#join-screen .jn-sc>svg{width:22px;height:22px;fill:#fff}
+#join-screen .jn-x,#join-screen .jn-tt{background:#000;box-shadow:inset 0 0 0 1px rgba(255,255,255,.12)}
+#join-screen .jn-yt{background:#ff0033}
+#join-screen .jn-ttm{position:relative;display:block;width:22px;height:22px}
+#join-screen .jn-ttm svg{position:absolute;inset:0;width:100%;height:100%}
+#join-screen .jn-ttm .c{fill:#25f4ee;transform:translate(-5%,-4%)}
+#join-screen .jn-ttm .r{fill:#fe2c55;transform:translate(5%,4%)}
+#join-screen .jn-ttm .w{fill:#fff}
+/* Not set yet: one quiet look for all three, the lobby's own surface and muted
+   ink, so no brand colour turns muddy. */
+#join-screen .jn-sc.soon{background:var(--s2);box-shadow:none}
+#join-screen .jn-sc.soon>svg,#join-screen .jn-sc.soon .jn-ttm .w{fill:var(--tx3)}
+#join-screen .jn-sc.soon .jn-ttm .c,#join-screen .jn-sc.soon .jn-ttm .r{display:none}
+#join-screen .jn-soclbl{font-size:13px;color:var(--tx3);margin-top:10px}
+
+/* Four small actions in a 2x2. */
+#join-screen .jn-small{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:30px}
+#join-screen .jn-ls{display:flex;align-items:center;gap:11px;height:54px;padding:0 16px;border-radius:var(--r2);background:var(--s1);
+  font-size:14px;font-weight:650;text-align:left;color:var(--tx);transition:background .15s}
+#join-screen .jn-ls:hover{background:var(--s2)}
+#join-screen .jn-ls svg{width:18px;height:18px;color:var(--tx3);flex:none;transition:color .15s}
+#join-screen .jn-ls:hover svg{color:var(--tx)}
+#join-screen .jn-ls .jn-ok,#join-screen .jn-ls.copied .jn-cp{display:none}
+#join-screen .jn-ls.copied .jn-ok{display:inline}
+#join-screen .jn-ls.copied svg.jn-ok{display:block;color:var(--live)}
+
+/* The newest Updates post, one line. */
+#join-screen .jn-upd{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:6px 10px;margin-top:30px;font-size:13.5px;color:var(--tx2)}
+#join-screen .jn-upd[hidden]{display:none}
+#join-screen .jn-upd button{font-size:13.5px;font-weight:650;color:var(--tx);padding:4px 0}
+#join-screen .jn-upd button:hover{text-decoration:underline;text-underline-offset:3px}
+#join-screen .jn-tag{display:inline-flex;gap:6px;align-items:center;font-size:12px;font-weight:650;background:var(--s2);
+  border-radius:var(--r1);padding:3px 8px 3px 7px;color:var(--live)}
+#join-screen .jn-tag::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+#join-screen .jn-tag.t-fix{color:#8fb3d9}
+#join-screen .jn-tag.t-event{color:var(--money)}
+#join-screen .jn-tag.t-heads-up{color:#e58a8a}
+#join-screen .jn-mail{display:inline-block;font-size:13px;line-height:1;color:var(--tx3);margin-top:18px;padding:4px 0}
+#join-screen .jn-mail:hover{color:var(--tx2)}
+
+#join-screen svg.st{fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+#join-screen a.jn-sc:hover{filter:brightness(1.15)}
+@media(prefers-reduced-motion:reduce){#join-screen a.jn-lb:hover,#join-screen a.jn-sc:hover{transform:none}}
+
+/* A short screen (a 1280x720 laptop at 1.5x is 853x480): a smaller hand and
+   tighter spacing, so both doors still sit above the fold together. */
+@media(max-height:600px){
+  #join-screen .jn{padding-top:14px}
+  #join-screen .jn-fan{height:118px;width:280px}
+  #join-screen .jn-fan img{width:54px;bottom:28px;border-radius:9px;
+    transform:translateX(calc(-50% + var(--f) * 42px)) translateY(calc(var(--y) * .7)) rotate(calc(var(--f) * 9deg))}
+  #join-screen .jn-fan .jn-icon{width:60px;height:60px;border-radius:17px;bottom:0;transform:translateX(-50%)}
+  #join-screen h2{margin-top:16px;font-size:30px}
+  #join-screen .jn-sub{margin-top:6px}
+  #join-screen .jn-big{margin-top:16px;gap:10px}
+  #join-screen .jn-lb{min-height:72px;padding-top:8px;padding-bottom:8px}
+  #join-screen .jn-m{width:54px;height:54px}
+}

@@ -14,7 +14,7 @@ test('nav: Clips and Updates sit just above Settings, both marked PC only', () =
   const html = read('public/v2.html');
   const nav = html.slice(html.indexOf('const NAV=['), html.indexOf('];', html.indexOf('const NAV=[')));
   const ids = [...nav.matchAll(/\{id:'([a-z]+)'/g)].map(m => m[1]);
-  assert.deepStrictEqual(ids, ['play', 'wallet', 'events', 'social', 'clips', 'updates', 'settings']);   // no Shop since 2026-10-16
+  assert.deepStrictEqual(ids, ['play', 'wallet', 'events', 'social', 'clips', 'updates', 'join', 'settings']);   // no Shop, and a Join us tab, since 2026-10-16
   assert.match(nav, /\{id:'clips',[^}]*pc:1/);
   assert.match(nav, /\{id:'updates',[^}]*pc:1/);
   assert.match(html, /\$\{n\.pc\?' pconly':''\}/, 'drawNav marks them');

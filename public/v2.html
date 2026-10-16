@@ -36,6 +36,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400..700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/join.css">
 <style>
 /* ─────────────────────────────────────────────────────────────────────────
    Lobby v2. Mock data, real interactions.
@@ -2700,6 +2701,9 @@ body.scr-anim { overflow-x:hidden }
   <div id="up-list"></div>
 </main>
 
+<!-- Join us (public/js/v2/join.js, public/css/join.css): the Discord, the Whop clip team, socials. PC only. -->
+<main id="join-screen" class="wrap"></main>
+
 <div id="clveil" class="howveil" role="dialog" aria-modal="true" aria-label="Clip">
   <div id="clbox" class="clbox"></div>
 </div>
@@ -2813,6 +2817,7 @@ body.scr-anim { overflow-x:hidden }
 <script src="/js/v2/social.js"></script>
 <script src="/js/v2/clips.js"></script>
 <script src="/js/v2/updates.js"></script>
+<script src="/js/v2/join.js"></script>
 <script src="/js/v2/wallet.js"></script>
 <script src="/js/v2/stats.js"></script>
 <script src="/js/v2/board.js"></script>
@@ -4588,6 +4593,8 @@ const NAV=[
  {id:'updates',t:'Updates', d:'Everything new on DuelSeries, newest first.', pc:1,
   dot:()=>!!(window.V2Updates&&V2Updates.unread()),
   p:'M4 11v2a1 1 0 0 0 1 1h2l5 4V6L7 10H5a1 1 0 0 0-1 1zM16 9a4 4 0 0 1 0 6M18.5 6.5a7.5 7.5 0 0 1 0 11'},
+ {id:'join',   t:'Join us', d:'The Discord, the clip team, and our socials.', pc:1,
+  p:'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M19 8v6M22 11h-6'},
  {id:'settings',t:'Settings',d:'Graphics, sound, region and account preferences.',
   p:'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2v.1a2 2 0 1 1-4 0v-.2a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0-1.2-2.9H3a2 2 0 1 1 0-4h.2a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3h.1A1.7 1.7 0 0 0 10.3 3v-.1a2 2 0 1 1 4 0V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 2-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1a1.7 1.7 0 0 0 1.6 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z'},
 ];
@@ -4620,7 +4627,7 @@ function drawNav(){
    showing underneath another. The player profile has no nav slot of its
    own: it is reached from the board and keeps Social lit while it is up. */
 const SCREENS=['home','allgames','detail','settings-screen',
-               'wallet-screen','events-screen','social-screen','player-screen',
+               'wallet-screen','events-screen','social-screen','join-screen','player-screen',
                'clips-screen','updates-screen'];
 /* dir: +1 the new screen arrives from the right (you swiped forward), -1 from
    the left, 0 or omitted for no animation. Taps on the nav pass 0 on purpose:
@@ -4687,7 +4694,7 @@ function showScreen(id,dir){
    it away. Three calls, so swipe.js never has to know the screen ids or which
    module loads what. */
 const SCREEN_FOR={play:'home',wallet:'wallet-screen',events:'events-screen',
-                  social:'social-screen',settings:'settings-screen',clips:'clips-screen',updates:'updates-screen'};
+                  social:'social-screen',join:'join-screen',settings:'settings-screen',clips:'clips-screen',updates:'updates-screen'};
 window.V2_SCREEN_FOR=SCREEN_FOR;
 
 /* Put a tab's real content in place. Shared by the router and by the swipe,
@@ -4700,6 +4707,7 @@ function fillScreen(tab){
   else if(tab==='settings')drawSettings();
   else if(tab==='clips'&&window.V2Clips)V2Clips.render();
   else if(tab==='updates'&&window.V2Updates)V2Updates.render();
+  else if(tab==='join'&&window.V2Join)V2Join.render();
   /* Asked on arrival, not on the interval's own schedule. The page only polls
      while its screen is up, so opening the tab used to show a row of dashes
      until the first tick landed.
@@ -4981,7 +4989,7 @@ window.showScreen=showScreen;
 window.V2_LOOKS=AVATAR_LOOKS;
 /* Clips and Updates are PC only (see .pconly): on a phone, or a window that
    shrinks to one while they are up, they are Home. */
-const PC_ONLY=new Set(['clips','updates']);
+const PC_ONLY=new Set(['clips','updates','join']);
 const PHONEISH=matchMedia('(max-width:760px),(hover:none) and (pointer:coarse)');
 PHONEISH.addEventListener('change',e=>{if(e.matches&&PC_ONLY.has(route))go('play')});
 function go(id,dir){
