@@ -50,10 +50,13 @@ const PAID_READ_S = ['foods', 'foods_c'];
 // slxBr.js alone reads their minimap geometry, the way their own dot is placed (slHud.js oefDot), to draw the battle
 // royale's circle on it: read only, and only on an event page.
 const BR_READ_S = ['myloc', 'mmrad', 'flux_grd', 'grd'];
-// slxHud.js alone reads their HUD boxes (Owen 2026-10-16: the phone leaderboard, the length box hidden, the stats line
-// under the minimap): the element references only, never a field of their state, and it writes only inline styles
-// their client never writes (slxHud.js header).
+// slxHud.js alone reads their HUD boxes (Owen 2026-10-16: their board and length box hidden, the shared board filled
+// from their rows, the stats line under the minimap): the element references only, never a field of their state and
+// never their slHud module, and it writes only inline styles their client never writes (slxHud.js header).
 const HUD_READ_S = ['lbh', 'lbs', 'lbn', 'lbp', 'lbf', 'loch'];
+// slxCard.js alone reads their best rank this connection (slApply.js:768), read only, for the shared card's Top rank
+// (Owen 2026-10-16: time, rank and length on every game's card). No other seam carries it: their HUD never shows it.
+const CARD_READ_S = ['best_rank'];
 const WRITE_S = ['render_mode', 'xm', 'ym'];
 // The 12 blank picture canvases (public/js/sl/slSprites.js:411-424), drawn into once each (Q3, T18).
 const PICTURE_S = ['kwkbulb', 'jmou', 'pwdbulb', 'sest', 'playbulb', 'bonkbulb', 'leafbulb', 'swissbulb', 'moldovabulb',
@@ -109,7 +112,7 @@ test('frozen members: only the 15.1 seams', () => {
     for (const m of s.matchAll(/\bS\.([A-Za-z_$][\w$]*)/g)) {
       assert.ok(READ_S.includes(m[1]) || WRITE_S.includes(m[1]) || PICTURE_S.includes(m[1]) ||
         (f === 'slxPaid.js' && PAID_READ_S.includes(m[1])) || (f === 'slxBr.js' && BR_READ_S.includes(m[1])) ||
-        (f === 'slxHud.js' && HUD_READ_S.includes(m[1])),
+        (f === 'slxHud.js' && HUD_READ_S.includes(m[1])) || (f === 'slxCard.js' && CARD_READ_S.includes(m[1])),
         f + ': S.' + m[1]);
     }
     for (const m of s.matchAll(/\bS\.([A-Za-z_$][\w$]*)\s*=(?!=)/g)) assert.ok(WRITE_S.includes(m[1]), f + ': writes S.' + m[1]);

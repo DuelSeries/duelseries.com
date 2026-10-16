@@ -1,6 +1,7 @@
 'use strict';
-// agHud (build brief 9.2 "agHud.js", client-hud sections 4, 5 and 10): leaderboard layout and
-// cache, score and message panels, dim layer, the invisible arrow block, low-FPS warning.
+// agHud (build brief 9.2 "agHud.js", client-hud sections 4, 5 and 10): score and message panels, dim layer, the
+// invisible arrow block, low-FPS warning. The leaderboard is the shared DOM board now (agScreens.createBoard,
+// test/agScreens.test.js), so the HUD draws none.
 // A fake 2D context records calls the way the replay harness does (method calls, property
 // writes and canvas size writes, in order).
 const test = require('node:test');
@@ -47,104 +48,26 @@ const mainCalls = (rec, main) => rec.log.filter((c) => c[0] === main.canvas.id);
 const baseState = (over) => Object.assign({ mode: 0, state: 0, spectating: false, connected: true, ownCount: 1,
   fadeout: false, highestMass: 0, camX: 0, camY: 0, target: null }, over || {});
 
-// --- leaderboard layout: the brief's card numbers ---------------------------------------
-test('leaderboard layout at 1920x1080 with 10 rows', () => {
-  const L = H.layoutLeaderboard(1920, 1080, 10, 0);
-  assert.strictEqual(L.q, 1);
-  assert.strictEqual(L.scale, 1.2);
-  assert.deepStrictEqual([L.width, L.height], [300, 348]);
-  assert.deepStrictEqual([L.x, L.y], [1605, 15]);
-  assert.strictEqual(L.titleFont, 30);
-  assert.strictEqual(L.titleY, 40);
-  assert.strictEqual(L.rowFont, 18);
-  assert.strictEqual(L.rowX, 15);
-  for (let r = 0; r < 10; r++) assert.strictEqual(L.rowY(r), 70 + 22 * r);
-});
-
-test('leaderboard layout at 1920x990 and 1366x678', () => {
-  const a = H.layoutLeaderboard(1920, 990, 10, 0);
-  assert.strictEqual(a.q.toFixed(6), '0.916667');
-  assert.deepStrictEqual([a.width, a.height, a.x, a.y], [274, 318, 1633, 13]);
-  assert.deepStrictEqual([a.titleFont, a.titleY, a.rowFont, a.rowY(0)], [27, 36, 16, 64]);
-  const b = H.layoutLeaderboard(1366, 678, 10, 0);
-  assert.deepStrictEqual([b.width, b.height, b.x, b.y], [187, 217, 1170, 9]);
-  assert.deepStrictEqual([b.titleFont, b.titleY, b.rowFont, b.rowY(0)], [18, 25, 11, 43]);
-  const c = H.layoutLeaderboard(3840, 1980, 10, 0);
-  assert.deepStrictEqual([c.width, c.height, c.x, c.y], [549, 637, 3264, 27]);
-});
-
-test('leaderboard layout of the golden canvas 1280x630 (4 and 5 rows)', () => {
-  assert.deepStrictEqual([H.layoutLeaderboard(1280, 630, 4, 0).width, H.layoutLeaderboard(1280, 630, 4, 0).height], [174, 109]);
-  assert.strictEqual(H.layoutLeaderboard(1280, 630, 5, 0).height, 124);
-  assert.strictEqual(H.layoutLeaderboard(1280, 630, 4, 0).x, 1098);
-});
-
-// --- leaderboard cache rendering -----------------------------------------------------------
-test('board render: canvas size, scale 1.2, box, title, rows, own row colour', () => {
-  const { rec, hud } = setup(1920, 1080);
-  const before = rec.log.length;
-  hud.setBoard([{ name: 'alpha' }, { name: 'beta' }, { me: true, name: 'server name ignored' }, { name: '' }], 'owen');
-  const calls = rec.log.slice(before);
-  const id = hud.lbCtx.canvas.id;
-  assert.ok(calls.every((c) => c[0] === id));
-  const q = calls.map((c) => c.slice(1));
-  assert.deepStrictEqual(q.slice(0, 9), [
-    ['=canvas.width', 300], ['=canvas.height', Math.trunc(1.2 * 158)],
-    ['scale', 1.2, 1.2], ['=globalAlpha', 0.4], ['=fillStyle', 'rgb(0,0,0)'], ['fillRect', 0, 0, 250, 158],
-    ['=globalAlpha', 1], ['=fillStyle', 'rgb(255,255,255)'], ['=font', '30px Ubuntu']]);
-  assert.deepStrictEqual(q[9], ['measureText', 'Leaderboard']);
-  const tw = fakeMeasure('30px', 'Leaderboard');
-  assert.deepStrictEqual(q[10], ['fillText', 'Leaderboard', Math.trunc(125 - tw * 0.5), 40]);
-  assert.deepStrictEqual(q.slice(11), [
-    ['=fillStyle', 'rgb(255,255,255)'], ['=font', '18px Ubuntu'], ['fillText', '1. alpha', 15, 70],
-    ['=fillStyle', 'rgb(255,255,255)'], ['=font', '18px Ubuntu'], ['fillText', '2. beta', 15, 92],
-    ['=fillStyle', 'rgb(255,170,170)'], ['=font', '18px Ubuntu'], ['fillText', '3. owen', 15, 114],
-    ['=fillStyle', 'rgb(255,255,255)'], ['=font', '18px Ubuntu'], ['fillText', '4. An unnamed cell', 15, 136]]);
-});
-
-test('board: an own row past the top 10 is drawn as an extra row with its list position', () => {
-  const { rec, hud } = setup(1920, 1080);
-  const rows = [];
-  for (let i = 0; i < 14; i++) rows.push({ name: 'p' + i });
-  rows[12] = { me: true };
-  const before = rec.log.length;
-  hud.setBoard(rows, 'owen');
-  const texts = rec.log.slice(before).filter((c) => c[1] === 'fillText').map((c) => [c[2], c[4]]);
-  assert.strictEqual(texts.length, 12);
-  assert.deepStrictEqual(texts[10], ['10. p9', 268]);
-  assert.deepStrictEqual(texts[11], ['13. owen', 290]);
-  const sz = rec.log.slice(before).filter((c) => c[1] === '=canvas.height')[0][2];
-  assert.strictEqual(sz, Math.trunc(1.2 * (11 * 22 + 70)));
-});
-
-test('board blit: drawn top-right only with content and names on (traps T4, T8)', () => {
+// --- no board on the canvas (Owen 2026-10-16: the shared board) ------------------------------------------------
+test('the HUD draws no leaderboard: no board cache, no blit, no board API', () => {
   const { rec, main, hud } = setup(1920, 1080);
-  hud.render(main, baseState());
-  assert.ok(!mainCalls(rec, main).some((c) => c[1] === 'drawImage' && String(c[2]).startsWith('<canvas 300')));
-  hud.setBoard([{ name: 'a' }], 'me');
+  for (const k of ['setBoard', 'lbCtx', 'lbEntries', 'lbHasContent', 'setLocalNick']) assert.strictEqual(hud[k], undefined, k);
+  for (const k of ['layoutLeaderboard', 'fitRow']) assert.strictEqual(H[k], undefined, k);
+  assert.strictEqual(H.TEXT.title, undefined);
   rec.log.length = 0;
-  hud.render(main, baseState());
-  const blit = mainCalls(rec, main)[0];
-  assert.deepStrictEqual(blit.slice(1), ['drawImage', '<canvas 300x' + Math.trunc(1.2 * 92) + '>', 1920 - (300 + 15), 15]);
-  hud.setNames(false);
-  rec.log.length = 0;
-  hud.render(main, baseState());
-  assert.notStrictEqual(mainCalls(rec, main)[0][1], 'drawImage');
-  hud.setNames(true);
-  hud.setBoard([], 'me');
-  rec.log.length = 0;
-  hud.render(main, baseState());
-  assert.notStrictEqual(mainCalls(rec, main)[0][1], 'drawImage');
+  hud.render(main, baseState({ highestMass: 20 }));
+  const m = mainCalls(rec, main).map((c) => c[1]);
+  assert.ok(m.indexOf('drawImage') > m.indexOf('arcTo'), 'the first image is the score text, inside its panel');
+  assert.ok(!rec.log.some((c) => c[1] === 'fillText' && c[2] === 'Leaderboard'));
 });
 
-test('board is re-rendered when the canvas size changes', () => {
+test('frameStart reports a size change and draws nothing', () => {
   const { rec, hud } = setup(1920, 1080);
-  hud.setBoard([{ name: 'a' }], 'me');
   const n = rec.log.length;
   assert.strictEqual(hud.frameStart(1920, 1080), false);
-  assert.strictEqual(rec.log.length, n);
   assert.strictEqual(hud.frameStart(1366, 678), true);
-  assert.deepStrictEqual(rec.log[n].slice(1), ['=canvas.width', 187]);
+  assert.strictEqual(rec.log.length, n, 'no canvas writes');
+  assert.deepStrictEqual([hud.W, hud.H], [1366, 678]);
 });
 
 // --- score panel ------------------------------------------------------------------------------
@@ -345,18 +268,16 @@ test('low-FPS warning needs the player alive; a fast second resets the count', (
   assert.strictEqual(hud.debug().slowVisible, false);
 });
 
-test('frame order: board blit, score, dim layer, arrow', () => {
+test('frame order: score, dim layer, arrow', () => {
   const { rec, main, hud } = setup(1280, 630);
-  hud.setBoard([{ name: 'a' }], 'me');
   hud.render(main, baseState({ highestMass: 20 }));
   rec.log.length = 0;
   hud.render(main, baseState({ highestMass: 20 }));
   const m = mainCalls(rec, main).map((c) => c[1]);
-  const iBlit = m.indexOf('drawImage');
   const iBox = m.indexOf('arcTo');
   const iDim = m.indexOf('fillRect');
   const iArrow = m.indexOf('save');
-  assert.ok(iBlit === 0 && iBlit < iBox && iBox < iDim && iDim < iArrow);
+  assert.ok(iBox >= 0 && iBox < iDim && iDim < iArrow);
 });
 
 test('no Math.random, no Date in the HUD', () => {
@@ -366,11 +287,10 @@ test('no Math.random, no Date in the HUD', () => {
 });
 
 // Review fix: the whole-client reset on every connect and disconnect (client-camera-input 2) clears the alive flag,
-// the low-FPS counters (the warning can show again), the board list and its content flag, and drops the panels.
-test('reset: alive, low-FPS counters, board and panels go back to their start values', () => {
+// the low-FPS counters (the warning can show again) and drops the panels.
+test('reset: alive, low-FPS counters and panels go back to their start values', () => {
   const { rec, main, hud } = setup(1920, 990);
   hud.onSpawn();
-  hud.setBoard([{ name: 'a' }, { me: true }], 'me');
   rec.log.length = 0;
   hud.render(main, baseState({ highestMass: 400 }));
   assert.ok(hud.scorePanel, 'the score panel exists after a frame alive');
@@ -378,19 +298,16 @@ test('reset: alive, low-FPS counters, board and panels go back to their start va
   for (let i = 0; i < 6; i++) hud.everySecond(5);
   for (let i = 0; i < 11; i++) hud.everySecond(60);
   assert.strictEqual(hud.debug().slowShown, -1, 'used up for the session');
-  assert.strictEqual(hud.debug().lbHasContent, true);
   hud.reset();
   assert.strictEqual(hud.alive, false);
   assert.deepStrictEqual([hud.slowCount, hud.slowShown, hud.slowVisible], [0, 0, false]);
-  assert.deepStrictEqual(hud.lbEntries, []);
-  assert.strictEqual(hud.lbHasContent, false);
   assert.deepStrictEqual([hud.scorePanel, hud.hintPanel, hud.slowPanel, hud.rebootPanel], [null, null, null, null]);
-  // Nothing of the old life draws over the menu: no score box, no board blit.
+  // Nothing of the old life draws over the menu: no score box.
   rec.log.length = 0;
   hud.render(main, baseState({ ownCount: 0, highestMass: 0, fadeout: true }));
   const m = mainCalls(rec, main).map((c) => c[1]);
   assert.ok(!m.includes('arcTo'), 'no score panel');
-  assert.strictEqual(m.filter((c) => c === 'drawImage').length, blitsAlive - 2, 'no leaderboard blit and no score text (the arrow label block still runs)');
+  assert.strictEqual(m.filter((c) => c === 'drawImage').length, blitsAlive - 1, 'no score text (the arrow label block still runs)');
   // The warning can show again after a reconnect.
   hud.onSpawn();
   for (let i = 0; i < 6; i++) hud.everySecond(5);

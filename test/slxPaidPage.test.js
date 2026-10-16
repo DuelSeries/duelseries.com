@@ -23,7 +23,8 @@ const path = require('path');
 const { makePage, ROOT } = require('./slxHudFakes.js');
 
 const SLX_DIR = path.join(ROOT, 'public', 'js', 'slx');
-const LAYER = ['slxNet.js', 'slxPaid.js', 'slxMain.js', 'slxCard.js', 'slxSound.js'];
+// dsEnd.js first: the composed page loads the shared end screens before the slx tail (server/sl/slBoot.js slxTail).
+const LAYER = ['dsEnd.js', 'slxNet.js', 'slxPaid.js', 'slxMain.js', 'slxCard.js', 'slxSound.js'];
 const plain = (x) => JSON.parse(JSON.stringify(x));
 const TOKEN = 'tok-' + 'a1b2c3d4e5f6'.repeat(4);   // 52 chars, under the door's FIELD_MAX 64
 const KEY = '0b5e8c1a-2f3d-4a5b-8c6d-7e8f9a0b1c2d';
@@ -583,8 +584,11 @@ test('cards: lost, closed, refused (with and without a refund), a drop with mone
   L.sock().fire('sl:f', [{ type: 'dead' }]);
   L.hooks.onMenuShow();
   let st = L.D.slx.card.state();
-  assert.deepStrictEqual([st.kind, st.title, st.again, st.againShown], ['dead', 'Match Results', 'Play again $0.50', true]);
+  assert.deepStrictEqual([st.kind, st.title, st.again, st.againShown], ['dead', 'You died', 'Play again $0.50', true]);
+  // the shared card (dsEnd): the server's lost worth as the big figure, in the loss colour, no money rows
+  assert.deepStrictEqual([st.tone, st.hero, st.unit, plain(st.ledger), st.status], ['loss', '−$0.53', 'lost', [], '']);
   assert.deepStrictEqual(plain(st.lines), ['Your $0.53 dropped as gold for the other snakes.']);
+  assert.match(L.D.slx.card.element.className, /\bt-loss\b/);
 
   const C = paidPage();
   seat(C);
@@ -646,11 +650,18 @@ test('cashed: gross, the house 10%, you receive, then GET /api/sl/cashout/:cid e
   assert.strictEqual(P.D.slx.paid.state().locked, false, 'cashed: unlocked');
   P.hooks.onMenuShow();
   let st = P.D.slx.card.state();
-  assert.deepStrictEqual([st.title, st.again], ['Cashed Out', 'Play again $0.50']);
-  assert.deepStrictEqual(plain(st.lines), ['Cash-out: $0.53', 'House 10%: $0.05', 'You receive: $0.47', 'Sending to your wallet...']);
-  const notes = P.find('slx-card-note');
-  assert.deepStrictEqual(notes.map((n) => n.className), ['slx-card-note', 'slx-card-note', 'slx-card-note slx-paid-take',
-    'slx-card-note slx-paid-status']);
+  assert.deepStrictEqual([st.title, st.again], ['Cashed out', 'Play again $0.50']);
+  // the shared card (dsEnd): the server's net as the big figure, its gross, cut and net as the money rows
+  assert.deepStrictEqual([st.tone, st.hero, st.unit], ['win', '$0.47', 'to your wallet']);
+  assert.deepStrictEqual(plain(st.ledger), ['Cashed out $0.53', 'House 10% −$0.05', 'You receive $0.47']);
+  assert.strictEqual(st.status, 'Sending to your wallet...');
+  assert.deepStrictEqual(plain(st.lines), []);
+  const rows = P.find('dse-lr');
+  assert.deepStrictEqual(rows.map((r) => [r.className, r.textContent]), [['dse-lr', 'Cashed out$0.53'],
+    ['dse-lr', 'House 10%−$0.05'], ['dse-lr net', 'You receive$0.47']], 'the net row last');
+  assert.deepStrictEqual(P.find('dse-st').map((n) => [n.className, n.textContent]), [['dse-st', 'Sending to your wallet...']],
+    'pending: the plain status dot');
+  assert.strictEqual(P.find('dse-big')[0].textContent, '$0.47');
   assert.strictEqual(P.fetches.length, 0, 'the first ask waits POLL_MS');
   P.raf(1, 2000);
   await flush();
@@ -663,7 +674,10 @@ test('cashed: gross, the house 10%, you receive, then GET /api/sl/cashout/:cid e
   P.raf(1, 2000);
   await flush();
   st = P.D.slx.card.state();
-  assert.strictEqual(plain(st.lines)[3], 'Sent to your wallet.');
+  assert.strictEqual(st.status, 'Sent to your wallet.');
+  assert.deepStrictEqual(P.find('dse-st').map((n) => [n.className, n.textContent]), [['dse-st ok', 'Sent to your wallet.']],
+    'sent: the status turns ok on the card on screen');
+  assert.deepStrictEqual(plain(st.ledger), ['Cashed out $0.53', 'House 10% −$0.05', 'You receive $0.47'], 'the rows stay');
   P.raf(5, 2000);
   await flush();
   assert.strictEqual(P.fetches.length, 3, 'stops once sent');
@@ -862,9 +876,11 @@ test('surfaces: the free card is unchanged with slxPaid loaded (no hook answers)
   P.S.lastscore.innerHTML = '<span>Your final length was </span><b>12</b>';
   P.hooks.onMenuShow();
   const st = P.D.slx.card.state();
-  assert.deepStrictEqual([st.title, st.length, st.again, st.againShown, plain(st.lines)], ['Match Results', '12', 'Play again', true, []]);
-  assert.strictEqual(P.find('slx-card-notes').length, 0, 'no lines box on a free card');
-  assert.strictEqual(P.D.slx.card.element.textContent, 'Match ResultsYour final length was 12Play againLobby');
+  assert.deepStrictEqual([st.title, st.length, st.again, st.againShown, plain(st.lines)], ['You died', '12', 'Play again', true, []]);
+  assert.deepStrictEqual([st.tone, st.hero, st.unit, plain(st.ledger), st.status], ['plain', '12', 'length', [], '']);
+  assert.strictEqual(P.find('dse-note').length + P.find('dse-led').length + P.find('dse-st').length, 0,
+    'no lines, money rows or status on a free card');
+  assert.strictEqual(P.D.slx.card.element.textContent, 'You died12lengthTime0:00Play againLobby');
   const src = fs.readFileSync(path.join(SLX_DIR, 'slxPaid.js'), 'utf8');
   assert.ok(!/localStorage/.test(src.replace(/\/\/.*$/gm, '')), 'slxPaid never touches localStorage');
   assert.ok(!src.includes(String.fromCharCode(0x2014)), 'no em dash');

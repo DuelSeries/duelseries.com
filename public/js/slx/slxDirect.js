@@ -12,8 +12,8 @@
 //
 // Play calls their Play (DuelSlither.play). The button then says "Starting" until their menu shows again (a life
 // ended, 'menuShow') or the socket closed before any life (a refusal or a failed connect: their client unlocks Play
-// then, slApply.js:1252-1262, and never shows the menu). At that point the results card (an element of class
-// slx-card, slxCard.js, T17) takes the menu over and this panel hides for good; on a page without the card it comes
+// then, slApply.js:1252-1262, and never shows the menu). At that point the results card (slx.card,
+// slxCard.js, T17) takes the menu over and this panel hides for good; on a page without the card it comes
 // back as Play. Typing never reaches their key handlers, and a click or tap never reaches their boost (slx.guard).
 (function (root) {
   'use strict';
@@ -65,7 +65,7 @@
   // After a life or a refusal the results card (slxCard, T17: Play again, Try again, Lobby, under the same name) owns
   // the menu, so the panel steps aside for good when the page has one; without it the panel comes back as Play.
   function after() {
-    if (doc.querySelector && doc.querySelector('.slx-card')) {
+    if (slx.card) {
       panel.style.display = 'none';
       return;
     }

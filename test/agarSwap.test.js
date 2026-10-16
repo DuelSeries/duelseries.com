@@ -346,7 +346,7 @@ test('inside the lobby frame: a Lobby button while the menu is open, game:done o
   p.menu.hidden = true; p.notify();
   assert.ok(!btn.classList.contains('on'), 'hidden while playing on a mouse screen');
   p.menu.hidden = false; p.notify();
-  assert.ok(btn.classList.contains('on'), 'back with the Esc menu or the Match Results panel');
+  assert.ok(btn.classList.contains('on'), 'back with the Esc menu');
   btn.click();
   assert.deepStrictEqual(p.posted, [['game:done', '*']], 'the message every game page sends to go back');
 

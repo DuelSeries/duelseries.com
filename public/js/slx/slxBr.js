@@ -522,11 +522,15 @@
   function decided() {
     return !!st && (st.state === 'over' || st.state === 'reopening');
   }
-  function podiumLines() {
+  // The top 3 for the card: { rank, name, me } (the podium has names only: a win is place 1, else the own name).
+  function podiumRows(won) {
     var out = [];
-    var words = ['1st', '2nd', '3rd'];
+    var mine = D.slMain && typeof D.slMain.nick === 'string' ? D.slMain.nick : '';
     var p = st && Array.isArray(st.podium) ? st.podium : [];
-    for (var i = 0; i < p.length && i < 3; i++) out.push(words[i] + '  ' + p[i].name);
+    for (var i = 0; i < p.length && i < 3; i++) {
+      var name = String(p[i].name || '');
+      out.push({ rank: i + 1, name: name, me: won ? i === 0 : !!mine && name === mine && mode === 'play' });
+    }
     return out;
   }
   function nextLine() {
@@ -544,15 +548,22 @@
     if (kind === 'nobody') return { title: 'Nothing to watch', lines: ['The match is over.'], again: 'Play' };
     if (decided()) {
       var won = st.winner && lastMyId && st.winner.id === lastMyId && mode === 'play';
-      var lines = podiumLines();
+      var lines = [];
+      // The shared card (slxCard, dsEnd): the podium as its rows, a win's place as the big figure, the prize as money.
+      var view = { title: won ? 'You won!' : 'Match over', podium: podiumRows(won), lines: lines,
+        again: st.state === 'reopening' || st.state === 'over' ? { text: 'Next match opening', disabled: true } : 'Play' };
       if (won) {
-        lines.push(st.soloRun ? 'Solo test run: no prize.'
-          : st.prize > 0 && proven ? PRIZE_WORDS + ' is on its way to your wallet.'
-            : 'The prize is settled by hand.');
+        view.tone = 'win';
+        view.hero = '1st';
+        view.unit = st.startedCount > 1 ? 'of ' + st.startedCount : '';
+        if (st.soloRun) lines.push('Solo test run: no prize.');
+        else if (st.prize > 0 && proven) {
+          view.ledger = [['Prize', PRIZE_WORDS]];
+          view.status = { text: 'Sending to your wallet', state: 'pending' };
+        } else lines.push('The prize is settled by hand.');
       }
       else if (st.prize > 0) lines.push('First place took ' + PRIZE_WORDS + '.');
-      return { title: won ? 'You won!' : 'Match over', lines: lines,
-        again: st.state === 'reopening' || st.state === 'over' ? { text: 'Next match opening', disabled: true } : 'Play' };
+      return view;
     }
     if (running()) {
       if (mode === 'watch') {

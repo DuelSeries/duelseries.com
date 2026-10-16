@@ -22,6 +22,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { LIB, W, bootPage, BORDER, cell } = require('./agFakePage');
+const { readCard, clickCard } = require('./agEndProbe');
 
 const P = LIB.agPaid;
 
@@ -56,27 +57,34 @@ function paidPage(o) {
 }
 const emits = (p, ev) => p.sock.emitted.filter((e) => e[0] === ev);
 const joins = (p) => emits(p, 'ag:join').map((e) => e[1]);
-const card = (p) => ({
-  shown: !!p.doc.getElementById('ag-paid-end') && !p.doc.getElementById('ag-paid-end').hidden,
-  kind: p.doc.getElementById('ag-paid-end') ? p.doc.getElementById('ag-paid-end').getAttribute('data-kind') : null,
-  title: (p.doc.getElementById('ag-pe-title') || {}).textContent,
-  sub: (p.doc.getElementById('ag-pe-sub') || {}).textContent,
-  extra: p.doc.getElementById('ag-pe-settle') && !p.doc.getElementById('ag-pe-settle').hidden
-    ? p.doc.getElementById('co-settle-text').textContent : '',
-  lobby: p.doc.getElementById('ag-pe-lobby') ? !p.doc.getElementById('ag-pe-lobby').hidden : false,
-  lobbyDisabled: p.doc.getElementById('ag-pe-lobby') ? !!p.doc.getElementById('ag-pe-lobby').disabled : false,
-  again: p.doc.getElementById('ag-pe-again') && !p.doc.getElementById('ag-pe-again').hidden
-    ? p.doc.getElementById('ag-pe-again').textContent : '',
-  error: p.doc.getElementById('ag-pe-error') && !p.doc.getElementById('ag-pe-error').hidden
-    ? p.doc.getElementById('ag-pe-error').textContent : ''
-});
+// The end card as the player sees it (the shared DSEnd card, test/agEndProbe.js): its kind (the page's paid state),
+// the verdict line as the title, the message (sub) and its second line or the pending line (extra), the buttons, and
+// a restake's error line (the only line under a death or a cash-out).
+function card(p) {
+  const c = readCard(p.doc);
+  const btn = (id) => (c ? c.buttons.find((b) => b.id === id) : null);
+  const kind = c ? p.session.state().paidEnd || null : null;
+  const money = kind === 'dead' || kind === 'cashed';
+  return {
+    shown: !!c,
+    kind,
+    title: c ? c.verdict : undefined,
+    hero: c ? c.hero : undefined,
+    sub: c && !money ? c.notes[0] || '' : '',
+    extra: c ? (c.status ? c.status.text : (!money && c.notes[1]) || '') : '',
+    lobby: !!btn('lobby'),
+    lobbyDisabled: !!(btn('lobby') && btn('lobby').disabled),
+    again: btn('again') ? btn('again').text : '',
+    error: c && money ? c.notes[0] || '' : ''
+  };
+}
 // Every text and attribute under a fake element (the token must appear nowhere in it).
 function domText(el) {
   let out = String(el.textContent || '') + ' ' + JSON.stringify(el.attributes || {}) + ' ' + String(el.value || '');
   for (const c of el.children || []) out += ' ' + domText(c);
   return out;
 }
-const menuOpen = (p) => !p.doc.getElementById('ag-menu').hidden;
+const menuOpen = (p) => !!p.doc.getElementById('ag-menu') && !p.doc.getElementById('ag-menu').hidden;
 const flow = (p) => p.session.state().handoff;
 
 function connect(p) {
@@ -360,7 +368,7 @@ test('end states: death shows the server\'s whole-life loss, cash-out its receip
   const d = paidPage();
   await live(d);
   d.sock.fire('ag:dead', { lostMicro: 150000, by: 'bob' });
-  assert.deepStrictEqual([card(d).kind, card(d).sub], ['dead', 'You lost $0.15 to bob']);
+  assert.deepStrictEqual([card(d).kind, card(d).title, card(d).hero], ['dead', 'Eaten by bob', '−$0.15']);
   d.win.fire('pagehide', {});
   assert.strictEqual(d.store.has(P.RESUME_KEY), false, 'an ended seat leaves nothing for a reload');
   assert.strictEqual(card(d).again, 'Play again $0.10');
@@ -369,7 +377,8 @@ test('end states: death shows the server\'s whole-life loss, cash-out its receip
   await live(c);
   c.sock.fire('ag:cashedout', { grossMicro: 200000, cutMicro: 20000, netMicro: 180000, cashoutId: 'x' });
   assert.strictEqual(card(c).kind, 'cashed');
-  assert.strictEqual(card(c).sub, 'Cashed out $0.20, you receive $0.18 (10% house)');
+  assert.strictEqual(card(c).hero, '$0.18');
+  assert.deepStrictEqual(readCard(c.doc).ledger, [['Cashed out', '$0.20'], ['House 10%', '−$0.02'], ['You receive', '$0.18', 'net']]);
   assert.strictEqual(c.store.has(P.RESUME_KEY), false);
 
   for (const why of ['crash', 'shutdown']) {
@@ -407,14 +416,14 @@ test('Play again: duel:restake with a nonce, Back to lobby locked while the wall
   const p = paidPage();
   await live(p);
   p.sock.fire('ag:dead', { lostMicro: 100000, by: 'bob' });
-  p.doc.getElementById('ag-pe-again').dispatch('click', {});
+  clickCard(p.doc, 'again');
   assert.strictEqual(p.parent.posted.length, 1);
   const ask = p.parent.posted[0][0];
   assert.deepStrictEqual([ask.type, ask.game, ask.stake, typeof ask.nonce], ['duel:restake', 'agar', 0.1, 'string']);
   assert.strictEqual(card(p).lobbyDisabled, true, 'Back to lobby is shut');
   assert.strictEqual(card(p).again, P.TEXT.againAsk);
   assert.strictEqual(p.session.paidLocked(), true);
-  p.doc.getElementById('ag-pe-lobby').dispatch('click', {});
+  clickCard(p.doc, 'lobby');
   assert.ok(!p.parent.posted.some((m) => m[0] === 'game:done'), 'a locked Back to lobby posts nothing');
   // strangers: another source, another nonce
   p.win.fire('message', { data: { type: 'duel:restake:done', entryToken: 'tok-evil', nonce: ask.nonce }, source: {}, origin: 'http://localhost' });
@@ -434,7 +443,7 @@ test('Play again: duel:restake with a nonce, Back to lobby locked while the wall
   const e = paidPage();
   await live(e);
   e.sock.fire('ag:cashedout', { grossMicro: 100000, cutMicro: 10000, netMicro: 90000 });
-  e.doc.getElementById('ag-pe-again').dispatch('click', {});
+  clickCard(e.doc, 'again');
   const n = e.parent.posted[0][0].nonce;
   e.win.fire('message', { data: { type: 'duel:restake:error', message: 'Stake cancelled', nonce: n }, source: e.parent, origin: 'http://localhost' });
   assert.deepStrictEqual([card(e).error, card(e).lobbyDisabled, card(e).again], ['Stake cancelled', false, 'Play again $0.10']);
@@ -466,7 +475,7 @@ test('the free page is untouched: no auth, no paid join, the menu, even with a p
   free.sock.connected = true;
   free.sock.fire('connect');
   assert.deepStrictEqual(free.sock.emitted, [], 'nothing sent until Play');
-  assert.strictEqual(free.doc.getElementById('ag-paid-end'), null, 'no paid card in the free DOM');
+  assert.strictEqual(readCard(free.doc), null, 'no card in the free DOM');
 
   const harness = bootPage({ net: true, cfg: { url: '/ag', tabStorage: memStore(HANDOFF) } });
   assert.deepStrictEqual(harness.ioArgs, [['/ag', {}]], 'without handoff (the harness) the page never reads the hand-off');
@@ -526,7 +535,7 @@ test('a hand-off page opened on its own: Back to lobby goes to the lobby page, n
   const s = paidPage({ framed: false });
   await live(s);
   s.sock.fire('ag:dead', { lostMicro: 100000 });
-  s.doc.getElementById('ag-pe-lobby').dispatch('click', {});
+  clickCard(s.doc, 'lobby');
   assert.strictEqual(s.win.location.href, '/');
   assert.strictEqual(menuOpen(s), false);
 });
@@ -564,7 +573,7 @@ async function freeRun(extra) {
     return {
       calls: JSON.stringify(p.doc.calls), emitted: JSON.stringify(p.sock.emitted), sent: JSON.stringify(p.sent),
       state: JSON.stringify(p.session.state()), io: JSON.stringify(p.ioArgs), menu: menuOpen(p),
-      paidDom: !!(p.doc.getElementById('ag-paid-end') || p.doc.getElementById('ag-paid-hint')), n: p.doc.calls.length
+      paidDom: !!p.session.state().paidEnd || !!p.doc.getElementById('ag-paid-hint'), n: p.doc.calls.length
     };
   } finally {
     Math.random = realRandom;

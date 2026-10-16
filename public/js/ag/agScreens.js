@@ -1,20 +1,18 @@
-// Death screen, per-life stats, mass graph and the minimal name entry for the agar.io redo.
-// Our own code, written from the client-hud spec section 6 (stats, death, respawn, spectate)
-// and the build brief (facts 2.7, 2.19, 2.21; scope section 3). The graph is canvas, drawn into
-// #statsGraph (350 x 170) at the moment of death; its call order is part of the parity contract
-// (build brief 1.1), so do not reorder canvas calls. The card and the "Match Results" panel
-// follow client-hud 6.3; the name entry on the card is ours (no settings block since 2026-10-15), in the
-// DuelSeries look (client-hud 8: "our lobby styles may replace the menu shell").
+// Per-life stats, the minimal name entry, and the agar.io adapter onto the shared end card and board for the agar.io
+// redo. Our own code, written from the client-hud spec section 6 (per-life stats) and the build brief (facts 2.7,
+// 2.21). The name entry on the card is ours (no settings block since 2026-10-15), in the DuelSeries look (client-hud 8:
+// "our lobby styles may replace the menu shell").
+// The end of a run (a death, a free or paid cash-out, a closed room, the paid hand-off's own states) and the in-game
+// leaderboard are the shared DuelSeries ones (public/js/shared/dsEnd.js, global DSEnd; Owen 2026-10-16: "one cashout
+// screen, one death screen and one leaderboard ... for all the games"). They replace the reference's "Match Results"
+// panel and its canvas board, and the old paid end card. createEnd and createBoard below only map this game's numbers
+// onto them: every amount is the server's own (micro-USDC through DSEnd.usd), every name goes in as text.
 // Loads in the browser (DuelAgarLib.agScreens) and under node (the pure parts).
 (function (root) {
   'use strict';
   var A = root.DuelAgarLib = root.DuelAgarLib || {};
 
   var fround = Math.fround;
-
-  // The Match Results title (client-hud 6.3), and ours for a free-room cash-out (CHOSEN, PARITY-LOG 2026-10-09).
-  var STATS_TITLE = 'Match Results';
-  var CASHED_OUT_TITLE = 'Cashed Out';
 
   function ti(x) {
     return Math.abs(x) < 2147483648 ? (x | 0) : -2147483648;
@@ -24,8 +22,8 @@
   // Per-life stats (client-hud 6.1)
   // ---------------------------------------------------------------------------------------
 
-  // Mass of one own cell for the score and the graph: floor(f32(f32(s*s) / 100)) on the
-  // PACKET size (fact 2.21), all in single precision.
+  // Mass of one own cell for the score: floor(f32(f32(s*s) / 100)) on the PACKET size (fact 2.21), all in single
+  // precision.
   function cellScoreMass(size) {
     var s = fround(size);
     var m = Math.floor(fround(fround(s * s) / 100));
@@ -53,16 +51,13 @@
       virusesEaten: 0,
       topPosition: 0,
       onBoard: false,
-      history: [],
-      rgb: [0, 0, 0],
       alive: false
     };
 
-    // First own cell of a life (own list was empty): frame time and the cell colour.
-    st.spawn = function (now, rgb) {
+    // First own cell of a life (own list was empty): frame time.
+    st.spawn = function (now) {
       st.spawnTime = now;
       st.alive = true;
-      if (rgb) st.rgb = [rgb[0] | 0, rgb[1] | 0, rgb[2] | 0];
     };
 
     // One processed eat (fact 2.7, protocol-semantics 3.2): counted only when an own cell eats
@@ -91,7 +86,7 @@
 
     // End-of-frame bookkeeping (client-hud 6.1, HUD frame step 14): f = { spectating,
     // ownSizes: packet sizes of own cells, dt: ms since the previous drawn frame }.
-    // Returns the mass pushed, or -1 when nothing was recorded.
+    // Returns this frame's mass, or -1 when nothing was counted.
     st.frame = function (f) {
       if (f.spectating) return -1;
       var sizes = f.ownSizes || [];
@@ -99,7 +94,6 @@
       if (st.onBoard) st.leaderTime = st.leaderTime + (f.dt || 0);
       var mass = 0;
       for (var i = 0; i < sizes.length; i++) mass = mass + cellScoreMass(sizes[i]);
-      st.history.push(fround(mass));
       st.highestMass = mass < st.highestMass ? st.highestMass : mass;
       return mass;
     };
@@ -116,12 +110,17 @@
       st.virusesEaten = 0;
       st.topPosition = 0;
       st.onBoard = false;
-      st.history = [];
       st.alive = false;
     };
 
-    // Death: a snapshot for the panel and the graph, then the death-time board refresh
-    // (rows = the last board) and the reset of everything this life counted.
+    // This life so far, for an end card that shows before the death (a paid ag:dead or ag:cashedout can arrive
+    // first): the same fields as the death snapshot.
+    st.now = function (now) {
+      return { timeAlive: now - st.spawnTime, highestMass: st.highestMass, topPosition: st.topPosition };
+    };
+
+    // Death: a snapshot for the end card, then the death-time board refresh (rows = the last board) and the reset of
+    // everything this life counted.
     st.death = function (now, rows) {
       var snap = {
         foodEaten: st.foodEaten,
@@ -130,9 +129,7 @@
         leaderTime: st.leaderTime,
         cellsEaten: st.cellsEaten,
         topPosition: st.topPosition,
-        virusesEaten: st.virusesEaten,
-        history: st.history.slice(),
-        rgb: st.rgb.slice()
+        virusesEaten: st.virusesEaten
       };
       if (rows) st.applyBoard(rows);
       st.reset();
@@ -141,107 +138,9 @@
     return st;
   }
 
-  // ---------------------------------------------------------------------------------------
-  // Mass graph (client-hud 6.2): drawn only with at least 2 samples
-  // ---------------------------------------------------------------------------------------
-
-  // Pure maths: the moveTo point and every lineTo point for a canvas of gw x gh.
-  function graphPoints(history, gw, gh) {
-    var n = history.length;
-    if (n < 2) return null;
-    var top = 200;
-    for (var i = 0; i < n; i++) {
-      var v = fround(history[i]);
-      top = top > v ? top : v;
-    }
-    var span = gh + -10;
-    var start = [0, gh - fround(history[0]) / top * span + 10];
-    var pts = [];
-    var last = n - 1;
-    var g = 1;
-    while (g < n) {
-      var sum = 0, cnt = 0;
-      for (var a = -20; a <= 20; a++) {
-        var b = a + g;
-        if (b >= 0 && b < n) { cnt++; sum = sum + fround(history[b]); }
-      }
-      var y = gh - sum / cnt / top * span + 10;
-      var x = ((Math.imul(g, gw) / last) | 0);
-      pts.push([x, y]);
-      var step = (n / gw) | 0;
-      g = (step <= 1 ? 1 : step) + g;
-    }
-    return { top: top, start: start, points: pts };
-  }
-
-  // Draw the graph into ctx (the #statsGraph context). The canvas is cleared even when there is
-  // too little history to draw.
-  function drawMassGraph(ctx, history, rgb) {
-    var gw = ctx.canvas.width, gh = ctx.canvas.height;
-    ctx.clearRect(0, 0, gw, gh);
-    var g = graphPoints(history, gw, gh);
-    if (!g) return false;
-    var colour = 'rgb(' + (rgb[0] | 0) + ',' + (rgb[1] | 0) + ',' + (rgb[2] | 0) + ')';
-    ctx.lineWidth = 3;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.strokeStyle = colour;
-    ctx.fillStyle = colour;
-    ctx.beginPath();
-    ctx.moveTo(g.start[0], g.start[1]);
-    for (var i = 0; i < g.points.length; i++) ctx.lineTo(g.points[i][0], g.points[i][1]);
-    ctx.stroke();
-    ctx.globalAlpha = 0.5;
-    ctx.lineTo(gw, gh);
-    ctx.lineTo(0, gh);
-    ctx.fill();
-    ctx.globalAlpha = 1;
-    return true;
-  }
-
-  // ---------------------------------------------------------------------------------------
-  // Death panel values (client-hud 6.3)
-  // ---------------------------------------------------------------------------------------
-
-  function formatSeconds(ms) {
-    var s = Math.max(0, Math.floor(ms / 1000));
-    var sec = '' + (s % 60);
-    var min = '' + Math.floor(s / 60);
-    if (sec.length < 2) sec = '0' + sec;
-    return min + ':' + sec;
-  }
-
-  // The six stat boxes, in DOM order: [key, value text, label, side, top].
-  var STAT_BOXES = [
-    ['food', 'food eaten', 'left', 10],
-    ['mass', 'highest mass', 'right', 10],
-    ['alive', 'time alive', 'left', 45],
-    ['board', 'leaderboard time', 'right', 45],
-    ['cells', 'cells eaten', 'left', 80],
-    ['top', 'top position', 'right', 80]
-  ];
-
-  function statsValues(snap) {
-    return {
-      food: String(snap.foodEaten),
-      mass: String(Math.floor(snap.highestMass)),
-      alive: formatSeconds(snap.timeAlive),
-      board: formatSeconds(snap.leaderTime),
-      cells: String(snap.cellsEaten),
-      top: snap.topPosition === 0 ? ':(' : String(snap.topPosition)
-    };
-  }
-
-  // Layout facts of the panel (client-hud 6.3), used by the stylesheet below and the tests.
+  // Layout facts of the menu card (client-hud 6.3), used by the stylesheet below and the tests.
   var LAYOUT = {
     card: { width: 325, height: 302, radius: 10, padding: 10 },
-    stats: { width: 306, height: 300 },
-    graph: { width: 350, height: 170, bottom: 100, opacity: 0.4 },
-    box: { width: 120, height: 100, side: 20 },
-    value: { top: 25, lineHeight: 100, fontSize: 12, color: '#444' },
-    label: { top: 50, lineHeight: 15, fontSize: 15, color: '#000' },
-    rule: { bottom: 100 },
-    cont: { width: 306, height: 34, bottom: 15 },
     nickMax: 15,
     menuFit: { width: 1600, height: 800 }
   };
@@ -259,10 +158,8 @@
   }
 
   // Our stylesheet. Two kinds of rules:
-  // - the Match Results card's facts (client-hud 6.3): the menu box placement, the font and the
-  //   text colour the panel inherits from it, the card (#ag-card: white, radius 10, 325 x 302,
-  //   margin 5px 0, padding 10), the button base the Continue button uses, and every rule from
-  //   #ag-stats down. The death-panel DOM diff checks these; do not restyle them.
+  // - the menu card's facts (client-hud 6.3): the menu box placement, the font and the text colour, the card
+  //   (#ag-card: white, radius 10, 325 x 302, margin 5px 0, padding 10) and the button base.
   // - CHOSEN, ours (client-hud 8: our lobby styles may replace the menu shell): the name entry,
   //   and its buttons (#ag-name and everything in it), in the DuelSeries
   //   colours: ink #100e0b, bone #f5f1e8, line #d6cdbd, label #6f6556 and the product's amber
@@ -279,7 +176,6 @@
     '#ag-card{position:relative;background-color:#fff;border-radius:10px;margin:5px 0;width:325px;height:302px;box-sizing:content-box;}',
     '#ag-card .ag-play-container{position:relative;padding:10px;}',
     '.ag-btn{display:inline-block;margin-bottom:0;font-size:15px;font-weight:bold;line-height:1.42857143;text-align:center;white-space:nowrap;vertical-align:middle;touch-action:manipulation;cursor:pointer;user-select:none;background-image:none;border:1px solid transparent;border-radius:4px;font-family:Arial,sans-serif;}',
-    '.ag-btn-primary{color:#fff;background-color:#428bca;border-color:#357ebd;height:35px;}',
     // ---- ours (CHOSEN) ----
     '#ag-name{position:relative;height:280px;box-sizing:border-box;padding-top:52px;text-align:center;color:#100e0b;font-family:"Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif;}',
     '#ag-name h2{margin:2px 0 8px;font-size:28px;line-height:30px;font-weight:800;letter-spacing:-0.02em;}',
@@ -293,60 +189,24 @@
     '#ag-name .ag-row{display:flex;gap:8px;margin-top:8px;}',
     '#ag-spectate{display:block;flex:1 1 0;box-sizing:border-box;width:auto;min-width:0;height:32px;margin:0;padding:0 8px;border:1px solid #d6cdbd;background:#fff;color:#100e0b;font-size:14px;font-weight:600;}',
     '#ag-spectate:hover{background:#f5f1e8;}',
-    '#ag-name button:focus-visible{outline:2px solid #100e0b;outline-offset:2px;}',
-    // ---- the Match Results panel (client-hud 6.3) ----
-    '#ag-stats{display:inline-block;position:relative;width:306px;height:300px;overflow:hidden;}',
-    '#ag-stats[hidden]{display:none;}',
-    '#ag-stats > h2{margin-top:10px;}',
-    '#statsGraph{position:absolute;bottom:100px;left:0;right:0;opacity:0.4;}',
-    '#ag-stats .ag-stat{position:absolute;width:120px;height:100px;}',
-    '#ag-stats .ag-stat-left{left:20px;}',
-    '#ag-stats .ag-stat-right{right:20px;}',
-    '#ag-stats .ag-stat-value{position:absolute;top:25px;left:0;right:0;line-height:100px;font-size:12px;cursor:default;color:#444;text-align:center;font-weight:bold;}',
-    '#ag-stats .ag-stat-label{position:absolute;left:0;right:0;line-height:15px;font-size:15px;color:#000;text-align:center;top:50px;}',
-    '#ag-stats > hr{position:absolute;bottom:100px;width:100%;margin:0;height:0;box-sizing:content-box;}',
-    '#statsContinue{position:absolute;width:306px;bottom:15px;height:34px;left:0;right:0;}'
-  ].join('\n');
-
-  // The page inside the DuelSeries lobby's agar frame (CHOSEN, Owen 2026-10-09 midday, OWNER-ANSWERS): there is no
-  // name entry (the lobby's agar.io screen holds the name, the buy-in and Spectate), and the Match
-  // Results panel ends with Play again and Lobby in place of Continue. Ours, added to the page only in that mode, so
-  // SCREENS_CSS and the panel the parity harness diffs stay as they are. The two buttons share Continue's slot
-  // (306 wide, 34 high, 15 from the bottom), 150 each with 6 between; Play again keeps Continue's primary look and
-  // Lobby is the plain button beside it.
-  var LOBBY_TEXT = { again: 'Play again', lobby: 'Lobby' };
-  var LOBBY_CSS = [
-    '#statsAgain,#statsLobby{position:absolute;bottom:15px;width:150px;height:34px;}',
-    '#statsAgain{left:0;}',
-    '#statsLobby{right:0;color:#333;background-color:#fff;border-color:#ccc;}',
-    '#statsLobby:hover{background-color:#e6e6e6;border-color:#adadad;}',
-    '#statsAgain:focus-visible,#statsLobby:focus-visible{outline:2px solid #100e0b;outline-offset:2px;}'
+    '#ag-name button:focus-visible{outline:2px solid #100e0b;outline-offset:2px;}'
   ].join('\n');
 
   // ---------------------------------------------------------------------------------------
-  // DOM: the menu card with the name entry and the "Match Results" panel
+  // DOM: the menu card with the name entry (a direct visit to /ag and the parity harness; the lobby frame's page has
+  // no menu card: the lobby's agar.io screen holds the name, the buy-in and Spectate, Owen 2026-10-09 midday)
   // ---------------------------------------------------------------------------------------
 
-  // opts: { doc, root (where to append; default body), onPlay(name), onSpectate(), onContinue(),
-  //         injectCss (default true),
-  //         lobby (the lobby frame's page: no name entry, Play again and Lobby on the panel; see LOBBY_CSS),
-  //         onAgain(), onLobby() (lobby only: the panel's two buttons) }
+  // opts: { doc, root (where to append; default body), onPlay(name), onSpectate(), injectCss (default true) }
   function createScreens(opts) {
     opts = opts || {};
     var doc = opts.doc || root.document;
     var host = opts.root || doc.body;
-    var lobby = opts.lobby === true;
     if (opts.injectCss !== false && !doc.getElementById('ag-screens-css')) {
       var style = doc.createElement('style');
       style.id = 'ag-screens-css';
       style.textContent = SCREENS_CSS;
       (doc.head || host).appendChild(style);
-    }
-    if (lobby && opts.injectCss !== false && !doc.getElementById('ag-screens-lobby-css')) {
-      var lstyle = doc.createElement('style');
-      lstyle.id = 'ag-screens-lobby-css';
-      lstyle.textContent = LOBBY_CSS;
-      (doc.head || host).appendChild(lstyle);
     }
 
     function el(tag, attrs, text) {
@@ -362,96 +222,36 @@
     card.appendChild(pc);
     menu.appendChild(card);
 
-    // Name entry (HOME). The lobby frame's page has none (see LOBBY_CSS): no name box, Play or Spectate, so the
-    // card only ever shows the Match Results panel there. No settings and no Sound button anywhere (Owen
-    // 2026-10-15): the drawing values are SETTINGS_DEFAULTS and sound is always on.
-    var namePanel = null, nick = null, playBtn = null, specBtn = null;
-    if (!lobby) {
-      namePanel = el('div', { id: 'ag-name' });
-      namePanel.appendChild(el('h2', null, 'agar.io'));
-      nick = el('input', { id: 'ag-nick', type: 'text', maxlength: String(LAYOUT.nickMax), placeholder: 'Nick', autocomplete: 'off', spellcheck: 'false' });
-      namePanel.appendChild(nick);
-      playBtn = el('button', { id: 'ag-play', type: 'button', 'class': 'ag-btn' }, 'Play');
-      namePanel.appendChild(playBtn);
-      var row = el('div', { 'class': 'ag-row' });
-      specBtn = el('button', { id: 'ag-spectate', type: 'button', 'class': 'ag-btn' }, 'Spectate');
-      row.appendChild(specBtn);
-      namePanel.appendChild(row);
-
-      pc.appendChild(namePanel);
-    }
-
-    // Match Results (GAMEOVER). #statsGraph keeps its width/height as attributes so creating it
-    // writes no canvas size through script.
-    var stats = el('div', { id: 'ag-stats', hidden: '' });
-    var h2 = el('h2');
-    var centre = el('center', null, STATS_TITLE);
-    h2.appendChild(centre);
-    stats.appendChild(h2);
-    var graph = doc.getElementById('statsGraph');
-    if (!graph) graph = el('canvas', { id: 'statsGraph', width: String(LAYOUT.graph.width), height: String(LAYOUT.graph.height) });
-    stats.appendChild(graph);
-    var valueEls = {};
-    for (var i = 0; i < STAT_BOXES.length; i++) {
-      var b = STAT_BOXES[i];
-      var box = el('div', { 'class': 'ag-stat ag-stat-' + b[2], 'data-stat': b[0] });
-      box.style.top = b[3] + 'px';
-      var val = el('span', { 'class': 'ag-stat-value' }, '');
-      var lab = el('span', { 'class': 'ag-stat-label' }, b[1]);
-      box.appendChild(val);
-      box.appendChild(lab);
-      stats.appendChild(box);
-      valueEls[b[0]] = val;
-    }
-    stats.appendChild(el('hr'));
-    var contBtn = null, againBtn = null, lobbyBtn = null;
-    if (lobby) {
-      againBtn = el('button', { id: 'statsAgain', type: 'button', 'class': 'ag-btn ag-btn-primary' }, LOBBY_TEXT.again);
-      lobbyBtn = el('button', { id: 'statsLobby', type: 'button', 'class': 'ag-btn' }, LOBBY_TEXT.lobby);
-      stats.appendChild(againBtn);
-      stats.appendChild(lobbyBtn);
-    } else {
-      contBtn = el('button', { id: 'statsContinue', type: 'button', 'class': 'ag-btn ag-btn-primary' }, 'Continue');
-      stats.appendChild(contBtn);
-    }
-    pc.appendChild(stats);
+    // Name entry (HOME). No settings and no Sound button (Owen 2026-10-15): the drawing values are SETTINGS_DEFAULTS
+    // and sound is always on.
+    var namePanel = el('div', { id: 'ag-name' });
+    namePanel.appendChild(el('h2', null, 'agar.io'));
+    var nick = el('input', { id: 'ag-nick', type: 'text', maxlength: String(LAYOUT.nickMax), placeholder: 'Nick', autocomplete: 'off', spellcheck: 'false' });
+    namePanel.appendChild(nick);
+    var playBtn = el('button', { id: 'ag-play', type: 'button', 'class': 'ag-btn' }, 'Play');
+    namePanel.appendChild(playBtn);
+    var row = el('div', { 'class': 'ag-row' });
+    var specBtn = el('button', { id: 'ag-spectate', type: 'button', 'class': 'ag-btn' }, 'Spectate');
+    row.appendChild(specBtn);
+    namePanel.appendChild(row);
+    pc.appendChild(namePanel);
     host.appendChild(menu);
 
     var api = {
       menu: menu,
       nick: nick,
-      graph: graph,
-      graphContext: function () { return graph.getContext('2d'); },
       isOpen: function () { return !menu.hidden; },
-      lobby: lobby,
       state: 'HOME'
     };
 
     function focusNick() {
-      if (!nick) return;
       try { nick.focus(); } catch (e) { /* focus can fail on hidden or detached nodes */ }
     }
-    // HOME: name entry and Play. The lobby frame's page has no name entry, so HOME there is the card closed.
+    // HOME: name entry and Play.
     api.showHome = function () {
       api.state = 'HOME';
-      stats.hidden = true;
-      if (!namePanel) { menu.hidden = true; return; }
-      namePanel.hidden = false;
       menu.hidden = false;
       focusNick();
-    };
-    // GAMEOVER: the panel with this life's numbers. opts.title: our free-room cash-out (Owen 2026-10-08: the run
-    // ends with a results screen, no money) shows the same panel under CASHED_OUT_TITLE; a death keeps the
-    // reference's title.
-    api.showStats = function (snap, opts) {
-      var v = statsValues(snap);
-      var title = opts && typeof opts.title === 'string' ? opts.title : STATS_TITLE;
-      if (centre.textContent !== title) centre.textContent = title;
-      for (var k in valueEls) if (Object.prototype.hasOwnProperty.call(valueEls, k)) valueEls[k].textContent = v[k];
-      api.state = 'GAMEOVER';
-      if (namePanel) namePanel.hidden = true;
-      stats.hidden = false;
-      menu.hidden = false;
     };
     api.hide = function () {
       menu.hidden = true;
@@ -460,7 +260,7 @@
     api.setScale = function (k) {
       menu.style.transform = 'translate(-50%, -50%)' + (k !== 1 ? ' scale(' + k + ')' : '');
     };
-    api.setNick = function (name) { if (nick) nick.value = String(name || '').slice(0, LAYOUT.nickMax); };
+    api.setNick = function (name) { nick.value = String(name || '').slice(0, LAYOUT.nickMax); };
 
     function play() {
       var name = String(nick.value || '').slice(0, LAYOUT.nickMax);
@@ -468,323 +268,384 @@
       api.hide();
       if (opts.onPlay) opts.onPlay(name);
     }
-    if (!lobby) {
-      playBtn.addEventListener('click', play);
-      nick.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter' || e.keyCode === 13) { e.preventDefault(); play(); }
-      });
-      specBtn.addEventListener('click', function () {
-        api.state = 'SPECTATE';
-        api.hide();
-        if (opts.onSpectate) opts.onSpectate();
-      });
-      contBtn.addEventListener('click', function () {
-        api.showHome();
-        if (opts.onContinue) opts.onContinue();
-      });
-    } else {
-      // Play again: the page respawns at once under the same name and settings (agMain). Lobby: the page's way back
-      // (agMain backToLobby, which agLobby gates).
-      againBtn.addEventListener('click', function (e) {
-        if (e && e.preventDefault) e.preventDefault();
-        if (api.state !== 'GAMEOVER') return;
-        api.state = 'PLAY';
-        api.hide();
-        if (opts.onAgain) opts.onAgain();
-      });
-      lobbyBtn.addEventListener('click', function (e) {
-        if (e && e.preventDefault) e.preventDefault();
-        if (opts.onLobby) opts.onLobby();
-      });
-    }
+    playBtn.addEventListener('click', play);
+    nick.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' || e.keyCode === 13) { e.preventDefault(); play(); }
+    });
+    specBtn.addEventListener('click', function () {
+      api.state = 'SPECTATE';
+      api.hide();
+      if (opts.onSpectate) opts.onSpectate();
+    });
     return api;
   }
 
   // ---------------------------------------------------------------------------------------
-  // Paid end card (ours, PAID-AGAR-DESIGN 6 "#ag-paid-end"): a separate overlay built from the shared end card's
-  // classes (public/css/cashout.css co-*; the wrapper and its colours are in ag.css), never the parity-locked
-  // #ag-stats panel. Built on first use, so the free page's DOM never has it. cashout.css and the card's fonts are
-  // added to the head by loadPaidStyles once a paid room starts (agMain, at ag:joined with a stake or ag:money), so
-  // the free page's head stays as it was and the card is styled by the time it shows.
+  // The end card (the shared DSEnd card): free deaths and cash-outs, and every paid state (PAID-AGAR-DESIGN 6, and
+  // the paid hand-off's own states from agPaid). One card at a time; each state replaces the last.
   // ---------------------------------------------------------------------------------------
 
   var HOUSE_CUT_PCT = 10;   // server/paperPayout.js: the house keeps floor(gross / 10), Owen's 90/10
   var TX_URL = 'https://solscan.io/tx/';   // Paper's explorer link (public/js/paper/mp/paperArenaMain.js pp:paid)
-  var PAID_CSS_URL = '/css/cashout.css';
-  // The faces cashout.css names (Archivo, IBM Plex Mono): the same Google Fonts request as public/game.html, whose
-  // #cashout-screen uses the same card.
-  var PAID_FONT_URL = 'https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap';
-  // Texts CHOSEN (PARITY-LOG 2026-10-09 client-cashout), the figures are the server's own.
-  var PAID_TEXT = {
-    cashedTitle: 'Cashed out',
-    autoTitle: 'Cashed out automatically',
-    deadTitle: 'Eaten',
-    closedTitle: 'Refunded',
-    closedEmptyTitle: 'Room closed',
-    heldTitle: 'On hold',
+  // Texts. The free and money lines are Owen's (2026-10-16 card numbers); the notices keep the game's own wording.
+  var END_TEXT = {
+    eaten: 'Eaten',
+    eatenBy: function (name) { return 'Eaten by ' + name; },
+    cashed: 'Cashed out',
+    autoCashed: 'Cashed out automatically',
+    mass: 'mass',               // the free hero's unit
+    lost: 'lost',
+    toWallet: 'to your wallet',
+    time: 'Time',
+    topRank: 'Top rank',
+    score: 'Mass',
+    gross: 'Cashed out',
+    house: 'House ' + HOUSE_CUT_PCT + '%',
+    net: 'You receive',
     sending: 'Sending to your wallet',
     recorded: 'Your payout is recorded and goes to your wallet.',
-    sent: 'Sent to your wallet. ',
+    sent: 'Sent to your wallet.',
     view: 'View transaction',
     delayed: 'Payout delayed. Your winnings are recorded and will be sent.',
     // ag:closed by its why (server/ag/agRoom.js _paidClosed, agMoney emergencySettle / shutdownSettle / houseSettle)
+    closedTitle: 'Refunded',
+    closedEmptyTitle: 'Room closed',
+    heldTitle: 'On hold',
     closed: 'The room closed on our side, so your whole balance goes back to your wallet, no house cut.',
     restart: 'The server is restarting, so your whole balance goes back to your wallet, no house cut, once it is back.',
     closedEmpty: 'The room closed on our side. Any balance you had goes back to your wallet in full, no house cut.',
     held: 'Something went wrong on our side. Your balance is held for review, to be paid back to your wallet by hand.',
-    lobby: 'Back to lobby'
+    again: 'Play again',
+    spectate: 'Spectate',
+    lobby: 'Lobby',
+    menu: 'Menu'
   };
+  var PAID_KINDS = { cashed: true, dead: true, closed: true, held: true, refused: true, gone: true, wait: true };
 
-  // Adds cashout.css and its fonts to the head once (paid rooms only). Safe to call again; never throws.
-  function loadPaidStyles(doc) {
-    try {
-      doc = doc || root.document;
-      if (!doc || !doc.head || doc.getElementById('ag-pe-css')) return false;
-      var urls = [['ag-pe-css', PAID_CSS_URL], ['ag-pe-fonts', PAID_FONT_URL]];
-      for (var i = 0; i < urls.length; i++) {
-        var link = doc.createElement('link');
-        link.setAttribute('id', urls[i][0]);
-        link.setAttribute('rel', 'stylesheet');
-        link.setAttribute('href', urls[i][1]);
-        doc.head.appendChild(link);
-      }
-      return true;
-    } catch (e) {
-      return false;
-    }
+  // The facts row from this life's numbers (a stats snapshot or stats.now): Time, Top rank (left out when the player
+  // was never on the board), and on a paid card the score. null (a resumed receipt after a reload: this page never
+  // saw the life) gives no facts.
+  function lifeFacts(D, life, withScore) {
+    if (!D || !life || typeof life !== 'object') return [];
+    var out = [[END_TEXT.time, D.clock(life.timeAlive)]];
+    if (life.topPosition > 0) out.push([END_TEXT.topRank, D.ordinal(life.topPosition)]);
+    if (withScore) out.push([END_TEXT.score, D.int(Math.floor(Number(life.highestMass) || 0))]);
+    return out;
   }
 
-  function usd(micro) {
-    return '$' + (Math.max(0, Number(micro) || 0) / 1e6).toFixed(2);
+  // A page without the component (the parity harness loads no dsEnd.js): every state is a no-op.
+  function noEnd() {
+    var api = { kind: '', onAgain: null, life: null };
+    ['showFree', 'showCashed', 'showDead', 'showClosed', 'payError', 'showMessage', 'showWait', 'setAgain',
+      'setLobbyLocked', 'setError', 'setLife', 'hide'].forEach(function (k) { api[k] = function () {}; });
+    api.paid = function () { return false; };
+    api.shown = function () { return false; };
+    api.paidKind = function () { return ''; };
+    api.button = function () { return null; };
+    return api;
   }
 
-  // opts: { doc, root (default body), onLobby() }
-  function createPaidEnd(opts) {
+  // opts: { DSEnd (the component; none = nothing is shown), root (default body), onLobby(), z, win (the window whose
+  //         height the card must fit) }
+  // -> the card's states (below), plus onAgain (the paid flow's Play again, set by agMain), kind, shown(), hide().
+  function createEnd(opts) {
     opts = opts || {};
-    var doc = opts.doc || root.document;
-    var host = opts.root || doc.body;
-    loadPaidStyles(doc);
-    function el(tag, attrs, text) {
-      var e = doc.createElement(tag);
-      if (attrs) for (var k in attrs) if (Object.prototype.hasOwnProperty.call(attrs, k)) e.setAttribute(k, attrs[k]);
-      if (text != null) e.textContent = text;
-      return e;
-    }
-    var wrap = el('div', { id: 'ag-paid-end', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'ag-pe-title', hidden: '' });
-    var card = el('div', { 'class': 'co-card' });
-    var eyebrow = el('p', { 'class': 'co-eyebrow', id: 'ag-pe-title' }, '');
-    var amount = el('p', { 'class': 'co-amount', id: 'ag-pe-amount' }, '');
-    var sub = el('p', { 'class': 'co-sub', id: 'ag-pe-sub' }, '');
-    var ledger = el('dl', { 'class': 'co-ledger', id: 'ag-pe-ledger' });
-    function ledgerRow(label, cut, net) {
-      var row = el('div', { 'class': 'co-row' + (net ? ' co-net' : '') });
-      var dt = el('dt', null, label);
-      if (cut) dt.appendChild(el('i', null, HOUSE_CUT_PCT + '%'));
-      var dd = el('dd', null, '');
-      row.appendChild(dt);
-      row.appendChild(dd);
-      ledger.appendChild(row);
-      return dd;
-    }
-    var grossEl = ledgerRow('Cashed out', false, false);
-    var cutEl = ledgerRow('House cut ', true, false);
-    var netEl = ledgerRow('You receive', false, true);
-    var settle = el('p', { 'class': 'co-settle', id: 'ag-pe-settle', 'data-state': 'pending' });
-    settle.appendChild(el('span', { 'class': 'co-dot', 'aria-hidden': 'true' }));
-    var settleText = el('span', { id: 'co-settle-text' }, PAID_TEXT.sending);
-    settle.appendChild(settleText);
-    var tx = el('a', { id: 'ag-pe-tx', href: '#', target: '_blank', rel: 'noopener noreferrer', hidden: '' }, PAID_TEXT.view);
-    settle.appendChild(tx);
-    // A restake's error or wait line (agPaid: the lobby wallet's answer to Play again), hidden until it has text.
-    var errLine = el('p', { 'class': 'co-sub', id: 'ag-pe-error', role: 'status', hidden: '' }, '');
-    var btns = el('div', { 'class': 'co-btns' });
-    // Play again (agPaid, framed paid pages only, after a death or a cash-out): a new buy-in through the lobby's
-    // wallet (duel:restake), shown by setAgain; every show below hides it again.
-    var againBtn = el('button', { type: 'button', 'class': 'co-btn co-go', id: 'ag-pe-again', hidden: '' }, 'Play again');
-    var lobbyBtn = el('button', { type: 'button', 'class': 'co-btn co-go', id: 'ag-pe-lobby' }, PAID_TEXT.lobby);
-    btns.appendChild(againBtn);
-    btns.appendChild(lobbyBtn);
-    var parts = [eyebrow, amount, sub, ledger, settle, errLine, btns];
-    for (var i = 0; i < parts.length; i++) card.appendChild(parts[i]);
-    wrap.appendChild(card);
-    host.appendChild(wrap);
-    lobbyBtn.addEventListener('click', function (e) {
-      if (e && e.preventDefault) e.preventDefault();
-      if (lobbyBtn.disabled) return;
-      if (typeof opts.onLobby === 'function') opts.onLobby();
-    });
-    againBtn.addEventListener('click', function (e) {
-      if (e && e.preventDefault) e.preventDefault();
-      if (againBtn.disabled || againBtn.hidden) return;
-      if (typeof api.onAgain === 'function') api.onAgain();
-    });
+    var D = opts.DSEnd || null;
+    if (!D) return noEnd();
+    var handle = null;
+    // what the card shows: the state's own fields, and the paid flow's Play again, lock and error line
+    var cur = null;
+    var extra = { again: null, lobbyLocked: false, error: '', lobby: true };
+    var api = { kind: '', onAgain: null, life: null };
 
-    var api = { element: wrap, kind: '', state: '', onAgain: null };
-    function show(kind, withAmount) {
-      amount.hidden = withAmount === false;
+    function lobbyClick() {
+      if (extra.lobbyLocked) return;
+      if (typeof opts.onLobby === 'function') opts.onLobby();
+    }
+    function againClick() {
+      if (!extra.again || extra.again.disabled) return;
+      if (typeof api.onAgain === 'function') api.onAgain();
+    }
+    function card() {
+      var c = {}, k;
+      for (k in cur) if (Object.prototype.hasOwnProperty.call(cur, k)) c[k] = cur[k];
+      if (api.life && cur.lifeScore !== undefined) c.facts = lifeFacts(D, api.life, cur.lifeScore);
+      delete c.lifeScore;
+      if (extra.error) c.notes = (c.notes || []).concat([extra.error]);
+      if (!c.buttons) {
+        var b = [];
+        if (extra.again) b.push({ id: 'again', text: extra.again.text || END_TEXT.again, primary: true, disabled: extra.again.disabled === true, onClick: againClick });
+        if (extra.lobby) b.push({ id: 'lobby', text: END_TEXT.lobby, primary: !extra.again, disabled: extra.lobbyLocked, onClick: lobbyClick });
+        c.buttons = b;
+      }
+      if (opts.z != null) c.z = opts.z;
+      if (opts.root) c.root = opts.root;
+      return c;
+    }
+    // A short window (a phone held sideways) is fitted by the component itself (dsEnd fit).
+    function render() {
+      if (!D || !cur) return;
+      handle = D.show(card());
+    }
+    // A new state: its fields; every state starts with no Play again, no error line and Lobby open (noLobby: a wait
+    // that may already hold the player's money has no Lobby).
+    function show(kind, fields, life, noLobby) {
       api.kind = kind;
-      wrap.setAttribute('data-kind', kind);
-      wrap.hidden = false;
-      errLine.hidden = true;
-      errLine.textContent = '';
-      againBtn.hidden = true;
-      againBtn.disabled = false;
-      lobbyBtn.hidden = false;
-      lobbyBtn.disabled = false;
-      lobbyBtn.className = 'co-btn co-go';
+      api.life = life || null;
+      extra.again = null;
+      extra.error = '';
+      extra.lobbyLocked = false;
+      extra.lobby = noLobby !== true;
+      cur = fields;
+      render();
     }
-    function setSettle(state, text) {
-      api.state = state;
-      settle.setAttribute('data-state', state);
-      settleText.textContent = text;
+    function setStatus(state, text, link) {
+      if (!cur) return;
+      cur.status = { text: text, state: state, link: link || null };
+      render();
     }
-    // ag:cashedout { grossMicro, cutMicro, netMicro, resumed?, auto? }: display only, the server's own numbers. A
-    // resumed receipt (agPaidDoor answerOutcome: the page asked again after the payout was ordered) gets no ag:paid
-    // later, so its line says the payout is recorded instead of waiting on one.
-    api.showCashed = function (p) {
+
+    // ---- free ----
+    // o: { life (the death snapshot), by (the eater's name, '' when unknown), cashed (a free cash-out), buttons }
+    api.showFree = function (o) {
+      o = o || {};
+      var life = o.life || {};
+      show('free', {
+        tone: 'plain',
+        verdict: o.cashed ? END_TEXT.cashed : (o.by ? END_TEXT.eatenBy(o.by) : END_TEXT.eaten),
+        hero: D.int(Math.floor(Number(life.highestMass) || 0)),
+        unit: END_TEXT.mass,
+        lifeScore: false,
+        buttons: o.buttons || []
+      }, life);
+    };
+
+    // ---- paid (display only: every figure is the server's own) ----
+    // ag:cashedout { grossMicro, cutMicro, netMicro, resumed?, auto? }. A resumed receipt (agPaidDoor answerOutcome:
+    // the page asked again after the payout was ordered) gets no ag:paid later, so its line says the payout is
+    // recorded instead of waiting on one.
+    api.showCashed = function (p, life) {
       p = p || {};
       var gross = Number(p.grossMicro) || 0, cut = Number(p.cutMicro) || 0;
       var net = p.netMicro !== undefined ? Number(p.netMicro) || 0 : gross - cut;
-      eyebrow.textContent = p.auto === true ? PAID_TEXT.autoTitle : PAID_TEXT.cashedTitle;
-      amount.textContent = usd(net);
-      sub.textContent = 'Cashed out ' + usd(gross) + ', you receive ' + usd(net) + ' (' + HOUSE_CUT_PCT + '% house)';
-      grossEl.textContent = usd(gross);
-      cutEl.textContent = '-' + usd(cut);
-      netEl.textContent = usd(net);
-      ledger.hidden = false;
-      tx.hidden = true;
-      settle.hidden = false;
-      setSettle('pending', p.resumed === true ? PAID_TEXT.recorded : PAID_TEXT.sending);
-      show('cashed');
+      show('cashed', {
+        tone: 'win',
+        verdict: p.auto === true ? END_TEXT.autoCashed : END_TEXT.cashed,
+        hero: D.usd(net),
+        unit: END_TEXT.toWallet,
+        lifeScore: true,
+        ledger: [[END_TEXT.gross, D.usd(gross)], [END_TEXT.house, D.usd(-cut)], [END_TEXT.net, D.usd(net)]],
+        status: { text: p.resumed === true ? END_TEXT.recorded : END_TEXT.sending, state: 'pending' }
+      }, life);
     };
     // ag:dead { lostMicro, by }
-    api.showDead = function (p) {
+    api.showDead = function (p, life) {
       p = p || {};
       var by = typeof p.by === 'string' && p.by ? p.by : '';
-      eyebrow.textContent = PAID_TEXT.deadTitle;
-      amount.textContent = usd(p.lostMicro);
-      sub.textContent = 'You lost ' + usd(p.lostMicro) + (by ? ' to ' + by : '');
-      ledger.hidden = true;
-      settle.hidden = true;
-      show('dead');
+      show('dead', {
+        tone: 'loss',
+        verdict: by ? END_TEXT.eatenBy(by) : END_TEXT.eaten,
+        hero: D.usd(-Math.max(0, Number(p.lostMicro) || 0)),
+        unit: END_TEXT.lost,
+        lifeScore: true
+      }, life);
     };
-    // ag:closed { refundedMicro, why }. 'emergency' (the room stopped), 'shutdown' and 'crash' (a restart: owed
-    // refund rows the drainer pays once the server is back): Owen Q6, 100% back, no rake. 'frozen-settled' (the
-    // zombie backstop, design 3.4 step 5): the balance went to the house as agar_breach for a refund by hand, so it
-    // is never called a refund here. A zero amount (nothing left, or a seat whose account is still settling) shows
-    // no figure.
+    // ag:closed { refundedMicro, why }. 'emergency' (the room stopped), 'shutdown' and 'crash' (a restart: owed refund
+    // rows the drainer pays once the server is back): Owen Q6, 100% back, no rake. 'frozen-settled' (the zombie
+    // backstop, design 3.4 step 5): the balance went to the house as agar_breach for a refund by hand, so it is never
+    // called a refund here. A zero amount (nothing left, or a seat whose account is still settling) shows no figure.
     api.showClosed = function (p) {
       p = p || {};
       var why = typeof p.why === 'string' ? p.why : '';
       var micro = Math.max(0, Number(p.refundedMicro) || 0);
-      ledger.hidden = true;
-      settle.hidden = true;
       if (why === 'frozen-settled') {
-        eyebrow.textContent = PAID_TEXT.heldTitle;
-        amount.textContent = '';
-        sub.textContent = PAID_TEXT.held;
-        show('held', false);
+        show('held', { tone: 'plain', verdict: END_TEXT.heldTitle, notes: [END_TEXT.held] });
         return;
       }
       if (micro <= 0) {
-        eyebrow.textContent = PAID_TEXT.closedEmptyTitle;
-        amount.textContent = '';
-        sub.textContent = PAID_TEXT.closedEmpty;
-        show('closed', false);
+        show('closed', { tone: 'plain', verdict: END_TEXT.closedEmptyTitle, notes: [END_TEXT.closedEmpty] });
         return;
       }
-      eyebrow.textContent = PAID_TEXT.closedTitle;
-      amount.textContent = usd(micro);
-      sub.textContent = why === 'shutdown' || why === 'crash' ? PAID_TEXT.restart : PAID_TEXT.closed;
-      show('closed');
+      show('closed', { tone: 'plain', verdict: END_TEXT.closedTitle, hero: D.usd(micro),
+        notes: [why === 'shutdown' || why === 'crash' ? END_TEXT.restart : END_TEXT.closed] });
     };
     // ag:paid { sig }: the payout landed; the link opens the explorer (network: a cluster other than mainnet).
     api.paid = function (sig, network) {
-      if (typeof sig !== 'string' || !sig) return false;
+      if (typeof sig !== 'string' || !sig || !cur) return false;
       var q = network && network !== 'mainnet-beta' ? '?cluster=' + encodeURIComponent(network) : '';
-      setSettle('done', PAID_TEXT.sent);
-      tx.setAttribute('href', TX_URL + encodeURIComponent(sig) + q);
-      tx.hidden = false;
-      settle.hidden = false;
+      setStatus('ok', END_TEXT.sent, { href: TX_URL + encodeURIComponent(sig) + q, text: END_TEXT.view });
       return true;
     };
     // ag:payerror { message }: the payout is recorded as owed and the drainer sends it.
     api.payError = function (message) {
-      setSettle('fail', typeof message === 'string' && message ? message : PAID_TEXT.delayed);
-      tx.hidden = true;
-      settle.hidden = false;
+      setStatus('err', typeof message === 'string' && message ? message : END_TEXT.delayed);
     };
     // The paid hand-off's own states (agPaid): a refusal or an ended seat (kind 'refused' or 'gone': a title, a plain
-    // line, an optional second line such as the refund, and Back to lobby), and the wait while joining or getting a
-    // seat back (kind 'wait': the pending dot and its line; Back to lobby only when opts.lobby says so, because a
-    // join in flight may already hold the player's money).
-    api.showMessage = function (kind, title, text, extra) {
-      eyebrow.textContent = title || '';
-      amount.textContent = '';
-      sub.textContent = text || '';
-      ledger.hidden = true;
-      tx.hidden = true;
-      settle.hidden = !extra;
-      if (extra) setSettle('info', extra);
-      show(kind === 'gone' ? 'gone' : 'refused', false);
+    // line, an optional second line such as the refund, and Lobby), and the wait while joining or getting a seat back
+    // (kind 'wait': the pending dot and its line; Lobby only when o.lobby says so, because a join in flight may already
+    // hold the player's money).
+    api.showMessage = function (kind, title, text, more) {
+      var notes = [];
+      if (text) notes.push(text);
+      if (more) notes.push(more);
+      show(kind === 'gone' ? 'gone' : 'refused', { tone: 'plain', verdict: title || '', notes: notes });
     };
     api.showWait = function (title, text, o) {
-      eyebrow.textContent = title || '';
-      amount.textContent = '';
-      sub.textContent = '';
-      ledger.hidden = true;
-      tx.hidden = true;
-      settle.hidden = false;
-      setSettle('pending', text || '');
-      show('wait', false);
-      lobbyBtn.hidden = !(o && o.lobby === true);
+      show('wait', { tone: 'plain', verdict: title || '', status: { text: text || '', state: 'pending' } }, null,
+        !(o && o.lobby === true));
     };
-    // Play again: o = { text, disabled } shows it (Back to lobby turns into the quiet button beside it); null hides it.
+    // Play again: o = { text, disabled } shows it (Lobby turns into the quiet button beside it); null hides it.
     api.setAgain = function (o) {
-      if (!o) {
-        againBtn.hidden = true;
-        lobbyBtn.className = 'co-btn co-go';
-        return;
-      }
-      againBtn.textContent = o.text || 'Play again';
-      againBtn.disabled = o.disabled === true;
-      againBtn.hidden = false;
-      lobbyBtn.className = 'co-btn co-ghost';
+      extra.again = o ? { text: o.text || END_TEXT.again, disabled: o.disabled === true } : null;
+      render();
     };
-    // Back to lobby shut while a Play again buy-in is with the lobby's wallet (Paper's lockLobby).
-    api.setLobbyLocked = function (locked) { lobbyBtn.disabled = locked === true; };
+    // Lobby shut while a Play again buy-in is with the lobby's wallet (Paper's lockLobby).
+    api.setLobbyLocked = function (locked) {
+      extra.lobbyLocked = locked === true;
+      render();
+    };
+    // A restake's error or wait line (agPaid: the lobby wallet's answer to Play again).
     api.setError = function (text) {
-      errLine.textContent = text || '';
-      errLine.hidden = !text;
+      extra.error = text || '';
+      render();
     };
-    api.hide = function () { wrap.hidden = true; };
-    api.shown = function () { return !wrap.hidden; };
+    // The life's final numbers (the world's death after a paid ag:dead or ag:cashedout already showed the card).
+    api.setLife = function (life) {
+      if (!cur || cur.lifeScore === undefined || !life) return;
+      api.life = life;
+      render();
+    };
+    api.hide = function () {
+      cur = null;
+      api.kind = '';
+      api.life = null;
+      if (D) D.hide();
+    };
+    api.shown = function () { return !!(cur && D && D.shown()); };
+    api.paidKind = function () { return PAID_KINDS[api.kind] ? api.kind : ''; };
+    // The card's button element by id ('again', 'watch', 'lobby', 'menu'), for the page's tests and probes.
+    api.button = function (id) { return api.shown() && handle ? handle.button(id) : null; };
+    return api;
+  }
+
+  // ---------------------------------------------------------------------------------------
+  // The in-game leaderboard (the shared DSEnd board): the free room's rows from the world's board message (the
+  // reference's board: names in rank order, no figures), the paid room's from ag:money (design 6: names and their
+  // money, so names and amounts cannot drift). Built on the first rows; shown only while playing or watching with no
+  // end card up (agMain sync).
+  // ---------------------------------------------------------------------------------------
+
+  var UNNAMED = 'An unnamed cell';   // the reference's placeholder for a nameless cell (client-hud 5.1)
+  var BOARD_ROWS = 10;
+  var BOARD_ROWS_SHORT = 5;          // a short screen (a phone held sideways) keeps the board clear of the phone pad
+
+  // opts: { DSEnd, root, z, short() -> true on a short screen }
+  function createBoard(opts) {
+    opts = opts || {};
+    var D = opts.DSEnd || null;
+    var b = null, money = false;
+    var data = { rows: [], me: null };
+    var want = false;
+    var api = { visible: false, money: false };
+
+    function cap() {
+      var s = false;
+      try { s = typeof opts.short === 'function' && opts.short() === true; } catch (e) { s = false; }
+      return s ? BOARD_ROWS_SHORT : BOARD_ROWS;
+    }
+    function ensure(m) {
+      if (!D) return null;
+      if (b && money === m) return b;
+      if (b) b.destroy();
+      money = m;
+      api.money = m;
+      var o = { money: m, title: 'Leaderboard', light: true };   // agar's map is light: ink text (dsEnd light)
+      if (opts.z != null) o.z = opts.z;
+      if (opts.root) o.root = opts.root;
+      b = D.board(o);
+      b.hide();
+      api.visible = false;
+      return b;
+    }
+    function draw() {
+      if (!b) return;
+      b.set(data.rows.slice(0, cap()), data.me);
+      sync();
+    }
+    function sync() {
+      if (!b) return;
+      var on = want && data.rows.length > 0;
+      if (on === api.visible) return;
+      api.visible = on;
+      if (on) b.show(); else b.hide();
+    }
+    // The world's board message (mirror { t: 'board', rows }): the own row ("me") shows the local nickname. Ignored
+    // once ag:money drives the board.
+    api.setFree = function (rows, nick) {
+      if (money && b) return;
+      var list = [], me = null;
+      var n = rows ? rows.length : 0;
+      for (var i = 0; i < n; i++) {
+        var r = rows[i] || {};
+        var mine = !!r.me;
+        var name = mine ? String(nick || '') : (typeof r.name === 'string' ? r.name : '');
+        if (!name) name = UNNAMED;
+        var rank = (r.rank | 0) > 0 ? r.rank | 0 : i + 1;
+        if (list.length < BOARD_ROWS) list.push({ rank: rank, name: name, value: '', me: mine });
+        if (mine && !me) me = { rank: rank, name: name, value: '' };
+      }
+      if (!ensure(false)) return;
+      data = { rows: list, me: me };
+      draw();
+    };
+    // ag:money { me, rank, board: [[name, micro], ...] }: rows by money, the own balance and rank.
+    api.setMoney = function (m, nick) {
+      if (!m || typeof m !== 'object') return;
+      if (!ensure(true)) return;
+      var rows = Array.isArray(m.board) ? m.board : [];
+      var rank = (m.rank | 0) > 0 ? m.rank | 0 : 0;
+      var list = [];
+      for (var i = 0; i < rows.length && list.length < BOARD_ROWS; i++) {
+        var r = Array.isArray(rows[i]) ? rows[i] : [];
+        list.push({ rank: i + 1, name: typeof r[0] === 'string' && r[0] ? r[0] : UNNAMED, value: D.usd(Math.max(0, Number(r[1]) || 0)), me: i + 1 === rank });
+      }
+      var meName = rank > 0 && rank <= rows.length && Array.isArray(rows[rank - 1]) && rows[rank - 1][0] ? rows[rank - 1][0] : (nick || UNNAMED);
+      data = { rows: list, me: rank > 0 ? { rank: rank, name: meName, value: D.usd(Math.max(0, Number(m.me) || 0)) } : null };
+      draw();
+    };
+    // The whole-client reset on every connect and disconnect: the rows (and the money) belong to the old connection.
+    api.clear = function () {
+      data = { rows: [], me: null };
+      if (b) b.set([], null);
+      if (b && money) { b.destroy(); b = null; money = false; api.money = false; api.visible = false; }
+      sync();
+    };
+    // Shown only while the page plays or watches with no end card up (agMain, every frame; a change writes once).
+    api.sync = function (on) {
+      want = on === true;
+      sync();
+    };
+    api.rows = function () { return data.rows.slice(); };
+    api.me = function () { return data.me; };
+    api.element = function () { return b ? b.el : null; };
     return api;
   }
 
   var agScreens = {
-    STATS_TITLE: STATS_TITLE,
-    CASHED_OUT_TITLE: CASHED_OUT_TITLE,
-    PAID_TEXT: PAID_TEXT,
-    PAID_CSS_URL: PAID_CSS_URL,
-    PAID_FONT_URL: PAID_FONT_URL,
-    loadPaidStyles: loadPaidStyles,
-    createPaidEnd: createPaidEnd,
-    usd: usd,
+    END_TEXT: END_TEXT,
+    UNNAMED: UNNAMED,
+    HOUSE_CUT_PCT: HOUSE_CUT_PCT,
+    TX_URL: TX_URL,
+    createEnd: createEnd,
+    createBoard: createBoard,
+    lifeFacts: lifeFacts,
     cellScoreMass: cellScoreMass,
     boardPlace: boardPlace,
     createLifeStats: createLifeStats,
-    graphPoints: graphPoints,
-    drawMassGraph: drawMassGraph,
-    formatSeconds: formatSeconds,
-    statsValues: statsValues,
-    STAT_BOXES: STAT_BOXES,
     LAYOUT: LAYOUT,
     SETTINGS_DEFAULTS: SETTINGS_DEFAULTS,
     menuScale: menuScale,
     SCREENS_CSS: SCREENS_CSS,
-    LOBBY_CSS: LOBBY_CSS,
-    LOBBY_TEXT: LOBBY_TEXT,
     createScreens: createScreens
   };
   A.agScreens = agScreens;

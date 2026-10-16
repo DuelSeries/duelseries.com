@@ -376,3 +376,32 @@ test('picking a square early is the client\'s business, and firing is still poli
   assert.strictEqual(r.fire(notMine, 44, 5000).ok, false, 'still refused out of turn');
   assert.strictEqual(r.boards.get(r.turn).shotsAt.size, 0, 'and nothing landed');
 });
+
+test('the result card is told the split index.js pays, and never a wallet (display only)', () => {
+  /* The shared end card (2026-10-16) shows money: the same pot, cut and seats
+     onSettled is handed, worked out on the server (server/duelMoney.js). */
+  const { DUEL_HOUSE_CUT } = require('../server/duelMoney');
+  const got = {}, settled = [];
+  const sk = (id) => ({ id, join() {}, emit: (ev, p) => { if (ev === 'bs:over') got[id] = p; } });
+  const r = new BattleshipRoom({ to: () => ({ emit() {} }) }, 'm1');
+  r.stake = 1;
+  r.onSettled = (m) => settled.push(m);
+  r.addPlayer(sk('A'), 'Owen', 'W1', 1, 1);
+  r.addPlayer(sk('B'), 'Nia', 'W2', 1, 1);
+  r.finish('A', 'fleet sunk');
+  const prize = settled[0].pot - settled[0].pot * DUEL_HOUSE_CUT;   // index.js's own arithmetic
+  for (const id of ['A', 'B']) {
+    assert.deepStrictEqual(got[id].money, {
+      potMicro: 2000000, cutMicro: 200000, netMicro: Math.round(prize * 1e6), refunded: false,
+      seats: { A: { stakeMicro: 1000000, refundMicro: 0 }, B: { stakeMicro: 1000000, refundMicro: 0 } },
+    });
+    assert.ok(!/W1|W2/.test(JSON.stringify(got[id])), 'never a wallet');
+  }
+
+  const free = {};
+  const f = new BattleshipRoom({ to: () => ({ emit() {} }) }, 'm2');
+  f.addPlayer({ id: 'A', join() {}, emit: (ev, p) => { if (ev === 'bs:over') free.A = p; } }, 'Owen', null);
+  f.addPlayer({ id: 'B', join() {}, emit() {} }, 'Nia', null);
+  f.finish('A', 'fleet sunk');
+  assert.strictEqual(free.A.money, null, 'a free table has no money to show');
+});

@@ -5,8 +5,9 @@
 // their minimap dots), the money over every head with its count-up, the cash-out ring around
 // every holding square and the centre line of the own hold. Money floaters go through the
 // stock label machinery (unit.addLabel), so they look like the stock "Kill" and "+x.xx%".
-// The world part of the pass is clipped out of the stock screen HUD (score bar, leaderboard,
-// minimap), which is already on the canvas, so it stays under that HUD as it would in solo.
+// The world part of the pass is clipped out of the stock screen HUD (score bar, minimap; the
+// leaderboard plates are off on the arena page), which is already on the canvas, so it stays
+// under that HUD as it would in solo.
 // Loads standalone under require (nothing is drawn there).
 (function (root, factory) {
   'use strict';
@@ -57,8 +58,8 @@
   }
 
   // The screen HUD that renderGameFrame has already drawn by the time this pass runs
-  // (paperRender.js: the score bar, best line and kill counter at the top left, the leaderboard
-  // plates at the top right, the minimap disc at the bottom right), in screen pixels (the
+  // (paperRender.js: the score bar, best line and kill counter at the top left, the minimap disc
+  // at the bottom right; the leaderboard plates are never drawn here), in screen pixels (the
   // stock HUD's space, the canvas scaled by 1 / dpr) and in getRenderContext's own metrics.
   // The world pass is clipped to everything else, so coins, money labels, rings and redrawn
   // squares pass UNDER the HUD, as names and labels do in solo.
@@ -73,7 +74,6 @@
     var halfBarHeight = ~~(fontSize * 0.75);
     var barHeight = halfBarHeight * 2;
     var barWidth = ~~(vsw / calcMult(vsw, vsh, 4, 2.25));
-    var halfBarWidth = ~~(barWidth / 2);
     var uiFont = fontSize + 'px ' + (game.config && game.config.font);
     function textWidth(text) {
       if (!ctx || typeof ctx.measureText !== 'function') return barWidth;
@@ -82,12 +82,6 @@
       var w = ctx.measureText(text).width;
       ctx.restore();
       return w > 0 ? w : 0;
-    }
-    function scoreOf(u) {
-      return u && u.schemes && typeof u.schemes.scores === 'function' ? u.schemes.scores() : 0;
-    }
-    function isPlayer(u) {
-      return typeof game.isPlayer === 'function' ? game.isPlayer(u) : u === player;
     }
 
     // Top left: drawPlayerScoreBar (its shadow is always the full bar), drawBestScoreText and
@@ -102,32 +96,8 @@
     var kills = player.statistics ? player.statistics.kills : 0;
     holes.rects.push([0, pillY, barHeight * 1.5 + textWidth('x' + kills), barHeight]);
 
-    // Top right: drawLeaderboardPlates' rows (top five, then the player in slot 6 when not
-    // listed). A plate runs from its left edge off the right of the screen; its shadow reaches
-    // 3 back heights down, into the next row's band, where the narrower next plate takes over.
-    var rows = [];
-    var topScore = scoreOf(game.units[0]);
-    var previousRatio;
-    function row(unit, slot) {
-      var ratio = halfBarWidth * (scoreOf(unit) / topScore);
-      if (previousRatio && ratio > previousRatio - halfBarWidth * 0.05) ratio = previousRatio - halfBarWidth * 0.05;
-      previousRatio = ratio;
-      var left = vsw - (halfBarWidth + ratio);
-      var top = padding + slot * (barHeight * 1.3);
-      if (isFinite(left)) rows.push({ left: Math.max(0, left), top: top, bottom: top + barHeight + backHeight * 3 });
-    }
-    var listed = false;
-    for (var i = 0; i < 5; i++) {
-      var unit = game.units[i];
-      if (!unit) continue;
-      if (isPlayer(unit)) listed = true;
-      row(unit, i);
-    }
-    if (!listed && !player.death) row(player, 6);
-    for (var r = 0; r < rows.length; r++) {
-      var bottom = r + 1 < rows.length ? Math.min(rows[r].bottom, rows[r + 1].top) : rows[r].bottom;
-      holes.rects.push([rows[r].left, rows[r].top, vsw - rows[r].left, bottom - rows[r].top]);
-    }
+    // Top right: nothing. The stock leaderboard plates are off on the arena page (paperArenaMain.js: its board is
+    // the site's DOM one, over the canvas), so the world pass runs under that corner as it does anywhere else.
 
     // Bottom right: renderMinimap's arena disc and its frame line (3 hud px wide).
     var space = game.space;

@@ -14,7 +14,7 @@
 <canvas id="view"></canvas>
 
 <!-- Live play has no leave control (design 8.6): holding Q (or the button below) is the only way
-     out while the square is alive. "Back to the lobby" lives on the end screens only. -->
+     out while the square is alive. Lobby lives on the end cards only. -->
 <!-- Touch heading arrow (paperTouch.js): the snake game's arrow, shown while a thumb steers. -->
 <div id="pp-arrow" class="pp-arrow" aria-hidden="true">
   <svg viewBox="0 0 24 24" width="26" height="26">
@@ -53,57 +53,8 @@
   <small>Your square keeps moving for a few seconds</small>
 </div>
 
-<div id="pp-refused" class="pp-layer pp-end" hidden>
-  <div class="pp-card">
-    <div class="pp-title">Could not join</div>
-    <div class="pp-line" id="pp-refused-text"></div>
-    <div class="pp-note" id="pp-refused-refund" hidden>Your entry was refunded to your wallet.</div>
-    <div class="pp-actions">
-      <button type="button" class="pp-lobby">Back to the lobby</button>
-    </div>
-  </div>
-</div>
-
-<div id="pp-dead" class="pp-layer pp-end" hidden>
-  <div class="pp-card">
-    <div class="pp-title" id="pp-dead-title">You died</div>
-    <div class="pp-big" id="pp-dead-big"></div>
-    <div class="pp-line" id="pp-dead-line"></div>
-    <div class="pp-note pp-error" id="pp-dead-error" hidden></div>
-    <div class="pp-actions">
-      <button type="button" class="pp-again pp-primary">Play again</button>
-      <button type="button" class="pp-lobby">Back to the lobby</button>
-    </div>
-  </div>
-</div>
-
-<div id="pp-cashed" class="pp-layer pp-end" hidden>
-  <div class="pp-card">
-    <div class="pp-title" id="pp-cashed-title">Cashed out</div>
-    <div class="pp-big" id="pp-cashed-big"></div>
-    <div class="pp-receipt" id="pp-receipt" hidden>
-      <div class="pp-row"><span>Winnings</span><span id="pp-gross"></span></div>
-      <div class="pp-row"><span>10% fee</span><span id="pp-cut"></span></div>
-      <div class="pp-row pp-total"><span>You receive</span><span id="pp-net"></span></div>
-    </div>
-    <div class="pp-note" id="pp-pay-status" hidden></div>
-    <div class="pp-note pp-error" id="pp-cashed-error" hidden></div>
-    <div class="pp-actions">
-      <button type="button" class="pp-again pp-primary">Play again</button>
-      <button type="button" class="pp-lobby">Back to the lobby</button>
-    </div>
-  </div>
-</div>
-
-<div id="pp-gone" class="pp-layer pp-end" hidden>
-  <div class="pp-card">
-    <div class="pp-title" id="pp-gone-title">Disconnected</div>
-    <div class="pp-line" id="pp-gone-text"></div>
-    <div class="pp-actions">
-      <button type="button" class="pp-lobby">Back to the lobby</button>
-    </div>
-  </div>
-</div>
+<!-- The end cards (refused, dead, cashed out, disconnected) and the leaderboard are the site's shared ones,
+     built by public/js/shared/dsEnd.js from paperArenaMain.js. -->
 
 <div id="pp-unsupported" class="pp-layer pp-soft" hidden>This browser cannot run the game.</div>
 
@@ -126,6 +77,7 @@
 <script src="/js/paper/mp/paperMirror.js"></script>
 <script src="/js/paper/mp/paperHud.js"></script>
 <script src="/js/paper/mp/paperTouch.js"></script>
+<script src="/js/shared/dsEnd.js"></script>
 <script src="/js/paper/mp/paperArenaMain.js"></script>
 </body>
 </html>

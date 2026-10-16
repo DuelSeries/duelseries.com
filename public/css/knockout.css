@@ -138,29 +138,17 @@ html, body {
   100% { transform: scale(0.92); opacity: 0.25; }
 }
 
-/* ── waiting, and the end ──────────────────────────────────────────────────
+/* ── waiting ───────────────────────────────────────────────────────────────
    The same card the other games use, word for word where the words are the
-   same, so leaving any DuelSeries game lands you somewhere you recognise. */
-#wait, #over {
+   same. The result is the shared card (public/js/shared/dsEnd.js). */
+#wait {
   position: fixed; inset: 0; z-index: 20;
   display: flex; align-items: center; justify-content: center; padding: 24px;
   background: rgba(6, 5, 4, 0.72); backdrop-filter: blur(6px);
 }
-#wait[hidden], #over[hidden] { display: none; }
-
-/* THE RESULT ARRIVES, it does not appear. The winner has just been sitting
-   alone on the board for three seconds and cutting hard to a full-screen card
-   throws that away; fading the dim in and letting the card rise the last few
-   pixels reads as the match settling rather than as a scene change. Slow
-   enough to notice, short enough that nobody taps through it. */
-#over { animation: ko-veil 0.55s ease-out both; }
-#over .overCard { animation: ko-card 0.45s cubic-bezier(.2,.8,.3,1) 0.12s both; }
-@keyframes ko-veil { from { opacity: 0; } to { opacity: 1; } }
-@keyframes ko-card {
-  from { opacity: 0; transform: translateY(14px) scale(0.97); }
-  to   { opacity: 1; transform: none; }
-}
-.waitCard, .overCard {
+#wait[hidden] { display: none; }
+.waitSpin[hidden] { display: none; }
+.waitCard {
   width: 100%; max-width: 380px; text-align: center;
   background: var(--ink); border: 1px solid var(--s3); border-radius: 18px;
   padding: 28px 24px 22px; box-shadow: 0 24px 60px rgba(0,0,0,0.55);
@@ -173,27 +161,14 @@ html, body {
 @keyframes kospin { to { transform: rotate(360deg); } }
 .waitCard b { display: block; font-size: 17px; font-weight: 650; }
 .waitCard span { display: block; margin-top: 6px; font-size: 13px; color: var(--tx3); }
-.waitCard button, .overBtns button {
+.waitCard button {
   font-family: inherit; font-size: 13.5px; font-weight: 600;
   border-radius: 10px; padding: 11px 16px; cursor: pointer;
   border: 1px solid var(--s3); background: transparent; color: var(--tx);
   transition: background 0.15s, border-color 0.15s;
 }
 .waitCard button { margin-top: 20px; width: 100%; }
-.waitCard button:hover, .overBtns .ghost:hover { background: var(--s2); border-color: #3a3126; }
-
-.overEyebrow {
-  margin: 0; font-family: var(--fm); font-size: 0.72rem; font-weight: 600;
-  letter-spacing: 0.14em; text-transform: uppercase; color: var(--tx2);
-}
-.overWho { margin: 10px 0 0; font-size: 28px; font-weight: 650; letter-spacing: -0.5px; }
-.overWho.won { color: var(--live); }
-.overWho.lost { color: var(--them); }
-.overWhy { margin: 8px 0 0; font-size: 13px; color: var(--tx3); }
-.overBtns { display: flex; gap: 8px; margin-top: 22px; }
-.overBtns button { flex: 1 1 0; min-width: 0; white-space: nowrap; }
-.overBtns .go { background: var(--rim); border-color: var(--rim); color: var(--ink); }
-.overBtns .go:hover { background: #f6b845; border-color: #f6b845; }
+.waitCard button:hover { background: var(--s2); border-color: #3a3126; }
 
 /* ── watching ──────────────────────────────────────────────────────────────
    Somebody else's match, from the lobby's Spectate. The strip and the disc are
@@ -250,5 +225,4 @@ body.watching #lock, body.watching #theirState { display: none; }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
   #count span { animation: none; }
-  #over, #over .overCard { animation: none; }
 }

@@ -17,6 +17,8 @@ for (const f of ['agMath', 'agWorld', 'agCamera', 'agInput', 'agRender', 'agHud'
 }
 const LIB = globalThis.DuelAgarLib;
 const W = require('../shared/agWire.js');
+// The shared end card and board, the real component in the fake page (test/agEndProbe.js).
+const { installDSEnd, readCard, readBoard } = require('./agEndProbe');
 
 // ---- fake page ------------------------------------------------------------------------------------------------
 function makeCtx(canvas, log) {
@@ -65,9 +67,10 @@ function makeElement(doc, tag) {
     getAttribute(k) { return Object.prototype.hasOwnProperty.call(this.attributes, k) ? this.attributes[k] : null; },
     appendChild(c) { this.children.push(c); c.parentNode = this; return c; },
     removeChild(c) { this.children = this.children.filter((x) => x !== c); c.parentNode = null; return c; },
+    get firstChild() { return this.children[0] || null; },
     addEventListener(type, fn) { (listeners[type] = listeners[type] || []).push(fn); },
     removeEventListener(type, fn) { listeners[type] = (listeners[type] || []).filter((f) => f !== fn); },
-    dispatch(type, ev) { (listeners[type] || []).slice().forEach((fn) => fn(Object.assign({ type, preventDefault() {} }, ev))); },
+    dispatch(type, ev) { (listeners[type] || []).slice().forEach((fn) => fn(Object.assign({ type, preventDefault() {}, stopPropagation() {} }, ev))); },
     focus() {}
   };
   if (tag === 'canvas') {
@@ -96,6 +99,7 @@ function fakeClassList() {
 function makeDoc() {
   const doc = { _n: 0, calls: [], sizeWrites: [] };
   doc.createElement = (tag) => makeElement(doc, tag);
+  doc.createTextNode = (t) => ({ nodeType: 3, textContent: String(t), children: [], parentNode: null });
   doc.documentElement = { style: { setProperty() {} }, classList: fakeClassList() };
   doc.head = makeElement(doc, 'head');
   doc.body = makeElement(doc, 'body');
@@ -161,6 +165,7 @@ function bootPage(o) {
   if (o.fonts) doc.fonts = o.fonts;
   if (o.matchMedia) win.matchMedia = o.matchMedia;
   if (o.top) win.top = o.top;
+  installDSEnd(win);
   globalThis.document = doc;   // the renderer's scratch canvases come from the page's document
   const sound = LIB.agSound.createSound({ storage: null, createAudioContext: () => null });
   const cfg = Object.assign({ win, doc, canvas, sound, idlePass: false, net: !!o.net, engineNow: () => clock }, o.cfg || {});
@@ -212,9 +217,9 @@ test('reconnect resets this life, the HUD, the board and the name cache; the las
   await spawn(p, feed);
   const { hud, stats, renderer, camera } = p.mod;
   assert.strictEqual(p.session.state().highestMass, 400);
-  assert.ok(stats.history.length >= 9);
   assert.strictEqual(hud.alive, true);
-  assert.strictEqual(hud.lbHasContent, true);
+  assert.deepStrictEqual(p.session.state().board, { visible: true, money: false }, 'the shared board is up');
+  assert.deepStrictEqual(readBoard(p.doc).rows, [['1', 'bob', '', false], ['2', 'me', '', true]]);
   assert.ok(hud.scorePanel);
   assert.strictEqual(renderer.nameCount(), 2, 'own nick and bob');
   const lastSent = [camera.lastSentX, camera.lastSentY];
@@ -225,10 +230,12 @@ test('reconnect resets this life, the HUD, the board and the name cache; the las
   p.sock.fire('connect');
 
   assert.strictEqual(p.session.state().highestMass, 0);
-  assert.deepStrictEqual([stats.history.length, stats.leaderTime, stats.topPosition, stats.onBoard, stats.alive],
-    [0, 0, 0, false, false]);
+  assert.deepStrictEqual([stats.leaderTime, stats.topPosition, stats.onBoard, stats.alive],
+    [0, 0, false, false]);
   assert.deepStrictEqual([hud.alive, hud.slowCount, hud.slowShown, hud.slowVisible], [false, 0, 0, false]);
-  assert.deepStrictEqual([hud.lbEntries, hud.lbHasContent], [[], false]);
+  assert.deepStrictEqual(p.mod.board.rows(), [], 'the old connection\'s rows are gone');
+  await p.frames(1);
+  assert.strictEqual(readBoard(p.doc).shown, false, 'and the board with them');
   assert.deepStrictEqual([hud.scorePanel, hud.hintPanel, hud.slowPanel, hud.rebootPanel], [null, null, null, null]);
   assert.strictEqual(renderer.nameCount(), 0, 'no cached name outlives the reconnect');
   assert.deepStrictEqual([camera.lastSentX, camera.lastSentY], lastSent);
@@ -252,7 +259,7 @@ test('reconnect resets this life, the HUD, the board and the name cache; the las
   assert.strictEqual(renderer.nameCount(), 0);
 });
 
-test('a death while the Esc menu is open keeps HOME (no Match Results); a death in play shows it', async () => {
+test('a death while the Esc menu is open keeps HOME (no end card); a death in play shows it', async () => {
   for (const escFirst of [true, false]) {
     const p = bootPage();
     const feed = p.session.feed;
@@ -266,12 +273,14 @@ test('a death while the Esc menu is open keeps HOME (no Match Results); a death 
     if (escFirst) {
       assert.strictEqual(st.menuState, 'HOME');
       assert.strictEqual(screens.state, 'HOME');
-      assert.strictEqual(p.doc.getElementById('ag-stats').hidden, true, 'the stats panel stays hidden');
-      assert.strictEqual(p.doc.getElementById('ag-name').hidden, false, 'the name entry stays');
+      assert.strictEqual(readCard(p.doc), null, 'no end card over the menu');
+      assert.strictEqual(p.doc.getElementById('ag-menu').hidden, false, 'the name entry stays');
     } else {
       assert.strictEqual(st.menuState, 'GAMEOVER');
-      assert.strictEqual(screens.state, 'GAMEOVER');
-      assert.strictEqual(p.doc.getElementById('ag-stats').hidden, false);
+      const card = readCard(p.doc);
+      assert.deepStrictEqual([card.verdict, card.hero, card.unit], ['Eaten', '400', 'mass']);
+      assert.deepStrictEqual(card.buttons.map((b) => b.id), ['again', 'watch', 'menu'], 'a direct visit: Menu, the old Continue');
+      assert.strictEqual(p.doc.getElementById('ag-menu').hidden, true);
     }
     assert.strictEqual(st.capMs, Math.fround(1000 / 25), 'the menu cap either way');
     assert.strictEqual(st.highestMass, 0, 'the life was still counted and reset');
@@ -722,12 +731,11 @@ test('P4 portrait: an upright phone plays the turned layout on the whole canvas,
   const v = LIB.agCamera.visibleWorld(cam.W, cam.H, 1, true);
   assert.ok(Math.abs(v.w - 887.2) < 0.01 && Math.abs(v.h - 1920) < 1e-9, 'wheel 1, zoom 1: ' + JSON.stringify(v));
   assert.deepStrictEqual([hud.W, hud.H, hud.portrait], [1170, 2532, true]);
-  // The board is drawn at the turned HUD scale (q = 1170 / 1080): 19 px rows.
+  // The board is the shared DOM board (its own phone size, top right); nothing of it is drawn on a canvas.
   p.doc.calls.length = 0;
   p.session.feed({ t: 'board', rows: [{ name: 'bob' }, { me: true }] });
-  const boardTexts = p.doc.calls.filter((c) => c[0] !== p.canvas.cid && c[1] === 'fillText');
-  assert.ok(boardTexts.length >= 3, 'title and two rows drawn');
-  assert.strictEqual(hud.lbCtx.font, '19px Ubuntu', 'the row font');
+  assert.ok(!p.doc.calls.some((c) => c[1] === 'fillText'), 'no canvas text for the board');
+  assert.deepStrictEqual(readBoard(p.doc).rows, [['1', 'bob', '', false], ['2', 'me', '', true]]);
   // Sideways: the exact reference layout (the ghost strip's 2532 x 900); upright again: straight to the layout.
   resize(p, 844, 390);
   await p.frames(2);

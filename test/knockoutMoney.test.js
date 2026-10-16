@@ -220,3 +220,55 @@ test('every way out of a paid queue hands the money back', () => {
     assert.strictEqual(refunds[0].amount, 1);
   }
 });
+
+test('the result card is told the split index.js pays, and nothing else (display only)', () => {
+  /* The card shows money now (the shared end card, 2026-10-16), and it must be
+     the money that moves: the same pot, the same cut, the same bounded refund,
+     worked out on the server from the seats onSettled was handed. The client
+     only formats these figures. */
+  const { DUEL_HOUSE_CUT } = require('../server/duelMoney');
+  const run = (winner, why, paidB) => {
+    const out = [], settled = [];
+    const r = new KnockoutRoom({ to: () => ({ emit: (ev, p) => out.push([ev, p]) }) }, 'm1');
+    r.stake = 1;
+    r.onSettled = (m) => settled.push(m);
+    r.addPlayer(sock('A'), 'Owen', 'W1', 1, 1);
+    r.addPlayer(sock('B'), 'Nia', 'W2', 1, paidB);
+    r.finish(winner, why);
+    return { over: out.find(e => e[0] === 'ko:over')[1], settled: settled[0] };
+  };
+
+  const win = run('A', 'last one standing', 1);
+  const prize = win.settled.pot - win.settled.pot * DUEL_HOUSE_CUT;   // index.js's own arithmetic
+  assert.deepStrictEqual(win.over.money, {
+    potMicro: 2000000, cutMicro: 200000, netMicro: Math.round(prize * 1e6), refunded: false,
+    seats: { A: { stakeMicro: 1000000, refundMicro: 0 }, B: { stakeMicro: 1000000, refundMicro: 0 } },
+  });
+  assert.strictEqual(win.over.money.netMicro, 1800000);
+
+  /* A draw refunds each seat what landed, never more: B's transfer came in short. */
+  const draw = run(null, 'everyone went off', 0.98);
+  assert.strictEqual(draw.over.money.refunded, true);
+  assert.strictEqual(draw.over.money.cutMicro, 0, 'no rake on a draw');
+  assert.strictEqual(draw.over.money.seats.A.refundMicro, 1000000);
+  assert.strictEqual(draw.over.money.seats.B.refundMicro,
+    Math.round(draw.settled.seats.find(s => s.id === 'B').refund * 1e6));
+  assert.strictEqual(draw.over.money.seats.B.refundMicro, 980000);
+
+  for (const p of [win.over, draw.over]) assert.ok(!/W1|W2/.test(JSON.stringify(p)), 'never a wallet');
+
+  /* A free table has no money to show. */
+  const out = [];
+  const free = new KnockoutRoom({ to: () => ({ emit: (ev, p) => out.push([ev, p]) }) }, 'm2');
+  free.addPlayer(sock('A'), 'Owen', null);
+  free.addPlayer(sock('B'), 'Nia', null);
+  free.finish('A', 'last one standing');
+  assert.strictEqual(out.find(e => e[0] === 'ko:over')[1].money, null);
+});
+
+test('index.js takes the duels\' house cut from the one place the cards read it', () => {
+  const src = require('fs').readFileSync(require('path').join(__dirname, '../server/index.js'), 'utf8');
+  assert.ok(src.includes("const KO_HOUSE_CUT = require('./duelMoney').DUEL_HOUSE_CUT;"));
+  assert.ok(!/KO_HOUSE_CUT\s*=\s*0\./.test(src), 'no second copy of the number');
+  assert.strictEqual(require('../server/duelMoney').DUEL_HOUSE_CUT, 0.10);
+});

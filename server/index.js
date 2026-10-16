@@ -1937,8 +1937,7 @@ app.get(['/agar', '/agar.html'], (_req, res) => res.redirect(302, '/ag'));
    (server/sl/slBoot.js composePage); any refusal keeps /sl on the closed page
    and logs why. ONE free room, its own socket.io namespace /sl, at most
    C_SL_PER_IP (30) sockets per address. It holds no money: it gets no db and
-   no money module, only the one read function of the biggest cash-out box
-   (server/sl/slTopCashout.js), and its row is stake 0 with worth 0 snakes.
+   no money module, and its row is stake 0 with worth 0 snakes.
    It IS the lobby's free snake now (the Phase 6 swap, SERVER-DESIGN 16.2):
    while slFreeLive() its row is the snake Free row on /api/live, liveBoard()
    leaves out the old free rung, and that rung stops seeding bots but stays
@@ -1960,10 +1959,9 @@ const slOpened = slBoot.openSl({
     /* The bot governor's paid-seat input, once a second (SERVER-DESIGN 11). */
     paidLoad: () => ({ paidPlayers: ops.drainStatus(ALL_ROOMS(), entryStore.pending()).paid, paid: [] }),
   },
-  topCashout: process.env.DATABASE_URL
-    ? require('./sl/slTopCashout').makeTopCashoutRead((sql, params) => db.pool.query(sql, params))
-    : null,
-  excludeWallets: [...OWNER_WALLETS, REVENUE_WALLET],
+  /* No biggest cash-out box (Owen 2026-10-16, "this was a bad idea"): no
+     topCashout read, so slBoot starts none and no seat is sent {t: 'top'}. */
+  topCashout: null,
   /* Full of bots from boot: the free room ticks before anybody comes, so its
      lobby card counts real snakes from the first poll (slArenas keepAwake has
      the measured cost). Paid rooms are a separate directory and stay bot-free. */
@@ -2027,7 +2025,9 @@ const knockoutLobby = new KnockoutLobby(io);
    payout is: "pay the winner" is not a thing to run twice, and a reconnect, a
    double event or a retry must not become a second transfer. */
 const _koPaid = new Set();
-const KO_HOUSE_CUT = 0.10;
+/* 10%, from the one place the duels' result cards read it too (server/duelMoney.js), so the
+   split a card shows is the split paid here. */
+const KO_HOUSE_CUT = require('./duelMoney').DUEL_HOUSE_CUT;
 
 knockoutLobby.onSettled = ({ roomId, winnerId, why, pot, seats }) => {
   if (!roomId || !(pot > 0)) return;
@@ -2586,11 +2586,6 @@ function brOnSl() { return !!(slBr && brOnNew); }
 function activeBr() {
   if (brOnSl()) return slBr.match;
   return (gameRooms[REGION] && gameRooms[REGION].br) || null;
-}
-/* The free room's biggest cash-out box shows in the event's room too. */
-if (slArenas && slBr) {
-  const freeSetTop = slArenas.setTop.bind(slArenas);
-  slArenas.setTop = (msg) => { freeSetTop(msg); slBr.setTop(msg); };
 }
 /* The free room's bot governor also sees the paid rooms' and the event's tick cost (D2-m9). */
 if (slArenas && (slPaid || slBr)) {

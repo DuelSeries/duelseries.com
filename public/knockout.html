@@ -71,22 +71,10 @@
 <!-- The three seconds before the first turn. -->
 <div id="count" hidden><span id="countNum">3</span></div>
 
-<!-- The result. Same shape as the other games' end cards, because leaving any
-     of them should land you in the same place. -->
-<div id="over" hidden>
-  <div class="overCard">
-    <p class="overEyebrow" id="overEyebrow">Match over</p>
-    <p class="overWho" id="overWho">—</p>
-    <p class="overWhy" id="overWhy"></p>
-    <div class="overBtns">
-      <button type="button" class="ghost" id="againBtn">Play again</button>
-      <button type="button" class="go" id="lobbyBtn">Lobby</button>
-    </div>
-  </div>
-</div>
-
 <script src="/socket.io/socket.io.js"></script>
 <script src="/shared/shopSkins.js"></script>
+<!-- The result card every DuelSeries game ends on. -->
+<script src="js/shared/dsEnd.js"></script>
 <script src="js/knockout.js"></script>
 </body>
 </html>

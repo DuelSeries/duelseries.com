@@ -1,5 +1,6 @@
 'use strict';
 const { refundBound } = require('./stakeRules');
+const { duelMoney } = require('./duelMoney');
 /* ─── Knockout ────────────────────────────────────────────────────────────────
    Two players, two pieces each, one shrinking disc over a pit. Every turn both
    players get fifteen seconds to drag an arrow out of each of their pieces —
@@ -575,13 +576,20 @@ class KnockoutRoom {
     this.winner = winnerId || null;
     this.overWhy = why || '';
 
+    const pot = this.pot();
+    /* Per seat, so a refund gives each player back their OWN stake
+       rather than half a pot they may not have paid half of. */
+    const seats = [...this.players.entries()].map(([id, p]) => ({
+      id, name: p.name, wallet: p.wallet, worth: this.worth.get(id) || 0,
+      /* A draw's refund: the stake, never more than what landed on-chain. */
+      refund: refundBound(this.worth.get(id) || 0, p.paid),
+    }));
     /* EXACTLY ONCE PER TABLE. finish() is reachable from a win, from a draw and
        from somebody closing their laptop, and a room that settles twice pays
        twice. The guard is here rather than at the money end because this is the
        one place all three routes pass through. */
     if (!this.settled) {
       this.settled = true;
-      const pot = this.pot();
       if (pot > 0 && typeof this.onSettled === 'function') {
         try {
           this.onSettled({
@@ -589,13 +597,7 @@ class KnockoutRoom {
             winnerId: winnerId || null,
             why: why || '',
             pot,
-            /* Per seat, so a refund gives each player back their OWN stake
-               rather than half a pot they may not have paid half of. */
-            seats: [...this.players.entries()].map(([id, p]) => ({
-              id, name: p.name, wallet: p.wallet, worth: this.worth.get(id) || 0,
-              /* A draw's refund: the stake, never more than what landed on-chain. */
-              refund: refundBound(this.worth.get(id) || 0, p.paid),
-            })),
+            seats,
           });
         } catch (e) { console.error('[KO] settle hook failed:', e.message); }
       }
@@ -607,7 +609,12 @@ class KnockoutRoom {
       why: this.overWhy,
       turn: this.turn,
       stake: this.stake,
-      pot: this.pot(),
+      pot,
+      /* What the result card shows about the money: the split index.js pays,
+         from this same pot and these same seats (server/duelMoney.js). Display
+         only; null on a free table. Both screens get both seats' figures, keyed
+         by the socket ids the state already names, and never a wallet. */
+      money: duelMoney({ winnerId: winnerId || null, pot, seats }),
     });
   }
 

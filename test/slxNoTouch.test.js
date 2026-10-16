@@ -17,16 +17,21 @@ const vm = require('vm');
 const V = require('./slVmPage');
 const B = require('../server/sl/slBoot');
 
-const LAYER = [...B.SLX_TAIL.matchAll(/<script src="\/js\/slx\/([^"]+)"><\/script>/g)].map((m) => 'public/js/slx/' + m[1]);
-const LAYER_SRC = LAYER.map((f) => [f, fs.readFileSync(path.join(V.ROOT, f), 'utf8')]);
+// Every script of the composed page's tail, in its order: the shared end screens (public/js/shared/dsEnd.js, the
+// results card and leaderboard every game draws, slxCard's and slxHud's too) and then the layer files.
+const TAIL = [...B.SLX_TAIL.matchAll(/<script src="\/js\/([^"]+)"><\/script>/g)].map((m) => 'public/js/' + m[1]);
+const LAYER = TAIL.filter((f) => f.startsWith('public/js/slx/'));
+const LAYER_SRC = TAIL.map((f) => [f, fs.readFileSync(path.join(V.ROOT, f), 'utf8')]);
 const SCRIPTS = V.SRC.concat(LAYER_SRC);
 
-test('the layer of the composed page: slxNet first, then slxPaid, slxBr, slxWatch, slxMain and slxDirect, every file on disk', () => {
+test('the layer of the composed page: dsEnd, then slxNet, slxPaid, slxBr, slxWatch, slxMain and slxDirect, every file on disk', () => {
+  assert.deepStrictEqual(TAIL.filter((f) => !LAYER.includes(f)), ['public/js/shared/dsEnd.js']);
+  assert.strictEqual(TAIL[0], 'public/js/shared/dsEnd.js', 'before the layer');
   assert.deepStrictEqual(LAYER.slice(0, 6), ['public/js/slx/slxNet.js', 'public/js/slx/slxPaid.js',
     'public/js/slx/slxBr.js', 'public/js/slx/slxWatch.js', 'public/js/slx/slxMain.js', 'public/js/slx/slxDirect.js']);
   const onDisk = fs.readdirSync(path.join(V.ROOT, 'public/js/slx')).filter((f) => f.endsWith('.js'));
   assert.strictEqual(LAYER.length, onDisk.length, 'every layer file is in the tail');
-  assert.strictEqual(SCRIPTS.length, V.SRC.length + LAYER.length);
+  assert.strictEqual(SCRIPTS.length, V.SRC.length + TAIL.length);
 });
 
 function counts(P) {
@@ -46,7 +51,7 @@ function counts(P) {
 }
 
 for (const ua of ['desktop', 'mobile']) {
-  test('zero registrations (' + ua + '): the layer loaded after the frozen client changes nothing but DuelSlither.slx', () => {
+  test('zero registrations (' + ua + '): the tail loaded after the frozen client changes nothing but DuelSlither.slx and DSEnd', () => {
     const H = Object.assign({}, V.loadStreams().streams.full.harness, ua === 'mobile' ? { ua: 'mobile' } : {});
     const P = V.makePage(H, [], { scripts: V.SRC });
     P.boot();
@@ -55,8 +60,11 @@ for (const ua of ['desktop', 'mobile']) {
     const after = counts(P);
     for (const k of Object.keys(before)) {
       if (Array.isArray(before[k])) before[k].forEach((v, i) => assert.strictEqual(after[k][i], v, k + '[' + i + ']'));
+      // the shared end screens' one global (a library: it makes no element, listener or timer until it is called)
+      else if (k === 'winKeys') assert.strictEqual(after[k], before[k] + ',DSEnd', k);
       else assert.strictEqual(after[k], before[k], k);
     }
+    assert.strictEqual(P.win.DSEnd.shown(), false, 'no card');
     const slx = P.win.DuelSlither.slx;
     assert.strictEqual(slx.active, false);
     assert.deepStrictEqual(Object.keys(slx), ['active']);

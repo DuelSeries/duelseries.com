@@ -1,5 +1,6 @@
 // DuelSeries layer on the frozen slither.io client: the results card (Owen Q11; SERVER-DESIGN 15.3 "Results card";
-// task T17). Ours, not a parity area.
+// task T17). Ours, not a parity area. Drawn by the shared end screen every game uses (public/js/shared/dsEnd.js,
+// Owen 2026-10-16: one cash-out, death and leaderboard for all the games), loaded before the slx tail by slBoot.
 //
 // Inert unless slxNet installed the production transport (15.2, finalize pass C20): no node, no listener, no style.
 //
@@ -9,12 +10,14 @@
 // (fr 1). So it appears with their menu and leaves when the next life starts.
 //
 // What it says:
-//   a death              'Match Results' (agar's panel title, public/js/ag/agScreens.js:15-17)
-//   a cash-out           'Cashed Out' (agar's free cash-out title, same place); sl:x {t: 'cashed'} came before `dead`
+//   a death              'Killed by NAME' (the kill feed's {t: 'kill'} naming this snake), else 'You died'
+//   a cash-out           'Cashed out'; sl:x {t: 'cashed'} came before `dead`
 //   a close mid-life     'Connection lost', or 'Too slow' when the server itself disconnected the socket with no
 //                        refusal (its stall and cap kicks, server/sl/slSendQueue.js kick)
-//   then "Your final length was N" (Owen's words), N read from THEIR last-score line, which their gameOver writes on
-//   the death and the close path alike (slHud.js:305-310, slApply.js:1252-1262, 1300-1320).
+//   the big figure is the final length, N read from THEIR last-score line, which their gameOver writes on the death
+//   and the close path alike (slHud.js:305-310, slApply.js:1252-1262, 1300-1320); under it Time (from the own snake's
+//   add to its death, on the page clock) and Top rank (their best_rank this connection, slApply.js:768, kept during
+//   the life: their resetGame clears it before their menu shows).
 // Refusals never reach their menu (a refused socket closes before any life, so dead_mtm is never set,
 // slApply.js:1252-1262): the card shows at once from the close, titled by the refusal's why
 // (server/sl/slSockets.js REFUSALS).
@@ -22,16 +25,17 @@
 // Buttons: Play again calls their Play (DuelSlither.play) under the name the first Play used (the lobby name, or the
 // direct-visit box); their loop connects only once their fade ended (slLoop.js:612), so the button says "Starting"
 // until the card goes. Lobby posts game:done to the lobby frame (slx.toLobby); a direct visit opens the lobby page.
-// A click or tap on the card never reaches their boost or steering (slx.guard).
+// A click or tap on the card never reaches their boost or steering (dsEnd stops it at the card).
 //
-// The paid layer's hooks (PAID-SL-DESIGN 9; slxPaid.js, loaded before this file, sets them on a paid page and on a page
-// that only shows a paid notice; a free page sets none, and the card is exactly as above). Each is read at the moment
-// it is needed, and a throw in one is counted (slx.errors) and ignored:
-//   slx.cardLines(kind) -> null, or { title, lines, again }: a title in place of the card's own, lines under it (each a
-//     string, or { text, cls } with one more slx- class; text only, never markup), and Play again: false leaves it off
-//     the card, a string is its label, { text, disabled } its label and state; length: false leaves the length line
-//     off (a watcher's card: the length was not theirs). Read when the card shows and on refresh() (the cash-out status
-//     coming in).
+// The layers' hook (slxPaid, slxBr, slxWatch set it; a free page sets none, and the card is exactly as above). Each is
+// read at the moment it is needed, and a throw in one is counted (slx.errors) and ignored:
+//   slx.cardLines(kind) -> null, or { title, lines, again, length, tone, hero, unit, ledger, status, podium, facts }:
+//     title in place of the card's own; lines under the money (each a string or { text }; text only, never markup);
+//     again: false leaves Play again off, a string is its label, { text, disabled } its label and state; length: false
+//     leaves the length off (a watcher's card: the length was not theirs); tone/hero/unit the big figure (a paid
+//     page's money, '1st' for a battle royale win), then the length moves into the facts; ledger [[label, value]] the
+//     money rows; status { text, state } the payout line; podium [{ rank, name, me }]; facts in place of the card's.
+//     Read when the card shows and on refresh() (the cash-out status coming in).
 //   slx.beforeAgain(go) -> true when the layer takes Play again over (a paid page buys a new entry first, then calls
 //     go(), which starts the play as the button does and answers whether it did).
 //   slx.beforeLobby() -> true when the layer keeps the page here (its exit trap: money is still in the room).
@@ -43,12 +47,12 @@
   var slx = D.slx;
   var doc = root.document;
   var S = D.S;
-  if (!doc || !S || typeof slx.on !== 'function' || typeof slx.guard !== 'function') return;
+  var E = root.DSEnd;
+  if (!doc || !S || !E || typeof slx.on !== 'function') return;
 
-  // Titles (CHOSEN copy; Owen gave the length line and the two buttons).
   var TITLE = {
-    dead: 'Match Results',
-    cashed: 'Cashed Out',
+    dead: 'You died',
+    cashed: 'Cashed out',
     lost: 'Connection lost',
     slow: 'Too slow',
     full: 'Room full',
@@ -60,73 +64,18 @@
     match: 'Match under way',
     nobody: 'Nothing to watch'
   };
-  var LENGTH_WORDS = 'Your final length was ';
+  var KILLED_BY = 'Killed by ';
+  var LENGTH = 'length';
   var BTN = { again: 'Play again', retry: 'Try again', starting: 'Starting', lobby: 'Lobby' };
   // socket.io's reason when the server called socket.disconnect() (socket.io-client: 'io server disconnect').
   var SERVER_DROP = 'io server disconnect';
-
-  // Their card look: agar's Match Results panel (public/js/ag/agScreens.js:299-341): a white 10 px card, Arial, the
-  // primary blue and the plain white button, 150 x 34 each. Placed over their last-score line (sl.html login layer:
-  // 64 + 50 + 115 + 44 px down), above their login layer (z-index 20).
-  var CSS = [
-    '.slx-card{position:fixed;left:50%;top:230px;transform:translateX(-50%);z-index:30;display:none;' +
-      'font-family:Arial,"Helvetica Neue",Helvetica,sans-serif;color:#343434;}',
-    '.slx-card-box{width:306px;padding:10px 10px 15px;background:#fff;border-radius:10px;text-align:center;' +
-      'box-shadow:0 6px 24px rgba(0,0,0,.35);}',
-    '.slx-card-title{margin:10px 0 8px;font-size:24px;line-height:28px;font-weight:bold;color:#343434;}',
-    '.slx-card-line{margin:0 0 16px;font-size:15px;line-height:20px;color:#444;}',
-    '.slx-card-line b{color:#000;}',
-    // the paid layer's lines (cardLines above): a step smaller than the length line, between it and the buttons
-    '.slx-card-notes{margin:-4px 0 14px;}',
-    '.slx-card-note{margin:0 0 6px;font-size:14px;line-height:19px;color:#444;}',
-    '.slx-card-btns{display:flex;justify-content:space-between;}',
-    '.slx-card-btn{box-sizing:border-box;width:150px;height:34px;margin:0;padding:0;border:1px solid transparent;' +
-      'border-radius:4px;font:bold 15px Arial,"Helvetica Neue",Helvetica,sans-serif;cursor:pointer;' +
-      'touch-action:manipulation;-webkit-user-select:none;user-select:none;}',
-    '.slx-card-again{color:#fff;background:#428bca;border-color:#357ebd;}',
-    '.slx-card-again:hover{background:#3071a9;border-color:#285e8e;}',
-    '.slx-card-lobby{color:#333;background:#fff;border-color:#ccc;}',
-    '.slx-card-lobby:hover{background:#e6e6e6;border-color:#adadad;}',
-    '.slx-card-btn:focus-visible{outline:2px solid #100e0b;outline-offset:2px;}',
-    '.slx-card-btn:disabled{opacity:.65;cursor:default;}'
-  ].join('\n');
-
-  function el(tag, cls, text) {
-    var e = doc.createElement(tag);
-    if (cls) e.className = cls;
-    if (text != null) e.textContent = text;
-    return e;
-  }
-
-  var style = el('style', null, CSS);
-  (doc.head || doc.body).appendChild(style);
-
-  var card = el('div', 'slx-card');
-  card.setAttribute('role', 'dialog');
-  card.setAttribute('aria-live', 'polite');
-  var box = el('div', 'slx-card-box');
-  var title = el('h2', 'slx-card-title', '');
-  var line = el('p', 'slx-card-line', '');
-  var words = el('span', null, LENGTH_WORDS);
-  var num = el('b', null, '');
-  line.appendChild(words);
-  line.appendChild(num);
-  var btns = el('div', 'slx-card-btns');
-  var again = el('button', 'slx-card-btn slx-card-again', BTN.again);
-  again.type = 'button';
-  var lobby = el('button', 'slx-card-btn slx-card-lobby', BTN.lobby);
-  lobby.type = 'button';
-  btns.appendChild(again);
-  btns.appendChild(lobby);
-  box.appendChild(title);
-  box.appendChild(line);
-  box.appendChild(btns);
-  card.appendChild(box);
-  var notes = null;                              // the hook's lines, made the first time it gives any
-  var extra = null;                              // the hook's answer for the card on screen
-  var againHidden = false;
-  card.style.display = 'none';
-  doc.body.appendChild(card);
+  var NO_RANK = 999999999;                       // their best_rank before any leaderboard (slApply.js:146)
+  // Their page is laid out at 0.7 on a phone (sl.html:4 initial-scale 0.7, honoured where their is_mobile is): the
+  // card is drawn back up to the size it has on every other game's page.
+  var ZOOM = S.is_mobile ? 1 / 0.7 : 1;
+  var Z = 30;                                    // above their login layer (z-index 20)
+  // Their last-score line stays in the page (the length is read from it) but is not shown: the card says it.
+  if (S.lastscore && S.lastscore.style) S.lastscore.style.visibility = 'hidden';
 
   // ---- per socket: what the tap saw (slxNet fires 'open' for each socket that opened)
   var life = newLife();
@@ -135,10 +84,23 @@
   var shown = '';                                // '' or the kind on the card
   var lifeCard = false;                          // the card ends a life (Play again), else a refusal (Try again)
   var starting = false;
+  var extra = null;                              // the hook's answer for the card on screen
+  var score = null;                              // the length on the card, or null
+  var opacity = 1;
+  var view = null;                               // what was last drawn, for state()
+  var card = null;                               // dsEnd's card handle
 
   function newLife() {
-    return { cashed: false, dead: false, pending: '', noLength: false };
+    return { cashed: false, dead: false, pending: '', noLength: false, born: 0, died: 0, killer: '', rank: 0 };
   }
+  // Their best_rank as the life ends: their resetGame puts it back to NO_RANK when the socket closes
+  // (slApply.js:1267-1280, from applyClose or slLoop.js:621-628), which can be before their menu shows.
+  function keepRank() {
+    if (S.best_rank > 0 && S.best_rank < NO_RANK) life.rank = S.best_rank;
+  }
+  // The page clock the other layer files time with (slxNet slx.now, performance.now): Time never jumps with the wall
+  // clock.
+  function now() { return typeof slx.now === 'function' ? slx.now() : Date.now(); }
 
   // The number in their last-score line: '<span ...>WORDS </span><b>N</b>' (slHud.js:305-310). null when absent.
   function lastscoreNumber() {
@@ -155,31 +117,6 @@
     return m && typeof m.nick === 'string' ? m.nick : '';
   }
 
-  function setStarting(on) {
-    starting = on;
-    againLook();
-  }
-
-  // Play again in the card's own words, or as the paid layer's answer says (left off, a label, a state).
-  function againLook() {
-    var a = extra ? extra.again : undefined;
-    var hide = a === false && !starting;
-    if (hide !== againHidden) {
-      againHidden = hide;
-      again.style.display = hide ? 'none' : '';
-      btns.style.justifyContent = hide ? 'center' : '';
-    }
-    if (starting) {
-      again.disabled = true;
-      again.textContent = BTN.starting;
-      return;
-    }
-    var o = a && typeof a === 'object' ? a : null;
-    var label = typeof a === 'string' ? a : o && typeof o.text === 'string' ? o.text : '';
-    again.disabled = !!(o && o.disabled === true);
-    again.textContent = label || (lifeCard ? BTN.again : BTN.retry);
-  }
-
   function hookLines(kind) {
     if (typeof slx.cardLines !== 'function') return null;
     try {
@@ -191,75 +128,99 @@
     }
   }
 
-  // The title, the hook's lines and Play again for the card on screen.
-  function render() {
-    var t = extra && typeof extra.title === 'string' ? extra.title : '';
-    title.textContent = t || TITLE[shown] || TITLE.lost;
-    var list = extra && Array.isArray(extra.lines) ? extra.lines : [];
-    if (list.length && !notes) {
-      notes = el('div', 'slx-card-notes');
-      box.appendChild(notes);
-      box.appendChild(btns);                     // the buttons stay last
-    }
-    if (notes) {
-      notes.textContent = '';
-      var n = 0;
-      for (var i = 0; i < list.length; i++) {
-        var item = list[i];
-        var text = typeof item === 'string' ? item : item && typeof item.text === 'string' ? item.text : '';
-        if (!text) continue;
-        var cls = item && typeof item.cls === 'string' && /^slx-[a-z][\w-]*$/.test(item.cls) ? ' ' + item.cls : '';
-        notes.appendChild(el('p', 'slx-card-note' + cls, text));
-        n++;
-      }
-      notes.style.display = n ? '' : 'none';
-    }
-    againLook();
+  // Play again in the card's own words, or as the hook's answer says (left off, a label, a state).
+  function againButton() {
+    var a = extra ? extra.again : undefined;
+    if (a === false && !starting) return null;
+    if (starting) return { id: 'again', text: BTN.starting, primary: true, disabled: true, onClick: playAgain };
+    var o = a && typeof a === 'object' ? a : null;
+    var label = typeof a === 'string' ? a : o && typeof o.text === 'string' ? o.text : '';
+    return { id: 'again', text: label || (lifeCard ? BTN.again : BTN.retry), primary: true,
+      disabled: !!(o && o.disabled === true), onClick: playAgain };
   }
 
-  // The hook's lines on the card now, as text (tests and the console).
-  function noteTexts() {
+  function lineText(item) {
+    return typeof item === 'string' ? item : item && typeof item.text === 'string' ? item.text : '';
+  }
+
+  // The card's own facts for a life: Time and Top rank, and the length too when the big figure is something else.
+  function lifeFacts(withLength) {
     var out = [];
-    if (!notes || notes.style.display === 'none') return out;
-    var list = notes.children || [];
-    for (var i = 0; i < list.length; i++) out.push(list[i].textContent);
+    if (lifeCard && life.born > 0) out.push(['Time', E.clock((life.died || now()) - life.born)]);
+    if (lifeCard && life.rank > 0 && life.rank < NO_RANK) out.push(['Top rank', E.ordinal(life.rank)]);
+    if (withLength && score !== null) out.push(['Length', E.int(score)]);
     return out;
   }
 
-  // kind: a TITLE key. n: the length, or null for a card with no length line. ended: a life ended (else a refusal).
-  function show(kind, n, opacity, ended) {
+  // The card on screen, from the kind, the length and the hook's answer.
+  function draw() {
+    var x = extra || {};
+    var verdict = typeof x.title === 'string' && x.title ? x.title
+      : shown === 'dead' && life.killer ? KILLED_BY + life.killer
+        : TITLE[shown] || TITLE.lost;
+    var showLength = score !== null && x.length !== false;
+    var hasHero = typeof x.hero === 'string' && x.hero !== '';
+    var lines = [];
+    var list = Array.isArray(x.lines) ? x.lines : [];
+    for (var i = 0; i < list.length; i++) {
+      var t = lineText(list[i]);
+      if (t) lines.push(t);
+    }
+    var buttons = [];
+    var a = againButton();
+    if (a) buttons.push(a);
+    buttons.push({ id: 'lobby', text: BTN.lobby, onClick: toLobby });
+    view = {
+      tone: x.tone === 'win' || x.tone === 'loss' ? x.tone : 'plain',
+      verdict: verdict,
+      hero: hasHero ? x.hero : showLength ? E.int(score) : '',
+      unit: hasHero ? (typeof x.unit === 'string' ? x.unit : '') : showLength ? LENGTH : '',
+      podium: Array.isArray(x.podium) ? x.podium : null,
+      facts: Array.isArray(x.facts) ? x.facts : x.length === false ? [] : lifeFacts(hasHero && showLength),
+      ledger: Array.isArray(x.ledger) ? x.ledger : null,
+      status: x.status && typeof x.status.text === 'string' ? x.status : null,
+      notes: lines,
+      buttons: buttons,
+      z: Z,
+      zoom: ZOOM
+    };
+    card = E.show(view);
+    // Marked as ours on their page: the layer's own test for a control (an slx- class on the node or an ancestor:
+    // slxWatch and slxBr onGame, slxTouch isControl) leaves a press on the card to the card, as it did the old one.
+    if (card.el && !/(^|\s)slx-card(\s|$)/.test(card.el.className)) card.el.className += ' slx-card';
+    card.opacity(opacity);
+  }
+
+  // kind: a TITLE key. n: the length, or null for a card with no length. ended: a life ended (else a refusal).
+  function show(kind, n, op, ended) {
     shown = kind;
     lifeCard = !!ended;
     starting = false;
     extra = hookLines(kind);
-    render();
-    if (n === null || n === undefined || (extra && extra.length === false)) {
-      line.style.display = 'none';
-      num.textContent = '';
-    } else {
-      line.style.display = '';
-      num.textContent = String(n);
-    }
-    card.style.opacity = String(opacity);
-    card.style.display = 'block';
+    score = n === null || n === undefined ? null : Number(n);
+    opacity = op;
+    draw();
   }
 
   function hide() {
     shown = '';
-    setStarting(false);
-    card.style.display = 'none';
+    starting = false;
+    view = null;
+    card = null;
+    E.hide();
   }
 
   // The hook's answer again, for the card on screen (slxPaid: the cash-out status, a buy-in's progress).
   function refresh() {
     if (!shown) return;
     extra = hookLines(shown);
-    render();
+    draw();
   }
 
   function start() {
     if (!shown || starting) return false;
-    setStarting(true);
+    starting = true;
+    draw();
     D.play(nick());
     return true;
   }
@@ -295,10 +256,6 @@
     } catch (e) { /* no location: nothing to do */ }
   }
 
-  slx.guard(card, {});
-  slx.guard(again, { activate: playAgain });
-  slx.guard(lobby, { activate: toLobby });
-
   // ---- what the tap reports
   if (typeof slx.onSocket === 'function') {
     slx.onSocket('disconnect', function (reason) { lastReason = String(reason || ''); });
@@ -313,15 +270,34 @@
     lastReason = '';
     connectWhy = '';
   });
-  slx.on('ownDead', function () { life.dead = true; });
-  slx.on('x:cashed', function () { life.cashed = true; });
+  slx.on('ownAdd', function () { if (!life.born) life.born = now(); });
+  slx.on('frame', function () { if (life.born && !life.died) keepRank(); });
+  slx.on('ownDead', function () {
+    life.dead = true;
+    keepRank();
+    if (!life.died) life.died = now();
+  });
+  slx.on('x:cashed', function () {
+    life.cashed = true;
+    keepRank();
+    if (!life.died) life.died = now();
+  });
+  // The kill feed names this snake's killer (server/sl/slRoom.js C_KILLFEED: sent when a human is in it).
+  slx.on('x:kill', function (m) {
+    if (!m || typeof m.killer !== 'string' || !m.killer) return;
+    var me = nick();
+    if (me && m.victim === me && !life.died) life.killer = m.killer;
+    else if (me && m.victim === me && life.died && now() - life.died < 1500) life.killer = m.killer;
+  });
 
   slx.on('close', function (info) {
     var i = info || {};
     if (i.playing) {
       // Their applyClose runs next and their menu shows 1.6 s later; the kind waits for it.
+      keepRank();
       if (i.sawDead) return;
       if (!S.slither) life.noLength = true;            // their gameOver cannot write a length with no own snake
+      if (!life.died) life.died = now();
       life.pending = !i.refused && lastReason === SERVER_DROP ? 'slow' : 'lost';
       return;
     }
@@ -333,6 +309,7 @@
   });
 
   slx.on('menuShow', function () {
+    keepRank();
     var kind = life.cashed ? 'cashed' : life.dead ? 'dead' : life.pending || 'lost';
     show(kind, life.noLength ? null : lastscoreNumber(), 0, true);
   });
@@ -343,22 +320,36 @@
       hide();                                    // their start fade ended: a life is running
       return;
     }
-    card.style.opacity = String(1 - fr);
+    opacity = 1 - fr;
+    if (card && E.shown()) card.opacity(opacity);
   });
 
+  function factsText(f) {
+    return (f || []).map(function (p) { return Array.isArray(p) ? p[0] + ' ' + p[1] : ''; });
+  }
+
   slx.card = {
-    element: card,
+    get element() { return card && E.shown() ? card.el : null; },
     // For tests and the console: what the card shows now.
     state: function () {
+      var v = shown && view ? view : null;
+      var again = v ? v.buttons.filter(function (b) { return b.id === 'again'; })[0] : null;
       return {
         kind: shown,
-        title: shown ? title.textContent : '',
-        length: shown && line.style.display !== 'none' ? num.textContent : '',
-        again: again.textContent,
-        againShown: !againHidden,
-        againDisabled: !!again.disabled,
-        lines: shown ? noteTexts() : [],
-        opacity: card.style.opacity
+        title: v ? v.verdict : '',
+        length: v && score !== null && (!extra || extra.length !== false) ? String(score) : '',
+        hero: v ? v.hero : '',
+        unit: v ? v.unit : '',
+        tone: v ? v.tone : '',
+        facts: v ? factsText(v.facts) : [],
+        ledger: v && v.ledger ? v.ledger.map(function (r) { return r[0] + ' ' + r[1]; }) : [],
+        status: v && v.status ? v.status.text : '',
+        podium: v && v.podium ? v.podium.map(function (p) { return p.rank + ' ' + p.name; }) : [],
+        again: again ? again.text : '',
+        againShown: !!again,
+        againDisabled: !!(again && again.disabled),
+        lines: v ? v.notes.slice() : [],
+        opacity: String(opacity)
       };
     },
     playAgain: playAgain,

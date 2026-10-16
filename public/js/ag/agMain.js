@@ -1,8 +1,8 @@
 // Session and frame loop for the agar.io redo client. It owns nothing of the game rules: the
 // server simulates, this page decodes (agNet + agWire), keeps the client world (agWorld),
 // eases the camera (agCamera), draws the world (agRender) and the canvas HUD (agHud), shows the
-// menu and the death panel (agScreens), plays our own sounds (agSound) and reads input
-// (agInput). This file only wires them together in the reference client's frame order.
+// menu, the end card and the leaderboard (agScreens, onto the shared DSEnd card and board), plays our own sounds
+// (agSound) and reads input (agInput). This file only wires them together in the reference client's frame order.
 //
 // Frame order (client-render 1, client-camera-input 3, client-hud 3), one animation frame:
 //   app layer   input.frame(edge)           the mouse copy; runs on every frame, capped or not
@@ -121,7 +121,7 @@
     // Inside the DuelSeries lobby's agar frame (ours, Owen 2026-10-09 midday; the shipped page only: cfg.lobby, which
     // public/ag.html sets when its frame element is the lobby's #agar-frame). The lobby's agar.io screen holds the
     // name, the buy-in and Spectate, so this page has no menu card: agLobby starts play (or spectate) at
-    // once, Esc does nothing in the free room, the Match Results panel ends with Play again and Lobby, a dropped
+    // once, Esc does nothing in the free room, the end card offers Play again, Spectate and Lobby, a dropped
     // socket rejoins as it was.
     // A paid hand-off keeps its own flow and card exactly. Off at parity and on a direct visit to /ag.
     var lobbyMode = cfg.lobby === true;
@@ -166,11 +166,12 @@
     // the old timer).
     var hold = { wanted: false, server: false, at: 0, need: HOLD_TICKS, gen: 0 };
     var holdTickMs = HOLD_TICK_MS;
-    var cashedOutFree = false;  // ag:cashedout {free: true} came; the death that follows shows "Cashed Out"
+    var cashedOutFree = false;  // ag:cashedout {free: true} came; the death that follows shows "Cashed out"
+    var lastEater = '';         // the name of the player cell that last ate an own cell this life (the free verdict)
+    var lastLife = null;        // the last death's snapshot, for a paid end card that comes after the death
     // Paid room (ag:joined with a stake, ag:money, or the hand-off's cfg.paid): money on the HUD, the board and the
-    // cells, and the paid end card instead of the Match Results panel. Never set in the free room.
+    // cells, and the paid states on the end card. Never set in the free room.
     var paid = { on: cfg.paid === true, stake: 0, network: typeof cfg.network === 'string' ? cfg.network : '' };
-    var paidEnd = null;         // the paid end card (agScreens.createPaidEnd), built on first use
     // The paid hand-off (agPaid.js; the shipped page only: cfg.handoff, and only when the lobby's wallet left a paid
     // hand-off in sessionStorage). Null on the free page and on the parity harness, which never load agPaid: every
     // use below is behind it, so the free page draws and sends exactly what it did.
@@ -201,32 +202,27 @@
     hud.setNames(settings.names);
     var stats = agScreens.createLifeStats();
     var sound = cfg.sound || agSound.createSound({});
+    // The menu card (name entry) on a direct visit and at parity; the lobby frame's page has none (see lobbyMode).
     var screens = null;
-    if (cfg.screens !== false) {
+    if (cfg.screens !== false && !lobbyMode) {
       screens = agScreens.createScreens({
         doc: doc,
         root: cfg.screensRoot || doc.body,
         onPlay: function (name) { play(name); },
         onSpectate: function () { spectate(); },
-        onContinue: function () { setMenuState('HOME'); },
-        injectCss: cfg.injectCss,
-        lobby: lobbyMode,
-        onAgain: function () { play(nick); },
-        onLobby: function () { backToLobby(); }
+        injectCss: cfg.injectCss
       });
-      if (lobbyMode) screens.hide(); else screens.showHome();
+      screens.showHome();
     }
-    var graphFallback = null;
-    function graphContext() {
-      if (screens) return screens.graphContext();
-      if (!graphFallback) {
-        var g = doc.createElement('canvas');
-        g.setAttribute('width', '350');
-        g.setAttribute('height', '170');
-        graphFallback = g.getContext('2d');
-      }
-      return graphFallback;
-    }
+    // The shared end card and leaderboard (public/js/shared/dsEnd.js, loaded by ag.html before this file). A page
+    // without it (the parity harness) shows neither.
+    var DSE = cfg.dsEnd || win.DSEnd || null;
+    var END_Z = 1000;          // over the menu (20), the Lobby chip (30), the paid hint (40)
+    var BOARD_Z = 35;          // over the menu and the Lobby chip, under the paid hint chip (a 3 s notice)
+    var end = agScreens.createEnd({ DSEnd: DSE, root: cfg.screensRoot || doc.body, z: END_Z, win: win, onLobby: function () { backToLobby(); } });
+    var board = agScreens.createBoard({ DSEnd: DSE, root: cfg.screensRoot || doc.body, z: BOARD_Z, short: shortScreen });
+    // A phone held sideways: the board keeps to 5 rows so it stays clear of the phone pad in the bottom-right corner.
+    function shortScreen() { return (win.innerHeight || 0) > 0 && win.innerHeight < 560; }
 
     function fontsReady() {
       try { return !doc.fonts || doc.fonts.check('700 20px Ubuntu'); } catch (e) { return true; }
@@ -393,7 +389,7 @@
     function edgePoint(ux, uy) { return cam.stickPoint(ownCells(), ux, uy); }
 
     // Phone Split / Eject pad (ours, FIX-PLAN P1): shown and acting only while playing with own
-    // cells, never on the menu (Esc included), while spectating or on the death panel. The root
+    // cells, never on the menu (Esc included), while spectating or on the end card. The root
     // element carries 'ag-alive' while that holds (ag.css shows the pad on touch screens only),
     // written only when it changes; the frame loop compares every frame and the state changes
     // below write at once. DOM only: no canvas call changes.
@@ -485,7 +481,7 @@
           if (p.free === true) {
             cashedOutFree = true;
           } else {
-            paidEndCard().showCashed(p);
+            end.showCashed(p, lifeNow());
             var net = Number(p.netMicro);
             if (!isFinite(net)) net = (Number(p.grossMicro) || 0) - (Number(p.cutMicro) || 0);
             // a resumed receipt (agPaidDoor answerOutcome) repeats a cash-out already counted: never twice
@@ -498,10 +494,10 @@
           if (Number(p.stake) > 0) {
             paid.on = true;
             paid.stake = Number(p.stake);
-            agScreens.loadPaidStyles(doc);
-            // A new paid seat (Play again) clears the last run's end card: its Back to lobby must never sit on top
+            lastLife = null;
+            // A new paid seat (Play again) clears the last run's end card: its Lobby button must never sit on top
             // of a run with money in it (lobby-rungs review fix; agLobby's exit trap gates that button too).
-            if (paidEnd) paidEnd.hide();
+            end.hide();
           }
           if (typeof p.tickMs === 'number' && p.tickMs > 0 && isFinite(p.tickMs)) holdTickMs = p.tickMs;
           if (wholePositive(p.holdTicks)) hold.need = p.holdTicks;
@@ -513,22 +509,21 @@
           break;
         case 'ag:money':
           paid.on = true;
-          agScreens.loadPaidStyles(doc);
           applyMoney(p);
           break;
         case 'ag:dead':
           endHold();
-          paidEndCard().showDead(p);
+          end.showDead(p, lifeNow());
           break;
         case 'ag:closed':
           endHold();
-          paidEndCard().showClosed(p);
+          end.showClosed(p);
           break;
         case 'ag:paid':
-          if (paidEnd) paidEnd.paid(p.sig, paid.network);
+          if (end.paidKind()) end.paid(p.sig, paid.network);
           break;
         case 'ag:payerror':
-          if (paidEnd) paidEnd.payError(p.message);
+          if (end.paidKind()) end.payError(p.message);
           break;
         default:
           break;
@@ -555,20 +550,16 @@
       }
       renderer.setMoney(shares);
       hud.setMoney(p);
+      board.setMoney(p, nick);
     }
-    function paidEndCard() {
-      if (!paidEnd) {
-        paidEnd = agScreens.createPaidEnd({ doc: doc, root: cfg.screensRoot || doc.body, onLobby: backToLobby });
-        if (flow) paidEnd.onAgain = function () { flow.restake(); };
-      }
-      return paidEnd;
-    }
+    // This life's numbers for a paid card that shows before the world's death, else the last death's snapshot (none
+    // after a reload: a resumed receipt shows no facts).
+    function lifeNow() { return stats.alive ? stats.now(perfNow()) : lastLife; }
     // A paid seat opened (agPaid, on ag:joined): the play state the free Play button gives, without the menu and with
     // no free ag:join (the door already seated the cell). The lobby name is the cell's name, as the server has it.
     function enterPaidPlay() {
       nick = flow.name();
       world.setNick(nick);
-      hud.setLocalNick(nick);
       hud.onPlay();
       gameState = 0;
       fadeout = false;
@@ -578,7 +569,7 @@
       input.enableKeys();
       sound.setInGame(true);
       if (screens) screens.hide();
-      if (paidEnd) paidEnd.hide();
+      end.hide();
       setMenuState('PLAY');
       // The payout link's cluster, asked once (Paper's pp:joined does the same; the page has no cfg.network).
       if (!paid.network && !paid.networkAsked && typeof win.fetch === 'function') {
@@ -614,7 +605,7 @@
         try { win.location.href = '/'; } catch (e) { /* nowhere to go */ }
         return;
       }
-      if (paidEnd) paidEnd.hide();
+      end.hide();
       openMenu();
     }
 
@@ -647,7 +638,6 @@
     function play(name) {
       nick = String(name == null ? '' : name).slice(0, NICK_MAX);
       world.setNick(nick);
-      hud.setLocalNick(nick);
       hud.onPlay();
       if (world.state().ready) sendPlay(); else pending.play = true;
       fadeout = false;
@@ -655,6 +645,7 @@
       input.enableKeys();
       sound.setInGame(true);
       if (screens) screens.hide();
+      hideFreeEnd();
       setMenuState('PLAY');
     }
     function spectate() {
@@ -664,11 +655,34 @@
       input.enableKeys();
       sound.setInGame(true);
       if (screens) screens.hide();
+      hideFreeEnd();
       setMenuState('SPECTATE');
+    }
+    // The free end card goes with whatever replaces it (Play again, Spectate, the menu); a paid card stays until the
+    // paid flow moves on.
+    function hideFreeEnd() { if (end.kind === 'free') end.hide(); }
+    // The free end card (a death or a free cash-out): the best mass of the life, its time and best rank. Play again
+    // respawns under the same name at once; Spectate watches the room; Lobby goes back (the lobby frame), or Menu
+    // opens the name entry (a direct visit: the old Continue).
+    function showFreeEnd(snap, cashed, by) {
+      var buttons = [
+        { id: 'again', text: agScreens.END_TEXT.again, primary: true, onClick: function () { if (menuState === 'GAMEOVER') play(nick); } },
+        { id: 'watch', text: agScreens.END_TEXT.spectate, onClick: function () { if (menuState === 'GAMEOVER') spectate(); } }
+      ];
+      if (lobbyMode) {
+        buttons.push({ id: 'lobby', text: agScreens.END_TEXT.lobby, onClick: function () { backToLobby(); } });
+      } else if (screens) {
+        buttons.push({ id: 'menu', text: agScreens.END_TEXT.menu, onClick: function () {
+          end.hide();
+          screens.showHome();
+          setMenuState('HOME');
+        } });
+      }
+      end.showFree({ life: snap, cashed: cashed, by: by, buttons: buttons });
     }
     // The lobby frame's free page after a dropped socket (see lobbyMode): there is no menu to fall back to, so a player
     // who was playing joins again under the same name and a watcher watches again, both once the new socket's world
-    // is ready (pending survives the reset on connect). The Match Results panel stays up as it was.
+    // is ready (pending survives the reset on connect). The end card stays up as it was.
     function rejoinAfterDrop() {
       if (menuState === 'PLAY') play(nick);
       else if (menuState === 'SPECTATE') spectate();
@@ -676,6 +690,7 @@
     // Esc: the menu opens over the running game, which is not paused.
     function openMenu() {
       fadeout = true;
+      hideFreeEnd();
       if (screens) screens.showHome();
       setMenuState('HOME');
     }
@@ -705,7 +720,9 @@
       if (flow) flow.onSpawn();
       cam.onSpawn(p.camY);
       if (gameState === 9) gameState = 3;   // a match-state rule of other modes; inert in FFA
-      stats.spawn(p.now, p.node.rgb || [p.node.r, p.node.g, p.node.b]);
+      stats.spawn(p.now);
+      lastEater = '';
+      lastLife = null;
       hud.onSpawn();
       syncPad();
     });
@@ -715,35 +732,43 @@
         food: p.eaten.food, ejected: p.eaten.ejected, flag40: p.eaten.flag40, virus: p.eaten.virus
       };
       stats.eat(e);
+      // Another player's cell ate one of ours: the free card names the last one (a virus or pellet never eats a cell).
+      var by = p.eater;
+      if (p.eatenOwn && !p.eaterOwn && by && !by.virus && !by.food && !by.ejected) {
+        lastEater = typeof by.name === 'string' ? by.name : '';
+      }
       if (sound.playCues) sound.playCues(agSound.eatCues(e));
     });
     world.on('board', function (p) {
       lastRows = p.rows;
-      hud.setBoard(p.rows, nick);
+      if (!paid.on) board.setFree(p.rows, nick);   // a paid room's board is ag:money's
       stats.applyBoard(p.rows);
     });
-    // Death (client-hud 6.2, 6.3): the mass graph first, then the board re-render, then this
-    // life's numbers are taken and reset; the panel shows them. A death while the Esc menu is
-    // open keeps the menu as it is (the game-over state becomes HOME when the state was HOME),
-    // so no panel replaces the name entry; the FPS cap is the menu's either way.
-    // Ours: after a free-room cash-out (Owen 2026-10-08) the same panel shows under the "Cashed Out" title; in a paid
-    // room the paid end card (ag:cashedout, ag:dead, ag:closed) shows instead of the panel (design 6).
+    // Death (client-hud 6.2, 6.3): this life's numbers are taken and reset; the end card shows them. A death while the
+    // Esc menu is open keeps the menu as it is (the game-over state becomes HOME when the state was HOME), so no card
+    // replaces the name entry; the FPS cap is the menu's either way.
+    // Ours: after a free-room cash-out (Owen 2026-10-08) the card says "Cashed out"; in a paid room the paid states
+    // (ag:cashedout, ag:dead, ag:closed) are on the card instead, and this death only gives them the life's final
+    // numbers (design 6).
     world.on('death', function (p) {
-      agScreens.drawMassGraph(graphContext(), stats.history, stats.rgb);
       hud.onDeath();
       var snap = stats.death(p.now, lastRows);
+      lastLife = snap;
       input.setInGame(false);
       sound.setInGame(false);
       syncPad();
       var cashed = cashedOutFree;
       cashedOutFree = false;
+      var by = lastEater;
+      lastEater = '';
       if (menuState === 'HOME') return;
       if (paid.on) {
         if (screens) screens.hide();
+        end.setLife(snap);
         setMenuState('GAMEOVER');
         return;
       }
-      if (screens) screens.showStats(snap, cashed ? { title: agScreens.CASHED_OUT_TITLE } : undefined);
+      showFreeEnd(snap, cashed, by);
       setMenuState('GAMEOVER');
     });
 
@@ -824,8 +849,14 @@
       if (destroyed) return;
       win.requestAnimationFrame(onAnimationFrame);
       syncPad();
+      syncBoard();
       input.frame(edgePoint);
       gameFrame();
+    }
+    // The leaderboard shows while playing or watching with no end card up (the old canvas board sat under the death
+    // panel's dim; the shared card has its own scrim, so the board steps aside). DOM only: no canvas call changes.
+    function syncBoard() {
+      board.sync((menuState === 'PLAY' || menuState === 'SPECTATE') && !end.shown());
     }
 
     // The idle step (client-render 1.1). The chain stops if a deadline ever reports negative
@@ -870,7 +901,10 @@
       // to the old connection. The paid end card stays up: it is the player's receipt.
       endHold();
       cashedOutFree = false;
+      lastEater = '';
+      lastLife = null;
       renderer.setMoney(null);
+      board.clear();
     }
     // ---- the paid hand-off (agPaid; see `flow` above) ---------------------------------------
     // Its sends go straight to the socket; session.onSend (a test and harness hook) hears the kind and the rung only,
@@ -887,7 +921,6 @@
     if (handoff) {
       paid.on = true;
       paid.stake = handoff.stake;
-      agScreens.loadPaidStyles(doc);
       if (screens) screens.hide();   // no menu and no Spectate in a paid hand-off (design 6)
       var parentWin = null;
       try { parentWin = win.parent || null; } catch (e) { parentWin = null; }
@@ -897,7 +930,7 @@
         win: win,
         send: paidSend,
         reconnect: function () { return net ? net.reconnect() : false; },
-        card: paidEndCard,
+        card: function () { return end; },
         enterPlay: enterPaidPlay,
         freshTarget: function () { cam.lastSentX = NaN; cam.lastSentY = NaN; },
         lock: function (on) { paidLocked = !!on; pageEvent('paid:lock', { on: paidLocked }); },
@@ -908,6 +941,7 @@
         origin: (win.location && win.location.origin) || '',
         phEvent: function (name, props) { if (typeof win.phEvent === 'function') win.phEvent(name, props); }
       });
+      end.onAgain = function () { flow.restake(); };
       if (typeof win.addEventListener === 'function') {
         win.addEventListener('message', function (e) { flow.onMessage(e); });
         // The resume key reaches sessionStorage only when the page goes (agPaid 4).
@@ -1003,7 +1037,8 @@
         camera: { x: cam.x, y: cam.y, scale: cam.scale, zoom: cam.zoom }, net: net ? net.stats : null,
         portrait: portrait,
         hold: { wanted: hold.wanted, server: hold.server, need: hold.need, progress: holdProgress(perfNow()) },
-        paid: paid.on, paidEnd: paidEnd ? paidEnd.kind : '', handoff: flow ? flow.state() : null
+        paid: paid.on, paidEnd: end.paidKind(), handoff: flow ? flow.state() : null,
+        end: { kind: end.kind, shown: end.shown() }, board: { visible: board.visible, money: board.money }
       };
     };
     // The page's exit lock from the paid hand-off (a token in flight, a Play again with the wallet): agLobby reads it
@@ -1044,7 +1079,8 @@
       win.removeEventListener('resize', sizeCanvas);
       watchPointer(false);
     };
-    session.modules = { world: world, camera: cam, renderer: renderer, hud: hud, stats: stats, screens: screens, sound: sound, input: input };
+    session.modules = { world: world, camera: cam, renderer: renderer, hud: hud, stats: stats, screens: screens, sound: sound, input: input,
+      end: end, board: board };
 
     win.requestAnimationFrame(onAnimationFrame);
     if (requestIdle) requestIdle(onIdle);

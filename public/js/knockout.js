@@ -31,6 +31,11 @@ let phaseEndsAt = 0;         // wall clock, for the turn timer
 let locked = false;
 let theirReady = false;
 let overShown = false;
+let lastOver = null;         // the result on the card, with how long the match ran (ms)
+let matchAt = 0;             // when this match started, for the card's Time
+let restake = null;          // { nonce, slow } while a paid Play again is with the lobby's wallet
+let restakeLine = '';        // a restake's error, said on the card
+let restakeTimer = 0;
 
 /* My aims this turn: pieceId -> { ax, ay } in WORLD units. Kept here as well as
    on the server so the arrow stays drawn while I am still thinking. */
@@ -80,7 +85,10 @@ const myWallet = (() => {
 const myStake = (() => {
   try { return Number(sessionStorage.getItem('stake')) || 0; } catch (_) { return 0; }
 })();
-const myEntryToken = (() => {
+/* Spent by the first queue (one use only), so it is let and cleared there. A
+   paid Play again never reads a stored token: it buys a fresh one through the
+   lobby's wallet (askRestake below) and hands it straight to queue(). */
+let myEntryToken = (() => {
   try { return sessionStorage.getItem('entryToken') || null; } catch (_) { return null; }
 })();
 
@@ -103,6 +111,10 @@ function skinOf(ownerId) {
   const pl = (st.players || []).find(q => q.id === ownerId);
   return pl && pl.skin ? SK.byId('knockout', pl.skin) : null;
 }
+
+/* In the lobby's frame, where a paid Play again can ask the wallet for the
+   next buy-in. Opened on its own, a paid card sends you to the lobby instead. */
+const FRAMED = (() => { try { return !!window.parent && window.parent !== window; } catch (_) { return true; } })();
 
 /* WATCHING, NOT PLAYING. The lobby's Spectate writes 'dsWatch' with the game to
    watch just before it opens this page. Read once and removed at once, so the
@@ -592,10 +604,14 @@ socket.on('connect', () => {
   queue();
 });
 
-function queue() {
+/* `token`: a paid Play again's fresh entry, from the lobby's wallet. Without
+   one, the buy-in this page was opened with, the first time only. */
+function queue(token) {
   overShown = false;
-  $('over').hidden = true;
+  lastOver = null;
+  DSEnd.hide();
   $('wait').hidden = false;
+  waitSpin(true);
   $('waitMain').textContent = 'Looking for an opponent';
   /* A paid table says what is on it and that it is waiting for a PERSON,
      because it is: a bot cannot cover a stake, so this queue does not get one
@@ -605,17 +621,24 @@ function queue() {
     : 'Free table. Nothing staked.';
   socket.emit('ko:queue', Object.assign({
     name: myName, wallet: myWallet,
-    stake: myStake, entryToken: myEntryToken,
+    stake: myStake, entryToken: token || myEntryToken,
   }, shopFields()));
   /* One use only. Re-sending it on a Play again would be asking the server to
      spend a token it has already burned, and the seat would be refused with
      nothing to show for it. */
+  myEntryToken = null;
   try { sessionStorage.removeItem('entryToken'); } catch (_) {}
+}
+
+function waitSpin(on) {
+  const s = document.querySelector('.waitSpin');
+  if (s) s.hidden = !on;
 }
 
 socket.on('ko:start', (raw) => {
   const state = WATCH ? fromWatch(raw) : raw;
   me = WATCH ? seatId(0) : socket.id;
+  matchAt = Date.now();
   aims.clear(); drag = null; locked = false; tape = null;
   reveal = null; ringFall.clear(); drawR = 0;
   apply(state);
@@ -672,33 +695,189 @@ socket.on('ko:over', (m) => {
   if (WATCH) { watchOver(m || {}); return; }
   if (overShown) return;
   overShown = true;
-  const won = m.winnerId ? m.winnerId === me : null;
-  $('overEyebrow').textContent = won === true ? 'You win' : won === false ? 'Knocked out' : 'Draw';
-  const who = $('overWho');
-  who.textContent = won === true ? 'You win' : won === false ? (m.winner || 'Opponent') + ' wins' : 'Nobody won it';
-  who.className = 'overWho' + (won === true ? ' won' : won === false ? ' lost' : '');
-  $('overWhy').textContent =
-    m.why === 'opponent left' ? 'They left the match.'
-    : m.why === 'everyone went off' ? 'Both sides went off on the same turn.'
-    : 'Last one standing after ' + (m.turn || 0) + (m.turn === 1 ? ' turn.' : ' turns.');
-  $('over').hidden = false;
+  /* Whose result it is, read now: a reconnect while the card is up changes
+     the socket id, and the card is drawn again on every restake step. */
+  lastOver = Object.assign({}, m || {}, { ms: matchAt ? Date.now() - matchAt : 0, me });
+  restake = null; restakeLine = '';
+  paintOver();
   $('bar').hidden = true;
 });
+
+/* ── the result card ───────────────────────────────────────────────────────
+   The one card every DuelSeries game ends on (public/js/shared/dsEnd.js, Owen
+   2026-10-16). Every amount on it is the server's own figure from ko:over's
+   `money` (server/duelMoney.js: the split index.js pays), only formatted
+   here; nothing on this page works a payout out. Names go in as text. */
+const RESTAKE_WAIT_MS = 120000;    // the lobby's wallet gets this long before the way back opens again
+const TEXT = {
+  againAsk: 'Confirm in your wallet...',
+  againSlow: 'Waiting for your wallet...',
+  againSlowLine: 'Your wallet has not answered yet. If you approved the stake, wait here: the round starts once it lands.',
+  againFailed: 'Stake failed',
+  lobbyOnly: 'Buy a new entry in the lobby to play again.',
+};
+function plural(n, one, many) { return n === 1 ? one : many; }
+
+function paintOver() {
+  const m = lastOver;
+  if (!m) return;
+  const money = m.money && typeof m.money === 'object' ? m.money : null;
+  const seat = money && money.seats ? money.seats[m.me] || null : null;
+  const won = m.winnerId ? m.winnerId === m.me : null;
+  const turns = Number(m.turn) || 0;
+  const time = m.ms > 0 ? DSEnd.clock(m.ms) : '';
+  const card = {
+    tone: 'plain',
+    verdict: won === true ? 'You win' : won === false ? (m.winner || 'Opponent') + ' wins' : 'Draw',
+    notes: [],
+  };
+  if (money) {
+    if (money.refunded) {
+      card.hero = DSEnd.usd(seat ? seat.refundMicro : 0);
+      card.unit = 'refunded';
+    } else if (won === true) {
+      card.tone = 'win';
+      card.hero = DSEnd.usd(money.netMicro);
+      card.unit = 'to your wallet';
+      card.ledger = [['Pot', DSEnd.usd(money.potMicro)], ['House 10%', DSEnd.usd(-money.cutMicro)],
+        ['You receive', DSEnd.usd(money.netMicro)]];
+    } else {
+      card.tone = 'loss';
+      /* The seat's own figure; the table's rung if the seat is somehow missing. */
+      card.hero = DSEnd.usd(-(seat ? seat.stakeMicro : Math.round((Number(m.stake) || 0) * 1e6)));
+      card.unit = 'lost';
+    }
+    card.facts = [['Turns', DSEnd.int(turns)]];
+    if (time) card.facts.push(['Time', time]);
+  } else {
+    card.hero = DSEnd.int(turns);
+    card.unit = plural(turns, 'turn', 'turns');
+    card.facts = time ? [['Time', time]] : [];
+  }
+  if (m.why === 'opponent left') card.notes.push('They left the match.');
+  else if (m.why === 'everyone went off') card.notes.push('Both sides went off on the same turn.');
+
+  const paid = myStake > 0;
+  const buttons = [];
+  if (paid && !FRAMED) {
+    card.notes.push(TEXT.lobbyOnly);
+  } else if (restake) {
+    buttons.push({ id: 'again', text: restake.slow ? TEXT.againSlow : TEXT.againAsk, primary: true, disabled: true });
+    if (restake.slow) card.notes.push(TEXT.againSlowLine);
+  } else {
+    buttons.push({ id: 'again', text: paid ? 'Play again ' + DSEnd.usd(Math.round(myStake * 1e6)) : 'Play again',
+      primary: true, onClick: playAgain });
+  }
+  if (restakeLine) card.notes.push(restakeLine);
+  /* Shut while the wallet is open: the lobby blanks this frame on game:done,
+     and a token minted after that would have no page to seat. */
+  buttons.push({ id: 'lobby', text: 'Lobby', primary: !buttons.length, disabled: !!restake && !restake.slow, onClick: toLobby });
+  card.buttons = buttons;
+  DSEnd.show(card);
+}
+
+function playAgain() {
+  if (WATCH) { watch(watchLastId); return; }
+  if (myStake > 0) { askRestake(); return; }
+  requeue(null);
+}
+
+function requeue(token) {
+  socket.emit('ko:leave');
+  $('top').hidden = true;
+  st = null; tape = null; aims.clear();
+  queue(token);
+}
+
+/* A PAID PLAY AGAIN BUYS A NEW ENTRY. The one this page opened with was spent
+   on the first queue, so asking again with it is refused (and used to leave
+   the player on "Waiting for a real opponent" with the refusal in a hidden
+   line). The lobby's wallet stakes the same rung (duel:restake, answered by
+   wallet-widget/src/restakeBridge.mjs) and posts the fresh token back, which
+   goes straight into ko:queue and is never stored. Paper's and agar.io's
+   Play again, the same messages. */
+function newNonce() {
+  try {
+    const a = new Uint32Array(4);
+    crypto.getRandomValues(a);
+    return Array.prototype.map.call(a, (n) => n.toString(36)).join('');
+  } catch (_) {
+    return Math.random().toString(36).slice(2) + Date.now().toString(36);
+  }
+}
+function askRestake() {
+  if (!FRAMED || restake || !(myStake > 0)) return;
+  restake = { nonce: newNonce(), slow: false };
+  restakeLine = '';
+  clearTimeout(restakeTimer);
+  restakeTimer = setTimeout(() => {
+    /* No answer yet: the way back opens again, and a late answer is still
+       taken (the match is queued once it lands). */
+    if (!restake) return;
+    restake.slow = true;
+    paintOver();
+  }, RESTAKE_WAIT_MS);
+  paintOver();
+  try {
+    window.parent.postMessage({ type: 'duel:restake', game: 'knockout', stake: myStake, nonce: restake.nonce }, '*');
+  } catch (_) {
+    restakeDone(TEXT.againFailed);
+  }
+}
+function restakeDone(line) {
+  restake = null;
+  clearTimeout(restakeTimer);
+  restakeLine = line || '';
+  paintOver();
+}
+/* The lobby's answer: only the parent frame, only this origin, only the
+   request this page made (the nonce the bridge always echoes). */
+window.addEventListener('message', (e) => {
+  const d = e && e.data;
+  if (!restake || !d || typeof d !== 'object') return;
+  if (e.source !== window.parent) return;
+  if (!e.origin || e.origin !== location.origin) return;
+  if (typeof d.nonce !== 'string' || d.nonce !== restake.nonce) return;
+  if (d.type === 'duel:restake:done' && typeof d.entryToken === 'string' && d.entryToken) {
+    restake = null; restakeLine = '';
+    clearTimeout(restakeTimer);
+    requeue(d.entryToken);
+  } else if (d.type === 'duel:restake:error') {
+    restakeDone(String(d.message || TEXT.againFailed));
+  }
+});
+
+/* Said in a sentence: the server's reasons are written as clauses. */
+function sentence(s) {
+  const t = String(s || '').trim();
+  if (!t) return '';
+  return t.charAt(0).toUpperCase() + t.slice(1) + (/[.!?]$/.test(t) ? '' : '.');
+}
 
 /* The stake came back: nobody took the table, or they backed out. Said out
    loud, because money quietly returning is money a player thinks they lost. */
 socket.on('ko:unqueued', ({ refunded, why } = {}) => {
   if (!refunded) return;
   $('wait').hidden = false;
+  waitSpin(false);                      // no longer looking
   $('waitMain').textContent = 'Buy-in refunded';
   $('waitSub').textContent = (why === 'nobody joined that table'
     ? 'Nobody joined that table, so your buy-in went back to your wallet.'
     : 'Your buy-in went back to your wallet.');
 });
 
-socket.on('ko:refused', ({ why }) => {
+socket.on('ko:refused', ({ why } = {}) => {
   /* Every refusal says something. A silent one is indistinguishable from a
-     control that does not work. */
+     control that does not work. Out of a match it is the seat that was
+     refused (a buy-in the server would not take), and the wait card is what
+     is on screen, so it is said there and not in the hidden bar. */
+  if (!WATCH && !st) {
+    $('wait').hidden = false;
+    waitSpin(false);
+    $('waitMain').textContent = 'Not seated';
+    $('waitSub').textContent = sentence(why) || 'The table did not let you in.';
+    return;
+  }
   $('hint').textContent = why ? 'That aim was refused: ' + why : 'That aim was refused.';
 });
 
@@ -720,6 +899,7 @@ function runCountdown(ms) {
 
 /* ── leaving ───────────────────────────────────────────────────────────── */
 function toLobby() {
+  if (restake && !restake.slow) return;     // the wallet is open: the way back is shut until it answers
   clearTimeout(watchTimer);
   socket.emit(WATCH ? 'ko:unwatch' : 'ko:leave');
   /* The lobby hosts this in an iframe and listens for exactly this, same as the
@@ -728,16 +908,6 @@ function toLobby() {
   else location.href = '/';
 }
 $('waitCancel').addEventListener('click', toLobby);
-$('lobbyBtn').addEventListener('click', toLobby);
-$('againBtn').addEventListener('click', () => {
-  /* Watching, the second button on the result card is the next match. */
-  if (WATCH) { watch(watchLastId); return; }
-  socket.emit('ko:leave');
-  $('over').hidden = true;
-  $('top').hidden = true;
-  st = null; tape = null; aims.clear();
-  queue();
-});
 
 window.addEventListener('beforeunload', () => socket.emit(WATCH ? 'ko:unwatch' : 'ko:leave'));
 
@@ -774,7 +944,7 @@ function watch(after) {
 }
 
 function showWatchWait(main, sub) {
-  $('over').hidden = true;
+  DSEnd.hide();
   $('wait').hidden = false;
   $('waitMain').textContent = main;
   $('waitSub').textContent = sub;
@@ -851,7 +1021,7 @@ socket.on('ko:watching', (m) => {
   watchMatch = m.match;
   watchLastId = m.match.id;
   overShown = false;
-  $('over').hidden = true;
+  DSEnd.hide();
   aims.clear(); drag = null; locked = false; tape = null; reveal = null;
   ringFall.clear(); drawR = 0; st = null; watchReady = [];
   const state = fromWatch(m.state);
@@ -897,31 +1067,35 @@ socket.on('ko:ended', ({ id } = {}) => {
   if (!WATCH || overShown) return;
   if (watchMatch && id && id !== watchMatch.id) return;
   overShown = true;
-  $('overEyebrow').textContent = 'Match over';
-  $('overWho').textContent = 'That match ended';
-  $('overWho').className = 'overWho';
-  $('overWhy').textContent = 'Finding the next one.';
-  $('over').hidden = false;
+  DSEnd.show({ verdict: 'That match ended', notes: ['Finding the next one.'], buttons: watchButtons() });
   $('bar').hidden = true;
   publishWatch('ended');
   nextSoon();
 });
 
+/* A watcher's card: who won it and in how many turns, then on to the next
+   match by itself. No money: nobody watching staked anything. */
+function watchButtons() {
+  return [
+    { id: 'again', text: 'Next match', primary: true, onClick: () => watch(watchLastId) },
+    { id: 'lobby', text: 'Lobby', onClick: toLobby },
+  ];
+}
 function watchOver(m) {
   if (overShown) return;
   overShown = true;
   const names = watchMatch ? watchMatch.names : [];
   const loser = m.winnerSide === 0 ? names[1] : m.winnerSide === 1 ? names[0] : null;
-  $('overEyebrow').textContent = 'Match over';
-  const who = $('overWho');
-  who.textContent = m.winner ? m.winner + ' wins' : 'Nobody won it';
-  who.className = 'overWho' + (m.winner ? ' won' : '');
-  $('overWhy').textContent =
-    (m.why === 'opponent left' ? (loser || 'A player') + ' left the match.'
-    : m.why === 'everyone went off' ? 'Both sides went off on the same turn.'
-    : 'Last one standing after ' + (m.turn || 0) + (m.turn === 1 ? ' turn.' : ' turns.'))
-    + ' Next match in a few seconds.';
-  $('over').hidden = false;
+  const turns = Number(m.turn) || 0;
+  const notes = [];
+  if (m.why === 'opponent left') notes.push((loser || 'A player') + ' left the match.');
+  else if (m.why === 'everyone went off') notes.push('Both sides went off on the same turn.');
+  notes.push('Next match in a few seconds.');
+  DSEnd.show({
+    verdict: m.winner ? m.winner + ' wins' : 'Draw',
+    hero: DSEnd.int(turns), unit: plural(turns, 'turn', 'turns'),
+    notes, buttons: watchButtons(),
+  });
   $('bar').hidden = true;
   publishWatch('over');
   nextSoon();
@@ -931,7 +1105,6 @@ if (WATCH) {
   document.body.classList.add('watching');
   $('waitMain').textContent = 'Finding a match to watch';
   $('waitSub').textContent = 'Watching only. You are not playing.';
-  $('againBtn').textContent = 'Next match';
   $('watchNext').hidden = false;
   $('watchLobby').hidden = false;
   $('lock').hidden = true;

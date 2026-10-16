@@ -14,15 +14,21 @@ const scripts = (html) => [...html.matchAll(/<script src="([^"]+)"><\/script>/g)
 const links = (html) => [...html.matchAll(/<link rel="stylesheet" type="text\/css" href="([^"]+)" \/>/g)].map((m) => m[1]);
 
 // slxPaid.js goes right after slxNet.js (PAID-SL-DESIGN 9): slxMain merges its handshake fields and asks it before the
-// lobby's auto Play, so it must have run first.
-test('SLX_TAIL: the slx.css link first, then slxNet, slxPaid, slxBr, slxWatch, slxMain, slxDirect, each a file under public/', () => {
+// lobby's auto Play, so it must have run first. The shared end screens (public/js/shared/dsEnd.js: the results card and
+// the leaderboard every game draws, slxCard's and slxHud's too) go before the whole layer.
+test('SLX_TAIL: the slx.css link first, then dsEnd, slxNet, slxPaid, slxBr, slxWatch, slxMain, slxDirect, each a file under public/', () => {
   const tail = B.SLX_TAIL;
   assert.ok(tail.startsWith('<link rel="stylesheet" type="text/css" href="/css/slx.css" />\n'));
   assert.deepStrictEqual(links(tail), ['/css/slx.css']);
-  const list = scripts(tail);
+  const all = scripts(tail);
+  assert.strictEqual(all[0], '/js/shared/dsEnd.js', 'the shared end screens before any layer file');
+  assert.strictEqual(all.filter((src) => !src.startsWith('/js/slx/')).length, 1, 'and nothing else outside the layer');
+  const list = all.slice(1);
   assert.deepStrictEqual(list.slice(0, 6), ['/js/slx/slxNet.js', '/js/slx/slxPaid.js', '/js/slx/slxBr.js',
     '/js/slx/slxWatch.js', '/js/slx/slxMain.js', '/js/slx/slxDirect.js']);
-  for (const src of links(tail).concat(list)) assert.ok(fs.existsSync(path.join(ROOT, 'public', src)), src);
+  assert.ok(list.includes('/js/slx/slxCard.js') && list.includes('/js/slx/slxHud.js'), 'the card and the HUD are in it');
+  assert.ok(!list.includes('/js/slx/slxTop.js'), 'no biggest cash-out box (Owen 2026-10-16)');
+  for (const src of links(tail).concat(all)) assert.ok(fs.existsSync(path.join(ROOT, 'public', src)), src);
   for (const src of list) assert.ok(/^\/js\/slx\/slx[A-Z]\w*\.js$/.test(src), src);
   assert.strictEqual(tail, B.slxTail(B.PUBLIC_DIR));
 });

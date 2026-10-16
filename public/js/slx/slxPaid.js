@@ -147,6 +147,11 @@
     gross: function (v) { return 'Cash-out: ' + dollars(v); },
     house: function (pct, v) { return 'House ' + pct + '%: ' + dollars(v); },
     net: function (v) { return 'You receive: ' + dollars(v); },
+    grossRow: 'Cashed out',
+    houseRow: function (pct) { return 'House ' + pct + '%'; },
+    netRow: 'You receive',
+    toWallet: 'to your wallet',
+    lostUnit: 'lost',
     lobbyOnly: 'Buy a new entry in the lobby to play again.',
     againLabel: function (stake) { return 'Play again ' + dollars(stake * 1e6); },
     againAsk: 'Confirm in your wallet...',
@@ -322,10 +327,12 @@
       var k = l.cashed;
       if (k.gross === null) return withAgain({ lines: [TEXT.cashedNoOrder] });
       var pct = st.room && st.room.cut > 0 ? st.room.cut : 10;
-      return withAgain({ lines: [TEXT.gross(k.gross), TEXT.house(pct, k.cut), { text: TEXT.net(k.net), cls: 'slx-paid-take' },
-        { text: STATUS[l.status] || STATUS.pending, cls: 'slx-paid-status' }] });
+      // The shared card (slxCard, dsEnd): the server's net as the big figure, its gross, cut and net as the rows.
+      return withAgain({ tone: 'win', hero: dollars(k.net), unit: TEXT.toWallet,
+        ledger: [[TEXT.grossRow, dollars(k.gross)], [TEXT.houseRow(pct), '−' + dollars(k.cut)], [TEXT.netRow, dollars(k.net)]],
+        status: { text: STATUS[l.status] || STATUS.pending, state: l.status === 'sent' ? 'ok' : 'pending' }, lines: [] });
     }
-    if (l.lost) return withAgain({ lines: [TEXT.lost(l.lost.v)] });
+    if (l.lost) return withAgain({ tone: 'loss', hero: '−' + dollars(l.lost.v), unit: TEXT.lostUnit, lines: [TEXT.lost(l.lost.v)] });
     if (st.token) return null;                   // the token never went out: the card's own Try again sends it
     if (st.room) return withAgain({ lines: [TEXT.left(ownWorth()), TEXT.leftRestart] });
     return withAgain({ lines: [TEXT.joinLost, TEXT.joinLostMoney] });

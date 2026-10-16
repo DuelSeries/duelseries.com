@@ -21,8 +21,7 @@
 <div class="font-family">&nbsp;</div>
 
 <!-- Phone controls (CHOSEN): the same actions as Space and W, and Cash out, held like Q (Owen 2026-10-08: hold
-     3 s to cash out, in every room). Hidden on mouse screens and shown only while alive (ag.css). The paid end
-     card's styles (cashout.css and its fonts) are added by agScreens.loadPaidStyles in a paid room only. -->
+     3 s to cash out, in every room). Hidden on mouse screens and shown only while alive (ag.css). -->
 <div class="ag-pad" aria-label="Game controls">
   <button type="button" id="ag-cash" aria-label="Hold to cash out">Cash out</button>
   <button type="button" id="ag-split" aria-label="Split">Split</button>
@@ -30,6 +29,9 @@
 </div>
 
 <script src="/socket.io/socket.io.js"></script>
+<!-- The shared DuelSeries end card and leaderboard (Owen 2026-10-16: one for every game; it brings its own styles and
+     fonts). agScreens maps this game's numbers onto it. -->
+<script src="/js/shared/dsEnd.js"></script>
 <script src="/shared/agWire.js"></script>
 <script src="/js/ag/agMath.js"></script>
 <script src="/js/ag/agWorld.js"></script>

@@ -69,7 +69,7 @@ function page(opts) {
   ctx.document = {
     hidden: false,
     getElementById: (id) => (id === 'login' ? login : null),
-    querySelector: (sel) => (sel === '.slx-card' && o.card ? {} : null),
+    querySelector: () => null,
     createElement: (tag) => { const e = new El(tag); made.push(e); return e; },
     addEventListener() {},
   };
@@ -104,6 +104,8 @@ function page(opts) {
   };
   vm.createContext(ctx);
   for (const [f, src] of SRC) vm.runInContext(src, ctx, { filename: f });
+  // the results card (slxCard, loaded after slxDirect on the composed page) is there: slxDirect looks for slx.card
+  if (o.card) ctx.DuelSlither.slx.card = { state: () => ({ kind: '' }) };
   return { ctx, D: ctx.DuelSlither, S, login, made, posted, plays, hooks, ownHooks, hookCalls, parent, focus };
 }
 

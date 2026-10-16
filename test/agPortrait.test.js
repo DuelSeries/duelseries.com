@@ -66,44 +66,37 @@ test('camera: setPortrait switches the draw scale on the next stepZoom; reset ke
   assert.strictEqual(cam.portrait, false);
 });
 
-test('HUD scale: the turned formula, and the board rows at 390 x 844 are bigger than the same phone sideways', () => {
+test('HUD scale: the turned formula; the score panel at 390 x 844 is bigger than the same phone sideways', () => {
   for (const [w, h] of [[1170, 2532], [1080, 1920], [1536, 2048], [700, 3000]]) {
     assert.strictEqual(H.hudScale(w, h, true), H.hudScale(h, w, false), w + 'x' + h);
     assert.strictEqual(H.hudScale(w, h, false), H.hudScale(w, h));
   }
   const q = H.hudScale(PW, PH, true);
   assert.strictEqual(q, 1170 / 1080);
-  const lay = H.layoutLeaderboard(PW, PH, 10, 0, false, true);
-  assert.deepStrictEqual([lay.rowFont, lay.titleFont, lay.scale], [19, 32, 1.2]);
-  assert.strictEqual(+(lay.rowFont / PHONE.dpr).toFixed(2), 6.33, 'row text 6.33 CSS px');
-  // The same phone sideways (844 x 390, the ghost layout 2532 x 900): q 0.833, rows 15 px = 5 CSS px. Before this
-  // change, upright (1170 x 2262 layout): q 0.609, rows 10 px = 3.33 CSS px.
-  const side = H.layoutLeaderboard(2532, 900, 10, 0, false, false);
-  assert.strictEqual(side.rowFont, 15);
-  const upBefore = H.layoutLeaderboard(1170, 2262, 10, 0, false, false);
-  assert.strictEqual(upBefore.rowFont, 10);
-  assert.ok(lay.rowFont > side.rowFont && side.rowFont > upBefore.rowFont);
-  // The whole board stays on the canvas: 10 rows tall and the full width, at the top right.
-  assert.ok(lay.x >= 0 && lay.y + lay.height < PH / 2, JSON.stringify([lay.x, lay.y, lay.width, lay.height]));
+  // The score panel's text is trunc(q * 24): 26 px upright (8.67 CSS px); the same phone sideways (the ghost layout
+  // 2532 x 900, q 0.833) 20 px; upright with the reference formula (1170 x 2262 layout, q 0.609) 14 px.
+  assert.strictEqual(Math.trunc(q * 24), 26);
+  assert.strictEqual(Math.trunc(H.hudScale(2532, 900, false) * 24), 20);
+  assert.strictEqual(Math.trunc(H.hudScale(1170, 2262, false) * 24), 14);
 });
 
-test('HUD: setPortrait re-renders the board at the turned scale at once', () => {
-  const calls = [];
+test('HUD: setPortrait turns the panel scale on the next frame; the board is the shared DOM board, not the HUD\'s', () => {
+  const fonts = [];
   const ctx = () => new Proxy({ canvas: {} }, {
-    get(t, k) { if (k in t) return t[k]; if (k === 'measureText') return (s) => ({ width: 10 * s.length }); return (...a) => calls.push([k, a]); },
-    set(t, k, v) { if (k === 'font') calls.push(['font', v]); t[k] = v; return true; }
+    get(t, k) { if (k in t) return t[k]; if (k === 'measureText') return (s) => ({ width: 10 * s.length }); return () => {}; },
+    set(t, k, v) { if (k === 'font') fonts.push(v); t[k] = v; return true; }
   });
   const hud = H.createHud({ createContext: ctx });
+  const main = ctx();
   hud.frameStart(PW, PH);
-  hud.setBoard([{ name: 'a' }, { name: 'b' }], '');
-  const fonts = () => calls.filter((c) => c[0] === 'font').map((c) => c[1]);
-  assert.ok(fonts().includes('10px Ubuntu') && fonts().includes('18px Ubuntu'), 'reference scale first: ' + fonts().join(','));
-  calls.length = 0;
+  const state = { mode: 0, state: 0, spectating: false, connected: true, ownCount: 1, fadeout: false, highestMass: 200, camX: 0, camY: 0, target: null };
+  hud.render(main, state);
+  assert.ok(fonts.includes('14px Ubuntu'), 'reference scale first: ' + fonts.join(','));
+  fonts.length = 0;
   hud.setPortrait(true);
-  assert.ok(fonts().includes('19px Ubuntu') && fonts().includes('32px Ubuntu'), fonts().join(','));
-  calls.length = 0;
-  hud.setPortrait(true);
-  assert.strictEqual(calls.length, 0, 'no change, no re-render');
+  hud.render(main, state);
+  assert.ok(fonts.includes('26px Ubuntu'), fonts.join(','));
+  assert.strictEqual(hud.setBoard, undefined);
 });
 
 test('ring width: the turned cap in portrait, the reference cap otherwise', () => {

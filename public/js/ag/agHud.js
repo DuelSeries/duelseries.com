@@ -1,6 +1,7 @@
-// Canvas HUD for the agar.io redo (FFA, mode 0): leaderboard cache and blit, the "Score:" panel,
-// the bottom message panels (spectate hint, low-FPS warning, reboot notice), the dim layer with
-// the start-up background, and the target-arrow block that runs every frame even when invisible.
+// Canvas HUD for the agar.io redo (FFA, mode 0): the "Score:" panel, the bottom message panels (spectate hint,
+// low-FPS warning, reboot notice), the dim layer with the start-up background, and the target-arrow block that runs
+// every frame even when invisible. The leaderboard is the shared DuelSeries board (DSEnd, through
+// agScreens.createBoard; Owen 2026-10-16), not a canvas blit any more.
 // Our own code, written from the client-hud spec (sections 1 to 5, 9 to 11) and the build brief
 // (facts 2.3, 2.6, 2.19, 2.20, 2.21). Every number below is a spec fact; the call order inside
 // each block is part of the parity contract (build brief 1.1), so do not reorder canvas calls.
@@ -41,7 +42,6 @@
   // Text the HUD shows (client-hud 2.3, 5.1, 5.4, 5.5, 5.7). Mode 0 has exactly two message
   // entries: "score" in state 0 and the spectate hint in state 8.
   var TEXT = {
-    title: 'Leaderboard',
     unnamed: 'An unnamed cell',
     score: 'Score: ',
     spectateHint: "Press 'Q' to change Spectate Mode",
@@ -56,8 +56,6 @@
   // logged in PARITY-LOG (2026-10-09 paid agar client).
   var MONEY_TEXT = 'Balance: ';     // CHOSEN label of the own-balance panel
   var MONEY_PANEL_GAP = 8;          // CHOSEN gap above the score panel, HUD units (times the HUD scale)
-  var MONEY_ROW_GAP = 8;            // CHOSEN least gap between a board name and its amount, HUD units
-  var ELLIPSIS = '…';          // a cut name ends with it
 
   // Micro-USDC as dollars with two decimals, Paper's display rule (public/js/paper/mp/paperArenaMain.js usd()).
   function usd(micro) {
@@ -266,49 +264,6 @@
   };
 
   // ---------------------------------------------------------------------------------------
-  // Leaderboard layout (client-hud 5.1, self-test table in section 10)
-  // ---------------------------------------------------------------------------------------
-
-  var LB_ROWS = 10;
-  var LB_EXTRAS = 5;
-
-  // Pure layout numbers for a board of `count` entries with `extras` extra own rows.
-  // `wide` is the 300-unit board (mode 4 or a friends list), not used in FFA. `portrait`: the
-  // phone portrait layout's HUD scale (hudScale).
-  function layoutLeaderboard(W, H, count, extras, wide, portrait) {
-    var q = hudScale(W, H, portrait);
-    var uw = q * (wide ? 300 : 250);
-    var p = ti(q * W) * 0.12;
-    p = p < 1.2 ? p : 1.2;
-    p = p > 1 ? p : 1;
-    var inner = ti(uw);
-    var m70 = ti(q * 70);
-    var ex = extras || 0;
-    var rows = count > LB_ROWS ? LB_ROWS + ex : count;
-    var innerH = ti(q * ((rows * 22) >>> 0)) + m70;
-    var width = ti(p * inner);
-    var height = ti(p * innerH);
-    var margin = ti(q * 15);
-    return {
-      q: q,
-      scale: p,
-      innerW: inner,
-      innerH: innerH,
-      rows: rows,
-      width: width,
-      height: height,
-      margin: margin,
-      x: (W - (width + margin)) | 0,
-      y: margin,
-      titleFont: ti(q * 30),
-      titleY: ti(q * 40),
-      rowFont: ti(q * 18),
-      rowX: ti(q * 15),
-      rowY: function (r) { return ti(q * ((r * 22 + 70) | 0)); }
-    };
-  }
-
-  // ---------------------------------------------------------------------------------------
   // The HUD object
   // ---------------------------------------------------------------------------------------
 
@@ -333,11 +288,6 @@
       menuImage: env.menuImage || null,
       namesEnabled: true,
       mode: 0,
-      // leaderboard
-      lbCtx: createContext(),
-      lbEntries: [],
-      lbHasContent: false,
-      localNick: '',
       // panels (created on first use)
       scorePanel: null,
       hintPanel: null,
@@ -360,14 +310,13 @@
       arrowHad: false,
       arrowLabel: null,
       arrowLabelScale: 1,
-      // paid rooms (setMoney, from ag:money): { me, rank, board: [[name, micro], ...] } or null; its panel
+      // paid rooms (setMoney, from ag:money): { me } or null; its panel
       money: null,
       moneyPanel: null
     };
 
-    // Frame start: the canvas size is read every frame; a change re-renders the board before
-    // the frame clears (client-hud 5.1 "When it is re-rendered"). Call this where the frame
-    // reads the canvas size, before clearRect.
+    // Frame start: the canvas size is read every frame. Call this where the frame reads the canvas size, before
+    // clearRect; true when it changed.
     // CH: the whole canvas height when the layout height H is shorter (the shipped page's ghost
     // strip, Owen 2026-10-08); only the dim layer covers it. Omitted = H.
     hud.frameStart = function (W, H, CH) {
@@ -375,55 +324,24 @@
       if (W === hud.W && H === hud.H) return false;
       hud.W = W;
       hud.H = H;
-      boardFor(hud);
       return true;
     };
 
-    // The phone portrait layout on or off (hudScale). A change re-renders the board at once, as a
-    // size change does; the panels read the scale every frame.
+    // The phone portrait layout on or off (hudScale); the panels read the scale every frame.
     hud.setPortrait = function (on) {
-      on = !!on;
-      if (on === hud.portrait) return;
-      hud.portrait = on;
-      if (hud.W && hud.H) boardFor(hud);
+      hud.portrait = !!on;
     };
 
-    // Leaderboard message (mirror { t: 'board', rows }): rows replace the list, an own row
-    // ("me") shows the local nickname, then the cache is re-rendered at once.
-    hud.setBoard = function (rows, localNick) {
-      if (typeof localNick === 'string') hud.localNick = localNick;
-      var list = [];
-      for (var k = 0; k < (rows ? rows.length : 0); k++) {
-        var r = rows[k] || {};
-        var me = !!r.me;
-        var name = me ? hud.localNick : (typeof r.name === 'string' ? r.name : '');
-        list.push({ name: name, me: me });
-      }
-      hud.lbEntries = list;
-      boardFor(hud);
-    };
-    // ag:money (paid rooms): the own balance and rank and the money board. The board cache is re-rendered from it at
-    // once (design 6: the paid board is drawn from ag:money alone, so names and amounts cannot drift). null goes
-    // back to the plain board.
+    // ag:money (paid rooms): the own balance for the Balance panel (the money board is the shared board, agMain).
+    // null forgets it.
     hud.setMoney = function (m) {
       if (!m || typeof m !== 'object') {
-        if (hud.money === null) return;
         hud.money = null;
         hud.moneyPanel = null;
-        renderBoard(hud);
         return;
       }
-      var board = [];
-      var rows = Array.isArray(m.board) ? m.board : [];
-      for (var i = 0; i < rows.length; i++) {
-        var r = rows[i];
-        if (!Array.isArray(r)) continue;
-        board.push([typeof r[0] === 'string' ? r[0] : '', Number(r[1]) || 0]);
-      }
-      hud.money = { me: Number(m.me) || 0, rank: (m.rank | 0) > 0 ? m.rank | 0 : 0, board: board };
-      renderMoneyBoard(hud);
+      hud.money = { me: Number(m.me) || 0 };
     };
-    hud.setLocalNick = function (nick) { hud.localNick = String(nick || ''); };
     hud.setNames = function (on) { hud.namesEnabled = !!on; };
     hud.setMode = function (mode) { hud.mode = mode | 0; };
     hud.setReboot = function (on) { hud.reboot = !!on; };
@@ -432,11 +350,10 @@
     // First play request clears the start-up background (client-hud 5.6).
     hud.onPlay = function () { hud.startup = false; };
     hud.onSpawn = function () { hud.alive = true; };
-    // Death: the dim layer switches to the slow 1/60 step and the board is re-rendered (6.2).
+    // Death: the dim layer switches to the slow 1/60 step (6.2).
     hud.onDeath = function () {
       hud.deathFlag = true;
       hud.alive = false;
-      boardFor(hud);
     };
 
     // Once per second (client-hud 5.4): `fps` frames drawn in the last second; defaults to the
@@ -466,16 +383,13 @@
     };
 
     // The whole-client reset on every connect and disconnect (client-camera-input 2): the alive
-    // flag, the low-FPS counters, the board list and its content flag go back to their start
-    // values and the message panels are dropped (each is built again on first use). The dim
-    // layer and the start-up switch are left alone.
+    // flag and the low-FPS counters go back to their start values and the message panels are dropped (each is built
+    // again on first use). The dim layer and the start-up switch are left alone.
     hud.reset = function () {
       hud.alive = false;
       hud.slowCount = 0;
       hud.slowShown = 0;
       hud.slowVisible = false;
-      hud.lbEntries = [];
-      hud.lbHasContent = false;
       hud.scorePanel = null;
       hud.hintPanel = null;
       hud.slowPanel = null;
@@ -489,128 +403,15 @@
       return {
         W: hud.W, H: hud.H, level: hud.level, deathFlag: hud.deathFlag, startup: hud.startup,
         arrowAngle: hud.arrowAngle, arrowAlpha: hud.arrowAlpha, labelScale: hud.arrowLabelScale,
-        lbHasContent: hud.lbHasContent, slowVisible: hud.slowVisible, slowCount: hud.slowCount,
+        slowVisible: hud.slowVisible, slowCount: hud.slowCount,
         slowShown: hud.slowShown
       };
     };
     return hud;
   }
 
-  // Re-render the leaderboard cache (client-hud 5.1, FFA list branch).
-  function renderBoard(hud) {
-    if (!hud.fontsLoaded()) return;
-    hud.lbHasContent = true;
-    var list = hud.lbEntries;
-    var count = list.length;
-    if (count === 0) { hud.lbHasContent = false; return; }
-    var extras = [];
-    for (var idx = LB_ROWS; idx < count && extras.length < LB_EXTRAS; idx++) {
-      if (list[idx].me) extras.push(idx);
-    }
-    var lay = layoutLeaderboard(hud.W, hud.H, count, extras.length, hud.mode === 4, hud.portrait);
-    var c = hud.lbCtx;
-    c.canvas.width = lay.width;
-    c.canvas.height = lay.height;
-    c.scale(lay.scale, lay.scale);
-    c.globalAlpha = 0.4;
-    c.fillStyle = 'rgb(0,0,0)';
-    c.fillRect(0, 0, lay.innerW, lay.innerH);
-    c.globalAlpha = 1;
-    c.fillStyle = 'rgb(255,255,255)';
-    c.font = lay.titleFont + 'px Ubuntu';
-    var tw = c.measureText(TEXT.title).width;
-    c.fillText(TEXT.title, ti(idiv(lay.innerW, 2) + tw * -0.5), lay.titleY);
-    var row = 0;
-    for (var r = 0; r < count && r < LB_ROWS; r++) {
-      drawBoardRow(hud, c, lay, list[r], row, r + 1);
-      row++;
-    }
-    for (var e = 0; e < extras.length; e++) {
-      drawBoardRow(hud, c, lay, list[extras[e]], row, extras[e] + 1);
-      row++;
-    }
-  }
-
-  // One plain row: "<position>. <name>" (fact 2.19: the number is the list position).
-  function drawBoardRow(hud, c, lay, entry, row, position) {
-    var name = entry.name && hud.namesEnabled ? entry.name : TEXT.unnamed;
-    var text = position + '. ' + name;
-    var y = lay.rowY(row);
-    c.fillStyle = entry.me ? 'rgb(255,170,170)' : 'rgb(255,255,255)';
-    c.font = lay.rowFont + 'px Ubuntu';
-    c.fillText(text, lay.rowX, y);
-  }
-
-  // The board cache for whichever board is in use: the money board once a paid room's ag:money has arrived, the
-  // plain (golden) board otherwise. The plain board's code is not touched.
-  function boardFor(hud) {
-    if (hud.money) renderMoneyBoard(hud);
-    else renderBoard(hud);
-  }
-
-  // The paid board (design 6 renderMoneyBoard): the same box, title and row rules as the plain board, rows by money
-  // from ag:money, "N. name" on the left and "$x.xx" on the right of the fixed 250-unit width, a name cut with an
-  // ellipsis where it would run into its amount. Own row in the plain board's own-row colour; an own rank past the
-  // top 10 is one extra row with that rank, as the plain board does.
-  function renderMoneyBoard(hud) {
-    if (!hud.fontsLoaded()) return;
-    var m = hud.money;
-    var list = m.board;
-    var count = list.length;
-    if (count === 0) { hud.lbHasContent = false; return; }
-    hud.lbHasContent = true;
-    var meAt = m.rank > 0 ? m.rank - 1 : -1;
-    var extra = meAt >= LB_ROWS ? 1 : 0;
-    var lay = layoutLeaderboard(hud.W, hud.H, count, extra, false, hud.portrait);
-    var c = hud.lbCtx;
-    c.canvas.width = lay.width;
-    c.canvas.height = lay.height;
-    c.scale(lay.scale, lay.scale);
-    c.globalAlpha = 0.4;
-    c.fillStyle = 'rgb(0,0,0)';
-    c.fillRect(0, 0, lay.innerW, lay.innerH);
-    c.globalAlpha = 1;
-    c.fillStyle = 'rgb(255,255,255)';
-    c.font = lay.titleFont + 'px Ubuntu';
-    var tw = c.measureText(TEXT.title).width;
-    c.fillText(TEXT.title, ti(idiv(lay.innerW, 2) + tw * -0.5), lay.titleY);
-    var row = 0;
-    for (var r = 0; r < count && r < LB_ROWS; r++) {
-      drawMoneyRow(hud, c, lay, list[r][0], list[r][1], r === meAt, row, r + 1);
-      row++;
-    }
-    if (extra) {
-      var mine = meAt < count ? list[meAt][0] : hud.localNick;
-      drawMoneyRow(hud, c, lay, mine, m.me, true, row, m.rank);
-    }
-  }
-
-  function drawMoneyRow(hud, c, lay, name, micro, me, row, position) {
-    var shown = name && hud.namesEnabled ? name : TEXT.unnamed;
-    var amount = usd(micro);
-    var y = lay.rowY(row);
-    c.fillStyle = me ? 'rgb(255,170,170)' : 'rgb(255,255,255)';
-    c.font = lay.rowFont + 'px Ubuntu';
-    var aw = c.measureText(amount).width;
-    var right = lay.innerW - lay.rowX;
-    var room = right - aw - ti(lay.q * MONEY_ROW_GAP) - lay.rowX;
-    c.fillText(fitRow(c, position + '. ', shown, room), lay.rowX, y);
-    c.fillText(amount, ti(right - aw), y);
-  }
-
-  // prefix + name, the name cut from the end (with an ellipsis) until the whole fits in room px.
-  function fitRow(c, prefix, name, room) {
-    var text = prefix + name;
-    if (c.measureText(text).width <= room) return text;
-    for (var n = name.length - 1; n > 0; n--) {
-      text = prefix + name.slice(0, n) + ELLIPSIS;
-      if (c.measureText(text).width <= room) return text;
-    }
-    return prefix + ELLIPSIS;
-  }
-
   // ---------------------------------------------------------------------------------------
-  // The per-frame HUD (client-hud 3: order 1, 2, 4, 10, 11, 12, 13)
+  // The per-frame HUD (client-hud 3: order 2, 4, 10, 11, 12, 13; step 1, the board blit, is the shared board now)
   // ---------------------------------------------------------------------------------------
 
   // s: {
@@ -627,14 +428,6 @@
     var state = s.state | 0;
     hud.mode = mode;
     hud.frames++;
-
-    // 1. Leaderboard blit.
-    var always = mode === 1 || mode === 2;
-    if (always || (hud.lbHasContent && hud.namesEnabled && mode !== 5 && state !== 7)) {
-      var m15 = ti(q * 15);
-      var lbc = hud.lbCtx.canvas;
-      ctx.drawImage(lbc, (W - (lbc.width + m15)) | 0, m15);
-    }
 
     // 2. Score panel (bottom-left): the best total mass of this life (fact 2.21).
     var N = ti(s.highestMass || 0);
@@ -892,10 +685,8 @@
     TextLine: TextLine,
     makePanelLine: makePanelLine,
     Panel: Panel,
-    layoutLeaderboard: layoutLeaderboard,
     createHud: createHud,
     usd: usd,
-    fitRow: fitRow,
     MONEY_TEXT: MONEY_TEXT,
     renderHud: function (ctx, state) { return renderHud(ctx, state, state.hud); }
   };

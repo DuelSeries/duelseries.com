@@ -214,7 +214,7 @@
   // o: {
   //   handoff (readHandoff), store (sessionStorage), win (setTimeout, crypto),
   //   send(kind, payload) -> true when it went out ('paidJoin', 'ready'), reconnect() (open a server-closed socket),
-  //   card() -> the paid card (agScreens.createPaidEnd), enterPlay(joinedPayload) (the page's play state, no menu),
+  //   card() -> the end card (agScreens.createEnd), enterPlay(joinedPayload) (the page's play state, no menu),
   //   freshTarget() (forget the last-sent target), lock(on) (the page's exit lock: agLobby), touch() -> boolean,
   //   chip (createChip), framed, parent (the lobby window), origin (this page's origin), phEvent(name, props) }
   function createFlow(o) {

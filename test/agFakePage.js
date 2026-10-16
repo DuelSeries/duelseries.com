@@ -2,8 +2,10 @@
 // A small fake page for booting the agar.io client (public/js/ag/agMain.js) under node: a fake DOM, a canvas whose
 // 2D context records method calls AND property writes, a virtual clock, manual animation frames, virtual timers and
 // a fake socket.io. The same shape as the page in test/agMain.test.js (which keeps its own copy), with property
-// writes logged so a test can see colours, line widths and alpha. Used by test/agCashoutClient.test.js.
+// writes logged so a test can see colours, line widths and alpha. Used by test/agCashoutClient.test.js. The shared end
+// card and board (public/js/shared/dsEnd.js) are the real component, loaded into the fake window (test/agEndProbe.js).
 const path = require('path');
+const { installDSEnd } = require('./agEndProbe');
 
 const AG = path.join(__dirname, '..', 'public', 'js', 'ag');
 require('../shared/agWire.js');
@@ -59,6 +61,7 @@ function makeElement(doc, tag) {
     getAttribute(k) { return Object.prototype.hasOwnProperty.call(this.attributes, k) ? this.attributes[k] : null; },
     appendChild(c) { this.children.push(c); c.parentNode = this; return c; },
     removeChild(c) { this.children = this.children.filter((x) => x !== c); c.parentNode = null; return c; },
+    get firstChild() { return this.children[0] || null; },
     addEventListener(type, fn) { (listeners[type] = listeners[type] || []).push(fn); },
     removeEventListener(type, fn) { listeners[type] = (listeners[type] || []).filter((f) => f !== fn); },
     dispatch(type, ev) {
@@ -89,6 +92,7 @@ function fakeClassList() {
 function makeDoc() {
   const doc = { _n: 0, calls: [], sizeWrites: [] };
   doc.createElement = (tag) => makeElement(doc, tag);
+  doc.createTextNode = (t) => ({ nodeType: 3, textContent: String(t), children: [], parentNode: null });
   doc.documentElement = { style: { setProperty() {} }, classList: fakeClassList() };
   doc.head = makeElement(doc, 'head');
   doc.body = makeElement(doc, 'body');
@@ -121,7 +125,7 @@ function fakeSocket() {
 }
 
 // o: w, h, dpr, net (fake socket.io), pad (Split / Eject / Cash out buttons), cfg (extra boot config), parent,
-// location, matchMedia
+// location, matchMedia, dsEnd (false: a page without the shared end card, as the parity harness)
 function bootPage(o) {
   o = o || {};
   const doc = makeDoc();
@@ -153,6 +157,7 @@ function bootPage(o) {
   if (o.net) win.io = (...a) => { ioCalls++; ioArgs.push(a); return sock; };
   if (o.location) win.location = o.location;
   if (o.matchMedia) win.matchMedia = o.matchMedia;
+  if (o.dsEnd !== false) installDSEnd(win);
   globalThis.document = doc;
   const sound = LIB.agSound.createSound({ storage: null, createAudioContext: () => null });
   const cfg = Object.assign({ win, doc, canvas, sound, idlePass: false, net: !!o.net, engineNow: () => clock }, o.cfg || {});

@@ -1,5 +1,6 @@
 'use strict';
 const { refundBound } = require('./stakeRules');
+const { duelMoney } = require('./duelMoney');
 /* ─── Battleship ──────────────────────────────────────────────────────────────
    Two fleets, two ten-by-ten grids, and one thing neither player is allowed to
    know: where the other one's ships are.
@@ -402,22 +403,27 @@ class BattleshipRoom {
     this.winner = winnerId || null;
     this.overWhy = why || '';
 
+    const pot = this.pot();
+    const seats = [...this.players.entries()].map(([id, p]) => ({
+      id, name: p.name, wallet: p.wallet, worth: this.worth.get(id) || 0,
+      /* A draw's refund: the stake, never more than what landed on-chain. */
+      refund: refundBound(this.worth.get(id) || 0, p.paid),
+    }));
     if (!this.settled) {
       this.settled = true;
-      const pot = this.pot();
       if (pot > 0 && typeof this.onSettled === 'function') {
         try {
           this.onSettled({
             roomId: this.id, winnerId: winnerId || null, why: why || '', pot,
-            seats: [...this.players.entries()].map(([id, p]) => ({
-              id, name: p.name, wallet: p.wallet, worth: this.worth.get(id) || 0,
-              /* A draw's refund: the stake, never more than what landed on-chain. */
-              refund: refundBound(this.worth.get(id) || 0, p.paid),
-            })),
+            seats,
           });
         } catch (e) { console.error('[BS] settle hook failed:', e.message); }
       }
     }
+    /* What the result card shows about the money: the split index.js pays,
+       from this same pot and these same seats (server/duelMoney.js). Display
+       only; null on a free table; never a wallet. */
+    const money = duelMoney({ winnerId: winnerId || null, pot, seats });
 
     for (const [id, p] of this.players) {
       try {
@@ -426,7 +432,8 @@ class BattleshipRoom {
           winner: winnerId ? (this.players.get(winnerId) || {}).name || null : null,
           why: this.overWhy,
           shots: this.shotLog.filter(s => s.by === id).length,
-          stake: this.stake, pot: this.pot(),
+          stake: this.stake, pot,
+          money,
           /* Both fleets, now that it is over. Holding the loser's layout back
              after the match would be hiding the only thing anybody wants to
              look at afterwards. */

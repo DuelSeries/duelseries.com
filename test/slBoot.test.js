@@ -146,10 +146,22 @@ test('slxTail: the layer files present, in the SERVER-DESIGN 3.2 order, then any
       '<script src="/js/slx/aaExtra.js"></script>\n<script src="/js/slx/zzExtra.js"></script>\n');
     fs.writeFileSync(path.join(dir, 'css', 'slx.css'), '');
     assert.ok(B.slxTail(dir).startsWith('<link rel="stylesheet" type="text/css" href="/css/slx.css" />\n<script src="/js/slx/slxNet.js">'));
+    // the shared end screens (js/shared/dsEnd.js, which slxCard and slxHud draw with): after the css, before the layer
+    fs.mkdirSync(path.join(dir, 'js', 'shared'));
+    fs.writeFileSync(path.join(dir, 'js', 'shared', 'dsEnd.js'), '');
+    assert.ok(B.slxTail(dir).startsWith('<link rel="stylesheet" type="text/css" href="/css/slx.css" />\n' +
+      '<script src="/js/shared/dsEnd.js"></script>\n<script src="/js/slx/slxNet.js">'));
+    assert.strictEqual(B.slxTail(dir).split('/js/shared/dsEnd.js').length, 2, 'once');
+    // with no layer file it stays out (the page is then exactly theirs)
+    for (const f of fs.readdirSync(path.join(dir, 'js', 'slx'))) fs.rmSync(path.join(dir, 'js', 'slx', f));
+    assert.ok(!B.slxTail(dir).includes('dsEnd'), 'no layer: no shared end screens either');
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
   assert.strictEqual(B.SLX_TAIL, B.slxTail(B.PUBLIC_DIR), 'SLX_TAIL is built from the repo at load');
+  assert.ok(B.SLX_TAIL.includes('<script src="/js/shared/dsEnd.js"></script>\n<script src="/js/slx/slxNet.js"></script>'),
+    'the repo tail has it before slxNet');
+  assert.ok(!B.SLX_FILES.includes('slxTop.js') && !B.SLX_TAIL.includes('slxTop'), 'no biggest cash-out box (Owen 2026-10-16)');
   // slxPaid right after slxNet (PAID-SL-DESIGN 9) and slxBr after it (the battle royale, server/slBr): slxMain merges
   // their handshake fields and asks them before auto Play; slxWatch (the free room's Spectate) after slxBr, the same way
   assert.deepStrictEqual(B.SLX_FILES.slice(0, 6), ['slxNet.js', 'slxPaid.js', 'slxBr.js', 'slxWatch.js', 'slxMain.js',

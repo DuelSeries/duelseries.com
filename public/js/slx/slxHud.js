@@ -1,29 +1,33 @@
 // DuelSeries layer on the frozen slither.io client: Owen's HUD layout (2026-10-16). Ours, and a deliberate departure
-// from slither.io parity that Owen asked for, made at runtime on the inline styles of their HUD elements (their files
-// stay frozen). Loaded after slxStats.js (server/sl/slBoot.js SLX_FILES).
+// from slither.io parity that Owen asked for, made at runtime on their HUD elements (their files stay frozen). Loaded
+// after slxStats.js (server/sl/slBoot.js SLX_FILES).
 //
 // Inert unless slxNet installed the production transport (15.2, finalize pass C20).
 //
 // 1. Their "Your length / Your rank" box (lbf, slHud.js updateLengthBox) is hidden on every screen, by visibility:
 //    their client writes its display and opacity (slHud.js onInit and the fades) but never its visibility.
-// 2. On a phone (their is_mobile, a user agent that says Mobile, slMain.js:59; or a window whose short side is at most
-//    PHONE_SIDE) their leaderboard is smaller and shows the top PHONE_ROWS rows. Their page is laid out at 0.7 on a
-//    phone (sl.html:4, initial-scale 0.7), so a 375 px phone is 536 px wide here and the window's size alone cannot
-//    tell a phone from a small computer window. Their four boxes (sl.html:20-23: header lbh, scores lbs, names lbn, places lbp) are scaled about
-//    the board's top right corner by a transform (the header to HEAD_K, the rows to ROW_K, the rows lifted to sit under
-//    the smaller header), the names box is cut to PHONE_NAMES_W with an ellipsis and the places column moved in by the
-//    width it lost, and the three row boxes are cut to PHONE_ROWS rows of their 12 px at line-height 150%. Their
-//    resizeHud rewrites only `right` on these boxes (slHud.js resizeHud), and their client never writes transform,
-//    transform-origin, width, height or text-overflow on them, so all of it holds across resizes. A computer keeps
-//    their board as it is (the inline values sl.html gave, restored when a window grows past PHONE_SIDE).
+// 2. The leaderboard is the one every DuelSeries game shows (public/js/shared/dsEnd.js board; Owen 2026-10-16: one
+//    leaderboard for all the games, fully clear, text only): their four boxes (sl.html:20-23: header lbh, scores lbs,
+//    names lbn, places lbp) are hidden the same way, and ours is filled from what their leaderboard handler writes
+//    there (slApply.js onLeaderboard -> slHud.setLeaderboard, three innerHTML writes): each frame looks whether the
+//    boxes were written again (an innerHTML write replaces every child node, so their first nodes change) and then
+//    reads the rows back as text: the names, the lengths, and the own row (theirs is the bold one, place == myPos).
+//    Their module is never touched. The own row is pinned under the list when it is outside it: from their own
+//    length box, which their HUD rewrites at every leaderboard with the own length by their formula, their rank and
+//    the snake count, in that order whatever the language (slHud.js updateLengthBox, 275-288). Ours follows their
+//    board's fade (lb_fr on the boxes' opacity), so it shows and goes when theirs would. Top PHONE_ROWS on a phone,
+//    else dsEnd's rows (10 on a computer, 5 on a window as narrow as a phone).
+//    A phone is their is_mobile (a user agent that says Mobile, slMain.js:59) or a window whose short side is at
+//    most PHONE_SIDE. Their page is laid out at 0.7 on a phone (sl.html:4, initial-scale 0.7, where is_mobile holds),
+//    so the board is drawn back up by 1/0.7 there to the size it has in every other game.
 // 3. The ping and FPS line (slxStats) sits under their minimap's disc, centred on it: their holder (loch) is the disc
 //    plus a 12 px margin on every side (slHud.js setMinimapSize, fitMapCanvas), placed by its inline right, bottom and
 //    width, so the line follows a new minimap size.
-// 4. slx.hud.topSlot(w): the top, in px, where a block w px wide centred at the top of the screen covers neither their
+// 4. slx.hud.topSlot(w): the top, in px, where a block w px wide centred at the top of the screen covers neither the
 //    leaderboard nor the text of their top left box (vcm): beside them when there is room, else just under the board.
 //    The battle royale's block (slxBr.js) sits there.
 //
-// Adds to DuelSlither.slx: hud { phone(), topSlot(w), board() }.
+// Adds to DuelSlither.slx: hud { phone(), topSlot(w), board(), rows() }.
 (function (root) {
   'use strict';
   var D = root.DuelSlither;
@@ -31,7 +35,8 @@
   var slx = D.slx;
   var doc = root.document;
   var S = D.S;
-  if (!doc || !S) return;
+  var E = root.DSEnd;
+  if (!doc || !S || !E) return;
   var lbh = S.lbh;
   var lbs = S.lbs;
   var lbn = S.lbn;
@@ -41,90 +46,110 @@
   var vcm = S.vcm;
   if (!lbh || !lbs || !lbn || !lbp || !lbh.style || !lbs.style || !lbn.style || !lbp.style) return;
 
-  var PHONE_SIDE = 520;            // CHOSEN: a computer window this small gets the phone board too
+  var PHONE_SIDE = 520;            // CHOSEN: a computer window this small counts as a phone too
   var PHONE_ROWS = 5;              // Owen 2026-10-16: the top 5 on a phone
-  var HEAD_K = 0.6;                // CHOSEN: their 21 px header at about 13 px, near the rows' size
-  var ROW_K = 0.9;                 // CHOSEN: their 12 px rows at about 11 px (7.6 px on the phone's glass at 0.7)
-  var PHONE_NAMES_W = 140;         // CHOSEN: about 20 characters at 12 px before the ellipsis
-  // Their board (sl.html:20-23; slHud.js resizeHud, LB_W 180): right edge 4 px from the window's, header 28 px tall
-  // from top 4, rows from top 32 in 12 px at line-height 150%; scores box 50 px at right 4, names 180 px at right 64,
-  // places 30 px at right 260 (right-aligned, so the board's left edge is 290 px from the window's right edge).
-  var EDGE = 4;
-  var ROWS_TOP = 32;
-  var ROW_PX = 18;
-  var PC_ROWS = 10;                // their server's board has ten rows at most
-  var NAMES_RIGHT = 64;
-  var NAMES_W = 180;
-  var PLACES_RIGHT = 260;
-  var PLACES_W = 30;
-  var SCORES_W = 50;
-  var HEAD_W = 285;
-  var BOARD_W = PLACES_RIGHT + PLACES_W - EDGE;   // 286
   var GAP = 8;                     // CHOSEN: the clear space kept around a top block
+  var NO_RANK = 999999999;         // their rank before any leaderboard (slApply.js:146)
 
-  // Their inline values, as sl.html gave them, put back on a computer.
-  function keep(el, keys) {
-    var o = {};
-    for (var i = 0; i < keys.length; i++) o[keys[i]] = el.style[keys[i]] || '';
-    return o;
-  }
-  var KEYS = ['transform', 'transformOrigin', 'height', 'width', 'textOverflow'];
-  var orig = [[lbh, keep(lbh, KEYS)], [lbs, keep(lbs, KEYS)], [lbn, keep(lbn, KEYS)], [lbp, keep(lbp, KEYS)]];
-
-  // 1. the length box, hidden on every screen
+  // 1. the length box and their board, hidden on every screen
   if (lbf && lbf.style) lbf.style.visibility = 'hidden';
+  var theirs = [lbh, lbs, lbn, lbp];
+  for (var t = 0; t < theirs.length; t++) theirs[t].style.visibility = 'hidden';
 
-  // ---- 2. the phone board
+  // ---- 2. the board
   var phone = null;                // unknown until the first frame
   var vw = -1;
   var vh = -1;
+  var ours = E.board({ zoom: S.is_mobile ? 1 / 0.7 : 1, z: 10 });
+  ours.hide();
+  var rows = [];                   // what ours shows: { name, value, me }
+  var me = null;
 
   function px(n) {
     return Math.round(n * 100) / 100 + 'px';
   }
 
-  function set(el, k, v) {
-    if (el.style[k] !== v) el.style[k] = v;
+  function texts(box) {
+    var out = [];
+    var kids = box.children || [];
+    for (var i = 0; i < kids.length; i++) if (String(kids[i].tagName).toUpperCase() === 'SPAN') out.push(kids[i]);
+    return out;
   }
 
-  function phoneBoard() {
-    var cut = NAMES_W - PHONE_NAMES_W;                     // the width the names box lost
-    var rowsLift = ROWS_TOP - EDGE;                        // 28: rows top above the board's top edge
-    var ty = rowsLift * (HEAD_K - ROW_K);                  // rows lifted to sit under the smaller header
-    var span = BOARD_W - cut;                              // the rows' width before the scale
-    var headDx = (HEAD_W / 2) * HEAD_K - (span / 2) * ROW_K; // the header centred over the rows
-    var rowsH = px(PHONE_ROWS * ROW_PX);
-    set(lbh, 'transformOrigin', px(HEAD_W) + ' 0px');
-    set(lbh, 'transform', 'translateZ(0) translate(' + px(headDx) + ', 0px) scale(' + HEAD_K + ')');
-    set(lbs, 'transformOrigin', px(SCORES_W) + ' ' + px(-rowsLift));
-    set(lbs, 'transform', 'translateZ(0) translate(0px, ' + px(ty) + ') scale(' + ROW_K + ')');
-    set(lbs, 'height', rowsH);
-    set(lbn, 'width', px(PHONE_NAMES_W));
-    set(lbn, 'textOverflow', 'ellipsis');
-    set(lbn, 'transformOrigin', px(PHONE_NAMES_W + NAMES_RIGHT - EDGE) + ' ' + px(-rowsLift));
-    set(lbn, 'transform', 'translateZ(0) translate(0px, ' + px(ty) + ') scale(' + ROW_K + ')');
-    set(lbn, 'height', rowsH);
-    set(lbp, 'transformOrigin', px(PLACES_W + PLACES_RIGHT - EDGE) + ' ' + px(-rowsLift));
-    set(lbp, 'transform', 'translateZ(0) translate(' + px(cut * ROW_K) + ', ' + px(ty) + ') scale(' + ROW_K + ')');
-    set(lbp, 'height', rowsH);
+  // The name the last Play used (slMain.nick, public/js/sl/slMain.js:94-101): theirs on the own row too.
+  function nick() {
+    var m = D.slMain;
+    return m && typeof m.nick === 'string' ? m.nick : '';
   }
 
-  function pcBoard() {
-    for (var i = 0; i < orig.length; i++) {
-      var el = orig[i][0];
-      var o = orig[i][1];
-      for (var k = 0; k < KEYS.length; k++) set(el, KEYS[k], o[KEYS[k]]);
+  // The own length and rank from their length box: its text is "<words>: LENGTH<words>: RANK <words> COUNT" in every
+  // language (slHud.js updateLengthBox and lengthWords, none with a digit). null before their first write.
+  function ownBox() {
+    var m = lbf ? /(\d+)\D+(\d+)\D+(\d+)\D*$/.exec(String(lbf.textContent || '')) : null;
+    if (!m || !(Number(m[2]) > 0) || Number(m[2]) >= NO_RANK) return null;
+    return { rank: Number(m[2]), value: E.int(Number(m[1])) };
+  }
+
+  // What ours shows: the top PHONE_ROWS on a phone (the cut leaves the own row out: dsEnd pins it), else every row.
+  function push() {
+    ours.set(phone ? rows.slice(0, PHONE_ROWS) : rows, me);
+  }
+
+  // Their rows, read back after their handler wrote them: names (the own one bold) and lengths, in place order.
+  function readTheirs() {
+    var names = texts(lbn);
+    var scores = texts(lbs);
+    var out = [];
+    var at = -1;
+    for (var i = 0; i < names.length; i++) {
+      var n = names[i];
+      var bold = !!(n.style && /bold|[6-9]00/.test(String(n.style.fontWeight)));
+      if (bold && at < 0) at = i;
+      var sc = scores[i] ? String(scores[i].textContent).replace(/[^0-9]/g, '') : '';
+      out.push({ name: String(n.textContent || ''), value: sc ? E.int(Number(sc)) : '', me: bold });
     }
+    rows = out;
+    // The own row: theirs when their board lists it (place = row), else their length box's while playing.
+    var box = at < 0 && S.playing ? ownBox() : null;
+    me = at >= 0 ? { rank: at + 1, name: out[at].name, value: out[at].value }
+      : box ? { rank: box.rank, name: nick(), value: box.value } : null;
+    push();
   }
 
-  // The board's box on screen: { left, bottom, width } (the window's right edge is EDGE px from its right).
+  // Their boxes' first nodes at the last read: an innerHTML write replaces every child, so a new first node (or none
+  // where there was one) means their handler or their length box wrote again.
+  var firsts = [null, null, null];
+  function written() {
+    var cur = [lbn.firstChild || null, lbs.firstChild || null, lbf && lbf.firstChild || null];
+    if (cur[0] === firsts[0] && cur[1] === firsts[1] && cur[2] === firsts[2]) return false;
+    firsts = cur;
+    return true;
+  }
+
+  // Ours shows while theirs would: their fades write the boxes' opacity (lb_fr), their onInit their display.
+  var shownKey = '';
+  function follow() {
+    var op = parseFloat(lbs.style.opacity);
+    var on = lbs.style.display !== 'none' && !(op === 0) && rows.length > 0;
+    var key = on ? 'on|' + (op >= 0 ? op : 1) : 'off';
+    if (key === shownKey) return;
+    shownKey = key;
+    if (!on) {
+      ours.hide();
+      return;
+    }
+    ours.show();
+    ours.el.style.opacity = String(op >= 0 ? Math.min(1, op) : 1);
+  }
+
+  // The board's box on screen: { left, bottom, width }.
   function board() {
-    var w = root.innerWidth || 0;
-    if (phone) {
-      var bw = (BOARD_W - (NAMES_W - PHONE_NAMES_W)) * ROW_K;
-      return { left: w - EDGE - bw, bottom: EDGE + (ROWS_TOP - EDGE) * HEAD_K + PHONE_ROWS * ROW_PX * ROW_K, width: bw };
+    var r = ours.el && typeof ours.el.getBoundingClientRect === 'function' ? ours.el.getBoundingClientRect() : null;
+    if (!r || !(r.width > 0)) {
+      var w = root.innerWidth || 0;
+      return { left: w, bottom: 0, width: 0 };
     }
-    return { left: w - EDGE - BOARD_W, bottom: ROWS_TOP + PC_ROWS * ROW_PX, width: BOARD_W };
+    return { left: r.left, bottom: r.bottom, width: r.width };
   }
 
   // ---- 3. the ping and FPS line under the minimap
@@ -189,14 +214,18 @@
     if (w !== vw || h !== vh) {
       vw = w;
       vh = h;
-      var p = !!S.is_mobile || Math.min(w, h) <= PHONE_SIDE;
-      if (p !== phone) {
-        phone = p;
-        if (p) phoneBoard();
-        else pcBoard();
-      }
+      phone = !!S.is_mobile || Math.min(w, h) <= PHONE_SIDE;
+      if (rows.length) push();               // the row count follows the window
       vcmKey = null;
     }
+    if (written()) {
+      try {
+        readTheirs();
+      } catch (e) {
+        slx.errors++;
+      }
+    }
+    follow();
     placeStats();
     var t = vcm ? vcm.textContent : '';
     if (t !== vcmKey) {
@@ -209,6 +238,7 @@
   slx.hud = {
     phone: function () { return phone === true; },
     topSlot: topSlot,
-    board: board
+    board: board,
+    rows: function () { return { rows: rows.slice(), me: me }; }
   };
 })(typeof window !== 'undefined' ? window : globalThis);

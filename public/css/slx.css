@@ -126,21 +126,6 @@
   pointer-events: none;
 }
 
-/* Results card lines (slxCard .slx-card-note): what the player receives, the payout's state, a buy-in error. */
-.slx-paid-take {
-  color: #0b7a4f;
-  font-weight: 700;
-}
-
-.slx-paid-status {
-  color: #6b6b6b;
-  font-style: italic;
-}
-
-.slx-paid-error {
-  color: #b3261e;
-}
-
 @media (max-width: 600px) {
   .slx-paid-hud {
     top: calc(8px + env(safe-area-inset-top));

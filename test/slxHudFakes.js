@@ -11,12 +11,15 @@
 //                (public/js/slx/slxNet.js header): active, on, fire, send, onSocket, connected, now, guard, toLobby,
 //                lobbyName. guard copies slxMain's stops (mousedown, contextmenu, touches; keys for a text box;
 //                activate on click). Socket listeners added with onSocket run through socketEvent(name, data).
-//   load(file)   runs a public/js/slx file in the context
+//   load(file)   runs a public/js/slx file in the context; 'dsEnd.js' is the shared end screens (public/js/shared), which
+//                the composed /sl page loads before the slx tail (server/sl/slBoot.js slxTail) and slxCard and slxHud
+//                draw with, so a test loads it first the same way
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
 const ROOT = path.join(__dirname, '..');
+const SHARED = ['dsEnd.js'];
 
 function makePage(opts) {
   const o = opts || {};
@@ -252,7 +255,8 @@ function makePage(opts) {
     rafCount() { return rafs.length; },
     key(target, type, init) { return dispatch(target, type, init); },
     load(file) {
-      const src = fs.readFileSync(path.join(ROOT, 'public', 'js', 'slx', file), 'utf8');
+      const dir = SHARED.includes(file) ? 'shared' : 'slx';
+      const src = fs.readFileSync(path.join(ROOT, 'public', 'js', dir, file), 'utf8');
       vm.runInContext(src, win, { filename: file });
     },
     // Every element in the body whose className has this class.
@@ -264,6 +268,15 @@ function makePage(opts) {
       };
       walk(doc.body);
       return out;
+    },
+    // The shared card's button of this id in the body (dsEnd marks each with data-dse-btn), or null.
+    button(id) {
+      const walk = (n) => {
+        if (n.nodeType === 1 && n.attrs && n.attrs['data-dse-btn'] === id) return n;
+        for (const c of n.childNodes || []) { const f = c.nodeType === 1 ? walk(c) : null; if (f) return f; }
+        return null;
+      };
+      return walk(doc.body);
     },
     styleText() {
       return doc.head.children.filter((e) => e.tagName === 'STYLE').map((e) => e.textContent).join('\n');

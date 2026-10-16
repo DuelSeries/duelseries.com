@@ -3,8 +3,8 @@
 
    Inside the lobby's agar frame (public/ag.html sets cfg.lobby when its frame element is #agar-frame) the page has
    no menu card: agLobby starts play under the lobby name (or watching, when the lobby's Spectate opened it), Esc
-   does nothing in the free room, the Match Results panel ends with Play again and Lobby, and a dropped socket joins
-   again as it was. There are no agar.io settings anywhere since 2026-10-15 (Owen: "just get rid of all the
+   does nothing in the free room, the end card (the shared DSEnd card, Owen 2026-10-16) ends with Play again, Spectate
+   and Lobby, and a dropped socket joins again as it was. There are no agar.io settings anywhere since 2026-10-15 (Owen: "just get rid of all the
    settings"): not on the lobby, not on the card, nothing stored; sound is always on and the drawing values are the
    reference defaults. A direct visit to /ag and the parity harness keep the old menu otherwise; a paid hand-off keeps
    its own flow. */
@@ -14,6 +14,7 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 const { LIB, bootPage, spawn, makeDoc } = require('./agFakePage.js');
+const { readCard, clickCard } = require('./agEndProbe.js');
 
 const ROOT = path.join(__dirname, '..');
 const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
@@ -34,93 +35,84 @@ const ids = (el, out = []) => { if (el.id) out.push(el.id); el.children.forEach(
 
 // ---- agScreens -------------------------------------------------------------------------------------------------
 
-test('agScreens: the lobby card has no name entry, and its panel ends with Play again and Lobby', () => {
+test('agScreens: the menu card is the name entry only (name, Play, Spectate); no Sound, settings or lobby variant', () => {
   const doc = makeDoc();
-  const calls = [];
-  const s = agScreens.createScreens({ doc, root: doc.body, lobby: true,
-    onAgain: () => calls.push('again'), onLobby: () => calls.push('lobby'), onPlay: () => calls.push('play') });
-  const all = ids(doc.body);
-  for (const gone of ['ag-name', 'ag-nick', 'ag-play', 'ag-spectate', 'statsContinue']) {
-    assert.ok(!all.includes(gone), gone + ' is not on the lobby card');
-  }
-  assert.ok(all.includes('statsAgain') && all.includes('statsLobby'), 'Play again and Lobby are');
-  assert.ok(doc.getElementById('ag-screens-lobby-css'), 'their stylesheet is added');
-  assert.strictEqual(doc.getElementById('statsAgain').textContent, 'Play again');
-  assert.strictEqual(doc.getElementById('statsLobby').textContent, 'Lobby');
-  s.showHome();
-  assert.strictEqual(s.menu.hidden, true, 'HOME is the card closed: there is nothing to show');
-  doc.getElementById('statsAgain').dispatch('click');
-  assert.deepStrictEqual(calls, [], 'Play again does nothing unless the panel is up');
-  s.showStats({ foodEaten: 1, highestMass: 30, timeAlive: 5000, leaderTime: 0, cellsEaten: 0, topPosition: 0 });
-  assert.strictEqual(s.menu.hidden, false);
-  doc.getElementById('statsAgain').dispatch('click');
-  assert.deepStrictEqual(calls, ['again']);
-  assert.strictEqual(s.menu.hidden, true, 'the panel closes on Play again');
-  doc.getElementById('statsLobby').dispatch('click');
-  assert.deepStrictEqual(calls, ['again', 'lobby']);
-  s.setNick('x');   // no name box: a no-op
-});
-
-test('agScreens: the card everywhere else: name, Play, Spectate and the panel; no Sound or settings (no lobby stylesheet)', () => {
-  const doc = makeDoc();
-  agScreens.createScreens({ doc, root: doc.body });
-  assert.deepStrictEqual(ids(doc.body), ['ag-menu', 'ag-card', 'ag-name', 'ag-nick', 'ag-play', 'ag-spectate',
-    'ag-stats', 'statsGraph', 'statsContinue']);
+  agScreens.createScreens({ doc, root: doc.body, lobby: true });
+  assert.deepStrictEqual(ids(doc.body), ['ag-menu', 'ag-card', 'ag-name', 'ag-nick', 'ag-play', 'ag-spectate']);
   assert.strictEqual(doc.getElementById('ag-screens-lobby-css'), null);
-  assert.ok(!agScreens.SCREENS_CSS.includes('statsAgain'), 'the parity stylesheet carries none of it');
+  assert.strictEqual(agScreens.LOBBY_CSS, undefined);
 });
 
 // ---- agMain in the lobby frame ---------------------------------------------------------------------------------
 
-test('agMain lobby: no card at boot, Esc does nothing, death shows Play again and Lobby, Play again respawns at once', async () => {
+const own11 = { id: 11, x: 0, y: 0, size: 200, virus: false, food: false, ejected: false, agitated: false, flag40: false,
+  party: false, rgb: [255, 7, 100] };
+async function liveAgain(p) {
+  p.session.feed({ t: 'own', id: 11 });
+  p.session.feed({ t: 'world', eats: [], cells: [own11], removed: [] });
+  await p.frames(3);
+}
+
+test('agMain lobby: no card at boot, Esc does nothing, death shows Play again, Spectate and Lobby, Play again respawns at once', async () => {
   const posted = [];
   const p = bootPage({ cfg: { lobby: true }, parent: { postMessage: (m, o) => posted.push([m, o]) } });
-  const menu = p.doc.getElementById('ag-menu');
-  assert.strictEqual(menu.hidden, true, 'no menu card at boot');
+  assert.strictEqual(p.doc.getElementById('ag-menu'), null, 'no menu card in the lobby frame');
   assert.strictEqual(p.doc.getElementById('ag-nick'), null);
+  assert.strictEqual(p.mod.screens, null);
   await spawn(p, p.session.feed);                 // session.play('me'), as agLobby does with the lobby name
   assert.strictEqual(p.session.state().menuState, 'PLAY');
   p.key('keydown', 27);
   p.key('keyup', 27);
   await p.frames(2);
   assert.strictEqual(p.session.state().menuState, 'PLAY', 'Esc opens nothing');
-  assert.strictEqual(menu.hidden, true);
-  p.session.feed({ t: 'world', eats: [], cells: [], removed: [9] });
+  assert.strictEqual(readCard(p.doc), null);
+  // bob (cell 10) eats the own cell: the card names him
+  p.session.feed({ t: 'world', eats: [[10, 9]], cells: [], removed: [9] });
   await p.frames(3);
   assert.strictEqual(p.session.state().menuState, 'GAMEOVER');
-  assert.strictEqual(menu.hidden, false, 'the Match Results panel');
-  assert.strictEqual(p.doc.getElementById('ag-stats').hidden, false);
+  const card = readCard(p.doc);
+  assert.deepStrictEqual([card.verdict, card.hero, card.unit], ['Eaten by bob', '400', 'mass']);
+  assert.deepStrictEqual(card.facts, [['Time', '0:00'], ['Top rank', '2nd']]);
+  assert.deepStrictEqual(card.buttons.map((b) => [b.id, b.text, b.primary]),
+    [['again', 'Play again', true], ['watch', 'Spectate', false], ['lobby', 'Lobby', false]]);
+  assert.strictEqual(p.session.state().board.visible, false, 'the board steps aside for the card');
   const before = p.sent.filter((s) => s[0] === 'play').length;
-  p.doc.getElementById('statsAgain').dispatch('click');
+  clickCard(p.doc, 'again');
   const plays = p.sent.filter((s) => s[0] === 'play');
   assert.strictEqual(plays.length, before + 1, 'Play again sends play at once (the world is ready)');
   assert.deepStrictEqual(plays[plays.length - 1][1], { name: 'me' }, 'under the same name');
   assert.strictEqual(p.session.state().menuState, 'PLAY');
-  assert.strictEqual(menu.hidden, true);
-  // Death again, then Lobby: the framed page's way back.
-  p.session.feed({ t: 'own', id: 11 });
-  p.session.feed({ t: 'world', eats: [], cells: [{ id: 11, x: 0, y: 0, size: 200, virus: false, food: false, ejected: false,
-    agitated: false, flag40: false, party: false, rgb: [255, 7, 100] }], removed: [] });
+  assert.strictEqual(readCard(p.doc), null, 'the card goes');
+  // Death again, then Spectate: the room, watched.
+  await liveAgain(p);
+  p.session.feed({ t: 'world', eats: [], cells: [], removed: [11] });
   await p.frames(3);
+  assert.strictEqual(readCard(p.doc).verdict, 'Eaten', 'no eater seen');
+  clickCard(p.doc, 'watch');
+  assert.strictEqual(p.session.state().menuState, 'SPECTATE');
+  assert.deepStrictEqual(p.sent[p.sent.length - 1].slice(0, 2), ['spectate', undefined]);
+  assert.strictEqual(readCard(p.doc), null);
+  // A new life, a death, then Lobby: the framed page's way back.
+  p.session.play('me');
+  await liveAgain(p);
   p.session.feed({ t: 'world', eats: [], cells: [], removed: [11] });
   await p.frames(3);
   assert.strictEqual(p.session.state().menuState, 'GAMEOVER');
-  p.doc.getElementById('statsLobby').dispatch('click');
+  clickCard(p.doc, 'lobby');
   assert.deepStrictEqual(posted, [['game:done', '*']]);
   p.session.destroy();
 });
 
-test('agMain lobby: a free cash-out ends on the same panel (Cashed Out) with the same two buttons', async () => {
+test('agMain lobby: a free cash-out ends on the same card ("Cashed out") with the same buttons', async () => {
   const p = bootPage({ cfg: { lobby: true }, parent: { postMessage() {} } });
   await spawn(p, p.session.feed);
   p.session.sideEvent('ag:cashedout', { free: true });
   p.session.feed({ t: 'world', eats: [], cells: [], removed: [9] });
   await p.frames(3);
-  const stats = p.doc.getElementById('ag-stats');
-  assert.strictEqual(stats.hidden, false);
-  assert.ok(p.doc.getElementById('statsAgain') && p.doc.getElementById('statsLobby'));
-  const title = stats.children[0].children[0].textContent;
-  assert.strictEqual(title, agScreens.CASHED_OUT_TITLE);
+  const card = readCard(p.doc);
+  assert.deepStrictEqual([card.tone, card.verdict, card.hero], ['plain', 'Cashed out', '400']);
+  assert.deepStrictEqual(card.buttons.map((b) => b.id), ['again', 'watch', 'lobby']);
+  assert.strictEqual(p.session.state().paidEnd, '', 'no money on it');
   p.session.destroy();
 });
 
@@ -134,7 +126,8 @@ test('agMain lobby: a dropped socket joins again as it was (play under the same 
   const plays0 = p.sent.filter((s) => s[0] === 'play').length;
   p.sock.connected = false;
   p.sock.fire('disconnect', 'transport close');
-  assert.strictEqual(p.doc.getElementById('ag-menu').hidden, true, 'no menu after the drop');
+  assert.strictEqual(p.doc.getElementById('ag-menu'), null, 'no menu after the drop');
+  assert.strictEqual(readCard(p.doc), null, 'no card either');
   assert.strictEqual(p.session.state().menuState, 'PLAY');
   p.sock.connected = true;
   p.sock.fire('connect');
@@ -188,10 +181,11 @@ test('agMain lobby: the old settings keys change nothing, before boot or after i
   p.session.destroy();
 });
 
-test('agMain everywhere else: the card at boot, Esc opens it, Continue on the panel, no storage listener', async () => {
+test('agMain everywhere else: the card at boot, Esc opens it, Menu on the end card, no storage listener', async () => {
   const storage = memStore();
   const p = bootPage({ cfg: { storage } });
-  assert.strictEqual(p.doc.getElementById('ag-menu').hidden, false, 'the name entry at boot');
+  const menu = p.doc.getElementById('ag-menu');
+  assert.strictEqual(menu.hidden, false, 'the name entry at boot');
   await spawn(p, p.session.feed);
   p.key('keydown', 27);
   await p.frames(2);
@@ -200,8 +194,25 @@ test('agMain everywhere else: the card at boot, Esc opens it, Continue on the pa
   storage.setItem('agSettings', JSON.stringify({ quality: 'Low', names: true, colors: true, showMass: false, dark: true }));
   p.win.fire('storage', { key: 'agSettings' });
   assert.strictEqual(p.session.settings().dark, false, 'a direct visit does not follow the storage either');
-  assert.ok(p.doc.getElementById('statsContinue'));
-  assert.strictEqual(p.doc.getElementById('statsAgain'), null);
+  // Play from the name entry, a death: the end card, with Menu (the old Continue) in place of Lobby
+  p.doc.getElementById('ag-play').dispatch('click');
+  await liveAgain(p);
+  p.session.feed({ t: 'world', eats: [], cells: [], removed: [9, 11] });   // the Esc menu left cell 9 playing
+  await p.frames(3);
+  assert.deepStrictEqual(readCard(p.doc).buttons.map((b) => b.id), ['again', 'watch', 'menu']);
+  assert.strictEqual(menu.hidden, true);
+  // Esc over the card: the name entry replaces it
+  p.key('keydown', 27);
+  p.key('keyup', 27);
+  await p.frames(2);
+  assert.deepStrictEqual([p.session.state().menuState, menu.hidden, readCard(p.doc)], ['HOME', false, null]);
+  // and Menu does the same from the card
+  p.doc.getElementById('ag-play').dispatch('click');
+  await liveAgain(p);
+  p.session.feed({ t: 'world', eats: [], cells: [], removed: [11] });
+  await p.frames(3);
+  clickCard(p.doc, 'menu');
+  assert.deepStrictEqual([p.session.state().menuState, menu.hidden, readCard(p.doc)], ['HOME', false, null]);
   p.session.destroy();
 });
 
@@ -210,7 +221,7 @@ test('agMain lobby with a paid hand-off: its own flow, unchanged (no menu, Esc s
   const p = bootPage({ net: true, cfg: { lobby: true, handoff: true, tabStorage: tab }, parent: { postMessage() {} } });
   assert.ok(p.session.state().handoff, 'the paid flow runs');
   assert.strictEqual(p.session.state().paid, true);
-  assert.strictEqual(p.doc.getElementById('ag-menu').hidden, true);
+  assert.strictEqual(p.doc.getElementById('ag-menu'), null);
   p.sock.connected = true;
   p.sock.fire('connect');
   p.session.sideEvent('ag:joined', { stake: 0.1, micro: 100000 });
@@ -218,11 +229,11 @@ test('agMain lobby with a paid hand-off: its own flow, unchanged (no menu, Esc s
   p.key('keydown', 27);
   p.key('keyup', 27);
   assert.strictEqual(p.session.state().menuState, st, 'Esc goes to the paid flow, never a menu');
-  assert.strictEqual(p.doc.getElementById('ag-menu').hidden, true);
+  assert.strictEqual(p.doc.getElementById('ag-menu'), null);
   p.session.sideEvent('ag:dead', { lostMicro: 100000, by: 'bob' });
-  const card = p.doc.getElementById('ag-paid-end');
-  assert.ok(card && !card.hidden, 'the paid end card, not the Match Results panel');
-  assert.strictEqual(p.doc.getElementById('ag-stats').hidden, true);
+  const card = readCard(p.doc);
+  assert.deepStrictEqual([card.tone, card.verdict, card.hero], ['loss', 'Eaten by bob', '−$0.10'], 'the paid death, not the free card');
+  assert.deepStrictEqual(card.buttons.map((b) => [b.id, b.text]), [['again', 'Play again $0.10'], ['lobby', 'Lobby']]);
   p.session.destroy();
 });
 
@@ -231,6 +242,7 @@ test('agMain lobby with a paid hand-off: its own flow, unchanged (no menu, Esc s
 const LOBBY_SRC = read('public/js/ag/agLobby.js');
 function lobbyPage({ lobby = true, paid = false, handoff = null, spectateOnly = false, framed = true, coarse = false,
   st = {} } = {}) {
+  let cardUp = false;   // the shared end card (window.DSEnd.shown())
   const els = {};
   function node(tag) {
     return { tagName: tag, id: '', hidden: false, textContent: '', innerHTML: '', children: [],
@@ -257,13 +269,15 @@ function lobbyPage({ lobby = true, paid = false, handoff = null, spectateOnly = 
     sessionStorage: session, localStorage: memStore(),
     matchMedia: () => ({ matches: coarse, addEventListener() {} }),
     MutationObserver: class { constructor(fn) { observers.push(fn); } observe() {} },
-    addEventListener() {}, setTimeout, clearTimeout, duelAgar: page
+    addEventListener() {}, setTimeout, clearTimeout, duelAgar: page,
+    DSEnd: { shown: () => cardUp }
   };
   win.parent = framed ? { postMessage() {} } : win;
   win.window = win;
   vm.createContext(win);
   vm.runInContext(LOBBY_SRC, win, { filename: 'agLobby.js' });
-  return { calls, els, menu, st, notify: () => observers.forEach((fn) => fn()),
+  const notify = () => observers.forEach((fn) => fn());
+  return { calls, els, menu, st, notify, card: (on) => { cardUp = on; notify(); },
     fire: (name, p) => (hooks[name] || []).forEach((fn) => fn(p)) };
 }
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -277,16 +291,14 @@ test('agLobby: the lobby frame\'s free room starts at once under the lobby name,
 });
 
 test('agLobby: in the lobby frame\'s free room the Lobby button keeps the old player rule, and shows for a watcher and a drop', async () => {
-  // A mouse player: hidden while playing (hold Q, then the panel's Lobby), as before the menu moved.
+  // A mouse player: hidden while playing (hold Q, then the end card's Lobby), as before the menu moved.
   const mouse = lobbyPage();
   const btn = mouse.els['ag-lobby'];
   assert.deepStrictEqual(mouse.calls, [['play', 'OwenTheTopBoss7']]);
   assert.ok(!btn.classList.contains('on'), 'not over a mouse player\'s game');
-  mouse.menu.hidden = false;    // the Match Results panel, which has its own Lobby
-  mouse.notify();
-  assert.ok(!btn.classList.contains('on'), 'hidden over the panel');
-  mouse.menu.hidden = true;     // Play again
-  mouse.notify();
+  mouse.card(true);             // the end card, which has its own Lobby
+  assert.ok(!btn.classList.contains('on'), 'hidden over the card');
+  mouse.card(false);            // Play again
   assert.ok(!btn.classList.contains('on'));
   // The socket drops: shown until it is back (agMain rejoins), so a server that never answers is not a dead end.
   mouse.st.connected = false;
@@ -297,15 +309,21 @@ test('agLobby: in the lobby frame\'s free room the Lobby button keeps the old pl
   mouse.st.connected = true;
   await wait(250);
   assert.ok(!btn.classList.contains('on'), 'gone again once the page is back in');
-  // A touch screen: shown while playing, as before; never over the panel.
+  // A touch screen: shown while playing, as before; never over the card.
   const touch = lobbyPage({ coarse: true });
   assert.ok(touch.els['ag-lobby'].classList.contains('on'), 'shown on a touch screen');
-  touch.menu.hidden = false;
-  touch.notify();
-  assert.ok(!touch.els['ag-lobby'].classList.contains('on'), 'hidden over the panel');
-  // A watcher (the lobby's Spectate): shown, with a mouse too, since Esc opens nothing now.
+  touch.card(true);
+  assert.ok(!touch.els['ag-lobby'].classList.contains('on'), 'hidden over the card');
+  touch.card(false);
+  assert.ok(touch.els['ag-lobby'].classList.contains('on'), 'back once it goes');
+  // A watcher (the lobby's Spectate, or the card's): shown, with a mouse too, since Esc opens nothing now.
   const watcher = lobbyPage({ spectateOnly: true });
   assert.ok(watcher.els['ag-lobby'].classList.contains('on'), 'shown for a watcher');
+  // A paid page on a touch screen: never over a paid card either (its own Lobby, or none while leaving is shut).
+  const paidTouch = lobbyPage({ paid: true, handoff: { phase: 'end' }, coarse: true });
+  assert.ok(paidTouch.els['ag-lobby'].classList.contains('on'));
+  paidTouch.card(true);
+  assert.ok(!paidTouch.els['ag-lobby'].classList.contains('on'));
   const direct = lobbyPage({ lobby: false });
   assert.ok(!direct.els['ag-lobby'].classList.contains('on'), 'elsewhere: only with the menu open or on a touch screen');
 });

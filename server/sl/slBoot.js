@@ -37,9 +37,10 @@ const PUBLIC_DIR = path.join(__dirname, '..', '..', 'public');
 // and slxWatch (the free room's Spectate) follow it for the same reasons, slxWatch after slxBr (it stays out of the
 // event's page). slxHud (Owen's HUD layout) right after slxStats, whose line it places under the minimap.
 const SLX_FILES = Object.freeze(['slxNet.js', 'slxPaid.js', 'slxBr.js', 'slxWatch.js', 'slxMain.js', 'slxDirect.js',
-  'slxCard.js', 'slxTop.js', 'slxChat.js', 'slxStats.js', 'slxHud.js', 'slxSound.js', 'slxHold.js', 'slxTouch.js',
+  'slxCard.js', 'slxChat.js', 'slxStats.js', 'slxHud.js', 'slxSound.js', 'slxHold.js', 'slxTouch.js',
   'slxSkins.js', 'slxCoin.js']);
 const SLX_CSS = 'slx.css';
+const SHARED_UI = 'dsEnd.js';
 
 // -> { laws, dev }. Throws when the dev table is asked for where it could be the live server, or does not load.
 function loadSlLaws(env, log) {
@@ -74,6 +75,8 @@ function slxTail(publicDir) {
     .concat(present.filter((f) => !SLX_FILES.includes(f)).sort());
   let tail = '';
   if (fs.existsSync(path.join(dir, 'css', SLX_CSS))) tail += '<link rel="stylesheet" type="text/css" href="/css/' + SLX_CSS + '" />\n';
+  // The end screens and leaderboard every game shares (slxCard and slxHud draw with it), before the layer.
+  if (ordered.length && fs.existsSync(path.join(dir, 'js', 'shared', SHARED_UI))) tail += '<script src="/js/shared/' + SHARED_UI + '"></script>\n';
   for (const f of ordered) tail += '<script src="/js/slx/' + f + '"></script>\n';
   return tail;
 }

@@ -1,9 +1,11 @@
 // Paper multiplayer: the arena page's boot and shell (design 8.5). It builds the mirror game the
 // way paperMain.js builds the solo one (same config, languages, skin manager and fonts), wires
 // the net layer to the page's socket, and owns the DOM around the canvas: the connecting and
-// warming layer, the reconnect veil, the four end screens (refused, dead, cashed out,
-// disconnected), the Q key and the touch hold button, and the analytics. The live game has NO
-// leave control: "Back to the lobby" is on the end screens only. Watch mode (the lobby's Spectate,
+// warming layer, the reconnect veil, the four end cards (refused, dead, cashed out, disconnected)
+// and the leaderboard, both the site's shared ones (public/js/shared/dsEnd.js, DSEnd), the Q key
+// and the touch hold button, and the analytics. The stock canvas leaderboard plates are off on
+// this page (see topListChanged below). The live game has NO leave control: Lobby is on the end
+// cards only. Watch mode (the lobby's Spectate,
 // sessionStorage dsWatch = 'paper') never joins: it watches the busiest free table read-only,
 // with a Lobby button, the followed square's name and Next.
 // Test-only: ?lag=N delays every socket event by N ms each way (so ?lag=50 is a 100 ms round
@@ -20,6 +22,8 @@
   var ARROW_GAP_PX = 14; // clear space between the square's corner and the arrow's tail
   var RESTAKE_WAIT_MS = 120000; // public/js/game.js requestRestake's safety window
   var WATCH_RETRY_MS = 3000; // watch mode: nothing to watch (or no answer yet), ask again this often
+  var BOARD_MS = 200; // the leaderboard is redrawn at most this often (its land % move every tick)
+  var END_CARDS = { dead: true, cashed: true, refused: true, gone: true };
   // Watch mode's waiting words per pp:watching { none: true, why } (server paperSockets.js WATCH_TEXT).
   var WATCH_TEXT = {
     nobody: 'Nobody is playing right now',
@@ -62,8 +66,13 @@
     el.hidden = !visible;
   }
 
-  function money(micro) {
-    return '$' + (Math.max(0, Number(micro) || 0) / 1e6).toFixed(2);
+  function nowMs() {
+    return (root.performance && typeof root.performance.now === 'function' ? root.performance : Date).now();
+  }
+
+  // A land share in percent points (18.4) as the stock HUD prints it ('18.40%').
+  function pctText(v) {
+    return (Math.round((Number(v) || 0) * 100) / 100).toFixed(2) + '%';
   }
 
   function isFramed() {
@@ -176,8 +185,9 @@
   }
 
   function boot() {
+    var DSEnd = root.DSEnd;
     if (!P || typeof Path2D === 'undefined' || typeof root.io !== 'function' || !P.Mirror || !P.Net || !P.Hud ||
-        !P.MP) {
+        !P.MP || !DSEnd) {
       show($('pp-connecting'), false);
       show($('pp-unsupported'), true);
       return null;
@@ -224,10 +234,6 @@
       connectingText: $('pp-connecting-text'),
       connectingSub: $('pp-connecting-sub'),
       reconnecting: $('pp-reconnecting'),
-      refused: $('pp-refused'),
-      dead: $('pp-dead'),
-      cashed: $('pp-cashed'),
-      gone: $('pp-gone'),
       hint: $('pp-hint'),
       cash: $('pp-cash'),
       cashFill: $('pp-cash-fill'),
@@ -238,7 +244,6 @@
       watchName: $('pp-watch-name'),
       watchNext: $('pp-watch-next')
     };
-    var END_SCREENS = [el.refused, el.dead, el.cashed, el.gone];
     var RING_C = 2 * Math.PI * 32;
     if (el.cashFill) {
       el.cashFill.style.strokeDasharray = String(RING_C);
@@ -251,7 +256,10 @@
       watch: watchMode,
       watchLive: false,
       stake: session.stake,
+      // What covers the game: 'connecting' | 'reconnecting' | an end card ('dead' | 'cashed' | 'refused' |
+      // 'gone') | null. end: the card's own state while one shows, { kind, opts, again, note }.
       screen: null,
+      end: null,
       joinedSocketId: null,
       holdDown: false,
       timers: {},
@@ -270,7 +278,14 @@
       // second buy-in), tells the refund it already made, or seats it for the first time if
       // the first message never arrived. Cleared by pp:joined and pp:refused.
       joinToken: null,
-      roundBest: 0
+      roundBest: 0,
+      // The round's own facts for the end card, all seen by this page: when it started (pp:joined, not a resumed
+      // one), when it ended (pp:dead / pp:cashedout), the best rank on the leaderboard, the land while alive.
+      roundStartMs: null,
+      roundEndMs: null,
+      bestRank: 0,
+      landNow: 0,
+      deathLand: 0
     };
 
     // socket.io keeps an emit made while the link is down and sends it on the next connection
@@ -381,10 +396,74 @@
       try {
         baseRenderer(g);
         if (touch) touch.drawArrow(page.phase === 'live' && !!game.player && !game.player.death);
+        trackRound();
+        refreshBoard();
       } catch (err) {
         if (renderFaults++ < 3 && root.console) root.console.error('[PAPER] render', err);
       }
     };
+
+    // ---- the leaderboard (DSEnd.board, the site's one board) ----
+    // The stock plates (paperRender.js drawLeaderboardPlates, pinned by the solo parity gate) are drawn only when
+    // the game's topListChanged flag is up: on this page it always reads false, so they never are, and every raise
+    // (the stock rule: a top-six or own score changed, a square came or went) marks the DOM board for a redraw.
+    var board = DSEnd.board({ title: 'Leaderboard' });
+    board.hide(); // until there is a square to rank
+    var boardOn = false;
+    var boardDirty = true;
+    var boardAt = -Infinity;
+    Object.defineProperty(game, 'topListChanged', {
+      configurable: true,
+      get: function () { return false; },
+      set: function (v) { if (v) boardDirty = true; }
+    });
+
+    function unitName(u) {
+      return (u && u.name) || (language.strings && language.strings.defaultPlayerName) || 'Player';
+    }
+
+    // The live squares in the stock order (game.units, sorted by score every update), land % as the plates print
+    // it; your row (the followed square when watching) is pinned under the list when outside it. Shown whenever
+    // the stock HUD would be (a player to draw it for), except under the connecting layer.
+    function refreshBoard() {
+      var me = game.player;
+      var on = !!me && page.screen !== 'connecting';
+      if (on !== boardOn) {
+        boardOn = on;
+        if (on) board.show(); else board.hide();
+        boardDirty = true;
+      }
+      if (!on || !boardDirty) return;
+      var t = nowMs();
+      if (t - boardAt < BOARD_MS) return;
+      boardDirty = false;
+      boardAt = t;
+      var rows = [];
+      var mine = null;
+      var units = game.units || [];
+      for (var i = 0; i < units.length; i++) {
+        var u = units[i];
+        if (!u || u.death) continue;
+        var row = {
+          rank: rows.length + 1,
+          name: unitName(u),
+          value: u.schemes && typeof u.schemes.print === 'function' ? u.schemes.print() : pctText((u.percent || 0) * 100),
+          me: u === me
+        };
+        rows.push(row);
+        if (row.me) mine = row;
+      }
+      board.set(rows, mine);
+      if (mine && page.phase === 'live' && !page.watch && (!page.bestRank || mine.rank < page.bestRank)) {
+        page.bestRank = mine.rank;
+      }
+    }
+
+    // The own land while the square lives: what the death card shows (the land is gone by the time it does).
+    function trackRound() {
+      var me = game.player;
+      if (page.phase === 'live' && !page.watch && me && !me.death) page.landNow = (me.percent || 0) * 100;
+    }
     var best = loadBest();
     game.best = watchMode ? undefined : best || undefined; // a watcher's own best is not the followed square's
 
@@ -396,59 +475,67 @@
     }
 
     function showOnly(screen) {
-      page.screen = screen;
-      show(el.connecting, screen === el.connecting);
-      show(el.reconnecting, screen === el.reconnecting);
-      for (var i = 0; i < END_SCREENS.length; i++) show(END_SCREENS[i], END_SCREENS[i] === screen);
-      // Keyboard focus lands on the screen's action. A paid Play again is not a keyboard
-      // default (it opens a new buy-in), so a paid end screen leaves the focus alone.
-      var focusBtn = null;
-      if (screen && screen.querySelector && END_SCREENS.indexOf(screen) >= 0) {
-        var again_ = screen.querySelector('.pp-again');
-        if (!again_) focusBtn = screen.querySelector('.pp-lobby');
-        else if (page.stake === 0 && !again_.hidden) focusBtn = again_;
-      }
-      if (focusBtn) {
-        try { focusBtn.focus({ preventScroll: true }); } catch (_) {}
-      }
+      page.screen = screen || null;
+      show(el.connecting, screen === 'connecting');
+      show(el.reconnecting, screen === 'reconnecting');
+      if (!END_CARDS[screen]) hideEnd();
+      refreshBoard();
     }
 
     function showConnecting(text, sub) {
       if (el.connectingText) el.connectingText.textContent = text;
       if (el.connectingSub) el.connectingSub.textContent = sub || '';
-      showOnly(el.connecting);
+      showOnly('connecting');
     }
 
-    function endPhase(screen) {
+    // ---- end cards (DSEnd.show, the site's one card) ----
+    // page.end holds what the card says (opts: verdict, hero, facts, ledger, status), its Play again (null on a card
+    // with only the way back) and the one note under the money (a restake refusal or wait); every change redraws it.
+    function endCard() {
+      var end = page.end;
+      var o = {};
+      for (var k in end.opts) if (Object.prototype.hasOwnProperty.call(end.opts, k)) o[k] = end.opts[k];
+      o.notes = (end.opts.notes || []).concat(end.note ? [end.note] : []);
+      var again_ = end.again && end.again.shown ? end.again : null;
+      o.buttons = [];
+      if (again_) o.buttons.push({ id: 'again', text: again_.text, primary: true, disabled: again_.disabled, onClick: onAgainClick });
+      o.buttons.push({ id: 'lobby', text: 'Lobby', primary: !again_, disabled: page.lobbyLocked, onClick: onLobbyClick });
+      return o;
+    }
+
+    function drawEnd() {
+      if (page.end) DSEnd.show(endCard());
+    }
+
+    function hideEnd() {
+      page.end = null;
+      if (DSEnd.shown()) DSEnd.hide();
+    }
+
+    function endPhase(kind, end) {
       page.phase = 'end';
       setLive(false);
       cancel('giveUp');
-      showOnly(screen);
+      showOnly(kind);
+      end.kind = kind;
+      end.note = end.note || '';
+      page.end = end;
+      var card = DSEnd.show(endCard());
+      // Keyboard focus lands on the card's action. A paid Play again is not a keyboard default (it opens a new
+      // buy-in), so a paid card leaves the focus alone; a card with only the way back focuses it.
+      var focusBtn = !end.again ? card.button('lobby') : (page.stake === 0 && end.again.shown ? card.button('again') : null);
+      if (focusBtn) {
+        try { focusBtn.focus({ preventScroll: true }); } catch (_) {}
+      }
     }
 
-    function setText(id, text) {
-      var n = $(id);
-      if (n) n.textContent = text == null ? '' : text;
-    }
-
-    function note(id, text) {
-      var n = $(id);
-      if (!n) return;
-      n.textContent = text || '';
-      n.hidden = !text;
-    }
-
-    function prepareAgain(screen) {
-      var btn = screen.querySelector('.pp-again');
-      if (!btn) return;
-      // A paid round is bought again through the lobby's wallet (duel:restake); a page opened on
-      // its own has no wallet to ask, so it offers only the way back.
-      btn.hidden = page.stake > 0 && !framed;
-      btn.disabled = false;
-      btn.textContent = 'Play again';
+    // Play again as a fresh card offers it. A paid round is bought again through the lobby's wallet (duel:restake);
+    // a page opened on its own has no wallet to ask, so it offers only the way back.
+    function prepareAgain() {
       page.restaking = false;
       cancel('restake');
-      lockLobby(false);
+      page.lobbyLocked = false;
+      return { shown: !(page.stake > 0 && !framed), text: 'Play again', disabled: false };
     }
 
     // While a paid buy-in is with the lobby's wallet the way back is shut: the lobby clears
@@ -457,24 +544,20 @@
     // RESTAKE_WAIT_MS has passed with none (a late answer is still taken, see restakeSlow).
     function lockLobby(locked) {
       page.lobbyLocked = !!locked;
-      Array.prototype.forEach.call(doc.querySelectorAll('.pp-lobby'), function (b) {
-        b.disabled = !!locked;
-      });
+      drawEnd();
     }
 
-    function restakeError(text) {
-      var screen = page.screen;
-      if (screen === el.dead) note('pp-dead-error', text);
-      else if (screen === el.cashed) note('pp-cashed-error', text);
+    // The note under the money on the dead or cashed-out card ('' clears it).
+    function restakeNote(text) {
+      if (page.end && (page.end.kind === 'dead' || page.end.kind === 'cashed')) page.end.note = text || '';
     }
 
     function restakeSlow() {
       if (!page.restaking) return;
-      lockLobby(false);
-      var btn = page.screen && page.screen.querySelector ? page.screen.querySelector('.pp-again') : null;
-      if (btn) btn.textContent = 'Waiting for your wallet...';
-      restakeError('Your wallet has not answered yet. If you approved the stake, wait here: ' +
+      if (page.end && page.end.again) page.end.again.text = 'Waiting for your wallet...';
+      restakeNote('Your wallet has not answered yet. If you approved the stake, wait here: ' +
         'the round starts once it lands.');
+      lockLobby(false);
     }
 
     function recordBest() {
@@ -490,65 +573,80 @@
       return pct;
     }
 
+    // The round's end, as this page saw it: the clock stops and the land at that moment is kept for the card.
+    function endRound() {
+      if (page.roundEndMs === null) page.roundEndMs = nowMs();
+      var me = game.player;
+      var land = me && !me.death ? (me.percent || 0) * 100 : 0;
+      page.deathLand = Math.max(land, page.landNow);
+    }
+
+    // Time alive and the best leaderboard rank, when this page saw them (a page that never saw the round has none);
+    // a paid card adds the round's best land as its score.
+    function roundFacts(withScore) {
+      var f = [];
+      if (page.roundStartMs === null) return f;
+      f.push(['Time', DSEnd.clock((page.roundEndMs !== null ? page.roundEndMs : nowMs()) - page.roundStartMs)]);
+      if (page.bestRank > 0) f.push(['Top rank', DSEnd.ordinal(page.bestRank)]);
+      if (withScore) f.push(['Best land', pctText(page.roundBest)]);
+      return f;
+    }
+
     function killerText(p) {
       if (p && p.killerId) return 'Killed by ' + (p.killerName || 'another player');
       return (p && REASON_TEXT[p.reason]) || 'Your square was destroyed';
     }
 
+    // Free: the land at death. Paid: the stake lost, from the server's own lostMicro.
     function showDead(p) {
-      var me = game.player;
-      var pct = me ? Math.round((me.percent || 0) * 10000) / 100 : 0;
-      var lost = Number(p && p.lostMicro) || 0;
+      var opts;
       if (page.stake > 0) {
-        setText('pp-dead-title', 'You lost');
-        setText('pp-dead-big', money(lost));
-        setText('pp-dead-line', killerText(p));
+        opts = {
+          tone: 'loss',
+          verdict: killerText(p),
+          hero: DSEnd.usd(-(Number(p && p.lostMicro) || 0)),
+          unit: 'lost',
+          facts: roundFacts(true)
+        };
       } else {
-        setText('pp-dead-title', killerText(p));
-        setText('pp-dead-big', pct.toFixed(2) + '%');
-        setText('pp-dead-line', 'Best this round ' + page.roundBest.toFixed(2) + '%');
+        opts = { tone: 'plain', verdict: killerText(p), hero: pctText(page.deathLand), unit: 'land', facts: roundFacts() };
       }
-      note('pp-dead-error', '');
-      prepareAgain(el.dead);
-      endPhase(el.dead);
+      endPhase('dead', { opts: opts, again: prepareAgain() });
     }
 
+    // Paid: the server's receipt (pp:cashedout grossMicro / cutMicro / netMicro, display only), then the payout's
+    // own status (pp:paid, pp:payerror). Free: the best land this round.
     function showCashed(p) {
       var gross = Number(p && p.grossMicro) || 0;
       var cut = Number(p && p.cutMicro) || 0;
       var net_ = Number(p && p.netMicro) || 0;
-      var paidRound = page.stake > 0 || gross > 0;
-      if (paidRound) {
-        setText('pp-cashed-title', 'Cashed out');
-        setText('pp-cashed-big', money(net_));
-        setText('pp-gross', money(gross));
-        setText('pp-cut', '-' + money(cut));
-        setText('pp-net', money(net_));
-        show($('pp-receipt'), true);
-        note('pp-pay-status', net_ > 0 ? 'Sending to your wallet...' : '');
+      var opts;
+      if (page.stake > 0 || gross > 0) {
+        opts = {
+          tone: 'win',
+          verdict: 'Cashed out',
+          hero: DSEnd.usd(net_),
+          unit: 'to your wallet',
+          facts: roundFacts(true),
+          ledger: [['Cashed out', DSEnd.usd(gross)], ['House 10%', DSEnd.usd(-cut)], ['You receive', DSEnd.usd(net_)]],
+          status: net_ > 0 ? { text: 'Sending to your wallet', state: 'pending' } : null
+        };
       } else {
-        setText('pp-cashed-title', 'You left the table');
-        setText('pp-cashed-big', page.roundBest.toFixed(2) + '%');
-        show($('pp-receipt'), false);
-        note('pp-pay-status', 'Best land this round');
+        opts = { tone: 'plain', verdict: 'Cashed out', hero: pctText(page.roundBest), unit: 'best land', facts: roundFacts() };
       }
-      note('pp-cashed-error', '');
-      prepareAgain(el.cashed);
-      endPhase(el.cashed);
+      endPhase('cashed', { opts: opts, again: prepareAgain() });
     }
 
     function showGone(title, text) {
-      setText('pp-gone-title', title);
-      setText('pp-gone-text', text);
-      endPhase(el.gone);
+      endPhase('gone', { opts: { verdict: title, notes: [text] }, again: null });
     }
 
     function showRefused(p) {
       var text = p && Object.prototype.hasOwnProperty.call(REFUSED_TEXT, p.why) ? REFUSED_TEXT[p.why] : null;
       if (!text) text = (p && typeof p.text === 'string' && p.text) || 'The table did not let you in.';
-      setText('pp-refused-text', text);
-      show($('pp-refused-refund'), !!(p && p.refunded));
-      endPhase(el.refused);
+      var notes = [text];
+      if (p && p.refunded) notes.push('Your entry was refunded to your wallet.');
+      endPhase('refused', { opts: { verdict: 'Could not join', notes: notes }, again: null });
     }
 
     // ---- joining ----
@@ -576,17 +674,16 @@
       }
     }
 
-    function onAgainClick(evt) {
-      evt.preventDefault();
-      var btn = evt.currentTarget;
-      if (btn.disabled || page.phase !== 'end') return;
+    function onAgainClick() {
+      var end = page.end;
+      var a = end && end.again;
+      if (!a || !a.shown || a.disabled || page.phase !== 'end') return;
       if (page.stake > 0) {
         if (!framed || page.restaking) return;
         page.restaking = true;
-        btn.disabled = true;
-        btn.textContent = 'Confirm in your wallet...';
-        restakeError('');
-        lockLobby(true);
+        a.disabled = true;
+        a.text = 'Confirm in your wallet...';
+        restakeNote('');
         later('restake', restakeSlow, RESTAKE_WAIT_MS);
         page.restakeNonce = newNonce();
         try {
@@ -594,19 +691,21 @@
         } catch (_) {
           page.restaking = false;
           cancel('restake');
+          a.disabled = false;
+          a.text = 'Play again';
           lockLobby(false);
-          btn.disabled = false;
-          btn.textContent = 'Play again';
+          return;
         }
+        lockLobby(true);
         return;
       }
-      btn.disabled = true;
+      a.disabled = true;
       again(null);
     }
 
     function onLobbyClick(evt) {
-      evt.preventDefault();
-      if (page.lobbyLocked || (evt.currentTarget && evt.currentTarget.disabled)) return;
+      if (evt && typeof evt.preventDefault === 'function') evt.preventDefault();
+      if (page.lobbyLocked) return;
       try { net.leave(); } catch (_) {}
       if (framed) {
         try { root.parent.postMessage('game:done', '*'); } catch (_) {}
@@ -614,13 +713,6 @@
         root.location.href = '/';
       }
     }
-
-    Array.prototype.forEach.call(doc.querySelectorAll('.pp-again'), function (b) {
-      b.addEventListener('click', onAgainClick);
-    });
-    Array.prototype.forEach.call(doc.querySelectorAll('.pp-lobby'), function (b) {
-      b.addEventListener('click', onLobbyClick);
-    });
 
     // The lobby's answer to duel:restake (wallet-widget/src/main.jsx). Only the parent frame
     // may answer, only on this page's origin, and only to the request this page made (the
@@ -636,21 +728,17 @@
       if (d.type === 'duel:restake:done' && typeof d.entryToken === 'string' && d.entryToken) {
         page.restaking = false;
         cancel('restake');
-        lockLobby(false);
+        page.lobbyLocked = false;
         again(d.entryToken);
       } else if (d.type === 'duel:restake:error') {
         page.restaking = false;
         cancel('restake');
-        lockLobby(false);
-        var screen = page.screen;
-        if (screen && screen.querySelector) {
-          var btn = screen.querySelector('.pp-again');
-          if (btn) {
-            btn.disabled = false;
-            btn.textContent = 'Play again';
-          }
+        if (page.end && page.end.again) {
+          page.end.again.disabled = false;
+          page.end.again.text = 'Play again';
         }
-        restakeError(String(d.message || 'Stake failed'));
+        restakeNote(String(d.message || 'Stake failed'));
+        lockLobby(false);
       }
     });
 
@@ -676,11 +764,10 @@
         setHold(true);
         return;
       }
-      if (page.phase === 'end' && page.stake === 0 && (page.screen === el.dead || page.screen === el.cashed) &&
+      if (page.phase === 'end' && page.stake === 0 && (page.screen === 'dead' || page.screen === 'cashed') &&
           evt.target === doc.body && (evt.key === ' ' || evt.key === 'Enter')) {
         evt.preventDefault();
-        var btn = page.screen.querySelector('.pp-again');
-        if (btn && !btn.disabled && !btn.hidden) btn.click();
+        onAgainClick();
       }
     });
     root.addEventListener('keyup', function (evt) {
@@ -735,8 +822,13 @@
       if (el.hint) el.hint.innerHTML = game.paid ? 'Hold <b>Q</b> to cash out' : 'Hold <b>Q</b> to leave';
       if (el.cashLabel) el.cashLabel.innerHTML = game.paid ? 'CASH<br>OUT' : 'LEAVE';
       if (el.cash) el.cash.setAttribute('aria-label', game.paid ? 'Hold to cash out' : 'Hold to leave');
+      page.roundEndMs = null;
       if (!p.resumed) {
         page.roundBest = 0;
+        page.roundStartMs = nowMs();
+        page.bestRank = 0;
+        page.landNow = 0;
+        page.deathLand = 0;
         game.best = best || undefined;
         if (root.phEvent) root.phEvent('game_started', { game: 'paper', stake: page.stake });
       }
@@ -770,6 +862,7 @@
 
     net.on('pp:dead', function (p) {
       recordBest();
+      endRound();
       page.phase = 'ending';
       setLive(false);
       cancel('giveUp');
@@ -783,6 +876,7 @@
 
     net.on('pp:cashedout', function (p) {
       recordBest();
+      endRound();
       cancel('dead');
       showCashed(p || {});
       if (root.phEvent) {
@@ -790,22 +884,25 @@
       }
     });
 
+    // The payout's own status on the cash-out card (the card that is showing; a later card has none).
+    function payStatus(status) {
+      if (!page.end || page.end.kind !== 'cashed') return;
+      page.end.opts.status = status;
+      drawEnd();
+    }
+
     net.on('pp:paid', function (p) {
-      var n = $('pp-pay-status');
-      if (!n || !p || typeof p.sig !== 'string') return;
+      if (!p || typeof p.sig !== 'string') return;
       var q = page.network && page.network !== 'mainnet-beta' ? '?cluster=' + encodeURIComponent(page.network) : '';
-      n.textContent = 'Sent to your wallet. ';
-      var a = doc.createElement('a');
-      a.href = 'https://solscan.io/tx/' + encodeURIComponent(p.sig) + q;
-      a.target = '_blank';
-      a.rel = 'noopener noreferrer';
-      a.textContent = 'View transaction';
-      n.appendChild(a);
-      n.hidden = false;
+      payStatus({
+        text: 'Sent to your wallet.',
+        state: 'ok',
+        link: { href: 'https://solscan.io/tx/' + encodeURIComponent(p.sig) + q, text: 'View transaction' }
+      });
     });
 
     net.on('pp:payerror', function (p) {
-      note('pp-pay-status', (p && p.message) || 'Payout delayed. Your winnings are recorded and will be sent.');
+      payStatus({ text: (p && p.message) || 'Payout delayed. Your winnings are recorded and will be sent.', state: 'err' });
     });
 
     net.on('pp:replaced', function () {
@@ -817,7 +914,7 @@
       // re-arms it with a fresh key press.
       setHold(false);
       if (!net.resuming) return; // not seated: nothing to take back
-      showOnly(el.reconnecting);
+      showOnly('reconnecting');
       // A socket that never comes back: the seat is gone once its grace ends (up to 15 s for
       // socket.io to notice a silent loss, then DISCONNECT_GRACE_MS).
       later('giveUp', function () {
@@ -872,13 +969,9 @@
       if (el.watchBar) el.watchBar.style.maxWidth = Math.max(120, Math.floor(w - mini - 36)) + 'px';
     }
 
-    function followedName(u) {
-      return (u && u.name) || (language.strings && language.strings.defaultPlayerName) || 'Player';
-    }
-
     // The name and Next show only while a table is shown and a square is followed.
     function setFollowed(u) {
-      if (el.watchName) el.watchName.textContent = u ? followedName(u) : '';
+      if (el.watchName) el.watchName.textContent = u ? unitName(u) : '';
       show(el.watchBar, !!u && page.watchLive);
     }
 
@@ -994,7 +1087,7 @@
           watching: !!page.watch,
           live: !!page.watchLive,
           followId: u ? u.id : 0,
-          followName: u ? followedName(u) : '',
+          followName: u ? unitName(u) : '',
           followDead: !!(u && u.death)
         };
       },

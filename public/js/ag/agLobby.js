@@ -5,9 +5,9 @@
 // 1. A Lobby button, when the page runs inside the lobby's frame. It posts 'game:done' to the lobby, the message
 //    every DuelSeries game page sends to go back (public/js/v2/play.js clears the frame on it, which closes this
 //    page's socket, and the server removes the player at once). It shows while the menu is open (the name entry,
-//    the Esc menu over a running game, the Match Results panel) and, on a touch screen, all the time, because a
-//    phone has no Esc key to bring the menu up mid-game. Opened on its own (not framed), there is no lobby to go
-//    back to, so there is no button.
+//    the Esc menu over a running game) and, on a touch screen, all the time, because a phone has no Esc key to bring
+//    the menu up mid-game; never over the end card (the shared DSEnd card), which has its own Lobby button. Opened on
+//    its own (not framed), there is no lobby to go back to, so there is no button.
 // 2. The name box starts with the player's lobby name (the hand-off the wallet widget writes before it opens this
 //    page, else the name the lobby keeps), cut to the box's own 15 characters. A name already typed is kept.
 // 3. No walking out with money in the room (PAID-AGAR-DESIGN.md 4 step 7 and 6, the exit trap). game:done blanks
@@ -15,7 +15,7 @@
 //    its automatic cash-out (Owen Q5). So from the moment this page has a paid account open (the server's ag:joined
 //    with a stake) until this page holds it no more, the Lobby button is hidden and refuses a click, the menu shows
 //    how to leave instead ("Hold Q to cash out", or the Cash out button on a touch screen), and closing or
-//    reloading the tab asks first. The paid end card's own Back to lobby goes through the same gate (agMain's
+//    reloading the tab asks first. The end card's own Lobby button goes through the same gate (agMain's
 //    backToLobby calls cfg.onLobby when it is set). The free room never sends ag:joined with a stake, so nothing
 //    here changes it. The page holds the account no more when the server says so: it closed (ag:cashedout, ag:dead,
 //    ag:closed), its seat was released and refunded before it was confirmed (ag:refused with closed: true,
@@ -31,9 +31,9 @@
 //    frame is the lobby's #agar-frame, and no paid hand-off): the page has no menu card, so this starts it at once,
 //    playing under the lobby name, or watching when the lobby's Spectate opened it (sessionStorage spectateOnly,
 //    the lobby's own watch flag, which public/js/v2/play.js sets and the wallet widget clears on every launch). The Lobby button keeps the old rule for
-//    a player (a touch screen only; a mouse player leaves by holding Q, then the panel's Lobby), and also shows for a
-//    watcher and while the socket is down, the two times there is no other way back now that the Esc menu is gone.
-//    Never over the Match Results panel, which has its own Lobby button. A paid hand-off keeps 1 to 4 as they are.
+//    a player (a touch screen only; a mouse player leaves by holding Q, then the end card's Lobby), and also shows for
+//    a watcher and while the socket is down, the two times there is no other way back now that the Esc menu is gone.
+//    A paid hand-off keeps 1 to 4 as they are.
 (function (root) {
   'use strict';
 
@@ -77,7 +77,7 @@
     if (typeof root.setTimeout !== 'function') { setMoneyIn(false); return; }
     dropTimer = root.setTimeout(function () { dropTimer = null; setMoneyIn(false); }, DROP_MS);
   }
-  // The one way back to the lobby (the Lobby button and the paid end card's Back to lobby): never while money is in
+  // The one way back to the lobby (the Lobby button and the end card's Lobby): never while money is in
   // the room.
   function goLobby() {
     if (locked()) return;
@@ -111,7 +111,7 @@
       pageLock = on;
       sync();
     });
-    // The paid end card's Back to lobby (agMain backToLobby calls cfg.onLobby when it is set): the same gate. Framed
+    // The end card's Lobby (agMain backToLobby calls cfg.onLobby when it is set): the same gate. Framed
     // only; a page opened on its own keeps agMain's own handling (close the card, open the menu).
     var cfg = page.config;
     if (framed() && cfg && typeof cfg === 'object') {
@@ -233,8 +233,10 @@
       var menu = doc.getElementById('ag-menu');
       var menuOpen = !!menu && !menu.hidden;
       var touch = !!(coarse && coarse.matches);
-      // The lobby frame's free room (5 above): a touch screen, a watcher, or a dropped socket; never over the Match
-      // Results panel and its own Lobby button.
+      // The end card (any state, free or paid) has its own Lobby button, or none while leaving is shut.
+      var cardUp = false;
+      try { cardUp = !!(root.DSEnd && root.DSEnd.shown()); } catch (e) { cardUp = false; }
+      // The lobby frame's free room (5 above): a touch screen, a watcher, or a dropped socket.
       var shown;
       if (lobbyFree()) {
         var st = pageState();
@@ -242,7 +244,7 @@
       } else {
         shown = menuOpen || touch;
       }
-      btn.classList.toggle('on', !locked() && shown);
+      btn.classList.toggle('on', !locked() && !cardUp && shown);
       var text = moneyIn && menuOpen ? (touch ? HINT_TOUCH : HINT_KEYS) : '';
       if (hint.textContent !== text) hint.textContent = text;
       hint.classList.toggle('on', text !== '');
@@ -251,6 +253,10 @@
     var menu = doc.getElementById('ag-menu');
     if (menu && typeof root.MutationObserver === 'function') {
       new root.MutationObserver(sync).observe(menu, { attributes: true, attributeFilter: ['hidden'] });
+    }
+    // The end card comes and goes as a child of the body (DSEnd show and hide).
+    if (doc.body && typeof root.MutationObserver === 'function') {
+      new root.MutationObserver(sync).observe(doc.body, { childList: true });
     }
     if (coarse) {
       if (typeof coarse.addEventListener === 'function') coarse.addEventListener('change', sync);

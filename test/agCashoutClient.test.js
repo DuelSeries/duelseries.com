@@ -1,20 +1,22 @@
 'use strict';
 // The agar.io page's hold-Q cash-out (Owen 2026-10-08, every room) and the paid-room display (PAID-AGAR-DESIGN 6):
 // the wire (agNet ag:hold and the side events), the input (Q and the phone Cash out button as one hold), the page
-// (repeat every 200 ms, movement locked, the ring in step with the server, the results screen after a cash-out, the
-// paid balance, board, cell shares and the paid end card), and the free page drawing exactly as before
-// when nobody holds Q.
+// (repeat every 200 ms, movement locked, the ring in step with the server, the end card after a cash-out, the
+// paid balance, board, cell shares and the paid states on the end card), and the free page drawing exactly as before
+// when nobody holds Q. The end card and the board are the shared DSEnd ones, read back from the fake DOM
+// (test/agEndProbe.js).
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
 const { LIB, W, bootPage, BORDER, cell, spawn } = require('./agFakePage');
+const { readCard, clickCard, readBoard } = require('./agEndProbe');
 
 const TAU = 6.283185307179586;
 const ROOT = path.join(__dirname, '..');
 const holds = (p) => p.sent.filter((s) => s[0] === 'hold');
 const kinds = (p, k) => p.sent.filter((s) => s[0] === k).length;
-const statsTitle = (p) => p.doc.getElementById('ag-stats').children[0].children[0].textContent;
+const verdict = (p) => { const c = readCard(p.doc); return c ? c.verdict : null; };
 
 // ---- wire ------------------------------------------------------------------------------------------------------
 function plainSocket() {
@@ -281,7 +283,7 @@ test('ring: only while the server reports the hold and Q is down, round the bigg
 });
 
 // ---- free cash-out results --------------------------------------------------------------------------------------
-test('free cash-out: after ag:cashedout { free } the cells go and the Match Results panel shows under "Cashed Out"', async () => {
+test('free cash-out: after ag:cashedout { free } the cells go and the end card says "Cashed out" with the best mass', async () => {
   const p = bootPage();
   const feed = p.session.feed;
   await spawn(p, feed);
@@ -295,17 +297,18 @@ test('free cash-out: after ag:cashedout { free } the cells go and the Match Resu
   assert.strictEqual(holds(p).length, before, 'nothing more is sent: the server ended it');
   feed({ t: 'world', eats: [], cells: [], removed: [9] });
   assert.strictEqual(p.session.state().menuState, 'GAMEOVER');
-  assert.strictEqual(p.doc.getElementById('ag-stats').hidden, false);
-  assert.strictEqual(statsTitle(p), 'Cashed Out');
-  assert.strictEqual(LIB.agScreens.CASHED_OUT_TITLE, 'Cashed Out');
-  assert.strictEqual(p.doc.getElementById('ag-paid-end'), null, 'no paid card in the free room');
-  p.doc.getElementById('statsContinue').dispatch('click', {});
+  const card = readCard(p.doc);
+  assert.deepStrictEqual([card.tone, card.verdict, card.hero, card.unit], ['plain', 'Cashed out', '400', 'mass']);
+  assert.deepStrictEqual(card.facts.map((f) => f[0]), ['Time', 'Top rank']);
+  assert.deepStrictEqual([card.ledger, card.status], [[], null], 'no money in the free room');
+  assert.strictEqual(p.session.state().paidEnd, '');
+  clickCard(p.doc, 'menu');
   p.session.play('me');
   feed({ t: 'own', id: 12 });
   feed({ t: 'world', eats: [], cells: [cell({ id: 12 })], removed: [] });
   await p.frames(5);
-  feed({ t: 'world', eats: [], cells: [], removed: [12] });
-  assert.strictEqual(statsTitle(p), 'Match Results', 'a plain death keeps the reference title');
+  feed({ t: 'world', eats: [[10, 12]], cells: [], removed: [12] });
+  assert.strictEqual(verdict(p), 'Eaten by bob', 'a plain death names the eater');
 });
 
 // ---- the free page is untouched when nobody holds ---------------------------------------------------------------
@@ -349,7 +352,7 @@ async function freeRunSeeded(noise) {
   feed({ t: 'world', eats: [], cells: [], removed: [9] });
   await p.frames(10, 50);
   return { calls: JSON.stringify(p.doc.calls), sizes: JSON.stringify(p.doc.sizeWrites), sent: JSON.stringify(p.sent),
-    title: statsTitle(p) };
+    title: verdict(p) };
 }
 
 test('free page: hold events that do not apply leave every canvas call, size write and send exactly as without them', async () => {
@@ -359,7 +362,7 @@ test('free page: hold events that do not apply leave every canvas call, size wri
   assert.strictEqual(b.calls, a.calls);
   assert.strictEqual(b.sizes, a.sizes);
   assert.strictEqual(b.sent, a.sent);
-  assert.strictEqual(a.title, 'Match Results');
+  assert.strictEqual(a.title, 'Eaten');
 });
 
 // ---- paid display -----------------------------------------------------------------------------------------------
@@ -376,9 +379,13 @@ test('paid: balance over the score, the money board, each known cell\'s share un
   p.session.sideEvent('ag:money', MONEY);
   await p.frames(12);
   const texts = p.doc.calls.filter((c) => c[1] === 'fillText').map((c) => c[2][0]);
-  for (const t of ['Balance: $0.14', '1. me', '$0.14', '2. bob', '$0.06']) assert.ok(texts.includes(t), 'drawn: ' + t);
-  assert.ok(texts.filter((t) => t === '$0.14').length >= 2, 'board amount and the own cell\'s share');
+  for (const t of ['Balance: $0.14', '$0.14', '$0.06']) assert.ok(texts.includes(t), 'drawn: ' + t);
+  assert.ok(!texts.includes('1. me') && !texts.includes('Leaderboard'), 'no board on the canvas');
   assert.ok(texts.includes('$0.06'), 'the stranger\'s share');
+  // the money board is the shared board, from ag:money alone
+  const board = readBoard(p.doc);
+  assert.deepStrictEqual([board.shown, board.money], [true, true]);
+  assert.deepStrictEqual(board.rows, [['1', 'me', '$0.14', true], ['2', 'bob', '$0.06', false]]);
   const main = p.doc.calls.filter((c) => c[0] === p.canvas.cid);
   // a stray away field (the display list review removed: design 6 has no faded look) draws nothing faded
   assert.ok(!main.some((c) => c[1] === '=globalAlpha' && c[2][0] === 0.5), 'no cell is faded');
@@ -395,7 +402,7 @@ test('paid: balance over the score, the money board, each known cell\'s share un
   assert.ok(!p.doc.calls.some((c) => c[0] === p.canvas.cid && c[1] === '=globalAlpha' && c[2][0] === 0.5));
 });
 
-test('paid end card: the receipt with the server\'s numbers, the explorer link, a delayed payout, and never Match Results', async () => {
+test('paid end card: the receipt with the server\'s numbers, the explorer link, a delayed payout, and never the free card', async () => {
   const posted = [];
   const p = bootPage({ parent: { postMessage: (m) => posted.push(m) } });
   const events = [];
@@ -407,88 +414,80 @@ test('paid end card: the receipt with the server\'s numbers, the explorer link, 
   p.session.sideEvent('ag:holding', { on: 1, need: 75 });
   await p.frames(3);
   p.session.sideEvent('ag:cashedout', { grossMicro: 1400000, cutMicro: 140000, netMicro: 1260000, cashoutId: 'c1' });
-  const card = p.doc.getElementById('ag-paid-end');
-  assert.ok(card && card.hidden === false);
-  assert.strictEqual(card.getAttribute('data-kind'), 'cashed');
-  assert.strictEqual(p.doc.getElementById('ag-pe-title').textContent, 'Cashed out');
-  assert.strictEqual(p.doc.getElementById('ag-pe-amount').textContent, '$1.26');
-  assert.strictEqual(p.doc.getElementById('ag-pe-sub').textContent, 'Cashed out $1.40, you receive $1.26 (10% house)');
-  const ledger = p.doc.getElementById('ag-pe-ledger').children.map((row) => row.children[1].textContent);
-  assert.deepStrictEqual(ledger, ['$1.40', '-$0.14', '$1.26']);
-  assert.strictEqual(p.doc.getElementById('ag-pe-settle').getAttribute('data-state'), 'pending');
+  let card = readCard(p.doc);
+  assert.strictEqual(p.session.state().paidEnd, 'cashed');
+  assert.deepStrictEqual([card.tone, card.verdict, card.hero, card.unit], ['win', 'Cashed out', '$1.26', 'to your wallet']);
+  assert.deepStrictEqual(card.ledger, [['Cashed out', '$1.40'], ['House 10%', '−$0.14'], ['You receive', '$1.26', 'net']]);
+  assert.deepStrictEqual(card.facts, [['Time', '0:00'], ['Top rank', '2nd'], ['Mass', '400']], 'this life, before the death');
+  assert.deepStrictEqual(card.status, { text: 'Sending to your wallet', state: 'pending' });
   assert.deepStrictEqual(events, [['cashed_out', { game: 'agar', amount: 1.26, stake: 1 }]], "Paper's properties");
+  assert.strictEqual(p.session.state().board.visible, true, 'the board stays until the frame sees the card');
+  await p.frames(1);
+  assert.strictEqual(p.session.state().board.visible, false, 'then it steps aside');
   p.session.feed({ t: 'world', eats: [], cells: [], removed: [9] });
-  assert.strictEqual(p.doc.getElementById('ag-stats').hidden, true, 'never the Match Results panel in a paid room');
+  card = readCard(p.doc);
+  assert.strictEqual(card.verdict, 'Cashed out', 'the death in a paid room never brings the free card');
   assert.strictEqual(p.session.state().menuState, 'GAMEOVER');
   assert.strictEqual(p.doc.getElementById('ag-menu').hidden, true);
   p.session.sideEvent('ag:paid', { sig: '5Abc', netMicro: 1260000 });
-  assert.strictEqual(p.doc.getElementById('ag-pe-settle').getAttribute('data-state'), 'done');
-  const tx = p.doc.getElementById('ag-pe-tx');
-  assert.strictEqual(tx.hidden, false);
-  assert.strictEqual(tx.getAttribute('href'), 'https://solscan.io/tx/5Abc');
-  assert.strictEqual(tx.getAttribute('rel'), 'noopener noreferrer');
-  p.doc.getElementById('ag-pe-lobby').dispatch('click', {});
+  card = readCard(p.doc);
+  assert.deepStrictEqual(card.status, { text: 'Sent to your wallet.', state: 'ok',
+    link: { href: 'https://solscan.io/tx/5Abc', text: 'View transaction', target: '_blank', rel: 'noopener noreferrer' } });
+  clickCard(p.doc, 'lobby');
   assert.deepStrictEqual(posted, ['game:done'], 'back to the lobby the way the Lobby button goes');
 
   const q = bootPage();
   await spawn(q, q.session.feed);
   q.session.sideEvent('ag:cashedout', { grossMicro: 100000, cutMicro: 10000, netMicro: 90000 });
   q.session.sideEvent('ag:payerror', { message: 'Payout delayed. Your winnings are recorded and will be sent.' });
-  assert.strictEqual(q.doc.getElementById('ag-pe-settle').getAttribute('data-state'), 'fail');
-  assert.strictEqual(q.doc.getElementById('co-settle-text').textContent, 'Payout delayed. Your winnings are recorded and will be sent.');
-  assert.strictEqual(q.doc.getElementById('ag-pe-tx').hidden, true);
+  assert.deepStrictEqual(readCard(q.doc).status, { text: 'Payout delayed. Your winnings are recorded and will be sent.', state: 'err' });
 });
 
 test('paid end card: a death says what was lost and to whom; a closed room says the whole balance comes back', async () => {
   const p = bootPage();
   await spawn(p, p.session.feed);
   p.session.sideEvent('ag:joined', { stake: 0.1, micro: 100000 });
-  p.session.feed({ t: 'world', eats: [], cells: [], removed: [9] });
-  assert.strictEqual(p.doc.getElementById('ag-stats').hidden, true, 'the death before ag:dead shows no panel either');
+  p.session.feed({ t: 'world', eats: [[10, 9]], cells: [], removed: [9] });
+  assert.strictEqual(readCard(p.doc), null, 'the death before ag:dead shows no free card');
   p.session.sideEvent('ag:dead', { lostMicro: 100000, by: 'bob' });
-  const card = p.doc.getElementById('ag-paid-end');
-  assert.strictEqual(card.getAttribute('data-kind'), 'dead');
-  assert.strictEqual(p.doc.getElementById('ag-pe-title').textContent, 'Eaten');
-  assert.strictEqual(p.doc.getElementById('ag-pe-sub').textContent, 'You lost $0.10 to bob');
-  assert.strictEqual(p.doc.getElementById('ag-pe-ledger').hidden, true);
-  assert.strictEqual(p.doc.getElementById('ag-pe-settle').hidden, true);
+  let card = readCard(p.doc);
+  assert.strictEqual(p.session.state().paidEnd, 'dead');
+  assert.deepStrictEqual([card.tone, card.verdict, card.hero, card.unit], ['loss', 'Eaten by bob', '−$0.10', 'lost']);
+  assert.deepStrictEqual(card.facts, [['Time', '0:00'], ['Top rank', '2nd'], ['Mass', '400']], 'the death\'s own numbers');
+  assert.deepStrictEqual([card.ledger, card.status], [[], null]);
   p.session.sideEvent('ag:closed', { refundedMicro: 250000, why: 'emergency' });
-  assert.strictEqual(card.getAttribute('data-kind'), 'closed');
-  assert.strictEqual(p.doc.getElementById('ag-pe-amount').textContent, '$0.25');
-  assert.match(p.doc.getElementById('ag-pe-sub').textContent, /whole balance goes back to your wallet, no house cut/);
-  assert.strictEqual(p.doc.getElementById('ag-pe-amount').hidden, false);
+  card = readCard(p.doc);
+  assert.strictEqual(p.session.state().paidEnd, 'closed');
+  assert.deepStrictEqual([card.verdict, card.hero], ['Refunded', '$0.25']);
+  assert.match(card.notes[0], /whole balance goes back to your wallet, no house cut/);
   const q = bootPage();
   q.session.sideEvent('ag:dead', { lostMicro: 100000, by: '' });
-  assert.strictEqual(q.doc.getElementById('ag-pe-sub').textContent, 'You lost $0.10');
+  assert.deepStrictEqual([verdict(q), readCard(q.doc).facts], ['Eaten', []], 'no life seen on this page: no facts');
 });
 
 test('paid end card: ag:closed is worded by its why; the frozen backstop and a zero amount are never called a refund', () => {
-  const T = LIB.agScreens.PAID_TEXT;
+  const T = LIB.agScreens.END_TEXT;
   const p = bootPage();
   const say = (msg) => {
     p.session.sideEvent('ag:closed', msg);
-    const card = p.doc.getElementById('ag-paid-end');
-    return { kind: card.getAttribute('data-kind'), title: p.doc.getElementById('ag-pe-title').textContent,
-      amount: p.doc.getElementById('ag-pe-amount'), sub: p.doc.getElementById('ag-pe-sub').textContent };
+    const c = readCard(p.doc);
+    return [p.session.state().paidEnd, c.verdict, c.hero, c.notes];
   };
-  let r = say({ refundedMicro: 1000000, why: 'shutdown' });
-  assert.deepStrictEqual([r.kind, r.title, r.amount.textContent, r.amount.hidden, r.sub], ['closed', 'Refunded', '$1.00', false, T.restart]);
-  r = say({ refundedMicro: 500000, why: 'crash' });
-  assert.strictEqual(r.sub, T.restart);
+  assert.deepStrictEqual(say({ refundedMicro: 1000000, why: 'shutdown' }), ['closed', 'Refunded', '$1.00', [T.restart]]);
+  assert.deepStrictEqual(say({ refundedMicro: 500000, why: 'crash' })[3], [T.restart]);
   // agMoney.houseSettle: the balance went to the house (agar_breach) for a refund by hand, agRoom sends 0
-  r = say({ refundedMicro: 0, why: 'frozen-settled' });
-  assert.deepStrictEqual([r.kind, r.title, r.amount.hidden, r.sub], ['held', 'On hold', true, T.held]);
-  assert.ok(!/refund/i.test(r.title + r.sub));
+  const held = say({ refundedMicro: 0, why: 'frozen-settled' });
+  assert.deepStrictEqual(held, ['held', 'On hold', '', [T.held]]);
+  assert.ok(!/refund/i.test(held[1] + held[3].join(' ')));
   // the emergency loop for a seat with no settled account, or nothing left: no $0.00 "refund"
-  r = say({ refundedMicro: 0, why: 'emergency' });
-  assert.deepStrictEqual([r.kind, r.title, r.amount.hidden, r.sub], ['closed', 'Room closed', true, T.closedEmpty]);
-  assert.ok(!r.sub.includes('$0.00'));
-  r = say({ refundedMicro: 250000, why: 'emergency' });
-  assert.deepStrictEqual([r.title, r.amount.textContent, r.amount.hidden, r.sub], ['Refunded', '$0.25', false, T.closed]);
+  const empty = say({ refundedMicro: 0, why: 'emergency' });
+  assert.deepStrictEqual(empty, ['closed', 'Room closed', '', [T.closedEmpty]]);
+  assert.ok(!empty[3][0].includes('$0.00'));
+  assert.deepStrictEqual(say({ refundedMicro: 250000, why: 'emergency' }), ['closed', 'Refunded', '$0.25', [T.closed]]);
   // a death after a hidden figure shows its figure again
   p.session.sideEvent('ag:closed', { refundedMicro: 0, why: 'frozen-settled' });
   p.session.sideEvent('ag:dead', { lostMicro: 100000, by: 'bob' });
-  assert.strictEqual(p.doc.getElementById('ag-pe-amount').hidden, false);
+  assert.strictEqual(readCard(p.doc).hero, '−$0.10');
 });
 
 test('paid end card: a resumed receipt is not counted again in analytics and does not wait on a payout message', async () => {
@@ -499,16 +498,17 @@ test('paid end card: a resumed receipt is not counted again in analytics and doe
   p.session.sideEvent('ag:cashedout', { grossMicro: 300000, cutMicro: 30000, netMicro: 270000, cashoutId: 'c9',
     resumed: true, auto: true });
   assert.deepStrictEqual(events, [], 'agPaidDoor answerOutcome repeats a cash-out already counted');
-  assert.strictEqual(p.doc.getElementById('ag-pe-title').textContent, 'Cashed out automatically');
-  assert.strictEqual(p.doc.getElementById('ag-pe-amount').textContent, '$0.27');
-  assert.strictEqual(p.doc.getElementById('co-settle-text').textContent, LIB.agScreens.PAID_TEXT.recorded);
+  let card = readCard(p.doc);
+  assert.deepStrictEqual([card.verdict, card.hero, card.status.text, card.facts],
+    ['Cashed out automatically', '$0.27', LIB.agScreens.END_TEXT.recorded, []], 'a reload: no life seen, no facts');
   p.session.sideEvent('ag:cashedout', { grossMicro: 300000, cutMicro: 30000, netMicro: 270000, cashoutId: 'c10' });
   assert.deepStrictEqual(events, [['cashed_out', { game: 'agar', amount: 0.27, stake: 0.1 }]]);
-  assert.strictEqual(p.doc.getElementById('ag-pe-title').textContent, 'Cashed out');
-  assert.strictEqual(p.doc.getElementById('co-settle-text').textContent, LIB.agScreens.PAID_TEXT.sending);
+  card = readCard(p.doc);
+  assert.deepStrictEqual([card.verdict, card.status.text], ['Cashed out', LIB.agScreens.END_TEXT.sending]);
 });
 
-test('the paid end card styles load only in a paid room: the free page head gets nothing, even with a hold', async () => {
+test('no cashout.css any more: the shared card brings its own styles, once, whichever room shows it', async () => {
+  const styles = (p) => p.doc.head.children.filter((c) => c.getAttribute('data-dse') === '1').length;
   const p = bootPage();
   await spawn(p, p.session.feed);
   p.key('keydown', 81);
@@ -517,19 +517,15 @@ test('the paid end card styles load only in a paid room: the free page head gets
   p.key('keyup', 81);
   p.session.sideEvent('ag:cashedout', { free: true });
   assert.strictEqual(p.doc.getElementById('ag-pe-css'), null, 'free room: no cashout.css');
-  assert.strictEqual(p.doc.getElementById('ag-pe-fonts'), null, 'free room: no extra font request');
+  assert.strictEqual(styles(p), 1, 'the board brought the shared styles');
   const q = bootPage();
   q.session.sideEvent('ag:joined', { stake: 1, micro: 1000000 });
-  const css = q.doc.getElementById('ag-pe-css');
-  const fonts = q.doc.getElementById('ag-pe-fonts');
-  assert.ok(css && fonts, 'paid room: both links added');
-  assert.strictEqual(css.getAttribute('href'), '/css/cashout.css');
-  assert.strictEqual(css.getAttribute('rel'), 'stylesheet');
-  assert.match(fonts.getAttribute('href'), /^https:\/\/fonts\.googleapis\.com\/css2\?family=Archivo:/);
-  const before = q.doc.head.children.length;
+  assert.strictEqual(q.doc.getElementById('ag-pe-css'), null, 'paid room: no cashout.css either');
+  assert.strictEqual(LIB.agScreens.loadPaidStyles, undefined);
   q.session.sideEvent('ag:money', MONEY);
+  q.session.sideEvent('ag:dead', { lostMicro: 1, by: '' });
   q.session.sideEvent('ag:joined', { stake: 1, micro: 1000000 });
-  assert.strictEqual(q.doc.head.children.length, before, 'added once');
+  assert.strictEqual(styles(q), 1, 'added once');
 });
 
 // ---- the socket path ---------------------------------------------------------------------------------------------
@@ -550,6 +546,7 @@ test('socket: side events arrive through agNet; a disconnect while holding ends 
   p.sock.fire('disconnect', 'transport close');
   assert.strictEqual(p.session.state().hold.wanted, false);
   assert.strictEqual(p.mod.hud.money, null);
+  assert.strictEqual(readBoard(p.doc), null, 'the money board belonged to the old connection');
   const n = holds(p).length;
   await p.frames(40);
   assert.strictEqual(holds(p).length, n, 'no repeat after the disconnect');
@@ -557,7 +554,26 @@ test('socket: side events arrive through agNet; a disconnect while holding ends 
   assert.strictEqual(holds(p).length, n);
 });
 
-// ---- the HUD money board ----------------------------------------------------------------------------------------
+// ---- the money board through the page -------------------------------------------------------------------------
+test('money board: top 10 by money from ag:money, $ amounts, the own row by its rank, pinned with the own balance past 10', async () => {
+  const p = bootPage();
+  await spawn(p, p.session.feed);
+  p.session.sideEvent('ag:joined', { stake: 1, micro: 1000000 });
+  const board = [];
+  for (let i = 0; i < 14; i++) board.push(['p' + i, 2000000 - i * 100000]);
+  board[0][0] = 'a very long name indeed';
+  p.session.sideEvent('ag:money', { me: 800000, rank: 13, cells: [], board });
+  await p.frames(1);
+  const r = readBoard(p.doc);
+  assert.deepStrictEqual([r.shown, r.money, r.rows.length], [true, true, 12], '10 rows, the gap, the own row');
+  assert.deepStrictEqual(r.rows[0], ['1', 'a very long name indeed', '$2.00', false], 'a long name is cut by the board\'s own CSS');
+  assert.deepStrictEqual(r.rows.slice(-2), ['gap', ['13', 'p12', '$0.80', true]]);
+  // the world's plain board rows do not replace it in a paid room
+  p.session.feed({ t: 'board', rows: [{ name: 'x' }, { me: true }] });
+  assert.strictEqual(readBoard(p.doc).rows[0][2], '$2.00');
+});
+
+// ---- the HUD's own balance panel -------------------------------------------------------------------------------
 function hudRecorder() {
   const log = [];
   let n = 0;
@@ -578,47 +594,6 @@ function hudRecorder() {
   }
   return { log, createContext };
 }
-
-test('money board: by money, amounts right-aligned in the 250-unit width, long names cut, own row coloured, own rank past 10 added', () => {
-  const rec = hudRecorder();
-  const hud = LIB.agHud.createHud({ createContext: rec.createContext });
-  hud.frameStart(1920, 1080);
-  hud.setLocalNick('me');
-  const board = [];
-  for (let i = 0; i < 14; i++) board.push(['p' + i, 2000000 - i * 100000]);
-  board[0][0] = 'a very long name indeed';
-  rec.log.length = 0;
-  hud.setMoney({ me: 800000, rank: 13, board });
-  const texts = rec.log.filter((c) => c[1] === 'fillText');
-  assert.strictEqual(texts.length, 1 + 11 * 2, 'title, 10 rows and the own extra row, each name + amount');
-  const lay = LIB.agHud.layoutLeaderboard(1920, 1080, 14, 1, false, false);
-  const amounts = texts.filter((c) => /^\$/.test(c[2]));
-  assert.deepStrictEqual(amounts.map((c) => c[2]).slice(0, 2), ['$2.00', '$1.90']);
-  for (const a of amounts) {
-    const w = lay.rowFont * 0.55 * a[2].length;
-    assert.strictEqual(a[3], Math.trunc(lay.innerW - lay.rowX - w), 'right-aligned');
-  }
-  const first = texts[1][2];
-  assert.ok(first.startsWith('1. a very') && first.endsWith('…'), 'cut with an ellipsis: ' + first);
-  const room = lay.innerW - lay.rowX - lay.rowFont * 0.55 * 5 - Math.trunc(lay.q * 8) - lay.rowX;
-  assert.ok(lay.rowFont * 0.55 * first.length <= room, 'the cut name fits before its amount');
-  assert.deepStrictEqual(texts[texts.length - 2].slice(2, 4), ['13. p12', lay.rowX]);
-  assert.strictEqual(texts[texts.length - 1][2], '$0.80', 'the own row shows the own balance');
-  const fills = rec.log.filter((c) => c[1] === '=fillStyle').map((c) => c[2]);
-  assert.strictEqual(fills.filter((f) => f === 'rgb(255,170,170)').length, 1, 'only the own row is coloured');
-  // null goes back to the plain board, call for call as a hud that never had money
-  hud.setBoard([{ name: 'x' }, { me: true }], 'me');
-  rec.log.length = 0;
-  hud.setMoney(null);
-  const plain = rec.log.map((c) => JSON.stringify(c.slice(1)));
-  const rec2 = hudRecorder();
-  const hud2 = LIB.agHud.createHud({ createContext: rec2.createContext });
-  hud2.frameStart(1920, 1080);
-  rec2.log.length = 0;
-  hud2.setBoard([{ name: 'x' }, { me: true }], 'me');
-  assert.deepStrictEqual(plain, rec2.log.map((c) => JSON.stringify(c.slice(1))));
-  assert.strictEqual(LIB.agHud.fitRow({ measureText: (s) => ({ width: s.length }) }, '1. ', 'abcdef', 3), '1. …');
-});
 
 test('own balance panel: only with money, alive and not spectating; never in a free HUD', () => {
   const rec = hudRecorder();
@@ -648,16 +623,25 @@ test('own balance panel: only with money, alive and not spectating; never in a f
   assert.strictEqual(hud.money, null, 'a reconnect forgets the money');
 });
 
-// ---- screens ------------------------------------------------------------------------------------------------------
-test('Match Results keeps its title unless a cash-out asks; the paid card is built only when used', () => {
+// ---- the free card ----------------------------------------------------------------------------------------------
+test('the free card: "Eaten by NAME" from the last eater, "Eaten" without one, "Cashed out" only after a free cash-out', async () => {
   const p = bootPage();
-  const screens = p.mod.screens;
-  const snap = { food: 0, mass: 0, aliveMs: 0, topPosition: 0, cells: 0, leaderMs: 0 };
-  screens.showStats(snap, { title: 'Cashed Out' });
-  assert.strictEqual(statsTitle(p), 'Cashed Out');
-  screens.showStats(snap);
-  assert.strictEqual(statsTitle(p), 'Match Results');
-  assert.strictEqual(p.doc.getElementById('ag-paid-end'), null);
+  await spawn(p, p.session.feed);
+  // a pellet eaten by us, then bob eats one of two own cells and the other is removed: the eater stays known
+  p.session.feed({ t: 'own', id: 12 });
+  p.session.feed({ t: 'world', eats: [], cells: [cell({ id: 12, x: 50 })], removed: [] });
+  await p.frames(2);
+  p.session.feed({ t: 'world', eats: [[10, 12]], cells: [], removed: [12] });
+  p.session.feed({ t: 'world', eats: [], cells: [], removed: [9] });
+  assert.strictEqual(verdict(p), 'Eaten by bob');
+  assert.strictEqual(p.session.state().paidEnd, '');
+  clickCard(p.doc, 'again');
+  assert.strictEqual(readCard(p.doc), null);
+  p.session.feed({ t: 'own', id: 13 });
+  p.session.feed({ t: 'world', eats: [], cells: [cell({ id: 13 })], removed: [] });
+  await p.frames(2);
+  p.session.feed({ t: 'world', eats: [], cells: [], removed: [13] });
+  assert.strictEqual(verdict(p), 'Eaten', 'a new life forgets the last eater');
 });
 
 // ---- the page files -------------------------------------------------------------------------------------------------
@@ -667,8 +651,11 @@ test('ag.html: the pad holds Cash out, Split, Eject; the free head links no paid
   const ids = [...pad.matchAll(/id="([^"]+)"/g)].map((m) => m[1]);
   assert.deepStrictEqual(ids, ['ag-cash', 'ag-split', 'ag-eject']);
   const head = html.slice(0, html.indexOf('</head>'));
-  assert.ok(!head.includes('cashout.css'), 'the free page head is as before: agScreens.loadPaidStyles adds it in paid rooms');
+  assert.ok(!html.includes('cashout.css'), 'no paid stylesheet: the shared card brings its own');
   assert.ok(!/<link[^>]*fonts\.googleapis/.test(head));
+  // the shared end card and board load before the agar.io scripts
+  const dse = html.indexOf('<script src="/js/shared/dsEnd.js"></script>');
+  assert.ok(dse > 0 && dse < html.indexOf('/js/ag/agScreens.js') && dse < html.indexOf('/js/ag/agMain.js'));
   const css = fs.readFileSync(path.join(ROOT, 'public', 'css', 'ag.css'), 'utf8');
   // the corner offsets are the pre-cash-out pad's (no viewport-fit=cover, so env(safe-area-inset-*) would be 0)
   assert.match(css, /\.ag-pad \{[^}]*right: 16px;[^}]*bottom: calc\(16px \+ var\(--ag-banner, 0px\)\);/);
@@ -679,7 +666,7 @@ test('ag.html: the pad holds Cash out, Split, Eject; the free head links no paid
   assert.match(css, /\.ag-portrait \.ag-pad \{ grid-template-areas: "cash \." "split eject"; \}/);
   assert.match(css, /\.ag-pad \{[^}]*pointer-events: none;/);
   assert.match(css, /\.ag-pad button \{\s*pointer-events: auto;/);
-  assert.match(css, /#ag-paid-end\[hidden\],\s*#ag-paid-end \[hidden\] \{ display: none; \}/);
+  assert.ok(!css.includes('#ag-paid-end') && !css.includes('#ag-pe-'), 'the old paid card\'s rules are gone');
 });
 
 test('the client hold constants match the server: 200 ms repeat inside the 500 ms stale window, 75 ticks of 40.014 ms', () => {

@@ -1,7 +1,8 @@
 'use strict';
 // slxWatch, ACTIVE: Spectate in the free room on its own fake page (test/slxHudFakes.js; never the gate's page, where
 // the layer stays inert, test/slxNoTouch.test.js). Loaded as the composed page loads it: slxWatch, then the real
-// slxMain (the handshake merge, guard, toLobby) and the real slxCard (the card hooks). The server side is
+// slxMain (the handshake merge, guard, toLobby) and the real slxCard (the card hooks), after the shared end screens
+// it draws with (public/js/shared/dsEnd.js, which the composed page loads first). The server side is
 // test/slWatchFree.test.js; slxNet's endLife is test/slxNet.test.js.
 //
 // Checks: the lobby's mark is read once and removed, and the file is inert without it, on a paid page, a page slxPaid
@@ -50,6 +51,7 @@ function watchPage(o) {
   hold.className = 'slx-hold';
   P.doc.body.appendChild(hold);
   P.doc.querySelector = (sel) => (sel === '.slx-hold' ? hold : null);
+  P.load('dsEnd.js');
   P.load('slxWatch.js');
   if (opt.main !== false) P.load('slxMain.js');
   if (opt.card !== false) P.load('slxCard.js');
@@ -212,12 +214,19 @@ test('inputs: mouse, touch, wheel and the boost, turn, Q and T keys on the game 
   live(P, 7, 'Big Bot');
   assert.deepStrictEqual(fireAll(), ['key 65'], 'live: only a key that steers nothing');
   assert.strictEqual(P.dispatch(body, 'touchstart', ev()), false, 'a touch on the game is prevented');
-  // the results card is a layer control: a click there is its own
-  const again = one(P, 'slx-card-again');
-  let clicks = 0;
-  again.addEventListener('mousedown', () => { clicks++; });
-  P.dispatch(again, 'mousedown', ev());
-  assert.strictEqual(clicks, 1);
+  // the results card (the shared one, marked slx-card by slxCard) is a layer control: a press there is its own, even
+  // with a socket up (a Try again connecting while the card still shows)
+  P.slx.fire('close', { playing: false, opened: true, sawDead: false, refused: 'nobody' });
+  P.S.connected = true;
+  const lobby = P.button('lobby');
+  assert.ok(lobby && /\bslx-card\b/.test(one(P, 'dse').className), 'the card is up, as ours');
+  let presses = 0;
+  lobby.addEventListener('mousedown', () => { presses++; });
+  lobby.addEventListener('touchstart', () => { presses++; });
+  P.dispatch(lobby, 'mousedown', ev());
+  assert.strictEqual(P.dispatch(lobby, 'touchstart', ev()), true, 'a tap on the card is not prevented (its click still comes)');
+  assert.strictEqual(presses, 2);
+  assert.deepStrictEqual(seen.filter((k) => k !== 'key 65'), [], 'and none of it reached the game');
 });
 
 test('the CASH OUT button is hidden on a Spectate page', () => {

@@ -291,22 +291,22 @@ test('the paid end card\'s Back to lobby goes through the same gate, framed only
 
 test('the real page: the last run\'s card goes on a new paid seat, its button is gated, and a socket drop reaches the hooks', async () => {
   const { bootPage } = require('./agFakePage.js');
+  const { readCard, clickCard } = require('./agEndProbe.js');
   const real = bootPage({ net: true, parent: { postMessage() {} } });
   const p = fakePage({ page: real.session });
   real.sock.connected = true;
   real.sock.fire('connect');
   real.session.sideEvent('ag:joined', { stake: 0.1, micro: 100000 });
   real.session.sideEvent('ag:dead', { lostMicro: 100000, by: 'bob' });
-  const card = real.doc.getElementById('ag-paid-end');
-  assert.ok(card && !card.hidden, 'the death card is up');
+  assert.strictEqual(readCard(real.doc).verdict, 'Eaten by bob', 'the death card is up');
   assert.ok(p.shown(p.btn()), 'and the lock is off');
 
-  // Play again: a new paid seat on the same page. The old card goes, so its Back to lobby is not over the new run.
+  // Play again: a new paid seat on the same page. The old card goes, so its Lobby is not over the new run.
   real.session.sideEvent('ag:joined', { stake: 0.1, micro: 100000 });
-  assert.ok(card.hidden, 'the last run\'s card is hidden on the new seat');
+  assert.strictEqual(readCard(real.doc), null, 'the last run\'s card is gone on the new seat');
   assert.ok(!p.shown(p.btn()) && p.unload().asks, 'locked');
-  real.doc.getElementById('ag-pe-lobby').dispatch('click');
-  assert.deepStrictEqual(p.posted, [], 'the card\'s Back to lobby posts nothing while money is in');
+  real.session.config.onLobby();   // what the card's Lobby calls (agMain backToLobby)
+  assert.deepStrictEqual(p.posted, [], 'the card\'s way back posts nothing while money is in');
 
   // The socket drops (agNet's disconnect, through agMain's onDisconnect): the hook hears it.
   real.sock.connected = false;
@@ -314,7 +314,8 @@ test('the real page: the last run\'s card goes on a new paid seat, its button is
   assert.strictEqual(p.pending(), 1, 'the drop reached agLobby');
   p.advance(5000);
   assert.ok(p.shown(p.btn()) && !p.unload().asks, 'and the page let go after the grace');
-  real.doc.getElementById('ag-pe-lobby').dispatch('click');
-  assert.deepStrictEqual(p.posted, [['game:done', '*']], 'the gate is open again');
+  real.session.sideEvent('ag:closed', { refundedMicro: 0, why: 'emergency' });
+  clickCard(real.doc, 'lobby');
+  assert.deepStrictEqual(p.posted, [['game:done', '*']], 'the gate is open again: the card\'s Lobby goes back');
   real.session.destroy();
 });

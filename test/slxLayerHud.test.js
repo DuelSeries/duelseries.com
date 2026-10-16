@@ -1,6 +1,9 @@
 'use strict';
 // The DuelSeries layer HUD on the frozen slither.io client (task T17; SERVER-DESIGN 15.3, 15.4, 18.4 slxLayer HUD
-// cases): slxCard, slxTop, slxChat, slxStats, slxHud (Owen's HUD layout, 2026-10-16), slxSound.
+// cases): slxCard, slxChat, slxStats, slxHud (Owen's HUD layout, 2026-10-16), slxSound. The results card and the
+// leaderboard are drawn by the shared end screens every game uses (public/js/shared/dsEnd.js, Owen 2026-10-16), which
+// the composed page loads before the layer, so every page here loads it first. The biggest cash-out box (slxTop) is
+// gone (Owen 2026-10-16).
 //
 // Part A runs each file on its own fake page (test/slxHudFakes.js) behind a fake layer bus with slxNet's API.
 // Part B boots the frozen client (test/slVmPage.js) with the real layer (slxNet, slxMain, slxDirect and these five)
@@ -13,14 +16,19 @@ const path = require('path');
 const { makePage, ROOT } = require('./slxHudFakes.js');
 
 const SLX_DIR = path.join(ROOT, 'public', 'js', 'slx');
-const HUD = ['slxCard.js', 'slxTop.js', 'slxChat.js', 'slxStats.js', 'slxHud.js', 'slxSound.js'];
+const DSEND = path.join(ROOT, 'public', 'js', 'shared', 'dsEnd.js');
+const HUD = ['slxCard.js', 'slxChat.js', 'slxStats.js', 'slxHud.js', 'slxSound.js'];
 
-// A page with the HUD file(s) loaded on the fake bus.
+// A page with the shared end screens and the HUD file(s) loaded on the fake bus.
 function page(files, opts) {
   const P = makePage(opts);
+  P.load('dsEnd.js');
   for (const f of [].concat(files)) P.load(f);
   return P;
 }
+// The shared card on screen (dsEnd's node, or null) and its text, its big figure and its buttons by id.
+const cardEl = (P) => P.find('dse')[0] || null;
+const bigText = (P) => (P.find('dse-big')[0] || { textContent: '' }).textContent;
 // Objects made inside a vm context have that context's prototypes: compare them as plain data.
 const plain = (x) => JSON.parse(JSON.stringify(x));
 const LASTSCORE = (n) => '<span style="opacity: .45;">Your final length was </span><b>' + n + '</b>' + (n > 1000 ? '!' : '');
@@ -35,45 +43,116 @@ test('inert: with no active layer bus every HUD file makes no node, style, liste
     if (mode === 'inactive') P.slx.active = false;
     if (mode === 'noDuelSlither') delete P.win.DuelSlither;
     const before = { body: P.doc.body.childNodes.length, head: P.doc.head.childNodes.length };
+    P.load('dsEnd.js');
     for (const f of HUD) P.load(f);
     assert.strictEqual(P.doc.body.childNodes.length, before.body, mode + ': body nodes');
-    assert.strictEqual(P.doc.head.childNodes.length, before.head, mode + ': head nodes');
+    assert.strictEqual(P.doc.head.childNodes.length, before.head, mode + ': head nodes (dsEnd styles only when drawn)');
     assert.strictEqual(P.win.listeners.length, 0, mode + ': window listeners');
     assert.strictEqual(P.doc.listeners.length, 0, mode + ': document listeners');
     assert.strictEqual(P.rafCount(), 0, mode + ': animation frames');
     assert.strictEqual(P.sent.length, 0, mode + ': emits');
-    if (P.D.slx) for (const k of ['card', 'top', 'chat', 'stats', 'hud', 'sound']) assert.strictEqual(P.D.slx[k], undefined, mode + ': slx.' + k);
+    if (P.D.slx) for (const k of ['card', 'chat', 'stats', 'hud', 'sound']) assert.strictEqual(P.D.slx[k], undefined, mode + ': slx.' + k);
   }
+  // an active bus but no shared end screens (dsEnd.js missing): the card and the board make nothing either
+  const P = makePage();
+  P.S.lbh = P.S.lbs = P.S.lbn = P.S.lbp = new P.El(P.doc, 'div');
+  P.load('slxCard.js');
+  P.load('slxHud.js');
+  assert.deepStrictEqual([P.doc.body.childNodes.length, P.doc.head.childNodes.length, P.rafCount()], [0, 0, 0]);
+  assert.deepStrictEqual([P.slx.card, P.slx.hud], [undefined, undefined]);
+  assert.strictEqual(P.S.lastscore.style.visibility, undefined, 'their last-score line left as it is');
+  assert.strictEqual(P.S.lbs.style.visibility, undefined, 'their board left as it is');
 });
 
-test('slxCard: death card at their menu show, N from their last-score line, follows their fades', () => {
+test('slxCard: death card (the shared card) at their menu show, N from their last-score line, follows their fades', () => {
   const P = page('slxCard.js');
   const card = P.slx.card;
+  const E = P.win.DSEnd;
   assert.strictEqual(card.state().kind, '', 'nothing before a life ends');
+  assert.strictEqual(card.element, null);
+  assert.strictEqual(P.S.lastscore.style.visibility, 'hidden', 'their last-score line stays in the page, unseen');
   P.slx.fire('open');
+  P.slx.fire('ownAdd', { id: 1 });
+  P.S.best_rank = 4;
+  P.clock.now += 30000;
+  P.S.best_rank = 3;                                      // their best_rank only falls during a life
+  P.clock.now += 35000;
   P.slx.fire('ownDead', { type: 'dead', code: 0 });
+  P.S.best_rank = 999999999;                              // their resetGame at the socket's close (slApply.js:1280)
   P.S.lastscore.innerHTML = LASTSCORE(1234);
-  assert.strictEqual(card.element.style.display, 'none', 'the card waits for their 1.6 s');
+  assert.strictEqual(card.element, null, 'the card waits for their 1.6 s');
+  assert.strictEqual(E.shown(), false);
+  P.clock.now += 1600;
   P.slx.fire('menuShow');
   let st = card.state();
   assert.strictEqual(st.kind, 'dead');
-  assert.strictEqual(st.title, 'Match Results');
+  assert.strictEqual(st.title, 'You died');
   assert.strictEqual(st.length, '1234');
+  assert.deepStrictEqual([st.tone, st.hero, st.unit], ['plain', '1,234', 'length'], 'the length is the big figure');
+  assert.deepStrictEqual(plain(st.facts), ['Time 1:05', 'Top rank 3rd'], 'from the own add to the death; the best rank kept');
+  assert.deepStrictEqual([plain(st.ledger), st.status, plain(st.podium), plain(st.lines)], [[], '', [], []]);
   assert.strictEqual(st.again, 'Play again');
   assert.strictEqual(st.opacity, '0', 'their login layer is still transparent at menu show');
-  assert.strictEqual(card.element.style.display, 'block');
-  assert.strictEqual(card.element.textContent, 'Match ResultsYour final length was 1234Play againLobby');
+  assert.strictEqual(E.shown(), true);
+  assert.strictEqual(card.element, cardEl(P));
+  assert.strictEqual(card.element.style.opacity, '0');
+  assert.strictEqual(card.element.style.zIndex, '30', 'above their login layer (z-index 20)');
+  assert.strictEqual(card.element.style.zoom, '', 'a computer page: no zoom');
+  assert.match(card.element.className, /^dse t-plain slx-card$/, 'a layer control to slxWatch, slxBr and slxTouch');
+  assert.strictEqual(card.element.textContent, 'You died1,234lengthTime1:05Top rank3rdPlay againLobby');
+  assert.strictEqual(bigText(P), '1,234');
   P.slx.fire('menuFade', 0.25);
   assert.strictEqual(card.state().opacity, '0.75', 'opacity 1 - login_fr, as their login layer');
+  assert.strictEqual(card.element.style.opacity, '0.75');
   P.slx.fire('menuFade', 0);
   P.slx.fire('menuDone');
   assert.strictEqual(card.state().opacity, '1');
+  assert.strictEqual(card.element.style.opacity, '1');
   // the next life's start fade takes it away
   P.slx.fire('menuFade', 0.5);
   assert.strictEqual(card.state().opacity, '0.5');
+  assert.strictEqual(card.element.style.opacity, '0.5');
   P.slx.fire('menuFade', 1);
   assert.strictEqual(card.state().kind, '');
-  assert.strictEqual(card.element.style.display, 'none');
+  assert.strictEqual(card.element, null);
+  assert.strictEqual(E.shown(), false);
+  assert.strictEqual(cardEl(P), null, 'off the page');
+  // a phone: their page is laid out at 0.7 (sl.html:4), so the card is drawn back up by 1 / 0.7
+  const M = page('slxCard.js', { S: { is_mobile: true } });
+  M.slx.fire('close', { playing: false, opened: true, sawDead: false, refused: 'full' });
+  assert.strictEqual(M.slx.card.element.style.zoom, String(1 / 0.7));
+});
+
+test('slxCard: Killed by NAME from the kill feed naming this snake; another victim or a late line does not count', () => {
+  const kill = (P, killer, victim) => P.slx.fire('x:kill', { t: 'kill', killer, victim });
+  const P = page('slxCard.js');
+  P.D.slMain = { nick: 'Owen' };
+  P.slx.fire('open');
+  kill(P, 'Viper', 'Ann');
+  P.slx.fire('ownDead', { type: 'dead', code: 0 });
+  P.clock.now += 1000;
+  kill(P, 'Kestrel', 'Owen');                            // the feed line can trail the own dead
+  P.S.lastscore.innerHTML = LASTSCORE(77);
+  P.slx.fire('menuShow');
+  assert.strictEqual(P.slx.card.state().title, 'Killed by Kestrel');
+  assert.strictEqual(cardEl(P).textContent.indexOf('Killed by Kestrel77length'), 0, 'the verdict over the big figure');
+  P.slx.fire('menuFade', 1);
+  // a new socket forgets it; a line more than 1.5 s after the death is someone else's
+  P.slx.fire('open');
+  kill(P, '', 'Owen');
+  P.slx.fire('ownDead', { type: 'dead', code: 0 });
+  P.clock.now += 2000;
+  kill(P, 'Late', 'Owen');
+  P.slx.fire('menuShow');
+  assert.strictEqual(P.slx.card.state().title, 'You died');
+  // no name (their Play kept none): never a match
+  const Q = page('slxCard.js');
+  Q.D.slMain = { nick: '' };
+  Q.slx.fire('open');
+  kill(Q, 'Viper', '');
+  Q.slx.fire('ownDead', { type: 'dead', code: 0 });
+  Q.slx.fire('menuShow');
+  assert.strictEqual(Q.slx.card.state().title, 'You died');
 });
 
 test('slxCard: close path, Too slow, cash-out, and no length without an own snake', () => {
@@ -87,14 +166,18 @@ test('slxCard: close path, Too slow, cash-out, and no length without an own snak
     const P = page('slxCard.js', { S: { slither: { id: 3 } } });
     P.slx.fire('open');
     P.socketEvent('disconnect', c.reason);
+    P.S.best_rank = 2;
     P.slx.fire('close', { playing: true, opened: true, sawDead: false, refused: c.refused || null });
     P.S.lastscore.innerHTML = LASTSCORE(57);                // their applyClose -> gameOver writes it
+    P.S.best_rank = 999999999;                              // and its resetGame puts their best rank back
     assert.strictEqual(P.slx.card.state().kind, '', c.name + ': waits for their menu');
     P.slx.fire('menuShow');
     const st = P.slx.card.state();
     assert.strictEqual(st.kind, c.kind, c.name);
     assert.strictEqual(st.title, c.title, c.name);
     assert.strictEqual(st.length, '57', c.name);
+    assert.strictEqual(bigText(P), '57', c.name + ': the length as the big figure');
+    assert.deepStrictEqual(plain(st.facts), ['Top rank 2nd'], c.name + ': the rank as the socket closed');
     assert.strictEqual(st.again, 'Play again', c.name);
   }
   // cash-out: sl:x cashed arrives before the own dead (server/sl/slRoom.js _cashOut)
@@ -104,8 +187,10 @@ test('slxCard: close path, Too slow, cash-out, and no length without an own snak
   C.slx.fire('ownDead', { type: 'dead', code: 0 });
   C.S.lastscore.innerHTML = LASTSCORE(812);
   C.slx.fire('menuShow');
-  assert.strictEqual(C.slx.card.state().title, 'Cashed Out');
+  assert.strictEqual(C.slx.card.state().title, 'Cashed out');
   assert.strictEqual(C.slx.card.state().length, '812');
+  assert.strictEqual(bigText(C), '812', 'a free cash-out: the length is the big figure, no money');
+  assert.strictEqual(C.find('dse-led').length, 0);
   // a close while playing with no own snake: their gameOver cannot write a length, so the card shows none
   const N = page('slxCard.js', { S: { slither: null } });
   N.slx.fire('open');
@@ -114,13 +199,15 @@ test('slxCard: close path, Too slow, cash-out, and no length without an own snak
   N.slx.fire('menuShow');
   assert.strictEqual(N.slx.card.state().title, 'Connection lost');
   assert.strictEqual(N.slx.card.state().length, '', 'no stale number');
+  assert.deepStrictEqual([N.slx.card.state().hero, N.slx.card.state().unit, N.find('dse-hero').length], ['', '', 0],
+    'no big figure');
   // a new socket forgets the last one
   N.slx.fire('open');
   N.slx.fire('ownDead', { type: 'dead', code: 0 });
   N.S.slither = { id: 4 };
   N.S.lastscore.innerHTML = LASTSCORE(10);
   N.slx.fire('menuShow');
-  assert.strictEqual(N.slx.card.state().title, 'Match Results');
+  assert.strictEqual(N.slx.card.state().title, 'You died');
   assert.strictEqual(N.slx.card.state().length, '10');
 });
 
@@ -141,8 +228,11 @@ test('slxCard: refusal states show at once, never through their menu, at full op
     const st = P.slx.card.state();
     assert.strictEqual(st.title, title, why);
     assert.strictEqual(st.length, '', why + ': no length line');
+    assert.deepStrictEqual([st.hero, plain(st.facts)], ['', []], why + ': no big figure and no facts with no life');
     assert.strictEqual(st.opacity, '1', why);
     assert.strictEqual(st.again, 'Try again', why);
+    assert.strictEqual(cardEl(P).textContent, title + 'Try againLobby', why + ': on screen');
+    assert.strictEqual(cardEl(P).style.opacity, '1', why);
     assert.strictEqual(shows, 0, why + ': their menu never showed');
   }
   // the handshake gate's refusal arrives as connect_error data (server/sl/slSockets.js admit)
@@ -167,67 +257,77 @@ test('slxCard: Play again under the last Play name, once; Lobby to the lobby fra
   P.D.slMain = { nick: 'Owen' };
   let boosts = 0;
   let ups = 0;
+  let touches = 0;
+  let menus = 0;
   P.win.onmousedown = () => boosts++;                     // their boost (public/js/sl/slInput.js:148, 205)
+  P.win.ontouchstart = () => touches++;                   // their steering (slInput.js:203)
+  P.win.oncontextmenu = () => menus++;
   P.win.addEventListener('mouseup', () => ups++);         // their boost end (slInput.js:207)
   P.slx.fire('open');
   P.slx.fire('ownDead', {});
   P.S.lastscore.innerHTML = LASTSCORE(5);
   P.slx.fire('menuShow');
-  const [again] = P.find('slx-card-again');
-  const [lobby] = P.find('slx-card-lobby');
+  const again = P.button('again');
+  const lobby = P.button('lobby');
+  assert.deepStrictEqual([again.textContent, lobby.textContent], ['Play again', 'Lobby']);
+  assert.ok(/\bpri\b/.test(again.className), 'Play again is the primary button');
   P.dispatch(again, 'mousedown', { button: 0 });
+  P.dispatch(again, 'touchstart', {});
   P.dispatch(again, 'mouseup', { button: 0 });
   P.dispatch(again, 'click', {});
   assert.deepStrictEqual(P.plays, ['Owen']);
   assert.strictEqual(P.slx.card.state().again, 'Starting');
-  assert.strictEqual(again.disabled, true);
+  assert.strictEqual(P.slx.card.state().againDisabled, true);
+  const starting = P.button('again');                     // the card is drawn again with the button's new state
+  assert.deepStrictEqual([starting.textContent, starting.disabled], ['Starting', true]);
+  P.dispatch(starting, 'click', {});
   P.dispatch(again, 'click', {});
+  P.slx.card.playAgain();
   assert.deepStrictEqual(P.plays, ['Owen'], 'a second press does nothing');
-  P.dispatch(lobby, 'mousedown', { button: 0 });
-  P.dispatch(lobby, 'click', {});
+  P.dispatch(P.button('lobby'), 'mousedown', { button: 0 });
+  P.dispatch(P.button('lobby'), 'click', {});
   assert.deepStrictEqual(P.lobbyPosts, ['game:done']);
   P.dispatch(P.slx.card.element, 'contextmenu', {});
+  P.dispatch(P.slx.card.element.firstChild, 'touchstart', {});    // the scrim round the card
   assert.strictEqual(boosts, 0, 'no mousedown reached their window.onmousedown');
+  assert.strictEqual(touches, 0, 'no touch reached their window.ontouchstart');
+  assert.strictEqual(menus, 0, 'no contextmenu reached their window');
   // fixer pass (2026-10-10): the mouseup goes on to their window listener (it only ends a boost), so a boost let go
   // over a layer element ends as in their game
   assert.strictEqual(ups, 1, 'the one mouseup reached their window listener');
   // a direct visit (no lobby frame): Lobby opens the lobby page
   const Q = page('slxCard.js', { framed: false });
   Q.slx.fire('close', { playing: false, opened: true, sawDead: false, refused: 'full' });
-  Q.dispatch(Q.find('slx-card-lobby')[0], 'click', {});
+  Q.dispatch(Q.button('lobby'), 'click', {});
   assert.deepStrictEqual(Q.win.location.assigned, ['/']);
+  assert.deepStrictEqual(Q.lobbyPosts, []);
+  // Try again on a refusal card plays too, under the same name
+  Q.D.slMain = { nick: 'Ann' };
+  Q.dispatch(Q.button('again'), 'click', {});
+  assert.deepStrictEqual(Q.plays, ['Ann']);
 });
 
-test('slxTop: the biggest cash-out goes into their vcm box as text, with the empty state', () => {
-  const P = page('slxTop.js');
-  const vcm = P.S.vcm;
-  assert.strictEqual(vcm.textContent, '', 'empty until the server pushes');
+// Owen 2026-10-16 ("this was a bad idea"): the biggest cash-out box is gone from the page and from the server's pushes.
+// server/sl/slTopCashout.js stays (the earnings strip and playerStats read its TOP_ROWS: test/slTopCashout.test.js).
+test('no biggest cash-out box: slxTop is off disk and out of the tail, the server reads none, their vcm box is theirs', () => {
+  const B = require('../server/sl/slBoot.js');
+  assert.ok(!fs.existsSync(path.join(SLX_DIR, 'slxTop.js')), 'slxTop.js is deleted');
+  assert.ok(!B.SLX_FILES.includes('slxTop.js'), 'not in SLX_FILES');
+  assert.ok(!/slxTop/.test(B.SLX_TAIL), 'not in the composed page');
+  const idx = fs.readFileSync(path.join(ROOT, 'server', 'index.js'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+  assert.ok(/\btopCashout: null,/.test(idx), 'index.js hands slBoot no top cash-out read');
+  assert.ok(!/makeTopCashoutRead|setTop\b/.test(idx), 'no database read for it and no battle royale setTop wrapper');
+  // the whole HUD on a page: a stray {t: 'top'} writes nothing, and their vcm box keeps their own text
+  const P = makePage({ win: { CashoutSound: { play() {} } }, S: { playing: true } });
+  P.load('dsEnd.js');
+  for (const f of HUD) P.load(f);
+  P.S.vcm.textContent = 'their longest snake';
   P.slx.fire('x:top', { t: 'top', name: 'Mosdfagg', amount: 1234.5 });
-  assert.strictEqual(vcm.textContent, 'Biggest cash-out$1,234.50 by Mosdfagg');
-  assert.deepStrictEqual(vcm.children.map((e) => e.tagName), ['I', 'BR', 'I']);
-  P.slx.fire('x:top', { t: 'top', name: null, amount: null });
-  assert.strictEqual(vcm.textContent, 'Biggest cash-outNo cash-outs yet');
-  P.slx.fire('x:top', { t: 'top', name: '<b>x</b>', amount: 0.9 });
-  assert.strictEqual(vcm.textContent, 'Biggest cash-out$0.90 by <b>x</b>', 'a name is text, never markup');
-  P.slx.fire('x:top', { t: 'top', name: '', amount: 20 });
-  assert.strictEqual(vcm.textContent, 'Biggest cash-out$20.00', 'no name: no "by"');
-  const keep = vcm.textContent;
-  for (const bad of [{ amount: NaN, name: 'a' }, { amount: -1, name: 'a' }, { amount: '5', name: 'a' },
-    { amount: Infinity, name: 'a' }, { amount: 5, name: { toString: () => 'x' } }, { amount: 5, name: 'x'.repeat(25) },
-    { amount: null, name: 'a' }, null, 7, 'top']) {
-    P.slx.fire('x:top', bad);
-    assert.strictEqual(vcm.textContent, keep, 'refused: ' + JSON.stringify(bad));
-  }
-  const money = P.slx.top.money;
-  const vectors = [[0, '$0.00'], [0.1, '$0.10'], [0.05, '$0.05'], [9.99, '$9.99'], [999.99, '$999.99'], [1000, '$1,000.00'],
-    [1234567.89, '$1,234,567.89'], [19.995, '$20.00']];
-  for (const [a, s] of vectors) assert.strictEqual(money(a), s, String(a));
-  // the opacities copy their longest box (public/js/sl/slApply.js:847-868)
-  P.slx.fire('x:top', { t: 'top', name: 'Ann', amount: 3 });
-  const spans = [];
-  const walk = (n) => { for (const c of n.children || []) { if (c.tagName === 'SPAN') spans.push([c.textContent, c.style.opacity]); walk(c); } };
-  walk(vcm);
-  assert.deepStrictEqual(spans, [['Biggest cash-out', '.5'], ['$3.00', '.75'], [' by ', '.5'], ['Ann', '.65']]);
+  P.raf(2);
+  assert.strictEqual(P.S.vcm.textContent, 'their longest snake');
+  assert.strictEqual(P.slx.top, undefined);
+  assert.ok(!/Biggest cash-out/.test(P.doc.body.textContent));
 });
 
 test('slxChat: T opens, typing never reaches their keys, Enter sends, Esc closes; shown while playing', () => {
@@ -380,7 +480,7 @@ test('slxStats: ping in the old format and colours, FPS over 500 ms, shown while
   assert.strictEqual(st.element.style.display, 'flex');
 });
 
-// Their HUD boxes as sl.html gives them (sl.html:20-26), on the fake page.
+// Their HUD boxes as sl.html gives them (sl.html:20-26), on the fake page, after the shared end screens.
 function hudPage(win, S) {
   const P = makePage({ win, S });
   const box = (style) => { const e = new P.El(P.doc, 'div'); Object.assign(e.style, style); P.doc.body.appendChild(e); return e; };
@@ -390,21 +490,77 @@ function hudPage(win, S) {
   P.S.lbp = box({ right: '260px', top: '32px', width: '30px', height: '800px', transform: 'translateZ(0)' });
   P.S.lbf = box({ left: '8px', bottom: '4px', width: '280px', height: '37px', display: 'inline', opacity: 0.5 });
   P.S.loch = box({ right: '16px', bottom: '16px', width: '124px', height: '124px' });
+  P.D.slMain = { nick: 'Owen' };
+  P.load('dsEnd.js');
   P.load('slxStats.js');
   P.load('slxHud.js');
   P.raf(1);
   return P;
 }
+const span = (P, text, style) => {
+  const e = new P.El(P.doc, 'span');
+  Object.assign(e.style, style || {});
+  e.textContent = text;
+  return e;
+};
+// Their leaderboard write as their handler makes it (slApply.js onLeaderboard -> slHud.setLeaderboard: three innerHTML
+// writes, so every child is new): rows [[name, length]] in place order, the own place (1-based, 0 for none) bold.
+function theirBoard(P, rows, mine) {
+  const S = P.S;
+  for (const k of ['lbs', 'lbn', 'lbp']) S[k].textContent = '';
+  rows.forEach(([name, len], i) => {
+    const own = i + 1 === mine;
+    S.lbs.appendChild(span(P, String(len), { opacity: own ? '1' : '0.7' }));
+    S.lbs.appendChild(new P.El(P.doc, 'br'));
+    S.lbn.appendChild(span(P, name, own ? { opacity: '1', fontWeight: 'bold' } : { opacity: '0.7' }));
+    S.lbn.appendChild(new P.El(P.doc, 'br'));
+    S.lbp.appendChild(span(P, '#' + (i + 1)));
+    S.lbp.appendChild(new P.El(P.doc, 'br'));
+  });
+}
+// Their length box write (slHud.js updateLengthBox, 275-288), in their words for lang.
+function theirLengthBox(P, len, rank, count, words) {
+  const w = words || ['Your length', 'of', 'Your rank'];
+  const f = P.S.lbf;
+  f.textContent = '';
+  const top = span(P, '', { fontSize: '14px' });
+  top.appendChild(span(P, w[0] + ': '));
+  top.appendChild(span(P, String(len), { fontWeight: 'bold' }));
+  f.appendChild(top);
+  f.appendChild(new P.El(P.doc, 'br'));
+  for (const t of [w[2] + ': ', String(rank), ' ' + w[1] + ' ', String(count)]) f.appendChild(span(P, t));
+}
+// Ours on screen: each row as rank|name|length (the own row starred), the gap as '...'.
+function ourRows(P) {
+  const b = P.find('dsb')[0];
+  const ol = b.children[1];
+  return ol.children.map((li) => (/\bgap\b/.test(li.className) ? '...'
+    : li.children.map((c) => c.textContent).join('|') + (/\bme\b/.test(li.className) ? ' *' : '')));
+}
+const TEN = [['Ann', 9120], ['Bob', 8001], ['Owen', 7340], ['<b>x</b>', 6000], ['Cy', 5012], ['Di', 4100], ['Ed', 3300],
+  ['Fay', 2200], ['Gus', 1500], ['Hal', 999]];
 
-test('slxHud: the length box hidden everywhere; a computer keeps their board; the stats line sits under the minimap', () => {
+test('slxHud: their length box and four boxes hidden on every screen; the stats line sits under the minimap', () => {
+  for (const [w, h, mobile] of [[1920, 1080, false], [535, 1159, true], [500, 400, false]]) {
+    const P = hudPage({ innerWidth: w, innerHeight: h }, { is_mobile: mobile });
+    const S = P.S;
+    const at = w + 'x' + h;
+    assert.strictEqual(S.lbf.style.visibility, 'hidden', at + ': Your length / Your rank is gone');
+    assert.strictEqual(S.lbf.style.display, 'inline', at + ': their display is untouched');
+    for (const k of ['lbh', 'lbs', 'lbn', 'lbp']) {
+      assert.strictEqual(S[k].style.visibility, 'hidden', at + ': their ' + k);
+      assert.strictEqual(S[k].style.transform, 'translateZ(0)', at + ': ' + k + ' otherwise as sl.html gave it');
+    }
+    assert.deepStrictEqual([S.lbs.style.height, S.lbn.style.width, S.lbn.style.textOverflow], ['800px', '180px', undefined]);
+    // their client writes their boxes' display and opacity (slHud.js onInit and the fades), never their visibility
+    S.lbs.style.opacity = 1;
+    S.lbs.style.display = 'inline';
+    P.raf(2);
+    assert.strictEqual(S.lbs.style.visibility, 'hidden', at + ': still hidden after their writes');
+  }
   const P = hudPage({ innerWidth: 1920, innerHeight: 1080 });
   const S = P.S;
-  assert.strictEqual(S.lbf.style.visibility, 'hidden', 'Your length / Your rank is gone');
-  assert.strictEqual(S.lbf.style.display, 'inline', 'their display is untouched');
   assert.strictEqual(P.slx.hud.phone(), false);
-  for (const k of ['lbh', 'lbs', 'lbn', 'lbp']) assert.strictEqual(S[k].style.transform, 'translateZ(0)', k);
-  assert.strictEqual(S.lbs.style.height, '800px');
-  assert.strictEqual(S.lbn.style.width, '180px');
   // the 100 px disc of a 124 px holder at right 16, bottom 16: the line centred on it, under it
   const st = P.slx.stats.element.style;
   assert.deepStrictEqual([st.right, st.width, st.bottom], ['18px', '120px', '12px']);
@@ -416,50 +572,113 @@ test('slxHud: the length box hidden everywhere; a computer keeps their board; th
   S.loch.style.width = S.loch.style.height = '48px';
   P.raf(1);
   assert.deepStrictEqual([st.right, st.width], ['6px', '120px']);
-  // beside the board when a centred block fits, under it when not
-  assert.strictEqual(P.slx.hud.topSlot(300), 8);
-  assert.strictEqual(P.slx.hud.topSlot(1400), 32 + 180 + 8);
 });
 
-test('slxHud: a phone gets their board smaller, top 5 rows, names cut with an ellipsis; a computer size puts it back', () => {
-  const P = hudPage({ innerWidth: 535, innerHeight: 1159 }, { is_mobile: true });
-  const S = P.S;
-  assert.strictEqual(P.slx.hud.phone(), true);
-  assert.strictEqual(S.lbh.style.transform, 'translateZ(0) translate(-25.2px, 0px) scale(0.6)');
-  assert.strictEqual(S.lbh.style.transformOrigin, '285px 0px');
-  assert.strictEqual(S.lbs.style.transform, 'translateZ(0) translate(0px, -8.4px) scale(0.9)');
-  assert.strictEqual(S.lbs.style.transformOrigin, '50px -28px');
-  assert.strictEqual(S.lbn.style.transformOrigin, '200px -28px');
-  assert.strictEqual(S.lbp.style.transform, 'translateZ(0) translate(36px, -8.4px) scale(0.9)');
-  assert.strictEqual(S.lbp.style.transformOrigin, '286px -28px');
-  for (const k of ['lbs', 'lbn', 'lbp']) assert.strictEqual(S[k].style.height, '90px', k + ': five rows of 18 px');
-  assert.deepStrictEqual([S.lbn.style.width, S.lbn.style.textOverflow], ['140px', 'ellipsis']);
-  // their resizeHud writes right only: nothing here is undone by it
-  S.lbp.style.right = '260px';
+test('slxHud: ours is the shared board with their rows: names as text, lengths, the own row marked', () => {
+  const P = hudPage({ innerWidth: 1920, innerHeight: 1080 }, { playing: true });
+  const ours = P.find('dsb');
+  assert.strictEqual(ours.length, 1, 'one board, made at load');
+  const b = ours[0];
+  assert.strictEqual(b.style.display, 'none', 'nothing before their first leaderboard');
+  assert.strictEqual(b.style.zIndex, '10');
+  assert.strictEqual(b.children[0].textContent, 'Leaderboard');
+  theirBoard(P, TEN, 3);
   P.raf(1);
-  assert.strictEqual(S.lbp.style.height, '90px');
-  // the board: 221.4 px wide, 102.8 px tall; an upright phone has no room beside it
-  const b = P.slx.hud.board();
-  assert.deepStrictEqual([Math.round(b.left * 10) / 10, Math.round(b.bottom * 10) / 10], [309.6, 101.8]);
-  assert.strictEqual(P.slx.hud.topSlot(260), 110);
-  // a phone on its side has room beside it
-  P.win.innerWidth = 1160;
-  P.win.innerHeight = 536;
+  assert.strictEqual(b.style.display, '', 'shown once their board has rows');
+  assert.deepStrictEqual(ourRows(P), ['1|Ann|9,120', '2|Bob|8,001', '3|Owen|7,340 *', '4|<b>x</b>|6,000', '5|Cy|5,012',
+    '6|Di|4,100', '7|Ed|3,300', '8|Fay|2,200', '9|Gus|1,500', '10|Hal|999'], 'all ten on a computer, a name stays text');
+  const r = plain(P.slx.hud.rows());
+  assert.strictEqual(r.rows.length, 10);
+  assert.deepStrictEqual(r.rows[2], { name: 'Owen', value: '7,340', me: true });
+  assert.deepStrictEqual(r.me, { rank: 3, name: 'Owen', value: '7,340' });
+  // their next write (a new leaderboard) is read again; the same nodes are not
+  theirBoard(P, [['Bob', 9500], ['Owen', 9400]], 2);
   P.raf(1);
+  assert.deepStrictEqual(ourRows(P), ['1|Bob|9,500', '2|Owen|9,400 *']);
+  P.S.lbn.childNodes[0].childNodes[0].data = 'not their write';
+  P.raf(1);
+  assert.deepStrictEqual(ourRows(P), ['1|Bob|9,500', '2|Owen|9,400 *'], 'read when their handler writes, not every frame');
+  // beside the board when a centred block fits, under it when not
+  b.getBoundingClientRect = () => ({ left: 1710, right: 1906, top: 14, bottom: 274, width: 196, height: 260 });
+  assert.deepStrictEqual(plain(P.slx.hud.board()), { left: 1710, bottom: 274, width: 196 });
   assert.strictEqual(P.slx.hud.topSlot(300), 8);
-  // a computer window (not a phone's user agent) of computer size: their board as sl.html had it
-  S.is_mobile = false;
-  P.win.innerWidth = 1280;
-  P.win.innerHeight = 720;
+  assert.strictEqual(P.slx.hud.topSlot(1600), 274 + 8);
+  // a hidden board (no box) leaves the top free
+  b.getBoundingClientRect = () => ({ left: 0, right: 0, top: 0, bottom: 0, width: 0, height: 0 });
+  assert.strictEqual(P.slx.hud.topSlot(1600), 8);
+});
+
+test('slxHud: own row pinned when outside the top; top 5 on a phone, 10 on a computer; follows their fade', () => {
+  // a computer: their board without the own row (rank 25): pinned from their length box while playing
+  const P = hudPage({ innerWidth: 1280, innerHeight: 720 }, { playing: true });
+  theirLengthBox(P, 321, 25, 60);
+  theirBoard(P, TEN.filter((r) => r[0] !== 'Owen').concat([['Ivy', 900]]), 0);
   P.raf(1);
-  assert.strictEqual(P.slx.hud.phone(), false);
-  assert.deepStrictEqual(['lbh', 'lbs', 'lbn', 'lbp'].map((k) => S[k].style.transform), Array(4).fill('translateZ(0)'));
-  assert.deepStrictEqual(['lbs', 'lbn', 'lbp'].map((k) => S[k].style.height), Array(3).fill('800px'));
-  assert.deepStrictEqual([S.lbn.style.width, S.lbn.style.textOverflow, S.lbh.style.transformOrigin], ['180px', '', '']);
-  // and a small computer window gets the phone board
-  P.win.innerWidth = 500;
+  assert.deepStrictEqual(ourRows(P).slice(-3), ['10|Ivy|900', '...', '25|Owen|321 *']);
+  assert.strictEqual(ourRows(P).length, 12);
+  // another language's words (slHud.js lengthWords): the same numbers
+  theirLengthBox(P, 4321, 12, 40, ['Deine Länge', 'von', 'Dein rang']);
   P.raf(1);
-  assert.strictEqual(P.slx.hud.phone(), true);
+  assert.deepStrictEqual(ourRows(P).slice(-1), ['12|Owen|4,321 *']);
+  // not playing: no own row to pin
+  P.S.playing = false;
+  theirBoard(P, TEN.slice(0, 2), 0);
+  P.raf(1);
+  assert.deepStrictEqual(ourRows(P), ['1|Ann|9,120', '2|Bob|8,001']);
+  // a phone (their is_mobile): the top 5, drawn back up from their 0.7 page; the own row at 7 is pinned from theirs
+  const M = hudPage({ innerWidth: 535, innerHeight: 1159 }, { is_mobile: true, playing: true });
+  assert.strictEqual(M.slx.hud.phone(), true);
+  assert.strictEqual(M.find('dsb')[0].style.zoom, String(1 / 0.7));
+  const seventh = TEN.slice();
+  seventh.splice(2, 1);
+  seventh.splice(6, 0, ['Owen', 3200]);
+  theirBoard(M, seventh, 7);
+  M.raf(1);
+  assert.deepStrictEqual(ourRows(M), ['1|Ann|9,120', '2|Bob|8,001', '3|<b>x</b>|6,000', '4|Cy|5,012', '5|Di|4,100', '...',
+    '7|Owen|3,200 *']);
+  assert.deepStrictEqual(plain(M.slx.hud.rows().me), { rank: 7, name: 'Owen', value: '3,200' });
+  // inside the top 5: marked in place, nothing pinned
+  theirBoard(M, TEN, 3);
+  M.raf(1);
+  assert.deepStrictEqual(ourRows(M), ['1|Ann|9,120', '2|Bob|8,001', '3|Owen|7,340 *', '4|<b>x</b>|6,000', '5|Cy|5,012']);
+  // the row count follows the window: a computer size gets all ten, a computer window this small the top 5
+  M.S.is_mobile = false;
+  M.win.innerWidth = 1280;
+  M.win.innerHeight = 720;
+  M.raf(1);
+  assert.strictEqual(M.slx.hud.phone(), false);
+  assert.strictEqual(ourRows(M).length, 10);
+  M.win.innerWidth = 1000;
+  M.win.innerHeight = 500;
+  M.raf(1);
+  assert.strictEqual(M.slx.hud.phone(), true, 'a short side of 520 px or less');
+  assert.strictEqual(ourRows(M).length, 5);
+  M.win.innerWidth = 1280;
+  M.win.innerHeight = 720;
+  M.raf(1);
+  // their fades: ours shows and goes when theirs would
+  const b = M.find('dsb')[0];
+  const lbs = M.S.lbs.style;
+  lbs.opacity = 0.4;
+  M.raf(1);
+  assert.deepStrictEqual([b.style.display, b.style.opacity], ['', '0.4'], 'their lb_fr on our board');
+  lbs.opacity = 1;
+  M.raf(1);
+  assert.deepStrictEqual([b.style.display, b.style.opacity], ['', '1']);
+  lbs.opacity = 0;
+  M.raf(1);
+  assert.strictEqual(b.style.display, 'none', 'their fade out at a death');
+  lbs.opacity = 1;
+  lbs.display = 'none';
+  M.raf(1);
+  assert.strictEqual(b.style.display, 'none', 'their boxes off');
+  lbs.display = 'inline';
+  M.raf(1);
+  assert.strictEqual(b.style.display, '');
+  theirBoard(M, [], 0);
+  M.raf(1);
+  assert.strictEqual(b.style.display, 'none', 'no rows, no board');
+  assert.strictEqual(M.slx.errors, 0);
 });
 
 test('slxBr: every event line in one block at the top centre, in the slot slxHud keeps clear', () => {
@@ -497,6 +716,79 @@ test('slxBr: every event line in one block at the top centre, in the slot slxHud
   br({ state: 'running', phase: 'holding', alive: 5, elapsedMs: 90000 });
   assert.strictEqual(sub.textContent, '5 left · last snake alive wins');
   assert.ok(slots.length > 0 && slots.every((w) => typeof w === 'number'), 'asks for the slot with its width');
+});
+
+// The battle royale's card answers (slxBr cardLines) drawn by slxCard on the shared card: a decided match.
+test('slxBr cards on the shared card: a win (1st of N, the podium, the prize as money), a loss, unproven and solo', async () => {
+  const ORIGIN = 'https://duelseries.com';
+  async function brLife(o) {
+    const store = { slBr: 'play' };
+    const posted = [];
+    const parent = { postMessage: (m, origin) => posted.push([m, origin]) };
+    const P = makePage({ win: { setInterval: () => 0, parent,
+      location: { origin: ORIGIN, assigned: [], assign(u) { this.assigned.push(String(u)); } },
+      sessionStorage: { getItem: (k) => store[k] || null, removeItem: (k) => { delete store[k]; } } } });
+    P.slx.hud = { phone: () => false, topSlot: () => 8 };
+    P.doc.querySelector = () => null;
+    P.D.slMain = { nick: 'Owen' };
+    P.load('dsEnd.js');
+    P.load('slxBr.js');
+    P.load('slxCard.js');
+    // the lobby's first Play: the wallet's identity proof, then their Play
+    P.slx.brLaunch('Owen');
+    const ask = posted[0][0];
+    assert.deepStrictEqual([ask.type, ask.action], ['duel:signaction', 'play:identify']);
+    if (o.proven) {
+      for (const l of P.win.listeners.filter((x) => x.type === 'message')) {
+        l.fn({ source: parent, origin: ORIGIN, data: { type: 'duel:signaction:done', id: ask.id, proof: { sig: 'x' } } });
+      }
+    } else {
+      for (const l of P.win.listeners.filter((x) => x.type === 'message')) {
+        l.fn({ source: parent, origin: ORIGIN, data: { type: 'duel:signaction:error', id: ask.id } });
+      }
+    }
+    await new Promise((r) => setImmediate(r));
+    assert.deepStrictEqual(P.plays, ['Owen']);
+    P.slx.fire('open');
+    P.slx.fire('ownAdd', { id: o.me });
+    P.clock.now += 95000;
+    P.slx.fire('x:br', Object.assign({ t: 'br', state: 'over', phase: 'over', alive: 1, startedCount: 12, prize: 20, z: null,
+      winner: { id: 7, name: o.podium[0] }, podium: o.podium.map((name) => ({ name })) }, o.br || {}));
+    P.slx.fire('ownDead', { type: 'dead', code: 0 });
+    P.S.lastscore.innerHTML = LASTSCORE(500);
+    P.slx.fire('menuShow');
+    return P;
+  }
+  const W = await brLife({ proven: true, me: 7, podium: ['Owen', 'Viper', 'Kes'] });
+  let st = W.slx.card.state();
+  assert.deepStrictEqual([st.title, st.tone, st.hero, st.unit], ['You won!', 'win', '1st', 'of 12']);
+  assert.deepStrictEqual(plain(st.podium), ['1 Owen', '2 Viper', '3 Kes']);
+  assert.deepStrictEqual([plain(st.ledger), st.status], [['Prize $20'], 'Sending to your wallet']);
+  assert.deepStrictEqual(plain(st.facts), ['Time 1:35', 'Length 500'], 'the length moves into the facts');
+  assert.deepStrictEqual([st.again, st.againDisabled, plain(st.lines)], ['Next match opening', true, []]);
+  assert.deepStrictEqual(W.find('dse-pod')[0].children.map((li) => [li.className, li.textContent]),
+    [['me', '1Owen'], ['', '2Viper'], ['', '3Kes']], 'the own row marked on the podium');
+  assert.deepStrictEqual(W.find('dse-lr').map((r) => [r.className, r.textContent]), [['dse-lr', 'Prize$20']]);
+  assert.strictEqual(W.find('dse-st')[0].textContent, 'Sending to your wallet');
+  assert.ok(/\bt-win\b/.test(W.slx.card.element.className));
+  // a win whose wallet never signed: the prize is settled by hand, no money rows
+  const U = await brLife({ proven: false, me: 7, podium: ['Owen', 'Viper'] });
+  st = U.slx.card.state();
+  assert.deepStrictEqual([st.title, st.hero, plain(st.ledger), st.status, plain(st.lines)],
+    ['You won!', '1st', [], '', ['The prize is settled by hand.']]);
+  // a solo test run: no prize
+  const O = await brLife({ proven: true, me: 7, podium: ['Owen'], br: { soloRun: true, startedCount: 1 } });
+  st = O.slx.card.state();
+  assert.deepStrictEqual([st.title, st.hero, st.unit, plain(st.ledger), plain(st.lines)],
+    ['You won!', '1st', '', [], ['Solo test run: no prize.']]);
+  // a loss: the length is the big figure, the own name marked where the podium has it, who took the prize
+  const L = await brLife({ proven: true, me: 8, podium: ['Viper', 'Owen', 'Kes'] });
+  st = L.slx.card.state();
+  assert.deepStrictEqual([st.title, st.tone, st.hero, st.unit], ['Match over', 'plain', '500', 'length']);
+  assert.deepStrictEqual(plain(st.podium), ['1 Viper', '2 Owen', '3 Kes']);
+  assert.deepStrictEqual(L.find('dse-pod')[0].children.map((li) => li.className), ['', 'me', '']);
+  assert.deepStrictEqual([plain(st.ledger), st.status, plain(st.lines)], [[], '', ['First place took $20.']]);
+  assert.deepStrictEqual(plain(st.facts), ['Time 1:35']);
 });
 
 // The server's sl:diag fields (server/sl/slSockets.js DIAG_NUMBERS) and its cleaner.
@@ -664,23 +956,48 @@ test('slxSound: the first gesture unlocks audio; the fanfare file loads only whe
   assert.deepStrictEqual(plain(R.slx.sound.played()), { join: 1, death: 0, kill: 0, cashout: 1 });
 });
 
+// The shared end screens (dsEnd.js) are every game's file, not the layer's: their rules are their own .dse (card) and
+// .dsb (board) classes, so the .slx- rule is held on the layer's styles and dsEnd's are held to that namespace instead.
+// Its source is held to the same no-random, no-markup and no-em-dash rules; it has no inert check (a library: it makes
+// nothing until a layer file calls it, see the inert test).
 test('HUD files: .slx- selectors only, no Math.random, no markup writes, every number cited', () => {
   const P = makePage({ win: { CashoutSound: { play() {} } } });
+  for (const k of ['lbh', 'lbs', 'lbn', 'lbp']) P.S[k] = new P.El(P.doc, 'div');   // so slxHud makes its board
+  P.load('dsEnd.js');
   for (const f of HUD) P.load(f);
-  const css = P.styleText().replace(/\/\*[\s\S]*?\*\//g, '');
-  // every selector of every rule, @media blocks opened
-  const flat = css.replace(/@media[^{]*\{/g, '').replace(/\}\s*\}/g, '}');
-  const selectors = [];
-  for (const m of flat.matchAll(/([^{}]+)\{[^{}]*\}/g)) for (const s of m[1].split(',')) selectors.push(s.trim());
-  assert.ok(selectors.length > 30, 'parsed ' + selectors.length);
+  const styles = P.doc.head.children.filter((e) => e.tagName === 'STYLE');
+  const shared = styles.filter((e) => e.getAttribute('data-dse') === '1');
+  assert.strictEqual(shared.length, 1, 'dsEnd styled the page once (for the board)');
+  const selectorsOf = (els) => {
+    const css = els.map((e) => e.textContent).join('\n').replace(/\/\*[\s\S]*?\*\//g, '');
+    // every selector of every rule, @media and @keyframes blocks opened
+    const flat = css.replace(/@keyframes[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/g, '').replace(/@media[^{]*\{/g, '')
+      .replace(/\}\s*\}/g, '}');
+    const out = [];
+    for (const m of flat.matchAll(/([^{}]+)\{[^{}]*\}/g)) for (const s of m[1].split(',')) out.push(s.trim());
+    return out;
+  };
+  const selectors = selectorsOf(styles.filter((e) => !shared.includes(e)));
+  assert.ok(selectors.length >= 25, 'parsed ' + selectors.length);
   for (const s of selectors) assert.ok(/^\.slx-/.test(s), 'selector outside .slx-: ' + s);
-  for (const f of HUD) {
-    const src = fs.readFileSync(path.join(SLX_DIR, f), 'utf8');
+  const dse = selectorsOf(shared);
+  assert.ok(dse.length > 40, 'parsed ' + dse.length + ' of dsEnd');
+  for (const s of dse) assert.ok(/^\.ds[eb](?:[-.:\s>]|$)/.test(s), 'dsEnd selector outside .dse / .dsb: ' + s);
+  const files = HUD.map((f) => [f, path.join(SLX_DIR, f)]).concat([['dsEnd.js', DSEND]]);
+  for (const [f, file] of files) {
+    const src = fs.readFileSync(file, 'utf8');
     assert.ok(!/Math\.random/.test(src), f + ': Math.random');
     assert.ok(!/innerHTML\s*=[^=]/.test(src), f + ': writes innerHTML');
     assert.ok(!/insertAdjacentHTML|document\.write|outerHTML\s*=/.test(src), f + ': markup write');
-    assert.ok(/if \(!D \|\| !D\.slx \|\| !D\.slx\.active\) return;/.test(src), f + ': the inert check');
+    if (f !== 'dsEnd.js') assert.ok(/if \(!D \|\| !D\.slx \|\| !D\.slx\.active\) return;/.test(src), f + ': the inert check');
     assert.ok(!src.includes(String.fromCharCode(0x2014)), f + ': em dash');
+    // every named number of the layer says where it comes from: a comment on its line or the line above it
+    if (f === 'dsEnd.js') continue;
+    const lines = src.split(/\r?\n/);
+    lines.forEach((l, i) => {
+      if (!/^\s*var [A-Z][A-Z0-9_]* = -?[0-9.]/.test(l)) return;
+      assert.ok(/\/\/./.test(l) || /^\s*\/\//.test(lines[i - 1] || ''), f + ':' + (i + 1) + ' an uncited number: ' + l.trim());
+    });
   }
 });
 
@@ -711,15 +1028,17 @@ function runLife(name, o) {
     return s;
   }
   P = V.makePage(H, src.entries, {
-    scripts: V.SRC.concat(LAYER.map((f) => [f, fs.readFileSync(path.join(SLX_DIR, f), 'utf8')])),
+    // the composed page's order: the shared end screens, then the layer (server/sl/slBoot.js slxTail)
+    scripts: V.SRC.concat([['dsEnd.js', fs.readFileSync(DSEND, 'utf8')]],
+      LAYER.map((f) => [f, fs.readFileSync(path.join(SLX_DIR, f), 'utf8')])),
     // no harness transport: slxNet installs the production one over this fake socket.io
     win: { io: fakeIo, CashoutSound: { play() { return true; } }, DuelSlitherConfig: { assetBase: '/' } }
   });
   const login = P.labelled.find((e) => e.label === 'login');
   P.doc.getElementById = (id) => (id === 'login' ? login : null);
-  // slxDirect looks for the results card by its class; the vm page knows only data-sl selectors
+  // dsEnd looks for its font link once before it styles the page; the vm page knows only data-sl selectors
   const q = P.doc.querySelector;
-  P.doc.querySelector = (sel) => (sel === '.slx-card' ? P.win.DuelSlither.slx.card.element : q(sel));
+  P.doc.querySelector = (sel) => (sel === 'link[data-dse-font]' ? null : q(sel));
   P.socketHook = function () {
     const s = socks[socks.length - 1];
     if (!s) return;
@@ -744,11 +1063,12 @@ function runLife(name, o) {
   P.boot();
   const D = P.win.DuelSlither;
   assert.strictEqual(D.slx.active, true, 'the layer is active on the production transport');
-  const seen = { menuShow: 0, cardAtShow: [], lastscoreAtShow: [], states: [] };
+  const seen = { menuShow: 0, cardAtShow: [], lastscoreAtShow: [], bestAtShow: [], states: [] };
   D.slx.on('menuShow', () => {
     seen.menuShow++;
     seen.cardAtShow.push(D.slx.card.state());
     seen.lastscoreAtShow.push(String(D.S.lastscore.innerHTML));
+    seen.bestAtShow.push(D.S.best_rank);
   });
   while (P.frame < H.warm) P.step();
   D.play('Owen');
@@ -785,12 +1105,16 @@ test('frozen client + real layer: death card N = their last-score number; Play a
   assert.strictEqual(r.seen.menuShow, 1);
   const st = r.seen.cardAtShow[0];
   assert.strictEqual(st.kind, 'dead');
-  assert.strictEqual(st.title, 'Match Results');
+  assert.strictEqual(st.title, 'You died');
+  // Time from the own add to the death on the page clock; Top rank kept from the life: their client's own best rank
+  // is already gone when their menu shows (a dead seat's board ranks it 0)
+  assert.deepStrictEqual(plain(st.facts), ['Time 0:03', 'Top rank 38th']);
+  assert.deepStrictEqual(r.seen.bestAtShow, [0]);
   const n = lastscoreN(r.seen.lastscoreAtShow[0]);
   assert.ok(n !== null, 'their gameOver wrote a length');
   assert.strictEqual(st.length, n, 'the card number is their last-score number');
   assert.strictEqual(st.length, '10');
-  assert.deepStrictEqual(r.seen.states, ['|Play again', 'dead|Play again', 'dead|Starting', '|Play again'],
+  assert.deepStrictEqual(r.seen.states, ['|', 'dead|Play again', 'dead|Starting', '|'],
     'shown at their menu, Starting after the press, gone when the second life started');
   assert.strictEqual(r.socks.length, 2, 'Play again connected a second socket');
   assert.deepStrictEqual(plain(r.socks.map((s) => s.emits.find((e) => e[0] === 'sl:join')[1])), [{ nick: 'Owen' }, { nick: 'Owen' }]);
@@ -812,6 +1136,8 @@ test('frozen client + real layer: close card N = their last-score number; a serv
     const st = r.seen.cardAtShow[0];
     assert.strictEqual(st.kind, kind, reason);
     assert.strictEqual(st.title, title, reason);
+    assert.deepStrictEqual(plain(st.facts), ['Time 0:05', 'Top rank 37th'], reason);
+    assert.deepStrictEqual(r.seen.bestAtShow, [999999999], reason + ': their resetGame ran at the close, before their menu');
     const n = lastscoreN(r.seen.lastscoreAtShow[0]);
     assert.ok(n !== null);
     assert.strictEqual(st.length, n, reason + ': the card number is their last-score number');
@@ -825,7 +1151,8 @@ test('frozen client + real layer: cash-out card, refusal card with no menu', { s
   assert.ok(at > 0, 'the stream has an own dead');
   const c = runLife('beh-twolives', { inject: [{ sock: 1, before: at, data: [{ t: 'cashed', len: 10 }] }], frames: 500 });
   assert.deepStrictEqual(c.errors, []);
-  assert.strictEqual(c.seen.cardAtShow[0].title, 'Cashed Out');
+  assert.strictEqual(c.seen.cardAtShow[0].title, 'Cashed out');
+  assert.deepStrictEqual(plain(c.seen.cardAtShow[0].facts), ['Time 0:03', 'Top rank 38th']);
   assert.strictEqual(c.seen.cardAtShow[0].length, lastscoreN(c.seen.lastscoreAtShow[0]));
   assert.deepStrictEqual(plain(c.sound), { join: 1, death: 0, kill: 0, cashout: 1 });
   const f = runLife('beh-close', { refuse: { sock: 1, why: 'full' }, frames: 200 });
