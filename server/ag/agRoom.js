@@ -849,13 +849,15 @@ class AgRoom {
 
   // The rows one socket sees: the top U_BOARD rows, its own row flagged; with ownRowWhenOutside, its own row
   // appended (with its rank) when it is alive and outside the top. An empty name is not sent (their client
-  // shows its own placeholder).
+  // shows its own placeholder). Every row carries its score, the player's mass rounded down (ours, Owen
+  // 2026-10-16: the score beside each name).
   _rowsFor(ranking, seat) {
     const n = this.boardLaw.rows;
     const row = (p, me) => {
       const r = {};
       if (p.name) r.name = p.name;
       if (me) r.me = true;
+      r.score = Math.min(Math.floor(p.score), 4294967295);
       return r;
     };
     const rows = [];

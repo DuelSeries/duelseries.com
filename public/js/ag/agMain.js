@@ -459,11 +459,6 @@
       var p = (1 + (now - hold.at) / holdTickMs) / hold.need;
       return p < 0 ? 0 : (p > 1 ? 1 : p);
     }
-    function mainOwnCell(own) {
-      var best = null;
-      for (var i = 0; i < own.length; i++) if (!best || own[i].size > best.size) best = own[i];
-      return best;
-    }
 
     // ---- server side events (agNet SIDE_EVENTS) ---------------------------------------------
     var sideHandlers = {};
@@ -828,9 +823,12 @@
       renderer.renderWorld(ctx, L, view(), settings, now);
       // Ours: the hold ring, only while a hold runs (never in the harness streams, which never hold Q).
       if (hold.wanted && hold.server && L.own.length) {
-        // drawn as every game's ring (DSEnd.ring, Owen's gold "Three Count"); no glow on a touch screen
-        renderer.drawHoldRing(ctx, view(), mainOwnCell(L.own), holdProgress(now), settings,
-          DSE && typeof DSE.ring === 'function' ? { draw: DSE.ring, now: now, mobile: coarsePointer() } : null);
+        // drawn as every game's ring (DSEnd.ring, Owen's gold "Three Count"); no glow on a touch screen. Round every
+        // own cell, so a player split into pieces sees each one cashing out (Owen 2026-10-16).
+        var ringDraw = DSE && typeof DSE.ring === 'function' ? { draw: DSE.ring, now: now, mobile: coarsePointer() } : null;
+        var ringP = holdProgress(now);
+        var ringView = view();
+        for (var ri = 0; ri < L.own.length; ri++) renderer.drawHoldRing(ctx, ringView, L.own[ri], ringP, settings, ringDraw);
       }
       // A paid seat's own cell is on screen: ag:ready (agPaid, design 4 step 5: the cell is shielded until now).
       if (flow) flow.onFrame(L.own.length);

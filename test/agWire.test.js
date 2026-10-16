@@ -182,22 +182,26 @@ test('integer ranges at their edges', () => {
   assert.deepStrictEqual(out[2].rows, [{ rank: 0 }, { rank: 65535, me: true }]);
 });
 
-test('every board row bit combination round trips; bits are me 1, hasName 2, hasRank 4', () => {
+test('every board row bit combination round trips; bits are me 1, hasName 2, hasRank 4, hasScore 8', () => {
   const rows = [];
-  for (let m = 0; m < 8; m++) {
+  for (let m = 0; m < 16; m++) {
     const r = {};
     if (m & 1) r.me = true;
     if (m & 2) r.name = 'p' + m;
     if (m & 4) r.rank = 100 + m;
+    if (m & 8) r.score = m === 15 ? 4294967295 : 1000 * m;   // the score beside each name (Owen 2026-10-16)
     rows.push(r);
   }
   const { buf, out } = roundTrip([{ t: 'board', rows }]);
   assert.deepStrictEqual(out, [{ t: 'board', rows }]);
-  assert.strictEqual(buf[2], 8);
+  assert.strictEqual(buf[2], 16);
   assert.strictEqual(buf[3], 0);           // row 0: no bits
   assert.strictEqual(buf[4], 1);           // row 1: me
   assert.strictEqual(buf[5], 2);           // row 2: hasName
-  assert.deepStrictEqual(W.ROW_BIT, { me: 1, hasName: 2, hasRank: 4 });
+  assert.deepStrictEqual(W.ROW_BIT, { me: 1, hasName: 2, hasRank: 4, hasScore: 8 });
+  for (const bad of [-1, 1.5, 2 ** 32, NaN, '5']) {
+    assert.throws(() => W.encodeBundle([{ t: 'board', rows: [{ score: bad }] }]), 'score ' + bad);
+  }
   // 255 rows is the format's ceiling.
   const many = Array.from({ length: 255 }, (_, i) => ({ rank: i }));
   assert.strictEqual(roundTrip([{ t: 'board', rows: many }]).out[0].rows.length, 255);

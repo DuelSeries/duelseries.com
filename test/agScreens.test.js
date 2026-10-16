@@ -383,6 +383,10 @@ test('board, free: the room list in rank order, no figures, the own row under th
   // names are text
   b.setFree([{ name: '<b>x</b>' }], 'me');
   assert.deepStrictEqual(rowsOf(p), [['1', '<b>x</b>', '', false]]);
+  // the score beside each name (Owen 2026-10-16): the server's whole mass; anything else shows nothing
+  b.setFree([{ name: 'big', score: 12345 }, { me: true, score: 0 }, { name: 'odd', score: 1.5 }, { name: 'neg', score: -3 }], 'Owen');
+  assert.deepStrictEqual(rowsOf(p), [['1', 'big', '12345', false], ['2', 'Owen', '0', true], ['3', 'odd', '', false],
+    ['4', 'neg', '', false]]);
   b.sync(false);
   assert.strictEqual(readBoard(p.doc).shown, false);
   // empty rows hide it even while playing

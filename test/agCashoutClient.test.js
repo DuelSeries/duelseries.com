@@ -229,7 +229,7 @@ test('hold: nothing starts unless alive in play; the Esc menu or a death while h
 });
 
 // ---- the ring ---------------------------------------------------------------------------------------------------
-test('ring: only while the server reports the hold and Q is down, round the biggest own cell, full on the cash-out tick', async () => {
+test('ring: only while the server reports the hold and Q is down, round every own cell, full on the cash-out tick', async () => {
   const p = bootPage();
   await spawn(p, p.session.feed);
   p.session.feed({ t: 'own', id: 11 });
@@ -245,8 +245,8 @@ test('ring: only while the server reports the hold and Q is down, round the bigg
   p.session.sideEvent('ag:holding', { on: 1, need: 75 });
   const at = p.now();
   await p.frames(1, 40);
-  assert.strictEqual(rings.length, 1);
-  assert.strictEqual(rings[0].id, 9, 'the biggest own cell');
+  assert.deepStrictEqual(rings.map((g) => g.id).sort(), [11, 9].sort(), 'one ring round each piece (Owen 2026-10-16)');
+  assert.strictEqual(rings[0].progress, rings[1].progress, 'every piece fills together');
   const expect = (t) => Math.min(1, (1 + (t - at) / 40.014) / 75);
   assert.ok(Math.abs(rings[0].progress - expect(rings[0].t)) < 1e-9);
   await p.frames(73, 40.014);
@@ -277,10 +277,10 @@ test('ring: only while the server reports the hold and Q is down, round the bigg
   assert.strictEqual(rings.length, n, 'a new hold waits for the server again');
   p.session.sideEvent('ag:holding', { on: 1, need: 75 });
   await p.frames(1);
-  assert.strictEqual(rings.length, n + 1);
+  assert.strictEqual(rings.length, n + 2, 'one frame: a ring round each of the two pieces');
   p.session.sideEvent('ag:holding', { on: 0 });
   await p.frames(3);
-  assert.strictEqual(rings.length, n + 1, 'the server ending the hold removes it too');
+  assert.strictEqual(rings.length, n + 2, 'the server ending the hold removes it too');
 });
 
 // ---- free cash-out results --------------------------------------------------------------------------------------

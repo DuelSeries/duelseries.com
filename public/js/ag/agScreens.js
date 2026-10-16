@@ -594,8 +594,10 @@
         var name = mine ? String(nick || '') : (typeof r.name === 'string' ? r.name : '');
         if (!name) name = UNNAMED;
         var rank = (r.rank | 0) > 0 ? r.rank | 0 : i + 1;
-        if (list.length < BOARD_ROWS) list.push({ rank: rank, name: name, value: '', me: mine });
-        if (mine && !me) me = { rank: rank, name: name, value: '' };
+        // the score beside each name (Owen 2026-10-16), the server's mass, right-aligned by the shared board
+        var value = typeof r.score === 'number' && r.score >= 0 && r.score % 1 === 0 ? String(r.score) : '';
+        if (list.length < BOARD_ROWS) list.push({ rank: rank, name: name, value: value, me: mine });
+        if (mine && !me) me = { rank: rank, name: name, value: value };
       }
       if (!ensure(false)) return;
       data = { rows: list, me: me };

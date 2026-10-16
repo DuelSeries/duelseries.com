@@ -65,7 +65,8 @@
   };
 
   // Board row bits byte (section 8).
-  var ROW_BIT = { me: 1, hasName: 2, hasRank: 4 };
+  // hasScore (ours, Owen 2026-10-16: the score beside each name): a u32 after the name, the row's mass.
+  var ROW_BIT = { me: 1, hasName: 2, hasRank: 4, hasScore: 8 };
 
   // Fixed sizes.
   var CELL_FIXED = 4 + 4 + 4 + 2 + 1;   // id, x, y, size, bits = 15
@@ -154,6 +155,7 @@
       var r = rows[i];
       if (!r || typeof r !== 'object') throw new TypeError('agWire: board row ' + i + ' is not an object');
       if (has(r.rank)) checkInt(r.rank, 0, 65535, 'board rank');
+      if (has(r.score)) checkInt(r.score, 0, 4294967295, 'board score');
       out[i] = has(r.name) ? nameBytes(r.name, cap) : null;
     }
     return out;
@@ -212,6 +214,7 @@
           n += 1;
           if (has(rec.rows[k].rank)) n += 2;
           if (rowNames[k]) n += 1 + rowNames[k].length;
+          if (has(rec.rows[k].score)) n += 4;
         }
         return { size: n, extra: rowNames };
       }
@@ -285,9 +288,11 @@
           if (r.me) bits |= ROW_BIT.me;
           if (extra[k]) bits |= ROW_BIT.hasName;
           if (has(r.rank)) bits |= ROW_BIT.hasRank;
+          if (has(r.score)) bits |= ROW_BIT.hasScore;
           w.u8(bits);
           if (has(r.rank)) w.u16(r.rank);
           if (extra[k]) { w.u8(extra[k].length); w.bytes(extra[k]); }
+          if (has(r.score)) w.u32(r.score);
         }
         break;
     }
@@ -442,6 +447,7 @@
           if (bits & ROW_BIT.me) row.me = true;
           if (bits & ROW_BIT.hasRank) { r.need(2, 'board rank'); row.rank = r.u16(); }
           if (bits & ROW_BIT.hasName) row.name = r.str('board name');
+          if (bits & ROW_BIT.hasScore) { r.need(4, 'board score'); row.score = r.u32(); }
           rows.push(row);
         }
         return { t: 'board', rows: rows };
