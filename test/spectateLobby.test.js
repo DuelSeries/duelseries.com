@@ -59,6 +59,25 @@ test('agar.io keeps its own flag; the snake falls back to the old engine while t
   assert.strictEqual(b.win.sessionStorage.getItem('lobbyType'), 'br');
 });
 
+/* The old engine's free room is the ladder's Free rung (snake:na:s0), which Free Play reaches by stake 0. A Spectate
+   that sent no stake made /game.html default to lobbyType 'free', the off-board fixed tier, so the viewer watched an
+   empty world reading "No players to spectate" beside a row of ~48 playing. It names the rung as Play does, and a
+   lobbyType left by an earlier event watch cannot point it at the battle royale instead. */
+test('the old engine\'s free snake is watched on the Free rung Play joins, never the off-board free tier', async () => {
+  const h = lobbyHarness([OLD_FREE]);
+  await h.win.V2Board.load();
+  h.win.sessionStorage.setItem('lobbyType', 'br');   // left by an earlier old-engine event watch
+  h.win.V2Play.spectate('snake');
+  assert.strictEqual(h.el('game-frame').src, '/game.html');
+  assert.strictEqual(h.win.sessionStorage.getItem('spectateOnly'), 'true');
+  assert.strictEqual(h.win.sessionStorage.getItem('stake'), '0', 'the Free rung, as Free Play names it');
+  assert.strictEqual(h.win.sessionStorage.getItem('lobbyType'), null, 'no tier name to land it elsewhere');
+  // /game.html sends that stake with the watch, and the server's stake lookup (getRoomForJoin) is the rung's room.
+  const game = fs.readFileSync(path.join(ROOT, 'public/js/game.js'), 'utf8');
+  assert.match(game, /const lobbyType\s+= sessionStorage\.getItem\('lobbyType'\)\s+\|\| \(stake === null \? 'free' : null\);/);
+  assert.match(game, /socket\.emit\('spectate:join', \{ lobbyType, stake, region: selectedRegion \}\);/);
+});
+
 test('a Play after a Spectate whose page never booted is a plain Play', async () => {
   const h = lobbyHarness([SL_FREE]);
   await h.win.V2Board.load();

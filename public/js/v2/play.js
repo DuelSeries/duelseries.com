@@ -530,8 +530,18 @@
       /* Which ROOM to watch. Without this the viewer lands in whatever free
          room the last session happened to leave behind, which for the nightly
          event is the one place the match is definitely not happening. */
-      if (lobbyType) sessionStorage.setItem('lobbyType', lobbyType);
-      sessionStorage.removeItem('stake');
+      if (lobbyType) {
+        sessionStorage.setItem('lobbyType', lobbyType);
+        sessionStorage.removeItem('stake');
+      } else if (game === 'snake') {
+        /* The old engine's free room is the ladder's Free rung (snake:na:s0), the room Free Play reaches by
+           stake 0 (launch() sends { stake: 0 } through the widget). With no stake /game.html falls back to
+           lobbyType 'free', the off-board fixed tier, and the viewer watched an empty world. */
+        sessionStorage.removeItem('lobbyType');
+        sessionStorage.setItem('stake', '0');
+      } else {
+        sessionStorage.removeItem('stake');
+      }
     } catch (_) {}
     /* Both pages read spectateOnly. agar.io's has no menu card inside this
        lobby any more (Owen 2026-10-09), so it is the flag that opens it
