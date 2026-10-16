@@ -364,6 +364,7 @@
       box.classList.add('done');
       clearTimeout(btn._t);
       btn._t = setTimeout(() => box.classList.remove('done'), 1400);
+      copied(a);
     };
     try { navigator.clipboard.writeText(a).then(() => done(true), () => done(false)); }
     catch (_) { done(false); }
@@ -435,8 +436,11 @@
     /* Ten. Twenty was a number nobody chose, and it is the figure Privy prints
        at the top of its own screen, so it reads as a price rather than a
        starting point. */
-    window.duelWalletFund(10).catch(e =>
-      note('Add funds did not open: ' + (e && e.message ? e.message : 'try again.')));
+    window.duelWalletFund(10).catch(e => {
+      const why = e && e.message ? e.message : 'Try again.';
+      if (window.DSToast) window.DSToast.show({ kind: 'err', title: 'Add funds did not open', detail: why });
+      else note('Add funds did not open: ' + why);
+    });
   }
 
   /* Cash out sends from the player's own wallet to an address they give us.
@@ -509,9 +513,28 @@
     pending = null; cashing = false;
     el('wdrveil').classList.remove('on');
     render();
+    /* One card that follows the send: running while the chain confirms it
+       (the widget resolves only once it is confirmed), then done or failed in
+       place, so the answer is where the question was. */
+    /* The card can never stand in the send's way or change what it reports:
+       a fault in it is swallowed here, before the send and inside each answer,
+       so a confirmed send can never fall through to the failed branch. */
+    const T = window.DSToast;
+    const what = { amount: money(p.amt) + ' USDC', detail: 'to', code: ownShort(p.to) };
+    let card = null;
+    try { if (T) card = T.show(Object.assign({ kind: 'info', title: 'Sending your withdraw', sticky: true }, what)); } catch (_) {}
+    const tell = (o, plain, good) => {
+      try { if (card) return card.update(o); } catch (_) {}
+      note(plain, good);
+    };
     window.duelWalletSend(p.amt, p.to)
-      .then(() => { note('Sent.', true); if (window.duelWalletRefresh) window.duelWalletRefresh(); })
-      .catch(e => note('Send failed: ' + (e && e.message ? e.message : 'try again.')));
+      .then(() => {
+        tell(Object.assign({ kind: 'ok', title: 'Withdraw confirmed' }, what), 'Sent.', true);
+        if (window.duelWalletRefresh) window.duelWalletRefresh();
+      }, e => {
+        const why = e && e.message ? e.message : 'Try again.';
+        tell({ kind: 'err', title: 'Withdraw failed', amount: '', detail: why, code: '' }, 'Send failed: ' + why);
+      });
   }
 
 
@@ -538,6 +561,7 @@
       }
       clearTimeout(box._t);
       box._t = setTimeout(() => { box.classList.remove('done'); if (lbl) lbl.textContent = 'Copy'; }, 1400);
+      copied(a);
     };
     try { navigator.clipboard.writeText(a).then(() => done(true), () => done(false)); }
     catch (_) { done(false); }
@@ -549,6 +573,11 @@
   function note(msg, good) {
     if (window.V2Play && window.V2Play.toast) return window.V2Play.toast(msg, !!good);
     alert(msg);
+  }
+  /* Any address copied here, the player's own or one in the history: the
+     button says Copied where it was pressed, and the card says which. */
+  function copied(a) {
+    if (window.DSToast) window.DSToast.show({ kind: 'ok', title: 'Address copied', code: ownShort(a) });
   }
 
   /* Only the header follows a balance change while the form is open: a full

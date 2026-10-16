@@ -1048,28 +1048,60 @@ body.no-foot footer{display:none}
    Green for done, red for wrong. The colour is the first thing seen and often
    the only thing read, so it carries the outcome on its own — the words are
    there for what specifically happened. */
-.toasts{position:fixed;right:18px;bottom:18px;z-index:220;
-  display:flex;flex-direction:column;align-items:flex-end;gap:9px;
+/* Owen's pick C (2026-10-15): the whole card takes the outcome's colour, a
+   title says what happened and one line under it says how much or where.
+   Green done, gold money, red wrong, bone still running. The tint sits on a
+   near-solid dark base so it reads the same over a game as over the lobby.
+   public/js/v2/toasts.js builds them and decides where they go. */
+.toasts{position:fixed;right:18px;bottom:18px;z-index:220;width:320px;
+  max-width:calc(100vw - 36px);
+  display:flex;flex-direction:column;align-items:stretch;gap:9px;
   pointer-events:none}
-.toast{max-width:320px;color:var(--tx);
-  border-radius:var(--r2);padding:12px 15px;font-size:13px;line-height:1.5;
-  font-weight:550;
-  background:rgba(224,112,95,.13);border:1px solid rgba(224,112,95,.5);
-  box-shadow:0 8px 30px rgba(0,0,0,.5);
-  opacity:0;transform:translateY(8px) scale(.98);
-  transition:opacity .2s,transform .2s}
+.toast{--tc:#e0705f;--tint:rgba(224,112,95,.14);--edge:rgba(224,112,95,.5);
+  pointer-events:auto;cursor:pointer;display:flex;gap:11px;align-items:flex-start;
+  padding:12px 16px 12px 14px;border-radius:14px;color:var(--tx);
+  background:linear-gradient(var(--tint),var(--tint)),rgba(23,20,15,.94);
+  border:1px solid var(--edge);box-shadow:0 10px 30px rgba(0,0,0,.5);
+  -webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);
+  opacity:0;transform:translateX(26px);
+  transition:opacity .22s,transform .3s cubic-bezier(.2,.9,.3,1)}
 .toast.on{opacity:1;transform:none}
-.toast.good{background:rgba(142,208,129,.13);border-color:rgba(142,208,129,.5)}
-/* A tick or a cross ahead of the words, so the outcome survives being read at
-   a glance and does not depend on telling two colours apart. */
-.toast::before{content:'✕';display:inline-block;margin-right:9px;font-weight:700;
-  color:#e0705f}
-.toast.good::before{content:'✓';color:var(--live)}
-@media(prefers-reduced-motion:reduce){.toast{transition:none}}
-@media(max-width:520px){
-  .toasts{right:12px;left:12px;bottom:calc(76px + env(safe-area-inset-bottom));
-    align-items:stretch}
-  .toast{max-width:none}
+.toast.out{opacity:0;transform:translateX(26px);transition-duration:.2s}
+.toast.ok{--tc:var(--live);--tint:rgba(142,208,129,.14);--edge:rgba(142,208,129,.45)}
+.toast.money{--tc:var(--money);--tint:rgba(240,168,48,.13);--edge:rgba(240,168,48,.45)}
+.toast.info{--tc:var(--tx);--tint:rgba(245,241,232,.07);--edge:rgba(245,241,232,.2)}
+/* The icon repeats the colour's answer (tick, dollar, cross), so the outcome
+   never rests on telling two colours apart. */
+.toast .t-ic{flex:none;width:15px;text-align:center;color:var(--tc);
+  font-size:15px;font-weight:800;line-height:19px}
+.toast .t-ic.spin{width:15px;height:15px;margin-top:2px;border-radius:50%;
+  border:2px solid rgba(245,241,232,.22);border-top-color:var(--tx);
+  animation:tspin .8s linear infinite}
+@keyframes tspin{to{transform:rotate(360deg)}}
+.toast .t-body{min-width:0;flex:1}
+.toast .t-title{display:block;font-size:14px;font-weight:620;line-height:19px}
+.toast .t-line{display:block;margin-top:2px;font-size:12.5px;line-height:1.45;
+  color:var(--tx2);overflow-wrap:anywhere}
+.toast .t-amt{font-family:var(--fm);font-weight:600;color:var(--money)}
+.toast .t-addr{font-family:var(--fm);font-weight:500;color:var(--tx)}
+/* A phone: centred above the bottom bar, out of the thumb's way. */
+@media(max-width:760px){
+  .toasts{right:auto;left:50%;transform:translateX(-50%);
+    width:min(420px,calc(100vw - 24px));max-width:none;
+    bottom:calc(var(--navh,60px) + 14px + env(safe-area-inset-bottom))}
+  .toast,.toast.out{transform:translateY(14px)}
+  .toast.on{transform:none}
+}
+/* A game is open (the frame sits at z 300): top centre, where no game here
+   keeps its controls, and above the frame. */
+.toasts.top{top:calc(10px + env(safe-area-inset-top));bottom:auto;
+  right:auto;left:50%;transform:translateX(-50%);z-index:400;
+  width:min(340px,calc(100vw - 24px));max-width:none}
+.toasts.top .toast,.toasts.top .toast.out{transform:translateY(-14px)}
+.toasts.top .toast.on{transform:none}
+@media(prefers-reduced-motion:reduce){
+  .toast,.toast.out,.toasts.top .toast,.toasts.top .toast.out{transform:none;transition:opacity .15s}
+  .toast .t-ic.spin{animation:none}
 }
 .pname{width:100%;background:var(--bg);border:none;border-radius:var(--r2);
   padding:12px 14px;color:var(--tx);font-family:inherit;font-size:14px;
@@ -1633,7 +1665,9 @@ body.scr-anim { overflow-x:hidden }
 
 <!-- Said in the corner rather than under the field: the field is mid-column
      and a message there pushes the Play button down as it appears. -->
-<div id="toasts" class="toasts" role="status" aria-live="polite"></div>
+<!-- Polite, and not atomic: a new card is read on its own, not with every card
+     still on screen (role=status would re-read the whole stack). -->
+<div id="toasts" class="toasts" aria-live="polite" aria-relevant="additions text"></div>
 
 <script>
 /* The nightly event, driven by the MATCH rather than by a clock.
@@ -2244,6 +2278,7 @@ body.scr-anim { overflow-x:hidden }
 <script src="/js/FoodGL.js"></script>
 <script src="/js/shooterArt.js"></script>
 <script src="/js/Renderer.js"></script>
+<script src="/js/v2/toasts.js"></script>
 <script src="/js/v2/chart.js"></script>
 <script src="/js/v2/social.js"></script>
 <script src="/js/v2/wallet.js"></script>
@@ -3246,6 +3281,8 @@ function closeLook(save){
   if(save&&s&&s.locked)return;      /* nothing to save until buying works */
   if(save&&cur&&SAVED[cur.id]&&s){
     SAVED[cur.id].put(s.id==='default'?null:s);   /* /sl's skin number, /ag's colour */
+    /* Said by the Save button's own word, with the skin and the game it is for. */
+    if(window.DSToast)DSToast.show({kind:'ok',title:'Skin saved',detail:(s.name||'Default')+' for '+cur.name});
   }
   if(save)drawSkins();
   REEL.on=false; REEL.mode='idle';

@@ -118,18 +118,17 @@
       e.target.blur();
     }
   });
+  /* The card itself is public/js/v2/toasts.js (DSToast); this is the one-line
+     form every older call uses. */
   function toast(text, good) {
-    const box = el('toasts'); if (!box || !text) return;
+    if (!text) return;
+    if (window.DSToast) return window.DSToast.line(text, good);
+    const box = el('toasts'); if (!box) return;     // toasts.js missing: the plain line, still read out
     const t = document.createElement('div');
-    t.className = 'toast' + (good ? ' good' : '');
+    t.className = 'toast on ' + (good ? 'ok' : 'err');
     t.textContent = text;
     box.appendChild(t);
-    requestAnimationFrame(() => t.classList.add('on'));   // so the transition runs
-    const ms = Math.max(3200, Math.min(9000, 1600 + String(text).length * 55));
-    setTimeout(() => {
-      t.classList.remove('on');
-      setTimeout(() => t.remove(), 260);                  // after it has faded
-    }, ms);
+    setTimeout(() => t.remove(), 5000);
   }
   const toastOk = (text) => toast(text, true);
   const setState = s => { const b = el('name-act'); if (b) b.dataset.state = s; };
@@ -186,7 +185,7 @@
       setTimeout(() => { setState('editing'); if (res === 'taken') input.focus(); }, 1500);
       return;
     }
-    toastOk('Name updated to ' + n + '.');
+    if (window.DSToast) window.DSToast.show({ kind: 'ok', title: 'Name saved', detail: n });
     input.readOnly = true;
     setState('ok');
     btn.setAttribute('aria-label', 'Change name');
