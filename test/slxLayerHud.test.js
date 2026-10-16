@@ -793,7 +793,7 @@ test('slxBr cards on the shared card: a win (1st of N, the podium, the prize as 
   assert.deepStrictEqual(plain(st.facts), ['Time 1:35', 'Length 500'], 'the length moves into the facts');
   assert.deepStrictEqual([st.again, st.againDisabled, plain(st.lines)], ['Next match opening', true, []]);
   assert.deepStrictEqual(W.find('dse-pod')[0].children.map((li) => [li.className, li.textContent]),
-    [['p1 me', '1Owen'], ['p2', '2Viper'], ['p3', '3Kes']], 'the own row marked on the podium');
+    [['me', '1Owen'], ['', '2Viper'], ['', '3Kes']], 'the own row marked on the podium');
   assert.deepStrictEqual(W.find('dse-lr').map((r) => [r.className, r.textContent]), [['dse-lr', 'Prize$20']]);
   assert.strictEqual(W.find('dse-st')[0].textContent, 'Sending to your wallet');
   assert.ok(/\bt-win\b/.test(W.slx.card.element.className));
@@ -812,7 +812,7 @@ test('slxBr cards on the shared card: a win (1st of N, the podium, the prize as 
   st = L.slx.card.state();
   assert.deepStrictEqual([st.title, st.tone, st.hero, st.unit], ['Match over', 'plain', '500', 'length']);
   assert.deepStrictEqual(plain(st.podium), ['1 Viper', '2 Owen', '3 Kes']);
-  assert.deepStrictEqual(L.find('dse-pod')[0].children.map((li) => li.className), ['p1', 'p2 me', 'p3']);
+  assert.deepStrictEqual(L.find('dse-pod')[0].children.map((li) => li.className), ['', 'me', '']);
   assert.deepStrictEqual([plain(st.ledger), st.status, plain(st.lines)], [[], '', ['First place took $20.']]);
   assert.deepStrictEqual(plain(st.facts), ['Time 1:35']);
 });

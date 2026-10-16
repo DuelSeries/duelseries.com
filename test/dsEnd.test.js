@@ -65,8 +65,7 @@ test('a paid cash-out card shows the server numbers it was given, the net row la
   const btns = byClass(card, 'dse-btn');
   assert.strictEqual(btns.length, 2);
   assert.match(btns[0].className, /pri/);
-  assert.match(btns[0].className, /w4/);   // Play takes two thirds of the row beside Lobby
-  assert.match(btns[1].className, /w2/);
+  assert.strictEqual(btns[1].className, 'dse-btn');   // one row: Play again (bone) widest, Lobby a quiet outline
   btns[0].click(); btns[1].click();
   assert.deepStrictEqual(clicks, ['again', 'lobby']);
   const a = all(card, (x) => x.tagName === 'A')[0];
@@ -118,6 +117,12 @@ test('the board shows 10 rows on a PC and 5 on a phone, your row marked, or pinn
     assert.strictEqual(pinned[n].className, 'gap');
     assert.strictEqual(pinned[n + 1].className, 'me');
     assert.strictEqual(pinned[n + 1].textContent, '14Owen7');
+    assert.strictEqual(pinned[n].textContent, '', 'the skipped ranks are a small space, never "…" (Owen read it as dots over his name)');
+    // right after the last row shown nothing is skipped: no space at all
+    b.set(rows.map((r) => Object.assign({}, r, { me: false })), { rank: n + 1, name: 'Owen', value: '7' });
+    const next = byClass(body, 'dsb')[0].children[1].children;
+    assert.deepStrictEqual(next.map((l) => l.className).slice(-2), ['', 'me']);
+    assert.strictEqual(next.length, n + 1);
     b.destroy();
     assert.strictEqual(byClass(body, 'dsb').length, 0);
   }

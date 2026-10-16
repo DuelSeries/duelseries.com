@@ -1,19 +1,15 @@
 // DuelSeries shared end screens: ONE result card (death, cash-out, win) and ONE in-game leaderboard for every game
-// (Owen 2026-10-16: "one cashout screen, one death screen and one leaderboard ... for all the games"). The look is
-// "Lobby panel", Owen's pick A the same evening over the cream "Ticket" ("a little extra screen that pops up, not a
-// ticket"): the card is a piece of the lobby (public/v2.html) popping up over the game, so every game reads as
-// one product. Its surfaces, radii, buttons and money figures are the lobby's own: an s1 panel lit from its top edge
-// by the lobby's warm pool of light, the result centred like the Wallet tab's balance, the figures in the tote-board
-// mono, the net money row lit gold, the payout a quiet line with a plain receipt link, Play in the game screen's
-// struck finish beside an outlined secondary, and the Events tab's podium for a battle royale. On a phone the card
-// sits low, buttons under the thumb, the game left in view above it; on a computer it is centred.
-// The board is fully clear, text only; your row takes the lobby's picked-rung colours (gold paid, bone free).
+// (Owen 2026-10-16: "one cashout screen, one death screen and one leaderboard ... for all the games"). Look "Gold coin",
+// Owen's pick the same evening ("actually can you do the gold coin"), after the cream "Ticket" and a short-lived "Lobby
+// panel": a small dark screen that pops up with a struck coin on its top edge. Money coming to you strikes a gold coin (the
+// in-game money: breathing gold with a small $), a battle royale win puts a crown on it, anything else (a loss, a free
+// death) leaves a blank iron coin and lets the figure say it. The board is fully clear, text only; your row is a gold pill.
 //
 // Each game keeps its own logic and money flow and only maps its data in (a small adapter in the game's own files):
 //   DSEnd.show(card)  -> the card on screen (replaces the one showing). card:
-//     tone     'plain' | 'win' | 'loss'          colours the big figure and the light behind it
-//     verdict  'Killed by Kestrel'                the line above the big figure (the headline when there is none)
-//     hero     '$2.16' | '1,284' | '1st'          the big figure; unit: the words under it ('to your wallet')
+//     tone     'plain' | 'win' | 'loss'          colours the big figure and picks the coin (gold or iron)
+//     verdict  'Killed by Kestrel'                the line above the big figure
+//     hero     '$2.16' | '1,284' | '1st'          the big figure; unit: the words after it ('to your wallet')
 //     podium   [{ rank, name, me }]               battle royale top 3
 //     facts    [[label, value]]                   up to three (Owen: time, rank, score)
 //     ledger   [[label, value]]                   money rows; with two or more, the last is the net row
@@ -27,14 +23,17 @@
 //   DSEnd.board(opts) -> { set(rows, me), show(), hide(), destroy(), el }
 //     opts: { money, light, title, z, zoom, top, right, rowsPhone (5), rowsPC (10), root }
 //     light: a game drawn on a light map (agar.io): ink text with a light halo instead of cream with a shadow
-//     rows: [{ name, value, me }] in rank order; me: { rank, name, value } (pinned under the list when outside it)
+//     rows: [{ name, value, me }] in rank order; me: { rank, name, value } (pinned under the list when outside it,
+//     after a small space only when ranks were skipped: never a "…" row, which Owen read as dots over his name)
+//
+// On a phone the card sits low, so every button is under the thumb, and the buttons always share one row with the
+// next step widest on the left (the same spot in every game). A computer gets the same card a size up, centred.
+// Motion plays for everyone (Owen's PC reports reduced motion, so gated motion would be invisible to him): one entrance
+// under half a second (the panel rises, the gold coin turns once and lands with one glint, iron just drops) and the
+// payout status changing. Nothing loops except the small pending dot. The big figure never counts up.
 //
 // Display only. Every amount is a string the game formatted from the SERVER's own numbers (DSEnd.usd for micro-USDC);
 // nothing here is ever read back for money. Player names go in as text, never markup.
-//
-// Motion plays for everyone, never behind prefers-reduced-motion (Owen's own Windows reports reduce, and gated motion
-// was invisible to him): one rise when the card arrives, the money figure catching the light once on a win, and the
-// status dot settling when a payout lands. The only thing that repeats is the pending dot's slow fade.
 (function (root) {
   'use strict';
   if (!root || !root.document) return;
@@ -44,189 +43,197 @@
   var FONT_HREF = 'https://fonts.googleapis.com/css2?family=Archivo:wght@400..700&family=IBM+Plex+Mono:wght@500;600&display=swap';
   var PHONE_MAX = 760;
   var MONO = '"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace';
+  var SANS = 'Archivo,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif';
+  var PANEL_BG = 'linear-gradient(180deg,var(--dse-p1),var(--dse-p2) 72%) border-box';
 
   var CSS = [
-    // the lobby's tokens (v2.html :root), scoped to the card so a game's own variables never reach in or out
-    '.dse{--ds-bg:#100e0b;--ds-s1:#17140f;--ds-s2:#1f1b15;--ds-s3:#282219;--ds-tx:#f5f1e8;--ds-tx2:#a89c8a;--ds-tx3:#8d8171;' +
-      '--ds-bone:#f4f1ea;--ds-ink:#100e0b;--ds-money:#f0a830;--ds-loss:#f2705b;' +
-      // the light on the panel: a pool from the top edge and a rim that catches it, gold on a win, ember on a loss
-      '--ds-pool:rgba(244,241,234,.035);--ds-rim:#3a3226;--ds-halo:rgba(0,0,0,0)}',
-    '.dse.t-win{--ds-pool:rgba(240,168,48,.2);--ds-rim:#6b4f22;--ds-halo:rgba(240,168,48,.13)}',
-    '.dse.t-loss{--ds-pool:rgba(242,112,91,.075);--ds-rim:#4d2c22}',
-    // the card
-    '.dse{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;' +
-      'font-family:Archivo,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;color:var(--ds-tx);' +
-      '-webkit-text-size-adjust:100%;-webkit-tap-highlight-color:transparent;text-align:center;line-height:1.35;' +
-      '-webkit-font-smoothing:antialiased}',
+    // the card: the lobby's warm ink, gold only where there is money. Phone first: low on the screen, near the thumb.
+    '.dse{--dse-ink:#100e0b;--dse-p1:#201c16;--dse-p2:#16130f;--dse-tx:#f5f1e8;--dse-tx2:#a89c8a;--dse-tx3:#8d8171;' +
+      '--dse-bone:#f4f1ea;--dse-gold:#f0a830;--dse-loss:#ff6b57;--dse-line:rgba(245,241,232,.09);' +
+      'position:fixed;inset:0;display:flex;align-items:flex-end;justify-content:center;' +
+      'padding:12px 16px calc(14px + env(safe-area-inset-bottom,0px));box-sizing:border-box;' +
+      'font-family:' + SANS + ';color:var(--dse-tx);-webkit-text-size-adjust:100%;-webkit-tap-highlight-color:transparent;' +
+      'text-align:center;line-height:1.35}',
     '.dse *{box-sizing:border-box}',
-    // reset with no weight (:where), so each part's own margin below is the one that counts
-    '.dse :where(p),.dse :where(ol),.dse :where(li),.dse :where(dl),.dse :where(dt),.dse :where(dd){margin:0;padding:0;list-style:none}',
-    // darkest where the card sits, like the game screen's own backdrop, so the game survives at the edges
-    '.dse-scrim{position:absolute;inset:0;background:radial-gradient(85% 70% at 50% 50%,rgba(10,9,7,.68),rgba(10,9,7,.42))}',
-    // a lobby panel (s1, r3) lit from its top edge: the pool of light on the face, a rim brightest at the top fading
-    // into the s3 hairline, and on a win a faint warm halo so it lifts off a dark map as clearly as off a white one
-    '.dse-card{position:relative;width:344px;max-width:100%;padding:18px 16px 16px;border:1px solid transparent;border-radius:18px;' +
-      'background:radial-gradient(120% 52% at 50% 0,var(--ds-pool),rgba(23,20,15,0) 78%) padding-box,' +
-      'linear-gradient(var(--ds-s1),var(--ds-s1)) padding-box,' +
-      'linear-gradient(180deg,var(--ds-rim),var(--ds-s3) 34%) border-box;' +
-      'box-shadow:inset 0 1px 0 rgba(255,255,255,.035),0 24px 60px rgba(0,0,0,.55),0 0 90px -18px var(--ds-halo)}',
-    // the verdict, then the figure: centred like the Wallet tab's balance, the one thing the eye lands on
-    '.dse-v{font-size:14.5px;font-weight:600;color:var(--ds-tx2);overflow-wrap:anywhere}',
-    '.dse-hero{margin:4px 0 0}',
-    '.dse-big{display:block;font-family:' + MONO + ';font-weight:600;font-size:48px;line-height:1.04;letter-spacing:-.045em;' +
-      'font-variant-numeric:tabular-nums;color:var(--ds-tx);overflow-wrap:anywhere}',
-    // money's small $, the way paid money is drawn in the games
-    '.dse-cur{font-size:.52em;vertical-align:.62em;letter-spacing:0;margin:0 .04em 0 .02em}',
-    // the words under the figure, one treatment for all of them ('to your wallet', 'lost', 'land', 'of 24')
-    '.dse-unit{display:block;margin-top:3px;font-size:14px;font-weight:500;color:var(--ds-tx2)}',
-    '.dse.t-win .dse-big{color:var(--ds-money);text-shadow:0 0 26px rgba(240,168,48,.22)}',
-    '.dse.t-loss .dse-big{color:var(--ds-loss)}',
-    // a notice with nothing to count (refused, match ended): the verdict is the headline
-    '.dse-card.bare{padding-top:22px}',
-    '.dse-card.bare .dse-v{font-size:20px;font-weight:650;letter-spacing:-.3px;color:var(--ds-tx)}',
-    '.dse-card.bare .dse-note{font-size:14px;margin-top:8px}',
-    // the battle royale podium, after the Events tab's: tallest in the middle, the heights are the ranking. Names stand
-    // on the plinths and each plinth carries its place, so nothing stacks above the names; first wears a gold top
-    // edge, your own seat a bone one, an empty seat is a dim plinth (never a gap)
-    '.dse-pod{display:grid;grid-template-columns:1fr 1.2fr 1fr;align-items:end;column-gap:6px;margin:14px 0 0}',
-    '.dse-pod:after{content:"";grid-column:1/-1;grid-row:2;height:2px;border-radius:2px;background:var(--ds-s3)}',
-    '.dse-pod li{grid-row:1;min-width:0;display:flex;flex-direction:column-reverse}',   // the place first in reading order, drawn under the name
-    '.dse-pod li.p1{grid-column:2}.dse-pod li.p2{grid-column:1}.dse-pod li.p3{grid-column:3}',
-    '.dse-pn{min-height:20px;margin-bottom:7px;font-size:15px;font-weight:650;color:var(--ds-tx2);' +
+    // :where keeps this reset weaker than the parts' own margins below
+    '.dse :where(p),.dse :where(ol),.dse :where(dl),.dse :where(dd){margin:0;padding:0;list-style:none}',
+    // the game stays visible above the card, darker where the card sits
+    '.dse-scrim{position:absolute;inset:0;background:linear-gradient(180deg,rgba(16,14,11,.38),rgba(16,14,11,.74) 72%)}',
+    '.dse-card{position:relative;width:360px;max-width:100%}',
+    '.dse-card.coined{padding-top:24px}',
+    '.dse-panel{position:relative;border-radius:18px;padding:20px 18px 18px;border:1px solid rgba(245,241,232,.09);' +
+      'background:' + PANEL_BG + ';' +
+      'box-shadow:inset 0 1px 0 rgba(255,236,200,.06),0 28px 56px -14px rgba(0,0,0,.72),0 10px 22px rgba(0,0,0,.34)}',
+    '.dse-card.coined .dse-panel{padding-top:50px}',
+    // gold light from the coin falls on the top of the panel
+    '.dse-card.g-gold .dse-panel{background:radial-gradient(170px 96px at 50% 0,rgba(240,168,48,.15),rgba(240,168,48,0)),' +
+      PANEL_BG + '}',
+    '.dse-card.in .dse-panel{animation:dse-rise .3s cubic-bezier(.2,.8,.2,1) both}',
+    '@keyframes dse-rise{from{opacity:0;transform:translateY(22px) scale(.97)}to{opacity:1;transform:none}}',
+
+    // the coin, half on the panel's top edge: a milled edge, a polished lip, a top-lit face with a ring of beads,
+    // the glyph struck into it. All CSS, no images.
+    '.dse-coin{position:absolute;left:50%;top:0;width:64px;height:64px;margin-left:-32px;border-radius:50%;z-index:1;padding:6px}',
+    '.dse-coin>span{position:relative;display:flex;align-items:center;justify-content:center;width:100%;height:100%;' +
+      'border-radius:50%;overflow:hidden}',
+    '.dse-coin>span:before{content:"";position:absolute;inset:3.5px;border-radius:50%;border:1.5px dotted}',
+    '.dse-coin b{position:relative;display:block;font:600 27px/1 ' + MONO + ';letter-spacing:-.04em}',
+    // the crown (a battle royale win): three points over a band
+    '.dse-coin b.crown{width:24px;height:19px;margin-top:-1px}',
+    '.dse-coin b.crown:before,.dse-coin b.crown:after{content:"";position:absolute;left:0;right:0;background:currentColor}',
+    '.dse-coin b.crown:before{top:0;height:76%;-webkit-clip-path:polygon(0 22%,27% 58%,50% 0,73% 58%,100% 22%,88% 100%,12% 100%);' +
+      'clip-path:polygon(0 22%,27% 58%,50% 0,73% 58%,100% 22%,88% 100%,12% 100%)}',
+    '.dse-coin b.crown:after{bottom:0;height:15%;left:12%;right:12%;border-radius:1px}',
+    // gold: the money, with a soft bloom
+    '.dse-coin.m-gold{background:linear-gradient(180deg,rgba(255,249,226,.62),rgba(255,249,226,0) 42%,rgba(74,40,0,0) 58%,rgba(74,40,0,.55)),' +
+      'repeating-conic-gradient(#f6c860 0deg 2.6deg,#ad6f16 2.6deg 6deg);' +
+      'box-shadow:0 0 0 1px rgba(88,52,4,.75),0 0 28px 3px rgba(240,168,48,.36),0 9px 14px -4px rgba(0,0,0,.66),0 2px 3px rgba(0,0,0,.36)}',
+    '.dse-coin.m-gold>span{background:radial-gradient(circle at 38% 20%,#ffefbc 0%,#fad06c 28%,#eeaa39 62%,#c98612 100%);' +
+      'box-shadow:0 0 0 1.5px #f9d98c,0 0 0 2.5px rgba(96,56,4,.7),inset 0 2px 2px rgba(255,250,232,.6),inset 0 -2px 3px rgba(120,66,0,.42)}',
+    '.dse-coin.m-gold>span:before{border-color:rgba(146,88,8,.55)}',
+    '.dse-coin.m-gold b{color:#9a5e06;text-shadow:0 1px 0 rgba(255,240,196,.9),0 -1px 0 rgba(110,60,0,.45)}',
+    '.dse-coin.m-gold b.crown{filter:drop-shadow(0 1px 0 rgba(255,240,196,.9)) drop-shadow(0 -.5px 0 rgba(110,60,0,.5))}',
+    // iron: nothing won. Blank, dull, with a light rim so it still reads on the dark panel.
+    '.dse-coin.m-iron{background:linear-gradient(180deg,rgba(255,246,232,.34),rgba(255,246,232,0) 42%,rgba(0,0,0,0) 58%,rgba(0,0,0,.5)),' +
+      'repeating-conic-gradient(#80776c 0deg 2.6deg,#3e3831 2.6deg 6deg);' +
+      'box-shadow:0 0 0 1px rgba(255,240,220,.22),0 9px 14px -4px rgba(0,0,0,.66),0 2px 3px rgba(0,0,0,.36)}',
+    '.dse-coin.m-iron>span{background:radial-gradient(circle at 38% 20%,#6b6359 0%,#544d45 40%,#423c35 78%,#37322c 100%);' +
+      'box-shadow:0 0 0 1.5px #91887b,0 0 0 2.5px rgba(0,0,0,.55),inset 0 1.5px 1px rgba(255,246,232,.16),inset 0 -1.5px 2px rgba(0,0,0,.38)}',
+    '.dse-coin.m-iron>span:before{border-color:rgba(222,208,188,.26)}',
+    // landing: gold turns once and lands with one glint; iron just drops into place
+    '.dse-card.in .m-gold{animation:dse-strike .42s cubic-bezier(.22,.8,.3,1) .04s both}',
+    '.dse-card.in .m-iron{animation:dse-drop .3s cubic-bezier(.3,.9,.4,1) .06s both}',
+    '.dse-card.in .m-gold>span:after{content:"";position:absolute;inset:0;border-radius:50%;' +
+      'background:linear-gradient(110deg,rgba(255,255,255,0) 36%,rgba(255,252,236,.8) 50%,rgba(255,255,255,0) 64%);' +
+      'transform:translateX(-110%);animation:dse-glint .2s ease-out .28s both}',
+    '@keyframes dse-strike{0%{opacity:0;transform:perspective(300px) translateY(-10px) scale(1.12) rotateY(-360deg)}' +
+      '22%{opacity:1}' +
+      '72%{transform:perspective(300px) translateY(0) scale(.95) rotateY(0deg)}' +
+      '100%{opacity:1;transform:perspective(300px) translateY(0) scale(1) rotateY(0deg)}}',
+    '@keyframes dse-drop{0%{opacity:0;transform:translateY(-10px) scale(1.08)}65%{opacity:1;transform:translateY(0) scale(.97)}' +
+      '100%{opacity:1;transform:none}}',
+    '@keyframes dse-glint{from{transform:translateX(-110%)}to{transform:translateX(110%)}}',
+
+    // the result: the verdict, then the figure with its unit on the same line
+    '.dse-v{font-size:15px;font-weight:600;color:var(--dse-tx2);overflow-wrap:anywhere}',
+    '.dse-hero{display:flex;flex-wrap:wrap;justify-content:center;align-items:baseline;column-gap:9px;margin-top:2px}',
+    '.dse-big{min-width:0;font:600 52px/1.08 ' + MONO + ';letter-spacing:-.03em;' +
+      'font-variant-numeric:tabular-nums;color:var(--dse-tx);overflow-wrap:anywhere}',
+    '.dse.t-win .dse-big{color:var(--dse-gold);background:linear-gradient(180deg,#ffdc8f 12%,#f3ad35 58%,#d98d18 100%);' +
+      '-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}',
+    '.dse.t-loss .dse-big{color:var(--dse-loss)}',
+    '.dse-cur{font-size:.5em;vertical-align:.7em;margin-right:.05em;letter-spacing:0}',
+    '.dse-suf{font-size:.42em;vertical-align:.98em;margin-left:.06em;letter-spacing:0}',
+    '.dse-unit{font-size:15px;font-weight:500;color:var(--dse-tx2)}',
+    '.dse-pod{margin:14px 0 0;text-align:left}',
+    '.dse-pod li{display:flex;align-items:baseline;gap:12px;padding:8px 10px;font-size:15px;color:var(--dse-tx2);' +
+      'border-top:1px solid var(--dse-line);overflow-wrap:anywhere}',
+    '.dse-pod li:first-child{border-top-color:transparent}',
+    '.dse-pod li i{font:600 13px ' + MONO + ';font-style:normal;color:var(--dse-tx3);width:14px;flex:0 0 auto}',
+    '.dse-pod li.me{color:var(--dse-tx);font-weight:650;border-radius:8px;border-top-color:transparent;' +
+      'background:rgba(240,168,48,.1);box-shadow:inset 0 0 0 1px rgba(240,168,48,.24)}',
+    '.dse-pod li.me+li{border-top-color:transparent}',
+    '.dse-pod li.me i{color:var(--dse-gold)}',
+    '.dse-facts{display:flex;margin:17px 0 0}',
+    '.dse-facts>div{display:flex;flex-direction:column-reverse;flex:1 1 0;min-width:0;padding:0 6px}',
+    '.dse-facts>div+div{border-left:1px solid var(--dse-line)}',
+    '.dse-facts dt{margin-top:1px;font-size:12.5px;color:var(--dse-tx3)}',
+    '.dse-facts dd{font:600 17px ' + MONO + ';font-variant-numeric:tabular-nums;color:var(--dse-tx);' +
       'white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
-    '.dse-pod .p1 .dse-pn{min-height:23px;font-size:17px;color:var(--ds-tx)}',
-    '.dse-pod .me .dse-pn{color:var(--ds-tx);font-weight:700}',
-    '.dse-pb{display:flex;justify-content:center;height:42px;padding-top:7px;border-radius:10px 10px 0 0;' +
-      'font:600 16px/1.2 ' + MONO + ';color:var(--ds-tx3);background:linear-gradient(var(--ds-s3),var(--ds-s2) 80%);' +
-      'box-shadow:inset 0 1px 0 rgba(255,255,255,.06)}',
-    '.dse-pod .p2 .dse-pb{height:56px}',
-    '.dse-pod .p1 .dse-pb{height:74px;padding-top:9px;font-size:21px;color:var(--ds-money);' +
-      'background:linear-gradient(#30281b,var(--ds-s2) 80%);box-shadow:inset 0 2px 0 var(--ds-money)}',
-    '.dse-pod .me:not(.p1) .dse-pb{color:var(--ds-tx);box-shadow:inset 0 2px 0 var(--ds-bone)}',
-    '.dse-pod .empty .dse-pb{opacity:.45}',
-    // the facts: one dark well (the lobby's address-row well), the figures in mono
-    '.dse-facts{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);margin:12px 0 0;padding:8px 0;' +
-      'border-radius:10px;background:var(--ds-bg)}',
-    '.dse-facts>div{min-width:0;padding:0 8px}',
-    '.dse-facts>div+div{box-shadow:inset 1px 0 0 var(--ds-s2)}',
-    '.dse-facts dt{font-size:12px;color:var(--ds-tx3)}',
-    '.dse-facts dd{margin-top:2px;font:600 16px/1.25 ' + MONO + ';font-variant-numeric:tabular-nums;color:var(--ds-tx);' +
-      'white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
-    '.dse-facts dd.long{font-size:13.5px;line-height:1.48}',   // 1,234,567 still fits a phone's third
-    // the money rows, ruled like the Wallet tab's transactions. The net row is the answer: a gold-lit band, its own
-    // figure larger, inset so its words and figure line up with the rows above
-    '.dse-led{margin:8px 0 0;text-align:left}',
-    '.dse-lr{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:6px 10px;font-size:14px;color:var(--ds-tx2)}',
-    '.dse-lr+.dse-lr{box-shadow:inset 0 1px 0 var(--ds-s2)}',
-    '.dse-lr b{font:600 14.5px ' + MONO + ';font-variant-numeric:tabular-nums;color:var(--ds-tx);white-space:nowrap}',
-    '.dse-led>.dse-lr:first-child:last-child{padding-top:9px}',
-    '.dse-lr.net,.dse-lr+.dse-lr.net{margin-top:3px;padding:8px 10px;border-radius:10px;font-size:15px;font-weight:650;' +
-      'color:var(--ds-tx);background:rgba(240,168,48,.075);box-shadow:inset 0 0 0 1px rgba(240,168,48,.1)}',
-    '.dse-lr.net b{font-size:19px;color:var(--ds-money)}',
-    // the payout: one quiet line under the money, its receipt a plain underlined link at the end (Play stays the only
-    // thing that looks pressable). Pending is a slow bone fade, sent a gold disc with a tick, failed a red one with a
-    // cross: never green.
-    '.dse-st{display:flex;align-items:center;gap:9px;min-height:38px;margin:3px 0 0;padding:0 10px;' +
-      'font-size:13.5px;color:var(--ds-tx2);text-align:left;overflow-wrap:anywhere}',
-    '.dse-st i{position:relative;flex:none;width:8px;height:8px;margin:0 4px;border-radius:50%;background:var(--ds-bone);' +
-      'animation:dse-wait 1.6s ease-in-out infinite}',
-    '.dse-st.err{color:var(--ds-tx);padding-top:6px;padding-bottom:6px}',
-    '.dse-st.ok i,.dse-st.err i{width:16px;height:16px;margin:0;animation:none}',
-    '.dse-st.ok i{background:var(--ds-money)}',
-    '.dse-st.ok i:after{content:"";position:absolute;left:5.5px;top:2.8px;width:3.5px;height:7.5px;' +
-      'border:solid var(--ds-ink);border-width:0 2px 2px 0;transform:rotate(45deg)}',
-    '.dse-st.err i{background:var(--ds-loss)}',
-    '.dse-st.err i:before,.dse-st.err i:after{content:"";position:absolute;left:7px;top:3.5px;width:2px;height:9px;' +
-      'border-radius:1px;background:var(--ds-ink);transform:rotate(45deg)}',
-    '.dse-st.err i:after{transform:rotate(-45deg)}',
-    '.dse-st a{position:relative;flex:none;margin-left:auto;color:var(--ds-tx2);font-size:13.5px;font-weight:500;text-decoration:underline;' +
-      'text-decoration-color:rgba(168,156,138,.5);text-underline-offset:3px;transition:color .14s,text-decoration-color .14s}',
-    '.dse-st a:after{content:"";position:absolute;inset:-12px -10px}',   // a thumb's worth to press around small words
-    '.dse-st a:hover{color:var(--ds-tx);text-decoration-color:currentColor}',
-    '.dse-st a:focus-visible{outline:2px solid var(--ds-bone);outline-offset:3px;border-radius:2px}',
-    '.dse-st[data-chg] i{animation:dse-pop .42s cubic-bezier(.3,1.4,.5,1)}',
-    '.dse-st[data-chg] a{animation:dse-fade .3s ease-out}',
-    '.dse-note{font-size:13px;line-height:1.5;color:var(--ds-tx2);margin:10px 0 0;overflow-wrap:anywhere}',
-    // the buttons: six columns, so Play and one more share a row two to one like the game screen's Play and Spectate
-    '.dse-btns{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;margin-top:12px}',
-    // the quiet one is still plainly a button: an s2 face, an s3 rim, full-strength words
-    '.dse-btn{grid-column:span 6;height:48px;min-width:0;border:0;border-radius:10px;padding:0 10px;' +
-      'font:600 14.5px Archivo,ui-sans-serif,system-ui,sans-serif;color:var(--ds-tx);background:var(--ds-s2);cursor:pointer;' +
-      'box-shadow:inset 0 0 0 1px #342c21;' +
-      'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;touch-action:manipulation;-webkit-user-select:none;user-select:none;' +
-      'transition:background .15s,color .15s,box-shadow .2s,transform .15s}',
-    '.dse-btn.w4{grid-column:span 4}.dse-btn.w3{grid-column:span 3}.dse-btn.w2{grid-column:span 2}',
-    '.dse-btn.first{order:-1}',
-    '.dse-btn:hover{background:var(--ds-s3);box-shadow:inset 0 0 0 1px #3d3427}',
-    // the lobby's Play: bone, the light running top to bottom like a struck coin, one soft glow under it
-    '.dse-btn.pri{color:var(--ds-ink);font-size:15px;font-weight:650;' +
-      'background:linear-gradient(180deg,#fff 0%,#f4f1ea 48%,#dcd4c5 100%);' +
-      'box-shadow:inset 0 1px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(70,58,40,.3),0 8px 24px -8px rgba(244,241,234,.38)}',
-    '.dse-btn.pri:hover{color:var(--ds-ink);transform:translateY(-1px);' +
-      'box-shadow:inset 0 1px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(70,58,40,.3),0 10px 30px -8px rgba(244,241,234,.55)}',
-    // over a second row of buttons the glow stays tight, so it never clouds the two under it
-    '.dse-btn.pri.first{box-shadow:inset 0 1px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(70,58,40,.3),0 6px 14px -8px rgba(244,241,234,.3)}',
-    '.dse-btn:disabled,.dse-btn:disabled:hover{cursor:default;opacity:.45;background:var(--ds-s2);transform:none;' +
-      'box-shadow:inset 0 0 0 1px #342c21}',
-    // shut, like the Events tab's Join before it opens: the slot stays, an empty outline with quiet words, so the
-    // button beside it is plainly the one to press for now
-    '.dse-btn.pri:disabled,.dse-btn.pri:disabled:hover{opacity:1;background:transparent;color:var(--ds-tx3);font-weight:600;' +
-      'box-shadow:inset 0 0 0 1px var(--ds-s3)}',
-    '.dse-btn:focus-visible{outline:2px solid var(--ds-bone);outline-offset:3px}',
-    // a phone: the card sits low, its buttons where a thumb already is, the game left in view above it
-    '@media (max-width:' + PHONE_MAX + 'px){.dse{align-items:flex-end;padding-bottom:calc(18px + env(safe-area-inset-bottom,0px))}' +
-      '.dse-scrim{background:linear-gradient(180deg,rgba(10,9,7,.34),rgba(10,9,7,.6) 50%,rgba(10,9,7,.8))}' +
-      '.dse-card{transform-origin:50% 100%}}',
-    // a computer: a bigger panel and figure, the same layout
-    '@media (min-width:' + (PHONE_MAX + 1) + 'px){.dse-card{width:424px;padding:26px 26px 24px}' +
-      '.dse-v{font-size:16px}.dse-big{font-size:64px}.dse-unit{font-size:15px}.dse-hero{margin-top:6px}' +
-      '.dse-card.bare .dse-v{font-size:22px}.dse-facts{margin-top:18px;padding:11px 0}.dse-facts dd{font-size:18px}' +
-      '.dse-facts dd.long{font-size:16px;line-height:1.4}.dse-led{margin-top:12px}.dse-lr{padding:8px 12px}' +
-      '.dse-lr.net,.dse-lr+.dse-lr.net{padding:10px 12px}.dse-lr.net b{font-size:20px}.dse-st{padding:0 12px;min-height:44px}' +
-      '.dse-pn{font-size:16px}.dse-pod .p1 .dse-pn{font-size:19px;min-height:26px}.dse-pb{height:48px;font-size:17px}' +
-      '.dse-pod .p2 .dse-pb{height:64px}.dse-pod .p1 .dse-pb{height:86px;font-size:23px}' +
-      '.dse-btns{margin-top:18px}.dse-btn{height:50px}.dse-btn.pri{font-size:15.5px}}',
-    // motion: the card rises in from a touch smaller, the backdrop dims, a win's figure catches the light once (all
-    // within half a second)
-    '.dse-scrim.in{animation:dse-fade .24s ease-out both}',
-    '.dse-card.in{animation:dse-rise .34s cubic-bezier(.2,.8,.2,1) both}',
-    '.dse.t-win .dse-card.in .dse-big{animation:dse-glint .5s ease-out both}',
-    '@keyframes dse-rise{from{opacity:0;transform:translateY(18px) scale(.96)}to{opacity:1;transform:none}}',
-    '@keyframes dse-fade{from{opacity:0}to{opacity:1}}',
-    '@keyframes dse-glint{0%{text-shadow:0 0 0 rgba(240,168,48,0)}55%{text-shadow:0 0 30px rgba(240,168,48,.65)}' +
-      '100%{text-shadow:0 0 26px rgba(240,168,48,.22)}}',
-    '@keyframes dse-wait{0%,100%{opacity:1}50%{opacity:.3}}',
-    '@keyframes dse-pop{0%{transform:scale(.4);opacity:0}60%{transform:scale(1.2);opacity:1}100%{transform:scale(1)}}',
-    // the board: fully clear (Owen 2026-10-16), text with a shadow. Your row takes the lobby's picked-rung colours:
-    // gold on a money board, bone on a free one. Compact on a phone (Owen: it never takes a big part of the screen):
-    // 11.5 px rows 16 px apart, names cut at about 10 characters.
-    '.dsb{position:fixed;top:8px;right:8px;width:128px;pointer-events:none;color:#f5f1e8;font:600 11.5px Archivo,ui-sans-serif,system-ui,sans-serif;' +
+
+    // the money: what moved and where it is going, recessed under the result; the net row reads biggest
+    '.dse-tray{margin:16px 0 0;padding:5px 14px;border-radius:10px;background:rgba(8,7,5,.42);' +
+      'box-shadow:inset 0 0 0 1px rgba(245,241,232,.06);text-align:left}',
+    '.dse-lr{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:6px 0;font-size:15px;color:var(--dse-tx2)}',
+    '.dse-lr b{font:500 15.5px ' + MONO + ';font-variant-numeric:tabular-nums;color:var(--dse-tx);white-space:nowrap}',
+    '.dse-lr.net{margin-top:2px;padding-top:9px;border-top:1px solid var(--dse-line);color:var(--dse-tx);font-weight:650}',
+    '.dse-lr.net b{font-weight:600;font-size:20px;line-height:1.1}',
+    '.dse.t-win .dse-lr.net b{color:var(--dse-gold)}',
+    '.dse.t-loss .dse-lr.net b{color:var(--dse-loss)}',
+    '.dse-st{display:flex;align-items:center;flex-wrap:wrap;column-gap:9px;row-gap:2px;padding:9px 0 8px;font-size:14px;' +
+      'color:var(--dse-tx2);border-top:1px solid var(--dse-line)}',
+    '.dse-st:first-child{border-top:0}',
+    '.dse-st i{position:relative;flex:0 0 auto;width:8px;height:8px;margin:0 3px;border-radius:50%;background:var(--dse-gold);' +
+      'animation:dse-breathe 1.4s ease-in-out infinite}',
+    '.dse-st.ok{color:var(--dse-tx)}',
+    '.dse-st.ok i{width:15px;height:15px;margin:0;animation:none;background:linear-gradient(145deg,#ffd98a,#e09a26)}',
+    '.dse-st.ok i:after{content:"";position:absolute;left:5px;top:2.5px;width:3.5px;height:7px;border:solid var(--dse-ink);' +
+      'border-width:0 2px 2px 0;transform:rotate(45deg)}',
+    '.dse-st.err{color:#ff8a78}',
+    '.dse-st.err i{background:var(--dse-loss);animation:none}',
+    '.dse-st a{margin-left:auto;color:var(--dse-tx);font-weight:650;text-decoration:underline;' +
+      'text-decoration-color:rgba(240,168,48,.65);text-underline-offset:3px}',
+    '.dse-st a:hover{color:var(--dse-gold)}',
+    '.dse-st[data-chg] i{animation:dse-pop .28s cubic-bezier(.25,1,.5,1) both}',
+    '.dse-st[data-chg] a{animation:dse-fade .22s ease-out both}',
+    '@keyframes dse-breathe{0%,100%{opacity:.4;transform:scale(.75)}50%{opacity:1;transform:scale(1)}}',
+    '@keyframes dse-pop{from{opacity:0;transform:scale(.3)}to{opacity:1;transform:none}}',
+    '@keyframes dse-fade{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:none}}',
+    '.dse-note{font-size:14px;color:var(--dse-tx2);margin:12px 0 0;overflow-wrap:anywhere}',
+    // a notice (no figure: a refusal, a closed room) reads as a short message
+    '.dse-card.notice .dse-v{font-size:19px;font-weight:650;color:var(--dse-tx)}',
+    '.dse-card.notice .dse-note{margin-top:8px;font-size:14.5px}',
+
+    // buttons: always one row, the next step (bone) widest, quiet outlines for the rest
+    '.dse-btns{display:flex;gap:8px;margin-top:16px}',
+    '.dse-btn{flex:1 1 0;min-width:0;height:52px;border:0;border-radius:10px;padding:0 10px;font:650 15px ' + SANS + ';cursor:pointer;' +
+      'background:rgba(245,241,232,.05);color:var(--dse-tx);box-shadow:inset 0 0 0 1px rgba(245,241,232,.16);' +
+      'line-height:1.15;touch-action:manipulation;-webkit-user-select:none;user-select:none}',
+    '.dse-btn:hover{background:rgba(245,241,232,.1)}',
+    '.dse-btn em{font:600 .95em ' + MONO + ';font-style:normal;letter-spacing:-.01em;white-space:nowrap}',
+    '.dse-btn.pri{flex-grow:1.75;font-size:16px;background:var(--dse-bone);color:var(--dse-ink);' +
+      'box-shadow:inset 0 -2px 0 rgba(16,14,11,.12),0 6px 16px rgba(0,0,0,.28)}',
+    '.dse-btns.n3 .dse-btn{padding:0 8px}.dse-btns.n3 .dse-btn.pri{flex-grow:1.6}',
+    '.dse-btns.n4{flex-wrap:wrap}.dse-btns.n4 .dse-btn.pri{flex:1 1 100%}',
+    '.dse-btn.pri:hover{background:#fffaf0}',
+    '.dse-btn:disabled{cursor:default;opacity:.42}',
+    '.dse-btn:disabled:hover{background:rgba(245,241,232,.05)}',
+    // a disabled next step is a wait (next match, wallet, starting): it stays the main thing, in gold
+    '.dse-btn.pri:disabled,.dse-btn.pri:disabled:hover{opacity:1;background:rgba(240,168,48,.1);color:var(--dse-gold);' +
+      'box-shadow:inset 0 0 0 1px rgba(240,168,48,.42)}',
+    '.dse-btn:focus-visible{outline:2px solid var(--dse-gold);outline-offset:2px}',
+    '.dse-panel>.dse-btns:first-child{margin-top:0}',
+
+    // a computer: the same card a size up, centred
+    '@media (min-width:' + (PHONE_MAX + 1) + 'px){.dse{align-items:center;padding:16px}' +
+      '.dse-scrim{background:rgba(16,14,11,.58)}' +
+      '.dse-card{width:416px}.dse-card.coined{padding-top:30px}' +
+      '.dse-panel{padding:24px 26px 24px}.dse-card.coined .dse-panel{padding-top:60px}' +
+      '.dse-card.g-gold .dse-panel{background:radial-gradient(200px 110px at 50% 0,rgba(240,168,48,.15),rgba(240,168,48,0)),' + PANEL_BG + '}' +
+      '.dse-coin{width:80px;height:80px;margin-left:-40px;padding:7px}.dse-coin>span:before{inset:4.5px}' +
+      '.dse-coin b{font-size:34px}.dse-coin b.crown{width:30px;height:24px}' +
+      '.dse-big{font-size:62px}.dse-v{font-size:16px}.dse-unit{font-size:16px}' +
+      '.dse-facts{margin-top:19px}.dse-facts dd{font-size:18px}.dse-btn{height:54px}}',
+
+    // the board: fully clear (Owen 2026-10-16), text with a shadow, your row on a gold pill. Compact on a phone
+    // (Owen: it never takes a big part of the screen): 11.5 px rows 16 px apart, names cut at about 10 characters.
+    '.dsb{position:fixed;top:8px;right:8px;width:128px;pointer-events:none;color:#f5f1e8;font:600 11.5px ' + SANS + ';' +
       'text-shadow:0 1px 2px rgba(0,0,0,.95),0 0 2px #000;-webkit-text-size-adjust:100%;line-height:1.3;text-align:left}',
     '.dsb p,.dsb ol{margin:0;padding:0;list-style:none}',
     '.dsb-t{font-size:10.5px;color:rgba(245,241,232,.75);margin:0 0 1px 1px}',
     '.dsb li{display:grid;grid-template-columns:14px minmax(0,1fr) auto;gap:4px;align-items:baseline;line-height:16px;padding:0 4px;margin:0 -3px}',
     '.dsb li span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:10ch}',
-    '.dsb li i{font-style:normal;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10.5px;color:rgba(245,241,232,.7)}',
-    '.dsb li b{font:600 11px "IBM Plex Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums}',
+    '.dsb li i{font-style:normal;font-family:' + MONO + ';font-size:10.5px;color:rgba(245,241,232,.7)}',
+    '.dsb li b{font:600 11px ' + MONO + ';font-variant-numeric:tabular-nums}',
     '.dsb.money li b{color:#f0a830}',
-    '.dsb li.me{background:#f4f1ea;color:#100e0b;border-radius:5px;text-shadow:none;font-weight:700}',
-    '.dsb.money li.me{background:#f0a830}',
-    '.dsb li.me i,.dsb li.me b,.dsb.money li.me b{color:#100e0b}',
-    '.dsb li.gap{line-height:8px}',
-    // a light map: ink text, a white halo; your row an ink pill on a free board, still gold on a money one
+    '.dsb li.me{background:linear-gradient(180deg,#ffd982,#eba232);color:#100e0b;border-radius:5px;text-shadow:none;font-weight:700;' +
+      'box-shadow:inset 0 1px 0 rgba(255,248,222,.65),0 1px 3px rgba(0,0,0,.35)}',
+    '.dsb li.me i{color:rgba(16,14,11,.62)}',
+    '.dsb li.me b,.dsb.money li.me b{color:#100e0b}',
+    '.dsb li.gap{height:5px}',
+    // a light map: ink text and a white halo; your row keeps its gold pill
     '.dsb.light{color:#100e0b;text-shadow:0 0 2px #fff,0 0 3px #fff,0 1px 1px rgba(255,255,255,.9)}',
     '.dsb.light .dsb-t,.dsb.light li i{color:rgba(16,14,11,.7)}',
     '.dsb.light.money li b{color:#8a5600}',
-    '.dsb.light li.me{background:#100e0b;color:#f4f1ea}',
-    '.dsb.light li.me i,.dsb.light li.me b{color:#f4f1ea}',
-    '.dsb.light.money li.me{background:#f0a830;color:#100e0b}',
-    '.dsb.light.money li.me i,.dsb.light.money li.me b{color:#100e0b}',
+    '.dsb.light li.me{text-shadow:none;box-shadow:inset 0 1px 0 rgba(255,248,222,.65),0 0 0 1px rgba(122,74,6,.35)}',
+    '.dsb.light li.me i{color:rgba(16,14,11,.62)}',
+    '.dsb.light li.me b,.dsb.light.money li.me b{color:#100e0b}',
     // a computer: a little more room, still small
     '@media (min-width:' + (PHONE_MAX + 1) + 'px){.dsb{width:196px;font-size:13.5px;top:14px;right:14px}' +
       '.dsb-t{font-size:12px;margin-bottom:3px}' +
       '.dsb li{grid-template-columns:20px minmax(0,1fr) auto;gap:6px;line-height:21px;padding:0 6px;margin:0 -4px}' +
       '.dsb li span{max-width:14ch}.dsb li i{font-size:11.5px}.dsb li b{font-size:12.5px}' +
-      '.dsb li.me{border-radius:6px}.dsb li.gap{line-height:10px}}'
+      '.dsb li.me{border-radius:6px}.dsb li.gap{height:7px}}'
   ].join('\n');
 
   var styled = false;
@@ -264,51 +271,56 @@
       node.addEventListener(t, function (e) { e.stopPropagation(); }, { passive: true });
     });
   }
+
   // Classes a game put on our node (slxCard marks it slx-card) survive a re-render; ours are rebuilt.
   function foreign(cls) {
     return String(cls || '').split(/\s+/).filter(function (c) { return c && !/^(dse|t-)/.test(c); });
   }
 
-  // The big figure. An amount ('$2.16', '−$1.00') gets money's small $; anything else goes in as it came.
-  var MONEY_RE = /^([−+-]?)\$(\d[\d,]*(?:\.\d+)?)$/;
-  function figure(text) {
+  var MONEY_RE = /^([−-]?)\$(.+)$/;         // '$2.16', '−$1.00'
+  var ORD_RE = /^(\d+)(st|nd|rd|th)$/;       // '1st'
+
+  // The big figure as text nodes: the $ set small (like the gold pellets' small $), an ordinal's suffix raised.
+  function heroNode(text) {
     var big = el('span', 'dse-big');
-    var s = String(text);
-    var m = MONEY_RE.exec(s);
-    if (!m) { big.textContent = s; return big; }
-    big.setAttribute('aria-label', s);
-    if (m[1]) big.appendChild(doc.createTextNode(m[1]));
-    big.appendChild(el('span', 'dse-cur', '$'));
-    big.appendChild(doc.createTextNode(m[2]));
+    var m = MONEY_RE.exec(text), r = ORD_RE.exec(text);
+    if (m) {
+      if (m[1]) big.appendChild(doc.createTextNode(m[1]));
+      big.appendChild(el('span', 'dse-cur', '$'));
+      big.appendChild(doc.createTextNode(m[2]));
+    } else if (r) {
+      big.appendChild(doc.createTextNode(r[1]));
+      big.appendChild(el('span', 'dse-suf', r[2]));
+    } else {
+      big.textContent = text;
+    }
     return big;
   }
 
-  // The podium in rank order (read in that order), each seat placed in its column by CSS: second, first, third.
-  // A seat nobody holds (a two-player final) is still drawn, an empty plinth, so the podium keeps its shape.
-  function podium(list) {
-    var ol = el('ol', 'dse-pod');
-    var taken = {};
-    list.slice(0, 3).forEach(function (p) {
-      if (!p) return;
-      var r = Math.round(Number(p.rank));
-      var place = r >= 1 && r <= 3 && !taken[r] ? r : 0;
-      for (var k = 1; !place && k <= 3; k++) if (!taken[k]) place = k;
-      if (!place) return;
-      taken[place] = true;
-      var li = el('li', 'p' + place + (p.me ? ' me' : ''));
-      li.appendChild(el('div', 'dse-pb', p.rank != null ? p.rank : place));
-      li.appendChild(el('p', 'dse-pn', p.name == null ? '' : p.name));
-      ol.appendChild(li);
-    });
-    for (var k = 1; k <= 3; k++) {
-      if (taken[k]) continue;
-      var seat = el('li', 'p' + k + ' empty');
-      seat.setAttribute('aria-hidden', 'true');
-      seat.appendChild(el('div', 'dse-pb'));
-      seat.appendChild(el('p', 'dse-pn'));
-      ol.appendChild(seat);
-    }
-    return ol;
+  // The coin on the card's top edge. Gold when something comes to you: a win, or money back (a refund in plain tone);
+  // its face shows $ for money, else a crown (a battle royale place, a free win). Iron, blank, for everything else
+  // (a loss, a free death): the figure under it says what happened, the coin never looks like a reward.
+  function coinMetal(o) {
+    var money = String(o.hero).indexOf('$') >= 0;
+    return o.tone === 'win' || (o.tone !== 'loss' && money) ? 'gold' : 'iron';
+  }
+  function coinNode(o) {
+    var metal = coinMetal(o);
+    var coin = el('div', 'dse-coin m-' + metal);
+    coin.setAttribute('aria-hidden', 'true');
+    var face = el('span');
+    if (metal === 'gold') face.appendChild(String(o.hero).indexOf('$') >= 0 ? el('b', null, '$') : el('b', 'crown'));
+    coin.appendChild(face);
+    return coin;
+  }
+
+  // Button text with a trailing amount or clock ('Play again $1.00', 'Next match 0:12'): that part goes in the figures'
+  // mono face.
+  function buttonText(btn, text) {
+    var m = /^(.*\S)\s+([−-]?\$[\d,.]+|\d{1,2}:\d{2})$/.exec(text);
+    if (!m) { btn.textContent = text; return; }
+    btn.appendChild(doc.createTextNode(m[1] + ' '));   // a narrow button breaks here, never inside the amount
+    btn.appendChild(el('em', null, m[2]));
   }
 
   // ---- the card
@@ -316,83 +328,82 @@
 
   function render(o) {
     var wrap = card.el;
-    var tone = o.tone === 'win' || o.tone === 'loss' ? o.tone : 'plain';
-    wrap.className = ['dse', 't-' + tone].concat(foreign(wrap.className)).join(' ');
+    wrap.className = ['dse', 't-' + (o.tone === 'win' || o.tone === 'loss' ? o.tone : 'plain')].concat(foreign(wrap.className)).join(' ');
     wrap.style.zIndex = String(o.z != null ? o.z : 1000);
     if (o.zoom && o.zoom !== 1) wrap.style.zoom = String(o.zoom); else wrap.style.zoom = '';
     var had = doc.activeElement && doc.activeElement.getAttribute && doc.activeElement.getAttribute('data-dse-btn');
     while (wrap.firstChild) wrap.removeChild(wrap.firstChild);
-    wrap.appendChild(el('div', 'dse-scrim' + (card.fresh ? ' in' : '')));
+    wrap.appendChild(el('div', 'dse-scrim'));
     var hasHero = o.hero != null && o.hero !== '';
-    var bare = !hasHero && !(o.podium && o.podium.length) && !(o.facts && o.facts.length) &&
-      !(o.ledger && o.ledger.length) && !(o.status && o.status.text);
-    var box = el('div', 'dse-card' + (bare ? ' bare' : '') + (card.fresh ? ' in' : ''));   // rises in once, not on every update
-    if (o.verdict) box.appendChild(el('p', 'dse-v', o.verdict));
+    // slides in once per show, not on every update
+    var box = el('div', 'dse-card' + (hasHero ? ' coined g-' + coinMetal(o) : ' notice') + (card.fresh ? ' in' : ''));
+    var panel = el('div', 'dse-panel');
+    if (o.verdict) panel.appendChild(el('p', 'dse-v', o.verdict));
     if (hasHero) {
       var hero = el('p', 'dse-hero');
-      hero.appendChild(figure(o.hero));
+      hero.appendChild(heroNode(String(o.hero)));
       if (o.unit) hero.appendChild(el('span', 'dse-unit', o.unit));
-      box.appendChild(hero);
+      panel.appendChild(hero);
     }
-    if (o.podium && o.podium.length) box.appendChild(podium(o.podium));
+    if (o.podium && o.podium.length) {
+      var pod = el('ol', 'dse-pod');
+      o.podium.forEach(function (p) {
+        var li = el('li', p.me ? 'me' : '');
+        li.appendChild(el('i', null, p.rank));
+        li.appendChild(el('span', null, p.name));
+        pod.appendChild(li);
+      });
+      panel.appendChild(pod);
+    }
     if (o.facts && o.facts.length) {
       var dl = el('dl', 'dse-facts');
       o.facts.slice(0, 3).forEach(function (f) {
         f = pair(f);
         var d = el('div');
         d.appendChild(el('dt', null, f[0]));
-        // a long figure (1,234,567) steps down a size instead of losing its end to an ellipsis
-        d.appendChild(el('dd', String(f[1] == null ? '' : f[1]).length > 7 ? 'long' : null, f[1]));
+        d.appendChild(el('dd', null, f[1]));
         dl.appendChild(d);
       });
-      box.appendChild(dl);
+      panel.appendChild(dl);
     }
+    var tray = el('div', 'dse-tray' + (o.ledger && o.ledger.length ? ' dse-led' : ''));
     if (o.ledger && o.ledger.length) {
-      var led = el('div', 'dse-led');
       o.ledger.forEach(function (r, i) {
         r = pair(r);
         var row = el('div', 'dse-lr' + (o.ledger.length > 1 && i === o.ledger.length - 1 ? ' net' : ''));
         row.appendChild(el('span', null, r[0]));
         row.appendChild(el('b', null, r[1]));
-        led.appendChild(row);
+        tray.appendChild(row);
       });
-      box.appendChild(led);
     }
-    var stNow = '';
-    if (o.status && o.status.text) {
-      stNow = o.status.state === 'ok' || o.status.state === 'err' ? o.status.state : 'pending';
-      var link = o.status.link && /^https:\/\//.test(String(o.status.link.href || '')) ? o.status.link : null;
-      // the dot settles and the words fade in only when the state really changed (pending to sent), never on arrival
-      var changed = !card.fresh && card.st && card.st !== stNow;
-      var st = el('p', 'dse-st' + (stNow !== 'pending' ? ' ' + stNow : ''));
-      if (changed) st.setAttribute('data-chg', '1');
-      st.appendChild(el('i'));
-      st.appendChild(doc.createTextNode(String(o.status.text)));
-      if (link) {
-        var a = el('a', null, link.text || 'View');
-        a.href = link.href;
+    var st = o.status && o.status.text ? (o.status.state === 'ok' || o.status.state === 'err' ? o.status.state : 'pending') : '';
+    if (st) {
+      // the dot pops only when the payout state changes under an open card
+      var line = el('p', 'dse-st' + (st !== 'pending' ? ' ' + st : ''));
+      if (!card.fresh && card.st && card.st !== st) line.setAttribute('data-chg', '1');
+      line.appendChild(el('i'));
+      line.appendChild(doc.createTextNode(String(o.status.text)));
+      if (o.status.link && /^https:\/\//.test(String(o.status.link.href || ''))) {
+        var a = el('a', null, o.status.link.text || 'View');
+        a.href = o.status.link.href;
         a.target = '_blank';
         a.rel = 'noopener noreferrer';
-        st.appendChild(a);
+        line.appendChild(a);
       }
-      box.appendChild(st);
+      tray.appendChild(line);
     }
-    card.st = stNow;
-    (o.notes || []).forEach(function (n) { if (n) box.appendChild(el('p', 'dse-note', n)); });
+    card.st = st;
+    if (tray.firstChild) panel.appendChild(tray);
+    (o.notes || []).forEach(function (n) { if (n) panel.appendChild(el('p', 'dse-note', n)); });
     card.btns = {};
     var list = (o.buttons || []).filter(function (b) { return b && b.text; });
     if (list.length) {
-      var btns = el('div', 'dse-btns');
-      var lead = -1;
-      list.forEach(function (b, i) { if (lead < 0 && b.primary) lead = i; });
-      list.forEach(function (b, i) {
-        // one: the whole row. two: Play takes two thirds beside the other (halves when neither leads).
-        // three or four: the leading one takes its own row, the others share the next (halves, or thirds for three
-        // such as Spectate, Lobby and Menu).
-        var w = 'w6';
-        if (list.length === 2) w = lead < 0 ? 'w3' : i === lead ? 'w4' : 'w2';
-        else if (list.length >= 3) w = i === (lead < 0 ? 0 : lead) ? 'w6 first' : list.length >= 4 ? 'w2' : 'w3';
-        var btn = el('button', 'dse-btn ' + w + (b.primary ? ' pri' : ''), b.text);
+      // one row in every game: the next step keeps the same spot under the thumb
+      // four or more: the next step on its own row, the others sharing the row under it
+      var btns = el('div', 'dse-btns' + (list.length > 3 ? ' n4' : list.length > 2 ? ' n3' : ''));
+      list.forEach(function (b) {
+        var btn = el('button', 'dse-btn' + (b.primary ? ' pri' : ''));
+        buttonText(btn, String(b.text));
         btn.type = 'button';
         if (b.id) btn.setAttribute('data-dse-btn', b.id);
         btn.disabled = !!b.disabled;
@@ -404,28 +415,28 @@
         btns.appendChild(btn);
         if (b.id) card.btns[b.id] = btn;
       });
-      box.appendChild(btns);
+      panel.appendChild(btns);
     }
+    box.appendChild(panel);
+    if (hasHero) box.appendChild(coinNode(o));
     wrap.appendChild(box);
     if (had && card.btns[had] && card.btns[had].focus) card.btns[had].focus();
   }
 
   function lastKid(n) { return n.lastChild || (n.children && n.children[n.children.length - 1]) || null; }
-  // A card taller than the window (a phone on its side) is scaled down to fit, never cut off. The room is the window
-  // less the wrap's own padding (more at the bottom on a phone, where the card sits low).
-  function pad(node) {
-    try {
-      var cs = root.getComputedStyle ? root.getComputedStyle(node) : null;
-      var p = cs ? (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0) : 0;
-      return p > 24 ? p : 24;
-    } catch (_) { return 24; }
-  }
+  // A card taller than the window (a phone on its side) is scaled down to fit, never cut off.
   function fit(box) {
     if (!box || !box.style) return;
     box.style.zoom = '';
     if (typeof box.getBoundingClientRect !== 'function') return;
     var h = box.getBoundingClientRect().height;
-    var avail = (root.innerHeight || 0) - (box.parentNode ? pad(box.parentNode) : 24);
+    // the room inside the card's own padding (a phone keeps a little more under the card for the home bar)
+    var pad = 24;
+    try {
+      var cs = root.getComputedStyle(box.parentNode);
+      pad = Math.max(24, (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0));
+    } catch (_) {}
+    var avail = (root.innerHeight || 0) - pad;
     if (h > 0 && avail > 0 && h > avail) box.style.zoom = String(Math.max(0.5, avail / h));
   }
 
@@ -441,7 +452,6 @@
     }
     card.opts = o;
     card.fresh = !shown();
-    if (card.fresh) card.st = '';
     render(o);
     var parent = o.root || doc.body;
     if (card.el.parentNode !== parent) parent.appendChild(card.el);
@@ -502,7 +512,9 @@
           return [r.rank != null ? r.rank : i + 1, r.name == null ? '' : String(r.name), r.value == null ? '' : String(r.value), !!r.me];
         });
         if (!mine && me && me.rank > 0) {
-          out.push(null);
+          // ranks skipped since the last row shown: a small space, never a "…" row; right after it, nothing between
+          var lastRank = out.length ? Number(out[out.length - 1][0]) || out.length : 0;
+          if (me.rank > lastRank + 1) out.push(null);
           out.push([me.rank, me.name == null ? '' : String(me.name), me.value == null ? '' : String(me.value), true]);
         }
         var key = JSON.stringify(out) + n;
@@ -513,9 +525,7 @@
           var li;
           if (!r) {
             li = el('li', 'gap');
-            li.appendChild(el('i'));
-            li.appendChild(el('span', null, '…'));
-            li.appendChild(el('b'));
+            li.setAttribute('aria-hidden', 'true');
           } else {
             li = el('li', r[3] ? 'me' : '');
             li.appendChild(el('i', null, r[0]));
