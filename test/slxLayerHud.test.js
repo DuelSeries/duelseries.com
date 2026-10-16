@@ -1,6 +1,6 @@
 'use strict';
 // The DuelSeries layer HUD on the frozen slither.io client (task T17; SERVER-DESIGN 15.3, 15.4, 18.4 slxLayer HUD
-// cases): slxCard, slxTop, slxChat, slxStats, slxSound.
+// cases): slxCard, slxTop, slxChat, slxStats, slxHud (Owen's HUD layout, 2026-10-16), slxSound.
 //
 // Part A runs each file on its own fake page (test/slxHudFakes.js) behind a fake layer bus with slxNet's API.
 // Part B boots the frozen client (test/slVmPage.js) with the real layer (slxNet, slxMain, slxDirect and these five)
@@ -13,7 +13,7 @@ const path = require('path');
 const { makePage, ROOT } = require('./slxHudFakes.js');
 
 const SLX_DIR = path.join(ROOT, 'public', 'js', 'slx');
-const HUD = ['slxCard.js', 'slxTop.js', 'slxChat.js', 'slxStats.js', 'slxSound.js'];
+const HUD = ['slxCard.js', 'slxTop.js', 'slxChat.js', 'slxStats.js', 'slxHud.js', 'slxSound.js'];
 
 // A page with the HUD file(s) loaded on the fake bus.
 function page(files, opts) {
@@ -42,7 +42,7 @@ test('inert: with no active layer bus every HUD file makes no node, style, liste
     assert.strictEqual(P.doc.listeners.length, 0, mode + ': document listeners');
     assert.strictEqual(P.rafCount(), 0, mode + ': animation frames');
     assert.strictEqual(P.sent.length, 0, mode + ': emits');
-    if (P.D.slx) for (const k of ['card', 'top', 'chat', 'stats', 'sound']) assert.strictEqual(P.D.slx[k], undefined, mode + ': slx.' + k);
+    if (P.D.slx) for (const k of ['card', 'top', 'chat', 'stats', 'hud', 'sound']) assert.strictEqual(P.D.slx[k], undefined, mode + ': slx.' + k);
   }
 });
 
@@ -377,7 +377,126 @@ test('slxStats: ping in the old format and colours, FPS over 500 ms, shown while
   assert.strictEqual(st.element.style.display, undefined, 'hidden while their game is not showing');
   P.S.playing = true;
   P.raf(1, 20);
-  assert.strictEqual(st.element.style.display, 'block');
+  assert.strictEqual(st.element.style.display, 'flex');
+});
+
+// Their HUD boxes as sl.html gives them (sl.html:20-26), on the fake page.
+function hudPage(win, S) {
+  const P = makePage({ win, S });
+  const box = (style) => { const e = new P.El(P.doc, 'div'); Object.assign(e.style, style); P.doc.body.appendChild(e); return e; };
+  P.S.lbh = box({ right: '4px', top: '4px', width: '285px', height: '28px', transform: 'translateZ(0)' });
+  P.S.lbs = box({ right: '4px', top: '32px', width: '50px', height: '800px', transform: 'translateZ(0)' });
+  P.S.lbn = box({ right: '64px', top: '32px', width: '180px', height: '800px', transform: 'translateZ(0)' });
+  P.S.lbp = box({ right: '260px', top: '32px', width: '30px', height: '800px', transform: 'translateZ(0)' });
+  P.S.lbf = box({ left: '8px', bottom: '4px', width: '280px', height: '37px', display: 'inline', opacity: 0.5 });
+  P.S.loch = box({ right: '16px', bottom: '16px', width: '124px', height: '124px' });
+  P.load('slxStats.js');
+  P.load('slxHud.js');
+  P.raf(1);
+  return P;
+}
+
+test('slxHud: the length box hidden everywhere; a computer keeps their board; the stats line sits under the minimap', () => {
+  const P = hudPage({ innerWidth: 1920, innerHeight: 1080 });
+  const S = P.S;
+  assert.strictEqual(S.lbf.style.visibility, 'hidden', 'Your length / Your rank is gone');
+  assert.strictEqual(S.lbf.style.display, 'inline', 'their display is untouched');
+  assert.strictEqual(P.slx.hud.phone(), false);
+  for (const k of ['lbh', 'lbs', 'lbn', 'lbp']) assert.strictEqual(S[k].style.transform, 'translateZ(0)', k);
+  assert.strictEqual(S.lbs.style.height, '800px');
+  assert.strictEqual(S.lbn.style.width, '180px');
+  // the 100 px disc of a 124 px holder at right 16, bottom 16: the line centred on it, under it
+  const st = P.slx.stats.element.style;
+  assert.deepStrictEqual([st.right, st.width, st.bottom], ['18px', '120px', '12px']);
+  // their setMinimapSize makes a bigger map: the line follows
+  S.loch.style.width = S.loch.style.height = '160px';
+  P.raf(1);
+  assert.deepStrictEqual([st.right, st.width, st.bottom], ['28px', '136px', '12px']);
+  // their first map is tiny (setMinimapSize(24) at the game start): the line stays on screen
+  S.loch.style.width = S.loch.style.height = '48px';
+  P.raf(1);
+  assert.deepStrictEqual([st.right, st.width], ['6px', '120px']);
+  // beside the board when a centred block fits, under it when not
+  assert.strictEqual(P.slx.hud.topSlot(300), 8);
+  assert.strictEqual(P.slx.hud.topSlot(1400), 32 + 180 + 8);
+});
+
+test('slxHud: a phone gets their board smaller, top 5 rows, names cut with an ellipsis; a computer size puts it back', () => {
+  const P = hudPage({ innerWidth: 535, innerHeight: 1159 }, { is_mobile: true });
+  const S = P.S;
+  assert.strictEqual(P.slx.hud.phone(), true);
+  assert.strictEqual(S.lbh.style.transform, 'translateZ(0) translate(-25.2px, 0px) scale(0.6)');
+  assert.strictEqual(S.lbh.style.transformOrigin, '285px 0px');
+  assert.strictEqual(S.lbs.style.transform, 'translateZ(0) translate(0px, -8.4px) scale(0.9)');
+  assert.strictEqual(S.lbs.style.transformOrigin, '50px -28px');
+  assert.strictEqual(S.lbn.style.transformOrigin, '200px -28px');
+  assert.strictEqual(S.lbp.style.transform, 'translateZ(0) translate(36px, -8.4px) scale(0.9)');
+  assert.strictEqual(S.lbp.style.transformOrigin, '286px -28px');
+  for (const k of ['lbs', 'lbn', 'lbp']) assert.strictEqual(S[k].style.height, '90px', k + ': five rows of 18 px');
+  assert.deepStrictEqual([S.lbn.style.width, S.lbn.style.textOverflow], ['140px', 'ellipsis']);
+  // their resizeHud writes right only: nothing here is undone by it
+  S.lbp.style.right = '260px';
+  P.raf(1);
+  assert.strictEqual(S.lbp.style.height, '90px');
+  // the board: 221.4 px wide, 102.8 px tall; an upright phone has no room beside it
+  const b = P.slx.hud.board();
+  assert.deepStrictEqual([Math.round(b.left * 10) / 10, Math.round(b.bottom * 10) / 10], [309.6, 101.8]);
+  assert.strictEqual(P.slx.hud.topSlot(260), 110);
+  // a phone on its side has room beside it
+  P.win.innerWidth = 1160;
+  P.win.innerHeight = 536;
+  P.raf(1);
+  assert.strictEqual(P.slx.hud.topSlot(300), 8);
+  // a computer window (not a phone's user agent) of computer size: their board as sl.html had it
+  S.is_mobile = false;
+  P.win.innerWidth = 1280;
+  P.win.innerHeight = 720;
+  P.raf(1);
+  assert.strictEqual(P.slx.hud.phone(), false);
+  assert.deepStrictEqual(['lbh', 'lbs', 'lbn', 'lbp'].map((k) => S[k].style.transform), Array(4).fill('translateZ(0)'));
+  assert.deepStrictEqual(['lbs', 'lbn', 'lbp'].map((k) => S[k].style.height), Array(3).fill('800px'));
+  assert.deepStrictEqual([S.lbn.style.width, S.lbn.style.textOverflow, S.lbh.style.transformOrigin], ['180px', '', '']);
+  // and a small computer window gets the phone board
+  P.win.innerWidth = 500;
+  P.raf(1);
+  assert.strictEqual(P.slx.hud.phone(), true);
+});
+
+test('slxBr: every event line in one block at the top centre, in the slot slxHud keeps clear', () => {
+  const store = { slBr: 'play' };
+  const P = makePage({ win: { setInterval: () => 0, sessionStorage: { getItem: (k) => store[k] || null, removeItem: (k) => { delete store[k]; } } } });
+  const slots = [];
+  P.slx.hud = { phone: () => false, topSlot: (w) => { slots.push(w); return 110; } };
+  P.doc.querySelector = () => null; // no phone CASH OUT button on this page
+  P.load('slxBr.js');
+  const [hud] = P.find('slx-br-hud');
+  assert.ok(hud, 'the block');
+  assert.strictEqual(P.find('slx-br-big').length, 0, 'nothing in the middle of the screen');
+  const [head, sub, start] = hud.children;
+  assert.deepStrictEqual([head.className, sub.className, start.className], ['slx-br-head', 'slx-br-sub', 'slx-br-start slx-br-ui']);
+  const br = (m) => { P.slx.fire('x:br', Object.assign({ t: 'br', z: null }, m)); P.raf(1); };
+  br({ state: 'waiting', phase: 'waiting', alive: 48, nextStartMs: 3723500 });
+  assert.deepStrictEqual([head.textContent, sub.textContent], ['Battle Royale', '48 players · next match in 1h 2m 3s']);
+  assert.strictEqual(hud.style.top, '110px', 'the slot');
+  assert.ok(!/slx-br-now/.test(hud.className));
+  br({ state: 'countdown', phase: 'countdown', alive: 12, countdownMs: 7000, prize: 20 });
+  assert.deepStrictEqual([head.textContent, sub.textContent], ['Starting in 7', '12 players · last snake alive wins $20']);
+  assert.ok(/slx-br-now/.test(hud.className), 'the count is the big moment');
+  br({ state: 'running', phase: 'warning', alive: 12, startedCount: 12, elapsedMs: 100, zoneMs: 9000 });
+  assert.strictEqual(head.textContent, 'GO');
+  P.raf(80, 16);
+  assert.deepStrictEqual([head.textContent, sub.textContent], ['Next circle', '12 of 12 left · circle closes in 8s']);
+  assert.ok(!/slx-br-now/.test(hud.className));
+  br({ state: 'running', phase: 'closing', alive: 8, startedCount: 12, elapsedMs: 60000 });
+  assert.deepStrictEqual([head.textContent, sub.textContent], ['Circle closing', '8 of 12 left · get inside the circle']);
+  br({ state: 'over', phase: 'over', alive: 1, startedCount: 12, winner: { id: 7, name: 'Viper' } });
+  assert.deepStrictEqual([head.textContent, sub.textContent], ['Viper wins', 'Last snake alive of 12']);
+  br({ state: 'reopening', phase: 'reopening', alive: 30, startedCount: 12, winner: { id: 7, name: 'Viper' } });
+  assert.deepStrictEqual([head.textContent, sub.textContent], ['Match over', 'Viper won']);
+  // no startedCount (the old engine, a page that came in late): the count alone
+  br({ state: 'running', phase: 'holding', alive: 5, elapsedMs: 90000 });
+  assert.strictEqual(sub.textContent, '5 left · last snake alive wins');
+  assert.ok(slots.length > 0 && slots.every((w) => typeof w === 'number'), 'asks for the slot with its width');
 });
 
 // The server's sl:diag fields (server/sl/slSockets.js DIAG_NUMBERS) and its cleaner.

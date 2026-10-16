@@ -71,6 +71,7 @@ function createBrMatch(opts) {
     winner: null, // { id, name, wallet }
     soloRun: false,
     startedWith: 0,
+    startedCount: 0, // snakes alive (bots too) when the match went live: the HUD's "8 of 12 left" (slxBr.js)
     startedPeople: 0,
     prizeHeld: false, // a real match whose players proved fewer than two wallets: no automatic prize (see startMatch)
     podium: null,
@@ -157,6 +158,7 @@ function createBrMatch(opts) {
       m.countdownUntil = now + BRM.COUNTDOWN_MS;
       const humans = humanSnakes();
       m.startedWith = humans.length;
+      m.startedCount = 0;
       m.startedPeople = provenPeople(humans);
       // Known from the start, so nothing on screen promises a prize that will not be paid. The PRIZE rule counts
       // different PEOPLE: distinct wallets their sockets proved. Two tabs (or a script socket) of one person are one
@@ -219,6 +221,7 @@ function createBrMatch(opts) {
       if (m.state === 'countdown' && simMs >= m.countdownUntil) {
         m.state = 'running';
         m.startedAt = simMs;
+        m.startedCount = m.livingCount();
         zone.begin(simMs, room.sim.flux());
         lastRing = zone.ring();
         changed = true;
@@ -336,6 +339,7 @@ function createBrMatch(opts) {
         phase: m.phase(now),
         soloRun: !!m.soloRun,
         startedWith: m.startedWith || 0,
+        startedCount: m.state === 'waiting' ? 0 : m.startedCount || 0,
         cashoutMs: m.state === 'over' ? Math.max(0, m.cashoutAt - now) : 0,
         cashoutTotalMs: BRM.CASHOUT_DELAY_MS,
         nextStartMs: msUntilNextStart(wallNow()),

@@ -2810,6 +2810,8 @@ function liveBattleRoyale() {
     /* The page's between-lives poll (public/js/slx/slxBr.js) shows these. */
     prize: st.prize,
     soloRun: !!st.soloRun,
+    /* How many the match started with ("8 of 12 left"); 0 from the old engine. */
+    startedCount: st.startedCount || 0,
     joinable: room.acceptingPlayers(),
     /* The wall clock, from the box that runs the schedule. Eastern hour and
        minute rather than a UTC offset, for the daylight-saving reason written

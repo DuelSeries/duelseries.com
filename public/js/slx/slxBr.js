@@ -14,8 +14,8 @@
 // 2. The circle (sl:x {t: 'br', z}): one .slx-br canvas between their game canvas and their HUD (slxPaid's camera
 //    math): the outside tinted red, the wall as a red line, the announced circle as a white dashed ring. z is a whole
 //    ring { f, t, w, m } and the lerp runs on this page's clock, so the wall moves smoothly between messages.
-// 3. The HUD: the phase, how many are alive, the next move of the wall, the 10 s count and GO, the winner's moment;
-//    the owner's Start match (shown only when the server said owner for this seat; the action is still signed by the
+// 3. The HUD, one block at the top centre: the 10 s count and GO, the winner's moment or the phase, how many are
+//    left of how many started, the next move of the wall; the owner's Start match (shown only when the server said owner for this seat; the action is still signed by the
 //    owner wallet and checked at /api/owner/do).
 // 4. The card (slxCard hooks): out of a running match, Play again is Watch; the podium and the prize line when one
 //    is decided; between matches, when the next one starts.
@@ -321,49 +321,57 @@
   }
 
   // ---- 3. the HUD
+  // One block at the top centre (Owen 2026-10-16: nothing in the middle of the screen). Its head line is the moment
+  // (the countdown, GO, the winner), bigger, or else the phase; the line under it says how many are in the match and
+  // what comes next; the owner's Start match sits under that. The block takes the slot slxHud keeps clear of their
+  // leaderboard and top left box (slx.hud.topSlot: beside them on a computer and on a phone held sideways, just under
+  // the smaller board on a phone held upright), so it never covers the snake in the middle or their minimap.
 
   var hud = null;
   var hudHead = null;
   var hudSub = null;
-  var big = null;
   var startBtn = null;
   var lobbyBtn = null;
+  var hudKey = '';
+  var hudW = 0; // the block's width, read when what it says changes
+  var hudTop = -1;
+  var TOP_PX = 8; // without slxHud
+  var FONT = 'Arial,"Helvetica Neue",Helvetica,sans-serif';
   var style = doc.createElement('style');
   style.textContent = [
-    '.slx-br-hud{position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:8;text-align:center;' +
-      'font:bold 15px Arial,"Helvetica Neue",Helvetica,sans-serif;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.9);' +
-      'pointer-events:none;white-space:nowrap;}',
-    '.slx-br-hud .slx-br-sub{font-weight:normal;font-size:13px;opacity:.9;margin-top:2px;}',
-    '.slx-br-big{position:fixed;top:38%;left:50%;transform:translate(-50%,-50%);z-index:8;pointer-events:none;' +
-      'font:bold 46px Arial,"Helvetica Neue",Helvetica,sans-serif;color:#fff;text-shadow:0 2px 8px rgba(0,0,0,.9);' +
-      'display:none;text-align:center;}',
-    '.slx-br-start{position:fixed;top:56px;left:50%;transform:translateX(-50%);z-index:9;display:none;' +
-      'padding:7px 16px;border:0;border-radius:6px;background:#14F195;color:#06231a;' +
-      'font:bold 14px Arial,"Helvetica Neue",Helvetica,sans-serif;cursor:pointer;}',
-    // a phone held upright: their leaderboard fills the top (up to ten rows), so the HUD sits just under it
+    '.slx-br-hud{position:fixed;top:' + TOP_PX + 'px;left:50%;transform:translateX(-50%);z-index:8;' +
+      'box-sizing:border-box;width:max-content;max-width:calc(100vw - 24px);padding:5px 14px 6px;border-radius:12px;' +
+      'background:rgba(0,0,0,.42);text-align:center;color:#fff;font:13px ' + FONT + ';' +
+      'text-shadow:0 1px 3px rgba(0,0,0,.9);pointer-events:none;-webkit-user-select:none;user-select:none;}',
+    '.slx-br-head{font-weight:bold;font-size:16px;line-height:20px;white-space:nowrap;}',
+    '.slx-br-now .slx-br-head{font-size:24px;line-height:29px;}',
+    '.slx-br-sub{margin-top:1px;line-height:17px;opacity:.92;}',
+    '.slx-br-start{display:none;margin:6px auto 0;padding:6px 16px;border:0;border-radius:6px;background:#14F195;' +
+      'color:#06231a;font:bold 14px ' + FONT + ';text-shadow:none;cursor:pointer;pointer-events:auto;}',
     '.slx-br-lobby{position:fixed;top:10px;left:10px;z-index:9;display:none;padding:6px 14px;border:1px solid #ccc;' +
-      'border-radius:4px;background:#fff;color:#333;font:bold 13px Arial,"Helvetica Neue",Helvetica,sans-serif;cursor:pointer;}',
-    '@media (max-width:600px){.slx-br-hud{top:232px;font-size:13px}.slx-br-hud .slx-br-sub{font-size:12px}' +
-      '.slx-br-big{top:48%;font-size:34px}.slx-br-start{top:282px}}'
+      'border-radius:4px;background:#fff;color:#333;font:bold 13px ' + FONT + ';cursor:pointer;}',
+    // a phone, either way up (slx.hud.phone(): their page is laid out at 0.7 there, so no media query can tell)
+    '.slx-br-phone.slx-br-hud{max-width:calc(100vw - 16px);padding:4px 12px 5px;font-size:15px;}',
+    '.slx-br-phone .slx-br-head{font-size:18px;line-height:22px;}',
+    '.slx-br-phone.slx-br-now .slx-br-head{font-size:26px;line-height:31px;}',
+    '.slx-br-phone .slx-br-sub{line-height:19px;}'
   ].join('\n');
   (doc.head || body).appendChild(style);
   if (body) {
     hud = doc.createElement('div');
     hud.className = 'slx-br-hud slx-br-ui';
     hudHead = doc.createElement('div');
+    hudHead.className = 'slx-br-head';
     hudSub = doc.createElement('div');
     hudSub.className = 'slx-br-sub';
     hud.appendChild(hudHead);
     hud.appendChild(hudSub);
-    body.appendChild(hud);
-    big = doc.createElement('div');
-    big.className = 'slx-br-big slx-br-ui';
-    body.appendChild(big);
     startBtn = doc.createElement('button');
     startBtn.className = 'slx-br-start slx-br-ui';
     startBtn.type = 'button';
     startBtn.textContent = 'Start match';
-    body.appendChild(startBtn);
+    hud.appendChild(startBtn);
+    body.appendChild(hud);
     // While watching there is no card (the watched snake is alive), so this is the way out
     lobbyBtn = doc.createElement('button');
     lobbyBtn.className = 'slx-br-lobby slx-br-ui';
@@ -392,49 +400,74 @@
     return (h ? h + 'h ' : '') + m + 'm ' + s + 's';
   }
 
-  function hudPaint() {
-    if (!hud || !st) return;
-    var phase = st.phase || st.state;
+  function players(n) {
+    return n + (n === 1 ? ' player' : ' players');
+  }
+
+  // How many are left, out of how many started when the server says (startedCount, server/slBr/brMatch.js).
+  function leftLine() {
     var alive = st.alive || 0;
-    var head = (PHASE[phase] || 'Battle Royale') + ' · ' + alive + ' alive';
-    if (hudHead.textContent !== head) hudHead.textContent = head;
+    var from = st.startedCount || 0;
+    return (from >= alive && from > 0 ? alive + ' of ' + from : alive) + ' left';
+  }
+
+  // -> { head, sub, now }: now is a moment (the countdown, GO, the winner), drawn bigger while this page is live
+  function hudText() {
+    var phase = st.phase || st.state;
+    var head = PHASE[phase] || 'Battle Royale';
     var sub = '';
-    if (st.state === 'running') {
-      var solo = st.soloRun ? ' · solo run' : '';
-      sub = (phase === 'warning' ? 'The circle closes in ' + secsLeft(st.zoneMs || 0) + 's'
-        : phase === 'closing' ? 'The circle is closing. Get inside it.'
-          : 'Ring ' + (st.ring || 1) + ' · last one alive wins') + solo;
+    var moment = false;
+    var w = st.winner;
+    if (st.state === 'countdown') {
+      var n = secsLeft(st.countdownMs || 0);
+      head = n > 0 ? 'Starting in ' + n : 'GO';
+      moment = true;
+      sub = players(st.alive || 0) + ' · last snake alive wins' + (st.prize > 0 ? ' ' + PRIZE_WORDS : '');
+    } else if (st.state === 'running') {
+      if (now() - stAt < 1200 && st.elapsedMs < 1500) {
+        head = 'GO';
+        moment = true;
+      }
+      sub = leftLine() + ' · ' + (phase === 'warning' ? 'circle closes in ' + secsLeft(st.zoneMs || 0) + 's'
+        : phase === 'closing' ? 'get inside the circle' : 'last snake alive wins') + (st.soloRun ? ' · solo run' : '');
     } else if (st.state === 'over' || st.state === 'reopening') {
-      sub = st.soloRun ? (st.winner ? st.winner.name + ' lasted the whole match' : 'The circle won')
-        : (st.winner ? st.winner.name + ' won' : 'Nobody survived');
-    } else if (st.state === 'countdown') {
-      sub = 'Last snake alive wins' + (st.prize > 0 ? ' ' + PRIZE_WORDS : '');
+      if (st.state === 'over' && w) {
+        head = myId && w.id === myId && mode === 'play' ? 'You won!' : w.name + ' wins';
+        moment = true;
+      }
+      sub = st.soloRun ? (w ? w.name + ' lasted the whole match' : 'The circle won')
+        : !w ? 'Nobody survived'
+          : moment ? 'Last snake alive' + (st.startedCount > 1 ? ' of ' + st.startedCount : '') : w.name + ' won';
     } else {
-      sub = 'Next match in ' + clock(st.nextStartMs || 0);
+      sub = players(st.alive || 0) + ' · next match in ' + clock(st.nextStartMs || 0);
     }
     if (mode === 'watch' && watching && watching.name) sub = 'Watching ' + watching.name + ' · ' + sub;
     if (say && now() < sayUntil) sub = say;
-    if (hudSub.textContent !== sub) hudSub.textContent = sub;
-    if (startBtn) startBtn.style.display = owner && st.state === 'waiting' && mode === 'play' ? 'block' : 'none';
-    if (lobbyBtn) lobbyBtn.style.display = mode === 'watch' && S.connected ? 'block' : 'none';
+    return { head: head, sub: sub, now: moment && (typeof slx.connected !== 'function' || slx.connected()) };
   }
 
-  function bigPaint() {
-    if (!big) return;
-    var text = '';
-    var live = typeof slx.connected !== 'function' || slx.connected();
-    if (!live) {
-      text = ''; // the card is up: it says what happened
-    } else if (st && st.state === 'countdown') {
-      var n = secsLeft(st.countdownMs || 0);
-      text = n > 0 ? 'Starting in ' + n : 'GO';
-    } else if (st && st.state === 'running' && now() - stAt < 1200 && st.elapsedMs < 1500) {
-      text = 'GO';
-    } else if (st && st.state === 'over' && st.winner) {
-      text = myId && st.winner.id === myId && mode === 'play' ? 'You won!' : st.winner.name + ' wins';
+  function hudPaint() {
+    if (!hud || !st) return;
+    var t = hudText();
+    if (hudHead.textContent !== t.head) hudHead.textContent = t.head;
+    if (hudSub.textContent !== t.sub) hudSub.textContent = t.sub;
+    var hs = slx.hud;
+    var cls = 'slx-br-hud slx-br-ui' + (t.now ? ' slx-br-now' : '') +
+      (hs && typeof hs.phone === 'function' && hs.phone() ? ' slx-br-phone' : '');
+    if (hud.className !== cls) hud.className = cls;
+    var sd = owner && st.state === 'waiting' && mode === 'play' ? 'block' : 'none';
+    if (startBtn && startBtn.style.display !== sd) startBtn.style.display = sd;
+    if (lobbyBtn) lobbyBtn.style.display = mode === 'watch' && S.connected ? 'block' : 'none';
+    var key = cls + '|' + t.head + '|' + t.sub + '|' + sd;
+    if (key !== hudKey) {
+      hudKey = key;
+      hudW = hud.offsetWidth || 0;
     }
-    if (big.textContent !== text) big.textContent = text;
-    big.style.display = text ? 'block' : 'none';
+    var top = hs && typeof hs.topSlot === 'function' ? hs.topSlot(hudW) : TOP_PX;
+    if (top !== hudTop) {
+      hudTop = top;
+      hud.style.top = top + 'px';
+    }
   }
 
   if (startBtn && typeof slx.guard === 'function') bindStart();
@@ -598,6 +631,7 @@
       next.alive = b.alive;
       next.humans = b.humans;
       next.ring = b.ring;
+      next.startedCount = b.startedCount;
       next.countdownMs = b.countdownMs;
       next.winner = b.winner;
       next.podium = b.podium;
@@ -630,7 +664,6 @@
     root.requestAnimationFrame(frame);
     try {
       if (ctx) draw();
-      bigPaint();
       holdButton();
       hudPaint();
     } catch (e) {

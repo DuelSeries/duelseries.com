@@ -646,6 +646,8 @@
   var hudTail = null;
   var hudShown = false;
   var hudText = '';
+  var hudW = 0;
+  var hudTop = -1;
   var canvas = null;
   var ctx = null;
   if (body) {
@@ -1026,9 +1028,17 @@
     }
     if (!want) return;
     var text = dollars(v);
+    var hs = slx.hud;
     if (text !== hudText) {
       hudText = text;
       hudValue.textContent = text;
+      hudW = hs ? hud.offsetWidth || 0 : 0;
+    }
+    // the top centre slot slxHud keeps clear of their leaderboard (under it on a phone held upright, Owen 2026-10-16)
+    var top = hs && typeof hs.topSlot === 'function' ? hs.topSlot(hudW) : -1;
+    if (top >= 0 && top !== hudTop) {
+      hudTop = top;
+      hud.style.top = top + 'px';
     }
   }
 

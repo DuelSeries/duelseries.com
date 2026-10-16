@@ -228,9 +228,11 @@ test('a solo run: one person and bots; the door shuts at start, Q is refused, th
   assert.strictEqual(match.state, 'running');
   assert.ok(room.sim.zoneNow(), 'the circle is live');
   assert.strictEqual(match.publicState().startedWith, 1);
+  assert.strictEqual(match.publicState().startedCount, 3, 'every snake alive at the start, bots too (the HUD: 3 of 3 left)');
   for (const b of bots) room.sim.kill(b.id);
   run(ft, room, 200);
   assert.strictEqual(match.state, 'over');
+  assert.strictEqual(match.publicState().startedCount, 3, 'kept for the moment of the win');
   assert.strictEqual(match.winner.id, me.id);
   assert.strictEqual(match.winner.wallet, 'W1');
   assert.strictEqual(match.soloRun, true);

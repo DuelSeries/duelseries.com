@@ -7,8 +7,9 @@
 // (public/js/sl/slInput.js stepPing); slxNet times each outbound ping to its pong ('pong' rttMs). Shown in the old
 // format and colours: "N ms" and a dot, green under 50, orange under 100, red above (public/js/game.js:2353-2372,
 // public/css/game.css:388-409). FPS: this file's own animation frames counted over 500 ms, "FPS: N"
-// (game.js:2594-2605). Both sit bottom right above their minimap (sl.html loch: 124 px at right 16, bottom 16), shown
-// while their game shows (S.playing).
+// (game.js:2594-2605). Both in one line under their minimap's disc (Owen 2026-10-16): the default here is under the
+// 100 px disc of sl.html's 124 px holder at right 16, bottom 16, and slxHud.js moves it with the minimap's size.
+// Shown while their game shows (S.playing).
 //
 // sl:diag (server/sl/slSockets.js DIAG_NUMBERS, slRoom onDiag): one report at each socket open (it names how the
 // previous socket ended) and then one every DIAG_EVERY_MS while connected. Fields, each over the time since the last
@@ -48,10 +49,11 @@
   };
 
   var CSS = [
-    '.slx-stats{position:fixed;right:16px;bottom:148px;z-index:11;display:none;pointer-events:none;text-align:right;' +
-      'font-family:monospace;font-size:12px;letter-spacing:1px;color:rgba(255,255,255,.4);line-height:16px;}',
-    '.slx-ping{display:flex;align-items:center;justify-content:flex-end;gap:5px;}',
-    '.slx-ping-dot{width:8px;height:8px;border-radius:50%;display:inline-block;flex-shrink:0;}',
+    '.slx-stats{position:fixed;right:18px;bottom:12px;width:120px;height:14px;z-index:11;display:none;' +
+      'pointer-events:none;align-items:center;justify-content:center;gap:12px;white-space:nowrap;' +
+      'font-family:monospace;font-size:11px;letter-spacing:.5px;color:rgba(255,255,255,.45);line-height:14px;}',
+    '.slx-ping{display:flex;align-items:center;gap:4px;}',
+    '.slx-ping-dot{width:7px;height:7px;border-radius:50%;display:inline-block;flex-shrink:0;}',
     '.slx-ping-green{background:#22c55e;box-shadow:0 0 4px #22c55e88;}',
     '.slx-ping-orange{background:#f97316;box-shadow:0 0 4px #f9731688;}',
     '.slx-ping-red{background:#ef4444;box-shadow:0 0 4px #ef444488;}'
@@ -220,7 +222,7 @@
     var on = !!S.playing;
     if (on !== visible) {
       visible = on;
-      box.style.display = on ? 'block' : 'none';
+      box.style.display = on ? 'flex' : 'none';
     }
     if (now - lastDiagAt >= DIAG_EVERY_MS && slx.connected()) report('');
     root.requestAnimationFrame(frame);
