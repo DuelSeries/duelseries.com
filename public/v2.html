@@ -1178,6 +1178,29 @@ body.ingame>.howveil,body.ingame>.meveil,body.ingame>.apscreen,body.ingame>.bshe
 .clok:disabled,.clno:disabled{opacity:.5;cursor:default}
 .cllink{font-size:12.5px;color:var(--tx2);margin-left:auto;text-decoration:underline;text-underline-offset:3px;white-space:nowrap}
 .cllink:hover{color:var(--tx)}
+.clnote{font-size:12.5px;color:var(--tx3);margin-left:auto;white-space:nowrap}
+/* A shared clip's Download, Copy link and Post on X: small on a card, full size under the player. */
+.clsh{display:flex;gap:4px;margin-top:9px;flex-wrap:wrap}
+.clsh button{font-size:12px;font-weight:600;color:var(--tx2);padding:5px 8px;border-radius:var(--r1);background:var(--s2);transition:background .15s,color .15s}
+.clsh button:hover{color:var(--tx);background:var(--s3)}
+.clmsh{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.clmsh button{font-size:13.5px;font-weight:650;padding:10px 14px;border-radius:var(--r2);background:var(--s3);color:var(--tx);transition:background .15s}
+.clmsh button:first-child{background:var(--bone);color:var(--ink)}
+.clmsh button:disabled,.clsh button:disabled{opacity:.6;cursor:default}
+/* Your clips: the upload box first, then the player's own clips with their state and Delete. */
+.clsend.sec{background:var(--s2);color:var(--tx)}
+#cl-mine{background:var(--s1);border-radius:var(--r3);padding:18px 18px 20px;margin-bottom:28px}
+.cldrop{display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:8px;min-height:100%;padding:18px;
+  border:1.5px dashed var(--s3);border-radius:12px;color:var(--tx2);font-size:13px;line-height:1.45;transition:border-color .15s,background .15s}
+.cldrop b{color:var(--tx);font-size:15px;font-weight:650}
+.cldrop.over,body.cldragging .cldrop{border-color:var(--bone);background:var(--s2)}
+.clst{font-size:12.5px;color:var(--tx2);margin-right:auto}
+.clst.live{color:var(--live)}
+.clst.rejected{color:var(--tx3)}
+.clfile{display:flex;gap:12px;align-items:center;margin-bottom:6px}
+.clfile video{width:160px;aspect-ratio:16/9;border-radius:8px;background:#000;object-fit:contain}
+.clfmeta{display:flex;flex-direction:column;gap:4px;min-width:0;font-size:12.5px;color:var(--tx2)}
+.clfmeta b{color:var(--tx);font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* The player sheet: as big as the screen allows at the clip's own shape. */
 .clbox{width:min(1100px,100%,calc((100vh - 150px) * 1.7778));display:flex;flex-direction:column;gap:14px}
 .clbox.tall{width:min(420px,100%,calc((100vh - 150px) * .5625))}
@@ -2685,10 +2708,13 @@ body.scr-anim { overflow-x:hidden }
 <main id="clips-screen" class="wrap">
   <div class="head clhead">
     <div><h2>Clips</h2>
-      <p class="clsub">The best DuelSeries moments, from players. Press P in any game to save the last 30 seconds, post it on X, YouTube or TikTok, send the link here, and it goes on the wall once it is approved.</p></div>
+      <p class="clsub">The best DuelSeries moments, from players. Press P in any game to save the last 30 seconds, then Share to DuelSeries, and it goes on the wall once it is approved. Already posted it on X, YouTube or TikTok? Send the link instead.</p></div>
     <span class="sp"></span>
-    <button type="button" class="clsend" onclick="V2Clips.openSubmit()"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Submit a clip</button>
+    <button type="button" class="clsend sec" onclick="V2Clips.openSubmit()">Send a link</button>
+    <button type="button" class="clsend" onclick="V2Clips.openUpload()"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>Upload a clip</button>
+    <input type="file" id="cl-file" accept="video/mp4,.mp4" hidden>
   </div>
+  <section id="cl-mine" aria-label="Your clips" hidden></section>
   <section id="cl-queue" aria-label="Clips waiting for review" hidden></section>
   <div class="clwall">
     <div id="cl-grid" class="clgrid"></div>
@@ -2710,7 +2736,7 @@ body.scr-anim { overflow-x:hidden }
 </div>
 <div id="clsubveil" class="howveil" role="dialog" aria-modal="true" aria-labelledby="clsubtitle">
   <div class="howcard">
-    <div class="howtop"><h2 id="clsubtitle">Submit a clip</h2>
+    <div class="howtop"><h2 id="clsubtitle">Send a link</h2>
       <button type="button" class="howx" onclick="V2Clips.closeSubmit()" aria-label="Close">&#10005;</button>
     </div>
     <p class="clsubp">Post your clip on X, YouTube or TikTok first, then paste the link. It shows on the wall once it is approved.</p>
@@ -2725,7 +2751,7 @@ body.scr-anim { overflow-x:hidden }
       <p class="clerr" id="cl-err" role="alert"></p>
       <div class="clsubacts">
         <button type="button" class="btn sec" onclick="V2Clips.closeSubmit()">Cancel</button>
-        <button type="submit" class="btn pri" id="cl-send">Submit clip</button>
+        <button type="submit" class="btn pri" id="cl-send">Send link</button>
       </div>
     </form>
   </div>
@@ -2816,6 +2842,7 @@ body.scr-anim { overflow-x:hidden }
 <script src="/js/v2/socialPreview.js"></script>
 <script src="/js/v2/leaders.js"></script>
 <script src="/js/v2/social.js"></script>
+<script src="/js/clipPage.js"></script>
 <script src="/js/v2/clips.js"></script>
 <script src="/js/v2/updates.js"></script>
 <script src="/js/v2/join.js"></script>

@@ -2564,7 +2564,31 @@ const clipsMod = require('./clips');
 const clipStore = clipsMod.createClipStore({
   file: process.env.CLIPS_PATH || path.join(path.dirname(agJournal.file), 'clips.json'),
 });
+/* Clips shared straight from a game go to a private S3 bucket and play through CloudFront (server/s3lite.js;
+   Owen 2026-10-16). The key in .env belongs to an IAM user that can touch only that bucket's inbox/ and live/
+   and clear only that distribution's cache. Without all six values, sharing from a game is simply off. */
+const clipUploads = (() => {
+  const e = process.env;
+  if (!e.CLIPS_S3_BUCKET || !e.CLIPS_S3_REGION || !e.CLIPS_CDN || !e.CLIPS_CF_DIST || !e.CLIPS_AWS_KEY_ID || !e.CLIPS_AWS_SECRET) {
+    console.log('[clips] sharing from a game is off (no CLIPS_* settings)');
+    return null;
+  }
+  const { createS3, cloudfrontInvalidate } = require('./s3lite');
+  const creds = { id: e.CLIPS_AWS_KEY_ID, secret: e.CLIPS_AWS_SECRET };
+  const cdn = String(e.CLIPS_CDN).replace(/\/+$/, '');
+  if (!/^https:\/\/[a-z0-9.-]+$/i.test(cdn)) { console.warn('[clips] CLIPS_CDN is not an https origin; sharing is off'); return null; }
+  console.log('[clips] sharing from a game is on: bucket ' + e.CLIPS_S3_BUCKET + ', ' + cdn);
+  return {
+    s3: createS3({ bucket: e.CLIPS_S3_BUCKET, region: e.CLIPS_S3_REGION, creds }),
+    cdn,
+    invalidate: (paths) => cloudfrontInvalidate({ distributionId: e.CLIPS_CF_DIST, paths, creds }),
+  };
+})();
 clipsMod.mountClipRoutes(app, {
+  uploads: clipUploads,
+  // Upload links one address may ask for in a day, on top of the per-wallet caps in server/clips.js.
+  uploadLimiter: rateLimit({ windowMs: 24 * 60 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false, skipFailedRequests: true,
+                             message: { error: 'That is a lot of clips from here today. Share the next one tomorrow.' } }),
   store: clipStore,
   isOwner: (w) => OWNER_WALLETS.has(w),
   walletForAction: (b) => ownerAuth.walletForAction(b),

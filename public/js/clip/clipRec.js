@@ -2,8 +2,9 @@
 /* ─── The clip recorder: P saves the last 30 seconds (Owen 2026-10-16) ─────────
    On a PC, every game page keeps the last 30 seconds of what is on screen, with
    the game's sound (and the player's mic if they turned it on in Settings). P
-   saves them as an .mp4 in the player's Downloads; nothing is uploaded, so it
-   costs the server nothing. After a cash-out or a battle royale win the page
+   saves them as an .mp4 in the player's Downloads; nothing is uploaded unless
+   the player then clicks Share to DuelSeries on the card that follows (each
+   share its own click, reviewed by the owner before anyone sees it). After a cash-out or a battle royale win the page
    offers to save one for 8 seconds. Owen's picks: look A (the lobby's own toast,
    top centre), an always-on small red dot, a DuelSeries.com mark in the video.
 
@@ -394,36 +395,54 @@
 
   /* ── saving ────────────────────────────────────────────────────────────── */
   let lastSave = 0;
+  let last = null;      // the clip last built, kept so its Share button sends exactly that one
+  const isBr = () => { const sl = window.DuelSlither && window.DuelSlither.slx; return !!(sl && typeof sl.brAuth === 'function'); };
+  const muxOf = (v, a) => window.DSMp4.mux({
+    video: { width: W, height: H, description: vDesc, chunks: v },
+    audio: a ? { sampleRate: aRate, channels: 2, description: aDesc, chunks: a } : null,
+  });
+  // The clip held right now, as an MP4 plus a still of its last frame for the card on the Clips wall.
+  function build() {
+    const v = vChunks.slice();
+    while (v.length && !v[0].key) v.shift();     // frames still in the encoder when the buffer restarted
+    if (!v.length) throw new Error('no key frame yet');
+    const a = aEnc && aChunks.length ? aChunks.slice() : null;
+    const bytes = muxOf(v, a);
+    const secs = Math.max(1, Math.round((v[v.length - 1].ts - v[0].ts) / 1e6));
+    return { v, a, bytes, secs, game: isBr() ? 'br' : GAME, poster: still(), shared: false, sharing: false };
+  }
+  // A 640-wide JPEG of the picture as it is now (the last frame of the clip), or null.
+  function still() {
+    return new Promise((resolve) => {
+      try {
+        const k = Math.min(1, 640 / W);
+        const c = document.createElement('canvas');
+        c.width = Math.round(W * k); c.height = Math.round(H * k);
+        c.getContext('2d').drawImage(mirror, 0, 0, c.width, c.height);
+        c.toBlob((b) => resolve(b && b.size > 0 && b.size <= 380 * 1024 ? b : null), 'image/jpeg', 0.8);
+      } catch (_) { resolve(null); }
+    });
+  }
   function save() {
     if (!running || !vChunks.length || !vDesc) { toast('info', 'Nothing to save yet', 'Clips start a few seconds into a game.'); return false; }
     if (performance.now() - lastSave < 2000) return false;
     lastSave = performance.now();
     hideOffer();
     try {
-      const v = vChunks.slice();
-      while (v.length && !v[0].key) v.shift();     // frames still in the encoder when the buffer restarted
-      if (!v.length) throw new Error('no key frame yet');
-      const a = aEnc && aChunks.length ? aChunks.slice() : null;
-      const bytes = window.DSMp4.mux({
-        video: { width: W, height: H, description: vDesc, chunks: v },
-        audio: a ? { sampleRate: aRate, channels: 2, description: aDesc, chunks: a } : null,
-      });
-      const secs = Math.max(1, Math.round((v[v.length - 1].ts - v[0].ts) / 1e6));
-      const url = URL.createObjectURL(new Blob([bytes], { type: 'video/mp4' }));
+      const clip = build();
+      last = clip;
+      const url = URL.createObjectURL(new Blob([clip.bytes], { type: 'video/mp4' }));
       const d = new Date();
       const p2 = (n) => String(n).padStart(2, '0');
-      // The battle royale runs on the /sl page; only it defines slx.brAuth (slxBr.js).
-      const sl = window.DuelSlither && window.DuelSlither.slx;
-      const game = sl && typeof sl.brAuth === 'function' ? 'battle-royale' : GAME;
-      const name = 'duelseries-' + game + '-' + d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate())
-        + '-' + p2(d.getHours()) + p2(d.getMinutes()) + p2(d.getSeconds()) + '.mp4';
+      const name = 'duelseries-' + (clip.game === 'br' ? 'battle-royale' : GAME) + '-' + d.getFullYear() + '-' + p2(d.getMonth() + 1)
+        + '-' + p2(d.getDate()) + '-' + p2(d.getHours()) + p2(d.getMinutes()) + p2(d.getSeconds()) + '.mp4';
       const a2 = document.createElement('a');
       a2.href = url; a2.download = name; a2.style.display = 'none';
       document.documentElement.appendChild(a2);
       a2.click();
       a2.remove();
       setTimeout(() => URL.revokeObjectURL(url), 60000);
-      toast('ok', 'Clip saved', 'last ' + secs + ' s, in Downloads', true);
+      askShare(clip);
       return true;
     } catch (e) {
       toast('err', 'Could not save the clip', 'Try again in a moment.');
@@ -431,6 +450,86 @@
     }
   }
   DSClip.save = save;
+
+  /* ── sharing to DuelSeries (Owen 2026-10-16) ─────────────────────────────
+     The clip goes from this browser straight to DuelSeries' clip storage with a
+     link the server signs for exactly its size (server/clips.js), so it never
+     passes through the game server. The server then checks it really is a short
+     MP4 and it waits for the owner's approval before anyone else can see it.
+     Needs the player logged in: the lobby (this page's parent) holds the wallet
+     that signs the request, the same one every game uses to say who is playing. */
+  const UP_MAX = 25 * 1024 * 1024;
+  function lobby() {
+    try {
+      const h = window.parent && window.parent !== window ? window.parent : window;
+      const w = h.duelWallet || {};
+      return w.authenticated && w.address && typeof h.duelWalletSignAction === 'function' ? h : null;
+    } catch (_) { return null; }      // a parent on another origin
+  }
+  // Over the size a share may be: the oldest seconds go, a key frame at a time, until it fits.
+  function fit(clip) {
+    if (clip.bytes.length <= UP_MAX) return clip.bytes;
+    let v = clip.v;
+    for (let tries = 0; tries < 40; tries++) {
+      const over = muxOf(v, clip.a).length - UP_MAX;
+      if (over <= 0) return muxOf(v, clip.a);
+      let cut = 0, i = 1;
+      for (; i < v.length; i++) { cut += v[i - 1].data.byteLength; if (v[i].key && cut >= over * 0.6) break; }
+      if (i >= v.length) break;
+      v = v.slice(i);
+    }
+    return null;
+  }
+  async function post(path, body) {
+    const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    let j = {};
+    try { j = await r.json(); } catch (_) {}
+    if (!r.ok) throw new Error(j.error || 'Something went wrong. Try again.');
+    return j;
+  }
+  function put(url, blob, type, onProgress) {
+    return new Promise((resolve, reject) => {
+      const x = new XMLHttpRequest();
+      x.open('PUT', url);
+      x.setRequestHeader('Content-Type', type);
+      x.setRequestHeader('If-None-Match', '*');      // the link is signed to write its file once
+      x.timeout = 5 * 60 * 1000;
+      if (onProgress) x.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(e.loaded / e.total); };
+      x.onload = () => (x.status >= 200 && x.status < 300 ? resolve() : reject(new Error('The upload was refused. Try again.')));
+      x.onerror = x.ontimeout = () => reject(new Error('The upload did not finish. Check your connection and try again.'));
+      x.send(blob);
+    });
+  }
+  async function share(clip) {
+    if (!clip || clip.sharing) return;
+    if (clip.shared) { toast('info', 'Already shared', 'DuelSeries reviews it before anyone else can see it.'); return; }
+    const host = lobby();
+    if (!host) { toast('err', 'Log in to share clips', 'Log in on DuelSeries, then press P again.'); return; }
+    clip.sharing = true;
+    hideOffer();
+    const bar = progress('Sharing clip');
+    try {
+      const bytes = fit(clip);
+      if (!bytes) throw new Error('This clip is too big to share.');
+      const poster = await clip.poster;
+      const args = { size: bytes.length, psize: poster ? poster.size : 0, game: clip.game };
+      const proof = await Promise.race([
+        host.duelWalletSignAction('clip:upload', args),
+        new Promise((_, no) => setTimeout(() => no(new Error('The wallet did not answer. Try again.')), 10000)),
+      ]);
+      if (!proof) throw new Error('Log in on DuelSeries, then try again.');
+      const up = await post('/api/clips/upload', proof);
+      await put(up.video, new Blob([bytes], { type: 'video/mp4' }), 'video/mp4', (f) => bar(f * 0.95));
+      if (poster && up.poster) await put(up.poster, poster, 'image/jpeg').catch(() => {});   // the card falls back to game art
+      bar(1);
+      const done = await post('/api/clips/uploaded', { id: up.id, ticket: up.ticket });
+      clip.shared = true;
+      toast('ok', 'Sent for review', 'It shows in Clips once it is approved. Delete it there any time.');
+    } catch (e) {
+      toast('err', 'Could not share the clip', (e && e.message) || 'Try again in a moment.');
+    } finally { clip.sharing = false; }
+  }
+  DSClip.share = () => share(last);
   // For a console check: what is being recorded right now.
   DSClip.stats = () => ({ on: running, capturing, asleep, late: performance.now() < lateUntil, yields, size: W + 'x' + H, layers: layers.length,
     seconds: vChunks.length > 1 ? Math.round((vChunks[vChunks.length - 1].ts - vChunks[0].ts) / 1e5) / 10 : 0,
@@ -453,6 +552,13 @@
 .dsclip-t button{border:0;cursor:pointer;background:#f4f1ea;color:#100e0b;font:650 12px/1 Archivo,"Segoe UI",system-ui,sans-serif;
   padding:7px 10px;border-radius:8px;display:inline-flex;gap:6px;align-items:center}
 .dsclip-t button:hover{background:#fff}
+.dsclip-t button.sec{background:rgba(245,241,232,.12);color:#f5f1e8}
+.dsclip-t button.sec:hover{background:rgba(245,241,232,.22)}
+.dsclip-t .num{font-variant-numeric:tabular-nums}
+.dsclip-t .th{position:relative;flex:none;width:96px;height:54px;border-radius:8px;overflow:hidden;background:#000}
+.dsclip-t .th img,.dsclip-t .th video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.dsclip-t .tx{display:flex;flex-direction:column;gap:4px}
+.dsclip-t .q{font-size:12px;color:#d9d1c3}
 .dsclip-t button:focus-visible{outline:2px solid #f4f1ea;outline-offset:2px}
 .dsclip-t .key{display:inline-grid;place-items:center;min-width:20px;height:20px;padding:0 5px;border-radius:5px;
   font:600 11.5px/1 "IBM Plex Mono",ui-monospace,Consolas,monospace;background:rgba(245,241,232,.12);
@@ -483,6 +589,8 @@
       document.documentElement.appendChild(card);
     }
     clearTimeout(cardTimer);
+    if (asking) { asking(); asking = null; }
+    card.onmouseenter = card.onmouseleave = null;
     card.className = 'dsclip-t ' + kind;
     card.textContent = '';
     build(card);
@@ -495,7 +603,22 @@
   }
   function hideOffer() { if (offering) hide(); }
   const el = (t, cls, text) => { const n = document.createElement(t); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
-  function toast(kind, title, line, postButton) {
+  // A toast that stays up while a clip uploads; returns a function taking the fraction done.
+  function progress(title) {
+    offering = false;
+    let pct = null;
+    show('info', (c) => {
+      c.appendChild(el('span', 'ic', '\u2191'));
+      const t = el('div');
+      t.appendChild(el('b', '', title));
+      pct = el('span', 'ln num', '0%');
+      t.appendChild(pct);
+      c.appendChild(t);
+    }, 6 * 60 * 1000);
+    return (f) => { if (pct) pct.textContent = Math.round(Math.max(0, Math.min(1, f)) * 100) + '%'; };
+  }
+  function toast(kind, title, line, opts) {
+    const o = opts || {};
     offering = false;
     show(kind, (c) => {
       c.appendChild(el('span', 'ic', kind === 'ok' ? '\u2713' : kind === 'err' ? '\u2715' : 'i'));
@@ -503,8 +626,8 @@
       t.appendChild(el('b', '', title));
       if (line) t.appendChild(el('span', 'ln', line));
       c.appendChild(t);
-      if (postButton) {
-        const b = el('button', '', null);
+      if (o.post) {
+        const b = el('button', 'sec', null);
         b.type = 'button';
         b.appendChild(el('span', '', 'X'));
         b.appendChild(document.createTextNode('Post'));
@@ -518,6 +641,62 @@
       }
     }, kind === 'err' ? 5200 : 6000);
   }
+  /* After P saved a clip: should it also go to DuelSeries? (Owen 2026-10-16: P alone never uploads; sharing is
+     its own deliberate click, with a look at the clip and a plain word that it is reviewed first.) The same top
+     centre card as every clip note, never a window over the game: it takes no keys and no focus, waits while the
+     pointer is on it, and goes by itself after a few seconds, which shares nothing, like Not now. */
+  const ASK_MS = 12000;
+  function askShare(clip) {
+    offering = false;
+    let thumbUrl = '', vidUrl = '';
+    show('ok', (c) => {
+      const pic = el('span', 'th');
+      const img = el('img');
+      img.alt = '';
+      pic.appendChild(img);
+      clip.poster.then((b) => { if (b && card && card.contains(img)) { thumbUrl = URL.createObjectURL(b); img.src = thumbUrl; } });
+      // The clip itself plays, muted, only while the pointer is on its picture.
+      pic.onmouseenter = () => {
+        if (pic.querySelector('video')) return;
+        const v = el('video');
+        v.muted = true; v.loop = true; v.playsInline = true; v.autoplay = true;
+        vidUrl = vidUrl || URL.createObjectURL(new Blob([clip.bytes], { type: 'video/mp4' }));
+        v.src = vidUrl;
+        pic.appendChild(v);
+      };
+      pic.onmouseleave = () => { const v = pic.querySelector('video'); if (v) { v.pause(); v.remove(); } };
+      c.appendChild(pic);
+      const t = el('div', 'tx');
+      const top = el('div');
+      top.appendChild(el('b', '', 'Clip saved'));
+      top.appendChild(el('span', 'ln', 'last ' + clip.secs + ' s, in Downloads'));
+      t.appendChild(top);
+      t.appendChild(el('span', 'q', 'Share it to DuelSeries? It is reviewed before anyone else can see it.'));
+      c.appendChild(t);
+      const yes = el('button', '', 'Share to DuelSeries');
+      yes.type = 'button';
+      yes.onclick = (e) => { e.stopPropagation(); share(clip); };
+      const no = el('button', 'sec', 'Not now');
+      no.type = 'button';
+      no.onclick = (e) => { e.stopPropagation(); hide(); };
+      const x = el('button', 'sec', 'X');
+      x.type = 'button';
+      x.title = 'Post on X: opens X with the text ready; attach the clip from your Downloads';
+      x.setAttribute('aria-label', 'Post on X');
+      x.onclick = (e) => {
+        e.stopPropagation();
+        window.open('https://x.com/intent/post?text=' + encodeURIComponent('A clip from DuelSeries')
+          + '&url=' + encodeURIComponent('https://duelseries.com'), '_blank', 'noopener,noreferrer');
+      };
+      c.appendChild(yes); c.appendChild(no); c.appendChild(x);
+      // Waits while the pointer is on it.
+      c.onmouseenter = () => clearTimeout(cardTimer);
+      c.onmouseleave = () => { clearTimeout(cardTimer); cardTimer = setTimeout(hide, 5000); };
+    }, ASK_MS);
+    asking = () => { if (thumbUrl) URL.revokeObjectURL(thumbUrl); if (vidUrl) URL.revokeObjectURL(vidUrl); thumbUrl = vidUrl = ''; };
+  }
+  let asking = null;      // frees the prompt's picture and video once another card replaces it
+
   // After a cash-out or a win: an offer that runs out by itself.
   function offer() {
     if (!running || !vChunks.length) return;

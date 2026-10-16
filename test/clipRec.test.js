@@ -1,6 +1,6 @@
 'use strict';
 /* The in-game clip recorder (public/js/clip/clipRec.js, Owen 2026-10-16): P saves the last 30 s as an MP4 in the
-   player's Downloads, PC only, nothing uploaded. Source checks; the recorder itself was run in headless Chrome against
+   player's Downloads, PC only; it uploads only when the player then clicks Share to DuelSeries. Source checks; the recorder itself was run in headless Chrome against
    the local server on /sl (playing), /ag and /paper-arena: P saved an MP4 each time (h264 1280x800 30 fps + AAC, a
    clean ffmpeg decode, gameplay in the frames, the mark bottom left), a 45 s run saved exactly the last 30.5 s, the
    fake mic was in the sound, and each game's cash-out hook attached (slither's offer fired from slx 'x:cashed'). */
@@ -34,14 +34,29 @@ test('keeps the last 30 seconds from a key frame, a key frame every second', () 
   assert.match(js, /while \(v\.length && !v\[0\]\.key\) v\.shift\(\);/, 'a saved clip always starts on a key frame');
 });
 
-test('P saves; never while typing in a field on screen; nothing is uploaded', () => {
+test('P saves; never while typing in a field on screen; P never uploads, only a Share click does', () => {
   const js = rec();
   assert.match(js, /e\.code !== 'KeyP'/);
   assert.match(js, /typing && t\.getClientRects\(\)\.length/);
-  assert.ok(!/fetch\(|XMLHttpRequest|sendBeacon|postMessage\(/.test(js), 'the recorder sends nothing anywhere');
   assert.match(js, /a2\.download = name;/, 'it is a download to the player\'s own PC');
   assert.match(js, /'https:\/\/x\.com\/intent\/post\?text='/, 'Post opens X\'s own compose page');
   assert.match(js, /'noopener,noreferrer'/);
+  /* Owen 2026-10-16: an accidental P must never put a clip online. Everything that sends lives in the sharing
+     section, and the only ways into it are the Share to DuelSeries button and a console hook. */
+  const start = js.indexOf('/* ── sharing to DuelSeries');
+  const end = js.indexOf('DSClip.share = () => share(last);');
+  assert.ok(start > 0 && end > start);
+  const outside = js.slice(0, start) + js.slice(end);
+  assert.ok(!/fetch\(|XMLHttpRequest|sendBeacon|postMessage\(/.test(outside), 'nothing outside the sharing section sends anything');
+  const calls = outside.match(/\bshare\([a-z]+\)/g) || [];
+  assert.deepStrictEqual(calls, ['share(last)', 'share(clip)'], 'share runs from the console hook and the button, nothing else');
+  assert.match(js, /yes\.onclick = \(e\) => \{ e\.stopPropagation\(\); share\(clip\); \};/, 'the button is Share to DuelSeries');
+  assert.match(js, /const no = el\('button', 'sec', 'Not now'\);/);
+  assert.match(js, /It is reviewed before anyone else can see it\./, 'the prompt says plainly it is reviewed first');
+  const p = js.slice(js.indexOf("addEventListener('keydown'"), js.indexOf('// Hooks onto each game'));
+  assert.match(p, /save\(\);/);
+  assert.ok(!/share/.test(p), 'the P key only saves');
+  assert.match(js, /x\.setRequestHeader\('If-None-Match', '\*'\);/, 'an upload link writes its file once');
 });
 
 test('the mic only when the player turned it on in Settings', () => {
