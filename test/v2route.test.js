@@ -1254,7 +1254,7 @@ test('the nightly event states its prizes and reads the match, not a clock', () 
   /* The states it must be able to show. "in progress" is the one the wall
      clock could never express. */
   assert.ok(/in progress/i.test(html), 'it can say a match is in progress');
-  assert.ok(/still alive/i.test(html), 'and how many are left in it');
+  assert.ok(/'Live, '\+\(BR\.alive\|\|0\)\+' left'/.test(html), 'and how many are left in it');
   /* The shut door is said by the Join button itself, dimmed and relabelled
      (2026-10-15: a separate note under the hero repeated it word for word). */
   assert.ok(/join\.disabled = !BR\.joinable/.test(html) && /'Match in progress'/.test(html),
@@ -1285,6 +1285,26 @@ test('the nightly event states its prizes and reads the match, not a clock', () 
      Without the force flag the clock shows dashes until the next interval. */
   assert.ok(html.includes("V2Event.tick(true)"),
     'opening the tab forces a tick rather than waiting for the interval');
+});
+
+test('the events podium leads, holds the last match all day, and never shows a prize nobody was paid', () => {
+  /* Owen's pick C, "Podium stage" (2026-10-16): the podium first and biggest,
+     the countdown under it, Join and Spectate pinned above the tab bar on a
+     phone. While waiting the podium keeps the last match's top 3 (the server
+     holds BR.podium until the next start) rather than three question marks. */
+  const html = v2();
+  const at = html.indexOf('id="events-screen"');
+  const scr = html.slice(at, html.indexOf('</main>', at));
+  assert.ok(scr.indexOf('class="podium"') < scr.indexOf('class="evclock"'), 'the podium comes before the clock');
+  assert.ok(scr.indexOf('id="ev-h"') > 0 && scr.indexOf('id="ev-m"') > 0 && scr.indexOf('id="ev-s"') > 0,
+    'hours, minutes and seconds, all three');
+  assert.ok(/var seated=on\?null:pod;/.test(html), "the last match's names, except while a match is on");
+  assert.ok(html.includes("(st==='waiting' && !seated) ? '$'+stdPrize"), 'only an empty podium before the start shows the standing prize');
+  assert.ok(html.includes("(BR.prize>0 ? '$'+BR.prize : '—')"), "and a match's own podium shows what it paid");
+  assert.ok(/\.evbar\{position:sticky;bottom:/.test(html), 'Join and Spectate pinned on a phone');
+  // Player names reach the page as text, never as markup.
+  const tick = html.slice(html.indexOf('function caption('), html.indexOf('/* engine(): which engine'));
+  assert.ok(!/innerHTML/.test(tick), 'no innerHTML anywhere a winner name can reach');
 });
 
 test('an unbuilt game can be opened and looked at, and still cannot be played', () => {

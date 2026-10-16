@@ -791,99 +791,159 @@ body.ingame .tkrun{animation-play-state:paused}
 .panel>.note:first-child{margin-top:0}   /* a one-line panel sits centred in its padding */
 
 /* ── the nightly event ───────────────────────────────────────────────────
-   Nothing new invented here: the page borrows the tote-board mono the money
-   already uses and spends its one bold move on first place. */
-.evhero{background:var(--s1);border-radius:var(--r3);padding:30px 26px 26px;
-  text-align:center}
-.evtag{display:inline-block;font-family:var(--fm);font-size:11px;
-  font-weight:600;letter-spacing:.16em;text-transform:uppercase;
-  color:var(--money);background:rgba(240,168,48,.12);
-  border:1px solid rgba(240,168,48,.3);border-radius:var(--rf);padding:5px 12px}
-.evname{margin:14px 0 0;font-size:27px;font-weight:650;letter-spacing:-.6px}
-.evline{margin:18px 0 0;font-size:12px;font-weight:600;letter-spacing:.13em;
-  text-transform:uppercase;color:var(--tx3)}
-.evclock{display:flex;align-items:flex-start;justify-content:center;gap:6px;
-  margin-top:8px}
+   Owen's pick C, "Podium stage" (2026-10-16, from four layouts): the podium
+   leads and is the biggest thing on the screen, the countdown he loves sits
+   under it in the tote-board mono, and Join and Spectate ride a bar pinned
+   above the tab bar on a phone so the way in never scrolls away. */
+.evstage{position:relative;overflow:hidden;border-radius:var(--r3);padding:16px 14px 0;
+  background:radial-gradient(120% 80% at 50% 0%,rgba(240,168,48,.12),transparent 60%),var(--s1)}
+.evstage.live{background:radial-gradient(120% 80% at 50% 0%,rgba(142,208,129,.09),transparent 60%),var(--s1)}
+.evcap{display:flex;justify-content:space-between;align-items:center;gap:12px;
+  margin-bottom:18px;padding:0 2px;font-size:13px;font-weight:600;color:var(--tx3)}
+#ev-pcap{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#ev-pcap.gold{color:var(--money)}
+#ev-pcap.live{color:var(--live);display:inline-flex;align-items:center;gap:8px}
+/* The live dot. A pseudo-element, so the caption can stay textContent: it
+   carries a winner's name, which is player input. */
+#ev-pcap.live::before{content:"";width:8px;height:8px;border-radius:50%;flex:none;
+  background:var(--live);animation:evpulse 1.8s infinite}
+@keyframes evpulse{0%{box-shadow:0 0 0 0 rgba(142,208,129,.55)}
+  70%{box-shadow:0 0 0 8px rgba(142,208,129,0)}100%{box-shadow:0 0 0 0 rgba(142,208,129,0)}}
+.evstd{flex:none;font-family:var(--fm);font-size:14px;color:var(--money)}
+
+/* Tallest in the middle: the heights are the ranking, the medal says it
+   again for anyone who reads numbers before shapes. An empty seat is a dashed
+   medal holding a question mark, never a missing block. */
+.podium{display:grid;grid-template-columns:1fr 1.12fr 1fr;align-items:end;gap:0 8px}
+.plinth{text-align:center;min-width:0}
+.pmedal{width:46px;height:46px;border-radius:50%;margin:0 auto 8px;display:grid;place-items:center;
+  font-family:var(--fm);font-weight:600;font-size:19px;color:var(--tx2);background:var(--s3);
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.06)}
+.p1 .pmedal{width:58px;height:58px;font-size:24px;color:var(--ink);background:var(--money);
+  box-shadow:0 0 0 6px rgba(240,168,48,.13)}
+.plinth.empty .pmedal{background:none;box-shadow:none;border:1.5px dashed #3a3226;color:var(--tx3)}
+.p1.empty .pmedal{border-color:rgba(240,168,48,.5);color:var(--money)}
+.pwho{min-height:20px;margin-bottom:10px;font-size:15.5px;font-weight:650;color:var(--tx2);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.p1 .pwho{min-height:24px;font-size:19px;color:var(--tx)}
+.pblock{display:flex;flex-direction:column;align-items:center;padding-top:18px;
+  border-radius:14px 14px 0 0;background:linear-gradient(var(--s2),var(--s1));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.05)}
+.p1 .pblock{height:182px}
+.p2 .pblock{height:128px}
+.p3 .pblock{height:98px}
+.p1 .pblock{background:linear-gradient(rgba(240,168,48,.24),rgba(240,168,48,.05));
+  box-shadow:inset 0 0 0 1px rgba(240,168,48,.38)}
+/* First place is the only paid placing, so it is the only block with money on it. */
+.pmoney{font-family:var(--fm);font-variant-numeric:tabular-nums;font-weight:600;
+  font-size:24px;color:var(--money)}
+.evfloor{height:2px;background:var(--s3);border-radius:2px}
+
+.evside{display:flex;flex-direction:column}
+.evnext{margin-top:20px;display:flex;flex-direction:column;align-items:center;text-align:center}
+.evname{font-size:22px;font-weight:650;letter-spacing:-.4px}
+.evwhen{margin-top:4px;font-size:13.5px;color:var(--tx2)}
+.evline{margin-top:16px;font-size:13px;font-weight:600;color:var(--tx3)}
+.evline:empty{display:none}
+.evclock{display:flex;align-items:flex-start;justify-content:center;gap:6px;margin-top:6px}
+.evline:empty+.evclock{margin-top:16px}
+.evu{display:flex;flex-direction:column;align-items:center}
 /* Tabular figures, or every ticking second shuffles the whole row sideways. */
 .evclock b{display:block;font-family:var(--fm);font-variant-numeric:tabular-nums;
-  font-size:clamp(38px,11vw,54px);font-weight:600;line-height:1.05;color:var(--tx)}
-.evclock span{display:block;margin-top:4px;font-size:10.5px;letter-spacing:.14em;
-  text-transform:uppercase;color:var(--tx3)}
-.evclock i{font-family:var(--fm);font-size:clamp(28px,8vw,40px);font-style:normal;
-  line-height:1.35;color:var(--tx3);opacity:.5}   /* the colons were s3 on s1, 1.2:1, all but gone */
-.evwatch{margin-top:18px;min-width:200px}
-.evwhen{margin:16px 0 0;font-size:13px;color:var(--tx2)}
-/* The shut door. Given the money amber and a tinted panel rather than another
-   line of grey text, because it explains why a thing someone just tried to do
-   did not happen — and grey-on-dark next to two other greys is how a notice
-   ends up invisible rather than merely quiet. */
-.evlock{margin:16px 0 0;padding:10px 14px;font-size:13px;line-height:1.5;
-  color:var(--money);background:rgba(240,168,48,.1);
-  border:1px solid rgba(240,168,48,.34);border-radius:var(--r2)}
-/* Live changes the accent, not the layout: the same page, in its other state. */
-.evhero.live .evtag{color:var(--live);background:rgba(142,208,129,.13);
-  border-color:rgba(142,208,129,.36)}
-.evhero.live .evclock b{color:var(--live)}
+  font-size:52px;font-weight:600;line-height:1.05;color:var(--tx)}
+.evclock .evu span{display:block;margin-top:3px;font-size:11px;font-weight:600;color:var(--tx3)}
+.evclock i{font-family:var(--fm);font-size:36px;font-style:normal;line-height:1.35;
+  color:var(--tx3);opacity:.5}
+/* A running match has no clock: the same digits carry the ring and the
+   snakes left, in the live green, with the seconds put away. */
+.evclock.live b{color:var(--live)}
+.evclock.live .evsec{display:none}
+.evclock.live #ev-c1{visibility:hidden}
 
-.podium{display:grid;grid-template-columns:repeat(3,1fr);align-items:end;
-  gap:0 10px;margin-top:20px;max-width:430px;margin-left:auto;margin-right:auto}   /* no row gap: the floor line meets the plinths */
-.plinth{text-align:center;min-width:0}
-/* The seat. A question mark until somebody is standing in it. */
-.pwho{font-size:14px;font-weight:600;color:var(--tx2);margin-bottom:9px;
+.evbar{display:grid;grid-template-columns:auto 1fr;gap:8px;margin-top:22px}
+.evbtn{display:flex;align-items:center;gap:12px;min-width:0;min-height:58px;border:none;
+  border-radius:14px;padding:9px 16px 9px 9px;text-align:left;cursor:pointer;font-family:inherit;
+  transition:transform .15s,background .15s,color .15s}
+.evbtn:hover{transform:translateY(-1px)}
+.evbtn:focus-visible{outline:2px solid var(--bone);outline-offset:2px}
+.evt{display:flex;flex-direction:column;gap:2px;min-width:0}
+.evt b{font-size:16px;font-weight:650;letter-spacing:-.2px;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.pwho.empty{font-family:var(--fm);font-size:20px;color:var(--tx3);opacity:.6}   /* an empty seat you can still see */
-.pblock{display:flex;flex-direction:column;align-items:center;justify-content:center;
-  gap:7px;background:var(--s1);border:1px solid var(--s2);
-  border-radius:var(--r2) var(--r2) 0 0;border-bottom:none}
-.prank{font-family:var(--fm);font-size:12.5px;font-weight:600;letter-spacing:.08em;
-  color:var(--tx3)}
-/* The prize sits on the plinth with the placing, because the two belong to each
-   other: second and third are placings that pay nothing, and a dash on the
-   block says that far better than a number that is not there. */
-.pmoney{font-family:var(--fm);font-variant-numeric:tabular-nums;font-weight:600;
-  font-size:15px;color:var(--tx3)}
-/* The heights are the ranking. */
-.p1 .pblock{height:124px}
-.p2 .pblock{height:90px}
-.p3 .pblock{height:68px}
-.p1 .pblock{background:rgba(240,168,48,.11);border-color:rgba(240,168,48,.34)}
-.p1 .prank{color:var(--money)}
-.p1 .pmoney{font-size:21px;color:var(--money)}
-.p1 .pwho{color:var(--tx);font-size:15px}
-/* One line under all three, so they read as one object standing on a floor. */
-.podium::after{content:"";grid-column:1/-1;height:1px;background:var(--s3)}
-
-.evfoot{max-width:430px;margin:0 auto;text-align:center}
-/* A card, not a bar: the slither.io art on the left says which game the
-   battle royale is before a word is read. */
-.evgo{display:flex;align-items:center;gap:14px;width:100%;margin-top:20px;
-  background:var(--bone);color:var(--ink);text-align:left;
-  border:none;border-radius:var(--r3);padding:10px 18px 10px 10px;cursor:pointer;
-  font-family:inherit;transition:opacity .15s}
-.evgo:hover{opacity:.88}
-.evart{width:60px;height:60px;border-radius:12px;object-fit:cover;flex:none;
+.evt small{font-size:12.5px;font-weight:600;opacity:.62;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.evt small:empty{display:none}
+/* The slither.io art on Join says which game this is before a word is read
+   (Owen, 2026-10-15). */
+.evgo{background:var(--bone);color:var(--ink)}
+.evart{width:40px;height:40px;border-radius:10px;object-fit:cover;flex:none;
   transition:filter .15s,opacity .15s}
-.evgot{display:flex;flex-direction:column;gap:3px;min-width:0}
-.evgot b{font-size:16px;font-weight:650;letter-spacing:-.2px}
-.evgot small{font-size:13px;font-weight:600;color:rgba(16,14,11,.58)}
-/* The shut door. Still legible — a disabled control people cannot read is a
-   control they assume is broken — but plainly not pressable: no pointer, no
-   hover lift, and the bone fill drops back to a surface tone so it stops
-   reading as the thing to do next. */
-.evgo:disabled{background:var(--s2);color:var(--tx3);cursor:not-allowed}
-.evgo:disabled:hover{opacity:1}
-.evgo:disabled .evgot small{color:var(--tx3)}
-.evgo:disabled .evart{filter:grayscale(1);opacity:.45}
-.evhow{display:inline-flex;align-items:center;gap:7px;margin-top:14px;
+/* The last ten minutes: Join breathes. Nothing else on the screen does. */
+.evgo.hot{animation:evhot 2.2s infinite}
+@keyframes evhot{0%,100%{box-shadow:0 0 0 0 rgba(244,241,234,.35)}50%{box-shadow:0 0 0 6px rgba(244,241,234,0)}}
+/* The shut door: still legible, plainly not pressable. */
+.evgo:disabled{background:var(--s1);color:var(--tx3);box-shadow:inset 0 0 0 1px var(--s3);
+  cursor:not-allowed;animation:none}
+.evgo:disabled:hover{transform:none}
+.evgo:disabled .evart{filter:grayscale(1);opacity:.4}
+.evwatch{background:var(--s2);color:var(--tx);padding-left:10px}
+.evwatch:hover{background:var(--s3)}
+.evico{width:40px;height:40px;display:grid;place-items:center;flex:none}
+.evico svg{width:21px;height:21px}
+/* A match on: watching is the thing you can do, so Spectate takes the colour. */
+.evbar.live .evwatch{background:rgba(142,208,129,.13);color:var(--live);
+  box-shadow:inset 0 0 0 1px rgba(142,208,129,.42)}
+.evhow{display:inline-flex;align-items:center;gap:7px;margin:14px auto 0;
   background:none;border:none;cursor:pointer;font-family:inherit;
   font-size:13px;font-weight:600;color:var(--tx3);padding:11px 12px;   /* 40px to tap */
   transition:color .15s}
 .evhow:hover{color:var(--tx)}
-.evfoot{padding-bottom:26px}
-@media(max-width:520px){
-  .evhero{padding:24px 18px 22px}
-  .evname{font-size:23px}
-  .podium{margin-top:16px}
+@media (prefers-reduced-motion:reduce){#ev-pcap.live::before,.evgo.hot{animation:none}}
+/* One column (a phone, and a PC window too narrow for two): the bar is pinned
+   to the bottom of the screen, faded in over whatever passes under it, so the
+   way in never scrolls away. The side column dissolves (display:contents) so
+   the bar's sticky range is the whole event, not just the bottom half of it:
+   on a short phone it otherwise could not climb above the fold. */
+@media(max-width:1179px){
+  .evgrid{display:flex;flex-direction:column}
+  .evside{display:contents}
+  .evbar{position:sticky;bottom:0;z-index:2;margin-top:16px;padding:14px 0 16px;
+    background:linear-gradient(rgba(16,14,11,0),var(--bg) 26%)}
+  .evhow{margin-top:10px}
+}
+/* A phone scrolls inside main, whose 16px bottom padding the bar covers, and
+   runs the bar edge to edge across the gutter. */
+@media(max-width:760px){
+  .evbar{bottom:-16px;margin:16px -20px -16px;padding:14px 20px 16px}
+}
+@media(max-width:400px){.evbar{margin-left:-14px;margin-right:-14px;padding-left:14px;padding-right:14px}}
+/* The narrowest phones keep Join's words whole; the arena count goes. */
+@media(max-width:359px){.evwatch small{display:none}}
+@media(min-width:761px) and (max-width:1179px){
+  .evgrid{max-width:620px;margin:0 auto}
+}
+/* Two columns: the podium on the left, the clock and both buttons on a card
+   on the right, Join above Spectate and the link last. Live, Spectate goes
+   first. */
+@media(min-width:1180px){
+  .evgrid{display:grid;grid-template-columns:1.25fr 1fr;gap:30px;align-items:stretch;padding-bottom:30px}
+  .evbar{grid-template-columns:1fr;gap:10px;margin-top:26px}
+  .evbar .evgo{order:-1}
+  .evbar.live .evwatch{order:-2}
+  .evhow{order:3}
+  .evstage{display:flex;flex-direction:column;justify-content:flex-end;padding:24px 28px 0}
+  .pmedal{width:56px;height:56px;font-size:22px}
+  .p1 .pmedal{width:72px;height:72px;font-size:30px}
+  .pwho{min-height:22px;font-size:17px}
+  .p1 .pwho{min-height:28px;font-size:22px}
+  .p1 .pblock{height:260px}
+  .p2 .pblock{height:184px}
+  .p3 .pblock{height:140px}
+  .pmoney{font-size:28px}
+  .evside{background:var(--s1);border-radius:var(--r3);padding:28px;justify-content:center}
+  .evnext{margin-top:0}
+  .evname{font-size:30px;letter-spacing:-.7px}
+  .evclock b{font-size:64px}
+  .evclock i{font-size:44px}
 }
 .note b{color:var(--tx2);font-weight:600}
 .lnk{color:var(--tx2);text-decoration:underline;text-underline-offset:2px}
@@ -1875,134 +1935,156 @@ body.scr-anim { overflow-x:hidden }
     sec.textContent=pad(Math.floor(secs%60));
   }
 
-  /* The digits and their hrs/min/sec labels, together. A running match has no
-     clock to show, and a row of dashes under three unit labels reads as a
+  /* The digits and their labels, together. Before the server has answered
+     there is no clock at all: a row of dashes under hrs/min/sec read as a
      broken timer rather than as an absent one. */
   function showClock(on){
     var c=document.querySelector('.evclock');
     if(c) c.style.display = on ? '' : 'none';
   }
+  /* A running match has no timer (it runs until one snake is left), so the
+     same digits carry the ring and the snakes left, and the seconds go away.
+     The ring belongs in a number, not in the hours slot of "R4 HRS". */
+  function clockMode(live){
+    var c=document.querySelector('.evclock'); if(!c) return;
+    c.classList.toggle('live',!!live);
+    setText('ev-hu', live?'ring':'hrs');
+    setText('ev-mu', live?'left':'min');
+  }
+  function setText(id,t){
+    var e=document.getElementById(id);
+    if(e && e.textContent!==t) e.textContent=t;
+    return e;
+  }
+  /* The caption over the podium: what the seats are showing. textContent, as
+     it can carry a winner's name; the live dot is drawn by CSS. */
+  function caption(t,cls){
+    var c=document.getElementById('ev-pcap'); if(!c) return;
+    if(c.textContent!==t) c.textContent=t;
+    c.className=cls||'';
+  }
 
   function tick(force){
     if(!force && !screenOn()) return;
     var line=document.getElementById('ev-line'),
-        tag=document.getElementById('ev-tag'),
+        hero=document.getElementById('evhero'),
+        bar=document.getElementById('ev-bar'),
         watch=document.getElementById('ev-watch'),
-        lock=document.getElementById('ev-lock'),
-        hero=document.getElementById('evhero');
-    if(!line||!tag||!hero) return;
-
-    /* No answer from the server yet: no row of dashes under hrs/min/sec (it
-       read as a broken timer), and the Spectate button keeps its space,
-       invisible, so the page does not jump 57px when the answer lands. */
-    if(!BR){ tag.textContent='Tonight'; line.textContent='Starts in'; showClock(false); setClock(null);
-             if(watch){watch.hidden=false;watch.style.visibility='hidden'} if(lock)lock.hidden=true;
-             hero.classList.remove('live'); return; }
-    if(watch)watch.style.visibility='';
-
-    var running = BR.state==='running' || BR.state==='countdown';
-    hero.classList.toggle('live', running);
-    /* The prize and the start time are the server's (BR.prize, startHour and
-       startMin): the page printed $20 and "8 to 9 PM" whatever the server
-       said, and the match starts at 8:05 and has no set end. */
-    /* Only a match that has started knows its own prize (no prize for a solo
-       run, or with fewer than two signed-in players); while waiting, BR.prize
-       is the LAST match's, so the podium shows the standing prize. */
-    var pm=document.querySelector('.p1 .pmoney');
+        join=document.getElementById('ev-join');
+    if(!line||!hero) return;
+    /* The phone's bar holds both buttons side by side, so Join says less there. */
+    var wide=!!(window.matchMedia && window.matchMedia('(min-width:761px)').matches);
     var stdPrize=(typeof CONSTANTS!=='undefined'&&CONSTANTS.BR_PRIZE_USDC)||20;
-    var started=BR.state==='countdown'||BR.state==='running'||BR.state==='over';
-    if(pm) pm.textContent = !started ? '$'+stdPrize : (BR.prize>0 ? '$'+BR.prize : '—');
-    var when=document.querySelector('.evwhen');
-    if(when && BR.startHour!=null){
-      var h12=BR.startHour%12||12, mm=('0'+(BR.startMin||0)).slice(-2);
-      when.textContent='Every night at '+h12+':'+mm+' '+(BR.startHour<12?'AM':'PM')+' Eastern';
-    }
-    /* The button is always there; only what it promises changes. Somebody who
-       has never seen a battle royale needs it most when one is NOT running. */
-    if(watch){
-      watch.hidden = false;
-      watch.textContent = running ? 'Watch it live' : 'Spectate the arena';
+    setText('ev-std','$'+stdPrize+' to 1st');
+
+    /* No answer from the server yet: no clock, and Spectate keeps its space,
+       invisible, so nothing jumps when the answer lands. */
+    if(!BR){ caption('Tonight'); line.textContent=''; showClock(false); setClock(null);
+             if(watch) watch.style.visibility='hidden'; return; }
+    if(watch) watch.style.visibility='';
+
+    var st=BR.state;
+    var live=st==='running', starting=st==='countdown', on=live||starting;
+    /* After a match (over, and the sl engine's reopening) the doors stay shut
+       until the circle has opened again. */
+    var after=st==='over'||st==='reopening';
+    var pod=BR.podium&&BR.podium.length?BR.podium:null;
+    hero.classList.toggle('live', on);
+    if(bar) bar.classList.toggle('live', on);
+
+    /* The start time is the server's (startHour, startMin): the page printed
+       "8 to 9 PM" whatever the server said, and the match starts at 8:05. */
+    var at=BR.startHour!=null?((BR.startHour%12||12)+':'+('0'+(BR.startMin||0)).slice(-2)
+             +' '+(BR.startHour<12?'AM':'PM')):'';
+    if(at) setText('ev-when','Nightly at '+at+' ET');
+
+    /* THE PODIUM. Tonight's empty seats while a match is on; otherwise the
+       last match's top 3, which the server keeps until the next match starts. */
+    var seated=on?null:pod;
+    podium(seated?seated.map(function(p){return p.name}):null);
+    /* The prize on first place. Only a match that has started knows its own
+       (BR.prize: nothing for a solo run, or with fewer than two signed-in
+       players), and the last match's stays with its podium, so a dash says a
+       winner was paid nothing. Only an empty podium before tonight's start
+       shows the standing prize. */
+    var pm=document.querySelector('.p1 .pmoney');
+    if(pm) pm.textContent = (st==='waiting' && !seated) ? '$'+stdPrize
+                          : (BR.prize>0 ? '$'+BR.prize : '—');
+
+    if(live) caption('Live, '+(BR.alive||0)+' left','live');
+    else if(starting) caption('Starting','live');
+    else if(after) caption(BR.winner ? BR.winner.name+(BR.prize>0?' won $'+BR.prize:' won')
+                                     : 'Nobody survived', BR.winner?'gold':'');
+    else caption(pod?'Last match':'Tonight');
+
+    /* Seconds to the next scheduled start; past tonight's, that is tomorrow's.
+       A match can also be started by hand in the afternoon, which is why the
+       word is worked out and not assumed. */
+    var left=untilStart();
+    var tomorrow=left!=null && nowS()%86400+left>=86400;
+
+    if(starting){
+      clockMode(false); showClock(true);
+      line.textContent='Match begins in';
+      setClock(Math.max(0, Math.round((BR.countdownMs||0)/1000)
+                          - Math.floor((Date.now()-BRAT)/1000)));
+    } else if(live){
+      line.textContent='';
+      clockMode(true); showClock(true);
+      setText('ev-h',pad(BR.ring||1));
+      setText('ev-m',pad(BR.alive||0));
+    } else {
+      clockMode(false); showClock(true);
+      line.textContent = after ? 'Next match in'
+                       : BR.humans ? (BR.humans+' joined, starts in')
+                       : ((tomorrow?'Tomorrow':'Tonight')+', starts in');
+      setClock(left);
     }
 
     /* THE DOOR. The server refuses a late join outright (acceptingPlayers), so
-       this is the UI catching up to a rule that already exists rather than a
-       new one — but a rule nobody can see is a rule that looks like a bug when
-       it fires, and Join used to sit there fully lit through a running match
-       and simply bounce you.
-
-       Disabled rather than hidden: a button that disappears reads as something
-       broken, where a dimmed one that says why reads as a closed door. */
-    if(lock) lock.hidden = !!BR.joinable;
-    var join=document.getElementById('ev-join');
+       the button says so rather than sitting there lit and bouncing people:
+       dimmed and relabelled, never hidden, because a button that vanishes
+       reads as something broken. Three shut states, not one: a start in
+       progress, a match in progress, and a finished match whose arena has
+       not reopened, where "in progress" over a podium with a winner on it
+       would simply be wrong. */
     if(join){
       join.disabled = !BR.joinable;
-      /* Three states, not two. A finished match is also not joinable — the
-         circle is still tiny and the room has not reopened — but saying "match
-         in progress" over a podium with a winner on it is simply wrong.
-         Into the label only: the button also holds the slither.io art. */
-      /* After a match (over, and the sl engine's reopening) the next one is
-         tomorrow's: "opens shortly" promised a match nearly a day away. */
-      var after=BR.state==='over'||BR.state==='reopening';
-      var at=BR.startHour!=null?((BR.startHour%12||12)+':'+('0'+(BR.startMin||0)).slice(-2)
-               +' '+(BR.startHour<12?'AM':'PM')):'';
-      (document.getElementById('ev-join-t')||join).textContent = BR.joinable ? 'Join the Battle Royale'
-                       : after ? ('Next match tomorrow'+(at?', '+at:''))
-                       : 'Match in progress';
+      join.classList.toggle('hot', !!BR.joinable && st==='waiting' && left!=null && left<=600);
+      var day=tomorrow?'tomorrow':'tonight';
+      (document.getElementById('ev-join-t')||join).textContent = BR.joinable ? (wide?'Join Battle Royale':'Join')
+                       : after ? (wide?'Next match '+day:(tomorrow?'Tomorrow':'Tonight'))
+                       : 'Doors shut';
+      setText('ev-join-s', BR.joinable ? 'Free entry'
+                         : after ? at
+                         : starting ? 'Match starting' : 'Match in progress');
       join.title = BR.joinable ? ''
                  : after ? 'The arena reopens once the circle does.'
                  : 'The doors are shut until this match ends.';
     }
-
-    if(BR.state==='countdown'){
-      tag.textContent='Starting';
-      showClock(true);
-      line.textContent='The match begins in';
-      setClock(Math.max(0, Math.round((BR.countdownMs||0)/1000)
-                          - Math.floor((Date.now()-BRAT)/1000)));
-      return;
+    /* Spectate: watching the match while one is on, the arena between them.
+       Its small line counts what you would be watching (not after a match,
+       where the count is the winner alone). */
+    if(watch){
+      setText('ev-watch-t', on ? 'Watch live' : 'Spectate');
+      setText('ev-watch-s', live ? (BR.alive||0)+' left'
+                          : starting ? 'Starting'
+                          : st==='waiting' && BR.alive ? BR.alive+' in the arena' : '');
     }
-    if(BR.state==='running'){
-      tag.textContent='Live';
-      /* NO CLOCK WHILE IT RUNS. There is no match timer any more — it runs
-         until one snake is left, not until a countdown expires — so the hero
-         hides the digits rather than showing a time that does not exist.
-
-         The first attempt put the ring number in the hours slot, which came out
-         reading "R4 HRS : -- MIN : -- SEC". The ring belongs in the sentence. */
-      setClock(null);
-      showClock(false);
-      // The title above already says Battle Royale and the tag says Live.
-      line.textContent='Ring '+(BR.ring||1)+' · '+(BR.alive||0)+' still alive';
-      return;
-    }
-    if(BR.state==='over'){
-      tag.textContent='Finished';
-      showClock(false);
-      line.textContent = BR.winner ? (BR.winner.name+' won it') : 'Nobody survived';
-      setClock(null);
-      if(BR.podium&&BR.podium.length) podium(BR.podium.map(function(p){return p.name}));
-      return;
-    }
-    // waiting
-    /* Tonight only while tonight's start is still ahead: after the match the
-       next start is tomorrow's, and a 22-hour countdown under "Tonight" lied. */
-    var left=untilStart();
-    tag.textContent = (left!=null && nowS()%86400+left>=86400) ? 'Tomorrow' : 'Tonight';
-    showClock(true);
-    line.textContent = BR.humans ? ('Starts in · '+BR.humans+' waiting') : 'Starts in';
-    setClock(left);
   }
 
-  /* Names on the plinths. Nobody has won one yet, so all three hold a question
-     mark; pass an array of names to seat them. Kept as a function rather than
-     three ids in the markup so the page never has to be edited to fill it. */
+  /* Names on the plinths, second and third either side of first. No name, an
+     empty seat: a dashed medal with a question mark. Kept as a function taking
+     an array so the page never has to be edited to fill it. */
   function podium(names){
     ['ev-1st','ev-2nd','ev-3rd'].forEach(function(id,i){
       var el=document.getElementById(id); if(!el) return;
-      var who=names&&names[i];
-      el.textContent=who||'?';
-      el.title=who||'';                 // the whole name, when the plinth cuts it short
-      el.classList.toggle('empty',!who);
+      var who=names&&names[i]?String(names[i]):'';
+      if(el.textContent!==who){ el.textContent=who; el.title=who; }   // the whole name, when the plinth cuts it short
+      var pl=el.parentNode;
+      pl.classList.toggle('empty',!who);
+      var md=pl.querySelector('.pmedal');
+      if(md){ var n=who?String(i+1):'?'; if(md.textContent!==n) md.textContent=n; }
     });
   }
 
@@ -2212,81 +2294,77 @@ body.scr-anim { overflow-x:hidden }
 
 <!-- ══ STATS ══ -->
 <!-- ══ EVENTS ══ -->
-<!-- Nothing in it yet, and it says so rather than showing an empty frame. -->
+<!-- Owen's pick C, "Podium stage" (2026-10-16). tick() fills every state. -->
 <main id="events-screen" class="wrap">
-  <!-- No subtitle: the hour is in the hero and the $20 is on the podium. -->
   <div class="head"><div><h2>Events</h2></div></div>
 
-  <!-- The countdown is the hero because it is the only thing this page has to
-       tell you: whether to be here now. The prizes are why, but the clock is the
-       decision. Set in the same mono the money uses, so the page reads as one
-       tote board rather than a poster with a widget on it. -->
-  <section class="evhero" id="evhero">
-    <div class="evtag" id="ev-tag">Tonight</div>
-    <!-- Battle Royale, the name the Join button and How it works use. "Nightly
-         Top Three" was a second name for the same match, and only first place
-         is paid. -->
-    <h3 class="evname">Battle Royale</h3>
-    <p class="evline" id="ev-line">Starts in</p>
-    <div class="evclock" role="timer" aria-live="off">
-      <div class="evu"><b id="ev-h">--</b><span>hrs</span></div>
-      <i aria-hidden="true">:</i>
-      <div class="evu"><b id="ev-m">--</b><span>min</span></div>
-      <i aria-hidden="true">:</i>
-      <div class="evu"><b id="ev-s">--</b><span>sec</span></div>
+  <div class="evgrid">
+  <!-- The podium leads. Tallest in the middle, the heights ARE the ranking.
+       It holds tonight's empty seats while a match runs, and the last match's
+       top 3 the rest of the day, so it is never three question marks all day
+       (Owen, 2026-10-16). Names go in by textContent: they are player input. -->
+  <section class="evstage" id="evhero" aria-label="Battle Royale podium">
+    <div class="evcap"><span id="ev-pcap">Tonight</span><span class="evstd" id="ev-std">$20 to 1st</span></div>
+    <div class="podium">
+      <div class="plinth p2 empty">
+        <div class="pmedal" aria-hidden="true">?</div>
+        <div class="pwho" id="ev-2nd"></div>
+        <div class="pblock"></div>
+      </div>
+      <div class="plinth p1 empty">
+        <div class="pmedal" aria-hidden="true">?</div>
+        <div class="pwho" id="ev-1st"></div>
+        <div class="pblock"><span class="pmoney">$20</span></div>
+      </div>
+      <div class="plinth p3 empty">
+        <div class="pmedal" aria-hidden="true">?</div>
+        <div class="pwho" id="ev-3rd"></div>
+        <div class="pblock"></div>
+      </div>
     </div>
-    <p class="evwhen">Every night at 8:05 PM Eastern</p>
-    <!-- ALWAYS HERE, because the point of it is somebody who has never seen one.
-         It used to appear only while a match was running, which meant the one
-         person it exists for — a new player wondering what a battle royale even
-         is — could never find it. Watching an arena between matches is a fair
-         answer to that question too, so the button stays and the LABEL changes
-         to say which of the two you are about to get. -->
-    <button type="button" class="btn sec evwatch" id="ev-watch"
-            onclick="V2Play.spectateEvent()">Spectate</button>
-    <!-- The shut-door note that sat here said what the Join button already
-         says ("Match in progress", dimmed), so it went. tick() still finds
-         #ev-lock missing and carries on. -->
+    <div class="evfloor"></div>
   </section>
 
-  <!-- Tallest in the middle. The plinth heights ARE the ranking, so the shape
-       says who won before you read a word of it.
-
-       The name goes ON the plinth, which is why the podium is worth drawing at
-       all: a podium with nobody standing on it is just three rectangles. Until
-       somebody wins one they hold a question mark, which reads as a seat nobody
-       has taken rather than as missing data. -->
-  <section class="podium" aria-label="Tonight's podium">
-    <div class="plinth p2">
-      <div class="pwho" id="ev-2nd">?</div>
-      <div class="pblock"><span class="prank">2nd</span><span class="pmoney">&mdash;</span></div>
+  <div class="evside">
+    <div class="evnext">
+      <!-- Battle Royale, the one name Join and How it works use too. -->
+      <h3 class="evname">Battle Royale</h3>
+      <p class="evwhen" id="ev-when">Nightly at 8:05 PM ET</p>
+      <p class="evline" id="ev-line"></p>
+      <!-- The countdown Owen loves, in the mono the money uses. Live, the
+           same digits carry the ring and the snakes left. -->
+      <div class="evclock" role="timer" aria-live="off" style="display:none">
+        <div class="evu"><b id="ev-h">--</b><span id="ev-hu">hrs</span></div>
+        <i aria-hidden="true" id="ev-c1">:</i>
+        <div class="evu"><b id="ev-m">--</b><span id="ev-mu">min</span></div>
+        <i aria-hidden="true" class="evsec">:</i>
+        <div class="evu evsec"><b id="ev-s">--</b><span>sec</span></div>
+      </div>
     </div>
-    <div class="plinth p1">
-      <div class="pwho" id="ev-1st">?</div>
-      <div class="pblock"><span class="prank">1st</span><span class="pmoney">$20</span></div>
-    </div>
-    <div class="plinth p3">
-      <div class="pwho" id="ev-3rd">?</div>
-      <div class="pblock"><span class="prank">3rd</span><span class="pmoney">&mdash;</span></div>
-    </div>
-  </section>
-
-  <div class="evfoot">
-    <!-- The slither.io card's own art on the button, so nobody has to read the
-         rules to learn which game this is (Owen, 2026-10-15). tick() writes the
-         state into #ev-join-t only, so the art survives every state change. -->
-    <button type="button" class="evgo" id="ev-join" onclick="V2Play.launch('snake',{lobbyType:'br'})">
-      <img class="evart" src="/img/games/snake.png" alt="" draggable="false">
-      <span class="evgot"><b id="ev-join-t">Join the Battle Royale</b><small>Slither.io</small></span>
-    </button>
-    <!-- The rules were one sentence pretending to be all of them. They live
-         behind this now, where there is room to say the whole thing. -->
+    <!-- The rules live behind this, where there is room to say all of them. -->
     <button type="button" class="evhow" onclick="openEventHow()">
       <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor"
            stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
         <circle cx="12" cy="12" r="9"/><path d="M9.6 9.2a2.5 2.5 0 1 1 3.2 2.4c-.5.2-.8.7-.8 1.2v.6"/>
         <path d="M12 17h.01"/></svg>
       How it works</button>
+    <!-- Both ways in, always here. Spectate is for the person who has never
+         seen a battle royale as much as for a match in progress; only its
+         label changes. Join holds the slither.io card's art (the game, before
+         a word is read); tick() writes its words into #ev-join-t and
+         #ev-join-s only, so the art survives every state. -->
+    <div class="evbar" id="ev-bar">
+      <button type="button" class="evbtn evwatch" id="ev-watch" onclick="V2Play.spectateEvent()" style="visibility:hidden">
+        <span class="evico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+          stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></span>
+        <span class="evt"><b id="ev-watch-t">Spectate</b><small id="ev-watch-s"></small></span>
+      </button>
+      <button type="button" class="evbtn evgo" id="ev-join" onclick="V2Play.launch('snake',{lobbyType:'br'})">
+        <img class="evart" src="/img/games/snake.png" alt="Slither.io" draggable="false">
+        <span class="evt"><b id="ev-join-t">Join</b><small id="ev-join-s">Free entry</small></span>
+      </button>
+    </div>
+  </div>
   </div>
 </main>
 

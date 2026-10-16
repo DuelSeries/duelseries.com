@@ -77,8 +77,9 @@ test('a balance tick never redraws the wallet screen, and the hidden screen asks
 
 test('the battle royale shows it is the slither.io game, and its state survives on the label', () => {
   const html = v2();
-  const foot = html.slice(html.indexOf('<div class="evfoot">'), html.indexOf('</main>', html.indexOf('<div class="evfoot">')));
-  assert.ok(foot.includes('src="/img/games/snake.png"') && foot.includes('slither.io'), 'the slither.io art and name on Join');
+  // Owen's pick C (2026-10-16): Join rides the bar with Spectate, the slither.io art on it.
+  const bar = html.slice(html.indexOf('<div class="evbar"'), html.indexOf('</main>', html.indexOf('<div class="evbar"')));
+  assert.ok(bar.includes('src="/img/games/snake.png"') && bar.includes('alt="Slither.io"'), 'the slither.io art, named, on Join');
   assert.ok(/getElementById\('ev-join-t'\)\|\|join\)\.textContent/.test(html), 'tick writes the label, not the button');
   assert.ok(/<h3 class="evname">Battle Royale<\/h3>/.test(html), 'one name for the event');
 });
