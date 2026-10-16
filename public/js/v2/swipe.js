@@ -65,13 +65,19 @@
   let drag = null;          // the live drag, once one has been claimed
 
   const el = id => document.getElementById(id);
+  /* When the finger was there, not when this code got round to it. A drag's
+     first move does real work (the next screen is staged), so the moves behind
+     it arrive late and bunched; timed by Date.now() a quick flick read as slow
+     and sprang back. The event's own stamp is the finger's clock. */
+  const stamp = e => (e && e.timeStamp) || performance.now();
   const visible = e => e && getComputedStyle(e).display !== 'none';
 
   function onStart(e) {
     cancelSettle();
+    unhold();
     if (e.touches.length !== 1) { tracking = false; return; }   // pinch, not swipe
     const t = e.touches[0];
-    x0 = t.clientX; y0 = t.clientY; t0 = Date.now();
+    x0 = t.clientX; y0 = t.clientY; t0 = stamp(e);
     from = e.target;
     tracking = true;
     drag = null;
@@ -149,7 +155,7 @@
     document.body.classList.add('scr-dragging');
 
     drag = { dir, tab, cur, incoming, saved, paned, w: window.innerWidth, dx: 0,
-             lastX: x0, lastT: Date.now(), v: 0 };
+             lastX: x0, lastT: t0, v: 0 };
     move(0);
     return true;
   }
@@ -173,118 +179,122 @@
      like the rail, so a player can leaf through every game without going back
      to the list (Owen 2026-10-15).
 
-     The column follows the finger. Let go past a fifth of the screen, or with
-     a flick, and it carries on off that side; the next game's column then
-     slides in from the other side and the backdrop cross-fades under it. Let
-     go short and it springs back. Only the column moves: the header, the Back
-     link and the nav stay put, so it reads as turning a page inside the same
-     screen, not as leaving it.
+     It is the tab drag, page for page (Owen 2026-10-15: "exactly like swiping
+     between the main screen tabs"). The next game's whole screen, backdrop
+     and all, is dragged in from the side the finger is pulling from while the
+     one you are on goes out the other side, both 1:1 with the finger; release
+     settles with the finger's own speed through the same finish() the tabs
+     use, past a third or with a flick, else it springs back.
+
+     It used to move only the column: out with a tween, then the next game's
+     column in with a second tween. The second one set its start position and
+     its transition in the same style pass, so the browser animated from where
+     the first left off (a full screen out on the finger's side) back across
+     the screen: swipe right and the new game slid in from the right, moving
+     left, against the finger. Nothing here tweens twice any more.
+
+     Two pages need two nodes, and only one game screen exists. So at the claim
+     the screen you are on is copied (a still of it, ids kept so the same rules
+     style it, canvases copied as pictures and unhooked from the painters, inert
+     and hidden from screen readers), the copy is laid exactly over it, and the
+     real screen is turned into the next game (V2Detail.flip) and moved to the
+     side it comes in from. A commit just drops the copy. A spring-back turns
+     the real screen back into the game you were on, with the backdrop's
+     running world and the scroll it had, and drops the copy in the same frame.
 
      Taps are untouched (nothing is claimed before CLAIM_PX of mostly-sideways
      travel) and so is vertical scrolling (a mostly-vertical drag is let go at
      once). The name field keeps its gesture while it is open for typing, and
      nothing moves under the agar.io settings or any other sheet. */
-  const G_COMMIT_FRAC = 0.2;
-  const G_OUT_MS = 150, G_IN_MS = 230;
-  let gdrag = null;          // the live drag on the game screen
-  let gAnim = null;          // a flip still animating: { done }
-
-  function gParts() {
-    const det = el('detail');
-    return det ? { col: det.querySelector('.gcol'), bg: det.querySelector('.gbg') } : null;
-  }
-  const reduced = () => window.matchMedia &&
-    window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const anyVeil = () => !!document.querySelector('.howveil.on, .apscreen.on, .veil.on');
 
-  function gBegin(src) {
+  function gBegin(dir, src) {
     if (!window.V2Detail || !window.V2Detail.flip || anyVeil()) return false;
     const name = el('play-name');
     if (src && name && src === name && !name.readOnly) return false;
-    const p = gParts();
-    if (!p || !p.col) return false;
-    gFinishAnim();
-    p.col.style.transition = 'none';
-    p.col.style.willChange = 'transform, opacity';
-    gdrag = { p, w: window.innerWidth, dx: 0, lastX: x0, lastT: Date.now(), v: 0 };
+    const det = el('detail');
+    if (!det) return false;
+    const paned = getComputedStyle(det).position === 'fixed';
+    const r = det.getBoundingClientRect();          // before anything changes
+    const keepTop = paned ? det.scrollTop : window.scrollY;
+
+    const still = det.cloneNode(true);
+    const live = det.querySelectorAll('canvas'), copy = still.querySelectorAll('canvas');
+    copy.forEach((cv, i) => {
+      for (const k of ['anim', 'game', 'look', 'half', 'swatch']) delete cv.dataset[k];
+      try { if (live[i].width && live[i].height) cv.getContext('2d').drawImage(live[i], 0, 0); } catch (_) {}
+    });
+    still.setAttribute('aria-hidden', 'true');
+    still.inert = true;
+    still.classList.add('scr-still');
+    /* A fixed pane needs nothing: the copy is the same pane. The game screen
+       is not one, even on a phone (#detail.wrap is position:relative), so
+       there, and in the desktop layout a tablet gets, the still is pinned
+       exactly where the screen is now and the real one moves in flow. */
+    if (!paned) Object.assign(still.style, { position: 'fixed', left: r.left + 'px', top: r.top + 'px',
+                                              width: r.width + 'px', margin: '0', zIndex: '1' });
+    det.after(still);                                // after, so getElementById still finds the real one
+    if (paned) still.scrollTop = keepTop;
+
+    const back = window.V2Detail.keepBackdrop ? window.V2Detail.keepBackdrop() : null;
+    hold(from);
+    if (!window.V2Detail.flip(dir)) { still.remove(); unhold(); return false; }
+
+    const saved = det.getAttribute('style') || '';
+    det.classList.add(paned ? 'scr-drag' : 'scr-live');
+    still.classList.add('scr-live');
+    document.body.classList.add('scr-dragging');
+    drag = { dir, game: true, cur: still, incoming: det, saved, paned, keepTop, back,
+             w: window.innerWidth, dx: 0, lastX: x0, lastT: t0, v: 0 };
+    move(0);
     return true;
   }
 
-  /* 1:1 with the finger, fading a little as it goes, so the page you are
-     leaving visibly gives way rather than sliding off at full strength. */
-  function gMove(dx) {
-    const d = gdrag; if (!d) return;
-    const now = Date.now(), dt = Math.max(1, now - d.lastT), x = x0 + dx;
-    d.v = (x - d.lastX) / dt; d.lastX = x; d.lastT = now;
-    d.dx = dx;
-    d.p.col.style.transform = `translateX(${dx}px)`;
-    d.p.col.style.opacity = String(Math.max(0.35, 1 - Math.abs(dx) / d.w * 0.9));
+  /* The finger keeps talking to the node it went down on, even after that
+     node leaves the page. The flip above redraws the buy-in row, the lobby
+     list and the rest, so a drag that started on a Free button is now aimed at
+     a button nothing contains: its moves stop reaching the document, the drag
+     is never fed again, nothing calls preventDefault, and Chrome takes the
+     rest of a rightward drag as Back (measured: the page left for the previous
+     URL). So the node itself passes its moves on for as long as it is out. */
+  let held = null;
+  const fwd = { move(e) { if (!e.currentTarget.isConnected) onMove(e); },
+                end(e) { if (!e.currentTarget.isConnected) onEnd(e); },
+                cancel(e) { if (!e.currentTarget.isConnected) onCancel(e); } };
+  function hold(node) {
+    unhold();
+    if (!node || !node.addEventListener) return;
+    held = node;
+    node.addEventListener('touchmove', fwd.move, { passive: false });
+    node.addEventListener('touchend', fwd.end, { passive: true });
+    node.addEventListener('touchcancel', fwd.cancel, { passive: true });
+  }
+  function unhold() {
+    if (!held) return;
+    held.removeEventListener('touchmove', fwd.move, { passive: false });
+    held.removeEventListener('touchend', fwd.end, { passive: true });
+    held.removeEventListener('touchcancel', fwd.cancel, { passive: true });
+    held = null;
   }
 
-  /* A flip still running is finished at once (both halves), so a second swipe
-     starts from a settled column rather than fighting the last one. */
-  function gFinishAnim() { for (let i = 0; gAnim && i < 4; i++) gAnim.done(); }
-
-  /* Runs `to` on the column with a transition, then `after` once it ends (or
-     after a safety timeout, which also covers reduced motion). */
-  function gTween(col, ms, ease, css, after) {
-    let over = false;
-    const end = () => {
-      if (over) return; over = true;
-      col.removeEventListener('transitionend', onTx);
-      clearTimeout(timer);
-      if (gAnim && gAnim.done === end) gAnim = null;
-      after();
-    };
-    function onTx(ev) { if (ev.target === col && ev.propertyName === 'transform') end(); }
-    col.addEventListener('transitionend', onTx);
-    const timer = setTimeout(end, ms + 80);
-    gAnim = { done: end };
-    col.style.transition = `transform ${ms}ms ${ease}, opacity ${ms}ms ${ease}`;
-    void col.offsetWidth;                      // commit the start value
-    Object.assign(col.style, css);
-  }
-
-  function gClear(p) {
-    for (const k of ['transition', 'transform', 'opacity', 'willChange']) p.col.style[k] = '';
-    if (p.bg) { p.bg.style.transition = ''; p.bg.style.opacity = ''; }
-  }
-
-  function gEnd() {
-    const d = gdrag; gdrag = null;
-    if (!d) return;
-    const past = Math.abs(d.dx) > d.w * G_COMMIT_FRAC;
-    const flick = Math.abs(d.v) > FLICK_VPX && Math.sign(d.v) === Math.sign(d.dx);
-    const { p } = d;
-    if (!(past || flick) || !d.dx) {
-      gTween(p.col, 180, 'cubic-bezier(.2,.8,.2,1)', { transform: 'translateX(0px)', opacity: '1' },
-        () => gClear(p));
-      return;
+  /* The spring-back: the real screen becomes the game you were on again,
+     with the same backdrop world and scroll, in the frame the still goes. */
+  function gRestore(d) {
+    window.V2Detail.flip(-d.dir);
+    if (d.back && window.V2Detail.restoreBackdrop) window.V2Detail.restoreBackdrop(d.back);
+    if (d.paned) d.incoming.scrollTop = d.keepTop;
+    else if (d.keepTop) {
+      const h = document.documentElement, prev = h.style.scrollBehavior;
+      h.style.scrollBehavior = 'auto';
+      window.scrollTo(0, d.keepTop);
+      h.style.scrollBehavior = prev;
     }
-    const dir = d.dx < 0 ? 1 : -1;             // finger left: the next game
-    if (reduced()) { window.V2Detail.flip(dir); gClear(p); return; }
-    const out = -dir * d.w;
-    const ms = Math.round(Math.min(G_OUT_MS, Math.max(70,
-      Math.abs(out - d.dx) / Math.max(SETTLE_PX_MS, Math.abs(d.v) || 0))));
-    if (p.bg) { p.bg.style.transition = `opacity ${ms}ms linear`; p.bg.style.opacity = '0.25'; }
-    gTween(p.col, ms, 'cubic-bezier(.4,0,1,1)', { transform: `translateX(${out}px)`, opacity: '0' }, () => {
-      window.V2Detail.flip(dir);
-      /* In from the far side, a third of a screen out, already transparent. */
-      p.col.style.transition = 'none';
-      p.col.style.transform = `translateX(${dir * d.w * 0.34}px)`;
-      p.col.style.opacity = '0';
-      if (p.bg) { p.bg.style.transition = `opacity ${G_IN_MS}ms ease-out`; p.bg.style.opacity = '1'; }
-      gTween(p.col, G_IN_MS, 'cubic-bezier(.2,.8,.2,1)', { transform: 'translateX(0px)', opacity: '1' },
-        () => gClear(p));
-    });
   }
 
   function onMove(e) {
     if (!tracking || e.touches.length !== 1) return;
     const t = e.touches[0];
     const dx = t.clientX - x0, dy = t.clientY - y0;
-
-    if (gdrag) { e.preventDefault(); gMove(dx); return; }
 
     if (!drag) {
       if (Math.abs(dx) < CLAIM_PX) return;
@@ -294,11 +304,11 @@
       if (src && src.closest('.railwrap')) return;      // rail keeps its flick
       const look = el('lookveil');
       if (look && look.classList.contains('on')) { tracking = false; return; }
+      /* Finger left: the next one, in from the right. Both drags. */
+      const dir = dx < 0 ? 1 : -1;
       if (visible(el('detail'))) {
-        if (!gBegin(src)) { tracking = false; return; }
-        e.preventDefault(); gMove(dx); return;
-      }
-      if (!beginDrag(dx < 0 ? 1 : -1)) { tracking = false; return; }
+        if (!gBegin(dir, src)) { tracking = false; return; }
+      } else if (!beginDrag(dir)) { tracking = false; return; }
     }
 
     /* Velocity from the last move only, so a pause before release does not
@@ -306,7 +316,7 @@
        the same millisecond during a genuinely fast flick, and dividing by zero
        there used to leave the velocity at 0 — the faster the flick, the more
        likely it was ignored. */
-    const now = Date.now(), dt = Math.max(1, now - drag.lastT);
+    const now = stamp(e), dt = Math.max(1, now - drag.lastT);
     drag.v = (t.clientX - drag.lastX) / dt;
     drag.lastX = t.clientX; drag.lastT = now;
 
@@ -314,9 +324,17 @@
     move(dx);
   }
 
-  let settleTimer = null;
+  /* The settle still running, if any: its safety timer and its cleanup. A new
+     touch finishes it at once (onStart), so a drag never begins on top of a
+     screen that is still moving. The cleanup used to ride on the timer as
+     settleTimer._done, but a timer id is a number in a browser and this file
+     is strict, so that line threw at the end of every swipe and the cleanup
+     was never found. */
+  let settleTimer = null, settleDone = null;
   function cancelSettle() {
-    if (settleTimer) { clearTimeout(settleTimer); const f = settleTimer._done; settleTimer = null; if (f) f(); }
+    if (settleTimer) { clearTimeout(settleTimer); settleTimer = null; }
+    const f = settleDone; settleDone = null;
+    if (f) f();
   }
 
   function finish(commit) {
@@ -387,7 +405,18 @@
       finished = true;
       d.incoming.removeEventListener('transitionend', onEndTx);
       clearTimeout(settleTimer);
-      settleTimer = null;
+      settleTimer = null; settleDone = null;
+      if (d.game) {
+        /* The real screen already shows the game it lands on; springing back
+           turns it into the one you were on first. Then the still goes, in the
+           same frame, so there is never a moment with neither or both. */
+        if (!commit) gRestore(d);
+        d.cur.remove();
+        d.incoming.classList.remove('scr-drag', 'scr-live', 'scr-settle');
+        d.incoming.setAttribute('style', d.saved);
+        document.body.classList.remove('scr-dragging');
+        return;
+      }
       d.cur.classList.remove('scr-live', 'scr-settle');
       d.incoming.classList.remove('scr-drag', 'scr-settle');
       d.cur.style.transform = '';
@@ -405,11 +434,11 @@
     function onEndTx(ev) { if (ev.propertyName === 'transform') done(); }
     d.incoming.addEventListener('transitionend', onEndTx);
     settleTimer = setTimeout(done, dur + 60);   // safety net only
-    settleTimer._done = done;
+    settleDone = done;
   }
 
   function onEnd(e) {
-    if (gdrag) { gEnd(); tracking = false; return; }
+    unhold();
     if (drag) {
       const past = Math.abs(drag.dx) > drag.w * COMMIT_FRAC;
       // A flick counts only if it is still heading the way the drag started.
@@ -432,7 +461,7 @@
   }
 
   function onCancel() {
-    if (gdrag) { gdrag.dx = 0; gEnd(); }
+    unhold();
     if (drag) finish(false);
     tracking = false;
   }

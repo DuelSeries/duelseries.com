@@ -1602,6 +1602,8 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
    wherever the finger happened to let go. */
 .scr-drag { position:fixed; z-index:2; will-change:transform }
 .scr-live { will-change:transform }
+/* The still of a game screen a swipe is leaving (swipe.js gBegin): a picture, never a target. */
+.scr-still { pointer-events:none }
 /* The duration is set per-release in swipe.js, from the distance still to
    cover. The curve is deliberately close to linear at the end: the previous
    one (.22,.7,.28,1) put 82% of the travel in the first 45% of the time and
@@ -3989,7 +3991,16 @@ function flipGame(dir){
   open_(n.id);
   return n.id;
 }
-window.V2Detail={get game(){return cur?cur.id:'snake'},get stake(){return STEPS[si]},flip:flipGame};
+/* The backdrop's running world, kept across a swipe that springs back
+   (swipe.js): flipping to the next game and back would otherwise build a
+   new world, and the snakes behind the buttons would jump as you let go. */
+function keepBackdrop(){const cv=document.getElementById('dart');return cv?{cv,game:cv.dataset.game,world:SCENES.get(cv)}:null}
+function restoreBackdrop(k){
+  if(!k||!k.world||k.cv.dataset.game!==k.game)return;
+  SCENES.set(k.cv,k.world);
+  try{paintScene(k.cv,0)}catch(e){}   /* now, or the new world shows for a frame */
+}
+window.V2Detail={get game(){return cur?cur.id:'snake'},get stake(){return STEPS[si]},flip:flipGame,keepBackdrop,restoreBackdrop};
 /* The one list that knows which games are built, so the play path can refuse
    an unbuilt one without keeping a second copy of that fact. */
 window.V2_IS_SOON=id=>{const g=G(id);return !!(g&&g.soon&&!g.built)};

@@ -1349,10 +1349,10 @@ test('one layout for every game: rungs, name, Play, Customize, open lobbies, and
 
 test('the game screen swipes to the next and previous game, and leaves taps and scrolling alone', () => {
   const html = v2();
-  assert.match(html, /window\.V2Detail=\{[^\n]*flip:flipGame\};/, 'the lobby exposes the flip');
+  assert.match(html, /window\.V2Detail=\{[^\n]*flip:flipGame,keepBackdrop,restoreBackdrop\};/, 'the lobby exposes the flip');
   assert.match(html, /const n=GAMES\[\(i\+\(dir>0\?1:-1\)\+GAMES\.length\)%GAMES\.length\];/, 'in rail order, wrapping');
   const sw = fs.readFileSync(path.join(ROOT, 'public/js/v2/swipe.js'), 'utf8');
-  assert.match(sw, /if \(visible\(el\('detail'\)\)\) \{\s*if \(!gBegin\(src\)\)/, 'a sideways drag on the game screen flips');
+  assert.match(sw, /if \(visible\(el\('detail'\)\)\) \{\s*if \(!gBegin\(dir, src\)\)/, 'a sideways drag on the game screen flips');
   // Claimed only after CLAIM_PX of mostly-sideways travel, so a tap or a vertical drag is never taken.
   const claim = sw.indexOf("if (visible(el('detail')))");
   assert.ok(sw.lastIndexOf('if (Math.abs(dx) < CLAIM_PX) return;', claim) > -1 &&
@@ -1360,6 +1360,58 @@ test('the game screen swipes to the next and previous game, and leaves taps and 
     'after the tap and vertical checks');
   assert.match(sw, /if \(src && name && src === name && !name\.readOnly\) return false;/, 'the open name field keeps its drag');
   assert.match(sw, /anyVeil\(\)\) return false;/, 'and nothing flips under a sheet');
+
+  /* A carousel, the tab drag page for page (Owen 2026-10-15). It used to move
+     the column out with one tween and the next game's in with a second, whose
+     start position and transition landed in the same style pass: the new game
+     slid in from the side the finger was leaving, against the finger. */
+  const gb = sw.slice(sw.indexOf('function gBegin'), sw.indexOf('function gRestore'));
+  assert.ok(/det\.cloneNode\(true\)/.test(gb) && /det\.after\(still\)/.test(gb),
+    'the screen you are on is kept as a still, after the real one so its ids resolve to the real one');
+  assert.ok(gb.indexOf('getBoundingClientRect()') < gb.indexOf('V2Detail.flip(dir)'),
+    'measured before the real screen turns into the next game');
+  assert.ok(/delete cv\.dataset\[k\]/.test(gb) && /drawImage\(live\[i\]/.test(gb),
+    'its canvases are pictures, unhooked from the painters');
+  assert.ok(/still\.inert = true/.test(gb), 'and nothing on it can be pressed');
+  assert.ok(/drag = \{ dir, game: true, cur: still, incoming: det/.test(gb),
+    'it is the same drag object the tabs use, so move() and finish() drive both');
+  assert.ok(!/gTween|G_OUT_MS|G_IN_MS/.test(sw), 'no second tween is left to run the wrong way');
+  const fin = sw.slice(sw.indexOf('function finish'), sw.indexOf('function onEnd(e)'));
+  assert.ok(/if \(!commit\) gRestore\(d\);\s*d\.cur\.remove\(\);/.test(fin),
+    'springing back turns the real screen back first, then drops the still in the same frame');
+  const gr = sw.slice(sw.indexOf('function gRestore'), sw.indexOf('function onMove'));
+  assert.ok(/V2Detail\.flip\(-d\.dir\)/.test(gr) && /restoreBackdrop\(d\.back\)/.test(gr),
+    'with the game you were on and the same backdrop world');
+  assert.match(html, /function restoreBackdrop\(k\)\{[\s\S]*?SCENES\.set\(k\.cv,k\.world\);[\s\S]*?paintScene\(k\.cv,0\)/,
+    'painted at once, so the new world never shows for a frame');
+
+  /* The flip redraws the buy-in row and the lobby list, so a drag that began on
+     one of those buttons is aimed at a node that has left the page: its moves
+     stop reaching the document, preventDefault is never called, and Chrome
+     took the rest of a rightward drag as Back (the page left for the previous
+     URL, measured headless). The node passes its own moves on while it is out. */
+  assert.ok(gb.indexOf('hold(from)') > -1 && gb.indexOf('hold(from)') < gb.indexOf('V2Detail.flip(dir)'),
+    'the touched node is held before the flip can detach it');
+  assert.ok(/move\(e\) \{ if \(!e\.currentTarget\.isConnected\) onMove\(e\); \}/.test(sw),
+    'and forwards only while detached, so nothing is handled twice');
+  assert.ok(/node\.addEventListener\('touchmove', fwd\.move, \{ passive: false \}\)/.test(sw),
+    'cancelable, so the drag can still stop the page');
+});
+
+test('a swipe is timed by the finger, and its cleanup can always be found', () => {
+  const sw = fs.readFileSync(path.join(ROOT, 'public/js/v2/swipe.js'), 'utf8');
+  /* The first move of a drag stages the next screen, so the moves behind it
+     arrive late and bunched. Timed by Date.now() a quick flick read as slow
+     and sprang back (412px wide, 4x CPU: v 0.51 against a true 1.55 px/ms). */
+  assert.ok(/const stamp = e => \(e && e\.timeStamp\) \|\| performance\.now\(\)/.test(sw), 'the event clock');
+  assert.ok(/t0 = stamp\(e\)/.test(sw) && /const now = stamp\(e\)/.test(sw), 'used at the start and on every move');
+  assert.ok(!/Date\.now\(\)/.test(sw.replace(/\/\*[\s\S]*?\*\//g, '')), 'and no wall clock is mixed in');
+  /* A timer id is a number in a browser and this file is strict, so hanging
+     the cleanup on it (settleTimer._done = done) threw at the end of every
+     swipe, and a touch during a settle could never finish it. */
+  assert.ok(!/settleTimer\._done/.test(sw.replace(/\/\*[\s\S]*?\*\//g, '')), 'nothing is hung on the timer id');
+  assert.ok(/settleDone = done;/.test(sw) && /const f = settleDone; settleDone = null;/.test(sw),
+    'the cleanup is kept beside it and run by the next touch');
 });
 
 test('How to play is off the games and on the event', () => {
