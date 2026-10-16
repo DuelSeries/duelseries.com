@@ -79,6 +79,18 @@ test('a long history keeps asking while the server says it stopped short, and st
   assert.ok(/function clearMoves\(\) \{\s*mvGen\+\+; clearTimeout\(mvTimer\);/.test(w));
 });
 
+test('both lists scroll up and down only: no row sticks out sideways, the list clips and passes sideways drags on', () => {
+  const v = read('public/v2.html');
+  const rule = (sel) => { const m = v.match(new RegExp(sel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\{([^}]*)\\}')); return m ? m[1] : ''; };
+  const row = rule('.txl.sc .tx');
+  assert.ok(row && !/margin:[^;]*-/.test(row), 'a row has no negative margin: ' + row);
+  const list = rule('.txl.sc');
+  assert.ok(/overflow-x:hidden/.test(list), 'the list clips sideways');
+  assert.ok(/overscroll-behavior-x:none/.test(list), 'and never rubber-bands sideways');
+  assert.ok(/touch-action:pan-y/.test(list), 'a sideways drag is not the list\'s');
+  assert.ok(/text-overflow:ellipsis/.test(rule('.txl.sc .txn,.txl.sc .txd')), 'long text ends in an ellipsis');
+});
+
 test('a refresh mid-page never appends the old list\'s page to the new one', () => {
   const w = read('public/js/v2/wallet.js');
   const load = w.slice(w.indexOf('async function loadTx()'), w.indexOf('async function more()'));

@@ -653,11 +653,22 @@ body.ingame .tkrun{animation-play-state:paused}
    rows tall that scrolls inside itself, the phone's own momentum and the
    wheel's own smoothing, nothing scripted over either. Every row is one
    height, so five rows is exactly what shows. The fade over the last row is
-   there only while there is more below it (wallet.js edge). */
-.txcard{background:var(--s1);border-radius:var(--r3);padding:4px 16px}
-.txl.sc{max-height:310px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--s3) transparent}
-.txl.sc .tx{height:62px;flex:none;margin:0 -12px;padding:0 16px}
+   there only while there is more below it (wallet.js edge).
+   Up and down only (Owen, 2026-10-15). The rows used to reach 12 px past the
+   list on each side (a negative margin, so the hover shade ran nearly to the
+   card's edge), and a box that scrolls one way scrolls the other too once
+   anything sticks out of it: both lists dragged 12 px sideways. Now the card's
+   own padding is the 4 px inset, every row fits the list exactly, the list
+   clips sideways and hands sideways drags to the page, and the text in a row
+   ends in an ellipsis instead of pushing it wider. */
+.txcard{background:var(--s1);border-radius:var(--r3);padding:4px}
+.txl.sc{max-height:310px;overflow-x:hidden;overflow-y:auto;overscroll-behavior-x:none;
+  touch-action:pan-y pinch-zoom;scrollbar-width:thin;scrollbar-color:var(--s3) transparent}
+.txl.sc .tx{height:62px;flex:none;min-width:0;padding:0 12px}
 .txl.sc .tx:hover{background:var(--s2)}
+.txl.sc .none{padding-left:12px;padding-right:12px}
+.txl.sc .txn,.txl.sc .txd{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.txl.sc .txa{flex:none}
 .txl.sc.more{-webkit-mask-image:linear-gradient(#000 calc(100% - 44px),transparent);
           mask-image:linear-gradient(#000 calc(100% - 44px),transparent)}
 .txl .txtail{flex:none}
