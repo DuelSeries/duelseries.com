@@ -225,7 +225,7 @@
       '<span class="txi ' + (inb ? 'in' : 'out') + '" aria-hidden="true">' + (inb ? '↓' : '↑') + '</span>' +
       '<span class="txw"><span class="txn">' + name + '</span>' +
         '<span class="txd">' + when(t.at) + '</span></span>' +
-      '<span class="txa num ' + (inb ? 'in' : 'out') + '" data-cu="tx-' + esc(t.signature) + '">' +
+      '<span class="txa num ' + (inb ? 'in' : 'out') + '">' +
         (inb ? '+' : '−') + money(t.usdc) + '</span></a>';
   }
   async function fetchTx(a, before) {
@@ -356,8 +356,7 @@
         '<span class="txw"><span class="txn">' + esc(p.name) + '</span>' +
           '<span class="txd">' + whenAt(t.at) + (p.extra ? ', ' + esc(p.extra) : '') + '</span></span></a>' +
       '<span class="mvr">' +
-        '<span class="txa num ' + (inb ? 'in' : 'out') + '" data-cu="mv-' + esc(t.signature) + '">' +
-          esc(p.amt) + '</span>' +
+        '<span class="txa num ' + (inb ? 'in' : 'out') + '">' + esc(p.amt) + '</span>' +
         (peer
           ? '<span class="mvp">' + (inb ? 'from ' : 'to ') +
               '<code title="' + esc(peer) + '">' + esc(ownShort(peer)) + '</code>' +

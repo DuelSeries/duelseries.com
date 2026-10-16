@@ -58,20 +58,27 @@ test('countUp: loaded before the lobby modules, and screens count from $0 when t
     'back from a game');
 });
 
-test('countUp: every lobby dollar figure is marked, and nothing keeps its own counter', () => {
+test('countUp: ONLY the podium, the leaderboards and the wallet balances count up (Owen, 2026-10-16)', () => {
   const html = read('public/v2.html');
-  for (const re of [/id="hdr-balance" data-cu/, /id="ev-std" data-cu/, /class="pmoney" data-cu="ev-prize"/,
-                    /id="p-net" data-cu/, /id="golabel" data-cu/, /lpaid" data-cu="dlob-/, /data-cu="stk-\$\{s\}"/])
-    assert.ok(re.test(html), String(re));
   const js = f => read('public/js/v2/' + f);
-  assert.ok(/id="w-bal" data-cu/.test(js('wallet.js')), 'Wallet balance');
-  assert.ok(/data-cu="tx-'/.test(js('wallet.js')) && /data-cu="mv-'/.test(js('wallet.js')), 'Wallet history');
+  const marks = s => (s.match(/data-cu(?!-)/g) || []).length;
+  // The podium.
+  assert.ok(/class="pmoney" data-cu="ev-prize"/.test(html), 'Events podium prize');
+  // The leaderboards.
   assert.ok(/data-cu="soc-win" data-cu-rise/.test(js('social.js')), 'Global player winnings, drops shown as they are');
-  assert.ok(/data-cu="q-'/.test(js('social.js')), 'search results');
-  assert.ok(/data-cu="lb-'/.test(js('leaders.js')) && /DSCount\.open\(sheet\)/.test(js('leaders.js')), 'top earners and its sheet');
-  assert.ok(/data-cu="earn-total"/.test(js('earnings.js')) && /data-cu="earn-best"/.test(js('earnings.js')) &&
-            /DSCount\.open\(sheet\)/.test(js('earnings.js')), 'earnings strip, board and sheet');
-  assert.ok(/data-cu="lob-'/.test(js('board.js')), 'open lobbies');
-  assert.ok(!/function countUp|counted/.test(js('earnings.js')), 'the strip has no counter of its own');
+  assert.ok(/data-cu="lb-'/.test(js('leaders.js')) && /DSCount\.open\(sheet\)/.test(js('leaders.js')), 'top 3 and the full board');
+  assert.ok(/id="p-net" data-cu/.test(html), "a profile's total");
+  // The wallet balances.
+  assert.ok(/id="hdr-balance" data-cu/.test(html), 'main screen balance');
+  assert.ok(/id="w-bal" data-cu/.test(js('wallet.js')), 'Wallet tab balance');
+  // And nothing else: the strip, rungs, Play label, history rows, search and lobbies stay static.
+  assert.strictEqual(marks(html), 3, 'v2.html marks the header balance, the podium prize and the profile total only');
+  assert.strictEqual(marks(js('wallet.js')), 1, 'Wallet: the balance only, not the history rows');
+  assert.strictEqual(marks(js('social.js')), 1, 'Social: Global player winnings only, not search results');
+  assert.strictEqual(marks(js('leaders.js')), 1);
+  for (const f of ['earnings.js', 'board.js', 'shop.js', 'toasts.js'])
+    assert.strictEqual(marks(js(f)), 0, f + ' stays static');
+  assert.ok(!/DSCount/.test(js('earnings.js')), 'the strip and top cash-outs are static');
+  assert.ok(!/function countUp|counted/.test(js('earnings.js')), 'and the strip has no counter of its own');
   assert.ok(!/requestAnimationFrame/.test(js('social.js')), 'nor does the winnings figure');
 });

@@ -1,7 +1,11 @@
 /* ─── Money that fills up ─────────────────────────────────────────────────────
-   Every dollar figure in the lobby counts up from $0 when its screen opens, and
-   a live change while the screen is up (a balance tick, a leaderboard refresh)
-   rolls from the old figure to the new one (Owen, 2026-10-16, pick C "Roll").
+   Marked dollar figures count up from $0 when their screen opens, and a live
+   change while the screen is up (a balance tick, a leaderboard refresh) rolls
+   from the old figure to the new one (Owen, 2026-10-16, pick C "Roll").
+   ONLY three places (Owen: "the podium, the leaderboards and the wallets
+   balances"): the Events podium prize; Leaderboards' Global player winnings,
+   top 3, full board and a profile's total; the header and Wallet balances.
+   Everything else with a $ stays static, so do not mark more without asking.
 
    DISPLAY ONLY. Nothing here is ever read back as money: the renderers keep
    their own numbers for balances, buttons and checks, and only the text node

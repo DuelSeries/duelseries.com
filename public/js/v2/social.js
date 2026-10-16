@@ -173,7 +173,7 @@
       '<span class="rk num">' + (rank == null ? '' : rank) + '</span>' +
       '<span class="nm">' + esc(name) + '</span>' +
       '<span class="gp num"></span>' +
-      '<span class="er num" data-cu="q-' + esc(name) + '">' + (amt == null ? '' : money(amt)) + '</span>' +
+      '<span class="er num">' + (amt == null ? '' : money(amt)) + '</span>' +
       '</button>';
   }
 

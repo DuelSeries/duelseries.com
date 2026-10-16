@@ -2398,7 +2398,7 @@ body.scr-anim { overflow-x:hidden }
         <svg class="golock" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
              stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>
-        <span id="golabel" data-cu>Play</span>
+        <span id="golabel">Play</span>
       </button>
       <button type="button" class="spec" id="specbtn" onclick="spectateFromDetail()"
               aria-label="Spectate">
@@ -2463,7 +2463,7 @@ body.scr-anim { overflow-x:hidden }
        top 3 the rest of the day, so it is never three question marks all day
        (Owen, 2026-10-16). Names go in by textContent: they are player input. -->
   <section class="evstage" id="evhero" aria-label="Battle Royale podium">
-    <div class="evcap"><span id="ev-pcap">Tonight</span><span class="evstd" id="ev-std" data-cu>$20 to 1st</span></div>
+    <div class="evcap"><span id="ev-pcap">Tonight</span><span class="evstd" id="ev-std">$20 to 1st</span></div>
     <div class="podium">
       <div class="plinth p2 empty">
         <div class="pmedal" aria-hidden="true">?</div>
@@ -4366,7 +4366,7 @@ function open_(id){
   document.getElementById('dlob').innerHTML=freeRow+(mine.length
     ?mine.filter(l=>Number(l.stake)!==0).map(l=>`<div class="lr">
        <div class="lswatch">${art(cur)}</div>
-       <div class="lmid"><span class="lname num lpaid" data-cu="dlob-${Number(l.stake)}">${cash(l.stake)}</span>${String(l.region).toLowerCase()==='na'?''
+       <div class="lmid"><span class="lname num lpaid">${cash(l.stake)}</span>${String(l.region).toLowerCase()==='na'?''
          :`<span class="lsub">${String(l.region).toUpperCase()}</span>`}</div>
        <span class="sp" style="flex:1"></span>
        <span class="lcount${l.players>0?' on':''}">
@@ -4492,7 +4492,7 @@ function drawStake(){
     const off=STEPS_OFF.has(s);
     return `<button type="button" class="stk${i===si?' on':''}${s===0?' free':''}${off?' off':''}"
        ${off?'disabled aria-disabled="true"':''}
-       onclick="pickStake(${i})" data-cu="stk-${s}">${cash(s)}</button>`;
+       onclick="pickStake(${i})">${cash(s)}</button>`;
   }).join('');
   /* Play turns gold on a paid rung: the money look, on the button that
      stakes it. Never on a game that is not open (its Play is shut). */
