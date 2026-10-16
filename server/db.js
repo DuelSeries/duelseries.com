@@ -693,7 +693,13 @@ async function recordEarnings(id, name, sol, cadAmount = 0) {
     [id, name || 'Player', sol]
   );
   await pool.query(`INSERT INTO earnings_history (google_id, amount, cad_amount) VALUES ($1, $2, $3)`, [id, sol, cadAmount]);
+  for (const fn of earningsListeners) { try { fn(id); } catch (_) { /* a listener never touches the payout */ } }
 }
+/* Told after a landed cash-out's row is written (server/earnings pokes its
+   cache, so Social's live figure ticks within seconds). Called after both
+   writes and inside a try, so nothing here can fail or slow a payout. */
+const earningsListeners = [];
+function onEarningsRecorded(fn) { if (typeof fn === 'function') earningsListeners.push(fn); }
 
 // The other half of a player's ledger: what they paid to enter. Callers use
 // .catch() and never await this — a failed write must cost someone a stats row,
@@ -966,6 +972,7 @@ module.exports = {
   deferPayoutNoAccount, returnPayoutToLane,
   features, NO_USDC_ACCOUNT,
   recordEarnings,
+  onEarningsRecorded,
   recordStake, getTopEarners,
   getProfile, getMyProfile, setAccountName, searchPlayerNames, getGlobalWinnings, getGlobalWinningsSplit,
   addCosmetic, getOwnedCosmetics,

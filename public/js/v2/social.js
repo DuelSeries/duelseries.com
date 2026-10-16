@@ -16,8 +16,10 @@
                                     /api/my-profile gives the Wallet tab. (The
                                     bucketed series also in the answer are for
                                     the old snake client, not this screen.)
-     GET /api/stats/winnings     -> { totalUsd, totalCad }  totalUsd is every payout in
-                                    dollars (null until the server has a CAD rate)
+     GET /api/earnings/total     -> { on, total, count }  Global player winnings: the
+                                    lobby strip's own total (server/earnings), real
+                                    players' landed cash-outs only; {on:false} while
+                                    the strip's off switch is on
      GET /api/money-config       -> { mode, unit, … }
 
    What the server does NOT have, and is therefore not shown: per-game win/loss,
@@ -57,13 +59,7 @@
       MODE = cfg.mode || 'usdc';
     } catch (_) { /* the default is already the live mode */ }
 
-    /* totalUsd: every payout in dollars (the old CAD part converted on the
-       server). totalCad mixed the two currencies under a "$". */
-    let winnings = null;
-    try {
-      const j = await (await fetch('/api/stats/winnings')).json();
-      winnings = MODE === 'usdc' ? j.totalUsd : j.totalCad;
-    } catch (_) { winnings = null; }
+    pullWin();
 
     /* A failed read is a failed read, not "nobody has won": the two used to
        look identical. */
@@ -74,15 +70,94 @@
     } catch (_) { BOARD = []; boardFailed = true; }
     if (!Array.isArray(BOARD)) BOARD = [];
 
-    /* The one figure worth stating site-wide: everything ever paid out to
-       players (not the total of the rows above, which are the top ten net of
-       the house's cut). "Players in profit" went with it — the board already
-       IS that list, so the count was a tile restating its own length. */
-    el('soc-tiles').innerHTML =
-      '<div class="tile"><div class="k">Paid out to players</div>' +
-      '<div class="v num">' + (winnings == null ? '—' : money(winnings)) + '</div></div>';
-
     drawBoard();
+  }
+
+  /* ── Global player winnings ─────────────────────────────────────────────
+     What real players have cashed out, all time, live. It is the lobby
+     strip's own total (server/earnings: landed cash-outs only, never the owner
+     or revenue wallets, test wallets or bots), from the same cached read, so
+     Social and the strip can never disagree. It replaced "Paid out to
+     players" (/api/stats/winnings), which counted Owen's own test play
+     ($242.11 on 2026-10-15) and showed it to the public as player winnings.
+
+     $0.00 until a real player cashes out, and that is the figure, not an
+     empty state. Nothing here invents, seeds or pads it: it draws what the
+     server says. Asked every WIN_POLL_MS while Social is on screen, answered
+     from the server's memory (never a database read per ask); a landed
+     cash-out reaches that memory within seconds (earnings.poke), so the next
+     ask counts up to the new total and floats the difference beside it. */
+  const WIN_URL = '/api/earnings/total' +
+    (/(^|[?&])earnings=preview(&|$)/.test(location.search) ? '?preview=1' : '');
+  const WIN_POLL_MS = 12000;
+  let win = null;              // the total on screen, or null before the first answer
+  let winBusy = false, winTimer = null, winAnim = 0;
+  const usd = n => '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  function socialOnScreen() {
+    const s = el('social-screen');
+    return !!s && getComputedStyle(s).display !== 'none' && !document.hidden &&
+      !document.body.classList.contains('ingame');
+  }
+
+  /* From `from` to `to` in `ms`, easing out, so a cash-out reads as the
+     figure climbing rather than a digit swapping. Run for everyone: it is a
+     number changing, and Owen's own PC has animation effects off. */
+  function countTo(v, from, to, ms) {
+    const run = ++winAnim, t0 = performance.now();
+    v.classList.add('hit');
+    (function f(t) {
+      if (run !== winAnim) return;
+      const k = Math.min(1, (t - t0) / ms), e = 1 - Math.pow(1 - k, 3);
+      v.textContent = usd(from + (to - from) * e);
+      if (k < 1) requestAnimationFrame(f);
+      else { v.textContent = usd(to); setTimeout(() => { if (run === winAnim) v.classList.remove('hit'); }, 350); }
+    })(t0);
+  }
+
+  function drawWin(d) {
+    const box = el('soc-win');
+    if (!box) return;
+    if (!d || d.on !== true || typeof d.total !== 'number' || !isFinite(d.total) || d.total < 0) {
+      box.hidden = true; win = null; return;
+    }
+    if (!box.querySelector('.win-v')) {
+      box.innerHTML = '<div class="win-top"><span class="win-k">Global player winnings' +
+        (d.preview ? '<span class="win-tag">Preview</span>' : '') + '</span>' +
+        '<span class="win-live"><i aria-hidden="true"></i>LIVE</span></div>' +
+        '<span class="win-v num"></span><span class="win-up num" aria-hidden="true"></span>';
+    }
+    box.hidden = false;
+    const v = box.querySelector('.win-v'), up = box.querySelector('.win-up');
+    const to = Math.round(d.total * 100) / 100, from = win;
+    win = to;
+    v.setAttribute('aria-label', usd(to));
+    if (from == null) {                         // first answer: climb from zero once
+      if (to > 0) countTo(v, 0, to, 1100); else v.textContent = usd(0);
+      return;
+    }
+    if (to === from) return;
+    if (to < from) { winAnim++; v.textContent = usd(to); return; }   // a correction, never dressed up
+    countTo(v, from, to, 900);
+    up.textContent = '+' + usd(Math.round((to - from) * 100) / 100);
+    up.classList.remove('rise'); void up.offsetWidth; up.classList.add('rise');
+    /* The lobby strip shows this same total: have it read again now, rather
+       than at its own next minute, so the two never show different numbers. */
+    if (window.V2Earnings && window.V2Earnings.pull) window.V2Earnings.pull();
+  }
+
+  function pullWin() {
+    if (winBusy) return;
+    winBusy = true;
+    fetch(WIN_URL, { cache: 'no-store' })
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (d) drawWin(d); })
+      .catch(() => { /* keep what is showing */ })
+      .then(() => { winBusy = false; });
+    if (!winTimer) {
+      winTimer = setInterval(() => { if (socialOnScreen()) pullWin(); }, WIN_POLL_MS);
+      document.addEventListener('visibilitychange', () => { if (socialOnScreen()) pullWin(); });
+    }
   }
 
   function rowHTML(name, earnings, rank) {

@@ -61,7 +61,7 @@ test('/v2 keeps working, so existing links do not break', () => {
 test('social data comes from the server, not from a generated roster', () => {
   const src = fs.readFileSync(path.join(ROOT, 'public/js/v2/social.js'), 'utf8');
   for (const ep of ['/api/earningsboard', '/api/players/search', '/api/profile/',
-                    '/api/stats/winnings', '/api/money-config']) {
+                    '/api/earnings/total', '/api/money-config']) {
     assert.ok(src.includes(ep), `social.js calls ${ep}`);
   }
   const html = v2();
@@ -2150,4 +2150,35 @@ test('the widget refuses a duel:play that names no room, before any quote', asyn
   assert.ok(!built.includes('lobbyType||`dime`') && !built.includes('lobbyType||"dime"') && !built.includes("lobbyType||'dime'"),
     'the built widget the lobby loads has no dime default either (npm run build)');
   assert.ok(built.includes('That lobby is not available right now. Refresh and try again.'), 'and it carries the refusal');
+});
+
+test('Social shows Global player winnings: real players only, the lobby strip\'s own number, live', () => {
+  /* HARD RULE (Owen, 2026-10-15): the same rule and source as the lobby strip
+     (server/earnings), so the two always agree, and never Owen's own test play.
+     "Paid out to players" read /api/stats/winnings, which counted his play
+     ($242.11) and showed it to the public as player winnings. */
+  const src = fs.readFileSync(path.join(ROOT, 'public/js/v2/social.js'), 'utf8');
+  const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+  assert.ok(!/fetch\('\/api\/stats\/winnings'/.test(code), 'the old all-payouts total is not read');
+  assert.ok(/'\/api\/earnings\/total'/.test(code), 'the strip\'s total is');
+  assert.ok(/earnings=preview/.test(code) && /\?preview=1/.test(code), 'and only ?earnings=preview asks for the owner-inclusive preview');
+  assert.ok(!/Paid out to players/.test(code), 'the old label is gone');
+  const html = v2();
+  assert.ok(html.includes('<section id="soc-win" aria-label="Global player winnings" hidden></section>'),
+    'the panel is at the top of Social, hidden until the server answers');
+  assert.ok(html.indexOf('id="soc-win"') < html.indexOf('<h2>Top earners</h2>'), 'above the board');
+  assert.ok(!html.includes('id="soc-tiles"'), 'the old tile is gone');
+  // Live: asked while Social is on screen, from the server's memory; a rise counts up and shows the difference.
+  assert.ok(/const WIN_POLL_MS = 1\d000;/.test(code), 'asked every 10 to 19 s');
+  assert.ok(/if \(socialOnScreen\(\)\) pullWin\(\)/.test(code), 'only while Social is on screen');
+  assert.ok(/countTo\(v, from, to, \d+\)/.test(code) && /classList\.add\('rise'\)/.test(code), 'a rise counts up with a +$X');
+  assert.ok(/if \(to < from\) \{[^}]*textContent = usd\(to\)/.test(code), 'a correction down is shown plainly');
+  assert.ok(/V2Earnings\.pull\(\)/.test(code), 'and the strip is asked to read the same number again');
+  // $0.00 is the figure, not an empty state; only the off switch (or no answer) hides it.
+  assert.ok(/else v\.textContent = usd\(0\)/.test(code), '$0 is drawn as $0.00');
+  assert.ok(/d\.on !== true[^\n]*box\.hidden = true/.test(code.replace(/\n\s*/g, ' ')) || /box\.hidden = true; win = null; return;/.test(code),
+    'hidden only when the server says off');
+  // LIVE with a beating dot, for everyone (Owen's own PC has animation effects off).
+  assert.ok(/\.win-live i\{[^}]*animation:lpulse/.test(html), 'the dot beats');
+  assert.ok(/\.win-up\.rise\{animation:winUp/.test(html) && !/\.win-up\.go\{/.test(html), 'and the rise is not .go, the Play button');
 });

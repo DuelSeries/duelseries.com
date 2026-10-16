@@ -22,7 +22,14 @@
    Preview: /api/earnings?preview=1 is the same read with the owner's own
    cash-outs let in (the revenue wallet still never counts), so Owen can see
    the strip filled before real players have cashed out. Only the viewer who
-   asks for it sees it; the plain endpoint never includes the owner. */
+   asks for it sees it; the plain endpoint never includes the owner.
+
+   Social's "Global player winnings" (/api/earnings/total) is the strip's total
+   out of the same cache, so the two can never disagree: $0 until a real player
+   cashes out, then every landed cash-out. The page asks every few seconds and
+   is answered from memory. A landed cash-out (db.recordEarnings) pokes the
+   cache so the next answer has it, rather than waiting out REFRESH_MS; pokes
+   are spaced POKE_MS apart, so a burst of cash-outs is still one read. */
 
 const fs = require('fs');
 const path = require('path');
@@ -184,7 +191,7 @@ function createHideSwitch({ file, fsx = fs, log = console } = {}) {
    excludeWallets: the owner wallets AND the revenue wallet (required).
    previewExclude: what the preview still leaves out (the revenue wallet, at least). */
 function createEarnings({ query, excludeWallets, previewExclude, switchFile = null, config = CONFIG,
-  now = Date.now, log = console, fsx = fs } = {}) {
+  now = Date.now, log = console, fsx = fs, setTimer = setTimeout } = {}) {
   const list = (ws) => {
     const out = [];
     for (const w of ws || []) if (typeof w === 'string' && w && !out.includes(w)) out.push(w);
@@ -203,7 +210,7 @@ function createEarnings({ query, excludeWallets, previewExclude, switchFile = nu
   const stats = { reads: 0, fails: 0 };
 
   function cache(ex) {
-    let value = null, at = 0, inFlight = null;
+    let value = null, at = 0, inFlight = null, pokeTimer = null;
     function refresh() {
       if (inFlight) return inFlight;
       inFlight = (async () => {
@@ -224,17 +231,39 @@ function createEarnings({ query, excludeWallets, previewExclude, switchFile = nu
       })().finally(() => { inFlight = null; });
       return inFlight;
     }
-    return async function get() {
+    async function get() {
       if (at === 0) return refresh();
       if (now() - at >= config.REFRESH_MS) refresh();
       return value;
+    }
+    /* A cash-out landed: read again soon, never sooner than POKE_MS after the
+       last read. One timer at a time, so pokes in a burst share it. A cache
+       nobody has asked yet (at 0) stays lazy. */
+    get.poke = function poke() {
+      if (at === 0 || pokeTimer) return;
+      const gap = Math.max(Number(config.POKE_MS) || 0, 0);
+      const wait = Math.max(gap - (now() - at), 0) + Math.min(gap, 1500);
+      pokeTimer = setTimer(() => { pokeTimer = null; refresh(); }, wait);
+      if (pokeTimer && typeof pokeTimer.unref === 'function') pokeTimer.unref();
     };
+    return get;
   }
   const pub = typeof query === 'function' ? cache(exclude) : null;
   const pre = typeof query === 'function' ? cache(pExclude) : null;
 
   const OFF = Object.freeze({ on: false });
   function shown() { return !!config.SHOW && !sw.hidden(); }
+
+  /* Social's figure: {on:false} while hidden (the same switch as the strip) or
+     before the first good read, else {on:true, preview, total, count}. Unlike
+     the strip it is shown at $0: the strip is a banner that waits for a real
+     cash-out, the figure is a counter that starts at zero. */
+  async function figure(preview) {
+    if (!shown() || !pub) return OFF;
+    const v = await (preview ? pre : pub)();
+    if (!v) return OFF;
+    return { on: true, preview: !!preview, total: v.total, count: v.count };
+  }
 
   // The public answer: {on:false}, or {on:true, preview, total, count, bestToday, periods}.
   async function answer(preview) {
@@ -255,10 +284,25 @@ function createEarnings({ query, excludeWallets, previewExclude, switchFile = nu
         res.json(OFF);
       }
     });
+    app.get('/api/earnings/total', async (req, res) => {
+      res.set('Cache-Control', 'no-store');
+      try {
+        res.json(await figure(req.query && req.query.preview === '1'));
+      } catch (e) {
+        res.json(OFF);
+      }
+    });
+  }
+
+  function poke() {
+    if (pub) pub.poke();
+    if (pre) pre.poke();
   }
 
   return {
     answer,
+    figure,
+    poke,
     route,
     hidden: () => sw.hidden(),
     shown,

@@ -16,6 +16,10 @@ module.exports = Object.freeze({
   /* One database read at most this often, however many lobbies are open. */
   REFRESH_MS: 60000,
 
+  /* A landed cash-out asks for a fresh read (so Social's live figure ticks
+     within seconds), at most once per this many ms. */
+  POKE_MS: 5000,
+
   /* "Today" and "This week" are Owen's wall clock. */
   TIME_ZONE: 'America/Toronto',
 });

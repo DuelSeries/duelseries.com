@@ -183,3 +183,87 @@ test('no database: never shown', async () => {
   assert.deepStrictEqual(await e.answer(false), { on: false });
   assert.deepStrictEqual(await e.answer(true), { on: false });
 });
+
+/* ── Social's "Global player winnings" (/api/earnings/total) ─────────────── */
+
+test('Global player winnings is the strip\'s total from the same read, and $0 is a real answer', async () => {
+  // Every cash-out so far is the owner's: the public figure is $0, shown as $0, never his test play.
+  const q = fakeQuery((params) => (params[1].includes(OWNER) ? [] : [row(OWNER, 'slither', 0, 33, 1.86, 0.15, 'owen')]));
+  const e = createEarnings({ query: q, excludeWallets: [OWNER, REV], previewExclude: [REV], config: CFG, log: quiet });
+  assert.deepStrictEqual(await e.figure(false), { on: true, preview: false, total: 0, count: 0 });
+  assert.deepStrictEqual(await e.answer(false), { on: false }, 'the strip still waits for a real cash-out');
+  assert.strictEqual((await e.figure(true)).total, 16.74, 'only the preview lets the owner in');
+  assert.strictEqual(q.calls.length, 2, 'one read each, shared with the strip');
+
+  // Real cash-outs: the figure and the strip are the same number, from one read.
+  const q2 = fakeQuery([row(A, 'slither', 0, 2, 0.30, 0.15, 'neo'), row(B, 'agar', 4, 1, 0.4, null, 'trin')]);
+  const e2 = createEarnings({ query: q2, excludeWallets: [OWNER, REV], previewExclude: [REV], config: CFG, log: quiet });
+  const [fig, strip] = await Promise.all([e2.figure(false), e2.answer(false)]);
+  assert.strictEqual(fig.total, 6.3);
+  assert.strictEqual(fig.total, strip.total);
+  assert.strictEqual(fig.count, strip.count);
+  assert.strictEqual(q2.calls.length, 1);
+  assert.ok(!JSON.stringify(fig).includes(A), 'no wallet in the figure');
+});
+
+test('the figure obeys the strip\'s off switches, and no database means no figure', async () => {
+  const q = fakeQuery([row(A, 'slither', 0, 1, 0.15)]);
+  const off = createEarnings({ query: q, excludeWallets: [OWNER, REV], previewExclude: [REV],
+    config: { ...CFG, SHOW: false }, log: quiet });
+  assert.deepStrictEqual(await off.figure(false), { on: false });
+  const e = createEarnings({ query: q, excludeWallets: [OWNER, REV], previewExclude: [REV], switchFile: tmpFile(),
+    config: CFG, log: quiet });
+  e.setHidden(true);
+  assert.deepStrictEqual(await e.figure(false), { on: false });
+  const none = createEarnings({ query: null, excludeWallets: [OWNER, REV], previewExclude: [REV], config: CFG, log: quiet });
+  assert.deepStrictEqual(await none.figure(false), { on: false });
+  // A first read that fails is not "$0": nothing is shown rather than a made-up zero.
+  const bad = createEarnings({ query: () => Promise.reject(new Error('db down')), excludeWallets: [OWNER, REV],
+    previewExclude: [REV], config: CFG, log: quiet });
+  assert.deepStrictEqual(await bad.figure(false), { on: false });
+});
+
+test('a landed cash-out refreshes the figure within seconds, one read per burst', async () => {
+  let t = 1000, rows = [];
+  const timers = [];
+  const q = fakeQuery(() => rows);
+  const e = createEarnings({ query: q, excludeWallets: [OWNER, REV], previewExclude: [REV],
+    config: { ...CFG, POKE_MS: 5000 }, now: () => t, log: quiet,
+    setTimer: (fn, ms) => { timers.push({ fn, ms }); return { unref() {} }; } });
+  e.poke();
+  assert.strictEqual(timers.length, 0, 'nothing is read for a figure nobody has asked for');
+  assert.strictEqual((await e.figure(false)).total, 0);
+  assert.strictEqual(q.calls.length, 1);
+
+  // A real player cashes out 30 s later: one poke, read 1.5 s on, long before REFRESH_MS.
+  t += 30000;
+  rows = [row(A, 'slither', 0, 1, 0.4, null, 'neo')];
+  e.poke(); e.poke(); e.poke();
+  assert.strictEqual(timers.length, 1, 'a burst shares one timer');
+  assert.strictEqual(timers[0].ms, 1500);
+  t += 1500; timers[0].fn();
+  await new Promise((r) => setImmediate(r));
+  assert.strictEqual(q.calls.length, 2);
+  assert.strictEqual((await e.figure(false)).total, 3.6);
+  assert.strictEqual((await e.answer(false)).total, 3.6, 'and the strip has it too');
+
+  // Another one right after: held until POKE_MS has passed since that read.
+  t += 1000;
+  e.poke();
+  assert.strictEqual(timers.length, 2);
+  assert.strictEqual(timers[1].ms, 4000 + 1500);
+});
+
+test('the payout path tells the figure, after both writes and without being able to fail', () => {
+  const db = fs.readFileSync(path.join(__dirname, '../server/db.js'), 'utf8');
+  const fn = db.slice(db.indexOf('async function recordEarnings'), db.indexOf('function onEarningsRecorded'));
+  assert.ok(fn.indexOf('for (const fn of earningsListeners)') > fn.lastIndexOf('INSERT INTO earnings_history'),
+    'listeners run after the landed row is written');
+  assert.ok(/try \{ fn\(id\); \} catch/.test(fn), 'and a throwing listener is swallowed');
+  const idx = fs.readFileSync(path.join(__dirname, '../server/index.js'), 'utf8');
+  assert.ok(/db\.onEarningsRecorded\(\(\) => earnings\.poke\(\)\)/.test(idx), 'the server wires the poke');
+  const routes = [];
+  createEarnings({ query: null, excludeWallets: [OWNER, REV], previewExclude: [REV], config: CFG, log: quiet })
+    .route({ get: (p) => routes.push(p) });
+  assert.deepStrictEqual(routes, ['/api/earnings', '/api/earnings/total']);
+});

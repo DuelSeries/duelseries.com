@@ -1153,9 +1153,11 @@ app.get('/api/stats/winnings', async (req, res) => {
   }
 });
 
-/* The lobby's "Players have cashed out $X" strip (server/earnings). Read only,
-   one cached read a minute; the off switch is server/earnings/config.js SHOW,
-   or the owner console's earnings:off. */
+/* The lobby's "Players have cashed out $X" strip (server/earnings), and
+   Social's "Global player winnings" (/api/earnings/total, the same total from
+   the same cache). Read only, one cached read a minute plus one per landed
+   cash-out; the off switch is server/earnings/config.js SHOW, or the owner
+   console's earnings:off, and it hides both. */
 const earnings = require('./earnings').createEarnings({
   query: process.env.DATABASE_URL ? (sql, params) => db.pool.query(sql, params) : null,
   excludeWallets: [...OWNER_WALLETS, REVENUE_WALLET],
@@ -1163,6 +1165,8 @@ const earnings = require('./earnings').createEarnings({
   switchFile: process.env.EARNINGS_SWITCH_PATH || path.join(__dirname, 'data', 'earnings-switch.json'),
 });
 earnings.route(app);
+// A landed cash-out refreshes the figure within seconds (Social's live Global player winnings).
+if (typeof db.onEarningsRecorded === 'function') db.onEarningsRecorded(() => earnings.poke());
 
 app.get('/api/players/search', async (req, res) => {
   const q = strOr(req.query.q, '').trim();   // ?q[]=a is an array: .trim() threw, process gone
