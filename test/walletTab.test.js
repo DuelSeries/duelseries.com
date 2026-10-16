@@ -86,3 +86,21 @@ test('a refresh mid-page never appends the old list\'s page to the new one', () 
   assert.ok(/const gen = \+\+txGen;[\s\S]*if \(gen !== txGen\) return;/.test(load));
   assert.ok(/const gen = txGen;[\s\S]*if \(gen !== txGen\) return;/.test(more));
 });
+
+/* SOL arriving opens the Convert sheet by itself (Owen, 2026-10-15: one tap, not zero, not a
+   hunt for the button). It only opens the sheet: the one call that signs, duelWalletSwapRun, is
+   reached from the sheet's Convert and Withdraw's Send it, never from the offer. It waits out a
+   running game, another sheet, Privy's window and a hidden page, and keeps a no per wallet. */
+test('the Convert sheet offers itself for SOL, and never signs on its own', () => {
+  const w = shown(read('public/js/v2/wallet.js'));
+  const offer = w.slice(w.indexOf('function offerConvert()'), w.indexOf('function offerConvert()') + 900);
+  assert.ok(/if \(inGame\(\) \|\| busyScreen\(\)\) return;\s*convert\(\);/.test(offer), 'waits for the lobby, then only opens the sheet');
+  assert.ok(/if \(no && c < no \+ step\) return;/.test(offer), 'a no holds until more SOL arrives');
+  assert.ok(/'game-frame', 'agar-frame'/.test(w) && /privy-modal-content/.test(w) && /visibilityState === 'hidden'/.test(w));
+  const runs = [...w.matchAll(/window\.duelWalletSwapRun\(/g)].map((m) => {
+    const before = w.slice(0, m.index);
+    return before.slice(before.lastIndexOf('function ') + 9).split('(')[0];
+  });
+  assert.deepStrictEqual(runs.sort(), ['confirmConvert', 'confirmSol'], 'signed only from a tap: ' + runs);
+  assert.ok(/e\.origin === window\.location\.origin && e\.data === 'game:done'/.test(w), 'the game\'s end is heard from this origin only');
+});

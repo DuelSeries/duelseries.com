@@ -726,11 +726,12 @@
       return;
     }
     const q = cv.q;
+    /* The question itself, filled in (Owen, 2026-10-15): "Convert 0.1573 SOL to about $29.89
+       USDC?", so the one tap is all that is left to do. */
     b.innerHTML = '<div class="cashout">' +
-      '<div class="mfig"><div class="k">You get about</div>' +
-        '<div class="v num">' + (q ? usdTxt(q.outAmount) : '…') + '</div></div>' +
+      '<div class="mfig"><div class="k">Convert ' + (q ? solTxt(q.inAmount) : solTxt(convertible())) + ' to about</div>' +
+        '<div class="v num">' + (q ? usdTxt(q.outAmount) : '…') + '<span class="cvu"> USDC?</span></div></div>' +
       '<ul class="cvfacts">' +
-        '<li><span>From</span><b class="num">' + (q ? solTxt(q.inAmount) : solTxt(convertible())) + '</b></li>' +
         '<li><span>At least</span><b class="num">' + (q ? usdFloor(q.minOut) : '…') + '</b></li>' +
         '<li><span>Kept for network fees</span><b class="num">' + solTxt(reserve) + '</b></li>' +
       '</ul>' +
@@ -758,6 +759,9 @@
       tell({ kind: 'money', title: 'Converted', amount: '+' + got + ' USDC', detail: 'from ' + inSol },
            'Converted ' + inSol + ' to ' + got + ' USDC.', true);
       seenConv = solLamports();
+      /* The balance on screen is a beat behind the chain: until it catches up it still shows the
+         SOL just converted, which must not open the sheet again for it. */
+      if (connected()) setDeclined(w().address, convertible());
       if (onScreen()) { loadTx(); loadMoves(); }
     }, e => {
       try { unexpect(); } catch (_) {}
@@ -775,8 +779,40 @@
     v.classList.remove('on');
     if (window.sheetFocus) window.sheetFocus.close();
   }
-  // Cancel, the close button, Escape, the backdrop: never while it is sending.
-  function cancelConvert() { if (cv && cv.busy) return; closeConvert(); }
+  /* Cancel, the close button, Escape, the backdrop: never while it is sending. A no is kept for
+     this SOL: the sheet does not come back on its own until more arrives (offerConvert). */
+  function cancelConvert() {
+    if (cv && cv.busy) return;
+    if (cv && connected()) setDeclined(w().address, convertible());
+    closeConvert();
+  }
+
+  /* SOL arrived, so the question comes to the player (Owen, 2026-10-15: no hunting for the
+     button). When the wallet holds SOL it can convert, on load or as it lands, the Convert sheet
+     opens by itself with a fresh price, and one tap converts it. Nothing is ever signed without
+     that tap. Not over a running game, another sheet, Privy's own window or a hidden page: it
+     waits for the next balance tick or the game's end. Once the player says no, not again for
+     that SOL; more SOL arriving asks again. */
+  const DECLINED = a => 'ds_cv_declined:' + a;
+  function declinedAt(a) { try { return Number(localStorage.getItem(DECLINED(a))) || 0; } catch (_) { return 0; } }
+  function setDeclined(a, n) { try { localStorage.setItem(DECLINED(a), String(Math.max(0, Math.round(n)))); } catch (_) {} }
+  const inGame = () => ['game-frame', 'agar-frame'].some(id => { const f = el(id); return !!f && f.style.display === 'block'; });
+  const busyScreen = () => !!document.querySelector('.howveil.on') || !!document.getElementById('privy-modal-content') ||
+    document.visibilityState === 'hidden';
+  function offerConvert() {
+    if (cv || !connected() || !swapOn() || w().sol == null) return;
+    const c = convertible();
+    const a = w().address;
+    let no = declinedAt(a);
+    /* Spent since the no (converted, withdrawn, down to nothing): what is there now is the new
+       line, so only SOL that arrives after it asks again. */
+    if (no && c < no) { setDeclined(a, c); no = c; }
+    if (!c) return;
+    const step = Math.round((Number(w().swap.minConvertSol) || 0) * 1e9);
+    if (no && c < no + step) return;
+    if (inGame() || busyScreen()) return;
+    convert();
+  }
 
   /* The lobby's toast (toasts.js, DSToast) where it is loaded, else the plain one. */
   function tell(o, plain, good) {
@@ -795,9 +831,9 @@
     if (!connected() || w().sol == null || !w().swap) return;
     const now = solLamports();
     if (seenConv !== null && now - seenConv >= SOL_ARRIVAL_MIN) {
-      tell({ kind: 'money', title: 'Funds added', amount: '+' + solTxt(now - seenConv),
-             detail: convertible() ? 'Convert it to USDC on your Wallet tab to play with it.' : 'is in your wallet' },
-           'Funds added: ' + solTxt(now - seenConv) + '. Convert it to USDC on your Wallet tab to play with it.', true);
+      // The Convert sheet opens by itself for it (offerConvert), so the card only says it came.
+      tell({ kind: 'money', title: 'Funds added', amount: '+' + solTxt(now - seenConv), detail: 'is in your wallet' },
+           'Funds added: ' + solTxt(now - seenConv) + '.', true);
       if (onScreen()) loadMoves();
     }
     seenConv = now;
@@ -860,10 +896,17 @@
   window.addEventListener('duelwallet:change', () => {
     watchSol();
     if (!connected()) { cashing = false; pending = null; seenConv = null; if (cv && !cv.busy) closeConvert(); }
+    offerConvert();
     if (cashing) return renderHeader();
     if (!onScreen()) { drawnFor = null; return renderHeader(); }
     render(true);
   });
+  /* Back in the lobby, or back on the page: a Convert that waited is asked now. A game
+     closing says game:done from its own frame, on this origin. */
+  window.addEventListener('message', (e) => {
+    if (e && e.origin === window.location.origin && e.data === 'game:done') setTimeout(offerConvert, 1200);
+  });
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') setTimeout(offerConvert, 400); });
   window.V2Wallet = { render: render, login: login, fund: fund, copy: copy,
                       refresh: refresh, more: more, txScroll: txScroll, mvScroll: mvScroll,
                       copyPeer: copyPeer,
