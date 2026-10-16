@@ -36,7 +36,9 @@ function sentIds(records) {
   for (const r of records) if (r.t === 'world' || r.t === 'sync') for (const c of r.cells) ids.push(c.id);
   return ids.sort((a, b) => a - b);
 }
-const half = (box) => [box.maxX - box.cx, box.maxY - box.cy];
+// rounded to 1e-9: a seat's box centre is wherever its cell spawned (a free spawn is a safe point now, Owen 2026-10-16)
+const r9 = (v) => Math.round(v * 1e9) / 1e9;
+const half = (box) => [r9(box.maxX - box.cx), r9(box.maxY - box.cy)];
 
 test('viewBoxFor: portrait turns L4\'s box on its side, same area; false or absent is the plain box', () => {
   assert.deepStrictEqual([L4.baseW, L4.baseH], [1920, 1080], 'the fixture keeps the reference screen');
@@ -59,9 +61,9 @@ test('viewBoxFor: portrait turns L4\'s box on its side, same area; false or abse
       assert.deepStrictEqual(sb, Object.assign({}, plain, { maxY: plain.maxY + 102 / s }));
     }
   }
-  // The real table at s = 1: 1180.6 across, 2020.6 down, so a 1080 x 1920 portrait view keeps the measured pad.
+  // The real table at s = 1: 1220 across, 2060 down, so a 1080 x 1920 portrait view keeps the whole pad.
   const real = V.viewBoxFor(0, 0, 1, L.LAWS.L4.value, 0, true);
-  assert.ok(Math.abs(real.maxX * 2 - 1180.6) < 1e-9 && Math.abs(real.maxY * 2 - 2020.6) < 1e-9);
+  assert.ok(Math.abs(real.maxX * 2 - 1220) < 1e-9 && Math.abs(real.maxY * 2 - 2060) < 1e-9);
 });
 
 test('viewer: extra.portrait sends the cells of the turned box; a bad value throws before anything is sent', () => {
@@ -187,10 +189,10 @@ test('ag:portrait plus ag:view below: the turned box keeps half height (baseW + 
     const far = Math.max(box.maxX - box.cx, box.cx - box.minX, box.maxY - box.cy, box.cy - box.minY);
     assert.ok(far <= HALF_W, 'portrait ' + p + ' below ' + b + ': ' + far);
   }
-  // On the real table the turned box is 1010.3 down at s = 1 with or without 180 below.
+  // On the real table the turned box is 1030 down at s = 1 with or without 180 below.
   const realL4 = L.LAWS.L4.value;
   const real = V.viewBoxFor(0, 0, 1, realL4, cap, true);
-  assert.ok(Math.abs(real.maxY - 1010.3) < 1e-9 && Math.abs(real.maxY - (realL4.baseW + realL4.pad) / 2) < 1e-9);
+  assert.ok(Math.abs(real.maxY - 1030) < 1e-9 && Math.abs(real.maxY - (realL4.baseW + realL4.pad) / 2) < 1e-9);
 });
 
 test('ag:portrait: at most one box orientation change per PORTRAIT_GAP_MS, and the last report always wins', () => {

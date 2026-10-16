@@ -587,3 +587,25 @@ test('the real table sends the leaderboard on every 25th tick exactly (U_BOARD m
   assert.deepStrictEqual([1, 2, 3, 4, 5, 6].map((t) => odd._boardDue(t)), [false, false, true, false, true, false]);
   odd.stop();
 });
+
+test('safer spawns (Owen 2026-10-16): a free player starts clear of every cell that could eat it; bots keep the L35 point', () => {
+  for (let seed = 1; seed <= 20; seed++) {
+    const r = room({ seed });
+    const giant = r.sim.addPlayer({ name: 'giant', bot: true });
+    const b = r.sim.border();
+    const cx = (b.minX + b.maxX) / 2;
+    const cy = (b.minY + b.maxY) / 2;
+    // A quarter of the map wide: a uniform spawn lands inside or beside it often.
+    const size = (b.maxX - b.minX) / 8;
+    r.sim.debugPlace({ kind: 'player', owner: giant, x: cx, y: cy, size });
+    const s = sock();
+    r.addSocket(s, {});
+    assert.strictEqual(r.join(s.id, 'new'), 'ok');
+    r.tickOnce();
+    const me = r.sim.playerInfo(r.seatOf(s.id).pid);
+    assert.strictEqual(me.cells.length, 1);
+    const c = r.sim.getCell(me.cells[0]);
+    assert.ok(Math.hypot(c.x - cx, c.y - cy) >= size + c.size, 'seed ' + seed + ': not on or inside the giant');
+    r.stop();
+  }
+});

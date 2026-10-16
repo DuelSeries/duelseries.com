@@ -60,11 +60,21 @@ test('the free sim is unchanged: an empty still set and no option give identical
   assert.strictEqual(JSON.stringify(b.snapshot()), JSON.stringify(a.snapshot()));
 });
 
-test('free-only calls refuse in a free sim: findSpawnPoint and spawn(at) are paid only', () => {
+test('paid-only calls refuse in a free sim; the safe spawn point is for free humans too (Owen 2026-10-16)', () => {
   const sim = createSim({ laws: FIXTURE, seed: 1, border: BIG, food: false, viruses: false });
   const p = sim.addPlayer({ name: 'x' });
-  assert.throws(() => sim.findSpawnPoint(32, 500, 4), /paid rooms only/);
-  assert.throws(() => sim.spawn(p, 'x', { x: 0, y: 0 }), /paid rooms only/);
+  const big = sim.addPlayer({ name: 'big' });
+  sim.debugPlace({ kind: 'player', owner: big, x: 0, y: 0, size: 300 });
+  for (let i = 0; i < 50; i++) {
+    const pt = sim.findSpawnPoint(32, 500, 64);
+    assert.ok(pt && Math.hypot(pt.x, pt.y) >= 300 + 32 + 500, 'clear of the big cell: ' + JSON.stringify(pt));
+  }
+  assert.strictEqual(sim.spawn(p, 'x', { x: 1000, y: 1000 }), true);
+  sim.step();
+  const c = sim.playerInfo(p).cells;
+  assert.strictEqual(c.length, 1);
+  assert.throws(() => sim.spawnClearOf(p, 500), /paid rooms only/);
+  assert.throws(() => sim.relocate(p, { x: 0, y: 0 }), /paid rooms only/);
   assert.deepStrictEqual(sim.takeMoneyEvents(), { money: [], feeds: [] });
   assert.throws(() => createSim({ laws: FIXTURE, seed: 1, paid: { shielded: [], still: new Set() } }), /paid must be/);
   assert.throws(() => createSim({ laws: FIXTURE, seed: 1, still: [] }), /still must be a Set/);

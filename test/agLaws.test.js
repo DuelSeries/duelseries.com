@@ -150,7 +150,7 @@ test('L11, L21, L37: Owen chose the recordings over his approved value (OWNER-AN
 test("the approved values are the ones on Owen's page (LAWS-TO-APPROVE rows 1 to 32, parity log final table)", () => {
   const expected = {
     L3: { radiusFactor: 0.5, reflectBoost: false },
-    L4: { baseW: 1920, baseH: 1080, pad: 100.6, ref: 64, exp: 0.4, minScale: 0.0417 },
+    L4: { baseW: 1920, baseH: 1080, pad: 140, ref: 64, exp: 0.4, minScale: 0.0417 },
     L5: { coef: 83.466, exp: -0.4468, mult: 1 },
     L6: { rule: 'linearRamp', zoneSizes: 0.651 },
     L7: { minAgeTicks: 13, share: 'otherSizeSq' },
@@ -184,8 +184,9 @@ test("the approved values are the ones on Owen's page (LAWS-TO-APPROVE rows 1 to
   const v = (id) => L.LAWS[id].value;
   // The plain numbers on the page follow from them.
   const near = (a, b, tol) => assert.ok(Math.abs(a - b) <= tol, a + ' vs ' + b);
-  near(v('L4').baseW + v('L4').pad, 2021, 0.5);                       // row 2: a box about 2,021 by 1,181
-  near(v('L4').baseH + v('L4').pad, 1181, 0.5);
+  // row 2 was a box about 2,021 by 1,181 (pad 100.6); Owen's wider margin of 2026-10-16 (pad 140) makes it 2,060 by 1,220
+  near(v('L4').baseW + v('L4').pad, 2060, 0.5);
+  near(v('L4').baseH + v('L4').pad, 1220, 0.5);
   assert.deepStrictEqual({ w: v('L4').baseW, h: v('L4').baseH }, v('K_VIEW_FLOOR'));
   near(v('L5').coef * Math.pow(32, v('L5').exp), 17.7, 0.05);         // row 3: 17.7 at the start
   near(v('L5').coef * Math.pow(100, v('L5').exp), 10.7, 0.05);        // row 3: 10.7 at size 100

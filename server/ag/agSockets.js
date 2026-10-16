@@ -209,13 +209,17 @@ function attachAgSockets(io, arenas, helpers) {
     arenas.spectate(socket);
   }
 
+  // speed (optional, the phone stick, Owen 2026-10-16): the share of full speed in thousandths, a whole number 0 to
+  // 1000; absent means full speed. Anything else drops the message.
   function onTarget(socket, msg) {
     if (!isPlainObject(msg)) return;
     const x = msg.x;
     const y = msg.y;
     if (!isInt32(x) || !isInt32(y)) return;
+    const speed = msg.speed;
+    if (speed !== undefined && !(Number.isInteger(speed) && speed >= 0 && speed <= 1000)) return;
     if (!limited(socket, 'target')) return;
-    arenas.target(socket.id, x, y);
+    arenas.target(socket.id, x, y, speed);
   }
 
   function onSplit(socket) {

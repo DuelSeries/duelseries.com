@@ -336,7 +336,14 @@
       }
       if (net) net.send(kind, payload);
     }
-    function sendTarget(x, y) { send('target', { x: x, y: y }); }
+    // A phone stick adds its speed (thousandths of full speed, the thumb's distance, Owen 2026-10-16); a mouse sends
+    // none (full speed). sentSpeed is what the server last got, so a speed change alone is sent too (frame loop).
+    var sentSpeed = null;
+    function sendTarget(x, y) {
+      var sp = input ? input.stickSpeed() : null;
+      sentSpeed = sp;
+      send('target', sp === null ? { x: x, y: y } : { x: x, y: y, speed: sp });
+    }
 
     function ownCells() { return world.lists().own; }
     function displayedSizes() {
@@ -808,7 +815,10 @@
       var L = world.lists();
       renderer.sortMain(L.live);
       // no target while holding (movement locked), nor from a paid seat before its ag:ready
-      if (!hold.wanted && (!flow || flow.canSteer())) cam.frameGate(now, sendTarget);
+      if (!hold.wanted && (!flow || flow.canSteer())) {
+        // the speed alone changed (a lifted thumb stops the cells on the same target): send it on the last target
+        if (!cam.frameGate(now, sendTarget) && input.stickSpeed() !== sentSpeed) sendTarget(cam.lastSentX, cam.lastSentY);
+      }
       renderer.beginFrame();
       renderer.updateMembranes(L, view(), settings, now);
       cam.clampWheel();
@@ -888,6 +898,7 @@
     function resetConnection() {
       connected = false;
       sentBelow = 0;            // a new socket starts at 0 on the server
+      sentSpeed = null;         // and at full speed
       sentPortrait = false;     // and sideways
       pending.play = false;
       pending.spectate = false;

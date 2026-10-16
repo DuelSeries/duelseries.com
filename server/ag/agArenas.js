@@ -594,9 +594,9 @@ class AgArenas {
     return room ? room.spectate(socket.id) : false;
   }
 
-  target(socketId, x, y) {
+  target(socketId, x, y, speed) {
     const room = this.bySocket.get(socketId);
-    return room ? room.target(socketId, x, y) : false;
+    return room ? room.target(socketId, x, y, speed) : false;
   }
 
   split(socketId) {

@@ -191,6 +191,27 @@ test('ag:target: integers only; wrong shapes and non-finite numbers never reach 
   assert.strictEqual(calls.length, 2);
 });
 
+test('ag:target speed: a whole number 0 to 1000 (thousandths) reaches the sim as a share; anything else drops the message', () => {
+  const w = world();
+  const s = sock(w);
+  s.fire('ag:join', { name: 'T' });
+  const r = roomOf(w, s);
+  r.tickOnce();
+  const pid = pidOf(w, s);
+  const calls = [];
+  const setInput = r.sim.setInput;
+  r.sim.setInput = (p, input) => { if (p === pid) calls.push(input); return setInput(p, input); };
+  for (const bad of [-1, 1001, 0.5, NaN, Infinity, '500', null, true, [500], { v: 1 }]) {
+    s.fire('ag:target', { x: 1, y: 2, speed: bad });
+  }
+  assert.strictEqual(calls.length, 0);
+  s.fire('ag:target', { x: 1, y: 2, speed: 500 });
+  s.fire('ag:target', { x: 1, y: 2, speed: 0 });
+  s.fire('ag:target', { x: 1, y: 2, speed: 1000 });
+  s.fire('ag:target', { x: 1, y: 2 });
+  assert.deepStrictEqual(calls, [{ x: 1, y: 2, speed: 0.5 }, { x: 1, y: 2, speed: 0 }, { x: 1, y: 2, speed: 1 }, { x: 1, y: 2 }]);
+});
+
 test('every event but ag:view is rate limited through socketRL with its own key', () => {
   const w = world();
   const s = sock(w);

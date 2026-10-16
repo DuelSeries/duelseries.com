@@ -667,11 +667,11 @@ test('ghost strip: the page reports the map it draws under the reference view, a
     assert.ok(below <= cap, 'every window the review listed is under the VIEW_BELOW cap');
     // The canvas row of the server box bottom when the camera sits on the server's view centre at wheel 1 (client
     // zoom = s, draw scale s * f, world centre row trunc(H / 2)): past the last canvas row at every scale, by at
-    // least the slack L4 gives under the reference view (50.3 world units, less half a row of centre rounding).
+    // least the slack L4 gives under the reference view (pad / 2 = 70 world units, less half a row of centre rounding).
     for (const s of [1, 0.5, 0.2]) {
       const row = (b) => Math.trunc(H / 2) + agView.viewBoxFor(0, 0, s, LAWS.L4.value, Math.min(b, cap)).maxY * s * f;
-      assert.ok((row(below) - CH) / f >= 50.3 - 0.5 / f - 1e-9, w + 'x' + h + ' s ' + s + ': ' + row(below) + ' of ' + CH);
-      if (w === 853) assert.ok(row(0) < CH - 70, 'without the report the bottom band is never sent');
+      assert.ok((row(below) - CH) / f >= LAWS.L4.value.pad / 2 - 0.5 / f - 1e-9, w + 'x' + h + ' s ' + s + ': ' + row(below) + ' of ' + CH);
+      if (w === 853) assert.ok(row(0) < CH - 50, 'without the report the bottom band is never sent');
     }
   }
 

@@ -633,6 +633,27 @@ test('L6 linearRamp: full L5 speed outside 0.651 sizes of the target, a straight
   assert.ok(83.466 * Math.pow(32, -0.4468) / (0.651 * 32) < 1);
 });
 
+test('setInput speed (the phone stick, Owen 2026-10-16): a share 0 to 1 of the step, full without one', () => {
+  const sim = emptySim(LAWS);
+  const a = sim.addPlayer({});
+  const id = sim.debugPlace({ kind: 'player', owner: a, x: 0, y: 0, size: 100 });
+  const speed = 83.466 * Math.pow(100, -0.4468);
+  const c = sim.getCell(id);
+  const stepWith = (input) => { const x0 = c.x; sim.setInput(a, Object.assign({ x: c.x + 5000, y: 0 }, input)); sim.step(); return c.x - x0; };
+  assert.ok(Math.abs(stepWith({ speed: 0.5 }) - speed / 2) < 1e-9, 'half');
+  assert.strictEqual(stepWith({ speed: 0 }), 0, 'stopped');
+  assert.ok(Math.abs(stepWith({}) - speed) < 1e-9, 'a target without a speed is full speed again');
+  assert.ok(Math.abs(stepWith({ speed: 7 }) - speed) < 1e-9, 'never faster than the law');
+  assert.strictEqual(stepWith({ speed: -3 }), 0);
+  assert.ok(Math.abs(stepWith({ speed: NaN }) - speed) < 1e-9, 'not a number: full');
+  sim.setInput(a, { x: c.x + 5000, y: 0, speed: 0.25 });
+  assert.strictEqual(sim.snapshot().players[0].speed, 0.25, 'a slowed player carries it in the snapshot');
+  sim.setInput(a, { split: true });
+  assert.strictEqual(sim.snapshot().players[0].speed, 0.25, 'a press without a target keeps it');
+  sim.setInput(a, { x: 1, y: 1 });
+  assert.strictEqual('speed' in sim.snapshot().players[0], false, 'full speed is not written');
+});
+
 test('L29 equalPieces: equal pieces up to the free slots, each at least mass 20', () => {
   const near = (arr, m, n) => arr.length === n && arr.every((x) => Math.abs(x - m) < 1e-12);
   assert.ok(near(equalPopPieces(325, 15, 20), 325 / 16, 15), 'their pop: mass 325, 15 free, 16 pieces of 20.3');

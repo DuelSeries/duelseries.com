@@ -745,8 +745,9 @@ function createSim(opts) {
     }
   }
 
-  // at: a paid spawn's point from findSpawnPoint (design 3.3.5), used instead of the L35 rule's point; the paid player
-  // starts at the L14 start size in its own colour, never on a blob. Free spawns never pass one.
+  // at: a point from findSpawnPoint (paid design 3.3.5; a free human too since Owen 2026-10-16, safer spawns), used
+  // instead of the L35 rule's point; the player starts at the L14 start size in its own colour, never on a blob. Bots
+  // never pass one.
   function doSpawn(p, at) {
     if (p.cells.length > 0) return;
     let rgb = playerColour();
@@ -860,6 +861,8 @@ function createSim(opts) {
   //   'linearRamp'    speed * min(1, distance / (zoneSizes * size)): full speed outside the zone, then a straight
   //                   line down to 0 at the target (the approved row, measured on FFA)
   //   'minDistSpeed'  min(distance, speed) (the FIXTURE suggestion)
+  // then times the player's own speed share (setInput speed, the phone stick's thumb distance, Owen 2026-10-16;
+  // 1 for a mouse and every bot, so the step is the law's own).
   function moveToward(p, c) {
     const t = targetOf(p);
     if (t === null) return;
@@ -875,6 +878,7 @@ function createSim(opts) {
     } else {
       step = speed < dist ? speed : dist;
     }
+    if (p.speed < 1) step *= p.speed;
     const move = step / dist;
     c.x += dx * move;
     c.y += dy * move;
@@ -1110,6 +1114,7 @@ function createSim(opts) {
     players.set(pid, {
       pid, name: typeof i.name === 'string' ? i.name : '', bot: i.bot === true, alive: false,
       cells: [], target: null, lastEject: null, rgb: null, skin: isSkinRgb(i.skin) ? i.skin.slice() : null,
+      speed: 1,
     });
     return pid;
   }
@@ -1129,12 +1134,11 @@ function createSim(opts) {
     return true;
   }
 
-  // at (paid rooms only): a point from findSpawnPoint, both coordinates finite.
+  // at (optional): a point from findSpawnPoint, both coordinates finite.
   function spawn(pid, name, at) {
     if (!players.has(pid)) return false;
     const cmd = { t: 'spawn', pid, name: typeof name === 'string' ? name : undefined };
     if (at !== undefined && at !== null) {
-      if (!paid) throw new Error('agSim: a spawn point is for paid rooms only');
       if (!isFiniteNumber(at.x) || !isFiniteNumber(at.y)) throw new TypeError('agSim: spawn point must be finite');
       cmd.at = { x: at.x, y: at.y };
     }
@@ -1149,11 +1153,10 @@ function createSim(opts) {
     return true;
   }
 
-  // Paid safe spawn (design 3.3.5): up to `tries` uniform points of the map; a point is clear when every live cell of
-  // a player that could eat a cell of `size` (L23 eatRatio) has its centre at least (its size + size + clear) away.
-  // Returns the first clear point, or null. Paid rooms only (the free room never draws these rng values).
+  // Safe spawn (paid design 3.3.5; a free human's spawn too since Owen 2026-10-16): up to `tries` uniform points of
+  // the map; a point is clear when every live cell of a player that could eat a cell of `size` (L23 eatRatio) has its
+  // centre at least (its size + size + clear) away. Returns the first clear point, or null.
   function findSpawnPoint(size, clear, tries) {
-    if (!paid) throw new Error('agSim: findSpawnPoint is for paid rooms only');
     if (!isFiniteNumber(size) || size <= 0 || !isFiniteNumber(clear) || clear < 0 || !Number.isInteger(tries) || tries < 1) {
       throw new TypeError('agSim: findSpawnPoint needs a size above 0, a clearance of 0 or more and whole tries');
     }
@@ -1232,12 +1235,19 @@ function createSim(opts) {
     return true;
   }
 
-  // setInput(pid, { x, y, split, eject, q }): x and y set the world target (both finite or the target is kept);
-  // split / eject queue one press each; q is ignored in FFA (Q_KEY 'ignore').
+  // setInput(pid, { x, y, speed, split, eject, q }): x and y set the world target (both finite or the target is
+  // kept); with them, speed is the share of the law's speed the cells move at, 0 to 1 (the phone stick: thumb
+  // distance, Owen 2026-10-16), and a target without one is full speed (a mouse, a bot). It only ever slows a player:
+  // a mouse already gets any slower speed by resting near its cells (L6). split / eject queue one press each; q is
+  // ignored in FFA (Q_KEY 'ignore').
   function setInput(pid, input) {
     const p = players.get(pid);
     if (!p || !input || typeof input !== 'object') return false;
-    if (isFiniteNumber(input.x) && isFiniteNumber(input.y)) p.target = { x: input.x, y: input.y };
+    if (isFiniteNumber(input.x) && isFiniteNumber(input.y)) {
+      p.target = { x: input.x, y: input.y };
+      const k = input.speed;
+      p.speed = isFiniteNumber(k) ? (k < 0 ? 0 : k > 1 ? 1 : k) : 1;
+    }
     if (input.split === true) split(pid);
     if (input.eject === true) eject(pid);
     return true;
@@ -1305,8 +1315,10 @@ function createSim(opts) {
     }
     const ps = [];
     for (const p of players.values()) {
-      ps.push({ pid: p.pid, name: p.name, bot: p.bot, alive: p.alive, cells: p.cells.map((c) => c.id),
-        target: p.target ? [p.target.x, p.target.y] : null, lastEject: p.lastEject, rgb: p.rgb });
+      const row = { pid: p.pid, name: p.name, bot: p.bot, alive: p.alive, cells: p.cells.map((c) => c.id),
+        target: p.target ? [p.target.x, p.target.y] : null, lastEject: p.lastEject, rgb: p.rgb };
+      if (p.speed !== 1) row.speed = p.speed;   // only a slowed phone player carries it
+      ps.push(row);
     }
     return {
       tick, rng: rng.state(), nextId, nextPid,

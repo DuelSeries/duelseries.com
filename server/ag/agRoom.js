@@ -587,7 +587,13 @@ class AgRoom {
     seat.spectating = false;
     seat.spawnQueued = true;
     seat.name = nm;
-    this.sim.spawn(seat.pid, nm);
+    // Safer spawns (Owen 2026-10-16): a free player starts clear of every cell that could eat it, by the paid rule
+    // (design 3.3.5, its clearance and tries); on a map too crowded for that, at least not on or inside one; with
+    // neither, the L35 point as before. Bots keep the L35 point.
+    const size = this.sim.startSize();
+    const tries = AG_MONEY.SPAWN_TRIES.value;
+    const pt = this.sim.findSpawnPoint(size, AG_MONEY.SPAWN_CLEAR.value, tries) || this.sim.findSpawnPoint(size, 0, tries);
+    this.sim.spawn(seat.pid, nm, pt);
     return 'ok';
   }
 
@@ -617,12 +623,13 @@ class AgRoom {
   }
 
   // The mouse target in world units (integers, checked by agSockets). Kept while holding (the sim skips steering), so
-  // a released hold carries on toward the mouse.
-  target(socketId, x, y) {
+  // a released hold carries on toward the mouse. speed: the phone stick's share of full speed in thousandths (an
+  // integer 0 to 1000, checked by agSockets), or undefined for full speed (a mouse).
+  target(socketId, x, y, speed) {
     const seat = this.seats.get(socketId);
     if (!seat || !seat.joined) return false;
     if (this.money && !this._paidInputOk(seat)) return false;
-    return this.sim.setInput(seat.pid, { x, y });
+    return this.sim.setInput(seat.pid, speed === undefined ? { x, y } : { x, y, speed: speed / 1000 });
   }
 
   split(socketId) {

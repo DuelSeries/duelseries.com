@@ -108,11 +108,14 @@ const ENTRIES = [
     '{ radiusFactor, reflectBoost }: centre kept within [min + radiusFactor * size, max - radiusFactor * size] per axis',
     'server laws L3. radiusFactor: MEASURED, ' + FFA + ', 0.462 to 0.522 (6 cells at sizes 39 to 109, 789 pinned ' +
     'ticks; ' + OTHER + ' 0.417 to 0.583). reflectBoost: CHOSEN, no launched piece hit a wall in either session'),
-  approved(2, 'L4', 'Server view range', { baseW: 1920, baseH: 1080, pad: 100.6, ref: 64, exp: 0.4, minScale: 0.0417 },
+  approved(2, 'L4', 'Server view range', { baseW: 1920, baseH: 1080, pad: 140, ref: 64, exp: 0.4, minScale: 0.0417 },
     '{ baseW, baseH, pad, ref, exp, minScale }: half width (baseW + pad) / s / 2, ' +
     's = max(pow(min(ref / sum size, 1), exp), minScale); the bottom edge alone also moves down by the rows the ' +
     'page reports below the reference view, / s (VIEW_BELOW), so the pad stays past every edge the page draws',
-    'server laws L4 (PS-U6). baseW, baseH: CLIENT, their view at zoom 1 (K_VIEW_FLOOR). pad: MEASURED, ' + FFA +
+    'server laws L4 (PS-U6). baseW, baseH: CLIENT, their view at zoom 1 (K_VIEW_FLOOR). pad: OWNER 2026-10-16, 140 ' +
+    '(the wider margin, edge pop-in fix: our eased camera and 100 ms interpolation sit behind the box centre, so at ' +
+    'the measured 100.6 the drawn view passed the box edge on 24 percent of 60 Hz frames and 2 percent at 240 Hz; ' +
+    'at 140, 0.7 and 0.3 percent, the same replayed run); was MEASURED, ' + FFA +
     ', 102.0 +- 2.7 across, 100.4 +- 1.1 down (2,634 view boxes, 15,725 updates, own sizes adding up to 32 to 752). ' +
     'ref, exp: MEASURED, exact. minScale: CHOSEN "no floor", the scale where the box already reaches past every map ' +
     'edge (their client zoom has no floor either)'),
@@ -366,7 +369,7 @@ const ENTRIES = [
     '{ cap }: world units at zoom 1; the view box bottom moves down by min(reported, cap) / s',
     'CHOSEN (V2 ghost strip, PARITY-LOG 2026-10-08): 180 = 90 / 0.5, the strip rows of a window whose layout factor ' +
     'max(w / 1920, (h - 90) / 1080) is 0.5 (960 CSS px wide or 630 high), so every window that size or larger keeps ' +
-    'its whole pad below; a smaller one keeps the slack L4 gives under the reference view (at least 50.3 units) less ' +
+    'its whole pad below; a smaller one keeps the slack L4 gives under the reference view (at least 70 units) less ' +
     'what it reports past the cap, and a page that reports more sees no further down than such a window'),
 ];
 

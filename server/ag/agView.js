@@ -121,7 +121,7 @@ function scaleFor(sumSize, v) {
 // turned on its side, so the box turns with it: baseH + pad across and baseW + pad down. The same L4 numbers, so
 // the area is the same as sideways and no orientation sees more than the other. below is ignored while portrait:
 // the honest portrait page draws no strip and reports 0, and the turned box plus below would reach
-// (baseW + pad) / 2 + below down (1190.3 at s = 1 on the real table), past the 1010.3 every honest page tops out at.
+// (baseW + pad) / 2 + below down (1210 at s = 1 on the real table), past the 1030 every honest page tops out at.
 function viewBoxFor(cx, cy, s, v, below, portrait) {
   const hw = ((portrait ? v.baseH : v.baseW) + v.pad) / s / 2;
   const hh = ((portrait ? v.baseW : v.baseH) + v.pad) / s / 2;

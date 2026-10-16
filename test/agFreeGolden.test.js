@@ -4,6 +4,9 @@
 // snapshot. The hashes were taken on origin/main 98d3304, the last commit before paid agar.io, and the paid work must
 // leave them exactly as they are: the free room is the agar.io copy (gate G), and nothing about money, the shield,
 // spawn checks or the journal may reach it. Nobody holds Q here, as in the harness streams.
+// Re-pinned 2026-10-16 for Owen's free-room changes, and only those: a free human now spawns at the paid safe point
+// (findSpawnPoint), and the real L4 pad is 140. With the safe spawn switched off, the FIXTURE run still hashed
+// 27049e9b53526dda4188617deb8f6d5b, so the phone speed share changes nothing for a mouse or a bot.
 const test = require('node:test');
 const assert = require('node:assert');
 const crypto = require('crypto');
@@ -54,9 +57,9 @@ function run(laws, shippableOnly, ticks) {
 }
 
 test('the free room sends exactly what it sent before paid agar.io (FIXTURE laws, 3000 ticks)', () => {
-  assert.deepStrictEqual(run(FIXTURE, false, 3000), { hash: '27049e9b53526dda4188617deb8f6d5b', bots: 46, tick: 3000 });
+  assert.deepStrictEqual(run(FIXTURE, false, 3000), { hash: 'cdb6915d9754e3390c04e2d3ce4e7ba6', bots: 46, tick: 3000 });
 });
 
 test('the free room sends exactly what it sent before paid agar.io (the real laws, 1500 ticks)', () => {
-  assert.deepStrictEqual(run(LAWS, true, 1500), { hash: '55ada661526e31e85cb6d64de8928825', bots: 50, tick: 1500 });
+  assert.deepStrictEqual(run(LAWS, true, 1500), { hash: '8878be989fd4960f9e7c56640ec9e638', bots: 50, tick: 1500 });
 });
