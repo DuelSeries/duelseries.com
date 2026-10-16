@@ -179,39 +179,57 @@ header{position:sticky;top:0;z-index:50;background:rgba(16,14,11,.82);
 }
 
 /* ── settings ───────────────────────────────────────────────────────── */
+/* Two groups, Account and About. Side by side once both fit at a readable
+   width, stacked on a phone, and the same height side by side so the pair
+   reads as one row instead of two boxes that stop at different places.
+
+   One row height for the whole page: the name field, the address, the
+   button and every link are 48px, so nothing on the page is a different
+   size from its neighbour for no reason (they were 39, 48, 44 and 46).
+   Three type roles: the group heading, a value or link in the page's own
+   white, and a small grey label over a field. */
+#settings-screen{--setrow:48px}
 .setgrid{display:grid;gap:16px;padding-bottom:70px;
-  grid-template-columns:repeat(auto-fit,minmax(300px,1fr));align-items:start}
-.sh{font-size:15px;font-weight:650}
-.sd{font-size:13px;color:var(--tx3);line-height:1.6;margin:6px 0 14px}
-/* Account: the address row, then a full-width button at the lobby's own
-   button size (.btn). Sign out is the one destructive control on the page, so
-   it is the one red one: the lobby's existing error red (the toast cross, a
-   taken name). */
-.acctbtn{display:block;width:100%;padding:13px}
-#set-acct .waddr+.acctbtn{margin-top:10px}
-.acctbtn.out{background:#e0705f;color:var(--ink);font-weight:650}
-.acctbtn.out:hover{background:#ea8676}
-.acctbtn.out:disabled{opacity:.6;cursor:default}
-.setgrid .sh.setgap{margin-bottom:14px}
-/* Even panel bottoms: the field ends where the padding starts, and a message
-   brings its own gap only when there is one. */
-#set-name{margin-bottom:0}
-#set-name-msg{margin:10px 0 0}
-#set-name-msg:empty{margin:0}
+  grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));align-items:stretch}
+.sh{font-size:16px;font-weight:650;line-height:20px;margin-bottom:16px}
+.slbl{display:block;font-size:13px;font-weight:550;line-height:16px;color:var(--tx3);margin-bottom:8px}
+/* The gap between two fields is bigger than the gap from a label to its own
+   field, so each label visibly belongs to the field under it. */
+#set-acct .slbl{margin-top:20px}
+#set-name{display:block;height:var(--setrow);margin:0;padding:0 14px;
+  font-size:15px;text-align:left}   /* left, like the address under it; the game screen's field stays centred */
+/* Under 16px iOS zooms the whole page in when the field is tapped. */
+@media(hover:none) and (pointer:coarse){#set-name{font-size:16px}}
+#set-name-msg{font-size:13px;line-height:18px;margin-top:8px;color:var(--tx3)}
+#set-name-msg:empty{display:none}
 /* A taken or refused name in the same red the game screen uses for it, and a
    saved one in the live green, so the outcome reads before the words do. */
 #set-name-msg[data-state="bad"]{color:#e0705f}
 #set-name-msg[data-state="ok"]{color:var(--live)}
+/* Sign in is the one primary (bone) button when signed out. Sign out is the
+   one destructive control, so it is the one red one, but as red words on a
+   red tint: a solid red slab was the loudest thing on the page, louder than
+   the setting it sits under. */
+#set-acct .acctbtn{display:block;width:100%;min-height:var(--setrow);padding:0 14px;font-size:14px;font-weight:650}   /* over .btn, which comes later in this sheet */
+#set-acct>.acctbtn:first-child{margin-top:20px}
+#set-acct .waddr+.acctbtn{margin-top:12px}
+.acctbtn.out{background:rgba(224,112,95,.13);color:#ec8674}
+.acctbtn.out:hover{background:rgba(224,112,95,.2)}
+.acctbtn.out:disabled{opacity:.6;cursor:default}
 /* Rows, not buttons: each one leaves for a page, so it reads as a list with
-   a chevron, the way a phone's own settings do. */
+   a chevron, the way a phone's own settings do. The list sits 4px under the
+   heading and 16px is lost below the last row, so the first and last words
+   are the same distance from the heading and the panel edge as the fields
+   are in Account. */
+.setlinks .sh{margin-bottom:4px}
 .slink{display:flex;align-items:center;justify-content:space-between;gap:12px;
-  min-height:46px;padding:0;font-size:14px;font-weight:550;color:var(--tx2);
-  box-shadow:inset 0 -1px 0 var(--s2);transition:color .13s}
-.slink:last-child{box-shadow:none}
-.slink:hover{color:var(--tx)}
-.slink::after{content:'';width:7px;height:7px;flex:none;margin-right:3px;
-  border:solid currentColor;border-width:2px 2px 0 0;transform:rotate(45deg);opacity:.55}
-@media(max-width:520px){.setgrid{grid-template-columns:1fr;padding-bottom:30px}}
+  min-height:var(--setrow);font-size:15px;font-weight:500;color:var(--tx);
+  box-shadow:inset 0 -1px 0 var(--s2)}
+.slink:last-child{box-shadow:none;margin-bottom:-15px}
+.slink::after{content:'';width:7px;height:7px;flex:none;margin-right:4px;
+  border:solid var(--tx3);border-width:2px 2px 0 0;transform:rotate(45deg);transition:border-color .13s}
+.slink:hover::after{border-color:var(--tx)}
+@media(max-width:520px){.setgrid{padding-bottom:30px}}
 
 /* ── placeholder screens ────────────────────────────────────────────── */
 #stub{display:none}
@@ -248,6 +266,9 @@ body.signedout .balbox{display:none}
   font-size:13px;font-weight:600;color:var(--tx);background:var(--s2);
   border-radius:calc(var(--r2) - 2px);padding:0 14px;height:36px;transition:background .14s,color .14s}
 .waddr .cp:hover{background:var(--s3)}
+/* 36px drawn, 48px to a thumb: the hit area runs out to the row's own edges. */
+.waddr .cp{position:relative}
+.waddr .cp::after{content:'';position:absolute;inset:-6px}
 .waddr.done .cp{color:var(--live)}
 
 /* ── type ───────────────────────────────────────────────────────────── */
@@ -2246,23 +2267,21 @@ body.scr-anim { overflow-x:hidden }
 <main id="settings-screen" class="wrap">
   <div class="head"><div><h2>Settings</h2></div></div>
   <div class="setgrid">
-    <div class="panel">
-      <h3 class="sh setgap">Player name</h3>
+    <!-- Name and wallet are one group: both are who you are here. -->
+    <section class="panel" aria-labelledby="set-acct-h">
+      <h3 class="sh" id="set-acct-h">Account</h3>
+      <label class="slbl" for="set-name">Name</label>
       <!-- The rule lives in the empty field rather than on a line of its own. -->
       <input class="pname" id="set-name" maxlength="16" autocomplete="off"
-             placeholder="Letters and numbers, up to 16" aria-label="Your player name">
-      <div class="sd" id="set-name-msg" aria-live="polite"></div>
-    </div>
-
-    <div class="panel">
-      <h3 class="sh setgap">Account</h3>
+             placeholder="Letters and numbers, up to 16">
+      <div id="set-name-msg" aria-live="polite"></div>
       <div id="set-acct"></div>
-    </div>
+    </section>
 
     <!-- The pages a real-money site owes its players, one tap from Settings.
          They were dead "#" links in a footer that phones never show. -->
     <nav class="panel setlinks" aria-label="About DuelSeries">
-      <h3 class="sh setgap">About</h3>
+      <h3 class="sh">About</h3>
       <a class="slink" href="/terms.html">Terms of service</a>
       <a class="slink" href="/privacy.html">Privacy policy</a>
       <a class="slink" href="/responsible-play.html">Responsible play</a>
@@ -4103,18 +4122,13 @@ function fillScreen(tab){
   else if(tab==='events'&&window.V2Event){V2Event.tick(true);V2Event.pull(true);}
 }
 
-/* ── settings ────────────────────────────────────────────────────────────
-   Ambient motion is a real switch: the canvas loop reads it every frame and
-   the ticker is a CSS animation this pauses. It is remembered, because a
-   preference you have to set again every visit is not a preference. */
+/* ── settings ──────────────────────────────────────────────────────────── */
 
 function drawSettings(){
   const inp=document.getElementById('set-name');
   try{ inp.value=localStorage.getItem('duelseries_playername')||'' }catch(_){}
   /* Read-only on purpose. This screen does not sign, send or spend; the wallet
      tab owns every one of those and there is only one implementation. */
-  const w=window.duelWallet||{};
-  const box=document.getElementById('set-acct');
   drawAcct();
 }
 /* The account box alone, so a wallet change can redraw it without resetting
@@ -4125,11 +4139,11 @@ function drawAcct(){
   const box=document.getElementById('set-acct'); if(!box)return;
   /* The address in the one form it has everywhere (wallet.js addrRow): the
      first and last four on one line, with Copy. */
-  /* Real buttons at the lobby's button size: Sign in in the primary bone,
+  /* Real buttons at the page's row height: Sign in in the primary bone,
      Sign out in the one red. They were 32px toggles, and a grey Sign in read
      as switched off. No "Not signed in." over the button: it says so. */
   box.innerHTML=(w.authenticated&&w.address&&window.V2Wallet&&V2Wallet.addrRow)
-    ? `${V2Wallet.addrRow('set-addr',w.address)}
+    ? `<div class="slbl">Wallet</div>${V2Wallet.addrRow('set-addr',w.address)}
        <button type="button" class="btn acctbtn out" id="set-signout" onclick="signOut(this)">Sign out</button>`
     : `<button type="button" class="btn pri acctbtn" onclick="window.duelWalletLogin&&window.duelWalletLogin()">Sign in</button>`;
 }
