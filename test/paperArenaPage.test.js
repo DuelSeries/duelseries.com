@@ -556,7 +556,7 @@ test('free death: how it happened, the land at death, time and best rank; Play a
   assert.strictEqual(c.unit, null);
   assert.deepStrictEqual(c.facts, [['Land', '18.40%'], ['Time', '1:05'], ['Top rank', '2nd']]);
   assert.deepStrictEqual(c.ledger, []);
-  assert.deepStrictEqual(c.buttons, ['Play again', 'Lobby']);
+  assert.deepStrictEqual(c.buttons, ['Lobby', 'Play again']);   // Lobby left, the next step right (Owen 2026-10-16)
   assert.strictEqual(t.doc.activeElement, t.btn('again'), 'a free Play again is the keyboard default');
   t.btn('again').click();
   assert.strictEqual(t.wire('pp:respawn').length, 1, 'the same socket: a respawn');
@@ -612,7 +612,7 @@ test('paid death: the stake lost as the server says, how, time, rank and best la
   assert.strictEqual(c.hero, '−$0.50');
   assert.strictEqual(c.unit, null);   // money lost stands alone (Owen 2026-10-16)
   assert.deepStrictEqual(c.facts, [['Time', '2:05'], ['Top rank', '4th'], ['Best land', '12.30%']]);
-  assert.deepStrictEqual(c.buttons, ['Play again', 'Lobby']);
+  assert.deepStrictEqual(c.buttons, ['Lobby', 'Play again']);   // Lobby left, the next step right (Owen 2026-10-16)
   assert.strictEqual(t.doc.activeElement, null, 'a paid Play again (a new buy-in) is never the keyboard default');
   t.doc.activeElement = null;
   t.keydown({ key: 'Enter' });

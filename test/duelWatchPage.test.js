@@ -316,7 +316,7 @@ for (const g of [
     assert.strictEqual(c.hero, 'Free');   // a free game says Free; its score is the first tray row (Owen 2026-10-16)
     assert.deepStrictEqual(c.facts[0], [g.p === 'ko' ? 'Turns' : 'Shots', g.p === 'ko' ? '2' : '3'], 'turns, or the winner\'s shots');
     assert.strictEqual(c.unit, null);
-    assert.deepStrictEqual(c.buttons.map(b => b.text), ['Next match', 'Lobby']);
+    assert.deepStrictEqual(c.buttons.map(b => b.text), ['Lobby', 'Next match']);   // Lobby left, the next step right (Owen 2026-10-16)
     page.runTimers();
     same(page.sent(g.p + ':watch').pop()[1], { after: m.match.id, stake: 0 });
     /* Next match on the card asks for the one after this one too. */
@@ -388,7 +388,7 @@ for (const g of [
     assert.strictEqual(c.unit, null);
     assert.strictEqual(c.tone, 'plain');
     assert.deepStrictEqual(c.ledger, [], 'no money on a free table');
-    assert.deepStrictEqual(c.buttons.map(b => [b.text, b.primary]), [['Play again', true], ['Lobby', false]]);
+    assert.deepStrictEqual(c.buttons.map(b => [b.text, b.primary]), [['Lobby', false], ['Play again', true]]);   // Lobby left, the next step right (Owen 2026-10-16)
 
     const loss = boot(g.file, { playerName: 'Owen' });
     loss.deliver('connect');
@@ -420,7 +420,7 @@ for (const g of [
     assert.strictEqual(c.unit, null, 'money won stands alone (Owen: no "to your wallet")');
     assert.deepStrictEqual(c.ledger, [['Pot', '$2.00'], ['House 10%', '−$0.20'], ['You receive', '$1.80']]);
     assert.deepStrictEqual(c.facts.find(f => f[0] === g.count), [g.count, g.countVal]);
-    assert.deepStrictEqual(c.buttons.map(b => b.text), ['Play again $1.00', 'Lobby']);
+    assert.deepStrictEqual(c.buttons.map(b => b.text), ['Lobby', 'Play again $1.00']);   // Lobby left, the next step right (Owen 2026-10-16)
 
     /* The figures are the payload's, not the stake's: a different net on the
        wire is the net on the card. */
@@ -454,7 +454,7 @@ for (const g of [
     assert.ok(typeof ask.nonce === 'string' && ask.nonce.length > 4);
     let c = page.card();
     assert.deepStrictEqual(c.buttons.map(b => [b.text, b.disabled]),
-      [['Confirm in your wallet...', true], ['Lobby', true]], 'the way back is shut while the wallet is open');
+      [['Lobby', true], ['Confirm in your wallet...', true]], 'the way back is shut while the wallet is open');
     c.button('Lobby').click();
     assert.ok(!page.posted.includes('game:done'), 'Lobby does nothing while paying');
 
@@ -486,14 +486,14 @@ for (const g of [
     let ask = page.posted.pop();
     page.message({ type: 'duel:restake:error', message: 'Not enough USDC.', nonce: ask.nonce });
     let c = page.card();
-    assert.deepStrictEqual(c.buttons.map(b => [b.text, b.disabled]), [['Play again $1.00', false], ['Lobby', false]]);
+    assert.deepStrictEqual(c.buttons.map(b => [b.text, b.disabled]), [['Lobby', false], ['Play again $1.00', false]]);   // Lobby left, the next step right (Owen 2026-10-16)
     assert.ok(c.notes.includes('Not enough USDC.'));
 
     c.button('Play again').click();
     ask = page.posted.pop();
     page.runTimers();                                // two minutes and no answer
     c = page.card();
-    assert.deepStrictEqual(c.buttons.map(b => [b.text, b.disabled]), [['Waiting for your wallet...', true], ['Lobby', false]]);
+    assert.deepStrictEqual(c.buttons.map(b => [b.text, b.disabled]), [['Lobby', false], ['Waiting for your wallet...', true]]);   // Lobby left, the next step right (Owen 2026-10-16)
     assert.ok(c.notes.some(n => /has not answered yet/.test(n)));
     /* A late answer is still taken. */
     page.message({ type: 'duel:restake:done', entryToken: 'tok-late', nonce: ask.nonce });

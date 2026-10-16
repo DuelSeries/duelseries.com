@@ -300,7 +300,7 @@ test('free cash-out: after ag:cashedout { free } the cells go and the end card s
   assert.strictEqual(p.session.state().menuState, 'GAMEOVER');
   const card = readCard(p.doc);
   assert.deepStrictEqual([card.tone, card.verdict, card.hero, card.unit], ['plain', 'Cashed out', 'Free', '']);   // a free game says Free; its score is the first tray row (Owen 2026-10-16)
-  assert.deepStrictEqual(card.facts.map((f) => f[0]), ['Mass', 'Time', 'Top rank']);
+  assert.deepStrictEqual(card.facts.map((f) => f[0]), ['Mass', 'Time', 'Top rank', 'Cells eaten']);   // agar.io's kill stat
   assert.strictEqual(card.facts[0][1], '400');
   assert.deepStrictEqual([card.ledger, card.status], [[], null], 'no money in the free room');
   assert.strictEqual(p.session.state().paidEnd, '');
@@ -455,7 +455,7 @@ test('paid end card: a death says what was lost and to whom; a closed room says 
   let card = readCard(p.doc);
   assert.strictEqual(p.session.state().paidEnd, 'dead');
   assert.deepStrictEqual([card.tone, card.verdict, card.hero, card.unit], ['loss', 'Eaten by bob', '−$0.10', '']);   // money lost stands alone (Owen 2026-10-16)
-  assert.deepStrictEqual(card.facts, [['Time', '0:00'], ['Top rank', '2nd'], ['Mass', '400']], 'the death\'s own numbers');
+  assert.deepStrictEqual(card.facts, [['Time', '0:00'], ['Top rank', '2nd'], ['Mass', '400'], ['Cells eaten', '0']], 'the death\'s own numbers');
   assert.deepStrictEqual([card.ledger, card.status], [[], null]);
   p.session.sideEvent('ag:closed', { refundedMicro: 250000, why: 'emergency' });
   card = readCard(p.doc);

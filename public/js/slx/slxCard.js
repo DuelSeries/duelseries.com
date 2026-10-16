@@ -92,7 +92,7 @@
   var card = null;                               // dsEnd's card handle
 
   function newLife() {
-    return { cashed: false, dead: false, pending: '', noLength: false, born: 0, died: 0, killer: '', rank: 0 };
+    return { cashed: false, dead: false, pending: '', noLength: false, born: 0, died: 0, killer: '', rank: 0, kills: 0 };
   }
   // Their best_rank as the life ends: their resetGame puts it back to NO_RANK when the socket closes
   // (slApply.js:1267-1280, from applyClose or slLoop.js:621-628), which can be before their menu shows.
@@ -144,12 +144,14 @@
     return typeof item === 'string' ? item : item && typeof item.text === 'string' ? item.text : '';
   }
 
-  // The card's own facts for a life: Time and Top rank, and the length too when the big figure is something else.
+  // The card's own facts for a life: Time and Top rank, and the length too when the big figure is something else, then
+  // Kills (Owen 2026-10-16), the server's own kill_count for this snake (slView, slxNet 'ownKills').
   function lifeFacts(withLength) {
     var out = [];
     if (lifeCard && life.born > 0) out.push(['Time', E.clock((life.died || now()) - life.born)]);
     if (lifeCard && life.rank > 0 && life.rank < NO_RANK) out.push(['Top rank', E.ordinal(life.rank)]);
     if (withLength && score !== null) out.push(['Length', E.int(score)]);
+    if (lifeCard && life.born > 0) out.push(['Kills', E.int(life.kills)]);
     return out;
   }
 
@@ -272,6 +274,11 @@
     connectWhy = '';
   });
   slx.on('ownAdd', function () { if (!life.born) life.born = now(); });
+  // their server sends the snake's kill total each time it rises (slView kill_count)
+  slx.on('ownKills', function (ev) {
+    var n = ev && typeof ev.count === 'number' && ev.count >= 0 ? Math.floor(ev.count) : 0;
+    if (n > life.kills) life.kills = n;
+  });
   slx.on('frame', function () { if (life.born && !life.died) keepRank(); });
   slx.on('ownDead', function () {
     life.dead = true;

@@ -64,10 +64,10 @@ test('a paid cash-out card shows the server numbers it was given, the net row la
   assert.deepStrictEqual(byClass(card, 'dse-facts')[0].children.map((d) => d.textContent), ['Time6:05', 'Top rank3rd', 'Length2,210']);
   const btns = byClass(card, 'dse-btn');
   assert.strictEqual(btns.length, 2);
-  assert.match(btns[0].className, /pri/);
-  assert.strictEqual(btns[1].className, 'dse-btn');   // one row: Play again (bone) widest, Lobby a quiet outline
+  assert.strictEqual(btns[0].className, 'dse-btn');   // Lobby on the left, a quiet outline (Owen 2026-10-16)
+  assert.match(btns[1].className, /pri/);              // Play again on the right, under the thumb
   btns[0].click(); btns[1].click();
-  assert.deepStrictEqual(clicks, ['again', 'lobby']);
+  assert.deepStrictEqual(clicks, ['lobby', 'again']);
   const a = all(card, (x) => x.tagName === 'A')[0];
   assert.strictEqual(a.href, 'https://solscan.io/tx/x');
   assert.strictEqual(a.rel, 'noopener noreferrer');
@@ -126,6 +126,15 @@ test('the board shows 10 rows on a PC and 5 on a phone, your row marked, or pinn
     b.destroy();
     assert.strictEqual(byClass(body, 'dsb').length, 0);
   }
+});
+
+test('buttons: Lobby on the left, the next step on the right where the thumb is, the rest between', () => {
+  const { D, body } = page();
+  const b = (id, text, primary) => ({ id, text, primary, onClick() {} });
+  D.show({ verdict: 'Eaten', hero: '400', unit: 'mass', buttons: [b('again', 'Play again', true), b('watch', 'Spectate'), b('lobby', 'Lobby'), b('menu', 'Menu')] });
+  assert.deepStrictEqual(byClass(body, 'dse-btn').map((x) => x.getAttribute('data-dse-btn')), ['lobby', 'watch', 'menu', 'again']);
+  D.show({ verdict: 'You won!', hero: '1st', tone: 'win', buttons: [b('again', 'Next match opening', true), b('lobby', 'Lobby')] });
+  assert.deepStrictEqual(byClass(body, 'dse-btn').map((x) => x.getAttribute('data-dse-btn')), ['lobby', 'again'], 'the battle royale too');
 });
 
 test('number formats: micro-USDC, clock, thousands, ordinals', () => {

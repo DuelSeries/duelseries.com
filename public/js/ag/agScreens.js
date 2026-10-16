@@ -299,6 +299,8 @@
     time: 'Time',
     topRank: 'Top rank',
     score: 'Mass',
+    // agar.io's kill stat (Owen 2026-10-16 asked for kills): other players' cells this life ate, from the server's eats
+    cellsEaten: 'Cells eaten',
     gross: 'Cashed out',
     house: 'House ' + HOUSE_CUT_PCT + '%',
     net: 'You receive',
@@ -330,6 +332,7 @@
     var out = [[END_TEXT.time, D.clock(life.timeAlive)]];
     if (life.topPosition > 0) out.push([END_TEXT.topRank, D.ordinal(life.topPosition)]);
     if (withScore) out.push([END_TEXT.score, D.int(Math.floor(Number(life.highestMass) || 0))]);
+    if (typeof life.cellsEaten === 'number' && life.cellsEaten >= 0) out.push([END_TEXT.cellsEaten, D.int(life.cellsEaten)]);
     return out;
   }
 

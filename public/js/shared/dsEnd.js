@@ -211,7 +211,7 @@
     // card's top edge whose coin falls away as the card arrives (gold with its $ when money was lost, silver with a
     // star in a free game), the stats as rows in the recessed tray like the cash-out's money, the figure alone and
     // centred (the red amount lost, or Free)
-    '.dse-coin.m-slot{background:rgba(8,7,5,.6);box-shadow:inset 0 3px 8px rgba(0,0,0,.7),0 0 0 1px rgba(245,241,232,.22)}',
+    '.dse-coin.m-slot{background:radial-gradient(circle at 50% 40%,#0d0b08,#1b1712);box-shadow:inset 0 3px 8px rgba(0,0,0,.7),0 0 0 1px rgba(245,241,232,.22)}',
     '.dse-coin.m-slot>span{border:1.5px dashed rgba(245,241,232,.38)}',
     '.dse-coin.m-slot>span:before{display:none}',
     '.dse-coin.m-slot.s-red{box-shadow:inset 0 3px 8px rgba(0,0,0,.7),0 0 0 1px rgba(255,107,87,.3)}',
@@ -468,9 +468,14 @@
     (o.notes || []).forEach(function (n) { if (n) panel.appendChild(el('p', 'dse-note', n)); });
     card.btns = {};
     var list = (o.buttons || []).filter(function (b) { return b && b.text; });
+    // Lobby on the left and the next step (Play again, Watch, Next match) on the right, "where the thumb is" (Owen
+    // 2026-10-16, every game and the battle royale); anything else (Spectate, Menu) between them
+    var isLobby = function (b) { return b.id === 'lobby' || /^lobby$/i.test(String(b.text)); };
+    list = list.filter(isLobby)
+      .concat(list.filter(function (b) { return !isLobby(b) && !b.primary; }), list.filter(function (b) { return !isLobby(b) && b.primary; }));
     if (list.length) {
       // one row in every game: the next step keeps the same spot under the thumb
-      // four or more: the next step on its own row, the others sharing the row under it
+      // four or more: the others share a row, the next step takes its own row under them (nearest the thumb)
       var btns = el('div', 'dse-btns' + (list.length > 3 ? ' n4' : list.length > 2 ? ' n3' : ''));
       list.forEach(function (b) {
         var btn = el('button', 'dse-btn' + (b.primary ? ' pri' : ''));

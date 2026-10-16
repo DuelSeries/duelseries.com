@@ -285,7 +285,8 @@
       roundEndMs: null,
       bestRank: 0,
       landNow: 0,
-      deathLand: 0
+      deathLand: 0,
+      roundKills: null      // the own square's kills at the round's end (the mirror counts the server's kills)
     };
 
     // socket.io keeps an emit made while the link is down and sends it on the next connection
@@ -579,6 +580,7 @@
       var me = game.player;
       var land = me && !me.death ? (me.percent || 0) * 100 : 0;
       page.deathLand = Math.max(land, page.landNow);
+      if (me && me.statistics && typeof me.statistics.kills === 'number') page.roundKills = me.statistics.kills;
     }
 
     // Time alive and the best leaderboard rank, when this page saw them (a page that never saw the round has none);
@@ -589,6 +591,8 @@
       f.push(['Time', DSEnd.clock((page.roundEndMs !== null ? page.roundEndMs : nowMs()) - page.roundStartMs)]);
       if (page.bestRank > 0) f.push(['Top rank', DSEnd.ordinal(page.bestRank)]);
       if (withScore) f.push(['Best land', pctText(page.roundBest)]);
+      // Kills (Owen 2026-10-16): the trails this square cut, as the server reported them
+      if (page.roundKills !== null) f.push(['Kills', DSEnd.int(page.roundKills)]);
       return f;
     }
 
@@ -829,6 +833,7 @@
         page.bestRank = 0;
         page.landNow = 0;
         page.deathLand = 0;
+        page.roundKills = null;
         game.best = best || undefined;
         if (root.phEvent) root.phEvent('game_started', { game: 'paper', stake: page.stake });
       }

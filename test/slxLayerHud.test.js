@@ -89,7 +89,7 @@ test('slxCard: death card (the shared card) at their menu show, N from their las
   assert.strictEqual(st.title, 'You died');
   assert.strictEqual(st.length, '1234');
   assert.deepStrictEqual([st.tone, st.hero, st.unit], ['plain', '1,234', 'length'], 'the length is the big figure');
-  assert.deepStrictEqual(plain(st.facts), ['Time 1:05', 'Top rank 3rd'], 'from the own add to the death; the best rank kept');
+  assert.deepStrictEqual(plain(st.facts), ['Time 1:05', 'Top rank 3rd', 'Kills 0'], 'from the own add to the death; the best rank kept; the server\'s kills');
   assert.deepStrictEqual([plain(st.ledger), st.status, plain(st.podium), plain(st.lines)], [[], '', [], []]);
   assert.strictEqual(st.again, 'Play again');
   assert.strictEqual(st.opacity, '0', 'their login layer is still transparent at menu show');
@@ -99,7 +99,7 @@ test('slxCard: death card (the shared card) at their menu show, N from their las
   assert.strictEqual(card.element.style.zIndex, '30', 'above their login layer (z-index 20)');
   assert.strictEqual(card.element.style.zoom, '', 'a computer page: no zoom');
   assert.match(card.element.className, /^dse t-plain k-free slx-card$/, 'a layer control to slxWatch, slxBr and slxTouch');
-  assert.strictEqual(card.element.textContent, 'You diedFreeLength1,234Time1:05Top rank3rdPlay againLobby');   // a free game says Free; its score is the first tray row (Owen 2026-10-16)
+  assert.strictEqual(card.element.textContent, 'You diedFreeLength1,234Time1:05Top rank3rdKills0LobbyPlay again');   // a free game says Free; its score is the first tray row (Owen 2026-10-16)
   assert.strictEqual(bigText(P), 'Free');
   P.slx.fire('menuFade', 0.25);
   assert.strictEqual(card.state().opacity, '0.75', 'opacity 1 - login_fr, as their login layer');
@@ -235,7 +235,7 @@ test('slxCard: refusal states show at once, never through their menu, at full op
     assert.deepStrictEqual([st.hero, plain(st.facts)], ['', []], why + ': no big figure and no facts with no life');
     assert.strictEqual(st.opacity, '1', why);
     assert.strictEqual(st.again, 'Try again', why);
-    assert.strictEqual(cardEl(P).textContent, title + 'Try againLobby', why + ': on screen');
+    assert.strictEqual(cardEl(P).textContent, title + 'LobbyTry again', why + ': on screen');   // Lobby left, the next step right (Owen 2026-10-16)
     assert.strictEqual(cardEl(P).style.opacity, '1', why);
     assert.strictEqual(shows, 0, why + ': their menu never showed');
   }
@@ -790,7 +790,7 @@ test('slxBr cards on the shared card: a win (1st of N, the podium, the prize as 
   assert.deepStrictEqual([st.title, st.tone, st.hero, st.unit], ['You won!', 'win', '1st', 'of 12']);
   assert.deepStrictEqual(plain(st.podium), ['1 Owen', '2 Viper', '3 Kes']);
   assert.deepStrictEqual([plain(st.ledger), st.status], [['Prize $20'], 'Sending to your wallet']);
-  assert.deepStrictEqual(plain(st.facts), ['Time 1:35', 'Length 500'], 'the length moves into the facts');
+  assert.deepStrictEqual(plain(st.facts), ['Time 1:35', 'Length 500', 'Kills 0'], 'the length moves into the facts');
   assert.deepStrictEqual([st.again, st.againDisabled, plain(st.lines)], ['Next match opening', true, []]);
   assert.deepStrictEqual(W.find('dse-pod')[0].children.map((li) => [li.className, li.textContent]),
     [['me', '1Owen'], ['', '2Viper'], ['', '3Kes']], 'the own row marked on the podium');
@@ -814,7 +814,7 @@ test('slxBr cards on the shared card: a win (1st of N, the podium, the prize as 
   assert.deepStrictEqual(plain(st.podium), ['1 Viper', '2 Owen', '3 Kes']);
   assert.deepStrictEqual(L.find('dse-pod')[0].children.map((li) => li.className), ['', 'me', '']);
   assert.deepStrictEqual([plain(st.ledger), st.status, plain(st.lines)], [[], '', ['First place took $20.']]);
-  assert.deepStrictEqual(plain(st.facts), ['Time 1:35']);
+  assert.deepStrictEqual(plain(st.facts), ['Time 1:35', 'Kills 0']);
 });
 
 // The server's sl:diag fields (server/sl/slSockets.js DIAG_NUMBERS) and its cleaner.
@@ -1134,7 +1134,7 @@ test('frozen client + real layer: death card N = their last-score number; Play a
   assert.strictEqual(st.title, 'You died');
   // Time from the own add to the death on the page clock; Top rank kept from the life: their client's own best rank
   // is already gone when their menu shows (a dead seat's board ranks it 0)
-  assert.deepStrictEqual(plain(st.facts), ['Time 0:03', 'Top rank 38th']);
+  assert.deepStrictEqual(plain(st.facts), ['Time 0:03', 'Top rank 38th', 'Kills 0']);
   assert.deepStrictEqual(r.seen.bestAtShow, [0]);
   const n = lastscoreN(r.seen.lastscoreAtShow[0]);
   assert.ok(n !== null, 'their gameOver wrote a length');
@@ -1162,7 +1162,7 @@ test('frozen client + real layer: close card N = their last-score number; a serv
     const st = r.seen.cardAtShow[0];
     assert.strictEqual(st.kind, kind, reason);
     assert.strictEqual(st.title, title, reason);
-    assert.deepStrictEqual(plain(st.facts), ['Time 0:05', 'Top rank 37th'], reason);
+    assert.deepStrictEqual(plain(st.facts), ['Time 0:05', 'Top rank 37th', 'Kills 0'], reason);
     assert.deepStrictEqual(r.seen.bestAtShow, [999999999], reason + ': their resetGame ran at the close, before their menu');
     const n = lastscoreN(r.seen.lastscoreAtShow[0]);
     assert.ok(n !== null);
@@ -1178,7 +1178,7 @@ test('frozen client + real layer: cash-out card, refusal card with no menu', { s
   const c = runLife('beh-twolives', { inject: [{ sock: 1, before: at, data: [{ t: 'cashed', len: 10 }] }], frames: 500 });
   assert.deepStrictEqual(c.errors, []);
   assert.strictEqual(c.seen.cardAtShow[0].title, 'Cashed out');
-  assert.deepStrictEqual(plain(c.seen.cardAtShow[0].facts), ['Time 0:03', 'Top rank 38th']);
+  assert.deepStrictEqual(plain(c.seen.cardAtShow[0].facts), ['Time 0:03', 'Top rank 38th', 'Kills 0']);
   assert.strictEqual(c.seen.cardAtShow[0].length, lastscoreN(c.seen.lastscoreAtShow[0]));
   assert.deepStrictEqual(plain(c.sound), { join: 1, death: 0, kill: 0, cashout: 1 });
   const f = runLife('beh-close', { refuse: { sock: 1, why: 'full' }, frames: 200 });

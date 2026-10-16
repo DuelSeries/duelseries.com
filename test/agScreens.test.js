@@ -188,8 +188,8 @@ test('end card, free: "Eaten by NAME" (or "Eaten"), the best mass as the hero, T
   end.showFree({ life: LIFE, by: 'Kestrel', buttons });
   assert.deepStrictEqual(card(p), { tone: 'plain', verdict: 'Eaten by Kestrel', hero: 'Free', unit: '',   // a free game says Free; its score is the first tray row (Owen 2026-10-16)
     facts: [['Mass', '1,284'], ['Time', '3:42'], ['Top rank', '4th']], ledger: [], status: null, notes: [],
-    buttons: [{ id: 'again', text: 'Play again', primary: true, disabled: false }, { id: 'watch', text: 'Spectate', primary: false, disabled: false },
-      { id: 'lobby', text: 'Lobby', primary: false, disabled: false }], z: '1000' });
+    buttons: [{ id: 'lobby', text: 'Lobby', primary: false, disabled: false }, { id: 'watch', text: 'Spectate', primary: false, disabled: false },
+      { id: 'again', text: 'Play again', primary: true, disabled: false }], z: '1000' });   // Lobby left, the next step right (Owen 2026-10-16)
   assert.strictEqual(end.kind, 'free');
   assert.strictEqual(end.paidKind(), '', 'not a paid state');
   for (const id of ['again', 'watch', 'lobby']) clickCard(p.doc, id);
@@ -307,15 +307,15 @@ test('end card, the paid hand-off\'s states: a message with its lines, the wait 
   // Play again (after a death in the lobby frame): the main button, Lobby the quiet one beside it
   end.showDead({ lostMicro: 500000, by: 'Kestrel' }, LIFE);
   end.setAgain({ text: 'Play again $0.50' });
-  assert.deepStrictEqual(card(p).buttons, [{ id: 'again', text: 'Play again $0.50', primary: true, disabled: false },
-    { id: 'lobby', text: 'Lobby', primary: false, disabled: false }]);
+  assert.deepStrictEqual(card(p).buttons, [{ id: 'lobby', text: 'Lobby', primary: false, disabled: false },
+    { id: 'again', text: 'Play again $0.50', primary: true, disabled: false }]);   // Lobby left, the next step right (Owen 2026-10-16)
   clickCard(p.doc, 'again');
   // the wallet is out: Play again disabled, Lobby locked, an error line when it fails
   end.setAgain({ text: 'Confirm in your wallet...', disabled: true });
   end.setLobbyLocked(true);
   end.setError('');
   c = card(p);
-  assert.deepStrictEqual(c.buttons.map((b) => [b.id, b.text, b.disabled]), [['again', 'Confirm in your wallet...', true], ['lobby', 'Lobby', true]]);
+  assert.deepStrictEqual(c.buttons.map((b) => [b.id, b.text, b.disabled]), [['lobby', 'Lobby', true], ['again', 'Confirm in your wallet...', true]]);   // Lobby left, the next step right (Owen 2026-10-16)
   clickCard(p.doc, 'again');
   clickCard(p.doc, 'lobby');
   assert.deepStrictEqual(calls, ['again'], 'disabled buttons do nothing');
