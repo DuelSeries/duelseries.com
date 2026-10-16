@@ -59,10 +59,12 @@ test('/v2 keeps working, so existing links do not break', () => {
 });
 
 test('social data comes from the server, not from a generated roster', () => {
-  const src = fs.readFileSync(path.join(ROOT, 'public/js/v2/social.js'), 'utf8');
-  for (const ep of ['/api/earningsboard', '/api/players/search', '/api/profile/',
+  // The board is leaders.js since 2026-10-16 (the gold strip's own read, /api/earnings/board).
+  const src = fs.readFileSync(path.join(ROOT, 'public/js/v2/social.js'), 'utf8') +
+              fs.readFileSync(path.join(ROOT, 'public/js/v2/leaders.js'), 'utf8');
+  for (const ep of ['/api/earnings/board', '/api/players/search', '/api/profile/',
                     '/api/earnings/total', '/api/money-config']) {
-    assert.ok(src.includes(ep), `social.js calls ${ep}`);
+    assert.ok(src.includes(ep), `social.js or leaders.js calls ${ep}`);
   }
   const html = v2();
   for (const gone of ['mkPlayer', 'function seeded(', 'const PLAYERS=', 'const PNAMES=']) {
@@ -71,11 +73,13 @@ test('social data comes from the server, not from a generated roster', () => {
 });
 
 test('the profile shows only figures the server actually records', () => {
-  // getProfile returns name, totalEarnings, gamesPlayed, playTimeSeconds and
-  // earnings series — no per-game win/loss, buy-in or house cut. Showing those
-  // would mean inventing them, which is what the prototype did.
+  // getProfile returns name, totalEarnings, gamesPlayed, playTimeSeconds, the
+  // cash-outs, and (since 2026-10-15) winRate, counted on the server from
+  // stakes_history and landed cash-outs (server/playerStats.js). No house cut:
+  // showing that would mean inventing it, which is what the prototype did.
   const src = fs.readFileSync(path.join(ROOT, 'public/js/v2/social.js'), 'utf8');
-  assert.ok(!/Win rate/.test(src), 'no win rate, the server does not record it per player');
+  assert.ok(/winRateTile\(p\.winRate\)/.test(src), 'the win rate is the server\'s, never worked out here');
+  assert.ok(/cash out with more than you paid to enter/.test(src), 'and says how it is counted');
   assert.ok(!/House cut paid/.test(src), 'no per-player house cut');
   assert.ok(src.includes('gamesPlayed') && src.includes('playTimeSeconds'),
     'shows the fields that do exist');
@@ -2166,7 +2170,7 @@ test('Social shows Global player winnings: real players only, the lobby strip\'s
   const html = v2();
   assert.ok(html.includes('<section id="soc-win" aria-label="Global player winnings" hidden></section>'),
     'the panel is at the top of Social, hidden until the server answers');
-  assert.ok(html.indexOf('id="soc-win"') < html.indexOf('<h2>Top earners</h2>'), 'above the board');
+  assert.ok(html.indexOf('id="soc-win"') < html.indexOf('<h2>Top earners'), 'above the board');
   assert.ok(!html.includes('id="soc-tiles"'), 'the old tile is gone');
   // Live: asked while Social is on screen, from the server's memory; a rise counts up and shows the difference.
   assert.ok(/const WIN_POLL_MS = 1\d000;/.test(code), 'asked every 10 to 19 s');

@@ -275,7 +275,28 @@ function createEarnings({ query, excludeWallets, previewExclude, switchFile = nu
     return { on: true, preview: !!preview, ...v };
   }
 
+  /* The Social tab's Top earners: the all-time top 10 from the same cached
+     read, so the board and the strip can never disagree about who earned what.
+     Never the owner (no preview here). Not behind the strip's switch: that
+     hides the gold strip, and the board on the Social tab is its own screen
+     that was always shown. ok:false is a failed read, which the lobby says,
+     rather than an empty board that would read as "nobody has won". */
+  async function board() {
+    if (!pub) return { ok: false, top: [] };
+    const v = await pub();
+    if (!v) return { ok: false, top: [] };
+    return { ok: true, top: v.periods.all.top.map((r, i) => ({ rank: i + 1, ...r })) };
+  }
+
   function route(app) {
+    app.get('/api/earnings/board', async (req, res) => {
+      res.set('Cache-Control', 'no-store');
+      try {
+        res.json(await board());
+      } catch (e) {
+        res.json({ ok: false, top: [] });
+      }
+    });
     app.get('/api/earnings', async (req, res) => {
       res.set('Cache-Control', 'no-store');
       try {
@@ -303,6 +324,7 @@ function createEarnings({ query, excludeWallets, previewExclude, switchFile = nu
     answer,
     figure,
     poke,
+    board,
     route,
     hidden: () => sw.hidden(),
     shown,

@@ -642,6 +642,25 @@ body.ingame .tkrun{animation-play-state:paused}
 .pnet{text-align:right}
 .pnet .k{font-size:12px;color:var(--tx3)}
 .pnet .v{font-size:31px;font-weight:600;color:var(--money);letter-spacing:-1.2px}
+.psub .p-tag{top:-1px;margin-left:0;margin-right:4px}
+/* Win rate, with how it is counted one tap away (social.js winRateTile). */
+.tile.wr{position:relative}
+.tile.wr .k{display:flex;align-items:center;gap:7px}
+/* Three tiles on a phone's two columns: win rate takes the whole first row. */
+@media(max-width:760px){#p-tiles .tile.wr{grid-column:1/-1}}
+.wr-i{width:18px;height:18px;border-radius:50%;background:var(--s3);color:var(--tx2);
+  font:700 11px/18px var(--f);text-align:center;flex:none;position:relative}
+/* A bigger target than it looks: 18px is the mark, 36px is the finger. */
+.wr-i::after{content:'';position:absolute;inset:-9px}
+.wr-i:hover,.wr-i[aria-expanded="true"]{background:var(--bone);color:var(--ink)}
+.wr-i:focus-visible{outline:2px solid var(--money);outline-offset:2px}
+.wr-tip{position:absolute;left:12px;right:12px;top:calc(100% + 6px);z-index:6;background:var(--s3);
+  border-radius:var(--r2);padding:12px 14px;font-size:12.5px;line-height:1.5;color:var(--tx2);
+  box-shadow:0 14px 34px rgba(0,0,0,.55);max-width:340px}
+.wr-tip[hidden]{display:none}
+.wr-tip ul{list-style:none;margin:8px 0 0;padding:8px 0 0;border-top:1px solid var(--s2)}
+.wr-tip li{display:flex;justify-content:space-between;gap:12px;padding:2px 0}
+.wr-tip li b{color:var(--tx);font-weight:600;font-family:var(--fm)}
 @media(max-width:620px){
   /* Three columns: the 34px one was the avatar disc's, and with the disc gone
      it held the NAME, so every amount sat a column short of the right edge. */
@@ -883,7 +902,7 @@ body.ingame .tkrun{animation-play-state:paused}
 .tile .f{font-size:12px;color:var(--tx3);margin-top:5px}
 
 .chartwrap{position:relative}
-#s-chart svg{display:block;width:100%;height:auto;overflow:visible}
+#s-chart svg.v2chart{display:block;width:100%;height:auto;overflow:visible}   /* the graph, not the zoom buttons' icons */
 /* ── chart scrubbing ─────────────────────────────────────────────────────
    Drag anywhere across the plot and the readout follows. Touch is the primary
    case, so the whole plot is the target rather than each point: there is no
@@ -946,6 +965,20 @@ body.ingame .tkrun{animation-play-state:paused}
 .chartTip b{font-family:var(--fm);font-weight:600;font-size:14px;color:var(--money)}
 .chartTip span{font-size:11px;color:var(--tx2)}   /* tx3 on the tip's s3 was 4.1:1 */
 .scrub,.scrubdot{pointer-events:none;transition:opacity .1s}
+/* Zoom, under the graph (chart.js): what is on screen on the left, − + and
+   Reset on the right. A zoomed graph can be dragged with a mouse. */
+.chartbox svg.v2chart.zoomed{cursor:grab}
+.chartbox svg.v2chart.panning{cursor:grabbing}
+.chartZoom{display:flex;align-items:center;gap:6px;margin-top:10px;min-height:32px}
+.czr{flex:1;min-width:0;font-size:12px;color:var(--tx3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.czb{flex:none;height:32px;min-width:32px;padding:0 9px;border-radius:var(--r2);background:var(--s2);
+  color:var(--tx2);font:600 12.5px/1 var(--f);display:grid;place-items:center;transition:background .13s,color .13s}
+.czb svg{width:14px;height:14px;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;fill:none}
+.czb:hover:not(:disabled){background:var(--s3);color:var(--tx)}
+.czb:disabled{opacity:.4;cursor:default}
+.czb:focus-visible{outline:2px solid var(--money);outline-offset:2px}
+.czb[hidden]{display:none}
+@media(pointer:coarse){.czb{height:38px;min-width:38px}}
 
 /* Add-to-home-screen hint, iOS only, shown once. */
 .a2hs{position:fixed;left:12px;right:12px;z-index:200;display:flex;align-items:center;
@@ -2257,16 +2290,18 @@ body.scr-anim { overflow-x:hidden }
        (/api/earnings/total), live. Filled by social.js; hidden only while the
        strip's off switch is on. -->
   <section id="soc-win" aria-label="Global player winnings" hidden></section>
-  <!-- One heading. "Players" sat over "Top earners" with nothing between them,
-       and both carried a line of explanation nobody needed (Owen, 2026-10-15). -->
-  <div class="head"><div><h2>Top earners</h2></div></div>
+  <!-- One heading (Owen, 2026-10-15). Under it the top 3, live, and "View full
+       leaderboard" for the top 10 (leaders.js, Owen 2026-10-16); search finds
+       anyone, on the board or not. -->
+  <div class="head"><div><h2>Top earners<span class="lb-live" id="soc-live" title="Updates every minute"><i></i>LIVE</span></h2></div></div>
+  <div id="soc-top"></div>
   <label class="search">
     <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4.2-4.2"/></svg>
-    <input id="soc-q" type="search" placeholder="Search players"
-      autocomplete="off" oninput="V2Social.search(this.value)"
-      aria-label="Search players">
+    <input id="soc-q" type="search" placeholder="Search players by name" maxlength="24"
+      autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search"
+      oninput="V2Social.search(this.value)" aria-label="Search players by name" aria-controls="soc-board">
   </label>
-  <div class="tbl" id="soc-board"></div>
+  <div class="tbl" id="soc-board" aria-live="polite"></div>
 </main>
 
 <!-- ══ PLAYER PROFILE ══ -->
@@ -2389,6 +2424,8 @@ body.scr-anim { overflow-x:hidden }
 <script src="/js/Renderer.js"></script>
 <script src="/js/v2/toasts.js"></script>
 <script src="/js/v2/chart.js"></script>
+<script src="/js/v2/socialPreview.js"></script>
+<script src="/js/v2/leaders.js"></script>
 <script src="/js/v2/social.js"></script>
 <script src="/js/v2/wallet.js"></script>
 <script src="/js/v2/stats.js"></script>

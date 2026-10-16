@@ -1,4 +1,5 @@
 const { Pool } = require('pg');
+const playerStats = require('./playerStats');   // search, short-wallet profiles, win rate
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -800,11 +801,13 @@ async function getGlobalWinningsSplit() {
   return { cad: parseFloat(res.rows[0].cad), usd: parseFloat(res.rows[0].usd) };
 }
 
+/* Anywhere in the name, starts-with first, capped on the server. The query is
+   cleaned and LIKE's wildcards escaped in server/playerStats.js, so "%" or "_"
+   is looked for literally and cannot list every player. */
 async function searchPlayerNames(query, limit = 8) {
-  const res = await pool.query(
-    `SELECT name FROM accounts WHERE name ILIKE $1 ORDER BY name ASC LIMIT $2`,
-    [`${query}%`, limit]
-  );
+  const q = playerStats.cleanQuery(query);
+  if (!q) return [];
+  const res = await pool.query(playerStats.SEARCH_SQL, playerStats.searchParams(q, limit));
   return res.rows.map(r => r.name);
 }
 
@@ -900,11 +903,24 @@ async function getMyProfile(googleId) {
 // Google login. The verification_codes / trusted_devices tables are now vestigial.)
 
 async function getProfile(name) {
-  const accRes = await pool.query(
-    `SELECT google_id, name, total_earnings, games_played, play_time_seconds, created_at
-     FROM accounts WHERE LOWER(name) = LOWER($1)`,
-    [name]
-  );
+  name = typeof name === 'string' ? name.slice(0, 64) : '';
+  if (!name) return null;
+  const COLS = `SELECT google_id, name, total_earnings, games_played, play_time_seconds, created_at
+     FROM accounts`;
+  let accRes = await pool.query(`${COLS} WHERE LOWER(name) = LOWER($1)`, [name]);
+  /* No such name: a player who never set one is on the board as their short
+     wallet (C5cn…H3m9), so that opens their profile when it is exactly one
+     account. The full address never goes back out: the name shown is the
+     short form again. */
+  let shown = null;
+  const sw = !accRes.rows[0] && playerStats.parseShortWallet(name);
+  if (sw) {
+    const ids = await pool.query(playerStats.SHORT_WALLET_SQL, [sw.head + '%' + sw.tail]);
+    if (ids.rows.length === 1) {
+      accRes = await pool.query(`${COLS} WHERE google_id = $1`, [ids.rows[0].google_id]);
+      shown = playerStats.shortWallet(ids.rows[0].google_id);
+    }
+  }
   if (!accRes.rows[0]) return null;
   const row = accRes.rows[0];
   const gid = row.google_id;
@@ -931,12 +947,22 @@ async function getProfile(name) {
       GROUP BY period ORDER BY period ASC`, [gid]),
   ]);
 
+  /* Paid rounds won out of paid rounds entered (server/playerStats.js says
+     exactly what counts). A failed read costs the tile, never the profile. */
+  let winRate = null;
+  try {
+    winRate = playerStats.summarizeWins((await pool.query(playerStats.WIN_SQL, playerStats.winParams(gid))).rows);
+  } catch (e) {
+    console.error('[PROFILE] win rate', e.message);
+  }
+
   return {
-    name: row.name,
+    name: shown || row.name,
     totalEarnings: parseFloat(row.total_earnings || 0),
     gamesPlayed: parseInt(row.games_played || 0),
     playTimeSeconds: parseInt(row.play_time_seconds || 0),
     joinedAt: row.created_at,
+    winRate,
     games: games.rows.map(r => ({ amount: parseFloat(r.amount), at: r.created_at })),
     history: {
       week: mapRows(week.rows),

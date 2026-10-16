@@ -265,5 +265,5 @@ test('the payout path tells the figure, after both writes and without being able
   const routes = [];
   createEarnings({ query: null, excludeWallets: [OWNER, REV], previewExclude: [REV], config: CFG, log: quiet })
     .route({ get: (p) => routes.push(p) });
-  assert.deepStrictEqual(routes, ['/api/earnings', '/api/earnings/total']);
+  assert.deepStrictEqual(routes, ['/api/earnings/board', '/api/earnings', '/api/earnings/total']);
 });

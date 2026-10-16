@@ -480,6 +480,9 @@ const clientReportLimiter = rateLimit({ windowMs: 60 * 1000, max: 6, standardHea
 // /api/my-transfers shares this one count (the same reads, the same screen): at most 60 new reads an
 // ask, and the screen asks again only while the answer says it stopped short.
 const txHistoryLimiter = rateLimit({ windowMs: 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Slow down.' } });
+// Social search and profiles share one count: each answer is a database read. The search box asks at most
+// every 250 ms while someone types, so 40 in 10 s is far above a person and well below a script.
+const socialLimiter = rateLimit({ windowMs: 10 * 1000, max: 40, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Slow down.' } });
 
 // ─── Entry fee ────────────────────────────────────────────────────────────────
 const LOBBY_FEES = money.lobbyFees; // { free, br, dollar }: the active money mode's fee table (keys validate lobby type)
@@ -1117,7 +1120,7 @@ app.get('/api/earningsboard', async (req, res) => {
   }
 });
 
-app.get('/api/profile/:name', async (req, res) => {
+app.get('/api/profile/:name', socialLimiter, async (req, res) => {
   try {
     const profile = await db.getProfile(req.params.name);
     if (!profile) return res.status(404).json({ error: 'Player not found' });
@@ -1168,7 +1171,7 @@ earnings.route(app);
 // A landed cash-out refreshes the figure within seconds (Social's live Global player winnings).
 if (typeof db.onEarningsRecorded === 'function') db.onEarningsRecorded(() => earnings.poke());
 
-app.get('/api/players/search', async (req, res) => {
+app.get('/api/players/search', socialLimiter, async (req, res) => {
   const q = strOr(req.query.q, '').trim();   // ?q[]=a is an array: .trim() threw, process gone
   if (!q) return res.json([]);
   try {
@@ -1830,8 +1833,16 @@ app.use((req, res, next) => {
    the redesign had held on mainnet through real entry and cash-out. The way
    back now is git, which is what it should have been once the new one was
    carrying real money. */
-app.get('/', (_req, res) => res.sendFile(path.join(__dirname, '../public/v2.html')));
-app.get('/v2', (_req, res) => res.sendFile(path.join(__dirname, '../public/v2.html')));
+/* A preview link (?leaderboard=preview fills the Social board with sample
+   players in that one browser; ?earnings=preview shows the owner's own
+   cash-outs) is never a page a search engine should keep. */
+const PREVIEW_QUERY = ['leaderboard', 'earnings'];
+function noindexPreview(req, res, next) {
+  if (PREVIEW_QUERY.some((k) => req.query && req.query[k] !== undefined)) res.set('X-Robots-Tag', 'noindex, nofollow');
+  next();
+}
+app.get('/', noindexPreview, (_req, res) => res.sendFile(path.join(__dirname, '../public/v2.html')));
+app.get('/v2', noindexPreview, (_req, res) => res.sendFile(path.join(__dirname, '../public/v2.html')));
 /* The owner console, without the file extension. The page itself is not a
    secret and does not need to be — it shows nothing and does nothing until an
    owner wallet signs for it, and every route behind it checks that server-side.
