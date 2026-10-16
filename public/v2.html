@@ -1113,8 +1113,21 @@ body.ingame .tkrun{animation-play-state:paused}
    not there at all, and go() sends a stray visit home, so the phone's tab bar
    and swipe order are exactly what they were. */
 @media(max-width:760px),(hover:none) and (pointer:coarse){
-  .ni.pconly,#clips-screen,#updates-screen{display:none!important}
+  .ni.pconly,#clips-screen,#updates-screen,.set-pc{display:none!important}
 }
+/* Settings' Clips group: two switches for the in-game recorder (public/js/clip/clipRec.js). */
+.swrow{display:flex;align-items:center;gap:16px;min-height:var(--setrow);padding:8px 0}
+.swrow+.swrow{border-top:1px solid var(--s2)}
+.swrow>div{flex:1;min-width:0}
+.swrow b{display:block;font-size:14.5px;font-weight:600}
+.swrow span{display:block;font-size:12.5px;color:var(--tx3);margin-top:3px;line-height:1.4}
+.sw{flex:none;width:44px;height:26px;border-radius:var(--rf);background:var(--s3);position:relative;transition:background .15s}
+.sw::after{content:"";position:absolute;left:3px;top:3px;width:20px;height:20px;border-radius:50%;background:var(--tx2);
+  transition:transform .18s,background .15s}
+.sw[aria-checked="true"]{background:var(--bone)}
+.sw[aria-checked="true"]::after{transform:translateX(18px);background:var(--ink)}
+.sw:disabled{opacity:.4;cursor:default}
+.sw:focus-visible{outline:2px solid var(--bone);outline-offset:2px}
 /* Something new behind a tab: a small red dot on its icon. */
 .ni.dot::after{content:"";position:absolute;left:26px;top:9px;width:7px;height:7px;border-radius:50%;
   background:#e5534b;box-shadow:0 0 0 2px var(--bg)}
@@ -2637,6 +2650,16 @@ body.scr-anim { overflow-x:hidden }
       <div id="set-acct"></div>
     </section>
 
+    <!-- The in-game clip recorder (public/js/clip/clipRec.js) reads these when a
+         game opens. PC only, like the recorder. -->
+    <section class="panel set-pc" aria-labelledby="set-clip-h">
+      <h3 class="sh" id="set-clip-h">Clips</h3>
+      <div class="swrow"><div><b id="set-clips-l">Save clips with P</b><span>The last 30 seconds of a game, as an MP4 in your Downloads.</span></div>
+        <button type="button" class="sw" id="set-clips" role="switch" aria-checked="true" aria-labelledby="set-clips-l" onclick="setClips(this)"></button></div>
+      <div class="swrow"><div><b id="set-mic-l">Add my mic</b><span>Your voice in saved clips. Your browser asks first.</span></div>
+        <button type="button" class="sw" id="set-mic" role="switch" aria-checked="false" aria-labelledby="set-mic-l" onclick="setMic(this)"></button></div>
+    </section>
+
     <!-- The pages a real-money site owes its players, one tap from Settings.
          They were dead "#" links in a footer that phones never show. -->
     <nav class="panel setlinks" aria-label="About DuelSeries">
@@ -2654,7 +2677,7 @@ body.scr-anim { overflow-x:hidden }
 <main id="clips-screen" class="wrap">
   <div class="head clhead">
     <div><h2>Clips</h2>
-      <p class="clsub">The best DuelSeries moments, from players. Post your clip on X, YouTube or TikTok, send the link here, and it goes on the wall once it is approved.</p></div>
+      <p class="clsub">The best DuelSeries moments, from players. Press P in any game to save the last 30 seconds, post it on X, YouTube or TikTok, send the link here, and it goes on the wall once it is approved.</p></div>
     <span class="sp"></span>
     <button type="button" class="clsend" onclick="V2Clips.openSubmit()"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Submit a clip</button>
   </div>
@@ -4690,6 +4713,37 @@ function drawSettings(){
   /* Read-only on purpose. This screen does not sign, send or spend; the wallet
      tab owns every one of those and there is only one implementation. */
   drawAcct();
+  drawClipSet();
+}
+/* Clips: the recorder in each game reads dsClipsOn ('0' is off) and dsClipsMic
+   ('1' is on) when it starts. Turning clips back on forgets an old "this PC
+   drops frames" verdict, so the game tests again. The mic is asked for here,
+   where the player chose it, so a game never pops a permission prompt. */
+const lsGet=k=>{try{return localStorage.getItem(k)}catch(_){return null}};
+const lsPut=(k,v)=>{try{v===null?localStorage.removeItem(k):localStorage.setItem(k,v)}catch(_){}};
+function drawClipSet(){
+  const on=lsGet('dsClipsOn')!=='0', mic=lsGet('dsClipsMic')==='1';
+  const a=document.getElementById('set-clips'), m=document.getElementById('set-mic');
+  if(a)a.setAttribute('aria-checked',String(on));
+  if(m){m.setAttribute('aria-checked',String(on&&mic));m.disabled=!on}
+}
+function setClips(b){
+  const on=b.getAttribute('aria-checked')!=='true';
+  lsPut('dsClipsOn',on?'1':'0');
+  if(on)lsPut('dsClipPerf',null);
+  drawClipSet();
+}
+async function setMic(b){
+  if(b.getAttribute('aria-checked')==='true'){lsPut('dsClipsMic','0');drawClipSet();return}
+  try{
+    const s=await navigator.mediaDevices.getUserMedia({audio:true});
+    s.getTracks().forEach(t=>t.stop());
+    lsPut('dsClipsMic','1');
+    if(window.DSToast)DSToast.show({kind:'ok',title:'Mic on for clips',detail:'Only clips you save have it. Nothing is sent anywhere.'});
+  }catch(_){
+    if(window.DSToast)DSToast.show({kind:'err',title:'Mic blocked',detail:'Allow the microphone for this site in your browser, then try again.'});
+  }
+  drawClipSet();
 }
 /* The account box alone, so a wallet change can redraw it without resetting
    the name field someone may be typing in. Sign out shows only when there is

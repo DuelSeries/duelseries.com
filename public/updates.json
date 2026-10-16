@@ -2,6 +2,13 @@
   "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
   "posts": [
     {
+      "id": "2026-10-16-clip-recorder",
+      "date": "2026-10-16",
+      "tag": "new",
+      "title": "Press P to save a clip",
+      "body": "On a PC, every game keeps the last 30 seconds. Press P and they save as a video in your Downloads, with the game sound, ready to post on X, TikTok or YouTube. After a cash-out or a battle royale win the game offers to save one for you.\n\nWant your voice on it too? Turn on Add my mic in Settings. Turn clips off there any time."
+    },
+    {
       "id": "2026-10-16-clips-updates",
       "date": "2026-10-16",
       "tag": "new",

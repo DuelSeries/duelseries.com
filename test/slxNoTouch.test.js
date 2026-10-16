@@ -19,7 +19,14 @@ const B = require('../server/sl/slBoot');
 
 // Every script of the composed page's tail, in its order: the shared end screens (public/js/shared/dsEnd.js, the
 // results card and leaderboard every game draws, slxCard's and slxHud's too) and then the layer files.
-const TAIL = [...B.SLX_TAIL.matchAll(/<script src="\/js\/([^"]+)"><\/script>/g)].map((m) => 'public/js/' + m[1]);
+// The clip recorder that ends the tail (public/js/clip/, P saves the last 30 s on a PC, Owen 2026-10-16) is not part
+// of the layer and is meant to act on its own: it is left out here and checked in test/clipRec.test.js.
+const ALL = [...B.SLX_TAIL.matchAll(/<script src="\/js\/([^"]+)"[^>]*><\/script>/g)].map((m) => 'public/js/' + m[1]);
+const TAIL = ALL.filter((f) => !f.startsWith('public/js/clip/'));
+test('the tail ends with the clip recorder and nothing else outside the layer', () => {
+  assert.deepStrictEqual(ALL.filter((f) => !TAIL.includes(f)), ['public/js/clip/mp4mux.js', 'public/js/clip/clipRec.js']);
+  assert.deepStrictEqual(ALL.slice(-2), ['public/js/clip/mp4mux.js', 'public/js/clip/clipRec.js']);
+});
 const LAYER = TAIL.filter((f) => f.startsWith('public/js/slx/'));
 const LAYER_SRC = TAIL.map((f) => [f, fs.readFileSync(path.join(V.ROOT, f), 'utf8')]);
 const SCRIPTS = V.SRC.concat(LAYER_SRC);

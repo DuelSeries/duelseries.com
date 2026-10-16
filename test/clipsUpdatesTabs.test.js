@@ -23,7 +23,7 @@ test('nav: Clips and Updates sit just above Settings, both marked PC only', () =
 
 test('PC only: hidden on a narrow or touch-only screen, and the router sends a stray visit home', () => {
   const html = read('public/v2.html');
-  assert.match(html, /@media\(max-width:760px\),\(hover:none\) and \(pointer:coarse\)\{\n  \.ni\.pconly,#clips-screen,#updates-screen\{display:none!important\}/);
+  assert.match(html, /@media\(max-width:760px\),\(hover:none\) and \(pointer:coarse\)\{\n  \.ni\.pconly,#clips-screen,#updates-screen,\.set-pc\{display:none!important\}/);
   assert.match(html, /const PHONEISH=matchMedia\('\(max-width:760px\),\(hover:none\) and \(pointer:coarse\)'\)/,
     'the router asks the same question the stylesheet does');
   assert.match(html, /function go\(id,dir\)\{\n  if\(PC_ONLY\.has\(id\)&&PHONEISH\.matches\)id='play';/);

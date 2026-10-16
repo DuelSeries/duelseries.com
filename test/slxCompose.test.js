@@ -20,7 +20,11 @@ test('SLX_TAIL: the slx.css link first, then dsEnd, slxNet, slxPaid, slxBr, slxW
   const tail = B.SLX_TAIL;
   assert.ok(tail.startsWith('<link rel="stylesheet" type="text/css" href="/css/slx.css" />\n'));
   assert.deepStrictEqual(links(tail), ['/css/slx.css']);
-  const all = scripts(tail);
+  const every = [...tail.matchAll(/<script src="([^"]+)"[^>]*><\/script>/g)].map((m) => m[1]);
+  // The clip recorder (P saves the last 30 s, PC only) comes last, after the layer whose cash-out it hooks.
+  assert.deepStrictEqual(every.slice(-2), ['/js/clip/mp4mux.js', '/js/clip/clipRec.js']);
+  assert.ok(/<script src="\/js\/clip\/clipRec\.js" data-game="slither"><\/script>/.test(tail));
+  const all = every.slice(0, -2);
   assert.strictEqual(all[0], '/js/shared/dsEnd.js', 'the shared end screens before any layer file');
   assert.strictEqual(all.filter((src) => !src.startsWith('/js/slx/')).length, 1, 'and nothing else outside the layer');
   const list = all.slice(1);
@@ -28,7 +32,7 @@ test('SLX_TAIL: the slx.css link first, then dsEnd, slxNet, slxPaid, slxBr, slxW
     '/js/slx/slxWatch.js', '/js/slx/slxMain.js', '/js/slx/slxDirect.js']);
   assert.ok(list.includes('/js/slx/slxCard.js') && list.includes('/js/slx/slxHud.js'), 'the card and the HUD are in it');
   assert.ok(!list.includes('/js/slx/slxTop.js'), 'no biggest cash-out box (Owen 2026-10-16)');
-  for (const src of links(tail).concat(all)) assert.ok(fs.existsSync(path.join(ROOT, 'public', src)), src);
+  for (const src of links(tail).concat(every)) assert.ok(fs.existsSync(path.join(ROOT, 'public', src)), src);
   for (const src of list) assert.ok(/^\/js\/slx\/slx[A-Z]\w*\.js$/.test(src), src);
   assert.strictEqual(tail, B.slxTail(B.PUBLIC_DIR));
 });
