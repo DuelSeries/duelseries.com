@@ -616,8 +616,11 @@
      $1 too). Its own key, never 'stake': a page reads 'stake' as a buy-in. Every
      page takes it out at boot; a Play clears it with the watch mark. */
   const WATCH_STAKE_KEY = 'dsWatchStake';
-  /* Is somebody playing at that paid rung? From the board, so a watch that
-     could only say "nobody here" never opens. No board row is a no. */
+  /* Is somebody playing at that paid rung? From the board. No board row is a
+     no. Only the table games ask (Knockout, Battleship: nothing to show but a
+     table); the arena games open their watch page anyway, which shows the
+     whole map until somebody joins (Owen 2026-10-16, dsEmptyArena.js). */
+  const ARENA_GAMES = { snake: true, agar: true, paper: true };
   function paidRungBusy(game, stake) {
     const rows = (window.V2Board && window.V2Board.lobbies) || [];
     return rows.some(l => l && l.game === game && Math.abs(Number(l.stake) - stake) < 1e-9 && (l.players || 0) > 0);
@@ -629,7 +632,7 @@
     if (paidStake) {
       /* Read only on every engine: never a seat, never money, and a watcher is
          shown what the player it follows is shown (the server's watch paths). */
-      if (!paidRungBusy(game, paidStake)) {
+      if (!ARENA_GAMES[game] && !paidRungBusy(game, paidStake)) {
         toast('Nobody is playing at $' + paidStake.toFixed(2) + ' right now.');
         return;
       }

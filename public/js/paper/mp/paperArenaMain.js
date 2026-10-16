@@ -980,6 +980,16 @@
       show(el.watchBar, !!u && page.watchLive);
     }
 
+    // Nobody at the table (a paid rung nobody is at; the free arena has bots from boot): the whole map, zoomed out and
+    // centred, over the waiting words until a pp:watching with a state arrives (public/js/shared/dsEmptyArena.js,
+    // Owen 2026-10-16). Its Lobby is the watch's own.
+    function emptyTable(on) {
+      var E = root.DSEmptyArena;
+      if (!E) return;
+      if (on && page.watch) E.show({ game: 'paper', stake: watchOf ? watchOf.stake : 0, onLobby: onWatchLobby });
+      else E.hide();
+    }
+
     function watchWait(text, sub) {
       page.watchLive = false;
       page.phase = 'connecting';
@@ -1014,6 +1024,7 @@
       page.watch = false;
       page.watchLive = false;
       cancel('watch');
+      emptyTable(false);
       onLobbyClick(evt);
     }
 
@@ -1033,10 +1044,12 @@
         if (!p || p.none) {
           var text = (p && Object.prototype.hasOwnProperty.call(WATCH_TEXT, p.why) && WATCH_TEXT[p.why]) || WATCH_TEXT.nobody;
           watchWait(text, 'Checking again every few seconds');
+          emptyTable(!p || p.why === 'nobody' || p.why === 'closed');
           if (!page.timers.watch) armWatch();
           return;
         }
         cancel('watch');
+        emptyTable(false);
         hud.reset();
         page.watchLive = true;
         page.phase = 'watch';

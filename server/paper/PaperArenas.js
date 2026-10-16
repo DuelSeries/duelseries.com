@@ -28,6 +28,9 @@ function keyOf(stake) {
 
 // The ladder's own number for a stake, or null. Arenas are built only from RUNGS, never from
 // a number a message carried (review finding: 0.10499 became the then $0.10 arena's stake).
+// An empty replacement of the awake free arena is woken at most this often (keepAwake, _replace; slArenas's gap).
+const AWAKE_RESTART_GAP_MS = 60000;
+
 function rungOf(stake) {
   const n = Number(stake);
   const r = RUNGS.find((x) => Math.abs(x - n) <= 1e-9);
@@ -38,7 +41,7 @@ class PaperArenas {
   // journal: the paid money journal (server/ag/agJournal.js, shared with paid agar and paid snake), or null. Every paid
   // seat's account is opened and closed in it, and a shutdown or crash closes each one 'refunded' with its owed row,
   // so the next boot's replay writes the refunds a dying process could not (security review item a).
-  constructor({ region = 'na', io = null, hooks, now = Date.now, paidEnabled = process.env.PAPER_PAID === '1', autoTick = true, warm = true, makeRoom, journal = null } = {}) {
+  constructor({ region = 'na', io = null, hooks, now = Date.now, paidEnabled = process.env.PAPER_PAID === '1', autoTick = true, warm = true, awake = false, makeRoom, journal = null } = {}) {
     this.region = region;
     this.io = io;
     this.hooks = hooks;
@@ -61,8 +64,24 @@ class PaperArenas {
     this.outcomes = new Map(); // 't:' + proof or 'k:' + resumeKey -> { why, refunded, at, extra }, oldest first
     this.releases = new Map(); // wallet -> times of its unconfirmed-seat refunds, oldest first
     this.emptySince = new Map(); // room -> ms
+    this.awake = false; // keepAwake: the free arena #1 ticks from boot once warmed, a replacement too
+    this.awakeAt = -Infinity;
     const free = this._create(0, 0);
-    if (warm && free) free.warmUp();
+    if (warm && free) free.warmUp(() => { if (awake) this.keepAwake(); });
+    else if (awake) this.keepAwake();
+  }
+
+  // The free arena #1 keeps ticking with nobody seated once its boot warm-up is done (the server passes awake), so its
+  // bots are out claiming ground when the first person arrives and Spectate always has a square to follow, as in
+  // slither.io and agar.io. A replacement wakes too, at most once a minute (a
+  // fault that repeats on every wake of an empty arena must not become a create, fail, close loop: people in it come
+  // back through seatFor, which ticks it anyway). Paid arenas never:
+  // they have no bots. Returns whether the arena is awake.
+  keepAwake() {
+    this.awake = true;
+    this.awakeAt = this.now();
+    const r = (this.arenas[keyOf(0)] || []).find((x) => x.index === 0 && !x.stopped);
+    return !!(r && typeof r.setAwake === 'function' && r.setAwake(true));
   }
 
   _create(stake, index) {
@@ -83,6 +102,18 @@ class PaperArenas {
     return room;
   }
 
+  // Every sweep (60 s): a replacement of the awake free arena that _replace left asleep (created within a minute of
+  // the last wake) wakes now, so one early fault never loses the warm arena for the life of the process.
+  _rewake() {
+    if (!this.awake) return;
+    const r = (this.arenas[keyOf(0)] || []).find((x) => x.index === 0 && !x.stopped);
+    if (!r || r.awake || r.warming || typeof r.setAwake !== 'function') return;
+    const t = this.now();
+    if (t - this.awakeAt < AWAKE_RESTART_GAP_MS) return;
+    this.awakeAt = t;
+    r.setAwake(true);
+  }
+
   // An emergency-closed arena gives its index to a fresh one.
   _replace(closed) {
     const list = this.arenas[keyOf(closed.stake)];
@@ -90,7 +121,14 @@ class PaperArenas {
     if (i === -1) return;
     list.splice(i, 1);
     this.emptySince.delete(closed);
-    this._create(closed.stake, closed.index);
+    const room = this._create(closed.stake, closed.index);
+    if (this.awake && closed.stake === 0 && closed.index === 0 && room && typeof room.setAwake === 'function') {
+      const t = this.now();
+      if (!(t - this.awakeAt < AWAKE_RESTART_GAP_MS)) {
+        this.awakeAt = t;
+        room.setAwake(true);
+      }
+    }
   }
 
   _freeIndex(list) {
@@ -127,19 +165,23 @@ class PaperArenas {
   }
 
   // The arena a watcher is sent to (the lobby's Spectate, any rung: Owen 2026-10-15 opened the $0.50 and $1 ones too):
-  // the open arena of that rung with the most live players, the lowest index on a tie. A pure query: never seatFor,
-  // never a new arena, and null when no arena of the rung has a player (an arena ticks only while someone is seated,
-  // and watchers alone must never cost a tick). A watcher of a paid arena is read only exactly as on Free
+  // the open arena of that rung with the most live players, the lowest index on a tie; on Free with nobody playing,
+  // the awake free arena #1 and its bots (keepAwake: it ticks anyway). A pure query: never seatFor, never a new arena,
+  // and null when no arena of the rung has a player and none is awake (an arena ticks only while someone is seated or
+  // it is awake, and watchers alone must never cost a tick). A watcher of a paid arena is read only exactly as on Free
   // (PaperRoom.addWatcher): every player there is already sent the whole arena, so it learns nothing they do not.
   watchFor(stake) {
     const rung = rungOf(stake);
     if (rung === null || !this.arenas[keyOf(rung)]) return null;
     let best = null;
+    let awake = null;
     for (const r of this.arenas[keyOf(rung)]) {
-      if (r.stopped || r.warming || !(r.liveHumans > 0)) continue;
+      if (r.stopped || r.warming) continue;
+      if (r.awake === true && !r.paid && !awake) awake = r;
+      if (!(r.liveHumans > 0)) continue;
       if (!best || r.liveHumans > best.liveHumans || (r.liveHumans === best.liveHumans && r.index < best.index)) best = r;
     }
-    return best;
+    return best || awake;
   }
 
   // io 'disconnect' of a watcher: out of whichever arena it watched (the socket object is gone, so every arena is
@@ -345,6 +387,7 @@ class PaperArenas {
   // Every 60 s: (1) an empty OVERFLOW arena with nothing on its floor for ARENA_SWEEP_MS goes;
   // (2) an arena that is not ticking still gets its hour sweep of floor coins.
   sweep(now) {
+    this._rewake();
     for (const key of Object.keys(this.arenas)) {
       const list = this.arenas[key];
       for (const room of list.slice()) {

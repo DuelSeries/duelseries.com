@@ -69,7 +69,7 @@ function agPaidSwitch(raw, log) {
 
 // -> { arenas, why, paid? }: arenas null when the game is off or closed, why says which; paid (open only): the paid
 // rungs exist.
-// opts: { env, io (the socket.io server), region, helpers: { socketRL, sanitizeName, ops }, log, autoTick,
+// opts: { env, io (the socket.io server), region, helpers: { socketRL, sanitizeName, ops }, log, autoTick, awake,
 //   money: { hooks (agMoney's payout hooks, see AgArenas), door: { consumeAtStake, ledger, refund } },
 //   paidSwitch: slPaidBoot.createPaidSwitchStore's store for agar:paid:off (a saved close opens the door shut) }
 function openAg(opts) {
@@ -106,6 +106,8 @@ function openAg(opts) {
     // is handed ('not-open') rather than leaving it to expire.
     if (m && m.door) helpers.paidDoor = m.door;
     attachAgSockets(o.io ? o.io.of('/ag') : null, arenas, helpers);
+    // awake (the server): the free room ticks from boot with its bots playing (agArenas keepAwake)
+    if (o.awake === true) arenas.keepAwake();
     log.log('[AG] agar.io rooms open on /ag' + (dev ? ' (DEV law table)' : ''));
     log.log('[AG] paid rungs ' + (paid ? 'on' : 'OFF'));
     return { arenas, why: null, paid };

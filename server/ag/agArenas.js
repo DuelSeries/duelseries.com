@@ -52,6 +52,8 @@ const ARENA_TUNING = Object.freeze({
 });
 const MAX_ROOMS = ARENA_TUNING.MAX_ROOMS.value;
 const SWEEP_IDLE_MS = ARENA_TUNING.SWEEP_IDLE_MS.value;
+// An empty replacement of the awake free room is woken at most this often (keepAwake, _replace; slArenas's gap).
+const AWAKE_RESTART_GAP_MS = 60000;
 const PORTRAIT_GAP_MS = ARENA_TUNING.PORTRAIT_GAP_MS.value;
 
 // A socket with no seat anywhere is told so and closed; it would otherwise stay connected with nothing sent.
@@ -92,6 +94,8 @@ class AgArenas {
     this.viewBelow = new Map();      // socketId -> rows its page draws under the reference view (ag:view), > 0 only
     this.portraitState = new Map();  // socketId -> { on, want, at } for sockets that ever reported portrait (ag:portrait)
     this.emptySince = new Map();     // room -> ms
+    this.awake = false;              // keepAwake: the free room #0 ticks from boot, a replacement too
+    this.awakeAt = -Infinity;
     this._create(0);
 
     // Paid rungs (design 5.3).
@@ -133,6 +137,31 @@ class AgArenas {
     return room;
   }
 
+  // The free room #0 from boot (the server, agBoot openAg awake): it ticks before anybody comes, so its bots are
+  // grown and playing when the first person arrives and a Spectate always finds someone to follow (Owen
+  // 2026-10-16: "the bots should already be there, they should already be playing"). slither.io's free room does the
+  // same (slArenas keepAwake). A replacement of #0 wakes too: at once when people were in it, else at most once a
+  // minute (a fault that repeats on every wake of an empty room must not become a create, fail, close loop).
+  // Paid rooms never: they have no bots. Returns whether the room is awake.
+  keepAwake() {
+    this.awake = true;
+    this.awakeAt = this.now();
+    const r = this.rooms.find((x) => x.index === 0 && !x.stopped);
+    return !!(r && typeof r.setAwake === 'function' && r.setAwake(true));
+  }
+
+  // Every sweep (60 s): a replacement of the awake room #0 that _replace left asleep (created within a minute of the
+  // last wake) wakes now, so one early fault never loses the warm room for the life of the process.
+  _rewake() {
+    if (!this.awake) return;
+    const r = this.rooms.find((x) => x.index === 0 && !x.stopped);
+    if (!r || r.awake || typeof r.setAwake !== 'function') return;
+    const t = this.now();
+    if (t - this.awakeAt < AWAKE_RESTART_GAP_MS) return;
+    this.awakeAt = t;
+    r.setAwake(true);
+  }
+
   // An emergency-closed room gives its index to a fresh one, and its sockets are seated there as watchers (past
   // its watcher seats: in another room with one, else refused and closed).
   _replace(closed, sockets) {
@@ -141,6 +170,13 @@ class AgArenas {
     this.rooms.splice(i, 1);
     this.emptySince.delete(closed);
     const room = this._create(closed.index);
+    if (this.awake && closed.index === 0 && typeof room.setAwake === 'function') {
+      const t = this.now();
+      if ((sockets && sockets.length) || !(t - this.awakeAt < AWAKE_RESTART_GAP_MS)) {
+        this.awakeAt = t;
+        room.setAwake(true);
+      }
+    }
     for (const socket of sockets || []) {
       if (!socket || this.bySocket.get(socket.id) !== closed) continue;
       this.bySocket.delete(socket.id);
@@ -688,6 +724,7 @@ class AgArenas {
   // A paid overflow room closes only with no seat, no open account and an empty bank (design 5.3); a settling room
   // is retried (any account its emergency settle left open) and dropped once its bank is empty.
   sweep(now) {
+    this._rewake();
     for (const room of this.rooms.slice()) {
       if (room.index === 0 || room.seats.size > 0) {
         this.emptySince.delete(room);

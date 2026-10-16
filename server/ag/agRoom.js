@@ -175,6 +175,9 @@ class AgRoom {
     this.clock = clock;
     this.now = now;
     this.autoTick = autoTick;
+    // The free room from boot (setAwake, agArenas keepAwake): it ticks with nobody seated, so its bots are grown and
+    // moving when the first person comes and a Spectate always has someone to follow. Never a paid room.
+    this.awake = false;
     this.log = log || console;
     this.viewBelowOf = typeof viewBelowOf === 'function' ? viewBelowOf : null;
     this.portraitOf = typeof portraitOf === 'function' ? portraitOf : null;
@@ -423,7 +426,7 @@ class AgRoom {
     const acct = this.money ? this.money.account(seat.pid) : null;
     if (acct && acct.socketId === socketId) this.money.beginGrace(seat.pid);
     else if (!acct) this.sim.removePlayer(seat.pid);
-    if (!this.seats.size && !this.openAccounts()) this._goIdle();
+    if (!this.seats.size && !this.openAccounts() && !this.awake) this._goIdle();
     return seat.socket;
   }
 
@@ -1077,8 +1080,9 @@ class AgRoom {
     this.timer = null;
     if (this.stopped) return;
     this.wake();
-    // A paid room keeps ticking while any account is open, seated or not (grace and dormant timers, design 5.2).
-    if (!this.stopped && !this.timer && (this.seats.size || this.openAccounts())) this._arm();
+    // A paid room keeps ticking while any account is open, seated or not (grace and dormant timers, design 5.2); an
+    // awake free room always does.
+    if (!this.stopped && !this.timer && (this.seats.size || this.openAccounts() || this.awake)) this._arm();
   }
 
   // ---------------------------------------------------------------------------------------------------------
@@ -1120,7 +1124,17 @@ class AgRoom {
   stop() {
     if (this.stopped) return;
     this.stopped = true;
+    this.awake = false;
     this._goIdle();
+  }
+
+  // Keeps a free room ticking with nobody in it: its bots fill (BOT_FILL) and play from boot, as slither.io's free
+  // room does (slRoom setAwake). Refused for a paid room, which has no bots and ticks only for its accounts and seats.
+  // Returns whether the room is awake now.
+  setAwake(on) {
+    this.awake = on === true && !this.paid && !this.money && !this.stopped;
+    if (this.awake) this._ensureTicking();
+    return this.awake;
   }
 }
 

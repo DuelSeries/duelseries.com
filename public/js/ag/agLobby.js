@@ -153,7 +153,11 @@
     var page = root.duelAgar;
     if (!page || !page.config || page.config.lobby !== true || !framed()) return false;
     var st = pageState();
-    return !!st && st.paid !== true && !st.handoff && !moneyIn && !pageLock;
+    // A watcher of a paid rung (the lobby's Spectate, agArenas.connectWatch) hears that room's ag:money, which marks
+    // the page paid, yet it holds no account and never plays: it keeps the free page's Lobby button, its only way
+    // back (Owen 2026-10-16: Spectate never dead-ends). A paid player is a hand-off (st.handoff) and stays gated.
+    var watcher = st && st.paid === true && st.spectating === true && st.alive !== true;
+    return !!st && (st.paid !== true || watcher) && !st.handoff && !moneyIn && !pageLock;
   }
   // How often a dropped free page looks for its socket to be back (only while waiting; nothing runs otherwise).
   var WAIT_MS = 100;

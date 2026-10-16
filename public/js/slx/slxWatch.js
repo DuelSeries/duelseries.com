@@ -108,6 +108,7 @@
   });
   slx.on('x:watch', function (m) {
     if (typeof m.id !== 'number' || !(m.id > 0)) return;
+    emptyTable(false);
     var name = typeof m.name === 'string' ? m.name.slice(0, NAME_MAX) : '';
     watching = { id: m.id, name: name };
     lastName = name;
@@ -121,8 +122,23 @@
     wasLife = !!i.playing;
     if (!i.opened) ended = 'lost';
     else if (!ended) ended = i.sawDead ? 'out' : 'lost';
-    if (i.refused === 'nobody') retry();
+    if (i.refused === 'nobody') {
+      emptyTable(true);
+      retry();
+    } else {
+      emptyTable(false); // any other end (a drop, a restart, full): the card's own words and its Try again show
+    }
   });
+
+  // Nobody to follow (a paid table nobody is at; the free room has bots from boot): the whole map, zoomed out and
+  // centred, until the next ask finds somebody (public/js/shared/dsEmptyArena.js, Owen 2026-10-16). The card below it
+  // keeps its words and its Try again.
+  function emptyTable(on) {
+    var E = root.DSEmptyArena;
+    if (!E) return;
+    if (!on || gone) E.hide();
+    else E.show({ game: 'snake', stake: watchStake, onLobby: toLobby });
+  }
 
   // ---- 3. Next
 
@@ -253,6 +269,7 @@
   function toLobby() {
     gone = true;
     stopTimers();
+    emptyTable(false);
     if (typeof slx.toLobby === 'function' && slx.toLobby()) return;
     try {
       root.location.assign('/');

@@ -2264,6 +2264,10 @@ const paperArenas = new PaperArenas({
      review item a; the settle itself is installed with paid agar's and snake's,
      paidShutdownDirs below). */
   journal: agJournal,
+  /* The free arena keeps ticking after its boot warm-up, bots out claiming
+     ground before anybody comes (PaperArenas keepAwake). Paid arenas stay
+     people-only (Owen 2026-10-16). */
+  awake: true,
   hooks: {
     /* Tracked, so a shutdown waits for a Paper payout in flight like agar's and snake's. */
     onCashout: (order) => agInflight.track(paperPayout.payCashout(order)),
@@ -2439,6 +2443,9 @@ const agBoot = require('./ag/agBoot').openAg({
   money: { hooks: agMoneyHooks, door: agPaidDoorDeps },
   /* A saved agar:paid:off opens the paid door shut (security review item b). */
   paidSwitch: agPaidSwitch,
+  /* Bots already playing in the free room before anybody comes (agArenas
+     keepAwake). Paid rooms stay people-only (Owen 2026-10-16). */
+  awake: true,
 });
 const agArenas = agBoot.arenas;
 const AG_PAID_ON = !!agBoot.paid;

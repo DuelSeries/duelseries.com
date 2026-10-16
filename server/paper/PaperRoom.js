@@ -47,6 +47,9 @@ class PaperRoom {
     this.autoTick = autoTick;
     this.stopped = false;
     this.warming = false;
+    // The free arena #1 from boot (setAwake, PaperArenas keepAwake): it ticks with nobody seated, so its bots are
+    // out claiming ground when the first person comes and a Spectate always has a square to follow. Never paid.
+    this.awake = false;
     this.failCount = 0;
     this.closed = false; // the once-only emergency latch
     this.timer = null;
@@ -497,7 +500,7 @@ class PaperRoom {
     this.seats.delete(seat.unit.id);
     if (seat.socketId && this.bySocket.get(seat.socketId) === seat) this.bySocket.delete(seat.socketId);
     if (this.directory) this.directory._seatFreed(seat);
-    if (!this.seats.size) this._goIdle();
+    if (!this.seats.size && !this.awake) this._goIdle();
   }
 
   // ---------------------------------------------------------------------------------------
@@ -782,7 +785,17 @@ class PaperRoom {
     this.timer = null;
     if (this.stopped) return;
     this.wake();
-    if (!this.stopped && !this.timer && this.seats.size) this._arm();
+    if (!this.stopped && !this.timer && (this.seats.size || this.awake)) this._arm();
+  }
+
+  // Keeps the free arena ticking with nobody seated (Owen 2026-10-16: "the bots should already be there, they should
+  // already be playing"), as slither.io's and agar.io's free rooms do. Refused for a paid arena (no bots there, and
+  // its clock is its players') and while the boot warm-up still runs (PaperArenas wakes it after). Returns whether the
+  // arena is awake now.
+  setAwake(on) {
+    this.awake = on === true && !this.paid && !this.stopped && !this.warming;
+    if (this.awake) this._ensureTicking();
+    return this.awake;
   }
 
   // One guarded sim step. EMERGENCY_FAIL_TICKS throws in a row close the arena once.
@@ -1021,6 +1034,7 @@ class PaperRoom {
   stop() {
     if (this.stopped) return;
     this.stopped = true;
+    this.awake = false;
     if (this.timer) {
       clearTimeout(this.timer);
       this.timer = null;

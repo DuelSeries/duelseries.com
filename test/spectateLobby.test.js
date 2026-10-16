@@ -108,7 +108,7 @@ test('the button: beside Play on every rung of every game (paid too, Owen 2026-1
 });
 
 // Spectate on a paid rung (Owen, 2026-10-15): the same pages, read only, the rung under its own key (never 'stake').
-test('a paid rung: each game opens its watch page with dsWatchStake and no money key; nobody playing is a toast', async () => {
+test('a paid rung: each game opens its watch page with dsWatchStake and no money key; nobody playing is a toast on a table game only', async () => {
   const rows = [SL_FREE, row('sl:na:s0.5', 'snake', 0.5), row('paper:na:s0.5', 'paper', 0.5), row('ag:na:s0.5', 'agar', 0.5),
     row('knockout:na:s0.5', 'knockout', 0.5), row('battleship:na:s0.5', 'battleship', 0.5)];
   for (const [game, page, frame] of [['snake', '/sl', 'game-frame'], ['paper', '/paper-arena', 'game-frame'],
@@ -125,14 +125,25 @@ test('a paid rung: each game opens its watch page with dsWatchStake and no money
     }
     assert.deepStrictEqual(h.plays, [], game + ': the wallet is never asked');
   }
-  // nobody at $1: nothing opens
+  // nobody at $1: a table game opens nothing and says so
   const h = lobbyHarness(rows);
   await h.win.V2Board.load();
   const said = [];
   h.win.DSToast = { line: (t) => said.push(t) };
-  h.win.V2Play.spectate('paper', null, 1);
+  h.win.V2Play.spectate('knockout', null, 1);
   assert.strictEqual(h.el('game-frame').src, '');
   assert.deepStrictEqual(said, ['Nobody is playing at $1.00 right now.']);
+  // an arena game opens its watch page anyway: the whole map until somebody joins (Owen 2026-10-16)
+  for (const [game, page, frame] of [['paper', '/paper-arena', 'game-frame'], ['agar', '/ag', 'agar-frame']]) {
+    const a = lobbyHarness(rows);
+    await a.win.V2Board.load();
+    const told = [];
+    a.win.DSToast = { line: (t) => told.push(t) };
+    a.win.V2Play.spectate(game, null, 1);
+    assert.strictEqual(a.el(frame).src, page, game + ' opens at an empty rung');
+    assert.strictEqual(a.win.sessionStorage.getItem('dsWatchStake'), '1', game);
+    assert.deepStrictEqual(told, [], game + ': no toast');
+  }
   // a Free watch after a paid one carries no stake
   const f = lobbyHarness(rows);
   await f.win.V2Board.load();

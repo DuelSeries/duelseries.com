@@ -159,6 +159,9 @@
     var pending = { play: false, spectate: false };
     var lastRows = null;
     var destroyed = false;
+    var watchAsk = 0;             // the paid rung the lobby's Spectate watches (auth.watchStake), 0 otherwise
+    var watchRetry = null;        // its next ask while nobody is at that rung (watchEmpty)
+    var WATCH_RETRY_MS = 3000;
     var canvasScale = 1;
     var net = null;
     // Hold-Q cash-out (see HOLD_REPEAT_MS). wanted: held here and sent; server: the server reports the hold running
@@ -527,6 +530,10 @@
         case 'ag:payerror':
           if (end.paidKind()) end.payError(p.message);
           break;
+        case 'ag:refused':
+          // The lobby's Spectate on a paid rung nobody is at (agArenas.connectWatch): the empty map, then ask again.
+          if (!flow && watchAsk > 0 && p.why === 'nobody') watchEmpty();
+          break;
         default:
           break;
       }
@@ -682,6 +689,28 @@
       }
       end.showFree({ life: snap, cashed: cashed, by: by, buttons: buttons });
     }
+    // The lobby's Spectate on a paid rung with nobody at it (Owen 2026-10-16: "it'll just default to spectating the
+    // whole map in the middle"): the server refuses the watch ('nobody') and closes the socket, which socket.io never
+    // reopens by itself. The whole map shows zoomed out and centred (public/js/shared/dsEmptyArena.js) and the same
+    // socket asks again every WATCH_RETRY_MS while the page is visible; the first answer that seats the watcher brings
+    // the world ('ready') and the view follows the top player as before. Read only: the handshake is unchanged.
+    function watchEmpty() {
+      if (destroyed) return;
+      var E = win.DSEmptyArena;
+      if (E) E.show({ game: 'agar', stake: watchAsk, onLobby: function () { watchQuiet(); backToLobby(); } });
+      if (watchRetry !== null) return;
+      watchRetry = win.setTimeout(function again() {
+        watchRetry = null;
+        if (destroyed || !net) return;
+        if (doc.hidden) { watchRetry = win.setTimeout(again, WATCH_RETRY_MS); return; }
+        if (!net.connected()) net.reconnect();
+      }, WATCH_RETRY_MS);
+    }
+    function watchQuiet() {
+      if (watchRetry !== null) { win.clearTimeout(watchRetry); watchRetry = null; }
+      var E = win.DSEmptyArena;
+      if (E) E.hide();
+    }
     // The lobby frame's free page after a dropped socket (see lobbyMode): there is no menu to fall back to, so a player
     // who was playing joins again under the same name and a watcher watches again, both once the new socket's world
     // is ready (pending survives the reset on connect). The end card stays up as it was.
@@ -700,6 +729,7 @@
     // ---- world events -----------------------------------------------------------------------
     world.on('create', function (node) { renderer.initNode(node, cam.targetScale(), cam.scale); });
     world.on('ready', function () {
+      if (watchAsk > 0) watchQuiet();
       if (pending.play) { pending.play = false; sendPlay(); }
       if (pending.spectate) { pending.spectate = false; sendSpectate(); }
     });
@@ -992,7 +1022,7 @@
     try {
       var ss = win.sessionStorage;
       var ws = ss && ss.getItem('spectateOnly') === 'true' ? Number(ss.getItem('dsWatchStake')) : 0;
-      if (!flow && isFinite(ws) && ws > 0) auth.watchStake = ws;
+      if (!flow && isFinite(ws) && ws > 0) auth.watchStake = watchAsk = ws;
     } catch (e) { /* storage blocked: the free room */ }
     if (cfg.net !== false && A.agNet && typeof win.io === 'function' && !(flow && flow.offline())) {
       var connectNow = function () {
