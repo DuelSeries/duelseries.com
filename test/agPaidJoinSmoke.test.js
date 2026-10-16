@@ -110,6 +110,17 @@ const ownerProof = (action, args) => {
 
 const agPaidRows = (live) => live.lobbies.filter((l) => l.game === 'agar' && l.stake > 0);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// Under the full suite's load a fixed sleep can end before this boot has caught up (it failed that way once while
+// passing alone): poll until ok or the deadline, then the caller asserts on the last answer.
+async function until(read, ok, ms = 10000) {
+  const end = Date.now() + ms;
+  for (;;) {
+    const v = await read();
+    if (ok(v) || Date.now() > end) return v;
+    await sleep(100);
+  }
+}
+const liveUntil = (port, ok) => until(async () => JSON.parse((await get(`http://localhost:${port}/api/live`)).body), ok);
 
 /* Switch-on (2026-10-09, Phase C, the fcadf0f pattern): AG_PAID unset is ON, so production (whose env is only the box's
    .env) runs the paid rungs; 0 is the explicit off switch and a typo still fails closed. */
@@ -206,8 +217,7 @@ test('dev agar $0.50: hand-off, door, ready, hold Q 3 s, paid 90/10; away seat c
   await first(a, ['ag:f'], 5000);
   await sleep(200);
   a.emit('ag:ready');
-  await sleep(200);
-  live = JSON.parse((await get(`http://localhost:${port}/api/live`)).body);
+  live = await liveUntil(port, (l) => agPaidRows(l)[0].players === 1);
   assert.strictEqual(agPaidRows(live)[0].players, 1);
 
   // One-time: the same token on another socket buys nothing (and names no confirmed seat).
@@ -226,11 +236,16 @@ test('dev agar $0.50: hand-off, door, ready, hold Q 3 s, paid 90/10; away seat c
   const lv = await first(a, ['ag:refused'], 3000);
   assert.strictEqual(lv.m.why, 'cash-out-to-leave');
 
-  // Hold Q for 3 s (repeated every 200 ms, as the page does): 90/10 through the fake withdraw.
+  // Hold Q for 3 s: 90/10 through the fake withdraw. The page repeats ag:hold every 200 ms; this repeats it every
+  // 100 ms and waits 30 s because the full suite pages the box (free RAM near 0.3 GB, 2026-10-16), and a stall past
+  // HOLD_INPUT_STALE_MS (500) drops the hold so it starts again. The 90/10 below is still asserted exactly.
   let holding = true;
-  const rep = setInterval(() => { if (holding) a.emit('ag:hold', { on: 1 }); }, 200);
+  const rep = setInterval(() => { if (holding) a.emit('ag:hold', { on: 1 }); }, 100);
   a.emit('ag:hold', { on: 1 });
-  const c = await first(a, ['ag:cashedout'], 6000);
+  const t0 = Date.now();
+  const holds = [];
+  a.on('ag:holding', (m) => holds.push((m && m.on ? '+' : '-') + (Date.now() - t0)));
+  const c = await first(a, ['ag:cashedout'], 30000).catch((e) => { throw new Error(e.message + '; ag:holding ' + holds.join(' ')); });
   holding = false;
   clearInterval(rep);
   assert.deepStrictEqual([c.m.grossMicro, c.m.cutMicro, c.m.netMicro], [500000, 50000, 450000]);
@@ -250,8 +265,7 @@ test('dev agar $0.50: hand-off, door, ready, hold Q 3 s, paid 90/10; away seat c
   b.emit('ag:ready');
   await sleep(200);
   b.close();
-  await sleep(300);
-  live = JSON.parse((await get(`http://localhost:${port}/api/live`)).body);
+  live = await liveUntil(port, (l) => agPaidRows(l)[0].players === 1 && agPaidRows(l)[0].parked === 1);
   const row = agPaidRows(live)[0];
   assert.deepStrictEqual([row.players, row.parked], [1, 1], 'an away player is still a player (rule 4b) and parked');
   const st = await post(`http://localhost:${port}/api/owner/state`, ownerProof('state', {}));
@@ -271,7 +285,7 @@ test('dev agar $0.50: hand-off, door, ready, hold Q 3 s, paid 90/10; away seat c
   d.emit('ag:join', { stake: 0.5, entryToken: await mint(W3, 'agar'), name: 'late' });
   const nr = await first(d, ['ag:refused', 'ag:joined'], 5000);
   assert.deepStrictEqual([nr.ev, nr.m.why, nr.m.refunded], ['ag:refused', 'not-open', true]);
-  await sleep(200);
+  await until(() => out.stdout, (s) => /\[AG\] REFUND AgDevWa11et3+ 500000 not-open/.test(s));
   assert.ok(/\[AG\] REFUND AgDevWa11et3+ 500000 not-open/.test(out.stdout), 'refunded through agar\'s payout\n' + out.stdout.slice(-600));
   live = JSON.parse((await get(`http://localhost:${port}/api/live`)).body);
   assert.strictEqual(agPaidRows(live)[0].state, 'closed');

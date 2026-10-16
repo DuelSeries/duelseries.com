@@ -107,7 +107,8 @@ function once(sock, event, ms) {
 
 // pp:join until the arena answers with a seat or a real refusal. The free arena
 // warms up at boot and says so ('warming', retryMs); a client retries by itself.
-function join(sock, msg, ms = 20000) {
+// 60 s: the warm-up is CPU work, and with two full suites on the box it took over 20 s once (2026-10-16).
+function join(sock, msg, ms = 60000) {
   return new Promise((res, rej) => {
     const t = setTimeout(() => { cleanup(); rej(new Error('pp:join got no answer')); }, ms);
     const onJoined = (m) => { cleanup(); res({ joined: m }); };
@@ -348,7 +349,9 @@ test('dev tokens: a POST without signedTx buys a paid seat that cashes out 90/10
   t.after(() => clearInterval(hold));
   await new Promise(r => setTimeout(r, MP.HOLD_MS - 1000));
   assert.equal(early, null, 'no cash-out before the hold completes');
-  const c = await Promise.race([cashed, new Promise((_, rej) => setTimeout(() => rej(new Error('no pp:cashedout')), 8000))]);
+  // 30 s, not 8: the full suite pages the box (free RAM near 0.3 GB, 2026-10-16) and a stall past
+  // HOLD_INPUT_STALE_MS drops the hold, which then starts again. The 90/10 below is still exact.
+  const c = await Promise.race([cashed, new Promise((_, rej) => setTimeout(() => rej(new Error('no pp:cashedout')), 30000))]);
   clearInterval(hold);
   assert.ok(Date.now() - started >= MP.HOLD_MS - 100, 'the hold took its full time');
   assert.equal(c.grossMicro, 500000);

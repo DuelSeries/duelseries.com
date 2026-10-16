@@ -185,7 +185,8 @@ test('paid Paper at a restart and at a crash: the seated balance is owed once at
   // boot 2 (dev-local: the in-memory database) on the same journal: the owed row is written once
   const two = await boot({}, { script: 'scripts/dev-local.js', preload: true, journal: one.journal });
   procs.push(two.srv);
-  const sum2 = await until(() => replayOf(two.out), 15000, 200);
+  // The replay runs after the boot answers; under the full suite's load it once took over 15 s.
+  const sum2 = await until(() => replayOf(two.out), 45000, 200);
   assert.ok(sum2, 'the boot replayed the journal\n' + two.out.stdout.slice(-1500));
   assert.deepStrictEqual([sum2.files, sum2.owed + sum2.existed, sum2.failed, sum2.unsettled], [1, 1, 0, 0]);
   assert.ok(two.out.stderr.includes('[AG] JOURNAL owed ' + W1 + ' 500000 micro ' + close.reason) || sum2.existed === 1,
@@ -199,7 +200,7 @@ test('paid Paper at a restart and at a crash: the seated balance is owed once at
   // boot 3: the crash's row is owed once
   const three = await boot({}, { script: 'scripts/dev-local.js', journal: one.journal });
   procs.push(three.srv);
-  const sum3 = await until(() => replayOf(three.out), 15000, 200);
+  const sum3 = await until(() => replayOf(three.out), 45000, 200);
   assert.ok(sum3, 'boot 3 replayed\n' + three.out.stdout.slice(-1500));
   assert.deepStrictEqual([sum3.files, sum3.owed, sum3.failed, sum3.unsettled], [1, 1, 0, 0]);
   assert.match(three.out.stderr, new RegExp('\\[AG\\] JOURNAL owed ' + W2 + ' 500000 micro refund paper crash paper_na_s0_5 agowed:'));

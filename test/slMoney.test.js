@@ -158,8 +158,9 @@ test('the hooks are all required; there is no refund hook', () => {
 });
 
 test('the one exit: only _close deletes an account record', () => {
+  // A Windows checkout (core.autocrlf) has CRLF; the scan is about the code, not the line endings.
   const src = fs.readFileSync(path.join(__dirname, '..', 'server', 'slPaid', 'slMoney.js'), 'utf8')
-    .replace(/\/\/.*$/gm, '');
+    .replace(/\r\n/g, '\n').replace(/\/\/.*$/gm, '');
   const hits = src.split('\n').filter((l) => /accounts\.(delete|clear)\(/.test(l));
   assert.equal(hits.length, 1, hits.join('\n'));
   const at = src.indexOf(hits[0]);

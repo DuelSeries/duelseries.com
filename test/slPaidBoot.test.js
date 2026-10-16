@@ -270,7 +270,8 @@ test('the owed lane: a write whose answer was lost replays as exists; a tick nev
    devRefund): recordOwedOnce's argument order with the micro in dollars, the drainer kick, agInflight, slMoney's onOwed,
    and the slpaid-sweep tick retrying it. test/slPaidJoinSmoke.test.js runs it live (T5-R1). */
 test('server/index.js: the owed lane writes dollars in recordOwedOnce\'s order, kicks the drainer, retries on the tick', () => {
-  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'server', 'index.js'), 'utf8');
+  // A Windows checkout (core.autocrlf) has CRLF; the scan is about the code, not the line endings.
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'server', 'index.js'), 'utf8').replace(/\r\n/g, '\n');
   const m = /const slOwedLane = slPaidBoot\.createOwedLane\(\{\n\s*write: (\(row\) => [^\n]+),\n\s*kick: kickDrain,\n\s*track: agInflight\.track,\n\}\);/.exec(src);
   assert.ok(m, 'index.js builds the owed lane');
   const got = [];

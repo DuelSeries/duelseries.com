@@ -592,7 +592,8 @@ test('forEachCellInRect stays exact over a long run (reused buckets, 2000 ticks,
 test('the shipped sim holds no candidate number, no clock, no Math.random and no fixture import', () => {
   const fs = require('node:fs');
   const path = require('node:path');
-  const src = fs.readFileSync(path.join(__dirname, '..', 'server', 'ag', 'agSim.js'), 'utf8');
+  // A Windows checkout (core.autocrlf) has CRLF; the scan is about the code, not the line endings.
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server', 'ag', 'agSim.js'), 'utf8').replace(/\r\n/g, '\n');
   const code = src.split('\n').map((l) => l.replace(/\/\/.*$/, '')).join('\n');
   for (const bad of ['14142', '7071', '31.62', '780', '0.0122', '36.06', '42.43', '141.42', '1500', '22500', '0.002',
     '1.15', 'Math.random', 'Date', 'setTimeout', 'setInterval', 'agLawsFixture', 'performance.now']) {

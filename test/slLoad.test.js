@@ -239,7 +239,11 @@ test('a long-polling wanderer keeps its HTTP connections (keep-alive, as a brows
   try {
     const run = createWanderers({ url: 'http://127.0.0.1:' + port, clients: 1, polling: 1, seed: 4 });
     run.start();
+    // At least 2 s, then until 40 requests (10 s at most): the full suite can page the box, and a fixed 2 s window
+    // then undercounts (21 once, 2026-10-16). The TCP bound below is what this test is about.
+    const end = Date.now() + 10000;
     await new Promise((r) => setTimeout(r, 2000));
+    while (requests < 40 && Date.now() < end) await new Promise((r) => setTimeout(r, 100));
     run.stop();
     const sum = run.summary();
     assert.strictEqual(sum.polling, 1);

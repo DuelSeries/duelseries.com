@@ -58,7 +58,12 @@ test('an injected throw or rejection in each sl job leaves a fake paid room runn
     prey: false, log: quiet });
   room2.seat(bareSocket(), { nick: 'b', cv: 1 });
   const t0 = paidTicks;
+  // At least 400 ms, then until every count below is in (5 s at most): the full suite can page the box, and a fixed
+  // 400 ms window then undercounts (10 ticks once, 2026-10-16).
+  const done = () => paidTicks - t0 > 20 && closed && ['sl.sweep', 'sl.top', 'sl.bots'].every((l) => st.byLabel[l] >= 5);
+  const end = Date.now() + 5000;
   await new Promise((r) => setTimeout(r, 400));
+  while (!done() && Date.now() < end) await new Promise((r) => setTimeout(r, 50));
   const ran = paidTicks - t0;
   for (const j of jobs) j.stop();
   room.stop();

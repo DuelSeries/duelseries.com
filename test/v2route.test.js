@@ -966,7 +966,8 @@ test('a tab swipe follows the finger and can be pulled back', () => {
 test('chat on a phone is readable but not typeable, and small', () => {
   /* There is no T key on a phone to open the input, and a keyboard sliding up
      mid-game covers the snake. The feed stays; the panel and the input go. */
-  const css = fs.readFileSync(path.join(ROOT, 'public/css/game.css'), 'utf8');
+  // A Windows checkout (core.autocrlf) has CRLF; the scan is about the CSS, not the line endings.
+  const css = fs.readFileSync(path.join(ROOT, 'public/css/game.css'), 'utf8').replace(/\r\n/g, '\n');
   const i = css.indexOf('Chat on a phone');
   assert.ok(i > 0, 'there is a phone-specific chat block');
   const block = css.slice(i, css.indexOf('\n}\n', css.indexOf('#chat-hint', i)) + 3);

@@ -320,9 +320,10 @@ test('without keepAwake the free room keeps the idle pause (paid rooms and the b
 });
 
 test('the server opens the free room awake (slBoot openSl awake: true), so the card is full from boot', () => {
-  const src = require('fs').readFileSync(require('path').join(__dirname, '../server/index.js'), 'utf8');
+  // A Windows checkout (core.autocrlf) has CRLF; the scan is about the code, not the line endings.
+  const src = require('fs').readFileSync(require('path').join(__dirname, '../server/index.js'), 'utf8').replace(/\r\n/g, '\n');
   const call = src.slice(src.indexOf('const slOpened = slBoot.openSl({'), src.indexOf('const slArenas = slOpened.arenas;'));
   assert.match(call, /\n  awake: true,\n/);
-  const boot = require('fs').readFileSync(require('path').join(__dirname, '../server/sl/slBoot.js'), 'utf8');
+  const boot = require('fs').readFileSync(require('path').join(__dirname, '../server/sl/slBoot.js'), 'utf8').replace(/\r\n/g, '\n');
   assert.match(boot, /if \(o\.awake === true\) arenas\.keepAwake\(\);/);
 });
