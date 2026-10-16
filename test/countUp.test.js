@@ -53,7 +53,10 @@ test('countUp: loaded before the lobby modules, and screens count from $0 when t
   const at = s => html.indexOf('<script src="/js/v2/' + s + '"></script>');
   assert.ok(at('countUp.js') > 0 && at('countUp.js') < at('toasts.js') && at('countUp.js') < at('wallet.js'));
   assert.ok(/if\(next&&next!==prev&&window\.DSCount\)DSCount\.open\(next\);/.test(html), 'a tap onto a screen');
-  assert.ok(/el\.style\.display='block';\n[^\n]*\n  if\(window\.DSCount\)DSCount\.open\(el\);/.test(html), 'a swipe onto a screen');
+  // A swipe opens it one task after the frame that claims the drag (swipe.js), not inside it.
+  const prepAt = html.indexOf('function prepareScreen(tab){');
+  const prep = html.slice(prepAt, html.indexOf('\n}', prepAt));
+  assert.ok(/el\.style\.display='block';[\s\S]*if\(window\.DSCount\)setTimeout\(\(\)=>DSCount\.open\(el\),0\);/.test(prep), 'a swipe onto a screen');
   assert.ok(/document\.body\.classList\.remove\('ingame'\);[\s\S]{0,300}DSCount\.open\(document\.body\)/.test(html),
     'back from a game');
 });

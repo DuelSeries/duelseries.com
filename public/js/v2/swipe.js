@@ -61,6 +61,7 @@
                       'shop-screen'];
 
   let x0 = 0, y0 = 0, t0 = 0, from = null;
+  let claimedAt = 0;        // when the last tab drag was claimed (the Shop's previews sit that frame out)
   let tracking = false;     // a touch is down and might become a swipe
   let drag = null;          // the live drag, once one has been claimed
 
@@ -70,7 +71,8 @@
      it arrive late and bunched; timed by Date.now() a quick flick read as slow
      and sprang back. The event's own stamp is the finger's clock. */
   const stamp = e => (e && e.timeStamp) || performance.now();
-  const visible = e => e && getComputedStyle(e).display !== 'none';
+  /* A parked screen (v2.html parkScreen) is laid out but not showing. */
+  const visible = e => e && (window.screenShown ? window.screenShown(e) : getComputedStyle(e).display !== 'none');
 
   function onStart(e) {
     cancelSettle();
@@ -154,6 +156,7 @@
     cur.classList.add('scr-live');
     document.body.classList.add('scr-dragging');
 
+    claimedAt = performance.now();
     drag = { dir, tab, cur, incoming, saved, paned, w: window.innerWidth, dx: 0,
              lastX: x0, lastT: t0, v: 0 };
     move(0);
@@ -406,6 +409,7 @@
       d.incoming.removeEventListener('transitionend', onEndTx);
       clearTimeout(settleTimer);
       settleTimer = null; settleDone = null;
+      parkSoon();
       if (d.game) {
         /* The real screen already shows the game it lands on; springing back
            turns it into the one you were on first. Then the still goes, in the
@@ -424,6 +428,7 @@
       d.incoming.setAttribute('style', d.saved);
       document.body.classList.remove('scr-dragging');
       if (commit) window.commitScreen(d.tab);
+      else if (window.putAway) window.putAway(d.incoming);   // Play is parked, not torn down
       else d.incoming.style.display = 'none';
     };
     /* transitionend rather than a timer alone, so the swap happens the instant
@@ -473,5 +478,52 @@
   document.addEventListener('touchend', onEnd, { passive: true });
   document.addEventListener('touchcancel', onCancel, { passive: true });
 
-  window.V2Swipe = { tabs: TABS, targetFor, get dragging() { return !!drag; } };
+  /* ── getting screens ready before a swipe needs them ────────────────────
+     Both of these run in idle time, one piece per idle moment, and never while
+     a finger is down, a drag or its settle is running, or a game is up (the
+     game owns the thread then; they wait and try again). A swipe that comes
+     first simply builds its screen the way it always did. */
+  const gameUp = () => ['game-frame', 'agar-frame'].some(id => { const f = el(id); return !!f && f.style.display === 'block'; });
+  const busy = () => !!(drag || tracking || settleDone || gameUp() || document.hidden);
+  const idle = (f, wait = 1500) => window.requestIdleCallback
+    ? window.requestIdleCallback(f, { timeout: wait })
+    : setTimeout(f, 80);
+
+  /* Warming. A screen's first show costs several times what every later one
+     does (v2.html warmScreen says what and how much), and a swipe pays it in
+     the frame that claims the drag. So once the page has loaded, each tab's
+     screen is laid out once, unseen, the nearest tabs first. */
+  function warmAll() {
+    const here = TABS.indexOf(window.route || 'play');
+    const queue = TABS.filter(t => t !== window.route)
+      .sort((a, b) => Math.abs(TABS.indexOf(a) - here) - Math.abs(TABS.indexOf(b) - here));
+    const step = () => {
+      if (!queue.length || !window.warmScreen) { parkSoon(); return; }
+      if (busy()) { setTimeout(() => idle(step), 1000); return; }
+      try { window.warmScreen(queue.shift()); } catch (_) {}
+      idle(step);
+    };
+    idle(step);
+  }
+  if (document.readyState === 'complete') warmAll();
+  else window.addEventListener('load', warmAll, { once: true });
+
+  /* Parking. On a phone Play is parked rather than torn down whenever it is
+     left (v2.html putAway), so it is already built when a swipe brings it
+     back. A lobby opened on another tab has never built it: that is done
+     once here, in idle time, after the warm-up and after every landing
+     (v2.html go calls landed()), until it has happened. */
+  let parkAsked = false;
+  function parkSoon() {
+    if (parkAsked || !window.parkScreen) return;
+    parkAsked = true;
+    idle(() => {
+      parkAsked = false;
+      if (busy()) { setTimeout(parkSoon, 1000); return; }
+      try { window.parkScreen(); } catch (_) {}
+    }, 400);                                        // soon: a swipe straight back is common
+  }
+
+  window.V2Swipe = { tabs: TABS, targetFor, landed: parkSoon,
+                     get dragging() { return !!drag; }, get claimedAt() { return claimedAt; } };
 })();

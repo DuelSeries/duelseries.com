@@ -1894,6 +1894,22 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
    wherever the finger happened to let go. */
 .scr-drag { position:fixed; z-index:2; will-change:transform }
 .scr-live { will-change:transform }
+/* A tab's screen laid out once, unseen, after load (warmScreen): in the layout
+   for one moment, never painted, never a target. */
+.scr-warm { display:block !important; visibility:hidden !important; pointer-events:none }
+/* The Play screen, put away on a phone (putAway): still displayed, laid out
+   and painted, two widths off to the left in its own layer, so coming back to
+   it only has to move it. Only the phone layout has panes that can sit off to
+   the side; anywhere else (a phone turned past 760px, say) a parked screen is
+   simply hidden. */
+.scr-park { display:none !important }
+@media(max-width:760px){
+  .scr-park { display:block !important; transform:translateX(-200%); will-change:transform }
+}
+/* Nothing in it moves while it waits: the live dots pulse a box-shadow, which
+   is a repaint every frame, and the ticker would scroll on for nobody. They
+   pick up where they were when it comes back. */
+.scr-park .ldot, .scr-park .tkrun, .scr-park .chip b, .scr-park .win-live i { animation-play-state:paused !important }
 /* The still of a game screen a swipe is leaving (swipe.js gBegin): a picture, never a target. */
 .scr-still { pointer-events:none }
 /* The duration is set per-release in swipe.js, from the distance still to
@@ -3998,6 +4014,12 @@ let _paused=false;
    false, so a second resume, or one that lands before the paused loop has run
    once more, can never start a second loop beside the first. */
 let _rafOn=true;
+/* The screen parked out of sight (parkScreen, further down), declared above
+   the loop for the same reason as the two above: the loop reads it on its
+   first frame. Its canvases are not painted: it is not on screen, whatever
+   offsetParent says. */
+let _parked=null;
+const parkedHas=n=>!!_parked&&_parked.contains(n);
 
 function lobbyLoop(t){
   /* Math.max(0,...): the first frame after a resume can be stamped a hair
@@ -4007,7 +4029,7 @@ function lobbyLoop(t){
   if(_paused){_rafOn=false;return}   // the game owns the thread: stop asking
   /* offsetParent is null for anything inside a hidden screen. Without this the
      game screen's backdrop kept simulating while you were on the home tab. */
-  document.querySelectorAll('canvas[data-anim]').forEach(cv=>{if(!cv.offsetParent)return;try{
+  document.querySelectorAll('canvas[data-anim]').forEach(cv=>{if(!cv.offsetParent||parkedHas(cv))return;try{
     /* Always animated. This used to be gated on a Motion switch in Settings,
        which existed because the OS's prefers-reduced-motion froze the game
        screen's backdrop with nothing on the page to say why. The switch is
@@ -4026,7 +4048,7 @@ function lobbyLoop(t){
   lookT=nowMs/1000;
   try{reelStep(nowMs)}catch(e){}
   document.querySelectorAll('canvas[data-look]').forEach(cv=>{
-    if(cv.offsetParent)try{paintLook(cv)}catch(e){}
+    if(cv.offsetParent&&!parkedHas(cv))try{paintLook(cv)}catch(e){}
   });
   requestAnimationFrame(lobbyLoop);
 }
@@ -4261,8 +4283,7 @@ function drawTicker(){
    page, which is a CSS behaviour and unchanged. */
 
 function open_(id){
-  const from=SCREENS.map(s=>document.getElementById(s))
-                    .find(el=>el&&getComputedStyle(el).display!=='none');
+  const from=SCREENS.map(s=>document.getElementById(s)).find(screenShown);
   /* Flipping from one game's screen to the next (swipe.js) keeps the screen
      it was first reached from, so Back still returns there. */
   if(!(from&&from.id==='detail'))_cameFrom=(from&&from.id==='allgames')?'allgames':'home';
@@ -4614,12 +4635,12 @@ function showScreen(id,dir){
      to animate out means grabbing the one already on its way out: it gets
      cleaned up a line later and then re-pinned, leaving it stuck on top. */
   if(_scrBusy)_scrBusy();
+  unparkScreen(document.getElementById(id));   // coming back to a parked Play: it is already built
 
   /* Computed, not inline: on first load the visible screen is showing by
      stylesheet default and has no inline display at all, so reading
      el.style.display finds nothing and the first swipe never animates. */
-  const prev=SCREENS.map(s=>document.getElementById(s))
-                    .find(el=>el&&getComputedStyle(el).display!=='none');
+  const prev=SCREENS.map(s=>document.getElementById(s)).find(screenShown);
   const next=document.getElementById(id);
   const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
   /* A screen that was not up counts its money up from $0 (countUp.js). Queued,
@@ -4627,7 +4648,7 @@ function showScreen(id,dir){
   if(next&&next!==prev&&window.DSCount)DSCount.open(next);
 
   if(!dir||!prev||prev===next||!next||reduce){
-    SCREENS.forEach(s=>{const el=document.getElementById(s); if(el)el.style.display='none'});
+    SCREENS.forEach(s=>{const el=document.getElementById(s); if(el&&el!==next)putAway(el)});
     if(next)next.style.display='block';
     document.body.classList.toggle('no-foot',id==='detail'||id==='settings-screen');
     return;
@@ -4642,7 +4663,7 @@ function showScreen(id,dir){
   prev.classList.add('scr-out');
 
   SCREENS.forEach(s=>{const el=document.getElementById(s);
-                      if(el&&el!==prev)el.style.display='none'});
+                      if(el&&el!==prev&&el!==next)putAway(el)});
   next.style.display='block';
   next.style.setProperty('--sd',shift);
   next.classList.add('scr-in');
@@ -4652,7 +4673,7 @@ function showScreen(id,dir){
     clearTimeout(t); _scrBusy=null;
     prev.classList.remove('scr-out');
     prev.style.cssText=px;
-    prev.style.display='none';
+    putAway(prev);
     next.classList.remove('scr-in');
     next.style.removeProperty('--sd');
     document.body.classList.remove('scr-anim');
@@ -4788,11 +4809,101 @@ document.addEventListener('blur',async e=>{
 function prepareScreen(tab){
   const id=SCREEN_FOR[tab]; if(!id)return null;
   const el=document.getElementById(id); if(!el)return null;
+  if(el===_parked)unparkScreen(el);
   fillScreen(tab);
   el.style.display='block';
-  // Dragged in by a swipe: its money counts up as it arrives, as on a tap.
-  if(window.DSCount)DSCount.open(el);
+  /* Dragged in by a swipe: its money counts up as it arrives, as on a tap.
+     Just after this task, not in it: this is the frame a swipe claims its
+     drag in, and opening the count-up here measured and rewrote every figure
+     on the screen inside it (7 ms at 1x on a first Events visit, 30 at 4x,
+     2026-10-16). For that one frame the screen is a sliver at the edge. */
+  if(window.DSCount)setTimeout(()=>DSCount.open(el),0);
   return el;
+}
+/* Lay a hidden tab's screen out once, unseen, so the first swipe to it does
+   not pay for everything a first show costs inside the frame it claims the
+   drag in. The first show of a screen sets up every font size and weight it
+   uses and shapes and measures all its text from nothing; every later show
+   reuses that. Measured headless at 1x CPU (2026-10-16): Events laid out in
+   14 to 31 ms the first time and 4 to 6 after, Settings 9 to 14 and about
+   1, the Shop 7 to 11 and about 1, and a slow phone multiplies all of it.
+
+   Phones only: there every screen is its own fixed pane, so showing one for
+   a moment moves nothing else. In the desktop flow it would push the page
+   about, and a desktop has no touch to swipe with anyway. The class is on for
+   one forced layout and off again in the same task, so nothing is painted and
+   no other code ever sees it showing. The Shop is filled first because its
+   cards are built by render(), which needs no network; the others keep what
+   they have and are filled for real when a swipe brings them in.
+   swipe.js decides when (after load, one screen per idle moment). */
+function warmScreen(tab){
+  const id=SCREEN_FOR[tab]; if(!id||tab===route)return;
+  const el=document.getElementById(id); if(!el)return;
+  const cs=getComputedStyle(el);
+  if(cs.display!=='none'||cs.position!=='fixed')return;
+  if(tab==='shop'&&window.V2ShopTab)V2ShopTab.render();
+  el.classList.add('scr-warm');
+  void el.offsetHeight;                 // the layout is the whole point; do not remove
+  el.classList.remove('scr-warm');
+}
+/* The Play screen is the one a warm-up cannot make cheap. It is the biggest
+   screen by far (520 elements: the rail's three copies of every card, the
+   winners ticker, the lobby list), and showing a screen from display:none
+   rebuilds all of it every time: 11 ms of style and layout and 5 of paint at
+   1x CPU (2026-10-16), and the swipe from Wallet that did it took 21 to 24 ms
+   in all, the one swipe that still dropped frames on a slow phone once every
+   first show was warmed.
+
+   So on a phone Play is never torn down. When another screen takes over it is
+   parked (putAway): still displayed, already laid out and painted, slid two
+   widths off to the left in its own layer, its animations paused and hidden
+   from screen readers. Coming back to it, by swipe or by tap, only has to
+   move it: about 4 ms. Parking where it stands costs nothing, since it is
+   already built; only a lobby opened on another tab builds it once, in idle
+   time (parkScreen, asked by swipe.js).
+
+   Parked is not shown. screenShown() says so for every check here that asks
+   which screen is up, swipe.js and the lobby list's poll ask it too, and the
+   lobby loop leaves a parked screen's canvases alone (parkedHas, beside the
+   loop). Not inert, on purpose: toggling inert restyles the whole screen,
+   which is most of what parking saves. Anywhere but the phone layout putAway
+   is display:none as before, and .scr-park hides it there too. */
+const HOME=document.getElementById('home');
+const paned=el=>getComputedStyle(el).position==='fixed';
+function screenShown(el){
+  return !!el&&el!==_parked&&getComputedStyle(el).display!=='none';
+}
+function park(el){
+  _parked=el;
+  el.classList.add('scr-park');
+  el.setAttribute('aria-hidden','true');
+}
+/* Take a screen off: Play is parked on a phone, anything else is hidden. */
+function putAway(el){
+  if(el===_parked)return;
+  if(el===HOME&&!_parked&&paned(el)){
+    if(getComputedStyle(el).display==='none'){park(el);el.style.display='block'}
+    else park(el);                      // where it stands: already built
+    return;
+  }
+  el.style.display='none';
+}
+/* A lobby opened on another tab has never built Play: build it once, parked,
+   in idle time, so the first swipe to it is as cheap as every later one. */
+function parkScreen(){
+  if(_parked||route==='play'||!HOME)return;
+  const cs=getComputedStyle(HOME);
+  if(cs.display!=='none'||cs.position!=='fixed')return;
+  park(HOME);
+  HOME.style.display='block';
+  void HOME.offsetHeight;               // build it now, in idle time, not under a finger
+}
+/* Bring a parked screen back: show is the screen about to be shown. */
+function unparkScreen(show){
+  const el=_parked; if(!el||el!==show)return;
+  _parked=null;
+  el.classList.remove('scr-park');
+  el.removeAttribute('aria-hidden');
 }
 /* The drag finished on the new screen: make it the route and drop the rest.
 
@@ -4804,12 +4915,13 @@ function prepareScreen(tab){
    you had scrolled to. */
 function commitScreen(tab){
   const id=SCREEN_FOR[tab]; if(!id)return;
+  unparkScreen(document.getElementById(id));
   route=tab; drawNav();
   /* Swipes land here rather than in showScreen, so the footer rule has to be
      applied on this path too or it only ever holds for taps. */
   document.body.classList.toggle('no-foot',id==='detail'||id==='settings-screen');
   SCREENS.forEach(s=>{const el=document.getElementById(s);
-                      if(el&&s!==id)el.style.display='none'});
+                      if(el&&s!==id)putAway(el)});
   /* No scroll reset here. A drag already did it at the START of its settle,
      precisely so this moment moves nothing; resetting again here would be the
      jump this path exists to avoid. Taps go through go(), which does it. */
@@ -4821,8 +4933,7 @@ function commitScreen(tab){
 function jumpToTop(){
   /* On a phone the document does not scroll: each screen is its own pane, so
      "top" means the top of the screen you are on. */
-  const cur=SCREENS.map(s=>document.getElementById(s))
-                   .find(e=>e&&getComputedStyle(e).display!=='none');
+  const cur=SCREENS.map(s=>document.getElementById(s)).find(screenShown);
   if(cur&&getComputedStyle(cur).position==='fixed'){cur.scrollTop=0;return 0}
   const y=window.scrollY||0;
   const h=document.documentElement, prev=h.style.scrollBehavior;
@@ -4833,6 +4944,10 @@ function jumpToTop(){
 }
 window.jumpToTop=jumpToTop;
 window.prepareScreen=prepareScreen;
+window.warmScreen=warmScreen;
+window.parkScreen=parkScreen;
+window.putAway=putAway;
+window.screenShown=screenShown;
 window.commitScreen=commitScreen;
 
 /* The extracted modules need these two: the router, and the palette they
@@ -4851,6 +4966,7 @@ function go(id,dir){
   fillScreen(id);
   showScreen(sid,dir);
   jumpToTop();
+  if(window.V2Swipe)V2Swipe.landed();     // a Play never shown yet is built, parked, in idle time (swipe.js)
 }
 
 /* The mock wallet dropdown that used to live here is gone: five tabs of

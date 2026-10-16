@@ -81,5 +81,6 @@ test('the game screen gives Paper.io the live backdrop through the same frame lo
   assert.match(html, /if\(cv\.dataset\.game==='paper'&&window\.V2PaperBg\)return V2PaperBg\.make/);
   /* paintScene is what lobbyLoop calls for every canvas[data-anim], which already skips a hidden screen. */
   assert.match(html, /function paintScene\(cv,dt\)\{[\s\S]{0,400}V2PaperBg\.step\(pw,dt\/60\)/);
-  assert.match(html, /canvas\[data-anim\]'\)\.forEach\(cv=>\{if\(!cv\.offsetParent\)return/);
+  // ...and a parked Play screen too (v2.html parkScreen): displayed, but not on screen.
+  assert.match(html, /canvas\[data-anim\]'\)\.forEach\(cv=>\{if\(!cv\.offsetParent(\|\|parkedHas\(cv\))?\)return/);
 });

@@ -212,7 +212,9 @@
     stop();
     timer = setInterval(() => {
       const home = el('home');
-      if (home && getComputedStyle(home).display !== 'none' && !document.hidden) load();
+      // Parked out of sight while Wallet is up is not showing (v2.html parkScreen).
+      const up = home && (window.screenShown ? window.screenShown(home) : getComputedStyle(home).display !== 'none');
+      if (up && !document.hidden) load();
     }, 10000);
   }
   function stop() { if (timer) { clearInterval(timer); timer = null; } }

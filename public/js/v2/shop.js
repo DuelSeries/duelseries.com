@@ -52,16 +52,25 @@
     var g = S.game(gameId);
     return chips() + lockNote(g) + '<div class="sh-grid">' + g.skins.map(function (k) { return card(g, k); }).join('') + '</div>';
   }
-  var host = null;
+  var host = null, drawn = null, drawnHost = null;
   function draw() {
     host = root.document.getElementById('shop');
     if (!host) return;
+    // One "Coming soon" for the whole Shop, instead of a dead button on every card.
+    var html = '<div class="head"><div><h2>Shop</h2><div class="sub">Coming soon</div></div></div>' + bodyA();
+    /* Nothing changed since the last draw: keep the cards there are. render()
+       runs on every swipe and tap into the Shop, and rebuilding identical
+       markup threw away every painted preview, so each visit started from
+       blank canvases and repainted all of them while the screen was sliding
+       in, the most expensive moment to do it on a slow phone (2026-10-16).
+       A game picked, or a game's lock changing, still rebuilds. */
+    if (html === drawn && host === drawnHost && host.firstChild) return;
+    drawn = html; drawnHost = host;
     /* The chip row keeps where it was scrolled to across a redraw, then
        brings the picked chip into view: rebuilding it put the row back at
        the start, so the chip just picked slid off the screen. */
     var old = host.querySelector('.sh-chips'), keep = old ? old.scrollLeft : 0;
-    // One "Coming soon" for the whole Shop, instead of a dead button on every card.
-    host.innerHTML = '<div class="head"><div><h2>Shop</h2><div class="sub">Coming soon</div></div></div>' + bodyA();
+    host.innerHTML = html;
     host.onclick = onClick;
     var row = host.querySelector('.sh-chips');
     if (row) {
@@ -83,10 +92,11 @@
      game iframe, and a preview left animating behind a game is what once cost
      the snake half its frame rate, so the loop stops itself the first frame
      the screen is not showing and render() is what starts it again. */
-  var cvs = [], fresh = [], running = false, last = 0, sized = 0, FRESH_MS = 4;
+  var cvs = [], fresh = [], due = [], running = false, last = 0, sized = 0, FRESH_MS = 4, ANIM_MS = 4;
   function collect() {
     cvs = Array.prototype.slice.call(host.querySelectorAll('canvas.sh-cv'));
     fresh = cvs.slice();
+    due = [];
     sized = 0;
   }
   function showing() {
@@ -106,6 +116,12 @@
     if (!showing()) { if (grace-- <= 0) { running = false; return; } root.requestAnimationFrame(frame); return; }
     grace = 0;
     root.requestAnimationFrame(frame);
+    /* The frame a tab swipe claims its drag in already lays out and paints
+       the screen coming in, so the previews sit that one frame out and pick
+       up where they were on the next (2026-10-16). Its stamp is the frame's
+       start, a moment before the touch that claimed the drag was handled. */
+    var claimed = root.V2Swipe ? root.V2Swipe.claimedAt : 0;
+    if (claimed && ts - claimed < 8) return;
     var t = ts / 1000, vw = root.innerWidth, vh = root.innerHeight;
     var resize = ts - sized > 500;                       // a cheap re-measure twice a second
     if (resize) sized = ts;
@@ -122,13 +138,22 @@
       if (isNew && newOnes && root.performance.now() - t0 > FRESH_MS) continue;
       var grew = resize && fit(c);
       if (isNew) { newOnes++; fit(c); fresh.splice(at, 1); }
-      var moves = S.animated(c.dataset.g);
-      if (!(grew || isNew || (moves && tick))) continue;
-      if (moves && !grew && !isNew) {
-        var r = c.getBoundingClientRect();
-        if (r.bottom < 0 || r.top > vh || r.right < 0 || r.left > vw) continue;
-      }
-      S.paint(c, c.dataset.g, c.dataset.k, t, false);
+      if (grew || isNew) { S.paint(c, c.dataset.g, c.dataset.k, t, false); continue; }
+      if (tick && S.animated(c.dataset.g) && due.indexOf(c) < 0) due.push(c);
+    }
+    /* The moving previews, the same way: each is repainted about 30 times a
+       second, but a frame spends at most a few milliseconds on them (always
+       at least one), and whoever waited goes first next frame. Eight snake
+       previews took about 3 ms and their upload another 3 at 1x CPU, so a
+       fast phone still paints them all in one frame as before; a slow one
+       used to spend 40 to 75 ms of every frame on them at 4x, Shop showing
+       or Shop sliding (2026-10-16), and now paints fewer a frame instead. */
+    var t1 = root.performance.now(), n = 0;
+    while (due.length && (!n || root.performance.now() - t1 <= ANIM_MS)) {
+      var d = due.shift(), r = d.getBoundingClientRect();
+      if (r.bottom < 0 || r.top > vh || r.right < 0 || r.left > vw) continue;
+      S.paint(d, d.dataset.g, d.dataset.k, t, false);
+      n++;
     }
   }
   function render() {

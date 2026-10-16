@@ -151,7 +151,8 @@
     // Reads first (text, visibility), so the page is laid out once, not once per figure.
     const seen = els.filter(el => el.isConnected).map(el => {
       const s = st(el), cur = el.textContent;
-      return { el, fin: cur === s.shown && s.fin != null ? s.fin : cur, vis: el.getClientRects().length > 0 };
+      // A parked Play screen (v2.html parkScreen) has boxes but is off to the side: not visible.
+      return { el, fin: cur === s.shown && s.fin != null ? s.fin : cur, vis: el.getClientRects().length > 0 && !el.closest('.scr-park') };
     });
 
     seen.forEach(({ el, fin, vis }) => {
