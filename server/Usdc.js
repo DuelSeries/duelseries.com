@@ -286,6 +286,20 @@ function systemTransfers(tx, keys) {
   }
   return out;
 }
+// The purchase ref in a skin payment's memo ('ds-skin:<ref>', server/skinShop.js), or null. Display only: what a
+// purchase is worth and who owns what is decided by skinShop, never by this.
+const MEMO_PROGRAM = 'MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr';
+function skinRefOf(msg, keys) {
+  for (const ix of (msg && msg.compiledInstructions) || []) {
+    if (keys[ix.programIdIndex] !== MEMO_PROGRAM) continue;
+    let text = '';
+    try { text = Buffer.from(typeof ix.data === 'string' ? bs58.decode(ix.data) : (ix.data || [])).toString('utf8'); } catch (_) { text = ''; }
+    const m = /^ds-skin:([1-9A-HJ-NP-Za-km-z]{16,32})$/.exec(text);
+    if (m) return m[1];
+  }
+  return null;
+}
+
 function historyRowOf(tx, owner, escrow, sig) {
   const meta = tx.meta;
   const at = sig && sig.blockTime ? sig.blockTime * 1000 : (tx.blockTime ? tx.blockTime * 1000 : null);
@@ -318,6 +332,13 @@ function historyRowOf(tx, owner, escrow, sig) {
       return Object.assign(base, { kind: 'withdrawSol', usdc: toUsdc(-delta), sol: bestLam > 0n ? sol(bestLam) : null,
                                    direction: 'out', game: !!best && (best === escrow || _houseAddrs.has(best)), peer: best });
     }
+  }
+  // A skin bought from this wallet (server/skinShop.js): its memo names the purchase. It pays the revenue wallet, a
+  // house address, so it used to read as a game entry (Owen, 2026-10-16). The route fills in which skin (skinRef).
+  const skinRef = delta < 0n ? skinRefOf(msg, keys) : null;
+  if (skinRef) {
+    return Object.assign(base, { kind: 'skin', usdc: toUsdc(-delta), direction: 'out', game: false,
+                                 peer: counterpartyOf(meta, owner, mint), sol: null, skinRef });
   }
   if (delta !== 0n) {
     // Who sent it (money in) or got it (money out). Public on the chain, like the rest of the row.
@@ -441,7 +462,8 @@ async function usdcTransfers(ownerAddress, opts) {
     if (!chunk.length) break;
     const got = await Promise.all(chunk.map(s => historyRow(owner, s, escrow)));
     for (const r of got) {
-      if (r && !r.game) rows.push(r);
+      // a skin bought is neither money added nor a withdraw (it shows in the Transactions list)
+      if (r && !r.game && r.kind !== 'skin') rows.push(r);
     }
     if (rows.length >= TRANSFER_ROWS_MAX) break;
   }

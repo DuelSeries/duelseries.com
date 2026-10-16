@@ -1791,6 +1791,19 @@ const TX_HISTORY_TTL_MS = 30 * 1000;
 const TX_HISTORY_MAX = 2000;
 const txHistoryCache = new Map();   // wallet + page cursor -> { at, page } or { at, pending }
 const TX_PAGE = 20;
+/* A skin row (Usdc.historyRowOf: a payment whose memo names a purchase) gets the item it bought, '<game>:<skin>',
+   from that purchase's row, when the row is this wallet's; the page names it ("Skin: Candy Cane"). Display only, a
+   database read and no chain call; a row it cannot name stays "Skin". */
+async function withSkinItems(wallet, page) {
+  for (const t of (page && page.rows) || []) {
+    if (!t || t.kind !== 'skin' || !t.skinRef || t.skinItem) continue;
+    try {
+      const row = await db.skinRow(t.skinRef);
+      if (row && row.wallet === wallet && skinCatalog.ID.test(row.game) && skinCatalog.ID.test(row.skin)) t.skinItem = row.game + ':' + row.skin;
+    } catch (_) { /* no database: the row stays "Skin" */ }
+  }
+  return page;
+}
 function txHistoryFor(wallet, before) {
   const now = Date.now();
   const key = wallet + ':' + (before || '');
@@ -1802,7 +1815,7 @@ function txHistoryFor(wallet, before) {
     }
     if (txHistoryCache.size >= TX_HISTORY_MAX) txHistoryCache.delete(txHistoryCache.keys().next().value);
   }
-  const pending = Usdc.usdcHistory(wallet, { limit: TX_PAGE, before }).then(
+  const pending = Usdc.usdcHistory(wallet, { limit: TX_PAGE, before }).then((page) => withSkinItems(wallet, page)).then(
     (page) => { txHistoryCache.set(key, { at: Date.now(), page }); return page; },
     (e) => { txHistoryCache.delete(key); throw e; });
   txHistoryCache.set(key, { at: now, pending });

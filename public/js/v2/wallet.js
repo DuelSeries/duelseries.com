@@ -211,11 +211,22 @@
      of the old one may still be on its way; that page is dropped instead of
      being appended to the new list as duplicates. */
   let txGen = 0;
+  // 'Skin: Candy Cane' from '<game>:<skin>' (shared/shopSkins.js), or just 'Skin' when it cannot be named. Escaped:
+  // the list is built as HTML.
+  function skinName(item) {
+    const SK = window.DS_SHOP_SKINS;
+    const m = /^([a-z][a-z0-9]*):([a-z][a-z0-9]*)$/.exec(typeof item === 'string' ? item : '');
+    const k = m && SK ? SK.byId(m[1], m[2]) : null;
+    return k ? 'Skin: ' + esc(k.name) : 'Skin';
+  }
   function txRow(t) {
     const inb = t.direction === 'in';
     /* The player's own money is named by the button that moves it (Owen,
        2026-10-15): Add funds and Withdraw, the same words as on the buttons. */
-    const name = t.game ? (inb ? 'Game payout' : 'Game entry')
+    /* A skin bought from Customize is named as the skin (server: Usdc.historyRowOf finds its memo, the route adds
+       which skin), never as a game entry. */
+    const name = t.kind === 'skin' ? skinName(t.skinItem)
+      : t.game ? (inb ? 'Game payout' : 'Game entry')
       : t.kind === 'convert' ? 'Convert to USDC' : t.kind === 'convertSol' ? 'Convert to SOL'
       : (inb ? 'Add funds' : 'Withdraw');
     /* A real minus sign, the arrow kept from screen readers, and the link

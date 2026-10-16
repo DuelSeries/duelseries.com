@@ -116,6 +116,30 @@ test('a stake stays a game; dust and rent are never rows; a plain SOL send and a
   assert.deepStrictEqual([row(innerIn).kind, row(innerIn).direction, row(innerIn).sol, row(innerIn).peer], ['sol', 'in', 0.03, FRIEND]);
 });
 
+test('a skin bought is a skin row, not a game entry (Owen 2026-10-16: his Candy Cane read as "Game entry")', () => {
+  // Owen's real shape: his USDC down 1, the revenue wallet (a house address) up 1, a memo naming the purchase.
+  const REVENUE = key();
+  Usdc.markHouseAddress(REVENUE);
+  const TOKEN = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
+  const skin = tx({ keys: [OWNER, key(), key(), TOKEN, MEMO],
+    ixs: [[TOKEN, [OWNER], Buffer.from([12])], [MEMO, [], Buffer.from('ds-skin:85yxdBPrERgrUm6kw7tvi5')]],
+    tokPre: [bal(OWNER, 22_080_000), bal(REVENUE, 7_000_000)], tokPost: [bal(OWNER, 21_080_000), bal(REVENUE, 8_000_000)] });
+  const r = row(skin);
+  assert.deepStrictEqual([r.kind, r.direction, r.usdc, r.game, r.skinRef, r.peer], ['skin', 'out', 1, false, '85yxdBPrERgrUm6kw7tvi5', REVENUE]);
+  // The same payment to the house without that memo is still read as before (a game).
+  const plain = tx({ keys: [OWNER, key(), key(), TOKEN], ixs: [[TOKEN, [OWNER], Buffer.from([12])]],
+    tokPre: [bal(OWNER, 2_000_000), bal(REVENUE, 0)], tokPost: [bal(OWNER, 1_000_000), bal(REVENUE, 1_000_000)] });
+  assert.strictEqual(row(plain).game, true);
+  // A memo that only looks like one is not a skin.
+  const odd = tx({ keys: [OWNER, key(), key(), TOKEN, MEMO],
+    ixs: [[TOKEN, [OWNER], Buffer.from([12])], [MEMO, [], Buffer.from('ds-skin:../../x')]],
+    tokPre: [bal(OWNER, 2_000_000), bal(REVENUE, 0)], tokPost: [bal(OWNER, 1_000_000), bal(REVENUE, 1_000_000)] });
+  assert.notStrictEqual(row(odd).kind, 'skin');
+  // The page names it from the item the route adds, and never as a game entry.
+  const w = require('fs').readFileSync(require('path').join(__dirname, '../public/js/v2/wallet.js'), 'utf8');
+  assert.ok(w.includes("const name = t.kind === 'skin' ? skinName(t.skinItem)"), 'Skin: <name> first');
+});
+
 test('the list walks both addresses: one row per transaction, newest first, games out, SOL priced', async () => {
   const ata = Usdc.ataFor(OWNER);
   const at = (s, slot) => ({ signature: s, slot, blockTime: 1_800_000_000 + slot, err: null });
