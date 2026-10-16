@@ -46,7 +46,9 @@ test('Withdraw never raises the phone keyboard on its own', () => {
 test('the player\'s own address is shown short, on one line, with a Copy button, everywhere', () => {
   const w = read('public/js/v2/wallet.js');
   assert.ok(/a\.slice\(0, 4\) \+ '…' \+ a\.slice\(-4\)/.test(w), 'first and last four');
-  assert.ok(/addrRow\('w-addr', addr\)/.test(w) && /addrRow\('dep-addr'/.test(w), 'the Wallet tab and the Deposit sheet');
+  assert.ok(/addrRow\('w-addr', addr\)/.test(w), 'the Wallet tab');
+  // Deposit opens the payment options straight away: no second sheet repeating the address.
+  assert.ok(/onclick="V2Wallet\.fund\(\)">Deposit<\/button>/.test(w) && !/depveil/.test(v2()), 'no Deposit sheet');
   assert.ok(/V2Wallet\.addrRow\('set-addr'/.test(v2()), 'and Settings');
   assert.ok(!/<code>' \+ esc\(addr\) \+ '<\/code>/.test(w), 'the full address is never printed');
   const css = v2().match(/\.waddr code\{[^}]*\}/)[0];
@@ -100,4 +102,36 @@ test('a locked skin is framed, not covered: the price sits under it and the dim 
   const scrim = html.match(/\.ap-scrim\{[^}]*\}/)[0].replace(/\s+/g, '');
   assert.ok(/mask-image:radial-gradient\(.*transparent72%,#000100%\)/.test(scrim),
     'the dim has a clear window over the middle skin');
+});
+
+test('the paid-out total is one currency: the old CAD part is turned into dollars, never added to them', () => {
+  /* Owen, 2026-10-15: keep the tile, fix the number. cad_amount held CAD before
+     the USDC cutover and the USDC amount itself after it (equal to amount). */
+  const db = read('server/db.js');
+  const split = db.slice(db.indexOf('async function getGlobalWinningsSplit('), db.indexOf('async function searchPlayerNames('));
+  assert.ok(/FILTER \(WHERE cad_amount <> amount\)/.test(split) && /FILTER \(WHERE cad_amount = amount\)/.test(split),
+    'split by what cad_amount was written in');
+  const srv = read('server/index.js');
+  const at = srv.indexOf("app.get('/api/stats/winnings'");
+  const route = srv.slice(at, at + 900);
+  assert.ok(/s\.usd \+ \(s\.cad \+ PRE_TRACKING_WINNINGS_CAD\) \/ rate/.test(route), 'CAD converted at the live rate');
+  assert.ok(/let totalUsd = null;/.test(route), 'no rate, no number');
+  assert.strictEqual(typeof require('../server/prices').getUsdCadRate, 'function');
+  assert.ok(/MODE === 'usdc' \? j\.totalUsd : j\.totalCad/.test(read('public/js/v2/social.js')), 'the lobby shows the dollars');
+});
+
+test('the wallet keeps one payouts list: Transactions, with the graph under it', () => {
+  const s = read('public/js/v2/stats.js');
+  assert.ok(!/Recent payouts/.test(s.replace(/\/\*[\s\S]*?\*\//g, '')), 'no Recent payouts list');
+  assert.ok(/V2EarningsChart\(el\('s-chart'\)/.test(s), 'the graph stays');
+});
+
+test('the Events countdown runs on: the live feed sends the second and the page counts from it', () => {
+  const srv = read('server/index.js');
+  const at = srv.indexOf('function liveBattleRoyale()');
+  assert.ok(/etSec: second/.test(srv.slice(at, at + 2500)), '/api/live br carries the second');
+  const en = srv.slice(srv.indexOf('function easternNow()'), srv.indexOf('function easternNow()') + 900);
+  assert.strictEqual((en.match(/second: d\.getSeconds\(\)/g) || []).length, 2, 'the second comes from the same Date, both paths');
+  // Without it each 3 s poll re-anchored at :00 and the clock stood still.
+  assert.ok(/BR\.etMin\*60\+\(BR\.etSec\|\|0\)\+Math\.floor\(\(Date\.now\(\)-BRAT\)\/1000\)/.test(v2()), 'the page counts from the second');
 });

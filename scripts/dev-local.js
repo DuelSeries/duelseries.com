@@ -142,6 +142,7 @@ const dbStub = {
     .sort((x, y) => y.totalEarnings - x.totalEarnings).slice(0, n)
     .map((a, i) => ({ rank: i + 1, name: a.name, earnings: a.totalEarnings })),
   getGlobalWinnings: async () => [...accounts.values()].reduce((s, a) => s + a.totalEarnings, 0),
+  getGlobalWinningsSplit: async () => ({ cad: 0, usd: [...accounts.values()].reduce((s, a) => s + a.totalEarnings, 0) }),
   searchPlayerNames: async (q, limit = 8) => [...accounts.values()]
     .filter(a => a.name.toLowerCase().includes(String(q).toLowerCase())).slice(0, limit).map(a => a.name),
   setAccountName: async (id, name) => { const a = acct(id); a.nameHistory.push(a.name); a.name = name; },

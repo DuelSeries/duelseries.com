@@ -37,8 +37,9 @@ test('the first nine old colours are cv 0 to 8 in order, so the old-engine fallb
 
 test('every game shows the bar, built or not (BACKLOG 2.2: one layout for every game)', () => {
   const html = v2();
-  // Nothing on the game screen hides the bar any more: an unbuilt game keeps the whole column with Play shut.
-  const hides = html.match(/#detail\.[\w.]+ [^{]*\{display:none\}/g) || [];
+  // Nothing on a playable game's screen hides the bar. A locked or unbuilt game (#detail.soon) hides it
+  // with the name field, Spectate and the lobby row since 2026-10-15 (Owen: only what a shut game is).
+  const hides = (html.match(/#detail\.[\w.]+ [^{]*\{display:none\}/g) || []).filter((r) => !/^#detail\.soon /.test(r));
   for (const r of hides) {
     assert.ok(!/\.lookrow(?![\w-])/.test(r.replace(/\.lookrow \.l\w+|\.lookrow canvas/g, '')),
       'nothing hides the bar: ' + r);

@@ -37,17 +37,22 @@
   let COUNTS = null;
   let timer = null;
 
+  /* A failed poll keeps the last good board instead of wiping it: a wiped
+     board dropped slither.io, agar.io and Paper.io from the list and left only
+     the pinned duels at 0 (2026-10-15 audit). With no good answer yet, the
+     list says it could not load rather than drawing that partial picture. */
+  let loadedOnce = false, failing = false;
   async function load() {
     try {
       const r = await fetch('/api/live');
+      if (r.ok === false) throw new Error('HTTP ' + r.status);   // a real Response; test stubs carry no ok
       const j = await r.json();
       LOBBIES = Array.isArray(j.lobbies) ? j.lobbies : [];
       EXTRAS = Array.isArray(j.extras) ? j.extras : [];
       COUNTS = j.counts && typeof j.counts === 'object' ? j.counts : null;
+      loadedOnce = true; failing = false;
     } catch (_) {
-      LOBBIES = [];
-      EXTRAS = [];
-      COUNTS = null;
+      failing = true;
     }
     draw();
     if (window.V2_paintCounts) window.V2_paintCounts();
@@ -71,8 +76,11 @@
       '<div class="lswatch">' + (window.V2_SWATCH ? window.V2_SWATCH(l.game) : '') + '</div>' +
       '<div class="lmid">' +
         '<span class="lname">' + esc(g) + '</span>' +
-        '<span class="lsub">' + esc(String(l.region).toUpperCase()) +
-          '<i></i>' + '<b class="lstake num">' + money(l.stake) + '</b></span>' +
+        /* The buy-in, and the region only when it is not NA: with one region
+           open, "NA" on every row said nothing (2026-10-15 audit). */
+        '<span class="lsub">' + (String(l.region).toLowerCase() === 'na' ? ''
+          : esc(String(l.region).toUpperCase()) + '<i></i>') +
+          '<b class="lstake num">' + money(l.stake) + '</b></span>' +
       '</div>' +
       '<span class="sp" style="flex:1"></span>' +
       '<span class="lcount' + live + '">' +
@@ -169,10 +177,14 @@
   function draw() {
     const box = el('lob');
     if (!box) return;
+    if (failing && !loadedOnce) {
+      box.innerHTML = '<div class="none">Could not load lobbies. Trying again…</div>';
+      box.classList.add('short');
+      return;
+    }
     const rows = rowsToShow();
     if (!rows.length) {
-      box.innerHTML = '<div class="none">Nobody is playing right now. ' +
-        'Pick a buy-in and start a game, and it shows up here for everyone else.</div>';
+      box.innerHTML = '<div class="none">Nobody playing yet.</div>';
       box.classList.add('short');
       return;
     }
@@ -188,7 +200,7 @@
     if (!l || !isOpen(l)) return;
     if (window.DS_LOCKED && window.DS_LOCKED.isLocked(l.game)) return;
     if (window.V2Play) return window.V2Play.enter(l);
-    alert('Entering a ' + money(l.stake) + ' lobby.');
+    // play.js is always on the page; without it there is nothing to enter, and nothing pretends to.
   }
 
   /* Counts go stale the moment they are drawn, and a board that shows an empty

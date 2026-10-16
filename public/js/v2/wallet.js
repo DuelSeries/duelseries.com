@@ -25,7 +25,8 @@
      away whatever was half-typed into it. */
   let cashing = false, pending = null;
   const connected = () => !!(w().authenticated && w().address);
-  const money = n => '$' + (Number(n) || 0).toFixed(2);
+  // Thousands separated, so $1,234.56 never reads as $1234.56.
+  const money = n => '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   /* A balance is shown, and Max fills it, rounded DOWN to the cent. toFixed
      rounds up, so $3.216 read as $3.22 and Max filled an amount the form then
      refused as more than you have. */
@@ -68,6 +69,8 @@
        says Wallet, so a signed-in player never sees a Sign in flash by. */
     const out = !!w().ready && !connected();
     if (label) label.textContent = out ? 'Sign in' : 'Wallet';
+    // A name for screen readers too: on a phone the label is hidden and only the icon shows.
+    const btn = el('wbtn'); if (btn) btn.setAttribute('aria-label', out ? 'Sign in' : 'Wallet');
     document.body.classList.toggle('signedout', out);
   }
   /* The header button signs you in when you are signed out, instead of
@@ -95,7 +98,7 @@
       drawnFor = null;
       const earn = el('w-earn'); if (earn) earn.hidden = true;
       body.innerHTML =
-        '<div class="panel"><p class="note">Sign in to see your balance.</p>' +
+        '<div class="panel">' +
         '<div class="brow"><button class="btn pri" onclick="V2Wallet.login()">Sign in</button></div>' +
         '</div>';
       return;
@@ -120,7 +123,7 @@
         '<div class="bnum num" id="w-bal">' + balMoney(bal) + '</div>' +
         /* The form lives in its own sheet now, so this row never swaps out. */
         ('<div class="wacts">' +
-            '<button class="btn pri" onclick="V2Wallet.openDep()">Deposit</button>' +
+            '<button class="btn pri" onclick="V2Wallet.fund()">Deposit</button>' +
             '<button class="btn sec" onclick="V2Wallet.cashOut()">Withdraw</button>' +
             '<button class="btn sec wref" id="w-refresh" onclick="V2Wallet.refresh()" ' +
               'aria-label="Refresh balance" title="Refresh balance">' +
@@ -236,8 +239,8 @@
      on a phone each one covers the whole screen. */
   function cashForm(bal) {
     if (pending) {
+      /* No "Confirm" label over it: the sentence and its "Send it" say so. */
       return '<div class="cashout">' +
-        '<div class="plab">Confirm</div>' +
         /* The destination in FULL here, the one place it has to be checked:
            a look-alike address can share its first and last characters with
            the real one, which is exactly what a shortened form shows. */
@@ -249,10 +252,12 @@
           '<button class="btn sec" onclick="V2Wallet.backCash()">Back</button>' +
         '</div></div>';
     }
+    /* The balance alone (the sheet is titled Withdraw), and the can't-be-
+       reversed warning once, on the confirm step where it is read before
+       sending, rather than on both steps (2026-10-15 audit). */
     return '<div class="cashout">' +
-      '<div class="mfig"><div class="k">Available to withdraw</div>' +
+      '<div class="mfig">' +
         '<div class="v num">' + balMoney(bal) + '</div></div>' +
-      '<p class="msub">Check the address. Transfers cannot be reversed.</p>' +
       /* Enter in either field does what the Withdraw button does. */
       '<input class="fld" id="co-to" placeholder="Solana address" autocomplete="off" ' +
         'spellcheck="false" aria-label="Destination Solana address" ' +
@@ -291,23 +296,9 @@
   /* Cash out sends from the player's own wallet to an address they give us.
      The amount and destination are theirs; this screen only collects them and
      hands both to the widget, which owns every part of the money. */
-  /* Deposit is our screen, not Privy's. Privy's own funding modal is headed
-     "Receive 20 USDC", which says nothing about where the money is going; this
-     one says whose wallet it is, shows the address, and keeps the one warning
-     that matters. Privy is still one button away for the QR and the card and
-     exchange options, which are its to render. */
-  function openDep() {
-    if (!connected()) return login();
-    const slot = el('dep-addr-slot');
-    if (slot) slot.innerHTML = addrRow('dep-addr', w().address || '');
-    el('depveil').classList.add('on');
-    if (window.sheetFocus) window.sheetFocus.open('depveil');
-  }
-  function closeDep() {
-    if (!el('depveil').classList.contains('on')) return;
-    el('depveil').classList.remove('on');
-    if (window.sheetFocus) window.sheetFocus.close();
-  }
+  /* Deposit opens the QR code and the card and exchange options straight
+     away (fund, above). It used to open our own sheet first, which repeated
+     the address and warning already on the Wallet tab (Owen, 2026-10-15). */
 
   function cashOut() {
     if (!connected()) return login();
@@ -432,7 +423,7 @@
     render(true);
   });
   window.V2Wallet = { render: render, login: login, fund: fund, copy: copy,
-                      refresh: refresh, more: more, openDep: openDep, closeDep: closeDep,
+                      refresh: refresh, more: more,
                       cashOut: cashOut, cancelCash: cancelCash, backCash: backCash,
                       max: max, submitCash: submitCash, confirmCash: confirmCash,
                       addrRow: addrRow, headerTap: headerTap };

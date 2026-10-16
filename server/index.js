@@ -1064,12 +1064,24 @@ app.get('/api/profile/:name', async (req, res) => {
 // existed. Added to the live tracked total so the public "winnings paid" figure reflects ALL
 // real payouts — not a marketing inflation. Bump only when more historical payouts are reconciled.
 const PRE_TRACKING_WINNINGS_CAD = 294;
+/* totalUsd is what the lobby shows (Owen, 2026-10-15: keep the tile, fix the
+   number). The old answer added CAD (SOL-era rows, the 294 above) to USD (every
+   row since the USDC cutover) and the lobby printed the mix with a bare "$".
+   Now the CAD part is turned into dollars at the live CAD-per-USD rate
+   (prices.getUsdCadRate); with no rate yet it is null and the tile shows a
+   dash rather than a guess. totalCad stays for anything still reading it. */
 app.get('/api/stats/winnings', async (req, res) => {
   try {
     const totalCad = await db.getGlobalWinnings();
-    res.json({ totalCad: totalCad + PRE_TRACKING_WINNINGS_CAD });
+    let totalUsd = null;
+    const rate = prices.getUsdCadRate();
+    if (rate && db.getGlobalWinningsSplit) {
+      const s = await db.getGlobalWinningsSplit();
+      totalUsd = Math.round((s.usd + (s.cad + PRE_TRACKING_WINNINGS_CAD) / rate) * 100) / 100;
+    }
+    res.json({ totalCad: totalCad + PRE_TRACKING_WINNINGS_CAD, totalUsd });
   } catch (e) {
-    res.json({ totalCad: 0 });
+    res.json({ totalCad: 0, totalUsd: null });
   }
 });
 
@@ -1788,6 +1800,16 @@ slGate.slRoutes(app, {
   open: slGate.slSwitch(process.env.SL_ENABLED),
   file: path.join(__dirname, '../public/sl.html'),
 });
+
+/* Old and developer-only pages stay in the repo for local use but are not
+   served by the live site (Owen, 2026-10-15): the pre-owner-console admin page
+   and the art/sound tools. Production only (NODE_ENV, which dev-local refuses),
+   and above express.static, which would otherwise hand them out. */
+const DEV_ONLY_PAGES = ['/admin.html', '/dev-bake-tiles.html', '/dev-soundcheck.html',
+  '/dev-tankart.html', '/preview_snake.html'];
+if (process.env.NODE_ENV === 'production') {
+  app.get(DEV_ONLY_PAGES, (_req, res) => res.status(404).sendFile(path.join(__dirname, '../public/404.html')));
+}
 
 app.use(express.static(path.join(__dirname, '../public')));
 app.use('/shared', express.static(path.join(__dirname, '../shared')));
@@ -2644,7 +2666,7 @@ function liveBattleRoyale() {
   const room = activeBr();
   if (!room) return null;
   const st = room.publicState();
-  const { hour, minute } = easternNow();
+  const { hour, minute, second } = easternNow();
   return {
     /* Which engine runs it: 'sl' opens /sl (the lobby's play.js), 'old' /game.html. */
     engine: brOnSl() ? 'sl' : 'old',
@@ -2670,6 +2692,9 @@ function liveBattleRoyale() {
     startMin: BR_AUTOSTART_MIN,
     etHour: hour,
     etMin: minute,
+    /* The Events countdown re-anchors on every 3 s poll; without the second it
+       restarted from :00 each time and never counted down. */
+    etSec: second,
   };
 }
 
@@ -2798,11 +2823,14 @@ try {
 } catch (_) { _brFmt = null; }
 function easternNow() {
   const d = new Date();
-  if (!_brFmt) return { hour: d.getHours(), minute: d.getMinutes(), day: d.toDateString() };
+  /* Seconds are the same in every whole-minute zone, so they come from the same
+     Date rather than the formatter (one Date, so a minute boundary cannot fall
+     between the minute and the second). */
+  if (!_brFmt) return { hour: d.getHours(), minute: d.getMinutes(), second: d.getSeconds(), day: d.toDateString() };
   const o = {};
   _brFmt.formatToParts(d).forEach(p => { if (p.type !== 'literal') o[p.type] = p.value; });
   const hour = Number(o.hour) === 24 ? 0 : Number(o.hour);   // some engines say 24 at midnight
-  return { hour, minute: Number(o.minute), day: o.year + '-' + o.month + '-' + o.day };
+  return { hour, minute: Number(o.minute), second: d.getSeconds(), day: o.year + '-' + o.month + '-' + o.day };
 }
 
 /* Paid ONCE per match, keyed to the match id, by the server. Nothing the
@@ -4244,6 +4272,17 @@ io.on('connection', (socket) => {
     lobbyConnections.delete(socket);
     broadcastLobbyState();
   });
+});
+
+/* Nothing matched. Registered last, after every route above (all of which are
+   registered synchronously at load, none later), so it can only ever answer
+   what would have been Express's bare white "Cannot GET /path" page: the
+   site's own 404 for a page, plain JSON for /api. */
+// Every browser asks for /favicon.ico whatever the page links; the PNG mark answers it.
+app.get('/favicon.ico', (_req, res) => res.type('png').sendFile(path.join(__dirname, '../public/img/favicon-32.png')));
+app.use((req, res) => {
+  if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Not found' });
+  res.status(404).sendFile(path.join(__dirname, '../public/404.html'));
 });
 
 const PORT = process.env.PORT || 3000;

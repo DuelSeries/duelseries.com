@@ -16,8 +16,8 @@
                                     /api/my-profile gives the Wallet tab. (The
                                     bucketed series also in the answer are for
                                     the old snake client, not this screen.)
-     GET /api/stats/winnings     -> { totalCad }  a fiat sum already; do not
-                                    re-multiply, only label it by money mode
+     GET /api/stats/winnings     -> { totalUsd, totalCad }  totalUsd is every payout in
+                                    dollars (null until the server has a CAD rate)
      GET /api/money-config       -> { mode, unit, … }
 
    What the server does NOT have, and is therefore not shown: per-game win/loss,
@@ -29,21 +29,15 @@
   let BOARD = [];
   const PROFILES = new Map();          // name -> profile, so reopening is free
 
-  const money = n => (MODE === 'usdc' ? '$' : 'C$') + (Number(n) || 0).toFixed(2);
+  // With thousands separators, so $1,234.56 never reads as $1234.56.
+  const money = n => (MODE === 'usdc' ? '$' : 'C$') +
+    (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const toast = m => (window.V2Play && window.V2Play.toast ? window.V2Play.toast(m) : alert(m));
+  let boardFailed = false;
   const esc = s => String(s == null ? '' : s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-  const initials = n => esc(String(n).replace(/[^a-z0-9]/gi, '').slice(0, 2).toUpperCase());
   const el = id => document.getElementById(id);
-
-  /* A name is all the server gives us to identify a player, so the avatar
-     colour is derived from it rather than stored. Same name, same colour,
-     on every device. */
-  function tint(name) {
-    let h = 0;
-    for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
-    return (window.V2_LOOKS || [{ color: '#c080ff' }])[h % (window.V2_LOOKS || [1]).length].color;
-  }
 
   function playTime(sec) {
     sec = Number(sec) || 0;
@@ -53,23 +47,37 @@
   }
 
   async function load() {
+    /* A fresh visit starts from the board: a query left in the box from last
+       time sat over the full board, which no longer matched it. */
+    const q = el('soc-q'); if (q) q.value = '';
+    // Loading says so, the first time, instead of a blank screen.
+    if (!BOARD.length && !boardFailed) el('soc-board').innerHTML = '<div class="none2">Loading…</div>';
     try {
       const cfg = await (await fetch('/api/money-config')).json();
       MODE = cfg.mode || 'usdc';
     } catch (_) { /* the default is already the live mode */ }
 
+    /* totalUsd: every payout in dollars (the old CAD part converted on the
+       server). totalCad mixed the two currencies under a "$". */
     let winnings = null;
-    try { winnings = (await (await fetch('/api/stats/winnings')).json()).totalCad; }
-    catch (_) { winnings = null; }
+    try {
+      const j = await (await fetch('/api/stats/winnings')).json();
+      winnings = MODE === 'usdc' ? j.totalUsd : j.totalCad;
+    } catch (_) { winnings = null; }
 
-    try { BOARD = await (await fetch('/api/earningsboard')).json(); }
-    catch (_) { BOARD = []; }
+    /* A failed read is a failed read, not "nobody has won": the two used to
+       look identical. */
+    try {
+      const r = await fetch('/api/earningsboard');
+      if (r.ok === false) throw new Error('HTTP ' + r.status);
+      BOARD = await r.json(); boardFailed = false;
+    } catch (_) { BOARD = []; boardFailed = true; }
     if (!Array.isArray(BOARD)) BOARD = [];
 
-    /* The one figure worth stating site-wide, and it belongs under the board
-       rather than over it: it is the total of the rows above. "Players in
-       profit" went with it — the board already IS that list, so the count was
-       a tile restating its own length. */
+    /* The one figure worth stating site-wide: everything ever paid out to
+       players (not the total of the rows above, which are the top ten net of
+       the house's cut). "Players in profit" went with it — the board already
+       IS that list, so the count was a tile restating its own length. */
     el('soc-tiles').innerHTML =
       '<div class="tile"><div class="k">Paid out to players</div>' +
       '<div class="v num">' + (winnings == null ? '—' : money(winnings)) + '</div></div>';
@@ -95,8 +103,7 @@
     const box = el('soc-board');
     if (names) {                                   // search results: names only
       if (!names.length) {
-        box.innerHTML = '<div class="none2">No player by that name. ' +
-          'Search matches the start of a name, so try fewer letters.</div>';
+        box.innerHTML = '<div class="none2">No player by that name.</div>';
         return;
       }
       /* A searched player may not be on the leaderboard at all, so their
@@ -108,8 +115,9 @@
       return;
     }
     if (!BOARD.length) {
-      box.innerHTML = '<div class="none2">Nobody has cashed out ahead yet. ' +
-        'Win a game and this is where you land.</div>';
+      box.innerHTML = boardFailed
+        ? '<div class="none2">Could not load the board. Try again in a moment.</div>'
+        : '<div class="none2">No winners yet.</div>';
       return;
     }
     box.innerHTML = BOARD.map(p => rowHTML(p.name, p.earnings, p.rank)).join('');
@@ -131,24 +139,27 @@
         drawBoard(await r.json());
       } catch (e) {
         if (e.name !== 'AbortError')
-          el('soc-board').innerHTML = '<div class="none2">Could not reach the ' +
-            'server. Check your connection and try again.</div>';
+          el('soc-board').innerHTML = '<div class="none2">Could not search. Try again in a moment.</div>';
       }
     }, 250);
   }
 
   async function openPlayer(name) {
+    /* Only a good answer is kept. A server error used to be cached as the
+       profile, so that player stayed broken until the page was reloaded; and
+       the messages are the lobby's toast, not browser alert boxes. */
     let p = PROFILES.get(name);
     if (!p) {
       try {
         const r = await fetch('/api/profile/' + encodeURIComponent(name));
-        if (r.status === 404) { alert('That player no longer exists.'); return; }
+        if (r.status === 404) { toast('That player no longer exists.'); return; }
+        if (r.ok === false) throw new Error('HTTP ' + r.status);
         p = await r.json();
         PROFILES.set(name, p);
-      } catch (_) { alert('Could not load that profile. Try again.'); return; }
+      } catch (_) { toast('Could not load that profile. Try again.'); return; }
     }
-    el('p-av').style.background = tint(p.name);
-    el('p-av').textContent = initials(p.name);
+    /* No initials disc (Owen, 2026-10-15): two letters of the name on a
+       colour made from the name, which the board had already dropped. */
     el('p-name').textContent = p.name;
     const rank = (BOARD.find(b => b.name === p.name) || {}).rank;
     el('p-sub').innerHTML = rank ? 'Rank <span class="num">' + rank + '</span>' : '';
@@ -158,9 +169,16 @@
       ['Time played', playTime(p.playTimeSeconds)],
     ].map(t => '<div class="tile"><div class="k">' + t[0] + '</div>' +
                '<div class="v num">' + t[1] + '</div></div>').join('');
-    drawEarnings(p);
+    /* One history entry per profile opened, so the phone's Back gesture (or
+       the browser's Back) returns to Top earners instead of leaving the site. */
+    try { history.pushState({ dsProfile: p.name }, ''); } catch (_) {}
     window.showScreen('player-screen');
-    scrollTo(0, 0);
+    // Drawn once the screen is showing, so the graph is sized to its box, as the Wallet's is.
+    drawEarnings(p);
+    /* The screen's own top: on a phone each screen scrolls itself, so a
+       window scroll left the next profile opening part way down, name and
+       Back link above the fold. */
+    if (window.jumpToTop) window.jumpToTop(); else scrollTo(0, 0);
   }
 
   /* The Wallet tab's graph, drawn by the same function from the same rows
@@ -173,11 +191,17 @@
     const box = el('p-chart');
     const games = Array.isArray(p.games) ? p.games : [];
     if (!games.length) {
-      box.innerHTML = '<div class="none2">No payouts yet.</div>';
+      box.innerHTML = '<div class="none2">No cash-outs yet.</div>';
       return;
     }
     window.V2EarningsChart(box, games, p.joinedAt, money);
   }
+
+  // Back from a profile: the board, if the profile is what is on screen.
+  window.addEventListener('popstate', () => {
+    const scr = el('player-screen');
+    if (scr && getComputedStyle(scr).display !== 'none' && window.go) window.go('social');
+  });
 
   window.V2Social = { load: load, drawBoard: drawBoard, search: search, openPlayer: openPlayer };
 })();

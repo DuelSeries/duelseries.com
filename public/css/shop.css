@@ -13,21 +13,14 @@
 .sh-chip.on{background:var(--bone);color:var(--ink)}
 .sh-note{font-size:13.5px;line-height:1.5;color:var(--tx3);margin:-4px 0 14px}
 
-/* A skin: its preview, then name, rarity, price and the dead Buy button. */
+/* A skin: its preview, then its name and price on one line. */
 .sh-card{background:var(--s1);border-radius:16px;overflow:hidden;display:flex;flex-direction:column}
 .sh-cv{display:block;width:100%;aspect-ratio:5/4}
 .sh-cv[data-g="snake"]{background:#0e1622 url(/hexbg.jpg) 0 0/180px}
-.sh-meta{padding:11px 13px 13px;display:flex;flex-direction:column;gap:3px}
-.sh-nm{font-weight:650;font-size:15px}
+.sh-meta{padding:12px 13px 13px}
+.sh-nm{font-weight:650;font-size:15px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sh-ln{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
-.sh-rar{font-size:12px;color:var(--tx3);display:inline-flex;align-items:center;gap:6px}
-.sh-pips{display:inline-flex;gap:2px}
-.sh-pips i{width:4px;height:9px;border-radius:1px;background:var(--s3)}
-.sh-pips i.on{background:var(--tx2)}
-.sh-price{font-size:15px;font-weight:600;color:var(--money)}
-.sh-buy{margin-top:8px;padding:9px 0;width:100%;border-radius:var(--r2);background:var(--s2);
-  color:var(--tx3);font-size:13px;font-weight:600}
-.sh-buy:disabled{cursor:default}
+.sh-price{font-size:15px;font-weight:600;color:var(--money);flex:none}
 
 /* One game at a time: that game's skins in a grid. */
 .sh-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:16px}

@@ -30,7 +30,7 @@ function fmtAxis(t, longSpan) {
     return new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   }
 
-  function V2Chart(pts, money, from) {
+  function V2Chart(pts, money, from, boxW) {
     if (!pts || !pts.length) return '';
     money = money || (n => '$' + Number(n).toFixed(2));
 
@@ -45,10 +45,18 @@ function fmtAxis(t, longSpan) {
        it about 430px tall instead of 152. */
     const narrow = typeof matchMedia === 'function' &&
                    matchMedia('(max-width:520px)').matches;
-    const W  = narrow ? 420 : 980, H  = narrow ? 520 : 430;
-    const PL = narrow ? 52  : 62,  PR = narrow ? 16  : 26;
+    /* boxW (the box the chart is drawn into, when the caller knows it) sets
+       the desktop viewBox to about the box's own width, so the type lands at
+       its stated size: the Wallet and profile columns are ~710px wide, and a
+       980 viewBox drew their 12px labels at 9. */
+    const W  = narrow ? 420 : (boxW > 0 && boxW < 980 ? Math.max(560, Math.round(boxW)) : 980);
+    const H  = narrow ? 520 : 430;
+    const PR = narrow ? 16  : 26;
     const PT = 22, PB = 46;
-    const iw = W - PL - PR, ih = H - PT - PB;
+    const ih = H - PT - PB;
+    /* Bigger type in the phone's narrower viewBox, which draws everything at
+       about 0.83 scale: 12 there was 9px. */
+    const FS = narrow ? 14.5 : 12;
     /* The line opens at zero on the day the account was opened, when the
        caller says when that was. Falling back to the first entry's own date is
        what this did before, and it made the first cash-out look like money
@@ -68,6 +76,16 @@ function fmtAxis(t, longSpan) {
     const bot = lo >= 0 ? 0 : Math.floor(lo / step) * step;
     const top = Math.max(bot + step, Math.ceil((hi + step * 0.25) / step) * step);
     const cents = step < 1 || step % 1 !== 0;
+    const marks = [];
+    for (let v = bot; v <= top + step / 1000; v += step) {
+      const a = Math.abs(v) < step / 1000 ? 0 : v, label = money(Math.abs(a));
+      marks.push({ v: v, text: (a < 0 ? '−' : '') + (cents ? label : label.replace(/\.\d\d$/, '')) });
+    }
+    /* The left margin fits the widest money label (mono, about 0.62 em a
+       character), so "$1,000" is never cut down to "1,000" at the edge. */
+    const widest = Math.max.apply(null, marks.map(m => m.text.length));
+    const PL = Math.max(narrow ? 52 : 62, Math.ceil(widest * 0.62 * FS) + 14);
+    const iw = W - PL - PR;
     /* Placed by DATE, not by position in the list. Spacing the points evenly
        drew a year of nothing and an afternoon of three cash-outs at the same
        width, so the shape of the line said nothing about when anything
@@ -79,19 +97,15 @@ function fmtAxis(t, longSpan) {
     const Y = v => PT + ih * (top - v) / (top - bot);
     const zy = Y(0);
 
-    /* Money up the side, one label per step. Bigger in the phone's narrower
-       viewBox, which draws everything at about 0.83 scale: 12 there was 9px. */
-    const FS = narrow ? 14.5 : 12;
+    // Money up the side, one label per step.
     let ticks = '';
-    for (let v = bot; v <= top + step / 1000; v += step) {
-      const y = Y(v).toFixed(1), a = Math.abs(v) < step / 1000 ? 0 : v;
-      const label = money(Math.abs(a));
+    for (const m of marks) {
+      const y = Y(m.v).toFixed(1);
       ticks += '<line x1="' + PL + '" x2="' + (W - PR) + '" y1="' + y + '" y2="' + y +
                '" stroke="var(--s2)" stroke-width="1"/>' +
-               '<text x="' + (PL - 10) + '" y="' + (Y(v) + FS / 3).toFixed(1) +
+               '<text x="' + (PL - 10) + '" y="' + (Y(m.v) + FS / 3).toFixed(1) +
                '" text-anchor="end" font-size="' + FS + '" fill="var(--tx3)" ' +
-               'font-family="var(--fm)">' + (a < 0 ? '−' : '') +
-               (cents ? label : label.replace(/\.\d\d$/, '')) + '</text>';
+               'font-family="var(--fm)">' + m.text + '</text>';
     }
 
     /* Dates along the bottom. At most five, evenly spaced, so they never
@@ -274,7 +288,10 @@ function fmtAxis(t, longSpan) {
     const lastAt = Date.parse(pts[pts.length - 1].d);
     if (!isNaN(lastAt) && Date.now() > lastAt + 60000)
       pts.push({ d: new Date().toISOString(), cum: run });
-    box.innerHTML = V2Chart(pts, money, joinedAt);
+    /* The svg's own width: the box less its padding. */
+    const cs = typeof getComputedStyle === 'function' ? getComputedStyle(box) : null;
+    const inner = box.clientWidth - (cs ? (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0) : 0);
+    box.innerHTML = V2Chart(pts, money, joinedAt, inner);
     wire(box, money);
   }
 

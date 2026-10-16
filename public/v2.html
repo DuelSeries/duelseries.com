@@ -25,9 +25,17 @@
 <meta name="apple-mobile-web-app-title" content="DuelSeries">
 <meta name="theme-color" content="#100e0b">
 <title>DuelSeries</title>
+<!-- What a search result or a shared link shows. There was none, so a pasted
+     link previewed as a bare URL. -->
+<meta name="description" content="slither.io, agar.io, Paper.io and more, free or for $0.50 and $1 in USDC.">
+<meta property="og:title" content="DuelSeries">
+<meta property="og:description" content="slither.io, agar.io, Paper.io and more, free or for $0.50 and $1 in USDC.">
+<meta property="og:image" content="https://duelseries.com/img/icon-512.png">
+<meta property="og:url" content="https://duelseries.com/">
+<meta name="twitter:card" content="summary">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400..700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/css/shop.css">
 <style>
 /* ─────────────────────────────────────────────────────────────────────────
@@ -91,7 +99,7 @@ body::before{content:'';position:fixed;inset:0 0 auto;height:520px;pointer-event
   background:radial-gradient(120% 100% at 50% 0,rgba(240,168,48,.07),transparent 62%)}
 button{font-family:inherit;color:inherit;border:none;background:none;cursor:pointer}
 a{color:inherit;text-decoration:none}
-:focus-visible{outline:2px solid var(--bone);outline-offset:3px;border-radius:var(--r1)}
+:focus-visible{outline:2px solid var(--bone);outline-offset:3px}   /* the outline follows each control's own corners; a radius here squared off the pills */
 @media(prefers-reduced-motion:reduce){
   html{scroll-behavior:auto}
   *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;
@@ -155,6 +163,20 @@ header{position:sticky;top:0;z-index:50;background:rgba(16,14,11,.82);
      is left rather than in the whole viewport. */
   body{padding-left:var(--sbw)}
 }
+/* A phone held sideways (Owen, 2026-10-15: "make it work both ways"). It is
+   wide enough for the sidebar layout but only ~375-430px tall, so the full
+   212px sidebar and the 72px header left a letterbox for the game screen. Here
+   the sidebar is a 64px rail of icons and the header is 52px tall; held
+   upright, a phone keeps the bottom bar. */
+@media(min-width:761px) and (max-height:500px) and (orientation:landscape){
+  :root{--sbw:64px}
+  .nav{padding:60px 8px 8px}
+  .ni{justify-content:center;padding:0;height:42px}
+  .ni .lbl{display:none}
+  .hd{height:52px}
+  .wrap{padding:0 20px}
+  .head{margin:24px 0 14px}
+}
 
 /* ── settings ───────────────────────────────────────────────────────── */
 .setgrid{display:grid;gap:16px;padding-bottom:70px;
@@ -203,43 +225,18 @@ header{position:sticky;top:0;z-index:50;background:rgba(16,14,11,.82);
    adding a permanent box to the layout. */
 /* Two separate boxes: the balance is a readout, Wallet is the action. */
 .balbox{display:flex;flex-direction:column;justify-content:center;
-  background:var(--s1);border-radius:var(--r2);padding:7px 15px;line-height:1.25}
+  background:var(--s1);border-radius:var(--r2);padding:0 15px;min-height:40px;line-height:1.25}   /* the Wallet button's height */
 .balbox .k{font-size:10.5px;color:var(--tx3)}
 .balbox .v{font-size:15px;font-weight:600;color:var(--tx)}
 /* Signed out there is no balance, so no box saying "Balance —". */
 body.signedout .balbox{display:none}
 .wbtn{display:flex;align-items:center;gap:8px;background:var(--s2);color:var(--tx);
-  font-weight:650;font-size:13.5px;padding:10px 16px;border-radius:var(--r2);transition:.15s}
+  font-weight:650;font-size:13.5px;padding:10px 16px;min-height:40px;border-radius:var(--r2);transition:.15s}
 .wbtn:hover{background:var(--s3);transform:translateY(-1px)}
 .wbtn svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2;
   stroke-linecap:round;stroke-linejoin:round}
-.wrapw{position:relative}
-.wcard{position:absolute;right:0;top:calc(100% + 10px);width:352px;
-  background:var(--s2);border-radius:var(--r3);z-index:60;overflow:hidden;
-  box-shadow:0 20px 56px rgba(0,0,0,.6);opacity:0;visibility:hidden;
-  transform:translateY(-6px);transition:.18s cubic-bezier(.4,0,.2,1)}
-.wcard.on{opacity:1;visibility:visible;transform:none}
-.wtabs{display:flex;gap:2px;padding:6px;background:var(--s1)}
-.wtab{flex:1;padding:8px 4px;border-radius:var(--r2);font-size:11.5px;font-weight:600;
-  color:var(--tx3);transition:.14s;white-space:nowrap}
-.wtab:hover{color:var(--tx2)}
-.wtab.on{background:var(--s3);color:var(--tx)}
-.wbody{padding:18px}
-.wtop{display:flex;align-items:flex-end;gap:10px;margin-bottom:16px}
-.wtop .k{font-size:11.5px;color:var(--tx3)}
-.wtop .v{font-size:27px;font-weight:650;color:var(--money);letter-spacing:-1px}
-.wtop .u{font-size:11.5px;color:var(--tx3);margin-left:auto;padding-bottom:5px}
-.wrow{display:flex;gap:8px;margin-bottom:11px}
-.wsel{flex:1}
-.wlab{font-size:11px;color:var(--tx3);margin-bottom:5px}
-.wpick{display:flex;align-items:center;gap:7px;background:var(--bg);
-  border-radius:var(--r2);padding:9px 11px;font-size:13px;font-weight:550;cursor:pointer;transition:.14s}
-.wpick:hover{background:#0a0908}
-.wpick .d{width:8px;height:8px;border-radius:50%;background:var(--live);flex:0 0 auto}
-.wpick .c{margin-left:auto;font-size:9px;color:var(--tx3)}
-.winput{width:100%;background:var(--bg);border:none;border-radius:var(--r2);padding:11px;
-  color:var(--tx);font-family:inherit;font-size:13.5px;outline:none}
-.winput::placeholder{color:var(--tx3)}
+/* (The old mock wallet dropdown's styles, .wcard to .wnote, were deleted
+   2026-10-15: the dropdown itself went long ago and nothing used them.) */
 /* The player's address: one line, first and last four, and a real Copy
    button (wallet.js addrRow). It used to print all 44 characters, which
    wrapped onto a second line on every phone. */
@@ -252,11 +249,6 @@ body.signedout .balbox{display:none}
   border-radius:calc(var(--r2) - 2px);padding:0 14px;height:36px;transition:background .14s,color .14s}
 .waddr .cp:hover{background:var(--s3)}
 .waddr.done .cp{color:var(--live)}
-.wgo{width:100%;background:var(--bone);color:var(--ink);font-weight:650;font-size:14px;
-  padding:12px;border-radius:var(--r2);margin-top:12px;transition:.15s}
-.wgo:hover{transform:translateY(-1px)}
-.wnote{font-size:11px;color:var(--tx3);margin-top:12px;line-height:1.65}
-.wnote b{color:var(--tx2);font-weight:600}
 
 /* ── type ───────────────────────────────────────────────────────────── */
 /* Section headers were 22px/650, barely a step above body text, which is why
@@ -286,7 +278,7 @@ h2{font-size:31px;font-weight:700;letter-spacing:-1.1px;line-height:1.1}
 .gamegrid .card{flex:none}
 @media(max-width:520px){
   .gamegrid{grid-template-columns:repeat(3,1fr);gap:9px;padding-bottom:30px}
-  .head .allbtn{font-size:12px;padding:8px 11px}
+  .head .allbtn{font-size:12px;padding:8px 11px;min-height:40px}
 }
 
 /* ── game rail ──────────────────────────────────────────────────────── */
@@ -314,7 +306,7 @@ h2{font-size:31px;font-weight:700;letter-spacing:-1.1px;line-height:1.1}
 /* The whole card lifts, artwork and label together. Lifting only the art
    opened a gap under it and left the name sitting behind. */
 .card:hover{transform:translateY(-4px)}
-.card:focus-visible{outline-offset:5px}
+.card:focus-visible{outline-offset:2px}   /* inside the track's 6px padding: at 5px the rail clipped it away */
 /* 2:3, not 3:4. The paintings run about 0.65 wide-to-tall (median of the
    thirteen), so a 3:4 card cover-cropped 12.6% off their height on average and
    38% off the worst one. At 2:3 that falls to 5.4%. */
@@ -376,10 +368,14 @@ h2{font-size:31px;font-weight:700;letter-spacing:-1.1px;line-height:1.1}
   width:44px;border-radius:50%;background:var(--s2);
   display:grid;place-items:center;color:var(--tx2);font-size:17px;transition:.15s}
 .nb:hover{background:var(--bone);color:var(--ink)}
-/* Sit in the gutter beside the cards. Below 1200px there is no gutter left,
-   so they move onto the artwork and pick up a shadow to stay legible. */
+/* Sit in the gutter beside the cards. Without room for the gutter they move
+   onto the artwork and pick up a shadow to stay legible. The room is what
+   the 212px sidebar leaves: the column (1080, or 1380 from 1500px wide) plus
+   two 24px overhangs needs 1340px of window, and 1640px once the column
+   widens. The old 1200px cut-off ignored the sidebar, so a 1280 laptop had
+   both arrows half off-screen and the page scrolled sideways 24px. */
 .nb.l{left:-56px} .nb.r{right:-56px}
-@media(max-width:1200px){
+@media(max-width:1339px),(min-width:1500px) and (max-width:1639px){
   .nb{box-shadow:0 4px 16px rgba(0,0,0,.6);background:rgba(31,27,21,.94);
     backdrop-filter:blur(6px)}
   .nb.l{left:-8px} .nb.r{right:-8px}
@@ -460,7 +456,7 @@ body.ingame .tkrun{animation-play-state:paused}
 .lob::-webkit-scrollbar-thumb{background:var(--s3);border-radius:var(--r1)}
 .lob::-webkit-scrollbar-track{background:transparent}
 .lob.short{max-height:none}
-.lr{display:flex;align-items:center;gap:16px;padding:17px 4px;
+.lr{display:flex;align-items:center;gap:16px;padding:17px 0;   /* edges line up with the heading and buttons above */
   border-bottom:1px solid var(--s2);transition:.14s}
 .lr:hover{background:var(--s1);padding-left:12px;padding-right:12px;
   border-radius:var(--r2);border-color:transparent}
@@ -503,7 +499,7 @@ body.ingame .tkrun{animation-play-state:paused}
   clip:rect(0 0 0 0);white-space:nowrap;border:0}
 .lwait{font-size:12px;color:var(--tx3)}
 .enter{background:var(--bone);color:var(--ink);font-weight:600;font-size:12.5px;
-  padding:8px 17px;border-radius:var(--r1);transition:.15s}
+  padding:8px 17px;border-radius:var(--r2);transition:.15s}   /* r2, like every other button */
 .enter:hover{transform:translateY(-1px)}
 .spec{color:var(--tx2);font-weight:550;font-size:12.5px;padding:8px 15px;
   border-radius:var(--r1);background:var(--s2)}
@@ -562,8 +558,13 @@ body.ingame .tkrun{animation-play-state:paused}
 .search input{flex:1;background:none;border:none;outline:none;color:var(--tx);
   font-family:inherit;font-size:14px;padding:13px 0}
 .search input::placeholder{color:var(--tx3)}
-.search:focus-within{background:var(--s2)}
+.search:focus-within{background:var(--s2);box-shadow:inset 0 0 0 1.5px var(--tx3)}
 .search:focus-within svg{stroke:var(--tx2)}
+/* The rows' own padding hangs outside the column, so names and amounts line
+   up with the heading and the search box above them instead of 10px inside;
+   and the total tile keeps a gap from the last row. */
+#soc-board{margin:0 -10px}
+#soc-tiles{margin-top:16px}
 /* Whole row is the control, so the target is the row and not just the name. */
 /* Four columns, not five: the avatar disc is gone and its 34px with it,
    otherwise every row carries an empty gap where it used to be. */
@@ -572,16 +573,16 @@ body.ingame .tkrun{animation-play-state:paused}
   border-radius:var(--r2);transition:.13s}
 .prow:hover{background:var(--s1)}
 .prow .rk{color:var(--tx3);font-size:12.5px;text-align:right}
-.prow .nm{font-weight:550}
+/* A long name ends in an ellipsis rather than pushing its amount off the row. */
+.prow .nm{font-weight:550;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .prow .gp{color:var(--tx3);font-size:12.5px;text-align:right}
 .prow .er{color:var(--money);font-weight:600;text-align:right}
-.pav{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;
-  font-size:12px;font-weight:700;color:#0a0a0a;flex:0 0 auto}
 .none2{font-size:13.5px;color:var(--tx3);padding:26px 10px}
 
 .phead{display:flex;align-items:center;gap:16px;margin-top:26px}
-.phead .pav{width:56px;height:56px;font-size:19px}
-.phead h1{font-size:29px;font-weight:700;letter-spacing:-1px}
+/* A long name wraps inside its own column instead of running under the total. */
+.phead > div:first-child{min-width:0}
+.phead h1{font-size:29px;font-weight:700;letter-spacing:-1px;overflow-wrap:anywhere}
 .psub{font-size:13px;color:var(--tx3);margin-top:4px}
 .pnet{text-align:right}
 .pnet .k{font-size:12px;color:var(--tx3)}
@@ -591,7 +592,11 @@ body.ingame .tkrun{animation-play-state:paused}
      it held the NAME, so every amount sat a column short of the right edge. */
   .prow{grid-template-columns:26px 1fr 92px;gap:10px}
   .prow .gp{display:none}
+  /* The total gets its own line, always on the left: wrapping it only when
+     the name was long put it left on one profile and right on the next. */
   .phead{flex-wrap:wrap}
+  .phead .sp{display:none}
+  .pnet{flex-basis:100%;text-align:left}
 }
 .panel{background:var(--s1);border-radius:var(--r3);padding:24px 26px}
 /* ── wallet ─────────────────────────────────────────────────────────── */
@@ -608,7 +613,10 @@ body.ingame .tkrun{animation-play-state:paused}
 .wacts .wref{min-width:0;width:44px;padding:0;display:grid;place-items:center}
 .wref.spin svg{animation:wspin .5s linear}
 @keyframes wspin{to{transform:rotate(360deg)}}
-.wdep{max-width:560px;margin:0 auto}
+/* One centred column for the whole Wallet tab on a big screen (Owen,
+   2026-10-15): the balance and the deposit panel sat in a narrow column while
+   the transactions and the graph ran the full page width. 760px of content. */
+#wallet-screen.wrap,#player-screen.wrap{max-width:824px}   /* the profile too: the same graph at the same size */
 
 /* One row per transfer, and the row is a link out to the explorer: this is
    on-chain money and the receipt for it lives there, not here. */
@@ -629,7 +637,7 @@ body.ingame .tkrun{animation-play-state:paused}
 .txa{font-size:13.5px;font-weight:650;min-width:88px;text-align:right}
 .txa.in{color:var(--live)}
 .txa.out{color:var(--tx2)}
-.txl .none{padding:18px 4px;font-size:13px;color:var(--tx3)}
+.txl .none{padding:18px 0;font-size:13px;color:var(--tx3)}
 .txmore{display:block;width:100%;margin-top:10px}
 @media(max-width:520px){
   .wbal .bnum{font-size:44px}
@@ -644,12 +652,13 @@ body.ingame .tkrun{animation-play-state:paused}
 .bnum{font-size:38px;font-weight:600;color:var(--money);letter-spacing:-1.5px;margin-top:2px}
 .bnum.sm{font-size:24px;color:var(--tx2);letter-spacing:-.8px}
 .brow{display:flex;gap:10px;margin-top:22px}
-.btn{flex:1;padding:12px;border-radius:var(--r2);font-size:13.5px;font-weight:600;transition:.15s}
+.btn{flex:1;padding:12px;min-height:44px;border-radius:var(--r2);font-size:13.5px;font-weight:600;transition:.15s}
 .btn.pri{background:var(--bone);color:var(--ink)}
 .btn.pri:hover{transform:translateY(-1px)}
 .btn.sec{background:var(--s2);color:var(--tx2);font-weight:550}
 .btn.sec:hover{background:var(--s3);color:var(--tx)}
 .note{font-size:12px;color:var(--tx3);line-height:1.7;margin-top:16px}
+.panel>.note:first-child{margin-top:0}   /* a one-line panel sits centred in its padding */
 
 /* ── the nightly event ───────────────────────────────────────────────────
    Nothing new invented here: the page borrows the tote-board mono the money
@@ -671,7 +680,7 @@ body.ingame .tkrun{animation-play-state:paused}
 .evclock span{display:block;margin-top:4px;font-size:10.5px;letter-spacing:.14em;
   text-transform:uppercase;color:var(--tx3)}
 .evclock i{font-family:var(--fm);font-size:clamp(28px,8vw,40px);font-style:normal;
-  line-height:1.35;color:var(--s3)}
+  line-height:1.35;color:var(--tx3);opacity:.5}   /* the colons were s3 on s1, 1.2:1, all but gone */
 .evwatch{margin-top:18px;min-width:200px}
 .evwhen{margin:16px 0 0;font-size:13px;color:var(--tx2)}
 /* The shut door. Given the money amber and a tinted panel rather than another
@@ -687,12 +696,12 @@ body.ingame .tkrun{animation-play-state:paused}
 .evhero.live .evclock b{color:var(--live)}
 
 .podium{display:grid;grid-template-columns:repeat(3,1fr);align-items:end;
-  gap:10px;margin-top:20px;max-width:430px;margin-left:auto;margin-right:auto}
+  gap:0 10px;margin-top:20px;max-width:430px;margin-left:auto;margin-right:auto}   /* no row gap: the floor line meets the plinths */
 .plinth{text-align:center;min-width:0}
 /* The seat. A question mark until somebody is standing in it. */
 .pwho{font-size:14px;font-weight:600;color:var(--tx2);margin-bottom:9px;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.pwho.empty{font-family:var(--fm);font-size:20px;color:var(--s3)}
+.pwho.empty{font-family:var(--fm);font-size:20px;color:var(--tx3);opacity:.6}   /* an empty seat you can still see */
 .pblock{display:flex;flex-direction:column;align-items:center;justify-content:center;
   gap:7px;background:var(--s1);border:1px solid var(--s2);
   border-radius:var(--r2) var(--r2) 0 0;border-bottom:none}
@@ -737,7 +746,7 @@ body.ingame .tkrun{animation-play-state:paused}
 .evgo:disabled .evart{filter:grayscale(1);opacity:.45}
 .evhow{display:inline-flex;align-items:center;gap:7px;margin-top:14px;
   background:none;border:none;cursor:pointer;font-family:inherit;
-  font-size:13px;font-weight:600;color:var(--tx3);padding:6px 8px;
+  font-size:13px;font-weight:600;color:var(--tx3);padding:11px 12px;   /* 40px to tap */
   transition:color .15s}
 .evhow:hover{color:var(--tx)}
 .evfoot{padding-bottom:26px}
@@ -759,7 +768,6 @@ body.ingame .tkrun{animation-play-state:paused}
 .tr .r{text-align:right}
 .tr .neg{color:var(--tx2)}
 .tr .pos{color:var(--money)}
-.tbl.pays .tr{grid-template-columns:1fr auto}   /* a date and an amount, nothing else */
 .tag{display:inline-block;font-size:11px;padding:3px 8px;border-radius:var(--r1);
   background:var(--s2);color:var(--tx2)}
 
@@ -811,7 +819,7 @@ body.ingame .tkrun{animation-play-state:paused}
   flex-direction:column;line-height:1.3}
 .chartTip.on{opacity:1}
 .chartTip b{font-family:var(--fm);font-weight:600;font-size:14px;color:var(--money)}
-.chartTip span{font-size:11px;color:var(--tx3)}
+.chartTip span{font-size:11px;color:var(--tx2)}   /* tx3 on the tip's s3 was 4.1:1 */
 .scrub,.scrubdot{pointer-events:none;transition:opacity .1s}
 
 /* Add-to-home-screen hint, iOS only, shown once. */
@@ -819,10 +827,10 @@ body.ingame .tkrun{animation-play-state:paused}
   gap:12px;background:var(--s2);border-radius:var(--r2);padding:12px 14px;
   font-size:12.5px;color:var(--tx2);line-height:1.5;
   box-shadow:0 12px 40px rgba(0,0,0,.6);
-  bottom:calc(118px + env(safe-area-inset-bottom))}
+  bottom:calc(70px + env(safe-area-inset-bottom))}   /* just above the 60px nav, not 58px over the list */
 .a2hs b{color:var(--tx)}
 .a2hs button{flex:0 0 auto;background:var(--bone);color:var(--ink);font-weight:600;
-  font-size:12px;padding:8px 12px;border-radius:var(--r1)}
+  font-size:12.5px;padding:11px 14px;border-radius:var(--r1)}   /* a 40px tap */
 .cross,.cur{pointer-events:none;transition:opacity .12s}
 .dot{pointer-events:none}
 .tip{position:absolute;pointer-events:none;opacity:0;transition:opacity .12s;
@@ -887,13 +895,9 @@ body.ingame .tkrun{animation-play-state:paused}
 .howsteps b{display:block;font-size:14px;font-weight:600;margin-bottom:3px}
 .howsteps span{font-size:13px;color:var(--tx2);line-height:1.6}
 .howgo{width:100%}
-/* The money sheets reuse the how-to card, one size up. */
+/* The Withdraw sheet reuses the how-to card, one size up. */
 .mcard{max-width:460px}
 .msub{font-size:13px;color:var(--tx2);line-height:1.65;margin:0 0 20px}
-.mcard .plab{margin-bottom:8px}
-.mcard .waddr{margin-bottom:12px}
-.mwarn{margin:0 0 20px}
-.mgo{width:100%;flex:none}
 .mfig{text-align:center;margin:0 0 20px}
 .mfig .k{font-size:12px;color:var(--tx3)}
 .mfig .v{font-size:34px;font-weight:650;color:var(--money);letter-spacing:-1.4px;margin-top:3px}
@@ -935,13 +939,13 @@ body.no-foot footer{display:none}
   padding:12px 24px 20px;text-align:center;
   min-height:calc(100vh - 120px);display:flex;flex-direction:column;
   justify-content:center}
-#detail .back{position:relative;z-index:2;margin-left:24px}
+#detail .backrow{position:relative;z-index:2}
 #dname{font-size:34px;font-weight:650;letter-spacing:-1px;margin-top:18px}
 /* One button per buy-in, all of them visible, on every game (BACKLOG 2.2).
    No caption over the row: three amounts under a game's name say what they
    are without one. */
 .stakes{display:flex;gap:8px;margin:22px 0 16px}
-.stk{flex:1;background:var(--s2);border:none;border-radius:var(--r2);
+.stk{flex:1;background:var(--s2);border:1px solid transparent;border-radius:var(--r2);   /* the same 1px as a struck rung's dashed border, so rows never change height */
   padding:14px 6px;font-family:var(--fm);font-size:16px;font-weight:650;
   color:var(--tx2);cursor:pointer;transition:background .15s,color .15s}
 .stk:hover{background:var(--s3);color:var(--tx)}
@@ -986,6 +990,7 @@ body.no-foot footer{display:none}
 /* A locked field should not look like a box waiting for typing. */
 .pname[readonly]{color:var(--tx2);cursor:default}
 .pname[readonly]:focus{background:var(--bg);box-shadow:none}
+.pname[readonly]:focus-visible{outline:2px solid var(--bone);outline-offset:3px}   /* a keyboard user still sees where they are */
 /* One square button, one icon showing at a time. */
 .nameact{width:46px;flex:none;background:var(--s2);border:none;
   border-radius:var(--r2);color:var(--tx2);cursor:pointer;
@@ -1105,6 +1110,11 @@ body.no-foot footer{display:none}
 .spec:hover{background:var(--s3);color:var(--tx)}
 #detail.freerung .spec{display:flex}
 .spec:disabled,.spec:disabled:hover{background:var(--s2);color:var(--tx3);cursor:not-allowed}
+/* A game that is not open yet shows only what it is (Owen, 2026-10-15): the
+   art, its name, the three prices and a padlocked Coming soon. The name
+   field, Spectate, Customize and the "0 playing" row are for a game you can
+   play, so they go rather than sitting there shut. */
+#detail.soon .namerow,#detail.soon .lookrow,#detail.soon .lobwrap,#detail.soon .spec{display:none}
 /* The narrowest phones (320 to 360 px): a rung is about 90 px there, so the
    words keep a little air on each side. Two classes deep so the phone block
    further down does not undo it. */
@@ -1150,11 +1160,12 @@ body.no-foot footer{display:none}
 /* The board row was built for a full-width page and this column is 430px, so
    the Enter button fell off the end of it. The region and the buy-in are both
    dropped here: there is one region, and the row IS the free one. */
-.lobwrap .lr{padding:10px 12px;gap:10px}
-/* The sub-line is dropped here and nowhere else: there is one region, and the
-   buy-in is already the control directly above this list. */
-.lobwrap .lr .lsub{display:none}
+.lobwrap .lr{padding:10px 0;gap:10px}
+/* The sub-line stays: it is the buy-in, and a paid room listed here looked
+   exactly like the free one without it (2026-10-15 audit). The region is
+   left off every row while NA is the only one. */
 .lobwrap .lr .lname{font-size:13.5px}
+.lobwrap .lr .lname.lpaid{color:var(--money)}   /* a paid table in the money colour, as on the rungs */
 .lobwrap .lr .lcount{font-size:12.5px;white-space:nowrap}
 .lobwrap .lr .enter{flex:none;padding:7px 16px;font-size:12.5px}
 .lobwrap .lr .enter:disabled{cursor:not-allowed}
@@ -1268,22 +1279,20 @@ body.no-foot footer{display:none}
 .ap-hint{display:none;position:absolute;left:50%;top:calc(64px + env(safe-area-inset-top));
   transform:translateX(-50%);font-size:12px;color:var(--tx3);white-space:nowrap;
   pointer-events:none;z-index:54}
+/* A phone held sideways is wider than 520px, so its arrows came back and sat
+   across both ends of a locked skin's case, and the case was taller than the
+   109px its box gets. The drag gesture works there too, as on a phone held
+   upright. After the hint's own rule, so it wins. */
+@media(max-height:500px) and (orientation:landscape) and (pointer:coarse){
+  .ap-arrow{display:none}
+  .ap-hint{display:block}
+  .ap-case{height:min(116px,100%)}
+}
 
 
-/* ── waiting ────────────────────────────────────────────────────────── */
-.veil{position:fixed;inset:0;background:rgba(16,14,11,.9);backdrop-filter:blur(8px);
-  display:none;place-items:center;z-index:90}
-.veil.on{display:grid}
-.wb{background:var(--s1);border-radius:var(--r3);padding:38px 40px;text-align:center;max-width:390px}
-.ring{width:40px;height:40px;border:2.5px solid var(--s3);border-top-color:var(--bone);
-  border-radius:50%;margin:0 auto 22px;animation:sp .85s linear infinite}
-@keyframes sp{to{transform:rotate(360deg)}}
-.wb h3{font-size:18px;font-weight:600;margin-bottom:9px}
-.wb p{font-size:13.5px;color:var(--tx2);line-height:1.7}
-.wb p b{color:var(--money)}
-.wc{margin-top:24px;color:var(--tx2);font-size:13px;font-weight:550;
-  padding:10px 22px;border-radius:var(--r2);background:var(--s2)}
-.wc:hover{color:var(--tx)}
+/* (The "Your lobby is open" waiting veil and its styles were deleted
+   2026-10-15: nothing ever opened it, its Cancel and refund button called a
+   function that only hid it again.) */
 .none{font-size:13.5px;color:var(--tx3);padding:26px 4px;line-height:1.7}
 
 /* ── footer ─────────────────────────────────────────────────────────── */
@@ -1304,6 +1313,8 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
    Below 760px it becomes two fixed bars instead: identity and money on top,
    navigation along the bottom where a thumb reaches. */
 @media(max-width:760px){
+  /* Thumb-sized: the lobby rows' Enter was about 31px tall on a phone. */
+  .enter{min-height:40px}
   /* ── One scroll per screen, instead of one for the whole document ──────────
      The document does not scroll on a phone. Each screen is its own scrolling
      pane, fixed in the band between the two bars.
@@ -1351,10 +1362,10 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
   .hd{height:56px;gap:10px;padding:0 14px}
   .logo{font-size:17px;letter-spacing:-.6px}
   .hd .sp{display:none}          /* the spacers pushed everything off-screen */
-  .balbox{margin-left:auto;padding:5px 11px}
+  .balbox{margin-left:auto;padding:0 11px}
   .balbox .k{display:none}       /* the number is the point; the word is not */
   .balbox .v{font-size:14px}
-  .wbtn{padding:9px 12px;font-size:12.5px}
+  .wbtn{padding:9px 12px;font-size:12.5px;min-height:40px}
   .wbtn span{display:none}       /* icon only: the label is what overflowed */
   /* Signed out there is no balance beside it, so "Sign in" fits and says
      what the button does. */
@@ -1406,8 +1417,8 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
      (about 56px) taller than the screen, its centred contents slid down half of
      that and the bottom ran under the nav bar. svh is the height with the bar
      showing; the vh line stays as the fallback for browsers without it. */
-  .gcol{padding:6px 16px 12px;max-width:none;min-height:calc(100vh - 172px);
-        min-height:calc(100svh - 172px - env(safe-area-inset-top) - env(safe-area-inset-bottom))}
+  .gcol{padding:6px 16px 12px;max-width:none;min-height:calc(100vh - 145px);
+        min-height:calc(100svh - 145px - env(safe-area-inset-top) - env(safe-area-inset-bottom))}
 
   /* ONE SCROLLER ON A PHONE. The open-lobbies list is its own scroll box on
      desktop (three rows, scroll for the rest). On a phone that box sits at the
@@ -1421,7 +1432,8 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
      only the Android phone showed it. Here the list just grows and the page is
      the only thing that scrolls. */
   #lob{max-height:none;overflow:visible}
-  #detail .back{margin-left:16px;padding:12px 0 0}
+  #detail .backrow{padding:0 14px}   /* the logo's 14px */
+  #detail .back{padding:12px 0 0}
   #dname{margin-top:4px;font-size:23px}
   .howbtn{margin-top:10px;padding:7px 13px;font-size:12.5px}
   .stakes{margin:14px 0 10px}
@@ -1529,11 +1541,12 @@ body.scr-anim { overflow-x:hidden }
 <body>
 
 <header><div class="wrap hd">
-  <div class="logo">Duel<em>Series</em></div>
+  <!-- The logo goes Home, as a logo does everywhere else. -->
+  <a class="logo" href="/" onclick="go('play');return false" aria-label="DuelSeries home">Duel<em>Series</em></a>
   <div class="sp"></div>
   <!-- Signed out this reads "—", not $0.00: a real zero balance and having no
        wallet at all are very different things to tell someone about money. -->
-  <div class="balbox"><span class="k">Balance</span><span class="v num" id="hdr-balance">—</span></div>
+  <div class="balbox"><span class="v num" id="hdr-balance" aria-label="Balance">—</span></div>
   <!-- One wallet surface. The dropdown that used to hang here was a second
        place to do money in, with its own tabs and its own idea of the balance. -->
   <button class="wbtn" id="wbtn" onclick="V2Wallet.headerTap()">
@@ -1577,10 +1590,10 @@ body.scr-anim { overflow-x:hidden }
     <div class="ticker"><div class="tkrun" id="tkrun"></div></div>
   </div>
 
+  <!-- No caption and no "See all": the caption restated the heading, and the
+       link went nowhere (2026-10-15 audit). -->
   <div class="head">
-    <div><h2>Open lobbies</h2><div class="sub">Busiest tables right now</div></div>
-    <div class="sp"></div>
-    <a class="more" href="#" onclick="return false">See all</a>
+    <div><h2>Open lobbies</h2></div>
   </div>
   <div class="lob" id="lob"></div>
 
@@ -1638,10 +1651,15 @@ body.scr-anim { overflow-x:hidden }
 
   /* Seconds until the next scheduled start, measured from the server's own
      Eastern wall clock and advanced locally since we were told it. */
+  /* The server's Eastern time of day in seconds, run on locally since the poll.
+     The second matters: each poll re-anchors, so without it the clock went back
+     to :00 every 3 s and stood still. */
+  function nowS(){
+    return BR.etHour*3600+BR.etMin*60+(BR.etSec||0)+Math.floor((Date.now()-BRAT)/1000);
+  }
   function untilStart(){
     if(!BR) return null;
-    var elapsed=Math.floor((Date.now()-BRAT)/1000);
-    var now=BR.etHour*3600+BR.etMin*60+elapsed;
+    var now=nowS();
     var s=BR.startHour*3600+BR.startMin*60;
     var left=s-now;
     if(left<0) left+=86400;
@@ -1675,12 +1693,31 @@ body.scr-anim { overflow-x:hidden }
         hero=document.getElementById('evhero');
     if(!line||!tag||!hero) return;
 
-    if(!BR){ tag.textContent='Tonight'; line.textContent='Starts in'; showClock(true); setClock(null);
-             if(watch)watch.hidden=true; if(lock)lock.hidden=true;
+    /* No answer from the server yet: no row of dashes under hrs/min/sec (it
+       read as a broken timer), and the Spectate button keeps its space,
+       invisible, so the page does not jump 57px when the answer lands. */
+    if(!BR){ tag.textContent='Tonight'; line.textContent='Starts in'; showClock(false); setClock(null);
+             if(watch){watch.hidden=false;watch.style.visibility='hidden'} if(lock)lock.hidden=true;
              hero.classList.remove('live'); return; }
+    if(watch)watch.style.visibility='';
 
     var running = BR.state==='running' || BR.state==='countdown';
     hero.classList.toggle('live', running);
+    /* The prize and the start time are the server's (BR.prize, startHour and
+       startMin): the page printed $20 and "8 to 9 PM" whatever the server
+       said, and the match starts at 8:05 and has no set end. */
+    /* Only a match that has started knows its own prize (no prize for a solo
+       run, or with fewer than two signed-in players); while waiting, BR.prize
+       is the LAST match's, so the podium shows the standing prize. */
+    var pm=document.querySelector('.p1 .pmoney');
+    var stdPrize=(typeof CONSTANTS!=='undefined'&&CONSTANTS.BR_PRIZE_USDC)||20;
+    var started=BR.state==='countdown'||BR.state==='running'||BR.state==='over';
+    if(pm) pm.textContent = !started ? '$'+stdPrize : (BR.prize>0 ? '$'+BR.prize : '—');
+    var when=document.querySelector('.evwhen');
+    if(when && BR.startHour!=null){
+      var h12=BR.startHour%12||12, mm=('0'+(BR.startMin||0)).slice(-2);
+      when.textContent='Every night at '+h12+':'+mm+' '+(BR.startHour<12?'AM':'PM')+' Eastern';
+    }
     /* The button is always there; only what it promises changes. Somebody who
        has never seen a battle royale needs it most when one is NOT running. */
     if(watch){
@@ -1704,11 +1741,16 @@ body.scr-anim { overflow-x:hidden }
          circle is still tiny and the room has not reopened — but saying "match
          in progress" over a podium with a winner on it is simply wrong.
          Into the label only: the button also holds the slither.io art. */
+      /* After a match (over, and the sl engine's reopening) the next one is
+         tomorrow's: "opens shortly" promised a match nearly a day away. */
+      var after=BR.state==='over'||BR.state==='reopening';
+      var at=BR.startHour!=null?((BR.startHour%12||12)+':'+('0'+(BR.startMin||0)).slice(-2)
+               +' '+(BR.startHour<12?'AM':'PM')):'';
       (document.getElementById('ev-join-t')||join).textContent = BR.joinable ? 'Join the Battle Royale'
-                       : BR.state==='over' ? 'The next match opens shortly'
+                       : after ? ('Next match tomorrow'+(at?', '+at:''))
                        : 'Match in progress';
       join.title = BR.joinable ? ''
-                 : BR.state==='over' ? 'The arena reopens once the circle does.'
+                 : after ? 'The arena reopens once the circle does.'
                  : 'The doors are shut until this match ends.';
     }
 
@@ -1730,8 +1772,8 @@ body.scr-anim { overflow-x:hidden }
          reading "R4 HRS : -- MIN : -- SEC". The ring belongs in the sentence. */
       setClock(null);
       showClock(false);
-      line.textContent='Battle royale in progress · ring '+(BR.ring||1)
-                      +' · '+(BR.alive||0)+' still alive';
+      // The title above already says Battle Royale and the tag says Live.
+      line.textContent='Ring '+(BR.ring||1)+' · '+(BR.alive||0)+' still alive';
       return;
     }
     if(BR.state==='over'){
@@ -1743,10 +1785,13 @@ body.scr-anim { overflow-x:hidden }
       return;
     }
     // waiting
-    tag.textContent='Tonight';
+    /* Tonight only while tonight's start is still ahead: after the match the
+       next start is tomorrow's, and a 22-hour countdown under "Tonight" lied. */
+    var left=untilStart();
+    tag.textContent = (left!=null && nowS()%86400+left>=86400) ? 'Tomorrow' : 'Tonight';
     showClock(true);
     line.textContent = BR.humans ? ('Starts in · '+BR.humans+' waiting') : 'Starts in';
-    setClock(untilStart());
+    setClock(left);
   }
 
   /* Names on the plinths. Nobody has won one yet, so all three hold a question
@@ -1757,6 +1802,7 @@ body.scr-anim { overflow-x:hidden }
       var el=document.getElementById(id); if(!el) return;
       var who=names&&names[i];
       el.textContent=who||'?';
+      el.title=who||'';                 // the whole name, when the plinth cuts it short
       el.classList.toggle('empty',!who);
     });
   }
@@ -1772,23 +1818,11 @@ body.scr-anim { overflow-x:hidden }
 </script>
 
 <!-- ══ MONEY SHEETS ══ -->
-<!-- Deposit and Withdraw each get the whole screen. They were a pair of
-     buttons that swapped a panel out from under the balance, which gave the
-     one irreversible thing on the site less room than the how-to-play blurb. -->
-<!-- Named Deposit, like the button that opens it. The address row is filled
-     by wallet.js openDep (short form and a Copy button, as on the Wallet tab). -->
-<div id="depveil" class="howveil" role="dialog" aria-modal="true" aria-label="Deposit">
-  <div class="howcard mcard">
-    <div class="howtop"><h2>Deposit</h2>
-      <button type="button" class="howx" onclick="V2Wallet.closeDep()" aria-label="Close">&#10005;</button>
-    </div>
-    <div class="plab">Deposit address</div>
-    <div id="dep-addr-slot"></div>
-    <p class="note mwarn">USDC on Solana only. Anything else is unrecoverable.</p>
-    <button type="button" class="btn pri mgo" onclick="V2Wallet.fund()">
-      QR code and other ways to pay</button>
-  </div>
-</div>
+<!-- Withdraw gets the whole screen. It was a panel swapped out from under the
+     balance, which gave the one irreversible thing on the site less room than
+     the how-to-play blurb. (Deposit had a sheet too, repeating the address
+     panel on the Wallet tab; its button now opens the payment options
+     directly, Owen 2026-10-15.) -->
 
 <div id="wdrveil" class="howveil" role="dialog" aria-modal="true" aria-label="Withdraw">
   <div class="howcard mcard">
@@ -1850,7 +1884,9 @@ body.scr-anim { overflow-x:hidden }
     <canvas class="im" id="dart" data-anim="1" data-game="bg" data-half="1"></canvas>
     <div class="im still" id="dartstill"></div>
   </div>
-  <a class="back" href="#" onclick="goBack();return false">&#8592; &nbsp;Back</a>
+  <!-- In a .wrap, so Back starts where the logo and every other screen's
+       content start (it was pinned 24px from the sidebar). -->
+  <div class="wrap backrow"><a class="back" href="#" onclick="goBack();return false">&#8592; &nbsp;Back</a></div>
   <div class="gcol">
     <h1 id="dname"></h1>
     <!-- ONE LAYOUT FOR EVERY GAME (BACKLOG 2.2, Owen 2026-10-15): the three
@@ -1953,8 +1989,7 @@ body.scr-anim { overflow-x:hidden }
        what you have and what you made were never on screen together. Filled by
        public/js/v2/stats.js, which kept its ids. -->
   <div id="w-earn" hidden>
-    <div class="head"><div><h2>Earnings</h2>
-      <div class="sub" id="s-sub"></div></div></div>
+    <div class="head"><div><h2>Earnings</h2></div></div>
     <div id="s-body"></div>
   </div>
 </main>
@@ -1984,14 +2019,14 @@ body.scr-anim { overflow-x:hidden }
       <i aria-hidden="true">:</i>
       <div class="evu"><b id="ev-s">--</b><span>sec</span></div>
     </div>
-    <p class="evwhen">Every night, 8 to 9 PM Eastern</p>
+    <p class="evwhen">Every night at 8:05 PM Eastern</p>
     <!-- ALWAYS HERE, because the point of it is somebody who has never seen one.
          It used to appear only while a match was running, which meant the one
          person it exists for — a new player wondering what a battle royale even
          is — could never find it. Watching an arena between matches is a fair
          answer to that question too, so the button stays and the LABEL changes
          to say which of the two you are about to get. -->
-    <button type="button" class="btn pri evwatch" id="ev-watch"
+    <button type="button" class="btn sec evwatch" id="ev-watch"
             onclick="V2Play.spectateEvent()">Spectate</button>
     <!-- The shut-door note that sat here said what the Join button already
          says ("Match in progress", dimmed), so it went. tick() still finds
@@ -2046,9 +2081,9 @@ body.scr-anim { overflow-x:hidden }
   <div class="head"><div><h2>Top earners</h2></div></div>
   <label class="search">
     <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4.2-4.2"/></svg>
-    <input id="soc-q" type="search" placeholder="Search players by name"
+    <input id="soc-q" type="search" placeholder="Search players"
       autocomplete="off" oninput="V2Social.search(this.value)"
-      aria-label="Search players by name">
+      aria-label="Search players">
   </label>
   <div class="tbl" id="soc-board"></div>
   <!-- One figure, under the board it is the total of. Two tiles used to sit
@@ -2059,9 +2094,8 @@ body.scr-anim { overflow-x:hidden }
 
 <!-- ══ PLAYER PROFILE ══ -->
 <main id="player-screen" class="wrap">
-  <a class="back" href="#" onclick="go('social');return false">&#8592; &nbsp;All players</a>
+  <a class="back" href="#" onclick="go('social');return false">&#8592; &nbsp;Top earners</a>
   <div class="phead">
-    <div class="pav" id="p-av"></div>
     <div>
       <h1 id="p-name"></h1>
       <div class="psub" id="p-sub"></div>
@@ -2159,13 +2193,6 @@ body.scr-anim { overflow-x:hidden }
   </div>
 </div>
 
-<div class="veil" id="veil"><div class="wb">
-  <div class="ring"></div>
-  <h3>Your lobby is open</h3>
-  <p>You staked <b id="wamt"></b>. Anyone who joins pays exactly the same,
-     so nobody can out-bet you. The game starts the moment someone enters.</p>
-  <button class="wc" onclick="cancel()">Cancel and refund</button>
-</div></div>
 
 <footer><div class="wrap ft">
   <span>&copy; 2026 DuelSeries</span>
@@ -2361,7 +2388,10 @@ function refreshSteps(gameId){
     STEPS_OFF=new Set(STEPS.filter(s=>s!==0));
   }else{
   const open=(window.V2Board&&V2Board.playableStakes)?V2Board.playableStakes(gameId):null;
-  STEPS_OFF=new Set(open?STEPS.filter(s=>!open.has(s)):[]);
+  /* Free is never struck: an empty or not-yet-answered board used to strike
+     it out too, while the white Play under it still worked (2026-10-15
+     audit). An unknown board keeps the paid rungs shut. */
+  STEPS_OFF=new Set(open&&open.size?STEPS.filter(s=>s!==0&&!open.has(s)):STEPS.filter(s=>s!==0));
   }
   /* Clamped at BOTH ends. min alone let a -1 through and STEPS[-1] is
      undefined, which took the whole detail screen down. */
@@ -3391,7 +3421,8 @@ window.V2_paintCounts=paintCounts;
 function cardHTML(g){
   const inner=`<div class="art">${art(g)}${countHTML(g)}</div>
     <div class="cap"><h3>${g.name}</h3></div>`;
-  return `<button type="button" class="card${g.soon?' soon':''}"
+  // A shut game says so to a screen reader too, not only with the padlock art.
+  return `<button type="button" class="card${g.soon?' soon':''}"${g.soon?` aria-label="${g.name}, coming soon"`:''}
     onclick="open_('${g.id}')">${inner}</button>`;
 }
 /* The list is rendered three times over. That is what keeps the rail endless
@@ -3404,7 +3435,14 @@ function cardHTML(g){
 const RAIL_COPIES=3;
 const railEl=()=>document.querySelector('.rail');
 function drawRail(){
-  document.getElementById('track').innerHTML=order.map(cardHTML).join('').repeat(RAIL_COPIES);
+  const t=document.getElementById('track');
+  t.innerHTML=order.map(cardHTML).join('').repeat(RAIL_COPIES);
+  /* Only the middle copy, the one the rail rests on, is in the Tab order and
+     read out: Tab used to start on the first copy, off-screen to the left,
+     and walk 39 cards for 13 games. */
+  t.querySelectorAll('.card').forEach((c,i)=>{
+    if(Math.floor(i/order.length)!==1){c.tabIndex=-1;c.setAttribute('aria-hidden','true')}
+  });
   paintCounts();
   repaintAll();
   /* Synchronous, not on an animation frame: rAF does not fire in a background
@@ -3597,9 +3635,15 @@ function open_(id){
      the players still seated in it are still playing. */
   /* A game on its own door (a built duel or solo run) has no ladder rows on
      the board, so its free row counts what its card counts. */
+  /* Every game now counts what its card counts (/api/live counts, the same
+     number the card and the home row show). Summing the rows' players instead
+     left out the bots the card includes: agar.io's card said 54 and this
+     screen said 0 (2026-10-15 audit). The row sum stays as the fallback for a
+     poll that brought no counts. */
   const door=!!(cur.built&&(cur.duel||cur.solo));
-  const playing=door?Number(((window.V2Board&&V2Board.counts)||{})[id])||0
-    :(window.V2Board?V2Board.lobbies:[]).filter(l=>l.game===id)
+  const cnt=((window.V2Board&&V2Board.counts)||{})[id];
+  const playing=typeof cnt==='number'&&Number.isFinite(cnt)?Math.max(0,Math.floor(cnt))
+    :door?0:(window.V2Board?V2Board.lobbies:[]).filter(l=>l.game===id)
       .reduce((n,l)=>n+(l.players||0),0);
   /* The free room is listed whether or not anybody is in it. It is the row
      that costs nothing to press, and burying it until somebody else happens to
@@ -3611,10 +3655,12 @@ function open_(id){
   const enter=locked?'disabled aria-disabled="true"'
     :door?`onclick="V2Play.launch('${cur.id}',{lobbyType:'free'})"`
     :`onclick="V2Play.launch('${cur.id}',{stake:0})"`;
+  /* Each row is named by its buy-in, not by the game's name again: the name
+     is the title right above, and paid rows read exactly like the free one
+     (2026-10-15 audit). */
   const freeRow=`<div class="lr">
      <div class="lswatch">${art(cur)}</div>
-     <div class="lmid"><span class="lname">${cur.name}</span>
-       <span class="lsub">NA<i></i><b class="lstake num">Free</b></span></div>
+     <div class="lmid"><span class="lname num">Free</span></div>
      <span class="sp" style="flex:1"></span>
      <span class="lcount${playing>0?' on':''}">
        <span class="ldot" aria-hidden="true"></span><span class="num">${playing}</span>
@@ -3630,9 +3676,8 @@ function open_(id){
   document.getElementById('dlob').innerHTML=freeRow+(mine.length
     ?mine.filter(l=>Number(l.stake)!==0).map(l=>`<div class="lr">
        <div class="lswatch">${art(cur)}</div>
-       <div class="lmid"><span class="lname">${cur.name}</span>
-         <span class="lsub">${String(l.region).toUpperCase()}<i></i>
-           <b class="lstake num">${cash(l.stake)}</b></span></div>
+       <div class="lmid"><span class="lname num lpaid">${cash(l.stake)}</span>${String(l.region).toLowerCase()==='na'?''
+         :`<span class="lsub">${String(l.region).toUpperCase()}</span>`}</div>
        <span class="sp" style="flex:1"></span>
        <span class="lcount${l.players>0?' on':''}">
          <span class="ldot" aria-hidden="true"></span><span class="num">${l.players}</span>
@@ -3658,10 +3703,26 @@ function openHow(title,steps){
    one moves focus to its close button, so Tab starts inside it and not on
    the page behind; closing it hands focus back to whatever opened it. The
    close button, never a field: a focused field raises a phone's keyboard. */
-const sheetFocus={back:null,
+/* Tab and Shift+Tab also go round inside the open sheet (it is aria-modal),
+   instead of walking out to the page behind the veil. */
+const sheetFocus={back:null,trap:null,
   open(id){this.back=document.activeElement;
-    const x=document.querySelector('#'+id+' .howx');if(x)x.focus({preventScroll:true})},
+    const veil=document.getElementById(id);
+    const x=veil&&veil.querySelector('.howx');if(x)x.focus({preventScroll:true});
+    if(this.trap)document.removeEventListener('keydown',this.trap);
+    this.trap=e=>{
+      if(e.key!=='Tab'||!veil||!veil.classList.contains('on'))return;
+      const f=[...veil.querySelectorAll('button,input,a[href],[tabindex]:not([tabindex="-1"])')]
+        .filter(el=>!el.disabled&&el.offsetParent!==null);
+      if(!f.length)return;
+      const first=f[0],last=f[f.length-1];
+      if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus()}
+      else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus()}
+      else if(!veil.contains(document.activeElement)){e.preventDefault();first.focus()}
+    };
+    document.addEventListener('keydown',this.trap)},
   close(){const b=this.back;this.back=null;
+    if(this.trap){document.removeEventListener('keydown',this.trap);this.trap=null}
     if(b&&b.focus&&document.contains(b))b.focus({preventScroll:true})}};
 window.sheetFocus=sheetFocus;
 /* Written to be added to. Owen fills these in as the format settles. */
@@ -3669,8 +3730,12 @@ function openEventHow(){
   openHow('Battle Royale',[
     ['Get in before it starts','Free to enter, nothing staked. Once a match begins the room is shut, so be in it beforehand.'],
     ['The wall closes in','A white circle shows where the wall goes next, then the wall closes to it, ring after ring, each one smaller. Touch the wall and you are out, with no way back.'],
-    ['No cashing out','You play for the placing, not for what your snake is worth. There is nothing to bank and nothing to lose.'],
-    ['Last one alive takes $20','Paid straight to your wallet. The circle keeps shrinking until one snake is left. Out early? Watch the rest of the match.'],
+    ['No cashing out','You play for the placing, not for what your snake is worth.'],
+    /* The standing prize and the rule the server pays it by (server/slBr/
+       brMatch.js: no prize for a solo run, or with fewer than two players
+       whose sockets proved a wallet, i.e. signed in). */
+    ['Last one alive takes $'+((typeof CONSTANTS!=='undefined'&&CONSTANTS.BR_PRIZE_USDC)||20),
+     'Paid straight to your wallet when at least two signed-in players start the match. Out early? Watch the rest of the match.'],
   ]);
 }
 function closeHow(){document.getElementById('howveil').classList.remove('on');sheetFocus.close()}
@@ -3740,7 +3805,12 @@ function drawStake(){
   /* Play turns gold on a paid rung: the money look, on the button that
      stakes it. Never on a game that is not open (its Play is shut). */
   const go=document.getElementById('gobtn');
-  if(go)go.classList.toggle('paid',Number(STEPS[si])>0&&!(cur&&cur.soon&&!cur.built));
+  const shut=!!(cur&&cur.soon&&!cur.built), paid=Number(STEPS[si])>0&&!shut;
+  if(go)go.classList.toggle('paid',paid);
+  /* And it says how much (Owen, 2026-10-15): "Play $0.50" on the button that
+     stakes it, plain "Play" on Free, "Coming soon" on a shut game. */
+  const lbl=document.getElementById('golabel');
+  if(lbl)lbl.textContent=shut?'Coming soon':paid?'Play '+cash(Number(STEPS[si])):'Play';
 }
 function pickStake(i){
   const s=STEPS[i];
@@ -3749,7 +3819,6 @@ function pickStake(i){
   if(cur)PICKED[cur.id]=STEPS[si];  /* this game's pick, for coming back to it */
   drawStake();
 }
-function cancel(){veil.classList.remove('on')}
 /* What the play module reads to know which room was chosen. */
 /* The next (dir 1) or previous (dir -1) game's screen, in the order the rail
    and the games grid draw them, wrapping at both ends as the rail does. Called
@@ -4071,14 +4140,13 @@ function go(id,dir){
 
 /* Escape closes the appearance dialog without saving, which is what a modal
    is expected to do. */
-/* The Deposit and Withdraw sheets close the same two ways as How to play
-   (they look the same and used to ignore both). Closing Withdraw is its
-   Cancel: nothing has been sent until "Send it". */
+/* The Withdraw sheet closes the same two ways as How to play (it looks the
+   same and used to ignore both). Closing it is its Cancel: nothing has been
+   sent until "Send it". */
 const isOn=id=>document.getElementById(id).classList.contains('on');
 document.addEventListener('keydown',e=>{
   if(e.key!=='Escape')return;
   if(isOn('howveil'))return closeHow();
-  if(isOn('depveil'))return V2Wallet.closeDep();
   if(isOn('wdrveil'))return V2Wallet.cancelCash();
   if(isOn('lookveil'))closeLook(false);
 });
@@ -4086,9 +4154,6 @@ document.addEventListener('keydown',e=>{
    dimmed backdrop looks like it should do. */
 document.getElementById('howveil').addEventListener('click',e=>{
   if(e.target.id==='howveil')closeHow();
-});
-document.getElementById('depveil').addEventListener('click',e=>{
-  if(e.target.id==='depveil')V2Wallet.closeDep();
 });
 document.getElementById('wdrveil').addEventListener('click',e=>{
   if(e.target.id==='wdrveil')V2Wallet.cancelCash();

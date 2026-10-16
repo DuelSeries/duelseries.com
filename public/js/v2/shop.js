@@ -21,33 +21,27 @@
   function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
   function locked(g) { return !!(LOCK && LOCK.isLocked(g.id)); }
 
-  function rarity(g, k) {
-    var t = S.tier(S.price(g.id, k.id));
-    if (t == null) return '';
-    var pips = '';
-    for (var i = 0; i < S.tiers.length; i++) pips += '<i' + (i <= t ? ' class="on"' : '') + '></i>';
-    return '<span class="sh-rar"><span class="sh-pips" aria-hidden="true">' + pips + '</span>' + esc(S.tiers[t].name) + '</span>';
-  }
-  /* A real disabled button: it cannot be pressed, focused or submitted, and
-     it has no handler. Buying is a later job. */
-  var BUY = '<button class="sh-buy" type="button" disabled>Coming soon</button>';
-
   function cv(g, k) {
     return '<canvas class="sh-cv" data-g="' + g.id + '" data-k="' + k.id + '"' +
       ' role="img" aria-label="' + esc(k.name + ', ' + g.name + ' skin') + '"></canvas>';
   }
+  /* A card is the skin, its name and its price (Owen, 2026-10-15). The grey
+     "Coming soon" button on every card and the rarity word, which only
+     restated the price, went; one "Coming soon" under the heading says it
+     for all of them. There is still no way to buy anything. */
   function card(g, k) {
     return '<div class="sh-card">' + cv(g, k) + '<div class="sh-meta">' +
-      '<div class="sh-nm">' + esc(k.name) + '</div>' +
-      '<div class="sh-ln">' + rarity(g, k) + '<span class="sh-price num">' + money(S.price(g.id, k.id)) + '</span></div>' +
-      BUY + '</div></div>';
+      '<div class="sh-ln"><span class="sh-nm">' + esc(k.name) + '</span>' +
+      '<span class="sh-price num">' + money(S.price(g.id, k.id)) + '</span></div>' +
+      '</div></div>';
   }
   function chips() {
-    return '<div class="sh-chips" role="tablist" aria-label="Game">' + S.games.map(function (g) {
+    // Plain toggle buttons (aria-pressed): tab roles promised a tab panel and arrow keys that never existed.
+    return '<div class="sh-chips" role="group" aria-label="Game">' + S.games.map(function (g) {
       var on = g.id === gameId;
       /* No skin count: every game has the same eight, so the number on each
          chip said nothing (2026-10-15). */
-      return '<button class="sh-chip' + (on ? ' on' : '') + '" role="tab" aria-selected="' + on + '" data-game="' + g.id + '">' +
+      return '<button class="sh-chip' + (on ? ' on' : '') + '" type="button" aria-pressed="' + on + '" data-game="' + g.id + '">' +
         esc(g.name) + '</button>';
     }).join('') + '</div>';
   }
@@ -66,8 +60,8 @@
        brings the picked chip into view: rebuilding it put the row back at
        the start, so the chip just picked slid off the screen. */
     var old = host.querySelector('.sh-chips'), keep = old ? old.scrollLeft : 0;
-    /* No subtitle: every Buy button already says Coming soon. */
-    host.innerHTML = '<div class="head"><div><h2>Shop</h2></div></div>' + bodyA();
+    // One "Coming soon" for the whole Shop, instead of a dead button on every card.
+    host.innerHTML = '<div class="head"><div><h2>Shop</h2><div class="sub">Coming soon</div></div></div>' + bodyA();
     host.onclick = onClick;
     var row = host.querySelector('.sh-chips');
     if (row) {

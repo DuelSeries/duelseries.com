@@ -74,9 +74,13 @@
   function desktopSiteForced() {
     if (!screen || !screen.width) return false;
     const layout = window.innerWidth;
-    const physical = Math.min(screen.width, screen.height);
+    const narrowSide = Math.min(screen.width, screen.height);
+    /* Against the screen's width as it is held. Measured against the narrow
+       side, a phone simply turned sideways (812 wide on a 375 screen) read as
+       "Desktop site" and got told to turn a setting off (2026-10-15). */
+    const across = window.innerWidth > window.innerHeight ? Math.max(screen.width, screen.height) : narrowSide;
     // A real tablet is wide AND has a wide screen; this is wide on a narrow one.
-    return physical <= 500 && layout > physical * 1.6 && layout >= 700;
+    return narrowSide <= 500 && layout > across * 1.6 && layout >= 700;
   }
   function warnDesktopSite() {
     if (!desktopSiteForced()) return;

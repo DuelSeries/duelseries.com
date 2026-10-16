@@ -467,7 +467,7 @@ test('fullscreen is attempted honestly, not faked', () => {
 test('the board lists only lobbies that have players', () => {
   const src = fs.readFileSync(path.join(ROOT, 'public/js/v2/board.js'), 'utf8');
   assert.ok(/\(l\.players \|\| 0\) > 0/.test(src), 'filters to occupied rooms');
-  assert.ok(/Nobody is playing right now/.test(src), 'and says so when there are none');
+  assert.ok(/Nobody playing yet/.test(src), 'and says so when there are none');
 });
 
 test('the last buy-in played is remembered, including free', () => {
@@ -680,7 +680,10 @@ test('a forced desktop viewport is detected and explained', () => {
   assert.ok(/desktopSiteForced/.test(src), 'the case is detected');
   assert.ok(/Desktop site/.test(src), 'and the fix is named in the message');
   // Must not fire on a real tablet or a small laptop.
-  assert.ok(/physical <= 500/.test(src), 'gated on a physically narrow screen');
+  assert.ok(/narrowSide <= 500/.test(src), 'gated on a physically narrow screen');
+  // Nor on a phone held sideways (2026-10-15): the layout is compared with the screen as it is held.
+  assert.ok(/window\.innerWidth > window\.innerHeight \? Math\.max\(screen\.width, screen\.height\)/.test(src),
+    'a landscape phone is measured across its long side');
 });
 
 test('swipe navigation exempts anything that owns its own horizontal drag', () => {
@@ -1297,7 +1300,11 @@ test('an unbuilt game can be opened and looked at, and still cannot be played', 
      locked with a padlock and disabled, the buy-ins are shut, and the free
      row's Enter is disabled, so nothing on the screen can start the game. */
   assert.ok(!html.includes('soonwrap') && !html.includes('Not playable yet'), 'no separate locked panel');
-  assert.ok(!/#detail\.soon [^{]*\{display:none\}/.test(html), 'nothing in the column is hidden for it');
+  /* Owen, 2026-10-15: a shut game shows only what it is: the art, its name, the
+     three prices and a padlocked Coming soon. Exactly these four go. */
+  assert.ok(html.includes('#detail.soon .namerow,#detail.soon .lookrow,#detail.soon .lobwrap,#detail.soon .spec{display:none}'),
+    'the name field, Customize, the lobby row and Spectate are hidden for it');
+  assert.ok(!/#detail\.soon [^{]*(\.stakes|\.gorow|\.go|#dname)[^{]*\{display:none\}/.test(html), 'and nothing else');
   assert.match(html, /const locked=!!\(cur\.soon&&!cur\.built\);\s*det\.classList\.toggle\('soon',locked\);/);
   assert.match(html, /goBtn\.classList\.toggle\('lock',locked\);\s*goBtn\.disabled=locked;/, 'Play is shut');
   assert.match(html, /const enter=locked\?'disabled aria-disabled="true"'/, 'so is the free row\'s Enter');
@@ -1335,7 +1342,9 @@ test('one layout for every game: rungs, name, Play, Customize, open lobbies, and
   // White on Free: a top-lit white, the gold button's make (2026-10-15).
   assert.match(html, /\.go\{[^}]*background:linear-gradient\(180deg,#ffffff/, 'white on Free');
   assert.match(html, /\.go\.paid\{background:linear-gradient/, 'gold on a paid rung');
-  assert.match(html, /go\.classList\.toggle\('paid',Number\(STEPS\[si\]\)>0&&/, 'set by the chosen rung');
+  assert.match(html, /paid=Number\(STEPS\[si\]\)>0&&!shut;\s*if\(go\)go\.classList\.toggle\('paid',paid\);/, 'set by the chosen rung');
+  // And it says the stake: "Play $0.50" (Owen, 2026-10-15).
+  assert.match(html, /lbl\.textContent=shut\?'Coming soon':paid\?'Play '\+cash\(Number\(STEPS\[si\]\)\):'Play';/, 'Play $0.50 on a paid rung');
 });
 
 test('the game screen swipes to the next and previous game, and leaves taps and scrolling alone', () => {
@@ -1869,8 +1878,11 @@ test('a paid agar.io stake reaches the widget only while the board lists that ru
   assert.deepEqual(plain(paper.plays), [{ game: 'paper', sel: { stake: 0.5 } }], 'Paper unchanged');
   await assert.rejects(paper.pending(), /no server here/);
 
-  // The detail screen's free-row count sums every row of the game, closed ones too (their players still play).
-  assert.match(v2(), /const playing=door\?[^\n]*\n\s*:\(window\.V2Board\?V2Board\.lobbies:\[\]\)\.filter\(l=>l\.game===id\)/,
+  // The detail screen's free-row count is the card's own count (/api/live counts, bots included,
+  // 2026-10-15: the card said 54 and this row said 0); without counts it sums every row of the
+  // game, closed ones too (their players still play).
+  assert.match(v2(), /const cnt=\(\(window\.V2Board&&V2Board\.counts\)\|\|\{\}\)\[id\];/, 'the card\'s count first');
+  assert.match(v2(), /:door\?0:\(window\.V2Board\?V2Board\.lobbies:\[\]\)\.filter\(l=>l\.game===id\)/,
     'the free row counts players in closed rows');
 });
 
@@ -1980,9 +1992,10 @@ test('the Shop tab shows priced skins for every game and sells nothing', () => {
     assert.ok(html.includes(src), 'the lobby loads ' + src);
   const tab = fs.readFileSync(path.join(ROOT, 'public/js/v2/shop.js'), 'utf8');
   const art = fs.readFileSync(path.join(ROOT, 'public/js/v2/shopArt.js'), 'utf8');
-  const buys = tab.match(/<button class="sh-buy"[^>]*>/g) || [];
-  assert.ok(buys.length === 1 && / disabled>$/.test(buys[0]), 'one Buy button, and it is disabled');
-  assert.ok(tab.includes(buys[0] + 'Coming soon</button>'), 'and says Coming soon');
+  /* No Buy control at all since 2026-10-15 (Owen: a card is the skin, its
+     name and its price); one "Coming soon" under the heading says it. */
+  assert.ok(!/sh-buy|<button[^>]*>Buy/i.test(tab), 'no Buy button anywhere');
+  assert.ok(tab.includes('<h2>Shop</h2><div class="sub">Coming soon</div>'), 'one Coming soon for the Shop');
   for (const src of [tab, art])
     for (const bad of ['fetch(', 'XMLHttpRequest', 'io(', '/api/', 'socket', 'privy', 'sendTransaction', 'V2Wallet'])
       assert.ok(!src.toLowerCase().includes(bad.toLowerCase()), 'the shop has no ' + bad);

@@ -19,7 +19,7 @@
 
 (function () {
   const el = id => document.getElementById(id);
-  const money = n => '$' + (Number(n) || 0).toFixed(2);
+  const money = n => '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const addr = () => (window.duelWallet || {}).address;
 
   function playTime(sec) {
@@ -29,11 +29,6 @@
     const h = Math.floor(sec / 3600);
     return h < 48 ? h + 'h' : Math.round(h / 24) + 'd';
   }
-  const when = at => {
-    const t = Date.parse(at);
-    return isNaN(t) ? '' : new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  };
-
   /* This section lives inside the wallet screen now, which has its own signed
      out state one panel above. A second Sign in button under it would be the
      same prompt twice, so the whole section is hidden instead. */
@@ -50,12 +45,11 @@
     let p;
     try {
       const r = await fetch('/api/my-profile?wallet=' + encodeURIComponent(a));
-      if (!r.ok) throw new Error('HTTP ' + r.status);
+      if (r.ok === false) throw new Error('HTTP ' + r.status);
       p = await r.json();
     } catch (_) {
       // Shown, not left inside the hidden section, so a failed read is never a blank.
       const box = el('w-earn'); if (box) box.hidden = false;
-      el('s-sub').textContent = '';
       el('s-body').innerHTML = '<div class="panel"><p class="note">Could not load ' +
         'earnings. Tap refresh to try again.</p></div>';
       return;
@@ -65,26 +59,17 @@
     const cashouts = games.length;
 
     const box = el('w-earn'); if (box) box.hidden = false;
-    el('s-sub').innerHTML = p.gamesPlayed
-      ? '<span class="num">' + p.gamesPlayed + '</span> games played'
-      : '';
 
     if (!cashouts) {
       el('s-body').innerHTML = '<div class="panel"><p class="note">No cash-outs yet.</p></div>';
       return;
     }
 
-    /* The chart leads, then the last ten payouts: a glance, not a ledger. The
-       graph is the shared one (chart.js V2EarningsChart), so a player's profile
-       draws exactly this line from exactly these rows. */
-    el('s-body').innerHTML =
-      '<div class="panel chartbox" id="s-chart"></div>' +
-      '<div class="head"><div><h2>Recent payouts</h2></div></div>' +
-      '<div class="tbl pays">' +
-        games.slice().reverse().slice(0, 10).map(g =>
-          '<div class="tr"><span class="num">' + when(g.at) + '</span>' +
-          '<span class="r num pos">' + money(g.amount) + '</span></div>').join('') +
-      '</div>';
+    /* The graph alone. The "Recent payouts" list under it went (Owen,
+       2026-10-15): every payout is already a "Game payout" row in Transactions
+       above it. The graph is the shared one (chart.js V2EarningsChart), so a
+       player's profile draws exactly this line from exactly these rows. */
+    el('s-body').innerHTML = '<div class="panel chartbox" id="s-chart"></div>';
     window.V2EarningsChart(el('s-chart'), games, p.joinedAt, money);
   }
 

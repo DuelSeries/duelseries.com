@@ -774,6 +774,22 @@ async function getGlobalWinnings() {
   return parseFloat(res.rows[0].total); // already in CAD
 }
 
+/* The same rows, split by the currency cad_amount was actually written in.
+   Before the USDC cutover (2026-06-24) it held SOL x the SOL/CAD rate, so
+   CAD; since then money.fiatValue is the identity and it holds the USDC
+   amount itself, so USD, and equal to `amount`. That equality is the marker
+   (read on prod 2026-10-15: the last SOL row is 2026-06-23 23:04Z, 0.0018 SOL
+   = 0.18 CAD; the first USDC row 2026-06-24 21:10Z, 0.09 = 0.09). A date cut
+   would misfile the rows written in the minutes around the switch. */
+async function getGlobalWinningsSplit() {
+  const res = await pool.query(
+    `SELECT COALESCE(SUM(cad_amount) FILTER (WHERE cad_amount <> amount), 0) AS cad,
+            COALESCE(SUM(cad_amount) FILTER (WHERE cad_amount = amount), 0) AS usd
+       FROM earnings_history WHERE cad_amount > 0`
+  );
+  return { cad: parseFloat(res.rows[0].cad), usd: parseFloat(res.rows[0].usd) };
+}
+
 async function searchPlayerNames(query, limit = 8) {
   const res = await pool.query(
     `SELECT name FROM accounts WHERE name ILIKE $1 ORDER BY name ASC LIMIT $2`,
@@ -947,7 +963,7 @@ module.exports = {
   features, NO_USDC_ACCOUNT,
   recordEarnings,
   recordStake, getTopEarners,
-  getProfile, getMyProfile, setAccountName, searchPlayerNames, getGlobalWinnings,
+  getProfile, getMyProfile, setAccountName, searchPlayerNames, getGlobalWinnings, getGlobalWinningsSplit,
   addCosmetic, getOwnedCosmetics,
   recordHouseRevenue, getHouseRevenueSummary, getRecentHouseRevenue, getHouseRevenueDaily,
 };

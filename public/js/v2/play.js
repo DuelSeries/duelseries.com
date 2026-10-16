@@ -182,7 +182,7 @@
     const res = await pushName(n);
     if (res !== true) {
       setState('bad');
-      toast(WHY[res] || ('Could not save your name (' + res + '). Tell Owen this code.'));
+      toast(WHY[res] || ('Could not save your name. Try again in a moment.'));
       setTimeout(() => { setState('editing'); if (res === 'taken') input.focus(); }, 1500);
       return;
     }
@@ -208,13 +208,22 @@
     if (!box) { alert(msg); return; }
     box.textContent = msg;
     box.hidden = !msg;
+    /* Enter on Home's lobby list launches with the game screen hidden, so the
+       line under Play said it to nobody and the click looked dead. */
+    if (msg && box.offsetParent === null) toast(msg);
   }
 
   /* Returns the name to play under, or null having already explained why not. */
-  function requireName() {
-    const input = el('play-name');
+  function requireName(game) {
+    let input = el('play-name');
     const name = cleanName(input ? input.value : savedName());
     if (name.length < 3) {
+      /* From Home the name field is on a hidden screen: open the game's screen
+         so the field being asked for is in front of them. */
+      if (input && input.offsetParent === null && game && typeof window.open_ === 'function') {
+        window.open_(game);
+        input = el('play-name');
+      }
       say('Pick a name of at least three letters or numbers to play.');
       if (input) input.focus();
       return null;
@@ -313,7 +322,7 @@
       if (window.duelWalletLogin) window.duelWalletLogin();
       return;
     }
-    const name = requireName();
+    const name = requireName(game);
     if (!name) return;
     say('');
 
@@ -686,7 +695,7 @@
                     toast: toast, toastOk: toastOk,
                     paidLeftNotice: paidLeftNotice, paidFrameLocked: paidFrameLocked,
                     pushName: pushName,
-                    nameWhy: r => WHY[r] || ('Could not save your name (' + r + ').') };
+                    nameWhy: r => WHY[r] || 'Could not save your name. Try again in a moment.' };
 
   /* Forward the stall marker into the game.
 
