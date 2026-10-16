@@ -62,6 +62,7 @@ function call(port, method, url, body) {
 
 const PAYER = 'DurablePayer111111111111111111111111111111';
 let port, ledgerDb, ops;
+const pushes = [];
 let landed = 0.5;
 const tx = (s) => Buffer.from(s).toString('base64');
 const until = async (fn, ms = 4000) => {
@@ -88,6 +89,8 @@ test.before(async () => {
     // Written before durable rows existed.
     { sig: 'legacy-sig', state: null },
   ]);
+  // The owner's phone pushes, captured (server/joinAlerts.js reads pushOwner once, at boot).
+  require(path.join(ROOT, 'server', 'notify.js')).pushOwner = (m, o) => pushes.push({ m, o: o || {} });
   const log = console.log; const warn = console.warn;
   console.log = () => {}; console.warn = () => {};
   try {
@@ -394,4 +397,26 @@ test('a real token at the slither door claims its row before the seat; a refusal
   c.s.close();
   a.s.close();
   b.s.close();
+});
+
+/* The owner's join pushes (server/joinAlerts.js) for the joins above, through the real doors: every seated paid join
+   (old snake ladder and tier, knockout's queue, the slither door) reached the paid topic, loud, by name; a refused one
+   ('late', the retired $0.10 'old', the slither door's 'one-seat' refusal) reached no topic; and no push names the
+   payer's wallet. 'stale' is the same wallet in the same old snake $0.50 room inside the latch: silent. */
+test('join pushes: seated paid joins reach the paid topic by name, refusals none, never a wallet', () => {
+  const joins = pushes.filter((p) => /^(Paid|Free) join: /.test(p.o.title || ''));
+  const paidJoins = joins.filter((p) => /^Paid join: /.test(p.o.title));
+  const paid = paidJoins.map((p) => p.m);
+  for (const want of ['snk joined slither.io $0.50 in NA', 'ko queued for Knockout $0.50 in NA',
+    'tier joined slither.io $1.00 in NA', 'dursl joined slither.io $0.50 in NA']) {
+    assert.ok(paid.includes(want), want + ' in ' + JSON.stringify(paid));
+  }
+  for (const p of paidJoins) {
+    assert.equal(p.o.priority, 'high');
+    assert.equal(p.o.url, undefined, "the topic Owen's phone already has");
+  }
+  for (const name of ['late', 'old', 'dursl2', 'stale']) {
+    assert.ok(!joins.some((p) => p.m.startsWith(name + ' ')), name + ' was not announced');
+  }
+  for (const p of pushes) assert.ok(!JSON.stringify(p).includes(PAYER), 'no push names the wallet: ' + p.m);
 });

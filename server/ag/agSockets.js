@@ -194,6 +194,14 @@ function attachAgSockets(io, arenas, helpers) {
     }
     const r = arenas.join(socket, name);
     if (r === 'full') socket.emit('ag:refused', { why: 'full' });
+    // the owner's quiet phone push (joinAlerts, latched per name there), only once the free seat is taken
+    if (r === 'ok' && typeof h.notifyJoin === 'function') {
+      try {
+        h.notifyJoin(name);
+      } catch (e) {
+        log.error('[AG] notifyJoin', e && e.message);
+      }
+    }
   }
 
   function onSpectate(socket) {

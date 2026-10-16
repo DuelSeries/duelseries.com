@@ -124,7 +124,7 @@ test('open: unconfirmed seats are shielded and still; inputs before ag:ready are
   assert.strictEqual(r.ready(a.s.id), false, 'once');
   assert.strictEqual(a.acct.state, 'live');
   assert.ok(!r.shielded.has(a.pid) && !r.still.has(a.pid));
-  assert.deepStrictEqual(calls.stake, [{ wallet: 'W-a', worth: 0.1, label: r.lobbyType }]);
+  assert.deepStrictEqual(calls.stake, [{ wallet: 'W-a', worth: 0.1, label: r.lobbyType, name: 'a', stake: r.stake }]);
   assert.strictEqual(r.target(a.s.id, 100, 100), true);
 });
 

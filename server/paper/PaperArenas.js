@@ -275,7 +275,8 @@ class PaperArenas {
     if (seat.proof && this.byProof.get(seat.proof) === seat) this.byProof.delete(seat.proof);
     if (seat.room && seat.room.paid && seat.wallet && seat.deposit > 0 && this.hooks && typeof this.hooks.onStake === 'function') {
       try {
-        this.hooks.onStake({ wallet: seat.wallet, worth: seat.deposit / 1e6, label: seat.room.lobbyType });
+        this.hooks.onStake({ wallet: seat.wallet, worth: seat.deposit / 1e6, label: seat.room.lobbyType, name: seat.name,
+          stake: seat.room.stake });
       } catch (e) {
         console.error('[PAPER] stake row', e && e.message);
       }

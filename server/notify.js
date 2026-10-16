@@ -9,6 +9,8 @@
 //   NTFY_TOPIC_URL  full ntfy topic URL (default below)
 //   NTFY_DISABLED   set to '1' to turn all pushes off (e.g. local dev)
 //
+// A caller can name another topic with { url } (joinAlerts.js: the paid and free join topics).
+//
 // Subscribe on your phone: open the ntfy app -> add topic "duelseries-players-8382"
 // (this is separate from the deploy topic "duelseries-deploy-8382").
 
@@ -16,10 +18,10 @@ const https = require('https');
 
 const NTFY_URL = process.env.NTFY_TOPIC_URL || 'https://ntfy.sh/duelseries-players-8382';
 
-function pushOwner(message, { title, tags, priority } = {}) {
+function pushOwner(message, { title, tags, priority, url } = {}) {
   if (process.env.NTFY_DISABLED === '1') return;
   try {
-    const u = new URL(NTFY_URL);
+    const u = new URL(url || NTFY_URL);
     const headers = { 'Content-Type': 'text/plain; charset=utf-8' };
     if (title)    headers['Title']    = title;    // keep ASCII (ntfy header value)
     if (tags)     headers['Tags']     = tags;     // e.g. 'video_game' renders a game emoji

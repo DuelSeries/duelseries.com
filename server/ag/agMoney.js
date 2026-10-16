@@ -240,7 +240,8 @@ class AgMoney {
     this.shielded.delete(pid);
     this.still.delete(pid);
     try {
-      this.hooks.onStake({ wallet: acct.wallet, worth: acct.deposit / 1e6, label: this.label });
+      this.hooks.onStake({ wallet: acct.wallet, worth: acct.deposit / 1e6, label: this.label, name: acct.name,
+        stake: this.stake });
     } catch (e) {
       this.log.error('[AG] stake row', e && e.message);
     }

@@ -236,8 +236,8 @@ function refusingHelper() {
 //   laws      the free room's law table (slBoot.openSl's arenas.laws); dev: it is the dev table (rooms not shippable)
 //   region    'na'
 //   hooks     slMoney's server hooks: onCashout, onOwed, onFloor, onHouse, onBreach, onTransfer, journal
-//   door      the door's server deps: consumeAtStake(token, stake), ledger, slPayout, journal, ops, recordEntry, alert,
-//             track
+//   door      the door's server deps: consumeAtStake(token, stake), ledger, slPayout, journal, ops, recordEntry, onSeated,
+//             alert, track
 //   arenas    tests only: more SlPaidArenas options (clock, timers, autoTick, seed, checkEvery, ...)
 //   paidSwitch  createPaidSwitchStore's store: a close saved before this boot opens the rungs CLOSED (sl:paid:on reopens)
 //   log
@@ -285,6 +285,7 @@ function openSlPaid(opts) {
         journal: d.journal,
         ops: d.ops || null,
         recordEntry: d.recordEntry || null,
+        onSeated: d.onSeated || null,
         alert: d.alert || null,
         track: typeof d.track === 'function' ? d.track : (p) => p,
         log,

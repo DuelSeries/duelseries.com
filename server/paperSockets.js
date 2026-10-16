@@ -66,7 +66,10 @@ module.exports = function createPaperSockets({
   // the shared money journal (agJournal), the arenas' own by default: a durable paid join writes its door record there
   // before the stake claim (step 7j)
   journal = arenas && arenas.journal ? arenas.journal : null,
-  paidEnabled = process.env.PAPER_PAID === '1'
+  paidEnabled = process.env.PAPER_PAID === '1',
+  // onFreeJoin({ name }): the owner's quiet phone push (joinAlerts), once a free seat exists; never on a respawn. A
+  // paid seat's push rides the arenas' onStake instead (the buy-in counts once the player steers).
+  onFreeJoin = null
 }) {
   function refuse(socket, why, extra) {
     socket.emit('pp:refused', Object.assign({ why, text: TEXT[why] || why, refunded: false }, extra || {}));
@@ -307,7 +310,7 @@ module.exports = function createPaperSockets({
           remember(token, 'full', true);
           return refuse(socket, 'full', { refunded: true });
         }
-        seatEntry(socket, token, stake, name, proof, entry, again, door, skin);
+        seatEntry(socket, token, stake, name, proof, entry, again, door, skin, respawn);
       }).catch((e) => console.error('[PAPER] durable join', e && e.stack ? e.stack : e));
       if (proof) {
         claiming.set(proof, claim);
@@ -315,12 +318,12 @@ module.exports = function createPaperSockets({
       }
       return;
     }
-    seatEntry(socket, token, stake, name, proof, entry, seat, null, skin);
+    seatEntry(socket, token, stake, name, proof, entry, seat, null, skin, respawn);
   }
 
   // Steps 7c to 9, for a spent token (and for a free seat, which has none). door: the durable join's journal record
   // (7j), whose jid the seat takes, or null. skin: the bought skin's id proved at step 5b, or null.
-  function seatEntry(socket, token, stake, name, proof, entry, seat, door = null, skin = null) {
+  function seatEntry(socket, token, stake, name, proof, entry, seat, door = null, skin = null, respawn = false) {
     // 7c. a wallet whose last paid joins were refunded before their first input (join-lost,
     // join-timeout) is paused for a while: an unconfirmed seat's loss is refunded but its win
     // is kept, so a script could otherwise repeat that 3 s free option on every buy-in. Only
@@ -362,6 +365,14 @@ module.exports = function createPaperSockets({
     // 9. socket state is these two fields only
     socket._ppRoom = seat.room;
     socket._ppStake = stake;
+    // 10. a free seat's phone push, after the seat exists (nothing paid rides on a free seat, and it cannot throw out)
+    if (stake === 0 && !respawn && typeof onFreeJoin === 'function') {
+      try {
+        onFreeJoin({ name });
+      } catch (e) {
+        console.error('[PAPER] free join push', e && e.message);
+      }
+    }
   }
 
   // A watching socket never joins or respawns: dropped silently BEFORE anything is read (the page opens a fresh

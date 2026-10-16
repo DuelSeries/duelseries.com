@@ -40,6 +40,9 @@ const skinCatalog = require('./skinCatalog');                   // what is for s
 const { liveCounts, withBoardBots } = require('./liveCounts'); // per-game totals, for the lobby cards
 
 const REGION = process.env.REGION || 'na';
+/* Join pushes on their own two topics, paid loud and free quiet (server/joinAlerts.js). Never throws,
+   so a join path calls it after the seat exists and a lost push can never cost a seat. */
+const joinAlerts = require('./joinAlerts').createJoinAlerts({ push: notify.pushOwner, region: REGION });
 
 // Record a house money event to BOTH our own ledger (source of truth) and PostHog (dashboards).
 // amountUsdc is signed: positive = revenue (rake, skins), negative = cost (bot entries).
@@ -1967,9 +1970,7 @@ const slOpened = slBoot.openSl({
     socketRL,
     ops,
     /* SERVER-DESIGN 13 item 9: slSockets throttles (C_PUSH) before calling this. */
-    notifyJoin: (name, where) => notify.pushOwner(
-      `${name || 'A player'} joined ${where === 'br' ? 'the Battle Royale' : 'slither.io (new) Free'} in ${REGION.toUpperCase()}`,
-      { title: where === 'br' ? 'New player: Battle Royale' : 'New player: slither.io (new)', tags: 'video_game' }),
+    notifyJoin: (name, where) => joinAlerts.joined({ game: where === 'br' ? 'br' : 'sl', stake: 0, name }),
     /* The bot governor's paid-seat input, once a second (SERVER-DESIGN 11). */
     paidLoad: () => ({ paidPlayers: ops.drainStatus(ALL_ROOMS(), entryStore.pending()).paid, paid: [] }),
   },
@@ -2265,7 +2266,10 @@ const paperArenas = new PaperArenas({
        (join-lost, join-timeout, seat-failed, an emergency close, a cooldown)
        must not show on the player's profile as a stake they lost (review
        finding). Through recordEntry, still the one place a buy-in is written. */
-    onStake: ({ wallet, worth }) => { recordEntry({ ok: true, worth, walletAddress: wallet }, 'paper'); },
+    onStake: ({ wallet, worth, name, stake }) => {
+      recordEntry({ ok: true, worth, walletAddress: wallet }, 'paper');
+      joinAlerts.joined({ game: 'paper', stake, name, wallet });   // the paid phone push, once the player steers
+    },
   },
 });
 const paper = require('./paperSockets')({
@@ -2285,6 +2289,7 @@ const paper = require('./paperSockets')({
      through it to the owed-payout lane (STATUS item 7a). Dev tokens have no row. */
   ledger: stakeLedger,
   paidEnabled: PAPER_PAID,
+  onFreeJoin: ({ name }) => joinAlerts.joined({ game: 'paper', stake: 0, name }),
 });
 /* The owner's paper:paid:off outlives a restart (security review item b): a close
    saved before this boot opens the paid rungs with their door shut until
@@ -2402,7 +2407,10 @@ const agMoneyHooks = {
   onFeed: () => {},
   onBreach: agOwnerAlert,
   /* The buy-in row, written on ag:ready (a seat refunded before it readied leaves no stake on the profile). */
-  onStake: ({ wallet, worth }) => { recordEntry({ ok: true, worth, walletAddress: wallet }, 'agar'); },
+  onStake: ({ wallet, worth, name, stake }) => {
+    recordEntry({ ok: true, worth, walletAddress: wallet }, 'agar');
+    joinAlerts.joined({ game: 'agar', stake, name, wallet });   // the paid phone push, once the seat readied
+  },
   onHouse: agPayout.houseIncident,
   journal: agJournal,
 };
@@ -2417,7 +2425,7 @@ const agBoot = require('./ag/agBoot').openAg({
   env: process.env,
   io,
   region: REGION,
-  helpers: { socketRL, sanitizeName, ops },
+  helpers: { socketRL, sanitizeName, ops, notifyJoin: (name) => joinAlerts.joined({ game: 'agar', stake: 0, name }) },
   money: { hooks: agMoneyHooks, door: agPaidDoorDeps },
   /* A saved agar:paid:off opens the paid door shut (security review item b). */
   paidSwitch: agPaidSwitch,
@@ -2521,6 +2529,8 @@ const slPaidOpened = slPaidBoot.openSlPaid({
     ops,
     /* The buy-in row, written once the seat holds the money (the old snake's label). */
     recordEntry: (entry, label) => recordEntry(entry, label),
+    /* The paid phone push, once the seat holds the money (server/joinAlerts.js). */
+    onSeated: ({ name, stake, wallet }) => joinAlerts.joined({ game: 'sl', stake, name, wallet }),
     alert: agOwnerAlert,
     track: agInflight.track,
   },
@@ -3810,12 +3820,8 @@ io.on('connection', (socket) => {
          verified payer, else the wallet this socket proved, else none. Never the client's
          walletAddress (finder-4: the free BR prize went to whatever wallet the client named). */
       room.addPlayer(socket, playerName, entry.walletAddress || socketIdentity.proven(socket) || null, color || null, entry.worth);
-      notify.pushOwner(
-        `${playerName} joined the ${roomLabel} lobby` +
-          (entry.worth ? ` for ${entry.worth} ${money.unit}` : ' (free)') +
-          ` in ${rgn.toUpperCase()}`,
-        { title: 'New player: slither.io', tags: 'video_game' }
-      );
+      joinAlerts.joined({ game: room.isBattleRoyale ? 'br' : 'snake', stake: entry.worth > 0 ? (socket._stake || entry.worth) : 0,
+        name: playerName, wallet: entry.walletAddress, region: rgn });
       lobbyConnections.delete(socket);
       broadcastLobbyState();
     }, (why) => {
@@ -4212,6 +4218,7 @@ io.on('connection', (socket) => {
     if (ops.get().maintenance) { socket.emit('maintenance', ops.get()); return; }
     tanksLobby.enqueue(socket, sanitizeName(name), strOr(wallet, null) || socket._walletAddress || null);
     socket.emit('tanks:queued', { waitingMs: tanksLobby.queuedFor(socket.id) || 0 });
+    joinAlerts.joined({ game: 'tanks', stake: 0, name: sanitizeName(name), queued: true });
   });
 
   on('tanks:unqueue', () => {
@@ -4283,6 +4290,8 @@ io.on('connection', (socket) => {
            back, rather than the player finding out by being refunded. */
         paidWaitMs: rung > 0 ? KnockoutLobby.PAID_WAIT_MS : 0,
       });
+      // After the queue holds the seat (never between the token and it): joinAlerts never throws.
+      joinAlerts.joined({ game: 'knockout', stake: rung, name: sanitizeName(name), wallet: payTo, queued: true });
     };
     if (!(wants > 0)) return seat(null);
     // Off the ladder (the retired 0.1 too): refused before the token is touched, so it stays unspent.
@@ -4372,6 +4381,8 @@ io.on('connection', (socket) => {
         stake: rung, worth,
         paidWaitMs: rung > 0 ? BattleshipLobby.PAID_WAIT_MS : 0,
       });
+      // After the queue holds the seat (never between the token and it): joinAlerts never throws.
+      joinAlerts.joined({ game: 'battleship', stake: rung, name: sanitizeName(name), wallet: payTo, queued: true });
     };
     if (!(wants > 0)) return seat(null);
     if (!want) { socket.emit('bs:refused', { why: RETIRED_BUYIN }); return; }   // token left unspent
@@ -4429,6 +4440,7 @@ io.on('connection', (socket) => {
     shooterRoom.removePlayer(socket.id);         // a second Play replaces the first
     shooterRoom.addPlayer(socket, sanitizeName(name), strOr(weapon, ''));
     socket.emit('sh:map', shooterRoom.mapPayload());
+    joinAlerts.joined({ game: 'shooter', stake: 0, name: sanitizeName(name) });
   });
 
   on('sh:input', (input) => {
