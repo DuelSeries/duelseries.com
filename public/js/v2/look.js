@@ -30,11 +30,49 @@
   /* slither has no skin names. A number reads as what it is, a place in the list. */
   function name(cv) { return cv < 9 ? NAMES[cv] : 'Skin ' + (SKINS.indexOf(cv) + 1); }
 
-  var sprites = null;
+  /* The body frames are built once, by public/js/v2/lookWorker.js off the
+     main thread: built here, where a preview was first painted, they cost a
+     quarter of a second at the start of the first swipe into the Shop (more
+     on a phone). The worker's frames are the page's own build byte for byte
+     (all 347 frames and the ring checked, 2026-10-16). Until they land
+     paint() draws nothing, and every preview is repainted on a clock, so the
+     snake appears on the next frame after. A browser without OffscreenCanvas
+     builds here, but in idle time rather than inside a swipe. */
+  var sprites = null, building = false;
   var looks = {};
+  function buildHere() {
+    if (sprites) return;
+    var s = {};
+    SS.buildSprites(s, { document: root.document, nsr: false });
+    sprites = s;
+  }
+  function idle(fn) {
+    if (root.requestIdleCallback) root.requestIdleCallback(fn, { timeout: 3000 });
+    else root.setTimeout(fn, 300);
+  }
+  function warm() {
+    if (sprites || building || !SS) return;
+    building = true;
+    var w = null;
+    if (root.Worker && root.OffscreenCanvas && root.ImageBitmap) {
+      try { w = new root.Worker('/js/v2/lookWorker.js'); } catch (_) { w = null; }
+    }
+    if (!w) { idle(buildHere); return; }
+    w.onmessage = function (e) {
+      w.terminate();
+      if (e.data && e.data.per_color_imgs) sprites = e.data; else idle(buildHere);
+    };
+    w.onerror = function () { w.terminate(); idle(buildHere); };
+  }
   function sets() {
-    if (!sprites) { sprites = {}; SS.buildSprites(sprites, { document: root.document, nsr: false }); }
-    return sprites.per_color_imgs;
+    if (!sprites) warm();
+    return sprites && sprites.per_color_imgs;
+  }
+  /* Started once the lobby has loaded, so the snakes are ready long before
+     anyone reaches the Shop or the chooser. */
+  if (SS && root.document) {
+    if (root.document.readyState === 'complete') idle(warm);
+    else root.addEventListener('load', function () { idle(warm); }, { once: true });
   }
   /* A skin is a cv number, or (for the Shop's skins) a list of [count, colour]
      stripe runs: slither's own custom-skin bytes (setSkin's `ca`, bytes 8 on
@@ -82,6 +120,7 @@
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, w, h);
     var all = sets();
+    if (!all) return;
     var o = look(skinCv);
     var own = all[o.cv];
     var stripes = o.rbcs;

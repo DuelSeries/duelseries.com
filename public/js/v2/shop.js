@@ -83,7 +83,7 @@
      game iframe, and a preview left animating behind a game is what once cost
      the snake half its frame rate, so the loop stops itself the first frame
      the screen is not showing and render() is what starts it again. */
-  var cvs = [], fresh = [], running = false, last = 0, sized = 0;
+  var cvs = [], fresh = [], running = false, last = 0, sized = 0, FRESH_MS = 4;
   function collect() {
     cvs = Array.prototype.slice.call(host.querySelectorAll('canvas.sh-cv'));
     fresh = cvs.slice();
@@ -111,11 +111,17 @@
     if (resize) sized = ts;
     var tick = ts - last >= 33;                          // animated previews at ~30fps
     if (tick) last = ts;
+    var t0 = root.performance.now(), newOnes = 0;
     for (var i = 0; i < cvs.length; i++) {
       var c = cvs[i];
+      var at = fresh.indexOf(c), isNew = at >= 0;
+      /* New previews get a few milliseconds a frame, and always at least
+         one: on a slow phone the first frame of a swipe into the Shop used
+         to paint every card at once (2026-10-16). The rest follow over
+         the next frames, while the screen is still sliding in. */
+      if (isNew && newOnes && root.performance.now() - t0 > FRESH_MS) continue;
       var grew = resize && fit(c);
-      var isNew = fresh.indexOf(c) >= 0;
-      if (isNew) { fit(c); fresh.splice(fresh.indexOf(c), 1); }
+      if (isNew) { newOnes++; fit(c); fresh.splice(at, 1); }
       var moves = S.animated(c.dataset.g);
       if (!(grew || isNew || (moves && tick))) continue;
       if (moves && !grew && !isNew) {
