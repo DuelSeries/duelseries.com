@@ -8,6 +8,7 @@ import { PublicKey, SystemProgram, Transaction, VersionedTransaction } from '@so
 import { getAssociatedTokenAddressSync, createTransferCheckedInstruction, createAssociatedTokenAccountIdempotentInstruction } from '@solana/spl-token';
 import { SERVER_URLS, stakeRoute } from './stakeRoute.mjs';
 import { createRestakeBridge, cancelledError } from './restakeBridge.mjs';
+import { holdBackCoinbase } from './holdCoinbase.mjs';
 
 // Active money mode (sol|usdc) reported by the server — decides whether the widget builds native
 // SOL transfers or USDC SPL-token transfers, and how it labels balances. Cached after first fetch.
@@ -753,6 +754,13 @@ function App() {
       <WalletPanel />
     </PrivyProvider>
   );
+}
+
+/* Before Privy is made, so the fetch its client keeps is this one (holdCoinbase.mjs: the Coinbase
+   row stays out of the Add funds sheet while Coinbase caps this app at about US$5 a buy). */
+if (typeof globalThis.fetch === 'function') {
+  globalThis.fetch = holdBackCoinbase(globalThis.fetch.bind(globalThis), APP_ID,
+    () => moneyConfig().then((c) => !!(c && c.coinbaseOnramp)).catch(() => false));
 }
 
 const mount = document.getElementById('wallet-root');

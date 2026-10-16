@@ -414,7 +414,10 @@ app.get('/api/money-config', (req, res) => {
              // SOL <-> USDC in the player's own wallet (server/swap.js): what the Wallet tab offers.
              swap: money.mode === 'usdc', solReserve: Swap.RULES.RESERVE_LAMPORTS / 1e9,
              minConvertSol: Swap.RULES.MIN_SOL_IN / 1e9, minWithdrawSolUsd: Swap.RULES.MIN_USDC_IN / 1e6,
-             cardStartSol: cardStartSol() });
+             cardStartSol: cardStartSol(),
+             /* Coinbase Onramp's row in Add funds: held back while Coinbase caps this app at about
+                US$5 a buy (wallet-widget/src/holdCoinbase.mjs); COINBASE_ONRAMP=on once raised. */
+             coinbaseOnramp: process.env.COINBASE_ONRAMP === 'on' });
 });
 
 // ─── Cross-region stats: EU pushes to NA instantly on every change ────────────
