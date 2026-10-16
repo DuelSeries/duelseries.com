@@ -1135,7 +1135,7 @@ body.ingame>.howveil,body.ingame>.meveil,body.ingame>.apscreen,body.ingame>.bshe
 .sw:disabled{opacity:.4;cursor:default}
 .sw:focus-visible{outline:2px solid var(--bone);outline-offset:2px}
 /* Something new behind a tab: a small red dot on its icon. */
-.ni.dot::after{content:"";position:absolute;left:26px;top:9px;width:7px;height:7px;border-radius:50%;
+.ni.isnew::after{content:"";position:absolute;left:26px;top:9px;width:7px;height:7px;border-radius:50%;
   background:#e5534b;box-shadow:0 0 0 2px var(--bg)}
 
 /* Clips, look A: a wall of clips, Top clippers on the right. The video plays
@@ -4612,7 +4612,7 @@ const NAV=[
 let route='play';
 function drawNav(){
   document.getElementById('nav').innerHTML=NAV.map(n=>
-    `<button class="ni${n.id===route?' on':''}${n.pc?' pconly':''}${n.dot&&n.dot()?' dot':''}" data-tab="${n.id}" onclick="go('${n.id}')" aria-label="${n.t}">
+    `<button class="ni${n.id===route?' on':''}${n.pc?' pconly':''}${n.dot&&n.dot()?' isnew':''}" data-tab="${n.id}" onclick="go('${n.id}')" aria-label="${n.t}">
        <svg viewBox="0 0 24 24"><path d="${n.p}"/></svg><span class="lbl">${n.t}</span><span class="tip">${n.t}</span>
      </button>`).join('');
 }

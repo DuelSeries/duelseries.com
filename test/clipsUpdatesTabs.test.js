@@ -89,3 +89,20 @@ test('Social is shown as Leaderboards, but keeps its id so the router, swipe ord
   assert.ok(!/"[^"]*\bSocial\b[^"]*"/.test(JSON.stringify(JSON.parse(read('public/updates.json')).posts.map(p => p.body))),
     'no update tells players to open Social');
 });
+
+test('a tab with something new can still be clicked: no nav class is one the page makes click-through', () => {
+  /* Bug 2026-10-16: the "new" mark was the class "dot", and the page has a global .dot{pointer-events:none} (a
+     decoration elsewhere), so Updates went dead for every visitor who had not opened it yet. */
+  const html = read('public/v2.html');
+  const tpl = html.slice(html.indexOf('function drawNav(){'), html.indexOf('function drawNav(){') + 600);
+  assert.match(tpl, /\$\{n\.dot&&n\.dot\(\)\?' isnew':''\}/);
+  const classes = new Set(['ni', 'on', 'pconly', 'isnew']);
+  for (const m of tpl.matchAll(/' ([a-z-]+)'/g)) classes.add(m[1]);
+  for (const c of classes) {
+    const re = new RegExp('(^|[}\s,])\.' + c + '\{[^}]*pointer-events:\s*none', 'm');
+    assert.ok(!re.test(html), '.' + c + ' is click-through somewhere on the page');
+  }
+  for (const f of ['public/js/v2/clips.js', 'public/js/v2/updates.js']) {
+    assert.ok(!/classList\.toggle\('dot'/.test(read(f)), f + ' marks the tab with isnew, not dot');
+  }
+});

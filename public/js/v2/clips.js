@@ -347,7 +347,7 @@
   function paintDot() {
     const owner = ownerVerdict() === true;
     document.querySelectorAll('.ni[data-tab="clips"]').forEach(b => {
-      b.classList.toggle('dot', owner && data.waiting > 0);
+      b.classList.toggle('isnew', owner && data.waiting > 0);
     });
   }
   async function watch() {

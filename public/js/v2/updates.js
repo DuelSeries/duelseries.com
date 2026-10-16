@@ -62,7 +62,7 @@
 
   const unread = () => fresh.size > 0;
   function paintDot() {
-    document.querySelectorAll('.ni[data-tab="updates"]').forEach(b => b.classList.toggle('dot', unread()));
+    document.querySelectorAll('.ni[data-tab="updates"]').forEach(b => b.classList.toggle('isnew', unread()));
   }
 
   function when(d) {
