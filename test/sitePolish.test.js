@@ -123,7 +123,11 @@ test('the paid-out total is one currency: the old CAD part is turned into dollar
   assert.ok(/s\.usd \+ \(s\.cad \+ PRE_TRACKING_WINNINGS_CAD\) \/ rate/.test(route), 'CAD converted at the live rate');
   assert.ok(/let totalUsd = null;/.test(route), 'no rate, no number');
   assert.strictEqual(typeof require('../server/prices').getUsdCadRate, 'function');
-  assert.ok(/MODE === 'usdc' \? j\.totalUsd : j\.totalCad/.test(read('public/js/v2/social.js')), 'the lobby shows the dollars');
+  /* The lobby no longer shows this total at all (2026-10-16): it counts every payout, Owen's own test
+     play included, so Social shows Global player winnings (/api/earnings/total, real players only) instead. */
+  const soc = read('public/js/v2/social.js').replace(/\/\*[\s\S]*?\*\//g, '');
+  assert.ok(!/fetch\('\/api\/stats\/winnings'/.test(soc) && /\/api\/earnings\/total/.test(soc),
+    'the lobby shows real players\' winnings, not every payout');
 });
 
 test('the wallet keeps one payouts list: Transactions, with the graph under it', () => {
