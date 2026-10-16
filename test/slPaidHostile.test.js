@@ -190,7 +190,8 @@ test('auth.paid other than the number 1 is a free socket; a free socket reads on
   f.fire('sl:join', { nick: 'f' });
   f.fire('sl:hold', { on: 1 });
   f.fire('sl:leave');
-  assert.deepEqual(Array.from(touched).sort(), ['cv', 'paid', 'watch']);
+  // shop and skinPass: a bought skin's id and the lobby's skin pass (docs/skin-purchases.md), cosmetic, never money
+  assert.deepEqual(Array.from(touched).sort(), ['cv', 'paid', 'shop', 'skinPass', 'watch']);
   // without the helper nothing but cv is read (slNoMoney's own test pins the rest)
   const plain = require('./slSockFakes').rig();
   const t2 = new Set();
@@ -201,5 +202,5 @@ test('auth.paid other than the number 1 is a free socket; a free socket reads on
   const q = plain.sock({ auth: a2 });
   q.fire('sl:join', { nick: 'q' });
   assert.ok(plain.room().seatOf(q.id), 'no helper: a paid page is a free seat (its token unspent, it expires into a refund)');
-  assert.deepEqual(Array.from(t2).sort(), ['cv', 'watch'], 'the skin, and whether it only watches');
+  assert.deepEqual(Array.from(t2).sort(), ['cv', 'shop', 'skinPass', 'watch'], 'the skin (free and bought), and whether it only watches');
 });

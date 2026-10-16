@@ -167,11 +167,14 @@ class KnockoutRoom {
 
   /* ── seats ──────────────────────────────────────────────────────────────── */
 
-  addPlayer(socket, name, wallet, worth, paid) {
+  /* skin: the bought skin this seat wears (a shared/shopSkins.js knockout id), already proved against the lobby's
+     skin pass by the caller (index.js); null is the free look. Cosmetic only: no rule in here reads it. */
+  addPlayer(socket, name, wallet, worth, paid, skin) {
     if (this.players.size >= 2) return false;
     const side = this.players.size;        // 0 = bottom, 1 = top
     this.players.set(socket.id, { socket, name: name || 'Player', wallet: wallet || null, side,
-                                  paid: Number(paid) > 0 ? Number(paid) : undefined });
+                                  paid: Number(paid) > 0 ? Number(paid) : undefined,
+                                  skin: typeof skin === 'string' && skin ? skin : null });
     this.worth.set(socket.id, Number(worth) > 0 ? Number(worth) : 0);
     this.seats[side] = { id: socket.id, name: name || 'Player' };
     if (socket.join) socket.join(this.socketRoomName);
@@ -624,6 +627,8 @@ class KnockoutRoom {
       aimMs: KO.AIM_MS,
       players: [...this.players.entries()].map(([id, p]) => ({
         id, name: p.name, side: p.side, left: this.piecesOf(id).length,
+        /* The bought skin this seat wears, or null: how every screen (watchers too) dresses its pieces. */
+        skin: p.skin || null,
       })),
       pieces: this.pieces.map(p => ({
         id: p.id, owner: p.owner, x: Math.round(p.x), y: Math.round(p.y), alive: p.alive,
@@ -677,7 +682,7 @@ class KnockoutRoom {
       maxPull: ps.maxPull,
       phaseMs: ps.phaseMs,
       aimMs: ps.aimMs,
-      players: (ps.players || []).map(p => ({ side: p.side, name: p.name, left: p.left })),
+      players: (ps.players || []).map(p => ({ side: p.side, name: p.name, left: p.left, skin: p.skin || null })),
       pieces: (ps.pieces || []).map(p => ({ id: p.id, side: side(p.owner), x: p.x, y: p.y, alive: p.alive })),
       ready: (ps.ready || []).map(side).filter(s => s !== null),
       stake: ps.stake,

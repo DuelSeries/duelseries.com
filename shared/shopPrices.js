@@ -4,16 +4,18 @@
    number next to the skin, save, and push. 2 shows as $2, and a price
    with cents (1.50) shows as $1.50.
 
-   Nothing can be bought yet. The Shop tab only shows these prices, every Buy
-   button says Coming soon and does nothing, and no server code reads this
-   file. Making skins buyable is a later job; when it is, the server will read
-   its prices from here too, so the lobby and the charge can never disagree.
+   Skins are for sale (2026-10-16, docs/skin-purchases.md). The lobby shows
+   these prices and the server charges them: it reads this same file
+   (server/skinCatalog.js), so the price on screen and the charge can never
+   disagree. A price changed while someone has the unlock sheet open is
+   re-quoted at the new price before anything is signed. A game listed in
+   shared/lockedGames.js sells nothing until it opens.
 
    The rarity a skin shows (Common, Rare, Epic, Legendary) comes from its
    price, using TIERS below: a skin at or above a tier's `from` price gets that
    tier. Change the numbers there to move where the tiers start.
 
-   What each skin looks like lives in public/js/v2/shopArt.js. A skin listed
+   What each skin looks like lives in shared/shopSkins.js. A skin listed
    there with no price here shows no price; test/shop.test.js fails on it. */
 (function (root) {
   'use strict';

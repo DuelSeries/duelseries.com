@@ -66,6 +66,12 @@
   slx.auth = function () {
     var cv = skin();
     var a = cv === null ? {} : { cv: cv };
+    // A bought skin (docs/skin-purchases.md): its id and the lobby's skin pass. The server wears it only when the pass
+    // lists it; otherwise the snake wears cv, as always.
+    try {
+      var shop = localStorage.getItem('duel.shop.snake'), pass = localStorage.getItem('duel.skinpass');
+      if (shop && pass && /^[a-z][a-z0-9]{0,23}$/.test(shop) && pass.length <= 4096) { a.shop = shop; a.skinPass = pass; }
+    } catch (_) {}
     var p = typeof slx.paidAuth === 'function' ? slx.paidAuth() : null;
     if (p && typeof p === 'object') for (var k in p) if (Object.prototype.hasOwnProperty.call(p, k)) a[k] = p[k];
     // the battle royale's fields (slxBr, loaded before this file, on an event page only)

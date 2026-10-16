@@ -9,6 +9,7 @@ import { getAssociatedTokenAddressSync, createTransferCheckedInstruction, create
 import { SERVER_URLS, stakeRoute } from './stakeRoute.mjs';
 import { createRestakeBridge, cancelledError } from './restakeBridge.mjs';
 import { holdBackCoinbase } from './holdCoinbase.mjs';
+import { buildSkinPayment } from './skinPay.mjs';
 
 // Active money mode (sol|usdc) reported by the server — decides whether the widget builds native
 // SOL transfers or USDC SPL-token transfers, and how it labels balances. Cached after first fetch.
@@ -104,7 +105,6 @@ function solanaAddress(user) {
 // lobby's region, Paper, Knockout, Battleship, agar.io and paid snake on the new engine (/sl)
 // play on this origin.
 function lobbyRegion() { try { return localStorage.getItem('duelseries_region') || 'na'; } catch (_) { return 'na'; } }
-function regionBase() { return SERVER_URLS[lobbyRegion()] || ''; } // cosmetics only
 // The region the running game page was launched with (same-origin frames share this tab's
 // sessionStorage), so a Play again stakes where that page is connected, not where the lobby
 // points now.
@@ -203,39 +203,13 @@ async function stakeOnly(sel, wallet, signTransaction, onStatus, base, hooks) {
            stake: verify.stake };
 }
 
-// Buy a cosmetic with USDC. Mirrors stakeOnly, but the payment goes to the owner wallet (house
-// revenue) and the server grants ownership instead of an entry token. If the server says the buyer
-// is the owner (quote.free), there's no payment — the house doesn't pay itself.
-async function buyCosmetic(itemId, wallet, signTransaction, onStatus) {
-  const base = regionBase();
-  const from = new PublicKey(wallet.address);
-  if (onStatus) onStatus('Getting price…');
-  const quote = await (await fetch(base + '/api/cosmetics/quote?itemId=' + encodeURIComponent(itemId) + '&wallet=' + encodeURIComponent(wallet.address))).json();
-  if (quote.error) throw new Error(quote.error);
-  let signedTx = null;
-  if (!quote.free) {
-    if (onStatus) onStatus('Building payment…');
-    const mint = new PublicKey(quote.usdcMint);
-    const fromAta = getAssociatedTokenAddressSync(mint, from);
-    const toAta = new PublicKey(quote.payToAta);
-    const tx = new Transaction();
-    tx.feePayer = from;
-    tx.recentBlockhash = quote.blockhash;
-    if (quote.payToOwner) tx.add(createAssociatedTokenAccountIdempotentInstruction(from, toAta, new PublicKey(quote.payToOwner), mint));
-    tx.add(createTransferCheckedInstruction(fromAta, mint, toAta, from, BigInt(quote.units), quote.decimals));
-    const serialized = tx.serialize({ requireAllSignatures: false, verifySignatures: false });
-    if (onStatus) onStatus('Confirm in your wallet…');
-    const { signedTransaction } = await signTransaction({ transaction: serialized, wallet });
-    signedTx = Buffer.from(signedTransaction).toString('base64');
-  }
-  if (onStatus) onStatus('Unlocking…');
-  const r = await (await fetch(base + '/api/cosmetics/buy', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ signedTx, itemId, walletAddress: wallet.address }),
-  })).json();
-  if (!r.ok) throw new Error(r.error || 'Purchase failed');
-  return r; // { ok, itemId, owned, free? }
+/* A skin's payment, signed (docs/skin-purchases.md): the quote from POST /api/skins/intent becomes exactly the
+   transfer and memo the server accepts (skinPay.mjs), and the player's own wallet signs it, sign only, the same way
+   a stake is signed. The lobby (public/js/v2/skinBuy.js) sends it to /api/skins/buy; nothing is broadcast here. */
+async function signSkinPayment(quote, wallet, signTransaction) {
+  const serialized = buildSkinPayment(quote, wallet.address);
+  const { signedTransaction } = await signTransaction({ transaction: serialized, wallet });
+  return Buffer.from(signedTransaction).toString('base64');
 }
 
 /* agar.io's rooms are rungs (Free, $0.50, $1.00; PAID-AGAR-DESIGN.md 7), staked by amount like
@@ -630,10 +604,10 @@ function WalletPanel() {
       fetchBalances(wallet.address).then((b) => { setBalance(b.balance); setSol(b.sol); }).catch(() => {});
       return r;
     };
-    // Buy a cosmetic with USDC (owner gets it free). Resolves { ok, owned, free? }.
-    window.duelWalletBuyCosmetic = (itemId, onStatus) => {
+    // Signs a skin's payment from the server's quote; resolves the signed bytes (base64). Sends nothing.
+    window.duelWalletSignSkin = (quote) => {
       if (!wallet) return Promise.reject(new Error('Connect your wallet first.'));
-      return buyCosmetic(itemId, wallet, signTransaction, onStatus);
+      return signSkinPayment(quote, wallet, signTransaction);
     };
   }, [wallet, signTransaction, signMessage, address, login, logout, fundWallet, identityToken, getAccessToken]);
 

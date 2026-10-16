@@ -46,6 +46,8 @@ const { createRng } = require('./agRng');
 const { TickTimer } = require('../tickTimer');
 const { AgMoney, AG_MONEY } = require('./agMoney');
 const agSkins = require('../../shared/agSkins');
+const shopSkins = require('../../shared/shopSkins');
+const { sharedPass: sharedSkinPass } = require('../skinPass');
 
 // The free skin a page asked for in its handshake (auth.skin, public/js/ag/agMain.js), as a colour from
 // shared/agSkins.js, or null (a dealt colour every life, as before). Only a listed id counts. Cosmetic: no money
@@ -53,6 +55,20 @@ const agSkins = require('../../shared/agSkins');
 function skinOf(socket) {
   const auth = socket && socket.handshake && socket.handshake.auth;
   return auth ? agSkins.rgbOf(auth.skin) : null;
+}
+
+/* A bought skin (docs/skin-purchases.md): the handshake's auth.shop and auth.skinPass, worn only when the lobby's
+   pass is genuine and lists 'agar:<id>'. { idx (1-based in shared/shopSkins.js SKINS.agar), rgb (its colour) }, or
+   null for the free look. The colour rides the cells as any colour does; the design goes out as ag:skins. Cosmetic:
+   no money path reads it. */
+function paidSkinOf(socket) {
+  const auth = socket && socket.handshake && socket.handshake.auth;
+  if (!auth || typeof auth !== 'object') return null;
+  const shop = typeof auth.shop === 'string' ? auth.shop : null;
+  const pass = typeof auth.skinPass === 'string' ? auth.skinPass : null;
+  const id = shop && pass ? sharedSkinPass().wornSkin('agar', shop, pass) : null;
+  const i = id ? shopSkins.SKINS.agar.findIndex((k) => k.id === id) : -1;
+  return i < 0 ? null : { idx: i + 1, rgb: shopSkins.hexRgb(shopSkins.SKINS.agar[i].col) };
 }
 
 const ROOM_LAW_IDS = Object.freeze([
@@ -210,6 +226,10 @@ class AgRoom {
     // the frame cache (agView.createFrameCache) and the array the sim's cells are listed into.
     this._frameCache = agView.createFrameCache();
     this._frameCells = [];
+    // Bought skins (paidSkinOf): pid -> its skin (1-based in SKINS.agar). _skinsLive: the last send had some, so the
+    // next one still runs and tells each page its list emptied.
+    this.paidSkins = new Map();
+    this._skinsLive = false;
     this.fillBots();
   }
 
@@ -371,7 +391,9 @@ class AgRoom {
     const had = this.seats.get(socket.id);
     if (had) return had;
     if (opts && opts.forPlay && !watchOnly ? !this.hasSpace() : !this.hasWatchSpace()) return null;
-    const pid = this.sim.addPlayer({ name: '', bot: false, skin: skinOf(socket) });
+    const paidSkin = watchOnly ? null : paidSkinOf(socket);
+    const pid = this.sim.addPlayer({ name: '', bot: false, skin: paidSkin ? paidSkin.rgb : skinOf(socket) });
+    if (paidSkin) this.paidSkins.set(pid, paidSkin.idx);
     const seat = this._newSeat(socket, pid, !!(opts && opts.clearFirst));
     if (watchOnly) seat.watchOnly = true;
     this._ensureTicking();
@@ -423,7 +445,9 @@ class AgRoom {
     const pt = this.sim.findSpawnPoint(this.sim.startSize(), AG_MONEY.SPAWN_CLEAR.value, AG_MONEY.SPAWN_TRIES.value);
     if (!pt) return 'no-room';
     const name = typeof e.name === 'string' ? e.name : '';
-    const pid = this.sim.addPlayer({ name, bot: false, skin: skinOf(socket) });
+    const paidSkin = paidSkinOf(socket);
+    const pid = this.sim.addPlayer({ name, bot: false, skin: paidSkin ? paidSkin.rgb : skinOf(socket) });
+    if (paidSkin) this.paidSkins.set(pid, paidSkin.idx);
     const seat = this._newSeat(socket, pid, true);
     seat.joined = true;
     seat.name = name;
@@ -888,6 +912,8 @@ class AgRoom {
     // bundle went out, from the same ranking (a backed-up seat that skips its bundle skips its money too).
     const moneyDue = this.money !== null && boardDue;
     const shares = moneyDue ? this._cellShares() : null;
+    const skinCells = this.paidSkins.size || this._skinsLive ? this._paidSkinCells() : null;
+    this._skinsLive = this.paidSkins.size > 0;
     for (const seat of Array.from(this.seats.values())) {
       const socket = seat.socket;
       if (this._backedUp(socket)) {
@@ -937,7 +963,31 @@ class AgRoom {
       this.stats.bundles++;
       this.stats.bytes += buf.length;
       if (moneyDue) this._emit(socket, 'ag:money', this._moneyPayload(seat, ranking, shares));
+      if (skinCells) this._sendSkins(seat, skinCells);
     }
+  }
+
+  // [id, skin, id, skin, ...] for every cell of a player wearing a bought skin (players gone are forgotten here).
+  _paidSkinCells() {
+    const out = [];
+    for (const [pid, idx] of this.paidSkins) {
+      const info = this.sim.playerInfo(pid);
+      if (!info) { this.paidSkins.delete(pid); continue; }
+      for (const id of info.cells) out.push(id, idx);
+    }
+    return out;
+  }
+
+  /* ag:skins { cells: [id, skin, ...] }: the bought-skin cells this page knows, sent right after its bundle and only
+     when the list changed (the page draws each cell's design from shared/shopSkins.js). A cell's colour already
+     came in the bundle, so a page that is a moment behind shows the right colour, then the design. */
+  _sendSkins(seat, skinCells) {
+    const cells = [];
+    for (let i = 0; i < skinCells.length; i += 2) if (seat.viewer.isKnown(skinCells[i])) cells.push(skinCells[i], skinCells[i + 1]);
+    const key = cells.join(',');
+    if (key === (seat.skinKey || '')) return;
+    seat.skinKey = key;
+    this._emit(seat.socket, 'ag:skins', { cells });
   }
 
   // A bundle that never reached the page (a build or emit that threw): what the viewer thinks the page holds is
@@ -948,6 +998,7 @@ class AgRoom {
     seat.viewer = agView.createViewer(seat.pid, { laws: this.laws });
     seat.clearFirst = true;
     seat.stalled = false;
+    seat.skinKey = null;            // the page starts over: its bought-skin list is sent again
     this.stats.viewRestarts++;
   }
 

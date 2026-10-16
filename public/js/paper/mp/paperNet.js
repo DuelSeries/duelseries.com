@@ -139,6 +139,8 @@
     this.hooks = {};
     this.name = '';
     this.stake = 0;
+    this.shop = null; // the bought skin asked for in join(), with its skinPass
+    this.skinPass = null;
     this.you = 0;
     this.resumeKey = null;
     this.seated = false;
@@ -242,14 +244,28 @@
     this.resumeKey = null;
     this.seated = false;
     this.resuming = false;
+    // The lobby's bought-skin choice and its skin pass (docs/skin-purchases.md), both or neither. Cosmetic: the
+    // server wears the skin only when the pass is genuine and lists it. Kept for the respawns on this socket, which
+    // are asked the same; a reconnect needs neither (its seat and skin exist already).
+    this.shop = typeof opts.shop === 'string' && typeof opts.skinPass === 'string' ? opts.shop : null;
+    this.skinPass = this.shop !== null ? opts.skinPass : null;
     var msg = { name: this.name, stake: this.stake };
     if (opts.entryToken != null) msg.entryToken = opts.entryToken;
+    if (this.shop !== null) { msg.shop = this.shop; msg.skinPass = this.skinPass; }
     this.socket.emit('pp:join', msg);
   };
 
-  ArenaNet.prototype.respawn = function (entryToken) {
+  // skin: { shop, skinPass } read again by the page (a pass the lobby refreshed meanwhile), or null for none; left
+  // out, the join's own are asked again.
+  ArenaNet.prototype.respawn = function (entryToken, skin) {
     var msg = {};
     if (entryToken != null) msg.entryToken = entryToken;
+    if (skin !== undefined) {
+      var fresh = skin && typeof skin.shop === 'string' && typeof skin.skinPass === 'string';
+      this.shop = fresh ? skin.shop : null;
+      this.skinPass = fresh ? skin.skinPass : null;
+    }
+    if (this.shop) { msg.shop = this.shop; msg.skinPass = this.skinPass; }
     this.socket.emit('pp:respawn', msg);
   };
 

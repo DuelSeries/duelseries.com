@@ -1516,6 +1516,52 @@ body.no-foot footer{display:none}
 .ap-seal svg{width:17px;height:17px;flex:none;stroke:var(--bone)}
 .ap-seal b{font-size:18px;font-weight:700;line-height:1;color:var(--money);
   font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+/* A paid skin you can buy: the Save button becomes Unlock, in the money gold,
+   so it never reads as a free Save. */
+.ap-save-btn.buy{color:var(--ink);
+  background-image:linear-gradient(to bottom,#f7c766,#f0a830 52%,#c98a22)}
+.ap-save-btn.buy::before{background-image:linear-gradient(to bottom,#ffe09a,#f7bd4e 52%,#dc9a2c)}
+/* The unlock sheet: the locked skin's gold case again, now a card you act on.
+   Centred on a PC, a bottom sheet on a phone. */
+.bsheet{position:fixed;inset:0;z-index:210;display:none;align-items:center;justify-content:center;
+  padding:16px;background:rgba(8,7,5,.74)}
+.bsheet.on{display:flex}
+.bs-card{width:min(392px,100%);background:var(--s1);border:1.5px solid rgba(240,168,48,.55);
+  border-radius:24px;padding:16px 20px calc(14px + env(safe-area-inset-bottom));text-align:center;
+  box-shadow:0 0 40px -8px rgba(240,168,48,.2),0 24px 60px rgba(0,0,0,.6)}
+.bs-case{height:116px;border-radius:16px;overflow:hidden;
+  box-shadow:inset 0 0 0 1px rgba(240,168,48,.28)}
+.bs-case canvas{display:block;width:100%;height:116px}
+.bs-title{margin:14px 0 2px;font:700 21px/1.2 var(--f);color:var(--tx);letter-spacing:-.01em}
+.bs-sub{margin:0 0 14px;font-size:13px;color:var(--tx2)}
+.bs-rows{display:grid;gap:7px;padding:12px 14px;border-radius:var(--r2);background:var(--s2);text-align:left}
+.bs-rows div{display:flex;justify-content:space-between;align-items:baseline;font-size:14px;color:var(--tx2)}
+.bs-rows b{font-weight:700;color:var(--tx);font-variant-numeric:tabular-nums}
+.bs-rows #bs-price{color:var(--money)}
+.bs-rows .bs-after{padding-top:7px;border-top:1px solid rgba(245,241,232,.08)}
+.bs-rows .bs-after.short b{color:#e0705f}
+.bs-msg{min-height:20px;margin:10px 0 8px;font-size:13px;line-height:1.4;color:var(--tx2)}
+.bs-msg.err{color:#e0705f}
+.bs-msg.busy::before{content:'';display:inline-block;width:11px;height:11px;margin-right:7px;
+  vertical-align:-1px;border-radius:50%;border:2px solid rgba(245,241,232,.25);
+  border-top-color:var(--money);animation:bsspin .8s linear infinite}
+@keyframes bsspin{to{transform:rotate(360deg)}}
+.bs-go{display:block;width:100%;height:48px;border:none;border-radius:var(--rf);cursor:pointer;
+  font:700 17px/48px var(--f);color:var(--ink);
+  background-image:linear-gradient(to bottom,#f7c766,#f0a830 52%,#c98a22)}
+.bs-go:hover{filter:brightness(1.08)}
+.bs-go:disabled{cursor:default;filter:saturate(.35) brightness(.75)}
+.bs-go:focus-visible,.bs-no:focus-visible{outline:2px solid var(--bone);outline-offset:3px}
+.bs-no{display:block;margin:6px auto 0;padding:8px 14px;border:none;background:none;cursor:pointer;
+  font:600 14px var(--f);color:var(--tx2)}
+.bs-no:hover{color:var(--tx)}
+.bs-no:disabled{visibility:hidden}
+.bs-fine{margin:4px 0 0;font-size:11.5px;line-height:1.4;color:var(--tx3)}
+@media(max-width:520px){
+  .bsheet{align-items:flex-end;padding:0}
+  .bs-card{width:100%;border-radius:24px 24px 0 0;border-bottom:none}
+}
+@media(prefers-reduced-motion:reduce){.bs-msg.busy::before{animation:none}}
 @media(max-width:520px){
   .ap-reel,.ap-lockfx{top:calc(70px + env(safe-area-inset-top));
     bottom:calc(146px + env(safe-area-inset-bottom))}
@@ -2482,6 +2528,24 @@ body.scr-anim { overflow-x:hidden }
     <div class="ap-name num" id="lookname"></div>
   </div>
 </div>
+<!-- Unlocking a paid skin (docs/skin-purchases.md): the skin in its case, the price, the balance after, one
+     button. Outside #lookveil so the reel's drag never takes its taps. -->
+<div class="bsheet" id="bsheet" aria-hidden="true">
+  <div class="bs-card" role="dialog" aria-modal="true" aria-labelledby="bs-title">
+    <div class="bs-case" id="bs-case"><canvas id="bs-art"></canvas></div>
+    <h2 class="bs-title" id="bs-title"></h2>
+    <p class="bs-sub" id="bs-sub"></p>
+    <div class="bs-rows">
+      <div><span>Price</span><b class="num" id="bs-price"></b></div>
+      <div><span>Your USDC</span><b class="num" id="bs-bal"></b></div>
+      <div class="bs-after"><span>After</span><b class="num" id="bs-after"></b></div>
+    </div>
+    <p class="bs-msg" id="bs-msg" aria-live="polite"></p>
+    <button class="bs-go" id="bs-go" onclick="confirmBuy()"></button>
+    <button class="bs-no" id="bs-no" onclick="closeBuy()">Not now</button>
+    <p class="bs-fine">Paid in USDC from your wallet. Skins are final, so there are no refunds.</p>
+  </div>
+</div>
 
 
 <footer><div class="wrap ft">
@@ -2523,9 +2587,12 @@ body.scr-anim { overflow-x:hidden }
      drawing module, nothing runs at load), the skins, then the tab. -->
 <script src="/shared/shopPrices.js"></script>
 <script src="/shared/agSkins.js"></script>
+<script src="/shared/shopSkins.js"></script>
 <script src="/js/battleshipArt.js"></script>
 <script src="/js/v2/shopArt.js"></script>
 <script src="/js/v2/shop.js"></script>
+<!-- Buying a paid skin from Customize, and the pass the games check before wearing it (docs/skin-purchases.md). -->
+<script src="/js/v2/skinBuy.js"></script>
 <script>
 /* Flat geometric artwork, one scene per game. Drawn rather than iconed:
    emoji or a generic icon set is what makes a games page look unmade. */
@@ -3200,20 +3267,41 @@ try{agSkinId=String(localStorage.getItem(AGS?AGS.KEY:'')||'').trim()}catch(_){}
 if(!AG_LOOKS.some(s=>s.ag.id===agSkinId))agSkinId='';   /* unknown or stale: a dealt colour */
 /* What a game keeps: how to read the skin being worn, and how to store a new
    one (null is the game's free look: a random colour in both). */
+/* A paid skin (docs/skin-purchases.md) is worn through DSSkins (public/js/v2/skinBuy.js): its id under
+   duel.shop.<game>, sent by the game with the skin pass, and worn only if the game's SERVER finds the pass
+   lists it. Slither and agar keep their free choice underneath, as the look a failed pass falls back to. */
+const DSK=()=>window.DSSkins||null;
+function shopEntry(g,id){
+  const S=window.V2Shop, sg=S&&S.game(g), k=sg&&sg.skins.find(x=>x.id===id);
+  return k?{id:'shop:'+k.id,game:g,shop:k,name:k.name,price:S.price(g,k.id),owned:1}:null;
+}
+const paidWorn=g=>{const p=DSK()&&DSK().worn(g);return p?shopEntry(g,p):null};
+const wearPaid=(g,s)=>{if(DSK())DSK().wear(g,s&&s.shop?s.shop.id:null)};
 const SAVED={
-  snake:{worn:()=>skin(),put:s=>{if(!s)return;skinId=s.id;storeSkin()}},
-  agar:{worn:()=>AG_LOOKS.find(s=>s.ag.id===agSkinId)||null,
-    put:s=>{agSkinId=s&&s.ag?s.ag.id:'';
+  snake:{worn:()=>paidWorn('snake')||skin(),
+    put:s=>{if(!s)return;wearPaid('snake',s);if(s.shop)return;skinId=s.id;storeSkin()}},
+  agar:{worn:()=>paidWorn('agar')||AG_LOOKS.find(s=>s.ag.id===agSkinId)||null,
+    put:s=>{wearPaid('agar',s);if(s&&s.shop)return;agSkinId=s&&s.ag?s.ag.id:'';
       try{if(agSkinId)localStorage.setItem(AGS.KEY,agSkinId);else localStorage.removeItem(AGS.KEY)}catch(_){}}},
 };
+/* Every other game's only choice is its free look or a paid skin. */
+['paper','knockout','battleship','omgshooter','tanks'].forEach(g=>{
+  SAVED[g]={worn:()=>paidWorn(g),put:s=>wearPaid(g,s)};
+});
 const wornIn=g=>g&&SAVED[g.id]?SAVED[g.id].worn():null;
+/* Sold only in a game that can be played (shared/lockedGames.js, the list the server reads too). */
+const onSale=g=>!(window.DS_LOCKED&&DS_LOCKED.isLocked(g));
 function lookList(g){
   const S=window.V2Shop, sg=S&&S.game(g.id);
-  const locked=sg?sg.skins.map(k=>({id:'shop:'+k.id,game:g.id,shop:k,name:k.name,locked:1,price:S.price(g.id,k.id)})):[];
+  const paid=sg?sg.skins.map(k=>{
+    const own=!!(DSK()&&DSK().owns(g.id,k.id));
+    return {id:'shop:'+k.id,game:g.id,shop:k,name:k.name,price:S.price(g.id,k.id),
+      locked:own?0:1,owned:own?1:0,sale:onSale(g.id)};
+  }):[];
   /* Every free skin first, then every paid one: one run of each. */
   const free=g.look?LOOKS
     :[{id:'default',game:g.id,name:S.defaultName(g.id)}].concat(g.id==='agar'?AG_LOOKS:[]);
-  return free.concat(locked);
+  return free.concat(paid);
 }
 let LK=[];   /* what the open chooser lists, from lookList */
 function storeSkin(){
@@ -3255,7 +3343,7 @@ function paintLook(cv){
   /* Any game but slither.io: its own piece, drawn alone, from shopArt. */
   if(key==='mini'&&cur&&!cur.look){
     if(window.V2Shop){if(s&&s.ag)V2Shop.paintWith(cv,cur.id,{col:s.col},lookT,false,true);
-      else V2Shop.paint(cv,cur.id,'default',lookT,false,true)}
+      else V2Shop.paint(cv,cur.id,s&&s.shop?s.shop.id:'default',lookT,false,true)}
     return}
   if(s&&s.game&&s.game!=='snake'){
     if(s.ag)V2Shop.paintWith(cv,s.game,{col:s.col},lookT,false,true);
@@ -3492,7 +3580,7 @@ function lockShow(k,price){
   },{passive:false});
   /* The keyboard: the arrow keys step one skin. */
   document.addEventListener('keydown',e=>{
-    if(!REEL.on||!veil.classList.contains('on'))return;
+    if(!REEL.on||!veil.classList.contains('on')||buyOpen())return;
     const d={ArrowUp:-1,ArrowLeft:-1,ArrowDown:1,ArrowRight:1}[e.key];
     if(d){e.preventDefault();cycleLook(d)}
   });
@@ -3505,20 +3593,24 @@ function cycleLook(d){
 }
 function lookMeta(){
   const s=LK[lookIx]; if(!s)return;
-  /* A locked skin shows its name and price, and Save turns into a dead
-     Unlock button: buying is a later job. */
+  /* A locked skin shows its name, and Save turns into Unlock with its price
+     (the unlock sheet). In a game that cannot be played yet it stays shut. */
   document.getElementById('lookname').textContent=s.locked
-    ?s.name+', coming soon'
+    ?s.name+(s.sale?'':', coming soon')
+    :s.owned?s.name+', yours'
     :((s.cv!=null&&s.cv<9)||s.id==='default'||s.ag?s.name+'  ':'')+(lookIx+1)+' / '+LK.length;   /* a striped skin's name IS its number */
   const btn=document.querySelector('#lookveil .ap-save-btn');
-  if(btn){btn.disabled=!!s.locked;
-    btn.firstChild.innerHTML=s.locked?'&nbsp;Unlock '+V2Shop.format(s.price)+'&nbsp;':'&nbsp;Save&nbsp;'}
+  if(btn){const buy=!!(s.locked&&s.sale);
+    btn.disabled=!!(s.locked&&!s.sale);
+    btn.classList.toggle('buy',buy);
+    btn.firstChild.innerHTML=!s.locked?'&nbsp;Save&nbsp;'
+      :buy?'&nbsp;Unlock '+V2Shop.format(s.price)+'&nbsp;':'&nbsp;Coming soon&nbsp;'}
 }
 /* Save commits what you were browsing; Back closes without changing the
    equipped skin. There is no cancel button, matching the live screen. */
 function closeLook(save){
   const s=LK[lookIx];
-  if(save&&s&&s.locked)return;      /* nothing to save until buying works */
+  if(save&&s&&s.locked){if(s.sale)openBuy(s);return}   /* Unlock: the sheet, never a save */
   if(save&&cur&&SAVED[cur.id]&&s){
     SAVED[cur.id].put(s.id==='default'?null:s);   /* /sl's skin number, /ag's colour */
     /* Said by the Save button's own word, with the skin and the game it is for. */
@@ -3528,6 +3620,124 @@ function closeLook(save){
   REEL.on=false; REEL.mode='idle';
   document.getElementById('lookveil').classList.remove('on');
 }
+
+/* ── the unlock sheet (docs/skin-purchases.md) ─────────────────────────────
+   The skin in its case, the price, the USDC you have and what is left after,
+   one Unlock button. The server prices it and checks the payment; this only
+   asks and reports. Short of USDC, the button is Add funds (the Wallet tab,
+   where a card top-up and Convert to USDC both live). */
+const BUY={s:null,busy:false,raf:0,short:false,later:false};
+const buyOpen=()=>document.getElementById('bsheet').classList.contains('on');
+const usd=n=>'$'+(Math.max(0,n)).toFixed(2);
+function buyPaint(){
+  if(!buyOpen()||!BUY.s){BUY.raf=0;return}
+  const cv=document.getElementById('bs-art'), s=BUY.s, t=performance.now()/1000;
+  fitLook(cv);
+  if(s.game==='snake'){if(window.V2Look)V2Look.paint(cv,s.shop.runs,LOOK_CFG.reel,t)}
+  else if(window.V2Shop)V2Shop.paint(cv,s.game,s.shop.id,t,false,true);
+  BUY.raf=requestAnimationFrame(buyPaint);
+}
+function buyMsg(text,kind){
+  const m=document.getElementById('bs-msg');
+  m.textContent=text||''; m.className='bs-msg'+(kind?' '+kind:'');
+}
+function buyRows(){
+  const s=BUY.s, w=window.duelWallet||{}, price=Number(s.price)||0;
+  const bal=w.authenticated&&w.balance!=null&&isFinite(Number(w.balance))?Number(w.balance):null;
+  BUY.short=bal!=null&&bal+1e-9<price;
+  document.getElementById('bs-price').textContent=usd(price)+' USDC';
+  document.getElementById('bs-bal').textContent=bal==null?'…':usd(bal);
+  document.getElementById('bs-after').textContent=bal==null?'…':BUY.short?'Short '+usd(price-bal):usd(bal-price);
+  document.getElementById('bs-after').parentNode.classList.toggle('short',BUY.short);
+  const go=document.getElementById('bs-go');
+  if(BUY.busy)return;
+  if(!w.authenticated){go.textContent='Log in to unlock';return}
+  go.textContent=BUY.short?'Add funds':'Unlock for '+usd(price);
+  if(BUY.short)buyMsg('You need '+usd(price-bal)+' more USDC.','err');
+}
+function openBuy(s){
+  if(!s||!s.shop||BUY.busy)return;
+  const S=window.V2Shop, sg=S&&S.game(s.game);
+  BUY.s=s; BUY.later=false;
+  document.getElementById('bs-case').style.background=sg&&sg.bg?sg.bg:'var(--s2)';
+  document.getElementById('bs-title').textContent='Unlock '+s.name;
+  document.getElementById('bs-sub').textContent=(sg?sg.name:'')+' skin. Yours to keep on every device.';
+  buyMsg('');
+  const go=document.getElementById('bs-go'), no=document.getElementById('bs-no');
+  go.disabled=false; no.disabled=false; no.textContent='Not now';
+  const el=document.getElementById('bsheet');
+  el.classList.add('on'); el.setAttribute('aria-hidden','false');
+  buyRows();
+  if(window.duelWalletRefresh)window.duelWalletRefresh().then(()=>{if(buyOpen()&&!BUY.busy)buyRows()}).catch(()=>{});
+  if(!BUY.raf)BUY.raf=requestAnimationFrame(buyPaint);
+  go.focus();
+}
+/* Not now, Escape, or Close once a payment is only confirming (it carries on,
+   and the toast says when it lands). Never while the wallet is signing. */
+function closeBuy(){
+  if(BUY.busy&&!BUY.later)return;
+  const el=document.getElementById('bsheet');
+  el.classList.remove('on'); el.setAttribute('aria-hidden','true');
+  if(BUY.raf){cancelAnimationFrame(BUY.raf);BUY.raf=0}
+  if(!BUY.busy)BUY.s=null;
+}
+/* After a purchase lands: the skin is worn at once (it was bought to be worn),
+   the chooser shows it unlocked in the middle, and the toast says so. */
+function buyDone(s){
+  const g=s.game, ent=shopEntry(g,s.shop.id);
+  if(ent&&SAVED[g])SAVED[g].put(ent);
+  const gm=window.V2Shop&&V2Shop.game(g);
+  if(window.DSToast)DSToast.show({kind:'ok',title:'Unlocked '+s.name,detail:'Now worn in '+(gm?gm.name:g)});
+  refreshLooks(); drawSkins();
+}
+async function confirmBuy(){
+  const s=BUY.s, w=window.duelWallet||{};
+  if(!s||BUY.busy)return;
+  if(BUY.later)return closeBuy();
+  if(!w.authenticated){closeBuy();if(window.duelWalletLogin)window.duelWalletLogin();return}
+  if(BUY.short){BUY.s=null;closeBuy();closeLook(false);go('wallet');return}
+  if(!DSK())return buyMsg('Still loading. Try again in a moment.','err');
+  const go_=document.getElementById('bs-go'), no=document.getElementById('bs-no');
+  BUY.busy=true; go_.disabled=true; no.disabled=true;
+  buyMsg('Getting the price…','busy');
+  try{
+    const r=await DSK().buy(s.game,s.shop.id,t=>{
+      buyMsg(t,'busy');
+      /* Only confirming now: nothing more to decide, so the sheet may close. */
+      if(/Still confirming/.test(t)&&!BUY.later){BUY.later=true;no.disabled=false;no.textContent='Close';
+        buyMsg('Still confirming on the network. You can close this; you will see a message when it lands.','busy')}
+    },Number(s.price));
+    if(r&&r.pending){
+      buyMsg('Still confirming on the network. It unlocks when the network confirms it.','busy');
+      if(window.DSToast)DSToast.show({kind:'info',title:'Still confirming',detail:s.name+' unlocks when the network confirms it'});
+      BUY.busy=false; BUY.later=true; go_.disabled=false; go_.textContent='Close'; no.disabled=true;
+      return;
+    }
+    BUY.busy=false; BUY.later=false;
+    closeBuy(); BUY.s=null;
+    buyDone(s);
+  }catch(e){
+    BUY.busy=false; BUY.later=false;
+    go_.disabled=false; no.disabled=false; no.textContent='Not now';
+    if(!buyOpen()){if(window.DSToast&&!e.cancelled)DSToast.show({kind:'err',title:s.name+' not unlocked',detail:e.message});BUY.s=null;return}
+    buyRows();
+    buyMsg(e&&e.message?e.message:'The purchase did not go through. Nothing was charged.',e&&e.cancelled?'':'err');
+    if(e&&e.funds){BUY.short=true;go_.textContent='Add funds'}
+  }
+}
+/* What the wallet owns changed (a purchase, a reload, another wallet): the
+   open chooser re-reads its list and keeps the skin in the middle. */
+function refreshLooks(){
+  if(!cur||!isOn('lookveil')){drawSkins();return}
+  const id=LK[lookIx]&&LK[lookIx].id;
+  LK=lookList(cur);
+  const ix=LK.findIndex(x=>x.id===id); if(ix>=0)lookIx=ix;
+  REEL.slots.forEach(sl=>{sl.ix=-1});
+  reelLayout(); lookMeta();
+}
+window.addEventListener('ds:skins',refreshLooks);
+window.addEventListener('duelwallet:change',()=>{if(buyOpen()&&!BUY.busy)buyRows()});
+document.getElementById('bsheet').addEventListener('click',e=>{if(e.target.id==='bsheet')closeBuy()});
 
 /* Lobby-row swatches are a still, zoomed-in crop rather than a tiny scene:
    at 34px a whole world reads as noise. slither gets a head filling the
@@ -4467,6 +4677,7 @@ document.addEventListener('keydown',e=>{
   if(isOn('howveil'))return closeHow();
   if(isOn('wdrveil'))return V2Wallet.cancelCash();
   if(isOn('cvveil'))return V2Wallet.cancelConvert();
+  if(buyOpen())return closeBuy();
   if(isOn('lookveil'))closeLook(false);
 });
 /* Clicking the darkened area outside the card closes it, which is what a

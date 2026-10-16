@@ -10,6 +10,7 @@ const { toMicro, HOUSE_CUT_DIV } = require('./paperPayout');
 const { rungOf } = require('./stakeRules');
 const { MP } = require('./paper/loadPaperLib');
 const { WATCHERS_MAX } = require('./paper/PaperRoom');
+const { sharedPass } = require('./skinPass');
 
 const TEXT = {
   'bad-stake': 'That table does not exist.',
@@ -152,6 +153,26 @@ module.exports = function createPaperSockets({
     if (proof) arenas.rememberOutcome('t:' + proof, why, refunded);
   }
 
+  /* The bought skin this join wears (docs/skin-purchases.md), or null for the free look: the lobby's choice (`shop`)
+     counts only when its skin pass is genuine, unexpired and lists 'paper:<shop>'; the HMAC is checked here, so the
+     page can claim nothing it does not own. Only strings are read; any other shape is as if it were absent. A
+     respawn that carries neither field wears what the join proved (the pass is checked again, so it still expires);
+     a join always starts over from its own fields. */
+  function paidSkinFor(socket, msg, respawn) {
+    const shop = typeof msg.shop === 'string' ? msg.shop : null;
+    const skinPass = typeof msg.skinPass === 'string' ? msg.skinPass : null;
+    const asked = shop !== null && skinPass !== null ? { shop, skinPass } : respawn ? socket._ppSkinAsk : null;
+    let worn = null;
+    try {
+      worn = asked ? sharedPass().wornFrom('paper', asked) : null;
+    } catch (_) {
+      worn = null;
+    }
+    // Kept only once proved, so a hostile socket cannot park a big string here.
+    socket._ppSkinAsk = worn ? asked : null;
+    return worn;
+  }
+
   // pp:join and pp:respawn share this; `stake` comes from the message only for a first join.
   function enter(socket, msg, stake, respawn) {
     const token = typeof msg.entryToken === 'string' ? msg.entryToken : undefined;
@@ -232,6 +253,9 @@ module.exports = function createPaperSockets({
     if (ops.get().maintenance) return refuseAndRefund(socket, token, stake, 'maintenance', name);
     // the free arena's boot warm-up (no token at stake, the client retries by itself)
     if (stake === 0 && arenas.warming) return refuse(socket, 'warming', { retryMs: 500 });
+    // 5b. the bought skin this seat wears, proved now (synchronous, no database), so a durable join's claim in flight
+    // below carries the answer with it
+    const skin = paidSkinFor(socket, msg, respawn);
     // 6. a seat and a spot, in this same synchronous turn as the consume and the seat
     const seat = arenas.seatFor(stake, socket._ppRoom);
     if (!seat) return refuseAndRefund(socket, token, stake, 'full', name);
@@ -283,7 +307,7 @@ module.exports = function createPaperSockets({
           remember(token, 'full', true);
           return refuse(socket, 'full', { refunded: true });
         }
-        seatEntry(socket, token, stake, name, proof, entry, again, door);
+        seatEntry(socket, token, stake, name, proof, entry, again, door, skin);
       }).catch((e) => console.error('[PAPER] durable join', e && e.stack ? e.stack : e));
       if (proof) {
         claiming.set(proof, claim);
@@ -291,12 +315,12 @@ module.exports = function createPaperSockets({
       }
       return;
     }
-    seatEntry(socket, token, stake, name, proof, entry, seat);
+    seatEntry(socket, token, stake, name, proof, entry, seat, null, skin);
   }
 
   // Steps 7c to 9, for a spent token (and for a free seat, which has none). door: the durable join's journal record
-  // (7j), whose jid the seat takes, or null.
-  function seatEntry(socket, token, stake, name, proof, entry, seat, door = null) {
+  // (7j), whose jid the seat takes, or null. skin: the bought skin's id proved at step 5b, or null.
+  function seatEntry(socket, token, stake, name, proof, entry, seat, door = null, skin = null) {
     // 7c. a wallet whose last paid joins were refunded before their first input (join-lost,
     // join-timeout) is paused for a while: an unconfirmed seat's loss is refunded but its win
     // is kept, so a script could otherwise repeat that 3 s free option on every buy-in. Only
@@ -322,7 +346,8 @@ module.exports = function createPaperSockets({
         proof,
         paid: stake > 0 ? entry.paid : undefined,
         stakeSig: stake > 0 && entry.stakeSig ? entry.stakeSig : undefined,
-        jid: door ? door.jid : undefined
+        jid: door ? door.jid : undefined,
+        skin: skin || undefined
       });
     } catch (e) {
       console.error('[PAPER] seat failed', seat.room.lobbyType, e && e.message);

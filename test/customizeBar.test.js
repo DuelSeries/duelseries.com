@@ -59,15 +59,17 @@ test('every game shows the bar, built or not (BACKLOG 2.2: one layout for every 
   // agar.io's Customize is the same chooser as every other game's: its settings are gone (Owen 2026-10-15).
   const veil = html.slice(html.indexOf('<div id="lookveil"'), html.indexOf('<div class="ap-save-row">'));
   assert.ok(!veil.includes('agtg') && !html.includes('agset'), 'no settings band in the chooser');
-  // A locked Shop skin can be looked at, never saved, and only slither stores anything.
+  // A locked Shop skin is never saved: its button is Unlock, which opens the unlock sheet (skins are sold
+  // since 2026-10-16, docs/skin-purchases.md), and stays shut in a game that cannot be played.
   const close = html.slice(html.indexOf('function closeLook'), html.indexOf('function closeLook') + 400);
-  assert.ok(close.includes('if(save&&s&&s.locked)return;'), 'Save on a locked skin does nothing');
+  assert.ok(close.includes('if(save&&s&&s.locked){if(s.sale)openBuy(s);return}'), 'Save on a locked skin never saves; Unlock opens the sheet');
   assert.ok(close.includes('if(save&&cur&&SAVED[cur.id]&&s){'), 'and only a game that keeps a skin stores one');
   const saved = html.slice(html.indexOf('const SAVED={'), html.indexOf('const wornIn='));
   assert.deepStrictEqual([...saved.matchAll(/^ {2}(\w+):\{worn:/gm)].map((m) => m[1]), ['snake', 'agar'],
-    'slither.io and agar.io keep a skin, nothing else does');
-  const meta = html.slice(html.indexOf('function lookMeta'), html.indexOf('function lookMeta') + 700);
-  assert.ok(meta.includes('btn.disabled=!!s.locked'), 'the Save button is disabled on a locked skin');
+    'slither.io and agar.io keep a free skin; every game keeps a paid one it owns');
+  assert.ok(saved.includes("['paper','knockout','battleship','omgshooter','tanks'].forEach"), 'every other game wears an owned paid skin');
+  const meta = html.slice(html.indexOf('function lookMeta'), html.indexOf('function lookMeta') + 900);
+  assert.ok(meta.includes('btn.disabled=!!(s.locked&&!s.sale)'), 'Unlock is shut only where nothing is sold');
 });
 
 test('the bar is called Customize and the lobby loads the frozen skin file read-only', () => {
@@ -91,6 +93,7 @@ function lookListFor(id) {
   // In node these two land on module.exports, not on the page's window globals the lobby reads.
   globalThis.DS_SHOP_PRICES = require('../shared/shopPrices.js');
   globalThis.DS_AG_SKINS = require('../shared/agSkins.js');
+  globalThis.DS_SHOP_SKINS = require('../shared/shopSkins.js');
   require('../public/js/v2/shopArt.js');
   const html = v2();
   const src = html.slice(html.indexOf('const AGS=window.DS_AG_SKINS;'), html.indexOf('let LK=[];'));

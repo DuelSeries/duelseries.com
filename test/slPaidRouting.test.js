@@ -161,7 +161,8 @@ test('maintenance: a paid join is consumed and refunded once; a free join is ref
   const f = r.sock({ auth: spy.auth });
   f.fire('sl:join', { nick: 'free' });
   assert.equal(refusal(f).why, 'maintenance');
-  assert.deepEqual(Array.from(spy.touched).sort(), ['cv', 'paid', 'watch']);
+  // shop and skinPass: a bought skin's id and the lobby's skin pass (docs/skin-purchases.md), cosmetic, never money
+  assert.deepEqual(Array.from(spy.touched).sort(), ['cv', 'paid', 'shop', 'skinPass', 'watch']);
   assert.equal(r.payout.refunds.length, 1, 'still one refund');
   // maintenance off: the same kind of free socket is seated free, still reading only paid, cv and watch
   r.ops.maintenance = false;
@@ -169,7 +170,7 @@ test('maintenance: a paid join is consumed and refunded once; a free join is ref
   const g = r.sock({ auth: spy2.auth });
   g.fire('sl:join', { nick: 'free' });
   assert.ok(r.room().seatOf(g.id), 'a free seat');
-  assert.deepEqual(Array.from(spy2.touched).sort(), ['cv', 'paid', 'watch']);
+  assert.deepEqual(Array.from(spy2.touched).sort(), ['cv', 'paid', 'shop', 'skinPass', 'watch']);
 });
 
 test('a paid socket never reaches the free room, and a free socket never reaches a paid room', () => {

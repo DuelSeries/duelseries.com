@@ -76,6 +76,6 @@ test('index.js pays a draw the bounded refund, passes paid in, and pays a paid s
   assert.ok(src.includes("koSend(s.wallet, s.refund, s.name, 'battleship refund ("));
   assert.ok(!/koSend\(s\.wallet, s\.worth,/.test(src), 'no refund pays the rung');
   // A free seat's label wallet is the client's, so it is taken only as a string (hostileInput.test.js).
-  assert.ok(src.includes('worth > 0 ? payTo : (strOr(wallet, null) || socket._walletAddress || null), rung, worth, undefined, paid);'));
-  assert.ok(src.includes('worth > 0 ? payTo : (strOr(wallet, null) || socket._walletAddress || null), rung, worth, paid);'));
+  assert.ok(src.includes('worth > 0 ? payTo : (strOr(wallet, null) || socket._walletAddress || null), rung, worth, undefined, paid, skin);'));   // skin: the bought look, appended last
+  assert.ok(src.includes('worth > 0 ? payTo : (strOr(wallet, null) || socket._walletAddress || null), rung, worth, paid, skin);'));
 });

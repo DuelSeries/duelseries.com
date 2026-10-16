@@ -395,7 +395,8 @@ function createSlPaidDoor({ arenas, consumeAtStake, ledger = null, slPayout, jou
     if (!arenas.paidOpen) return refundAndRefuse(socket, entry, 'not-open', ctx);
     if (arenas.walletSeatOf(entry.walletAddress)) return refundAndRefuse(socket, entry, 'one-seat', ctx);
     // 11.
-    const seatInfo = { nick: ctx.name, cv: info.cv };
+    // skin: a bought skin's bytes when slSockets found the wallet's skin pass lists it (cosmetic; no money reads it)
+    const seatInfo = { nick: ctx.name, cv: info.cv, skin: info.skin };
     const money = { jid: ctx.jid, micro: ctx.micro, wallet: entry.walletAddress, paid: entry.paid, name: ctx.name,
       stakeSig: entry.stakeSig || null };
     let room = arenas.seatFor(stake);

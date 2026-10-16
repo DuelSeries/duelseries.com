@@ -89,6 +89,18 @@ const { socketClientIp } = require('../clientAddr');
 const { botSkins } = require('./slBots');
 const { safeCall, safeAsync, safeTimeout, createSafeStats, REAL_TIMERS } = require('./slSafe');
 const { resumeLaws, isKey, count, createBadKeyGate, WHY_GONE, WHY_TAKEN } = require('./slResume');
+const { sharedPass } = require('../skinPass');
+const shopSkins = require('../../shared/shopSkins.js');
+
+/* A bought skin (docs/skin-purchases.md): the handshake's auth.shop (a skin id) and auth.skinPass (the lobby's pass),
+   worn only when the pass is genuine and lists 'snake:<id>'. Answered as slither's own custom skin bytes, which the
+   frozen client already draws from snake_add.skin; anything else is null and the snake wears its cv as before.
+   Cosmetic: no money path reads it. */
+function paidSkinBytes(auth) {
+  const id = sharedPass().wornFrom('snake', auth);
+  const k = id ? shopSkins.byId('snake', id) : null;
+  return k ? shopSkins.snakeBytes(k.runs) : null;
+}
 
 const SOCK_LAW_IDS = Object.freeze(['C_SL_PER_IP', 'C_RATE', 'C_RATE_INPUT', 'C_CONN', 'C_PUSH', 'PICTURE_SKINS', 'L45']);
 // sl:join fields a free seat never takes (SERVER-DESIGN 12.2: agar refuses a paid payload with no door,
@@ -431,6 +443,16 @@ function attachSlSockets(nsp, arenas, helpers) {
     return skinRng.int(L.badSkinCount);
   }
 
+  function paidSkinOf(socket) {
+    const hs = socket.handshake;
+    const auth = hs && isPlainObject(hs.auth) ? hs.auth : null;
+    if (!auth) return null;
+    const shop = field(auth, 'shop');
+    const pass = field(auth, 'skinPass');
+    if (typeof shop !== 'string' || typeof pass !== 'string') return null;
+    return paidSkinBytes({ shop, skinPass: pass });
+  }
+
   // sl:join {nick}: once per socket; a money field refused before anything else is read. A paid socket goes to the
   // paid door above the free room's maintenance and door checks (see the header).
   function onJoin(socket, msg) {
@@ -447,7 +469,7 @@ function attachSlSockets(nsp, arenas, helpers) {
     if (st.paid) {
       st.joined = true;
       stats.paidJoins++;
-      return st.door.join(socket, { nick, cv: st.cv });
+      return st.door.join(socket, { nick, cv: st.cv, skin: st.skin });
     }
     if (ops && typeof ops.get === 'function') {
       const o = ops.get();
@@ -458,10 +480,10 @@ function attachSlSockets(nsp, arenas, helpers) {
     let r;
     try {
       if (st.br && st.br.watch) r = st.dir.watch(socket, { follow: st.br.follow });
-      else if (st.br) r = st.dir.join(socket, { nick, cv: st.cv, wallet: identifyOf(st.br.proof) });
+      else if (st.br) r = st.dir.join(socket, { nick, cv: st.cv, skin: st.skin, wallet: identifyOf(st.br.proof) });
       else if (st.watch && st.watch.stake) r = st.dir.watch(socket, { stake: st.watch.stake, after: st.watch.after });
       else if (st.watch) r = arenas.watch(socket, { after: st.watch.after });
-      else r = arenas.join(socket, { nick, cv: st.cv });
+      else r = arenas.join(socket, { nick, cv: st.cv, skin: st.skin });
     } catch (e) {
       // a seat that could not be made is a closed door for this socket, never a socket left hanging
       log.error('[SL] join failed', e && e.stack ? e.stack : e);
@@ -747,6 +769,7 @@ function attachSlSockets(nsp, arenas, helpers) {
         dir: pd ? pd.arenas : bd ? br.arenas : wd && wd.stake ? paid.arenas : arenas,
         door: pd ? pd.door : null,
         cv: skinOf(socket),
+        skin: paidSkinOf(socket), // a bought skin's custom bytes, or null (after cv, so the skin draw count is unchanged)
         joined: false,
         holdPressed: false,
         hidden: false,

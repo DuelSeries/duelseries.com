@@ -523,6 +523,10 @@ class SlRoom {
     const inf = info || {};
     const cv = Number.isInteger(inf.cv) && inf.cv >= 0 ? inf.cv : 0;
     const s = this.spawnSnake({ nick: inf.nick, cv, isBot: false });
+    // A bought skin (docs/skin-purchases.md): its custom bytes, from slSockets after the skin pass checked out. Kept on
+    // the snake for slView's snake_add only; the sim and its digest never read it. Byte values only, capped.
+    if (Array.isArray(inf.skin) && inf.skin.length >= 10 && inf.skin.length <= 80
+        && inf.skin.every((b) => Number.isInteger(b) && b >= 0 && b <= 255)) s.skin = inf.skin.slice();
     built.s = s;
     const seat = {
       id: socket.id,

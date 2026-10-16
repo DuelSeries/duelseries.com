@@ -348,6 +348,9 @@ function createView(laws, sim, opts) {
       nick: s.nick,
       raw: { pts: b.raw },
     };
+    // A bought skin's custom bytes (slRoom._buildSeat): slither's own add-snake field, drawn by the frozen client.
+    // Absent for every other snake, so their adds are byte for byte what they were.
+    if (s.skin) vs.addEv.skin = s.skin;
     vs.addTick = t;
     return vs.addEv;
   }

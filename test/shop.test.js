@@ -16,7 +16,7 @@ function page() {
   const box = { console, Math, JSON };
   box.window = box; box.globalThis = box;
   vm.createContext(box);
-  for (const f of ['shared/shopPrices.js', 'public/js/shooterArt.js', 'public/js/battleshipArt.js', 'public/js/v2/shopArt.js'])
+  for (const f of ['shared/shopPrices.js', 'shared/shopSkins.js', 'public/js/shooterArt.js', 'public/js/battleshipArt.js', 'public/js/v2/shopArt.js'])
     vm.runInContext(fs.readFileSync(path.join(ROOT, f), 'utf8'), box, { filename: f });
   return box;
 }
@@ -108,11 +108,15 @@ test('every preview draws without throwing, and Battleship gets its own colours 
   assert.ok(box.ShooterArt.TEAMS.you && box.ShooterArt.TEAMS.foe, 'the shooter\'s own teams are untouched');
 });
 
-test('the shop sells nothing: no server code reads the prices yet', () => {
-  /* Making skins buyable is a later job. Until it is, no server file may
-     reference the shop, so nothing can charge for a skin. */
+test('the server reads the prices in exactly one place, and never the lobby\'s art', () => {
+  /* Skins are sold since 2026-10-16 (docs/skin-purchases.md). The price of a
+     sale comes from server/skinCatalog.js alone, so no other server file can
+     charge a different number; no server file reads the lobby's preview code. */
   const walk = d => fs.readdirSync(d, { withFileTypes: true }).flatMap(e =>
     e.isDirectory() ? walk(path.join(d, e.name)) : e.name.endsWith('.js') ? [path.join(d, e.name)] : []);
-  for (const f of walk(path.join(ROOT, 'server')))
-    assert.ok(!/shopPrices|shopArt|V2Shop/.test(fs.readFileSync(f, 'utf8')), path.relative(ROOT, f) + ' does not touch the shop');
+  for (const f of walk(path.join(ROOT, 'server'))) {
+    const src = fs.readFileSync(f, 'utf8'), rel = path.relative(ROOT, f).replace(/\\/g, '/');
+    assert.ok(!/shopArt|V2Shop/.test(src), rel + ' does not touch the lobby\'s shop art');
+    if (rel !== 'server/skinCatalog.js') assert.ok(!/shopPrices/.test(src), rel + ' does not read the prices itself');
+  }
 });

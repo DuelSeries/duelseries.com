@@ -101,7 +101,7 @@ function storage(init) {
   };
 }
 
-function page({ stake = 0, entryToken = null, framed = true, watch = null } = {}) {
+function page({ stake = 0, entryToken = null, framed = true, watch = null, local = null } = {}) {
   const clock = clockDouble();
   const sock = ioSocket();
   const byId = new Map();
@@ -212,7 +212,7 @@ function page({ stake = 0, entryToken = null, framed = true, watch = null } = {}
     io: () => sock,
     location: { search: '', href: '' },
     sessionStorage: storage(session),
-    localStorage: storage(),
+    localStorage: storage(local || undefined),
     addEventListener(t, fn) { (winListeners[t] = winListeners[t] || []).push(fn); },
     focus() {},
     console: { error() {}, log() {} },
@@ -270,6 +270,35 @@ test('the entry token goes out once, in the first pp:join, and leaves sessionSto
   const joins = t.wire('pp:join');
   assert.strictEqual(joins.length, 1);
   assert.strictEqual(joins[0][1].entryToken, 'tok-1');
+});
+
+test('the lobby\'s bought Paper skin and pass ride the join and the respawn; without them the join is as before', () => {
+  const none = page();
+  none.sock.connect('sock-a');
+  assert.deepStrictEqual(Object.keys(none.wire('pp:join')[0][1]).sort(), ['name', 'stake'], 'no extra fields');
+
+  const t = page({ local: { 'duel.shop.paper': 'camo', 'duel.skinpass': 'PASS.SIG' } });
+  t.sock.connect('sock-a');
+  const join = t.wire('pp:join')[0][1];
+  assert.strictEqual(join.shop, 'camo');
+  assert.strictEqual(join.skinPass, 'PASS.SIG');
+  t.joined({});
+  t.sock.fire('pp:dead', { reason: 2, lostMicro: 0 });
+  t.clock.advance(1000);
+  t.$('pp-dead').querySelector('.pp-again').click();
+  const respawn = t.wire('pp:respawn')[0][1];
+  assert.strictEqual(respawn.shop, 'camo');
+  assert.strictEqual(respawn.skinPass, 'PASS.SIG');
+
+  // a choice that is not an id, or a pass that is too long, is not sent at all
+  for (const local of [{ 'duel.shop.paper': 'Camo!', 'duel.skinpass': 'P' },
+    { 'duel.shop.paper': 'camo', 'duel.skinpass': 'x'.repeat(4097) },
+    { 'duel.shop.paper': 'camo' }, { 'duel.skinpass': 'P' }]) {
+    const p = page({ local });
+    p.sock.connect('sock-a');
+    assert.strictEqual(p.wire('pp:join')[0][1].shop, undefined);
+    assert.strictEqual(p.wire('pp:join')[0][1].skinPass, undefined);
+  }
 });
 
 test('Back to the lobby is shut while a paid restake is with the wallet', () => {

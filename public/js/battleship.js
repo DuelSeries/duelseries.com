@@ -44,6 +44,37 @@ const myEntryToken = (() => {
   try { return sessionStorage.getItem('entryToken') || null; } catch (_) { return null; }
 })();
 
+/* A bought skin (docs/skin-purchases.md): the one the lobby's Customize picked for this game and the skin pass it got
+   when it proved the wallet. Only carried across; the server wears the skin when the pass is genuine and lists it,
+   and tells both screens what it chose (you.skin, them.skin, and per seat for a watcher). Read at each queue. */
+function shopFields() {
+  try {
+    const shop = localStorage.getItem('duel.shop.battleship'), pass = localStorage.getItem('duel.skinpass');
+    if (shop && pass && /^[a-z][a-z0-9]{0,23}$/.test(shop) && pass.length <= 4096) return { shop, skinPass: pass };
+  } catch (_) { /* storage blocked: the free look */ }
+  return {};
+}
+
+/* Run draw() with the game's hull colours swapped for a bought skin's, then put them straight back: drawShip reads
+   BattleshipArt.HULL as it draws (the lobby's preview does the same, public/js/v2/shopArt.js). No skin, or a skin
+   this page does not know, runs draw() untouched, so a free fleet is drawn exactly as before. */
+function withHull(skinId, draw) {
+  const SK = window.DS_SHOP_SKINS, BA = window.BattleshipArt;
+  const k = skinId && SK && BA ? SK.byId('battleship', skinId) : null;
+  if (!k) return draw();
+  const H = BA.HULL, keep = {}, worn = SK.hullFor(k);
+  for (const key in worn) { keep[key] = H[key]; H[key] = worn[key]; }
+  try { return draw(); } finally { for (const key in keep) H[key] = keep[key]; }
+}
+/* Whose fleet is on a board decides its skin: mine are mine, the ones I sank are theirs, and a watcher's board is
+   its seat's. */
+const mySkin = () => (st && st.you && st.you.skin) || null;
+const theirSkin = () => (st && st.them && st.them.skin) || null;
+const seatSkin = (side) => {
+  const p = st && (st.players || []).find(q => q.side === side);
+  return (p && p.skin) || null;
+};
+
 /* WATCHING, NOT PLAYING. The lobby's Spectate writes 'dsWatch' with the game to
    watch just before it opens this page. Read once and removed at once, so the
    next Play is a Play, and honoured only when it names this game.
@@ -149,8 +180,8 @@ function drawBoard(cv, opts) {
      that could be drawn here. */
   for (const s of (opts.ships || [])) {
     const sx = g0 + s.x * m.cell, sy = g0 + s.y * m.cell;
-    window.BattleshipArt.drawShip(ctx, s.key, s.len || shipLen(s), sx, sy, m.cell,
-      s.horiz !== false, s.sunk ? 0.95 : 0.88);
+    withHull(opts.skin, () => window.BattleshipArt.drawShip(ctx, s.key, s.len || shipLen(s), sx, sy, m.cell,
+      s.horiz !== false, s.sunk ? 0.95 : 0.88));
     if (s.sunk) {
       /* A sunk ship is stated, not implied. */
       ctx.save();
@@ -250,6 +281,7 @@ function paint() {
         ships: (b.sunk || []).map(s => Object.assign({ sunk: true }, s)),
         marks: b.shots || [],
         aim: null,
+        skin: seatSkin(side),
       });
     }
     return;
@@ -262,6 +294,7 @@ function paint() {
     marks: st.shotsOnMe,
     preview: dragging ? dropPreview() : null,
     aim: null,
+    skin: mySkin(),
   });
 
   /* Theirs: marks I have earned, and ships I have finished. */
@@ -269,6 +302,7 @@ function paint() {
     ships: st.sunkOfTheirs.map(s => Object.assign({ sunk: true }, s)),
     marks: st.myShots,
     aim: aimed,
+    skin: theirSkin(),
   });
 }
 
@@ -362,7 +396,7 @@ function buildTray() {
     cv.style.height = cell + 'px';
     const c2 = cv.getContext('2d');
     c2.setTransform(dpr, 0, 0, dpr, 0, 0);
-    window.BattleshipArt.drawShip(c2, spec.key, spec.len, 0, 0, cell, true, 1);
+    withHull(mySkin(), () => window.BattleshipArt.drawShip(c2, spec.key, spec.len, 0, 0, cell, true, 1));
 
     const nm = document.createElement('span');
     nm.className = 'trayName';
@@ -663,7 +697,7 @@ function showGhostFor(d) {
   const c = ghost.getContext('2d');
   c.setTransform(dpr, 0, 0, dpr, 0, 0);
   c.clearRect(0, 0, w, h);
-  window.BattleshipArt.drawShip(c, d.key, d.len, 0, 0, cell, d.horiz, 0.92);
+  withHull(mySkin(), () => window.BattleshipArt.drawShip(c, d.key, d.len, 0, 0, cell, d.horiz, 0.92));
   ghost._cell = cell;
 }
 
@@ -838,7 +872,7 @@ function queue() {
   $('waitSub').textContent = myStake > 0
     ? '$' + myStake.toFixed(2) + ' table. Waiting for a real opponent.'
     : 'Free table. Nothing staked.';
-  socket.emit('bs:queue', { name: myName, wallet: myWallet, stake: myStake, entryToken: myEntryToken });
+  socket.emit('bs:queue', Object.assign({ name: myName, wallet: myWallet, stake: myStake, entryToken: myEntryToken }, shopFields()));
   /* One use only: re-sending it on a Play again would ask the server to spend a
      token it has already burned. */
   try { sessionStorage.removeItem('entryToken'); } catch (_) {}
@@ -969,13 +1003,13 @@ socket.on('bs:over', (m) => {
     if (theirs) {
       drawBoard($('theirs'), {
         ships: theirs.ships.map(s => Object.assign({ len: s.cells.length }, s)),
-        marks: st.myShots, aim: null,
+        marks: st.myShots, aim: null, skin: theirs.skin || theirSkin(),
       });
     }
     if (mine) {
       drawBoard($('mine'), {
         ships: mine.ships.map(s => Object.assign({ len: s.cells.length }, s)),
-        marks: st.shotsOnMe, aim: null,
+        marks: st.shotsOnMe, aim: null, skin: mine.skin || mySkin(),
       });
     }
   }
@@ -1251,7 +1285,7 @@ function watchOver(m) {
       if (!r || (r.side !== 0 && r.side !== 1)) continue;
       drawBoard(watchCanvas(r.side), {
         ships: (r.ships || []).map(s => Object.assign({ len: (s.cells || []).length }, s)),
-        marks: watchBoard(r.side).shots || [], aim: null,
+        marks: watchBoard(r.side).shots || [], aim: null, skin: r.skin || seatSkin(r.side),
       });
     }
   }

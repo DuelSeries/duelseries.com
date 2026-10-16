@@ -50,7 +50,7 @@ test('agNet: every side event reaches onEvent with its payload; others are never
   const got = [];
   LIB.agNet.createNet({ socket: s, onEvent: (n, p) => got.push([n, p]) });
   assert.deepStrictEqual(LIB.agNet.SIDE_EVENTS, ['ag:holding', 'ag:cashedout', 'ag:money', 'ag:joined', 'ag:dead',
-    'ag:closed', 'ag:paid', 'ag:payerror', 'ag:refused', 'ag:refunded', 'ag:replaced']);
+    'ag:closed', 'ag:paid', 'ag:payerror', 'ag:refused', 'ag:refunded', 'ag:replaced', 'ag:skins']);
   for (const n of LIB.agNet.SIDE_EVENTS) s.fire(n, { n });
   s.fire('ag:other', {});
   assert.deepStrictEqual(got.map((g) => g[0]), LIB.agNet.SIDE_EVENTS);

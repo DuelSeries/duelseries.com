@@ -119,8 +119,9 @@ class KnockoutLobby {
      millisecond short of giving up had already given up. That is a test failing
      for a reason that has nothing to do with the thing it is testing, and it
      was doing it in the middle of the pre-deploy run. */
-  /* paid: what landed on-chain for this seat (the entry token's paid), which bounds a refund. */
-  enqueue(socket, name, wallet, stake, worth, now, paid) {
+  /* paid: what landed on-chain for this seat (the entry token's paid), which bounds a refund.
+     skin: the bought skin this seat wears, already proved against the skin pass by the caller; null is the free look. */
+  enqueue(socket, name, wallet, stake, worth, now, paid, skin) {
     this.dequeue(socket.id);
     /* Watching and queueing are one or the other. Somebody who was watching
        and pressed Play stops watching first, so the two never overlap. */
@@ -130,6 +131,7 @@ class KnockoutLobby {
       stake: Number(stake) > 0 ? Number(stake) : 0,
       worth: Number(worth) > 0 ? Number(worth) : 0,
       paid: Number(paid) > 0 ? Number(paid) : undefined,
+      skin: typeof skin === 'string' && skin ? skin : null,
     });
     this.pump(typeof now === 'number' ? now : undefined);
     /* Still waiting after that? Somebody may be in a bot match that has only
@@ -248,7 +250,7 @@ class KnockoutLobby {
       /* fromRoom says which match this was, so its watchers can follow the
          person into the new one (moveWatchers). */
       return { socket: seat.socket, name: seat.name, wallet: seat.wallet,
-               since: Date.now(), stake: 0, worth: 0, fromRoom: room.id };
+               since: Date.now(), stake: 0, worth: 0, fromRoom: room.id, skin: seat.skin || null };
     }
     return null;
   }
@@ -258,7 +260,7 @@ class KnockoutLobby {
     room.stake = entries.length ? (entries[0].stake || 0) : 0;
     room.onSettled = this.onSettled || null;
     for (const e of entries) {
-      room.addPlayer(e.socket, e.name, e.wallet, e.worth, e.paid);
+      room.addPlayer(e.socket, e.name, e.wallet, e.worth, e.paid, e.skin);
       this.bySocket.set(e.socket.id, room.id);
       e.socket._koRoom = room.id;
     }

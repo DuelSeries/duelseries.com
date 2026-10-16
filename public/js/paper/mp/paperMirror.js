@@ -396,6 +396,11 @@
         var sm = this.skinManager;
         var skin = null;
         try {
+          // A bought skin ('paper:camo', decided by the server) is built from the shop's look the first time any
+          // square wears it; a page without that file just falls through to a random skin below.
+          if (name && sm.assets && !sm.assets[name] && typeof sm.registerPaidByName === 'function') {
+            sm.registerPaidByName(name, root.DS_SHOP_SKINS, this.config);
+          }
           if (name && sm.assets && sm.assets[name]) skin = sm.get(name);
           else skin = sm.get();
         } catch (e) {

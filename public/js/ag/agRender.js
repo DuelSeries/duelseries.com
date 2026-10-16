@@ -147,6 +147,9 @@
     // Paid rooms only (setMoney, from ag:money): cell id -> its share in micro-USDC. Null in the free room, where
     // nothing below reads it.
     var money = null;
+    // Bought skins (setSkins, from ag:skins; docs/skin-purchases.md): cell id -> its skin (shared/shopSkins.js
+    // SKINS.agar). Null until a room has one, so nothing below runs for a plain cell.
+    var skins = null;
     var frameCounter = 0;
     var membranesAllowed = true;                // allowed on the first frame (spec 1.2)
 
@@ -615,6 +618,9 @@
           ctx.fillStyle = rgbString(col);
           ctx.fill();
         }
+        if (skins && !n.food && !n.virus && !n.ejected && !st.noColors) {
+          drawSkinArt(ctx, n, x, y, size, function () { ctx.beginPath(); ctx.arc(x, y, size, 0, TAU, 0); ctx.closePath(); });
+        }
       } else {
         ctx.beginPath();
         ringPath(ctx, n, function (pr) { return f32(r + pr); });
@@ -636,6 +642,13 @@
             ctx.stroke();
           }
           ctx.fill();
+          if (skins && !n.virus && !n.ejected && !st.noColors) {
+            drawSkinArt(ctx, n, x, y, size, function () {
+              ctx.beginPath();
+              ringPath(ctx, n, function (pr) { return f32(pr - inset); });
+              ctx.closePath();
+            });
+          }
         }
       }
       drawText(ctx, n, lists, ownCount, view, st);
@@ -770,6 +783,28 @@
       money = shares && typeof shares.get === 'function' ? shares : null;
     }
 
+    // ag:skins: [id, skin, ...] with skin 1-based in shared/shopSkins.js SKINS.agar; the whole list each time.
+    function setSkins(cells) {
+      var SK = root.DS_SHOP_SKINS;
+      var c = Array.isArray(cells) ? cells : [];
+      var m = new Map();
+      for (var i = 0; i + 1 < c.length; i += 2) {
+        var k = SK && SK.SKINS && Number.isInteger(c[i + 1]) ? SK.SKINS.agar[c[i + 1] - 1] : null;
+        if (typeof c[i] === 'number' && k) m.set(c[i], k);
+      }
+      skins = m.size ? m : null;
+    }
+    // A bought skin's design over a player cell's fill, clipped to the same outline (pathFn draws it).
+    function drawSkinArt(ctx, n, x, y, size, pathFn) {
+      var k = skins.get(n.id);
+      if (!k) return;
+      ctx.save();
+      pathFn();
+      ctx.clip();
+      root.DS_SHOP_SKINS.agarArt(ctx, k, x, y, size);
+      ctx.restore();
+    }
+
     // Party icon (8.1.1): a guest has no profile pictures, so the default icon, half size,
     // unclipped, centred half a size above the node centre. All double maths.
     function drawPartyIcon(ctx, x, y, size) {
@@ -801,6 +836,7 @@
       renderWorld: renderWorld,
       nameEntry: function (name) { return names.get(name) || null; },
       setMoney: setMoney,
+      setSkins: setSkins,
       drawHoldRing: drawHoldRing,
       get frameCounter() { return frameCounter; }
     };

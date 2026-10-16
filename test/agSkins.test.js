@@ -95,7 +95,8 @@ test('a skin never moves the sim\'s random stream', () => {
 test('the /ag page sends the stored skin in its handshake, and no money path reads it', () => {
   const main = fs.readFileSync(path.join(ROOT, 'public/js/ag/agMain.js'), 'utf8');
   assert.ok(main.includes("win.localStorage.getItem('duel.ag.skin')"), 'agMain reads the lobby key');
-  assert.ok(main.includes('ioOptions: flow || auth.skin || auth.watchStake ? { auth: auth } : undefined'), 'and puts it in the handshake');
+  // auth.shop: a bought skin with its pass (docs/skin-purchases.md) rides the same handshake
+  assert.ok(main.includes('ioOptions: flow || auth.skin || auth.shop || auth.watchStake ? { auth: auth } : undefined'), 'and puts it in the handshake');
   assert.ok(main.includes('var auth = flow ? { paid: 1 } : {};'), 'a paid hand-off keeps auth.paid');
   for (const f of ['server/ag/agMoney.js', 'server/ag/agPaidDoor.js', 'server/ag/agBank.js', 'public/js/ag/agPaid.js',
     'public/js/v2/wallet.js', 'public/js/v2/play.js']) {

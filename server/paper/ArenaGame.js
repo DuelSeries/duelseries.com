@@ -5,6 +5,7 @@
 // human, the wall follows the head count (paid) and pushes squares in, and every death is
 // reported once through hooks.onDeath for the room to settle the money.
 const P = require('./loadPaperLib');
+const shopSkins = require('../../shared/shopSkins');
 
 const MP = P.MP;
 
@@ -794,16 +795,25 @@ class ArenaGame extends P.Game {
       this.schemesManager
     );
     unit.socketId = (spec && spec.socketId) || null;
-    unit.setSkin(this._humanSkin());
+    unit.setSkin(this._humanSkin(spec && spec.skin));
     this.addUnit(unit);
     this.humans.push(unit);
     return unit;
   }
 
-  _humanSkin() {
+  /* The skin a human square wears. `paid` is a bought skin's id ('camo') that the socket layer already proved against
+     the lobby's skin pass (server/paperSockets.js); it is worn as 'paper:camo', whose colours come from the shop's
+     colour the way a plain colour skin's come from its hex. Anything else (no id, one the shop does not list) is the
+     usual random colour, and no rng is drawn for a bought skin, so an arena without one runs exactly as before. Only
+     humans are ever offered this: bots take their skins from the pool's unused colours. */
+  _humanSkin(paid) {
     const sm = this.skinManager;
+    if (typeof paid === 'string' && sm.registerPaidByName('paper:' + paid, shopSkins, this.config)) {
+      return sm.get('paper:' + paid);
+    }
     if (sm.available('colored')) return sm.getPlayerSkin();
-    const names = Object.keys(sm.assets);
+    // Every colour is taken: any palette or image skin, never a bought one (those are tagged 'paid').
+    const names = Object.keys(sm.assets).filter((n) => sm.assets[n].tag !== 'paid');
     return sm.get(names[Math.floor(Math.random() * names.length)]);
   }
 

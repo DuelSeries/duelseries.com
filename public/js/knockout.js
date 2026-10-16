@@ -84,6 +84,26 @@ const myEntryToken = (() => {
   try { return sessionStorage.getItem('entryToken') || null; } catch (_) { return null; }
 })();
 
+/* A bought skin (docs/skin-purchases.md): the one the lobby's Customize picked for this game and the skin pass it got
+   when it proved the wallet. Only carried across; the server wears the skin when the pass is genuine and lists it,
+   and tells both screens what it chose (st.players[].skin). Read at each queue, so a Play again sees a change. */
+function shopFields() {
+  try {
+    const shop = localStorage.getItem('duel.shop.knockout'), pass = localStorage.getItem('duel.skinpass');
+    if (shop && pass && /^[a-z][a-z0-9]{0,23}$/.test(shop) && pass.length <= 4096) return { shop, skinPass: pass };
+  } catch (_) { /* storage blocked: the free look */ }
+  return {};
+}
+
+/* The skin an owner's pieces wear, from the state the server sent: a shared/shopSkins.js entry, else null (today's
+   bone and red). The server decided it, so a page cannot dress itself or its opponent in anything it was not given. */
+function skinOf(ownerId) {
+  const SK = window.DS_SHOP_SKINS;
+  if (!SK || !st) return null;
+  const pl = (st.players || []).find(q => q.id === ownerId);
+  return pl && pl.skin ? SK.byId('knockout', pl.skin) : null;
+}
+
 /* WATCHING, NOT PLAYING. The lobby's Spectate writes 'dsWatch' with the game to
    watch just before it opens this page. Read once and removed at once, so the
    next Play from the lobby is a Play; and honoured only when it names this
@@ -259,14 +279,28 @@ function draw() {
 
     ctx.save();
     ctx.globalAlpha = alpha;
-    ctx.beginPath(); ctx.arc(x, y, pr * scale, 0, Math.PI * 2);
-    ctx.fillStyle = isMine ? '#f4f1ea' : '#e0705f';
-    ctx.fill();
-    /* A darker inner disc, so a piece reads as an object with a top rather than
-       a flat dot, and so the two colours stay apart at a glance. */
-    ctx.beginPath(); ctx.arc(x, y - pr * 0.12 * scale, pr * 0.58 * scale, 0, Math.PI * 2);
-    ctx.fillStyle = isMine ? 'rgba(0,0,0,0.13)' : 'rgba(0,0,0,0.20)';
-    ctx.fill();
+    const skin = skinOf(p.owner);
+    if (skin) {
+      /* A bought skin: its own disc and design. A skin can sit close to the other side's colour (ruby next to their
+         red, marble next to the bone), so a thin ring in the team colour goes round the rim: bone is mine, red is
+         theirs, whatever the piece is wearing. */
+      const r = pr * scale;
+      window.DS_SHOP_SKINS.knockoutPiece(ctx, skin, x, y, r, isMine ? 0.13 : 0.20);
+      const rw = Math.max(1.5, r * 0.16);
+      ctx.beginPath(); ctx.arc(x, y, Math.max(0.5, r - rw / 2), 0, Math.PI * 2);
+      ctx.strokeStyle = isMine ? '#f4f1ea' : '#e0705f';
+      ctx.lineWidth = rw;
+      ctx.stroke();
+    } else {
+      ctx.beginPath(); ctx.arc(x, y, pr * scale, 0, Math.PI * 2);
+      ctx.fillStyle = isMine ? '#f4f1ea' : '#e0705f';
+      ctx.fill();
+      /* A darker inner disc, so a piece reads as an object with a top rather than
+         a flat dot, and so the two colours stay apart at a glance. */
+      ctx.beginPath(); ctx.arc(x, y - pr * 0.12 * scale, pr * 0.58 * scale, 0, Math.PI * 2);
+      ctx.fillStyle = isMine ? 'rgba(0,0,0,0.13)' : 'rgba(0,0,0,0.20)';
+      ctx.fill();
+    }
     ctx.restore();
   }
 
@@ -569,10 +603,10 @@ function queue() {
   $('waitSub').textContent = myStake > 0
     ? '$' + myStake.toFixed(2) + ' table. Waiting for a real opponent.'
     : 'Free table. Nothing staked.';
-  socket.emit('ko:queue', {
+  socket.emit('ko:queue', Object.assign({
     name: myName, wallet: myWallet,
     stake: myStake, entryToken: myEntryToken,
-  });
+  }, shopFields()));
   /* One use only. Re-sending it on a Play again would be asking the server to
      spend a token it has already burned, and the seat would be refused with
      nothing to show for it. */

@@ -179,13 +179,14 @@ class PaperRoom {
   // money dropping on the floor (STATUS "BEFORE PAPER_PAID IS SWITCHED ON" item 2).
   // jid: the door's journal id when the door wrote an open for this join before its stake claim (paperSockets); the
   // seat's own open then replaces that record, and must be written or the seat is refused (PaperArenas._journalOpen).
-  addHuman(socket, { name, micro, wallet, spot, proof, paid, stakeSig, jid }) {
+  // skin: a bought skin's id, already proved against the skin pass by paperSockets (docs/skin-purchases.md), else none.
+  addHuman(socket, { name, micro, wallet, spot, proof, paid, stakeSig, jid, skin }) {
     const game = this.game;
     game._enter();
     if (this.stopped) throw new Error('stopped');
     if (this.seats.size >= MP.MAX_HUMANS) throw new Error('full');
     if (!this.paid && game.units.length >= MP.FREE_SQUARES) game.removeLowestBot();
-    const unit = game.spawnHuman({ name, socketId: socket.id }, spot || null);
+    const unit = game.spawnHuman({ name, socketId: socket.id, skin }, spot || null);
     let seat = null;
     try {
       this.bank.deposit(unit.id, micro, wallet || null, name);

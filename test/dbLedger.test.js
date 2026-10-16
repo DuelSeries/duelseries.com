@@ -28,16 +28,20 @@ const quietly = async (fn) => {
 test('init runs every ledger statement one by one and turns each feature on only when its group went through', async () => {
   let seen = recorder();
   await quietly(() => db.init());
-  assert.deepStrictEqual(db.features, { durableStakes: true, payoutLanes: true });
+  assert.deepStrictEqual(db.features, { durableStakes: true, payoutLanes: true, skinShop: true });
   const ddl = seen.slice(1).map((q) => q.sql);
+  // the skin purchases table (docs/skin-purchases.md): one live row per wallet and item, a signature claims one row
+  assert.ok(ddl.some((s) => /CREATE TABLE IF NOT EXISTS skin_purchases/.test(s) && /sig\s+TEXT UNIQUE/.test(s)));
+  assert.ok(ddl.some((s) => /CREATE UNIQUE INDEX IF NOT EXISTS skin_purchases_live_uniq/.test(s)));
   assert.ok(ddl.length >= 15, 'separate statements, not one template');
   assert.ok(ddl.some((s) => /ALTER TABLE used_stake_sigs ADD COLUMN IF NOT EXISTS state TEXT/.test(s)));
   assert.ok(ddl.some((s) => /ALTER TABLE failed_payouts ADD COLUMN IF NOT EXISTS missing_account BOOLEAN DEFAULT false/.test(s)));
 
   seen = recorder((sql) => (/claim_key/.test(sql) && /ALTER/.test(sql) ? new Error('boom') : null));
   await quietly(() => db.init());
-  assert.deepStrictEqual(db.features, { durableStakes: false, payoutLanes: true });
-  assert.ok(!seen.some((q) => /settled_at TIMESTAMPTZ/.test(q.sql)), 'stopped at the first failure of its group');
+  assert.deepStrictEqual(db.features, { durableStakes: false, payoutLanes: true, skinShop: true });
+  // (skin_purchases has a settled_at of its own, in its own group: only the stake ledger's is looked for)
+  assert.ok(!seen.some((q) => /used_stake_sigs ADD COLUMN IF NOT EXISTS settled_at TIMESTAMPTZ/.test(q.sql)), 'stopped at the first failure of its group');
 });
 
 test('claimStakeSig: durable row when on; the plain one-time claim when off; falls back on a missing column', async () => {

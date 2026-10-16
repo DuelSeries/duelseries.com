@@ -506,6 +506,11 @@
           if (typeof p.tickMs === 'number' && p.tickMs > 0 && isFinite(p.tickMs)) holdTickMs = p.tickMs;
           if (wholePositive(p.holdTicks)) hold.need = p.holdTicks;
           break;
+        case 'ag:skins':
+          // { cells: [id, skin, ...] }: the cells this page knows that wear a bought skin (1-based in
+          // shared/shopSkins.js SKINS.agar). Display only.
+          renderer.setSkins(p && p.cells);
+          break;
         case 'ag:money':
           paid.on = true;
           agScreens.loadPaidStyles(doc);
@@ -927,6 +932,16 @@
       var skinId = win.localStorage ? win.localStorage.getItem('duel.ag.skin') : null;
       if (typeof skinId === 'string' && skinId && skinId.length <= 32) auth.skin = skinId;
     } catch (e) { /* storage blocked: a dealt colour */ }
+    // A bought skin (docs/skin-purchases.md): its id and the lobby's skin pass. The server wears it only when the
+    // pass lists it (server/ag/agRoom.js paidSkinOf), else the free colour above. Cosmetic: no money path reads it.
+    try {
+      var shopId = win.localStorage ? win.localStorage.getItem('duel.shop.agar') : null;
+      var skinPass = win.localStorage ? win.localStorage.getItem('duel.skinpass') : null;
+      if (shopId && skinPass && /^[a-z][a-z0-9]{0,23}$/.test(shopId) && skinPass.length <= 4096) {
+        auth.shop = shopId;
+        auth.skinPass = skinPass;
+      }
+    } catch (e) { /* storage blocked: the free look */ }
     // The lobby's Spectate on a paid rung (spectateOnly plus dsWatchStake, both written by public/js/v2/play.js):
     // the rung to watch, read only on the server (agArenas.connectWatch). Never with a paid hand-off, never a buy-in.
     try {
@@ -939,7 +954,7 @@
         if (net || destroyed) return;
         net = A.agNet.connect(win.io, applyMessage, {
           url: cfg.url,
-          ioOptions: flow || auth.skin || auth.watchStake ? { auth: auth } : undefined,
+          ioOptions: flow || auth.skin || auth.shop || auth.watchStake ? { auth: auth } : undefined,
           onEvent: onSideEvent,
           onConnect: function () {
             var queued = { play: pending.play, spectate: pending.spectate };

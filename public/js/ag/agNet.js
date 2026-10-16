@@ -47,7 +47,7 @@
   // The server's side events the page listens to (server/ag/agRoom.js, agPaidDoor.js and the agar payout instance
   // of server/paperPayout.js). Anything else on the socket is ignored.
   var SIDE_EVENTS = ['ag:holding', 'ag:cashedout', 'ag:money', 'ag:joined', 'ag:dead', 'ag:closed', 'ag:paid',
-    'ag:payerror', 'ag:refused', 'ag:refunded', 'ag:replaced'];
+    'ag:payerror', 'ag:refused', 'ag:refunded', 'ag:replaced', 'ag:skins'];
 
   function wire() {
     var w = A.agWire;

@@ -225,14 +225,17 @@ class BattleshipRoom {
     this.seats = [];          // side -> { id, name }, kept after somebody leaves
   }
 
-  addPlayer(socket, name, wallet, worth, paid) {
+  /* skin: the bought skin this seat's fleet wears (a shared/shopSkins.js battleship id), already proved against the
+     lobby's skin pass by the caller (index.js); null is the free look. Cosmetic only: no rule in here reads it. */
+  addPlayer(socket, name, wallet, worth, paid, skin) {
     if (this.players.size >= 2) return false;
     const side = this.players.size;
+    const wears = typeof skin === 'string' && skin ? skin : null;
     this.players.set(socket.id, { socket, name: name || 'Player', wallet: wallet || null, side,
-                                  paid: Number(paid) > 0 ? Number(paid) : undefined });
+                                  paid: Number(paid) > 0 ? Number(paid) : undefined, skin: wears });
     this.boards.set(socket.id, new Board());
     this.worth.set(socket.id, Number(worth) > 0 ? Number(worth) : 0);
-    this.seats[side] = { id: socket.id, name: name || 'Player' };
+    this.seats[side] = { id: socket.id, name: name || 'Player', skin: wears };
     if (socket.join) socket.join(this.socketRoomName);
     return true;
   }
@@ -430,6 +433,7 @@ class BattleshipRoom {
           reveal: [...this.players.keys()].map(pid => ({
             id: pid,
             name: (this.players.get(pid) || {}).name || null,
+            skin: (this.players.get(pid) || {}).skin || null,
             ships: (this.boards.get(pid) || { ships: [] }).ships.map(s => ({
               key: s.key, name: s.name, cells: s.cells, horiz: s.horiz, x: s.x, y: s.y, sunk: s.sunk,
             })),
@@ -454,7 +458,7 @@ class BattleshipRoom {
             const seat = this.seats[s];
             const board = seat ? this.boards.get(seat.id) : null;
             return {
-              side: s, name: sides[s],
+              side: s, name: sides[s], skin: (seat && seat.skin) || null,
               ships: (board ? board.ships : []).map(sh => ({
                 key: sh.key, name: sh.name, cells: sh.cells.slice(), horiz: sh.horiz, x: sh.x, y: sh.y, sunk: sh.sunk,
               })),
@@ -485,8 +489,8 @@ class BattleshipRoom {
       turnMs: BS.TURN_MS,
       grid: GRID,
       fleet: FLEET.map(s => ({ key: s.key, name: s.name, len: s.len })),
-      you: me ? { name: me.name, side: me.side } : null,
-      them: foe ? { name: foe.name, side: foe.side } : null,
+      you: me ? { name: me.name, side: me.side, skin: me.skin || null } : null,
+      them: foe ? { name: foe.name, side: foe.side, skin: foe.skin || null } : null,
       yourTurn: this.state === 'playing' && this.turn === socketId,
       placed: !!(myBoard && myBoard.placed),
       theyPlaced: !!(foeBoard && foeBoard.placed),
@@ -547,7 +551,7 @@ class BattleshipRoom {
       fleet: FLEET.map(s => ({ key: s.key, name: s.name, len: s.len })),
       players: [0, 1].map(s => {
         const b = boardOf(s);
-        return { side: s, name: names[s], placed: !!(b && b.placed) };
+        return { side: s, name: names[s], placed: !!(b && b.placed), skin: (this.seats[s] && this.seats[s].skin) || null };
       }),
       /* Only once the shooting has started, same as the players: who goes
          first is a coin tossed at the countdown and shown when play opens. */

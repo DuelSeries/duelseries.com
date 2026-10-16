@@ -109,8 +109,8 @@ test('equipping a skin actually changes the snake', () => {
     'and, for a plain skin, both old keys for the /game.html fallback');
   const save = html.slice(html.indexOf('function closeLook'), html.indexOf('function closeLook') + 400);
   assert.ok(/SAVED\[cur\.id\]\.put\(/.test(save), 'and Save goes through the game\'s store');
-  assert.ok(/snake:\{worn:\(\)=>skin\(\),put:s=>\{if\(!s\)return;skinId=s\.id;storeSkin\(\)\}\}/.test(html),
-    'which for slither.io is storeSkin');
+  assert.ok(/snake:\{worn:\(\)=>paidWorn\('snake'\)\|\|skin\(\),\s*put:s=>\{if\(!s\)return;wearPaid\('snake',s\);if\(s\.shop\)return;skinId=s\.id;storeSkin\(\)\}\}/.test(html),
+    'which for slither.io is storeSkin (a paid skin is worn through DSSkins, the free one kept underneath)');
 
   // The /sl end of the contract: the page reads that key and sends it at every connect.
   const main = fs.readFileSync(path.join(ROOT, 'public/js/slx/slxMain.js'), 'utf8');

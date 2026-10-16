@@ -173,7 +173,7 @@ async function init() {
    Each group below turns its feature on only when every one of its statements went through; a
    feature that is off falls back to exactly the old SQL, so a failed migration can never strand a
    stake at /api/submit-stake or stop the payout drainer. */
-const features = { durableStakes: false, payoutLanes: false };
+const features = { durableStakes: false, payoutLanes: false, skinShop: false };
 // Usdc.RECIPIENT_NO_USDC_ACCOUNT, repeated here so this module does not load the Solana stack
 // (test/stakeLedger.test.js checks the two agree). Every caller of recordFailedPayout puts the
 // error's message in the reason, and that error's message starts with this.
@@ -221,6 +221,32 @@ const PAYOUT_LANE_DDL = [
        AND reason LIKE '%${NO_USDC_ACCOUNT}%'`,
 ];
 
+/* Buying skins (docs/skin-purchases.md, server/skinShop.js): one row per attempt to buy one item, from the moment
+   the page asks to pay. state: open -> submitted (the signed payment claimed its row, before it was broadcast) ->
+   paid | failed | expired | review; submitted -> open only when the node's preflight refused the bytes unsent.
+   The signature is UNIQUE, so one payment settles one row ever, and at most one row per wallet and item is open
+   or submitted at a time, so one skin is never paid for twice. Nothing is sold while this is OFF. */
+const SKIN_SHOP_DDL = [
+  `CREATE TABLE IF NOT EXISTS skin_purchases (
+     ref          TEXT PRIMARY KEY,
+     wallet       TEXT NOT NULL,
+     item         TEXT NOT NULL,
+     game         TEXT NOT NULL,
+     skin         TEXT NOT NULL,
+     units        BIGINT NOT NULL,
+     state        TEXT NOT NULL DEFAULT 'open',
+     sig          TEXT UNIQUE,
+     blockhash    TEXT,
+     paid_usdc    NUMERIC(18,6),
+     created_at   TIMESTAMPTZ DEFAULT NOW(),
+     submitted_at TIMESTAMPTZ,
+     settled_at   TIMESTAMPTZ
+   )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS skin_purchases_live_uniq ON skin_purchases (wallet, item) WHERE state IN ('open', 'submitted')`,
+  `CREATE INDEX IF NOT EXISTS idx_skin_purchases_submitted ON skin_purchases (submitted_at) WHERE state = 'submitted'`,
+  `CREATE INDEX IF NOT EXISTS idx_skin_purchases_open ON skin_purchases (created_at) WHERE state = 'open'`,
+];
+
 async function runDdl(label, statements) {
   for (const sql of statements) {
     try {
@@ -236,7 +262,8 @@ async function runDdl(label, statements) {
 async function ensureLedgerSchema() {
   features.durableStakes = await runDdl('durable stakes', DURABLE_STAKE_DDL);
   features.payoutLanes = await runDdl('payout lanes', PAYOUT_LANE_DDL);
-  console.log(`[DB] durable stakes ${features.durableStakes ? 'on' : 'OFF'}, payout lanes ${features.payoutLanes ? 'on' : 'OFF'}`);
+  features.skinShop = await runDdl('skin shop', SKIN_SHOP_DDL);
+  console.log(`[DB] durable stakes ${features.durableStakes ? 'on' : 'OFF'}, payout lanes ${features.payoutLanes ? 'on' : 'OFF'}, skin shop ${features.skinShop ? 'on' : 'OFF'}`);
 }
 
 // ─── Accounts ─────────────────────────────────────────────────────────────────
@@ -987,6 +1014,136 @@ async function getOwnedCosmetics(walletAddress) {
   return r.rows.map((row) => row.item_id);
 }
 
+// ─── Buying skins (server/skinShop.js drives these; docs/skin-purchases.md) ──────────────────────
+const SKIN_COLS = 'ref, wallet, item, game, skin, units, state, sig, blockhash';
+
+async function ownsCosmetic(walletAddress, itemId) {
+  const r = await pool.query(`SELECT 1 FROM cosmetics_owned WHERE wallet_address = $1 AND item_id = $2`, [walletAddress, itemId]);
+  return r.rowCount > 0;
+}
+
+// A new open row, or the wallet's live (open or submitted) row for this item when it has one.
+async function skinOpen({ ref, wallet, item, game, skin, units }) {
+  const ins = await pool.query(
+    `INSERT INTO skin_purchases (ref, wallet, item, game, skin, units)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     ON CONFLICT (wallet, item) WHERE state IN ('open', 'submitted') DO NOTHING
+     RETURNING ${SKIN_COLS}`,
+    [ref, wallet, item, game, skin, String(units)]
+  );
+  if (ins.rows[0]) return ins.rows[0];
+  const r = await pool.query(
+    `SELECT ${SKIN_COLS} FROM skin_purchases WHERE wallet = $1 AND item = $2 AND state IN ('open', 'submitted') LIMIT 1`,
+    [wallet, item]
+  );
+  return r.rows[0] || null;
+}
+
+async function skinRow(ref) {
+  const r = await pool.query(`SELECT ${SKIN_COLS} FROM skin_purchases WHERE ref = $1`, [ref]);
+  return r.rows[0] || null;
+}
+
+// open -> submitted with the payment's signature, BEFORE it is broadcast. false: not open any more, or the
+// signature already claimed another row (unique).
+async function skinSubmit(ref, sig, blockhash) {
+  try {
+    const r = await pool.query(
+      `UPDATE skin_purchases SET state = 'submitted', sig = $2, blockhash = $3, submitted_at = NOW()
+        WHERE ref = $1 AND state = 'open' RETURNING ref`,
+      [ref, sig, blockhash || null]
+    );
+    return r.rowCount > 0;
+  } catch (e) {
+    if (e && e.code === '23505') return false;          // unique_violation: this signature has a row already
+    throw e;
+  }
+}
+
+// submitted -> open: the node refused the bytes in preflight, so they were never sent.
+async function skinReopen(ref, sig) {
+  const r = await pool.query(
+    `UPDATE skin_purchases SET state = 'open', sig = NULL, blockhash = NULL, submitted_at = NULL
+      WHERE ref = $1 AND sig = $2 AND state = 'submitted' RETURNING ref`,
+    [ref, sig]
+  );
+  return r.rowCount > 0;
+}
+
+// submitted -> failed | expired | review. The signature stays on the row, so it can never claim another.
+async function skinClose(ref, sig, state) {
+  if (!['failed', 'expired', 'review'].includes(state)) throw new Error('skinClose: bad state');
+  const r = await pool.query(
+    `UPDATE skin_purchases SET state = $3, settled_at = NOW() WHERE ref = $1 AND sig = $2 AND state = 'submitted' RETURNING ref`,
+    [ref, sig, state]
+  );
+  return r.rowCount > 0;
+}
+
+/* submitted -> paid, the skin owned and the sale in the house ledger (source 'cosmetic', lobby_type = the item), in
+   ONE transaction: all three or none. Only the first caller for a row gets granted true. */
+async function skinGrant(ref, sig, { usdc } = {}) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const r = await client.query(
+      `UPDATE skin_purchases SET state = 'paid', paid_usdc = $3, settled_at = NOW()
+        WHERE ref = $1 AND sig = $2 AND state = 'submitted'
+        RETURNING wallet, item, game`,
+      [ref, sig, Number(usdc) || 0]
+    );
+    if (!r.rows[0]) { await client.query('ROLLBACK'); return { granted: false }; }
+    const { wallet, item, game } = r.rows[0];
+    await client.query(
+      `INSERT INTO cosmetics_owned (wallet_address, item_id, tx_sig, paid_usdc)
+       VALUES ($1, $2, $3, $4) ON CONFLICT (wallet_address, item_id) DO NOTHING`,
+      [wallet, item, sig, Number(usdc) || 0]
+    );
+    await client.query(
+      `INSERT INTO house_revenue (source, game, amount_usdc, player_wallet, lobby_type, tx_sig)
+       VALUES ('cosmetic', $1, $2, $3, $4, $5)`,
+      [game, Number(usdc) || 0, wallet, item, sig]
+    );
+    await client.query('COMMIT');
+    return { granted: true };
+  } catch (e) {
+    try { await client.query('ROLLBACK'); } catch (_) {}
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+// Submitted rows at least olderThanMs old, oldest first (the sweep).
+async function skinDue({ olderThanMs, limit }) {
+  const r = await pool.query(
+    `SELECT ${SKIN_COLS} FROM skin_purchases
+      WHERE state = 'submitted' AND submitted_at < NOW() - ($1::int * INTERVAL '1 millisecond')
+      ORDER BY submitted_at ASC LIMIT $2`,
+    [Math.max(0, Math.round(olderThanMs)), Math.max(1, Math.min(100, limit | 0))]
+  );
+  return r.rows;
+}
+
+// One open row closed unpaid (its price changed before anything was signed for it).
+async function skinExpire(ref) {
+  const r = await pool.query(
+    `UPDATE skin_purchases SET state = 'expired', settled_at = NOW() WHERE ref = $1 AND state = 'open' RETURNING ref`,
+    [ref]
+  );
+  return r.rowCount > 0;
+}
+
+// Open rows nobody paid in time: expired, so the wallet can start again.
+async function skinExpireOpen({ olderThanMs }) {
+  const r = await pool.query(
+    `UPDATE skin_purchases SET state = 'expired', settled_at = NOW()
+      WHERE state = 'open' AND created_at < NOW() - ($1::int * INTERVAL '1 millisecond')`,
+    [Math.max(0, Math.round(olderThanMs))]
+  );
+  return r.rowCount;
+}
+
 module.exports = {
   init, pool,
   recordGameResult,
@@ -1001,6 +1158,7 @@ module.exports = {
   onEarningsRecorded,
   recordStake, getTopEarners,
   getProfile, getMyProfile, setAccountName, searchPlayerNames, getGlobalWinnings, getGlobalWinningsSplit,
-  addCosmetic, getOwnedCosmetics,
+  addCosmetic, getOwnedCosmetics, ownsCosmetic,
+  skinOpen, skinRow, skinSubmit, skinReopen, skinClose, skinGrant, skinDue, skinExpire, skinExpireOpen,
   recordHouseRevenue, getHouseRevenueSummary, getRecentHouseRevenue, getHouseRevenueDaily,
 };

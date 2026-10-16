@@ -1,6 +1,8 @@
-/* The Shop tab's skins and their previews (Owen, 2026-10-15). LOOK ONLY:
-   nothing here can be bought, worn or sent to a game. Prices are not in this
-   file; they are in shared/shopPrices.js, the one file Owen edits.
+/* The skins' previews in the lobby (Owen, 2026-10-15). Drawing only: buying
+   is public/js/v2/skinBuy.js and the server (docs/skin-purchases.md). The
+   skins themselves and the drawing the games share are in
+   shared/shopSkins.js; prices are in shared/shopPrices.js, the one file Owen
+   edits.
 
    Every preview is drawn the way that game draws its own player, from that
    game's own code where it can be loaded and from a copy of its few drawing
@@ -39,6 +41,8 @@
 (function (root) {
   'use strict';
   var PR = root.DS_SHOP_PRICES;
+  /* The skins and the drawing the games share: shared/shopSkins.js (loaded before this file). */
+  var SK = root.DS_SHOP_SKINS;
 
   /* ── colour helpers ─────────────────────────────────────────────────── */
   function hexRgb(h) { var n = parseInt(h.slice(1), 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; }
@@ -61,82 +65,19 @@
      `id` is the key in shared/shopPrices.js. The order here is the order on
      the page, cheapest first. */
   var GAMES = [
-    { id: 'snake', name: 'Slither.io', bg: '#0e1622', skins: [
-      { id: 'candycane',     name: 'Candy Cane', runs: [[2, 31], [2, 9]] },
-      { id: 'bumblebee', name: 'Bumblebee',  runs: [[3, 32], [3, 11]] },
-      { id: 'glacier',   name: 'Glacier',    runs: [[3, 9], [3, 23], [2, 14]] },
-      { id: 'toxic',     name: 'Toxic',      runs: [[3, 26], [2, 11], [1, 35]] },
-      { id: 'ember',     name: 'Ember',      runs: [[3, 22], [2, 33], [2, 18]] },
-      { id: 'sunset',    name: 'Sunset',     runs: [[2, 8], [2, 7], [2, 5], [2, 4]] },
-      { id: 'royal',     name: 'Royal',      runs: [[3, 21], [2, 12], [1, 17]] },
-      { id: 'rainbow',   name: 'Rainbow',    runs: [[1, 7], [1, 5], [1, 4], [1, 3], [1, 23], [1, 14], [1, 17]] },
-    ] },
+    { id: 'snake', name: 'Slither.io', bg: '#0e1622', skins: SK.SKINS.snake },
     { id: 'agar', name: 'Agar.io', bg: 'rgb(242,251,255)',
       /* The server deals a colour every life (one channel 255, one 7, the third
          anything between; server/ag/agSim.js playerColour), so the free look
          walks through a few of those. */
-      def: { name: 'Random colour', cols: ['#ff4007', '#07ff8a', '#5a07ff', '#ffd407', '#07c4ff', '#ff07a8'] }, skins: [
-      { id: 'twoface',    name: 'Two Face',   col: '#3fa9f5', art: 'split',    alt: '#ff5a5f' },
-      { id: 'bullseye', name: 'Bullseye',   col: '#ff4040', art: 'rings',    alt: '#ffffff' },
-      { id: 'melon',    name: 'Melon',      col: '#5cc95c', art: 'melon',    alt: '#2e8b3a' },
-      { id: 'moon',     name: 'Moon',       col: '#c9ccd4', art: 'moon',     alt: '#9da2ad' },
-      { id: 'peppermint',     name: 'Peppermint', col: '#ffffff', art: 'swirl',    alt: '#e8323c' },
-      { id: 'eyeball',      name: 'Eyeball',    col: '#fdfdfd', art: 'eye',      alt: '#3d8be0' },
-      { id: 'galaxy',   name: 'Galaxy',     col: '#1d1846', art: 'stars',    alt: '#b49cff' },
-      { id: 'sunburst',      name: 'Sunburst',   col: '#ffc21a', art: 'rays',     alt: '#ff8a00' },
-    ] },
+      def: { name: 'Random colour', cols: ['#ff4007', '#07ff8a', '#5a07ff', '#ffd407', '#07c4ff', '#ff07a8'] }, skins: SK.SKINS.agar },
     { id: 'paper', name: 'Paper.io', bg: '#e7fff4',
       /* The arena hands out a free colour from its palette (paperSkins.js). */
-      def: { name: 'Random colour', cols: ['#3b7dd8', '#f77f00', '#1a936f', '#ff3377', '#8874a3', '#fcbf49'] }, skins: [
-      { id: 'mint',      name: 'Mint',      col: '#3ee8b0', art: 'checks' },
-      { id: 'ice',       name: 'Ice',       col: '#9fdcff', art: 'stripes' },
-      { id: 'bubblegum', name: 'Bubblegum', col: '#ff77aa', art: 'dots' },
-      { id: 'grape',     name: 'Grape',     col: '#8a4fc0', art: 'checks' },
-      { id: 'lava',      name: 'Lava',      col: '#ff5a1f', art: 'stripes' },
-      { id: 'camo',    name: 'Camo',      col: '#4a7c59', art: 'camo' },
-      { id: 'midnight',  name: 'Midnight',  col: '#2b3a8c', art: 'stars' },
-      { id: 'gold',      name: 'Gold',      col: '#f2b632', art: 'diamonds' },
-    ] },
-    { id: 'knockout', name: 'Knockout', bg: '#0b0907', def: { name: 'Default', col: '#f4f1ea' }, skins: [
-      { id: 'copper',   name: 'Copper',   col: '#c8743c' },
-      { id: 'jade',     name: 'Jade',     col: '#4fb886' },
-      { id: 'ice',      name: 'Ice',      col: '#bfe6f5' },
-      { id: 'ruby',     name: 'Ruby',     col: '#d0354a' },
-      { id: 'target',   name: 'Target',   col: '#f4f1ea', art: 'rings', alt: '#e0554a' },
-      { id: 'obsidian', name: 'Obsidian', col: '#3a332d', art: 'gloss' },
-      { id: 'marble',   name: 'Marble',   col: '#ece8e1', art: 'veins', alt: '#9b938a' },
-      { id: 'gold',     name: 'Gold',     col: '#f0b83a', art: 'gloss' },
-    ] },
-    { id: 'battleship', name: 'Battleship', bg: '#0a1622', def: { name: 'Default', native: true }, skins: [
-      { id: 'navy',    name: 'Navy',    col: '#4a6496' },
-      { id: 'arctic',  name: 'Arctic',  col: '#c9d3df' },
-      { id: 'desert',  name: 'Desert',  col: '#b79c6c' },
-      { id: 'rust',    name: 'Rust',    col: '#9a5634' },
-      { id: 'crimson', name: 'Crimson', col: '#b13a3a' },
-      { id: 'stealth', name: 'Stealth', col: '#3b4149', glass: '#e0554a' },
-      { id: 'jungle',    name: 'Jungle',  col: '#5f7a3f', deck: '#3d4f2a' },
-      { id: 'gold',    name: 'Gold',    col: '#d4a93c', glass: '#fff1b8' },
-    ] },
-    { id: 'omgshooter', name: 'Awesome Tanks', bg: '#1d2016', def: { name: 'Default', team: 'you' }, skins: [
-      { id: 'desert',  name: 'Desert',  rim: '#e0c27a', core: '#4a3a16', panel: '#a8894a' },
-      { id: 'arctic',  name: 'Arctic',  rim: '#e8f0f6', core: '#2c3a46', panel: '#9fb4c4' },
-      { id: 'navy',    name: 'Navy',    rim: '#5c8de8', core: '#0c1a3a', panel: '#2c4f96' },
-      { id: 'violet',  name: 'Violet',  rim: '#b47cf0', core: '#2a0f46', panel: '#6c3aa8' },
-      { id: 'toxic',   name: 'Toxic',   rim: '#d4f02a', core: '#2a3a00', panel: '#7a9a10' },
-      { id: 'shadow',  name: 'Shadow',  rim: '#5a5e66', core: '#0a0b0d', panel: '#2a2d33' },
-      { id: 'crimson', name: 'Crimson', rim: '#ff3a5a', core: '#3a0010', panel: '#a01830' },
-      { id: 'gold',    name: 'Gold',    rim: '#ffd23a', core: '#4a3200', panel: '#c08a10' },
-    ] },
-    { id: 'tanks', name: 'Bowmasters', bg: '#14110d', def: { name: 'Default', col: '#f4f1ea' }, skins: [
-      { id: 'jade',    name: 'Jade',    col: '#4fb886' },
-      { id: 'sky',     name: 'Sky',     col: '#7fd4f5' },
-      { id: 'copper',  name: 'Copper',  col: '#c8743c' },
-      { id: 'violet',  name: 'Violet',  col: '#a887d6' },
-      { id: 'crimson', name: 'Crimson', col: '#d0354a' },
-      { id: 'twotone',    name: 'Two Tone', col: '#8ed081', gun: '#f4f1ea' },
-      { id: 'ghost',   name: 'Ghost',   col: '#f4f1ea', alpha: 0.55 },
-      { id: 'gold',    name: 'Gold',    col: '#f0b83a', gun: '#fff1b8' },
-    ] },
+      def: { name: 'Random colour', cols: ['#3b7dd8', '#f77f00', '#1a936f', '#ff3377', '#8874a3', '#fcbf49'] }, skins: SK.SKINS.paper },
+    { id: 'knockout', name: 'Knockout', bg: '#0b0907', def: { name: 'Default', col: '#f4f1ea' }, skins: SK.SKINS.knockout },
+    { id: 'battleship', name: 'Battleship', bg: '#0a1622', def: { name: 'Default', native: true }, skins: SK.SKINS.battleship },
+    { id: 'omgshooter', name: 'Awesome Tanks', bg: '#1d2016', def: { name: 'Default', team: 'you' }, skins: SK.SKINS.omgshooter },
+    { id: 'tanks', name: 'Bowmasters', bg: '#14110d', def: { name: 'Default', col: '#f4f1ea' }, skins: SK.SKINS.tanks },
   ];
   var BY = {};
   GAMES.forEach(function (g) { BY[g.id] = g; g.by = {}; g.skins.forEach(function (k) { g.by[k.id] = k; }); });
@@ -152,52 +93,6 @@
   }
 
   /* ── agar.io ──────────────────────────────────────────────────────────── */
-  function agarDesign(ctx, k, x, y, R) {
-    var i, a;
-    ctx.fillStyle = k.alt;
-    ctx.strokeStyle = k.alt;
-    switch (k.art) {
-      case 'split':
-        ctx.fillRect(x, y - R, R, R * 2); break;
-      case 'rings':
-        for (i = 4; i >= 1; i -= 2) { ctx.beginPath(); ctx.arc(x, y, R * i / 5, 0, 6.2832); ctx.fill();
-          ctx.fillStyle = k.col; ctx.beginPath(); ctx.arc(x, y, R * (i - 1) / 5, 0, 6.2832); ctx.fill(); ctx.fillStyle = k.alt; }
-        break;
-      case 'melon':
-        ctx.lineWidth = R * 0.13;
-        for (i = -3; i <= 3; i++) { ctx.beginPath(); ctx.ellipse(x + i * R * 0.3, y, R * 0.06 + Math.abs(i) * R * 0.02, R, 0, 0, 6.2832); ctx.stroke(); }
-        break;
-      case 'moon':
-        [[-.35, -.3, .22], [.3, -.1, .16], [-.05, .38, .26], [.45, .4, .1], [-.5, .2, .09]].forEach(function (c) {
-          ctx.beginPath(); ctx.arc(x + c[0] * R, y + c[1] * R, c[2] * R, 0, 6.2832); ctx.fill(); });
-        break;
-      case 'swirl':
-        for (i = 0; i < 6; i++) { a = i * Math.PI / 3; ctx.beginPath(); ctx.moveTo(x, y);
-          ctx.arc(x, y, R, a, a + Math.PI / 6); ctx.closePath(); ctx.fill(); }
-        break;
-      case 'eye':
-        ctx.beginPath(); ctx.arc(x + R * 0.12, y, R * 0.5, 0, 6.2832); ctx.fill();
-        ctx.fillStyle = '#111'; ctx.beginPath(); ctx.arc(x + R * 0.16, y, R * 0.24, 0, 6.2832); ctx.fill();
-        ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(x + R * 0.26, y - R * 0.12, R * 0.08, 0, 6.2832); ctx.fill();
-        ctx.strokeStyle = '#e8323c'; ctx.lineWidth = R * 0.03;
-        for (i = 0; i < 5; i++) { a = 2.4 + i * 0.35; ctx.beginPath(); ctx.moveTo(x + Math.cos(a) * R, y + Math.sin(a) * R);
-          ctx.lineTo(x + Math.cos(a + 0.1) * R * 0.66, y + Math.sin(a + 0.1) * R * 0.66); ctx.stroke(); }
-        break;
-      case 'stars':
-        for (i = 0; i < 26; i++) { var u = Math.sin(i * 12.9898) * 43758.5453, v = Math.sin(i * 78.233) * 12543.21;
-          u -= Math.floor(u); v -= Math.floor(v);
-          ctx.globalAlpha = 0.5 + (i % 3) * 0.25;
-          ctx.beginPath(); ctx.arc(x + (u * 2 - 1) * R, y + (v * 2 - 1) * R, R * (0.02 + (i % 4) * 0.012), 0, 6.2832); ctx.fill(); }
-        ctx.globalAlpha = 0.35; ctx.beginPath(); ctx.ellipse(x, y, R * 0.8, R * 0.22, -0.5, 0, 6.2832); ctx.fill();
-        ctx.globalAlpha = 1;
-        break;
-      case 'rays':
-        for (i = 0; i < 12; i++) { a = i * Math.PI / 6; ctx.beginPath(); ctx.moveTo(x, y);
-          ctx.arc(x, y, R, a, a + Math.PI / 12); ctx.closePath(); ctx.fill(); }
-        ctx.fillStyle = k.col; ctx.beginPath(); ctx.arc(x, y, R * 0.45, 0, 6.2832); ctx.fill();
-        break;
-    }
-  }
   /* agar's membrane (agRender.js wobble): past the small-cell case a cell is a
      ring of points whose radii breathe, and the ring turns at now/10000, 0.1
      radians a second. The preview keeps that look with three slow sines per
@@ -237,7 +132,7 @@
     ctx.beginPath(); ctx.arc(x, y, R, 0, 6.2832); ctx.fill();
     if (!k.art) return;
     ctx.save(); ctx.beginPath(); ctx.arc(x, y, R, 0, 6.2832); ctx.clip();
-    agarDesign(ctx, k, x, y, R);
+    SK.agarArt(ctx, k, x, y, R);
     ctx.restore();
   }
   /* Customize's cell: the membrane, drifting on a slow loop the way a cell
@@ -252,44 +147,11 @@
     membrane(ctx, x, y, R, t); ctx.fill();
     if (!k.art) return;
     ctx.save(); membrane(ctx, x, y, R, t); ctx.clip();
-    agarDesign(ctx, k, x, y, R);
+    SK.agarArt(ctx, k, x, y, R);
     ctx.restore();
   }
 
   /* ── Paper.io ─────────────────────────────────────────────────────────── */
-  function paperPattern(ctx, k, x0, y0, s, col) {
-    var i, j, n = 6, c = s / n;
-    ctx.fillStyle = col;
-    switch (k.art) {
-      case 'checks':
-        for (i = 0; i < n; i++) for (j = 0; j < n; j++) if ((i + j) % 2) ctx.fillRect(x0 + i * c, y0 + j * c, c, c);
-        break;
-      case 'stripes':
-        ctx.save(); ctx.beginPath(); ctx.rect(x0, y0, s, s); ctx.clip();
-        for (i = -n; i < n * 2; i += 2) { ctx.beginPath(); ctx.moveTo(x0 + i * c, y0); ctx.lineTo(x0 + (i + 1) * c, y0);
-          ctx.lineTo(x0 + (i + 1) * c - s, y0 + s); ctx.lineTo(x0 + i * c - s, y0 + s); ctx.fill(); }
-        ctx.restore(); break;
-      case 'dots':
-        for (i = 0; i < n; i++) for (j = 0; j < n; j++) { ctx.beginPath();
-          ctx.arc(x0 + (i + 0.5 + (j % 2) * 0.5) * c, y0 + (j + 0.5) * c, c * 0.22, 0, 6.2832); ctx.fill(); }
-        break;
-      case 'camo':
-        ctx.save(); ctx.beginPath(); ctx.rect(x0, y0, s, s); ctx.clip();
-        [[.2, .25, .2, .12], [.7, .2, .18, .1], [.45, .6, .24, .13], [.85, .75, .15, .1], [.12, .8, .16, .1]].forEach(function (b) {
-          ctx.beginPath(); ctx.ellipse(x0 + b[0] * s, y0 + b[1] * s, b[2] * s, b[3] * s, 0.6, 0, 6.2832); ctx.fill(); });
-        ctx.restore(); break;
-      case 'stars':
-        for (i = 0; i < 14; i++) { var u = Math.sin(i * 12.9898) * 43758.5453, v = Math.sin(i * 78.233) * 12543.21;
-          u -= Math.floor(u); v -= Math.floor(v); ctx.beginPath();
-          ctx.arc(x0 + u * s, y0 + v * s, s * (0.012 + (i % 3) * 0.008), 0, 6.2832); ctx.fill(); }
-        break;
-      case 'diamonds':
-        for (i = 0; i < n; i++) for (j = 0; j < n; j++) { var cx = x0 + (i + 0.5) * c, cy = y0 + (j + 0.5) * c;
-          ctx.beginPath(); ctx.moveTo(cx, cy - c * 0.35); ctx.lineTo(cx + c * 0.35, cy); ctx.lineTo(cx, cy + c * 0.35);
-          ctx.lineTo(cx - c * 0.35, cy); ctx.fill(); }
-        break;
-    }
-  }
   function paintPaper(cv, k, t, big, bare) {
     var ctx = cv.getContext('2d'), w = cv.width, h = cv.height;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -301,7 +163,7 @@
     /* Territory: its side in `back`, then the top lifted baseHeight. */
     ctx.fillStyle = back; ctx.fillRect(x0, y0, s, s);
     ctx.fillStyle = main; ctx.fillRect(x0, y0 - 2 * u, s, s);
-    paperPattern(ctx, k, x0, y0 - 2 * u, s, k.art === 'stars' ? '#ffffff' : back);
+    SK.paperArt(ctx, k, x0, y0 - 2 * u, s, k.art === 'stars' ? '#ffffff' : back);
     /* The game in one loop: the head leaves its land, runs a box out and back,
        and the box it drew becomes land, then it starts again. The trail is
        main at 0.6, trackWidth wide with round caps. */
@@ -335,28 +197,6 @@
   }
 
   /* ── Knockout ─────────────────────────────────────────────────────────── */
-  function knockoutPiece(ctx, k, x, y, pr) {
-    ctx.beginPath(); ctx.arc(x, y, pr, 0, 6.2832); ctx.fillStyle = k.col; ctx.fill();
-    ctx.save(); ctx.beginPath(); ctx.arc(x, y, pr, 0, 6.2832); ctx.clip();
-    if (k.art === 'rings') {
-      ctx.fillStyle = k.alt; ctx.beginPath(); ctx.arc(x, y, pr * 0.8, 0, 6.2832); ctx.fill();
-      ctx.fillStyle = k.col; ctx.beginPath(); ctx.arc(x, y, pr * 0.6, 0, 6.2832); ctx.fill();
-    } else if (k.art === 'veins') {
-      ctx.strokeStyle = k.alt; ctx.lineWidth = pr * 0.05; ctx.globalAlpha = 0.6;
-      ctx.beginPath(); ctx.moveTo(x - pr, y - pr * 0.3); ctx.quadraticCurveTo(x - pr * 0.2, y - pr * 0.1, x + pr * 0.1, y + pr * 0.4);
-      ctx.quadraticCurveTo(x + pr * 0.4, y + pr * 0.7, x + pr, y + pr * 0.5);
-      ctx.moveTo(x - pr * 0.3, y - pr); ctx.quadraticCurveTo(x, y - pr * 0.4, x + pr * 0.6, y - pr * 0.2); ctx.stroke();
-      ctx.globalAlpha = 1;
-    } else if (k.art === 'gloss') {
-      var g = ctx.createLinearGradient(x, y - pr, x, y + pr);
-      g.addColorStop(0, 'rgba(255,255,255,0.35)'); g.addColorStop(0.5, 'rgba(255,255,255,0)'); g.addColorStop(1, 'rgba(0,0,0,0.25)');
-      ctx.fillStyle = g; ctx.fillRect(x - pr, y - pr, pr * 2, pr * 2);
-    }
-    ctx.restore();
-    /* knockout.js: the darker inner disc, so the piece reads as having a top. */
-    ctx.beginPath(); ctx.arc(x, y - pr * 0.12, pr * 0.58, 0, 6.2832);
-    ctx.fillStyle = 'rgba(0,0,0,0.13)'; ctx.fill();
-  }
   function paintKnockout(cv, k, t, big, bare) {
     var ctx = cv.getContext('2d'), w = cv.width, h = cv.height;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -370,8 +210,8 @@
       if (ph < 0.3) ax = aX0 + (hitA - aX0) * Math.pow(ph / 0.3, 1.6);
       else if (ph < 0.72) { var g = (ph - 0.3) / 0.42; ax = hitA - br * 0.12 * Math.sin(Math.PI * g); bx = bX0 + br * (1 - Math.pow(1 - g, 3)); }
       else { var e = ease((ph - 0.72) / 0.28); ax = hitA + (aX0 - hitA) * e; bx = bX0 + br * (1 - e); }
-      knockoutPiece(ctx, k, ax, h / 2, br);
-      knockoutPiece(ctx, k, bx, h / 2, br);
+      SK.knockoutPiece(ctx, k, ax, h / 2, br);
+      SK.knockoutPiece(ctx, k, bx, h / 2, br);
       return;
     }
     ctx.fillStyle = '#0b0907'; ctx.fillRect(0, 0, w, h);
@@ -383,18 +223,11 @@
     ctx.beginPath(); ctx.arc(cx, cy, R, 0, 6.2832); ctx.fillStyle = g; ctx.fill();
     ctx.strokeStyle = '#f0a830'; ctx.lineWidth = Math.max(1.5, R * 0.012); ctx.stroke();
     var pr = Math.min(w, h) * 0.17;
-    knockoutPiece(ctx, k, cx - pr * 1.35, h * 0.5, pr);
-    knockoutPiece(ctx, k, cx + pr * 1.35, h * 0.42, pr);
+    SK.knockoutPiece(ctx, k, cx - pr * 1.35, h * 0.5, pr);
+    SK.knockoutPiece(ctx, k, cx + pr * 1.35, h * 0.42, pr);
   }
 
   /* ── Battleship ───────────────────────────────────────────────────────── */
-  function hullFor(k) {
-    return {
-      steel: k.col, steelHi: mix(k.col, '#ffffff', 0.18), steelLo: mix(k.col, '#000000', 0.27),
-      deck: k.deck || mix(k.col, '#000000', 0.43), deckHi: mix(k.deck || k.col, '#000000', 0.27),
-      trim: mix(k.col, '#000000', 0.65), glass: k.glass || '#9fd0e8',
-    };
-  }
   function paintBattleship(cv, k, t, big, bare) {
     var BA = root.BattleshipArt; if (!BA) return;
     var ctx = cv.getContext('2d'), w = cv.width, h = cv.height;
@@ -417,7 +250,7 @@
     if (k.native) { BA.drawShip(ctx, 'battleship', 4, x0, y0, cell, true, 0.95); ctx.setTransform(1, 0, 0, 1, 0, 0); return; }
     /* drawShip reads BattleshipArt.HULL as it draws: swap the skin in for the
        call, then put the game's own colours straight back. */
-    var H = BA.HULL, keep = {}, mine = hullFor(k), key;
+    var H = BA.HULL, keep = {}, mine = SK.hullFor(k), key;
     for (key in mine) { keep[key] = H[key]; H[key] = mine[key]; }
     try { BA.drawShip(ctx, 'battleship', 4, x0, y0, cell, true, 0.95); }
     finally { for (key in keep) H[key] = keep[key]; ctx.setTransform(1, 0, 0, 1, 0, 0); }

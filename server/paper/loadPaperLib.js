@@ -11,6 +11,9 @@ const MODULES = ['paperGeom', 'paperTerritory', 'paperBots', 'paperUnits', 'pape
 
 for (const name of MODULES) require(path.join(DIR, name + '.js'));
 require(path.join(DIR, 'mp/paperWire.js'));
+// Bought skins ('paper:<id>', docs/skin-purchases.md): methods added to the stock skin manager, in a new file so the
+// solo files stay byte-identical.
+require(path.join(DIR, 'mp/paperPaidSkins.js'));
 
 const P = globalThis.DuelPaperLib;
 if (!P || !P.Game || !P.MP || typeof P.Game.prototype.getMovement !== 'function') {

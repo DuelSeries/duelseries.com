@@ -34,6 +34,9 @@ const Swap = require('./swap');                      // SOL <-> USDC in the play
 const { TRUST_PROXY } = require('./clientAddr');     // X-Forwarded-For only from nginx (loopback / private)
 const { securityHeaders } = require('./securityHeaders');
 const ops       = require('./ops');       // maintenance mode
+const { createSkinShop, liveChain } = require('./skinShop');   // buying skins with USDC
+const { sharedPass: sharedSkinPass } = require('./skinPass');   // the pass a game checks before wearing a paid skin
+const skinCatalog = require('./skinCatalog');                   // what is for sale, at the server's prices
 const { liveCounts, withBoardBots } = require('./liveCounts'); // per-game totals, for the lobby cards
 
 const REGION = process.env.REGION || 'na';
@@ -1016,10 +1019,61 @@ app.post('/api/submit-stake', entryFeeLimiter, express.json({ limit: '256kb' }),
   }
 });
 
-// (The cosmetics shop was removed — every skin is free now, so there is nothing
-// to sell. db.addCosmetic/getOwnedCosmetics and the cosmetics_owned table are
-// left in place like the other vestigial tables; historical revenue rows with
-// source 'cosmetic' still show in the owner earnings feed.)
+/* ── Buying skins (docs/skin-purchases.md; server/skinShop.js holds the money logic and its reasons) ──
+   The player's own wallet pays USDC straight to REVENUE_WALLET; the server checks the signed bytes before it
+   broadcasts them, verifies what landed, claims the signature once and records the skin and the sale together.
+   Prices are the server's own reading of the price list (server/skinCatalog.js). USDC mode only; nothing is sold
+   while the owner has the site in maintenance or the purchase table could not be made. */
+const skinShop = createSkinShop({
+  store: {
+    ownsItem: (w, item) => db.ownsCosmetic(w, item),
+    owned: (w) => db.getOwnedCosmetics(w),
+    skinOpen: (r) => db.skinOpen(r), skinRow: (ref) => db.skinRow(ref),
+    skinSubmit: (ref, sig, bh) => db.skinSubmit(ref, sig, bh), skinReopen: (ref, sig) => db.skinReopen(ref, sig),
+    skinClose: (ref, sig, st) => db.skinClose(ref, sig, st), skinGrant: (ref, sig, o) => db.skinGrant(ref, sig, o),
+    skinDue: (o) => db.skinDue(o), skinExpire: (ref) => db.skinExpire(ref), skinExpireOpen: (o) => db.skinExpireOpen(o),
+  },
+  chain: liveChain({ Wallet, Usdc }),
+  mint: Usdc.USDC_MINT.toString(),
+  revenueAta: Usdc.ataFor(REVENUE_WALLET),
+  ready: () => money.mode === 'usdc' && !!db.features.skinShop,
+  paused: () => !!ops.get().maintenance,
+  // The sale's ledger row is written by db.skinGrant in the same transaction; this is PostHog's copy.
+  onPaid: ({ wallet, item, game, usdc }) => analytics.captureEarning({ source: 'cosmetic', amountUsdc: usdc, game, lobbyType: item, wallet }),
+});
+const skinPasses = sharedSkinPass();
+setInterval(() => { skinShop.sweep().catch(() => {}); }, 60 * 1000).unref();
+const skinIntentLimiter = rateLimit({ windowMs: 60 * 1000, max: 12, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Slow down.' } });
+const skinBuyLimiter = rateLimit({ windowMs: 60 * 1000, max: 6, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Slow down.' } });
+const skinReadLimiter = rateLimit({ windowMs: 60 * 1000, max: 60, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Slow down.' } });
+function skinReply(res, p) {
+  return p.then((r) => res.status(r.status).json(r.body)).catch((e) => {
+    console.error('[SKINS] route error:', e && e.message);
+    res.status(500).json({ error: 'Something went wrong. Try again in a moment.' });
+  });
+}
+app.post('/api/skins/intent', skinIntentLimiter, express.json({ limit: '4kb' }), (req, res) => skinReply(res, skinShop.intent(req.body)));
+app.post('/api/skins/buy', skinBuyLimiter, express.json({ limit: '16kb' }), (req, res) => skinReply(res, skinShop.buy(req.body)));
+app.get('/api/skins/purchase/:ref', skinReadLimiter, (req, res) => skinReply(res, skinShop.purchase(req.params.ref)));
+app.get('/api/skins/owned', skinReadLimiter, (req, res) => skinReply(res, skinShop.owned(req.query.wallet)));
+/* The skin pass a game page sends with its join (server/skinPass.js): a one-time signature by the wallet over
+   action 'skins:pass' (ownerAuth's message; /api/owner/do runs no such action), answered with the items it owns. */
+app.post('/api/skins/pass', sigLimiter, express.json({ limit: '4kb' }), async (req, res) => {
+  const proof = req.body && typeof req.body === 'object' ? req.body.proof : null;
+  if (!proof || typeof proof !== 'object' || Array.isArray(proof) || proof.action !== 'skins:pass') {
+    return res.status(400).json({ error: 'Malformed request' });
+  }
+  const wallet = ownerAuth.walletForAction(proof);
+  if (!wallet) return res.status(401).json({ error: 'Could not confirm your wallet. Try again.' });
+  try {
+    const items = (await db.getOwnedCosmetics(wallet)).filter((i) => skinCatalog.parseItem(i) || /^[a-z0-9]+:[a-z0-9]+$/.test(i));
+    const { pass, exp } = skinPasses.mint(wallet, items);
+    res.json({ pass, exp, items });
+  } catch (e) {
+    console.error('[SKINS] pass:', e && e.message);
+    res.status(500).json({ error: 'Something went wrong. Try again in a moment.' });
+  }
+});
 
 // (Phase B2 security: the legacy /api/verify-stake endpoint was removed — it duplicated
 // /api/submit-stake's token minting and was unused by the client, so it only widened the
@@ -4160,9 +4214,18 @@ io.on('connection', (socket) => {
      clamped there rather than believed, so a patched client that sends a pull
      of ten thousand gets the same shot as a player who dragged to the edge of
      their screen. */
-  on('ko:queue', ({ name, wallet, stake, entryToken } = {}) => {
+  on('ko:queue', ({ name, wallet, stake, entryToken, shop, skinPass } = {}) => {
     if (!socketRL(socket, 'koq', 1000)) return;
     if (ops.get().maintenance) { socket.emit('maintenance', ops.get()); return; }
+
+    /* A BOUGHT SKIN IS PROVED, NOT CLAIMED, the same as a stake. The page names a skin and sends the lobby's skin
+       pass (docs/skin-purchases.md); the seat wears it only when the pass is genuine, unexpired and lists
+       knockout:<skin>, else null (the free look). Strings only, and decided once here for the free and paid seat
+       alike: the room just carries the answer, so both players and every watcher are shown what the server chose. */
+    const skin = skinPasses.wornFrom('knockout', {
+      shop: typeof shop === 'string' ? shop : null,
+      skinPass: typeof skinPass === 'string' ? skinPass : null,
+    });
 
     /* A PAID SEAT IS PROVED, NOT CLAIMED. The stake is whatever the server
        recorded when it verified the on-chain transfer and minted a one-time
@@ -4187,7 +4250,7 @@ io.on('connection', (socket) => {
       /* A paid seat's prize or refund goes to the wallet that paid (from the token), never to
          a wallet the client names; a free seat pays nothing, so its name is only a label. */
       knockoutLobby.enqueue(socket, sanitizeName(name),
-        worth > 0 ? payTo : (strOr(wallet, null) || socket._walletAddress || null), rung, worth, undefined, paid);
+        worth > 0 ? payTo : (strOr(wallet, null) || socket._walletAddress || null), rung, worth, undefined, paid, skin);
       socket.emit('ko:queued', {
         waitingMs: knockoutLobby.queuedFor(socket.id) || 0,
         stake: rung, worth,
@@ -4253,9 +4316,15 @@ io.on('connection', (socket) => {
      won — is decided in BattleshipRoom and pushed back per player. The one
      thing that must never travel is the opponent's layout, which is why state
      is sent with viewFor rather than broadcast to the room. */
-  on('bs:queue', ({ name, wallet, stake, entryToken } = {}) => {
+  on('bs:queue', ({ name, wallet, stake, entryToken, shop, skinPass } = {}) => {
     if (!socketRL(socket, 'bsq', 1000)) return;
     if (ops.get().maintenance) { socket.emit('maintenance', ops.get()); return; }
+
+    // A bought skin is proved, not claimed (see ko:queue): the seat's fleet wears it only on a genuine pass, else null.
+    const skin = skinPasses.wornFrom('battleship', {
+      shop: typeof shop === 'string' ? shop : null,
+      skinPass: typeof skinPass === 'string' ? skinPass : null,
+    });
 
     // A number or a string only: Number() on a client-built object can throw.
     const wants = (typeof stake === 'number' || typeof stake === 'string') ? Number(stake) || 0 : 0;
@@ -4272,7 +4341,7 @@ io.on('connection', (socket) => {
 
       /* A paid seat's prize or refund goes to the wallet that paid (from the token). */
       battleshipLobby.enqueue(socket, sanitizeName(name),
-        worth > 0 ? payTo : (strOr(wallet, null) || socket._walletAddress || null), rung, worth, paid);
+        worth > 0 ? payTo : (strOr(wallet, null) || socket._walletAddress || null), rung, worth, paid, skin);
       socket.emit('bs:queued', {
         waitingMs: battleshipLobby.queuedFor(socket.id) || 0,
         stake: rung, worth,

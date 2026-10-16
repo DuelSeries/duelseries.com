@@ -95,6 +95,17 @@
     };
   }
 
+  // The paid Paper skin the player picked in the lobby and the lobby's skin pass (docs/skin-purchases.md), from
+  // localStorage (the lobby is the same origin). Sent in the join; the SERVER wears the skin only when the pass is
+  // genuine and lists it, so nothing here can grant one. null when there is no choice or no pass.
+  function readPaidSkin() {
+    var shop = storageGet('localStorage', 'duel.shop.paper');
+    var pass = storageGet('localStorage', 'duel.skinpass');
+    if (typeof shop !== 'string' || !/^[a-z][a-z0-9]{0,23}$/.test(shop)) return null;
+    if (typeof pass !== 'string' || !pass || pass.length > 4096) return null;
+    return { shop: shop, skinPass: pass };
+  }
+
   // The lobby's Spectate (public/js/v2/play.js) writes dsWatch = 'paper' (and removes stake and entryToken) before it
   // opens this page, and dsWatchStake for a paid rung: the table to watch, never a buy-in. Read once and removed at
   // boot, whatever they say.
@@ -544,6 +555,8 @@
     function sendJoin(token) {
       var msg = { name: session.name, stake: page.stake };
       if (token) msg.entryToken = token;
+      var bought = readPaidSkin(); // read again each time: a pass the lobby refreshed meanwhile is used
+      if (bought) { msg.shop = bought.shop; msg.skinPass = bought.skinPass; }
       page.joinToken = page.stake > 0 && token ? token : null;
       markJoin();
       net.join(msg);
@@ -557,7 +570,7 @@
       if (socket.id && socket.id === page.joinedSocketId) {
         page.joinToken = page.stake > 0 && token ? token : null;
         markJoin();
-        net.respawn(token || undefined);
+        net.respawn(token || undefined, readPaidSkin());
       } else {
         sendJoin(token || null);
       }
