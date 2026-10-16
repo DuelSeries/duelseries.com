@@ -503,7 +503,25 @@
       try { window.warmScreen(queue.shift()); } catch (_) {}
       idle(step);
     };
-    idle(step);
+    const first = () => {
+      if (busy()) { setTimeout(() => idle(first), 1000); return; }
+      warmFormats();
+      idle(step);
+    };
+    idle(first);
+  }
+  /* The page's money and date formatting, first: the first toLocaleString in
+     a page sets up its en-US number data, 7 ms at 1x and 28 at 4x, and dates
+     another 1 and 6, after which each call is about free. It used to land in
+     whichever swipe formatted the first figure: on the live site, the first
+     visit to Social (2026-10-16). */
+  function warmFormats() {
+    try {
+      (0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const d = new Date();
+      d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+    } catch (_) {}
   }
   if (document.readyState === 'complete') warmAll();
   else window.addEventListener('load', warmAll, { once: true });

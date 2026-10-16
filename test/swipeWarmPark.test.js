@@ -65,6 +65,7 @@ test('nothing is warmed or parked while a finger is down', () => {
   assert.strictEqual(box.timers.length, 1, 'and it tries again later');
   box.docOn.touchend({});
   box.timers.splice(0).forEach((f) => f());
+  box.runIdle();                                         // the page's formatting first
   box.runIdle();
   assert.deepStrictEqual(box.warmed, ['wallet'], 'once the finger is up');
 });
@@ -257,4 +258,16 @@ test('a swipe opens the incoming screen\'s money count-up just after the claim, 
   const prep = fnBody(html(), 'function prepareScreen(tab){');
   assert.ok(/setTimeout\(\(\)=>DSCount\.open\(el\),0\)/.test(prep), 'the count-up still opens on a swipe, one task later');
   assert.ok(!/[^>]DSCount\.open\(el\);/.test(prep), 'and not in the claim itself');
+});
+
+test('the page\'s money and date formatting is set up in the first idle moment, before the screens', () => {
+  const box = swipePage('play');
+  vm.runInContext(`(() => { const N = Number.prototype.toLocaleString;
+    Number.prototype.toLocaleString = function () { globalThis.formats = (globalThis.formats || 0) + 1; return N.apply(this, arguments); }; })()`, box);
+  box.winOn.load();
+  box.runIdle();
+  assert.ok(box.formats >= 1, 'number formatting warmed');
+  assert.deepStrictEqual(box.warmed, [], 'before any screen');
+  box.runIdle();
+  assert.deepStrictEqual(box.warmed, ['wallet'], 'then the screens, one per idle moment');
 });
