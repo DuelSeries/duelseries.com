@@ -1683,6 +1683,16 @@ app.post('/api/owner/do', sigLimiter, async (req, res) => {
       slArenas.door(true);
       console.warn('[SL] owner console: door OPEN');
       return done('New slither.io open.');
+    /* The early point on the sl engine (turning smoothness, server/sl/slRoom.js
+       SMOOTH): off, every sl room (free, paid, battle royale) sends each new
+       body point with the update again, as before 2026-10-16. In memory: a
+       restart turns it back on. */
+    case 'sl:smooth:off':
+    case 'sl:smooth:on': {
+      const on = require('./sl/slRoom').setSmooth(action === 'sl:smooth:on');
+      console.warn('[SL] owner console: early point ' + (on ? 'ON' : 'OFF'));
+      return done('Snake early point ' + (on ? 'on.' : 'off until the next restart.'));
+    }
     /* Paid snake on the sl engine's instant switch (PAID-SL-DESIGN.md 10): off,
        every new paid join at /sl is refunded at the door ('not-open'), the sl
        rows say closed (listed while an account is open) and the SAME /api/live

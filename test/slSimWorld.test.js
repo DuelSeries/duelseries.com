@@ -603,11 +603,13 @@ test('slSim L35: the sector-grid search finds exactly what a brute force over ev
     const p1 = [x0 + len * Math.cos(th), y0 + len * Math.sin(th)];
     let best = null;
     let bd = Infinity;
+    const dist = new Map(); // snake id -> its brute distance^2, for the ones in range
     for (const s of snakes) {
       const chain = s.pts.map((p) => [p.xx, p.yy]).concat([headOf(s)]);
       let m = Infinity;
       for (let i = 0; i < chain.length - 1; i++) m = Math.min(m, bruteSeg2(p0, p1, chain[i], chain[i + 1]));
       const lim = A * sc(s.pts.length);
+      if (m <= lim * lim) dist.set(s.id, m);
       if (m <= lim * lim && m < bd) {
         bd = m;
         best = s.id;
@@ -619,7 +621,8 @@ test('slSim L35: the sector-grid search finds exactly what a brute force over ev
     } else {
       hits++;
       assert.ok(got, 'query ' + q + ' finds snake ' + best);
-      assert.equal(got.id, best, 'query ' + q);
+      // a tie (two bodies at the same distance, e.g. both crossed: 0) may go to either
+      if (got.id !== best) assert.ok(dist.has(got.id) && Math.abs(dist.get(got.id) - bd) <= 1e-9, 'query ' + q + ': ' + got.id + ' != ' + best);
       near(got.d * got.d, bd, 1e-6, 'query ' + q + ' distance');
     }
   }

@@ -21,8 +21,9 @@
 //                 the hold multiplier (Q15)
 //   3 steer       every steering record of the window takes effect at its own arrival time inside it, ang turning
 //                 per ms between them (task TURNING, 2026-10-11, slither-reference/recordings/TURNING.md)
-//   4 travel      then the head moves sp (P / 8) / 4 straight along the ang the turn ended on (their client moves
-//                 sp / 4 per 8 ms frame, SERVER-LAWS units)
+//   4 travel      the head moves sp (P / 8) / 4 over the window in PIECES straight pieces, each along the ang its
+//                 turn ended on (their client turns, then moves sp / 4, every 8 ms frame, SERVER-LAWS units); the
+//                 room sends the own point at the end of the piece that reached it (travel, previewPoint)
 //   5 points      where that move first reaches msl from the last point: pull the chain BEFORE adding the point (L16),
 //                 the point one msl step along the 16-bit angle of the chord to it (slCore.headStep, the client's own
 //                 arithmetic), absolute integers for the first point after spawn (L48.abs), a grow keeps the tail when
@@ -346,6 +347,7 @@ function createSnake(K, id, o) {
     heldAngle: -1,
     heldTurn: 0,
     rec: newRec(id),
+    commit: null, // the point the room sent early this window (travel places it; slSim previewPoint)
   };
 }
 
@@ -535,50 +537,129 @@ function turnFor(s, T, rate) {
 // -3.4 (the client starts from the point with the ang of a head already past it), the old point along ang +17.
 // recordings/TURNING.md. The turn rate and the arrow amounts read the length and the speed before this update's step
 // (n0, sp0), as when the slot was applied at the update start. True when ang moved in this update (L48.rot).
-function travel(sim, s, P, sp0) {
-  const K = sim.K;
-  const n0 = s.pts.length;
-  const rate = turnStep(K, n0, sp0, 1);
-  const q = s.inSteer;
-  let t = 0;
-  let turned = false;
-  for (let i = 0; i < q.length; i += 3) {
-    const w = windowAt(q[i + 2], P);
-    if (w > t) {
-      if (turnFor(s, w - t, rate) > 0) turned = true;
-      t = w;
-    }
-    applySteer(K, s, q[i], q[i + 1], n0, sp0);
-  }
-  q.length = 0;
-  if (P > t && turnFor(s, P - t, rate) > 0) turned = true;
-  const len = s.sp * (P / 8) / 4; // their client: sp / 4 per 8 ms frame (game.js:4757, 4855-4860)
-  const ux = Math.cos(s.ang);
-  const uy = Math.sin(s.ang);
+//
+// The window runs as PIECES straight pieces of P / PIECES ms each (turning smoothness task, 2026-10-16), each one turn,
+// then move, so the head path is a polygon close to the arc the client draws (their client turns, then moves, every
+// 8 ms frame) instead of one chord per update. The first PIECES - 1 pieces move at the speed before this update's
+// step (sp0, the speed the client was sent and moves at); the last piece moves the rest of sp (P / 8) / 4, so the
+// window's travel is the L12 / L13 amount exactly (never below 0). The pieces are fixed in window time, so the room
+// can work out a point before the update (previewPoint, the same walk on a copy) and send it when the head reaches
+// it: on 42.67 ms updates alone a point reached the client 0 to 1 update late, the client put its head back on it,
+// and the head was yanked 3.4 to 4.7 units back or forward on every point (live, 2026-10-16: 692 points, along-track
+// jump tracking msl - v dt with corr 0.96; slither.io sends each point on its own, 10,933 of 12,560 with no rotation).
+// s.commit: the point the room already sent this window (previewPoint's iang); the walk places that one.
+const PIECES = 4;
+
+// One piece's straight move of len from (st.cx, st.cy) along st.ang: every place it first reaches msl from the last
+// point (the quadratic root past the last point placed) goes to onPoint(iang, u); returns false when onPoint stops.
+function pieceMove(K, st, pts, len, onPoint) {
+  const ux = Math.cos(st.ang);
+  const uy = Math.sin(st.ang);
   const msl2 = K.msl * K.msl;
-  let done = 0; // of len, up to the last point placed on this segment
+  let done = 0; // of len, up to the last point placed on this piece
   for (;;) {
-    const last = s.pts[s.pts.length - 1];
-    const ex = s.cx + ux * len - last.xx;
-    const ey = s.cy + uy * len - last.yy;
+    const last = pts[pts.length - 1];
+    const ex = st.cx + ux * len - last.xx;
+    const ey = st.cy + uy * len - last.yy;
     if (ex * ex + ey * ey < msl2) break;
-    // the head at u along the segment: |(cx - last) + u (ux, uy)|^2 = msl^2, the root past done
-    const dx = s.cx - last.xx;
-    const dy = s.cy - last.yy;
+    // the head at u along the piece: |(cx - last) + u (ux, uy)|^2 = msl^2, the root past done
+    const dx = st.cx - last.xx;
+    const dy = st.cy - last.yy;
     const bb = dx * ux + dy * uy;
     const cc = dx * dx + dy * dy - msl2;
     let u = -bb + Math.sqrt(bb * bb - cc);
     if (!(u > done)) u = done;
     if (u > len) u = len;
-    const px = s.cx + ux * u;
-    const py = s.cy + uy * u;
-    addPoint(sim, s, slQuant.moveIang(Math.atan2(py - last.yy, px - last.xx)).raw);
+    const px = st.cx + ux * u;
+    const py = st.cy + uy * u;
+    if (onPoint(slQuant.moveIang(Math.atan2(py - last.yy, px - last.xx)).raw, u) === false) return false;
     done = u;
     if (done >= len) break;
   }
-  s.cx += ux * len;
-  s.cy += uy * len;
+  st.cx += ux * len;
+  st.cy += uy * len;
+  return true;
+}
+
+// The window walk shared by travel and previewPoint: st {ang, wang, dir, turning, cx, cy} turns and moves, q the
+// steering records, upto the pieces to run (PIECES for the whole window). Returns whether ang moved.
+function walkWindow(K, st, q, P, n0, sp0, spEnd, upto, pts, onPoint) {
+  const rate = turnStep(K, n0, sp0, 1);
+  const piece = P / PIECES;
+  const lenPiece = sp0 * (piece / 8) / 4; // their client: sp / 4 per 8 ms frame (game.js:4757, 4855-4860)
+  const lenAll = spEnd * (P / 8) / 4;
+  let t = 0;
+  let i = 0;
+  let moved = 0;
+  let turned = false;
+  for (let k = 1; k <= upto; k++) {
+    const tk = k === PIECES ? P : piece * k;
+    for (; i < q.length; i += 3) {
+      const w = windowAt(q[i + 2], P);
+      if (w > tk) break;
+      if (w > t) {
+        if (turnFor(st, w - t, rate) > 0) turned = true;
+        t = w;
+      }
+      applySteer(K, st, q[i], q[i + 1], n0, sp0);
+    }
+    if (tk > t) {
+      if (turnFor(st, tk - t, rate) > 0) turned = true;
+      t = tk;
+    }
+    let len = k === PIECES ? lenAll - moved : lenPiece;
+    if (!(len > 0)) len = 0;
+    if (!pieceMove(K, st, pts, len, onPoint)) return turned;
+    moved += len;
+  }
   return turned;
+}
+
+function travel(sim, s, P, sp0) {
+  const K = sim.K;
+  const n0 = s.pts.length;
+  const commit = s.commit;
+  s.commit = null;
+  let placed = false;
+  const turned = walkWindow(K, s, s.inSteer, P, n0, sp0, s.sp, PIECES, s.pts, (iang) => {
+    if (commit && !placed) {
+      if (iang !== commit.iang) sim.commitStats.moved++;
+      iang = commit.iang;
+    }
+    placed = true;
+    if (commit && commit.grow !== (s.fam >= 1)) sim.commitStats.grow++;
+    addPoint(sim, s, iang, commit ? commit.grow : undefined);
+  });
+  s.inSteer.length = 0;
+  // a point the room sent that this walk did not reach (a hold or glide lock dropped the window's steering after the
+  // room had sent it): it stands, at the end of the window
+  if (commit && !placed) {
+    sim.commitStats.late++;
+    addPoint(sim, s, commit.iang, commit.grow);
+  }
+  return turned;
+}
+
+// The point this window's walk reaches by window time wt, before the update (the room's early send): the same walk
+// on a copy, over the pieces that end by wt and are not the last (the last piece's length waits for the update's
+// speed step). Returns the first point's iang, or null. Reads s, never writes it.
+const previewScratch = { ang: 0, wang: 0, dir: 0, turning: false, cx: 0, cy: 0 };
+function previewPoint(K, s, P, wt) {
+  const upto = Math.min(PIECES - 1, Math.floor(wt / (P / PIECES)));
+  if (upto < 1 || s.commit) return null;
+  const st = previewScratch;
+  st.ang = s.ang;
+  st.wang = s.wang;
+  st.dir = s.dir;
+  st.turning = s.turning;
+  st.cx = s.cx;
+  st.cy = s.cy;
+  let found = null;
+  walkWindow(K, st, s.inSteer, P, s.pts.length, s.sp, s.sp, upto, s.pts, (iang) => {
+    found = iang;
+    return false;
+  });
+  return found;
 }
 
 // The steering the snake has at the newest record of its slot (the moment it arrived), angle only, exactly as travel
@@ -766,7 +847,10 @@ function boostTimeline(sim, s, P) {
 
 // Step 5, L16 and L48.abs: pull, then one msl step from the last point along the 16-bit angle iang (travel: the chord
 // from the last point to where the head's path reaches msl; slCore.headStep, the client's own arithmetic).
-function addPoint(sim, s, iang) {
+// growSent: the grow (or plain move) the room already sent with this point (s.commit). It stands even when a boost
+// press since then paid a charge that took fam under 1: the tail then goes as a charge's does (L23.form: fam < 0
+// drops the tail point and fam += 1) with its r record, so every client ends on the same body and fam.
+function addPoint(sim, s, iang, growSent) {
   const K = sim.K;
   const pts = s.pts;
   const last = pts[pts.length - 1];
@@ -780,7 +864,7 @@ function addPoint(sim, s, iang) {
     y = slQuant.absXY(y).v;
     s.absDone = true;
   }
-  const grow = s.fam >= 1;
+  const grow = growSent === undefined ? s.fam >= 1 : growSent;
   let p;
   if (grow) {
     s.fam -= 1;
@@ -796,6 +880,12 @@ function addPoint(sim, s, iang) {
   pts.push(p);
   sim.grid.addPoint(s.id, p);
   const rec = s.rec;
+  if (s.fam < 0) {
+    s.spare.push(dropTail(sim, s));
+    s.fam += 1;
+    s.famSent = s.fam;
+    rec.tails.push(s.fam);
+  }
   rec.move = true;
   rec.moves++;
   rec.grow = grow;
@@ -852,6 +942,8 @@ module.exports = {
   preyGain,
   chargeLo,
   chargeHi,
+  PIECES,
+  previewPoint,
   dropByte,
   dropColour,
   wrapAngle,

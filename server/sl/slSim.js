@@ -357,6 +357,9 @@ function createSim(laws, opts) {
   if (doFill) food.fill(border.radius());
 
   const sim = { K, W, grid, rng, wrng, log };
+  // early points (previewPoint): sent, and the steps that placed one elsewhere (moved), with another grow (grow) or
+  // at the window end because the walk did not reach it (late); the last three stay 0 unless a lock cut a window
+  sim.commitStats = { sent: 0, moved: 0, grow: 0, late: 0 };
 
   // ===================================================================================================================
   // 2. SNAKE HALF (task T4)
@@ -858,6 +861,37 @@ function createSim(laws, opts) {
     return true;
   }
 
+  // The room's early point (turning smoothness, slSnake travel): the point snake id's walk reaches by window time wt of
+  // the update now running, if the next step is sure to place exactly that one. Returns { iang, grow, fam } (fam after
+  // the point, what the move record carries) or null. Never writes the sim. Sure means: alive and not dying at the next
+  // step, its first (absolute) point already out (L48.abs), nothing sent early yet, and the grow decided now is the
+  // step's. fam only falls before the step's walk (L23 charges at boostTimeline; a charge that takes a tail point leaves
+  // fam under 1), so fam < 1 is a sure plain move; fam >= 1 is a sure grow only with no boost on or asked for and room
+  // above 1 for every charge a press could still bring into this window (the first at the press, then one per period).
+  function previewPoint(id, wt) {
+    const s = byId.get(id);
+    if (!s || s.commit || !s.absDone || pendingKills.indexOf(id) >= 0) return null;
+    if (s.fam >= 1) {
+      if (s.boosting || s.inBoost.length) return null;
+      const sct = s.pts.length;
+      const most = slSnake.chargeHi(K, sct) * slSnake.famMult(K, sct, s.fam) * (1 + Math.floor(K.P / K.chargePeriod));
+      if (!(s.fam - most >= 1)) return null;
+    }
+    const iang = slSnake.previewPoint(K, s, K.P, wt);
+    if (iang === null) return null;
+    const grow = s.fam >= 1;
+    return { iang, grow, fam: grow ? s.fam - 1 : s.fam };
+  }
+
+  // The room sent snake id's early point: the next step's walk places that one (slSnake travel, s.commit).
+  function commitPoint(id, p) {
+    const s = byId.get(id);
+    if (!s || s.commit) return false;
+    s.commit = { iang: p.iang, grow: p.grow };
+    sim.commitStats.sent++;
+    return true;
+  }
+
   // ------------------------------------------------------------------ L42 spawn ring
 
   const ringAt = [0, 0];
@@ -1122,6 +1156,8 @@ function createSim(laws, opts) {
     feedPrey,
     remove,
     kill,
+    previewPoint,
+    commitPoint,
     snake,
     forEachSnake,
     probe,

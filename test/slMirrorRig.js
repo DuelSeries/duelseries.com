@@ -280,6 +280,9 @@ function runRig(opts) {
       n: ++mirror.n, bytes, tick, prevTick: mirror.prevTick, at: vt + DOWN, own: mirror.seat ? mirror.seat.snakeId : 0,
       snap: snapshotNow(room), afterStall: mirror.afterStall,
       resyncs: room.stats.resyncs, delivered: null, flux: room.sim.flux(),
+      // the own snake has an early point out that its step has not placed yet (slRoom _earlyPoints, s.commit): the client
+      // may hold one point more than the server until that step
+      earlyOwn: (() => { const s0 = mirror.seat && room.sim.snake(mirror.seat.snakeId); return !!(s0 && s0.commit); })(),
     };
     if (o.wantDelivered && o.wantDelivered(b)) b.delivered = deliveredNow();
     mirror.afterStall = false;
@@ -474,6 +477,15 @@ function runRig(opts) {
 
   // ---- the clock loop: upstream arrivals, room wakes and client frames in time order
   let nextWake = vt + P_MS;
+  // the early point (slRoom _earlyPoints, turning smoothness 2026-10-16): the room's piece timers, on this clock, at
+  // each piece end of the update window plus 1 ms (slRoom _armPiece); o.early false runs without them
+  const PIECE = P_MS / slSnake.PIECES;
+  let pieceAts = [];
+  const armPieces = () => {
+    pieceAts = [];
+    if (o.early === false) return;
+    for (let k = 1; k < slSnake.PIECES; k++) pieceAts.push(room.stepRealAt + k * PIECE + 1);
+  };
   const endTick = o.ticks;
   let lastResyncs = 0;
   let lastGlide = 0;
@@ -483,6 +495,13 @@ function runRig(opts) {
   while (room.sim.tick() < endTick) {
     const nextUp = up.length ? up[0].at : Infinity;
     const nextFrame = P ? P.vnow + frameMs : Infinity;
+    const nextPiece = pieceAts.length ? pieceAts[0] : Infinity;
+    if (nextPiece < nextWake && nextPiece <= nextUp && nextPiece <= nextFrame) {
+      vt = Math.max(vt, pieceAts.shift());
+      room._earlyPoints();
+      T.runImmediates();
+      continue;
+    }
     if (nextUp <= nextWake && nextUp <= nextFrame) {
       vt = Math.max(vt, nextUp);
       const e = up.shift();
@@ -507,6 +526,7 @@ function runRig(opts) {
       room.wake();
       T.runImmediates();
       T.runTimeouts();
+      armPieces();
       if (room.stats.glideDeaths !== lastGlide) { lastGlide = room.stats.glideDeaths; out.glideDeathTicks.push(room.sim.tick()); }
       if (room.stats.cashouts !== lastCash) { lastCash = room.stats.cashouts; out.cashoutTicks.push(room.sim.tick()); }
       if (room.stats.resyncs !== lastResyncs) {

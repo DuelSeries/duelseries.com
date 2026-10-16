@@ -279,6 +279,7 @@ function createHoldBook(laws) {
     complete,
     stats,
     size: () => book.size,
+    has: (id) => book.has(id), // any entry: a press waiting, a hold, an end
   };
 }
 

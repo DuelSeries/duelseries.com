@@ -96,6 +96,18 @@ const { createSafeStats, safeCall, safeImmediate, safeTimeout, REAL_TIMERS } = r
 const { resumeLaws, makeKey, createWindow, WHY_GONE } = require('./slResume');
 const { TickTimer } = require('../tickTimer');
 
+// The early point (turning smoothness, 2026-10-16; slSnake travel, slSim previewPoint): between updates the room
+// sends a seat its own snake's new point when the head reaches it, at the end of each of the update's pieces, as
+// slither.io sends a point on its own (10,933 of 12,560 own points in Owen's recordings came with no rotation). On
+// the update alone the point came 0 to 1 update late and their client, which puts its head on every new point, pulled
+// the head 3.4 to 4.7 units back or forward each time. Owner console sl:smooth:off turns it off in every room until a
+// restart (the update then sends every point, as before).
+const SMOOTH = { on: true };
+function setSmooth(on) {
+  SMOOTH.on = on === true;
+  return SMOOTH.on;
+}
+
 const PI2 = 2 * Math.PI;
 
 const ROOM_OWN_IDS = Object.freeze([
@@ -398,6 +410,7 @@ class SlRoom {
       echoes: 0, pongs: 0, inputs: 0, inputDrops: 0, holdsStarted: 0, holdsEnded: 0, killLines: 0, chats: 0,
       failedWakes: 0, pauses: 0, resumes: 0, diag: { applyThrows: 0, wireErrors: 0, reports: 0 },
       parks: 0, backs: 0, backsDead: 0, takeovers: 0, parkedDropped: 0, backsRefused: { gone: 0, flood: 0 },
+      early: 0, pieceWakes: 0,
     };
 
     // scheduler (agar's drift-free one, server/ag/agRoom.js:932-1000)
@@ -420,6 +433,8 @@ class SlRoom {
     // battle royale's: those pause as before.
     this.awake = false;
     this._onTimer = () => this._timerWake();
+    this.pieceTimer = null;
+    this._onPiece = () => this._pieceWake();
     this._scratch = { ang: 0, wang: 0, dir: 1, turning: false };
     if (this.money) {
       this.settled = null; // the emergencySettle answer ({ left: the ids it could not close, ... }), for the directory
@@ -1400,12 +1415,68 @@ class SlRoom {
       return;
     }
     if (!this.timer) this._arm();
+    this._armPiece(true);
+  }
+
+  // The next piece end of the update window that started at stepRealAt (plus 1 ms, so every steering record with a
+  // window time up to that end has arrived: a later one rounds past it). Only with a seat, never the update's own end.
+  _armPiece(again) {
+    if (again && this.pieceTimer) {
+      this.timers.clearTimeout(this.pieceTimer);
+      this.pieceTimer = null;
+    }
+    if (!SMOOTH.on || this.pieceTimer || this.stopped || this.paused || !this.autoTick || !this.ticking) return;
+    if (this.seats.size === 0) return;
+    const piece = this.P / slSnake.PIECES;
+    const now = this.clock();
+    let k = Math.floor((now - this.stepRealAt - 1) / piece) + 1;
+    if (k < 1) k = 1;
+    if (k >= slSnake.PIECES) return;
+    const at = this.stepRealAt + k * piece + 1;
+    this.pieceTimer = this.timers.setTimeout(this._onPiece, Math.max(1, Math.ceil(at - now)));
+    if (this.pieceTimer && typeof this.pieceTimer.unref === 'function') this.pieceTimer.unref();
+  }
+
+  _pieceWake() {
+    this.pieceTimer = null;
+    if (this.stopped || this.paused || !SMOOTH.on) return;
+    this.stats.pieceWakes++;
+    safeCall(() => this._earlyPoints(), 'sl.early', this.safeStats, this.safeOpts);
+    this._armPiece(false);
+  }
+
+  // Each seated live snake whose walk reached its next point by now (slSim previewPoint) gets that point now, and the
+  // next step places exactly it (commitPoint). Not while a wake runs (its seat part sends everything), not for a snake
+  // with a hold in the book (the cash-out lock may drop the window's steering) or gliding (C_DISCONNECT).
+  _earlyPoints() {
+    if (this._job) return;
+    const wt = this.clock() - this.stepRealAt - 1;
+    if (!(wt > 0) || wt >= this.P) return;
+    const tick = this.sim.tick();
+    for (const seat of this.seats.values()) {
+      if (seat.closed || seat.parked || seat.watch || seat.dead) continue;
+      if (typeof seat.view.earlyMove !== 'function') continue;
+      const id = seat.snakeId;
+      if (this.holds.has(id) || this.orphans.has(id)) continue;
+      const p = this.sim.previewPoint(id, wt);
+      if (!p) continue;
+      const ev = seat.view.earlyMove(p);
+      if (!ev) continue;
+      this.sim.commitPoint(id, p);
+      this._pushEvents(seat, tick, [ev]);
+      this.stats.early++;
+      if (!seat.flushHandle) seat.queue.flush(this.clock());
+    }
   }
 
   _pause() {
     if (this.timer) {
       this.timers.clearTimeout(this.timer);
       this.timer = null;
+    }
+    if (this.pieceTimer) {
+      this.timers.clearTimeout(this.pieceTimer);
+      this.pieceTimer = null;
     }
     this._dueAt = NaN;
     this.ticking = false;
@@ -1899,6 +1970,10 @@ class SlRoom {
       this.timers.clearTimeout(this.timer);
       this.timer = null;
     }
+    if (this.pieceTimer) {
+      this.timers.clearTimeout(this.pieceTimer);
+      this.pieceTimer = null;
+    }
     this.ticking = false;
     this.timing.idle();
   }
@@ -1974,4 +2049,6 @@ module.exports = {
   makeClock,
   fireClock,
   cleanChat,
+  setSmooth,
+  smoothOn: () => SMOOTH.on,
 };

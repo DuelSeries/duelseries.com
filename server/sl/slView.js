@@ -279,7 +279,7 @@ function createView(laws, sim, opts) {
   let preyIndexTick = -1;
   const preyIndex = new Map(); // sector -> prey list, rebuilt once per sim tick when a seat asks
   const st = { ticks: 0, records: 0, bytes: 0, joins: 0, adds: 0, removes: 0, dumps: 0, sweeps: 0, resyncs: 0, mmM: 0,
-    mmV: 0, locks: 0, cashouts: 0, staleSeats: 0, staleCollects: 0 };
+    mmV: 0, locks: 0, cashouts: 0, staleSeats: 0, staleCollects: 0, early: 0 };
 
   // ---------------------------------------------------------------- snakes the view knows
 
@@ -884,6 +884,7 @@ function createView(laws, sim, opts) {
       left: false,
       ownEcho: null,
       pong: null,
+      early: null, // { tick, grow }: the own point the room sent before update tick (earlyMove)
     };
     seat.ownEcho = (dir, wang) => ownEcho(seat, dir, wang);
     seat.pong = () => pongEntry(seat);
@@ -926,6 +927,21 @@ function createView(laws, sim, opts) {
   }
 
   // The own wanted-angle echo as an entry (the core API; the room makes its own and calls noteOwnRot).
+  // The own snake's point the room sends before the update (slRoom _earlyPoints, slSim previewPoint p: { iang, grow,
+  // fam }): the record moveEvent makes for it at the update (the angle form iff iang differs from the client's last
+  // point), and the seat skips that update's own move (and on a grow its h, whose fam the move already moved past).
+  function earlyMove(seat, p) {
+    const s = sim.snake(seat.ownId);
+    if (!s || seat.gone || seat.watch || !seat.holds.has(seat.ownId)) return null;
+    if (seat.lastTick !== sim.tick()) return null; // records of a step still owed (a failed wake): they go first
+    const ev = { type: 'snake_move', id: s.id, cmd: p.grow ? 'n' : 'g' };
+    if (p.iang !== s.pts[s.pts.length - 1].iang) ev.iang = p.iang;
+    if (p.grow) ev.fam = slQuant.fam24(p.fam, V.famRound).v;
+    seat.early = { tick: sim.tick() + 1, grow: p.grow, fam: ev.fam };
+    st.early++;
+    return ev;
+  }
+
   function ownEcho(seat, dir, wang) {
     if (dir !== 1 && dir !== 2) throw new RangeError('slView: echo dir must be 1 or 2');
     const w8 = byte8(slQuant.wrapAngle(wang), V.angRound);
@@ -1164,7 +1180,8 @@ function createView(laws, sim, opts) {
       const u = g.upd[i];
       const h = seat.holds.get(u.id);
       const held = !!h && h.added !== stamp;
-      if (held && u.h) push(out, t, u.h, false);
+      const early = u.id === seat.ownId && seat.early !== null && seat.early.tick === t;
+      if (held && u.h && !(early && seat.early.grow)) push(out, t, u.h, false);
       if (u.drops) {
         for (let k = 0; k < u.drops.length; k++) {
           const fd = u.drops[k];
@@ -1179,8 +1196,13 @@ function createView(laws, sim, opts) {
         const ev = rotFor(seat, h, u, own);
         if (ev) push(out, t, ev, own);
       }
-      if (u.move) push(out, t, u.move, own);
+      if (u.move && !early) push(out, t, u.move, own);
+      // the fam the update ended on, when a charge since the early grow moved it (the skipped h and move carried it)
+      if (early && seat.early.grow && u.move && u.move.fam !== undefined && u.move.fam !== seat.early.fam) {
+        push(out, t, { type: 'snake_fam', id: u.id, fam: u.move.fam }, false);
+      }
     }
+    if (seat.early !== null && seat.early.tick <= t) seat.early = null;
     // ends: own dead code 0 then own removal code 1 (L41, a cash-out too, SERVER-DESIGN 15.3); other holders removal
     // code 1 for a death (L50), C_CASHOUT_CODE for a cash-out
     for (let i = 0; i < g.ends.length; i++) {
@@ -1351,6 +1373,7 @@ function createView(laws, sim, opts) {
     forget,
     leave,
     noteOwnRot,
+    earlyMove,
     idBlocked,
     mirror,
     seats: () => seats.slice(),
@@ -1423,6 +1446,11 @@ function createSeatView(laws, opts) {
     },
     resync() {
       if (seat && !seat.left) view.forget(seat);
+    },
+    // the own snake's point before the update (slRoom _earlyPoints): its event, or null
+    earlyMove(p) {
+      if (!seat || seat.left) return null;
+      return view.earlyMove(seat, p);
     },
     leave() {
       if (seat) view.leave(seat);

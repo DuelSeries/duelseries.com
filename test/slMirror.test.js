@@ -107,7 +107,7 @@ function createChecker(laws) {
   const count = {
     bundles: 0, exactPts: 0, offsetPts: 0, adds: 0, heads: 0, states: 0, ghostChecks: 0, unverifiedLives: 0,
     ownWangSkipped: 0, inits: 0, absLastAdds: 0, maxAbsLastOffset: 0, maxOffset: 0, maxDrift: 0, coalesced: 0,
-    ghostChecksAfterResync: 0, types: {},
+    ghostChecksAfterResync: 0, types: {}, early: 0, earlyChecked: 0,
   };
   const lives = new WeakMap(); // client pts array -> life
   let current = []; // lives with inserts in the bundle being applied
@@ -204,6 +204,8 @@ function createChecker(laws) {
           break;
         case 'snake_move':
           if (ev.fam !== undefined && carriers.has(id)) carriers.get(id).fam = 'rec';
+          // an own move with no step since the last bundle: the room's early point (slRoom _earlyPoints)
+          if (ev.own === true && b.tick === b.prevTick) count.early++;
           break;
         case 'snake_rot': {
           const c = carriers.get(id);
@@ -307,6 +309,12 @@ function createChecker(laws) {
         }
       }
       if (!life.s) continue;
+      // the own point the room sent before its step: the server inserts it at that step, so this life is checked at the
+      // next bundle the step made (its inserted point then compared exactly, Object.is, like every other)
+      if (b.earlyOwn && o.id === b.own) {
+        count.earlyChecked++;
+        continue;
+      }
       // every move since the client started holding it, and each inserted point
       for (; life.checked < life.inserts.length; life.checked++) checkInsert(rig, life, life.checked);
       const sn = b.snap.get(o.id);
@@ -431,6 +439,8 @@ for (const seed of SEEDS) {
     assert.ok(checker.count.ghostChecksAfterResync >= 1, 'a ghost check right after the resync');
     assert.ok(checker.count.coalesced >= 2, 'the stalls delivered coalesced bundles');
     assert.ok(checker.count.exactPts > 200 && checker.count.offsetPts > 200, 'both point kinds checked');
+    // the early point ran (slRoom _earlyPoints): own points went out before their step and matched it exactly later
+    assert.ok(checker.count.early > 50 && checker.count.earlyChecked > 50, 'early points sent and checked: ' + checker.count.early);
     assert.ok(checker.count.inits >= 1 && checker.count.heads > 50 && checker.count.states > 1000, 'checks ran');
     for (const t of ['prey_add', 'snake_remove0', 'snake_remove1', 'dead', 'food_eat', 'minimap', 'leaderboard', 'flux']) {
       assert.ok(checker.count.types[t] > 0, 'the mirrored stream carried ' + t);

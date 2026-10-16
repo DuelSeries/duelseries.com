@@ -53,14 +53,16 @@ function tickWith(sim) {
   return sim.step();
 }
 
-test('turning: in a steady hard turn every new point lies on the head path (turn, then move v P, each update)', () => {
+test('turning: in a steady hard turn every new point lies on the head path (turn, then move, each piece of the update)', () => {
   const sim = createSim(FIXTURE, { seed: 1 });
   const s = sim.spawn({ x: C, y: C, ang: 0, cv: 3, fam: 0 });
   const v = SP2 / 32;
-  // the head path: chords of v P turning RATE2 P each update, on the circle of radius v P / (2 sin(RATE2 P / 2)), the
-  // path the client predicts within its frame step (it turns, then moves along ang, every frame)
-  const R = v * P / (2 * Math.sin(RATE2 * P / 2));
-  near(R, 43.920, 1e-3, 'polygon radius at sct 2 (v / omega 43.864)');
+  // the head path: chords of v Q turning RATE2 Q each piece (Q = P / PIECES, slSnake travel since 2026-10-16), on the
+  // circle of radius v Q / (2 sin(RATE2 Q / 2)), the path the client predicts within its frame step (it turns, then
+  // moves along ang, every frame); one chord per update (v P) made a radius of 43.920
+  const Q = P / slSnake.PIECES;
+  const R = v * Q / (2 * Math.sin(RATE2 * Q / 2));
+  near(R, 43.867, 1e-3, 'polygon radius at sct 2 (v / omega 43.864)');
   let centre = null;
   let checked = 0;
   let worst = 0;
@@ -74,7 +76,7 @@ test('turning: in a steady hard turn every new point lies on the head path (turn
     const rec = tickWith(sim).updates[0];
     assert.equal(s.pts.length, 2, 'no growth');
     assert.equal(s.dir, 2);
-    if (t === 10) centre = [s.cx - R * Math.sin(s.ang + RATE2 * P / 2), s.cy + R * Math.cos(s.ang + RATE2 * P / 2)];
+    if (t === 10) centre = [s.cx - R * Math.sin(s.ang + RATE2 * Q / 2), s.cy + R * Math.cos(s.ang + RATE2 * Q / 2)];
     if (!rec.move || !centre) continue;
     near(Math.hypot(rec.xx - bx, rec.yy - by), MSL, 1e-9, 'one msl step');
     const off = Math.abs(Math.hypot(rec.xx - centre[0], rec.yy - centre[1]) - R);
@@ -87,11 +89,11 @@ test('turning: in a steady hard turn every new point lies on the head path (turn
     checked++;
   }
   assert.ok(checked >= 15, 'points checked ' + checked);
-  assert.ok(worst < 0.2, 'a point ' + worst + ' off the head path (a chord sags R (1 - cos(RATE2 P / 2)) = 0.17)');
+  assert.ok(worst < 0.02, 'a point ' + worst + ' off the head path (a chord sags R (1 - cos(RATE2 Q / 2)) = 0.011)');
   assert.ok(oldWorst > 5, 'the old placement is told apart (' + oldWorst + ')');
 });
 
-test('turning: a record turns from its arrival (offset 20 ms: 20 ms of turn), then the head moves v P along that ang', () => {
+test('turning: a record turns from its arrival (offset 20 ms: 20 ms of turn), the head moving piece by piece', () => {
   const sim = createSim(FIXTURE, { seed: 1 });
   const s = sim.spawn({ x: C, y: C, ang: 0, cv: 3, fam: 0 });
   const x0 = s.cx;
@@ -99,9 +101,13 @@ test('turning: a record turns from its arrival (offset 20 ms: 20 ms of turn), th
   sim.setInput(s.id, { type: 'angle', q: 60 }, 20); // wang floor(256 x 60 / 251) = 61 bytes: far ahead, dir 2
   tickWith(sim);
   near(s.ang, RATE2 * 20, 1e-15, 'turned 20 ms, not a whole update (' + RATE2 * P + ')');
-  const len = SP2 * (P / 8) / 4;
-  near(s.cx, x0 + len * Math.cos(RATE2 * 20), 1e-9, 'head x: turn, then move');
-  near(s.cy, y0 + len * Math.sin(RATE2 * 20), 1e-9, 'head y');
+  // window time P - 20 = 22.67: pieces 1 and 2 straight, piece 3 turns 32.0025 - 22.67 ms, piece 4 turns to the end
+  const Q = P / slSnake.PIECES;
+  const lp = SP2 * (Q / 8) / 4;
+  const a3 = RATE2 * (3 * Q - (P - 20));
+  const a4 = RATE2 * 20;
+  near(s.cx, x0 + 2 * lp + lp * Math.cos(a3) + lp * Math.cos(a4), 1e-9, 'head x: each piece turns, then moves');
+  near(s.cy, y0 + lp * Math.sin(a3) + lp * Math.sin(a4), 1e-9, 'head y');
 });
 
 test('turning: steerAt gives the ang at the arrival, and the update goes on from it at the L14 rate', () => {

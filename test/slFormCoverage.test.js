@@ -92,7 +92,9 @@ test('every form our server emits (3 seeds x 3000 ticks, every seat) appears in 
     }
   };
   let resyncs = 0;
-  for (const seed of [1, 2, 3]) {
+  // seeds 1, 9, 10: prey is eaten in 2 of 10 seeds' 3000 ticks with the piece path (2026-10-16), 5 of 10 before;
+  // the soak counts the same prey eats either way (seeds 7 to 9, 12,000 ticks: 44 before, 41 after)
+  for (const seed of [1, 9, 10]) {
     const r = runRig({
       seed, ticks: 3000, client: false, others: 24, cap: 8192,
       stalls: [{ at: 30000, ms: 2000 }, { at: 70000, ms: 9000, resync: true }],

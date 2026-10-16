@@ -76,11 +76,13 @@ function drive(seed, ticks, extra, onTick) {
   return { sim, digests, causes };
 }
 
-// The free sim's digests for this script, cut from slSim.js at 10c8ac4 (before the paid option existed).
+// The free sim's digests for this script, cut from slSim.js at 10c8ac4 (before the paid option existed), and re-cut on
+// 2026-10-16 when the update window became PIECES pieces (slSnake travel, the early point): that change moves every
+// head, and the paid option is still absent from these runs.
 const FREE = {
-  11: ['451e8bdb', '77e36daa', '50f9603a', 'e85ce620', '54526dbd'],
-  12: ['3b4fc3d5', '0053e9c4', '1c7395f6', '12973298', '24756d64'],
-  13: ['0140da57', '8e5f8603', '6e41a137', '572da21f', '40aa59d9'],
+  11: ['3084bc0b', 'a2460e0c', 'ac90bf46', '5ca14da9', '4dac45c8'],
+  12: ['cb973135', '84b6e2d9', '066e65b3', 'ab00f1c8', '31ac0a32'],
+  13: ['9ab1312e', '35275e7a', 'ee9ccfc8', 'f0297a72', 'c4f0a61e'],
 };
 
 // ------------------------------------------------------------------ the option
