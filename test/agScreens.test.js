@@ -186,8 +186,8 @@ test('end card, free: "Eaten by NAME" (or "Eaten"), the best mass as the hero, T
   const buttons = [{ id: 'again', text: 'Play again', primary: true, onClick: () => calls.push('again') },
     { id: 'watch', text: 'Spectate', onClick: () => calls.push('watch') }, { id: 'lobby', text: 'Lobby', onClick: () => calls.push('lobby') }];
   end.showFree({ life: LIFE, by: 'Kestrel', buttons });
-  assert.deepStrictEqual(card(p), { tone: 'plain', verdict: 'Eaten by Kestrel', hero: '1,284', unit: 'mass',
-    facts: [['Time', '3:42'], ['Top rank', '4th']], ledger: [], status: null, notes: [],
+  assert.deepStrictEqual(card(p), { tone: 'plain', verdict: 'Eaten by Kestrel', hero: 'Free', unit: '',   // a free game says Free; its score is the first tray row (Owen 2026-10-16)
+    facts: [['Mass', '1,284'], ['Time', '3:42'], ['Top rank', '4th']], ledger: [], status: null, notes: [],
     buttons: [{ id: 'again', text: 'Play again', primary: true, disabled: false }, { id: 'watch', text: 'Spectate', primary: false, disabled: false },
       { id: 'lobby', text: 'Lobby', primary: false, disabled: false }], z: '1000' });
   assert.strictEqual(end.kind, 'free');
@@ -197,10 +197,10 @@ test('end card, free: "Eaten by NAME" (or "Eaten"), the best mass as the hero, T
   // No known eater, never on the board (the old ':(' box): "Eaten", and the rank is left out.
   end.showFree({ life: { timeAlive: 59999, highestMass: 10, topPosition: 0 }, by: '', buttons });
   const c = card(p);
-  assert.deepStrictEqual([c.verdict, c.hero, c.facts], ['Eaten', '10', [['Time', '0:59']]]);
+  assert.deepStrictEqual([c.verdict, c.hero, c.facts], ['Eaten', 'Free', [['Mass', '10'], ['Time', '0:59']]]);   // a free game says Free; its score is the first tray row (Owen 2026-10-16)
   // A free cash-out: the same card, "Cashed out".
   end.showFree({ life: LIFE, cashed: true, by: 'Kestrel', buttons });
-  assert.deepStrictEqual([card(p).verdict, card(p).hero], ['Cashed out', '1,284']);
+  assert.deepStrictEqual([card(p).verdict, card(p).hero], ['Cashed out', 'Free']);   // a free game says Free (Owen 2026-10-16)
   end.hide();
   assert.strictEqual(readCard(p.doc), null);
   assert.strictEqual(end.shown(), false);
@@ -253,7 +253,7 @@ test('end card, paid death: the loss in red, "Eaten by NAME", Time, Top rank and
   const end = S.createEnd({ DSEnd: p.D });
   end.showDead({ lostMicro: 1000000, by: 'Kestrel' }, { timeAlive: 130000, highestMass: 860, topPosition: 6 });
   let c = card(p);
-  assert.deepStrictEqual([c.tone, c.verdict, c.hero, c.unit], ['loss', 'Eaten by Kestrel', '−$1.00', 'lost']);
+  assert.deepStrictEqual([c.tone, c.verdict, c.hero, c.unit], ['loss', 'Eaten by Kestrel', '−$1.00', '']);   // money lost stands alone (Owen 2026-10-16)
   assert.deepStrictEqual(c.facts, [['Time', '2:10'], ['Top rank', '6th'], ['Mass', '860']]);
   assert.deepStrictEqual([c.ledger, c.status], [[], null]);
   end.setLife({ timeAlive: 131000, highestMass: 900, topPosition: 5 });

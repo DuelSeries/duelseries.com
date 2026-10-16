@@ -207,6 +207,40 @@
       '.dse-big{font-size:62px}.dse-v{font-size:16px}.dse-unit{font-size:16px}' +
       '.dse-facts{margin-top:19px}.dse-facts dd{font-size:18px}.dse-btn{height:54px}}',
 
+    // a paid loss and a free game (Owen 2026-10-16, his picks "Coin falls away" and "Free"): an empty slot on the
+    // card's top edge whose coin falls away as the card arrives (gold with its $ when money was lost, silver with a
+    // star in a free game), the stats as rows in the recessed tray like the cash-out's money, the figure alone and
+    // centred (the red amount lost, or Free)
+    '.dse-coin.m-slot{background:rgba(8,7,5,.6);box-shadow:inset 0 3px 8px rgba(0,0,0,.7),0 0 0 1px rgba(245,241,232,.22)}',
+    '.dse-coin.m-slot>span{border:1.5px dashed rgba(245,241,232,.38)}',
+    '.dse-coin.m-slot>span:before{display:none}',
+    '.dse-coin.m-slot.s-red{box-shadow:inset 0 3px 8px rgba(0,0,0,.7),0 0 0 1px rgba(255,107,87,.3)}',
+    '.dse-coin.m-slot.s-red>span{border-color:rgba(255,107,87,.5)}',
+    '.dse-card.in .dse-coin.m-slot{animation:dse-drop .3s cubic-bezier(.3,.9,.4,1) .06s both}',
+    '.dse-ghost{position:absolute;inset:6px;display:flex;align-items:center;justify-content:center;border-radius:50%;opacity:0;' +
+      'background:radial-gradient(circle at 38% 20%,#ffefbc 0%,#fad06c 28%,#eeaa39 62%,#c98612 100%);box-shadow:0 0 0 1.5px #f9d98c,0 0 18px rgba(240,168,48,.45)}',
+    '.dse-ghost b{color:#9a5e06;text-shadow:0 1px 0 rgba(255,240,196,.9)}',
+    '.dse-ghost.g-silver{background:radial-gradient(circle at 38% 20%,#ffffff 0%,#eceff3 28%,#c3c9d1 62%,#959ca7 100%);' +
+      'box-shadow:0 0 0 1.5px #f2f4f7,0 0 16px rgba(220,230,244,.35)}',
+    '.dse-ghost.g-silver b{color:#5d6570;text-shadow:none;filter:drop-shadow(0 1px 0 rgba(255,255,255,.9))}',
+    '.dse-card.in .dse-ghost{animation:dse-fall .66s cubic-bezier(.5,0,.75,0) .22s both}',
+    '@keyframes dse-fall{0%{opacity:1;transform:none}100%{opacity:0;transform:translateY(40px) rotate(24deg) scale(.82)}}',
+    '.dse-coin b.star{width:22px;height:21px}',
+    '.dse-coin b.star:before{content:"";position:absolute;inset:0;background:currentColor;' +
+      '-webkit-clip-path:polygon(50% 0,61.8% 35.1%,98.1% 35.1%,68.7% 56.7%,79.4% 91%,50% 70%,20.6% 91%,31.3% 56.7%,1.9% 35.1%,38.2% 35.1%);' +
+      'clip-path:polygon(50% 0,61.8% 35.1%,98.1% 35.1%,68.7% 56.7%,79.4% 91%,50% 70%,20.6% 91%,31.3% 56.7%,1.9% 35.1%,38.2% 35.1%)}',
+    '.dse-card.g-slot .dse-panel{background:radial-gradient(170px 96px at 50% 0,rgba(245,241,232,.06),rgba(245,241,232,0)),' + PANEL_BG + '}',
+    '.dse-card.g-slot.s-red .dse-panel{background:radial-gradient(170px 96px at 50% 0,rgba(255,107,87,.11),rgba(255,107,87,0)),' + PANEL_BG + '}',
+    '.dse.k-free .dse-big{color:#d9d1c3}',
+    // the stats as tray rows: the same dl, laid out like the money rows
+    '.dse-facts.rows{display:block;margin:0}',
+    '.dse-facts.rows>div{flex-direction:row;justify-content:space-between;align-items:baseline;gap:12px;padding:6px 0}',
+    '.dse-facts.rows>div+div{border-left:0}',
+    '.dse-facts.rows dt{margin:0;font-size:15px;color:var(--dse-tx2)}',
+    '.dse-facts.rows dd{font-size:15.5px}',
+    '@media (min-width:' + (PHONE_MAX + 1) + 'px){.dse-coin b.star{width:28px;height:27px}.dse-facts.rows dd{font-size:15.5px}' +
+      '.dse-card.g-slot .dse-panel{background:radial-gradient(200px 110px at 50% 0,rgba(245,241,232,.06),rgba(245,241,232,0)),' + PANEL_BG + '}' +
+      '.dse-card.g-slot.s-red .dse-panel{background:radial-gradient(200px 110px at 50% 0,rgba(255,107,87,.11),rgba(255,107,87,0)),' + PANEL_BG + '}}',
     // the board: fully clear (Owen 2026-10-16), text with a shadow, your row on a gold pill. Compact on a phone
     // (Owen: it never takes a big part of the screen): 11.5 px rows 16 px apart, names cut at about 10 characters.
     '.dsb{position:fixed;top:8px;right:8px;width:128px;pointer-events:none;color:#f5f1e8;font:600 11.5px ' + SANS + ';' +
@@ -306,6 +340,37 @@
     var money = String(o.hero).indexOf('$') >= 0;
     return o.tone === 'win' || (o.tone !== 'loss' && money) ? 'gold' : 'iron';
   }
+  // What the card is: money lost ('loss'), a free game ('free': a plain card whose figure is a score, not money, and
+  // not a battle royale podium), else money won or back or a place ('paid': the gold coin, or iron).
+  function kindOf(o) {
+    if (o.tone === 'loss') return 'loss';
+    var hero = o.hero != null ? String(o.hero) : '';
+    if (o.tone !== 'win' && hero && hero.indexOf('$') < 0 && !(o.podium && o.podium.length)) return 'free';
+    return 'paid';
+  }
+  // A free game's card (Owen: "Free" as the figure): its score goes first in the tray, under its unit's name.
+  function freeCard(o) {
+    var c = {}, k;
+    for (k in o) if (Object.prototype.hasOwnProperty.call(o, k)) c[k] = o[k];
+    var u = String(o.unit || 'Score');
+    var facts = o.facts || [];
+    // a duel already lists its count (Turns 4): never the same figure twice
+    var listed = facts.some(function (f) { return String(pair(f)[1]) === String(o.hero); });
+    c.facts = listed ? facts : [[u.charAt(0).toUpperCase() + u.slice(1), String(o.hero)]].concat(facts);
+    c.hero = 'Free';
+    c.unit = '';
+    return c;
+  }
+  // The empty slot of a loss or a free game, and the coin that falls out of it (gold with $, or silver with a star).
+  function slotNode(kind) {
+    var slot = el('div', 'dse-coin m-slot' + (kind === 'loss' ? ' s-red' : ''));
+    slot.setAttribute('aria-hidden', 'true');
+    slot.appendChild(el('span'));
+    var ghost = el('i', 'dse-ghost' + (kind === 'free' ? ' g-silver' : ''));
+    ghost.appendChild(kind === 'free' ? el('b', 'star') : el('b', null, '$'));
+    slot.appendChild(ghost);
+    return slot;
+  }
   function coinNode(o) {
     var metal = coinMetal(o);
     var coin = el('div', 'dse-coin m-' + metal);
@@ -329,8 +394,10 @@
   var card = null;        // { el, opts, btns, fresh, st }
 
   function render(o) {
+    var kind = kindOf(o);
+    if (kind === 'free') o = freeCard(o);
     var wrap = card.el;
-    wrap.className = ['dse', 't-' + (o.tone === 'win' || o.tone === 'loss' ? o.tone : 'plain')].concat(foreign(wrap.className)).join(' ');
+    wrap.className = ['dse', 't-' + (o.tone === 'win' || o.tone === 'loss' ? o.tone : 'plain'), 'k-' + kind].concat(foreign(wrap.className)).join(' ');
     wrap.style.zIndex = String(o.z != null ? o.z : 1000);
     if (o.zoom && o.zoom !== 1) wrap.style.zoom = String(o.zoom); else wrap.style.zoom = '';
     var had = doc.activeElement && doc.activeElement.getAttribute && doc.activeElement.getAttribute('data-dse-btn');
@@ -338,14 +405,14 @@
     wrap.appendChild(el('div', 'dse-scrim'));
     var hasHero = o.hero != null && o.hero !== '';
     // slides in once per show, not on every update
-    var box = el('div', 'dse-card' + (hasHero ? ' coined g-' + coinMetal(o) : ' notice') + (card.fresh ? ' in' : ''));
+    var box = el('div', 'dse-card' + (hasHero ? ' coined ' + (kind === 'paid' ? 'g-' + coinMetal(o) : 'g-slot' + (kind === 'loss' ? ' s-red' : '')) : ' notice') + (card.fresh ? ' in' : ''));
     var panel = el('div', 'dse-panel');
     if (o.verdict) panel.appendChild(el('p', 'dse-v', o.verdict));
     if (hasHero) {
       var hero = el('p', 'dse-hero');
       hero.appendChild(heroNode(String(o.hero)));
-      // money won stands alone, centred (Owen: no "to your wallet"; the gold coin and "You receive" already say it)
-      if (o.unit && !(o.tone === 'win' && MONEY_RE.test(String(o.hero)))) hero.appendChild(el('span', 'dse-unit', o.unit));
+      // money won or lost stands alone, centred (Owen: no "to your wallet"; the coin and the tray already say it)
+      if (o.unit && !((o.tone === 'win' || o.tone === 'loss') && MONEY_RE.test(String(o.hero)))) hero.appendChild(el('span', 'dse-unit', o.unit));
       panel.appendChild(hero);
     }
     if (o.podium && o.podium.length) {
@@ -358,18 +425,19 @@
       });
       panel.appendChild(pod);
     }
+    var tray = el('div', 'dse-tray' + (o.ledger && o.ledger.length ? ' dse-led' : ''));
+    var inTray = kind !== 'paid';
     if (o.facts && o.facts.length) {
-      var dl = el('dl', 'dse-facts');
-      o.facts.slice(0, 3).forEach(function (f) {
+      var dl = el('dl', 'dse-facts' + (inTray ? ' rows' : ''));
+      o.facts.slice(0, inTray ? 4 : 3).forEach(function (f) {
         f = pair(f);
         var d = el('div');
         d.appendChild(el('dt', null, f[0]));
         d.appendChild(el('dd', null, f[1]));
         dl.appendChild(d);
       });
-      panel.appendChild(dl);
+      (inTray ? tray : panel).appendChild(dl);
     }
-    var tray = el('div', 'dse-tray' + (o.ledger && o.ledger.length ? ' dse-led' : ''));
     if (o.ledger && o.ledger.length) {
       o.ledger.forEach(function (r, i) {
         r = pair(r);
@@ -421,7 +489,7 @@
       panel.appendChild(btns);
     }
     box.appendChild(panel);
-    if (hasHero) box.appendChild(coinNode(o));
+    if (hasHero) box.appendChild(kind === 'paid' ? coinNode(o) : slotNode(kind));
     wrap.appendChild(box);
     if (had && card.btns[had] && card.btns[had].focus) card.btns[had].focus();
   }

@@ -278,7 +278,7 @@ test('a death while the Esc menu is open keeps HOME (no end card); a death in pl
     } else {
       assert.strictEqual(st.menuState, 'GAMEOVER');
       const card = readCard(p.doc);
-      assert.deepStrictEqual([card.verdict, card.hero, card.unit], ['Eaten', '400', 'mass']);
+      assert.deepStrictEqual([card.verdict, card.hero, card.unit, card.facts[0]], ['Eaten', 'Free', '', ['Mass', '400']]);   // a free game says Free; its score is the first tray row (Owen 2026-10-16)
       assert.deepStrictEqual(card.buttons.map((b) => b.id), ['again', 'watch', 'menu'], 'a direct visit: Menu, the old Continue');
       assert.strictEqual(p.doc.getElementById('ag-menu').hidden, true);
     }

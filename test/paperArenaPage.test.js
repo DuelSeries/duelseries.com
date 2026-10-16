@@ -552,9 +552,9 @@ test('free death: how it happened, the land at death, time and best rank; Play a
   const c = t.card();
   assert.strictEqual(c.tone, 'plain');
   assert.strictEqual(c.verdict, 'Killed by <b>Kestrel</b>', 'the name is text, never markup');
-  assert.strictEqual(c.hero, '18.40%');
-  assert.strictEqual(c.unit, 'land');
-  assert.deepStrictEqual(c.facts, [['Time', '1:05'], ['Top rank', '2nd']]);
+  assert.strictEqual(c.hero, 'Free');   // a free game says Free; its score is the first tray row (Owen 2026-10-16)
+  assert.strictEqual(c.unit, null);
+  assert.deepStrictEqual(c.facts, [['Land', '18.40%'], ['Time', '1:05'], ['Top rank', '2nd']]);
   assert.deepStrictEqual(c.ledger, []);
   assert.deepStrictEqual(c.buttons, ['Play again', 'Lobby']);
   assert.strictEqual(t.doc.activeElement, t.btn('again'), 'a free Play again is the keyboard default');
@@ -571,7 +571,7 @@ test('free death: how it happened, the land at death, time and best rank; Play a
   self.sock.fire('pp:dead', { reason: 1 });
   self.clock.advance(1000);
   assert.strictEqual(self.card().verdict, 'You crossed your own trail');
-  assert.deepStrictEqual(self.card().facts, [['Time', '0:00'], ['Top rank', '1st']]);
+  assert.deepStrictEqual(self.card().facts, [['Land', '5.00%'], ['Time', '0:00'], ['Top rank', '1st']]);   // the land first in the tray (Owen 2026-10-16)
 });
 
 test('free cash-out: Cashed out, the best land this round; Enter plays again', () => {
@@ -586,9 +586,9 @@ test('free cash-out: Cashed out, the best land this round; Enter plays again', (
   const c = t.card();
   assert.strictEqual(t.api.page.screen, 'cashed');
   assert.strictEqual(c.verdict, 'Cashed out');
-  assert.strictEqual(c.hero, '25.00%');
-  assert.strictEqual(c.unit, 'best land');
-  assert.deepStrictEqual(c.facts, [['Time', '0:03'], ['Top rank', '2nd']]);
+  assert.strictEqual(c.hero, 'Free');   // a free game says Free; its score is the first tray row (Owen 2026-10-16)
+  assert.strictEqual(c.unit, null);
+  assert.deepStrictEqual(c.facts, [['Best land', '25.00%'], ['Time', '0:03'], ['Top rank', '2nd']]);
   assert.deepStrictEqual(c.ledger, []);
   assert.strictEqual(c.status, null);
   t.doc.activeElement = null;
@@ -610,7 +610,7 @@ test('paid death: the stake lost as the server says, how, time, rank and best la
   assert.strictEqual(c.tone, 'loss');
   assert.strictEqual(c.verdict, 'You hit the wall');
   assert.strictEqual(c.hero, '−$0.50');
-  assert.strictEqual(c.unit, 'lost');
+  assert.strictEqual(c.unit, null);   // money lost stands alone (Owen 2026-10-16)
   assert.deepStrictEqual(c.facts, [['Time', '2:05'], ['Top rank', '4th'], ['Best land', '12.30%']]);
   assert.deepStrictEqual(c.buttons, ['Play again', 'Lobby']);
   assert.strictEqual(t.doc.activeElement, null, 'a paid Play again (a new buy-in) is never the keyboard default');

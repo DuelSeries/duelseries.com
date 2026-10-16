@@ -98,9 +98,9 @@ test('slxCard: death card (the shared card) at their menu show, N from their las
   assert.strictEqual(card.element.style.opacity, '0');
   assert.strictEqual(card.element.style.zIndex, '30', 'above their login layer (z-index 20)');
   assert.strictEqual(card.element.style.zoom, '', 'a computer page: no zoom');
-  assert.match(card.element.className, /^dse t-plain slx-card$/, 'a layer control to slxWatch, slxBr and slxTouch');
-  assert.strictEqual(card.element.textContent, 'You died1,234lengthTime1:05Top rank3rdPlay againLobby');
-  assert.strictEqual(bigText(P), '1,234');
+  assert.match(card.element.className, /^dse t-plain k-free slx-card$/, 'a layer control to slxWatch, slxBr and slxTouch');
+  assert.strictEqual(card.element.textContent, 'You diedFreeLength1,234Time1:05Top rank3rdPlay againLobby');   // a free game says Free; its score is the first tray row (Owen 2026-10-16)
+  assert.strictEqual(bigText(P), 'Free');
   P.slx.fire('menuFade', 0.25);
   assert.strictEqual(card.state().opacity, '0.75', 'opacity 1 - login_fr, as their login layer');
   assert.strictEqual(card.element.style.opacity, '0.75');
@@ -139,7 +139,7 @@ test('slxCard: Killed by NAME from the kill feed naming this snake; another vict
   P.S.lastscore.innerHTML = LASTSCORE(77);
   P.slx.fire('menuShow');
   assert.strictEqual(P.slx.card.state().title, 'Killed by Kestrel');
-  assert.strictEqual(cardEl(P).textContent.indexOf('Killed by Kestrel77length'), 0, 'the verdict over the big figure');
+  assert.strictEqual(cardEl(P).textContent.indexOf('Killed by KestrelFreeLength77'), 0, 'the verdict over Free, the length first in the tray');
   P.slx.fire('menuFade', 1);
   // a new socket forgets it; a line more than 1.5 s after the death is someone else's
   P.slx.fire('open');
@@ -180,7 +180,7 @@ test('slxCard: close path, Too slow, cash-out, and no length without an own snak
     assert.strictEqual(st.kind, c.kind, c.name);
     assert.strictEqual(st.title, c.title, c.name);
     assert.strictEqual(st.length, '57', c.name);
-    assert.strictEqual(bigText(P), '57', c.name + ': the length as the big figure');
+    assert.strictEqual(bigText(P), 'Free', c.name + ': a free game says Free');
     assert.deepStrictEqual(plain(st.facts), ['Top rank 2nd'], c.name + ': the rank as the socket closed');
     assert.strictEqual(st.again, 'Play again', c.name);
   }
@@ -193,7 +193,7 @@ test('slxCard: close path, Too slow, cash-out, and no length without an own snak
   C.slx.fire('menuShow');
   assert.strictEqual(C.slx.card.state().title, 'Cashed out');
   assert.strictEqual(C.slx.card.state().length, '812');
-  assert.strictEqual(bigText(C), '812', 'a free cash-out: the length is the big figure, no money');
+  assert.strictEqual(bigText(C), 'Free', 'a free cash-out: Free as the big figure, the length in the tray, no money');
   assert.strictEqual(C.find('dse-led').length, 0);
   // a close while playing with no own snake: their gameOver cannot write a length, so the card shows none
   const N = page('slxCard.js', { S: { slither: null } });

@@ -313,8 +313,9 @@ for (const g of [
     assert.ok(c, 'the shared card is on screen');
     assert.strictEqual(c.verdict, 'Nia wins');
     assert.deepStrictEqual(c.notes, ['Owen left the match.', 'Next match in a few seconds.']);
-    assert.strictEqual(c.hero, g.p === 'ko' ? '2' : '3', 'turns, or the winner\'s shots');
-    assert.strictEqual(c.unit, g.p === 'ko' ? 'turns' : 'shots');
+    assert.strictEqual(c.hero, 'Free');   // a free game says Free; its score is the first tray row (Owen 2026-10-16)
+    assert.deepStrictEqual(c.facts[0], [g.p === 'ko' ? 'Turns' : 'Shots', g.p === 'ko' ? '2' : '3'], 'turns, or the winner\'s shots');
+    assert.strictEqual(c.unit, null);
     assert.deepStrictEqual(c.buttons.map(b => b.text), ['Next match', 'Lobby']);
     page.runTimers();
     same(page.sent(g.p + ':watch').pop()[1], { after: m.match.id, stake: 0 });
@@ -382,8 +383,9 @@ for (const g of [
     page.deliver(g.p + ':over', g.over());
     let c = page.card();
     assert.strictEqual(c.verdict, 'You win');
-    assert.strictEqual(c.hero, g.hero);
-    assert.strictEqual(c.unit, g.unit);
+    assert.strictEqual(c.hero, 'Free');   // a free game says Free; its score is the first tray row (Owen 2026-10-16)
+    assert.ok(c.facts.some((f) => f[1] === g.hero), 'the count is in the tray once');
+    assert.strictEqual(c.unit, null);
     assert.strictEqual(c.tone, 'plain');
     assert.deepStrictEqual(c.ledger, [], 'no money on a free table');
     assert.deepStrictEqual(c.buttons.map(b => [b.text, b.primary]), [['Play again', true], ['Lobby', false]]);
@@ -436,7 +438,7 @@ for (const g of [
     assert.strictEqual(c.verdict, 'Nia wins');
     assert.strictEqual(c.tone, 'loss');
     assert.strictEqual(c.hero, '−$1.00');
-    assert.strictEqual(c.unit, 'lost');
+    assert.strictEqual(c.unit, null);   // money lost stands alone (Owen 2026-10-16)
     assert.deepStrictEqual(c.ledger, []);
   });
 
