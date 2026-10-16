@@ -1076,7 +1076,124 @@ body.ingame .tkrun{animation-play-state:paused}
 }
 
 /* ── detail ─────────────────────────────────────────────────────────── */
-#detail,#allgames,#settings-screen,#events-screen,#shop-screen{display:none}
+#detail,#allgames,#settings-screen,#events-screen,#shop-screen,#clips-screen,#updates-screen{display:none}
+/* ── Clips and Updates (Owen 2026-10-16): PC only ─────────────────────────────
+   Both tabs exist only on a PC. Under 761px, or on a touch-only screen (a phone
+   held sideways gets the sidebar layout too), their nav buttons and screens are
+   not there at all, and go() sends a stray visit home, so the phone's tab bar
+   and swipe order are exactly what they were. */
+@media(max-width:760px),(hover:none) and (pointer:coarse){
+  .ni.pconly,#clips-screen,#updates-screen{display:none!important}
+}
+/* Something new behind a tab: a small red dot on its icon. */
+.ni.dot::after{content:"";position:absolute;left:26px;top:9px;width:7px;height:7px;border-radius:50%;
+  background:#e5534b;box-shadow:0 0 0 2px var(--bg)}
+
+/* Clips, look A: a wall of clips, Top clippers on the right. The video plays
+   from X, YouTube or TikTok in a sheet (public/js/v2/clips.js). */
+#clips-screen.wrap{max-width:1180px}
+.clhead{gap:20px}
+.clsub{color:var(--tx2);font-size:14.5px;line-height:1.5;margin-top:8px;max-width:62ch}
+.clsend{flex:none;display:inline-flex;align-items:center;gap:8px;background:var(--bone);color:var(--ink);
+  font-weight:600;font-size:14px;padding:11px 17px;border-radius:var(--r2);transition:transform .15s}
+.clsend:hover{transform:translateY(-1px)}
+.clsend svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round}
+.clwall{display:grid;grid-template-columns:minmax(0,1fr) 250px;gap:28px;align-items:start;padding-bottom:64px}
+.clgrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:24px 18px}
+@media(max-width:1180px){.clgrid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:920px){.clwall{grid-template-columns:minmax(0,1fr)}.cltop{order:-1}}
+.clpic{display:block;width:100%;position:relative;aspect-ratio:16/9;border-radius:12px;overflow:hidden;
+  background:#000 center/cover no-repeat;cursor:pointer}
+.clpic::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,transparent 55%,rgba(0,0,0,.5))}
+.clplay{position:absolute;left:50%;top:50%;width:52px;height:52px;margin:-26px 0 0 -26px;border-radius:50%;z-index:1;
+  background:rgba(16,14,11,.72);display:grid;place-items:center;backdrop-filter:blur(4px);transition:transform .15s}
+.clpic:hover .clplay{transform:scale(1.08)}
+.clplay::before{content:"";border-left:15px solid var(--bone);border-top:9px solid transparent;
+  border-bottom:9px solid transparent;margin-left:4px}
+.clsrc{position:absolute;right:9px;top:9px;z-index:1;background:rgba(16,14,11,.78);color:var(--tx);
+  font-size:11.5px;font-weight:650;padding:4px 8px;border-radius:var(--r1)}
+.cldur{position:absolute;right:9px;bottom:9px;z-index:1;font-size:12px;color:var(--tx)}
+.clcap{font-size:14.5px;font-weight:600;line-height:1.3;margin-top:10px;letter-spacing:-.15px;overflow-wrap:anywhere}
+.clby{display:flex;gap:8px;align-items:baseline;margin-top:6px;font-size:12.5px;min-width:0}
+.clname{font-weight:600;color:var(--tx2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.clgame{color:var(--tx3);white-space:nowrap}
+.clempty{grid-column:1/-1;background:var(--s1);border-radius:var(--r3);padding:44px 28px;text-align:center;
+  color:var(--tx2);font-size:14.5px;line-height:1.5;display:flex;flex-direction:column;gap:6px;align-items:center}
+.clempty b{color:var(--tx);font-size:17px;font-weight:650}
+.cltop{background:var(--s1);border-radius:var(--r3);padding:16px 16px 10px}
+.cltoph{font-size:15px;font-weight:650;letter-spacing:-.2px;margin-bottom:6px}
+.cltr{display:flex;gap:10px;align-items:center;padding:9px 0;font-size:13.5px;border-top:1px solid var(--s2)}
+.cltoph+.cltr{border-top:0}
+.cltn{color:var(--tx3);width:16px;font-size:12.5px}
+.cltnm{flex:1;font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cltc{color:var(--tx2);font-size:12.5px;white-space:nowrap}
+.cltopnone{color:var(--tx3);font-size:13px;line-height:1.5;padding:2px 0 8px}
+/* The owner's queue: only the owner wallet ever gets it (the server decides). */
+#cl-queue{background:var(--s1);border-radius:var(--r3);padding:18px 18px 20px;margin-bottom:28px}
+.clqh{font-size:15px;font-weight:650;display:flex;gap:10px;align-items:center}
+.clqn{font-size:12px;background:var(--bone);color:var(--ink);border-radius:var(--rf);padding:1px 8px;font-weight:600}
+.clqnone{color:var(--tx3);font-size:13.5px;margin-top:8px}
+.clqlist{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:20px 16px;margin-top:14px}
+@media(max-width:1180px){.clqlist{grid-template-columns:repeat(3,minmax(0,1fr))}}
+.clacts{display:flex;gap:6px;align-items:center;margin-top:10px;flex-wrap:wrap}
+.clok,.clno{font-size:13px;font-weight:650;padding:8px 13px;border-radius:var(--r2);transition:background .15s}
+.clok{background:var(--live);color:var(--ink)}
+.clno{background:var(--s3);color:var(--tx)}
+.clok:disabled,.clno:disabled{opacity:.5;cursor:default}
+.cllink{font-size:12.5px;color:var(--tx2);margin-left:auto;text-decoration:underline;text-underline-offset:3px;white-space:nowrap}
+.cllink:hover{color:var(--tx)}
+/* The player sheet: as big as the screen allows at the clip's own shape. */
+.clbox{width:min(1100px,100%,calc((100vh - 150px) * 1.7778));display:flex;flex-direction:column;gap:14px}
+.clbox.tall{width:min(420px,100%,calc((100vh - 150px) * .5625))}
+.clstage{position:relative;aspect-ratio:16/9;background:#000;border-radius:14px;overflow:hidden}
+.clbox.tall .clstage{aspect-ratio:9/16}
+.clstage iframe,.clstage video{position:absolute;inset:0;width:100%;height:100%;border:0;background:#000}
+.clnovid{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:6px;color:var(--tx2);font-size:14px;text-align:center;padding:20px}
+.clnovid b{color:var(--tx);font-size:17px;font-weight:650}
+.clmeta{display:flex;gap:14px;align-items:flex-start}
+.clmw{flex:1;min-width:0}
+.clmcap{display:block;font-size:18px;font-weight:650;letter-spacing:-.3px;line-height:1.3;overflow-wrap:anywhere}
+.clmeta .cllink{margin:4px 0 0}
+.clx{flex:none;width:40px;height:40px;margin:-6px -8px 0 0;border-radius:var(--r2);color:var(--tx2);font-size:15px;
+  display:grid;place-items:center}
+.clx:hover{color:var(--tx);background:var(--s2)}
+/* Sending one: the same sheet as How to play. */
+#clsubveil .howcard{max-width:460px}
+.clsubp{color:var(--tx2);font-size:13.5px;line-height:1.5;margin:-6px 0 2px}
+#cl-form .slbl{margin-top:16px}
+.clin{display:block;width:100%;background:var(--bg);border:none;border-radius:var(--r2);color:var(--tx);
+  font:inherit;font-size:14.5px;padding:12px 13px;outline:none}
+.clin::placeholder{color:var(--tx3)}
+.clin:focus-visible{outline:2px solid var(--bone);outline-offset:2px}
+.clsegs{display:flex;gap:6px;flex-wrap:wrap}
+.clseg{background:var(--bg);color:var(--tx2);font-size:13px;font-weight:600;padding:8px 12px;border-radius:var(--r2)}
+.clseg.on{background:var(--s3);color:var(--tx)}
+.clerr{color:#f08b7f;font-size:13px;line-height:1.4;min-height:18px;margin:12px 0 6px}
+.clsubacts{display:flex;gap:8px}
+
+/* Updates, look A: a timeline, newest at the top (public/js/v2/updates.js,
+   posts in public/updates.json). A filled stop is a post not seen yet. */
+#updates-screen>.head,#up-list{max-width:680px;margin-left:auto;margin-right:auto}
+.upsub{color:var(--tx2);font-size:14.5px;margin-top:8px}
+#up-list{position:relative;padding:0 0 64px 120px}
+#up-list::before{content:"";position:absolute;left:101px;top:8px;bottom:72px;width:2px;background:var(--s2)}
+.uppost{position:relative;padding-bottom:32px}
+.uppost::before{content:"";position:absolute;left:-24px;top:7px;width:12px;height:12px;border-radius:50%;
+  background:var(--bg);border:2px solid var(--tx3)}
+.uppost.fresh::before{border-color:var(--live);background:var(--live)}
+.upd{position:absolute;left:-120px;top:4px;width:86px;text-align:right;font-size:13px;color:var(--tx2)}
+.uptag{display:inline-flex;gap:6px;align-items:center;font-size:12px;font-weight:650;background:var(--s2);
+  border-radius:var(--r1);padding:3px 8px 3px 7px}
+.uptag::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.uptag.t-new{color:var(--live)}
+.uptag.t-fix{color:#8fb3d9}
+.uptag.t-event{color:var(--money)}
+.uptag.t-heads-up{color:#e58a8a}
+.uph{font-size:17px;font-weight:650;letter-spacing:-.3px;line-height:1.3;margin-top:8px}
+.upb{color:var(--tx2);font-size:14.5px;line-height:1.6;margin-top:6px;max-width:60ch}
+.upnone{color:var(--tx2);font-size:14.5px;margin-left:-120px}
+
 .back{font-size:13px;color:var(--tx2);padding:26px 0 0;display:inline-block}
 .back:hover{color:var(--tx)}
 /* ── how to play ─────────────────────────────────────────────────────── */
@@ -2487,6 +2604,54 @@ body.scr-anim { overflow-x:hidden }
   </div>
 </main>
 
+<!-- Clips (public/js/v2/clips.js): player clips that play from X, YouTube or
+     TikTok, approved by the owner. PC only. -->
+<main id="clips-screen" class="wrap">
+  <div class="head clhead">
+    <div><h2>Clips</h2>
+      <p class="clsub">The best DuelSeries moments, from players. Post your clip on X, YouTube or TikTok, send the link here, and it goes on the wall once it is approved.</p></div>
+    <span class="sp"></span>
+    <button type="button" class="clsend" onclick="V2Clips.openSubmit()"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Submit a clip</button>
+  </div>
+  <section id="cl-queue" aria-label="Clips waiting for review" hidden></section>
+  <div class="clwall">
+    <div id="cl-grid" class="clgrid"></div>
+    <aside id="cl-top" class="cltop" aria-label="Top clippers"></aside>
+  </div>
+</main>
+
+<!-- Updates (public/js/v2/updates.js, posts in public/updates.json). PC only. -->
+<main id="updates-screen" class="wrap">
+  <div class="head"><div><h2>Updates</h2><p class="upsub">What is new on DuelSeries, newest first.</p></div></div>
+  <div id="up-list"></div>
+</main>
+
+<div id="clveil" class="howveil" role="dialog" aria-modal="true" aria-label="Clip">
+  <div id="clbox" class="clbox"></div>
+</div>
+<div id="clsubveil" class="howveil" role="dialog" aria-modal="true" aria-labelledby="clsubtitle">
+  <div class="howcard">
+    <div class="howtop"><h2 id="clsubtitle">Submit a clip</h2>
+      <button type="button" class="howx" onclick="V2Clips.closeSubmit()" aria-label="Close">&#10005;</button>
+    </div>
+    <p class="clsubp">Post your clip on X, YouTube or TikTok first, then paste the link. It shows on the wall once it is approved.</p>
+    <form id="cl-form" novalidate>
+      <label class="slbl" for="cl-url">Link to your post</label>
+      <input class="clin" id="cl-url" type="url" inputmode="url" autocomplete="off" spellcheck="false" maxlength="300"
+             placeholder="https://x.com/you/status/...">
+      <label class="slbl" for="cl-cap">Caption</label>
+      <input class="clin" id="cl-cap" maxlength="140" autocomplete="off" placeholder="Say what happens (optional)">
+      <span class="slbl" id="cl-gl">Game</span>
+      <div class="clsegs" id="cl-games" role="group" aria-labelledby="cl-gl"></div>
+      <p class="clerr" id="cl-err" role="alert"></p>
+      <div class="clsubacts">
+        <button type="button" class="btn sec" onclick="V2Clips.closeSubmit()">Cancel</button>
+        <button type="submit" class="btn pri" id="cl-send">Submit clip</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <!-- Structure copied from #appearance-screen in index.html: a full-screen
      takeover with the snake filling it, slither's own 87x88 arrow art at the
      quarter and three-quarter marks, and one Save button. No cancel; Back is
@@ -2571,6 +2736,8 @@ body.scr-anim { overflow-x:hidden }
 <script src="/js/v2/socialPreview.js"></script>
 <script src="/js/v2/leaders.js"></script>
 <script src="/js/v2/social.js"></script>
+<script src="/js/v2/clips.js"></script>
+<script src="/js/v2/updates.js"></script>
 <script src="/js/v2/wallet.js"></script>
 <script src="/js/v2/stats.js"></script>
 <script src="/js/v2/board.js"></script>
@@ -4386,10 +4553,18 @@ const NAV=[
   p:'M3 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2H5a2 2 0 0 1-2-2m14 6h.01'},
  {id:'events', t:'Events',  d:'Tournaments and one-off games with a prize on them.',
   p:'M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2'},
- {id:'social', t:'Social',  d:'Friends, challenges and the games they are in right now.',
+ /* Shown as Leaderboards (Owen 2026-10-16); the id stays 'social' so the
+    router, the swipe order and old links keep working. */
+ {id:'social', t:'Leaderboards', d:'Top earners, player search and player profiles.',
   p:'M16 20v-1.5a3.5 3.5 0 0 0-3.5-3.5h-5A3.5 3.5 0 0 0 4 18.5V20M10 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7M20 20v-1.5a3.5 3.5 0 0 0-2.6-3.4M15.5 4.1a3.5 3.5 0 0 1 0 6.8'},
  {id:'shop',   t:'Shop',    d:'Skins for every game.',
   p:'M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4zM3 6h18M16 10a4 4 0 0 1-8 0'},
+ {id:'clips',  t:'Clips',   d:'Player clips from X, YouTube and TikTok.', pc:1,
+  dot:()=>!!(window.V2Clips&&V2Clips.dot()),
+  p:'M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zM10 9.2v5.6l4.6-2.8z'},
+ {id:'updates',t:'Updates', d:'Everything new on DuelSeries, newest first.', pc:1,
+  dot:()=>!!(window.V2Updates&&V2Updates.unread()),
+  p:'M4 11v2a1 1 0 0 0 1 1h2l5 4V6L7 10H5a1 1 0 0 0-1 1zM16 9a4 4 0 0 1 0 6M18.5 6.5a7.5 7.5 0 0 1 0 11'},
  {id:'settings',t:'Settings',d:'Graphics, sound, region and account preferences.',
   p:'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2v.1a2 2 0 1 1-4 0v-.2a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0-1.2-2.9H3a2 2 0 1 1 0-4h.2a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3h.1A1.7 1.7 0 0 0 10.3 3v-.1a2 2 0 1 1 4 0V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 2-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1a1.7 1.7 0 0 0 1.6 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z'},
 ];
@@ -4414,7 +4589,7 @@ const NAV=[
 let route='play';
 function drawNav(){
   document.getElementById('nav').innerHTML=NAV.map(n=>
-    `<button class="ni${n.id===route?' on':''}" onclick="go('${n.id}')" aria-label="${n.t}">
+    `<button class="ni${n.id===route?' on':''}${n.pc?' pconly':''}${n.dot&&n.dot()?' dot':''}" data-tab="${n.id}" onclick="go('${n.id}')" aria-label="${n.t}">
        <svg viewBox="0 0 24 24"><path d="${n.p}"/></svg><span class="lbl">${n.t}</span><span class="tip">${n.t}</span>
      </button>`).join('');
 }
@@ -4423,7 +4598,7 @@ function drawNav(){
    own: it is reached from the board and keeps Social lit while it is up. */
 const SCREENS=['home','allgames','detail','settings-screen',
                'wallet-screen','events-screen','social-screen','player-screen',
-               'shop-screen'];
+               'shop-screen','clips-screen','updates-screen'];
 /* dir: +1 the new screen arrives from the right (you swiped forward), -1 from
    the left, 0 or omitted for no animation. Taps on the nav pass 0 on purpose:
    a tap already tells you what you pressed, and animating it makes the whole
@@ -4487,7 +4662,7 @@ function showScreen(id,dir){
    module loads what. */
 const SCREEN_FOR={play:'home',wallet:'wallet-screen',events:'events-screen',
                   social:'social-screen',shop:'shop-screen',
-                  settings:'settings-screen'};
+                  settings:'settings-screen',clips:'clips-screen',updates:'updates-screen'};
 window.V2_SCREEN_FOR=SCREEN_FOR;
 
 /* Put a tab's real content in place. Shared by the router and by the swipe,
@@ -4499,6 +4674,8 @@ function fillScreen(tab){
   else if(tab==='social')V2Social.load();
   else if(tab==='settings')drawSettings();
   else if(tab==='shop'&&window.V2ShopTab)V2ShopTab.render();
+  else if(tab==='clips'&&window.V2Clips)V2Clips.render();
+  else if(tab==='updates'&&window.V2Updates)V2Updates.render();
   /* Asked on arrival, not on the interval's own schedule. The page only polls
      while its screen is up, so opening the tab used to show a row of dashes
      until the first tick landed.
@@ -4653,7 +4830,13 @@ window.commitScreen=commitScreen;
    derive player avatar colours from. */
 window.showScreen=showScreen;
 window.V2_LOOKS=AVATAR_LOOKS;
+/* Clips and Updates are PC only (see .pconly): on a phone, or a window that
+   shrinks to one while they are up, they are Home. */
+const PC_ONLY=new Set(['clips','updates']);
+const PHONEISH=matchMedia('(max-width:760px),(hover:none) and (pointer:coarse)');
+PHONEISH.addEventListener('change',e=>{if(e.matches&&PC_ONLY.has(route))go('play')});
 function go(id,dir){
+  if(PC_ONLY.has(id)&&PHONEISH.matches)id='play';
   route=id; drawNav();
   const sid=SCREEN_FOR[id]; if(!sid)return;
   fillScreen(id);

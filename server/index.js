@@ -2533,6 +2533,22 @@ const brEngineSwitch = slPaidBoot.createPaidSwitchStore({
   tag: '[BR]', what: 'the battle royale on the new engine',
 });
 let brOnNew = !brEngineSwitch.closedAtBoot().closed;
+/* The Clips tab (server/clips.js): player clips that play from X, YouTube or TikTok, approved by the owner before
+   they show. A small file beside the money journal, like the podium below; CLIPS_PATH moves it. Nothing here touches
+   money. The player's name is the server's (their profile), never one the page sends. */
+const clipsMod = require('./clips');
+const clipStore = clipsMod.createClipStore({
+  file: process.env.CLIPS_PATH || path.join(path.dirname(agJournal.file), 'clips.json'),
+});
+clipsMod.mountClipRoutes(app, {
+  store: clipStore,
+  isOwner: (w) => OWNER_WALLETS.has(w),
+  walletForAction: (b) => ownerAuth.walletForAction(b),
+  nameOf: async (w) => { const p = await db.getMyProfile(w); return (p && p.name) || ''; },
+  limiter: sigLimiter,
+  readLimiter: socialLimiter,
+  audit: ownerAuth.audit,
+});
 /* The last finished match's podium, winner's name and prize outlive a restart
    (Owen 2026-10-16: the Events tab shows them all day while waiting, and every
    deploy emptied it). For showing only: no wallet or match id is kept, so

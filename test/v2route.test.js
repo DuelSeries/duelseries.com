@@ -1034,7 +1034,13 @@ test('every tab owns its own screen node, so a swipe between neighbours has two 
   const s = html.slice(html.indexOf('const SCREENS='), html.indexOf('function showScreen'));
   for (const id of ids) assert.ok(s.includes("'" + id + "'"), id + ' is a routable screen');
   const sw = fs.readFileSync(path.join(ROOT, 'public/js/v2/swipe.js'), 'utf8');
-  for (const id of ids) assert.ok(sw.includes("'" + id + "'"), 'the swipe knows ' + id);
+  /* Clips and Updates are PC only (Owen 2026-10-16): a phone never shows them,
+     so the swipe, which is the phone's, leaves them out on purpose. */
+  const PC_ONLY = ['clips-screen', 'updates-screen'];
+  for (const id of ids) {
+    if (PC_ONLY.includes(id)) assert.ok(!sw.includes("'" + id + "'"), id + ' is not in the phone swipe');
+    else assert.ok(sw.includes("'" + id + "'"), 'the swipe knows ' + id);
+  }
   assert.ok(!/id="stub2?"/.test(html), 'and the shared placeholder is gone for good');
 });
 

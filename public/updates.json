@@ -1,0 +1,82 @@
+{
+  "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
+  "posts": [
+    {
+      "id": "2026-10-16-clips-updates",
+      "date": "2026-10-16",
+      "tag": "new",
+      "title": "Clips and Updates",
+      "body": "Two new tabs on PC. Clips is a wall of the best player moments: post yours on X, YouTube or TikTok, send the link from the Clips tab, and it goes up once it is approved.\n\nUpdates is this page. Everything new on DuelSeries lands here first."
+    },
+    {
+      "id": "2026-10-16-leaderboards",
+      "date": "2026-10-16",
+      "tag": "heads-up",
+      "title": "Social is now Leaderboards",
+      "body": "Same top earners, player search and profiles, under a clearer name."
+    },
+    {
+      "id": "2026-10-16-br-podium",
+      "date": "2026-10-16",
+      "tag": "event",
+      "title": "The battle royale podium is up",
+      "body": "Events shows the last battle royale's top 3 on a podium, and keeps them there until the next match ends."
+    },
+    {
+      "id": "2026-10-16-social-board",
+      "date": "2026-10-16",
+      "tag": "new",
+      "title": "Live leaderboard and player search",
+      "body": "Leaderboards shows the top 3 live and the full top 10. Search any player to see their games and win rate."
+    },
+    {
+      "id": "2026-10-16-shop-stutter",
+      "date": "2026-10-16",
+      "tag": "fix",
+      "title": "Shop opens without a stutter",
+      "body": "The first swipe into Shop used to freeze for a moment. It is smooth now."
+    },
+    {
+      "id": "2026-10-15-spectate",
+      "date": "2026-10-15",
+      "tag": "new",
+      "title": "Spectate any game",
+      "body": "Press Spectate next to Play to watch a match without joining it."
+    },
+    {
+      "id": "2026-10-15-br-engine",
+      "date": "2026-10-15",
+      "tag": "new",
+      "title": "Battle royale runs on the new slither.io",
+      "body": "Same snakes, bots, food and skins as Free play, with battle royale rules on top."
+    },
+    {
+      "id": "2026-10-15-customize",
+      "date": "2026-10-15",
+      "tag": "new",
+      "title": "Customize your look in every game",
+      "body": "Pick your skin from the Customize bar under Play, in every game."
+    },
+    {
+      "id": "2026-10-15-card",
+      "date": "2026-10-15",
+      "tag": "new",
+      "title": "Add funds with a card",
+      "body": "Add funds in the Wallet tab now takes a card. Withdraw works as USDC or SOL."
+    },
+    {
+      "id": "2026-10-15-agar-portrait",
+      "date": "2026-10-15",
+      "tag": "fix",
+      "title": "agar.io plays the way you hold your phone",
+      "body": "No more turn-your-phone card. agar.io plays upright too."
+    },
+    {
+      "id": "2026-10-12-new-slither",
+      "date": "2026-10-12",
+      "tag": "new",
+      "title": "The new slither.io",
+      "body": "Free play runs on the rebuilt slither.io, with smoother turning."
+    }
+  ]
+}

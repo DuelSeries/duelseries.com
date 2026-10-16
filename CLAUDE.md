@@ -78,6 +78,12 @@ Self-custody only (the old custodial escrow + `accounts.balance` ledger were ful
 - **Pushing to `main` triggers an automatic AWS deployment** — this is how the live game updates. If the user says they don't see a change live, first check whether it was actually pushed.
 - **Two servers:** NA is primary (`duelseries.com`), EU is `eu.duelseries.com`; the lobby stakes against the regional server it's about to play on. They share the escrow + DB; EU pushes stats to NA.
 
+## Posting an Update (the lobby's Updates tab, PC only)
+Owen posts by asking Claude ("post an update: ..."). Add the post at the TOP of `posts` in `public/updates.json`: `id` (`YYYY-MM-DD-few-words`, never reused), `date`, `tag` (`new`, `fix`, `event` or `heads-up`), `title`, `body` (plain player words, a blank line starts a paragraph, no em dashes, no money promises). Run `node --test test/clipsUpdatesTabs.test.js`, then commit and push: the deploy is the publish. Players see it newest first with a red dot on the tab until they open it.
+
+## Clips tab (PC only)
+Players paste an X, YouTube or TikTok link; it waits for Owen in the Clips tab's "Waiting for you" list (shown only to the owner wallet, every decision owner-signed) and plays from that site once approved, so AWS serves no video. Code `server/clips.js` + `public/js/v2/clips.js`; records in `server/data/clips.json` on the box (gitignored, survives deploys). `?clips=preview` shows the wall and queue with sample clips.
+
 ## Environment / Gotchas
 - **`.env.example` is STALE** (only lists old SMTP creds). The real env vars the server needs: `REGION` (`na`/`eu`), `DATABASE_URL` (Postgres), `RPC_URL` (Solana RPC — Helius in prod), `SOLANA_NETWORK`, `ESCROW_PRIVATE_KEY`, `ESCROW_PUBLIC_KEY`, `PRIVY_APP_ID`, `PRIVY_APP_SECRET`, `OWNER_WALLET` (optional extra owner), `SESSION_SECRET` (required in prod), `PORT`.
 - **Vestigial leftovers** from removed systems (don't mistake them for live): `accounts.balance`, the `withdrawals`/`deposits`/`verification_codes`/`trusted_devices` tables (custodial + 2FA), and the custodial finance code. The owner dashboard derives "owed" from live in-game stakes, not `accounts.balance`.
