@@ -898,52 +898,48 @@ body.ingame .tkrun{animation-play-state:paused}
   transition:color .15s}
 .evhow:hover{color:var(--tx)}
 @media (prefers-reduced-motion:reduce){#ev-pcap.live::before,.evgo.hot{animation:none}}
-/* One column (a phone, and a PC window too narrow for two): the bar is pinned
-   to the bottom of the screen, faded in over whatever passes under it, so the
-   way in never scrolls away. The side column dissolves (display:contents) so
-   the bar's sticky range is the whole event, not just the bottom half of it:
-   on a short phone it otherwise could not climb above the fold. */
-@media(max-width:1179px){
-  .evgrid{display:flex;flex-direction:column}
-  .evside{display:contents}
-  .evbar{position:sticky;bottom:0;z-index:2;margin-top:16px;padding:14px 0 16px;
-    background:linear-gradient(rgba(16,14,11,0),var(--bg) 26%)}
-  .evhow{margin-top:10px}
-}
-/* A phone scrolls inside main, whose 16px bottom padding the bar covers, and
-   runs the bar edge to edge across the gutter. */
+/* One column everywhere, the podium on top and the battle royale under it
+   (Owen, 2026-10-16: on a PC the card went below the podium, centred, the
+   same order as a phone). Join and Spectate are pinned to the bottom of the
+   screen, faded in over whatever passes under them, so the way in never
+   scrolls away on a short screen. */
+.evgrid{display:flex;flex-direction:column}
+.evbar{position:sticky;bottom:0;z-index:2;margin-top:16px;padding:14px 0 16px;
+  background:linear-gradient(rgba(16,14,11,0),var(--bg) 26%)}
+.evhow{margin-top:10px}
+/* A phone: the side column dissolves (display:contents) so the bar's sticky
+   range is the whole event, not just the bottom half of it, or on a short
+   phone it could not climb above the fold. Main scrolls here, and its 16px
+   bottom padding is covered; the bar runs edge to edge across the gutter. */
 @media(max-width:760px){
+  .evside{display:contents}
   .evbar{bottom:-16px;margin:16px -20px -16px;padding:14px 20px 16px}
 }
 @media(max-width:400px){.evbar{margin-left:-14px;margin-right:-14px;padding-left:14px;padding-right:14px}}
 /* The narrowest phones keep Join's words whole; the arena count goes. */
 @media(max-width:359px){.evwatch small{display:none}}
-@media(min-width:761px) and (max-width:1179px){
-  .evgrid{max-width:620px;margin:0 auto}
-}
-/* Two columns: the podium on the left, the clock and both buttons on a card
-   on the right, Join above Spectate and the link last. Live, Spectate goes
-   first. */
-@media(min-width:1180px){
-  .evgrid{display:grid;grid-template-columns:1.25fr 1fr;gap:30px;align-items:stretch;padding-bottom:30px}
-  .evbar{grid-template-columns:1fr;gap:10px;margin-top:26px}
-  .evbar .evgo{order:-1}
-  .evbar.live .evwatch{order:-2}
-  .evhow{order:3}
-  .evstage{display:flex;flex-direction:column;justify-content:flex-end;padding:24px 28px 0}
-  .pmedal{width:56px;height:56px;font-size:22px}
-  .p1 .pmedal{width:72px;height:72px;font-size:30px}
+/* A PC: one centred column, the podium big, then the battle royale card with
+   the clock and both buttons in it. The bar fades into the card's own colour,
+   and sits on the card's bottom edge when it is not pinned. The podium is a
+   little shorter than it could be so that, on a 720px laptop, the card starts
+   inside the screen and the pinned bar has somewhere to stand. */
+@media(min-width:761px){
+  .evgrid{max-width:760px;margin:0 auto;padding-bottom:30px}
+  .evstage{padding:22px 26px 0}
+  .pmedal{width:52px;height:52px;font-size:21px}
+  .p1 .pmedal{width:64px;height:64px;font-size:27px}
   .pwho{min-height:22px;font-size:17px}
-  .p1 .pwho{min-height:28px;font-size:22px}
-  .p1 .pblock{height:260px}
-  .p2 .pblock{height:184px}
-  .p3 .pblock{height:140px}
-  .pmoney{font-size:28px}
-  .evside{background:var(--s1);border-radius:var(--r3);padding:28px;justify-content:center}
+  .p1 .pwho{min-height:27px;font-size:21px}
+  .p1 .pblock{height:216px}
+  .p2 .pblock{height:154px}
+  .p3 .pblock{height:118px}
+  .pmoney{font-size:27px}
+  .evside{margin-top:16px;background:var(--s1);border-radius:var(--r3);padding:24px 28px}
   .evnext{margin-top:0}
-  .evname{font-size:30px;letter-spacing:-.7px}
-  .evclock b{font-size:64px}
-  .evclock i{font-size:44px}
+  .evname{font-size:26px;letter-spacing:-.6px}
+  .evclock b{font-size:58px}
+  .evclock i{font-size:40px}
+  .evbar{margin:6px 0 -24px;background:linear-gradient(rgba(23,20,15,0),var(--s1) 26%)}
 }
 .note b{color:var(--tx2);font-weight:600}
 .lnk{color:var(--tx2);text-decoration:underline;text-underline-offset:2px}
