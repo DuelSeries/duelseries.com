@@ -120,7 +120,7 @@
       box.innerHTML = '<div class="win-top"><span class="win-k">Global player winnings' +
         (d.preview ? '<span class="win-tag">Preview</span>' : '') + '</span>' +
         '<span class="win-live"><i aria-hidden="true"></i>LIVE</span></div>' +
-        '<span class="win-v num"></span><span class="win-up num" aria-hidden="true"></span>';
+        '<span class="win-vw"><span class="win-v num"></span><span class="win-up num" aria-hidden="true"></span></span>';
     }
     box.hidden = false;
     const v = box.querySelector('.win-v'), up = box.querySelector('.win-up');

@@ -179,9 +179,10 @@ header{position:sticky;top:0;z-index:50;background:rgba(16,14,11,.82);
 }
 
 /* ── settings ───────────────────────────────────────────────────────── */
-/* Two groups, Account and About. Side by side once both fit at a readable
-   width, stacked on a phone, and the same height side by side so the pair
-   reads as one row instead of two boxes that stop at different places.
+/* Two groups, Account and About, one under the other in a single column
+   centred on the page (Owen, 2026-10-16), at every width. The heading sits in
+   the same column, so its first letter lines up with the panels' edge; the
+   column is a phone's width on a PC and the whole screen on a phone.
 
    One row height for the whole page: the name field, the address, the
    button and every link are 48px, so nothing on the page is a different
@@ -189,8 +190,8 @@ header{position:sticky;top:0;z-index:50;background:rgba(16,14,11,.82);
    Three type roles: the group heading, a value or link in the page's own
    white, and a small grey label over a field. */
 #settings-screen{--setrow:48px}
-.setgrid{display:grid;gap:16px;padding-bottom:70px;
-  grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));align-items:stretch}
+#settings-screen>.head,.setgrid{max-width:560px;margin-left:auto;margin-right:auto}
+.setgrid{display:grid;grid-template-columns:minmax(0,1fr);gap:16px;padding-bottom:70px}
 .sh{font-size:16px;font-weight:650;line-height:20px;margin-bottom:16px}
 .slbl{display:block;font-size:13px;font-weight:550;line-height:16px;color:var(--tx3);margin-bottom:8px}
 /* The gap between two fields is bigger than the gap from a label to its own
@@ -587,23 +588,28 @@ body.ingame .tkrun{animation-play-state:paused}
 /* Global player winnings, Owen's look A (2026-10-16): its own panel at the top
    of Social, the figure big in money gold over a glow from below, LIVE with a
    beating dot. When a real cash-out lands the figure counts up to the new
-   total and a small green +$X rises beside it (social.js drawWin). */
+   total and a small green +$X rises beside it (social.js drawWin).
+   All of it on the panel's middle line (Owen, 2026-10-16): the label and LIVE
+   as one centred line, the figure centred under them. */
 #soc-win{position:relative;overflow:hidden;border-radius:var(--r3);padding:16px 18px 18px;margin:56px 0 0;
-  background:radial-gradient(120% 140% at 50% 120%,rgba(240,168,48,.2),rgba(240,168,48,0) 60%),var(--s1)}
+  text-align:center;background:radial-gradient(120% 140% at 50% 120%,rgba(240,168,48,.2),rgba(240,168,48,0) 60%),var(--s1)}
 #soc-win[hidden]{display:none}
 #soc-win+.head{margin-top:36px}   /* the panel takes the screen's first-heading gap; the heading follows it */
-.win-top{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.win-top{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:4px 14px}
 .win-k{font-size:13px;color:var(--tx2);font-weight:500}
 .win-live{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:700;
   letter-spacing:.08em;color:var(--live)}
 .win-live i{width:7px;height:7px;border-radius:50%;background:var(--live);animation:lpulse 1.6s ease-in-out infinite}
 .win-tag{font-size:11px;font-weight:600;color:var(--bg);background:var(--money);border-radius:var(--rf);
   padding:2px 7px;margin-left:8px;vertical-align:1px}
+/* The figure's own box, so the +$X hangs off the number's right edge wherever
+   the centring puts it, instead of off the panel's far corner. */
+.win-vw{position:relative;display:inline-block;margin-top:8px;vertical-align:top}
 .win-v{display:block;font-size:44px;font-weight:600;letter-spacing:-2px;color:var(--money);
-  margin-top:8px;line-height:1;transition:text-shadow .3s}
+  line-height:1;transition:text-shadow .3s}
 .win-v.hit{text-shadow:0 0 22px rgba(240,168,48,.55)}
-.win-up{position:absolute;right:18px;bottom:20px;font-size:14px;font-weight:600;color:var(--live);
-  opacity:0;pointer-events:none}
+.win-up{position:absolute;left:100%;bottom:3px;margin-left:10px;font-size:14px;font-weight:600;color:var(--live);
+  white-space:nowrap;opacity:0;pointer-events:none}
 .win-up.rise{animation:winUp 1.6s ease-out forwards}   /* not .go: that is the Play button */
 @keyframes winUp{0%{opacity:0;transform:translateY(8px)}15%{opacity:1;transform:none}
   70%{opacity:1;transform:none}100%{opacity:0;transform:translateY(-10px)}}
