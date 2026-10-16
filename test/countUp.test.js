@@ -85,3 +85,53 @@ test('countUp: ONLY the podium, the leaderboards and the wallet balances count u
   assert.ok(!/function countUp|counted/.test(js('earnings.js')), 'and the strip has no counter of its own');
   assert.ok(!/requestAnimationFrame/.test(js('social.js')), 'nor does the winnings figure');
 });
+
+/* "$-1" for one frame (2026-10-16). A roll starts at performance.now() in the
+   flush, but the frame that draws it is handed the frame's START time, which
+   can be a few ms earlier. That negative progress went through the expo ease
+   (1 - 2^(-10k) is below 0 for k < 0), so a roll up from $0 drew a figure
+   below zero. Real roll, fake page: no frame may ever be negative or NaN. */
+function page() {
+  let mo = null, clock = 1000;
+  const frames = [], micro = [];
+  const el = {
+    nodeType: 1, isConnected: true, id: '', style: {}, _attrs: { 'data-cu': 'w' },
+    firstChild: null, textContent: '',
+    getAttribute: k => (k in el._attrs ? el._attrs[k] : null), hasAttribute: k => k in el._attrs,
+    closest: s => (s === '[data-cu]' ? el : null), matches: s => s === '[data-cu]',
+    querySelectorAll: () => [], getClientRects: () => [1], getBoundingClientRect: () => ({ width: 40 }),
+  };
+  const node = { nodeType: 3, nextSibling: null, data: '' };
+  el.firstChild = node;
+  Object.defineProperty(el, 'textContent', { get: () => node.data, set: v => { node.data = v; } });
+  const win = {
+    document: { documentElement: {}, body: { classList: { contains: () => false } }, hidden: false },
+    MutationObserver: function (cb) { mo = cb; this.observe = () => {}; this.takeRecords = () => []; },
+    performance: { now: () => clock },
+    queueMicrotask: f => micro.push(f),
+    requestAnimationFrame: f => { frames.push(f); return frames.length; },
+    getComputedStyle: () => ({ display: 'inline-block', boxSizing: 'border-box' }),
+  };
+  win.window = win;
+  vm.runInNewContext(read('public/js/v2/countUp.js'), win);
+  return {
+    // The renderer writes the final figure; the observer sees it.
+    render(txt) { node.data = txt; mo([{ target: el, addedNodes: [] }]); while (micro.length) micro.shift()(); },
+    // A frame whose start time is `back` ms before the clock (rAF is given the frame's start).
+    frame(back) { clock += 16; const q = frames.splice(0); q.forEach(f => f(clock - back)); return node.data; },
+    shown: () => node.data,
+  };
+}
+
+test('countUp: no frame is ever negative or NaN, even when the frame time is before the roll began', () => {
+  for (const fin of ['$1', '$12.50', '$0.50', '$1,234.56', '$20 to 1st']) {
+    for (const back of [0, 5, 15, 20, 40]) {
+      const p = page();
+      p.render(fin);
+      const seen = [p.shown()];
+      for (let i = 0; i < 120; i++) seen.push(p.frame(i === 0 ? back : 0));
+      for (const s of seen) assert.ok(!/-|NaN|Infinity/.test(s), fin + ' (frame ' + back + ' ms early) drew ' + JSON.stringify(s));
+      assert.strictEqual(seen[seen.length - 1], fin, 'and it lands on the renderer\'s own string');
+    }
+  }
+});

@@ -86,7 +86,10 @@
     return { get: () => map.get(key), set: e => { map.set(key, e); } };
   }
 
-  const valueAt = (a, now) => a.from + (a.to - a.from) * ease(Math.min(1, (now - a.t0) / a.d));
+  /* Progress is held to 0..1. A frame is handed its START time, which can be a
+     few ms before the performance.now() a roll began at, and the expo ease is
+     below 0 for negative progress: a roll up from $0 drew "$-1" for a frame. */
+  const valueAt = (a, now) => a.from + (a.to - a.from) * ease(Math.min(1, Math.max(0, (now - a.t0) / a.d)));
 
   // Width is held at the widest the figure will be, so nothing beside it moves.
   function hold(el) {
