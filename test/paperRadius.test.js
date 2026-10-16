@@ -13,7 +13,7 @@ function paidWith(n, ring = 150) {
   const humans = [];
   for (let i = 0; i < n; i++) {
     const h = g.spawnHuman({ name: 'h' + i }, at(ring, 0.3 + (i * Math.PI * 2) / n));
-    h.locked = true;
+    h.still = true;
     humans.push(h);
   }
   return { g, humans };
@@ -84,7 +84,7 @@ test('a re-buy inside the delay cancels the shrink', () => {
   g.removeHuman(humans[0].id, REASON.LEAVE);
   tick(g, 100);
   const back = g.spawnHuman({ name: 'again' }, humans[0].position.clone());
-  back.locked = true;
+  back.still = true;
   for (let i = 0; i < 400; i++) {
     tick(g);
     assert.strictEqual(g.border.radius, top);
@@ -97,11 +97,11 @@ test('shrink end bumps wireVer once on every wall-touched base and clears the fl
   const inner = [];
   for (let i = 0; i < 4; i++) {
     const h = g.spawnHuman({ name: 'in' + i }, at(150, 0.3 + (i * Math.PI) / 2));
-    h.locked = true;
+    h.still = true;
     inner.push(h);
   }
   const edge = g.spawnHuman({ name: 'edge' }, at(440, 0.3 + Math.PI / 4));
-  edge.locked = true;
+  edge.still = true;
   tick(g, 200);
   assert.strictEqual(g.border.radius, MP.radiusFor(5));
   const before = new Map(g.units.map(u => [u, u.base.wireVer]));

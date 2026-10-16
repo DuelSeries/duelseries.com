@@ -57,6 +57,16 @@ function watchPage(o) {
   return Object.assign(P, { ss, ends, posted, hold });
 }
 
+test('a paid rung: dsWatchStake goes out as watchStake (and nothing else of money); taken out with the mark', () => {
+  const P = watchPage({ session: { dsWatch: 'snake', dsWatchStake: '1', playerName: 'Owen' } });
+  assert.deepStrictEqual(P.ss.keys(), ['playerName'], 'both marks taken out at boot');
+  assert.strictEqual(JSON.stringify(P.slx.watchAuth()), '{"watch":1,"watchStake":1}');
+  for (const bad of ['0', '-1', 'x', '']) {
+    const Q = watchPage({ session: { dsWatch: 'snake', dsWatchStake: bad } });
+    assert.strictEqual(JSON.stringify(Q.slx.watchAuth()), '{"watch":1}', 'no stake for ' + JSON.stringify(bad));
+  }
+});
+
 // A life on screen, watching snake id under name.
 function live(P, id, name) {
   P.slx.fire('open');

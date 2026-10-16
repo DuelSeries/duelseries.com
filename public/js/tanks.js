@@ -20,7 +20,7 @@
   const socket = io();
 
   const name = (() => {
-    try { return sessionStorage.getItem('playerName') || 'Player'; } catch (_) { return 'Player'; }
+    try { return sessionStorage.getItem('playerName') || localStorage.getItem('duelseries_playername') || 'Player'; } catch (_) { return 'Player'; }
   })();
   const wallet = (() => {
     try { return localStorage.getItem('duelseries_wallet') || null; } catch (_) { return null; }

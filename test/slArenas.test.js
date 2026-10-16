@@ -258,3 +258,71 @@ test('a FIXTURE table opens only with shippableOnly false (the dev boot)', () =>
   A.close();
   assert.strictEqual(A.isOpen(), false);
 });
+
+test('keepAwake: the free room ticks from boot with nobody in it, fills its bots, never idle-pauses; a replacement wakes too', () => {
+  const r = rig({ bots: true });
+  const A = r.arenas;
+  const room = A.room();
+  assert.strictEqual(room.sim.tick(), 0, 'nothing ticks before keepAwake');
+  assert.strictEqual(A.keepAwake(), true);
+  assert.strictEqual(room.awake, true);
+  r.ft.run(30000);
+  assert.ok(room.sim.tick() > 100, 'ticking with nobody seated');
+  assert.ok(A.botTotal() > 0, 'bots filled before anybody came: ' + A.botTotal());
+  assert.strictEqual(A.boardRows()[0].bots, A.botTotal(), 'the card counts the room\'s real bots');
+  r.ft.run(120000);
+  assert.strictEqual(room.paused, false, 'two minutes past C_IDLE_PAUSE_MS and still awake');
+  assert.strictEqual(room.stats.pauses, 0);
+  // a seat comes and goes: still no pause after it leaves
+  const s = r.sock();
+  s.fire('sl:join', { nick: 'x' });
+  r.ft.run(1000);
+  s.fire('sl:leave');
+  r.ft.run(90000);
+  assert.strictEqual(room.paused, false);
+  // an emergency close with people in it: the replacement is awake at once
+  const s2 = r.sock();
+  s2.fire('sl:join', { nick: 'y' });
+  room.emergencyClose();
+  const next = A.room();
+  assert.notStrictEqual(next, room);
+  assert.strictEqual(next.awake, true);
+  const t0 = next.sim.tick();
+  r.ft.run(2000);
+  assert.ok(next.sim.tick() > t0, 'the replacement ticks');
+  // an empty one closing again inside the minute is not woken (no create, fail, close loop) ...
+  next.emergencyClose();
+  assert.strictEqual(A.room().awake, false);
+  // ... and one that closes after the gap is
+  r.wall.t += 61000;
+  A.room().emergencyClose();
+  assert.strictEqual(A.room().awake, true);
+  A.close();
+});
+
+test('without keepAwake the free room keeps the idle pause (paid rooms and the battle royale never take awake)', () => {
+  const r = rig({ bots: true, arenas: { autoTick: true } });
+  const room = r.arenas.room();
+  const s = r.sock();
+  s.fire('sl:join', { nick: 'x' });
+  r.ft.run(1000);
+  s.fire('sl:leave');
+  r.ft.run(70000);
+  assert.strictEqual(room.paused, true);
+  // setAwake refuses any room holding money or a battle royale match
+  room.money = { openCount: () => 0 };
+  assert.strictEqual(room.setAwake(true), false);
+  room.money = null;
+  room.br = {};
+  assert.strictEqual(room.setAwake(true), false);
+  room.br = null;
+  r.arenas.close();
+});
+
+test('the server opens the free room awake (slBoot openSl awake: true), so the card is full from boot', () => {
+  const src = require('fs').readFileSync(require('path').join(__dirname, '../server/index.js'), 'utf8');
+  const call = src.slice(src.indexOf('const slOpened = slBoot.openSl({'), src.indexOf('const slArenas = slOpened.arenas;'));
+  assert.match(call, /\n  awake: true,\n/);
+  const boot = require('fs').readFileSync(require('path').join(__dirname, '../server/sl/slBoot.js'), 'utf8');
+  assert.match(boot, /if \(o\.awake === true\) arenas\.keepAwake\(\);/);
+});

@@ -927,12 +927,19 @@
       var skinId = win.localStorage ? win.localStorage.getItem('duel.ag.skin') : null;
       if (typeof skinId === 'string' && skinId && skinId.length <= 32) auth.skin = skinId;
     } catch (e) { /* storage blocked: a dealt colour */ }
+    // The lobby's Spectate on a paid rung (spectateOnly plus dsWatchStake, both written by public/js/v2/play.js):
+    // the rung to watch, read only on the server (agArenas.connectWatch). Never with a paid hand-off, never a buy-in.
+    try {
+      var ss = win.sessionStorage;
+      var ws = ss && ss.getItem('spectateOnly') === 'true' ? Number(ss.getItem('dsWatchStake')) : 0;
+      if (!flow && isFinite(ws) && ws > 0) auth.watchStake = ws;
+    } catch (e) { /* storage blocked: the free room */ }
     if (cfg.net !== false && A.agNet && typeof win.io === 'function' && !(flow && flow.offline())) {
       var connectNow = function () {
         if (net || destroyed) return;
         net = A.agNet.connect(win.io, applyMessage, {
           url: cfg.url,
-          ioOptions: flow || auth.skin ? { auth: auth } : undefined,
+          ioOptions: flow || auth.skin || auth.watchStake ? { auth: auth } : undefined,
           onEvent: onSideEvent,
           onConnect: function () {
             var queued = { play: pending.play, spectate: pending.spectate };

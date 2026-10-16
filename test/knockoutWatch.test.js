@@ -354,3 +354,21 @@ test('the matches a watcher can step through are kept up to date', () => {
   const told = roomSent.filter(s => s.room === one.watchRoomName && s.ev === 'ko:matches');
   assert.deepStrictEqual(told[told.length - 1].p, { index: 1, count: 2 }, 'a second match is on offer');
 });
+
+test('watching by stake (the lobby\'s Spectate on a buy-in): only tables at that stake, none when nothing runs there', () => {
+  const { lob } = rig();
+  const A = sock('sockA-1'), B = sock('sockB-1');
+  lob.enqueue(A, 'Owen', null, 0, 0);
+  lob.enqueue(B, 'Nia', null, 0, 0);
+  const room = lob.roomOf(A.id);
+  room.stake = 0.5; // stands for a paid table: watchers are sent the same public state whatever the stake
+  const W = sock('w-half');
+  assert.strictEqual(lob.watch(W, { stake: 0.5 }).roomId, room.id);
+  const N = sock('w-one');
+  assert.strictEqual(lob.watch(N, { stake: 1 }).ok, false);
+  assert.deepStrictEqual(N.last('ko:watching'), { none: true });
+  const F = sock('w-free');
+  assert.strictEqual(lob.watch(F, { stake: 0 }).ok, false, 'Free shows Free tables only');
+  const Any = sock('w-any');
+  assert.strictEqual(lob.watch(Any, {}).roomId, room.id, 'no stake: every table, as before');
+});

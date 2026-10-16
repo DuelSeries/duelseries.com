@@ -264,15 +264,15 @@
     this.socket.emit('pp:leave');
   };
 
-  // Watch mode: { stake: 0, after?: unit id } and nothing else (no name, no token, no resumeKey). Only the free
-  // rung can be watched. Asked again by the page while nothing is shown, and by onConnect after a drop.
+  // Watch mode: { stake, after?: unit id } and nothing else (no name, no token, no resumeKey). stake is the rung to
+  // watch (this.watchStake, set by the page from the lobby's dsWatchStake; 0 for Free), never a buy-in. Asked again by the page while nothing is shown, and by onConnect after a drop.
   ArenaNet.prototype.watch = function (opts) {
     opts = opts || {};
     this.watching = true;
     this.seated = false;
     this.resuming = false;
     this.resumeKey = null;
-    var msg = { stake: 0 };
+    var msg = { stake: this.watchStake > 0 ? this.watchStake : 0 }; // a paid rung's table to watch, never a buy-in
     if (opts.after > 0) msg.after = opts.after | 0;
     this._watchAsked = true;
     this.socket.emit('pp:watch', msg);

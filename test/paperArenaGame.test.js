@@ -61,17 +61,22 @@ test('two humans steer from their own bytes', () => {
   assert.strictEqual(a.seqAck, seqs.get(a));
 });
 
-test('a locked square does not move at all', () => {
+test('a locked square (the cash-out hold) goes straight on at its normal speed and cannot turn', () => {
   const g = wideArena();
   const h = g.spawnHuman({ name: 'h' }, at(200, 1.1));
   tick(g, 5);
   h.locked = true;
   const p = h.position.clone();
-  for (let i = 0; i < 120; i++) { steer(g, h, 40); tick(g); }
-  assert.strictEqual(h.position.distance(p).toFixed(3), '0.000');
+  const dir = h.direction;
+  for (let i = 0; i < 60; i++) { steer(g, h, 40); tick(g); }
+  const moved = h.position.clone().sub(p);
+  const speed = g.config.unitSpeed;
+  assert.ok(Math.abs(moved.magnitude() - speed * 60 * MP.STEP_MS / 1000) < 0.5, 'normal speed: ' + moved.magnitude());
+  assert.ok(Math.abs(h.direction - dir) < 1e-9, 'the heading never changed');
+  assert.ok(Math.abs(Math.atan2(moved.y, moved.x) - Math.atan2(Math.sin(dir), Math.cos(dir))) < 1e-6, 'straight ahead');
   h.locked = false;
   tick(g, 10);
-  assert.ok(h.position.distance(p) > 10, 'unlocking restores steering');
+  assert.ok(Math.abs(h.direction - dir) > 0.01, 'unlocking restores steering');
 });
 
 test('two interleaved arenas keep separate grids', () => {
@@ -111,7 +116,7 @@ test('exact-east from y = 1000 never hangs, and the push puts the square back in
   const h = g.spawnHuman({ name: 'axis' }, new P.Vec2(1880, 1000));
   for (let i = 0; i < 200 && h.position.x < 1948; i++) { steer(g, h, 0); tick(g); }
   assert.ok(!h.death && h.position.x >= 1948, 'at the wall: ' + h.position.x);
-  h.locked = true;
+  h.still = true;
   g._target = 900;
   let pushes = 0;
   for (let i = 0; i < 1200; i++) {
@@ -217,7 +222,7 @@ test('the magnet path: a far long human trail pulls the nearest bot into attack'
   away.normalize();
   const s = new P.Vec2(C + away.x * 450 + 0.7, C + away.y * 450 + 0.9);
   const h = g.spawnHuman({ name: 'long' }, s);
-  h.locked = true;
+  h.still = true;
   // A 1680 u serpentine that ends at the human, all of it far from the bot.
   g._enter();
   const side = new P.Vec2(-away.y, away.x);
@@ -406,7 +411,7 @@ test('a wall-presser and a wall-slider survive 1500 shrink ticks inside the wall
 
   // The slider heads home and captures. The wall is static again, so the presser stops pressing:
   // sliding along a static wall into its own old trail is the stock wall death, not the shrink.
-  presser.locked = true;
+  presser.still = true;
   let home = false;
   for (let t = 0; t < 1500 && !home; t++) {
     const c = slider.base.polygon.segments[0].start;

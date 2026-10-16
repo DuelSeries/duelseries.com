@@ -77,7 +77,9 @@
 // also carries a money field (WATCH_REFUSED) is refused 'not-open' at its sl:join; a handshake that names br keeps the
 // route it had before. A watcher has no life to resume (sl:back is refused 'gone'), pushes no join, and every other
 // call of its socket reaches the room, which answers only its pings. Refusals: 'closed', 'full' (C_HUMAN_CAP
-// watchers), 'nobody'.
+// watchers), 'nobody'. A watch handshake with watchStake (a $0.50 or $1 rung, Owen 2026-10-15) watches that rung's
+// busiest paid room the same read-only way (slPaidArenas.watch): the paid directory takes its calls, never its door.
+// Read only while the paid helper is attached; a watchStake naming no paid rung is refused like a money field.
 
 const W = require('../../shared/slWire.js');
 const { assertLawsComplete } = require('./slLaws');
@@ -382,8 +384,10 @@ function attachSlSockets(nsp, arenas, helpers) {
       proof: isPlainObject(p) ? p : null };
   }
 
-  // A free watcher (see the header): auth.watch 1 with no br field. Returns { after, money } or null; read only for a
-  // socket that is neither paid nor the event's.
+  // A watcher (see the header): auth.watch 1 with no br field. Returns { after, money, stake } or null; read only for
+  // a socket that is neither paid nor the event's. stake: a paid rung to watch (auth.watchStake, one of the paid
+  // directory's stakes, only while it is attached), else 0 for the free room. A watchStake that names no paid rung
+  // is refused like a money field.
   function watchOf(socket) {
     const hs = socket.handshake;
     const auth = hs && isPlainObject(hs.auth) ? hs.auth : null;
@@ -391,7 +395,15 @@ function attachSlSockets(nsp, arenas, helpers) {
     const a = field(auth, 'after');
     let money = false;
     for (const k of WATCH_REFUSED) if (hasOwn(auth, k)) money = true;
-    return { after: Number.isInteger(a) && a > 0 && a < 65536 ? a : null, money };
+    let stake = 0;
+    if (hasOwn(auth, 'watchStake')) {
+      const w = field(auth, 'watchStake');
+      const rung = paid && typeof paid.arenas.watch === 'function' && typeof w === 'number' && Number.isFinite(w) && w > 0
+        ? paid.arenas._rungOf(w) : null;
+      if (rung === null) money = true;
+      else stake = rung;
+    }
+    return { after: Number.isInteger(a) && a > 0 && a < 65536 ? a : null, money, stake };
   }
 
   // Only with a helper attached: auth.paid 1 (an own data property, never a getter).
@@ -447,6 +459,7 @@ function attachSlSockets(nsp, arenas, helpers) {
     try {
       if (st.br && st.br.watch) r = st.dir.watch(socket, { follow: st.br.follow });
       else if (st.br) r = st.dir.join(socket, { nick, cv: st.cv, wallet: identifyOf(st.br.proof) });
+      else if (st.watch && st.watch.stake) r = st.dir.watch(socket, { stake: st.watch.stake, after: st.watch.after });
       else if (st.watch) r = arenas.watch(socket, { after: st.watch.after });
       else r = arenas.join(socket, { nick, cv: st.cv });
     } catch (e) {
@@ -729,8 +742,9 @@ function attachSlSockets(nsp, arenas, helpers) {
       states.set(socket.id, {
         paid: !!pd, // auth.paid 1 with the helper attached: this socket's seat lives in the paid directory
         br: bd, // auth.br 1 with the battle royale's helper attached: { watch, follow, proof }, else null
-        watch: wd, // a free watcher's handshake: { after, money }, else null (never with paid or br)
-        dir: pd ? pd.arenas : bd ? br.arenas : arenas, // where every call of this socket's seat goes
+        watch: wd, // a watcher's handshake: { after, money, stake }, else null (never with paid or br)
+        // where every call of this socket's seat goes (a paid rung's watcher: the paid directory, read only)
+        dir: pd ? pd.arenas : bd ? br.arenas : wd && wd.stake ? paid.arenas : arenas,
         door: pd ? pd.door : null,
         cv: skinOf(socket),
         joined: false,

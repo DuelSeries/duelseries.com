@@ -61,7 +61,7 @@
      `id` is the key in shared/shopPrices.js. The order here is the order on
      the page, cheapest first. */
   var GAMES = [
-    { id: 'snake', name: 'slither.io', bg: '#0e1622', skins: [
+    { id: 'snake', name: 'Slither.io', bg: '#0e1622', skins: [
       { id: 'candycane',     name: 'Candy Cane', runs: [[2, 31], [2, 9]] },
       { id: 'bumblebee', name: 'Bumblebee',  runs: [[3, 32], [3, 11]] },
       { id: 'glacier',   name: 'Glacier',    runs: [[3, 9], [3, 23], [2, 14]] },
@@ -71,7 +71,7 @@
       { id: 'royal',     name: 'Royal',      runs: [[3, 21], [2, 12], [1, 17]] },
       { id: 'rainbow',   name: 'Rainbow',    runs: [[1, 7], [1, 5], [1, 4], [1, 3], [1, 23], [1, 14], [1, 17]] },
     ] },
-    { id: 'agar', name: 'agar.io', bg: 'rgb(242,251,255)',
+    { id: 'agar', name: 'Agar.io', bg: 'rgb(242,251,255)',
       /* The server deals a colour every life (one channel 255, one 7, the third
          anything between; server/ag/agSim.js playerColour), so the free look
          walks through a few of those. */

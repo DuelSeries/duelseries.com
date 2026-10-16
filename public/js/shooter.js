@@ -22,7 +22,7 @@
   var socket = io();
 
   var NAME = (function () {
-    try { return sessionStorage.getItem('playerName') || localStorage.getItem('duel:name') || 'Player'; }
+    try { return sessionStorage.getItem('playerName') || localStorage.getItem('duelseries_playername') || localStorage.getItem('duel:name') || 'Player'; }
     catch (_) { return 'Player'; }
   })();
   var WEAPON = (function () {

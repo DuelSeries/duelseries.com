@@ -401,7 +401,11 @@ class KnockoutLobby {
     }
     const after = watchAfter(opts && opts.after);
     this.unwatch(id);
-    const live = this.runningRooms();
+    /* opts.stake (the lobby's Spectate on a buy-in, Owen 2026-10-15): only
+       tables at that stake, Free or paid. Without one, every table as before.
+       What a watcher is sent does not change with the stake. */
+    const stake = typeof (opts && opts.stake) === 'number' && Number.isFinite(opts.stake) ? opts.stake : null;
+    const live = this.runningRooms().filter(r => stake === null || Math.abs(Number(r.stake) - stake) < 1e-9);
     if (!live.length) { send(socket, 'ko:watching', { none: true }); return { ok: false, why: 'none' }; }
     const room = this.watchOrder(live, after).find(r => (r.watchers || 0) < WATCH_CAP);
     if (!room) { send(socket, 'ko:watching', { full: true }); return { ok: false, why: 'full' }; }

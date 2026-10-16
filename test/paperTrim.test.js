@@ -184,7 +184,7 @@ test('blocked: an away owner whose exit vertex would go, and a foreign trail on 
   let seq = 0;
   for (let i = 0; i < 24; i++) { g.setInput(h.id, (++seq) & 255, MP.angleToByte(1.3), false, 0); g.update(MP.STEP_MS); }
   assert.ok(h.in !== h.base && h.track.polyline.start, 'left home outward');
-  h.locked = true;
+  h.still = true;
   g.setRadiusNow(912);
   const before = snapshot(h.base);
   assert.strictEqual(trim.planTrim(h.base, g.border).status, 'blocked');
@@ -232,8 +232,8 @@ test('trimBase through the arena: trimmed, then reseat for an empty base', () =>
   g.trim = trim;
   const h = g.spawnHuman({ name: 't' }, at(900, 4.0));
   const k = g.spawnHuman({ name: 'k' }, at(200, 1.0));
-  h.locked = true;
-  k.locked = true;
+  h.still = true;
+  k.still = true;
   g._target = 905;
   for (let i = 0; i < 1000 && (g.shrinking || g.border.radius > 905); i++) g.update(MP.STEP_MS);
   assert.strictEqual(g.border.radius, 905);
@@ -255,7 +255,7 @@ for (const dir of [1, -1]) {
   test('sliding along a trimmed wall run, direction ' + dir + ', then after growing back', () => {
     const g = arena(950);
     const owner = g.spawnHuman({ name: 'owner' }, at(905, 3.0));
-    owner.locked = true;
+    owner.still = true;
     g.setRadiusNow(915);
     g._enter();
     trim.applyTrim(g, owner.base, trim.planTrim(owner.base, g.border));

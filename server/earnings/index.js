@@ -68,7 +68,7 @@ function earningsParams(exclude, timeZone) {
 }
 
 const GAME_LABELS = Object.freeze({
-  slither: 'slither.io', snake: 'slither.io', agar: 'agar.io', ag: 'agar.io', paper: 'Paper.io',
+  slither: 'Slither.io', snake: 'Slither.io', agar: 'Agar.io', ag: 'Agar.io', paper: 'Paper.io',
   knockout: 'Knockout', battleship: 'Battleship', tanks: 'Awesome Tanks', shooter: 'OMG Shooter',
 });
 function gameLabel(g) {

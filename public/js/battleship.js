@@ -29,7 +29,7 @@ let overShown = false;
 let countTimer = 0;
 
 const myName = (() => {
-  try { return sessionStorage.getItem('playerName') || 'Player'; } catch (_) { return 'Player'; }
+  try { return sessionStorage.getItem('playerName') || localStorage.getItem('duelseries_playername') || 'Player'; } catch (_) { return 'Player'; }
 })();
 const myWallet = (() => {
   try { return localStorage.getItem('duelseries_wallet') || null; } catch (_) { return null; }
@@ -59,6 +59,15 @@ const WATCH = (() => {
     if (v !== null) sessionStorage.removeItem('dsWatch');
     return v === 'battleship';
   } catch (_) { return false; }
+})();
+/* The buy-in the lobby's Spectate was on (dsWatchStake; none means Free):
+   only tables at that stake are shown. Never read as a buy-in of our own. */
+const WATCH_STAKE = (() => {
+  try {
+    const s = Number(sessionStorage.getItem('dsWatchStake'));
+    sessionStorage.removeItem('dsWatchStake');
+    return Number.isFinite(s) && s > 0 ? s : 0;
+  } catch (_) { return 0; }
 })();
 const WATCH_NEXT_MS = 3000;   // the pause before moving on, and between retries
 let watchMatch = null;        // the match card: { id, names, stake, pot, turn, index, count }
@@ -1079,7 +1088,7 @@ window.addEventListener('beforeunload', () => socket.emit(WATCH ? 'bs:unwatch' :
    it rather than handing the same one back. */
 function watch(after) {
   clearTimeout(watchTimer);
-  socket.emit('bs:watch', after ? { after } : {});
+  socket.emit('bs:watch', after ? { after, stake: WATCH_STAKE } : { stake: WATCH_STAKE });
   publishWatch(watchMatch ? 'watching' : 'searching');
 }
 

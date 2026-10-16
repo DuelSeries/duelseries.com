@@ -312,7 +312,7 @@ test('agLobby: in the lobby frame\'s free room the Lobby button keeps the old pl
 
 // ---- the lobby's agar.io screen --------------------------------------------------------------------------------
 
-test('the lobby\'s agar.io screen: no settings anywhere, Spectate on Free only beside Play', () => {
+test('the lobby\'s agar.io screen: no settings anywhere, Spectate beside Play on every rung', () => {
   const html = read('public/v2.html');
   assert.match(html, /<div class="gorow">\s*<button type="button" class="go" id="gobtn" onclick="startFromDetail\(\)">/, 'Play is the same button');
   assert.match(html, /<button type="button" class="spec" id="specbtn" onclick="spectateFromDetail\(\)"/);
@@ -322,11 +322,11 @@ test('the lobby\'s agar.io screen: no settings anywhere, Spectate on Free only b
   for (const gone of ['agopts', 'id="agtg"', 'agset', 'hasSettings', 'Game settings', 'agSettings', 'agSoundOn', '.agt{']) {
     assert.ok(!html.includes(gone), gone + ' is not in the lobby');
   }
-  // Every game's screen has it now (Owen 2026-10-15), on the Free rung only, shut on a game that is not open.
+  // Every game's screen has it now (Owen 2026-10-15), on every rung (paid too, the same night), shut on a game that
+  // is not open.
   assert.match(html, /function drawStake\(\)\{\s*\/\*[^*]*\*\/\s*document\.getElementById\('detail'\)\.classList\.toggle\('freerung',STEPS\[si\]===0\);/,
     'Spectate follows the chosen rung');
-  assert.match(html, /\.spec\{display:none;/);
-  assert.match(html, /#detail\.freerung \.spec\{display:flex\}/);
+  assert.match(html, /\.spec\{display:flex;/);
   assert.match(html, /specBtn\.disabled=locked;/);
   // No other page offers them either: the /ag card and the game's own code read and write nothing.
   for (const f of ['public/js/ag/agMain.js', 'public/js/ag/agSound.js', 'public/js/ag/agScreens.js', 'public/ag.html']) {

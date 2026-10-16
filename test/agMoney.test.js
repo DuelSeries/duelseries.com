@@ -86,15 +86,15 @@ function conserved(r) {
   return b.totalMicro() === b.ledger.inMicro - b.ledger.outMicro;
 }
 
-test('a paid room: no bots ever, counts are open accounts, no watchers, no Play and no spectate', () => {
+test('a paid room: no bots ever, counts are open accounts, no free seat, no Play and no spectate for a player', () => {
   const w = world();
   const { r } = w;
   assert.strictEqual(r.botsAllowed(), false);
   assert.strictEqual(r.addBot(), null);
   r.fillBots();
   assert.strictEqual(r.botCount, 0);
-  assert.strictEqual(r.hasWatchSpace(), false);
   assert.strictEqual(r.addSocket(sock(), {}), null, 'no free seat in a paid room');
+  assert.strictEqual(r.addSocket(sock(), { forPlay: true }), null, 'no free Play seat either');
   const a = join(w, 'a');
   assert.strictEqual(r.liveHumans, 1);
   assert.strictEqual(r.join(a.s.id, 'x'), 'paid');
@@ -596,4 +596,30 @@ test('a room with only away accounts keeps its clock: removeSocket does not idle
   clock.t += AG_MONEY.DORMANT_SETTLE_MS.value;
   r.tickOnce();
   assert.strictEqual(calls.cashout.length, 1, 'the away account settled');
+});
+
+// The lobby's Spectate on a paid rung (Owen, 2026-10-15): a watcher seat, read only.
+test('a paid room watcher: never an account, never joins, steers or holds; counts nowhere; spectates the top player', () => {
+  const w = world();
+  const { r } = w;
+  const a = join(w, 'a');
+  const opens = r.openAccounts();
+  const v = sock();
+  const seat = r.addSocket(v, { watch: true });
+  assert.ok(seat && seat.watchOnly, 'a watcher seat');
+  assert.strictEqual(r.isWatchOnly(v.id), true);
+  assert.strictEqual(r.watcherCount, 1);
+  assert.strictEqual(r.liveHumans, 1, 'only the payer');
+  assert.strictEqual(r.playerCount, 1);
+  assert.strictEqual(r.join(v.id, 'spy'), 'paid', 'a watcher never plays here');
+  assert.strictEqual(r.ready(v.id), false);
+  assert.strictEqual(r.target(v.id, 1, 1), false);
+  assert.strictEqual(r.split(v.id), false);
+  assert.strictEqual(r.spectate(v.id), true, 'it spectates');
+  assert.strictEqual(r.spectate(a.s.id), false, 'a paying player still cannot');
+  assert.strictEqual(r.openAccounts(), opens, 'no account opened');
+  r.tickOnce();
+  r.removeSocket(v.id);
+  assert.strictEqual(r.watcherCount, 0);
+  assert.strictEqual(r.openAccounts(), opens);
 });

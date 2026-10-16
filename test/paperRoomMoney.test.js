@@ -108,7 +108,7 @@ test('a self cross drops ONE coin where it died; nearer wins; collected once; on
   // Put both on the coin, the near one closer.
   near.u.position = new P.Vec2(coins[0].x + 3, coins[0].y);
   far.u.position = new P.Vec2(coins[0].x + 9, coins[0].y);
-  near.u.locked = far.u.locked = true;
+  near.u.locked = far.u.still = true;
   near.u.holdBit = far.u.holdBit = false;
   k.room._collectPickups();
   k.room._collectPickups();
@@ -272,7 +272,11 @@ test('three thrown ticks close the arena once: 90/10 cash-outs with UUIDs, coins
 test('a free room never pays out; IDLE is logged once when the last human leaves money behind', (t) => {
   const f = kit({ stake: 0 });
   tick(f, 10);
-  const h = join(f, null, 0);
+  const h = join(f, at(100, 0.3), 0);
+  // the held square goes straight on now: near the middle (never reaching the wall) and no bot to cross its trail
+  f.g.botSpawnLimited = true;
+  f.g.spawnSuspend = 1e12;
+  while (f.g.units.some(u => u instanceof P.BotUnit)) f.g.removeLowestBot();
   for (let i = 0; i < MP.HOLD_TICKS + 3; i++) { f.room.setInput(h.s.id, MP.encodeInput(i & 255, 10, true)); tick(f); }
   assert.ok(h.u.death);
   assert.strictEqual(f.calls.cashout.length, 0);

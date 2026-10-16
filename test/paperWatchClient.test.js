@@ -92,6 +92,12 @@ test('watch sends pp:watch { stake: 0 } and nothing else; frames wait for the st
   assert.deepStrictEqual(socket.sent, [['pp:watch', { stake: 0 }]]);
   net.watch({ after: 7 });
   assert.deepStrictEqual(socket.sent[1], ['pp:watch', { stake: 0, after: 7 }]);
+  // a paid rung's table (the page sets watchStake from the lobby's dsWatchStake): the stake to watch, nothing else
+  net.watchStake = 0.5;
+  net.watch();
+  assert.deepStrictEqual(socket.sent[2], ['pp:watch', { stake: 0.5 }]);
+  net.watchStake = 0;
+  socket.sent.splice(2, 1);
   // Before the state: frames and bundles are not taken.
   socket.fire('pp:s', frame(101, [frameUnit(1)]));
   socket.fire('pp:ev', { tick: 101, ev: [['p+', 9, 1, 1, 100]] });

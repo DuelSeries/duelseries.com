@@ -17,6 +17,12 @@
 
 (function () {
   const NAME_KEY = 'duelseries_playername';
+  /* Set while the name under NAME_KEY was typed on this device and the account
+     has not taken it yet; a push the server accepts clears it. pullName sends
+     such a name up instead of overwriting it with the account's older one, and
+     that overwrite is how a typed name used to come back as the old one on the
+     next launch (Owen, 2026-10-15). */
+  const UNSAVED_KEY = 'duelseries_playername_unsaved';
   const el = id => document.getElementById(id);
 
   const cleanName = s => String(s || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 16);
@@ -30,6 +36,28 @@
     const i = el('play-name'); if (i) i.value = n;
     const s = el('set-name');  if (s) s.value = n;
     return n;
+  }
+  function unsaved() {
+    try { return localStorage.getItem(UNSAVED_KEY) === '1'; } catch (_) { return false; }
+  }
+  function markUnsaved(on) {
+    try { if (on) localStorage.setItem(UNSAVED_KEY, '1'); else localStorage.removeItem(UNSAVED_KEY); } catch (_) {}
+  }
+  /* A name the player typed: kept on this device at once, so closing the app
+     before confirming it loses nothing, and marked for the account. */
+  function typedName(v) {
+    const n = cleanName(v);
+    if (n === savedName() && !unsaved()) return n;
+    try { localStorage.setItem(NAME_KEY, n); } catch (_) {}
+    markUnsaved(true);
+    return n;
+  }
+  /* Either name field open for typing: nothing may write over it then. */
+  function editing() {
+    const b = el('name-act');
+    const st = b && b.dataset ? b.dataset.state : '';
+    const a = document.activeElement;
+    return st === 'editing' || st === 'saving' || st === 'bad' || !!(a && a.id === 'set-name');
   }
   /* Ask the widget for a live token first. The localStorage copy is written by a
      background effect after sign-in, so anything that runs before that effect has
@@ -50,12 +78,30 @@
   /* The account's name is the truth, and it overwrites whatever this browser
      had. That is the whole point: the same person on a phone and a laptop was
      two different names, because the name only ever lived in localStorage. */
-  async function pullName() {
+  /* Except a name typed here that the account has not taken yet: that one goes
+     up first, and the account's name only replaces it when the server refuses
+     it as taken (said in a toast). Any other failure keeps it here for the next
+     try. Never while a name field is open, and one pull at a time: the wallet
+     announces several changes in a row at launch. */
+  let pulling = null;
+  function pullName() {
+    if (!pulling) pulling = pullOnce().catch(() => {}).then(() => { pulling = null; });
+    return pulling;
+  }
+  async function pullOnce() {
     const w = (window.duelWallet || {}).address;
-    if (!w) return;
+    if (!w || editing()) return;
+    const mine = savedName();
+    if (unsaved() && mine.length >= 3) {
+      const res = await pushName(mine);
+      if (res !== 'taken') return;
+      markUnsaved(false);
+      toast('"' + mine + '" is already taken, so your name is still the one on your account.');
+    }
     try {
       const r = await fetch('/api/my-profile?wallet=' + encodeURIComponent(w));
       const p = await r.json();
+      if (editing() || unsaved()) return;          // typed into while this was in flight
       if (p && p.name) setName(p.name);
       else if (savedName()) pushName(savedName());   // first device to name it, wins
     } catch (_) {}
@@ -90,7 +136,10 @@
     try {
       r = await fetch('/api/my-name', { method: 'POST', headers, body: JSON.stringify(body) });
     } catch (_) { return 'offline'; }
-    if (r.ok) return true;
+    if (r.ok) {
+      if (savedName() === cleanName(n)) markUnsaved(false);
+      return true;
+    }
     if (r.status === 409) return 'taken';
     let err = {};
     try { err = await r.json(); } catch (_) {}
@@ -112,12 +161,43 @@
     if (e.key === 'Enter') { e.preventDefault(); nameAction(); }
     if (e.key === 'Escape') {
       e.preventDefault();
-      setName(savedName());                     // put back what it was
-      e.target.readOnly = true;
-      setState('idle');
+      cancelEdit();
       e.target.blur();
     }
   });
+  /* What the field held when it was opened, so Escape (or leaving it too short)
+     puts back the name and whether it still had to reach the account. */
+  let before = null;
+  function cancelEdit() {
+    if (before) {
+      setName(before.name);
+      markUnsaved(before.unsaved);
+    }
+    before = null;
+    const input = el('play-name');
+    if (input) input.readOnly = true;
+    setState('idle');
+  }
+  /* Kept as it is typed (typedName), so a name is never lost to an app closed
+     before the tick. */
+  document.addEventListener('input', (e) => {
+    if (!e.target || e.target.id !== 'play-name') return;
+    const btn = el('name-act');
+    if (!btn || btn.dataset.state !== 'editing') return;
+    if (cleanName(e.target.value).length >= 3) typedName(e.target.value);
+  });
+  /* Leaving the open field commits it, as the tick does: tapping away on a
+     phone is how most people finish typing. Too short to keep, it goes back to
+     what it was rather than shouting about it. A press on the tick blurs the
+     field first, and nameAction's own state check stops the click from saving
+     a second time. */
+  document.addEventListener('blur', (e) => {
+    if (!e.target || e.target.id !== 'play-name') return;
+    const btn = el('name-act');
+    if (!btn || btn.dataset.state !== 'editing') return;
+    if (cleanName(e.target.value).length < 3) { cancelEdit(); return; }
+    nameAction();
+  }, true);
   /* The card itself is public/js/v2/toasts.js (DSToast); this is the one-line
      form every older call uses. */
   function toast(text, good) {
@@ -158,6 +238,7 @@
     const input = el('play-name'), btn = el('name-act');
     if (!input || !btn) return;
     if (btn.dataset.state !== 'idle') return;   // already open, or mid-save
+    before = { name: savedName(), unsaved: unsaved() };
     input.readOnly = false;
     setState('editing');
     btn.setAttribute('aria-label', 'Save name');
@@ -169,9 +250,10 @@
     if (!input || !btn) return;
 
     if (btn.dataset.state === 'idle') { nameEdit(); return; }
-    if (btn.dataset.state === 'saving') return;      // already in flight
+    if (btn.dataset.state === 'saving' || btn.dataset.state === 'ok') return;   // in flight, or just saved
 
-    const n = setName(input.value || '');
+    const n = cleanName(input.value || '');
+    if (n.length >= 3) { typedName(n); setName(n); }
     if (n.length < 3) {
       setState('bad'); toast('Names need at least three letters or numbers.');
       setTimeout(() => setState('editing'), 1200);
@@ -227,8 +309,8 @@
       if (input) input.focus();
       return null;
     }
-    try { localStorage.setItem(NAME_KEY, name); } catch (_) {}
-    pushName(name);            /* so the next device you sign in on knows it */
+    typedName(name);
+    pushName(name);            /* so the next device you sign in on knows it; a refusal stays marked for pullName */
     return name;
   }
 
@@ -247,7 +329,7 @@
     if (inGame()) return;
     /* A Play is never a watch: a watch mark left by a page that never booted
        goes before anything else (spectate below). */
-    try { sessionStorage.removeItem('dsWatch'); } catch (_) {}
+    try { sessionStorage.removeItem('dsWatch'); sessionStorage.removeItem('dsWatchStake'); } catch (_) {}
     /* The last gate, not the only one: an unbuilt game hides its Play button
        and its buy-ins. This is here because those are presentation, and a room
        that does not exist must not be stakeable through a stale handler, a
@@ -272,7 +354,7 @@
        room that does not exist, and the widget would quote that tier's price
        for it. Refused before any money is asked for. */
     if (game === 'agar' && !hasStake && sel.lobbyType !== 'free') {
-      say('That agar.io table does not exist. Pick a buy-in on the card.');
+      say('That Agar.io table does not exist. Pick a buy-in on the card.');
       return;
     }
     /* A paid agar.io rung goes on to the widget like Paper's, but only while
@@ -293,7 +375,7 @@
           && Array.from(window.V2Board.playableStakes('agar')).some(s => Math.abs(s - want) < 1e-9));
       } catch (_) { open = false; }
       if (!open) {
-        say('That agar.io buy-in is not open right now. Pick one the card is offering.');
+        say('That Agar.io buy-in is not open right now. Pick one the card is offering.');
         return;
       }
     }
@@ -311,7 +393,7 @@
     if (game === 'snake' && hasStake && Number(sel.stake) > 0) {
       const row = openSnakeRow(Number(sel.stake));
       if (!row) {
-        say('That slither.io buy-in is not open right now. Pick one the card is offering.');
+        say('That Slither.io buy-in is not open right now. Pick one the card is offering.');
         return;
       }
       if (String(row.id || '').indexOf('sl:') === 0) engine = 'sl';
@@ -507,23 +589,57 @@
   const WATCH_KEY = 'dsWatch';
   const WATCH_PAGE = { snake: '/sl', paper: '/paper-arena', knockout: '/knockout', battleship: '/battleship' };
   const MONEY_KEYS = ['entryToken', 'entrySol', 'stake', 'slPaidLaunch', 'slxPaidCut', 'slBr', 'spectateOnly'];
-  function spectate(game, lobbyType) {
+  /* The paid rung a Spectate watches (Owen, 2026-10-15: Spectate on $0.50 and
+     $1 too). Its own key, never 'stake': a page reads 'stake' as a buy-in. Every
+     page takes it out at boot; a Play clears it with the watch mark. */
+  const WATCH_STAKE_KEY = 'dsWatchStake';
+  /* Is somebody playing at that paid rung? From the board, so a watch that
+     could only say "nobody here" never opens. No board row is a no. */
+  function paidRungBusy(game, stake) {
+    const rows = (window.V2Board && window.V2Board.lobbies) || [];
+    return rows.some(l => l && l.game === game && Math.abs(Number(l.stake) - stake) < 1e-9 && (l.players || 0) > 0);
+  }
+  function spectate(game, lobbyType, stake) {
     if (inGame()) return;
     if (window.V2_IS_SOON && window.V2_IS_SOON(game)) return;
+    const paidStake = !lobbyType && Number(stake) > 0 ? Number(stake) : 0;
+    if (paidStake) {
+      /* Read only on every engine: never a seat, never money, and a watcher is
+         shown what the player it follows is shown (the server's watch paths). */
+      if (!paidRungBusy(game, paidStake)) {
+        toast('Nobody is playing at $' + paidStake.toFixed(2) + ' right now.');
+        return;
+      }
+      if (game === 'snake') {
+        const row = openSnakeRow(paidStake);
+        if (!row || String(row.id || '').indexOf('sl:') !== 0) {
+          toast('That table cannot be watched right now.');
+          return;
+        }
+      }
+    }
     /* The free snake room on the new engine (/sl), unless the board says the
-       free room is still the old one; the event has its own path below. */
-    const page = game === 'snake' && (lobbyType || !slFree()) ? null : WATCH_PAGE[game];
+       free room is still the old one; the event has its own path below. A paid
+       snake rung is always the new engine here (checked above). */
+    const page = game === 'snake' && !paidStake && (lobbyType || !slFree()) ? null : WATCH_PAGE[game];
     if (page) {
       try {
         for (const k of MONEY_KEYS) sessionStorage.removeItem(k);
         sessionStorage.setItem(WATCH_KEY, game);
+        if (paidStake) sessionStorage.setItem(WATCH_STAKE_KEY, String(paidStake));
+        else sessionStorage.removeItem(WATCH_STAKE_KEY);
         sessionStorage.setItem('region', region());
       } catch (_) {}
       show(page, game);
       return;
     }
     try {
+      /* No money key survives into a watch page here either: a stale token
+         would make /ag a paid hand-off rather than a watcher. */
+      for (const k of MONEY_KEYS) sessionStorage.removeItem(k);
       sessionStorage.removeItem(WATCH_KEY);
+      if (paidStake) sessionStorage.setItem(WATCH_STAKE_KEY, String(paidStake));   // agar.io's paid rung
+      else sessionStorage.removeItem(WATCH_STAKE_KEY);
       sessionStorage.setItem('spectateOnly', 'true');
       sessionStorage.setItem('region', region());
       /* Which ROOM to watch. Without this the viewer lands in whatever free
@@ -699,7 +815,7 @@
 
   window.V2Play = { enter: enter, playChosen: playChosen, spectate: spectate,
                     spectateEvent: spectateEvent,
-                    launch: launch, savedName: savedName, cleanName: cleanName,
+                    launch: launch, savedName: savedName, cleanName: cleanName, typedName: typedName,
                     nameAction: nameAction, nameEdit: nameEdit, pullName: pullName,
                     toast: toast, toastOk: toastOk,
                     paidLeftNotice: paidLeftNotice, paidFrameLocked: paidFrameLocked,

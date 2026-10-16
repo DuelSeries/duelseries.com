@@ -41,7 +41,11 @@
     var MP = P.MP;
     border.resetGuard();
     var pos = new P.Vec2(state.x, state.y);
-    var target = locked ? null : new P.Vec2(1, 0).rotate((angleByte * Math.PI) / 127).mulScalar(50).add(pos);
+    // Locked (the cash-out hold): straight ahead on its own heading at normal speed, as the server
+    // (server/paper/ArenaGame.js update) moves it; steering only when not locked.
+    var target = locked
+      ? new P.Vec2(1, 0).rotate(state.dir).mulScalar(50).add(pos)
+      : new P.Vec2(1, 0).rotate((angleByte * Math.PI) / 127).mulScalar(50).add(pos);
     var unit = {
       position: pos,
       direction: state.dir,

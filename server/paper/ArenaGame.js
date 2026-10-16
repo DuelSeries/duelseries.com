@@ -43,6 +43,7 @@ class ArenaHuman extends P.GameUnit {
     this.holdBit = false;
     this.lastInputAt = 0;
     this.locked = false;
+    this.still = false;
     this.holdTicks = 0;
     this.socketId = null;
     this._pushPiece = null;
@@ -68,12 +69,16 @@ class ArenaHuman extends P.GameUnit {
     };
   }
 
-  // PlayerUnit's steering (paperUnits.js:446-449) from this human's own byte. A null target
-  // makes movement() falsy, so getMovement returns no pieces: that IS the cash-out lock.
+  // PlayerUnit's steering (paperUnits.js:446-449) from this human's own byte. The cash-out lock
+  // (Owen, 2026-10-15, as slither.io's hold locks steering): while held, the target is straight
+  // ahead on the square's own heading, so it keeps going forward at its normal speed and cannot
+  // turn. It used to be a null target, which made getMovement return no pieces: the square
+  // stood still for the whole hold. The client predicts the same (mp/paperPredict.js step).
+  // `still` (tests only, nothing in the game sets it) holds a square where it is: the null target.
   update(dtMs) {
     super.update(dtMs);
-    this.target = this.locked
-      ? null
+    this.target = this.still ? null : this.locked
+      ? new P.Vec2(1, 0).rotate(this.direction).mulScalar(50).add(this.position)
       : new P.Vec2(1, 0).rotate((this.angle * Math.PI) / 127).mulScalar(50).add(this.position);
   }
 }

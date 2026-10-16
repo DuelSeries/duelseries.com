@@ -1895,6 +1895,10 @@ const slOpened = slBoot.openSl({
     ? require('./sl/slTopCashout').makeTopCashoutRead((sql, params) => db.pool.query(sql, params))
     : null,
   excludeWallets: [...OWNER_WALLETS, REVENUE_WALLET],
+  /* Full of bots from boot: the free room ticks before anybody comes, so its
+     lobby card counts real snakes from the first poll (slArenas keepAwake has
+     the measured cost). Paid rooms are a separate directory and stay bot-free. */
+  awake: true,
 });
 const slArenas = slOpened.arenas;
 /* The one swap predicate (SERVER-DESIGN 16.2): the new room is open, its door
@@ -4209,7 +4213,8 @@ io.on('connection', (socket) => {
     try {
       if (!socketRL(socket, 'kowatch', 500)) return;
       const after = msg && typeof msg.after === 'string' && msg.after.length <= 40 ? msg.after : null;
-      knockoutLobby.watch(socket, { after });
+      const stake = msg && typeof msg.stake === 'number' && isStake(msg.stake) ? msg.stake : undefined;
+      knockoutLobby.watch(socket, { after, stake });
     } catch (e) { console.error('[KO] watch failed:', e.message); }
   });
   on('ko:unwatch', () => {
@@ -4283,7 +4288,8 @@ io.on('connection', (socket) => {
     try {
       if (!socketRL(socket, 'bswatch', 500)) return;
       const after = msg && typeof msg.after === 'string' && msg.after.length <= 40 ? msg.after : null;
-      battleshipLobby.watch(socket, { after });
+      const stake = msg && typeof msg.stake === 'number' && isStake(msg.stake) ? msg.stake : undefined;
+      battleshipLobby.watch(socket, { after, stake });
     } catch (e) { console.error('[BS] watch failed:', e.message); }
   });
   on('bs:unwatch', () => {

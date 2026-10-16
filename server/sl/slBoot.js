@@ -120,7 +120,7 @@ function slPageRoute(opened) {
 //   clientIp }, topCashout(since, exclude) (null: no box), excludeWallets (owner and revenue wallets), log,
 //   slHtml (tests; default public/sl.html), slxTail (tests; default SLX_TAIL), laws (tests; a table treated as the
 //   real one), autoTick, seed, clock, now, timers, bots, monitor (tests; default perf_hooks.monitorEventLoopDelay at
-//   slBots LOOP_RESOLUTION_MS, 1 ms),
+//   slBots LOOP_RESOLUTION_MS, 1 ms), awake (true: the free room ticks from boot, slArenas keepAwake),
 //   every (tests) }
 function openSl(opts) {
   const o = opts || {};
@@ -153,6 +153,8 @@ function openSl(opts) {
       monitor = require('perf_hooks').monitorEventLoopDelay({ resolution: require('./slBots').LOOP_RESOLUTION_MS });
     }
     arenas.startTimers({ monitor, paidLoad: helpers.paidLoad, every });
+    // awake (the server): the free room ticks from boot with its bots, never idle-paused (slArenas keepAwake)
+    if (o.awake === true) arenas.keepAwake();
     startTop(arenas, o, log, every);
     log.log('[SL] slither.io (new) free room open on /sl' + (dev ? ' (DEV law table)' : ''));
     return { arenas, page, why: null, dev, sockets };

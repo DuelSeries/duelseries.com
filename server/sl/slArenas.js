@@ -14,6 +14,7 @@
 //   door(open)       the owner console's sl:door:off / sl:door:on: off refuses new joins (slSockets 'closed'),
 //                    seated players finish. In memory like agar's paid switch, so a restart reopens it.
 //   humanTotal(), botTotal(), liveCounts()   the counts (humans = seats whose snake is alive or gliding)
+//   keepAwake()      the free room ticks from boot and never idle-pauses (a replacement too); see the method
 //   sweep(now)       the periodic check (server/index.js everyStaggered): a room that closed itself is replaced
 //   setTop(msg)      the biggest cash-out box message (slTopCashout), kept for a replacement room too
 //   sampleLoad(nowMs, inp)  the bot governor's once-a-second sample (SERVER-DESIGN 11, 13 item 8); also caches
@@ -38,6 +39,8 @@ const { createSafeStats, safeCall, safeEvery } = require('./slSafe');
 
 // SERVER-DESIGN 13 item 8: "the 1 Hz bot fill and governor"; slBots createBotGovernor: sample "once a second".
 const GOVERNOR_SAMPLE_MS = 1000;
+// An empty replacement of an awake room is woken at most this often (keepAwake, _replace).
+const AWAKE_RESTART_GAP_MS = 60 * 1000;
 
 class SlArenas {
   // laws: the law table. opts:
@@ -77,7 +80,29 @@ class SlArenas {
     this.extraLoad = null;
     this.setExtraLoad(o.extraLoad);
     this.driver = null;
+    this.awake = false;
+    this.awakeAt = -Infinity;
     this._room = this._create();
+  }
+
+  // The free room from boot (server/index.js, slBoot openSl awake): it ticks before anybody comes and never takes the
+  // idle pause (slRoom setAwake), so its bots fill to the day's curve at once and follow it all day, and the lobby
+  // card counts real snakes from the first poll instead of 0 until somebody joins (Owen, 2026-10-15). Measured on the
+  // live box (t3.micro, unlimited credits) the same night, nobody seated, 60 s each: 22 bots 4.6%, 60 bots 5.9%,
+  // 90 bots 7.5% of one vCPU, about 3% of the instance on the day's average, which keeps the box's daily average
+  // (5 to 6%) under the t3.micro baseline of 10%. The old engine's free room kept its bots running the same way.
+  // A replacement room is woken too, at once when people were in the closed one, else at most once a minute (a fault
+  // on every wake of an empty room must not become a create, fail, close loop). Returns whether the room is awake.
+  keepAwake() {
+    if (this.closed) return false;
+    this.awake = true;
+    this.awakeAt = this._nowMs();
+    const r = this._room;
+    return !!(r && typeof r.setAwake === 'function' && r.setAwake(true));
+  }
+
+  _nowMs() {
+    return typeof this.opts.now === 'function' ? this.opts.now() : Date.now();
   }
 
   _create() {
@@ -111,6 +136,14 @@ class SlArenas {
       try {
         if (s && typeof s.disconnect === 'function') s.disconnect(true);
       } catch (e) { /* already gone */ }
+    }
+    if (this.awake) {
+      const t = this._nowMs();
+      const people = Array.isArray(sockets) && sockets.length > 0;
+      if (people || !(t - this.awakeAt < AWAKE_RESTART_GAP_MS)) {
+        this.awakeAt = t;
+        safeCall(() => this._room.setAwake(true), 'sl.arenas.awake', this.safeStats, { log: this.log });
+      }
     }
   }
 

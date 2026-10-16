@@ -95,15 +95,48 @@ test('a game that is not open cannot be watched', () => {
   assert.strictEqual(h.win.sessionStorage.getItem('dsWatch'), null);
 });
 
-test('the button: beside Play on the Free rung of every game, shut on a game that is not open', () => {
+test('the button: beside Play on every rung of every game (paid too, Owen 2026-10-15), shut on a game that is not open', () => {
   const html = fs.readFileSync(path.join(ROOT, 'public/v2.html'), 'utf8');
   assert.match(html, /<div class="gorow">[\s\S]*?id="gobtn"[\s\S]*?<button type="button" class="spec" id="specbtn" onclick="spectateFromDetail\(\)"/);
   assert.ok(!html.includes("det.classList.toggle('agar'"), 'no longer agar.io only');
-  assert.match(html, /#detail\.freerung \.spec\{display:flex\}/, 'shown on the Free rung');
-  assert.match(html, /\.spec\{display:none;/, 'hidden otherwise');
+  assert.match(html, /\.spec\{display:flex;/, 'shown on every rung');
+  assert.ok(!html.includes('#detail.freerung .spec{display:flex}'), 'no longer Free only');
   assert.match(html, /specBtn\.disabled=locked;/, 'shut like Play on a game that is not open');
   const fn = html.slice(html.indexOf('function spectateFromDetail(){'), html.indexOf('function goBack('));
   assert.match(fn, /if\(!cur\|\|\(cur\.soon&&!cur\.built\)\)return;/);
-  assert.match(fn, /if\(Number\(STEPS\[si\]\)!==0\)return;/, 'never from a paid rung');
-  assert.match(fn, /V2Play\.spectate\(cur\.id\);/);
+  assert.match(fn, /V2Play\.spectate\(cur\.id,null,st>0\?st:0\);/, 'the chosen rung goes with it');
+});
+
+// Spectate on a paid rung (Owen, 2026-10-15): the same pages, read only, the rung under its own key (never 'stake').
+test('a paid rung: each game opens its watch page with dsWatchStake and no money key; nobody playing is a toast', async () => {
+  const rows = [SL_FREE, row('sl:na:s0.5', 'snake', 0.5), row('paper:na:s0.5', 'paper', 0.5), row('ag:na:s0.5', 'agar', 0.5),
+    row('knockout:na:s0.5', 'knockout', 0.5), row('battleship:na:s0.5', 'battleship', 0.5)];
+  for (const [game, page, frame] of [['snake', '/sl', 'game-frame'], ['paper', '/paper-arena', 'game-frame'],
+    ['knockout', '/knockout', 'game-frame'], ['battleship', '/battleship', 'game-frame'], ['agar', '/ag', 'agar-frame']]) {
+    const h = lobbyHarness(rows);
+    await h.win.V2Board.load();
+    stale(h);
+    h.win.V2Play.spectate(game, null, 0.5);
+    assert.strictEqual(h.el(frame).src, page, game);
+    assert.strictEqual(h.win.sessionStorage.getItem('dsWatchStake'), '0.5', game + ': the rung to watch');
+    for (const k of MONEY) {
+      if (game === 'agar' && k === 'spectateOnly') continue; // agar.io's own watch flag
+      assert.strictEqual(h.win.sessionStorage.getItem(k), null, game + ': ' + k + ' is gone');
+    }
+    assert.deepStrictEqual(h.plays, [], game + ': the wallet is never asked');
+  }
+  // nobody at $1: nothing opens
+  const h = lobbyHarness(rows);
+  await h.win.V2Board.load();
+  const said = [];
+  h.win.DSToast = { line: (t) => said.push(t) };
+  h.win.V2Play.spectate('paper', null, 1);
+  assert.strictEqual(h.el('game-frame').src, '');
+  assert.deepStrictEqual(said, ['Nobody is playing at $1.00 right now.']);
+  // a Free watch after a paid one carries no stake
+  const f = lobbyHarness(rows);
+  await f.win.V2Board.load();
+  f.win.sessionStorage.setItem('dsWatchStake', '1');
+  f.win.V2Play.spectate('paper');
+  assert.strictEqual(f.win.sessionStorage.getItem('dsWatchStake'), null);
 });

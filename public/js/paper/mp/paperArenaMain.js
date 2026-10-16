@@ -82,11 +82,12 @@
     }
   }
 
-  // The keys the lobby's wallet widget writes before it opens this page (read once).
+  // The keys the lobby's wallet widget writes before it opens this page (read once). The name falls back to the one
+  // the lobby keeps (duelseries_playername), as /sl and agar.io do, so a page opened without the hand-off is not 'Player'.
   function readSession() {
     var stake = Number(storageGet('sessionStorage', 'stake'));
     return {
-      name: (storageGet('sessionStorage', 'playerName') || '').slice(0, 20),
+      name: (storageGet('sessionStorage', 'playerName') || storageGet('localStorage', 'duelseries_playername') || '').slice(0, 20),
       stake: isFinite(stake) && stake > 0 ? stake : 0,
       entryToken: storageGet('sessionStorage', 'entryToken') || null,
       walletAddress: storageGet('sessionStorage', 'walletAddress') || null,
@@ -94,14 +95,17 @@
     };
   }
 
-  // The lobby's Spectate on Paper's Free rung (public/js/v2/play.js) writes dsWatch = 'paper' (and removes stake
-  // and entryToken) before it opens this page. Read once and removed at boot, whatever it says.
+  // The lobby's Spectate (public/js/v2/play.js) writes dsWatch = 'paper' (and removes stake and entryToken) before it
+  // opens this page, and dsWatchStake for a paid rung: the table to watch, never a buy-in. Read once and removed at
+  // boot, whatever they say.
   function readWatch() {
     var v = storageGet('sessionStorage', 'dsWatch');
+    var s = Number(storageGet('sessionStorage', 'dsWatchStake'));
     try {
       root.sessionStorage.removeItem('dsWatch');
+      root.sessionStorage.removeItem('dsWatchStake');
     } catch (_) {}
-    return v === 'paper';
+    return v === 'paper' ? { stake: isFinite(s) && s > 0 ? s : 0 } : null;
   }
 
   // A fresh id for one restake request, echoed back by the lobby's wallet with its answer.
@@ -170,7 +174,8 @@
     var MP = P.MP;
     var session = readSession();
     // Watch mode is free and read-only: no stake, and no entry token ever leaves this page.
-    var watchMode = readWatch();
+    var watchOf = readWatch();
+    var watchMode = !!watchOf;
     if (watchMode) {
       session.stake = 0;
       session.entryToken = null;
@@ -882,6 +887,7 @@
     }
 
     function askWatch() {
+      net.watchStake = watchOf ? watchOf.stake : 0;
       net.watch();
       armWatch();
     }

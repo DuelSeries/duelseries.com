@@ -416,6 +416,9 @@ class SlRoom {
     this._job = null;
     this._jobHandle = null;
     this.lastHumanAt = this.clock();
+    // The free room from boot (setAwake, slArenas keepAwake): it never takes the idle pause. Never a paid room or the
+    // battle royale's: those pause as before.
+    this.awake = false;
     this._onTimer = () => this._timerWake();
     this._scratch = { ang: 0, wang: 0, dir: 1, turning: false };
     if (this.money) {
@@ -622,18 +625,22 @@ class SlRoom {
     return order[0];
   }
 
-  // socket: the socket.io socket; info: { follow } in the battle royale, { after } in the free room (optional snake
-  // ids). Returns the watcher, or null (a paid room, the room closed, or nothing alive to watch).
+  // socket: the socket.io socket; info: { follow } in the battle royale, { after } in the free and the paid rooms
+  // (optional snake ids). Returns the watcher, or null (the room closed, or nothing alive to watch).
+  // A paid room is watched too (Owen, 2026-10-15; the lobby's Spectate on a $0.50 or $1 rung, slPaidArenas.watch):
+  // a watcher is never a seat, opens no account and never reaches the money controller (seatPaid is the only way in),
+  // and its view is the followed player's own (createSeatView ownId, the player's view range), so it sees what that
+  // player sees and nothing more.
   seatWatch(socket, info) {
     if (!socket || typeof socket.id !== 'string') throw new TypeError('slRoom: seatWatch needs a socket with an id');
-    if (this.money) return null; // a paid room is never watched
     if (this.stopped || this.closed) return null;
     if (this.watchers.has(socket.id)) return this.watchers.get(socket.id);
     const target = this.br ? this._watchTarget(info && info.follow) : this._leaderAfter(info && info.after);
     if (!target) {
       // A free room nobody woke yet has no bots (they fill as it ticks): the ask wakes it for C_IDLE_PAUSE_MS and the
-      // layer asks again in a few seconds; its idle pause ends it as before when nobody stays.
-      if (!this.br) {
+      // layer asks again in a few seconds; its idle pause ends it as before when nobody stays. An empty paid room has
+      // no bots to fill it, so a watcher never wakes one.
+      if (!this.br && !this.money) {
         this.lastHumanAt = this.clock();
         this._ensureTicking();
       }
@@ -1381,8 +1388,8 @@ class SlRoom {
     const now = this.clock();
     if (this.seats.size > 0 || this.watchers.size > 0) this.lastHumanAt = now;
     if (!this.autoTick) return;
-    // a paid room never pauses with money in a snake (MONEY INVARIANT 10)
-    if (this.seats.size === 0 && this.orphans.size === 0 && this.parked.size === 0 &&
+    // a paid room never pauses with money in a snake (MONEY INVARIANT 10); an awake room never pauses at all
+    if (!this.awake && this.seats.size === 0 && this.orphans.size === 0 && this.parked.size === 0 &&
       (!this.money || this.money.openCount() === 0) && (!this.br || this.br.canPause()) &&
       now - this.lastHumanAt >= this.R.idleMs) {
       this._pause();
@@ -1844,6 +1851,15 @@ class SlRoom {
   start() {
     this.autoTick = true;
     this._ensureTicking();
+  }
+
+  // Keeps a free room ticking with nobody in it (no idle pause, C_IDLE_PAUSE_MS): its bots fill to the day's curve and
+  // follow it, so the lobby counts real snakes before the first player comes. Refused (false) for a paid room or the
+  // battle royale's, which keep their pause. Returns whether the room is awake now.
+  setAwake(on) {
+    this.awake = on === true && !this.money && !this.br && !this.stopped && !this.closed;
+    if (this.awake) this.start();
+    return this.awake;
   }
 
   // A paid room: stop() never settles money (design 7.2). Its caller settles first (emergencyClose, the directory's

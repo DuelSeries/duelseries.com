@@ -55,15 +55,18 @@ test('a room with a missing hook throws at construction', () => {
   }
 });
 
-test('the hold locks movement and clearing the bit restores steering', () => {
+test('the hold locks steering, the square keeps going straight at full speed; clearing the bit restores steering', () => {
   const k = kit();
   const p = seat(k, at(300, 1.0));
   play(k, p, false);
   play(k, p, true);
   assert.ok(p.u.locked);
   const p0 = p.u.position.clone();
+  const d0 = p.u.direction;
   for (let i = 0; i < 30; i++) play(k, p, true);
-  assert.strictEqual(p.u.position.distance(p0).toFixed(3), '0.000');
+  const step = k.g.config.unitSpeed * MP.STEP_MS / 1000;
+  assert.ok(Math.abs(p.u.position.distance(p0) - 30 * step) < 0.5, 'full speed: ' + p.u.position.distance(p0));
+  assert.ok(Math.abs(p.u.direction - d0) < 1e-9, 'no turn while held');
   play(k, p, false);
   assert.strictEqual(p.u.locked, false);
   for (let i = 0; i < 10; i++) play(k, p, false);
@@ -164,7 +167,13 @@ test('a removeHuman that throws on the completing tick still dispatches the orde
 
 test('a free cash-out is a clean exit with one zero receipt', () => {
   const k = kit(0);
-  const p = seat(k, null, 0);
+  const p = seat(k, at(100, 1.0), 0);
+  // The held square goes on straight for the whole hold now (it used to stand still), so it starts near the middle
+  // (3 s of travel never reaches the wall) and the free room's bots are taken out: one crossing its trail would end
+  // the round before the hold does.
+  k.g.botSpawnLimited = true;
+  k.g.spawnSuspend = 1e12;
+  while (k.g.units.some(u => u instanceof P.BotUnit)) k.g.removeLowestBot();
   for (let i = 0; i < MP.HOLD_TICKS; i++) play(k, p, true);
   assert.ok(p.u.death);
   assert.strictEqual(k.calls.cashout.length, 0);

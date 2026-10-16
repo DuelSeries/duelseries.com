@@ -47,9 +47,9 @@ test('take-home is 9 x the rake, split into today, this week and all time', () =
   assert.strictEqual(v.periods.today.total, 2.7);
   assert.strictEqual(v.periods.week.total, 3.15);
   assert.strictEqual(v.periods.all.total, 12.15);
-  assert.deepStrictEqual(v.bestToday, { amount: 1.35, game: 'slither.io' });
+  assert.deepStrictEqual(v.bestToday, { amount: 1.35, game: 'Slither.io' });
   assert.deepStrictEqual(v.periods.all.top.map((r) => [r.name, r.amount, r.game, r.n]),
-    [['trin', 9, 'agar.io', 1], ['neo', 3.15, 'slither.io', 3]]);
+    [['trin', 9, 'Agar.io', 1], ['neo', 3.15, 'Slither.io', 3]]);
   assert.deepStrictEqual(v.periods.today.top.map((r) => r.name), ['neo']);
 });
 

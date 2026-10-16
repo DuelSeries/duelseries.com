@@ -185,15 +185,17 @@ test('an ack not in the ring snaps, and the next in-ring ack resumes', () => {
   assert.strictEqual(pred.reconcile(frameOf(h)), 'ok');
 });
 
-test('the lock: zero displacement, no timer release, and a confirming frame releases it', () => {
+test('the lock: straight on at full speed, no turning, no timer release, and a confirming frame releases it', () => {
   const { h } = server();
   const pred = client(h);
   pred.next(20);
   pred.setHold(true);
   const s0 = { ...pred.state };
   const sent = [];
-  for (let t = 0; t < 24; t++) sent.push(MP.decodeInput(pred.next(90))); // 400 ms, no frames
-  assert.strictEqual(Math.hypot(pred.state.x - s0.x, pred.state.y - s0.y).toFixed(3), '0.000');
+  for (let t = 0; t < 24; t++) sent.push(MP.decodeInput(pred.next(90))); // 400 ms, no frames, steering asked for
+  const moved = Math.hypot(pred.state.x - s0.x, pred.state.y - s0.y);
+  assert.ok(moved > 30, 'still moving while held: ' + moved);
+  assert.ok(Math.abs(pred.state.dir - s0.dir) < 1e-9, 'no turn while held');
   assert.ok(sent.every(d => d.hold), 'the hold bit is still sent');
   assert.strictEqual(pred.locked(), true);
   // The server says it is not holding, for an ack past the hold start: released.

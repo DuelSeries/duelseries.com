@@ -273,16 +273,28 @@ class AgRoom {
     return !this.stopped && this.liveHumans < this.cap;
   }
 
-  // Seated sockets that have not joined (on the menu before their first Play). A paid room has no watchers.
+  // Seated sockets that have not joined (on the menu before their first Play). In a paid room: the lobby's
+  // Spectate watchers only (watchOnly seats, Owen 2026-10-15; design 8 #13 refused them until then).
   get watcherCount() {
-    if (this.money) return 0;
+    if (this.money) {
+      let n = 0;
+      for (const s of this.seats.values()) if (s.watchOnly) n++;
+      return n;
+    }
     return this.seats.size - this.liveHumans;
   }
 
-  // A watcher seat is free (ROOM_TUNING WATCHERS_PER_SLOT). Never in a paid room (no ghosting, design 8 #13).
+  // A watcher seat is free (ROOM_TUNING WATCHERS_PER_SLOT), in a free room or a paid one.
   hasWatchSpace() {
-    if (this.money) return false;
     return !this.stopped && this.watcherCount < this.watchCap;
+  }
+
+  // A paid room's watcher (agArenas.connectWatch): never joined, never an account, so join ('paid'), ready (no
+  // account), target, split, eject and hold (all need a joined seat) do nothing for it. Its view follows the top
+  // player at that player's own scale (U_SPECTATE), so it is shown what that player is shown and nothing more.
+  isWatchOnly(socketId) {
+    const seat = this.seats.get(socketId);
+    return !!(seat && seat.watchOnly);
   }
 
   // One bot by hand (the console marks the returned object manual, so the fill leaves it alone).
@@ -353,12 +365,15 @@ class AgRoom {
   // needs a free player slot instead. Returns the seat, or null when the room is stopped or has no seat for it.
   addSocket(socket, opts) {
     if (this.stopped || !socket || typeof socket.id !== 'string') return null;
-    if (this.money) return null;   // a paid seat is made only by the door (addPaidHuman, resumePaid)
+    // a paid seat is made only by the door (addPaidHuman, resumePaid); the one other seat here is a watcher
+    const watchOnly = !!(this.money && opts && opts.watch === true);
+    if (this.money && !watchOnly) return null;
     const had = this.seats.get(socket.id);
     if (had) return had;
-    if (opts && opts.forPlay ? !this.hasSpace() : !this.hasWatchSpace()) return null;
+    if (opts && opts.forPlay && !watchOnly ? !this.hasSpace() : !this.hasWatchSpace()) return null;
     const pid = this.sim.addPlayer({ name: '', bot: false, skin: skinOf(socket) });
     const seat = this._newSeat(socket, pid, !!(opts && opts.clearFirst));
+    if (watchOnly) seat.watchOnly = true;
     this._ensureTicking();
     return seat;
   }
@@ -554,8 +569,9 @@ class AgRoom {
 
   // Spectate (their op 1): only without live cells (a seated live player cannot spectate).
   spectate(socketId) {
-    if (this.money) return false;    // no spectate on a paid rung, a dead seat included (design 8 #13)
     const seat = this.seats.get(socketId);
+    // a paid room: only its watchers (a dead paid seat is gone, and a live one cannot spectate)
+    if (this.money && !(seat && seat.watchOnly)) return false;
     if (!seat || seat.spawnQueued || this._alive(seat.pid)) return false;
     seat.spectating = true;
     return true;

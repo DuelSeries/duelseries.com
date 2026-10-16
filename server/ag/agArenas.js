@@ -369,7 +369,7 @@ class AgArenas {
   // world: the paid seat starts with clearAll) and stops waiting for its join.
   _takeSocket(socket) {
     const had = this.bySocket.get(socket.id);
-    if (had && !had.money) {
+    if (had && (!had.money || had.isWatchOnly(socket.id))) {
       had.removeSocket(socket.id);
       this.bySocket.delete(socket.id);
     }
@@ -534,6 +534,22 @@ class AgArenas {
     return room;
   }
 
+  // Watching a paid rung (the lobby's Spectate on $0.50 or $1; agSockets: a handshake with watchStake): a watcher
+  // seat in that rung's room with the most open accounts, read only (agRoom isWatchOnly). Never opens a room; null
+  // when nobody plays at that rung or its rooms have no watcher seat (the socket layer refuses and closes).
+  connectWatch(socket, stake) {
+    if (!socket || typeof socket.id !== 'string') return null;
+    const rung = this._rungOf(stake);
+    if (rung === null || rung === 0) return null;
+    const list = (this.rungs.get(rung) || []).filter((r) => !r.stopped && r.openAccounts() > 0 && r.hasWatchSpace())
+      .sort((a, b) => b.openAccounts() - a.openAccounts() || a.index - b.index);
+    if (!list.length) return null;
+    const room = list[0];
+    if (!room.addSocket(socket, { watch: true, clearFirst: true })) return null;
+    this.bySocket.set(socket.id, room);
+    return room;
+  }
+
   // Play. Returns the room's answer ('ok', 'alive', 'full', ...).
   // A socket with no seat (back after ag:leave) is seated straight into a room with a player slot, so a full set
   // of watcher seats never stops a Play.
@@ -543,6 +559,7 @@ class AgArenas {
     if (this.paidRoomOf(socket.id)) return 'paid';
     let room = this.bySocket.get(socket.id);
     if (room && room.money) {
+      if (room.isWatchOnly(socket.id)) room.removeSocket(socket.id); // a paid rung's watcher plays Free elsewhere
       this.bySocket.delete(socket.id);
       room = null;
     }
@@ -572,7 +589,7 @@ class AgArenas {
   // Spectate: a socket that left first watches again.
   spectate(socket) {
     let room = this.bySocket.get(socket.id);
-    if (room && room.money) return false;   // no spectate on a paid rung (design 8 #13)
+    if (room && room.money && !room.isWatchOnly(socket.id)) return false;   // a paid seat never spectates
     if (!room) room = this.connect(socket);
     return room ? room.spectate(socket.id) : false;
   }
@@ -647,7 +664,7 @@ class AgArenas {
   leave(socketId) {
     const room = this.bySocket.get(socketId);
     if (!room) return false;
-    if (room.money) return false;
+    if (room.money && !room.isWatchOnly(socketId)) return false;
     room.removeSocket(socketId);
     this.bySocket.delete(socketId);
     this.cleared.add(socketId);
@@ -685,13 +702,20 @@ class AgArenas {
     }
     for (const list of this.rungs.values()) {
       for (const room of list.slice()) {
-        const busy = room.seats.size > 0 || room.openAccounts() > 0 || room.money.bank.totalMicro() > 0;
+        // watchers alone do not keep a paid room (they are let go when it closes)
+        const busy = room.seats.size > room.watcherCount || room.openAccounts() > 0 || room.money.bank.totalMicro() > 0;
         if (room.index === 0 || busy) {
           this.emptySince.delete(room);
           continue;
         }
         if (!this.emptySince.has(room)) this.emptySince.set(room, now);
         if (now - this.emptySince.get(room) >= SWEEP_IDLE_MS) {
+          for (const seat of Array.from(room.seats.values())) {
+            if (!seat.watchOnly) continue;
+            room.removeSocket(seat.socketId);
+            this.bySocket.delete(seat.socketId);
+            try { if (seat.socket && typeof seat.socket.disconnect === 'function') seat.socket.disconnect(true); } catch (e) { /* gone */ }
+          }
           room.stop();
           list.splice(list.indexOf(room), 1);
           this.emptySince.delete(room);

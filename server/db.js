@@ -681,11 +681,15 @@ async function getTopEarners(n) {
 }
 
 // Upsert earnings keyed by a stable id — a wallet address for self-custody players (who have
-// no google_id account row), so they appear on the top-earners board. Always refreshes the name.
+// no google_id account row), so they appear on the top-earners board. The in-game name names a NEW
+// row, or one with no real name yet; it never renames an account that has one. That name is the
+// player's (POST /api/my-name, checked for clashes), and a payout overwriting it with whatever the
+// game had, 'Player' when the game had none, is how a name "reset" on the next launch (2026-10-15).
 async function recordEarnings(id, name, sol, cadAmount = 0) {
   await pool.query(
     `INSERT INTO accounts (google_id, name, total_earnings) VALUES ($1, $2, $3)
-     ON CONFLICT (google_id) DO UPDATE SET total_earnings = COALESCE(accounts.total_earnings, 0) + $3, name = $2`,
+     ON CONFLICT (google_id) DO UPDATE SET total_earnings = COALESCE(accounts.total_earnings, 0) + $3,
+       name = CASE WHEN accounts.name IS NULL OR accounts.name = '' OR accounts.name = 'Player' THEN $2 ELSE accounts.name END`,
     [id, name || 'Player', sol]
   );
   await pool.query(`INSERT INTO earnings_history (google_id, amount, cad_amount) VALUES ($1, $2, $3)`, [id, sol, cadAmount]);

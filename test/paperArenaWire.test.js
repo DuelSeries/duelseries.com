@@ -32,7 +32,7 @@ const byType = (events, t, id) => events.filter(e => e[0] === t && (id === undef
 test('a fresh base is encoded in its first post pass; one encode per version; the join reuses it', () => {
   const { g, wire, events } = setup();
   const h = g.spawnHuman({ name: 'a' }, at(300, 0.4));
-  h.locked = true;
+  h.still = true;
   step(g, wire);
   assert.strictEqual(byType(events, 'b', h.id).length, 1);
   const n = wire.stats.ringEncodes;
@@ -48,7 +48,7 @@ test('a fresh base is encoded in its first post pass; one encode per version; th
 
 test('at most RING_ENCODES_PER_TICK ring encodes per tick; the rest wait', () => {
   const { g, wire, events } = setup();
-  for (let i = 0; i < 7; i++) g.spawnHuman({ name: 'h' + i }, at(400, 0.3 + i * 0.85)).locked = true;
+  for (let i = 0; i < 7; i++) g.spawnHuman({ name: 'h' + i }, at(400, 0.3 + i * 0.85)).still = true;
   step(g, wire);
   assert.strictEqual(byType(events, 'b').length, 3);
   step(g, wire);
@@ -152,7 +152,7 @@ test('a plain trim sends no ring; a dropped lobe does', () => {
   const { g, wire, events } = setup(950);
   g.trim = trim;
   const h = g.spawnHuman({ name: 'lens' }, at(900, 0.4));
-  h.locked = true;
+  h.still = true;
   for (let i = 0; i < 3; i++) step(g, wire);
   const sentBefore = byType(events, 'b', h.id).length;
   g._target = 912;
@@ -201,7 +201,7 @@ test('a plain trim sends no ring; a dropped lobe does', () => {
 test('shrink end re-sends touched rings once with ver + 1 and a new encode', () => {
   const { g, wire, events } = setup(950);
   const h = g.spawnHuman({ name: 's' }, at(890, 2.4));
-  h.locked = true;
+  h.still = true;
   for (let i = 0; i < 3; i++) step(g, wire);
   const first = byType(events, 'b', h.id);
   assert.strictEqual(first.length, 1);
@@ -219,7 +219,7 @@ test('a join built mid-shrink, clamped to its own radius, matches the trimmed se
   const { g, wire } = setup(950);
   g.trim = trim;
   const h = g.spawnHuman({ name: 'm' }, at(905, 5.0));
-  h.locked = true;
+  h.still = true;
   step(g, wire);
   g._target = 880;
   let t = 0;
@@ -256,7 +256,7 @@ test('a join built mid-shrink, clamped to its own radius, matches the trimmed se
 
 test('frame sizes: 412 B for 16 squares with empty tails, 668 + 10P B at TRAIL_TAIL_MAX', () => {
   const { g, wire } = setup(950);
-  for (let i = 0; i < 16; i++) g.spawnHuman({ name: 'f' + i }, at(i < 8 ? 300 : 650, 0.2 + (i % 8) * 0.78)).locked = true;
+  for (let i = 0; i < 16; i++) g.spawnHuman({ name: 'f' + i }, at(i < 8 ? 300 : 650, 0.2 + (i % 8) * 0.78)).still = true;
   step(g, wire);
   assert.strictEqual(g.units.length, 16);
   assert.strictEqual(wire.frame([]).byteLength, 412);

@@ -27,9 +27,9 @@
 <title>DuelSeries</title>
 <!-- What a search result or a shared link shows. There was none, so a pasted
      link previewed as a bare URL. -->
-<meta name="description" content="slither.io, agar.io, Paper.io and more, free or for $0.50 and $1 in USDC.">
+<meta name="description" content="Slither.io, Agar.io, Paper.io and more, free or for $0.50 and $1 in USDC.">
 <meta property="og:title" content="DuelSeries">
-<meta property="og:description" content="slither.io, agar.io, Paper.io and more, free or for $0.50 and $1 in USDC.">
+<meta property="og:description" content="Slither.io, Agar.io, Paper.io and more, free or for $0.50 and $1 in USDC.">
 <meta property="og:image" content="https://duelseries.com/img/icon-512.png">
 <meta property="og:url" content="https://duelseries.com/">
 <meta name="twitter:card" content="summary">
@@ -1216,22 +1216,22 @@ body.no-foot footer{display:none}
   transform:none;cursor:not-allowed}
 .go.lock::after{display:none}
 .go.lock .golock{display:block}
-/* Play and, on every game's Free rung, Spectate beside it (agar.io had it
-   first; Owen 2026-10-15: "in every single game"). Spectate is exactly one
-   rung wide (the rungs are three to the row with 8px gaps), so it sits in the
-   $1.00 column and Play spans the other two. A paid room is watched from
-   nowhere: a watcher sees the whole map and could tell a friend at a money
-   table where everybody is, so off Free the button goes and Play takes the
-   row back. On a game that is not open yet it stays, shut, like Play. */
+/* Play and Spectate beside it, on every rung of every game (agar.io had it
+   first; Owen 2026-10-15: "in every single game", then on the $0.50 and $1
+   rungs too). Spectate is exactly one rung wide (the rungs are three to the
+   row with 8px gaps), so it sits in the $1.00 column and Play spans the other
+   two. A paid table is watched read only: never a seat, never money, and a
+   watcher is shown what the player it follows is shown, no wider (each
+   game's server watch path). On a game that is not open yet it stays, shut,
+   like Play. */
 .gorow{display:flex;gap:8px}
 .gorow .go{flex:1;min-width:0;width:auto}
-.spec{display:none;flex:0 0 calc((100% - 16px) / 3);min-width:0;align-items:center;
+.spec{display:flex;flex:0 0 calc((100% - 16px) / 3);min-width:0;align-items:center;
   justify-content:center;gap:7px;padding:0 6px;white-space:nowrap;
   background:var(--s2);border-radius:var(--r2);color:var(--tx2);font-size:13.5px;
   font-weight:650;transition:background .15s,color .15s}
 .spec svg{flex:none}
 .spec:hover{background:var(--s3);color:var(--tx)}
-#detail.freerung .spec{display:flex}
 .spec:disabled,.spec:disabled:hover{background:var(--s2);color:var(--tx3);cursor:not-allowed}
 /* A game that is not open yet shows only what it is (Owen, 2026-10-15): the
    art, its name, the three prices and a padlocked Coming soon. The name
@@ -1271,7 +1271,6 @@ body.no-foot footer{display:none}
 /* Customize on top, what you are wearing under it, a chevron to say it opens. */
 .lookrow .lkt{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
 .lookrow .lkt b{font-size:13.5px;color:var(--tx);font-weight:650}
-.lookrow .lkn{font-size:12px;color:var(--tx2);font-weight:500}
 .lookrow .lka{flex:none;color:var(--tx3)}
 .lookrow .lkimg{display:none;width:52px;height:36px;flex:none;border-radius:var(--r2);
   object-fit:cover;opacity:.55}
@@ -2010,10 +2009,11 @@ body.scr-anim { overflow-x:hidden }
   <!-- Two layers, one shown at a time. The canvas is not a picture of the
        game, it IS the game: painted by the same renderer, the same body code
        and the same hex tile the real thing uses, so what moves behind the
-       buttons moves exactly as it does in play. Only the two built games have
-       one — snakes for slither.io, cells for agar.io — because a simulation is
-       a claim about how a game plays and eleven of these are not built yet.
-       Those fall back to their own painting, held still.
+       buttons moves exactly as it does in play. Three games have one: snakes
+       for slither.io, cells for agar.io, and players claiming ground for
+       Paper.io (js/v2/paperBg.js, in the game's own colours and sizes),
+       because a simulation is a claim about how a game plays. The rest fall
+       back to their own painting, held still.
 
        data-half keeps the backing store at half resolution, which nobody can
        see through the blur and which quarters the fill rate. -->
@@ -2085,7 +2085,7 @@ body.scr-anim { overflow-x:hidden }
         <span id="golabel">Play</span>
       </button>
       <button type="button" class="spec" id="specbtn" onclick="spectateFromDetail()"
-              aria-label="Spectate the free room">
+              aria-label="Spectate">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
              stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
@@ -2102,7 +2102,7 @@ body.scr-anim { overflow-x:hidden }
     <button type="button" class="lookrow" id="lookrow" onclick="openLook()">
       <canvas id="skmini" data-look="mini" width="560" height="150"></canvas>
       <img class="lkimg" id="lkimg" alt="">
-      <span class="lkt"><b>Customize</b><span class="lkn" id="skname"></span></span>
+      <span class="lkt"><b>Customize</b></span>
       <svg class="lka" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
            stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M9 6l6 6-6 6"/></svg>
@@ -2202,7 +2202,7 @@ body.scr-anim { overflow-x:hidden }
          state into #ev-join-t only, so the art survives every state change. -->
     <button type="button" class="evgo" id="ev-join" onclick="V2Play.launch('snake',{lobbyType:'br'})">
       <img class="evart" src="/img/games/snake.png" alt="" draggable="false">
-      <span class="evgot"><b id="ev-join-t">Join the Battle Royale</b><small>slither.io</small></span>
+      <span class="evgot"><b id="ev-join-t">Join the Battle Royale</b><small>Slither.io</small></span>
     </button>
     <!-- The rules were one sentence pretending to be all of them. They live
          behind this now, where there is room to say the whole thing. -->
@@ -2361,6 +2361,7 @@ body.scr-anim { overflow-x:hidden }
 <script src="/js/v2/earnings.js"></script>
 <script src="/js/v2/mobile.js"></script>
 <script src="/js/v2/swipe.js"></script>
+<script src="/js/v2/paperBg.js"></script>
 <!-- slither's own skin tables and body sprites, read-only (the frozen client
      file, unchanged), then the Customize preview drawn from them. -->
 <script src="/js/sl/slSprites.js"></script>
@@ -2406,7 +2407,7 @@ const GAMES=[
  /* look:1 is the only game with something to customize today: the snake's
     skin, stored for /sl (BACKLOG 3.1). Every other game shows the Customize
     bar shut, saying there is nothing to change yet. */
- {id:'snake',name:'slither.io',c:['#15251c','#c080ff'],type:'p',real:1,ladder:1,look:1,
+ {id:'snake',name:'Slither.io',c:['#15251c','#c080ff'],type:'p',real:1,ladder:1,look:1,
   d:'Grow by eating, cut other players off, and cash out before somebody cuts you off.'},
  /* The agar.io redo (server/ag, page /ag), in the lobby since 2026-10-07; the
     old agar.io game is deleted. Its rooms are rungs of the same ladder as
@@ -2416,7 +2417,7 @@ const GAMES=[
     the owner's off switch not thrown); otherwise it is drawn struck through.
     No look:1: the server picks a plain colour every life (Owen's answer:
     plain colours at first), so its Customize bar says nothing to change yet. */
- {id:'agar',name:'agar.io',c:['#141f28','#65c8e8'],type:'p',ladder:1,
+ {id:'agar',name:'Agar.io',c:['#141f28','#65c8e8'],type:'p',ladder:1,
   d:'Absorb anything smaller than you, split to chase, and stay clear of anything bigger.'},
  /* Built, and free while it is new: no ladder, no lobby list, its own page,
     and none of the money path involved in it. `solo` is what says so. */
@@ -2746,8 +2747,15 @@ function stillSnakeWorld(){
 }
 
 let FID=1;
+/* Paper.io's backdrop, zoomed out from the game's own observer view (2.5 px
+   a unit) to 1.1, and further on a narrow screen the way camOf does. Its
+   canvas is data-half, so the bitmap holds half that. */
+function paperCam(cv){
+  return 1.1*Math.max(0.65,Math.min(1,(cv.clientWidth||1100)/1100))/(cv.dataset.half?2:1);
+}
 function mkWorld(cv){
   if(cv.dataset.game==='snake')return stillSnakeWorld();
+  if(cv.dataset.game==='paper'&&window.V2PaperBg)return V2PaperBg.make(cv.width,cv.height,paperCam(cv));
   const w=cv.width,h=cv.height;
   /* z under 1 is a zoomed-out backdrop (camOf): counts go by the world on
      screen, not by pixels, so a phone's wider view is as busy as a PC's. */
@@ -2912,6 +2920,16 @@ function fit(cv){
   return true;                    /* caller repaints when the box changed */
 }
 function paintScene(cv,dt){
+  /* Paper.io's backdrop is its own world and its own painter (paperBg.js):
+     a 2D canvas fill, nothing of the snake renderer's, so it does not wait
+     for R either. dt is in 60 Hz frames; it steps in seconds. */
+  if(cv.dataset.game==='paper'&&window.V2PaperBg){
+    fit(cv);
+    const pw=scene(cv);
+    if(dt)V2PaperBg.step(pw,dt/60);
+    V2PaperBg.paint(cv.getContext('2d'),pw,cv.width,cv.height);
+    return;
+  }
   if(!R)return;
   fit(cv);
   const wd=scene(cv), w=cv.width, h=cv.height;
@@ -3112,13 +3130,9 @@ function drawSkins(){
     if(cur.noart)img.removeAttribute('src');
     else if(img.getAttribute('src')!=='/img/games/'+cur.id+'.png')img.src='/img/games/'+cur.id+'.png';
   }
-  const s=wornIn(cur);
-  /* What you are wearing: the skin you picked, else the game's free look. A
-     game with nothing to change yet: nothing at all, the line that said so is
-     gone with the other small print (Owen 2026-10-15). */
-  document.getElementById('skname').textContent=!look?''
-    :s?s.name
-    :cur.look?'Random colour':V2Shop.defaultName(cur.id);
+  /* Just the word Customize beside the big preview (Owen, 2026-10-15): the
+     line under it that named the skin ("Purple", "Random colour") is gone.
+     The preview already shows what you are wearing. */
 }
 function openLook(){
   if(!hasLook(cur))return;
@@ -3742,16 +3756,16 @@ function open_(id){
   const locked=!!(cur.soon&&!cur.built);
   det.classList.toggle('soon',locked);
   det.classList.toggle('nolook',!hasLook(cur));
-  /* Spectate, on the Free rung of every game (drawStake shows it there): shut
+  /* Spectate, on every rung of every game (drawStake names the rung): shut
      like Play on a game that is not open yet. */
   const specBtn=document.getElementById('specbtn');
   if(specBtn){
     specBtn.disabled=locked;
     specBtn.setAttribute('aria-disabled',locked?'true':'false');
-    specBtn.setAttribute('aria-label',locked?'Spectate, not open yet':'Spectate the free '+cur.name+' room');
+    if(locked)specBtn.setAttribute('aria-label','Spectate, not open yet');
   }
   const dart=document.getElementById('dart'), still=document.getElementById('dartstill');
-  const live=cur.id==='snake'?'bg':cur.id==='agar'?'agar':null;
+  const live=cur.id==='snake'?'bg':cur.id==='agar'?'agar':cur.id==='paper'&&window.V2PaperBg?'paper':null;
   dart.dataset.game=live||'bg';
   dart.style.display=live?'block':'none';
   still.style.display=live?'none':'block';
@@ -3918,13 +3932,13 @@ function startFromDetail(){
   if(cur.built&&(cur.duel||cur.solo)){V2Play.launch(cur.id,{lobbyType:'free'});return}
   V2Play.playChosen();
 }
-/* Spectate: the free room of this game, watched (public/js/v2/play.js
-   spectate picks the page and the watch mark). Never on a paid rung (the
-   button is hidden there) and never on a game that is not open (disabled). */
+/* Spectate: the table at the chosen rung of this game, watched read only
+   (public/js/v2/play.js spectate picks the page and the watch marks). Never
+   on a game that is not open (disabled). */
 function spectateFromDetail(){
   if(!cur||(cur.soon&&!cur.built))return;
-  if(Number(STEPS[si])!==0)return;
-  V2Play.spectate(cur.id);
+  const st=Number(STEPS[si]);
+  V2Play.spectate(cur.id,null,st>0?st:0);
 }
 
 function goBack(){showScreen(_cameFrom);jumpToTop()}
@@ -3933,8 +3947,10 @@ function goBack(){showScreen(_cameFrom);jumpToTop()}
    with a row of dots, which meant paging through amounts to find out what was
    even offered. Three fit, so the control IS the list. */
 function drawStake(){
-  /* Spectate is for the Free rung only (it watches the free room). */
+  /* Spectate watches the rung chosen here; its label says which. */
   document.getElementById('detail').classList.toggle('freerung',STEPS[si]===0);
+  const sb=document.getElementById('specbtn');
+  if(sb&&cur&&!sb.disabled)sb.setAttribute('aria-label','Spectate the '+(STEPS[si]>0?'$'+Number(STEPS[si]).toFixed(2):'free')+' '+cur.name+' tables');
   /* A rung that cannot be sat at says so by being struck through and
      disabled; the sentence under the row that repeated it is gone with the
      rest of the small print (Owen 2026-10-15). */
@@ -4187,7 +4203,10 @@ document.addEventListener('input',e=>{
   if(e.target.id!=='set-name')return;
   const v=String(e.target.value||'').replace(/[^a-zA-Z0-9]/g,'').slice(0,16);
   e.target.value=v;
-  try{localStorage.setItem('duelseries_playername',v)}catch(_){}
+  /* typedName also marks it for the account, so a failed save on blur is sent
+     again at the next launch instead of being overwritten (play.js pullName). */
+  if(v.length>=3&&window.V2Play&&V2Play.typedName)V2Play.typedName(v);
+  else try{localStorage.setItem('duelseries_playername',v)}catch(_){}
   const live=document.getElementById('play-name'); if(live)live.value=v;
   const m=document.getElementById('set-name-msg');
   m.textContent=v.length>=3?'':'At least three characters to play.';

@@ -560,3 +560,34 @@ test('proofOf: sha256 of a token, null for anything that is not one', () => {
   assert.strictEqual(proofOf(5), null);
   assert.strictEqual(proofOf('x'.repeat(65)), null);
 });
+
+// The lobby's Spectate on a paid rung (Owen, 2026-10-15): connectWatch seats a read-only watcher in the rung's busiest
+// room; nobody playing there is nothing to watch and opens no room; Play and leave on that socket let the seat go.
+test('connectWatch: a watcher seat in the busiest room of the rung, read only; none when nobody plays there', async () => {
+  const env = setup();
+  const before = env.arenas.all().length;
+  assert.strictEqual(env.arenas.connectWatch(sock(), 0.5), null, 'nobody at $0.50');
+  assert.strictEqual(env.arenas.connectWatch(sock(), 0), null, 'Free is connect, not this');
+  assert.strictEqual(env.arenas.all().length, before, 'no room opened');
+  const p = sock();
+  env.arenas.connectPaid(p);
+  joinPaid(env, p, { entryToken: env.store.mint({ walletAddress: 'W9' }) });
+  await tick(); await tick();
+  const room = roomOf(env, p);
+  assert.ok(room, 'a payer at $0.50');
+  const opens = room.openAccounts();
+  const v = sock();
+  assert.strictEqual(env.arenas.connectWatch(v, 0.5), room);
+  assert.strictEqual(room.isWatchOnly(v.id), true);
+  assert.strictEqual(env.arenas.spectate(v), true);
+  assert.strictEqual(room.openAccounts(), opens);
+  assert.strictEqual(room.liveHumans, 1);
+  // leave ends the watch; a Play from that socket lands on Free, never in the paid room
+  const v2 = sock();
+  env.arenas.connectWatch(v2, 0.5);
+  assert.strictEqual(env.arenas.leave(v.id), true);
+  assert.strictEqual(room.isWatchOnly(v.id), false);
+  env.arenas.join(v2, 'spy');
+  assert.strictEqual(room.seatOf(v2.id), null, 'the watcher seat is let go');
+  assert.ok(!env.arenas.roomOfSocket(v2.id) || !env.arenas.roomOfSocket(v2.id).money, 'played Free');
+});

@@ -320,6 +320,13 @@ function attachAgSockets(io, arenas, helpers) {
         arenas.connectPaid(socket);
         return;
       }
+      // The lobby's Spectate on a paid rung (auth { watchStake }, never with paid): a read-only watcher seat in that
+      // rung's busiest room (agArenas.connectWatch), refused 'nobody' when nobody plays there.
+      const ws = hs && hs.auth && typeof hs.auth.watchStake === 'number' ? hs.auth.watchStake : 0;
+      if (ws > 0 && typeof arenas.connectWatch === 'function') {
+        if (!arenas.connectWatch(socket, ws)) refuse(socket, 'nobody');
+        return;
+      }
       if (!arenas.connect(socket)) refuse(socket, 'full');
     })();
   }

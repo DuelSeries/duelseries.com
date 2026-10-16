@@ -21,7 +21,9 @@
 //   roomOf(id)       the live room whose seats hold this socket id (a scan of at most 8 rooms): a resume moves the
 //                    seat to the new socket's id (slRoom.resume), so routing follows it with no index to keep in step
 //   roomForKey(k)    the live room whose keys hold this resume key (slSockets onBack, paid sockets)
-//   leave, disconnect, input, hold, vis, chat, diag   slSockets' calls by socket id, as SlArenas names them
+//   leave, disconnect, input, hold, vis, chat, diag   slSockets' calls by socket id, as SlArenas names them (a
+//                    watcher's socket too: roomOf looks in the watchers)
+//   isOpen(), watch(socket, {stake, after})  a read-only watcher of the rung's busiest room (the lobby's Spectate)
 //   seatFor(stake, exclude)  a room with space (the door's step 11); hasSpace(stake) the same without opening one
 //   walletSeatOf(wallet), hasAccount(jid), labelOf(stake, index), setPaidOpen(on)
 //   boardRows()      one row per rung for /api/live: players = open accounts (live, gliding or parked, each once),
@@ -281,9 +283,28 @@ class SlPaidArenas {
 
   roomOf(socketId) {
     for (const list of this.rungs.values()) {
-      for (const r of list) if (!r.stopped && r.seats.has(socketId)) return r;
+      for (const r of list) if (!r.stopped && (r.seats.has(socketId) || r.watchers.has(socketId))) return r;
     }
     return null;
+  }
+
+  // Watching a rung (the lobby's Spectate on a $0.50 or $1 rung; slSockets: a watch handshake with watchStake):
+  // the busiest live room of that stake, read only (slRoom seatWatch: never a seat, never money). Watchers are capped
+  // per room as players are (C_PAID_HUMAN_CAP), and a rung with nobody playing has nothing to watch. Opens nothing.
+  isOpen() {
+    return this.paidEnabled && !this.stopping;
+  }
+
+  watch(socket, info) {
+    if (!this.isOpen()) return 'closed';
+    const rung = this._rungOf(info && info.stake);
+    if (rung === null) return 'closed';
+    const live = this.rungs.get(rung).filter((r) => !r.stopped && !r.closed && this._humans(r) > 0)
+      .sort((a, b) => this._humans(b) - this._humans(a) || this.place.get(a).index - this.place.get(b).index);
+    if (!live.length) return 'nobody';
+    const room = live[0];
+    if (room.watchers.size >= room.R.humanCap) return 'full';
+    return room.seatWatch(socket, { after: info && info.after }) ? true : 'nobody';
   }
 
   roomForKey(key) {

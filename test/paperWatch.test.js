@@ -167,7 +167,7 @@ test('follow is the leader by land (players and bots alike), or the square ranke
   assert.strictEqual(v.last('pp:watching').follow, ranked[1].id);
 });
 
-test('only the free rung, never from a seated socket, never with nobody playing, and full at the cap', () => {
+test('a real rung only, never from a seated socket, never with nobody playing, and full at the cap', () => {
   const w = world();
   const arenasBefore = w.arenas.all().length;
   const v0 = w.sock();
@@ -178,13 +178,19 @@ test('only the free rung, never from a seated socket, never with nobody playing,
   assert.strictEqual(w.arenas.all().length, arenasBefore, 'watchFor never opens an arena');
 
   const p = w.player('pat');
-  for (const stake of [0.5, 1, 0.1, -1, '0', null, undefined, NaN, Infinity, {}, [0]]) {
+  for (const stake of [0.1, -1, '0', null, undefined, NaN, Infinity, {}, [0]]) {
     const s = w.sock();
     s.fire('pp:watch', { stake });
     assert.strictEqual(s.last('pp:watching').why, 'bad-stake', String(stake));
     assert.strictEqual(s._ppWatch, undefined);
   }
   for (const r of w.arenas.all()) if (r.stake > 0) assert.strictEqual(r.watchers.size, 0);
+  // a paid rung nobody plays at: nothing to watch, and no arena opened for it
+  for (const stake of [0.5, 1]) {
+    const s = w.sock();
+    s.fire('pp:watch', { stake });
+    assert.strictEqual(s.last('pp:watching').why, 'nobody', String(stake));
+  }
 
   // A seated socket (live unit) cannot watch.
   p.fire('pp:watch', { stake: 0 });
@@ -346,7 +352,7 @@ test('emergencyClose and the sweep tell and drop their watchers; the new arena a
   assert.strictEqual(v3._ppWatch, null);
 });
 
-test('watchFor is pure: the free arena with the most players, never a paid one, never a new one', () => {
+test('watchFor is pure: the arena of that rung with the most players, never a new one', () => {
   const w = world();
   assert.strictEqual(w.arenas.watchFor(0), null);
   const n = w.arenas.all().length;
@@ -354,7 +360,7 @@ test('watchFor is pure: the free arena with the most players, never a paid one, 
   const list = w.arenas.all().filter((r) => r.stake === 0);
   assert.strictEqual(list.length, 2);
   assert.strictEqual(w.arenas.watchFor(0), list.find((r) => r.index === 0));
-  assert.strictEqual(w.arenas.watchFor(0.5), null);
+  assert.strictEqual(w.arenas.watchFor(0.5), null, 'nobody at $0.50');
   assert.strictEqual(w.arenas.watchFor('x'), null);
   assert.strictEqual(w.arenas.all().length, n + 1, 'only the players opened an arena');
 });
@@ -398,4 +404,30 @@ test('pp:watch is rate limited per socket (ppwatch, 1000 ms)', () => {
   v.fire('pp:watch', { stake: 0 });
   assert.strictEqual(v.all('pp:watching').length, 2);
   assert.strictEqual(w.free().watchers.size, 1, 'asked twice, watching once');
+});
+
+// Spectate on a paid rung (Owen, 2026-10-15): read only, exactly as on Free.
+test('a paid arena is watched read only: no member, no token read, no money moved; the board counts players only', () => {
+  const w = world();
+  const pay = w.sock();
+  pay.fire('pp:join', { name: 'payer', stake: 0.5, entryToken: w.mint(0.5) });
+  assert.ok(pay.last('pp:joined'), 'a paying player at $0.50');
+  const room = w.arenas.all().find((r) => r.stake === 0.5 && r.liveHumans > 0);
+  assert.ok(room);
+  const before = counts(w);
+  const consumed = w.spy.consume.length + w.spy.storeConsume.length;
+  const v = w.sock();
+  v.fire('pp:watch', { stake: 0.5 });
+  assert.ok(!v.last('pp:watching').none, 'watching the paid table');
+  assert.strictEqual(v._ppWatch, room);
+  assert.strictEqual(room.watchers.size, 1);
+  assert.strictEqual(room.liveHumans, 1, 'a watcher is no player');
+  // it cannot join, respawn or steer on that socket
+  v.fire('pp:join', { name: 'v', stake: 0.5, entryToken: w.mint(0.5) });
+  v.fire('pp:respawn', { entryToken: w.mint(0.5) });
+  v.fire('pp:in', 12345);
+  assert.deepStrictEqual(counts(w), before);
+  assert.strictEqual(w.spy.consume.length + w.spy.storeConsume.length, consumed, 'no token was read');
+  v.fire('pp:leave');
+  assert.strictEqual(room.watchers.size, 0);
 });

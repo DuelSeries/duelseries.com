@@ -4,7 +4,8 @@
 // handshake and its lobby-frame Play then simply plays, as a watcher.
 //
 // Inert unless slxNet installed the production transport, and a plain free page unless the lobby asked to watch: it
-// writes sessionStorage 'dsWatch' = 'snake' before it opens /sl in the game frame. The mark is taken out at boot (a
+// writes sessionStorage 'dsWatch' = 'snake' (and 'dsWatchStake' for a paid rung) before it opens /sl in the game
+// frame. The mark is taken out at boot (a
 // later launch is never a watch by mistake) and kept in this closure. A paid page (slxPaid), a page slxPaid holds and
 // the battle royale's page (slxBr, which watches its own way) stay exactly as they are, mark or not.
 //
@@ -31,11 +32,18 @@
   if (!S || !doc) return;
 
   var KEY = 'dsWatch';
+  // The paid rung to watch (the lobby's Spectate on a $0.50 or $1 rung writes it beside the mark): sent as
+  // watchStake, and the server watches that rung's busiest room, read only (slPaidArenas.watch). Taken out with it.
+  var STAKE_KEY = 'dsWatchStake';
   var mark = '';
+  var watchStake = 0;
   try {
     var ss = root.sessionStorage;
     mark = String((ss && ss.getItem(KEY)) || '');
+    var ws = Number(ss && ss.getItem(STAKE_KEY));
+    watchStake = isFinite(ws) && ws > 0 ? ws : 0;
     if (ss) ss.removeItem(KEY);
+    if (ss) ss.removeItem(STAKE_KEY);
   } catch (e) {
     mark = '';
   }
@@ -87,6 +95,7 @@
 
   slx.watchAuth = function () {
     var a = { watch: 1 };
+    if (watchStake > 0) a.watchStake = watchStake;
     if (after > 0) a.after = after;
     return a;
   };

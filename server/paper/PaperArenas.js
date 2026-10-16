@@ -126,13 +126,16 @@ class PaperArenas {
     return null;
   }
 
-  // The arena a watcher is sent to (the lobby's Spectate, the free rung only): the open free arena with the most
-  // live players, the lowest index on a tie. A pure query: never seatFor, never a new arena, and null when no free
-  // arena has a player (an arena ticks only while someone is seated, and watchers alone must never cost a tick).
+  // The arena a watcher is sent to (the lobby's Spectate, any rung: Owen 2026-10-15 opened the $0.50 and $1 ones too):
+  // the open arena of that rung with the most live players, the lowest index on a tie. A pure query: never seatFor,
+  // never a new arena, and null when no arena of the rung has a player (an arena ticks only while someone is seated,
+  // and watchers alone must never cost a tick). A watcher of a paid arena is read only exactly as on Free
+  // (PaperRoom.addWatcher): every player there is already sent the whole arena, so it learns nothing they do not.
   watchFor(stake) {
-    if (rungOf(stake) !== 0) return null;
+    const rung = rungOf(stake);
+    if (rung === null || !this.arenas[keyOf(rung)]) return null;
     let best = null;
-    for (const r of this.arenas[keyOf(0)]) {
+    for (const r of this.arenas[keyOf(rung)]) {
       if (r.stopped || r.warming || !(r.liveHumans > 0)) continue;
       if (!best || r.liveHumans > best.liveHumans || (r.liveHumans === best.liveHumans && r.index < best.index)) best = r;
     }

@@ -33,7 +33,7 @@ const TEXT = {
 // pp:watch's answers when there is nothing to show: pp:watching { none: true, why, text }. The page shows its own
 // words and asks again by itself.
 const WATCH_TEXT = {
-  'bad-stake': 'Only the free table can be watched.',
+  'bad-stake': 'That table cannot be watched.',
   seated: 'You are playing at a table already.',
   nobody: 'Nobody is playing right now.',
   full: 'Too many people are watching this table right now.'
@@ -373,14 +373,15 @@ module.exports = function createPaperSockets({
     room.removeWatcher(socket.id);
   }
 
-  // pp:watch { stake: 0, after?: unit id }: the busiest free arena's whole state, then its frames and bundles.
+  // pp:watch { stake, after?: unit id }: the busiest arena of that rung (Free, $0.50 or $1), its whole state, then its
+  // frames and bundles, read only.
   // after: follow the square ranked right after that one (the leader otherwise). Sent again it moves the watch
   // (to a busier arena if there is one), never doubles it.
   function onWatch(socket, msg) {
     if (!isObject(msg)) return;
     if (!socketRL(socket, 'ppwatch', 1000)) return;
     const stake = typeof msg.stake === 'number' ? rungOf(msg.stake) : null;
-    if (stake === null || !isStake(stake) || stake !== 0) return watchRefuse(socket, 'bad-stake');
+    if (stake === null || !isStake(stake)) return watchRefuse(socket, 'bad-stake');
     if (socket._ppRoom && socket._ppRoom.hasLiveUnit(socket.id)) return watchRefuse(socket, 'seated');
     const after = Number.isInteger(msg.after) && msg.after > 0 ? msg.after : 0;
     // A dead player's socket still sits in its arena's io room: it leaves it, as pp:leave does.
@@ -388,7 +389,7 @@ module.exports = function createPaperSockets({
       socket.leave(socket._ppRoom.ioRoom);
       socket._ppRoom = null;
     }
-    const room = arenas.watchFor(0);
+    const room = arenas.watchFor(stake);
     if (!room) {
       unwatch(socket);
       return watchRefuse(socket, 'nobody');

@@ -159,6 +159,16 @@ for (const g of [
   { game: 'knockout', file: 'knockout.js', p: 'ko', other: 'battleship', watching: () => koWatching(1) },
   { game: 'battleship', file: 'battleship.js', p: 'bs', other: 'knockout', watching: () => bsWatching() },
 ]) {
+  test(g.game + ': a paid rung Spectate asks for tables at that stake only; the stake mark is removed too', () => {
+    const page = boot(g.file, { dsWatch: g.game, dsWatchStake: '0.5', playerName: 'Owen' });
+    assert.strictEqual(page.store.has('dsWatchStake'), false);
+    page.deliver('connect');
+    same(page.sent(g.p + ':watch').pop()[1], { stake: 0.5 });
+    const free = boot(g.file, { dsWatch: g.game });
+    free.deliver('connect');
+    same(free.sent(g.p + ':watch').pop()[1], { stake: 0 });
+  });
+
   test(g.game + ': the watch mark is read once, removed, and a connect asks to watch', () => {
     const page = boot(g.file, { dsWatch: g.game, playerName: 'Owen' });
     assert.strictEqual(page.store.has('dsWatch'), false, 'the mark is gone as soon as it is read');
@@ -197,7 +207,7 @@ for (const g of [
     page.deliver(g.p + ':matches', { index: 1, count: 2 });
     assert.strictEqual(page.$('watchNext').disabled, false, 'two matches: next is on offer');
     page.$('watchNext').click();
-    same(page.sent(g.p + ':watch').pop()[1], { after: m.match.id });
+    same(page.sent(g.p + ':watch').pop()[1], { after: m.match.id, stake: 0 });
 
     page.$('watchLobby').click();
     assert.strictEqual(page.sent(g.p + ':unwatch').length, 1);
@@ -247,6 +257,6 @@ for (const g of [
     assert.strictEqual(page.$('overWho').textContent, 'Nia wins');
     assert.match(page.$('overWhy').textContent, /^Owen left the match\./);
     page.runTimers();
-    same(page.sent(g.p + ':watch').pop()[1], { after: m.match.id });
+    same(page.sent(g.p + ':watch').pop()[1], { after: m.match.id, stake: 0 });
   });
 }

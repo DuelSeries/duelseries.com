@@ -3,7 +3,8 @@
 // slArenas.watch, slRoom seatWatch and _leaderAfter; the page side is test/slxWatch.test.js). A free socket whose
 // handshake says watch 1 watches the leader (bots included) or the snake ranked after `after`, through the real
 // slSockets and the free directory on the fixture table: never a seat, never counted, never steering, holding or
-// chatting; 'nobody', 'full', 'closed'; money fields refused; a paid socket stays paid; the battle royale unchanged
+// chatting; 'nobody', 'full', 'closed'; money fields refused; a paid socket stays paid; a paid rung watched read only
+// (watchStake, slPaidArenas.watch); the battle royale unchanged
 // (test/slBr.test.js runs its own watch tests on the same seatWatch).
 
 const test = require('node:test');
@@ -205,7 +206,7 @@ test('money fields with watch are refused not-open, never watched and never seat
   assert.strictEqual(room.seats.size, 1);
 });
 
-test('a paid socket that also says watch stays a paid socket; a paid room never seats a watcher', () => {
+test('a paid socket that also says watch stays a paid socket (seated, never a watcher)', () => {
   const r = paidRig();
   const s = r.join(r.mint(), { auth: { watch: 1 }, nick: 'Payer' });
   assert.strictEqual(s.disconnected, false);
@@ -215,9 +216,63 @@ test('a paid socket that also says watch stays a paid socket; a paid room never 
   assert.strictEqual(seated.length, 1, 'seated in a paid room');
   assert.strictEqual(seated[0].seatOf(s.id).watch, undefined);
   assert.ok(!watchMsg(s).length);
-  assert.strictEqual(typeof r.paid.watch, 'undefined', 'the paid directory has no watch');
-  for (const room of rooms) assert.strictEqual(room.seatWatch(bareSocket(), {}), null, 'seatWatch refuses a paid room');
   for (const room of rooms) assert.strictEqual(room.watchers.size, 0);
+});
+
+// Spectate on a paid rung (Owen, 2026-10-15): watchStake 0.5 or 1 watches that rung's busiest room, read only.
+test('a paid rung watcher (watchStake) follows a paying player as its own view: no seat, no account, no money call', async () => {
+  const r = paidRig();
+  const payer = r.join(r.mint({ stake: 1, worth: 1, paid: 1 }), { auth: { stake: 1 }, nick: 'Payer' });
+  await r.settle();
+  const room = r.paid.rooms().find((x) => x.seatOf(payer.id));
+  assert.ok(room, 'the payer is seated at $1');
+  const opens = room.money.openCount();
+  const w = r.sock({ auth: { watch: 1, watchStake: 1 } });
+  w.fire('sl:join', {});
+  assert.strictEqual(w.disconnected, false);
+  assert.strictEqual(room.watchers.size, 1, 'watching the $1 room');
+  assert.strictEqual(room.seats.size, 1, 'still one seat');
+  assert.strictEqual(room.money.openCount(), opens, 'no account opened');
+  assert.strictEqual(r.arenas.room().watchers.size, 0, 'not the free room');
+  const m = watchMsg(w);
+  assert.strictEqual(m.length, 1);
+  assert.strictEqual(m[0].id, room.seatOf(payer.id).snakeId, 'following the paying player');
+  // its calls go to the paid directory and reach nothing but the view
+  w.fire('sl:hold', true);
+  w.fire('sl:chat', 'hi');
+  assert.strictEqual(room.money.openCount(), opens);
+  // the board counts players only
+  const row = r.paid.boardRows().find((x) => x.stake === 1);
+  assert.strictEqual(row.players, 1);
+  // leaving ends the view; the paid directory finds the watcher's socket
+  w.disconnect();
+  assert.strictEqual(room.watchers.size, 0);
+});
+
+test('a paid rung watch: nobody playing is nobody to watch (no room opened); a bad watchStake is refused not-open', () => {
+  const r = paidRig();
+  const before = r.paid.rooms().length;
+  const a = r.sock({ auth: { watch: 1, watchStake: 0.5 } });
+  a.fire('sl:join', {});
+  refusedWith(a, 'nobody');
+  assert.strictEqual(r.paid.rooms().length, before, 'a watcher opens no room');
+  for (const bad of [0.25, '1', -1, 1e9, null, true]) {
+    const s = r.sock({ auth: { watch: 1, watchStake: bad } });
+    s.fire('sl:join', {});
+    refusedWith(s, 'not-open');
+  }
+  // money fields beside watchStake are still refused
+  const m = r.sock({ auth: { watch: 1, watchStake: 1, entryToken: 'tok' } });
+  m.fire('sl:join', {});
+  refusedWith(m, 'not-open');
+});
+
+test('without the paid directory a watchStake is refused, never sent to the free room', () => {
+  const { r, room } = freeRoom();
+  const s = r.sock({ auth: { watch: 1, watchStake: 1 } });
+  s.fire('sl:join', {});
+  refusedWith(s, 'not-open');
+  assert.strictEqual(room.watchers.size, 0);
 });
 
 test('a watch socket never becomes a player: sl:back is refused gone, a second sl:join does nothing', () => {

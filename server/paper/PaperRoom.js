@@ -259,9 +259,10 @@ class PaperRoom {
   // The same order as resume(): the members already here hear what is pending, then the watcher joins the io room
   // and gets the whole state at once. From then on it gets the same pp:s and pp:ev as every player, and nothing
   // else: no unit, no input, no money, no resumeKey. -> false when this arena takes no watcher (stopped, warming,
-  // paid, full); the caller answers for it.
+  // full); the caller answers for it. A paid arena takes watchers too (the lobby's Spectate on a paid rung): a watcher
+  // there is never a member, so no money path ever sees it.
   addWatcher(socket, after) {
-    if (this.stopped || this.warming || this.paid || !socket || !socket.id) return false;
+    if (this.stopped || this.warming || !socket || !socket.id) return false;
     if (!this.watchers.has(socket.id) && this.watchers.size >= WATCHERS_MAX) return false;
     this._flushPending(); // to the members already here, never to the watcher
     this.watchers.set(socket.id, socket);

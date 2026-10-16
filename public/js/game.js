@@ -12,7 +12,7 @@ const renderer = new Renderer(canvas);
 // Minimap is drawn directly onto the game canvas by renderer._drawMinimap
 
 // Player info from lobby
-const playerName    = sessionStorage.getItem('playerName')    || 'Player';
+const playerName    = sessionStorage.getItem('playerName')    || localStorage.getItem('duelseries_playername') || 'Player';
 const walletAddress = sessionStorage.getItem('walletAddress') || null;   // display and analytics only: the server trusts a proof (walletProof below)
 if (window.phIdentify && walletAddress) window.phIdentify(walletAddress); // link in-game analytics to this player
 /* Two ways a room can be named. The old lobby sets lobbyType; the redesigned
