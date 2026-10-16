@@ -415,7 +415,7 @@ for (const g of [
     assert.strictEqual(c.verdict, 'You win');
     assert.strictEqual(c.tone, 'win');
     assert.strictEqual(c.hero, '$1.80');
-    assert.strictEqual(c.unit, 'to your wallet');
+    assert.strictEqual(c.unit, null, 'money won stands alone (Owen: no "to your wallet")');
     assert.deepStrictEqual(c.ledger, [['Pot', '$2.00'], ['House 10%', '−$0.20'], ['You receive', '$1.80']]);
     assert.deepStrictEqual(c.facts.find(f => f[0] === g.count), [g.count, g.countVal]);
     assert.deepStrictEqual(c.buttons.map(b => b.text), ['Play again $1.00', 'Lobby']);

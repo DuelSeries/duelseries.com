@@ -417,7 +417,7 @@ test('paid end card: the receipt with the server\'s numbers, the explorer link, 
   p.session.sideEvent('ag:cashedout', { grossMicro: 1400000, cutMicro: 140000, netMicro: 1260000, cashoutId: 'c1' });
   let card = readCard(p.doc);
   assert.strictEqual(p.session.state().paidEnd, 'cashed');
-  assert.deepStrictEqual([card.tone, card.verdict, card.hero, card.unit], ['win', 'Cashed out', '$1.26', 'to your wallet']);
+  assert.deepStrictEqual([card.tone, card.verdict, card.hero, card.unit], ['win', 'Cashed out', '$1.26', '']);   // money won stands alone (Owen: no "to your wallet")
   assert.deepStrictEqual(card.ledger, [['Cashed out', '$1.40'], ['House 10%', '−$0.14'], ['You receive', '$1.26', 'net']]);
   assert.deepStrictEqual(card.facts, [['Time', '0:00'], ['Top rank', '2nd'], ['Mass', '400']], 'this life, before the death');
   assert.deepStrictEqual(card.status, { text: 'Sending to your wallet', state: 'pending' });

@@ -220,7 +220,7 @@ test('end card, paid cash-out: the server\'s net as the hero, the ledger, the pa
   const end = S.createEnd({ DSEnd: p.D });
   end.showCashed({ grossMicro: 2400000, cutMicro: 240000, netMicro: 2160000 }, { timeAlive: 365000, highestMass: 2210, topPosition: 3 });
   let c = card(p);
-  assert.deepStrictEqual([c.tone, c.verdict, c.hero, c.unit], ['win', 'Cashed out', '$2.16', 'to your wallet']);
+  assert.deepStrictEqual([c.tone, c.verdict, c.hero, c.unit], ['win', 'Cashed out', '$2.16', '']);   // money won stands alone (Owen: no "to your wallet")
   assert.deepStrictEqual(c.ledger, [['Cashed out', '$2.40'], ['House 10%', '−$0.24'], ['You receive', '$2.16', 'net']]);
   assert.deepStrictEqual(c.facts, [['Time', '6:05'], ['Top rank', '3rd'], ['Mass', '2,210']]);
   assert.deepStrictEqual(c.status, { text: 'Sending to your wallet', state: 'pending' });

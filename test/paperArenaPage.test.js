@@ -631,7 +631,7 @@ test('paid cash-out: the receipt from pp:cashedout, then the payout status (sent
   assert.strictEqual(c.tone, 'win');
   assert.strictEqual(c.verdict, 'Cashed out');
   assert.strictEqual(c.hero, '$1.35');
-  assert.strictEqual(c.unit, 'to your wallet');
+  assert.strictEqual(c.unit, null, 'money won stands alone (Owen: no "to your wallet")');
   assert.deepStrictEqual(c.ledger, [['Cashed out', '$1.50'], ['House 10%', '−$0.15'], ['You receive', '$1.35']]);
   assert.deepStrictEqual(c.facts, [['Time', '1:01'], ['Top rank', '1st'], ['Best land', '31.00%']]);
   assert.deepStrictEqual(c.status, { text: 'Sending to your wallet', state: 'pending', href: null });

@@ -155,10 +155,12 @@
     '.dse-st:first-child{border-top:0}',
     '.dse-st i{position:relative;flex:0 0 auto;width:8px;height:8px;margin:0 3px;border-radius:50%;background:var(--dse-gold);' +
       'animation:dse-breathe 1.4s ease-in-out infinite}',
+    // sent: a pulsing green dot (Owen 2026-10-16, his one green: the lobby's live dot, --live #8ed081), for everyone
     '.dse-st.ok{color:var(--dse-tx)}',
-    '.dse-st.ok i{width:15px;height:15px;margin:0;animation:none;background:linear-gradient(145deg,#ffd98a,#e09a26)}',
-    '.dse-st.ok i:after{content:"";position:absolute;left:5px;top:2.5px;width:3.5px;height:7px;border:solid var(--dse-ink);' +
-      'border-width:0 2px 2px 0;transform:rotate(45deg)}',
+    '.dse-st.ok i{width:9px;height:9px;background:#8ed081;animation:none;box-shadow:0 0 7px rgba(142,208,129,.55)}',
+    '.dse-st.ok i:after{content:"";position:absolute;inset:0;border-radius:50%;background:#8ed081;' +
+      'animation:dse-ping 1.6s cubic-bezier(0,0,.2,1) infinite}',
+    '@keyframes dse-ping{0%{transform:scale(1);opacity:.75}80%,100%{transform:scale(2.7);opacity:0}}',
     '.dse-st.err{color:#ff8a78}',
     '.dse-st.err i{background:var(--dse-loss);animation:none}',
     '.dse-st a{margin-left:auto;color:var(--dse-tx);font-weight:650;text-decoration:underline;' +
@@ -342,7 +344,8 @@
     if (hasHero) {
       var hero = el('p', 'dse-hero');
       hero.appendChild(heroNode(String(o.hero)));
-      if (o.unit) hero.appendChild(el('span', 'dse-unit', o.unit));
+      // money won stands alone, centred (Owen: no "to your wallet"; the gold coin and "You receive" already say it)
+      if (o.unit && !(o.tone === 'win' && MONEY_RE.test(String(o.hero)))) hero.appendChild(el('span', 'dse-unit', o.unit));
       panel.appendChild(hero);
     }
     if (o.podium && o.podium.length) {
