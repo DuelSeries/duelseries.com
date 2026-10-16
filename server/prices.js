@@ -5,6 +5,9 @@ let _rate = 200; // fallback rate in case fetch fails
    part into dollars with it. null until the first answer, and the total says
    nothing rather than guess at a rate. */
 let _usdCad = null;
+/* When both came from one answer, for the conversion's price check (server/swap.js): only a
+   fetched rate is used there, never the fallback above, and only while it is recent. */
+let _bothAt = 0;
 
 async function fetchRate() {
   try {
@@ -16,6 +19,7 @@ async function fetchRate() {
     }
     const uc = Number(data?.['usd-coin']?.cad);
     if (uc > 0.5 && uc < 3) _usdCad = uc;           // a sane CAD-per-USD band, so one bad answer is ignored
+    _bothAt = data?.solana?.cad > 0 && uc > 0.5 && uc < 3 ? Date.now() : _bothAt;
   } catch (e) {
     console.warn('[Prices] Rate fetch failed, using cached rate:', _rate);
   }
@@ -33,4 +37,10 @@ function solToCad(sol) { return sol * _rate; }
 
 function getUsdCadRate() { return _usdCad; }
 
-module.exports = { getSolCadRate, cadToSol, solToCad, getUsdCadRate };
+// Dollars per SOL from a fetch in the last 15 minutes, else null.
+function getSolUsdRate() {
+  if (!_bothAt || Date.now() - _bothAt > 15 * 60 * 1000 || !(_usdCad > 0)) return null;
+  return _rate / _usdCad;
+}
+
+module.exports = { getSolCadRate, cadToSol, solToCad, getUsdCadRate, getSolUsdRate };

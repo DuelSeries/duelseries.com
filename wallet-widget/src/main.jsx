@@ -45,16 +45,24 @@ async function fetchBalances(address) {
    balances, before it is handed here; the player sees the price and taps to confirm; then this
    wallet signs exactly those bytes and the server sends them once. Nothing is signed without that
    tap, and the server refuses any bytes that are not the ones it checked. */
+/* The prices this widget fetched, by requestId. The lobby gets a copy to show and names one back
+   to run it; the bytes signed are always this widget's own copy, never one handed in. */
+const _quotes = new Map();
 async function swapQuote(address, dir, amount, receiver) {
   const qs = new URLSearchParams({ wallet: address, dir, amount: String(amount) });
   if (receiver) qs.set('receiver', receiver);
   const r = await fetch('/api/swap/quote?' + qs.toString());
   const j = await r.json().catch(() => ({}));
   if (!r.ok || !j || j.error || !j.requestId) throw new Error((j && j.error) || 'Could not get a price. Try again.');
-  return j;
+  const t = Date.now();
+  for (const [k, v] of _quotes) if (!(Number(v.expiresAt) > t)) _quotes.delete(k);
+  _quotes.set(j.requestId, j);
+  return Object.assign({}, j);
 }
-async function swapRun(q, wallet, signTransaction) {
-  if (!q || typeof q.transaction !== 'string' || !q.requestId) throw new Error('That price is not valid. Get a new one.');
+async function swapRun(requestId, wallet, signTransaction) {
+  const q = _quotes.get(requestId);
+  if (!q || typeof q.transaction !== 'string') throw new Error('That price is not valid. Get a new one.');
+  _quotes.delete(requestId);
   if (Date.now() > Number(q.expiresAt || 0)) throw new Error('That price expired. Nothing was converted. Get a new one.');
   const bytes = Uint8Array.from(atob(q.transaction), (c) => c.charCodeAt(0));
   // The wallet must be one of the transaction's signers (the server checked this too).
@@ -614,7 +622,7 @@ function WalletPanel() {
        outAmount }, then reads the balances again. */
     window.duelWalletSwapRun = async (q) => {
       if (!wallet) throw new Error('Wallet not ready — try again in a moment.');
-      const r = await swapRun(q, wallet, signTransaction);
+      const r = await swapRun(q && q.requestId, wallet, signTransaction);
       fetchBalances(wallet.address).then((b) => { setBalance(b.balance); setSol(b.sol); }).catch(() => {});
       return r;
     };

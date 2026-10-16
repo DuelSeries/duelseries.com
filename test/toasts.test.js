@@ -155,6 +155,31 @@ test('the balance going up: Funds added, never on sign-in, a failed read, or a f
   assert.strictEqual(p.said().filter(s => s.title === 'Funds added').length, 2);
 });
 
+test('a Convert to USDC rise has its own card: Funds added stays quiet for it, and only for it', () => {
+  const p = page();
+  p.wallet(10);
+  p.wallet(10);
+  p.win.DSToast.expectRise(4.38);
+  p.wallet(14.38);                      // the conversion landing
+  assert.strictEqual(p.cards().length, 0);
+  p.wallet(19.38);                      // money that really was added afterwards
+  assert.deepStrictEqual(p.said(), [{ kind: 'money', title: 'Funds added', line: '+$5.00 USDC is in your wallet' }]);
+  // A conversion that failed takes its expectation back.
+  const q = page();
+  q.wallet(10); q.wallet(10);
+  const cancel = q.win.DSToast.expectRise(4);
+  cancel();
+  q.wallet(14);
+  assert.strictEqual(q.said().filter(s => s.title === 'Funds added').length, 1);
+  // And it lapses after a minute.
+  const r = page();
+  r.wallet(10); r.wallet(10);
+  r.win.DSToast.expectRise(4);
+  r.tick(61000);
+  r.wallet(14);
+  assert.strictEqual(r.said().filter(s => s.title === 'Funds added').length, 1);
+});
+
 test('a paid seat: Entry paid at the top as it opens, then a rise is the game paying out, for 15 minutes after', () => {
   const p = page();
   p.wallet(10);

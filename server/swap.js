@@ -15,6 +15,10 @@
      1. the order is for exactly what was asked (mints, amount, taker, receiver), with a slippage
         floor no worse than MAX_SLIPPAGE_BPS under the quote, a fee of at most MAX_FEE_BPS and a
         small price impact (checkOrder);
+     1b. every instruction is one Jupiter's own orders use (checkShape): Jupiter's router with its
+        on-chain floor decoded and no lower than the quoted one, or its RFQ fill; no approvals, no
+        authority changes, no durable nonce, a capped priority fee. A price more than 3% worse
+        than our own price feed's is refused (checkPrice);
      2. the transaction is SIMULATED on the chain and the wallet's accounts are compared before
         and after (checkEffects): the wallet stays a plain wallet, none of its token accounts loses
         tokens it should not, changes hands, or gains a delegate or a close authority, the SOL
@@ -44,11 +48,13 @@ const RULES = Object.freeze({
   MIN_USDC_IN: 1_000_000,             // $1, the smallest Withdraw as SOL
   MAX_USDC_IN: 100_000_000_000,       // $100,000, a sanity bound on one withdrawal
   MAX_SLIPPAGE_BPS: 100,              // the floor is at most 1% under the quote
+  RETRY_SLIPPAGE_BPS: 50,             // what a second order asks for, well inside the cap
   MAX_FEE_BPS: 50,                    // Jupiter's fee for SOL-USDC is 2 bps; refuse anything over 0.5%
   MAX_PRICE_IMPACT_PCT: 1,            // percentage points
   FEE_ALLOWANCE_LAMPORTS: 4_000_000,  // network + priority fee + one new token account's rent
   QUOTE_TTL_MS: 40_000,
   MAX_TOKEN_ACCOUNTS: 40,
+  QUOTES_PER_WALLET_MIN: 8,
   MAX_TX_BYTES: 1232,
   MAX_PENDING: 500,
 });
@@ -105,12 +111,14 @@ function checkOrder(order, want, rules) {
   if (order.taker != null && order.taker !== want.wallet) fail('The price was for a different wallet. Try again.');
   if (order.swapMode != null && order.swapMode !== 'ExactIn') fail('The price was for a different swap. Try again.');
   if (typeof order.transaction !== 'string' || !order.transaction) {
-    fail(ORDER_ERRORS[order.errorCode] || 'There is no price for that amount right now. Try again in a moment.');
+    fail((Number.isInteger(order.errorCode) && Object.prototype.hasOwnProperty.call(ORDER_ERRORS, order.errorCode) && ORDER_ERRORS[order.errorCode])
+      || 'There is no price for that amount right now. Try again in a moment.');
   }
   if (typeof order.requestId !== 'string' || !/^[\w-]{1,100}$/.test(order.requestId)) fail('No price came back. Try again.');
   const out = big(order.outAmount), min = big(order.otherAmountThreshold);
   if (out === null || min === null || out <= 0n || min <= 0n || min > out) fail('No price came back. Try again.');
-  if (min * 10000n < out * BigInt(10000 - R.MAX_SLIPPAGE_BPS)) fail('The price is moving too much right now.', { slippage: true });
+  // One unit of rounding allowed: a floor of exactly the cap rounds down by up to a unit.
+  if ((min + 1n) * 10000n < out * BigInt(10000 - R.MAX_SLIPPAGE_BPS)) fail('The price is moving too much right now.', { slippage: true });
   const fee = Number(order.feeBps);
   if (!Number.isFinite(fee) || fee < 0 || fee > R.MAX_FEE_BPS) fail('The fee for that swap is too high right now. Try again later.');
   const rawImpact = order.priceImpact != null ? Number(order.priceImpact) : Number(order.priceImpactPct) * 100;
@@ -136,7 +144,66 @@ function txFacts(b64, wallet, rules) {
   const signers = keys.slice(0, tx.message.header.numRequiredSignatures);
   const signerIdx = signers.indexOf(wallet);
   if (signerIdx < 0) fail('That transaction is not for your wallet.');
-  return { tx, message, hash: crypto.createHash('sha256').update(message).digest('hex'), signerIdx };
+  return { tx, bytes, keys, message, hash: crypto.createHash('sha256').update(message).digest('hex'), signerIdx };
+}
+
+/* What the transaction is allowed to run (security review 2026-10-15, findings 2 and 3). A
+   simulation shows what a transaction does NOW; a program that behaves differently when it lands
+   could pass one. So every top-level instruction must be one of the programs Jupiter's own orders
+   use, read off real orders on 2026-10-15: the compute budget (its priority fee capped), a plain
+   SOL transfer (wrapping SOL), creating a token account, the token program's transfer, close and
+   sync, Jupiter's router with its floor decoded and checked against the quote, and Jupiter's RFQ
+   fill (a market maker's fixed price, all or nothing). Anything else, a durable nonce, an
+   approval, a change of authority, another router, is refused, and the order is asked for again
+   on Jupiter's own router only. */
+const PROGRAMS = Object.freeze({
+  COMPUTE_BUDGET: 'ComputeBudget111111111111111111111111111111',
+  ATA: 'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL',
+  JUPITER: 'JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4',
+  JUPITERZ: '61DFfeTKM7trxYcPQCM78bJ794ddZprZpAwAnLiwTpYH',
+});
+/* Jupiter v6 route instructions seen in real orders, by discriminator: where the input amount,
+   the quoted output and the slippage sit. The floor the program enforces on landing is
+   quoted * (10000 - slippage) / 10000, which matched every order's otherAmountThreshold. */
+const JUP_ROUTES = Object.freeze({
+  bb64facc31c4af14: { inAt: 8, quotedAt: 16, slipAt: 24 },
+  d19853937cfed8e9: { inAt: 9, quotedAt: 18, slipAt: 26 },
+});
+const TOKEN_IXS = new Set([3, 9, 12, 17]);   // Transfer, CloseAccount, TransferChecked, SyncNative
+const MAX_PRIORITY_LAMPORTS = 1_000_000n;    // 0.001 SOL of priority fee at most
+function checkShape(facts, want, minOut, rules) {
+  const R = rules || RULES;
+  const refuse = () => fail('That conversion is not in a form this wallet can check. Try again.', { shape: true });
+  let routes = 0, cuLimit = null, cuPrice = 0n, others = 0;
+  for (const ix of facts.tx.message.compiledInstructions) {
+    if (ix.programIdIndex >= facts.keys.length) refuse();
+    const pid = facts.keys[ix.programIdIndex];
+    const d = Buffer.from(ix.data);
+    if (pid === PROGRAMS.COMPUTE_BUDGET) {
+      if (d[0] === 2 && d.length >= 5) cuLimit = BigInt(d.readUInt32LE(1));
+      else if (d[0] === 3 && d.length >= 9) cuPrice = d.readBigUInt64LE(1);
+      else refuse();
+      continue;
+    }
+    others++;
+    if (pid === SYSTEM_PROGRAM) { if (d.length !== 12 || d.readUInt32LE(0) !== 2) refuse(); continue; }
+    if (pid === PROGRAMS.ATA) { if (!(d.length === 0 || (d.length === 1 && (d[0] === 0 || d[0] === 1)))) refuse(); continue; }
+    if (pid === TOKEN_PROGRAMS[0]) { if (!d.length || !TOKEN_IXS.has(d[0])) refuse(); continue; }
+    if (pid === PROGRAMS.JUPITERZ) { routes++; continue; }
+    if (pid === PROGRAMS.JUPITER) {
+      const L = JUP_ROUTES[d.subarray(0, 8).toString('hex')];
+      if (!L || d.length < L.slipAt + 2) refuse();
+      const inAmount = d.readBigUInt64LE(L.inAt), quoted = d.readBigUInt64LE(L.quotedAt), slip = d.readUInt16LE(L.slipAt);
+      if (inAmount !== want.amount || slip > R.MAX_SLIPPAGE_BPS) refuse();
+      if (quoted * BigInt(10000 - slip) / 10000n + 1n < minOut) refuse();
+      routes++;
+      continue;
+    }
+    refuse();
+  }
+  if (routes !== 1) refuse();
+  const limit = cuLimit !== null ? cuLimit : BigInt(Math.min(1_400_000, 200_000 * others));
+  if (limit * cuPrice / 1_000_000n > MAX_PRIORITY_LAMPORTS) refuse();
 }
 
 /* The simulation, read as balances. pre and post map address -> { lamports (BigInt), owner
@@ -164,6 +231,10 @@ function checkEffects(o, pre, post, rules) {
   const pu = tokenOf(pre.get(o.usdcAta)), qu = tokenOf(post.get(o.usdcAta));
   const before = pu ? pu.amount : 0n;
   if (qu && (qu.owner !== o.wallet || qu.mint !== o.usdcMint)) fail('That conversion would change your USDC account. It was stopped.');
+  /* A USDC account the transaction creates (a first Convert after a card top-up) was skipped by
+     the loop above, having no before. It must come out with no one else able to spend or close
+     it: every later deposit and winning lands there (security review 2026-10-15, finding 1). */
+  if (qu && !pu && (qu.delegate || qu.closeAuthority)) fail('That conversion would let someone else control your USDC account. It was stopped.');
   const spent = pw.lamports - qw.lamports;   // SOL that left the wallet (negative: it gained)
   if (o.dir === 'toUsdc') {
     if (!qu || qu.amount - before < o.minOut) fail('That conversion would pay less USDC than quoted. It was stopped.');
@@ -194,21 +265,50 @@ const EXECUTE_ERRORS = {
   '-1': 'That price expired. Nothing was converted. Get a new one.',
   '-1005': 'That price expired before it went through. Nothing was converted. Get a new one.',
   '-2003': 'That price expired. Nothing was converted. Get a new one.',
-  '-1000': 'It did not go through. Nothing was converted. Try again.',
-  '-2000': 'It did not go through. Nothing was converted. Try again.',
+  /* "Failed to land" may still land while its blockhash lives, so it does not say nothing moved
+     (security review 2026-10-15, finding 7). */
+  '-1000': 'It has not gone through. Check your balance in a minute before trying again.',
+  '-2000': 'It has not gone through. Check your balance in a minute before trying again.',
   '-2004': 'The price changed. Nothing was converted. Try again.',
 };
+const own = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+
+/* An independent price beside Jupiter's own (security review 2026-10-15, finding 6): a quote
+   more than PRICE_TOLERANCE worse for the player than the market price is refused. refSolUsd()
+   returns the dollars per SOL from our own price feed, or null when it has none recent, and then
+   only Jupiter's checks apply. */
+const PRICE_TOLERANCE = 0.03;
+function checkPrice(dir, inAmount, outAmount, ref) {
+  if (!(ref > 0)) return;
+  const usdPerSol = dir === 'toUsdc'
+    ? (Number(outAmount) / 1e6) / (Number(inAmount) / 1e9)    // dollars received per SOL given
+    : (Number(inAmount) / 1e6) / (Number(outAmount) / 1e9);   // dollars given per SOL received
+  const worse = dir === 'toUsdc' ? usdPerSol < ref * (1 - PRICE_TOLERANCE) : usdPerSol > ref * (1 + PRICE_TOLERANCE);
+  if (!Number.isFinite(usdPerSol) || worse) fail('That price is too far from the market price right now. Try again in a moment.');
+}
 
 /* chain:   { getAccounts(addrs) -> [acct|null], getTokenAccounts(owner) -> [{ address, account }],
               simulate(tx, addrs) -> { err, accounts: [acct|null] } }
-   jupiter: { order(params) -> order JSON, execute({ signedTransaction, requestId }) -> result JSON }
-   usdcMint: () -> the USDC mint (base58). */
-function createSwap({ chain, jupiter, usdcMint, now = Date.now, rules = RULES, log = () => {} }) {
+   jupiter: { order(params) -> order JSON, execute({ signedTransaction, requestId }) -> result JSON,
+              wouldWait() -> ms an order would queue }
+   usdcMint: () -> the USDC mint (base58). refSolUsd: () -> dollars per SOL, or null. */
+function createSwap({ chain, jupiter, usdcMint, refSolUsd = () => null, now = Date.now, rules = RULES, log = () => {} }) {
   const R = rules;
   const pending = new Map();
   function prune() {
     const t = now();
     for (const [k, v] of pending) if (v.expiresAt <= t) pending.delete(k);
+  }
+  /* Quotes per wallet: a wallet's prices cannot be asked for faster than a person would, from any
+     number of addresses (security review 2026-10-15, finding 5). */
+  const perWallet = new Map();
+  function spendQuote(wallet) {
+    const t = now();
+    const recent = (perWallet.get(wallet) || []).filter((x) => t - x < 60_000);
+    if (recent.length >= R.QUOTES_PER_WALLET_MIN) fail('Too many prices asked for this wallet. Wait a minute and try again.');
+    recent.push(t);
+    perWallet.set(wallet, recent);
+    if (perWallet.size > 5000) for (const [k, v] of perWallet) if (!v.some((x) => t - x < 60_000)) perWallet.delete(k);
   }
 
   async function quote(req) {
@@ -227,18 +327,38 @@ function createSwap({ chain, jupiter, usdcMint, now = Date.now, rules = RULES, l
       if (!isKey(receiver)) fail('That is not a Solana address.');
       if (receiver === wallet) fail('That is this wallet\'s own address.');
       if (receiver === mint || receiver === SYSTEM_PROGRAM || TOKEN_PROGRAMS.includes(receiver)) fail('That is not a wallet address.');
+      // A wallet is a key on the curve; a token account's or a program's address usually is not.
+      if (!PublicKey.isOnCurve(new PublicKey(receiver).toBytes())) fail('That address is not a wallet. SOL can only be sent to a wallet address.');
       if (amount < BigInt(R.MIN_USDC_IN)) fail('The smallest withdrawal as SOL is $' + (R.MIN_USDC_IN / 1e6).toFixed(2) + '.');
       if (amount > BigInt(R.MAX_USDC_IN)) fail('That is more than one withdrawal can send.');
     }
     const usdcAta = getAssociatedTokenAddressSync(new PublicKey(mint), new PublicKey(wallet)).toBase58();
+    spendQuote(wallet);
+    // Refused before any chain read when Jupiter's queue is already full.
+    if (typeof jupiter.wouldWait === 'function' && jupiter.wouldWait() > 12_000) fail('Conversions are busy right now. Try again in a few seconds.');
 
     const base = [wallet, usdcAta].concat(receiver ? [receiver] : []);
     const [accts, tokens] = await Promise.all([chain.getAccounts(base), chain.getTokenAccounts(wallet)]);
     if (!Array.isArray(accts) || accts.length !== base.length || !Array.isArray(tokens)) fail('Could not read your wallet. Try again.');
-    if (tokens.length > R.MAX_TOKEN_ACCOUNTS) fail('This wallet holds too many token accounts to check a conversion safely.');
     const pre = new Map();
     base.forEach((a, i) => pre.set(a, accts[i] || null));
-    for (const t of tokens) if (t && isKey(t.address)) pre.set(t.address, t.account || null);
+    /* Only token accounts with something to lose are checked: a balance, a delegate or a close
+       authority. Empty ones anybody can create for this wallet (dust spam) are left out, so they
+       cannot push it over the cap and switch conversions off for it (finding 9). */
+    const worth = tokens.filter((t) => {
+      if (!t || !isKey(t.address) || t.address === usdcAta) return false;
+      const a = tokenOf(t.account);
+      return !!a && (a.amount > 0n || !!a.delegate || !!a.closeAuthority);
+    });
+    if (worth.length > R.MAX_TOKEN_ACCOUNTS) fail('This wallet holds too many token accounts to check a conversion safely.');
+    for (const t of worth) pre.set(t.address, t.account);
+    const usdcListed = tokens.find((t) => t && t.address === usdcAta);
+    if (usdcListed && !pre.get(usdcAta)) pre.set(usdcAta, usdcListed.account || null);
+    if (receiver) {
+      // SOL goes only to a plain wallet: nothing there yet, or an account no program owns.
+      const r = pre.get(receiver);
+      if (r && (r.owner !== SYSTEM_PROGRAM || r.data.length !== 0)) fail('That address is not a wallet. SOL can only be sent to a wallet address.');
+    }
     const w = pre.get(wallet);
     const lamports = w ? w.lamports : 0n;
     if (dir === 'toUsdc') {
@@ -256,28 +376,32 @@ function createSwap({ chain, jupiter, usdcMint, now = Date.now, rules = RULES, l
     const want = dir === 'toUsdc'
       ? { inputMint: SOL_MINT, outputMint: mint, amount, wallet, receiver: null }
       : { inputMint: mint, outputMint: SOL_MINT, amount, wallet, receiver };
-    const params = { inputMint: want.inputMint, outputMint: want.outputMint, amount: String(amount), taker: wallet };
+    /* Jupiter's own router (Metis) and its RFQ market makers (JupiterZ) only: the two whose
+       transactions checkShape can read. Dflow and OKX build theirs with their own programs. */
+    const params = { inputMint: want.inputMint, outputMint: want.outputMint, amount: String(amount), taker: wallet,
+                     excludeRouters: 'dflow,okx' };
     if (receiver) params.receiver = receiver;
 
-    /* One order with Jupiter's own slippage estimate. If its floor is under our cap, or the
-       simulation refuses an RFQ fill (a market maker's last look), ask once more: with our cap
-       set, and without the RFQ router. */
+    /* One order with Jupiter's own slippage estimate. If its floor is under our cap, its shape is
+       one we cannot read, or the simulation refuses it (an RFQ maker's last look), ask once more
+       on Jupiter's own router only, with our cap set. */
     let order = await jupiter.order(params), checked, facts, sim;
     const addrs = Array.from(pre.keys());
     for (let attempt = 0; ; attempt++) {
       try {
         checked = checkOrder(order, want, R);
         facts = txFacts(order.transaction, wallet, R);
+        checkShape(facts, want, checked.minOut, R);
+        checkPrice(dir, amount, checked.outAmount, refSolUsd());
         sim = await chain.simulate(facts.tx, addrs);
         if (!sim || sim.err || !Array.isArray(sim.accounts) || sim.accounts.length !== addrs.length) {
           fail('This conversion would not go through right now. Try again in a moment.', { simFailed: true });
         }
         break;
       } catch (e) {
-        if (attempt > 0 || !(e && (e.slippage || e.simFailed))) throw e;
-        const again = Object.assign({}, params, { slippageBps: String(R.MAX_SLIPPAGE_BPS) });
-        if (e.simFailed) again.excludeRouters = 'jupiterz';
-        order = await jupiter.order(again);
+        if (attempt > 0 || !(e && (e.slippage || e.simFailed || e.shape))) throw e;
+        order = await jupiter.order(Object.assign({}, params,
+          { slippageBps: String(R.RETRY_SLIPPAGE_BPS), excludeRouters: 'jupiterz,dflow,okx' }));
       }
     }
     const post = new Map();
@@ -303,9 +427,10 @@ function createSwap({ chain, jupiter, usdcMint, now = Date.now, rules = RULES, l
     prune();
     const entry = pending.get(requestId);
     if (!entry) fail('That price expired. Nothing was converted. Get a new one.');
-    checkSigned(signed, entry, R);
+    const f = checkSigned(signed, entry, R);
     pending.delete(requestId);               // one send per approved price, whatever happens next
-    const r = await jupiter.execute({ signedTransaction: signed, requestId });
+    // The bytes that were checked, encoded again, not the client's own text (finding 8).
+    const r = await jupiter.execute({ signedTransaction: Buffer.from(f.bytes).toString('base64'), requestId });
     const sig = r && typeof r.signature === 'string' && SIG.test(r.signature) ? r.signature : null;
     if (r && r.status === 'Success') {
       log(entry.dir + ' ' + entry.wallet.slice(0, 6) + ' in=' + (r.totalInputAmount || entry.inAmount) +
@@ -316,7 +441,7 @@ function createSwap({ chain, jupiter, usdcMint, now = Date.now, rules = RULES, l
     }
     const code = r && r.code != null ? String(r.code) : '';
     log('failed ' + entry.dir + ' ' + entry.wallet.slice(0, 6) + ' code=' + code + ' sig=' + sig);
-    fail(EXECUTE_ERRORS[code] || 'The conversion did not go through. Check your balance before trying again.', { signature: sig });
+    fail((own(EXECUTE_ERRORS, code) && EXECUTE_ERRORS[code]) || 'The conversion did not go through. Check your balance before trying again.', { signature: sig });
   }
 
   return { quote, execute, _pending: pending };
@@ -358,6 +483,7 @@ function createJupiter({ fetchImpl = globalThis.fetch, apiKey = '', base = 'http
     return j;
   }
   return {
+    wouldWait() { return Math.max(0, nextAt - now()); },
     async order(params) {
       await slot();
       return call('/order?' + new URLSearchParams(params).toString(), { method: 'GET' }, 10_000);
@@ -411,4 +537,5 @@ function chainFromConnection(connection) {
 }
 
 module.exports = { RULES, SOL_MINT, SYSTEM_PROGRAM, TOKEN_PROGRAMS, SwapError, createSwap, createJupiter, chainFromConnection,
-                   checkOrder, checkEffects, checkSigned, txFacts, readTokenAccount, isKey };
+                   checkOrder, checkEffects, checkSigned, checkShape, checkPrice, txFacts, readTokenAccount, isKey,
+                   PROGRAMS, JUP_ROUTES };

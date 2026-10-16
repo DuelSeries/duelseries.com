@@ -13,7 +13,7 @@
    - the Jupiter client spaces orders to the keyless limit and maps its failures to plain words. */
 const test = require('node:test');
 const assert = require('node:assert');
-const { Keypair, PublicKey, SystemProgram, TransactionMessage, VersionedTransaction } = require('@solana/web3.js');
+const { Keypair, PublicKey, SystemProgram, TransactionInstruction, TransactionMessage, VersionedTransaction } = require('@solana/web3.js');
 const { getAssociatedTokenAddressSync } = require('@solana/spl-token');
 const S = require('../server/swap');
 
@@ -34,12 +34,35 @@ function tokenData({ mint, owner, amount, delegate = null, closeAuthority = null
 const sysAcct = (lamports) => ({ lamports: BigInt(lamports), owner: S.SYSTEM_PROGRAM, data: Buffer.alloc(0) });
 const tokAcct = (fields) => ({ lamports: 2_039_280n, owner: S.TOKEN_PROGRAMS[0], data: tokenData(fields) });
 
-/* A real v0 transaction for `payer`, unsigned, as Jupiter hands it over. */
-function unsignedTx(payer, extraSigner) {
-  const ix = SystemProgram.transfer({ fromPubkey: payer.publicKey, toPubkey: Keypair.generate().publicKey, lamports: 1 });
-  const ixs = [ix];
-  if (extraSigner) ixs.unshift(SystemProgram.transfer({ fromPubkey: extraSigner.publicKey, toPubkey: payer.publicKey, lamports: 1 }));
-  const msg = new TransactionMessage({ payerKey: extraSigner ? extraSigner.publicKey : payer.publicKey, recentBlockhash: BLOCKHASH, instructions: ixs }).compileToV0Message();
+/* Jupiter v6's route instruction in the layout real orders use (discriminator bb64facc31c4af14:
+   in_amount, quoted_out_amount, slippage_bps, platform_fee_bps, positive_slippage_bps, plan). */
+function jupRoute(payer, { amount, quoted, slip = 47, disc = 'bb64facc31c4af14' }) {
+  const d = Buffer.alloc(disc === 'd19853937cfed8e9' ? 41 : 40);
+  Buffer.from(disc, 'hex').copy(d, 0);
+  const at = disc === 'd19853937cfed8e9' ? { inAt: 9, qAt: 18, sAt: 26 } : { inAt: 8, qAt: 16, sAt: 24 };
+  d.writeBigUInt64LE(BigInt(amount), at.inAt);
+  d.writeBigUInt64LE(BigInt(quoted), at.qAt);
+  d.writeUInt16LE(slip, at.sAt);
+  return new TransactionInstruction({ programId: new PublicKey(S.PROGRAMS.JUPITER), keys: [{ pubkey: payer, isSigner: true, isWritable: true }], data: d });
+}
+const ix = (program, data, payer) => new TransactionInstruction({ programId: new PublicKey(program), keys: [{ pubkey: payer, isSigner: true, isWritable: true }], data: Buffer.from(data) });
+const cuPrice = (micro) => { const b = Buffer.alloc(9); b[0] = 3; b.writeBigUInt64LE(BigInt(micro), 1); return b; };
+const cuLimit = (n) => { const b = Buffer.alloc(5); b[0] = 2; b.writeUInt32LE(n, 1); return b; };
+
+/* A real v0 transaction for `payer`, unsigned, as Jupiter hands it over: by default the compute
+   budget, wrapping the SOL, Jupiter's route for `route`, and closing the wrapped SOL. */
+function unsignedTx(payer, extraSigner, route, extra) {
+  const p = payer.publicKey;
+  const ixs = extra || [
+    ix(S.PROGRAMS.COMPUTE_BUDGET, cuLimit(200_000), p),
+    ix(S.PROGRAMS.COMPUTE_BUDGET, cuPrice(20_000), p),
+    SystemProgram.transfer({ fromPubkey: p, toPubkey: Keypair.generate().publicKey, lamports: 1 }),
+    ix(S.TOKEN_PROGRAMS[0], [17], p),
+    jupRoute(p, route || { amount: 50_000_000, quoted: 10_500_000 }),
+    ix(S.TOKEN_PROGRAMS[0], [9], p),
+  ];
+  if (extraSigner) ixs.unshift(ix(S.PROGRAMS.JUPITERZ, [1, 2, 3], extraSigner.publicKey));
+  const msg = new TransactionMessage({ payerKey: extraSigner ? extraSigner.publicKey : p, recentBlockhash: BLOCKHASH, instructions: ixs }).compileToV0Message();
   return new VersionedTransaction(msg);
 }
 const b64 = (tx) => Buffer.from(tx.serialize()).toString('base64');
@@ -61,13 +84,20 @@ function world(opts = {}) {
   };
   const tokens = [{ address: otherAta, account: tokAcct({ mint: otherMint, owner: wallet, amount: 500n }) }];
   if (pre[usdcAta]) tokens.push({ address: usdcAta, account: pre[usdcAta] });
-  const tx = opts.tx || unsignedTx(kp);
   const calls = { order: [], execute: [], simulate: 0 };
-  const orderFor = (p) => Object.assign({
-    inputMint: p.inputMint, outputMint: p.outputMint, inAmount: p.amount, taker: p.taker,
-    outAmount: '10500000', otherAmountThreshold: '10450000', swapMode: 'ExactIn', feeBps: 2,
-    priceImpact: -0.01, router: 'metis', requestId: 'req-' + (calls.order.length), transaction: b64(tx),
-  }, typeof opts.order === 'function' ? opts.order(p, calls.order.length) : (opts.order || {}));
+  // The transaction follows the order: Jupiter's route for its amount and quote, unless a test hands one in.
+  const orderFor = (p) => {
+    const o = Object.assign({
+      inputMint: p.inputMint, outputMint: p.outputMint, inAmount: p.amount, taker: p.taker,
+      outAmount: '10500000', otherAmountThreshold: '10450000', swapMode: 'ExactIn', feeBps: 2,
+      priceImpact: -0.01, router: 'metis', requestId: 'req-' + (calls.order.length),
+    }, typeof opts.order === 'function' ? opts.order(p, calls.order.length) : (opts.order || {}));
+    if (!('transaction' in o)) {
+      const t = typeof opts.tx === 'function' ? opts.tx(p, o, kp) : opts.tx;
+      o.transaction = b64(t || unsignedTx(kp, null, { amount: p.amount, quoted: o.outAmount }));
+    }
+    return o;
+  };
   const jupiter = {
     async order(p) { calls.order.push(p); return orderFor(p); },
     async execute(body) { calls.execute.push(body); return opts.exec ? opts.exec(body) : { status: 'Success', code: 0, signature: '5'.repeat(88), totalInputAmount: '50000000', totalOutputAmount: '10480000' }; },
@@ -92,7 +122,7 @@ function world(opts = {}) {
   let t = 1_000_000;
   const clock = { now: () => t, advance: (ms) => { t += ms; } };
   const swap = S.createSwap({ chain, jupiter, usdcMint: () => USDC, now: clock.now });
-  return { kp, wallet, usdcAta, otherAta, receiver, tx, calls, swap, clock, pre };
+  return { kp, wallet, usdcAta, otherAta, receiver, calls, swap, clock, pre };
 }
 
 async function refuses(p, re) {
@@ -106,7 +136,8 @@ test('toUsdc: a clean quote returns the floor and remembers the approved message
   assert.strictEqual(q.outAmount, '10500000');
   assert.strictEqual(q.inAmount, '50000000');
   assert.strictEqual(w.calls.order.length, 1);
-  assert.deepStrictEqual(Object.keys(w.calls.order[0]).sort(), ['amount', 'inputMint', 'outputMint', 'taker']);
+  assert.deepStrictEqual(Object.keys(w.calls.order[0]).sort(), ['amount', 'excludeRouters', 'inputMint', 'outputMint', 'taker']);
+  assert.strictEqual(w.calls.order[0].excludeRouters, 'dflow,okx');
   assert.strictEqual(w.calls.order[0].inputMint, S.SOL_MINT);
   assert.strictEqual(w.calls.order[0].outputMint, USDC);
   assert.ok(w.swap._pending.has(q.requestId));
@@ -154,8 +185,8 @@ test('a floor more than 1% under the quote is asked for again with our cap, once
   const w = world({ order: (p, n) => (n === 1 ? { otherAmountThreshold: '10300000' } : {}) });
   const q = await w.swap.quote({ wallet: w.wallet, dir: 'toUsdc', amount: '50000000' });
   assert.strictEqual(w.calls.order.length, 2);
-  assert.strictEqual(w.calls.order[1].slippageBps, '100');
-  assert.strictEqual(w.calls.order[1].excludeRouters, undefined);
+  assert.strictEqual(w.calls.order[1].slippageBps, '50');
+  assert.strictEqual(w.calls.order[1].excludeRouters, 'jupiterz,dflow,okx');
   assert.strictEqual(q.minOut, '10450000');
   const still = world({ order: { otherAmountThreshold: '10300000' } });
   await refuses(still.swap.quote({ wallet: still.wallet, dir: 'toUsdc', amount: '50000000' }), /moving too much/);
@@ -165,7 +196,7 @@ test('a floor more than 1% under the quote is asked for again with our cap, once
 test('a failed simulation is asked for again without the RFQ router, then refused', async () => {
   const once = world({ simErr: (n) => n === 1 });
   await once.swap.quote({ wallet: once.wallet, dir: 'toUsdc', amount: '50000000' });
-  assert.strictEqual(once.calls.order[1].excludeRouters, 'jupiterz');
+  assert.strictEqual(once.calls.order[1].excludeRouters, 'jupiterz,dflow,okx');
   const always = world({ simErr: () => true });
   await refuses(always.swap.quote({ wallet: always.wallet, dir: 'toUsdc', amount: '50000000' }), /would not go through/);
   assert.strictEqual(always.calls.order.length, 2);
@@ -244,7 +275,9 @@ test('execute: only the approved message, signed by the wallet, once, before it 
 
 test('execute: a failure from Jupiter says whether anything moved', async () => {
   for (const [res, re] of [
-    [{ status: 'Failed', code: -1000 }, /Nothing was converted/],
+    [{ status: 'Failed', code: -1000 }, /has not gone through. Check your balance in a minute/],
+    [{ status: 'Failed', code: -1005 }, /expired before it went through. Nothing was converted/],
+    [{ status: 'Failed', code: '__proto__' }, /did not go through. Check your balance/],
     [{ status: 'Failed', code: -2004 }, /price changed. Nothing was converted/],
     [{ status: 'Failed', code: -1001, signature: '4'.repeat(88) }, /Check your balance/],
   ]) {
@@ -287,13 +320,111 @@ test('toSol (Withdraw as SOL): the receiver gets at least the floor, the wallet 
   assert.strictEqual(r.calls.order.length, 0);
 });
 
-test('a wallet with more token accounts than can be checked is refused', async () => {
+test('token accounts: more than can be checked is refused, but empty spam ones never count', async () => {
   const w = world();
-  const chain = { async getAccounts(a) { return a.map(() => sysAcct(LAMPORTS)); },
-                  async getTokenAccounts() { return Array.from({ length: S.RULES.MAX_TOKEN_ACCOUNTS + 1 }, () => ({ address: Keypair.generate().publicKey.toBase58(), account: null })); },
-                  async simulate() { throw new Error('not reached'); } };
-  const swap = S.createSwap({ chain, jupiter: { order() { throw new Error('not reached'); } }, usdcMint: () => USDC });
-  await refuses(swap.quote({ wallet: w.wallet, dir: 'toUsdc', amount: '50000000' }), /too many token accounts/);
+  const many = (amount) => Array.from({ length: S.RULES.MAX_TOKEN_ACCOUNTS + 1 }, () => ({
+    address: Keypair.generate().publicKey.toBase58(),
+    account: tokAcct({ mint: Keypair.generate().publicKey.toBase58(), owner: w.wallet, amount }) }));
+  const chainWith = (tokens) => ({ async getAccounts(a) { return a.map((x) => (x === w.wallet ? sysAcct(LAMPORTS) : null)); },
+                                   async getTokenAccounts() { return tokens; },
+                                   async simulate() { throw new Error('reached the simulation'); } });
+  const jupiter = { async order() { throw new Error('reached Jupiter'); } };
+  const full = S.createSwap({ chain: chainWith(many(1n)), jupiter, usdcMint: () => USDC });
+  await refuses(full.quote({ wallet: w.wallet, dir: 'toUsdc', amount: '50000000' }), /too many token accounts/);
+  // 41 empty accounts anybody could create for this wallet: not counted, so the quote goes on.
+  const spam = S.createSwap({ chain: chainWith(many(0n)), jupiter, usdcMint: () => USDC });
+  await assert.rejects(spam.quote({ wallet: w.wallet, dir: 'toUsdc', amount: '50000000' }), /reached Jupiter/);
+});
+
+test('the shape: only the programs Jupiter uses, its floor decoded, no nonce, no approvals', async () => {
+  const p = (kp) => kp.publicKey;
+  const route = (kp, o) => jupRoute(p(kp), Object.assign({ amount: 50_000_000, quoted: 10_500_000 }, o));
+  const refusedThenMetis = async (name, build) => {
+    const w = world({ tx: (pp, o, kp) => (pp.excludeRouters === 'jupiterz,dflow,okx' ? null : build(kp)) });
+    await w.swap.quote({ wallet: w.wallet, dir: 'toUsdc', amount: '50000000' }).catch((e) => { throw new Error(name + ': ' + e.message); });
+    assert.strictEqual(w.calls.order.length, 2, name + ': asked again');
+    assert.strictEqual(w.calls.order[1].excludeRouters, 'jupiterz,dflow,okx', name);
+    const always = world({ tx: (pp, o, kp) => build(kp) });
+    await refuses(always.swap.quote({ wallet: always.wallet, dir: 'toUsdc', amount: '50000000' }), /not in a form this wallet can check/)
+      .catch((e) => { throw new Error(name + ' (always): ' + e.message); });
+    assert.strictEqual(always.calls.simulate, 0, name + ': never simulated, never offered');
+  };
+  const other = Keypair.generate().publicKey.toBase58();
+  await refusedThenMetis('an unknown program', (kp) => unsignedTx(kp, null, null, [route(kp), ix(other, [1], p(kp))]));
+  await refusedThenMetis('a token approval', (kp) => unsignedTx(kp, null, null, [route(kp), ix(S.TOKEN_PROGRAMS[0], [4, 1, 0, 0, 0, 0, 0, 0, 0], p(kp))]));
+  await refusedThenMetis('a change of authority', (kp) => unsignedTx(kp, null, null, [route(kp), ix(S.TOKEN_PROGRAMS[0], [6, 1, 0], p(kp))]));
+  await refusedThenMetis('a durable nonce', (kp) => unsignedTx(kp, null, null, [ix(S.SYSTEM_PROGRAM, Buffer.from([4, 0, 0, 0]), p(kp)), route(kp)]));
+  await refusedThenMetis('a System assign', (kp) => unsignedTx(kp, null, null, [route(kp), SystemProgram.assign({ accountPubkey: p(kp), programId: new PublicKey(other) })]));
+  await refusedThenMetis('a Token-2022 instruction', (kp) => unsignedTx(kp, null, null, [route(kp), ix(S.TOKEN_PROGRAMS[1], [3], p(kp))]));
+  await refusedThenMetis('an unknown Jupiter instruction', (kp) => unsignedTx(kp, null, null, [route(kp, { disc: '0000000000000001' })]));
+  await refusedThenMetis('a floor under the quote', (kp) => unsignedTx(kp, null, null, [route(kp, { slip: 100 })]));
+  await refusedThenMetis('a different amount routed', (kp) => unsignedTx(kp, null, null, [route(kp, { amount: 49_000_000 })]));
+  await refusedThenMetis('no route', (kp) => unsignedTx(kp, null, null, [SystemProgram.transfer({ fromPubkey: p(kp), toPubkey: Keypair.generate().publicKey, lamports: 1 })]));
+  await refusedThenMetis('two routes', (kp) => unsignedTx(kp, null, null, [route(kp), route(kp)]));
+  await refusedThenMetis('a priority fee over 0.001 SOL', (kp) => unsignedTx(kp, null, null, [
+    ix(S.PROGRAMS.COMPUTE_BUDGET, cuLimit(1_400_000), p(kp)), ix(S.PROGRAMS.COMPUTE_BUDGET, cuPrice(1_000_000), p(kp)), route(kp)]));
+  // The second route layout, and an RFQ fill, are read too.
+  const v2 = world({ tx: (pp, o, kp) => unsignedTx(kp, null, null, [route(kp, { disc: 'd19853937cfed8e9' })]) });
+  await v2.swap.quote({ wallet: v2.wallet, dir: 'toUsdc', amount: '50000000' });
+  const rfq = world({ tx: (pp, o, kp) => unsignedTx(kp, null, null, [ix(S.PROGRAMS.JUPITERZ, [7, 7], p(kp))]) });
+  await rfq.swap.quote({ wallet: rfq.wallet, dir: 'toUsdc', amount: '50000000' });
+  assert.strictEqual(v2.calls.order.length + rfq.calls.order.length, 2, 'accepted first time');
+});
+
+test('a brand-new USDC account must come out with no delegate and no close authority', async () => {
+  for (const extra of [{ delegate: true }, { closeAuthority: true }]) {
+    const w = world({ usdcBefore: null, effect: (post, c) => {
+      post[c.wallet] = sysAcct(c.pre[c.wallet].lamports - 52_044_280n);
+      post[c.usdcAta] = tokAcct({ mint: USDC, owner: c.wallet, amount: 10_480_000n,
+                                  delegate: extra.delegate ? c.receiver : null, closeAuthority: extra.closeAuthority ? c.receiver : null });
+    } });
+    await refuses(w.swap.quote({ wallet: w.wallet, dir: 'toUsdc', amount: '50000000' }), /someone else control your USDC account/);
+  }
+  const clean = world({ usdcBefore: null, effect: (post, c) => {
+    post[c.wallet] = sysAcct(c.pre[c.wallet].lamports - 52_044_280n);
+    post[c.usdcAta] = tokAcct({ mint: USDC, owner: c.wallet, amount: 10_480_000n });
+  } });
+  await clean.swap.quote({ wallet: clean.wallet, dir: 'toUsdc', amount: '50000000' });
+});
+
+test('the market price: more than 3% worse than our own feed is refused; no feed, no check', async () => {
+  // 0.05 SOL for $10.50 is $210 a SOL.
+  for (const [ref, ok] of [[210, true], [216, true], [217, false], [null, true], [0, true]]) {
+    let threw = null;
+    try { S.checkPrice('toUsdc', 50_000_000n, 10_500_000n, ref); } catch (e) { threw = e; }
+    assert.strictEqual(!threw, ok, 'toUsdc at ref ' + ref);
+  }
+  // Withdraw as SOL: $5 for 0.0238 SOL is $210 a SOL; paying more than 3% over the feed is refused.
+  assert.doesNotThrow(() => S.checkPrice('toSol', 5_000_000n, 23_809_523n, 205));
+  assert.throws(() => S.checkPrice('toSol', 5_000_000n, 23_809_523n, 200), /too far from the market price/);
+  // Wired into the quote: a feed far from Jupiter's price stops it before the simulation.
+  const w = world();
+  const swap = S.createSwap({ chain: { getAccounts: async (a) => a.map((x) => (x === w.wallet ? sysAcct(LAMPORTS) : null)),
+                                       getTokenAccounts: async () => [], simulate: async () => { throw new Error('not reached'); } },
+                              jupiter: { order: async (p) => ({ inputMint: p.inputMint, outputMint: p.outputMint, inAmount: p.amount, taker: p.taker,
+                                outAmount: '10500000', otherAmountThreshold: '10450000', feeBps: 2, priceImpact: 0, requestId: 'r',
+                                transaction: b64(unsignedTx(w.kp)) }) },
+                              usdcMint: () => USDC, refSolUsd: () => 300 });
+  await refuses(swap.quote({ wallet: w.wallet, dir: 'toUsdc', amount: '50000000' }), /too far from the market price/);
+});
+
+test('Withdraw as SOL goes only to a plain wallet address', async () => {
+  const w = world({ usdcBefore: 10_000_000n });
+  const ata = getAssociatedTokenAddressSync(new PublicKey(USDC), Keypair.generate().publicKey).toBase58();   // off the curve
+  await refuses(w.swap.quote({ wallet: w.wallet, dir: 'toSol', amount: '5000000', receiver: ata }), /not a wallet/);
+  const tokenAccount = Keypair.generate().publicKey.toBase58();   // on the curve, but a token account
+  const t = world({ usdcBefore: 10_000_000n });
+  t.pre[tokenAccount] = tokAcct({ mint: USDC, owner: Keypair.generate().publicKey.toBase58(), amount: 1n });
+  await refuses(t.swap.quote({ wallet: t.wallet, dir: 'toSol', amount: '5000000', receiver: tokenAccount }), /not a wallet/);
+  assert.strictEqual(w.calls.order.length + t.calls.order.length, 0);
+});
+
+test('a wallet\'s prices cannot be asked for faster than a person would', async () => {
+  const w = world();
+  for (let i = 0; i < S.RULES.QUOTES_PER_WALLET_MIN; i++) await w.swap.quote({ wallet: w.wallet, dir: 'toUsdc', amount: '50000000' });
+  await refuses(w.swap.quote({ wallet: w.wallet, dir: 'toUsdc', amount: '50000000' }), /Too many prices/);
+  w.clock.advance(60_001);
+  await w.swap.quote({ wallet: w.wallet, dir: 'toUsdc', amount: '50000000' });
 });
 
 test('Jupiter client: orders are spaced to the keyless limit, the key is sent, failures are plain words', async () => {

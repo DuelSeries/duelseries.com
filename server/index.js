@@ -749,6 +749,7 @@ const swap = Swap.createSwap({
   chain: Swap.chainFromConnection(Wallet.connection),
   jupiter: Swap.createJupiter({ apiKey: process.env.JUP_API_KEY || '' }),
   usdcMint: () => money.usdcMint,
+  refSolUsd: () => prices.getSolUsdRate(),
   log: (m) => console.log('[SWAP] ' + m),
 });
 const swapQuoteLimiter = rateLimit({ windowMs: 60 * 1000, max: 12, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Slow down.' } });
