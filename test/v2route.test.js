@@ -637,7 +637,7 @@ test('the service worker hands socket.io straight back to the browser', async ()
   assert.match(src, /const SW_VERSION = \d+;/, 'carries a version, so an edit reaches phones holding the old worker');
 });
 
-test('the game screen: name, buy-in, Play, and no lobby list under them', () => {
+test('the game screen: buy-in then Play, no name field and no lobby list', () => {
   /* Collapsed naively, the two-column hero used to stack the whole left column
      first, which put an empty lobby list between the artwork and the Play
      button and pushed the only action on the screen below the fold. It was
@@ -651,15 +651,36 @@ test('the game screen: name, buy-in, Play, and no lobby list under them', () => 
                             html.indexOf('</main>', html.indexOf('<main id="detail"')));
   const at = s => { const i = screen.indexOf(s); assert.notEqual(i, -1, 'missing: ' + s); return i; };
   const buyIn = at('id="stakes"');
-  const name  = at('id="play-name"');
   /* The button routes through startFromDetail now: one control that either
      drops you into an arena or queues you for a duel, decided by the game. */
   const play  = at('startFromDetail()');
-  /* Owen 2026-10-16: the name over the buy-ins, so the buy-in sits right on
-     the Play it decides, and the open-lobbies list under Customize is gone. */
-  assert.ok(name < buyIn, 'the name field comes before the buy-in');
-  assert.ok(buyIn < play, 'and the buy-in right before the button it sets');
+  /* Owen 2026-10-16: the buy-in sits right on the Play it decides, the name
+     is set once in the header's profile card, and the open-lobbies list under
+     Customize is gone. */
+  assert.ok(buyIn < play, 'the buy-in right before the button it sets');
+  assert.ok(!screen.includes('id="play-name"') && !screen.includes('class="namerow"'), 'no name field on the game screen');
   assert.ok(!screen.includes('id="dlob"') && !screen.includes('lobwrap'), 'no open-lobbies list on the game screen');
+});
+
+test('the name is changed in one place: the profile card behind your initial in the header', () => {
+  /* Owen's pick B (2026-10-16). The #play-name / #name-act pair the game
+     screens carried moved, ids and all, into the header card, so play.js saves
+     it exactly as before and every game reads the same saved name. */
+  const html = v2();
+  const hdr = html.slice(html.indexOf('<header>'), html.indexOf('</header>'));
+  assert.ok(/<button type="button" class="me" id="mebtn" onclick="V2Me\.toggle\(\)"/.test(hdr), 'the disc is a button in the header');
+  const card = hdr.slice(hdr.indexOf('id="mepop"'));
+  for (const id of ['id="play-name"', 'id="name-act"', 'id="mename"', 'id="meaddr"', 'id="me-out"'])
+    assert.ok(card.includes(id), 'the card has ' + id);
+  assert.ok(card.includes('onclick="signOut(this)"'), 'Sign out is the Settings one');
+  assert.strictEqual((html.match(/id="play-name"/g) || []).length, 1, 'one name field on the page (Settings keeps its own #set-name)');
+  assert.ok(html.includes('<script src="/js/v2/play.js"></script>\r\n<script src="/js/v2/me.js"></script>') ||
+            html.includes('<script src="/js/v2/play.js"></script>\n<script src="/js/v2/me.js"></script>'), 'me.js loads after play.js');
+  assert.ok(html.includes('body.signedout .me{display:none}'), 'no disc signed out: the header says Sign in');
+  assert.match(html, /if\(!SCREEN_FOR\[id\]\)id='play';\s*if\(window\.V2Me\)V2Me\.close\(\);/, 'changing tab closes the card');
+  const play = fs.readFileSync(path.join(ROOT, 'public/js/v2/play.js'), 'utf8');
+  assert.match(play, /function requireName\(\) \{[\s\S]{0,700}if \(window\.V2Me\) window\.V2Me\.open\(\);/, 'Play without a name opens the card');
+  assert.match(play, /if \(window\.V2Me\) window\.V2Me\.paint\(\);/, 'a saved name repaints the initial');
 });
 
 test('the brand mark is wired everywhere a browser asks for one', () => {
@@ -1335,8 +1356,8 @@ test('an unbuilt game can be opened and looked at, and still cannot be played', 
   /* Owen, 2026-10-15: a shut game shows only what it is: the art, its name, the
      three prices and a padlocked Coming soon. Exactly these three go (the
      lobby row that went with them left every game, 2026-10-16). */
-  assert.ok(html.includes('#detail.soon .namerow,#detail.soon .lookrow,#detail.soon .spec{display:none}'),
-    'the name field, Customize and Spectate are hidden for it');
+  assert.ok(html.includes('#detail.soon .lookrow,#detail.soon .spec{display:none}'),
+    'Customize and Spectate are hidden for it (the name field is in the header card now)');
   assert.ok(!/#detail\.soon [^{]*(\.stakes|\.gorow|\.go|#dname)[^{]*\{display:none\}/.test(html), 'and nothing else');
   assert.match(html, /const locked=!!\(cur\.soon&&!cur\.built\);\s*det\.classList\.toggle\('soon',locked\);/);
   assert.match(html, /goBtn\.classList\.toggle\('lock',locked\);\s*goBtn\.disabled=locked;/, 'Play is shut');
@@ -1350,15 +1371,15 @@ test('an unbuilt game can be opened and looked at, and still cannot be played', 
   assert.ok(html.includes('window.V2_IS_SOON'), 'the play path can ask what is built');
 });
 
-test('one layout for every game: name, rungs, Play, Customize, and no small print', () => {
+test('one layout for every game: rungs, Play, Customize, and no small print', () => {
   /* BACKLOG 2.2 and Owen 2026-10-15: "I don't want any of those little words.
      They just take up a lot of room." The column is the same things in the
      same order for every game, with no caption over or under any of them.
-     Owen 2026-10-16: the name over the rungs, and no open-lobbies list. */
+     Owen 2026-10-16: the name moved to the header card, and no open-lobbies list. */
   const html = v2();
   const col = html.slice(html.indexOf('<div class="gcol">'), html.indexOf('<!-- ══ WALLET ══ -->'));
   const at = s => { const i = col.indexOf(s); assert.ok(i > -1, 'the column has ' + s); return i; };
-  const order = ['id="dname"', 'class="namerow"', 'id="stakes"', 'class="gorow"', 'id="lookrow"']
+  const order = ['id="dname"', 'id="stakes"', 'class="gorow"', 'id="lookrow"']
     .map(at);
   assert.deepEqual(order, order.slice().sort((x, y) => x - y), 'in this order');
   for (const words of ['Your buy-in', 'Open lobbies', 'Game settings', 'Free plays a bot', 'Paid lobbies',
@@ -1366,7 +1387,8 @@ test('one layout for every game: name, rungs, Play, Customize, and no small prin
     assert.ok(!col.includes(words), 'no "' + words + '" in the column');
   }
   for (const gone of ['class="sl"', 'id="stakeoff"', 'id="dbnote"', 'id="duelbet"', 'class="queued"',
-                      'class="lobhd"', 'class="soonwrap"', 'class="agopts"', 'class="lobwrap"', 'id="dlob"']) {
+                      'class="lobhd"', 'class="soonwrap"', 'class="agopts"', 'class="lobwrap"', 'id="dlob"',
+                      'class="namerow"', 'id="play-name"']) {
     assert.ok(!col.includes(gone), gone + ' is gone from the column');
   }
   // Nothing on the screen is shown or hidden per kind of game any more.

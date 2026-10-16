@@ -35,6 +35,7 @@
     try { localStorage.setItem(NAME_KEY, n); } catch (_) {}
     const i = el('play-name'); if (i) i.value = n;
     const s = el('set-name');  if (s) s.value = n;
+    if (window.V2Me) window.V2Me.paint();   // the header's initial and card
     return n;
   }
   function unsaved() {
@@ -295,18 +296,16 @@
   }
 
   /* Returns the name to play under, or null having already explained why not. */
-  function requireName(game) {
-    let input = el('play-name');
+  function requireName() {
+    const input = el('play-name');
     const name = cleanName(input ? input.value : savedName());
     if (name.length < 3) {
-      /* From Home the name field is on a hidden screen: open the game's screen
-         so the field being asked for is in front of them. */
-      if (input && input.offsetParent === null && game && typeof window.open_ === 'function') {
-        window.open_(game);
-        input = el('play-name');
-      }
+      /* The field lives in the header's profile card (public/js/v2/me.js,
+         2026-10-16), shut until asked for: open it with the field ready to
+         type in, wherever Play was pressed from. */
       say('Pick a name of at least three letters or numbers to play.');
-      if (input) input.focus();
+      if (window.V2Me) window.V2Me.open();
+      if (input && input.offsetParent !== null) nameEdit();
       return null;
     }
     typedName(name);
@@ -403,7 +402,7 @@
       if (window.duelWalletLogin) window.duelWalletLogin();
       return;
     }
-    const name = requireName(game);
+    const name = requireName();
     if (!name) return;
     say('');
 
