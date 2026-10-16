@@ -27,7 +27,9 @@ test('"Add funds", never "Deposit", on the Wallet tab', () => {
   for (const [name, src] of [['wallet.js', w], ['v2.html', v]])
     assert.ok(!/\bDeposit/.test(src), name + ' still says Deposit somewhere a player sees it');
   assert.ok(/: \(inb \? 'Add funds' : 'Withdraw'\);/.test(w), 'a transaction row uses the buttons\' words');
-  assert.ok(/\(inb \? 'Add funds' : 'Withdraw'\) \+ '<\/span>'/.test(w), 'and so does an Add funds and Withdrawals row');
+  // An Add funds and Withdrawals row names USDC and SOL the same way (moveParts, 2026-10-15).
+  assert.ok((w.match(/name: inb \? 'Add funds' : 'Withdraw'/g) || []).length >= 2, 'and so does an Add funds and Withdrawals row');
+  assert.ok(/<span class="txn">' \+ esc\(p\.name\) \+ '<\/span>'/.test(w), 'the row shows that name');
 });
 
 test('Withdraw stays Withdraw (Owen\'s pick); "Cash out" is the game\'s word', () => {

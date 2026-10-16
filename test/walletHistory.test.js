@@ -52,7 +52,8 @@ for (let i = 0; i < 130; i++) {
       preTokenBalances: [bal(OWNER_B, 50_000_000), bal(other, 50_000_000)],
       postTokenBalances: [bal(OWNER_B, inbound ? 52_000_000 : 48_000_000), bal(other, inbound ? 48_000_000 : 52_000_000)] } });
 }
-const chains = { [Usdc.ataFor(OWNER_B)]: chainB };
+// The wallets' own addresses (SOL, conversions) hold nothing here unless a test adds some.
+const chains = { [Usdc.ataFor(OWNER_B)]: chainB, [OWNER_B]: [], [OWNER]: [] };
 
 let reads = 0, inFlight = 0, peak = 0, batches = 0;
 Usdc.connection.getSignaturesForAddress = async (ata, { limit, before }) => {
@@ -85,8 +86,8 @@ test('the whole history walks page by page with single reads, never a batch', as
   assert.deepStrictEqual(seen.map(r => r.signature), chain.filter((c, i) => i !== 7 && i !== 11).map(c => c.sig.signature));
   assert.ok(peak <= 4, 'at most four reads in flight, saw ' + peak);
   const r0 = seen[0];
-  assert.deepStrictEqual(r0, { signature: 'sig000', at: 1_800_000_000_000, usdc: 1.5, direction: 'in', game: true,
-    peer: escrow.publicKey.toString() });
+  assert.deepStrictEqual(r0, { signature: 'sig000', at: 1_800_000_000_000, kind: 'usdc', usdc: 1.5, direction: 'in', game: true,
+    peer: escrow.publicKey.toString(), sol: null });
   assert.strictEqual(seen[1].peer, STRANGER, 'each row names the other side');
   assert.strictEqual(seen[1].game, false);
   assert.strictEqual(seen[1].direction, 'out');
@@ -131,7 +132,8 @@ test('Add funds and Withdrawals: every transfer but the house\'s, newest first, 
   assert.deepStrictEqual(page.rows.map(r => r.signature), mine.map(c => c.sig.signature), 'newest first, all of them');
   for (const r of page.rows) {
     assert.ok(FRIENDS.includes(r.peer), 'never the escrow or the revenue wallet: ' + r.peer);
-    assert.deepStrictEqual(Object.keys(r).sort(), ['at', 'direction', 'peer', 'signature', 'usdc']);
+    assert.deepStrictEqual(Object.keys(r).sort(), ['at', 'direction', 'kind', 'peer', 'signature', 'sol', 'usd', 'usdc']);
+    assert.strictEqual(r.kind, 'usdc');
     assert.strictEqual(r.usdc, 2);
   }
   assert.strictEqual(page.rows[0].direction, 'in');
@@ -159,6 +161,7 @@ test('Add funds and Withdrawals: an answer holds the newest 200 transfers at mos
         postTokenBalances: [bal(whale, 10_000_000), bal(STRANGER, 8_000_000)] } });
   }
   chains[Usdc.ataFor(whale)] = long;
+  chains[whale] = [];
   chainB.push(...long);   // so the stubbed getTransaction finds them
   let page = { complete: false }, asks = 0;
   while (!page.complete && asks < 10) { page = await Usdc.usdcTransfers(whale); asks++; }

@@ -239,27 +239,113 @@ async function readHistoryRow(owner, sig, escrow, key) {
   const tx = await historyGate(() => withRetry(() => connection.getTransaction(sig.signature,
     { commitment: 'confirmed', maxSupportedTransactionVersion: 0 })));
   if (!tx) return null;                 // not visible yet: asked again next time, never kept
-  let row = null;
-  if (tx.meta && !tx.meta.err) {
-    const mint = USDC_MINT.toString();
-    const delta = stakeDeltaUnits(tx.meta, owner, mint);
-    if (delta !== 0n) {
-      // Who sent it (money in) or got it (money out). Public on the chain, like the rest of the row.
-      const peer = counterpartyOf(tx.meta, owner, mint);
-      row = {
-        signature: sig.signature,
-        at: (sig.blockTime ? sig.blockTime * 1000 : (tx.blockTime ? tx.blockTime * 1000 : null)),
-        usdc: toUsdc(delta < 0n ? -delta : delta),
-        direction: delta > 0n ? 'in' : 'out',
-        // A stake goes to the escrow and a payout comes from it; anything else is the player's own.
-        game: !!peer && (peer === escrow || _houseAddrs.has(peer)),
-        peer,
-      };
-    }
-  }
+  const row = (tx.meta && !tx.meta.err) ? historyRowOf(tx, owner, escrow, sig) : null;
   if (_historyRows.size >= HISTORY_ROWS_MAX) _historyRows.delete(_historyRows.keys().next().value);
   _historyRows.set(key, row);
   return row;
+}
+
+/* What one confirmed transaction did with `owner`'s money, as a history row, or null when it moved
+   none of it. Since card top-ups arrive as SOL (Owen, 2026-10-15: "Accept both, play in USDC"),
+   a row is one of:
+     usdc        USDC in or out, as before; with the escrow or the house it is a game (stake, payout)
+     sol         SOL in or out by a plain transfer (a MoonPay top-up, a send from an exchange)
+     convert     the wallet's SOL into USDC (Convert to USDC): +usdc, `sol` given
+     convertSol  the wallet's USDC into its own SOL: +sol, `usdc` given
+     withdrawSol USDC out as SOL to another address (Withdraw as SOL): `usdc` given, `sol` that
+                 address got, `peer` that address
+   A swap is one row however many legs it has, and one transaction is one row however many of the
+   wallet's accounts it touched. SOL under SOL_DUST is never a row: dust from a look-alike address is
+   how address poisoning puts a fake "recent recipient" in a wallet's history. */
+const SOL_DUST = 1_000_000n;            // 0.001 SOL
+const SYSTEM_ID = '11111111111111111111111111111111';
+const SWAP_PROGRAMS = new Set(['JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4', '61DFfeTKM7trxYcPQCM78bJ794ddZprZpAwAnLiwTpYH']);
+function txAccountKeys(tx) {
+  const m = tx.transaction && tx.transaction.message;
+  if (!m) return [];
+  const stat = (m.staticAccountKeys || m.accountKeys || []).map(k => k.toString());
+  const la = (tx.meta && tx.meta.loadedAddresses) || {};
+  return stat.concat((la.writable || []).map(String), (la.readonly || []).map(String));
+}
+// Every System transfer in the transaction, top level and inner: { from, to, lamports }.
+function systemTransfers(tx, keys) {
+  const out = [];
+  const take = (pidIdx, accts, data) => {
+    if (keys[pidIdx] !== SYSTEM_ID || !data || data.length !== 12 || data.readUInt32LE(0) !== 2) return;
+    out.push({ from: keys[accts[0]], to: keys[accts[1]], lamports: data.readBigUInt64LE(4) });
+  };
+  const m = tx.transaction && tx.transaction.message;
+  if (!m) return out;
+  for (const ix of (m.compiledInstructions || [])) take(ix.programIdIndex, ix.accountKeyIndexes, Buffer.from(ix.data));
+  for (const g of (tx.meta.innerInstructions || [])) {
+    for (const ix of (g.instructions || [])) {
+      let data = null;
+      try { data = Buffer.from(bs58.decode(ix.data)); } catch (_) { data = null; }
+      take(ix.programIdIndex, ix.accounts || [], data);
+    }
+  }
+  return out;
+}
+function historyRowOf(tx, owner, escrow, sig) {
+  const meta = tx.meta;
+  const at = sig && sig.blockTime ? sig.blockTime * 1000 : (tx.blockTime ? tx.blockTime * 1000 : null);
+  const base = { signature: sig ? sig.signature : null, at };
+  const mint = USDC_MINT.toString();
+  const delta = stakeDeltaUnits(meta, owner, mint);
+  const keys = txAccountKeys(tx);
+  const idx = keys.indexOf(owner);
+  const lam = idx >= 0 ? BigInt(meta.postBalances[idx]) - BigInt(meta.preBalances[idx]) : 0n;
+  const solNet = lam + (idx === 0 ? BigInt(meta.fee || 0) : 0n);   // SOL in or out, the fee left out
+  const msg = tx.transaction && tx.transaction.message;
+  const programs = new Set(((msg && msg.compiledInstructions) || []).map(ix => keys[ix.programIdIndex]));
+  const swap = [...programs].some(p => SWAP_PROGRAMS.has(p));
+  const sol = (l) => Number(l) / 1e9;
+  if (delta !== 0n && swap) {
+    if (delta > 0n && solNet < 0n) {
+      return Object.assign(base, { kind: 'convert', usdc: toUsdc(delta), sol: sol(-solNet), direction: 'in', game: false, peer: null });
+    }
+    if (delta < 0n && solNet >= SOL_DUST) {
+      return Object.assign(base, { kind: 'convertSol', usdc: toUsdc(-delta), sol: sol(solNet), direction: 'out', game: false, peer: null });
+    }
+    if (delta < 0n) {
+      // Withdraw as SOL: the address whose SOL rose the most, the wallet and the fee payer aside.
+      let best = null, bestLam = 0n;
+      keys.forEach((k, i) => {
+        if (k === owner || i === 0 || i >= meta.postBalances.length) return;
+        const d = BigInt(meta.postBalances[i]) - BigInt(meta.preBalances[i]);
+        if (d > bestLam) { best = k; bestLam = d; }
+      });
+      return Object.assign(base, { kind: 'withdrawSol', usdc: toUsdc(-delta), sol: bestLam > 0n ? sol(bestLam) : null,
+                                   direction: 'out', game: !!best && (best === escrow || _houseAddrs.has(best)), peer: best });
+    }
+  }
+  if (delta !== 0n) {
+    // Who sent it (money in) or got it (money out). Public on the chain, like the rest of the row.
+    const peer = counterpartyOf(meta, owner, mint);
+    return Object.assign(base, {
+      kind: 'usdc',
+      usdc: toUsdc(delta < 0n ? -delta : delta),
+      direction: delta > 0n ? 'in' : 'out',
+      // A stake goes to the escrow and a payout comes from it; anything else is the player's own.
+      game: !!peer && (peer === escrow || _houseAddrs.has(peer)),
+      peer,
+      sol: null,
+    });
+  }
+  // SOL only: plain transfers to or from the wallet, netted; the other side is the biggest one.
+  let inSum = 0n, outSum = 0n, inPeer = null, inBig = 0n, outPeer = null, outBig = 0n;
+  for (const t of systemTransfers(tx, keys)) {
+    if (t.to === owner && t.from !== owner) { inSum += t.lamports; if (t.lamports > inBig) { inBig = t.lamports; inPeer = t.from; } }
+    else if (t.from === owner && t.to !== owner) { outSum += t.lamports; if (t.lamports > outBig) { outBig = t.lamports; outPeer = t.to; } }
+  }
+  const net = inSum - outSum;
+  if (net >= SOL_DUST || -net >= SOL_DUST) {
+    const inb = net > 0n;
+    const peer = inb ? inPeer : outPeer;
+    return Object.assign(base, { kind: 'sol', usdc: 0, sol: sol(inb ? net : -net), direction: inb ? 'in' : 'out',
+                                 game: !!peer && (peer === escrow || _houseAddrs.has(peer)), peer });
+  }
+  return null;
 }
 
 // { rows, next }: up to `limit` signatures' worth of rows, newest first; `next` is the cursor
@@ -285,7 +371,8 @@ async function usdcHistory(ownerAddress, opts) {
     sigs = sigs || [];
     const ok = sigs.filter(s => s && !s.err);
     const got = await Promise.all(ok.map(s => historyRow(owner, s, escrow)));
-    for (const r of got) if (r) rows.push(r);
+    // The Transactions list is the USDC that moved; SOL-only rows belong to Add funds and Withdrawals.
+    for (const r of got) if (r && r.usdc > 0) rows.push(r);
     if (sigs.length < limit) return { rows, next: null };
     before = sigs[sigs.length - 1].signature;
     if (rows.length) break;
@@ -316,21 +403,29 @@ async function usdcTransfers(ownerAddress, opts) {
   const budget = Math.max(1, Math.min(TRANSFER_READS_PER_ASK, Number(o.reads) || TRANSFER_READS_PER_ASK));
   const ata = new PublicKey(ataFor(owner));
   const escrow = historyEscrow();
-  const sigs = [];
-  let before;
-  for (;;) {
-    let page;
-    try {
-      page = await withRetry(() => connection.getSignaturesForAddress(ata, { limit: 1000, before }));
-    } catch (e) {
-      if (ataNotFound(e)) return { rows: [], complete: true };
-      throw e;
+  /* Both of the wallet's addresses: its USDC account (USDC arriving from anyone names only that)
+     and the wallet itself (SOL arriving, SOL sent, a conversion). A transaction that touched both is
+     one signature, read once, one row. */
+  const bySig = new Map();
+  for (const addr of [ata, new PublicKey(owner)]) {
+    let before, n = 0;
+    for (;;) {
+      let page;
+      try {
+        page = await withRetry(() => connection.getSignaturesForAddress(addr, { limit: 1000, before }));
+      } catch (e) {
+        if (ataNotFound(e)) break;            // never held USDC: no account, nothing there
+        throw e;
+      }
+      page = page || [];
+      for (const s of page) if (s && s.signature && !bySig.has(s.signature)) bySig.set(s.signature, s);
+      n += page.length;
+      if (page.length < 1000 || n >= TRANSFER_SIGS_MAX) break;
+      before = page[page.length - 1].signature;
     }
-    page = page || [];
-    sigs.push(...page);
-    if (page.length < 1000 || sigs.length >= TRANSFER_SIGS_MAX) break;
-    before = page[page.length - 1].signature;
   }
+  // Newest first across both lists (a slot is the chain's order; the time only breaks ties).
+  const sigs = [...bySig.values()].sort((a, b) => (b.slot || 0) - (a.slot || 0) || (b.blockTime || 0) - (a.blockTime || 0));
   const ok = sigs.slice(0, TRANSFER_SIGS_MAX).filter(s => s && !s.err);
   const rows = [];
   let i = 0, fresh = 0;
@@ -346,11 +441,35 @@ async function usdcTransfers(ownerAddress, opts) {
     if (!chunk.length) break;
     const got = await Promise.all(chunk.map(s => historyRow(owner, s, escrow)));
     for (const r of got) {
-      if (r && !r.game) rows.push({ signature: r.signature, at: r.at, usdc: r.usdc, direction: r.direction, peer: r.peer || null });
+      if (r && !r.game) rows.push(r);
     }
-    if (rows.length >= TRANSFER_ROWS_MAX) return { rows: rows.slice(0, TRANSFER_ROWS_MAX), complete: true };
+    if (rows.length >= TRANSFER_ROWS_MAX) break;
   }
-  return { rows, complete: i >= ok.length };
+  const out = rows.slice(0, TRANSFER_ROWS_MAX);
+  await priceSolRows(out, o.priceOn);
+  return {
+    rows: out.map(r => ({ signature: r.signature, at: r.at, kind: r.kind || 'usdc', usdc: r.usdc, sol: r.sol == null ? null : r.sol,
+                          usd: r.usd == null ? null : r.usd, direction: r.direction, peer: r.peer || null })),
+    complete: out.length >= TRANSFER_ROWS_MAX || i >= ok.length,
+  };
+}
+
+/* A SOL row's dollar value then (Owen, 2026-10-15: "+0.157 SOL with its $ value at the time if
+   available"): SOL times that day's price from priceOn(ms), a dollars-per-SOL or null. Kept on the
+   row once found (a day's price never changes); at most PRICE_LOOKUPS_PER_ASK days are asked for in
+   one answer, so a long history fills in over a few asks instead of in one burst. */
+const PRICE_LOOKUPS_PER_ASK = 4;
+async function priceSolRows(rows, priceOn) {
+  if (typeof priceOn !== 'function') return;
+  let asked = 0;
+  for (const r of rows) {
+    if (r.kind !== 'sol' || r.usd != null || !r.at || !(r.sol > 0)) continue;
+    if (asked >= PRICE_LOOKUPS_PER_ASK) break;
+    asked++;
+    let p = null;
+    try { p = await priceOn(r.at); } catch (_) { p = null; }
+    if (p > 0) r.usd = Math.round(r.sol * p * 100) / 100;
+  }
 }
 
 /* Escrow never pays the rent for a player's USDC account (review finding, night queue item 5).
@@ -494,7 +613,7 @@ module.exports = {
   connection, NETWORK, USDC_MINT, USDC_DECIMALS, toUnits, toUsdc, withRetry, ataNotFound,
   escrowKeypair, escrowPubkey, escrowAta, stakeTargets,
   usdcBalanceOf, escrowUsdcBalance, verifyUsdcStake, verifyUsdcCredit, stakeDeltaUnits, ataFor,
-  usdcHistory, usdcTransfers, markHouseAddress, TRANSFER_ROWS_MAX,
+  usdcHistory, usdcTransfers, markHouseAddress, TRANSFER_ROWS_MAX, historyRowOf, SOL_DUST,
   buildSignedUsdcPayout, withdrawUsdc, attemptPayout, getLatestBlockhash,
   RECIPIENT_NO_USDC_ACCOUNT, allowAccountRentFor, PAYOUT_SUPERSEDED,
 };

@@ -43,4 +43,34 @@ function getSolUsdRate() {
   return _rate / _usdCad;
 }
 
-module.exports = { getSolCadRate, cadToSol, solToCad, getUsdCadRate, getSolUsdRate };
+/* Dollars per SOL around the moment `ms`, for the Wallet tab's SOL rows ("about $16.50"): today's
+   from the 5-minute feed above, an earlier day's from CoinGecko's daily history (the price at
+   00:00 UTC that day), kept for good since a past day's price never changes. null when neither
+   is to be had; a failed day is not asked again for 10 minutes. */
+const _dayPrice = new Map();   // 'dd-mm-yyyy' -> { usd } | { failedAt }
+async function solUsdAt(ms) {
+  const d = new Date(Number(ms));
+  if (!isFinite(d.getTime())) return null;
+  const now = new Date();
+  const sameDay = d.getUTCFullYear() === now.getUTCFullYear() && d.getUTCMonth() === now.getUTCMonth() && d.getUTCDate() === now.getUTCDate();
+  if (sameDay) { const live = getSolUsdRate(); if (live) return live; }
+  const key = String(d.getUTCDate()).padStart(2, '0') + '-' + String(d.getUTCMonth() + 1).padStart(2, '0') + '-' + d.getUTCFullYear();
+  const hit = _dayPrice.get(key);
+  if (hit && hit.usd) return hit.usd;
+  if (hit && Date.now() - hit.failedAt < 10 * 60 * 1000) return null;
+  try {
+    const res = await fetch('https://api.coingecko.com/api/v3/coins/solana/history?date=' + key + '&localization=false',
+      { signal: AbortSignal.timeout(5000) });
+    const j = await res.json();
+    const usd = Number(j?.market_data?.current_price?.usd);
+    if (!(usd > 1 && usd < 100000)) throw new Error('no price');
+    if (_dayPrice.size > 3000) _dayPrice.delete(_dayPrice.keys().next().value);
+    _dayPrice.set(key, { usd });
+    return usd;
+  } catch (_) {
+    _dayPrice.set(key, { failedAt: Date.now() });
+    return null;
+  }
+}
+
+module.exports = { getSolCadRate, cadToSol, solToCad, getUsdCadRate, getSolUsdRate, solUsdAt };

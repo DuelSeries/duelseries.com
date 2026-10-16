@@ -215,7 +215,9 @@
     const inb = t.direction === 'in';
     /* The player's own money is named by the button that moves it (Owen,
        2026-10-15): Add funds and Withdraw, the same words as on the buttons. */
-    const name = t.game ? (inb ? 'Game payout' : 'Game entry') : (inb ? 'Add funds' : 'Withdraw');
+    const name = t.game ? (inb ? 'Game payout' : 'Game entry')
+      : t.kind === 'convert' ? 'Convert to USDC' : t.kind === 'convertSol' ? 'Convert to SOL'
+      : (inb ? 'Add funds' : 'Withdraw');
     /* A real minus sign, the arrow kept from screen readers, and the link
        says where it goes: each row opens the transaction on Solscan. */
     return '<a class="tx" href="https://solscan.io/tx/' + esc(t.signature) + '" ' +
@@ -324,17 +326,37 @@
      time; while the answer says it stopped short, what it found shows and the
      screen asks again, and the server carries on from there. */
   let mvGen = 0, mvTimer = null;   // the current load, as txGen
+  /* What a row is, by its kind (server/Usdc.js historyRowOf; Owen, 2026-10-15): the name, the
+     amount on the right, and a second figure after the date. SOL rows came with card top-ups. */
+  const solAmt = n => (Number(n) || 0).toFixed(4) + ' SOL';
+  function moveParts(t, inb) {
+    const sign = inb ? '+' : '−';
+    switch (t.kind) {
+      case 'sol':
+        return { name: inb ? 'Add funds' : 'Withdraw', amt: sign + solAmt(t.sol),
+                 extra: t.usd > 0 ? 'about ' + money(t.usd) : '' };
+      case 'convert':
+        return { name: 'Convert to USDC', amt: '+' + money(t.usdc), extra: t.sol > 0 ? 'from ' + solAmt(t.sol) : '', noPeer: true };
+      case 'convertSol':
+        return { name: 'Convert to SOL', amt: '+' + solAmt(t.sol), extra: 'from ' + money(t.usdc), noPeer: true };
+      case 'withdrawSol':
+        return { name: 'Withdraw', amt: '−' + money(t.usdc), extra: t.sol > 0 ? 'as ' + solAmt(t.sol) : 'as SOL' };
+      default:
+        return { name: inb ? 'Add funds' : 'Withdraw', amt: sign + money(t.usdc), extra: '' };
+    }
+  }
   function moveRow(t) {
     const inb = t.direction === 'in';
-    const peer = typeof t.peer === 'string' && SOL_ADDR.test(t.peer) ? t.peer : '';
+    const p = moveParts(t, inb);
+    const peer = !p.noPeer && typeof t.peer === 'string' && SOL_ADDR.test(t.peer) ? t.peer : '';
     return '<div class="tx mv">' +
       '<a class="mvl" href="https://solscan.io/tx/' + esc(t.signature) + '" ' +
         'target="_blank" rel="noopener noreferrer" title="View on Solscan">' +
         '<span class="txi ' + (inb ? 'in' : 'out') + '" aria-hidden="true">' + (inb ? '↓' : '↑') + '</span>' +
-        '<span class="txw"><span class="txn">' + (inb ? 'Add funds' : 'Withdraw') + '</span>' +
-          '<span class="txd">' + whenAt(t.at) + '</span></span></a>' +
+        '<span class="txw"><span class="txn">' + esc(p.name) + '</span>' +
+          '<span class="txd">' + whenAt(t.at) + (p.extra ? ', ' + esc(p.extra) : '') + '</span></span></a>' +
       '<span class="mvr">' +
-        '<span class="txa num ' + (inb ? 'in' : 'out') + '">' + (inb ? '+' : '−') + money(t.usdc) + '</span>' +
+        '<span class="txa num ' + (inb ? 'in' : 'out') + '">' + esc(p.amt) + '</span>' +
         (peer
           ? '<span class="mvp">' + (inb ? 'from ' : 'to ') +
               '<code title="' + esc(peer) + '">' + esc(ownShort(peer)) + '</code>' +
@@ -735,7 +757,7 @@
       const got = usdTxt((r && r.outAmount) || c.q.outAmount);
       tell({ kind: 'money', title: 'Converted', amount: '+' + got + ' USDC', detail: 'from ' + inSol },
            'Converted ' + inSol + ' to ' + got + ' USDC.', true);
-      seenConv = convertible();
+      seenConv = solLamports();
       if (onScreen()) { loadTx(); loadMoves(); }
     }, e => {
       try { unexpect(); } catch (_) {}
@@ -764,17 +786,21 @@
   /* SOL that arrives while the page is open (a card purchase landing, a send
      from an exchange) is pointed out once, with where to convert it. Not on
      page load: SOL already sitting there shows on the Wallet tab. */
+  /* Watched as the raw SOL balance, not the convertible part: a first small top-up can sit under
+     the fee reserve and still be money added. "Funds added", the toast system's own words for
+     money arriving (Owen's card buy, 2026-10-15), with the amount that came in. */
   let seenConv = null;
+  const SOL_ARRIVAL_MIN = 1e6;   // 0.001 SOL, the history's dust floor too
   function watchSol() {
     if (!connected() || w().sol == null || !w().swap) return;
-    const c = convertible();
-    const step = Math.round((Number(w().swap.minConvertSol) || 0) * 1e9);
-    if (seenConv !== null && c > seenConv + step) {
-      tell({ kind: 'money', title: 'SOL arrived', amount: solTxt(c),
-             detail: 'Convert it to USDC on your Wallet tab to play with it.' },
-           'SOL arrived. Convert it to USDC on your Wallet tab to play with it.', true);
+    const now = solLamports();
+    if (seenConv !== null && now - seenConv >= SOL_ARRIVAL_MIN) {
+      tell({ kind: 'money', title: 'Funds added', amount: '+' + solTxt(now - seenConv),
+             detail: convertible() ? 'Convert it to USDC on your Wallet tab to play with it.' : 'is in your wallet' },
+           'Funds added: ' + solTxt(now - seenConv) + '. Convert it to USDC on your Wallet tab to play with it.', true);
+      if (onScreen()) loadMoves();
     }
-    seenConv = c;
+    seenConv = now;
   }
 
 

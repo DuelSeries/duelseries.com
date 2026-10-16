@@ -1747,7 +1747,7 @@ function txTransfersFor(wallet) {
     }
     if (txTransfersCache.size >= TX_TRANSFERS_MAX) txTransfersCache.delete(txTransfersCache.keys().next().value);
   }
-  const pending = Usdc.usdcTransfers(wallet).then(
+  const pending = Usdc.usdcTransfers(wallet, { priceOn: prices.solUsdAt }).then(
     (page) => {
       if (page.complete) txTransfersCache.set(wallet, { at: Date.now(), page });
       else txTransfersCache.delete(wallet);
