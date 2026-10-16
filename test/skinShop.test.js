@@ -58,11 +58,11 @@ function fakeStore() {
       return { ...row };
     },
     async skinRow(ref) { const r = rows.get(ref); return r ? { ...r } : null; },
-    async skinSubmit(ref, sig, bh) {
+    async skinSubmit(ref, sig, bh, lv) {
       const r = rows.get(ref);
       if (!r || r.state !== 'open' || sigs.has(sig)) return false;
       sigs.add(sig);
-      Object.assign(r, { state: 'submitted', sig, blockhash: bh, submittedAt: Date.now() });
+      Object.assign(r, { state: 'submitted', sig, blockhash: bh, last_valid_height: lv || null, submittedAt: Date.now() });
       return true;
     },
     async skinReopen(ref, sig) {
@@ -72,15 +72,17 @@ function fakeStore() {
       Object.assign(r, { state: 'open', sig: null, blockhash: null });
       return true;
     },
-    async skinClose(ref, sig, state) {
+    async skinClose(ref, sig, state, from = 'submitted') {
       const r = rows.get(ref);
-      if (!r || r.sig !== sig || r.state !== 'submitted') return false;
+      if (!r || r.sig !== sig || r.state !== from) return false;
+      if (from === 'expired' && state !== 'review') throw new Error('bad move');
       r.state = state;
+      r.settledAt = Date.now();
       return true;
     },
-    async skinGrant(ref, sig, { usdc }) {
+    async skinGrant(ref, sig, { usdc, from = 'submitted' }) {
       const r = rows.get(ref);
-      if (!r || r.sig !== sig || r.state !== 'submitted') return { granted: false };
+      if (!r || r.sig !== sig || r.state !== from) return { granted: false };
       r.state = 'paid';
       if (!owned.has(r.wallet)) owned.set(r.wallet, new Set());
       owned.get(r.wallet).add(r.item);
@@ -88,6 +90,8 @@ function fakeStore() {
       return { granted: true };
     },
     async skinDue({ olderThanMs }) { return [...rows.values()].filter((r) => r.state === 'submitted' && Date.now() - r.submittedAt >= olderThanMs).map((r) => ({ ...r })); },
+    // the net's window is real time in the SQL; here every expired row with a payment is due (tests drive it directly)
+    async skinExpiredDue() { return [...rows.values()].filter((r) => r.state === 'expired' && r.sig).map((r) => ({ ...r })); },
     async skinExpire(ref) { const r = rows.get(ref); if (!r || r.state !== 'open') return false; r.state = 'expired'; return true; },
     async skinExpireOpen() { return 0; },
   };
@@ -99,7 +103,10 @@ function fakeChain() {
     sent: [],
     outcome: new Map(),        // sig -> { status, tx }
     sendError: null,
-    blockhashOk: true,
+    // The quote's blockhash lasts to block 1000. The finalized height starts well below it, and the finalized bank
+    // has NOT seen a fresh blockhash (blockhashValid false), as on the live chain: 'expired' must never read that.
+    blockhashOk: false,
+    height: 900,
     txInfo: (raw) => Wallet.stakeTxInfo(raw),
     async send(raw) {
       c.sent.push(raw);
@@ -109,7 +116,8 @@ function fakeChain() {
     async status(sig) { const o = c.outcome.get(sig); return o ? o.status : null; },
     async getTx(sig) { const o = c.outcome.get(sig); return o ? o.tx : null; },
     async blockhashValid() { return c.blockhashOk; },
-    async latestBlockhash() { return { blockhash: BLOCKHASH }; },
+    async finalizedHeight() { return c.height; },
+    async latestBlockhash() { return { blockhash: BLOCKHASH, lastValidBlockHeight: 1000 }; },
   };
   return c;
 }
@@ -343,7 +351,12 @@ test('never landed and its blockhash expired: expired; the same signature can ne
   const q = await openFor(s, p);
   const raw = payTx(p, { ref: q.ref });
   assert.equal((await s.buy({ ref: q.ref, signedTx: b64(raw) })).status, 202);
-  chain.blockhashOk = false;
+  await s.sweep();
+  assert.equal(store.rows.get(q.ref).state, 'submitted', 'not while the finalized height is at or below its last valid block');
+  chain.height = 1000;
+  await s.sweep();
+  assert.equal(store.rows.get(q.ref).state, 'submitted', 'at the last valid block it could still land');
+  chain.height = 1001;
   await s.sweep();
   assert.equal(store.rows.get(q.ref).state, 'expired');
   const q2 = await openFor(s, p);
@@ -351,6 +364,75 @@ test('never landed and its blockhash expired: expired; the same signature can ne
   const sent = chain.sent.length;
   assert.equal((await s.buy({ ref: q2.ref, signedTx: b64(raw) })).status, 400);
   assert.equal(chain.sent.length, sent);
+});
+
+test('Owen 2026-10-16: a fresh payment the chain has not shown yet is never "expired"; it lands and is granted once', async () => {
+  // Live: the buy settled right after sending, the finalized bank had not seen the fresh blockhash, the row closed
+  // expired, the page said no USDC moved, the payment landed 10 s later and the retry charged him again.
+  const { s, chain, store, paid } = shop({ confirmMs: 0 });
+  const p = Keypair.generate();
+  const q = await openFor(s, p);
+  const raw = payTx(p, { ref: q.ref });
+  const r = await s.buy({ ref: q.ref, signedTx: b64(raw) });     // not visible yet, blockhash unknown at finalized
+  assert.equal(r.status, 202);
+  assert.equal(r.body.state, 'pending');
+  assert.doesNotMatch(JSON.stringify(r.body), /no USDC moved/);
+  // A retry while it is on its way pays nothing more: same row, the payment on its way.
+  const again = await s.intent({ game: 'snake', skin: 'candycane', wallet: p.publicKey.toBase58() });
+  assert.deepEqual(again.body, { pending: true, ref: q.ref, item: 'snake:candycane' });
+  willLand(chain, raw, 1000000n);
+  assert.equal((await s.purchase(q.ref)).body.state, 'paid');
+  assert.equal(paid.length, 1);
+  assert.equal(store.ledger.length, 1);
+  assert.equal(chain.sent.length, 1);
+});
+
+test('a payment signed on a blockhash this server never quoted is refused unsent', async () => {
+  const { s, chain } = shop();
+  const p = Keypair.generate();
+  const q = await openFor(s, p);
+  const tx = new Transaction();
+  tx.feePayer = p.publicKey;
+  tx.recentBlockhash = Keypair.generate().publicKey.toBase58();
+  tx.add(createTransferCheckedInstruction(getAssociatedTokenAddressSync(MINT, p.publicKey), MINT, REVENUE_ATA, p.publicKey, 1000000n, 6));
+  tx.add(new TransactionInstruction({ programId: new PublicKey(MEMO_PROGRAM), keys: [], data: Buffer.from('ds-skin:' + q.ref) }));
+  tx.sign(p);
+  const r = await s.buy({ ref: q.ref, signedTx: b64(tx.serialize()) });
+  assert.equal(r.status, 400);
+  assert.equal(chain.sent.length, 0);
+});
+
+test('the net under expired: one that landed after all is granted, or flagged for a refund when already owned', async () => {
+  const { s, chain, store, paid } = shop({ confirmMs: 0 });
+  const p = Keypair.generate();
+  const w = p.publicKey.toBase58();
+  // A row wrongly closed expired whose payment then landed, the wallet owning nothing: granted, one ledger line.
+  const q = await openFor(s, p);
+  const raw = payTx(p, { ref: q.ref });
+  await s.buy({ ref: q.ref, signedTx: b64(raw) });
+  store.rows.get(q.ref).state = 'expired';
+  willLand(chain, raw, 1000000n);
+  await s.sweep();
+  assert.equal(store.rows.get(q.ref).state, 'paid');
+  assert.ok(store.ownedMap.get(w).has('snake:candycane'));
+  assert.equal(store.ledger.length, 1);
+  // The same again for a skin the wallet already owns (it paid twice): review, never a second grant or ledger line.
+  const q2 = await openFor(s, p, 'snake', 'rainbow');
+  const raw2 = payTx(p, { ref: q2.ref, units: 5000000n });
+  await s.buy({ ref: q2.ref, signedTx: b64(raw2) });
+  store.rows.get(q2.ref).state = 'expired';
+  store.ownedMap.get(w).add('snake:rainbow');
+  willLand(chain, raw2, 5000000n);
+  await s.sweep();
+  assert.equal(store.rows.get(q2.ref).state, 'review');
+  assert.equal(store.ledger.length, 1);
+  assert.equal(paid.length, 1);
+  // An expired row that truly never landed stays expired.
+  const q3 = await openFor(s, p, 'paper', 'gold');
+  await s.buy({ ref: q3.ref, signedTx: b64(payTx(p, { ref: q3.ref, units: 5000000n })) });
+  store.rows.get(q3.ref).state = 'expired';
+  await s.sweep();
+  assert.equal(store.rows.get(q3.ref).state, 'expired');
 });
 
 test('a landed tx that does not show the payment is never granted (review)', async () => {

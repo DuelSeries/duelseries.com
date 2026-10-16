@@ -132,7 +132,8 @@ const NOT_SELLING = 'Skins cannot be bought right now. Try again soon.';
 /* deps:
    store   the database (server/db.js skin* functions; a fake in the tests)
    chain   { txInfo(raw) -> {signature, payer, blockhash}, send(raw) -> sig, status(sig) -> 'landed'|'failed'|'seen'|null,
-             getTx(sig) -> tx|null, blockhashValid(bh) -> bool, latestBlockhash() -> {blockhash} }
+             getTx(sig) -> tx|null, finalizedHeight() -> number, blockhashValid(bh) -> bool (at 'finalized'),
+             latestBlockhash() -> {blockhash, lastValidBlockHeight} }
    mint, revenueAta   USDC's mint and the revenue wallet's USDC account (base58)
    paused()           true while the owner has the site in maintenance (no new purchases)
    ready()            false when the database could not create the purchase table (nothing is sold) */
@@ -142,6 +143,16 @@ function createSkinShop({ store, chain, mint, revenueAta, paused = () => false, 
                           onPaid = () => {} } = {}) {
   if (!store || !chain || !mint || !revenueAta) throw new Error('skinShop: store, chain, mint and revenueAta are required');
   const inFlight = new Set();        // signatures this process is broadcasting or settling right now
+  /* blockhash -> its last valid block height, for every quote this process issued (newest 2000). A payment must
+     carry one of these, so its row knows exactly when it can no longer land (settle, provablyExpired). A payment
+     signed against a quote from before a restart is refused unsent: the page simply asks again. */
+  const issued = new Map();
+  function remember(blockhash, lastValid) {
+    if (typeof blockhash !== 'string' || !(Number(lastValid) > 0)) return;
+    issued.delete(blockhash);
+    issued.set(blockhash, Number(lastValid));
+    while (issued.size > 2000) issued.delete(issued.keys().next().value);
+  }
   const lastLook = new Map();        // ref -> when the page last made us ask the chain (one look per 3 s per ref)
 
   const expectOf = (row) => ({ wallet: row.wallet, units: BigInt(row.units), mint, revenueAta, ref: row.ref });
@@ -169,7 +180,8 @@ function createSkinShop({ store, chain, mint, revenueAta, paused = () => false, 
       row = await fresh();
       if (!row || row.state !== 'open' || String(row.units) !== it.units.toString()) return { status: 503, body: { error: NOT_SELLING } };
     }
-    const { blockhash } = await chain.latestBlockhash();
+    const { blockhash, lastValidBlockHeight } = await chain.latestBlockhash();
+    remember(blockhash, lastValidBlockHeight);
     return { status: 200, body: {
       ref: row.ref, item: row.item, units: String(row.units), amountUsdc: Number(row.units) / 1e6,
       mint, decimals: 6, payTo: revenueAta, memo: memoFor(row.ref), memoProgram: MEMO_PROGRAM, blockhash,
@@ -205,17 +217,35 @@ function createSkinShop({ store, chain, mint, revenueAta, paused = () => false, 
       return 'failed';
     }
     if (st === 'seen') return 'pending';
-    // Not seen at all: once its blockhash can no longer land, it never will. Looked at once more first, so a tx
-    // that landed between the two reads is never closed.
-    if (row.blockhash && !(await chain.blockhashValid(row.blockhash))) {
-      const last = await chain.status(sig);
-      if (last == null) {
-        await store.skinClose(row.ref, sig, 'expired');
-        return 'expired';
-      }
-      return last === 'failed' ? (await store.skinClose(row.ref, sig, 'failed'), 'failed') : 'pending';
+    /* Not seen at all. 'expired' is the one answer that tells a player no USDC moved, so it is given only when the
+       payment provably can never land: the chain's FINALIZED block height is past the last block its blockhash is
+       valid for (every later block is higher, and every block at or below it is final, so the status read above
+       would have found it), and one more status read still finds nothing.
+       (Owen's first test buy, 2026-10-16: this asked isBlockhashValid at 'finalized' about a blockhash seconds old.
+       The finalized bank had not seen it yet, so it read as expired, the page said no USDC moved, and the payment
+       landed ten seconds later. He paid twice.) */
+    if (!(await provablyExpired(row))) return 'pending';
+    const last = await chain.status(sig);
+    if (last == null) {
+      await store.skinClose(row.ref, sig, 'expired');
+      return 'expired';
+    }
+    if (last === 'failed') {
+      await store.skinClose(row.ref, sig, 'failed');
+      return 'failed';
     }
     return 'pending';
+  }
+
+  // True only when this row's payment can no longer land. Rows carry the blockhash's last valid block height from
+  // the quote this server issued; a row without one (made before that field existed) is judged only after 15 minutes,
+  // when its blockhash (at most about 90 seconds of life) is long final and long expired.
+  async function provablyExpired(row) {
+    const lv = Number(row.last_valid_height) || 0;
+    if (lv > 0) return (await chain.finalizedHeight()) > lv;
+    const at = row.submitted_at || row.submittedAt;
+    const age = at ? now() - new Date(at).getTime() : 0;
+    return age > 15 * 60 * 1000 && !!row.blockhash && !(await chain.blockhashValid(row.blockhash));
   }
 
   // A settled row's state as answer() names it.
@@ -248,6 +278,8 @@ function createSkinShop({ store, chain, mint, revenueAta, paused = () => false, 
       return answer(row, await waitFor(row));
     }
     if (paused()) return { status: 503, body: { error: NOT_SELLING } };
+    const lastValid = issued.get(info.blockhash);
+    if (!lastValid) return { status: 400, body: { error: 'That payment was for an old price check. Nothing was sent. Try again.', state: 'open' } };
     const problem = paymentProblem(raw, expectOf(row));
     if (problem) {
       log.warn(`[SKINS] refused unsent ${ref}: ${problem}`);
@@ -258,9 +290,10 @@ function createSkinShop({ store, chain, mint, revenueAta, paused = () => false, 
     inFlight.add(info.signature);
     try {
       // The claim, BEFORE anything is sent: one row, one signature, once.
-      const claimed = await store.skinSubmit(ref, info.signature, info.blockhash);
+      const claimed = await store.skinSubmit(ref, info.signature, info.blockhash, lastValid);
       if (!claimed) return { status: 409, body: { error: 'A payment for this skin is already on its way.', pending: true, ref } };
-      const sub = Object.assign({}, row, { state: 'submitted', sig: info.signature, blockhash: info.blockhash });
+      const sub = Object.assign({}, row, { state: 'submitted', sig: info.signature, blockhash: info.blockhash,
+        last_valid_height: lastValid, submittedAt: now() });
       try {
         await chain.send(raw);
       } catch (e) {
@@ -324,12 +357,45 @@ function createSkinShop({ store, chain, mint, revenueAta, paused = () => false, 
         }
       }
       await store.skinExpireOpen({ olderThanMs: openTtlMs });
+      // The net under 'expired': rows closed expired 3 to 10 minutes ago (on the first sweep after a boot, every one)
+      // are read once more. 'expired' must never be wrong, and once it was.
+      const late = await store.skinExpiredDue({ minAgeMs: 3 * 60 * 1000, maxAgeMs: rechecked ? 10 * 60 * 1000 : null,
+                                                limit: rechecked ? limit : 50 });
+      rechecked = true;
+      for (const row of late) {
+        try { if (await lateLanding(row)) settled++; } catch (e) { log.warn(`[SKINS] recheck ${row.ref}: ${e && e.message}`); }
+      }
     } catch (e) {
       log.warn(`[SKINS] sweep: ${e && e.message}`);
     } finally {
       sweeping = false;
     }
     return { settled };
+  }
+  let rechecked = false;
+
+  /* A row closed 'expired' whose payment landed after all: the skin is granted, or, when the wallet already owns it
+     (it paid twice, as Owen did on 2026-10-16), the row goes to 'review' with a CRITICAL line naming the refund owed.
+     Never granted twice, never silently kept. */
+  async function lateLanding(row) {
+    if (!row || !row.sig || (await chain.status(row.sig)) !== 'landed') return false;
+    const tx = await chain.getTx(row.sig);
+    if (!tx) return false;
+    const { problem, usdc } = landedProblem(tx, expectOf(row));
+    if (problem) {
+      log.error(`[SKINS] CRITICAL ${row.ref} landed after it was closed expired and does not verify (${problem}): ${row.sig}`);
+      return store.skinClose(row.ref, row.sig, 'review', 'expired');
+    }
+    if (await store.ownsItem(row.wallet, row.item)) {
+      log.error(`[SKINS] CRITICAL double charge: ${row.ref} (${row.item}) landed after it was closed expired, and ${row.wallet} `
+        + `already owns it. ${usdc} USDC is owed back to that wallet: ${row.sig}`);
+      return store.skinClose(row.ref, row.sig, 'review', 'expired');
+    }
+    const g = await store.skinGrant(row.ref, row.sig, { usdc, from: 'expired' });
+    if (!g || !g.granted) return false;
+    log.log(`[SKINS] sold ${row.item} to ${row.wallet.slice(0, 8)} for ${usdc} USDC (it landed after it was closed): ${row.sig}`);
+    try { onPaid({ wallet: row.wallet, item: row.item, game: row.game, skin: row.skin, usdc, sig: row.sig }); } catch (_) {}
+    return true;
   }
 
   // GET /api/skins/owned: the items a wallet owns (public facts: the payments are on-chain).
@@ -351,6 +417,7 @@ function liveChain({ Wallet, Usdc }) {
     send: (raw) => conn.sendRawTransaction(raw, { skipPreflight: false, maxRetries: 5 }),
     status: (sig) => Wallet.stakeSigStatus(sig),
     getTx: (sig) => Usdc.withRetry(() => conn.getTransaction(sig, { commitment: 'confirmed', maxSupportedTransactionVersion: 0 })),
+    finalizedHeight: () => Usdc.withRetry(() => conn.getBlockHeight('finalized')),
     blockhashValid: (bh) => Wallet.blockhashValid(bh),
     latestBlockhash: () => Usdc.getLatestBlockhash(),
   };

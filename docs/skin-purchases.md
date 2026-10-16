@@ -31,9 +31,18 @@ Paid to `REVENUE_WALLET` (Owen's Phantom revenue wallet, where the rake already 
    `house_revenue` row (source `cosmetic`): the sale's ledger line for Business Finances.
 5. Anything unfinished settles later, never lost: `GET /api/skins/purchase/:ref` (the page saves the ref
    before sending, so a reload resumes it) and a server sweep every minute both run step 4 for a
-   `submitted` row whose tx landed, and close it `failed` when the chain says it failed or its blockhash
-   expired unlanded. One RPC at a time, never batched, `withRetry` on 429. No refunds: a payment that
+   `submitted` row whose tx landed, and close it `failed` when the chain says it failed, or `expired` only
+   once the FINALIZED block height is past the last block its blockhash can land in (the server records it
+   from the quote it issued; a payment on any other blockhash is refused unsent) and a last status read
+   still finds nothing. One RPC at a time, never batched, `withRetry` on 429. No refunds: a payment that
    landed always becomes the skin.
+6. The net under `expired`: rows closed expired 3 to 10 minutes ago (every one, on the first sweep after a
+   boot) are read once more. One that landed after all is granted, or, if the wallet already owns the skin
+   (it paid twice), set to `review` with a CRITICAL log line naming the refund owed.
+
+Owen's first live buy (2026-10-16) is why: the settle asked `isBlockhashValid` at `finalized` about a
+blockhash seconds old, read "expired", told him no USDC moved, and the payment landed ten seconds later;
+his retry paid again. Both $1 went to the revenue wallet; the first row is flagged `review`.
 
 ## Wearing it
 

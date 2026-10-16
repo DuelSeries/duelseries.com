@@ -245,6 +245,8 @@ const SKIN_SHOP_DDL = [
   `CREATE UNIQUE INDEX IF NOT EXISTS skin_purchases_live_uniq ON skin_purchases (wallet, item) WHERE state IN ('open', 'submitted')`,
   `CREATE INDEX IF NOT EXISTS idx_skin_purchases_submitted ON skin_purchases (submitted_at) WHERE state = 'submitted'`,
   `CREATE INDEX IF NOT EXISTS idx_skin_purchases_open ON skin_purchases (created_at) WHERE state = 'open'`,
+  // The last block height the payment's blockhash can land in: 'expired' only once the FINALIZED height is past it.
+  `ALTER TABLE skin_purchases ADD COLUMN IF NOT EXISTS last_valid_height BIGINT`,
 ];
 
 async function runDdl(label, statements) {
@@ -1015,7 +1017,9 @@ async function getOwnedCosmetics(walletAddress) {
 }
 
 // ─── Buying skins (server/skinShop.js drives these; docs/skin-purchases.md) ──────────────────────
-const SKIN_COLS = 'ref, wallet, item, game, skin, units, state, sig, blockhash';
+const SKIN_COLS = 'ref, wallet, item, game, skin, units, state, sig, blockhash, last_valid_height, submitted_at';
+// The state a close or a grant may start from: a live payment, or (the late-landing net) one closed expired.
+const SKIN_FROM = new Set(['submitted', 'expired']);
 
 async function ownsCosmetic(walletAddress, itemId) {
   const r = await pool.query(`SELECT 1 FROM cosmetics_owned WHERE wallet_address = $1 AND item_id = $2`, [walletAddress, itemId]);
@@ -1044,14 +1048,15 @@ async function skinRow(ref) {
   return r.rows[0] || null;
 }
 
-// open -> submitted with the payment's signature, BEFORE it is broadcast. false: not open any more, or the
-// signature already claimed another row (unique).
-async function skinSubmit(ref, sig, blockhash) {
+// open -> submitted with the payment's signature, BEFORE it is broadcast, and the last block height its blockhash
+// can land in. false: not open any more, or the signature already claimed another row (unique).
+async function skinSubmit(ref, sig, blockhash, lastValidHeight) {
   try {
+    const lv = Number(lastValidHeight);
     const r = await pool.query(
-      `UPDATE skin_purchases SET state = 'submitted', sig = $2, blockhash = $3, submitted_at = NOW()
+      `UPDATE skin_purchases SET state = 'submitted', sig = $2, blockhash = $3, last_valid_height = $4, submitted_at = NOW()
         WHERE ref = $1 AND state = 'open' RETURNING ref`,
-      [ref, sig, blockhash || null]
+      [ref, sig, blockhash || null, Number.isSafeInteger(lv) && lv > 0 ? lv : null]
     );
     return r.rowCount > 0;
   } catch (e) {
@@ -1070,27 +1075,31 @@ async function skinReopen(ref, sig) {
   return r.rowCount > 0;
 }
 
-// submitted -> failed | expired | review. The signature stays on the row, so it can never claim another.
-async function skinClose(ref, sig, state) {
+// submitted -> failed | expired | review (from 'expired' only to 'review', the late-landing net). The signature stays
+// on the row, so it can never claim another.
+async function skinClose(ref, sig, state, from = 'submitted') {
   if (!['failed', 'expired', 'review'].includes(state)) throw new Error('skinClose: bad state');
+  if (!SKIN_FROM.has(from) || (from === 'expired' && state !== 'review')) throw new Error('skinClose: bad move');
   const r = await pool.query(
-    `UPDATE skin_purchases SET state = $3, settled_at = NOW() WHERE ref = $1 AND sig = $2 AND state = 'submitted' RETURNING ref`,
-    [ref, sig, state]
+    `UPDATE skin_purchases SET state = $3, settled_at = NOW() WHERE ref = $1 AND sig = $2 AND state = $4 RETURNING ref`,
+    [ref, sig, state, from]
   );
   return r.rowCount > 0;
 }
 
-/* submitted -> paid, the skin owned and the sale in the house ledger (source 'cosmetic', lobby_type = the item), in
-   ONE transaction: all three or none. Only the first caller for a row gets granted true. */
-async function skinGrant(ref, sig, { usdc } = {}) {
+/* submitted (or, the late-landing net, expired) -> paid, the skin owned and the sale in the house ledger (source
+   'cosmetic', lobby_type = the item), in ONE transaction: all three or none. Only the first caller for a row gets
+   granted true. */
+async function skinGrant(ref, sig, { usdc, from = 'submitted' } = {}) {
+  if (!SKIN_FROM.has(from)) throw new Error('skinGrant: bad move');
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     const r = await client.query(
       `UPDATE skin_purchases SET state = 'paid', paid_usdc = $3, settled_at = NOW()
-        WHERE ref = $1 AND sig = $2 AND state = 'submitted'
+        WHERE ref = $1 AND sig = $2 AND state = $4
         RETURNING wallet, item, game`,
-      [ref, sig, Number(usdc) || 0]
+      [ref, sig, Number(usdc) || 0, from]
     );
     if (!r.rows[0]) { await client.query('ROLLBACK'); return { granted: false }; }
     const { wallet, item, game } = r.rows[0];
@@ -1121,6 +1130,21 @@ async function skinDue({ olderThanMs, limit }) {
       WHERE state = 'submitted' AND submitted_at < NOW() - ($1::int * INTERVAL '1 millisecond')
       ORDER BY submitted_at ASC LIMIT $2`,
     [Math.max(0, Math.round(olderThanMs)), Math.max(1, Math.min(100, limit | 0))]
+  );
+  return r.rows;
+}
+
+// Rows closed 'expired' with a payment, closed between maxAgeMs (null: any time) and minAgeMs ago, oldest first
+// (the late-landing net reads each once more).
+async function skinExpiredDue({ minAgeMs, maxAgeMs, limit }) {
+  const r = await pool.query(
+    `SELECT ${SKIN_COLS} FROM skin_purchases
+      WHERE state = 'expired' AND sig IS NOT NULL
+        AND settled_at < NOW() - ($1::int * INTERVAL '1 millisecond')
+        AND ($2::int IS NULL OR settled_at >= NOW() - ($2::int * INTERVAL '1 millisecond'))
+      ORDER BY settled_at ASC LIMIT $3`,
+    [Math.max(0, Math.round(minAgeMs)), maxAgeMs == null ? null : Math.max(0, Math.round(maxAgeMs)),
+     Math.max(1, Math.min(100, limit | 0))]
   );
   return r.rows;
 }
@@ -1159,6 +1183,6 @@ module.exports = {
   recordStake, getTopEarners,
   getProfile, getMyProfile, setAccountName, searchPlayerNames, getGlobalWinnings, getGlobalWinningsSplit,
   addCosmetic, getOwnedCosmetics, ownsCosmetic,
-  skinOpen, skinRow, skinSubmit, skinReopen, skinClose, skinGrant, skinDue, skinExpire, skinExpireOpen,
+  skinOpen, skinRow, skinSubmit, skinReopen, skinClose, skinGrant, skinDue, skinExpiredDue, skinExpire, skinExpireOpen,
   recordHouseRevenue, getHouseRevenueSummary, getRecentHouseRevenue, getHouseRevenueDaily,
 };
