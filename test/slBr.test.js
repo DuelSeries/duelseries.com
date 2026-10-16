@@ -31,7 +31,7 @@ function makeBr(o) {
   const ft = fakeTimers(1000);
   const decided = [];
   const match = createBrMatch({ laws: LAWS, log: quiet, rand: seeded(opts.seed || 5), now: () => 1.7e12,
-    onDecided: (m) => decided.push(JSON.parse(JSON.stringify(m.winner))) });
+    onDecided: (m) => decided.push(JSON.parse(JSON.stringify(m.winner))), lastStore: opts.lastStore });
   const room = new SlRoom(LAWS, Object.assign({ seed: 7, view: opts.realView ? undefined : fakeView(), br: match,
     clock: ft.clock, timers: ft.timers, autoTick: false, shippableOnly: false, prey: false, now: () => 1.7e12,
     log: quiet }, opts.room));
@@ -593,4 +593,88 @@ test('the event directory: no board row, its slice read and reset, a replaced ro
   assert.notStrictEqual(r.br.room(), old, 'replaced');
   assert.strictEqual(r.br.match.state, 'waiting');
   assert.strictEqual(r.br.match.winner, null);
+});
+
+test('the last podium outlives a restart: a rebuilt match reports the saved podium, winner and prize while waiting, never as a payable winner', () => {
+  const fs = require('fs');
+  const os = require('os');
+  const path = require('path');
+  const { createLastPodiumStore } = require('../server/slBr/brLastPodium');
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'brpod-')), 'br-last-podium.json');
+  const store = () => createLastPodiumStore({ file, log: quiet });
+
+  // before any match: nothing saved, nothing shown
+  const first = makeBr({ lastStore: store() });
+  assert.strictEqual(first.match.publicState().podium, null);
+
+  // a real two-person match, decided: the file holds what publicState reported
+  const { ft, room, match } = makeBr({ lastStore: store() });
+  const a = human(room, 'Ann', 'WA');
+  const b = human(room, 'Ben', 'WB');
+  const c = human(room, 'Cat', null);
+  room.spawnSnake({ nick: 'bot', cv: 2, isBot: true });
+  match.startMatch('test');
+  run(ft, room, BRM.COUNTDOWN_MS + 200);
+  room.sim.kill(c.id);
+  run(ft, room, 200);
+  room.sim.kill(a.id);
+  run(ft, room, 200);
+  assert.strictEqual(match.state, 'over');
+  const before = match.publicState();
+  assert.strictEqual(before.prize, 20);
+  const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.ok(!('wallet' in saved) && !JSON.stringify(saved).includes('WB'), 'no wallet on disk');
+
+  // the restart: a new match on the same file, waiting
+  const after = makeBr({ lastStore: store() });
+  const s = after.match.publicState();
+  assert.strictEqual(s.state, 'waiting');
+  assert.deepStrictEqual(s.podium, before.podium);
+  assert.deepStrictEqual(s.podium.map((p) => p.name), ['Ben', 'Ann', 'Cat']);
+  assert.deepStrictEqual(s.winner, { name: 'Ben', id: null }, 'no snake id: a new snake of that number is not them');
+  assert.strictEqual(s.prize, before.prize);
+  assert.strictEqual(s.soloRun, false);
+  assert.strictEqual(s.prizeHeld, false);
+  assert.strictEqual(after.match.winner, null, 'the prize path (winner + matchId) never sees a restored match');
+  assert.strictEqual(after.match.matchId, null);
+  assert.strictEqual(s.matchId, null);
+  assert.strictEqual(after.match.clientMsg().winner.id, null);
+
+  // tonight's match starts: the old podium makes way for the empty seats
+  human(after.room, 'Dee', 'WD');
+  after.match.startMatch('test');
+  assert.strictEqual(after.match.publicState().podium, null);
+  assert.strictEqual(after.match.publicState().winner, null);
+  // abandoned before it was decided: the last finished match is shown again
+  after.match.abandon();
+  assert.deepStrictEqual(after.match.publicState().podium.map((p) => p.name), ['Ben', 'Ann', 'Cat']);
+});
+
+test('the last podium keeps a held or solo prize as reported (0), and a file that is not a podium is ignored', () => {
+  const fs = require('fs');
+  const os = require('os');
+  const path = require('path');
+  const { createLastPodiumStore } = require('../server/slBr/brLastPodium');
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'brpod-')), 'br-last-podium.json');
+  const store = () => createLastPodiumStore({ file, log: quiet });
+
+  const { ft, room, match } = makeBr({ lastStore: store() });
+  const me = human(room, 'Solo', 'WS');
+  room.spawnSnake({ nick: 'bot', cv: 2, isBot: true });
+  match.startMatch('test');
+  run(ft, room, BRM.COUNTDOWN_MS + 200);
+  room.sim.forEachSnake((sn) => { if (sn.id !== me.id) room.sim.kill(sn.id); });
+  run(ft, room, 200);
+  assert.strictEqual(match.state, 'over');
+  const s = makeBr({ lastStore: store() }).match.publicState();
+  assert.strictEqual(s.soloRun, true);
+  assert.strictEqual(s.prize, 0, 'a solo run paid nothing, and says so after the restart too');
+  assert.deepStrictEqual(s.winner, { name: 'Solo', id: null });
+
+  for (const junk of ['not json', '{"podium":"x"}', JSON.stringify({ podium: [{ name: 'a'.repeat(500) }], winner: null, prize: 0 }),
+    JSON.stringify({ podium: [], winner: null, prize: -5 })]) {
+    fs.writeFileSync(file, junk);
+    assert.strictEqual(store().load(), null, junk.slice(0, 20));
+    assert.strictEqual(makeBr({ lastStore: store() }).match.publicState().podium, null);
+  }
 });

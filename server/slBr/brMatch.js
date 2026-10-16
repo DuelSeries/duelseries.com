@@ -17,6 +17,10 @@
 // The room (server/sl/slRoom.js, opts.br) calls: attach(room), noteSeat(snakeId, { wallet, nick }), afterDeaths(frame,
 // deaths, simMs) once per step after its deaths, acceptingPlayers() at a seat, allowsHold() at a hold press,
 // holdFill() for the bot fill, canPause() before its idle pause, and joinMsg() for a new seat or watcher.
+//
+// opts.lastStore (brLastPodium.js) keeps the last decided match's podium across restarts: read once here, written at
+// each decision, and reported by publicState while waiting until a match in this process is decided. It is for
+// showing only: it never sets winner or matchId, which are what the prize is paid from.
 
 const C = require('../../shared/constants');
 const { easternNow } = require('../botPopulation');
@@ -51,12 +55,23 @@ function createBrMatch(opts) {
   const isOwner = typeof o.isOwner === 'function' ? o.isOwner : () => false;
   const zone = createZone({ grd, cruise: cruiseOf(laws), rand: o.rand });
   const wallNow = typeof o.now === 'function' ? o.now : Date.now;
+  const lastStore = o.lastStore && typeof o.lastStore.load === 'function' ? o.lastStore : null;
 
   let room = null;
   const who = new Map(); // snake id -> { wallet, nick } of every seated human since it joined
   let lastSent = -Infinity;
   let lastPhase = '';
   let lastRing = 0;
+  // the last decided match as publicState reports it (podium, winner's name, prize, soloRun, prizeHeld), from
+  // lastStore at boot until a match here is decided
+  let last = null;
+  if (lastStore) {
+    try {
+      last = lastStore.load() || null;
+    } catch (e) {
+      log.warn('[BR] last podium not loaded: ' + (e && e.message));
+    }
+  }
 
   const m = {
     engine: 'sl',
@@ -294,6 +309,7 @@ function createBrMatch(opts) {
       }
       m.podium = podium;
       m.soloRun = m.isSoloRun();
+      m._keepPodium();
       log.log('[BR] ' + label + ' match ' + m.matchId + (m.soloRun ? ' (solo test run, no prize)' : '') + ' won by ' +
         (m.winner ? m.winner.name : 'nobody') + ' after ' + Math.round((m.endedAt - m.startedAt) / 1000) + 's');
       if (onDecided && m.winner) {
@@ -304,6 +320,19 @@ function createBrMatch(opts) {
         }
       }
       return true;
+    },
+
+    // the decided match as the Events tab shows it, saved so a restart or a deploy does not empty its podium
+    _keepPodium() {
+      const s = m.publicState();
+      last = { podium: s.podium, winner: s.winner ? s.winner.name : null, prize: s.prize, soloRun: s.soloRun,
+        prizeHeld: s.prizeHeld, endedAt: new Date(wallNow()).toISOString() };
+      if (!lastStore) return;
+      try {
+        lastStore.save(last);
+      } catch (e) {
+        log.warn('[BR] last podium not saved: ' + (e && e.message));
+      }
     },
 
     // the winner's five seconds are up: their snake leaves the arena as a hold-Q cash-out does (no food, the card)
@@ -323,6 +352,9 @@ function createBrMatch(opts) {
     // the old room's publicState, field for field (the Events tab, /api/live, the owner console read it)
     publicState() {
       const now = simNow();
+      // nothing decided in this process since boot (or the match since was abandoned): the last saved match's podium,
+      // winner and prize, its winner with no snake id (a new snake of the same number is not them: slxBr's "You won")
+      const past = m.state === 'waiting' && !m.podium ? last : null;
       return {
         engine: 'sl',
         state: m.state,
@@ -337,17 +369,18 @@ function createBrMatch(opts) {
         ring: zone.ring(),
         zoneMs: m.state === 'running' ? zone.zoneMs(now) : 0,
         phase: m.phase(now),
-        soloRun: !!m.soloRun,
+        soloRun: past ? past.soloRun : !!m.soloRun,
         startedWith: m.startedWith || 0,
         startedCount: m.state === 'waiting' ? 0 : m.startedCount || 0,
         cashoutMs: m.state === 'over' ? Math.max(0, m.cashoutAt - now) : 0,
         cashoutTotalMs: BRM.CASHOUT_DELAY_MS,
         nextStartMs: msUntilNextStart(wallNow()),
         reopenPct: m.state === 'reopening' && zone.get() ? Math.max(0, Math.min(1, zone.get().r / zone.arena())) : 0,
-        winner: m.winner ? { name: m.winner.name, id: m.winner.id } : null,
-        podium: m.podium || null,
-        prize: m.soloRun || m.prizeHeld ? 0 : C.BR_PRIZE_USDC,
-        prizeHeld: !!m.prizeHeld,
+        winner: past ? (past.winner ? { name: past.winner, id: null } : null)
+          : m.winner ? { name: m.winner.name, id: m.winner.id } : null,
+        podium: past ? past.podium : m.podium || null,
+        prize: past ? past.prize : m.soloRun || m.prizeHeld ? 0 : C.BR_PRIZE_USDC,
+        prizeHeld: past ? past.prizeHeld : !!m.prizeHeld,
       };
     },
 

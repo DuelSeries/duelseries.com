@@ -2479,6 +2479,14 @@ const brEngineSwitch = slPaidBoot.createPaidSwitchStore({
   tag: '[BR]', what: 'the battle royale on the new engine',
 });
 let brOnNew = !brEngineSwitch.closedAtBoot().closed;
+/* The last finished match's podium, winner's name and prize outlive a restart
+   (Owen 2026-10-16: the Events tab shows them all day while waiting, and every
+   deploy emptied it). For showing only: no wallet or match id is kept, so
+   payBattleRoyaleWinner never sees a restored match. BR_PODIUM_PATH moves it. */
+const { createLastPodiumStore } = require('./slBr/brLastPodium');
+const brLastPodium = createLastPodiumStore({
+  file: process.env.BR_PODIUM_PATH || path.join(path.dirname(agJournal.file), 'br-last-podium.json'),
+});
 const slBr = slArenas ? new SlBrArena(slArenas.laws, {
   region: REGION,
   shippableOnly: slArenas.shippableOnly,
@@ -2491,6 +2499,7 @@ const slBr = slArenas ? new SlBrArena(slArenas.laws, {
   /* The free directory's "a paid seat is occupied" sample: this one runs no
      governor timer, and its catch-up steps yield to busy paid rooms the same way. */
   paidBusy: () => !!slArenas.paidBusyNow,
+  lastStore: brLastPodium,
 }) : null;
 /* Filled from boot like the old room, so 8:05 never starts in an empty arena. */
 if (slBr && brOnNew) slBr.startRoom();

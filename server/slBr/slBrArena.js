@@ -22,13 +22,13 @@ const RESTART_GAP_MS = 60 * 1000;
 
 class SlBrArena extends SlArenas {
   // opts: SlArenas' (region, governor, seed, clock, now, timers, autoTick, view, prey, log, bots) plus onDecided(match)
-  // (the server's prize hook) and rand (tests).
+  // (the server's prize hook), lastStore (brLastPodium.js: the last match's podium across restarts) and rand (tests).
   constructor(laws, opts) {
     const o = opts || {};
     const region = typeof o.region === 'string' && o.region ? o.region : 'na';
     const label = 'sl_' + region + '_br';
     const match = createBrMatch({ laws, log: o.log, label, onDecided: o.onDecided, rand: o.rand, now: o.now,
-      isOwner: o.isOwner });
+      isOwner: o.isOwner, lastStore: o.lastStore });
     super(laws, Object.assign({}, o, {
       makeRoom: (ro) => new SlRoom(laws, Object.assign({}, ro, { br: match, lobbyType: label })),
       botOpts: { holdFill: () => match.holdFill() },
