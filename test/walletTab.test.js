@@ -102,5 +102,5 @@ test('the Convert sheet offers itself for SOL, and never signs on its own', () =
     return before.slice(before.lastIndexOf('function ') + 9).split('(')[0];
   });
   assert.deepStrictEqual(runs.sort(), ['confirmConvert', 'confirmSol'], 'signed only from a tap: ' + runs);
-  assert.ok(/e\.origin === window\.location\.origin && e\.data === 'game:done'/.test(w), 'the game\'s end is heard from this origin only');
+  assert.ok(/e\.origin !== window\.location\.origin/.test(w) && /e\.source !== f\.contentWindow/.test(w), 'the game\'s end is heard from our own frames only');
 });

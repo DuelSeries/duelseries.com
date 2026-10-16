@@ -598,11 +598,14 @@ function WalletPanel() {
        the SOL then becomes USDC with one tap on the Wallet tab (swapQuote / swapRun). Receive
        funds shows this same address, which takes SOL and USDC alike. Which rows the sheet shows
        is the Privy dashboard's (Onramps: MoonPay on, SVM); the amount is MoonPay's starting
-       figure in SOL, and the player changes it there in their own currency. */
-    window.duelWalletFund = () => {
-      if (!address) return Promise.reject(new Error('Connect your wallet first.'));
+       figure in SOL, its minimum for a Canadian card (cardStartSol, server/index.js), and the
+       player changes it there in their own currency. */
+    window.duelWalletFund = async () => {
+      if (!address) throw new Error('Connect your wallet first.');
+      const cfg = await moneyConfig();
+      const start = Number(cfg.cardStartSol) > 0 ? Number(cfg.cardStartSol) : 0.156;
       return fundWallet({ address, options: {
-        chain: 'solana:mainnet', asset: 'native-currency', amount: '0.25',
+        chain: 'solana:mainnet', asset: 'native-currency', amount: String(start),
         card: { preferredProvider: 'moonpay' },
         uiConfig: {
           landing: { title: 'Add funds to your DuelSeries wallet' },

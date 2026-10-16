@@ -391,6 +391,20 @@ app.get('/api/prices', (req, res) => {
   res.json({ solCadRate: prices.getSolCadRate() });
 });
 
+/* Where Pay with card opens (Owen, 2026-10-16: at the minimum, not 0.25 SOL). MoonPay's minimum
+   for a Canadian card is C$30 with its fees included (its public currency list: cad
+   minBuyAmount 30; sol 0.048), which Owen saw come to 0.156 SOL; at CoinGecko's C$149.5 a SOL
+   that day that is C$23.30 of SOL, and C$23.50 leaves room for the price moving between our feed
+   and MoonPay's (a start under the minimum would open on MoonPay's error). It follows the live
+   price so the screen keeps opening at the minimum; with no
+   recent price it opens at the 0.156 Owen saw, and never under MoonPay's own 0.048 SOL. */
+const CARD_MIN_NET_CAD = 23.5;
+function cardStartSol() {
+  const cad = prices.getSolCadFresh();
+  const sol = cad > 0 ? CARD_MIN_NET_CAD / cad : 0.156;
+  return Math.max(0.048, Math.ceil(sol * 1000) / 1000);
+}
+
 // Active money mode — tells the wallet widget whether to build SOL or USDC transfers and how to
 // label balances. usdcMint is null in SOL mode.
 app.get('/api/money-config', (req, res) => {
@@ -399,7 +413,8 @@ app.get('/api/money-config', (req, res) => {
   res.json({ mode: money.mode, unit: money.unit, usdcMint: money.usdcMint || null, decimals: money.decimals || 6, network: process.env.SOLANA_NETWORK || 'mainnet-beta',
              // SOL <-> USDC in the player's own wallet (server/swap.js): what the Wallet tab offers.
              swap: money.mode === 'usdc', solReserve: Swap.RULES.RESERVE_LAMPORTS / 1e9,
-             minConvertSol: Swap.RULES.MIN_SOL_IN / 1e9, minWithdrawSolUsd: Swap.RULES.MIN_USDC_IN / 1e6 });
+             minConvertSol: Swap.RULES.MIN_SOL_IN / 1e9, minWithdrawSolUsd: Swap.RULES.MIN_USDC_IN / 1e6,
+             cardStartSol: cardStartSol() });
 });
 
 // ─── Cross-region stats: EU pushes to NA instantly on every change ────────────

@@ -902,9 +902,13 @@
     render(true);
   });
   /* Back in the lobby, or back on the page: a Convert that waited is asked now. A game
-     closing says game:done from its own frame, on this origin. */
+     closing says game:done from one of our game frames, on this origin, as every other
+     listener here checks. */
   window.addEventListener('message', (e) => {
-    if (e && e.origin === window.location.origin && e.data === 'game:done') setTimeout(offerConvert, 1200);
+    if (!e || e.origin !== window.location.origin || e.data !== 'game:done') return;
+    const f = ['game-frame', 'agar-frame'].map(el).find(x => !!x && !!x.contentWindow && x.contentWindow === e.source);
+    if (!f || e.source !== f.contentWindow) return;
+    setTimeout(offerConvert, 1200);
   });
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') setTimeout(offerConvert, 400); });
   window.V2Wallet = { render: render, login: login, fund: fund, copy: copy,

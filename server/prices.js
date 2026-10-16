@@ -37,6 +37,12 @@ function solToCad(sol) { return sol * _rate; }
 
 function getUsdCadRate() { return _usdCad; }
 
+// CAD per SOL from a fetch in the last 15 minutes, else null (never the fallback rate).
+function getSolCadFresh() {
+  if (!_bothAt || Date.now() - _bothAt > 15 * 60 * 1000) return null;
+  return _rate;
+}
+
 // Dollars per SOL from a fetch in the last 15 minutes, else null.
 function getSolUsdRate() {
   if (!_bothAt || Date.now() - _bothAt > 15 * 60 * 1000 || !(_usdCad > 0)) return null;
@@ -73,4 +79,4 @@ async function solUsdAt(ms) {
   }
 }
 
-module.exports = { getSolCadRate, cadToSol, solToCad, getUsdCadRate, getSolUsdRate, solUsdAt };
+module.exports = { getSolCadRate, cadToSol, solToCad, getUsdCadRate, getSolUsdRate, getSolCadFresh, solUsdAt };
