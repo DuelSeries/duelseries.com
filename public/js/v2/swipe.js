@@ -343,6 +343,7 @@
     const d = drag; drag = null;
     if (!d) return;
     const to = commit ? -d.dir * d.w : 0;
+    if (commit && window.DSSound) DSSound.play('swipe');   // on letting go, not when the screen lands
 
     /* Time the settle by the distance still to cover, and let a flick keep its
        own speed so letting go fast does not then finish slowly. */

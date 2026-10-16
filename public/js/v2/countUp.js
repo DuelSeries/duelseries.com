@@ -192,6 +192,7 @@
       jobs.push(a);
     });
     if (!jobs.length) return;
+    if (window.DSSound) DSSound.roll();   // the tick-tick of money rolling (sounds.js plays it only after a click)
 
     // Hold each figure at its widest text, measured in one pass, then show the first frame.
     jobs.forEach(a => { hold(a.el); write(a.el, a.to >= a.from ? a.fin : fmt(a.p, a.from)); });
