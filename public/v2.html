@@ -2042,6 +2042,13 @@ body.scr-anim { overflow-x:hidden }
   .enter{flex:0 0 auto}
   .lr:hover{padding-left:4px;padding-right:4px}    /* no shift on a tap */
 }
+
+/* slither.io's page on a phone: laid out 1/0.7 as big and drawn at 0.7, the
+   scale its own viewport line gives it on a page of its own (a frame ignores
+   that line). public/js/v2/play.js slScale sets the class from the src. The
+   frame's inline width and height are 100%, hence !important. */
+#game-frame.sl07{width:calc(100% / .7)!important;height:calc(100% / .7)!important;
+  transform:scale(.7);transform-origin:0 0}
 </style>
 </head>
 <body>

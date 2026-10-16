@@ -18,7 +18,7 @@
 //    name, as agar's lobby frame does (public/js/ag/agLobby.js startFromLobby). Outside it, slxDirect shows a name
 //    box and Play. A paid page (slxPaid, PAID-SL-DESIGN 9) plays the same way; a page slxPaid holds does not.
 //
-// Adds to DuelSlither.slx: framed, inLobby, lobbyName(), toLobby(), skin(), guard(el, opts).
+// Adds to DuelSlither.slx: framed, inLobby, layoutZoom(), lobbyName(), toLobby(), skin(), guard(el, opts).
 (function (root) {
   'use strict';
   var D = root.DuelSlither;
@@ -159,6 +159,23 @@
 
   slx.framed = framed();
   slx.inLobby = inLobbyFrame();
+  slx.layoutZoom = layoutZoom;
+
+  // The zoom that draws our boxes back up to the size they have on every other game's page: 1/0.7 where this page is
+  // laid out at 0.7, else 1. A phone's page of its own is (sl.html:4, the viewport line). A frame ignores that line,
+  // but the lobby draws its game frame at 0.7 on a phone itself (public/js/v2/play.js slScale), so in a frame it is
+  // measured: the frame's width on the parent against this page's.
+  function layoutZoom() {
+    if (!S.is_mobile) return 1;
+    if (!slx.framed) return 1 / 0.7;
+    try {
+      var f = root.frameElement;
+      var w = f && typeof f.getBoundingClientRect === 'function' ? f.getBoundingClientRect().width : 0;
+      var iw = root.innerWidth || 0;
+      if (w > 0 && iw > 0 && Math.abs(w / iw - 0.7) < 0.05) return 1 / 0.7;
+    } catch (e) { /* a parent on another origin: nothing to measure */ }
+    return 1;
+  }
   slx.lobbyName = lobbyName;
   slx.toLobby = toLobby;
   slx.guard = guard;

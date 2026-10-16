@@ -321,6 +321,30 @@
   const shown = () => FRAMES.map(el).filter(f => f && f.style.display === 'block');
   function inGame() { return shown().length > 0; }
 
+  /* slither.io's page (/sl) is laid out at 0.7 on a phone, as slither.io's own is (public/sl.html's viewport line),
+     and its HUD is sized for that. A frame ignores a viewport line, so in this frame the page was at 1 and its
+     minimap, buttons and boxes came out 1/0.7 too big (Owen 2026-10-16: "way too big on mobile"; he picked slither's
+     size). On a phone (their is_mobile: a user agent that says Mobile, public/js/sl/slMain.js:59) the frame is laid
+     out 1/0.7 as big and drawn at 0.7 (v2.html #game-frame.sl07), which is what the viewport line does on a page of
+     its own. The game's canvas has a fixed backing size (public/js/sl/slPage.js resize), so this changes the HUD's
+     size only, never the view or the cost. Watched on src, so every way /sl opens (Free, the event, Spectate, a paid
+     seat from the wallet widget) is drawn small before it lays out, and no other page in this frame is. */
+  function slScale() {
+    const f = el('game-frame');
+    if (!f || typeof MutationObserver !== 'function') return;
+    const ua = typeof navigator !== 'undefined' && navigator ? navigator.userAgent : '';
+    const phone = String(ua || '').toLowerCase().indexOf('mobile') >= 0;
+    const apply = () => {
+      let sl = false;
+      try { sl = phone && new URL(f.getAttribute('src') || '', location.href).pathname === '/sl'; } catch (_) { sl = false; }
+      if (f.classList) f.classList.toggle('sl07', sl);
+    };
+    new MutationObserver(apply).observe(f, { attributes: true, attributeFilter: ['src'] });
+    apply();
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', slScale, { once: true });
+  else slScale();
+
   /* The one door. Everything else here funnels into this.
      `sel` names the room: { stake } for a rung of the ladder, or { lobbyType }
      for one of the old fixed tiers. */
