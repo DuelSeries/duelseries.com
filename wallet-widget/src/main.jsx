@@ -4,7 +4,7 @@ import { PrivyProvider, usePrivy, useLogin, useIdentityToken } from '@privy-io/r
 import { useWallets as useSolanaWallets, useSignTransaction, useSignMessage, useFundWallet } from '@privy-io/react-auth/solana';
 import { createSolanaRpc, createSolanaRpcSubscriptions } from '@solana/kit';
 import bs58 from 'bs58';
-import { PublicKey, SystemProgram, Transaction, VersionedTransaction } from '@solana/web3.js';
+import { ComputeBudgetProgram, PublicKey, SystemProgram, Transaction, VersionedTransaction } from '@solana/web3.js';
 import { getAssociatedTokenAddressSync, createTransferCheckedInstruction, createAssociatedTokenAccountIdempotentInstruction } from '@solana/spl-token';
 import { SERVER_URLS, stakeRoute } from './stakeRoute.mjs';
 import { createRestakeBridge, cancelledError } from './restakeBridge.mjs';
@@ -119,6 +119,9 @@ function pageRegion() { try { return sessionStorage.getItem('region') || lobbyRe
    a tier, /v2 sends a rung. The request differs only in which parameter names
    the room; everything about building, signing and submitting the transfer is
    the same code either way, so there is one staking path and not two. */
+const STAKE_CU_LIMIT = 80_000;
+const STAKE_CU_PRICE = 100_000;   // micro-lamports per compute unit
+
 function stakeSpec(sel) {
   if (typeof sel === 'string') return { lobbyType: sel };
   return sel || {};
@@ -166,6 +169,15 @@ async function stakeOnly(sel, wallet, signTransaction, onStatus, base, hooks) {
   const tx = new Transaction();
   tx.feePayer = from;
   tx.recentBlockhash = quote.blockhash; // real blockhash — our backend submits the signed tx
+  /* A priority fee, so the network does not drop the entry. Without one about a third of
+     stakes were accepted by the RPC and never landed (2026-10-17: 6 of Owen's 16, each a
+     "Stake not confirmed in time" and a Play again that did nothing). The limit covers the
+     escrow account create (when it is missing) plus the transfer with room to spare; the
+     fee is at most STAKE_CU_LIMIT * STAKE_CU_PRICE / 1e6 lamports (8000, under $0.01 of SOL).
+     The server checks the escrow's balance change only, so extra instructions change nothing
+     it verifies. */
+  tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: STAKE_CU_LIMIT }));
+  tx.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: STAKE_CU_PRICE }));
   if (quote.mode === 'usdc') {
     // USDC stake: SPL transfer from the player's USDC token account into the escrow's.
     const mint = new PublicKey(quote.usdcMint);
@@ -483,7 +495,14 @@ function WalletPanel() {
         // An /sl page's Play again (engine 'sl') is staked on this origin and answered in that page; if the page
         // went after the money moved, relaunch below opens /sl again through launchStaked, never /game.html.
         const route = stakeRoute(req.game, pageRegion(), engineOf(req.game, req.sel));
-        const staked = await stakeOnly(req.sel, w, signRef.current, () => {}, route.base, hooks);
+        let staked;
+        try {
+          staked = await stakeOnly(req.sel, w, signRef.current, () => {}, route.base, hooks);
+        } catch (e) {
+          // The game's card shows this line under Play again: plain words, same error object.
+          if (e && /not confirmed in time/i.test(e.message || '')) e.message = errCopy(e.message).line + ' Press Play again to try once more.';
+          throw e;
+        }
         // Return focus to the game after the wallet modal so keyboard works without a click.
         const f = frameFor(req.game);
         const focusGame = () => { try { f && f.contentWindow && f.contentWindow.focus(); } catch (_) {} };

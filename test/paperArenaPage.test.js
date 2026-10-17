@@ -1105,3 +1105,45 @@ test('coins, money labels and rings are drawn inside the clip; the minimap dots 
   const lastFill = ops.filter((o) => o[0] === 'fill').pop();
   assert.strictEqual(lastFill[1], false);
 });
+
+// Owen 2026-10-17: "Play again works half the time". Fifty rounds in a row, free and paid, each dying or cashing out
+// and pressing Play again. Paid rounds alternate a wallet that answers with one whose stake timed out (the network
+// dropped it): a failed buy-in leaves the card usable with its reason and sends nothing, and the next press seats.
+test('Play again seats every time over many rounds, free and paid, a timed-out stake only costing a second press', () => {
+  for (const paid of [false, true]) {
+    const t = paid ? page({ stake: 0.5, entryToken: 'tok-0' }) : page();
+    t.sock.connect('sock-a');
+    t.joined(paid ? { stake: 0.5 } : {});
+    let respawns = 0;
+    for (let round = 1; round <= 50; round++) {
+      assert.strictEqual(t.api.page.phase, 'live', 'round ' + round + ' is live');
+      if (round % 2) t.sock.fire('pp:dead', { reason: 2, lostMicro: paid ? 500000 : 0 });
+      else t.sock.fire('pp:cashedout', paid ? { grossMicro: 600000, cutMicro: 60000, netMicro: 540000 } : { grossMicro: 0, cutMicro: 0, netMicro: 0 });
+      t.clock.advance(2500);
+      assert.strictEqual(t.api.page.phase, 'end', 'round ' + round + ' shows its card');
+      const btn = t.btn('again');
+      btn.click();
+      btn.click();   // a double click never asks twice
+      if (paid) {
+        const asks = t.parent.messages.filter((m) => m && m.type === 'duel:restake');
+        let ask = asks[asks.length - 1];
+        assert.ok(ask && ask.nonce, 'round ' + round + ': one buy-in asked of the wallet');
+        if (round % 3 === 0) {
+          t.fromLobby({ type: 'duel:restake:error', message: "The network didn't confirm it in time.", nonce: ask.nonce });
+          assert.strictEqual(t.btn('again').disabled, false, 'round ' + round + ': the card is usable after a timeout');
+          assert.strictEqual(t.wire('pp:respawn').length, respawns, 'a failed buy-in sends nothing');
+          t.btn('again').click();
+          const after = t.parent.messages.filter((m) => m && m.type === 'duel:restake');
+          ask = after[after.length - 1];
+          assert.notStrictEqual(ask.nonce, asks[asks.length - 1].nonce, 'the retry is a new request');
+        }
+        t.fromLobby({ type: 'duel:restake:done', entryToken: 'tok-' + round, nonce: ask.nonce });
+      }
+      respawns++;
+      const sent = t.wire('pp:respawn');
+      assert.strictEqual(sent.length, respawns, 'round ' + round + ': exactly one respawn');
+      if (paid) assert.strictEqual(sent[sent.length - 1][1].entryToken, 'tok-' + round);
+      t.joined(paid ? { stake: 0.5 } : {});
+    }
+  }
+});

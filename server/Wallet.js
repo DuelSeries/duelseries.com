@@ -338,6 +338,11 @@ async function submitStake(rawTx, opts) {
   if (info && sig !== info.signature) throw new Error('Stake signature mismatch');
   const deadline = Date.now() + 45_000;
   for (let i = 0; i < 40 && Date.now() < deadline; i++) {
+    // The same signed bytes again every few looks: a copy a leader dropped gets another chance
+    // before its blockhash runs out. Same signature, so it can only ever land once.
+    if (i > 0 && i % 3 === 0) {
+      connection.sendRawTransaction(rawTx, { skipPreflight: true, maxRetries: 0 }).catch(() => {});
+    }
     let v = null;
     try {
       const st = await connection.getSignatureStatus(sig);
