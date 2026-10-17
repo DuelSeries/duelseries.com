@@ -10,6 +10,8 @@ import { SERVER_URLS, stakeRoute } from './stakeRoute.mjs';
 import { createRestakeBridge, cancelledError } from './restakeBridge.mjs';
 import { holdBackCoinbase } from './holdCoinbase.mjs';
 import { buildSkinPayment } from './skinPay.mjs';
+// The shared gold popup card (public/js/shared/dsDialog.js), bundled so the lobby needs no extra tag.
+import '../../public/js/shared/dsDialog.js';
 
 // Active money mode (sol|usdc) reported by the server — decides whether the widget builds native
 // SOL transfers or USDC SPL-token transfers, and how it labels balances. Cached after first fetch.
@@ -385,7 +387,9 @@ function WalletPanel() {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
   const [err, setErr] = useState('');
+  const [what, setWhat] = useState(null);  // { game, stake } of the buy-in in flight, for the popup's words
   const [playing, setPlaying] = useState(false);
+  const dialogOwned = useRef(false);       // whether the popup up now is this widget's
   const [tier, setTier] = useState(() => { try { return localStorage.getItem('duelseries_lobbytype') || 'free'; } catch { return 'free'; } });
   const stakeRef = useRef(null);
   const busyRef = useRef(false); // synchronous guard: no double-staking on rapid Play clicks
@@ -632,6 +636,7 @@ function WalletPanel() {
     if (busyRef.current) return; // already staking — drop the rapid re-clicks (no double charge)
     if (!wallet) { setErr('Wallet still loading — try again in a moment.'); return; }
     busyRef.current = true;
+    setWhat({ game, stake: Number(stakeSpec(sel).stake) });
     setBusy(true); setErr(''); setStatus('');
     try {
       await stakeAndPlay(game, sel, wallet, signTransaction, setStatus, () => setPlaying(true));
@@ -647,39 +652,55 @@ function WalletPanel() {
   };
   stakeRef.current = doStake; // keep the latest closure for the lobby's duel:play event
 
-  // While a stake is in flight, show a full-screen blocking "Joining…" overlay — it gives
-  // feedback AND covers the Play button so extra clicks can't fire more stakes. On error,
-  // show a dismissible message. Otherwise headless (the lobby card is the wallet UI).
-  if (playing) return null;
-  if (busy) {
-    return (
-      <div style={st.overlay}>
-        <div style={st.card}>
-          <div style={st.spinner} />
-          <div style={st.ovText}>{status || 'Joining…'}</div>
-        </div>
-      </div>
-    );
-  }
-  if (err) {
-    return (
-      <div style={st.overlay}>
-        <div style={st.card}>
-          <div style={st.ovText}>{err}</div>
-          <button style={st.btn} onClick={() => setErr('')}>OK</button>
-        </div>
-      </div>
-    );
-  }
+  // While a stake is in flight, a full-screen blocking card (DSDialog) gives feedback AND covers
+  // the Play button so extra clicks can't fire more stakes. On error, a card with OK. The widget
+  // itself draws nothing (the lobby card is the wallet UI).
+  useEffect(() => {
+    const D = window.DSDialog;
+    if (!D) return;
+    if (!playing && busy) {
+      dialogOwned.current = true;
+      D.busy(busyCopy(what, status));
+    } else if (!playing && err) {
+      dialogOwned.current = true;
+      D.alert(errCopy(err, what)).then(() => setErr(''));
+    } else if (dialogOwned.current) {
+      dialogOwned.current = false;
+      D.close();
+    }
+  }, [busy, status, err, playing, what]);
   return null;
 }
 
-// Inject the spinner keyframes once (inline styles can't define @keyframes).
-if (typeof document !== 'undefined' && !document.getElementById('duel-wallet-css')) {
-  const s = document.createElement('style');
-  s.id = 'duel-wallet-css';
-  s.textContent = '@keyframes duelspin{to{transform:rotate(360deg)}}';
-  document.head.appendChild(s);
+const GAME_NAMES = { snake: 'Slither', agar: 'agar.io', paper: 'Paper.io', knockout: 'Knockout', battleship: 'Battleship' };
+const money = (n) => (Number.isFinite(n) && n > 0 ? '$' + n.toFixed(2) + ' ' : '');
+
+/* The popup's words for each step stakeAndPlay reports (onStatus). */
+function busyCopy(what, status) {
+  const name = what && GAME_NAMES[what.game];
+  const amt = money(what && what.stake);
+  const line = {
+    'Getting quote…': 'Getting the entry price',
+    'Building stake…': `Preparing your ${amt}entry`,
+    'Confirm in your wallet…': 'Approving in your wallet',
+    'Submitting stake…': `Sending your ${amt}entry`,
+    'Joining…': 'Entry confirmed, loading the game',
+  }[status] || 'Getting ready';
+  return { title: name ? `Joining ${name}` : 'Joining', line };
+}
+
+/* An error as a title and a plain line. Messages come from the server and the chain helpers, some
+   with a spaced dash; that becomes a full stop here. */
+function errCopy(m, what) {
+  const amt = money(what && what.stake).trim();
+  if (/^Not enough funds/.test(m)) {
+    return { title: 'Not enough in your wallet', line: `You need ${amt || 'the entry'} plus a little SOL for network fees.` };
+  }
+  if (/not confirmed in time/i.test(m)) {
+    return { title: "Entry didn't go through", line: "The network didn't confirm it in time. If it lands later it's refunded to your wallet automatically." };
+  }
+  const line = String(m).replace(/\s+[—–]\s+(\w)/g, (_, c) => '. ' + c.toUpperCase()).replace(/…/g, '.');
+  return { title: "Entry didn't go through", line };
 }
 
 const st = {

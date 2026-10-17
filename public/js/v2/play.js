@@ -287,7 +287,7 @@
 
   function say(msg) {
     const box = el('play-msg');
-    if (!box) { alert(msg); return; }
+    if (!box) { if (window.DSDialog) window.DSDialog.alert({ line: msg }); else alert(msg); return; }
     box.textContent = msg;
     box.hidden = !msg;
     /* Enter on Home's lobby list launches with the game screen hidden, so the

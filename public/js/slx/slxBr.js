@@ -374,8 +374,8 @@
     '.slx-br-head{font-weight:bold;font-size:16px;line-height:20px;white-space:nowrap;}',
     '.slx-br-now .slx-br-head{font-size:24px;line-height:29px;}',
     '.slx-br-sub{margin-top:1px;line-height:17px;opacity:.92;}',
-    '.slx-br-start{display:none;margin:6px auto 0;padding:6px 16px;border:0;border-radius:6px;background:#14F195;' +
-      'color:#06231a;font:bold 14px ' + FONT + ';text-shadow:none;cursor:pointer;pointer-events:auto;}',
+    '.slx-br-start{display:none;margin:6px auto 0;padding:6px 16px;border:0;border-radius:999px;background:linear-gradient(to bottom,#f7c766,#f0a830 52%,#c98a22);' +
+      'color:#100e0b;font:bold 14px ' + FONT + ';text-shadow:none;cursor:pointer;pointer-events:auto;}',
     // a phone page laid out at 0.7, either way up (slx.hud.phone() and zoom() > 1; no media query can tell). In the
     // lobby's game frame the page is at 1 (a frame ignores the viewport line), so the plain sizes are a phone's there.
     '.slx-br-phone.slx-br-hud{max-width:calc(100vw - 16px);padding:4px 12px 5px;font-size:15px;}',

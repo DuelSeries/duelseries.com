@@ -885,7 +885,8 @@
      fallback for a page where play.js never loaded. */
   function note(msg, good) {
     if (window.V2Play && window.V2Play.toast) return window.V2Play.toast(msg, !!good);
-    alert(msg);
+    if (window.DSDialog) window.DSDialog.alert({ line: msg });
+    else alert(msg);
   }
   /* Any address copied here, the player's own or one in the history: the
      button says Copied where it was pressed, and the card says which. */

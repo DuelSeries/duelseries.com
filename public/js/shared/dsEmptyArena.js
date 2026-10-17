@@ -61,8 +61,8 @@
     '#ds-empty-sub{margin-top:5px;font:400 13px Arial,sans-serif;color:rgba(255,255,255,0.8);}',
     '#ds-empty-dot{display:inline-block;width:8px;height:8px;margin:0 8px 2px 0;border-radius:50%;background:#3ccf6e;',
     'vertical-align:middle;animation:ds-empty-pulse 1.6s ease-in-out infinite;}',
-    '@keyframes ds-empty-pulse{0%,100%{opacity:1;}50%{opacity:0.25;}}',
-    '@media (prefers-reduced-motion:reduce){#ds-empty-dot{animation:none;}}'
+    // pulses for everyone: it is the only sign the wait is live (Owen's PC reports reduced motion)
+    '@keyframes ds-empty-pulse{0%,100%{opacity:1;}50%{opacity:0.25;}}'
   ].join('');
   var ARROW = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3L5 8l5 5" fill="none" stroke="currentColor" ' +
     'stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';

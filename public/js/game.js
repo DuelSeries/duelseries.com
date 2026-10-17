@@ -2088,6 +2088,16 @@ document.getElementById('spectate-stop').addEventListener('click', () => {
   goToLobby();
 });
 
+// A failed Play again, on the shared gold popup (dsDialog.js) rather than a browser alert box.
+function showError(message) {
+  const timeout = /not confirmed in time/i.test(message);
+  const line = timeout
+    ? "The network didn't confirm it in time. If it lands later it's refunded to your wallet automatically."
+    : String(message).replace(/\s+[—–]\s+(\w)/g, (_, c) => '. ' + c.toUpperCase());
+  if (window.DSDialog) window.DSDialog.alert({ title: "Entry didn't go through", line });
+  else alert(line);
+}
+
 // Ask the parent page's wallet widget to re-stake (Privy approval) for a paid respawn, and
 // resolve with the fresh entry token. Resolves null if cancelled/failed or not in an iframe.
 function requestRestake(game) {
@@ -2100,7 +2110,7 @@ function requestRestake(game) {
       if (e.source !== window.parent || e.origin !== window.location.origin) return;
       const d = e.data;
       if (!d || (d.type !== 'duel:restake:done' && d.type !== 'duel:restake:error')) return;
-      if (d.type === 'duel:restake:error') { if (d.message) alert(d.message); finish(null); }
+      if (d.type === 'duel:restake:error') { if (d.message) showError(d.message); finish(null); }
       else finish(d.entryToken || '');
     };
     window.addEventListener('message', onMsg);
