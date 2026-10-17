@@ -25,6 +25,8 @@ function stakeLabel(stake) {
 }
 
 const BANK_SRC = '#botbank'; // a bounty bot's seed, from the owner's bot bank
+// seed a bot picked up from another bot's coin: still the bot bank's, but already in play (not that bot's inflight)
+const BANK_SPENT = '#botbank:spent';
 
 class PaperRoom {
   // now: the wall clock of every deadline (grace, stale hold, coin age). clock: the monotonic
@@ -92,6 +94,8 @@ class PaperRoom {
     // nobody collected go back to the players who dropped them, never to the house (_floorBack).
     this.paidBots = this.paid && paidBots === true && this.game.enablePaidBots();
     this.botRoom = false;
+    // the bots' coin sense (ArenaGame._seekCoin): the floor coins where they lie
+    this.game.coinSpots = () => this.bank.pickups();
     // Bounty bots (Owen 2026-10-17, as paid slither and agar.io): unit id -> Map src -> micro, whose money a bot holds
     // (BANK_SRC = its seed from the owner's bot bank). A bot kills and is killed for money like a person, never has a
     // seat (so never cashes out), and is never replaced: its death takes one off the arena's bot cap.
@@ -637,10 +641,10 @@ class PaperRoom {
     this.coinFrom.delete(pid);
     if (!from) return [];
     let left = micro;
-    const seed = Math.min(from.get(BANK_SRC) || 0, left);
+    const seed = Math.min((from.get(BANK_SRC) || 0) + (from.get(BANK_SPENT) || 0), left);
     const sources = [];
     for (const [src, v] of from) {
-      if (src === BANK_SRC || !(v > 0)) continue;
+      if (src === BANK_SRC || src === BANK_SPENT || !(v > 0)) continue;
       const t = Math.min(v, left - seed);
       if (t > 0) {
         sources.push({ srcWallet: src, srcName: '', micro: t });
@@ -680,15 +684,17 @@ class PaperRoom {
     let sum = 0;
     for (const v of from.values()) sum += v;
     if (sum !== got) console.error('[PAPER] BOT CRITICAL ' + unitId + ' held ' + got + ' but its sources say ' + sum);
-    const seed = from.get(BANK_SRC) || 0;
-    if (seed > 0) {
-      const bb = this.directory && this.directory.botBank;
-      if (!bb || !bb.giveBack(seed, why, this.lobbyType, true)) {
+    const bb = this.directory && this.directory.botBank;
+    for (const [key, live] of [[BANK_SRC, true], [BANK_SPENT, false]]) {
+      const seed = from.get(key) || 0;
+      if (seed > 0 && (!bb || !bb.giveBack(seed, why, this.lobbyType, live))) {
         console.error('[PAPER] SEEDBACK CRITICAL ' + seed + ' micro not returned to the bot bank (' + this.lobbyType + ')');
       }
     }
     const sources = [];
-    for (const [src, v] of from) if (src !== BANK_SRC && v > 0) sources.push({ srcWallet: src, srcName: '', micro: v });
+    for (const [src, v] of from) {
+      if (src !== BANK_SRC && src !== BANK_SPENT && v > 0) sources.push({ srcWallet: src, srcName: '', micro: v });
+    }
     const rows = this._floorBack(sources, why);
     if (live) {
       for (const row of rows) {
@@ -819,21 +825,39 @@ class PaperRoom {
     for (const p of coins) {
       let best = null;
       let bestD = Infinity;
-      for (const seat of this.seats.values()) {
-        const u = seat.unit;
-        if (u.death || !this.bank.isOpen(u.id)) continue;
+      // people, and the bounty bots (Owen 2026-10-17: bots pick up money like real players)
+      const near = (u) => {
+        if (!u || u.death || !this.bank.isOpen(u.id)) return;
         const dx = u.position.x - p.x;
         const dy = u.position.y - p.y;
         const d = dx * dx + dy * dy;
-        if (d > r2) continue;
+        if (d > r2) return;
         if (d < bestD || (d === bestD && best && u.id < best.id)) {
           best = u;
           bestD = d;
         }
-      }
+      };
+      for (const seat of this.seats.values()) near(seat.unit);
+      for (const id of this.botFrom.keys()) near(this.game.byId.get(id));
       if (!best) continue;
+      const src = p.srcWallet;
       const got = this.bank.collect(p.pid, best.id);
-      if (got > 0) this.coinFrom.delete(p.pid); // a bot's coin won by a person: in play, nothing owed back
+      const kf = got > 0 ? this.botFrom.get(best.id) : null;
+      if (kf) {
+        // a bot holds it now: whose money it is goes with it (a bot's coin: its sources; the bank's seed as spent)
+        const cf = this.coinFrom.get(p.pid);
+        if (cf) {
+          for (const [k, v] of cf) {
+            const key = k === BANK_SRC ? BANK_SPENT : k;
+            kf.set(key, (kf.get(key) || 0) + v);
+          }
+        } else if (src) {
+          kf.set(src, (kf.get(src) || 0) + got);
+        } else {
+          console.error('[PAPER] BOT picked up ' + got + ' micro with no source (' + this.lobbyType + ')');
+        }
+      }
+      if (got > 0) this.coinFrom.delete(p.pid); // won by a person: in play, nothing owed back
       if (got > 0) {
         this.pending.push(['p-', p.pid, best.id, got]);
         this.pending.push(['m', best.id, this.bank.balance(best.id)]);

@@ -26,6 +26,11 @@ const REASON = {
 // two shrink quanta (a quantum every 125 ms at SHRINK_RATE).
 // Bot wall sense (_steerFromWall): look this far ahead; bend inward past WALL_SAFE of the radius, fully at WALL_PANIC.
 const WALL_LOOK = 140;
+// Bot coin sense (_seekCoin): coins this near, while at home or with a trail under COIN_TRAIL_MAX points, and the
+// stock danger (someone near its trail) at most COIN_DANGER.
+const COIN_SEEK_R = 450;
+const COIN_TRAIL_MAX = 25;
+const COIN_DANGER = 0.6;
 const WALL_SAFE = 0.82;
 const WALL_PANIC = 0.97;
 const SHRINK_VETO_MS = 250;
@@ -749,6 +754,7 @@ class ArenaGame extends P.Game {
       try {
         return stock.call(this, dtMs);
       } finally {
+        game._seekCoin(this);
         game._steerFromWall(this);
         game._prey = null;
         if (this.fsm && this.fsm.state !== 'attack') this._preyHint = null;
@@ -793,6 +799,33 @@ class ArenaGame extends P.Game {
     ny /= nl;
     bot.target = new P.Vec2(px + nx * 50, py + ny * 50);
     this.stats.wallSteers = (this.stats.wallSteers || 0) + 1;
+  }
+
+  // Coin sense (Owen 2026-10-17: bots go for dropped money like real players). Only when it is reasonably safe: the
+  // bot is at home (in its own base) or out with a short trail, nobody is close to its trail (the stock maxDanger),
+  // and the coin lies within COIN_SEEK_R and well inside the wall. The wall sense still runs after it.
+  _seekCoin(bot) {
+    if (!this.paid || !this.paidBots || typeof this.coinSpots !== 'function') return;
+    if (!bot || bot.death || !bot.position) return;
+    const safe = (bot.in === bot.base || (bot.track && bot.track.length < COIN_TRAIL_MAX)) && !((bot.maxDanger || 0) > COIN_DANGER);
+    if (!safe) return;
+    const c = this.border.center;
+    const R = this.border.radius;
+    let best = null;
+    let bestD = COIN_SEEK_R * COIN_SEEK_R;
+    for (const p of this.coinSpots()) {
+      const ex = p.x - c.x;
+      const ey = p.y - c.y;
+      if (ex * ex + ey * ey > (R * 0.8) * (R * 0.8)) continue;
+      const dx = p.x - bot.position.x;
+      const dy = p.y - bot.position.y;
+      const d = dx * dx + dy * dy;
+      if (d < bestD) {
+        bestD = d;
+        best = p;
+      }
+    }
+    if (best) bot.target = new P.Vec2(best.x, best.y);
   }
 
   nearestHuman(bot) {

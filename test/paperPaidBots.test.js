@@ -193,3 +193,44 @@ test('a restart: the bot\'s seed back and its taken money as journaled keyed row
   assert.equal(room.bank.totalMicro(), 0);
   ledger(w, room, rows);
 });
+
+test('a bot picks up a dropped coin like a person; it drops it again when it dies; a restart owes it back', () => {
+  const { w, room, a, bot } = scene();
+  const bank0 = w.bank.balanceMicro();
+  room.game.kill(a.unit, undefined, REASON.SELF_CROSS); // A's coin where A died
+  const coin = room.bank.pickups()[0];
+  bot.position.x = coin.x;
+  bot.position.y = coin.y;
+  room._collectPickups();
+  assert.equal(room.bank.balance(bot.id), 2 * STAKE, 'its seed plus A\'s coin');
+  assert.equal(room.bank.pickups().length, 0);
+  // the bot dies: one coin with everything; a second bot picks it up; a restart sends A's part back to A, both
+  // seeds back to the bank, never the house
+  room.game.kill(bot, undefined, REASON.SELF_CROSS);
+  const c2 = room.bank.pickups()[0];
+  assert.equal(c2.micro, 2 * STAKE);
+  const other = room.game.units.find((u) => !u.isHuman && !u.death);
+  other.position.x = c2.x;
+  other.position.y = c2.y;
+  room._collectPickups();
+  assert.equal(room.bank.balance(other.id), 3 * STAKE);
+  const rows = w.arenas.shutdownSettle('shutdown');
+  assert.equal(w.bank.balanceMicro(), bank0 + 2 * STAKE, 'both seeds back');
+  assert.equal(rows.find((r) => r.wallet === a.wallet).micro, STAKE);
+  assert.deepEqual(w.calls.sweep, []);
+  assert.equal(room.bank.totalMicro(), 0);
+});
+
+test('the coin sense: a safe bot heads for a nearby coin', () => {
+  const { room, bot } = scene();
+  room.game.coinSpots = () => [{ x: bot.position.x + 100, y: bot.position.y }];
+  bot.in = bot.base;
+  bot.maxDanger = 0;
+  bot.target = null;
+  room.game._seekCoin(bot);
+  assert.ok(bot.target && Math.abs(bot.target.x - (bot.position.x + 100)) < 1e-6);
+  bot.maxDanger = 5; // someone is near its trail: not now
+  bot.target = null;
+  room.game._seekCoin(bot);
+  assert.equal(bot.target, null);
+});
