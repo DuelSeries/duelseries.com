@@ -740,6 +740,12 @@
     const reply = (msg) => {
       if (frame.contentWindow) frame.contentWindow.postMessage(msg, origin);
     };
+    /* A game never signs the owner in or out of the console (server/ownerSession.js): a year-long
+       session is the console page's own business, so a frame cannot get that signature here. */
+    if (typeof d.action === 'string' && d.action.indexOf('owner:session') === 0) {
+      reply({ type: 'duel:signaction:error', id: d.id, message: 'A game cannot sign that.' });
+      return;
+    }
     if (typeof window.duelWalletSignAction !== 'function') {
       reply({ type: 'duel:signaction:error', id: d.id,
               message: 'The wallet has not loaded yet. Give it a moment.' });

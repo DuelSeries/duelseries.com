@@ -359,12 +359,26 @@ function ownerFromSignature(body) {
   const wallet = ownerAuth.walletForAction(body);
   return (wallet && OWNER_WALLETS.has(wallet)) ? wallet : null;
 }
-// Owner check for HTTP routes — a signature from an owner wallet, or a Privy token.
+/* How an HTTP request proved it is the owner: { via, who, device, exp }, or null. The owner
+   session cookie first (server/ownerSession.js: it spends nothing, so a request carrying both
+   never burns a signature, and the owner list is asked again on every request), then a
+   signature from an owner wallet, then a Privy token. Kept on req.ownerAuth for the route. */
+async function ownerAuthOf(req) {
+  const s = ownerSessions.fromRequest(req);
+  let a = s ? { via: 'session', who: 'session:' + s.tag, device: s.device, exp: s.exp } : null;
+  const signed = a ? null : ownerFromSignature(req.body);
+  if (signed) a = { via: 'signature', who: signed, device: null, exp: null };
+  if (!a) {
+    const { access, identity } = tokensFrom(req);
+    const { wallet } = await walletFromIdToken(access, identity);
+    if (wallet && OWNER_WALLETS.has(wallet)) a = { via: 'token', who: 'token', device: null, exp: null };
+  }
+  req.ownerAuth = a;
+  return a;
+}
+// Owner check for HTTP routes: the session, a signature from an owner wallet, or a Privy token.
 async function isOwnerReq(req) {
-  if (ownerFromSignature(req.body)) return true;
-  const { access, identity } = tokensFrom(req);
-  const { wallet } = await walletFromIdToken(access, identity);
-  return !!wallet && OWNER_WALLETS.has(wallet);
+  return !!(await ownerAuthOf(req));
 }
 
 // ─── PostHog reverse proxy ───────────────────────────────────────────────────
@@ -489,6 +503,19 @@ const txHistoryLimiter = rateLimit({ windowMs: 60 * 1000, max: 30, standardHeade
 // Social search and profiles share one count: each answer is a database read. The search box asks at most
 // every 250 ms while someone types, so 40 in 10 s is far above a person and well below a script.
 const socialLimiter = rateLimit({ windowMs: 10 * 1000, max: 40, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Slow down.' } });
+
+/* The owner's always-signed-in session (server/ownerSession.js): one wallet signature over
+   'owner:session:create' sets an HttpOnly cookie that keeps the console signed in on that device
+   for a year, revocable per device. ownerAuthOf accepts it before a signature. The list and its
+   key live in server/data (gitignored, so they survive the deploy's reset). */
+const ownerSessions = require('./ownerSession').createOwnerSessions({
+  file: process.env.OWNER_SESSIONS_PATH || path.join(__dirname, 'data', 'owner-sessions.json'),
+  isOwner: (w) => OWNER_WALLETS.has(w),
+  verifyProof: (body) => ownerAuth.walletForAction(body),
+});
+require('./ownerSessionRoutes').mountOwnerSessionRoutes(app, {
+  sessions: ownerSessions, readLimiter: sigLimiter, audit: ownerAuth.audit, push: notify.pushOwner, region: REGION,
+});
 
 // ─── Entry fee ────────────────────────────────────────────────────────────────
 const LOBBY_FEES = money.lobbyFees; // { free, br, dollar }: the active money mode's fee table (keys validate lobby type)
@@ -1457,8 +1484,9 @@ app.post('/api/owner/state', sigLimiter, async (req, res) => {
 });
 
 app.post('/api/owner/do', sigLimiter, async (req, res) => {
-  const who = ownerFromSignature(req.body);
-  if (!who && !(await isOwnerReq(req))) {
+  // The session, a signature or a token; the audit names a session as 'session:' + the device's last 6.
+  const who = ((await ownerAuthOf(req)) || {}).who;
+  if (!who) {
     return res.status(403).json({ error: 'Not an owner' });
   }
   const action = strOr(req.body && req.body.action, '');
@@ -1759,10 +1787,12 @@ app.post('/api/owner/diagnose', sigLimiter, async (req, res) => {
   /* Verified ONCE and the answer kept. A signature is good for a single use, so
      checking the gate and then checking it again inside the handler burns it on
      the way in and reports the caller as a forgery. */
-  const signed = ownerFromSignature(req.body);
-  if (!signed && !(await isOwnerReq(req))) return res.status(403).json({ error: 'Not an owner' });
+  const auth = await ownerAuthOf(req);
+  if (!auth) return res.status(403).json({ error: 'Not an owner' });
+  const signed = auth.via === 'signature' ? auth.who : null;
   const { access, identity } = tokensFrom(req);
   const out = {
+    session: auth.via === 'session' ? { device: auth.device, exp: auth.exp, who: auth.who } : null,
     privyConfigured: !!privyServer,
     serverAppId: process.env.PRIVY_APP_ID || null,
     ownerWallets: [...OWNER_WALLETS],
@@ -3310,9 +3340,10 @@ function getRoomForType(lobbyType, region) {
    reaches it while paid agar is off or closed is refunded at the door ('not-open'); a token
    nobody spends expires and the sweep refunds it through its stake row (entryExpiry.js). */
 
-/* Holds ONE entry at most: the owner's alert socket, under OWNER_WALLET, put there only by an
-   owner signature (socketIdentity.ownerAlerts, security review item e). Every owner alert
-   looks it up by OWNER_WALLET. */
+/* Holds ONE entry at most, under OWNER_WALLET: socketIdentity's fan-out to every owner alert
+   socket (each console tab), put there only by an owner signature or an owner session ticket
+   (socketIdentity.ownerAlerts / ownerAlertsByTicket, security review item e). Every owner alert
+   looks it up by OWNER_WALLET and emits once; each tab receives it. */
 const lobbySocketsByGoogleId = new Map();
 const lobbyConnections = new Set();
 /* A socket's wallet comes only from proof: a paid entry token's verified payer, or a wallet
@@ -3323,7 +3354,11 @@ const socketIdentity = require('./socketIdentity').createSocketIdentity({
   isOwner: (w) => OWNER_WALLETS.has(w),
   alertKey: OWNER_WALLET,
   ownerSockets: lobbySocketsByGoogleId,
+  ticketWallet: (t) => ownerSessions.ticketWallet(t),
+  sessionLive: (h) => ownerSessions.isLive(h),
 });
+// A device signed out loses its live alerts at once.
+ownerSessions.onRevoke((hashes) => socketIdentity.dropSessions(hashes));
 
 // Collusion monitor: persist flags to the DB and push a live alert to the owner's socket.
 collusion.init({
@@ -3747,11 +3782,13 @@ io.on('connection', (socket) => {
   /* A googleId sent here binds nothing (security review item e): the socket's wallet comes
      from idProof ({ wallet, ts, sig } over nameProof.identityMessage, checked once per socket),
      and the owner's live alerts only from ownerProof (an owner signature over the action
-     'owner:alerts', ownerAuth). Without them the socket is an anonymous lobby watcher. */
-  on('lobby:join', ({ idProof, ownerProof } = {}) => {
+     'owner:alerts', ownerAuth) or ownerTicket (one use, from POST /api/owner/ticket with the
+     owner session). Without them the socket is an anonymous lobby watcher. */
+  on('lobby:join', ({ idProof, ownerProof, ownerTicket } = {}) => {
     lobbyConnections.add(socket);
     socketIdentity.fromProof(socket, idProof);
     socketIdentity.ownerAlerts(socket, ownerProof);
+    socketIdentity.ownerAlertsByTicket(socket, ownerTicket);
     broadcastLobbyState();
   });
 

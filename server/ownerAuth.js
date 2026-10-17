@@ -92,11 +92,19 @@ function walletForAction(body, now) {
    compliance artifact — a way to answer "why is the game in maintenance" and
    "who spawned forty bots" without reading a terminal. */
 const auditLog = [];
+/* Who did it, short. A wallet is cut to its ends; an owner session is named 'session:' and the
+   last 6 of its sid hash (server/ownerSession.js), so the log shows which device acted; a short
+   word such as 'token' stays as it is. */
+function shortWho(who) {
+  if (typeof who !== 'string' || !who) return 'unknown';
+  if (/^session:[0-9a-f]{6}$/.test(who) || who.length <= 10) return who;
+  return who.slice(0, 4) + '…' + who.slice(-4);
+}
 function audit(action, args, who, ok, note) {
   auditLog.unshift({
     at: Date.now(), action,
     args: args && Object.keys(args).length ? args : undefined,
-    who: who ? who.slice(0, 4) + '…' + who.slice(-4) : 'unknown',
+    who: shortWho(who),
     ok: !!ok, note: note || undefined,
   });
   if (auditLog.length > 200) auditLog.length = 200;
