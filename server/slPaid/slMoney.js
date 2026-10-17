@@ -159,7 +159,10 @@ class SlMoney {
 
   _isBot(id) {
     const r = this.room;
-    return this.botRoom && !!r && !!r.humans && !r.humans.has(id) && !!(r.sim && r.sim.snake(id));
+    // alive, or died this very step (its name is kept until after the step's facts, slRoom), so a bot that eats its first
+    // gold and dies in one step still gets the account its death then drops back into play
+    return this.botRoom && !!r && !!r.humans && !r.humans.has(id) &&
+      (!!(r.sim && r.sim.snake(id)) || !!(r.names && typeof r.names.has === 'function' && r.names.has(id)));
   }
 
   account(idOrJid) {
@@ -409,8 +412,9 @@ class SlMoney {
   // refund and owed back to the players it came from, one keyed row each (_owedRows). -> the rows
   _returnBot(id, why, live) {
     const from = this.botFrom.get(id);
-    this.botFrom.delete(id);
+    // the withdraw first: a refused one (the ceiling) throws with the bot still on botFrom, so a later pass retries it
     const w = this.bank.withdraw(id, 'refund');
+    this.botFrom.delete(id);
     if (!w || !(w.micro > 0)) return [];
     const src = from ? Array.from(from.entries()).map(([k, v]) => ({ srcWallet: k || null, srcName: v.name, micro: v.micro }))
       : [];

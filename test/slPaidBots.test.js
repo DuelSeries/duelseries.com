@@ -304,3 +304,16 @@ test('people and bots together: 22 people plus the bots, the paid border never m
   assert.equal(room.money.tainted, false);
   assert.deepEqual(room.money.lastViolations, []);
 });
+
+test('a bot that eats its first gold and dies in the same step drops it back into play, nothing to the house', () => {
+  const { s, m, gone } = botRoom();
+  const d1 = drops(2);
+  m.applyFacts({ tick: 1, deaths: [{ id: 1, cause: 'snake', killer: 9, drops: d1 }] }, []);
+  gone.add(9); // out of the sim by the time the step's facts are applied
+  const d9 = drops(3);
+  m.applyFacts({ tick: 2, deaths: [{ id: 9, cause: 'snake', killer: 2, drops: d9 }] }, [{ food: d1[0].food, eater: 9 }]);
+  assert.deepEqual(s.of('onHouse'), []);
+  assert.equal(m.bank.ledger.outHouse, 0);
+  assert.equal(m.bank.floorMicro(), STAKE, 'all of W1\'s money is on the floor again');
+  for (const q of d9) assert.equal(m.bank.pellet(q.food).srcWallet, 'W1');
+});

@@ -257,6 +257,7 @@ function checkWalletSeats(rooms, walletSeat) {
         continue;
       }
       for (const a of bank.accounts.values()) {
+        if (a.bot === true) continue; // the owner's bots hold no seat and no wallet
         const first = owner.get(a.wallet);
         if (first) out.push(violation('I9', { why: 'two-accounts', snakeId: a.snakeId, jid: a.jid || null, other: first.snakeId }));
         else owner.set(a.wallet, { room, snakeId: a.snakeId });
