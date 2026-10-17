@@ -170,6 +170,7 @@ class ArenaGame extends P.Game {
     this.paid = this.stake > 0;
     this.hooks = Object.assign({}, NOOP_HOOKS, hooks || {});
     this.trim = trim || null;
+    this.botCap = null;
     return this;
   }
 
@@ -231,7 +232,7 @@ class ArenaGame extends P.Game {
       if (h.percent > best) best = h.percent;
     }
     if (!this.paid) {
-      this.config.botsCount = this.humans.length > 0 ? MP.FREE_SQUARES : MP.FREE_BOTS_IDLE;
+      this.config.botsCount = this.freeSquares();
       // BOT_LEVEL_SOURCE: the leading live human's land, else the reference's no-player level.
       this.config.botLevel = best >= 0 ? P.lerp(this.config.startBotLevel, 1, best) : -1;
     }
@@ -484,7 +485,7 @@ class ArenaGame extends P.Game {
       const i = this.humans.indexOf(victim);
       if (i >= 0) this.humans.splice(i, 1);
       // This tick's spawn step must already see the new head count.
-      if (!this.paid) this.config.botsCount = this.humans.length > 0 ? MP.FREE_SQUARES : MP.FREE_BOTS_IDLE;
+      if (!this.paid) this.config.botsCount = this.freeSquares();
     }
     this.hooks.onDeath(victim, killer && !killer.death ? killer : undefined, reason, at);
   }
@@ -673,6 +674,31 @@ class ArenaGame extends P.Game {
     for (const u of this.units) if (u instanceof P.BotUnit) bots++;
     if (bots >= MP.FREE_BOTS_IDLE) return;
     return super.spawnBot(mode);
+  }
+
+  // The owner console's bots:set (server/ownerConsole.js): hold a free arena at exactly this
+  // many bots, or null for the automatic count. It is read where the square count is set every
+  // tick and at a human's death (freeSquares below), because that count is rewritten there and
+  // a one-off change to config.botsCount lasted a single tick. A held arena still never holds
+  // more than FREE_SQUARES squares, people first, nor more than FREE_BOTS_IDLE bots (the stock
+  // type rows), so the cap is clamped to that. A paid arena has no bots to hold. Returns the
+  // cap kept.
+  setBotCap(n) {
+    if (this.paid) {
+      this.botCap = null;
+      return null;
+    }
+    this.botCap = Number.isInteger(n) && n >= 0 ? Math.min(n, MP.FREE_BOTS_IDLE) : null;
+    this.config.botsCount = this.freeSquares();
+    return this.botCap;
+  }
+
+  // The squares a free arena fills to (the stock spawn tops units up to config.botsCount): the
+  // automatic count, or the people in it plus the held bots.
+  freeSquares() {
+    const humans = this.humans.length;
+    if (!Number.isInteger(this.botCap)) return humans > 0 ? MP.FREE_SQUARES : MP.FREE_BOTS_IDLE;
+    return Math.min(humans + this.botCap, Math.max(MP.FREE_SQUARES, humans));
   }
 
   addUnit(unit) {

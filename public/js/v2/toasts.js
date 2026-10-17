@@ -19,8 +19,9 @@
    button. Hover holds one; a tap or click puts it away.
 
    What it listens to is only what this page already hears: the wallet widget's
-   duelwallet:change, the lobby's own duel:play, the frames opening and closing.
-   It moves nothing and asks the chain nothing. */
+   duelwallet:change, the lobby's own duel:play, the frames opening and closing,
+   and the owner's announcements on one listen-only socket (the end of this
+   file). It moves nothing and asks the chain nothing. */
 (function () {
   'use strict';
   const FRAMES = ['game-frame', 'agar-frame'];
@@ -275,7 +276,43 @@
 
   const shortAddr = a => !a ? '' : a.length <= 12 ? a : a.slice(0, 4) + '…' + a.slice(-4);
 
-  window.DSToast = { show: show, line: line, amount: amount, short: shortAddr, expectRise: expectRise };
+  /* ---- what the owner says to everyone (the console's announce) ----------
+     The server sends it to every socket on its main namespace. This page is
+     the top page around every game frame, so one quiet socket here is how it
+     reaches a player in any game: it is shown over the running game, as text.
+     The socket sends nothing and joins nothing (no lobby:join), so nobody is
+     counted by it; it only listens. The same message twice (a reconnect) is
+     one card. */
+  let lastAnnounce = null;
+  function announced(m) {
+    const raw = m && typeof m.text === 'string' ? m.text : '';
+    const text = raw.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 200);
+    if (!text) return;
+    const key = String(m.at || '') + '|' + text;
+    if (key === lastAnnounce) return;
+    lastAnnounce = key;
+    show({ kind: 'info', title: 'DuelSeries', detail: text, game: true,
+           ms: Math.max(STAY.info, Math.min(12000, 2500 + text.length * 55)) });
+  }
+  function listen() {
+    if (typeof window.io !== 'function') return false;
+    try { window.io().on('announce', announced); } catch (_) {}
+    return true;
+  }
+  function listenSoon() {
+    if (listen()) return;
+    // The lobby does not load the socket client itself, so it is fetched once, after the page is up.
+    const head = document.head || document.body;
+    if (!head || typeof document.createElement !== 'function') return;
+    const s = document.createElement('script');
+    s.src = '/socket.io/socket.io.js';
+    s.async = true;
+    s.onload = listen;
+    head.appendChild(s);
+  }
+
+  window.DSToast = { show: show, line: line, amount: amount, short: shortAddr, expectRise: expectRise, announce: announced };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', watchFrames);
   else watchFrames();
+  setTimeout(listenSoon, 1500);
 })();
