@@ -107,7 +107,7 @@ test('server/index.js: agar:paid and paper:paid save their switch files, and bot
   assert.match(caseOf('paper:paid:on'), /if \(paperArenas\.stopping\) return refuse\('The server is restarting'\);\n\s+paperArenas\.paidOpen = true;\n\s+const kept = paperPaidSwitch\.save\(true\);/);
   assert.match(src, /paidSwitch: agPaidSwitch,/);
   assert.match(src, /c = paperPaidSwitch\.closedAtBoot\(\);/);
-  // the owner page lists both commands
+  // the owner page sends both commands, built from each game's paid.action in the state ('paper:paid')
   const owner = fs.readFileSync(path.join(__dirname, '..', 'public', 'owner.html'), 'utf8');
-  assert.ok(owner.includes("act('paper:paid:off',{})") && owner.includes("act('paper:paid:on',{})"));
+  assert.ok(owner.includes("p.action + ':off'") && owner.includes("p.action + ':on'"));
 });
