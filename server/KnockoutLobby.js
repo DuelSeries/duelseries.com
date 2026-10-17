@@ -2,11 +2,13 @@
 /* ─── Getting two players onto a disc ─────────────────────────────────────────
    A queue, the rooms it makes, and an opponent for when nobody else is here.
 
-   THE BOT IS NOT A PLACEHOLDER, and it is named as one on screen. This game has
-   no players yet; a queue that can only ever spin is a mode nobody gets to try,
-   which is how a new game dies before anyone sees it. So after a few seconds
-   alone you are matched with one, and it plays the game properly rather than
-   feeding you wins.
+   THE BOT IS NOT A PLACEHOLDER. This game has no players yet; a queue that can
+   only ever spin is a mode nobody gets to try, which is how a new game dies
+   before anyone sees it. So after a few seconds alone you are matched with one,
+   and it plays the game properly rather than feeding you wins. It looks like a
+   player too (Owen 2026-10-16): a person's kind of name, an arrival after a
+   wait that is never the same twice, "They are ready" when it locks in, and no
+   tell-tale id on the wire (KnockoutRoom.publicId). Free tables only, always.
 
    How it plays is the interesting part, and it is constrained by the mode
    itself: it commits blind, at the same moment you do, and it cannot see your
@@ -16,6 +18,7 @@
 
 const { KnockoutRoom, KO } = require('./KnockoutRoom');
 const { refundBound } = require('./stakeRules');
+const { pickName } = require('./botNames');
 
 /* HOW LONG A REAL PERSON GETS TO TURN UP.
 
@@ -25,11 +28,15 @@ const { refundBound } = require('./stakeRules');
    two people clicking together land in the queue several seconds apart, and
    whoever got there first was already in a bot match before the second arrived.
 
-   Fifteen is long enough for two people coordinating over a phone call and
-   still short enough that somebody alone is not left staring. It matters less
-   than it looks, because a second person arriving inside the first minute now
-   pulls the first out of their bot match anyway — see rescueFromBot. */
-const BOT_AFTER_MS = 15000;        // how long you wait before one turns up on a FREE table
+   Fifteen was long enough for two people coordinating over a phone call and
+   still short enough that somebody alone is not left staring. But a fixed
+   fifteen was itself a tell: the opponent turned up on the same beat every
+   time, and a person never does. So each wait is drawn between the two below,
+   about fifteen on average. It matters less than it looks, because a second
+   person arriving inside the first minute pulls the first out of their bot
+   match anyway (see rescueFromBot). */
+const BOT_AFTER_MIN_MS = 9000;     // the shortest wait before one turns up on a FREE table
+const BOT_AFTER_MS = 22000;        // and the longest
 
 /* PAID TABLES NEVER GET A BOT.
 
@@ -65,7 +72,20 @@ function pullForTravel(dist) {
   const speed = Math.max(0, dist) * KO.DRAG_PER_S;
   return KO.MAX_PULL * Math.min(1, speed / KO.MAX_SPEED);
 }
-const BOT_NAMES = ['Sergeant Bot', 'Bishop', 'Cinder', 'Tally', 'Nine'];
+/* The stand-in's name: a person's kind of name from the shared pool
+   (server/botNames.js, the one the slither.io and agar.io bots use), never the
+   name of the person it is sitting down against. It used to be one of five,
+   and one of the five was "Sergeant Bot". */
+const BOT_NAME_MAX = 15;
+function botNameAgainst(entries) {
+  const theirs = new Set(entries.map(e => String((e && e.name) || '').trim().toLowerCase()));
+  return pickName(Math.random(), { maxLen: BOT_NAME_MAX, taken: (lc) => theirs.has(lc) });
+}
+
+/* How long a free seat waits for its bot: drawn once, at enqueue. */
+function botWait() {
+  return BOT_AFTER_MIN_MS + Math.random() * (BOT_AFTER_MS - BOT_AFTER_MIN_MS);
+}
 
 /* How many people can watch one match. Each watcher is one more copy of every
    message the match sends, so a number has to exist; fifty is far more than
@@ -127,7 +147,7 @@ class KnockoutLobby {
        and pressed Play stops watching first, so the two never overlap. */
     this.unwatch(socket.id);
     this.queue.push({
-      socket, name, wallet, since: typeof now === 'number' ? now : Date.now(),
+      socket, name, wallet, since: typeof now === 'number' ? now : Date.now(), botWait: botWait(),
       stake: Number(stake) > 0 ? Number(stake) : 0,
       worth: Number(worth) > 0 ? Number(worth) : 0,
       paid: Number(paid) > 0 ? Number(paid) : undefined,
@@ -200,7 +220,9 @@ class KnockoutLobby {
         this.refund(e, 'nobody joined that table');
         continue;
       }
-      if (t - e.since < BOT_AFTER_MS) continue;
+      /* The wait drawn at enqueue; an entry without one (made by hand) waits the longest. */
+      const wait = typeof e.botWait === 'number' && Number.isFinite(e.botWait) ? e.botWait : BOT_AFTER_MS;
+      if (t - e.since < wait) continue;
       this.dequeue(e.socket.id);
       this.makeMatch([e], true, t);
     }
@@ -272,7 +294,7 @@ class KnockoutLobby {
       /* A stand-in socket. It joins nothing and receives nothing: the room only
          ever calls .id and .join on it, and a bot has no client to send to. */
       const botSocket = { id: 'bot_' + room.id, join() {}, emit() {} };
-      const name = BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)];
+      const name = botNameAgainst(entries);
       room.addPlayer(botSocket, name, null);
       room.bot = { id: botSocket.id, aimedTurn: 0 };
     }
@@ -284,7 +306,7 @@ class KnockoutLobby {
        stamped with the real one and the two drifted by however long the gap
        between the two reads was.
 
-       It survived only because BOT_AFTER_MS happens to be 15 seconds, which is
+       It survived only because BOT_AFTER_MS happened to be 15 seconds, which is
        how big a stall it took to break: measured, the countdown assertion flips
        at 15009 ms. That margin is an accident of a constant that used to be
        6000 and could be lowered again, and at a few hundred milliseconds it
@@ -588,7 +610,12 @@ class KnockoutLobby {
     }
 
     if (aims.length) room.submitAim(me, aims);
-    room.lockIn(me);
+    /* Locking in tells the other screen, exactly as a person's lock does
+       (index.js ko:lock). Without it "They are ready" never showed against the
+       stand-in, which gave it away every turn. */
+    if (room.lockIn(me) && typeof room.broadcast === 'function') {
+      room.broadcast('ko:ready', { ready: [...room.ready] });
+    }
   }
 }
 
@@ -597,4 +624,4 @@ class KnockoutLobby {
 KnockoutLobby.PAID_WAIT_MS = PAID_WAIT_MS;
 KnockoutLobby.WATCH_CAP = WATCH_CAP;
 
-module.exports = { KnockoutLobby, BOT_AFTER_MS, PAID_WAIT_MS, WATCH_CAP };
+module.exports = { KnockoutLobby, BOT_AFTER_MS, BOT_AFTER_MIN_MS, PAID_WAIT_MS, WATCH_CAP };

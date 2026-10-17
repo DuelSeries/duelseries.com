@@ -1,4 +1,5 @@
 'use strict';
+const crypto = require('crypto');
 const { refundBound } = require('./stakeRules');
 const { duelMoney } = require('./duelMoney');
 /* ─── Knockout ────────────────────────────────────────────────────────────────
@@ -104,6 +105,18 @@ const KO = {
    it is run in real time is a room that cannot be measured. */
 function nowOr(t) { return typeof t === 'number' && Number.isFinite(t) ? t : Date.now(); }
 
+/* THE STAND-IN OPPONENT'S ID NEVER LEAVES THE SERVER.
+
+   Inside, the free-table bot sits on a socket id of 'bot_' plus the room id,
+   and everything that counts people (the lobby, index.js, liveCounts) tells it
+   apart by that prefix. Sent as it is, every state message said to anyone
+   reading a frame which seat was a machine. So the clients are given a
+   neutral id in its place, made once per match and shaped like a socket id
+   (Owen 2026-10-16: bots should look like players). A person's id goes out
+   unchanged: each client finds its own seat by its own socket id. */
+const isBotId = (id) => typeof id === 'string' && id.startsWith('bot_');
+const neutralId = () => crypto.randomBytes(15).toString('base64url');
+
 let nextId = 1;
 
 /* ── one piece ──────────────────────────────────────────────────────────── */
@@ -185,10 +198,26 @@ class KnockoutRoom {
   /* Which seat a socket id sat in, or null. What a watcher is told instead of
      the id. */
   sideOf(socketId) {
+    const id = this.serverId(socketId);
     for (let s = 0; s < this.seats.length; s++) {
-      if (this.seats[s] && this.seats[s].id === socketId) return s;
+      if (this.seats[s] && this.seats[s].id === id) return s;
     }
     return null;
+  }
+
+  /* The id a client is shown for a seat (see isBotId above): a person's own
+     socket id, the stand-in's neutral one. */
+  publicId(socketId) {
+    if (!isBotId(socketId)) return socketId;
+    if (!this.botAlias) this.botAlias = neutralId();
+    return this.botAlias;
+  }
+
+  /* And back: the neutral id names the stand-in's seat. */
+  serverId(id) {
+    if (!this.botAlias || id !== this.botAlias) return id;
+    for (const seat of this.seats) if (seat && isBotId(seat.id)) return seat.id;
+    return id;
   }
 
   /* The two names, seat 0 first. */
@@ -421,7 +450,7 @@ class KnockoutRoom {
       for (const a of list) {
         const p = this.pieces.find(q => q.id === a.pieceId);
         if (!p) continue;
-        out.push({ pieceId: a.pieceId, owner: id, ax: Math.round(a.ax), ay: Math.round(a.ay) });
+        out.push({ pieceId: a.pieceId, owner: this.publicId(id), ax: Math.round(a.ax), ay: Math.round(a.ay) });
       }
     }
     return out;
@@ -605,7 +634,7 @@ class KnockoutRoom {
 
     this.broadcast('ko:over', {
       winner: winnerId ? (this.players.get(winnerId) || {}).name || null : null,
-      winnerId: winnerId || null,
+      winnerId: winnerId ? this.publicId(winnerId) : null,
       why: this.overWhy,
       turn: this.turn,
       stake: this.stake,
@@ -633,17 +662,17 @@ class KnockoutRoom {
       phaseMs: Math.max(0, this.phaseEndsAt - Date.now()),
       aimMs: KO.AIM_MS,
       players: [...this.players.entries()].map(([id, p]) => ({
-        id, name: p.name, side: p.side, left: this.piecesOf(id).length,
+        id: this.publicId(id), name: p.name, side: p.side, left: this.piecesOf(id).length,
         /* The bought skin this seat wears, or null: how every screen (watchers too) dresses its pieces. */
         skin: p.skin || null,
       })),
       pieces: this.pieces.map(p => ({
-        id: p.id, owner: p.owner, x: Math.round(p.x), y: Math.round(p.y), alive: p.alive,
+        id: p.id, owner: this.publicId(p.owner), x: Math.round(p.x), y: Math.round(p.y), alive: p.alive,
       })),
       /* Who has committed, but NOT what they committed. Worth showing: an
          opponent who has locked in is information you are allowed to have, and
          it is what makes the last few seconds of a turn tense. */
-      ready: [...this.ready],
+      ready: [...this.ready].map(id => this.publicId(id)),
       /* What is on the table. Shown, because a player is entitled to see what
          they are playing for, and it is the same number on both screens. */
       stake: this.stake,
@@ -657,6 +686,11 @@ class KnockoutRoom {
   }
 
   broadcast(event, payload) {
+    /* ko:ready is the one player message built outside this file (index.js
+       ko:lock sends the raw ready set), so its ids are swapped here. */
+    if (event === 'ko:ready' && payload && Array.isArray(payload.ready)) {
+      payload = Object.assign({}, payload, { ready: payload.ready.map(id => this.publicId(id)) });
+    }
     if (this.io && this.io.to) this.io.to(this.socketRoomName).emit(event, payload);
     /* And the same moment to anybody watching, in their own room and their own
        form. Built from the payload the players were just sent, so a watcher can

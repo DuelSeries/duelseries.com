@@ -8,7 +8,8 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const { KnockoutLobby, BOT_AFTER_MS } = require('../server/KnockoutLobby');
+const { KnockoutLobby, BOT_AFTER_MS, BOT_AFTER_MIN_MS } = require('../server/KnockoutLobby');
+const { isBotName } = require('../server/botNames');
 const { KO } = require('../server/KnockoutRoom');
 
 const io = { to: () => ({ emit: () => {} }) };
@@ -32,7 +33,7 @@ test('waiting alone gets you a bot rather than a spinner', () => {
      one scheduling hiccup away from being wrong. */
   const T0 = Date.now();
   lob.enqueue(sock('A'), 'Owen', null, 0, 0, T0);
-  lob.tick(T0 + BOT_AFTER_MS - 1);
+  lob.tick(T0 + BOT_AFTER_MIN_MS - 1);
   assert.strictEqual(lob.rooms.size, 0, 'not straight away');
   lob.tick(T0 + BOT_AFTER_MS + 1);
   const room = lob.roomOf('A');
@@ -41,17 +42,87 @@ test('waiting alone gets you a bot rather than a spinner', () => {
   assert.strictEqual(room.players.size, 2);
 });
 
-test('the bot is named as one rather than passed off as a person', () => {
-  /* You should know who you are playing. Quietly substituting a machine for an
-     opponent on a game that will take money is the kind of thing that is very
-     hard to explain afterwards. */
-  const lob = new KnockoutLobby(io);
-  lob.enqueue(sock('A'), 'Owen', null);
-  lob.tick(Date.now() + BOT_AFTER_MS + 1);
+test('the bot looks like a player: a person kind of name, never its opponent name, a bot underneath', () => {
+  /* Owen 2026-10-16: free-table opponents should look like players. It is
+     still only ever on a free table (see the paid tests), and the server still
+     knows it by its 'bot_' socket id; the clients never see that id. */
+  for (let i = 0; i < 200; i++) {
+    const lob = new KnockoutLobby(io);
+    lob.enqueue(sock('A'), 'Owen', null);
+    lob.tick(Date.now() + BOT_AFTER_MS + 1);
+    const room = lob.roomOf('A');
+    const them = room.players.get(room.bot.id);
+    assert.ok(them && isBotName(them.name, 15), 'a name on screen: ' + (them && them.name));
+    assert.ok(!/bot/i.test(them.name), them.name);
+    assert.notStrictEqual(them.name.toLowerCase(), 'owen');
+    assert.ok(String(room.bot.id).startsWith('bot_'), 'and it is a bot underneath');
+  }
+  // the person's own name is never handed to the stand-in, in any case
+  const seen = new Set();
+  for (let i = 0; i < 300; i++) {
+    const lob = new KnockoutLobby(io);
+    const room = lob.makeMatch([{ socket: sock('A'), name: 'jake', wallet: null }], true);
+    seen.add(room.players.get(room.bot.id).name.toLowerCase());
+  }
+  assert.ok(!seen.has('jake'));
+  assert.ok(seen.size > 100, 'not the same few names: ' + seen.size);
+});
+
+test('the bot turns up after a wait that is never the same twice, 9 to 22 seconds', () => {
+  const waits = [];
+  for (let i = 0; i < 200; i++) {
+    const lob = new KnockoutLobby(io);
+    const T0 = 1e9;
+    lob.enqueue(sock('A'), 'Owen', null, 0, 0, T0);
+    let t = T0;
+    while (!lob.roomOf('A') && t < T0 + 60000) { t += 200; lob.tick(t); }
+    waits.push(t - T0);
+  }
+  assert.ok(Math.min(...waits) >= BOT_AFTER_MIN_MS && Math.max(...waits) <= BOT_AFTER_MS + 200, waits.join(','));
+  assert.ok(new Set(waits).size > 30, 'drawn, not fixed');
+  const avg = waits.reduce((a, b) => a + b, 0) / waits.length;
+  assert.ok(avg > 13000 && avg < 18000, 'about fifteen on average: ' + avg);
+});
+
+test('the bot locking in tells the other screen, and no message a client gets names the bot id', () => {
+  const sent = [];
+  const io2 = { to: (room) => ({ emit: (ev, p) => sent.push({ room, ev, p: JSON.parse(JSON.stringify(p)) }) }) };
+  const lob = new KnockoutLobby(io2);
+  const T0 = Date.now();
+  lob.enqueue(sock('A'), 'Owen', null, 0, 0, T0);
+  let t = T0 + BOT_AFTER_MS + 1;
+  lob.tick(t);
   const room = lob.roomOf('A');
-  const them = room.players.get(room.bot.id);
-  assert.ok(them && them.name && them.name.length, 'it has a name on screen');
-  assert.ok(String(room.bot.id).startsWith('bot_'), 'and it is a bot underneath');
+  assert.ok(room && room.bot);
+  for (let i = 0; i < 400 && room.state !== 'over'; i++) {
+    t += 200;
+    if (room.state === 'aiming' && !room.ready.has('A') && room.ready.has(room.bot.id)) {
+      const mine = room.piecesOf('A');
+      room.submitAim('A', mine.map(p => ({ pieceId: p.id, ax: -p.x || 30, ay: -p.y || 30 })));
+      if (room.lockIn('A')) room.broadcast('ko:ready', { ready: [...room.ready] }); // index.js ko:lock
+    }
+    lob.tick(t);
+  }
+  const ready = sent.filter(m => m.ev === 'ko:ready');
+  assert.ok(ready.length >= 1, 'a ko:ready went out when the bot locked in');
+  assert.ok(ready.some(m => m.p.ready.length === 1), 'with only the bot in it: "They are ready"');
+  for (const m of sent) assert.ok(!JSON.stringify(m.p).includes('bot_'), m.ev + ' named the bot id');
+  // the player's own id is untouched, so the page still finds its seat; the bot's is one neutral id all match long
+  const states = sent.filter(m => m.ev === 'ko:turn' || m.ev === 'ko:start');
+  assert.ok(states.length >= 1);
+  const ids = new Set();
+  for (const m of states) {
+    assert.ok(m.p.players.some(p => p.id === 'A'));
+    for (const p of m.p.players) if (p.id !== 'A') ids.add(p.id);
+    for (const pc of m.p.pieces) assert.ok(pc.owner === 'A' || ids.has(pc.owner));
+  }
+  assert.strictEqual(ids.size, 1, 'one id for the opponent');
+  const alias = [...ids][0];
+  assert.ok(/^[A-Za-z0-9_-]{20}$/.test(alias), 'shaped like a socket id: ' + alias);
+  // the room still knows which seat is the bot, by the alias too
+  assert.strictEqual(room.sideOf(alias), room.sideOf(room.bot.id));
+  const over = sent.find(m => m.ev === 'ko:over' && m.room === room.socketRoomName);
+  if (over && over.p.winnerId) assert.ok(over.p.winnerId === 'A' || over.p.winnerId === alias);
 });
 
 test('the bot does not answer the instant the turn opens', () => {

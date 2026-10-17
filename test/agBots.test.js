@@ -617,8 +617,42 @@ test('THE ONE RULE: bots only where botsAllowed(), filled to the room size', () 
   assert.deepStrictEqual(B.planBotFill({ botsAllowed: true, humans: 1, bots: 0 }, LAWS),
     { add: 53, remove: 0, want: 53 });
   assert.throws(() => B.planBotFill({ botsAllowed: true, humans: 1, bots: 0 }, withValues(LAWS, { L39: null })), /L39/);
-  const n = B.botName(createRng(1));
-  assert.ok(B.BOT_NAMES.includes(n));
+});
+
+test('names: hundreds of human-looking names, at most L37 characters, no repeats in a room, never a name already there', () => {
+  const N = require('../server/botNames');
+  assert.strictEqual(B.BOT_NAMES, N.BASE_NAMES, 'the shared pool, not a copy');
+  assert.ok(B.BOT_NAMES.length >= 300, 'base names ' + B.BOT_NAMES.length);
+  // one draw of the room's rng per name, as before, so the room's own draws stay in step
+  const r1 = createRng(1);
+  const r2 = createRng(1);
+  B.botName(r1);
+  r2.next();
+  assert.strictEqual(r1.state(), r2.state());
+  // a full room (53 bots) from one room rng: 53 different names, each 3 to 15 characters and a valid bot name
+  const room = createRng(42);
+  const names = [];
+  for (let i = 0; i < 53; i++) names.push(B.botName(room));
+  assert.strictEqual(new Set(names.map((n) => n.toLowerCase())).size, 53, names.join(', '));
+  for (const n of names) {
+    assert.ok(n.length >= 3 && n.length <= LAWS.L37.value, n);
+    assert.ok(N.isBotName(n, LAWS.L37.value), n);
+  }
+  // and no repeat across a long deal either (fills after people leave), up to the reset
+  for (let i = 0; i < 300; i++) names.push(B.botName(room));
+  assert.strictEqual(new Set(names.map((n) => n.toLowerCase())).size, names.length);
+  // two rooms deal independently (each its own rng)
+  const other = createRng(42);
+  assert.strictEqual(B.botName(other), names[0]);
+  // taken: the names in the room now (bots and seated people) are skipped
+  const probe = B.botName(createRng(9));
+  const next = B.botName(createRng(9), (lc) => lc === probe.toLowerCase());
+  assert.notStrictEqual(next.toLowerCase(), probe.toLowerCase());
+  // the old 20-word list is gone, so a board is not the same words over and over
+  const many = new Set();
+  const big = createRng(5);
+  for (let i = 0; i < 2000; i++) many.add(B.botName(big));
+  assert.ok(many.size > 1000, 'distinct names ' + many.size);
 });
 
 test('every tuning number is labelled CHOSEN and no other number is in the code', () => {

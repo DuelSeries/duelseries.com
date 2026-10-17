@@ -132,7 +132,9 @@ class ArenaWire {
       x: unit.position.x,
       y: unit.position.y,
       dir: unit.direction,
-      bot: !unit.isHuman,
+      // never which squares are the house bots (Owen 2026-10-16: they should look like players). The client never
+      // drew it; it only told anyone reading the frames who was a person. Always false, for everybody.
+      bot: false,
       holding: this.holdingOf(unit),
       pushed: unit._pushedTick === game.tick,
       holdTicks: unit.isHuman ? unit.holdTicks : 0,
@@ -180,7 +182,7 @@ class ArenaWire {
         id: unit.id,
         name: unit.name,
         skin: unit.skin ? unit.skin.name : null,
-        bot: !unit.isHuman,
+        bot: false, // as in the frame: never who is a bot
         x: unit.position.x,
         y: unit.position.y,
         dir: unit.direction,

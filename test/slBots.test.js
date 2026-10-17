@@ -134,10 +134,13 @@ test('tuning: every number CHOSEN with a note; no other number, Math.random, Dat
   assert.deepEqual(nums, [], 'numbers outside BOT_TUNING and DATA: ' + nums.join(', '));
 });
 
-test('imports: only the law table, the streams and botTarget; never registerRoom; no money code', () => {
+test('imports: only the law table, the streams, botTarget and the name pool; never registerRoom; no money code', () => {
   const src = fs.readFileSync(SRC, 'utf8');
   const reqs = (src.match(/require\('([^']+)'\)/g) || []).map((s) => s.slice(9, -2));
-  assert.deepEqual(reqs, ['./slLaws', './slRng', '../botPopulation', 'perf_hooks']); // perf_hooks: the loop probe's busy share
+  // perf_hooks: the loop probe's busy share; ../botNames: the shared bot names (data and a generator, no requires)
+  assert.deepEqual(reqs, ['./slLaws', './slRng', '../botPopulation', '../botNames', 'perf_hooks']);
+  const names = fs.readFileSync(path.join(__dirname, '../server/botNames.js'), 'utf8');
+  assert.equal((names.match(/require\(/g) || []).length, 0, 'the name pool brings no module with it');
   const code = src.replace(/\/\/.*$/gm, '');
   assert.ok(!/registerRoom|unregisterRoom/.test(code), 'the sl room never takes a share of the event bot budget (Q21)');
   assert.ok(!/money|wallet|escrow|stake|usdc|payout|\bdb\b/i.test(code), 'no money words in the code');
@@ -149,17 +152,23 @@ test('imports: only the law table, the streams and botTarget; never registerRoom
 // ---------------------------------------------------------------------------------------------------------------
 // Personalities, laws, angle bytes.
 
-test('personalities: agar shares 0.6 casual, 0.15 hunter, 0.25 shy; drawPersonality follows them', () => {
-  assert.equal(B.personalityProfile('casual').SHARE, 0.6);
-  assert.equal(B.personalityProfile('hunter').SHARE, 0.15);
-  assert.equal(B.personalityProfile('shy').SHARE, 0.25);
+test('personalities: 0.55 casual, 0.25 hunter, 0.2 shy (more hunters, Owen 2026-10-16); drawPersonality follows them', () => {
+  assert.equal(B.personalityProfile('casual').SHARE, 0.55);
+  assert.equal(B.personalityProfile('hunter').SHARE, 0.25);
+  assert.equal(B.personalityProfile('shy').SHARE, 0.2);
   assert.equal(B.personalityProfile('boss'), null);
   const r = createRng(11);
   const n = { casual: 0, hunter: 0, shy: 0 };
   for (let i = 0; i < 20000; i++) n[B.drawPersonality(r)]++;
-  assert.ok(Math.abs(n.casual / 20000 - 0.6) < 0.015, 'casual ' + n.casual);
-  assert.ok(Math.abs(n.hunter / 20000 - 0.15) < 0.015, 'hunter ' + n.hunter);
-  assert.ok(Math.abs(n.shy / 20000 - 0.25) < 0.015, 'shy ' + n.shy);
+  assert.ok(Math.abs(n.casual / 20000 - 0.55) < 0.015, 'casual ' + n.casual);
+  assert.ok(Math.abs(n.hunter / 20000 - 0.25) < 0.015, 'hunter ' + n.hunter);
+  assert.ok(Math.abs(n.shy / 20000 - 0.2) < 0.015, 'shy ' + n.shy);
+  // who does what: casual bots chase only far smaller snakes and rarely; only hunters coil; shy bots never chase
+  assert.ok(B.personalityProfile('casual').HUNT_RATIO > B.personalityProfile('hunter').HUNT_RATIO);
+  assert.ok(B.personalityProfile('casual').CHASE_CHANCE < B.personalityProfile('hunter').CHASE_CHANCE);
+  assert.deepEqual(B.PERSONALITIES.map((p) => B.personalityProfile(p).COILS), [0, 1, 0]);
+  assert.equal(B.personalityProfile('shy').HUNTS, 0);
+  for (const p of B.PERSONALITIES) assert.equal(B.personalityProfile(p).SCAVENGES, 1, p);
 });
 
 test('brain laws by id: L1, L7, L15, L22, L35, BOT_KINDS, BOT_GATES; a labelled or wrong kind list is refused', () => {
@@ -231,17 +240,38 @@ test('shy: turns away from a bigger body; casual does not', () => {
   assert.equal(casual.stats().flee, 0);
 });
 
-test('hunter: cuts in front of a clearly smaller snake and boosts; never chases one not 1.5 x smaller', () => {
+test('hunter: cuts in front of a clearly smaller snake at the intercept point and boosts; never chases one not 1.5 x smaller', () => {
   const me = snakeAt(1, 1000, 1000, 0, 40);
   const small = snakeAt(2, 1300, 1000, Math.PI / 2, 10);
   const brain = B.createBotBrain(5, 'hunter', FIXTURE);
   const recs = drive(brain, me, fakeSense({ snakes: [me, small] }), 40);
   assert.equal(brain.mode(), 'hunt');
   assert.ok(brain.stats().chases >= 1);
+  // the intercept: 300 away at the same speed, so the aim point is 300 ahead of the prey head, atan2(300, 300)
   const a = byteAngle(lastAngle(recs));
-  assert.ok(a > 0.35 && a < 0.65, 'aim ' + a); // atan2(160, 300) = 0.49: 160 ahead of the prey head
+  assert.ok(a > 0.66 && a < 0.92, 'aim ' + a);
   assert.ok(recs.some((r) => r.rec.type === 'boost' && r.rec.on === true), 'short boost');
+  assert.ok(brain.stats().chaseBoosts >= 1, 'a chase boost');
   assert.equal(gateViolations(recs), 0);
+  // a faster hunter needs less lead: boosting at 14 against 5.79, the aim point is 300 x 5.79 / 14 = 124 ahead
+  const fast = Object.assign(snakeAt(1, 1000, 1000, 0, 40), { sp: 14 });
+  const b4 = B.createBotBrain(5, 'hunter', FIXTURE);
+  const r4 = drive(b4, fast, fakeSense({ snakes: [fast, small] }), 40);
+  const a4 = byteAngle(lastAngle(r4));
+  assert.ok(a4 > 0.25 && a4 < 0.55, 'aim with the speed ratio ' + a4); // atan2(124, 300) = 0.39
+  // a snake holding Q to cash out (steering locked, crawling) is never prey, and a chase on one that starts holding ends
+  const holder = Object.assign(snakeAt(2, 1300, 1000, Math.PI / 2, 10), { holdMult: 0.5 });
+  const bh = B.createBotBrain(5, 'hunter', FIXTURE);
+  drive(bh, me, fakeSense({ snakes: [me, holder] }), 40);
+  assert.equal(bh.stats().chases, 0, 'no chase on a cash-out');
+  const later = snakeAt(2, 1300, 1000, Math.PI / 2, 10);
+  const bl = B.createBotBrain(5, 'hunter', FIXTURE);
+  const sl = fakeSense({ snakes: [me, later] });
+  drive(bl, me, sl, 20);
+  assert.equal(bl.mode(), 'hunt');
+  later.holdMult = 0.7333;
+  drive(bl, me, sl, 20, 20 * P);
+  assert.notEqual(bl.mode(), 'hunt', 'the chase ends when it starts holding');
   const peer = snakeAt(2, 1300, 1000, Math.PI / 2, 30); // 40 / 30 < 1.5
   const b2 = B.createBotBrain(5, 'hunter', FIXTURE);
   drive(b2, me, fakeSense({ snakes: [me, peer] }), 40);
@@ -260,6 +290,123 @@ test('the border: outside 0.92 of the radius the bot heads for the middle', () =
   const q = lastAngle(recs);
   assert.ok(q >= 119 && q <= 130, 'q ' + q);
   assert.throws(() => drive(B.createBotBrain(6, 'casual', FIXTURE), me, fakeSense({ snakes: [me], flux: null }), 7), /border/);
+});
+
+const boosted = (recs) => recs.some((r) => r.rec.type === 'boost' && r.rec.on === true);
+
+test('flee: every personality turns away from a bigger head aimed at it and boosts; not from one aimed elsewhere or smaller', () => {
+  for (const p of B.PERSONALITIES) {
+    for (let seed = 1; seed <= 5; seed++) {
+      const me = snakeAt(1, 1000, 1000, 0, 30);
+      const big = snakeAt(2, 1150, 1000, Math.PI, 80); // 150 east, heading straight at the bot head
+      const brain = B.createBotBrain(seed, p, FIXTURE);
+      const recs = drive(brain, me, fakeSense({ snakes: [me, big] }), 8);
+      assert.equal(brain.mode(), 'flee', p + ' seed ' + seed);
+      assert.ok(Math.cos(byteAngle(lastAngle(recs))) < 0, p + ' seed ' + seed + ' runs west, away from it');
+      assert.ok(boosted(recs) && brain.stats().fleeBoosts >= 1, p + ' seed ' + seed + ' boosts away');
+      assert.equal(gateViolations(recs), 0);
+    }
+  }
+  // the same snake heading north (not at the bot), and a smaller one heading straight at it: no flee for casual
+  const me = snakeAt(1, 1000, 1000, 0, 30);
+  for (const other of [snakeAt(2, 1150, 1000, -Math.PI / 2, 80), snakeAt(2, 1150, 1000, Math.PI, 10)]) {
+    const brain = B.createBotBrain(3, 'casual', FIXTURE);
+    drive(brain, me, fakeSense({ snakes: [me, other] }), 8);
+    assert.notEqual(brain.mode(), 'flee');
+    assert.equal(brain.stats().fleeBoosts, 0);
+  }
+  // a bigger head cutting across in front of it (aimed 140 ahead of the head, not at it) counts too
+  for (let seed = 1; seed <= 5; seed++) {
+    const cutter = snakeAt(2, 1140, 1150, -Math.PI / 2, 80);
+    const brain = B.createBotBrain(seed, 'casual', FIXTURE);
+    drive(brain, me, fakeSense({ snakes: [me, cutter] }), 8);
+    assert.equal(brain.mode(), 'flee', 'seed ' + seed);
+    assert.ok(brain.stats().fleeBoosts >= 1, 'seed ' + seed + ' (205 away, under FLEE_BOOST_RANGE)');
+  }
+  // too short to boost at all (BOOST_MIN_L): it still turns away, without boosting
+  const tiny = snakeAt(1, 1000, 1000, 0, 8);
+  const b2 = B.createBotBrain(4, 'shy', FIXTURE);
+  const r2 = drive(b2, tiny, fakeSense({ snakes: [tiny, snakeAt(2, 1150, 1000, Math.PI, 80)] }), 8);
+  assert.equal(b2.mode(), 'flee');
+  assert.ok(!boosted(r2));
+});
+
+test('the wall: a bot outside 0.97 of the radius boosts once it is turned inward; outside the battle royale circle too', () => {
+  const inward = snakeAt(1, 1000 + 880, 1000, Math.PI, 30);
+  const b1 = B.createBotBrain(6, 'casual', FIXTURE);
+  const r1 = drive(b1, inward, fakeSense({ snakes: [inward] }), 7);
+  assert.equal(b1.mode(), 'border');
+  assert.ok(boosted(r1) && b1.stats().panicBoosts >= 1, 'sprints back in');
+  // still facing out: it turns first (a boost would only widen the turn)
+  const outward = snakeAt(1, 1000 + 880, 1000, 0, 30);
+  const b2 = B.createBotBrain(6, 'casual', FIXTURE);
+  const r2 = drive(b2, outward, fakeSense({ snakes: [outward] }), 7);
+  assert.equal(b2.mode(), 'border');
+  assert.ok(!boosted(r2) && b2.stats().panicBoosts === 0);
+  // inside 0.97: no sprint
+  const near = snakeAt(1, 1000 + 850, 1000, Math.PI, 30);
+  const b3 = B.createBotBrain(6, 'casual', FIXTURE);
+  drive(b3, near, fakeSense({ snakes: [near] }), 7);
+  assert.equal(b3.stats().panicBoosts, 0);
+  // the battle royale circle: outside it at all, turned inward, every personality sprints
+  for (const p of B.PERSONALITIES) {
+    const me = snakeAt(1, 1000 + 600, 1000, Math.PI, 30);
+    const sense = Object.assign(fakeSense({ snakes: [me] }), { zone: () => ({ x: 1000, y: 1000, r: 500 }) });
+    const b = B.createBotBrain(2, p, FIXTURE);
+    const r = drive(b, me, sense, 7);
+    assert.equal(b.mode(), 'border', p);
+    assert.ok(boosted(r) && b.stats().panicBoosts >= 1, p + ' sprints back into the circle');
+  }
+});
+
+test('coil: a hunter close to and ahead of a much smaller snake circles its head; casual bots never coil', () => {
+  let coiled = 0;
+  for (let seed = 1; seed <= 10; seed++) {
+    const me = snakeAt(1, 1000, 1000, 0, 100);
+    const prey = snakeAt(2, 850, 1000, 0, 10); // 150 behind the hunter head, heading at it: the hunter is ahead
+    const brain = B.createBotBrain(seed, 'hunter', FIXTURE);
+    drive(brain, me, fakeSense({ snakes: [me, prey] }), 60);
+    if (brain.mode() === 'coil') coiled++;
+    assert.ok(brain.stats().chases >= 1, 'seed ' + seed);
+    const casual = B.createBotBrain(seed, 'casual', FIXTURE);
+    drive(casual, me, fakeSense({ snakes: [me, prey] }), 60);
+    assert.equal(casual.stats().coils, 0);
+  }
+  assert.ok(coiled >= 8, 'hunters coiled in ' + coiled + ' of 10');
+  // behind the prey (it heads away): a chase, not a coil
+  const me = snakeAt(1, 1000, 1000, 0, 100);
+  const away = snakeAt(2, 1150, 1000, 0, 10);
+  const b = B.createBotBrain(2, 'hunter', FIXTURE);
+  drive(b, me, fakeSense({ snakes: [me, away] }), 60);
+  assert.equal(b.stats().coils, 0);
+});
+
+test('piles: a fresh big death pile draws a bot over with a boost; a stale, small or guarded one does not', () => {
+  const pile = (at, size) => [{ at, size, pts: [1500, 1000, 1520, 1010] }];
+  for (const p of B.PERSONALITIES) {
+    const me = snakeAt(1, 1000, 1000, 0, 30);
+    const b = B.createBotBrain(9, p, FIXTURE);
+    const r = drive(b, me, Object.assign(fakeSense({ snakes: [me] }), { piles: () => pile(0, 120) }), 8);
+    assert.equal(b.mode(), 'pile', p);
+    const a = byteAngle(lastAngle(r));
+    assert.ok(Math.abs(a) < 0.25, p + ' heads for it: ' + a);
+    assert.ok(boosted(r) && b.stats().pileBoosts >= 1, p + ' boosts to a big one');
+  }
+  const me = snakeAt(1, 1000, 1000, 0, 30);
+  const run = (piles, others) => {
+    const b = B.createBotBrain(9, 'casual', FIXTURE);
+    drive(b, me, Object.assign(fakeSense({ snakes: [me].concat(others || []) }), { piles: () => piles }), 8);
+    return b;
+  };
+  assert.notEqual(run(pile(-10000, 120)).mode(), 'pile', 'stale');
+  assert.notEqual(run(pile(0, 20)).mode(), 'pile', 'a death too short to cross the map for');
+  const smallPile = run(pile(0, 50));
+  assert.equal(smallPile.mode(), 'pile', 'worth going for');
+  assert.equal(smallPile.stats().pileBoosts, 0, 'but not worth a boost');
+  // a bigger snake's head beside it, nearer than the bot: left alone
+  assert.notEqual(run(pile(0, 120), [snakeAt(2, 1550, 1000, -Math.PI / 2, 80)]).mode(), 'pile', 'guarded');
+  // within PILE_HANDOFF the food goal takes over
+  assert.notEqual(run([{ at: 0, size: 120, pts: [1100, 1000] }]).mode(), 'pile');
 });
 
 test('brain determinism: the same seed and world give the same records; another seed does not', () => {
@@ -363,9 +510,15 @@ test('live sim: 40 bots for 3000 updates keep the client gates, send valid wire 
   assert.ok(n > 10000, 'records ' + n);
   assert.equal(bad, 0);
   assert.equal(r.wireBad, 0);
-  assert.ok(r.kinds.hunter.chases > 0 && r.kinds.hunter.boosts > 0, 'hunters chase and boost');
-  assert.ok(r.kinds.shy.flee > 0 && r.kinds.shy.boosts === 0, 'shy bots turn away and never boost');
-  assert.ok(r.kinds.casual.food > 0 && r.kinds.casual.hunt === 0, 'casual bots eat and never chase');
+  // the chasers (hunters and, now and then, casual bots); which of them meets prey first in 2 sim minutes is luck
+  const chases = r.kinds.hunter.chases + r.kinds.casual.chases;
+  const chaseBoosts = (r.kinds.hunter.chaseBoosts || 0) + (r.kinds.casual.chaseBoosts || 0);
+  assert.ok(chases > 0 && chaseBoosts > 0, 'bots chase and boost toward the cut: ' + chases + ', ' + chaseBoosts);
+  assert.ok(r.kinds.shy.flee > 0 && r.kinds.shy.hunt === 0 && r.kinds.shy.chases === 0, 'shy bots turn away and never chase');
+  assert.ok(r.kinds.casual.food > 0, 'casual bots eat');
+  const flee = B.PERSONALITIES.reduce((n, p) => n + (r.kinds[p].fleeBoosts || 0), 0);
+  assert.ok(flee > 0, 'somebody boosted away from a bigger head (' + flee + ')');
+  assert.ok(r.kinds.casual.boosts > 0, 'casual bots boost');
   assert.equal(r.sim.check().length, 0);
 });
 
@@ -768,7 +921,41 @@ test('real monitor: a forced CPU burn engages the governor against this process 
 // ---------------------------------------------------------------------------------------------------------------
 // New bots.
 
-test('skins: uniform over the shipped 0 to 65; the 12 picture skins only with the PICTURE_SKINS switch on', () => {
+test('skins: about 6 in 10 a plain colour 0 to 8, the rest spread over every other shipped skin, one draw', () => {
+  assert.equal(B.PLAIN_SKINS, 9);
+  const skins = B.botSkins(FIXTURE);
+  assert.equal(B.skinOf(skins, 0), 0);
+  assert.equal(B.skinOf(skins, 0.5999), 8);
+  assert.equal(B.skinOf(skins, 0.6), 9);
+  assert.equal(B.skinOf(skins, 0.9999999), 65);
+  const r = createRng(17);
+  const names = B.createNameBook();
+  const per = new Map();
+  let plain = 0;
+  const N = 30000;
+  for (let i = 0; i < N; i++) {
+    const s = B.drawBotSpec(r, FIXTURE, names);
+    names.release(s.nick);
+    if (s.cv < 9) plain++;
+    per.set(s.cv, (per.get(s.cv) || 0) + 1);
+  }
+  assert.ok(Math.abs(plain / N - 0.6) < 0.015, 'plain share ' + plain / N);
+  assert.equal(per.size, 54, 'every allowed skin is worn');
+  for (const [cv, n] of per) {
+    const want = cv < 9 ? (0.6 * N) / 9 : (0.4 * N) / 45;
+    assert.ok(Math.abs(n - want) < want * 0.25, 'cv ' + cv + ': ' + n + ' of about ' + want.toFixed(0));
+  }
+  // with the picture skins on, they join the patterned share
+  const ALL = Array.from(B.PICTURE_FILES);
+  const on = B.botSkins(makeFixture({ PICTURE_SKINS: { on: true, reviewed: ALL } }));
+  assert.equal(B.skinOf(on, 0.99999), 65);
+  const reach = new Set();
+  for (let i = 0; i < 20000; i++) reach.add(B.skinOf(on, i / 20000));
+  assert.equal(reach.size, 66);
+  for (const cv of B.PICTURE_SKIN_CVS) assert.ok(reach.has(cv), 'picture skin ' + cv);
+});
+
+test('skins: the shipped 0 to 65; the 12 picture skins only with the PICTURE_SKINS switch on', () => {
   const off = B.botSkins(FIXTURE);
   assert.equal(off.length, 54);
   assert.ok(off.includes(0) && off.includes(65) && !off.includes(66));
@@ -810,16 +997,77 @@ test('names: ordinary, unique, more than BOT_MAX, each passes their name rules a
   require('../public/js/sl/slApply.js');
   const A = globalThis.DuelSlither.slApply;
   A.initApplyState({});
+  const { cleanNick } = require('../server/sl/slNames');
   const list = B.BOT_NAMES;
-  assert.equal(new Set(list).size, list.length);
-  assert.ok(list.length > C.BOT_MAX, 'names ' + list.length);
-  for (const n of list) {
-    assert.ok(typeof n === 'string' && n.length >= 1 && n.length <= 24, n);
+  assert.equal(new Set(list.map((n) => n.toLowerCase())).size, list.length);
+  assert.ok(list.length > 4 * C.BOT_MAX, 'names ' + list.length);
+  const check = (n) => {
+    assert.ok(typeof n === 'string' && n.length >= 3 && n.length <= B.NICK_MAX, n); // a real account needs 3
     for (let i = 0; i < n.length; i++) assert.ok(n.charCodeAt(i) >= 32 && n.charCodeAt(i) <= 126, n);
+    assert.equal(n.trim(), n);
     assert.notEqual(n.toLowerCase(), 'gameweek2016');
     assert.equal(A.gdnm(n), true, n);
+    assert.equal(cleanNick(n), n, n);
     assert.ok(!/bot|slither\.?io/i.test(n), n);
+  };
+  for (const n of list) check(n);
+  // and every name the room's book hands out: 20,000 draws, reaching thousands of different names
+  const book = B.createNameBook();
+  const r = createRng(23);
+  const seen = new Set();
+  let decorated = 0;
+  for (let i = 0; i < 20000; i++) {
+    const n = book.take(r);
+    check(n);
+    seen.add(n);
+    if (!list.includes(n)) decorated++;
+    book.release(n);
   }
+  assert.ok(seen.size > 5000, 'different names ' + seen.size);
+  assert.ok(decorated > 20000 * 0.3 && decorated < 20000 * 0.7, 'dressed up (digits, case, xX) ' + decorated);
+});
+
+test('names: the book never gives two live bots the same name, nor a name a seated person wears', () => {
+  const book = B.createNameBook();
+  const r = createRng(5);
+  const live = new Set();
+  for (let i = 0; i < 400; i++) {
+    const n = book.take(r);
+    assert.ok(!live.has(n.toLowerCase()), 'twice: ' + n);
+    live.add(n.toLowerCase());
+  }
+  assert.equal(book.inUse(), 400);
+  // what the next draw would be, then the same draw with a person in the room wearing that name (any case)
+  const probe = createRng(77);
+  const next = B.createNameBook().take(probe);
+  const again = B.createNameBook().take(createRng(77), new Set([next.toUpperCase().toLowerCase()]));
+  assert.notEqual(again.toLowerCase(), next.toLowerCase());
+  // a list book (tools) skips the people's names too
+  const lb = B.createNameBook(['Amy', 'Bo1', 'Cy2']);
+  for (let i = 0; i < 20; i++) {
+    const n = lb.take(createRng(i), new Set(['amy', 'bo1']));
+    assert.equal(n, 'Cy2');
+    lb.release(n);
+  }
+});
+
+test('driver: a new bot never takes the name of a person seated in the room', () => {
+  const { host, sim } = makeHost(FIXTURE, 61, 1791615600000);
+  // the name the driver's first bot would get: its spec is the first draw set of the room's bot stream
+  const clone = createRng(0);
+  clone.setState(sim.rng.bot.state());
+  const first = B.drawBotSpec(clone, FIXTURE, B.createNameBook()).nick;
+  const person = sim.spawn({ cv: 1, nick: first.toUpperCase() });
+  host.humans = new Set([person.id]);
+  host.names.set(person.id, first.toUpperCase());
+  const driver = B.createBotDriver(FIXTURE);
+  steps(driver, host, 3);
+  assert.equal(driver.count(), 1);
+  let botNick = null;
+  sim.forEachSnake((s) => {
+    if (driver.isBot(s.id)) botNick = s.nick;
+  });
+  assert.ok(botNick && botNick.toLowerCase() !== first.toLowerCase(), first + ' vs ' + botNick);
 });
 
 test('name book: free names first, reused only when none is free, released on leave', () => {
@@ -846,7 +1094,11 @@ test('drawBotSpec: seed, personality, skin, name in that order, four draws from 
   assert.deepEqual(s1, s3);
   assert.ok(Number.isInteger(s1.seed) && s1.seed >= 0 && s1.seed < 4294967296);
   assert.ok(B.PERSONALITIES.includes(s1.personality));
-  assert.ok(B.BOT_NAMES.includes(s1.nick));
+  assert.ok(require('../server/botNames').isBotName(s1.nick, B.NICK_MAX), s1.nick);
+  // a person's name to avoid changes the name only, never the draw count
+  const r4 = createRng(5);
+  B.drawBotSpec(r4, FIXTURE, B.createNameBook(), new Set([s1.nick.toLowerCase()]));
+  assert.equal(r4.state(), r2.state());
 });
 
 test('spawnBot: on an L42 ring, outside every human view set when possible; the last draw stays', () => {
@@ -1003,4 +1255,160 @@ test('driver determinism: the same room seed and clock give the same world twice
   const a = run(41);
   assert.ok(a === run(41));
   assert.ok(a !== run(42));
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// The owner console's controls and the refill wait (Control, 2026-10-16).
+
+test('driver: setTarget holds an exact live count at the fill pace, people do not displace it, null returns to the curve', () => {
+  const { host, sim } = makeHost(FIXTURE, 71, 1791615600000); // curve 34
+  const driver = B.createBotDriver(FIXTURE);
+  assert.equal(typeof driver.setTarget, 'function');
+  assert.equal(typeof driver.target, 'function');
+  assert.equal(typeof driver.removeBots, 'function');
+  steps(driver, host, 150);
+  assert.equal(driver.target(host), null, 'on the curve');
+  assert.equal(driver.setTarget(host, 10), 10);
+  assert.equal(driver.target(host), 10);
+  steps(driver, host, 100); // 24 retirements at one per 125 ms, about 71 updates
+  assert.equal(driver.count(), 10);
+  host.playerCount = 5; // people arrive: the held count stays
+  steps(driver, host, 30);
+  assert.equal(driver.count(), 10);
+  assert.equal(driver.setTarget(host, 60), 60);
+  let most = 0;
+  let waitingSeen = 0;
+  steps(driver, host, 200, () => {
+    most = Math.max(most, driver.count());
+    waitingSeen = Math.max(waitingSeen, driver.waiting());
+  });
+  assert.equal(most, 60);
+  assert.ok(driver.count() >= 58, 'a held count refills deaths at once: ' + driver.count());
+  assert.equal(waitingSeen, 0, 'no refill wait under a held count');
+  // hand-added bots count toward the held number too
+  const extra = driver.add(host);
+  extra.manual = true;
+  steps(driver, host, 10);
+  assert.ok(driver.count() <= 60);
+  // back to the curve: 34 minus the 5 people
+  assert.equal(driver.setTarget(host, null), null);
+  assert.equal(driver.target(host), null);
+  steps(driver, host, 400);
+  assert.ok(driver.count() + driver.waiting() <= 30 && driver.count() + driver.waiting() >= 27,
+    'the curve again: ' + driver.count() + ' + ' + driver.waiting() + ' waiting');
+  assert.equal(sim.check().length, 0);
+  // refusals
+  for (const bad of [-1, 1.5, B.TARGET_MAX + 1, '5', NaN]) assert.throws(() => driver.setTarget(host, bad), RangeError, String(bad));
+  assert.throws(() => driver.setTarget(null, 5), TypeError);
+  assert.equal(driver.setTarget(host, B.TARGET_MAX), B.TARGET_MAX);
+  assert.equal(driver.setTarget(host, 0), 0);
+  steps(driver, host, 300);
+  assert.equal(driver.count(), 0, 'held at zero');
+  // the room cap still holds bots and people together
+  const laws = makeFixture({ C_ROOM_CAP: 30 });
+  const h2 = makeHost(laws, 72, 1791615600000).host;
+  const d2 = B.createBotDriver(laws);
+  d2.setTarget(h2, 150);
+  h2.playerCount = 8;
+  steps(d2, h2, 200);
+  assert.equal(d2.count(), 22, 'cap 30 minus 8 people');
+});
+
+test('driver: a held count wins over an old Clear pause; Clear drops the held count', () => {
+  const { host } = makeHost(FIXTURE, 73, 1791615600000);
+  const driver = B.createBotDriver(FIXTURE);
+  host._botsPausedUntil = host.wall + 600000; // the console's Clear window
+  steps(driver, host, 30);
+  assert.equal(driver.count(), 0);
+  driver.setTarget(host, 12);
+  steps(driver, host, 60);
+  assert.equal(driver.count(), 12, 'the newer order');
+  assert.equal(driver.clear(host), 12);
+  assert.equal(driver.target(host), null, 'Clear is back to the curve, which the pause holds at zero');
+  steps(driver, host, 60);
+  assert.equal(driver.count(), 0);
+});
+
+test('driver: removeBots retires n bots now, unseen ones first, the way clear takes them out', () => {
+  const { host, sim, seen } = makeHost(FIXTURE, 74, 1791615600000);
+  const driver = B.createBotDriver(FIXTURE);
+  steps(driver, host, 150);
+  const before = driver.count();
+  assert.ok(before >= 30);
+  const ids = [];
+  sim.forEachSnake((s) => {
+    if (driver.isBot(s.id)) ids.push(s.id);
+  });
+  const watched = ids.slice(0, 5);
+  for (const id of watched) seen.add(id);
+  const namesBefore = host.names.size;
+  assert.equal(driver.removeBots(host, before - 5), before - 5);
+  assert.equal(driver.count(), 5);
+  for (const id of watched) assert.ok(driver.isBot(id) && sim.snake(id), 'the seen ones stay while unseen ones are left');
+  for (const id of ids) {
+    if (!watched.includes(id)) {
+      assert.equal(sim.snake(id), null);
+      assert.ok(host.freedAt.has(id), 'its id is quarantined like any other removal');
+    }
+  }
+  assert.ok(host.names.size <= namesBefore);
+  assert.equal(driver.stats().names, 5, 'their names are free again');
+  // more than there are: every bot, seen ones last; returns how many went
+  assert.equal(driver.removeBots(host, 50), 5);
+  assert.equal(driver.count(), 0);
+  assert.equal(driver.removeBots(host, 3), 0);
+  assert.throws(() => driver.removeBots(host, -1), RangeError);
+  assert.throws(() => driver.removeBots(null, 1), TypeError);
+  assert.equal(sim.check().length, 0);
+  // on the curve the fill brings them back at its pace
+  steps(driver, host, 60);
+  assert.ok(driver.count() >= 18, 'refilled ' + driver.count());
+});
+
+test('driver: a dead bot is replaced after a random wait (exponential, mean about 6 s, at most 20 s), not at once', () => {
+  const { host, sim } = makeHost(FIXTURE, 75, 1791677700000); // curve 99
+  const driver = B.createBotDriver(FIXTURE);
+  let waitingSeen = 0;
+  let worst = 0;
+  let offSum = 0;
+  let offN = 0;
+  steps(driver, host, 6000, (i) => {
+    waitingSeen = Math.max(waitingSeen, driver.waiting());
+    if (i > 1500) {
+      const off = 99 - driver.count() - driver.waiting();
+      worst = Math.max(worst, off);
+      offSum += off;
+      offN++;
+    }
+  });
+  const st = driver.stats();
+  assert.ok(st.refillDelays >= 60, 'deaths with a wait: ' + st.refillDelays);
+  assert.ok(st.refillMeanMs > 4000 && st.refillMeanMs < 8500, 'mean wait ' + st.refillMeanMs);
+  assert.ok(st.refillMaxMs <= 20000, 'longest wait ' + st.refillMaxMs);
+  assert.ok(waitingSeen >= 2, 'places stood empty for a while');
+  // bots plus waiting places track the curve; a few places freed together wait on the 125 ms pacer
+  assert.ok(worst <= 5, 'bots plus waiting places track the curve: off by ' + worst);
+  assert.ok(offSum / offN < 0.5, 'off on average by ' + offSum / offN);
+  assert.equal(sim.check().length, 0);
+  // people arriving take a waiting place first, before any live bot is retired
+  host.playerCount = 3;
+  const live = driver.count();
+  const waiting = driver.waiting();
+  steps(driver, host, 3);
+  if (waiting > 0) assert.ok(driver.count() >= live - 1 && driver.waiting() <= waiting);
+});
+
+test('driver: death piles reach the brains through sense.piles, fresh ones only', () => {
+  const { host, sim } = makeHost(FIXTURE, 76, 1791677700000);
+  const driver = B.createBotDriver(FIXTURE);
+  let piles = 0;
+  steps(driver, host, 3000, () => {
+    piles = Math.max(piles, driver.stats().piles);
+  });
+  assert.ok(piles >= 1, 'deaths left piles');
+  assert.ok(piles <= B.BOT_TUNING.PILE_MAX.value);
+  const kinds = driver.stats().kinds;
+  const pileThinks = B.PERSONALITIES.reduce((n, p) => n + (kinds[p].pile || 0), 0);
+  assert.ok(pileThinks > 0, 'bots went for them: ' + pileThinks);
+  assert.equal(sim.check().length, 0);
 });

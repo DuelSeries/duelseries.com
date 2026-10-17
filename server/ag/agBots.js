@@ -38,8 +38,9 @@
 // bot has no cells (dead: the room respawns it). Between two thinks it returns the held target with split false;
 // wantsThink(tick) says whether the next call would think, so the room can skip building a view until then.
 
-const { assertLawsComplete } = require('./agLaws');
+const { assertLawsComplete, LAWS } = require('./agLaws');
 const { createRng } = require('./agRng');
+const { BASE_NAMES, pickName } = require('../botNames');
 
 // Law rows the brain reads (game rules, never its own numbers).
 //   L8, L8_CMP  min size to split and its comparison      L9   max own cells
@@ -83,6 +84,7 @@ const BOT_TUNING = Object.freeze({
   EDGE_FOOD_BAND: chosen(0.78, 'an edge keeper only goes for food at least this share of the half side out'),
   EDGE_SNACK_RANGE: chosen(100, 'unless the food is this close to its edge'),
   EDGE_WANDER_SPAN: chosen(0.25, 'how far along its edge (share of the half side) an edge keeper picks its next point'),
+  NAME_DEAL_RESET: chosen(400, 'names a room deals before its deal starts over (far more than the 53 bots a room holds, under the pool)'),
 
   // Personalities: the share of bots that get each one (the three add up to 1), then each one's settings.
   //   THINK_MIN, THINK_MAX  ticks between two decisions (drawn each time; the target is held in between)
@@ -162,11 +164,10 @@ const PROFILE_KEYS = Object.freeze([
   'IDLE_SPLIT_CHANCE', 'KEEPS_TO_EDGE',
 ]);
 
-// Our own bot names (CHOSEN, nothing from agar.io).
-const BOT_NAMES = Object.freeze([
-  'Pebble', 'Mochi', 'Nimbus', 'Comet', 'Biscuit', 'Quasar', 'Pickle', 'Orbit', 'Waffle', 'Zephyr',
-  'Mango', 'Tofu', 'Rocket', 'Sprout', 'Nebula', 'Pudding', 'Cosmo', 'Jelly', 'Bramble', 'Ripple',
-]);
+// Bot names: the base names of the shared pool (server/botNames.js, the same pool the slither bots and the duel
+// tables use, nothing from agar.io). The old list was 20 words drawn with replacement, so a room of 53 bots showed
+// every name two or three times on the board; botName below deals human-looking names without repeats.
+const BOT_NAMES = BASE_NAMES;
 
 const T = {};
 for (const k of Object.keys(BOT_TUNING)) T[k] = BOT_TUNING[k].value;
@@ -278,8 +279,25 @@ function planBotFill(opts, laws) {
   return { add: Math.max(0, want - bots), remove: Math.max(0, bots - want), want };
 }
 
-function botName(rng) {
-  return BOT_NAMES[rng.int(BOT_NAMES.length)];
+// One bot name from ONE draw of the room's rng (as before, so a room's draws stay in step), at most L37 characters
+// (agar.io's name cap) and dressed the way people type names (server/botNames.js). Drawn without replacement per
+// room: every room passes its own rng on every spawn, and each rng keeps the names it has dealt, so one board never
+// shows a name twice; the deal starts over after NAME_DEAL_RESET names. taken(lowerCaseName), when the room passes
+// it, also skips the names actually in the room now (bots and the people seated there). laws: optional (default the
+// real table).
+const dealt = new WeakMap(); // a room's rng -> the lower case names it has dealt
+function botName(rng, taken, laws) {
+  const cap = (laws || LAWS).L37.value;
+  let book = dealt.get(rng);
+  if (!book) {
+    book = new Set();
+    dealt.set(rng, book);
+  }
+  if (book.size >= T.NAME_DEAL_RESET) book.clear();
+  const skip = typeof taken === 'function' ? taken : null;
+  const name = pickName(rng.next(), { maxLen: cap, taken: (lc) => book.has(lc) || (skip !== null && skip(lc) === true) });
+  book.add(name.toLowerCase());
+  return name;
 }
 
 // ---------------------------------------------------------------------------------------------------------------
