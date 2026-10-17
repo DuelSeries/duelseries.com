@@ -2506,8 +2506,10 @@ const paperArenas = new PaperArenas({
   journal: agJournal,
   /* The free arena keeps ticking after its boot warm-up, bots out claiming
      ground before anybody comes (PaperArenas keepAwake). Paid arenas stay
-     people-only (Owen 2026-10-16). */
+     people-only unless the owner sets bots in Control (saved here); a bot never
+     holds money and a bot arena's uncollected coins go back to their droppers. */
   awake: true,
+  botStore: require('./paidBotStore').createBotStore({ file: path.join(path.dirname(agJournal.file), 'paper-paid-bots.json') }),
   hooks: {
     /* Tracked, so a shutdown waits for a Paper payout in flight like agar's and snake's. */
     onCashout: (order) => agInflight.track(paperPayout.payCashout(order)),
@@ -2526,6 +2528,7 @@ const paperArenas = new PaperArenas({
     },
   },
 });
+try { paperArenas.startBots(); } catch (e) { console.error('[PAPER] paid bots not restored:', e && e.message); }
 const paper = require('./paperSockets')({
   arenas: paperArenas,
   ops,

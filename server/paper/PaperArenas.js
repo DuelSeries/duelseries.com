@@ -41,7 +41,7 @@ class PaperArenas {
   // journal: the paid money journal (server/ag/agJournal.js, shared with paid agar and paid snake), or null. Every paid
   // seat's account is opened and closed in it, and a shutdown or crash closes each one 'refunded' with its owed row,
   // so the next boot's replay writes the refunds a dying process could not (security review item a).
-  constructor({ region = 'na', io = null, hooks, now = Date.now, paidEnabled = process.env.PAPER_PAID === '1', autoTick = true, warm = true, awake = false, makeRoom, journal = null } = {}) {
+  constructor({ region = 'na', io = null, hooks, now = Date.now, paidEnabled = process.env.PAPER_PAID === '1', autoTick = true, warm = true, awake = false, makeRoom, journal = null, botStore = null } = {}) {
     this.region = region;
     this.io = io;
     this.hooks = hooks;
@@ -64,6 +64,21 @@ class PaperArenas {
     this.outcomes = new Map(); // 't:' + proof or 'k:' + resumeKey -> { why, refunded, at, extra }, oldest first
     this.releases = new Map(); // wallet -> times of its unconfirmed-seat refunds, oldest first
     this.emptySince = new Map(); // room -> ms
+    // The owner's paid bots (Control, Owen 2026-10-16): stake -> n held in the rung's arena #1, saved in botStore.
+    this.botStore = botStore && typeof botStore.load === 'function' ? botStore : null;
+    this.botTargets = new Map();
+    if (this.paidEnabled && this.botStore) {
+      let saved = null;
+      try {
+        saved = this.botStore.load();
+      } catch (e) {
+        console.error('[PAPER] paid bots: saved targets unreadable: ' + (e && e.message));
+      }
+      for (const st of RUNGS) {
+        const n = saved && st > 0 ? saved[String(st)] : undefined;
+        if (Number.isInteger(n) && n > 0 && n <= MP.FREE_BOTS_IDLE) this.botTargets.set(st, n);
+      }
+    }
     this.awake = false; // keepAwake: the free arena #1 ticks from boot once warmed, a replacement too
     this.awakeAt = -Infinity;
     const free = this._create(0, 0);
@@ -84,8 +99,68 @@ class PaperArenas {
     return !!(r && typeof r.setAwake === 'function' && r.setAwake(true));
   }
 
+  startBots() {
+    for (const [stake, n] of this.botTargets) if (n > 0) this._applyBots(stake);
+  }
+
+  _paidRung(stake) {
+    const st = RUNGS.find((s) => s > 0 && Math.abs(s - Number(stake)) <= 1e-9);
+    return st === undefined || !this.paidEnabled ? null : st;
+  }
+
+  botTarget(stake) {
+    const st = this._paidRung(stake);
+    return st === null ? null : (this.botTargets.get(st) || 0);
+  }
+
+  botCount(stake) {
+    const st = this._paidRung(stake);
+    if (st === null) return 0;
+    let n = 0;
+    for (const r of this.arenas[keyOf(st)] || []) if (!r.stopped) n += r.botCount;
+    return n;
+  }
+
+  // -> { ok, live, held, saved } or { ok: false, why }. At most FREE_BOTS_IDLE (the stock bot type rows).
+  setBotTarget(stake, n) {
+    const st = this._paidRung(stake);
+    if (st === null) return { ok: false, why: 'No paid Paper.io rung at ' + stake };
+    if (this.stopping) return { ok: false, why: 'The server is stopping' };
+    if (!Number.isInteger(n) || n < 0 || n > MP.FREE_BOTS_IDLE) return { ok: false, why: 'Bots: a whole number from 0 to ' + MP.FREE_BOTS_IDLE };
+    if (n > 0) this.botTargets.set(st, n);
+    else this.botTargets.delete(st);
+    let saved = true;
+    if (this.botStore && typeof this.botStore.save === 'function') {
+      const obj = {};
+      for (const [k, v] of this.botTargets) obj[String(k)] = v;
+      try {
+        saved = this.botStore.save(obj) !== false;
+      } catch (e) {
+        saved = false;
+      }
+    }
+    const room = this._applyBots(st);
+    return { ok: true, live: room ? room.botCount : 0, held: n, saved };
+  }
+
+  // Arena #1 of the rung holds them through its bot cap (the arena tops up and replaces dead bots to it), opened when
+  // needed, the surplus out now, awake while n > 0. -> the room or null
+  _applyBots(stake) {
+    const n = this.botTargets.get(stake) || 0;
+    const list = this.arenas[keyOf(stake)] || [];
+    let room = list.find((r) => r.index === 0 && !r.stopped) || null;
+    if (!room && n > 0) room = this._create(stake, 0);
+    if (!room || room.paidBots !== true) return room;
+    room.game.setBotCap(n);
+    while (room.botCount > n && room.game.removeLowestBot()) { /* the lowest ranked first */ }
+    for (let i = 0; i < 20 && room.botCount < n; i++) if (!room.addBot()) break;
+    room.setAwake(n > 0);
+    return room;
+  }
+
   _create(stake, index) {
     const room = this.makeRoom({
+      paidBots: stake > 0 && index === 0,
       stake,
       region: this.region,
       index,
@@ -388,6 +463,7 @@ class PaperArenas {
   // (2) an arena that is not ticking still gets its hour sweep of floor coins.
   sweep(now) {
     this._rewake();
+    if (!this.stopping) for (const [st, n] of this.botTargets) if (n > 0) this._applyBots(st);
     for (const key of Object.keys(this.arenas)) {
       const list = this.arenas[key];
       for (const room of list.slice()) {
@@ -426,7 +502,7 @@ class PaperArenas {
         region: this.region,
         stake,
         players,
-        bots: stake > 0 ? 0 : players > 0 ? bots : MP.FREE_BOTS_IDLE,
+        bots: stake > 0 ? bots : players > 0 ? bots : MP.FREE_BOTS_IDLE,
         capacity: MP.MAX_HUMANS,
         // a paid rung under paper:paid:off (or a restart) stays listed, its seated players counted, but closed: the
         // lobby draws it struck through and asks for no money (board.js isOpen / playableStakes)

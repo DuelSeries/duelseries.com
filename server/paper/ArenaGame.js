@@ -171,7 +171,18 @@ class ArenaGame extends P.Game {
     this.hooks = Object.assign({}, NOOP_HOOKS, hooks || {});
     this.trim = trim || null;
     this.botCap = null;
+    this.paidBots = false;
     return this;
+  }
+
+  // The owner's bots in a paid arena (#1 of a rung, Owen 2026-10-16): held at botCap (0 until Control sets it). They
+  // never hold money: a kill by a bot drops the money as a floor coin, and only people collect coins (PaperRoom).
+  enablePaidBots() {
+    if (!this.paid) return false;
+    this.paidBots = true;
+    this.botCap = 0;
+    this.config.botsCount = this.freeSquares();
+    return true;
   }
 
   // Vec2.space is one process-wide static; every mutator points it at this arena first.
@@ -231,6 +242,7 @@ class ArenaGame extends P.Game {
       }
       if (h.percent > best) best = h.percent;
     }
+    if (this.paid && this.paidBots) this.config.botsCount = this.freeSquares();
     if (!this.paid) {
       this.config.botsCount = this.freeSquares();
       // BOT_LEVEL_SOURCE: the leading live human's land, else the reference's no-player level.
@@ -485,7 +497,7 @@ class ArenaGame extends P.Game {
       const i = this.humans.indexOf(victim);
       if (i >= 0) this.humans.splice(i, 1);
       // This tick's spawn step must already see the new head count.
-      if (!this.paid) this.config.botsCount = this.freeSquares();
+      if (!this.paid || this.paidBots) this.config.botsCount = this.freeSquares();
     }
     this.hooks.onDeath(victim, killer && !killer.death ? killer : undefined, reason, at);
   }
@@ -669,7 +681,7 @@ class ArenaGame extends P.Game {
   // And never more than FREE_BOTS_IDLE bots: the stock type rows have 15 entries, so a 16th
   // bot would get an undefined type.
   spawnBot(mode) {
-    if (this.paid) return;
+    if (this.paid && !this.paidBots) return;
     let bots = 0;
     for (const u of this.units) if (u instanceof P.BotUnit) bots++;
     if (bots >= MP.FREE_BOTS_IDLE) return;
@@ -684,7 +696,7 @@ class ArenaGame extends P.Game {
   // type rows), so the cap is clamped to that. A paid arena has no bots to hold. Returns the
   // cap kept.
   setBotCap(n) {
-    if (this.paid) {
+    if (this.paid && !this.paidBots) {
       this.botCap = null;
       return null;
     }
@@ -697,6 +709,8 @@ class ArenaGame extends P.Game {
   // automatic count, or the people in it plus the held bots.
   freeSquares() {
     const humans = this.humans.length;
+    // a paid arena with the owner's bots: the people plus exactly the held bots
+    if (this.paid) return this.paidBots && Number.isInteger(this.botCap) ? humans + this.botCap : humans;
     if (!Number.isInteger(this.botCap)) return humans > 0 ? MP.FREE_SQUARES : MP.FREE_BOTS_IDLE;
     return Math.min(humans + this.botCap, Math.max(MP.FREE_SQUARES, humans));
   }

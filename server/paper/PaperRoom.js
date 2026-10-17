@@ -27,7 +27,7 @@ function stakeLabel(stake) {
 class PaperRoom {
   // now: the wall clock of every deadline (grace, stale hold, coin age). clock: the monotonic
   // clock the tick loop runs on (never steps with the wall clock).
-  constructor({ stake = 0, region = 'na', index = 0, io = null, hooks = {}, now = Date.now, clock = monotonicNow, seed, directory = null, autoTick = true, trim } = {}) {
+  constructor({ stake = 0, region = 'na', index = 0, io = null, hooks = {}, now = Date.now, clock = monotonicNow, seed, directory = null, autoTick = true, trim, paidBots = false } = {}) {
     for (const name of REQUIRED_HOOKS) {
       if (typeof hooks[name] !== 'function') throw new Error('PaperRoom: hook ' + name + ' must be a function');
     }
@@ -85,6 +85,11 @@ class PaperRoom {
         idReserved: (id) => this.bank.isOpen(id) || this.seats.has(id)
       }
     });
+    // The owner's paid bots (Control, Owen 2026-10-16): held by the arena's bot cap; they never hold money (a bot's
+    // kill drops the money as a floor coin, only seats collect coins). botRoom: a bot has played here, so the coins
+    // nobody collected go back to the players who dropped them, never to the house (_floorBack).
+    this.paidBots = this.paid && paidBots === true && this.game.enablePaidBots();
+    this.botRoom = false;
     // The hold starts and stops right after the inputs are applied, BEFORE movement, so the
     // client predictor (which stops on the key at once) agrees with the server tick for tick.
     const apply = this.game.applyInputs.bind(this.game);
@@ -137,7 +142,7 @@ class PaperRoom {
   }
 
   botsAllowed() {
-    return this.isFree();
+    return this.isFree() || this.paidBots === true;
   }
 
   // Console contract (design 5.8): a paid arena never has bots.
@@ -595,6 +600,7 @@ class PaperRoom {
 
   afterTick() {
     const now = this.now();
+    if (this.paidBots && !this.botRoom && this.botCount > 0) this.botRoom = true;
     this._collectPickups();
     this.sweepPickups(now);
     for (const seat of Array.from(this.seats.values())) {
@@ -704,6 +710,11 @@ class PaperRoom {
       const s = this.bank.sweepPickup(p.pid);
       if (!s) continue;
       this.pending.push(['p-', p.pid, 0, s.micro]);
+      if (this.botRoom) {
+        // a room bots played in: the coin goes back to the player who dropped it, never to the house
+        this._coinBack(s, 'botfloor');
+        continue;
+      }
       this.hooks.onSweep({ sweepId: crypto.randomUUID(), micro: s.micro, srcWallet: s.srcWallet, srcName: s.srcName, label: this.lobbyType, pid: p.pid });
     }
   }
@@ -806,7 +817,7 @@ class PaperRoom {
   // its clock is its players') and while the boot warm-up still runs (PaperArenas wakes it after). Returns whether the
   // arena is awake now.
   setAwake(on) {
-    this.awake = on === true && !this.paid && !this.stopped && !this.warming;
+    this.awake = on === true && (!this.paid || this.paidBots === true) && !this.stopped && !this.warming;
     if (this.awake) this._ensureTicking();
     return this.awake;
   }
@@ -972,7 +983,8 @@ class PaperRoom {
       }
     }
     try {
-      this._shutdownFloor(kind);
+      const back = this._shutdownFloor(kind);
+      if (Array.isArray(back)) rows.push(...back);
     } catch (e) {
       console.error('[PAPER] SHUTDOWN floor not booked (' + this.lobbyType + '): ' + (e && e.message));
     }
@@ -1033,6 +1045,7 @@ class PaperRoom {
       bySource.set(k, e);
     }
     if (!(micro > 0)) return null;
+    if (this.botRoom) return this._floorBack(Array.from(bySource.values()), kind);
     const rec = { key: 'ppfloor:' + crypto.randomUUID(), room: this.lobbyType, why: kind, micro,
       bySource: Array.from(bySource.values()) };
     console.error('[PAPER] SHUTDOWN-FLOOR ' + micro + ' ' + this.lobbyType + ' ' + rec.key);
@@ -1042,6 +1055,45 @@ class PaperRoom {
         this.lobbyType + '): it stays in escrow, unbooked');
     }
     return rec;
+  }
+
+  // A live coin of a bot room back to its dropper, 100%, through the refund hook (the emergency close's own path).
+  _coinBack(s, why) {
+    if (!s.srcWallet) {
+      console.error('[PAPER] BOTFLOOR CRITICAL coin of ' + s.micro + ' micro with no source wallet (' + this.lobbyType + ')');
+      return;
+    }
+    try {
+      this.hooks.onRefund({ wallet: s.srcWallet, name: s.srcName, micro: s.micro, paid: undefined, why });
+    } catch (e) {
+      console.error('[PAPER] BOTFLOOR refund hook (' + this.lobbyType + '): ' + (e && e.message));
+    }
+  }
+
+  // A bot room's floor at a restart or crash: one owed row per source wallet, journaled first as a keyed close (why
+  // 'botfloor', agJournal OWED_WHYS) so a crash replays it once, and handed back with the seat rows. Never the house.
+  _floorBack(sources, kind) {
+    const rows = [];
+    for (const src of sources) {
+      if (!src.srcWallet) {
+        console.error('[PAPER] BOTFLOOR CRITICAL ' + src.micro + ' micro with no source wallet (' + this.lobbyType + ')');
+        continue;
+      }
+      const key = 'agowed:' + crypto.randomUUID();
+      const reason = 'refund paper botfloor ' + kind + ' ' + this.lobbyType + ' ' + key;
+      const row = { key, wallet: src.srcWallet, name: src.srcName || '', micro: src.micro, reason };
+      const j = this.directory && this.directory.journal;
+      try {
+        if (j && typeof j.close === 'function') {
+          j.close({ jid: crypto.randomUUID(), wallet: row.wallet, name: row.name }, 'refunded',
+            { why: 'botfloor', key, refundedMicro: row.micro, reason }, this.lobbyType);
+        }
+      } catch (e) {
+        console.error('[PAPER] JOURNAL CRITICAL botfloor ' + key + ' (' + this.lobbyType + '): ' + (e && e.message));
+      }
+      rows.push(row);
+    }
+    return rows;
   }
 
   stop() {
