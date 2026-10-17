@@ -75,7 +75,7 @@ class AgArenas {
   // paid: AG_PAID at boot (the paid rungs exist only then); moneyHooks: the payout and alert hooks every paid room's
   // money controller needs (onCashout, onRefund, onTransfer, onFeed, onBreach, onStake, onHouse); timers: tests only
   constructor({ region = 'na', laws = LAWS, shippableOnly = true, now = Date.now, clock, autoTick = true, seed,
-    makeRoom, game = 'agar', log = console, paid = false, moneyHooks = null, timers = null, botStore = null } = {}) {
+    makeRoom, game = 'agar', log = console, paid = false, moneyHooks = null, timers = null, botStore = null, botBank = null } = {}) {
     if (shippableOnly) assertShippable(laws);
     assertLawsComplete(laws, ['L39']);
     this.region = region;
@@ -123,6 +123,7 @@ class AgArenas {
     // The owner's paid bots (Control, Owen 2026-10-16): stake -> n held in the rung's room #0, saved in botStore.
     // They never eat a person's cell and carry no money (agSim), so they can never take money out.
     this.botStore = botStore && typeof botStore.load === 'function' ? botStore : null;
+    this.botBank = botBank && typeof botBank.take === 'function' ? botBank : null;
     this.botTargets = new Map();
     if (this.paidEnabled && this.botStore) {
       let saved = null;
@@ -139,7 +140,9 @@ class AgArenas {
   }
 
   startBots() {
-    for (const [stake, n] of this.botTargets) if (n > 0) this._applyBots(stake);
+    if (!this.botBank) return;
+    for (const [stake, n] of Array.from(this.botTargets)) if (n > 0) this._applyBots(stake, n);
+    this._saveTargets();
   }
 
   botTarget(stake) {
@@ -155,41 +158,82 @@ class AgArenas {
     return n;
   }
 
-  // -> { ok, live, held, saved } or { ok: false, why }
+  // Bounty bots (Owen 2026-10-17), as paid slither's: n live bots in the rung's room #0, each spawned worth the rung's
+  // stake from the owner's bot bank (botBank). Fewer: the extra bots leave now (seed back to the bank, what they took
+  // back to its players). More: one at a time while the bank covers a seed and the daily limit allows; the first
+  // refusal stops and says why. A bot eaten is never replaced. -> { ok, live, held, why } or { ok: false, why }
   setBotTarget(stake, n) {
     const st = this._rungOf(stake);
     if (!this.paidEnabled || st === null) return { ok: false, why: 'No paid agar.io rung at ' + stake };
+    if (!this.botBank) return { ok: false, why: 'Paid agar.io bots are not wired on this server' };
     if (this.stopping) return { ok: false, why: 'The server is stopping' };
     if (!Number.isInteger(n) || n < 0 || n > AG_PAID_BOT_MAX) return { ok: false, why: 'Bots: a whole number from 0 to ' + AG_PAID_BOT_MAX };
-    if (n > 0) this.botTargets.set(st, n);
-    else this.botTargets.delete(st);
-    let saved = true;
-    if (this.botStore && typeof this.botStore.save === 'function') {
-      const obj = {};
-      for (const [k, v] of this.botTargets) obj[String(k)] = v;
-      try {
-        saved = this.botStore.save(obj) !== false;
-      } catch (e) {
-        saved = false;
-      }
+    let r;
+    try {
+      r = this._applyBots(st, n);
+    } catch (e) {
+      this.log.error('[AG] paid bots: set ' + st + ' to ' + n + ' failed: ' + (e && e.message));
+      this._saveTargets();
+      return { ok: false, why: 'Paid bots could not be changed just now: ' + String(e && e.message).slice(0, 120) };
     }
-    const room = this._applyBots(st);
-    return { ok: true, live: room ? Number(room.botCount) || 0 : 0, held: n, saved };
+    this._saveTargets();
+    return Object.assign({ ok: true, held: n }, r);
   }
 
-  // Room #0 holds the rung's bots by hand (the paid fill adds none): opened when needed, the surplus taken out, the
-  // missing added, awake while n > 0. -> the room or null
-  _applyBots(stake) {
-    const n = this.botTargets.get(stake) || 0;
+  _saveTargets() {
+    for (const st of this.rungs.keys()) {
+      const live = this.botCount(st);
+      if (live > 0) this.botTargets.set(st, live);
+      else this.botTargets.delete(st);
+    }
+    if (!this.botStore || typeof this.botStore.save !== 'function') return false;
+    const obj = {};
+    for (const [k, v] of this.botTargets) obj[String(k)] = v;
+    try {
+      return this.botStore.save(obj) !== false;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // -> { live, why }
+  _applyBots(stake, n) {
     const list = this.rungs.get(stake) || [];
     let room = list.find((r) => r.index === 0 && !r.stopped) || null;
     if (!room && n > 0) room = this._createPaid(stake, 0);
-    if (!room || room.paidBots !== true) return room;
+    if (!room || room.paidBots !== true || !room.money) return { live: 0, why: n > 0 ? 'The room takes no bots' : null };
     const bots = Array.from(room.bots.values()).sort((a, b) => b.pid - a.pid);
     for (let i = 0; i < bots.length - n; i++) room._removeBot(bots[i]);
-    for (let i = room.bots.size; i < n; i++) room._spawnBot(true);
-    room.setAwake(n > 0);
-    return room;
+    const seed = Math.round(stake * 1e6);
+    let why = null;
+    for (let i = room.bots.size; i < n; i++) {
+      const no = this.botBank.whyNot(seed);
+      if (no) {
+        why = no === 'cap' ? 'The daily bot limit is reached' : 'The bot bank cannot cover another $' + stake + ' bot';
+        break;
+      }
+      const bot = room._spawnBot(true);
+      if (!bot) {
+        why = 'The room would not take another bot just now';
+        break;
+      }
+      if (!this.botBank.take(seed, room.lobbyType)) {
+        room._removeBot(bot);
+        why = 'The bot bank refused the seed';
+        break;
+      }
+      try {
+        room.money.seedBot(bot.pid, seed, bot.name);
+      } catch (e) {
+        this.botBank.giveBack(seed, 'seed-failed', room.lobbyType, true);
+        room._removeBot(bot);
+        this.log.error('[AG] paid bots: seed of ' + bot.pid + ' refused, given back: ' + (e && e.message));
+        why = 'The room refused the seed';
+        break;
+      }
+    }
+    room.setAwake(room.bots.size > 0);
+    return { live: room.bots.size, why };
   }
 
   _create(index) {
@@ -325,6 +369,15 @@ class AgArenas {
       onBreach: (info) => h.onBreach(Object.assign({ lobbyType: label() }, info)),
       onStake: (s) => h.onStake(s),
       onHouse: (x) => h.onHouse(x),
+      // bounty bots: seed back to the owner's bot bank, seed won by a person is spent, bot money owed back (keyed)
+      onSeedBack: (micro, why, lbl, live) => {
+        if (!this.botBank || !this.botBank.giveBack(micro, why, lbl, live)) throw new Error('the bot bank refused ' + micro);
+      },
+      onSeedSpent: (micro) => { if (this.botBank) this.botBank.spent(micro); },
+      onOwed: (row, live) => {
+        if (typeof h.onOwed !== 'function') throw new Error('no owed hook');
+        return h.onOwed(Object.assign({ label: label() }, row), live);
+      },
       onAccountOpen: (acct) => this._accountOpened(roomOf(), acct),
       onAccountConfirmed: (acct) => this._accountConfirmed(roomOf(), acct),
       onAccountClosed: (acct, outcome, extra) => this._accountClosed(roomOf(), acct, outcome, extra),
@@ -807,7 +860,7 @@ class AgArenas {
   // is retried (any account its emergency settle left open) and dropped once its bank is empty.
   sweep(now) {
     this._rewake();
-    if (!this.stopping) for (const [st, n] of this.botTargets) if (n > 0) this._applyBots(st);
+    if (!this.stopping) this._saveTargets(); // no respawn: the saved counts follow the live bounty bots
     for (const room of this.rooms.slice()) {
       if (room.index === 0 || room.seats.size > 0) {
         this.emptySince.delete(room);

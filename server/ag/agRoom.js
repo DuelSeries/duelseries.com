@@ -377,6 +377,8 @@ class AgRoom {
   }
 
   _removeBot(bot) {
+    // a paid bounty bot's money first: seed back to the bot bank, what it took back to its players
+    if (this.money && typeof this.money.retireBot === 'function') this.money.retireBot(bot.pid, 'removed');
     this.bots.delete(bot.pid);
     this.sim.removePlayer(bot.pid);
   }
@@ -744,8 +746,11 @@ class AgRoom {
     // Money after the step, in sim order (design 3.4); free holds after the eats too, so death wins a tie.
     if (this.money) this.money.afterStep(ev);
     else if (this._holders.size) this._holdDoneFree();
-    for (const bot of this.bots.values()) {
-      if (!this._alive(bot.pid)) this.sim.spawn(bot.pid, bot.name);   // a dead bot is back on the next step
+    for (const bot of Array.from(this.bots.values())) {
+      if (this._alive(bot.pid)) continue;
+      // a paid bounty bot is never back (no respawn, Owen 2026-10-17): its money moved with its last cell
+      if (this.money && this.paidBots) this._removeBot(bot);
+      else this.sim.spawn(bot.pid, bot.name);   // a dead bot is back on the next step
     }
     this.fillBots();
     this._send(ev);
@@ -878,7 +883,8 @@ class AgRoom {
   // cell id -> its display share, for every player cell of an open account.
   _cellShares() {
     const out = new Map();
-    for (const acct of this.money.accounts.values()) {
+    // people and the bounty bots alike (a bot's $ shows like a player's; display only)
+    for (const acct of Array.from(this.money.accounts.values()).concat(Array.from(this.money.bots.values()))) {
       const info = this.sim.playerInfo(acct.pid);
       if (!info || !info.cells.length) continue;
       const bal = this.money.balance(acct.pid);

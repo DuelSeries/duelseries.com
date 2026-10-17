@@ -1836,9 +1836,9 @@ app.post('/api/owner/do', sigLimiter, async (req, res) => {
         if (!r.ok) return refuse(r.why);
         broadcastLobbyState();
         const gname = pb[1] === 'sl' ? 'slither.io' : pb[1] === 'ag' ? 'agar.io' : 'Paper.io';
-        if (pb[1] === 'sl') {
+        if (pb[1] === 'sl' || pb[1] === 'ag') {
           const bb = botBank.view();
-          return done('slither.io $' + pb[2] + ': ' + r.live + ' bot' + (r.live === 1 ? '' : 's') + ' playing, each worth $' + pb[2] +
+          return done(gname + ' $' + pb[2] + ': ' + r.live + ' bot' + (r.live === 1 ? '' : 's') + ' playing, each worth $' + pb[2] +
             ' from the bot bank (now $' + bb.balance.toFixed(2) + ', $' + bb.spentToday.toFixed(2) + ' of $' + bb.cap.toFixed(2) +
             ' used today).' + (r.why ? ' Stopped short: ' + r.why + '.' : '') + ' A killed bot is not replaced.');
         }
@@ -2495,6 +2495,9 @@ const agJournal = require('./ag/agJournal').createAgJournal({
   file: process.env.AG_JOURNAL_PATH || undefined,
   bootId: BOOT_ID,
 });
+/* The owner's bot bank (server/botBank.js): funds paid bounty bots, topped up only
+   by a verified USDC transfer from the revenue wallet to escrow (botbank:topup). */
+const botBank = require('./botBank').createBotBank({ file: path.join(path.dirname(agJournal.file), 'bot-bank.json') });
 {
   const waiting = agJournal.rotate();
   if (waiting.length) console.warn(`[AG] JOURNAL ${waiting.length} file(s) to replay once the database is up`);
@@ -2748,6 +2751,19 @@ function replayAgJournal() {
     .catch((e) => console.error('[AG] JOURNAL replay', e && e.message));
 }
 const agMoneyHooks = {
+  /* A bounty bot's money owed back to a player (agMoney.retireBot): journaled first
+     as a keyed close (why botfloor), so a crash replays it once; live, also written
+     now (recordOwedOnce, paid by the drainer); at a restart the rows go back to the
+     shutdown writer. */
+  onOwed: (row, live) => {
+    agJournal.close({ jid: require('crypto').randomUUID(), wallet: row.wallet, name: row.name || '' }, 'refunded',
+      { why: 'botfloor', key: row.key, refundedMicro: row.micro, reason: row.reason }, row.label || '');
+    if (live) {
+      return db.recordOwedOnce(row.key, row.wallet, row.micro / 1e6, row.name || 'Player', row.reason).then(() => kickDrain())
+        .catch((e) => console.error('[AG] OWED bot money ' + row.key + ' not written yet, the journal has it:', e && e.message));
+    }
+    return null;
+  },
   onCashout: (order) => agInflight.track(agPayout.payCashout(order)),
   onRefund: (info) => agInflight.track(agPayout.refund(info)),
   /* One record per (victim life, eater) bucket, in Paper's units (dollars). */
@@ -2783,6 +2799,7 @@ const agBoot = require('./ag/agBoot').openAg({
      they never eat a person's cell and carry no money (Owen 2026-10-16). */
   awake: true,
   botStore: require('./paidBotStore').createBotStore({ file: path.join(path.dirname(agJournal.file), 'ag-paid-bots.json') }),
+  botBank,
 });
 const agArenas = agBoot.arenas;
 const AG_PAID_ON = !!agBoot.paid;
@@ -2866,9 +2883,6 @@ const slMoneyHooks = {
 const slPaidSwitch = slPaidBoot.createPaidSwitchStore({
   file: process.env.SL_PAID_SWITCH_PATH || path.join(path.dirname(agJournal.file), 'sl-paid-switch.json'),
 });
-/* The owner's bot bank (server/botBank.js): funds paid bounty bots, topped up only
-   by a verified USDC transfer from the revenue wallet to escrow (botbank:topup). */
-const botBank = require('./botBank').createBotBank({ file: path.join(path.dirname(agJournal.file), 'bot-bank.json') });
 const slPaidOpened = slPaidBoot.openSlPaid({
   env: process.env,
   sockets: slOpened.sockets,

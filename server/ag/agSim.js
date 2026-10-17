@@ -946,13 +946,6 @@ function createSim(opts) {
         if (age(P) < L.mergeMinAge || age(Q) < L.mergeMinAge) return false;
         return overlaps(P, Q);
       }
-      // A paid room's bots (owner-spawned, Owen 2026-10-16) never eat a person's cell: a bot never holds money, so no
-      // paid player's money can ever go to one (or out through one). People may eat bots: mass only, no money.
-      if (paid) {
-        const po = players.get(P.owner);
-        const qo = players.get(Q.owner);
-        if (po && po.bot && !(qo && qo.bot)) return false;
-      }
       return P.size >= L.eatRatio * Q.size && overlaps(P, Q);
     }
     if (Q.kind === 'virus') return P.size >= L.virusEatRatio * Q.size && overlaps(P, Q);
@@ -978,9 +971,6 @@ function createSim(opts) {
   function moneyFact(P, Q) {
     if (Q.kind === 'player' && Q.owner !== P.owner) {
       const v = players.get(Q.owner);
-      // a bot holds no money: eating one, or one bot eating another, is mass only
-      const pe = players.get(P.owner);
-      if ((v && v.bot) || (pe && pe.bot)) return;
       let victimSq = 0;
       let live = 0;
       if (v) {

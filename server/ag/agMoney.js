@@ -47,6 +47,7 @@ const AG_MONEY = Object.freeze({
   FEED_PAIRS_MAX: chosen(5000, 'eject-feed pairs kept per room at most (oldest dropped first); memory bound only'),
 });
 
+const BANK_SRC = '#botbank'; // a bounty bot's seed, from the owner's bot bank
 const REQUIRED_HOOKS = Object.freeze(['onCashout', 'onTransfer', 'onFeed', 'onRefund', 'onBreach', 'onStake',
   'onHouse', 'onAccountOpen', 'onAccountClosed']);
 
@@ -86,6 +87,12 @@ class AgMoney {
     this.onClosed = typeof onClosed === 'function' ? onClosed : () => {};
     this.uuid = uuid;
     this.accounts = new Map();     // pid -> account (open only)
+    // Bounty bots (Owen 2026-10-17): pid -> { pid, name, from: Map src -> micro }. A bot's bank account opens with the
+    // room's stake from the owner's bot bank (seedBot; from[BANK_SRC] is that seed). It eats and is eaten like a person
+    // (transferShare), never cashes out, and leaves only by its last cell (its money moved with it) or by retireBot
+    // (removed, restart, crash, emergency): the seed part back to the bot bank (hooks.onSeedBack), the rest owed back to
+    // the players it came from (hooks.onOwed, keyed and journaled), never the house.
+    this.bots = new Map();
     this.buckets = new Map();      // life + '|' + dstWallet -> { src, dst, micro, openedAt, life } (design 8.2)
     this.feeds = new Map();        // feederWallet + '|' + eaterWallet -> tally (design 8.2)
     this.lifeSeq = 0;
@@ -101,6 +108,67 @@ class AgMoney {
 
   account(pid) {
     return this.accounts.get(pid) || null;
+  }
+
+  seedBot(pid, micro, name) {
+    if (!Number.isSafeInteger(micro) || micro < 1) throw new Error('AgMoney.seedBot: seed must be micro above 0');
+    if (this.accounts.has(pid) || this.bots.has(pid) || this.bank.isOpen(pid)) throw new Error('AgMoney.seedBot: pid in use');
+    this.bank.deposit(pid, micro, null, String(name || ''));
+    this.bots.set(pid, { pid, name: String(name || ''), from: new Map([[BANK_SRC, micro]]) });
+  }
+
+  // micro out of a bot's holdings, players' money first and the bot bank's seed last -> Map src -> micro
+  _takeFromBot(bot, micro) {
+    const out = new Map();
+    let left = micro;
+    const keys = Array.from(bot.from.keys()).sort((a, b) => Number(a === BANK_SRC) - Number(b === BANK_SRC));
+    for (const k of keys) {
+      if (left <= 0) break;
+      const have = bot.from.get(k);
+      const t = have < left ? have : left;
+      if (t > 0) {
+        out.set(k, t);
+        left -= t;
+        if (have - t > 0) bot.from.set(k, have - t);
+        else bot.from.delete(k);
+      }
+    }
+    return out;
+  }
+
+  // A bot leaves holding money (removed, restart, crash, emergency): withdrawn, the seed part back to the bot bank,
+  // the rest owed back to its players as keyed rows (onOwed journals them; live: also written now). -> the rows
+  retireBot(pid, why, live = true) {
+    const bot = this.bots.get(pid);
+    if (!bot) return [];
+    const w = this.bank.withdraw(pid);
+    this.bots.delete(pid);
+    const got = w ? w.micro : 0;
+    const parts = this._takeFromBot(bot, got);
+    const rows = [];
+    for (const [src, micro] of parts) {
+      if (src === BANK_SRC) {
+        try {
+          this.hooks.onSeedBack(micro, String(why || ''), this.label, true);
+        } catch (e) {
+          this.log.error('[AG] SEEDBACK CRITICAL ' + micro + ' micro not returned to the bot bank (' + this.label + '): ' +
+            (e && e.message));
+          this._breach({ kind: 'seedback', micro });
+        }
+        continue;
+      }
+      const key = 'agowed:' + this.uuid();
+      const reason = 'refund agar botfloor ' + String(why || '') + ' ' + this.label + ' ' + key;
+      const row = { key, wallet: src, name: '', micro, reason };
+      try {
+        this.hooks.onOwed(row, live);
+      } catch (e) {
+        this.log.error('[AG] OWED CRITICAL bot money ' + key + ' ' + micro + ' micro to ' + src + ': ' + (e && e.message));
+        this._breach({ kind: 'owed', micro });
+      }
+      rows.push(row);
+    }
+    return rows;
   }
 
   balance(pid) {
@@ -393,9 +461,26 @@ class AgMoney {
     if (!f || typeof f !== 'object') return;
     const victim = this.accounts.get(f.victim);
     const eater = this.accounts.get(f.eater);
+    const vbot = this.bots.get(f.victim);
+    const ebot = this.bots.get(f.eater);
     const moved = this.bank.transferShare(f.victim, f.eater, f.eatenSq, f.victimSq, f.last === true,
       victim ? victim.life : null);
     if (moved < 0) return;
+    // bounty bots: what moved keeps saying whose money it is; seed a person wins is spent (in play, off the bank's books)
+    if (moved > 0 && (vbot || ebot)) {
+      const parts = vbot ? this._takeFromBot(vbot, moved) : new Map([[victim ? victim.wallet : '', moved]]);
+      for (const [src, m] of parts) {
+        if (ebot) ebot.from.set(src, (ebot.from.get(src) || 0) + m);
+        else if (src === BANK_SRC && typeof this.hooks.onSeedSpent === 'function') {
+          try {
+            this.hooks.onSeedSpent(m);
+          } catch (e) {
+            this.log.error('[AG] seed spent hook', e && e.message);
+          }
+        }
+      }
+    }
+    if (vbot && f.last === true) this.bots.delete(f.victim); // its whole balance moved with its last cell
     // The end card's 'You lost $X' is everything eats took from this life, not only the last eat (a split player
     // eaten piece by piece lost every piece). Display only: no balance reads it.
     if (victim) victim.lostMicro = (victim.lostMicro || 0) + moved;
@@ -556,6 +641,13 @@ class AgMoney {
   // directory keeps the room on its settling list until its bank is empty.
   emergencySettle() {
     this._applyPending();
+    for (const pid of Array.from(this.bots.keys())) {
+      try {
+        this.retireBot(pid, 'emergency', true);
+      } catch (e) {
+        this.log.error('[AG] EMERGENCY bot ' + pid + ' not settled', e && e.message);
+      }
+    }
     let accounts = 0;
     let micro = 0;
     for (const acct of Array.from(this.accounts.values())) {
@@ -596,6 +688,13 @@ class AgMoney {
     const kind = why === 'crash' ? 'crash' : 'shutdown';
     this._applyPending();
     const rows = [];
+    for (const pid of Array.from(this.bots.keys())) {
+      try {
+        rows.push(...this.retireBot(pid, kind, false));
+      } catch (e) {
+        this.log.error('[AG] SHUTDOWN bot ' + pid + ' not settled', e && e.message);
+      }
+    }
     for (const acct of Array.from(this.accounts.values())) {
       try {
         const w = this.bank.withdraw(acct.pid);
