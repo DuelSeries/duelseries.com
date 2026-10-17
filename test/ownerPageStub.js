@@ -84,7 +84,7 @@ function todayAt(h, m) {
 }
 
 function baseState() {
-  const held = 'Paid rooms take bots after the next update';
+  const held = 'Paid duels stay people only: a bot would win or lose a real stake';
   const now = Date.now();
   return {
     v: 2, region: 'na', uptimeSec: 3 * 3600 + 12 * 60, now,

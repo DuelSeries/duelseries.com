@@ -1480,11 +1480,11 @@ function consoleGames(ko, bs) {
     { enabled: d.paidEnabled, open: d.paidOpen, stopping: d.stopping }, store.saved(), action) : null);
   return [
     { id: 'slither', name: 'slither.io', duel: false, paid: door(slPaid, slPaidSwitch, 'sl:paid'),
-      rungs: rows([...slFree, ...(slPaid ? slPaid.all() : []), ...oldPaid], [...tiers, ...oldFree]) },
+      rungs: paidBotRows(rows([...slFree, ...(slPaid ? slPaid.all() : []), ...oldPaid], [...tiers, ...oldFree]), 'sl') },
     { id: 'agar', name: 'agar.io', duel: false, paid: door(agArenas, agPaidSwitch, 'agar:paid'),
-      rungs: rows(agArenas ? agArenas.all() : [], []) },
+      rungs: paidBotRows(rows(agArenas ? agArenas.all() : [], []), 'ag') },
     { id: 'paper', name: 'Paper.io', duel: false, paid: door(paperArenas, paperPaidSwitch, 'paper:paid'),
-      rungs: rows(paperArenas ? paperArenas.all() : [], []) },
+      rungs: paidBotRows(rows(paperArenas ? paperArenas.all() : [], []), 'paper') },
     { id: 'knockout', name: 'Knockout', duel: true,
       paid: ownerConsole.paidDoor({ enabled: true, open: koPaidOpen, stopping: false }, koPaidSwitch.saved(), 'ko:paid'),
       rungs: ownerConsole.duelRows(ko) },
@@ -1492,6 +1492,26 @@ function consoleGames(ko, bs) {
       paid: ownerConsole.paidDoor({ enabled: true, open: bsPaidOpen, stopping: false }, bsPaidSwitch.saved(), 'bs:paid'),
       rungs: ownerConsole.duelRows(bs) },
   ];
+}
+
+/* The owner's paid bots (Owen 2026-10-16): each arena game's paid directory holds
+   a bot count per rung (setBotTarget). A paid row gets a room id the console's
+   bots:set sends back ('paidbots:<game>:<rung>'), its held count and live bots.
+   Bots there never hold money (each game's rule, tested per game). */
+function paidBotDir(game) {
+  const d = game === 'sl' ? slPaid : game === 'ag' ? agArenas : game === 'paper' ? paperArenas : null;
+  return d && d.paidEnabled && typeof d.setBotTarget === 'function' ? d : null;
+}
+function paidBotRows(rungs, game) {
+  const d = paidBotDir(game);
+  if (!d) return rungs;
+  return rungs.map((row) => (row.rung > 0 ? Object.assign({}, row, {
+    room: 'paidbots:' + game + ':' + row.rung,
+    bots: d.botCount(row.rung),
+    botTarget: d.botTarget(row.rung),
+    botsAllowed: true,
+    botsNote: null,
+  }) : row));
 }
 
 /* The last solvency check (checkSolvency, every 45 s), in the money mode's
@@ -1757,6 +1777,21 @@ app.post('/api/owner/do', sigLimiter, async (req, res) => {
     case 'bots:set': {
       const room = typeof args.room === 'string' ? ALL_ROOMS().find(r => r.lobbyType === args.room) : null;
       const r = ownerConsole.setBots(room, args);
+      /* A paid row's id ('paidbots:...') names no room, so setBots above refused it
+         touching nothing; the game's paid directory takes it instead. */
+      const pb = typeof args.room === 'string' ? /^paidbots:(sl|ag|paper):(\d+(?:\.\d+)?)$/.exec(args.room) : null;
+      if (pb) {
+        const d = paidBotDir(pb[1]);
+        if (!d) return refuse('Paid bots are not open for that game');
+        const raw = args.auto === true ? 0 : typeof args.count === 'number' ? args.count
+          : typeof args.count === 'string' && /^\d{1,3}$/.test(args.count.trim()) ? Number(args.count.trim()) : NaN;
+        const r = d.setBotTarget(Number(pb[2]), raw);
+        if (!r.ok) return refuse(r.why);
+        broadcastLobbyState();
+        const gname = pb[1] === 'sl' ? 'slither.io' : pb[1] === 'ag' ? 'agar.io' : 'Paper.io';
+        return done(gname + ' $' + pb[2] + ': ' + r.live + ' bot' + (r.live === 1 ? '' : 's') + ' now, held at ' + r.held +
+          '. They never cash out and never hold money.' + (r.saved ? '' : ' Not saved, so a restart drops them.'));
+      }
       if (!r.ok) return refuse(r.why);
       broadcastLobbyState();
       const label = roomLabel(room);

@@ -14,7 +14,7 @@
 
 const { LADDER } = require('../shared/stakeLadder');
 
-const PAID_BOTS_NOTE = 'Paid rooms take bots after the next update';
+const PAID_BOTS_NOTE = 'Paid duels stay people only: a bot would win or lose a real stake';
 const BOT_SET_MAX = 200;
 const PAPER_TRIES = 40;   // spawn misses in a row before a Paper arena counts as full (addUpTo)
 const r6 = (v) => Math.round(v * 1e6) / 1e6;

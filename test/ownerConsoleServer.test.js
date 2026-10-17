@@ -146,7 +146,9 @@ test('state v2, maintenance and the paid Knockout door across a restart, bots:se
     assert.deepStrictEqual(g.rungs.map((x) => x.rung), [0, 0.5, 1], g.id);
     for (const row of g.rungs) {
       for (const k of ['room', 'people', 'bots', 'money', 'botTarget', 'botsAllowed', 'botsNote']) assert.ok(k in row, g.id + ' ' + k);
-      if (row.rung > 0) assert.deepStrictEqual([row.botsAllowed, row.botsNote], [false, 'Paid rooms take bots after the next update']);
+      // paid duels stay people only; a paid arena rung takes the owner's bots when its paid directory is on
+      if (row.rung > 0 && g.duel) assert.deepStrictEqual([row.botsAllowed, row.botsNote], [false, 'Paid duels stay people only: a bot would win or lose a real stake']);
+      if (row.rung > 0 && !g.duel && row.botsAllowed) assert.match(String(row.room), /^paidbots:(sl|ag|paper):/);
     }
   }
   assert.ok(!s.games.some((g) => g.rungs.some((x) => /^na_(free|br)$/.test(String(x.room)))), 'the old tiers are not rows');

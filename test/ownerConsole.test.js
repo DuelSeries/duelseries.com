@@ -281,7 +281,7 @@ test('bots:set refuses paid rooms before touching anything, bad counts, and the 
   for (const r of [paperRoom(0.5), agRoom(0.5)]) {
     const before = [r.botCount, r._botsPausedUntil, r._botsHeld];
     const x = oc.setBots(r, { count: 3 });
-    assert.deepEqual([x.ok, x.why], [false, 'Paid rooms take bots after the next update']);
+    assert.deepEqual([x.ok, x.why], [false, 'Paid duels stay people only: a bot would win or lose a real stake']);
     assert.deepEqual([r.botCount, r._botsPausedUntil, r._botsHeld], before, 'nothing was touched');
     r.stop();
   }
@@ -312,7 +312,7 @@ test('each game has a row per rung, paid rungs included with no room open, and a
   }
   assert.deepEqual([rows[0].room, rows[0].botsAllowed, rows[0].botsNote, rows[0].bots], ['ag_na_s0', true, null, free.botCount]);
   assert.deepEqual([rows[1].room, rows[1].people, rows[1].money, rows[1].botsAllowed, rows[1].botsNote],
-    [null, 0, 0, false, 'Paid rooms take bots after the next update']);
+    [null, 0, 0, false, 'Paid duels stay people only: a bot would win or lose a real stake']);
   // a paid room's money is its bank (accounts and floor), and a stale fallback room counts only while occupied
   const paid = { lobbyType: 'sl_na_s0_5', money: { stake: 0.5, openCount: () => 2 }, liveStakeTotal: () => 1.25, botCount: 0 };
   const staleEmpty = { lobbyType: 'na_free', stake: 0, playerCount: 0, snakes: new Map() };

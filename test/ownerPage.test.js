@@ -192,7 +192,7 @@ test('signed in: draws the sheet from the state and never loads the wallet', asy
     // a paid rung: stepper disabled, the note as its title, nothing else said
     const paidPlus = panel.byKey('bots:slither:0.5:+');
     assert.equal(paidPlus.disabled, true);
-    assert.equal(paidPlus.title, 'Paid rooms take bots after the next update');
+    assert.equal(paidPlus.title, 'Paid duels stay people only: a bot would win or lose a real stake');
     // a held room offers Auto, an automatic one does not
     assert.equal(panel.byKey('bots:agar:0:auto').hidden, false);
     assert.equal(panel.byKey('bots:slither:0:auto').hidden, true);
