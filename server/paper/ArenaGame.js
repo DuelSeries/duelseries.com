@@ -24,6 +24,10 @@ const REASON = {
 
 // How long after the wall's last inward step the wall rule still cuts back instead of killing:
 // two shrink quanta (a quantum every 125 ms at SHRINK_RATE).
+// Bot wall sense (_steerFromWall): look this far ahead; bend inward past WALL_SAFE of the radius, fully at WALL_PANIC.
+const WALL_LOOK = 140;
+const WALL_SAFE = 0.82;
+const WALL_PANIC = 0.97;
 const SHRINK_VETO_MS = 250;
 
 const NOOP_HOOKS = {
@@ -745,10 +749,50 @@ class ArenaGame extends P.Game {
       try {
         return stock.call(this, dtMs);
       } finally {
+        game._steerFromWall(this);
         game._prey = null;
         if (this.fsm && this.fsm.state !== 'attack') this._preyHint = null;
       }
     };
+  }
+
+  // Wall sense (Owen 2026-10-17: "they keep killing themselves on the walls"). The stock bots were tuned for a fixed
+  // wide map; a paid arena's wall follows the head count and can be small. After the stock brain picks its target, a
+  // point WALL_LOOK ahead along that heading is checked: past WALL_SAFE of the radius the target bends toward the
+  // middle, more the deeper it is, and fully inward past WALL_PANIC.
+  _steerFromWall(bot) {
+    if (!bot || bot.death || !bot.target || !bot.position || !this.border) return;
+    const c = this.border.center;
+    const R = this.border.radius;
+    if (!(R > 0)) return;
+    const px = bot.position.x;
+    const py = bot.position.y;
+    let dx = bot.target.x - px;
+    let dy = bot.target.y - py;
+    const len = Math.hypot(dx, dy);
+    if (!(len > 1e-6)) return;
+    dx /= len;
+    dy /= len;
+    const lx = px + dx * WALL_LOOK - c.x;
+    const ly = py + dy * WALL_LOOK - c.y;
+    const reach = Math.hypot(lx, ly) / R;
+    if (reach <= WALL_SAFE) return;
+    // inward: home to its own base while it is out with a trail (turning to the middle would cross that trail), else
+    // to the middle
+    const home = bot.in !== bot.base && bot.baseNearestPoint ? bot.baseNearestPoint : c;
+    let ix = home.x - px;
+    let iy = home.y - py;
+    const il = Math.hypot(ix, iy) || 1;
+    ix /= il;
+    iy /= il;
+    const w = Math.min(1, (reach - WALL_SAFE) / (WALL_PANIC - WALL_SAFE));
+    let nx = dx * (1 - w) + ix * w;
+    let ny = dy * (1 - w) + iy * w;
+    const nl = Math.hypot(nx, ny) || 1;
+    nx /= nl;
+    ny /= nl;
+    bot.target = new P.Vec2(px + nx * 50, py + ny * 50);
+    this.stats.wallSteers = (this.stats.wallSteers || 0) + 1;
   }
 
   nearestHuman(bot) {
