@@ -142,8 +142,9 @@ function paidDoor(d, saved, action) {
 /* The battle royale, in people rather than bodies. `humans` is the people in
    the arena (the room fills with bots between matches, so `alive` alone read
    as "22 waiting" for a room nobody was in); bots are the rest of the bodies.
-   canForce is the honest form of the Start alone button: forceStart refuses
-   with nobody in the room, so the button is only offered with somebody there.
+   canForce is the honest form of the Start alone button: the battle royale
+   starts with bots alone now (Owen 2026-10-16, ownerStartBr in index.js), so it
+   is offered whenever the arena is waiting with any snake in it.
    The room's own public state is kept underneath for anything still reading
    the old fields. */
 function brState(br, { engine, room, now }) {
@@ -161,7 +162,7 @@ function brState(br, { engine, room, now }) {
     bots: Math.max(0, alive - humans),
     minPlayers: Number.isFinite(st.minPlayers) ? st.minPlayers : null,
     canStart: !!st.canStart,
-    canForce: (st.state || br.state) === 'waiting' && humans >= 1,
+    canForce: (st.state || br.state) === 'waiting' && alive >= 1,
     countdownMs: Number(st.countdownMs) || 0,
     nextStartAt: Number.isFinite(st.nextStartMs) ? t + st.nextStartMs : null,
     prize: Number.isFinite(st.prize) ? st.prize : 0,

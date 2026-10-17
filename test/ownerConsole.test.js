@@ -331,19 +331,20 @@ test('each game has a row per rung, paid rungs included with no room open, and a
   assert.equal(oc.paidDoor(null, false, 'x'), null);
 });
 
-test('the battle royale block counts people, not bodies, and only offers Start alone with somebody there', () => {
+test('the battle royale block counts people, not bodies, and offers Start alone whenever the arena has a snake', () => {
   const pub = { state: 'waiting', phase: 'waiting', alive: 22, players: 22, humans: 0, minPlayers: 1, canStart: false,
     countdownMs: 0, nextStartMs: 60000, prize: 20, prizeHeld: false, winner: null, engine: 'sl' };
   const br = { state: 'waiting', publicState: () => Object.assign({}, pub) };
   const room = { lobbyType: 'sl_na_br', bots: { count: () => 22, target: () => 30 } };
   let s = oc.brState(br, { engine: 'sl', room, now: 1000 });
   assert.deepEqual([s.humans, s.bots, s.alive, s.canForce, s.nextStartAt, s.room, s.botTarget, s.engine],
-    [0, 22, 22, false, 61000, 'sl_na_br', 30, 'sl']);
+    [0, 22, 22, true, 61000, 'sl_na_br', 30, 'sl']);
   for (const k of ['state', 'phase', 'minPlayers', 'canStart', 'countdownMs', 'prize', 'prizeHeld', 'winner', 'players']) {
     assert.ok(k in s, k);
   }
-  pub.humans = 1;
-  assert.equal(oc.brState(br, { engine: 'sl', room, now: 1000 }).canForce, true);
+  pub.alive = 0;
+  assert.equal(oc.brState(br, { engine: 'sl', room, now: 1000 }).canForce, false, 'an empty arena has nobody to start with');
+  pub.alive = 22;
   pub.state = 'running';
   br.state = 'running';
   assert.equal(oc.brState(br, { engine: 'sl', room, now: 1000 }).canForce, false, 'not while a match is on');
@@ -397,10 +398,8 @@ test('index.js: the restart check, maintenance, Start alone, bots:set and announ
   assert.match(check, /d\.moneyInPlay/);
   assert.match(SRC, /ops\.persist\(\{ file: process\.env\.MAINTENANCE_PATH \|\| path\.join\(path\.dirname\(agJournal\.file\), 'maintenance\.json'\) \}\);/);
   const start = SRC.slice(SRC.indexOf("case 'br:start'"), SRC.indexOf("case 'br:stop'"));
-  assert.match(start, /if \(humans < 1\) return refuse\('Nobody is in the room to start with'\);/);
-  assert.match(start, /if \(!br\.forceStart\('owner override'\)\) return refuse\(/);
-  assert.match(start, /if \(!br\.startMatch\('owner'\)\) return refuse\(/);
-  assert.doesNotMatch(start, /livingCount\(\) < 1/);
+  // Battle royale owns the start rules (ownerStartBr, br-flow session): the console only asks it.
+  assert.match(start, /const r = ownerStartBr\(br, !!args\.force\);/);
   assert.match(SRC, /case 'bots:set': \{\n\s+const room = typeof args\.room === 'string' \? ALL_ROOMS\(\)\.find\(r => r\.lobbyType === args\.room\) : null;\n\s+const r = ownerConsole\.setBots\(room, args\);/);
   const ann = SRC.slice(SRC.indexOf("case 'announce'"), SRC.indexOf('default:', SRC.indexOf("case 'announce'")));
   assert.match(ann, /ownerConsole\.cleanAnnounce\(args\.text\)/);
