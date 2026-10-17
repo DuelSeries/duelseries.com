@@ -6,6 +6,9 @@
    (window.duelWalletSignAction through owner.html's signed()) on EVERY connect, since a reconnect
    is a new socket on the server and the proof is one-time, and sends it with lobby:join. The
    server then emits the four admin alerts below to it; each reaches the page as plain text.
+   With the owner session (server/ownerSession.js) no wallet is needed: the page asks the server
+   for a one-time ticket on each connect and sends that instead (ticket mode, fetchTicket). Every
+   open console tab is registered and gets every alert; signing a device out disconnects its tabs.
    The phone pushes are separate and unaffected. Nothing here can act on anything. */
 (function (root) {
   const ACTION = 'owner:alerts';
@@ -49,20 +52,56 @@
     return { kind, title, text, at: Date.now() };
   }
 
-  /* io: the socket.io client's io(); sign(action, args) -> a proof or null (owner.html's signed());
-     onAlert({ kind, title, text, at }); onState('listening' | 'unsigned' | 'offline'). -> the socket. */
-  function connectOwnerAlerts({ io, sign, onAlert, onState = () => {} }) {
+  /* The session mode's ticket (server/ownerSession.js): one POST on our own origin, the HttpOnly session cookie
+     rides along, and the answer is a one-time 60 s ticket for lobby:join. null when signed out or on any failure.
+     fetchFn defaults to the page's fetch. */
+  async function fetchTicket(fetchFn) {
+    const f = typeof fetchFn === 'function' ? fetchFn : (typeof fetch === 'function' ? fetch : null);
+    if (!f) return null;
+    try {
+      const r = await f('/api/owner/ticket', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'X-DS-Owner': '1' }, body: '{}'
+      });
+      if (!r || !r.ok) return null;
+      const j = await r.json();
+      return j && typeof j.ticket === 'string' && j.ticket ? j.ticket : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /* io: the socket.io client's io();
+     ticket() -> a one-time ticket or null: the session mode, e.g. ticket: () => OwnerAlerts.fetchTicket();
+     sign(action, args) -> a proof or null: the signature mode (owner.html's signed());
+     either or both (the ticket is tried first, it needs no wallet; the signature is the fallback);
+     onAlert({ kind, title, text, at }); onState('listening' | 'unsigned' | 'offline'). -> the socket.
+     Every connect asks again, since a reconnect is a new socket on the server and both are one-time. */
+  function connectOwnerAlerts({ io, sign, ticket, onAlert, onState = () => {} }) {
     const socket = io();
     socket.on('connect', async () => {
-      let proof = null;
-      try {
-        proof = await sign(ACTION, {});
-      } catch (e) {
-        proof = null;
+      let join = null;
+      if (typeof ticket === 'function') {
+        let t = null;
+        try {
+          t = await ticket();
+        } catch (e) {
+          t = null;
+        }
+        if (typeof t === 'string' && t) join = { ownerTicket: t };
       }
-      if (!proof) return onState('unsigned');
-      if (socket.connected === false) return;   // dropped while signing: the next connect signs again
-      socket.emit('lobby:join', { ownerProof: proof });
+      if (!join && typeof sign === 'function') {
+        let proof = null;
+        try {
+          proof = await sign(ACTION, {});
+        } catch (e) {
+          proof = null;
+        }
+        if (proof) join = { ownerProof: proof };
+      }
+      if (!join) return onState('unsigned');
+      if (socket.connected === false) return;   // dropped while asking: the next connect asks again
+      socket.emit('lobby:join', join);
       onState('listening');
     });
     socket.on('disconnect', () => onState('offline'));
@@ -76,7 +115,7 @@
     return socket;
   }
 
-  const api = { connectOwnerAlerts, describe, EVENTS, ACTION };
+  const api = { connectOwnerAlerts, fetchTicket, describe, EVENTS, ACTION };
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.OwnerAlerts = api;
 })(typeof window !== 'undefined' ? window : this);

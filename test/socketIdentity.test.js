@@ -151,12 +151,102 @@ test('the owner\'s alerts: only an owner signature over owner:alerts registers a
   // the real thing
   const owner = sock();
   assert.equal(id.ownerAlerts(owner, ownerProof(OWNER)), true);
-  assert.equal(ownerSockets.get(OWNER.wallet), owner);
+  assert.ok(ownerSockets.get(OWNER.wallet).has(owner), 'the fan-out under the owner key holds the owner\'s socket');
+  assert.equal(ownerSockets.get(OWNER.wallet).has(hijack), false);
   // a socket that merely claimed or proved the owner wallet leaving does not unregister the owner's
   id.forget(hijack);
-  assert.equal(ownerSockets.get(OWNER.wallet), owner);
+  assert.ok(ownerSockets.get(OWNER.wallet).has(owner));
   id.forget(owner);
   assert.equal(ownerSockets.size, 0);
+});
+
+// Two console tabs (or a phone and a PC) used to share ONE slot: the second took the first one's alerts while the
+// first still said "listening". Now every registered socket gets every alert, and each leaving removes only itself.
+const emitter = () => ({ id: 's' + ++n, sent: [], disconnected: false,
+  emit(ev, p) { this.sent.push([ev, p]); }, disconnect() { this.disconnected = true; } });
+
+test('two owner alert sockets both receive every alert; each disconnect removes only itself', () => {
+  const { id, ownerSockets } = rig();
+  const tabA = emitter();
+  const tabB = emitter();
+  assert.equal(id.ownerAlerts(tabA, ownerProof(OWNER)), true);
+  assert.equal(id.ownerAlerts(tabB, ownerProof(OWNER)), true);
+  // exactly what the emit sites in index.js do
+  ownerSockets.get(OWNER.wallet).emit('admin:solvency_alert', { n: 1 });
+  assert.deepEqual(tabA.sent, [['admin:solvency_alert', { n: 1 }]]);
+  assert.deepEqual(tabB.sent, [['admin:solvency_alert', { n: 1 }]]);
+  id.forget(tabA);
+  ownerSockets.get(OWNER.wallet).emit('admin:agar_alert', { n: 2 });
+  assert.equal(tabA.sent.length, 1, 'gone after it left');
+  assert.equal(tabB.sent.length, 2, 'the other tab still hears');
+  id.forget(tabA);   // twice is harmless
+  assert.ok(ownerSockets.get(OWNER.wallet).has(tabB));
+  id.forget(tabB);
+  assert.equal(ownerSockets.size, 0, 'the key is gone with the last socket');
+  // one throwing socket never keeps an alert from the others
+  const bad = emitter();
+  bad.emit = () => { throw new Error('dead'); };
+  const good = emitter();
+  id.ownerAlerts(bad, ownerProof(OWNER));
+  id.ownerAlerts(good, ownerProof(OWNER));
+  ownerSockets.get(OWNER.wallet).emit('admin:paper_alert', {});
+  assert.equal(good.sent.length, 1);
+});
+
+test('the owner session ticket: one check per socket, a live owner session\'s only; revoking drops its sockets', () => {
+  const ownerSockets = new Map();
+  const tickets = new Map([['T-good', { wallet: OWNER.wallet, session: 'sessA' }],
+                           ['T-good2', { wallet: OWNER.wallet, session: 'sessA' }],
+                           ['T-other', { wallet: OWNER.wallet, session: 'sessB' }],
+                           ['T-stranger', { wallet: 'Stranger1111', session: 'sessC' }]]);
+  const liveSessions = new Set(['sessA', 'sessB', 'sessC']);
+  const warned = [];
+  const id = createSocketIdentity({
+    verifyIdentityProof: () => null, walletForAction: (p) => ownerAuth.walletForAction(p),
+    isOwner: (w) => w === OWNER.wallet, alertKey: OWNER.wallet, ownerSockets,
+    ticketWallet: (t) => { const x = tickets.get(t) || null; tickets.delete(t); return x; },
+    sessionLive: (h) => liveSessions.has(h),
+    log: { warn: (m) => warned.push(m), log() {}, error() {} }
+  });
+  // not a ticket, an unknown ticket, a stranger's ticket
+  assert.equal(id.ownerAlertsByTicket(emitter(), undefined), false);
+  assert.equal(id.ownerAlertsByTicket(emitter(), { ticket: 'T-good' }), false);
+  assert.equal(id.ownerAlertsByTicket(emitter(), 'x'.repeat(500)), false);
+  assert.equal(id.ownerAlertsByTicket(emitter(), 'T-nope'), false);
+  assert.equal(id.ownerAlertsByTicket(emitter(), 'T-stranger'), false);
+  assert.equal(ownerSockets.size, 0);
+  assert.ok(warned.every((m) => /owner alerts refused/.test(m)));
+  // one check per socket: after a failed ticket, a good one is not even looked at on that socket
+  const burnt = emitter();
+  assert.equal(id.ownerAlertsByTicket(burnt, 'T-nope2'), false);
+  assert.equal(id.ownerAlertsByTicket(burnt, 'T-good2'), false);
+  assert.ok(tickets.has('T-good2'), 'unspent');
+  // two devices
+  const a = emitter();
+  const b = emitter();
+  assert.equal(id.ownerAlertsByTicket(a, 'T-good'), true);
+  assert.equal(id.ownerAlertsByTicket(b, 'T-other'), true);
+  assert.equal(id.ownerAlertsByTicket(emitter(), 'T-good'), false, 'a ticket is good once');
+  ownerSockets.get(OWNER.wallet).emit('admin:collusion_flag', {});
+  assert.equal(a.sent.length, 1);
+  assert.equal(b.sent.length, 1);
+  // revoking session A disconnects A's socket and only that one
+  assert.equal(id.dropSessions(['sessA']), 1);
+  assert.equal(a.disconnected, true);
+  assert.equal(b.disconnected, false);
+  ownerSockets.get(OWNER.wallet).emit('admin:collusion_flag', {});
+  assert.equal(a.sent.length, 1);
+  assert.equal(b.sent.length, 2);
+  // a session that died some other way (expired) is dropped at the next alert, not sent to
+  liveSessions.delete('sessB');
+  ownerSockets.get(OWNER.wallet).emit('admin:collusion_flag', {});
+  assert.equal(b.sent.length, 2);
+  assert.equal(b.disconnected, true);
+  assert.equal(ownerSockets.size, 0);
+  // with no ticket checker wired (an old server), a ticket registers nothing
+  const bare = createSocketIdentity({ verifyIdentityProof: () => null, walletForAction: () => null,
+    isOwner: () => true, alertKey: 'K', ownerSockets: new Map(), log: { warn() {} } });
+  assert.equal(bare.ownerAlertsByTicket(emitter(), 'T'), false);
 });
 
 test('server/index.js: every socket wallet, the alert map and the BR payee come from socketIdentity only', () => {
@@ -164,8 +254,11 @@ test('server/index.js: every socket wallet, the alert map and the BR payee come 
   const code = src.split('\n').filter((l) => !/^\s*(\/\/|\/\*|\*)/.test(l)).join('\n');
   assert.ok(!/socket\._googleId\s*=[^=]/.test(code), 'nothing in index.js assigns socket._googleId');
   assert.ok(!/lobbySocketsByGoogleId\.(set|delete)\(/.test(code), 'the alert map is written by socketIdentity only');
-  assert.match(code, /on\('lobby:join', \(\{ idProof, ownerProof \} = \{\}\) => \{/);
+  assert.match(code, /on\('lobby:join', \(\{ idProof, ownerProof, ownerTicket \} = \{\}\) => \{/);
   assert.match(code, /socketIdentity\.ownerAlerts\(socket, ownerProof\)/);
+  assert.match(code, /socketIdentity\.ownerAlertsByTicket\(socket, ownerTicket\)/);
+  assert.match(code, /ticketWallet: \(t\) => ownerSessions\.ticketWallet\(t\)/);
+  assert.match(code, /ownerSessions\.onRevoke\(\(hashes\) => socketIdentity\.dropSessions\(hashes\)\)/);
   // PLAY no longer even reads the client's walletAddress or googleId
   const play = code.slice(code.indexOf('on(C.EVENTS.PLAY'), code.indexOf("on('cashout:start'"));
   assert.match(play, /on\(C\.EVENTS\.PLAY, \(\{ name, color, lobbyType, stake, entryToken, region, reconnectKey, idProof \} = \{\}\)/);

@@ -47,6 +47,57 @@ test('every (re)connect signs owner:alerts and sends it with lobby:join', async 
   assert.deepEqual(states, ['listening', 'offline', 'listening']);
 });
 
+// Ticket mode (the owner session, server/ownerSession.js): no wallet, a one-time ticket from the server per connect.
+test('ticket mode: every (re)connect asks for a fresh ticket and sends it as ownerTicket; no signature is made', async () => {
+  const { io, sockets } = fakeIo();
+  let asked = 0;
+  const signs = [];
+  const states = [];
+  connectOwnerAlerts({ io, ticket: async () => 'T' + (++asked), sign: async (a) => { signs.push(a); return {}; },
+    onAlert() {}, onState: (s) => states.push(s) });
+  const s = sockets[0];
+  s.connected = true;
+  await s.fire('connect');
+  assert.deepEqual(s.sent, [['lobby:join', { ownerTicket: 'T1' }]]);
+  s.connected = false;
+  await s.fire('disconnect');
+  s.connected = true;
+  await s.fire('connect');
+  assert.deepEqual(s.sent[1], ['lobby:join', { ownerTicket: 'T2' }], 'a ticket is one-time: a new one per connect');
+  assert.deepEqual(signs, [], 'the wallet is never asked while the session answers');
+  assert.deepEqual(states, ['listening', 'offline', 'listening']);
+});
+
+test('ticket mode falls back to the signature when there is no session, and says unsigned when neither works', async () => {
+  const { io, sockets } = fakeIo();
+  connectOwnerAlerts({ io, ticket: async () => null, sign: async (action, args) => ({ action, args, sig: 'S' }),
+    onAlert() {}, onState() {} });
+  sockets[0].connected = true;
+  await sockets[0].fire('connect');
+  assert.deepEqual(sockets[0].sent, [['lobby:join', { ownerProof: { action: 'owner:alerts', args: {}, sig: 'S' } }]]);
+  const states = [];
+  connectOwnerAlerts({ io, ticket: async () => { throw new Error('offline'); }, onAlert() {}, onState: (st) => states.push(st) });
+  sockets[1].connected = true;
+  await sockets[1].fire('connect');
+  assert.deepEqual(sockets[1].sent, []);
+  assert.deepEqual(states, ['unsigned']);
+});
+
+test('fetchTicket: one same-origin POST with the owner header; null when signed out or broken', async () => {
+  const { fetchTicket } = require('../public/js/ownerAlerts');
+  const calls = [];
+  const ok = async (url, opts) => { calls.push([url, opts]); return { ok: true, json: async () => ({ ticket: 'abc' }) }; };
+  assert.equal(await fetchTicket(ok), 'abc');
+  assert.equal(calls[0][0], '/api/owner/ticket');
+  assert.equal(calls[0][1].method, 'POST');
+  assert.equal(calls[0][1].credentials, 'same-origin');
+  assert.equal(calls[0][1].headers['X-DS-Owner'], '1');
+  assert.match(calls[0][1].headers['Content-Type'], /application\/json/);
+  assert.equal(await fetchTicket(async () => ({ ok: false, status: 401, json: async () => ({}) })), null);
+  assert.equal(await fetchTicket(async () => ({ ok: true, json: async () => ({ ticket: 7 }) })), null);
+  assert.equal(await fetchTicket(async () => { throw new Error('down'); }), null);
+});
+
 test('no signature: nothing is sent and the page is told', async () => {
   const { io, sockets } = fakeIo();
   const states = [];

@@ -21,8 +21,17 @@
    by the player's name, as it always did for a player with no wallet.
 
    The owner's alerts are registered only by ownerAlerts: an owner signature (ownerAuth, the same
-   check /api/owner/do makes) over the action OWNER_ALERTS_ACTION. A wallet proven any other way,
-   the owner's included, is never put in the alert map, and a socket leaving removes only itself. */
+   check /api/owner/do makes) over the action OWNER_ALERTS_ACTION, or by ownerAlertsByTicket: a
+   one-time ticket from POST /api/owner/ticket, which only a live owner session gets
+   (server/ownerSession.js). A wallet proven any other way, the owner's included, is never put in
+   the alert map, and a socket leaving removes only itself.
+
+   More than one owner socket at once (two console tabs, a phone and a PC): the map used to hold
+   ONE socket under the alert key, so a second tab silently took the first one's alerts while the
+   first still said "listening". The map now holds one fan-out under the key whose emit reaches
+   every registered socket, so the emit sites (map.get(key).emit(...)) are unchanged, and each
+   socket leaving removes only itself. A socket a session registered is dropped and disconnected
+   when that session is revoked (dropSessions) or found dead at the next alert (sessionLive). */
 
 const OWNER_ALERTS_ACTION = 'owner:alerts';
 // The identity proof the client can send with no wallet-widget change: the widget's existing silent signer
@@ -33,14 +42,44 @@ const IDENTIFY_ACTION = 'play:identify';
    walletForAction(body) -> wallet | null       (ownerAuth.walletForAction)
    isOwner(wallet) -> bool                      (the server's owner list)
    alertKey                                     the key the alert lookups use (OWNER_WALLET)
-   ownerSockets                                 lobbySocketsByGoogleId */
-function createSocketIdentity({ verifyIdentityProof, walletForAction, isOwner, alertKey, ownerSockets, log = console } = {}) {
+   ownerSockets                                 lobbySocketsByGoogleId
+   ticketWallet(ticket) -> { wallet, session } | null   (ownerSession.ticketWallet: spends the ticket; optional)
+   sessionLive(session) -> bool                 (ownerSession.isLive; optional) */
+function createSocketIdentity({ verifyIdentityProof, walletForAction, isOwner, alertKey, ownerSockets,
+  ticketWallet, sessionLive, log = console } = {}) {
   if (typeof verifyIdentityProof !== 'function') throw new Error('socketIdentity: verifyIdentityProof is required');
   if (typeof walletForAction !== 'function') throw new Error('socketIdentity: walletForAction is required');
   if (typeof isOwner !== 'function') throw new Error('socketIdentity: isOwner is required');
   if (!ownerSockets || typeof ownerSockets.set !== 'function') throw new Error('socketIdentity: ownerSockets is required');
 
   const isPlain = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+
+  // Every registered owner alert socket, oldest first. Bounded: each one took an owner proof, but a page in a
+  // reconnect loop should not grow it forever, so past the cap the oldest is let go.
+  const MAX_ALERT_SOCKETS = 20;
+  const alertSockets = new Set();
+  const stillLive = (s) => !s._ownerSession || typeof sessionLive !== 'function' || sessionLive(s._ownerSession) === true;
+  const fanout = Object.freeze({
+    emit(ev, payload) {
+      for (const s of [...alertSockets]) {
+        if (!stillLive(s)) { drop(s); continue; }
+        try { s.emit(ev, payload); } catch (e) { /* one broken socket never keeps the alert from the others */ }
+      }
+      return true;
+    },
+    get size() { return alertSockets.size; },
+    has: (s) => alertSockets.has(s),
+  });
+  function register(socket) {
+    alertSockets.add(socket);
+    socket._ownerAlerts = true;
+    while (alertSockets.size > MAX_ALERT_SOCKETS) drop(alertSockets.values().next().value);
+    ownerSockets.set(alertKey, fanout);
+  }
+  function drop(socket) {
+    forget(socket);
+    try { if (socket && typeof socket.disconnect === 'function') socket.disconnect(true); } catch (e) { /* gone already */ }
+  }
 
   // The socket's proven wallet, or null. A proof is checked once per socket (it is one-time anyway), and never
   // replaces a wallet the socket already proved (a paid entry's payer included).
@@ -91,17 +130,51 @@ function createSocketIdentity({ verifyIdentityProof, walletForAction, isOwner, a
       log.warn('[ID] owner alerts refused: the signature is not an owner\'s');
       return false;
     }
-    ownerSockets.set(alertKey, socket);
-    socket._ownerAlerts = true;
+    register(socket);
+    return true;
+  }
+
+  // The same, from the owner session: a one-time ticket (POST /api/owner/ticket), checked once per socket like the
+  // signature. The socket remembers which session registered it, so revoking that session can drop it.
+  function ownerAlertsByTicket(socket, ticket) {
+    if (!socket || typeof ticket !== 'string' || !ticket || ticket.length > 128) return false;
+    if (socket._ownerChecked) return socket._ownerAlerts === true;
+    socket._ownerChecked = true;
+    let t = null;
+    try {
+      t = typeof ticketWallet === 'function' ? ticketWallet(ticket) : null;
+    } catch (e) {
+      t = null;
+    }
+    const w = isPlain(t) && typeof t.wallet === 'string' ? t.wallet : null;
+    if (!w || !isOwner(w)) {
+      log.warn('[ID] owner alerts refused: the ticket is not a live owner session\'s');
+      return false;
+    }
+    socket._ownerSession = typeof t.session === 'string' ? t.session : null;
+    register(socket);
     return true;
   }
 
   // A socket that leaves takes only its own alert registration with it.
   function forget(socket) {
-    if (socket && ownerSockets.get(alertKey) === socket) ownerSockets.delete(alertKey);
+    if (!socket || !alertSockets.delete(socket)) return;
+    socket._ownerAlerts = false;
+    if (alertSockets.size === 0 && ownerSockets.get(alertKey) === fanout) ownerSockets.delete(alertKey);
   }
 
-  return { fromProof, fromEntry, proven, ownerAlerts, forget };
+  // Revoked sessions (ownerSession.onRevoke): their alert sockets are let go and disconnected. -> how many.
+  function dropSessions(sessions) {
+    const gone = new Set(Array.isArray(sessions) ? sessions : [sessions]);
+    let n = 0;
+    for (const s of [...alertSockets]) {
+      if (s._ownerSession && gone.has(s._ownerSession)) { drop(s); n++; }
+    }
+    return n;
+  }
+
+  return { fromProof, fromEntry, proven, ownerAlerts, ownerAlertsByTicket, forget, dropSessions,
+           alertSockets: () => [...alertSockets] };
 }
 
 module.exports = { createSocketIdentity, OWNER_ALERTS_ACTION, IDENTIFY_ACTION };

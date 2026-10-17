@@ -232,6 +232,33 @@ test('duel:signaction is answered only for the game frame on our own origin', as
   assert.strictEqual(posted[0][1], ORIGIN, 'the answer goes to our own origin only');
 });
 
+// The owner session (server/ownerSession.js) is a year-long sign-in, made only by the console page: even our own game
+// frame cannot have the lobby's silent signer make 'owner:session:*' signatures. Everything else it asks still signs.
+test('duel:signaction never signs an owner session sign-in or sign-out for a game frame', async () => {
+  const h = lobbyHarness([]);
+  const ORIGIN = 'https://duelseries.com';
+  h.win.location = { origin: ORIGIN };
+  const frame = h.el('game-frame');
+  const posted = [];
+  frame.contentWindow = { postMessage: (m, o) => posted.push([m, o]) };
+  const signed = [];
+  h.win.duelWalletSignAction = async (action, args) => { signed.push([action, args]); return { sig: 'S' }; };
+  const ask = (action) => h.win.dispatchEvent({ type: 'message', data: { type: 'duel:signaction', id: 7, action, args: {} },
+    source: frame.contentWindow, origin: ORIGIN });
+  ask('owner:session:create');
+  ask('owner:session:revoke');
+  await new Promise((r) => setTimeout(r, 10));
+  assert.deepStrictEqual(signed, [], 'nothing signed');
+  assert.strictEqual(posted.length, 2);
+  for (const [m, o] of posted) {
+    assert.strictEqual(m.type, 'duel:signaction:error');
+    assert.strictEqual(o, ORIGIN);
+  }
+  ask('br:start');
+  await new Promise((r) => setTimeout(r, 10));
+  assert.deepStrictEqual(signed, [['br:start', {}]], 'the in-game Start match still signs');
+});
+
 test('game:done closes the frames only when a game frame on our origin sends it', () => {
   const h = lobbyHarness([]);
   const ORIGIN = 'https://duelseries.com';
