@@ -337,7 +337,7 @@ test('takeFloor: every pellet to the house, grouped by source wallet with each e
   b.split(2, fb, [300, 300]);
   const before = state(b);
   for (const k of ['house', 'breach', undefined, 'cash']) {
-    assert.throws(() => b.takeFloor(k), /kind must be swept or abandoned/);
+    assert.throws(() => b.takeFloor(k), /kind must be swept, abandoned or returned/);
     assert.strictEqual(state(b), before);
   }
   const t = b.takeFloor('swept');

@@ -111,6 +111,9 @@ class SlMoney {
     this.lastTick = null;
     this.steps = 0;
     this.stopped = false; // settled (shutdown, crash, emergency): nothing opens again
+    // Owner-spawned bots have played here (markBots). They never hold money (the room's eatGate), and from then on
+    // the floor nobody picked up goes back to the players who dropped it, never to the house (_returnFloor).
+    this.botRoom = false;
     this.tainted = false; // I1, I10 or I13 seen, or a seat refund refused: no new seat (design 8)
     this.closedCount = Object.create(null); // outcome -> n (owner view, tests)
     this.lastViolations = [];
@@ -133,6 +136,11 @@ class SlMoney {
   // Reads.
 
   // By snake id, or by jid (the door's step 12 asks either way).
+  // A bot entered the room (slRoom.spawnSnake). One way: the room keeps the rule for the rest of its life.
+  markBots() {
+    this.botRoom = true;
+  }
+
   account(idOrJid) {
     if (typeof idOrJid === 'string') {
       for (const a of this.accounts.values()) if (a.jid === idOrJid) return a;
@@ -321,6 +329,8 @@ class SlMoney {
     this.applied.add(d);
     const acct = this.accounts.get(d.id);
     if (!acct) {
+      // a bot: it never held money, its drops are plain food
+      if (this.botRoom && this.room && this.room.humans && !this.room.humans.has(d.id)) return;
       if (Array.isArray(d.drops) && d.drops.some((q) => q && q.food)) {
         this.log.error('[SLP] DEATH of snake ' + d.id + ' dropped gold with no account (' + this.label + ')');
         this._alert('death-no-account', { snakeId: d.id });
@@ -498,6 +508,15 @@ class SlMoney {
         this._leftOpen('SHUTDOWN', acct, e);
       }
     }
+    if (this.botRoom) {
+      try {
+        rows.push(...this._returnFloor(kind, false));
+      } catch (e) {
+        this.log.error('[SLP] SHUTDOWN floor not returned (' + this.label + '): ' + (e && e.message));
+      }
+      this._phase('collusion', () => this._flushBuckets(true));
+      return rows;
+    }
     let f = null;
     try {
       f = this.bank.takeFloor('abandoned');
@@ -539,6 +558,10 @@ class SlMoney {
   }
 
   _sweep(why) {
+    if (this.botRoom) {
+      const rows = this._returnFloor(why, true);
+      return { micro: rows.reduce((n, r) => n + r.micro, 0), count: rows.length, sweeps: [], returned: rows };
+    }
     const f = this.bank.takeFloor('swept');
     const sweeps = [];
     for (const s of f.bySource) {
@@ -552,6 +575,43 @@ class SlMoney {
       });
     }
     return { micro: f.micro, count: f.count, sweeps };
+  }
+
+  // A room bots played in (Owen 2026-10-16: "I'm never going to be taking any money with my bots"): the floor nobody
+  // picked up goes back, 100%, to the players who dropped it, one owed row per source wallet, never to the house. Each
+  // row is journaled first as a keyed close (why 'botfloor', agJournal OWED_WHYS), so a crash after it is replayed
+  // once by key at the next boot; live (idle retire, emergency) the row goes through onOwed now, at a restart it is
+  // handed back with the account rows for the caller to write. -> the rows
+  _returnFloor(why, live) {
+    const f = this.bank.takeFloor('returned');
+    const rows = [];
+    for (const s of f.bySource) {
+      if (typeof s.srcWallet !== 'string' || !s.srcWallet) {
+        // impossible: every pellet comes from an account, and every account has a wallet (open)
+        this.log.error('[SLP] BOTFLOOR CRITICAL ' + s.micro + ' micro with no source wallet (' + this.label + ')');
+        this._alert('botfloor-no-wallet', { micro: s.micro });
+        continue;
+      }
+      const key = OWED_PREFIX + this.uuid();
+      const reason = 'refund slither botfloor ' + String(why) + ' ' + this.label + ' ' + key;
+      const row = { key, wallet: s.srcWallet, name: s.srcName || '', micro: s.micro, reason };
+      try {
+        this.hooks.journal.close({ jid: this.uuid(), wallet: row.wallet, name: row.name }, 'refunded',
+          { why: 'botfloor', key, refundedMicro: row.micro, reason }, this.label);
+      } catch (e) {
+        this.log.error('[SLP] JOURNAL CRITICAL botfloor ' + key + ' threw (' + this.label + '): ' + (e && e.message));
+      }
+      rows.push(row);
+      if (live) {
+        safeAsync(() => this.hooks.onOwed(row), (e) => {
+          this.log.error('[SLP] OWED CRITICAL botfloor ' + key + ' failed (' + row.micro + ' micro, ' + this.label +
+            '); the journal carries it to the next boot: ' + (e && e.message));
+          this._alert('owed', { micro: row.micro });
+        });
+      }
+    }
+    if (f.micro > 0) this.log.log('[SLP] BOTFLOOR ' + f.micro + ' micro back to ' + rows.length + ' player(s) ' + this.label);
+    return rows;
   }
 
   // The ONE exit: the bank account must already be gone. The record goes, the journal closes the jid (not for

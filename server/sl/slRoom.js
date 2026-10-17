@@ -264,7 +264,8 @@ function paidRoom(laws, R, o) {
   for (const k of MONEY_METHODS) {
     if (typeof m[k] !== 'function') throw new TypeError('slRoom: opts.money needs ' + k + ' (slPaid/slMoney.js)');
   }
-  if (o.bots) throw new Error('slRoom: a paid room keeps no bots (BRIEF answer 4)');
+  // the owner's paid bots only (opts.paidBots, Owen 2026-10-16): never eat gold (eatGate), never hold money
+  if (o.bots && o.paidBots !== true) throw new Error('slRoom: a paid room keeps no bots (BRIEF answer 4)');
   // the seed drives the spawn ring, the same-step order and the drops: a paid room never falls back to the wall
   // clock's (design 1, D2-m4), the directory draws it with crypto.randomInt
   if (!Number.isSafeInteger(o.seed) || o.seed < 1) {
@@ -361,12 +362,16 @@ class SlRoom {
     }
     this.viewFactory = viewFactory;
     this.bots = o.bots || null;
+    this.paidBots = !!(this.money && this.bots && o.paidBots === true);
 
     const seed = typeof o.seed === 'number' && Number.isFinite(o.seed) ? o.seed : (this.now() % 2147483647);
     const prey = o.prey !== undefined ? o.prey === true : preyNotShippable(laws).length === 0;
     this.freedAt = new Map(); // snake id -> sim ms it left the sim (C_ID_QUARANTINE_MS)
     const simOpts = { seed, world: true, prey, idBlocked: (id) => this._idBlocked(id) };
     if (paid) simOpts.paidDrops = paid.paidDrops;
+    // A paid room's bots (owner-spawned, paidBots) never eat a cash pellet: a bot never holds money, so it can never
+    // take any out (Owen 2026-10-16). Only the room's humans eat gold; natural food and crumbs are for everyone.
+    if (this.money) this.eatGate = simOpts.eatGate = (f, id) => this.humans.has(id) || !this.money.bank.isPellet(f);
     // the battle royale (server/slBr/brMatch.js): its circle and its holdable border; never with money
     this.br = o.br || null;
     if (this.br && this.money) throw new Error('slRoom: a battle royale room holds no money');
@@ -450,7 +455,7 @@ class SlRoom {
   // A paid room hands snakes, liveStakeTotal and floorWorth to its controller (in dollars, design 7.5) and has no bots.
 
   botsAllowed() {
-    return !this.money;
+    return !this.money || (this.paidBots === true && !!this.bots);
   }
 
   get playerCount() {
@@ -485,7 +490,7 @@ class SlRoom {
 
   // One bot by hand. Refused above C_ROOM_CAP, without a bot driver (slBots, task T12), and in a paid room.
   addBot() {
-    if (this.money) return null;
+    if (this.money && this.paidBots !== true) return null;
     if (this.stopped || !this.bots || typeof this.bots.add !== 'function') return null;
     if (this.sim.count() >= this.R.roomCap) return null;
     return this.bots.add(this) || null;
@@ -501,6 +506,7 @@ class SlRoom {
     const s = this.sim.spawn({ cv: spec.cv, nick: spec.nick === undefined ? '' : String(spec.nick) });
     this.names.set(s.id, s.nick);
     if (!spec.isBot) this.humans.add(s.id);
+    else if (this.money && typeof this.money.markBots === 'function') this.money.markBots(); // the floor of a room bots played in never goes to the house
     return s;
   }
 
@@ -1950,7 +1956,8 @@ class SlRoom {
   // follow it, so the lobby counts real snakes before the first player comes. Refused (false) for a paid room or the
   // battle royale's, which keep their pause. Returns whether the room is awake now.
   setAwake(on) {
-    this.awake = on === true && !this.money && !this.br && !this.stopped && !this.closed;
+    // a paid room only while it holds the owner's bots (paidBots): they hold no money, so it can tick with no human
+    this.awake = on === true && (!this.money || this.paidBots === true) && !this.br && !this.stopped && !this.closed;
     if (this.awake) this.start();
     return this.awake;
   }

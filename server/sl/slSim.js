@@ -333,6 +333,9 @@ function createSim(laws, opts) {
   const doFill = o.fill === undefined ? hasFood : o.fill === true;
   if (doFill && !hasFood) throw new Error('slSim: fill needs the food store');
   const PD = paidDropsOf(o.paidDrops, hasBorder); // null in the free room
+  // opts.eatGate(food, eaterId): false leaves that food where it is for this eater (a paid room's bots never eat cash
+  // pellets, server/slPaid). Absent everywhere else: every food in the eat zone is eaten.
+  const eatGate = typeof o.eatGate === 'function' ? o.eatGate : null;
 
   const live = []; // live snakes in spawn order
   const byId = new Map();
@@ -538,6 +541,7 @@ function createSim(laws, opts) {
 
   let eater = null;
   function eatFood(f) {
+    if (eatGate !== null && eatGate(f, eater.id) === false) return;
     food.eat(f, eater.id);
     slSnake.feedFood(K, eater, f.b);
   }

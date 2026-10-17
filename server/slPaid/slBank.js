@@ -294,7 +294,11 @@ class SlBank {
   // Refused at the ceiling (header), so bySource always adds up to the micro booked.
   // -> { micro, count, bySource: [{ srcWallet, srcName, micro, count }] in first-drop order }
   takeFloor(kind) {
-    if (kind !== 'swept' && kind !== 'abandoned') refuse('takeFloor', 'kind must be swept or abandoned, got ' + String(kind));
+    // 'returned': a room bots played in gives its floor back to the players who dropped it (slMoney _returnFloor),
+    // booked as a refund, never the house
+    if (kind !== 'swept' && kind !== 'abandoned' && kind !== 'returned') {
+      refuse('takeFloor', 'kind must be swept, abandoned or returned, got ' + String(kind));
+    }
     let total = 0;
     const by = new Map();
     for (const p of this.floor.values()) {
@@ -314,7 +318,7 @@ class SlBank {
     if (count > 0) checkCeiling(this, 'takeFloor', kind, total);
     this.floor.clear();
     this.sums.floor -= total;
-    if (count > 0) bookOut(this, kind, total);
+    if (count > 0) bookOut(this, kind === 'returned' ? 'refund' : kind, total);
     return { micro: total, count, bySource: Array.from(by.values()) };
   }
 

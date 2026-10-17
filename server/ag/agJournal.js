@@ -61,7 +61,8 @@ const path = require('path');
 const DEFAULT_FILE = path.join(__dirname, '..', 'data', 'ag-money-journal.log');
 // The refund whys a keyed close carries an owed row for. 'emergency' and 'orphan' are paid snake's owed lane (server/
 // slPaid/slMoney.js _refundOwed); a close needs a key too, and agar's emergency close passes none.
-const OWED_WHYS = Object.freeze(['shutdown', 'crash', 'emergency', 'orphan']);
+// 'botfloor': a paid snake room bots played in gives its floor back to the droppers (slMoney _returnFloor).
+const OWED_WHYS = Object.freeze(['shutdown', 'crash', 'emergency', 'orphan', 'botfloor']);
 // slfloor: paid snake's floor gold; ppfloor: paid Paper's floor coins (its shutdown and crash settle, PaperRoom)
 const FLOOR_KEY_RE = /^(slfloor|ppfloor):[0-9a-f-]{36}$/;
 const PAYOUT_STATES = Object.freeze(['sent', 'failed']);

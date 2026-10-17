@@ -2777,6 +2777,13 @@ const slPaidOpened = slPaidBoot.openSlPaid({
   region: REGION,
   hooks: slMoneyHooks,
   paidSwitch: slPaidSwitch,
+  /* The owner's paid bots (Control): room #0 of a rung holds them; they never
+     eat a cash pellet, and a room they played in gives its unclaimed floor back
+     to the players who dropped it, never to the house (Owen 2026-10-16). */
+  arenas: slArenas ? {
+    botDriver: () => require('./sl/slBots').createBotDriver(slArenas.laws, { governor: slArenas.governor }),
+    botStore: require('./paidBotStore').createBotStore({ file: path.join(path.dirname(agJournal.file), 'sl-paid-bots.json') }),
+  } : undefined,
   door: {
     /* The 'slither' door: a token scoped to another game (a Paper or agar dev token) does not open it. */
     consumeAtStake: (token, stake) => entryStore.consumeAtStake(token, stake, 'slither'),
@@ -2796,6 +2803,9 @@ const slPaidOpened = slPaidBoot.openSlPaid({
    old engine's paid rows stay open: critic C-4). With SL_PAID off it exists with
    no rungs, so a paid /sl page is refunded 'not-open' and never seated free. */
 const slPaid = slPaidOpened.arenas;
+if (slPaid && typeof slPaid.startBots === 'function') {
+  try { slPaid.startBots(); } catch (e) { console.error('[SLP] paid bots not restored:', e && e.message); }
+}
 /* ── The nightly battle royale on the sl engine (server/slBr; Owen 2026-10-15) ──
    The event plays like the free /sl room (the same snakes, bots, food, client
    and Customize skin) with its own rules on top: the wandering circle, the

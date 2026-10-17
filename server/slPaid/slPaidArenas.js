@@ -39,6 +39,11 @@
 //                    closed since a sample restarts the clock, so a life between two samples is never missed); a
 //                    settling room is retried (emergencySettle while an account is open, else sweepFloor) and dropped
 //                    once empty. Nothing runs while stopping (no money moves in the exit window).
+//   setBotTarget(stake, n)  the owner's bots for a rung (Owen 2026-10-16): n bots held in the rung's room #0 (opened
+//                    if none is), saved through opts.botStore so a deploy keeps them; while n > 0 that room stays awake
+//                    and is never retired. The bots never eat a cash pellet (slRoom eatGate), so they never hold or
+//                    take out money, and the room's unclaimed floor goes back to the players who dropped it
+//                    (slMoney _returnFloor), never to the house. botTarget(stake) reads it, botCount(stake) the live bots.
 //   shutdownSettle(why)  a planned restart or a crash (design 7.2): stopping, then for each room the money rows FIRST
 //                    (money.shutdownSettle: 100% of every current balance, journaled, the floor booked abandoned), then
 //                    room.halt() (the clock only). Returns the rows for the caller to write.
@@ -53,7 +58,8 @@ const { ROOMS_PER_RUNG, FLOOR_SWEEP_MS } = require('./slPaidConst');
 // The hooks the server hands in; onAccountOpen and onAccountClosed are this directory's own (walletSeat).
 const SERVER_HOOKS = Object.freeze(REQUIRED_HOOKS.filter((k) => k !== 'onAccountOpen' && k !== 'onAccountClosed'));
 const ROOM_KEYS = Object.freeze(['clock', 'now', 'timers', 'autoTick', 'view', 'prey']);
-const SEED_MAX = 2 ** 31 - 1; // design 1: crypto.randomInt(1, 2^31 - 1)
+const SEED_MAX = 2 ** 31 - 1;
+const PAID_BOT_MAX = 60; // the owner's bots per paid rung (room #0), well under the room cap // design 1: crypto.randomInt(1, 2^31 - 1)
 
 class SlPaidArenas {
   // laws: the law table. opts:
@@ -102,6 +108,87 @@ class SlPaidArenas {
     this.created = 0;
     this.retired = 0;
     this.closedRooms = 0;
+    // the owner's paid bots: opts.botDriver() -> a fresh slBots driver per room #0; opts.botStore { load, save }
+    this.botDriver = typeof o.botDriver === 'function' ? o.botDriver : null;
+    this.botStore = o.botStore && typeof o.botStore.load === 'function' ? o.botStore : null;
+    this.botTargets = new Map(); // stake -> n
+    if (this.paidEnabled && this.botDriver && this.botStore) {
+      let saved = null;
+      try {
+        saved = this.botStore.load();
+      } catch (e) {
+        this.log.error('[SLP] paid bots: saved targets unreadable: ' + (e && e.message));
+      }
+      for (const st of this.rungs.keys()) {
+        const n = saved ? saved[String(st)] : undefined;
+        if (Number.isInteger(n) && n > 0 && n <= PAID_BOT_MAX) this.botTargets.set(st, n);
+      }
+    }
+  }
+
+  // Opens room #0 of every rung with a saved bot target (boot), so Owen's bots are back after a deploy.
+  startBots() {
+    for (const [stake, n] of this.botTargets) if (n > 0) this._applyBots(stake);
+  }
+
+  botTarget(stake) {
+    const st = this._rungOf(stake);
+    return st === null ? null : (this.botTargets.get(st) || 0);
+  }
+
+  botCount(stake) {
+    const st = this._rungOf(stake);
+    if (st === null) return 0;
+    let n = 0;
+    for (const r of this.rungs.get(st) || []) n += Number(r.botCount) || 0;
+    return n;
+  }
+
+  // -> { ok, live, held } or { ok: false, why }
+  setBotTarget(stake, n) {
+    const st = this._rungOf(stake);
+    if (!this.paidEnabled || st === null) return { ok: false, why: 'No paid snake rung at ' + stake };
+    if (!this.botDriver) return { ok: false, why: 'Paid snake bots are not wired on this server' };
+    if (this.stopping) return { ok: false, why: 'The server is stopping' };
+    if (!Number.isInteger(n) || n < 0 || n > PAID_BOT_MAX) return { ok: false, why: 'Bots: a whole number from 0 to ' + PAID_BOT_MAX };
+    if (n > 0) this.botTargets.set(st, n);
+    else this.botTargets.delete(st);
+    let saved = true;
+    if (this.botStore && typeof this.botStore.save === 'function') {
+      try {
+        const obj = {};
+        for (const [k, v] of this.botTargets) obj[String(k)] = v;
+        saved = this.botStore.save(obj) !== false;
+      } catch (e) {
+        saved = false;
+        this.log.error('[SLP] paid bots: targets not saved: ' + (e && e.message));
+      }
+    }
+    const room = this._applyBots(st);
+    return { ok: true, live: room ? Number(room.botCount) || 0 : 0, held: n, saved };
+  }
+
+  // Room #0 of the rung holds the target: opened when there is a target and no room, its driver held at n, the surplus
+  // taken out now and the rest added; awake while n > 0. -> the room or null
+  _applyBots(stake) {
+    const n = this.botTargets.get(stake) || 0;
+    const list = this.rungs.get(stake) || [];
+    let room = list.find((r) => this.place.get(r).index === 0 && !r.stopped && !r.closed) || null;
+    if (!room && n > 0) {
+      try {
+        room = this._create(stake, 0);
+      } catch (e) {
+        this.log.error('[SLP] paid bots: room for ' + stake + ' not opened: ' + (e && e.message));
+        return null;
+      }
+    }
+    if (!room || !room.bots || room.paidBots !== true) return room;
+    room.bots.setTarget(room, n);
+    const have = Number(room.botCount) || 0;
+    if (have > n) room.bots.removeBots(room, have - n);
+    else for (let i = have, miss = 0; i < n && miss < 3; i++) if (!room.addBot()) miss++;
+    room.setAwake(n > 0);
+    return room;
   }
 
   // ---------------------------------------------------------------------------------------------------------------
@@ -153,7 +240,15 @@ class SlPaidArenas {
     const ro = { money, lobbyType: label, humanCap: this.cap, emergencyFails: 1, seed: this._seed(),
       region: this.region, shippableOnly: this.shippableOnly, log: this.log };
     for (const k of ROOM_KEYS) if (this.opts[k] !== undefined) ro[k] = this.opts[k];
+    // room #0 of each rung can hold the owner's bots (setBotTarget); its driver starts held at 0, so it never fills
+    // by itself
+    const driver = index === 0 && this.botDriver ? this.botDriver() : null;
+    if (driver) {
+      ro.bots = driver;
+      ro.paidBots = true;
+    }
     room = this.makeRoom(this.laws, ro);
+    if (driver) driver.setTarget(room, 0);
     this.created++;
     this.place.set(room, { stake, index });
     room.onClosed = (closed, sockets) => this._closed(closed, sockets);
@@ -394,7 +489,7 @@ class SlPaidArenas {
         stake,
         players,
         parked,
-        bots: 0,
+        bots: list.reduce((n, r) => n + (Number(r.botCount) || 0), 0),
         capacity: this.cap * list.length,
         state: open ? 'open' : 'closed',
       };
@@ -427,6 +522,15 @@ class SlPaidArenas {
   sweep(now) {
     const out = { retired: 0, settled: 0 };
     if (!this.paidEnabled || this.stopping) return out;
+    // a held rung whose room #0 closed (an emergency) gets a new one with its bots
+    for (const [st, n] of this.botTargets) {
+      if (n <= 0) continue;
+      try {
+        this._applyBots(st);
+      } catch (e) {
+        this.log.error('[SLP] paid bots: rung ' + st + ' not refilled: ' + (e && e.message));
+      }
+    }
     for (const list of this.rungs.values()) {
       for (const room of list.slice()) {
         // a room that closed itself but is still listed (its close hook never ran): let it go the same way now
@@ -434,7 +538,9 @@ class SlPaidArenas {
           this._closed(room, []);
           continue;
         }
-        const busy = room.money.openCount() > 0 || room.seats.size > 0 || room.orphans.size > 0 || room.parked.size > 0;
+        const held = this.place.get(room).index === 0 && (this.botTargets.get(this.stakeOf(room)) || 0) > 0;
+        const busy = held || room.money.openCount() > 0 || room.seats.size > 0 || room.orphans.size > 0 ||
+          room.parked.size > 0;
         if (busy || room.stopped) {
           this.emptySince.delete(room);
           continue;
@@ -481,7 +587,8 @@ class SlPaidArenas {
     } catch (e) {
       this.log.error('[SLP] idle retire stop ' + room.lobbyType + ': ' + (e && e.message));
     }
-    if (swept.micro > 0) this.log.log('[SLP] RETIRE ' + room.lobbyType + ' floor ' + swept.micro + ' micro to the house');
+    if (swept.micro > 0) this.log.log('[SLP] RETIRE ' + room.lobbyType + ' floor ' + swept.micro + ' micro ' +
+      (swept.returned ? 'back to the players who dropped it' : 'to the house'));
     return true;
   }
 
