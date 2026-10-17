@@ -214,7 +214,7 @@ test('duel:signaction is answered only for the game frame on our own origin', as
   frame.contentWindow = { postMessage: (m, o) => posted.push([m, o]) };
   const signed = [];
   h.win.duelWalletSignAction = async (action, args) => { signed.push([action, args]); return { sig: 'S' }; };
-  const send = (source, origin) => h.win.dispatchEvent({ type: 'message', data: { type: 'duel:signaction', id: 1, action: 'maintenance', args: {} }, source, origin });
+  const send = (source, origin, action) => h.win.dispatchEvent({ type: 'message', data: { type: 'duel:signaction', id: 1, action: action || 'br:start', args: {} }, source, origin });
 
   send({ postMessage() {} }, ORIGIN);          // a window that is not the game frame
   send(frame.contentWindow, 'https://evil.test');
@@ -226,10 +226,15 @@ test('duel:signaction is answered only for the game frame on our own origin', as
 
   send(frame.contentWindow, ORIGIN);
   await new Promise((r) => setTimeout(r, 10));
-  assert.deepStrictEqual(signed, [['maintenance', {}]]);
+  assert.deepStrictEqual(signed, [['br:start', {}]]);
   assert.strictEqual(posted.length, 1);
   assert.strictEqual(posted[0][0].type, 'duel:signaction:done');
   assert.strictEqual(posted[0][1], ORIGIN, 'the answer goes to our own origin only');
+  // only what a game has reason to sign (play:identify, br:start): never an owner console action
+  send(frame.contentWindow, ORIGIN, 'maintenance');
+  await new Promise((r) => setTimeout(r, 10));
+  assert.deepStrictEqual(signed, [['br:start', {}]], 'the wallet never signs a console action for a frame');
+  assert.strictEqual(posted[1][0].type, 'duel:signaction:error');
 });
 
 test('game:done closes the frames only when a game frame on our origin sends it', () => {

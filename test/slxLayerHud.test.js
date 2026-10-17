@@ -817,6 +817,25 @@ test('slxBr cards on the shared card: a win (1st of N, the podium, the prize as 
   assert.deepStrictEqual(L.find('dse-pod')[0].children.map((li) => li.className), ['', 'me', '']);
   assert.deepStrictEqual([plain(st.ledger), st.status, plain(st.lines)], [[], '', ['First place took $20.']]);
   assert.deepStrictEqual(plain(st.facts), ['Time 1:35', 'Kills 0']);
+  // the arena reopened (Owen 2026-10-16): the result stays up, and the button is Join next
+  L.slx.fire('x:br', { t: 'br', state: 'waiting', phase: 'waiting', alive: 30, prize: 20, z: null,
+    winner: { id: 7, name: 'Viper' }, podium: [{ name: 'Viper' }, { name: 'Owen' }, { name: 'Kes' }] });
+  st = L.slx.card.state();
+  assert.deepStrictEqual([st.title, st.again, !!st.againDisabled], ['Match over', 'Join next', false]);
+  assert.deepStrictEqual(plain(st.podium), ['1 Viper', '2 Owen', '3 Kes']);
+  // the next match counts down: the result is gone
+  L.slx.fire('x:br', { t: 'br', state: 'countdown', phase: 'countdown', alive: 30, prize: 20, z: null, countdownMs: 9000,
+    winner: null, podium: null });
+  st = L.slx.card.state();
+  assert.notStrictEqual(st.title, 'Match over');
+  // out while the match runs: Spectate and Lobby only, never Play again (a death is out for the match)
+  const R = await brLife({ proven: true, me: 8, podium: ['x'],
+    br: { state: 'running', phase: 'closing', alive: 5, winner: null, podium: null } });
+  st = R.slx.card.state();
+  assert.deepStrictEqual([st.title, st.again, !!st.againDisabled], ['You are out', 'Spectate', false]);
+  const btns = R.find('dse-btn').map((b) => b.textContent);
+  assert.ok(btns.length === 2 && btns.some((t) => /Lobby/.test(t)) && btns.some((t) => /Spectate/.test(t)), btns.join('|'));
+  assert.ok(!btns.some((t) => /Play again/.test(t)), 'no Play again anywhere on the card');
 });
 
 // The server's sl:diag fields (server/sl/slSockets.js DIAG_NUMBERS) and its cleaner.

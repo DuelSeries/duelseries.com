@@ -1434,7 +1434,7 @@ function opsSnapshot() {
     region: REGION,
     uptimeSec: Math.round(process.uptime()),
     maintenance: ops.get(),
-    drain: ops.drainStatus(ALL_ROOMS(), entryStore.pending()),
+    drain: ops.drainStatus(ALL_ROOMS(), entryStore.pending(), brDrainWhy()),
     battleRoyale: br ? Object.assign(br.publicState(), { engine: brOnSl() ? 'sl' : 'old' }) : null,
     /* Paid snake on the new engine's door, for the owner page's readout: built
        (SL_PAID), open (sl:paid:off/on), saved (a close that outlives a restart). */
@@ -1477,24 +1477,16 @@ app.post('/api/owner/do', sigLimiter, async (req, res) => {
        the room, and the owner deliberately overriding that on an empty evening
        is not the case it protects against. */
     case 'br:start': {
-      if (!br) return refuse('No battle royale room');
-      // Not just 'running' — a countdown is one starting, and over/reopening
-      // is one finishing. Any of them means a match is already under way.
-      if (br.state !== 'waiting') return refuse('A match is already under way');
-      if (args.force) {
-        if (br.livingCount() < 1) return refuse('Nobody is in the room to start with');
-        br.forceStart('owner override');
-        return done('Started with ' + br.livingCount() + ' player(s), minimum overridden');
-      }
-      if (!br.canStart()) return refuse('Needs ' + br.publicState().minPlayers + ' players');
-      br.startMatch('owner');
-      return done('Started with ' + br.livingCount() + ' players');
+      const r = ownerStartBr(br, !!args.force);
+      return r.ok ? done(r.note) : refuse(r.why);
     }
+    /* The emergency exit (Owen's own, so no push): the match is voided, nobody
+       is paid, and the arena goes straight back to waiting. */
     case 'br:stop': {
       if (!br || (br.state !== 'running' && br.state !== 'countdown')) {
         return refuse('No match is running');
       }
-      br.abandon();
+      br.abandon('owner');
       return done('Match stopped, no prize paid');
     }
     /* Which engine runs the event (server/slBr). Saved, so it lasts across a
@@ -1728,7 +1720,7 @@ app.post('/api/owner/do', sigLimiter, async (req, res) => {
          a Paper floor coin, or a paid entry token minted and not yet joined
          (each refunds itself within about 6 minutes; turn maintenance on and
          wait). A restart would lose all three with no record. */
-      const d = ops.drainStatus(ALL_ROOMS(), entryStore.pending());
+      const d = ops.drainStatus(ALL_ROOMS(), entryStore.pending(), brDrainWhy());
       const live = Math.round((d.paidWorth + d.floorWorth + d.pendingWorth) * 1e6) / 1e6;
       return d.safe ? done('Safe to restart: nobody has money on the table.')
                     : refuse(d.reason + ' (' + live + ' USDC in memory)');
@@ -2623,11 +2615,28 @@ const { createLastPodiumStore } = require('./slBr/brLastPodium');
 const brLastPodium = createLastPodiumStore({
   file: process.env.BR_PODIUM_PATH || path.join(path.dirname(agJournal.file), 'br-last-podium.json'),
 });
+/* What a restart must not forget (Owen 2026-10-16): the match in flight (a boot
+   that finds one voids it and pushes Owen), the night the 8:05 timer last went
+   off, and each prize's send ('paying' written before the money moves). See
+   server/slBr/brJournal.js. BR_JOURNAL_PATH moves it. */
+const { createBrJournal } = require('./slBr/brJournal');
+const brJournal = createBrJournal({
+  file: process.env.BR_JOURNAL_PATH || path.join(path.dirname(agJournal.file), 'br-journal.json'),
+});
 const slBr = slArenas ? new SlBrArena(slArenas.laws, {
   region: REGION,
   shippableOnly: slArenas.shippableOnly,
   governor: slArenas.governor,
   isOwner: (w) => OWNER_WALLETS.has(w),
+  journal: brJournal,
+  /* A match cut off by the room being replaced (anything but Owen's own Stop):
+     no winner, no prize, and Owen is told who was in it. */
+  onVoided: (was) => {
+    try {
+      notify.pushOwner(`Battle royale ${was.matchId} was cut off (${was.why}) with ${was.seats} player(s). No winner, no prize.`,
+        { title: 'Battle Royale voided' });
+    } catch (_) {}
+  },
   /* Paid once per match id by payBattleRoyaleWinner (its _brPaid latch); the
      10 s event timer below is the backstop. The winner's wallet is the one
      their socket proved at the join (slSockets setBr identify), never claimed. */
@@ -2647,6 +2656,43 @@ if (slBr && slOpened.sockets) {
     identify: (p) => (p && p.action === 'play:identify'
       ? ownerAuth.walletForAction(p) : nameProof.verifyIdentityProof(p)),
   });
+}
+/* The owner's Start, one rule for every door to it: the console and the Events
+   tab (/api/owner/do 'br:start') and the in-game button (socket br:start), all
+   owner-signed. ONE MATCH AT A TIME (Owen 2026-10-16): only a waiting arena
+   starts one; while a match counts down or runs, or is finishing (one snake
+   left, the winner's moment and the circle reopening), the answer is no, for
+   the owner too. On the sl engine a match may start with bots alone (brMatch
+   MIN_SNAKES). The arena's own state after the call is the answer, so a start
+   that did nothing is never reported as one. -> { ok, note } or { ok: false, why } */
+function ownerStartBr(room, force) {
+  if (!room) return { ok: false, why: 'No battle royale room' };
+  if (room.state === 'countdown' || room.state === 'running') {
+    return { ok: false, why: 'A match is already running. You can start the next one once a single snake is left.' };
+  }
+  if (room.state === 'over' || room.state === 'reopening') {
+    return { ok: false, why: 'The last match is finishing. Try again in a few seconds.' };
+  }
+  if (room.state !== 'waiting') return { ok: false, why: 'A match is already under way' };
+  if (force && room.livingCount() < 1) return { ok: false, why: 'Nobody is in the room to start with' };
+  if (force) room.forceStart('owner override');
+  else if (room.canStart()) room.startMatch('owner');
+  if (room.state === 'waiting') {
+    return { ok: false, why: room.engine === 'sl'
+      ? 'The arena is empty: a match needs ' + room.publicState().minPlayers + ' snakes, bots count.'
+      : 'Needs ' + room.publicState().minPlayers + ' players' };
+  }
+  const people = typeof room.humanLiving === 'function' ? room.humanLiving() : room.livingCount();
+  return { ok: true, note: 'Started with ' + people + ' player(s) and ' + Math.max(0, room.livingCount() - people) + ' bot(s)' };
+}
+/* A restart voids a battle royale that is counting down or running, and cuts
+   off a prize being sent (it is then settled by hand): not safe for maintenance. */
+function brDrainWhy() {
+  const why = [];
+  const room = activeBr();
+  if (room && (room.state === 'countdown' || room.state === 'running')) why.push('a battle royale match is live');
+  if (brJournal.prizes().some((p) => p.state === 'paying')) why.push('a battle royale prize is being sent');
+  return why;
 }
 function brOnSl() { return !!(slBr && brOnNew); }
 function activeBr() {
@@ -2947,6 +2993,11 @@ function liveBattleRoyale() {
     countdownMs: st.countdownMs,
     winner: st.winner,
     podium: st.podium,
+    /* The match's prize was held for Owen (fewer than two proven wallets). */
+    prizeHeld: !!st.prizeHeld,
+    /* Tonight's 8:05 start is due and has not happened yet (it waits out a
+       match that is finishing): the Events clock says Starting, not Tomorrow. */
+    autoPending: brAutoStart.pending(brAutoArgs(room)),
     /* The page's between-lives poll (public/js/slx/slxBr.js) shows these. */
     prize: st.prize,
     soloRun: !!st.soloRun,
@@ -2990,6 +3041,15 @@ function liveGameCounts() {
   for (const id of LOCKED_GAMES) delete counts[id];
   return counts;
 }
+
+/* Does the Events tab draw the owner's Start button for this wallet? The same
+   courtesy as br:peek's isOwner: the wallet is merely claimed, so a forged one
+   buys a button whose action still needs the owner's signature at
+   /api/owner/do (ownerStartBr). POST so the address stays out of URLs. */
+app.post('/api/br/owner', socialLimiter, (req, res) => {
+  const w = req.body && typeof req.body.wallet === 'string' ? req.body.wallet : '';
+  res.json({ isOwner: !!w && w.length <= 64 && OWNER_WALLETS.has(w) });
+});
 
 app.get('/api/live', (_req, res) => {
   try {
@@ -3105,6 +3165,35 @@ function easternNow() {
    winning client sends is involved: the winner is the last snake the SERVER had
    alive, and this is called from the room, not from a socket. */
 const _brPaid = new Set();
+/* What the last process left in the journal (brJournal). Every match id there
+   is settled for good: never paid again by this process, whatever it says. */
+for (const p of brJournal.prizes()) _brPaid.add(p.matchId);
+/* A match the last process was running when it died: it is void (Owen
+   2026-10-16), nobody is paid, and he is told who was in it. */
+{
+  const cut = brJournal.live();
+  if (cut) {
+    console.warn(`[BR] ${cut.matchId} was cut off by a restart (${cut.seats} player(s)): void, no prize`);
+    try {
+      notify.pushOwner(`Battle royale ${cut.matchId} was cut off by a restart with ${cut.seats} player(s)` +
+        (cut.people.length ? ` (${cut.people.slice(0, 8).join(', ')})` : '') + '. No winner, no prize.',
+        { title: 'Battle Royale voided' });
+    } catch (_) {}
+    brJournal.setLive(null);
+  }
+  /* A prize whose send was under way when the last process died: it may or may
+     not have landed. It is NEVER sent again from here (that is how a prize gets
+     paid twice); Owen checks the escrow's history and settles by hand. */
+  for (const p of brJournal.prizes()) {
+    if (p.state !== 'paying') continue;
+    console.error(`[BR] ${p.matchId}: the ${p.amount} USDC prize to ${p.wallet} was being sent at a restart; check it by hand`);
+    try {
+      notify.pushOwner(`${p.name} won ${p.matchId}; the ${p.amount} USDC prize was being sent to ${p.wallet} when the server restarted. Check the escrow's history for it before settling by hand.`,
+        { title: 'Battle Royale prize: check it', priority: 'high' });
+    } catch (_) {}
+    brJournal.setPrize(p.matchId, { state: 'unknown' });
+  }
+}
 async function payBattleRoyaleWinner(room) {
   const w = room && room.winner;
   const matchId = room && room.matchId;
@@ -3114,6 +3203,12 @@ async function payBattleRoyaleWinner(room) {
      reads a winner until the next match starts, and a solo run or a winner
      with no wallet must be logged and pushed once, not every ten seconds. */
   _brPaid.add(matchId);
+  /* A bot outlasted everyone (the sl engine's last-snake rule, Owen
+     2026-10-16): there is nobody to pay and nothing for Owen to settle. */
+  if (w.bot) {
+    console.log(`[BR] ${matchId} was won by a bot (${w.name}): no prize`);
+    return;
+  }
   /* Outlasting nobody is not winning. A solo run exists so the mode can be
      tested at all, and paying $20 out of escrow for being alone in a room is
      escrow paying somebody to test the game. */
@@ -3125,10 +3220,14 @@ async function payBattleRoyaleWinner(room) {
      different wallets (the new engine's match, server/slBr/brMatch.js). One
      person in two tabs must not farm the prize, and a real player whose
      wallet could not sign is not paid automatically either: Owen decides. */
-  if (room.prizeHeld) {
-    console.warn(`[BR] ${matchId} won by ${w.name}, ${room.startedWith} players but ${room.startedPeople} proven wallet(s): prize held`);
+  /* The old engine (br:engine:old) never counts proven wallets, so it cannot
+     say the two-wallet rule was met: its prize is held for Owen too, rather
+     than paid to two tabs of one person. */
+  if (room.prizeHeld || typeof room.prizeHeld !== 'boolean') {
+    const proven = typeof room.startedPeople === 'number' ? room.startedPeople : 'unknown';
+    console.warn(`[BR] ${matchId} won by ${w.name}, ${room.startedWith} players but ${proven} proven wallet(s): prize held`);
     try {
-      notify.pushOwner(`${w.name} won ${matchId}: ${room.startedWith} players, only ${room.startedPeople} proven wallet(s). The ${BR_PRIZE_USDC} USDC prize was not paid. Settle it by hand if it was a real match.`,
+      notify.pushOwner(`${w.name} won ${matchId}: ${room.startedWith} players, ${proven} proven wallet(s). The ${BR_PRIZE_USDC} USDC prize was not paid. Settle it by hand if it was a real match.`,
         { title: 'Battle Royale prize held', priority: 'high' });
     } catch (_) {}
     return;
@@ -3145,37 +3244,60 @@ async function payBattleRoyaleWinner(room) {
     } catch (_) {}
     return;
   }
+  /* Written BEFORE the money moves: a restart from here until 'paid' or
+     'failed' leaves 'paying', which the next boot pushes to Owen and never
+     sends again (above). */
+  if (!brJournal.setPrize(matchId, { state: 'paying', wallet: w.wallet, name: w.name, amount: BR_PRIZE_USDC })) {
+    /* Sent anyway (the winner is owed it), but a restart now would leave no
+       record: Owen hears it before the money moves. */
+    try {
+      notify.pushOwner(`The battle royale journal could not be written; sending ${w.name}'s ${BR_PRIZE_USDC} USDC for ${matchId} anyway. If the server restarts in the next minute, check it by hand.`,
+        { title: 'Battle Royale journal down', priority: 'high' });
+    } catch (_) {}
+  }
+  /* Tracked, so a shutdown waits for the send (agShutdown) as it does for
+     every other payout in flight. */
+  return agInflight.track(sendBattleRoyalePrize(matchId, w));
+}
+async function sendBattleRoyalePrize(matchId, w) {
   try {
     /* payRent: the Battle Royale is free to enter, so its winner may never
        have held USDC, and this house-funded prize (one a night, won, not
        farmable) may open their account. Every other payout refuses to
        (Usdc.js, review finding). */
     const sig = await money.withdraw(w.wallet, BR_PRIZE_USDC, { payRent: true });
+    brJournal.setPrize(matchId, { state: 'paid', sig: String(sig) });
     console.log(`[BR] paid ${BR_PRIZE_USDC} to ${w.name} (${w.wallet}) for ${matchId}: ${sig}`);
     try { await db.recordEarnings(w.wallet, w.name, BR_PRIZE_USDC); } catch (_) {}
     try {
-      notify.pushOwner(`${w.name} took ${BR_PRIZE_USDC} USDC in ${matchId}`,
+      notify.pushOwner(`${w.name} took ${BR_PRIZE_USDC} USDC in ${matchId} (${String(sig).slice(0, 16)}…)`,
         { title: 'Battle Royale winner' });
     } catch (_) {}
   } catch (e) {
     /* Left in the set deliberately. A retry loop on a payout is how somebody
-       gets paid twice; this surfaces instead so it can be settled by hand. */
-    console.error(`[BR] PAYOUT FAILED for ${matchId} to ${w.wallet}:`, e.message);
+       gets paid twice; this surfaces instead so it can be settled by hand.
+       That is also why no failed_payouts row is written: the payout drainer
+       claims every such row and sends it again, which for a send that did go
+       out (a confirm that timed out on a 429) is the second 20 USDC (Fable
+       review 2026-10-16). The journal's 'failed' entry and the push are the
+       record. e.broadcast is the send that went out but did not confirm
+       ({ signature, ... }, Usdc.js): it may still land, so Owen checks it
+       before paying by hand. */
+    const b = e && e.broadcast;
+    const sent = b && b.signature ? String(b.signature) : null;
+    brJournal.setPrize(matchId, { state: 'failed', error: String(e && e.message).slice(0, 200), sig: sent });
+    console.error(`[BR] PAYOUT FAILED for ${matchId} to ${w.wallet}:`, e && e.message, sent ? '(broadcast ' + sent + ')' : '');
     try {
-      notify.pushOwner(`${matchId} to ${w.name}: ${e.message}`,
+      notify.pushOwner(`${matchId} to ${w.name}: ${e && e.message}` +
+        (sent ? `. A send went out (${sent.slice(0, 16)}…) and may still land: check it before paying by hand.` : ''),
         { title: 'Battle Royale payout FAILED', priority: 'high' });
     } catch (_) {}
   }
 }
 
-/* One timer for the whole event: start it if nobody has by 8:05, and pay the
-   winner the moment a match is decided. Ten seconds is plenty — the match runs
-   for minutes and the payout only has to be prompt, not instant. */
-let _brLastAutoDay = null;
+/* The payout backstop: a decided winner the hook somehow missed is paid here.
+   Ten seconds is plenty — the payout only has to be prompt, not instant. */
 setInterval(() => {
-  const room = activeBr();
-  if (!room) return;
-
   /* Not only while 'over': that lasts five seconds and this runs every ten, so
      a winner decided between two runs was never paid (found moving the event
      to the sl engine, 2026-10-15). The winner stays set until the next start
@@ -3187,18 +3309,36 @@ setInterval(() => {
       payBattleRoyaleWinner(r).catch(e => console.error('[BR]', e.message));
     }
   }
-
-  const { hour, minute, day } = easternNow();
-  const due = hour > BR_AUTOSTART_HOUR ||
-              (hour === BR_AUTOSTART_HOUR && minute >= BR_AUTOSTART_MIN);
-  /* Once a day, and only in the event's own hour. Without the day stamp a room
-     that emptied and refilled at 9:40pm would start a second match nobody was
-     expecting. */
-  if (due && hour === BR_AUTOSTART_HOUR && _brLastAutoDay !== day && room.canStart()) {
-    _brLastAutoDay = day;
-    room.startMatch('auto 8:05pm ET');
-  }
 }, 10 * 1000);
+
+/* The Events countdown hitting zero (Owen 2026-10-16): once a night at 8:05 ET
+   it starts a match if anything is in the arena, bots included, unless one is
+   already running, in which case it does nothing that night. The rule is
+   server/slBr/brAutoStart.js; the night it went off is saved (brJournal), so a
+   restart in the 8 PM hour does not fire it again. Every second, so a match
+   starts on the second the Events clock shows zero. */
+const brAutoStart = require('./slBr/brAutoStart');
+function brAutoArgs(room) {
+  return {
+    state: room.state,
+    canStart: room.canStart(),
+    maintenance: !!ops.get().maintenance,
+    et: easternNow(),
+    lastDay: brJournal.autoDay(),
+    startHour: BR_AUTOSTART_HOUR,
+    startMin: BR_AUTOSTART_MIN,
+  };
+}
+setInterval(() => {
+  const room = activeBr();
+  if (!room) return;
+  const a = brAutoArgs(room);
+  const d = brAutoStart.decide(a);
+  if (d.act === 'none' || d.act === 'wait') return;
+  if (d.markDay) brJournal.setAutoDay(a.et.day);
+  if (d.act === 'start') room.startMatch(d.why);
+  else console.log('[BR] 8:05 timer: ' + d.why + ', nothing started tonight');
+}, 1000);
 
 const { LobbyRegistry } = require('./LobbyRegistry');
 const ladder = new LobbyRegistry({
@@ -4191,36 +4331,18 @@ io.on('connection', (socket) => {
     }
     const room = activeBr();
     if (!room) { socket.emit('br:error', { message: 'No battle royale room' }); return; }
-    if (!ownerFromSignature(proof)) {
+    /* The signature must be FOR this action: an owner signature for anything
+       else (a console action, an identify) is not a start. */
+    if (!proof || proof.action !== 'br:start' || !ownerFromSignature(proof)) {
       socket.emit('br:error', { message: 'That did not come from the owner wallet.' });
       return;
     }
-    /* ONE AT A TIME. Not just 'running': a countdown is a match starting, and
-       'over' / 'reopening' are one finishing. Beginning another on top of any of
-       them is a second battle royale. */
-    if (room.state !== 'waiting') {
-      socket.emit('br:error', { message: 'A match is already under way' });
-      return;
-    }
-    /* `force` overrides the player minimum, the same override the owner console
-       has. It is not a lowering of the rule: canStart() still says no, and the
-       caller has to ask for it by name. */
-    if (force) {
-      if (room.livingCount() < 1) {
-        socket.emit('br:error', { message: 'Nobody is in the room to start with' });
-        return;
-      }
-      room.forceStart('owner override');
-      return;
-    }
-    if (!room.canStart()) {
-      socket.emit('br:error', {
-        message: 'Needs ' + room.publicState().minPlayers + ' player(s) in the room',
-      });
+    /* One at a time, and the reason when it is no (ownerStartBr). */
+    const r = ownerStartBr(room, !!force);
+    if (!r.ok) {
+      socket.emit('br:error', { message: r.why });
       socket.emit('br:state', room.publicState());
-      return;
     }
-    room.startMatch('owner');
   });
 
   /* Anyone in the room may ASK what the match is doing. It is the same thing

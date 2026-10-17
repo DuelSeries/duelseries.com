@@ -510,9 +510,12 @@ class SlRoom {
   // null when a seat can be given, else the refusal reason.
   // A gliding orphan is a live human snake, so it counts toward both caps until its glide ends (fixer pass,
   // 2026-10-10: join-then-close cycles from one address kept 773 live snakes against a cap of 20).
-  refusal() {
+  // info (a seat's, optional): its proven wallet, for the battle royale's one snake per person.
+  refusal(info) {
     if (this.stopped || this.closed) return 'closed';
     if (this.br && !this.br.acceptingPlayers()) return 'match'; // a battle royale match is under way
+    // one snake per person in the battle royale: this wallet already has a living one here (brMatch.walletBusy)
+    if (this.br && info && typeof this.br.walletBusy === 'function' && this.br.walletBusy(info.wallet)) return 'twice';
     const humans = this.seats.size + this.orphans.size;
     if (humans >= this.R.humanCap || humans >= this.R.roomCap) return 'full';
     return null;
@@ -524,7 +527,7 @@ class SlRoom {
     if (!socket || typeof socket.id !== 'string') throw new TypeError('slRoom: seat needs a socket with an id');
     if (this.money) throw new Error('slRoom: a paid room seats only through seatPaid (an account per snake)');
     if (this.seats.has(socket.id)) return this.seats.get(socket.id);
-    if (this.refusal()) return null;
+    if (this.refusal(info)) return null;
     const built = { s: null, seat: null };
     this._buildSeat(socket, info, built);
     const seat = built.seat;

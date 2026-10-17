@@ -743,6 +743,14 @@
     const reply = (msg) => {
       if (frame.contentWindow) frame.contentWindow.postMessage(msg, origin);
     };
+    /* Only what a game frame has reason to sign over this bridge: who is
+       playing, and the owner's Start. Narrowing, not a wall: a same-origin
+       frame can still reach the lobby's own functions directly; this keeps a
+       bridge message from asking for an owner console action. */
+    if (d.action !== 'play:identify' && d.action !== 'br:start') {
+      reply({ type: 'duel:signaction:error', id: d.id, message: 'The game cannot ask the wallet to sign that.' });
+      return;
+    }
     if (typeof window.duelWalletSignAction !== 'function') {
       reply({ type: 'duel:signaction:error', id: d.id,
               message: 'The wallet has not loaded yet. Give it a moment.' });

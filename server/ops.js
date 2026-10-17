@@ -59,7 +59,7 @@ function set({ on, message, minutes }) {
    loses it. Paper floor coins and paid snake's floor gold (a room's floorWorth,
    in dollars) are the same: memory only, nobody's seat, gone on a restart. Both
    make it unsafe (review findings; PAID-SL-DESIGN.md 7.5). */
-function drainStatus(rooms, pending) {
+function drainStatus(rooms, pending, extraWhy) {
   let playing = 0, paid = 0, paidWorth = 0, floorWorth = 0;
   for (const room of rooms) {
     if (!room) continue;
@@ -79,6 +79,8 @@ function drainStatus(rooms, pending) {
   if (paid) why.push(paid + ' player' + (paid === 1 ? ' is' : 's are') + ' still in a paid game');
   if (floorWorth > 0) why.push(Math.round(floorWorth * 1e6) / 1e6 + ' USDC on paid floors');
   if (pendingCount) why.push(pendingCount + ' paid entr' + (pendingCount === 1 ? 'y has' : 'ies have') + ' not joined yet');
+  /* The caller's own reasons (a live battle royale: a restart voids it, Owen 2026-10-16). */
+  if (Array.isArray(extraWhy)) for (const w of extraWhy) if (typeof w === 'string' && w) why.push(w);
   return {
     playing,
     paid,

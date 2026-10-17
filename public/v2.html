@@ -930,6 +930,17 @@ body.ingame>.howveil,body.ingame>.meveil,body.ingame>.apscreen,body.ingame>.bshe
 /* A match on: watching is the thing you can do, so Spectate takes the colour. */
 .evbar.live .evwatch{background:rgba(142,208,129,.13);color:var(--live);
   box-shadow:inset 0 0 0 1px rgba(142,208,129,.42)}
+/* The owner's Start (Owen 2026-10-16: start a match without joining first). A
+   quiet row above Join and Spectate, drawn only for the owner's wallet while
+   the arena waits; the server checks his signature on every press. */
+.evown{grid-column:1/-1;min-height:44px;padding:0 16px;border-radius:12px;cursor:pointer;
+  font-family:inherit;font-size:14px;font-weight:650;letter-spacing:-.1px;
+  background:transparent;color:var(--tx2);border:1px dashed var(--s3);
+  transition:background .15s,color .15s,border-color .15s}
+.evown:hover{background:var(--s2);color:var(--tx);border-color:var(--tx3)}
+.evown:focus-visible{outline:2px solid var(--bone);outline-offset:2px}
+.evown:disabled{cursor:wait;opacity:.6}
+.evown small{font-weight:600;opacity:.62;margin-left:8px;font-size:12.5px}
 .evhow{display:inline-flex;align-items:center;gap:7px;margin:14px auto 0;
   background:none;border:none;cursor:pointer;font-family:inherit;
   font-size:13px;font-weight:600;color:var(--tx3);padding:11px 12px;   /* 40px to tap */
@@ -2335,7 +2346,9 @@ body.scr-anim { overflow-x:hidden }
        A match can also be started by hand in the afternoon, which is why the
        word is worked out and not assumed. */
     var left=untilStart();
-    var tomorrow=left!=null && nowS()%86400+left>=86400;
+    /* Tonight's 8:05 start is due and has not happened (it waits out a match
+       that is finishing): it is tonight, and the clock stands at zero. */
+    var tomorrow=!BR.autoPending && left!=null && nowS()%86400+left>=86400;
 
     if(starting){
       clockMode(false); showClock(true);
@@ -2347,6 +2360,10 @@ body.scr-anim { overflow-x:hidden }
       clockMode(true); showClock(true);
       setText('ev-h',pad(BR.ring||1));
       setText('ev-m',pad(BR.alive||0));
+    } else if(BR.autoPending && (st==='waiting'||after)){
+      clockMode(false); showClock(true);
+      line.textContent='Starting now';
+      setClock(0);
     } else {
       clockMode(false); showClock(true);
       line.textContent = after ? 'Next match in'
@@ -2379,6 +2396,7 @@ body.scr-anim { overflow-x:hidden }
     /* Spectate: watching the match while one is on, the arena between them.
        Its small line counts what you would be watching (not after a match,
        where the count is the winner alone). */
+    ownButton(st);
     if(watch){
       setText('ev-watch-t', on ? 'Watch live' : 'Spectate');
       setText('ev-watch-s', live ? (BR.alive||0)+' left'
@@ -2402,8 +2420,52 @@ body.scr-anim { overflow-x:hidden }
     });
   }
 
+  /* THE OWNER'S START. Drawn only when the server says this wallet is the
+     owner's (POST /api/br/owner, asked once per wallet) and the arena is
+     waiting: one match at a time, so there is nothing to press while one runs
+     or finishes. Pressing it signs 'br:start' with the lobby's wallet and sends
+     it to /api/owner/do, which checks the signature and starts it (or says why
+     not). The button is a courtesy; the signature is the rule. */
+  var OWN={wallet:'', is:false, asking:false, busy:false};
+  function myWallet(){ var w=window.duelWallet||{}; return w.authenticated&&w.address?w.address:'' }
+  function ownButton(st){
+    var b=document.getElementById('ev-own'); if(!b) return;
+    var w=myWallet();
+    if(w!==OWN.wallet && !OWN.asking){
+      OWN.wallet=w; OWN.is=false;
+      if(w){
+        OWN.asking=true;
+        fetch('/api/br/owner',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({wallet:w})})
+          .then(function(r){ return r.json() }).then(function(j){ if(OWN.wallet===w) OWN.is=!!(j&&j.isOwner) })
+          .catch(function(){}).then(function(){ OWN.asking=false; tick(true) });
+      }
+    }
+    var show=OWN.is && w===OWN.wallet && st==='waiting';
+    if(b.hidden===show) b.hidden=!show;
+    if(!OWN.busy && b.disabled) b.disabled=false;
+  }
+  function say(t,err){
+    if(window.DSToast) window.DSToast.show({kind:err?'err':'ok', title:t});
+  }
+  function ownerStart(){
+    var b=document.getElementById('ev-own');
+    if(OWN.busy) return;
+    if(typeof window.duelWalletSignAction!=='function'){ say('Sign in with your wallet first.',true); return; }
+    OWN.busy=true; if(b){ b.disabled=true; b.firstChild.textContent='Check your wallet' }
+    Promise.resolve().then(function(){ return window.duelWalletSignAction('br:start',{}) }).then(function(p){
+      if(!p) throw new Error('The wallet did not sign.');
+      return fetch('/api/owner/do',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(p)})
+        .then(function(r){ return r.json().then(function(j){
+          if(r.ok) say(j.note||'Match started'); else say(j.error||'Refused',true);
+        }) });
+    }).catch(function(e){ say((e&&e.message)||'Could not reach the server.',true) }).then(function(){
+      OWN.busy=false; if(b){ b.disabled=false; b.firstChild.textContent='Start match now' }
+      pull(true);
+    });
+  }
+
   /* engine(): which engine runs the event ('sl' or 'old', /api/live br.engine), read by play.js to open /sl or /game.html. */
-  window.V2Event={tick:tick, podium:podium, pull:pull,
+  window.V2Event={tick:tick, podium:podium, pull:pull, ownerStart:ownerStart,
                   engine:function(){ return BR&&BR.engine?BR.engine:null },
                   get state(){ return BR }};
   pull(true);
@@ -2633,6 +2695,7 @@ body.scr-anim { overflow-x:hidden }
          a word is read); tick() writes its words into #ev-join-t and
          #ev-join-s only, so the art survives every state. -->
     <div class="evbar" id="ev-bar">
+      <button type="button" class="evown" id="ev-own" hidden onclick="V2Event.ownerStart()">Start match now<small>Owner</small></button>
       <button type="button" class="evbtn evgo" id="ev-join" onclick="V2Play.launch('snake',{lobbyType:'br'})">
         <img class="evart" src="/img/games/snake.png" alt="Slither.io" draggable="false">
         <span class="evt"><b id="ev-join-t">Join</b><small id="ev-join-s">Free entry</small></span>

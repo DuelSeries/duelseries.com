@@ -62,6 +62,7 @@
     limit: 'Too many players on this network',
     flood: 'Connection lost',
     match: 'Match under way',
+    twice: 'Already in this match',
     nobody: 'Nothing to watch'
   };
   var KILLED_BY = 'Killed by ';

@@ -28,7 +28,7 @@ class SlBrArena extends SlArenas {
     const region = typeof o.region === 'string' && o.region ? o.region : 'na';
     const label = 'sl_' + region + '_br';
     const match = createBrMatch({ laws, log: o.log, label, onDecided: o.onDecided, rand: o.rand, now: o.now,
-      isOwner: o.isOwner, lastStore: o.lastStore });
+      isOwner: o.isOwner, lastStore: o.lastStore, journal: o.journal, onVoided: o.onVoided });
     super(laws, Object.assign({}, o, {
       makeRoom: (ro) => new SlRoom(laws, Object.assign({}, ro, { br: match, lobbyType: label })),
       botOpts: { holdFill: () => match.holdFill() },
@@ -43,7 +43,7 @@ class SlBrArena extends SlArenas {
   _replace(closed, sockets) {
     if (this.match && closed === this._room && this.match.state !== 'waiting') {
       try {
-        this.match.abandon();
+        this.match.abandon('the room was replaced');
       } catch (e) {
         this.log.error('[BR] abandon on replace: ' + (e && e.message));
       }
