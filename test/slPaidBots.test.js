@@ -208,3 +208,22 @@ test('saved targets come back at boot (startBots), and bad numbers are refused',
   assert.equal(r.paid.setBotTarget(0.5, 1.5).ok, false);
   assert.equal(r.paid.setBotTarget(0.7, 1).ok, false);
 });
+
+test('bots give people their place: a paid room never holds more than its cap of snakes (I10 never trips)', async () => {
+  const { r } = botRig();
+  r.paid.setBotTarget(0.5, 15);
+  const room = r.paid.rooms()[0];
+  const cap = room.R.humanCap;
+  for (let i = 0; i < cap - 10; i++) {
+    r.join(r.mint());
+    await r.settle();
+    r.step(2);
+    assert.ok(room.sim.count() <= cap, 'snakes ' + room.sim.count() + ' <= ' + cap);
+  }
+  r.step(60);
+  const seated = r.paid.rooms().reduce((n, x) => n + x.money.openCount(), 0);
+  assert.equal(seated + (room.money.closedCount.died || 0), cap - 10, 'every person is seated: ' + r.paid.rooms().map((x) => x.lobbyType + '=' + x.money.openCount() + '/' + x.botCount));
+  assert.ok(room.sim.count() <= cap);
+  assert.equal(room.money.tainted, false);
+  assert.deepEqual(room.money.lastViolations, []);
+});
