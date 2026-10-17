@@ -71,6 +71,8 @@ function createBotBank({ file, fsx = fs, now = Date.now, log = console } = {}) {
     const m = st.inflight;
     st.balance += m;
     st.inflight = 0;
+    // seed handed out today and now back does not count against today's limit (the restored bots take it again)
+    if (st.day === new Date(now()).toISOString().slice(0, 10)) st.spent = st.spent > m ? st.spent - m : 0;
     st.log.push({ at: now(), kind: 'back', micro: m, balance: st.balance, why: 'hard-stop' });
     log.error('[BOTBANK] ' + m + ' micro of seed held by bots at a hard stop given back to the bank');
     save();
