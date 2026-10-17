@@ -403,9 +403,11 @@ test('index.js: the restart check, maintenance, Start alone, bots:set and announ
   assert.match(SRC, /case 'bots:set': \{\n\s+const room = typeof args\.room === 'string' \? ALL_ROOMS\(\)\.find\(r => r\.lobbyType === args\.room\) : null;\n\s+const r = ownerConsole\.setBots\(room, args\);/);
   const ann = SRC.slice(SRC.indexOf("case 'announce'"), SRC.indexOf('default:', SRC.indexOf("case 'announce'")));
   assert.match(ann, /ownerConsole\.cleanAnnounce\(args\.text\)/);
-  assert.match(ann, /if \(wait > 0\) return refuse\(/);
+  assert.match(ann, /if \(text === _announcedText && Date\.now\(\) - _announcedAt < ANNOUNCE_SAME_MS\) return refuse\(/);
   assert.match(ann, /io\.emit\('announce', msg\);/);
-  assert.match(SRC, /const ANNOUNCE_GAP_MS = 10 \* 1000;/);
+  // No rate limit for the owner (Owen 2026-10-17), only a one-second same-text guard.
+  assert.match(SRC, /const ANNOUNCE_SAME_MS = 1000;/);
+  assert.doesNotMatch(SRC, /ANNOUNCE_GAP_MS/);
 });
 
 test('index.js: the snapshot is state v2, with the old fields kept, and every owner answer is no-store', () => {

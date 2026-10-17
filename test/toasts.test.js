@@ -17,6 +17,12 @@ function node(tag) {
     get textContent() { return this._text + this.children.map(c => c.textContent).join(''); },
     set textContent(v) { this._text = String(v); this.children = []; this.childNodes = []; },
     appendChild(c) { this.children.push(c); this.childNodes.push(c); c.parent = this; return c; },
+    get firstChild() { return this.children[0] || null; },
+    insertBefore(c, ref) {
+      const i = ref ? this.children.indexOf(ref) : -1;
+      if (i < 0) return this.appendChild(c);
+      this.children.splice(i, 0, c); this.childNodes.splice(i, 0, c); c.parent = this; return c;
+    },
     setAttribute(k, v) { this.attrs[k] = v; },
     addEventListener(t, fn) { (this.listeners[t] = this.listeners[t] || []).push(fn); },
     remove() { this.removed = true; if (this.parent) this.parent.children = this.parent.children.filter(c => c !== this); },
@@ -235,7 +241,7 @@ test('the owner\'s announcement shows over a running game, as text, once; its so
   assert.strictEqual(typeof heard.announce, 'function');
   p.open();
   heard.announce({ text: 'Back in <b>5</b>\nminutes', at: 1 });
-  assert.deepStrictEqual(p.said(), [{ kind: 'info', title: 'DuelSeries', line: 'Back in <b>5</b> minutes' }],
+  assert.deepStrictEqual(p.said(), [{ kind: 'info ann', title: 'DuelSeries', line: 'Back in <b>5</b> minutes' }],
     'over the game, at the top, written as text (the markup is shown, never run)');
   heard.announce({ text: 'Back in <b>5</b>\nminutes', at: 1 });
   assert.strictEqual(p.cards().length, 1, 'a reconnect sending it again is one card');
@@ -243,4 +249,26 @@ test('the owner\'s announcement shows over a running game, as text, once; its so
   heard.announce(null);
   assert.strictEqual(p.cards().length, 1);
   assert.ok(!/\.emit\(/.test(SRC), 'it sends nothing: no lobby:join, nobody counted');
+});
+
+test('announcements stack over a game, newest on top, at most 4, each on its own word timer (Owen 2026-10-17)', () => {
+  const p = page();
+  const heard = {};
+  p.win.io = () => ({ on(ev, fn) { heard[ev] = fn; } });
+  p.tick(1500);
+  p.open();
+  heard.announce({ text: 'one two three', at: 1 });                           // 3 s + 3 x 0.35 s = 4.05 s
+  heard.announce({ text: Array(20).fill('w').join(' '), at: 2 });            // 3 s + 20 x 0.35 s = 10 s
+  assert.deepStrictEqual(p.said().map(c => c.line), [Array(20).fill('w').join(' '), 'one two three'], 'both, newest on top');
+  p.tick(4100);
+  assert.deepStrictEqual(p.said().map(c => c.line), [Array(20).fill('w').join(' ')], 'the short one left on its own timer');
+  p.tick(6000);
+  assert.strictEqual(p.cards().length, 0, 'the long one after about 10 s');
+  for (let i = 1; i <= 5; i++) heard.announce({ text: 'line ' + i, at: 10 + i });
+  assert.deepStrictEqual(p.said().map(c => c.line), ['line 5', 'line 4', 'line 3', 'line 2'], 'four at most, the oldest left early');
+  heard.announce({ text: Array(200).fill('w').join(' '), at: 99 });
+  p.tick(19900);
+  assert.ok(p.said().some(c => c.line.startsWith('w w')), 'a very long one is still up just under 20 s');
+  p.tick(200);
+  assert.ok(!p.said().some(c => c.line.startsWith('w w')), 'and gone at the 20 s cap');
 });

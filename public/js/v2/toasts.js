@@ -40,11 +40,22 @@
     if (h < 760) return 2;                         // a short screen: a third card would reach Play
     return 3;
   }
+  /* The owner's announcements stack on their own (Owen 2026-10-17): up to 4 at
+     once, over a game too, newest on top, each leaving on its own timer; 2 on a
+     sideways phone. They never push out a money card, and money cards never
+     push them out. */
+  const annMost = () => (window.innerHeight < 500 ? 2 : 4);
+  function trim() {
+    const ann = live.filter(c => c.o.announce);
+    while (ann.length > annMost()) close(ann.shift());
+    const rest = live.filter(c => !c.o.announce);
+    while (rest.length > most()) close(rest.shift());
+  }
   const keyOf = o => [o.kind, o.title, o.amount, o.detail, o.code].join('|');
 
   function fill(t, o) {
     const kind = ICON.hasOwnProperty(o.kind) ? o.kind : 'ok';
-    t.className = 'toast ' + kind + (t.classList.contains('on') ? ' on' : '');
+    t.className = 'toast ' + kind + (o.announce ? ' ann' : '') + (t.classList.contains('on') ? ' on' : '');
     t.textContent = '';
     const ic = document.createElement('span');
     const busy = kind === 'info' && !!o.sticky;     // still running: a turning ring, not a letter
@@ -103,7 +114,7 @@
     box.classList.toggle('top', open);
     // A game opening takes the lobby's cards with it; they never follow the player in.
     if (open) live.filter(c => !c.o.game).forEach(close);
-    while (live.length > most()) close(live[0]);
+    trim();
   }
 
   function put(o) {
@@ -127,11 +138,12 @@
       arm(c, Math.max(1200, c.left));
     });
     box.classList.toggle('top', frameOpen());
-    box.appendChild(t);
+    if (o.announce) box.insertBefore(t, box.firstChild);   // newest on top
+    else box.appendChild(t);
     live.push(c);
     arm(c, stayFor(o));
     requestAnimationFrame(() => requestAnimationFrame(() => t.classList.add('on')));   // so the slide runs
-    while (live.length > most()) close(live[0]);
+    trim();
     return c;
   }
 
@@ -291,8 +303,11 @@
     const key = String(m.at || '') + '|' + text;
     if (key === lastAnnounce) return;
     lastAnnounce = key;
-    show({ kind: 'info', title: 'DuelSeries', detail: text, game: true,
-           ms: Math.max(STAY.info, Math.min(12000, 2500 + text.length * 55)) });
+    /* Up longer the more words it has: 3 s plus 0.35 s a word, at most 20 s
+       (5 words about 4.8 s, 20 words 10 s). */
+    const words = text.split(/\s+/).filter(Boolean).length;
+    show({ kind: 'info', title: 'DuelSeries', detail: text, game: true, announce: true,
+           ms: Math.min(20000, 3000 + 350 * words) });
   }
   function listen() {
     if (typeof window.io !== 'function') return false;

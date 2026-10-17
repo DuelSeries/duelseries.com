@@ -1650,10 +1650,12 @@ function emitMaintenance() {
 const UPDATE_BANNER = 'Updating, back in a few minutes';
 const UPDATE_ANNOUNCE = 'Update coming, finish up or cash out.';
 
-/* One announcement every ten seconds at most: it lands on every open page at
-   once, and a double click should not say it twice. */
-const ANNOUNCE_GAP_MS = 10 * 1000;
+/* No rate limit on the owner's announcements (Owen 2026-10-17: "there should not
+   be a limit, I'm the owner"). Only the same text again within a second is
+   dropped, so a double click does not say it twice. */
+const ANNOUNCE_SAME_MS = 1000;
 let _announcedAt = 0;
+let _announcedText = '';
 
 app.post('/api/owner/do', sigLimiter, async (req, res) => {
   // The session, a signature or a token; the audit names a session as 'session:' + the device's last 6.
@@ -1887,6 +1889,7 @@ app.post('/api/owner/do', sigLimiter, async (req, res) => {
       const kept = ops.lastSave();
       emitMaintenance();
       _announcedAt = Date.now();
+      _announcedText = UPDATE_ANNOUNCE;
       const msg = { text: UPDATE_ANNOUNCE, at: _announcedAt };
       io.emit('announce', msg);
       if (slArenas) io.of('/sl').emit('announce', msg);
@@ -2055,13 +2058,13 @@ app.post('/api/owner/do', sigLimiter, async (req, res) => {
     /* Something to say to everyone with the site open. The lobby is the top
        page around every game frame, so its toast (public/js/v2/toasts.js)
        shows it over whatever game is running; the old snake page and /sl get
-       it too, as before. Plain text, 200 characters, one every 10 seconds. */
+       it too, as before. Plain text, 200 characters, no rate limit (the same text twice within a second is dropped). */
     case 'announce': {
       const text = ownerConsole.cleanAnnounce(args.text);
       if (!text) return refuse('Nothing to say');
-      const wait = ANNOUNCE_GAP_MS - (Date.now() - _announcedAt);
-      if (wait > 0) return refuse('One announcement every 10 seconds; try again in ' + Math.ceil(wait / 1000) + ' s');
+      if (text === _announcedText && Date.now() - _announcedAt < ANNOUNCE_SAME_MS) return refuse('That was just sent');
       _announcedAt = Date.now();
+      _announcedText = text;
       const msg = { text, at: _announcedAt };
       io.emit('announce', msg);
       if (slArenas) io.of('/sl').emit('announce', msg);

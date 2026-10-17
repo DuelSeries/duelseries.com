@@ -1524,6 +1524,14 @@ body.no-foot footer{display:none}
   width:min(340px,calc(100vw - 24px));max-width:none}
 .toasts.top .toast,.toasts.top .toast.out{transform:translateY(-14px)}
 .toasts.top .toast.on{transform:none}
+/* Announcements over a game on a phone: compact, text only, so a stack of up
+   to four stays a thin strip at the top and off the game's HUD. */
+@media(max-width:760px),(max-height:500px){
+  .toasts.top{width:min(300px,calc(100vw - 24px));gap:6px}
+  .toasts.top .toast.ann{padding:7px 12px;border-radius:11px;gap:8px}
+  .toasts.top .toast.ann .t-ic,.toasts.top .toast.ann .t-title{display:none}
+  .toasts.top .toast.ann .t-line{margin:0;font-size:12.5px;line-height:1.35;color:var(--tx)}
+}
 @media(prefers-reduced-motion:reduce){
   .toast,.toast.out,.toasts.top .toast,.toasts.top .toast.out{transform:none;transition:opacity .15s}
   .toast .t-ic.spin{animation:none}

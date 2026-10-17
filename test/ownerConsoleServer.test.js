@@ -199,9 +199,12 @@ test('state v2, maintenance and the paid Knockout door across a restart, bots:se
   assert.strictEqual(r.status, 200, r.body);
   const got = await heard;
   assert.strictEqual(got.m.text, 'Back bsoon/b');
+  // No rate limit: a different line right away goes out; the same line again within a second does not.
+  r = await act(one.port, 'announce', { text: 'again' });
+  assert.strictEqual(r.status, 200, r.body);
   r = await act(one.port, 'announce', { text: 'again' });
   assert.strictEqual(r.status, 409);
-  assert.match(r.json.error, /One announcement every 10 seconds/);
+  assert.match(r.json.error, /just sent/);
 
   // maintenance on and the paid Knockout door shut, both saved
   r = await act(one.port, 'maintenance:on', { message: 'Deploying' });
