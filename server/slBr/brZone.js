@@ -60,12 +60,16 @@ function createZone(opts) {
   let g = null; // the current ring { fx, fy, fr, tx, ty, tr, warnUntil, moveMs }
   let ringNo = 0;
   let reo = null; // { fx, fy, fr, t0 }
+  // The rings still to come down to RING_MIN_RADIUS, drawn at begin: the same draws in the same order nextRing used
+  // to make one ring at a time (each ring starts where the last one stopped), so the circle is the one it always was,
+  // and closesInMs knows when it will be fully closed (Owen 2026-10-16: the Events tab's "Ends in").
+  let plan = [];
 
-  // BattleRoyaleRoom._nextRing, on sim ms
-  function nextRing(now) {
-    const fr = cur.r;
-    const fx = cur.x;
-    const fy = cur.y;
+  // BattleRoyaleRoom._nextRing's geometry and timing for a ring starting from circle c
+  function ringFrom(c) {
+    const fr = c.r;
+    const fx = c.x;
+    const fy = c.y;
     const tr = Math.max(BRZ.RING_MIN_RADIUS, fr * BRZ.RING_SHRINK);
     const slack = Math.max(0, fr - tr);
     const a = rand() * Math.PI * 2;
@@ -76,8 +80,15 @@ function createZone(opts) {
     const moveMs = Math.max(BRZ.RING_MOVE_MIN_MS, (worst / closeSpeed) * SEC);
     const smallness = 1 - Math.min(1, (fr - BRZ.RING_ENDGAME_RADIUS) / Math.max(1, r0 - BRZ.RING_ENDGAME_RADIUS));
     const warnMs = BRZ.RING_WARN_MIN_MS + (BRZ.RING_WARN_MAX_MS - BRZ.RING_WARN_MIN_MS) * smallness;
+    return { fx, fy, fr, tx, ty, tr, moveMs, warnMs };
+  }
+
+  // on sim ms: the next planned ring, or past the last one a ring of the floor's size where it is
+  function nextRing(now) {
+    const r = plan.length ? plan.shift() : ringFrom(cur);
     ringNo++;
-    return { fx, fy, fr, tx, ty, tr, moveMs, warnUntil: now + warnMs };
+    r.warnUntil = now + r.warnMs;
+    return r;
   }
 
   function update(now) {
@@ -130,12 +141,19 @@ function createZone(opts) {
       g = null;
       ringNo = 0;
       reo = null;
+      plan = [];
+      for (let c = cur; c.r > BRZ.RING_MIN_RADIUS && plan.length < 500;) {
+        const r = ringFrom(c);
+        plan.push(r);
+        c = { x: r.tx, y: r.ty, r: r.tr };
+      }
       update(now);
     },
     update,
     freeze() {
       if (mode === 'rings') mode = 'frozen';
       g = null;
+      plan = [];
     },
     reopen(now) {
       if (!cur) return;
@@ -149,6 +167,16 @@ function createZone(opts) {
       cur = null;
       g = null;
       reo = null;
+      plan = [];
+    },
+    // ms until the circle is fully closed (the last ring has reached RING_MIN_RADIUS), the latest a match can run
+    // on the circle alone; 0 once it is there or with no rings. Each ring after this one starts RING_REST_MS after the
+    // last stopped (update), to within a step.
+    closesInMs(now) {
+      if (mode !== 'rings' || !g) return 0;
+      let ms = g.warnUntil + g.moveMs - now;
+      for (const r of plan) ms += BRZ.RING_REST_MS + r.warnMs + r.moveMs;
+      return Math.max(0, Math.round(ms));
     },
     ring: () => ringNo,
     zoneMs: (now) => (mode === 'rings' && g ? Math.max(0, g.warnUntil - now) : 0),

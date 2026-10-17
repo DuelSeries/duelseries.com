@@ -877,11 +877,14 @@ body.ingame>.howveil,body.ingame>.meveil,body.ingame>.apscreen,body.ingame>.bshe
 .evclock .evu span{display:block;margin-top:3px;font-size:11px;font-weight:600;color:var(--tx3)}
 .evclock i{font-family:var(--fm);font-size:36px;font-style:normal;line-height:1.35;
   color:var(--tx3);opacity:.5}
-/* A running match has no clock: the same digits carry the ring and the
-   snakes left, in the live green, with the seconds put away. */
+/* A running match counts down to when its circle is fully closed (Owen
+   2026-10-16: "how many minutes and seconds until it is over"), minutes and
+   seconds in the live green, the hours put away. Under it, plain words for
+   what the digits used to carry: who is left and which ring. */
 .evclock.live b{color:var(--live)}
-.evclock.live .evsec{display:none}
-.evclock.live #ev-c1{visibility:hidden}
+.evclock.live .evhr,.evclock.live #ev-c1{display:none}
+.evstat{margin-top:8px;font-size:13px;font-weight:600;color:var(--tx2)}
+.evstat:empty{display:none}
 
 /* Join on the left and Spectate on the right, as Play and Spectate sit on
    every game's card (Owen, 2026-10-16: "just like the rest of the games"). */
@@ -2267,14 +2270,11 @@ body.scr-anim { overflow-x:hidden }
     var c=document.querySelector('.evclock');
     if(c) c.style.display = on ? '' : 'none';
   }
-  /* A running match has no timer (it runs until one snake is left), so the
-     same digits carry the ring and the snakes left, and the seconds go away.
-     The ring belongs in a number, not in the hours slot of "R4 HRS". */
+  /* A running match: minutes and seconds to the circle fully closed, the
+     latest it can last (it ends sooner when one snake is left). */
   function clockMode(live){
     var c=document.querySelector('.evclock'); if(!c) return;
     c.classList.toggle('live',!!live);
-    setText('ev-hu', live?'ring':'hrs');
-    setText('ev-mu', live?'left':'min');
   }
   function setText(id,t){
     var e=document.getElementById(id);
@@ -2336,7 +2336,7 @@ body.scr-anim { overflow-x:hidden }
     if(pm) pm.textContent = (st==='waiting' && !seated) ? '$'+stdPrize
                           : (BR.prize>0 ? '$'+BR.prize : '—');
 
-    if(live) caption('Live, '+(BR.alive||0)+' left','live');
+    if(live) caption('Live now','live');
     else if(starting) caption('Starting','live');
     else if(after) caption(BR.winner ? BR.winner.name+(BR.prize>0?' won $'+BR.prize:' won')
                                      : 'Nobody survived', BR.winner?'gold':'');
@@ -2356,10 +2356,12 @@ body.scr-anim { overflow-x:hidden }
       setClock(Math.max(0, Math.round((BR.countdownMs||0)/1000)
                           - Math.floor((Date.now()-BRAT)/1000)));
     } else if(live){
-      line.textContent='';
-      clockMode(true); showClock(true);
-      setText('ev-h',pad(BR.ring||1));
-      setText('ev-m',pad(BR.alive||0));
+      /* endsMs is the server's, run on locally since the poll; 0 from the old
+         engine, which has no such clock (the line alone then). */
+      var ends=BR.endsMs>0 ? Math.max(0, Math.round(BR.endsMs/1000) - Math.floor((Date.now()-BRAT)/1000)) : null;
+      clockMode(true); showClock(ends!==null);
+      line.textContent = ends===null ? '' : ends>0 ? 'Ends in' : 'Final circle';
+      if(ends!==null){ setText('ev-m',pad(Math.floor(ends/60))); setText('ev-s',pad(ends%60)); }
     } else if(BR.autoPending && (st==='waiting'||after)){
       clockMode(false); showClock(true);
       line.textContent='Starting now';
@@ -2396,6 +2398,8 @@ body.scr-anim { overflow-x:hidden }
     /* Spectate: watching the match while one is on, the arena between them.
        Its small line counts what you would be watching (not after a match,
        where the count is the winner alone). */
+    /* Who is left and which ring, in words, while a match runs. */
+    setText('ev-stat', live ? (BR.alive||0)+' alive · ring '+(BR.ring||1) : '');
     ownButton(st);
     if(watch){
       setText('ev-watch-t', on ? 'Watch live' : 'Spectate');
@@ -2672,15 +2676,16 @@ body.scr-anim { overflow-x:hidden }
       <h3 class="evname">Battle Royale</h3>
       <p class="evwhen" id="ev-when">Nightly at 8:05 PM ET</p>
       <p class="evline" id="ev-line"></p>
-      <!-- The countdown Owen loves, in the mono the money uses. Live, the
-           same digits carry the ring and the snakes left. -->
+      <!-- The countdown Owen loves, in the mono the money uses. Live, it
+           counts down to the circle fully closed. -->
       <div class="evclock" role="timer" aria-live="off" style="display:none">
-        <div class="evu"><b id="ev-h">--</b><span id="ev-hu">hrs</span></div>
+        <div class="evu evhr"><b id="ev-h">--</b><span id="ev-hu">hrs</span></div>
         <i aria-hidden="true" id="ev-c1">:</i>
         <div class="evu"><b id="ev-m">--</b><span id="ev-mu">min</span></div>
         <i aria-hidden="true" class="evsec">:</i>
         <div class="evu evsec"><b id="ev-s">--</b><span>sec</span></div>
       </div>
+      <p class="evstat" id="ev-stat"></p>
     </div>
     <!-- The rules live behind this, where there is room to say all of them. -->
     <button type="button" class="evhow" onclick="openEventHow()">

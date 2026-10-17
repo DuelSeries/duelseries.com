@@ -3296,6 +3296,9 @@ function liveBattleRoyale() {
     ring: st.ring,
     phase: st.phase,
     countdownMs: st.countdownMs,
+    /* Until the circle is fully closed, the latest the match can last (the
+       Events tab's "Ends in"); 0 on the old engine, which does not say. */
+    endsMs: st.endsMs || 0,
     winner: st.winner,
     podium: st.podium,
     /* The match's prize was held for Owen (fewer than two proven wallets). */

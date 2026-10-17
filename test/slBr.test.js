@@ -123,6 +123,29 @@ test('brZone: every ring sits inside the last, never moves the wall faster than 
   assert.ok(t > 2 * 60 * 1000 && t < 6 * 60 * 1000, 'a match of minutes, not seconds: ' + Math.round(t / 1000) + ' s');
 });
 
+test('brZone: closesInMs says when the circle reaches the floor (the Events "Ends in"), counting down to 0 there', () => {
+  const z = createZone({ grd: GRD, cruise: cruiseOf(LAWS), rand: seeded(11) });
+  assert.strictEqual(z.closesInMs(0), 0, 'no rings, no clock');
+  z.begin(0, 3000);
+  const said = z.closesInMs(0);
+  let t = 0;
+  let rings = 1;
+  let prevSaid = said;
+  while (t < 20 * 60 * 1000) {
+    t += P;
+    if (z.update(t)) rings++;
+    const left = z.closesInMs(t);
+    // it only counts down: at most a step late per ring (the next ring is called on the first step after the rest)
+    assert.ok(left <= prevSaid - P + rings * P + 1, 'never jumps up: ' + left + ' after ' + prevSaid);
+    prevSaid = left;
+    if (z.get().r <= BRZ.RING_MIN_RADIUS + 1e-9) break;
+  }
+  assert.ok(Math.abs(t - said) <= rings * P + P, 'said ' + said + ' ms, closed at ' + Math.round(t) + ' ms (' + rings + ' rings)');
+  assert.strictEqual(z.closesInMs(t), 0, 'fully closed');
+  z.freeze();
+  assert.strictEqual(z.closesInMs(t), 0);
+});
+
 test('brZone: freeze holds the circle; reopen travels back to the arena centre in REOPEN_MS', () => {
   const z = createZone({ grd: GRD, cruise: cruiseOf(LAWS), rand: seeded(3) });
   z.begin(0, 2900);

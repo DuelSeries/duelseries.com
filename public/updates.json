@@ -2,6 +2,17 @@
   "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). Optional pictures: image (the big one, {src, alt}) and gallery (up to 4 small ones, same shape); src is a file in public/updates/ (/updates/name.webp), alt says what the picture shows. The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
   "posts": [
     {
+      "id": "2026-10-17-battle-royale-ends-in",
+      "date": "2026-10-17",
+      "tag": "new",
+      "title": "See when a battle royale ends",
+      "body": "While a battle royale is on, the Events tab now counts down to the moment the circle is fully closed, with how many are still alive and which ring it is on.\n\nIf one snake is left sooner, the result shows straight away.",
+      "image": {
+        "src": "/updates/battle-royale-ends-in.webp",
+        "alt": "The Events tab during a battle royale: Ends in 04:08, 3 alive, ring 1"
+      }
+    },
+    {
       "id": "2026-10-16-knockout-ready",
       "date": "2026-10-16",
       "tag": "fix",

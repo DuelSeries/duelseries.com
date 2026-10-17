@@ -414,6 +414,8 @@ function createBrMatch(opts) {
         elapsedMs: m.state === 'running' ? now - m.startedAt : 0,
         ring: zone.ring(),
         zoneMs: m.state === 'running' ? zone.zoneMs(now) : 0,
+        // until the circle is fully closed: the latest this match can last (the Events tab's "Ends in")
+        endsMs: m.state === 'running' ? zone.closesInMs(now) : 0,
         phase: m.phase(now),
         soloRun: past ? past.soloRun : !!m.soloRun,
         startedWith: m.startedWith || 0,

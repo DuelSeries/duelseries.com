@@ -404,8 +404,11 @@ test('the lobby makes no claim about money it cannot honour', () => {
   // countdown and a podium of winners. There is no tournament system. In front
   // of players staking real money that is a promise, not a placeholder.
   const html = v2();
-  for (const claim of ['winner takes all', 'top three split', 'Ends in', 'chip live'])
+  for (const claim of ['winner takes all', 'top three split', 'chip live'])
     assert.ok(!html.includes(claim), `no fabricated tournament claim: ${claim}`);
+  // 'Ends in' only as the battle royale's real clock, the server's endsMs (Owen 2026-10-16)
+  assert.strictEqual(html.split('Ends in').length - 1, 1, 'one Ends in');
+  assert.ok(/ends>0 \? 'Ends in'/.test(html) && /BR\.endsMs/.test(html), 'and it is the match clock the server sends');
   // The handlers must be gone as code, not merely unmentioned: a comment naming
   // them is fine, a live onclick or definition is not.
   for (const fn of ['enterTournament', 'remindMe']) {
@@ -1282,7 +1285,7 @@ test('the nightly event states its prizes and reads the match, not a clock', () 
   /* The states it must be able to show. "in progress" is the one the wall
      clock could never express. */
   assert.ok(/in progress/i.test(html), 'it can say a match is in progress');
-  assert.ok(/'Live, '\+\(BR\.alive\|\|0\)\+' left'/.test(html), 'and how many are left in it');
+  assert.ok(/\(BR\.alive\|\|0\)\+' alive · ring '/.test(html), 'and how many are left in it, and the ring');
   /* The shut door is said by the Join button itself, dimmed and relabelled
      (2026-10-15: a separate note under the hero repeated it word for word). */
   assert.ok(/join\.disabled = !BR\.joinable/.test(html) && /'Match in progress'/.test(html),
