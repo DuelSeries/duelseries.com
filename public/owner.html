@@ -834,7 +834,7 @@ function partBotBank(ups, cls) {
     if (r && r.ok && r.body.ok !== false) cap.value = '';
   });
   /* Where to send it: the escrow's address as the server reports it, with a Copy button. */
-  const hint = h('span', { class: 'l', 'data-k': 'bbhint' }, 'Send USDC from your revenue wallet here, then paste the signature below');
+  const hint = h('span', { class: 'l', 'data-k': 'bbhint' }, 'Send USDC here (from Coinbase or any wallet), then paste the signature below');
   const addr = h('span', { class: 'l', 'data-k': 'bbaddr', style: 'font-family:var(--fm,monospace);word-break:break-all' }, '…');
   const copy = h('button', { type: 'button', class: 'btn', 'data-k': 'bbcopy', text: 'Copy' });
   copy.addEventListener('click', async () => {
