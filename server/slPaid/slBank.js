@@ -206,11 +206,33 @@ class SlBank {
     return acct;
   }
 
+  // The owner's bot (Owen 2026-10-17: bots play for the gold): an account of 0 with no deposit and no wallet, opened by
+  // the controller only right before the bot's first credit, so it never sits at 0 (I3). Nothing comes in: the ledger
+  // does not move. It only ever grows by credit and leaves whole, by split (a death) or withdraw('refund') back to the
+  // players its money came from (slMoney _returnBot). It can never cash out (the controller has no seat for it).
+  openBot(snakeId, info) {
+    if (!isSnakeId(snakeId)) refuse('openBot', 'bad snake id ' + String(snakeId));
+    if (this.accounts.has(snakeId)) refuse('openBot', 'account ' + snakeId + ' is already open');
+    const acct = Object.freeze(Object.assign({}, info || null, { snakeId, micro: 0, deposit: 0, bot: true, wallet: null }));
+    this.accounts.set(snakeId, acct);
+    return acct;
+  }
+
+  // A bot account left at 0 by a refused first credit goes again (never a 0 account in the bank, I3). -> true if gone
+  dropEmptyBot(snakeId) {
+    const a = this.accounts.get(snakeId);
+    if (!a || a.bot !== true || a.micro !== 0) return false;
+    this.accounts.delete(snakeId);
+    return true;
+  }
+
   // A death: the account closes and its whole micro M becomes pellets, foods[i] holding shares[i] (slSplit.planSplit
   // makes both: every share >= 1, sum == M, checked here again). No food at all: M goes to the house as a breach
   // (unplaced; the controller raises the slither_breach incident). null when the snake has no account (nothing moves).
   // -> { micro: M, placed, unplaced, pellets, acct }
-  split(snakeId, foods, shares) {
+  // srcs (a bot's death only): one { srcWallet, srcName } per food, the person whose money that pellet carries, so a
+  // pellet a bot dropped still names a person for the floor's return (viaBot: never a collusion signal).
+  split(snakeId, foods, shares, srcs) {
     const acct = this.accounts.get(snakeId);
     if (!acct) return null;
     if (!Array.isArray(foods) || !Array.isArray(shares) || foods.length !== shares.length) {
@@ -235,8 +257,10 @@ class SlBank {
     this.sums.acc -= M;
     const src = { srcWallet: acct.wallet || null, srcName: acct.name || '', srcJid: acct.jid || null };
     for (let i = 0; i < foods.length; i++) {
-      this.floor.set(foods[i], Object.freeze({ micro: shares[i], srcWallet: src.srcWallet, srcName: src.srcName,
-        srcJid: src.srcJid }));
+      const o = Array.isArray(srcs) && srcs[i] ? { srcWallet: srcs[i].srcWallet || null, srcName: srcs[i].srcName || '',
+        srcJid: null, viaBot: true } : src;
+      this.floor.set(foods[i], Object.freeze({ micro: shares[i], srcWallet: o.srcWallet, srcName: o.srcName,
+        srcJid: o.srcJid, viaBot: o.viaBot === true }));
     }
     this.sums.floor += sum;
     if (unplaced > 0) bookOut(this, 'breach', unplaced);
@@ -267,8 +291,10 @@ class SlBank {
     this.step.taken += m;
     this.step.credited += next - before;
     try {
-      this.onTransfer({ srcWallet: pel.srcWallet, dstWallet: to.wallet || null, micro: m, srcJid: pel.srcJid,
-        eater: eaterId, kind: 'eat' });
+      if (!pel.viaBot && !to.bot) {
+        this.onTransfer({ srcWallet: pel.srcWallet, dstWallet: to.wallet || null, micro: m, srcJid: pel.srcJid,
+          eater: eaterId, kind: 'eat' });
+      }
     } catch (e) { /* the collusion record is advice; the move stands */ }
     return m;
   }

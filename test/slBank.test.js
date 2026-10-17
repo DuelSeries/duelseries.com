@@ -107,7 +107,7 @@ test('split: the whole account becomes pellets keyed by the food objects, sum ex
   assert.strictEqual(r.acct.wallet, 'W5');
   assert.ok(!b.isOpen(5));
   assert.strictEqual(b.pelletCount(), 4);
-  assert.deepStrictEqual(b.pellet(foods[0]), { micro: 250001, srcWallet: 'W5', srcName: 'five', srcJid: 'j5' });
+  assert.deepStrictEqual(b.pellet(foods[0]), { micro: 250001, srcWallet: 'W5', srcName: 'five', srcJid: 'j5', viaBot: false });
   assert.deepStrictEqual(b.pellet(foods[3]).micro, 250000);
   assert.strictEqual(b.pellet({ id: 11 }), null, 'keyed by the object, not the id');
   assert.strictEqual(b.floorMicro(), 1000003);

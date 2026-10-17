@@ -111,9 +111,13 @@ class SlMoney {
     this.lastTick = null;
     this.steps = 0;
     this.stopped = false; // settled (shutdown, crash, emergency): nothing opens again
-    // Owner-spawned bots have played here (markBots). They never hold money (the room's eatGate), and from then on
-    // the floor nobody picked up goes back to the players who dropped it, never to the house (_returnFloor).
+    // Owner-spawned bots have played here (markBots). They play for the gold like people (Owen 2026-10-17): a bot's
+    // account opens at its first cash pellet (bank.openBot, no deposit, no wallet) and remembers whose money it holds
+    // (botFrom). It never cashes out: its money drops back into play when it dies, and any other way it leaves (removed,
+    // restart, crash, emergency, idle with nobody there) goes back to those players as keyed owed rows, never to the
+    // house. From then on the floor nobody picked up goes back to the players who dropped it too (_returnFloor).
     this.botRoom = false;
+    this.botFrom = new Map(); // bot snake id -> Map srcWallet -> { micro, name }, summing to its balance
     this.tainted = false; // I1, I10 or I13 seen, or a seat refund refused: no new seat (design 8)
     this.closedCount = Object.create(null); // outcome -> n (owner view, tests)
     this.lastViolations = [];
@@ -139,6 +143,23 @@ class SlMoney {
   // A bot entered the room (slRoom.spawnSnake). One way: the room keeps the rule for the rest of its life.
   markBots() {
     this.botRoom = true;
+  }
+
+  // A bot's money in micro (0 when it holds none).
+  botBalance(snakeId) {
+    return this.botFrom.has(snakeId) ? this.bank.balance(snakeId) : 0;
+  }
+
+  // Micro the room's bots hold (owner view, tests).
+  botMicro() {
+    let n = 0;
+    for (const id of this.botFrom.keys()) n += this.bank.balance(id);
+    return n;
+  }
+
+  _isBot(id) {
+    const r = this.room;
+    return this.botRoom && !!r && !!r.humans && !r.humans.has(id) && !!(r.sim && r.sim.snake(id));
   }
 
   account(idOrJid) {
@@ -329,7 +350,11 @@ class SlMoney {
     this.applied.add(d);
     const acct = this.accounts.get(d.id);
     if (!acct) {
-      // a bot: it never held money, its drops are plain food
+      if (this.botFrom.has(d.id)) {
+        this._botDeath(d, out);
+        return;
+      }
+      // a bot that held no money: its drops are plain food
       if (this.botRoom && this.room && this.room.humans && !this.room.humans.has(d.id)) return;
       if (Array.isArray(d.drops) && d.drops.some((q) => q && q.food)) {
         this.log.error('[SLP] DEATH of snake ' + d.id + ' dropped gold with no account (' + this.label + ')');
@@ -351,18 +376,95 @@ class SlMoney {
     }
   }
 
+  // A bot's death: its whole balance drops as pellets like a person's (slSplit), each pellet naming the person whose
+  // money it carries (botFrom, walked in order), so the floor's return still finds a wallet. No food at all: the money
+  // goes straight back to those players (_returnBot), never the house.
+  _botDeath(d, out) {
+    const from = this.botFrom.get(d.id);
+    const M = this.bank.balance(d.id);
+    const plan = planSplit(M, Array.isArray(d.drops) ? d.drops : []);
+    if (plan.foods.length === 0) {
+      this._returnBot(d.id, 'nodrop', true);
+      return;
+    }
+    const list = Array.from(from.entries()).filter((x) => x[1].micro > 0);
+    const srcs = [];
+    let i = 0;
+    let left = list.length ? list[0][1].micro : 0;
+    for (const share of plan.shares) {
+      const cur = list[i];
+      srcs.push(cur ? { srcWallet: cur[0] || null, srcName: cur[1].name } : null);
+      left -= share;
+      while (left <= 0 && i < list.length - 1) {
+        i++;
+        left += list[i][1].micro;
+      }
+    }
+    this.bank.split(d.id, plan.foods, plan.shares, srcs);
+    this.botFrom.delete(d.id);
+    out.lost.set(d.id, M);
+  }
+
+  // A bot's money leaving the room any way but its death (removed, restart, crash, emergency, idle): withdrawn as a
+  // refund and owed back to the players it came from, one keyed row each (_owedRows). -> the rows
+  _returnBot(id, why, live) {
+    const from = this.botFrom.get(id);
+    this.botFrom.delete(id);
+    const w = this.bank.withdraw(id, 'refund');
+    if (!w || !(w.micro > 0)) return [];
+    const src = from ? Array.from(from.entries()).map(([k, v]) => ({ srcWallet: k || null, srcName: v.name, micro: v.micro }))
+      : [];
+    const sum = src.reduce((n, x) => n + x.micro, 0);
+    if (sum !== w.micro) {
+      // impossible (every credit adds the same micro to both); the last source takes the difference so none is lost
+      this.log.error('[SLP] BOT CRITICAL ' + id + ' holds ' + w.micro + ' but its sources say ' + sum + ' (' + this.label + ')');
+      if (src.length) src[src.length - 1].micro += w.micro - sum;
+    }
+    return this._owedRows(src.filter((x) => x.micro > 0), why, live);
+  }
+
+  // The room's bots give back what they hold, and the floor goes back too (no person is open here): the directory
+  // calls this for a held room nobody has played in for FLOOR_SWEEP_MS, so a bot never sits on money for good.
+  releaseBots(why = 'idle') {
+    const rows = [];
+    for (const id of Array.from(this.botFrom.keys())) rows.push(...this._returnBot(id, why, true));
+    if (this.accounts.size === 0) rows.push(...this._returnFloor(why, true));
+    return rows;
+  }
+
   // An eat: a pellet's micro moves to the eater's account, once. A pellet eaten by a snake with no account (no bots
   // in a paid room, so only a bug) goes to the house as a breach incident, once, with an alert.
   _eat(e, out) {
     if (!e || !e.food) return;
-    const m = this.bank.credit(e.food, e.eater);
+    const pel = this.bank.pellet(e.food);
+    let m = this.bank.credit(e.food, e.eater);
+    // a bot's first cash pellet opens its account (no deposit, no wallet), then the same credit
+    if (m === -1 && pel && this._isBot(e.eater)) {
+      this.bank.openBot(e.eater, { name: (this.room.names && this.room.names.get(e.eater)) || '' });
+      this.botFrom.set(e.eater, new Map());
+      try {
+        m = this.bank.credit(e.food, e.eater);
+      } finally {
+        if (!(m > 0)) {
+          this.bank.dropEmptyBot(e.eater);
+          this.botFrom.delete(e.eater);
+        }
+      }
+    }
     if (m > 0) {
-      this.changed.set(e.eater, (this.changed.get(e.eater) || 0) + m);
+      const from = this.botFrom.get(e.eater);
+      if (from) {
+        const k = pel.srcWallet || '';
+        const f = from.get(k) || { micro: 0, name: pel.srcName || '' };
+        f.micro += m;
+        from.set(k, f);
+      } else {
+        this.changed.set(e.eater, (this.changed.get(e.eater) || 0) + m);
+      }
       out.credited += m;
       return;
     }
     if (m !== -1) return; // natural food, a boost crumb, a replayed eat
-    const pel = this.bank.pellet(e.food);
     const micro = this.bank.toSuspense(e.food);
     if (micro > 0) {
       out.breaches++;
@@ -466,6 +568,13 @@ class SlMoney {
         this._leftOpen('EMERGENCY', acct, e);
       }
     }
+    for (const id of Array.from(this.botFrom.keys())) {
+      try {
+        this._returnBot(id, 'emergency', true);
+      } catch (e) {
+        this.log.error('[SLP] EMERGENCY bot ' + id + ' not returned (' + this.label + '): ' + (e && e.message));
+      }
+    }
     let floor = null;
     try {
       floor = this._sweep('emergency');
@@ -509,6 +618,13 @@ class SlMoney {
       }
     }
     if (this.botRoom) {
+      for (const id of Array.from(this.botFrom.keys())) {
+        try {
+          rows.push(...this._returnBot(id, kind, false));
+        } catch (e) {
+          this.log.error('[SLP] SHUTDOWN bot ' + id + ' not returned (' + this.label + '): ' + (e && e.message));
+        }
+      }
       try {
         rows.push(...this._returnFloor(kind, false));
       } catch (e) {
@@ -553,6 +669,7 @@ class SlMoney {
   // for the last endStep would be lost with the room. -> { micro, count, sweeps }
   sweepFloor(why = 'idle') {
     if (this.accounts.size > 0) return null;
+    for (const id of Array.from(this.botFrom.keys())) this._returnBot(id, String(why || 'idle'), true);
     this._phase('collusion', () => this._flushBuckets(true));
     return this._sweep(String(why || 'idle'));
   }
@@ -584,8 +701,16 @@ class SlMoney {
   // handed back with the account rows for the caller to write. -> the rows
   _returnFloor(why, live) {
     const f = this.bank.takeFloor('returned');
+    const rows = this._owedRows(f.bySource, why, live);
+    if (f.micro > 0) this.log.log('[SLP] BOTFLOOR ' + f.micro + ' micro back to ' + rows.length + ' player(s) ' + this.label);
+    return rows;
+  }
+
+  // sources [{ srcWallet, srcName, micro }] -> one owed row each, journaled first as a keyed close (why 'botfloor'),
+  // sent through onOwed now when live, else handed back for the caller to write (a restart's rows).
+  _owedRows(sources, why, live) {
     const rows = [];
-    for (const s of f.bySource) {
+    for (const s of sources) {
       if (typeof s.srcWallet !== 'string' || !s.srcWallet) {
         // impossible: every pellet comes from an account, and every account has a wallet (open)
         this.log.error('[SLP] BOTFLOOR CRITICAL ' + s.micro + ' micro with no source wallet (' + this.label + ')');
@@ -610,7 +735,6 @@ class SlMoney {
         });
       }
     }
-    if (f.micro > 0) this.log.log('[SLP] BOTFLOOR ' + f.micro + ' micro back to ' + rows.length + ' player(s) ' + this.label);
     return rows;
   }
 
@@ -660,6 +784,12 @@ class SlMoney {
     this._phase('collusion', () => this._flushBuckets(false));
     const sim = this.room && this.room.sim;
     if (!sim) return out;
+    // a bot whose snake left without dying (a plain removal): its money goes back to the players it came from
+    this._phase('bots', () => {
+      for (const id of Array.from(this.botFrom.keys())) {
+        if (!sim.snake(id)) this._returnBot(id, 'removed', true);
+      }
+    });
     // I4, every step (at most 22 lookups): an account whose snake is gone is refunded 100% at once
     this._phase('orphans', () => {
       for (const acct of Array.from(this.accounts.values())) {

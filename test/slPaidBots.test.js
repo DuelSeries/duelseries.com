@@ -1,8 +1,9 @@
 'use strict';
 // Owner-spawned bots in the paid snake rooms (Owen 2026-10-16: "the bots will never cash out, the money's always going
 // to be on the board, I'm never going to be taking any money with my bots"). The rules, tested:
-//   1 a bot never holds money: the room's eatGate refuses it every cash pellet, so it has nothing to cash out or be paid
-//   2 a bot's death moves no money and raises no alert (its drops are plain food)
+//   1 a bot plays for the gold (Owen 2026-10-17) but never cashes out and is never paid: its account has no wallet,
+//     no seat and no deposit, and remembers whose money it holds
+//   2 a bot's death drops its money back into play as pellets naming those people; a bot with no money moves nothing
 //   3 in a room bots played in, the floor nobody picked up goes back 100% to the players who dropped it (owed rows,
 //     journaled with a key), never to the house: idle retire, emergency, shutdown and crash alike
 //   4 the house cut comes only from a human cash-out
@@ -51,12 +52,96 @@ const quiet = { log() {}, warn() {}, error() {} };
 function botRoom() {
   const s = spy();
   const m = createSlMoney({ stake: 0.5, label: LABEL, hooks: s.hooks, uuid, log: quiet, checkEvery: 1 });
-  m.attach({ sim: { snake: () => ({}), laws: FIXTURE }, humans: new Set([1, 2]), laws: FIXTURE });
+  const gone = new Set();
+  m.attach({ sim: { snake: (id) => (gone.has(id) ? null : {}), laws: FIXTURE }, humans: new Set([1, 2]), laws: FIXTURE,
+    names: new Map([[9, 'botty']]), gone });
   m.open(1, entry(1));
   m.open(2, entry(2));
   m.markBots();
-  return { s, m };
+  return { s, m, gone: m.room.gone };
 }
+
+// The ledger: stakes in == cash-outs gross (net + cut) + owed rows + money still in the room; nothing to the house.
+function ledgerHolds(m, s, extraRows) {
+  const l = m.bank.ledger;
+  const cash = s.of('onCashout').reduce((n, o) => n + o.grossMicro, 0);
+  const owed = s.of('onOwed').concat(extraRows || []).reduce((n, x) => n + x.micro, 0);
+  const live = m.bank.sums.acc + m.bank.sums.floor;
+  assert.equal(l.in, cash + owed + live, 'stakes in == cash-outs + owed + live');
+  assert.equal(l.outHouse, 0, 'nothing booked to the house');
+  assert.deepEqual(s.of('onFloor'), [], 'no house floor sweep');
+  assert.deepEqual(s.of('onHouse'), [], 'no house incident');
+}
+
+test('a bot eats a person\'s gold, dies, and its money drops back into play naming that person', () => {
+  const { s, m } = botRoom();
+  const d1 = drops(5);
+  m.applyFacts({ tick: 1, deaths: [{ id: 1, cause: 'snake', killer: 9, drops: d1 }] }, []);
+  // bot 9 eats three of W1's pellets: its account opens at the first, with no deposit and no wallet
+  m.applyFacts({ tick: 2, deaths: [] }, d1.slice(0, 3).map((q) => ({ food: q.food, eater: 9 })));
+  assert.equal(m.botBalance(9), STAKE / 5 * 3);
+  assert.equal(m.bank.ledger.in, 2 * STAKE, 'a bot account brings no money in');
+  assert.equal(m.bank.account(9).wallet, null);
+  assert.equal(m.cashOut(9, 'sock'), null, 'a bot cannot cash out');
+  assert.equal(m.worthOf(9), null, 'no seat message for a bot');
+  // the bot dies: its money is pellets again, each naming W1
+  const d9 = drops(4);
+  m.applyFacts({ tick: 3, deaths: [{ id: 9, cause: 'snake', killer: 2, drops: d9 }] }, []);
+  assert.equal(m.botBalance(9), 0);
+  assert.equal(m.bank.account(9), null);
+  for (const q of d9) assert.equal(m.bank.pellet(q.food).srcWallet, 'W1');
+  assert.equal(m.bank.floorMicro(), STAKE);
+  // human 2 eats two of the bot's pellets: no collusion signal from W1 (it went through a bot)
+  m.applyFacts({ tick: 4, deaths: [] }, [{ food: d9[0].food, eater: 2 }, { food: d9[1].food, eater: 2 }]);
+  m.endStep();
+  assert.deepEqual(s.of('onTransfer').filter((t) => t.srcWallet === 'W1'), []);
+  // human 2 cashes out (the only house cut); the room idles: the rest goes back to W1
+  m.cashOut(2, 'sock');
+  m.sweepFloor('idle');
+  assert.ok(s.of('onOwed').every((r) => r.wallet === 'W1' && OWED_KEY.test(r.key)));
+  ledgerHolds(m, s);
+  assert.equal(m.bank.sums.acc + m.bank.sums.floor, 0);
+});
+
+test('a bot holding money: removal, restart, crash, emergency and the idle release all owe it back to its sources', () => {
+  const setup = () => {
+    const r = botRoom();
+    const d1 = drops(2);
+    const d2 = drops(2);
+    r.m.applyFacts({ tick: 1, deaths: [{ id: 1, cause: 'snake', killer: 9, drops: d1 }, { id: 2, cause: 'snake', killer: 9, drops: d2 }] }, []);
+    r.m.applyFacts({ tick: 2, deaths: [] }, [{ food: d1[0].food, eater: 9 }, { food: d2[0].food, eater: 9 }]);
+    assert.equal(r.m.botBalance(9), STAKE);
+    return r;
+  };
+  const sources = (rows) => rows.filter((x) => x.wallet !== undefined).map((x) => [x.wallet, x.micro]).sort();
+  // removed without dying (a plain removal): the next step end owes it back
+  let r = setup();
+  r.gone.add(9);
+  r.m.endStep();
+  assert.deepEqual(sources(r.s.of('onOwed')), [['W1', STAKE / 2], ['W2', STAKE / 2]]);
+  assert.ok(r.s.records.filter((x) => x.why === 'botfloor').length >= 2, 'journaled with keys');
+  ledgerHolds(r.m, r.s);
+  // restart and crash: handed back with the rows (bot money, then the floor), never a floor record
+  for (const why of ['shutdown', 'crash']) {
+    r = setup();
+    const rows = r.m.shutdownSettle(why);
+    assert.equal(rows.reduce((n, x) => n + x.micro, 0), 2 * STAKE);
+    assert.equal(r.s.records.filter((x) => x.t === 'floor').length, 0);
+    ledgerHolds(r.m, r.s, rows);
+    assert.equal(r.m.bank.sums.acc + r.m.bank.sums.floor, 0);
+  }
+  // emergency
+  r = setup();
+  r.m.emergencySettle('test');
+  ledgerHolds(r.m, r.s);
+  assert.equal(r.m.bank.sums.acc + r.m.bank.sums.floor, 0);
+  // idle with nobody there: the directory's release
+  r = setup();
+  r.m.releaseBots('idle');
+  assert.equal(r.m.botBalance(9), 0);
+  ledgerHolds(r.m, r.s);
+  assert.equal(r.m.bank.sums.acc + r.m.bank.sums.floor, 0);
+});
 
 test('a bot kills a human, a human eats some gold and cashes out, the rest goes back to the dropper', () => {
   const { s, m } = botRoom();
@@ -160,7 +245,7 @@ function botRig(saved) {
   return { r, mem };
 }
 
-test('a rung target opens room #0 with that many bots, saved; the bots have no account and no gold', async () => {
+test('a rung target opens room #0 with that many bots, saved; a watcher sees them with nobody else there', async () => {
   const { r, mem } = botRig();
   const out = r.paid.setBotTarget(0.5, 4);
   assert.equal(out.ok, true);
@@ -171,6 +256,8 @@ test('a rung target opens room #0 with that many bots, saved; the bots have no a
   assert.equal(room.money.botRoom, true);
   assert.equal(room.awake, true, 'ticks with nobody seated');
   assert.equal(r.paid.botCount(0.5), 4);
+  // Spectate (the lobby's watch of the rung) finds the bots' room with nobody else in it
+  assert.equal(r.paid.watch(r.sock({}), { stake: 0.5 }), true, 'a watcher is seated with only bots playing');
   // a human joins and plays among them; every account is a human's
   r.join(r.mint());
   await r.settle();
@@ -178,15 +265,6 @@ test('a rung target opens room #0 with that many bots, saved; the bots have no a
   assert.equal(room.money.openCount(), 1);
   for (const id of room.money.bank.openIds()) assert.ok(room.humans.has(id), 'account ' + id + ' is a human');
   assert.deepEqual(room.money.lastViolations, []);
-  // the gate: a cash pellet is refused to a bot, allowed to a human; plain food is for everyone
-  const pellet = { id: 1 };
-  room.money.bank.floor.set(pellet, { micro: 1 });
-  const botId = Array.from(room.sim.snakes ? room.sim.snakes.keys() : []).find((id) => !room.humans.has(id)) || 999;
-  const human = Array.from(room.humans)[0];
-  assert.equal(room.eatGate(pellet, botId), false);
-  assert.equal(room.eatGate(pellet, human), true);
-  assert.equal(room.eatGate({ id: 2 }, botId), true);
-  room.money.bank.floor.delete(pellet);
   // held: the sweep never retires room #0 while it has a target
   for (let i = 0; i < 5; i++) r.paid.sweep(r.wall.t += 10 * 60 * 1000);
   assert.ok(r.paid.rooms().includes(room));
@@ -209,21 +287,20 @@ test('saved targets come back at boot (startBots), and bad numbers are refused',
   assert.equal(r.paid.setBotTarget(0.7, 1).ok, false);
 });
 
-test('bots give people their place: a paid room never holds more than its cap of snakes (I10 never trips)', async () => {
+test('people and bots together: 22 people plus the bots, the paid border never moves, no violation', async () => {
   const { r } = botRig();
-  r.paid.setBotTarget(0.5, 15);
+  r.paid.setBotTarget(0.5, 20);
   const room = r.paid.rooms()[0];
+  const flux0 = room.sim.flux();
   const cap = room.R.humanCap;
-  for (let i = 0; i < cap - 10; i++) {
+  for (let i = 0; i < cap; i++) {
     r.join(r.mint());
     await r.settle();
     r.step(2);
-    assert.ok(room.sim.count() <= cap, 'snakes ' + room.sim.count() + ' <= ' + cap);
   }
-  r.step(60);
-  const seated = r.paid.rooms().reduce((n, x) => n + x.money.openCount(), 0);
-  assert.equal(seated + (room.money.closedCount.died || 0), cap - 10, 'every person is seated: ' + r.paid.rooms().map((x) => x.lobbyType + '=' + x.money.openCount() + '/' + x.botCount));
-  assert.ok(room.sim.count() <= cap);
+  r.step(200);
+  assert.ok(room.sim.count() > cap, 'more snakes than the people cap: ' + room.sim.count());
+  assert.equal(room.sim.flux(), flux0, 'the border is pinned');
   assert.equal(room.money.tainted, false);
   assert.deepEqual(room.money.lastViolations, []);
 });

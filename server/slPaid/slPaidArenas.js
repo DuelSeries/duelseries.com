@@ -41,9 +41,10 @@
 //                    once empty. Nothing runs while stopping (no money moves in the exit window).
 //   setBotTarget(stake, n)  the owner's bots for a rung (Owen 2026-10-16): n bots held in the rung's room #0 (opened
 //                    if none is), saved through opts.botStore so a deploy keeps them; while n > 0 that room stays awake
-//                    and is never retired. The bots never eat a cash pellet (slRoom eatGate), so they never hold or
-//                    take out money, and the room's unclaimed floor goes back to the players who dropped it
-//                    (slMoney _returnFloor), never to the house. botTarget(stake) reads it, botCount(stake) the live bots.
+//                    and is never retired. The bots play for the gold and never cash out (slMoney botFrom): a bot's
+//                    money drops back into play when it dies, and any other way out, the room's unclaimed floor
+//                    included, goes back to the players it came from, never to the house; nobody in the room for
+//                    FLOOR_SWEEP_MS releases it (sweep). botTarget(stake) reads it, botCount(stake) the live bots.
 //   shutdownSettle(why)  a planned restart or a crash (design 7.2): stopping, then for each room the money rows FIRST
 //                    (money.shutdownSettle: 100% of every current balance, journaled, the floor booked abandoned), then
 //                    room.halt() (the clock only). Returns the rows for the caller to write.
@@ -59,9 +60,9 @@ const { ROOMS_PER_RUNG, FLOOR_SWEEP_MS } = require('./slPaidConst');
 const SERVER_HOOKS = Object.freeze(REQUIRED_HOOKS.filter((k) => k !== 'onAccountOpen' && k !== 'onAccountClosed'));
 const ROOM_KEYS = Object.freeze(['clock', 'now', 'timers', 'autoTick', 'view', 'prey']);
 const SEED_MAX = 2 ** 31 - 1;
-// The owner's bots per paid rung (room #0). A paid room holds at most C_PAID_HUMAN_CAP snakes of any kind (22, the
-// checker's I10), and the bots give way to people (slRoom _paidBotTrim), so this leaves room for people too.
-const PAID_BOT_MAX = 15; // design 1: crypto.randomInt(1, 2^31 - 1)
+// The owner's bots per paid rung (room #0), on top of its C_PAID_HUMAN_CAP people (the paid border is pinned, so they
+// never move it); the room's own C_ROOM_CAP still bounds people and bots together.
+const PAID_BOT_MAX = 40; // design 1: crypto.randomInt(1, 2^31 - 1)
 
 class SlPaidArenas {
   // laws: the law table. opts:
@@ -396,8 +397,10 @@ class SlPaidArenas {
     if (!this.isOpen()) return 'closed';
     const rung = this._rungOf(info && info.stake);
     if (rung === null) return 'closed';
-    const live = this.rungs.get(rung).filter((r) => !r.stopped && !r.closed && this._humans(r) > 0)
-      .sort((a, b) => this._humans(b) - this._humans(a) || this.place.get(a).index - this.place.get(b).index);
+    // a room with people, else the room the owner's bots are playing in
+    const busy = (r) => this._humans(r) * 1000 + (Number(r.botCount) || 0);
+    const live = this.rungs.get(rung).filter((r) => !r.stopped && !r.closed && busy(r) > 0)
+      .sort((a, b) => busy(b) - busy(a) || this.place.get(a).index - this.place.get(b).index);
     if (!live.length) return 'nobody';
     const room = live[0];
     if (room.watchers.size >= room.R.humanCap) return 'full';
@@ -541,10 +544,25 @@ class SlPaidArenas {
           continue;
         }
         const held = this.place.get(room).index === 0 && (this.botTargets.get(this.stakeOf(room)) || 0) > 0;
-        const busy = held || room.money.openCount() > 0 || room.seats.size > 0 || room.orphans.size > 0 ||
-          room.parked.size > 0;
-        if (busy || room.stopped) {
+        const people = room.money.openCount() > 0 || room.seats.size > 0 || room.orphans.size > 0 || room.parked.size > 0;
+        if (people || room.stopped) {
           this.emptySince.delete(room);
+          continue;
+        }
+        if (held) {
+          // the owner's bots keep the room, but money never sits with them for good: nobody here for FLOOR_SWEEP_MS,
+          // the bots' money and the floor go back to the players they came from, and the clock starts again
+          const act = this.activity.get(room) || 0;
+          const e = this.emptySince.get(room);
+          if (!e || e.act !== act) this.emptySince.set(room, { at: now, act });
+          else if (now - e.at >= FLOOR_SWEEP_MS) {
+            try {
+              room.money.releaseBots('idle');
+            } catch (err) {
+              this.log.error('[SLP] paid bots: idle release of ' + room.lobbyType + ' failed: ' + (err && err.message));
+            }
+            this.emptySince.set(room, { at: now, act });
+          }
           continue;
         }
         // empty since the first sample that saw it so with no account opened or closed after it: a paid life that

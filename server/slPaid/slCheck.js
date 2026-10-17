@@ -18,7 +18,8 @@
 //          I8   this step's facts were all applied: no food the sim ate is still a pellet, no snake that died still
 //               has an account (a skipped fact shows the same step, not 23 steps later as I5 or I4); and the bank's
 //               own tallies agree: credited + suspended == taken off the floor; placed == dead micro - unplaced
-//          I10  sim.count() <= C_PAID_HUMAN_CAP (so the border radius never moves, design 1)
+//          I10  live human snakes <= C_PAID_HUMAN_CAP (the owner's bots are on top; the paid border is pinned at C_R_MIN
+//               by the room, so no snake count moves it, design 1)
 //   full   I2   the running sums equal the sums recomputed from the maps; house kinds add up to outHouse
 //          I3   every account micro >= its deposit and > 0 (a live paid snake never loses money)
 //          I4   every open account's snake is alive in the sim (production: refunded 100% through the owed lane)
@@ -156,6 +157,7 @@ function checkI8Facts(bank, sim, s) {
 // I9 for one room: each of its accounts is the wallet's seat, and each seat that names this room is an account here.
 function checkI9(room, bank, walletSeat, s) {
   for (const a of bank.accounts.values()) {
+    if (a.bot === true) continue; // the owner's bots hold no seat and no wallet
     const ws = walletSeat.get(a.wallet);
     if (!ws || ws.room !== room || ws.snakeId !== a.snakeId) s.push('I9', { why: 'not-seated', snakeId: a.snakeId, jid: a.jid || null });
   }
@@ -226,7 +228,12 @@ function checkRoom(room, opts) {
       s.push('check', { why: 'no sim' });
     } else {
       checkI8Facts(bank, sim, s);
-      const n = sim.count();
+      let n = 0;
+      if (room.humans && typeof room.humans[Symbol.iterator] === 'function') {
+        for (const id of room.humans) if (sim.snake(id)) n++;
+      } else {
+        n = sim.count();
+      }
       if (!(n <= K.humanCap)) s.push('I10', { count: n, cap: K.humanCap });
       if (o.full) checkFull(room, bank, sim, K, o, s);
     }

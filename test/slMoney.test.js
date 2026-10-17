@@ -725,7 +725,10 @@ test('the checker at the step end: I13 and I10 taint the room (no new seat); ale
   assert.equal(m.tainted, true);
   assert.throws(() => m.open(2, entry(2)), /tainted/);
   assert.equal(s.of('onBreach').filter((c) => c[1].kind === 'I13').length, 1);
+  // I10 counts people only (the owner's bots are on top, Owen 2026-10-17): 25 bot snakes are fine, 25 people are not
   for (let i = 0; i < 25; i++) room.sim.snakes.set(100 + i, { id: 100 + i });
+  assert.ok(!m.endStep().violations.some((x) => x.kind === 'I10'));
+  for (let i = 0; i < 25; i++) room.humans.add(100 + i);
   assert.ok(m.endStep().violations.some((x) => x.kind === 'I10'));
 });
 

@@ -2824,14 +2824,12 @@ const slPaidOpened = slPaidBoot.openSlPaid({
   region: REGION,
   hooks: slMoneyHooks,
   paidSwitch: slPaidSwitch,
-  /* The owner's paid bots (Control): room #0 of a rung holds them; they never
-     eat a cash pellet, and a room they played in gives its unclaimed floor back
-     to the players who dropped it, never to the house (Owen 2026-10-16). */
+  /* The owner's paid bots (Control): room #0 of a rung holds them. They play for
+     the gold and never cash out; a bot's money drops back into play when it dies,
+     and any other way out (removed, restart, idle) goes back to the players it came
+     from, as does a bot room's unclaimed floor, never to the house (Owen 2026-10-17). */
   arenas: slArenas ? {
-    /* its room cap is the paid cap, so held bots plus people stay inside it (I10) */
-    botDriver: () => require('./sl/slBots').createBotDriver(Object.assign({}, slArenas.laws, { C_ROOM_CAP:
-      Object.assign({}, slArenas.laws.C_ROOM_CAP, { value: slArenas.laws.C_PAID_HUMAN_CAP.value }) }),
-    { governor: slArenas.governor }),
+    botDriver: () => require('./sl/slBots').createBotDriver(slArenas.laws, { governor: slArenas.governor }),
     botStore: require('./paidBotStore').createBotStore({ file: path.join(path.dirname(agJournal.file), 'sl-paid-bots.json') }),
   } : undefined,
   door: {
