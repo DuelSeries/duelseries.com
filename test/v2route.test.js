@@ -473,7 +473,8 @@ test('fullscreen is attempted honestly, not faked', () => {
 
 test('the board lists only lobbies that have players', () => {
   const src = fs.readFileSync(path.join(ROOT, 'public/js/v2/board.js'), 'utf8');
-  assert.ok(/\(l\.players \|\| 0\) > 0/.test(src), 'filters to occupied rooms');
+  // people plus bots (Owen 2026-10-17: "bots count as people playing")
+  assert.ok(/const playing = l => \(l\.players \|\| 0\) \+ \(l\.bots \|\| 0\)/.test(src) && /playing\(l\) > 0/.test(src), 'filters to occupied rooms');
   assert.ok(/Nobody playing yet/.test(src), 'and says so when there are none');
 });
 
@@ -1084,7 +1085,7 @@ test('the free lobby is always on the board, with an honest count', () => {
   // The count itself must stay real: an empty room says 0.
   assert.ok(!/players: *1|fake|placeholder/i.test(src), 'no invented player count');
   // (and be open: a closed paid agar.io room keeps its seated players but takes nobody new, PAID-AGAR-DESIGN.md 7)
-  assert.ok(/const occupied = \(\) => LOBBIES\.filter\(l => \(l\.players \|\| 0\) > 0 && isOpen\(l\)\)/.test(src),
+  assert.ok(/const occupied = \(\) => LOBBIES\.filter\(l => playing\(l\) > 0 && isOpen\(l\)\)/.test(src),
     'every other row still has to have someone in it');
 });
 
@@ -1202,7 +1203,8 @@ test('on a phone each screen scrolls itself, so a swipe has nothing to correct',
     'and the bar really is that tall');
   // One scroller on a phone: a nested list with overscroll-behavior:contain
   // traps an Android swipe and leaves the page short of its bottom.
-  assert.ok(/#lob\{max-height:none;overflow:visible\}/.test(html),
+  // Since 2026-10-16 the list is never a scroll box, on any screen (Owen: "they all load").
+  assert.ok(/\n\.lob\{display:flex;flex-direction:column;padding-bottom:2px\}/.test(html),
     'the home lobby list is not a second scroll box on a phone');
   assert.ok(/overscroll-behavior:contain/.test(block), 'and does not rubber-band the page');
 

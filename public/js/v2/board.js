@@ -60,7 +60,7 @@
 
   function rowHTML(l) {
     const g = (window.V2_GAME_NAMES || {})[l.game] || l.game;
-    const n = (l.players || 0) + (l.bots || 0);
+    const n = playing(l);
     /* A count, shown as a count. Every row used to end in the words "0 playing"
        sitting between two other grey chips, so the line read as four scraps of
        text with a number buried in it. It is one badge now — a dot that is lit
@@ -103,7 +103,10 @@
      and Paper row says 'open' (or says nothing), so this changes nothing for
      them. */
   const isOpen = l => l.state === undefined || l.state === null || l.state === 'open';
-  const occupied = () => LOBBIES.filter(l => (l.players || 0) > 0 && isOpen(l));
+  /* Bots count as playing here (Owen 2026-10-17: "bots count as people playing"), so a paid room the owner seeded with
+     bots is listed. `players` itself stays humans only on the server: the deploy check reads it. */
+  const playing = l => (l.players || 0) + (l.bots || 0);
+  const occupied = () => LOBBIES.filter(l => playing(l) > 0 && isOpen(l));
 
   /* The one exception: the free slither.io room is always listed, even empty.
      It is the "just let me play" button — nothing to stake, nothing to think
@@ -171,7 +174,10 @@
       const live = EXTRAS.find(e => e.id === p.id);
       rows.push(live ? Object.assign({}, p, { players: live.players, bots: live.bots }) : p);
     });
-    return rows;
+    /* Paid rooms with anyone in them first, the biggest buy-in on top (Owen 2026-10-17); everything else keeps its order. */
+    const paid = rows.filter(l => Number(l.stake) > 0 && playing(l) > 0)
+      .sort((a, b) => Number(b.stake) - Number(a.stake) || playing(b) - playing(a));
+    return paid.concat(rows.filter(l => !paid.includes(l)));
   }
 
   function draw() {
@@ -217,7 +223,7 @@
   function stop() { if (timer) { clearInterval(timer); timer = null; } }
 
   window.V2Board = { load: load, draw: draw, join: join, start: start, stop: stop,
-                     playableStakes: playableStakes,
+                     playableStakes: playableStakes, rowsToShow: rowsToShow,
                      get lobbies() { return LOBBIES; },
                      get counts() { return COUNTS; } };
 })();
