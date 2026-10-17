@@ -528,6 +528,26 @@ class AgRoom {
     return true;
   }
 
+  // ag:chat (the shared in-game chat, server/chatGuard.js): only a joined seat that plays may speak (a watcher, a
+  // spectating seat and a paid room's watcher may not).
+  canChat(socketId) {
+    const seat = this.seats.get(socketId);
+    return !!(seat && seat.joined && !seat.spectating && !seat.watchOnly);
+  }
+
+  // One line the chat guard already cleaned, to every seat of the room, spectators too. c is the speaker's cell
+  // colour as '#rrggbb' (left out before its first spawn); me: 1 is on the speaker's own copy only, so a page never
+  // guesses which line is its own from a name two players may share.
+  chat(socketId, text) {
+    if (!this.canChat(socketId) || typeof text !== 'string' || !text) return false;
+    const seat = this.seats.get(socketId);
+    const info = this.sim.playerInfo(seat.pid);
+    const msg = { name: Array.from(seat.name || '').slice(0, 24).join(''), text };
+    if (info && info.rgb) msg.c = '#' + info.rgb.map((v) => Math.max(0, Math.min(255, v | 0)).toString(16).padStart(2, '0')).join('');
+    for (const s of this.seats.values()) this._emit(s.socket, 'ag:chat', s === seat ? Object.assign({ me: 1 }, msg) : msg);
+    return true;
+  }
+
   // The seat of a paid account the controller just closed (agMoney onClosed): the page hears what happened, the
   // seat goes (the socket is seatless now: the directory is told) and so does the sim player (a player with cells
   // left goes at the next step, before any eat).

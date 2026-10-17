@@ -57,6 +57,9 @@ const HUD_READ_S = ['lbh', 'lbs', 'lbn', 'lbp', 'lbf', 'loch'];
 // slxCard.js alone reads their best rank this connection (slApply.js:768), read only, for the shared card's Top rank
 // (Owen 2026-10-16: time, rank and length on every game's card). No other seam carries it: their HUD never shows it.
 const CARD_READ_S = ['best_rank'];
+// slxChat.js alone reads their snakes by id and their colour table, read only, to print a chat name in that snake's
+// colour (Owen 2026-10-16 chat redo): the live snake's cs, else its skin's table colour.
+const CHAT_READ_S = ['os', 'rrs', 'ggs', 'bbs'];
 const WRITE_S = ['render_mode', 'xm', 'ym'];
 // The 12 blank picture canvases (public/js/sl/slSprites.js:411-424), drawn into once each (Q3, T18).
 const PICTURE_S = ['kwkbulb', 'jmou', 'pwdbulb', 'sest', 'playbulb', 'bonkbulb', 'leafbulb', 'swissbulb', 'moldovabulb',
@@ -112,7 +115,8 @@ test('frozen members: only the 15.1 seams', () => {
     for (const m of s.matchAll(/\bS\.([A-Za-z_$][\w$]*)/g)) {
       assert.ok(READ_S.includes(m[1]) || WRITE_S.includes(m[1]) || PICTURE_S.includes(m[1]) ||
         (f === 'slxPaid.js' && PAID_READ_S.includes(m[1])) || (f === 'slxBr.js' && BR_READ_S.includes(m[1])) ||
-        (f === 'slxHud.js' && HUD_READ_S.includes(m[1])) || (f === 'slxCard.js' && CARD_READ_S.includes(m[1])),
+        (f === 'slxHud.js' && HUD_READ_S.includes(m[1])) || (f === 'slxCard.js' && CARD_READ_S.includes(m[1])) ||
+        (f === 'slxChat.js' && CHAT_READ_S.includes(m[1])),
         f + ': S.' + m[1]);
     }
     for (const m of s.matchAll(/\bS\.([A-Za-z_$][\w$]*)\s*=(?!=)/g)) assert.ok(WRITE_S.includes(m[1]), f + ': writes S.' + m[1]);

@@ -133,6 +133,7 @@ function boot(file, storage, { framed = true } = {}) {
     removeItem: (k) => store.delete(k),
   };
   const emitted = [], handlers = {}, posted = [], timers = [], frames = [];
+  const chat = { opts: null, lines: [], shown: false };
   const sock = {
     id: 'page-socket-1',
     on(ev, fn) { (handlers[ev] = handlers[ev] || []).push(fn); },
@@ -165,6 +166,13 @@ function boot(file, storage, { framed = true } = {}) {
     location: { href: '', origin: ORIGIN },
     BattleshipArt: { drawShip() {} },
     BattleshipSound: { hit() {}, miss() {}, sunk() {}, taken() {} },
+    /* The shared chat box (its own DOM is not what these pages are tested on): what it was mounted with and told. */
+    DSChat: {
+      mount(o) {
+        chat.opts = o;
+        return { add: (m) => chat.lines.push(m), visible: (on) => { chat.shown = !!on; } };
+      },
+    },
   };
   win.parent = framed ? { postMessage: (m) => posted.push(m) } : win;
   win.window = win;
@@ -172,7 +180,7 @@ function boot(file, storage, { framed = true } = {}) {
   vm.runInContext(fs.readFileSync(path.join(ROOT, 'public', 'js', 'shared', 'dsEnd.js'), 'utf8'), ctx, { filename: 'dsEnd.js' });
   vm.runInContext(fs.readFileSync(path.join(ROOT, 'public', 'js', file), 'utf8'), ctx, { filename: file });
   return {
-    win, store, emitted, posted, timers, frames, $: byId, body,
+    win, store, emitted, posted, timers, frames, $: byId, body, chat,
     /* The result card on screen, read back as text, or null. */
     card: () => readCard(body),
     /* A window message, from the lobby (the parent frame, this origin) unless told otherwise. */
@@ -544,3 +552,86 @@ test('knockout and battleship: a win by walk-out says they left', () => {
     assert.ok(page.card().notes.includes('They left the match.'), file);
   }
 });
+
+/* The shared chat box on these pages: shown only while a match is on screen, typed into only by a seated player,
+   a line in its seat's colour (the pair each page already draws), a refusal as a note for the sender. */
+test('knockout: chat is shown in a match, sends ko:chat, colours a line by seat, and goes away with the card', () => {
+  const page = boot('knockout.js', { playerName: 'Owen' });
+  page.deliver('connect');
+  assert.strictEqual(page.chat.shown, false, 'hidden while queued');
+  assert.strictEqual(page.chat.opts.canSend(), false, 'and T does nothing there');
+  page.deliver('ko:start', {
+    id: 'm1', state: 'countdown', turn: 0, arenaR: 300, pieceR: 20, maxPull: 100, phaseMs: 3000, aimMs: 15000,
+    players: [{ id: 'page-socket-1', name: 'Owen', side: 1, left: 2 }, { id: 'o', name: 'Nia', side: 0, left: 2 }],
+    pieces: [], ready: [], stake: 0, pot: 0, ringOut: [],
+  });
+  assert.strictEqual(page.chat.shown, true);
+  assert.strictEqual(page.chat.opts.canSend(), true);
+  assert.strictEqual(page.chat.opts.send('gg'), true);
+  same(page.sent('ko:chat').pop()[1], { text: 'gg' });
+
+  page.deliver('ko:chat', { name: 'Nia', side: 0, text: 'hi' });
+  page.deliver('ko:chat', { name: 'Owen', side: 1, text: 'yo' });
+  page.deliver('ko:chatnote', { text: 'Slow down a little.' });
+  same(page.chat.lines, [
+    { name: 'Nia', color: '#e0705f', text: 'hi', me: false },
+    { name: 'Owen', color: '#f4f1ea', text: 'yo', me: true },
+    { kind: 'sys', text: 'Slow down a little.' },
+  ]);
+
+  page.deliver('ko:over', koOver({}));
+  assert.strictEqual(page.chat.shown, false, 'not on the result card');
+  assert.strictEqual(page.chat.opts.canSend(), false);
+});
+
+test('battleship: chat is shown in a match, sends bs:chat, colours a line by seat, and goes away with the card', () => {
+  const page = boot('battleship.js', { playerName: 'Owen' });
+  page.deliver('connect');
+  assert.strictEqual(page.chat.shown, false, 'hidden while queued');
+  assert.strictEqual(page.chat.opts.canSend(), false);
+  page.deliver('bs:state', {
+    id: 'm1', state: 'placing', phaseMs: 30000, placeMs: 30000, turnMs: 30000, grid: 10,
+    fleet: [], you: { name: 'Owen', side: 1 }, them: { name: 'Nia', side: 0 }, yourTurn: false, placed: false,
+    theyPlaced: false, myShips: [], shotsOnMe: [], myShots: [], sunkOfTheirs: [],
+    squaresLeftMine: 17, squaresLeftTheirs: 17, lastShot: null, stake: 0, pot: 0,
+  });
+  assert.strictEqual(page.chat.shown, true);
+  assert.strictEqual(page.chat.opts.canSend(), true);
+  assert.strictEqual(page.chat.opts.send('gg'), true);
+  same(page.sent('bs:chat').pop()[1], { text: 'gg' });
+
+  page.deliver('bs:chat', { name: 'Nia', side: 0, text: 'hi' });
+  page.deliver('bs:chat', { name: 'Owen', side: 1, text: 'yo' });
+  page.deliver('bs:chatnote', { text: 'Slow down a little.' });
+  same(page.chat.lines, [
+    { name: 'Nia', color: '#e0554a', text: 'hi', me: false },
+    { name: 'Owen', color: '#f5f1e8', text: 'yo', me: true },
+    { kind: 'sys', text: 'Slow down a little.' },
+  ]);
+
+  page.deliver('bs:over', bsOver({}));
+  assert.strictEqual(page.chat.shown, false, 'not on the result card');
+  assert.strictEqual(page.chat.opts.canSend(), false);
+});
+
+test('knockout and battleship: a watcher sees the chat but cannot type, and seat 0 is the first colour', () => {
+  for (const [file, p, watching, first, second] of [
+    ['knockout.js', 'ko', () => koWatching(1), '#f4f1ea', '#e0705f'],
+    ['battleship.js', 'bs', () => bsWatching(), '#f5f1e8', '#e0554a'],
+  ]) {
+    const page = boot(file, { dsWatch: file.replace('.js', '') });
+    page.deliver('connect');
+    page.deliver(p + ':watching', watching());
+    assert.strictEqual(page.chat.shown, true, file + ': a watcher reads the chat');
+    assert.strictEqual(page.chat.opts.canSend(), false, file + ': and cannot type');
+    page.deliver(p + ':chat', { name: 'Owen', side: 0, text: 'one' });
+    page.deliver(p + ':chat', { name: 'Nia', side: 1, text: 'two' });
+    same(page.chat.lines, [
+      { name: 'Owen', color: first, text: 'one', me: false },
+      { name: 'Nia', color: second, text: 'two', me: false },
+    ]);
+    page.deliver(p + ':watching', { match: null, state: null });
+    assert.strictEqual(page.chat.shown, false, file + ': nothing to watch, nothing to say');
+  }
+});
+

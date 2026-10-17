@@ -430,3 +430,17 @@ body.watching #mine, body.watching #theirs { cursor: default; }
 /* A keyboard hint is a lie on a device with no keyboard. */
 @media (hover: none) and (pointer: coarse) { .tip { display: none; } }
 
+/* THE CHAT (public/js/shared/dsChat.js). The boards fill this page, so there is no clear corner while shooting: the box
+   goes over the water nobody aims at (your own board, the right-hand or lower one), and while placing it sits where the
+   fleet dock leaves room. dsChat reads --dsc-l / --dsc-t / --dsc-b for where it sits; nothing is set from script. */
+.dsc:not(.dsc-phone) { --dsc-l: calc(100vw - 354px); --dsc-b: 12px; }
+body.placing .dsc:not(.dsc-phone) { --dsc-b: 150px; }                 /* above the dock, beside the one board */
+.dsc-phone { --dsc-l: 10px; --dsc-t: calc(50vh + 30px); }             /* upright: over your waters, the lower board */
+body.placing .dsc-phone { --dsc-t: calc(100vh - 160px); }              /* under the dock */
+@media (orientation: landscape) {                                       /* sideways: your waters are the right-hand board... */
+  .dsc-phone, body.placing .dsc-phone { --dsc-l: calc(100vw - 250px); --dsc-t: 56px; }
+}
+@media (max-width: 900px) and (orientation: landscape) {                /* ...except on a phone, which turns them round */
+  .dsc-phone, body.placing .dsc-phone { --dsc-l: 10px; }
+}
+

@@ -191,6 +191,19 @@ class KnockoutRoom {
     return null;
   }
 
+  /* A chat line from a seated player, to both players and to the watchers (by seat, never a socket id). Only somebody in
+     `players` may speak, so a watcher cannot; `guard` is server/chatGuard (cleaning, rate, links, abuse), and only the
+     text it returns goes out. A match against the bot still reaches the human: the bot's socket is a stub, the room is
+     not. Returns { ok } or { ok: false, note } where note is for the sender alone (null when there is nothing to say). */
+  chat(socketId, raw, guard, now) {
+    const p = this.players.get(socketId);
+    if (!p) return { ok: false, note: null };
+    const r = guard.check(socketId, raw, now);
+    if (!r.ok) return { ok: false, note: r.note || null };
+    this.broadcast('ko:chat', { name: String(p.name || 'Player').slice(0, 24), side: p.side, text: r.text });
+    return { ok: true };
+  }
+
   /* The two names, seat 0 first. */
   sideNames() {
     return [0, 1].map(s => (this.seats[s] && this.seats[s].name) || 'Player');
@@ -722,6 +735,8 @@ class KnockoutRoom {
         return { ready: (p.ready || []).map(id => this.sideOf(id)).filter(s => s !== null) };
       case 'ko:settling':
         return { holdMs: p.holdMs };
+      case 'ko:chat':
+        return { name: p.name, side: p.side, text: p.text };
       case 'ko:over':
         return {
           winner: p.winner || null,

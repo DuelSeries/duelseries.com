@@ -11,12 +11,13 @@
 // (the phone portrait layout is on; one boolean, sent only when it changes), ag:hold {on: 1 | 0} (Owen's hold-Q
 // cash-out, every room, 2026-10-08: agMain repeats {on: 1} while Q or the phone Cash out button is held and sends
 // {on: 0} when it is let go), and for a paid hand-off (agPaid.js) ag:join {name, stake, entryToken} or {name, stake,
-// resumeKey} and ag:ready (the page drew its own cell from the room). Nothing is sent while the socket is down (a dropped target is simply not sent; the
+// resumeKey} and ag:ready (the page drew its own cell from the room), and ag:chat {text} (the shared chat). Nothing is sent while the socket is down (a dropped target is simply not sent; the
 // camera keeps its last-sent pair, as the reference's send does when its socket is closed).
 //
 // Side events in (plain socket.io events next to the binary bundle, never inside it): SIDE_EVENTS below, each
 // handed to opts.onEvent(name, payload). ag:holding and ag:cashedout reach every room (the hold ring and the
 // results screen); the rest are sent to paid seats only (ag:money, ag:joined, the payout and end events).
+// ag:chat {name, c, text, me} and ag:chatnote {text} (the shared chat) reach every room.
 //
 // A bad bundle (agWire returns an error record) keeps the records before it, drops the rest
 // and is counted and logged. The stream is a delta, so a lost record cannot be recovered by
@@ -41,13 +42,14 @@
     view: 'ag:view',
     portrait: 'ag:portrait',
     hold: 'ag:hold',
-    ready: 'ag:ready'
+    ready: 'ag:ready',
+    chat: 'ag:chat'
   };
 
   // The server's side events the page listens to (server/ag/agRoom.js, agPaidDoor.js and the agar payout instance
   // of server/paperPayout.js). Anything else on the socket is ignored.
   var SIDE_EVENTS = ['ag:holding', 'ag:cashedout', 'ag:money', 'ag:joined', 'ag:dead', 'ag:closed', 'ag:paid',
-    'ag:payerror', 'ag:refused', 'ag:refunded', 'ag:replaced', 'ag:skins'];
+    'ag:payerror', 'ag:refused', 'ag:refunded', 'ag:replaced', 'ag:skins', 'ag:chat', 'ag:chatnote'];
 
   function wire() {
     var w = A.agWire;
@@ -159,7 +161,9 @@
         return emit(EV.join, out);
       },
       sendReady: function () { return emit(EV.ready); },
-      // agMain's outbound kinds: play, spectate, target, split, eject, q, leave, view, portrait, hold, paidJoin, ready.
+      // One chat line as typed (the shared chat, dsChat.js); the server cleans, rate limits and filters it.
+      sendChat: function (text) { return typeof text === 'string' && text ? emit(EV.chat, { text: text }) : false; },
+      // agMain's outbound kinds: play, spectate, target, split, eject, q, leave, view, portrait, hold, paidJoin, ready, chat.
       send: function (kind, payload) {
         switch (kind) {
           case 'play': return api.sendJoin(payload && payload.name);
@@ -174,6 +178,7 @@
           case 'hold': return api.sendHold(!!(payload && payload.on));
           case 'paidJoin': return api.sendPaidJoin(payload);
           case 'ready': return api.sendReady();
+          case 'chat': return api.sendChat(payload && payload.text);
           default: return false;
         }
       },

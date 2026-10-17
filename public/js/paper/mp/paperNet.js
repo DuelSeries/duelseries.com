@@ -27,6 +27,9 @@
   var JITTER_DECAY = 0.03; // the snake client's calm-network decay (public/js/game.js:411-414)
   var FRAME_KEEP = 60; // two seconds of 30 Hz frames
   var SEAT_EVENTS = ['pp:dead', 'pp:cashedout', 'pp:paid', 'pp:payerror', 'pp:refused', 'pp:replaced'];
+  // pp:chat { id, name, c, text } (a line, to the players and the watchers) and pp:chatnote { text } (a refusal, to the
+  // sender alone), the page's hooks by those names.
+  var CHAT_EVENTS = ['pp:chat', 'pp:chatnote'];
 
   function mp() {
     var P = root.DuelPaperLib;
@@ -206,6 +209,10 @@
     on('pp:ev', this.onBundle);
     on('pp:geo', this.onBundle);
     on('pp:pong', this.onPong);
+    // The shared chat (dsChat.js): plain objects, handed to the page's hooks as they come.
+    CHAT_EVENTS.forEach(function (ev) {
+      on(ev, function (p) { this._hook(ev, p); });
+    });
     SEAT_EVENTS.forEach(function (ev) {
       on(ev, function (p) { this.onSeatEvent(ev, p); });
     });
@@ -292,6 +299,13 @@
     if (opts.after > 0) msg.after = opts.after | 0;
     this._watchAsked = true;
     this.socket.emit('pp:watch', msg);
+  };
+
+  // One chat line, as typed (the server cleans, rate limits and filters it; a watcher's is ignored there).
+  ArenaNet.prototype.chat = function (text) {
+    if (typeof text !== 'string' || !text) return false;
+    this.socket.emit('pp:chat', { text: text });
+    return true;
   };
 
   ArenaNet.prototype._volatile = function (ev, payload) {

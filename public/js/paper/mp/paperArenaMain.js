@@ -468,10 +468,43 @@
     var best = loadBest();
     game.best = watchMode ? undefined : best || undefined; // a watcher's own best is not the followed square's
 
+    // ---- chat (public/js/shared/dsChat.js: T types, Enter sends; the server's pp:chat and pp:chatnote) ----
+    // Only a live square sends; a watcher reads. The box shows while a table does (live, or a watched one): bottom left
+    // above the leave hint (higher in watch mode, where the Next bar sits there), and on a phone top left under the
+    // stock score stack, the place the watch page puts its Lobby button (layoutChat), with the watcher's box below it.
+    var chat = null;
+    if (root.DSChat) {
+      chat = root.DSChat.mount({
+        send: function (t) { return net.chat(t); },
+        canSend: function () { return page.phase === 'live' && !page.watch; },
+        light: true,
+        pc: { left: 12, bottom: watchMode ? 58 : 40 },
+        phoneAt: { left: 10, top: 124 }
+      });
+      net.on('pp:chat', function (m) {
+        m = m || {};
+        chat.add({ name: m.name, color: m.c, text: m.text, me: net.you > 0 && m.id === net.you });
+      });
+      net.on('pp:chatnote', function (m) { chat.add({ kind: 'sys', text: m && m.text }); });
+    }
+    function layoutChat() {
+      var w = view.clientWidth;
+      var h = view.clientHeight;
+      if (!chat || !(w > 0 && h > 0)) return;
+      var s = Math.hypot(w, h) / Math.hypot(1366, 768);
+      var font = P.Hud.calcMult(w, h, 20, 30) * s;
+      chat.el.style.setProperty('--dsc-t', Math.round(28 * s + 4 * font + 12 + (watchMode ? 44 : 4)) + 'px');
+    }
+    if (chat) {
+      root.addEventListener('resize', layoutChat);
+      layoutChat();
+    }
+
     // ---- screens ----
     function setLive(live) {
       show(el.hint, live);
       show(el.cash, live);
+      if (chat) chat.visible(live);
       if (!live) setHold(false);
     }
 
@@ -994,6 +1027,7 @@
       page.watchLive = false;
       page.phase = 'connecting';
       show(el.watchBar, false);
+      if (chat) chat.visible(false);
       showConnecting(text, sub);
     }
 
@@ -1054,6 +1088,7 @@
         page.watchLive = true;
         page.phase = 'watch';
         showOnly(null);
+        if (chat) chat.visible(true);
         layoutWatch();
         setFollowed(game.player || null);
       });

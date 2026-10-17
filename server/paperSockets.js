@@ -69,7 +69,9 @@ module.exports = function createPaperSockets({
   paidEnabled = process.env.PAPER_PAID === '1',
   // onFreeJoin({ name }): the owner's quiet phone push (joinAlerts), once a free seat exists; never on a respawn. A
   // paid seat's push rides the arenas' onStake instead (the buy-in counts once the player steers).
-  onFreeJoin = null
+  onFreeJoin = null,
+  // the shared in-game chat guard (server/chatGuard.js); a test passes its own
+  chatGuard = require('./chatGuard').shared
 }) {
   function refuse(socket, why, extra) {
     socket.emit('pp:refused', Object.assign({ why, text: TEXT[why] || why, refunded: false }, extra || {}));
@@ -475,6 +477,22 @@ module.exports = function createPaperSockets({
     socket.emit('pp:pong', { t: msg.t, tick: room ? room.game.tick : 0 });
   }
 
+  // pp:chat { text } (the shared in-game chat, Owen 2026-10-16): only a seat with a live square speaks; a watcher hears
+  // the room (it sits in the io room) but cannot send. The chat guard cleans, rate limits and filters the line and only
+  // its returned text goes on, to the whole room; a refusal note goes to the sender alone as pp:chatnote { text }.
+  function onChat(socket, msg) {
+    if (!isObject(msg) || typeof msg.text !== 'string') return;
+    if (!socketRL(socket, 'ppchat', 300)) return;
+    const room = socket._ppRoom;
+    if (!room || !room.hasLiveUnit(socket.id)) return;
+    const r = chatGuard.check(socket.id, msg.text, Date.now());
+    if (!r.ok) {
+      if (r.note) socket.emit('pp:chatnote', { text: r.note });
+      return;
+    }
+    room.chat(socket.id, r.text);
+  }
+
   function guard(name, fn) {
     return function () {
       try {
@@ -493,6 +511,7 @@ module.exports = function createPaperSockets({
     socket.on('pp:leave', guard('pp:leave', () => onLeave(socket)));
     socket.on('pp:ping', guard('pp:ping', (msg) => onPing(socket, msg)));
     socket.on('pp:watch', guard('pp:watch', (msg) => onWatch(socket, msg)));
+    socket.on('pp:chat', guard('pp:chat', (msg) => onChat(socket, msg)));
   }
 
   // io 'disconnect': the seat enters its grace (design 5.7). The socket object is gone, so the

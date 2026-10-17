@@ -11,6 +11,7 @@ const { BattleRoyaleRoom, BR } = require('./BattleRoyaleRoom');
 const { TanksLobby } = require('./TanksLobby');   // the artillery duel
 const { KnockoutLobby } = require('./KnockoutLobby'); // the shrinking-disc duel
 const { BattleshipLobby } = require('./BattleshipLobby'); // the two-grid duel
+const chatGuard = require('./chatGuard').shared;           // every game's chat line goes through it
 const { ShooterRoom, SH: SHOOTER } = require('./ShooterRoom'); // the top-down tank arena
 /* Games switched off for now (Awesome Tanks, Bowmasters): no room, no socket
    messages, no /api/live rows, pages sent to the lobby. The list is
@@ -4016,14 +4017,11 @@ io.on('connection', (socket) => {
     if (!room) return;
     const player = room.players.get(socket.id);
     if (!player) return;                                            // spectators can't chat
-    const now = Date.now();
-    if (socket._lastChat && now - socket._lastChat < 600) return;   // simple anti-spam throttle
-    socket._lastChat = now;
-    const msg = strOr(text, '').replace(/[<>]/g, '').slice(0, 120).trim();
-    if (!msg) return;
+    const r = chatGuard.check(socket.id, text, Date.now());       // clean, rate, links, addresses, abuse
+    if (!r.ok) { if (r.note) socket.emit(C.EVENTS.CHAT, { name: 'Chat', text: r.note, self: true }); return; }
     const name = String(player.name || 'Player').slice(0, 24);
-    socket.emit(C.EVENTS.CHAT, { name, text: msg, self: true });   // echo to sender (highlighted)
-    socket.to(room.socketRoomName).emit(C.EVENTS.CHAT, { name, text: msg }); // to everyone else
+    socket.emit(C.EVENTS.CHAT, { name, text: r.text, self: true });   // echo to sender (highlighted)
+    socket.to(room.socketRoomName).emit(C.EVENTS.CHAT, { name, text: r.text }); // to everyone else
   });
 
   // Client reports how far it can see (world units) for area-of-interest culling —
@@ -4368,6 +4366,16 @@ io.on('connection', (socket) => {
 
   on('ko:leave', () => knockoutLobby.leave(socket.id));
 
+  /* Chat between the two seated players, shown to the watchers too. Only a seat may speak (room.chat refuses anybody
+     not in the room's players, so a watcher cannot), and chatGuard cleans, rate-limits and filters the line; a refusal
+     goes back to the sender alone. */
+  on('ko:chat', ({ text } = {}) => {
+    const room = knockoutLobby.roomOf(socket.id);
+    if (!room) return;
+    const r = room.chat(socket.id, text, chatGuard, Date.now());
+    if (!r.ok && r.note) socket.emit('ko:chatnote', { text: r.note });
+  });
+
   /* WATCHING A MATCH, from the lobby's Spectate. Read-only: the lobby never
      seats, queues or counts a watcher, refuses one that is queued or seated,
      and sends them the match with every socket id swapped for a seat. `after`
@@ -4453,6 +4461,14 @@ io.on('connection', (socket) => {
   });
 
   on('bs:leave', () => battleshipLobby.leave(socket.id));
+
+  /* Chat between the two seated players, shown to the watchers too; the same rules as ko:chat. */
+  on('bs:chat', ({ text } = {}) => {
+    const room = battleshipLobby.roomOf(socket.id);
+    if (!room) return;
+    const r = room.chat(socket.id, text, chatGuard, Date.now());
+    if (!r.ok && r.note) socket.emit('bs:chatnote', { text: r.note });
+  });
 
   /* Watching, the same as Knockout's. A watcher is sent spectatorView, which is
      both boards as shots and sunk ships only, and never viewFor. */

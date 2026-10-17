@@ -1,6 +1,6 @@
 'use strict';
 // The agar.io socket handlers (build brief 6, 9.3): ag:join, ag:spectate, ag:target, ag:split, ag:eject, ag:q,
-// ag:leave, ag:view, ag:portrait, ag:hold (Owen's hold-Q cash-out, every room) and ag:ready (paid seats) in, one
+// ag:leave, ag:view, ag:portrait, ag:hold (Owen's hold-Q cash-out, every room), ag:chat and ag:ready (paid seats) in, one
 // binary bundle per tick out on ag:f (sent by the room); paid joins go to the paid door (agPaidDoor, design 5.4).
 // The event prefix is ag:* only, so the
 // old agar pages (cell:*) can never talk to these rooms.
@@ -50,6 +50,8 @@ const AG_RATE = Object.freeze({
   // player let go of run on until it went stale).
   hold: chosen(50, 'ag:hold {on:1} (Owen 2026-10-08 hold-Q cash-out; design 5.5)'),
   ready: chosen(250, 'ag:ready (paid seats: once per seat, repeats are harmless)'),
+  // Chat (Owen 2026-10-16): only a flood stop; server/chatGuard.js does the real limiting (a burst of 4, then one a 2 s).
+  chat: chosen(300, 'ag:chat (the shared in-game chat; chatGuard rates, cleans and filters every line)'),
 });
 
 // CHOSEN connection cap (ours; no source: their server's limits are unknown, CCI-U5, and Paper has none). Enough
@@ -268,6 +270,23 @@ function attachAgSockets(io, arenas, helpers) {
     arenas.hold(socket.id, on);
   }
 
+  // ag:chat { text } (the shared in-game chat, Owen 2026-10-16): only a seat that plays (joined, not spectating, not a
+  // paid watcher) may speak. The line is cleaned, rate limited and filtered by the shared chat guard and only its
+  // returned text is sent on, to the whole room (spectators too); a refusal note goes to the sender alone as
+  // ag:chatnote { text }. The guard is injectable (helpers.chatGuard) for tests.
+  const chatGuard = h.chatGuard || require('../chatGuard').shared;
+  function onChat(socket, msg) {
+    if (!isPlainObject(msg) || typeof msg.text !== 'string') return;
+    if (!limited(socket, 'chat')) return;
+    if (!arenas.canChat(socket.id)) return;
+    const r = chatGuard.check(socket.id, msg.text, Date.now());
+    if (!r.ok) {
+      if (r.note) socket.emit('ag:chatnote', { text: r.note });
+      return;
+    }
+    arenas.chat(socket.id, r.text);
+  }
+
   // ag:ready (paid seats): the page drew a frame with its own cell (design 4 step 5).
   function onReady(socket) {
     if (!limited(socket, 'ready')) return;
@@ -319,6 +338,7 @@ function attachAgSockets(io, arenas, helpers) {
     socket.on('ag:portrait', guard('ag:portrait', (msg) => onPortrait(socket, msg)));
     socket.on('ag:hold', guard('ag:hold', (msg) => onHold(socket, msg)));
     socket.on('ag:ready', guard('ag:ready', () => onReady(socket)));
+    socket.on('ag:chat', guard('ag:chat', (msg) => onChat(socket, msg)));
     socket.on('disconnect', guard('disconnect', () => {
       gate.remove(socket);
       drop(socket.id);

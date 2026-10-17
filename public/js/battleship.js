@@ -881,6 +881,7 @@ function queue(token) {
   overShown = false;
   lastOver = null;
   DSEnd.hide();
+  chatShow(false);
   $('wait').hidden = false;
   waitSpin(true);
   $('waitMain').textContent = 'Looking for an opponent';
@@ -898,6 +899,24 @@ function waitSpin(on) {
   const s = document.querySelector('.waitSpin');
   if (s) s.hidden = !on;
 }
+
+/* CHAT. The one DuelSeries chat box (public/js/shared/dsChat.js): T to type, Enter to send (R still turns a ship, but
+   not while the box has the keys). Only the two seated players can speak (the server refuses anybody else); a watcher
+   reads. A line takes its seat's colour: cream for me, red for them, as the names above the boards; a watcher sees seat
+   0 as cream. */
+let chatLive = false;            // a match is on screen (not the wait card, not the result card)
+const chat = DSChat.mount({
+  send: (t) => { socket.emit('bs:chat', { text: t }); return true; },
+  canSend: () => chatLive && !WATCH,        // where it sits is battleship.css: the boards leave no clear corner
+});
+function chatShow(on) { chatLive = on; chat.visible(on); }
+const mySide = () => (!WATCH && st && st.you ? st.you.side : 0);
+socket.on('bs:chat', (m) => {
+  if (!m) return;
+  const mine = m.side === mySide();
+  chat.add({ name: m.name, color: mine ? '#f5f1e8' : '#e0554a', text: m.text, me: mine && !WATCH });
+});
+socket.on('bs:chatnote', (m) => { if (m) chat.add({ kind: 'sys', text: m.text }); });
 
 /* WHAT JUST HAPPENED, AS A SOUND.
 
@@ -947,6 +966,7 @@ socket.on('bs:state', (view) => {
 
   $('wait').hidden = true;
   $('top').hidden = false;
+  if (!overShown) chatShow(true);
   $('stage').hidden = false;
   $('dock').hidden = view.state !== 'placing';
   document.body.classList.toggle('firing', view.state === 'playing' || view.state === 'settling');
@@ -1025,6 +1045,7 @@ socket.on('bs:over', (m) => {
   if (overShown) return;
   overShown = true;
   m = m || {};
+  chatShow(false);
   /* Whose result it is, read now: a reconnect while the card is up changes
      the socket id, and the card is drawn again on every restake step. */
   lastOver = Object.assign({}, m, {
@@ -1385,6 +1406,7 @@ function watchState(view) {
   $('stage').hidden = false;
   $('dock').hidden = true;
   $('watchBar').hidden = false;
+  chatShow(true);
   document.body.classList.toggle('firing', view.state === 'playing' || view.state === 'settling');
   if (view.state === 'countdown' && was !== 'countdown') runCountdown(view.phaseMs || 3000);
 
@@ -1405,6 +1427,7 @@ socket.on('bs:watching', (m) => {
     watchMatch = null;
     st = null;
     $('top').hidden = true; $('stage').hidden = true; DSEnd.hide();
+    chatShow(false);
     $('wait').hidden = false;
     $('waitMain').textContent = m.full ? 'Every match is full of watchers'
       : m.refused ? 'You are in a match' : 'Nobody is playing right now';

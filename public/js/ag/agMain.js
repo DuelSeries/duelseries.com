@@ -258,6 +258,7 @@
       layoutH = ghostBannerPx && !portrait ? Math.max(0, Math.trunc((win.innerHeight - bannerPx - ghostBannerPx) * canvasScale)) : 0;
       applyMenuScale();
       reportView();
+      placeChat();
     }
     // ---- phone portrait (see portraitAllowed above) -----------------------------------------
     function portraitNow() {
@@ -512,8 +513,15 @@
           // shared/shopSkins.js SKINS.agar). Display only.
           renderer.setSkins(p && p.cells);
           break;
+        case 'ag:chat':
+          // { name, c, text, me }: one line for the shared chat (me: 1 only on the sender's own copy).
+          if (chat) chat.add({ name: p.name, color: p.c, text: p.text, me: p.me === 1 });
+          break;
+        case 'ag:chatnote':
+          if (chat) chat.add({ kind: 'sys', text: p.text });
+          break;
         case 'ag:money':
-          paid.on = true;
+          if (!paid.on) { paid.on = true; placeChat(); }   // the balance panel joins the stack the chat sits above
           applyMoney(p);
           break;
         case 'ag:dead':
@@ -618,12 +626,42 @@
       openMenu();
     }
 
+    // ---- chat (ours, Owen 2026-10-16: public/js/shared/dsChat.js, T to type; the server's ag:chat and ag:chatnote) ----
+    // The box shows while a game or a spectate view does, never on a menu or the end card, and only a live cell may send.
+    // The map is white, so the lines get a backing (light). Bottom left it sits just above the Score panel (and the paid
+    // balance panel stacked on it), which live in the ghost layout and scale with the HUD (placeChat); on a phone it is
+    // top left under the ping text.
+    var chat = null;
+    if (win.DSChat) {
+      chat = win.DSChat.mount({
+        send: function (t) { return net ? net.send('chat', { text: t }) : false; },
+        canSend: function () { return menuState === 'PLAY' && connected && world.state().alive; },
+        light: true,
+        pc: { left: 15, bottom: 150 },
+        phoneAt: { left: 10, top: 30 }
+      });
+      placeChat();
+    }
+    function placeChat() {
+      if (!chat || !(canvas.width > 0)) return;
+      var lh = layoutHeight(canvas.height);
+      var q = agHud.hudScale(canvas.width, lh, portrait) / canvasScale;   // HUD units to CSS px
+      var stack = 49 + (paid.on ? 42 : 0);                               // score panel (15 + 34), balance panel (8 + 34)
+      chat.el.style.setProperty('--dsc-b', Math.round((canvas.height - lh) / canvasScale + q * stack + 10) + 'px');
+    }
+    function syncChat() {
+      if (!chat) return;
+      placeChat();
+      chat.visible(menuState === 'PLAY' || menuState === 'SPECTATE');
+    }
+
     // ---- game state and the FPS cap ---------------------------------------------------------
     // The reference menu applies a state change in a 0 ms timer and its watcher then sets the
     // cap in a microtask; the frame that runs the timer is still drawn under the old cap.
     function setMenuState(s) {
       menuState = s;
       syncPad();
+      syncChat();
       win.setTimeout(function () {
         Promise.resolve().then(function () {
           capMs = (menuState === 'PLAY' || menuState === 'SPECTATE') ? -1 : capFor(MENU_FPS);

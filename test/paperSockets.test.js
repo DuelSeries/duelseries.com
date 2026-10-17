@@ -7,11 +7,13 @@ const createPaperSockets = require('../server/paperSockets');
 const { PaperArenas } = require('../server/paper/PaperArenas');
 const { REASON, MP } = require('../server/paper/ArenaGame');
 const { isStake } = require('../server/stakeRules');
+const { createChatGuard, NOTES } = require('../server/chatGuard');
 
 function world({ paidEnabled = true, maintenance = false } = {}) {
   let t = 1000000;
   const clock = { now: () => t, advance: (ms) => { t += ms; } };
-  const io = { to: () => ({ emit() {}, volatile: { emit() {} } }) };
+  const sent = [];   // [io room, event, payload] of every plain emit to a room
+  const io = { to: (room) => ({ emit(ev, p) { sent.push([room, ev, p]); }, volatile: { emit() {} } }) };
   const hooks = { onCashout() {}, onTransfer() {}, onRefund() {}, onSweep() {}, onBreach() {} };
   const arenas = new PaperArenas({ io, hooks, now: clock.now, paidEnabled, autoTick: false, warm: false });
   const tokens = new Map();
@@ -53,7 +55,7 @@ function world({ paidEnabled = true, maintenance = false } = {}) {
     tokens.set(token, { stake, worth, paid, walletAddress: wallet || 'WALLET' + tn });
     return token;
   };
-  return { arenas, paper, spy, mint, clock, deps, tokens };
+  return { arenas, paper, spy, mint, clock, deps, tokens, sent };
 }
 
 let sn = 0;
@@ -303,4 +305,53 @@ test('a free join seats with no token and no money, and pp:need answers from the
   assert.strictEqual(s.last('pp:pong').t, 123);
   s.fire('pp:leave');
   assert.strictEqual(s._ppRoom, null);
+});
+
+// The shared in-game chat (Owen 2026-10-16): pp:chat from a seat with a live square goes to its whole io room.
+test('pp:chat: a live square speaks to its table (watchers included); a watcher or a stranger cannot', () => {
+  const w = world();
+  w.deps.chatGuard = createChatGuard({ rate: { burst: 100, refillMs: 1, minGapMs: 0 }, dupMs: 0 });
+  w.paper = createPaperSockets(w.deps);
+  const a = sock(w);
+  const v = sock(w);
+  const nobody = sock(w);
+  a.fire('pp:join', { name: 'Ann', stake: 0 });
+  const you = a.last('pp:joined').you;
+  v.fire('pp:watch', { stake: 0 });
+  const room = a._ppRoom;
+  assert.ok(room && v._ppWatch === room, 'the watcher sits at the same table');
+  assert.ok(v.rooms.has(room.ioRoom));
+  const chats = () => w.sent.filter((x) => x[1] === 'pp:chat');
+
+  a.fire('pp:chat', { text: 'hi   all' });
+  assert.strictEqual(chats().length, 1);
+  const [ioRoom, , msg] = chats()[0];
+  assert.strictEqual(ioRoom, room.ioRoom, 'one emit to the table\'s io room (players and watchers)');
+  assert.strictEqual(msg.id, you);
+  assert.strictEqual(msg.name, 'Ann');
+  assert.strictEqual(msg.text, 'hi all', 'the guard\'s cleaned text');
+  assert.match(msg.c, /^#[0-9a-f]{6}$/, 'the square\'s colour');
+
+  v.fire('pp:chat', { text: 'watcher talking' });
+  nobody.fire('pp:chat', { text: 'no seat' });
+  for (const bad of [undefined, null, 'x', 7, [], {}, { text: 9 }]) a.fire('pp:chat', bad);
+  assert.strictEqual(chats().length, 1, 'only the live square spoke');
+  assert.ok(![a, v, nobody].some((s) => s.last('pp:chatnote')), 'no note for a seat that may not speak');
+});
+
+test('pp:chat: a link or an address is refused with a note to the sender only; the real guard rate limits', () => {
+  const w = world();
+  const a = sock(w);
+  const b = sock(w);
+  a.fire('pp:join', { name: 'Ann', stake: 0 });
+  b.fire('pp:join', { name: 'Bob', stake: 0 });
+  const chats = () => w.sent.filter((x) => x[1] === 'pp:chat');
+  a.fire('pp:chat', { text: 'join www.free-sol.com now' });
+  assert.strictEqual(chats().length, 0, 'a link goes to nobody');
+  assert.deepStrictEqual(a.last('pp:chatnote'), { text: NOTES.link });
+  assert.strictEqual(b.last('pp:chatnote'), null);
+  a.fire('pp:chat', { text: 'good luck' });
+  assert.strictEqual(chats().length, 1);
+  a.fire('pp:chat', { text: 'and again right away' });
+  assert.strictEqual(chats().length, 1, 'the second line inside the minimum gap is held back');
 });

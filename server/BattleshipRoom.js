@@ -250,6 +250,26 @@ class BattleshipRoom {
     return null;
   }
 
+  /* A chat line from a seated player, to both players and to the watchers (by seat, never a socket id). Only somebody in
+     `players` may speak, so a watcher cannot; `guard` is server/chatGuard (cleaning, rate, links, abuse), and only the
+     text it returns goes out. Each player's own socket is written to, so a match against the bot (a stub socket) still
+     reaches the human. Returns { ok } or { ok: false, note } where note is for the sender alone (null if none). */
+  chat(socketId, raw, guard, now) {
+    const me = this.players.get(socketId);
+    if (!me) return { ok: false, note: null };
+    const r = guard.check(socketId, raw, now);
+    if (!r.ok) return { ok: false, note: r.note || null };
+    const msg = { name: String(me.name || 'Player').slice(0, 24), side: me.side, text: r.text };
+    for (const p of this.players.values()) {
+      try { p.socket.emit('bs:chat', msg); } catch (_) {}
+    }
+    if (this.watchers > 0 && this.io && this.io.to) {
+      try { this.io.to(this.watchRoomName).emit('bs:chat', msg); }
+      catch (e) { console.error('[BS] watcher chat failed:', e.message); }
+    }
+    return { ok: true };
+  }
+
   sideNames() {
     return [0, 1].map(s => (this.seats[s] && this.seats[s].name) || 'Player');
   }

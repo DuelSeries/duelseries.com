@@ -573,6 +573,30 @@ function paintPips() {
   if (them) $('themName').textContent = them.name || 'Opponent';
 }
 
+/* ── chat ──────────────────────────────────────────────────────────────────
+   The one DuelSeries chat box (public/js/shared/dsChat.js): T to type, Enter to send. Only the two seated players can
+   speak (the server refuses anybody else); a watcher reads. On a computer it sits bottom left, above the bar's hint and
+   clear of the disc; on a phone, top left under the strip (and under the watch tag when watching). A line takes its
+   seat's colour: bone for me, red for them, the pair the pieces wear (a watcher sees seat 0 as bone). */
+let chatLive = false;            // a match is on screen (not the wait card, not the result card)
+const chat = DSChat.mount({
+  send: (t) => { socket.emit('ko:chat', { text: t }); return true; },
+  canSend: () => chatLive && !WATCH,
+  pc: { left: 14, bottom: 76 },
+  phoneAt: { left: 10, top: WATCH ? 104 : 70 },
+});
+function chatShow(on) { chatLive = on; chat.visible(on); }
+const mySide = () => {
+  const p = st && (st.players || []).find(q => q.id === me);
+  return p ? p.side : 0;
+};
+socket.on('ko:chat', (m) => {
+  if (!m) return;
+  const mine = m.side === mySide();
+  chat.add({ name: m.name, color: mine ? '#f4f1ea' : '#e0705f', text: m.text, me: mine && !WATCH });
+});
+socket.on('ko:chatnote', (m) => { if (m) chat.add({ kind: 'sys', text: m.text }); });
+
 /* ── what the server says ──────────────────────────────────────────────── */
 
 function apply(state) {
@@ -591,6 +615,7 @@ function apply(state) {
   $('top').hidden = false;
   $('bar').hidden = false;
   $('wait').hidden = true;
+  chatShow(true);
   paintPips();
   paintBar();
 }
@@ -610,6 +635,7 @@ function queue(token) {
   overShown = false;
   lastOver = null;
   DSEnd.hide();
+  chatShow(false);
   $('wait').hidden = false;
   waitSpin(true);
   $('waitMain').textContent = 'Looking for an opponent';
@@ -701,6 +727,7 @@ socket.on('ko:over', (m) => {
   restake = null; restakeLine = '';
   paintOver();
   $('bar').hidden = true;
+  chatShow(false);
 });
 
 /* ── the result card ───────────────────────────────────────────────────────
@@ -1009,6 +1036,7 @@ socket.on('ko:watching', (m) => {
     watchMatch = null;
     $('top').hidden = true; $('bar').hidden = true; $('watchTag').hidden = true;
     st = null; tape = null; reveal = null;
+    chatShow(false);
     showWatchWait(
       m.full ? 'Every match is full of watchers' : m.refused ? 'You are in a match' : 'Nobody is playing right now',
       'Checking again every few seconds.');

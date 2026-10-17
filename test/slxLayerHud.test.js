@@ -334,134 +334,136 @@ test('no biggest cash-out box: slxTop is off disk and out of the tail, the serve
   assert.ok(!/Biggest cash-out/.test(P.doc.body.textContent));
 });
 
+// slxChat maps the wire into the shared chat (public/js/shared/dsChat.js), which /sl loads before the layer as it
+// does dsEnd.js (server/sl/slBoot.js SHARED_UI); a test loads it the same way.
+const chatPage = (opts) => page(['dsChat.js', 'slxChat.js'], opts);
+
 test('slxChat: T opens, typing never reaches their keys, Enter sends, Esc closes; shown while playing', () => {
-  const P = page('slxChat.js');
+  const P = chatPage();
   const chat = P.slx.chat;
   const theirs = [];
   P.doc.onkeydown = (e) => theirs.push('down ' + e.keyCode);   // their handlers (public/js/sl/slInput.js:207-208)
   P.doc.onkeyup = (e) => theirs.push('up ' + e.keyCode);
   P.raf(1);
-  assert.strictEqual(chat.element.style.display, undefined, 'hidden before their game shows');
+  assert.strictEqual(chat.element.hidden, true, 'hidden before their game shows');
   P.dispatch(P.doc.body, 'keydown', { key: 't', keyCode: 84 });
   assert.strictEqual(chat.typing(), false, 'T does nothing while hidden');
   P.S.playing = true;
   P.raf(1);
-  assert.strictEqual(chat.element.style.display, 'block');
+  assert.strictEqual(chat.element.hidden, false);
+  // a boost held before the box opens still ends when it is let go
+  P.dispatch(P.doc.body, 'keydown', { key: ' ', code: 'Space', keyCode: 32 });
   theirs.length = 0;
-  P.dispatch(P.doc.body, 'keydown', { key: 't', keyCode: 84 });
+  P.dispatch(P.doc.body, 'keydown', { key: 't', code: 'KeyT', keyCode: 84 });
   assert.strictEqual(chat.typing(), true);
-  P.raf(1);
   assert.strictEqual(P.doc.activeElement, chat.input, 'the input has the focus');
-  for (const [key, code] of [[' ', 32], ['ArrowLeft', 37], ['ArrowUp', 38], ['ArrowRight', 39], ['q', 81], ['t', 84]]) {
-    P.dispatch(chat.input, 'keydown', { key, keyCode: code });
-    P.dispatch(chat.input, 'keyup', { key, keyCode: code });
+  P.dispatch(chat.input, 'keyup', { key: ' ', code: 'Space', keyCode: 32 });
+  assert.deepStrictEqual(theirs, ['up 32'], 'the opening T stopped at the window; the held Space let go reached them');
+  theirs.length = 0;
+  for (const [key, code, keyCode] of [[' ', 'Space', 32], ['ArrowLeft', 'ArrowLeft', 37], ['ArrowUp', 'ArrowUp', 38],
+    ['q', 'KeyQ', 81], ['p', 'KeyP', 80], ['t', 'KeyT', 84]]) {
+    P.dispatch(chat.input, 'keydown', { key, code, keyCode });
+    P.dispatch(chat.input, 'keyup', { key, code, keyCode });
   }
-  assert.deepStrictEqual(theirs, ['down 84'], 'only the opening T reached their handlers (it ignores 84); nothing typed in the box did');
-  chat.input.value = '  hello <world>  ';
+  assert.deepStrictEqual(theirs, [], 'nothing typed in the box reached their keys');
+  chat.input.value = '  hello   <world>  ';
   P.dispatch(chat.input, 'keydown', { key: 'Enter', keyCode: 13 });
-  assert.deepStrictEqual(plain(P.sent), [['sl:chat', { text: 'hello <world>' }]]);
+  assert.deepStrictEqual(plain(P.sent), [['sl:chat', { text: 'hello <world>' }]], 'the server cleans; the page only trims');
   assert.strictEqual(chat.typing(), false);
   assert.notStrictEqual(P.doc.activeElement, chat.input);
   // Esc closes with nothing sent; an empty line sends nothing
   P.dispatch(P.doc.body, 'keydown', { key: 'T', keyCode: 84 });
-  P.raf(1);
   chat.input.value = 'nope';
   P.dispatch(chat.input, 'keydown', { key: 'Escape', keyCode: 27 });
   assert.strictEqual(chat.typing(), false);
   P.dispatch(P.doc.body, 'keydown', { key: 't', keyCode: 84 });
-  P.raf(1);
   chat.input.value = '   ';
   P.dispatch(chat.input, 'keydown', { key: 'Enter', keyCode: 13 });
   assert.strictEqual(P.sent.length, 1);
   // a blur closes
   P.dispatch(P.doc.body, 'keydown', { key: 't', keyCode: 84 });
-  P.raf(1);
   chat.input.blur();
+  P.raf(1);
   assert.strictEqual(chat.typing(), false);
-  // T is ignored while another text box has the focus (the direct-visit name box)
+  // T is ignored while another text box on screen has the focus (the direct-visit name box) ...
   const other = P.doc.createElement('input');
   P.doc.body.appendChild(other);
   other.focus();
   P.dispatch(other, 'keydown', { key: 't', keyCode: 84 });
   assert.strictEqual(chat.typing(), false);
-  other.blur();
+  // ... but not their hidden nickname box, which keeps the focus all game
+  other.offsetWidth = 0;
+  P.dispatch(other, 'keydown', { key: 't', keyCode: 84 });
+  assert.strictEqual(chat.typing(), true);
   // the game ending hides the box and closes the input
-  P.dispatch(P.doc.body, 'keydown', { key: 't', keyCode: 84 });
   P.S.playing = false;
   P.raf(1);
-  assert.strictEqual(chat.element.style.display, 'none');
+  assert.strictEqual(chat.element.hidden, true);
   assert.strictEqual(chat.typing(), false);
-  // a click on the box never reaches their boost
+});
+
+test('slxChat: a press on the box never reaches their boost, a release always does; phones get a button', () => {
+  const P = chatPage({ S: { playing: true } });
+  const chat = P.slx.chat;
+  P.raf(1);
   let boosts = 0;
-  P.win.onmousedown = () => boosts++;
-  P.dispatch(chat.element.childNodes[0], 'mousedown', { button: 0 });
-  P.dispatch(chat.input, 'mousedown', { button: 0 });
-  assert.strictEqual(boosts, 0);
-  // phones: no input
-  const M = page('slxChat.js', { S: { is_mobile: true, playing: true } });
-  M.raf(1);
-  M.dispatch(M.doc.body, 'keydown', { key: 't', keyCode: 84 });
-  assert.strictEqual(M.slx.chat.typing(), false);
-});
-
-// Fixer pass (2026-10-10): a boost let go over the chat lines ends (their window mouseup, slInput.js:207, hears it),
-// and the lines take the pointer only while the input is open (pointer-events by the box's typing class).
-test('slxChat: a mouseup over the lines reaches their window listener; the lines take the pointer only while typing', () => {
-  const P = page('slxChat.js', { S: { playing: true } });
-  const chat = P.slx.chat;
   let ups = 0;
+  P.win.onmousedown = () => boosts++;
   P.win.addEventListener('mouseup', () => ups++);
-  P.raf(1);
-  const msgs = chat.element.children[0];
-  assert.strictEqual(msgs.className, 'slx-chat-msgs');
-  P.dispatch(msgs, 'mouseup', { button: 0 });
-  assert.strictEqual(ups, 1, 'their release ends the boost');
-  assert.strictEqual(chat.element.className, 'slx-chat', 'closed: the lines let the pointer through');
   P.dispatch(P.doc.body, 'keydown', { key: 't', keyCode: 84 });
-  assert.strictEqual(chat.element.className, 'slx-chat slx-chat-typing');
-  P.dispatch(chat.input, 'keydown', { key: 'Escape', keyCode: 27 });
-  assert.strictEqual(chat.element.className, 'slx-chat');
-  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'js', 'slx', 'slxChat.js'), 'utf8');
-  assert.ok(/\.slx-chat-msgs\{[^}]*pointer-events:none/.test(src), 'the lines default to pointer-events none');
-  assert.ok(src.includes('.slx-chat-typing .slx-chat-msgs{pointer-events:auto;}'));
+  const [feed, row] = chat.element.children;          // the hint takes no pointer (pointer-events none)
+  for (const el of [feed, row, chat.input]) P.dispatch(el, 'mousedown', { button: 0 });
+  assert.strictEqual(boosts, 0);
+  for (const el of [feed, row, chat.input]) P.dispatch(el, 'mouseup', { button: 0 });
+  assert.strictEqual(ups, 3, 'their release ends the boost');
+  assert.ok(/(^|\s)slx-chat(\s|$)/.test(chat.element.className), 'slxTouch leaves its touches alone (.slx-)');
+  assert.strictEqual(chat.input.maxLength, 120, 'the input cap is the server cap (law C_CHAT maxLen)');
+  const M = chatPage({ S: { is_mobile: true, playing: true } });
+  M.raf(1);
+  assert.ok(/dsc-phone/.test(M.slx.chat.element.className));
+  const btn = M.find('dsc-btn')[0];
+  M.dispatch(btn, 'click', {});
+  assert.strictEqual(M.slx.chat.typing(), true, 'the chat button opens the box');
 });
 
-test('slxChat: lines, own lines, kill lines (the old format), 50 kept, text only', () => {
-  const P = page('slxChat.js', { S: { playing: true } });
+test('slxChat: lines, own lines, kill lines, notes, snake colours, 60 kept, text only', () => {
+  const P = chatPage({ S: { playing: true, os: { s7: { cs: '#ff0000' } }, rrs: [10], ggs: [20], bbs: [200] } });
   const chat = P.slx.chat;
   P.raf(1);
   P.dispatch(P.doc.body, 'keydown', { key: 't', keyCode: 84 });
-  P.raf(1);
   chat.input.value = 'gg <3';
   P.dispatch(chat.input, 'keydown', { key: 'Enter', keyCode: 13 });
-  P.slx.fire('x:chat', { t: 'chat', name: 'Ann', text: 'hi' });
-  P.slx.fire('x:chat', { t: 'chat', name: 'Owen', text: 'gg 3' });     // the server stripped < and >
-  P.slx.fire('x:chat', { t: 'chat', name: 'Bob', text: 'gg 3' });      // the same words from someone else
+  P.slx.fire('x:chat', { t: 'chat', name: 'Ann', text: 'hi', id: 7, cv: 3 });
+  P.slx.fire('x:chat', { t: 'chat', name: 'Owen', text: 'gg 3', id: 8, cv: 0 });    // the server stripped < and >
+  P.slx.fire('x:chat', { t: 'chat', name: 'Bob', text: 'gg 3', id: 9, cv: 0 });     // the same words from someone else
   P.slx.fire('x:chat', { t: 'chat', name: '', text: 'who' });
-  P.slx.fire('x:chat', { t: 'chat', name: 'x', text: '' });            // nothing to show
-  P.slx.fire('x:kill', { t: 'kill', killer: 'Bob', victim: 'Ann' });
+  P.slx.fire('x:chat', { t: 'chat', name: 'x', text: '' });                          // nothing to show
+  P.slx.fire('x:kill', { t: 'kill', killer: 'Bob', victim: 'Ann', kid: 9, vid: 7 });
   P.slx.fire('x:kill', { t: 'kill', killer: '', victim: 'Ann' });
   P.slx.fire('x:kill', { t: 'kill', killer: 'Bob', victim: '' });
+  P.slx.fire('x:chatnote', { t: 'chatnote', text: 'Links can not be posted in chat.' });
   P.slx.fire('x:chat', { t: 'chat', name: '<img src=x>', text: '<script>1</script>' });
+  const skull = String.fromCharCode(0xD83D, 0xDC80) + ' ';
   assert.deepStrictEqual(plain(chat.lines()), [
     'Ann: hi', 'Owen: gg 3', 'Bob: gg 3', 'Player: who',
-    '💀 Bob killed Ann', '💀 Ann died', '💀 Bob killed a snake',
+    skull + 'Bob killed Ann', skull + 'Ann died', skull + 'Bob killed a snake',
+    'Links can not be posted in chat.',
     '<img src=x>: <script>1</script>'
   ]);
-  const rows = P.find('slx-chat-msg');
-  assert.deepStrictEqual(rows.map((r) => /slx-chat-me/.test(r.className)), [false, true, false, false, false, false, false, false]);
-  assert.deepStrictEqual(rows.map((r) => /slx-chat-kill/.test(r.className)), [false, false, false, false, true, true, true, false]);
-  const killer = P.find('slx-chat-killer').map((e) => e.textContent);
-  const victim = P.find('slx-chat-victim').map((e) => e.textContent);
-  assert.deepStrictEqual(killer, ['Bob', 'Bob']);
-  assert.deepStrictEqual(victim, ['Ann', 'Ann', 'a snake']);
-  for (let i = 0; i < 60; i++) P.slx.fire('x:chat', { t: 'chat', name: 'n', text: 'm' + i });
+  const rows = P.find('dsc-line');
+  assert.deepStrictEqual(rows.map((r) => /dsc-me/.test(r.className)), [false, true, false, false, false, false, false, false, false]);
+  assert.deepStrictEqual(rows.map((r) => /dsc-kill/.test(r.className)), [false, false, false, false, true, true, true, false, false]);
+  assert.ok(/dsc-sys/.test(rows[7].className), 'a note is its own kind of line');
+  // names in the snake's colour (lifted to read on the dark pill): the live snake's, else its skin's table colour
+  assert.match(rows[0].style['--dsc-c'], /^rgb\(\d+,\d+,\d+\)$/);
+  assert.match(rows[1].style['--dsc-c'], /^rgb\(\d+,\d+,\d+\)$/);
+  assert.strictEqual(rows[3].style['--dsc-c'], undefined, 'no id and no skin: the plain name colour');
+  // text only: what a player typed never becomes markup
+  assert.strictEqual(P.doc.body.childNodes.some((n) => n.tagName === 'SCRIPT' || n.tagName === 'IMG'), false);
+  for (let i = 0; i < 70; i++) P.slx.fire('x:chat', { t: 'chat', name: 'n', text: 'm' + i });
   const lines = chat.lines();
-  assert.strictEqual(lines.length, 50);
-  assert.strictEqual(lines[0], 'n: m10');
-  assert.strictEqual(lines[49], 'n: m59');
-  // the input's cap is law C_CHAT maxLen
-  assert.strictEqual(chat.input.maxLength, 120);
+  assert.strictEqual(lines.length, 60);
+  assert.strictEqual(lines[59], 'n: m69');
 });
 
 test('slxStats: ping in the old format and colours, FPS over 500 ms, shown while playing', () => {
@@ -990,10 +992,13 @@ test('HUD files: .slx- selectors only, no Math.random, no markup writes, every n
   const P = makePage({ win: { CashoutSound: { play() {} } } });
   for (const k of ['lbh', 'lbs', 'lbn', 'lbp']) P.S[k] = new P.El(P.doc, 'div');   // so slxHud makes its board
   P.load('dsEnd.js');
+  P.load('dsChat.js');
   for (const f of HUD) P.load(f);
   const styles = P.doc.head.children.filter((e) => e.tagName === 'STYLE');
   const shared = styles.filter((e) => e.getAttribute('data-dse') === '1');
   assert.strictEqual(shared.length, 1, 'dsEnd styled the page once (for the board)');
+  const chatCss = styles.filter((e) => e.getAttribute('data-ds') === 'chat');
+  assert.strictEqual(chatCss.length, 1, 'the shared chat styled the page once');
   const selectorsOf = (els) => {
     const css = els.map((e) => e.textContent).join('\n').replace(/\/\*[\s\S]*?\*\//g, '');
     // every selector of every rule, @media and @keyframes blocks opened
@@ -1003,22 +1008,26 @@ test('HUD files: .slx- selectors only, no Math.random, no markup writes, every n
     for (const m of flat.matchAll(/([^{}]+)\{[^{}]*\}/g)) for (const s of m[1].split(',')) out.push(s.trim());
     return out;
   };
-  const selectors = selectorsOf(styles.filter((e) => !shared.includes(e)));
-  assert.ok(selectors.length >= 25, 'parsed ' + selectors.length);
+  const selectors = selectorsOf(styles.filter((e) => !shared.includes(e) && !chatCss.includes(e)));
+  assert.ok(selectors.length >= 5, 'parsed ' + selectors.length);
+  const dsc = selectorsOf(chatCss);
+  assert.ok(dsc.length > 30, 'parsed ' + dsc.length + ' of dsChat');
+  for (const s of dsc) assert.ok(/^\.dsc(?:[-.:\s>\[]|$)/.test(s), 'dsChat selector outside .dsc: ' + s);
   for (const s of selectors) assert.ok(/^\.slx-/.test(s), 'selector outside .slx-: ' + s);
   const dse = selectorsOf(shared);
   assert.ok(dse.length > 40, 'parsed ' + dse.length + ' of dsEnd');
   for (const s of dse) assert.ok(/^\.ds[eb](?:[-.:\s>]|$)/.test(s), 'dsEnd selector outside .dse / .dsb: ' + s);
-  const files = HUD.map((f) => [f, path.join(SLX_DIR, f)]).concat([['dsEnd.js', DSEND]]);
+  const files = HUD.map((f) => [f, path.join(SLX_DIR, f)]).concat([['dsEnd.js', DSEND],
+    ['dsChat.js', path.join(ROOT, 'public', 'js', 'shared', 'dsChat.js')]]);
   for (const [f, file] of files) {
     const src = fs.readFileSync(file, 'utf8');
     assert.ok(!/Math\.random/.test(src), f + ': Math.random');
     assert.ok(!/innerHTML\s*=[^=]/.test(src), f + ': writes innerHTML');
     assert.ok(!/insertAdjacentHTML|document\.write|outerHTML\s*=/.test(src), f + ': markup write');
-    if (f !== 'dsEnd.js') assert.ok(/if \(!D \|\| !D\.slx \|\| !D\.slx\.active\) return;/.test(src), f + ': the inert check');
+    if (f !== 'dsEnd.js' && f !== 'dsChat.js') assert.ok(/if \(!D \|\| !D\.slx \|\| !D\.slx\.active\) return;/.test(src), f + ': the inert check');
     assert.ok(!src.includes(String.fromCharCode(0x2014)), f + ': em dash');
     // every named number of the layer says where it comes from: a comment on its line or the line above it
-    if (f === 'dsEnd.js') continue;
+    if (f === 'dsEnd.js' || f === 'dsChat.js') continue;
     const lines = src.split(/\r?\n/);
     lines.forEach((l, i) => {
       if (!/^\s*var [A-Z][A-Z0-9_]* = -?[0-9.]/.test(l)) return;

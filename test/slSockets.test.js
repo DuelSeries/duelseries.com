@@ -320,8 +320,8 @@ test('chat: joined seats only, a string, at most every C_RATE.chat; diag: only t
   a.fire('sl:chat', { text: 'hi <b>' });
   a.fire('sl:chat', { text: 'too soon' });
   r.ft.runImmediates();
-  const lines = layerMsgs(b).filter((m) => m.t === 'chat');
-  assert.deepStrictEqual(lines, [{ t: 'chat', name: 'a', text: 'hi b' }]);
+  const lines = layerMsgs(b).filter((m) => m.t === 'chat').map(({ t, name, text }) => ({ t, name, text }));
+  assert.deepStrictEqual(lines, [{ t: 'chat', name: 'a', text: 'hi' }], 'the chat guard takes the tag out');
   assert.strictEqual(room.stats.chats, 1);
 
   assert.deepStrictEqual(S.cleanDiag({ applyThrows: 0, wireErrors: 2, fps: 59.5, pongP95: 120, lastClose: 'net-close',
