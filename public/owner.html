@@ -10,545 +10,1314 @@
 <link rel="apple-touch-icon" sizes="180x180" href="/img/apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-/* The lobby's own tokens. This is the same product with its back panel off, not
-   a different application, and an ops screen in a different palette is one more
-   thing to reorient to at two in the morning. */
+/* Owen's pick "1 · The sheet" (owner-console/picker2.html), copied token for
+   token: one table with the games down the side and Free, $0.50 and $1 across,
+   a summary row above it and one strip of site controls below. Every number on
+   the screen is one the server sent; nothing here is decoration. */
 :root{
-  --bg:#100e0b; --s1:#17140f; --s2:#1f1b15; --s3:#282219;
-  --tx:#f5f1e8; --tx2:#a89c8a; --tx3:#8d8171;
-  --ink:#100e0b; --bone:#f4f1ea; --money:#f0a830; --live:#8ed081; --bad:#e0705f;
-  --r1:6px; --r2:10px; --r3:18px; --rf:999px;
-  --f:'Archivo',ui-sans-serif,system-ui,-apple-system,'Segoe UI',Arial,sans-serif;
-  --fm:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace;
+  --bg:#100e0b; --s1:#16130f; --s2:#1e1a14; --ln:#2a241c; --ln2:#3a3126;
+  --tx:#f5f1e8; --tx2:#b3a793; --tx3:#857a6a;
+  --ink:#100e0b; --gold:#f0a830; --ok:#8ed081; --bad:#e0705f;
+  --f:'Archivo',system-ui,-apple-system,'Segoe UI',sans-serif;
 }
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--tx);font-family:var(--f);
-  font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
-.wrap{max-width:760px;margin:0 auto;padding:34px 20px 80px}
+html,body{margin:0;background:var(--bg);color:var(--tx);font-family:var(--f);font-size:15px;line-height:1.45;font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+[hidden]{display:none!important}
 
-h1{font-size:20px;font-weight:650;letter-spacing:-.3px;margin:0}
-.sub{font-size:12.5px;color:var(--tx3);margin-top:3px}
-.top{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:24px}
-
-/* ── the verdict ─────────────────────────────────────────────────────────────
-   The one thing this page knows that no other screen does: whether it is safe
-   to pull the plug. It leads, because every other control on the page is a
-   decision made in the light of it. */
-.verdict{background:var(--s1);border:1px solid var(--s2);border-radius:var(--r3);
-  padding:22px 24px;margin-bottom:20px}
-.vtop{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-.pill{font-family:var(--fm);font-size:11px;font-weight:600;letter-spacing:.14em;
-  text-transform:uppercase;border-radius:var(--rf);padding:5px 12px;
-  border:1px solid transparent}
-.pill.open{color:var(--live);background:rgba(142,208,129,.12);border-color:rgba(142,208,129,.34)}
-.pill.down{color:var(--money);background:rgba(240,168,48,.12);border-color:rgba(240,168,48,.34)}
-.vmain{font-size:26px;font-weight:650;letter-spacing:-.5px;margin-top:14px}
-.vmain.risky{color:var(--money)}
-.vwhy{font-size:13px;color:var(--tx2);margin-top:6px}
-.vnums{display:flex;gap:26px;margin-top:18px;padding-top:16px;border-top:1px solid var(--s2)}
-.vnum b{display:block;font-family:var(--fm);font-variant-numeric:tabular-nums;
-  font-size:20px;font-weight:600}
-.vnum span{display:block;font-size:11px;letter-spacing:.1em;text-transform:uppercase;
-  color:var(--tx3);margin-top:3px}
-
-/* ── controls ────────────────────────────────────────────────────────────────
-   Rows, not cards. Each is a label, whatever it needs to be told, and the
-   button that does it — so the page reads as a list of things you can do and
-   never as a dashboard you have to interpret. */
-.group{background:var(--s1);border:1px solid var(--s2);border-radius:var(--r3);
-  padding:6px 24px;margin-bottom:14px}
-.ghead{font-family:var(--fm);font-size:10.5px;font-weight:600;letter-spacing:.16em;
-  text-transform:uppercase;color:var(--tx3);padding:16px 0 10px}
-.row{display:flex;align-items:center;gap:12px;padding:13px 0;border-top:1px solid var(--s2)}
-.row:first-of-type{border-top:none}
-.rlabel{flex:1;min-width:0}
-.rlabel b{display:block;font-size:14px;font-weight:600}
-.rlabel span{display:block;font-size:12px;color:var(--tx3);margin-top:2px}
-/* The bot rows. Buttons sit on the room, so the count you are changing and
-   the control that changes it are on the same line. */
-.botrow button{padding:7px 13px;font-size:12.5px}
-.botn{color:var(--tx);font-weight:600}
-.botnote{margin:12px 0 0;font-size:12px;color:var(--tx3)}
-
-button{font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;
-  border-radius:var(--r2);padding:9px 16px;border:1px solid var(--s3);
-  background:transparent;color:var(--tx);transition:background .14s,border-color .14s}
-button:hover:not(:disabled){background:var(--s2);border-color:#3a3126}
-button:disabled{opacity:.4;cursor:not-allowed}
-button:focus-visible{outline:2px solid var(--money);outline-offset:2px}
-button.go{background:var(--money);border-color:var(--money);color:var(--ink)}
-button.go:hover:not(:disabled){background:#f6b845;border-color:#f6b845}
-button.warn{color:var(--bad);border-color:rgba(224,112,95,.4)}
-button.warn:hover:not(:disabled){background:rgba(224,112,95,.12)}
-
-input,select{font-family:var(--fm);font-size:13px;background:var(--bg);
-  border:1px solid var(--s3);border-radius:var(--r2);color:var(--tx);
-  padding:9px 11px;min-width:0}
-input:focus,select:focus{outline:none;border-color:var(--money)}
-input.wide{flex:1}
-input.num{width:70px;text-align:center}
-
-/* ── the log ─────────────────────────────────────────────────────────────────
-   What actually happened, newest first, in the mono everything factual is set
-   in. It answers "why is the game in maintenance" without anyone having to
-   remember. */
-.log{font-family:var(--fm);font-size:12px;line-height:1.85;color:var(--tx2);
-  background:var(--s1);border:1px solid var(--s2);border-radius:var(--r3);
-  padding:18px 22px;max-height:280px;overflow:auto}
-.log div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.log .t{color:var(--tx3)}
+/* Shared parts, as in the picker. */
+.step{display:inline-flex;align-items:center;gap:0;border:1px solid var(--ln);border-radius:9px;height:34px;flex:none}
+.step button{width:32px;height:32px;border:0;background:none;cursor:pointer;color:var(--tx2);font-size:18px;line-height:1;border-radius:8px}
+.step span{min-width:30px;text-align:center;font-weight:600}
+/* A number the page is about to send, not one the server has confirmed yet. */
+.step.pending span{color:var(--tx2);font-style:italic}
+.step.off{opacity:.45}
+.tg{display:inline-flex;border:1px solid var(--ln);border-radius:9px;overflow:hidden;height:34px;flex:none}
+.tg button{border:0;background:none;padding:0 13px;font-size:13.5px;font-weight:600;color:var(--tx3);cursor:pointer}
+.tg button.on.y{background:rgba(142,208,129,.14);color:var(--ok)}
+.tg button.on.n{background:rgba(224,112,95,.14);color:var(--bad)}
+.tg button:disabled{cursor:not-allowed;opacity:.55}
+.tg.busy,.btn.busy{opacity:.6}
+.btn{border:1px solid var(--ln2);background:none;border-radius:9px;height:34px;padding:0 14px;font-weight:600;font-size:13.5px;cursor:pointer;flex:none}
+.btn.main{background:var(--tx);border-color:var(--tx);color:var(--ink)}
+.btn.red{color:var(--bad);border-color:rgba(224,112,95,.45)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.step button:disabled{cursor:not-allowed;opacity:.5}
+.btn:hover:not(:disabled){border-color:var(--tx3)}
+.btn.main:hover:not(:disabled){background:#fff;border-color:#fff}
+.step button:hover:not(:disabled),.tg button:hover:not(:disabled):not(.on){background:var(--s2);color:var(--tx)}
+/* "Auto": a word, not a button shape, and only there while a room is held. */
+.auto{border:0;background:none;padding:4px 2px;font-size:13px;font-weight:600;color:var(--tx2);text-decoration:underline;text-underline-offset:3px;cursor:pointer;flex:none}
+.auto:disabled{opacity:.5;cursor:default}
+.link{border:0;background:none;padding:0;font-size:inherit;color:var(--tx2);text-decoration:underline;text-underline-offset:3px;cursor:pointer}
+.gold{color:var(--gold)}
+.dim{color:var(--tx3)}
+.ok{color:var(--ok)}
+.bad{color:var(--bad)}
+input.say{flex:1;min-width:0;height:34px;background:var(--bg);border:1px solid var(--ln);border-radius:9px;padding:0 12px;color:var(--tx);font:inherit;font-size:14px}
+input.say:focus{outline:none;border-color:var(--gold)}
+.log{max-height:210px;overflow:auto}
+.log div{font-size:13px;color:var(--tx2);padding:3px 0}
+.log .t{color:var(--tx3);display:inline-block;width:52px}
 .log .no{color:var(--bad)}
-.log .yes{color:var(--live)}
-.empty{color:var(--tx3);font-family:var(--f);font-size:13px}
+.alerts{max-height:210px;overflow:auto;font-size:14px}
+.alerts .a{padding:6px 0;border-top:1px solid var(--s2)}
+.alerts .a:first-child{border-top:0;padding-top:0}
+.alerts .a b{color:var(--bad);font-weight:600;font-size:13.5px}
+.alerts .a .t{color:var(--tx3);font-size:12.5px;margin-left:6px}
+.alerts .a .x{font-size:13px;color:var(--tx2);overflow-wrap:anywhere}
+.alerts .q{padding-bottom:4px}
+.status{font-size:13.5px;color:var(--tx2);min-width:0}
+.status.bad{color:var(--bad)}
 
-/* Live alerts: newest first, the kind in the alarm colour, the facts in mono. */
-.alertstate{margin-left:8px;letter-spacing:.04em;text-transform:none;font-weight:500}
-.alertstate.on{color:var(--live)}
-.alertstate.off{color:var(--bad)}
-.alerts{padding:2px 0 16px;max-height:240px;overflow:auto}
-.alerts .a{padding:9px 0;border-top:1px solid var(--s2)}
-.alerts .a:first-child{border-top:none}
-.alerts .a b{color:var(--bad);font-size:13px;font-weight:600}
-.alerts .a .t{color:var(--tx3);font-family:var(--fm);font-size:11.5px;margin-left:8px}
-.alerts .a div{font-family:var(--fm);font-size:12px;color:var(--tx2);margin-top:2px;overflow-wrap:anywhere}
-.alerts .empty{display:block;padding:4px 0 2px}
+/* Focus you can see on every control. The toggles and steppers clip their
+   corners, so their ring sits inside the button rather than being cut off. */
+:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+.tg button:focus-visible,.step button:focus-visible{outline-offset:-2px}
 
-/* The result of the last thing pressed, in place, so it is read where it was
-   caused rather than in a corner. */
-/* Whether it worked is carried by the whole border and a matching tint, not by
-   a coloured bar down one side. The bar reads as decoration bolted on, and it
-   only ever tinted three pixels of an outline that was already there. */
-#say{position:fixed;left:50%;bottom:22px;transform:translate(-50%,10px);
-  background:rgba(240,168,48,.1);border:1px solid rgba(240,168,48,.42);
-  color:var(--tx);
-  border-radius:var(--r2);padding:12px 18px;font-size:13px;max-width:520px;
-  box-shadow:0 12px 40px rgba(0,0,0,.55);opacity:0;pointer-events:none;
-  transition:opacity .18s,transform .18s;z-index:50}
-#say.on{opacity:1;transform:translate(-50%,0)}
-#say.bad{background:rgba(224,112,95,.12);border-color:rgba(224,112,95,.45)}
-
-#gate{background:var(--s1);border:1px solid var(--s2);border-radius:var(--r3);
-  padding:28px 24px;text-align:center}
-#gate p{color:var(--tx2);font-size:13.5px;margin:10px 0 18px}
-@media(prefers-reduced-motion:reduce){*{transition:none!important}}
-@media(max-width:560px){
-  .row{flex-wrap:wrap}
-  .vnums{gap:18px}
+/* ═══ PC: the sheet ═══ */
+.s1{max-width:1440px;margin:0 auto}
+.s1 .hd{display:flex;align-items:baseline;gap:18px;padding:26px 36px 0}
+.s1 .hd h1{margin:0;font-size:24px;font-weight:650;letter-spacing:-.3px}
+.s1 .hd .who{margin-left:auto;color:var(--tx3);font-size:13.5px;flex:none}
+.s1 .sum{display:flex;align-items:center;gap:40px;padding:22px 36px 24px;border-bottom:1px solid var(--ln)}
+.s1 .verdict{font-size:20px;font-weight:650}
+.s1 .verdict small{display:block;font-size:13.5px;font-weight:400;color:var(--tx2);margin-top:2px}
+.s1 .fig b{display:block;font-size:22px;font-weight:650}
+.s1 .fig span{font-size:13px;color:var(--tx3)}
+.s1 .fig span.bad{color:var(--bad)}
+.s1 .open{margin-left:auto;display:flex;align-items:center;gap:12px;font-size:14px;color:var(--tx2)}
+.s1 table{width:100%;border-collapse:collapse}
+.s1 th{font-size:13px;font-weight:600;color:var(--tx3);text-align:left;padding:14px 18px 10px;border-bottom:1px solid var(--ln)}
+.s1 th:first-child,.s1 td:first-child{padding-left:36px}
+.s1 th:last-child,.s1 td:last-child{padding-right:36px}
+.s1 td{padding:14px 18px;border-bottom:1px solid var(--s2);vertical-align:middle}
+.s1 td.g{font-weight:650;font-size:16px;width:180px}
+.s1 .cell{display:flex;align-items:center;gap:14px}
+.s1 .cell .p{width:76px;color:var(--tx2);font-size:14px;flex:none}
+.s1 .cell .p b{color:var(--tx);font-weight:600}
+.s1 .cell .m{margin-left:auto;font-weight:600;min-width:52px;text-align:right}
+.s1 .na{color:var(--tx3);font-size:13.5px}
+.s1 td.door{width:150px}
+.s1 tr.br td{background:var(--s1)}
+.s1 .brline{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.s1 .brline .st{font-weight:600}
+.s1 .brline .acts{margin-left:auto;display:flex;gap:8px}
+.s1 .low{display:grid;grid-template-columns:1.2fr 1fr 1fr;border-top:1px solid var(--ln)}
+.s1 .low>div{padding:20px 36px 26px;border-left:1px solid var(--ln);min-width:0}
+.s1 .low>div:first-child{border-left:0}
+.s1 .low h3{margin:0 0 12px;font-size:13px;font-weight:600;color:var(--tx3)}
+.s1 .line{display:flex;align-items:center;gap:12px;padding:6px 0}
+.s1 .line .l{flex:1}
+/* Narrow PCs: the same sheet with less air between things, until it is too
+   narrow for a table at all and becomes the phone blocks below. */
+@media (max-width:1380px){
+  .s1 .sum{gap:28px}
+  .s1 .cell{gap:10px}
+  .s1 th,.s1 td{padding-left:12px;padding-right:12px}
+  .s1 td.g{width:130px}
 }
+
+/* ═══ Phone: each game its own block ═══ */
+.ph{max-width:640px;margin:0 auto;padding-bottom:28px}
+.ph .pt{padding:18px 18px 8px;display:flex;align-items:baseline;gap:10px}
+.ph .pt h1{margin:0;font-size:21px;font-weight:650}
+.ph .pt .who{margin-left:auto;font-size:12.5px;color:var(--tx3)}
+.ph .pst{padding:0 18px 6px}
+.ph .pst:empty{display:none}
+.ph .pv{padding:4px 18px 4px;font-size:19px;font-weight:650;line-height:1.25}
+.ph .pv small{display:block;font-size:13px;font-weight:400;color:var(--tx2);margin-top:3px}
+.ph .pf{display:flex;gap:20px;padding:12px 18px 14px;border-bottom:1px solid var(--ln)}
+.ph .pf b{display:block;font-size:17px;font-weight:650}
+.ph .pf span{font-size:12px;color:var(--tx3)}
+.ph .pf span.bad{color:var(--bad)}
+.ph .pg{padding:14px 18px 4px;display:flex;align-items:center;gap:10px}
+.ph .pg b{font-size:16px;font-weight:650}
+.ph .pg .tg,.ph .pg .na,.ph .pg .dim{margin-left:auto}
+.ph .pg .tg{height:30px}
+.ph .pg .tg button{padding:0 10px;font-size:12.5px}
+.ph .pg .dim,.ph .pg .na{font-size:13px;color:var(--tx3)}
+.ph .pr{display:grid;grid-template-columns:54px 1fr auto;gap:8px;align-items:center;padding:8px 18px;border-top:1px solid var(--s2)}
+.ph .pr .k{font-weight:600}
+.ph .pr .v{font-size:13.5px;color:var(--tx2);min-width:0}
+.ph .pr .v b{color:var(--tx)}
+.ph .pr .na{font-size:13px;color:var(--tx3);text-align:right}
+.ph .pr .sw{display:flex;align-items:center;gap:8px}
+.ph .sec{padding:14px 18px;border-top:1px solid var(--ln)}
+.ph .sec.acts{display:flex;gap:8px;flex-wrap:wrap;border-top:0;padding-top:6px}
+.ph .sec h3{margin:0 0 8px;font-size:13px;color:var(--tx3);font-weight:600}
+.ph .line{display:flex;align-items:center;gap:10px;padding:6px 0}
+.ph .line .l{flex:1}
+
+/* Sign in, and the screen before the page knows whether this device is in. */
+.center{min-height:100vh;display:grid;place-items:center;padding:24px 18px}
+.card{width:100%;max-width:420px;background:var(--s1);border:1px solid var(--s2);border-radius:14px;padding:28px 26px;text-align:center}
+.card h1{margin:0;font-size:20px;font-weight:650;letter-spacing:-.2px}
+.card p{margin:10px 0 20px;color:var(--tx2);font-size:14px}
+.card .why{margin:14px 0 0;font-size:13.5px;color:var(--tx2);min-height:1.45em}
+.card .why.bad{color:var(--bad)}
+.loading{padding:40px 36px;display:flex;gap:16px;flex-wrap:wrap}
+
+/* Devices: a small panel over the page, not a page of its own. */
+dialog{background:var(--s1);color:var(--tx);border:1px solid var(--ln);border-radius:14px;padding:0;width:min(440px,calc(100vw - 32px))}
+dialog::backdrop{background:rgba(0,0,0,.55)}
+.dhd{display:flex;align-items:center;padding:18px 20px 6px}
+.dhd h2{margin:0;font-size:17px;font-weight:650}
+.dhd .link{margin-left:auto;font-size:13.5px}
+.dnote{margin:0;padding:0 20px 10px;font-size:13px;color:var(--tx3)}
+.dv{display:flex;align-items:center;gap:12px;padding:10px 20px;border-top:1px solid var(--s2)}
+.dv .dl{flex:1;min-width:0}
+.dv .dl b{display:block;font-weight:600;font-size:14px}
+.dv .dl span{display:block;font-size:12.5px;color:var(--tx3)}
+.dft{display:flex;align-items:center;gap:12px;padding:12px 20px 18px;border-top:1px solid var(--ln)}
+.dft .status{flex:1}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important;scroll-behavior:auto!important}}
 </style>
 </head>
 <body>
-<div class="wrap">
-  <div class="top">
-    <div>
-      <h1>Control</h1>
-      <div class="sub" id="who">Checking who you are…</div>
+<main>
+  <section id="boot" class="center">
+    <div class="card">
+      <p class="why" id="bootWhy">Checking this device…</p>
+      <button type="button" class="btn" id="bootRetry" hidden>Try again</button>
     </div>
-    <button onclick="refresh()">Refresh</button>
-  </div>
+  </section>
 
-  <div id="gate" hidden>
-    <b>Sign in with the owner wallet</b>
-    <p>This page only answers to the wallet that owns the server. Nothing here
-       works from any other account.</p>
-    <!-- The widget publishes globals and renders nothing visible — the lobby
-         draws its own controls from them, so this page does too. #wallet-root
-         is where its hidden Privy iframe lives and must exist, or the whole
-         widget bails without mounting. -->
-    <div id="wallet-root"></div>
-    <button class="go" onclick="signIn()">Sign in</button>
-  </div>
+  <section id="signin" class="center" hidden>
+    <div class="card">
+      <h1>Sign in once on this device</h1>
+      <p>Sign in with the owner wallet one time. This device then stays signed in for a year, or until you sign it out under Devices.</p>
+      <!-- The widget publishes globals and renders nothing visible. #wallet-root
+           is where its hidden Privy iframe lives and must exist, or the whole
+           widget bails without mounting. It is only loaded once Sign in is
+           pressed: a signed-in device never touches the wallet at all. -->
+      <div id="wallet-root"></div>
+      <button type="button" class="btn main" id="signinBtn">Sign in</button>
+      <p class="why" id="signinWhy" role="status" aria-live="polite"></p>
+    </div>
+  </section>
 
-  <div id="panel" hidden>
-    <!-- The verdict. -->
-    <section class="verdict">
-      <div class="vtop">
-        <span class="pill open" id="pill">Open</span>
-        <span class="sub" id="uptime"></span>
-      </div>
-      <div class="vmain" id="verdict">Checking…</div>
-      <div class="vwhy" id="verdictWhy"></div>
-      <div class="vnums">
-        <div class="vnum"><b id="nPlaying">–</b><span>playing</span></div>
-        <div class="vnum"><b id="nPaid">–</b><span>with money on</span></div>
-        <div class="vnum"><b id="nWorth">–</b><span>USDC live</span></div>
-        <div class="vnum"><b id="nBots">–</b><span>bots</span></div>
-      </div>
-    </section>
+  <div id="panel" hidden></div>
+</main>
 
-    <!-- Live money alerts. Pushed by the server the moment it sees them
-         (escrow short, collusion, a Paper or agar ledger breach), so this sits
-         next to the verdict rather than under the log. -->
-    <section class="group">
-      <div class="ghead">Live alerts <span class="alertstate" id="alertState">connecting</span></div>
-      <div class="alerts" id="alerts"><span class="empty">None since this page opened.</span></div>
-    </section>
-
-    <!-- Battle royale. -->
-    <section class="group">
-      <div class="ghead">Battle Royale</div>
-      <div class="row">
-        <div class="rlabel"><b id="brPhase">—</b><span id="brSub">—</span></div>
-        <button class="go" id="brStart" onclick="act('br:start',{})">Start match</button>
-        <button id="brForce" onclick="act('br:start',{force:true})">Start alone</button>
-        <button class="warn" id="brStop" onclick="act('br:stop',{})">Stop</button>
-      </div>
-      <!-- Which engine runs the event (server/slBr). Saved across restarts and deploys. -->
-      <div class="row">
-        <div class="rlabel"><b>Engine</b><span id="brEngine">—</span></div>
-        <button id="brEngNew" onclick="act('br:engine:sl',{})">New engine</button>
-        <button class="warn" id="brEngOld" onclick="act('br:engine:old',{})">Old engine</button>
-      </div>
-    </section>
-
-    <!-- Bots. One row per room that can actually hold them, with the buttons
-         on the room rather than a dropdown, a number box and a verb to
-         assemble first. Rooms that take a stake are not listed at all: they
-         can never hold a bot, so offering them was offering a choice that
-         does nothing. -->
-    <section class="group">
-      <div class="ghead">Bots</div>
-      <div id="botRooms"></div>
-      <p class="botnote">Free rooms only. A table that takes money never holds
-        bots, and is not listed here.</p>
-    </section>
-
-    <!-- Maintenance. -->
-    <section class="group">
-      <div class="ghead">Maintenance</div>
-      <div class="row">
-        <div class="rlabel"><b>Can I restart right now?</b><span>Checks whether anyone still has a stake on the table.</span></div>
-        <button onclick="act('maintenance:check',{})">Check</button>
-      </div>
-      <div class="row">
-        <div class="rlabel"><b>Close the doors</b><span>Stops new games. Anyone already playing finishes.</span></div>
-        <input class="wide" id="mMsg" placeholder="Back in a few minutes." maxlength="200">
-        <input class="num" id="mMin" type="number" min="1" max="240" placeholder="min">
-        <button class="warn" onclick="act('maintenance:on',{message:val('mMsg'),minutes:+val('mMin')||0})">Close</button>
-      </div>
-      <div class="row">
-        <div class="rlabel"><b>Open again</b><span>New games start immediately.</span></div>
-        <button class="go" onclick="act('maintenance:off',{})">Open</button>
-      </div>
-      <div class="row">
-        <div class="rlabel"><b>Paid agar.io <span id="agPaidNow"></span></b><span>Close: new paid joins are refunded, seated players finish. A close stays closed across restarts and deploys until Open. Only while AG_PAID is on.</span></div>
-        <button class="warn" onclick="act('agar:paid:off',{})">Close</button>
-        <button class="go" onclick="act('agar:paid:on',{})">Open</button>
-      </div>
-      <div class="row">
-        <div class="rlabel"><b>Paid Paper <span id="paperPaidNow"></span></b><span>Close: new paid joins are refunded, seated players finish. A close stays closed across restarts and deploys until Open. Only while PAPER_PAID is on.</span></div>
-        <button class="warn" onclick="act('paper:paid:off',{})">Close</button>
-        <button class="go" onclick="act('paper:paid:on',{})">Open</button>
-      </div>
-      <div class="row">
-        <div class="rlabel"><b>Paid snake (new engine) <span id="slPaidNow"></span></b><span>Close: new paid joins are refunded and paid snake opens the old game; seated players finish. A close stays closed across restarts and deploys until Open. Only while SL_PAID is on.</span></div>
-        <button class="warn" onclick="act('sl:paid:off',{})">Close</button>
-        <button class="go" onclick="act('sl:paid:on',{})">Open</button>
-      </div>
-      <div class="row">
-        <div class="rlabel"><b>Lobby earnings strip <span id="earnNow"></span></b><span>"Players have cashed out $X" and its top 10. Hide takes it off every lobby within a minute and stays hidden across restarts until Show.</span></div>
-        <button class="warn" onclick="act('earnings:off',{})">Hide</button>
-        <button class="go" onclick="act('earnings:on',{})">Show</button>
-      </div>
-    </section>
-
-    <!-- Announce. -->
-    <section class="group">
-      <div class="ghead">Say something</div>
-      <div class="row">
-        <div class="rlabel"><b>To everyone in a game</b><span>Shows once, on screen, wherever they are.</span></div>
-        <input class="wide" id="annText" placeholder="Restarting in 5 minutes." maxlength="200">
-        <button onclick="act('announce',{text:val('annText')})">Send</button>
-      </div>
-    </section>
-
-    <div class="ghead" style="padding-left:2px">What has been done</div>
-    <div class="log" id="log"><span class="empty">Nothing yet this run.</span></div>
-  </div>
+<!-- Parts that outlive a redraw: the status line and the alerts list move into
+     whichever layout is on screen, so a message or an alert is never wiped by
+     the phone and PC layouts swapping. -->
+<div hidden>
+  <span id="status" class="status" role="status" aria-live="polite"></span>
+  <div id="alerts" class="alerts"></div>
 </div>
 
-<div id="say" role="status" aria-live="polite"></div>
+<dialog id="devices" aria-labelledby="devTitle">
+  <div class="dhd"><h2 id="devTitle">Devices</h2><button type="button" class="link" id="devClose">Close</button></div>
+  <p class="dnote">Each device stays signed in for a year from when it signed in.</p>
+  <div id="devList"></div>
+  <div class="dft"><span class="status" id="devStatus" role="status" aria-live="polite"></span><button type="button" class="btn red" id="devOthers">Sign out everywhere else</button></div>
+</dialog>
 
 <script src="/socket.io/socket.io.js"></script>
 <script src="/js/ownerAlerts.js"></script>
 <script>
-/* Two globals from the wallet widget do everything here: one says who is signed
-   in, the other signs an action with their key. Owner auth needs nothing else —
-   no token to expire, no app id to be wrong, no call to anyone. */
-const $ = id => document.getElementById(id);
-/* Room labels come off the server, so they are ours rather than a player's,
-   but this builds HTML from them and a console that trusts its input is a
-   console one bad room name away from executing it. */
-const esc = v => String(v == null ? '' : v)
-  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-  .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-const val = id => ($(id) || {}).value || '';
-let sayT = 0;
-function say(text, bad) {
-  const s = $('say');
-  s.textContent = text;
-  s.classList.toggle('bad', !!bad);
-  s.classList.add('on');
-  clearTimeout(sayT);
-  sayT = setTimeout(() => s.classList.remove('on'), 5000);
+'use strict';
+/* The owner console. A device signs in once with the owner wallet and the
+   server hands it a year-long session cookie (HttpOnly, so this script never
+   sees it). After that nothing here signs anything: every read and every
+   button is a plain same-origin request that carries the cookie and the
+   X-DS-Owner header, and the wallet widget is not even loaded. */
+
+const $ = (id) => document.getElementById(id);
+
+/* Builds DOM. Every string handed to it becomes a text node, never markup, so
+   a room name, a player's name in the battle royale or a note in the log can
+   never turn into HTML however it was written. */
+function h(tag, props, ...kids) {
+  const el = document.createElement(tag);
+  if (props) {
+    for (const k of Object.keys(props)) {
+      const v = props[k];
+      if (v == null || v === false) continue;
+      if (k === 'class') el.className = v;
+      else if (k === 'text') el.textContent = String(v);
+      else if (k === 'hidden' || k === 'disabled') el[k] = true;
+      else el.setAttribute(k, v === true ? '' : String(v));
+    }
+  }
+  for (const c of kids.flat()) {
+    if (c == null || c === false) continue;
+    el.append(c instanceof Node ? c : String(c));
+  }
+  return el;
 }
 
-const fmtAgo = ms => {
-  const s = Math.round(ms / 1000);
+const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : Number(v) || 0);
+const money = (v) => { const n = num(v); return Math.abs(n) < 0.005 ? '$0' : '$' + n.toFixed(2); };
+// Whole dollars without the cents: "$20 prize", as on the Events tab.
+const dollars = (v) => { const n = num(v); return Number.isInteger(n) ? '$' + n : money(n); };
+const people = (n) => (num(n) === 1 ? 'person' : 'people');
+const sentence = (t) => { const s = String(t || '').trim(); return !s || /[.!?]$/.test(s) ? s : s + '.'; };
+/* A time from the server as epoch ms, whether it came as ms, as seconds or as
+   an ISO string; 0 when it is none of those. */
+function toMs(v) {
+  if (typeof v === 'string' && v && !/^\d+(\.\d+)?$/.test(v)) { const t = Date.parse(v); return Number.isFinite(t) ? t : 0; }
+  const n = num(v);
+  return n > 0 && n < 1e12 ? n * 1000 : n;
+}
+// "8:05 pm" in whatever time zone this device is in; tight is the log's "7:42pm".
+function clock(ms, tight) {
+  const d = new Date(toMs(ms));
+  if (isNaN(d.getTime())) return '';
+  const t = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }).replace(/\s*([AP])\.?M\.?$/i, (m, p) => (tight ? '' : ' ') + p.toLowerCase() + 'm');
+  return t;
+}
+const sameDay = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+function when(ms) {
+  const d = new Date(toMs(ms));
+  if (isNaN(d.getTime()) || !toMs(ms)) return '';
+  return sameDay(d, new Date()) ? clock(ms) : d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+function uptime(sec) {
+  const s = Math.max(0, Math.round(num(sec)));
   if (s < 60) return s + 's';
   if (s < 3600) return Math.floor(s / 60) + 'm';
-  return Math.floor(s / 3600) + 'h ' + Math.floor((s % 3600) / 60) + 'm';
-};
-
-async function post(path, body) {
-  const r = await fetch(path, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body || {}),
-  });
-  const j = await r.json().catch(() => ({}));
-  return { ok: r.ok, status: r.status, body: j };
+  if (s < 86400) return Math.floor(s / 3600) + 'h ' + Math.floor((s % 3600) / 60) + 'm';
+  return Math.floor(s / 86400) + 'd ' + Math.floor((s % 86400) / 3600) + 'h';
 }
 
-/* Every call is signed, including the read. Reading the console shows live
-   player counts and staked worth, which is nobody else's business either. */
+/* ── talking to the server ─────────────────────────────────────────────────
+   The only fetch on the page. Every call carries X-DS-Owner: a page on another
+   origin cannot add that header without a preflight the server never grants,
+   which is what keeps a year-long cookie from being usable by anyone else's
+   page. It never throws: a server that is restarting is an answer too. */
+async function api(method, path, body) {
+  const opts = { method, credentials: 'same-origin', cache: 'no-store', headers: { 'X-DS-Owner': '1' } };
+  if (method !== 'GET') {
+    opts.headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(body || {});
+  }
+  const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+  if (ctl) opts.signal = ctl.signal;
+  const timer = setTimeout(() => { if (ctl) ctl.abort(); }, 15000);
+  try {
+    const r = await fetch(path, opts);
+    let j = null;
+    try { j = await r.json(); } catch (_) { j = null; }
+    return { ok: r.ok, status: r.status, body: j && typeof j === 'object' ? j : {} };
+  } catch (e) {
+    return { ok: false, status: 0, body: { error: 'No answer from the server. It may be restarting.' } };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+const reasonFor = (status) => status === 401
+  ? 'This device was signed out, or its sign-in ran out. Sign in again.'
+  : 'The server did not accept this device as the owner. Sign in again.';
+
+/* ── the status line ───────────────────────────────────────────────────────
+   What the last button did, or why the numbers are old. A poll failure stays
+   up until a poll works again; anything else fades. */
+const statusEl = $('status');
+let sayT = 0;
+let sayKind = '';
+function say(text, bad, kind) {
+  statusEl.textContent = text || '';
+  statusEl.className = 'status' + (bad ? ' bad' : '');
+  sayKind = kind || '';
+  clearTimeout(sayT);
+  if (text && !kind) sayT = setTimeout(() => { statusEl.textContent = ''; }, bad ? 9000 : 4000);
+}
+
+/* ── polling ───────────────────────────────────────────────────────────────
+   Every 5 s while the tab is in front, nothing while it is hidden, and once at
+   once when it comes back. A slow answer never stacks a second request. */
+let refreshing = false;
+let pollT = 0;
+async function refresh() {
+  if (refreshing || mode !== 'panel') return;
+  refreshing = true;
+  try {
+    const r = await api('POST', '/api/owner/state', {});
+    if (mode !== 'panel') return;
+    if (r.status === 401 || r.status === 403) { toSignIn(reasonFor(r.status)); return; }
+    if (!r.ok) {
+      const at = S ? ' Numbers are from ' + clock(S.got) + '.' : '';
+      say((sentence(r.body.error) || 'The server did not answer (' + r.status + ').') + at, true, 'poll');
+      return;
+    }
+    render(r.body);
+    startAlerts();
+  } finally {
+    refreshing = false;
+  }
+}
+function startPoll() {
+  stopPoll();
+  if (document.hidden || mode !== 'panel') return;
+  pollT = setInterval(() => { refresh(); }, 5000);
+}
+function stopPoll() { clearInterval(pollT); pollT = 0; }
+document.addEventListener('visibilitychange', () => {
+  if (mode !== 'panel') return;
+  if (document.hidden) stopPoll();
+  else { refresh(); startPoll(); }
+});
+// The countdown reads in seconds, so it ticks between polls.
+setInterval(() => {
+  if (mode === 'panel' && S && S.battleRoyale && S.battleRoyale.state === 'countdown' && !document.hidden) update();
+}, 1000);
+/* ── state ─────────────────────────────────────────────────────────────── */
+let mode = 'boot';          // boot | signin | panel
+let S = null;               // the last state the server sent, normalised
+let view = null;            // { shape, ups: [updaters], input }
+const busy = new Set();     // controls with a request in flight: one at a time each
+const pend = new Map();     // room -> { count, seq, timer }: bot counts not yet sent
+const COLS = [0, 0.5, 1];
+const COL_NAME = { 0: 'Free', 0.5: '$0.50', 1: '$1' };
+const panelEl = $('panel');
+
+/* Fills in anything a server mid-deploy might not send yet, so a missing
+   field draws as nothing rather than stopping every line after it. */
+function norm(raw) {
+  const s = Object.assign({}, raw);
+  s.drain = Object.assign({ safe: false, reason: '', people: 0, moneyInPlay: 0 }, raw.drain);
+  s.maintenance = Object.assign({ on: false }, raw.maintenance);
+  if (typeof s.open !== 'boolean') s.open = !s.maintenance.on;
+  s.games = Array.isArray(raw.games) ? raw.games.filter((g) => g && typeof g.id === 'string') : [];
+  s.audit = Array.isArray(raw.audit) ? raw.audit.filter((a) => a && typeof a === 'object') : [];
+  s.auth = raw.auth && typeof raw.auth === 'object' ? raw.auth : {};
+  s.battleRoyale = raw.battleRoyale && typeof raw.battleRoyale === 'object' ? raw.battleRoyale : null;
+  s.smooth = raw.smooth && typeof raw.smooth === 'object' ? raw.smooth : null;
+  s.earnings = raw.earnings && typeof raw.earnings === 'object' ? raw.earnings : null;
+  s.escrow = raw.escrow && typeof raw.escrow === 'object' ? raw.escrow : null;
+  s.got = Date.now();
+  return s;
+}
+const game = (s, id) => (s && s.games ? s.games.find((g) => g.id === id) : null) || null;
+const rungAt = (g, c) => (g && Array.isArray(g.rungs) ? g.rungs.find((r) => r && num(r.rung) === c) : null) || null;
+
+const mq = typeof window.matchMedia === 'function' ? window.matchMedia('(max-width: 1259px)') : null;
+const layout = () => (mq && mq.matches ? 'ph' : 'pc');
+
+/* What the screen is made of. The page draws the controls once and then only
+   changes their numbers, so a click is never lost to a redraw under the
+   pointer; it rebuilds only when this changes (a game or room appears, a door
+   gets built, the window crosses into the phone layout). */
+function shapeOf(s) {
+  const games = s.games.map((g) => [g.id, g.duel ? 'd' : '', !g.paid ? '-' : g.paid.enabled ? 'p' : 'x',
+    COLS.map((c) => { const r = rungAt(g, c); return !r ? '_' : r.room ? 'r' : 'n'; }).join('')].join(':'));
+  const br = s.battleRoyale ? (s.battleRoyale.room ? 'br' : 'brn') : '';
+  return [layout(), games.join(','), br, s.smooth ? 'sm' : ''].join('|');
+}
+
+function render(raw) {
+  if (!raw || typeof raw !== 'object') return;
+  // An answer older than the one on screen (a poll that crossed a button's reply) is dropped.
+  if (S && typeof raw.now === 'number' && typeof S.now === 'number' && raw.now < S.now) return;
+  S = norm(raw);
+  if (sayKind === 'poll') say('');
+  const shape = shapeOf(S);
+  if (!view || view.shape !== shape) build(shape);
+  update();
+}
+
+function update() {
+  if (!view || !S) return;
+  for (const u of view.ups) {
+    try { u(S); } catch (e) { say('Part of the page could not draw: ' + (e && e.message), true); }
+  }
+}
+
+function build(shape) {
+  const focusKey = document.activeElement && document.activeElement.getAttribute && document.activeElement.getAttribute('data-k');
+  const typed = view && view.input ? view.input.value : '';
+  const ups = [];
+  const next = { shape, ups, input: null };
+  const root = layout() === 'ph' ? buildPhone(ups, next) : buildPC(ups, next);
+  panelEl.replaceChildren(root);
+  view = next;
+  if (view.input && typed) view.input.value = typed;
+  if (focusKey) {
+    const sel = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(focusKey) : focusKey.replace(/["\\]/g, '');
+    const el = panelEl.querySelector('[data-k="' + sel + '"]');
+    if (el && typeof el.focus === 'function') el.focus();
+  }
+}
+
+/* ── actions ───────────────────────────────────────────────────────────────
+   One request at a time per control, so a double click is one action. The
+   server checks who is asking; the confirm boxes are there because the most
+   likely way this page gets used wrongly is Owen in a hurry on the wrong row. */
+async function act(key, action, args, opt) {
+  if (busy.has(key)) return null;
+  if (opt && opt.confirm && !window.confirm(opt.confirm)) return null;
+  busy.add(key);
+  update();
+  try {
+    const r = await api('POST', '/api/owner/do', { action, args: args || {} });
+    if (r.status === 401 || r.status === 403) { toSignIn(reasonFor(r.status)); return r; }
+    if (r.body.state) render(r.body.state);
+    if (r.ok && r.body.ok !== false) say(sentence(r.body.note) || 'Done.');
+    else say(sentence(r.body.error) || (r.status === 429 ? 'Too many requests. Wait a moment.' : 'Refused (' + r.status + ').'), true);
+    return r;
+  } catch (e) {
+    say('That did not work: ' + (e && e.message ? e.message : String(e)), true);
+    return null;
+  } finally {
+    busy.delete(key);
+    update();
+  }
+}
+
+/* Bots: every press changes the number on screen at once, and the presses of
+   one burst go to the server as a single bots:set 400 ms after the last one.
+   A burst that lands while the previous one is still in flight waits for it. */
+function nudge(room, from, delta) {
+  const p = pend.get(room) || { count: from, seq: 0, timer: 0 };
+  p.count = Math.max(0, Math.min(200, p.count + delta));
+  p.seq += 1;
+  clearTimeout(p.timer);
+  p.timer = setTimeout(() => { flushBots(room); }, 400);
+  pend.set(room, p);
+  update();
+}
+async function flushBots(room) {
+  const p = pend.get(room);
+  if (!p) return;
+  const key = 'bots:' + room;
+  if (busy.has(key)) { p.timer = setTimeout(() => { flushBots(room); }, 400); return; }
+  const seq = p.seq;
+  await act(key, 'bots:set', { room, count: p.count });
+  const now = pend.get(room);
+  if (now && now.seq === seq) pend.delete(room);   // nothing pressed since: the server's number takes over
+  update();
+}
+function backToAuto(room) {
+  const p = pend.get(room);
+  if (p) { clearTimeout(p.timer); pend.delete(room); }
+  act('bots:' + room, 'bots:set', { room, auto: true });
+}
+
+/* ── controls ──────────────────────────────────────────────────────────────
+   Each returns its element and pushes an updater that sets it from the state. */
+
+// Two segments, Open/Closed and the like. get(s) -> { on: true|false|null, disabled, title }.
+function toggle(ups, o) {
+  const a = h('button', { type: 'button', 'data-k': o.key + ':y', text: o.yes });
+  const b = h('button', { type: 'button', 'data-k': o.key + ':n', text: o.no });
+  const box = h('span', { class: 'tg', role: 'group', 'aria-label': o.label }, a, b);
+  a.addEventListener('click', () => { if (a.getAttribute('aria-pressed') !== 'true') o.pick(true); });
+  b.addEventListener('click', () => { if (b.getAttribute('aria-pressed') !== 'true') o.pick(false); });
+  ups.push((s) => {
+    const st = o.get(s) || {};
+    const on = st.on === true;
+    const off = st.on === false;
+    a.className = on ? 'on y' : '';
+    b.className = off ? 'on n' : '';
+    a.setAttribute('aria-pressed', String(on));
+    b.setAttribute('aria-pressed', String(off));
+    a.disabled = !!st.disabled;
+    b.disabled = !!st.disabled;
+    box.title = st.title || '';
+    box.classList.toggle('busy', busy.has(o.key));
+  });
+  return box;
+}
+
+/* The bot stepper and its Auto word. get(s) -> { room, bots, botTarget,
+   botsAllowed, botsNote }. It shows the held count when the room is held, the
+   live count when it is automatic, and the unsent count while one is pending. */
+function stepper(ups, o) {
+  let r = null;
+  const shown = () => {
+    const p = r && r.room ? pend.get(r.room) : null;
+    if (p) return p.count;
+    return r ? (r.botTarget != null ? num(r.botTarget) : num(r.bots)) : 0;
+  };
+  const usable = () => !!(r && r.room && r.botsAllowed !== false);
+  const minus = h('button', { type: 'button', 'data-k': o.key + ':-', 'aria-label': 'One bot fewer, ' + o.label }, '−');
+  const n = h('span');
+  const plus = h('button', { type: 'button', 'data-k': o.key + ':+', 'aria-label': 'One bot more, ' + o.label }, '+');
+  const box = h('span', { class: 'step', role: 'group', 'aria-label': 'Bots, ' + o.label }, minus, n, plus);
+  const auto = h('button', { type: 'button', class: 'auto', 'data-k': o.key + ':auto', hidden: true, 'aria-label': 'Back to automatic bots, ' + o.label }, 'Auto');
+  minus.addEventListener('click', () => { if (usable()) nudge(r.room, shown(), -1); });
+  plus.addEventListener('click', () => { if (usable()) nudge(r.room, shown(), 1); });
+  auto.addEventListener('click', () => { if (r && r.room) backToAuto(r.room); });
+  ups.push((s) => {
+    r = o.get(s) || null;
+    const ok = usable();
+    const p = r && r.room ? pend.get(r.room) : null;
+    const v = shown();
+    n.textContent = String(v);
+    box.classList.toggle('pending', !!p);
+    box.classList.toggle('off', !ok);
+    minus.disabled = !ok || v <= 0;
+    plus.disabled = !ok || v >= 200;
+    const title = !r ? '' : !r.room ? 'This room is not running'
+      : r.botsAllowed === false ? String(r.botsNote || 'This room takes no bots')
+      : p ? 'Sending ' + p.count + '…'
+      : r.botTarget != null ? 'Held at ' + num(r.botTarget) + '. ' + num(r.bots) + ' in the room now.'
+      : 'Automatic. ' + num(r.bots) + ' in the room now.';
+    box.title = title;
+    minus.title = title;
+    plus.title = title;
+    auto.hidden = !(ok && r.botTarget != null);
+    auto.disabled = !!(r && r.room && busy.has('bots:' + r.room));
+  });
+  return [box, auto];
+}
+
+// One button that runs one action, disabled by when(s) (true = enabled).
+function actionButton(ups, o) {
+  const b = h('button', { type: 'button', class: o.cls, 'data-k': o.dk, text: o.text });
+  b.addEventListener('click', () => { o.run(); });
+  ups.push((s) => {
+    const can = o.when(s);
+    b.disabled = !can || busy.has(o.key);
+    b.title = can ? '' : (o.why ? o.why(s) : '');
+    b.classList.toggle('busy', busy.has(o.key));
+  });
+  return b;
+}
+
+/* ── the parts both layouts share ──────────────────────────────────────── */
+function deviceKind() {
+  const ua = navigator.userAgent || '';
+  const d = navigator.userAgentData;
+  if ((d && d.mobile) || /iPhone|Android.+Mobile|Mobi/.test(ua)) return 'phone';
+  if (/iPad|Tablet|Android/.test(ua)) return 'tablet';
+  if (/Macintosh|Mac OS X/.test(ua)) return 'Mac';
+  return 'PC';
+}
+// A short name for this device in the Devices list: "Chrome on Windows". ASCII only.
+function deviceLabel() {
+  const ua = navigator.userAgent || '';
+  const d = navigator.userAgentData;
+  let os = /iPhone/.test(ua) ? 'iPhone' : /iPad/.test(ua) ? 'iPad' : /Android/.test(ua) ? 'Android'
+    : /CrOS/.test(ua) ? 'ChromeOS' : /Macintosh|Mac OS X/.test(ua) ? 'Mac' : /Windows/.test(ua) ? 'Windows'
+    : /Linux/.test(ua) ? 'Linux' : '';
+  if (d && typeof d.platform === 'string' && d.platform) os = d.platform === 'macOS' ? 'Mac' : d.platform;
+  let br = /Edg\//.test(ua) ? 'Edge' : /OPR\//.test(ua) ? 'Opera' : /Firefox\/|FxiOS/.test(ua) ? 'Firefox'
+    : /Chrome\/|CriOS/.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : 'Browser';
+  if (d && Array.isArray(d.brands)) {
+    const named = d.brands.map((x) => String(x && x.brand || '')).find((x) => x && !/brand|chromium/i.test(x));
+    if (named) br = named.replace(/^(Google|Microsoft)\s+/, '');
+  }
+  return (br + (os ? ' on ' + os : '')).replace(/[^\x20-\x7e]/g, '').slice(0, 40) || 'This device';
+}
+function whoText(s, short) {
+  const a = s.auth;
+  if (short) return 'Signed in';
+  if (a.via === 'signature') return 'Signed in with the wallet';
+  if (a.via === 'token') return 'Signed in with a token';
+  return 'Signed in on this ' + deviceKind();
+}
+function whoTitle(s) {
+  const a = s.auth;
+  const parts = [];
+  if (a.device) parts.push('This device: ' + a.device + '.');
+  if (toMs(a.exp)) parts.push('Stays signed in until ' + new Date(toMs(a.exp)).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' }) + '.');
+  return parts.join(' ');
+}
+function partWho(ups, short) {
+  const t = h('span');
+  const dev = h('button', { type: 'button', class: 'link', 'data-k': 'devices' }, 'Devices');
+  dev.addEventListener('click', () => { openDevices(); });
+  const who = h('span', { class: 'who' }, t, ' · ', dev);
+  ups.push((s) => { t.textContent = whoText(s, short); who.title = whoTitle(s); });
+  return who;
+}
+function verdictWhy(d) {
+  if (d.reason) return sentence(d.reason);
+  return d.safe ? 'Nobody has money on the table.' : 'Money is still in play.';
+}
+function partVerdict(ups, cls) {
+  const b = h('span');
+  const sm = h('small');
+  ups.push((s) => {
+    b.textContent = s.drain.safe ? 'Safe to restart' : "Don't restart yet";
+    sm.textContent = verdictWhy(s.drain);
+  });
+  return h('div', { class: cls }, b, sm);
+}
+// A figure: the number and the word under it. get(s) -> { v, cls, label, labelCls, title }.
+function fig(ups, cls, get) {
+  const b = h('b');
+  const sp = h('span');
+  const el = h('div', { class: cls }, b, sp);
+  ups.push((s) => {
+    const f = get(s);
+    b.textContent = f.v;
+    b.className = f.cls || '';
+    sp.textContent = f.label;
+    sp.className = f.labelCls || '';
+    el.title = f.title || '';
+  });
+  return el;
+}
+function escrowFig(s, short) {
+  const e = s.escrow;
+  if (!e) return { v: 'Not yet', cls: 'dim', label: short ? 'escrow' : 'escrow, not checked yet' };
+  const owed = num(e.owed);
+  const gap = typeof e.surplus === 'number' ? -e.surplus : owed - num(e.usdc);
+  const checked = e.at ? ' Checked at ' + clock(e.at) + '.' : '';
+  const title = 'Escrow holds ' + money(e.usdc) + ' and owes players ' + money(owed) + '.' + checked;
+  if (e.ok === false || gap > 0.005) return { v: money(e.usdc), label: 'short by ' + money(Math.max(0, gap)), labelCls: 'bad', title };
+  return { v: money(e.usdc), label: short ? 'escrow' : 'escrow, covers it', title };
+}
+function partNewGames(ups) {
+  return toggle(ups, {
+    key: 'open', yes: 'Open', no: 'Closed', label: 'New games',
+    get: (s) => ({
+      on: !!s.open,
+      title: s.open ? '' : [s.maintenance.message ? 'Players see: ' + s.maintenance.message : '',
+        s.maintenance.since ? 'Closed since ' + clock(s.maintenance.since) + '.' : ''].filter(Boolean).join(' '),
+    }),
+    pick: (on) => {
+      if (on) act('open', 'maintenance:off');
+      else act('open', 'maintenance:on', { message: 'Back shortly.' }, { confirm: 'Close new games?\n\nAnyone already playing finishes, but nobody new can start until you open them again.' });
+    },
+  });
+}
+// The paid door of one game: Open/Closed, or a word when there is nothing to switch.
+function partDoor(ups, gid) {
+  const g0 = game(S, gid);
+  if (!g0 || !g0.paid) return h('span', { class: 'na' });
+  if (!g0.paid.enabled) return h('span', { class: 'na', title: 'This server was started with paid ' + g0.name + ' turned off.' }, 'Off on this server');
+  return toggle(ups, {
+    key: 'door:' + gid, yes: 'Open', no: 'Closed', label: 'Paid ' + g0.name,
+    get: (s) => {
+      const p = (game(s, gid) || {}).paid || {};
+      return {
+        on: !!p.open,
+        disabled: !!p.stopping || !p.action,
+        title: p.stopping ? 'The server is restarting. Paid rooms open again after it.'
+          : !p.open && p.saved ? 'Closed, and stays closed across restarts until you open it.' : '',
+      };
+    },
+    pick: (on) => {
+      const g = game(S, gid);
+      const p = g && g.paid;
+      if (!p || !p.action) return;
+      if (on) act('door:' + gid, p.action + ':on');
+      else act('door:' + gid, p.action + ':off', {}, { confirm: 'Close paid ' + g.name + '?\n\nNew paid joins are refused and refunded. Anyone already playing keeps going and can cash out. It stays closed across restarts until you open it.' });
+    },
+  });
+}
+function rungStepper(ups, gid, c) {
+  const g0 = game(S, gid);
+  return stepper(ups, { key: 'bots:' + gid + ':' + c, label: (g0 ? g0.name : gid) + ' ' + COL_NAME[c], get: (s) => rungAt(game(s, gid), c) });
+}
+const brRung = (s) => {
+  const b = s.battleRoyale;
+  return b ? { room: b.room || null, bots: b.bots, botTarget: b.botTarget == null ? null : b.botTarget,
+    botsAllowed: b.botsAllowed !== false, botsNote: b.botsNote } : null;
+};
+
+/* The battle royale in words: what it is doing, then the facts that matter.
+   People, never bodies: bots fill the room and are not who Owen is waiting for. */
+function brWord(b) {
+  if (b.state === 'waiting') return 'Waiting';
+  if (b.state === 'countdown') {
+    const left = Math.max(0, num(b.countdownMs) - (Date.now() - S.got));
+    return 'Starting in ' + Math.ceil(left / 1000) + ' s';
+  }
+  if (b.state === 'running') return 'Running';
+  if (b.state === 'over') return 'Over';
+  if (b.state === 'reopening') return 'Reopening';
+  const t = String(b.state || 'Unknown');
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
+function brStartsAt(b) {
+  const at = toMs(b.nextStartAt) || (b.nextStartMs != null ? S.got + num(b.nextStartMs) : 0);
+  if (!at) return '';
+  const d = new Date(at);
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const day = sameDay(d, new Date()) ? '' : sameDay(d, tomorrow) ? 'tomorrow ' : d.toLocaleDateString([], { weekday: 'long' }) + ' ';
+  return day + 'at ' + clock(at);
+}
+function brPrize(b) {
+  if (b.prizeHeld) return 'prize held';
+  return num(b.prize) > 0 ? dollars(b.prize) + ' prize' : 'no prize';
+}
+function brInfo(b) {
+  const parts = [num(b.humans) + ' ' + people(b.humans)];
+  if (b.state === 'running') parts.push(num(b.alive) + ' alive');
+  if (b.state === 'over' && b.winner && b.winner.name) parts.push('won by ' + b.winner.name);
+  if (b.state !== 'running' && b.state !== 'countdown') { const t = brStartsAt(b); if (t) parts.push('starts by itself ' + t); }
+  parts.push(brPrize(b));
+  return parts.join(', ');
+}
+function brShort(b) {
+  const parts = [];
+  if (b.state === 'running') parts.push(num(b.alive) + ' alive');
+  else if (b.state === 'over' && b.winner && b.winner.name) parts.push('won by ' + b.winner.name);
+  else if (b.state !== 'countdown') { const t = brStartsAt(b); if (t) parts.push('starts ' + t.replace(/\bat /, '')); }
+  parts.push(num(b.prize) > 0 && !b.prizeHeld ? dollars(b.prize) : brPrize(b));
+  return parts.join(' · ');
+}
+function brButtons(ups) {
+  const br = (s) => s.battleRoyale || {};
+  return [
+    actionButton(ups, { key: 'br', dk: 'br:start', cls: 'btn main', text: 'Start now',
+      when: (s) => !!br(s).canStart,
+      why: (s) => (br(s).state && br(s).state !== 'waiting' ? 'A match is under way' : 'Needs ' + num(br(s).minPlayers || 1) + ' ' + people(br(s).minPlayers || 1) + ' in the room'),
+      run: () => act('br', 'br:start', {}) }),
+    actionButton(ups, { key: 'br', dk: 'br:force', cls: 'btn', text: 'Start alone',
+      when: (s) => !!br(s).canForce,
+      why: (s) => (br(s).state && br(s).state !== 'waiting' ? 'A match is under way' : 'Nobody is in the room'),
+      run: () => act('br', 'br:start', { force: true }) }),
+    actionButton(ups, { key: 'br', dk: 'br:stop', cls: 'btn red', text: 'Stop',
+      when: (s) => br(s).state === 'countdown' || br(s).state === 'running',
+      why: () => 'Nothing is starting or running',
+      run: () => act('br', 'br:stop', {}, { confirm: 'Stop the battle royale?\n\nNobody wins it and no prize is paid.' }) }),
+  ];
+}
+function brEngine(ups) {
+  return toggle(ups, {
+    key: 'engine', yes: 'New', no: 'Old', label: 'Battle royale engine',
+    get: (s) => {
+      const b = s.battleRoyale || {};
+      const between = b.state === 'waiting';
+      return { on: b.engine === 'sl' ? true : b.engine === 'old' ? false : null, disabled: !between,
+        title: between ? '' : 'Switch engines between matches' };
+    },
+    pick: (on) => {
+      if (on) act('engine', 'br:engine:sl');
+      else act('engine', 'br:engine:old', {}, { confirm: 'Send the battle royale back to the old engine?\n\nThe Events tab opens the old game from now on, across restarts, until you pick New.' });
+    },
+  });
+}
+function partStrip(ups) {
+  return toggle(ups, {
+    key: 'earnings', yes: 'Shown', no: 'Hidden', label: 'Cashed-out strip in the lobby',
+    get: (s) => {
+      const e = s.earnings || {};
+      return { on: e.shown == null ? null : !!e.shown, disabled: e.configShow === false,
+        title: e.configShow === false ? 'Turned off in config.js, so it stays hidden whatever this says' : '' };
+    },
+    pick: (on) => act('earnings', on ? 'earnings:on' : 'earnings:off'),
+  });
+}
+function partSmooth(ups) {
+  return toggle(ups, {
+    key: 'smooth', yes: 'On', no: 'Off', label: 'Smooth turning',
+    get: (s) => ({ on: s.smooth ? !!s.smooth.on : null }),
+    pick: (on) => act('smooth', on ? 'sl:smooth:on' : 'sl:smooth:off'),
+  });
+}
+function partSay(ups, next, cls) {
+  const input = h('input', { class: 'say', type: 'text', maxlength: '200', autocomplete: 'off', 'data-k': 'say',
+    placeholder: 'Message to everyone playing', 'aria-label': 'Message to everyone playing' });
+  const send = h('button', { type: 'button', class: 'btn', 'data-k': 'send', text: 'Send' });
+  const go = async () => {
+    const text = input.value.trim();
+    if (!text) { say('Write the message first.', true); input.focus(); return; }
+    const r = await act('announce', 'announce', { text }, { confirm: 'Send this to everyone playing?\n\n' + text });
+    if (r && r.ok && r.body.ok !== false && input.value.trim() === text) input.value = '';
+  };
+  send.addEventListener('click', () => { go(); });
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } });
+  ups.push(() => { send.disabled = busy.has('announce'); });
+  next.input = input;
+  return h('div', { class: cls }, input, send);
+}
+
+/* Alerts arrive on their own socket, between polls, newest first. The empty
+   state says whether the socket is actually listening: "nothing wrong" from a
+   socket that is not connected would be a lie. */
+const alertList = [];
+let alertState = 'connecting';
+const alertsEl = $('alerts');
+function alertNote() {
+  if (alertState === 'listening') return '';
+  if (alertState === 'connecting') return 'Connecting to alerts…';
+  if (alertState === 'offline') return 'Alerts lost the server. Reconnecting.';
+  if (alertState === 'unsigned') return 'Alerts would not sign in. Reload the page.';
+  if (alertState === 'unavailable') return 'Alerts did not load. Reload the page.';
+  return 'Alerts are not connected.';
+}
+let alertsDrawn = '';
+function drawAlerts() {
+  const sig = alertState + '|' + alertList.length + '|' + (alertList[0] ? alertList[0].at : 0);
+  if (sig === alertsDrawn) return;
+  alertsDrawn = sig;
+  const note = alertNote();
+  const kids = [];
+  const noteCls = alertState === 'connecting' ? 'q dim' : 'q bad';
+  if (!alertList.length) kids.push(h('div', { class: note ? noteCls : 'q dim', text: note || 'Nothing wrong right now.' }));
+  else if (note) kids.push(h('div', { class: noteCls, text: note }));
+  for (const a of alertList) {
+    const x = h('div', { class: 'x' });
+    x.textContent = String(a.text || '');
+    kids.push(h('div', { class: 'a' }, h('b', { text: String(a.title || 'Alert') }), h('span', { class: 't', text: clock(a.at) }), x));
+  }
+  alertsEl.replaceChildren(...kids);
+}
+function partAlerts(ups) {
+  alertsDrawn = '';
+  ups.push(drawAlerts);
+  return alertsEl;
+}
+// Done today: the server's audit log, today's part, every string as text.
+function partLog(ups) {
+  const box = h('div', { class: 'log' });
+  let drawn = '';
+  ups.push((s) => {
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    const rows = s.audit.filter((a) => toMs(a.at) >= start.getTime());
+    const sig = JSON.stringify(rows.map((a) => [a.at, a.action, a.note, a.ok, a.who]));
+    if (sig === drawn) return;
+    drawn = sig;
+    if (!rows.length) { box.replaceChildren(h('div', { class: 'dim', text: 'Nothing yet today.' })); return; }
+    box.replaceChildren(...rows.map((a) => h('div', {
+      class: a.ok === false ? 'no' : null,
+      title: [String(a.action || ''), a.who ? 'by ' + String(a.who) : '', a.ok === false ? 'refused' : ''].filter(Boolean).join(', '),
+    }, h('span', { class: 't', text: clock(a.at, true) }), String(a.note || a.action || ''))));
+  });
+  return box;
+}
+
+/* ── PC ────────────────────────────────────────────────────────────────── */
+function buildPC(ups, next) {
+  const up = h('span', { class: 'dim' });
+  ups.push((s) => { up.textContent = String(s.region || '').toUpperCase() + ' server, up ' + uptime(s.uptimeSec); });
+  const hd = h('div', { class: 'hd' }, h('h1', null, 'Control'), up, statusEl, partWho(ups, false));
+
+  const sum = h('div', { class: 'sum' },
+    partVerdict(ups, 'verdict'),
+    fig(ups, 'fig', (s) => ({ v: String(num(s.drain.people)), label: 'people playing' })),
+    fig(ups, 'fig', (s) => ({ v: String(num(s.bots)), label: 'bots' })),
+    fig(ups, 'fig', (s) => ({ v: money(s.drain.moneyInPlay), cls: 'gold', label: 'money in play',
+      title: 'Live paid worth, money on the floor, unspent entries and paid duel stakes.' })),
+    fig(ups, 'fig', (s) => escrowFig(s, false)),
+    h('div', { class: 'open' }, 'New games ', partNewGames(ups)));
+
+  const rows = S.games.map((g0) => {
+    const name = h('td', { class: 'g' });
+    ups.push((s) => { const g = game(s, g0.id); name.textContent = g ? String(g.name || g.id) : ''; });
+    const cells = COLS.map((c) => pcCell(ups, g0.id, c));
+    return h('tr', null, name, cells, h('td', { class: 'door' }, partDoor(ups, g0.id)));
+  });
+  if (S.battleRoyale) rows.push(pcBr(ups));
+
+  const table = h('table', null,
+    h('thead', null, h('tr', null, h('th', { scope: 'col' }, 'Game'), COLS.map((c) => h('th', { scope: 'col' }, COL_NAME[c])), h('th', { scope: 'col' }, 'Paid rooms'))),
+    h('tbody', null, rows));
+
+  const site = h('div', null, h('h3', null, 'Site'),
+    h('div', { class: 'line' }, h('span', { class: 'l' }, 'Cashed-out strip in the lobby'), partStrip(ups)),
+    S.smooth ? h('div', { class: 'line' }, h('span', { class: 'l' }, 'Smooth turning'), partSmooth(ups)) : null,
+    partSay(ups, next, 'line'));
+  const low = h('div', { class: 'low' }, site,
+    h('div', null, h('h3', null, 'Alerts'), partAlerts(ups)),
+    h('div', null, h('h3', null, 'Done today'), partLog(ups)));
+
+  return h('div', { class: 's1' }, hd, sum, table, low);
+}
+function pcCell(ups, gid, c) {
+  const g0 = game(S, gid);
+  const r0 = rungAt(g0, c);
+  if (!r0) return h('td');
+  const pb = h('b');
+  const pw = h('span');
+  const kids = [h('span', { class: 'p' }, pb, pw)];
+  let m = null;
+  if (g0.duel) {
+    kids.push(c === 0 ? h('span', { class: 'dim' }, 'bot joins after 15 s') : h('span', { class: 'na' }, 'people only'));
+    if (c !== 0) kids.push(m = h('span', { class: 'm' }));
+  } else if (!r0.room) {
+    kids.push(h('span', { class: 'na' }, 'not running'));
+  } else {
+    const [st, auto] = rungStepper(ups, gid, c);
+    kids.push(st, h('span', { class: 'dim' }, 'bots'), auto);
+    if (c !== 0) kids.push(m = h('span', { class: 'm' }));
+  }
+  ups.push((s) => {
+    const r = rungAt(game(s, gid), c) || {};
+    pb.textContent = String(num(r.people));
+    pw.textContent = ' ' + people(r.people);
+    if (m) {
+      const v = num(r.money);
+      // A duel's paid cell shows money only while there is some, as in the picker.
+      m.textContent = v > 0.005 || !g0.duel ? money(v) : '';
+      m.className = 'm ' + (v > 0.005 ? 'gold' : 'dim');
+    }
+  });
+  return h('td', null, h('div', { class: 'cell' }, kids));
+}
+function pcBr(ups) {
+  const st = h('span', { class: 'st' });
+  const info = h('span', { class: 'dim' });
+  ups.push((s) => { const b = s.battleRoyale || {}; st.textContent = brWord(b); info.textContent = brInfo(b); });
+  const parts = [st, info];
+  if (S.battleRoyale.room) {
+    const [step, auto] = stepper(ups, { key: 'bots:br', label: 'battle royale', get: brRung });
+    parts.push(step, h('span', { class: 'dim' }, 'bots'), auto);
+  }
+  parts.push(h('span', { class: 'acts' }, brButtons(ups)), h('span', { class: 'dim' }, 'Engine'), brEngine(ups));
+  return h('tr', { class: 'br' }, h('td', { class: 'g' }, 'Battle royale'), h('td', { colspan: '4' }, h('div', { class: 'brline' }, parts)));
+}
+
+/* ── phone ─────────────────────────────────────────────────────────────── */
+function buildPhone(ups, next) {
+  const pt = h('div', { class: 'pt' }, h('h1', null, 'Control'), partWho(ups, true));
+  const pst = h('div', { class: 'pst' }, statusEl);
+  const pv = partVerdict(ups, 'pv');
+  const pf = h('div', { class: 'pf' },
+    fig(ups, '', (s) => ({ v: String(num(s.drain.people)), label: 'people' })),
+    fig(ups, '', (s) => ({ v: String(num(s.bots)), label: 'bots' })),
+    fig(ups, '', (s) => ({ v: money(s.drain.moneyInPlay), cls: 'gold', label: 'in play' })),
+    fig(ups, '', (s) => escrowFig(s, true)));
+
+  const blocks = [];
+  for (const g0 of S.games) {
+    const name = h('b');
+    ups.push((s) => { const g = game(s, g0.id); name.textContent = g ? String(g.name || g.id) : ''; });
+    blocks.push(h('div', { class: 'pg' }, name, partDoor(ups, g0.id)));
+    for (const c of COLS) { const row = phRow(ups, g0.id, c); if (row) blocks.push(row); }
+  }
+  if (S.battleRoyale) blocks.push(...phBr(ups));
+
+  const site = h('div', { class: 'sec' }, h('h3', null, 'Site'),
+    h('div', { class: 'line' }, h('span', { class: 'l' }, 'New games'), partNewGames(ups)),
+    h('div', { class: 'line' }, h('span', { class: 'l' }, 'Cashed-out strip'), partStrip(ups)),
+    S.smooth ? h('div', { class: 'line' }, h('span', { class: 'l' }, 'Smooth turning'), partSmooth(ups)) : null,
+    partSay(ups, next, 'line'));
+  const up = h('div', { class: 'dim', style: 'font-size:13px;padding-top:8px' });
+  ups.push((s) => { up.textContent = String(s.region || '').toUpperCase() + ' server, up ' + uptime(s.uptimeSec); });
+  site.append(up);
+
+  return h('div', { class: 'ph' }, pt, pst, pv, pf, blocks, site,
+    h('div', { class: 'sec' }, h('h3', null, 'Alerts'), partAlerts(ups)),
+    h('div', { class: 'sec' }, h('h3', null, 'Done today'), partLog(ups)));
+}
+function phRow(ups, gid, c) {
+  const g0 = game(S, gid);
+  const r0 = rungAt(g0, c);
+  if (!r0) return null;
+  const pb = h('b');
+  const pw = h('span');
+  const sep = h('span');
+  const ms = h('span', { class: 'gold' });
+  let right;
+  if (g0.duel) right = h('span', { class: 'na' }, c === 0 ? 'bot joins after 15 s' : 'people only');
+  else if (!r0.room) right = h('span', { class: 'na' }, 'not running');
+  else { const [st, auto] = rungStepper(ups, gid, c); right = h('span', { class: 'sw' }, auto, st); }
+  ups.push((s) => {
+    const r = rungAt(game(s, gid), c) || {};
+    const v = num(r.money);
+    pb.textContent = String(num(r.people));
+    pw.textContent = ' ' + people(r.people);
+    const showMoney = c !== 0 && v > 0.005;
+    sep.textContent = showMoney ? ' · ' : '';
+    ms.textContent = showMoney ? money(v) : '';
+  });
+  return h('div', { class: 'pr' }, h('span', { class: 'k' }, COL_NAME[c]), h('span', { class: 'v' }, pb, pw, sep, ms), right);
+}
+function phBr(ups) {
+  const st = h('span', { class: 'dim' });
+  const info = h('span', { class: 'v' });
+  ups.push((s) => {
+    const b = s.battleRoyale || {};
+    st.textContent = brWord(b) + ' · ' + num(b.humans) + ' ' + people(b.humans);
+    info.textContent = brShort(b);
+  });
+  let right = h('span');
+  if (S.battleRoyale.room) {
+    const [step, auto] = stepper(ups, { key: 'bots:br', label: 'battle royale', get: brRung });
+    right = h('span', { class: 'sw' }, auto, step);
+  }
+  return [
+    h('div', { class: 'pg' }, h('b', null, 'Battle royale'), st),
+    h('div', { class: 'pr' }, h('span', { class: 'k' }, 'Bots'), info, right),
+    h('div', { class: 'sec acts' }, brButtons(ups)),
+    h('div', { class: 'pr' }, h('span', { class: 'k' }, 'Engine'), h('span'), brEngine(ups)),
+  ];
+}
+
+// Crossing between the PC sheet and the phone blocks redraws from the state on hand.
+if (mq) {
+  const relayout = () => { if (S && view && mode === 'panel') { build(shapeOf(S)); update(); } };
+  if (typeof mq.addEventListener === 'function') mq.addEventListener('change', relayout);
+  else if (typeof mq.addListener === 'function') mq.addListener(relayout);
+}
+
+/* ── alerts ────────────────────────────────────────────────────────────────
+   The socket proves itself with a one-time ticket the session buys over HTTP
+   (public/js/ownerAlerts.js, ticket mode). sign is the older way in, kept for
+   a module that does not know tickets yet: it only works if this tab loaded
+   the wallet to sign in, and otherwise says no. */
+let alertSocket = null;
 async function signed(action, args) {
   if (typeof window.duelWalletSignAction !== 'function') return null;
-  /* Raced against a clock. This awaits a promise from Privy's SDK, and a
-     promise that never settles is a page that never finishes loading: the
-     console sat on "Checking who you are" with no gate, no panel and nothing
-     to press, which from the outside is a dead page. Ten seconds is far longer
-     than signing takes and far shorter than staring at a frozen screen. */
   try {
     return await Promise.race([
       window.duelWalletSignAction(action, args || {}),
-      new Promise((_, no) => setTimeout(() => no(new Error('the wallet did not answer')), 10000)),
+      new Promise((resolve) => setTimeout(() => resolve(null), 10000)),
     ]);
   } catch (e) {
-    say('Could not sign: ' + e.message, true);
     return null;
   }
 }
-
-let refreshing = false;
-async function refresh() {
-  if (refreshing) return;              // the poll must not stack behind a slow one
-  refreshing = true;
-  /* Says what it is doing WHILE it does it. Every failure below lands the page
-     somewhere with a message and a button; none of them leaves it on this. */
-  if ($('panel').hidden) $('who').textContent = 'Asking your wallet to sign…';
+async function alertTicket() {
   try {
-    const proof = await signed('state', {});
-    if (!proof) {
-      $('panel').hidden = true; $('gate').hidden = false;
-      $('who').textContent = 'Your wallet did not sign. Reload and try again.';
-      return;
-    }
-    let r;
-    try { r = await post('/api/owner/state', proof); }
-    catch (e) {
-      $('who').textContent = 'Could not reach the server. It may be restarting.';
-      say('No answer from the server: ' + e.message, true);
-      return;
-    }
-    if (!r.ok) {
-      $('panel').hidden = true; $('gate').hidden = false;
-      $('who').textContent = r.status === 403
-        ? 'That wallet does not own this server.'
-        : 'The server refused the request (' + r.status + ').';
-      return;
-    }
-    $('gate').hidden = true; $('panel').hidden = false;
-    render(r.body);
-    startAlerts();
-  } finally { refreshing = false; }
+    const r = await api('POST', '/api/owner/ticket', {});
+    return r.ok && typeof r.body.ticket === 'string' && r.body.ticket ? r.body.ticket : null;
+  } catch (e) {
+    return null;
+  }
+}
+function startAlerts() {
+  if (alertSocket || mode !== 'panel') return;
+  if (typeof window.io !== 'function' || !window.OwnerAlerts || typeof window.OwnerAlerts.connectOwnerAlerts !== 'function') {
+    if (alertState !== 'unavailable') { alertState = 'unavailable'; update(); }
+    return;
+  }
+  try {
+    alertSocket = OwnerAlerts.connectOwnerAlerts({ io, sign: signed, ticket: alertTicket,
+      onState: (st) => { alertState = String(st || ''); update(); },
+      onAlert: (a) => {
+        if (!a || typeof a !== 'object') return;
+        alertList.unshift({ title: String(a.title || 'Alert'), text: String(a.text || ''), at: num(a.at) || Date.now() });
+        if (alertList.length > 30) alertList.length = 30;
+        say(String(a.title || 'Alert') + ': ' + String(a.text || ''), true);
+        update();
+      },
+    });
+  } catch (e) {
+    alertSocket = null;
+    alertState = 'unavailable';
+    update();
+  }
+}
+function stopAlerts() {
+  try { if (alertSocket && typeof alertSocket.disconnect === 'function') alertSocket.disconnect(); } catch (_) { /* gone already */ }
+  alertSocket = null;
+  alertState = 'connecting';
 }
 
-/* The server's live money alerts. It sends them only to a socket that signed
-   'owner:alerts' with the owner wallet (public/js/ownerAlerts.js signs on every
-   connect, silently, with signed() above), so this starts once the server has
-   accepted a signed read, and never twice. */
-let alertSocket = null;
-const alertList = [];
-function startAlerts() {
-  if (alertSocket || typeof window.io !== 'function' || !window.OwnerAlerts) return;
-  const label = { listening: ['on', 'listening'], unsigned: ['off', 'not signed, reload'], offline: ['off', 'reconnecting'] };
-  alertSocket = OwnerAlerts.connectOwnerAlerts({ io, sign: signed,
-    onState: st => {
-      const [cls, text] = label[st] || ['off', st];
-      $('alertState').className = 'alertstate ' + cls;
-      $('alertState').textContent = text;
-    },
-    onAlert: a => {
-      alertList.unshift(a);
-      alertList.length = Math.min(alertList.length, 30);
-      $('alerts').innerHTML = alertList.map(a =>
-        '<div class="a"><b>' + esc(a.title) + '</b><span class="t">'
-        + new Date(a.at).toLocaleTimeString() + '</span><div>' + esc(a.text) + '</div></div>').join('');
-      say(a.title + ': ' + a.text, true);
-    },
+/* ── screens ───────────────────────────────────────────────────────────── */
+function show(which) {
+  $('boot').hidden = which !== 'boot';
+  $('signin').hidden = which !== 'signin';
+  panelEl.hidden = which !== 'panel';
+}
+function why(text, bad) {
+  const el = $('signinWhy');
+  el.textContent = text || '';
+  el.className = 'why' + (bad ? ' bad' : '');
+}
+function toSignIn(reason) {
+  mode = 'signin';
+  stopPoll();
+  stopAlerts();
+  for (const p of pend.values()) clearTimeout(p.timer);
+  pend.clear();
+  S = null;
+  view = null;
+  panelEl.replaceChildren();
+  closeDevices();
+  show('signin');
+  why(reason || '', !!reason);
+}
+async function enterPanel() {
+  mode = 'panel';
+  show('panel');
+  if (!view) panelEl.replaceChildren(h('div', { class: 'loading' }, h('span', { class: 'dim' }, 'Loading the console…'), statusEl));
+  await refresh();
+  if (mode === 'panel') startPoll();
+}
+
+/* ── sign in, once per device ──────────────────────────────────────────────
+   Only now does the wallet widget load. The owner signs one message,
+   owner:session:create over a nonce the server just issued for this browser,
+   and the server answers with the session cookie. */
+let widgetLoad = null;
+function loadWidget() {
+  if (widgetLoad) return widgetLoad;
+  widgetLoad = new Promise((resolve, reject) => {
+    /* The widget is a React island that expects node globals; the shim has to
+       run before it loads, exactly as on the lobby. */
+    window.global = window.global || window; window.process = window.process || { env: { NODE_ENV: 'production' } };
+    const tag = document.createElement('script');
+    tag.src = '/wallet/widget.js';
+    tag.onload = () => resolve();
+    tag.onerror = () => { widgetLoad = null; tag.remove(); reject(new Error('The sign-in widget did not load. Check the connection and try again.')); };
+    document.body.appendChild(tag);
+  });
+  return widgetLoad;
+}
+// Resolves true once pred(window.duelWallet) holds, false after ms.
+function walletWhen(pred, ms) {
+  return new Promise((resolve) => {
+    let timer = 0;
+    const done = (v) => { clearTimeout(timer); window.removeEventListener('duelwallet:change', check); resolve(v); };
+    const check = () => { const w = window.duelWallet; if (w && pred(w)) done(true); };
+    timer = setTimeout(() => done(false), ms);
+    window.addEventListener('duelwallet:change', check);
+    check();
   });
 }
-
-function render(s) {
-  const w = (window.duelWallet || {}).address || '';
-  $('who').textContent = 'Signed in as ' + w.slice(0, 4) + '…' + w.slice(-4)
-    + ' · ' + s.region.toUpperCase();
-  $('uptime').textContent = 'up ' + fmtAgo(s.uptimeSec * 1000);
-
-  const down = s.maintenance.maintenance;
-  const pill = $('pill');
-  pill.className = 'pill ' + (down ? 'down' : 'open');
-  pill.textContent = down ? 'Closed' : 'Open';
-
-  /* The verdict is about RESTARTING, not about traffic, because that is the
-     question this page exists to answer. */
-  const d = s.drain;
-  $('verdict').textContent = d.safe ? 'Safe to restart' : 'Do not restart yet';
-  $('verdict').className = 'vmain' + (d.safe ? '' : ' risky');
-  $('verdictWhy').textContent = d.safe
-    ? 'Nobody has money on the table. Pulling the plug costs no one anything.'
-    : d.reason + '. Their stake only exists while their snake does.';
-
-  $('nPlaying').textContent = d.playing;
-  $('nPaid').textContent = d.paid;
-  $('nWorth').textContent = d.paidWorth.toFixed(2);
-  $('nBots').textContent = s.rooms.reduce((n, r) => n + (r.bots || 0), 0);
-
-  /* Paid snake on the new engine: whether its door is open right now, so a
-     close (it outlives restarts) is never left on by accident. */
-  const doorNow = (p, flag) => !p ? '' : !p.enabled ? '· not built (' + flag + ' off)'
-    : p.stopping ? '· restarting' : p.open ? '· now open'
-    : '· now CLOSED' + (p.saved ? ', kept across restarts' : '');
-  $('slPaidNow').textContent = doorNow(s.slPaid, 'SL_PAID');
-  $('agPaidNow').textContent = doorNow(s.agPaid, 'AG_PAID');
-  $('paperPaidNow').textContent = doorNow(s.paperPaid, 'PAPER_PAID');
-  const ea = s.earnings;
-  $('earnNow').textContent = !ea ? '' : !ea.configShow ? '· off in config.js'
-    : ea.shown ? '· showing (once real players have cashed out)' : '· HIDDEN';
-
-  const br = s.battleRoyale;
-  if (br) {
-    const running = br.state === 'running';
-    $('brPhase').textContent = running ? 'Running · ' + br.phase
-      : br.state === 'over' ? 'Just finished' : 'Waiting';
-    $('brSub').textContent = running
-      ? br.alive + ' alive of ' + br.players
-      : br.winner ? 'Won by ' + br.winner.name
-      : br.players + ' in the room, ' + br.minPlayers + ' needed';
-    $('brStart').disabled = running || !br.canStart;
-    $('brForce').disabled = running || br.players < 1;
-    $('brStop').disabled = !running;
-    const onNew = br.engine === 'sl';
-    $('brEngine').textContent = onNew ? 'New slither.io engine (same as Free)' : 'Old engine';
-    $('brEngNew').disabled = onNew || br.state !== 'waiting';
-    $('brEngOld').disabled = !onNew || br.state !== 'waiting';
-  }
-
-  /* Rebuilt from the live snapshot every time, because the counts on it are
-     the whole point: the old control showed a room's population inside a
-     dropdown option, where it was only visible while the dropdown was open. */
-  const rooms = s.rooms.filter(r => r.takesBots);
-  $('botRooms').innerHTML = rooms.length ? rooms.map(r => {
-    const id = JSON.stringify(r.id).replace(/"/g, '&quot;');
-    return '<div class="row botrow">' +
-      '<div class="rlabel"><b>' + esc(r.label || r.id) + '</b>' +
-        '<span><b class="botn">' + r.bots + '</b> bots · ' +
-        r.players + ' playing</span></div>' +
-      '<button onclick="act(\'bots:add\',{room:' + id + ',count:1})">+1</button>' +
-      '<button onclick="act(\'bots:add\',{room:' + id + ',count:5})">+5</button>' +
-      '<button class="warn" onclick="act(\'bots:clear\',{room:' + id + '})">Clear</button>' +
-      '</div>';
-  }).join('') : '<div class="row"><div class="rlabel">' +
-      '<b>No free rooms are running.</b><span>Bots only go in rooms that cost' +
-      ' nothing to enter.</span></div></div>';
-
-  const log = $('log');
-  log.innerHTML = s.audit.length ? s.audit.map(a =>
-    '<div><span class="t">' + new Date(a.at).toLocaleTimeString() + '</span> '
-    + '<span class="' + (a.ok ? 'yes' : 'no') + '">' + (a.ok ? '✓' : '✕') + '</span> '
-    + a.action + (a.note ? ' — ' + a.note : '') + '</div>').join('')
-    : '<span class="empty">Nothing yet this run.</span>';
+function openWalletLogin() {
+  if (typeof window.duelWalletLogin !== 'function') return false;
+  Promise.resolve().then(() => window.duelWalletLogin()).catch(() => {});
+  return true;
 }
-
-/* The server checks WHO you are. It cannot check whether you MEANT it.
-
-   Signing is silent — the embedded wallet never prompts — so from an unlocked
-   browser every one of these is one click with no friction at all. That is
-   fine for adding bots and wrong for closing the game to everybody, so the
-   three that cannot be undone by pressing the same button again ask first.
-   This is not a security boundary; anyone at your keyboard can click OK. It is
-   there because the most likely way this gets used wrongly is you, in a hurry,
-   hitting the wrong row. */
-const CONFIRM = {
-  'maintenance:on': 'Close the game to new players?\n\nAnyone already playing carries on, but nobody new can start until you open it again.',
-  'agar:paid:off':  'Close paid agar.io to new players?\n\nNew paid joins are refunded; anyone already seated keeps playing and can cash out. It stays closed across restarts and deploys until you press Open.',
-  'paper:paid:off': 'Close paid Paper to new players?\n\nNew paid joins are refunded; anyone already seated keeps playing and can cash out. It stays closed across restarts and deploys until you press Open.',
-  'br:engine:old':  'Send the battle royale back to the old engine?\n\nThe Events tab opens the old game from now on. It stays there across restarts and deploys until you press New engine.',
-  'sl:paid:off':    'Close paid snake on the new engine?\n\nNew paid joins are refunded and paid snake opens the old game; anyone already seated keeps playing and can cash out. It stays closed across restarts and deploys until you press Open.',
-  'br:stop':        'Stop the match that is running?\n\nNobody wins it and no prize is paid.',
-  'bots:clear':     'Remove every bot from this room?',};
-async function act(action, args) {
-  const ask = CONFIRM[action];
-  if (ask && !confirm(ask)) return;
-  const proof = await signed(action, args || {});
-  if (!proof) { say('Sign in with the owner wallet first.', true); return; }
-  const r = await post('/api/owner/do', proof);
-  say(r.ok ? (r.body.note || 'Done') : (r.body.error || ('Refused (' + r.status + ')')), !r.ok);
-  if (r.body && r.body.state) render(r.body.state);
-}
-
-/* The widget mounts asynchronously, so this waits for it rather than deciding
-   nobody is signed in a hundred milliseconds too early. */
-function signIn() {
-  if (typeof window.duelWalletLogin !== 'function') {
-    say('The wallet has not loaded yet. Give it a moment, then reload.', true);
+let signingIn = false;
+let waitingForLogin = false;
+async function signIn() {
+  const btn = $('signinBtn');
+  if (signingIn) {
+    // Privy's window was closed without signing in: pressing again reopens it.
+    if (waitingForLogin) openWalletLogin();
     return;
   }
-  try { window.duelWalletLogin(); }
-  catch (e) { say('Could not open sign-in: ' + e.message, true); }
-}
-
-function boot() {
-  const w = window.duelWallet || {};
-  if (!w.ready) return;
-  booted = true;
-  if (!w.authenticated) {
-    $('gate').hidden = false; $('panel').hidden = true;
-    $('who').textContent = 'Not signed in.';
-    return;
+  signingIn = true;
+  btn.disabled = true;
+  try {
+    why('Loading the wallet…');
+    await loadWidget();
+    if (!(await walletWhen((w) => w.ready, 20000))) throw new Error('The wallet did not start. Reload the page and try again.');
+    // Signed in to Privy already (the lobby, earlier): the address can lag the flag by a moment.
+    if (window.duelWallet.authenticated && !window.duelWallet.address) await walletWhen((w) => w.address, 10000);
+    if (!window.duelWallet.authenticated || !window.duelWallet.address) {
+      if (!openWalletLogin()) throw new Error('The wallet has no sign-in. Reload the page and try again.');
+      why('Finish signing in to the owner wallet in the window that opened.');
+      waitingForLogin = true;
+      btn.disabled = false;
+      btn.textContent = 'Open the sign-in again';
+      const authed = await walletWhen((w) => w.authenticated && w.address, 10 * 60 * 1000);
+      waitingForLogin = false;
+      btn.disabled = true;
+      btn.textContent = 'Sign in';
+      if (!authed) throw new Error('The wallet sign-in was not finished. Press Sign in to try again.');
+    }
+    why('Asking the server for a sign-in code…');
+    const ch = await api('GET', '/api/owner/session/challenge');
+    if (!ch.ok || typeof ch.body.nonce !== 'string') throw new Error(sentence(ch.body.error) || 'The server did not give a sign-in code (' + ch.status + ').');
+    const args = { nonce: ch.body.nonce, host: String(ch.body.host || location.host), label: deviceLabel() };
+    why('Signing with the owner wallet…');
+    if (typeof window.duelWalletSignAction !== 'function') throw new Error('The wallet cannot sign. Reload the page and try again.');
+    let proof = null;
+    try {
+      proof = await Promise.race([
+        window.duelWalletSignAction('owner:session:create', args),
+        new Promise((resolve) => setTimeout(() => resolve(null), 20000)),
+      ]);
+    } catch (e) {
+      throw new Error('The wallet would not sign: ' + (e && e.message ? e.message : String(e)));
+    }
+    if (!proof) throw new Error('The wallet did not sign. Try again.');
+    const r = await api('POST', '/api/owner/session/login', proof);
+    if (!r.ok || r.body.ok !== true) {
+      throw new Error(r.status === 403 ? 'That wallet does not own this server.'
+        : sentence(r.body.error) || 'The server refused the sign-in (' + r.status + ').');
+    }
+    why('');
+    await enterPanel();
+  } catch (e) {
+    why(e && e.message ? e.message : 'Sign-in did not work. Try again.', true);
+  } finally {
+    signingIn = false;
+    waitingForLogin = false;
+    btn.disabled = false;
+    btn.textContent = 'Sign in';
   }
-  refresh();
 }
+$('signinBtn').addEventListener('click', () => { signIn(); });
 
-/* THE ONE PAGE THAT MUST NOT GO BLANK. It is the screen you open when
-   something else is already wrong, and the sign-in widget is one of the things
-   that can be wrong. Waiting on w.ready forever left it on 'checking who you
-   are' with nothing else on screen and no way to tell whether the page, the
-   widget or the server had died. After five seconds it says so instead. */
-let booted = false;
-setTimeout(() => {
-  if (booted) return;
-  $('gate').hidden = false;
-  $('who').textContent = 'The sign-in widget did not load.';
-  $('gate').querySelector('p').textContent =
-    'Owner controls need a signature from the owner wallet, and the wallet has '
-    + 'not come up. Check the browser console, then reload. The server itself is '
-    + 'fine if this page rendered at all.';
-}, 5000);
+/* ── devices ───────────────────────────────────────────────────────────── */
+const dlg = $('devices');
+let devBusy = false;
+function devStatus(text, bad) {
+  const el = $('devStatus');
+  el.textContent = text || '';
+  el.className = 'status' + (bad ? ' bad' : '');
+}
+function closeDevices() {
+  if (dlg.open) { if (typeof dlg.close === 'function') dlg.close(); else dlg.removeAttribute('open'); }
+}
+async function openDevices() {
+  if (!dlg.open) { if (typeof dlg.showModal === 'function') dlg.showModal(); else dlg.setAttribute('open', ''); }
+  await loadDevices();
+}
+async function loadDevices() {
+  devStatus('Loading…');
+  const r = await api('GET', '/api/owner/sessions');
+  if (r.status === 401 || r.status === 403) { toSignIn(reasonFor(r.status)); return; }
+  if (!r.ok) { devStatus(sentence(r.body.error) || 'Could not load the list (' + r.status + ').', true); return; }
+  // This device first, then the others newest first.
+  const list = (Array.isArray(r.body.sessions) ? r.body.sessions.filter((d) => d && typeof d === 'object') : [])
+    .sort((a, b) => (b.current ? 1 : 0) - (a.current ? 1 : 0) || toMs(b.lastSeen) - toMs(a.lastSeen));
+  devStatus('');
+  $('devList').replaceChildren(...(list.length ? list.map(devRow) : [h('p', { class: 'dnote', text: 'No devices are signed in.' })]));
+  $('devOthers').disabled = !list.some((d) => !d.current);
+}
+function devRow(d) {
+  const meta = [d.current ? 'this device' : '', d.lastSeen ? 'last seen ' + when(d.lastSeen) : '',
+    d.createdAt ? 'signed in ' + when(d.createdAt) : ''].filter(Boolean).join(', ');
+  const out = h('button', { type: 'button', class: 'btn', text: 'Sign out' });
+  out.addEventListener('click', () => { if (d.current) signOutHere(out); else revoke({ id: d.id }, out); });
+  return h('div', { class: 'dv' }, h('div', { class: 'dl' }, h('b', { text: String(d.device || 'Unknown device') }), h('span', { text: meta })), out);
+}
+async function revoke(body, btn) {
+  if (devBusy) return;
+  devBusy = true;
+  if (btn) btn.disabled = true;
+  try {
+    const r = await api('POST', '/api/owner/session/revoke', body);
+    if (r.status === 401 || r.status === 403) { toSignIn(reasonFor(r.status)); return; }
+    if (!r.ok || r.body.ok === false) { devStatus(sentence(r.body.error) || 'Refused (' + r.status + ').', true); return; }
+    await loadDevices();
+    devStatus(body.others ? 'Signed out everywhere else.' : 'Signed out.');
+  } finally {
+    devBusy = false;
+    if (btn) btn.disabled = false;
+  }
+}
+async function signOutHere(btn) {
+  if (devBusy) return;
+  devBusy = true;
+  if (btn) btn.disabled = true;
+  try {
+    const r = await api('POST', '/api/owner/session/logout', {});
+    if (!r.ok) { devStatus(sentence(r.body.error) || 'The server did not sign this device out (' + r.status + '). Try again.', true); return; }
+    toSignIn('Signed out on this device.');
+    why('Signed out on this device.', false);
+  } finally {
+    devBusy = false;
+    if (btn) btn.disabled = false;
+  }
+}
+$('devClose').addEventListener('click', () => { closeDevices(); });
+dlg.addEventListener('click', (e) => { if (e.target === dlg) closeDevices(); });
+$('devOthers').addEventListener('click', () => {
+  if (!window.confirm('Sign out every other device?\n\nEach one needs the owner wallet to sign in again. This device stays signed in.')) return;
+  revoke({ others: true }, $('devOthers'));
+});
 
-window.addEventListener('duelwallet:change', boot);
-setInterval(() => { if (!$('panel').hidden) refresh(); }, 15000);
-setTimeout(boot, 600);
+/* ── start ─────────────────────────────────────────────────────────────── */
+async function boot() {
+  mode = 'boot';
+  show('boot');
+  $('bootRetry').hidden = true;
+  $('bootWhy').className = 'why';
+  $('bootWhy').textContent = 'Checking this device…';
+  const r = await api('GET', '/api/owner/session');
+  if (r.ok && r.body.signedIn === true) { await enterPanel(); return; }
+  if (r.ok || r.status === 401 || r.status === 403) { toSignIn(''); return; }
+  $('bootWhy').className = 'why bad';
+  $('bootWhy').textContent = r.status === 0 ? 'Could not reach the server. It may be restarting.'
+    : 'The server did not answer the sign-in check (' + r.status + ').';
+  $('bootRetry').hidden = false;
+}
+$('bootRetry').addEventListener('click', () => { boot(); });
+boot();
 </script>
-<!-- The widget is a React island that mounts into #wallet-root and returns
-     without rendering if that element is missing. The node-global shims have to
-     run before it loads, exactly as they do on the lobby. Both were missing
-     here, so the widget never mounted, window.duelWalletLogin never existed,
-     and pressing Sign in did nothing at all. -->
-<script>window.global=window.global||window;window.process=window.process||{env:{NODE_ENV:'production'}};</script>
-<script src="/wallet/widget.js"></script>
 </body>
 </html>

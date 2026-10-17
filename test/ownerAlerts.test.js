@@ -98,8 +98,8 @@ test('owner.html loads the socket client and the module, and connects only once 
   const refresh = html.slice(html.indexOf('async function refresh()'), html.indexOf('function render('));
   assert.match(refresh, /render\(r\.body\);\s*startAlerts\(\);/);
   assert.match(html, /OwnerAlerts\.connectOwnerAlerts\(\{\s*io,\s*sign: signed,/);
-  // what it shows is escaped
-  assert.match(html, /esc\(a\.text\)/);
+  // what it shows is set as text, never as markup
+  assert.match(html, /x\.textContent = String\(a\.text \|\| ''\)/);
 });
 
 // The real server (server/index.js as a child process, the boot of test/securityGamesServer.test.js): the page's module
