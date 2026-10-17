@@ -161,7 +161,15 @@ class SlPaidArenas {
     if (!this.botDriver || !this.botBank) return { ok: false, why: 'Paid snake bots are not wired on this server' };
     if (this.stopping) return { ok: false, why: 'The server is stopping' };
     if (!Number.isInteger(n) || n < 0 || n > PAID_BOT_MAX) return { ok: false, why: 'Bots: a whole number from 0 to ' + PAID_BOT_MAX };
-    const r = this._applyBots(st, n);
+    let r;
+    try {
+      r = this._applyBots(st, n);
+    } catch (e) {
+      // a bank refusal (the ceiling) while taking a bot out: logged and refused, never thrown into the owner's request
+      this.log.error('[SLP] paid bots: set ' + st + ' to ' + n + ' failed: ' + (e && e.message));
+      this._saveTargets();
+      return { ok: false, why: 'Paid bots could not be changed just now: ' + String(e && e.message).slice(0, 120) };
+    }
     this._saveTargets();
     return Object.assign({ ok: true, held: n }, r);
   }
@@ -213,14 +221,14 @@ class SlPaidArenas {
       }
       rec.manual = true; // never refilled by the fill (no respawn)
       if (!this.botBank.take(seed, room.lobbyType)) {
-        room.bots.removeBots(room, 1);
+        room.removeBot(rec.id);
         why = 'The bot bank refused the seed';
         break;
       }
       try {
         room.money.seedBot(rec.id, seed, rec.nick);
       } catch (e) {
-        this.botBank.giveBack(seed, 'seed-failed', room.lobbyType);
+        this.botBank.giveBack(seed, 'seed-failed', room.lobbyType, true);
         room.removeBot(rec.id);
         this.log.error('[SLP] paid bots: seed of ' + rec.id + ' refused, given back: ' + (e && e.message));
         why = 'The room refused the seed';
@@ -313,10 +321,12 @@ class SlPaidArenas {
       onAccountClosed: (acct) => this._accountClosed(roomOf(), acct),
       // a bounty bot's unspent seed back to the owner's bot bank (slMoney _owedRows); throws when there is none, so the
       // controller logs it CRITICAL and alerts rather than losing it quietly
-      onSeedBack: (micro, why, label) => {
+      onSeedBack: (micro, why, label, live) => {
         if (!this.botBank) throw new Error('no bot bank');
-        if (!this.botBank.giveBack(micro, why, label)) throw new Error('the bot bank refused ' + micro);
+        if (!this.botBank.giveBack(micro, why, label, live)) throw new Error('the bot bank refused ' + micro);
       },
+      // a bot died: its seed is in play now, no longer held by a live bot (the bank's hard-stop recovery)
+      onSeedSpent: (micro) => { if (this.botBank) this.botBank.spent(micro); },
       journal: h.journal,
     };
   }

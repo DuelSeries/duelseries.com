@@ -15,6 +15,9 @@
 //   capMicro  the daily limit of seed handed out (default $5), editable in Control
 //   day       the UTC day 'YYYY-MM-DD' spent counts for; spent: seed handed out today minus seed returned today
 //   topups    signatures already credited (a second credit of one is refused even without the database)
+//   inflight  seed now held by live bots. A bot's death moves its seed into play (spent(), the players can win it);
+//             a bot leaving any other way gives it back (giveBack live). A hard kill (no settle) leaves inflight > 0:
+//             those bots died with the process, their seed still in escrow, so the next load gives it back first.
 //   log       the last 50 moves, for the console
 
 const fs = require('fs');
@@ -26,7 +29,7 @@ const isMicro = (v) => Number.isSafeInteger(v) && v >= 0;
 
 function createBotBank({ file, fsx = fs, now = Date.now, log = console } = {}) {
   if (typeof file !== 'string' || !file) throw new Error('botBank: a file is required');
-  let st = { balance: 0, capMicro: DEFAULT_CAP_MICRO, day: '', spent: 0, topups: [], log: [] };
+  let st = { balance: 0, capMicro: DEFAULT_CAP_MICRO, day: '', spent: 0, inflight: 0, topups: [], log: [] };
   try {
     const raw = JSON.parse(fsx.readFileSync(file, 'utf8'));
     if (raw && isMicro(raw.balance) && isMicro(raw.capMicro) && isMicro(raw.spent)) {
@@ -37,6 +40,7 @@ function createBotBank({ file, fsx = fs, now = Date.now, log = console } = {}) {
     if (!(e && e.code === 'ENOENT')) log.error('[BOTBANK] CRITICAL state unreadable, starting empty: ' + (e && e.message));
   }
 
+  if (!isMicro(st.inflight)) st.inflight = 0;
   const today = () => new Date(now()).toISOString().slice(0, 10);
   function roll() {
     const d = today();
@@ -62,6 +66,16 @@ function createBotBank({ file, fsx = fs, now = Date.now, log = console } = {}) {
     if (st.log.length > LOG_MAX) st.log.splice(0, st.log.length - LOG_MAX);
   }
 
+  // seed live bots held when the process died without settling: back to the balance, once, saved
+  if (st.inflight > 0) {
+    const m = st.inflight;
+    st.balance += m;
+    st.inflight = 0;
+    st.log.push({ at: now(), kind: 'back', micro: m, balance: st.balance, why: 'hard-stop' });
+    log.error('[BOTBANK] ' + m + ' micro of seed held by bots at a hard stop given back to the bank');
+    save();
+  }
+
   return {
     file,
     // -> null when a seed of `micro` can be taken now, else why not ('bank' or 'cap')
@@ -77,24 +91,34 @@ function createBotBank({ file, fsx = fs, now = Date.now, log = console } = {}) {
       if (this.whyNot(micro) !== null) return false;
       st.balance -= micro;
       st.spent += micro;
+      st.inflight += micro;
       note('seed', micro, { room: String(label || '') });
       if (!save()) {
         st.balance += micro;
         st.spent -= micro;
+        st.inflight -= micro;
         st.log.pop();
         return false;
       }
       return true;
     },
     // Unspent seed back (a bot removed or settled, a seed pellet nobody picked up). Today's spent goes down by it.
-    giveBack(micro, why, label) {
+    // live: the seed of a bot still alive (it was in flight); false for seed pellets of a bot already dead (spent).
+    giveBack(micro, why, label, live) {
       if (!isMicro(micro) || micro < 1) return false;
       roll();
+      if (live === true) st.inflight = st.inflight > micro ? st.inflight - micro : 0;
       st.balance += micro;
       st.spent = st.spent > micro ? st.spent - micro : 0;
       note('back', micro, { why: String(why || ''), room: String(label || '') });
       if (!save()) log.error('[BOTBANK] CRITICAL ' + micro + ' micro returned but not saved; the file is ' + micro + ' short');
       return true;
+    },
+    // A bot died: its seed is in play now (pellets anyone can win), no longer held by a live bot.
+    spent(micro) {
+      if (!isMicro(micro) || micro < 1) return;
+      st.inflight = st.inflight > micro ? st.inflight - micro : 0;
+      save();
     },
     // A verified, claimed top-up (the server checked the chain and db.markStakeSig first).
     credit(micro, sig) {

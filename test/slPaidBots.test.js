@@ -425,10 +425,23 @@ test('the bot bank file: a top-up credits once, seeds are taken and given back, 
   b.setCap(1000000);
   assert.equal(b.take(1000000, 'r'), true);
   assert.equal(b.whyNot(500000), 'cap');
-  b.giveBack(1000000, 'removed', 'r');
+  b.giveBack(1000000, 'removed', 'r', true);
   assert.equal(b.whyNot(1000000), null, 'returned seed frees the day again');
   t += 86400000;
   const again = createBotBank({ file, log: quiet, now: () => t });
   assert.equal(again.balanceMicro(), 2000000, 'saved');
   assert.equal(again.hasTopup('SIGA'), true);
+});
+
+test('the bot bank after a hard stop: seed held by live bots comes back once; seed already in play does not', () => {
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'botbank-')), 'b.json');
+  const b = createBotBank({ file, log: quiet });
+  b.credit(3000000, 'SIGB');
+  b.take(1000000, 'r'); // a live bot
+  b.take(1000000, 'r'); // a bot that then died: its seed is in play
+  b.spent(1000000);
+  assert.equal(b.balanceMicro(), 1000000);
+  const after = createBotBank({ file, log: quiet }); // the process died without settling
+  assert.equal(after.balanceMicro(), 2000000, 'the live bot seed is back');
+  assert.equal(createBotBank({ file, log: quiet }).balanceMicro(), 2000000, 'once');
 });

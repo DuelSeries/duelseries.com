@@ -414,8 +414,10 @@ class SlMoney {
       return;
     }
     const seed = this.botSeed.get(d.id) || 0;
-    const list = (seed > 0 ? [[BANK_SRC, { micro: seed, name: 'bot bank' }]] : [])
-      .concat(Array.from(from.entries()).filter((x) => x[1].micro > 0));
+    // the bank last: a pellet straddling two sources is named by the first, so any rounding lands on the owner's seed,
+    // never on a player's money
+    const list = Array.from(from.entries()).filter((x) => x[1].micro > 0)
+      .concat(seed > 0 ? [[BANK_SRC, { micro: seed, name: 'bot bank' }]] : []);
     const srcs = [];
     let i = 0;
     let left = list.length ? list[0][1].micro : 0;
@@ -431,6 +433,13 @@ class SlMoney {
     this.bank.split(d.id, plan.foods, plan.shares, srcs);
     this.botFrom.delete(d.id);
     this.botSeed.delete(d.id);
+    if (seed > 0 && typeof this.hooks.onSeedSpent === 'function') {
+      try {
+        this.hooks.onSeedSpent(seed);
+      } catch (e) {
+        this.log.error('[SLP] seed spent hook (' + this.label + '): ' + (e && e.message));
+      }
+    }
     out.lost.set(d.id, M);
   }
 
@@ -444,7 +453,7 @@ class SlMoney {
     this.botFrom.delete(id);
     this.botSeed.delete(id);
     if (!w || !(w.micro > 0)) return [];
-    const src = (seed > 0 ? [{ srcWallet: BANK_SRC, srcName: 'bot bank', micro: seed }] : []).concat(from
+    const src = (seed > 0 ? [{ srcWallet: BANK_SRC, srcName: 'bot bank', micro: seed, live: true }] : []).concat(from
       ? Array.from(from.entries()).map(([k, v]) => ({ srcWallet: k || null, srcName: v.name, micro: v.micro })) : []);
     const sum = src.reduce((n, x) => n + x.micro, 0);
     if (sum !== w.micro) {
@@ -460,6 +469,20 @@ class SlMoney {
   releaseBots(why = 'idle') {
     const rows = [];
     for (const id of Array.from(this.botFrom.keys())) {
+      try {
+        rows.push(...this._releaseOne(id, why));
+      } catch (e) {
+        this.log.error('[SLP] idle release of bot ' + id + ' failed (' + this.label + '), the next sweep retries: ' +
+          (e && e.message));
+      }
+    }
+    if (this.accounts.size === 0) rows.push(...this._returnFloor(why, true));
+    return rows;
+  }
+
+  _releaseOne(id, why) {
+    const rows = [];
+    {
       const seed = this.botSeed.get(id) || 0;
       if (seed > 0) {
         // a bounty bot keeps playing with its seed; only what it picked up goes back
@@ -473,7 +496,6 @@ class SlMoney {
         rows.push(...this._returnBot(id, why, true));
       }
     }
-    if (this.accounts.size === 0) rows.push(...this._returnFloor(why, true));
     return rows;
   }
 
@@ -760,7 +782,7 @@ class SlMoney {
         // seed nobody won: back to the owner's bot bank (saved there at once), never the house
         try {
           if (typeof this.hooks.onSeedBack !== 'function') throw new Error('no onSeedBack hook');
-          this.hooks.onSeedBack(s.micro, String(why), this.label);
+          this.hooks.onSeedBack(s.micro, String(why), this.label, s.live === true);
         } catch (e) {
           this.log.error('[SLP] SEEDBACK CRITICAL ' + s.micro + ' micro not returned to the bot bank (' + this.label + '): ' +
             (e && e.message));
