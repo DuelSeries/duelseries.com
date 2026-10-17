@@ -816,7 +816,7 @@ function partSmooth(ups) {
 function partBotBank(ups, cls) {
   const read = h('span', { class: 'l', 'data-k': 'botbank' }, 'Bot bank');
   const sig = h('input', { class: 'say', type: 'text', maxlength: '100', autocomplete: 'off', 'data-k': 'bbsig',
-    placeholder: 'Transfer signature (revenue wallet to escrow)', 'aria-label': 'Transfer signature' });
+    placeholder: 'Paste the transfer signature', 'aria-label': 'Paste the transfer signature' });
   const add = h('button', { type: 'button', class: 'btn', 'data-k': 'bbadd', text: 'Add' });
   const cap = h('input', { class: 'say', type: 'text', maxlength: '8', autocomplete: 'off', 'data-k': 'bbcap',
     placeholder: 'Daily limit $', 'aria-label': 'Daily bot limit in dollars', style: 'max-width:110px' });
