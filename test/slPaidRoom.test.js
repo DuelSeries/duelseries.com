@@ -228,6 +228,19 @@ test('a paid room: the cap folds into R (22, or lower), one failing wake closes 
 
 // ------------------------------------------------------------------ seatPaid (design 3.3)
 
+test('the paid board ranks by worth: {t:lb} rows [name, micro] most first, each seat its own [rank, micro]', () => {
+  const { room, door, step } = makePaid();
+  const a = door(1);
+  const b = door(2, 2 * STAKE);
+  step(Math.ceil(3000 / P));
+  const last = (sock) => layer(sock).filter((m) => m.t === 'lb').pop();
+  assert.deepEqual(last(a.sock), { t: 'lb', rows: [['p2', 2 * STAKE], ['p1', STAKE]], me: [2, STAKE] });
+  assert.deepEqual(last(b.sock).me, [1, 2 * STAKE]);
+  const board = room._board();
+  assert.deepEqual(board.order.map((r) => r.id), [b.seat.snakeId, a.seat.snakeId], 'the binary board in the same order');
+});
+
+
 test('seatPaid: the account opens last; the seat gets {t:room} kept and its own {t:w}; the console reads dollars', () => {
   const { room, money, s, door } = makePaid();
   const a = door(1);

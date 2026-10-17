@@ -819,6 +819,25 @@ test('the board: the stock plates never draw, the shared board ranks the live sq
   assert.strictEqual(t.boardEl().style.display, 'none');
 });
 
+test('a paid board ranks the live squares by their $ (bots too), most first, with yours pinned by worth', () => {
+  const t = page({ stake: 0.5, entryToken: 'tok-1' });
+  t.sock.connect('sock-a');
+  t.joined({ stake: 0.5 });
+  const me = seat(t, 40, [30, 20, 10]);
+  const micro = { 20: 300000, 21: 1250000, 22: 0 };
+  for (const u of t.game.units) u.micro = u === me ? 450000 : micro[u.id];
+  frame(t);
+  assert.ok(t.boardEl().className.split(' ').includes('money'), 'the gold money board');
+  assert.deepStrictEqual(t.boardRows().map((r) => r.slice(1)), [['1', 'Bot 2', '$1.25'], ['2', 'Tester', '$0.45'],
+    ['3', 'Bot 1', '$0.30'], ['4', 'Bot 3', '$0.00']], 'by money, not land');
+  assert.strictEqual(t.boardRows()[1][0], 'me');
+  // money moves with no stock raise: redrawn within 200 ms all the same
+  me.micro = 2000000;
+  t.clock.advance(200);
+  frame(t);
+  assert.deepStrictEqual(t.boardRows()[0], ['me', '1', 'Tester', '$2.00']);
+});
+
 // ---- Watch mode (the lobby's Spectate) -------------------------------------------------------
 
 const WATCH_STATE = { tick: 100, radius: 950, targetRadius: 950, follow: 2, units: [], rings: [], trails: [], pickups: [] };

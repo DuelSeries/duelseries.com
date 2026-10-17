@@ -710,6 +710,28 @@ test('slxHud: ours is the shared board with their rows: names as text, lengths, 
   assert.strictEqual(P.slx.hud.topSlot(1600), 8);
 });
 
+test('slxHud: a paid room ranks by $ from {t:lb}: names left, worth right, own row pinned with its worth', () => {
+  const P = makePage({ win: { innerWidth: 1920, innerHeight: 1080 }, S: { playing: true } });
+  const box = (style) => { const e = new P.El(P.doc, 'div'); Object.assign(e.style, style); P.doc.body.appendChild(e); return e; };
+  for (const k of ['lbh', 'lbs', 'lbn', 'lbp', 'lbf', 'loch']) P.S[k] = box({});
+  P.D.slMain = { nick: 'Owen' };
+  P.D.slApply = { gdnm: (s) => !/\d{7}/.test(s) };
+  P.D.slx.paid = { on: true };
+  P.load('dsEnd.js');
+  P.load('slxHud.js');
+  P.raf(1);
+  P.slx.fire('x:lb', { t: 'lb', rows: [['Bot A', 1200000], ['Owen', 450000], ['1234567', 400000]], me: [2, 450000] });
+  P.raf(1);
+  assert.deepStrictEqual(ourRows(P), [], 'nothing before their board shows');
+  theirBoard(P, [['Owen', 900], ['Bot A', 50]], 1);
+  P.raf(1);
+  assert.deepStrictEqual(ourRows(P), ['1|Bot A|$1.20', '2|Owen|$0.45 *', '3||$0.40'], 'money order, not their lengths');
+  assert.ok(P.find('dsb')[0].className.split(' ').includes('money'), 'the gold money board');
+  P.slx.fire('x:lb', { t: 'lb', rows: [['Bot A', 1200000]], me: [7, 50000] });
+  P.raf(1);
+  assert.deepStrictEqual(ourRows(P), ['1|Bot A|$1.20', '...', '7|Owen|$0.05 *']);
+});
+
 test('slxHud: own row pinned when outside the top; top 5 on a phone, 10 on a computer; follows their fade', () => {
   // a computer: their board without the own row (rank 25): pinned from their length box while playing
   const P = hudPage({ innerWidth: 1280, innerHeight: 720 }, { playing: true });

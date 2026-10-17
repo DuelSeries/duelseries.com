@@ -425,10 +425,20 @@
 
     // The live squares in the stock order (game.units, sorted by score every update), land % as the plates print
     // it; your row (the followed square when watching) is pinned under the list when outside it. Shown whenever
-    // the stock HUD would be (a player to draw it for), except under the connecting layer.
+    // the stock HUD would be (a player to draw it for), except under the connecting layer. A paid room ranks by
+    // money (Owen 2026-10-17: "how much they're worth... the higher the number the higher the rank"): each square's
+    // live $ (u.micro, the server's bank balance every frame, bots too), most first, then land. Display only.
+    var boardPaid = false;
     function refreshBoard() {
       var me = game.player;
       var on = !!me && page.screen !== 'connecting';
+      var paid = !!game.paid;
+      if (paid !== boardPaid) {
+        boardPaid = paid;
+        if (board.el) board.el.className = String(board.el.className).replace(/\s*\bmoney\b/g, '') + (paid ? ' money' : '');
+        boardDirty = true;
+      }
+      if (paid) boardDirty = true; // money moves without a stock raise; BOARD_MS and the board's own key limit writes
       if (on !== boardOn) {
         boardOn = on;
         if (on) board.show(); else board.hide();
@@ -442,13 +452,22 @@
       var rows = [];
       var mine = null;
       var units = game.units || [];
+      if (paid) {
+        units = units.slice();
+        var at = new Map();
+        for (var k = 0; k < units.length; k++) at.set(units[k], k);
+        units.sort(function (a, b) {
+          return ((b && b.micro) || 0) - ((a && a.micro) || 0) || at.get(a) - at.get(b);
+        });
+      }
       for (var i = 0; i < units.length; i++) {
         var u = units[i];
         if (!u || u.death) continue;
         var row = {
           rank: rows.length + 1,
           name: unitName(u),
-          value: u.schemes && typeof u.schemes.print === 'function' ? u.schemes.print() : pctText((u.percent || 0) * 100),
+          value: paid ? DSEnd.usd(Math.max(0, Number(u.micro) || 0))
+            : u.schemes && typeof u.schemes.print === 'function' ? u.schemes.print() : pctText((u.percent || 0) * 100),
           me: u === me
         };
         rows.push(row);

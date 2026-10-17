@@ -1592,6 +1592,7 @@ class SlRoom {
       sweep: fireClock(c.sweep, simMs),
     };
     if (frame.clocks.lb) frame.board = this._board();
+    if (frame.board && this.money) this._safe(() => this._boardWorths(frame.board), 'sl.paid.lb');
 
     // 8 glides that ran out die at the start of the next step (sim.kill), the bot driver, the shared view step
     for (const [id, g] of this.orphans) {
@@ -1755,18 +1756,48 @@ class SlRoom {
   }
 
   // L9: every live snake sorted by sct then fam, both down, ties by id (deterministic); count per C_LB_BOTS.
+  // A paid room ranks by money (Owen 2026-10-17: "how much they're worth... the higher the number the higher the
+  // rank"): each row carries its display worth w (micro, a bounty bot's like a person's), most first, then length.
+  // Display only: nothing here moves money.
   _board() {
     const order = [];
+    const paid = !!this.money;
     this.sim.forEachSnake((s) => {
-      order.push({ id: s.id, sct: s.pts.length, fam: s.fam, nick: s.nick, cv: s.cv });
+      const w = paid ? this._displayWorth(s.id) : 0;
+      order.push({ id: s.id, sct: s.pts.length, fam: s.fam, nick: s.nick, cv: s.cv, w });
     });
-    order.sort((a, b) => (b.sct - a.sct) || (b.fam - a.fam) || (a.id - b.id));
+    order.sort((a, b) => (b.w - a.w) || (b.sct - a.sct) || (b.fam - a.fam) || (a.id - b.id));
     let count = order.length;
     if (!this.R.lbBots) {
       count = 0;
       for (const r of order) if (this.humans.has(r.id)) count++;
     }
     return { order, count, rows: this.R.lbRows };
+  }
+
+  // A paid snake's $ for the board (micro), 0 when it has no account.
+  _displayWorth(id) {
+    const v = this._safe(() => (typeof this.money.displayWorthOf === 'function'
+      ? this.money.displayWorthOf(id) : this.money.worthOf(id)), 'sl.paid.lb');
+    return Number.isFinite(v) && v > 0 ? v : 0;
+  }
+
+  // {t:'lb'} at every L9 leaderboard of a paid room: the top rows' names and worths in the board's own order, and the
+  // seat's own place and worth (me [rank, micro], or null with no live snake), so the board shows $ for snakes
+  // off screen too (slxHud.js). Display only.
+  _boardWorths(board) {
+    const n = Math.min(board.rows, board.order.length);
+    const rows = new Array(n);
+    for (let i = 0; i < n; i++) rows[i] = [board.order[i].nick, board.order[i].w];
+    const rankOf = new Map();
+    for (let i = 0; i < board.order.length; i++) rankOf.set(board.order[i].id, i);
+    const tick = this.sim.tick();
+    for (const seat of this.seats.values()) {
+      if (seat.closed) continue;
+      const at = rankOf.get(seat.snakeId);
+      const me = at === undefined ? null : [at + 1, board.order[at].w];
+      seat.queue.message(tick, { t: 'lb', rows, me });
+    }
   }
 
   // ---------------------------------------------------------------------------------------------------------------

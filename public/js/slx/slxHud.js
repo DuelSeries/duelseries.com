@@ -64,7 +64,10 @@
   // Drawn back up from their 0.7 page only where the page really is at 0.7 (slxMain's layoutZoom(): a phone's page of
   // its own, or the lobby's frame, which the lobby draws at 0.7 on a phone; a frame alone ignores the viewport line).
   var ZOOM = typeof slx.layoutZoom === 'function' ? slx.layoutZoom() : S.is_mobile && slx.framed !== true ? 1 / 0.7 : 1;
-  var ours = E.board({ zoom: ZOOM, z: 10 });
+  // A paid room ranks by money (Owen 2026-10-17): the server's {t:'lb'} rows (name, worth in micro, its own order) and
+  // the seat's own [rank, worth] replace their names and lengths, shown as $ (dsEnd usd). Display only.
+  var PAID = !!(slx.paid && slx.paid.on);
+  var ours = E.board({ zoom: ZOOM, z: 10, money: PAID });
   ours.hide();
   var rows = [];                   // what ours shows: { name, value, me }
   var me = null;
@@ -99,8 +102,50 @@
     ours.set(phone ? rows.slice(0, PHONE_ROWS) : rows, me);
   }
 
+  // The paid board from the last {t:'lb'}: others' names through their filter (slApply gdnm), the own row with the
+  // name the last Play used. Shown only once their board has been written (their fades then say when it shows).
+  var worths = null;
+  var seen = false;
+  function micro(v) {
+    return typeof v === 'number' && v >= 0 && isFinite(v) ? v : 0;
+  }
+  function fromWorths() {
+    var m = worths;
+    if (!m || !seen) return;
+    var gd = D.slApply && typeof D.slApply.gdnm === 'function' ? D.slApply.gdnm : null;
+    var mine = m.me ? m.me[0] : 0;
+    var out = [];
+    for (var i = 0; i < m.rows.length; i++) {
+      var r = m.rows[i];
+      var own = i + 1 === mine;
+      var name = own && nick() ? nick() : String(r[0] == null ? '' : r[0]);
+      if (!own && gd && !gd(name)) name = '';
+      out.push({ name: name, value: E.usd(micro(r[1])), me: own });
+    }
+    rows = out;
+    me = m.me ? { rank: m.me[0], name: nick(), value: E.usd(micro(m.me[1])) } : null;
+    push();
+  }
+  if (PAID && typeof slx.on === 'function') {
+    slx.on('x:lb', function (m) {
+      if (!m || !Array.isArray(m.rows)) return;
+      var meOk = Array.isArray(m.me) && typeof m.me[0] === 'number' && m.me[0] >= 1;
+      worths = { rows: m.rows.filter(Array.isArray), me: meOk ? m.me : null };
+      try {
+        fromWorths();
+      } catch (e) {
+        slx.errors++;
+      }
+    });
+  }
+
   // Their rows, read back after their handler wrote them: names (the own one bold) and lengths, in place order.
   function readTheirs() {
+    if (PAID) {
+      seen = seen || texts(lbn).length > 0;
+      fromWorths();
+      return;
+    }
     var names = texts(lbn);
     var scores = texts(lbs);
     var out = [];
