@@ -2,6 +2,31 @@
   "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). Optional pictures: image (the big one, {src, alt}) and gallery (up to 4 small ones, same shape); src is a file in public/updates/ (/updates/name.webp), alt says what the picture shows. The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
   "posts": [
     {
+      "id": "2026-10-17-real-game-cards",
+      "date": "2026-10-17",
+      "tag": "new",
+      "title": "New game cards, straight from the games",
+      "body": "The Home cards for Slither.io, Agar.io, Paper.io, Knockout and Battleship now show real moments filmed in our own rooms, instead of drawings.\n\nWhat you see on the card is what the game looks like when you play it.",
+      "gallery": [
+        {
+          "src": "/updates/new-card-snake.webp",
+          "alt": "The new Slither.io card"
+        },
+        {
+          "src": "/updates/new-card-agar.webp",
+          "alt": "The new Agar.io card"
+        },
+        {
+          "src": "/updates/new-card-paper.webp",
+          "alt": "The new Paper.io card"
+        },
+        {
+          "src": "/updates/new-card-knockout.webp",
+          "alt": "The new Knockout card"
+        }
+      ]
+    },
+    {
       "id": "2026-10-17-battle-royale-ends-in",
       "date": "2026-10-17",
       "tag": "new",

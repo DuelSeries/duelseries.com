@@ -2697,7 +2697,7 @@ body.scr-anim { overflow-x:hidden }
     <div class="evbar" id="ev-bar">
       <button type="button" class="evown" id="ev-own" hidden onclick="V2Event.ownerStart()">Start match now<small>Owner</small></button>
       <button type="button" class="evbtn evgo" id="ev-join" onclick="V2Play.launch('snake',{lobbyType:'br'})">
-        <img class="evart" src="/img/games/snake.png" alt="Slither.io" draggable="false">
+        <img class="evart" src="/img/games/snake.webp" alt="Slither.io" draggable="false">
         <span class="evt"><b id="ev-join-t">Join</b><small id="ev-join-s">Free entry</small></span>
       </button>
       <button type="button" class="evbtn evwatch" id="ev-watch" onclick="V2Play.spectateEvent()" style="visibility:hidden">
@@ -2975,7 +2975,7 @@ body.scr-anim { overflow-x:hidden }
 /* Flat geometric artwork, one scene per game. Drawn rather than iconed:
    emoji or a generic icon set is what makes a games page look unmade. */
 /* Each game is one painted file, cut from the artwork sheet into
-   public/img/games/<id>.png. These replaced a set of hand-drawn SVG
+   public/img/games/<id>.webp. These replaced a set of hand-drawn SVG
    compositions, which had to be redrawn every time the card changed shape.
 
    The three places a game appears are three different shapes — a 3:4 rail
@@ -3063,7 +3063,7 @@ const GAMES=[
   d:'Pick your gap in moving traffic and cross without touching anything.'},
  /* Every game here has a painting. A new one added before its art exists can
     carry noart:1 and render as a plain block in its own colour instead of a
-    broken image; drop the flag when public/img/games/<id>.png lands. */
+    broken image; drop the flag when public/img/games/<id>.webp lands. */
  {id:'maze',name:'Pac Man',c:['#1a1726','#e8c860'],type:'p',soon:1,duel:1,
   d:'Clear the maze before whatever is chasing you closes off the last exit.'},
  {id:'stumble',name:'Stumble Guys',c:['#191d26','#7fb0e0'],type:'p',soon:1,
@@ -3747,7 +3747,7 @@ function drawSkins(){
   if(row){row.disabled=!look;row.classList.toggle('snk',!!(cur&&cur.look))}
   if(img&&!look&&cur){
     if(cur.noart)img.removeAttribute('src');
-    else if(img.getAttribute('src')!=='/img/games/'+cur.id+'.png')img.src='/img/games/'+cur.id+'.png';
+    else if(img.getAttribute('src')!=='/img/games/'+cur.id+'.webp')img.src='/img/games/'+cur.id+'.webp';
   }
   /* Just the word Customize beside the big preview (Owen, 2026-10-15): the
      line under it that named the skin ("Purple", "Random colour") is gone.
@@ -4182,7 +4182,7 @@ function paintSwatch(cv){
    back to the drawn art in that case so a card is never an empty box. */
 function art(g){
   if(g.noart)return `<div class="gart noart" style="background:${g.c[0]}"></div>`;
-  return `<img class="gart" src="/img/games/${g.id}.png" alt="" draggable="false">`;
+  return `<img class="gart" src="/img/games/${g.id}.webp" alt="" draggable="false">`;
 }
 function repaintAll(){
   SCENES.clear();
