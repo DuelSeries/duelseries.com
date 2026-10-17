@@ -24,6 +24,8 @@ function stakeLabel(stake) {
   return 's' + String(Number(stake)).replace('.', '_');
 }
 
+const BANK_SRC = '#botbank'; // a bounty bot's seed, from the owner's bot bank
+
 class PaperRoom {
   // now: the wall clock of every deadline (grace, stale hold, coin age). clock: the monotonic
   // clock the tick loop runs on (never steps with the wall clock).
@@ -90,6 +92,10 @@ class PaperRoom {
     // nobody collected go back to the players who dropped them, never to the house (_floorBack).
     this.paidBots = this.paid && paidBots === true && this.game.enablePaidBots();
     this.botRoom = false;
+    // Bounty bots (Owen 2026-10-17, as paid slither and agar.io): unit id -> Map src -> micro, whose money a bot holds
+    // (BANK_SRC = its seed from the owner's bot bank). A bot kills and is killed for money like a person, never has a
+    // seat (so never cashes out), and is never replaced: its death takes one off the arena's bot cap.
+    this.botFrom = new Map();
     // The hold starts and stops right after the inputs are applied, BEFORE movement, so the
     // client predictor (which stops on the key at once) agrees with the server tick for tick.
     const apply = this.game.applyInputs.bind(this.game);
@@ -530,17 +536,29 @@ class PaperRoom {
     if (seat && !seat.exit) {
       seat.exit = reason === REASON.CASHOUT ? { outcome: 'cashedout', why: 'hold' }
         : reason === REASON.FORCED_EXIT ? { outcome: 'removed', why: 'forced' }
-          : { outcome: killer && killer.isHuman ? 'killed' : 'dropped', why: 'reason-' + reason };
+          : { outcome: killer && (killer.isHuman || this.bank.isOpen(killer.id)) ? 'killed' : 'dropped', why: 'reason-' + reason };
     }
     if (reason === REASON.CASHOUT || reason === REASON.FORCED_EXIT) {
       this.pending.push(['k', victim.id, 0, reason, 0, 0]);
       if (seat) this._forgetSeat(seat);
       return;
     }
+    if (this.botFrom.has(victim.id)) {
+      this._botDeath(victim, killer, reason);
+      return;
+    }
     const m = this.bank.balance(victim.id);
     let pid = 0;
     if (m > 0) {
-      if (killer && killer.isHuman && this.bank.isOpen(killer.id) && this.bank.transferAll(victim.id, killer.id) >= 0) {
+      // the killer takes it: a person, or a bounty bot (it holds that person's money until it dies or leaves)
+      if (killer && (killer.isHuman || this.botFrom.has(killer.id)) && this.bank.isOpen(killer.id) &&
+          this.bank.transferAll(victim.id, killer.id) >= 0) {
+        const kf = this.botFrom.get(killer.id);
+        if (kf) {
+          const w = seat ? seat.wallet : null;
+          if (w) kf.set(w, (kf.get(w) || 0) + m);
+          else console.error('[PAPER] BOT took ' + m + ' micro with no source wallet (' + this.lobbyType + ')');
+        }
         this.pending.push(['m', killer.id, this.bank.balance(killer.id)]);
         // A page that reconnects with this seat's resumeKey (pp:dead lost with the link, or a
         // cut during the grace) is told who took the money, not that it dropped on the floor.
@@ -576,6 +594,80 @@ class PaperRoom {
     }
   }
 
+  // A bounty bot's seed from the owner's bot bank (the directory took it first): an account holding the stake, no
+  // wallet, no seat. Its $ shows like a person's (the 'm' wire entry).
+  seedBot(unit, micro) {
+    if (!this.paid || !this.paidBots) throw new Error('PaperRoom.seedBot: not a paid bot arena');
+    if (!Number.isSafeInteger(micro) || micro < 1) throw new Error('PaperRoom.seedBot: seed must be micro above 0');
+    if (this.bank.isOpen(unit.id) || this.seats.has(unit.id)) throw new Error('PaperRoom.seedBot: unit in use');
+    this.bank.deposit(unit.id, micro, null, unit.name || '');
+    this.botFrom.set(unit.id, new Map([[BANK_SRC, micro]]));
+    this.botRoom = true;
+    this.pending.push(['m', unit.id, micro]);
+  }
+
+  // A bot's death. Killed by someone with an account (a person or another bot): everything it holds goes to the
+  // killer, like a person's; the seed a person wins is spent (in play). Any other death (the wall, its own trail, the
+  // owner removing it): retireBot. Never replaced: one off the bot cap.
+  _botDeath(victim, killer, reason) {
+    const from = this.botFrom.get(victim.id);
+    const m = this.bank.balance(victim.id);
+    let took = false;
+    if (m > 0 && killer && reason !== REASON.SYSTEM_REMOVED && this.bank.isOpen(killer.id) &&
+        (killer.isHuman || this.botFrom.has(killer.id)) && this.bank.transferAll(victim.id, killer.id) >= 0) {
+      took = true;
+      this.botFrom.delete(victim.id);
+      const kf = this.botFrom.get(killer.id);
+      for (const [src, v] of from) {
+        if (kf) kf.set(src, (kf.get(src) || 0) + v);
+        else if (src === BANK_SRC && this.directory && this.directory.botBank) this.directory.botBank.spent(v);
+      }
+      this.pending.push(['m', killer.id, this.bank.balance(killer.id)]);
+    }
+    if (!took) this.retireBot(victim.id, 'reason-' + reason, true);
+    if (Number.isInteger(this.game.botCap) && this.game.botCap > 0) this.game.setBotCap(this.game.botCap - 1);
+    this.pending.push(['k', victim.id, killer ? killer.id : 0, reason, m, 0]);
+  }
+
+  // A bot leaves holding money (removed, restart, crash, emergency, a death nobody took it from): withdrawn, the seed
+  // part back to the bot bank, the rest owed back to the players it came from as keyed rows (_floorBack journals
+  // them; live: hooks.onOwed writes them now). -> the rows
+  retireBot(unitId, why, live) {
+    const from = this.botFrom.get(unitId);
+    if (!from) return [];
+    const w = this.bank.withdraw(unitId);
+    this.botFrom.delete(unitId);
+    const got = w ? w.micro : 0;
+    let sum = 0;
+    for (const v of from.values()) sum += v;
+    if (sum !== got) console.error('[PAPER] BOT CRITICAL ' + unitId + ' held ' + got + ' but its sources say ' + sum);
+    const seed = from.get(BANK_SRC) || 0;
+    if (seed > 0) {
+      const bb = this.directory && this.directory.botBank;
+      if (!bb || !bb.giveBack(seed, why, this.lobbyType, true)) {
+        console.error('[PAPER] SEEDBACK CRITICAL ' + seed + ' micro not returned to the bot bank (' + this.lobbyType + ')');
+      }
+    }
+    const sources = [];
+    for (const [src, v] of from) if (src !== BANK_SRC && v > 0) sources.push({ srcWallet: src, srcName: '', micro: v });
+    const rows = this._floorBack(sources, why);
+    if (live) {
+      for (const row of rows) {
+        try {
+          if (typeof this.hooks.onOwed === 'function') {
+            const p = this.hooks.onOwed(row);
+            if (p && typeof p.then === 'function') p.then(null, (e) => console.error('[PAPER] OWED bot ' + row.key, e && e.message));
+          } else {
+            this.hooks.onRefund({ wallet: row.wallet, name: row.name, micro: row.micro, paid: undefined, why: 'botfloor' });
+          }
+        } catch (e) {
+          console.error('[PAPER] OWED bot hook (' + this.lobbyType + '): ' + (e && e.message));
+        }
+      }
+    }
+    return rows;
+  }
+
   _clampInside(at) {
     const c = this.game.border.center;
     const r = this.game.border.radius - MP.PICKUP_WALL_INSET;
@@ -601,6 +693,12 @@ class PaperRoom {
   afterTick() {
     const now = this.now();
     if (this.paidBots && !this.botRoom && this.botCount > 0) this.botRoom = true;
+    // a paid arena's bots are only the seeded bounty bots: any other bot (the arena's own top-up) goes at once
+    if (this.paid && this.paidBots) {
+      for (const u of this.game.units.slice()) {
+        if (!u.isHuman && !u.death && !this.botFrom.has(u.id)) this.game.kill(u, undefined, REASON.SYSTEM_REMOVED);
+      }
+    }
     this._collectPickups();
     this.sweepPickups(now);
     for (const seat of Array.from(this.seats.values())) {
@@ -865,6 +963,13 @@ class PaperRoom {
   emergencyClose() {
     if (this.closed) return;
     this.closed = true;
+    for (const id of Array.from(this.botFrom.keys())) {
+      try {
+        this.retireBot(id, 'emergency', true);
+      } catch (e) {
+        console.error('[PAPER] EMERGENCY bot ' + id + ' not settled', e && e.message);
+      }
+    }
     let accounts = 0;
     let coins = 0;
     let total = 0;
@@ -961,6 +1066,13 @@ class PaperRoom {
     this.stop();
     if (!this.paid) return [];
     const rows = [];
+    for (const id of Array.from(this.botFrom.keys())) {
+      try {
+        rows.push(...this.retireBot(id, kind, false));
+      } catch (e) {
+        console.error('[PAPER] SHUTDOWN bot ' + id + ' not settled (' + this.lobbyType + '): ' + (e && e.message));
+      }
+    }
     for (const seat of Array.from(this.seats.values())) {
       try {
         const row = this._shutdownSeat(seat, kind);

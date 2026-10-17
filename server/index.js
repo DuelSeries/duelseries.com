@@ -1836,7 +1836,7 @@ app.post('/api/owner/do', sigLimiter, async (req, res) => {
         if (!r.ok) return refuse(r.why);
         broadcastLobbyState();
         const gname = pb[1] === 'sl' ? 'slither.io' : pb[1] === 'ag' ? 'agar.io' : 'Paper.io';
-        if (pb[1] === 'sl' || pb[1] === 'ag') {
+        if (pb[1] === 'sl' || pb[1] === 'ag' || pb[1] === 'paper') {
           const bb = botBank.view();
           return done(gname + ' $' + pb[2] + ': ' + r.live + ' bot' + (r.live === 1 ? '' : 's') + ' playing, each worth $' + pb[2] +
             ' from the bot bank (now $' + bb.balance.toFixed(2) + ', $' + bb.spentToday.toFixed(2) + ' of $' + bb.cap.toFixed(2) +
@@ -2601,6 +2601,7 @@ const paperArenas = new PaperArenas({
      holds money and a bot arena's uncollected coins go back to their droppers. */
   awake: true,
   botStore: require('./paidBotStore').createBotStore({ file: path.join(path.dirname(agJournal.file), 'paper-paid-bots.json') }),
+  botBank,
   hooks: {
     /* Tracked, so a shutdown waits for a Paper payout in flight like agar's and snake's. */
     onCashout: (order) => agInflight.track(paperPayout.payCashout(order)),
