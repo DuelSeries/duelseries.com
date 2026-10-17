@@ -224,3 +224,23 @@ test('an in-game Play again reads the balance first, so a payout is not hidden b
 test('read-only: the module never touches anything that sends or stakes', () => {
   assert.ok(!/duelWalletSend|duelWalletFund|duelWalletBuy|submit-stake|signTransaction|\.setItem\(/.test(SRC));
 });
+
+test('the owner\'s announcement shows over a running game, as text, once; its socket only listens', () => {
+  const p = page();
+  const heard = {};
+  let made = 0;
+  p.win.io = () => { made++; return { on(ev, fn) { heard[ev] = fn; } }; };
+  p.tick(1500);                                   // the socket is opened once the page is up
+  assert.strictEqual(made, 1);
+  assert.strictEqual(typeof heard.announce, 'function');
+  p.open();
+  heard.announce({ text: 'Back in <b>5</b>\nminutes', at: 1 });
+  assert.deepStrictEqual(p.said(), [{ kind: 'info', title: 'DuelSeries', line: 'Back in <b>5</b> minutes' }],
+    'over the game, at the top, written as text (the markup is shown, never run)');
+  heard.announce({ text: 'Back in <b>5</b>\nminutes', at: 1 });
+  assert.strictEqual(p.cards().length, 1, 'a reconnect sending it again is one card');
+  heard.announce({ text: '' });
+  heard.announce(null);
+  assert.strictEqual(p.cards().length, 1);
+  assert.ok(!/\.emit\(/.test(SRC), 'it sends nothing: no lobby:join, nobody counted');
+});

@@ -1346,6 +1346,21 @@ const ALL_ROOMS = () => {
   return out;
 };
 
+/* The console's rows, bots:set and the audit merge (server/ownerConsole.js). */
+const ownerConsole = require('./ownerConsole');
+
+/* Every /api/owner answer is live money and the owner's own sign-in, so none
+   of it may be kept by a cache. The no-store middleware further down is
+   registered after these routes and never reached them. */
+app.use('/api/owner', (req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
+
+/* THE RESTART CHECK SEES THE DUELS. Paid Knockout and Battleship seats hold
+   their stakes in the lobbies' queues and tables, not in a room ALL_ROOMS
+   lists, so "Safe to restart" used to be said with a paid duel seated or a
+   paid seat waiting for an opponent (console audit finding C). */
+const duelStatusNow = () => ops.duelStatus([knockoutLobby, battleshipLobby]);
+const drainNow = () => ops.drainStatus(ALL_ROOMS(), entryStore.pending(), duelStatusNow());
+
 /* A room's name in words, for the owner console. `na_free` and `ag_na_s0#1`
    are what the code calls them; nobody should have to translate that in their
    head while looking for the free slither table. */
@@ -1400,11 +1415,95 @@ function roomLabel(r) {
   return game + ' · ' + tier;
 }
 
-/* What the console shows. Readable by an owner only: it carries live player
-   counts and staked worth, which is nobody else's business. */
-function opsSnapshot() {
+/* A room's rung for the console's rows. The old snake tiers say their price
+   only in their lobby type (`na_dollar`), so that is read when the room has
+   no stake of its own. */
+function consoleStake(r) {
+  const s = ownerConsole.roomStake(r);
+  if (s > 0) return s;
+  const type = String((r && r.lobbyType) || '').replace(/^(na|eu)_/, '');
+  const fee = LOBBY_FEES ? Number(LOBBY_FEES[type]) : NaN;
+  return type !== 'free' && fee > 0 ? fee : 0;
+}
+
+/* The games, one row per rung, for the places players are actually sent.
+   slither: the new engine's free room while it is the lobby's Free (else the
+   old ladder's free rung, which sl:door:off hands back), the new engine's paid
+   rooms, and the old engine's paid rungs, where paid snake goes while
+   sl:paid:off is on. The old fixed tiers and a drained old free rung are
+   counted only while somebody is still in one. The duels are read only. */
+function consoleGames(ko, bs) {
+  const snakeRungs = [];
+  for (const e of ladder.rooms.values()) if (e && e.game === 'snake' && e.room) snakeRungs.push(e.room);
+  const oldFree = snakeRungs.filter((r) => consoleStake(r) === 0);
+  const oldPaid = snakeRungs.filter((r) => consoleStake(r) > 0);
+  const tiers = Object.values(gameRooms[REGION] || {}).filter((r) => r && !r.isBattleRoyale);
+  const slFree = slFreeLive() ? slArenas.all() : oldFree;
+  const rows = (rooms, extra) => ownerConsole.rungRows(rooms, extra, consoleStake);
+  const door = (d, store, action) => (d ? ownerConsole.paidDoor(
+    { enabled: d.paidEnabled, open: d.paidOpen, stopping: d.stopping }, store.saved(), action) : null);
+  return [
+    { id: 'slither', name: 'slither.io', duel: false, paid: door(slPaid, slPaidSwitch, 'sl:paid'),
+      rungs: rows([...slFree, ...(slPaid ? slPaid.all() : []), ...oldPaid], [...tiers, ...oldFree]) },
+    { id: 'agar', name: 'agar.io', duel: false, paid: door(agArenas, agPaidSwitch, 'agar:paid'),
+      rungs: rows(agArenas ? agArenas.all() : [], []) },
+    { id: 'paper', name: 'Paper.io', duel: false, paid: door(paperArenas, paperPaidSwitch, 'paper:paid'),
+      rungs: rows(paperArenas ? paperArenas.all() : [], []) },
+    { id: 'knockout', name: 'Knockout', duel: true,
+      paid: ownerConsole.paidDoor({ enabled: true, open: koPaidOpen, stopping: false }, koPaidSwitch.saved(), 'ko:paid'),
+      rungs: ownerConsole.duelRows(ko) },
+    { id: 'battleship', name: 'Battleship', duel: true,
+      paid: ownerConsole.paidDoor({ enabled: true, open: bsPaidOpen, stopping: false }, bsPaidSwitch.saved(), 'bs:paid'),
+      rungs: ownerConsole.duelRows(bs) },
+  ];
+}
+
+/* The last solvency check (checkSolvency, every 45 s), in the money mode's
+   unit (USDC live). Null until the first one has run. */
+function consoleEscrow() {
+  const s = _lastSolvency;
+  if (!s) return null;
+  const n = (v) => (Number.isFinite(v) ? Math.round(v * 1e6) / 1e6 : null);
+  return { usdc: n(s.escrowSol), owed: n(s.liveStakesSol), surplus: n(s.surplusSol), ok: !!s.solvent, at: s.ts || null,
+           feeSol: n(s.escrowFeeSol) };
+}
+
+/* How this request was let in, as the session check (or the signature check
+   here) recorded it, for the console's "signed in on" line and the audit. */
+function ownerAuthOf(req, signed) {
+  const a = req && req.ownerAuth && typeof req.ownerAuth === 'object' ? req.ownerAuth : null;
+  if (a) return { via: String(a.via || 'session'), device: a.device || null, exp: a.exp || null };
+  const s = req && req.ownerSession && typeof req.ownerSession === 'object' ? req.ownerSession : null;
+  if (s) return { via: 'session', device: s.device || s.label || null, exp: s.exp || null };
+  const who = req && typeof req.ownerWho === 'string' ? req.ownerWho : '';
+  return { via: who.startsWith('session') ? 'session' : signed ? 'signature' : 'token', device: null, exp: null };
+}
+const ownerWho = (req, signed) => (req && typeof req.ownerWho === 'string' && req.ownerWho
+  ? req.ownerWho : signed ? 'signature' : 'token');
+
+/* The snake turning switch (sl:smooth:off/on), in memory on the sl engine. */
+function consoleSmooth() {
+  const sl = require('./sl/slRoom');
+  return typeof sl.smoothOn === 'function' ? { on: !!sl.smoothOn() } : null;
+}
+
+/* The battle royale's arena: the new engine's room or the old one. */
+const brRoomNow = () => (brOnSl() ? slBr.room() : (gameRooms[REGION] && gameRooms[REGION].br) || null);
+
+/* What the console shows (state v2). Readable by an owner only: it carries
+   live player counts and staked worth, which is nobody else's business. The
+   old page's fields (rooms, slPaid, agPaid, paperPaid, the drain's old names)
+   stay beside the new ones for scripts/owner-smoke.js and the old page. */
+function opsSnapshot(req, signed) {
+  const now = Date.now();
   const br = activeBr();
-  const rooms = ALL_ROOMS().map(r => ({
+  const all = ALL_ROOMS();
+  const ko = ops.duelStatus([knockoutLobby]);
+  const bs = ops.duelStatus([battleshipLobby]);
+  let bots = ko.botTables + bs.botTables;
+  for (const r of all) bots += Number(r.botCount) || 0;
+  const m = ops.get();
+  const rooms = all.map(r => ({
     id: r.lobbyType,
     game: r.isBattleRoyale ? 'battle royale'
         : r.lobbyType === 'tanks' ? 'Awesome Tanks'
@@ -1429,12 +1528,20 @@ function opsSnapshot() {
     parked: r.money && typeof r.money.parkedCount === 'function' ? r.money.parkedCount() : undefined,
   }));
   return {
-    now: Date.now(),
+    v: 2,
+    now,
     region: REGION,
     uptimeSec: Math.round(process.uptime()),
-    maintenance: ops.get(),
-    drain: ops.drainStatus(ALL_ROOMS(), entryStore.pending()),
-    battleRoyale: br ? Object.assign(br.publicState(), { engine: brOnSl() ? 'sl' : 'old' }) : null,
+    auth: ownerAuthOf(req, signed),
+    open: !m.maintenance,
+    /* `maintenance` (the boolean) is the old page's name for `on`. */
+    maintenance: Object.assign({}, m, { on: !!m.maintenance, saved: ops.saved() }),
+    drain: drainNow(),
+    escrow: consoleEscrow(),
+    bots,
+    games: consoleGames(ko, bs),
+    battleRoyale: ownerConsole.brState(br, { engine: brOnSl() ? 'sl' : 'old', room: brRoomNow(), now }),
+    smooth: consoleSmooth(),
     /* Paid snake on the new engine's door, for the owner page's readout: built
        (SL_PAID), open (sl:paid:off/on), saved (a close that outlives a restart). */
     slPaid: slPaid ? { enabled: !!slPaid.paidEnabled, open: !!slPaid.paidOpen, stopping: !!slPaid.stopping,
@@ -1447,14 +1554,22 @@ function opsSnapshot() {
                                stopping: !!paperArenas.stopping, saved: paperPaidSwitch.saved() } : null,
     earnings: earnings.stats(),
     rooms,
-    audit: ownerAuth.auditLog.slice(0, 25),
+    audit: ownerConsole.mergeAudit(ops.auditLog, ownerAuth.auditLog, 50),
   };
 }
 
 app.post('/api/owner/state', sigLimiter, async (req, res) => {
-  if (!(await isOwnerReq(req))) return res.status(403).json({ error: 'Not an owner' });
-  res.json(opsSnapshot());
+  /* Checked once and the answer kept: a signature is spent by the check, and
+     the snapshot says which way the request got in. */
+  const signed = ownerFromSignature(req.body);
+  if (!signed && !(await isOwnerReq(req))) return res.status(403).json({ error: 'Not an owner' });
+  res.json(opsSnapshot(req, signed));
 });
+
+/* One announcement every ten seconds at most: it lands on every open page at
+   once, and a double click should not say it twice. */
+const ANNOUNCE_GAP_MS = 10 * 1000;
+let _announcedAt = 0;
 
 app.post('/api/owner/do', sigLimiter, async (req, res) => {
   const who = ownerFromSignature(req.body);
@@ -1462,11 +1577,15 @@ app.post('/api/owner/do', sigLimiter, async (req, res) => {
     return res.status(403).json({ error: 'Not an owner' });
   }
   const action = strOr(req.body && req.body.action, '');
-  const args = (req.body && req.body.args) || {};
-  const done = (note) => { ownerAuth.audit(action, args, who || 'token', true, note);
-                           res.json({ ok: true, note, state: opsSnapshot() }); };
-  const refuse = (why) => { ownerAuth.audit(action, args, who || 'token', false, why);
-                            res.status(409).json({ error: why, state: opsSnapshot() }); };
+  const rawArgs = req.body && req.body.args;
+  const args = rawArgs && typeof rawArgs === 'object' && !Array.isArray(rawArgs) ? rawArgs : {};
+  /* Each line of the audit says who acted (a session's device, or the
+     signature path) and a short copy of what was asked (ops.audit). */
+  const actor = ownerWho(req, who);
+  const done = (note) => { ops.audit({ action, args, who: actor, ok: true, note });
+                           res.json({ ok: true, note, state: opsSnapshot(req, who) }); };
+  const refuse = (why) => { ops.audit({ action, args, who: actor, ok: false, note: why });
+                            res.status(409).json({ error: why, state: opsSnapshot(req, who) }); };
 
   const br = activeBr();
 
@@ -1480,14 +1599,24 @@ app.post('/api/owner/do', sigLimiter, async (req, res) => {
       // Not just 'running' — a countdown is one starting, and over/reopening
       // is one finishing. Any of them means a match is already under way.
       if (br.state !== 'waiting') return refuse('A match is already under way');
+      /* PEOPLE, NOT BODIES. livingCount() counts the bots too, so with nobody
+         in the arena this passed, called forceStart, ignored its false and said
+         "Started" while nothing had (console audit finding A). Both starts are
+         now checked for what they return. */
+      const humans = typeof br.humanLiving === 'function' ? br.humanLiving() : 0;
+      const bodies = typeof br.livingCount === 'function' ? br.livingCount() : humans;
+      const field = humans + ' player' + (humans === 1 ? '' : 's') + ' and ' + Math.max(0, bodies - humans) + ' bot'
+        + (bodies - humans === 1 ? '' : 's');
       if (args.force) {
-        if (br.livingCount() < 1) return refuse('Nobody is in the room to start with');
-        br.forceStart('owner override');
-        return done('Started with ' + br.livingCount() + ' player(s), minimum overridden');
+        if (humans < 1) return refuse('Nobody is in the room to start with');
+        if (!br.forceStart('owner override')) return refuse('The match did not start: the room refused it. Refresh and try again.');
+        return done('Started with ' + field + ', minimum overridden');
       }
-      if (!br.canStart()) return refuse('Needs ' + br.publicState().minPlayers + ' players');
-      br.startMatch('owner');
-      return done('Started with ' + br.livingCount() + ' players');
+      if (!br.canStart()) {
+        return refuse('Needs ' + br.publicState().minPlayers + ' player(s) in the room; ' + humans + ' there now');
+      }
+      if (!br.startMatch('owner')) return refuse('The match did not start: the room refused it. Refresh and try again.');
+      return done('Started with ' + field);
     }
     case 'br:stop': {
       if (!br || (br.state !== 'running' && br.state !== 'countdown')) {
@@ -1526,6 +1655,9 @@ app.post('/api/owner/do', sigLimiter, async (req, res) => {
          about either of them — it needed to stop looking in one list. */
       const room = ALL_ROOMS().find(r => r.lobbyType === args.room);
       if (!room) return refuse('No room called ' + args.room);
+      /* These two manage the room their own way, so a number bots:set was
+         holding is let go first rather than left to fight them. */
+      ownerConsole.releaseHold(room);
       if (action === 'bots:clear') {
         let removed = 0;
         if (typeof room.clearBots === 'function') {
@@ -1591,17 +1723,42 @@ app.post('/api/owner/do', sigLimiter, async (req, res) => {
       return done('Added ' + made + ' bot(s) to ' + room.lobbyType);
     }
 
-    /* Maintenance. Turning it ON is always allowed — the point of it is to stop
-       the bleeding — but calling the game DOWN while somebody has a stake on
-       the table is refused, with the number, because their worth only exists
-       while their snake does. */
-    case 'maintenance:on':
-      ops.set({ on: true, message: args.message, minutes: args.minutes });
+    /* AN EXACT NUMBER, HELD. bots:add stacks bots on top of the room's own
+       fill and bots:clear empties it for fifteen minutes; neither can say
+       "this room has 30 bots" and keep it so. { room, count } does (0 to 200,
+       held until changed), { room, auto: true } hands the room back to its own
+       fill. How each kind of room holds the number is in
+       ownerConsole.setBots. Paid rooms refuse before anything is touched. */
+    case 'bots:set': {
+      const room = typeof args.room === 'string' ? ALL_ROOMS().find(r => r.lobbyType === args.room) : null;
+      const r = ownerConsole.setBots(room, args);
+      if (!r.ok) return refuse(r.why);
+      broadcastLobbyState();
+      const label = roomLabel(room);
+      const s = (k) => (k === 1 ? '' : 's');
+      if (r.auto) return done(label + ' is back on its own bots: ' + r.live + ' bot' + s(r.live) + ' now.');
+      const held = Number.isInteger(r.held) ? r.held : r.asked;
+      return done(label + ': ' + r.live + ' bot' + s(r.live) + ' now, held at ' + held + ' until you change it.'
+        + (held < r.asked ? ' This room holds ' + held + ' at most.' : '')
+        + (r.live < held ? ' It would not take more just now (full, or the server is busy); the rest join as it allows.' : ''));
+    }
+
+    /* Maintenance. Turning it ON is always allowed: the point of it is to stop
+       the bleeding. It is the RESTART that has to wait while somebody has a
+       stake on the table, because their worth only exists in this process;
+       maintenance:check says when. Saved (ops.persist), so the restart it was
+       turned on for does not open the doors again. */
+    case 'maintenance:on': {
+      ops.set({ on: true, message: args.message });
+      const kept = ops.lastSave();
       io.emit('maintenance', ops.get());
       /* io.emit reaches the main namespace only; agar.io lives on /ag. */
       if (agArenas) io.of('/ag').emit('maintenance', ops.get());
       if (slArenas) io.of('/sl').emit('maintenance', ops.get());
-      return done('Maintenance on. New games refused.');
+      return done('Maintenance on. New games refused. ' + (kept.ok
+        ? 'It stays on across restarts and deploys until you press Open.'
+        : 'It could not be saved (' + kept.why + '), so a restart opens the game again.'));
+    }
     /* The lobby's cashed-out strip (server/earnings): hide or show it, saved
        across restarts and deploys. Display only, no money is touched. */
     case 'earnings:off': {
@@ -1614,12 +1771,15 @@ app.post('/api/owner/do', sigLimiter, async (req, res) => {
       return done((earnings.shown() ? 'Earnings strip shown.' : 'Console hide cleared, but SHOW is false in server/earnings/config.js.')
         + (kept.ok ? '' : ' Not saved (' + kept.why + ').'));
     }
-    case 'maintenance:off':
+    case 'maintenance:off': {
       ops.set({ on: false });
+      const kept = ops.lastSave();
       io.emit('maintenance', ops.get());
       if (agArenas) io.of('/ag').emit('maintenance', ops.get());
       if (slArenas) io.of('/sl').emit('maintenance', ops.get());
-      return done('Maintenance off. The game is open.');
+      return done('Maintenance off. The game is open.' + (kept.ok ? ''
+        : ' The saved close could not be cleared (' + kept.why + '), so the next restart opens it closed again.'));
+    }
 
     /* Paid agar.io's own instant door switch (PAID-AGAR-DESIGN.md 5.7): off,
        every new paid join is refunded at the door ('not-open') and the rows say
@@ -1668,6 +1828,32 @@ app.post('/api/owner/do', sigLimiter, async (req, res) => {
       const kept = paperPaidSwitch.save(true);
       console.warn('[PAPER] owner console: paid door OPEN' + (kept.ok ? '' : ' (the saved close NOT cleared: ' + kept.why + ')'));
       return done('Paid Paper open.' + (kept.ok ? ''
+        : ' The saved close could not be cleared (' + kept.why + '), so the next restart opens it closed again.'));
+    }
+    /* Paid Knockout's and paid Battleship's door switches, the same contract
+       as agar's: off, a NEW paid queue join is refused before its entry token
+       is touched (the player keeps the token, which refunds itself when it
+       expires), while seated players and anyone already queued finish. Saved,
+       so the close outlives a restart until :on. */
+    case 'ko:paid:off':
+    case 'bs:paid:off': {
+      const ko = action === 'ko:paid:off';
+      if (ko) koPaidOpen = false; else bsPaidOpen = false;
+      const kept = (ko ? koPaidSwitch : bsPaidSwitch).save(false);
+      console.warn((ko ? '[KO]' : '[BS]') + ' owner console: paid door CLOSED'
+        + (kept.ok ? ' (saved)' : ' (NOT saved: ' + kept.why + ')'));
+      return done((ko ? 'Paid Knockout' : 'Paid Battleship') + ' closed to new players. Seated and queued players finish. '
+        + (kept.ok ? 'It stays closed across restarts and deploys until you press Open.'
+          : 'The close could not be saved (' + kept.why + '), so it lasts only until the next restart.'));
+    }
+    case 'ko:paid:on':
+    case 'bs:paid:on': {
+      const ko = action === 'ko:paid:on';
+      if (ko) koPaidOpen = true; else bsPaidOpen = true;
+      const kept = (ko ? koPaidSwitch : bsPaidSwitch).save(true);
+      console.warn((ko ? '[KO]' : '[BS]') + ' owner console: paid door OPEN'
+        + (kept.ok ? '' : ' (the saved close NOT cleared: ' + kept.why + ')'));
+      return done((ko ? 'Paid Knockout' : 'Paid Battleship') + ' open.' + (kept.ok ? ''
         : ' The saved close could not be cleared (' + kept.why + '), so the next restart opens it closed again.'));
     }
     /* The new slither.io free room's door (SERVER-DESIGN 13 item 4, 16.2): off
@@ -1724,22 +1910,29 @@ app.post('/api/owner/do', sigLimiter, async (req, res) => {
     }
     case 'maintenance:check': {
       /* Unsafe while any stake exists only in this process: a live paid seat,
-         a Paper floor coin, or a paid entry token minted and not yet joined
-         (each refunds itself within about 6 minutes; turn maintenance on and
-         wait). A restart would lose all three with no record. */
-      const d = ops.drainStatus(ALL_ROOMS(), entryStore.pending());
-      const live = Math.round((d.paidWorth + d.floorWorth + d.pendingWorth) * 1e6) / 1e6;
+         a floor coin, a paid entry token minted and not yet joined (each
+         refunds itself within about 6 minutes; turn maintenance on and wait),
+         or a paid Knockout or Battleship seat, queued or at a table. A restart
+         would lose all of them with no record. */
+      const d = drainNow();
       return d.safe ? done('Safe to restart: nobody has money on the table.')
-                    : refuse(d.reason + ' (' + live + ' USDC in memory)');
+                    : refuse(d.reason + ' (' + d.moneyInPlay + ' USDC in memory)');
     }
 
-    /* Something to say to everyone who is currently in a game. */
+    /* Something to say to everyone with the site open. The lobby is the top
+       page around every game frame, so its toast (public/js/v2/toasts.js)
+       shows it over whatever game is running; the old snake page and /sl get
+       it too, as before. Plain text, 200 characters, one every 10 seconds. */
     case 'announce': {
-      const text = String(args.text || '').slice(0, 200);
+      const text = ownerConsole.cleanAnnounce(args.text);
       if (!text) return refuse('Nothing to say');
-      io.emit('announce', { text, at: Date.now() });
-      if (slArenas) io.of('/sl').emit('announce', { text, at: Date.now() });
-      return done('Sent to everyone in a game');
+      const wait = ANNOUNCE_GAP_MS - (Date.now() - _announcedAt);
+      if (wait > 0) return refuse('One announcement every 10 seconds; try again in ' + Math.ceil(wait / 1000) + ' s');
+      _announcedAt = Date.now();
+      const msg = { text, at: _announcedAt };
+      io.emit('announce', msg);
+      if (slArenas) io.of('/sl').emit('announce', msg);
+      return done('Sent. It shows on every open lobby, over the game a player is in.');
     }
 
     default:
@@ -2205,6 +2398,26 @@ const paperPaidSwitch = createPaidSwitchStore({
   file: process.env.PAPER_PAID_SWITCH_PATH || path.join(path.dirname(agJournal.file), 'paper-paid-switch.json'),
   tag: '[PAPER]', what: 'paid Paper',
 });
+/* Paid Knockout's and paid Battleship's doors (ko:paid:off, bs:paid:off), kept
+   the same way and read here at boot; the queue handlers refuse a new paid
+   join while one is shut. */
+const koPaidSwitch = createPaidSwitchStore({
+  file: process.env.KO_PAID_SWITCH_PATH || path.join(path.dirname(agJournal.file), 'ko-paid-switch.json'),
+  tag: '[KO]', what: 'paid Knockout',
+});
+const bsPaidSwitch = createPaidSwitchStore({
+  file: process.env.BS_PAID_SWITCH_PATH || path.join(path.dirname(agJournal.file), 'bs-paid-switch.json'),
+  tag: '[BS]', what: 'paid Battleship',
+});
+let koPaidOpen = !koPaidSwitch.closedAtBoot().closed;
+let bsPaidOpen = !bsPaidSwitch.closedAtBoot().closed;
+if (!koPaidOpen) console.warn('[KO] paid door CLOSED at boot: the owner\'s ko:paid:off outlived the restart');
+if (!bsPaidOpen) console.warn('[BS] paid door CLOSED at boot: the owner\'s bs:paid:off outlived the restart');
+const DUEL_PAID_CLOSED = 'Paid tables are closed right now. Free play still works, and an entry you have not used '
+  + 'is refunded within a few minutes.';
+/* Maintenance outlives a restart too (ops.persist): a close on disk is read
+   here, before the first request, and an unreadable file keeps the game shut. */
+ops.persist({ file: process.env.MAINTENANCE_PATH || path.join(path.dirname(agJournal.file), 'maintenance.json') });
 
 const { PaperArenas } = require('./paper/PaperArenas');
 function paperPaidSwitchValue(raw) {
@@ -4304,6 +4517,9 @@ io.on('connection', (socket) => {
        (inside the token's 1e-9 match) used to open a bucket of its own that never matched. */
     const want = wants > 0 ? rungOf(wants) : 0;
     const seat = (entry) => {
+      /* The door shut (ko:paid:off) while this stake row's claim was in flight: not seated, so
+         enterPaid refunds it once through the row. */
+      if (entry && entry.stakeSig && !koPaidOpen) return false;
       let worth = 0, rung = 0, paid, payTo = null;
       if (entry) {
         worth = entry.worth;
@@ -4330,6 +4546,9 @@ io.on('connection', (socket) => {
     if (!(wants > 0)) return seat(null);
     // Off the ladder (the retired 0.1 too): refused before the token is touched, so it stays unspent.
     if (!want) { socket.emit('ko:refused', { why: RETIRED_BUYIN }); return; }
+    // The owner's paid door (ko:paid:off), before the token is touched: the player keeps it, and
+    // an entry nobody uses refunds itself when it expires.
+    if (!koPaidOpen) { socket.emit('ko:refused', { why: DUEL_PAID_CLOSED }); return; }
     // A paid seat is queued only once its stake row is claimed (enterPaid, STATUS item 7a).
     enterPaid(socket, 'knockout', consumePaidEntryAtStake(entryToken, want, 'knockout'), seat, (why) => {
       socket.emit('ko:refused', { why: ENTRY_REFUSED[why] || 'that buy-in was not paid for' });
@@ -4398,6 +4617,8 @@ io.on('connection', (socket) => {
     const wants = (typeof stake === 'number' || typeof stake === 'string') ? Number(stake) || 0 : 0;
     const want = wants > 0 ? rungOf(wants) : 0;   // the ladder's own number, as in ko:queue
     const seat = (entry) => {
+      // Shut (bs:paid:off) while the claim was in flight: refunded once through the row (enterPaid).
+      if (entry && entry.stakeSig && !bsPaidOpen) return false;
       let worth = 0, rung = 0, paid, payTo = null;
       if (entry) {
         worth = entry.worth;
@@ -4420,6 +4641,7 @@ io.on('connection', (socket) => {
     };
     if (!(wants > 0)) return seat(null);
     if (!want) { socket.emit('bs:refused', { why: RETIRED_BUYIN }); return; }   // token left unspent
+    if (!bsPaidOpen) { socket.emit('bs:refused', { why: DUEL_PAID_CLOSED }); return; }   // bs:paid:off, token left unspent
     // A paid seat is queued only once its stake row is claimed (enterPaid, STATUS item 7a).
     enterPaid(socket, 'battleship', consumePaidEntryAtStake(entryToken, want, 'battleship'), seat, (why) => {
       socket.emit('bs:refused', { why: ENTRY_REFUSED[why] || 'that buy-in was not paid for' });
