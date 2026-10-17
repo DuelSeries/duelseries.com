@@ -1521,7 +1521,7 @@ function consoleEscrow() {
   if (!s) return null;
   const n = (v) => (Number.isFinite(v) ? Math.round(v * 1e6) / 1e6 : null);
   return { usdc: n(s.escrowSol), owed: n(s.liveStakesSol), surplus: n(s.surplusSol), ok: !!s.solvent, at: s.ts || null,
-           feeSol: n(s.escrowFeeSol) };
+           feeSol: n(s.escrowFeeSol), parts: s.parts || null };
 }
 
 /* The escrow's address for the bot bank's top-up line, or null where this server has no escrow key (dev). */
@@ -3919,6 +3919,16 @@ async function checkSolvency() {
     const surplus = escrow - liveStakes;
     const solvent = surplus >= -1e-6;
     _lastSolvency = { escrowSol: escrow, liveStakesSol: liveStakes, requiredSol: liveStakes, surplusSol: surplus, solvent, ts: Date.now() };
+    /* What the escrow is made of, for Control (display only, nothing here decides anything): the bot bank, money in
+       play (the solvency sum without the bank), unpaid failed_payouts rows, and what is left, in micro so the four
+       add up to the escrow exactly. Owed rows are not in the solvency sum above, so Spare can go below its surplus. */
+    const owedRows = await db.sumOwedPayouts().catch(() => null);
+    if (owedRows !== null) {
+      const um = (v) => Math.round(v * 1e6);
+      const bankM = botBank.balanceMicro(), playM = um(liveStakes) - bankM, owedM = um(owedRows);
+      _lastSolvency.parts = { bank: bankM / 1e6, inPlay: playM / 1e6, owed: owedM / 1e6,
+        spare: (um(escrow) - bankM - playM - owedM) / 1e6 };
+    }
     if (!solvent) {
       console.warn(`[SOLVENCY] SHORTFALL ${(-surplus).toFixed(6)} SOL — escrow ${escrow.toFixed(6)} < live stakes ${liveStakes.toFixed(6)}`);
       const s = lobbySocketsByGoogleId.get(OWNER_WALLET);

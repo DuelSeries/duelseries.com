@@ -187,6 +187,10 @@ test('signed in: draws the sheet from the state and never loads the wallet', asy
       'not running', 'Off on this server', 'Waiting', '3 people', '$20 prize', 'Cashed-out strip in the lobby', 'Smooth turning']) {
       assert.ok(text.includes(s), 'shows ' + JSON.stringify(s));
     }
+    // the escrow's breakdown adds up to it: 0.5 + 1.85 + 0.05 + 510 = 512.4
+    for (const s of ['Bot bank $0.50', 'Money in play $1.85', 'Owed to players $0.05', 'Spare (not owed to anyone) $510.00']) {
+      assert.ok(panel.byKey('escrowparts').textContent.includes(s), 'breakdown shows ' + JSON.stringify(s));
+    }
     // the audit note that is markup is there as the literal text
     assert.ok(text.includes('<img src=x onerror="window.__xss=1">Unknown room'));
     // a paid rung: stepper disabled, the note as its title, nothing else said

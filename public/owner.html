@@ -665,8 +665,33 @@ function escrowFig(s, short) {
   const gap = typeof e.surplus === 'number' ? -e.surplus : owed - num(e.usdc);
   const checked = e.at ? ' Checked at ' + clock(e.at) + '.' : '';
   const title = 'Escrow holds ' + money(e.usdc) + ' and owes players ' + money(owed) + '.' + checked;
-  if (e.ok === false || gap > 0.005) return { v: money(e.usdc), label: 'short by ' + money(Math.max(0, gap)), labelCls: 'bad', title };
+  const p = e.parts;
+  const spareGap = p && typeof p.spare === 'number' && p.spare < -0.005 ? -p.spare : 0;
+  if (e.ok === false || gap > 0.005 || spareGap) {
+    return { v: money(e.usdc), label: 'short by ' + money(Math.max(0, gap, spareGap)), labelCls: 'bad', title };
+  }
   return { v: money(e.usdc), label: short ? 'escrow' : 'escrow, covers it', title };
+}
+/* What the escrow is made of (the server's numbers, adding up to it exactly), one line under the figures. */
+const SPARE_HINT = 'Money in escrow nobody is owed: usually house cuts and floor money from paid games, plus any extra '
+  + 'sent to escrow that is not in the bot bank. Negative means escrow is short.';
+function partEscrowParts(ups, cls, pad) {
+  const el = h('div', { class: cls, 'data-k': 'escrowparts',
+    style: 'font-size:12.5px;color:var(--tx2,#a89c8a);display:flex;flex-wrap:wrap;gap:6px 18px;padding:' + pad });
+  ups.push((s) => {
+    const p = s.escrow && s.escrow.parts;
+    el.replaceChildren();
+    if (!p) { el.hidden = true; return; }
+    el.hidden = false;
+    const item = (label, v, title, bad) => h('span', { title: title || null, style: bad ? 'color:var(--bad,#e0705f)' : null },
+      label + ' ' + money(v));
+    el.append(h('span', null, 'In escrow:'),
+      item('Bot bank', p.bank),
+      item('Money in play', p.inPlay, 'Players and live bots in paid games, money on their floors, and paid entries not yet used.'),
+      item('Owed to players', p.owed, 'Payouts and refunds not sent yet; the server keeps retrying them.'),
+      item('Spare (not owed to anyone)', p.spare, SPARE_HINT, p.spare < -0.005));
+  });
+  return el;
 }
 function partNewGames(ups) {
   return toggle(ups, {
@@ -948,6 +973,7 @@ function buildPC(ups, next) {
       title: 'Live paid worth, money on the floor, unspent entries and paid duel stakes.' })),
     fig(ups, 'fig', (s) => escrowFig(s, false)),
     h('div', { class: 'open' }, 'New games ', partNewGames(ups)));
+  const parts = partEscrowParts(ups, 'parts', '10px 36px;border-bottom:1px solid var(--ln)');
 
   const rows = S.games.map((g0) => {
     const name = h('td', { class: 'g' });
@@ -970,7 +996,7 @@ function buildPC(ups, next) {
     h('div', null, h('h3', null, 'Alerts'), partAlerts(ups)),
     h('div', null, h('h3', null, 'Done today'), partLog(ups)));
 
-  return h('div', { class: 's1' }, hd, sum, table, low);
+  return h('div', { class: 's1' }, hd, sum, parts, table, low);
 }
 function pcCell(ups, gid, c) {
   const g0 = game(S, gid);
@@ -1026,6 +1052,7 @@ function buildPhone(ups, next) {
     fig(ups, '', (s) => ({ v: String(num(s.bots)), label: 'bots' })),
     fig(ups, '', (s) => ({ v: money(s.drain.moneyInPlay), cls: 'gold', label: 'in play' })),
     fig(ups, '', (s) => escrowFig(s, true)));
+  const pparts = partEscrowParts(ups, 'pparts', '8px 16px');
 
   const blocks = [];
   for (const g0 of S.games) {
@@ -1046,7 +1073,7 @@ function buildPhone(ups, next) {
   ups.push((s) => { up.textContent = String(s.region || '').toUpperCase() + ' server, up ' + uptime(s.uptimeSec); });
   site.append(up);
 
-  return h('div', { class: 'ph' }, pt, pst, pv, pf, blocks, site,
+  return h('div', { class: 'ph' }, pt, pst, pv, pf, pparts, blocks, site,
     h('div', { class: 'sec' }, h('h3', null, 'Alerts'), partAlerts(ups)),
     h('div', { class: 'sec' }, h('h3', null, 'Done today'), partLog(ups)));
 }

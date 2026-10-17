@@ -590,6 +590,13 @@ async function recordOwedOnce(key, walletAddress, amountSol, name, reason) {
   return r.rowCount > 0 ? 'owed' : 'exists';
 }
 
+// Unpaid failed_payouts rows in all (payouts, refunds, rake sweeps), in the active unit: what Control's escrow
+// breakdown shows as owed to players. Display only.
+async function sumOwedPayouts() {
+  const r = await pool.query(`SELECT COALESCE(SUM(amount_sol), 0) AS owed FROM failed_payouts WHERE paid = false`);
+  return parseFloat(r.rows[0].owed) || 0;
+}
+
 async function getFailedPayouts(limit = 200) {
   const res = await pool.query(
     `SELECT id, wallet_address, amount_sol, name, reason, paid, paid_sig, attempts, last_attempt_at, created_at
@@ -1187,7 +1194,7 @@ module.exports = {
   markStakeSig, claimStakeSig, claimStakeSeat, refundStakeOwed, listUnsettledStakes,
   claimStakeVerify, confirmStakeVerify, closeStakeVerify, listStakeVerifies,
   isPlayerWallet,
-  recordFailedPayout, recordOwedOnce, getFailedPayouts, claimDuePayout, savePayoutSignature, markPayoutPaid,
+  recordFailedPayout, recordOwedOnce, getFailedPayouts, sumOwedPayouts, claimDuePayout, savePayoutSignature, markPayoutPaid,
   deferPayoutNoAccount, returnPayoutToLane,
   features, NO_USDC_ACCOUNT,
   recordEarnings,
