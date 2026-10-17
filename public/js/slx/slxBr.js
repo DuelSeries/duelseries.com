@@ -17,8 +17,9 @@
 // 3. The HUD, one block at the top centre: the 10 s count and GO, the winner's moment or the phase, how many are
 //    left of how many started, the next move of the wall; the owner's Start match (shown only when the server said owner for this seat; the action is still signed by the
 //    owner wallet and checked at /api/owner/do).
-// 4. The card (slxCard hooks): out of a running match, Play again is Watch; the podium and the prize line when one
-//    is decided; between matches, when the next one starts.
+// 4. The card (slxCard hooks): a death or a win has Lobby, Spectate (this match, watched here: beforeWatch) and Play
+//    again (the next match, unpressable while a match is under way or just decided); the podium and the prize line
+//    when one is decided; between matches, when the next one starts. A refusal's card keeps its own Watch or Play.
 // 5. Watching: their client follows the watched snake as its own; mouse, touch and the boost keys on the game are
 //    swallowed here so nothing on screen pretends to steer it. When it ends the next survivor is watched at once.
 (function (root) {
@@ -570,6 +571,10 @@
     return 'Next battle royale starts in ' + clock((st && st.nextStartMs) || 0);
   }
 
+  // A card that closes a life (a death, a win's cash-out) has slxCard's Lobby and Spectate (Owen 2026-10-16):
+  // Spectate watches this match here (beforeWatch below). A death while the match runs has nothing else (noAgain);
+  // a decided match adds the next-match button. Any other card (a refusal, a connection lost, a watcher's Spectate
+  // next) keeps its own button.
   var lastKind = '';
   // A watcher's card is about the match, not a life of theirs: no length and no stats of the snake they watched.
   slx.cardLines = function (kind) {
@@ -581,11 +586,12 @@
     }
     return v;
   };
-  // Owen 2026-10-16: a death is out for the rest of the match, the owner's too. While it runs the card is Spectate and
-  // Lobby only (slxCard draws Lobby; again is Spectate). Once it is decided the result stays up, and when the arena
-  // has reopened the button is Join next.
+  // Owen 2026-10-16: a death is out for the rest of the match, the owner's too. While it runs the card is Lobby and
+  // Spectate only (slxCard's own Lobby and Spectate, no again). Once it is decided the result stays up with Lobby,
+  // Spectate and the next-match button, which says Join next once the arena has reopened.
   function cardView(kind) {
     lastKind = String(kind || '');
+    var end = kind === 'dead' || kind === 'cashed';
     if (!st && kind !== 'match' && kind !== 'nobody') return null;
     if (kind === 'match' && (!st || running() || decided())) {
       return { title: 'Match under way', lines: [st ? st.alive + ' still alive. Spectate it, or wait for the next.'
@@ -620,10 +626,14 @@
     if (running()) {
       if (mode === 'watch') {
         return { title: 'Watching', lines: [(watching && watching.name ? watching.name + ' is out. ' : '') +
-          st.alive + ' still alive.'], again: 'Spectate next' };
+          st.alive + ' still alive.'], again: 'Spectate next', spectate: false };
       }
-      return { title: 'You are out', lines: [st.alive + ' still alive. Spectate to the end, or wait for the next match.'],
-        again: 'Spectate' };
+      // out while the match runs: Lobby and the card's Spectate only, no Play again (Owen: "they can't play again
+      // until the next game"); Spectate watches the rest of this match here (beforeWatch)
+      var out = { title: 'You are out', lines: [st.alive + ' still alive. Spectate to the end, or wait for the next match.'] };
+      if (end) out.noAgain = true;
+      else out.again = 'Spectate';
+      return out;
     }
     // between matches (a winner's 'cashed' card would otherwise say Cashed Out)
     return { title: kind === 'cashed' ? 'Battle Royale' : undefined, lines: [nextLine()], again: 'Play again' };
@@ -645,6 +655,15 @@
     mode = 'play';
     watching = null;
     withProof(go);
+    return true;
+  };
+
+  // Spectate (slxCard): the event's own watch mode on this page, as the card's Watch always was: the next life is a
+  // watcher (brAuth watch: 1), following the leader. Never a seat and never a proof.
+  slx.beforeWatch = function (go) {
+    mode = 'watch';
+    if (watching) watching.next = 0;
+    go();
     return true;
   };
 

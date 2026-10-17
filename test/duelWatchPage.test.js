@@ -132,7 +132,7 @@ function boot(file, storage, { framed = true } = {}) {
     setItem: (k, v) => store.set(k, String(v)),
     removeItem: (k) => store.delete(k),
   };
-  const emitted = [], handlers = {}, posted = [], timers = [], frames = [];
+  const emitted = [], handlers = {}, posted = [], timers = [], frames = [], replaced = [];
   const chat = { opts: null, lines: [], shown: false };
   const sock = {
     id: 'page-socket-1',
@@ -163,7 +163,7 @@ function boot(file, storage, { framed = true } = {}) {
     clearTimeout: () => {},
     setInterval: () => 0,
     clearInterval: () => {},
-    location: { href: '', origin: ORIGIN },
+    location: { href: '', origin: ORIGIN, replace(u) { this.href = String(u); replaced.push(String(u)); } },
     BattleshipArt: { drawShip() {} },
     BattleshipSound: { hit() {}, miss() {}, sunk() {}, taken() {} },
     /* The shared chat box (its own DOM is not what these pages are tested on): what it was mounted with and told. */
@@ -180,7 +180,7 @@ function boot(file, storage, { framed = true } = {}) {
   vm.runInContext(fs.readFileSync(path.join(ROOT, 'public', 'js', 'shared', 'dsEnd.js'), 'utf8'), ctx, { filename: 'dsEnd.js' });
   vm.runInContext(fs.readFileSync(path.join(ROOT, 'public', 'js', file), 'utf8'), ctx, { filename: file });
   return {
-    win, store, emitted, posted, timers, frames, $: byId, body, chat,
+    win, store, emitted, posted, timers, frames, replaced, $: byId, body, chat,
     /* The result card on screen, read back as text, or null. */
     card: () => readCard(body),
     /* A window message, from the lobby (the parent frame, this origin) unless told otherwise. */
@@ -324,13 +324,17 @@ for (const g of [
     assert.strictEqual(c.hero, 'Free');   // a free game says Free; its score is the first tray row (Owen 2026-10-16)
     assert.deepStrictEqual(c.facts[0], [g.p === 'ko' ? 'Turns' : 'Shots', g.p === 'ko' ? '2' : '3'], 'turns, or the winner\'s shots');
     assert.strictEqual(c.unit, null);
-    assert.deepStrictEqual(c.buttons.map(b => b.text), ['Lobby', 'Next match']);   // Lobby left, the next step right (Owen 2026-10-16)
+    /* The same three as a player's card (Owen 2026-10-16): Lobby, Spectate, Play again. */
+    assert.deepStrictEqual(c.buttons.map(b => [b.text, b.primary, b.disabled]),
+      [['Lobby', false, false], ['Spectate', false, false], ['Play again', true, false]]);
     page.runTimers();
     same(page.sent(g.p + ':watch').pop()[1], { after: m.match.id, stake: 0 });
-    /* Next match on the card asks for the one after this one too. */
+    /* Spectate on the card asks for the one after this one too (it was Next match). */
     const before = page.sent(g.p + ':watch').length;
-    c.button('Next match').click();
+    c.button('Spectate').click();
     assert.strictEqual(page.sent(g.p + ':watch').length, before + 1);
+    same(page.sent(g.p + ':watch').pop()[1], { after: m.match.id, stake: 0 });
+    assert.strictEqual(page.replaced.length, 0, 'watching the next match stays on this page');
     /* And the next match clears the card. */
     page.deliver(g.p + ':watching', g.watching());
     assert.strictEqual(page.card(), null);
@@ -382,8 +386,8 @@ function bsOver({ stake = 0, winner = ME, why = 'fleet sunk' } = {}) {
 }
 
 for (const g of [
-  { game: 'knockout', file: 'knockout.js', p: 'ko', over: koOver, hero: '4', unit: 'turns', count: 'Turns', countVal: '4' },
-  { game: 'battleship', file: 'battleship.js', p: 'bs', over: bsOver, hero: '31', unit: 'shots fired', count: 'Shots', countVal: '31' },
+  { game: 'knockout', file: 'knockout.js', p: 'ko', over: koOver, hero: '4', unit: 'turns', count: 'Turns', countVal: '4', watching: () => koWatching(1) },
+  { game: 'battleship', file: 'battleship.js', p: 'bs', over: bsOver, hero: '31', unit: 'shots fired', count: 'Shots', countVal: '31', watching: () => bsWatching() },
 ]) {
   test(g.game + ': a free result: who won, the ' + g.unit + ', and Play again queues again with no token', () => {
     const page = boot(g.file, { playerName: 'Owen' });
@@ -396,7 +400,7 @@ for (const g of [
     assert.strictEqual(c.unit, null);
     assert.strictEqual(c.tone, 'plain');
     assert.deepStrictEqual(c.ledger, [], 'no money on a free table');
-    assert.deepStrictEqual(c.buttons.map(b => [b.text, b.primary]), [['Lobby', false], ['Play again', true]]);   // Lobby left, the next step right (Owen 2026-10-16)
+    assert.deepStrictEqual(c.buttons.map(b => [b.text, b.primary]), [['Lobby', false], ['Spectate', false], ['Play again', true]]);   // Lobby left, the next step right (Owen 2026-10-16)
 
     const loss = boot(g.file, { playerName: 'Owen' });
     loss.deliver('connect');
@@ -428,7 +432,7 @@ for (const g of [
     assert.strictEqual(c.unit, null, 'money won stands alone (Owen: no "to your wallet")');
     assert.deepStrictEqual(c.ledger, [['Pot', '$2.00'], ['House 10%', '−$0.20'], ['You receive', '$1.80']]);
     assert.deepStrictEqual(c.facts.find(f => f[0] === g.count), [g.count, g.countVal]);
-    assert.deepStrictEqual(c.buttons.map(b => b.text), ['Lobby', 'Play again $1.00']);   // Lobby left, the next step right (Owen 2026-10-16)
+    assert.deepStrictEqual(c.buttons.map(b => b.text), ['Lobby', 'Spectate', 'Play again $1.00']);   // Lobby left, the next step right (Owen 2026-10-16)
 
     /* The figures are the payload's, not the stake's: a different net on the
        wire is the net on the card. */
@@ -462,9 +466,12 @@ for (const g of [
     assert.ok(typeof ask.nonce === 'string' && ask.nonce.length > 4);
     let c = page.card();
     assert.deepStrictEqual(c.buttons.map(b => [b.text, b.disabled]),
-      [['Lobby', true], ['Confirm in your wallet...', true]], 'the way back is shut while the wallet is open');
+      [['Lobby', true], ['Spectate', true], ['Confirm in your wallet...', true]], 'the way back is shut while the wallet is open');
     c.button('Lobby').click();
     assert.ok(!page.posted.includes('game:done'), 'Lobby does nothing while paying');
+    c.button('Spectate').click();
+    assert.strictEqual(page.replaced.length, 0, 'nor does Spectate');
+    assert.strictEqual(page.store.has('dsWatch'), false);
 
     /* Nothing but the lobby's own answer to this request counts. */
     const queued = page.sent(g.p + ':queue').length;
@@ -494,14 +501,14 @@ for (const g of [
     let ask = page.posted.pop();
     page.message({ type: 'duel:restake:error', message: 'Not enough USDC.', nonce: ask.nonce });
     let c = page.card();
-    assert.deepStrictEqual(c.buttons.map(b => [b.text, b.disabled]), [['Lobby', false], ['Play again $1.00', false]]);   // Lobby left, the next step right (Owen 2026-10-16)
+    assert.deepStrictEqual(c.buttons.map(b => [b.text, b.disabled]), [['Lobby', false], ['Spectate', false], ['Play again $1.00', false]]);   // Lobby left, the next step right (Owen 2026-10-16)
     assert.ok(c.notes.includes('Not enough USDC.'));
 
     c.button('Play again').click();
     ask = page.posted.pop();
     page.runTimers();                                // two minutes and no answer
     c = page.card();
-    assert.deepStrictEqual(c.buttons.map(b => [b.text, b.disabled]), [['Lobby', false], ['Waiting for your wallet...', true]]);   // Lobby left, the next step right (Owen 2026-10-16)
+    assert.deepStrictEqual(c.buttons.map(b => [b.text, b.disabled]), [['Lobby', false], ['Spectate', true], ['Waiting for your wallet...', true]]);   // Spectate shut for the whole buy-in
     assert.ok(c.notes.some(n => /has not answered yet/.test(n)));
     /* A late answer is still taken. */
     page.message({ type: 'duel:restake:done', entryToken: 'tok-late', nonce: ask.nonce });
@@ -513,10 +520,81 @@ for (const g of [
     page.deliver('connect');
     page.deliver(g.p + ':over', g.over({ stake: 1 }));
     const c = page.card();
-    assert.deepStrictEqual(c.buttons.map(b => [b.text, b.primary]), [['Lobby', true]]);
+    assert.deepStrictEqual(c.buttons.map(b => [b.text, b.primary, b.disabled]),
+      [['Lobby', false, false], ['Spectate', false, false], ['Play again $1.00', true, true]]);
     assert.ok(c.notes.includes('Buy a new entry in the lobby to play again.'));
     c.button('Lobby').click();
     assert.strictEqual(page.win.location.href, '/');
+  });
+
+  /* Owen 2026-10-16: "a Lobby, Spectate and Play again button exactly the same on every single cash-out and death
+     screen, including the paid ones". Spectate does what the lobby's Spectate does for the rung (play.js spectate()):
+     the money keys out, the watch mark, the paid rung in dsWatchStake (never 'stake'), and this page again. */
+  for (const k of [
+    { name: 'a free loss', storage: { playerName: 'Owen' }, over: { winner: 'them' }, again: 'Play again', watchStake: null, ask: 0 },
+    { name: 'a free win', storage: { playerName: 'Owen' }, over: {}, again: 'Play again', watchStake: null, ask: 0 },
+    { name: 'a paid loss', storage: { playerName: 'Owen', stake: '1', entryToken: 'tok-1' }, over: { stake: 1, winner: 'them' },
+      again: 'Play again $1.00', watchStake: '1', ask: 1 },
+    { name: 'a paid win', storage: { playerName: 'Owen', stake: '1', entryToken: 'tok-1' }, over: { stake: 1 },
+      again: 'Play again $1.00', watchStake: '1', ask: 1 },
+  ]) {
+    test(g.game + ': ' + k.name + ' has Lobby, Spectate, Play again, and Spectate reopens the page watching that rung', () => {
+      const page = boot(g.file, k.storage);
+      page.deliver('connect');
+      page.deliver(g.p + ':over', g.over(k.over));
+      const c = page.card();
+      assert.deepStrictEqual(c.buttons.map(b => [b.text, b.primary, b.disabled]),
+        [['Lobby', false, false], ['Spectate', false, false], [k.again, true, false]]);
+      page.store.set('slPaidLaunch', '1');          // any money key a page could read goes too
+      c.button('Spectate').click();
+      assert.deepStrictEqual(page.replaced, ['/' + g.game], 'this page again, at the lobby\'s own address for it');
+      assert.strictEqual(page.store.get('dsWatch'), g.game);
+      assert.strictEqual(page.store.has('dsWatchStake') ? page.store.get('dsWatchStake') : null, k.watchStake);
+      for (const key of ['stake', 'entryToken', 'entrySol', 'slPaidLaunch', 'spectateOnly']) {
+        assert.strictEqual(page.store.has(key), false, key + ' is never left for a watcher');
+      }
+      assert.strictEqual(page.sent(g.p + ':leave').length, 1, 'the finished seat is let go');
+      assert.ok(!page.posted.some(x => x && x.type === 'duel:restake'), 'no money is asked for');
+      assert.ok(!page.posted.includes('game:done'));
+
+      /* The page that comes up is a watcher of that rung, never a seat. */
+      const next = boot(g.file, Object.fromEntries(page.store));
+      assert.ok(next.body.classList.contains('watching'));
+      next.deliver('connect');
+      same(next.sent(g.p + ':watch').pop()[1], { stake: k.ask });
+      assert.strictEqual(next.sent(g.p + ':queue').length, 0);
+    });
+  }
+
+  test(g.game + ': a watcher\'s card on a paid rung shows Play again at that price, shut, and says where to buy in', () => {
+    const page = boot(g.file, { dsWatch: g.game, dsWatchStake: '0.5' });
+    page.deliver('connect');
+    const m = g.watching();
+    page.deliver(g.p + ':watching', m);
+    page.deliver(g.p + ':over', { winner: 'Nia', winnerSide: 1, why: 'fleet sunk', turn: 2, shots: [0, 3], reveal: [] });
+    const c = page.card();
+    assert.deepStrictEqual(c.buttons.map(b => [b.text, b.primary, b.disabled]),
+      [['Lobby', false, false], ['Spectate', false, false], ['Play again $0.50', true, true]]);
+    assert.ok(c.notes.includes('Buy a new entry in the lobby to play again.'));
+    c.button('Play again').click();
+    assert.strictEqual(page.replaced.length, 0);
+    assert.strictEqual(page.sent(g.p + ':queue').length, 0);
+    c.button('Spectate').click();
+    same(page.sent(g.p + ':watch').pop()[1], { after: m.match.id, stake: 0.5 });
+  });
+
+  test(g.game + ': Play again on a Free watcher\'s card opens this page as a Play', () => {
+    const page = boot(g.file, { dsWatch: g.game, playerName: 'Owen' });
+    page.deliver('connect');
+    page.deliver(g.p + ':watching', g.watching());
+    page.deliver(g.p + ':over', { winner: 'Nia', winnerSide: 1, why: 'fleet sunk', turn: 2, shots: [0, 3], reveal: [] });
+    page.card().button('Play again').click();
+    assert.strictEqual(page.sent(g.p + ':unwatch').length, 1);
+    assert.deepStrictEqual(page.replaced, ['/' + g.game]);
+    const next = boot(g.file, Object.fromEntries(page.store));
+    assert.ok(!next.body.classList.contains('watching'));
+    next.deliver('connect');
+    same(next.sent(g.p + ':queue').pop()[1], { name: 'Owen', wallet: null, stake: 0, entryToken: null });
   });
 
   test(g.game + ': a seat the server refuses is said on the wait card, not in the hidden bar', () => {

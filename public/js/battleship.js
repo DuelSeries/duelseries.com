@@ -1135,22 +1135,30 @@ function paintOver() {
   }
   if (m.why === 'opponent left') card.notes.push('They left the match.');
 
+  /* The same three buttons on every card, paid and free (Owen 2026-10-16):
+     Lobby, Spectate, Play again. Lobby and Spectate are shut while the wallet
+     is open: the lobby blanks this frame on game:done, and a token minted
+     after that would have no page to seat; Spectate leaves the card too. */
   const paid = myStake > 0;
-  const buttons = [];
+  const price = paid ? 'Play again ' + DSEnd.usd(Math.round(myStake * 1e6)) : 'Play again';
+  const shut = !!restake && !restake.slow;
+  let again;
   if (paid && !FRAMED) {
+    again = { id: 'again', text: price, primary: true, disabled: true };
     card.notes.push(TEXT.lobbyOnly);
   } else if (restake) {
-    buttons.push({ id: 'again', text: restake.slow ? TEXT.againSlow : TEXT.againAsk, primary: true, disabled: true });
+    again = { id: 'again', text: restake.slow ? TEXT.againSlow : TEXT.againAsk, primary: true, disabled: true };
     if (restake.slow) card.notes.push(TEXT.againSlowLine);
   } else {
-    buttons.push({ id: 'again', text: paid ? 'Play again ' + DSEnd.usd(Math.round(myStake * 1e6)) : 'Play again',
-      primary: true, onClick: playAgain });
+    again = { id: 'again', text: price, primary: true, onClick: playAgain };
   }
   if (restakeLine) card.notes.push(restakeLine);
-  /* Shut while the wallet is open: the lobby blanks this frame on game:done,
-     and a token minted after that would have no page to seat. */
-  buttons.push({ id: 'lobby', text: 'Lobby', primary: !buttons.length, disabled: !!restake && !restake.slow, onClick: toLobby });
-  card.buttons = buttons;
+  card.buttons = [
+    { id: 'lobby', text: 'Lobby', disabled: shut, onClick: toLobby },
+    // Spectate is also shut for the whole buy-in, slow or not (a Play again buy-in still with the wallet, slow or not: a late stake needs this page in the frame)
+    { id: 'spectate', text: 'Spectate', disabled: shut || !!restake, onClick: spectate },
+    again,
+  ];
   DSEnd.show(card);
 }
 
@@ -1250,6 +1258,51 @@ function toLobby() {
   else location.href = '/';
 }
 $('waitCancel').addEventListener('click', toLobby);
+
+/* SPECTATE, from a result card. The page reads its watch mark once, as it
+   boots, so this does exactly what the lobby's Spectate does for this rung
+   (public/js/v2/play.js spectate()): every money key out, the mark for this
+   game, the rung in its own key for a paid table (dsWatchStake, never
+   'stake'), then this page again, which comes up watching that rung. Nothing
+   here seats anybody or stakes anything. Shut with Lobby while the wallet is
+   open. A watcher's card asks for the next match instead. */
+const WATCH_URL = '/battleship';
+const MONEY_KEYS = ['entryToken', 'entrySol', 'stake', 'slPaidLaunch', 'slxPaidCut', 'slBr', 'spectateOnly'];
+function reopen() {
+  try {
+    if (typeof location.replace === 'function') location.replace(WATCH_URL);
+    else location.href = WATCH_URL;
+  } catch (_) { location.href = WATCH_URL; }
+}
+function spectate() {
+  if (restake) return;   // a Play again buy-in still with the wallet, slow or not: a late stake needs this page in the frame
+  if (WATCH) { watch(watchLastId); return; }
+  try {
+    for (const k of MONEY_KEYS) sessionStorage.removeItem(k);
+    sessionStorage.setItem('dsWatch', 'battleship');
+    if (myStake > 0) sessionStorage.setItem('dsWatchStake', String(myStake));
+    else sessionStorage.removeItem('dsWatchStake');
+    /* Storage that will not hold the mark would reopen a Play: stay put. */
+    if (sessionStorage.getItem('dsWatch') !== 'battleship') return;
+  } catch (_) { return; }
+  clearTimeout(watchTimer);
+  socket.emit('bs:leave');
+  reopen();
+}
+/* Play again on a watcher's card: a Free table is this page again with no
+   mark (a Play, as the lobby's Free Play opens it); a paid table is bought
+   in the lobby, so there it stays shut and says so. */
+function playFromWatch() {
+  if (WATCH_STAKE > 0) return;
+  try {
+    for (const k of MONEY_KEYS) sessionStorage.removeItem(k);
+    sessionStorage.removeItem('dsWatch');
+    sessionStorage.removeItem('dsWatchStake');
+  } catch (_) {}
+  clearTimeout(watchTimer);
+  socket.emit('bs:unwatch');
+  reopen();
+}
 
 /* ── BOTH BOARDS ON ONE SCREEN ───────────────────────────────────────────────
    Owen: "I want both of mine and the opponent's squares to fit on my one
@@ -1459,17 +1512,25 @@ socket.on('bs:ended', ({ id } = {}) => {
   if (!WATCH || overShown) return;
   if (watchMatch && id && id !== watchMatch.id) return;
   overShown = true;
-  DSEnd.show({ verdict: 'That match ended', notes: ['Finding the next one.'], buttons: watchButtons() });
+  /* A notice, not a result: it keeps its own two buttons. */
+  DSEnd.show({ verdict: 'That match ended', notes: ['Finding the next one.'], buttons: [
+    { id: 'again', text: 'Next match', primary: true, onClick: () => watch(watchLastId) },
+    { id: 'lobby', text: 'Lobby', onClick: toLobby },
+  ] });
   publishWatch('ended');
   nextSoon();
 });
 
 /* A watcher's card: who won it and in how many shots, then on to the next
-   match by itself. No money: nobody watching staked anything. */
+   match by itself. No money: nobody watching staked anything. The same three
+   buttons as a player's card: Spectate is the next match, Play again a seat. */
 function watchButtons() {
+  const paid = WATCH_STAKE > 0;
   return [
-    { id: 'again', text: 'Next match', primary: true, onClick: () => watch(watchLastId) },
     { id: 'lobby', text: 'Lobby', onClick: toLobby },
+    { id: 'spectate', text: 'Spectate', onClick: () => watch(watchLastId) },
+    { id: 'again', text: paid ? 'Play again ' + DSEnd.usd(Math.round(WATCH_STAKE * 1e6)) : 'Play again',
+      primary: true, disabled: paid, onClick: playFromWatch },
   ];
 }
 function watchOver(m) {
@@ -1480,6 +1541,7 @@ function watchOver(m) {
   const notes = [];
   if (m.why === 'opponent left') notes.push((side !== null ? watchName(1 - side) : 'A player') + ' left the match.');
   notes.push('Next match in a few seconds.');
+  if (WATCH_STAKE > 0) notes.push(TEXT.lobbyOnly);
   const card = { verdict: m.winner ? m.winner + ' wins' : 'Draw', notes, buttons: watchButtons() };
   if (side !== null) { card.hero = DSEnd.int(shots); card.unit = plural(shots, 'shot', 'shots'); }
   DSEnd.show(card);

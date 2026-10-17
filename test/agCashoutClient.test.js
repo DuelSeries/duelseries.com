@@ -422,6 +422,8 @@ test('paid end card: the receipt with the server\'s numbers, the explorer link, 
   assert.deepStrictEqual(card.ledger, [['Cashed out', '$1.40'], ['House 10%', '−$0.14'], ['You receive', '$1.26', 'net']]);
   assert.deepStrictEqual(card.facts, [['Time', '0:00'], ['Top rank', '2nd'], ['Mass', '400']], 'this life, before the death');
   assert.deepStrictEqual(card.status, { text: 'Sending to your wallet', state: 'pending' });
+  // Lobby and Spectate; Play again is the paid hand-off's (it buys through the lobby's wallet), and this page has none
+  assert.deepStrictEqual(card.buttons.map((b) => [b.id, b.text, b.disabled]), [['lobby', 'Lobby', false], ['watch', 'Spectate', false]]);
   assert.deepStrictEqual(events, [['cashed_out', { game: 'agar', amount: 1.26, stake: 1 }]], "Paper's properties");
   assert.strictEqual(p.session.state().board.visible, true, 'the board stays until the frame sees the card');
   await p.frames(1);
@@ -457,10 +459,12 @@ test('paid end card: a death says what was lost and to whom; a closed room says 
   assert.deepStrictEqual([card.tone, card.verdict, card.hero, card.unit], ['loss', 'Eaten by bob', '−$0.10', '']);   // money lost stands alone (Owen 2026-10-16)
   assert.deepStrictEqual(card.facts, [['Time', '0:00'], ['Top rank', '2nd'], ['Mass', '400'], ['Cells eaten', '0']], 'the death\'s own numbers');
   assert.deepStrictEqual([card.ledger, card.status], [[], null]);
+  assert.deepStrictEqual(card.buttons.map((b) => b.id), ['lobby', 'watch']);
   p.session.sideEvent('ag:closed', { refundedMicro: 250000, why: 'emergency' });
   card = readCard(p.doc);
   assert.strictEqual(p.session.state().paidEnd, 'closed');
   assert.deepStrictEqual([card.verdict, card.hero], ['Refunded', '$0.25']);
+  assert.deepStrictEqual(card.buttons.map((b) => b.id), ['lobby'], 'a notice keeps Lobby alone');
   assert.match(card.notes[0], /whole balance goes back to your wallet, no house cut/);
   const q = bootPage();
   q.session.sideEvent('ag:dead', { lostMicro: 100000, by: '' });

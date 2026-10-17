@@ -22,23 +22,36 @@
 // slApply.js:1252-1262): the card shows at once from the close, titled by the refusal's why
 // (server/sl/slSockets.js REFUSALS).
 //
-// Buttons: Play again calls their Play (DuelSlither.play) under the name the first Play used (the lobby name, or the
-// direct-visit box); their loop connects only once their fade ended (slLoop.js:612), so the button says "Starting"
-// until the card goes. Lobby posts game:done to the lobby frame (slx.toLobby); a direct visit opens the lobby page.
+// Buttons (Owen 2026-10-16: "a Lobby, Spectate and Play again button exactly the same on every single cash-out and
+// death screen, including the paid ones"): a card that closes a life (a death, a cash-out) has exactly Lobby, Spectate
+// and Play again, in that order, on dsEnd's one row; any other card (a refusal, a connection lost, a layer's notice or
+// a watcher's own card) keeps Lobby and its own next step.
+//   Play again calls their Play (DuelSlither.play) under the name the first Play used (the lobby name, or the
+//   direct-visit box); their loop connects only once their fade ended (slLoop.js:612), so the button says "Starting"
+//   until the card goes. Lobby posts game:done to the lobby frame (slx.toLobby); a direct visit opens the lobby page.
+//   Spectate goes only where Lobby would (the layer's beforeLobby asked first: a paid page's exit trap refuses both
+//   alike while money is in) and never while a Play is starting. A layer that watches in place takes it (beforeWatch:
+//   the battle royale's match); else the page reopens watching exactly as the lobby's Spectate opens it (slxWatch
+//   watchOpen: the free room, or a paid page's own rung, read only).
 // A click or tap on the card never reaches their boost or steering (dsEnd stops it at the card).
 //
 // The layers' hook (slxPaid, slxBr, slxWatch set it; a free page sets none, and the card is exactly as above). Each is
 // read at the moment it is needed, and a throw in one is counted (slx.errors) and ignored:
 //   slx.cardLines(kind) -> null, or { title, lines, again, length, tone, hero, unit, ledger, status, podium, facts }:
 //     title in place of the card's own; lines under the money (each a string or { text }; text only, never markup);
-//     again: false leaves Play again off, a string is its label, { text, disabled } its label and state; length: false
+//     again: false leaves Play again off (unpressable instead on a card that closes a life), a string is its label,
+//     { text, disabled } its label and state; spectate: false keeps the card's own buttons (a watcher's card, a
+//     notice: no Spectate); length: false
 //     leaves the length off (a watcher's card: the length was not theirs); tone/hero/unit the big figure (a paid
 //     page's money, '1st' for a battle royale win), then the length moves into the facts; ledger [[label, value]] the
 //     money rows; status { text, state } the payout line; podium [{ rank, name, me }]; facts in place of the card's.
 //     Read when the card shows and on refresh() (the cash-out status coming in).
 //   slx.beforeAgain(go) -> true when the layer takes Play again over (a paid page buys a new entry first, then calls
 //     go(), which starts the play as the button does and answers whether it did).
-//   slx.beforeLobby() -> true when the layer keeps the page here (its exit trap: money is still in the room).
+//   slx.beforeLobby() -> true when the layer keeps the page here (its exit trap: money is still in the room). Asked
+//     for Spectate too: it leaves this life's room just as Lobby does.
+//   slx.beforeWatch(go) -> true when the layer watches on this page itself (slxBr: the match), then calls go(), which
+//     starts the next life as Play again does. Else slx.watchOpen(rung) (slxWatch) reopens the page watching.
 // slx.card.notice(kind) shows the card with no life behind it (the paid notices at boot), titled by cardLines(kind).
 (function (root) {
   'use strict';
@@ -67,7 +80,9 @@
   };
   var KILLED_BY = 'Killed by ';
   var LENGTH = 'length';
-  var BTN = { again: 'Play again', retry: 'Try again', starting: 'Starting', lobby: 'Lobby' };
+  var BTN = { again: 'Play again', retry: 'Try again', starting: 'Starting', lobby: 'Lobby', spectate: 'Spectate' };
+  // The kinds of a card that closes a life, with the three buttons (the others in TITLE are notices).
+  var END_KINDS = { dead: true, cashed: true };
   // socket.io's reason when the server called socket.disconnect() (socket.io-client: 'io server disconnect').
   var SERVER_DROP = 'io server disconnect';
   var NO_RANK = 999999999;                       // their best_rank before any leaderboard (slApply.js:146)
@@ -130,11 +145,18 @@
     }
   }
 
-  // Play again in the card's own words, or as the hook's answer says (left off, a label, a state).
-  function againButton() {
+  // A card that closes a life (a death, a cash-out) that no layer keeps to its own buttons: Lobby, Spectate and
+  // Play again.
+  function endCard() {
+    return lifeCard && END_KINDS[shown] === true && !(extra && extra.spectate === false);
+  }
+
+  // Play again in the card's own words, or as the hook's answer says (left off, a label, a state). On a card that closes
+  // a life it is always there: left off, it shows unpressable.
+  function againButton(end) {
     var a = extra ? extra.again : undefined;
-    if (a === false && !starting) return null;
     if (starting) return { id: 'again', text: BTN.starting, primary: true, disabled: true, onClick: playAgain };
+    if (a === false) return end ? { id: 'again', text: BTN.again, primary: true, disabled: true, onClick: playAgain } : null;
     var o = a && typeof a === 'object' ? a : null;
     var label = typeof a === 'string' ? a : o && typeof o.text === 'string' ? o.text : '';
     return { id: 'again', text: label || (lifeCard ? BTN.again : BTN.retry), primary: true,
@@ -170,10 +192,14 @@
       var t = lineText(list[i]);
       if (t) lines.push(t);
     }
-    var buttons = [];
-    var a = againButton();
+    // in the order dsEnd lays them out: Lobby on the left, Spectate, the next step on the right
+    var end = endCard();
+    var buttons = [{ id: 'lobby', text: BTN.lobby, onClick: toLobby }];
+    if (end) buttons.push({ id: 'spectate', text: BTN.spectate, disabled: starting || buying(), onClick: spectate });
+    // a hook may leave Play again off altogether (the battle royale's death while its match runs: Owen 2026-10-16,
+    // "they can't play again until the next game"), so that card is Lobby and Spectate
+    var a = x.noAgain === true && end ? null : againButton(end);
     if (a) buttons.push(a);
-    buttons.push({ id: 'lobby', text: BTN.lobby, onClick: toLobby });
     view = {
       tone: x.tone === 'win' || x.tone === 'loss' ? x.tone : 'plain',
       verdict: verdict,
@@ -244,20 +270,60 @@
     start();
   }
 
-  function toLobby() {
-    if (typeof slx.beforeLobby === 'function') {
-      var kept = false;
-      try {
-        kept = slx.beforeLobby() === true;
-      } catch (e) {
-        slx.errors++;
-      }
-      if (kept) return;
+  // The layer's exit trap (slxPaid: money still in the room, a buy-in not yet confirmed): true keeps the page here.
+  function kept() {
+    if (typeof slx.beforeLobby !== 'function') return false;
+    try {
+      return slx.beforeLobby() === true;
+    } catch (e) {
+      slx.errors++;
+      return false;
     }
+  }
+
+  function toLobby() {
+    if (kept()) return;
     if (typeof slx.toLobby === 'function' && slx.toLobby()) return;
     try {
       root.location.assign('/');
     } catch (e) { /* no location: nothing to do */ }
+  }
+
+  // The paid rung this page plays (slxPaid rung()), else 0 (the free room).
+  function paidRung() {
+    var p = slx.paid;
+    if (!p || p.on !== true || typeof p.rung !== 'function') return 0;
+    var n = Number(p.rung());
+    return isFinite(n) && n > 0 ? n : 0;
+  }
+
+  // Spectate: only where Lobby may go, never while a Play is starting. A layer that can watches in place (slxBr), else
+  // the page reopens watching as the lobby's Spectate opens it (slxWatch watchOpen: the same keys, the same page).
+  // A paid Play again buy-in still with the wallet, slow or not: Spectate stays shut (a stake that lands late needs
+  // this page in the frame; Lobby reopens once the wallet is slow because it clears the frame).
+  function buying() {
+    try { return !!(slx.paid && slx.paid.on && slx.paid.state().restaking === true); } catch (e) { return false; }
+  }
+  function spectate() {
+    if (!shown || starting || !endCard()) return;
+    if (kept()) return;
+    if (buying()) return;
+    if (typeof slx.beforeWatch === 'function') {
+      var took = false;
+      try {
+        took = slx.beforeWatch(start) === true;
+      } catch (e) {
+        slx.errors++;
+        return;
+      }
+      if (took) return;
+    }
+    if (typeof slx.watchOpen !== 'function') return;
+    try {
+      slx.watchOpen(paidRung());
+    } catch (e) {
+      slx.errors++;
+    }
   }
 
   // ---- what the tap reports
@@ -343,6 +409,7 @@
     state: function () {
       var v = shown && view ? view : null;
       var again = v ? v.buttons.filter(function (b) { return b.id === 'again'; })[0] : null;
+      var watch = v ? v.buttons.filter(function (b) { return b.id === 'spectate'; })[0] : null;
       return {
         kind: shown,
         title: v ? v.verdict : '',
@@ -357,12 +424,16 @@
         again: again ? again.text : '',
         againShown: !!again,
         againDisabled: !!(again && again.disabled),
+        spectateShown: !!watch,
+        spectateDisabled: !!(watch && watch.disabled),
+        buttons: v ? v.buttons.map(function (b) { return b.text; }) : [],
         lines: v ? v.notes.slice() : [],
         opacity: String(opacity)
       };
     },
     playAgain: playAgain,
     toLobby: toLobby,
+    spectate: spectate,
     hide: hide,
     refresh: refresh,
     notice: function (kind) { show(String(kind || ''), null, 1, false); }

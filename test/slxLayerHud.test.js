@@ -99,7 +99,8 @@ test('slxCard: death card (the shared card) at their menu show, N from their las
   assert.strictEqual(card.element.style.zIndex, '30', 'above their login layer (z-index 20)');
   assert.strictEqual(card.element.style.zoom, '', 'a computer page: no zoom');
   assert.match(card.element.className, /^dse t-plain k-free slx-card$/, 'a layer control to slxWatch, slxBr and slxTouch');
-  assert.strictEqual(card.element.textContent, 'You diedFreeLength1,234Time1:05Top rank3rdKills0LobbyPlay again');   // a free game says Free; its score is the first tray row (Owen 2026-10-16)
+  assert.strictEqual(card.element.textContent, 'You diedFreeLength1,234Time1:05Top rank3rdKills0LobbySpectatePlay again');   // a free game says Free; its score is the first tray row (Owen 2026-10-16)
+  assert.deepStrictEqual(plain(st.buttons), ['Lobby', 'Spectate', 'Play again'], 'every death: Lobby, Spectate, Play again');
   assert.strictEqual(bigText(P), 'Free');
   P.slx.fire('menuFade', 0.25);
   assert.strictEqual(card.state().opacity, '0.75', 'opacity 1 - login_fr, as their login layer');
@@ -183,6 +184,7 @@ test('slxCard: close path, Too slow, cash-out, and no length without an own snak
     assert.strictEqual(bigText(P), 'Free', c.name + ': a free game says Free');
     assert.deepStrictEqual(plain(st.facts), ['Top rank 2nd'], c.name + ': the rank as the socket closed');
     assert.strictEqual(st.again, 'Play again', c.name);
+    assert.deepStrictEqual(plain(st.buttons), ['Lobby', 'Play again'], c.name + ': a connection lost keeps its own buttons');
   }
   // cash-out: sl:x cashed arrives before the own dead (server/sl/slRoom.js _cashOut)
   const C = page('slxCard.js');
@@ -193,6 +195,7 @@ test('slxCard: close path, Too slow, cash-out, and no length without an own snak
   C.slx.fire('menuShow');
   assert.strictEqual(C.slx.card.state().title, 'Cashed out');
   assert.strictEqual(C.slx.card.state().length, '812');
+  assert.deepStrictEqual(plain(C.slx.card.state().buttons), ['Lobby', 'Spectate', 'Play again'], 'every cash-out too');
   assert.strictEqual(bigText(C), 'Free', 'a free cash-out: Free as the big figure, the length in the tray, no money');
   assert.strictEqual(C.find('dse-led').length, 0);
   // a close while playing with no own snake: their gameOver cannot write a length, so the card shows none
@@ -309,6 +312,99 @@ test('slxCard: Play again under the last Play name, once; Lobby to the lobby fra
   Q.D.slMain = { nick: 'Ann' };
   Q.dispatch(Q.button('again'), 'click', {});
   assert.deepStrictEqual(Q.plays, ['Ann']);
+});
+
+// Owen 2026-10-16: "a Lobby, Spectate and Play again button exactly the same on every single cash-out and death screen".
+test('slxCard: Lobby, Spectate, Play again on a free death and cash-out; Spectate reopens /sl watching as the lobby does', () => {
+  const ss = {};
+  const store = { getItem: (k) => (k in ss ? ss[k] : null), setItem: (k, v) => { ss[k] = String(v); }, removeItem: (k) => { delete ss[k]; } };
+  // a free page as slBoot composes it: slxWatch (not a Spectate page: no mark), then the card
+  const free = () => {
+    for (const k of Object.keys(ss)) delete ss[k];
+    Object.assign(ss, { playerName: 'Owen', dsWatchStake: '1' });   // a stale rung mark: taken out at boot
+    const P = page(['slxWatch.js', 'slxCard.js'], { win: { sessionStorage: store } });
+    P.D.slMain = { nick: 'Owen' };
+    return P;
+  };
+  for (const kind of ['dead', 'cashed']) {
+    const P = free();
+    assert.strictEqual(P.slx.watch, undefined, kind + ': a plain free page, not a watcher');
+    assert.strictEqual(typeof P.slx.watchOpen, 'function');
+    P.slx.fire('open');
+    P.slx.fire('ownAdd', { id: 1 });
+    if (kind === 'cashed') P.slx.fire('x:cashed', { t: 'cashed', len: 40 });
+    P.slx.fire('ownDead', { type: 'dead', code: 0 });
+    P.S.lastscore.innerHTML = LASTSCORE(40);
+    P.slx.fire('menuShow');
+    const st = P.slx.card.state();
+    assert.strictEqual(st.kind, kind);
+    assert.deepStrictEqual(plain(st.buttons), ['Lobby', 'Spectate', 'Play again'], kind);
+    // on screen in that order, one row: Lobby left, Spectate, Play again (the primary) right
+    const row = P.find('dse-btn').map((b) => [b.textContent, b.getAttribute('data-dse-btn'), /\bpri\b/.test(b.className), b.disabled]);
+    assert.deepStrictEqual(row, [['Lobby', 'lobby', false, false], ['Spectate', 'spectate', false, false],
+      ['Play again', 'again', true, false]], kind + ': on screen');
+    assert.deepStrictEqual([st.spectateShown, st.spectateDisabled], [true, false]);
+    P.dispatch(P.button('spectate'), 'click', {});
+    // the lobby's Spectate on the Free rung (public/js/v2/play.js spectate): the mark, no rung, nothing else written
+    assert.deepStrictEqual(Object.keys(ss).sort(), ['dsWatch', 'playerName'], kind + ': no money key, no stake, no token');
+    assert.strictEqual(ss.dsWatch, 'snake');
+    assert.deepStrictEqual(P.win.location.replaced, ['/sl'], kind + ': the same page, reopened as a watcher');
+    assert.deepStrictEqual([P.plays, P.lobbyPosts, P.win.location.assigned], [[], [], []], kind + ': no Play, no Lobby');
+  }
+  // while Play again is starting, Spectate is shown but does nothing
+  const S2 = free();
+  S2.slx.fire('open');
+  S2.slx.fire('ownDead', {});
+  S2.slx.fire('menuShow');
+  S2.dispatch(S2.button('again'), 'click', {});
+  let st = S2.slx.card.state();
+  assert.deepStrictEqual([plain(st.buttons), st.spectateDisabled, st.againDisabled], [['Lobby', 'Spectate', 'Starting'], true, true]);
+  S2.slx.card.spectate();
+  S2.dispatch(S2.button('spectate'), 'click', {});
+  assert.deepStrictEqual([S2.win.location.replaced, ss.dsWatch], [[], undefined], 'nothing while a Play starts');
+  // a layer that keeps the page here (the exit trap) refuses Spectate as it refuses Lobby
+  const K = free();
+  let asked = 0;
+  K.slx.beforeLobby = () => { asked++; return true; };
+  K.slx.fire('open');
+  K.slx.fire('ownDead', {});
+  K.slx.fire('menuShow');
+  K.dispatch(K.button('spectate'), 'click', {});
+  K.dispatch(K.button('lobby'), 'click', {});
+  assert.deepStrictEqual([asked, K.win.location.replaced, K.lobbyPosts, ss.dsWatch], [2, [], [], undefined]);
+  // a layer that watches in place takes it (slxBr): go() is the card's own start
+  const B = free();
+  let took = 0;
+  B.slx.beforeWatch = (go) => { took++; go(); return true; };
+  B.slx.fire('open');
+  B.slx.fire('ownDead', {});
+  B.slx.fire('menuShow');
+  B.dispatch(B.button('spectate'), 'click', {});
+  assert.deepStrictEqual([took, B.plays, B.win.location.replaced], [1, ['Owen'], []]);
+  st = B.slx.card.state();
+  assert.deepStrictEqual([plain(st.buttons), st.spectateDisabled], [['Lobby', 'Spectate', 'Starting'], true]);
+  // a notice keeps its own: a refusal, a connection lost, a layer's spectate: false
+  const N = free();
+  N.slx.fire('close', { playing: false, opened: true, sawDead: false, refused: 'full' });
+  assert.deepStrictEqual(plain(N.slx.card.state().buttons), ['Lobby', 'Try again']);
+  N.slx.card.spectate();
+  assert.deepStrictEqual(N.win.location.replaced, []);
+  const W = free();
+  W.slx.cardLines = () => ({ title: 'Watching', again: 'Watch next', spectate: false });
+  W.slx.fire('open');
+  W.slx.fire('ownDead', {});
+  W.slx.fire('menuShow');
+  assert.deepStrictEqual(plain(W.slx.card.state().buttons), ['Lobby', 'Watch next']);
+  // a layer that leaves Play again off on a death: it is still there, unpressable
+  const O = free();
+  O.slx.cardLines = () => ({ again: false });
+  O.slx.fire('open');
+  O.slx.fire('ownDead', {});
+  O.slx.fire('menuShow');
+  st = O.slx.card.state();
+  assert.deepStrictEqual([plain(st.buttons), st.againDisabled], [['Lobby', 'Spectate', 'Play again'], true]);
+  O.dispatch(O.button('again'), 'click', {});
+  assert.deepStrictEqual(O.plays, []);
 });
 
 // Owen 2026-10-16 ("this was a bad idea"): the biggest cash-out box is gone from the page and from the server's pushes.
@@ -793,7 +889,9 @@ test('slxBr cards on the shared card: a win (1st of N, the podium, the prize as 
   assert.deepStrictEqual(plain(st.podium), ['1 Owen', '2 Viper', '3 Kes']);
   assert.deepStrictEqual([plain(st.ledger), st.status], [['Prize $20'], 'Sending to your wallet']);
   assert.deepStrictEqual(plain(st.facts), ['Time 1:35', 'Length 500', 'Kills 0'], 'the length moves into the facts');
-  assert.deepStrictEqual([st.again, st.againDisabled, plain(st.lines)], ['Next match opening', true, []]);
+  // Lobby, Spectate and the next match (Owen 2026-10-16): no match open to join yet, so it says so, unpressable
+  assert.deepStrictEqual([plain(st.buttons), st.againDisabled, st.spectateDisabled, plain(st.lines)],
+    [['Lobby', 'Spectate', 'Next match opening'], true, false, []]);
   assert.deepStrictEqual(W.find('dse-pod')[0].children.map((li) => [li.className, li.textContent]),
     [['me', '1Owen'], ['', '2Viper'], ['', '3Kes']], 'the own row marked on the podium');
   assert.deepStrictEqual(W.find('dse-lr').map((r) => [r.className, r.textContent]), [['dse-lr', 'Prize$20']]);
@@ -822,6 +920,7 @@ test('slxBr cards on the shared card: a win (1st of N, the podium, the prize as 
     winner: { id: 7, name: 'Viper' }, podium: [{ name: 'Viper' }, { name: 'Owen' }, { name: 'Kes' }] });
   st = L.slx.card.state();
   assert.deepStrictEqual([st.title, st.again, !!st.againDisabled], ['Match over', 'Join next', false]);
+  assert.deepStrictEqual(plain(st.buttons), ['Lobby', 'Spectate', 'Join next'], 'Lobby left, Spectate, the next match right');
   assert.deepStrictEqual(plain(st.podium), ['1 Viper', '2 Owen', '3 Kes']);
   // the next match counts down: the result is gone
   L.slx.fire('x:br', { t: 'br', state: 'countdown', phase: 'countdown', alive: 30, prize: 20, z: null, countdownMs: 9000,
@@ -832,10 +931,74 @@ test('slxBr cards on the shared card: a win (1st of N, the podium, the prize as 
   const R = await brLife({ proven: true, me: 8, podium: ['x'],
     br: { state: 'running', phase: 'closing', alive: 5, winner: null, podium: null } });
   st = R.slx.card.state();
-  assert.deepStrictEqual([st.title, st.again, !!st.againDisabled], ['You are out', 'Spectate', false]);
+  assert.deepStrictEqual([st.title, plain(st.buttons)], ['You are out', ['Lobby', 'Spectate']]);
   const btns = R.find('dse-btn').map((b) => b.textContent);
   assert.ok(btns.length === 2 && btns.some((t) => /Lobby/.test(t)) && btns.some((t) => /Spectate/.test(t)), btns.join('|'));
   assert.ok(!btns.some((t) => /Play again/.test(t)), 'no Play again anywhere on the card');
+});
+
+test('slxBr: out of a running match, Lobby and Spectate only; Play again once the next is open', async () => {
+  const ORIGIN = 'https://duelseries.com';
+  async function brOut(br) {
+    const store = { slBr: 'play' };
+    const posted = [];
+    const parent = { postMessage: (m, origin) => posted.push([m, origin]) };
+    const P = makePage({ win: { setInterval: () => 0, parent,
+      location: { origin: ORIGIN, assigned: [], replaced: [], assign(u) { this.assigned.push(String(u)); }, replace(u) { this.replaced.push(String(u)); } },
+      sessionStorage: { getItem: (k) => store[k] || null, setItem: (k, v) => { store[k] = String(v); }, removeItem: (k) => { delete store[k]; } } } });
+    P.slx.hud = { phone: () => false, topSlot: () => 8 };
+    P.doc.querySelector = () => null;
+    P.D.slMain = { nick: 'Owen' };
+    P.load('dsEnd.js');
+    P.load('slxBr.js');
+    P.load('slxWatch.js');                        // as composed: its watchOpen is there, the event's own watch wins
+    P.load('slxCard.js');
+    P.slx.brLaunch('Owen');
+    const ask = posted[0][0];
+    for (const l of P.win.listeners.filter((x) => x.type === 'message')) {
+      l.fn({ source: parent, origin: ORIGIN, data: { type: 'duel:signaction:done', id: ask.id, proof: { sig: 'x' } } });
+    }
+    await new Promise((r) => setImmediate(r));
+    P.slx.fire('open');
+    P.slx.fire('ownAdd', { id: 8 });
+    P.slx.fire('x:br', Object.assign({ t: 'br', state: 'running', phase: 'closing', alive: 5, startedCount: 12, prize: 20,
+      z: null }, br || {}));
+    P.slx.fire('ownDead', { type: 'dead', code: 0 });
+    P.S.lastscore.innerHTML = LASTSCORE(300);
+    P.slx.fire('menuShow');
+    return Object.assign(P, { store, posted });
+  }
+  // a death mid-match: no match to join, so no Play again at all (Owen 2026-10-16: "they can't play again until the
+  // next game"); Spectate watches this match here
+  const R = await brOut();
+  let st = R.slx.card.state();
+  assert.deepStrictEqual([st.title, plain(st.buttons), st.spectateDisabled], ['You are out', ['Lobby', 'Spectate'], false]);
+  assert.deepStrictEqual(plain(st.lines), ['5 still alive. Spectate to the end, or wait for the next match.']);
+  assert.strictEqual(R.button('again'), null, 'no Play again while the match runs');
+  R.dispatch(R.button('spectate'), 'click', {});
+  assert.deepStrictEqual(R.plays, ['Owen', 'Owen'], 'the next life starts at once, on this page');
+  assert.strictEqual(R.slx.br.mode(), 'watch');
+  assert.deepStrictEqual(plain(R.slx.brAuth()), { br: 1, watch: 1 }, 'a watcher: no proof, no seat');
+  assert.deepStrictEqual([R.win.location.replaced, R.store.dsWatch, R.posted.length], [[], undefined, 1],
+    'not reopened, no free-room mark, no second signature asked');
+  // the watcher's own card between watched lives keeps Spectate next
+  R.slx.fire('open');
+  R.slx.fire('x:watch', { t: 'watch', id: 3, name: 'Kes' });
+  R.slx.fire('ownDead', { type: 'dead', code: 0 });
+  R.slx.fire('menuShow');
+  st = R.slx.card.state();
+  assert.deepStrictEqual([st.title, plain(st.buttons)], ['Watching', ['Lobby', 'Spectate next']]);
+  // between matches: Play again joins the next one with a fresh proof
+  const B = await brOut({ state: 'waiting', phase: 'waiting', alive: 3, nextStartMs: 600000 });
+  st = B.slx.card.state();
+  assert.deepStrictEqual([plain(st.buttons), st.againDisabled], [['Lobby', 'Spectate', 'Play again'], false]);
+  B.dispatch(B.button('again'), 'click', {});
+  assert.strictEqual(B.posted.length, 2, 'Play again asks the wallet for a fresh proof first');
+  assert.strictEqual(B.slx.br.mode(), 'play');
+  // a refusal's card keeps its own button
+  const M = await brOut();
+  M.slx.fire('close', { playing: false, opened: true, sawDead: false, refused: 'match' });
+  assert.deepStrictEqual(plain(M.slx.card.state().buttons), ['Lobby', 'Spectate']);
 });
 
 // The server's sl:diag fields (server/sl/slSockets.js DIAG_NUMBERS) and its cleaner.

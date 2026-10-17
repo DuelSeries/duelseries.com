@@ -57,6 +57,10 @@
   // I don't need any of them"), so nothing on any page changes them and nothing is stored or read back. Only the
   // parity harness page still passes its own (cfg.settings, and session.setSettings for its quality checks).
   var SETTING_FLAGS = ['names', 'colors', 'showMass', 'dark'];
+  // The paid card's Spectate (watchPaidRung): the lobby's own watch of a paid agar.io rung (public/js/v2/play.js
+  // spectate): its money keys and the snake watch mark taken out (MONEY_KEYS and WATCH_KEY there), then this page.
+  var WATCH_PAGE = '/ag';
+  var WATCH_CLEAR_KEYS = ['entryToken', 'entrySol', 'stake', 'slPaidLaunch', 'slxPaidCut', 'slBr', 'spectateOnly', 'dsWatch'];
   // Hold-Q cash-out (ours, Owen 2026-10-08, every room). While Q or the phone Cash out button is held and the
   // player is alive, the page sends ag:hold {on: 1} at once and again every HOLD_REPEAT_MS (the server drops a hold
   // whose last message is older than 500 ms), and {on: 0} when it is let go. Movement locks here at once too: no
@@ -121,7 +125,7 @@
     // Inside the DuelSeries lobby's agar frame (ours, Owen 2026-10-09 midday; the shipped page only: cfg.lobby, which
     // public/ag.html sets when its frame element is the lobby's #agar-frame). The lobby's agar.io screen holds the
     // name, the buy-in and Spectate, so this page has no menu card: agLobby starts play (or spectate) at
-    // once, Esc does nothing in the free room, the end card offers Play again, Spectate and Lobby, a dropped
+    // once, Esc does nothing in the free room, the end card offers Lobby, Spectate and Play again, a dropped
     // socket rejoins as it was.
     // A paid hand-off keeps its own flow and card exactly. Off at parity and on a direct visit to /ag.
     var lobbyMode = cfg.lobby === true;
@@ -222,7 +226,8 @@
     var DSE = cfg.dsEnd || win.DSEnd || null;
     var END_Z = 1000;          // over the menu (20), the Lobby chip (30), the paid hint (40)
     var BOARD_Z = 35;          // over the menu and the Lobby chip, under the paid hint chip (a 3 s notice)
-    var end = agScreens.createEnd({ DSEnd: DSE, root: cfg.screensRoot || doc.body, z: END_Z, win: win, onLobby: function () { backToLobby(); } });
+    var end = agScreens.createEnd({ DSEnd: DSE, root: cfg.screensRoot || doc.body, z: END_Z, win: win,
+      onLobby: function () { backToLobby(); }, onSpectate: function () { watchPaidRung(); } });
     var board = agScreens.createBoard({ DSEnd: DSE, root: cfg.screensRoot || doc.body, z: BOARD_Z, short: shortScreen });
     // A phone held sideways: the board keeps to 5 rows so it stays clear of the phone pad in the bottom-right corner.
     function shortScreen() { return (win.innerHeight || 0) > 0 && win.innerHeight < 560; }
@@ -625,6 +630,38 @@
       end.hide();
       openMenu();
     }
+    // The paid card's Spectate (a paid death or cash-out). The server never lets a paid socket watch (agArenas
+    // spectate: "a paid seat never spectates"), so there is no switch inside this page: it does what the lobby's
+    // Spectate does on this rung (public/js/v2/play.js spectate): every money key out, the lobby's watch flag and the
+    // rung under its own key (never 'stake', never a token), and /ag again in this frame, which boots as the rung's
+    // read-only watcher (auth.watchStake below; agLobby, or watchFromBoot on a page of its own, starts the watch).
+    // Never while the way out is shut (the paid flow's lock; the card shuts Spectate with its Lobby then too).
+    function watchPaidRung() {
+      if (paidLocked) return false;
+      if (flow) {
+        // only from a seat that ended, with no join out and no hand-off token unspent (pagehide would put it back)
+        var fst = flow.state();
+        if (fst.phase !== 'end' || fst.unspent || fst.pendingToken || fst.pendingKey || fst.restaking) return false;
+      }
+      var stake = flow ? Number(flow.stake()) : Number(paid.stake);
+      if (!isFinite(stake) || !(stake > 0)) return false;
+      var store = null;
+      try { store = handoff ? handoff.store : (win.sessionStorage || null); } catch (e) { store = null; }
+      if (!store) return false;
+      try {
+        for (var i = 0; i < WATCH_CLEAR_KEYS.length; i++) store.removeItem(WATCH_CLEAR_KEYS[i]);
+        store.setItem('dsWatchStake', String(stake));
+        store.setItem('spectateOnly', 'true');
+      } catch (e) { return false; }
+      var loc = win.location;
+      if (!loc) return false;
+      // replace: the browser's Back never brings the ended paid page back from its cache
+      try {
+        if (typeof loc.replace === 'function') loc.replace(WATCH_PAGE);
+        else loc.href = WATCH_PAGE;
+      } catch (e) { return false; }
+      return true;
+    }
 
     // ---- chat (ours, Owen 2026-10-16: public/js/shared/dsChat.js, T to type; the server's ag:chat and ag:chatnote) ----
     // The box shows while a game or a spectate view does, never on a menu or the end card, and only a live cell may send.
@@ -708,14 +745,12 @@
     // The free end card goes with whatever replaces it (Play again, Spectate, the menu); a paid card stays until the
     // paid flow moves on.
     function hideFreeEnd() { if (end.kind === 'free') end.hide(); }
-    // The free end card (a death or a free cash-out): the best mass of the life, its time and best rank. Play again
-    // respawns under the same name at once; Spectate watches the room; Lobby goes back (the lobby frame), or Menu
-    // opens the name entry (a direct visit: the old Continue).
+    // The free end card (a death or a free cash-out): the best mass of the life, its time and best rank, with the
+    // three buttons every game's end card has (Owen 2026-10-16), in their order: Lobby goes back (the lobby frame), or
+    // Menu in its place opens the name entry (a direct visit has no lobby: the old Continue); Spectate watches the room;
+    // Play again respawns under the same name at once.
     function showFreeEnd(snap, cashed, by) {
-      var buttons = [
-        { id: 'again', text: agScreens.END_TEXT.again, primary: true, onClick: function () { if (menuState === 'GAMEOVER') play(nick); } },
-        { id: 'watch', text: agScreens.END_TEXT.spectate, onClick: function () { if (menuState === 'GAMEOVER') spectate(); } }
-      ];
+      var buttons = [];
       if (lobbyMode) {
         buttons.push({ id: 'lobby', text: agScreens.END_TEXT.lobby, onClick: function () { backToLobby(); } });
       } else if (screens) {
@@ -725,6 +760,10 @@
           setMenuState('HOME');
         } });
       }
+      buttons.push(
+        { id: 'watch', text: agScreens.END_TEXT.spectate, onClick: function () { if (menuState === 'GAMEOVER') spectate(); } },
+        { id: 'again', text: agScreens.END_TEXT.again, primary: true, onClick: function () { if (menuState === 'GAMEOVER') play(nick); } }
+      );
       end.showFree({ life: snap, cashed: cashed, by: by, buttons: buttons });
     }
     // The lobby's Spectate on a paid rung with nobody at it (Owen 2026-10-16: "it'll just default to spectating the
@@ -1000,7 +1039,7 @@
     if (handoff) {
       paid.on = true;
       paid.stake = handoff.stake;
-      if (screens) screens.hide();   // no menu and no Spectate in a paid hand-off (design 6)
+      if (screens) screens.hide();   // no menu (design 6); a death or a cash-out offers Spectate on the card (watchPaidRung)
       var parentWin = null;
       try { parentWin = win.parent || null; } catch (e) { parentWin = null; }
       flow = A.agPaid.createFlow({
@@ -1062,6 +1101,9 @@
       var ws = ss && ss.getItem('spectateOnly') === 'true' ? Number(ss.getItem('dsWatchStake')) : 0;
       if (!flow && isFinite(ws) && ws > 0) auth.watchStake = watchAsk = ws;
     } catch (e) { /* storage blocked: the free room */ }
+    // A page of its own (no lobby frame, so no agLobby start) reopened by the paid card's Spectate (watchPaidRung)
+    // watches at once instead of waiting on its menu. The lobby frame's page is started by agLobby.
+    var watchFromBoot = !!auth.watchStake && !lobbyMode && !!screens && cfg.net !== false;
     if (cfg.net !== false && A.agNet && typeof win.io === 'function' && !(flow && flow.offline())) {
       var connectNow = function () {
         if (net || destroyed) return;
@@ -1100,6 +1142,7 @@
         connectNow();
       }
     }
+    if (watchFromBoot) spectate();
 
     // ---- session ----------------------------------------------------------------------------
     session.feed = applyMessage;

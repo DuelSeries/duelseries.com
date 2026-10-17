@@ -100,11 +100,12 @@ function storage(init) {
   return {
     getItem: (k) => (m.has(k) ? m.get(k) : null),
     setItem: (k, v) => m.set(k, String(v)),
-    removeItem: (k) => m.delete(k)
+    removeItem: (k) => m.delete(k),
+    entries: () => Object.fromEntries(m) // what is stored now, to seed the next page with
   };
 }
 
-function page({ stake = 0, entryToken = null, framed = true, watch = null, local = null } = {}) {
+function page({ stake = 0, entryToken = null, framed = true, watch = null, local = null, seed = null } = {}) {
   const clock = clockDouble();
   const sock = ioSocket();
   const byId = new Map();
@@ -217,11 +218,13 @@ function page({ stake = 0, entryToken = null, framed = true, watch = null, local
   if (stake > 0) session.stake = String(stake);
   if (entryToken) session.entryToken = entryToken;
   if (watch !== null) session.dsWatch = watch;
+  if (seed) Object.assign(session, seed); // a page opened on what an earlier one left in sessionStorage
   const win = {
     document: doc,
     DuelPaperLib: P,
     io: () => sock,
-    location: { search: '', href: '' },
+    // replace(): where the page sent itself without a history entry (the end cards' Spectate)
+    location: { search: '', href: '', replaced: null, replace(u) { this.replaced = String(u); } },
     performance: { now: clock.time },
     innerWidth: 1366,
     sessionStorage: storage(session),
@@ -360,10 +363,14 @@ test('Lobby is shut while a paid restake is with the wallet', () => {
   assert.ok(typeof ask.nonce === 'string' && ask.nonce.length >= 8, 'the request carries its own id');
   assert.strictEqual(t.lobbyButtons().length, 1);
   for (const b of t.lobbyButtons()) assert.strictEqual(b.disabled, true);
+  assert.strictEqual(t.btn('spectate').disabled, true, 'Spectate is shut with Lobby');
   // Even a click that reaches the listener (a stale event) neither leaves nor closes the frame.
   t.btn('lobby').dispatch('click');
+  t.btn('spectate').dispatch('click');
   assert.strictEqual(t.parent.messages.indexOf('game:done'), -1);
   assert.strictEqual(t.wire('pp:leave').length, 0);
+  assert.strictEqual(t.win.location.replaced, null, 'no Spectate while the buy-in is with the wallet');
+  assert.strictEqual(t.win.sessionStorage.getItem('dsWatch'), null);
 
   // An answer to some other request (another nonce) is not taken.
   t.fromLobby({ type: 'duel:restake:done', entryToken: 'tok-other', nonce: 'not-mine' });
@@ -382,6 +389,7 @@ test('a restake error opens the way back and says why', () => {
   t.btn('again').click();
   t.fromLobby({ type: 'duel:restake:error', message: 'Stake failed' });
   for (const b of t.lobbyButtons()) assert.strictEqual(b.disabled, false);
+  assert.strictEqual(t.btn('spectate').disabled, false, 'Spectate opens with Lobby');
   assert.strictEqual(t.btn('again').disabled, false);
   assert.strictEqual(t.text(t.btn('again')), 'Play again');
   assert.deepStrictEqual(t.card().notes, ['Stake failed']);
@@ -394,8 +402,14 @@ test('a wallet that never answers opens the way back after the safety window, an
   t.btn('again').click();
   t.clock.advance(RESTAKE_WAIT_MS - 1);
   for (const b of t.lobbyButtons()) assert.strictEqual(b.disabled, true);
+  assert.strictEqual(t.btn('spectate').disabled, true);
   t.clock.advance(1);
   for (const b of t.lobbyButtons()) assert.strictEqual(b.disabled, false);
+  // Lobby clears the frame, so a stake that lands late opens its round there; this page watching in the frame
+  // would leave it no seat, so Spectate stays shut while the buy-in may still land.
+  assert.strictEqual(t.btn('spectate').disabled, true, 'no Spectate while a buy-in may still land');
+  t.btn('spectate').dispatch('click');
+  assert.strictEqual(t.win.location.replaced, null);
   assert.strictEqual(t.card().notes.length, 1);
   assert.match(t.card().notes[0], /^Your wallet has not answered yet/);
   assert.strictEqual(t.text(t.btn('again')), 'Waiting for your wallet...');
@@ -556,7 +570,7 @@ test('free death: how it happened, the land at death, time and best rank; Play a
   assert.strictEqual(c.unit, null);
   assert.deepStrictEqual(c.facts, [['Land', '18.40%'], ['Time', '1:05'], ['Top rank', '2nd']]);
   assert.deepStrictEqual(c.ledger, []);
-  assert.deepStrictEqual(c.buttons, ['Lobby', 'Play again']);   // Lobby left, the next step right (Owen 2026-10-16)
+  assert.deepStrictEqual(c.buttons, ['Lobby', 'Spectate', 'Play again']);   // the same three in every game (Owen 2026-10-16)
   assert.strictEqual(t.doc.activeElement, t.btn('again'), 'a free Play again is the keyboard default');
   t.btn('again').click();
   assert.strictEqual(t.wire('pp:respawn').length, 1, 'the same socket: a respawn');
@@ -612,7 +626,7 @@ test('paid death: the stake lost as the server says, how, time, rank and best la
   assert.strictEqual(c.hero, '−$0.50');
   assert.strictEqual(c.unit, null);   // money lost stands alone (Owen 2026-10-16)
   assert.deepStrictEqual(c.facts, [['Time', '2:05'], ['Top rank', '4th'], ['Best land', '12.30%']]);
-  assert.deepStrictEqual(c.buttons, ['Lobby', 'Play again']);   // Lobby left, the next step right (Owen 2026-10-16)
+  assert.deepStrictEqual(c.buttons, ['Lobby', 'Spectate', 'Play again']);   // the same three in every game (Owen 2026-10-16)
   assert.strictEqual(t.doc.activeElement, null, 'a paid Play again (a new buy-in) is never the keyboard default');
   t.doc.activeElement = null;
   t.keydown({ key: 'Enter' });
@@ -646,7 +660,7 @@ test('paid cash-out: the receipt from pp:cashedout, then the payout status (sent
   assert.deepStrictEqual(t.card().ledger.length, 3, 'the receipt stays');
 });
 
-test('Lobby on a card: pp:leave then game:done in the lobby frame, or / on its own; an unframed paid card has only Lobby', () => {
+test('Lobby on a card: pp:leave then game:done in the lobby frame, or / on its own; an unframed paid Play again cannot be pressed', () => {
   const t = page();
   t.sock.connect('sock-a');
   t.joined();
@@ -664,10 +678,103 @@ test('Lobby on a card: pp:leave then game:done in the lobby frame, or / on its o
   alone.joined({ stake: 0.5 });
   alone.sock.fire('pp:dead', { reason: 2, lostMicro: 500000 });
   alone.clock.advance(1000);
-  assert.deepStrictEqual(alone.card().buttons, ['Lobby']);
-  assert.strictEqual(alone.btn('again'), null);
+  assert.deepStrictEqual(alone.card().buttons, ['Lobby', 'Spectate', 'Play again']);
+  assert.strictEqual(alone.btn('again').disabled, true, 'no lobby wallet to buy the next round with');
+  alone.btn('again').dispatch('click');
+  assert.strictEqual(alone.api.page.restaking, false);
+  assert.strictEqual(alone.api.page.screen, 'dead');
+  assert.strictEqual(alone.btn('spectate').disabled, false);
   alone.btn('lobby').click();
   assert.strictEqual(alone.win.location.href, '/');
+});
+
+// ---- Lobby, Spectate, Play again on every card that closes a life (Owen 2026-10-16) -------------
+
+// The card's buttons as dsEnd lays them out: [id, text, primary].
+function cardButtons(t) {
+  return t.card() ? t.doc.querySelectorAll('.dse-btn')
+    .map((b) => [b.getAttribute('data-dse-btn'), t.text(b), /(^| )pri( |$)/.test(b.className)]) : null;
+}
+function freeDead() {
+  const t = page();
+  t.sock.connect('sock-a');
+  t.joined();
+  t.sock.fire('pp:dead', { reason: 2 });
+  t.clock.advance(1000);
+  assert.strictEqual(t.api.page.screen, 'dead');
+  return t;
+}
+function freeCashed() {
+  const t = page();
+  t.sock.connect('sock-a');
+  t.joined();
+  t.sock.fire('pp:cashedout', { grossMicro: 0, cutMicro: 0, netMicro: 0 });
+  assert.strictEqual(t.api.page.screen, 'cashed');
+  return t;
+}
+function paidCashed() {
+  const t = page({ stake: 0.5, entryToken: 'tok-1' });
+  t.sock.connect('sock-a');
+  t.joined({ stake: 0.5 });
+  t.sock.fire('pp:cashedout', { grossMicro: 1500000, cutMicro: 150000, netMicro: 1350000 });
+  assert.strictEqual(t.api.page.screen, 'cashed');
+  return t;
+}
+const THREE = [['lobby', 'Lobby', false], ['spectate', 'Spectate', false], ['again', 'Play again', true]];
+
+test('every death and cash-out card, paid and free, has Lobby, Spectate and Play again in that order', () => {
+  for (const [name, t] of [['free death', freeDead()], ['free cash-out', freeCashed()],
+    ['paid death', paidDeadPage()], ['paid cash-out', paidCashed()]]) {
+    assert.deepStrictEqual(cardButtons(t), THREE, name);
+    for (const id of ['lobby', 'spectate', 'again']) assert.strictEqual(t.btn(id).disabled, false, name + ' ' + id);
+  }
+  // The notice cards keep only the way back.
+  const gone = page();
+  gone.sock.connect('sock-a');
+  gone.joined();
+  gone.sock.fire('pp:replaced');
+  assert.deepStrictEqual(cardButtons(gone), [['lobby', 'Lobby', true]]);
+});
+
+test('Spectate on a free card: pp:leave, the lobby\'s watch mark, and the page opens again watching the free table', () => {
+  for (const t of [freeDead(), freeCashed()]) {
+    t.win.sessionStorage.setItem('spectateOnly', 'true'); // any money key a page could read goes, as the lobby does
+    t.btn('spectate').click();
+    assert.strictEqual(t.wire('pp:leave').length, 1, 'the seat is let go, as Lobby lets it go');
+    assert.strictEqual(t.win.sessionStorage.getItem('dsWatch'), 'paper');
+    assert.strictEqual(t.win.sessionStorage.getItem('dsWatchStake'), null, 'the free table');
+    assert.strictEqual(t.win.sessionStorage.getItem('spectateOnly'), null);
+    assert.strictEqual(t.win.location.replaced, '/paper-arena', 'the page the lobby\'s Spectate opens');
+    assert.strictEqual(t.parent.messages.indexOf('game:done'), -1, 'the frame stays: it is watching now');
+    // The page that opens is a watcher: one pp:watch for the free table, no join.
+    const w = page({ seed: t.win.sessionStorage.entries() });
+    w.sock.connect('sock-w');
+    assert.strictEqual(w.api.page.watch, true);
+    assert.deepStrictEqual(w.sock.wire.map((p) => p[0]), ['pp:watch']);
+    assert.deepStrictEqual({ ...w.wire('pp:watch')[0][1] }, { stake: 0 });
+  }
+});
+
+test('Spectate on a paid card watches the same rung read only: dsWatchStake, never stake, no token', () => {
+  for (const t of [paidDeadPage(), paidCashed()]) {
+    const stake = t.api.page.stake;
+    t.win.sessionStorage.setItem('entryToken', 'tok-stale');
+    t.btn('spectate').click();
+    const ss = t.win.sessionStorage;
+    assert.strictEqual(ss.getItem('dsWatch'), 'paper');
+    assert.strictEqual(ss.getItem('dsWatchStake'), String(stake), 'the table to watch, its own key');
+    assert.strictEqual(ss.getItem('stake'), null, 'never a buy-in');
+    assert.strictEqual(ss.getItem('entryToken'), null);
+    assert.strictEqual(t.wire('pp:leave').length, 1);
+    assert.strictEqual(t.parent.messages.length, 0, 'no game:done and no restake');
+    assert.strictEqual(t.win.location.replaced, '/paper-arena');
+    const w = page({ seed: ss.entries() });
+    w.sock.connect('sock-w');
+    assert.deepStrictEqual(w.sock.wire.map((p) => p[0]), ['pp:watch']);
+    assert.deepStrictEqual({ ...w.wire('pp:watch')[0][1] }, { stake });
+    assert.ok(!JSON.stringify(w.sock.wire).includes('tok'), 'no entry token leaves the watcher');
+    assert.strictEqual(w.api.session.stake, 0);
+  }
 });
 
 test('the board: the stock plates never draw, the shared board ranks the live squares by land with yours pinned', () => {

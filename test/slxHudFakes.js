@@ -159,7 +159,7 @@ function makePage(opts) {
     clearTimeout(id) { const at = timers.findIndex((t) => t.id === id); if (at >= 0) timers.splice(at, 1); },
     addEventListener(type, fn, opt) { addL(win, type, fn, opt); },
     removeEventListener(type, fn) { removeL(win, type, fn); },
-    location: { assigned: [], assign(u) { this.assigned.push(String(u)); } },
+    location: { assigned: [], replaced: [], assign(u) { this.assigned.push(String(u)); }, replace(u) { this.replaced.push(String(u)); } },
     console
   };
   win.window = win;

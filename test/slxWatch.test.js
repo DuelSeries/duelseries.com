@@ -246,6 +246,7 @@ test('between lives: the card says Watching with Watch next and no length; the n
   P.slx.fire('menuShow');
   let c = card(P);
   assert.deepStrictEqual([c.kind, c.title, c.again, c.length], ['dead', 'Watching', 'Watch next', '']);
+  assert.deepStrictEqual([Array.from(c.buttons), c.spectateShown], [['Lobby', 'Watch next'], false], 'a watcher card: no Spectate');
   assert.deepStrictEqual(c.lines, ['Big Bot is out. Watching the leader next.']);
   assert.strictEqual(JSON.stringify(P.slx.watchAuth()), '{"watch":1}', 'the leader next');
   P.raf(50, 16);
@@ -324,4 +325,32 @@ test('Lobby stops the next life starting by itself', () => {
   P.slx.fire('close', { playing: false, opened: true, sawDead: false, refused: 'nobody' });
   P.raf(300, 16);
   assert.deepStrictEqual(P.plays, []);
+});
+
+// The results card's Spectate (slxCard, Owen 2026-10-16) on a page that is not watching: the lobby's own Spectate,
+// done from the page (public/js/v2/play.js spectate): the mark, the rung or none, /sl again; nothing else written.
+test('watchOpen: on any page, reopens /sl watching with the lobby keys; never a stake or a token', () => {
+  const P = watchPage({ session: { playerName: 'Owen', region: 'na' } });
+  assert.strictEqual(P.slx.watch, undefined, 'no mark: a plain page');
+  assert.strictEqual(P.slx.watchOpen(0), true);
+  assert.deepStrictEqual(P.ss.keys(), ['dsWatch', 'playerName', 'region']);
+  assert.strictEqual(P.ss.getItem('dsWatch'), 'snake');
+  assert.deepStrictEqual([P.win.location.replaced, P.win.location.assigned], [['/sl'], []], 'in place of this page');
+  for (const [stake, kept] of [[0.5, '0.5'], [1, '1'], [-1, null], [NaN, null], ['x', null]]) {
+    const Q = watchPage({ session: { playerName: 'Owen' } });
+    Q.ss.setItem('dsWatchStake', '9');                 // a stale rung mark
+    Q.slx.watchOpen(stake);
+    assert.strictEqual(Q.ss.getItem('dsWatchStake'), kept, String(stake));
+    assert.deepStrictEqual(Q.ss.keys(), ['dsWatch', 'playerName'].concat(kept ? ['dsWatchStake'] : []).sort(), String(stake) + ': never stake');
+  }
+  // no storage: nothing is opened (the page could only play)
+  const N = watchPage({ session: {} });
+  N.win.sessionStorage = { getItem() { return null; }, setItem() { throw new Error('quota'); }, removeItem() {} };
+  assert.strictEqual(N.slx.watchOpen(0), false);
+  assert.deepStrictEqual(N.win.location.replaced, []);
+  // a location with assign only
+  const A = watchPage({ session: {} });
+  A.win.location = { assigned: [], assign(u) { this.assigned.push(String(u)); } };
+  assert.strictEqual(A.slx.watchOpen(0), true);
+  assert.deepStrictEqual(A.win.location.assigned, ['/sl']);
 });

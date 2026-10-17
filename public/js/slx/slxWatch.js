@@ -17,11 +17,12 @@
 // 3. While a life is on screen: Lobby (top left), 'Watching NAME' and Next (top centre; near the bottom on a phone held
 //    upright, where their leaderboard fills the top). Next ends this life from the page (slx.endLife: their close runs
 //    as for a drop) and the next life asks for the snake after this one.
-// 4. Between lives (slxCard's hooks): the card says Watching, its button is Watch next and it has no length line; the
-//    next life starts by itself AGAIN_MS after their menu shows (the leader after a death, the next one down after
-//    Next). Nobody alive: 'Nobody to watch right now', asked again every RETRY_MS while the page is visible.
+// 4. Between lives (slxCard's hooks): the card says Watching, its button is Watch next (a watcher's own card: no
+//    Spectate, slxCard's spectate: false) and it has no length line; the next life starts by itself AGAIN_MS after
+//    their menu shows (the leader after a death, the next one down after Next). Nobody alive: 'Nobody to watch right now', asked again every RETRY_MS while the page is visible.
 //
-// Adds to DuelSlither.slx: watchAuth(), cardLines(kind), beforeAgain(go), watch { state(), next() }.
+// Adds to DuelSlither.slx: watchOpen(rung) on every page (0 below); on a Spectate page watchAuth(), cardLines(kind),
+// beforeAgain(go), watch { state(), next() }.
 (function (root) {
   'use strict';
   var D = root.DuelSlither;
@@ -47,6 +48,36 @@
   } catch (e) {
     mark = '';
   }
+  // 0. The card's Spectate (slxCard, Owen 2026-10-16: Lobby, Spectate and Play again on every death and cash-out), on
+  //    every page: this page reopens watching as the lobby's Spectate opens it (public/js/v2/play.js spectate): the
+  //    mark, the paid rung's own key or none, and /sl again in the same frame. Read only: it writes nothing else, never
+  //    a seat or any money key. The lobby also clears its hand-off keys first; this page already took those out at
+  //    boot (slxPaid its launch and its reload mark, slxBr its mark), and its own reload mark is written only while
+  //    money is in, when the card's Spectate is refused (slxPaid beforeLobby). rung: the paid rung, else 0 (free).
+  //    -> true once the page is on its way.
+  var PAGE = '/sl'; // play.js WATCH_PAGE.snake
+  slx.watchOpen = function (rung) {
+    var s = Number(rung);
+    try {
+      var ss = root.sessionStorage;
+      if (!ss) return false;
+      ss.setItem(KEY, 'snake');
+      if (isFinite(s) && s > 0) ss.setItem(STAKE_KEY, String(s));
+      else ss.removeItem(STAKE_KEY);
+    } catch (e) {
+      return false; // no storage: the reopened page could only play, so it stays as it is
+    }
+    var loc = root.location;
+    try {
+      // in place of this page in the frame's history: Back never reopens the life that just ended
+      if (loc && typeof loc.replace === 'function') loc.replace(PAGE);
+      else loc.assign(PAGE);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  };
+
   if (mark !== 'snake') return;
   if (slx.paid && slx.paid.on === true) return;
   if (typeof slx.paidHold === 'function' && slx.paidHold() === true) return;
@@ -191,7 +222,7 @@
     if (kind === 'dead' || kind === 'cashed' || kind === 'lost' || kind === 'slow') {
       var line = ended === 'next' ? WORDS.finding
         : ended === 'out' ? (lastName ? lastName + WORDS.out : WORDS.outNobody) : WORDS.dropped;
-      return { title: WORDS.title, lines: [line], again: WORDS.again, length: false };
+      return { title: WORDS.title, lines: [line], again: WORDS.again, length: false, spectate: false };
     }
     return null;
   };

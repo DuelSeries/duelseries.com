@@ -49,7 +49,7 @@ function paidPage(o) {
   o = o || {};
   const store = memStore(o.store || HANDOFF);
   const parent = o.framed === false ? undefined : fakeParent();
-  const p = bootPage({ net: true, pad: !!o.pad, parent, location: { origin: 'http://localhost' },
+  const p = bootPage({ net: true, pad: !!o.pad, parent, location: o.location || { origin: 'http://localhost' },
     cfg: Object.assign({ url: '/ag', handoff: true, tabStorage: store }, o.cfg || {}) });
   p.store = store;
   p.parent = parent;
@@ -453,6 +453,118 @@ test('Play again: duel:restake with a nonce, Back to lobby locked while the wall
   await live(s);
   s.sock.fire('ag:dead', { lostMicro: 100000 });
   assert.strictEqual(card(s).again, '', 'a page opened on its own has no wallet to ask');
+});
+
+// ---- the three buttons on every paid death and cash-out (Owen 2026-10-16) ----------------------------------------
+// Spectate is the lobby's own watch of this rung (public/js/v2/play.js spectate): the money keys out, spectateOnly and
+// dsWatchStake (never 'stake', never a token), and /ag again in this frame, which boots as the rung's watcher.
+function watchLocation() {
+  return { origin: 'http://localhost', went: [], replace(u) { this.went.push(u); } };
+}
+const row = (p) => readCard(p.doc).buttons.map((b) => [b.id, b.text, b.primary, b.disabled]);
+
+test('paid death and cash-out: Lobby, Spectate, Play again; Spectate writes the lobby watch keys for this rung and reopens /ag watching', async () => {
+  const loc = watchLocation();
+  const d = paidPage({ location: loc });
+  await live(d);
+  d.sock.fire('ag:dead', { lostMicro: 150000, by: 'bob' });
+  assert.deepStrictEqual(row(d), [['lobby', 'Lobby', false, false], ['watch', 'Spectate', false, false],
+    ['again', 'Play again $0.10', true, false]], 'a paid death: Lobby, Spectate, Play again at its price');
+  assert.strictEqual(d.store.getItem('stake'), '0.1', 'the hand-off stake is still there before Spectate');
+  clickCard(d.doc, 'watch');
+  assert.deepStrictEqual(loc.went, ['/ag'], 'this frame opens /ag again (replace: no Back into the ended paid page)');
+  assert.strictEqual(d.store.getItem('spectateOnly'), 'true');
+  assert.strictEqual(d.store.getItem('dsWatchStake'), '0.1', 'the rung under its own key');
+  for (const k of ['stake', 'entryToken', 'entrySol', 'dsWatch', P.RESUME_KEY]) assert.strictEqual(d.store.has(k), false, k + ' is out');
+  assert.strictEqual(d.store.getItem('playerName'), 'Owen', 'the lobby name stays');
+  assert.ok(!d.parent.posted.some((m) => m[0] === 'game:done'), 'Spectate is not Lobby');
+  assert.ok(!d.parent.posted.some((m) => m[0] && m[0].type === 'duel:restake'), 'never a buy-in');
+  assert.strictEqual(joins(d).length, 1, 'no join, nothing sent for it');
+
+  // The reopened page in the lobby frame: never a hand-off, a read-only watcher of the rung (agLobby starts the watch).
+  const w = bootPage({ net: true, parent: fakeParent(), location: { origin: 'http://localhost' }, sessionStorage: d.store,
+    cfg: { url: '/ag', handoff: true, lobby: true, tabStorage: d.store } });
+  assert.deepStrictEqual([w.session.state().handoff, w.session.state().paid], [null, false]);
+  assert.deepStrictEqual(w.ioArgs, [['/ag', { auth: { watchStake: 0.1 } }]], 'the server watch path (agArenas.connectWatch)');
+  w.session.destroy();
+  // The same page opened on its own (no lobby frame, so no agLobby): it watches at once instead of showing its menu.
+  const v = bootPage({ net: true, location: { origin: 'http://localhost' }, sessionStorage: d.store,
+    cfg: { url: '/ag', handoff: true, tabStorage: d.store } });
+  assert.deepStrictEqual([v.session.state().handoff, v.session.state().menuState, menuOpen(v)], [null, 'SPECTATE', false]);
+  assert.deepStrictEqual(v.ioArgs, [['/ag', { auth: { watchStake: 0.1 } }]]);
+  v.sock.connected = true;
+  v.sock.fire('connect');
+  v.sock.fire('ag:f', W.encodeBundle([{ t: 'hello' }, BORDER, { t: 'world', eats: [], cells: [], removed: [] }]));
+  await v.frames(2);
+  assert.ok(emits(v, 'ag:spectate').length >= 1, 'it asks to watch once the world is ready');
+  v.session.destroy();
+
+  // A paid cash-out: the same three, the payout pending (Lobby is open then, so Spectate is too).
+  const loc2 = watchLocation();
+  const c = paidPage({ location: loc2 });
+  await live(c);
+  c.sock.fire('ag:cashedout', { grossMicro: 200000, cutMicro: 20000, netMicro: 180000, cashoutId: 'x' });
+  assert.deepStrictEqual(row(c), [['lobby', 'Lobby', false, false], ['watch', 'Spectate', false, false],
+    ['again', 'Play again $0.10', true, false]]);
+  assert.strictEqual(readCard(c.doc).status.state, 'pending');
+  // Play again: the wallet is out, Lobby is shut, so Spectate is shut and does nothing
+  clickCard(c.doc, 'again');
+  assert.deepStrictEqual(row(c), [['lobby', 'Lobby', false, true], ['watch', 'Spectate', false, true],
+    ['again', P.TEXT.againAsk, true, true]]);
+  clickCard(c.doc, 'watch');
+  assert.deepStrictEqual([loc2.went, c.store.getItem('spectateOnly'), c.store.getItem('stake')], [[], null, '0.1'], 'nothing written, nowhere to go');
+  // the wallet's slow answer opens the way back (Lobby); Spectate stays shut until the wallet answers (a late stake
+  // needs this page in the frame)
+  await c.frame(P.RESTAKE_WAIT_MS + 10);
+  assert.deepStrictEqual(row(c).map((b) => [b[0], b[3]]), [['lobby', false], ['watch', true], ['again', true]]);
+  // an error answer: everything open again, Play again back at its price
+  const n = c.parent.posted.find((m) => m[0] && m[0].type === 'duel:restake')[0].nonce;
+  c.win.fire('message', { data: { type: 'duel:restake:error', message: 'Stake cancelled', nonce: n }, source: c.parent, origin: 'http://localhost' });
+  assert.deepStrictEqual(row(c), [['lobby', 'Lobby', false, false], ['watch', 'Spectate', false, false],
+    ['again', 'Play again $0.10', true, false]]);
+  clickCard(c.doc, 'watch');
+  assert.deepStrictEqual([loc2.went, c.store.getItem('dsWatchStake'), c.store.has('stake')], [['/ag'], '0.1', false]);
+
+  // Notices keep Lobby alone: no Spectate on a refund, a takeover, or the reconnect wait.
+  const x = paidPage({ location: watchLocation() });
+  await live(x);
+  x.sock.fire('ag:closed', { why: 'emergency', refundedMicro: 100000 });
+  assert.deepStrictEqual(readCard(x.doc).buttons.map((b) => b.id), ['lobby']);
+  const t = paidPage({ location: watchLocation() });
+  await live(t);
+  drop(t);
+  assert.deepStrictEqual(readCard(t.doc).buttons, [], 'the reconnect wait: no way out while the seat holds money');
+  t.sock.fire('ag:replaced', {});
+  assert.deepStrictEqual(readCard(t.doc).buttons.map((b) => b.id), ['lobby']);
+
+  // A hand-off page opened on its own has no wallet to ask: Lobby and Spectate (to the same watch).
+  const loc3 = watchLocation();
+  const s = paidPage({ framed: false, location: loc3 });
+  await live(s);
+  s.sock.fire('ag:dead', { lostMicro: 100000 });
+  assert.deepStrictEqual(row(s), [['lobby', 'Lobby', true, false], ['watch', 'Spectate', false, false]]);
+  clickCard(s.doc, 'watch');
+  assert.deepStrictEqual([loc3.went, s.store.getItem('spectateOnly'), s.store.getItem('dsWatchStake')], [['/ag'], 'true', '0.1']);
+});
+
+test('paid Spectate only leaves a seat that ended: never with the hand-off token unspent or a join out', async () => {
+  // no connection, so the token never went out: an end state fed in cannot send the page away (pagehide would put the
+  // token back, and the watch page would carry it)
+  const loc = watchLocation();
+  const u = paidPage({ location: loc });
+  u.session.sideEvent('ag:joined', JOINED);
+  u.session.sideEvent('ag:dead', { lostMicro: 100000, by: 'bob' });
+  assert.strictEqual(flow(u).unspent, true);
+  clickCard(u.doc, 'watch');
+  assert.deepStrictEqual([loc.went, u.store.getItem('spectateOnly'), u.store.getItem('stake')], [[], null, '0.1']);
+  // the restake answered: the new join is out, the card is the joining wait, with no Spectate on it
+  const j = paidPage({ location: watchLocation() });
+  await live(j);
+  j.sock.fire('ag:dead', { lostMicro: 100000 });
+  clickCard(j.doc, 'again');
+  const n = j.parent.posted[0][0].nonce;
+  j.win.fire('message', { data: { type: 'duel:restake:done', entryToken: 'tok-0002', nonce: n }, source: j.parent, origin: 'http://localhost' });
+  assert.deepStrictEqual([flow(j).phase, readCard(j.doc).buttons], ['joining', []]);
 });
 
 test('Esc while money may be in the room shows how to leave instead of the menu', async () => {

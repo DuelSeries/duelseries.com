@@ -71,10 +71,11 @@ test('agMain lobby: no card at boot, Esc does nothing, death shows Play again, S
   await p.frames(3);
   assert.strictEqual(p.session.state().menuState, 'GAMEOVER');
   const card = readCard(p.doc);
-  assert.deepStrictEqual([card.verdict, card.hero, card.unit], ['Eaten by bob', '400', 'mass']);
-  assert.deepStrictEqual(card.facts, [['Time', '0:00'], ['Top rank', '2nd']]);
-  assert.deepStrictEqual(card.buttons.map((b) => [b.id, b.text, b.primary]),
-    [['again', 'Play again', true], ['watch', 'Spectate', false], ['lobby', 'Lobby', false]]);
+  assert.deepStrictEqual([card.verdict, card.hero, card.unit], ['Eaten by bob', 'Free', '']);   // a free game says Free (Owen 2026-10-16)
+  assert.deepStrictEqual(card.facts, [['Mass', '400'], ['Time', '0:00'], ['Top rank', '2nd'], ['Cells eaten', '0']]);   // its score is the first tray row
+  assert.deepStrictEqual(card.buttons.map((b) => [b.id, b.text, b.primary, b.disabled]),
+    [['lobby', 'Lobby', false, false], ['watch', 'Spectate', false, false], ['again', 'Play again', true, false]],
+    'every end card: Lobby, Spectate, Play again (Owen 2026-10-16)');
   assert.strictEqual(p.session.state().board.visible, false, 'the board steps aside for the card');
   const before = p.sent.filter((s) => s[0] === 'play').length;
   clickCard(p.doc, 'again');
@@ -110,9 +111,12 @@ test('agMain lobby: a free cash-out ends on the same card ("Cashed out") with th
   p.session.feed({ t: 'world', eats: [], cells: [], removed: [9] });
   await p.frames(3);
   const card = readCard(p.doc);
-  assert.deepStrictEqual([card.tone, card.verdict, card.hero], ['plain', 'Cashed out', '400']);
-  assert.deepStrictEqual(card.buttons.map((b) => b.id), ['again', 'watch', 'lobby']);
+  assert.deepStrictEqual([card.tone, card.verdict, card.hero, card.facts[0]], ['plain', 'Cashed out', 'Free', ['Mass', '400']]);
+  assert.deepStrictEqual(card.buttons.map((b) => [b.id, b.text]), [['lobby', 'Lobby'], ['watch', 'Spectate'], ['again', 'Play again']]);
   assert.strictEqual(p.session.state().paidEnd, '', 'no money on it');
+  clickCard(p.doc, 'watch');
+  assert.deepStrictEqual([p.session.state().menuState, p.sent[p.sent.length - 1][0], readCard(p.doc)], ['SPECTATE', 'spectate', null],
+    'Spectate from a free cash-out watches the room');
   p.session.destroy();
 });
 
@@ -199,7 +203,7 @@ test('agMain everywhere else: the card at boot, Esc opens it, Menu on the end ca
   await liveAgain(p);
   p.session.feed({ t: 'world', eats: [], cells: [], removed: [9, 11] });   // the Esc menu left cell 9 playing
   await p.frames(3);
-  assert.deepStrictEqual(readCard(p.doc).buttons.map((b) => b.id), ['again', 'watch', 'menu']);
+  assert.deepStrictEqual(readCard(p.doc).buttons.map((b) => b.id), ['menu', 'watch', 'again'], 'Menu in place of Lobby (no lobby here)');
   assert.strictEqual(menu.hidden, true);
   // Esc over the card: the name entry replaces it
   p.key('keydown', 27);
@@ -233,7 +237,7 @@ test('agMain lobby with a paid hand-off: its own flow, unchanged (no menu, Esc s
   p.session.sideEvent('ag:dead', { lostMicro: 100000, by: 'bob' });
   const card = readCard(p.doc);
   assert.deepStrictEqual([card.tone, card.verdict, card.hero], ['loss', 'Eaten by bob', '−$0.10'], 'the paid death, not the free card');
-  assert.deepStrictEqual(card.buttons.map((b) => [b.id, b.text]), [['again', 'Play again $0.10'], ['lobby', 'Lobby']]);
+  assert.deepStrictEqual(card.buttons.map((b) => [b.id, b.text]), [['lobby', 'Lobby'], ['watch', 'Spectate'], ['again', 'Play again $0.10']]);
   p.session.destroy();
 });
 
@@ -354,7 +358,7 @@ test('the lobby\'s agar.io screen: no settings anywhere, Spectate beside Play on
 
 test('the lobby\'s Spectate opens /ag in the agar frame with the watch flag the page reads', () => {
   const els = {};
-  const el = (id) => (els[id] = els[id] || { id, style: { display: '' }, src: '', value: '', classList: { add() {}, remove() {} } });
+  const el = (id) => (els[id] = els[id] || { id, style: { display: '' }, src: '', value: '', classList: { add() {}, remove() {}, toggle() {} } });
   const session = memStore();
   const win = { localStorage: memStore(), sessionStorage: session, console,
     document: { getElementById: el, addEventListener() {}, body: { classList: { add() {}, remove() {} } } },
