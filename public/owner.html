@@ -53,6 +53,7 @@ button{font:inherit;color:inherit}
 .auto:disabled{opacity:.5;cursor:default}
 .link{border:0;background:none;padding:0;font-size:inherit;color:var(--tx2);text-decoration:underline;text-underline-offset:3px;cursor:pointer}
 .gold{color:var(--gold)}
+.good{color:var(--ok)}
 .dim{color:var(--tx3)}
 .ok{color:var(--ok)}
 .bad{color:var(--bad)}
@@ -335,6 +336,7 @@ function say(text, bad, kind) {
    once when it comes back. A slow answer never stacks a second request. */
 let refreshing = false;
 let pollT = 0;
+let slowTick = 0;
 async function refresh() {
   if (refreshing || mode !== 'panel') return;
   refreshing = true;
@@ -356,7 +358,8 @@ async function refresh() {
 function startPoll() {
   stopPoll();
   if (document.hidden || mode !== 'panel') return;
-  pollT = setInterval(() => { refresh(); }, 5000);
+  // Every 2 s while maintenance for an update is on, so the paid-room countdown is live.
+  pollT = setInterval(() => { if (!S || updating(S) || ++slowTick % 3 === 0) refresh(); }, 2000);
 }
 function stopPoll() { clearInterval(pollT); pollT = 0; }
 document.addEventListener('visibilitychange', () => {
@@ -634,14 +637,51 @@ function verdictWhy(d) {
   if (d.reason) return sentence(d.reason);
   return d.safe ? 'Nobody has money on the table.' : 'Money is still in play.';
 }
+/* While Maintenance (for an update) is on, the verdict is the countdown: the
+   people still in paid rooms, live, until it reads Safe to update now. */
+const updating = (s) => !!(s.maintenance.on && s.maintenance.update);
 function partVerdict(ups, cls) {
   const b = h('span');
   const sm = h('small');
   ups.push((s) => {
+    if (updating(s)) {
+      const n = num(s.drain.paidPeople);
+      b.textContent = s.drain.safe ? 'Safe to update now'
+        : n + (n === 1 ? ' person' : ' people') + ' still in paid rooms';
+      b.className = s.drain.safe ? 'good' : 'gold';
+      sm.textContent = s.drain.safe ? 'Maintenance is on and nobody has money on the table. Push the update.'
+        : verdictWhy(s.drain) + ' Waiting for them to finish or cash out.';
+      return;
+    }
+    b.className = '';
     b.textContent = s.drain.safe ? 'Safe to restart' : "Don't restart yet";
     sm.textContent = verdictWhy(s.drain);
   });
   return h('div', { class: cls }, b, sm);
+}
+/* One click before an update: games close, the lobby says it is updating, and
+   everyone playing is told once to finish up or cash out. Nobody is kicked.
+   Pressed again it ends maintenance by hand; after the update the server ends
+   it by itself once it is healthy. */
+function partMaint(ups) {
+  const b = h('button', { type: 'button', class: 'btn', 'data-k': 'maint' });
+  b.addEventListener('click', () => {
+    if (updating(S)) {
+      act('maint', 'maintenance:off', {}, { confirm: 'End maintenance?\n\nGames reopen and the lobby banner goes.' });
+    } else {
+      act('maint', 'maintenance:update', {}, { confirm: 'Start maintenance for an update?\n\nNew games close, the lobby says '
+        + '"Updating, back in a few minutes", and everyone playing is told to finish up or cash out. Nobody is kicked.\n\n'
+        + 'After the restart the game reopens by itself once the server is healthy.' });
+    }
+  });
+  ups.push((s) => {
+    const on = updating(s);
+    b.textContent = on ? 'End maintenance' : 'Maintenance';
+    b.className = 'btn' + (on ? ' main' : ' red') + (busy.has('maint') ? ' busy' : '');
+    b.disabled = busy.has('maint');
+    b.title = on ? 'On since ' + clock(s.maintenance.since) + '. Players see: ' + (s.maintenance.message || '') : '';
+  });
+  return b;
 }
 // A figure: the number and the word under it. get(s) -> { v, cls, label, labelCls, title }.
 function fig(ups, cls, get) {
@@ -972,7 +1012,7 @@ function buildPC(ups, next) {
     fig(ups, 'fig', (s) => ({ v: money(s.drain.moneyInPlay), cls: 'gold', label: 'money in play',
       title: 'Live paid worth, money on the floor, unspent entries and paid duel stakes.' })),
     fig(ups, 'fig', (s) => escrowFig(s, false)),
-    h('div', { class: 'open' }, 'New games ', partNewGames(ups)));
+    h('div', { class: 'open' }, partMaint(ups), 'New games ', partNewGames(ups)));
   const parts = partEscrowParts(ups, 'parts', '10px 36px;border-bottom:1px solid var(--ln)');
 
   const rows = S.games.map((g0) => {
@@ -1064,6 +1104,7 @@ function buildPhone(ups, next) {
   if (S.battleRoyale) blocks.push(...phBr(ups));
 
   const site = h('div', { class: 'sec' }, h('h3', null, 'Site'),
+    h('div', { class: 'line' }, h('span', { class: 'l' }, 'Before an update'), partMaint(ups)),
     h('div', { class: 'line' }, h('span', { class: 'l' }, 'New games'), partNewGames(ups)),
     h('div', { class: 'line' }, h('span', { class: 'l' }, 'Cashed-out strip'), partStrip(ups)),
     S.smooth ? h('div', { class: 'line' }, h('span', { class: 'l' }, 'Smooth turning'), partSmooth(ups)) : null,

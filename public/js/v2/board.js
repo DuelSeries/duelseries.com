@@ -50,6 +50,7 @@
       LOBBIES = Array.isArray(j.lobbies) ? j.lobbies : [];
       EXTRAS = Array.isArray(j.extras) ? j.extras : [];
       COUNTS = j.counts && typeof j.counts === 'object' ? j.counts : null;
+      if (window.V2Maint && j.maintenance) window.V2Maint.set(j.maintenance);
       loadedOnce = true; failing = false;
     } catch (_) {
       failing = true;

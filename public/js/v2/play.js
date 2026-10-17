@@ -361,6 +361,12 @@
       say('That game is not playable yet.');
       return;
     }
+    /* The owner's maintenance (maint.js): no new game, free or paid, while the
+       site is updating. The server refuses too; this says why first. */
+    if (window.V2Maint && window.V2Maint.on()) {
+      say(window.V2Maint.message());
+      return;
+    }
     const hasStake = sel && sel.stake !== undefined && sel.stake !== null;
     const hasTier = sel && !!sel.lobbyType;
     /* Never dispatch without naming the room. The widget used to default a

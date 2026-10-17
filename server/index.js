@@ -1638,6 +1638,18 @@ app.post('/api/owner/state', sigLimiter, async (req, res) => {
   res.json(opsSnapshot(req, a.via === 'signature' ? a.who : null));
 });
 
+/* Maintenance as every open page hears it. io.emit reaches the main namespace
+   only (the lobby's quiet socket and the old games); agar.io lives on /ag and
+   the new slither.io on /sl. */
+function emitMaintenance() {
+  const m = ops.get();
+  io.emit('maintenance', m);
+  if (agArenas) io.of('/ag').emit('maintenance', m);
+  if (slArenas) io.of('/sl').emit('maintenance', m);
+}
+const UPDATE_BANNER = 'Updating, back in a few minutes';
+const UPDATE_ANNOUNCE = 'Update coming, finish up or cash out.';
+
 /* One announcement every ten seconds at most: it lands on every open page at
    once, and a double click should not say it twice. */
 const ANNOUNCE_GAP_MS = 10 * 1000;
@@ -1859,13 +1871,28 @@ app.post('/api/owner/do', sigLimiter, async (req, res) => {
     case 'maintenance:on': {
       ops.set({ on: true, message: args.message });
       const kept = ops.lastSave();
-      io.emit('maintenance', ops.get());
-      /* io.emit reaches the main namespace only; agar.io lives on /ag. */
-      if (agArenas) io.of('/ag').emit('maintenance', ops.get());
-      if (slArenas) io.of('/sl').emit('maintenance', ops.get());
+      emitMaintenance();
       return done('Maintenance on. New games refused. ' + (kept.ok
         ? 'It stays on across restarts and deploys until you press Open.'
         : 'It could not be saved (' + kept.why + '), so a restart opens the game again.'));
+    }
+    /* One-click Maintenance for an update (Owen 2026-10-17): new games close,
+       the lobby shows the update banner and disables Play, and everyone playing
+       is told once to finish up or cash out. Nobody is kicked: seated players
+       keep playing and cash out as normal, and the console counts the paid ones
+       down to "Safe to update now". Saved with update set, so the boot after the
+       update reopens the game by itself once it is healthy (reopenAfterUpdate). */
+    case 'maintenance:update': {
+      ops.set({ on: true, message: UPDATE_BANNER, update: true });
+      const kept = ops.lastSave();
+      emitMaintenance();
+      _announcedAt = Date.now();
+      const msg = { text: UPDATE_ANNOUNCE, at: _announcedAt };
+      io.emit('announce', msg);
+      if (slArenas) io.of('/sl').emit('announce', msg);
+      return done('Maintenance on for an update. New games closed, players told to finish up or cash out. '
+        + (kept.ok ? 'Update when Control says Safe to update now; the game reopens by itself after the restart.'
+          : 'It could not be saved (' + kept.why + '), so the restart opens the game straight away.'));
     }
     /* The lobby's cashed-out strip (server/earnings): hide or show it, saved
        across restarts and deploys. Display only, no money is touched. */
@@ -1882,9 +1909,7 @@ app.post('/api/owner/do', sigLimiter, async (req, res) => {
     case 'maintenance:off': {
       ops.set({ on: false });
       const kept = ops.lastSave();
-      io.emit('maintenance', ops.get());
-      if (agArenas) io.of('/ag').emit('maintenance', ops.get());
-      if (slArenas) io.of('/sl').emit('maintenance', ops.get());
+      emitMaintenance();
       return done('Maintenance off. The game is open.' + (kept.ok ? ''
         : ' The saved close could not be cleared (' + kept.why + '), so the next restart opens it closed again.'));
     }
@@ -3492,6 +3517,10 @@ app.get('/api/live', (_req, res) => {
     const out = { lobbies, stakes: ALL_STAKES, extras,
                   br: liveBattleRoyale(), counts: withBoardBots(liveGameCounts(), lobbies.concat(extras)) };
     if (unknown.length) out.unknown = unknown;
+    /* The lobby's update banner and its Play gate (public/js/v2/maint.js). Only
+       what players already see: the switch and its message. */
+    const mt = ops.get();
+    out.maintenance = mt.maintenance ? { on: true, message: mt.message } : { on: false };
     res.json(out);
   } catch (e) {
     console.error('[LIVE]', e.message);
@@ -5112,4 +5141,59 @@ app.use((req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`Server running at http://localhost:${PORT}`));
+/* AFTER AN UPDATE, OPEN AGAIN BY ITSELF. Maintenance turned on for an update
+   (maintenance:update) is saved with update set, so this boot starts closed.
+   It stays closed until the server is healthy: its own /api/live answers 200
+   with every game's rows (no `unknown`) twice in a row, 15 s or more after the
+   listen. Then games reopen, the lobby banner goes, and Done today says so. Not
+   healthy within 10 minutes: it stays closed, says that, and Owen opens it by
+   hand. A plain close (the New games switch) is never reopened here. */
+function reopenAfterUpdate() {
+  if (!ops.get().maintenance || !ops.get().update) return;
+  const http = require('http');
+  const started = Date.now();
+  let good = 0;
+  const probe = () => new Promise((resolve) => {
+    const req = http.get({ host: '127.0.0.1', port: PORT, path: '/api/live', timeout: 4000 }, (res) => {
+      let body = '';
+      res.setEncoding('utf8');
+      res.on('data', (c) => { if (body.length < 2e6) body += c; });
+      res.on('end', () => {
+        try { const j = JSON.parse(body); resolve(res.statusCode === 200 && !j.unknown); }
+        catch (_) { resolve(false); }
+      });
+    });
+    req.on('timeout', () => req.destroy());
+    req.on('error', () => resolve(false));
+  });
+  const tick = async () => {
+    const m = ops.get();
+    if (!m.maintenance || !m.update) return;                 // Owen opened it by hand, or made it a plain close
+    good = (await probe()) ? good + 1 : 0;
+    if (good >= 2) {
+      ops.set({ on: false });
+      const kept = ops.lastSave();
+      emitMaintenance();
+      ops.audit({ action: 'maintenance:auto-off', who: 'server', ok: true,
+        note: 'Update done: the server is healthy, games reopened and the lobby banner removed.'
+          + (kept.ok ? '' : ' The saved close could not be cleared (' + kept.why + '), so a restart closes it again.') });
+      console.warn('[OPS] maintenance OFF after the update: server healthy, games reopened');
+      return;
+    }
+    if (Date.now() - started > 10 * 60 * 1000) {
+      ops.audit({ action: 'maintenance:auto-off', who: 'server', ok: false,
+        note: 'Still in maintenance: the server did not report healthy within 10 minutes. Open games by hand when ready.' });
+      console.error('[OPS] maintenance kept ON: the server did not report healthy within 10 minutes of the update');
+      return;
+    }
+    setTimeout(tick, 5000);
+  };
+  console.warn('[OPS] maintenance ON for an update: reopening once the server is healthy');
+  // MAINT_REOPEN_DELAY_MS only so a test does not wait the 15 s.
+  const wait = parseInt(process.env.MAINT_REOPEN_DELAY_MS, 10);
+  setTimeout(tick, wait >= 0 ? wait : 15000);
+}
+server.listen(PORT, () => {
+  console.log(`Server running at http://localhost:${PORT}`);
+  reopenAfterUpdate();
+});

@@ -159,8 +159,8 @@ test('maintenance is saved on, read back after a restart, and removed on off', (
 
   o = freshOps();   // the restart
   assert.equal(o.get().maintenance, false, 'a new process starts open...');
-  assert.deepEqual(o.persist({ file, log: quiet }), { on: true, why: 'owner' });
-  assert.deepEqual(o.get(), { maintenance: true, message: 'Deploying the new lobby', since }, '...until it reads the close');
+  assert.deepEqual(o.persist({ file, log: quiet }), { on: true, why: 'owner', update: false });
+  assert.deepEqual(o.get(), { maintenance: true, message: 'Deploying the new lobby', since, update: false }, '...until it reads the close');
 
   o.set({ on: false });
   assert.equal(fs.existsSync(file), false);
@@ -176,13 +176,13 @@ test('maintenance fails closed: an unreadable or foreign file keeps the game shu
   const lines = [];
   const log = { error: (m) => lines.push(m), warn() {}, log() {} };
   let o = freshOps();
-  assert.deepEqual(o.persist({ file, log }), { on: true, why: 'unreadable' });
+  assert.deepEqual(o.persist({ file, log }), { on: true, why: 'unreadable', update: false });
   assert.equal(o.get().maintenance, true);
   assert.ok(lines.some((l) => /CRITICAL maintenance file is not a switch/.test(l)));
 
   const throwing = { existsSync() { throw new Error('EIO'); } };
   o = freshOps();
-  assert.deepEqual(o.persist({ file, fsx: throwing, log }), { on: true, why: 'unreadable' });
+  assert.deepEqual(o.persist({ file, fsx: throwing, log }), { on: true, why: 'unreadable', update: false });
   assert.equal(o.saved(), true, 'a store that cannot be asked is assumed to hold the close');
 
   const readOnly = { existsSync: () => false, mkdirSync() {}, writeFileSync() { throw new Error('EROFS'); }, renameSync() {} };

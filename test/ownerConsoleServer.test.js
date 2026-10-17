@@ -160,7 +160,7 @@ test('state v2, maintenance and the paid Knockout door across a restart, bots:se
   for (const k of ['state', 'phase', 'humans', 'bots', 'alive', 'minPlayers', 'canStart', 'canForce', 'countdownMs',
     'nextStartAt', 'prize', 'prizeHeld', 'engine', 'room', 'botTarget', 'winner']) assert.ok(k in s.battleRoyale, 'br ' + k);
   assert.deepStrictEqual([s.battleRoyale.humans, s.battleRoyale.canForce], [0, false]);
-  assert.deepStrictEqual(Object.keys(s.maintenance).sort(), ['maintenance', 'message', 'on', 'saved', 'since']);
+  assert.deepStrictEqual(Object.keys(s.maintenance).sort(), ['maintenance', 'message', 'on', 'saved', 'since', 'update']);
   assert.strictEqual(s.open, true);
   assert.deepStrictEqual(s.smooth, { on: true });
 

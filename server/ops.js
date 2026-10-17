@@ -29,6 +29,10 @@ const state = {
   maintenance: false,
   message: '',
   since: null,
+  /* Turned on for an update (the console's one-click Maintenance): the next
+     boot reopens the game by itself once it is healthy (index.js). A plain
+     close (the New games switch) stays closed until Open. */
+  update: false,
 };
 
 /* Where a closed door is kept across a restart (persist below), and how the
@@ -42,6 +46,7 @@ function get() {
     maintenance: state.maintenance,
     message: state.message,
     since: state.since,
+    update: state.update,
   };
 }
 
@@ -51,14 +56,16 @@ const cleanMessage = (m) => (typeof m === 'string' && m.trim() ? m : 'Back short
 
 /* `minutes` is gone: it only ever set a display time and nothing reopened the
    game when it passed, so it promised something the server never did. */
-function set({ on, message } = {}) {
+function set({ on, message, update } = {}) {
   state.maintenance = !!on;
   if (on) {
     state.message = cleanMessage(message);
     state.since = Date.now();
+    state.update = update === true;
   } else {
     state.message = '';
     state.since = null;
+    state.update = false;
   }
   lastSave = save();
   return get();
@@ -75,11 +82,13 @@ function set({ on, message } = {}) {
 function persist({ file, fsx = fs, log = console, now = Date.now } = {}) {
   if (typeof file !== 'string' || !file) throw new Error('ops.persist: file is required');
   store = { file, fsx, log };
-  const close = (message, since, why) => {
+  // An unreadable file is never an update close: it stays shut until the owner opens it.
+  const close = (message, since, why, update) => {
     state.maintenance = true;
     state.message = cleanMessage(message);
     state.since = Number.isFinite(since) && since > 0 ? since : now();
-    return { on: true, why };
+    state.update = update === true;
+    return { on: true, why, update: state.update };
   };
   let text = null;
   try {
@@ -93,7 +102,7 @@ function persist({ file, fsx = fs, log = console, now = Date.now } = {}) {
     const j = JSON.parse(text);
     if (j && j.on === true) {
       log.warn('[OPS] maintenance ON at boot: the owner\'s close outlived the restart (' + file + ')');
-      return close(j.message, Number(j.since), 'owner');
+      return close(j.message, Number(j.since), 'owner', j.update === true);
     }
   } catch (e) { /* not ours: closed, below */ }
   log.error('[OPS] CRITICAL maintenance file is not a switch, the game starts CLOSED (' + file + ')');
@@ -112,7 +121,7 @@ function save() {
          file or the new one, never half of one (which would read as unreadable
          and keep the game closed for no reason). */
       const tmp = file + '.tmp';
-      fsx.writeFileSync(tmp, JSON.stringify({ on: true, message: state.message, since: state.since }) + '\n');
+      fsx.writeFileSync(tmp, JSON.stringify({ on: true, message: state.message, since: state.since, update: state.update }) + '\n');
       fsx.renameSync(tmp, file);
     }
     return { ok: true, why: null };

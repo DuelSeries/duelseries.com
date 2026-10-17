@@ -296,7 +296,12 @@
   }
   function listen() {
     if (typeof window.io !== 'function') return false;
-    try { window.io().on('announce', announced); } catch (_) {}
+    try {
+      const sock = window.io();
+      sock.on('announce', announced);
+      // The owner's maintenance switch, live (maint.js draws the banner and gates Play).
+      sock.on('maintenance', (m) => { if (window.V2Maint) window.V2Maint.set(m); });
+    } catch (_) {}
     return true;
   }
   function listenSoon() {

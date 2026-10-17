@@ -83,7 +83,7 @@ test('the actions that cannot be taken back ask first', () => {
 
 test('it stays out of search engines and polls only while the tab is in front', () => {
   assert.match(HTML, /<meta name="robots" content="noindex,nofollow">/);
-  assert.match(fnBody('startPoll'), /if \(document\.hidden \|\| mode !== 'panel'\) return;\n\s+pollT = setInterval\(\(\) => \{ refresh\(\); \}, 5000\);/);
+  assert.match(fnBody('startPoll'), /if \(document\.hidden \|\| mode !== 'panel'\) return;\n\s+\/\/ .*\n\s+pollT = setInterval\(\(\) => \{ if \(!S \|\| updating\(S\) \|\| \+\+slowTick % 3 === 0\) refresh\(\); \}, 2000\);/);
   assert.match(SCRIPT, /if \(document\.hidden\) stopPoll\(\);/);
   assert.match(fnBody('refresh'), /api\('POST', '\/api\/owner\/state', \{\}\)/);
 });
