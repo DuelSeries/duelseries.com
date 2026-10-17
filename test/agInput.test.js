@@ -231,33 +231,6 @@ test('phone stick: dead zone 10 px, anchor follows at 60 px, direction kept afte
   assert.deepStrictEqual(st.dir, { x: 0, y: -1 });
 });
 
-test('phone stick speed: an even ramp, thumb distance / 60 px; 0 in the dead zone and once the thumb lifts (Owen 2026-10-16)', () => {
-  const st = I.createStick();
-  assert.strictEqual(st.speed(), 0, 'no stick yet');
-  st.down(100, 100);
-  st.move(108, 100);
-  assert.strictEqual(st.speed(), 0, 'inside the dead zone: no direction, no speed');
-  st.move(115, 100);
-  assert.strictEqual(st.speed(), 15 / 60);
-  st.move(130, 100);
-  assert.strictEqual(st.speed(), 0.5, 'half the drag, half the speed');
-  st.move(160, 100);
-  assert.strictEqual(st.speed(), 1, 'full at the follow radius');
-  st.move(300, 100);
-  assert.strictEqual(st.speed(), 1, 'the anchor follows, still full');
-  st.move(245, 100);
-  assert.strictEqual(st.speed(), 0, 'back on the anchor: stopped, never creeping the old way');
-  st.move(270, 100);
-  assert.strictEqual(st.speed(), 30 / 60);
-  st.up();
-  assert.strictEqual(st.speed(), 0, 'a lifted thumb stops the cells');
-  assert.deepStrictEqual(st.dir, { x: 1, y: 0 }, 'the direction stays for a split');
-  st.down(10, 10);
-  assert.strictEqual(st.speed(), 0, 'a fresh touch starts stopped');
-  st.clear();
-  assert.strictEqual(st.speed(), 0);
-});
-
 test('phone: the stick puts the target at full deflection on the visible edge (card)', () => {
   const cam = C.createCamera();
   cam.setCanvasSize(800, 400);
@@ -293,9 +266,6 @@ test('phone: the stick puts the target at full deflection on the visible edge (c
   assert.deepStrictEqual(sent[1], [Math.trunc(400 / cam.scale), 0], 'right edge');
   touch('touchend', 380, 300, 1);
   assert.deepStrictEqual(ctl.stickDir(), { x: 1, y: 0 }, 'kept after the thumb lifts');
-  assert.strictEqual(ctl.stickSpeed(), 1000, 'sampled at 80 px: full speed');
-  ctl.frame(edge);
-  assert.strictEqual(ctl.stickSpeed(), 0, 'sampled after the lift: stopped');
   // A second finger is not a second stick.
   touch('touchstart', 100, 100, 5);
   const pt2 = { identifier: 6, clientX: 0, clientY: 300 };

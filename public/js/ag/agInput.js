@@ -5,11 +5,7 @@
 // pausing, the wheel feeds the camera's wheel factor. The phone stick and the Split / Eject
 // buttons are ours (CHOSEN, PARITY-LOG C7): slither's anchor-and-follow stick (dead zone 10 px,
 // follow radius 60 px, public/js/game.js "Touch steering") whose direction becomes a target at
-// the edge of the visible area (agCamera.stickPoint). How far the thumb is from the anchor sets
-// the speed (Owen 2026-10-16, like the agar.io app): an even ramp, thumb distance / 60 px, so a
-// thumb at the follow radius is full speed; a lifted thumb stops the cells (speed 0, the
-// direction is kept for a split). The speed rides on the target as a share of full speed
-// (ag:target speed, thousandths; the server only ever slows the cells by it).
+// the edge of the visible area (agCamera.stickPoint).
 //
 // attachInput(canvas, sink, opts) wires the listeners and returns a controller. agMain calls
 // controller.frame(edgeFn) once per animation frame BEFORE the game frame (the reference copies
@@ -99,24 +95,12 @@
   // The anchor-and-follow stick, DOM free. down(x, y) starts a fresh stick under the thumb (no new
   // direction yet), move(x, y) drags the anchor along once the thumb is more than 60 px away and
   // sets the direction once it is more than 10 px away. The last direction is kept after the
-  // thumb lifts (up()), so a split still goes that way, but the cells stop: speed() is the thumb's
-  // distance from the anchor / 60 px while the thumb is down past the dead zone, else 0 (a thumb
-  // back on the anchor stops too, and never creeps along an old direction).
+  // thumb lifts, so the cells carry on the way they were going.
   function createStick() {
-    var st = { ax: 0, ay: 0, dir: null, d: 0, isDown: false };
+    var st = { ax: 0, ay: 0, dir: null };
     st.down = function (x, y) {
       st.ax = x;
       st.ay = y;
-      st.d = 0;
-      st.isDown = true;
-    };
-    st.up = function () {
-      st.isDown = false;
-      st.d = 0;
-    };
-    st.speed = function () {
-      if (!st.dir || !st.isDown || st.d <= STICK_DEADZONE_PX) return 0;
-      return st.d >= STICK_FOLLOW_R ? 1 : st.d / STICK_FOLLOW_R;
     };
     st.move = function (x, y) {
       var dx = x - st.ax;
@@ -129,13 +113,10 @@
         dy = y - st.ay;
         d = Math.hypot(dx, dy);
       }
-      st.d = d;
       if (d > STICK_DEADZONE_PX) st.dir = { x: dx / d, y: dy / d };
     };
     st.clear = function () {
       st.dir = null;
-      st.isDown = false;
-      st.d = 0;
     };
     return st;
   }
@@ -200,8 +181,7 @@
       keysDown: {}, // one map for the page lifetime
       keysOn: false,
       touchMode: opts.touchFirst != null ? !!opts.touchFirst : isCoarse(win),
-      touchId: null,
-      stickSpeed: 0 // thousandths of full speed, sampled with the stick direction in frame()
+      touchId: null
     };
     var stick = createStick();
 
@@ -334,8 +314,7 @@
     function onTouchEnd(e) {
       if (!lobbyPinch(e) && e.cancelable && e.preventDefault) e.preventDefault();
       if (s.touchId === null || !findTouch(e.changedTouches, s.touchId)) return;
-      s.touchId = null;
-      stick.up(); // the direction is kept for a split, but the cells stop (Owen 2026-10-16)
+      s.touchId = null; // the direction is kept: the cells carry on
     }
     on(canvas, 'touchend', onTouchEnd, { passive: false });
     on(canvas, 'touchcancel', onTouchEnd, { passive: false });
@@ -408,7 +387,6 @@
       if (s.touchMode && typeof edgeFn === 'function') {
         var d = stick.dir;
         var p = edgeFn(d ? d.x : 0, d ? d.y : 0);
-        s.stickSpeed = Math.round(stick.speed() * 1000);
         call('mouse', p.x, p.y);
       } else {
         var k = scaleOf();
@@ -418,11 +396,6 @@
     };
     ctl.stickDir = function () {
       return stick.dir ? { x: stick.dir.x, y: stick.dir.y } : null;
-    };
-    // The stick's speed as last sampled by frame(), in thousandths of full speed (0 to 1000), or
-    // null when a mouse steers (full speed, nothing extra on the target).
-    ctl.stickSpeed = function () {
-      return s.touchMode ? s.stickSpeed : null;
     };
     ctl.touchMode = function () {
       return s.touchMode;

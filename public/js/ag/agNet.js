@@ -6,7 +6,7 @@
 //
 // Outbound events, all 'ag:*' (never 'cell:*', so the old agar pages cannot talk to the new
 // room): ag:join {name}, ag:spectate (with {step: 1 | -1} for the Spectate bar's Next and Previous), ag:target {x, y}
-// (integers; a phone stick adds speed, 0 to 1000), ag:split, ag:eject, ag:q,
+// (integers), ag:split, ag:eject, ag:q,
 // ag:leave, ag:view {below} (a whole number, 0 or more: the map rows the page draws under the
 // reference view, world units at zoom 1; agMain sends it only when it changes), ag:portrait true|false
 // (the phone portrait layout is on; one boolean, sent only when it changes), ag:hold {on: 1 | 0} (Owen's hold-Q
@@ -131,14 +131,10 @@
       sendSpectate: function (step) {
         return step === 1 || step === -1 ? emit(EV.spectate, { step: step }) : emit(EV.spectate);
       },
-      // speed (optional, the phone stick, Owen 2026-10-16): thousandths of full speed, a whole number 0 to 1000; any
-      // other value sends the target alone (full speed), as the server drops a target with a bad one.
-      sendTarget: function (x, y, speed) {
+      sendTarget: function (x, y) {
         var ix = intOrNull(x), iy = intOrNull(y);
         if (ix === null || iy === null) return false;
-        var msg = { x: ix, y: iy };
-        if (typeof speed === 'number' && speed % 1 === 0 && speed >= 0 && speed <= 1000) msg.speed = speed;
-        return emit(EV.target, msg);
+        return emit(EV.target, { x: ix, y: iy });
       },
       sendSplit: function () { return emit(EV.split); },
       sendEject: function () { return emit(EV.eject); },
@@ -173,7 +169,7 @@
         switch (kind) {
           case 'play': return api.sendJoin(payload && payload.name);
           case 'spectate': return api.sendSpectate(payload && payload.step);
-          case 'target': return api.sendTarget(payload && payload.x, payload && payload.y, payload && payload.speed);
+          case 'target': return api.sendTarget(payload && payload.x, payload && payload.y);
           case 'split': return api.sendSplit();
           case 'eject': return api.sendEject();
           case 'q': return api.sendQ();
