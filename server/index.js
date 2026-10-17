@@ -1793,32 +1793,18 @@ app.post('/api/owner/do', sigLimiter, async (req, res) => {
        table), and only then credits the bank, so every bot seed is already in
        escrow. Cap: the daily limit of seed handed out, in dollars. */
     case 'botbank:topup': {
-      const sig = typeof args.sig === 'string' ? args.sig.trim() : '';
-      if (!/^[1-9A-HJ-NP-Za-km-z]{64,90}$/.test(sig)) return refuse('Paste the transaction signature of the transfer to escrow');
-      if (botBank.hasTopup(sig)) return refuse('That transfer is already in the bot bank');
-      let v;
-      try {
-        v = await Usdc.verifyUsdcStake(sig, 0.01);
-      } catch (e) {
-        return refuse('Not verified: ' + String(e && e.message).slice(0, 160));
+      const t = await require('./botBankTopup').verifyTopup(args.sig, {
+        verify: (sig, min) => Usdc.verifyUsdcStake(sig, min),
+        isPlayerWallet: (w) => db.isPlayerWallet(w),
+        markStakeSig: (sig) => db.markStakeSig(sig),
+        botBank,
+        ownerWallets: [REVENUE_WALLET, OWNER_WALLET],
+      });
+      if (!t.ok) {
+        if (t.critical) console.error('[BOTBANK] CRITICAL top-up ' + String(args.sig).slice(0, 90) + ' of ' + t.micro + ' micro claimed but not saved');
+        return refuse(t.why);
       }
-      if (v.payer !== REVENUE_WALLET && v.payer !== OWNER_WALLET) {
-        return refuse('That transfer was not signed by the revenue wallet');
-      }
-      let claimed = false;
-      try {
-        claimed = await db.markStakeSig(sig);
-      } catch (e) {
-        return refuse('Could not claim the transfer (database): ' + String(e && e.message).slice(0, 120));
-      }
-      if (!claimed) return refuse('That transfer was already used');
-      const micro = Math.round(Number(v.usdc) * 1e6);
-      const c = botBank.credit(micro, sig);
-      if (!c.ok) {
-        console.error('[BOTBANK] CRITICAL top-up ' + sig + ' of ' + micro + ' micro claimed but not saved: ' + c.why);
-        return refuse('Claimed but not saved; tell Claude: ' + sig.slice(0, 16));
-      }
-      return done('Bot bank +$' + (micro / 1e6).toFixed(2) + ', now $' + (botBank.balanceMicro() / 1e6).toFixed(2) + '.');
+      return done('Bot bank +$' + (t.micro / 1e6).toFixed(2) + ', now $' + (botBank.balanceMicro() / 1e6).toFixed(2) + '.');
     }
     case 'botbank:cap': {
       const usd = typeof args.usd === 'number' ? args.usd : Number(String(args.usd || '').trim());

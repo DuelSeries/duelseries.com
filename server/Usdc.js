@@ -125,7 +125,15 @@ async function verifyUsdcStake(signature, minUsdc) {
   const min = toUnits(minUsdc);
   if (delta < min) throw new Error(`Stake too small (${delta} < ${min} USDC units)`);
   const keys = tx.transaction.message.staticAccountKeys || tx.transaction.message.accountKeys;
-  return { payer: keys[0].toString(), usdc: toUsdc(delta) };
+  // every owner whose USDC went down in this tx (the real senders, whoever paid the fee): read only, for callers
+  // that must know who the money came from (the bot bank's top-up)
+  const senders = [];
+  const pre = (tx.meta && tx.meta.preTokenBalances) || [];
+  for (const b of pre) {
+    if (!b || b.mint !== USDC_MINT.toString() || !b.owner || senders.includes(b.owner)) continue;
+    if (stakeDeltaUnits(tx.meta, b.owner, USDC_MINT.toString()) < 0n) senders.push(b.owner);
+  }
+  return { payer: keys[0].toString(), usdc: toUsdc(delta), senders };
 }
 
 // Generalized version of verifyUsdcStake for ANY recipient owner — used by the cosmetics shop,

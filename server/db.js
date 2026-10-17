@@ -327,6 +327,14 @@ async function getRecentCollusionFlags(limit = 100) {
 // Atomically claim a stake signature for one-time use. Returns true if THIS call claimed it
 // (row newly inserted), false if it was already used. The INSERT…ON CONFLICT is atomic, so
 // concurrent requests with the same sig can't both succeed — closes the double-mint race.
+// Whether a wallet is a player's game wallet (an account row; the wallet address is the account's id). The bot bank
+// never takes a top-up a player's wallet sent (server/botBankTopup.js).
+async function isPlayerWallet(wallet) {
+  if (typeof wallet !== 'string' || !wallet) return false;
+  const r = await pool.query('SELECT 1 FROM accounts WHERE google_id = $1 LIMIT 1', [wallet]);
+  return r.rowCount > 0;
+}
+
 async function markStakeSig(sig) {
   const r = await pool.query(
     `INSERT INTO used_stake_sigs (sig) VALUES ($1) ON CONFLICT DO NOTHING RETURNING sig`,
@@ -1175,6 +1183,7 @@ module.exports = {
   recordCollusionFlag, getRecentCollusionFlags,
   markStakeSig, claimStakeSig, claimStakeSeat, refundStakeOwed, listUnsettledStakes,
   claimStakeVerify, confirmStakeVerify, closeStakeVerify, listStakeVerifies,
+  isPlayerWallet,
   recordFailedPayout, recordOwedOnce, getFailedPayouts, claimDuePayout, savePayoutSignature, markPayoutPaid,
   deferPayoutNoAccount, returnPayoutToLane,
   features, NO_USDC_ACCOUNT,
