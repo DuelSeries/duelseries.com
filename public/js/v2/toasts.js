@@ -110,7 +110,7 @@
     const key = keyOf(o);
     const same = live.find(c => c.key === key);
     if (same) { arm(same, stayFor(o)); return same; }   // the same thing twice is one card, read longer
-    if (window.DSSound) DSSound.toast(o.kind, !!o.sticky);   // a new card makes its sound (sounds.js)
+    if (window.DSSound) DSSound.toast(o.kind, !!o.sticky, o.title);   // a new card makes its sound (sounds.js)
     const t = document.createElement('div');
     fill(t, o);
     const c = { node: t, key: key, o: o, timer: 0, left: 0, since: 0 };
@@ -150,7 +150,7 @@
       update(n) {
         const next = Object.assign({}, c ? c.o : o, { sticky: false, ms: 0 }, n);
         if (!c || !live.includes(c)) { c = put(next); return; }
-        if (window.DSSound && next.kind !== c.o.kind) DSSound.toast(next.kind, !!next.sticky);   // working... turned done or failed
+        if (window.DSSound && next.kind !== c.o.kind) DSSound.toast(next.kind, !!next.sticky, next.title);   // working... turned done or failed
         c.o = next; c.key = keyOf(next);
         fill(c.node, next);
         arm(c, stayFor(next));

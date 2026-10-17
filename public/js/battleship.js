@@ -531,6 +531,7 @@ function dropHeld() {
   const d = dragging;
   const ok = d.at && fits(d.at.x, d.at.y, d.len, d.horiz, d.key);
   if (ok) layout.set(d.key, { x: d.at.x, y: d.at.y, horiz: d.horiz });
+  if (ok) snd('place');
   if (d.el) d.el.classList.remove('dragging');
   dragging = null;
   hideGhost();
@@ -804,6 +805,7 @@ function paintLive() {
    have to notice. */
 let callTimer = 0;
 function callTurn(yours) {
+  if (yours) snd('turn');
   const box = $('turnCall');
   $('turnCallText').textContent = yours ? 'Your shot' : 'Their shot';
   box.classList.toggle('theirs', !yours);
@@ -930,6 +932,9 @@ socket.on('bs:chatnote', (m) => { if (m) chat.add({ kind: 'sys', text: m.text })
    the match so far. */
 let _sndMine = 0, _sndTheirs = 0, _sndSunk = 0;
 
+/* The quiet moments (turn, ship down, result) go through here so a missing sound never breaks the page. */
+function snd(k, a) { const S = window.BattleshipSound; if (S && S[k]) S[k](a); }
+
 function soundFor(view) {
   const S = window.BattleshipSound;
   if (!S) return;
@@ -1046,6 +1051,7 @@ socket.on('bs:over', (m) => {
   overShown = true;
   m = m || {};
   chatShow(false);
+  snd('over', m.won);
   /* Whose result it is, read now: a reconnect while the card is up changes
      the socket id, and the card is drawn again on every restake step. */
   lastOver = Object.assign({}, m, {

@@ -629,7 +629,7 @@ test('sl.html: no doctype, their viewport, body order, loch children inline, las
   assert.ok(!/<canvas[^>]*\sid=/.test(html));
   const scripts = [];
   html.replace(/<script src="([^"]+)"><\/script>/g, (m, s) => { scripts.push(s); return m; });
-  assert.deepStrictEqual(scripts, ['/socket.io/socket.io.js', '/shared/slCore.js', '/shared/slWire.js', '/js/sl/slApply.js',
+  assert.deepStrictEqual(scripts, ['/socket.io/socket.io.js', '/js/dsSfx.js', '/js/dsSfxGame.js', '/shared/slCore.js', '/shared/slWire.js', '/js/sl/slApply.js',
     '/js/sl/slSprites.js', '/js/sl/slDrawWorld.js', '/js/sl/slDrawSnake.js', '/js/sl/slHud.js', '/js/sl/slLoop.js',
     '/js/sl/slPage.js', '/js/sl/slInput.js', '/js/sl/slNet.js', '/js/sl/slMain.js']);
   assert.ok(html.indexOf('href="/css/sl.css"') > 0);

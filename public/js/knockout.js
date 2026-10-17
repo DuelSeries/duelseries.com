@@ -18,6 +18,7 @@
    cannot buy a harder shot. */
 
 const socket = io();
+if (window.KnockoutSound) KnockoutSound.attach(socket, () => ({ me, st, flip, watch: WATCH }));   // sounds (knockoutSound.js)
 const $ = (id) => document.getElementById(id);
 const cv = $('board');
 const ctx = cv.getContext('2d');
@@ -422,6 +423,7 @@ function frame() {
     if (tapeAt >= tape.frames.length + 30) { tape = null; tapeAt = 0; }
   }
   paintClock();
+  if (window.KnockoutSound) KnockoutSound.frame(tape, tapeAt, reveal, ringFall);
   draw();
   requestAnimationFrame(frame);
 }

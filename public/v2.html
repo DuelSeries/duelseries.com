@@ -2776,6 +2776,8 @@ body.scr-anim { overflow-x:hidden }
         <button type="button" class="sw" id="set-snd" role="switch" aria-checked="true" aria-labelledby="set-snd-l" onclick="setSnd(this)"></button></div>
       <div class="swrow"><div><b id="set-vol-l">Volume</b></div>
         <input type="range" class="vol" id="set-vol" min="0" max="100" step="5" value="70" aria-labelledby="set-vol-l"></div>
+      <div class="swrow set-pc"><div><b id="set-hov-l">Hover sounds</b><span>A soft tick when the mouse moves onto a button.</span></div>
+        <button type="button" class="sw" id="set-hov" role="switch" aria-checked="true" aria-labelledby="set-hov-l" onclick="setHov(this)"></button></div>
     </section>
 
     <!-- The in-game clip recorder (public/js/clip/clipRec.js) reads these when a
@@ -2933,6 +2935,7 @@ body.scr-anim { overflow-x:hidden }
 <script src="/js/FoodGL.js"></script>
 <script src="/js/shooterArt.js"></script>
 <script src="/js/Renderer.js"></script>
+<script src="/js/dsSfx.js"></script>
 <script src="/js/v2/sounds.js"></script>
 <script src="/js/v2/countUp.js"></script>
 <script src="/js/v2/toasts.js"></script>
@@ -4875,6 +4878,13 @@ function drawSndSet(){
   const b=document.getElementById('set-snd'), v=document.getElementById('set-vol');
   if(b)b.setAttribute('aria-checked',String(S.on()));
   if(v){v.value=String(Math.round(S.vol()*100));v.disabled=!S.on()}
+  const h=document.getElementById('set-hov');
+  if(h){h.setAttribute('aria-checked',String(S.hover()));h.disabled=!S.on()}
+}
+function setHov(b){
+  if(!window.DSSound)return;
+  DSSound.setHover(b.getAttribute('aria-checked')!=='true');
+  drawSndSet();
 }
 function setSnd(b){
   if(!window.DSSound)return;

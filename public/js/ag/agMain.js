@@ -436,6 +436,7 @@
         if (flow && !flow.canSteer()) return;   // the server refuses a hold before ag:ready too
         hold.wanted = true;
         hold.server = false;
+        sound.playCue('holdStart');
         var gen = ++hold.gen;
         send('hold', { on: true });
         var repeat = function () {
@@ -451,6 +452,7 @@
       hold.wanted = false;
       hold.server = false;
       hold.gen++;
+      sound.playCue('holdCancel');
       send('hold', { on: false });
     }
     // The run ended (a cash-out or a paid end): the server already ended the hold, so nothing is sent; the keys and
@@ -489,6 +491,7 @@
           break;
         case 'ag:cashedout':
           endHold();
+          sound.playCue('cashout');
           if (p.free === true) {
             cashedOutFree = true;
           } else {
@@ -830,6 +833,7 @@
       cam.onSpawn(p.camY);
       if (gameState === 9) gameState = 3;   // a match-state rule of other modes; inert in FFA
       stats.spawn(p.now);
+      sound.playCue('join');
       lastEater = '';
       lastLife = null;
       hud.onSpawn();
@@ -846,7 +850,7 @@
       if (p.eatenOwn && !p.eaterOwn && by && !by.virus && !by.food && !by.ejected) {
         lastEater = typeof by.name === 'string' ? by.name : '';
       }
-      if (sound.playCues) sound.playCues(agSound.eatCues(e));
+      if (sound.playCues) sound.playCues(agSound.eatCues(e), e);
     });
     world.on('board', function (p) {
       lastRows = p.rows;

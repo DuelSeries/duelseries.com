@@ -1093,77 +1093,268 @@ test('slxStats: lastClose names how the previous socket ended', () => {
     ['fire', 'close', { playing: true, opened: true, sawDead: false, refused: null }]]), 'other');
 });
 
-// A fake Web Audio context that records what each synth asked for.
-function audio() {
-  const made = [];
-  class Param {
-    constructor() { this.value = 0; this.calls = []; }
-    setValueAtTime(v, t) { this.calls.push(['set', v, t]); }
-    linearRampToValueAtTime(v, t) { this.calls.push(['lin', v, t]); }
-    exponentialRampToValueAtTime(v, t) { this.calls.push(['exp', v, t]); }
-  }
-  class AC {
-    constructor() { this.state = 'running'; this.currentTime = 2; this.destination = { dest: true }; made.push(this); this.osc = []; }
-    createOscillator() { const o = { type: '', frequency: new Param(), connect() {}, start() {}, stop() {} }; this.osc.push(o); return o; }
-    createGain() { return { gain: new Param(), connect() {} }; }
-    resume() { this.state = 'running'; return { catch() {} }; }
-  }
-  return { AC, made };
+// A fake sound engine with DSSfx's face (public/js/dsSfx.js): every play is recorded with the level in force.
+function sfxFake() {
+  const F = {
+    plays: [],
+    level: null,
+    setLevel(fn) { F.level = fn; },
+    play(name, o) {
+      const lv = F.level ? F.level() : 1;
+      F.plays.push({ name, o: o || {}, lv });
+      return lv > 0;
+    }
+  };
+  return F;
 }
+const heard = (F) => F.plays.map((p) => p.name);
+const soundPage = (opts) => {
+  const F = sfxFake();
+  const P = page('slxSound.js', Object.assign({}, opts, { win: Object.assign({ DSSfx: F }, opts && opts.win) }));
+  P.F = F;
+  return P;
+};
 
-test('slxSound: join once per socket, death unless cashed, kill when the own count rises, the shared fanfare', () => {
-  const a = audio();
-  const fanfare = [];
-  const P = page('slxSound.js', { win: { AudioContext: a.AC, CashoutSound: { play(ac, dest, vol) { fanfare.push(vol); return true; } } } });
+test('slxSound: join once per socket, death unless cashed, kill when the own count rises, cash-out; all through DSSfx', () => {
+  const P = soundPage();
+  const F = P.F;
   const played = () => P.slx.sound.played();
+  assert.strictEqual(typeof F.level, 'function', 'the page volume is DSSfx\'s level');
+  assert.strictEqual(F.level(), 0.5, 'master 1 x sfx 0.5, the old defaults (game.js:234)');
   P.slx.fire('open');
   P.slx.fire('ownAdd', { id: 1 });
   P.slx.fire('ownAdd', { id: 1 });
   assert.deepStrictEqual(plain(played()), { join: 1, death: 0, kill: 0, cashout: 0 });
-  const ac = a.made[0];
-  assert.deepStrictEqual(ac.osc.map((o) => o.frequency.value), [523.25, 1046.5, 659.25, 1318.5, 783.99, 1567.98],
-    'the old C5 E5 G5 chime with its octave (public/js/game.js:320-358)');
+  assert.deepStrictEqual(heard(F), ['g.join']);
   P.slx.fire('ownKills', { id: 1, count: 1 });
   P.slx.fire('ownKills', { id: 1, count: 1 });
   P.slx.fire('ownKills', { id: 1, count: 3 });
   assert.strictEqual(played().kill, 2);
   P.slx.fire('ownDead', { code: 0 });
   assert.strictEqual(played().death, 1);
-  // a cash-out socket: the fanfare, and no death sound for its own dead
+  assert.deepStrictEqual(heard(F), ['g.join', 'g.kill', 'g.kill', 'g.death']);
+  // a cash-out socket: the cash-out sound, and no death sound for its own dead
   P.slx.fire('open');
   P.slx.fire('ownKills', { id: 2, count: 1 });
   assert.strictEqual(played().kill, 3, 'the count starts over with each socket');
   P.slx.fire('x:cashed', { t: 'cashed', len: 40 });
+  P.slx.fire('x:cashed', { t: 'cashed', len: 40 });
   P.slx.fire('ownDead', { code: 0 });
   assert.deepStrictEqual(plain(played()), { join: 1, death: 1, kill: 3, cashout: 1 });
-  assert.deepStrictEqual(fanfare, [0.5], 'master 1 x sfx 0.5, the old defaults (game.js:234)');
-  // muted: asked for but silent
-  const before = ac.osc.length;
+  assert.deepStrictEqual(heard(F).slice(4), ['g.kill', 'g.cashout']);
+  // gold eaten in a paid room: only a positive d
+  P.slx.fire('x:w', { t: 'w', d: 0 });
+  P.slx.fire('x:w', { t: 'w' });
+  assert.strictEqual(P.slx.sound.money(), 0);
+  P.slx.fire('x:w', { t: 'w', d: 120 });
+  assert.strictEqual(P.slx.sound.money(), 1);
+  assert.strictEqual(heard(F).pop(), 'g.pickup');
+  // the volume globals are read on every play; muted is level 0
+  P.win.gameMasterVol = 0.8;
+  P.win.gameSfxVol = 0.5;
+  assert.strictEqual(F.level(), 0.4);
   P.win.gameMuted = true;
+  assert.strictEqual(F.level(), 0);
   P.slx.fire('open');
   P.slx.fire('ownAdd', { id: 3 });
-  assert.strictEqual(ac.osc.length, before);
-  assert.strictEqual(a.made.length, 1, 'one shared context');
+  assert.strictEqual(F.plays.pop().lv, 0, 'asked for but silent');
+  assert.strictEqual(played().join, 2, 'still counted');
 });
 
-test('slxSound: the first gesture unlocks audio; the fanfare file loads only when missing', () => {
-  const a = audio();
-  const P = page('slxSound.js', { win: { AudioContext: a.AC } });
-  const scripts = P.doc.head.children.filter((e) => e.tagName === 'SCRIPT');
-  assert.deepStrictEqual(scripts.map((s) => s.src), ['/js/cashoutSound.js']);
-  const unlock = P.win.listeners.filter((l) => l.once && l.passive).map((l) => l.type).sort();
-  assert.deepStrictEqual(unlock, ['click', 'keydown', 'mousedown', 'mousemove', 'pointerdown', 'touchmove', 'touchstart']);
-  assert.strictEqual(a.made.length, 0, 'no context before a gesture or a sound');
-  P.dispatch(P.doc.body, 'mousemove', {});
-  assert.strictEqual(a.made.length, 1);
-  const Q = page('slxSound.js', { win: { AudioContext: a.AC, CashoutSound: { play() {} } } });
-  assert.strictEqual(Q.doc.head.children.filter((e) => e.tagName === 'SCRIPT').length, 0);
-  // no Web Audio at all: every sound is a no-op
-  const R = page('slxSound.js', { win: { CashoutSound: { play() { throw new Error('never'); } } } });
+test('slxSound: no context, listeners or scripts of its own; with no engine on the page every sound is a no-op', () => {
+  const P = soundPage();
+  assert.strictEqual(P.doc.head.children.filter((e) => e.tagName === 'SCRIPT').length, 0, 'no cash-out file to load');
+  assert.strictEqual(P.win.listeners.length, 0, 'the engine unlocks itself on the first gesture');
+  assert.strictEqual(P.doc.listeners.length, 0);
+  const src = fs.readFileSync(path.join(SLX_DIR, 'slxSound.js'), 'utf8');
+  assert.ok(!/AudioContext|createOscillator|createGain/.test(src), 'no Web Audio of its own');
+  // no engine: nothing throws, the counts still count
+  const R = page('slxSound.js');
   R.slx.fire('open');
   R.slx.fire('ownAdd', {});
   R.slx.fire('x:cashed', {});
+  R.slx.fire('x:refused', { why: 'full' });
+  R.slx.fire('x:chat', { name: 'Ann', text: 'hi' });
   assert.deepStrictEqual(plain(R.slx.sound.played()), { join: 1, death: 0, kill: 0, cashout: 1 });
+  // an engine that appears later is bound at the first sound
+  const L = page('slxSound.js');
+  const F = sfxFake();
+  L.win.DSSfx = F;
+  L.slx.fire('open');
+  L.slx.fire('ownAdd', { id: 1 });
+  assert.strictEqual(typeof F.level, 'function');
+  assert.deepStrictEqual(heard(F), ['g.join']);
+});
+
+test('slxSound: the own food_eat is a soft pat per frame (rate 0.9 to 1.25, 40 ms apart); others, a watcher, no snake: silent', () => {
+  const P = soundPage();
+  const F = P.F;
+  const eat = (id) => ({ type: 'food_eat', cmd: '<', eater: id });
+  P.slx.fire('open');
+  P.slx.fire('frame', [eat(7)], 100);
+  assert.deepStrictEqual(heard(F), [], 'no own snake yet');
+  P.S.slither = { id: 7 };
+  P.slx.fire('frame', [{ type: 'pong' }, eat(3), eat(9)], 100);
+  assert.deepStrictEqual(heard(F), [], 'other snakes\' food');
+  P.slx.fire('frame', [eat(3), eat(7), eat(7), eat(7)], 100);
+  assert.deepStrictEqual(heard(F), ['g.eat'], 'one pat for a frame of many');
+  assert.strictEqual(F.plays[0].o.gap, 40);
+  for (let i = 0; i < 40; i++) P.slx.fire('frame', [eat(7)], 100);
+  const rates = F.plays.map((p) => p.o.rate);
+  assert.ok(rates.every((r) => r >= 0.9 && r <= 1.25), 'rates ' + rates.join(','));
+  assert.ok(new Set(rates).size > 20, 'a different pitch each time');
+  assert.deepStrictEqual(new Set(heard(F)), new Set(['g.eat']));
+  const n = F.plays.length;
+  P.slx.br = { mode: () => 'watch' };
+  P.slx.fire('frame', [eat(7)], 100);
+  P.slx.br = undefined;
+  P.slx.watch = { state: () => ({ on: true }) };
+  P.slx.fire('frame', [eat(7)], 100);
+  assert.strictEqual(F.plays.length, n, 'a watcher follows another snake as its own');
+});
+
+test('slxSound: boost on and off from the outbound records, only on a change', () => {
+  const P = soundPage();
+  const F = P.F;
+  const boost = (on) => ({ type: 'boost', on });
+  P.slx.fire('open');
+  P.slx.fire('send', [{ type: 'angle', q: 3 }, { type: 'ping' }]);
+  P.slx.fire('send', [boost(false)]);
+  assert.deepStrictEqual(heard(F), [], 'off while off');
+  P.slx.fire('send', [{ type: 'angle', q: 4 }, boost(true)]);
+  P.slx.fire('send', [boost(true)]);
+  assert.deepStrictEqual(heard(F), ['g.boostOn']);
+  P.slx.fire('send', [boost(false)]);
+  P.slx.fire('send', [boost(false)]);
+  assert.deepStrictEqual(heard(F), ['g.boostOn', 'g.boostOff']);
+  // a death while boosting: the next boost is a change again
+  P.slx.fire('send', [boost(true)]);
+  P.slx.fire('ownDead', {});
+  P.slx.fire('send', [boost(false)]);
+  P.slx.fire('send', [boost(true)]);
+  assert.deepStrictEqual(heard(F).slice(2), ['g.boostOn', 'g.death', 'g.boostOn']);
+});
+
+test('slxSound: the cash-out ring starts with the own hold; its end is a cancel unless a cash-out or death follows', () => {
+  const P = soundPage();
+  const F = P.F;
+  P.S.slither = { id: 5 };
+  P.slx.fire('open');
+  P.slx.fire('x:hold', { t: 'hold', id: 9, on: 1, need: 3000 });
+  P.slx.fire('x:hold', { t: 'hold', id: 9, on: 0 });
+  P.raf(1, 100);
+  assert.deepStrictEqual(heard(F), [], 'another snake\'s ring');
+  P.slx.fire('x:hold', { t: 'hold', id: 5, on: 1, need: 3000 });
+  P.slx.fire('x:hold', { t: 'hold', id: 5, on: 1, need: 3000 });
+  assert.deepStrictEqual(heard(F), ['g.ringStart']);
+  // released: the cancel, a moment later
+  P.slx.fire('x:hold', { t: 'hold', id: 5, on: 0 });
+  assert.deepStrictEqual(heard(F), ['g.ringStart'], 'it waits to see what follows');
+  P.raf(1, 60);
+  assert.deepStrictEqual(heard(F), ['g.ringStart', 'g.ringCancel']);
+  P.slx.fire('x:hold', { t: 'hold', id: 5, on: 0 });
+  P.raf(1, 100);
+  assert.strictEqual(heard(F).length, 2, 'an end with no start');
+  // a finished hold: the end comes first, then 'cashed' in the same array
+  P.slx.fire('x:hold', { t: 'hold', id: 5, on: 1, need: 3000 });
+  P.slx.fire('x:hold', { t: 'hold', id: 5, on: 0 });
+  P.slx.fire('x:cashed', { t: 'cashed', len: 90 });
+  P.raf(1, 100);
+  assert.deepStrictEqual(heard(F).slice(2), ['g.ringStart', 'g.cashout']);
+  // a death with the ring up
+  P.slx.fire('open');
+  P.slx.fire('x:hold', { t: 'hold', id: 5, on: 1, need: 3000 });
+  P.slx.fire('x:hold', { t: 'hold', id: 5, on: 0 });
+  P.slx.fire('ownDead', {});
+  P.raf(1, 100);
+  assert.deepStrictEqual(heard(F).slice(4), ['g.ringStart', 'g.death']);
+  // a socket that closes with the ring up leaves nothing behind; a watcher hears no ring
+  P.slx.fire('open');
+  P.slx.fire('x:hold', { t: 'hold', id: 5, on: 1, need: 3000 });
+  P.slx.fire('x:hold', { t: 'hold', id: 5, on: 0 });
+  P.slx.fire('close', { playing: true });
+  P.raf(1, 100);
+  assert.strictEqual(heard(F).pop(), 'g.ringStart');
+  P.slx.br = { mode: () => 'watch' };
+  const n = F.plays.length;
+  P.slx.fire('x:hold', { t: 'hold', id: 5, on: 1, need: 3000 });
+  assert.strictEqual(F.plays.length, n);
+});
+
+test('slxSound: battle royale, the last 3 count seconds tick with their HUD number, GO, warning and closing once, a win only for the player', () => {
+  const P = soundPage();
+  const F = P.F;
+  P.slx.br = { mode: () => 'play' };
+  const br = (o) => P.slx.fire('x:br', Object.assign({ t: 'br', state: 'waiting', phase: 'waiting', countdownMs: 0, winner: null }, o));
+  P.slx.fire('open');
+  P.slx.fire('ownAdd', { id: 4 });
+  br({});
+  br({ state: 'countdown', phase: 'countdown', countdownMs: 10400 });
+  assert.deepStrictEqual(heard(F), ['g.join'], 'the long count is silent');
+  P.raf(1, 7400);
+  assert.deepStrictEqual(heard(F).slice(1), ['g.tick'], 'the HUD shows 3');
+  br({ state: 'countdown', phase: 'countdown', countdownMs: 2400 });
+  assert.strictEqual(heard(F).length, 2, 'a message does not tick twice for the same number');
+  P.raf(1, 400);
+  P.raf(1, 1000);
+  assert.deepStrictEqual(heard(F).slice(1), ['g.tick', 'g.tick', 'g.tick'], '3, 2, 1');
+  P.raf(1, 5000);
+  assert.strictEqual(heard(F).length, 4, 'nothing after the 1');
+  br({ state: 'running', phase: 'holding' });
+  assert.deepStrictEqual(heard(F).slice(4), ['g.go']);
+  br({ state: 'running', phase: 'holding' });
+  br({ state: 'running', phase: 'warning' });
+  br({ state: 'running', phase: 'warning' });
+  br({ state: 'running', phase: 'closing' });
+  br({ state: 'running', phase: 'closing' });
+  br({ state: 'running', phase: 'warning' });
+  assert.deepStrictEqual(heard(F).slice(5), ['g.warn', 'g.danger', 'g.warn']);
+  // the winner is this player: a win, once
+  br({ state: 'over', phase: 'over', winner: { id: 4, name: 'Owen' } });
+  br({ state: 'over', phase: 'over', winner: { id: 4, name: 'Owen' } });
+  assert.deepStrictEqual(heard(F).slice(8), ['g.win']);
+  // another winner, or a watcher: nothing extra
+  br({ state: 'reopening', phase: 'over', winner: { id: 4, name: 'Owen' } });
+  br({ state: 'waiting' });
+  br({ state: 'over', winner: { id: 11, name: 'Ann' } });
+  P.slx.br = { mode: () => 'watch' };
+  br({ state: 'waiting' });
+  br({ state: 'over', winner: { id: 4, name: 'Owen' } });
+  assert.strictEqual(heard(F).length, 9);
+  // joining a count already on: the number the HUD shows, then the rest; joining a running match: no GO
+  P.slx.br = { mode: () => 'play' };
+  P.slx.fire('open');
+  br({ state: 'countdown', phase: 'countdown', countdownMs: 2400 });
+  assert.strictEqual(heard(F).pop(), 'g.tick');
+  P.raf(1, 400);
+  P.raf(1, 1000);
+  assert.strictEqual(heard(F).slice(9).length, 3);
+  P.slx.fire('open');
+  br({ state: 'running', phase: 'warning' });
+  br({ state: 'running', phase: 'warning' });
+  assert.strictEqual(heard(F).length, 12, 'the first message of a socket is the baseline');
+  // the socket closing takes the pending ticks with it
+  P.slx.fire('open');
+  br({ state: 'countdown', phase: 'countdown', countdownMs: 5400 });
+  P.slx.fire('close', { playing: true });
+  P.raf(1, 6000);
+  assert.strictEqual(heard(F).length, 12);
+});
+
+test('slxSound: chat from another name pings (400 ms apart); the own line, an empty one and a bad message do not; a refusal is an error tone', () => {
+  const P = soundPage();
+  const F = P.F;
+  P.D.slMain = { nick: 'Owen' };
+  P.slx.fire('open');
+  P.slx.fire('x:chat', { t: 'chat', name: 'Ann', text: 'hello' });
+  P.slx.fire('x:chat', { t: 'chat', name: 'Owen', text: 'mine' });
+  P.slx.fire('x:chat', { t: 'chat', name: 'Ann', text: '' });
+  P.slx.fire('x:chat', { t: 'chat', name: 'Ann' });
+  P.slx.fire('x:chat', null);
+  assert.deepStrictEqual(heard(F), ['g.chat']);
+  assert.strictEqual(F.plays[0].o.gap, 400);
+  P.slx.fire('x:refused', { t: 'refused', why: 'full' });
+  assert.deepStrictEqual(heard(F), ['g.chat', 'g.err']);
 });
 
 // The shared end screens (dsEnd.js) are every game's file, not the layer's: their rules are their own .dse (card) and

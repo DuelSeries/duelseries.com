@@ -352,6 +352,7 @@
 
   socket.on('sh:killed', function (e) {
     say(e.by ? e.by + ' killed ' + e.name : e.name + ' was destroyed');
+    if (SND && e.by === NAME && e.name !== NAME) SND.fx('kill');
   });
   socket.on('sh:banked', function (e) {
     say(e.name + ' banked ' + e.amount, true);
@@ -508,6 +509,7 @@ function pressable(el, fn) {
        dismissed it, which on a phone meant the picker sat over the arena while
        you were already shooting with the new gun. */
     closeGunSheet();
+    if (SND && key !== WEAPON) SND.fx('click');
     try { localStorage.setItem('shooter:weapon', key); } catch (_) {}
     WEAPON = key;
     if (started) socket.emit('sh:weapon', { weapon: key });

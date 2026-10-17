@@ -1,21 +1,31 @@
-// DuelSeries layer on the frozen slither.io client: the old game's sounds (Owen Q14 "keep all"; SERVER-DESIGN 15.3
+// DuelSeries layer on the frozen slither.io client: the game's sounds (Owen Q14 "keep all"; SERVER-DESIGN 15.3
 // "Old extras kept"; task T17). Ours, not a parity area; their client has no sound.
 //
 // Inert unless slxNet installed the production transport (15.2, finalize pass C20).
 //
-// The old Web Audio synths, ported with their numbers unchanged (public/js/game.js:137-235, 320-358), and the one
-// cash-out fanfare every game shares (public/js/cashoutSound.js, loaded once here; its comment asks for one copy).
-// One shared AudioContext, resumed on the first gesture (game.js:137-155), so a phone or a fresh tab plays them.
-// The old mute and volume globals are honoured as before (window.gameMuted, gameMasterVol, gameSfxVol).
+// Every sound is a DSSfx buffer in the house Glass style (public/js/dsSfx.js engine, public/js/dsSfxGame.js sounds,
+// both loaded by sl.html before the client): a trigger only starts a pre-rendered buffer, so nothing waits. This file
+// owns no audio context and builds no oscillators. The old mute and volume globals are honoured as before
+// (window.gameMuted, gameMasterVol, gameSfxVol) through DSSfx.setLevel; the engine unlocks itself on the first gesture.
 //
 // Triggers, from the tap (slxNet):
-//   join      the own snake_add ('ownAdd'), once per socket
-//   death     the own `dead` ('ownDead'), unless this socket cashed out
-//   kill      the own kill_count rose ('ownKills'; their server sends the killer's total, slView L40)
-//   cash-out  sl:x {t: 'cashed'} (the server sends it before the own `dead`, server/sl/slRoom.js _cashOut)
+//   join      the own snake_add ('ownAdd'), once per socket                          g.join
+//   death     the own `dead` ('ownDead'), unless this socket cashed out              g.death
+//   kill      the own kill_count rose ('ownKills'; their server sends the killer's total, slView L40)   g.kill
+//   cash-out  sl:x {t: 'cashed'} (the server sends it before the own `dead`, server/sl/slRoom.js _cashOut)   g.cashout
 //   money     a paid room's own sl:x {t: 'w', d} with d > 0, the own snake ate gold (PAID-SL-DESIGN 9; only the own
-//             seat's worth message carries d, server/sl/slRoom.js _worthAll): the old money chime, which the old game
-//             played on each 'ate_dropped_food' (game.js:157-177, 238). A free room never sends it.
+//             seat's worth message carries d, server/sl/slRoom.js _worthAll). A free room never sends it.   g.pickup
+//   eat       a frame's food_eat whose eater is the own snake: one soft pat per frame, rate varied, 40 ms apart   g.eat
+//   boost     the outbound {type: 'boost', on}, only when it changes                 g.boostOn, g.boostOff
+//   ring      sl:x {t: 'hold'} for the own snake (hold Q): it starts, or it ends with no cash-out and no death
+//             (the server sends the ring's end before 'cashed' and the stream's `dead`, so a short wait decides)
+//                                                                                    g.ringStart, g.ringCancel
+//   battle royale, sl:x {t: 'br'} (slxBr.js): the last 3 whole seconds of the count, tick when their HUD number flips;
+//             GO when the match starts; the circle's warning and closing once each; a win when the winner is this
+//             player in play mode (slxBr's "You won")                                g.tick, g.go, g.warn, g.danger, g.win
+//   chat      sl:x {t: 'chat'} from another name (never the own line)                g.chat
+//   refused   sl:x {t: 'refused'}                                                    g.err
+// A watcher (the free room's Spectate, the event's Watch) follows another snake as its own: no eat or ring sounds.
 (function (root) {
   'use strict';
   var D = root.DuelSlither;
@@ -24,35 +34,14 @@
   var doc = root.document;
   if (!doc || typeof slx.on !== 'function') return;
 
-  var CASHOUT_SRC = '/js/cashoutSound.js';
-  // The gestures that unlock audio (game.js:150-155).
-  var UNLOCK = ['pointerdown', 'mousedown', 'mousemove', 'touchstart', 'touchmove', 'keydown', 'click'];
+  var EAT_GAP = 40; // ms between pats, so a big meal is a patter and not a buzz (Owen's brief)
+  var EAT_RATE_MIN = 0.9; // the slowest pat (Owen's brief)
+  var EAT_RATE_SPAN = 0.35; // up to 1.25 (Owen's brief)
+  var CHAT_GAP = 400; // ms between chat pings (Owen's brief)
+  var RING_WAIT = 50; // ms to see whether a ring's end was a cash-out or a death (both follow in the same flush)
+  var COUNT_SECS = 3; // the last whole seconds of the count that tick (Owen's brief)
 
-  // ---- the shared context (game.js:137-155)
-  var ctx = null;
-  function getAudioCtx() {
-    if (!ctx) {
-      var AC = root.AudioContext || root.webkitAudioContext;
-      if (typeof AC !== 'function') return null;
-      try {
-        ctx = new AC();
-      } catch (e) {
-        return null;
-      }
-    }
-    if (ctx.state === 'suspended' && typeof ctx.resume === 'function') {
-      try {
-        var p = ctx.resume();
-        if (p && typeof p.catch === 'function') p.catch(function () {});
-      } catch (e) { /* not allowed yet */ }
-    }
-    return ctx;
-  }
-  function unlock() {
-    getAudioCtx();
-  }
-  for (var u = 0; u < UNLOCK.length; u++) root.addEventListener(UNLOCK[u], unlock, { once: true, passive: true });
-
+  // ---- the engine (public/js/dsSfx.js)
   function muted() {
     return !!root.gameMuted;
   }
@@ -62,167 +51,239 @@
     return (m == null ? 1 : m) * (s == null ? 0.5 : s);
   }
 
-  // The fanfare, one copy for every game.
-  if (!root.CashoutSound && typeof doc.createElement === 'function') {
-    var script = doc.createElement('script');
-    script.src = CASHOUT_SRC;
-    (doc.head || doc.body).appendChild(script);
+  var bound = false;
+  function sfx() {
+    var s = root.DSSfx;
+    if (!s || typeof s.play !== 'function') return null;
+    if (!bound && typeof s.setLevel === 'function') {
+      bound = true;
+      s.setLevel(function () { return muted() ? 0 : vol(); });
+    }
+    return s;
   }
+  sfx();
 
-  // Three ascending notes, C5 E5 G5, a quick staggered chime (game.js:320-358).
-  function playJoin() {
-    if (muted()) return;
-    var ac = getAudioCtx();
-    if (!ac) return;
+  function play(name, opts) {
+    var s = sfx();
+    if (!s) return false;
     try {
-      var notes = [{ freq: 523.25, t: 0.00 }, { freq: 659.25, t: 0.13 }, { freq: 783.99, t: 0.26 }];
-      for (var i = 0; i < notes.length; i++) {
-        var n = notes[i];
-        var osc = ac.createOscillator();
-        var gain = ac.createGain();
-        var osc2 = ac.createOscillator();
-        var gain2 = ac.createGain();
-        osc.type = 'sine';
-        osc2.type = 'sine';
-        osc.frequency.value = n.freq;
-        osc2.frequency.value = n.freq * 2;
-        osc.connect(gain); gain.connect(ac.destination);
-        osc2.connect(gain2); gain2.connect(ac.destination);
-        var start = ac.currentTime + n.t;
-        gain.gain.setValueAtTime(0, start);
-        gain.gain.linearRampToValueAtTime(0.28 * vol(), start + 0.018);
-        gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.55);
-        gain2.gain.setValueAtTime(0, start);
-        gain2.gain.linearRampToValueAtTime(0.07, start + 0.018);
-        gain2.gain.exponentialRampToValueAtTime(0.0001, start + 0.35);
-        osc.start(start); osc.stop(start + 0.6);
-        osc2.start(start); osc2.stop(start + 0.4);
-      }
-    } catch (e) { /* audio not supported */ }
+      return s.play(name, opts) !== false;
+    } catch (e) {
+      return false;
+    }
   }
 
-  // A soft sine glide down plus a low thump (game.js:179-204).
-  function playDeath() {
-    if (muted()) return;
-    var ac = getAudioCtx();
-    if (!ac) return;
-    try {
-      var t = ac.currentTime;
-      var osc = ac.createOscillator(), gain = ac.createGain();
-      osc.connect(gain); gain.connect(ac.destination);
-      osc.type = 'sine'; osc.frequency.setValueAtTime(523, t);
-      osc.frequency.exponentialRampToValueAtTime(70, t + 0.55);
-      gain.gain.setValueAtTime(0.0001, t);
-      gain.gain.linearRampToValueAtTime(0.3, t + 0.03);
-      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.6);
-      osc.start(t); osc.stop(t + 0.62);
-      var o2 = ac.createOscillator(), g2 = ac.createGain();
-      o2.connect(g2); g2.connect(ac.destination);
-      o2.type = 'sine'; o2.frequency.setValueAtTime(160, t);
-      o2.frequency.exponentialRampToValueAtTime(55, t + 0.25);
-      g2.gain.setValueAtTime(0.28, t);
-      g2.gain.exponentialRampToValueAtTime(0.0001, t + 0.3);
-      o2.start(t); o2.stop(t + 0.32);
-    } catch (e) { /* audio not supported */ }
+  // A small fixed generator for the eat pitch (the layer keeps to fixed sequences).
+  var seed = 12345;
+  function rand() {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    return seed / 4294967296;
   }
 
-  // A punchy zap (game.js:205-228).
-  function playKill() {
-    if (muted()) return;
-    var ac = getAudioCtx();
-    if (!ac) return;
-    try {
-      var t = ac.currentTime;
-      var osc = ac.createOscillator(), gain = ac.createGain();
-      osc.connect(gain); gain.connect(ac.destination);
-      osc.type = 'square'; osc.frequency.value = 660;
-      osc.frequency.exponentialRampToValueAtTime(170, t + 0.12);
-      gain.gain.setValueAtTime(0.28, t);
-      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
-      osc.start(t); osc.stop(t + 0.16);
-      var o2 = ac.createOscillator(), g2 = ac.createGain();
-      o2.connect(g2); g2.connect(ac.destination);
-      o2.type = 'square'; o2.frequency.value = 1320;
-      g2.gain.setValueAtTime(0.14, t);
-      g2.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
-      o2.start(t); o2.stop(t + 0.09);
-    } catch (e) { /* audio not supported */ }
+  // ---- who is who
+  function ownId() {
+    var S = D.S;
+    var me = S ? S.slither : null;
+    return me && typeof me.id === 'number' ? me.id : null;
   }
-
-  // Four quick rising triangle notes, A5 to A6 (game.js:157-177).
-  function playMoney() {
-    if (muted()) return;
-    var ac = getAudioCtx();
-    if (!ac) return;
-    try {
-      var notes = [[880, 0], [1100, 0.07], [1320, 0.13], [1760, 0.19]];
-      for (var i = 0; i < notes.length; i++) {
-        var osc = ac.createOscillator();
-        var gain = ac.createGain();
-        osc.connect(gain);
-        gain.connect(ac.destination);
-        osc.type = 'triangle';
-        osc.frequency.value = notes[i][0];
-        var t = ac.currentTime + notes[i][1];
-        gain.gain.setValueAtTime(0, t);
-        gain.gain.linearRampToValueAtTime(0.25, t + 0.01);
-        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.28);
-        osc.start(t);
-        osc.stop(t + 0.28);
-      }
-    } catch (e) { /* audio not supported */ }
+  function ownNick() {
+    var m = D.slMain;
+    return m && typeof m.nick === 'string' ? m.nick : '';
   }
-
-  // The shared fanfare (game.js:231-236).
-  function playCashout() {
-    if (muted()) return;
-    var ac = getAudioCtx();
-    if (!ac) return;
-    var cs = root.CashoutSound;
-    if (cs && typeof cs.play === 'function') cs.play(ac, ac.destination, vol());
+  // Their client follows the watched snake as its own (slxWatch, slxBr watch mode).
+  function watching() {
+    var br = slx.br;
+    if (br && typeof br.mode === 'function' && br.mode() === 'watch') return true;
+    var w = slx.watch;
+    return !!(w && typeof w.state === 'function' && w.state().on === true);
   }
 
   // ---- per socket
   var joined = false;
   var cashed = false;
   var kills = 0;
+  var boosting = false;
+  var ringOn = false;
+  var ringTimer = null;
+  var myId = 0; // the own snake's id (slxBr's winner check)
+  var brState = null; // the last sl:x {t: 'br'} state; null before this socket's first
+  var brPhase = '';
+  var brTimers = [];
+  var tickedK = COUNT_SECS + 1; // the lowest count second already ticked
   var played = { join: 0, death: 0, kill: 0, cashout: 0 };
+
+  function clearRing() {
+    ringOn = false;
+    if (ringTimer !== null) {
+      root.clearTimeout(ringTimer);
+      ringTimer = null;
+    }
+  }
+  function clearCount() {
+    for (var i = 0; i < brTimers.length; i++) root.clearTimeout(brTimers[i]);
+    brTimers = [];
+  }
 
   slx.on('open', function () {
     joined = false;
     cashed = false;
     kills = 0;
+    boosting = false;
+    brState = null;
+    brPhase = '';
+    tickedK = COUNT_SECS + 1;
+    clearRing();
+    clearCount();
   });
-  slx.on('ownAdd', function () {
+  slx.on('close', function () {
+    clearRing();
+    clearCount();
+  });
+  slx.on('ownAdd', function (ev) {
+    if (ev && typeof ev.id === 'number') myId = ev.id;
     if (joined) return;
     joined = true;
     played.join++;
-    playJoin();
+    play('g.join');
   });
   slx.on('ownDead', function () {
+    boosting = false;
+    clearRing();
     if (cashed) return;
     played.death++;
-    playDeath();
+    play('g.death');
   });
   slx.on('ownKills', function (ev) {
     var n = ev && typeof ev.count === 'number' ? ev.count : 0;
     if (n > kills) {
       played.kill++;
-      playKill();
+      play('g.kill');
     }
     if (n > kills) kills = n;
   });
   slx.on('x:cashed', function () {
     if (cashed) return;
     cashed = true;
+    clearRing();
     played.cashout++;
-    playCashout();
+    play('g.cashout');
   });
   var money = 0;
   slx.on('x:w', function (m) {
     if (!m || typeof m.d !== 'number' || !(m.d > 0)) return;
     money++;
-    playMoney();
+    play('g.pickup');
+  });
+
+  // ---- eating: one pat per frame that has an own food_eat (slApply onFoodEat; the server sends cmd '<' with an eater)
+  slx.on('frame', function (events) {
+    if (!events) return;
+    var id = ownId();
+    if (id === null) return;
+    for (var i = 0; i < events.length; i++) {
+      var ev = events[i];
+      if (ev && ev.type === 'food_eat' && ev.eater === id) {
+        if (!watching()) play('g.eat', { rate: EAT_RATE_MIN + rand() * EAT_RATE_SPAN, gap: EAT_GAP });
+        return;
+      }
+    }
+  });
+
+  // ---- boost: the outbound records, a sound only when the state changes
+  slx.on('send', function (list) {
+    if (!list) return;
+    for (var i = 0; i < list.length; i++) {
+      var r = list[i];
+      if (!r || r.type !== 'boost') continue;
+      var on = !!r.on;
+      if (on === boosting) continue;
+      boosting = on;
+      play(on ? 'g.boostOn' : 'g.boostOff');
+    }
+  });
+
+  // ---- the cash-out ring (hold Q): the own snake's {t: 'hold', id, on}
+  slx.on('x:hold', function (m) {
+    var id = ownId();
+    if (!m || id === null || m.id !== id || watching()) return;
+    if (m.on) {
+      if (ringOn) return;
+      ringOn = true;
+      play('g.ringStart');
+      return;
+    }
+    if (!ringOn) return;
+    clearRing();
+    // the end of a finished hold comes before 'cashed', and a death before the stream's `dead`: both clear this
+    ringTimer = root.setTimeout(function () {
+      ringTimer = null;
+      play('g.ringCancel');
+    }, RING_WAIT);
+  });
+
+  // ---- battle royale
+  function won(m) {
+    var w = m.winner;
+    var br = slx.br;
+    if (!w || typeof w.id !== 'number' || !br || typeof br.mode !== 'function' || br.mode() !== 'play') return false;
+    var id = myId || ownId();
+    return !!id && w.id === id;
+  }
+  // A tick when their HUD number flips to k (slxBr secsLeft: the seconds left, rounded up). The sl:x only comes about
+  // once a second, so the flips ahead are timed from the message.
+  function count(leftMs) {
+    clearCount();
+    var shown = Math.ceil(leftMs / 1000);
+    for (var k = COUNT_SECS; k >= 1; k--) {
+      if (k >= tickedK) continue;
+      if (k === shown) {
+        tickedK = k;
+        play('g.tick');
+      } else if (k < shown) {
+        brTimers.push(root.setTimeout(tickFor(k), leftMs - k * 1000));
+      }
+    }
+  }
+  function tickFor(k) {
+    return function () {
+      if (k >= tickedK) return;
+      tickedK = k;
+      play('g.tick');
+    };
+  }
+  slx.on('x:br', function (m) {
+    if (!m) return;
+    var state = typeof m.state === 'string' ? m.state : '';
+    var phase = typeof m.phase === 'string' ? m.phase : '';
+    var left = typeof m.countdownMs === 'number' && m.countdownMs > 0 ? m.countdownMs : 0;
+    if (state === 'countdown') {
+      count(left);
+    } else {
+      clearCount();
+      tickedK = COUNT_SECS + 1;
+    }
+    // the first message of a socket is the baseline: joining a match that is on is not its start
+    if (brState !== null) {
+      if (brState === 'countdown' && state === 'running') play('g.go');
+      if (state === 'running' && phase !== brPhase) {
+        if (phase === 'warning') play('g.warn');
+        else if (phase === 'closing') play('g.danger');
+      }
+      if (state === 'over' && brState !== 'over' && won(m)) play('g.win');
+    }
+    brState = state;
+    brPhase = phase;
+  });
+
+  // ---- chat from others (slxChat shows the lines; the own line comes back under the own name)
+  slx.on('x:chat', function (m) {
+    if (!m || typeof m.text !== 'string' || !m.text) return;
+    if (typeof m.name === 'string' && m.name === ownNick()) return;
+    play('g.chat', { gap: CHAT_GAP });
+  });
+
+  slx.on('x:refused', function () {
+    play('g.err');
   });
 
   slx.sound = {

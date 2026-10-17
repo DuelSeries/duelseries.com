@@ -13,13 +13,25 @@
      3. a sparkle gliding up over the top of the chord
 
    The numbers are the snake game's numbers. Do not "improve" them in one game;
-   change them here and all three move together, which is the whole point. */
+   change them here and all three move together, which is the whole point.
+
+   When the shared sound engine is on the page (public/js/dsSfx.js with the Glass
+   game sounds, dsSfxGame.js), the fanfare is its 'g.cashout' sound, started
+   from a pre-rendered buffer on the caller's context, so every game that loads
+   both files gets the house Glass cash-out. The synth below is the fallback
+   for a page without them. */
 
 (function (root) {
 
   function play(ctx, dest, vol) {
     if (!ctx || !dest) return false;
     var v = vol === undefined ? 1 : vol;
+    var sfx = root.DSSfx;
+    if (sfx && typeof sfx.playIn === 'function' && typeof sfx.has === 'function' && sfx.has('g.cashout')) {
+      try {
+        return sfx.playIn(ctx, dest, 'g.cashout', v) !== false;   // false: muted, hidden or held, so stay silent
+      } catch (e) { /* the engine failed: the synth below */ }
+    }
     try {
       var t0 = ctx.currentTime;
 

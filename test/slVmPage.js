@@ -66,9 +66,11 @@ class Mix {
 // ---------------------------------------------------------------------------------------------------- the page
 
 const HTML = fs.readFileSync(path.join(ROOT, 'public/sl.html'), 'utf8');
-// The product scripts of sl.html, in page order (socket.io is not used: the harness transport replaces it).
+// The product scripts of sl.html, in page order (socket.io is not used: the harness transport replaces it; the sound
+// engine, js/dsSfx*.js, is the layer's and not the client's, and its load-time timer would shift the timer ids the
+// client keeps in its state, e.g. login_iv).
 const SCRIPTS = [...HTML.matchAll(/<script src="([^"]+)"><\/script>/g)].map((m) => m[1])
-  .filter((s) => !s.startsWith('/socket.io/'))
+  .filter((s) => !s.startsWith('/socket.io/') && !s.startsWith('/js/dsSfx'))
   .map((s) => (s.startsWith('/shared/') ? s.slice(1) : 'public' + s));
 const SRC = SCRIPTS.map((f) => [f, fs.readFileSync(path.join(ROOT, f), 'utf8')]);
 
