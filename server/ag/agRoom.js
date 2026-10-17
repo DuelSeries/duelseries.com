@@ -157,7 +157,7 @@ class AgRoom {
   // socket whose account just closed (death, cash-out, release, refund) or that another socket replaced.
   constructor({ laws = LAWS, shippableOnly = true, stake = 0, region = 'na', index = 0, seed, clock = monotonicNow,
     now = Date.now, autoTick = true, log = console, viewBelowOf = null, portraitOf = null, moneyHooks = null,
-    onSeatless = null } = {}) {
+    onSeatless = null, paidBots = false } = {}) {
     if (shippableOnly) assertShippable(laws);
     const R = readRoomLaws(laws);
     this.laws = laws;
@@ -191,6 +191,9 @@ class AgRoom {
     this.still = new Set();
     this.shielded = null;
     this.money = null;
+    // The owner's bots in a paid room (#0 of a rung, Owen 2026-10-16): held by hand from Control, never filled by
+    // themselves. They never eat a person's cell and carry no money (agSim playerCanEat, moneyFact).
+    this.paidBots = paidBots === true && Number(stake) > 0;
     this.onSeatless = typeof onSeatless === 'function' ? onSeatless : null;
     this._holders = new Set();  // free rooms: seats with a hold message or a running hold
     if (this.paid) {
@@ -247,7 +250,7 @@ class AgRoom {
   }
 
   botsAllowed() {
-    return this.isFree();
+    return this.isFree() || this.paidBots === true;
   }
 
   // Humans who have joined (pressed Play at least once and not left). Watchers are not players. In a paid room:
@@ -345,6 +348,7 @@ class AgRoom {
       this.clearBots();
       return;
     }
+    if (!this.isFree()) return; // paid bots are only the owner's, added by hand
     const auto = [];
     for (const b of this.bots.values()) if (!b.manual) auto.push(b);
     const plan = agBots.planBotFill({ humans: this.liveHumans, bots: auto.length, botsAllowed: true }, this.laws);
@@ -1210,7 +1214,7 @@ class AgRoom {
   // room does (slRoom setAwake). Refused for a paid room, which has no bots and ticks only for its accounts and seats.
   // Returns whether the room is awake now.
   setAwake(on) {
-    this.awake = on === true && !this.paid && !this.money && !this.stopped;
+    this.awake = on === true && ((!this.paid && !this.money) || this.paidBots === true) && !this.stopped;
     if (this.awake) this._ensureTicking();
     return this.awake;
   }

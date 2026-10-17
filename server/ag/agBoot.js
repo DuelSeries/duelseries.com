@@ -84,7 +84,14 @@ function openAg(opts) {
     const m = o.money || null;
     const paid = agPaidSwitch(env.AG_PAID, log) && !!(m && m.hooks && m.door);
     const arenas = new AgArenas({ region: o.region || 'na', laws, shippableOnly: !dev, log,
-      autoTick: o.autoTick !== false, paid, moneyHooks: paid ? m.hooks : null });
+      autoTick: o.autoTick !== false, paid, moneyHooks: paid ? m.hooks : null, botStore: paid ? o.botStore : null });
+    if (paid) {
+      try {
+        arenas.startBots();
+      } catch (e) {
+        log.error('[AG] paid bots not restored: ' + (e && e.message));
+      }
+    }
     // The owner's agar:paid:off outlives a restart (security review item b, as sl:paid:off does): a close saved
     // before this boot opens the paid rungs with their door shut until agar:paid:on. A switch that cannot be read
     // fails CLOSED.

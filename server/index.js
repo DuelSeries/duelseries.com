@@ -2684,8 +2684,10 @@ const agBoot = require('./ag/agBoot').openAg({
   /* A saved agar:paid:off opens the paid door shut (security review item b). */
   paidSwitch: agPaidSwitch,
   /* Bots already playing in the free room before anybody comes (agArenas
-     keepAwake). Paid rooms stay people-only (Owen 2026-10-16). */
+     keepAwake). Paid rooms take only the owner's bots from Control, saved here;
+     they never eat a person's cell and carry no money (Owen 2026-10-16). */
   awake: true,
+  botStore: require('./paidBotStore').createBotStore({ file: path.join(path.dirname(agJournal.file), 'ag-paid-bots.json') }),
 });
 const agArenas = agBoot.arenas;
 const AG_PAID_ON = !!agBoot.paid;

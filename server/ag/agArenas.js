@@ -52,6 +52,7 @@ const ARENA_TUNING = Object.freeze({
 });
 const MAX_ROOMS = ARENA_TUNING.MAX_ROOMS.value;
 const SWEEP_IDLE_MS = ARENA_TUNING.SWEEP_IDLE_MS.value;
+const AG_PAID_BOT_MAX = 40; // the owner's bots per paid agar.io rung (room #0)
 // An empty replacement of the awake free room is woken at most this often (keepAwake, _replace; slArenas's gap).
 const AWAKE_RESTART_GAP_MS = 60000;
 const PORTRAIT_GAP_MS = ARENA_TUNING.PORTRAIT_GAP_MS.value;
@@ -74,7 +75,7 @@ class AgArenas {
   // paid: AG_PAID at boot (the paid rungs exist only then); moneyHooks: the payout and alert hooks every paid room's
   // money controller needs (onCashout, onRefund, onTransfer, onFeed, onBreach, onStake, onHouse); timers: tests only
   constructor({ region = 'na', laws = LAWS, shippableOnly = true, now = Date.now, clock, autoTick = true, seed,
-    makeRoom, game = 'agar', log = console, paid = false, moneyHooks = null, timers = null } = {}) {
+    makeRoom, game = 'agar', log = console, paid = false, moneyHooks = null, timers = null, botStore = null } = {}) {
     if (shippableOnly) assertShippable(laws);
     assertLawsComplete(laws, ['L39']);
     this.region = region;
@@ -119,6 +120,76 @@ class AgArenas {
     this.outcomes = new Map();       // 't:' + proof or 'k:' + resumeKey -> { why, refunded, at, extra }, oldest first
     this.releases = new Map();       // wallet -> times of its unconfirmed-seat refunds, oldest first
     this.paidSeatless = new Map();   // socketId -> timer: a paid hand-off socket waiting for its ag:join
+    // The owner's paid bots (Control, Owen 2026-10-16): stake -> n held in the rung's room #0, saved in botStore.
+    // They never eat a person's cell and carry no money (agSim), so they can never take money out.
+    this.botStore = botStore && typeof botStore.load === 'function' ? botStore : null;
+    this.botTargets = new Map();
+    if (this.paidEnabled && this.botStore) {
+      let saved = null;
+      try {
+        saved = this.botStore.load();
+      } catch (e) {
+        this.log.error('[AG] paid bots: saved targets unreadable: ' + (e && e.message));
+      }
+      for (const st of this.rungs.keys()) {
+        const n = saved ? saved[String(st)] : undefined;
+        if (Number.isInteger(n) && n > 0 && n <= AG_PAID_BOT_MAX) this.botTargets.set(st, n);
+      }
+    }
+  }
+
+  startBots() {
+    for (const [stake, n] of this.botTargets) if (n > 0) this._applyBots(stake);
+  }
+
+  botTarget(stake) {
+    const st = this._rungOf(stake);
+    return st === null ? null : (this.botTargets.get(st) || 0);
+  }
+
+  botCount(stake) {
+    const st = this._rungOf(stake);
+    if (st === null) return 0;
+    let n = 0;
+    for (const r of this.rungs.get(st) || []) n += Number(r.botCount) || 0;
+    return n;
+  }
+
+  // -> { ok, live, held, saved } or { ok: false, why }
+  setBotTarget(stake, n) {
+    const st = this._rungOf(stake);
+    if (!this.paidEnabled || st === null) return { ok: false, why: 'No paid agar.io rung at ' + stake };
+    if (this.stopping) return { ok: false, why: 'The server is stopping' };
+    if (!Number.isInteger(n) || n < 0 || n > AG_PAID_BOT_MAX) return { ok: false, why: 'Bots: a whole number from 0 to ' + AG_PAID_BOT_MAX };
+    if (n > 0) this.botTargets.set(st, n);
+    else this.botTargets.delete(st);
+    let saved = true;
+    if (this.botStore && typeof this.botStore.save === 'function') {
+      const obj = {};
+      for (const [k, v] of this.botTargets) obj[String(k)] = v;
+      try {
+        saved = this.botStore.save(obj) !== false;
+      } catch (e) {
+        saved = false;
+      }
+    }
+    const room = this._applyBots(st);
+    return { ok: true, live: room ? Number(room.botCount) || 0 : 0, held: n, saved };
+  }
+
+  // Room #0 holds the rung's bots by hand (the paid fill adds none): opened when needed, the surplus taken out, the
+  // missing added, awake while n > 0. -> the room or null
+  _applyBots(stake) {
+    const n = this.botTargets.get(stake) || 0;
+    const list = this.rungs.get(stake) || [];
+    let room = list.find((r) => r.index === 0 && !r.stopped) || null;
+    if (!room && n > 0) room = this._createPaid(stake, 0);
+    if (!room || room.paidBots !== true) return room;
+    const bots = Array.from(room.bots.values()).sort((a, b) => b.pid - a.pid);
+    for (let i = 0; i < bots.length - n; i++) room._removeBot(bots[i]);
+    for (let i = room.bots.size; i < n; i++) room._spawnBot(true);
+    room.setAwake(n > 0);
+    return room;
   }
 
   _create(index) {
@@ -229,6 +300,7 @@ class AgArenas {
       onSeatless: (socket, room, outcome) => this._seatless(socket, room, outcome),
     };
     if (this.clock) opts.clock = this.clock;
+    if (index === 0) opts.paidBots = true; // only #0 holds the owner's bots (setBotTarget)
     if (this.seed !== undefined && this.seed !== null) opts.seed = this.seed + 1000 * Math.round(stake * 100) + index;
     let room = null;
     opts.moneyHooks = this._moneyHooks(() => room);
@@ -735,6 +807,7 @@ class AgArenas {
   // is retried (any account its emergency settle left open) and dropped once its bank is empty.
   sweep(now) {
     this._rewake();
+    if (!this.stopping) for (const [st, n] of this.botTargets) if (n > 0) this._applyBots(st);
     for (const room of this.rooms.slice()) {
       if (room.index === 0 || room.seats.size > 0) {
         this.emptySince.delete(room);
@@ -817,7 +890,7 @@ class AgArenas {
         stake,
         players: open,
         parked,
-        bots: 0,
+        bots: list.reduce((k, r) => k + (Number(r.botCount) || 0), 0),
         capacity: this.cap,
         state: this.paidOpen ? 'open' : 'closed',
       });
