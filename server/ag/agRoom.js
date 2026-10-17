@@ -356,7 +356,12 @@ class AgRoom {
   }
 
   _spawnBot(manual) {
-    const name = agBots.botName(this.rng);
+    // Never a name someone in the room is wearing now, person or bot (server/botNames.js deals the rest).
+    const name = agBots.botName(this.rng, (lc) => {
+      for (const st of this.seats.values()) if (st.name && st.name.toLowerCase() === lc) return true;
+      for (const b of this.bots.values()) if (b.name && b.name.toLowerCase() === lc) return true;
+      return false;
+    });
     const pid = this.sim.addPlayer({ name, bot: true });
     const brain = agBots.createBotBrain({ laws: this.laws, seed: this.rng.int(SEED_SPAN) });
     const bot = { pid, name, brain, manual: manual === true };

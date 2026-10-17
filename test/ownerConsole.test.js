@@ -119,7 +119,7 @@ test('duelStatus counts a paid seat waiting in the queue and a paid table until 
   // a free table against a bot: one person, one bot table, no money
   const free = new KnockoutLobby(io);
   free.enqueue(sock('F'), 'Fay', null, 0, 0, 1000);
-  free.tick(1000 + 16000);
+  free.tick(1000 + require('../server/KnockoutLobby').BOT_AFTER_MS + 1000);
   d = ops.duelStatus([free]);
   assert.deepEqual([d.people, d.paidPeople, d.worth, d.botTables, d.rungs['0'].bots], [1, 0, 0, 1, 1]);
   assert.equal(ops.drainStatus([], null, d).safe, true, 'a free duel is not money');
@@ -411,7 +411,7 @@ test('index.js: the restart check, maintenance, Start alone, bots:set and announ
 
 test('index.js: the snapshot is state v2, with the old fields kept, and every owner answer is no-store', () => {
   const snap = SRC.slice(SRC.indexOf('function opsSnapshot(req, signed)'), SRC.indexOf("app.post('/api/owner/state'"));
-  for (const k of ['v: 2,', 'auth: ownerAuthOf(req, signed),', 'open: !m.maintenance,', 'drain: drainNow(),',
+  for (const k of ['v: 2,', 'auth: consoleAuthOf(req, signed),', 'open: !m.maintenance,', 'drain: drainNow(),',
     'escrow: consoleEscrow(),', 'games: consoleGames(ko, bs),', 'smooth: consoleSmooth(),', 'rooms,',
     'audit: ownerConsole.mergeAudit(ops.auditLog, ownerAuth.auditLog, 50),']) {
     assert.ok(snap.includes(k), k);

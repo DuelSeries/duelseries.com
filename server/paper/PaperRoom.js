@@ -97,7 +97,7 @@ class PaperRoom {
     this.game.addUnit = (unit) => {
       addUnit(unit);
       if (!unit.isHuman) {
-        this.pending.push(['j', { id: unit.id, name: unit.name, skin: unit.skin ? unit.skin.name : null, bot: true, micro: 0, x: unit.position.x, y: unit.position.y }]);
+        this.pending.push(['j', { id: unit.id, name: unit.name, skin: unit.skin ? unit.skin.name : null, bot: false, micro: 0, x: unit.position.x, y: unit.position.y }]);
       }
     };
     // A capture drives the owner's "+x.xx%" label.

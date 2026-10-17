@@ -490,7 +490,10 @@ const rpcLimiter = rateLimit({ windowMs: 10 * 1000, max: 100, standardHeaders: t
    /admin/finance, /api/admin/*, the owner-gated debug reads). Signature checks are local
    arithmetic but not free, and none of these is called often by an honest browser: the owner
    console refreshes every 15 s, a rename is one click. 30 a minute per address. */
-const sigLimiter = rateLimit({ windowMs: 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Slow down.' } });
+/* An owner on a live session cookie skips this count: the console polls every 5 s from each open
+   tab and the cookie check costs one HMAC, not a signature verify. Everyone else keeps 30 a minute. */
+const sigLimiter = rateLimit({ windowMs: 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Slow down.' },
+  skip: (req) => { try { return !!ownerSessions.fromRequest(req); } catch (_) { return false; } } });
 /* /api/debug/client stays open (it is how a browser reports a stall), so it gets its own cap:
    diag.js posts every 20 s, so 6 a minute per address is double that. */
 const clientReportLimiter = rateLimit({ windowMs: 60 * 1000, max: 6, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Slow down.' } });
@@ -1497,7 +1500,7 @@ function consoleEscrow() {
 
 /* How this request was let in, as the session check (or the signature check
    here) recorded it, for the console's "signed in on" line and the audit. */
-function ownerAuthOf(req, signed) {
+function consoleAuthOf(req, signed) {
   const a = req && req.ownerAuth && typeof req.ownerAuth === 'object' ? req.ownerAuth : null;
   if (a) return { via: String(a.via || 'session'), device: a.device || null, exp: a.exp || null };
   const s = req && req.ownerSession && typeof req.ownerSession === 'object' ? req.ownerSession : null;
@@ -1505,8 +1508,14 @@ function ownerAuthOf(req, signed) {
   const who = req && typeof req.ownerWho === 'string' ? req.ownerWho : '';
   return { via: who.startsWith('session') ? 'session' : signed ? 'signature' : 'token', device: null, exp: null };
 }
-const ownerWho = (req, signed) => (req && typeof req.ownerWho === 'string' && req.ownerWho
-  ? req.ownerWho : signed ? 'signature' : 'token');
+/* Who acted, for the audit: the session's device tag or 'token' as the owner check recorded it,
+   else 'signature' (a signature's who is the wallet itself, which the log does not need). */
+const ownerWho = (req, signed) => {
+  const a = req && req.ownerAuth;
+  if (a && a.via !== 'signature' && typeof a.who === 'string' && a.who) return a.who;
+  if (req && typeof req.ownerWho === 'string' && req.ownerWho) return req.ownerWho;
+  return signed ? 'signature' : 'token';
+};
 
 /* The snake turning switch (sl:smooth:off/on), in memory on the sl engine. */
 function consoleSmooth() {
@@ -1559,7 +1568,7 @@ function opsSnapshot(req, signed) {
     now,
     region: REGION,
     uptimeSec: Math.round(process.uptime()),
-    auth: ownerAuthOf(req, signed),
+    auth: consoleAuthOf(req, signed),
     open: !m.maintenance,
     /* `maintenance` (the boolean) is the old page's name for `on`. */
     maintenance: Object.assign({}, m, { on: !!m.maintenance, saved: ops.saved() }),
@@ -1588,9 +1597,9 @@ function opsSnapshot(req, signed) {
 app.post('/api/owner/state', sigLimiter, async (req, res) => {
   /* Checked once and the answer kept: a signature is spent by the check, and
      the snapshot says which way the request got in. */
-  const signed = ownerFromSignature(req.body);
-  if (!signed && !(await isOwnerReq(req))) return res.status(403).json({ error: 'Not an owner' });
-  res.json(opsSnapshot(req, signed));
+  const a = await ownerAuthOf(req);
+  if (!a) return res.status(403).json({ error: 'Not an owner' });
+  res.json(opsSnapshot(req, a.via === 'signature' ? a.who : null));
 });
 
 /* One announcement every ten seconds at most: it lands on every open page at
