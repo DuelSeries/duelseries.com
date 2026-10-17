@@ -491,9 +491,17 @@ class SlRoom {
   // One bot by hand. Refused above C_ROOM_CAP, without a bot driver (slBots, task T12), and in a paid room.
   addBot() {
     if (this.money && this.paidBots !== true) return null;
+    // a paid room holds at most R.humanCap snakes of any kind (the checker's I10, a taint; the border stays put)
+    if (this.money && this.sim.count() >= this.R.humanCap) return null;
     if (this.stopped || !this.bots || typeof this.bots.add !== 'function') return null;
     if (this.sim.count() >= this.R.roomCap) return null;
     return this.bots.add(this) || null;
+  }
+
+  // Bots out until the paid room has room for `room` more snakes under R.humanCap (people first, never past I10).
+  _paidBotTrim(room) {
+    const over = this.sim.count() + room - this.R.humanCap;
+    if (over > 0 && this.bots && typeof this.bots.removeBots === 'function') this.bots.removeBots(this, over);
   }
 
   clearBots() {
@@ -548,6 +556,8 @@ class SlRoom {
   _buildSeat(socket, info, built) {
     const inf = info || {};
     const cv = Number.isInteger(inf.cv) && inf.cv >= 0 ? inf.cv : 0;
+    // the owner's bots give a person their place: a paid room never holds more than R.humanCap snakes (I10)
+    if (this.paidBots) this._paidBotTrim(1);
     const s = this.spawnSnake({ nick: inf.nick, cv, isBot: false });
     // A bought skin (docs/skin-purchases.md): its custom bytes, from slSockets after the skin pass checked out. Kept on
     // the snake for slView's snake_add only; the sim and its digest never read it. Byte values only, capped.
@@ -1583,6 +1593,7 @@ class SlRoom {
       }
     }
     if (this.bots && typeof this.bots.afterStep === 'function') this.bots.afterStep(this, log, simMs);
+    if (this.paidBots) this._paidBotTrim(0);
     this.world.afterStep(frame);
     frame.log = null; // valid only during the step
     job.frames.push(frame);

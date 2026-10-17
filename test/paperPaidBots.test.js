@@ -23,10 +23,11 @@ function world(saved) {
   let t = 5000000;
   const clock = { now: () => t, advance: (ms) => { t += ms; } };
   const io = { to: () => ({ emit() {}, volatile: { emit() {} } }) };
-  const calls = { cashout: [], refund: [], sweep: [], breach: [] };
+  const calls = { cashout: [], refund: [], sweep: [], breach: [], owed: [] };
   const hooks = {
     onCashout: (o) => calls.cashout.push(o), onTransfer() {}, onRefund: (x) => calls.refund.push(x),
     onSweep: (x) => calls.sweep.push(x), onBreach: (x) => calls.breach.push(x),
+    onOwed: (row) => { calls.owed.push(row); return Promise.resolve('owed'); },
   };
   const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'ppbots-')), 'j.log');
   const journal = createAgJournal({ file, bootId: 'b1', log: { log() {}, warn() {}, error() {} } });
@@ -96,11 +97,17 @@ test('the hour sweep of a bot arena sends the coin back to its dropper, not the 
   const { w, room, a } = botScene();
   room.sweepPickups(w.clock.now() + MP.PICKUP_SWEEP_MS + 1);
   assert.deepEqual(w.calls.sweep, [], 'nothing to the house');
-  assert.equal(w.calls.refund.length, 1);
-  assert.equal(w.calls.refund[0].wallet, a.wallet);
-  assert.equal(w.calls.refund[0].micro, 1000000);
-  // ledger: in 2,000,000 == refunds + live (B's account)
-  assert.equal(2000000, w.calls.refund[0].micro + room.bank.totalMicro());
+  assert.equal(w.calls.owed.length, 1);
+  const row = w.calls.owed[0];
+  assert.equal(row.wallet, a.wallet);
+  assert.equal(row.micro, 1000000);
+  assert.match(row.key, KEY_RE);
+  assert.ok(row.reason.startsWith('refund') && row.reason.includes(row.key));
+  // journaled first, keyed, so a crash replays it once
+  const recs = fs.readFileSync(w.file, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  assert.ok(recs.some((x) => x.t === 'close' && x.key === row.key && x.why === 'botfloor'));
+  // ledger: in 2,000,000 == owed rows + live (B's account)
+  assert.equal(2000000, row.micro + room.bank.totalMicro());
 });
 
 test('a restart of a bot arena owes the floor back as keyed rows, journaled, never a house floor record', () => {

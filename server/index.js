@@ -1578,7 +1578,8 @@ function opsSnapshot(req, signed) {
        worked out again on the client. The console used to offer every room in
        one dropdown and refuse most of them after the fact, so the control that
        adds bots mostly did nothing and never said why beforehand. */
-    takesBots: typeof r.botsAllowed === 'function' ? r.botsAllowed() : false,
+    /* free rooms only: a paid room's bots are held per rung (bots:set paidbots:...) */
+    takesBots: typeof r.botsAllowed === 'function' ? r.botsAllowed() && !r.money && r.paid !== true : false,
     label: roomLabel(r),
     /* Paper only (undefined, so absent, for every other room): money lying on
        an arena floor. It is memory only like a live stake but the drain does
@@ -1700,6 +1701,8 @@ app.post('/api/owner/do', sigLimiter, async (req, res) => {
          about either of them — it needed to stop looking in one list. */
       const room = ALL_ROOMS().find(r => r.lobbyType === args.room);
       if (!room) return refuse('No room called ' + args.room);
+      /* A paid room's bots go only through its rung's held count (bots:set paidbots:...). */
+      if (room.money || room.paid === true) return refuse('Set paid bots on the room row in the sheet');
       /* These two manage the room their own way, so a number bots:set was
          holding is let go first rather than left to fight them. */
       ownerConsole.releaseHold(room);
@@ -2550,6 +2553,10 @@ const paperArenas = new PaperArenas({
     onCashout: (order) => agInflight.track(paperPayout.payCashout(order)),
     onTransfer: (t) => collusion.record(t.srcWallet, t.dstWallet, t.micro / 1e6, { lobbyType: t.label }),
     onRefund: (info) => agInflight.track(paperPayout.refund(info)),
+    /* A bot arena's uncollected coin back to its dropper: a keyed owed row (journaled
+       first by PaperRoom), paid by the owed lane's drainer. */
+    onOwed: (row) => db.recordOwedOnce(row.key, row.wallet, row.micro / 1e6, row.name || 'Player', row.reason)
+      .then(() => kickDrain()),
     onSweep: paperPayout.sweepFloor,
     onBreach: paperOwnerAlert,
     /* The buy-in row, written when a paid seat is first steered rather than
@@ -2821,7 +2828,10 @@ const slPaidOpened = slPaidBoot.openSlPaid({
      eat a cash pellet, and a room they played in gives its unclaimed floor back
      to the players who dropped it, never to the house (Owen 2026-10-16). */
   arenas: slArenas ? {
-    botDriver: () => require('./sl/slBots').createBotDriver(slArenas.laws, { governor: slArenas.governor }),
+    /* its room cap is the paid cap, so held bots plus people stay inside it (I10) */
+    botDriver: () => require('./sl/slBots').createBotDriver(Object.assign({}, slArenas.laws, { C_ROOM_CAP:
+      Object.assign({}, slArenas.laws.C_ROOM_CAP, { value: slArenas.laws.C_PAID_HUMAN_CAP.value }) }),
+    { governor: slArenas.governor }),
     botStore: require('./paidBotStore').createBotStore({ file: path.join(path.dirname(agJournal.file), 'sl-paid-bots.json') }),
   } : undefined,
   door: {

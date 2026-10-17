@@ -1057,16 +1057,25 @@ class PaperRoom {
     return rec;
   }
 
-  // A live coin of a bot room back to its dropper, 100%, through the refund hook (the emergency close's own path).
+  // A live coin of a bot room back to its dropper, 100%, as a keyed owed row journaled first (_floorBack), so a crash
+  // before the row is written replays it once at the next boot; then hooks.onOwed writes it (the owed lane's drainer
+  // pays it). Without an onOwed hook (tests, an old wiring) the refund hook pays it now.
   _coinBack(s, why) {
-    if (!s.srcWallet) {
-      console.error('[PAPER] BOTFLOOR CRITICAL coin of ' + s.micro + ' micro with no source wallet (' + this.lobbyType + ')');
-      return;
-    }
-    try {
-      this.hooks.onRefund({ wallet: s.srcWallet, name: s.srcName, micro: s.micro, paid: undefined, why });
-    } catch (e) {
-      console.error('[PAPER] BOTFLOOR refund hook (' + this.lobbyType + '): ' + (e && e.message));
+    const rows = this._floorBack([{ srcWallet: s.srcWallet, srcName: s.srcName, micro: s.micro }], why);
+    for (const row of rows) {
+      try {
+        if (typeof this.hooks.onOwed === 'function') {
+          const p = this.hooks.onOwed(row);
+          if (p && typeof p.then === 'function') {
+            p.then(null, (e) => console.error('[PAPER] OWED CRITICAL botfloor ' + row.key + ' not written yet, the journal ' +
+              'carries it to the next boot: ' + (e && e.message)));
+          }
+        } else {
+          this.hooks.onRefund({ wallet: row.wallet, name: row.name, micro: row.micro, paid: undefined, why });
+        }
+      } catch (e) {
+        console.error('[PAPER] BOTFLOOR owed hook (' + this.lobbyType + '): ' + (e && e.message));
+      }
     }
   }
 

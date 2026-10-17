@@ -59,7 +59,9 @@ const { ROOMS_PER_RUNG, FLOOR_SWEEP_MS } = require('./slPaidConst');
 const SERVER_HOOKS = Object.freeze(REQUIRED_HOOKS.filter((k) => k !== 'onAccountOpen' && k !== 'onAccountClosed'));
 const ROOM_KEYS = Object.freeze(['clock', 'now', 'timers', 'autoTick', 'view', 'prey']);
 const SEED_MAX = 2 ** 31 - 1;
-const PAID_BOT_MAX = 60; // the owner's bots per paid rung (room #0), well under the room cap // design 1: crypto.randomInt(1, 2^31 - 1)
+// The owner's bots per paid rung (room #0). A paid room holds at most C_PAID_HUMAN_CAP snakes of any kind (22, the
+// checker's I10), and the bots give way to people (slRoom _paidBotTrim), so this leaves room for people too.
+const PAID_BOT_MAX = 15; // design 1: crypto.randomInt(1, 2^31 - 1)
 
 class SlPaidArenas {
   // laws: the law table. opts:
