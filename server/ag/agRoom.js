@@ -26,6 +26,8 @@
 // 2.3: the client sends Play only after its first world update). ag:join spawns that player; the viewer puts the
 // own id in the same bundle, before the world record that first carries the cell (protocol semantics 2.5, 3.8).
 // Watcher seats are capped per room (ROOM_TUNING WATCHERS_PER_SLOT times L39), since each costs a view per tick.
+// A watcher follows the top player (U_SPECTATE) until the Spectate bar's Previous or Next moves it along the ranking
+// (followStep, ours, Owen 2026-10-16); the page is told who it follows (ag:watching). Display only, in every room.
 //
 // THE ONE RULE (server/GameRoom.js): bots exist only where nothing is staked. botsAllowed() asks what the room
 // costs, never what it is called; every bot is made through it, and a room that is not free removes every bot.
@@ -413,6 +415,7 @@ class AgRoom {
       socketId: socket.id, socket, pid, viewer: agView.createViewer(pid, { laws: this.laws }),
       joined: false, spectating: false, stalled: false, spawnQueued: false, name: '',
       clearFirst: clearFirst === true,
+      follow: 0, told: -1,   // spectating: the pid the camera follows (0: the top), and the pid the page was last told
       holdAt: 0, holding: false, holdTicks: 0,   // the free room's hold-Q state (a paid seat's lives in agMoney)
     };
     this.seats.set(socket.id, seat);
@@ -631,7 +634,34 @@ class AgRoom {
     // a paid room: only its watchers (a dead paid seat is gone, and a live one cannot spectate)
     if (this.money && !(seat && seat.watchOnly)) return false;
     if (!seat || seat.spawnQueued || this._alive(seat.pid)) return false;
+    if (!seat.spectating) {
+      seat.follow = 0;   // a new watch starts on the top player, and the page is told who that is
+      seat.told = -1;
+    }
     seat.spectating = true;
+    return true;
+  }
+
+  // The Spectate bar's Previous (-1) or Next (1) (ours, Owen 2026-10-16): the camera moves to the player ranked just
+  // above or below the one it follows, wrapping round; from a player who is gone, it starts at the top. Only this
+  // seat's camera changes on the next bundle: never a seat, an account or money, in a free room or a paid one.
+  followStep(socketId, step) {
+    if (step !== 1 && step !== -1) return false;
+    const seat = this.seats.get(socketId);
+    if (!seat || !seat.spectating) return false;
+    if (this.money && !seat.watchOnly) return false;
+    if (seat.spawnQueued || this._alive(seat.pid)) return false;
+    const ranking = this._ranking();
+    const n = ranking.length;
+    let i = -1;
+    for (let k = 0; k < n; k++) {
+      if (ranking[k].pid === seat.follow) {
+        i = k;
+        break;
+      }
+    }
+    seat.follow = n ? ranking[i < 0 ? 0 : (i + step + n) % n].pid : 0;
+    seat.told = -1;   // the page hears back even when the step lands on the same player (one alive)
     return true;
   }
 
@@ -902,12 +932,26 @@ class AgRoom {
     return rows;
   }
 
-  // U_SPECTATE follow 'top' with zoom 'followedPlayer': the camera sits on the plain average of the top
-  // player's cells (the view centre rule of agView) at the scale that player's own view uses (L4).
-  _topFocus(ranking) {
-    const top = ranking.length ? ranking[0] : null;
-    if (!top) return null;
-    const info = this.sim.playerInfo(top.pid);
+  // The player a watcher's camera follows: its own pick while that player is alive, else the top player (U_SPECTATE
+  // follow 'top'), which it keeps from then on. 0 when nobody is alive. live: pid -> ranking row, this tick's.
+  _followOf(seat, ranking, live) {
+    if (!(seat.follow && live.has(seat.follow))) seat.follow = ranking.length ? ranking[0].pid : 0;
+    return seat.follow;
+  }
+
+  // ag:watching { name } (the followed player's name, '' when it has none) or { none: true } (nobody alive), sent
+  // right after the seat's bundle and only when the followed player changed or the page asked (followStep).
+  _tellWatching(seat, pid, live) {
+    if (seat.told === pid) return;
+    seat.told = pid;
+    const row = pid ? live.get(pid) : null;
+    this._emit(seat.socket, 'ag:watching', row ? { name: row.name || '' } : { none: true });
+  }
+
+  // U_SPECTATE zoom 'followedPlayer': the camera sits on the plain average of the followed player's cells (the view
+  // centre rule of agView) at the scale that player's own view uses (L4).
+  _focusOf(pid) {
+    const info = this.sim.playerInfo(pid);
     if (!info || !info.cells.length) return null;
     let sx = 0, sy = 0, sum = 0, n = 0;
     for (const id of info.cells) {
@@ -940,10 +984,12 @@ class AgRoom {
       this._frameCache);
     const boardDue = this._boardDue(this.sim.tick());
     let ranking = null;
-    let focus;
+    let live = null;   // watchers only: pid -> ranking row
+    const foci = new Map();   // this tick's camera per followed pid (null: none), however many watchers follow it
     for (const seat of this.seats.values()) {
       if (seat.spectating && !ranking) ranking = this._ranking();
     }
+    if (ranking) live = new Map(ranking.map((r) => [r.pid, r]));
     if (boardDue && !ranking) ranking = this._ranking();
     // Paid rooms: ag:money on the board's cadence (every 25 ticks, U_BOARD), to a seat only right after its own
     // bundle went out, from the same ranking (a backed-up seat that skips its bundle skips its money too).
@@ -968,8 +1014,14 @@ class AgRoom {
       const below = this.viewBelowOf ? this.viewBelowOf(seat.socketId) : 0;
       if (below > 0) extra.below = below;
       if (this.portraitOf && this.portraitOf(seat.socketId) === true) extra.portrait = true;
-      if (seat.spectating && !this._alive(seat.pid)) {
-        if (focus === undefined) focus = this._topFocus(ranking);
+      const watching = seat.spectating && !this._alive(seat.pid);
+      const follows = watching ? this._followOf(seat, ranking, live) : 0;
+      if (follows) {
+        let focus = foci.get(follows);
+        if (focus === undefined) {
+          focus = this._focusOf(follows);
+          foci.set(follows, focus);
+        }
         if (focus) extra.focus = focus;
       }
       let buf;
@@ -1001,6 +1053,7 @@ class AgRoom {
       this.stats.bytes += buf.length;
       if (moneyDue) this._emit(socket, 'ag:money', this._moneyPayload(seat, ranking, shares));
       if (skinCells) this._sendSkins(seat, skinCells);
+      if (watching) this._tellWatching(seat, follows, live);
     }
   }
 

@@ -607,16 +607,27 @@
       // The square ranked right after the followed one (wrapping round), or the leader when the followed one is
       // gone or dead. -> the unit now followed, or null when the arena is empty.
       followNext() {
+        return this._followStep(1);
+      }
+
+      // The Spectate bar's previous button (Owen 2026-10-16): followNext the other way, the square ranked right
+      // before the followed one (the leader goes round to the last), or the leader when the followed one is gone.
+      followPrev() {
+        return this._followStep(-1);
+      }
+
+      _followStep(d) {
         if (!this.watching) return null;
         var list = this.ranked();
         if (!list.length) {
           this._unfollow();
           return null;
         }
+        var n = list.length;
         var i = this.player && !this.player.death ? list.indexOf(this.player) : -1;
-        var next = list[i >= 0 ? (i + 1) % list.length : 0];
-        this.follow(next.id);
-        return next;
+        var to = list[i >= 0 ? (i + d + n) % n : 0];
+        this.follow(to.id);
+        return to;
       }
 
       _unfollow() {

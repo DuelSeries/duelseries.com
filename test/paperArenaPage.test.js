@@ -17,6 +17,7 @@ const Hud = require('../public/js/paper/mp/paperHud.js');
 
 const MAIN = fs.readFileSync(path.join(__dirname, '../public/js/paper/mp/paperArenaMain.js'), 'utf8');
 const DSEND = fs.readFileSync(path.join(__dirname, '../public/js/shared/dsEnd.js'), 'utf8');
+const WATCHBAR = fs.readFileSync(path.join(__dirname, '../public/js/shared/dsWatchBar.js'), 'utf8');
 const RESTAKE_WAIT_MS = 120000;
 
 function clockDouble() {
@@ -178,11 +179,9 @@ function page({ stake = 0, entryToken = null, framed = true, watch = null, local
     element('pp-hint'), element('pp-cash', [], [element('pp-cash-fill'), element('pp-cash-label')]),
     element('pp-connecting', [], [element('pp-connecting-text'), element('pp-connecting-sub')]),
     element('pp-reconnecting'),
-    element('pp-unsupported'),
-    element('pp-watch', [], [element('pp-watch-lobby'),
-      element('pp-watch-bar', [], [element('pp-watch-name'), element('pp-watch-next')])])
+    element('pp-unsupported')
   ]);
-  for (const id of ['pp-reconnecting', 'pp-unsupported', 'pp-hint', 'pp-cash', 'pp-watch', 'pp-watch-bar']) {
+  for (const id of ['pp-reconnecting', 'pp-unsupported', 'pp-hint', 'pp-cash']) {
     byId.get(id).hidden = true;
   }
 
@@ -244,6 +243,7 @@ function page({ stake = 0, entryToken = null, framed = true, watch = null, local
   win.parent = framed ? parent : win;
   vm.createContext(win);
   vm.runInContext(DSEND, win);
+  vm.runInContext(WATCHBAR, win);
   vm.runInContext(MAIN, win);
   const api = P.arena;
   assert.ok(api, 'the page booted');
@@ -288,6 +288,11 @@ function page({ stake = 0, entryToken = null, framed = true, watch = null, local
         .map((li) => [li.className, ...li.children.map(text)]) : [];
     },
     boardEl: () => doc.querySelector('.dsb'),
+    // The shared Spectate bar (dsWatchBar.js): what it shows, and its buttons.
+    bar: () => win.DSWatchBar.state(),
+    barLobby: () => doc.querySelector('.dsw-lobby'),
+    barPrev: () => doc.querySelector('.dsw-switch').children[0],
+    barNext: () => doc.querySelector('.dsw-switch').children[2],
     keydown(evt) {
       (winListeners.keydown || []).forEach((fn) => fn(Object.assign({ preventDefault() {}, target: doc.body }, evt)));
     },
@@ -818,23 +823,28 @@ test('the board: the stock plates never draw, the shared board ranks the live sq
 
 const WATCH_STATE = { tick: 100, radius: 950, targetRadius: 950, follow: 2, units: [], rings: [], trails: [], pickups: [] };
 
-// A watch page with a mirror double that follows like the real one: Next walks the given squares.
+// A watch page with a mirror double that follows like the real one: Next and Previous walk the given squares.
 function watchPage(squares = [{ id: 2, name: 'bob' }, { id: 3, name: 'cat' }, { id: 4, name: '' }]) {
   const t = page({ watch: 'paper', stake: 0.5, entryToken: 'tok-stale' });
   const g = t.game;
   g.player = null;
-  g.followNext = function () {
+  const step = (d) => function () {
     const i = squares.indexOf(this.player);
-    this.player = squares[(i + 1) % squares.length];
+    this.player = squares[(i + d + squares.length) % squares.length];
     if (this.onFollow) this.onFollow(this.player);
     return this.player;
   };
+  g.followNext = step(1);
+  g.followPrev = step(-1);
   t.state = () => {
     g.player = squares[0];
     t.sock.fire('pp:watching', WATCH_STATE);
   };
   return t;
 }
+
+const FINDING = 'Finding a player'; // the bar's plate before a table
+const shown = (b) => ({ on: b.on, empty: b.empty, busy: b.busy, text: b.text });
 
 test('watch mode: the mark is read once and removed, no pp:join, no token, one pp:watch { stake: 0 }', () => {
   const t = watchPage();
@@ -845,9 +855,11 @@ test('watch mode: the mark is read once and removed, no pp:join, no token, one p
   assert.deepStrictEqual(t.sock.wire.map((p) => p[0]), ['pp:watch']);
   assert.deepStrictEqual({ ...t.wire('pp:watch')[0][1] }, { stake: 0 });
   assert.ok(!JSON.stringify(t.sock.wire).includes('tok-stale'), 'no entry token ever leaves a watch page');
-  assert.strictEqual(t.$('pp-watch').hidden, false, 'Lobby is there from the start');
-  assert.strictEqual(t.$('pp-watch-bar').hidden, true, 'no name or Next before a table');
-  assert.match(t.$('pp-watch-lobby').style.top, /^\d+px$/, 'Lobby sits under the stock score stack');
+  // The shared bar from the start: its Lobby works, it is finding a player with the arrows off until a table.
+  assert.deepStrictEqual(shown(t.bar()), { on: true, empty: false, busy: true, text: FINDING });
+  assert.strictEqual(t.barNext().disabled, true);
+  assert.strictEqual(t.barPrev().disabled, true);
+  assert.match(t.barLobby().style.top, /^\d+px$/, 'Lobby sits under the stock score stack');
 
   // Any other mark plays as usual, and is removed too.
   const other = page({ watch: 'slither' });
@@ -856,51 +868,66 @@ test('watch mode: the mark is read once and removed, no pp:join, no token, one p
   other.sock.connect('sock-o');
   assert.strictEqual(other.wire('pp:join').length, 1);
   assert.strictEqual(other.wire('pp:watch').length, 0);
-  assert.strictEqual(other.$('pp-watch').hidden, true);
+  assert.strictEqual(other.bar().on, false, 'no bar on a playing page');
 });
 
-test('watch mode: the state shows Watching NAME and Next, Next switches, never live, Lobby leaves and posts game:done', () => {
+test('watch mode: the bar names the followed square, Next and Previous switch at once, never live, Lobby leaves', () => {
   const t = watchPage();
   t.sock.connect('sock-w');
   t.state();
   assert.strictEqual(t.api.page.watchLive, true);
   assert.strictEqual(t.api.page.phase, 'watch');
   assert.strictEqual(t.$('pp-connecting').hidden, true);
-  assert.strictEqual(t.$('pp-watch-bar').hidden, false);
-  assert.strictEqual(t.$('pp-watch-name').textContent, 'bob');
+  assert.deepStrictEqual(shown(t.bar()), { on: true, empty: false, busy: false, text: 'bob' });
   assert.deepStrictEqual({ ...t.api.watchState() }, { watching: true, live: true, followId: 2, followName: 'bob', followDead: false });
   // No Play, cash-out or hold control, and the hold never reaches the game.
   assert.strictEqual(t.$('pp-cash').hidden, true);
   assert.strictEqual(t.$('pp-hint').hidden, true);
   t.api.setHold(true);
   assert.deepStrictEqual(t.game.holds, []);
-  t.$('pp-watch-next').click();
-  assert.strictEqual(t.$('pp-watch-name').textContent, 'cat');
+  t.barNext().click();
+  assert.strictEqual(t.bar().text, 'cat');
   assert.strictEqual(t.api.watchState().followId, 3);
-  t.$('pp-watch-next').click();
-  assert.strictEqual(t.$('pp-watch-name').textContent, 'Player', 'a nameless square gets the default name');
-  // The mirror moving on by itself (the followed square died) updates the label too.
+  t.barNext().click();
+  assert.strictEqual(t.bar().text, 'Player', 'a nameless square gets the default name');
+  t.barPrev().click();
+  assert.strictEqual(t.bar().text, 'cat');
+  t.barPrev().click();
+  t.barPrev().click();
+  assert.strictEqual(t.bar().text, 'Player', 'Previous from the leader goes round to the last');
+  // PC keys: Right and Space are next, Left is previous.
+  const key = (k) => t.keydown({ key: k, stopImmediatePropagation() {} });
+  key('ArrowRight');
+  assert.strictEqual(t.bar().text, 'bob');
+  key(' ');
+  assert.strictEqual(t.bar().text, 'cat');
+  key('ArrowLeft');
+  assert.strictEqual(t.bar().text, 'bob');
+  // The mirror moving on by itself (the followed square died) updates the plate too.
   t.game.player = { id: 9, name: 'zed' };
   t.game.onFollow(t.game.player);
-  assert.strictEqual(t.$('pp-watch-name').textContent, 'zed');
+  assert.strictEqual(t.bar().text, 'zed');
+  // Nobody alive on the shown table: the empty table.
+  t.game.player = null;
+  t.game.onFollow(null);
+  assert.deepStrictEqual(shown(t.bar()), { on: true, empty: true, busy: false, text: 'Nobody is playing yet' });
   assert.strictEqual(t.wire('pp:join').length + t.wire('pp:respawn').length + t.wire('pp:in').length, 0);
-  t.$('pp-watch-lobby').click();
+  t.barLobby().click();
   assert.strictEqual(t.wire('pp:leave').length, 1);
   assert.ok(t.parent.messages.indexOf('game:done') >= 0);
   assert.strictEqual(t.api.net.watching, false);
+  assert.strictEqual(t.bar().on, false, 'the bar closes with the watch');
   // Gone for good: no more asks.
   t.clock.advance(10000);
   assert.strictEqual(t.wire('pp:watch').length, 1);
 });
 
-test('watch mode: nobody playing shows the words and asks again every 3 s, never while the link is down', () => {
+test('watch mode: nobody playing shows the empty table and asks again every 3 s, never while the link is down', () => {
   const t = watchPage();
   t.sock.connect('sock-w');
   t.sock.fire('pp:watching', { none: true, why: 'nobody', text: 'Nobody is playing right now.' });
-  assert.strictEqual(t.$('pp-connecting').hidden, false);
+  assert.deepStrictEqual(shown(t.bar()), { on: true, empty: true, busy: false, text: 'Nobody is playing yet' });
   assert.strictEqual(t.$('pp-connecting-text').textContent, 'Nobody is playing right now');
-  assert.strictEqual(t.$('pp-watch').hidden, false, 'Lobby stays');
-  assert.strictEqual(t.$('pp-watch-bar').hidden, true);
   t.clock.advance(2999);
   assert.strictEqual(t.wire('pp:watch').length, 1);
   t.clock.advance(1);
@@ -908,26 +935,35 @@ test('watch mode: nobody playing shows the words and asks again every 3 s, never
   t.clock.advance(3000);
   assert.strictEqual(t.wire('pp:watch').length, 3);
   t.state();
+  assert.deepStrictEqual(shown(t.bar()), { on: true, empty: false, busy: false, text: 'bob' });
   t.clock.advance(9000);
   assert.strictEqual(t.wire('pp:watch').length, 3, 'a table is shown: no more asks');
-  // The server lets the watcher go (the last player left): the words again, and asks again.
+  // The server lets the watcher go (the last player left): the empty table again, and asks again.
   t.sock.fire('pp:watching', { none: true, why: 'nobody' });
   assert.strictEqual(t.api.page.watchLive, false);
-  assert.strictEqual(t.$('pp-watch-bar').hidden, true);
+  assert.strictEqual(t.bar().empty, true);
   t.clock.advance(3000);
   assert.strictEqual(t.wire('pp:watch').length, 4);
+  // Any other reason keeps its own words on show, the bar finding a player with the arrows off.
+  t.sock.fire('pp:watching', { none: true, why: 'full' });
+  assert.strictEqual(t.$('pp-connecting-text').textContent, 'Too many people are watching right now');
+  assert.deepStrictEqual(shown(t.bar()), { on: true, empty: false, busy: true, text: FINDING });
   t.state();
-  // The link drops: Reconnecting, nothing asked while down, one ask when it is back.
+  // The link drops: Reconnecting, the plate kept with the arrows off, nothing asked while down, one ask when back.
   t.sock.drop();
   assert.strictEqual(t.$('pp-connecting-text').textContent, 'Reconnecting...');
+  assert.deepStrictEqual(shown(t.bar()), { on: true, empty: false, busy: true, text: 'bob' });
+  t.barNext().click();
+  assert.strictEqual(t.bar().text, 'bob', 'no switch while the link is down');
   t.clock.advance(9000);
-  assert.strictEqual(t.wire('pp:watch').length, 4);
+  const asked = t.wire('pp:watch').length;
   assert.strictEqual(t.sock.sendBuffer.length, 0, 'no pile of asks waiting for the link');
   t.sock.connect('sock-w2');
-  assert.strictEqual(t.wire('pp:watch').length, 5);
-  assert.deepStrictEqual({ ...t.wire('pp:watch')[4][1] }, { stake: 0 });
+  assert.strictEqual(t.wire('pp:watch').length, asked + 1);
+  assert.deepStrictEqual({ ...t.wire('pp:watch')[asked][1] }, { stake: 0 });
   t.state();
   assert.strictEqual(t.$('pp-connecting').hidden, true);
+  assert.deepStrictEqual(shown(t.bar()), { on: true, empty: false, busy: false, text: 'bob' });
   assert.strictEqual(t.wire('pp:join').length, 0);
 });
 

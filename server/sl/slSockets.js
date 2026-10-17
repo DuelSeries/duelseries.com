@@ -68,12 +68,14 @@
 // the wallet identify(auth.idProof) proved (the prize's wallet: a one-time signature by the player's own wallet, the
 // main namespace's socketIdentity check; anything else is no wallet), or, when auth.watch is 1, a watcher of a living
 // snake (auth.follow, a snake id, preferred). Its refusals add 'match' (a match is under way) and 'nobody' (nothing
-// alive to watch).
+// alive to watch). Previous and Next (the shared Spectate bar, public/js/shared/dsWatchBar.js) add auth.after or
+// auth.before, checked as the free watcher's: the people first, then the bots, each longest first (slRoom _watchTarget).
 //
 // Watching the free room (the lobby's Spectate on slither.io's Free rung, public/js/slx/slxWatch.js): a socket that is
 // neither paid nor the event's and whose handshake says watch 1 is a watcher (slArenas.watch, slRoom seatWatch), never
 // a seat: its sl:join (after the same money, rate, maintenance and door checks) follows the leader, or the snake
-// ranked after auth.after (a snake id 1 to 65535, else ignored) when the layer's Next asked. A watch handshake that
+// ranked after auth.after (a snake id 1 to 65535, else ignored) when the layer's Next asked, or right before
+// auth.before (the same check) when its Previous asked. A watch handshake that
 // also carries a money field (WATCH_REFUSED) is refused 'not-open' at its sl:join; a handshake that names br keeps the
 // route it had before. A watcher has no life to resume (sl:back is refused 'gone'), pushes no join, and every other
 // call of its socket reaches the room, which answers only its pings. Refusals: 'closed', 'full' (C_HUMAN_CAP
@@ -384,19 +386,24 @@ function attachSlSockets(nsp, arenas, helpers) {
     return !!br;
   }
 
-  // Only with the helper attached: auth.br 1. Returns { watch, follow, proof } or null.
+  // A snake id from the handshake (follow, after, before): an integer 1 to 65535, else null.
+  function snakeIdOf(auth, k) {
+    const v = field(auth, k);
+    return Number.isInteger(v) && v > 0 && v < 65536 ? v : null;
+  }
+
+  // Only with the helper attached: auth.br 1. Returns { watch, follow, after, before, proof } or null.
   function brOf(socket) {
     if (!br) return null;
     const hs = socket.handshake;
     const auth = hs && isPlainObject(hs.auth) ? hs.auth : null;
     if (!auth || field(auth, 'br') !== 1) return null;
-    const f = field(auth, 'follow');
     const p = field(auth, 'idProof');
-    return { watch: field(auth, 'watch') === 1, follow: Number.isInteger(f) && f > 0 && f < 65536 ? f : null,
-      proof: isPlainObject(p) ? p : null };
+    return { watch: field(auth, 'watch') === 1, follow: snakeIdOf(auth, 'follow'), after: snakeIdOf(auth, 'after'),
+      before: snakeIdOf(auth, 'before'), proof: isPlainObject(p) ? p : null };
   }
 
-  // A watcher (see the header): auth.watch 1 with no br field. Returns { after, money, stake } or null; read only for
+  // A watcher (see the header): auth.watch 1 with no br field. Returns { after, before, money, stake } or null; read only for
   // a socket that is neither paid nor the event's. stake: a paid rung to watch (auth.watchStake, one of the paid
   // directory's stakes, only while it is attached), else 0 for the free room. A watchStake that names no paid rung
   // is refused like a money field.
@@ -404,7 +411,6 @@ function attachSlSockets(nsp, arenas, helpers) {
     const hs = socket.handshake;
     const auth = hs && isPlainObject(hs.auth) ? hs.auth : null;
     if (!auth || field(auth, 'watch') !== 1 || hasOwn(auth, 'br')) return null;
-    const a = field(auth, 'after');
     let money = false;
     for (const k of WATCH_REFUSED) if (hasOwn(auth, k)) money = true;
     let stake = 0;
@@ -415,7 +421,7 @@ function attachSlSockets(nsp, arenas, helpers) {
       if (rung === null) money = true;
       else stake = rung;
     }
-    return { after: Number.isInteger(a) && a > 0 && a < 65536 ? a : null, money, stake };
+    return { after: snakeIdOf(auth, 'after'), before: snakeIdOf(auth, 'before'), money, stake };
   }
 
   // Only with a helper attached: auth.paid 1 (an own data property, never a getter).
@@ -479,10 +485,11 @@ function attachSlSockets(nsp, arenas, helpers) {
     st.joined = true;
     let r;
     try {
-      if (st.br && st.br.watch) r = st.dir.watch(socket, { follow: st.br.follow });
+      const w = st.br || st.watch;
+      if (st.br && st.br.watch) r = st.dir.watch(socket, { follow: w.follow, after: w.after, before: w.before });
       else if (st.br) r = st.dir.join(socket, { nick, cv: st.cv, skin: st.skin, wallet: identifyOf(st.br.proof) });
-      else if (st.watch && st.watch.stake) r = st.dir.watch(socket, { stake: st.watch.stake, after: st.watch.after });
-      else if (st.watch) r = arenas.watch(socket, { after: st.watch.after });
+      else if (st.watch && st.watch.stake) r = st.dir.watch(socket, { stake: w.stake, after: w.after, before: w.before });
+      else if (st.watch) r = arenas.watch(socket, { after: w.after, before: w.before });
       else r = arenas.join(socket, { nick, cv: st.cv, skin: st.skin });
     } catch (e) {
       // a seat that could not be made is a closed door for this socket, never a socket left hanging

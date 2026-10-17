@@ -110,10 +110,16 @@ const WATCH_STAKE = (() => {
     return Number.isFinite(s) && s > 0 ? s : 0;
   } catch (_) { return 0; }
 })();
-const WATCH_NEXT_MS = 3000;   // the pause before moving on, and between retries
+const WATCH_NEXT_MS = 3000;   // between asks while no match is running
+const WATCH_OVER_MS = 2500;   // how long a finished match's result and fleets stay up before the next one
+const WATCH_SWAP_MS = 1500;   // how long the arrows rest for an answer that never comes
+/* The Spectate controls are the shared bar (public/js/shared/dsWatchBar.js): Lobby, previous, next and who is playing. */
+const BAR = window.DSWatchBar || null;
 let watchMatch = null;        // the match card: { id, names, stake, pot, turn, index, count }
-let watchLastId = null;
+let watchLastId = null;       // the match we were last on, for "the one before / after it"
 let watchTimer = 0;
+let swapping = false;         // Previous / Next is asked and not answered yet
+let swapTimer = 0;
 const watchCanvas = (side) => (side === 0 ? $('theirs') : $('mine'));
 const watchWrap = (side) => (side === 0 ? $('wrapTheirs') : $('wrapMine'));
 const watchName = (side) => {
@@ -875,7 +881,7 @@ setInterval(paintClock, 250);
 /* Every connect, the first and every reconnect: a seat, or in watch mode a
    match to watch (the server forgets a watcher whose socket dropped). */
 let myId = null;          // my socket id as of the last connect, for reading my own seat off the result
-socket.on('connect', () => { myId = socket.id; if (WATCH) watch(null); else queue(); });
+socket.on('connect', () => { myId = socket.id; if (WATCH) { swapping = false; watch(null); } else queue(); });
 
 /* `token`: a paid Play again's fresh entry, from the lobby's wallet. Without
    one, the buy-in this page was opened with, the first time only. */
@@ -1169,7 +1175,6 @@ function paintOver() {
 }
 
 function playAgain() {
-  if (WATCH) { watch(watchLastId); return; }
   if (myStake > 0) { askRestake(); return; }
   requeue(null);
 }
@@ -1259,6 +1264,8 @@ function runCountdown(ms) {
 function toLobby() {
   if (restake && !restake.slow) return;     // the wallet is open: the way back is shut until it answers
   clearTimeout(watchTimer);
+  clearTimeout(swapTimer);
+  if (BAR) BAR.close();
   socket.emit(WATCH ? 'bs:unwatch' : 'bs:leave');
   if (window.parent && window.parent !== window) window.parent.postMessage('game:done', '*');
   else location.href = '/';
@@ -1378,16 +1385,55 @@ window.addEventListener('beforeunload', () => socket.emit(WATCH ? 'bs:unwatch' :
    and nothing here sends anything but bs:watch and bs:unwatch. */
 
 /* Ask for a match. `after` is the one being left, so the server moves on from
-   it rather than handing the same one back. */
-function watch(after) {
+   it rather than handing the same one back; dir 'prev' asks for the one before
+   it instead of the one after. */
+function watch(after, dir) {
   clearTimeout(watchTimer);
-  socket.emit('bs:watch', after ? { after, stake: WATCH_STAKE } : { stake: WATCH_STAKE });
+  const msg = after ? { after, stake: WATCH_STAKE } : { stake: WATCH_STAKE };
+  if (after && dir === 'prev') msg.dir = 'prev';
+  socket.emit('bs:watch', msg);
   publishWatch(watchMatch ? 'watching' : 'searching');
 }
 
+/* The Previous and Next of the shared bar: the match before or after this one,
+   straight away, with nothing in between. The arrows rest until the answer
+   comes (a second press waits for it), and open again on their own if it never
+   does. */
+function step(dir) {
+  clearTimeout(watchTimer);
+  clearTimeout(swapTimer);
+  swapping = true;
+  if (BAR) BAR.busy(true);
+  swapTimer = setTimeout(() => { swapping = false; if (BAR) BAR.busy(false); }, WATCH_SWAP_MS);
+  watch(watchMatch ? watchMatch.id : watchLastId, dir);
+}
+
+/* Moving on once this match is done: at once, or after a moment to read how it
+   ended. */
+function followOn(ms) {
+  clearTimeout(watchTimer);
+  if (ms > 0) watchTimer = setTimeout(() => watch(watchLastId), ms);
+  else watch(watchLastId);
+}
+
+/* Nobody to follow: ask again in a moment, so the first match to start is picked
+   up by itself. */
 function nextSoon() {
   clearTimeout(watchTimer);
   watchTimer = setTimeout(() => watch(watchLastId), WATCH_NEXT_MS);
+}
+
+/* "A vs B" for the bar's plate, which holds 32 characters: a long name gives up
+   its end (and a short one keeps all of its own) so the pair always fits. */
+function vsLabel(names) {
+  const room = 28;                                   // the plate's 32, less ' vs '
+  const half = room / 2;
+  const cut = (s, n) => (s.length > n ? s.slice(0, Math.max(1, n - 1)) + '…' : s);
+  const a = String((names && names[0]) || 'Player').trim() || 'Player';
+  const b = String((names && names[1]) || 'Player').trim() || 'Player';
+  const x = a.length <= half ? a : b.length <= half ? cut(a, room - b.length) : cut(a, half);
+  const y = b.length <= half ? b : a.length <= half ? cut(b, room - a.length) : cut(b, half);
+  return x + ' vs ' + y;
 }
 
 /* What the page is doing, for a headless check to read without a screenshot. */
@@ -1425,17 +1471,10 @@ function watchStatusText() {
   return said;
 }
 
+/* The line under the boards. Once the match is over it is the result, and stays. */
 function paintWatch() {
-  const m = watchMatch;
-  if (m) {
-    const n = m.names || [];
-    $('watchLabel').textContent = 'Watching ' + (n[0] || 'Player') + ' vs ' + (n[1] || 'Player');
-    $('watchMeta').textContent = (m.stake > 0 ? '$' + Number(m.stake).toFixed(2) + ' table' : 'Free table')
-      + (m.count > 1 ? ' · ' + m.index + ' of ' + m.count : '');
-  }
-  $('watchStatus').textContent = watchStatusText();
-  $('watchNext').disabled = !m || !(m.count > 1);
-  publishWatch(m ? 'watching' : 'searching');
+  if (!overShown) $('watchStatus').textContent = watchStatusText();
+  publishWatch(watchMatch ? 'watching' : 'searching');
 }
 
 /* One sound per shot, the same three a player hears. A late arrival's first
@@ -1481,76 +1520,74 @@ function watchState(view) {
 socket.on('bs:watching', (m) => {
   if (!WATCH || !m) return;
   clearTimeout(watchTimer);
+  clearTimeout(swapTimer);
+  const swap = swapping;
+  swapping = false;
   if (!m.match || !m.state) {
-    /* Nothing to show yet. Ask again in a moment. */
+    /* Nobody is playing (or every match has its fill of watchers): the empty
+       table behind the bar, and an ask every few seconds so the first match to
+       start is followed by itself. */
     watchMatch = null;
-    st = null;
+    st = null; overShown = false;
     $('top').hidden = true; $('stage').hidden = true; DSEnd.hide();
+    clearInterval(countTimer); $('count').hidden = true;
     chatShow(false);
-    $('wait').hidden = false;
-    $('waitMain').textContent = m.full ? 'Every match is full of watchers'
-      : m.refused ? 'You are in a match' : 'Nobody is playing right now';
-    $('waitSub').textContent = 'Checking again every few seconds.';
+    if (BAR) BAR.empty();
     publishWatch(m.full ? 'full' : m.refused ? 'refused' : 'none');
     nextSoon();
     return;
   }
+
+  /* Next with only one match running comes back with the same one. The boards
+     on screen are that match, live, so they are left alone. */
+  if (swap && watchMatch && st && !overShown && m.match.id === watchMatch.id) {
+    watchMatch = m.match;
+    if (BAR) BAR.watching(vsLabel(watchMatch.names));
+    publishWatch('watching');
+    return;
+  }
+
   watchMatch = m.match;
   watchLastId = m.match.id;
   overShown = false;
-  DSEnd.hide();
   clearInterval(countTimer);
   $('count').hidden = true;
   st = null;
   _wShots = 0; _wSunk = 0;
+  if (BAR) BAR.watching(vsLabel(watchMatch.names));
   watchState(m.state);
 });
 
+/* Where this match now sits among the ones running. */
 socket.on('bs:matches', ({ index, count } = {}) => {
   if (!WATCH || !watchMatch) return;
   if (Number.isFinite(index)) watchMatch.index = index;
   if (Number.isFinite(count)) watchMatch.count = count;
-  paintWatch();
+  publishWatch('watching');
 });
 
-/* The match went away without a result. Said, then on to the next. */
+/* The match went away without a result. On to the next at once. */
 socket.on('bs:ended', ({ id } = {}) => {
   if (!WATCH || overShown) return;
   if (watchMatch && id && id !== watchMatch.id) return;
   overShown = true;
-  /* A notice, not a result: it keeps its own two buttons. */
-  DSEnd.show({ verdict: 'That match ended', notes: ['Finding the next one.'], buttons: [
-    { id: 'again', text: 'Next match', primary: true, onClick: () => watch(watchLastId) },
-    { id: 'lobby', text: 'Lobby', onClick: toLobby },
-  ] });
   publishWatch('ended');
-  nextSoon();
+  followOn(0);
 });
 
-/* A watcher's card: who won it and in how many shots, then on to the next
-   match by itself. No money: nobody watching staked anything. The same three
-   buttons as a player's card: Spectate is the next match, Play again a seat. */
-function watchButtons() {
-  const paid = WATCH_STAKE > 0;
-  return [
-    { id: 'lobby', text: 'Lobby', onClick: toLobby },
-    { id: 'spectate', text: 'Spectate', onClick: () => watch(watchLastId) },
-    { id: 'again', text: paid ? 'Play again ' + DSEnd.usd(Math.round(WATCH_STAKE * 1e6)) : 'Play again',
-      primary: true, disabled: paid, onClick: playFromWatch },
-  ];
-}
+/* How it ended, on the line under the boards, and both fleets laid bare as the
+   players get them; then on to the next match. No card: the arrows of the
+   shared bar are there if the next match is wanted sooner. No money: nobody
+   watching staked anything. */
 function watchOver(m) {
   if (overShown) return;
   overShown = true;
   const side = m.winnerSide === 0 || m.winnerSide === 1 ? m.winnerSide : null;
   const shots = side !== null && Array.isArray(m.shots) ? (Number(m.shots[side]) || 0) : 0;
-  const notes = [];
-  if (m.why === 'opponent left') notes.push((side !== null ? watchName(1 - side) : 'A player') + ' left the match.');
-  notes.push('Next match in a few seconds.');
-  if (WATCH_STAKE > 0) notes.push(TEXT.lobbyOnly);
-  const card = { verdict: m.winner ? m.winner + ' wins' : 'Draw', notes, buttons: watchButtons() };
-  if (side !== null) { card.hero = DSEnd.int(shots); card.unit = plural(shots, 'shot', 'shots'); }
-  DSEnd.show(card);
+  const said = [m.winner ? m.winner + ' wins' : 'Draw'];
+  if (side !== null) said.push(shots + ' ' + plural(shots, 'shot', 'shots'));
+  if (m.why === 'opponent left') said.push((side !== null ? watchName(1 - side) : 'A player') + ' left the match');
+  $('watchStatus').textContent = said.join('. ') + '.';
 
   /* Both fleets, now that it is over: the same reveal the players get. */
   if (Array.isArray(m.reveal) && st) {
@@ -1563,14 +1600,16 @@ function watchOver(m) {
     }
   }
   publishWatch('over');
-  nextSoon();
+  followOn(WATCH_OVER_MS);
 }
 
 if (WATCH) {
   document.body.classList.add('watching');
-  $('waitMain').textContent = 'Finding a match to watch';
-  $('waitSub').textContent = 'Watching only. You are not playing.';
-  $('watchNext').addEventListener('click', () => { if (watchMatch) watch(watchMatch.id); });
-  $('watchLobby').addEventListener('click', toLobby);
+  $('wait').hidden = true;                 // the bar speaks for a watcher, from the first moment
+  if (BAR) {
+    BAR.open({ game: 'battleship', stake: WATCH_STAKE, onPrev: () => step('prev'), onNext: () => step('next'), onLobby: toLobby });
+    BAR.watching('Finding a match');
+    BAR.busy(true);
+  }
   publishWatch('searching');
 }

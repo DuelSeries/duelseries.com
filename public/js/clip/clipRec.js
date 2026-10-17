@@ -566,7 +566,7 @@
 .dsclip-t .bar{position:absolute;left:14px;right:14px;bottom:4px;height:2px;border-radius:2px;background:rgba(245,241,232,.12);overflow:hidden}
 .dsclip-t .bar i{position:absolute;inset:0;background:#a89c8a;transform-origin:left;animation:dsclip-bar linear forwards}
 @keyframes dsclip-bar{from{transform:scaleX(1)}to{transform:scaleX(0)}}
-.dsclip-dot{position:fixed;left:12px;top:10px;z-index:2147482999;display:flex;gap:6px;align-items:center;pointer-events:none;
+.dsclip-dot{position:fixed;left:12px;top:64px;z-index:2147482999;display:flex;gap:6px;align-items:center;pointer-events:none;
   font:600 10.5px/1 "IBM Plex Mono",ui-monospace,Consolas,monospace;color:rgba(255,255,255,.8);text-shadow:0 1px 2px rgba(0,0,0,.6)}
 .dsclip-dot.bl{top:auto;bottom:10px}
 .dsclip-dot i{width:7px;height:7px;border-radius:50%;background:#e5534b;box-shadow:0 0 0 2px rgba(0,0,0,.25)}

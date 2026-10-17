@@ -159,9 +159,14 @@ test('slxTail: the layer files present, in the SERVER-DESIGN 3.2 order, then any
     fs.rmSync(dir, { recursive: true, force: true });
   }
   assert.strictEqual(B.SLX_TAIL, B.slxTail(B.PUBLIC_DIR), 'SLX_TAIL is built from the repo at load');
-  assert.ok(B.SLX_TAIL.includes('<script src="/js/shared/dsEnd.js"></script>\n<script src="/js/slx/slxNet.js"></script>'),
-    'the repo tail has it before slxNet');
+  // the shared chat (4608813) sits between the end screens and the layer
+  assert.ok(B.SLX_TAIL.includes('<script src="/js/shared/dsEnd.js"></script>\n<script src="/js/shared/dsChat.js"></script>\n' +
+    '<script src="/js/slx/slxNet.js"></script>'), 'the repo tail has it before slxNet');
   assert.ok(!B.SLX_FILES.includes('slxTop.js') && !B.SLX_TAIL.includes('slxTop'), 'no biggest cash-out box (Owen 2026-10-16)');
+  // the shared Spectate bar (slxWatch and slxBr open it) right after the empty table it draws, after the layer
+  assert.ok(B.SLX_TAIL.includes('<script src="/js/shared/dsEmptyArena.js"></script>\n' +
+    '<script src="/js/shared/dsWatchBar.js"></script>\n'), 'the Spectate bar follows the empty table');
+  assert.ok(B.SLX_TAIL.indexOf('dsWatchBar.js') > B.SLX_TAIL.indexOf('/js/slx/slxCoin.js'), 'after the layer files');
   // slxPaid right after slxNet (PAID-SL-DESIGN 9) and slxBr after it (the battle royale, server/slBr): slxMain merges
   // their handshake fields and asks them before auto Play; slxWatch (the free room's Spectate) after slxBr, the same way
   assert.deepStrictEqual(B.SLX_FILES.slice(0, 6), ['slxNet.js', 'slxPaid.js', 'slxBr.js', 'slxWatch.js', 'slxMain.js',

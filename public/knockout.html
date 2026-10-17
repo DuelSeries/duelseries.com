@@ -38,22 +38,15 @@
   </div>
 </header>
 
-<!-- Watching somebody else's match: whose it is and what it is played for,
-     under the strip. Only on screen in watch mode (the lobby's Spectate). -->
-<div id="watchTag" hidden>
-  <span id="watchLabel">Watching</span>
-  <span id="watchMeta"></span>
-</div>
-
 <!-- What to do, and whether they have gone yet. Two facts, one line, under the
-     board where the thumb is not. In watch mode the Lock button gives way to
-     moving to the next match and back to the lobby. -->
+     board where the thumb is not. In watch mode (the lobby's Spectate) the Lock
+     button is gone and the line moves under the strip, saying what is
+     happening; the Lobby, previous and next controls and whose match it is are
+     the shared Spectate bar (dsWatchBar.js). -->
 <footer id="bar" hidden>
   <span id="hint">Drag from each of your pieces to aim</span>
   <span id="theirState" class="their"></span>
   <button id="lock" type="button" disabled>Lock in</button>
-  <button id="watchNext" type="button" class="watchBtn" hidden disabled>Next match</button>
-  <button id="watchLobby" type="button" class="watchBtn" hidden>Lobby</button>
 </footer>
 
 <!-- Waiting for somebody. Honest about the bot rather than quietly substituting
@@ -77,6 +70,9 @@
 <script src="js/shared/dsEnd.js"></script>
 <script src="js/shared/dsChat.js"></script>
 <script src="/js/dsSfx.js"></script><script src="/js/dsSfxGame.js"></script><script src="/js/knockoutSound.js"></script>
+<!-- The Spectate controls every game shares: Lobby, previous and next, and the empty table. -->
+<script src="/js/shared/dsEmptyArena.js"></script>
+<script src="/js/shared/dsWatchBar.js"></script>
 <script src="js/knockout.js"></script>
 </body>
 </html>

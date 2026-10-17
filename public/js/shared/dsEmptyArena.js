@@ -9,8 +9,8 @@
 // line at the bottom saying the view switches by itself. Nothing here talks to a server, reads money or seats anyone.
 // Free rooms always have bots, so in practice this is a paid table nobody is at.
 //
-// DSEmptyArena.show({ game: 'snake' | 'agar' | 'paper', stake, onLobby }), .hide(), .shown(). show again only
-// updates the words.
+// DSEmptyArena.show({ game: 'snake' | 'agar' | 'paper', stake, onLobby, bare }), .hide(), .shown(). show again only
+// updates the words. bare: the map alone, under the shared Spectate bar (dsWatchBar.js) that has the Lobby and words.
 (function (root) {
   'use strict';
   var doc = root.document;
@@ -43,6 +43,8 @@
     '#ds-empty{position:fixed;left:0;top:0;right:0;bottom:0;z-index:2147480000;display:none;overflow:hidden;',
     'touch-action:none;user-select:none;-webkit-user-select:none;font-family:Arial,Helvetica,sans-serif;}',
     '#ds-empty.on{display:block;}',
+    // bare: the map only, under the shared Spectate bar (dsWatchBar.js), which has the Lobby button and the words
+    '#ds-empty.bare #ds-empty-lobby,#ds-empty.bare #ds-empty-say{display:none;}',
     '#ds-empty canvas{position:absolute;left:0;top:0;width:100%;height:100%;display:block;}',
     '#ds-empty-lobby{position:absolute;left:16px;top:16px;display:inline-flex;align-items:center;gap:6px;',
     'box-sizing:border-box;height:36px;margin:0;padding:0 14px 0 10px;border:1px solid #d6cdbd;border-radius:8px;',
@@ -245,9 +247,10 @@
     look = l;
     loadTile();
     words();
+    box.classList.toggle('bare', next.bare === true);
     if (!on) {
       on = true;
-      box.className = 'on';
+      box.classList.add('on');
     }
     if (redraw) draw();
     return true;
@@ -256,7 +259,7 @@
   function hide() {
     if (!on) return false;
     on = false;
-    if (box) box.className = '';
+    if (box) box.classList.remove('on');
     return true;
   }
 

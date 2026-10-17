@@ -115,6 +115,17 @@ test('outbound: ag:* events with the agreed payloads, integer targets', () => {
   assert.strictEqual(net.stats.sent, 7);
 });
 
+test('the Spectate bar\'s steps: ag:spectate { step: 1 | -1 }; any other step is a plain ag:spectate', () => {
+  const sock = fakeSocket(true);
+  const net = N.createNet({ socket: sock });
+  net.send('spectate', { step: 1 });
+  net.send('spectate', { step: -1 });
+  net.sendSpectate(2);
+  net.send('spectate', { step: '1' });
+  assert.deepStrictEqual(sock.emitted, [['ag:spectate', { step: 1 }], ['ag:spectate', { step: -1 }], ['ag:spectate'],
+    ['ag:spectate']]);
+});
+
 test('non-finite targets are never sent', () => {
   const sock = fakeSocket(true);
   const net = N.createNet({ socket: sock });

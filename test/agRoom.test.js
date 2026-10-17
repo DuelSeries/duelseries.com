@@ -349,6 +349,118 @@ test('spectate: only without live cells; the cam record follows the top player a
   assert.ok(!w.last().some((x) => x.t === 'cam'));
 });
 
+// A socket that also keeps the side events (ag:watching), bundles decoded as sock() does.
+function wsock(id) {
+  const s = sock(id);
+  s.side = [];
+  const bundle = s.emit;
+  s.emit = function (ev, p) {
+    if (ev === 'ag:f') return bundle.call(this, ev, p);
+    this.side.push([ev, p]);
+  };
+  s.watching = () => s.side.filter((e) => e[0] === 'ag:watching').map((e) => e[1]);
+  return s;
+}
+
+// The Spectate bar (Owen 2026-10-16): each watcher follows its own pick, Next and Previous walk the ranking.
+test('spectate: Next and Previous move one watcher along the ranking, wrapping; the page is told who, once per change', () => {
+  const r = room();
+  const players = ['Ann', 'Ben', 'Cal'].map((n) => {
+    const s = sock();
+    r.addSocket(s);
+    r.join(s.id, n);
+    return s;
+  });
+  r.tickOnce();
+  const w = wsock();
+  const other = wsock();
+  r.addSocket(w);
+  r.addSocket(other);
+  assert.strictEqual(r.spectate(w.id), true);
+  assert.strictEqual(r.spectate(other.id), true);
+  r.tickOnce();
+  const camOf = (s) => s.last().find((x) => x.t === 'cam');
+  const sameCam = (cam, pid) => {
+    const f = r._focusOf(pid);
+    assert.strictEqual(cam.x, Math.fround(f.x));
+    assert.strictEqual(cam.y, Math.fround(f.y));
+  };
+  const nameOf = (pid) => r.sim.playerInfo(pid).name;
+  let ranking = r._ranking();
+  const n = ranking.length;
+  assert.ok(n >= 3);
+  const seat = r.seatOf(w.id);
+  assert.strictEqual(seat.follow, ranking[0].pid, 'starts on the top player');
+  sameCam(camOf(w), ranking[0].pid);
+  assert.deepStrictEqual(w.watching(), [{ name: nameOf(ranking[0].pid) }]);
+
+  // Next: the player ranked second, for this watcher only.
+  ranking = r._ranking();
+  assert.strictEqual(r.followStep(w.id, 1), true);
+  assert.strictEqual(seat.follow, ranking[1].pid);
+  r.tickOnce();
+  sameCam(camOf(w), seat.follow);
+  sameCam(camOf(other), r.seatOf(other.id).follow);
+  assert.strictEqual(r.seatOf(other.id).follow, ranking[0].pid, 'the other watcher stays on the top player');
+  assert.deepStrictEqual(w.watching().slice(-1), [{ name: nameOf(seat.follow) }]);
+  assert.strictEqual(other.watching().length, 1, 'told once, nothing changed for it');
+  // No change, no message.
+  r.tickOnce();
+  r.tickOnce();
+  assert.strictEqual(w.watching().length, 2);
+  // Previous twice from second place wraps to the last.
+  ranking = r._ranking();
+  const at = ranking.findIndex((x) => x.pid === seat.follow);
+  r.followStep(w.id, -1);
+  r.followStep(w.id, -1);
+  assert.strictEqual(seat.follow, ranking[(at - 2 + n) % n].pid);
+  r.tickOnce();
+  assert.deepStrictEqual(w.watching().slice(-1), [{ name: nameOf(seat.follow) }]);
+
+  // One camera per followed player per tick, however many watchers follow it.
+  r.followStep(other.id, 1);
+  other.side.length = 0;
+  seat.follow = r.seatOf(other.id).follow;
+  const focusOf = r._focusOf;
+  let calls = 0;
+  r._focusOf = function (pid) { calls++; return focusOf.call(this, pid); };
+  r.tickOnce();
+  assert.strictEqual(calls, 1);
+  r._focusOf = focusOf;
+
+  // The followed player leaves: back to the top player, and the page is told.
+  const leaver = players[0];
+  const followed = r.seatOf(leaver.id).pid;
+  while (seat.follow !== followed) r.followStep(w.id, 1);
+  r.tickOnce();
+  assert.deepStrictEqual(w.watching().slice(-1), [{ name: 'Ann' }]);
+  r.removeSocket(leaver.id);
+  r.tickOnce();
+  r.tickOnce();
+  assert.notStrictEqual(seat.follow, followed);
+  assert.strictEqual(seat.follow, r._ranking()[0].pid);
+  assert.deepStrictEqual(w.watching().slice(-1), [{ name: nameOf(seat.follow) }]);
+
+  // Only a watcher steps, and only by 1 or -1.
+  for (const bad of [0, 2, -2, '1', 1.5, null, undefined]) assert.strictEqual(r.followStep(w.id, bad), false);
+  const live = players.find((s) => r.seatOf(s.id));
+  assert.strictEqual(r.followStep(live.id, 1), false, 'a live player has no camera to move');
+  const fresh = wsock();
+  r.addSocket(fresh);
+  assert.strictEqual(r.followStep(fresh.id, 1), false, 'not spectating');
+  assert.strictEqual(r.followStep('nobody', 1), false);
+  // A step always gets an answer, even onto the player already followed.
+  const before = w.watching().length;
+  r.followStep(w.id, 1);
+  r.followStep(w.id, -1);
+  r.tickOnce();
+  assert.strictEqual(w.watching().length, before + 1);
+  // Play ends the watch; a new Spectate starts on the top player again.
+  r.join(w.id, 'Back');
+  r.tickOnce();
+  assert.ok(!w.last().some((x) => x.t === 'cam'));
+});
+
 test('three throwing ticks in a row close the room and hand its sockets over', () => {
   const r = room();
   const s = sock();

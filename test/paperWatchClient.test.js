@@ -198,6 +198,18 @@ test('applyWatching follows the server pick as player, never _local; follow and 
   assert.strictEqual(m.follow(999), false);
   assert.strictEqual(m.player.id, 1);
   assert.deepStrictEqual(follows, [2, 3, 4, 1]);
+  // followPrev (the Spectate bar's previous button) walks the other way, the leader round to the last.
+  assert.strictEqual(m.followPrev().id, 4, 'wraps round to the last');
+  assert.strictEqual(m.followPrev().id, 3);
+  assert.strictEqual(m.followNext().id, 4);
+  assert.strictEqual(m.followPrev().id, 3);
+  assert.strictEqual(m.byId.get(4)._followed, false, 'only one square is followed');
+  m.byId.get(3).death = true;
+  assert.strictEqual(m.followPrev().id, 1, 'from a dead square: the leader');
+  m.byId.get(3).death = false;
+  m.watching = false;
+  assert.strictEqual(m.followPrev(), null, 'never outside watch mode');
+  m.watching = true;
   // A reconnect's state keeps the same square when it is still there, whatever the server picks.
   m.applyWatching(watching(four(), { follow: 4 }));
   assert.strictEqual(m.player.id, 1);

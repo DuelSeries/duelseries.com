@@ -243,6 +243,42 @@ test('every event but ag:view is rate limited through socketRL with its own key'
   assert.strictEqual(splits, 1);
 });
 
+test('ag:spectate { step: 1 | -1 } moves a watcher on its own limit; any other payload is a plain Spectate', () => {
+  const w = world();
+  const s = sock(w);
+  const r = roomOf(w, s);
+  r.tickOnce();
+  const steps = [];
+  r.followStep = ((f) => (id, d) => { steps.push(d); return f.call(r, id, d); })(r.followStep);
+  // Not watching yet: a step is a plain Spectate (after its own limiter).
+  s.fire('ag:spectate', { step: 1 });
+  assert.deepStrictEqual(w.rl, [['agstep', AG_RATE.step.value], ['agspectate', AG_RATE.spectate.value]]);
+  assert.strictEqual(r.seatOf(s.id).spectating, true);
+  w.rl.length = 0;
+  steps.length = 0;
+  s.fire('ag:spectate', { step: 1 });
+  s.fire('ag:spectate', { step: -1 });
+  assert.deepStrictEqual(steps, [1, -1]);
+  assert.deepStrictEqual(w.rl, [['agstep', AG_RATE.step.value], ['agstep', AG_RATE.step.value]], 'a step is never a Spectate');
+  w.rl.length = 0;
+  for (const bad of [{ step: 2 }, { step: '1' }, { step: 1.5 }, { step: true }, [1], 1, 'next', null, { step: 0 }]) {
+    s.fire('ag:spectate', bad);
+  }
+  assert.deepStrictEqual(steps, [1, -1], 'nothing else steps');
+  assert.ok(w.rl.every((x) => x[0] === 'agspectate'), 'each one a plain Spectate');
+  assert.ok(AG_RATE.step.value < AG_RATE.spectate.value);
+  // A dropped step (the limiter) changes nothing.
+  const w2 = world({ socketRL: (socket, key) => key !== 'agstep' });
+  const s2 = sock(w2);
+  const r2 = roomOf(w2, s2);
+  s2.fire('ag:spectate');
+  const seat = r2.seatOf(s2.id);
+  r2.tickOnce();
+  const was = seat.follow;
+  s2.fire('ag:spectate', { step: 1 });
+  assert.strictEqual(seat.follow, was);
+});
+
 test('split, eject, spectate and leave reach the room; q is accepted and ignored', () => {
   const w = world();
   const s = sock(w);

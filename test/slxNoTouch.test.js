@@ -18,7 +18,9 @@ const V = require('./slVmPage');
 const B = require('../server/sl/slBoot');
 
 // Every script of the composed page's tail, in its order: the shared end screens (public/js/shared/dsEnd.js, the
-// results card and leaderboard every game draws, slxCard's and slxHud's too) and then the layer files.
+// results card and leaderboard every game draws, slxCard's and slxHud's too), the layer files, then the empty table
+// and the Spectate bar every game shares (public/js/shared/dsEmptyArena.js, dsWatchBar.js; slxWatch and slxBr open
+// the bar when they watch).
 // The clip recorder that ends the tail (public/js/clip/, P saves the last 30 s on a PC, Owen 2026-10-16) is not part
 // of the layer and is meant to act on its own: it is left out here and checked in test/clipRec.test.js.
 const ALL = [...B.SLX_TAIL.matchAll(/<script src="\/js\/([^"]+)"[^>]*><\/script>/g)].map((m) => 'public/js/' + m[1]);
@@ -32,7 +34,10 @@ const LAYER_SRC = TAIL.map((f) => [f, fs.readFileSync(path.join(V.ROOT, f), 'utf
 const SCRIPTS = V.SRC.concat(LAYER_SRC);
 
 test('the layer of the composed page: dsEnd, then slxNet, slxPaid, slxBr, slxWatch, slxMain and slxDirect, every file on disk', () => {
-  assert.deepStrictEqual(TAIL.filter((f) => !LAYER.includes(f)), ['public/js/shared/dsEnd.js']);
+  assert.deepStrictEqual(TAIL.filter((f) => !LAYER.includes(f)), ['public/js/shared/dsEnd.js', 'public/js/shared/dsChat.js',
+    'public/js/shared/dsEmptyArena.js', 'public/js/shared/dsWatchBar.js']);
+  assert.deepStrictEqual(TAIL.slice(-2), ['public/js/shared/dsEmptyArena.js', 'public/js/shared/dsWatchBar.js'],
+    'after the layer');
   assert.strictEqual(TAIL[0], 'public/js/shared/dsEnd.js', 'before the layer');
   assert.deepStrictEqual(LAYER.slice(0, 6), ['public/js/slx/slxNet.js', 'public/js/slx/slxPaid.js',
     'public/js/slx/slxBr.js', 'public/js/slx/slxWatch.js', 'public/js/slx/slxMain.js', 'public/js/slx/slxDirect.js']);
@@ -67,8 +72,11 @@ for (const ua of ['desktop', 'mobile']) {
     const after = counts(P);
     for (const k of Object.keys(before)) {
       if (Array.isArray(before[k])) before[k].forEach((v, i) => assert.strictEqual(after[k][i], v, k + '[' + i + ']'));
-      // the shared end screens' one global (a library: it makes no element, listener or timer until it is called)
-      else if (k === 'winKeys') assert.strictEqual(after[k], before[k] + ',DSEnd', k);
+      // the shared end screens', empty table's and Spectate bar's globals (libraries: none makes an element, listener
+      // or timer until it is called)
+      else if (k === 'winKeys') assert.strictEqual(after[k], before[k] + ',DSEnd,DSChat,DSEmptyArena,DSWatchBar', k);
+      // the shared chat (4608813) routes its keys from load: keydown, keyup, keypress and blur on window
+      else if (k === 'winListeners') assert.strictEqual(after[k], before[k] + 4, k);
       else assert.strictEqual(after[k], before[k], k);
     }
     assert.strictEqual(P.win.DSEnd.shown(), false, 'no card');

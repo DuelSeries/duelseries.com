@@ -182,7 +182,52 @@ test('Next match steps through the running matches', () => {
   assert.strictEqual(lob.watchers.size, 1);
 });
 
-test('the end of a match is said, and its watchers let go', () => {
+test('Previous steps back through the running matches, round to the end, and Next undoes it', () => {
+  const { lob } = rig();
+  const rooms = [];
+  for (let i = 0; i < 3; i++) {
+    lob.enqueue(sock('a' + i), 'A' + i, null, 0, 0);
+    lob.enqueue(sock('b' + i), 'B' + i, null, 0, 0);
+    rooms.push(lob.roomOf('a' + i));
+  }
+  const W = sock('w');
+  const prev = (after) => lob.watch(W, { after, dir: 'prev' }).roomId;
+  const next = (after) => lob.watch(W, { after }).roomId;
+  assert.strictEqual(prev(rooms[2].id), rooms[1].id, 'the one made just before');
+  assert.strictEqual(prev(rooms[1].id), rooms[0].id);
+  assert.strictEqual(prev(rooms[0].id), rooms[2].id, 'and round to the end');
+  assert.strictEqual(next(prev(rooms[1].id)), rooms[1].id, 'Next after Previous is where you were');
+  assert.strictEqual(lob.watch(W, { after: rooms[2].id, dir: 'next' }).roomId, rooms[0].id, 'dir next is the old Next');
+  assert.strictEqual(lob.watch(W, { after: rooms[2].id, dir: 'sideways' }).roomId, rooms[0].id, 'any other dir is Next');
+  assert.strictEqual(lob.watchers.size, 1, 'one entry per watcher, however often they move');
+  assert.strictEqual(rooms.reduce((n, r) => n + r.watchers, 0), 1, 'counted on one room only');
+  assert.strictEqual(W.last('bs:watching').match.count, 3);
+
+  /* The one being left has ended already: still the one before it. */
+  rooms[1].state = 'over';
+  assert.strictEqual(prev(rooms[1].id), rooms[0].id);
+  assert.strictEqual(prev(rooms[0].id), rooms[2].id);
+  rooms[1].state = 'placing';
+
+  /* A match about to show its result goes to the back, going either way. */
+  rooms[0].state = 'settling';
+  assert.strictEqual(prev(rooms[2].id), rooms[1].id);
+  assert.strictEqual(prev(rooms[1].id), rooms[2].id, 'the ending one is skipped');
+  rooms[0].state = 'placing';
+
+  /* One match left: Previous keeps you on it. */
+  rooms[0].state = 'over'; rooms[1].state = 'over';
+  assert.strictEqual(prev(rooms[2].id), rooms[2].id);
+  rooms[0].state = 'placing'; rooms[1].state = 'placing';
+
+  /* Previous at a buy-in stays at that buy-in. */
+  rooms[0].stake = 0.5; rooms[2].stake = 0.5;
+  assert.strictEqual(lob.watch(W, { after: rooms[2].id, dir: 'prev', stake: 0.5 }).roomId, rooms[0].id, 'the other $0.50 table');
+  assert.strictEqual(lob.watch(W, { after: rooms[0].id, dir: 'prev', stake: 0.5 }).roomId, rooms[2].id, 'round, skipping the Free one');
+  assert.strictEqual(lob.watch(W, { after: rooms[1].id, dir: 'prev', stake: 0 }).roomId, rooms[1].id, 'the only Free table: it stays');
+});
+
+test('the end of a match is said, and its watchers let gothe end of a match is said, and its watchers let go', () => {
   const { lob, roomSent } = rig();
   const A = sock('sockA-7f3c'), B = sock('sockB-91de'), W = sock('w');
   assert.strictEqual(lob.watch(W, {}).ok, false);

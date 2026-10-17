@@ -144,11 +144,17 @@ const WATCH_STAKE = (() => {
     return Number.isFinite(s) && s > 0 ? s : 0;
   } catch (_) { return 0; }
 })();
-const WATCH_NEXT_MS = 3000;   // the pause before moving on, and between retries
+const WATCH_NEXT_MS = 3000;   // between asks while no match is running
+const WATCH_OVER_MS = 1800;   // how long a finished match's result stays up before the next one
+const WATCH_SWAP_MS = 1500;   // how long the arrows rest for an answer that never comes
 const seatId = (side) => 's' + side;
+/* The Spectate controls are the shared bar (public/js/shared/dsWatchBar.js): Lobby, previous, next and who is playing. */
+const BAR = window.DSWatchBar || null;
 let watchMatch = null;        // the match card: { id, names, stake, pot, turn, index, count }
-let watchLastId = null;       // the match we were last on, for "the next one after it"
+let watchLastId = null;       // the match we were last on, for "the one before / after it"
 let watchTimer = 0;
+let swapping = false;         // Previous / Next is asked and not answered yet
+let swapTimer = 0;
 let watchReady = [];          // which seats have locked in this turn, as seatIds
 
 /* ── the transform ─────────────────────────────────────────────────────────
@@ -626,7 +632,7 @@ function apply(state) {
    mode a match to watch. The server forgets a watcher whose socket dropped, so
    a reconnect asks again rather than assuming it is still on the list. */
 socket.on('connect', () => {
-  if (WATCH) { me = seatId(0); watch(null); return; }
+  if (WATCH) { me = seatId(0); swapping = false; watch(null); return; }
   me = socket.id;
   queue();
 });
@@ -814,7 +820,6 @@ function paintOver() {
 }
 
 function playAgain() {
-  if (WATCH) { watch(watchLastId); return; }
   if (myStake > 0) { askRestake(); return; }
   requeue(null);
 }
@@ -938,6 +943,8 @@ function runCountdown(ms) {
 function toLobby() {
   if (restake && !restake.slow) return;     // the wallet is open: the way back is shut until it answers
   clearTimeout(watchTimer);
+  clearTimeout(swapTimer);
+  if (BAR) BAR.close();
   socket.emit(WATCH ? 'ko:unwatch' : 'ko:leave');
   /* The lobby hosts this in an iframe and listens for exactly this, same as the
      other games. Falls back to a normal navigation when opened directly. */
@@ -1018,23 +1025,55 @@ const seatName = (id) => {
 };
 
 /* Ask for a match. `after` is the one being left, so the server moves on from
-   it rather than handing the same one back. */
-function watch(after) {
+   it rather than handing the same one back; dir 'prev' asks for the one before
+   it instead of the one after. */
+function watch(after, dir) {
   clearTimeout(watchTimer);
-  socket.emit('ko:watch', after ? { after, stake: WATCH_STAKE } : { stake: WATCH_STAKE });
+  const msg = after ? { after, stake: WATCH_STAKE } : { stake: WATCH_STAKE };
+  if (after && dir === 'prev') msg.dir = 'prev';
+  socket.emit('ko:watch', msg);
   publishWatch(watchMatch ? 'watching' : 'searching');
 }
 
-function showWatchWait(main, sub) {
-  DSEnd.hide();
-  $('wait').hidden = false;
-  $('waitMain').textContent = main;
-  $('waitSub').textContent = sub;
+/* The Previous and Next of the shared bar: the match before or after this one,
+   straight away, with nothing in between. The arrows rest until the answer
+   comes (a second press waits for it), and open again on their own if it never
+   does. */
+function step(dir) {
+  clearTimeout(watchTimer);
+  clearTimeout(swapTimer);
+  swapping = true;
+  if (BAR) BAR.busy(true);
+  swapTimer = setTimeout(() => { swapping = false; if (BAR) BAR.busy(false); }, WATCH_SWAP_MS);
+  watch(watchMatch ? watchMatch.id : watchLastId, dir);
 }
 
+/* Moving on once this match is done: at once, or after a moment to read how it
+   ended. */
+function followOn(ms) {
+  clearTimeout(watchTimer);
+  if (ms > 0) watchTimer = setTimeout(() => watch(watchLastId), ms);
+  else watch(watchLastId);
+}
+
+/* Nobody to follow: ask again in a moment, so the first match to start is picked
+   up by itself. */
 function nextSoon() {
   clearTimeout(watchTimer);
   watchTimer = setTimeout(() => watch(watchLastId), WATCH_NEXT_MS);
+}
+
+/* "A vs B" for the bar's plate, which holds 32 characters: a long name gives up
+   its end (and a short one keeps all of its own) so the pair always fits. */
+function vsLabel(names) {
+  const room = 28;                                   // the plate's 32, less ' vs '
+  const half = room / 2;
+  const cut = (s, n) => (s.length > n ? s.slice(0, Math.max(1, n - 1)) + '…' : s);
+  const a = String((names && names[0]) || 'Player').trim() || 'Player';
+  const b = String((names && names[1]) || 'Player').trim() || 'Player';
+  const x = a.length <= half ? a : b.length <= half ? cut(a, room - b.length) : cut(a, half);
+  const y = b.length <= half ? b : a.length <= half ? cut(b, room - a.length) : cut(b, half);
+  return x + ' vs ' + y;
 }
 
 /* What the page is doing, for a headless check to read without a screenshot. */
@@ -1052,25 +1091,11 @@ function publishWatch(mode) {
   } catch (_) {}
 }
 
-function paintWatch() {
-  const m = watchMatch;
-  $('watchTag').hidden = !m;
-  if (m) {
-    const n = m.names || [];
-    $('watchLabel').textContent = 'Watching ' + (n[0] || 'Player') + ' vs ' + (n[1] || 'Player');
-    $('watchMeta').textContent = (m.stake > 0 ? '$' + Number(m.stake).toFixed(2) + ' table' : 'Free table')
-      + (m.count > 1 ? ' · match ' + m.index + ' of ' + m.count : '');
-  }
-  $('watchNext').hidden = false;
-  $('watchNext').disabled = !m || !(m.count > 1);
-  $('watchLobby').hidden = false;
-  $('lock').hidden = true;
-  publishWatch(m ? 'watching' : 'searching');
-}
-
 /* The bar while watching: what is happening, in words, since there is
-   nothing to do. Who has locked in is the one thing worth saying mid-turn. */
+   nothing to do. Who has locked in is the one thing worth saying mid-turn.
+   Once the match is over the line is its result, and stays. */
 function paintWatchBar() {
+  if (overShown) return;
   const hint = $('hint');
   $('theirState').textContent = '';
   const n = watchReady.length;
@@ -1085,18 +1110,30 @@ function paintWatchBar() {
 socket.on('ko:watching', (m) => {
   if (!WATCH || !m) return;
   clearTimeout(watchTimer);
+  clearTimeout(swapTimer);
+  const swap = swapping;
+  swapping = false;
   if (!m.match || !m.state) {
-    /* Nothing to show yet. Ask again in a moment rather than leaving a page
-       that can only ever say no. */
+    /* Nobody is playing (or every match has its fill of watchers): the empty
+       table behind the bar, and an ask every few seconds so the first match to
+       start is followed by itself. */
     watchMatch = null;
-    $('top').hidden = true; $('bar').hidden = true; $('watchTag').hidden = true;
-    st = null; tape = null; reveal = null;
+    $('top').hidden = true; $('bar').hidden = true;
+    st = null; tape = null; reveal = null; overShown = false;
+    clearInterval(countTimer); $('count').hidden = true;
     chatShow(false);
-    showWatchWait(
-      m.full ? 'Every match is full of watchers' : m.refused ? 'You are in a match' : 'Nobody is playing right now',
-      'Checking again every few seconds.');
+    if (BAR) BAR.empty();
     publishWatch(m.full ? 'full' : m.refused ? 'refused' : 'none');
     nextSoon();
+    return;
+  }
+
+  /* Next with only one match running comes back with the same one. The board
+     on screen is that match, live, so it is left alone. */
+  if (swap && watchMatch && st && !overShown && m.match.id === watchMatch.id) {
+    watchMatch = m.match;
+    if (BAR) BAR.watching(vsLabel(watchMatch.names));
+    publishWatch('watching');
     return;
   }
 
@@ -1104,7 +1141,6 @@ socket.on('ko:watching', (m) => {
   watchMatch = m.match;
   watchLastId = m.match.id;
   overShown = false;
-  DSEnd.hide();
   aims.clear(); drag = null; locked = false; tape = null; reveal = null;
   ringFall.clear(); drawR = 0; st = null; watchReady = [];
   const state = fromWatch(m.state);
@@ -1131,76 +1167,56 @@ socket.on('ko:watching', (m) => {
       tapeStartedAt = performance.now() - (elapsed - holdMs);
     }
   }
-  paintWatch();
+  if (BAR) BAR.watching(vsLabel(watchMatch.names));
+  publishWatch('watching');
   paintBar();
 });
 
-/* Where this match now sits among the ones running. Next match is on offer
-   only when there is a next match. */
+/* Where this match now sits among the ones running. */
 socket.on('ko:matches', ({ index, count } = {}) => {
   if (!WATCH || !watchMatch) return;
   if (Number.isFinite(index)) watchMatch.index = index;
   if (Number.isFinite(count)) watchMatch.count = count;
-  paintWatch();
+  publishWatch('watching');
 });
 
 /* The match went away without a result (the two of them were paired off
-   elsewhere, or it simply stopped). Said, then on to the next. */
+   elsewhere, or it simply stopped). On to the next at once. */
 socket.on('ko:ended', ({ id } = {}) => {
   if (!WATCH || overShown) return;
   if (watchMatch && id && id !== watchMatch.id) return;
   overShown = true;
-  /* A notice, not a result: it keeps its own two buttons. */
-  DSEnd.show({ verdict: 'That match ended', notes: ['Finding the next one.'], buttons: [
-    { id: 'again', text: 'Next match', primary: true, onClick: () => watch(watchLastId) },
-    { id: 'lobby', text: 'Lobby', onClick: toLobby },
-  ] });
-  $('bar').hidden = true;
   publishWatch('ended');
-  nextSoon();
+  followOn(0);
 });
 
-/* A watcher's card: who won it and in how many turns, then on to the next
-   match by itself. No money: nobody watching staked anything. The same three
-   buttons as a player's card: Spectate is the next match, Play again a seat. */
-function watchButtons() {
-  const paid = WATCH_STAKE > 0;
-  return [
-    { id: 'lobby', text: 'Lobby', onClick: toLobby },
-    { id: 'spectate', text: 'Spectate', onClick: () => watch(watchLastId) },
-    { id: 'again', text: paid ? 'Play again ' + DSEnd.usd(Math.round(WATCH_STAKE * 1e6)) : 'Play again',
-      primary: true, disabled: paid, onClick: playFromWatch },
-  ];
-}
+/* How it ended, on the line the bar keeps under the strip, then on to the next
+   match. No card: the winner has already sat on the board, and the bar's
+   arrows are there if the next match is wanted sooner. No money: nobody
+   watching staked anything. */
 function watchOver(m) {
   if (overShown) return;
   overShown = true;
   const names = watchMatch ? watchMatch.names : [];
   const loser = m.winnerSide === 0 ? names[1] : m.winnerSide === 1 ? names[0] : null;
-  const turns = Number(m.turn) || 0;
-  const notes = [];
-  if (m.why === 'opponent left') notes.push((loser || 'A player') + ' left the match.');
-  else if (m.why === 'everyone went off') notes.push('Both sides went off on the same turn.');
-  notes.push('Next match in a few seconds.');
-  if (WATCH_STAKE > 0) notes.push(TEXT.lobbyOnly);
-  DSEnd.show({
-    verdict: m.winner ? m.winner + ' wins' : 'Draw',
-    hero: DSEnd.int(turns), unit: plural(turns, 'turn', 'turns'),
-    notes, buttons: watchButtons(),
-  });
-  $('bar').hidden = true;
+  const said = [m.winner ? m.winner + ' wins' : 'Draw'];
+  if (m.why === 'opponent left') said.push((loser || 'A player') + ' left the match');
+  else if (m.why === 'everyone went off') said.push('Both sides went off on the same turn');
+  $('hint').textContent = said.join('. ') + '.';
+  $('theirState').textContent = '';
+  $('bar').hidden = false;
   publishWatch('over');
-  nextSoon();
+  followOn(WATCH_OVER_MS);
 }
 
 if (WATCH) {
   document.body.classList.add('watching');
-  $('waitMain').textContent = 'Finding a match to watch';
-  $('waitSub').textContent = 'Watching only. You are not playing.';
-  $('watchNext').hidden = false;
-  $('watchLobby').hidden = false;
+  $('wait').hidden = true;                 // the bar speaks for a watcher, from the first moment
   $('lock').hidden = true;
-  $('watchNext').addEventListener('click', () => { if (watchMatch) watch(watchMatch.id); });
-  $('watchLobby').addEventListener('click', toLobby);
+  if (BAR) {
+    BAR.open({ game: 'knockout', stake: WATCH_STAKE, onPrev: () => step('prev'), onNext: () => step('next'), onLobby: toLobby });
+    BAR.watching('Finding a match');
+    BAR.busy(true);
+  }
   publishWatch('searching');
 }

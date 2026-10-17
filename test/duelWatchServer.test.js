@@ -119,7 +119,7 @@ for (const g of [
     assert.ok(await until(() => A.has(g.p + ':watching', (m) => m && m.refused === true)));
     assert.deepStrictEqual(await counted(g.game), seated);
 
-    /* Junk, each past the 500 ms limit so its shape is really read. The
+    /* Junk, each past the 100 ms limit so its shape is really read. The
        message itself is dropped by on() unless it is a plain object; a field
        that is not a short string is ignored. Either way the server answers,
        and the watcher is still watching the same match. */
@@ -127,7 +127,7 @@ for (const g of [
       W.s.emit(g.p + ':watch', msg);
       W.s.emit(g.p + ':unwatch', msg);
       assert.ok(await handled(W.s), 'still answering after ' + JSON.stringify(msg).slice(0, 30));
-      await sleep(520);
+      await sleep(120);
     }
     const n = W.all(g.p + ':watching').length;
     W.s.emit(g.p + ':watch', {});
@@ -158,5 +158,39 @@ for (const g of [
     B.s.close();
     assert.ok(await until(async () => (await counted(g.game)).row === base.row), 'back to where it started');
     assert.ok(srv.exitCode === null, 'the server is still up');
+  });
+
+  test(g.game + ': on the real server Previous and Next step between two live matches, round the ends, and a junk dir is Next', { timeout: 60000 }, async () => {
+    const A = await connect(), B = await connect(), C = await connect(), D = await connect();
+    /* Two matches, each queued one after the other so the pairs form in order. */
+    for (const [x, y, nx, ny] of [[A, B, 'Ann', 'Ben'], [C, D, 'Cy', 'Di']]) {
+      x.s.emit(g.p + ':queue', { name: nx });
+      assert.ok(await until(() => x.has(g.p + ':queued')), nx + ' is queued');
+      y.s.emit(g.p + ':queue', { name: ny });
+      assert.ok(await until(() => x.has(g.started) && y.has(g.started)), 'a match is made');
+    }
+    const W = await connect();
+    const ask = async (msg) => {
+      await sleep(130);                                     // past the 100 ms limit between asks
+      const n = W.all(g.p + ':watching').length;
+      W.s.emit(g.p + ':watch', msg);
+      assert.ok(await until(() => W.all(g.p + ':watching').length > n), 'answered ' + JSON.stringify(msg));
+      return W.all(g.p + ':watching').pop();
+    };
+    const first = await ask({});
+    assert.ok(first.match && first.match.count === 2, 'two matches are running');
+    const a = first.match.id;
+    const second = await ask({ after: a });
+    const b = second.match.id;
+    assert.notStrictEqual(a, b, 'Next is the other match');
+    assert.strictEqual((await ask({ after: b, dir: 'prev' })).match.id, a, 'Previous from the second is the first');
+    assert.strictEqual((await ask({ after: a, dir: 'prev' })).match.id, b, 'and from the first it wraps to the last');
+    assert.strictEqual((await ask({ after: b, dir: 'next' })).match.id, a, 'dir next is Next');
+    assert.strictEqual((await ask({ after: a, dir: 'sideways' })).match.id, b, 'a junk dir is Next');
+    assert.strictEqual((await ask({ after: a, dir: { toString: 1 } })).match.id, b, 'so is an object');
+    assert.strictEqual((await ask({ after: b, dir: 'prev', stake: 0 })).match.id, a, 'Previous at Free stays at Free');
+    const none = await ask({ after: b, dir: 'prev', stake: 0.5 });
+    assert.deepStrictEqual(none, { none: true }, 'no table at a buy-in nobody is playing: nothing, not a seat');
+    for (const x of [A, B, C, D, W]) x.s.close();
   });
 }

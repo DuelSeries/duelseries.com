@@ -7,8 +7,8 @@
 // this page (see topListChanged below). The live game has NO leave control: Lobby is on the end
 // cards only. Watch mode (the lobby's Spectate,
 // sessionStorage dsWatch = 'paper') never joins: it watches the busiest free table read-only,
-// with a Lobby button, the followed square's name and Next. The death and cash-out cards' Spectate
-// reopens this page in watch mode on the same table's rung, as the lobby's Spectate does.
+// under the shared Spectate bar (Lobby, previous, the followed square's name, next). The death and cash-out cards'
+// Spectate reopens this page in watch mode on the same table's rung, as the lobby's Spectate does.
 // Test-only: ?lag=N delays every socket event by N ms each way (so ?lag=50 is a 100 ms round
 // trip); off by default.
 (function (root) {
@@ -242,12 +242,7 @@
       hint: $('pp-hint'),
       cash: $('pp-cash'),
       cashFill: $('pp-cash-fill'),
-      cashLabel: $('pp-cash-label'),
-      watch: $('pp-watch'),
-      watchLobby: $('pp-watch-lobby'),
-      watchBar: $('pp-watch-bar'),
-      watchName: $('pp-watch-name'),
-      watchNext: $('pp-watch-next')
+      cashLabel: $('pp-cash-label')
     };
     var RING_C = 2 * Math.PI * 32;
     if (el.cashFill) {
@@ -1032,44 +1027,58 @@
 
     // ---- watch mode (the lobby's Spectate) ----
     // Read-only: pp:watch instead of pp:join, never live, no Play, cash-out or hold control. The mirror follows
-    // one square (game.follow / followNext); the page shows Lobby, the followed name and Next.
+    // one square (game.follow / followNext / followPrev); the page shows the shared Spectate bar
+    // (public/js/shared/dsWatchBar.js, Owen 2026-10-16: the same controls in every game): Lobby, previous, the
+    // followed square's name and next. Until a table is shown it says it is finding a player, its arrows off, over
+    // the connecting words; Lobby works from the start.
+    var bar = watchMode ? root.DSWatchBar || null : null;
 
     // The stock HUD's sizes in CSS px (paperGame.js getRenderContext over devicePixelRatio; the render quality
-    // cancels out): Lobby goes under the top-left score stack (score bar, BEST line, kills pill), the name and
-    // Next go bottom left, clear of the minimap; nothing covers the leaderboard (top right).
-    function layoutWatch() {
-      if (!page.watch) return;
+    // cancels out): the bar's Lobby goes under the top-left score stack (score bar, BEST line, kills pill), where the
+    // watch Lobby always was, and on a phone its arrows and name are lifted clear of the minimap disc (bottom right).
+    function watchSizes() {
       var w = view.clientWidth;
       var h = view.clientHeight;
-      if (!(w > 0 && h > 0)) return;
+      if (!(w > 0 && h > 0)) return null;
       var s = Math.hypot(w, h) / Math.hypot(1366, 768);
       var font = P.Hud.calcMult(w, h, 20, 30) * s;
-      // padding 16, bar 1.5 font, back 4, the BEST line (font + padding / 2), the kills pill (4 + 1.5 font)
-      if (el.watchLobby) el.watchLobby.style.top = Math.round(28 * s + 4 * font + 12) + 'px';
-      var mini = w / P.Hud.calcMult(w, h, 8, 3) + 16 * s; // the minimap and its padding, bottom right
-      if (el.watchBar) el.watchBar.style.maxWidth = Math.max(120, Math.floor(w - mini - 36)) + 'px';
+      return {
+        // padding 16, bar 1.5 font, back 4, the BEST line (font + padding / 2), the kills pill (4 + 1.5 font)
+        lobbyTop: Math.round(28 * s + 4 * font + 12),
+        lift: Math.ceil(16 * s + w / P.Hud.calcMult(w, h, 8, 3) + 12) // the minimap and its padding, plus a gap
+      };
     }
 
-    // The name and Next show only while a table is shown and a square is followed.
+    function barOpen() {
+      var z = watchSizes();
+      bar.open({ game: 'paper', stake: watchOf ? watchOf.stake : 0, onPrev: onWatchPrev, onNext: onWatchNext,
+        onLobby: onWatchLobby, phoneLift: z ? z.lift : 0 });
+      var lobby = doc.querySelector('.dsw-lobby');
+      if (lobby && z) lobby.style.top = z.lobbyTop + 'px';
+    }
+
+    function layoutWatch() {
+      if (bar && page.watch && bar.shown()) barOpen();
+    }
+
+    // Finding a player, arrows off (from the start, and while the server says why there is no table to show).
+    function barWait() {
+      if (!bar) return;
+      if (bar.shown()) bar.close();
+      barOpen();
+      bar.busy(true);
+    }
+
+    // The name shows only while a table is shown; a shown table with nobody alive on it is the empty table.
     function setFollowed(u) {
-      if (el.watchName) el.watchName.textContent = u ? unitName(u) : '';
-      show(el.watchBar, !!u && page.watchLive);
-    }
-
-    // Nobody at the table (a paid rung nobody is at; the free arena has bots from boot): the whole map, zoomed out and
-    // centred, over the waiting words until a pp:watching with a state arrives (public/js/shared/dsEmptyArena.js,
-    // Owen 2026-10-16). Its Lobby is the watch's own.
-    function emptyTable(on) {
-      var E = root.DSEmptyArena;
-      if (!E) return;
-      if (on && page.watch) E.show({ game: 'paper', stake: watchOf ? watchOf.stake : 0, onLobby: onWatchLobby });
-      else E.hide();
+      if (!bar || !page.watch || !page.watchLive) return;
+      if (u) bar.watching(unitName(u));
+      else bar.empty();
     }
 
     function watchWait(text, sub) {
       page.watchLive = false;
       page.phase = 'connecting';
-      show(el.watchBar, false);
       if (chat) chat.visible(false);
       showConnecting(text, sub);
     }
@@ -1096,22 +1105,26 @@
       game.followNext();
     }
 
+    function onWatchPrev(evt) {
+      if (evt && evt.preventDefault) evt.preventDefault();
+      if (!page.watch || !page.watchLive || typeof game.followPrev !== 'function') return;
+      game.followPrev();
+    }
+
     // net.leave() (pp:leave ends the watch on the server) and the existing way back (game:done, or '/').
     function onWatchLobby(evt) {
       page.watch = false;
       page.watchLive = false;
       cancel('watch');
-      emptyTable(false);
+      if (bar) bar.close();
       onLobbyClick(evt);
     }
 
     if (watchMode) {
-      show(el.watch, true);
-      show(el.watchBar, false);
-      if (el.watchLobby) el.watchLobby.addEventListener('click', onWatchLobby);
-      if (el.watchNext) el.watchNext.addEventListener('click', onWatchNext);
-      root.addEventListener('resize', layoutWatch);
-      layoutWatch();
+      if (bar) {
+        barWait();
+        root.addEventListener('resize', layoutWatch);
+      }
       game.onFollow = function (u) {
         setFollowed(u);
       };
@@ -1121,12 +1134,16 @@
         if (!p || p.none) {
           var text = (p && Object.prototype.hasOwnProperty.call(WATCH_TEXT, p.why) && WATCH_TEXT[p.why]) || WATCH_TEXT.nobody;
           watchWait(text, 'Checking again every few seconds');
-          emptyTable(!p || p.why === 'nobody' || p.why === 'closed');
+          // Nobody at the table (a paid rung nobody is at; the free arena has bots from boot): the empty table, the
+          // whole map behind the bar (Owen 2026-10-16). Any other reason keeps its words on show, the plate blank.
+          if (bar) {
+            if (!p || p.why === 'nobody' || p.why === 'closed') bar.empty();
+            else barWait();
+          }
           if (!page.timers.watch) armWatch();
           return;
         }
         cancel('watch');
-        emptyTable(false);
         hud.reset();
         page.watchLive = true;
         page.phase = 'watch';
@@ -1136,10 +1153,12 @@
         setFollowed(game.player || null);
       });
 
-      // The server forgot this watcher with its socket; the net asks again on the next connection.
+      // The server forgot this watcher with its socket; the net asks again on the next connection. The bar keeps
+      // its plate (and Lobby) with the arrows off meanwhile.
       net.on('disconnect', function () {
         if (!page.watch) return;
         watchWait('Reconnecting...', 'Getting the table back');
+        if (bar) bar.busy(true);
         armWatch();
       });
     }
@@ -1187,7 +1206,8 @@
           followDead: !!(u && u.death)
         };
       },
-      next: onWatchNext
+      next: onWatchNext,
+      prev: onWatchPrev
     };
     P.arena = api;
     return api;

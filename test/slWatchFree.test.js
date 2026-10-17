@@ -98,22 +98,53 @@ test('a watcher never steers, holds or chats; its pings get their pongs', () => 
   assert.ok(!layerMsgs(p).some((m) => m.t === 'chat'), 'nobody got a line from the watcher');
 });
 
-test('after: the next snake down the board, wrapping to the leader; a gone after means the leader', () => {
+// Next and Previous go round in a fixed order (snake id), so two snakes of about the same length never make Next bounce
+// between them; with nothing to step from, the leader.
+test('after: the next snake in id order, wrapping round; a gone after means the leader', () => {
   const { r, room, owen, big, mid } = freeRoom();
   const at = (after) => {
     const w = room.seatWatch(bareSocket(), { after });
     return w && w.snakeId;
   };
+  const ids = [owen, big.id, mid.id].sort((a, b) => a - b);
+  const next = (id) => ids[(ids.indexOf(id) + 1) % ids.length];
   assert.strictEqual(at(undefined), big.id, 'no after: the leader');
-  assert.strictEqual(at(big.id), mid.id);
-  assert.strictEqual(at(mid.id), owen, 'bots and people in one order');
-  assert.strictEqual(at(owen), big.id, 'the last wraps to the leader');
+  for (const id of ids) assert.strictEqual(at(id), next(id), 'bots and people in one order, wrapping');
   assert.strictEqual(at(65000), big.id, 'not alive: the leader');
   // through the handshake
   const w = r.sock({ auth: { watch: 1, after: mid.id } });
   w.fire('sl:join', {});
-  assert.strictEqual(watchMsg(w)[0].id, owen);
-  assert.strictEqual(watchMsg(w)[0].name, 'Owen');
+  assert.strictEqual(watchMsg(w)[0].id, next(mid.id));
+});
+
+test('before (Previous): the one before in id order, wrapping round; after wins over before; bad is the leader', () => {
+  const { r, room, owen, big, mid } = freeRoom();
+  const at = (info) => {
+    const w = room.seatWatch(bareSocket(), info);
+    return w && w.snakeId;
+  };
+  const ids = [owen, big.id, mid.id].sort((a, b) => a - b);
+  const prev = (id) => ids[(ids.indexOf(id) + ids.length - 1) % ids.length];
+  const next = (id) => ids[(ids.indexOf(id) + 1) % ids.length];
+  for (const id of ids) assert.strictEqual(at({ before: id }), prev(id), 'wrapping');
+  assert.strictEqual(at({ before: 65000 }), big.id, 'not alive: the leader');
+  assert.strictEqual(at({ after: big.id, before: owen }), next(big.id), 'after wins');
+  // through the handshake, checked as after is
+  const w = r.sock({ auth: { watch: 1, before: owen } });
+  w.fire('sl:join', {});
+  assert.strictEqual(watchMsg(w)[0].id, prev(owen));
+  for (const b of ['5', 5.5, -1, 0, 65536, NaN, {}, [owen], null, true]) {
+    const s = r.sock({ auth: { watch: 1, before: b } });
+    s.fire('sl:join', {});
+    assert.strictEqual(watchMsg(s)[0].id, big.id, 'before ' + String(b) + ': the leader');
+    s.fire('disconnect', 'client namespace disconnect');
+  }
+  const auth = Object.create(null);
+  auth.watch = 1;
+  Object.defineProperty(auth, 'before', { enumerable: true, get() { throw new Error('getter called'); } });
+  const g = r.sock({ auth });
+  g.fire('sl:join', {});
+  assert.strictEqual(watchMsg(g)[0].id, big.id, 'a getter is never called');
 });
 
 test('hostile watch handshakes: a bad watch is no watcher, a bad after is the leader, nothing throws', () => {
@@ -247,6 +278,27 @@ test('a paid rung watcher (watchStake) follows a paying player as its own view: 
   // leaving ends the view; the paid directory finds the watcher's socket
   w.disconnect();
   assert.strictEqual(room.watchers.size, 0);
+});
+
+test('a paid rung watcher\'s Previous and Next: after and before reach the room\'s seatWatch as snake ids, nothing more', async () => {
+  const r = paidRig();
+  const payer = r.join(r.mint({ stake: 1, worth: 1, paid: 1 }), { auth: { stake: 1 }, nick: 'Payer' });
+  await r.settle();
+  const room = r.paid.rooms().find((x) => x.seatOf(payer.id));
+  const id = room.seatOf(payer.id).snakeId;
+  const asks = [];
+  const real = room.seatWatch.bind(room);
+  room.seatWatch = (socket, info) => { asks.push(Object.assign({}, info)); return real(socket, info); };
+  const opens = room.money.openCount();
+  for (const auth of [{ before: id }, { after: id }, { before: 'x' }]) {
+    const w = r.sock({ auth: Object.assign({ watch: 1, watchStake: 1 }, auth) });
+    w.fire('sl:join', {});
+    assert.strictEqual(watchMsg(w)[0].id, id, 'one player: Previous and Next wrap to them');
+    w.disconnect();
+  }
+  assert.deepStrictEqual(asks, [{ after: null, before: id }, { after: id, before: null }, { after: null, before: null }]);
+  assert.strictEqual(room.seats.size, 1);
+  assert.strictEqual(room.money.openCount(), opens, 'no account opened');
 });
 
 test('a paid rung watch: nobody playing is nobody to watch (no room opened); a bad watchStake is refused not-open', () => {

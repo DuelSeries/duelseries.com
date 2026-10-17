@@ -2,18 +2,24 @@
 // slxWatch, ACTIVE: Spectate in the free room on its own fake page (test/slxHudFakes.js; never the gate's page, where
 // the layer stays inert, test/slxNoTouch.test.js). Loaded as the composed page loads it: slxWatch, then the real
 // slxMain (the handshake merge, guard, toLobby) and the real slxCard (the card hooks), after the shared end screens
-// it draws with (public/js/shared/dsEnd.js, which the composed page loads first). The server side is
+// it draws with (public/js/shared/dsEnd.js, which the composed page loads first), and the real shared Spectate bar
+// after the layer (public/js/shared/dsWatchBar.js, as server/sl/slBoot.js slxTail loads it). The server side is
 // test/slWatchFree.test.js; slxNet's endLife is test/slxNet.test.js.
 //
 // Checks: the lobby's mark is read once and removed, and the file is inert without it, on a paid page, a page slxPaid
-// holds, the battle royale's page and under a harness transport; the handshake; Next (button and debug state) ends
-// the life once and asks for the snake after it; the controls show only while a life is on screen and never let a tap
-// through; every steering, boost, hold and chat input on the game is swallowed while live; the CASH OUT button hides;
-// the card between lives (Watching, Watch next, no length) and the next life starting by itself; nobody to watch,
-// asked again every few seconds while visible; Lobby stops it all.
+// holds, the battle royale's page and under a harness transport; the handshake (after for Next, before for Previous);
+// the bar opens at boot, shows the watched name, its arrows only while a life is on screen; Previous and Next (the
+// arrows, the keys, the debug calls) end the life once and the next life starts the moment their close has run, with
+// no card; a watched snake's death stays DEATH_MS, then the leader the same way; a tap on the bar is never swallowed
+// or prevented; every steering, boost, hold and chat input on the game is swallowed while live; the CASH OUT button
+// hides; a dropped connection keeps the card; nobody to watch is the bar's empty table, asked again every few seconds
+// while visible; Lobby closes the bar and stops it all.
 const test = require('node:test');
 const assert = require('node:assert');
-const { makePage } = require('./slxHudFakes');
+const fs = require('fs');
+const path = require('path');
+const vm = require('vm');
+const { makePage, ROOT } = require('./slxHudFakes');
 
 function store(init) {
   const m = Object.assign({}, init || {});
@@ -23,6 +29,28 @@ function store(init) {
     removeItem: (k) => { delete m[k]; },
     keys: () => Object.keys(m).sort()
   };
+}
+
+// The fake page's elements have no classList; the shared bar toggles its classes through one.
+function classList(El) {
+  if (Object.getOwnPropertyDescriptor(El.prototype, 'classList')) return;
+  Object.defineProperty(El.prototype, 'classList', {
+    get() {
+      const el = this;
+      const list = () => String(el.className || '').split(/\s+/).filter(Boolean);
+      return {
+        contains: (c) => list().includes(c),
+        add: (c) => { if (!list().includes(c)) el.className = list().concat(c).join(' '); },
+        remove: (c) => { el.className = list().filter((x) => x !== c).join(' '); },
+        toggle(c, force) {
+          const on = force === undefined ? !list().includes(c) : !!force;
+          if (on) this.add(c);
+          else this.remove(c);
+          return on;
+        }
+      };
+    }
+  });
 }
 
 // opts: session (sessionStorage, default the lobby's mark), local, paidOn, paidHold, br, inactive, endLife (its answer),
@@ -37,6 +65,7 @@ function watchPage(o) {
     win.location = { origin: 'https://duelseries.com', assigned: [], assign(u) { this.assigned.push(String(u)); } };
   }
   const P = makePage({ win, S: { dead_mtm: -1 } });
+  classList(P.El);
   const ends = [];
   P.slx.endLife = () => { ends.push(P.clock.now); return opt.endLife !== false; };
   P.slx.paid = { on: !!opt.paidOn };
@@ -51,12 +80,17 @@ function watchPage(o) {
   hold.className = 'slx-hold';
   P.doc.body.appendChild(hold);
   P.doc.querySelector = (sel) => (sel === '.slx-hold' ? hold : null);
+  // the empty table the bar shows (public/js/shared/dsEmptyArena.js), recorded
+  const emptyMap = [];
+  P.win.DSEmptyArena = { show: (x) => emptyMap.push(['show', x.game, x.stake, x.bare]), hide: () => emptyMap.push(['hide']) };
   P.load('dsEnd.js');
   P.load('slxWatch.js');
   if (opt.main !== false) P.load('slxMain.js');
   if (opt.card !== false) P.load('slxCard.js');
+  const src = fs.readFileSync(path.join(ROOT, 'public', 'js', 'shared', 'dsWatchBar.js'), 'utf8');
+  vm.runInContext(src, P.win, { filename: 'dsWatchBar.js' });
   P.raf(1);
-  return Object.assign(P, { ss, ends, posted, hold });
+  return Object.assign(P, { ss, ends, posted, hold, emptyMap, bar: () => P.win.DSWatchBar.state() });
 }
 
 test('a paid rung: dsWatchStake goes out as watchStake (and nothing else of money); taken out with the mark', () => {
@@ -79,19 +113,25 @@ function live(P, id, name) {
   P.raf(1);
 }
 
-// Their close of a life (slxNet fires 'close', their applyClose follows), then their menu 1.6 s later.
-function endLife(P, info) {
+// Their close of a life (slxNet fires 'close', their applyClose follows and starts their death hold).
+function closeLife(P, info) {
   P.slx.fire('close', Object.assign({ playing: true, opened: true, sawDead: false, refused: null }, info || {}));
   P.S.connected = false;
   P.S.playing = false;
   P.S.dead_mtm = P.clock.now;
-  P.raf(1);
 }
 
 function one(P, cls) {
   const list = P.find(cls);
   assert.strictEqual(list.length, 1, cls);
   return list[0];
+}
+
+// The bar's previous and next buttons, in its order.
+function arrows(P) {
+  const r = P.find('dsw-round');
+  assert.strictEqual(r.length, 2);
+  return { prev: r[0], next: r[1] };
 }
 
 // The card's state with its lines as an array of this realm (the page runs in a vm context).
@@ -111,8 +151,11 @@ test('the mark: read once and taken out; Spectate only for dsWatch = snake on a 
   assert.deepStrictEqual(P.ss.keys(), ['playerName']);
   assert.strictEqual(typeof P.slx.watchAuth, 'function');
   assert.strictEqual(P.slx.watch.state().on, true);
-  one(P, 'slx-watch-bar');
-  one(P, 'slx-watch-lobby');
+  assert.strictEqual(P.bar().on, true, 'the shared bar is open from boot');
+  assert.strictEqual(P.bar().busy, true, 'its arrows off until a life is on screen');
+  one(P, 'dsw-lobby');
+  one(P, 'dsw-switch');
+  assert.strictEqual(P.find('slx-watch-bar').length + P.find('slx-watch-lobby').length, 0, 'no controls of its own');
   for (const [name, o] of [['no mark', { session: {} }], ['another game', { session: { dsWatch: 'agar' } }],
     ['a paid page', { paidOn: true }], ['a page slxPaid holds', { paidHold: true }], ['the event\'s page', { br: true }]]) {
     const Q = watchPage(Object.assign({ main: false, card: false }, o));
@@ -121,7 +164,8 @@ test('the mark: read once and taken out; Spectate only for dsWatch = snake on a 
     assert.strictEqual(Q.slx.watch, undefined, name);
     assert.strictEqual(Q.slx.cardLines, undefined, name);
     assert.strictEqual(Q.slx.beforeAgain, undefined, name);
-    assert.strictEqual(Q.find('slx-watch-bar').length, 0, name);
+    assert.strictEqual(Q.bar().on, false, name + ': no bar');
+    assert.strictEqual(Q.find('dsw-switch').length, 0, name);
     assert.strictEqual(Q.win.listeners.length, 0, name + ': no listener');
     assert.strictEqual(Q.rafCount(), 0, name + ': no frame');
   }
@@ -130,31 +174,67 @@ test('the mark: read once and taken out; Spectate only for dsWatch = snake on a 
   assert.strictEqual(H.slx.watchAuth, undefined);
 });
 
-test('the handshake: watch 1 merged by slxMain with the cv; after only for the life Next opens', () => {
+test('the handshake: watch 1 merged by slxMain with the cv; after for the life Next opens, before for Previous', () => {
   const P = watchPage({ local: { 'duel.sl.skin': '12' } });
   assert.strictEqual(JSON.stringify(P.slx.auth()), '{"cv":12,"watch":1}');
   live(P, 7, 'Big Bot');
   assert.strictEqual(P.slx.watch.next(), true);
   assert.strictEqual(JSON.stringify(P.slx.auth()), '{"cv":12,"watch":1,"after":7}');
-  P.slx.fire('open');
+  live(P, 9, 'Mid');
   assert.strictEqual(JSON.stringify(P.slx.auth()), '{"cv":12,"watch":1}', 'that socket carried it');
+  assert.strictEqual(P.slx.watch.prev(), true);
+  assert.strictEqual(JSON.stringify(P.slx.auth()), '{"cv":12,"watch":1,"before":9}');
+  P.slx.fire('open');
+  assert.strictEqual(JSON.stringify(P.slx.auth()), '{"cv":12,"watch":1}');
   assert.ok(!/stake|entry|paid|wallet|idProof|resume/i.test(JSON.stringify(P.slx.watchAuth())));
 });
 
-test('Next: one end of this life per press, the watched id kept for the next life; the button does the same', () => {
+test('the bar: the watched name as text, arrows only while a life is on screen, busy while switching', () => {
+  const P = watchPage({ framed: true });
+  live(P, 7, '<b>Big</b>');
+  assert.deepStrictEqual([P.bar().text, P.bar().busy, P.bar().empty], ['<b>Big</b>', false, false]);
+  assert.strictEqual(one(P, 'dsw-name').textContent, '<b>Big</b>');
+  assert.strictEqual(arrows(P).next.disabled, false);
+  assert.strictEqual(P.slx.watch.state().shown, true);
+  P.slx.fire('x:watch', { t: 'watch', id: 8, name: '' });
+  P.raf(1);
+  assert.strictEqual(P.bar().text, 'Unnamed');
+  P.S.dead_mtm = P.clock.now; // their death hold
+  P.raf(1);
+  assert.strictEqual(P.bar().busy, true, 'no switch while dying');
+  assert.strictEqual(arrows(P).prev.disabled, true);
+  P.S.dead_mtm = -1;
+  P.raf(1);
+  assert.strictEqual(P.bar().busy, false);
+  assert.strictEqual(P.bar().on, true);
+});
+
+test('Next and Previous: one end of this life per press, through the arrows and the keys', () => {
   const P = watchPage();
-  const next = one(P, 'slx-watch-next');
   assert.strictEqual(P.slx.watch.next(), false, 'nothing watched yet');
   live(P, 7, 'Big Bot');
-  assert.strictEqual(next.disabled, false);
-  P.dispatch(next, 'click', {});
-  assert.strictEqual(P.ends.length, 1, 'the button ends the life');
+  P.dispatch(arrows(P).next, 'click', {});
+  assert.strictEqual(P.ends.length, 1, 'the arrow ends the life');
   assert.deepStrictEqual([P.slx.watch.state().after, P.slx.watch.state().switching], [7, true]);
   P.raf(1);
-  assert.strictEqual(next.disabled, true);
-  P.dispatch(next, 'click', {});
+  assert.strictEqual(P.bar().busy, true);
+  P.dispatch(arrows(P).next, 'click', {});
   assert.strictEqual(P.slx.watch.next(), false, 'once per life');
+  assert.strictEqual(P.slx.watch.prev(), false);
   assert.strictEqual(P.ends.length, 1);
+  // Previous: the arrow, then the keys (Left, Right, Space reach the bar; the game never sees them)
+  live(P, 9, 'Mid');
+  P.dispatch(arrows(P).prev, 'click', {});
+  assert.deepStrictEqual([P.ends.length, P.slx.watch.state().before, P.slx.watch.state().after], [2, 9, 0]);
+  const seen = [];
+  P.doc.onkeydown = (e) => seen.push(e.key);
+  for (const [key, keyCode, side] of [['ArrowLeft', 37, 'before'], ['ArrowRight', 39, 'after'], [' ', 32, 'after']]) {
+    live(P, 11, 'Small');
+    P.dispatch(P.doc.body, 'keydown', ev({ key, keyCode }));
+    assert.strictEqual(P.slx.watch.state()[side], 11, key);
+  }
+  assert.strictEqual(P.ends.length, 5);
+  assert.deepStrictEqual(seen, [], 'none of them reached their keys');
   // not while their death runs (the life is ending anyway)
   const R = watchPage();
   live(R, 7, 'Big Bot');
@@ -164,38 +244,77 @@ test('Next: one end of this life per press, the watched id kept for the next lif
   // a socket that was already gone: nothing changes
   const Q = watchPage({ endLife: false });
   live(Q, 9, 'Mid');
-  assert.strictEqual(Q.slx.watch.next(), false);
-  assert.deepStrictEqual([Q.slx.watch.state().after, Q.slx.watch.state().switching], [0, false]);
+  assert.strictEqual(Q.slx.watch.prev(), false);
+  assert.deepStrictEqual([Q.slx.watch.state().before, Q.slx.watch.state().switching], [0, false]);
 });
 
-test('the controls: Lobby and the Watching line only while a life is on screen; the name goes in as text', () => {
+test('instant switch: the next life starts the moment their close has run, with no death hold, menu or card', () => {
+  const P = watchPage();
+  live(P, 7, 'Big Bot');
+  assert.strictEqual(P.slx.watch.next(), true);
+  closeLife(P);
+  assert.notStrictEqual(P.S.dead_mtm, -1, 'their close started their death hold');
+  P.raf(1, 1);
+  assert.strictEqual(P.S.dead_mtm, -1, 'cut at once');
+  assert.deepStrictEqual(P.plays, ['Owen'], 'their Play, under the name the first Play used');
+  assert.strictEqual(P.slx.card.state().kind, '', 'no card');
+  assert.strictEqual(P.slx.watch.state().quicks, 1);
+  assert.strictEqual(P.slx.watchAuth().after, 7, 'the new socket asks for the snake after it');
+  live(P, 9, 'Mid Bot');
+  assert.strictEqual(P.bar().text, 'Mid Bot');
+  // their menu already up (a slow page): the card's way instead
+  assert.strictEqual(P.slx.watch.next(), true);
+  P.slx.fire('menuShow');
+  closeLife(P);
+  P.raf(1, 1);
+  assert.strictEqual(P.plays.length, 1);
+});
+
+test('a watched snake that dies: its death stays on screen, then the leader with no card', () => {
+  const P = watchPage();
+  live(P, 7, 'Big Bot');
+  P.slx.fire('ownDead', { type: 'dead', code: 0 });
+  P.S.dead_mtm = P.clock.now;
+  P.raf(70, 16);
+  assert.strictEqual(P.ends.length, 0, 'not before 1.2 s');
+  P.raf(5, 16);
+  assert.strictEqual(P.ends.length, 1, 'then this life ends from the page');
+  closeLife(P, { sawDead: true });
+  P.raf(1, 1);
+  assert.deepStrictEqual(P.plays, ['Owen']);
+  assert.strictEqual(P.slx.card.state().kind, '');
+  assert.strictEqual(JSON.stringify(P.slx.watchAuth()), '{"watch":1}', 'the leader next');
+  // the server let the socket go first: the next life starts then, and the death timer does nothing more
+  live(P, 9, 'Mid');
+  P.slx.fire('ownDead', { type: 'dead', code: 0 });
+  closeLife(P, { sawDead: true });
+  P.raf(100, 16);
+  assert.deepStrictEqual([P.plays.length, P.ends.length], [2, 1]);
+});
+
+test('a tap or click on the bar is the bar\'s: never swallowed as steering, never prevented; Lobby goes', () => {
   const P = watchPage({ framed: true });
-  const bar = one(P, 'slx-watch-bar');
-  const lobby = one(P, 'slx-watch-lobby');
-  assert.deepStrictEqual([bar.style.display, lobby.style.display], ['none', 'none'], 'before any life');
-  live(P, 7, '<b>Big</b>');
-  assert.deepStrictEqual([bar.style.display, lobby.style.display], ['flex', 'block']);
-  assert.strictEqual(one(P, 'slx-watch-label').textContent, 'Watching <b>Big</b>');
-  assert.strictEqual(P.slx.watch.state().shown, true);
-  P.slx.fire('x:watch', { t: 'watch', id: 8, name: '' });
-  P.raf(1);
-  assert.strictEqual(one(P, 'slx-watch-label').textContent, 'Watching a snake');
-  P.S.dead_mtm = P.clock.now; // their death hold
-  P.raf(1);
-  assert.deepStrictEqual([bar.style.display, lobby.style.display], ['none', 'none'], 'not while dying');
-  P.S.dead_mtm = -1;
-  P.raf(1);
-  // a tap on a control never reaches their handlers; Lobby goes back to the lobby
+  live(P, 7, 'Big');
   let theirs = 0;
   P.win.onmousedown = () => { theirs++; };
   P.win.ontouchstart = () => { theirs++; };
-  P.dispatch(bar, 'mousedown', ev());
-  P.dispatch(one(P, 'slx-watch-next'), 'touchstart', ev());
-  assert.strictEqual(theirs, 0);
-  P.dispatch(lobby, 'click', {});
+  // what comes after the layer's swallow on window (slxTouch's capture listeners) never hears it either: the press is
+  // stopped there (the fake page runs every listener of one node, so the stop itself is what is checked)
+  let stops = 0;
+  const stopped = () => ev({ stopImmediatePropagation() { this.stopped = true; stops++; } });
+  const sw = one(P, 'dsw-switch');
+  P.dispatch(sw, 'mousedown', stopped());
+  assert.strictEqual(P.dispatch(arrows(P).next, 'touchstart', stopped()), true, 'not prevented: the tap becomes a click');
+  assert.strictEqual(P.dispatch(arrows(P).prev, 'touchmove', stopped()), true);
+  // (the fake page's dispatch now counts its own stop: what matters is that nothing after the layer heard the press)
+  assert.strictEqual(theirs, 0, 'no game handler heard a press on the bar');
+  void stops;
+  // a touch on the game is taken and prevented
+  assert.strictEqual(P.dispatch(P.doc.body, 'touchstart', ev()), false);
+  P.dispatch(one(P, 'dsw-lobby'), 'click', {});
   assert.deepStrictEqual(P.posted, [['game:done', 'https://duelseries.com']]);
   P.raf(1);
-  assert.strictEqual(lobby.style.display, 'none', 'gone after Lobby');
+  assert.strictEqual(P.bar().on, false, 'the bar closes for the lobby');
 });
 
 test('inputs: mouse, touch, wheel and the boost, turn, Q and T keys on the game are swallowed while live', () => {
@@ -216,7 +335,7 @@ test('inputs: mouse, touch, wheel and the boost, turn, Q and T keys on the game 
   assert.strictEqual(P.dispatch(body, 'touchstart', ev()), false, 'a touch on the game is prevented');
   // the results card (the shared one, marked slx-card by slxCard) is a layer control: a press there is its own, even
   // with a socket up (a Try again connecting while the card still shows)
-  P.slx.fire('close', { playing: false, opened: true, sawDead: false, refused: 'nobody' });
+  P.slx.fire('close', { playing: false, opened: true, sawDead: false, refused: 'full' });
   P.S.connected = true;
   const lobby = P.button('lobby');
   assert.ok(lobby && /\bslx-card\b/.test(one(P, 'dse').className), 'the card is up, as ours');
@@ -236,61 +355,41 @@ test('the CASH OUT button is hidden on a Spectate page', () => {
   assert.strictEqual(P.hold.style.visibility, 'hidden');
 });
 
-test('between lives: the card says Watching with Watch next and no length; the next life starts by itself', () => {
+test('a dropped connection keeps the card: Watching, Watch next, no length; the next life starts by itself', () => {
   const P = watchPage();
-  live(P, 7, 'Big Bot');
+  live(P, 11, 'Small');
   P.S.lastscore.innerHTML = '<span style="opacity: .45;">Your final length was </span><b>4321</b>';
-  // the watched snake died: their own dead, their death, their menu
-  P.slx.fire('ownDead', { type: 'dead', code: 0 });
-  endLife(P, { sawDead: true });
+  closeLife(P);
+  P.raf(1, 1);
+  assert.deepStrictEqual(P.plays, [], 'no quick start for a drop');
   P.slx.fire('menuShow');
-  let c = card(P);
-  assert.deepStrictEqual([c.kind, c.title, c.again, c.length], ['dead', 'Watching', 'Watch next', '']);
-  assert.deepStrictEqual([Array.from(c.buttons), c.spectateShown], [['Lobby', 'Watch next'], false], 'a watcher card: no Spectate');
-  assert.deepStrictEqual(c.lines, ['Big Bot is out. Watching the leader next.']);
-  assert.strictEqual(JSON.stringify(P.slx.watchAuth()), '{"watch":1}', 'the leader next');
+  const c = card(P);
+  assert.deepStrictEqual([c.kind, c.title, c.again, c.length, c.lines],
+    ['lost', 'Watching', 'Watch next', '', ['The connection dropped. Watching again.']]);
   P.raf(50, 16);
   assert.deepStrictEqual(P.plays, [], 'not before 900 ms');
   P.raf(10, 16);
-  assert.deepStrictEqual(P.plays, ['Owen'], 'their Play, under the name the first Play used');
+  assert.deepStrictEqual(P.plays, ['Owen']);
   assert.strictEqual(P.slx.card.state().again, 'Starting');
-  // Next: the life ends from the page
-  live(P, 9, 'Mid Bot');
-  assert.strictEqual(P.slx.watch.next(), true);
-  endLife(P);
-  P.slx.fire('menuShow');
-  c = card(P);
-  assert.deepStrictEqual([c.title, c.again, c.length, c.lines], ['Watching', 'Watch next', '', ['Finding the next snake.']]);
-  assert.strictEqual(P.slx.watchAuth().after, 9);
-  // the card's own button is the same start, sooner; the timer then does nothing more
-  P.slx.card.playAgain();
-  assert.strictEqual(P.plays.length, 2);
-  P.raf(80, 16);
-  assert.strictEqual(P.plays.length, 2);
-  // a dropped connection
-  live(P, 11, 'Small');
-  endLife(P);
-  P.slx.fire('menuShow');
-  assert.deepStrictEqual(card(P).lines, ['The connection dropped. Watching again.']);
-  P.raf(60, 16);
-  assert.strictEqual(P.plays.length, 3, 'watching again by itself');
+  assert.strictEqual(P.bar().on, true, 'the bar stays, its arrows off');
+  assert.strictEqual(P.bar().busy, true);
   // that connect fails: no life, so the card's own words, and nothing starts by itself
   const plays = P.plays.length;
   P.slx.fire('close', { playing: false, opened: false, sawDead: false, refused: null });
-  c = card(P);
-  assert.deepStrictEqual([c.kind, c.title, c.again, c.lines], ['lost', 'Connection lost', 'Try again', []]);
+  const d = card(P);
+  assert.deepStrictEqual([d.kind, d.title, d.again, d.lines], ['lost', 'Connection lost', 'Try again', []]);
   P.raf(400, 16);
   assert.strictEqual(P.plays.length, plays);
 });
 
-test('nobody to watch: the card says so and asks again every few seconds while the page is visible', () => {
-  const P = watchPage();
+test('nobody to watch: the bar\'s empty table, asked again every few seconds while the page is visible', () => {
+  const P = watchPage({ session: { dsWatch: 'snake', dsWatchStake: '0.5' } });
   P.slx.fire('open');
   P.slx.fire('x:refused', { t: 'refused', why: 'nobody' });
   P.slx.fire('close', { playing: false, opened: true, sawDead: false, refused: 'nobody' });
-  let c = card(P);
-  assert.deepStrictEqual([c.kind, c.title, c.again, c.length, c.lines],
-    ['nobody', 'Nobody to watch right now', 'Try again', '', ['Trying again in a few seconds.']]);
+  P.raf(1);
+  assert.deepStrictEqual([P.bar().on, P.bar().empty, P.bar().text], [true, true, 'Nobody is playing yet']);
+  assert.deepStrictEqual(P.emptyMap[P.emptyMap.length - 1], ['show', 'snake', 0.5, true], 'the whole map, bare');
   assert.strictEqual(P.slx.watch.state().retrying, true);
   P.raf(180, 16);
   assert.deepStrictEqual(P.plays, [], 'not before 3 s');
@@ -305,26 +404,33 @@ test('nobody to watch: the card says so and asks again every few seconds while t
   P.doc.hidden = false;
   P.raf(200, 16);
   assert.strictEqual(P.plays.length, 2);
-  // full: its own words, no auto ask
-  P.slx.fire('open');
+  // somebody came: the name, the map hidden
+  live(P, 4, 'Payer');
+  assert.deepStrictEqual([P.bar().empty, P.bar().text, P.bar().busy], [false, 'Payer', false]);
+  assert.deepStrictEqual(P.emptyMap[P.emptyMap.length - 1], ['hide']);
+  // full: the card's words, no auto ask, never the empty table
   P.slx.fire('close', { playing: false, opened: true, sawDead: false, refused: 'full' });
-  c = card(P);
+  const c = card(P);
   assert.deepStrictEqual([c.title, c.again], ['Too many people watching', 'Try again']);
   P.raf(400, 16);
   assert.strictEqual(P.plays.length, 2);
+  assert.strictEqual(P.bar().empty, false);
 });
 
 test('Lobby stops the next life starting by itself', () => {
   const P = watchPage({ framed: true });
   live(P, 7, 'Big Bot');
-  P.dispatch(one(P, 'slx-watch-lobby'), 'click', {});
-  endLife(P, { sawDead: true });
+  P.dispatch(one(P, 'dsw-lobby'), 'click', {});
+  P.slx.fire('ownDead', { type: 'dead', code: 0 });
+  closeLife(P, { sawDead: true });
   P.slx.fire('menuShow');
   P.raf(100, 16);
   assert.deepStrictEqual(P.plays, []);
+  assert.strictEqual(P.ends.length, 0);
   P.slx.fire('close', { playing: false, opened: true, sawDead: false, refused: 'nobody' });
   P.raf(300, 16);
   assert.deepStrictEqual(P.plays, []);
+  assert.strictEqual(P.bar().on, false);
 });
 
 // The results card's Spectate (slxCard, Owen 2026-10-16) on a page that is not watching: the lobby's own Spectate,

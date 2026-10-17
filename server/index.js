@@ -4761,14 +4761,16 @@ io.on('connection', (socket) => {
   /* WATCHING A MATCH, from the lobby's Spectate. Read-only: the lobby never
      seats, queues or counts a watcher, refuses one that is queued or seated,
      and sends them the match with every socket id swapped for a seat. `after`
-     is the match being watched now, so Next match moves on from it; anything
-     but a short string is ignored rather than read. */
+     is the match being watched now, so Next moves on from it (or, with `dir`
+     'prev', Previous moves back from it); anything but a short string, or a
+     `dir` other than 'prev', is ignored rather than read. */
   on('ko:watch', (msg) => {
     try {
-      if (!socketRL(socket, 'kowatch', 500)) return;
+      if (!socketRL(socket, 'kowatch', 100)) return;   // Previous / Next is tapped quickly: 10 a second is plenty
       const after = msg && typeof msg.after === 'string' && msg.after.length <= 40 ? msg.after : null;
       const stake = msg && typeof msg.stake === 'number' && isStake(msg.stake) ? msg.stake : undefined;
-      knockoutLobby.watch(socket, { after, stake });
+      const dir = msg && msg.dir === 'prev' ? 'prev' : 'next';
+      knockoutLobby.watch(socket, { after, stake, dir });
     } catch (e) { console.error('[KO] watch failed:', e.message); }
   });
   on('ko:unwatch', () => {
@@ -4859,10 +4861,11 @@ io.on('connection', (socket) => {
      both boards as shots and sunk ships only, and never viewFor. */
   on('bs:watch', (msg) => {
     try {
-      if (!socketRL(socket, 'bswatch', 500)) return;
+      if (!socketRL(socket, 'bswatch', 100)) return;   // Previous / Next is tapped quickly: 10 a second is plenty
       const after = msg && typeof msg.after === 'string' && msg.after.length <= 40 ? msg.after : null;
       const stake = msg && typeof msg.stake === 'number' && isStake(msg.stake) ? msg.stake : undefined;
-      battleshipLobby.watch(socket, { after, stake });
+      const dir = msg && msg.dir === 'prev' ? 'prev' : 'next';
+      battleshipLobby.watch(socket, { after, stake, dir });
     } catch (e) { console.error('[BS] watch failed:', e.message); }
   });
   on('bs:unwatch', () => {

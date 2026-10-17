@@ -382,18 +382,25 @@ class KnockoutLobby {
 
   /* Which match to show, best first. Moving on from `after`: the next one made
      after it, round to the start again, and `after` itself last of all so a
-     Next with only one match running stays where it is. Arriving fresh: the
-     one furthest in, because that is the one with the most going on. Either
-     way a match already settling goes to the back, since it is three seconds
-     from its result card and watching it is watching it end. */
-  watchOrder(live, after) {
+     Next with only one match running stays where it is. `dir` 'prev' is the
+     same walk the other way: the one made just before it, round to the end.
+     Arriving fresh: the one furthest in, because that is the one with the most
+     going on. Either way a match already settling goes to the back, since it
+     is three seconds from its result card and watching it is watching it end. */
+  watchOrder(live, after, dir) {
     let order;
     const n = seqOf(after);
     if (after && Number.isFinite(n)) {
       const others = live.filter(r => r.id !== after);
-      const later = others.filter(r => seqOf(r.id) > n);
-      const earlier = others.filter(r => !(seqOf(r.id) > n));
-      order = later.concat(earlier, live.filter(r => r.id === after));
+      if (dir === 'prev') {
+        const before = others.filter(r => seqOf(r.id) < n).reverse();
+        const rest = others.filter(r => !(seqOf(r.id) < n)).reverse();
+        order = before.concat(rest, live.filter(r => r.id === after));
+      } else {
+        const later = others.filter(r => seqOf(r.id) > n);
+        const earlier = others.filter(r => !(seqOf(r.id) > n));
+        order = later.concat(earlier, live.filter(r => r.id === after));
+      }
     } else {
       const rank = (r) => (r.state === 'countdown' ? 0 : 1) * 1000 + (r.turn || 0);
       order = live.slice().sort((a, b) => rank(b) - rank(a));
@@ -411,7 +418,9 @@ class KnockoutLobby {
     };
   }
 
-  /* Watch a running match. Answers on 'ko:watching', always, with one of:
+  /* Watch a running match. opts.after is the match being moved on from and
+     opts.dir 'prev' moves back from it instead of on (the Previous button of
+     the shared Spectate bar). Answers on 'ko:watching', always, with one of:
        { match, state }   watching it (state is KnockoutRoom.watchSnapshot)
        { none: true }     nothing is running
        { full: true }     everything running already has WATCH_CAP watchers
@@ -431,7 +440,8 @@ class KnockoutLobby {
     const stake = typeof (opts && opts.stake) === 'number' && Number.isFinite(opts.stake) ? opts.stake : null;
     const live = this.runningRooms().filter(r => stake === null || Math.abs(Number(r.stake) - stake) < 1e-9);
     if (!live.length) { send(socket, 'ko:watching', { none: true }); return { ok: false, why: 'none' }; }
-    const room = this.watchOrder(live, after).find(r => (r.watchers || 0) < WATCH_CAP);
+    const room = this.watchOrder(live, after, opts && opts.dir === 'prev' ? 'prev' : 'next')
+      .find(r => (r.watchers || 0) < WATCH_CAP);
     if (!room) { send(socket, 'ko:watching', { full: true }); return { ok: false, why: 'full' }; }
     this.attachWatcher(socket, room, live);
     return { ok: true, roomId: room.id };

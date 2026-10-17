@@ -40,6 +40,7 @@ function chosen(value, note) {
 const AG_RATE = Object.freeze({
   join: chosen(500, 'ag:join (Play, also respawn)'),
   spectate: chosen(500, 'ag:spectate'),
+  step: chosen(80, 'ag:spectate { step } (the Spectate bar\'s Previous and Next: every press must get through)'),
   target: chosen(10, 'ag:target (their client sends at most one per drawn frame, gated above 15 ms)'),
   split: chosen(20, 'ag:split (every key press is sent; repeated presses must get through)'),
   eject: chosen(20, 'ag:eject'),
@@ -206,7 +207,16 @@ function attachAgSockets(io, arenas, helpers) {
     }
   }
 
-  function onSpectate(socket) {
+  // { step: 1 | -1 } (the Spectate bar's Next or Previous, Owen 2026-10-16) moves a watcher's camera along the ranking
+  // (agRoom followStep) on its own faster limit; any other payload, or a socket not watching yet, is a plain Spectate.
+  // A step changes only that watcher's camera, in a free room or a paid one.
+  function onSpectate(socket, msg) {
+    const step = isPlainObject(msg) && (msg.step === 1 || msg.step === -1) ? msg.step : 0;
+    if (step) {
+      if (!limited(socket, 'step')) return;
+      const room = arenas.roomOfSocket(socket.id);
+      if (room && room.followStep(socket.id, step)) return;
+    }
     if (!limited(socket, 'spectate')) return;
     arenas.spectate(socket);
   }
@@ -328,7 +338,7 @@ function attachAgSockets(io, arenas, helpers) {
   // Handlers take only the first argument, and never call an acknowledgement a client may have asked for.
   function attach(socket) {
     socket.on('ag:join', guard('ag:join', (msg) => onJoin(socket, msg)));
-    socket.on('ag:spectate', guard('ag:spectate', () => onSpectate(socket)));
+    socket.on('ag:spectate', guard('ag:spectate', (msg) => onSpectate(socket, msg)));
     socket.on('ag:target', guard('ag:target', (msg) => onTarget(socket, msg)));
     socket.on('ag:split', guard('ag:split', () => onSplit(socket)));
     socket.on('ag:eject', guard('ag:eject', () => onEject(socket)));

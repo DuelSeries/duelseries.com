@@ -138,18 +138,13 @@ test('score: hidden while spectating, at 0, and outside state 0; text changes re
 });
 
 // --- spectate hint ------------------------------------------------------------------------
-test('spectating at 1920x1080: hint box 700 x 70 at (610, 995), radius 8, alpha 0.3', () => {
+// Gone (Owen 2026-10-16: "get rid of it completely"): the shared Spectate bar (dsWatchBar.js) has the controls.
+test('spectating at 1920x1080 draws no hint box and no hint text', () => {
   const { rec, main, hud } = setup(1920, 1080);
   hud.render(main, baseState({ state: 8, spectating: true, ownCount: 0 }));
   const m = mainCalls(rec, main).map((c) => c.slice(1));
-  const i = m.findIndex((c) => c[0] === '=globalAlpha' && c[1] === 0.3);
-  assert.deepStrictEqual(m.slice(i, i + 5), [['=globalAlpha', 0.3], ['=fillStyle', 'rgb(0,0,0)'], ['beginPath'],
-    ['moveTo', 618, 995], ['arcTo', 1310, 995, 1310, 1065, 8]]);
-  assert.ok(rec.log.some((c) => c[1] === 'fillText' && c[2] === "Press 'Q' to change Spectate Mode"));
-  // the text image is centred on the box
-  const di = m.find((c) => c[0] === 'drawImage' && c.length === 10);
-  const dw = di[8];
-  assert.strictEqual(di[6], 960 + dw * -0.5);
+  assert.ok(!m.some((c) => c[0] === 'moveTo' && c[1] === 618 && c[2] === 995), 'no 700 x 70 box at (610, 995)');
+  assert.ok(!rec.log.some((c) => c[1] === 'fillText' && /Spectate Mode/.test(String(c[2]))));
 });
 
 // --- dim layer ---------------------------------------------------------------------------

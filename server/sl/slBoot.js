@@ -42,6 +42,7 @@ const SLX_FILES = Object.freeze(['slxNet.js', 'slxPaid.js', 'slxBr.js', 'slxWatc
 const SLX_CSS = 'slx.css';
 const SHARED_UI = Object.freeze(['dsEnd.js', 'dsChat.js']);   // the end screens and the chat every game shares
 const EMPTY_UI = 'dsEmptyArena.js';
+const WATCH_UI = 'dsWatchBar.js';
 const CLIP_FILES = Object.freeze(['mp4mux.js', 'clipRec.js']);
 
 // -> { laws, dev }. Throws when the dev table is asked for where it could be the live server, or does not load.
@@ -83,9 +84,10 @@ function slxTail(publicDir) {
     if (ordered.length && fs.existsSync(path.join(dir, 'js', 'shared', f))) tail += '<script src="/js/shared/' + f + '"></script>\n';
   }
   for (const f of ordered) tail += '<script src="/js/slx/' + f + '"></script>\n';
-  // The empty table a Spectate shows when nobody is there to follow (slxWatch reads it when it needs it), shared with
-  // agar.io and Paper.io.
+  // The empty table a Spectate shows when nobody is there to follow, and the Spectate bar every game shares (Lobby,
+  // previous, the name, next; dsWatchBar draws the empty table). slxWatch and slxBr read both when they need them.
   if (ordered.length && fs.existsSync(path.join(dir, 'js', 'shared', EMPTY_UI))) tail += '<script src="/js/shared/' + EMPTY_UI + '"></script>\n';
+  if (ordered.length && fs.existsSync(path.join(dir, 'js', 'shared', WATCH_UI))) tail += '<script src="/js/shared/' + WATCH_UI + '"></script>\n';
   // The clip recorder (P saves the last 30 s, PC only), after the layer so it can hook slx's cash-out event.
   if (ordered.length && CLIP_FILES.every((f) => fs.existsSync(path.join(dir, 'js', 'clip', f)))) {
     tail += '<script src="/js/clip/mp4mux.js"></script>\n<script src="/js/clip/clipRec.js" data-game="slither"></script>\n';

@@ -550,6 +550,27 @@
           // The lobby's Spectate on a paid rung nobody is at (agArenas.connectWatch): the empty map, then ask again.
           if (!flow && watchAsk > 0 && p.why === 'nobody') watchEmpty();
           break;
+        case 'ag:watching':
+          // Who the Spectate camera follows ({ name }), or nobody alive ({ none: true }): the bar's plate.
+          if (!watchBar() || menuState !== 'SPECTATE') break;
+          syncWatchBar();
+          if (p.none === true) {
+            watchBar().empty();
+            snapCam = true;
+            stepAt = 0;
+            break;
+          }
+          watchBar().watching(typeof p.name === 'string' ? p.name : '');
+          // The player picked shows at once (its cam record came in the bundle just before this): the camera jumps
+          // there instead of the 1/30 glide after a Previous or Next, at the start of a watch or after a drop, and
+          // for the first player after nobody. A switch the room makes itself (the followed player died) glides.
+          if (snapCam || (stepAt && perfNow() - stepAt < STEP_SNAP_MS)) {
+            cam.x = cam.targetX;
+            cam.y = cam.targetY;
+          }
+          snapCam = false;
+          stepAt = 0;
+          break;
         default:
           break;
       }
@@ -702,6 +723,7 @@
       menuState = s;
       syncPad();
       syncChat();
+      syncWatchBar();
       win.setTimeout(function () {
         Promise.resolve().then(function () {
           capMs = (menuState === 'PLAY' || menuState === 'SPECTATE') ? -1 : capFor(MENU_FPS);
@@ -769,15 +791,51 @@
       );
       end.showFree({ life: snap, cashed: cashed, by: by, buttons: buttons });
     }
+    // The Spectate bar (public/js/shared/dsWatchBar.js, Owen 2026-10-16: the same controls in every game). Open while
+    // this page watches (menuState SPECTATE: the lobby's Spectate, or Spectate on the end card), closed by anything
+    // else (Play, Play again, the menu). The server's camera follows the top player until Previous or Next moves it
+    // along the ranking (ag:spectate { step }), and ag:watching names who it follows. Until that first answer the
+    // plate says it is finding a player, arrows off; a dropped socket keeps the last name with the arrows off until
+    // the watch is back. Lobby is the end card's way back (backToLobby: agLobby's gate in the lobby frame, the menu
+    // on a direct visit). Read only: a step moves this watcher's camera and nothing else. Never on a paid hand-off.
+    function watchBar() { return flow ? null : win.DSWatchBar || null; }
+    function syncWatchBar() {
+      var bar = watchBar();
+      if (!bar) return;
+      if (menuState !== 'SPECTATE') {
+        if (bar.shown()) bar.close();
+        return;
+      }
+      if (bar.shown()) return;
+      bar.open({
+        game: 'agar', stake: watchAsk,
+        onPrev: function () { watchStep(-1); },
+        onNext: function () { watchStep(1); },
+        onLobby: function () { watchQuiet(); backToLobby(); }
+      });
+      bar.busy(true);
+      snapCam = true;
+    }
+    var STEP_SNAP_MS = 1000;   // a step's answer later than this (or a step the room dropped) glides as usual
+    var stepAt = 0;            // when the last Previous or Next was sent
+    var snapCam = false;       // the next named player is jumped to (see 'ag:watching')
+    function watchStep(d) {
+      if (menuState !== 'SPECTATE' || !connected) return;
+      stepAt = perfNow();
+      send('spectate', { step: d });
+    }
     // The lobby's Spectate on a paid rung with nobody at it (Owen 2026-10-16: "it'll just default to spectating the
     // whole map in the middle"): the server refuses the watch ('nobody') and closes the socket, which socket.io never
-    // reopens by itself. The whole map shows zoomed out and centred (public/js/shared/dsEmptyArena.js) and the same
+    // reopens by itself. The bar shows the empty table (the whole map behind it, zoomed out and centred) and the same
     // socket asks again every WATCH_RETRY_MS while the page is visible; the first answer that seats the watcher brings
-    // the world ('ready') and the view follows the top player as before. Read only: the handshake is unchanged.
+    // the world ('ready') and the next bundle's ag:watching the player followed. Read only: the handshake is unchanged.
     function watchEmpty() {
       if (destroyed) return;
-      var E = win.DSEmptyArena;
-      if (E) E.show({ game: 'agar', stake: watchAsk, onLobby: function () { watchQuiet(); backToLobby(); } });
+      var bar = watchBar();
+      if (bar && menuState === 'SPECTATE') {
+        syncWatchBar();
+        bar.empty();
+      }
       if (watchRetry !== null) return;
       watchRetry = win.setTimeout(function again() {
         watchRetry = null;
@@ -788,8 +846,6 @@
     }
     function watchQuiet() {
       if (watchRetry !== null) { win.clearTimeout(watchRetry); watchRetry = null; }
-      var E = win.DSEmptyArena;
-      if (E) E.hide();
     }
     // The lobby frame's free page after a dropped socket (see lobbyMode): there is no menu to fall back to, so a player
     // who was playing joins again under the same name and a watcher watches again, both once the new socket's world
@@ -1131,6 +1187,12 @@
             if (!flow && lobbyMode) rejoinAfterDrop();
             else if (!flow) openMenu();
             if (flow) flow.onDisconnect();
+            // A watcher's bar stays (its Lobby still works), its arrows off until the watch is back (ag:watching).
+            var bar = watchBar();
+            if (bar && bar.shown()) {
+              bar.busy(true);
+              snapCam = true;
+            }
             // Ours: the onServer hooks hear the drop too, as 'disconnect' (agLobby's exit trap: a paid seat this
             // socket held is the server's dropped seat now). No draw and no send.
             onSideEvent('disconnect', { reason: typeof reason === 'string' ? reason : '' });

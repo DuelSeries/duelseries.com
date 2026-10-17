@@ -174,40 +174,26 @@ html, body {
    Somebody else's match, from the lobby's Spectate. The strip and the disc are
    the same; what changes is that nothing on screen is yours to move. Both
    sides keep their own colour (seat 0 bone, seat 1 red, the same pair a player
-   sees), a tag under the strip says whose match it is, and the Lock button
-   gives way to Next match and Lobby. */
-#watchTag {
-  position: fixed; left: 50%; transform: translateX(-50%); z-index: 10;
-  top: calc(64px + env(safe-area-inset-top));
-  max-width: calc(100vw - 32px); text-align: center; pointer-events: none;
-}
-#watchTag[hidden] { display: none; }
-#watchLabel {
-  display: block; font-size: 13px; font-weight: 650; color: var(--tx);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-#watchMeta {
-  display: block; margin-top: 3px; font-family: var(--fm); font-size: 9.5px;
-  letter-spacing: 0.12em; text-transform: uppercase; color: var(--tx3);
-}
-.watchBtn {
-  font-family: inherit; font-size: 13.5px; font-weight: 600; white-space: nowrap;
-  border-radius: 10px; padding: 11px 14px; cursor: pointer;
-  border: 1px solid var(--s3); background: transparent; color: var(--tx);
-  transition: background 0.15s, border-color 0.15s;
-}
-.watchBtn:hover:not(:disabled) { background: var(--s2); border-color: #3a3126; }
-.watchBtn:disabled { color: var(--tx3); cursor: default; opacity: 0.6; }
-.watchBtn[hidden] { display: none; }
+   sees). Lobby, previous, next and whose match it is are the shared Spectate
+   bar (public/js/shared/dsWatchBar.js, at the bottom), so the line that says
+   what is happening moves up under the strip, where the match's name used to be. */
 body.watching #lock, body.watching #theirState { display: none; }
-@media (max-width: 420px) {
-  .watchBtn { font-size: 12.5px; padding: 10px 11px; }
-  body.watching #bar { gap: 8px; }
+/* The bar's Lobby chip sits top left (16px in, 93px wide), on top of the strip's left side. Wide, the strip
+   keeps clear of it on both sides so the clock stays centred; narrow (the bar's own breakpoint) there is no
+   width to give, so the strip drops below the chip instead. */
+body.watching #top { padding-left: 126px; padding-right: 126px; }
+body.watching #bar {
+  top: calc(64px + env(safe-area-inset-top)); bottom: auto;
+  justify-content: center; padding: 0 16px; background: none; pointer-events: none;
+}
+body.watching #hint { flex: 0 1 auto; text-align: center; color: var(--tx2); }
+@media (max-width: 600px) {
+  body.watching #top { padding: 62px 14px 10px; }
+  body.watching #bar { top: 108px; }
 }
 /* A phone on its side has no height to spare above the disc. */
-@media (max-height: 480px) {
-  #watchTag { top: calc(54px + env(safe-area-inset-top)); }
-  #watchMeta { display: none; }
+@media (max-height: 480px) and (min-width: 601px) {
+  body.watching #bar { top: calc(54px + env(safe-area-inset-top)); }
 }
 
 /* THE SPINNER SPINS. Under reduced motion as well.

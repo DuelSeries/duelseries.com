@@ -33,6 +33,8 @@
 //    the lobby's own watch flag, which public/js/v2/play.js sets and the wallet widget clears on every launch). The Lobby button keeps the old rule for
 //    a player (a touch screen only; a mouse player leaves by holding Q, then the end card's Lobby), and also shows for
 //    a watcher and while the socket is down, the two times there is no other way back now that the Esc menu is gone.
+//    While the shared Spectate bar shows (agMain, public/js/shared/dsWatchBar.js) its own Lobby is the way back (through
+//    agMain's backToLobby, so the gate in 3 holds), and this button stays hidden so there is one Lobby, not two.
 //    A paid hand-off keeps 1 to 4 as they are.
 (function (root) {
   'use strict';
@@ -240,6 +242,9 @@
       // The end card (any state, free or paid) has its own Lobby button, or none while leaving is shut.
       var cardUp = false;
       try { cardUp = !!(root.DSEnd && root.DSEnd.shown()); } catch (e) { cardUp = false; }
+      // The Spectate bar has its own Lobby (5 above).
+      var barUp = false;
+      try { barUp = !!(root.DSWatchBar && root.DSWatchBar.shown()); } catch (e) { barUp = false; }
       // The lobby frame's free room (5 above): a touch screen, a watcher, or a dropped socket.
       var shown;
       if (lobbyFree()) {
@@ -248,7 +253,7 @@
       } else {
         shown = menuOpen || touch;
       }
-      btn.classList.toggle('on', !locked() && !cardUp && shown);
+      btn.classList.toggle('on', !locked() && !cardUp && !barUp && shown);
       var text = moneyIn && menuOpen ? (touch ? HINT_TOUCH : HINT_KEYS) : '';
       if (hint.textContent !== text) hint.textContent = text;
       hint.classList.toggle('on', text !== '');
@@ -258,9 +263,9 @@
     if (menu && typeof root.MutationObserver === 'function') {
       new root.MutationObserver(sync).observe(menu, { attributes: true, attributeFilter: ['hidden'] });
     }
-    // The end card comes and goes as a child of the body (DSEnd show and hide).
+    // The end card comes and goes as a child of the body (DSEnd show and hide); the Spectate bar marks the body's class.
     if (doc.body && typeof root.MutationObserver === 'function') {
-      new root.MutationObserver(sync).observe(doc.body, { childList: true });
+      new root.MutationObserver(sync).observe(doc.body, { childList: true, attributes: true, attributeFilter: ['class'] });
     }
     if (coarse) {
       if (typeof coarse.addEventListener === 'function') coarse.addEventListener('change', sync);

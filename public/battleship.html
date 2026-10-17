@@ -69,17 +69,13 @@
     <div class="railhd"><span id="railMsg">5 to place</span></div>
   </section>
 
-  <!-- Watching somebody else's match (the lobby's Spectate): whose it is, what
-       just happened, and the way on or out. Where the fleet sits while placing,
-       because a watcher has no fleet. Seat 0's waters are the first board
-       (left, or on top) and seat 1's the second. -->
+  <!-- Watching somebody else's match (the lobby's Spectate): what just happened,
+       where the fleet sits while placing, because a watcher has no fleet. It
+       keeps clear room under it for the shared Spectate bar (dsWatchBar.js:
+       Lobby, previous, next and whose match it is). Seat 0's waters are the
+       first board (left, or on top) and seat 1's the second. -->
   <section id="watchBar" hidden>
-    <div class="watchHd"><b id="watchLabel">Watching</b><span id="watchMeta"></span></div>
     <div class="railhd"><span id="watchStatus"></span></div>
-    <div class="dockbtns">
-      <button type="button" id="watchNext" class="mini" disabled>Next match</button>
-      <button type="button" id="watchLobby" class="mini">Lobby</button>
-    </div>
   </section>
 </div>
 
@@ -105,6 +101,9 @@
 <!-- The result card every DuelSeries game ends on. -->
 <script src="js/shared/dsEnd.js"></script>
 <script src="js/shared/dsChat.js"></script>
+<!-- The Spectate controls every game shares: Lobby, previous and next, and the empty table. -->
+<script src="/js/shared/dsEmptyArena.js"></script>
+<script src="/js/shared/dsWatchBar.js"></script>
 <script src="js/battleshipArt.js"></script>
 <script src="/js/dsSfx.js"></script><script src="/js/dsSfxGame.js"></script>
 <script src="js/battleshipSound.js"></script>

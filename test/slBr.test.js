@@ -461,6 +461,23 @@ test('a watcher marks its seat dead when the followed snake ends; follow picks a
   assert.strictEqual(room.seatWatch(bareSocket(), {}), null, 'nothing to watch');
 });
 
+test('Previous and Next (after, before): every living snake once round, the people first, the bots after them', () => {
+  const { ft, room } = makeBr();
+  const people = [human(room, 'Ann', 'WA'), human(room, 'Ben', 'WB')].map((h) => h.id);
+  for (let i = 0; i < 3; i++) room.spawnSnake({ nick: 'b' + i, cv: 2, isBot: true });
+  run(ft, room, 200);
+  const at = (info) => room.seatWatch(bareSocket(), info).snakeId;
+  const round = [at({})];
+  for (let i = 0; i < 10 && round.length < 6; i++) round.push(at({ after: round[round.length - 1] }));
+  assert.strictEqual(round[5], round[0], 'Next comes back round to the first');
+  const ring = round.slice(0, 5);
+  assert.strictEqual(new Set(ring).size, 5, 'every living snake once');
+  assert.deepStrictEqual(ring.slice(0, 2).sort(), people.slice().sort(), 'the people first');
+  for (let i = 0; i < 5; i++) assert.strictEqual(at({ before: ring[(i + 1) % 5] }), ring[i], 'Previous walks it back');
+  assert.strictEqual(at({ follow: people[1], after: people[1] }), people[1], 'follow a person still wins');
+  assert.strictEqual(at({ after: 65000 }), ring[0], 'a gone id: the first person');
+});
+
 test('a watcher on the real view gets the followed snake as its own (init, own add) with the real records', () => {
   const { ft, room } = makeBr({ realView: true });
   const me = human(room, 'Owen', 'W1');
@@ -559,6 +576,17 @@ test('setBr: once a match is under way a join is refused match; a watcher is sea
   w.fire('disconnect', 'client namespace disconnect');
   assert.strictEqual(r.br.room().watchers.size, 0);
   const aId = r.br.room().seatOf(a.id).snakeId;
+  // Previous and Next ride the handshake as snake ids, to the room's own stepping (people first, then snake id order);
+  // junk is ignored (the leader)
+  const room = r.br.room();
+  for (const extra of [{ before: aId }, { after: aId }, { before: 'x', after: -1 }]) {
+    const want = room._watchTarget(undefined, Number.isInteger(extra.after) && extra.after > 0 ? extra.after : undefined,
+      Number.isInteger(extra.before) ? extra.before : undefined).id;
+    const s = r.sock({ auth: Object.assign({ br: 1, watch: 1 }, extra) });
+    s.fire('sl:join', {});
+    assert.strictEqual(layerMsgs(s).filter((m) => m.t === 'watch')[0].id, want, JSON.stringify(extra));
+    s.fire('disconnect', 'client namespace disconnect');
+  }
   assert.ok(r.br.room().sim.snake(aId), 'the player plays on');
   r.br.match.abandon();
   r.br.room().sim.kill(aId);

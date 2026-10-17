@@ -61,6 +61,10 @@ const CARD_READ_S = ['best_rank'];
 // colour (Owen 2026-10-16 chat redo): the live snake's cs, else its skin's table colour.
 const CHAT_READ_S = ['os', 'rrs', 'ggs', 'bbs'];
 const WRITE_S = ['render_mode', 'xm', 'ym'];
+// The Spectate pages alone (slxWatch.js, slxBr.js's watcher; Owen 2026-10-16 "next buttons that instantly swap") cut
+// their death hold once their close has run for a switch: dead_mtm back to -1, so their loop connects the next Play at
+// once (slLoop step 3) instead of after the 1600 ms hold and the menu fade. That one write, to -1 only.
+const QUICK_FILES = ['slxWatch.js', 'slxBr.js'];
 // The 12 blank picture canvases (public/js/sl/slSprites.js:411-424), drawn into once each (Q3, T18).
 const PICTURE_S = ['kwkbulb', 'jmou', 'pwdbulb', 'sest', 'playbulb', 'bonkbulb', 'leafbulb', 'swissbulb', 'moldovabulb',
   'vietnambulb', 'argentinabulb', 'movbulb'];
@@ -119,7 +123,10 @@ test('frozen members: only the 15.1 seams', () => {
         (f === 'slxChat.js' && CHAT_READ_S.includes(m[1])),
         f + ': S.' + m[1]);
     }
-    for (const m of s.matchAll(/\bS\.([A-Za-z_$][\w$]*)\s*=(?!=)/g)) assert.ok(WRITE_S.includes(m[1]), f + ': writes S.' + m[1]);
+    for (const m of s.matchAll(/\bS\.([A-Za-z_$][\w$]*)\s*=(?!=)/g)) {
+      const quick = QUICK_FILES.includes(f) && m[1] === 'dead_mtm' && /^\s*=\s*-1;/.test(s.slice(m.index + m[0].length - 1));
+      assert.ok(WRITE_S.includes(m[1]) || quick, f + ': writes S.' + m[1]);
+    }
     for (const m of s.matchAll(/\bslither\.([A-Za-z_$][\w$]*)/g)) assert.ok(SLITHER_FIELDS.includes(m[1]), f + ': slither.' + m[1]);
     for (const m of s.matchAll(/\bhooks\.([A-Za-z_$][\w$]*)/g)) assert.ok(HOOKS.includes(m[1]), f + ': hooks.' + m[1]);
     for (const m of s.matchAll(/'(on[A-Z]\w*)'/g)) assert.ok(HOOKS.includes(m[1]), f + ': hook name ' + m[1]);
@@ -168,8 +175,11 @@ test('the battle royale layer posts only duel:signaction, signs only play:identi
 });
 
 test('no money: posts only game:done, never reads an entry token, a stake or the paid hand-off (slxPaid.js aside)', () => {
-  for (const [f, s] of CODE) {
+  for (const [f, raw] of CODE) {
     if (f === PAID_FILE || f === BR_FILE) continue;
+    // slxWatch.js hands the rung it watches (the lobby's dsWatchStake mark) to the shared Spectate bar as its stake
+    // option, which only words the empty table: that one key, and nothing else of money
+    const s = f === 'slxWatch.js' ? raw.replace(/\bstake: watchStake\b/g, '') : raw;
     for (const m of s.matchAll(/postMessage\(\s*([^,)]+)/g)) assert.strictEqual(m[1].trim(), '\'game:done\'', f + ': posts ' + m[1]);
     assert.ok(!/entryToken|entrySol|\bstake\b|resumeKey|duel:restake|duel:signaction|duel:play|wallet|escrow|privy/i.test(s), f + ': money word');
   }

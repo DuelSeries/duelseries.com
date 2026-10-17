@@ -304,7 +304,7 @@ class SlPaidArenas {
     if (!live.length) return 'nobody';
     const room = live[0];
     if (room.watchers.size >= room.R.humanCap) return 'full';
-    return room.seatWatch(socket, { after: info && info.after }) ? true : 'nobody';
+    return room.seatWatch(socket, { after: info && info.after, before: info && info.before }) ? true : 'nobody';
   }
 
   roomForKey(key) {

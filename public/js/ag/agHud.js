@@ -39,18 +39,16 @@
   var WHITE = [255, 255, 255];
   var BLACK = [0, 0, 0];
 
-  // Text the HUD shows (client-hud 2.3, 5.1, 5.4, 5.5, 5.7). Mode 0 has exactly two message
-  // entries: "score" in state 0 and the spectate hint in state 8.
+  // Text the HUD shows (client-hud 2.3, 5.1, 5.4, 5.5, 5.7). Mode 0 has two message entries, "score" in state 0
+  // and the spectate hint in state 8; the hint is not drawn (Owen 2026-10-16: the shared Spectate bar replaces it).
   var TEXT = {
     unnamed: 'An unnamed cell',
     score: 'Score: ',
-    spectateHint: "Press 'Q' to change Spectate Mode",
     slow1: 'Your computer is running slow',
     slow2: 'please close other applications or tabs in your browser to improve game performance.',
     reboot: 'The servers are going to be rebooted in a while.'
   };
   var STATE_PLAY = 0;
-  var STATE_SPECTATE = 8;
 
   // Paid rooms only (ours, PAID-AGAR-DESIGN 6; never drawn in the free room, which never gets ag:money). CHOSEN,
   // logged in PARITY-LOG (2026-10-09 paid agar client).
@@ -65,7 +63,6 @@
   function hudMessage(mode, state, key) {
     if (mode !== 0) return '';
     if (key === 'score' && state === STATE_PLAY) return TEXT.score;
-    if (key === 'bottom' && state === STATE_SPECTATE) return TEXT.spectateHint;
     return '';
   }
 

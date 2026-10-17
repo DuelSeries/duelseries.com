@@ -26,8 +26,11 @@ test('SLX_TAIL: the slx.css link first, then dsEnd, slxNet, slxPaid, slxBr, slxW
   assert.ok(/<script src="\/js\/clip\/clipRec\.js" data-game="slither"><\/script>/.test(tail));
   const all = every.slice(0, -2);
   assert.strictEqual(all[0], '/js/shared/dsEnd.js', 'the shared end screens before any layer file');
-  assert.strictEqual(all.filter((src) => !src.startsWith('/js/slx/')).length, 1, 'and nothing else outside the layer');
-  const list = all.slice(1);
+  // after the layer: the empty table and the Spectate bar every game shares (slxWatch and slxBr open the bar)
+  assert.deepStrictEqual(all.slice(-2), ['/js/shared/dsEmptyArena.js', '/js/shared/dsWatchBar.js']);
+  assert.strictEqual(all[1], '/js/shared/dsChat.js', 'the shared chat (4608813) right after it');
+  assert.strictEqual(all.filter((src) => !src.startsWith('/js/slx/')).length, 4, 'and nothing else outside the layer');
+  const list = all.slice(2, -2);
   assert.deepStrictEqual(list.slice(0, 6), ['/js/slx/slxNet.js', '/js/slx/slxPaid.js', '/js/slx/slxBr.js',
     '/js/slx/slxWatch.js', '/js/slx/slxMain.js', '/js/slx/slxDirect.js']);
   assert.ok(list.includes('/js/slx/slxCard.js') && list.includes('/js/slx/slxHud.js'), 'the card and the HUD are in it');

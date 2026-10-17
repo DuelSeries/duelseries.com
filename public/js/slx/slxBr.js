@@ -9,7 +9,8 @@
 // 1. The handshake (slxMain merges slx.brAuth into slx.auth): { br: 1 } always; a player adds idProof, a one-time
 //    signature by their own wallet over 'play:identify' asked of the lobby through the duel:signaction bridge
 //    (public/js/v2/play.js, answered only for #game-frame on this origin), so the server knows where the prize goes;
-//    a watcher adds watch: 1 (and follow, a snake id). The proof is spent by the socket that opens with it, so every
+//    a watcher adds watch: 1 (and after or before, the snake id its Next or Previous left: the server steps through the
+//    living snakes, people first, each longest first). The proof is spent by the socket that opens with it, so every
 //    Play asks for a fresh one first (slx.brLaunch for the lobby's first Play, beforeAgain for the card's).
 // 2. The circle (sl:x {t: 'br', z}): one .slx-br canvas between their game canvas and their HUD (slxPaid's camera
 //    math): the outside tinted red, the wall as a red line, the announced circle as a white dashed ring. z is a whole
@@ -21,7 +22,12 @@
 //    again (the next match, unpressable while a match is under way or just decided); the podium and the prize line
 //    when one is decided; between matches, when the next one starts. A refusal's card keeps its own Watch or Play.
 // 5. Watching: their client follows the watched snake as its own; mouse, touch and the boost keys on the game are
-//    swallowed here so nothing on screen pretends to steer it. When it ends the next survivor is watched at once.
+//    swallowed here so nothing on screen pretends to steer it. The controls are the Spectate bar every game shares
+//    (public/js/shared/dsWatchBar.js; Owen 2026-10-16), open while this page watches (the lobby's Watch, or Watch on
+//    the card once out): Lobby, previous, the watched name, next. A switch is instant: the life ends from the page
+//    (slx.endLife) and the next starts the moment their close has run (quick), with no death hold, menu or card. A
+//    watched snake that dies stays on screen DEATH_MS, then the next is watched the same way (the card's podium once
+//    the match is decided). Nothing alive at all is the bar's empty table, asked again every RETRY_MS.
 (function (root) {
   'use strict';
   var D = root.DuelSlither;
@@ -61,6 +67,8 @@
   var myId = 0; // the own snake's id this life (the winner check)
   var lastMyId = 0;
   var watching = null; // { id, name } while watching
+  var after = 0; // the id the next watcher life asks to follow after (Next)
+  var before = 0; // the id it asks to follow before (Previous)
   var errors = 0;
 
   function now() {
@@ -121,7 +129,8 @@
     var a = { br: 1 };
     if (mode === 'watch') {
       a.watch = 1;
-      if (watching && watching.next) a.follow = watching.next;
+      if (after > 0) a.after = after;
+      else if (before > 0) a.before = before;
     } else if (proof) {
       a.idProof = proof;
     }
@@ -136,6 +145,9 @@
   slx.on('open', function () {
     proof = null; // spent: the server checked it with this socket's sl:join
     myId = 0;
+    after = 0; // this socket's handshake carried them
+    before = 0;
+    switching = false;
     if (mode !== 'watch') watching = null;
   });
   slx.on('ownAdd', function (ev) {
@@ -148,7 +160,9 @@
     }
   });
   slx.on('x:watch', function (m) {
-    watching = { id: m.id, name: typeof m.name === 'string' ? m.name : '' };
+    if (typeof m.id !== 'number' || !(m.id > 0)) return;
+    empty = false;
+    watching = { id: m.id, name: typeof m.name === 'string' ? m.name.slice(0, 24) : '' };
   });
   slx.on('x:br', function (m) {
     var was = st ? st.state : '';
@@ -343,7 +357,6 @@
   var hudHead = null;
   var hudSub = null;
   var startBtn = null;
-  var lobbyBtn = null;
   var hudKey = '';
   var hudW = 0; // the block's width, read when what it says changes
   var hudTop = -1;
@@ -363,8 +376,6 @@
     '.slx-br-sub{margin-top:1px;line-height:17px;opacity:.92;}',
     '.slx-br-start{display:none;margin:6px auto 0;padding:6px 16px;border:0;border-radius:6px;background:#14F195;' +
       'color:#06231a;font:bold 14px ' + FONT + ';text-shadow:none;cursor:pointer;pointer-events:auto;}',
-    '.slx-br-lobby{position:fixed;top:10px;left:10px;z-index:9;display:none;padding:6px 14px;border:1px solid #ccc;' +
-      'border-radius:4px;background:#fff;color:#333;font:bold 13px ' + FONT + ';cursor:pointer;}',
     // a phone page laid out at 0.7, either way up (slx.hud.phone() and zoom() > 1; no media query can tell). In the
     // lobby's game frame the page is at 1 (a frame ignores the viewport line), so the plain sizes are a phone's there.
     '.slx-br-phone.slx-br-hud{max-width:calc(100vw - 16px);padding:4px 12px 5px;font-size:15px;}',
@@ -388,12 +399,6 @@
     startBtn.textContent = 'Start match';
     hud.appendChild(startBtn);
     body.appendChild(hud);
-    // While watching there is no card (the watched snake is alive), so this is the way out
-    lobbyBtn = doc.createElement('button');
-    lobbyBtn.className = 'slx-br-lobby slx-br-ui';
-    lobbyBtn.type = 'button';
-    lobbyBtn.textContent = 'Lobby';
-    body.appendChild(lobbyBtn);
   }
 
   var say = '';
@@ -457,7 +462,6 @@
     } else {
       sub = players(st.alive || 0) + ' · next match in ' + clock(st.nextStartMs || 0);
     }
-    if (mode === 'watch' && watching && watching.name) sub = 'Watching ' + watching.name + ' · ' + sub;
     if (say && now() < sayUntil) sub = say;
     return { head: head, sub: sub, now: moment && (typeof slx.connected !== 'function' || slx.connected()) };
   }
@@ -482,7 +486,6 @@
     // the owner's Start while the arena waits, playing or watching (a dead owner watching the end starts the next)
     var sd = owner && st.state === 'waiting' ? 'block' : 'none';
     if (startBtn && startBtn.style.display !== sd) startBtn.style.display = sd;
-    if (lobbyBtn) lobbyBtn.style.display = mode === 'watch' && S.connected ? 'block' : 'none';
     var key = cls + '|' + t.head + '|' + t.sub + '|' + sd;
     if (key !== hudKey) {
       hudKey = key;
@@ -497,14 +500,6 @@
 
   if (startBtn && typeof slx.guard === 'function') bindStart();
   function bindStart() {
-    if (lobbyBtn) {
-      slx.guard(lobbyBtn, { activate: function () {
-        if (typeof slx.toLobby === 'function' && slx.toLobby()) return;
-        try {
-          root.location.assign('/');
-        } catch (e) { /* nothing to do */ }
-      } });
-    }
     var busy = false;
     var act = function () {
       if (busy) return;
@@ -648,12 +643,15 @@
     if (lastKind !== 'nobody' && lastKind !== 'twice' && !reopened && ((lastKind === 'match' && !st) || running() ||
       (st && (st.state === 'over' || st.state === 'reopening')) || (!st && mode === 'watch'))) {
       mode = 'watch';
-      if (watching) watching.next = 0;
+      after = 0;
+      before = 0;
       go();
       return true;
     }
     mode = 'play';
     watching = null;
+    empty = false;
+    stopWatchTimers();
     withProof(go);
     return true;
   };
@@ -667,7 +665,7 @@
     return true;
   };
 
-  // A watcher whose snake ended watches the next survivor at once (their death fade runs, then the card's Play again).
+  // A watcher whose snake ended and whose quick start did not run (their menu came first): the card's Watch next.
   slx.on('menuShow', function () {
     if (mode !== 'watch' || !running()) return;
     root.setTimeout(function () {
@@ -675,23 +673,190 @@
     }, 900);
   });
 
-  // ---- 5. watching: nothing on the game steers the watched snake
+  // ---- 5. watching: the bar, Previous and Next, nothing on the game steers the watched snake
 
-  function onGame(e) {
-    for (var el = e.target; el && el !== doc; el = el.parentNode) {
-      if (typeof el.className === 'string' && /(^|\s)slx-/.test(el.className)) return false; // a layer control
+  var DEATH_MS = 1200; // the watched snake's death on screen before the next life
+  var RETRY_MS = 3000; // nothing alive at all: the next ask
+  var switching = false;
+  var empty = false; // the last ask was refused 'nobody' (the bar's empty table until a watch comes)
+  var gone = false; // Lobby was pressed
+  var ended = ''; // how the last watcher life ended: 'next' (Previous or Next), 'out' (the watched snake ended)
+  var deathTimer = null;
+  var retryTimer = null;
+  var quicks = 0;
+
+  function stopWatchTimers() {
+    if (deathTimer !== null) root.clearTimeout(deathTimer);
+    if (retryTimer !== null) root.clearTimeout(retryTimer);
+    deathTimer = null;
+    retryTimer = null;
+  }
+
+  // A life on screen: playing, live, and not dying (their death hold and menu fade run with dead_mtm set).
+  function onScreen() {
+    return !!S.playing && !!S.connected && S.dead_mtm === -1 && !gone;
+  }
+
+  function step(d) {
+    if (mode !== 'watch' || switching || !watching || !onScreen() || typeof slx.endLife !== 'function') return false;
+    switching = true;
+    ended = 'next';
+    after = d > 0 ? watching.id : 0;
+    before = d < 0 ? watching.id : 0;
+    var ok = false;
+    try {
+      ok = slx.endLife() === true;
+    } catch (e) {
+      errors++;
     }
-    return true;
+    if (!ok) {
+      switching = false;
+      ended = '';
+      after = 0;
+      before = 0;
+    }
+    barPaint();
+    return ok;
+  }
+
+  // The next watcher life at once, as slxWatch's quick: once their close has run (it follows this layer's 'close'),
+  // their death hold is cut (dead_mtm back to -1) and their Play asked, so their next frame connects. Not once their
+  // menu has shown (the card's way), and never into a decided match (the card's podium then).
+  var menuUp = false;
+  slx.on('menuShow', function () { menuUp = true; });
+  function quick() {
+    root.setTimeout(function () {
+      if (gone || menuUp || mode !== 'watch' || decided() || S.connected) return;
+      if (S.dead_mtm !== -1) S.dead_mtm = -1;
+      quicks++;
+      D.play(D.slMain && typeof D.slMain.nick === 'string' ? D.slMain.nick : '');
+    }, 0);
+  }
+
+  slx.on('open', function () {
+    ended = '';
+    menuUp = false;
+  });
+  // The watched snake ended: its death plays for DEATH_MS, then this life ends from the page and the next starts.
+  slx.on('ownDead', function () {
+    if (mode !== 'watch') return;
+    if (!ended) ended = 'out';
+    if (deathTimer !== null) root.clearTimeout(deathTimer);
+    deathTimer = root.setTimeout(function () {
+      deathTimer = null;
+      if (gone || mode !== 'watch' || decided() || typeof slx.endLife !== 'function') return;
+      try {
+        slx.endLife();
+      } catch (e) {
+        errors++;
+      }
+    }, DEATH_MS);
+  });
+  slx.on('close', function (info) {
+    if (mode !== 'watch') return;
+    var i = info || {};
+    if (deathTimer !== null) root.clearTimeout(deathTimer);
+    deathTimer = null;
+    if (i.refused === 'nobody') {
+      empty = true;
+      retry();
+    } else if (i.refused && empty) {
+      // refused for another reason (full, closed) after an empty table: no retry is armed, so the empty map goes and
+      // the card's own words and Try again show; the bar opens again on its next paint, 'Finding a player'
+      empty = false;
+      if (root.DSWatchBar && root.DSWatchBar.shown()) root.DSWatchBar.close();
+    }
+    if (i.playing && (ended === 'next' || ended === 'out')) quick();
+  });
+
+  // Nothing alive at all (between matches): asked again every RETRY_MS while the page is visible, still as a watcher.
+  function retry() {
+    if (retryTimer !== null) root.clearTimeout(retryTimer);
+    retryTimer = root.setTimeout(function ask() {
+      retryTimer = null;
+      if (gone || mode !== 'watch') return;
+      if (doc.hidden || S.connected) {
+        retryTimer = root.setTimeout(ask, RETRY_MS);
+        return;
+      }
+      D.play(D.slMain && typeof D.slMain.nick === 'string' ? D.slMain.nick : '');
+    }, RETRY_MS);
+  }
+
+  function toLobby() {
+    gone = true;
+    stopWatchTimers();
+    barPaint();
+    if (typeof slx.toLobby === 'function' && slx.toLobby()) return;
+    try {
+      root.location.assign('/');
+    } catch (e) { /* nothing to do */ }
+  }
+
+  function bar() {
+    var B = root.DSWatchBar;
+    return B && typeof B.open === 'function' ? B : null;
+  }
+
+  // The bar while this page watches (from the lobby's Watch, or the card's Watch once out), closed while it plays.
+  var named = null; // the watching record the plate shows
+  function barPaint() {
+    var B = bar();
+    if (!B) return;
+    if (gone || mode !== 'watch') {
+      if (B.shown()) B.close();
+      named = null;
+      return;
+    }
+    if (!B.shown()) {
+      // the lobby draws /sl at 0.7 on phones: above their minimap, thumb-sized there (slxWatch PHONE_LIFT, PHONE_SIZE)
+      if (B.open({ game: 'snake', onPrev: function () { step(-1); }, onNext: function () { step(1); },
+        onLobby: toLobby, phoneLift: 192, phoneSize: 80 }) !== true) return;
+      named = null;
+    }
+    if (empty) {
+      if (!B.state().empty) B.empty();
+      named = null;
+      return;
+    }
+    if (watching && named !== watching) {
+      named = watching;
+      B.watching(watching.name);
+    }
+    var off = switching || !watching || !onScreen();
+    if (B.state().busy !== off) B.busy(off);
+  }
+
+  // 'slx' for a layer control (the results card is marked slx-card), 'dsw' for the Spectate bar, '' for the game.
+  function controlOf(e) {
+    // the page itself is never a control (the bar marks the body dsw-on)
+    for (var el = e.target; el && el !== doc && el !== doc.body; el = el.parentNode) {
+      var c = el.className;
+      if (typeof c !== 'string') continue; // an svg node inside a button: its button says
+      if (/(^|\s)dsw-/.test(c)) return 'dsw';
+      if (/(^|\s)slx-/.test(c)) return 'slx';
+    }
+    return '';
   }
   function swallow(e) {
-    if (mode !== 'watch' || !S.connected || !onGame(e)) return;
+    if (mode !== 'watch' || !S.connected) return;
+    var c = controlOf(e);
+    if (c === 'slx') return;
     e.stopImmediatePropagation();
-    if (e.type === 'touchstart' || e.type === 'touchmove') e.preventDefault();
+    // a press on the bar is the bar's: nothing after this hears it (slxTouch would prevent a tap on it as steering),
+    // and it is never prevented here, so a tap still becomes a click
+    if (c === '' && (e.type === 'touchstart' || e.type === 'touchmove')) e.preventDefault();
   }
   var types = ['mousemove', 'mousedown', 'touchstart', 'touchmove', 'wheel'];
   for (var i = 0; i < types.length; i++) root.addEventListener(types[i], swallow, { capture: true, passive: false });
+  // The bar's keys (Left, Right, Space) go on to the bar's own listener, which stops them before the game.
+  function barKey(e) {
+    var B = bar();
+    if (!B || !B.shown() || e.ctrlKey || e.metaKey || e.altKey) return false;
+    return e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === ' ' || e.key === 'Spacebar';
+  }
   root.addEventListener('keydown', function (e) {
-    if (mode !== 'watch' || !S.connected) return;
+    if (mode !== 'watch' || !S.connected || barKey(e)) return;
     var k = e.keyCode;
     if (k === 32 || (k >= 37 && k <= 40) || k === 81) e.stopImmediatePropagation();
   }, true);
@@ -755,6 +920,7 @@
       if (ctx) draw();
       holdButton();
       hudPaint();
+      barPaint();
     } catch (e) {
       errors++;
       slx.errors = (slx.errors || 0) + 1;
@@ -767,6 +933,13 @@
     state: function () { return st; },
     zone: function () { return zoneNow(now()); },
     watching: function () { return watching; },
+    // For headless checks: the watcher's switch state, and Previous and Next as the bar's arrows run them.
+    watch: function () {
+      return { after: after, before: before, switching: switching, empty: empty, ended: ended, quicks: quicks,
+        shown: onScreen() && !!watching };
+    },
+    next: function () { return step(1); },
+    prev: function () { return step(-1); },
     errors: function () { return errors; }
   };
 })(typeof window !== 'undefined' ? window : globalThis);

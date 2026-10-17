@@ -623,3 +623,39 @@ test('a paid room watcher: never an account, never joins, steers or holds; count
   assert.strictEqual(r.watcherCount, 0);
   assert.strictEqual(r.openAccounts(), opens);
 });
+
+// The Spectate bar in a paid room (Owen 2026-10-16): Previous and Next move only the watcher's camera.
+test('a paid room watcher: nobody alive is { none: true }; Next and Previous move its camera and nothing else', () => {
+  const w = world();
+  const { r, calls } = w;
+  const v = sock();
+  r.addSocket(v, { watch: true });
+  assert.strictEqual(r.spectate(v.id), true);
+  r.tickOnce();
+  assert.deepStrictEqual(v.of('ag:watching'), [{ none: true }], 'nobody at the table');
+  assert.strictEqual(r.followStep(v.id, 1), true, 'a step with nobody alive is harmless');
+  r.tickOnce();
+  assert.deepStrictEqual(v.of('ag:watching').slice(-1), [{ none: true }]);
+  const a = join(w, 'ann');
+  const b = join(w, 'bob');
+  r.tickOnce();
+  const seat = r.seatOf(v.id);
+  const ranking = r._ranking();
+  assert.strictEqual(seat.follow, ranking[0].pid, 'the first player back is followed');
+  const name = (pid) => (pid === a.pid ? 'ann' : 'bob');
+  assert.deepStrictEqual(v.of('ag:watching').slice(-1), [{ name: name(ranking[0].pid) }]);
+  const money = () => JSON.stringify({ a: r.money.balance(a.pid), b: r.money.balance(b.pid), open: r.openAccounts(),
+    seats: r.seats.size, watchers: r.watcherCount, players: r.playerCount, calls });
+  const before = money();
+  assert.strictEqual(r.followStep(v.id, 1), true);
+  r.tickOnce();
+  assert.strictEqual(seat.follow, ranking[1].pid);
+  assert.deepStrictEqual(v.of('ag:watching').slice(-1), [{ name: name(ranking[1].pid) }]);
+  assert.strictEqual(r.followStep(v.id, -1), true);
+  r.tickOnce();
+  assert.strictEqual(seat.follow, ranking[0].pid);
+  assert.strictEqual(money(), before, 'no balance, account, seat or money hook moved');
+  assert.strictEqual(r.isWatchOnly(v.id), true);
+  assert.strictEqual(r.followStep(a.s.id, 1), false, 'a paying player never steps a camera');
+  assert.ok(!a.s.of('ag:watching').length, 'and is never told who a watcher follows');
+});

@@ -5,8 +5,12 @@
    mode adds: the lobby's 'dsWatch' mark is read once and removed, it only
    counts when it names this game, a connect then asks to WATCH instead of
    queueing, and Lobby says unwatch and posts game:done to the lobby. The
-   watching payloads fed in are made by the real lobbies, so the page is drawn
-   from exactly what the server sends a watcher.
+   watcher's controls are the shared Spectate bar (public/js/shared/dsWatchBar.js,
+   loaded for real ahead of the page): its plate says whose match it is, its
+   arrows ask for the match before or after, its keys do the same, and it shows
+   the empty table when nothing is running. The watching payloads fed in are
+   made by the real lobbies, so the page is drawn from exactly what the server
+   sends a watcher.
 
    And the result card, which is the shared one (public/js/shared/dsEnd.js,
    loaded for real ahead of the page as the page's HTML does): what a free and
@@ -134,6 +138,7 @@ function boot(file, storage, { framed = true } = {}) {
   };
   const emitted = [], handlers = {}, posted = [], timers = [], frames = [], replaced = [];
   const chat = { opts: null, lines: [], shown: false };
+  let timerId = 0;
   const sock = {
     id: 'page-socket-1',
     on(ev, fn) { (handlers[ev] = handlers[ev] || []).push(fn); },
@@ -159,8 +164,8 @@ function boot(file, storage, { framed = true } = {}) {
     matchMedia: () => ({ matches: false }),
     requestAnimationFrame: (fn) => { frames.push(fn); return frames.length; },
     performance: { now: () => Date.now() },
-    setTimeout: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
-    clearTimeout: () => {},
+    setTimeout: (fn, ms) => { const id = ++timerId; timers.push({ id, fn, ms }); return id; },
+    clearTimeout: (id) => { const i = timers.findIndex(x => x.id === id); if (i >= 0) timers.splice(i, 1); },
     setInterval: () => 0,
     clearInterval: () => {},
     location: { href: '', origin: ORIGIN, replace(u) { this.href = String(u); replaced.push(String(u)); } },
@@ -178,9 +183,30 @@ function boot(file, storage, { framed = true } = {}) {
   win.window = win;
   const ctx = vm.createContext(win);
   vm.runInContext(fs.readFileSync(path.join(ROOT, 'public', 'js', 'shared', 'dsEnd.js'), 'utf8'), ctx, { filename: 'dsEnd.js' });
+  vm.runInContext(fs.readFileSync(path.join(ROOT, 'public', 'js', 'shared', 'dsWatchBar.js'), 'utf8'), ctx, { filename: 'dsWatchBar.js' });
   vm.runInContext(fs.readFileSync(path.join(ROOT, 'public', 'js', file), 'utf8'), ctx, { filename: file });
   return {
     win, store, emitted, posted, timers, frames, replaced, $: byId, body, chat,
+    /* The shared Spectate bar, read back as what a watcher sees and presses. */
+    bar: () => {
+      const one = (c) => walk(body, n => hasClass(n, c))[0];
+      const round = walk(body, n => hasClass(n, 'dsw-round'));
+      const s = win.DSWatchBar.state();
+      return {
+        on: s.on, empty: s.empty, busy: s.busy, text: s.text, presses: s.presses,
+        lobby: one('dsw-lobby'), prev: round[0], next: round[1],
+        plate: one('dsw-name') ? one('dsw-name').textContent : null,
+      };
+    },
+    /* A key on the window, as the bar listens for it. */
+    key(k, extra) {
+      let stopped = false;
+      for (const fn of winListeners.keydown || []) {
+        fn(Object.assign({ key: k, target: body, repeat: false, preventDefault() {}, stopImmediatePropagation() { stopped = true; } }, extra));
+        if (stopped) break;
+      }
+      return stopped;
+    },
     /* The result card on screen, read back as text, or null. */
     card: () => readCard(body),
     /* A window message, from the lobby (the parent frame, this origin) unless told otherwise. */
@@ -210,6 +236,24 @@ function koWatching(count) {
   lob.watch(w, { after: count > 1 ? [...lob.rooms.keys()].pop() : null });
   return w.sent.find(s => s[0] === 'ko:watching')[1];
 }
+/* One match with these two names, as a watcher is told of it. */
+function koMatch(a, b) {
+  const lob = new KnockoutLobby({ to: () => ({ emit() {} }) });
+  lob.enqueue({ id: 'a', join() {}, emit() {} }, a, null, 0, 0);
+  lob.enqueue({ id: 'b', join() {}, emit() {} }, b, null, 0, 0);
+  for (const r of lob.rooms.values()) r.tick(Date.now() + 4000);
+  const w = watcherSocket();
+  lob.watch(w, {});
+  return w.sent.find(s => s[0] === 'ko:watching')[1];
+}
+function bsMatch(a, b) {
+  const lob = new BattleshipLobby({ to: () => ({ emit() {} }) });
+  lob.enqueue({ id: 'a', join() {}, emit() {} }, a, null, 0, 0);
+  lob.enqueue({ id: 'b', join() {}, emit() {} }, b, null, 0, 0);
+  const w = watcherSocket();
+  lob.watch(w, {});
+  return w.sent.find(s => s[0] === 'bs:watching')[1];
+}
 function bsWatching() {
   const lob = new BattleshipLobby({ to: () => ({ emit() {} }) });
   lob.enqueue({ id: 'a', join() {}, emit() {} }, 'Owen', null, 0, 0);
@@ -220,8 +264,10 @@ function bsWatching() {
 }
 
 for (const g of [
-  { game: 'knockout', file: 'knockout.js', p: 'ko', other: 'battleship', watching: () => koWatching(1) },
-  { game: 'battleship', file: 'battleship.js', p: 'bs', other: 'knockout', watching: () => bsWatching() },
+  { game: 'knockout', file: 'knockout.js', p: 'ko', other: 'battleship', watching: () => koWatching(1), match: koMatch,
+    hold: 1800, line: (page) => page.$('hint').textContent, overLine: 'Nia wins. Owen left the match.' },
+  { game: 'battleship', file: 'battleship.js', p: 'bs', other: 'knockout', watching: () => bsWatching(), match: bsMatch,
+    hold: 2500, line: (page) => page.$('watchStatus').textContent, overLine: 'Nia wins. 3 shots. Owen left the match.' },
 ]) {
   test(g.game + ': a paid rung Spectate asks for tables at that stake only; the stake mark is removed too', () => {
     const page = boot(g.file, { dsWatch: g.game, dsWatchStake: '0.5', playerName: 'Owen' });
@@ -256,27 +302,124 @@ for (const g of [
     }
   });
 
-  test(g.game + ': a match is shown by name, Next asks for the one after it, Lobby unwatches', () => {
+  test(g.game + ': the shared bar is up at once, names the match "A vs B", Previous and Next ask for the one before and after, Lobby unwatches', () => {
     const page = boot(g.file, { dsWatch: g.game });
+    let b = page.bar();
+    assert.strictEqual(b.on, true, 'up before anything has been answered');
+    assert.strictEqual(b.busy, true, 'its arrows wait for the first answer');
+    assert.strictEqual(page.$('wait').hidden, true, 'the old wait card never shows for a watcher');
     page.deliver('connect');
-    const m = g.watching();
+    const m = g.match('Owen', 'Nia');
     page.deliver(g.p + ':watching', m);
     page.runFrames(2);                             // the draw loop runs on a watcher's view
-    assert.strictEqual(page.$('watchLabel').textContent, 'Watching Owen vs Nia');
+    b = page.bar();
+    assert.strictEqual(b.plate, 'Owen vs Nia');
+    assert.strictEqual(b.empty, false);
+    assert.strictEqual(b.busy, false);
     assert.strictEqual(page.win.__watch.mode, 'watching');
     assert.strictEqual(page.win.__watch.matchId, m.match.id);
     assert.deepStrictEqual(page.win.__watch.names, ['Owen', 'Nia']);
-    assert.strictEqual(page.$('watchNext').disabled, true, 'one match: no next');
 
-    page.deliver(g.p + ':matches', { index: 1, count: 2 });
-    assert.strictEqual(page.$('watchNext').disabled, false, 'two matches: next is on offer');
-    page.$('watchNext').click();
+    /* Next: the match after this one. The arrows rest until the answer, and a second press waits for it. */
+    b.next.click();
     same(page.sent(g.p + ':watch').pop()[1], { after: m.match.id, stake: 0 });
+    assert.strictEqual(page.bar().busy, true);
+    const asked = page.sent(g.p + ':watch').length;
+    page.bar().next.click();
+    page.bar().prev.click();
+    assert.strictEqual(page.sent(g.p + ':watch').length, asked, 'nothing more is asked while it waits');
+    const m2 = g.match('Ada', 'Bo');
+    page.deliver(g.p + ':watching', m2);
+    b = page.bar();
+    assert.strictEqual(b.plate, 'Ada vs Bo');
+    assert.strictEqual(b.busy, false, 'the answer opens the arrows again');
+    assert.strictEqual(page.card(), null, 'and no card came between');
 
-    page.$('watchLobby').click();
+    /* Previous: the match before this one. */
+    b.prev.click();
+    same(page.sent(g.p + ':watch').pop()[1], { after: m2.match.id, stake: 0, dir: 'prev' });
+    page.deliver(g.p + ':watching', m);
+    assert.strictEqual(page.bar().plate, 'Owen vs Nia');
+
+    /* Lobby: stop watching, back to the lobby, and the bar goes. */
+    page.bar().lobby.click();
     assert.strictEqual(page.sent(g.p + ':unwatch').length, 1);
     assert.strictEqual(page.sent(g.p + ':leave').length, 0, 'a watcher has no seat to leave');
     assert.deepStrictEqual(page.posted, ['game:done']);
+    assert.strictEqual(page.bar().on, false);
+  });
+
+  test(g.game + ': a buy-in Spectate steps among that buy-in\'s tables, and the keys do what the arrows do', () => {
+    const page = boot(g.file, { dsWatch: g.game, dsWatchStake: '0.5' });
+    page.deliver('connect');
+    const m = g.match('Owen', 'Nia');
+    page.deliver(g.p + ':watching', m);
+    assert.strictEqual(page.key('ArrowRight'), true, 'the bar takes the key before the page does');
+    same(page.sent(g.p + ':watch').pop()[1], { after: m.match.id, stake: 0.5 });
+    const asked = page.sent(g.p + ':watch').length;
+    assert.strictEqual(page.key('ArrowLeft'), true);
+    assert.strictEqual(page.sent(g.p + ':watch').length, asked, 'a key while it waits does nothing either');
+    const m2 = g.match('Ada', 'Bo');
+    page.deliver(g.p + ':watching', m2);
+    page.key(' ');
+    same(page.sent(g.p + ':watch').pop()[1], { after: m2.match.id, stake: 0.5 });
+    page.deliver(g.p + ':watching', m);
+    page.key('ArrowLeft');
+    same(page.sent(g.p + ':watch').pop()[1], { after: m.match.id, stake: 0.5, dir: 'prev' });
+    assert.strictEqual(page.key('a'), false, 'any other key is the page\'s');
+  });
+
+  test(g.game + ': Lobby works before anything has been answered, and the arrows open on their own if no answer comes', () => {
+    const early = boot(g.file, { dsWatch: g.game });
+    early.bar().lobby.click();
+    assert.strictEqual(early.sent(g.p + ':unwatch').length, 1);
+    assert.deepStrictEqual(early.posted, ['game:done']);
+
+    const page = boot(g.file, { dsWatch: g.game });
+    page.deliver('connect');
+    page.deliver(g.p + ':watching', g.match('Owen', 'Nia'));
+    page.bar().next.click();
+    assert.strictEqual(page.bar().busy, true);
+    const ran = page.runTimers();                  // the answer never came
+    assert.ok(ran.some(t => t.ms === 1500), 'the arrows give up waiting after a moment');
+    assert.strictEqual(page.bar().busy, false);
+    const asked = page.sent(g.p + ':watch').length;
+    page.bar().next.click();
+    assert.strictEqual(page.sent(g.p + ':watch').length, asked + 1, 'and can be pressed again');
+  });
+
+  test(g.game + ': Next with one match running comes back with the same one, and the board is left alone', () => {
+    const page = boot(g.file, { dsWatch: g.game });
+    page.deliver('connect');
+    const m = g.match('Owen', 'Nia');
+    page.deliver(g.p + ':watching', m);
+    page.$('top').hidden = true;                   // anything the page repaints from scratch would undo this
+    page.bar().next.click();
+    page.deliver(g.p + ':watching', m);
+    assert.strictEqual(page.$('top').hidden, true, 'not repainted');
+    assert.strictEqual(page.bar().plate, 'Owen vs Nia');
+    assert.strictEqual(page.bar().busy, false);
+    /* A reconnect is different: the page missed things, so the answer is taken in full. */
+    page.deliver('connect');
+    same(page.sent(g.p + ':watch').pop()[1], { stake: 0 });
+    page.deliver(g.p + ':watching', m);
+    assert.strictEqual(page.$('top').hidden, false, 'repainted');
+  });
+
+  test(g.game + ': a long name gives up its end so the pair fits the plate, a short one keeps all of its own', () => {
+    const page = boot(g.file, { dsWatch: g.game });
+    page.deliver('connect');
+    const long = 'A'.repeat(20), long2 = 'B'.repeat(20);
+    const m = g.match(long, long2);
+    page.deliver(g.p + ':watching', m);
+    let plate = page.bar().plate;
+    assert.ok(plate.length <= 32, plate);
+    assert.strictEqual(plate, 'A'.repeat(13) + '… vs ' + 'B'.repeat(13) + '…');
+    page.deliver(g.p + ':watching', g.match('Al', long2));
+    plate = page.bar().plate;
+    assert.strictEqual(plate, 'Al vs ' + 'B'.repeat(20), 'the short name loses nothing');
+    page.deliver(g.p + ':watching', g.match(long, 'Bo'));
+    assert.strictEqual(page.bar().plate, 'A'.repeat(20) + ' vs Bo');
   });
 
   test(g.game + ': none of the play controls does anything while watching', () => {
@@ -298,61 +441,111 @@ for (const g of [
     assert.strictEqual(acted.length, 0, 'sent: ' + acted.map(e => e[0]).join(', '));
   });
 
-  test(g.game + ': nothing running is said, and asked again a few seconds later', () => {
+  test(g.game + ': nothing running shows the empty table on the bar, and is asked again until a match starts', () => {
     const page = boot(g.file, { dsWatch: g.game });
     page.deliver('connect');
+    for (const none of [{ none: true }, { full: true }, { refused: true, why: 'You are in a match already.' }]) {
+      page.deliver(g.p + ':watching', none);
+      const b = page.bar();
+      assert.strictEqual(b.on, true);
+      assert.strictEqual(b.empty, true);
+      assert.strictEqual(b.plate, 'Nobody is playing yet');
+      assert.strictEqual(b.prev.disabled, true);
+      assert.strictEqual(b.next.disabled, true);
+      assert.strictEqual(page.$('wait').hidden, true, 'the old wait card stays away');
+    }
     page.deliver(g.p + ':watching', { none: true });
-    assert.strictEqual(page.$('waitMain').textContent, 'Nobody is playing right now');
-    assert.strictEqual(page.$('wait').hidden, false);
     assert.strictEqual(page.win.__watch.mode, 'none');
     const before = page.sent(g.p + ':watch').length;
     const ran = page.runTimers();
     assert.ok(ran.some(t => t.ms === 3000), 'a retry three seconds on');
     assert.strictEqual(page.sent(g.p + ':watch').length, before + 1);
+
+    /* Lobby still works from the empty table. */
+    page.bar().lobby.click();
+    assert.strictEqual(page.sent(g.p + ':unwatch').length, 1);
+    assert.deepStrictEqual(page.posted, ['game:done']);
+
+    /* And the first match to start is followed by itself. */
+    const again = boot(g.file, { dsWatch: g.game });
+    again.deliver('connect');
+    again.deliver(g.p + ':watching', { none: true });
+    again.deliver(g.p + ':watching', g.match('Owen', 'Nia'));
+    const b = again.bar();
+    assert.strictEqual(b.empty, false);
+    assert.strictEqual(b.plate, 'Owen vs Nia');
+    assert.strictEqual(b.prev.disabled, false);
   });
 
-  test(g.game + ': the end of a match moves on to the next one', () => {
+  test(g.game + ': the end of a match is a line, not a card, and the next match follows by itself', () => {
     const page = boot(g.file, { dsWatch: g.game });
     page.deliver('connect');
-    const m = g.watching();
+    const m = g.match('Owen', 'Nia');
     page.deliver(g.p + ':watching', m);
     page.deliver(g.p + ':over', { winner: 'Nia', winnerSide: 1, why: 'opponent left', turn: 2, shots: [0, 3], reveal: [] });
-    const c = page.card();
-    assert.ok(c, 'the shared card is on screen');
-    assert.strictEqual(c.verdict, 'Nia wins');
-    assert.deepStrictEqual(c.notes, ['Owen left the match.', 'Next match in a few seconds.']);
-    assert.strictEqual(c.hero, 'Free');   // a free game says Free; its score is the first tray row (Owen 2026-10-16)
-    assert.deepStrictEqual(c.facts[0], [g.p === 'ko' ? 'Turns' : 'Shots', g.p === 'ko' ? '2' : '3'], 'turns, or the winner\'s shots');
-    assert.strictEqual(c.unit, null);
-    /* The same three as a player's card (Owen 2026-10-16): Lobby, Spectate, Play again. */
-    assert.deepStrictEqual(c.buttons.map(b => [b.text, b.primary, b.disabled]),
-      [['Lobby', false, false], ['Spectate', false, false], ['Play again', true, false]]);
-    page.runTimers();
-    same(page.sent(g.p + ':watch').pop()[1], { after: m.match.id, stake: 0 });
-    /* Spectate on the card asks for the one after this one too (it was Next match). */
+    assert.strictEqual(page.card(), null, 'no card to click through');
+    assert.strictEqual(g.line(page), g.overLine);
+    assert.strictEqual(page.bar().on, true);
+    assert.strictEqual(page.bar().plate, 'Owen vs Nia');
+    assert.strictEqual(page.bar().busy, false, 'Previous and Next work while the result is up');
     const before = page.sent(g.p + ':watch').length;
-    c.button('Spectate').click();
+    const ran = page.runTimers();
+    assert.ok(ran.some(t => t.ms === g.hold), 'on to the next after a moment');
     assert.strictEqual(page.sent(g.p + ':watch').length, before + 1);
     same(page.sent(g.p + ':watch').pop()[1], { after: m.match.id, stake: 0 });
-    assert.strictEqual(page.replaced.length, 0, 'watching the next match stays on this page');
-    /* And the next match clears the card. */
-    page.deliver(g.p + ':watching', g.watching());
+
+    /* The next match clears the line. */
+    page.deliver(g.p + ':watching', g.match('Ada', 'Bo'));
     assert.strictEqual(page.card(), null);
+    assert.strictEqual(page.bar().plate, 'Ada vs Bo');
+
+    /* And when it was the last one running, the empty table. */
+    page.deliver(g.p + ':over', { winner: 'Ada', winnerSide: 0, why: 'last one standing', turn: 3, shots: [4, 2], reveal: [] });
+    page.runTimers();
+    page.deliver(g.p + ':watching', { none: true });
+    assert.strictEqual(page.bar().empty, true);
   });
 
-  test(g.game + ': a match that ends with no result says so on the card, then moves on', () => {
+  test(g.game + ': Previous or Next during the result moves on at once, and the moment\'s wait is dropped', () => {
     const page = boot(g.file, { dsWatch: g.game });
     page.deliver('connect');
-    const m = g.watching();
+    const m = g.match('Owen', 'Nia');
     page.deliver(g.p + ':watching', m);
+    page.deliver(g.p + ':over', { winner: 'Nia', winnerSide: 1, why: 'last one standing', turn: 2, shots: [1, 3], reveal: [] });
+    page.bar().prev.click();
+    same(page.sent(g.p + ':watch').pop()[1], { after: m.match.id, stake: 0, dir: 'prev' });
+    const asked = page.sent(g.p + ':watch').length;
+    page.runTimers();
+    assert.strictEqual(page.sent(g.p + ':watch').length, asked, 'nothing but the press asked');
+  });
+
+  test(g.game + ': a match that ends with no result moves straight on, with no card', () => {
+    const page = boot(g.file, { dsWatch: g.game });
+    page.deliver('connect');
+    const m = g.match('Owen', 'Nia');
+    page.deliver(g.p + ':watching', m);
+    page.deliver(g.p + ':ended', { id: 'someone-elses' });
+    assert.strictEqual(page.sent(g.p + ':watch').length, 1, 'another match\'s end is not ours');
     page.deliver(g.p + ':ended', { id: m.match.id });
-    const c = page.card();
-    assert.strictEqual(c.verdict, 'That match ended');
-    assert.deepStrictEqual(c.notes, ['Finding the next one.']);
-    assert.strictEqual(c.hero, null);
-    c.button('Lobby').click();
+    assert.strictEqual(page.card(), null);
+    assert.strictEqual(page.sent(g.p + ':watch').length, 2, 'it asks for the next one at once');
+    same(page.sent(g.p + ':watch').pop()[1], { after: m.match.id, stake: 0 });
+    assert.strictEqual(page.bar().on, true);
+    page.deliver(g.p + ':watching', { none: true });
+    assert.strictEqual(page.bar().empty, true);
+    page.bar().lobby.click();
     assert.deepStrictEqual(page.posted, ['game:done']);
     assert.strictEqual(page.sent(g.p + ':unwatch').length, 1);
+  });
+
+  test(g.game + ': the page loads the shared bar and keeps none of its old watcher controls', () => {
+    const html = fs.readFileSync(path.join(ROOT, 'public', g.game + '.html'), 'utf8');
+    const empty = html.indexOf('/js/shared/dsEmptyArena.js'), bar = html.indexOf('/js/shared/dsWatchBar.js');
+    const game = html.indexOf('js/' + g.file);
+    assert.ok(empty > 0 && bar > empty && game > bar, 'both shared scripts, ahead of the game');
+    assert.ok(!/watchNext|watchLobby|watchTag|watchLabel|watchMeta/.test(html), 'the old Next / Lobby / name are gone');
+    const js = fs.readFileSync(path.join(ROOT, 'public', 'js', g.file), 'utf8');
+    assert.ok(!/watchNext|watchLobby|watchTag|watchLabel|watchMeta/.test(js), 'and nothing in the script reaches for them');
   });
 }
 
@@ -566,36 +759,8 @@ for (const g of [
     });
   }
 
-  test(g.game + ': a watcher\'s card on a paid rung shows Play again at that price, shut, and says where to buy in', () => {
-    const page = boot(g.file, { dsWatch: g.game, dsWatchStake: '0.5' });
-    page.deliver('connect');
-    const m = g.watching();
-    page.deliver(g.p + ':watching', m);
-    page.deliver(g.p + ':over', { winner: 'Nia', winnerSide: 1, why: 'fleet sunk', turn: 2, shots: [0, 3], reveal: [] });
-    const c = page.card();
-    assert.deepStrictEqual(c.buttons.map(b => [b.text, b.primary, b.disabled]),
-      [['Lobby', false, false], ['Spectate', false, false], ['Play again $0.50', true, true]]);
-    assert.ok(c.notes.includes('Buy a new entry in the lobby to play again.'));
-    c.button('Play again').click();
-    assert.strictEqual(page.replaced.length, 0);
-    assert.strictEqual(page.sent(g.p + ':queue').length, 0);
-    c.button('Spectate').click();
-    same(page.sent(g.p + ':watch').pop()[1], { after: m.match.id, stake: 0.5 });
-  });
-
-  test(g.game + ': Play again on a Free watcher\'s card opens this page as a Play', () => {
-    const page = boot(g.file, { dsWatch: g.game, playerName: 'Owen' });
-    page.deliver('connect');
-    page.deliver(g.p + ':watching', g.watching());
-    page.deliver(g.p + ':over', { winner: 'Nia', winnerSide: 1, why: 'fleet sunk', turn: 2, shots: [0, 3], reveal: [] });
-    page.card().button('Play again').click();
-    assert.strictEqual(page.sent(g.p + ':unwatch').length, 1);
-    assert.deepStrictEqual(page.replaced, ['/' + g.game]);
-    const next = boot(g.file, Object.fromEntries(page.store));
-    assert.ok(!next.body.classList.contains('watching'));
-    next.deliver('connect');
-    same(next.sent(g.p + ':queue').pop()[1], { name: 'Owen', wallet: null, stake: 0, entryToken: null });
-  });
+  // (A watcher has no result card any more, so no Play again on one: the shared Spectate bar moves on to the next
+  // match by itself, Owen 2026-10-16. The watcher-card Play again tests went with the card.)
 
   test(g.game + ': a seat the server refuses is said on the wait card, not in the hidden bar', () => {
     const page = boot(g.file, { playerName: 'Owen', stake: '1' });
