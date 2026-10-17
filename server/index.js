@@ -1524,6 +1524,11 @@ function consoleEscrow() {
            feeSol: n(s.escrowFeeSol) };
 }
 
+/* The escrow's address for the bot bank's top-up line, or null where this server has no escrow key (dev). */
+function consoleEscrowAddress() {
+  try { return Wallet.getEscrowPublicKey() || null; } catch (e) { return null; }
+}
+
 /* How this request was let in, as the session check (or the signature check
    here) recorded it, for the console's "signed in on" line and the audit. */
 function consoleAuthOf(req, signed) {
@@ -1617,7 +1622,9 @@ function opsSnapshot(req, signed) {
                                stopping: !!paperArenas.stopping, saved: paperPaidSwitch.saved() } : null,
     earnings: earnings.stats(),
     /* The bot bank: what funds paid bounty bots, today's spend and the daily cap. */
-    botBank: botBank.view(),
+    /* escrowAddress: where Owen sends USDC to top it up (the same address /wallet/info serves), read from the
+       server's own escrow key, never typed into the page. */
+    botBank: Object.assign(botBank.view(), { escrowAddress: consoleEscrowAddress() }),
     rooms,
     audit: ownerConsole.mergeAudit(ops.auditLog, ownerAuth.auditLog, 50),
   };

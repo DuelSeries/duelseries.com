@@ -833,13 +833,33 @@ function partBotBank(ups, cls) {
     const r = await act('botbank', 'botbank:cap', { usd: Number(v) });
     if (r && r.ok && r.body.ok !== false) cap.value = '';
   });
+  /* Where to send it: the escrow's address as the server reports it, with a Copy button. */
+  const hint = h('span', { class: 'l', 'data-k': 'bbhint' }, 'Send USDC from your revenue wallet here, then paste the signature below');
+  const addr = h('span', { class: 'l', 'data-k': 'bbaddr', style: 'font-family:var(--fm,monospace);word-break:break-all' }, '…');
+  const copy = h('button', { type: 'button', class: 'btn', 'data-k': 'bbcopy', text: 'Copy' });
+  copy.addEventListener('click', async () => {
+    const a = S && S.botBank && S.botBank.escrowAddress;
+    if (!a) { say('The escrow address has not loaded yet.', true); return; }
+    try {
+      await navigator.clipboard.writeText(a);
+    } catch (e) {
+      const t = h('textarea', {}, a);
+      document.body.appendChild(t); t.select();
+      try { document.execCommand('copy'); } catch (_) { /* nothing more to try */ }
+      t.remove();
+    }
+    say('Escrow address copied.');
+  });
   ups.push(() => {
     const b = S && S.botBank;
     read.textContent = b ? 'Bot bank $' + num(b.balance).toFixed(2) + ' · today $' + num(b.spentToday).toFixed(2) +
       ' of $' + num(b.cap).toFixed(2) : 'Bot bank';
+    addr.textContent = b && typeof b.escrowAddress === 'string' && b.escrowAddress ? b.escrowAddress : 'Escrow address not loaded';
+    copy.disabled = !(b && b.escrowAddress);
     add.disabled = setCap.disabled = busy.has('botbank');
   });
-  return [h('div', { class: cls }, read, cap, setCap), h('div', { class: cls }, sig, add)];
+  return [h('div', { class: cls }, read, cap, setCap), h('div', { class: cls }, hint),
+    h('div', { class: cls }, addr, copy), h('div', { class: cls }, sig, add)];
 }
 function partSay(ups, next, cls) {
   const input = h('input', { class: 'say', type: 'text', maxlength: '200', autocomplete: 'off', 'data-k': 'say',
