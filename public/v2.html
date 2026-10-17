@@ -879,12 +879,10 @@ body.ingame>.howveil,body.ingame>.meveil,body.ingame>.apscreen,body.ingame>.bshe
   color:var(--tx3);opacity:.5}
 /* A running match counts down to when its circle is fully closed (Owen
    2026-10-16: "how many minutes and seconds until it is over"), minutes and
-   seconds in the live green, the hours put away. Under it, plain words for
-   what the digits used to carry: who is left and which ring. */
+   seconds in the live green, the hours put away. The timer alone: no count
+   of who is left, no ring (Owen 2026-10-17: "just the timer"). */
 .evclock.live b{color:var(--live)}
 .evclock.live .evhr,.evclock.live #ev-c1{display:none}
-.evstat{margin-top:8px;font-size:13px;font-weight:600;color:var(--tx2)}
-.evstat:empty{display:none}
 
 /* Join on the left and Spectate on the right, as Play and Spectate sit on
    every game's card (Owen, 2026-10-16: "just like the rest of the games"). */
@@ -2396,14 +2394,12 @@ body.scr-anim { overflow-x:hidden }
                  : 'The doors are shut until this match ends.';
     }
     /* Spectate: watching the match while one is on, the arena between them.
-       Its small line counts what you would be watching (not after a match,
-       where the count is the winner alone). */
-    /* Who is left and which ring, in words, while a match runs. */
-    setText('ev-stat', live ? (BR.alive||0)+' alive · ring '+(BR.ring||1) : '');
+       Its small line counts the arena between matches; while a match runs the
+       card shows the timer alone (Owen 2026-10-17), so no count of who is left. */
     ownButton(st);
     if(watch){
       setText('ev-watch-t', on ? 'Watch live' : 'Spectate');
-      setText('ev-watch-s', live ? (BR.alive||0)+' left'
+      setText('ev-watch-s', live ? ''
                           : starting ? 'Starting'
                           : st==='waiting' && BR.alive ? BR.alive+' in the arena' : '');
     }
@@ -2685,7 +2681,6 @@ body.scr-anim { overflow-x:hidden }
         <i aria-hidden="true" class="evsec">:</i>
         <div class="evu evsec"><b id="ev-s">--</b><span>sec</span></div>
       </div>
-      <p class="evstat" id="ev-stat"></p>
     </div>
     <!-- The rules live behind this, where there is room to say all of them. -->
     <button type="button" class="evhow" onclick="openEventHow()">

@@ -6,10 +6,10 @@
       "date": "2026-10-17",
       "tag": "new",
       "title": "See when a battle royale ends",
-      "body": "While a battle royale is on, the Events tab now counts down to the moment the circle is fully closed, with how many are still alive and which ring it is on.\n\nIf one snake is left sooner, the result shows straight away.",
+      "body": "While a battle royale is on, the Events tab now counts down to the moment the circle is fully closed.\n\nIf one snake is left sooner, the result shows straight away.",
       "image": {
         "src": "/updates/battle-royale-ends-in.webp",
-        "alt": "The Events tab during a battle royale: Ends in 04:08, 3 alive, ring 1"
+        "alt": "The Events tab during a battle royale: Ends in, with minutes and seconds"
       }
     },
     {

@@ -1285,7 +1285,7 @@ test('the nightly event states its prizes and reads the match, not a clock', () 
   /* The states it must be able to show. "in progress" is the one the wall
      clock could never express. */
   assert.ok(/in progress/i.test(html), 'it can say a match is in progress');
-  assert.ok(/\(BR\.alive\|\|0\)\+' alive · ring '/.test(html), 'and how many are left in it, and the ring');
+  assert.ok(!/alive · ring|' left'/.test(html), 'while live, the timer alone: no count of who is left, no ring (Owen 2026-10-17)');
   /* The shut door is said by the Join button itself, dimmed and relabelled
      (2026-10-15: a separate note under the hero repeated it word for word). */
   assert.ok(/join\.disabled = !BR\.joinable/.test(html) && /'Match in progress'/.test(html),
