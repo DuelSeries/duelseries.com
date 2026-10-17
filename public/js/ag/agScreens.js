@@ -340,7 +340,7 @@
   function noEnd() {
     var api = { kind: '', onAgain: null, life: null };
     ['showFree', 'showCashed', 'showDead', 'showClosed', 'payError', 'showMessage', 'showWait', 'setAgain',
-      'setLobbyLocked', 'setError', 'setLife', 'hide'].forEach(function (k) { api[k] = function () {}; });
+      'setLobbyLocked', 'setBuying', 'setError', 'setLife', 'hide'].forEach(function (k) { api[k] = function () {}; });
     api.paid = function () { return false; };
     api.shown = function () { return false; };
     api.paidKind = function () { return ''; };
@@ -348,9 +348,13 @@
     return api;
   }
 
-  // opts: { DSEnd (the component; none = nothing is shown), root (default body), onLobby(), z, win (the window whose
-  //         height the card must fit) }
+  // opts: { DSEnd (the component; none = nothing is shown), root (default body), onLobby(), onSpectate() (the paid
+  //         card's Spectate: agMain's paid watch path), z, win (the window whose height the card must fit) }
   // -> the card's states (below), plus onAgain (the paid flow's Play again, set by agMain), kind, shown(), hide().
+  // A card that closes a life (a death or a cash-out, free or paid) has the same three buttons in every game (Owen
+  // 2026-10-16): Lobby, Spectate, Play again. The free card gets them from the page (showFree); a paid death or
+  // cash-out builds them here: Lobby, Spectate (shut exactly when Lobby is), and Play again once the paid flow offers
+  // it (setAgain). The notices (refused, gone, closed, held, the wait) keep Lobby alone.
   function createEnd(opts) {
     opts = opts || {};
     var D = opts.DSEnd || null;
@@ -369,6 +373,12 @@
       if (!extra.again || extra.again.disabled) return;
       if (typeof api.onAgain === 'function') api.onAgain();
     }
+    // Spectate leaves this page like Lobby does, so it is shut whenever Lobby is (a Play again buy-in with the wallet).
+    function watchClick() {
+      if (extra.lobbyLocked || !extra.lobby) return;
+      if (typeof opts.onSpectate === 'function') opts.onSpectate();
+    }
+    var CLOSES_LIFE = { dead: true, cashed: true };
     function card() {
       var c = {}, k;
       for (k in cur) if (Object.prototype.hasOwnProperty.call(cur, k)) c[k] = cur[k];
@@ -376,9 +386,13 @@
       delete c.lifeScore;
       if (extra.error) c.notes = (c.notes || []).concat([extra.error]);
       if (!c.buttons) {
+        // Lobby on the left, Spectate in the middle, Play again on the right (dsEnd keeps that order too)
         var b = [];
-        if (extra.again) b.push({ id: 'again', text: extra.again.text || END_TEXT.again, primary: true, disabled: extra.again.disabled === true, onClick: againClick });
         if (extra.lobby) b.push({ id: 'lobby', text: END_TEXT.lobby, primary: !extra.again, disabled: extra.lobbyLocked, onClick: lobbyClick });
+        if (extra.lobby && CLOSES_LIFE[api.kind] && typeof opts.onSpectate === 'function') {
+          b.push({ id: 'watch', text: END_TEXT.spectate, disabled: extra.lobbyLocked || extra.buying, onClick: watchClick });
+        }
+        if (extra.again) b.push({ id: 'again', text: extra.again.text || END_TEXT.again, primary: true, disabled: extra.again.disabled === true, onClick: againClick });
         c.buttons = b;
       }
       if (opts.z != null) c.z = opts.z;
@@ -398,6 +412,7 @@
       extra.again = null;
       extra.error = '';
       extra.lobbyLocked = false;
+      extra.buying = false;
       extra.lobby = noLobby !== true;
       cur = fields;
       render();
@@ -497,9 +512,14 @@
       show('wait', { tone: 'plain', verdict: title || '', status: { text: text || '', state: 'pending' } }, null,
         !(o && o.lobby === true));
     };
-    // Play again: o = { text, disabled } shows it (Lobby turns into the quiet button beside it); null hides it.
+    // Play again: o = { text, disabled } shows it (Lobby turns into the quiet button on the left); null hides it.
     api.setAgain = function (o) {
       extra.again = o ? { text: o.text || END_TEXT.again, disabled: o.disabled === true } : null;
+      render();
+    };
+    // Spectate shut for the whole Play again buy-in, slow or not (a stake that lands late needs this page in the frame).
+    api.setBuying = function (on) {
+      extra.buying = on === true;
       render();
     };
     // Lobby shut while a Play again buy-in is with the lobby's wallet (Paper's lockLobby).

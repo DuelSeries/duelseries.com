@@ -279,7 +279,8 @@ test('a death while the Esc menu is open keeps HOME (no end card); a death in pl
       assert.strictEqual(st.menuState, 'GAMEOVER');
       const card = readCard(p.doc);
       assert.deepStrictEqual([card.verdict, card.hero, card.unit, card.facts[0]], ['Eaten', 'Free', '', ['Mass', '400']]);   // a free game says Free; its score is the first tray row (Owen 2026-10-16)
-      assert.deepStrictEqual(card.buttons.map((b) => b.id), ['watch', 'menu', 'again'], 'a direct visit: Menu, the old Continue; Play again on the right');
+      assert.deepStrictEqual(card.buttons.map((b) => [b.id, b.text]), [['menu', 'Menu'], ['watch', 'Spectate'], ['again', 'Play again']],
+        'a direct visit has no lobby: Menu (the old Continue) in place of Lobby, Spectate, Play again on the right (Owen 2026-10-16)');
       assert.strictEqual(p.doc.getElementById('ag-menu').hidden, true);
     }
     assert.strictEqual(st.capMs, Math.fround(1000 / 25), 'the menu cap either way');

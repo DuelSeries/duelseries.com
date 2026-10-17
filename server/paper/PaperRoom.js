@@ -171,6 +171,19 @@ class PaperRoom {
     return this.bySocket.get(socketId) || null;
   }
 
+  // pp:chat (the shared in-game chat, server/chatGuard.js): one line the guard already cleaned, to everyone in the io
+  // room (the players and the watchers). Only a seat with a live square speaks. id is the speaker's unit id, so a page
+  // marks its own line by id (names can repeat); c is that square's colour, '#rrggbb', left out when it has none.
+  chat(socketId, text) {
+    const seat = this.bySocket.get(socketId);
+    if (!seat || seat.unit.death || typeof text !== 'string' || !text || !this.io) return false;
+    const msg = { id: seat.unit.id, name: Array.from(seat.name || '').slice(0, 24).join(''), text };
+    const main = seat.unit.skin && seat.unit.skin.colors && seat.unit.skin.colors.main;
+    if (typeof main === 'string' && /^#[0-9a-f]{6}$/i.test(main)) msg.c = main;
+    this.io.to(this.ioRoom).emit('pp:chat', msg);
+    return true;
+  }
+
   // The join (design 5.6 step 8). Throws when the arena cannot seat; the caller refunds. A
   // failed join never leaves a unit or an open account behind.
   //

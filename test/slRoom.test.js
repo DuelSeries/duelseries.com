@@ -494,7 +494,10 @@ test('chat is cleaned (C_CHAT) and sent to every seat; a kill line only when a h
   ft.runImmediates();
   const m = layer(sb).find((x) => x.t === 'chat');
   assert.strictEqual(m.name, 'Ann');
-  assert.strictEqual(m.text, ('bhi/b ' + 'x'.repeat(200)).slice(0, 120));
+  // the chat guard (server/chatGuard.js): tags gone, a long run of one letter cut to five; the snake's id and skin ride along
+  assert.strictEqual(m.text, 'hi xxxxx');
+  assert.strictEqual(m.id, a.snakeId);
+  assert.strictEqual(m.cv, 1);
   assert.strictEqual(cleanChat('<<>>', room.R), '');
   assert.strictEqual(room.onChat(a, '<>'), false);
   room._onDeath({ id: b.snakeId, killer: a.snakeId, cause: 'snake' }, room.sim.tick(), room.sim.nowMs());
@@ -502,7 +505,7 @@ test('chat is cleaned (C_CHAT) and sent to every seat; a kill line only when a h
   ft.advance(P);
   room.wake();
   const kills = layer(sa).filter((x) => x.t === 'kill');
-  assert.deepStrictEqual(kills, [{ t: 'kill', killer: 'Ann', victim: 'Bob' }]);
+  assert.deepStrictEqual(kills, [{ t: 'kill', killer: 'Ann', victim: 'Bob', kid: a.snakeId, vid: b.snakeId }]);
 });
 
 test('console contract: a free room (no worth, no stake), bots only through a driver, the human cap', () => {

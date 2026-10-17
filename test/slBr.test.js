@@ -38,6 +38,15 @@ function makeBr(o) {
   return { ft, room, match, decided };
 }
 
+// the one bot of a room
+function botOf(room) {
+  let id = null;
+  room.sim.forEachSnake((s) => {
+    if (!room.humans.has(s.id)) id = s.id;
+  });
+  return id;
+}
+
 function layer(sock) {
   const out = [];
   for (const e of sock.emitted) if (e.name === 'sl:x') for (const m of e.data) out.push(m);
@@ -249,19 +258,22 @@ test('a solo run: one person and bots; the door shuts at start, Q is refused, th
   assert.strictEqual(room.refusal(), null);
 });
 
-test('the prize needs two PEOPLE: two seats of one wallet plus a seat with no proven wallet play it out, prize held', () => {
+test('the prize needs two PEOPLE: a second tab of one wallet is refused, a seat with no proven wallet plays, prize held', () => {
   const { ft, room, match, decided } = makeBr();
   const a = human(room, 'Owen', 'W1');
-  const b = human(room, 'Owen2', 'W1'); // a second tab of the same wallet
+  // a second tab of the same wallet: one snake per person (a death is out for the match)
+  assert.strictEqual(room.seat(bareSocket(), { nick: 'Owen2', cv: 1, wallet: 'W1' }), null);
+  assert.strictEqual(room.refusal({ wallet: 'W1' }), 'twice');
+  assert.strictEqual(room.refusal({ wallet: 'W2' }), null, 'another wallet is welcome');
   const c = human(room, 'Script', null); // a socket that proved nothing
-  room.spawnSnake({ nick: 'b1', cv: 2, isBot: true });
+  const bot = room.spawnSnake({ nick: 'b1', cv: 2, isBot: true });
   match.startMatch('test');
-  assert.strictEqual(match.publicState().startedWith, 3);
-  assert.strictEqual(match.soloRun, false, 'three seats: last person standing');
+  assert.strictEqual(match.publicState().startedWith, 2);
+  assert.strictEqual(match.soloRun, false, 'two seats: a real match');
   assert.strictEqual(match.prizeHeld, true, 'one proven wallet: no automatic prize');
   assert.strictEqual(match.publicState().prize, 0, 'the countdown promises nothing');
   run(ft, room, BRM.COUNTDOWN_MS + 200);
-  room.sim.kill(b.id);
+  room.sim.kill(bot.id);
   room.sim.kill(c.id);
   run(ft, room, 200);
   assert.strictEqual(match.state, 'over');
@@ -276,17 +288,51 @@ test('the prize needs two PEOPLE: two seats of one wallet plus a seat with no pr
   assert.strictEqual(s.match.publicState().prize, 0);
 });
 
-test('a solo run the person loses: the bots outlast them and nobody wins', () => {
-  const { ft, room, match } = makeBr();
+test('a person who dies is out; the bots play on until one snake is left, and a bot that wins is paid nothing', () => {
+  const { ft, room, match, decided } = makeBr();
   const me = human(room, 'Owen', 'W1');
-  room.spawnSnake({ nick: 'b1', cv: 2, isBot: true });
+  const b1 = room.spawnSnake({ nick: 'b1', cv: 2, isBot: true });
   room.spawnSnake({ nick: 'b2', cv: 2, isBot: true });
   match.startMatch('test');
   run(ft, room, BRM.COUNTDOWN_MS + 200);
   room.sim.kill(me.id);
   run(ft, room, 200);
+  assert.strictEqual(match.state, 'running', 'two bots left: the circle has not finished');
+  assert.strictEqual(room.seat(bareSocket(), { nick: 'Owen', cv: 1, wallet: 'W1' }), null, 'out for the match');
+  assert.strictEqual(room.refusal({ wallet: 'W1' }), 'match');
+  assert.strictEqual(match.startMatch('again'), false, 'nobody starts another while it runs');
+  room.sim.kill(b1.id);
+  run(ft, room, 200);
   assert.strictEqual(match.state, 'over');
-  assert.strictEqual(match.winner, null, 'dying does not win a solo run');
+  assert.strictEqual(match.winner.name, 'b2');
+  assert.strictEqual(match.winner.bot, true);
+  assert.strictEqual(match.winner.wallet, null);
+  assert.strictEqual(match.publicState().winner.bot, true);
+  assert.strictEqual(match.publicState().prize, 0);
+  assert.strictEqual(decided.length, 0, 'the prize hook never hears of a bot');
+  assert.deepStrictEqual(match.podium.map((p) => p.name), ['b2', 'b1', 'Owen']);
+  assert.strictEqual(match.startMatch('too soon'), false, 'finishing: still one at a time');
+  // the bot stays in the arena (no cash-out for a bot), the circle reopens, and the next match can start
+  run(ft, room, BRM.CASHOUT_DELAY_MS + BRZ.REOPEN_MS + 400);
+  assert.strictEqual(match.state, 'waiting');
+});
+
+test('a match of bots alone: the minimum is snakes on the map, bots counted, and an empty arena does not start', () => {
+  const { ft, room, match, decided } = makeBr();
+  assert.strictEqual(match.canStart(), false, 'empty');
+  room.spawnSnake({ nick: 'b1', cv: 2, isBot: true });
+  assert.strictEqual(match.canStart(), false, 'one snake has nobody to outlast');
+  const b2 = room.spawnSnake({ nick: 'b2', cv: 2, isBot: true });
+  assert.strictEqual(match.canStart(), true);
+  assert.strictEqual(match.startMatch('auto'), true);
+  assert.strictEqual(match.soloRun, true, 'nobody seated: no prize');
+  run(ft, room, BRM.COUNTDOWN_MS + 200);
+  assert.strictEqual(match.state, 'running', 'it runs with nobody watching');
+  room.sim.kill(b2.id);
+  run(ft, room, 200);
+  assert.strictEqual(match.state, 'over');
+  assert.strictEqual(match.winner.bot, true);
+  assert.strictEqual(decided.length, 0);
 });
 
 test('two people: the last person standing wins, the podium is in falling order, the prize hook gets the proven wallet', () => {
@@ -299,13 +345,16 @@ test('two people: the last person standing wins, the podium is in falling order,
   run(ft, room, BRM.COUNTDOWN_MS + 200);
   assert.strictEqual(match.publicState().startedWith, 3);
   assert.ok(room.sim.snake(c.id) && room.sim.snake(a.id) && room.sim.snake(b.id), 'all three alive at the start');
+  const bot = botOf(room);
+  if (bot !== null) room.sim.kill(bot);
+  run(ft, room, 200);
   room.sim.kill(c.id);
   run(ft, room, 200);
   assert.strictEqual(match.state, 'running', 'two people still in it');
   room.sim.kill(a.id);
   run(ft, room, 200);
   assert.strictEqual(match.state, 'over');
-  assert.deepStrictEqual(decided[0], { id: b.id, name: 'Ben', wallet: 'WB' });
+  assert.deepStrictEqual(decided[0], { id: b.id, name: 'Ben', wallet: 'WB', bot: false });
   assert.deepStrictEqual(match.podium.map((p) => p.name), ['Ben', 'Ann', 'Cat']);
   assert.strictEqual(match.publicState().prize, 20);
   assert.strictEqual(match.soloRun, false);
@@ -329,10 +378,12 @@ test('abandon in the countdown or the match releases the circle and the border a
   assert.strictEqual(match.abandon(), false, 'nothing to stop');
 });
 
-test('forceStart relaxes only the minimum: refused mid-match and with nobody in the room', () => {
+test('forceStart is a plain start now: refused mid-match and with fewer than two snakes in the arena', () => {
   const { ft, room, match } = makeBr();
   assert.strictEqual(match.forceStart('x'), false, 'nobody here');
   human(room, 'Owen', 'W1');
+  assert.strictEqual(match.forceStart('x'), false, 'one snake has nobody to outlast');
+  room.spawnSnake({ nick: 'b1', cv: 2, isBot: true });
   assert.strictEqual(match.forceStart('x'), true);
   assert.strictEqual(match.forceStart('x'), false, 'already counting down');
   run(ft, room, 100);
@@ -482,12 +533,18 @@ test('setBr: a br socket is seated in the event room with the wallet its proof n
   const seat = r.br.room().seatOf(b.id);
   const brs = layerMsgs(b).filter((m) => m.t === 'br');
   assert.ok(seat && brs.length && brs[0].owner === undefined, 'no proven wallet: seated, no owner flag');
+  // one snake per person: a second socket proving the same wallet is refused twice, out loud
+  const twin = r.sock({ auth: { br: 1, idProof: { ok: true, wallet: 'OWNER' } } });
+  twin.fire('sl:join', { nick: 'Owen' });
+  refusedWith(twin, 'twice');
+  assert.strictEqual(r.br.room().seats.size, 2);
 });
 
 test('setBr: once a match is under way a join is refused match; a watcher is seated; with nothing alive, nobody', () => {
   const r = brRig();
   const a = r.sock({ auth: { br: 1 } });
   a.fire('sl:join', { nick: 'Ann' });
+  const b1 = r.br.room().spawnSnake({ nick: 'b1', cv: 2, isBot: true });
   assert.strictEqual(r.br.match.startMatch('test'), true);
   const late = r.sock({ auth: { br: 1 } });
   late.fire('sl:join', { nick: 'Late' });
@@ -505,6 +562,7 @@ test('setBr: once a match is under way a join is refused match; a watcher is sea
   assert.ok(r.br.room().sim.snake(aId), 'the player plays on');
   r.br.match.abandon();
   r.br.room().sim.kill(aId);
+  if (r.br.room().sim.snake(b1.id)) r.br.room().sim.kill(b1.id);
   for (let i = 0; i < 4; i++) {
     r.ft.advance(P);
     r.br.room().wake();
@@ -586,7 +644,8 @@ test('the event directory: no board row, its slice read and reset, a replaced ro
   assert.strictEqual(r.br.maxSliceMs(), 0);
   const a = r.sock({ auth: { br: 1 } });
   a.fire('sl:join', { nick: 'Ann' });
-  r.br.match.startMatch('test');
+  r.br.room().spawnSnake({ nick: 'b1', cv: 2, isBot: true });
+  assert.strictEqual(r.br.match.startMatch('test'), true);
   const old = r.br.room();
   old.closed = true;
   r.br.sweep(Date.now());
@@ -612,9 +671,11 @@ test('the last podium outlives a restart: a rebuilt match reports the saved podi
   const a = human(room, 'Ann', 'WA');
   const b = human(room, 'Ben', 'WB');
   const c = human(room, 'Cat', null);
-  room.spawnSnake({ nick: 'bot', cv: 2, isBot: true });
+  const bot = room.spawnSnake({ nick: 'bot', cv: 2, isBot: true });
   match.startMatch('test');
   run(ft, room, BRM.COUNTDOWN_MS + 200);
+  room.sim.kill(bot.id);
+  run(ft, room, 200);
   room.sim.kill(c.id);
   run(ft, room, 200);
   room.sim.kill(a.id);
@@ -642,7 +703,8 @@ test('the last podium outlives a restart: a rebuilt match reports the saved podi
 
   // tonight's match starts: the old podium makes way for the empty seats
   human(after.room, 'Dee', 'WD');
-  after.match.startMatch('test');
+  after.room.spawnSnake({ nick: 'b1', cv: 2, isBot: true });
+  assert.strictEqual(after.match.startMatch('test'), true);
   assert.strictEqual(after.match.publicState().podium, null);
   assert.strictEqual(after.match.publicState().winner, null);
   // abandoned before it was decided: the last finished match is shown again

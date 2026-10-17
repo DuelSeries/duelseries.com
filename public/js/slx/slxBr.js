@@ -17,8 +17,9 @@
 // 3. The HUD, one block at the top centre: the 10 s count and GO, the winner's moment or the phase, how many are
 //    left of how many started, the next move of the wall; the owner's Start match (shown only when the server said owner for this seat; the action is still signed by the
 //    owner wallet and checked at /api/owner/do).
-// 4. The card (slxCard hooks): out of a running match, Play again is Watch; the podium and the prize line when one
-//    is decided; between matches, when the next one starts.
+// 4. The card (slxCard hooks): a death or a win has Lobby, Spectate (this match, watched here: beforeWatch) and Play
+//    again (the next match, unpressable while a match is under way or just decided); the podium and the prize line
+//    when one is decided; between matches, when the next one starts. A refusal's card keeps its own Watch or Play.
 // 5. Watching: their client follows the watched snake as its own; mouse, touch and the boost keys on the game are
 //    swallowed here so nothing on screen pretends to steer it. When it ends the next survivor is watched at once.
 (function (root) {
@@ -140,15 +141,26 @@
   slx.on('ownAdd', function (ev) {
     if (ev && typeof ev.id === 'number') {
       myId = ev.id;
-      if (mode !== 'watch') lastMyId = ev.id;
+      if (mode !== 'watch') {
+        lastMyId = ev.id;
+        seenResult = false; // a new life of their own: the last match's result is not this life's card
+      }
     }
   });
   slx.on('x:watch', function (m) {
     watching = { id: m.id, name: typeof m.name === 'string' ? m.name : '' };
   });
   slx.on('x:br', function (m) {
+    var was = st ? st.state : '';
     st = m;
     stAt = now();
+    noteResult();
+    // A watcher following a bot that won: the bot stays in the arena (no cash-out for a bot), so their life would
+    // never end and the result card never come. The match closing ends it from here, as Next does.
+    if (mode === 'watch' && was === 'over' && m.state === 'reopening' && m.winner && m.winner.bot &&
+      typeof slx.endLife === 'function') {
+      root.setTimeout(function () { if (mode === 'watch') slx.endLife(); }, 600);
+    }
     if (m.owner === true) owner = true;
     hudPaint();
     if (slx.card && typeof slx.card.refresh === 'function') slx.card.refresh();
@@ -467,7 +479,8 @@
     var cls = 'slx-br-hud slx-br-ui' + (t.now ? ' slx-br-now' : '') + (big ? ' slx-br-phone' : '') +
       (cameIn ? ' slx-br-in' : '');
     if (hud.className !== cls) hud.className = cls;
-    var sd = owner && st.state === 'waiting' && mode === 'play' ? 'block' : 'none';
+    // the owner's Start while the arena waits, playing or watching (a dead owner watching the end starts the next)
+    var sd = owner && st.state === 'waiting' ? 'block' : 'none';
     if (startBtn && startBtn.style.display !== sd) startBtn.style.display = sd;
     if (lobbyBtn) lobbyBtn.style.display = mode === 'watch' && S.connected ? 'block' : 'none';
     var key = cls + '|' + t.head + '|' + t.sub + '|' + sd;
@@ -531,8 +544,17 @@
   function running() {
     return !!st && (st.state === 'countdown' || st.state === 'running');
   }
+  // The result stays up after the arena reopens, until the next match counts down (Owen 2026-10-16: the winner and
+  // everyone else see the result; it used to vanish 7.5 s after the decision). Set by a decided state this page saw,
+  // so a page that arrives later is never shown an old match's result as if it were its own.
+  var seenResult = false;
+  function noteResult() {
+    if (!st) return;
+    if (st.state === 'over' || st.state === 'reopening') seenResult = true;
+    else if (st.state === 'countdown' || st.state === 'running') seenResult = false;
+  }
   function decided() {
-    return !!st && (st.state === 'over' || st.state === 'reopening');
+    return !!st && (st.state === 'over' || st.state === 'reopening' || (st.state === 'waiting' && seenResult));
   }
   // The top 3 for the card: { rank, name, me } (the podium has names only: a win is place 1, else the own name).
   function podiumRows(won) {
@@ -549,13 +571,35 @@
     return 'Next battle royale starts in ' + clock((st && st.nextStartMs) || 0);
   }
 
+  // A card that closes a life (a death, a win's cash-out) has slxCard's Lobby and Spectate (Owen 2026-10-16):
+  // Spectate watches this match here (beforeWatch below). A death while the match runs has nothing else (noAgain);
+  // a decided match adds the next-match button. Any other card (a refusal, a connection lost, a watcher's Spectate
+  // next) keeps its own button.
   var lastKind = '';
+  // A watcher's card is about the match, not a life of theirs: no length and no stats of the snake they watched.
   slx.cardLines = function (kind) {
+    var v = cardView(kind);
+    if (v && mode === 'watch') {
+      v.length = false;
+      v.facts = [];
+      if (v.title === undefined) v.title = 'Battle Royale';
+    }
+    return v;
+  };
+  // Owen 2026-10-16: a death is out for the rest of the match, the owner's too. While it runs the card is Lobby and
+  // Spectate only (slxCard's own Lobby and Spectate, no again). Once it is decided the result stays up with Lobby,
+  // Spectate and the next-match button, which says Join next once the arena has reopened.
+  function cardView(kind) {
     lastKind = String(kind || '');
+    var end = kind === 'dead' || kind === 'cashed';
     if (!st && kind !== 'match' && kind !== 'nobody') return null;
     if (kind === 'match' && (!st || running() || decided())) {
-      return { title: 'Match under way', lines: [st ? st.alive + ' still alive. Watch it, or wait for the next.'
-        : 'Watch it, or wait for the next.'], again: 'Watch' };
+      return { title: 'Match under way', lines: [st ? st.alive + ' still alive. Spectate it, or wait for the next.'
+        : 'Spectate it, or wait for the next.'], again: 'Spectate' };
+    }
+    if (kind === 'twice') {
+      return { title: 'Already in this match', lines: ['Your wallet already has a snake in this arena (another tab?).'],
+        again: 'Try again' };
     }
     if (kind === 'nobody') return { title: 'Nothing to watch', lines: ['The match is over.'], again: 'Play' };
     if (decided()) {
@@ -563,7 +607,8 @@
       var lines = [];
       // The shared card (slxCard, dsEnd): the podium as its rows, a win's place as the big figure, the prize as money.
       var view = { title: won ? 'You won!' : 'Match over', podium: podiumRows(won), lines: lines,
-        again: st.state === 'reopening' || st.state === 'over' ? { text: 'Next match opening', disabled: true } : 'Play' };
+        again: st.state === 'reopening' || st.state === 'over' ? { text: 'Next match opening', disabled: true }
+          : 'Join next' };
       if (won) {
         view.tone = 'win';
         view.hero = '1st';
@@ -574,24 +619,34 @@
           view.status = { text: 'Sending to your wallet', state: 'pending' };
         } else lines.push('The prize is settled by hand.');
       }
+      else if (st.winner && st.winner.bot) lines.push(st.winner.name + ' was the last snake alive.');
       else if (st.prize > 0) lines.push('First place took ' + PRIZE_WORDS + '.');
       return view;
     }
     if (running()) {
       if (mode === 'watch') {
         return { title: 'Watching', lines: [(watching && watching.name ? watching.name + ' is out. ' : '') +
-          st.alive + ' still alive.'], again: 'Watch next' };
+          st.alive + ' still alive.'], again: 'Spectate next', spectate: false };
       }
-      return { title: 'You are out', lines: [st.alive + ' still alive. Watch it, or wait for the next.'], again: 'Watch' };
+      // out while the match runs: Lobby and the card's Spectate only, no Play again (Owen: "they can't play again
+      // until the next game"); Spectate watches the rest of this match here (beforeWatch)
+      var out = { title: 'You are out', lines: [st.alive + ' still alive. Spectate to the end, or wait for the next match.'] };
+      if (end) out.noAgain = true;
+      else out.again = 'Spectate';
+      return out;
     }
     // between matches (a winner's 'cashed' card would otherwise say Cashed Out)
     return { title: kind === 'cashed' ? 'Battle Royale' : undefined, lines: [nextLine()], again: 'Play again' };
-  };
+  }
 
   // Play again: into a running match it is Watch; between matches it is Play with a fresh proof.
   slx.beforeAgain = function (go) {
-    // a 'match' refusal (the page may have no state yet), a running match, a watcher with nothing known: watch
-    if ((lastKind === 'match' && !st) || running() || (st && st.state === 'over') || (!st && mode === 'watch')) {
+    // nothing to watch, another tab's snake (refused only while waiting), or the decided match's arena has reopened
+    // (Join next): play
+    var reopened = !!st && st.state === 'waiting' && decided();
+    // a 'match' or 'twice' refusal, a running or finishing match, a watcher with nothing known: watch
+    if (lastKind !== 'nobody' && lastKind !== 'twice' && !reopened && ((lastKind === 'match' && !st) || running() ||
+      (st && (st.state === 'over' || st.state === 'reopening')) || (!st && mode === 'watch'))) {
       mode = 'watch';
       if (watching) watching.next = 0;
       go();
@@ -600,6 +655,15 @@
     mode = 'play';
     watching = null;
     withProof(go);
+    return true;
+  };
+
+  // Spectate (slxCard): the event's own watch mode on this page, as the card's Watch always was: the next life is a
+  // watcher (brAuth watch: 1), following the leader. Never a seat and never a proof.
+  slx.beforeWatch = function (go) {
+    mode = 'watch';
+    if (watching) watching.next = 0;
+    go();
     return true;
   };
 
@@ -645,8 +709,9 @@
     root.fetch('/api/live', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (j) {
       var b = j && j.br;
       if (!b || b.engine !== 'sl' || (typeof slx.connected === 'function' && slx.connected())) return;
-      var mins = (b.startHour * 60 + b.startMin) - (b.etHour * 60 + b.etMin);
-      if (mins < 0) mins += 24 * 60;
+      // to the second (the server's Eastern clock), or the HUD's 'next match in' snapped back to :00 at every poll
+      var secs = (b.startHour * 3600 + b.startMin * 60) - (b.etHour * 3600 + b.etMin * 60 + (b.etSec || 0));
+      if (secs < 0) secs += 24 * 3600;
       var next = {};
       if (st) for (var k in st) if (Object.prototype.hasOwnProperty.call(st, k)) next[k] = st[k];
       next.state = b.state;
@@ -658,13 +723,14 @@
       next.countdownMs = b.countdownMs;
       next.winner = b.winner;
       next.podium = b.podium;
-      next.nextStartMs = isFinite(mins) ? mins * 60000 : (st && st.nextStartMs) || 0;
+      next.nextStartMs = isFinite(secs) ? secs * 1000 : (st && st.nextStartMs) || 0;
       next.prize = typeof b.prize === 'number' ? b.prize : 0;
       next.soloRun = b.soloRun === true;
       next.zoneMs = 0; // the wall's countdown comes with the socket's messages only
       next.z = null;
       st = next;
       stAt = now();
+      noteResult();
       hudPaint();
       if (slx.card && typeof slx.card.refresh === 'function') slx.card.refresh();
     }).catch(function () { /* the next poll tries again */ }).then(function () { polling = false; });

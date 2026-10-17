@@ -1,8 +1,8 @@
-// In-game sounds for the agar.io redo: OUR OWN short WebAudio tones played at the reference
-// client's cue points, ALWAYS ON (Owen 2026-10-15: every agar.io setting is gone, sound is
-// hard-wired on; it was off by default with an on/off button, build brief fact 2.13, Q41; the
-// sounds themselves are CHOSEN). The cue gates are the reference rules
-// (protocol-semantics 3.2 "Sounds", client-camera-input 8.5 and 8.6); the tones are ours.
+// In-game sounds for the agar.io redo: the house Glass sounds (public/js/dsSfx.js engine, dsSfxGame.js
+// library) played by name at the reference client's cue points, ALWAYS ON (Owen 2026-10-15: every agar.io
+// setting is gone, sound is hard-wired on; it was off by default with an on/off button, build brief fact
+// 2.13, Q41; the sounds themselves are CHOSEN). The cue gates are the reference rules
+// (protocol-semantics 3.2 "Sounds", client-camera-input 8.5 and 8.6); the sounds are ours.
 // Loads in the browser (DuelAgarLib.agSound) and under node (the cue logic; no audio there).
 (function (root) {
   'use strict';
@@ -17,7 +17,14 @@
   //   gameOver           the same kind of eat when the eaten node is your only own cell
   //   eatOwnCell         an own cell eats another own cell (merge), any flags
   //   splitBecauseVirus  any eat of a virus
-  var CUES = ['split', 'shoot', 'eatCell', 'eatOwnCell', 'gameOver', 'splitBecauseVirus'];
+  // Ours, not in the reference (the page calls these from its own events):
+  //   join        the first own cell appears
+  //   holdStart   the hold-Q cash-out begins
+  //   holdCancel  it is let go before the cash-out
+  //   cashout     the cash-out went through
+  // Two more are eatCell told apart by who ate whom (playCues, below): kill and hurt.
+  var CUES = ['split', 'shoot', 'eatCell', 'eatOwnCell', 'gameOver', 'splitBecauseVirus',
+    'join', 'holdStart', 'holdCancel', 'cashout'];
 
   // Split cue gate: the split packet is always sent; the sound needs 1 to 15 own cells and some
   // own displayed size strictly above 60 (single precision, as stored).
@@ -53,57 +60,47 @@
     return out;
   }
 
-  // Our tones (CHOSEN): oscillator type, start and end frequency (Hz), length (s), peak gain.
+  // Our sounds (CHOSEN): the Glass name, then optional vol, rate and wobble (a fraction the rate varies
+  // by, so the hundredth eat is not the same click) and gap (ms before the same sound may repeat).
   var TONES = {
-    split: { type: 'sine', f0: 320, f1: 640, dur: 0.12, gain: 0.5 },
-    shoot: { type: 'square', f0: 220, f1: 130, dur: 0.06, gain: 0.25 },
-    eatCell: { type: 'sine', f0: 520, f1: 900, dur: 0.08, gain: 0.5 },
-    eatOwnCell: { type: 'triangle', f0: 440, f1: 660, dur: 0.10, gain: 0.5 },
-    gameOver: { type: 'triangle', f0: 440, f1: 110, dur: 0.60, gain: 0.6 },
-    splitBecauseVirus: { type: 'sawtooth', f0: 180, f1: 60, dur: 0.25, gain: 0.3 }
+    split: { sfx: 'g.split' },
+    shoot: { sfx: 'g.eject' },
+    eatCell: { sfx: 'g.eat', vol: 0.7, wobble: 0.08, gap: 60 },
+    eatOwnCell: { sfx: 'g.merge' },
+    gameOver: { sfx: 'g.death' },
+    splitBecauseVirus: { sfx: 'g.explode', vol: 0.5, rate: 1.15 },
+    join: { sfx: 'g.join' },
+    holdStart: { sfx: 'g.ringStart' },
+    holdCancel: { sfx: 'g.ringCancel' },
+    cashout: { sfx: 'g.cashout' },
+    kill: { sfx: 'g.kill' },
+    hurt: { sfx: 'g.hurt' }
   };
-  var MASTER = 0.15;
 
-  // A sound player, always on. env: { createAudioContext() (default: window AudioContext) }.
+  // A sound player, always on. env: { sfx } (default: the page's DSSfx; none under node, so silent).
   // Nothing is read from or written to storage: there is no on/off any more.
   function createSound(env) {
     env = env || {};
-    var ac = null;
     var inGame = false;
     var played = [];
+    var seed = 20261016;
 
-    function makeContext() {
-      if (env.createAudioContext) return env.createAudioContext();
-      var C = root.AudioContext || root.webkitAudioContext;
-      return C ? new C() : null;
-    }
-    function audio() {
-      if (!ac) {
-        try { ac = makeContext(); } catch (e) { ac = null; }
-      }
-      if (ac && ac.state === 'suspended' && ac.resume) {
-        try { ac.resume(); } catch (e) { /* resumes on the next gesture */ }
-      }
-      return ac;
+    function engine() { return env.sfx || root.DSSfx || null; }
+    // A small fixed generator for the rate wobble (same run, same sounds).
+    function rnd() {
+      seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+      return seed / 4294967296;
     }
 
-    function tone(spec) {
-      var c = audio();
-      if (!c) return false;
-      var t0 = c.currentTime;
-      var osc = c.createOscillator();
-      var g = c.createGain();
-      osc.type = spec.type;
-      osc.frequency.setValueAtTime(spec.f0, t0);
-      osc.frequency.exponentialRampToValueAtTime(spec.f1, t0 + spec.dur);
-      g.gain.setValueAtTime(0.0001, t0);
-      g.gain.exponentialRampToValueAtTime(spec.gain * MASTER, t0 + 0.005);
-      g.gain.exponentialRampToValueAtTime(0.0001, t0 + spec.dur);
-      osc.connect(g);
-      g.connect(c.destination);
-      osc.start(t0);
-      osc.stop(t0 + spec.dur + 0.02);
-      return true;
+    function play(spec) {
+      var s = engine();
+      if (!s || !s.play) return false;
+      var o = {};
+      if (spec.vol) o.vol = spec.vol;
+      if (spec.gap != null) o.gap = spec.gap;
+      var rate = (spec.rate || 1) * (1 + (spec.wobble ? (rnd() * 2 - 1) * spec.wobble : 0));
+      if (rate !== 1) o.rate = rate;
+      return !!s.play(spec.sfx, o);
     }
 
     var api = {
@@ -115,15 +112,25 @@
         if (!spec) return false;
         played.push(name);
         if (played.length > 64) played.shift();
-        return tone(spec);
+        return play(spec);
       },
-      playCues: function (names) {
-        for (var i = 0; i < (names ? names.length : 0); i++) api.playCue(names[i]);
+      // e (optional, the eat the cues came from) tells an eatCell what it was: our cell eating a
+      // player is a kill, one of ours eaten (not the last) is a hurt, a merge is left to eatOwnCell.
+      playCues: function (names, e) {
+        for (var i = 0; i < (names ? names.length : 0); i++) {
+          var n = names[i];
+          if (n === 'eatCell' && e) n = e.eaterOwn ? (e.eatenOwn ? null : 'kill') : (e.eatenOwn ? 'hurt' : n);
+          if (n) api.playCue(n);
+        }
       },
       isEnabled: function () { return true; },
-      // Entering a game starts (or resumes) the audio context: it follows the Play press that
-      // led here, so the first cue is not the one that has to wake it.
-      setInGame: function (on) { inGame = !!on; if (inGame) audio(); },
+      // Entering a game wakes the audio engine: it follows the Play press that led here, so the
+      // first cue is not the one that has to wake it.
+      setInGame: function (on) {
+        inGame = !!on;
+        var s = engine();
+        if (inGame && s && s.wake) s.wake();
+      },
       isInGame: function () { return inGame; },
       played: function () { return played.slice(); }
     };

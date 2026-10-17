@@ -334,6 +334,52 @@ test('end card, the paid hand-off\'s states: a message with its lines, the wait 
   assert.deepStrictEqual(card(p).buttons.map((b) => b.id), ['lobby']);
 });
 
+test('end card, every death and cash-out: Lobby, Spectate, Play again in that order; Spectate shut with Lobby; notices keep Lobby alone', () => {
+  const p = page();
+  const calls = [];
+  const end = S.createEnd({ DSEnd: p.D, onLobby: () => calls.push('lobby'), onSpectate: () => calls.push('watch') });
+  end.onAgain = () => calls.push('again');
+  const row = () => card(p).buttons.map((b) => [b.id, b.text, b.primary, b.disabled]);
+  // a paid death: Lobby and Spectate at once, Play again once the paid flow offers it (on the right)
+  end.showDead({ lostMicro: 500000, by: 'Kestrel' }, LIFE);
+  assert.deepStrictEqual(row(), [['lobby', 'Lobby', true, false], ['watch', 'Spectate', false, false]]);
+  end.setAgain({ text: 'Play again $0.50' });
+  assert.deepStrictEqual(row(), [['lobby', 'Lobby', false, false], ['watch', 'Spectate', false, false], ['again', 'Play again $0.50', true, false]]);
+  clickCard(p.doc, 'watch');
+  assert.deepStrictEqual(calls, ['watch'], 'Spectate calls the page watch path');
+  // the wallet is out: Lobby shut, so Spectate is shut too and does nothing
+  end.setAgain({ text: 'Confirm in your wallet...', disabled: true });
+  end.setLobbyLocked(true);
+  assert.deepStrictEqual(row(), [['lobby', 'Lobby', false, true], ['watch', 'Spectate', false, true], ['again', 'Confirm in your wallet...', true, true]]);
+  clickCard(p.doc, 'watch');
+  clickCard(p.doc, 'lobby');
+  assert.deepStrictEqual(calls, ['watch']);
+  end.setLobbyLocked(false);
+  assert.deepStrictEqual(row().map((b) => b[3]), [false, false, true], 'open again with Lobby');
+  // a paid cash-out: the same three, the payout line pending (Lobby is open then, so Spectate is too)
+  end.showCashed({ grossMicro: 2400000, cutMicro: 240000, netMicro: 2160000 }, LIFE);
+  end.setAgain({ text: 'Play again $0.50' });
+  assert.deepStrictEqual(row().map((b) => [b[0], b[1], b[3]]), [['lobby', 'Lobby', false], ['watch', 'Spectate', false], ['again', 'Play again $0.50', false]]);
+  assert.strictEqual(card(p).status.state, 'pending');
+  // notices and the wait keep their own buttons
+  end.showClosed({ refundedMicro: 100000, why: 'emergency' });
+  assert.deepStrictEqual(card(p).buttons.map((b) => b.id), ['lobby']);
+  end.showClosed({ refundedMicro: 0, why: 'frozen-settled' });
+  assert.deepStrictEqual(card(p).buttons.map((b) => b.id), ['lobby']);
+  end.showMessage('refused', 'Tables full', 'Every agar.io table at this stake is full.');
+  assert.deepStrictEqual(card(p).buttons.map((b) => b.id), ['lobby']);
+  end.showMessage('gone', 'Seat moved', 'This seat was taken over by a newer connection.');
+  assert.deepStrictEqual(card(p).buttons.map((b) => b.id), ['lobby']);
+  end.showWait('Reconnecting', 'Reconnecting to your room');
+  assert.deepStrictEqual(card(p).buttons, []);
+  end.showWait('Reconnecting', 'Your cells stay where they are.', { lobby: true });
+  assert.deepStrictEqual(card(p).buttons.map((b) => b.id), ['lobby']);
+  // the free card: the page's three, Lobby left and Play again right whatever order they come in
+  end.showFree({ life: LIFE, by: 'Kestrel', buttons: [{ id: 'again', text: 'Play again', primary: true }, { id: 'lobby', text: 'Lobby' },
+    { id: 'watch', text: 'Spectate' }] });
+  assert.deepStrictEqual(card(p).buttons.map((b) => b.text), ['Lobby', 'Spectate', 'Play again']);
+});
+
 test('end card without the component (the parity harness): every state is a quiet no-op', () => {
   const end = S.createEnd({});
   end.showFree({ life: LIFE });

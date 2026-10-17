@@ -41,7 +41,10 @@
 //    are the server's, the buy-in is the lobby's wallet (duel:restake { game: 'snake', engine: 'sl', stake, nonce },
 //    answered only from the parent window, this origin, with this nonce; wallet-widget/src/restakeBridge.mjs), and
 //    the fresh token goes straight into the next Play's handshake. A refusal or a close leaves only Lobby: that
-//    entry is gone (refunded or never spent), and a refused buy-in would only be refused again.
+//    entry is gone (refunded or never spent), and a refused buy-in would only be refused again. A death or a cash-out
+//    has slxCard's Lobby, Spectate and Play again (Owen 2026-10-16): Spectate watches this rung, read only (slxWatch
+//    watchOpen with this stake, the lobby's own paid Spectate), and the exit trap refuses it exactly as it refuses
+//    Lobby. Outside the lobby frame there is no wallet to ask, so Play again shows there, unpressable.
 // 5. The exit trap (design 9). While money may be in the room (from the socket that carried the token opening, or
 //    the server's {t: 'room'}, until {t: 'lost'}, 'cashed', 'closed' or 'refused', or DROP_MS after the socket
 //    dropped with no 'resumed'), and while a Play again buy-in is with the wallet (up to RESTAKE_WAIT_MS), the card's
@@ -54,7 +57,7 @@
 //    with no usable token or stake) holds the same way. A page back from the back/forward cache drops its own mark.
 //
 // Adds to DuelSlither.slx: paidAuth(), paidHold(), and on paid or notice pages cardLines(kind), beforeAgain(go),
-// beforeLobby(); paid = { on, stake(), state() } (state never holds the token).
+// beforeLobby(); paid = { on, stake(), rung(), look(), state() } (state never holds the token).
 (function (root) {
   'use strict';
   var D = root.DuelSlither;
@@ -294,7 +297,7 @@
   function withAgain(view) {
     if (!canRestake()) {
       view.lines.push(TEXT.lobbyOnly);
-      view.again = false;
+      view.again = { text: TEXT.againLabel(st.stake), disabled: true };   // no wallet to ask: shown, unpressable
       return view;
     }
     view.again = againFor();
@@ -315,13 +318,13 @@
       var lines = [r[1]];
       if (l.refused.refunded > 0) lines.push(TEXT.refunded(l.refused.refunded));
       else if (has.call(UNSPENT, l.refused.why)) lines.push(TEXT.unused);
-      return { title: r[0], lines: lines, again: false };
+      return { title: r[0], lines: lines, again: false, spectate: false };
     }
     if (l.closed) {
       var c = has.call(CLOSED, l.closed.why) ? CLOSED[l.closed.why] : CLOSED.orphan;
       var cl = [c[1]];
       if (l.closed.refunded > 0) cl.push(TEXT.closedRefund(l.closed.refunded));
-      return { title: c[0], lines: cl, again: false };
+      return { title: c[0], lines: cl, again: false, spectate: false };
     }
     if (l.cashed) {
       var k = l.cashed;
@@ -1063,6 +1066,8 @@
   slx.paid = {
     on: true,
     stake: function () { return st.stake; },
+    // The rung, for the card's Spectate (slxCard: the lobby's paid Spectate watches it, read only). Never a buy-in.
+    rung: function () { return st.stake; },
     // The cash look, 'gold' or 'coin' (CASH_LOOK); with an argument, switches to it from the next frame.
     look: function (v) {
       if (v === 'gold' || v === 'coin') look = v;

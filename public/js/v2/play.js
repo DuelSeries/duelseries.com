@@ -743,10 +743,12 @@
     const reply = (msg) => {
       if (frame.contentWindow) frame.contentWindow.postMessage(msg, origin);
     };
-    /* A game never signs the owner in or out of the console (server/ownerSession.js): a year-long
-       session is the console page's own business, so a frame cannot get that signature here. */
-    if (typeof d.action === 'string' && d.action.indexOf('owner:session') === 0) {
-      reply({ type: 'duel:signaction:error', id: d.id, message: 'A game cannot sign that.' });
+    /* Only what a game frame has reason to sign over this bridge: who is
+       playing, and the owner's Start. Narrowing, not a wall: a same-origin
+       frame can still reach the lobby's own functions directly; this keeps a
+       bridge message from asking for an owner console action. */
+    if (d.action !== 'play:identify' && d.action !== 'br:start') {
+      reply({ type: 'duel:signaction:error', id: d.id, message: 'The game cannot ask the wallet to sign that.' });
       return;
     }
     if (typeof window.duelWalletSignAction !== 'function') {

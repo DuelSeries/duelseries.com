@@ -179,7 +179,7 @@ class SlArenas {
     const room = this._room;
     const seat = room.seat(socket, info);
     if (seat) return true;
-    return room.refusal() || 'full';
+    return room.refusal(info) || 'full';
   }
 
   // A watcher (slSockets: a free socket whose handshake says watch 1; slRoom seatWatch): info { after }, the snake id

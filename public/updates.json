@@ -2,6 +2,106 @@
   "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). Optional pictures: image (the big one, {src, alt}) and gallery (up to 4 small ones, same shape); src is a file in public/updates/ (/updates/name.webp), alt says what the picture shows. The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
   "posts": [
     {
+      "id": "2026-10-16-sounds-everywhere",
+      "date": "2026-10-16",
+      "tag": "new",
+      "title": "Sounds everywhere",
+      "body": "Every button in the lobby now makes a short, soft sound the moment you press it. The important ones, like adding funds, withdrawing and unlocking a skin, have their own.\n\nEvery game has new sounds too: eating, boosting, kills, the cash-out ring and a proper fanfare when you cash out. Knockout, Paper.io and Bowmasters were silent before, now they are not.\n\nTurn them down or off in Settings, under Sound. The soft tick when your mouse moves onto a button has its own switch.",
+      "image": {
+        "src": "/updates/lobby-sounds.webp",
+        "alt": "The new Sound group in Settings: Lobby sounds, Volume and Hover sounds"
+      }
+    },
+    {
+      "id": "2026-10-16-updates-pictures",
+      "date": "2026-10-16",
+      "tag": "new",
+      "title": "Updates now come with pictures",
+      "body": "Every post here shows what changed. Click a picture to see it large.",
+      "image": {
+        "src": "/updates/updates-pictures.webp",
+        "alt": "The Updates tab with a picture on each post"
+      }
+    },
+    {
+      "id": "2026-10-16-gold-coin-card",
+      "date": "2026-10-16",
+      "tag": "new",
+      "title": "A new end card, and a gold cash-out ring",
+      "body": "Cash out and a gold coin lands on your card with what you won, your time, rank and kills. Lobby, Spectate and Play again sit in one row.\n\nHolding to cash out now draws a gold ring that counts three seconds, the same in every game.",
+      "image": {
+        "src": "/updates/gold-card.webp",
+        "alt": "The end card with a gold coin after a cash-out"
+      },
+      "gallery": [
+        {
+          "src": "/updates/cashout-ring.webp",
+          "alt": "The gold cash-out ring filling up"
+        }
+      ]
+    },
+    {
+      "id": "2026-10-16-clip-share",
+      "date": "2026-10-16",
+      "tag": "new",
+      "title": "Share your clips straight to DuelSeries",
+      "body": "After you save a clip with P, one tap shares it to DuelSeries. You can also upload a saved clip in the Clips tab, and delete your own clips any time.\n\nEvery clip is checked before anyone else can see it.",
+      "image": {
+        "src": "/updates/clips-upload.webp",
+        "alt": "The Clips tab with Upload a clip and Send a link"
+      }
+    },
+    {
+      "id": "2026-10-16-join-us",
+      "date": "2026-10-16",
+      "tag": "new",
+      "title": "New Join us tab",
+      "body": "Find the Discord, the clip team and our socials in one place, invite a friend, or send us a bug or an idea.",
+      "image": {
+        "src": "/updates/join-us.webp",
+        "alt": "The Join us tab"
+      }
+    },
+    {
+      "id": "2026-10-16-lobby-sounds",
+      "date": "2026-10-16",
+      "tag": "new",
+      "title": "Lobby sounds",
+      "body": "Buttons in the lobby now make a short, soft sound when you tap them. Turn them down or off in Settings under Sound."
+    },
+    {
+      "id": "2026-10-16-battle-royale-buttons",
+      "date": "2026-10-16",
+      "tag": "fix",
+      "title": "Battle royale fits your phone",
+      "body": "Join now sits on the left with Spectate beside it, and the battle royale screen fits a phone without cutting anything off.",
+      "image": {
+        "src": "/updates/battle-royale-phone.webp",
+        "alt": "The battle royale card on a phone with Join and Spectate"
+      }
+    },
+    {
+      "id": "2026-10-16-slither-smoother",
+      "date": "2026-10-16",
+      "tag": "fix",
+      "title": "Slither.io turns smoother and lags less",
+      "body": "Your snake turns more smoothly, the game no longer stutters when the lobby is open behind it, and on phones it is drawn at the size slither.io players know."
+    },
+    {
+      "id": "2026-10-16-agar-extras",
+      "date": "2026-10-16",
+      "tag": "fix",
+      "title": "Agar.io: safer starts and better phone control",
+      "body": "In free rooms you now start away from cells that could eat you, cells no longer pop in at the edge of your screen, and on a phone how far your thumb moves sets your speed. The leaderboard now shows each player's score."
+    },
+    {
+      "id": "2026-10-16-battle-royale-one-life",
+      "date": "2026-10-16",
+      "tag": "event",
+      "title": "Battle royale: one life per match",
+      "body": "Each battle royale is now one life. Get knocked out and you are out until the next match, so spectate to the end and see who takes it.\n\nThe circle keeps closing until a single snake is left. When it is over the result stays on your screen, and Join next puts you in for the following match.\n\nThe nightly match still starts at 8:05 PM Eastern."
+    },
+    {
       "id": "2026-10-16-clip-recorder",
       "date": "2026-10-16",
       "tag": "new",

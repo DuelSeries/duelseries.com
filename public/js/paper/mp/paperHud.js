@@ -30,7 +30,9 @@
   var COIN_RADIUS = 7; // world units; the pickup radius (16) is the reach, this is the look
   var COIN_BOB = 1.2; // world units
   var COIN_BOB_MS = 1600;
-  var RING_GAP = 1.9; // ring radius in track widths
+  // ring radius in track widths: just clear of the square's corners (half-diagonal ~0.65), like slither's ring around
+  // its head (Owen 2026-10-16: the old 1.9 was "super big", about four squares across)
+  var RING_GAP = 0.95;
   var RING_FILL = '#ffc933';
   var RING_TRACK = 'rgba(0, 0, 0, 0.28)';
 

@@ -12,7 +12,8 @@
     "owner-smoke": "node scripts/owner-smoke.js",
     "br-smoke": "node scripts/br-join-smoke.js",
     "zone-sim": "node scripts/br-zone-sim.js",
-    "br-start-smoke": "node scripts/br-start-smoke.js"
+    "br-start-smoke": "node scripts/br-start-smoke.js",
+    "br-sl-smoke": "node scripts/br-sl-smoke.js"
   },
   "dependencies": {
     "@noble/curves": "^1.9.7",

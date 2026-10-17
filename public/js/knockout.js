@@ -18,6 +18,7 @@
    cannot buy a harder shot. */
 
 const socket = io();
+if (window.KnockoutSound) KnockoutSound.attach(socket, () => ({ me, st, flip, watch: WATCH }));   // sounds (knockoutSound.js)
 const $ = (id) => document.getElementById(id);
 const cv = $('board');
 const ctx = cv.getContext('2d');
@@ -422,6 +423,7 @@ function frame() {
     if (tapeAt >= tape.frames.length + 30) { tape = null; tapeAt = 0; }
   }
   paintClock();
+  if (window.KnockoutSound) KnockoutSound.frame(tape, tapeAt, reveal, ringFall);
   draw();
   requestAnimationFrame(frame);
 }
@@ -573,6 +575,30 @@ function paintPips() {
   if (them) $('themName').textContent = them.name || 'Opponent';
 }
 
+/* ── chat ──────────────────────────────────────────────────────────────────
+   The one DuelSeries chat box (public/js/shared/dsChat.js): T to type, Enter to send. Only the two seated players can
+   speak (the server refuses anybody else); a watcher reads. On a computer it sits bottom left, above the bar's hint and
+   clear of the disc; on a phone, top left under the strip (and under the watch tag when watching). A line takes its
+   seat's colour: bone for me, red for them, the pair the pieces wear (a watcher sees seat 0 as bone). */
+let chatLive = false;            // a match is on screen (not the wait card, not the result card)
+const chat = DSChat.mount({
+  send: (t) => { socket.emit('ko:chat', { text: t }); return true; },
+  canSend: () => chatLive && !WATCH,
+  pc: { left: 14, bottom: 76 },
+  phoneAt: { left: 10, top: WATCH ? 104 : 70 },
+});
+function chatShow(on) { chatLive = on; chat.visible(on); }
+const mySide = () => {
+  const p = st && (st.players || []).find(q => q.id === me);
+  return p ? p.side : 0;
+};
+socket.on('ko:chat', (m) => {
+  if (!m) return;
+  const mine = m.side === mySide();
+  chat.add({ name: m.name, color: mine ? '#f4f1ea' : '#e0705f', text: m.text, me: mine && !WATCH });
+});
+socket.on('ko:chatnote', (m) => { if (m) chat.add({ kind: 'sys', text: m.text }); });
+
 /* ── what the server says ──────────────────────────────────────────────── */
 
 function apply(state) {
@@ -591,6 +617,7 @@ function apply(state) {
   $('top').hidden = false;
   $('bar').hidden = false;
   $('wait').hidden = true;
+  chatShow(true);
   paintPips();
   paintBar();
 }
@@ -610,6 +637,7 @@ function queue(token) {
   overShown = false;
   lastOver = null;
   DSEnd.hide();
+  chatShow(false);
   $('wait').hidden = false;
   waitSpin(true);
   $('waitMain').textContent = 'Looking for an opponent';
@@ -701,6 +729,7 @@ socket.on('ko:over', (m) => {
   restake = null; restakeLine = '';
   paintOver();
   $('bar').hidden = true;
+  chatShow(false);
 });
 
 /* ── the result card ───────────────────────────────────────────────────────
@@ -757,22 +786,30 @@ function paintOver() {
   if (m.why === 'opponent left') card.notes.push('They left the match.');
   else if (m.why === 'everyone went off') card.notes.push('Both sides went off on the same turn.');
 
+  /* The same three buttons on every card, paid and free (Owen 2026-10-16):
+     Lobby, Spectate, Play again. Lobby and Spectate are shut while the wallet
+     is open: the lobby blanks this frame on game:done, and a token minted
+     after that would have no page to seat; Spectate leaves the card too. */
   const paid = myStake > 0;
-  const buttons = [];
+  const price = paid ? 'Play again ' + DSEnd.usd(Math.round(myStake * 1e6)) : 'Play again';
+  const shut = !!restake && !restake.slow;
+  let again;
   if (paid && !FRAMED) {
+    again = { id: 'again', text: price, primary: true, disabled: true };
     card.notes.push(TEXT.lobbyOnly);
   } else if (restake) {
-    buttons.push({ id: 'again', text: restake.slow ? TEXT.againSlow : TEXT.againAsk, primary: true, disabled: true });
+    again = { id: 'again', text: restake.slow ? TEXT.againSlow : TEXT.againAsk, primary: true, disabled: true };
     if (restake.slow) card.notes.push(TEXT.againSlowLine);
   } else {
-    buttons.push({ id: 'again', text: paid ? 'Play again ' + DSEnd.usd(Math.round(myStake * 1e6)) : 'Play again',
-      primary: true, onClick: playAgain });
+    again = { id: 'again', text: price, primary: true, onClick: playAgain };
   }
   if (restakeLine) card.notes.push(restakeLine);
-  /* Shut while the wallet is open: the lobby blanks this frame on game:done,
-     and a token minted after that would have no page to seat. */
-  buttons.push({ id: 'lobby', text: 'Lobby', primary: !buttons.length, disabled: !!restake && !restake.slow, onClick: toLobby });
-  card.buttons = buttons;
+  card.buttons = [
+    { id: 'lobby', text: 'Lobby', disabled: shut, onClick: toLobby },
+    // Spectate is also shut for the whole buy-in, slow or not (a Play again buy-in still with the wallet, slow or not: a late stake needs this page in the frame)
+    { id: 'spectate', text: 'Spectate', disabled: shut || !!restake, onClick: spectate },
+    again,
+  ];
   DSEnd.show(card);
 }
 
@@ -909,6 +946,51 @@ function toLobby() {
 }
 $('waitCancel').addEventListener('click', toLobby);
 
+/* SPECTATE, from a result card. The page reads its watch mark once, as it
+   boots, so this does exactly what the lobby's Spectate does for this rung
+   (public/js/v2/play.js spectate()): every money key out, the mark for this
+   game, the rung in its own key for a paid table (dsWatchStake, never
+   'stake'), then this page again, which comes up watching that rung. Nothing
+   here seats anybody or stakes anything. Shut with Lobby while the wallet is
+   open. A watcher's card asks for the next match instead. */
+const WATCH_URL = '/knockout';
+const MONEY_KEYS = ['entryToken', 'entrySol', 'stake', 'slPaidLaunch', 'slxPaidCut', 'slBr', 'spectateOnly'];
+function reopen() {
+  try {
+    if (typeof location.replace === 'function') location.replace(WATCH_URL);
+    else location.href = WATCH_URL;
+  } catch (_) { location.href = WATCH_URL; }
+}
+function spectate() {
+  if (restake) return;   // a Play again buy-in still with the wallet, slow or not: a late stake needs this page in the frame
+  if (WATCH) { watch(watchLastId); return; }
+  try {
+    for (const k of MONEY_KEYS) sessionStorage.removeItem(k);
+    sessionStorage.setItem('dsWatch', 'knockout');
+    if (myStake > 0) sessionStorage.setItem('dsWatchStake', String(myStake));
+    else sessionStorage.removeItem('dsWatchStake');
+    /* Storage that will not hold the mark would reopen a Play: stay put. */
+    if (sessionStorage.getItem('dsWatch') !== 'knockout') return;
+  } catch (_) { return; }
+  clearTimeout(watchTimer);
+  socket.emit('ko:leave');
+  reopen();
+}
+/* Play again on a watcher's card: a Free table is this page again with no
+   mark (a Play, as the lobby's Free Play opens it); a paid table is bought
+   in the lobby, so there it stays shut and says so. */
+function playFromWatch() {
+  if (WATCH_STAKE > 0) return;
+  try {
+    for (const k of MONEY_KEYS) sessionStorage.removeItem(k);
+    sessionStorage.removeItem('dsWatch');
+    sessionStorage.removeItem('dsWatchStake');
+  } catch (_) {}
+  clearTimeout(watchTimer);
+  socket.emit('ko:unwatch');
+  reopen();
+}
+
 window.addEventListener('beforeunload', () => socket.emit(WATCH ? 'ko:unwatch' : 'ko:leave'));
 
 /* ── watching ──────────────────────────────────────────────────────────────
@@ -1009,6 +1091,7 @@ socket.on('ko:watching', (m) => {
     watchMatch = null;
     $('top').hidden = true; $('bar').hidden = true; $('watchTag').hidden = true;
     st = null; tape = null; reveal = null;
+    chatShow(false);
     showWatchWait(
       m.full ? 'Every match is full of watchers' : m.refused ? 'You are in a match' : 'Nobody is playing right now',
       'Checking again every few seconds.');
@@ -1067,18 +1150,26 @@ socket.on('ko:ended', ({ id } = {}) => {
   if (!WATCH || overShown) return;
   if (watchMatch && id && id !== watchMatch.id) return;
   overShown = true;
-  DSEnd.show({ verdict: 'That match ended', notes: ['Finding the next one.'], buttons: watchButtons() });
+  /* A notice, not a result: it keeps its own two buttons. */
+  DSEnd.show({ verdict: 'That match ended', notes: ['Finding the next one.'], buttons: [
+    { id: 'again', text: 'Next match', primary: true, onClick: () => watch(watchLastId) },
+    { id: 'lobby', text: 'Lobby', onClick: toLobby },
+  ] });
   $('bar').hidden = true;
   publishWatch('ended');
   nextSoon();
 });
 
 /* A watcher's card: who won it and in how many turns, then on to the next
-   match by itself. No money: nobody watching staked anything. */
+   match by itself. No money: nobody watching staked anything. The same three
+   buttons as a player's card: Spectate is the next match, Play again a seat. */
 function watchButtons() {
+  const paid = WATCH_STAKE > 0;
   return [
-    { id: 'again', text: 'Next match', primary: true, onClick: () => watch(watchLastId) },
     { id: 'lobby', text: 'Lobby', onClick: toLobby },
+    { id: 'spectate', text: 'Spectate', onClick: () => watch(watchLastId) },
+    { id: 'again', text: paid ? 'Play again ' + DSEnd.usd(Math.round(WATCH_STAKE * 1e6)) : 'Play again',
+      primary: true, disabled: paid, onClick: playFromWatch },
   ];
 }
 function watchOver(m) {
@@ -1091,6 +1182,7 @@ function watchOver(m) {
   if (m.why === 'opponent left') notes.push((loser || 'A player') + ' left the match.');
   else if (m.why === 'everyone went off') notes.push('Both sides went off on the same turn.');
   notes.push('Next match in a few seconds.');
+  if (WATCH_STAKE > 0) notes.push(TEXT.lobbyOnly);
   DSEnd.show({
     verdict: m.winner ? m.winner + ' wins' : 'Draw',
     hero: DSEnd.int(turns), unit: plural(turns, 'turn', 'turns'),

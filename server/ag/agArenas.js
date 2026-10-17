@@ -453,6 +453,16 @@ class AgArenas {
     return room ? room.hold(socketId, on) : false;
   }
 
+  canChat(socketId) {
+    const room = this.bySocket.get(socketId);
+    return room ? room.canChat(socketId) : false;
+  }
+
+  chat(socketId, text) {
+    const room = this.bySocket.get(socketId);
+    return room ? room.chat(socketId, text) : false;
+  }
+
   // -> { why, refunded, ...extra } | null, for 't:' + proof or 'k:' + resumeKey (PaperArenas.outcomeOf).
   outcomeOf(key) {
     const o = this.outcomes.get(key);

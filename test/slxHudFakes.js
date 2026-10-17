@@ -19,7 +19,7 @@ const path = require('path');
 const vm = require('vm');
 
 const ROOT = path.join(__dirname, '..');
-const SHARED = ['dsEnd.js'];
+const SHARED = ['dsEnd.js', 'dsChat.js'];
 
 function makePage(opts) {
   const o = opts || {};
@@ -79,6 +79,19 @@ function makePage(opts) {
       this.value = '';
       this.disabled = false;
       this.innerHTML = '';
+      this.offsetWidth = 100;       // laid out (dsChat skips a text box nobody can see)
+      this.offsetHeight = 30;
+      // style.setProperty and className-backed classList for the shared chat (dsChat.js), kept off the own keys
+      const el = this;
+      Object.defineProperty(this.style, 'setProperty', { value(k, v) { this[k] = String(v); } });
+      Object.defineProperty(this.style, 'removeProperty', { value(k) { delete this[k]; } });
+      Object.defineProperty(this, 'classList', { value: {
+        list() { return el.className.split(/\s+/).filter(Boolean); },
+        contains(c) { return this.list().includes(c); },
+        add(...cs) { const l = this.list(); for (const c of cs) if (!l.includes(c)) l.push(c); el.className = l.join(' '); },
+        remove(...cs) { el.className = this.list().filter((c) => !cs.includes(c)).join(' '); },
+        toggle(c, on) { const want = on === undefined ? !this.contains(c) : !!on; if (want) this.add(c); else this.remove(c); return want; }
+      } });
     }
     get children() { return this.childNodes.filter((c) => c.nodeType === 1); }
     setAttribute(k, v) { this.attrs[k] = String(v); }
@@ -99,6 +112,7 @@ function makePage(opts) {
     }
     dispatchEvent(ev) { return dispatch(this, ev.type, ev); }
     getBoundingClientRect() { return { left: 0, top: 0, right: 100, bottom: 30, width: 100, height: 30 }; }
+    getClientRects() { return this.offsetWidth > 0 ? [this.getBoundingClientRect()] : []; }
   }
 
   function addL(node, type, fn, opt) {
@@ -115,6 +129,7 @@ function makePage(opts) {
   doc.nodeType = 9;
   doc.ownerDocument = doc;
   doc.createElement = (tag) => new El(doc, tag);
+  doc.createElementNS = (ns, tag) => new El(doc, tag);
   doc.createTextNode = (s) => new Text0(doc, String(s));
   doc.addEventListener = (type, fn, opt) => addL(doc, type, fn, opt);
   doc.removeEventListener = (type, fn) => removeL(doc, type, fn);
@@ -144,7 +159,7 @@ function makePage(opts) {
     clearTimeout(id) { const at = timers.findIndex((t) => t.id === id); if (at >= 0) timers.splice(at, 1); },
     addEventListener(type, fn, opt) { addL(win, type, fn, opt); },
     removeEventListener(type, fn) { removeL(win, type, fn); },
-    location: { assigned: [], assign(u) { this.assigned.push(String(u)); } },
+    location: { assigned: [], replaced: [], assign(u) { this.assigned.push(String(u)); }, replace(u) { this.replaced.push(String(u)); } },
     console
   };
   win.window = win;
@@ -162,7 +177,8 @@ function makePage(opts) {
       defaultPrevented: false,
       stopped: false,
       preventDefault() { this.defaultPrevented = true; },
-      stopPropagation() { this.stopped = true; }
+      stopPropagation() { this.stopped = true; },
+      stopImmediatePropagation() { this.stopped = true; this.immediate = true; }
     });
     const chain = [];
     for (let n = target.parentNode; n && n !== doc; n = n.parentNode) chain.push(n);
@@ -176,6 +192,7 @@ function makePage(opts) {
         if (l.once) removeL(node, type, l.fn);
         ev.currentTarget = node;
         l.fn.call(node, ev);
+        if (ev.immediate) return;
       }
       if (phase !== 'capture' && typeof node['on' + type] === 'function') node['on' + type].call(node, ev);
     }

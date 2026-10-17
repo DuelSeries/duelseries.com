@@ -24,7 +24,8 @@ const { makePage, ROOT } = require('./slxHudFakes.js');
 
 const SLX_DIR = path.join(ROOT, 'public', 'js', 'slx');
 // dsEnd.js first: the composed page loads the shared end screens before the slx tail (server/sl/slBoot.js slxTail).
-const LAYER = ['dsEnd.js', 'slxNet.js', 'slxPaid.js', 'slxMain.js', 'slxCard.js', 'slxSound.js'];
+// slxWatch as composed (server/sl/slBoot.js SLX_FILES): the card's Spectate reopens the page through its watchOpen.
+const LAYER = ['dsEnd.js', 'slxNet.js', 'slxPaid.js', 'slxWatch.js', 'slxMain.js', 'slxCard.js', 'slxSound.js'];
 const plain = (x) => JSON.parse(JSON.stringify(x));
 const TOKEN = 'tok-' + 'a1b2c3d4e5f6'.repeat(4);   // 52 chars, under the door's FIELD_MAX 64
 const KEY = '0b5e8c1a-2f3d-4a5b-8c6d-7e8f9a0b1c2d';
@@ -104,7 +105,8 @@ function paidPage(o) {
       io: fakeIo,
       fetch: fakeFetch,
       CashoutSound: { play() {} },
-      location: { origin: ORIGIN, href: ORIGIN + '/sl', search: '', hash: '', assigned: [], assign(u) { this.assigned.push(String(u)); } },
+      location: { origin: ORIGIN, href: ORIGIN + '/sl', search: '', hash: '', assigned: [], replaced: [],
+        assign(u) { this.assigned.push(String(u)); }, replace(u) { this.replaced.push(String(u)); } },
       innerWidth: 1000,
       innerHeight: 800,
       devicePixelRatio: 1
@@ -816,8 +818,91 @@ test('Play again: duel:restake with a fresh nonce; only the parent, this origin 
   O.sock().fire('sl:f', [{ type: 'dead' }]);
   O.hooks.onMenuShow();
   st = O.D.slx.card.state();
-  assert.strictEqual(st.againShown, false);
+  // still Lobby, Spectate, Play again (Owen 2026-10-16), with no wallet to ask Play again cannot be pressed
+  assert.deepStrictEqual([plain(st.buttons), st.again, st.againDisabled], [['Lobby', 'Spectate', 'Play again $0.50'], 'Play again $0.50', true]);
+  O.D.slx.card.playAgain();
+  assert.deepStrictEqual(O.posts, [], 'no buy-in asked');
   assert.deepStrictEqual(plain(st.lines), ['Your $0.50 dropped as gold for the other snakes.', 'Buy a new entry in the lobby to play again.']);
+});
+
+// Owen 2026-10-16: "a Lobby, Spectate and Play again button exactly the same on every single cash-out and death screen,
+// including the paid ones". Spectate on a paid page is the lobby's paid Spectate for this rung (public/js/v2/play.js
+// spectate: dsWatch + dsWatchStake, every money key out, /sl in the same frame), read only, and the exit trap holds it
+// exactly as it holds Lobby.
+test('paid death and cash-out: Lobby, Spectate, Play again $0.50; Spectate watches this rung read only, trapped like Lobby', async () => {
+  // a death: while the gold is still the server's to drop, Spectate is refused as Lobby is
+  const L = paidPage();
+  seat(L, { v: 530000 });
+  L.sock().fire('sl:f', [{ type: 'dead' }]);
+  L.hooks.onMenuShow();
+  let st = L.D.slx.card.state();
+  assert.deepStrictEqual([st.kind, plain(st.buttons), st.spectateDisabled], ['dead', ['Lobby', 'Spectate', 'Play again $0.50'], false]);
+  assert.strictEqual(L.D.slx.paid.state().locked, true, 'money still in the room');
+  L.dispatch(L.button('spectate'), 'click', {});
+  assert.strictEqual(L.find('slx-paid-note')[0].textContent, 'Hold Q to cash out first', 'the same note as Lobby');
+  assert.deepStrictEqual([L.win.location.replaced, L.session.getItem('dsWatch')], [[], null], 'not while money is in');
+  L.sock().fire('sl:x', [{ t: 'lost', v: 530000 }]);
+  st = L.D.slx.card.state();
+  assert.deepStrictEqual([st.title, st.hero, plain(st.buttons)], ['You died', '−$0.53', ['Lobby', 'Spectate', 'Play again $0.50']]);
+  const row = L.find('dse-btn').map((b) => [b.textContent, b.getAttribute('data-dse-btn'), /\bpri\b/.test(b.className)]);
+  assert.deepStrictEqual(row, [['Lobby', 'lobby', false], ['Spectate', 'spectate', false], ['Play again $0.50', 'again', true]]);
+  L.dispatch(L.button('spectate'), 'click', {});
+  assert.deepStrictEqual(plain(L.session.dump()), { playerName: 'Owen', dsWatch: 'snake', dsWatchStake: '0.5' },
+    'the watch mark and this rung only: no stake, no token, no launch nonce, no reload mark');
+  assert.deepStrictEqual(L.win.location.replaced, ['/sl']);
+  assert.deepStrictEqual([L.posts, L.win.location.assigned], [[], []], 'no buy-in, no Lobby');
+  windowEvent(L, 'pagehide');
+  assert.strictEqual(L.session.getItem('slxPaidCut'), null, 'nothing left in the room: the reopened page is not held');
+  assert.ok(!visible(L).includes(TOKEN));
+
+  // a cash-out with its payout still on the way (the trap let go at the cash-out, so Lobby and Spectate are open)
+  const C = paidPage({ fetchState: 'pending' });
+  seat(C);
+  C.sock().fire('sl:x', [{ t: 'cashed', len: 40, gross: 530000, cut: 53000, net: 477000, cid: CID }]);
+  C.sock().fire('sl:f', [{ type: 'dead' }]);
+  C.hooks.onMenuShow();
+  st = C.D.slx.card.state();
+  assert.deepStrictEqual([st.title, st.status, plain(st.buttons)], ['Cashed out', 'Sending to your wallet...',
+    ['Lobby', 'Spectate', 'Play again $0.50']]);
+  C.D.slx.card.spectate();
+  assert.deepStrictEqual([C.session.getItem('dsWatch'), C.session.getItem('dsWatchStake'), C.win.location.replaced],
+    ['snake', '0.5', ['/sl']]);
+
+  // a buy-in with the wallet: refused as Lobby is
+  const E = paidPage();
+  seat(E);
+  E.sock().fire('sl:x', [{ t: 'lost', v: 500000 }]);
+  E.sock().fire('sl:f', [{ type: 'dead' }]);
+  E.hooks.onMenuShow();
+  E.D.slx.card.playAgain();
+  st = E.D.slx.card.state();
+  assert.deepStrictEqual(plain(st.buttons), ['Lobby', 'Spectate', 'Confirm in your wallet...']);
+  E.D.slx.card.spectate();
+  assert.strictEqual(E.find('slx-paid-note')[0].textContent, 'Finish the stake in your wallet first');
+  assert.deepStrictEqual([E.win.location.replaced, E.session.getItem('dsWatch')], [[], null]);
+
+  // a notice keeps its own buttons: refused, closed and refunded
+  const R = paidPage();
+  R.sock().connect();
+  R.sock().fire('sl:x', [{ t: 'refused', why: 'full', refunded: 0 }]);
+  R.sock().drop('io server disconnect');
+  assert.deepStrictEqual(plain(R.D.slx.card.state().buttons), ['Lobby']);
+  const K = paidPage();
+  seat(K);
+  K.sock().fire('sl:x', [{ t: 'closed', why: 'shutdown', refunded: 512000 }]);
+  K.sock().fire('sl:f', [{ type: 'dead' }]);
+  K.hooks.onMenuShow();
+  assert.deepStrictEqual([K.D.slx.card.state().title, plain(K.D.slx.card.state().buttons)], ['Restarting', ['Lobby']]);
+  K.D.slx.card.spectate();
+  assert.deepStrictEqual(K.win.location.replaced, []);
+
+  // the reopened page: a watcher of the $0.50 rung, never paid (the lobby's paid Spectate page)
+  const W = paidPage({ session: plain(L.session.dump()) });
+  assert.strictEqual(W.D.slx.paid.on, false);
+  assert.deepStrictEqual(W.plays, ['Owen'], 'the lobby frame plays at once, as a watcher');
+  assert.deepStrictEqual(W.sock().opts.auth, { watch: 1, watchStake: 0.5 }, 'read only: no paid, no stake, no token');
+  assert.deepStrictEqual(plain(W.session.dump()), { playerName: 'Owen' }, 'the marks taken out at boot');
+  assert.strictEqual(typeof W.D.slx.watch.state, 'function');
 });
 
 test('reload mark: pagehide with money in writes slxPaidCut; the reloaded page shows the notice and never plays free', () => {
@@ -880,7 +965,7 @@ test('surfaces: the free card is unchanged with slxPaid loaded (no hook answers)
   assert.deepStrictEqual([st.tone, st.hero, st.unit, plain(st.ledger), st.status], ['plain', '12', 'length', [], '']);
   assert.strictEqual(P.find('dse-note').length + P.find('dse-led').length + P.find('dse-st').length, 0,
     'no lines, money rows or status on a free card');
-  assert.strictEqual(P.D.slx.card.element.textContent, 'You diedFreeLength12Time0:00Kills0LobbyPlay again');
+  assert.strictEqual(P.D.slx.card.element.textContent, 'You diedFreeLength12Time0:00Kills0LobbySpectatePlay again');
   const src = fs.readFileSync(path.join(SLX_DIR, 'slxPaid.js'), 'utf8');
   assert.ok(!/localStorage/.test(src.replace(/\/\/.*$/gm, '')), 'slxPaid never touches localStorage');
   assert.ok(!src.includes(String.fromCharCode(0x2014)), 'no em dash');

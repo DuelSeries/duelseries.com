@@ -386,6 +386,21 @@ test('no pp:in from the disconnect until the resume is joined (an old seq would 
   assert.strictEqual(n2.resuming, false);
 });
 
+test('chat: pp:chat and pp:chatnote reach the page hooks as plain objects; chat(text) sends only a non-empty string', () => {
+  const { socket, net } = kit({ you: 4 });
+  const heard = [];
+  net.on('pp:chat', (m) => heard.push(['chat', m]));
+  net.on('pp:chatnote', (m) => heard.push(['note', m]));
+  socket.fire('pp:chat', { id: 4, name: 'Ann', c: '#4a7c59', text: 'hi' });
+  socket.fire('pp:chatnote', { text: 'Slow down a little.' });
+  assert.deepStrictEqual(heard, [['chat', { id: 4, name: 'Ann', c: '#4a7c59', text: 'hi' }], ['note', { text: 'Slow down a little.' }]]);
+  const before = socket.sent.length;
+  for (const t of ['', null, undefined, 3, {}]) assert.strictEqual(net.chat(t), false);
+  assert.strictEqual(socket.sent.length, before);
+  assert.strictEqual(net.chat('gg'), true);
+  assert.deepStrictEqual(socket.sent[socket.sent.length - 1], ['pp:chat', { text: 'gg' }]);
+});
+
 test('ping at 1 Hz while seated; pong gives the round trip; respawn and leave', () => {
   const { clock, socket, net } = kit({ at: 5000 });
   net.update(5000);

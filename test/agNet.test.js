@@ -152,6 +152,20 @@ test('ag:view sends a whole number, 0 or more, and nothing else', () => {
   assert.strictEqual(N.EVENTS.view, 'ag:view');
 });
 
+test('ag:chat sends the typed text only; an empty or non-string line is never sent', () => {
+  const sock = fakeSocket(true);
+  const net = N.createNet({ socket: sock });
+  for (const t of ['', null, undefined, 5, {}]) assert.strictEqual(net.sendChat(t), false);
+  assert.strictEqual(sock.emitted.length, 0);
+  assert.strictEqual(net.sendChat('hello'), true);
+  assert.strictEqual(net.send('chat', { text: 'again' }), true);
+  assert.strictEqual(net.send('chat'), false);
+  assert.deepStrictEqual(sock.emitted, [['ag:chat', { text: 'hello' }], ['ag:chat', { text: 'again' }]]);
+  assert.strictEqual(N.EVENTS.chat, 'ag:chat');
+  sock.connected = false;
+  assert.strictEqual(net.sendChat('nobody home'), false);
+});
+
 test('nothing is sent while the socket is down', () => {
   const sock = fakeSocket(false);
   const net = N.createNet({ socket: sock });

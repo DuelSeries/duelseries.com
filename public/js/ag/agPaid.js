@@ -34,7 +34,8 @@
 // 7. Play again after a death or a cash-out buys a new seat through the lobby's wallet (duel:restake, answered by
 //    duel:restake:done with a fresh token, wallet-widget/src/restakeBridge.mjs); Back to lobby and the Lobby button
 //    are shut while that buy-in is with the wallet (Paper's lockLobby), so a token minted after the lobby cleared this
-//    frame can never land in a blank frame.
+//    frame can never land in a blank frame. The card's Spectate (agMain watchPaidRung: the lobby's own watch of this
+//    rung, read only, no money key) leaves the page the same way, so it is shut exactly when Lobby is.
 //
 // 8. The exit lock (agLobby's 'paid:lock' hook) holds while any join is out (a token may already be money in a seat,
 //    a resume key is one), and while a dropped seat is reconnecting, until GIVE_UP_MS, when the card also offers
@@ -487,6 +488,7 @@
       var c = card();
       c.setAgain({ text: TEXT.againAsk, disabled: true });
       c.setLobbyLocked(true);
+      if (c.setBuying) c.setBuying(true);
       c.setError('');
       later('restake', restakeSlow, RESTAKE_WAIT_MS);
       try {
@@ -512,6 +514,7 @@
       lock(false);
       var c = card();
       c.setLobbyLocked(false);
+      if (c.setBuying) c.setBuying(false);
       c.setAgain({ text: 'Play again ' + money(st.stake) });
       if (message) c.setError(message);
     }
@@ -528,6 +531,7 @@
         st.restaking = false;
         cancel('restake');
         card().setLobbyLocked(false);
+        if (card().setBuying) card().setBuying(false);
         sendJoin({ entryToken: d.entryToken });
         if (typeof o.reconnect === 'function') o.reconnect();   // a socket the server closed comes back for it
       } else if (d.type === 'duel:restake:error') {
@@ -588,7 +592,7 @@
       state: function () {
         return { phase: st.phase, stake: st.stake, seated: st.seated, spawned: st.spawned, readySent: st.readySent,
           needReady: st.needReady, pendingToken: !!st.joinToken, pendingKey: !!st.joinKey, hasResume: !!st.resumeKey,
-          restaking: st.restaking, ended: st.ended, conns: st.conns };
+          restaking: st.restaking, ended: st.ended, conns: st.conns, unspent: !!st.token };
       }
     };
   }

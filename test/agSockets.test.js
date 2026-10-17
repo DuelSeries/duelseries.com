@@ -9,6 +9,7 @@ const { AgArenas } = require('../server/ag/agArenas');
 const { attachAgSockets, AG_RATE, AG_CONN, cleanName, clientIp } = require('../server/ag/agSockets');
 const { FIXTURE, makeFixture } = require('./agLawsFixture');
 const { LAWS } = require('../server/ag/agLaws');
+const { createChatGuard, NOTES } = require('../server/chatGuard');
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -35,7 +36,7 @@ function world(opts) {
   const socketRL = o.socketRL || ((socket, key, ms) => { rl.push([key, ms]); return true; });
   const maintenance = { on: false };
   const handlers = attachAgSockets(null, a, {
-    socketRL, sanitizeName, log: quiet, ops: { get: () => ({ maintenance: maintenance.on }) },
+    socketRL, sanitizeName, log: quiet, ops: { get: () => ({ maintenance: maintenance.on }) }, chatGuard: o.chatGuard,
   });
   return { a, handlers, rl, maintenance };
 }
@@ -479,4 +480,66 @@ test('ag:join checks the rate limit before it cleans the name', () => {
   // one helper check per 9-character piece of the CAP-character name (L37 wrap in cleanName)
   assert.strictEqual(cleaned, Math.ceil(CAP / 9));
   assert.strictEqual(a.roomOfSocket(s.id).seatOf(s.id).name, 'x'.repeat(CAP));
+});
+
+// The shared in-game chat (Owen 2026-10-16): ag:chat from a seat that plays goes to the whole room, spectators too.
+test('ag:chat: a playing seat speaks to the whole room; watchers and spectators hear it but cannot speak', () => {
+  const free = createChatGuard({ rate: { burst: 100, refillMs: 1, minGapMs: 0 }, dupMs: 0 });
+  const w = world({ chatGuard: free });
+  const a = sock(w);
+  const b = sock(w);
+  const watcher = sock(w);
+  const spec = sock(w);
+  a.fire('ag:join', { name: 'Ann' });
+  b.fire('ag:join', { name: 'Bob' });
+  spec.fire('ag:spectate');
+  roomOf(w, a).tickOnce();
+  const chats = (s) => s.other.filter((o) => o[0] === 'ag:chat').map((o) => o[1]);
+  assert.strictEqual(roomOf(w, a), roomOf(w, watcher), 'one room');
+
+  a.fire('ag:chat', { text: 'hello  there' });
+  assert.strictEqual(chats(a).length, 1);
+  const own = chats(a)[0];
+  assert.strictEqual(own.me, 1, 'the sender\'s own copy is marked');
+  assert.strictEqual(own.name, 'Ann');
+  assert.strictEqual(own.text, 'hello there', 'the guard\'s cleaned text, never the raw one');
+  assert.match(own.c, /^#[0-9a-f]{6}$/, 'the speaker\'s cell colour');
+  for (const s of [b, watcher, spec]) {
+    assert.strictEqual(chats(s).length, 1);
+    assert.deepStrictEqual(chats(s)[0], { name: 'Ann', text: 'hello there', c: own.c }, 'no me on anyone else\'s copy');
+  }
+
+  // A watcher that never pressed Play, a spectator and a seat flagged watch-only cannot speak.
+  watcher.fire('ag:chat', { text: 'let me in' });
+  spec.fire('ag:chat', { text: 'spectating' });
+  roomOf(w, b).seatOf(b.id).watchOnly = true;
+  b.fire('ag:chat', { text: 'paid watcher' });
+  for (const s of [a, b, watcher, spec]) assert.strictEqual(chats(s).length, 1, 'nothing new for anyone');
+  assert.ok(![a, b, watcher, spec].some((s) => s.other.some((o) => o[0] === 'ag:chatnote')), 'no note for a seat that may not speak');
+
+  // Wrong shapes are ignored without a throw.
+  for (const bad of [undefined, null, 'hi', 5, [], { text: 5 }, { text: null }, {}, { txt: 'x' }]) a.fire('ag:chat', bad);
+  assert.strictEqual(chats(a).length, 1);
+});
+
+test('ag:chat: a link is refused with a note to the sender alone; the real guard rate limits', () => {
+  const w = world();
+  const a = sock(w);
+  const b = sock(w);
+  a.fire('ag:join', { name: 'Ann' });
+  b.fire('ag:join', { name: 'Bob' });
+  roomOf(w, a).tickOnce();
+  const chats = (s) => s.other.filter((o) => o[0] === 'ag:chat');
+  const notes = (s) => s.other.filter((o) => o[0] === 'ag:chatnote').map((o) => o[1]);
+  a.fire('ag:chat', { text: 'free money at www.scam-site.com' });
+  assert.strictEqual(chats(a).length + chats(b).length, 0, 'a link goes nowhere');
+  assert.deepStrictEqual(notes(a), [{ text: NOTES.link }]);
+  assert.strictEqual(notes(b).length, 0);
+
+  // The shared guard's own bucket: a line right after a good one is "too fast" and is not broadcast either.
+  a.fire('ag:chat', { text: 'good game' });
+  assert.strictEqual(chats(b).length, 1);
+  assert.strictEqual(chats(b)[0][1].text, 'good game');
+  a.fire('ag:chat', { text: 'second line at once' });
+  assert.strictEqual(chats(b).length, 1, 'the rate limit holds the second line back');
 });

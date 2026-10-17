@@ -128,7 +128,7 @@ function fakeSocket() {
 }
 
 // o: w, h, dpr, net (fake socket.io), pad (Split / Eject / Cash out buttons), cfg (extra boot config), parent,
-// location, matchMedia, dsEnd (false: a page without the shared end card, as the parity harness)
+// location, matchMedia, dsEnd (false: a page without the shared end card, as the parity harness), sessionStorage
 function bootPage(o) {
   o = o || {};
   const doc = makeDoc();
@@ -160,6 +160,7 @@ function bootPage(o) {
   if (o.net) win.io = (...a) => { ioCalls++; ioArgs.push(a); return sock; };
   if (o.location) win.location = o.location;
   if (o.matchMedia) win.matchMedia = o.matchMedia;
+  if (o.sessionStorage) win.sessionStorage = o.sessionStorage;
   if (o.dsEnd !== false) installDSEnd(win);
   globalThis.document = doc;
   const sound = LIB.agSound.createSound({ storage: null, createAudioContext: () => null });

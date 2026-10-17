@@ -233,6 +233,7 @@
     S = next;
     layout();
     if (!S) return;
+    if (window.TanksSound) TanksSound.state(S, myId);       // sounds (tanksSound.js)
 
     $('top').hidden = false;
     $('controls').hidden = false;
@@ -275,6 +276,7 @@
   /* Replay a shot the server has already flown. */
   function playShot(result) {
     shell = { path: result.path, i: 0 };
+    if (window.TanksSound) TanksSound.shot(result, myId);
     $('controls').classList.add('waiting');
     const step = () => {
       if (!shell) return;
@@ -282,6 +284,7 @@
       if (shell.i < shell.path.length - 1) { setTimeout(step, 16); return; }
       const end = result.hit;
       shell = null;
+      if (window.TanksSound) TanksSound.land(result, myId);
       if (end && end.type !== 'out') blast = { x: end.x, y: end.y, t: Date.now() };
       if (result.state) applyState(result.state);
     };
@@ -318,6 +321,7 @@
     if (m.state) applyState(m.state);
     const me = myTank();
     const won = m.winner && me && m.winner.name === me.name;
+    if (window.TanksSound) TanksSound.over(!!won);
     $('over').hidden = false;
     $('overEyebrow').textContent = 'Match over';
     $('overWho').textContent = !m.winner ? 'Both destroyed' : won ? 'You won' : m.winner.name + ' won';

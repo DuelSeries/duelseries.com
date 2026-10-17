@@ -204,7 +204,9 @@ function duelStatus(lobbies) {
    The console's v2 names (people, paidPeople, moneyInPlay, floor, pending,
    duels; money in dollars) sit beside the old ones, which the old page and
    scripts/owner-smoke.js still read. */
-function drainStatus(rooms, pending, duels) {
+function drainStatus(rooms, pending, duels, extraWhy) {
+  /* The old three-argument call passed the battle royale reasons third. */
+  if (Array.isArray(duels)) { extraWhy = duels; duels = null; }
   let playing = 0, paid = 0, paidWorth = 0, floorWorth = 0;
   for (const room of rooms || []) {
     if (!room) continue;
@@ -232,6 +234,8 @@ function drainStatus(rooms, pending, duels) {
     why.push(n + ' paid Knockout or Battleship seat' + (n === 1 ? ' holds a stake' : 's hold stakes')
       + ' (' + Math.round(duelWorth * 1e6) / 1e6 + ' USDC, queued or at a table)');
   }
+  /* The caller's own reasons (a live battle royale: a restart voids it, Owen 2026-10-16). */
+  if (Array.isArray(extraWhy)) for (const w of extraWhy) if (typeof w === 'string' && w) why.push(w);
   const r6 = (v) => Math.round(v * 1e6) / 1e6;
   return {
     playing,

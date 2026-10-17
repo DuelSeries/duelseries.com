@@ -7,7 +7,8 @@
 // this page (see topListChanged below). The live game has NO leave control: Lobby is on the end
 // cards only. Watch mode (the lobby's Spectate,
 // sessionStorage dsWatch = 'paper') never joins: it watches the busiest free table read-only,
-// with a Lobby button, the followed square's name and Next.
+// with a Lobby button, the followed square's name and Next. The death and cash-out cards' Spectate
+// reopens this page in watch mode on the same table's rung, as the lobby's Spectate does.
 // Test-only: ?lag=N delays every socket event by N ms each way (so ?lag=50 is a 100 ms round
 // trip); off by default.
 (function (root) {
@@ -24,6 +25,10 @@
   var WATCH_RETRY_MS = 3000; // watch mode: nothing to watch (or no answer yet), ask again this often
   var BOARD_MS = 200; // the leaderboard is redrawn at most this often (its land % move every tick)
   var END_CARDS = { dead: true, cashed: true, refused: true, gone: true };
+  // The end cards' Spectate does what the lobby's does for this game (public/js/v2/play.js spectate): every money key
+  // a page could read goes first (its MONEY_KEYS), then the watch mark, then the same page the lobby opens.
+  var WATCH_MONEY_KEYS = ['entryToken', 'entrySol', 'stake', 'slPaidLaunch', 'slxPaidCut', 'slBr', 'spectateOnly'];
+  var WATCH_URL = '/paper-arena';
   // Watch mode's waiting words per pp:watching { none: true, why } (server paperSockets.js WATCH_TEXT).
   var WATCH_TEXT = {
     nobody: 'Nobody is playing right now',
@@ -468,10 +473,43 @@
     var best = loadBest();
     game.best = watchMode ? undefined : best || undefined; // a watcher's own best is not the followed square's
 
+    // ---- chat (public/js/shared/dsChat.js: T types, Enter sends; the server's pp:chat and pp:chatnote) ----
+    // Only a live square sends; a watcher reads. The box shows while a table does (live, or a watched one): bottom left
+    // above the leave hint (higher in watch mode, where the Next bar sits there), and on a phone top left under the
+    // stock score stack, the place the watch page puts its Lobby button (layoutChat), with the watcher's box below it.
+    var chat = null;
+    if (root.DSChat) {
+      chat = root.DSChat.mount({
+        send: function (t) { return net.chat(t); },
+        canSend: function () { return page.phase === 'live' && !page.watch; },
+        light: true,
+        pc: { left: 12, bottom: watchMode ? 58 : 40 },
+        phoneAt: { left: 10, top: 124 }
+      });
+      net.on('pp:chat', function (m) {
+        m = m || {};
+        chat.add({ name: m.name, color: m.c, text: m.text, me: net.you > 0 && m.id === net.you });
+      });
+      net.on('pp:chatnote', function (m) { chat.add({ kind: 'sys', text: m && m.text }); });
+    }
+    function layoutChat() {
+      var w = view.clientWidth;
+      var h = view.clientHeight;
+      if (!chat || !(w > 0 && h > 0)) return;
+      var s = Math.hypot(w, h) / Math.hypot(1366, 768);
+      var font = P.Hud.calcMult(w, h, 20, 30) * s;
+      chat.el.style.setProperty('--dsc-t', Math.round(28 * s + 4 * font + 12 + (watchMode ? 44 : 4)) + 'px');
+    }
+    if (chat) {
+      root.addEventListener('resize', layoutChat);
+      layoutChat();
+    }
+
     // ---- screens ----
     function setLive(live) {
       show(el.hint, live);
       show(el.cash, live);
+      if (chat) chat.visible(live);
       if (!live) setHold(false);
     }
 
@@ -490,17 +528,24 @@
     }
 
     // ---- end cards (DSEnd.show, the site's one card) ----
-    // page.end holds what the card says (opts: verdict, hero, facts, ledger, status), its Play again (null on a card
-    // with only the way back) and the one note under the money (a restake refusal or wait); every change redraws it.
+    // page.end holds what the card says (opts: verdict, hero, facts, ledger, status), its Play again (null on a
+    // notice card: refused or disconnected, with only the way back) and the one note under the money (a restake
+    // refusal or wait); every change redraws it. A card that closes a life (dead, cashed out, paid or free) has the
+    // same three buttons as every game's (Owen 2026-10-16): Lobby, Spectate, Play again. Spectate is open when Lobby
+    // is, except while a paid buy-in is still with the wallet (see onSpectateClick); Play again is shown even where
+    // it cannot be pressed (a paid page with no lobby wallet to ask), disabled.
     function endCard() {
       var end = page.end;
       var o = {};
       for (var k in end.opts) if (Object.prototype.hasOwnProperty.call(end.opts, k)) o[k] = end.opts[k];
       o.notes = (end.opts.notes || []).concat(end.note ? [end.note] : []);
-      var again_ = end.again && end.again.shown ? end.again : null;
-      o.buttons = [];
-      if (again_) o.buttons.push({ id: 'again', text: again_.text, primary: true, disabled: again_.disabled, onClick: onAgainClick });
-      o.buttons.push({ id: 'lobby', text: 'Lobby', primary: !again_, disabled: page.lobbyLocked, onClick: onLobbyClick });
+      var again_ = end.again || null;
+      o.buttons = [{ id: 'lobby', text: 'Lobby', primary: !again_, disabled: page.lobbyLocked, onClick: onLobbyClick }];
+      if (again_) {
+        o.buttons.push({ id: 'spectate', text: 'Spectate', disabled: !spectateOpen(), onClick: onSpectateClick });
+        o.buttons.push({ id: 'again', text: again_.text, primary: true, disabled: !again_.can || again_.disabled,
+          onClick: onAgainClick });
+      }
       return o;
     }
 
@@ -524,19 +569,19 @@
       var card = DSEnd.show(endCard());
       // Keyboard focus lands on the card's action. A paid Play again is not a keyboard default (it opens a new
       // buy-in), so a paid card leaves the focus alone; a card with only the way back focuses it.
-      var focusBtn = !end.again ? card.button('lobby') : (page.stake === 0 && end.again.shown ? card.button('again') : null);
+      var focusBtn = !end.again ? card.button('lobby') : (page.stake === 0 && end.again.can ? card.button('again') : null);
       if (focusBtn) {
         try { focusBtn.focus({ preventScroll: true }); } catch (_) {}
       }
     }
 
     // Play again as a fresh card offers it. A paid round is bought again through the lobby's wallet (duel:restake);
-    // a page opened on its own has no wallet to ask, so it offers only the way back.
+    // a page opened on its own has no wallet to ask, so its Play again cannot be pressed (can: false).
     function prepareAgain() {
       page.restaking = false;
       cancel('restake');
       page.lobbyLocked = false;
-      return { shown: !(page.stake > 0 && !framed), text: 'Play again', disabled: false };
+      return { can: !(page.stake > 0 && !framed), text: 'Play again', disabled: false };
     }
 
     // While a paid buy-in is with the lobby's wallet the way back is shut: the lobby clears
@@ -681,7 +726,7 @@
     function onAgainClick() {
       var end = page.end;
       var a = end && end.again;
-      if (!a || !a.shown || a.disabled || page.phase !== 'end') return;
+      if (!a || !a.can || a.disabled || page.phase !== 'end') return;
       if (page.stake > 0) {
         if (!framed || page.restaking) return;
         page.restaking = true;
@@ -716,6 +761,37 @@
       } else {
         root.location.href = '/';
       }
+    }
+
+    // Spectate is open when Lobby is, and also shut while a paid buy-in is with the wallet (page.restaking, which
+    // outlasts the lock after RESTAKE_WAIT_MS): Lobby clears the frame, so a stake that lands late opens its round in
+    // it (wallet-widget/src/restakeBridge.mjs relaunch), but this page would still be in the frame, watching, and a
+    // late stake would have no seat to go to.
+    function spectateOpen() {
+      return !page.lobbyLocked && !page.restaking;
+    }
+
+    // The lobby's Spectate for this table's rung (public/js/v2/play.js spectate), from the card: every money key out,
+    // dsWatch = 'paper', dsWatchStake for a paid table (its own key, never 'stake'), then the page the lobby opens,
+    // which boots watching (readWatch). Watch mode is set up only at boot, so the page opens again rather than
+    // switching in place. pp:leave first, as Lobby sends it. Nothing here touches money: the round is over.
+    function onSpectateClick(evt) {
+      if (evt && typeof evt.preventDefault === 'function') evt.preventDefault();
+      if (!spectateOpen() || page.phase !== 'end' || !page.end || !page.end.again) return;
+      var stake = page.stake > 0 ? page.stake : 0;
+      try {
+        var ss = root.sessionStorage;
+        for (var i = 0; i < WATCH_MONEY_KEYS.length; i++) ss.removeItem(WATCH_MONEY_KEYS[i]);
+        ss.setItem('dsWatch', 'paper');
+        if (stake > 0) ss.setItem('dsWatchStake', String(stake));
+        else ss.removeItem('dsWatchStake');
+      } catch (_) {
+        return; // no mark, no watching: the card stays as it is
+      }
+      try { net.leave(); } catch (_) {}
+      var loc = root.location;
+      if (loc && typeof loc.replace === 'function') loc.replace(WATCH_URL);
+      else if (loc) loc.href = WATCH_URL;
     }
 
     // The lobby's answer to duel:restake (wallet-widget/src/main.jsx). Only the parent frame
@@ -994,6 +1070,7 @@
       page.watchLive = false;
       page.phase = 'connecting';
       show(el.watchBar, false);
+      if (chat) chat.visible(false);
       showConnecting(text, sub);
     }
 
@@ -1054,6 +1131,7 @@
         page.watchLive = true;
         page.phase = 'watch';
         showOnly(null);
+        if (chat) chat.visible(true);
         layoutWatch();
         setFollowed(game.player || null);
       });

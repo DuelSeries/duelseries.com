@@ -40,7 +40,7 @@ const SLX_FILES = Object.freeze(['slxNet.js', 'slxPaid.js', 'slxBr.js', 'slxWatc
   'slxCard.js', 'slxChat.js', 'slxStats.js', 'slxHud.js', 'slxSound.js', 'slxHold.js', 'slxTouch.js',
   'slxSkins.js', 'slxCoin.js']);
 const SLX_CSS = 'slx.css';
-const SHARED_UI = 'dsEnd.js';
+const SHARED_UI = Object.freeze(['dsEnd.js', 'dsChat.js']);   // the end screens and the chat every game shares
 const EMPTY_UI = 'dsEmptyArena.js';
 const CLIP_FILES = Object.freeze(['mp4mux.js', 'clipRec.js']);
 
@@ -77,8 +77,11 @@ function slxTail(publicDir) {
     .concat(present.filter((f) => !SLX_FILES.includes(f)).sort());
   let tail = '';
   if (fs.existsSync(path.join(dir, 'css', SLX_CSS))) tail += '<link rel="stylesheet" type="text/css" href="/css/' + SLX_CSS + '" />\n';
-  // The end screens and leaderboard every game shares (slxCard and slxHud draw with it), before the layer.
-  if (ordered.length && fs.existsSync(path.join(dir, 'js', 'shared', SHARED_UI))) tail += '<script src="/js/shared/' + SHARED_UI + '"></script>\n';
+  // The end screens and leaderboard every game shares (slxCard and slxHud draw with it) and the chat (slxChat maps the
+  // wire into it), before the layer.
+  for (const f of SHARED_UI) {
+    if (ordered.length && fs.existsSync(path.join(dir, 'js', 'shared', f))) tail += '<script src="/js/shared/' + f + '"></script>\n';
+  }
   for (const f of ordered) tail += '<script src="/js/slx/' + f + '"></script>\n';
   // The empty table a Spectate shows when nobody is there to follow (slxWatch reads it when it needs it), shared with
   // agar.io and Paper.io.

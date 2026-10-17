@@ -111,7 +111,7 @@ const WATCH_REFUSED = Object.freeze(['paid', 'idProof'].concat(MONEY_FIELDS));
 // C_CONN badSkin modes built: 'random0to8' = one of the 9 plain colours 0 to 8 (their login, G:8963-8969).
 const BAD_SKIN_MODES = Object.freeze({ random0to8: 9 });
 const REFUSALS = Object.freeze(['limit', 'not-open', 'maintenance', 'closed', 'full', 'flood', WHY_GONE, WHY_TAKEN,
-  'match', 'nobody']);
+  'match', 'nobody', 'twice']);
 // sl:diag fields (SERVER-DESIGN 12.2): whole or fractional counters, each a finite number from 0 to INT32_MAX; and
 // lastClose, one short enum the layer names (T17), kept only as up to L45 nameMax letters, digits, '_', '-' or ':'.
 const DIAG_NUMBERS = Object.freeze(['applyThrows', 'wireErrors', 'fps', 'lag', 'lagEntries', 'pongP95', 'maxGapMs',

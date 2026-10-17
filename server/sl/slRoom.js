@@ -91,6 +91,7 @@ const slQuant = require('./slQuant');
 const { preyNotShippable } = require('./slPrey');
 const { createRecordCache, encodeRecord } = require('./slRecordCache');
 const { createSendQueue, QUEUE_TABLE_IDS } = require('./slSendQueue');
+const { createChatGuard } = require('../chatGuard');
 const { createHoldBook, HOLD_LAW_IDS } = require('./slHold');
 const { createSafeStats, safeCall, safeImmediate, safeTimeout, REAL_TIMERS } = require('./slSafe');
 const { resumeLaws, makeKey, createWindow, WHY_GONE } = require('./slResume');
@@ -344,6 +345,7 @@ class SlRoom {
     this.timers = o.timers || REAL_TIMERS;
     this.clock = typeof o.clock === 'function' ? o.clock : (() => performance.now());
     this.now = typeof o.now === 'function' ? o.now : Date.now;
+    this.chatGuard = o.chatGuard || createChatGuard();   // the shared chat rules (server/chatGuard.js), a bucket per seat
     this.region = typeof o.region === 'string' && o.region ? o.region : 'na';
     this.lobbyType = paid ? paid.lobbyType
       : o.br ? (typeof o.lobbyType === 'string' && o.lobbyType ? o.lobbyType : 'sl_' + this.region + '_br')
@@ -508,9 +510,12 @@ class SlRoom {
   // null when a seat can be given, else the refusal reason.
   // A gliding orphan is a live human snake, so it counts toward both caps until its glide ends (fixer pass,
   // 2026-10-10: join-then-close cycles from one address kept 773 live snakes against a cap of 20).
-  refusal() {
+  // info (a seat's, optional): its proven wallet, for the battle royale's one snake per person.
+  refusal(info) {
     if (this.stopped || this.closed) return 'closed';
     if (this.br && !this.br.acceptingPlayers()) return 'match'; // a battle royale match is under way
+    // one snake per person in the battle royale: this wallet already has a living one here (brMatch.walletBusy)
+    if (this.br && info && typeof this.br.walletBusy === 'function' && this.br.walletBusy(info.wallet)) return 'twice';
     const humans = this.seats.size + this.orphans.size;
     if (humans >= this.R.humanCap || humans >= this.R.roomCap) return 'full';
     return null;
@@ -522,7 +527,7 @@ class SlRoom {
     if (!socket || typeof socket.id !== 'string') throw new TypeError('slRoom: seat needs a socket with an id');
     if (this.money) throw new Error('slRoom: a paid room seats only through seatPaid (an account per snake)');
     if (this.seats.has(socket.id)) return this.seats.get(socket.id);
-    if (this.refusal()) return null;
+    if (this.refusal(info)) return null;
     const built = { s: null, seat: null };
     this._buildSeat(socket, info, built);
     const seat = built.seat;
@@ -1138,15 +1143,26 @@ class SlRoom {
     return true;
   }
 
-  // sl:chat {text}: one line to every seat (C_CHAT; the rate is slSockets').
+  // sl:chat {text}: one line to every seat and watcher, after the chat guard (server/chatGuard.js: tags and hidden
+  // characters gone, rate, links, wallet addresses and slurs refused, swear words masked; then C_CHAT). The line
+  // carries the snake id and skin (id, cv) so pages print the name in the snake's colour. A refused line tells only
+  // its sender why ({t: 'chatnote', text}); slSockets' C_RATE chat gap still runs first.
   onChat(socketOrSeat, text) {
     const seat = socketOrSeat && socketOrSeat.queue ? socketOrSeat : this.seatOf(socketOrSeat);
     if (!seat || seat.closed || seat.parked || seat.watch) return false;
     this._heard(seat);
-    const t = cleanChat(text, this.R);
+    const r = this.chatGuard.check(seat.id, text, this.now());
+    if (!r.ok) {
+      if (r.note) {
+        seat.queue.message(this.sim.tick(), { t: 'chatnote', text: r.note });
+        this._scheduleFlush(seat);
+      }
+      return false;
+    }
+    const t = cleanChat(r.text, this.R);
     if (!t) return false;
     this.stats.chats++;
-    this._messageAll({ t: 'chat', name: seat.nick, text: t });
+    this._messageAll({ t: 'chat', name: seat.nick, text: t, id: seat.snakeId, cv: seat.cv });
     return true;
   }
 
@@ -1628,7 +1644,7 @@ class SlRoom {
     // C_KILLFEED humanInvolved: the killer exists and a human is the killer or the victim
     if (d.killer && (this.humans.has(id) || this.humans.has(d.killer))) {
       this.stats.killLines++;
-      const msg = { t: 'kill', killer: this.names.get(d.killer) || '', victim: this.names.get(id) || '' };
+      const msg = { t: 'kill', killer: this.names.get(d.killer) || '', victim: this.names.get(id) || '', kid: d.killer, vid: id };
       for (const st of this.seats.values()) st.queue.message(tick, msg);
       for (const st of this.watchers.values()) st.queue.message(tick, msg);
       for (const st of this.parked) st.queue.message(tick, msg); // a parked seat back in time sees it (resume)
