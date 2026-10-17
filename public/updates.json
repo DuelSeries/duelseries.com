@@ -2,6 +2,13 @@
   "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). Optional pictures: image (the big one, {src, alt}) and gallery (up to 4 small ones, same shape); src is a file in public/updates/ (/updates/name.webp), alt says what the picture shows. The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
   "posts": [
     {
+      "id": "2026-10-16-knockout-ready",
+      "date": "2026-10-16",
+      "tag": "fix",
+      "title": "Knockout: see when they are ready",
+      "body": "In Knockout you now always see \"They are ready\" the moment your opponent locks in their shot, so you know when the round is about to play out."
+    },
+    {
       "id": "2026-10-16-sounds-everywhere",
       "date": "2026-10-16",
       "tag": "new",
