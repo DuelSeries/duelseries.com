@@ -57,7 +57,9 @@ const COLLUSION_BUCKET_MS = 60000;
 // Violations that taint the room: no new seat opens in it (design 8). It is still settled normally.
 const TAINT_KINDS = Object.freeze(['I1', 'I10', 'I13']);
 
-const OWED_PREFIX = 'agowed:'; // db.recordOwedOnce takes this key form as it is (design 7.2)
+const OWED_PREFIX = 'agowed:';
+// The source a bounty bot's seed pellets name: the owner's bot bank (never a wallet; slMoney _owedRows sends it back).
+const BANK_SRC = '#botbank'; // db.recordOwedOnce takes this key form as it is (design 7.2)
 // The jid the door mints (crypto.randomUUID): db.recordOwedOnce refuses any 'agowed:' key whose tail is not this, so
 // a seat with another jid could never be refunded through the owed lane (db.js recordOwedOnce).
 const JID_RE = /^[0-9a-f-]{36}$/;
@@ -117,7 +119,11 @@ class SlMoney {
     // restart, crash, emergency, idle with nobody there) goes back to those players as keyed owed rows, never to the
     // house. From then on the floor nobody picked up goes back to the players who dropped it too (_returnFloor).
     this.botRoom = false;
-    this.botFrom = new Map(); // bot snake id -> Map srcWallet -> { micro, name }, summing to its balance
+    this.botFrom = new Map(); // bot snake id -> Map srcWallet -> { micro, name }: what it picked up, by whose money
+    // Bounty bots (Owen 2026-10-17): a bot spawns carrying the room's stake, its seed, from the owner's bot bank
+    // (server/botBank.js, already in escrow). Its balance is seed + picked up. Seed nobody won goes back to the bank
+    // through hooks.onSeedBack(micro, why), never the house; pellets of seed name BANK_SRC as their source.
+    this.botSeed = new Map(); // bot snake id -> seed micro
     this.tainted = false; // I1, I10 or I13 seen, or a seat refund refused: no new seat (design 8)
     this.closedCount = Object.create(null); // outcome -> n (owner view, tests)
     this.lastViolations = [];
@@ -143,6 +149,23 @@ class SlMoney {
   // A bot entered the room (slRoom.spawnSnake). One way: the room keeps the rule for the rest of its life.
   markBots() {
     this.botRoom = true;
+  }
+
+  // A bounty bot's seed, from the bot bank (the directory took it first): its account opens holding it, booked in like a
+  // stake (ledger in), with no wallet and no seat. Throws with nothing changed when it cannot open.
+  seedBot(snakeId, micro, name) {
+    if (this.stopped) throw new Error('SlMoney.seedBot: the room is settled');
+    if (!isMicro(micro) || micro < 1) throw new Error('SlMoney.seedBot: seed must be a whole number above 0');
+    this.botRoom = true;
+    this.bank.deposit(snakeId, micro, { bot: true, wallet: null, name: String(name || '') });
+    this.botFrom.set(snakeId, new Map());
+    this.botSeed.set(snakeId, micro);
+  }
+
+  // A bot leaves the room by the owner's hand (Control lower, slRoom.removeBot): seed to the bank, picked up money to
+  // its sources. -> the rows
+  retireBot(snakeId) {
+    return this.botFrom.has(snakeId) ? this._returnBot(snakeId, 'removed', true) : [];
   }
 
   // A bot's money in micro (0 when it holds none).
@@ -390,7 +413,9 @@ class SlMoney {
       this._returnBot(d.id, 'nodrop', true);
       return;
     }
-    const list = Array.from(from.entries()).filter((x) => x[1].micro > 0);
+    const seed = this.botSeed.get(d.id) || 0;
+    const list = (seed > 0 ? [[BANK_SRC, { micro: seed, name: 'bot bank' }]] : [])
+      .concat(Array.from(from.entries()).filter((x) => x[1].micro > 0));
     const srcs = [];
     let i = 0;
     let left = list.length ? list[0][1].micro : 0;
@@ -405,6 +430,7 @@ class SlMoney {
     }
     this.bank.split(d.id, plan.foods, plan.shares, srcs);
     this.botFrom.delete(d.id);
+    this.botSeed.delete(d.id);
     out.lost.set(d.id, M);
   }
 
@@ -414,10 +440,12 @@ class SlMoney {
     const from = this.botFrom.get(id);
     // the withdraw first: a refused one (the ceiling) throws with the bot still on botFrom, so a later pass retries it
     const w = this.bank.withdraw(id, 'refund');
+    const seed = this.botSeed.get(id) || 0;
     this.botFrom.delete(id);
+    this.botSeed.delete(id);
     if (!w || !(w.micro > 0)) return [];
-    const src = from ? Array.from(from.entries()).map(([k, v]) => ({ srcWallet: k || null, srcName: v.name, micro: v.micro }))
-      : [];
+    const src = (seed > 0 ? [{ srcWallet: BANK_SRC, srcName: 'bot bank', micro: seed }] : []).concat(from
+      ? Array.from(from.entries()).map(([k, v]) => ({ srcWallet: k || null, srcName: v.name, micro: v.micro })) : []);
     const sum = src.reduce((n, x) => n + x.micro, 0);
     if (sum !== w.micro) {
       // impossible (every credit adds the same micro to both); the last source takes the difference so none is lost
@@ -431,7 +459,20 @@ class SlMoney {
   // calls this for a held room nobody has played in for FLOOR_SWEEP_MS, so a bot never sits on money for good.
   releaseBots(why = 'idle') {
     const rows = [];
-    for (const id of Array.from(this.botFrom.keys())) rows.push(...this._returnBot(id, why, true));
+    for (const id of Array.from(this.botFrom.keys())) {
+      const seed = this.botSeed.get(id) || 0;
+      if (seed > 0) {
+        // a bounty bot keeps playing with its seed; only what it picked up goes back
+        const from = this.botFrom.get(id);
+        if (this.bank.trimBot(id, seed) > 0) {
+          this.botFrom.set(id, new Map());
+          rows.push(...this._owedRows(Array.from(from.entries()).filter((x) => x[1].micro > 0)
+            .map(([k, v]) => ({ srcWallet: k || null, srcName: v.name, micro: v.micro })), why, true));
+        }
+      } else {
+        rows.push(...this._returnBot(id, why, true));
+      }
+    }
     if (this.accounts.size === 0) rows.push(...this._returnFloor(why, true));
     return rows;
   }
@@ -715,6 +756,18 @@ class SlMoney {
   _owedRows(sources, why, live) {
     const rows = [];
     for (const s of sources) {
+      if (s.srcWallet === BANK_SRC) {
+        // seed nobody won: back to the owner's bot bank (saved there at once), never the house
+        try {
+          if (typeof this.hooks.onSeedBack !== 'function') throw new Error('no onSeedBack hook');
+          this.hooks.onSeedBack(s.micro, String(why), this.label);
+        } catch (e) {
+          this.log.error('[SLP] SEEDBACK CRITICAL ' + s.micro + ' micro not returned to the bot bank (' + this.label + '): ' +
+            (e && e.message));
+          this._alert('seedback', { micro: s.micro });
+        }
+        continue;
+      }
       if (typeof s.srcWallet !== 'string' || !s.srcWallet) {
         // impossible: every pellet comes from an account, and every account has a wallet (open)
         this.log.error('[SLP] BOTFLOOR CRITICAL ' + s.micro + ' micro with no source wallet (' + this.label + ')');

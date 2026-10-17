@@ -391,6 +391,7 @@ function norm(raw) {
   s.battleRoyale = raw.battleRoyale && typeof raw.battleRoyale === 'object' ? raw.battleRoyale : null;
   s.smooth = raw.smooth && typeof raw.smooth === 'object' ? raw.smooth : null;
   s.earnings = raw.earnings && typeof raw.earnings === 'object' ? raw.earnings : null;
+  s.botBank = raw.botBank && typeof raw.botBank === 'object' ? raw.botBank : null;
   s.escrow = raw.escrow && typeof raw.escrow === 'object' ? raw.escrow : null;
   s.got = Date.now();
   return s;
@@ -809,6 +810,37 @@ function partSmooth(ups) {
     pick: (on) => act('smooth', on ? 'sl:smooth:on' : 'sl:smooth:off'),
   });
 }
+/* The bot bank: what funds paid slither bots (each spawns worth its room's stake).
+   Add: send USDC from the revenue wallet to the escrow address, then paste that
+   transfer's signature here; the server checks it on-chain before crediting. */
+function partBotBank(ups, cls) {
+  const read = h('span', { class: 'l', 'data-k': 'botbank' }, 'Bot bank');
+  const sig = h('input', { class: 'say', type: 'text', maxlength: '100', autocomplete: 'off', 'data-k': 'bbsig',
+    placeholder: 'Transfer signature (revenue wallet to escrow)', 'aria-label': 'Transfer signature' });
+  const add = h('button', { type: 'button', class: 'btn', 'data-k': 'bbadd', text: 'Add' });
+  const cap = h('input', { class: 'say', type: 'text', maxlength: '8', autocomplete: 'off', 'data-k': 'bbcap',
+    placeholder: 'Daily limit $', 'aria-label': 'Daily bot limit in dollars', style: 'max-width:110px' });
+  const setCap = h('button', { type: 'button', class: 'btn', 'data-k': 'bbcapset', text: 'Set limit' });
+  add.addEventListener('click', async () => {
+    const v = sig.value.trim();
+    if (!v) { say('Paste the transfer signature first.', true); sig.focus(); return; }
+    const r = await act('botbank', 'botbank:topup', { sig: v });
+    if (r && r.ok && r.body.ok !== false) sig.value = '';
+  });
+  setCap.addEventListener('click', async () => {
+    const v = cap.value.trim();
+    if (!v) { say('Write the daily limit in dollars first.', true); cap.focus(); return; }
+    const r = await act('botbank', 'botbank:cap', { usd: Number(v) });
+    if (r && r.ok && r.body.ok !== false) cap.value = '';
+  });
+  ups.push(() => {
+    const b = S && S.botBank;
+    read.textContent = b ? 'Bot bank $' + num(b.balance).toFixed(2) + ' · today $' + num(b.spentToday).toFixed(2) +
+      ' of $' + num(b.cap).toFixed(2) : 'Bot bank';
+    add.disabled = setCap.disabled = busy.has('botbank');
+  });
+  return [h('div', { class: cls }, read, cap, setCap), h('div', { class: cls }, sig, add)];
+}
 function partSay(ups, next, cls) {
   const input = h('input', { class: 'say', type: 'text', maxlength: '200', autocomplete: 'off', 'data-k': 'say',
     placeholder: 'Message to everyone playing', 'aria-label': 'Message to everyone playing' });
@@ -912,6 +944,7 @@ function buildPC(ups, next) {
   const site = h('div', null, h('h3', null, 'Site'),
     h('div', { class: 'line' }, h('span', { class: 'l' }, 'Cashed-out strip in the lobby'), partStrip(ups)),
     S.smooth ? h('div', { class: 'line' }, h('span', { class: 'l' }, 'Smooth turning'), partSmooth(ups)) : null,
+    ...partBotBank(ups, 'line'),
     partSay(ups, next, 'line'));
   const low = h('div', { class: 'low' }, site,
     h('div', null, h('h3', null, 'Alerts'), partAlerts(ups)),
@@ -987,6 +1020,7 @@ function buildPhone(ups, next) {
     h('div', { class: 'line' }, h('span', { class: 'l' }, 'New games'), partNewGames(ups)),
     h('div', { class: 'line' }, h('span', { class: 'l' }, 'Cashed-out strip'), partStrip(ups)),
     S.smooth ? h('div', { class: 'line' }, h('span', { class: 'l' }, 'Smooth turning'), partSmooth(ups)) : null,
+    ...partBotBank(ups, 'line'),
     partSay(ups, next, 'line'));
   const up = h('div', { class: 'dim', style: 'font-size:13px;padding-top:8px' });
   ups.push((s) => { up.textContent = String(s.region || '').toUpperCase() + ' server, up ' + uptime(s.uptimeSec); });

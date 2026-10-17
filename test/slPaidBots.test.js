@@ -17,6 +17,7 @@ const path = require('node:path');
 const { createSlMoney } = require('../server/slPaid/slMoney');
 const { HOUSE_CUT_DIV } = require('../server/paperPayout');
 const { createBotStore } = require('../server/paidBotStore');
+const { createBotBank } = require('../server/botBank');
 const { FIXTURE } = require('./slLawsFixture');
 
 const LABEL = 'sl_na_s0_5';
@@ -37,6 +38,7 @@ function spy() {
   const hooks = {
     onCashout: hook('onCashout'), onOwed: hook('onOwed'), onFloor: hook('onFloor'), onHouse: hook('onHouse'),
     onBreach: hook('onBreach'), onTransfer: hook('onTransfer'), onAccountOpen: () => {}, onAccountClosed: () => {},
+    onSeedBack: hook('onSeedBack'),
     journal: {
       open: (a) => { records.push({ t: 'open', jid: a.jid }); return true; },
       close: (a, outcome, x) => { records.push(Object.assign({ t: 'close', jid: a.jid, wallet: a.wallet, outcome }, x)); return true; },
@@ -237,12 +239,15 @@ test('the bot store saves atomically and loads whole numbers only', () => {
 const { paidRig } = require('./slPaidFakes');
 const { createBotDriver } = require('../server/sl/slBots');
 
-function botRig(saved) {
+function botRig(saved, fundUsd = 50, capUsd = 50) {
   const mem = { obj: saved || null, saves: 0 };
   const store = { load: () => mem.obj, save: (o) => { mem.obj = o; mem.saves++; return true; } };
+  const bank = createBotBank({ file: path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'botbank-')), 'b.json'), log: quiet });
+  if (fundUsd > 0) bank.credit(fundUsd * 1e6, 'SIG' + Math.random());
+  bank.setCap(capUsd * 1e6);
   let r = null;
-  r = paidRig({ arenas: { botDriver: () => createBotDriver(r.laws, {}), botStore: store } });
-  return { r, mem };
+  r = paidRig({ arenas: { botDriver: () => createBotDriver(r.laws, {}), botStore: store, botBank: bank } });
+  return { r, mem, bank };
 }
 
 test('a rung target opens room #0 with that many bots, saved; a watcher sees them with nobody else there', async () => {
@@ -263,7 +268,9 @@ test('a rung target opens room #0 with that many bots, saved; a watcher sees the
   await r.settle();
   r.step(30);
   assert.equal(room.money.openCount(), 1);
-  for (const id of room.money.bank.openIds()) assert.ok(room.humans.has(id), 'account ' + id + ' is a human');
+  for (const id of room.money.bank.openIds()) {
+    assert.ok(room.humans.has(id) || room.money.botBalance(id) >= 500000, 'account ' + id + ' is a person or a funded bot');
+  }
   assert.deepEqual(room.money.lastViolations, []);
   // held: the sweep never retires room #0 while it has a target
   for (let i = 0; i < 5; i++) r.paid.sweep(r.wall.t += 10 * 60 * 1000);
@@ -316,4 +323,112 @@ test('a bot that eats its first gold and dies in the same step drops it back int
   assert.equal(m.bank.ledger.outHouse, 0);
   assert.equal(m.bank.floorMicro(), STAKE, 'all of W1\'s money is on the floor again');
   for (const q of d9) assert.equal(m.bank.pellet(q.food).srcWallet, 'W1');
+});
+
+
+// ------------------------------------------------------------------ bounty bots: funded from the owner's bot bank
+
+// A controller with one funded bot (snake 9, seed = the stake) besides humans 1 and 2.
+function seeded() {
+  const r = botRoom();
+  r.m.seedBot(9, STAKE, 'botty');
+  return r;
+}
+
+test('a funded bot holds its seed; a person who kills it wins the seed and cashes it out (the only house cut)', () => {
+  const { s, m } = seeded();
+  assert.equal(m.botBalance(9), STAKE);
+  assert.equal(m.bank.ledger.in, 3 * STAKE, 'stakes in + seed in');
+  assert.equal(m.cashOut(9, 'sock'), null, 'a bot never cashes out');
+  const d9 = drops(4);
+  m.applyFacts({ tick: 1, deaths: [{ id: 9, cause: 'snake', killer: 1, drops: d9 }] }, []);
+  for (const q of d9) assert.equal(m.bank.pellet(q.food).srcWallet, '#botbank', 'seed pellets name the bot bank');
+  m.applyFacts({ tick: 2, deaths: [] }, d9.map((q) => ({ food: q.food, eater: 1 })));
+  assert.equal(m.worthOf(1), 2 * STAKE);
+  const c = m.cashOut(1, 'sock');
+  assert.equal(c.gross, 2 * STAKE);
+  assert.equal(c.cut, Math.floor(2 * STAKE / HOUSE_CUT_DIV));
+  // ledger: stakes + seed in == cash-outs + owed + seed back + live
+  const l = m.bank.ledger;
+  const back = s.of('onSeedBack').reduce((n, x) => n + x, 0);
+  assert.equal(l.in, c.gross + back + m.bank.sums.acc + m.bank.sums.floor);
+  assert.equal(l.outHouse, 0);
+});
+
+test('unspent seed goes back to the bot bank: removal, restart, crash, emergency, a seed pellet nobody picked up', () => {
+  // removed by the owner while holding its seed plus some of W1's gold: seed to the bank, the gold back to W1
+  let r = seeded();
+  const d1 = drops(2);
+  r.m.applyFacts({ tick: 1, deaths: [{ id: 1, cause: 'snake', killer: 9, drops: d1 }] }, []);
+  r.m.applyFacts({ tick: 2, deaths: [] }, [{ food: d1[0].food, eater: 9 }]);
+  r.m.retireBot(9);
+  assert.deepEqual(r.s.of('onSeedBack'), [STAKE]);
+  assert.deepEqual(r.s.of('onOwed').map((x) => [x.wallet, x.micro]), [['W1', STAKE / 2]]);
+  for (const why of ['shutdown', 'crash']) {
+    r = seeded();
+    const rows = r.m.shutdownSettle(why);
+    assert.deepEqual(r.s.of('onSeedBack'), [STAKE], why);
+    assert.equal(rows.reduce((n, x) => n + x.micro, 0), 2 * STAKE, 'the two people refunded');
+    assert.equal(r.m.bank.ledger.outHouse, 0);
+  }
+  r = seeded();
+  r.m.emergencySettle('test');
+  assert.deepEqual(r.s.of('onSeedBack'), [STAKE]);
+  // killed with nobody to eat it: the seed pellets go back to the bank at the idle retire
+  r = seeded();
+  r.m.applyFacts({ tick: 1, deaths: [{ id: 9, cause: 'border', drops: drops(3) }] }, []);
+  r.m.cashOut(1, 's1');
+  r.m.cashOut(2, 's2');
+  r.m.sweepFloor('idle');
+  assert.deepEqual(r.s.of('onSeedBack'), [STAKE]);
+  assert.deepEqual(r.s.of('onFloor'), []);
+  assert.equal(r.m.bank.sums.acc + r.m.bank.sums.floor, 0);
+});
+
+test('idle release: a funded bot keeps playing with its seed, only what it picked up goes back', () => {
+  const r = seeded();
+  const d1 = drops(2);
+  r.m.applyFacts({ tick: 1, deaths: [{ id: 1, cause: 'snake', killer: 9, drops: d1 }] }, []);
+  r.m.applyFacts({ tick: 2, deaths: [] }, [{ food: d1[0].food, eater: 9 }]);
+  assert.equal(r.m.botBalance(9), STAKE + STAKE / 2);
+  r.m.releaseBots('idle');
+  assert.equal(r.m.botBalance(9), STAKE, 'its seed stays');
+  assert.deepEqual(r.s.of('onSeedBack'), []);
+  assert.ok(r.s.of('onOwed').some((x) => x.wallet === 'W1' && x.micro === STAKE / 2));
+});
+
+test('the bot bank: a bot needs its seed covered and the daily limit; no respawn; seed back on Control 0', async () => {
+  const { r, bank } = botRig(null, 1.5, 5);
+  const out = r.paid.setBotTarget(0.5, 5);
+  assert.equal(out.ok, true);
+  assert.equal(out.live, 3, 'the bank covered three $0.50 bots');
+  assert.match(out.why, /bot bank cannot cover/);
+  assert.equal(bank.balanceMicro(), 0);
+  const room = r.paid.rooms()[0];
+  for (const id of room.money.botFrom.keys()) assert.equal(room.money.botBalance(id), 500000);
+  // Control to 0: every seed back
+  r.paid.setBotTarget(0.5, 0);
+  assert.equal(bank.balanceMicro(), 1500000);
+  assert.equal(bank.view().spentToday, 0);
+  // the daily cap
+  const b2 = botRig(null, 50, 1);
+  assert.equal(b2.r.paid.setBotTarget(1, 3).live, 1);
+  assert.match(b2.r.paid.setBotTarget(1, 3).why, /daily bot limit/);
+});
+
+test('the bot bank file: a top-up credits once, seeds are taken and given back, the daily limit holds', () => {
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'botbank-')), 'b.json');
+  let t = Date.UTC(2026, 9, 17, 12);
+  const b = createBotBank({ file, log: quiet, now: () => t });
+  assert.equal(b.credit(2000000, 'SIGA').ok, true);
+  assert.equal(b.credit(2000000, 'SIGA').ok, false, 'one credit per transfer');
+  b.setCap(1000000);
+  assert.equal(b.take(1000000, 'r'), true);
+  assert.equal(b.whyNot(500000), 'cap');
+  b.giveBack(1000000, 'removed', 'r');
+  assert.equal(b.whyNot(1000000), null, 'returned seed frees the day again');
+  t += 86400000;
+  const again = createBotBank({ file, log: quiet, now: () => t });
+  assert.equal(again.balanceMicro(), 2000000, 'saved');
+  assert.equal(again.hasTopup('SIGA'), true);
 });

@@ -299,6 +299,23 @@ class SlBank {
     return m;
   }
 
+  // A bounty bot's picked-up money back to its sources while the bot plays on holding its seed (slMoney releaseBots):
+  // the account keeps `keep` micro (its seed, = its deposit, so I3 holds), the rest leaves booked as a refund.
+  // -> the micro that left (0 when there was nothing above keep)
+  trimBot(snakeId, keep) {
+    const acct = this.accounts.get(snakeId);
+    if (!acct || acct.bot !== true) refuse('trimBot', 'no bot account ' + String(snakeId));
+    if (!isMicro(keep) || keep < 1 || keep !== acct.deposit) refuse('trimBot', 'keep must be the bot seed');
+    const m = acct.micro - keep;
+    if (!isMicro(m)) refuse('trimBot', 'account ' + snakeId + ' holds less than its seed');
+    if (m === 0) return 0;
+    checkCeiling(this, 'trimBot', snakeId, m);
+    this.accounts.set(snakeId, Object.freeze(Object.assign({}, acct, { micro: keep })));
+    this.sums.acc -= m;
+    bookOut(this, 'refund', m);
+    return m;
+  }
+
   // The one way an account's money leaves the room to a player: kind 'cash' (a cash-out, the whole account is the
   // gross; the payout splits 90/10) or 'refund' (shutdown, crash, emergency, orphan: 100% of the current balance, no
   // rake). The account closes. null when it is not open. Refused at the ceiling (header). -> { micro, acct }

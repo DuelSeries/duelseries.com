@@ -1616,6 +1616,8 @@ function opsSnapshot(req, signed) {
     paperPaid: paperArenas ? { enabled: !!paperArenas.paidEnabled, open: !!paperArenas.paidOpen,
                                stopping: !!paperArenas.stopping, saved: paperPaidSwitch.saved() } : null,
     earnings: earnings.stats(),
+    /* The bot bank: what funds paid bounty bots, today's spend and the daily cap. */
+    botBank: botBank.view(),
     rooms,
     audit: ownerConsole.mergeAudit(ops.auditLog, ownerAuth.auditLog, 50),
   };
@@ -1777,6 +1779,48 @@ app.post('/api/owner/do', sigLimiter, async (req, res) => {
        held until changed), { room, auto: true } hands the room back to its own
        fill. How each kind of room holds the number is in
        ownerConsole.setBots. Paid rooms refuse before anything is touched. */
+    /* The bot bank (server/botBank.js). Top-up: Owen sends USDC from the revenue
+       wallet to the escrow address, then pastes that transaction's signature here.
+       The server reads the confirmed transaction (escrow's USDC went up, the
+       revenue wallet signed it), claims the signature once (the stakes' one-time
+       table), and only then credits the bank, so every bot seed is already in
+       escrow. Cap: the daily limit of seed handed out, in dollars. */
+    case 'botbank:topup': {
+      const sig = typeof args.sig === 'string' ? args.sig.trim() : '';
+      if (!/^[1-9A-HJ-NP-Za-km-z]{64,90}$/.test(sig)) return refuse('Paste the transaction signature of the transfer to escrow');
+      if (botBank.hasTopup(sig)) return refuse('That transfer is already in the bot bank');
+      let v;
+      try {
+        v = await Usdc.verifyUsdcStake(sig, 0.01);
+      } catch (e) {
+        return refuse('Not verified: ' + String(e && e.message).slice(0, 160));
+      }
+      if (v.payer !== REVENUE_WALLET && v.payer !== OWNER_WALLET) {
+        return refuse('That transfer was not signed by the revenue wallet');
+      }
+      let claimed = false;
+      try {
+        claimed = await db.markStakeSig(sig);
+      } catch (e) {
+        return refuse('Could not claim the transfer (database): ' + String(e && e.message).slice(0, 120));
+      }
+      if (!claimed) return refuse('That transfer was already used');
+      const micro = Math.round(Number(v.usdc) * 1e6);
+      const c = botBank.credit(micro, sig);
+      if (!c.ok) {
+        console.error('[BOTBANK] CRITICAL top-up ' + sig + ' of ' + micro + ' micro claimed but not saved: ' + c.why);
+        return refuse('Claimed but not saved; tell Claude: ' + sig.slice(0, 16));
+      }
+      return done('Bot bank +$' + (micro / 1e6).toFixed(2) + ', now $' + (botBank.balanceMicro() / 1e6).toFixed(2) + '.');
+    }
+    case 'botbank:cap': {
+      const usd = typeof args.usd === 'number' ? args.usd : Number(String(args.usd || '').trim());
+      if (!Number.isFinite(usd) || usd < 0 || usd > 1000) return refuse('Daily bot limit: a dollar amount from 0 to 1000');
+      const r = botBank.setCap(Math.round(usd * 100) * 10000);
+      if (!r.ok) return refuse('Not saved');
+      return done('Daily bot limit is $' + usd.toFixed(2) + '.');
+    }
+
     case 'bots:set': {
       const room = typeof args.room === 'string' ? ALL_ROOMS().find(r => r.lobbyType === args.room) : null;
       const r = ownerConsole.setBots(room, args);
@@ -1792,6 +1836,12 @@ app.post('/api/owner/do', sigLimiter, async (req, res) => {
         if (!r.ok) return refuse(r.why);
         broadcastLobbyState();
         const gname = pb[1] === 'sl' ? 'slither.io' : pb[1] === 'ag' ? 'agar.io' : 'Paper.io';
+        if (pb[1] === 'sl') {
+          const bb = botBank.view();
+          return done('slither.io $' + pb[2] + ': ' + r.live + ' bot' + (r.live === 1 ? '' : 's') + ' playing, each worth $' + pb[2] +
+            ' from the bot bank (now $' + bb.balance.toFixed(2) + ', $' + bb.spentToday.toFixed(2) + ' of $' + bb.cap.toFixed(2) +
+            ' used today).' + (r.why ? ' Stopped short: ' + r.why + '.' : '') + ' A killed bot is not replaced.');
+        }
         return done(gname + ' $' + pb[2] + ': ' + r.live + ' bot' + (r.live === 1 ? '' : 's') + ' now, held at ' + r.held +
           '. They never cash out and never hold money.' + (r.saved ? '' : ' Not saved, so a restart drops them.'));
       }
@@ -2816,6 +2866,9 @@ const slMoneyHooks = {
 const slPaidSwitch = slPaidBoot.createPaidSwitchStore({
   file: process.env.SL_PAID_SWITCH_PATH || path.join(path.dirname(agJournal.file), 'sl-paid-switch.json'),
 });
+/* The owner's bot bank (server/botBank.js): funds paid bounty bots, topped up only
+   by a verified USDC transfer from the revenue wallet to escrow (botbank:topup). */
+const botBank = require('./botBank').createBotBank({ file: path.join(path.dirname(agJournal.file), 'bot-bank.json') });
 const slPaidOpened = slPaidBoot.openSlPaid({
   env: process.env,
   sockets: slOpened.sockets,
@@ -2831,6 +2884,7 @@ const slPaidOpened = slPaidBoot.openSlPaid({
   arenas: slArenas ? {
     botDriver: () => require('./sl/slBots').createBotDriver(slArenas.laws, { governor: slArenas.governor }),
     botStore: require('./paidBotStore').createBotStore({ file: path.join(path.dirname(agJournal.file), 'sl-paid-bots.json') }),
+    botBank,
   } : undefined,
   door: {
     /* The 'slither' door: a token scoped to another game (a Paper or agar dev token) does not open it. */
@@ -3850,7 +3904,8 @@ function totalLiveStakesSol() {
 async function checkSolvency() {
   try {
     const escrow = await money.escrowBalance();
-    const liveStakes = totalLiveStakesSol();
+    /* the bot bank sits in escrow too (its top-ups were transfers to escrow), so it is owed like a stake */
+    const liveStakes = totalLiveStakesSol() + botBank.balanceMicro() / 1e6;
     const surplus = escrow - liveStakes;
     const solvent = surplus >= -1e-6;
     _lastSolvency = { escrowSol: escrow, liveStakesSol: liveStakes, requiredSol: liveStakes, surplusSol: surplus, solvent, ts: Date.now() };

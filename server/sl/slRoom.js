@@ -504,13 +504,10 @@ class SlRoom {
     return this.bots.add(this) || null;
   }
 
-  // A bot leaves (the driver's takeOut). In a paid room a bot holding gold dies in place at the next step instead
-  // (sim.kill: a death with its drops, cause 'kill'), so its money drops back into play and never leaves with it.
+  // A bot leaves (the driver's takeOut). In a paid room its money goes first (slMoney retireBot: its seed back to the
+  // owner's bot bank, what it picked up back to the players it came from), then the snake.
   removeBot(id) {
-    if (this.money && typeof this.money.botBalance === 'function' && this.money.botBalance(id) > 0) {
-      this.sim.kill(id);
-      return;
-    }
+    if (this.money && typeof this.money.retireBot === 'function') this.money.retireBot(id);
     this.sim.remove(id);
     this.names.delete(id);
     this.freedAt.set(id, this.sim.nowMs());
