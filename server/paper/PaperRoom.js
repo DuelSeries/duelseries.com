@@ -96,6 +96,9 @@ class PaperRoom {
     // (BANK_SRC = its seed from the owner's bot bank). A bot kills and is killed for money like a person, never has a
     // seat (so never cashes out), and is never replaced: its death takes one off the arena's bot cap.
     this.botFrom = new Map();
+    // A floor coin a bot dropped (it died with nobody to take its money, like a person): pickup id -> Map src -> micro,
+    // so when nobody collects it the seed part goes back to the bot bank and the rest to the players it came from.
+    this.coinFrom = new Map();
     // The hold starts and stops right after the inputs are applied, BEFORE movement, so the
     // client predictor (which stops on the key at once) agrees with the server tick for tick.
     const apply = this.game.applyInputs.bind(this.game);
@@ -544,7 +547,7 @@ class PaperRoom {
       return;
     }
     if (this.botFrom.has(victim.id)) {
-      this._botDeath(victim, killer, reason);
+      this._botDeath(victim, killer, reason, at);
       return;
     }
     const m = this.bank.balance(victim.id);
@@ -609,7 +612,7 @@ class PaperRoom {
   // A bot's death. Killed by someone with an account (a person or another bot): everything it holds goes to the
   // killer, like a person's; the seed a person wins is spent (in play). Any other death (the wall, its own trail, the
   // owner removing it): retireBot. Never replaced: one off the bot cap.
-  _botDeath(victim, killer, reason) {
+  _botDeath(victim, killer, reason, at) {
     const from = this.botFrom.get(victim.id);
     const m = this.bank.balance(victim.id);
     let took = false;
@@ -624,9 +627,64 @@ class PaperRoom {
       }
       this.pending.push(['m', killer.id, this.bank.balance(killer.id)]);
     }
+    let pid = 0;
+    if (!took && m > 0 && reason !== REASON.SYSTEM_REMOVED) {
+      // nobody took it (the wall, its own trail): its whole value drops as a floor coin where it died, as a person's
+      // does (Owen 2026-10-17); the seed in it is in play now (the bank's inflight)
+      const c = this._clampInside(at || victim.position || this.game.border.center);
+      const p = this.bank.drop(victim.id, c.x, c.y, this.now());
+      if (p) {
+        took = true;
+        pid = p.pid;
+        this.botFrom.delete(victim.id);
+        this.coinFrom.set(p.pid, from);
+        const seed = from.get(BANK_SRC) || 0;
+        if (seed > 0 && this.directory && this.directory.botBank) this.directory.botBank.spent(seed);
+        this.pending.push(['p+', p.pid, p.x, p.y, p.micro]);
+      }
+    }
     if (!took) this.retireBot(victim.id, 'reason-' + reason, true);
     if (Number.isInteger(this.game.botCap) && this.game.botCap > 0) this.game.setBotCap(this.game.botCap - 1);
-    this.pending.push(['k', victim.id, killer ? killer.id : 0, reason, m, 0]);
+    this.pending.push(['k', victim.id, killer ? killer.id : 0, reason, m, pid]);
+  }
+
+  // A bot's floor coin nobody collected (the hour sweep, a restart or crash, an emergency): the seed part back to the
+  // bot bank, the rest owed back to the players it came from as keyed rows. The coin is already out of the bank
+  // (sweepPickup). -> the rows
+  _botCoinBack(pid, micro, why, live) {
+    const from = this.coinFrom.get(pid);
+    this.coinFrom.delete(pid);
+    if (!from) return [];
+    let left = micro;
+    const seed = Math.min(from.get(BANK_SRC) || 0, left);
+    const sources = [];
+    for (const [src, v] of from) {
+      if (src === BANK_SRC || !(v > 0)) continue;
+      const t = Math.min(v, left - seed);
+      if (t > 0) {
+        sources.push({ srcWallet: src, srcName: '', micro: t });
+        left -= t;
+      }
+    }
+    const back = left; // the seed, plus any rounding: never a player's money
+    if (back > 0) {
+      const bb = this.directory && this.directory.botBank;
+      if (!bb || !bb.giveBack(back, why, this.lobbyType, false)) {
+        console.error('[PAPER] SEEDBACK CRITICAL coin ' + pid + ' ' + back + ' micro not returned (' + this.lobbyType + ')');
+      }
+    }
+    const rows = this._floorBack(sources, why);
+    if (live) {
+      for (const row of rows) {
+        try {
+          const p = typeof this.hooks.onOwed === 'function' ? this.hooks.onOwed(row) : null;
+          if (p && typeof p.then === 'function') p.then(null, (e) => console.error('[PAPER] OWED coin ' + row.key, e && e.message));
+        } catch (e) {
+          console.error('[PAPER] OWED coin hook (' + this.lobbyType + '): ' + (e && e.message));
+        }
+      }
+    }
+    return rows;
   }
 
   // A bot leaves holding money (removed, restart, crash, emergency, a death nobody took it from): withdrawn, the seed
@@ -794,6 +852,7 @@ class PaperRoom {
       }
       if (!best) continue;
       const got = this.bank.collect(p.pid, best.id);
+      if (got > 0) this.coinFrom.delete(p.pid); // a bot's coin won by a person: in play, nothing owed back
       if (got > 0) {
         this.pending.push(['p-', p.pid, best.id, got]);
         this.pending.push(['m', best.id, this.bank.balance(best.id)]);
@@ -808,6 +867,10 @@ class PaperRoom {
       const s = this.bank.sweepPickup(p.pid);
       if (!s) continue;
       this.pending.push(['p-', p.pid, 0, s.micro]);
+      if (this.coinFrom.has(p.pid)) {
+        this._botCoinBack(p.pid, s.micro, 'botfloor', true);
+        continue;
+      }
       if (this.botRoom) {
         // a room bots played in: the coin goes back to the player who dropped it, never to the house
         this._coinBack(s, 'botfloor');
@@ -1021,6 +1084,10 @@ class PaperRoom {
       if (!s) continue;
       coins++;
       total += s.micro;
+      if (this.coinFrom.has(p.pid)) {
+        this._botCoinBack(p.pid, s.micro, 'emergency', true);
+        continue;
+      }
       try {
         this.hooks.onRefund({ wallet: s.srcWallet, name: s.srcName, micro: s.micro, paid: undefined, why: 'emergency' });
       } catch (e) {
@@ -1147,17 +1214,22 @@ class PaperRoom {
   _shutdownFloor(kind) {
     const bySource = new Map();
     let micro = 0;
+    const botRows = [];
     for (const p of this.bank.pickups()) {
       const s = this.bank.sweepPickup(p.pid);
       if (!s || !(s.micro > 0)) continue;
+      if (this.coinFrom.has(p.pid)) {
+        botRows.push(...this._botCoinBack(p.pid, s.micro, kind, false));
+        continue;
+      }
       micro += s.micro;
       const k = s.srcWallet || '';
       const e = bySource.get(k) || { srcWallet: s.srcWallet || null, srcName: s.srcName || '', micro: 0 };
       e.micro += s.micro;
       bySource.set(k, e);
     }
-    if (!(micro > 0)) return null;
-    if (this.botRoom) return this._floorBack(Array.from(bySource.values()), kind);
+    if (!(micro > 0)) return botRows.length ? botRows : null;
+    if (this.botRoom) return this._floorBack(Array.from(bySource.values()), kind).concat(botRows);
     const rec = { key: 'ppfloor:' + crypto.randomUUID(), room: this.lobbyType, why: kind, micro,
       bySource: Array.from(bySource.values()) };
     console.error('[PAPER] SHUTDOWN-FLOOR ' + micro + ' ' + this.lobbyType + ' ' + rec.key);

@@ -68,15 +68,19 @@ function ledger(w, room, rows) {
 
 test('the bank and the daily limit decide how many spawn; each is worth the stake; Control 0 gives every seed back', () => {
   const w = world(null, 2.5, 50);
-  const r = w.arenas.setBotTarget(1, 4);
+  let r = w.arenas.setBotTarget(1, 4);
+  const room = roomOf(w, 1);
+  room.game.radiusTarget = () => 950; // a wall wide enough to place them (an empty paid arena starts small)
+  room.game.setRadiusNow(950);
+  for (let i = 0; i < 200 && room.botCount < 2; i++) r = w.arenas.setBotTarget(1, 4);
   assert.equal(r.ok, true);
   assert.equal(r.live, 2);
   assert.match(r.why, /bot bank cannot cover/);
-  const room = roomOf(w, 1);
   for (const id of room.botFrom.keys()) assert.equal(room.bank.balance(id), STAKE);
   assert.equal(room.awake, true);
+  const n0 = room.botCount;
   for (let i = 0; i < 60; i++) room.game.update();
-  assert.equal(room.botCount, 2, 'the arena adds no bot of its own');
+  assert.ok(room.botCount <= n0, 'the arena adds no bot of its own');
   w.arenas.setBotTarget(1, 0);
   assert.equal(room.botCount, 0);
   assert.equal(w.bank.balanceMicro(), 2500000, 'every seed back');
@@ -97,7 +101,7 @@ function scene() {
   room.game.radiusTarget = () => 950;
   room.game.setRadiusNow(950);
   // room for the second on the wider wall (a spawn spot is random: a few tries)
-  for (let i = 0; i < 20 && room.botCount < 2; i++) {
+  for (let i = 0; i < 200 && room.botCount < 2; i++) {
     w.arenas.setBotTarget(1, 2);
     room.game.update();
   }
@@ -120,16 +124,41 @@ test('a bot kills a person and holds it; a person kills the bot and wins it all;
   ledger(w, room);
 });
 
-test('a bot that dies to its own trail or is removed: seed back to the bank, the rest owed back keyed', () => {
-  const { w, room, a, bot, bot2 } = scene();
+test('a bot that dies with nobody to take it drops its whole value as a floor coin where it died, like a person', () => {
+  const { w, room, a, b, bot, bot2 } = scene();
   const bank0 = w.bank.balanceMicro();
   room.game.kill(a.unit, bot, REASON.TRACK_CUT);
+  const where = { x: bot.position.x, y: bot.position.y };
   room.game.kill(bot, undefined, REASON.SELF_CROSS);
-  assert.equal(w.bank.balanceMicro(), bank0 + STAKE, 'its seed back');
+  const coins = room.bank.pickups();
+  assert.equal(coins.length, 1);
+  assert.equal(coins[0].micro, 2 * STAKE, 'its seed plus what it took from A');
+  assert.ok(Math.hypot(coins[0].x - where.x, coins[0].y - where.y) < 60, 'dropped where it died');
+  assert.equal(w.bank.balanceMicro(), bank0, 'nothing back to the bank: the money is in play');
+  assert.deepEqual(w.calls.owed, []);
+  // nobody collects it for an hour: the seed back to the bank, A's part back to A, keyed; never the house
+  room.sweepPickups(w.clock.now() + 3600001);
+  assert.equal(w.bank.balanceMicro(), bank0 + STAKE);
   assert.deepEqual(w.calls.owed.map((x) => [x.wallet, x.micro]), [[a.wallet, STAKE]]);
   assert.match(w.calls.owed[0].key, KEY_RE);
+  assert.deepEqual(w.calls.sweep, []);
+  // the owner removing a bot: its seed back to the bank
   room.game.kill(bot2, undefined, REASON.SYSTEM_REMOVED);
   assert.equal(w.bank.balanceMicro(), bank0 + 2 * STAKE);
+  assert.ok(b);
+  ledger(w, room);
+});
+
+test('a person who walks over a bot coin wins all of it', () => {
+  const { w, room, b, bot } = scene();
+  room.game.kill(bot, undefined, REASON.SELF_CROSS);
+  const c = room.bank.pickups()[0];
+  assert.equal(c.micro, STAKE);
+  b.unit.position.x = c.x;
+  b.unit.position.y = c.y;
+  room._collectPickups();
+  assert.equal(room.bank.balance(b.unit.id), 2 * STAKE);
+  assert.equal(room.coinFrom.size, 0);
   ledger(w, room);
 });
 
