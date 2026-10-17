@@ -293,3 +293,23 @@ test('pct above 1 saturates, and money and ack ride the frame', () => {
   wire.feed();
   assert.strictEqual(wire.state.has(h), false, 'a dead unit\'s wire state is dropped');
 });
+
+test('the wire never says which squares are bots: the frame flag and the join payload are false for everybody', () => {
+  // a free arena fills itself with bots (ArenaGame spawnBot); none of them may be told apart on the wire
+  const g = makeArena({ stake: 0, seed: 0.77 });
+  const wire = new ArenaWire(g, { queue: () => {}, microOf: () => 0 });
+  for (let i = 0; i < 120; i++) step(g, wire);
+  const h = g.spawnHuman({ name: 'person' }, at(300, 0.9));
+  step(g, wire);
+  const bots = g.units.filter((u) => u instanceof P.BotUnit);
+  assert.ok(bots.length >= 5, 'bots in the arena ' + bots.length);
+  const frame = MP.decodeFrame(wire.frame([]));
+  assert.strictEqual(frame.units.length, g.units.length);
+  for (const u of frame.units) assert.strictEqual(u.bot, false, 'frame unit ' + u.id);
+  const join = wire.joinPayload();
+  assert.strictEqual(join.units.length, g.units.length);
+  for (const u of join.units) assert.strictEqual(u.bot, false, 'join unit ' + u.id);
+  assert.ok(join.units.some((u) => u.id === h.id) && join.units.some((u) => u.id === bots[0].id));
+  // and the bots still carry names, like people
+  for (const b of bots) assert.ok(typeof b.name === 'string' && b.name.length > 0);
+});

@@ -22,9 +22,16 @@
 //       turns or pings. tickMs = the sim time of the tick that applies the records (sim.nowMs() + L7).
 //       The brain re-decides every few ticks (staggered per bot) and reads the world through `sense`
 //       (createBotSense(sim): the sim's sector grid and food store; no socket, no view, no encode).
-//   createBotSense(sim)  the read-only world view a brain reads.
-//   drawBotSpec(rng, laws, names)  one new bot: brain seed, personality by its share, skin, name (four draws from
-//       the room's 'bot' stream, in that order).
+//       Owen 2026-10-16: "as good as you can make them, make them boost, make them look like real players". So a
+//       bot boosts away from a bigger head aimed at it, boosts in a chase toward a real intercept point, coils round
+//       smaller prey when it gets ahead of it, goes for fresh death piles (boosting when they are big and close), and
+//       sprints back from the wall or the battle royale circle once it is turned inward. Every boost is short, its
+//       length drawn, and refused when the bot is too short to spend the mass.
+//   createBotSense(sim, piles)  the read-only world view a brain reads; piles() lists recent death piles.
+//   drawBotSpec(rng, laws, names, avoid)  one new bot: brain seed, personality by its share, skin (about 6 in 10 a
+//       plain colour, the rest any other shipped skin), name (four draws from the room's 'bot' stream, in that
+//       order). The name comes from server/botNames.js (a few hundred base names, dressed the way people type
+//       them), never one a live bot or a seated person in the room already has (avoid).
 //   spawnBot(sim, spec, inHumanView)  the bot snake on an L42 ring (sim.spawn), drawn again while its head lands
 //       inside a human's view set, at most SPAWN_VIEW_TRIES draws (BOT_GATES spawn 'outsideHumanViews', "when
 //       possible").
@@ -37,11 +44,15 @@
 //       C_GOV.windowMs above this process's own idle floor.
 //   botSkins(laws), createNameBook(names), BOT_NAMES, PICTURE_SKIN_CVS, SKIN_MAX.
 //   createBotDriver(laws, opts)  the room's bot driver (slRoom opts.bots: beforeInputs, afterStep, add, clear, count,
-//       isBot): every part above wired to a room, as slRoom calls it each step.
+//       isBot): every part above wired to a room, as slRoom calls it each step. The owner console's controls ride
+//       on it too: setTarget(room, n | null) holds an exact live bot count (null: back to the daily curve),
+//       target(room) reads it, removeBots(room, n) retires n bots now. A dead bot's place is filled again after a
+//       random wait (mean REFILL_MEAN_MS), so the room total moves the way a real server's does.
 
 const { assertLawsComplete, assertRulesBuilt } = require('./slLaws');
 const { createRng } = require('./slRng');
 const { botTarget } = require('../botPopulation');
+const { BASE_NAMES, pickName } = require('../botNames');
 
 const PI2 = 2 * Math.PI;
 
@@ -100,35 +111,28 @@ const PICTURE_SKIN_CVS = Object.freeze([37, 39, 40, 41, 42, 45, 46, 47, 48, 49, 
 // made the page ask for all 12 files, reviewed or not). No cv-to-file mapping is guessed.
 const PICTURE_FILES = Object.freeze(['kwk6.png', 'jmou3.png', 'pewd.png', 'sest5.png', 'play.png', 'bonkers2.png',
   'leaf.png', 'swiss.png', 'moldova.png', 'vietnam.png', 'argentina.png', 'mov2.png']);
-// Ordinary names (CHOSEN content, Q2 "normal names", no label). The old engine's list is the start
-// (server/Bot.js:12-21) without 'ieatbots' (it says bot) and 'slitherio_pro' (the brand, legal line 4); the rest are
-// ours. Every one passes their name rules (slNames.cleanNick: ASCII 32 to 127, 24 characters, no 7-digit run); a test
-// checks it against the frozen client's gdnm. More names than BOT_MAX, so live bots never share a name.
-const BOT_NAMES = Object.freeze([
-  'aidan6969', 'jacobtheweiner78', 'quantum', 'Mr-1221z', 'slitherkinggg', 'xX_snake_Xx', 'noodleman', 'cobrakai99',
-  'bigworm42', 'snek_lord', 'viper0011', 'hisssss', 'eaturdust', 'n00bslayer', 'wormhole_', 'slurpmaster', 'gg_no_re',
-  'tryhard99', 'just_a_worm', 'toxic_snek', 'GigaWorm', 'boostgang', 'curvy_boi', 'nomnom_snek', 'deathcoil',
-  'zoomzoom22', 'slimy_steve', 'wiggleking', 'ouroboros_', 'snekattack', 'longneck', 'ratboi420', 'fastaf_boii',
-  'lmaosnek', 'noobmaster_', 'wormy_mcworm', 'danger_noodle', 'mr_slithers',
-  'jake', 'Emma', 'lucas_b', 'mia2010', 'Noah', 'olivia :)', 'ethan', 'ava_xo', 'liam11', 'sophia', 'mason',
-  'Isabella', 'logan', 'chloe', 'tyler', 'Grace', 'Ryan', 'zoe', 'kevin', 'nathan', 'hannah', 'dylan', 'Lily', 'caleb',
-  'max', 'Leo', 'sam', 'alex', 'ben', 'jack', 'Daniel', 'matt', 'chris', 'josh', 'Tom', 'Anna', 'sarah', 'kyle',
-  'eric', 'jay', 'Maria', 'Carlos', 'Diego', 'Luca', 'Mateo', 'Hugo', 'Lukas', 'Felix', 'Marco', 'Pedro', 'Ivan',
-  'Yuki', 'Kenji', 'Omar', 'Sven', 'Jonas', 'Elias', 'pro gamer', 'BigSnake', 'the snake', 'snakey', 'Slinky',
-  'Spaghetti', 'noodle', 'Wormy', 'Mr Snake', 'Python', 'Cobra', 'Mamba', 'Anaconda', 'rattler', 'sidewinder',
-  'king cobra', 'Medusa', 'Hydra', 'Shadow', 'Ghost', 'Ninja', 'Phoenix', 'Blaze', 'Storm', 'Thunder', 'Frost', 'Venom',
-  'Rex', 'Ace', 'Bolt', 'Dash', 'Turbo', 'Rocket', 'Comet', 'Nova', 'Titan', 'Atlas', 'Luna', 'Sky', 'River', 'pizza',
-  'taco', 'Banana', 'potato', 'cookie', 'Pickle', 'Waffle', 'nugget', 'Mango', 'Kiwi', 'hi', 'lol', 'xd', 'gg', 'ez',
-  'yo', ':)', 'help me', 'dont kill me', 'im new', 'friendly', 'follow me', 'just vibing', 'chill', 'hungry',
-  'snack time', 'zzz', 'hello world', 'Mom', 'Dad', 'grandma', 'the king', 'Queen', 'Captain',
-]);
+// Ordinary names (Q2 "normal names", no label): the base names of server/botNames.js, one pool for every game with
+// bots. The old list (169 names, 6 of them under the 3 characters a real account needs) repeated the same handful on
+// screen every day; the generator there dresses a few hundred base names the way people type them (lower case, two
+// digits on the end, a birth year, xX_name_Xx). Every base name passes their name rules (slNames.cleanNick: ASCII 32
+// to 127, 24 characters, no 7-digit run, none of < > " ' &), checked by the tests with generated names too.
+const BOT_NAMES = BASE_NAMES;
+// The longest name a bot is given here: their name cap (L45 nameMax, 24 characters; slNames cleanNick cuts there).
+const NICK_MAX = 24;
+// The plain colours are cv 0 to 8, nine of them: what a person who never opens Customize is given
+// (server/sl/slSockets.js skinOf, "a random plain colour 0 to 8").
+const PLAIN_SKINS = 9;
+// The owner console's bots:set range: 0 to 200 live bots in one room (the Control contract, 2026-10-16). The room's
+// own cap (C_ROOM_CAP) still holds bots and people together.
+const TARGET_MAX = 200;
 // END DATA
 
 // BEGIN BOT_TUNING
 // Every number the bots tune themselves with. All CHOSEN (ours; Q2 and SERVER-DESIGN 11), none from slither.io.
-// Distances are world units, times ms, think intervals sim updates (L7), chances per think, angles radians,
-// lengths L = sct + fam (the L36 size). Shares are agar's (server/ag/agBots.js BOT_TUNING HUNTER_SHARE, CASUAL_SHARE,
-// SHY_SHARE), the same mix Owen asked for there.
+// Distances are world units, times ms, think intervals sim updates (L7), chances per think, angles radians (or the
+// cosine of one, _COS), lengths L = sct + fam (the L36 size). The first shares were agar's (server/ag/agBots.js);
+// Owen's 2026-10-16 ask ("as good as you can make them") moved more bots to hunting and gave every bot the flee,
+// scavenge and wall reflexes a person has.
 function chosen(value, note) {
   return Object.freeze({ value, status: 'CHOSEN', note });
 }
@@ -151,57 +155,131 @@ const BOT_TUNING = Object.freeze({
   WANDER_INSET: chosen(0.8, 'wander points are drawn in this share of the border radius'),
   WANDER_MS: chosen(8000, 'a new wander point at least this often'),
   WANDER_REACH: chosen(150, 'a wander point this close counts as reached'),
+  SPAWN_VIEW_TRIES: chosen(8, 'L42 draws a bot spawn may take to land outside every human view set'),
+
+  // Boost, every personality. A press lasts a drawn length (a person never holds it the same time twice) and the
+  // rest after it is drawn too; L22 and the sim charge the mass exactly as for a person.
   BOOST_MIN_L: chosen(12, 'a bot presses boost only above this length (L22 refuses at or below 2.14 anyway)'),
   BOOST_STOP_L: chosen(8, 'a boosting bot lets go at or below this length'),
-  BOOST_REST_MS: chosen(1500, 'least time between the end of one boost and the next press'),
-  SPAWN_VIEW_TRIES: chosen(8, 'L42 draws a bot spawn may take to land outside every human view set'),
-  // Hunters (cut in front of clearly smaller snakes, short boosts, give up quickly).
+  BOOST_AFFORD_L: chosen(24, 'a boost the bot does not need to live (a chase, a pile, a whim) only at this length or more'),
+  BOOST_REST_MIN_MS: chosen(600, 'shortest rest between the end of one boost and a press it does not need to live'),
+  BOOST_REST_MAX_MS: chosen(2200, 'longest such rest (drawn between the two)'),
+
+  // Fleeing a head: another snake at least THREAT_RATIO times longer whose head is within THREAT_RANGE and points at
+  // this bot's head. The bot turns away from it and off its line of travel, and boosts when it is close.
+  THREAT_AIM_COS: chosen(0.82, 'a head points at the bot when its heading is within about 35 degrees of the line to the bot head'),
+  THREAT_AHEAD: chosen(140, 'or of the line to the point this far ahead of the bot head (somebody cutting in front of it)'),
+  FLEE_SIDESTEP: chosen(0.6, 'weight of stepping sideways off the threat line of travel, against 1 for straight away'),
+  FLEE_BOOST_RANGE: chosen(220, 'a fleeing bot boosts while the threat head is this close'),
+  FLEE_BOOST_MIN_MS: chosen(350, 'shortest flee boost'),
+  FLEE_BOOST_MAX_MS: chosen(900, 'longest flee boost'),
+
+  // The wall and the battle royale circle: once turned back inward, a bot this far out sprints.
+  PANIC_SHARE: chosen(0.97, 'outside this share of the border radius (or outside the battle royale circle at all) a bot turned inward boosts'),
+  PANIC_INWARD_COS: chosen(0.7, 'turned inward means heading within about 45 degrees of the middle (boosting earlier only widens the turn)'),
+  PANIC_BOOST_MIN_MS: chosen(500, 'shortest wall boost'),
+  PANIC_BOOST_MAX_MS: chosen(1000, 'longest wall boost'),
+
+  // Chasing (every personality that HUNTS): cut in front of a clearly smaller snake, aiming where its head will be.
   HUNT_RANGE: chosen(700, 'a hunter looks for prey heads within this distance'),
-  HUNT_RATIO: chosen(1.5, 'prey must be this many times shorter (L) than the hunter'),
-  HUNT_MIN_L: chosen(20, 'a hunter shorter than this does not chase'),
-  HUNT_CHASE_CHANCE: chosen(0.5, 'chance per think, with prey in range, that a chase starts'),
-  HUNT_CUT_LEAD: chosen(160, 'the hunter aims this far ahead of the prey head along its heading'),
-  HUNT_GIVE_UP_MS: chosen(4000, 'a chase ends after this long, caught or not'),
+  HUNT_MIN_L: chosen(20, 'a bot shorter than this does not chase'),
+  HUNT_LEAD_MIN: chosen(80, 'the intercept point is at least this far ahead of the prey head'),
+  HUNT_LEAD_MAX: chosen(450, 'and at most this far (distance x prey speed / own speed in between)'),
+  HUNT_GIVE_UP_MS: chosen(4000, 'a chase ends after this long, caught or not (a coil has its own clock)'),
   HUNT_REST_MS: chosen(6000, 'no new chase for this long after one ends'),
-  HUNT_BOOST_RANGE: chosen(350, 'a chasing hunter boosts when its aim point is this close'),
-  HUNT_BOOST_MS: chosen(900, 'a hunter boost lasts this long'),
-  // Shy (keeps clear of bigger bodies).
-  SHY_RANGE: chosen(450, 'a shy bot turns away from bigger bodies within this distance'),
+  HUNT_BOOST_RANGE: chosen(600, 'a chasing bot boosts only while its aim point is closer than this'),
+  CHASE_BOOST_NEAR: chosen(120, 'and still farther than this (closer, a boost overshoots the cut)'),
+  CHASE_BOOST_COS: chosen(0.5, 'and its heading within 60 degrees of the aim point (a pile boost too)'),
+  CHASE_DROP_COS: chosen(0, 'a chase boost is let go once the aim point is more than 90 degrees off the heading'),
+  CHASE_BOOST_MIN_MS: chosen(400, 'shortest chase boost'),
+  CHASE_BOOST_MAX_MS: chosen(1100, 'longest chase boost'),
+
+  // Coiling (personalities that COIL): a hunter close to and ahead of much smaller prey circles its head so its own
+  // body closes round it, the way a person traps a small snake.
+  COIL_RANGE: chosen(260, 'a coil starts with the prey head this close'),
+  COIL_RATIO: chosen(2.5, 'and the prey at least this many times shorter (enough body to go round it)'),
+  COIL_R: chosen(170, 'radius of the ring the bot head runs round the prey head, plus the prey body radius (L35)'),
+  COIL_ADVANCE: chosen(0.9, 'the coil aims this far round the ring ahead of the bot head'),
+  COIL_ESCAPE: chosen(480, 'the coil ends when the prey head gets this far away'),
+  COIL_MS: chosen(6000, 'or after this long'),
+
+  // Death piles (personalities that SCAVENGE): a fresh death leaves its length as food along its body.
+  PILE_RANGE: chosen(900, 'a pile within this distance is a goal'),
+  PILE_FRESH_MS: chosen(7000, 'a pile counts this long after the death (most of it is eaten by then)'),
+  PILE_MIN_L: chosen(30, 'only a death at least this long is worth crossing the map for'),
+  PILE_HANDOFF: chosen(220, 'this close the food goal takes over (it sees the pellets themselves)'),
+  PILE_GUARD: chosen(200, 'a pile with a bigger snake head this close to it, nearer than the bot, is left alone'),
+  PILE_BOOST_L: chosen(80, 'a pile from a death at least this long is worth a boost'),
+  PILE_BOOST_RANGE: chosen(650, 'boost to a pile only when it is this close'),
+  PILE_BOOST_MIN_MS: chosen(400, 'shortest pile boost'),
+  PILE_BOOST_MAX_MS: chosen(1000, 'longest pile boost'),
+  PILE_SAMPLES: chosen(8, 'points kept per pile, spread along the drops (the bot heads for the nearest)'),
+  PILE_MAX: chosen(24, 'piles remembered at once (oldest dropped first)'),
+
+  // Shy (keeps clear of bigger bodies, not only heads).
+  SHY_RANGE: chosen(320, 'a shy bot turns away from bigger bodies within this distance (was 450: shy bots starved)'),
   SHY_RATIO: chosen(1.2, 'bigger means at least this many times its length (L)'),
+
+  // New bots and the fill.
+  SKIN_PLAIN_SHARE: chosen(0.6, 'share of new bots in a plain colour 0 to 8, the rest any other shipped skin'),
+  REFILL_MEAN_MS: chosen(6000, 'a dead bot is replaced after a random wait, exponential with this mean (a room never refills in 125 ms)'),
+  REFILL_MAX_MS: chosen(20000, 'and never longer than this'),
 
   // Personalities: share of the bots, then each one's settings.
   //   THINK_MIN, THINK_MAX  updates between two decisions (drawn each time)
   //   AIM_JITTER            the heading misses by up to this much each think
   //   CLEAR_MARGIN          room kept from another body, on top of its L35 radius a x sc
-  //   BOOST_CHANCE          chance per think of a boost for no reason, BOOST_MS long
-  //   HUNTS, FLEES          1: chases smaller snakes (hunter) / turns away from bigger ones (shy)
-  CASUAL_SHARE: chosen(0.6, 'share of bots that are casual (agar CASUAL_SHARE)'),
+  //   BOOST_CHANCE          chance per think of a boost for no reason, BOOST_MS long at most (half that at least)
+  //   HUNTS, HUNT_RATIO, CHASE_CHANCE   chases snakes HUNT_RATIO times shorter, CHASE_CHANCE per think with one near
+  //   COILS                 1: coils round much smaller prey it gets ahead of
+  //   FLEES                 1: also turns away from bigger BODIES within SHY_RANGE (shy)
+  //   THREAT_RANGE, THREAT_RATIO        flees heads at least THREAT_RATIO times longer, aimed at it, this close
+  //   SCAVENGES             1: goes for fresh death piles
+  CASUAL_SHARE: chosen(0.55, 'share of bots that are casual'),
   CASUAL_THINK_MIN: chosen(3, 'casual: fewest updates between two decisions'),
   CASUAL_THINK_MAX: chosen(6, 'casual: most updates between two decisions'),
   CASUAL_AIM_JITTER: chosen(0.15, 'casual: aim error'),
   CASUAL_CLEAR_MARGIN: chosen(35, 'casual: room kept from other bodies'),
   CASUAL_BOOST_CHANCE: chosen(0.005, 'casual: chance per think of a short boost (rarely boosts)'),
-  CASUAL_BOOST_MS: chosen(600, 'casual: that boost lasts this long'),
-  CASUAL_HUNTS: chosen(0, 'casual: never chases'),
-  CASUAL_FLEES: chosen(0, 'casual: no extra care around bigger snakes'),
-  HUNTER_SHARE: chosen(0.15, 'share of bots that are hunters (agar HUNTER_SHARE)'),
+  CASUAL_BOOST_MS: chosen(600, 'casual: that boost lasts up to this long'),
+  CASUAL_HUNTS: chosen(1, 'casual: chases now and then, only snakes far smaller'),
+  CASUAL_HUNT_RATIO: chosen(2.5, 'casual: prey must be this many times shorter'),
+  CASUAL_CHASE_CHANCE: chosen(0.08, 'casual: chance per think, with such prey in range, that a chase starts'),
+  CASUAL_COILS: chosen(0, 'casual: never coils'),
+  CASUAL_FLEES: chosen(0, 'casual: no extra care around bigger bodies'),
+  CASUAL_THREAT_RANGE: chosen(260, 'casual: flees an aimed bigger head this close'),
+  CASUAL_THREAT_RATIO: chosen(1.3, 'casual: bigger means this many times longer'),
+  CASUAL_SCAVENGES: chosen(1, 'casual: goes for death piles'),
+  HUNTER_SHARE: chosen(0.25, 'share of bots that are hunters (was 0.15: most players never met one)'),
   HUNTER_THINK_MIN: chosen(2, 'hunter: fewest updates between two decisions'),
   HUNTER_THINK_MAX: chosen(4, 'hunter: most updates between two decisions'),
   HUNTER_AIM_JITTER: chosen(0.05, 'hunter: aim error'),
   HUNTER_CLEAR_MARGIN: chosen(25, 'hunter: room kept from other bodies (cuts closer than shy)'),
-  HUNTER_BOOST_CHANCE: chosen(0, 'hunter: boosts only in a chase'),
+  HUNTER_BOOST_CHANCE: chosen(0, 'hunter: no boost for no reason'),
   HUNTER_BOOST_MS: chosen(0, 'hunter: (no idle boost)'),
   HUNTER_HUNTS: chosen(1, 'hunter: chases clearly smaller snakes'),
-  HUNTER_FLEES: chosen(0, 'hunter: no extra care around bigger snakes'),
-  SHY_SHARE: chosen(0.25, 'share of bots that are shy (agar SHY_SHARE)'),
+  HUNTER_HUNT_RATIO: chosen(1.5, 'hunter: prey must be this many times shorter'),
+  HUNTER_CHASE_CHANCE: chosen(0.5, 'hunter: chance per think, with prey in range, that a chase starts'),
+  HUNTER_COILS: chosen(1, 'hunter: coils round much smaller prey'),
+  HUNTER_FLEES: chosen(0, 'hunter: no extra care around bigger bodies'),
+  HUNTER_THREAT_RANGE: chosen(200, 'hunter: flees an aimed bigger head only this close'),
+  HUNTER_THREAT_RATIO: chosen(1.8, 'hunter: bigger means this many times longer'),
+  HUNTER_SCAVENGES: chosen(1, 'hunter: goes for death piles'),
+  SHY_SHARE: chosen(0.2, 'share of bots that are shy'),
   SHY_THINK_MIN: chosen(3, 'shy: fewest updates between two decisions'),
   SHY_THINK_MAX: chosen(5, 'shy: most updates between two decisions'),
   SHY_AIM_JITTER: chosen(0.1, 'shy: aim error'),
   SHY_CLEAR_MARGIN: chosen(40, 'shy: room kept from other bodies'),
-  SHY_BOOST_CHANCE: chosen(0, 'shy: never boosts'),
+  SHY_BOOST_CHANCE: chosen(0, 'shy: no boost for no reason (it still boosts to get away)'),
   SHY_BOOST_MS: chosen(0, 'shy: (no idle boost)'),
   SHY_HUNTS: chosen(0, 'shy: never chases'),
+  SHY_HUNT_RATIO: chosen(0, 'shy: (never chases)'),
+  SHY_CHASE_CHANCE: chosen(0, 'shy: (never chases)'),
+  SHY_COILS: chosen(0, 'shy: never coils'),
   SHY_FLEES: chosen(1, 'shy: turns away from bigger bodies within SHY_RANGE'),
+  SHY_THREAT_RANGE: chosen(380, 'shy: flees an aimed bigger head from farther off'),
+  SHY_THREAT_RATIO: chosen(1.1, 'shy: bigger means only this many times longer'),
+  SHY_SCAVENGES: chosen(1, 'shy: goes for death piles nobody bigger is guarding'),
 });
 // END BOT_TUNING
 
@@ -209,7 +287,7 @@ const T = {};
 for (const k of Object.keys(BOT_TUNING)) T[k] = BOT_TUNING[k].value;
 
 const PROFILE_KEYS = Object.freeze(['SHARE', 'THINK_MIN', 'THINK_MAX', 'AIM_JITTER', 'CLEAR_MARGIN', 'BOOST_CHANCE',
-  'BOOST_MS', 'HUNTS', 'FLEES']);
+  'BOOST_MS', 'HUNTS', 'HUNT_RATIO', 'CHASE_CHANCE', 'COILS', 'FLEES', 'THREAT_RANGE', 'THREAT_RATIO', 'SCAVENGES']);
 
 function buildProfile(name) {
   const prefix = name.toUpperCase() + '_';
@@ -307,11 +385,15 @@ function angleByte(K, a) {
 // ---------------------------------------------------------------------------------------------------------------
 // The world a brain reads (read only).
 
-function createBotSense(sim) {
+// piles: optional () -> the recent death piles, [{at (sim ms of the death), size (its L), pts [x, y, ...]}], as the
+// driver keeps them from each step's deaths; absent, no piles (a brain then never scavenges).
+const NO_PILES = Object.freeze([]);
+function createBotSense(sim, piles) {
   if (!sim || !sim.grid || typeof sim.snake !== 'function') throw new TypeError('slBots: createBotSense needs a sim');
   const grd = sim.laws.L1.value;
   const grid = sim.grid;
   return Object.freeze({
+    piles: typeof piles === 'function' ? piles : () => NO_PILES,
     grd,
     flux: () => sim.flux(),
     // the battle royale's circle { x, y, r } or null (slSim opts.zone); a free room has none
@@ -357,6 +439,8 @@ function createBotBrain(seed, personality, laws) {
   let mode = 'idle';
   let chaseId = 0;
   let chaseSince = 0;
+  let coilDir = 0; // 0: not coiling; else the way round the prey head (1 counterclockwise, -1 clockwise)
+  let coilSince = 0;
   let restUntil = -Infinity;
   let wanderX = 0;
   let wanderY = 0;
@@ -364,7 +448,8 @@ function createBotBrain(seed, personality, laws) {
   let foodId = null;
   let foodSince = 0;
   let skipFoodId = null;
-  const stats = { thinks: 0, border: 0, flee: 0, hunt: 0, food: 0, wander: 0, chases: 0, boosts: 0, angles: 0, boostRecs: 0 };
+  const stats = { thinks: 0, border: 0, flee: 0, hunt: 0, coil: 0, pile: 0, food: 0, wander: 0, chases: 0, coils: 0,
+    boosts: 0, fleeBoosts: 0, panicBoosts: 0, chaseBoosts: 0, pileBoosts: 0, angles: 0, boostRecs: 0 };
 
   // Per-think scratch.
   let me = null;
@@ -384,6 +469,12 @@ function createBotBrain(seed, personality, laws) {
   let borderR2 = 0;
   let prey = null;
   let preyD2 = 0;
+  let threat = null;
+  let threatD2 = 0;
+  let guardX = 0;
+  let guardY = 0;
+  let guardD2 = 0;
+  let guarded = false;
 
   function snakeOf(sid) {
     let o = near.get(sid);
@@ -441,6 +532,40 @@ function createBotBrain(seed, personality, laws) {
     }
   }
 
+  // The nearest head of a clearly bigger snake (THREAT_RATIO) inside THREAT_RANGE whose heading points at this head,
+  // or at the spot THREAT_AHEAD in front of it: somebody coming to cut it off. The prey of a chase is never one (it
+  // is the smaller snake by the hunt rule).
+  function visitThreat(o) {
+    if (o === me || !o.alive || o.id === chaseId) return;
+    const dx = mx - o.hx;
+    const dy = my - o.hy;
+    const d2 = dx * dx + dy * dy;
+    if (d2 >= threatD2 || !(d2 > 0) || lengthOf(o) < prof.THREAT_RATIO * myL) return;
+    const ux = Math.cos(o.ang);
+    const uy = Math.sin(o.ang);
+    const d = Math.sqrt(d2);
+    if ((ux * dx + uy * dy) / d < T.THREAT_AIM_COS) {
+      const ax = dx + Math.cos(curAng) * T.THREAT_AHEAD;
+      const ay = dy + Math.sin(curAng) * T.THREAT_AHEAD;
+      const a = Math.sqrt(ax * ax + ay * ay);
+      if (!(a > 0) || (ux * ax + uy * ay) / a < T.THREAT_AIM_COS) return;
+    }
+    threatD2 = d2;
+    threat = o;
+  }
+
+  // Away from the threat head, and sideways off its line of travel to whichever side the bot is already on, so a
+  // threat that keeps coming overshoots instead of running the bot down from behind.
+  function fleeFrom(o) {
+    const dx = mx - o.hx;
+    const dy = my - o.hy;
+    const d = Math.sqrt(dx * dx + dy * dy);
+    const ux = Math.cos(o.ang);
+    const uy = Math.sin(o.ang);
+    const side = ux * dy - uy * dx >= 0 ? 1 : -1;
+    return Math.atan2(dy / d + side * ux * T.FLEE_SIDESTEP, dx / d - side * uy * T.FLEE_SIDESTEP);
+  }
+
   // The border as a wall BORDER_MARGIN inside the disc of radius R around (cx, cy): per heading, the distance to it.
   function markBorder(cx, cy, R) {
     const ox = mx - cx;
@@ -485,56 +610,118 @@ function createBotBrain(seed, personality, laws) {
     return best;
   }
 
-  function startBoost(tickMs, ms) {
-    if (wantBoost || tickMs < boostRestUntil || myL <= T.BOOST_MIN_L || myL <= K.minL) return;
+  // A press of boost held for a drawn length between minMs and maxMs. Refused at or below BOOST_MIN_L (and the L22
+  // floor); a boost the bot does not need to live (urgent false) is also refused below BOOST_AFFORD_L and inside the
+  // drawn rest after the last one. An urgent press while already boosting keeps it held for the new length. True only
+  // when a new press starts.
+  function startBoost(tickMs, minMs, maxMs, urgent) {
+    if (myL <= T.BOOST_MIN_L || myL <= K.minL) return false;
+    if (wantBoost) {
+      if (urgent) {
+        const until = tickMs + minMs + rng.next() * (maxMs - minMs);
+        if (until > boostUntil) boostUntil = until;
+      }
+      return false;
+    }
+    if (!urgent && (myL < T.BOOST_AFFORD_L || tickMs < boostRestUntil)) return false;
     wantBoost = true;
-    boostUntil = tickMs + ms;
+    boostUntil = tickMs + minMs + rng.next() * (maxMs - minMs);
     stats.boosts++;
+    return true;
   }
 
   function stopBoost(tickMs) {
     if (!wantBoost) return;
     wantBoost = false;
-    boostRestUntil = tickMs + T.BOOST_REST_MS;
+    boostRestUntil = tickMs + T.BOOST_REST_MIN_MS + rng.next() * (T.BOOST_REST_MAX_MS - T.BOOST_REST_MIN_MS);
   }
 
   function endChase(tickMs) {
     chaseId = 0;
+    coilDir = 0;
     restUntil = tickMs + T.HUNT_REST_MS;
     stopBoost(tickMs);
   }
 
+  // A snake holding Q to cash out (slHold: steering locked, crawling at a fifth of its speed, holdMult set) is never
+  // prey: it cannot get away, so a chase would turn every free-room cash-out into a kill nobody could escape.
+  function holding(o) {
+    return o.holdMult !== null && o.holdMult !== undefined;
+  }
+
   function visitHead(o) {
-    if (o === me || !o.alive) return;
+    if (o === me || !o.alive || holding(o)) return;
     const dx = o.hx - mx;
     const dy = o.hy - my;
     const d2 = dx * dx + dy * dy;
     if (d2 >= preyD2) return;
-    if (myL < T.HUNT_RATIO * lengthOf(o)) return;
+    if (myL < prof.HUNT_RATIO * lengthOf(o)) return;
     preyD2 = d2;
     prey = o;
   }
 
-  // Aim HUNT_CUT_LEAD ahead of the prey head along its heading; boost when close.
+  // Aim where the prey head will be when this head gets there: along the prey heading by distance x prey speed /
+  // own speed, held to [HUNT_LEAD_MIN, HUNT_LEAD_MAX]. Boost while lined up on that point and still short of it; let
+  // go once the prey has turned so far that the point is behind.
   function cutAt(o, tickMs) {
-    const tx = o.hx + Math.cos(o.ang) * T.HUNT_CUT_LEAD;
-    const ty = o.hy + Math.sin(o.ang) * T.HUNT_CUT_LEAD;
-    const dx = tx - mx;
-    const dy = ty - my;
-    if (dx * dx + dy * dy < T.HUNT_BOOST_RANGE * T.HUNT_BOOST_RANGE) startBoost(tickMs, T.HUNT_BOOST_MS);
-    return Math.atan2(dy, dx);
+    const hx = o.hx - mx;
+    const hy = o.hy - my;
+    const d = Math.sqrt(hx * hx + hy * hy);
+    let lead = me.sp > 0 ? (d * o.sp) / me.sp : T.HUNT_LEAD_MAX;
+    if (!(lead >= T.HUNT_LEAD_MIN)) lead = T.HUNT_LEAD_MIN;
+    else if (lead > T.HUNT_LEAD_MAX) lead = T.HUNT_LEAD_MAX;
+    const tx = hx + Math.cos(o.ang) * lead;
+    const ty = hy + Math.sin(o.ang) * lead;
+    const aim = Math.atan2(ty, tx);
+    const lined = Math.cos(aim - curAng);
+    const far2 = tx * tx + ty * ty;
+    if (wantBoost && lined < T.CHASE_DROP_COS) {
+      stopBoost(tickMs);
+    } else if (lined > T.CHASE_BOOST_COS && far2 > T.CHASE_BOOST_NEAR * T.CHASE_BOOST_NEAR &&
+        far2 < T.HUNT_BOOST_RANGE * T.HUNT_BOOST_RANGE &&
+        startBoost(tickMs, T.CHASE_BOOST_MIN_MS, T.CHASE_BOOST_MAX_MS, false)) {
+      stats.chaseBoosts++;
+    }
+    return aim;
+  }
+
+  // Run round the prey head on a ring COIL_R (plus its body radius) out, aiming COIL_ADVANCE ahead round it, always
+  // the same way: the way that first crosses in front of the prey. The bot's own body is never a hazard (L37), so the
+  // ring closes on the prey and only the prey's body is steered round.
+  function coilAt(o, tickMs) {
+    const dx = mx - o.hx;
+    const dy = my - o.hy;
+    if (coilDir === 0) {
+      coilDir = Math.cos(o.ang) * dy - Math.sin(o.ang) * dx >= 0 ? -1 : 1;
+      coilSince = tickMs;
+      stats.coils++;
+      stopBoost(tickMs); // a boosting snake turns a wider circle
+    }
+    const phi = Math.atan2(dy, dx) + coilDir * T.COIL_ADVANCE;
+    const r = T.COIL_R + K.a * o.sc;
+    return Math.atan2(o.hy + Math.sin(phi) * r - my, o.hx + Math.cos(phi) * r - mx);
   }
 
   function huntGoal(tickMs) {
     if (chaseId !== 0) {
       const o = sense.snake(chaseId);
-      let over = !o || !o.alive || tickMs - chaseSince >= T.HUNT_GIVE_UP_MS || myL < T.HUNT_RATIO * lengthOf(o);
+      const late = coilDir !== 0 ? tickMs - coilSince >= T.COIL_MS : tickMs - chaseSince >= T.HUNT_GIVE_UP_MS;
+      let over = !o || !o.alive || late || holding(o) || myL < prof.HUNT_RATIO * lengthOf(o);
+      let dx = 0;
+      let dy = 0;
       if (!over) {
-        const dx = o.hx - mx;
-        const dy = o.hy - my;
+        dx = mx - o.hx;
+        dy = my - o.hy;
         over = dx * dx + dy * dy > T.HUNT_RANGE * T.HUNT_RANGE;
       }
-      if (over) {
+      if (!over && prof.COILS && myL >= T.COIL_RATIO * lengthOf(o)) {
+        const d2 = dx * dx + dy * dy;
+        const ahead = Math.cos(o.ang) * dx + Math.sin(o.ang) * dy > 0;
+        if (coilDir !== 0 ? d2 < T.COIL_ESCAPE * T.COIL_ESCAPE : d2 < T.COIL_RANGE * T.COIL_RANGE && ahead) {
+          return coilAt(o, tickMs);
+        }
+      }
+      if (over || coilDir !== 0) { // a coil that ends ends the chase: the prey got out
         endChase(tickMs);
         return null;
       }
@@ -546,11 +733,64 @@ function createBotBrain(seed, personality, laws) {
     sense.forEachSnake(visitHead);
     const found = prey;
     prey = null;
-    if (found === null || rng.next() >= T.HUNT_CHASE_CHANCE) return null;
+    if (found === null || rng.next() >= prof.CHASE_CHANCE) return null;
     chaseId = found.id;
     chaseSince = tickMs;
     stats.chases++;
     return cutAt(found, tickMs);
+  }
+
+  function visitGuard(o) {
+    if (guarded || o === me || !o.alive) return;
+    const dx = o.hx - guardX;
+    const dy = o.hy - guardY;
+    const d2 = dx * dx + dy * dy;
+    if (d2 < T.PILE_GUARD * T.PILE_GUARD && d2 < guardD2 && lengthOf(o) >= prof.THREAT_RATIO * myL) guarded = true;
+  }
+
+  // The nearest point of a fresh death pile (PILE_FRESH_MS, at least PILE_MIN_L long) inside PILE_RANGE and inside the
+  // wall, unless a bigger head is nearer to it; boost there when it is big and close. Within PILE_HANDOFF the food
+  // goal takes over, since it sees the pellets that are actually left.
+  function pileGoal(tickMs) {
+    if (!prof.SCAVENGES || typeof sense.piles !== 'function') return null;
+    const list = sense.piles();
+    if (!list || list.length === 0) return null;
+    let bestD2 = T.PILE_RANGE * T.PILE_RANGE;
+    let bx = 0;
+    let by = 0;
+    let size = 0;
+    for (let i = 0; i < list.length; i++) {
+      const p = list[i];
+      if (tickMs - p.at > T.PILE_FRESH_MS || p.size < T.PILE_MIN_L) continue;
+      const pts = p.pts;
+      for (let k = 0; k + 1 < pts.length; k += 2) {
+        const ex = pts[k] - borderCx;
+        const ey = pts[k + 1] - borderCy;
+        if (ex * ex + ey * ey > borderR2) continue;
+        const dx = pts[k] - mx;
+        const dy = pts[k + 1] - my;
+        const d2 = dx * dx + dy * dy;
+        if (d2 < bestD2) {
+          bestD2 = d2;
+          bx = pts[k];
+          by = pts[k + 1];
+          size = p.size;
+        }
+      }
+    }
+    if (size === 0 || bestD2 < T.PILE_HANDOFF * T.PILE_HANDOFF) return null;
+    guardX = bx;
+    guardY = by;
+    guardD2 = bestD2;
+    guarded = false;
+    sense.forEachSnake(visitGuard);
+    if (guarded) return null;
+    const aim = Math.atan2(by - my, bx - mx);
+    if (size >= T.PILE_BOOST_L && bestD2 < T.PILE_BOOST_RANGE * T.PILE_BOOST_RANGE &&
+        Math.cos(aim - curAng) > T.CHASE_BOOST_COS && startBoost(tickMs, T.PILE_BOOST_MIN_MS, T.PILE_BOOST_MAX_MS, false)) {
+      stats.pileBoosts++;
+    }
+    return aim;
   }
 
   function visitFood(f) {
@@ -608,6 +848,7 @@ function createBotBrain(seed, personality, laws) {
     return Math.atan2(wanderY - my, wanderX - mx);
   }
 
+  // The goal ladder: the wall, a threat head, bigger bodies (shy), a chase or coil, a death pile, food, a wander point.
   function think(tickMs) {
     mx = me.hx;
     my = me.hy;
@@ -618,6 +859,8 @@ function createBotBrain(seed, personality, laws) {
     near.clear();
     fleeX = 0;
     fleeY = 0;
+    threat = null;
+    threatD2 = prof.THREAT_RANGE * prof.THREAT_RANGE;
     // the battle royale's circle when there is one, else the map's border round (grd, grd)
     const z = sense.zone ? sense.zone() : null;
     const R = z ? z.r : sense.flux();
@@ -628,32 +871,53 @@ function createBotBrain(seed, personality, laws) {
     borderCy = cy;
     borderR2 = (R - T.BORDER_MARGIN) * (R - T.BORDER_MARGIN);
     sense.forEachPointNear(mx, my, prof.FLEES && T.SHY_RANGE > look ? T.SHY_RANGE : look, visitPoint);
-    for (const o of near.values()) if (o) markHead(o);
+    // the prey's own path ahead is where a cut goes, so it is no hazard for its hunter (its body still is)
+    for (const o of near.values()) if (o && o.id !== chaseId) markHead(o);
     near.clear();
+    // threat heads from the head list, not the body points: one distance test per snake costs less than reading
+    // every body point out to THREAT_RANGE
+    sense.forEachSnake(visitThreat);
     markBorder(cx, cy, R);
     stats.thinks++;
 
     const ox = mx - cx;
     const oy = my - cy;
+    const out2 = ox * ox + oy * oy;
     let goal = null;
-    if (ox * ox + oy * oy > T.BORDER_CAUTION * T.BORDER_CAUTION * R * R) {
+    if (out2 > T.BORDER_CAUTION * T.BORDER_CAUTION * R * R) {
       mode = 'border';
       goal = Math.atan2(-oy, -ox);
+      const panic = z ? out2 > R * R : out2 > T.PANIC_SHARE * T.PANIC_SHARE * R * R;
+      if (panic && Math.cos(goal - curAng) > T.PANIC_INWARD_COS &&
+          startBoost(tickMs, T.PANIC_BOOST_MIN_MS, T.PANIC_BOOST_MAX_MS, true)) {
+        stats.panicBoosts++;
+      }
+    } else if (threat !== null) {
+      mode = 'flee';
+      goal = fleeFrom(threat);
+      if (threatD2 < T.FLEE_BOOST_RANGE * T.FLEE_BOOST_RANGE &&
+          startBoost(tickMs, T.FLEE_BOOST_MIN_MS, T.FLEE_BOOST_MAX_MS, true)) {
+        stats.fleeBoosts++;
+      }
     } else if (prof.FLEES && (fleeX !== 0 || fleeY !== 0)) {
       mode = 'flee';
       goal = Math.atan2(fleeY, fleeX);
     } else if (prof.HUNTS && (goal = huntGoal(tickMs)) !== null) {
-      mode = 'hunt';
+      mode = coilDir !== 0 ? 'coil' : 'hunt';
+    } else if ((goal = pileGoal(tickMs)) !== null) {
+      mode = 'pile';
     } else if ((goal = foodGoal(tickMs)) !== null) {
       mode = 'food';
     } else {
       mode = 'wander';
       goal = wanderGoal(tickMs, cx, cy, R);
     }
+    threat = null;
     stats[mode]++;
-    if (mode !== 'hunt' && chaseId !== 0) endChase(tickMs);
-    if (prof.BOOST_CHANCE > 0 && !wantBoost && myL > T.BOOST_MIN_L && rng.next() < prof.BOOST_CHANCE) {
-      startBoost(tickMs, prof.BOOST_MS);
+    if (mode !== 'hunt' && mode !== 'coil' && chaseId !== 0) endChase(tickMs);
+    // a boost for no reason only while nothing is going on (never at the wall, where it only widens the turn)
+    if (prof.BOOST_CHANCE > 0 && !wantBoost && (mode === 'food' || mode === 'wander') && rng.next() < prof.BOOST_CHANCE) {
+      startBoost(tickMs, prof.BOOST_MS / 2, prof.BOOST_MS, false);
     }
     goalAng = goal + (rng.next() * 2 - 1) * prof.AIM_JITTER;
     wantQ = angleByte(K, steer());
@@ -716,8 +980,9 @@ function createBotBrain(seed, personality, laws) {
 // ---------------------------------------------------------------------------------------------------------------
 // New bots: skin, name, spec, spawn.
 
-// The skins a bot draws from, uniform: every shipped skin cv 0 to SKIN_MAX, the picture skins only while the
-// PICTURE_SKINS switch is on (Owen: one off switch, default off until he has reviewed each image).
+/// The skins a bot may wear: every shipped skin cv 0 to SKIN_MAX, the picture skins only while the PICTURE_SKINS
+// switch is on (Owen: one off switch, default off until he has reviewed each image). How often each is worn is
+// skinOf below.
 function botSkins(laws) {
   assertLawsComplete(laws, SKIN_LAW_IDS);
   const sw = laws.PICTURE_SKINS.value;
@@ -736,38 +1001,88 @@ function botSkins(laws) {
   return Object.freeze(out);
 }
 
-// Names in use are not handed out again while a free one exists (the old engine's rule, server/Bot.js:41-47); one
-// draw per take.
+// One skin from one uniform draw u: SKIN_PLAIN_SHARE of bots in a plain colour (cv under PLAIN_SKINS, what most
+// people play in because it is what they get without opening Customize), the rest spread over every other allowed
+// skin. skins is botSkins' list, ascending, so its plain colours come first. Uniform over the whole list was 5 in 6
+// striped, which no real room looks like.
+function skinOf(skins, u) {
+  let plain = 0;
+  while (plain < skins.length && skins[plain] < PLAIN_SKINS) plain++;
+  const other = skins.length - plain;
+  let i;
+  if (other === 0) i = Math.floor(u * plain);
+  else if (plain === 0) i = Math.floor(u * other);
+  else if (u < T.SKIN_PLAIN_SHARE) i = Math.floor((u / T.SKIN_PLAIN_SHARE) * plain);
+  else i = plain + Math.floor(((u - T.SKIN_PLAIN_SHARE) / (1 - T.SKIN_PLAIN_SHARE)) * other);
+  return skins[i < skins.length ? i : skins.length - 1];
+}
+
+function bumpName(map, k) {
+  map.set(k, (map.get(k) || 0) + 1);
+}
+
+function dropName(map, k) {
+  const n = map.get(k);
+  if (n === undefined) return;
+  if (n <= 1) map.delete(k);
+  else map.set(k, n - 1);
+}
+
+// The room's names. One draw per take. take(rng, avoid): avoid is an optional Set of lower case names the room's
+// seated people wear, which no bot is given. Without a list (the room's book) a name comes from the shared generator
+// (server/botNames.js pickName, NICK_MAX characters at most) and is never the same as a live bot's, case aside. With
+// a list (tools and tests), names in use are not handed out again while a free one exists (the old engine's rule,
+// server/Bot.js:41-47).
 function createNameBook(names) {
-  const list = names === undefined ? BOT_NAMES : names;
+  const used = new Map(); // name -> live bots wearing it
+  const lower = new Map(); // the same, lower case
+  if (names === undefined) {
+    let avoiding = null;
+    const taken = (lc) => lower.has(lc) || (avoiding !== null && avoiding.has(lc));
+    return {
+      take(rng, avoid) {
+        avoiding = avoid instanceof Set && avoid.size > 0 ? avoid : null;
+        const name = pickName(rng.next(), { maxLen: NICK_MAX, taken });
+        avoiding = null;
+        bumpName(used, name);
+        bumpName(lower, name.toLowerCase());
+        return name;
+      },
+      release(name) {
+        if (!used.has(name)) return;
+        dropName(used, name);
+        dropName(lower, name.toLowerCase());
+      },
+      inUse: () => used.size,
+    };
+  }
+  const list = names;
   if (!Array.isArray(list) || list.length === 0) throw new Error('slBots: name book needs names');
-  const used = new Map();
   const free = [];
   return {
-    take(rng) {
+    take(rng, avoid) {
       free.length = 0;
-      for (const n of list) if (!used.has(n)) free.push(n);
+      const skip = avoid instanceof Set ? avoid : null;
+      for (const n of list) if (!used.has(n) && (skip === null || !skip.has(n.toLowerCase()))) free.push(n);
       const name = free.length > 0 ? free[rng.int(free.length)] : list[rng.int(list.length)];
-      used.set(name, (used.get(name) || 0) + 1);
+      bumpName(used, name);
       return name;
     },
     release(name) {
-      const k = used.get(name);
-      if (k === undefined) return;
-      if (k <= 1) used.delete(name);
-      else used.set(name, k - 1);
+      dropName(used, name);
     },
     inUse: () => used.size,
   };
 }
 
-// One new bot from the room's 'bot' stream: brain seed, personality, skin, name, in that order (four draws).
-function drawBotSpec(rng, laws, names) {
+// One new bot from the room's 'bot' stream: brain seed, personality, skin, name, in that order (four draws). avoid:
+// the lower case names of the people seated in the room (createNameBook take).
+function drawBotSpec(rng, laws, names, avoid) {
   const skins = botSkins(laws);
   const seed = Math.floor(rng.next() * UINT32_SPAN);
   const personality = drawPersonality(rng);
-  const cv = skins[rng.int(skins.length)];
-  const nick = names.take(rng);
+  const cv = skinOf(skins, rng.next());
+  const nick = names.take(rng, avoid);
   return { seed, personality, cv, nick };
 }
 
@@ -1098,6 +1413,8 @@ function defaultElu() {
 //   room.seats (values with snakeId) the human heads; a new bot is drawn again while its head lands in the L8.R2
 //                                    large sector window around one of them (an approximation of the view set, which
 //                                    holds the sectors around an anchor at most about one sector ahead of the head)
+//   room.humans, room.names          the human snake ids and every snake's name: a new bot never takes a name a
+//                                    person in the room wears
 //   room._botsPausedUntil            wall ms; the owner console's bots:clear window (server/index.js:1241): no
 //                                    automatic adds until then
 // opts: { governor (createBotGovernor; its mult lowers the target, and while engaged nothing is added), now (wall ms
@@ -1105,6 +1422,18 @@ function defaultElu() {
 // holdFill(room) (the battle royale only: true while a match runs, so the fill neither adds nor retires) }.
 // Bots added by hand through add(room) return their record; the console marks it manual (server/index.js:1258) and
 // the automatic fill then neither counts nor retires it.
+//
+// The owner console's controls (Control contract 2026-10-16; callers check typeof === 'function' first):
+//   setTarget(room, n)   hold exactly n live bots (0 to TARGET_MAX): the fill adds and retires toward n at its normal
+//                        pace, people no longer displace bots, hand-added bots count toward n like the rest, and a
+//                        dead bot is replaced at once (an exact count is what was asked for). The room cap still holds
+//                        bots and people together and the load governor still lowers it under load. n null: back to
+//                        the daily curve. A held count wins over an older Clear pause.
+//   target(room)         the held n, or null on the curve.
+//   removeBots(room, n)  retire n bots now (unseen first, shortest first), the same way clear takes them out. Call it
+//                        from a timer or a request, never inside a step. Returns how many went.
+//   clear(room)          every bot out now; also drops a held count, so the console's Clear pause then holds the room
+//                        empty.
 const DRIVER_LAW_IDS = Object.freeze(['L2.size', 'L8.R2', 'C_ROOM_CAP']);
 
 function createBotDriver(laws, opts) {
@@ -1127,13 +1456,19 @@ function createBotDriver(laws, opts) {
   const out = [];
   const auto = [];
   const heads = [];
+  const avoid = new Set(); // lower case names of the people in the room, per spawn
+  const piles = []; // recent deaths with drops, oldest first: {at, size, pts: [x, y, ...]}
+  const waiting = []; // sim ms at which each dead bot's place may be filled again
+  const targets = new WeakMap(); // room -> held live bot count (setTarget)
+  const refills = { delays: 0, totalMs: 0, maxMs: 0 };
   let sense = null;
   let senseSim = null;
   let room = null; // the room of the current call
+  const pilesNow = () => piles;
 
   function senseOf(r) {
     if (senseSim !== r.sim) {
-      sense = createBotSense(r.sim);
+      sense = createBotSense(r.sim, pilesNow);
       senseSim = r.sim;
     }
     return sense;
@@ -1174,6 +1509,16 @@ function createBotDriver(laws, opts) {
     }
   }
 
+  // The names the people in the room wear, lower case (a bot never gets one of them).
+  function loadAvoid(r) {
+    avoid.clear();
+    if (!r.humans || typeof r.humans[Symbol.iterator] !== 'function' || !r.names || typeof r.names.get !== 'function') return;
+    for (const id of r.humans) {
+      const n = r.names.get(id);
+      if (typeof n === 'string' && n.length > 0) avoid.add(n.trim().toLowerCase());
+    }
+  }
+
   function takeOut(r, id) {
     if (typeof r.removeBot === 'function') {
       r.removeBot(id);
@@ -1199,10 +1544,38 @@ function createBotDriver(laws, opts) {
     recs.delete(id);
   }
 
+  // A death worth scavenging: up to PILE_SAMPLES of its drop points, spread along them, for the brains (sense.piles).
+  function notePile(d, simMs) {
+    const drops = d.drops;
+    if (!Array.isArray(drops) || drops.length === 0) return;
+    const size = d.sct + d.fam;
+    if (!(size >= T.PILE_MIN_L)) return;
+    const every = drops.length > T.PILE_SAMPLES ? Math.floor(drops.length / T.PILE_SAMPLES) : 1;
+    const pts = [];
+    for (let i = 0; i < drops.length && pts.length < T.PILE_SAMPLES * 2; i += every) pts.push(drops[i].x, drops[i].y);
+    piles.push({ at: simMs, size, pts });
+    if (piles.length > T.PILE_MAX) piles.shift();
+  }
+
+  // How long a dead bot's place waits before the fill may fill it: exponential with mean REFILL_MEAN_MS, held to
+  // REFILL_MAX_MS, one draw from the room's 'bot' stream. People leave and arrive at random; a room that put a bot
+  // back within 125 ms of every death showed its population for what it is.
+  function refillDelay(r) {
+    const u = r.sim.rng.bot.next();
+    const ms = -Math.log(1 - u) * T.REFILL_MEAN_MS;
+    const wait = ms < T.REFILL_MAX_MS ? ms : T.REFILL_MAX_MS;
+    refills.delays++;
+    refills.totalMs += wait;
+    if (wait > refills.maxMs) refills.maxMs = wait;
+    return wait;
+  }
+
   // One new bot: spec from the 'bot' stream, then a ring spawn drawn again (at most SPAWN_VIEW_TRIES) while it lands
   // in a human's window; a draw taken back was never sent to anyone.
   function spawnOne(r, manual) {
-    const spec = drawBotSpec(r.sim.rng.bot, laws, names);
+    loadAvoid(r);
+    const spec = drawBotSpec(r.sim.rng.bot, laws, names, avoid);
+    avoid.clear();
     loadHeads(r);
     let s = null;
     for (let t = 0; t < T.SPAWN_VIEW_TRIES; t++) {
@@ -1236,30 +1609,54 @@ function createBotDriver(laws, opts) {
   }
 
   function afterStep(r, log, simMs) {
-    for (let i = 0; i < log.deaths.length; i++) forget(log.deaths[i].id, 'died');
+    // the battle royale's match (opts.holdFill() true): the bots in the arena stay as they are, none added or retired
+    const hold = holdFill !== null && holdFill(r) === true;
+    const held = targets.get(r);
+    for (let i = 0; i < log.deaths.length; i++) {
+      const d = log.deaths[i];
+      notePile(d, simMs);
+      const rec = recs.get(d.id);
+      if (rec && !rec.manual && !hold && held === undefined) waiting.push(simMs + refillDelay(r));
+      forget(d.id, 'died');
+    }
     for (const id of Array.from(recs.keys())) if (!r.sim.snake(id)) forget(id, 'gone'); // taken out by someone else
+    while (piles.length > 0 && simMs - piles[0].at > T.PILE_FRESH_MS) piles.shift();
+    let k = 0;
+    for (let i = 0; i < waiting.length; i++) if (waiting[i] > simMs) waiting[k++] = waiting[i];
+    waiting.length = k;
+    if (hold) return;
     room = r;
     auto.length = 0;
     let manual = 0;
     for (const rec of recs.values()) {
-      if (rec.manual) manual++;
+      if (rec.manual && held === undefined) manual++;
       else auto.push(r.sim.snake(rec.id));
     }
-    // the battle royale's match (opts.holdFill() true): the bots in the arena stay as they are, none added or retired
-    if (holdFill !== null && holdFill(r) === true) {
-      auto.length = 0;
-      room = null;
-      return;
-    }
-    const wall = wallNow(r);
     const humans = Number.isInteger(r.playerCount) && r.playerCount > 0 ? r.playerCount : 0;
-    const paused = okNum(r._botsPausedUntil) && wall < r._botsPausedUntil;
+    let plan;
+    if (held !== undefined) {
+      // an exact count: people do not displace it, but bots and people together stay inside the room cap
+      waiting.length = 0;
+      plan = { target: held, humans: 0, cap: cap === null ? null : (cap > humans ? cap - humans : 0) };
+    } else {
+      const wall = wallNow(r);
+      const paused = okNum(r._botsPausedUntil) && wall < r._botsPausedUntil;
+      plan = { target: paused ? 0 : curveTarget(wall), humans, cap: cap === null ? null : (cap > manual ? cap - manual : 0) };
+    }
+    const mult = governor ? governor.mult() : 1;
+    // A waiting place the fill no longer wants (people arrived, the curve fell) is given up at once, before any live
+    // bot is retired: nobody can see it, so it needs neither the pacer nor an unseen retiree.
+    if (waiting.length > 0) {
+      const want = planBotFill({ target: Math.floor(plan.target * mult), humans: plan.humans, bots: 0, cap: plan.cap }, laws).want;
+      const spare = auto.length + waiting.length - want;
+      if (spare > 0) waiting.length = spare < waiting.length ? waiting.length - spare : 0;
+    }
     const act = fill.step(simMs, {
-      target: paused ? 0 : curveTarget(wall),
-      humans,
-      bots: auto.length,
-      cap: cap === null ? null : (cap > manual ? cap - manual : 0),
-      mult: governor ? governor.mult() : 1,
+      target: plan.target,
+      humans: plan.humans,
+      bots: auto.length + waiting.length,
+      cap: plan.cap,
+      mult,
       retiree,
     });
     if (act && act.op === 'add' && !(governor && governor.engaged())) spawnOne(r, false);
@@ -1278,7 +1675,8 @@ function createBotDriver(laws, opts) {
     return spawnOne(r, false);
   }
 
-  // The owner console's bots:clear: every bot out now (the console then pauses the fill for its window).
+  // The owner console's bots:clear: every bot out now (the console then pauses the fill for its window), and any
+  // held count dropped, so that pause holds the room empty.
   function clear(r) {
     let n = 0;
     for (const id of Array.from(recs.keys())) {
@@ -1286,7 +1684,54 @@ function createBotDriver(laws, opts) {
       forget(id, 'cleared');
       n++;
     }
+    waiting.length = 0;
+    if (r && typeof r === 'object') targets.delete(r);
     return n;
+  }
+
+  function setTarget(r, n) {
+    if (!r || typeof r !== 'object') throw new TypeError('slBots: setTarget needs the room');
+    if (n === null || n === undefined) {
+      targets.delete(r);
+      return null;
+    }
+    if (!Number.isInteger(n) || n < 0 || n > TARGET_MAX) {
+      throw new RangeError('slBots: setTarget takes a whole number of bots from 0 to ' + TARGET_MAX + ', or null');
+    }
+    targets.set(r, n);
+    waiting.length = 0;
+    return n;
+  }
+
+  function target(r) {
+    const n = r && typeof r === 'object' ? targets.get(r) : undefined;
+    return n === undefined ? null : n;
+  }
+
+  // n bots out now: the unseen ones first, shortest first (pickRetiree), then seen ones the same way.
+  function removeBots(r, n) {
+    if (!r || typeof r !== 'object' || !r.sim) throw new TypeError('slBots: removeBots needs the room');
+    if (!Number.isInteger(n) || n < 0) throw new RangeError('slBots: removeBots takes a whole number of bots');
+    const live = [];
+    for (const rec of recs.values()) {
+      const s = r.sim.snake(rec.id);
+      if (s) live.push(s);
+    }
+    room = r;
+    let gone = 0;
+    try {
+      while (gone < n && live.length > 0) {
+        let s = pickRetiree(live, isSeen, false);
+        if (s === null) s = pickRetiree(live, isSeen, true);
+        live.splice(live.indexOf(s), 1);
+        takeOut(r, s.id);
+        forget(s.id, 'retired');
+        gone++;
+      }
+    } finally {
+      room = null;
+    }
+    return gone;
   }
 
   return {
@@ -1294,11 +1739,15 @@ function createBotDriver(laws, opts) {
     afterStep,
     add,
     clear,
+    setTarget,
+    target,
+    removeBots,
     count: () => recs.size,
+    waiting: () => waiting.length,
     isBot: (id) => recs.has(id),
     personalityOf: (id) => (recs.has(id) ? recs.get(id).personality : null),
     // per personality: live, spawned, died, retired, and the summed brain stats (thinks, modes, chases, boosts,
-    // records) of every bot that has lived in this room
+    // records) of every bot that has lived in this room; waiting places, remembered piles and the refill delays
     stats: () => {
       const kinds = {};
       for (const p of PERSONALITIES) kinds[p] = Object.assign({ live: 0 }, per[p]);
@@ -1306,7 +1755,10 @@ function createBotDriver(laws, opts) {
         kinds[rec.personality].live++;
         addInto(kinds[rec.personality], rec.brain.stats());
       }
-      return Object.assign({ bots: recs.size, names: names.inUse(), kinds }, fill.stats());
+      return Object.assign({ bots: recs.size, names: names.inUse(), kinds, waiting: waiting.length, piles: piles.length,
+        refillDelays: refills.delays, refillMeanMs: refills.delays > 0 ? refills.totalMs / refills.delays : 0,
+        refillMaxMs: refills.maxMs },
+      fill.stats());
     },
   };
 }
@@ -1318,6 +1770,9 @@ module.exports = {
   PICTURE_SKIN_CVS,
   PICTURE_FILES,
   SKIN_MAX,
+  PLAIN_SKINS,
+  NICK_MAX,
+  TARGET_MAX,
   BRAIN_LAW_IDS,
   FILL_LAW_IDS,
   GOV_LAW_IDS,
@@ -1328,6 +1783,7 @@ module.exports = {
   createBotSense,
   createBotBrain,
   botSkins,
+  skinOf,
   createNameBook,
   drawBotSpec,
   spawnBot,

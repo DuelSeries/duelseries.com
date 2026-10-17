@@ -9,6 +9,11 @@
    escrow nobody paid into or takes a real buy-in for a machine. A paid seat
    waits for a person, and gets its money back if none comes.
 
+   IT LOOKS LIKE A PLAYER (Owen 2026-10-16): a person's kind of name, an
+   arrival after a wait that is never the same twice, a fleet laid and shots
+   fired after pauses a person would take, and no tell-tale id in anything a
+   client is sent (BattleshipRoom.publicId).
+
    THE OPPONENT ITSELF is the interesting part here. Battleship has a known best
    way to play and it is not close: hunt on a parity lattice until something is
    hit, then work outwards from the hit until the ship is sunk. That is what a
@@ -18,6 +23,7 @@
 
 const { BattleshipRoom, BS } = require('./BattleshipRoom');
 const { refundBound } = require('./stakeRules');
+const { pickName } = require('./botNames');
 
 /* HOW LONG A REAL PERSON GETS TO TURN UP.
 
@@ -27,16 +33,40 @@ const { refundBound } = require('./stakeRules');
    two people clicking together land in the queue several seconds apart, and
    whoever got there first was already in a bot match before the second arrived.
 
-   Fifteen is long enough for two people coordinating over a phone call and
-   still short enough that somebody alone is not left staring. It matters less
-   than it looks, because a second person arriving inside the first minute now
-   pulls the first out of their bot match anyway — see rescueFromBot. */
-const BOT_AFTER_MS = 15000;        // how long you wait before one turns up on a FREE table
+   Fifteen was long enough for two people coordinating over a phone call and
+   still short enough that somebody alone is not left staring. But a fixed
+   fifteen was itself a tell, so each wait is drawn between the two below,
+   about fifteen on average. It matters less than it looks, because a second
+   person arriving inside the first minute pulls the first out of their bot
+   match anyway (see rescueFromBot). */
+const BOT_AFTER_MIN_MS = 9000;     // the shortest wait before one turns up on a FREE table
+const BOT_AFTER_MS = 22000;        // and the longest
 const PAID_WAIT_MS = 60000;       // and how long a paid seat waits for a person
-const BOT_THINK_MS = 1100;        // it does not answer instantly
-const BOT_PLACE_MS = 2500;        // nor lay its fleet out the moment the match opens
 
-const BOT_NAMES = ['Commodore Bot', 'Halsey', 'Nimitz', 'Rickover', 'Hopper'];
+/* HOW LONG IT TAKES, drawn every time. A shot exactly 1.1 s after the turn
+   opens, every turn, and a fleet down exactly 2.5 s into the match read as a
+   machine. A person takes a second or two a shot, a beat longer after sinking
+   something, and somewhere between a few seconds (the Random button) and a
+   dozen to lay a fleet out. All of it well inside the ten second shot clock
+   and the minute to place, and a fleet is never the thing keeping you waiting
+   for long: once your own fleet is down, its remaining wait is cut short. */
+const BOT_THINK_MIN_MS = 700;
+const BOT_THINK_MAX_MS = 2600;
+const BOT_AFTER_SINK_MS = 1500;   // up to this much longer after it sank a ship
+const BOT_PLACE_MIN_MS = 3000;
+const BOT_PLACE_MAX_MS = 12000;
+const BOT_PLACE_CATCH_UP_MS = 2500; // once yours is down: done within half to twice this (drawn)
+
+const between = (lo, hi) => lo + Math.random() * (hi - lo);
+
+/* The stand-in's name: a person's kind of name from the shared pool
+   (server/botNames.js), never the name of the person it is playing. It used to
+   be one of five, and one of them was "Commodore Bot". */
+const BOT_NAME_MAX = 15;
+function botNameAgainst(entries) {
+  const theirs = new Set(entries.map(e => String((e && e.name) || '').trim().toLowerCase()));
+  return pickName(Math.random(), { maxLen: BOT_NAME_MAX, taken: (lc) => theirs.has(lc) });
+}
 
 /* Watching, the same rules as the Knockout lobby: a cap per match, a short
    string for the match being moved on from, and the number on the end of a
@@ -77,7 +107,7 @@ class BattleshipLobby {
     this.dequeue(socket.id);
     this.unwatch(socket.id);          // watching and queueing are one or the other
     this.queue.push({
-      socket, name, wallet, since: Date.now(),
+      socket, name, wallet, since: Date.now(), botWait: between(BOT_AFTER_MIN_MS, BOT_AFTER_MS),
       stake: Number(stake) > 0 ? Number(stake) : 0,
       worth: Number(worth) > 0 ? Number(worth) : 0,
       paid: Number(paid) > 0 ? Number(paid) : undefined,
@@ -142,7 +172,9 @@ class BattleshipLobby {
         this.refund(e, 'nobody joined that table');
         continue;
       }
-      if (t - e.since < BOT_AFTER_MS) continue;
+      /* The wait drawn at enqueue; an entry without one (made by hand) waits the longest. */
+      const wait = typeof e.botWait === 'number' && Number.isFinite(e.botWait) ? e.botWait : BOT_AFTER_MS;
+      if (t - e.since < wait) continue;
       this.dequeue(e.socket.id);
       this.makeMatch([e], true);
     }
@@ -204,11 +236,11 @@ class BattleshipLobby {
     if (withBot && room.stake > 0) withBot = false;
     if (withBot) {
       const botSocket = { id: 'bot_' + room.id, join() {}, emit() {} };
-      const name = BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)];
+      const name = botNameAgainst(entries);
       room.addPlayer(botSocket, name, null, 0);
       room.bot = {
         id: botSocket.id,
-        placeAt: 0, thinkAt: 0,
+        placeAt: 0, thinkAt: 0, sankLast: false,
         /* What it knows about YOUR board: hits it has landed that belong to a
            ship still afloat, and the squares it has already tried. */
         targets: [], tried: new Set(), hits: [],
@@ -385,11 +417,18 @@ class BattleshipLobby {
     if (!room.bot) return;
     const t = typeof now === 'number' ? now : Date.now();
 
-    /* It lays its fleet out after a beat, not the instant the match opens. */
+    /* It lays its fleet out after a while, not the instant the match opens. */
     if (room.state === 'placing') {
       const board = room.boards.get(room.bot.id);
       if (board && !board.placed) {
-        if (!room.bot.placeAt) { room.bot.placeAt = t + BOT_PLACE_MS; return; }
+        if (!room.bot.placeAt) { room.bot.placeAt = t + between(BOT_PLACE_MIN_MS, BOT_PLACE_MAX_MS); return; }
+        /* Yours is down: it finishes soon after rather than leaving you waiting. */
+        const foe = room.boards.get(room.opponentOf(room.bot.id));
+        if (foe && foe.placed && !room.bot.caughtUp) {
+          room.bot.caughtUp = true;
+          const soon = t + between(BOT_PLACE_CATCH_UP_MS / 2, BOT_PLACE_CATCH_UP_MS * 2);
+          if (soon < room.bot.placeAt) room.bot.placeAt = soon;
+        }
         if (t < room.bot.placeAt) return;
         board.placeRandom();
         room.sendState();
@@ -398,7 +437,11 @@ class BattleshipLobby {
     }
 
     if (room.state !== 'playing' || room.turn !== room.bot.id) { room.bot.thinkAt = 0; return; }
-    if (!room.bot.thinkAt) { room.bot.thinkAt = t + BOT_THINK_MS; return; }
+    if (!room.bot.thinkAt) {
+      room.bot.thinkAt = t + between(BOT_THINK_MIN_MS, BOT_THINK_MAX_MS)
+        + (room.bot.sankLast ? Math.random() * BOT_AFTER_SINK_MS : 0);
+      return;
+    }
     if (t < room.bot.thinkAt) return;
     room.bot.thinkAt = 0;
 
@@ -406,6 +449,7 @@ class BattleshipLobby {
     if (cell === null) return;
     const res = room.fire(room.bot.id, cell, t);
     if (!res || !res.ok) return;
+    room.bot.sankLast = !!(res.result && res.result.sunk);
     this.botLearn(room, cell, res.result);
   }
 
@@ -505,4 +549,7 @@ function cellAt(x, y) {
 BattleshipLobby.PAID_WAIT_MS = PAID_WAIT_MS;
 BattleshipLobby.WATCH_CAP = WATCH_CAP;
 
-module.exports = { BattleshipLobby, BOT_AFTER_MS, PAID_WAIT_MS, WATCH_CAP, cellAt };
+module.exports = {
+  BattleshipLobby, BOT_AFTER_MS, BOT_AFTER_MIN_MS, PAID_WAIT_MS, WATCH_CAP, cellAt,
+  BOT_THINK_MIN_MS, BOT_THINK_MAX_MS, BOT_AFTER_SINK_MS, BOT_PLACE_MIN_MS, BOT_PLACE_MAX_MS,
+};

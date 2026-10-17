@@ -151,7 +151,7 @@ for (let tick = 0; tick < TICKS; tick++) {
 
   if (tick % PER_SECOND === 0 && tick > 0) {
     const want = Math.max(0, B.curveTarget(wall) - humans.length);
-    const bots = driver.count();
+    const bots = driver.count() + driver.waiting(); // a place waiting out its refill delay counts as filled
     const diff = Math.abs(bots - want);
     samples++;
     if (diff <= 1) {
@@ -190,8 +190,10 @@ for (const p of B.PERSONALITIES) {
   const z = (v) => v || 0;
   console.log('  ' + p + ': spawned ' + k.spawned + ', died ' + k.died + ', retired ' + k.retired + ', live ' + k.live +
     ', thinks ' + z(k.thinks) + ' (food ' + z(k.food) + ', wander ' + z(k.wander) + ', border ' + z(k.border) + ', flee ' +
-    z(k.flee) + ', hunt ' + z(k.hunt) + '), chases ' + z(k.chases) + ', boosts ' + z(k.boosts) + ', angle records ' +
-    z(k.angles) + ', boost records ' + z(k.boostRecs));
+    z(k.flee) + ', hunt ' + z(k.hunt) + ', coil ' + z(k.coil) + ', pile ' + z(k.pile) + '), chases ' + z(k.chases) +
+    ', coils ' + z(k.coils) + ', boosts ' + z(k.boosts) + ' (flee ' + z(k.fleeBoosts) + ', wall ' + z(k.panicBoosts) +
+    ', chase ' + z(k.chaseBoosts) + ', pile ' + z(k.pileBoosts) + '), angle records ' + z(k.angles) + ', boost records ' +
+    z(k.boostRecs));
 }
 console.log('  records ' + records + ', gate violations ' + gateViolations + ', wire round trip mismatches ' + wireMismatch);
 console.log('  fill: ' + samples + ' one-second samples, ' + (100 * share).toFixed(1) +
@@ -209,9 +211,11 @@ function need(ok, what) {
 }
 const k = st.kinds;
 need(B.PERSONALITIES.every((p) => k[p].spawned > 0), 'all three personalities spawned');
-need((k.hunter.chases || 0) > 0 && (k.hunter.boosts || 0) > 0, 'hunters chased and boosted');
-need((k.shy.flee || 0) > 0 && (k.shy.boosts || 0) === 0, 'shy bots turned away from bigger snakes and never boosted');
-need((k.casual.food || 0) > 0 && (k.casual.hunt || 0) === 0, 'casual bots ate and never chased');
+need((k.hunter.chases || 0) > 0 && (k.hunter.chaseBoosts || 0) > 0, 'hunters chased and boosted toward the cut');
+need((k.shy.flee || 0) > 0 && (k.shy.hunt || 0) === 0, 'shy bots turned away from bigger snakes and never chased');
+need((k.casual.food || 0) > 0, 'casual bots ate');
+need(B.PERSONALITIES.some((p) => (k[p].fleeBoosts || 0) > 0), 'bots boosted away from bigger heads aimed at them');
+need(B.PERSONALITIES.some((p) => (k[p].pile || 0) > 0), 'bots went for fresh death piles');
 need(records > 0 && gateViolations === 0 && wireMismatch === 0, 'no input outside the client gates, every record a valid wire input');
 need(misses === 0, 'fill follows the curve (every second within 1, or the target just moved, or the pacer busy, or every extra bot seen)');
 need(problems.length === 0, 'sim invariants hold');

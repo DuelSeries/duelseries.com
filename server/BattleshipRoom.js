@@ -1,4 +1,5 @@
 'use strict';
+const crypto = require('crypto');
 const { refundBound } = require('./stakeRules');
 const { duelMoney } = require('./duelMoney');
 /* ─── Battleship ──────────────────────────────────────────────────────────────
@@ -57,6 +58,15 @@ const BS = {
 };
 
 let nextId = 1;
+
+/* The free-table bot's socket id ('bot_' plus the room id) is how the server
+   tells it apart (the lobby, index.js, liveCounts); it is never sent. A client
+   is given a neutral id in its place, made once per match and shaped like a
+   socket id, the same as Knockout (Owen 2026-10-16: bots should look like
+   players). A person's id goes out unchanged: the page finds its own fleet in
+   the reveal by its own socket id. */
+const isBotId = (id) => typeof id === 'string' && id.startsWith('bot_');
+const neutralId = () => crypto.randomBytes(15).toString('base64url');
 
 const idx = (x, y) => y * GRID + x;
 const inBounds = (x, y) => x >= 0 && y >= 0 && x < GRID && y < GRID;
@@ -254,6 +264,13 @@ class BattleshipRoom {
     return [0, 1].map(s => (this.seats[s] && this.seats[s].name) || 'Player');
   }
 
+  /* The id a client is shown for a seat: a person's own, the stand-in's neutral one. */
+  publicId(socketId) {
+    if (!isBotId(socketId)) return socketId;
+    if (!this.botAlias) this.botAlias = neutralId();
+    return this.botAlias;
+  }
+
   removePlayer(socketId) {
     if (!this.players.has(socketId)) return;
     this.players.delete(socketId);
@@ -438,7 +455,7 @@ class BattleshipRoom {
              after the match would be hiding the only thing anybody wants to
              look at afterwards. */
           reveal: [...this.players.keys()].map(pid => ({
-            id: pid,
+            id: this.publicId(pid),
             name: (this.players.get(pid) || {}).name || null,
             skin: (this.players.get(pid) || {}).skin || null,
             ships: (this.boards.get(pid) || { ships: [] }).ships.map(s => ({
@@ -520,7 +537,7 @@ class BattleshipRoom {
 
       squaresLeftMine: myBoard ? myBoard.squaresLeft() : BS.SHIP_SQUARES,
       squaresLeftTheirs: foeBoard ? foeBoard.squaresLeft() : BS.SHIP_SQUARES,
-      lastShot: this.lastShot,
+      lastShot: this.lastShot ? Object.assign({}, this.lastShot, { by: this.publicId(this.lastShot.by) }) : null,
       stake: this.stake,
       pot: this.pot(),
     };

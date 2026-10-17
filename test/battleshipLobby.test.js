@@ -8,7 +8,9 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const { BattleshipLobby, BOT_AFTER_MS, PAID_WAIT_MS, cellAt } = require('../server/BattleshipLobby');
+const L = require('../server/BattleshipLobby');
+const { BattleshipLobby, BOT_AFTER_MS, BOT_AFTER_MIN_MS, PAID_WAIT_MS, cellAt } = L;
+const { isBotName } = require('../server/botNames');
 const { BS } = require('../server/BattleshipRoom');
 
 const io = { to: () => ({ emit: () => {} }) };
@@ -124,18 +126,94 @@ test('quitting a paid MATCH is not a refund', () => {
 
 /* ── the opponent ───────────────────────────────────────────────────────── */
 
-test('the bot lays a legal fleet, and not the instant the match opens', () => {
-  const { lob } = lobby();
-  lob.enqueue(sock('A'), 'Owen', 'W1', 0, 0);
-  let t = Date.now() + BOT_AFTER_MS + 1;
-  lob.tick(t);
-  const room = lob.roomOf('A');
-  const board = room.boards.get(room.bot.id);
-  assert.strictEqual(board.placed, false, 'it is still thinking about it');
+test('the bot lays a legal fleet, and not the instant the match opens: a drawn 3 to 12 seconds', () => {
+  const took = [];
+  for (let i = 0; i < 40; i++) {
+    const { lob } = lobby();
+    lob.enqueue(sock('A'), 'Owen', 'W1', 0, 0);
+    const t0 = Date.now() + BOT_AFTER_MS + 1;
+    lob.tick(t0);
+    const room = lob.roomOf('A');
+    const board = room.boards.get(room.bot.id);
+    assert.strictEqual(board.placed, false, 'it is still thinking about it');
+    let t = t0;
+    while (!board.placed && t < t0 + 30000) { t += 200; lob.tick(t); }
+    assert.strictEqual(board.placed, true);
+    assert.strictEqual(board.cellsUsed().size, 17, 'a legal fleet');
+    took.push(t - t0);
+  }
+  assert.ok(Math.min(...took) >= L.BOT_PLACE_MIN_MS && Math.max(...took) <= L.BOT_PLACE_MAX_MS + 400, took.join(','));
+  assert.ok(new Set(took).size > 10, 'drawn, not fixed');
+});
 
-  lob.tick(t + 6000);
-  assert.strictEqual(board.placed, true);
-  assert.strictEqual(board.cellsUsed().size, 17, 'a legal fleet');
+test('once your fleet is down, the bot is never the thing keeping you waiting for long', () => {
+  for (let i = 0; i < 40; i++) {
+    const { lob } = lobby();
+    lob.enqueue(sock('A'), 'Owen', 'W1', 0, 0);
+    const t0 = Date.now() + BOT_AFTER_MS + 1;
+    lob.tick(t0);
+    const room = lob.roomOf('A');
+    room.boards.get('A').placeRandom(); // the person is quick: the Random button
+    let t = t0;
+    while (room.state === 'placing' && t < t0 + 30000) { t += 200; lob.tick(t); }
+    assert.ok(t - t0 <= 5400, 'the match moved on after ' + (t - t0) + ' ms');
+  }
+});
+
+test('the bot looks like a player: a person kind of name, never yours, a wait that is never the same twice', () => {
+  const names = new Set();
+  const waits = [];
+  for (let i = 0; i < 200; i++) {
+    const { lob } = lobby();
+    const T0 = Date.now();
+    lob.enqueue(sock('A'), 'jake', 'W1', 0, 0);
+    let t = T0;
+    while (!lob.roomOf('A') && t < T0 + 60000) { t += 200; lob.tick(t); }
+    waits.push(t - T0);
+    const room = lob.roomOf('A');
+    const n = room.players.get(room.bot.id).name;
+    assert.ok(isBotName(n, 15) && !/bot/i.test(n), n);
+    assert.notStrictEqual(n.toLowerCase(), 'jake');
+    names.add(n);
+    assert.ok(String(room.bot.id).startsWith('bot_'), 'still a bot underneath');
+  }
+  assert.ok(names.size > 100, 'not the same few names: ' + names.size);
+  assert.ok(Math.min(...waits) >= BOT_AFTER_MIN_MS - 50 && Math.max(...waits) <= BOT_AFTER_MS + 250, waits.join(','));
+  assert.ok(new Set(waits).size > 30, 'drawn, not fixed');
+});
+
+test('the bot takes a drawn second or two a shot (longer after a sink), and its id never reaches a client', () => {
+  const lob = new BattleshipLobby(io);
+  const A = sock('H');
+  const room = lob.makeMatch([{ socket: A, name: 'Owen', stake: 0, worth: 0 }], true);
+  room.boards.get('H').placeRandom();
+  room.boards.get(room.bot.id).placeRandom();
+  room.state = 'playing';
+  const gaps = [];
+  let t = 0;
+  for (let i = 0; i < 400 && !room.boards.get('H').allSunk(); i++) {
+    room.turn = room.bot.id;
+    const start = t;
+    const before = room.boards.get('H').shotsAt.size;
+    while (room.boards.get('H').shotsAt.size === before && t - start < 9000) { lob.botTurn(room, t); t += 50; }
+    gaps.push(t - start);
+    room.phaseEndsAt = Infinity;
+  }
+  assert.ok(Math.min(...gaps) >= L.BOT_THINK_MIN_MS, 'never instant: ' + Math.min(...gaps));
+  assert.ok(Math.max(...gaps) <= L.BOT_THINK_MAX_MS + L.BOT_AFTER_SINK_MS + 100, 'well inside the shot clock: ' + Math.max(...gaps));
+  assert.ok(new Set(gaps).size > 10, 'drawn, not 1100 every time');
+  // what the person was sent: the bot's shots, the result and both fleets, never its 'bot_' id
+  room.finish(room.bot.id, 'fleet sunk');
+  const json = JSON.stringify(A.sent);
+  assert.ok(A.sent.some(m => m.e === 'bs:state' && m.p.lastShot), 'shots were sent');
+  assert.ok(!json.includes('bot_'), 'the bot id reached the client');
+  const over = A.sent.find(m => m.e === 'bs:over');
+  assert.strictEqual(over.p.won, false);
+  assert.ok(over.p.reveal.some(r => r.id === 'H'), 'the page still finds its own fleet by its socket id');
+  const alias = over.p.reveal.find(r => r.id !== 'H').id;
+  assert.ok(/^[A-Za-z0-9_-]{20}$/.test(alias), alias);
+  const shots = A.sent.filter(m => m.e === 'bs:state' && m.p.lastShot).map(m => m.p.lastShot.by);
+  assert.ok(shots.every(by => by === alias), 'one neutral id for its shots all match long');
 });
 
 test('the bot finishes a fleet far faster than random fire', () => {
