@@ -160,6 +160,13 @@ class SlMoney {
     this.bank.deposit(snakeId, micro, { bot: true, wallet: null, name: String(name || '') });
     this.botFrom.set(snakeId, new Map());
     this.botSeed.set(snakeId, micro);
+    this.changed.set(snakeId, micro); // its $ label, like a person's (display only)
+  }
+
+  // The {t:'w'} worth of any paid snake on screen, a person's or a bot's (display only; cashOut reads accounts).
+  displayWorthOf(snakeId) {
+    if (this.botFrom.has(snakeId)) return this.bank.balance(snakeId);
+    return this.worthOf(snakeId);
   }
 
   // A bot leaves the room by the owner's hand (Control lower, slRoom.removeBot): seed to the bank, picked up money to
@@ -226,9 +233,13 @@ class SlMoney {
 
   // The worth changes since the last call, once per open snake: [{ id, v (micro now), d (own delta) }]. The room
   // sends {t:'w'} from it once per wake (design 9).
+  // A bounty bot's worth is shown like a person's (Owen 2026-10-17: players see what a bot is worth): display only, the
+  // bank balance it already holds.
   takeChanged() {
     const out = [];
-    for (const [id, d] of this.changed) if (this.accounts.has(id)) out.push({ id, v: this.bank.balance(id), d });
+    for (const [id, d] of this.changed) {
+      if (this.accounts.has(id) || this.botFrom.has(id)) out.push({ id, v: this.bank.balance(id), d });
+    }
     this.changed.clear();
     return out;
   }
@@ -487,8 +498,10 @@ class SlMoney {
       if (seed > 0) {
         // a bounty bot keeps playing with its seed; only what it picked up goes back
         const from = this.botFrom.get(id);
-        if (this.bank.trimBot(id, seed) > 0) {
+        const gone = this.bank.trimBot(id, seed);
+        if (gone > 0) {
           this.botFrom.set(id, new Map());
+          this.changed.set(id, (this.changed.get(id) || 0) - gone);
           rows.push(...this._owedRows(Array.from(from.entries()).filter((x) => x[1].micro > 0)
             .map(([k, v]) => ({ srcWallet: k || null, srcName: v.name, micro: v.micro })), why, true));
         }
@@ -525,9 +538,8 @@ class SlMoney {
         const f = from.get(k) || { micro: 0, name: pel.srcName || '' };
         f.micro += m;
         from.set(k, f);
-      } else {
-        this.changed.set(e.eater, (this.changed.get(e.eater) || 0) + m);
       }
+      this.changed.set(e.eater, (this.changed.get(e.eater) || 0) + m);
       out.credited += m;
       return;
     }

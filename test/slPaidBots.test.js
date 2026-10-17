@@ -445,3 +445,14 @@ test('the bot bank after a hard stop: seed held by live bots comes back once; se
   assert.equal(after.balanceMicro(), 2000000, 'the live bot seed is back');
   assert.equal(createBotBank({ file, log: quiet }).balanceMicro(), 2000000, 'once');
 });
+
+test('a bounty bot shows its worth like a person (display only): seed at spawn, then each pickup', () => {
+  const { m } = seeded();
+  assert.deepEqual(m.takeChanged().filter((c) => c.id === 9).map((c) => c.v), [STAKE]);
+  assert.equal(m.displayWorthOf(9), STAKE);
+  assert.equal(m.worthOf(9), null, 'money paths still see no account for a bot');
+  const d1 = drops(2);
+  m.applyFacts({ tick: 1, deaths: [{ id: 1, cause: 'snake', killer: 9, drops: d1 }] }, []);
+  m.applyFacts({ tick: 2, deaths: [] }, [{ food: d1[0].food, eater: 9 }]);
+  assert.deepEqual(m.takeChanged().filter((c) => c.id === 9).map((c) => c.v), [STAKE + STAKE / 2]);
+});

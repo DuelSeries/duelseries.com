@@ -856,7 +856,8 @@ class SlRoom {
 
   // The {t:'w'} of a paid snake (micro), or null when it has no account.
   _worthMsg(id) {
-    const v = this.money.worthOf(id);
+    // display: a bounty bot's worth shows like a person's (displayWorthOf); money paths read worthOf
+    const v = typeof this.money.displayWorthOf === 'function' ? this.money.displayWorthOf(id) : this.money.worthOf(id);
     return v === null || v === undefined ? null : { t: 'w', id, v };
   }
 
