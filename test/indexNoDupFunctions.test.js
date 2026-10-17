@@ -23,3 +23,10 @@ test('server/index.js declares each top-level function once', () => {
   });
   assert.deepStrictEqual(dups, []);
 });
+
+test('a sign-in, identify or skins signature is never owner auth on its own', () => {
+  const src = fs.readFileSync(path.join(__dirname, '../server/index.js'), 'utf8');
+  const fn = src.slice(src.indexOf('function ownerFromSignature(body) {'), src.indexOf('function ownerFromSignature(body) {') + 300);
+  assert.match(src, /const NOT_OWNER_AUTH = \/\^\(owner:session:\|play:\|skins:\)\/;/);
+  assert.match(fn, /NOT_OWNER_AUTH\.test\(body\.action\)\) return null;/);
+});

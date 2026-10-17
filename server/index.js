@@ -356,7 +356,12 @@ async function isOwnerToken(idToken) {
    depends on nothing outside this process: no Privy, no app id, no network, no
    expiry. The token stays as a second route so anything already working keeps
    working. */
+/* A signature over a sign-in, a player identify or a skins pass is never owner auth, even from the
+   owner's wallet: a sign-in that fails before its proof is spent must not leave a two-minute pass to
+   the console (Fable review 2026-10-16). */
+const NOT_OWNER_AUTH = /^(owner:session:|play:|skins:)/;
 function ownerFromSignature(body) {
+  if (body && typeof body.action === 'string' && NOT_OWNER_AUTH.test(body.action)) return null;
   const wallet = ownerAuth.walletForAction(body);
   return (wallet && OWNER_WALLETS.has(wallet)) ? wallet : null;
 }
