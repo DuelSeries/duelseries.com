@@ -331,7 +331,10 @@ async function getRecentCollusionFlags(limit = 100) {
 // never takes a top-up a player's wallet sent (server/botBankTopup.js).
 async function isPlayerWallet(wallet) {
   if (typeof wallet !== 'string' || !wallet) return false;
-  const r = await pool.query('SELECT 1 FROM accounts WHERE google_id = $1 LIMIT 1', [wallet]);
+  // an account row, or any stake ever claimed from that wallet (most players have staked without an account row)
+  const r = await pool.query(
+    `SELECT 1 FROM accounts WHERE google_id = $1
+     UNION ALL SELECT 1 FROM used_stake_sigs WHERE wallet_address = $1 LIMIT 1`, [wallet]);
   return r.rowCount > 0;
 }
 

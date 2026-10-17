@@ -1793,6 +1793,8 @@ app.post('/api/owner/do', sigLimiter, async (req, res) => {
        table), and only then credits the bank, so every bot seed is already in
        escrow. Cap: the daily limit of seed handed out, in dollars. */
     case 'botbank:topup': {
+      /* without the durable stake rows a player's stake is not claimed before it is sent, so a top-up could burn one */
+      if (!db.features.durableStakes) return refuse('Top-ups are paused: the stake ledger is not durable right now');
       const t = await require('./botBankTopup').verifyTopup(args.sig, {
         verify: (sig, min) => Usdc.verifyUsdcStake(sig, min),
         isPlayerWallet: (w) => db.isPlayerWallet(w),
